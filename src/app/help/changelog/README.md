@@ -27,7 +27,7 @@ try: terminal
 - `order`: the rank within its day, `1` = newest. The list is newest first.
 - `help`: related article ids (`src/app/help/articles/en/<id>.md`); `[text](help:<id>)` links work in the body.
 - `try` (optional): one of `CHANGELOG_TRIES` in `entries.ts` — `terminal`, `settings-ai`, `settings-mcp`,
-  `settings-mail`, `settings-sync`, `agents`, `ask`, `palette`, `scripts`, `import`, `inbox`, `history`, `share`,
+  `settings-mail`, `settings-sync`, `settings-coding`, `agents`, `ask`, `palette`, `scripts`, `import`, `inbox`, `history`, `share`,
   `discover`, `tour`, `slash`, `ai-menu`, `transform`, `database`, `commands`, `sheet`, `automations`, `coding`, `kit`, `look` — the "Try it"
   key (the cards of "What can One do?" use the same list). New actions go into that allow-list, `try.ts` (or an
   area registers it with `registerTry`, like the shell's tour actions) and the `help.news.try.<id>` strings; never
@@ -46,11 +46,14 @@ npx vite preview --host 127.0.0.1 --port 5315 --strictPort --outDir node_modules
 node scripts/changelog-shots.mjs http://127.0.0.1:5315 <name>
 ```
 
-(`CHANGELOG_DRAFT=1` lets that build pass while the new picture does not exist yet.) The script writes
+(`CHANGELOG_DRAFT=1` lets that build pass while the new picture does not exist yet. The `cloud-worker` shot starts
+the repository's own team server on `localhost:5346` serving that build — `ONE_APP_DIR=<the --outDir>` when it is
+another folder.) The script writes
 `public/assets/shots/changelog/<name>.webp` (light theme, 1440 wide, ≤ 150 KB) and its size into
 `sizes.json`. Look at the picture before you commit it: crisp, relevant, no debug UI, no console errors (the
 script fails on them). Claude, Gmail and Google sign-in are mocked in the script — it never sends a real
-request; AI features get canned answers like the e2e tests.
+request; AI features get canned answers like the e2e tests; coding shots run the repository's own worker with the
+fake Claude Code CLI.
 
 A feature still being built gets its entry when it ships: write the twins and the shot in the same change
 as the feature (or right after it lands), with the date of the deploy.

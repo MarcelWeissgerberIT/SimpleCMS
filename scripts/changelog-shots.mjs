@@ -8,7 +8,7 @@
  *
  * (CHANGELOG_DRAFT=1 lets the build pass while a new entry's picture does not exist yet.)
  *
- * Shots: one-picker, pipelines, legacy-modernise, coding-live, text-size, mcp-media, coding-setup, free-board, building-blocks, workspace-settings, diagram-viewer, coding-pipeline, pages-per-item, design-import, tour, quick-capture, script-templates, one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
+ * Shots: search, terminal-pipelines, cloud-worker, one-picker, pipelines, legacy-modernise, coding-live, text-size, mcp-media, coding-setup, free-board, building-blocks, workspace-settings, diagram-viewer, coding-pipeline, pages-per-item, design-import, tour, quick-capture, script-templates, one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
  * custom-agents, gmail, help-centre, mcp-servers, feed-blocks — each named like its image. Every shot starts from a fresh, seeded
  * workspace in English, light theme, 1440 × 900 at device scale 2; the crop of the relevant area is scaled
  * to 1440 px wide and saved as public/assets/shots/changelog/<shot>.webp (≤ 150 KB: the quality steps down
@@ -17,7 +17,10 @@
  * Nothing leaves the machine: api.anthropic.com is mocked (streamed answers, structured JSON, scripted
  * tool-use runs — never a real request), Gmail and Google's sign-in script are in-memory stand-ins, the MCP
  * bridge for the tidy-up shot is the repository's own public/mcp/one-mcp.mjs on a local port, the coding shot runs
- * public/mcp/one-worker.mjs with the fake Claude Code CLI against a temp repo and a local bare remote. Browser errors
+ * public/mcp/one-worker.mjs with the fake Claude Code CLI against a temp repo and a local bare remote, the cloud-worker
+ * shot runs the repository's own team server (server/, bundled into node_modules/.cache/cl-shots-server; DEV_MODE,
+ * a throwaway data folder, localhost:5346 or ONE_SERVER_PORT) serving the app build in ONE_APP_DIR (default
+ * node_modules/.cache/cl-shots-dist — set it when the preview serves another folder). Browser errors
  * are printed; a shot that fails or logs errors makes the script exit with code 1. KEEP=1 keeps the PNGs in
  * .shots/changelog. Needs python3 with Pillow (WebP encoding), like scripts/capture-shots.mjs.
  */
@@ -25,7 +28,8 @@ import { chromium } from 'playwright'
 import { execFileSync, spawn } from 'node:child_process'
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { createRequire } from 'node:module'
+import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { strToU8, zipSync } from 'fflate'
 
@@ -320,23 +324,31 @@ for q in (86, 82, 78, 74, 70, 66, 62, 58):
 
 /**
  * Two crops of the same workspace in two states, side by side on the paper background (scaled to the
- * same height), saved like save(): 1440 wide, WebP <= 150 KB, its size into sizes.json.
+ * same height) — or, with `{ column: true }`, one above the other at their own size — saved like save(): 1440
+ * wide, WebP <= 150 KB, its size into sizes.json.
  */
-async function saveSideBySide(name, pngs) {
+async function saveSideBySide(name, pngs, { column = false } = {}) {
   const out = `${OUT}/${name}.webp`
   const py = `
 import sys, io
 from PIL import Image
-out, width, limit = sys.argv[1], int(sys.argv[2]), int(sys.argv[3])
-parts = [Image.open(p).convert('RGB') for p in sys.argv[4:]]
-h = max(p.height for p in parts)
-parts = [p if p.height == h else p.resize((round(p.width * h / p.height), h), Image.LANCZOS) for p in parts]
+out, width, limit, column = sys.argv[1], int(sys.argv[2]), int(sys.argv[3]), sys.argv[4] == '1'
+parts = [Image.open(p).convert('RGB') for p in sys.argv[5:]]
 pad, gap = 40, 40
-canvas = Image.new('RGB', (sum(p.width for p in parts) + gap * (len(parts) - 1) + 2 * pad, h + 2 * pad), (242, 240, 234))
-x = pad
-for p in parts:
-    canvas.paste(p, (x, pad))
-    x += p.width + gap
+if column:
+    canvas = Image.new('RGB', (max(p.width for p in parts) + 2 * pad, sum(p.height for p in parts) + gap * (len(parts) - 1) + 2 * pad), (242, 240, 234))
+    y = pad
+    for p in parts:
+        canvas.paste(p, (pad, y))
+        y += p.height + gap
+else:
+    h = max(p.height for p in parts)
+    parts = [p if p.height == h else p.resize((round(p.width * h / p.height), h), Image.LANCZOS) for p in parts]
+    canvas = Image.new('RGB', (sum(p.width for p in parts) + gap * (len(parts) - 1) + 2 * pad, h + 2 * pad), (242, 240, 234))
+    x = pad
+    for p in parts:
+        canvas.paste(p, (x, pad))
+        x += p.width + gap
 im = canvas.resize((width, round(canvas.height * width / canvas.width)), Image.LANCZOS)
 for q in (86, 82, 78, 74, 70, 66, 62, 58):
     buf = io.BytesIO()
@@ -346,7 +358,7 @@ for q in (86, 82, 78, 74, 70, 66, 62, 58):
         print(f'{im.width}x{im.height} q{q} {buf.tell() // 1024} KB')
         break
 `
-  const info = execFileSync('python3', ['-c', py, out, String(OUT_W), String(MAX_BYTES), ...pngs]).toString().trim()
+  const info = execFileSync('python3', ['-c', py, out, String(OUT_W), String(MAX_BYTES), column ? '1' : '0', ...pngs]).toString().trim()
   const [w, h] = info.split(' ')[0].split('x').map(Number)
   const sizes = readSizes()
   sizes[`${name}.webp`] = [w, h]
@@ -568,14 +580,88 @@ function codingRepo() {
   return { root, path, env }
 }
 
-async function startCodingWorker(work, workspace, env = {}, repo = {}) {
+async function startCodingWorker(work, workspace, env = {}, repo = {}, port = WORKER_PORT) {
   const file = join(work.root, 'worker.json')
-  writeFileSync(file, JSON.stringify({ workspace, name: 'studio-mac', port: WORKER_PORT, pollSec: 2, repos: [{ name: 'website', path: work.path, baseBranch: 'main', testCommand: [process.execPath, 'check.mjs'], pr: 'none', maxUsdPerTask: 5, maxUsdPerDay: 25, ...repo }] }))
+  writeFileSync(file, JSON.stringify({ workspace, name: 'studio-mac', port, pollSec: 2, repos: [{ name: 'website', path: work.path, baseBranch: 'main', testCommand: [process.execPath, 'check.mjs'], pr: 'none', maxUsdPerTask: 5, maxUsdPerDay: 25, ...repo }] }))
   const child = spawn(process.execPath, [WORKER, '--config', file], { env: { ...work.env, CLAUDE_BIN: FAKE_CLAUDE, ...env }, stdio: ['ignore', 'ignore', 'pipe'] })
   let log = ''
   child.stderr.on('data', (d) => (log += d))
   for (let i = 0; i < 100 && !/ready on ws:/.test(log); i++) await sleep(50)
   if (!/ready on ws:/.test(log)) throw new Error(`worker did not start: ${log}`)
+  return child
+}
+
+/*
+ * The team server for the cloud worker shot: server/ bundled from its sources with the server's own esbuild (the
+ * options of server/build.mjs) into node_modules/.cache/cl-shots-server — server/dist stays as it is — and started
+ * like the team-cloud e2e suite starts it (DEV_MODE: sign-in links from its dev mailbox; a throwaway data folder; a
+ * FAKE data key) on localhost, serving the app build the preview serves (ONE_APP_DIR, default the README's
+ * node_modules/.cache/cl-shots-dist). The downloaded cloud worker runs with the fake Claude Code CLI and its own home.
+ */
+const SERVER_PORT = Number(process.env.ONE_SERVER_PORT) || 5346
+const APP_DIR = process.env.ONE_APP_DIR || 'node_modules/.cache/cl-shots-dist'
+const CLOUD_WORKER_PORT = 47378
+/** FAKE master key for this throwaway server only (as in playwright.cloud.config.ts): 32 ASCII bytes that say what they are. */
+const SHOT_DATA_KEY = Buffer.from('test-only-data-key-not-a-secret!', 'utf8').toString('base64')
+
+async function buildTeamServer() {
+  const root = fileURLToPath(new URL('..', import.meta.url))
+  const out = join(root, 'node_modules/.cache/cl-shots-server')
+  const esbuild = createRequire(join(root, 'server/package.json'))('esbuild')
+  const { version } = JSON.parse(readFileSync(join(root, 'server/package.json'), 'utf8'))
+  await esbuild.build({
+    absWorkingDir: join(root, 'server'),
+    entryPoints: { index: 'src/index.ts' },
+    outdir: out,
+    bundle: true,
+    platform: 'node',
+    format: 'esm',
+    target: 'node22',
+    logLevel: 'warning',
+    banner: { js: "import { createRequire as __createRequire } from 'node:module'; const require = __createRequire(import.meta.url);" },
+    define: { __VERSION__: JSON.stringify(version) },
+  })
+  return join(out, 'index.js')
+}
+
+async function startTeamServer(dataDir) {
+  const app = resolve(APP_DIR)
+  if (!existsSync(join(app, 'app', 'index.html'))) throw new Error(`no app build in ${APP_DIR} — set ONE_APP_DIR to the folder the preview serves`)
+  const bundle = await buildTeamServer()
+  const origin = `http://localhost:${SERVER_PORT}`
+  const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', bundle], {
+    env: { PATH: process.env.PATH ?? '', PORT: String(SERVER_PORT), HOST: '127.0.0.1', DATA_DIR: dataDir, APP_DIR: app, PUBLIC_URL: origin, DEV_MODE: '1', AUTH_IP_LIMIT: '1000', SIGNUP: 'open', LOG_LEVEL: 'warn', DATA_KEY: SHOT_DATA_KEY, AGENTS: 'off' },
+    stdio: ['ignore', 'ignore', 'pipe'],
+  })
+  let log = ''
+  child.stderr.on('data', (d) => (log += d))
+  for (let i = 0; i < 300 && child.exitCode === null; i++) {
+    try {
+      if ((await fetch(`http://127.0.0.1:${SERVER_PORT}/api/health`)).ok) return { child, origin }
+    } catch {}
+    await sleep(100)
+  }
+  child.kill('SIGTERM')
+  throw new Error(`team server did not start: ${log.slice(0, 600)}`)
+}
+
+/** The downloaded one-worker-cloud.mjs on "another computer": its own home and config, the repo as "website". */
+async function startCloudWorker(file, work) {
+  const home = join(work.root, 'build-box')
+  mkdirSync(home)
+  const config = join(home, 'worker.json')
+  writeFileSync(config, JSON.stringify({ name: 'build-box', pollSec: 2, repos: [{ name: 'website', path: work.path, baseBranch: 'main', testCommand: [process.execPath, 'check.mjs'], pr: 'none', maxUsdPerTask: 5 }] }))
+  const child = spawn(process.execPath, [file, '--config', config, '--no-browser'], {
+    env: { PATH: process.env.PATH ?? '', HOME: home, GIT_CONFIG_GLOBAL: work.env.GIT_CONFIG_GLOBAL, GIT_CONFIG_NOSYSTEM: '1', GIT_AUTHOR_NAME: 'Marcel', GIT_AUTHOR_EMAIL: 'marcel@example.invalid', GIT_COMMITTER_NAME: 'Marcel', GIT_COMMITTER_EMAIL: 'marcel@example.invalid', CLAUDE_BIN: FAKE_CLAUDE, ONE_WORKER_BROWSER: 'none', ONE_WORKER_PORT: String(CLOUD_WORKER_PORT) },
+    stdio: ['ignore', 'ignore', 'pipe'],
+  })
+  let log = ''
+  child.stderr.on('data', (d) => (log += d))
+  for (let i = 0; i < 200 && child.exitCode === null && !/ready \(cloud\)/.test(log); i++) await sleep(50)
+  if (!/ready \(cloud\)/.test(log)) {
+    child.kill('SIGTERM')
+    throw new Error(`cloud worker did not start: ${log.slice(0, 600)}`)
+  }
   return child
 }
 
@@ -2086,6 +2172,233 @@ const shots = {
     const colours = await page.getByTestId('look-signal').boundingBox()
     await save(page, 'look', { x: 0, y: 0, width: W, height: Math.min(H, Math.round(colours.y + colours.height + 16)) })
     await ctx.close()
+  },
+
+  /**
+   * ⌘K with three filters as chips (In: Projects · not Status: Done · Priority: High) and the entries they find,
+   * each with the values it was found by; the sidebar's RECENT | FREQUENT section on FREQUENT behind it. The visit
+   * counts are this device's own list (localStorage one.shell.visits:local:local, as frecency.ts stores it): a week of
+   * use written in before the app starts, so FREQUENT has something to rank.
+   */
+  async search(browser) {
+    const { ctx, page } = await freshPage(browser)
+    const ids = await page.evaluate(() => {
+      const pages = Object.values(window.__one.workspace.getState().pages)
+      const id = (title) => pages.find((p) => p.title === title && !p.trashed)?.id
+      return { projects: id('Projects'), weekly: id('Weekly sync — notes'), budget: id('Budget 2026'), relaunch: id('Website relaunch'), voice: id('Brand voice'), welcome: id('Welcome to One') }
+    })
+    // [score, last counted visit, visits] per page — the stored form of frecency.ts
+    const now = Date.now()
+    const visits = { [ids.projects]: [7.4, now - 2 * HOUR, 11], [ids.weekly]: [5.1, now - 20 * HOUR, 7], [ids.relaunch]: [3.6, now - 5 * HOUR, 5], [ids.budget]: [2.8, now - 2 * DAY_MS, 4], [ids.voice]: [1.9, now - 3 * DAY_MS, 3] }
+    await page.evaluate((e) => {
+      localStorage.setItem('one.shell.visits:local:local', JSON.stringify({ v: 1, e }))
+      localStorage.setItem('one.shell.visited', JSON.stringify({ tab: 'frequent', open: true }))
+    }, visits)
+    await page.reload({ waitUntil: 'networkidle' })
+    await page.waitForFunction(() => !!window.__one)
+    await openPage(page, ids.welcome)
+    await page.getByTestId('visited-section').getByRole('tab', { name: 'Frequent' }).waitFor()
+    await page.evaluate(() => (document.activeElement instanceof HTMLElement ? document.activeElement.blur() : undefined))
+    await page.keyboard.press('Control+k')
+    const pal = page.getByRole('dialog', { name: 'Command palette' })
+    await pal.getByRole('combobox').waitFor()
+    await page.keyboard.type('in:projects -status:done priority:high ', { delay: 12 })
+    await pal.locator('.pal-chips [role="listitem"]').nth(2).waitFor()
+    await pal.locator('.pal-item--page').first().waitFor()
+    await page.waitForTimeout(500)
+    await page.mouse.move(W - 10, H - 10)
+    await page.waitForTimeout(300)
+    // the palette and the sidebar down to the end of FREQUENT (the page below stays out)
+    const box = union(await boxOf(pal), await boxOf(page.getByTestId('visited-section')))
+    await save(page, 'search', { x: 0, y: 0, width: W, height: Math.min(H, Math.round(box.y + box.height + 4)) })
+    await ctx.close()
+  },
+
+  /**
+   * The AI terminal driving the coding pipeline: /pipelines (the task waiting at Approve plan first, the worker
+   * connected), then a task in plain words → list_pipelines, create_task with start: true → the staged card shows the
+   * whole task page as Claude Code reads it and STARTS WORKER, held out of "Apply all". The repository's own worker
+   * with the fake Claude Code CLI (nothing runs: the gate waits for a person, the new task is only staged); Claude
+   * mocked.
+   */
+  async 'terminal-pipelines'(browser) {
+    const port = 47379
+    const turns = [
+      () => sseTurn([{ type: 'thinking', text: 'One coding task in website, started right away as asked. First the project and the repos the worker announced.' }, { type: 'tool_use', id: 'toolu_lp', name: 'list_pipelines', input: { kind: 'coding' } }]),
+      () =>
+        sseTurn([
+          {
+            type: 'tool_use',
+            id: 'toolu_ct',
+            name: 'create_task',
+            input: {
+              title: 'Export invoices as CSV',
+              repo: 'website',
+              goal: 'Finance wants the invoices of a month as one CSV file for the tax adviser.\n\nAdd **Export CSV** to the invoices list: one row per invoice — number, date, customer, net, VAT, gross. Use the filters that are set on the list.',
+              criteria: ['The file opens in Excel and Numbers with umlauts intact', 'Amounts use a dot as decimal separator', 'An empty month gives a file with the header row only'],
+              priority: 'high',
+              start: true,
+            },
+          },
+        ]),
+      () => sseTurn([{ type: 'text', text: 'Staged **Export invoices as CSV** for website — it starts in *Ready* once you apply it on its own.' }]),
+    ]
+    const work = codingRepo()
+    // tall: the dock holds the readout, the task and the whole staged card
+    const { ctx, page } = await freshPage(browser, { claude: { turns }, viewport: { width: W, height: 1560 } })
+    let worker = null
+    try {
+      await page.evaluate(() => window.__one.ui.getState().openModal({ type: 'settings' }))
+      await page.getByRole('tab', { name: 'Coding worker' }).click()
+      const init = await page.locator('.cw-code pre').filter({ hasText: 'init --workspace' }).first().textContent()
+      worker = await startCodingWorker(work, /--workspace (\S+)/.exec(init)[1], {}, {}, port)
+      const portField = page.getByLabel('Port', { exact: true })
+      await portField.fill(String(port))
+      await portField.press('Enter')
+      await page.getByRole('switch', { name: 'Connect to a coding worker on this computer' }).click()
+      await page.getByTestId('coding-conn').filter({ hasText: 'Connected' }).waitFor({ timeout: 20_000 })
+      await page.keyboard.press('Escape')
+      await page.getByRole('dialog').waitFor({ state: 'detached' })
+      await page.evaluate(() => (window.location.hash = '#/coding'))
+      await page.getByTestId('coding-setup').click()
+      await page.getByText('Coding database created.').waitFor({ state: 'detached', timeout: 20_000 })
+      // two tasks of the person's own: one waits at the plan gate, one in the backlog
+      await page.evaluate(() => {
+        const s = window.__one.workspace.getState()
+        const db = Object.values(s.databases).find((d) => d.system === 'coding')
+        const prop = (n) => db.properties.find((p) => p.name === n)
+        let repo = prop('Repo')
+        if (!(repo.options ?? []).some((o) => o.name === 'website')) s.updateProperty(db.id, repo.id, { options: [...(repo.options ?? []), { id: 'opt-website', name: 'website', color: 'blue' }] })
+        repo = window.__one.workspace.getState().databases[db.id].properties.find((p) => p.name === 'Repo')
+        const stage = (n) => prop('Stage').options.find((o) => o.name === n).id
+        const web = repo.options.find((o) => o.name === 'website').id
+        const p = (t) => ({ type: 'paragraph', content: [{ type: 'text', text: t }] })
+        s.createRow(db.id, { title: 'Show the login error under the field', properties: { [prop('Stage').id]: stage('Approve plan'), [repo.id]: web }, content: { type: 'doc', content: [p('A wrong password fails silently. Name the field and say what is wrong.'), { type: 'heading', attrs: { level: 2 }, content: [{ type: 'text', text: 'Plan' }] }, p('1. Return the field name from login(). 2. Show the message under the field. 3. Test both cases.')] } })
+        s.createRow(db.id, { title: 'Dark mode for the settings page', properties: { [prop('Stage').id]: stage('Backlog'), [repo.id]: web }, content: { type: 'doc', content: [p('The settings page ignores Carbon. Use the theme tokens.')] } })
+      })
+      await page.waitForTimeout(600)
+      await page.evaluate(() => (document.activeElement instanceof HTMLElement ? document.activeElement.blur() : undefined))
+      await page.keyboard.press('Control+j')
+      const term = page.getByRole('region', { name: 'AI terminal' })
+      await term.waitFor()
+      const prompt = term.getByRole('textbox', { name: 'Task for the agent' })
+      await prompt.fill('/pipelines')
+      await prompt.press('Enter')
+      await term.getByTestId('term-pipelines').locator('.term-pipe').nth(1).waitFor()
+      await prompt.fill('Create a task to export the invoices as CSV in the website repo and start it')
+      await prompt.press('Enter')
+      await term.locator('.term-head__status').filter({ hasText: 'Done' }).waitFor({ timeout: 30_000 })
+      await term.locator('.term-changes li[data-i="0"]').waitFor()
+      await page.waitForTimeout(800)
+      // a dock just tall enough for the readout, the task and the whole staged card (⌥↑ steps)
+      await prompt.focus()
+      const scroll = term.locator('.term-scroll')
+      for (let i = 0; i < 12 && (await scroll.evaluate((el) => el.scrollHeight > el.clientHeight + 2)); i++) {
+        await page.keyboard.press('Alt+ArrowUp')
+        await page.waitForTimeout(150)
+      }
+      await page.waitForTimeout(400)
+      const box = await term.boundingBox()
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+      await page.mouse.wheel(0, -6000)
+      await page.waitForTimeout(500)
+      await rest(page)
+      await save(page, 'terminal-pipelines', await boxOf(term))
+    } finally {
+      worker?.kill('SIGTERM')
+      await ctx.close()
+      rmSync(work.root, { recursive: true, force: true })
+    }
+  },
+
+  /**
+   * The cloud worker: a team workspace on the repository's own team server (started here, see startTeamServer),
+   * Settings → Coding worker → Where the worker runs: Cloud — "Download one-worker-cloud.mjs", that file started on
+   * "another computer" (its own home folder, the fake Claude Code CLI) dials the server's relay, and the card reads
+   * Connected · build-box · 1 repo · via cloud. Signed in through the server's dev mailbox; Claude mocked; nothing
+   * leaves this machine.
+   */
+  async 'cloud-worker'(browser) {
+    const work = codingRepo()
+    let server = null
+    let worker = null
+    let ctx = null
+    try {
+      server = await startTeamServer(join(work.root, 'server-data'))
+      const { origin } = server
+      ctx = await browser.newContext({ viewport: { width: W, height: H + 260 }, deviceScaleFactor: SCALE, colorScheme: 'light', locale: 'en-US', timezoneId: 'Europe/Berlin', serviceWorkers: 'block', acceptDownloads: true })
+      await mockClaude(ctx)
+      const page = await ctx.newPage()
+      page.setDefaultNavigationTimeout(60_000)
+      page.on('pageerror', (e) => errors.push(`pageerror: ${String(e).slice(0, 200)}`))
+      // a relay socket the browser closes on its way is its own network log line, not the app's
+      page.on('console', (m) => m.type() === 'error' && !/WebSocket connection to .*\/coding\//.test(m.text()) && errors.push(`console.error: ${m.text().slice(0, 200)}`))
+      // (the team app keeps its sockets and polls going: wait for what is needed, never for network idle)
+      await page.goto(`${origin}/app/?e2e`, { waitUntil: 'load' })
+      await page.evaluate(() => {
+        localStorage.setItem('one.help.seen-changelog', '9999-12-31-shots')
+        localStorage.setItem('one.tour', '{"off":true}')
+      })
+      // sign in with the server's own magic link (its dev mailbox), create the team workspace
+      const asked = await page.evaluate(async (email) => (await fetch('/api/auth/request', { method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email, redirect: '/app/' }) })).status, ACCOUNT)
+      if (asked >= 300) throw new Error(`sign-in request: HTTP ${asked}`)
+      let link = ''
+      for (let i = 0; i < 50 && !link; i++) {
+        const list = await (await fetch(`http://127.0.0.1:${SERVER_PORT}/api/dev/mailbox?to=${encodeURIComponent(ACCOUNT)}`)).json()
+        link = list[0]?.link ?? ''
+        if (!link) await sleep(100)
+      }
+      if (!link) throw new Error('no sign-in mail')
+      await page.goto(link, { waitUntil: 'load' })
+      await page.waitForFunction(async () => (await fetch('/api/me', { credentials: 'same-origin' })).ok, null, { timeout: 20_000, polling: 300 })
+      const wsId = await page.evaluate(async () => {
+        const res = await fetch('/api/workspaces', { method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'Acme Studio' }) })
+        return (await res.json()).id
+      })
+      await page.goto(`${origin}/app/?e2e&w=${wsId}`, { waitUntil: 'load' })
+      await page.waitForFunction(() => !!window.__one)
+      await page.waitForFunction(() => window.__one.cloud.useCloud.getState().status === 'online', null, { timeout: 30_000 })
+      await page.evaluate(() => window.__one.workspace.getState().updateSettings({ theme: 'light', language: 'en', userName: 'Marcel' }))
+      await page.waitForTimeout(600)
+      // Settings → Coding worker → Cloud → the download, started on that computer
+      await page.evaluate(() => window.__one.ui.getState().openModal({ type: 'settings' }))
+      await page.getByRole('tab', { name: 'Coding worker' }).click()
+      await page.getByTestId('coding-settings').waitFor()
+      await page.getByTestId('coding-via-cloud').click()
+      await page.getByTestId('coding-cloud-card').waitFor()
+      const [download] = await Promise.all([page.waitForEvent('download'), page.getByTestId('coding-cloud-download').click()])
+      const file = join(work.root, 'one-worker-cloud.mjs')
+      await download.saveAs(file)
+      worker = await startCloudWorker(file, work)
+      await page.getByTestId('coding-conn').filter({ hasText: 'via cloud' }).filter({ hasText: 'Connected' }).waitFor({ timeout: 30_000 })
+      await page.waitForTimeout(600)
+      await rest(page)
+      // two views of the tab, side by side: Local | Cloud with the download, and the live line with the worker panel
+      const dialog = page.getByRole('dialog', { name: 'Settings' })
+      const via = dialog.locator('section.cw-panel', { has: page.getByTestId('coding-via') })
+      const step1 = dialog.locator('.cs-steps > li').first()
+      const live = page.getByTestId('coding-cloud-live')
+      // the worker panel down to its switch (this headless browser refuses notifications, so the next row says so)
+      const allow = dialog.locator('section.cw-panel', { has: page.getByTestId('coding-conn') }).locator('.cw-switch').first()
+      const parts = []
+      // [name, first, last, space above, space below]: each view ends where its part ends
+      for (const [name, first, last, above, below] of [['a', via, step1, 6, 1], ['b', live, allow, 1, 4]]) {
+        await scrollToTop(first, 24)
+        await rest(page)
+        const box = union(await boxOf(first), await boxOf(last))
+        const png = `${TMP}/cloud-worker-${name}.png`
+        await page.screenshot({ path: png, clip: { x: box.x - 16, y: box.y - above, width: box.width + 32, height: box.height + above + below } })
+        parts.push(png)
+      }
+      await saveSideBySide('cloud-worker', parts, { column: true })
+    } finally {
+      // both children gone before the next attempt (their ports free again)
+      const gone = (child) => new Promise((r) => (child.exitCode !== null || child.signalCode !== null ? r() : (child.once('exit', r), child.kill('SIGTERM'))))
+      if (worker) await gone(worker)
+      await ctx?.close()
+      if (server) await gone(server.child)
+      rmSync(work.root, { recursive: true, force: true })
+    }
   },
 
   /** Several blocks selected (text, image, table): the wash on each, the pinned grip, the count chip. */

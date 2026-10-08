@@ -26,7 +26,7 @@ export const CHANGELOG_LANGS: ChangelogLang[] = ['en', 'de']
 
 /**
  * What an entry's "Try it" key may do — a fixed allow-list, never code from the Markdown (the keys of
- * "What can One do?" use the same list): terminal (⌘J), Settings → Claude AI / Agents · MCP / Mail / Sync,
+ * "What can One do?" use the same list): terminal (⌘J), Settings → Claude AI / Agents · MCP / Mail / Sync / Coding worker,
  * the Agents page, "Ask the help", ⌘K, Scripts, Import, the Inbox, the open page's history / Share,
  * "What can One do?", the guided tour, and — on the tour's practice page — the slash menu, the AI menu,
  * Transform into; a database, its commands, a spreadsheet, a database's automations; the coding pipeline (#/coding); Building blocks (#/kit); the workspace's Look (#/workspace/look).
@@ -37,6 +37,7 @@ export const CHANGELOG_TRIES = [
   'settings-mcp',
   'settings-mail',
   'settings-sync',
+  'settings-coding',
   'agents',
   'ask',
   'palette',
