@@ -807,37 +807,14 @@
 /* the rating plate */
 .spec {
   position: relative;
+  --screw-d: 7px;
+  --screw-inset: 6px;
   border: 1px solid var(--rule-strong);
   border-radius: var(--radius-2);
   background: var(--surface-2);
   font-family: var(--font-mono);
   color: var(--ink-2);
   user-select: text;
-}
-.spec__screw {
-  position: absolute;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  border: 1px solid var(--rule-strong);
-  background: linear-gradient(45deg, transparent 44%, var(--ink-3) 44%, var(--ink-3) 58%, transparent 58%), var(--surface);
-  opacity: 0.8;
-}
-.spec__screw--tl {
-  left: 6px;
-  top: 6px;
-}
-.spec__screw--tr {
-  right: 6px;
-  top: 6px;
-}
-.spec__screw--bl {
-  left: 6px;
-  bottom: 6px;
-}
-.spec__screw--br {
-  right: 6px;
-  bottom: 6px;
 }
 .spec__head {
   display: flex;

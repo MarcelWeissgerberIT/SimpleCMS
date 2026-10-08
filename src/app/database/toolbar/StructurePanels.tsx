@@ -64,6 +64,8 @@ export function SubItemsPanel({ m, anchor, onClose }: { m: DbModel; anchor: Elem
       <label className="db-cfg__row db-cfg__row--switch">
         <span>{t('database.sub.switch')}</span>
         <Switch
+          size="sm"
+          seed="subItems"
           checked={!!pair}
           label={t('database.sub.switch')}
           onChange={(on) => {
@@ -104,6 +106,8 @@ export function DependenciesPanel({ m, anchor, onClose }: { m: DbModel; anchor: 
       <label className="db-cfg__row db-cfg__row--switch">
         <span>{t('database.dep.switch')}</span>
         <Switch
+          size="sm"
+          seed="dependencies"
           checked={!!pair}
           label={t('database.dep.switch')}
           onChange={(on) => {

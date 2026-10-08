@@ -109,7 +109,7 @@ export function LayoutPanel({ m, anchor, onClose }: { m: DbModel; anchor: Elemen
         {view.type === 'table' && (
           <label className="db-cfg__row db-cfg__row--switch">
             <span>{t('database.layout.wrap')}</span>
-            <Switch checked={!!view.wrapCells} label={t('database.layout.wrap')} onChange={(v) => upd({ wrapCells: v })} />
+            <Switch size="sm" seed="wrapCells" checked={!!view.wrapCells} label={t('database.layout.wrap')} onChange={(v) => upd({ wrapCells: v })} />
           </label>
         )}
         {view.type !== 'chart' && (
@@ -159,7 +159,7 @@ function FeedOptions({ m }: { m: DbModel }) {
       {m.view.sorts.length > 0 && <div className="db-cfg__row db-cfg__note">{t('database.feed.sortsWin')}</div>}
       <label className="db-cfg__row db-cfg__row--switch">
         <span>{t('database.feed.content')}</span>
-        <Switch checked={feed.content !== false} label={t('database.feed.content')} onChange={(v) => upd({ content: v })} />
+        <Switch size="sm" seed="feedContent" checked={feed.content !== false} label={t('database.feed.content')} onChange={(v) => upd({ content: v })} />
       </label>
     </>
   )

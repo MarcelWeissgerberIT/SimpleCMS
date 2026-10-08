@@ -279,7 +279,7 @@ function ServerRow({ server, others, words, open, onOpen, hasKey }: { server: Mc
             <ChevronDown className="mcps-card__chev" size={14} strokeWidth={1.75} aria-hidden />
           </span>
         </button>
-        <Switch checked={server.enabled} onChange={(v) => patchServer(server.id, { enabled: v })} label={t('features.ai.mcp.enable', { name: server.name })} />
+        <Switch seed={server.id} checked={server.enabled} onChange={(v) => patchServer(server.id, { enabled: v })} label={t('features.ai.mcp.enable', { name: server.name })} />
       </div>
       {reason && (
         <p className="mcps-card__reason" data-kind={state} role={state === 'error' ? 'alert' : undefined}>

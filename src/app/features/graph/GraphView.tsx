@@ -208,15 +208,15 @@ export function GraphView() {
 
           <div className="graph-panel" role="group" aria-label={t('features.graph.layers')}>
             <label className="graph-toggle">
-              <Switch checked={opts.hierarchy} onChange={() => toggle('hierarchy')} label={t('features.graph.hierarchy')} />
+              <Switch size="sm" seed="hierarchy" checked={opts.hierarchy} onChange={() => toggle('hierarchy')} label={t('features.graph.hierarchy')} />
               <span>{t('features.graph.hierarchy')}</span>
             </label>
             <label className="graph-toggle">
-              <Switch checked={opts.rows} onChange={() => toggle('rows')} label={t('features.graph.rows')} />
+              <Switch size="sm" seed="rows" checked={opts.rows} onChange={() => toggle('rows')} label={t('features.graph.rows')} />
               <span>{t('features.graph.rows')}</span>
             </label>
             <label className="graph-toggle">
-              <Switch checked={opts.orphans} onChange={() => toggle('orphans')} label={t('features.graph.orphans')} />
+              <Switch size="sm" seed="orphans" checked={opts.orphans} onChange={() => toggle('orphans')} label={t('features.graph.orphans')} />
               <span>{t('features.graph.orphans')}</span>
             </label>
             <span className="graph-panel__sep" />

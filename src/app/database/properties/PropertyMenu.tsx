@@ -272,6 +272,8 @@ export function PropertyConfig({ db, prop, onEditFormula }: { db: Database; prop
           <label className="db-cfg__row db-cfg__row--switch">
             <span>{t('database.relation.twoWay', { db: targetName })}</span>
             <Switch
+              size="sm"
+              seed="twoWay"
               checked={!!pair && !confirmOff}
               disabled={!pair && !!blocker}
               label={t('database.relation.twoWay', { db: targetName })}

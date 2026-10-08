@@ -1393,7 +1393,7 @@
   margin: 0 0 14px;
 }
 .cw-switch .switch {
-  margin-top: 1px;
+  margin-top: -3px;
 }
 .cw-switch__label {
   font-size: var(--text-md);

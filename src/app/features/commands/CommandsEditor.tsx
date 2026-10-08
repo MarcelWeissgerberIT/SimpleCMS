@@ -288,7 +288,7 @@ function Row({
             <Trash2 size={13} />
           </button>
         )}
-        <Switch checked={!hidden} onChange={onToggle} label={t('features.cmd.ed.show', { name: label })} disabled={!editable} />
+        <Switch size="sm" seed={item.id} checked={!hidden} onChange={onToggle} label={t('features.cmd.ed.show', { name: label })} disabled={!editable} />
       </span>
     </li>
   )

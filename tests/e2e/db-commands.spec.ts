@@ -398,7 +398,10 @@ test.describe('Database commands', () => {
     await item(m, 'Edit commands…').click()
     const dlg = page.getByRole('dialog', { name: /Commands · Projects/ })
     await expect(dlg.getByTestId('dbc-lock')).toContainText('Locked')
-    await expect(dlg.getByRole('switch', { name: 'Show “Export CSV” in the menu' })).toBeDisabled()
+    const lockedSwitch = dlg.getByRole('switch', { name: 'Show “Export CSV” in the menu' })
+    await expect(lockedSwitch).toBeDisabled()
+    // the area's own dimming (.dbc-row__tools) still wins over the toggle's global disabled look
+    expect(await lockedSwitch.evaluate((el) => getComputedStyle(el).opacity)).toBe('0.45')
     await expect(dlg.getByRole('button', { name: 'Add command' })).toBeDisabled()
     await page.keyboard.press('Escape')
     expect(await wsEval(page, (s, id) => s.databases[id].commands ?? null, dbId)).toBeNull()

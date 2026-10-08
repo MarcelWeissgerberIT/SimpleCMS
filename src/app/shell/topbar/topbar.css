@@ -285,6 +285,13 @@ button.tb-crumb:hover {
 .pm-toggle .switch {
   pointer-events: none;
 }
+/* the row is the control: hovering or focusing it gives the lever the same 3° as a hovered switch */
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  .pm-toggle:hover .switch,
+  .pm-toggle:focus-visible .switch {
+    --sw-give: 3deg;
+  }
+}
 .pm-foot {
   margin: 4px -4px -4px;
   padding: 8px 12px;

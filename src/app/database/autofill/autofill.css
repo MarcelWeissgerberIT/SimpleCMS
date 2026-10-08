@@ -520,8 +520,9 @@
   font-weight: 550;
 }
 
+/* the 26 px plate centred on the 19.5 px title line */
 .af-switch .switch {
-  margin-top: 2px;
+  margin-top: -3px;
 }
 
 /* readout (estimate / results) */

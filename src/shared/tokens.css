@@ -42,7 +42,7 @@
   --radius-1: 2px;  /* controls, inputs, buttons, tags */
   --radius-2: 4px;  /* menus, cards, popovers */
   --radius-3: 8px;  /* large panels / modals */
-  --radius-led: 999px; /* ONLY for LED dots and switches */
+  --radius-led: 999px; /* ONLY for LED dots */
   --hairline: 1px;
 
   /* ---------- Spacing (4px base) ---------- */
@@ -52,6 +52,7 @@
   /* ---------- Motion: fast & mechanical ---------- */
   --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
   --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --ease-snap: cubic-bezier(0.55, 0, 0.85, 0.35); /* toggle throws: slow off the stop, full speed into the other side; never overshoots */
   --dur-1: 90ms;
   --dur-2: 160ms;
   --dur-3: 260ms;
@@ -100,10 +101,29 @@
   --scrim: rgba(18, 18, 16, 0.32);
   --focus-ring: 0 0 0 2px var(--surface), 0 0 0 4px var(--signal);
 
-  /* Switch (OFF state must stay visible: ≥ 3:1 for the outline / knob) */
-  --switch-off-track: var(--surface-2);
-  --switch-off-border: var(--ink-faint);
-  --switch-knob: var(--surface);
+  /*
+   * Hardware: screwed plates + toggle switches (ui.css .screw-plate / .switch, ui/controls.tsx). Flat metal shades,
+   * never gradients, and DERIVED from the theme colours above (color-mix), so a workspace look (lib/look) tints the
+   * metal too — workspace data never sets these directly. Plate edge ≥ 3:1 on every surface; lever + ball ≥ 4.5:1 on
+   * the plate; the lit lamp is --signal (the look keeps it ≥ 3:1 against --toggle-window).
+   */
+  --plate: color-mix(in srgb, var(--ink) 13%, var(--surface));          /* anodised aluminium */
+  --plate-edge: var(--ink-3);
+  --plate-hi: color-mix(in srgb, var(--surface) 90%, transparent);       /* machined top edge */
+  --plate-lo: color-mix(in srgb, var(--ink) 14%, transparent);
+  --screw-head: color-mix(in srgb, var(--ink) 4%, var(--surface));
+  --screw-edge: var(--plate-edge);
+  --screw-slot: var(--ink-2);
+  --engrave: var(--ink-2);                                               /* engraved legends (the O) */
+  --toggle-nut: color-mix(in srgb, var(--ink) 30%, var(--surface));
+  --toggle-nut-edge: color-mix(in srgb, var(--ink) 70%, var(--surface));
+  --toggle-bore: var(--ink);
+  --toggle-lever: var(--ink-2);
+  --toggle-ball: var(--ink);
+  --toggle-ball-rim: var(--ink);
+  --toggle-window: color-mix(in srgb, var(--ink) 94%, black);            /* the lamp's dark glass */
+  --toggle-window-edge: var(--plate-edge);
+  --toggle-lamp-off: color-mix(in srgb, var(--surface) 34%, var(--toggle-window));
 
   /* Content colours (Notion-style text/background colours, tuned for paper) */
   --c-default-text: var(--ink);      --c-default-bg: transparent;
@@ -147,9 +167,24 @@
   --shadow-modal: 0 0 0 1px var(--rule-strong), 0 40px 80px -20px rgba(0, 0, 0, 0.8);
   --scrim: rgba(0, 0, 0, 0.55);
 
-  --switch-off-track: var(--surface-3);
-  --switch-off-border: var(--ink-3);
-  --switch-knob: var(--ink-2);
+  /* hardware: black anodised plate, steel lever; screws and the lamp glass stay ≥ 3:1 against the plate */
+  --plate: color-mix(in srgb, var(--ink) 14%, var(--surface));
+  --plate-edge: var(--ink-3);
+  --plate-hi: color-mix(in srgb, var(--ink) 12%, transparent);
+  --plate-lo: color-mix(in srgb, var(--bg) 80%, transparent);
+  --screw-head: color-mix(in srgb, var(--ink) 50%, var(--surface));
+  --screw-edge: var(--bg);
+  --screw-slot: var(--bg);
+  --engrave: var(--ink-3);
+  --toggle-nut: color-mix(in srgb, var(--ink) 36%, var(--surface));
+  --toggle-nut-edge: var(--bg);
+  --toggle-bore: var(--bg);
+  --toggle-lever: var(--ink-2);
+  --toggle-ball: var(--ink);
+  --toggle-ball-rim: var(--bg);
+  --toggle-window: color-mix(in srgb, var(--bg) 70%, black);
+  --toggle-window-edge: color-mix(in srgb, var(--ink) 40%, var(--surface));
+  --toggle-lamp-off: color-mix(in srgb, var(--ink) 28%, var(--toggle-window));
 
   --c-gray-text: #9b978e;            --c-gray-bg: #2a2925;
   --c-brown-text: #c79a7a;           --c-brown-bg: #33281f;

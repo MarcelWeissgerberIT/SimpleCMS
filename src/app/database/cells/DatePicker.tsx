@@ -189,6 +189,8 @@ export function DatePicker({
           <label className="db-date-pop__opt">
             <span>{t('database.date.endDate')}</span>
             <Switch
+              size="sm"
+              seed="endDate"
               checked={hasEnd}
               label={t('database.date.endDate')}
               onChange={(on) => {
@@ -202,6 +204,8 @@ export function DatePicker({
         <label className="db-date-pop__opt">
           <span>{t('database.date.includeTime')}</span>
           <Switch
+            size="sm"
+            seed="includeTime"
             checked={withTime}
             label={t('database.date.includeTime')}
             onChange={(on) => {

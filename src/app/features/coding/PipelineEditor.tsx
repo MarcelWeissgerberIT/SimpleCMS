@@ -134,7 +134,7 @@ export function PipelineEditor({ dbId, locked, onClose }: { dbId: string; locked
                   ))}
                 </select>
                 <span className="cpe-auto">
-                  <Switch checked={s.auto} onChange={(v) => patch(i, { auto: v })} disabled={ro || s.kind === 'gate' || s.kind === 'done' || s.kind === 'import'} label={t('features.coding.pipeline.auto')} />
+                  <Switch size="sm" seed={s.id} checked={s.auto} onChange={(v) => patch(i, { auto: v })} disabled={ro || s.kind === 'gate' || s.kind === 'done' || s.kind === 'import'} label={t('features.coding.pipeline.auto')} />
                   <span className="label">{t('features.coding.pipeline.autoShort')}</span>
                 </span>
                 <span className="cpe-keys">

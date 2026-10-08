@@ -1,4 +1,4 @@
-import { cloneElement, isValidElement, useEffect, useId, useRef, useState, type ReactNode } from 'react'
+import { cloneElement, isValidElement, useEffect, useId, useRef, useState, type ReactElement, type ReactNode } from 'react'
 import { ArrowRight, ExternalLink, X, GitBranch, HardDrive } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
 import { isEffectivelyTrashed } from '../../store/selectors'
@@ -220,6 +220,9 @@ export function Field({ label, hint, children, inline, htmlFor }: { label: strin
       control = cloneElement(children, { id: children.props.id ?? id, 'aria-describedby': children.props['aria-describedby'] ?? hintId })
     } else if (children.props.role === 'radiogroup' || children.props.role === 'group') {
       control = cloneElement(children, { 'aria-labelledby': labelId, 'aria-describedby': hintId })
+    } else if (tag === Switch && hintId) {
+      // a switch keeps its own name (aria-label); the hint describes it
+      control = cloneElement(children as ReactElement<{ describedBy?: string }>, { describedBy: hintId })
     }
   }
   return (
@@ -287,7 +290,7 @@ function GeneralTab() {
         </select>
       </Field>
       <Field label={t('shell.settings.spellcheck')} hint={t('shell.settings.spellcheckHint')} inline>
-        <Switch checked={s.spellcheck} onChange={(v) => set({ spellcheck: v })} label={t('shell.settings.spellcheck')} />
+        <Switch seed="spellcheck" checked={s.spellcheck} onChange={(v) => set({ spellcheck: v })} label={t('shell.settings.spellcheck')} />
       </Field>
       <InstallSection />
     </>

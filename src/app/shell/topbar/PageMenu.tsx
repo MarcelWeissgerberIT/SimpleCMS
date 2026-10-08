@@ -11,6 +11,7 @@ import { copyPageForAI, copyPageLink, duplicateAndOpen, toggleFocusMode, trashWi
 import { fmtNumber, fmtRelative, plural, wordCount } from '../lib/format'
 import { useKbdHint } from '../lib/hooks'
 import { useReadOnly } from '../cloud/state'
+import { SwitchFace } from '../../ui/controls'
 
 const FONTS: Array<{ id: PageFont; key: string }> = [
   { id: 'sans', key: 'shell.font.default' },
@@ -30,7 +31,7 @@ export function PageMenu({ page, anchor, onClose, mobile }: { page: Page; anchor
   // viewers keep what is theirs alone: focus mode, copy link, export
   const edit = !useReadOnly()
 
-  const focusRow = <ToggleRow label={t('shell.pageMenu.focus')} hint={kbd('Mod+Shift+F')} checked={focus} onChange={() => toggleFocusMode()} />
+  const focusRow = <ToggleRow seed="focus" label={t('shell.pageMenu.focus')} hint={kbd('Mod+Shift+F')} checked={focus} onChange={() => toggleFocusMode()} />
   // font and toggles: page settings are shared data, a viewer only gets focus mode
   const look: MenuEntry[] = edit
     ? [
@@ -61,9 +62,9 @@ export function PageMenu({ page, anchor, onClose, mobile }: { page: Page; anchor
           kind: 'custom',
           render: () => (
             <div className="pm-toggles">
-              <ToggleRow label={t('shell.pageMenu.smallText')} checked={page.settings.smallText} onChange={(v) => set({ smallText: v })} />
-              <ToggleRow label={t('shell.pageMenu.fullWidth')} checked={page.settings.fullWidth} onChange={(v) => set({ fullWidth: v })} />
-              <ToggleRow label={t('shell.pageMenu.lock')} checked={page.settings.locked} onChange={(v) => set({ locked: v })} />
+              <ToggleRow seed="smallText" label={t('shell.pageMenu.smallText')} checked={page.settings.smallText} onChange={(v) => set({ smallText: v })} />
+              <ToggleRow seed="fullWidth" label={t('shell.pageMenu.fullWidth')} checked={page.settings.fullWidth} onChange={(v) => set({ fullWidth: v })} />
+              <ToggleRow seed="locked" label={t('shell.pageMenu.lock')} checked={page.settings.locked} onChange={(v) => set({ locked: v })} />
               {focusRow}
             </div>
           ),
@@ -120,7 +121,7 @@ export function PageMenu({ page, anchor, onClose, mobile }: { page: Page; anchor
   )
 }
 
-function ToggleRow({ label, checked, onChange, hint }: { label: string; checked: boolean; onChange: (v: boolean) => void; hint?: ReactNode }) {
+function ToggleRow({ label, checked, onChange, hint, seed }: { label: string; checked: boolean; onChange: (v: boolean) => void; hint?: ReactNode; seed: string }) {
   return (
     <div
       className="pm-toggle"
@@ -138,8 +139,8 @@ function ToggleRow({ label, checked, onChange, hint }: { label: string; checked:
     >
       <span className="pm-toggle__label">{label}</span>
       {hint && <span className="menu-item__hint">{hint}</span>}
-      {/* visual rocker; the whole row is the control */}
-      <span className="switch" aria-checked={checked} aria-hidden />
+      {/* the toggle's face only; the whole row is the control */}
+      <SwitchFace checked={checked} size="sm" seed={seed} />
     </div>
   )
 }

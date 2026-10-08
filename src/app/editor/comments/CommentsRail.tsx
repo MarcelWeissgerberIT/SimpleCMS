@@ -355,7 +355,7 @@ export function Comments({ editor, bridge, pageId }: { editor: Editor; bridge: B
       </span>
       {resolvedCount > 0 && (
         <label className="crail__toggle label">
-          <Switch checked={ui.showResolved} onChange={(v) => setUI(bridge, { showResolved: v })} label={t('editor.comments.showResolved')} />
+          <Switch size="sm" seed="showResolved" checked={ui.showResolved} onChange={(v) => setUI(bridge, { showResolved: v })} label={t('editor.comments.showResolved')} />
           <span aria-hidden>{t('editor.comments.resolvedCount', { count: resolvedCount })}</span>
         </label>
       )}

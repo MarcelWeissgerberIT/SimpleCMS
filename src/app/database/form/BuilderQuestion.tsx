@@ -67,7 +67,7 @@ export function QuestionCard({ m, p, index, field, fields, onHide, onBreakAfter,
         <span className="fb-q__spacer" />
         <label className="fb-q__req">
           <span className="label">{t('database.form.required')}</span>
-          <Switch checked={!!q.required} label={t('database.form.b.requiredFor', { name })} onChange={(v) => patchQuestion(dbId, viewId, p.id, { required: v })} />
+          <Switch size="sm" seed={`required:${p.id}`} checked={!!q.required} label={t('database.form.b.requiredFor', { name })} onChange={(v) => patchQuestion(dbId, viewId, p.id, { required: v })} />
         </label>
         <button type="button" className="icon-btn icon-btn--sm" aria-label={t('database.form.b.hideQ', { name })} title={t('database.form.b.hideQ', { name })} onClick={onHide}>
           <Eye size={14} />
@@ -112,7 +112,7 @@ export function QuestionCard({ m, p, index, field, fields, onHide, onBreakAfter,
         )}
         {p.type === 'date' && (
           <label className="fb-q__opt">
-            <Switch checked={!!q.includeTime} label={t('database.form.b.askTime')} onChange={(v) => patchQuestion(dbId, viewId, p.id, { includeTime: v })} />
+            <Switch seed={`time:${p.id}`} checked={!!q.includeTime} label={t('database.form.b.askTime')} onChange={(v) => patchQuestion(dbId, viewId, p.id, { includeTime: v })} />
             <span>{t('database.form.b.askTime')}</span>
           </label>
         )}

@@ -239,7 +239,7 @@ function AgentCard({ agent, n, now }: { agent: CustomAgent; n: number; now: numb
           <span className={st.led} aria-hidden /> {t(`features.agents.state.${st.key}`)}
         </span>
         <span className="agx-spacer" />
-        <Switch checked={agent.enabled} onChange={(v) => setEnabled(agent, v)} label={t('features.agents.enableNamed', { name: agent.name })} disabled={readOnly || wait.waiting} />
+        <Switch seed={agent.id} checked={agent.enabled} onChange={(v) => setEnabled(agent, v)} label={t('features.agents.enableNamed', { name: agent.name })} disabled={readOnly || wait.waiting} />
       </div>
       <a className="agx-card__name" href={href}>
         <PageIcon icon={agent.icon} size={20} />
@@ -368,7 +368,7 @@ function AgentDetail({ id }: { id: ID }) {
             <span>{agent.name}</span>
           </h1>
           <div className="agx-dhead__tools">
-            <Switch checked={agent.enabled} onChange={(v) => setEnabled(agent, v)} label={t('features.agents.enableNamed', { name: agent.name })} disabled={readOnly} />
+            <Switch seed={agent.id} checked={agent.enabled} onChange={(v) => setEnabled(agent, v)} label={t('features.agents.enableNamed', { name: agent.name })} disabled={readOnly} />
             {!readOnly && (
               <>
                 <button type="button" className="btn btn--primary" onClick={() => void runNow(agent)} disabled={last?.status === 'running' || wait.waiting}>

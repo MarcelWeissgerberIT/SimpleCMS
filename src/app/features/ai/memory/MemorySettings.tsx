@@ -101,7 +101,7 @@ export function MemorySettings() {
               <span className="mems__row-k">{r.label}</span>
               <span className="mems__row-hint">{r.hint}</span>
             </span>
-            <Switch checked={r.on} onChange={r.set} label={r.label} disabled={r.disabled} />
+            <Switch seed={r.key} checked={r.on} onChange={r.set} label={r.label} disabled={r.disabled} />
           </li>
         ))}
       </ul>

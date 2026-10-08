@@ -76,7 +76,7 @@ export function DateReminderEditor({ value, onChange, onDone }: { value: DateRem
         </div>
         <div className="dme__opt">
           <span>{t('inbox.date.includeTime')}</span>
-          <Switch checked={time !== null} label={t('inbox.date.includeTime')} onChange={(on) => set(day, on ? '09:00' : null)} />
+          <Switch size="sm" seed="includeTime" checked={time !== null} label={t('inbox.date.includeTime')} onChange={(on) => set(day, on ? '09:00' : null)} />
         </div>
       </div>
       <div className="dme__sect">

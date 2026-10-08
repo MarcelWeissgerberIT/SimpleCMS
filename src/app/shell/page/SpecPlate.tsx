@@ -6,6 +6,7 @@ import { useRowCount } from '../../store/selectors'
 import { fmtNumber, fmtRelative, fmtStamp, plural, readingTime, wordCount } from '../lib/format'
 import { useNow } from '../lib/hooks'
 import { agentLabel } from '../../features'
+import { Screws } from '../../ui/controls'
 
 /** "ABCD·1234": the short, readable form of a page id. */
 const shortId = (id: string) => `${id.slice(0, 4).toUpperCase()}·${id.slice(4, 8).toUpperCase()}`
@@ -81,10 +82,7 @@ export function SpecPlate({ page }: { page: Page }) {
   ]
   return (
     <div className="spec" aria-label={t('shell.spec.label')}>
-      <span className="spec__screw spec__screw--tl" aria-hidden />
-      <span className="spec__screw spec__screw--tr" aria-hidden />
-      <span className="spec__screw spec__screw--bl" aria-hidden />
-      <span className="spec__screw spec__screw--br" aria-hidden />
+      <Screws seed={page.id} />
       <div className="spec__head">
         <span>{isDb ? t('shell.spec.database') : page.databaseId ? t('shell.spec.entry') : t('shell.spec.page')}</span>
         <span className="spec__id">

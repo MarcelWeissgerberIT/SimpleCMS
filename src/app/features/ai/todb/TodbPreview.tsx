@@ -123,7 +123,7 @@ export function TodbPreview({ plan, draft, onDraft, gists, onConvert, views: off
                 {t(`features.ai.todb.type.${c.type}`)}
                 {c.options.length > 0 && ` · ${c.options.length}`}
               </span>
-              <Switch checked={on} onChange={(v) => toggle(c, v)} label={t('features.ai.todb.keepColumn', { name: c.name })} />
+              <Switch size="sm" seed={c.name} checked={on} onChange={(v) => toggle(c, v)} label={t('features.ai.todb.keepColumn', { name: c.name })} />
             </li>
           )
         })}
