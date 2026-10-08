@@ -215,9 +215,9 @@ export const messages: Messages = {
     'features.agents.recipe.forms.desc': 'New responses → one short digest with what needs a follow-up.',
     'features.agents.recipe.forms.instructions':
       'Summarise the new form responses that started this run:\n1. Read each response.\n2. Group them by topic and count them.\n3. Quote the most useful comments briefly.\n4. Flag responses that need a follow-up (complaints, questions, requests) with a link.',
-    'features.agents.recipe.atlas.name': 'Check pages against your knowledge base',
-    'features.agents.recipe.atlas.desc': 'Compares your pages with your knowledge base (an MCP server) and proposes fixes.',
-    'features.agents.recipe.atlas.instructions':
+    'features.agents.recipe.kb.name': 'Check pages against your knowledge base',
+    'features.agents.recipe.kb.desc': 'Compares your pages with your knowledge base (an MCP server) and proposes fixes.',
+    'features.agents.recipe.kb.instructions':
       'Compare the pages in your scope with the knowledge base (your MCP server):\n1. For each page, search the knowledge base for the records it describes.\n2. Where a page contradicts the knowledge base or is out of date, propose a correction (append a short “Update” section with the source).\n3. Never remove content; do not change pages that already match.\nIn your report list what you checked, what differs and what you proposed.',
     'features.agents.recipe.blank.name': 'Blank',
     'features.agents.recipe.blank.desc': 'An empty agent: your own job, trigger and limits.',
@@ -574,9 +574,9 @@ export const messages: Messages = {
     'features.agents.recipe.forms.desc': 'Neue Antworten → ein kurzer Überblick mit allem, was nachgefasst werden muss.',
     'features.agents.recipe.forms.instructions':
       'Fasse die neuen Formularantworten zusammen, die diesen Lauf gestartet haben:\n1. Lies jede Antwort.\n2. Gruppiere sie nach Thema und zähle sie.\n3. Zitiere die hilfreichsten Kommentare kurz.\n4. Markiere Antworten, die ein Nachfassen brauchen (Beschwerden, Fragen, Wünsche), mit Link.',
-    'features.agents.recipe.atlas.name': 'Seiten mit der Wissensdatenbank abgleichen',
-    'features.agents.recipe.atlas.desc': 'Vergleicht deine Seiten mit deiner Wissensdatenbank (ein MCP-Server) und schlägt Korrekturen vor.',
-    'features.agents.recipe.atlas.instructions':
+    'features.agents.recipe.kb.name': 'Seiten mit der Wissensdatenbank abgleichen',
+    'features.agents.recipe.kb.desc': 'Vergleicht deine Seiten mit deiner Wissensdatenbank (ein MCP-Server) und schlägt Korrekturen vor.',
+    'features.agents.recipe.kb.instructions':
       'Vergleiche die Seiten in deinem Bereich mit der Wissensdatenbank (deinem MCP-Server):\n1. Suche für jede Seite in der Wissensdatenbank nach den Einträgen, die sie beschreibt.\n2. Wo eine Seite der Wissensdatenbank widerspricht oder veraltet ist, schlag eine Korrektur vor (füge einen kurzen Abschnitt „Aktualisierung“ mit Quelle an).\n3. Entferne nie Inhalte; ändere keine Seiten, die schon stimmen.\nListe im Bericht auf, was du geprüft hast, was abweicht und was du vorgeschlagen hast.',
     'features.agents.recipe.blank.name': 'Leer',
     'features.agents.recipe.blank.desc': 'Ein leerer Agent: eigener Auftrag, Auslöser und Grenzen.',

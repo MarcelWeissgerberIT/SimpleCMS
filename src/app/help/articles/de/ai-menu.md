@@ -54,7 +54,7 @@ Manche Wünsche sind eigentlich Aktionen — das KI-Menü führt sie aus, statt 
 - *„mach daraus eine Unterseite“*, *„auslagern“*, *„make a sub-page out of this“* → **In Seite umwandeln**;
 - *„für jeden Punkt eine Unterseite“*, *„pro Ticket eine Seite“*, *„one page per item“* → **Unterseite pro Eintrag**;
 - *„als Tabelle“*, *„als Board“* → **In Datenbank umwandeln**, mit deinen Worten als Anweisung;
-- alles, was über die Auswahl hinausgeht — *„lege für jedes Ticket in Atlas eine Unterseite an“*, *„aktualisiere die Datenbank …“* → **Das braucht das KI-Terminal — dort ausführen**: Das [KI-Terminal](help:agent) öffnet sich mit deinem Wunsch und der Auswahl als Referenz und legt los.
+- alles, was über die Auswahl hinausgeht — *„lege für jedes Ticket im Tracker eine Unterseite an“*, *„aktualisiere die Datenbank …“* → **Das braucht das KI-Terminal — dort ausführen**: Das [KI-Terminal](help:agent) öffnet sich mit deinem Wunsch und der Auswahl als Referenz und legt los.
 
 Schreibwünsche (*kürzer*, *übersetzen*, *erklär …*) gehen wie bisher an Claude; **Claude fragen** bleibt für jeden Wunsch in der Liste.
 

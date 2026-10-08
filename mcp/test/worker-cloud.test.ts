@@ -240,12 +240,12 @@ describe('cloud worker', () => {
     const tab = relay!.openTab(PAIR)
     await tab.hello(WS)
     await tab.next('welcome')
-    const zip = Buffer.from(zipSync({ 'atlas/a.txt': strToU8('a\n') }))
-    const begin = await tab.request({ op: 'intake-begin', taskId: 'zip2abcd', name: 'atlas.zip', size: zip.length })
+    const zip = Buffer.from(zipSync({ 'kb/a.txt': strToU8('a\n') }))
+    const begin = await tab.request({ op: 'intake-begin', taskId: 'zip2abcd', name: 'kb.zip', size: zip.length })
     const { uploadId } = (begin as { result: { uploadId: string } }).result
     // the tab goes while a piece is being written: the worker gives the upload up — and keeps running
     void tab.request({ op: 'intake-chunk', uploadId, data: zip.subarray(0, 8).toString('base64') }).catch(() => {})
-    await waitFor(() => /receiving atlas\.zip/.test(worker!.stderr()))
+    await waitFor(() => /receiving kb\.zip/.test(worker!.stderr()))
     relay!.tabGone('closed')
     await waitFor(() => /import for task zip2abcd: dropped \(One disconnected\)/.test(worker!.stderr()), 5000, () => worker!.stderr())
     const again = relay!.openTab(PAIR)
@@ -253,10 +253,10 @@ describe('cloud worker', () => {
     await again.next('welcome')
     // the tab hears what became of the old upload, then a new one starts at once
     await waitFor(() => again.messages.some((m) => m.type === 'event' && m.kind === 'intake' && m.taskId === 'zip2abcd' && m.intake.state === 'failed'), 5000)
-    const next = await again.request({ op: 'intake-begin', taskId: 'zip3abcd', name: 'atlas.zip', size: zip.length })
+    const next = await again.request({ op: 'intake-begin', taskId: 'zip3abcd', name: 'kb.zip', size: zip.length })
     assert.equal(next.ok, true, JSON.stringify(next))
     // the same task beginning again replaces its own unfinished upload (no "failed" for it)
-    const same = await again.request({ op: 'intake-begin', taskId: 'zip3abcd', name: 'atlas.zip', size: zip.length })
+    const same = await again.request({ op: 'intake-begin', taskId: 'zip3abcd', name: 'kb.zip', size: zip.length })
     assert.equal(same.ok, true, JSON.stringify(same))
     assert.equal(worker!.child.exitCode, null)
     assert.doesNotMatch(worker!.stderr(), /Unhandled|ERR_STREAM/)

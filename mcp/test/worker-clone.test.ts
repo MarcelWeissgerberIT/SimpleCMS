@@ -258,14 +258,14 @@ describe('the setup page: clone, projects, ZIP import, own MCP servers', () => {
 
     // Save: the clone with an own MCP server, the imported repo; a bad MCP name is refused
     const pick = (mcp: string) => ({ repos: [{ path: dir, name: 'billing', baseBranch: 'main', test: '', push: false, pr: 'none', maxUsdPerTask: null, mcp }, { path: app, name: 'legacy-app', baseBranch: 'main', test: 'node --test', push: false, pr: 'none', maxUsdPerTask: null }] })
-    assert.equal((await call('/setup/api/save', { token, body: pick('atlas; rm') })).status, 400)
-    const saved = await call('/setup/api/save', { token, body: pick('atlas, docs-kb') })
+    assert.equal((await call('/setup/api/save', { token, body: pick('kb; rm') })).status, 400)
+    const saved = await call('/setup/api/save', { token, body: pick('kb, docs-kb') })
     assert.equal(saved.status, 200, saved.text)
     const file = join(home, '.config', 'one', 'worker.json')
     const text = readFileSync(file, 'utf8')
     assert.match(text, /"cloneDir": "~\/work\/clones"/)
     const written = sanitizeConfig(JSON.parse(text.replace(/^\/\/.*$/gm, '')), file, {}).config
-    assert.deepEqual(written.repos.map((r) => [r.name, r.claude.mcpServers]), [['billing', ['atlas', 'docs-kb']], ['legacy-app', []]])
+    assert.deepEqual(written.repos.map((r) => [r.name, r.claude.mcpServers]), [['billing', ['kb', 'docs-kb']], ['legacy-app', []]])
     assert.ok(written.cloneDir.endsWith(join('work', 'clones')), written.cloneDir)
     // One learns the names only
     await waitFor(() => tab.messages.filter((m) => m.type === 'welcome').length === 2)
@@ -292,11 +292,11 @@ describe('GitLab and own MCP servers', () => {
   })
 
   test('own MCP servers: read from worker.json (bad names left out), told to Claude in the prompt', () => {
-    const { config, problems } = sanitizeConfig({ repos: [{ name: 'a', path: '/tmp/a', claude: { mcpServers: ['atlas', 'bad name', 'one-task'] } }] }, '/tmp/cfg/worker.json')
-    assert.deepEqual(config.repos[0]!.claude.mcpServers, ['atlas'])
+    const { config, problems } = sanitizeConfig({ repos: [{ name: 'a', path: '/tmp/a', claude: { mcpServers: ['kb', 'bad name', 'one-task'] } }] }, '/tmp/cfg/worker.json')
+    assert.deepEqual(config.repos[0]!.claude.mcpServers, ['kb'])
     assert.equal(problems.filter((p) => /mcpServers/.test(p)).length, 2)
     const p = buildPrompt(task({ kind: 'plan' }), config.repos[0]!, 'one/x', 'c0de42')
-    assert.match(p, /their own MCP servers: atlas/)
+    assert.match(p, /their own MCP servers: kb/)
     const none = buildPrompt(task({ kind: 'plan' }), { ...config.repos[0]!, claude: { ...config.repos[0]!.claude, mcpServers: [] } }, 'one/x', 'c0de42')
     assert.ok(!/own MCP servers/.test(none))
   })

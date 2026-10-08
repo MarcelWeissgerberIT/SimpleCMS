@@ -8,7 +8,7 @@
  *    "pro Ticket eine Seite" → Sub-page per item (editor/split/items.ts).
  *  - 'todb': as a table / database / board — "als Tabelle", "turn this into a board" → offers Turn into database.
  *  - 'terminal': work beyond the selection — create pages or rows, update a database, anything that pulls from a
- *    connected MCP server ("for every ticket in Atlas …"), or a page action mixed with writing → the AI terminal.
+ *    connected MCP server ("for every ticket in the tracker …"), or a page action mixed with writing → the AI terminal.
  *  - null: a writing request (rewrite, summarise, translate, ask …) — it goes to Claude as before.
  *
  * Pure (no imports): the AI menu passes the enabled MCP server names.

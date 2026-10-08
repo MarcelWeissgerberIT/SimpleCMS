@@ -7,7 +7,9 @@
  * editor validates with line / column and JSON paths; profiles round-trip through export and import.
  * A mocked Claude API only — never api.anthropic.com; every MCP server is a fictional address nobody calls.
  */
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
+import { join, relative } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import type { Page } from '@playwright/test'
 import { test, expect, openApp, gotoPage, wsEval } from './fixtures'
 import { mockAgent, say, call, setKey, openTerminal, run as runTask, type AnyState } from './helpers/terminal'
@@ -668,5 +670,20 @@ test.describe('Integration profiles', () => {
     await setValue('{"x": "' + 'y'.repeat(410_000) + '"}')
     await expect(dialog.getByRole('alert')).toContainText('Not taken: too much text for a profile (at most 400,000 characters).')
     expect(await area.inputValue()).toBe(before)
+  })
+  test('One names no service: no server is preset or picked by a brand, in the app, its help, the server or the worker', () => {
+    const root = fileURLToPath(new URL('../..', import.meta.url))
+    const files: string[] = []
+    const walk = (dir: string) => {
+      for (const e of readdirSync(dir, { withFileTypes: true })) {
+        const p = join(dir, e.name)
+        if (e.isDirectory()) walk(p)
+        else if (/\.(ts|tsx|md|css)$/.test(e.name)) files.push(p)
+      }
+    }
+    for (const dir of ['src/app', 'src/help-site', 'server/src', 'mcp/src']) walk(join(root, dir))
+    // (the import names other tools' export formats on purpose — that is no preset)
+    const named = files.filter((f) => /\batlas\b|linear\.app/i.test(readFileSync(f, 'utf8')))
+    expect(named.map((f) => relative(root, f))).toEqual([])
   })
 })

@@ -895,7 +895,7 @@ export interface McpServerConfig {
    */
   codeword?: string
   /**
-   * Link address for the server's records ("https://atlas.example.com/"): relative links Claude copies
+   * Link address for the server's records ("https://kb.example.com/"): relative links Claude copies
    * from its results ("/r/11900") open there (lib/foreignLinks.ts). Absent = the server URL's origin
    * when it is the only enabled server. Not a secret.
    */

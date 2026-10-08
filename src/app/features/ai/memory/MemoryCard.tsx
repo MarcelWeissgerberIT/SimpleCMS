@@ -42,7 +42,7 @@ export function MemoryBodyView({ p, dup }: { p: MemoryProposal; dup?: Pick<Memor
   )
 }
 
-/** "CNSX, Atlas" ↔ ['CNSX', 'Atlas'] */
+/** "Website, Q3 launch" ↔ ['Website', 'Q3 launch'] */
 const topicsText = (list: string[]) => list.join(', ')
 const topicsOf = (s: string) => [...new Set(s.split(',').map((x) => x.trim()).filter(Boolean))].slice(0, 5)
 
@@ -91,7 +91,7 @@ export function MemoryEdit({ p, onSave, onCancel, saveLabel }: { p: MemoryPropos
       </label>
       <label className="mem-edit__field" htmlFor={`${id}-topics`}>
         <span className="mem-edit__k">{t('features.memory.edit.topics')}</span>
-        <input id={`${id}-topics`} className="input mem-edit__input" value={topics} onChange={(e) => setTopics(e.target.value)} placeholder="CNSX, Atlas" />
+        <input id={`${id}-topics`} className="input mem-edit__input" value={topics} onChange={(e) => setTopics(e.target.value)} placeholder={t('features.memory.topicsPh')} />
       </label>
       {type === 'procedure' && (
         <label className="mem-edit__field" htmlFor={`${id}-body`}>

@@ -35,7 +35,7 @@ When you use the [coding pipelines](help:coding-pipeline), Claude can read them 
 - Claude can't move a task to any stage, change Repo or Branch of a task, confirm it, change approvals, run git commands or edit the pipeline.
 
 ## Connect an MCP server
-`/connect` lists your [MCP servers](help:mcp-servers) and how they stand. `/connect atlas` (a name, a codeword like `kb:` or an address) signs in — the sign-in window opens right from your <kbd>Enter</kbd> — or only tests the server when its token works. `/connect https://…` adds a new server first. When a task fails because a server rejected its token, **Sign in to <server>** sits under it (or press <kbd>Enter</kbd> on the empty prompt); once connected, **Run the task again** (<kbd>Enter</kbd>) runs it with the new sign-in.
+`/connect` lists your [MCP servers](help:mcp-servers) and how they stand. `/connect wiki` (a name, a codeword like `kb:` or an address) signs in — the sign-in window opens right from your <kbd>Enter</kbd> — or only tests the server when its token works. `/connect https://…` adds a new server first. When a task fails because a server rejected its token, **Sign in to <server>** sits under it (or press <kbd>Enter</kbd> on the empty prompt); once connected, **Run the task again** (<kbd>Enter</kbd>) runs it with the new sign-in.
 
 ## It keeps working
 Hide the terminal with <kbd>Esc</kbd> or <kbd>Mod+J</kbd> and go on working — the task runs on. The status bar shows **AI · working** and then **AI · 3 changes to review**; a toast tells you when it is done, and a click brings the terminal back. Only **Stop** ends a task: <kbd>Mod+.</kbd>, <kbd>Ctrl+C</kbd> (with nothing selected), `/stop` or the Stop key. Proposals so far stay.

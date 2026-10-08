@@ -112,7 +112,7 @@ async function mockMediaHost(ctx: BrowserContext): Promise<string[]> {
 const setKey = (page: Page) => wsEval(page, (s) => s.updateSettings({ aiApiKey: 'sk-ant-e2e-test-key' }))
 
 const studio = (extra: AnyState = {}) => ({ id: 'srvstudio1', name: 'studio', url: 'https://mcp.studio.test/mcp', token: 'studio-e2e-token-0001', enabled: true, prompt: 'Makes images.', promptSource: 'auto', tools: ['generate_image', 'get_job'], checkedAt: 1, ...extra })
-const atlas = { id: 'srvatlas01', name: 'atlas', url: 'https://mcp.atlas.test/mcp', token: 'atlas-e2e-token-0001', enabled: true, prompt: 'Knowledge base.', promptSource: 'auto', tools: ['atlas_search'], checkedAt: 1 }
+const archive = { id: 'srvarch001', name: 'archive', url: 'https://mcp.archive.test/mcp', token: 'archive-e2e-token-0001', enabled: true, prompt: 'Knowledge base.', promptSource: 'auto', tools: ['archive_search'], checkedAt: 1 }
 
 const setServers = (page: Page, list: AnyState[]) => wsEval(page, (s, list) => s.updateSettings({ mcpServers: list }), list)
 
@@ -305,7 +305,7 @@ test.describe('media from MCP servers (mocked Claude API, made-up hosts)', () =>
     const hits = await mockMediaHost(context)
     await openApp(page)
     await setKey(page)
-    await setServers(page, [atlas, studio()])
+    await setServers(page, [archive, studio()])
     const id = await createPage(page, { title: 'Moodboard', content: doc(para('Lanterns for the window.'), para('')) })
     await gotoPage(page, id)
     const ed = editorOf(page, id)
@@ -367,7 +367,7 @@ test.describe('media from MCP servers (mocked Claude API, made-up hosts)', () =>
   test('an empty image block offers Generate…; without an image service the card says how to connect one', async ({ page }) => {
     await openApp(page)
     await setKey(page)
-    await setServers(page, [atlas])
+    await setServers(page, [archive])
     const id = await createPage(page, { title: 'Blank picture', content: doc(para('Above.'), { type: 'image', attrs: { src: null } }) })
     await gotoPage(page, id)
     await editorOf(page, id).getByTestId('image-generate').click()

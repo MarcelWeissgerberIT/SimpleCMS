@@ -14,7 +14,7 @@ const connectLine = (page: Page) => terminal(page).getByTestId('term-connect').l
 
 /** a server that wants a sign-in (its check was turned down) */
 const oauthy = (extra: AnyState = {}) => ({ id: 'srvoauth01', name: 'oauthy', url: MCP_URL, token: '', enabled: true, prompt: 'Looks things up.', promptSource: 'auto', checkError: 'The server rejected the token.', checkAuth: true, ...extra })
-const atlas = { id: 'srvatlas01', name: 'atlas', url: 'https://mcp.atlas.test/mcp', token: 'atlas-e2e-token-0001', enabled: true, prompt: 'Knowledge base.', promptSource: 'auto', tools: ['atlas_search'], checkedAt: 1, codeword: 'kb' }
+const archive = { id: 'srvarch001', name: 'archive', url: 'https://mcp.archive.test/mcp', token: 'archive-e2e-token-0001', enabled: true, prompt: 'Knowledge base.', promptSource: 'auto', tools: ['archive_search'], checkedAt: 1, codeword: 'kb' }
 
 /** the mcp_servers entry of a request for a server */
 const sent = (body: AnyState | undefined, name: string): AnyState | undefined => (body?.mcp_servers as AnyState[] | undefined)?.find((x) => x.name === name)
@@ -54,29 +54,29 @@ test.describe('AI terminal → /connect (mocked sign-in and API)', () => {
   })
 
   test('/connect alone lists the servers; /verbinden in German; Tab completes a server; a server whose token works is only tested — no window', async ({ page, context }) => {
-    const m = await mockAgent(context, [], { inspect: () => 'TOOLS: atlas_search, atlas_get\n---\nKnowledge base.' })
+    const m = await mockAgent(context, [], { inspect: () => 'TOOLS: archive_search, archive_get\n---\nKnowledge base.' })
     await openApp(page)
     await setKey(page)
-    await setServers(page, [atlas, oauthy()])
+    await setServers(page, [archive, oauthy()])
     let popups = 0
     context.on('page', () => popups++)
     await openTerminal(page)
     await run(page, '/connect')
     const list = terminal(page).getByTestId('term-servers')
-    await expect(list.locator('[data-server="atlas"]')).toContainText('kb:')
-    await expect(list.locator('[data-server="atlas"]')).toContainText('TOKEN')
+    await expect(list.locator('[data-server="archive"]')).toContainText('kb:')
+    await expect(list.locator('[data-server="archive"]')).toContainText('TOKEN')
     await expect(list.locator('[data-server="oauthy"]')).toContainText('SIGN-IN NEEDED')
     // Tab completes the name; Enter on the typed-out name runs it
-    await prompt(page).fill('/connect at')
-    await expect(terminal(page).locator('.term-complete')).toContainText('mcp.atlas.test')
+    await prompt(page).fill('/connect ar')
+    await expect(terminal(page).locator('.term-complete')).toContainText('mcp.archive.test')
     await prompt(page).press('Tab')
-    await expect(prompt(page)).toHaveValue('/connect atlas')
+    await expect(prompt(page)).toHaveValue('/connect archive')
     await prompt(page).press('Enter')
     const line = connectLine(page)
     await expect(line).toHaveAttribute('data-phase', 'ok')
     await expect(line).toContainText('Connected · 2 tools')
     expect(popups).toBe(0)
-    expect(sent(m.checks.at(-1), 'atlas')?.authorization_token).toBe('atlas-e2e-token-0001')
+    expect(sent(m.checks.at(-1), 'archive')?.authorization_token).toBe('archive-e2e-token-0001')
     // the codeword works too
     await run(page, '/connect kb:')
     await expect(terminal(page).getByTestId('term-connect')).toHaveCount(2)
@@ -297,9 +297,9 @@ test.describe('AI terminal → /connect (mocked sign-in and API)', () => {
     await mockOAuth(context)
     await mockAgent(context, [])
     await openApp(page)
-    await setServers(page, [atlas, oauthy()])
+    await setServers(page, [archive, oauthy()])
     await openTerminal(page)
-    await run(page, '/connect atlas')
+    await run(page, '/connect archive')
     const line = connectLine(page)
     await expect(line).toHaveAttribute('data-phase', 'ok')
     await expect(line).toContainText('Not tested yet — the connection is tested once Claude is connected')

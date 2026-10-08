@@ -256,15 +256,15 @@ test.describe('team cloud — custom agents', () => {
     await srv.getByRole('button', { name: 'Save key' }).click()
     await expect(srv.locator('.agx-secret').nth(1)).toContainText('Set · ••••wxyz')
     await srv.getByRole('button', { name: 'Add MCP server' }).click()
-    await srv.getByRole('textbox', { name: 'Name' }).fill('atlas')
-    await srv.getByRole('textbox', { name: 'Address (https)' }).fill('https://atlas.example.com/mcp')
-    await srv.getByLabel('Token').fill('atlas-token-0000000000001234')
+    await srv.getByRole('textbox', { name: 'Name' }).fill('archive')
+    await srv.getByRole('textbox', { name: 'Address (https)' }).fill('https://archive.example.com/mcp')
+    await srv.getByLabel('Token').fill('archive-token-0000000000001234')
     await srv.getByRole('button', { name: 'Save servers' }).click()
     await expect(a.getByText('MCP servers saved on the server')).toBeVisible()
     await srv.getByRole('switch', { name: 'Server runner' }).click()
     await expect(srv).toContainText('On')
     const rt = await a.evaluate(async (ws) => (await fetch(`/api/workspaces/${ws}/agent-runtime`)).json(), wsId)
-    expect(rt).toMatchObject({ enabled: true, available: true, claudeKey: { set: true, last4: 'wxyz' }, mcpServers: [{ name: 'atlas', url: 'https://atlas.example.com/mcp', token: { set: true, last4: '1234' } }] })
+    expect(rt).toMatchObject({ enabled: true, available: true, claudeKey: { set: true, last4: 'wxyz' }, mcpServers: [{ name: 'archive', url: 'https://archive.example.com/mcp', token: { set: true, last4: '1234' } }] })
     expect(JSON.stringify(rt)).not.toContain('0000000000000000wxyz')
     await a.keyboard.press('Escape')
 
@@ -278,7 +278,7 @@ test.describe('team cloud — custom agents', () => {
 
     // mocked runs: one staged run with a change to the row; run now; resolve
     const now = Date.now()
-    const staged = { id: 'run-1', agentId: 'ag-srv', runner: 'server', trigger: { type: 'schedule', detail: 'schedule 09:00' }, startedAt: now - 60_000, endedAt: now - 30_000, status: 'staged', summary: 'Moved **Big deal** forward.', steps: [{ kind: 'tool', label: 'Query · Deals', state: 'ok' }, { kind: 'mcp', label: 'ATLAS · search', state: 'ok' }], staged: [{ id: 'c1', n: 1, kind: 'update_row', status: 'pending', pageId: ids.row, databaseId: ids.db, title: 'Big deal', props: [{ propId: 'dStage', name: 'Stage', type: 'text', before: 'lead', after: 'won', intent: { kind: 'value', value: 'won' } }] }], usage: { input: 9000, output: 400, cacheRead: 0, usd: 0.044 } }
+    const staged = { id: 'run-1', agentId: 'ag-srv', runner: 'server', trigger: { type: 'schedule', detail: 'schedule 09:00' }, startedAt: now - 60_000, endedAt: now - 30_000, status: 'staged', summary: 'Moved **Big deal** forward.', steps: [{ kind: 'tool', label: 'Query · Deals', state: 'ok' }, { kind: 'mcp', label: 'ARCHIVE · search', state: 'ok' }], staged: [{ id: 'c1', n: 1, kind: 'update_row', status: 'pending', pageId: ids.row, databaseId: ids.db, title: 'Big deal', props: [{ propId: 'dStage', name: 'Stage', type: 'text', before: 'lead', after: 'won', intent: { kind: 'value', value: 'won' } }] }], usage: { input: 9000, output: 400, cacheRead: 0, usd: 0.044 } }
     const resolved: AnyState[] = []
     let started = 0
     await a.route('**/api/workspaces/*/agent-runs?*', (route: Route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([staged]) }))
@@ -294,7 +294,7 @@ test.describe('team cloud — custom agents', () => {
     await a.evaluate(() => (window.location.hash = '#/agents/ag-srv'))
     const run = a.locator('.agx-run').first()
     await expect(run).toHaveAttribute('data-status', 'staged')
-    await expect(run.locator('.agx-step[data-kind="mcp"]')).toContainText('ATLAS · search')
+    await expect(run.locator('.agx-step[data-kind="mcp"]')).toContainText('ARCHIVE · search')
     await expect(a.getByTestId('agents-review')).toContainText('01')
     await run.getByRole('button', { name: 'Apply all' }).click()
     await expect.poll(() => wsEval(a, (s, row) => s.pages[row].properties.dStage, ids.row)).toBe('won')

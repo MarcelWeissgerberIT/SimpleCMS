@@ -212,7 +212,7 @@ export const SETUP_JS = String.raw`(function () {
     pr: 'Pull / merge requests (gh · glab)',
     limit: 'Cost limit per task (USD)',
     mcpLabel: 'Own MCP servers for Claude Code',
-    mcpHint: 'Names as “claude mcp list” shows them, e.g. atlas — this repo\'s stages may use their tools (a knowledge base, a design system). Empty: only One\'s task tools.',
+    mcpHint: 'Names as “claude mcp list” shows them, e.g. kb — this repo\'s stages may use their tools (a knowledge base, a design system). Empty: only One\'s task tools.',
     clone: 'Clone from GitLab / GitHub…',
     cloneUrl: 'Clone address — on the project page under Clone (HTTPS or SSH)',
     cloneDir: 'Into the folder',
@@ -257,7 +257,7 @@ export const SETUP_JS = String.raw`(function () {
     savedOne: 'Saved — One sees 1 repository now.',
     savedNone: 'Saved — no repositories: this worker takes only document tasks without a repository (Business analysis, QA).',
     wmcpLabel: 'Tasks without a repository — own MCP servers',
-    wmcpHint: 'Business analysis / QA tasks without a repo run here with these servers (names as “claude mcp list” shows them, e.g. atlas).',
+    wmcpHint: 'Business analysis / QA tasks without a repo run here with these servers (names as “claude mcp list” shows them, e.g. kb).',
     writes: 'writes {file}',
     status: '§ STATUS',
     one: 'One',
@@ -316,7 +316,7 @@ export const SETUP_JS = String.raw`(function () {
     pr: 'Pull / Merge Requests (gh · glab)',
     limit: 'Kostengrenze pro Aufgabe (USD)',
     mcpLabel: 'Eigene MCP-Server für Claude Code',
-    mcpHint: 'Namen wie in „claude mcp list“, z. B. atlas – die Stufen dieses Repos dürfen ihre Tools nutzen (eine Wissensbasis, ein Designsystem). Leer: nur die Aufgaben-Tools von One.',
+    mcpHint: 'Namen wie in „claude mcp list“, z. B. kb – die Stufen dieses Repos dürfen ihre Tools nutzen (eine Wissensbasis, ein Designsystem). Leer: nur die Aufgaben-Tools von One.',
     clone: 'Von GitLab / GitHub klonen …',
     cloneUrl: 'Klon-Adresse – auf der Projektseite unter „Clone“ (HTTPS oder SSH)',
     cloneDir: 'In den Ordner',
@@ -361,7 +361,7 @@ export const SETUP_JS = String.raw`(function () {
     savedOne: 'Gespeichert – One sieht jetzt 1 Repository.',
     savedNone: 'Gespeichert – keine Repositories: Dieser Worker nimmt nur Dokument-Aufgaben ohne Repository (Business-Analyse, QA).',
     wmcpLabel: 'Aufgaben ohne Repository – eigene MCP-Server',
-    wmcpHint: 'Business-Analyse- / QA-Aufgaben ohne Repo laufen hier mit diesen Servern (Namen wie in „claude mcp list“, z. B. atlas).',
+    wmcpHint: 'Business-Analyse- / QA-Aufgaben ohne Repo laufen hier mit diesen Servern (Namen wie in „claude mcp list“, z. B. kb).',
     writes: 'schreibt {file}',
     status: '§ STATUS',
     one: 'One',
@@ -546,7 +546,7 @@ export const SETUP_JS = String.raw`(function () {
       el('div', { className: 'field' }, [el('label', { className: 'label', for: id + 'a', text: t('analyzeLabel') }), el('input', { type: 'text', id: id + 'a', value: e.analyze, spellcheck: 'false', autocomplete: 'off', oninput: function (ev) { e.analyze = ev.target.value } }), el('span', { className: 'hint', text: t('analyzeHint') })]),
       el('div', { className: 'field field--wide' }, [el('div', { className: 'toggles' }, toggles)]),
       el('div', { className: 'field' }, [el('div', { className: 'limit' }, [el('label', { className: 'label', for: id + 'l', text: t('limit') }), el('input', { type: 'number', id: id + 'l', min: '0', step: '0.5', value: e.limit, placeholder: t('noLimit'), inputmode: 'decimal', oninput: function (ev) { e.limit = ev.target.value } })])]),
-      el('div', { className: 'field field--wide' }, [el('label', { className: 'label', for: id + 'm', text: t('mcpLabel') }), el('input', { type: 'text', id: id + 'm', value: e.mcp, placeholder: 'atlas', spellcheck: 'false', autocomplete: 'off', oninput: function (ev) { e.mcp = ev.target.value } }), el('span', { className: 'hint', text: t('mcpHint') })])
+      el('div', { className: 'field field--wide' }, [el('label', { className: 'label', for: id + 'm', text: t('mcpLabel') }), el('input', { type: 'text', id: id + 'm', value: e.mcp, placeholder: 'kb', spellcheck: 'false', autocomplete: 'off', oninput: function (ev) { e.mcp = ev.target.value } }), el('span', { className: 'hint', text: t('mcpHint') })])
     ])
   }
 
@@ -603,7 +603,7 @@ export const SETUP_JS = String.raw`(function () {
     app.appendChild(list)
     app.appendChild(el('div', { className: 'field field--wide wmcp' }, [
       el('label', { className: 'label', for: 'wmcp', text: t('wmcpLabel') }),
-      el('input', { type: 'text', id: 'wmcp', value: wmcpText === null ? (state.mcpServers || []).join(', ') : wmcpText, placeholder: 'atlas', spellcheck: 'false', autocomplete: 'off', oninput: function (ev) { wmcpText = ev.target.value } }),
+      el('input', { type: 'text', id: 'wmcp', value: wmcpText === null ? (state.mcpServers || []).join(', ') : wmcpText, placeholder: 'kb', spellcheck: 'false', autocomplete: 'off', oninput: function (ev) { wmcpText = ev.target.value } }),
       el('span', { className: 'hint', text: t('wmcpHint') })
     ]))
     app.appendChild(statusPanel())

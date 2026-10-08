@@ -3,7 +3,7 @@ id: explain-code
 title: Explain legacy code in One documents
 section: ai
 order: 12
-keywords: explain code, legacy, old software, documentation, docs, document, understand, onboarding, component, module, architecture, page tree, static analysis, lint, linter, eslint, dotnet build, go vet, clippy, ruff, documentation check, doc check, knowledge base, atlas, Code erklären, Altsoftware, Dokumentation, Komponenten, statische Analyse, Doku-Check
+keywords: explain code, legacy, old software, documentation, docs, document, understand, onboarding, component, module, architecture, page tree, static analysis, lint, linter, eslint, dotnet build, go vet, clippy, ruff, documentation check, doc check, knowledge base, Code erklären, Altsoftware, Dokumentation, Komponenten, statische Analyse, Doku-Check
 related: legacy-modernisation, coding-pipeline, pipelines, review-merge
 summary: Turn a codebase nobody understands into One pages — an overview, the static analysis, a page per component and a check of the documentation that exists. Nothing in the repository changes.
 ---
@@ -29,6 +29,6 @@ On the worker's setup page each repository has a **Static analysis** field — p
 Any pipeline can have it: in **Pipeline**, add a stage of the kind **Static analysis** — e.g. before a plan or a review.
 
 ## Your knowledge base
-With your own MCP servers for Claude Code (setup page → *Own MCP servers for Claude Code*, e.g. `atlas`), every stage reads what is already known about the code first, and can record what it found.
+With your own MCP servers for Claude Code (setup page → *Own MCP servers for Claude Code*, e.g. `kb`), every stage reads what is already known about the code first, and can record what it found.
 
 > Tip: big code — start with one module in the goal. **Transform into** turns a section into a diagram or a table; **Copy for AI context** hands a page to any other AI.

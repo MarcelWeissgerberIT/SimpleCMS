@@ -3,7 +3,7 @@ id: legacy-modernisation
 title: Altsoftware modernisieren
 section: ai
 order: 10
-keywords: altsoftware, legacy, alter code, modernisieren, neu bauen, neubau, migration, zip, import, klonen, gitlab, github, glab, gh, code-analyse, architektur, design, testentwurf, charakterisierungstests, atlas, wissensbasis, mcp
+keywords: altsoftware, legacy, alter code, modernisieren, neu bauen, neubau, migration, zip, import, klonen, gitlab, github, glab, gh, code-analyse, architektur, design, testentwurf, charakterisierungstests, wissensbasis, mcp
 related: explain-code, coding-pipeline, pipelines, review-merge, mcp-servers, agent
 summary: Von einer ZIP oder einem GitLab-Projekt zur neu gebauten Version — Analyse, Design und Testentwurf als Abschnitte einer Seite in One, Tests, die das heutige Verhalten festhalten, dann der Neubau.
 ---
@@ -34,9 +34,9 @@ Jede Plan-Stufe schreibt ihren eigenen Abschnitt in die Seite (*Analyse*, *Desig
 ## 3. Die Aufgabe
 **Neue Aufgabe**: das importierte Repository als **Repo**, das Ziel in ein paar Zeilen – z. B. *Verstehe das Abrechnungsmodul und baue es als typisierten Webdienst mit einer klaren Oberfläche neu. Die Rechnungsregeln bleiben.* **Freigaben**: *Plan und Review freigeben* hält nach dem Konzept an; *Nur Review* läuft bis zum Review durch.
 
-## 4. Deine Wissensbasis (z. B. Atlas)
-- **Claude Code auf dem Worker**: auf der Setup-Seite den Server unter *Eigene MCP-Server für Claude Code* eintragen (der Name aus `claude mcp list`, z. B. `atlas`). Die Stufen dürfen dann lesen, was über den Code bekannt ist, und Erkenntnisse und Entscheidungen festhalten.
-- **In One**: das KI-Terminal (<kbd>Mod+J</kbd>) mit dem Codewort des Servers – z. B. `atlas: halte die Risiken dieser Analyse fest` – siehe [MCP-Server](help:mcp-servers).
+## 4. Deine Wissensbasis
+- **Claude Code auf dem Worker**: auf der Setup-Seite den Server unter *Eigene MCP-Server für Claude Code* eintragen (der Name aus `claude mcp list`, z. B. `kb`). Die Stufen dürfen dann lesen, was über den Code bekannt ist, und Erkenntnisse und Entscheidungen festhalten.
+- **In One**: das KI-Terminal (<kbd>Mod+J</kbd>) mit dem Codewort des Servers – z. B. `kb: halte die Risiken dieser Analyse fest` – siehe [MCP-Server](help:mcp-servers).
 
 ## Nur verstehen?
 Um den Code zu erklären, ohne ihn neu zu bauen – eine One-Seite je Komponente, ein Doku-Check – nimm die Vorlage **Code erklären**: [Altsoftware in One-Dokumenten erklären](help:explain-code).

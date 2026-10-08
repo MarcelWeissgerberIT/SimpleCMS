@@ -343,18 +343,18 @@ test.describe('workspaces', () => {
     await field.press('Enter')
     await expect(page.getByRole('alert').filter({ hasText: 'A name is needed' })).toBeVisible()
     await expect(field).toHaveAttribute('aria-invalid', 'true')
-    await field.fill('  Atlas    Labs ')
+    await field.fill('  Cobalt    Labs ')
     await field.press('Enter')
-    await expect(name).toHaveText('Atlas Labs')
+    await expect(name).toHaveText('Cobalt Labs')
     await expect(head).toBeFocused()
-    await expect(page).toHaveTitle(/ — Atlas Labs$/)
-    expect(await wsEval(page, (s) => s.settings.workspaceName)).toBe('Atlas Labs')
+    await expect(page).toHaveTitle(/ — Cobalt Labs$/)
+    expect(await wsEval(page, (s) => s.settings.workspaceName)).toBe('Cobalt Labs')
 
     // F2 on the header, then Esc: nothing changes; a double click opens the field too
     await head.press('F2')
     await field.fill('Nope')
     await field.press('Escape')
-    await expect(name).toHaveText('Atlas Labs')
+    await expect(name).toHaveText('Cobalt Labs')
     // a person's double click: the first click opens the menu, the second lands on the name again
     const box = (await head.boundingBox())!
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
@@ -368,29 +368,29 @@ test.describe('workspaces', () => {
     await expect(page.locator('[data-popover][role="menu"]')).toHaveCount(0)
 
     // the bridge has the new name; every answer names the workspace
-    await expect.poll(async () => (json(await call('one_list_workspaces')).workspaces as Listed[])[0]?.name).toBe('Atlas Labs')
+    await expect.poll(async () => (json(await call('one_list_workspaces')).workspaces as Listed[])[0]?.name).toBe('Cobalt Labs')
     const ov = json(await call('one_overview'))
-    expect(ov.workspace).toMatchObject({ name: 'Atlas Labs', kind: 'local' })
+    expect(ov.workspace).toMatchObject({ name: 'Cobalt Labs', kind: 'local' })
     expect(ov.workspace.id).toMatch(/^local:[0-9a-z]{11}$/)
-    const found = json(await call('one_search', { query: 'Team wiki', workspace: 'atlas labs' }))
-    expect(found.workspace).toEqual({ id: ov.workspace.id, name: 'Atlas Labs' })
+    const found = json(await call('one_search', { query: 'Team wiki', workspace: 'cobalt labs' }))
+    expect(found.workspace).toEqual({ id: ov.workspace.id, name: 'Cobalt Labs' })
 
     // Settings → Agents · MCP: "Connected as" with the id's short form; Workspace settings have the same name (≤ 60)
     await openAgentsTab(page)
     const as = page.getByTestId('mcp-as')
     await expect(as).toContainText('Connected as')
-    await expect(as).toContainText('Atlas Labs')
+    await expect(as).toContainText('Cobalt Labs')
     await expect(as.locator('code')).toHaveText(`${ov.workspace.id.slice(0, 14)}…`)
     await page.keyboard.press('Escape')
     await page.evaluate(() => (window.location.hash = '#/workspace'))
     const setting = page.getByTestId('workspace-page').getByLabel('Workspace name')
-    await expect(setting).toHaveValue('Atlas Labs')
+    await expect(setting).toHaveValue('Cobalt Labs')
     await expect(setting).toHaveAttribute('maxlength', '60')
   })
 
   test('two workspaces at once: addressed by name or id, never guessed; ids of one are not found in the other', async ({ page, browser, errors }) => {
     await openApp(page)
-    await wsEval(page, (s) => s.updateSettings({ workspaceName: 'Atlas' }))
+    await wsEval(page, (s) => s.updateSettings({ workspaceName: 'Cobalt' }))
     await connect(page)
     await page.getByRole('radio', { name: 'Apply directly' }).click()
 
@@ -407,14 +407,14 @@ test.describe('workspaces', () => {
     const list = json(await call('one_list_workspaces')).workspaces as Listed[]
     expect(list.map((w) => [w.name, w.kind, w.mode, w.newest])).toEqual([
       ['Borealis', 'local', 'apply', true],
-      ['Atlas', 'local', 'apply', false],
+      ['Cobalt', 'local', 'apply', false],
     ])
     const [b, a] = list
     expect(a.id).not.toBe(b.id)
 
     // the first tab notes the other workspace; the second the first
     await expect(page.getByTestId('mcp-peers')).toContainText('Also connected in another tab: “Borealis” (local)')
-    await expect(p2.getByTestId('mcp-peers')).toContainText('“Atlas” (local)')
+    await expect(p2.getByTestId('mcp-peers')).toContainText('“Cobalt” (local)')
 
     // without "workspace": refused, nothing written anywhere
     const guess = await call('one_create_page', { title: 'Where am I?' })
@@ -427,18 +427,18 @@ test.describe('workspaces', () => {
     expect(await wsEval(p2, (s, id) => s.pages[id]?.title, made.id)).toBe('Only in Borealis')
     expect(await wsEval(page, (s, id) => !!s.pages[id] || Object.values(s.pages).some((p: any) => p.title === 'Only in Borealis'), made.id)).toBe(false) // eslint-disable-line @typescript-eslint/no-explicit-any
 
-    // by id: Atlas — and Borealis' page id means nothing there
+    // by id: Cobalt — and Borealis' page id means nothing there
     const cross = await call('one_get_page', { id: made.id, workspace: a.id })
     expect(cross.isError).toBe(true)
     expect(text(cross)).toContain(`No page with id "${made.id}"`)
     const inA = json(await call('one_overview', { workspace: a.id }))
-    expect(inA.workspace).toMatchObject({ id: a.id, name: 'Atlas' })
+    expect(inA.workspace).toMatchObject({ id: a.id, name: 'Cobalt' })
     expect(inA.counts.pages).toBe(await wsEval(page, (s) => Object.values(s.pages).filter((p: any) => p.kind === 'page' && !p.databaseId && !p.trashed).length)) // eslint-disable-line @typescript-eslint/no-explicit-any
 
-    // Borealis leaves: Atlas is alone again, the note goes
+    // Borealis leaves: Cobalt is alone again, the note goes
     await ctx.close()
     await expect(page.getByTestId('mcp-peers')).toHaveCount(0)
-    await expect.poll(async () => (json(await call('one_list_workspaces')).workspaces as Listed[]).map((w) => w.name)).toEqual(['Atlas'])
+    await expect.poll(async () => (json(await call('one_list_workspaces')).workspaces as Listed[]).map((w) => w.name)).toEqual(['Cobalt'])
   })
 
   test('a change waiting for approval is cancelled when the tab switches workspace — nothing is written', async ({ page }) => {

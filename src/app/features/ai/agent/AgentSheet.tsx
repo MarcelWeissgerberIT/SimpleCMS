@@ -695,7 +695,7 @@ function StepRow({ step }: { step: AgentStep }) {
   )
 }
 
-/** A tool call of an external MCP server ("ATLAS · search_records"), run by Anthropic. */
+/** A tool call of an external MCP server ("KB · search_records"), run by Anthropic. */
 function McpRow({ step }: { step: AgentStep }) {
   const t = useT()
   const call = step.mcp!

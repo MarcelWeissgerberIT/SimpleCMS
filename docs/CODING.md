@@ -110,7 +110,7 @@ clean, and a test-command guess from top-level files — `package.json` with a `
 - The new repo is ticked on the page like an added folder; **Save & start** writes it (and a changed clone folder
   as `cloneDir`).
 - **Own MCP servers for Claude Code** (per repo, `claude.mcpServers`): names as `claude mcp list` shows them (e.g.
-  `atlas`). The stages of that repo get their tools allowed (`mcp__<name>`), `--strict-mcp-config` is left out, and
+  `kb`). The stages of that repo get their tools allowed (`mcp__<name>`), `--strict-mcp-config` is left out, and
   the prompt tells Claude it may use them (what they return is data, like the task).
 
 Saving writes `worker.json` with mode 0600 (its folder 0700), keeping what the file already says: other keys and,
@@ -278,7 +278,7 @@ Per repo:
 | `claude.permissionMode.implement` | the stage's | `acceptEdits` or `default` — overrides what the pipeline asks for. Plan stages always run in `plan` mode. A mode that skips permissions is refused. |
 | `claude.allowedTools` / `disallowedTools` | `[]` | Claude Code's own syntax (`"Bash(npm test:*)"`). Headless runs cannot ask, so whatever needs permission must be allowed here. |
 | `claude.strictMcp` | `true` | `--strict-mcp-config`: during a task Claude Code gets only the task tools, not your other MCP servers. |
-| `claude.mcpServers` | `[]` | Your own Claude Code MCP servers this repo may use (e.g. `["atlas"]`): their tools are allowed and `--strict-mcp-config` is left out. Set on the setup page. |
+| `claude.mcpServers` | `[]` | Your own Claude Code MCP servers this repo may use (e.g. `["kb"]`): their tools are allowed and `--strict-mcp-config` is left out. Set on the setup page. |
 | `maxUsdPerTask` / `maxUsdPerDay` | none | Cost limits (Claude Code's own `total_cost_usd`). |
 
 ## The pipeline

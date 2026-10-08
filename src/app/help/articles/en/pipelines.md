@@ -3,7 +3,7 @@ id: pipelines
 title: Business analysis and QA pipelines
 section: ai
 order: 11
-keywords: project, projects, new project, delete project, stories, user stories, epic, Projekt, Projekt löschen, copy for ai, ai context, clipboard, Für KI-Kontext kopieren, business analysis, ba, spec, specification, sdd, software design document, requirements, analysis, qa, quality assurance, test cases, test design, then, follow-up, chain, pipeline, document stage, import stage, zip, clone, reference, mention, knowledge base, atlas, mcp, Business-Analyse, Spezifikation, Anforderungen, Testfälle, Danach, Folgeaufgabe
+keywords: project, projects, new project, delete project, stories, user stories, epic, Projekt, Projekt löschen, copy for ai, ai context, clipboard, Für KI-Kontext kopieren, business analysis, ba, spec, specification, sdd, software design document, requirements, analysis, qa, quality assurance, test cases, test design, then, follow-up, chain, pipeline, document stage, import stage, zip, clone, reference, mention, knowledge base, mcp, Business-Analyse, Spezifikation, Anforderungen, Testfälle, Danach, Folgeaufgabe
 related: coding-pipeline, legacy-modernisation, explain-code, review-merge, mcp-servers
 summary: Next to Coding: a Business analysis pipeline that writes analyses and specifications, a QA pipeline that designs test cases — each on its own, or chained.
 ---
@@ -14,7 +14,7 @@ summary: Next to Coding: a Business analysis pipeline that writes analyses and s
 1. **Analysis** — context, stakeholders, requirements (FR / NFR, each testable), business rules, open questions, risks.
 2. **Specification** — scope, user stories with acceptance criteria, flows (mermaid), data model, interfaces, traceability.
 3. **Approve spec** — read both sections in the page; **Rework…** sends a note back.
-4. **Record** — with your knowledge-base MCP servers (e.g. `atlas`), Claude Code records the approved result there and writes a short summary.
+4. **Record** — with your knowledge-base MCP servers (e.g. `kb`), Claude Code records the approved result there and writes a short summary.
 
 ## QA
 **#/coding/qa.** The **Test cases** stage writes a test strategy and coverage — and its test cases become rows of the **Test cases** database (ID, status *Not run*, priority, test type, area, preconditions, steps, expected result), each linked to its task. Then **Approve test cases** and **Record**.

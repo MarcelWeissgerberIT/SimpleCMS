@@ -12,7 +12,7 @@ async function setServers(page: Page, servers: object[]): Promise<void> {
   await wsEval(page, (s, list) => s.updateSettings({ mcpServers: list }), servers)
 }
 
-const atlas = (extra: object = {}) => ({ id: 'srvatlas01', name: 'atlas', url: 'https://mcp.atlas.example.test/mcp', token: '', enabled: true, prompt: 'Use atlas_search.', checkedAt: 1, ...extra })
+const archive = (extra: object = {}) => ({ id: 'srvarch001', name: 'archive', url: 'https://mcp.archive.example.test/mcp', token: '', enabled: true, prompt: 'Use archive_search.', checkedAt: 1, ...extra })
 
 async function hoverCard(page: Page, id: string, text: string) {
   await editorOf(page, id).getByText(text).hover()
@@ -24,21 +24,21 @@ async function hoverCard(page: Page, id: string, text: string) {
 test.describe('foreign links (MCP record links)', () => {
   test('a relative record link opens at the MCP server, not at One; the hover card shows where', async ({ page, context }) => {
     await openApp(page)
-    await setServers(page, [atlas()])
-    const id = await createPage(page, { title: 'Atlas topic', content: doc(linkPara('#11900', '/r/11900')) })
+    await setServers(page, [archive()])
+    const id = await createPage(page, { title: 'Archive topic', content: doc(linkPara('#11900', '/r/11900')) })
     await gotoPage(page, id)
     const card = await hoverCard(page, id, '#11900')
     const target = card.locator('.link-hover__target')
-    await expect(target).toHaveAttribute('href', 'https://mcp.atlas.example.test/r/11900')
-    await expect(target).toContainText('atlas.example.test')
+    await expect(target).toHaveAttribute('href', 'https://mcp.archive.example.test/r/11900')
+    await expect(target).toContainText('archive.example.test')
     // the click opens a new tab at the server — never One's own /r/11900
-    await context.route('https://mcp.atlas.example.test/**', (route) => route.fulfill({ status: 200, contentType: 'text/html', body: '<title>Atlas</title>' }))
+    await context.route('https://mcp.archive.example.test/**', (route) => route.fulfill({ status: 200, contentType: 'text/html', body: '<title>Archive</title>' }))
     const [popup] = await Promise.all([page.waitForEvent('popup'), target.click()])
-    expect(popup.url()).toBe('https://mcp.atlas.example.test/r/11900')
+    expect(popup.url()).toBe('https://mcp.archive.example.test/r/11900')
     await popup.close()
     // Mod+click on the link in the text does the same
     const [again] = await Promise.all([page.waitForEvent('popup'), editorOf(page, id).getByText('#11900').click({ modifiers: [MOD === 'Meta' ? 'Meta' : 'Control'] })])
-    expect(again.url()).toBe('https://mcp.atlas.example.test/r/11900')
+    expect(again.url()).toBe('https://mcp.archive.example.test/r/11900')
     await again.close()
     // a plain click while editing only places the caret: no tab
     let opened = false
@@ -51,23 +51,23 @@ test.describe('foreign links (MCP record links)', () => {
 
   test('the link address in Settings wins; it is checked; Claude is told to write absolute links', async ({ page, context }) => {
     await openApp(page)
-    await setServers(page, [atlas()])
+    await setServers(page, [archive()])
     await page.evaluate(() => (window as unknown as { __one: { ui: { getState: () => { openModal: (m: object) => void } } } }).__one.ui.getState().openModal({ type: 'settings', tab: 'ai' }))
     const field = page.getByTestId('mcp-link-base').first()
     if (!(await field.isVisible())) await page.getByRole('button', { name: /Details/ }).first().click()
     await field.fill('ftp://nope')
     await expect(page.getByText('An address starting with https:// (or http://)')).toBeVisible()
-    await field.fill('https://atlas.example.test/app')
+    await field.fill('https://archive.example.test/app')
     await field.locator('xpath=ancestor::form[1]').getByRole('button', { name: 'Save' }).click()
-    await expect.poll(() => wsEval(page, (s) => s.settings.mcpServers?.[0]?.linkBase)).toBe('https://atlas.example.test/app/')
+    await expect.poll(() => wsEval(page, (s) => s.settings.mcpServers?.[0]?.linkBase)).toBe('https://archive.example.test/app/')
     await page.keyboard.press('Escape')
-    const id = await createPage(page, { title: 'Atlas topic', content: doc(linkPara('Buttons improvements', 'r/12446')) })
+    const id = await createPage(page, { title: 'Archive topic', content: doc(linkPara('Buttons improvements', 'r/12446')) })
     await gotoPage(page, id)
     const card = await hoverCard(page, id, 'Buttons improvements')
-    await expect(card.locator('.link-hover__target')).toHaveAttribute('href', 'https://atlas.example.test/app/r/12446')
-    await context.route('https://atlas.example.test/**', (route) => route.fulfill({ status: 200, contentType: 'text/html', body: '<title>Atlas</title>' }))
+    await expect(card.locator('.link-hover__target')).toHaveAttribute('href', 'https://archive.example.test/app/r/12446')
+    await context.route('https://archive.example.test/**', (route) => route.fulfill({ status: 200, contentType: 'text/html', body: '<title>Archive</title>' }))
     const [popup] = await Promise.all([page.waitForEvent('popup'), card.locator('.link-hover__target').click()])
-    expect(popup.url()).toBe('https://atlas.example.test/app/r/12446')
+    expect(popup.url()).toBe('https://archive.example.test/app/r/12446')
   })
 
   test('without a known address: the link stays in One and says what to set (EN + DE); One links are untouched', async ({ page }) => {

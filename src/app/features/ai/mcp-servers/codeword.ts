@@ -18,7 +18,7 @@ const CODEWORD_RE = /^[a-z0-9_-]+$/
 /** A leading "<word>:" (the colon right after the word, any space after it). */
 const PREFIX_RE = /^\s*([a-z0-9_-]{1,24}):\s*/i
 
-/** What was typed, as a codeword: trimmed, lower case, without the colon ("Atlas:" → "atlas"). */
+/** What was typed, as a codeword: trimmed, lower case, without the colon ("KB:" → "kb"). */
 export function normalizeCodeword(raw: string): string {
   return raw.trim().toLowerCase().replace(/:+$/, '').trim()
 }

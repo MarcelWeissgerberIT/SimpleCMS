@@ -69,7 +69,7 @@ export type { TransformPick } from './ai/transform/types'
 export { McpServers } from './ai/mcp-servers/McpServers'
 /*
  * MCP server codewords ("kb: …" in a free-form request — runAI applies them): CodewordChip { text } = the
- * "→ ATLAS" chip next to a prompt input · McpSkippedNote { calls } = the note for an addressed server that
+ * "→ KB" chip next to a prompt input · McpSkippedNote { calls } = the note for an addressed server that
  * stayed out (calls = what runAI's onMcp reported; McpCall entries with `skipped`)
  */
 export { CodewordChip, McpSkippedNote } from './ai/mcp-servers/Codeword'

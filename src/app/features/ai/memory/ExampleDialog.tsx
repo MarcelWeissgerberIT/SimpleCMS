@@ -139,7 +139,7 @@ export function ExampleDialog({ pageId, tag: initial, blocks, onClose }: { pageI
         </label>
         <label className="mem-ex__field">
           <span className="label">{t('features.memory.example.topics')}</span>
-          <input className="input" value={topics} placeholder="CNSX, Atlas" onChange={(e) => setTopics(e.target.value)} disabled={busy} />
+          <input className="input" value={topics} placeholder={t('features.memory.topicsPh')} onChange={(e) => setTopics(e.target.value)} disabled={busy} />
         </label>
         <p className="mem-ex__note">{t('features.memory.example.explain')}</p>
         {error && (

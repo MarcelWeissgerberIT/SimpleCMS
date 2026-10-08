@@ -2,12 +2,12 @@
  * "A sub-page for every ticket, linked in a table on the main page" — the AI terminal and the AI menu.
  *
  *  - AI terminal: create_pages stages one page per item in ONE call (ids back in order), the table on the
- *    open page links them; after Apply the links are page mentions that open the sub-page. A mocked Atlas
+ *    open page links them; after Apply the links are page mentions that open the sub-page. A mocked Archive
  *    MCP server (made-up URL; Anthropic runs MCP calls inside the response, so only api.anthropic.com is
  *    mocked) returns 30 tickets. The tool-call limit ends a task as "Limit reached" with Continue (key,
  *    ↵ on an empty prompt, /continue, /weiter): the same task, a fresh budget, nothing staged twice.
  *  - AI menu: an own request is routed by its words — "make a sub-page out of this" runs Turn into page,
- *    "one page per item" runs Sub-page per item, "as a board" offers Turn into database, work in Atlas
+ *    "one page per item" runs Sub-page per item, "as a board" offers Turn into database, work in Archive
  *    goes to the AI terminal (with the selection as a reference); a writing request stays a request.
  *  - Sub-page per item (no Claude): a bullet list with nested details, heading sections, a table; the
  *    toast's Undo and ⌘Z; a private parent; 390 px.
@@ -94,7 +94,7 @@ const lastUserText = (body: AnyState) => JSON.stringify((body.messages as AnySta
 /* ------------------------------------------------------------------ */
 
 const KEY = 'sk-ant-e2e-test-key'
-const ATLAS = { id: 'srvatlas01', name: 'atlas', url: 'https://mcp.example.test/api/atlas/mcp', token: 'atlas-e2e-token-ppi-0001', enabled: true, prompt: 'Atlas is the team tracker. Find tickets with atlas_search.', promptSource: 'auto', tools: ['atlas_search'], checkedAt: 1 }
+const ARCHIVE = { id: 'srvarch001', name: 'archive', url: 'https://mcp.example.test/api/archive/mcp', token: 'archive-e2e-token-ppi-0001', enabled: true, prompt: 'Archive is the team tracker. Find tickets with archive_search.', promptSource: 'auto', tools: ['archive_search'], checkedAt: 1 }
 
 const STATUS = ['Open', 'In progress', 'Done']
 const OWNER = ['Ana', 'Ben', 'Cleo']
@@ -203,17 +203,17 @@ const TICKET_LIST = ul(
 /* ------------------------------------------------------------------ */
 
 test.describe('Pages per item', () => {
-  test('AI terminal + mocked Atlas MCP: 30 tickets → create_pages (one call) + a table on the open page; Apply → 30 sub-pages, the table links them', async ({ page, context }) => {
+  test('AI terminal + mocked Archive MCP: 30 tickets → create_pages (one call) + a table on the open page; Apply → 30 sub-pages, the table links them', async ({ page, context }) => {
     await openApp(page)
-    await wsEval(page, (s, atlas) => s.updateSettings({ aiApiKey: 'sk-ant-e2e-test-key', mcpServers: [atlas] }), ATLAS)
+    await wsEval(page, (s, archive) => s.updateSettings({ aiApiKey: 'sk-ant-e2e-test-key', mcpServers: [archive] }), ARCHIVE)
     const main = await createPage(page, { title: 'Checkout review', content: doc(para('Topic: checkout reliability.')) })
     await gotoPage(page, main)
 
     const bodies = await mockClaude(context, [
-      // Atlas (run by Anthropic inside the response), then the open page
+      // Archive (run by Anthropic inside the response), then the open page
       () =>
         sseMessage([
-          { type: 'mcp_tool_use', id: 'mcptoolu_1', server: 'atlas', name: 'atlas_search', input: { query: 'checkout' } },
+          { type: 'mcp_tool_use', id: 'mcptoolu_1', server: 'archive', name: 'archive_search', input: { query: 'checkout' } },
           { type: 'mcp_tool_result', id: 'mcptoolu_1', text: TICKETS.map((x) => `${x.key} | ${x.title} | ${x.status} | ${x.owner}`).join('\n') },
           { type: 'tool_use', id: 'toolu_cur', name: 'get_current_page', input: {} },
         ]),
@@ -224,7 +224,7 @@ test.describe('Pages per item', () => {
             type: 'tool_use',
             id: 'toolu_pages',
             name: 'create_pages',
-            input: { parent_id: main, pages: TICKETS.map((x) => ({ title: ticketTitle(x), markdown: `**Status:** ${x.status}\n\n**Owner:** ${x.owner}\n\nFrom Atlas: ${x.key}.` })) },
+            input: { parent_id: main, pages: TICKETS.map((x) => ({ title: ticketTitle(x), markdown: `**Status:** ${x.status}\n\n**Owner:** ${x.owner}\n\nFrom Archive: ${x.key}.` })) },
           },
         ]),
       // the table on the main page, with the ids create_pages returned
@@ -236,7 +236,7 @@ test.describe('Pages per item', () => {
       () => sseMessage([{ type: 'text', text: 'Staged **30 sub-pages** under Checkout review and a table that links them.' }]),
     ])
 
-    await runTask(page, 'Analyse the topic in Atlas with me and create a One sub-page for every ticket and link them in a table on the main page')
+    await runTask(page, 'Analyse the topic in Archive with me and create a One sub-page for every ticket and link them in a table on the main page')
     const term = terminal(page)
     await expect(term.locator('.term-head__status')).toHaveText('Done', { timeout: 30_000 })
     // three tool calls: the page, the pages (ONE call), the table — plus the MCP call
@@ -246,10 +246,10 @@ test.describe('Pages per item', () => {
     await expect(term.locator('.term-step--mcp')).toHaveCount(1)
     await expect(term.locator('#term-review-title')).toHaveText('31 proposed changes')
     expect(bodies).toHaveLength(4)
-    // the request: the tool, the rule in the system prompt, Atlas attached
+    // the request: the tool, the rule in the system prompt, Archive attached
     expect((bodies[0].tools as AnyState[]).some((x) => x.name === 'create_pages')).toBe(true)
     expect(String(JSON.stringify(bodies[0].system))).toContain('ONE create_pages call')
-    expect(bodies[0].mcp_servers.map((x: AnyState) => x.name)).toEqual(['atlas'])
+    expect(bodies[0].mcp_servers.map((x: AnyState) => x.name)).toEqual(['archive'])
     expect(toolResult(bodies[2], 'toolu_pages')).toContain('Staged 30 pages')
 
     // nothing written yet; Apply all → 30 sub-pages in order + the table
@@ -364,9 +364,9 @@ test.describe('Pages per item', () => {
     expect(lastUserText(bodies[4])).toContain('80 changes are staged so far')
   })
 
-  test('AI menu: own requests are routed — make a sub-page / one page per item run at once, "as a board" offers Turn into database, Atlas work goes to the terminal, writing stays a request', async ({ page, context }) => {
+  test('AI menu: own requests are routed — make a sub-page / one page per item run at once, "as a board" offers Turn into database, Archive work goes to the terminal, writing stays a request', async ({ page, context }) => {
     await openApp(page)
-    await wsEval(page, (s, atlas) => s.updateSettings({ aiApiKey: 'sk-ant-e2e-test-key', mcpServers: [atlas] }), ATLAS)
+    await wsEval(page, (s, archive) => s.updateSettings({ aiApiKey: 'sk-ant-e2e-test-key', mcpServers: [archive] }), ARCHIVE)
     const bodies = await mockClaude(context, [() => sseMessage([{ type: 'text', text: 'Looked it up — nothing to change.' }])])
     const id = await createPage(page, { title: 'Sprint notes', content: doc(para('Kickoff on Monday.'), para('Retro on Friday.'), TICKET_LIST, para('Closing words.')) })
     await gotoPage(page, id)
@@ -415,20 +415,20 @@ test.describe('Pages per item', () => {
     await expect(toast(page, /Made 3 sub-pages, linked in a table/)).toBeVisible()
     expect(bodies).toHaveLength(0)
 
-    // work in Atlas: the terminal, with the request and the selection as a reference
+    // work in Archive: the terminal, with the request and the selection as a reference
     ai = await askAI(page, ed, 'Closing', 'Closing words.')
-    await ai.locator('.ai-cmd__input').fill('for every ticket in Atlas create a sub-page')
+    await ai.locator('.ai-cmd__input').fill('for every ticket in Archive create a sub-page')
     await expect(ai.getByRole('option').first()).toContainText('This needs the AI terminal — run it there')
     await page.keyboard.press('Enter')
     const term = terminal(page)
     await expect(term).toBeVisible()
-    await expect(term.locator('.term-turn__task')).toHaveText('for every ticket in Atlas create a sub-page')
+    await expect(term.locator('.term-turn__task')).toHaveText('for every ticket in Archive create a sub-page')
     await expect(term.getByText('Looked it up — nothing to change.')).toBeVisible({ timeout: 20_000 })
     expect(bodies).toHaveLength(1)
     const user = lastUserText(bodies[0])
     expect(user).toContain('<reference page=')
     expect(user).toContain('Closing words.')
-    expect(bodies[0].mcp_servers.map((x: AnyState) => x.name)).toEqual(['atlas'])
+    expect(bodies[0].mcp_servers.map((x: AnyState) => x.name)).toEqual(['archive'])
   })
 
   test('AI menu DE: "mach daraus eine Unterseite" runs Turn into page, "pro Ticket eine Seite" Sub-page per item, "als Tabelle" offers the database', async ({ page, context }) => {

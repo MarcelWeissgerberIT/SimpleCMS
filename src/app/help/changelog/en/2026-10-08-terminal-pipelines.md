@@ -15,4 +15,4 @@ try: terminal
 
 `/pipelines` lists the open tasks, what waits for you first, with **Open** and — for a running one — **Stop**.
 
-`/connect` (`/verbinden`) lists your [MCP servers](help:mcp-servers) and how they stand. `/connect atlas` — a name, a codeword or an address — signs in: the server's sign-in page opens in a browser window right from your <kbd>Enter</kbd> (or with a code, when the window can't return). `/connect https://…` adds a server first. When a task fails because a server rejected its token, **Sign in to …** sits right under it, then **Run the task again**.
+`/connect` (`/verbinden`) lists your [MCP servers](help:mcp-servers) and how they stand. `/connect wiki` — a name, a codeword or an address — signs in: the server's sign-in page opens in a browser window right from your <kbd>Enter</kbd> (or with a code, when the window can't return). `/connect https://…` adds a server first. When a task fails because a server rejected its token, **Sign in to …** sits right under it, then **Run the task again**.

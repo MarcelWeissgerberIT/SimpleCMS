@@ -363,7 +363,7 @@
   background: var(--hover);
 }
 
-/* external MCP tool calls of the request: "ATLAS · search_records" */
+/* external MCP tool calls of the request: "KB · search_records" */
 .ai-mcp {
   padding: 7px 14px 8px;
   border-bottom: 1px dashed var(--rule-strong);

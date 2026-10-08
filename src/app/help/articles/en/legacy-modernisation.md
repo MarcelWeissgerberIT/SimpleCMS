@@ -3,7 +3,7 @@ id: legacy-modernisation
 title: Modernise legacy code
 section: ai
 order: 10
-keywords: legacy, old software, modernise, modernize, rewrite, rebuild, migration, zip, import, clone, gitlab, github, glab, gh, code analysis, architecture, design, test design, characterisation tests, atlas, knowledge base, mcp, altsoftware
+keywords: legacy, old software, modernise, modernize, rewrite, rebuild, migration, zip, import, clone, gitlab, github, glab, gh, code analysis, architecture, design, test design, characterisation tests, knowledge base, mcp, altsoftware
 related: explain-code, coding-pipeline, pipelines, review-merge, mcp-servers, agent
 summary: From a ZIP or a GitLab project to a rebuilt version — analysis, design and test design as sections of a page in One, tests that pin today's behaviour, then the rebuild.
 ---
@@ -34,9 +34,9 @@ Each plan stage writes its own section into the page (*Analysis*, *Design*, *Tes
 ## 3. The task
 **New task**: the imported repository as **Repo**, the goal in a few lines — e.g. *Understand the billing module and rebuild it as a typed web service with a clean interface. Keep the invoice rules.* **Approvals**: *Approve the plan and the review* stops after the concept; *Review only* runs on to the review.
 
-## 4. Your knowledge base (e.g. Atlas)
-- **Claude Code on the worker**: on the setup page, enter the server under *Own MCP servers for Claude Code* (the name `claude mcp list` shows, e.g. `atlas`). The stages may then read what is known about the code and record findings and decisions.
-- **In One**: the AI terminal (<kbd>Mod+J</kbd>) with the server's codeword — e.g. `atlas: record the risks of this analysis` — see [MCP servers](help:mcp-servers).
+## 4. Your knowledge base
+- **Claude Code on the worker**: on the setup page, enter the server under *Own MCP servers for Claude Code* (the name `claude mcp list` shows, e.g. `kb`). The stages may then read what is known about the code and record findings and decisions.
+- **In One**: the AI terminal (<kbd>Mod+J</kbd>) with the server's codeword — e.g. `kb: record the risks of this analysis` — see [MCP servers](help:mcp-servers).
 
 ## Only understand it?
 To explain the code without rebuilding it — a One page per component, a documentation check — use the template **Explain the code**: [Explain legacy code in One documents](help:explain-code).

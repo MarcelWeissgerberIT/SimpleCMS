@@ -13,4 +13,4 @@ try: coding
 
 **Die Vorlage.** **#/coding → Pipeline → Altsoftware modernisieren**: **Analyse**, **Design** und **Testentwurf** schreiben je einen eigenen Abschnitt in die Seite der Aufgabe – Architektur mit Diagramm, Risiken, das Verhalten, das bleiben muss, das Zieldesign, eine Tabelle mit Testfällen. Nach deiner Freigabe des Konzepts schreibt Claude Code Tests gegen den alten Code, baut dann neu, und dieselben Tests müssen am neuen Code bestehen.
 
-**Deine Wissensbasis.** Pro Repository kann die Setup-Seite Claude Code deine eigenen MCP-Server geben – z. B. `atlas` –, um zu lesen und festzuhalten, was über den Code bekannt ist. Bei GitLab öffnet Ausliefern einen Merge Request mit `glab`. Die Anleitung: [Altsoftware modernisieren](help:legacy-modernisation).
+**Deine Wissensbasis.** Pro Repository kann die Setup-Seite Claude Code deine eigenen MCP-Server geben – z. B. `kb` –, um zu lesen und festzuhalten, was über den Code bekannt ist. Bei GitLab öffnet Ausliefern einen Merge Request mit `glab`. Die Anleitung: [Altsoftware modernisieren](help:legacy-modernisation).

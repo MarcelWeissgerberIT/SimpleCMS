@@ -84,7 +84,7 @@ async function run(page: Page, task: string) {
 }
 
 const PREF = { type: 'preference', text: 'CNSX reports are written in German.', topics: ['CNSX'], body: '' }
-const FACT = { type: 'fact', text: 'Atlas ships every Friday.', topics: ['Atlas'], body: '' }
+const FACT = { type: 'fact', text: 'Orbit ships every Friday.', topics: ['Orbit'], body: '' }
 
 /** The memory database's rows, read back by property names (EN). */
 function memoryRows(page: Page) {
@@ -177,7 +177,7 @@ test.describe('One memory', () => {
     const card = terminal(page).getByTestId('term-memory')
     await expect(card).toContainText('REMEMBER? · 2', { timeout: 20_000 })
     await expect(card).toContainText('CNSX reports are written in German.')
-    await expect(card).toContainText('Atlas ships every Friday.')
+    await expect(card).toContainText('Orbit ships every Friday.')
     // one small structured request: the task and Claude's answer — nothing saved yet
     expect(claude.structured).toHaveLength(1)
     expect(userText(claude.structured[0])).toContain('Draft the weekly CNSX report outline')
@@ -216,7 +216,7 @@ test.describe('One memory', () => {
     expect(sent).toContain('<one_memory>')
     expect(sent).toContain('[M1] Preference: CNSX reports are written in German.')
     expect(sent).toContain('Follow a matching Procedure as the template for the task')
-    expect(sent).not.toContain('Atlas ships every Friday')
+    expect(sent).not.toContain('Orbit ships every Friday')
     // its tools: recall + remember join the conversation's next start (pinned per conversation)
     expect(claude.stream[1].tools.map((x: AnyState) => x.name)).not.toContain('recall')
 
@@ -345,7 +345,7 @@ test.describe('One memory', () => {
     const claude = await mockClaude(context, ['Launch checklist drafted [M1].', 'Without memory.'], (b) =>
       JSON.stringify(b.messages).includes('Beta testers get access')
         ? { memories: [{ type: 'fact', text: 'Beta testers get access one week before the launch.', topics: ['Launch'], body: '' }] }
-        : { memories: [{ type: 'decision', text: 'We use Atlas as the knowledge base.', topics: ['Atlas'], body: '' }] },
+        : { memories: [{ type: 'decision', text: 'We use Orbit as the knowledge base.', topics: ['Orbit'], body: '' }] },
     )
     const id = await createPage(page, { title: 'Launch notes', content: doc(para('Beta testers get access one week before the launch.'), para('')) })
     await gotoPage(page, id)
@@ -364,11 +364,11 @@ test.describe('One memory', () => {
 
     // "merk dir …" / "remember …": a proposal, not an answer
     await openPanel()
-    await panel(page).locator('.ai-cmd__input').fill('remember that we use Atlas as our knowledge base')
-    await expect(panel(page).getByRole('option').first()).toContainText('Remember “we use Atlas as our knowledge base”')
+    await panel(page).locator('.ai-cmd__input').fill('remember that we use Orbit as our knowledge base')
+    await expect(panel(page).getByRole('option').first()).toContainText('Remember “we use Orbit as our knowledge base”')
     await page.keyboard.press('Enter')
     const card = panel(page).getByTestId('ai-memory-card')
-    await expect(card).toContainText('We use Atlas as the knowledge base.')
+    await expect(card).toContainText('We use Orbit as the knowledge base.')
     await expect(card.locator('.mem-type')).toHaveText('Decision')
     expect(claude.structured).toHaveLength(1)
     expect(claude.stream).toHaveLength(0)
@@ -377,7 +377,7 @@ test.describe('One memory', () => {
     await expect(panel(page)).toHaveCount(0)
     await expect(page.locator('.toast', { hasText: 'Saved to One memory' })).toBeVisible()
     let rows = (await memoryRows(page))!
-    expect(rows.map((r) => r.title)).toEqual(['We use Atlas as the knowledge base.'])
+    expect(rows.map((r) => r.title)).toEqual(['We use Orbit as the knowledge base.'])
     expect(rows[0].source).toBe(`Launch notes · #/p/${id}`)
 
     // the selection → "Remember this": Claude condenses it into one proposal; Edit, then save

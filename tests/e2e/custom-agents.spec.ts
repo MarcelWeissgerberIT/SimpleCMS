@@ -172,6 +172,26 @@ test.describe('Custom agents', () => {
     await expect(page.locator('.agx-runsec')).toContainText('Noch keine Läufe')
   })
 
+  test('the knowledge-base recipe picks no server by its name: the only one there is, else the person picks', async ({ page }) => {
+    await openApp(page)
+    const docs = { id: 'm-docs', name: 'docs-kb', url: 'https://docs.example.com/mcp', token: '', enabled: true, prompt: '' }
+    const log = { id: 'm-log', name: 'tasklog', url: 'https://tasklog.example.com/mcp', token: '', enabled: true, prompt: '' }
+    await wsEval(page, (s, list) => s.updateSettings({ mcpServers: list }), [docs, log])
+    await page.evaluate(() => (window.location.hash = '#/agents'))
+    await page.locator('.agx-start [data-recipe="kb"]').click()
+    let dialog = page.getByRole('dialog', { name: /New agent/ })
+    await expect(dialog.getByLabel('Name')).toHaveValue('Check pages against your knowledge base')
+    await expect(dialog.getByRole('checkbox', { name: 'DOCS-KB' })).not.toBeChecked()
+    await expect(dialog.getByRole('checkbox', { name: 'TASKLOG' })).not.toBeChecked()
+    await page.keyboard.press('Escape')
+    await expect(dialog).toBeHidden()
+    // a single server: that one, whatever its name
+    await wsEval(page, (s, list) => s.updateSettings({ mcpServers: list }), [log])
+    await page.locator('.agx-start [data-recipe="kb"]').click()
+    dialog = page.getByRole('dialog', { name: /New agent/ })
+    await expect(dialog.getByRole('checkbox', { name: 'TASKLOG' })).toBeChecked()
+  })
+
   test('manual run (read tools): run record with report, steps and cost; no writing tools offered', async ({ page, context }) => {
     await openApp(page)
     await setKey(page)
@@ -506,17 +526,17 @@ test.describe('Custom agents', () => {
   test('MCP servers: the agent’s server names go into the request; unknown names are left out with a note', async ({ page, context }) => {
     await openApp(page)
     await setKey(page)
-    await wsEval(page, (s) => s.updateSettings({ mcpServers: [{ id: 'm1', name: 'atlas', url: 'https://atlas.example.com/mcp', token: '', enabled: true, prompt: 'Search the knowledge base.' }] }))
+    await wsEval(page, (s) => s.updateSettings({ mcpServers: [{ id: 'm1', name: 'archive', url: 'https://archive.example.com/mcp', token: '', enabled: true, prompt: 'Search the knowledge base.' }] }))
     const bodies = await mockClaude(context)
-    const id = await addAgent(page, { id: 'ag-mcp', name: 'Knowledge check', mcpServers: ['atlas', 'linear'] })
+    const id = await addAgent(page, { id: 'ag-mcp', name: 'Knowledge check', mcpServers: ['archive', 'tasklog'] })
     await goAgent(page, id)
     await page.getByRole('button', { name: 'Run now' }).click()
     const run = page.locator('.agx-run').first()
     await expect(run).toHaveAttribute('data-status', 'ok', { timeout: 20_000 })
-    await expect(run.locator('.agx-step[data-kind="note"]')).toContainText('LINEAR is not set up in this browser')
-    expect(bodies[0].mcp_servers).toEqual([{ type: 'url', url: 'https://atlas.example.com/mcp', name: 'atlas' }])
-    expect(bodies[0].tools.filter((t: AnyState) => t.type === 'mcp_toolset').map((t: AnyState) => t.mcp_server_name)).toEqual(['atlas'])
-    expect(bodies[0].system).toContain('<mcp_server name="atlas">')
+    await expect(run.locator('.agx-step[data-kind="note"]')).toContainText('TASKLOG is not set up in this browser')
+    expect(bodies[0].mcp_servers).toEqual([{ type: 'url', url: 'https://archive.example.com/mcp', name: 'archive' }])
+    expect(bodies[0].tools.filter((t: AnyState) => t.type === 'mcp_toolset').map((t: AnyState) => t.mcp_server_name)).toEqual(['archive'])
+    expect(bodies[0].system).toContain('<mcp_server name="archive">')
   })
 
   test('runs survive a reload; the sidebar entry opens the list', async ({ page, context }) => {

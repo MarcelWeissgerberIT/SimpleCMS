@@ -1,5 +1,5 @@
 /* ================================================================
-   MCP server codewords: the prompt chip ("→ ATLAS") and the note
+   MCP server codewords: the prompt chip ("→ KB") and the note
    for an addressed server that stayed out (features/ai/mcp-servers)
    ================================================================ */
 .mcp-cw {
@@ -53,7 +53,7 @@
   }
 }
 
-/* the AI menu's call chips: an addressed server that stayed out ("ATLAS · OFF") */
+/* the AI menu's call chips: an addressed server that stayed out ("KB · OFF") */
 .ai-mcp__chip[data-state='skipped'] {
   border-style: dashed;
   color: var(--ink-3);

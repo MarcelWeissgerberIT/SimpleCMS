@@ -34,7 +34,7 @@ export const MAX_SERVERS = 12
 
 const NAME_RE = /^[a-z0-9][a-z0-9_-]{0,31}$/
 
-/** A typed name as an `mcp_server_name` ("Atlas KB" → "atlas-kb"). */
+/** A typed name as an `mcp_server_name` ("Team KB" → "team-kb"). */
 export function slugName(raw: string): string {
   return raw
     .normalize('NFKD')
@@ -76,8 +76,8 @@ const GENERIC = new Set(['mcp', 'sse', 'api', 'apis', 'server', 'servers', 'http
 
 /**
  * A name for a server from its URL: the last meaningful path part, else a meaningful subdomain,
- * else the domain ("https://example.com/api/atlas/mcp" → "atlas", "https://mcp.linear.app/sse" →
- * "linear"), made unique among `others`.
+ * else the domain ("https://example.com/api/kb/mcp" → "kb", "https://mcp.tracker.example/sse" →
+ * "tracker"), made unique among `others`.
  */
 export function deriveName(url: string, others: string[]): string {
   let base = ''
@@ -181,7 +181,7 @@ const sameUrl = (a: string, b: string) => {
   }
 }
 
-/** A server by its name, codeword ("kb" or "kb:"), address, or a name typed loosely ("Atlas KB" → atlas-kb). */
+/** A server by its name, codeword ("kb" or "kb:"), address, or a name typed loosely ("Team KB" → team-kb). */
 export function findServer(query: string, list: McpServerConfig[] = readServers()): McpServerConfig | null {
   const raw = query.trim()
   if (!raw) return null
