@@ -61,21 +61,29 @@ function Row({ row: r, withProfiles, onShow }: { row: OverviewRow; withProfiles:
   return (
     <tr data-server={r.name} data-only={r.server ? undefined : 'code'}>
       <th scope="row" className="mcpo__name" data-label={t('features.ai.mcp.ov.server')}>
-        <span className={r.one === 'all' || r.one === 'free' ? 'led led--ok' : 'led'} aria-hidden />
-        <span className="mcpo__id">
-          {r.server ? (
-            <button type="button" className="mcpo__link" onClick={() => onShow(r.server!.id)} title={t('features.ai.mcp.ov.open')}>
-              {r.name.toUpperCase()}
-            </button>
-          ) : (
-            <span className="mcpo__plain">{r.name}</span>
-          )}
-          <span className="mcpo__host">{r.server ? r.host : t('features.ai.mcp.ov.onlyCode')}</span>
+        <span className="mcpo__name-in">
+          <span className={r.one === 'all' || r.one === 'free' ? 'led led--ok' : 'led'} aria-hidden />
+          <span className="mcpo__id">
+            {r.server ? (
+              <button type="button" className="mcpo__link" onClick={() => onShow(r.server!.id)} title={t('features.ai.mcp.ov.open')}>
+                {r.name.toUpperCase()}
+              </button>
+            ) : (
+              <span className="mcpo__plain">{r.name}</span>
+            )}
+            <span className="mcpo__host">{r.server ? r.host : t('features.ai.mcp.ov.onlyCode')}</span>
+          </span>
         </span>
       </th>
       <td data-label={t('features.ai.mcp.ov.codeword')}>{r.codeword ? <code className="mcpo__cw">{r.codeword}:</code> : dash}</td>
       <td data-label={t('features.ai.mcp.ov.one')} data-state={r.one ?? 'none'}>
-        {r.one === null ? dash : <span className="mcpo__scope">{t(r.one === 'off' ? 'features.ai.mcp.ov.off' : r.one === 'all' ? 'features.ai.mcp.scope.all' : 'features.ai.mcp.scope.free')}</span>}
+        {r.one === null ? (
+          dash
+        ) : (
+          <span className="mcpo__scope" title={t(`features.ai.mcp.ov.scope.${r.one}Long`)}>
+            {t(`features.ai.mcp.ov.scope.${r.one}`)}
+          </span>
+        )}
       </td>
       <td data-label={t('features.ai.mcp.ov.agents')}>
         {r.agents.length ? (
