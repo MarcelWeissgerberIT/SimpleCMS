@@ -17,7 +17,7 @@ import { Led } from '../../ui/controls'
 import { Modal } from '../../ui/Modal'
 import { useLang, useT } from '../../i18n'
 import { workspaceInfo } from '../mcp/identity'
-import { WORKER_CLOUD_PORT } from './protocol'
+import { cloudWorkerPort } from './protocol'
 import { CLOUD_WORKER_FILE, downloadCloudWorker } from './download'
 import { cloudRevoked } from './service'
 import { useCoding } from './state'
@@ -33,6 +33,8 @@ export function CloudSetupCard({ code }: { code: string }) {
   const s = useCoding()
   useWorkspace((x) => x.settings.workspaceName)
   useCloud((x) => x.active)
+  // a viewer runs no coding tasks: nothing to list or download (§ A says why)
+  const viewer = useCloud((x) => x.role) === 'viewer'
   const ws = workspaceInfo()
   const serverId = serverWorkspaceId()
   const id = useId()
@@ -42,21 +44,22 @@ export function CloudSetupCard({ code }: { code: string }) {
   const [confirm, setConfirm] = useState<'replace' | 'revoke' | null>(null)
 
   const reload = useCallback(async () => {
-    if (!serverId) return
+    if (!serverId || viewer) return setWorkers(null)
     try {
       setWorkers((await listCloudWorkers(serverId)).filter((w) => w.mine))
     } catch {
       setWorkers(null)
     }
-  }, [serverId])
+  }, [serverId, viewer])
   // the list follows the link (a worker came or went, a download replaced the older one)
   useEffect(() => {
     void reload()
   }, [reload, s.relay?.online, s.relay?.token, s.relay?.registered, s.conn])
 
-  const pair = s.cloudPairs[ws.id] ?? null
-  const here = workers?.find((w) => !!pair && (w.id === pair.token || w.id === pair.prev?.token)) ?? null
-  const fresh = workers?.find((w) => w.state === 'pending' && w.id === pair?.token) ?? null
+  const tokens = s.cloudPairs[ws.id]?.tokens ?? []
+  const here = workers?.find((w) => tokens.includes(w.id)) ?? null
+  const fresh = workers?.find((w) => w.state === 'pending' && w.id === tokens[0]) ?? null
+  const port = cloudWorkerPort(ws.id)
   const other = !!workers?.length && !here
   const online = workers?.find((w) => w.online) ?? null
   const connected = s.enabled && s.conn === 'connected'
@@ -127,7 +130,7 @@ export function CloudSetupCard({ code }: { code: string }) {
           title={t('features.coding.cloud.step1')}
           action={
             <div className="cs-keys">
-              <button type="button" className={here || other ? 'btn btn--sm' : 'btn btn--primary'} onClick={askDownload} disabled={busy} data-testid="coding-cloud-download">
+              <button type="button" className={here || other ? 'btn btn--sm' : 'btn btn--primary'} onClick={askDownload} disabled={busy || viewer} data-testid="coding-cloud-download">
                 <Download size={14} strokeWidth={1.8} aria-hidden /> {downloadLabel}
               </button>
               {!!workers?.length && (
@@ -151,7 +154,7 @@ export function CloudSetupCard({ code }: { code: string }) {
           <p className="cs-hint">{t('features.coding.cloud.step3Hint')}</p>
           <CodeBlock code={`node ${CLOUD_WORKER_FILE} setup --no-browser`} label={t('features.coding.cloud.setupLabel')} />
           <p className="cs-hint">{t('features.coding.cloud.step3Ssh')}</p>
-          <CodeBlock code={`ssh -L ${WORKER_CLOUD_PORT}:127.0.0.1:${WORKER_CLOUD_PORT} <host>`} label={t('features.coding.cloud.sshLabel')} />
+          <CodeBlock code={`ssh -L ${port}:127.0.0.1:${port} <host>`} label={t('features.coding.cloud.sshLabel')} />
         </Step>
       </ol>
       <footer className="cs-live cs-live--cloud" role="status" data-testid="coding-cloud-live">

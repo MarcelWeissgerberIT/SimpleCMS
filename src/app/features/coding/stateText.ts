@@ -9,7 +9,7 @@ type T = ReturnType<typeof useT>
 /** Is this tab's link going through the team server (Settings → Coding worker → Cloud)? */
 export const isCloudLink = (): boolean => viaFor(currentWorkspace()) === 'cloud'
 
-export function workerStateText(t: T, s: Pick<CodingState, 'enabled' | 'conn' | 'worker' | 'busy' | 'refused'> & { relay?: CodingState['relay']; cloud?: boolean }): string {
+export function workerStateText(t: T, s: Pick<CodingState, 'enabled' | 'conn' | 'worker' | 'busy' | 'refused'> & { relay?: CodingState['relay']; pendingHere?: boolean; cloud?: boolean }): string {
   if (!s.enabled) return t('features.coding.conn.off')
   const cloud = s.cloud ?? isCloudLink()
   switch (s.conn) {
@@ -23,6 +23,7 @@ export function workerStateText(t: T, s: Pick<CodingState, 'enabled' | 'conn' | 
       return t('features.coding.conn.connecting')
     case 'waiting':
       if (!cloud) return t('features.coding.conn.waiting')
+      if (s.pendingHere) return t('features.coding.conn.pendingHere')
       return s.relay?.registered === false ? t('features.coding.conn.noCloudWorker') : t('features.coding.conn.waitingCloud')
     case 'replaced':
       return t(cloud ? 'features.coding.conn.replacedCloud' : 'features.coding.conn.replaced')

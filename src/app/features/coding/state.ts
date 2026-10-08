@@ -7,9 +7,10 @@
  * ignores it, a downloaded one refuses every tab without it.
  *
  * Cloud (team workspaces, docs/CODING.md § Cloud worker): `via[<team:id>] = 'cloud'` — this device reaches its
- * worker through the team server; `cloudPairs[<team:id>]`: the pairing secret of the cloud worker downloaded on
- * this device (the key of the end-to-end encryption) and which token it came with — plus the previous download's
- * until the new file connects. The worker token itself is only ever in the downloaded file.
+ * worker through the team server; `cloudPairs[<team:id>].tokens`: the token ids of this device's cloud downloads
+ * whose worker may still connect (newest first, at most MAX_CLOUD_KEYS) — ids only: each one's pairing key is a
+ * non-extractable WebCrypto key in IndexedDB (cloudKeys.ts). The worker token itself is only ever in the
+ * downloaded file, the pairing secret only in the file and (non-extractable) on this device.
  */
 import { create } from 'zustand'
 import { PAIR_SECRET, WORKER_DEFAULT_PORT, WORKSPACE_ID, type BusyTask, type IntakeState, type RefusedReason, type TaskProgress, type WorkerInfo } from './protocol'
@@ -22,11 +23,22 @@ export interface WorkerPair {
   at: number
 }
 
-/** The cloud worker downloaded on this device: its pairing secret and its token's id (never the token). */
-export interface CloudPair extends WorkerPair {
+/** The cloud workers downloaded on this device for a workspace: their token ids (never a token, never a secret). */
+export interface CloudPair {
+  /** newest first: the last download, then older ones whose worker still works (the active one until a newer connects) */
+  tokens: string[]
+  /** when the last one was downloaded (ms) */
+  at: number
+}
+
+/** Downloads per workspace this device keeps keys for (in practice two: the working one and a fresh download). */
+export const MAX_CLOUD_KEYS = 4
+
+/** A pairing secret an earlier build kept in localStorage (moved into IndexedDB as a non-extractable key on start). */
+export interface LegacyCloudSecret {
+  workspace: string
   token: string
-  /** the download before it (its worker keeps working until the new file connects) */
-  prev?: { secret: string; token: string } | null
+  secret: string
 }
 
 export interface CodingSettings {
@@ -53,16 +65,39 @@ function readVia(raw: unknown): Record<string, 'cloud'> {
   return Object.fromEntries(list.slice(0, 50).map(([id]) => [id, 'cloud' as const]))
 }
 
+type RawCloudPair = { tokens?: unknown; at?: unknown; token?: unknown; secret?: unknown; prev?: { token?: unknown; secret?: unknown } | null }
+
+const tokenOk = (v: unknown): v is string => typeof v === 'string' && TOKEN_ID.test(v)
+
 function readCloudPairs(raw: unknown): Record<string, CloudPair> {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {}
   const out: Array<[string, CloudPair]> = []
   for (const [id, v] of Object.entries(raw as Record<string, unknown>)) {
-    const p = v as Partial<CloudPair> | null
-    if (!TEAM_ID.test(id) || !p || typeof p.secret !== 'string' || !PAIR_SECRET.test(p.secret) || typeof p.token !== 'string' || !TOKEN_ID.test(p.token) || typeof p.at !== 'number') continue
-    const prev = p.prev && typeof p.prev.secret === 'string' && PAIR_SECRET.test(p.prev.secret) && typeof p.prev.token === 'string' && TOKEN_ID.test(p.prev.token) ? { secret: p.prev.secret, token: p.prev.token } : null
-    out.push([id, { secret: p.secret, token: p.token, at: p.at, prev }])
+    const p = v as RawCloudPair | null
+    if (!TEAM_ID.test(id) || !p || typeof p !== 'object' || typeof p.at !== 'number') continue
+    // an earlier build's shape: { token, secret, prev: { token, secret } } — the ids carry over (the secrets move, legacyCloudSecrets)
+    const list = Array.isArray(p.tokens) ? p.tokens : [p.token, p.prev?.token]
+    const tokens = [...new Set(list.filter(tokenOk))].slice(0, MAX_CLOUD_KEYS)
+    if (tokens.length) out.push([id, { tokens, at: p.at }])
   }
   return Object.fromEntries(out.sort((a, b) => b[1].at - a[1].at).slice(0, MAX_PAIRS))
+}
+
+/** Pairing secrets an earlier build kept in localStorage `one.coding` (each moves into IndexedDB once, then is gone). */
+export function legacyCloudSecrets(): LegacyCloudSecret[] {
+  try {
+    const raw = JSON.parse(window.localStorage.getItem(CODING_STORAGE_KEY) ?? 'null') as { cloudPairs?: Record<string, RawCloudPair | null> } | null
+    const out: LegacyCloudSecret[] = []
+    for (const [workspace, p] of Object.entries(raw?.cloudPairs ?? {})) {
+      if (!TEAM_ID.test(workspace) || !p || typeof p !== 'object') continue
+      for (const [token, secret] of [[p.token, p.secret], [p.prev?.token, p.prev?.secret]] as const) {
+        if (tokenOk(token) && typeof secret === 'string' && PAIR_SECRET.test(secret)) out.push({ workspace, token, secret })
+      }
+    }
+    return out
+  } catch {
+    return []
+  }
 }
 
 export const validPort = (v: unknown): number | null => {
@@ -129,7 +164,12 @@ export interface CodingState extends CodingSettings {
   refused: CodingRefused | null
   /** cloud mode only (null: local, or not known yet) */
   relay: RelayView | null
-  /** events the relay dropped since this tab connected (it could not keep up) */
+  /**
+   * cloud: another device's worker of the member is online while this device's own newer download has not started —
+   * this tab waits for that file (it takes over once it connects) instead of taking the other device's place
+   */
+  pendingHere: boolean
+  /** the worker's droppable events the relay left out since this tab connected (the worker sent more at once than its budget) */
   dropped: number
   /** the refusing worker came ready-paired from a download */
   refusedPaired: boolean
@@ -149,6 +189,7 @@ export const useCoding = create<CodingState>()(() => ({
   conn: 'off',
   refused: null,
   relay: null,
+  pendingHere: false,
   dropped: 0,
   refusedPaired: false,
   worker: null,

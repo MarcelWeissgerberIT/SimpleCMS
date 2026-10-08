@@ -16,7 +16,7 @@ import { navigate } from '../../lib/router'
 import { workspaceInfo } from '../mcp/identity'
 import { WORKER_DEFAULT_PORT } from './protocol'
 import { reconnect, setCodingEnabled, setCodingPort, setCodingVia, viaFor } from './service'
-import { relayAvailable } from './cloudWorkers'
+import { cloudContextOk, relayAvailable } from './cloudWorkers'
 import { useCoding, validPort, type CodingState } from './state'
 import { CodeBlock } from './CodeBlock'
 import { SetupCard } from './SetupCard'
@@ -105,8 +105,9 @@ function Refused({ s, wsId, cloud }: { s: CodingState; wsId: string; cloud: bool
 
 /**
  * § A — Where the worker runs: Local (127.0.0.1) | Cloud (through this team server). A radiogroup with roving focus
- * (arrow keys, Home, End); Cloud is off — with its reason as visible text — in a local workspace, for viewers and
- * on a server without the relay.
+ * (arrow keys, Home, End); Cloud is off — with its reason as visible text — in a local workspace, on a page that is
+ * not https (the end-to-end box needs WebCrypto, the worker dials https only), for viewers and on a server without
+ * the relay.
  */
 function ViaSwitch({ code }: { code: string }) {
   const t = useT()
@@ -125,7 +126,15 @@ function ViaSwitch({ code }: { code: string }) {
     }
   }, [team, ws.id])
   const via = viaFor(ws)
-  const why = !team ? 'features.coding.via.cloudOff' : role === 'viewer' ? 'features.coding.via.viewer' : relay === false ? 'features.coding.via.unavailable' : null
+  const why = !team
+    ? 'features.coding.via.cloudOff'
+    : !cloudContextOk()
+      ? 'features.coding.via.needsHttps'
+      : role === 'viewer'
+        ? 'features.coding.via.viewer'
+        : relay === false
+          ? 'features.coding.via.unavailable'
+          : null
   const labelId = useId()
   const hintId = useId()
   const whyId = useId()
@@ -211,7 +220,13 @@ export function WorkerTab() {
   const portFlag = s.port !== WORKER_DEFAULT_PORT ? `ONE_WORKER_PORT=${s.port} ` : ''
   const led = connected ? (s.busy.length ? 'on' : 'ok') : s.enabled && (s.conn === 'waiting' || s.conn === 'connecting') ? 'on' : 'off'
   const cloud = viaFor(ws) === 'cloud'
-  const waitingText = cloud ? (s.relay?.registered === false ? 'features.coding.settings.noCloudWorker' : 'features.coding.settings.waitingCloud') : 'features.coding.settings.waiting'
+  const waitingText = cloud
+    ? s.pendingHere
+      ? 'features.coding.settings.pendingHere'
+      : s.relay?.registered === false
+        ? 'features.coding.settings.noCloudWorker'
+        : 'features.coding.settings.waitingCloud'
+    : 'features.coding.settings.waiting'
 
   return (
     <div className="cw" data-testid="coding-settings" data-via={cloud ? 'cloud' : 'local'}>

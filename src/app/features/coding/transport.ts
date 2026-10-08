@@ -4,7 +4,9 @@
  *  - Local: ws://127.0.0.1:<port> — the worker on this computer.
  *  - Cloud (team workspaces, docs/CODING.md § Cloud worker): wss://<this server>/coding/tab — the team server
  *    pairs this tab with the member's cloud worker. Per pairing both sides send a fresh nonce; every protocol frame
- *    then travels sealed with a key derived from THIS device's pairing secret for that download (relayBox.ts).
+ *    then travels sealed with a key derived from THIS device's pairing key for that download (relayBox.ts,
+ *    cloudKeys.ts). The relay numbers its pairings (`s`); the same pairing announced again is news about it, never
+ *    a new key exchange (the worker would refuse a second one).
  *    The tab sends nothing but its sealed hello until a box of the worker opens (the worker proved it holds the
  *    same secret); a box that does not open means another worker — `untrusted`, nothing more is sent. Frames are
  *    handled in order (WebCrypto is async); a close is handled after the frames before it. The tab tells the relay
@@ -18,7 +20,7 @@ import {
   type TabMessage,
   type WorkerMessage,
 } from './protocol'
-import { BoxSession, newNonce, sessionKey } from './relayBox'
+import { BoxSession, newNonce, sessionKey, type SessionKey } from './relayBox'
 import type { RelayView } from './state'
 
 export interface LinkHandlers {
@@ -69,8 +71,11 @@ export function openLocalLink(port: number, h: LinkHandlers): LinkHandle {
 
 interface Pairing {
   s: number
+  /** the worker's token id the relay named for it */
+  token: string | null
   tn: string
-  pair: string
+  /** this device's pairing key for that download */
+  pair: SessionKey
   box: BoxSession | null
   /** a box of the worker opened: it holds this device's secret */
   proven: boolean
@@ -82,10 +87,10 @@ interface Pairing {
 const PROOF_MS = 20_000
 
 /**
- * The member's cloud worker through the team server's relay. `pairFor(token)`: this device's pairing secret for
- * the download with that token id (null: none — another device's worker).
+ * The member's cloud worker through the team server's relay. `pairFor(token)`: this device's pairing key for the
+ * download with that token id (null: none — another device's worker).
  */
-export function openCloudLink(serverWsId: string, pairFor: (token: string | null) => string | null, h: LinkHandlers): LinkHandle {
+export function openCloudLink(serverWsId: string, pairFor: (token: string | null) => Promise<SessionKey | null>, h: LinkHandlers): LinkHandle {
   const url = `${window.location.origin.replace(/^http/, 'ws')}${RELAY_TAB_PATH}?workspace=${encodeURIComponent(serverWsId)}`
   const ws = new WebSocket(url, WORKER_SUBPROTOCOL)
   let pairing: Pairing | null = null
@@ -117,15 +122,17 @@ export function openCloudLink(serverWsId: string, pairFor: (token: string | null
       if (msg.op === 'dropped') return h.dropped(Math.max(0, Math.min(1_000_000, Number(msg.n) || 0)))
       if (msg.op !== 'worker') return
       const view: RelayView = { online: msg.online === true, registered: msg.registered === true, token: typeof msg.token === 'string' ? msg.token.slice(0, 64) : null }
-      // any news about the worker ends the pairing before it (a reconnect, another copy, gone)
+      const s = Number(msg.s)
+      // the pairing this tab is in, announced again: news about it, not a new one — a second key exchange for the same
+      // `s` would make the worker end it (the relay raises `s` for every new pairing)
+      if (pairing && !pairing.done && view.online && s === pairing.s && view.token === pairing.token) return h.relay(view)
+      // any other news about the worker ends the pairing before it (a reconnect, another copy, gone)
       end(pairing, true)
       h.relay(view)
-      if (!view.online) return
-      const pair = pairFor(view.token)
+      if (!view.online || !Number.isSafeInteger(s) || s < 1) return
+      const pair = await pairFor(view.token)
       if (!pair) return h.untrusted('other-device')
-      const s = Number(msg.s)
-      if (!Number.isSafeInteger(s) || s < 1) return
-      const p: Pairing = { s, tn: newNonce(), pair, box: null, proven: false, done: false, timer: 0 }
+      const p: Pairing = { s, token: view.token, tn: newNonce(), pair, box: null, proven: false, done: false, timer: 0 }
       pairing = p
       raw({ type: 'key', s, n: p.tn })
       return

@@ -4,6 +4,7 @@
  * into the file and nowhere else), revoke, and whether this server has the relay at all.
  */
 import { CloudError, cloudRequest, useCloud } from '../../cloud'
+import { cloudOriginAllowed } from './protocol'
 
 export interface CloudWorker {
   id: string
@@ -48,6 +49,15 @@ const fromRaw = (r: RawWorker): CloudWorker => ({
   online: r.online === true,
   tab: r.tab === true,
 })
+
+/**
+ * Can this page run a cloud link at all? The tab's end-to-end box needs WebCrypto (a secure context), and the worker
+ * dials only an https origin (plain http only on this computer) — the same rule (protocol.ts cloudOriginAllowed).
+ */
+export function cloudContextOk(): boolean {
+  if (typeof window === 'undefined') return false
+  return window.isSecureContext === true && typeof crypto !== 'undefined' && !!crypto.subtle && cloudOriginAllowed(window.location.origin)
+}
 
 /** The server workspace id of this tab's team workspace (null: a local workspace). */
 export function serverWorkspaceId(): string | null {

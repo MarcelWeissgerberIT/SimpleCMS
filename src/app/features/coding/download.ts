@@ -9,10 +9,11 @@
  */
 import { resolveAssetUrl } from '../../lib/files'
 import { workspaceInfo } from '../mcp/identity'
-import { PAIR_SECRET, PRESET_GLOBAL, WORKER_CLOUD_PORT, type WorkerPreset } from './protocol'
+import { LOOPBACK_HOSTS, PAIR_SECRET, PRESET_GLOBAL, cloudWorkerPort, type WorkerPreset } from './protocol'
 import { cloudDownloaded, pairDownloaded } from './service'
 import { useCoding } from './state'
-import { createCloudWorker, serverWorkspaceId } from './cloudWorkers'
+import { cloudContextOk, createCloudWorker, listCloudWorkers, serverWorkspaceId } from './cloudWorkers'
+import { keepCloudKey } from './cloudKeys'
 
 export const WORKER_FILE = 'one-worker.mjs'
 /** The cloud download's name (it may sit next to a local one-worker.mjs). */
@@ -44,8 +45,6 @@ export function withPreset(source: string, p: WorkerPreset): string {
   return `${head}${presetLine(p)}\n${rest}`
 }
 
-const LOOPBACK = new Set(['localhost', '127.0.0.1', '[::1]'])
-
 /** The preset for this tab's workspace (a fresh secret). */
 export function presetFor(secret: string): WorkerPreset {
   if (!PAIR_SECRET.test(secret)) throw new Error('bad secret')
@@ -56,7 +55,7 @@ export function presetFor(secret: string): WorkerPreset {
     port: useCoding.getState().port,
     pair: secret,
     name: ws.name,
-    ...(LOOPBACK.has(window.location.hostname) ? { dev: true } : {}),
+    ...(LOOPBACK_HOSTS.has(window.location.hostname) ? { dev: true } : {}),
   }
 }
 
@@ -94,18 +93,27 @@ export async function downloadWorker(): Promise<void> {
 /**
  * Cloud (docs/CODING.md § Cloud worker): the worker for another computer that dials this team server. The file
  * comes first (a failed fetch creates no token), then a NEW token from the server — pending: the member's working
- * cloud worker keeps working until this file connects. The token goes into the file only (never into this
- * browser's storage); the fresh pairing secret stays on this device and keys the end-to-end encryption.
+ * cloud worker keeps working until this file connects (the server's list before it says which one that is: its key
+ * stays). The token goes into the file only (never into this browser's storage); the fresh pairing secret goes into
+ * the file and, as a NON-EXTRACTABLE key, into this device's IndexedDB (cloudKeys.ts) — it keys the end-to-end
+ * encryption. The file's local port is the workspace's own (cloudWorkerPort).
  */
 export async function downloadCloudWorker(): Promise<void> {
   const serverId = serverWorkspaceId()
   if (!serverId) throw new Error('not a team workspace')
+  if (!cloudContextOk()) throw new Error('not a secure page')
   const source = await workerSource()
+  // the member's working cloud worker (a pending download is replaced by this one; the active one stays until it connects)
+  const stays = await listCloudWorkers(serverId)
+    .then((list) => list.filter((w) => w.mine && w.state === 'active').map((w) => w.id))
+    .catch(() => null)
   const { worker, token } = await createCloudWorker(serverId)
   const secret = newPairSecret()
-  const preset: WorkerPreset = { ...presetFor(secret), port: WORKER_CLOUD_PORT, cloud: { token } }
+  const base = presetFor(secret)
+  const preset: WorkerPreset = { ...base, port: cloudWorkerPort(base.workspace), cloud: { token } }
+  await keepCloudKey(preset.workspace, worker.id, secret)
   save(withPreset(source, preset), CLOUD_WORKER_FILE)
-  cloudDownloaded(preset.workspace, secret, worker.id)
+  cloudDownloaded(preset.workspace, worker.id, stays)
 }
 
 /** The command that starts the downloaded file (Windows PowerShell spells the home folder differently). */
