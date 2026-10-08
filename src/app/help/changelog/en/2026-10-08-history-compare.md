@@ -1,7 +1,7 @@
 ---
 id: 2026-10-08-history-compare
 date: 2026-10-08
-order: 1
+order: 2
 title: Version history marks what each version added
 summary: Changes now compares a version with the one before it — what it added marked in orange — and Version marks the new parts in the version itself.
 image: assets/shots/changelog/history-compare.webp

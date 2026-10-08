@@ -1,7 +1,7 @@
 ---
 id: 2026-10-08-mcp-overview
 date: 2026-10-08
-order: 2
+order: 3
 title: One table for your MCP servers — codeword and where each may be used
 summary: Settings → Claude AI → MCP servers opens with an overview — per server its codeword, which of One's Claude requests take it, the agents and integrations that use it, and whether Claude Code in the worker has it.
 image: assets/shots/changelog/mcp-overview.webp

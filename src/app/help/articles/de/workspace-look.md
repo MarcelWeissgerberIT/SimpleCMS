@@ -3,7 +3,7 @@ id: workspace-look
 title: Das Aussehen des Workspace — Farben, Schriften, Ecken
 section: start
 order: 7
-keywords: Aussehen, Farben, Akzentfarbe, Signalfarbe, Marke, Schriftart, Schrift, Schriftfarbe, Tinte, Papier, Paper, Hintergrund, dunkles Design, Carbon, Ecken, eckig, rechtwinklig, Überschriften, Serifen, Kippschalter, Design, Thema, look, theme, colours, colors, fonts, text colour, corners
+keywords: Aussehen, Farben, Akzentfarbe, Signalfarbe, Marke, Schriftart, Schrift, Schriftfarbe, Tinte, Papier, Paper, Hintergrund, dunkles Design, Carbon, Ecken, eckig, rechtwinklig, Überschriften, Serifen, Schalter, LED der Schalter, Kippschalter, Design, Thema, look, theme, colours, colors, fonts, text colour, corners
 related: workspace, members-roles, export, share-links
 summary: Gib One die Farben und die Schrift deines Workspace — für alle darin. Der Kontrast bleibt lesbar; Exporte und geteilte Links behalten das Standard-Aussehen von One.
 ---
@@ -15,14 +15,14 @@ summary: Gib One die Farben und die Schrift deines Workspace — für alle darin
 Fünf Ausgangspunkte: **Papier** (der Standard von One), **Blaupause** (Kobalt auf kühlem Papier, schmale Überschriften), **Ocker** (Bernstein auf Sand), **Andruck** (Magenta auf Zeitungspapier, Serifenschrift) und **Schweizer Stil** (neutrales Papier, Groteskschrift, rechtwinklige Ecken). Danach lässt sich alles ändern — die Anzeige sagt dann *BLAUPAUSE · ANGEPASST*.
 
 ## Farben
-- **Signalfarbe** — der eine Akzent: Tasten, Fokusrahmen, Cursor, LEDs und die Lampe jedes Kippschalters.
+- **Signalfarbe** — der eine Akzent: Tasten, Fokusrahmen, Cursor, LEDs und das Licht jedes eingeschalteten Schalters (außer ein Gerät hat in Einstellungen → Darstellung eine andere **LED der Schalter** gewählt).
 - **Papier** — der Hintergrundton. Er bleibt hell und ruhig, damit jede Text- und Tag-Farbe lesbar bleibt.
-- **Tinte** — die Schriftfarbe. Leiser Text, Linien, Hover-Töne und das Metall der Kippschalter leiten sich davon ab.
+- **Tinte** — die Schriftfarbe. Leiser Text, Linien, Hover-Töne sowie Metall und Glas der Schalter leiten sich davon ab.
 
 Wähle ein Farbfeld oder deine eigene Farbe (den Farbwähler oder einen Hex-Wert wie `#2759db`). **Carbon** (das dunkle Design) wird aus Paper abgeleitet — die Tinte wird zum Hintergrund, das Papier zur Schrift — oder du schaltest *Carbon-Farben getrennt festlegen* ein und wählst Papier, Tinte und Signalfarbe selbst.
 
 ## Kontrast ist garantiert
-One hält Text bei mindestens **4,5 : 1** und Tasten, Fokusrahmen und Schalterlampen bei mindestens **3 : 1** (WCAG AA), in Paper und in Carbon. Eine Farbe, die das nicht schafft, wird abgedunkelt oder aufgehellt, bis sie passt — die Anzeige nennt dann die *verwendete* Farbe und **FÜR KONTRAST ANGEPASST**. Das Raster **Kontrast** zeigt die Werte für beide Designs. Eine Signalfarbe sehr nah an der Tinte bekommt einen Hinweis: Tasten und Links würden sich kaum abheben.
+One hält Text bei mindestens **4,5 : 1** und Tasten, Fokusrahmen und die Schalter-LED auf ihrem dunklen Boden bei mindestens **3 : 1** (WCAG AA), in Paper und in Carbon. Eine Farbe, die das nicht schafft, wird abgedunkelt oder aufgehellt, bis sie passt — die Anzeige nennt dann die *verwendete* Farbe und **FÜR KONTRAST ANGEPASST**. Das Raster **Kontrast** zeigt die Werte für beide Designs. Eine Signalfarbe sehr nah an der Tinte bekommt einen Hinweis: Tasten und Links würden sich kaum abheben.
 
 ## Schrift und Ecken
 - **Oberfläche** — Archivo (die Schrift von One), *Schweizer Grotesk* (Helvetica und Verwandte) oder *System* (die Schrift deines Computers). Schweizer Grotesk und System kommen vom Gerät, nichts wird geladen — deshalb sehen sie auf jedem Computer etwas anders aus.

@@ -332,19 +332,33 @@ textarea.input {
   right: var(--screw-inset, 6px);
 }
 
-/* ---------- Switch: industrial toggle ("Kippschalter") ----------
- * The button is the plate; inside, one SVG (ui/controls.tsx SwitchArt, 1 unit = 1 px): two slotted screws, the
- * engraved O, the lamp with the I, a hex nut and a ball-tipped lever that LEANS about the nut — left toward the O
- * = off, right toward the lamp = on (the lamp lights in --signal when the throw ends).
- * --sw-dir −1 / 1 · --sw-lean the resting angle · --sw-give how far the lever yields on hover (3°) / press (6°)
- * · --sw-lamp-delay when the lamp lights (0 with reduced motion). The throw rotates .switch__lever with the snap
- * easing; the give rotates the nested .switch__give with a short ease-out, so hover never lags.
+/* ---------- Switch: glass rocker ("Glas-Wippe") ----------
+ * The button is a brushed-steel bezel held by four slotted screws; in its opening a glass rocker sits over a dark
+ * floor (ui/controls.tsx SwitchArt — spans only, no text). Left half engraved 0 = off, right half engraved I = on;
+ * the rocker tilts toward the pressed side (rotateY ±8° under a perspective). On, an LED under the glass lights:
+ * the floor glows, the glass is tinted, a soft glow sits around the rocker — every lit tone is mixed from
+ * --switch-led (tokens.css: the signal colour unless this device picked another, lib/switchLed.ts).
+ * Every size is calc(<n>px * var(--text-scale)), so switches grow with the text size (Settings → Appearance).
+ * --sw-dir −1 off / 1 on · --sw-on 0 / 1 · --sw-tilt the resting angle · --sw-give how far the rocker yields on
+ * hover (3°) / press (6°) · --sw-lit-delay when the LED lights (after the throw; off goes dark at once). The throw
+ * turns .switch__rocker with the snap easing; the give turns the nested .switch__face with a short ease-out, so
+ * hover never lags.
  */
 .switch {
+  --sw-frame: calc(4px * var(--text-scale));   /* bezel metal around the opening */
+  --sw-screw: calc(3.5px * var(--text-scale));
+  --sw-gap: calc(1px * var(--text-scale));     /* rocker ↔ opening: the floor shows here */
+  --sw-legend-h: calc(8px * var(--text-scale));
+  --sw-legend-w: calc(5px * var(--text-scale));
+  --sw-stroke: calc(1.5px * var(--text-scale));
+  --sw-glow-r: calc(5px * var(--text-scale));
+  --sw-frost-r: calc(3px * var(--text-scale));
+  --sw-persp: calc(64px * var(--text-scale));
+  --sw-tilt: 8deg;
   --sw-dir: -1;
-  --sw-lean: 34deg;
+  --sw-on: 0;
   --sw-give: 0deg;
-  --sw-lamp-delay: var(--dur-2);
+  --sw-lit-delay: 0s;
   position: relative;
   display: inline-block;
   flex: none;
@@ -354,8 +368,10 @@ textarea.input {
   padding: 0;
   border: 1px solid var(--plate-edge);
   border-radius: var(--radius-1);
-  background: var(--plate);
-  box-shadow: inset 0 1px 0 var(--plate-hi), inset 0 -1px 0 var(--plate-lo);
+  background:
+    repeating-linear-gradient(0deg, var(--toggle-brush) 0 0.5px, transparent 0.5px 1.5px),
+    linear-gradient(135deg, var(--toggle-bezel-1), var(--toggle-bezel-2) 35%, var(--toggle-bezel-3) 55%, var(--toggle-bezel-4));
+  box-shadow: inset 0 -1px 0 var(--toggle-lip);
   color: inherit;
   vertical-align: middle;
   cursor: pointer;
@@ -366,21 +382,31 @@ textarea.input {
   transition: border-color var(--dur-1) var(--ease-out);
 }
 .switch--sm {
+  --sw-frame: calc(3px * var(--text-scale));
+  --sw-screw: calc(2.75px * var(--text-scale));
+  --sw-legend-h: calc(6px * var(--text-scale));
+  --sw-legend-w: calc(4px * var(--text-scale));
+  --sw-stroke: calc(1.5px * var(--text-scale));
+  --sw-glow-r: calc(4px * var(--text-scale));
+  --sw-frost-r: calc(2px * var(--text-scale));
+  --sw-persp: calc(50px * var(--text-scale));
   width: var(--switch-sm-w);
   height: var(--switch-sm-h);
 }
 .switch:is([aria-checked='true'], [data-checked='true']) {
   --sw-dir: 1;
+  --sw-on: 1;
+  --sw-lit-delay: var(--dur-1); /* lights with the clack, not before */
 }
-/* the plate's inset edges would otherwise replace the global focus ring */
+/* the bezel's front edge would otherwise replace the global focus ring */
 .switch:focus-visible {
-  box-shadow: var(--focus-ring), inset 0 1px 0 var(--plate-hi), inset 0 -1px 0 var(--plate-lo);
+  box-shadow: var(--focus-ring), inset 0 -1px 0 var(--toggle-lip);
 }
 .switch:disabled {
   cursor: not-allowed;
   opacity: 0.5;
 }
-/* a slightly larger target than the plate (≥ 32 px tall for md), more on touch screens; same look */
+/* a slightly larger target than the bezel (≥ 30 px tall for sm), more on touch screens; same look */
 .switch::before {
   content: '';
   position: absolute;
@@ -417,86 +443,151 @@ textarea.input {
   position: absolute;
   inset: 0;
   display: block;
-  width: 100%;
-  height: 100%;
-  overflow: visible;
   pointer-events: none;
 }
 .switch__screw {
-  fill: var(--screw-head);
-  stroke: var(--screw-edge);
-  stroke-width: 1;
+  position: absolute;
+  width: var(--sw-screw);
+  height: var(--sw-screw);
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, var(--toggle-screw-hi), var(--toggle-screw-mid) 55%, var(--toggle-screw-lo));
+  box-shadow: 0 0 0 0.5px var(--toggle-screw-edge), 0 0.5px 0.5px var(--toggle-screw-edge);
 }
-.switch__slot {
-  fill: none;
-  stroke: var(--screw-slot);
-  stroke-width: 1;
+.switch__screw::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(50% - 0.5px);
+  height: 1px;
+  background: var(--toggle-screw-slot);
+  transform: rotate(var(--screw-rot, 30deg));
 }
-.switch__legend {
-  fill: none;
-  stroke: var(--engrave);
-  stroke-width: 1;
+.switch__screw--tl,
+.switch__screw--tr {
+  top: calc((var(--sw-frame) - var(--sw-screw)) / 2);
 }
-.switch__lens {
-  fill: var(--toggle-window);
-  stroke: var(--toggle-window-edge);
-  stroke-width: 1;
-  transition: fill 0s; /* dark at once */
+.switch__screw--bl,
+.switch__screw--br {
+  bottom: calc((var(--sw-frame) - var(--sw-screw)) / 2);
 }
-.switch__lamp {
-  fill: none;
-  stroke: var(--toggle-lamp-off);
-  stroke-width: 1;
-  transition: stroke 0s;
+.switch__screw--tl,
+.switch__screw--bl {
+  left: calc((var(--sw-frame) - var(--sw-screw)) / 2);
 }
-.switch:is([aria-checked='true'], [data-checked='true']) .switch__lens {
-  fill: var(--signal);
-  transition: fill 0s linear var(--sw-lamp-delay); /* lights with the clack, not before */
+.switch__screw--tr,
+.switch__screw--br {
+  right: calc((var(--sw-frame) - var(--sw-screw)) / 2);
 }
-.switch:is([aria-checked='true'], [data-checked='true']) .switch__lamp {
-  stroke: var(--on-signal);
-  transition: stroke 0s linear var(--sw-lamp-delay);
+/* the opening: the dark floor the LED lights from below */
+.switch__well {
+  position: absolute;
+  inset: var(--sw-frame);
+  background: var(--toggle-window);
+  box-shadow: inset 0 0 0 0.5px var(--toggle-rim);
+  perspective: var(--sw-persp);
 }
-.switch__nut-edge {
-  fill: var(--toggle-nut-edge);
+.switch__glow {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse at 50% 50%, var(--switch-led), var(--toggle-lit-floor) 75%, var(--toggle-window));
+  opacity: var(--sw-on);
+  transition: opacity var(--dur-1) var(--ease-out) var(--sw-lit-delay);
 }
-.switch__nut {
-  fill: var(--toggle-nut);
-}
-.switch__bore {
-  fill: var(--toggle-bore);
-}
-.switch__lever,
-.switch__give {
-  transform-box: view-box;
-  transform-origin: 0 0; /* the pivot: drawn inside translate(nut) */
-}
-.switch__lever {
-  transform: rotate(calc(var(--sw-dir) * var(--sw-lean)));
+.switch__rocker {
+  position: absolute;
+  inset: var(--sw-gap);
+  transform-style: preserve-3d;
+  transform: rotateY(calc(var(--sw-dir) * var(--sw-tilt)));
   transition: transform var(--dur-2) var(--ease-snap);
 }
-.switch__give {
-  transform: rotate(calc(var(--sw-dir) * var(--sw-give) * -1));
+.switch__face {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  transform: rotateY(calc(var(--sw-dir) * var(--sw-give) * -1));
   transition: transform var(--dur-1) var(--ease-out);
 }
-.switch__shaft {
-  fill: none;
-  stroke: var(--toggle-lever);
-  stroke-linecap: round;
+/* the soft glow of the lit glass, under both halves */
+.switch__face::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  box-shadow: 0 0 var(--sw-glow-r) calc(var(--sw-glow-r) / 5) var(--toggle-glow);
+  opacity: var(--sw-on);
+  transition: opacity var(--dur-1) var(--ease-out) var(--sw-lit-delay);
 }
-.switch__ball {
-  fill: var(--toggle-ball);
-  stroke: var(--toggle-ball-rim);
-  stroke-width: 1;
+.switch__half {
+  position: relative;
+  display: grid;
+  flex: 1 1 0;
+  place-items: center;
+  background: linear-gradient(160deg, var(--toggle-glass-hi), var(--toggle-glass-lo));
+  box-shadow: inset 0 0 var(--sw-frost-r) var(--toggle-frost);
+}
+.switch__half--i {
+  box-shadow: inset 1px 0 0 var(--toggle-seam), inset 0 0 var(--sw-frost-r) var(--toggle-frost);
+}
+/* lit glass: brightest at the middle, where the LED sits */
+.switch__half::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse at 95% 50%, var(--toggle-lit-hi), var(--toggle-lit-mid) 60%, var(--switch-led));
+  box-shadow: inset 0 0 var(--sw-frost-r) var(--toggle-frost);
+  opacity: var(--sw-on);
+  transition: opacity var(--dur-1) var(--ease-out) var(--sw-lit-delay);
+}
+.switch__half--i::before {
+  background: radial-gradient(ellipse at 5% 50%, var(--toggle-lit-hi), var(--toggle-lit-mid) 60%, var(--switch-led));
+  box-shadow: inset 1px 0 0 var(--toggle-seam), inset 0 0 var(--sw-frost-r) var(--toggle-frost);
+}
+/* the pressed half sits deeper: darker toward its outer end */
+.switch__half::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to left, transparent 30%, var(--toggle-seam));
+  opacity: calc(1 - var(--sw-on));
+  transition: opacity var(--dur-2) var(--ease-snap);
+}
+.switch__half--i::after {
+  background: linear-gradient(to right, transparent 30%, var(--toggle-seam));
+  opacity: var(--sw-on);
+}
+/* the engraved legends: a ring (0) and a bar (I), drawn, so they stay sharp at every size */
+.switch__o,
+.switch__i {
+  position: relative;
+  z-index: 1;
+  display: block;
+  height: var(--sw-legend-h);
+}
+.switch__o {
+  width: var(--sw-legend-w);
+  border: var(--sw-stroke) solid var(--toggle-legend);
+  border-radius: 50%;
+  transition: border-color var(--dur-1) var(--ease-out) var(--sw-lit-delay);
+}
+.switch__i {
+  width: var(--sw-stroke);
+  background: var(--toggle-legend);
+  transition: background-color var(--dur-1) var(--ease-out) var(--sw-lit-delay);
+}
+.switch:is([aria-checked='true'], [data-checked='true']) .switch__o {
+  border-color: var(--toggle-lit-legend);
+}
+.switch:is([aria-checked='true'], [data-checked='true']) .switch__i {
+  background: var(--toggle-lit-legend);
 }
 
 @media (prefers-reduced-motion: reduce) {
-  /* state only: no throw, no give, no delayed lamp (the global 1 ms rule leaves transition delays in place);
-     (0,3,0) + later than the lit rules above, so it wins over them */
-  .switch {
-    --sw-lamp-delay: 0s;
-  }
-  .switch .switch__art :is(.switch__lever, .switch__give, .switch__lens, .switch__lamp) {
+  /* state only: no throw, no give, no delayed LED (the global 1 ms rule leaves transition delays in place);
+     (0,2,0)+ and later than the rules above, so it wins over them */
+  .switch .switch__art :is(.switch__glow, .switch__rocker, .switch__face, .switch__o, .switch__i),
+  .switch .switch__face::before,
+  .switch .switch__half::before,
+  .switch .switch__half::after {
     transition: none;
   }
 }
@@ -504,8 +595,11 @@ textarea.input {
   .switch {
     border-color: var(--ink);
   }
-  .switch__legend {
-    stroke: var(--ink);
+  .switch:not(:is([aria-checked='true'], [data-checked='true'])) .switch__o {
+    border-color: var(--ink);
+  }
+  .switch:not(:is([aria-checked='true'], [data-checked='true'])) .switch__i {
+    background: var(--ink);
   }
 }
 @media (forced-colors: active) {
@@ -519,39 +613,54 @@ textarea.input {
     outline: 2px solid Highlight;
     outline-offset: 2px;
   }
-  .switch__screw,
-  .switch__nut,
-  .switch__lens {
-    fill: ButtonFace;
-    stroke: ButtonText;
+  .switch__screw {
+    background: ButtonText;
+    box-shadow: none;
   }
-  .switch__slot,
-  .switch__legend,
-  .switch__lamp,
-  .switch__shaft {
-    stroke: ButtonText;
+  .switch__screw::after {
+    background: ButtonFace;
   }
-  .switch__nut-edge,
-  .switch__bore,
-  .switch__ball {
-    fill: ButtonText;
-    stroke: none;
+  .switch__well {
+    background: ButtonText;
+    box-shadow: none;
   }
-  .switch:is([aria-checked='true'], [data-checked='true']) .switch__lens {
-    fill: Highlight;
+  .switch .switch__glow,
+  .switch .switch__face::before,
+  .switch .switch__half::after {
+    display: none;
   }
-  .switch:is([aria-checked='true'], [data-checked='true']) .switch__lamp {
-    stroke: HighlightText;
+  .switch .switch__half {
+    background: ButtonFace;
+    box-shadow: inset 0 0 0 1px ButtonText;
+  }
+  .switch .switch__half::before {
+    background: Highlight;
+    box-shadow: none;
+  }
+  .switch .switch__o {
+    border-color: ButtonText;
+  }
+  .switch .switch__i {
+    background: ButtonText;
+  }
+  .switch:is([aria-checked='true'], [data-checked='true']) .switch__o {
+    border-color: HighlightText;
+  }
+  .switch:is([aria-checked='true'], [data-checked='true']) .switch__i {
+    background: HighlightText;
   }
   .switch:disabled {
     opacity: 1;
     border-color: GrayText;
   }
-  .switch:disabled :is(.switch__shaft, .switch__lamp) {
-    stroke: GrayText;
+  .switch:disabled .switch__half::before {
+    background: GrayText;
   }
-  .switch:disabled :is(.switch__ball, .switch__bore) {
-    fill: GrayText;
+  .switch:disabled .switch__o {
+    border-color: GrayText;
+  }
+  .switch:disabled .switch__i {
+    background: GrayText;
   }
 }
 

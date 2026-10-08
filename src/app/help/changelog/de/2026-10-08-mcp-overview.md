@@ -1,7 +1,7 @@
 ---
 id: 2026-10-08-mcp-overview
 date: 2026-10-08
-order: 2
+order: 3
 title: Eine Tabelle für deine MCP-Server – Codewort und wo jeder genutzt werden darf
 summary: Einstellungen → Claude KI → MCP-Server beginnt mit einer Übersicht – pro Server sein Codewort, welche Anfragen von Claude in One ihn nutzen, die Agenten und Integrationen dazu und ob Claude Code im Worker ihn hat.
 image: assets/shots/changelog/mcp-overview.webp

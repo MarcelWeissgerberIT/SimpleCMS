@@ -240,6 +240,8 @@ test.describe('nothing overflows · 390 × 844', () => {
 
 test.describe('the biggest text size still fits', () => {
   test('1280 × 720 and 390 × 844 at XL', async ({ page }) => {
+    // every sweep at two sizes: about a minute on its own, so it gets the slow-test budget
+    test.slow()
     await page.addInitScript(() => localStorage.setItem('one.textScale', '4'))
     await page.setViewportSize({ width: 1280, height: 720 })
     await databasePopovers(page)

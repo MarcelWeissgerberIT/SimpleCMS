@@ -289,7 +289,7 @@ button.tb-crumb:hover {
 .pm-toggle .switch {
   pointer-events: none;
 }
-/* the row is the control: hovering or focusing it gives the lever the same 3° as a hovered switch */
+/* the row is the control: hovering or focusing it gives the rocker the same 3° as a hovered switch */
 @media (hover: hover) and (prefers-reduced-motion: no-preference) {
   .pm-toggle:hover .switch,
   .pm-toggle:focus-visible .switch {

@@ -73,7 +73,7 @@
   margin: 0 0 14px;
 }
 .mcp-switch .switch {
-  margin-top: -3px;
+  margin-top: calc(-4px * var(--text-scale));
 }
 .mcp-switch__label {
   font-size: var(--text-md);

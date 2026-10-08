@@ -21,6 +21,6 @@ Neu hier? **Die 3-Minuten-Tour** führt in acht Schritten durch die echte Oberfl
 **Was kann One?** zeigt alle Funktionen auf einer Seite — in sechs Gruppen (Schreiben, Ordnen, Claude, Automatisieren, Teilen & Team, Erfassen), jede Karte mit dem, was sie tut, wie du hinkommst, einer Taste **Ausprobieren**, die die echte Stelle öffnet, und dem passenden Artikel. Du findest sie unten in der Seitenleiste, im Workspace-Menü, mit <kbd>Mod+K</kbd> und oben in dieser Hilfe.
 
 ## Einstellungen
-<kbd>Mod+,</kbd> öffnet die **Einstellungen** (auch im Workspace-Menü oben in der Seitenleiste): dein Name, die Sprache (English oder Deutsch), das Design — hell (Paper), dunkel (Carbon) oder System —, die **Schriftgröße** der ganzen App (**Darstellung**: Standard, M, L oder XL, auf diesem Gerät), dein Claude-Schlüssel und deine Daten.
+<kbd>Mod+,</kbd> öffnet die **Einstellungen** (auch im Workspace-Menü oben in der Seitenleiste): dein Name, die Sprache (English oder Deutsch), das Design — hell (Paper), dunkel (Carbon) oder System —, die **Schriftgröße** der ganzen App (**Darstellung**: Standard, M, L oder XL, auf diesem Gerät) und die Farbe der **Schalter-LEDs**, dein Claude-Schlüssel und deine Daten.
 
 > Dein Workspace liegt nur in diesem Browser. Exportiere ab und zu ein Backup: **Workspace-Einstellungen → Daten → Workspace exportieren**.

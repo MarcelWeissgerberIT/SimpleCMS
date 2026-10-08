@@ -820,6 +820,108 @@ select.input {
   padding-top: 16px;
   border-top: 1px solid var(--rule);
 }
+
+/* ---------- switch LED (Settings → Appearance, Workspace → Overview → Display) ---------- */
+/* LED keys in a row: the chosen one lit with a small halo, the others glow dimly; a switch off and on beside the label */
+.st-switchled {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--rule);
+}
+.sled {
+  max-width: 600px;
+}
+.sled__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px 12px;
+}
+.sled__demo {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.sled__keys {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+.sled__key {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: calc(30px * var(--text-scale));
+  padding: 0 10px 0 9px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+  background: var(--surface);
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-label);
+  line-height: 1.2;
+  text-align: left;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition:
+    border-color var(--dur-1) var(--ease-out),
+    color var(--dur-1) var(--ease-out),
+    transform var(--dur-1) var(--ease-out);
+}
+.sled__key:hover {
+  border-color: var(--ink-3);
+  color: var(--ink);
+}
+.sled__key:active {
+  transform: translateY(1px);
+}
+.sled__key[aria-checked='true'] {
+  border-color: var(--ink);
+  color: var(--ink);
+  font-weight: 650;
+  box-shadow: inset 0 -2px 0 var(--ink);
+}
+.sled__key:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.sled__key[aria-checked='true']:focus-visible {
+  box-shadow: var(--focus-ring), inset 0 -2px 0 var(--ink);
+}
+.sled__lens {
+  flex: none;
+  width: calc(10px * var(--text-scale));
+  height: calc(10px * var(--text-scale));
+  border-radius: var(--radius-led);
+  background: color-mix(in srgb, var(--led) 60%, var(--surface-3));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--led) 55%, var(--ink));
+}
+.sled__key[aria-checked='true'] .sled__lens {
+  background: radial-gradient(circle at 38% 34%, color-mix(in srgb, var(--led) 30%, var(--toggle-white)), var(--led) 70%);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--led) 70%, var(--toggle-black)),
+    0 0 calc(6px * var(--text-scale)) color-mix(in srgb, var(--led) 60%, transparent);
+}
+.sled .sled__hint {
+  margin-top: 8px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .sled__key {
+    transition: none;
+  }
+}
+@media (forced-colors: active) {
+  .sled__key[aria-checked='true'] {
+    border-color: Highlight;
+    box-shadow: inset 0 -2px 0 Highlight;
+  }
+  .sled__lens {
+    forced-color-adjust: none;
+  }
+}
 /* Appearance → the workspace's look lives on the workspace page */
 .st-look-link {
   display: flex;

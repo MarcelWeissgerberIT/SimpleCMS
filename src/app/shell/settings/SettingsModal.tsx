@@ -23,6 +23,7 @@ import { useInCloud, useWorkspaceTitle } from '../cloud/state'
 import { openWorkspaceSettings } from '../workspace/open'
 import { StorageGauge, useStorageEstimate } from './data'
 import { TextSizeControl } from './TextSize'
+import { SwitchLedControl } from './SwitchLed'
 import { cloudApi } from '../cloud/api'
 import { errorText } from '../cloud/errors'
 import { useCloud, useCloudSync } from '../../cloud'
@@ -353,6 +354,9 @@ function AppearanceTab() {
       </div>
       <div className="st-textsize">
         <TextSizeControl />
+      </div>
+      <div className="st-switchled">
+        <SwitchLedControl />
       </div>
       {/* colours and fonts are the workspace's (Workspace → Look); this device may keep the standard look */}
       <p className="st-look-link" data-testid="settings-look-link">

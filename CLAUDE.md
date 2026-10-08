@@ -559,8 +559,13 @@ The user explicitly demands: NO AI slop, it must look unlike everything else, in
 - Type: Archivo variable (width axis!). UI 13–14px; display headings use `font-stretch: 125%` (class `.display`),
   heavy weight, tight tracking. Micro-labels: JetBrains Mono, 10.5px, UPPERCASE, letter-spacing .08em (class `.label`).
 - Shape: radius 2px controls / 4px menus+cards / 8px modals. Hairline 1px rules (`--rule`). Pills only for LEDs.
-  Switches are industrial toggle switches on a screwed plate: `Switch` (size 'md' 52×26 | 'sm' 40×20 for dense rows,
-  `seed` = a stable id for the screw angles, `describedBy`), `SwitchFace` for non-interactive rows (aria-hidden),
+  Switches are glass rockers in a screwed, brushed-steel bezel (design 3a "Glas-Wippe"): `Switch` (size 'md' 52×28 |
+  'sm' 40×22 for dense rows — both × `--text-scale`; `seed` = a stable id for the 4 screw angles, `describedBy`),
+  `SwitchFace` for non-interactive rows (aria-hidden); the art is hidden spans (`.switch__half--o` 0 = off,
+  `.switch__half--i` I = on; the rocker tilts toward the pressed side, an LED under the glass lights it). LED colour =
+  `--switch-led` (tokens.css `var(--switch-led-pick, var(--signal))`: the signal colour unless this device picked one in
+  Settings → Appearance / Workspace → Overview → Display; lib/switchLed.ts, localStorage `one.switchLed`, applied before
+  first paint as `--switch-led-pick` + `data-switch-led` on <html>, never synced); every lit tone is a color-mix of it.
   `Screws` + `.screw-plate` for screwed plates (ui/controls.tsx, ui/screws.ts). Hardware colours are color-mix tokens
   in tokens.css (--plate*, --screw-*, --toggle-*), never raw colours.
 - Signature details: orange text caret, orange focus ring, keycap-styled shortcuts (`.kbd`), LED status dots

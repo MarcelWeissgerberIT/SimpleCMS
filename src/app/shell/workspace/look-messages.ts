@@ -29,7 +29,7 @@ export const lookMessages: Messages = {
 
     'shell.ws.look.colours': 'Colours',
     'shell.ws.look.signal': 'Signal',
-    'shell.ws.look.signalHint': 'Keys, focus ring, cursor, LEDs, the lamp of every switch. One colour, used sparingly.',
+    'shell.ws.look.signalHint': 'Keys, focus ring, cursor, LEDs, the light of every switch. One colour, used sparingly.',
     'shell.ws.look.paper': 'Paper',
     'shell.ws.look.paperHint': 'The background tone — kept light and calm so every text colour stays readable.',
     'shell.ws.look.ink': 'Ink',
@@ -173,7 +173,7 @@ export const lookMessages: Messages = {
 
     'shell.ws.look.colours': 'Farben',
     'shell.ws.look.signal': 'Signalfarbe',
-    'shell.ws.look.signalHint': 'Tasten, Fokusrahmen, Cursor, LEDs, die Lampe jedes Schalters. Eine Farbe, sparsam eingesetzt.',
+    'shell.ws.look.signalHint': 'Tasten, Fokusrahmen, Cursor, LEDs, das Licht jedes Schalters. Eine Farbe, sparsam eingesetzt.',
     'shell.ws.look.paper': 'Papier',
     'shell.ws.look.paperHint': 'Der Hintergrundton – bleibt hell und ruhig, damit jede Textfarbe lesbar bleibt.',
     'shell.ws.look.ink': 'Tinte',

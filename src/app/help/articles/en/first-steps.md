@@ -21,6 +21,6 @@ New here? **Take the 3-minute tour**: eight steps on the real interface — the 
 **What can One do?** lists every feature on one page — in six groups (Write, Organise, Claude, Automate, Share & team, Capture), each card with what it does, how to get there, a **Try it** key that opens the real place and a link to its article. Open it from the sidebar's foot, the workspace menu, <kbd>Mod+K</kbd> or the top of this help.
 
 ## Settings
-<kbd>Mod+,</kbd> opens **Settings** (also in the workspace menu at the top of the sidebar): your name, the language (English or Deutsch), the theme — light (Paper), dark (Carbon) or System — the **text size** of the whole app (**Appearance**: Standard, M, L or XL, on this device), your Claude key and your data.
+<kbd>Mod+,</kbd> opens **Settings** (also in the workspace menu at the top of the sidebar): your name, the language (English or Deutsch), the theme — light (Paper), dark (Carbon) or System — the **text size** of the whole app (**Appearance**: Standard, M, L or XL, on this device) and the colour of the **switch LEDs**, your Claude key and your data.
 
 > Your workspace lives in this browser only. Export a backup now and then: **Workspace settings → Data → Export workspace**.

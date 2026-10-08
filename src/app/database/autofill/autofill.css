@@ -523,9 +523,9 @@
   font-weight: 550;
 }
 
-/* the 26 px plate centred on the 19.5 px title line */
+/* the 28 px rocker centred on the 19.5 px title line (both follow the text size) */
 .af-switch .switch {
-  margin-top: -3px;
+  margin-top: calc(-4px * var(--text-scale));
 }
 
 /* readout (estimate / results) */
