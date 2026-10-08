@@ -212,7 +212,11 @@ an own name. **One rule** for every model name (protocol.ts `MODEL_NAME`, also `
 digits and `. _ : - [ ]`, 1–100 characters, starting with a letter or digit (a leading `-` would read as a flag).
 `readPipeline` sanitizes it (other kinds keep none), `savePipeline` writes it. The pipeline editor's stage details:
 **Model** — *Standard (worker default)* · Opus · Sonnet · Haiku · Fable · *Own…* (a name, checked as it is typed;
-Save waits while it fails); a set model shows as a mono chip in the stage's row.
+Save waits while it fails and names the stage next to it). *Own…* is a state of its own (`Draft.own`), never worked
+out from the text, so a name that passes through an alias while typed (`opus` → `opus[1m]`) keeps its field; picking an
+entry never moves the focus, and an empty name is a hint until the field is left. A set model shows as a mono chip in
+the stage's row (an own id without its `claude-` prefix, the full name as its title; on its own line in narrow rows;
+*Model name?* for an own name not typed yet).
 
 **Per task, per device**: the task panel's **Model** pick (next to Approvals) — *As the pipeline* or one model for
 every Claude Code stage of the task (the known ones and the own names the pipeline uses). Kept in the task's local
@@ -265,8 +269,9 @@ Always `execFile('git', […])` — never a shell line; hooks and your git confi
   coding/lines.ts — unknown codes and every line without one show `s` as written). After every Claude Code turn a
   `progress` event carries { turns, maxTurns, cost, model }: turns are counted per assistant message id, the cost is an
   estimate from each message's `usage` (mcp/src/worker/price.ts, $ per million tokens per model; cache writes 1.25 ×
-  input, cache reads at the model's rate; unknown model → none) until the result event's exact `total_cost_usd`. One
-  keeps it in memory only (`useCoding.progress`) and drops it when the stage ends.
+  input, cache reads at the model's rate; a model priced higher for long prompts counts a message whose whole prompt —
+  input + cache writes + cache reads — is over its line at that tier; unknown model → none) until the result event's
+  exact `total_cost_usd`. One keeps it in memory only (`useCoding.progress`) and drops it when the stage ends.
 - **Live diff**: while a stage other than plan runs, the worker checks `git status --porcelain` every 30 s
   (`ONE_WORKER_LIVE_GIT_MS`) and sends a `git` event (the same snapshot as at the end) whenever the worktree changed —
   the panel's Files chip and the Diff tab follow along.

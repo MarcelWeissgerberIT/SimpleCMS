@@ -57,28 +57,51 @@ test('the pipeline editor: a stage\'s model shows as a chip, is saved and kept a
   await expect(plan.getByTestId('coding-pipeline-chip')).toHaveText('Fable')
   await expect(plan.getByTestId('coding-pipeline-chip')).toHaveAttribute('title', 'Model: claude-fable-5-1')
 
-  // Implement: an own name — checked as it is typed; Save waits until it passes
+  // Implement: an own name — checked as it is typed; Save waits until it passes and says which stage it waits for
   await implement.getByRole('button', { name: 'Stage details' }).click()
-  await implement.getByTestId('coding-pipeline-model').selectOption('__own')
+  const implModel = implement.getByTestId('coding-pipeline-model')
+  await implModel.selectOption('__own')
   const own = implement.getByTestId('coding-pipeline-model-own')
-  await expect(own).toBeFocused()
+  await expect(own).toHaveValue('')
+  // nothing typed yet: a hint, not an alert, and the field is not marked invalid
+  await expect(implement.getByTestId('coding-pipeline-model-need')).toHaveText('Type the model name Claude Code should use.')
   const err = implement.getByTestId('coding-pipeline-model-err')
-  await expect(err).toHaveText('Type the model name Claude Code should use.')
+  await expect(err).toHaveCount(0)
+  await expect(own).not.toHaveAttribute('aria-invalid', 'true')
   const save = page.getByTestId('coding-pipeline-save')
+  const why = page.getByTestId('coding-pipeline-why')
   await expect(save).toBeDisabled()
+  await expect(why).toHaveText('ST-05 · Implement: model name missing')
+  await expect(save).toHaveAttribute('aria-describedby', 'cpe-save-why')
+
+  // another stage open: the closed Implement row still says what is missing
+  await test_.getByRole('button', { name: 'Stage details' }).click()
+  await expect(implement.getByTestId('coding-pipeline-model-field')).toHaveCount(0)
+  await expect(implement.getByTestId('coding-pipeline-chip')).toHaveText('Model name?')
+  await expect(implement.getByTestId('coding-pipeline-chip')).toHaveAttribute('data-bad', '')
+  // a stage that does not run Claude Code has no model
+  await expect(test_.getByTestId('coding-pipeline-model')).toHaveCount(0)
+
+  // back on Implement: the field left empty is an error now (no alert), a bad name is an alert
+  await implement.getByRole('button', { name: 'Stage details' }).click()
+  await expect(implModel).toHaveValue('__own')
+  await own.focus()
+  await own.blur()
+  await expect(err).toHaveText('Type the model name Claude Code should use.')
+  await expect(err).not.toHaveAttribute('role', 'alert')
+  await expect(own).toHaveAttribute('aria-invalid', 'true')
   await own.fill('team model; rm -rf')
   await expect(err).toHaveText('Letters, digits and . _ : - [ ] only, starting with a letter or digit — no spaces, up to 100 characters.')
+  await expect(err).toHaveAttribute('role', 'alert')
   await expect(own).toHaveAttribute('aria-invalid', 'true')
   await expect(implement.getByTestId('coding-pipeline-chip')).toHaveAttribute('data-bad', '')
+  await expect(why).toHaveText('ST-05 · Implement: model name not valid')
   await expect(save).toBeDisabled()
   await own.fill('team-model.v2')
   await expect(err).toHaveCount(0)
   await expect(implement.getByTestId('coding-pipeline-chip')).toHaveText('team-model.v2')
+  await expect(why).toHaveCount(0)
   await expect(save).toBeEnabled()
-
-  // a stage that does not run Claude Code has no model
-  await test_.getByRole('button', { name: 'Stage details' }).click()
-  await expect(test_.getByTestId('coding-pipeline-model')).toHaveCount(0)
 
   await save.click()
   await expect(page.locator('.toast').filter({ hasText: 'Pipeline saved.' })).toBeVisible()
@@ -97,6 +120,83 @@ test('the pipeline editor: a stage\'s model shows as a chip, is saved and kept a
   await expect(page.getByTestId('coding-pipeline-chip')).toHaveText(['Fable'])
   await page.getByTestId('coding-pipeline-save').click()
   await expect.poll(() => storedModels(page)).toEqual([['queue', null], ['queue', null], ['plan', 'claude-fable-5-1'], ['gate', null], ['implement', null], ['test', null], ['gate', null], ['git', null], ['done', null]])
+})
+
+test('"Own…" stays while a typed name passes through a list entry; arrowing onto it keeps the focus; a long id keeps its tail in the row chip at 390 px', async ({ page }) => {
+  await openApp(page)
+  await page.evaluate(() => (window.location.hash = '#/coding'))
+  await page.getByTestId('coding-setup').click()
+  await page.getByTestId('coding-pipeline-open').click()
+  const rows = page.getByTestId('coding-pipeline').locator('> li')
+  const plan = rows.nth(2)
+  await plan.getByRole('button', { name: 'Stage details' }).click()
+  const sel = plan.getByTestId('coding-pipeline-model')
+  const own = plan.getByTestId('coding-pipeline-model-own')
+  const chip = plan.getByTestId('coding-pipeline-chip')
+
+  // keyboard: arrowing through the closed select down to Own… changes its value but never moves the focus
+  await sel.focus()
+  for (let i = 0; i < 5; i++) await page.keyboard.press('ArrowDown')
+  await expect(sel).toHaveValue('__own')
+  await expect(sel).toBeFocused()
+  await expect(own).toHaveValue('')
+  await page.keyboard.press('ArrowUp')
+  await expect(sel).toHaveValue('claude-fable-5-1')
+  await expect(own).toHaveCount(0)
+  await page.keyboard.press('ArrowDown')
+  await expect(sel).toBeFocused()
+  // the field comes next for Tab
+  await page.keyboard.press('Tab')
+  await expect(own).toBeFocused()
+
+  // typed key by key: on its way the name equals an alias ('opus', 'sonnet') — the field stays, so does the focus
+  for (const name of ['opus[1m]', 'opusplan', 'sonnet[1m]']) {
+    await own.fill('')
+    await own.focus()
+    await page.keyboard.type(name, { delay: 15 })
+    await expect(own).toHaveValue(name)
+    await expect(own).toBeFocused()
+    await expect(sel).toHaveValue('__own')
+    await expect(chip).toHaveText(name)
+  }
+  // exactly an alias typed in Own…: the field stays; the chip names the model
+  await own.fill('')
+  await own.focus()
+  await page.keyboard.type('sonnet', { delay: 15 })
+  await expect(sel).toHaveValue('__own')
+  await expect(own).toBeFocused()
+  await expect(chip).toHaveText('Sonnet')
+  await page.keyboard.type('[1m]', { delay: 15 })
+  await expect(own).toHaveValue('sonnet[1m]')
+  // a list entry picked ends Own…
+  await sel.selectOption('opus')
+  await expect(own).toHaveCount(0)
+  await expect(chip).toHaveText('Opus')
+  await sel.selectOption('__own')
+  await expect(own).toHaveValue('')
+  await own.fill('sonnet[1m]')
+  await page.getByTestId('coding-pipeline-save').click()
+  await expect.poll(() => storedModels(page)).toEqual([['queue', null], ['queue', null], ['plan', 'sonnet[1m]'], ['gate', null], ['implement', null], ['test', null], ['gate', null], ['git', null], ['done', null]])
+
+  // 390 px, largest text: a long own id shows its distinguishing part in the row chip, on a line of its own
+  await wsEval(page, (s) => {
+    const db = Object.values(s.databases).find((d: any) => d.system === 'coding') as any // eslint-disable-line @typescript-eslint/no-explicit-any
+    s.updateDatabase(db.id, { pipeline: db.pipeline.map((p: any) => (p.kind === 'implement' ? { ...p, model: 'claude-opus-5-5-20261001' } : p)) }) // eslint-disable-line @typescript-eslint/no-explicit-any
+  })
+  await page.evaluate(() => localStorage.setItem('one.textScale', '4'))
+  await page.setViewportSize({ width: 390, height: 844 })
+  await reloadApp(page)
+  await page.evaluate(() => (window.location.hash = '#/coding'))
+  await page.getByTestId('coding-pipeline-open').click()
+  const implChip = rows.nth(4).getByTestId('coding-pipeline-chip')
+  await expect(implChip).toHaveText('opus-5-5-20261001')
+  await expect(implChip).toHaveAttribute('title', 'Model: claude-opus-5-5-20261001')
+  const fit = await implChip.evaluate((el) => ({ clipped: el.scrollWidth > el.clientWidth + 1, chipTop: el.getBoundingClientRect().top, kindBottom: el.closest('.cpe-main')!.querySelector('.cpe-kind')!.getBoundingClientRect().bottom }))
+  expect(fit.clipped).toBe(false)
+  expect(fit.chipTop).toBeGreaterThanOrEqual(fit.kindBottom)
+  // the stage name keeps its width
+  const nameWidth = await rows.nth(4).locator('.cpe-name').evaluate((el) => el.getBoundingClientRect().width)
+  expect(nameWidth).toBeGreaterThan(150)
 })
 
 test('the worker runs Claude Code with the stage\'s model, the task\'s own pick wins on this device; the log and the running chip name it', async ({ page }) => {
