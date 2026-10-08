@@ -23,13 +23,14 @@ import * as Y from 'yjs'
 import type { JSONContent } from '@tiptap/core'
 import { useWorkspace, type CloudPatch } from '../store/store'
 import { runAsRemote } from '../store/persistence'
-import type { CustomAgent, CustomFunction, Database, ID, KitEntry, OneScript, Page, Settings } from '../store/types'
+import type { CustomAgent, CustomFunction, Database, ID, KitEntry, OneScript, Page, Settings, WorkspaceLook } from '../store/types'
 import { sameAgent, sanitizeAgent } from '../store/agents'
 import { sameScript, sanitizeScript } from '../store/scripts'
 import { emptyKit, KIT_SANITIZERS, sameKitEntry, type KitPart } from '../store/kit'
+import { sameLook, sanitizeLook } from '../store/look'
 import { defaultView } from '../store/store'
 import { sharedPlain } from './privacy'
-import { LOCAL, newDatabaseMap, newPageMap, readDatabase, readFunctions, readPage, readPeople, roots, writeDatabase, writeFunctions, writePage, writePeople, type YMap } from './schema'
+import { clone, LOCAL, newDatabaseMap, newPageMap, readDatabase, readFunctions, readPage, readPeople, roots, writeDatabase, writeFunctions, writePage, writePeople, type YMap } from './schema'
 
 let applying = 0
 
@@ -183,6 +184,8 @@ export interface BindingOptions {
   privateDoc: Y.Doc | null
   userId: () => string
   writable: () => boolean
+  /** May this member change the workspace look (owners and admins)? Otherwise a local change is put back. */
+  canStyle: () => boolean
   isFavorite: (id: ID) => boolean
   /**
    * Remote changes: pages that appeared, pages whose updatedAt moved, pages that are gone, pages that
@@ -379,6 +382,9 @@ export function startBinding(o: BindingOptions): Binding {
     if (dirtyWorkspace) {
       const name = rs.workspace.get('name')
       if (typeof name === 'string' && name && name !== s.settings.workspaceName) patch.settings = { workspaceName: name }
+      // the workspace look (owners / admins write it; every reader sanitizes)
+      const look = sanitizeLook(rs.workspace.get('look'))
+      if (!sameLook(look, s.look ?? null, { meta: true })) patch.look = look
       dirtyWorkspace = false
     }
     if (dirtyFunctions) {
@@ -426,7 +432,7 @@ export function startBinding(o: BindingOptions): Binding {
       if (Object.keys(next).length) patch.kit = next as CloudPatch['kit']
       dirtyKit = false
     }
-    if (!patch.pages && !patch.databases && !patch.people && !patch.settings && !patch.functions && !patch.agents && !patch.scripts && !patch.kit) return
+    if (!patch.pages && !patch.databases && !patch.people && !patch.settings && !patch.functions && !patch.agents && !patch.scripts && !patch.kit && patch.look === undefined) return
     applyFromCloud(() => s.cloudPatch(patch))
     if (created.length || touched.length || removed.length || rescoped.length) o.onRemotePages({ created, touched, removed, rescoped })
   }
@@ -477,8 +483,13 @@ export function startBinding(o: BindingOptions): Binding {
     const agentsChanged = state.agents !== prev.agents
     const scriptsChanged = state.scripts !== prev.scripts
     const kitChanged = state.kit !== prev.kit
+    const lookChanged = state.look !== prev.look
     if (state.settings !== prev.settings) o.onSettings(state.settings, prev.settings)
-    if (!pagesChanged && !dbsChanged && !peopleChanged && !functionsChanged && !agentsChanged && !scriptsChanged && !kitChanged) return
+    if (!pagesChanged && !dbsChanged && !peopleChanged && !functionsChanged && !agentsChanged && !scriptsChanged && !kitChanged && !lookChanged) return
+    // a look change by someone who may not style the workspace: the team's look comes back from Y
+    if (lookChanged && o.writable() && !o.canStyle()) {
+      queueMicrotask(() => applyFromCloud(() => useWorkspace.getState().cloudPatch({ look: sanitizeLook(rs.workspace.get('look')) })))
+    }
 
     if (!o.writable()) {
       if (pagesChanged) {
@@ -604,6 +615,11 @@ export function startBinding(o: BindingOptions): Binding {
           if (next !== before) writeKitPart(kitMaps[part], next, before)
         }
       }
+      // the look: shared by the whole team (never in the private document)
+      if (lookChanged && o.canStyle()) {
+        if (state.look) rs.workspace.set('look', clone(state.look))
+        else if (rs.workspace.has('look')) rs.workspace.delete('look')
+      }
     })
     // Follow-up store patches (the local `private` marker; created_by / last_edited_by mirror the
     // createdBy / updatedBy this client just wrote) go out after every store listener saw this change:
@@ -689,7 +705,7 @@ export function readAll(
   doc: Y.Doc,
   privateDoc: Y.Doc | null,
   isFavorite: (id: ID) => boolean,
-): Pick<CloudPatch, 'people'> & { pages: Record<ID, Page>; databases: Record<ID, Database>; functions: Record<ID, CustomFunction>; name: string | null } {
+): Pick<CloudPatch, 'people'> & { pages: Record<ID, Page>; databases: Record<ID, Database>; functions: Record<ID, CustomFunction>; name: string | null; look: WorkspaceLook | null } {
   const r = roots(doc)
   const q = privateDoc ? roots(privateDoc) : null
   const pages: Record<ID, Page> = {}
@@ -701,7 +717,7 @@ export function readAll(
   }
   for (const p of Object.values(pages)) if (p.kind === 'database' && !databases[p.id]) databases[p.id] = fallbackDatabase(p.id)
   const name = r.workspace.get('name')
-  return { pages, databases, people: readPeople(r.people, []), functions: readFunctions(r.functions, undefined), name: typeof name === 'string' && name ? name : null }
+  return { pages, databases, people: readPeople(r.people, []), functions: readFunctions(r.functions, undefined), name: typeof name === 'string' && name ? name : null, look: sanitizeLook(r.workspace.get('look')) }
 }
 
 /**

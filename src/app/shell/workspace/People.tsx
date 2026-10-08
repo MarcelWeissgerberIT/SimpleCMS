@@ -56,7 +56,7 @@ export function PeopleSection({ team }: { team: TeamData }) {
     const others = team.members ? people.filter((p) => !memberIds.has(p.id)) : []
     return (
       <>
-        <SectionHead n="02" title={t('shell.ws.sec.people')} lead={t('shell.ws.people.leadTeam')} help="members-roles" />
+        <SectionHead n="03" title={t('shell.ws.sec.people')} lead={t('shell.ws.people.leadTeam')} help="members-roles" />
         <SubHead label={t('shell.cloud.team.members')} count={team.members?.length} />
         <TeamMembers team={team} onLeft={() => navigate({ name: 'home' })} aside={(id) => <MemberUse use={usage.get(id)} name={people.find((p) => p.id === id)?.name ?? ''} />} />
         <SubHead label={t('shell.cloud.team.invites')} count={team.admin ? team.invites.length : undefined} />
@@ -71,7 +71,7 @@ export function PeopleSection({ team }: { team: TeamData }) {
 
   return (
     <>
-      <SectionHead n="02" title={t('shell.ws.sec.people')} lead={t('shell.ws.people.lead')} help="workspace" />
+      <SectionHead n="03" title={t('shell.ws.sec.people')} lead={t('shell.ws.people.lead')} help="workspace" />
       {!readOnly && <AddPerson />}
       <SubHead label={t('shell.ws.people.everyone')} count={people.length} />
       <PeopleList people={people} all={people} usage={usage} you={you} editable={!readOnly} empty={t('shell.ws.people.empty')} />

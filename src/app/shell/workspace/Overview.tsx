@@ -18,7 +18,9 @@ import { Field } from '../settings/SettingsModal'
 import { StorageGauge, type StorageEstimate } from '../settings/data'
 import { TextSizeControl } from '../settings/TextSize'
 import { useTrashCount, useWorkspaceStats } from './stats'
-import { SectionHead, Spec, SubHead } from './parts'
+import { GoKey, SectionHead, Spec, SubHead } from './parts'
+import { openWorkspaceSettings } from './open'
+import { LOOK_PRESETS, sameAppearance } from '../../lib/look'
 
 export function Overview({ team, est }: { team: TeamData; est: StorageEstimate | null }) {
   const t = useT()
@@ -53,7 +55,25 @@ export function Overview({ team, est }: { team: TeamData; est: StorageEstimate |
       <div className="wsp-display" data-testid="ws-display">
         <TextSizeControl />
       </div>
+      <LookLine />
     </>
+  )
+}
+
+/** LOOK  STANDARD | BLUEPRINT | BLUEPRINT · MODIFIED  ·  Change → (Workspace → Look) */
+function LookLine() {
+  const t = useT()
+  const look = useWorkspace((s) => s.look ?? null)
+  const name = look ? t(`shell.ws.look.preset.${look.preset}`).toUpperCase() : ''
+  const value = !look ? t('shell.ws.look.state.standard') : sameAppearance(look, { ...LOOK_PRESETS[look.preset], updatedAt: 0 }) ? name : t('shell.ws.look.state.modified', { name })
+  return (
+    <p className="wsp-line" data-testid="ws-look-line">
+      <span className="label">{t('shell.ws.overview.look')}</span>
+      <span className="wsp-line__val">{value}</span>
+      <span className="wsp-line__key">
+        <GoKey label={t('shell.ws.overview.lookChange')} onClick={() => openWorkspaceSettings('look')} testId="ws-look-change" />
+      </span>
+    </p>
   )
 }
 

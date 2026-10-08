@@ -28,6 +28,7 @@ import { errorText } from '../cloud/errors'
 import { useCloud, useCloudSync } from '../../cloud'
 import { HelpLink } from '../../help'
 import './settings.css'
+import { StandardHereField, useLookScope } from '../workspace/Look'
 
 /**
  * Settings = this device and your account (language, theme, Claude key, sync, mail, MCP, the coding worker,
@@ -326,6 +327,7 @@ function ThemePreview({ kind }: { kind: 'light' | 'dark' | 'system' }) {
 
 function AppearanceTab() {
   const t = useT()
+  const lookScope = useLookScope()
   const theme = useWorkspace((x) => x.settings.theme)
   const set = useWorkspace.getState().updateSettings
   const opts: Array<[ThemePref, string, string]> = [
@@ -352,6 +354,15 @@ function AppearanceTab() {
       <div className="st-textsize">
         <TextSizeControl />
       </div>
+      {/* colours and fonts are the workspace's (Workspace → Look); this device may keep the standard look */}
+      <p className="st-look-link" data-testid="settings-look-link">
+        <span>{t('shell.settings.appearance.lookLink')}</span>
+        <button type="button" className="btn btn--sm btn--ghost" onClick={() => openWorkspaceSettings('look')}>
+          {t('shell.settings.appearance.lookOpen')}
+          <ArrowRight size={13} aria-hidden />
+        </button>
+      </p>
+      <StandardHereField scope={lookScope} />
     </>
   )
 }

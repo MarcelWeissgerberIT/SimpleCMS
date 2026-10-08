@@ -4,8 +4,8 @@ title: Workspace-Einstellungen & Personen
 section: start
 order: 6
 keywords: Workspace-Einstellungen, Schriftgröße, Textgröße, Darstellung, Workspace, Personen, Mitglieder, Personen zusammenführen, Person umbenennen, Person entfernen, Überblick, Speicher, Backup, Papierkorb, Automatisierung, Bausteine, Gefahrenzone, Einstellungen, dieses Gerät, workspace settings, people, members, merge
-related: members-roles, invites, export, sidebar
-summary: Eine Seite für alles, was zum Workspace gehört — Name, Personen, Bausteine, Automatisierung und Daten. Die Einstellungen sind dieses Gerät.
+related: workspace-look, members-roles, invites, export, sidebar
+summary: Eine Seite für alles, was zum Workspace gehört — Name, Aussehen, Personen, Bausteine, Automatisierung und Daten. Die Einstellungen sind dieses Gerät.
 ---
 Die **Workspace-Einstellungen** sammeln, was zum Workspace selbst gehört. Du öffnest sie im Workspace-Menü oben in der Seitenleiste, mit <kbd>Mod+K</kbd> → *Workspace-Einstellungen* (oder *Personen*) oder in den **Einstellungen → Workspace-Einstellungen** oben in der Liste. Die **Einstellungen** (<kbd>Mod+,</kbd>) behalten, was zu *diesem Gerät* und zu dir gehört: Sprache, Design, Claude-Schlüssel, Sync, Mail, MCP, den Coding-Worker.
 
@@ -15,6 +15,9 @@ Das Schild oben liest den Workspace ab: Name, **LOKAL** oder **TEAM · 7 MITGLIE
 Der **Name**, den alle sehen (im Team-Workspace benennen Inhaber und Admins um), die Zahlen — Seiten, Datenbanken, Einträge, Wörter, Personen, eigene Vorlagen, Papierkorb, seit wann —, der Speicher auf diesem Gerät, die Dateien darin und wann dieses Gerät zuletzt ein **Komplett-Backup** gesichert hat.
 
 **Darstellung · dieses Gerät** hält die **Schriftgröße** der ganzen App: ein Schieberegler mit vier Stufen — **Standard** (die gewohnten Größen und die kleinste), **M**, **L** und **XL** (14 · 15 · 16 · 17 px für den Text der Oberfläche). Alles folgt sofort — Menüs, Panels, Seitenleiste, Seiten, Tabellen, die Hilfe. Sie gilt nur auf diesem Gerät (Bildschirme sind verschieden) und ist derselbe Regler wie in **Einstellungen → Darstellung**. Die Website und Seiten, die du teilst oder veröffentlichst, behalten ihre eigene Größe.
+
+## Aussehen
+**Farben, Schrift und Ecken** des Workspace — für alle darin: eine Vorlage oder eigene Signal-, Papier- und Tintenfarbe, die Schriften für Oberfläche, Seitentext und Überschriften, Standard- oder eckige Ecken. Der Kontrast bleibt lesbar (One passt eine Farbe an, die das nicht schafft), und Exporte und geteilte Links behalten das Standard-Aussehen von One. Im Team-Workspace legen Inhaber und Admins es fest. *Auf diesem Gerät das Standard-Aussehen verwenden* gilt nur für dieses Gerät. Siehe [Das Aussehen des Workspace](help:workspace-look). Der Überblick zeigt das aktuelle Aussehen mit einer Taste zum Ändern.
 
 ## Personen
 Alle, die du in einer Personen-Eigenschaft wählen oder mit @ erwähnen kannst. Jede Person zeigt, **wo sie genutzt wird**: Zeilen, die sie enthalten, und Seiten, die sie erwähnen — ein Klick auf die Anzeige öffnet die Liste, jeder Eintrag führt zu seiner Seite. *Du* markiert dich selbst (benannt wie **Einstellungen → Allgemein → Dein Name**).

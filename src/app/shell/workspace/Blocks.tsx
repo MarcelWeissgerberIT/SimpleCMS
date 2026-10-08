@@ -20,7 +20,7 @@ export function BlocksSection() {
   const kit = useKit()
   return (
     <>
-      <SectionHead n="03" title={t('shell.ws.sec.blocks')} lead={t('shell.ws.blocks.lead')} />
+      <SectionHead n="04" title={t('shell.ws.sec.blocks')} lead={t('shell.ws.blocks.lead')} />
       <ul className="wsp-blocks" data-testid="ws-blocks">
         {BLOCKS.map(({ id, part, icon: Icon }) => {
           const entries = Object.values(kit[part]).sort((a, b) => a.name.localeCompare(b.name))

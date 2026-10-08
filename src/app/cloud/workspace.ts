@@ -8,6 +8,7 @@ import * as Y from 'yjs'
 import { HocuspocusProvider } from '@hocuspocus/provider'
 import { IndexeddbPersistence } from 'y-indexeddb'
 import { useWorkspace, defaultSettings, WORKSPACE_VERSION } from '../store/store'
+import { setLookGuard } from '../store/look'
 import { migrate, readStoredWorkspace } from '../store/persistence'
 import type { ID, Person, Settings } from '../store/types'
 import { parseHash } from '../lib/router'
@@ -50,6 +51,12 @@ const canWrite = (role: Role | null) => role === 'owner' || role === 'admin' || 
 function writable(): boolean {
   const c = useCloud.getState()
   return !stopped && !c.readOnly && canWrite(c.role)
+}
+
+/** The workspace look is the owners' and admins' (the server puts anyone else's change back). */
+function canStyle(): boolean {
+  const c = useCloud.getState()
+  return writable() && (c.role === 'owner' || c.role === 'admin')
 }
 
 function setStatus(status: 'connecting' | 'online' | 'offline') {
@@ -132,7 +139,9 @@ export async function openCloudWorkspace(ws: CloudWorkspace, user: CloudUser, on
     functions: data.functions,
     settings,
     recent: overlay.recent.filter((id) => !!data.pages[id]),
+    ...(data.look ? { look: data.look } : {}),
   })
+  setLookGuard(canStyle)
 
   // From here on the store shows the cloud workspace: a failing service must not throw (the
   // caller would fall back to the local workspace while the binding is already live).
@@ -241,6 +250,7 @@ export async function openCloudWorkspace(ws: CloudWorkspace, user: CloudUser, on
       privateDoc,
       userId: () => user.id,
       writable,
+      canStyle,
       isFavorite: (id) => favorites.has(id),
       onRemotePages: (r) => {
         onRemotePages(r)

@@ -184,12 +184,15 @@ select.input {
  * Carbon: the same three under [data-theme='dark']); keep them in sync.
  */
 .themes {
-  --pv-paper-bg: #faf9f5;
-  --pv-paper-side: #eae7df;
-  --pv-paper-ink: #121210;
-  --pv-carbon-bg: #181816;
-  --pv-carbon-side: #151513;
-  --pv-carbon-ink: #ece9e2;
+  /* a workspace look (lib/look/css.ts) sets the --look-pv-* colours; else One's standard Paper / Carbon */
+  --pv-paper-bg: var(--look-pv-paper-bg, #faf9f5);
+  --pv-paper-side: var(--look-pv-paper-side, #eae7df);
+  --pv-paper-ink: var(--look-pv-paper-ink, #121210);
+  --pv-paper-signal: var(--look-pv-paper-signal, #ff4f00);
+  --pv-carbon-bg: var(--look-pv-carbon-bg, #181816);
+  --pv-carbon-side: var(--look-pv-carbon-side, #151513);
+  --pv-carbon-ink: var(--look-pv-carbon-ink, #ece9e2);
+  --pv-carbon-signal: var(--look-pv-carbon-signal, #ff5c1a);
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
@@ -253,6 +256,7 @@ select.input {
   --bg: var(--pv-paper-bg);
   --side: var(--pv-paper-side);
   --ink: var(--pv-paper-ink);
+  --dot: var(--pv-paper-signal);
   flex: 1;
   display: flex;
   background: var(--bg);
@@ -262,6 +266,7 @@ select.input {
   --bg: var(--pv-carbon-bg);
   --side: var(--pv-carbon-side);
   --ink: var(--pv-carbon-ink);
+  --dot: var(--pv-carbon-signal);
 }
 .tp[data-kind='system'] .tp__half--b .tp__side {
   display: none;
@@ -300,7 +305,7 @@ select.input {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--signal);
+  background: var(--dot, var(--signal));
 }
 
 .ai-status {
@@ -812,4 +817,17 @@ select.input {
   margin-top: 22px;
   padding-top: 16px;
   border-top: 1px solid var(--rule);
+}
+/* Appearance → the workspace's look lives on the workspace page */
+.st-look-link {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 12px;
+  margin: 22px 0 0;
+  padding-top: 14px;
+  border-top: 1px solid var(--rule);
+  color: var(--ink-2);
+  font-size: var(--text-sm);
 }

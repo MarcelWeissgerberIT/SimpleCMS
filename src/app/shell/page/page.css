@@ -8,7 +8,7 @@
   /* margin rail (wide main column, see MarginRail.tsx): width and gap to the text */
   --mr-w: clamp(204px, 15cqi, 248px);
   --mr-gap: clamp(36px, 3.4cqi, 56px);
-  --page-font: var(--font-sans);
+  --page-font: var(--font-doc);
   --page-text: var(--text-lg);
   position: relative;
   min-height: 100%;
@@ -248,11 +248,11 @@
   overflow: hidden;
   background: transparent;
   color: var(--ink);
-  font-family: var(--font-sans);
+  font-family: var(--font-head);
   font-size: calc(clamp(30px, 5.4cqi, 46px) * var(--text-scale));
   font-weight: 800;
-  font-stretch: var(--display-stretch);
-  font-variation-settings: 'wdth' 125;
+  font-stretch: var(--head-stretch);
+  font-variation-settings: 'wdth' var(--head-wdth);
   letter-spacing: -0.028em;
   line-height: 1.08;
   caret-color: var(--signal);

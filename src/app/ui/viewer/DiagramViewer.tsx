@@ -29,11 +29,13 @@ let minimapPref = true
 
 const reducedMotion = () => !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
 
+/** The theme (Paper / Carbon) and the workspace look: a diagram is drawn again when either changes. */
 function useThemeKey(): string {
-  const [theme, setTheme] = useState(() => document.documentElement.dataset.theme ?? 'light')
+  const key = () => `${document.documentElement.dataset.theme ?? 'light'}|${document.documentElement.dataset.look ?? ''}`
+  const [theme, setTheme] = useState(key)
   useEffect(() => {
-    const obs = new MutationObserver(() => setTheme(document.documentElement.dataset.theme ?? 'light'))
-    obs.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
+    const obs = new MutationObserver(() => setTheme(key()))
+    obs.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme', 'data-look'] })
     return () => obs.disconnect()
   }, [])
   return theme

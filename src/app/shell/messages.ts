@@ -7,6 +7,7 @@ import { captureMessages } from './capture/messages'
 import { tourMessages } from './tour/messages'
 import { discoverMessages } from './discover/messages'
 import { workspaceMessages } from './workspace/messages'
+import { lookMessages } from './workspace/look-messages'
 
 /** Strings for the shell area. Keys MUST be prefixed with "shell." — always add both en and de. */
 export const messages: Messages = {
@@ -29,6 +30,7 @@ export const messages: Messages = {
     ...tourMessages.en,
     ...discoverMessages.en,
     ...workspaceMessages.en,
+    ...lookMessages.en,
     'shell.a11y.skip': 'Skip to content',
 
     // navigation
@@ -500,6 +502,7 @@ export const messages: Messages = {
     ...tourMessages.de,
     ...discoverMessages.de,
     ...workspaceMessages.de,
+    ...lookMessages.de,
     'shell.a11y.skip': 'Zum Inhalt springen',
 
     'shell.nav.search': 'Suchen',

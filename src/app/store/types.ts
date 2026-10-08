@@ -959,6 +959,50 @@ export interface Workspace {
    * (store/kit.ts). Synced in team workspaces (meta maps `lists`, `propTypes`, `recordTypes`).
    */
   kit?: Kit
+  /**
+   * The workspace's look (lib/look, Workspace → Look): absent = One's standard look (tokens.css). Write only
+   * with setLook; every reader sanitizes (store/look.ts). Team: meta map 'workspace' key 'look' (owners /
+   * admins write it — the server puts other members' changes back). Per device (never here): the pre-paint
+   * cache and "standard look on this device" in localStorage `one.look`.
+   */
+  look?: WorkspaceLook
+}
+
+/* ------------------------------------------------------------------ */
+/* Workspace look (lib/look, shell/workspace/Look.tsx)                 */
+/* ------------------------------------------------------------------ */
+
+export type LookPresetId = 'paper' | 'blueprint' | 'ochre' | 'proof' | 'swiss'
+export const LOOK_PRESET_IDS: LookPresetId[] = ['paper', 'blueprint', 'ochre', 'proof', 'swiss']
+/** interface font: Archivo (bundled) · a Swiss grotesque stack · the device's system font (no download) */
+export type LookUiFont = 'archivo' | 'swiss' | 'system'
+export const LOOK_UI_FONTS: LookUiFont[] = ['archivo', 'swiss', 'system']
+/** page text ("Default" in a page's font menu): the interface font · Newsreader · JetBrains Mono */
+export type LookTextFont = 'ui' | 'serif' | 'mono'
+export const LOOK_TEXT_FONTS: LookTextFont[] = ['ui', 'serif', 'mono']
+/** content headings (page titles, H1–H3, toggle headings) and `.display` type */
+export type LookHeadings = 'expanded' | 'normal' | 'condensed' | 'ui' | 'serif' | 'mono'
+export const LOOK_HEADINGS: LookHeadings[] = ['expanded', 'normal', 'condensed', 'ui', 'serif', 'mono']
+export type LookCorners = 'standard' | 'square'
+export const LOOK_CORNERS: LookCorners[] = ['standard', 'square']
+/** The three inputs of one theme: '#rrggbb', lower case. The derived tokens may differ (contrast). */
+export interface LookColors {
+  paper: string
+  ink: string
+  signal: string
+}
+export interface WorkspaceLook {
+  /** the preset it started from (display: "BLUEPRINT · MODIFIED"); the fields below are the truth */
+  preset: LookPresetId
+  /** Paper (light theme) inputs */
+  colors: LookColors
+  /** Carbon (dark theme) inputs; absent = derived from `colors` (lib/look/derive.ts darkInputsFrom) */
+  dark?: LookColors
+  fonts: { ui: LookUiFont; text: LookTextFont; headings: LookHeadings }
+  corners: LookCorners
+  updatedAt: number
+  /** account id of the last saver (team; the server stamps it) / null (local) */
+  updatedBy?: string | null
 }
 
 /* ------------------------------------------------------------------ */

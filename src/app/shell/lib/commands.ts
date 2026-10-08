@@ -35,6 +35,7 @@ import {
   Inbox,
   Users,
   Building2,
+  Palette,
   CloudUpload,
   Workflow,
   SquareFunction,
@@ -167,6 +168,14 @@ export function buildCommands(t: Translate, pageId: ID | null): Command[] {
       icon: Users,
       keywords: 'people persons members team invite roles merge rename personen mitglieder einladen rollen zusammenführen umbenennen',
       run: () => openWorkspaceSettings('people'),
+    },
+    {
+      id: 'workspace-look',
+      group: 'workspace',
+      label: t('shell.ws.cmd.look'),
+      icon: Palette,
+      keywords: 'look theme colours colors fonts typeface text colour accent signal paper ink corners brand aussehen farben schrift schriftart schriftfarbe design akzent ecken',
+      run: () => openWorkspaceSettings('look'),
     },
   )
   // database commands (features/commands): "Mails: Sync now", "Projects: New entry" … (viewers get only those that don't write)

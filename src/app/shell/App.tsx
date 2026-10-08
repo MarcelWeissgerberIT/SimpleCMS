@@ -3,6 +3,7 @@ import { useWorkspace } from '../store/store'
 import { useUI } from '../store/ui'
 import { usePage } from '../store/selectors'
 import { useThemeAndLanguage } from '../lib/theme'
+import { useWorkspaceLook } from '../lib/look'
 import { GraphView, SharedPageView, Presentation, AgentsRoute, ScriptsRoute, ScriptDialogHost, CodingRoute, KitRoute, KitHost } from '../features'
 import { McpOAuthScreen } from '../features'
 import { SharedFormView } from '../database'
@@ -44,6 +45,11 @@ export function App() {
   useThemeAndLanguage()
   const route = useRoute()
   const signedOut = useCloud((s) => s.status === 'signed-out')
+  // the workspace look (Workspace → Look): share and form links keep One's standard look
+  const lookScope = useCloud((s) => (s.active.kind === 'cloud' ? s.active.id : 'local'))
+  const look = useWorkspace((s) => s.look ?? null)
+  const ready = useWorkspace((s) => s.ready)
+  useWorkspaceLook({ route: route.name, scope: lookScope, look, ready, persist: !signedOut })
   if (route.name === 'share')
     return (
       <ErrorBoundary>

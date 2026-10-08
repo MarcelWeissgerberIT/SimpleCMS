@@ -24,6 +24,7 @@ import { lsGet, lsSet, readChoice, readSession, sleep, writeChoice, WS_ID } from
 import { allDeviceEntries, dropDeviceKeys } from './local'
 import { readStoredWorkspace } from '../store/persistence'
 import { clearSecrets } from '../lib/vault'
+import { forgetLookCache } from '../lib/look/apply'
 
 const FLAG = 'one.cloud.forget'
 const CHANNEL = 'one-cloud-forget'
@@ -148,6 +149,8 @@ async function forget(flag: string[]): Promise<void> {
     if (m) held.add(m[2])
   }
   const targets = new Set(all ? held : flag.filter((id) => id !== ALL))
+  // the per-device look cache of those workspaces goes with them (lib/look)
+  for (const id of targets) forgetLookCache(id)
   const done = () => writeFlag(readFlag().filter((x) => (x === ALL ? !all : !targets.has(x))))
   if (!targets.size) return done()
 

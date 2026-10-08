@@ -9,6 +9,8 @@ import { helpSite } from './src/help-site/plugin.js'
 /** Runtime data the workspace fetches from public/ (icon picker, emoji picker). */
 const PUBLIC_PRECACHE = [
   'app/',
+  // the boot screen's theme + workspace look (app/index.html loads it before the app)
+  'look-boot.js',
   'favicon.svg',
   'manifest.webmanifest',
   'assets/icons/manifest.json',

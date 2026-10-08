@@ -17,6 +17,7 @@ import { isSafeFunctionId } from './functions'
 import { agentEditor, sanitizeAgent } from './agents'
 import { sanitizeScript } from './scripts'
 import { emptyKit, optionsOfList, sanitizeList, sanitizePropType, sanitizeRecordType, storedTypeOf, syncRecordTypeInto } from './kit'
+import { lookAllowed, sanitizeLook } from './look'
 import type {
   CustomAgent,
   CustomFunction,
@@ -37,6 +38,7 @@ import type {
   Settings,
   View,
   Workspace,
+  WorkspaceLook,
 } from './types'
 
 export const WORKSPACE_VERSION = 1
@@ -218,6 +220,12 @@ export interface WorkspaceState extends Workspace {
   upsertScript: (script: OneScript) => void
   deleteScript: (id: ID) => void
 
+  /**
+   * The workspace look (lib/look; null = One's standard look). Sanitized; updatedAt / updatedBy are set here.
+   * False when refused: a team member who is not an owner or admin (the server puts such a change back too).
+   */
+  setLook: (look: WorkspaceLook | null) => boolean
+
   // building blocks (features/kit): insert or replace by id (sanitized; updatedAt / updatedBy are set here) · remove.
   // upsertList copies the items into every property bound to the list (PropertyDef.listId); upsertPropType binds
   // the properties of that type to its list; upsertRecordType brings every database holding the type in step
@@ -266,6 +274,8 @@ export interface CloudPatch {
   scripts?: Record<ID, OneScript | null>
   /** building blocks by part and id (`null` removes one) */
   kit?: { lists?: Record<ID, OptionList | null>; propTypes?: Record<ID, CustomPropType | null>; recordTypes?: Record<ID, RecordType | null> }
+  /** the workspace look (`null` = the standard look; already sanitized) */
+  look?: WorkspaceLook | null
 }
 
 const now = () => Date.now()
@@ -487,6 +497,7 @@ export const useWorkspace = create<WorkspaceState>()(
       const settings = withSealedKey(ws.settings, get().settings.aiApiKey, ws.epoch)
       set((s) => {
         Object.assign(s, ws, { pages: freezePages(ws.pages), settings, functions: ws.functions ?? {}, agents: ws.agents ?? {}, scripts: ws.scripts ?? {}, kit: ws.kit ?? emptyKit() })
+        s.look = sanitizeLook(ws.look) ?? undefined
         s.ready = true
       })
       void checkAIKey()
@@ -505,7 +516,18 @@ export const useWorkspace = create<WorkspaceState>()(
         s.agents = ws.agents ?? {}
         s.scripts = ws.scripts ?? {}
         s.kit = ws.kit ?? emptyKit()
+        s.look = sanitizeLook(ws.look) ?? undefined
       }),
+
+    setLook: (look) => {
+      if (!lookAllowed()) return false
+      const clean = look ? sanitizeLook({ ...look, updatedAt: now(), updatedBy: agentEditor() }) : null
+      set((s) => {
+        // never `delete s.look`: zustand merges the next state into the previous one, a missing key stays
+        s.look = clean ?? undefined
+      })
+      return true
+    },
 
     createPage: (input = {}) => {
       const page = makePage(input, get().pages)
@@ -1161,6 +1183,9 @@ export const useWorkspace = create<WorkspaceState>()(
             }
           }
         }
+        if (patch.look !== undefined) {
+          s.look = patch.look ?? undefined
+        }
         if (patch.settings) Object.assign(s.settings, withSealedKey({ ...s.settings, ...patch.settings }, s.settings.aiApiKey, s.epoch))
         if (removed && s.recent.some((r) => !s.pages[r])) s.recent = s.recent.filter((r) => !!s.pages[r])
       }),
@@ -1233,5 +1258,6 @@ export function getWorkspaceSnapshot(): Workspace {
     agents: s.agents ?? {},
     scripts: s.scripts ?? {},
     kit: s.kit ?? emptyKit(),
+    ...(s.look ? { look: s.look } : {}),
   }
 }

@@ -27,7 +27,7 @@ export function DataSection() {
   const inCloud = useInCloud()
   return (
     <>
-      <SectionHead n="05" title={t('shell.ws.sec.data')} lead={inCloud ? t('shell.ws.data.leadTeam') : t('shell.ws.data.lead')} help="export" />
+      <SectionHead n="06" title={t('shell.ws.sec.data')} lead={inCloud ? t('shell.ws.data.leadTeam') : t('shell.ws.data.lead')} help="export" />
       <SubHead label={t('shell.ws.data.backup')} />
       <BackupKeys />
       <LastBackupLine />

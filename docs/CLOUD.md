@@ -364,7 +364,8 @@ webhooks), and rows changed with `PATCH /api/v1/rows/:id`, are written by the se
 ### Meta document schema
 
 ```
-Y.Map 'workspace'  name, icon (JSON), createdAt
+Y.Map 'workspace'  name, icon (JSON), createdAt, look (JSON WorkspaceLook — owners / admins write it;
+                     every reader sanitizes it, app src/app/store/look.ts)
 Y.Map 'pages'      pageId → Y.Map {
                      kind, title, icon (JSON|null), cover (JSON|null), parentId, databaseId,
                      order (number), trashed, trashedAt, createdAt, updatedAt, createdBy, updatedBy,
@@ -421,6 +422,14 @@ changes a custom agent applies (browser runner: the client stamps them while it 
 the server). In the `agents` map the server stamps `updatedBy` itself and keeps `createdBy`, whatever
 a client wrote (*Agents → Who changed an agent*). The `workspace` map is filled
 (name, icon, createdAt) by the first member who writes after its first sync, if it is empty.
+
+The workspace **look** (`workspace.look`: colours, type and corners of the app, app: Workspace → Look,
+`src/app/lib/look`) is the owners' and admins'. The server watches the key (server/src/collab/workspace-look.ts):
+a change from a connection whose role is not owner or admin is put back right away (the value before it, or no
+key) in one server-origin transaction; an owner's or admin's change gets `updatedBy` = their account id, whatever
+the client wrote. A change carried by waiting ("pending") Yjs structs counts only when every member whose update
+left structs waiting may change the look. The value is cosmetic — every reader sanitizes it (hex colours,
+allow-listed fonts, no CSS) — and it is never part of a share link, a published site or an export.
 
 Not synced (per person, per device): `favorite`, `recent`, all `Settings` (theme, language,
 **AI key**, sidebar), `contentRev`, `contentOrigin`. The client keeps them in a small local

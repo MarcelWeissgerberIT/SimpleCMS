@@ -36,6 +36,7 @@ import {
   updateProfile as updateProfileImpl,
 } from './account'
 import { request } from './api'
+import { readChoice, SERVER_CAPABLE } from './env'
 import { bootCloud as bootCloudImpl, refreshMe, switchWorkspaceImpl } from './boot'
 import { isApplyingCloud, withWriteActor } from './binding'
 import { acquire, release } from './content'
@@ -98,6 +99,14 @@ export async function bootCloud(): Promise<'local' | 'cloud' | 'signed-out'> {
 
 export function activeWorkspace(): WorkspaceRef {
   return useCloud.getState().active
+}
+
+/**
+ * The workspace this tab is about to open — a synchronous guess before boot (no request): the `?w=` /
+ * remembered choice where a server can be reached, else the local workspace. For the pre-paint look (main.tsx).
+ */
+export function expectedWorkspace(): WorkspaceRef {
+  return SERVER_CAPABLE ? readChoice() : { kind: 'local', id: 'local' }
 }
 
 /** Remember the choice for this browser and reload the app into that workspace (drops `?w=` and the route). */

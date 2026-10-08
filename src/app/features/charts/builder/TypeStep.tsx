@@ -12,6 +12,8 @@ import { kindFits } from '../spec'
 import { useSceneText, useWidth } from '../render/ChartRenderer'
 import { buildScene } from '../render/scene'
 import { reactProps, toReact } from '../render/vnode'
+import { useLookFamily } from '../../../lib/look'
+import type { SignalFamily } from '../render/palette'
 
 /** Fixed demo values (the "Enter data" sample table): two series, five positive points — every type fits. */
 export function sampleData(t: Translate): ChartData {
@@ -40,7 +42,8 @@ function Thumb({ spec, data, height }: { spec: ChartSpec; data: ChartData; heigh
   const text = useSceneText()
   const ref = useRef<HTMLSpanElement>(null)
   const width = useWidth(ref)
-  const scene = useMemo(() => (width > 0 ? buildScene(spec, data, { width, height, lang, text, compact: true }) : null), [spec, data, width, height, lang, text])
+  const signalFamily = (useLookFamily() ?? undefined) as SignalFamily
+  const scene = useMemo(() => (width > 0 ? buildScene(spec, data, { width, height, lang, text, compact: true, signalFamily }) : null), [spec, data, width, height, lang, text, signalFamily])
   return (
     <span ref={ref} className="chb-type__thumb" aria-hidden>
       {scene && createElement('svg', { ...reactProps(scene.svg.attrs), focusable: 'false' }, ...scene.svg.children.map((c, i) => (typeof c === 'string' ? c : toReact(c, {}, i))))}

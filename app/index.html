@@ -23,13 +23,19 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="apple-touch-icon" href="/assets/icons/app-icon-maskable.png" />
     <link rel="manifest" href="/manifest.webmanifest" />
+    <!-- this device's theme + the workspace look it last saw, for the boot screen (public/look-boot.js) -->
+    <script src="%BASE_URL%look-boot.js"></script>
     <style>
-      html,body{margin:0;height:100%;background:#f2f0ea}
-      @media (prefers-color-scheme: dark){html,body{background:#111110}}
-      html[data-theme='dark'],html[data-theme='dark'] body{background:#111110}
-      #boot{position:fixed;inset:0;display:grid;place-items:center;font:500 10.5px/1 ui-monospace,monospace;letter-spacing:.08em;color:#67635b;text-transform:uppercase}
-      @media (prefers-color-scheme: dark){#boot{color:#8f8b83}}
-      #boot i{display:block;width:6px;height:6px;margin:0 auto 10px;border-radius:9px;background:#ff4f00;animation:b 0.8s infinite alternate}
+      html,body{margin:0;height:100%}
+      html:not([data-look]),html:not([data-look]) body{background:var(--boot-bg,#f2f0ea)}
+      @media (prefers-color-scheme: dark){html:not([data-look]),html:not([data-look]) body{background:var(--boot-bg,#111110)}}
+      html:not([data-look])[data-theme='light'],html:not([data-look])[data-theme='light'] body{background:var(--boot-bg,#f2f0ea)}
+      html:not([data-look])[data-theme='dark'],html:not([data-look])[data-theme='dark'] body{background:var(--boot-bg,#111110)}
+      #boot{position:fixed;inset:0;display:grid;place-items:center;font:500 10.5px/1 ui-monospace,monospace;letter-spacing:.08em;color:var(--boot-ink,#67635b);text-transform:uppercase}
+      @media (prefers-color-scheme: dark){#boot{color:var(--boot-ink,#8f8b83)}}
+      html[data-theme='light'] #boot{color:var(--boot-ink,#67635b)}
+      html[data-theme='dark'] #boot{color:var(--boot-ink,#8f8b83)}
+      #boot i{display:block;width:6px;height:6px;margin:0 auto 10px;border-radius:9px;background:var(--boot-led,#ff4f00);animation:b 0.8s infinite alternate}
       @keyframes b{to{opacity:.2}}
     </style>
   </head>

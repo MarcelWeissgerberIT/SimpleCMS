@@ -1,0 +1,66 @@
+/*
+ * Workspace look — type and corners (lib/look/apply.ts sets the html attributes; colours come from the
+ * generated <style id="one-look">). Only tokens are set here: the interface font (--font-sans), the page text's
+ * "Default" font (--font-doc), the heading face / width / tracking (--font-head, --head-*) and the radii, so
+ * every per-element rule (H1–H3 weights, the page title's tracking, a page set to Serif or Mono) keeps working.
+ * Chrome panel titles follow the interface font. Never a bare `:root` rule here (exports copy those).
+ */
+:root[data-look-ui='swiss'] {
+  --font-sans: var(--font-swiss);
+}
+:root[data-look-ui='system'] {
+  --font-sans: var(--font-system);
+}
+
+:root[data-look-text='serif'] {
+  --font-doc: var(--font-serif);
+}
+:root[data-look-text='mono'] {
+  --font-doc: var(--font-mono);
+}
+/* the page text's own measure when "Default" is Newsreader or JetBrains Mono (as a page set to it) */
+:root[data-look-text='serif'] :is(.doc--font-sans, .one-doc) .doc-content {
+  --doc-lh: 1.6;
+  font-size: calc(var(--doc-size) * 1.08);
+}
+:root[data-look-text='mono'] :is(.doc--font-sans, .one-doc) .doc-content {
+  --doc-lh: 1.7;
+  font-size: calc(var(--doc-size) * 0.9);
+}
+
+/* (headings default to Archivo expanded whatever the interface font: --font-head is not --font-sans) */
+:root[data-look-headings='normal'] {
+  --font-head: var(--font-archivo);
+  --head-stretch: 100%;
+  --head-wdth: 100;
+}
+:root[data-look-headings='condensed'] {
+  --font-head: var(--font-archivo);
+  --head-stretch: var(--condensed-stretch);
+  --head-wdth: 75;
+  --head-tracking: -0.01em;
+}
+:root[data-look-headings='ui'] {
+  --font-head: var(--font-sans);
+  --head-stretch: normal;
+  --head-wdth: 100;
+  --head-tracking: -0.015em;
+}
+:root[data-look-headings='serif'] {
+  --font-head: var(--font-serif);
+  --head-stretch: normal;
+  --head-wdth: 100;
+  --head-tracking: -0.015em;
+}
+:root[data-look-headings='mono'] {
+  --font-head: var(--font-mono);
+  --head-stretch: normal;
+  --head-wdth: 100;
+}
+
+/* square corners: controls and menus square, panels nearly so (LED dots stay round) */
+:root[data-look-corners='square'] {
+  --radius-1: 0px;
+  --radius-2: 0px;
+  --radius-3: 2px;
+}

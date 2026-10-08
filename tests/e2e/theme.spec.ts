@@ -3,7 +3,7 @@
  * the theme tokens. A component with a hard-coded light colour shows up as a bright box.
  */
 import type { Locator, Page } from '@playwright/test'
-import { test, expect, openApp, gotoPage, createPage, doc, para, pageIdByTitle, editorOf, selectText, MOD } from './fixtures'
+import { test, expect, openApp, gotoPage, createPage, doc, para, pageIdByTitle, editorOf, selectText, wsEval, MOD } from './fixtures'
 
 /** Relative luminance of the first opaque background at/above the element. */
 async function surfaceLuminance(loc: Locator): Promise<number> {
@@ -106,5 +106,27 @@ test.describe('dark theme surfaces', () => {
     await close(page, page.getByRole('dialog', { name: 'Trash' }))
     await page.locator('.sb').getByRole('button', { name: /^Graph/ }).click()
     await expectDark(page, 'graph', page.locator('.graph'))
+  })
+})
+
+test.describe('a workspace look keeps the themes', () => {
+  test.use({ colorScheme: 'dark' })
+
+  test('Carbon stays dark and Paper stays light with a look (Ochre)', async ({ page }) => {
+    await openApp(page)
+    await wsEval(page, (s, p) => s.setLook({ ...p, updatedAt: 0 }), { preset: 'ochre', colors: { paper: '#f3eee2', ink: '#1c1912', signal: '#e0a000' }, fonts: { ui: 'archivo', text: 'ui', headings: 'expanded' }, corners: 'standard' })
+    await expect(page.locator('html')).toHaveAttribute('data-look', /.+/)
+    await expectDark(page, 'body', page.locator('body'))
+    await expectDark(page, 'sidebar', page.locator('aside.sb'))
+    await expectDark(page, 'topbar', page.locator('header.tb'))
+    await page.keyboard.press(`${MOD}+k`)
+    await expectDark(page, 'palette', page.locator('.pal'))
+    await close(page, page.locator('.pal'))
+    await page.keyboard.press(`${MOD}+,`)
+    await expectDark(page, 'settings modal', page.getByRole('dialog'))
+    await close(page, page.getByRole('dialog'))
+    await wsEval(page, (s) => s.updateSettings({ theme: 'light' }))
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'light')
+    expect(await surfaceLuminance(page.locator('body'))).toBeGreaterThan(0.75)
   })
 })

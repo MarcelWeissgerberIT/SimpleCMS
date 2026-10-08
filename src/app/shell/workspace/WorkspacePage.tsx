@@ -1,7 +1,7 @@
 /**
  * The workspace page (#/workspace, #/workspace/<section>): what belongs to the workspace, in one place —
- * a spec plate (mark, name, LOCAL / TEAM · n MEMBERS, pages · databases · storage) and six sections:
- * Overview · People · Building blocks · Automation · Data · Danger zone. A rail on the left (a strip of
+ * a spec plate (mark, name, LOCAL / TEAM · n MEMBERS, pages · databases · storage) and seven sections:
+ * Overview · Look · People · Building blocks · Automation · Data · Danger zone. A rail on the left (a strip of
  * tabs on narrow screens). Settings (the modal) keeps this device and the account.
  */
 import { useEffect, useMemo, useRef } from 'react'
@@ -20,6 +20,7 @@ import { useStorageEstimate, type StorageEstimate } from '../settings/data'
 import { isWorkspaceSection, WORKSPACE_SECTIONS, type WorkspaceSection } from './open'
 import { useWorkspaceStats, useAutomationCount, useKitCount } from './stats'
 import { Overview } from './Overview'
+import { LookSection } from './Look'
 import { PeopleSection } from './People'
 import { BlocksSection } from './Blocks'
 import { AutomationSection } from './Automation'
@@ -48,6 +49,7 @@ export function WorkspacePage({ section }: { section?: string }) {
           <SectionNav active={active} team={team} />
           <section ref={mainRef} className="wsp__main" aria-labelledby="wsp-section-title" data-testid={`ws-section-${active}`}>
             {active === 'overview' && <Overview team={team} est={est} />}
+            {active === 'look' && <LookSection team={team} />}
             {active === 'people' && <PeopleSection team={team} />}
             {active === 'blocks' && <BlocksSection />}
             {active === 'automation' && <AutomationSection team={team} />}

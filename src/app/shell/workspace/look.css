@@ -1,0 +1,544 @@
+/* ================================================================
+   Workspace → Look (Look.tsx). Tokens only; the swatches show colour VALUES (--chip, set inline from the
+   swatch list / the draft), the preset minis and preview plates carry a whole theme inline (Look.tsx themeVars).
+   ================================================================ */
+/* the state + reset keys move below the title when both do not fit (phones, German) */
+.look .wsp-head__row {
+  flex-wrap: wrap;
+  row-gap: 8px;
+}
+.look-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px 12px;
+  margin-left: auto;
+}
+.look-state {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  color: var(--ink-2);
+}
+.look-state__by {
+  color: var(--ink-3);
+}
+.look-note {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  max-width: 72ch;
+  margin: 6px 0 4px;
+  padding: 8px 12px;
+  border: 1px solid var(--rule-strong);
+  border-left: 3px solid var(--ink-3);
+  border-radius: var(--radius-1);
+  background: var(--surface-2);
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  line-height: 1.45;
+}
+.look-note--remote {
+  border-left-color: var(--signal);
+}
+
+.look-edit {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.look-edit:disabled {
+  opacity: 0.62;
+}
+
+/* ---------- presets ---------- */
+.look-presets {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 8px;
+}
+.look-preset {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-2);
+  background: var(--surface);
+  color: var(--ink);
+  text-align: left;
+  transition:
+    border-color var(--dur-1) var(--ease-out),
+    box-shadow var(--dur-1) var(--ease-out);
+}
+.look-preset:hover {
+  border-color: var(--ink-3);
+}
+.look-preset:active {
+  transform: translateY(1px);
+}
+.look-preset[aria-checked='true'] {
+  border-color: var(--ink);
+  box-shadow: inset 0 0 0 1px var(--ink);
+}
+.look-preset[aria-checked='true']:focus-visible {
+  box-shadow: var(--focus-ring), inset 0 0 0 1px var(--ink);
+}
+.look-preset__row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+.look-preset__radio {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  border: 1px solid var(--ink-3);
+  border-radius: var(--radius-led);
+  background: var(--surface);
+}
+.look-preset[aria-checked='true'] .look-preset__radio {
+  border: 4px solid var(--signal);
+}
+.look-preset__name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: var(--text-sm);
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.look-preset__code {
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: calc(9.5px * var(--text-scale));
+  letter-spacing: var(--tracking-label);
+}
+.look-preset__note {
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  line-height: 1.35;
+}
+
+/* the mini instrument: Paper | Carbon in the preset's own colours */
+.look-mini {
+  display: flex;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-1);
+}
+.look-mini__half {
+  flex: 1;
+  display: flex;
+  min-width: 0;
+  background: var(--bg);
+  color: var(--ink);
+}
+.look-mini__side {
+  width: 22%;
+  background: var(--surface-2);
+  border-right: 1px solid var(--rule);
+}
+.look-mini__main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding: 6px 6px 5px;
+  background: var(--surface);
+}
+.look-mini__aa {
+  font-size: calc(15px * var(--text-scale));
+  line-height: 1;
+}
+.look-mini__bar {
+  height: 2px;
+  background: var(--ink-3);
+}
+.look-mini__bar--short {
+  width: 60%;
+}
+.look-mini__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: auto;
+}
+.look-mini__key {
+  width: 16px;
+  height: 7px;
+  border-radius: var(--radius-1);
+  background: var(--signal);
+}
+.look-mini[data-square] .look-mini__key {
+  border-radius: 0;
+}
+
+/* ---------- colours ---------- */
+.look-field {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 340px);
+  align-items: start;
+}
+.look-colors {
+  display: grid;
+  justify-items: start;
+  gap: 6px;
+  min-width: 0;
+}
+.look-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.look-chip,
+.look-picker {
+  position: relative;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+  background: var(--chip);
+  transition: box-shadow var(--dur-1) var(--ease-out);
+}
+.look-chip:active {
+  transform: translateY(1px);
+}
+.look-chip[aria-checked='true'] {
+  box-shadow:
+    0 0 0 2px var(--surface),
+    0 0 0 3px var(--ink);
+}
+.look-chip[aria-checked='true']:focus-visible {
+  box-shadow:
+    var(--focus-ring),
+    0 0 0 5px var(--ink);
+}
+.look-custom {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.look-picker {
+  border-style: dashed;
+  border-color: var(--ink-3);
+}
+.look-picker:focus-within {
+  box-shadow: var(--focus-ring);
+}
+.look-picker input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+.input.look-hex {
+  width: 11ch;
+  height: 28px;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  text-transform: lowercase;
+}
+.input.look-hex[aria-invalid] {
+  border-color: var(--c-red-text);
+}
+.look-bad {
+  margin: 0;
+  color: var(--c-red-text);
+  font-size: var(--text-xs);
+}
+.look-used {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  margin: 0;
+}
+.look-used__chip {
+  width: 10px;
+  height: 10px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+  background: var(--chip);
+}
+.look-used__adj {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink-2);
+}
+.look-warn {
+  max-width: 44ch;
+  margin: 0;
+  color: var(--signal-ink);
+  font-size: var(--text-xs);
+}
+.look-font-note {
+  margin: -6px 0 6px;
+}
+
+/* ---------- contrast ---------- */
+.look-contrast {
+  display: grid;
+  gap: 6px;
+  margin-top: 6px;
+}
+.look-contrast__mode {
+  color: var(--ink-3);
+}
+.look-contrast .wsp-spec {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+.look-contrast .wsp-spec dd {
+  font-size: calc(17px * var(--text-scale));
+}
+.look-contrast-hint {
+  max-width: 72ch;
+  margin-top: 8px;
+}
+
+/* ---------- type ---------- */
+.look-seg .seg__btn {
+  min-width: 0;
+  padding: 0 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.look-heads {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  width: 100%;
+}
+.look-head-opt {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+  background: var(--surface);
+  color: var(--ink);
+  text-align: left;
+}
+.look-head-opt:active {
+  transform: translateY(1px);
+}
+.look-head-opt[aria-checked='true'] {
+  border-color: var(--ink);
+  box-shadow: inset 0 0 0 1px var(--ink);
+}
+.look-head-opt[aria-checked='true']:focus-visible {
+  box-shadow: var(--focus-ring), inset 0 0 0 1px var(--ink);
+}
+.look-head-opt__ag {
+  font-size: calc(24px * var(--text-scale));
+  line-height: 1.1;
+}
+.look-head-opt__name {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-label);
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/* ---------- preview plates (a whole theme inline: tokens.css as shipped + the draft's colours) ---------- */
+.look-plates {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.look-plate {
+  display: flex;
+  min-width: 0;
+  min-height: 172px;
+  overflow: hidden;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-3);
+  background: var(--surface);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+}
+.look-plate__side {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 30%;
+  padding: 10px 6px;
+  border-right: 1px solid var(--rule);
+  background: var(--surface-2);
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+}
+.look-plate__side span {
+  overflow: hidden;
+  padding: 3px 6px;
+  border-radius: var(--radius-1);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.look-plate__side [data-active] {
+  background: var(--signal-wash);
+  color: var(--signal-ink);
+  font-weight: 600;
+}
+.look-plate__main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  padding: 10px 12px 12px;
+  background: var(--bg);
+}
+.look-plate__code {
+  color: var(--ink-3);
+}
+.look-plate__title {
+  color: var(--ink);
+  font-family: var(--font-head);
+  font-size: calc(22px * var(--text-scale));
+  font-stretch: var(--head-stretch);
+  font-variation-settings: 'wdth' var(--head-wdth);
+  font-weight: var(--head-weight, 800);
+  letter-spacing: var(--head-tracking);
+  line-height: 1.1;
+}
+.look-plate__text {
+  margin: 0;
+  color: var(--ink-2);
+  font-family: var(--font-doc);
+  line-height: 1.45;
+}
+.look-plate__link {
+  color: var(--signal-ink);
+  text-decoration: underline;
+  text-decoration-color: var(--signal);
+  text-underline-offset: 2px;
+}
+.look-plate mark {
+  padding: 0 2px;
+  border-radius: var(--radius-1);
+  background: var(--c-yellow-bg);
+  color: var(--ink);
+}
+.look-plate__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.look-plate__focus {
+  padding: 2px 6px;
+  border-radius: var(--radius-1);
+  box-shadow: var(--focus-ring);
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+}
+
+/* ---------- save bar: sticky at the bottom, clear of the phone's capture key and the home indicator ---------- */
+.look-bar {
+  position: sticky;
+  bottom: 0;
+  z-index: var(--z-sticky);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  margin-top: 20px;
+  padding: 10px 0 calc(10px + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--ink);
+  background: var(--surface);
+}
+.look-bar__state {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.look-bar__text {
+  text-wrap: balance;
+  color: var(--ink-2);
+}
+.look-bar__gap {
+  flex: 1;
+}
+
+@media (pointer: coarse) {
+  .look-chip::before,
+  .look-picker::before {
+    content: '';
+    position: absolute;
+    inset: -6px;
+  }
+  .look-seg .seg__btn {
+    height: 36px;
+  }
+}
+
+@media (max-width: 767px) {
+  .look-head {
+    justify-content: flex-start;
+  }
+  .look-presets {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .look-field {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+  }
+  .look-contrast .wsp-spec {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .look-heads {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .look-plates {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  /* the capture key (shell/capture) sits bottom-right on phones: the keys stay left of it */
+  .look-bar {
+    padding-right: 76px;
+  }
+  .look-bar__gap {
+    display: none;
+  }
+  .look-bar__state {
+    flex-basis: 100%;
+  }
+  .look-bar .btn {
+    flex: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .look-preset,
+  .look-chip,
+  .look-picker {
+    transition: none;
+  }
+}

@@ -10,6 +10,7 @@ import { prosemirrorJSONToYXmlFragment } from '@tiptap/y-tiptap'
 import type { JSONContent } from '@tiptap/core'
 import { getWorkspaceSnapshot } from '../store/store'
 import { flushSave, migrate, readStoredWorkspace } from '../store/persistence'
+import { sanitizeLook } from '../store/look'
 import type { ID, Workspace } from '../store/types'
 import { FILE_PREFIX, getLocalFile } from '../lib/files'
 import { newId } from '../lib/ids'
@@ -185,6 +186,9 @@ export async function uploadLocalWorkspaceImpl(wsId: string, onProgress?: (p: nu
         r.workspace.set('icon', target?.icon ?? null)
         r.workspace.set('createdAt', Date.now())
       }
+      // the workspace look (sanitized again; the uploader saves it — the server checks they may)
+      const look = sanitizeLook(local.look)
+      if (look && r.workspace.get('look') === undefined) r.workspace.set('look', { ...JSON.parse(JSON.stringify(look)), updatedBy: userId })
     }, UPLOAD_ORIGIN)
     await meta.flushed(120_000)
 

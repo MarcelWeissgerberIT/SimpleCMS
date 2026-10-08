@@ -182,7 +182,7 @@ export function AutomationSection({ team }: { team: TeamData }) {
 
   return (
     <>
-      <SectionHead n="04" title={t('shell.ws.sec.automation')} lead={t('shell.ws.auto.lead', { n: inventoryCount(inv) })} />
+      <SectionHead n="05" title={t('shell.ws.sec.automation')} lead={t('shell.ws.auto.lead', { n: inventoryCount(inv) })} />
       <CodingPlate />
       {groups.map((g) => (
         <Group key={g.id} id={g.id} icon={g.icon} label={t(`shell.ws.auto.group.${g.id}`)} items={g.items} empty={g.empty} add={g.add} />

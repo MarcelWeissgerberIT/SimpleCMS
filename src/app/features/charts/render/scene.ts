@@ -11,7 +11,7 @@ import type { ColorName } from '../../../store/types'
 import type { ChartData, ChartKind, ChartSpec } from '../types'
 import { looksLikeTime } from '../spec'
 import { h, type VNode } from './vnode'
-import { categoryColors, seriesColor } from './palette'
+import { categoryColors, seriesColor, type SignalFamily } from './palette'
 import { clip, formatValue, monoWidth, niceTicks, sansWidth, tickFormatter, type FormatOptions } from './scale'
 
 export interface SceneText {
@@ -34,6 +34,8 @@ export interface SceneOptions {
   background?: boolean
   /** thumbnails (the builder's type cards): the donut without its list */
   compact?: boolean
+  /** the signal's colour family while a workspace look shows its own signal (live charts; undefined = One's orange) */
+  signalFamily?: SignalFamily
 }
 
 export interface TargetRow {
@@ -250,7 +252,7 @@ function hbarPath(y: number, hh: number, base: number, end: number): string {
 /** spec.colors[i] ('default' = automatic) → the series' own colour → the order. */
 const pickColor = (ctx: Ctx, i: number, own?: ColorName) => {
   const set = ctx.spec.colors?.[i]
-  return seriesColor(i, set && set !== 'default' ? set : own)
+  return seriesColor(i, set && set !== 'default' ? set : own, ctx.opts.signalFamily)
 }
 const seriesColors = (ctx: Ctx) => ctx.data.series.map((s, i) => pickColor(ctx, i, s.color))
 
@@ -623,7 +625,7 @@ function donut(ctx: Ctx): Body {
   const s = data.series[0]
   type Slice = { i: number; label: string; value: number; color: string }
   const own = data.labelColors ?? []
-  const palette = categoryColors(data.labels.length, own, spec.colors ?? [])
+  const palette = categoryColors(data.labels.length, own, spec.colors ?? [], ctx.opts.signalFamily)
   let slices: Slice[] = data.labels.map((label, i) => ({ i, label, value: Math.max(0, s.values[i] ?? 0), color: palette[i] })).filter((x) => x.value > 0)
   if (slices.length > MAX_SLICES) {
     const head = [...slices].sort((a, b) => b.value - a.value).slice(0, MAX_SLICES - 1)

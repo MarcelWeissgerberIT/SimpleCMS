@@ -9,6 +9,7 @@ import { isSameOrigin } from '../http/security.ts'
 import type { Logger } from '../log.ts'
 import type { Repo, Role } from '../repo.ts'
 import { guardAgentAuthors } from './agent-authors.ts'
+import { guardWorkspaceLook } from './workspace-look.ts'
 import { metaName, parseDocName } from './names.ts'
 
 export const COLLAB_PATH = '/collab'
@@ -101,6 +102,8 @@ export function createCollab(deps: { config: Config; log: Logger; repo: Repo; se
       if (doc?.kind === 'meta' && doc.owner === null) {
         document.on('destroy', guardAgentAuthors(document, { workspaceId: doc.workspaceId, log }))
         document.on('destroy', guardAgentAuthors(document, { workspaceId: doc.workspaceId, log, map: 'scripts' }))
+        // the workspace look: owners and admins only (docs/CLOUD.md § Meta document schema)
+        document.on('destroy', guardWorkspaceLook(document, { workspaceId: doc.workspaceId, log }))
       }
     },
 

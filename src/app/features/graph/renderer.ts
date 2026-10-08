@@ -108,7 +108,8 @@ export class GraphRenderer {
       this.readColors()
       this.invalidate()
     })
-    this.mo.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
+    // the theme and the workspace look (lib/look) both change the colours read from the tokens
+    this.mo.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme', 'data-look'] })
 
     canvas.addEventListener('pointerdown', this.onDown)
     canvas.addEventListener('pointermove', this.onMove)

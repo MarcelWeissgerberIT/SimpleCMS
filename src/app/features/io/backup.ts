@@ -93,8 +93,11 @@ export async function buildBackup(rootId: ID | null, onProgress?: (done: number,
   const { pages, topId } = scoped
   // (database commands' webhooks too: features/commands)
   const databases = rootId ? Object.fromEntries(Object.entries(scoped.databases).map(([id, db]) => [id, withoutCommandSecrets(withoutWebhookSecrets(db))])) : scoped.databases
+  // the workspace look belongs to the whole workspace: full backups carry it, a page backup never does
+  const { look, ...rest } = snap
   const workspace: Workspace = {
-    ...snap,
+    ...rest,
+    ...(look && !rootId ? { look } : {}),
     pages: topId && pages[topId] ? { ...pages, [topId]: { ...pages[topId], parentId: null } } : pages,
     databases,
     // never export the API key, nor the MCP servers' token markers

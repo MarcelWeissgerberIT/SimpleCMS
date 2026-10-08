@@ -245,6 +245,10 @@ button.tb-crumb:hover {
 .pm-font[aria-checked='true'] .pm-font__ag {
   color: var(--signal-ink);
 }
+/* "Default" = the workspace's page text font (Workspace → Look) */
+.pm-font[data-font='sans'] .pm-font__ag {
+  font-family: var(--font-doc);
+}
 .pm-font[data-font='serif'] .pm-font__ag {
   font-family: var(--font-serif);
   font-weight: 500;

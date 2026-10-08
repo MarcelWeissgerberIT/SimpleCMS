@@ -11,6 +11,8 @@ import { buildScene, type Scene, type SceneTarget, type SceneText } from './scen
 import { reactProps, toReact } from './vnode'
 import { formatValue } from './scale'
 import './chart.css'
+import { useLookFamily } from '../../../lib/look'
+import type { SignalFamily } from './palette'
 
 export interface ChartRendererProps {
   spec: ChartSpec
@@ -72,7 +74,9 @@ export function ChartRenderer({ spec, data, height, interactive = true, classNam
   const [table, setTable] = useState(false)
   const tableId = useId()
   const plotH = height ?? chartHeight(spec)
-  const scene = useMemo(() => (width > 0 ? buildScene(spec, data, { width, height: plotH, lang, text }) : null), [spec, data, width, plotH, lang, text])
+  // a workspace look's signal: its hue family goes last in the series order (lib/look)
+  const signalFamily = (useLookFamily() ?? undefined) as SignalFamily
+  const scene = useMemo(() => (width > 0 ? buildScene(spec, data, { width, height: plotH, lang, text, signalFamily }) : null), [spec, data, width, plotH, lang, text, signalFamily])
   const targets = useMemo(() => (scene ? order(scene) : []), [scene])
   useEffect(() => {
     if (!controlled && own !== null && !targets.some((x) => x.i === own)) setOwn(null)

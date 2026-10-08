@@ -186,7 +186,7 @@ async function settingsAndWorkspace(page: Page) {
     await expect(page.locator('.modal').first()).toBeVisible()
     await fits(page, `settings → ${tab}`)
   }
-  for (const sec of ['', '/people', '/blocks', '/data']) {
+  for (const sec of ['', '/look', '/people', '/blocks', '/data']) {
     await page.evaluate((h) => (window.location.hash = h), `#/workspace${sec}`)
     await expect(page.getByTestId('workspace-page')).toBeVisible()
     await fits(page, `workspace${sec || '/overview'}`, '.wsp__main')
@@ -245,6 +245,10 @@ test.describe('the biggest text size still fits', () => {
     await databasePopovers(page)
     await page.setViewportSize({ width: 390, height: 844 })
     await databasePopovers(page)
+    // the workspace look with its Carbon colours shown (the widest form there is)
+    await page.evaluate(() => (window.location.hash = '#/workspace/look'))
+    await page.getByRole('switch', { name: 'Set Carbon colours separately' }).click()
+    await fits(page, 'workspace/look (XL, phone)', '.wsp__main')
   })
 })
 

@@ -4,8 +4,8 @@ title: Workspace settings & people
 section: start
 order: 6
 keywords: workspace settings, text size, font size, display, workspace, people, persons, members, merge people, rename person, remove person, overview, storage, backup, trash, automation, building blocks, danger zone, settings, this device, Workspace-Einstellungen, Personen, Mitglieder, zusammenführen
-related: members-roles, invites, export, sidebar
-summary: One page for everything that belongs to the workspace — its name, people, building blocks, automation and data. Settings is this device.
+related: workspace-look, members-roles, invites, export, sidebar
+summary: One page for everything that belongs to the workspace — its name, look, people, building blocks, automation and data. Settings is this device.
 ---
 **Workspace settings** gather what belongs to the workspace itself. Open them from the workspace menu at the top of the sidebar, with <kbd>Mod+K</kbd> → *Workspace settings* (or *People*), or from **Settings → Workspace settings** at the top of the list. **Settings** (<kbd>Mod+,</kbd>) keeps what belongs to *this device* and to you: language, theme, the Claude key, sync, mail, MCP, the coding worker.
 
@@ -15,6 +15,9 @@ The plate at the top reads the workspace: its name, **LOCAL** or **TEAM · 7 MEM
 The **name** everyone sees (in a team workspace owners and admins rename it), the numbers — pages, databases, entries, words, people, own templates, the trash, since when — the storage this device uses, the files it keeps, and when this device last saved a **full backup**.
 
 **Display · this device** holds the **text size** of the whole app: a fader with four stops — **Standard** (the sizes you know, and the smallest), **M**, **L** and **XL** (14 · 15 · 16 · 17 px for the interface text). Everything follows at once — menus, panels, the sidebar, pages, tables, the help. It is kept on this device only (screens differ) and is the same control as **Settings → Appearance**. The website and the pages you share or publish keep their own size.
+
+## Look
+The workspace's **colours, type and corners** — for everyone in it: a preset or your own signal, paper and ink colour, the interface, page text and heading fonts, standard or square corners. Contrast stays readable (One adjusts a colour that would fall short), and exports and shared links keep One's standard look. In a team workspace owners and admins set it. *Use the standard look on this device* is for this device only. See [The workspace look](help:workspace-look). The Overview shows the current look with a key to change it.
 
 ## People
 Everyone you can pick in a person property or @mention. Each person shows **where they are used**: rows that hold them and pages that mention them — click the read-out for the list, each entry opens its page. *You* marks the local user (named like **Settings → General → Your name**).

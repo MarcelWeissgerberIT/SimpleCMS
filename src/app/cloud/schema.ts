@@ -1,7 +1,7 @@
 /**
  * The workspace meta document (docs/CLOUD.md § Meta document schema) ⇄ store shapes.
  *
- *   'workspace'  name, icon, createdAt
+ *   'workspace'  name, icon, createdAt, look (WorkspaceLook JSON — owners / admins; the server puts others' changes back)
  *   'pages'      pageId → Y.Map { scalar fields …, properties: Y.Map, comments: Y.Map, plain }
  *   'databases'  dbId → Y.Map { properties: Y.Map (id → def + order), views: Y.Map (id → view + order), other keys as JSON }
  *   'people'     personId → Person

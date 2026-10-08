@@ -1,5 +1,6 @@
 import { safeLocalGet, safeLocalSet } from '@/shared/brand'
 import { useCloud } from '../../cloud'
+import { forgetLookCache } from '../../lib/look/apply'
 
 /** localStorage flag: wipe all IndexedDB data on the next boot (before anything opens a connection). */
 export const RESET_FLAG = 'one.resetPending'
@@ -131,6 +132,8 @@ export async function runPendingReset(onBlocked?: () => void): Promise<boolean> 
   )
   try {
     for (const k of Object.keys(localStorage)) if (k.startsWith('one.shell.')) localStorage.removeItem(k)
+    // the local workspace's look cache (team workspaces keep theirs, "standard look here" included)
+    forgetLookCache('local')
   } catch {
     /* ignore */
   }

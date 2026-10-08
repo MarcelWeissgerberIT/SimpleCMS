@@ -13,6 +13,7 @@ import { plainText } from '../../store/store'
 import { t } from '../../i18n'
 import { BRAND } from '@/shared/brand'
 import { preparePage, type SharePayload } from './codec'
+import { resolveVars, themeTokens as stockTokens } from '../charts/render/palette'
 
 const KATEX_FONTS = 'https://cdn.jsdelivr.net/npm/katex@0.18.10/dist/fonts/'
 const FONTS_CSS =
@@ -94,16 +95,14 @@ const MERMAID_VARS = [
   '--c-yellow-bg',
 ] as const
 
-/** Read the design tokens of one theme without a visible flash (switch, read, restore in one task). */
+/**
+ * The design tokens of one theme as tokens.css ships them (parsed from the file, never read from the page):
+ * exports keep One's standard look whatever workspace look the app shows (lib/look).
+ */
 function themeTokens(theme: 'light' | 'dark'): Record<string, string> {
-  const html = document.documentElement
-  const before = html.dataset.theme
-  html.dataset.theme = theme
-  const cs = getComputedStyle(html)
+  const all = stockTokens(theme)
   const out: Record<string, string> = {}
-  for (const v of MERMAID_VARS) out[v] = cs.getPropertyValue(v).trim() || '#000'
-  if (before === undefined) delete html.dataset.theme
-  else html.dataset.theme = before
+  for (const v of MERMAID_VARS) out[v] = resolveVars(all[v] ?? '#000', theme)
   return out
 }
 
