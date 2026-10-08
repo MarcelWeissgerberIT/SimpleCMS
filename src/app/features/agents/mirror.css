@@ -1,0 +1,195 @@
+/* Custom agents — "Mirror a list into a database": the setup dialog (MirrorSetup.tsx) and the placeholders strip
+   of the agent editor (AgentEditor.tsx). Tokens only; works at 390 px. */
+
+.agx-mir .modal__body {
+  padding-top: 4px;
+}
+.agx-mir__form {
+  display: grid;
+  gap: 18px;
+}
+.agx-mir__form > .agx-lead {
+  margin: 0;
+}
+.agx-mir__n {
+  margin-right: 4px;
+  color: var(--signal-ink);
+}
+.agx-mir__servers {
+  display: grid;
+  gap: 6px;
+}
+.agx-mir__server {
+  display: grid;
+  grid-template-columns: auto minmax(0, auto) minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  min-height: 38px;
+  padding: 6px 12px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+  background: var(--surface);
+  cursor: pointer;
+  transition: border-color var(--dur-1) var(--ease-out);
+}
+.agx-mir__server:hover {
+  border-color: var(--ink-3);
+}
+.agx-mir__server:has(input:checked) {
+  border-color: var(--ink);
+  box-shadow: inset 2px 0 0 var(--signal);
+}
+.agx-mir__server:has(input:focus-visible) {
+  box-shadow: var(--focus-ring);
+}
+.agx-mir__server input {
+  margin: 0;
+  accent-color: var(--signal);
+}
+.agx-mir__srvname {
+  overflow: hidden;
+  color: var(--ink);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  letter-spacing: var(--tracking-label);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agx-mir__srvstate {
+  justify-self: end;
+  min-width: 0;
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-label);
+  text-align: right;
+  text-transform: uppercase;
+}
+.agx-mir__server[data-untested] .agx-mir__srvstate {
+  color: var(--c-orange-text);
+}
+.agx-mir__server[data-off] {
+  border-style: dashed;
+}
+.agx-mir__server[data-off] .agx-mir__srvname {
+  color: var(--ink-3);
+}
+.agx-mir__none {
+  margin: 0;
+}
+.agx-mir__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+.agx-mir__grid .input,
+.agx-mir__grid .agx-pick {
+  width: 100%;
+}
+.agx-mir__spec {
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-2);
+  background: var(--surface);
+}
+.agx-mir__spec > div {
+  padding: 9px 12px;
+}
+.agx-mir__spec > div:nth-child(even) {
+  padding-left: 12px;
+}
+.agx-mir__spec > div:nth-last-child(-n + 2) {
+  border-bottom: 0;
+}
+
+/* ---------- editor: the recipe's placeholders still to replace ---------- */
+.agx-ph {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--signal);
+  border-left-width: 2px;
+  border-radius: var(--radius-1);
+  background: var(--signal-wash);
+}
+.agx-ph__label {
+  color: var(--signal-ink);
+}
+.agx-ph__list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.agx-ph__item {
+  display: grid;
+  grid-template-columns: minmax(0, max-content) minmax(0, 1fr);
+  align-items: baseline;
+  gap: 4px 10px;
+}
+.agx-ph__btn {
+  max-width: 100%;
+  min-height: 26px;
+  padding: 3px 8px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+  background: var(--surface);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  letter-spacing: 0.02em;
+  text-align: left;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+.agx-ph__btn:hover {
+  border-color: var(--ink);
+}
+.agx-ph__btn:active {
+  transform: translateY(1px);
+}
+.agx-ph__btn:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.agx-ph__hint {
+  min-width: 0;
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+  line-height: 1.45;
+}
+.agx-ph__note {
+  margin: 0;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+}
+
+@media (max-width: 720px) {
+  .agx-mir__grid {
+    grid-template-columns: 1fr;
+  }
+  .agx-mir__server {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .agx-mir__srvstate {
+    grid-column: 2;
+    justify-self: start;
+    text-align: left;
+  }
+  .agx-mir__spec {
+    grid-template-columns: 1fr;
+  }
+  .agx-mir__spec > div:nth-child(even) {
+    padding-left: 12px;
+    border-left: 0;
+  }
+  .agx-mir__spec > div:nth-last-child(2) {
+    border-bottom: 1px solid var(--rule);
+  }
+  .agx-ph__item {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .agx-ph__btn {
+    justify-self: start;
+  }
+}

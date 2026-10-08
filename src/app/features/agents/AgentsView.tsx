@@ -1,6 +1,7 @@
 /**
  * #/agents — custom agents as instrument cards (LED status, trigger, next run, last run, cost of the
- * last runs, what waits for review), "New agent" from a starter recipe; #/agents/<id> — one agent:
+ * last runs, what waits for review), "New agent" from a starter recipe (the mirror recipe sets up its database
+ * first, MirrorSetup.tsx); #/agents/<id> — one agent:
  * its spec plate, run now, edit, and its run history with the review of staged changes. A team browser
  * agent changed by another member waits for its creator, who confirms it on its page (confirm.ts).
  */
@@ -20,6 +21,8 @@ import { resolveModel } from '../ai/client'
 import { AgentEditor } from './AgentEditor'
 import { RunHistory } from './RunHistory'
 import { RECIPES, blankAgent, recipeDraft, type RecipeId } from './recipes'
+import { MirrorSetup } from './MirrorSetup'
+import type { MirrorMade } from './mirror'
 import { deleteAgent, runNow, setEnabled } from './actions'
 import { awaitsReview, getAgentState, loadRuns, onRunsChanged, putAgentState, useAgentRuns, type AgentState } from './runs'
 import { loadRuntime, loadServerRuns, teamId, useServerAgents } from './server'
@@ -129,19 +132,37 @@ export default function AgentsView({ agentId }: { agentId?: string }) {
 /* ------------------------------------------------------------------ */
 
 function useNewAgent() {
+  const t = useT()
   const [picking, setPicking] = useState(false)
-  const [draft, setDraft] = useState<CustomAgent | null>(null)
+  const [mirror, setMirror] = useState(false)
+  const [draft, setDraft] = useState<{ agent: CustomAgent; mirror?: MirrorMade } | null>(null)
   const pick = (id: RecipeId) => {
     setPicking(false)
-    setDraft(id === 'blank' ? blankAgent() : recipeDraft(id))
+    // the mirror asks for its source, name and place first and creates its database (MirrorSetup)
+    if (id === 'mirror') return setMirror(true)
+    setDraft({ agent: id === 'blank' ? blankAgent() : recipeDraft(id) })
   }
+  const made = draft?.mirror
   const ui = (
     <>
       {picking && <RecipeModal onPick={pick} onClose={() => setPicking(false)} />}
+      {mirror && (
+        <MirrorSetup
+          onClose={() => setMirror(false)}
+          onCreated={(m) => {
+            setMirror(false)
+            setDraft({ agent: m.draft, mirror: m })
+          }}
+          // the toast's Undo took the database away: the draft that points at it goes too
+          onUndo={() => setDraft((d) => (d?.mirror ? null : d))}
+        />
+      )}
       {draft && (
         <AgentEditor
-          initial={draft}
+          initial={draft.agent}
           isNew
+          intro={made ? t('features.agents.mirror.intro', { name: made.name, report: made.reportTitle }) : undefined}
+          writeHint={made ? t('features.agents.mirror.writeHint') : undefined}
           onClose={() => setDraft(null)}
           onSaved={(id) => {
             setDraft(null)

@@ -24,6 +24,8 @@ import { AI_MODELS, AIError, runAI } from '../ai/client'
 import { readServers } from '../ai/mcp-servers/config'
 import { weekdayName } from './format'
 import { isReadTool, testedTools } from './mcpTools'
+import { placeholdersIn } from './mirror'
+import './mirror.css'
 import { createHook, deleteHook, getHook, serverErrorText, useServerAgents, type HookState } from './server'
 import './agents.css'
 
@@ -134,6 +136,7 @@ export function validate(t: T, d: CustomAgent, ctx: { pages: Record<ID, Page>; s
   if (!d.name.trim()) e.name = t('features.agents.err.name')
   if (!d.instructions.trim()) e.instructions = t('features.agents.err.instructions')
   else if (d.instructions.length > AGENT_LIMITS.instructions) e.instructions = t('features.agents.err.tooLong', { max: AGENT_LIMITS.instructions })
+  else if (d.enabled && placeholdersIn(d.instructions).length) e.instructions = t('features.agents.mirror.err.placeholders', { count: placeholdersIn(d.instructions).length })
   const tr = d.trigger
   if ((tr.type === 'row_created' || tr.type === 'row_changed') && !(tr.databaseId && ctx.pages[tr.databaseId] && !ctx.pages[tr.databaseId].trashed)) e.trigger = t('features.agents.err.database')
   if (tr.type === 'schedule' && (!/^([01]\d|2[0-3]):[0-5]\d$/.test(tr.at) || !isTimeZone(tr.tz))) e.trigger = t('features.agents.err.time')
@@ -145,7 +148,11 @@ export function validate(t: T, d: CustomAgent, ctx: { pages: Record<ID, Page>; s
   return e
 }
 
-export function AgentEditor({ initial, isNew, onClose, onSaved }: { initial: CustomAgent; isNew: boolean; onClose: () => void; onSaved: (id: ID) => void }) {
+/**
+ * `intro`: a note on top (a recipe that set something up first says what it made); `writeHint`: the hint under
+ * "Changes" instead of the write mode's own (the mirror recipe: proposals first, Apply once the runs look right).
+ */
+export function AgentEditor({ initial, isNew, onClose, onSaved, intro, writeHint }: { initial: CustomAgent; isNew: boolean; onClose: () => void; onSaved: (id: ID) => void; intro?: string; writeHint?: string }) {
   const t = useT()
   const lang = useLang()
   const [d, setD] = useState<CustomAgent>(initial)
@@ -219,6 +226,12 @@ export function AgentEditor({ initial, isNew, onClose, onSaved }: { initial: Cus
         }}
         noValidate
       >
+        {intro && (
+          <p className="agx-notice agx-editor__notice" role="note" data-testid="agx-editor-intro">
+            <span className="led led--ok" aria-hidden />
+            <span>{intro}</span>
+          </p>
+        )}
         {othersAgent && (
           <p className="agx-notice agx-notice--wait agx-editor__notice" role="note">
             <span className="led led--on" aria-hidden />
@@ -260,7 +273,7 @@ export function AgentEditor({ initial, isNew, onClose, onSaved }: { initial: Cus
         {/* ---------------------------------------------------------- 03 access */}
         <Section n="03" title={t('features.agents.ed.access')}>
           <ScopeFields d={d} set={set} error={errors.scope} />
-          <Field label={t('features.agents.ed.write')} hint={t(`features.agents.write.${d.write}Hint`)}>
+          <Field label={t('features.agents.ed.write')} hint={writeHint && d.write === 'stage' ? writeHint : t(`features.agents.write.${d.write}Hint`)}>
             <Seg
               label={t('features.agents.ed.write')}
               value={d.write}
@@ -429,7 +442,20 @@ function Instructions({ value, onChange, error, id }: { value: string; onChange:
   const [busy, setBusy] = useState(false)
   const [prev, setPrev] = useState<string | null>(null)
   const ac = useRef<AbortController | null>(null)
+  const area = useRef<HTMLTextAreaElement>(null)
   useEffect(() => () => ac.current?.abort(), [])
+  // a recipe's placeholders still in the text (mirror.ts): a key selects one, so typing replaces it
+  const holes = placeholdersIn(value)
+  const selectHole = (ph: string) => {
+    const el = area.current
+    const at = el ? el.value.indexOf(ph) : -1
+    if (!el || at < 0) return
+    el.focus()
+    el.setSelectionRange(at, at + ph.length)
+    const line = el.value.slice(0, at).split('\n').length - 1
+    const lh = parseFloat(getComputedStyle(el).lineHeight) || 20
+    el.scrollTop = Math.max(0, (line - 2) * lh)
+  }
   const improve = async () => {
     if (!value.trim() || busy) return
     ac.current?.abort()
@@ -459,11 +485,30 @@ function Instructions({ value, onChange, error, id }: { value: string; onChange:
   }
   return (
     <Field label={t('features.agents.ed.instructions')} hint={t('features.agents.ed.instructionsHint')} error={error} id={id}>
+      {holes.length > 0 && (
+        <div className="agx-ph" role="group" aria-label={t('features.agents.mirror.toReplace')} data-testid="agx-placeholders">
+          <span className="label agx-ph__label">
+            {t('features.agents.mirror.toReplace')} · {holes.length}
+          </span>
+          <ul className="agx-ph__list">
+            {holes.map((h) => (
+              <li key={h.text} className="agx-ph__item">
+                <button type="button" className="agx-ph__btn" onClick={() => selectHole(h.text)}>
+                  {h.text}
+                </button>
+                <span className="agx-ph__hint">{t(`features.agents.mirror.phHint.${h.key}`)}</span>
+              </li>
+            ))}
+          </ul>
+          <p className="agx-ph__note">{t('features.agents.mirror.toReplaceHint')}</p>
+        </div>
+      )}
       <textarea
+        ref={area}
         id={id}
         className="input agx-textarea"
         value={value}
-        rows={7}
+        rows={holes.length ? 12 : 7}
         maxLength={AGENT_LIMITS.instructions}
         placeholder={t('features.agents.ed.instructionsPh')}
         aria-invalid={!!error || undefined}
