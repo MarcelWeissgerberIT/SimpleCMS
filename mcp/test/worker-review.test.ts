@@ -12,6 +12,8 @@ import { after, afterEach, describe, test } from 'node:test'
 import { commentPr, mergePr } from '../src/worker/git.ts'
 import type { RepoConfig } from '../src/worker/config.ts'
 import { buildPrompt } from '../src/worker/run.ts'
+import type { TaskPayload } from '../../src/app/features/coding/protocol.ts'
+import { waitFor } from './helpers.ts'
 import { FakeTab, WS_LOCAL, cleanupAll, makeRepo, plainRepo, repoEntry, sh, startWorker, task, tempDir, writeConfig, type StartedWorker, type TempRepo } from './worker-helpers.ts'
 
 const PORT = 47389
@@ -51,7 +53,46 @@ describe('capabilities', () => {
     tab.send({ type: 'nudge' })
     const next = await tab.next('req')
     assert.equal(next.op, 'next')
-    assert.deepEqual((next as Extract<typeof next, { op: 'next' }>).can, ['analyze', 'git:comment', 'git:merge'])
+    assert.deepEqual((next as Extract<typeof next, { op: 'next' }>).can, ['analyze', 'git:comment', 'git:merge', 'doc'])
+  })
+
+  test('a task it cannot read (a stage kind it does not know) goes back to One as refused for that task and stage; the worker keeps working', async () => {
+    const r = makeRepo()
+    const tab = await boot(r, { analyzeCommand: null })
+    // a stage kind of a One newer than this worker: refused once, for exactly that task and stage (One would hand it out again otherwise)
+    const odd = await tab.run(task({ kind: 'teleport' as TaskPayload['stage']['kind'], name: 'Teleport' }, { id: 'odd1abcd' }))
+    assert.equal(odd.status, 'refused', JSON.stringify(odd))
+    assert.match(odd.error!, /cannot read the task/)
+    assert.match(odd.error!, /download the worker again in One/)
+    assert.deepEqual(
+      tab.outcomes.map((o) => [o.taskId, o.stageId, o.outcome.status]),
+      [['odd1abcd', 'st-teleport', 'refused']],
+    )
+    await waitFor(() => /One sent a task the worker cannot read \(odd1abcd\) — refused/.test(worker!.stderr()), 5000, () => worker!.stderr())
+    // nothing ran for it: no worktree, no branch
+    assert.ok(!existsSync(r.worktrees) || readdirSync(r.worktrees).length === 0, 'no worktree')
+    assert.ok(!sh(r.path, 'branch', '--list', 'one/*').trim(), 'no branch')
+
+    // without ids it cannot say which task: only the log says so (nothing to report back)
+    tab.queue.push({ id: 'odd2abcd', repo: 'demo', stage: { kind: 'teleport' } } as unknown as TaskPayload)
+    tab.send({ type: 'nudge' })
+    await waitFor(() => /One sent a task the worker cannot read — refused/.test(worker!.stderr()), 5000, () => worker!.stderr())
+    await new Promise((res) => setTimeout(res, 300))
+    assert.equal(tab.outcomes.length, 1, JSON.stringify(tab.outcomes))
+
+    // it keeps asking for work: the next readable task runs as usual
+    const next = await tab.run(task({ kind: 'analyze', name: 'Static analysis' }, { id: 'ana9abcd' }))
+    assert.equal(next.status, 'ok', JSON.stringify(next))
+    assert.match(next.plan!, /No static analysis command/)
+    assert.deepEqual(
+      tab.outcomes.map((o) => [o.taskId, o.outcome.status]),
+      [['odd1abcd', 'refused'], ['ana9abcd', 'ok']],
+    )
+    // every `next` named the same capabilities
+    const nexts = tab.messages.filter((m): m is Extract<typeof m, { type: 'req'; op: 'next' }> => m.type === 'req' && m.op === 'next')
+    assert.ok(nexts.length >= 3, `${nexts.length} requests`)
+    for (const n of nexts) assert.deepEqual(n.can, ['analyze', 'git:comment', 'git:merge', 'doc'])
+    assertNoPaths(tab, r)
   })
 })
 
