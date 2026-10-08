@@ -36,6 +36,7 @@ import { codewordProblem, normalizeCodeword, suggestCodeword } from './codeword'
 import { linkBaseOf } from '../../../lib/foreignLinks'
 import { cancelSignIn, offersCode, signIn, signInWithCode, signOut, signedIn, useMcpSignIn, type SignInState } from './oauth'
 import { HelpLink } from '../../../help'
+import { CodeArea, markdownTokenizer } from '../../../ui/code'
 import './mcp-servers.css'
 
 type T = ReturnType<typeof useT>
@@ -686,6 +687,9 @@ function Prompt({ server, hasKey, blocked, running }: { server: McpServerConfig;
   // closing the details (or Settings) keeps what was typed
   useEffect(() => () => commit(latest.current.server, latest.current.draft), [])
 
+  const toolKey = (server.tools ?? []).join(' ')
+  const tokenize = useMemo(() => markdownTokenizer({ tools: toolKey ? toolKey.split(' ') : [] }), [toolKey])
+
   const src = !server.prompt.trim() ? 'empty' : server.promptSource === 'auto' ? 'auto' : 'edited'
   const run = (mode: CheckMode) => {
     if (mode === 'guide' && src === 'edited' && !confirm) {
@@ -727,17 +731,24 @@ function Prompt({ server, hasKey, blocked, running }: { server: McpServerConfig;
           </button>
         </div>
       )}
-      <textarea
+      {/* the guide in the shared code area: Markdown structure and this server's tools (as last checked) highlighted */}
+      <CodeArea
         id={id}
-        className="input mcps-prompt__text"
-        rows={6}
+        className="mcps-prompt__area"
         value={draft}
+        onChange={(v) => setDraft(v)}
+        tokenize={tokenize}
+        wrap
+        lineNumbers={false}
+        storageKey="mcp.prompt"
+        resizable
+        minRows={6}
+        maxRows={16}
+        enter="list"
         maxLength={PROMPT_MAX}
         placeholder={t('features.ai.mcp.promptPh')}
-        aria-describedby={`${id}-hint`}
-        spellCheck={false}
-        onChange={(e) => setDraft(e.target.value)}
-        onBlur={() => commit(server, draft)}
+        describedBy={`${id}-hint`}
+        inputProps={{ onBlur: () => commit(server, latest.current.draft) }}
       />
       <p className="mcps-hint" id={`${id}-hint`}>
         {!hasKey ? t('features.ai.mcp.needsKey') : t('features.ai.mcp.promptHint')}

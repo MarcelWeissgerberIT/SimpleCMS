@@ -8,6 +8,8 @@ import { executeRun } from './exec'
 import { dropRuns } from './runs'
 import { loadServerRuns, runOnServer, serverErrorText } from './server'
 import { placeholdersIn } from './mirror'
+import { AGENT_PLACEHOLDERS } from './instructions'
+import { findPlaceholders } from '../../ui/code/placeholders'
 
 /**
  * A recipe's placeholders still in the job (mirror.ts): such an agent neither runs nor is switched on — it says so.
@@ -20,9 +22,23 @@ function unfinished(agent: CustomAgent): boolean {
   return true
 }
 
-/** Start a run now: in this tab (browser runner) or on the team server. */
-export async function runNow(agent: CustomAgent): Promise<void> {
+/**
+ * Start a run now: in this tab (browser runner) or on the team server. A recipe's placeholders refuse it (above);
+ * any other open placeholder ("[HOW TO LIST THE ITEMS]", instructions.ts) asks first — Claude would read it literally.
+ */
+export async function runNow(agent: CustomAgent, opts: { confirmed?: boolean } = {}): Promise<void> {
   if (unfinished(agent)) return
+  const hits = opts.confirmed ? [] : findPlaceholders(agent.instructions, AGENT_PLACEHOLDERS)
+  if (hits.length) {
+    useUI.getState().openModal({
+      type: 'confirm',
+      title: t('features.agents.ph.title'),
+      body: t(hits.length === 1 ? 'features.agents.ph.body.one' : 'features.agents.ph.body.other', { name: agent.name, count: hits.length, first: hits[0].text }),
+      confirmLabel: t('features.agents.ph.run'),
+      onConfirm: () => void runNow(agent, { confirmed: true }),
+    })
+    return
+  }
   if (agent.runner === 'server') {
     try {
       await runOnServer(agent.id)

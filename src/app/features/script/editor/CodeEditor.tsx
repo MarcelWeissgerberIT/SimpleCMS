@@ -1,23 +1,23 @@
 /**
- * One Script — the code editor: a plain textarea with a highlighted layer behind it (same monospace
- * metrics, so every character sits where the caret expects it), line numbers, @ references shown as
- * chips (the stable token `@[Label](p:id)` stays the text: chips survive renames, copy and paste),
- * the error of the last check or run (squiggle, gutter mark, the message at the end of its line) and an
- * IDE-like completion list (complete.ts): @ references, type-aware members after ".", the database's
- * properties inside where / set …, option values after `Status = `, snippets with tab stops.
+ * One Script — the code editor, on the shared code area (ui/code/CodeArea: a textarea over highlighted lines,
+ * line numbers, the current line, bracket pairs and unmatched brackets, problems with a list below that jumps to
+ * them, Tab / Shift+Tab, Enter keeps the indentation, Esc then Tab leaves). On top of it: the language's own
+ * highlighting (analyze.ts), @ references shown as chips (the stable token `@[Label](p:id)` stays the text: chips
+ * survive renames, copy and paste), the error of the last check or run — and where a bracket before it was never
+ * closed, the likely cause — and an IDE-like completion list (complete.ts): @ references, type-aware members after
+ * ".", the database's properties inside where / set …, option values after `Status = `, snippets with tab stops.
  *
- * Keys: the list opens while typing (1 character), after "." and "@", inside an option text, and on
- * Ctrl+Space (⌥Esc on a Mac); ↑ ↓ choose, Enter / Tab take, Esc closes — Enter is never taken while
- * it is closed. A snippet's places: Tab / Shift+Tab, Esc leaves them. F1 or Mod+I shows what the name
- * at the caret is (Ctrl / ⌘ + hover too). Tab / Shift+Tab indent, Enter keeps the indentation,
- * Backspace after a chip removes the whole chip; Esc then Tab leaves the editor. The parent handles run
- * keys (onKey).
+ * Keys: the list opens while typing (1 character), after "." and "@", inside an option text, and on Ctrl+Space (⌥Esc
+ * on a Mac); ↑ ↓ choose, Enter / Tab take, Esc closes — Enter is never taken while it is closed. A snippet's places:
+ * Tab / Shift+Tab, Esc leaves them. F1 or Mod+I shows what the name at the caret is (Ctrl / ⌘ + hover too).
+ * Backspace after a chip removes the whole chip. The parent handles run keys (onKey).
  */
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from 'react'
 import { useT } from '../../../i18n'
 import type { Translate } from '@/shared/i18n'
 import { PageIcon } from '../../../ui/PageIcon'
-import { analyze, segments, type Segment } from './analyze'
+import { CodeArea, CodeView, bracketMarkers, lineColAt, lineStarts, type CodeAreaHandle, type CodeGeometry, type CodeMarker, type CodeToken, type SynClass } from '../../../ui/code'
+import { analyze, segments, type Segment, type SegClass } from './analyze'
 import { activeParam, callAt, candidatesFor, completionAt, docAt, sigParams, type CallInfo, type Candidate, type DocInfo } from './complete'
 import { diffEdit, expandSnippet, shiftSession, type Session } from './snippets'
 import { tyLabel, type PropInfo, type Ty, type WsInfo } from './types'
@@ -77,9 +77,6 @@ interface Menu {
   tail: number
 }
 
-const LINE_H = 20
-const PAD_Y = 10
-const PAD_X = 12
 const DEBOUNCE_MS = 30
 /** Up to this size the list follows every key at once; longer code waits for a pause in typing. */
 const SYNC_MAX = 8000
@@ -134,106 +131,35 @@ function refItem(c: RefCandidate, t: Translate): Item {
 
 const GLYPH: Record<string, string> = { prop: '◆', field: '◇', member: '.', fn: 'ƒ', var: 'x', kw: '§', snip: '{}', option: '"', value: '=', named: ':' }
 
-/* ------------------------------------------------------------------ the layer */
+/* ------------------------------------------------------------------ chips, previews, signatures */
 
 /**
- * An @ reference as a chip. It takes exactly the width of its source text (`@[Label](p:id)`, in `ch`
- * of the monospace font), so the caret in the textarea above still lines up: the label as a pill, the
- * id as a faint tail in what is left.
+ * An @ reference as a chip. It takes exactly the width of its source text (`@[Label](p:id)`): the source itself
+ * holds the room, invisible, in the same font as the textarea above — wide characters (CJK, emoji) included — so
+ * the caret still lines up. On top of it: the label as a pill, the id as a faint tail in what is left.
  */
-function Chip({ code, seg }: { code: string; seg: Segment }) {
-  const raw = code.slice(seg.start, seg.end)
+function Chip({ raw }: { raw: string }) {
   const m = /^@\[(.*)\]\(([pusa]):([\w-]+)\)$/s.exec(raw)
-  if (!m) return <span className="sc-tok sc-tok--ref">{raw}</span>
+  if (!m) return <span className="syn-ref">{raw}</span>
   const label = m[1].replace(/\\([\]\\])/g, '$1')
   return (
-    <span className={`sc-chip sc-chip--${m[2]}`} style={{ width: `${[...raw].length}ch` }} title={`${label} · ${m[2]}:${m[3]}`}>
-      <span className="sc-chip__pill">
-        <span className="sc-chip__at">@</span>
-        {label}
+    <span className={`sc-chip sc-chip--${m[2]}`} title={`${label} · ${m[2]}:${m[3]}`}>
+      <span className="sc-chip__room">{raw}</span>
+      <span className="sc-chip__face">
+        <span className="sc-chip__pill">
+          <span className="sc-chip__at">@</span>
+          {label}
+        </span>
+        <span className="sc-chip__tail">{m[3]}</span>
       </span>
-      <span className="sc-chip__tail">{m[3]}</span>
     </span>
   )
 }
 
-/** One line of the highlighted layer (positions relative to the line). Unchanged lines are not rendered again. */
-const LineRun = memo(
-  function LineRun({ text, segs, errFrom, errTo }: { text: string; segs: Segment[]; sig: string; errFrom: number; errTo: number }) {
-    const out: ReactNode[] = []
-    let at = 0
-    const push = (from: number, to: number, cls: string | null, key: string) => {
-      if (to <= from) return
-      // the error range gets a squiggle (split where it starts / ends)
-      const cuts = [from, to]
-      if (errFrom > from && errFrom < to) cuts.splice(1, 0, errFrom)
-      if (errTo > from && errTo < to) cuts.splice(cuts.length - 1, 0, errTo)
-      for (let i = 0; i < cuts.length - 1; i++) {
-        const a = cuts[i]
-        const b = cuts[i + 1]
-        const err = errFrom >= 0 && a >= errFrom && b <= errTo
-        const c = [cls ? `sc-tok sc-tok--${cls}` : '', err ? 'sc-squiggle' : ''].filter(Boolean).join(' ')
-        out.push(
-          c ? (
-            <span key={`${key}-${i}`} className={c}>
-              {text.slice(a, b)}
-            </span>
-          ) : (
-            text.slice(a, b)
-          ),
-        )
-      }
-    }
-    segs.forEach((sg, i) => {
-      push(at, sg.start, null, `g${i}`)
-      if (sg.cls === 'ref') {
-        const chip = <Chip key={`r${i}`} code={text} seg={sg} />
-        out.push(errFrom >= sg.start && errFrom < sg.end ? <span key={`re${i}`} className="sc-squiggle">{chip}</span> : chip)
-      } else push(sg.start, sg.end, sg.cls, `s${i}`)
-      at = sg.end
-    })
-    push(at, text.length, null, 'end')
-    return <>{out}</>
-  },
-  (a, b) => a.text === b.text && a.sig === b.sig && a.errFrom === b.errFrom && a.errTo === b.errTo,
-)
-
-/** The highlighted layer: the same characters as the textarea, styled — line by line. */
-function Layer({ code, segs, error }: { code: string; segs: Segment[]; error: EditorError | null }) {
-  const errFrom = error?.start ?? -1
-  const errTo = error && error.end !== null && error.start !== null ? Math.max(error.end, error.start + 1) : -1
-  const lines = code.split('\n')
-  const out: ReactNode[] = []
-  let start = 0
-  let si = 0
-  lines.forEach((text, i) => {
-    const end = start + text.length
-    const mine: Segment[] = []
-    while (si < segs.length && segs[si].start < end + (i === lines.length - 1 ? 1 : 0)) {
-      const sg = segs[si++]
-      if (sg.start >= start) mine.push({ ...sg, start: sg.start - start, end: Math.min(sg.end, end) - start })
-    }
-    // the error range on this line (a range over several lines: its part here)
-    const ef = errFrom >= 0 && errFrom <= end && errTo > start ? Math.max(0, errFrom - start) : -1
-    const et = ef >= 0 ? Math.min(text.length, errTo - start) : -1
-    const sig = mine.map((x) => `${x.start}-${x.end}${x.cls}`).join(',')
-    out.push(<LineRun key={i} text={text} segs={mine} sig={sig} errFrom={ef} errTo={et} />)
-    if (i < lines.length - 1) out.push('\n')
-    start = end + 1
-  })
-  // a final newline needs a character after it to take up its line
-  out.push('\n ')
-  return <>{out}</>
-}
-
 /** Code shown read-only with the editor's colours and chips (template previews). */
 export function CodePreview({ code, className }: { code: string; className?: string }) {
-  const segs = useMemo(() => segments(analyze(code), new Set()), [code])
-  return (
-    <pre className={`sc-preview${className ? ` ${className}` : ''}`}>
-      <Layer code={code} segs={segs} error={null} />
-    </pre>
-  )
+  const tokenize = useCallback((c: string) => toTokens(segments(analyze(c), new Set())), [])
+  return <CodeView code={code} tokenize={tokenize} renderToken={renderChip} className={`sc-preview${className ? ` ${className}` : ''}`} />
 }
 
 /** A signature with its active parameter marked. */
@@ -250,21 +176,6 @@ function Signature({ sig, active }: { sig: string; active: number }) {
   )
 }
 
-/** Line numbers (rendered again only when the count, the current line or the error line change). */
-const Gutter = memo(function Gutter({ lines, top, width, errLine, curLine }: { lines: number; top: number; width: number; errLine: number | null; curLine: number }) {
-  return (
-    <div className="sc-code__gutter" style={{ width }} aria-hidden>
-      <div style={{ transform: `translateY(${-top}px)` }}>
-        {Array.from({ length: lines }, (_, i) => (
-          <div key={i} className={`sc-code__ln${i + 1 === errLine ? ' sc-code__ln--err' : ''}${i === curLine ? ' sc-code__ln--cur' : ''}`}>
-            {i + 1}
-          </div>
-        ))}
-      </div>
-    </div>
-  )
-})
-
 /** Rough heights of the list's parts (placing it without measuring the page). */
 const ITEM_H = 28
 const ITEM_H_TOUCH = 36
@@ -272,20 +183,29 @@ const LIST_MAX = 232
 
 /* ------------------------------------------------------------------ the editor */
 
+const SEG_SYN: Partial<Record<SegClass, SynClass>> = { kw: 'kw', fn: 'fn', prop: 'prop', var: 'var', num: 'num', str: 'str', ref: 'ref', comment: 'comment', op: 'op', err: 'err' }
+
+/** The language's own highlight segments as the code area's tokens (plain names stay plain). */
+function toTokens(segs: Segment[]): CodeToken[] {
+  const out: CodeToken[] = []
+  for (const s of segs) {
+    const cls = SEG_SYN[s.cls]
+    if (cls && s.end > s.start) out.push({ start: s.start, end: s.end, cls })
+  }
+  return out
+}
+
+const renderChip = (tok: CodeToken, text: string) => (tok.cls === 'ref' ? <Chip raw={text} /> : null)
+
 export function CodeEditor({ value, onChange, error = null, readOnly, refs, ws, propNames, onKey, onSelectionChange, ariaLabel, textareaRef, jump }: CodeEditorProps) {
   const t = useT()
+  const area = useRef<CodeAreaHandle | null>(null)
   const ta = useRef<HTMLTextAreaElement | null>(null)
-  const field = useRef<HTMLDivElement | null>(null)
-  const pop = useRef<HTMLDivElement | null>(null)
-  const measure = useRef<HTMLSpanElement | null>(null)
   const [caret, setCaret] = useState(0)
   const [focused, setFocused] = useState(false)
-  const [scroll, setScroll] = useState({ top: 0, left: 0 })
   const [menu, setMenu] = useState<Menu | null>(null)
   const [doc, setDoc] = useState<{ info: DocInfo; by: 'key' | 'mouse' } | null>(null)
-  const [charW, setCharW] = useState(7.8)
   const [, setTick] = useState(0)
-  const escaped = useRef(false)
   const suppress = useRef(false)
   const timer = useRef(0)
   const session = useRef<Session | null>(null)
@@ -299,16 +219,15 @@ export function CodeEditor({ value, onChange, error = null, readOnly, refs, ws, 
   const bump = () => setTick((n) => n + 1)
 
   const analysis = useMemo(() => analyze(value), [value])
-  const segs = useMemo(() => segments(analysis, propNames), [analysis, propNames])
-  const lines = useMemo(() => value.split('\n').length, [value])
-  const ph = useCallback((key: string) => t(`features.script.snip.ph.${key}`), [t])
-
-  useLayoutEffect(() => {
-    if (measure.current) {
-      const w = measure.current.getBoundingClientRect().width / 10
-      if (w > 0) setCharW(w)
+  // the last result is kept: the area and the bracket check below ask for the same text
+  const tokenize = useMemo(() => {
+    let last: { code: string; tokens: CodeToken[] } | null = null
+    return (code: string) => {
+      if (last?.code !== code) last = { code, tokens: toTokens(segments(analyze(code), propNames)) }
+      return last.tokens
     }
-  }, [])
+  }, [propNames])
+  const ph = useCallback((key: string) => t(`features.script.snip.ph.${key}`), [t])
 
   useEffect(() => () => window.clearTimeout(timer.current), [])
 
@@ -316,42 +235,7 @@ export function CodeEditor({ value, onChange, error = null, readOnly, refs, ws, 
     ta.current = el
     if (textareaRef) textareaRef.current = el
   }
-
-  // jump to a line (the console's "2:14" links)
-  useEffect(() => {
-    if (!jump || !ta.current) return
-    const el = ta.current
-    const ls = value.split('\n')
-    let off = 0
-    for (let i = 0; i < Math.min(jump.line - 1, ls.length); i++) off += ls[i].length + 1
-    off += Math.max(0, Math.min(jump.col - 1, (ls[jump.line - 1] ?? '').length))
-    el.focus()
-    el.setSelectionRange(off, off)
-    el.scrollTop = Math.max(0, (jump.line - 4) * LINE_H)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [jump?.n])
-
-  /* ---------------------------------------------------------------- geometry */
-
-  const xy = (off: number) => {
-    const line = value.slice(0, off).split('\n').length - 1
-    const col = off - (value.lastIndexOf('\n', off - 1) + 1)
-    return { line, col, x: PAD_X + col * charW - scroll.left, y: PAD_Y + line * LINE_H - scroll.top }
-  }
-
-  /** The text offset under a point of the textarea. */
-  const offsetAt = (clientX: number, clientY: number): number | null => {
-    const el = ta.current
-    if (!el) return null
-    const r = el.getBoundingClientRect()
-    const line = Math.floor((clientY - r.top - PAD_Y + el.scrollTop) / LINE_H)
-    const col = Math.floor((clientX - r.left - PAD_X + el.scrollLeft) / charW)
-    const ls = value.split('\n')
-    if (line < 0 || line >= ls.length || col < 0 || col > ls[line].length) return null
-    let off = 0
-    for (let i = 0; i < line; i++) off += ls[i].length + 1
-    return off + col
-  }
+  const taRef = useMemo(() => ({ get current() { return ta.current }, set current(el: HTMLTextAreaElement | null) { setRef(el) } }), []) // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ---------------------------------------------------------------- completion */
 
@@ -379,21 +263,7 @@ export function CodeEditor({ value, onChange, error = null, readOnly, refs, ws, 
     timer.current = window.setTimeout(() => refresh(code, offset, false), DEBOUNCE_MS)
   }
 
-  const insertText = (from: number, to: number, text: string) => {
-    const el = ta.current
-    if (!el) return
-    el.focus()
-    el.setSelectionRange(from, to)
-    // keeps the textarea's own undo stack (falls back to a plain replace)
-    const ok = typeof document.execCommand === 'function' && document.execCommand('insertText', false, text)
-    if (!ok || el.value !== value.slice(0, from) + text + value.slice(to)) {
-      if (el.value === value) {
-        const next = value.slice(0, from) + text + value.slice(to)
-        onChange(next)
-        requestAnimationFrame(() => el.setSelectionRange(from + text.length, from + text.length))
-      }
-    }
-  }
+  const insertText = (from: number, to: number, text: string) => area.current?.insert(from, to, text)
 
   const insertSnippet = (from: number, to: number, body: string) => {
     const el = ta.current
@@ -446,11 +316,11 @@ export function CodeEditor({ value, onChange, error = null, readOnly, refs, ws, 
     return true
   }
 
-  /* ---------------------------------------------------------------- keys */
+  /* ---------------------------------------------------------------- keys (the area does indentation, Enter, Esc then Tab) */
 
   const refAt = (offset: number, side: 'before' | 'after') => analysis.tokens.find((tk) => tk.type === 'ref' && (side === 'before' ? tk.pos.end === offset : tk.pos.start === offset))
 
-  const onKeyDown = (e: ReactKeyboardEvent<HTMLTextAreaElement>) => {
+  const onKeyDown = (e: ReactKeyboardEvent<HTMLTextAreaElement>): boolean => {
     const el = e.currentTarget
     if (doc && e.key !== 'Control' && e.key !== 'Meta') setDoc(null)
     if (menu) {
@@ -458,20 +328,24 @@ export function CodeEditor({ value, onChange, error = null, readOnly, refs, ws, 
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
         e.preventDefault()
         const d = e.key === 'ArrowDown' ? 1 : -1
-        return setMenu({ ...menu, active: (menu.active + d + n) % n })
+        setMenu({ ...menu, active: (menu.active + d + n) % n })
+        return true
       }
       if (e.key === 'PageDown' || e.key === 'PageUp') {
         e.preventDefault()
-        return setMenu({ ...menu, active: Math.max(0, Math.min(n - 1, menu.active + (e.key === 'PageDown' ? 8 : -8))) })
+        setMenu({ ...menu, active: Math.max(0, Math.min(n - 1, menu.active + (e.key === 'PageDown' ? 8 : -8))) })
+        return true
       }
       if ((e.key === 'Enter' || e.key === 'Tab') && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
         e.preventDefault()
-        return accept(menu.items[menu.active])
+        accept(menu.items[menu.active])
+        return true
       }
       if (e.key === 'Escape') {
         e.preventDefault()
         e.stopPropagation()
-        return close()
+        close()
+        return true
       }
       if (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'Home' || e.key === 'End') close()
     }
@@ -479,78 +353,37 @@ export function CodeEditor({ value, onChange, error = null, readOnly, refs, ws, 
     if (((e.key === ' ' || e.code === 'Space') && e.ctrlKey && !e.metaKey && !e.altKey) || (e.key === 'Escape' && e.altKey && isMac())) {
       e.preventDefault()
       e.stopPropagation()
-      return schedule(el.value, el.selectionStart, true)
+      schedule(el.value, el.selectionStart, true)
+      return true
     }
     // F1 / Mod+I: what the name at the caret is
     if (e.key === 'F1' || ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'i')) {
       e.preventDefault()
       const info = docAt(el.value, analyze(el.value), el.selectionStart, ws)
       setDoc(info ? { info, by: 'key' } : null)
-      return
+      return true
     }
     if (session.current && e.key === 'Tab' && !e.metaKey && !e.ctrlKey && !e.altKey) {
       e.preventDefault()
       jumpStop(e.shiftKey ? -1 : 1)
-      return
+      return true
     }
     if (session.current && e.key === 'Escape') {
       e.preventDefault()
       e.stopPropagation()
       session.current = null
       bump()
-      return
+      return true
     }
-    if (onKey?.(e)) return
-    if (readOnly) return
+    if (onKey?.(e)) return true
+    if (readOnly) return false
     const { selectionStart: a, selectionEnd: b } = el
-    if (e.key === 'Escape') {
-      escaped.current = true
-      return
-    }
-    if (e.key === 'Tab') {
-      if (escaped.current) return
-      e.preventDefault()
-      const ls = value.slice(0, a).lastIndexOf('\n') + 1
-      if (e.shiftKey) {
-        const lineEnd = value.indexOf('\n', b)
-        const block = value.slice(ls, lineEnd < 0 ? value.length : lineEnd)
-        const out = block.replace(/^ {1,2}/gm, '')
-        if (out !== block) insertText(ls, ls + block.length, out)
-        return
-      }
-      if (a !== b && value.slice(a, b).includes('\n')) {
-        const lineEnd = value.indexOf('\n', b - 1)
-        const block = value.slice(ls, lineEnd < 0 ? value.length : lineEnd)
-        insertText(ls, ls + block.length, block.replace(/^/gm, '  '))
-        return
-      }
-      insertText(a, b, '  ')
-      return
-    }
-    escaped.current = false
-    if (e.key === 'Enter' && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
-      e.preventDefault()
-      const ls = value.slice(0, a).lastIndexOf('\n') + 1
-      const indent = /^[ \t]*/.exec(value.slice(ls, a))![0]
-      const opens = /[{([]\s*$/.test(value.slice(ls, a))
-      insertText(a, b, `\n${indent}${opens ? '  ' : ''}`)
-      return
-    }
-    if (e.key === '}' && a === b) {
-      const ls = value.slice(0, a).lastIndexOf('\n') + 1
-      const lead = value.slice(ls, a)
-      if (/^ {2,}$/.test(lead)) {
-        e.preventDefault()
-        insertText(a - 2, a, '}')
-        return
-      }
-    }
     if (e.key === 'Backspace' && a === b) {
       const r = refAt(a, 'before')
       if (r) {
         e.preventDefault()
         insertText(r.pos.start, r.pos.end, '')
-        return
+        return true
       }
     }
     if (e.key === 'Delete' && a === b) {
@@ -558,15 +391,15 @@ export function CodeEditor({ value, onChange, error = null, readOnly, refs, ws, 
       if (r) {
         e.preventDefault()
         insertText(r.pos.start, r.pos.end, '')
-        return
+        return true
       }
     }
+    return false
   }
 
-  const onSelect = () => {
+  const onSelect = (a: number, b: number) => {
     const el = ta.current
     if (!el) return
-    const { selectionStart: a, selectionEnd: b } = el
     // a chip is one unit: a caret inside it moves to its end
     if (a === b) {
       const inside = analysis.tokens.find((tk) => tk.type === 'ref' && tk.pos.start < a && a < tk.pos.end)
@@ -595,65 +428,14 @@ export function CodeEditor({ value, onChange, error = null, readOnly, refs, ws, 
       if (doc?.by === 'mouse') setDoc(null)
       return
     }
-    const off = offsetAt(e.clientX, e.clientY)
+    const off = area.current?.offsetAtPoint(e.clientX, e.clientY) ?? null
     const info = off === null ? null : docAt(value, analysis, off, ws)
     if (!info) return doc?.by === 'mouse' ? setDoc(null) : undefined
     if (doc?.info.from !== info.from || doc.by !== 'mouse') setDoc({ info, by: 'mouse' })
   }
 
-  /* ---------------------------------------------------------------- placing the list */
-
-  const caretLine = value.slice(0, caret).split('\n').length - 1
-  const caretCol = caret - (value.lastIndexOf('\n', caret - 1) + 1)
-  const caretX = PAD_X + caretCol * charW - scroll.left
-  const caretY = PAD_Y + caretLine * LINE_H - scroll.top
-
-  // where the field is on the screen: measured when it matters (focus, scrolling, resizing), not after every key
-  const fieldBox = useRef<{ top: number; width: number } | null>(null)
-  useEffect(() => {
-    const measureField = () => {
-      const r = field.current?.getBoundingClientRect()
-      if (r) fieldBox.current = { top: r.top, width: r.width }
-    }
-    measureField()
-    const vv = window.visualViewport
-    window.addEventListener('resize', measureField)
-    window.addEventListener('scroll', measureField, true)
-    vv?.addEventListener('resize', measureField)
-    vv?.addEventListener('scroll', measureField)
-    ta.current?.addEventListener('focus', measureField)
-    const el = ta.current
-    return () => {
-      window.removeEventListener('resize', measureField)
-      window.removeEventListener('scroll', measureField, true)
-      vv?.removeEventListener('resize', measureField)
-      vv?.removeEventListener('scroll', measureField)
-      el?.removeEventListener('focus', measureField)
-    }
-  }, [])
-
-  const place = useMemo(() => {
-    if (!menu) return null
-    const fb = fieldBox.current
-    const touch = typeof window !== 'undefined' && !!window.matchMedia?.('(max-width: 560px), (pointer: coarse)').matches
-    const it = menu.items[menu.active]
-    const listH = Math.min(menu.items.length * (touch ? ITEM_H_TOUCH : ITEM_H) + 8, LIST_MAX)
-    const h = listH + (it && (it.sig || it.doc || it.type || it.options) ? 66 : 0) + (touch ? 0 : 24)
-    const fieldW = fb?.width ?? 600
-    const w = Math.min(460, fieldW - 8)
-    const left = Math.max(4, Math.min(caretX, fieldW - w - 4))
-    // the visible part of the page (an on-screen keyboard makes it shorter)
-    const vv = typeof window !== 'undefined' ? window.visualViewport : null
-    const bottom = vv ? vv.offsetTop + vv.height : typeof window !== 'undefined' ? window.innerHeight : 900
-    const top0 = fb?.top ?? 0
-    const roomBelow = bottom - (top0 + caretY + LINE_H + 2) - 8
-    const roomAbove = top0 + caretY - 2 - Math.max(0, vv?.offsetTop ?? 0) - 8
-    const above = h > roomBelow && roomAbove > roomBelow
-    const max = Math.max(120, Math.min(LIST_MAX + 90, above ? roomAbove : roomBelow))
-    return { left, top: above ? caretY - 2 - Math.min(h, max) : caretY + LINE_H + 2, above, max }
-  }, [menu, caretX, caretY])
-
   // the active item stays in view (only when it changes: no layout work while typing)
+  const pop = useRef<HTMLDivElement | null>(null)
   const shownActive = useRef(-1)
   useEffect(() => {
     if (!menu) {
@@ -673,94 +455,56 @@ export function CodeEditor({ value, onChange, error = null, readOnly, refs, ws, 
     return () => window.clearTimeout(timer)
   }, [focused, menu, value, analysis, caret, ws])
 
-  /* ---------------------------------------------------------------- render */
+  /* ---------------------------------------------------------------- problems */
 
   // while choosing from the list, the half-typed code is not nagged about
   const shownError = menu ? null : error
-  const errLine = shownError?.line ?? null
-  const gutterW = Math.max(2, String(lines).length) * charW + 22
-  const active = menu ? menu.items[menu.active] : null
-  const stops = session.current?.stops.filter((s, i) => i >= (session.current?.at ?? 0) && s.end > s.start) ?? []
-  const docPos = doc ? xy(doc.info.from) : null
+  const markers = useMemo<CodeMarker[]>(() => {
+    if (!shownError || shownError.line === null) return []
+    const starts = lineStarts(value)
+    const at = shownError.start !== null ? lineColAt(starts, Math.min(shownError.start, value.length)) : { line: shownError.line, col: 1 }
+    const end = shownError.end !== null && shownError.start !== null && shownError.end > shownError.start ? lineColAt(starts, Math.min(shownError.end, value.length)) : null
+    const main: CodeMarker = { line: at.line, col: at.col, endCol: end && end.line === at.line && end.col > at.col ? end.col : undefined, message: shownError.message, severity: 'error' }
+    // the cause behind "expected ')'": a bracket opened before the error and never closed
+    const cause = shownError.start !== null ? bracketMarkers(value, tokenize(value), t, { before: shownError.start, severity: 'warning' }) : []
+    return [...cause, main]
+  }, [shownError, value, tokenize, t])
 
-  return (
-    <div className={`sc-code${readOnly ? ' sc-code--ro' : ''}`}>
-      <span ref={measure} className="sc-code__measure" aria-hidden>
-        0000000000
-      </span>
-      <Gutter lines={lines} top={scroll.top} width={gutterW} errLine={errLine} curLine={focused ? caretLine : -1} />
-      <div ref={field} className="sc-code__field">
-        <div className="sc-code__clip" aria-hidden>
-          <pre className="sc-code__layer" style={{ transform: `translate(${-scroll.left}px, ${-scroll.top}px)` }}>
-            <Layer code={value} segs={segs} error={shownError} />
-          </pre>
-          {stops.map((s) => {
-            const p = xy(s.start)
-            return <span key={`${s.n}:${s.start}`} className="sc-code__stop" style={{ left: p.x - 1, top: p.y, width: (s.end - s.start) * charW + 2 }} data-testid="sc-stop" />
-          })}
-          {shownError?.line && shownError.message && (
-            <div className="sc-code__lens" style={{ top: PAD_Y + (shownError.line - 1) * LINE_H - scroll.top }}>
-              {shownError.message}
-            </div>
-          )}
-        </div>
-        <textarea
-          ref={setRef}
-          className="sc-code__input"
-          value={value}
-          spellCheck={false}
-          autoCapitalize="off"
-          autoComplete="off"
-          autoCorrect="off"
-          readOnly={readOnly}
-          aria-label={ariaLabel}
-          aria-invalid={!!error || undefined}
-          aria-autocomplete="list"
-          aria-haspopup="listbox"
-          aria-expanded={!!menu}
-          aria-controls={menu ? 'sc-complete' : undefined}
-          aria-activedescendant={menu ? `sc-complete-${menu.active}` : undefined}
-          aria-describedby={doc ? 'sc-doc' : undefined}
-          onChange={(e) => {
-            const next = e.target.value
-            const off = e.target.selectionStart
-            // a snippet's places move with the edit (an edit outside them ends the snippet)
-            if (session.current) {
-              const d = diffEdit(value, next)
-              session.current = shiftSession(session.current, d.from, d.to, d.len)
-              bump()
-            }
-            onChange(next)
-            setCaret(off)
-            if (suppress.current) {
-              suppress.current = false
-              close()
-            } else schedule(next, off)
-          }}
-          onKeyDown={onKeyDown}
-          onKeyUp={(e) => {
-            if ((e.key === 'Control' || e.key === 'Meta') && doc?.by === 'mouse') setDoc(null)
-          }}
-          onSelect={onSelect}
-          onScroll={(e) => setScroll({ top: e.currentTarget.scrollTop, left: e.currentTarget.scrollLeft })}
-          onFocus={() => setFocused(true)}
-          onBlur={() => {
-            setFocused(false)
-            setDoc(null)
-            window.setTimeout(() => {
-              if (document.activeElement !== ta.current) setMenu(null)
-            }, 150)
-          }}
-          onClick={() => {
-            close()
-            setDoc(null)
-          }}
-          onMouseMove={onMouseMove}
-          onMouseLeave={() => doc?.by === 'mouse' && setDoc(null)}
-        />
-        {menu && (
-          <div ref={pop} className={`sc-complete${place?.above ? ' is-above' : ''}`} style={{ left: place?.left ?? Math.max(4, caretX), top: place?.top ?? caretY + LINE_H + 2 }} data-testid="sc-complete">
-            <ul id="sc-complete" className="sc-complete__list" role="listbox" aria-label={t('features.script.ed.suggestions')} style={{ maxHeight: place ? Math.max(84, place.max - 64) : undefined }}>
+  /* ---------------------------------------------------------------- floating parts */
+
+  const overlay = (geo: CodeGeometry) => {
+    const touch = typeof window !== 'undefined' && !!window.matchMedia?.('(max-width: 560px), (pointer: coarse)').matches
+    const stops = session.current?.stops.filter((s, i) => i >= (session.current?.at ?? 0) && s.end > s.start) ?? []
+    const c = geo.pointAt(caret)
+    const inBox = (y: number) => y >= geo.box.top - 2 && y <= geo.box.top + geo.box.height - geo.lineH + 2
+    const active = menu ? menu.items[menu.active] : null
+    let place: { left: number; top: number; above: boolean; max: number } | null = null
+    if (menu) {
+      const rootTop = ta.current?.closest('.ca')?.getBoundingClientRect().top ?? 0
+      const listH = Math.min(menu.items.length * (touch ? ITEM_H_TOUCH : ITEM_H) + 8, LIST_MAX)
+      const h = listH + (active && (active.sig || active.doc || active.type || active.options) ? 66 : 0) + (touch ? 0 : 24)
+      const fieldW = geo.box.left + geo.box.width
+      const w = Math.min(460, fieldW - 8)
+      const left = Math.max(4, Math.min(c.x, fieldW - w - 4))
+      // the visible part of the page (an on-screen keyboard makes it shorter)
+      const vv = typeof window !== 'undefined' ? window.visualViewport : null
+      const bottom = vv ? vv.offsetTop + vv.height : typeof window !== 'undefined' ? window.innerHeight : 900
+      const roomBelow = bottom - (rootTop + c.y + geo.lineH + 2) - 8
+      const roomAbove = rootTop + c.y - 2 - Math.max(0, vv?.offsetTop ?? 0) - 8
+      const above = h > roomBelow && roomAbove > roomBelow
+      const max = Math.max(120, Math.min(LIST_MAX + 90, above ? roomAbove : roomBelow))
+      place = { left, top: above ? c.y - 2 - Math.min(h, max) : c.y + geo.lineH + 2, above, max }
+    }
+    const docPos = doc ? geo.pointAt(doc.info.from) : null
+    return (
+      <>
+        {stops.map((s) => {
+          const p = geo.pointAt(s.start)
+          return inBox(p.y) ? <span key={`${s.n}:${s.start}`} className="sc-code__stop" style={{ left: p.x - 1, top: p.y, width: (s.end - s.start) * geo.charW + 2, height: geo.lineH }} data-testid="sc-stop" aria-hidden /> : null
+        })}
+        {menu && place && (
+          <div ref={pop} className={`sc-complete${place.above ? ' is-above' : ''}`} style={{ left: place.left, top: place.top }} data-testid="sc-complete">
+            <ul id="sc-complete" className="sc-complete__list" role="listbox" aria-label={t('features.script.ed.suggestions')} style={{ maxHeight: Math.max(84, place.max - 64) }}>
               {menu.items.map((it, i) => (
                 <li
                   key={it.key}
@@ -804,23 +548,87 @@ export function CodeEditor({ value, onChange, error = null, readOnly, refs, ws, 
           </div>
         )}
         {doc && docPos && (
-          <div id="sc-doc" role="tooltip" className="sc-doc" style={{ left: Math.max(4, docPos.x), top: docPos.y + LINE_H + 2 }} data-testid="sc-doc">
+          <div id="sc-doc" role="tooltip" className="sc-doc" style={{ left: Math.max(4, docPos.x), top: docPos.y + geo.lineH + 2 }} data-testid="sc-doc">
             <DocCard info={doc.info} ws={ws} />
           </div>
         )}
-      </div>
-      <div className="sc-code__bar" aria-live="polite">
-        {call ? (
+      </>
+    )
+  }
+
+  /* ---------------------------------------------------------------- render */
+
+  return (
+    <CodeArea
+      ref={area}
+      className={`sc-code${readOnly ? ' sc-code--ro' : ''}`}
+      inputClassName="sc-code__input"
+      value={value}
+      onChange={(next, off) => {
+        // a snippet's places move with the edit (an edit outside them ends the snippet)
+        if (session.current) {
+          const d = diffEdit(value, next)
+          session.current = shiftSession(session.current, d.from, d.to, d.len)
+          bump()
+        }
+        onChange(next)
+        setCaret(off)
+        if (suppress.current) {
+          suppress.current = false
+          close()
+        } else schedule(next, off)
+      }}
+      tokenize={tokenize}
+      markers={markers}
+      renderToken={renderChip}
+      brackets="strict"
+      enter="indent"
+      fixedHeight
+      wrapToggle={false}
+      readOnly={readOnly}
+      ariaLabel={ariaLabel}
+      describedBy={doc ? 'sc-doc' : undefined}
+      textareaRef={taRef}
+      jump={jump}
+      onKeyDown={onKeyDown}
+      onSelectionChange={onSelect}
+      onFocusChange={(on) => {
+        setFocused(on)
+        if (!on) {
+          setDoc(null)
+          window.setTimeout(() => {
+            if (document.activeElement !== ta.current) setMenu(null)
+          }, 150)
+        }
+      }}
+      inputProps={{
+        'aria-autocomplete': 'list',
+        'aria-haspopup': 'listbox',
+        'aria-expanded': !!menu,
+        'aria-controls': menu ? 'sc-complete' : undefined,
+        'aria-activedescendant': menu ? `sc-complete-${menu.active}` : undefined,
+        onKeyUp: (e) => {
+          if ((e.key === 'Control' || e.key === 'Meta') && doc?.by === 'mouse') setDoc(null)
+        },
+        onClick: () => {
+          close()
+          setDoc(null)
+        },
+        onMouseMove,
+        onMouseLeave: () => doc?.by === 'mouse' && setDoc(null),
+      }}
+      overlay={overlay}
+      bar={
+        call ? (
           <span className="sc-code__sig" data-testid="sc-sig">
             <Signature sig={call.sig} active={activeParam(call.sig, call.index, call.named)} />
             <span className="sc-code__sigdesc">{docText(t, call.doc)}</span>
           </span>
         ) : (
           <span className="sc-code__hint">{t('features.script.ed.hint')}</span>
-        )}
-        <span className="sc-code__pos mono">{t('features.script.ed.pos', { line: caretLine + 1, col: caretCol + 1 })}</span>
-      </div>
-    </div>
+        )
+      }
+    />
   )
 }
 

@@ -27,6 +27,8 @@ import { isReadTool, testedTools } from './mcpTools'
 import { placeholdersIn } from './mirror'
 import { useServerUnlocked, useUnlocked } from './integrations/status'
 import './mirror.css'
+import { AGENT_PLACEHOLDERS, instructionTools, openPlaceholders } from './instructions'
+import { CodeArea, lineColAt, lineStarts, markdownTokenizer, type CodeAreaHandle } from '../../ui/code'
 import { createHook, deleteHook, getHook, serverErrorText, useServerAgents, type HookState } from './server'
 import './agents.css'
 
@@ -263,7 +265,7 @@ export function AgentEditor({ initial, isNew, onClose, onSaved, intro, writeHint
               />
             </Field>
           </div>
-          <Instructions value={d.instructions} onChange={(instructions) => set({ instructions })} error={errors.instructions} id={ids.instr} />
+          <Instructions value={d.instructions} onChange={(instructions) => set({ instructions })} error={errors.instructions} id={ids.instr} agent={d} />
         </Section>
 
         {/* ---------------------------------------------------------- 02 trigger */}
@@ -436,27 +438,32 @@ function IconButton({ icon, onPick }: { icon: CustomAgent['icon']; onPick: (icon
   )
 }
 
-/** The job, with "Improve with Claude" (the previous text stays one click away). */
-function Instructions({ value, onChange, error, id }: { value: string; onChange: (v: string) => void; error?: string; id: string }) {
+/**
+ * The job, with "Improve with Claude" (the previous text stays one click away): the shared code area with line
+ * numbers, soft wrap, Markdown structure, the agent's tool names and open placeholders highlighted and counted.
+ */
+function Instructions({ value, onChange, error, id, agent }: { value: string; onChange: (v: string) => void; error?: string; id: string; agent: CustomAgent }) {
   const t = useT()
   const hasKey = useWorkspace((s) => !!s.settings.aiApiKey.trim())
+  const servers = useWorkspace((s) => s.settings.mcpServers)
   const [busy, setBusy] = useState(false)
   const [prev, setPrev] = useState<string | null>(null)
+  const [open, setOpen] = useState(() => openPlaceholders(value))
   const ac = useRef<AbortController | null>(null)
-  const area = useRef<HTMLTextAreaElement>(null)
+  const area = useRef<CodeAreaHandle>(null)
   useEffect(() => () => ac.current?.abort(), [])
   // a recipe's placeholders still in the text (mirror.ts): a key selects one, so typing replaces it
   const holes = placeholdersIn(value)
   const selectHole = (ph: string) => {
-    const el = area.current
-    const at = el ? el.value.indexOf(ph) : -1
-    if (!el || at < 0) return
-    el.focus()
-    el.setSelectionRange(at, at + ph.length)
-    const line = el.value.slice(0, at).split('\n').length - 1
-    const lh = parseFloat(getComputedStyle(el).lineHeight) || 20
-    el.scrollTop = Math.max(0, (line - 2) * lh)
+    const at = value.indexOf(ph)
+    if (at < 0) return
+    const { line, col } = lineColAt(lineStarts(value), at)
+    area.current?.reveal(line, col, ph.length)
   }
+  const { scope, write, mcpServers, mcpTools } = agent
+  const tools = useMemo(() => instructionTools({ scope, write, mcpServers, mcpTools }, { mcpServers: servers }), [scope, write, mcpServers, mcpTools, servers])
+  const toolKey = [...tools.own, ...tools.mcp].join(' ')
+  const tokenize = useMemo(() => markdownTokenizer({ tools: toolKey.split(' ').filter(Boolean) }), [toolKey])
   const improve = async () => {
     if (!value.trim() || busy) return
     ac.current?.abort()
@@ -469,7 +476,7 @@ function Instructions({ value, onChange, error, id }: { value: string; onChange:
         action: 'custom',
         input: value,
         instruction:
-          'Rewrite these instructions for an autonomous AI agent that works in a Notion-like workspace without anyone watching. Make the job clear and step by step: what to look at, what to decide, what to change or propose, and what to put into the final report. Keep every fact, name and constraint, add nothing that is not implied, keep the language of the text. Return only the improved instructions as plain text.',
+          'Rewrite these instructions for an autonomous AI agent that works in a Notion-like workspace without anyone watching. Make the job clear and step by step: what to look at, what to decide, what to change or propose, and what to put into the final report. Keep every fact, name and constraint, add nothing that is not implied, keep the language of the text. Keep every placeholder in square brackets exactly as written. Return only the improved instructions as plain text.',
         signal: ctl.signal,
         mcp: false,
       })
@@ -504,22 +511,42 @@ function Instructions({ value, onChange, error, id }: { value: string; onChange:
           <p className="agx-ph__note">{t('features.agents.mirror.toReplaceHint')}</p>
         </div>
       )}
-      <textarea
+      <CodeArea
         ref={area}
         id={id}
-        className="input agx-textarea"
+        className="agx-job"
         value={value}
-        rows={holes.length ? 12 : 7}
+        onChange={(v) => {
+          setPrev(null)
+          onChange(v)
+        }}
+        tokenize={tokenize}
+        placeholders={AGENT_PLACEHOLDERS}
+        onPlaceholders={setOpen}
+        wrap
+        storageKey="agent.instructions"
+        resizable
+        minRows={holes.length ? 12 : 8}
+        maxRows={20}
+        enter="list"
         maxLength={AGENT_LIMITS.instructions}
         placeholder={t('features.agents.ed.instructionsPh')}
-        aria-invalid={!!error || undefined}
-        aria-describedby={error ? `${id}-err` : `${id}-hint`}
-        onChange={(e) => {
-          setPrev(null)
-          onChange(e.target.value)
-        }}
+        describedBy={error ? `${id}-err` : `${id}-hint`}
+        invalid={!!error}
         disabled={busy}
+        testId="agx-job"
+        bar={
+          <span className="agx-count mono" aria-hidden>
+            {value.length.toLocaleString()}/{AGENT_LIMITS.instructions.toLocaleString()}
+          </span>
+        }
       />
+      {open > 0 && !holes.length && (
+        <p className="agx-phnote" role="note" data-testid="agx-phnote">
+          <span className="led led--on" aria-hidden />
+          <span>{t(open === 1 ? 'features.agents.ed.phNote.one' : 'features.agents.ed.phNote.other', { count: open })}</span>
+        </p>
+      )}
       <div className="agx-row agx-row--tools">
         <button type="button" className="btn btn--sm" onClick={() => void improve()} disabled={!hasKey || busy || !value.trim()} title={hasKey ? undefined : t('features.agents.ed.needsKey')}>
           <PenLine size={13} strokeWidth={1.75} aria-hidden /> {busy ? t('features.agents.ed.improving') : t('features.agents.ed.improve')}
@@ -537,10 +564,12 @@ function Instructions({ value, onChange, error, id }: { value: string; onChange:
           </button>
         )}
         <span className="agx-spacer" />
-        <span className="agx-count mono" aria-hidden>
-          {value.length.toLocaleString()}/{AGENT_LIMITS.instructions.toLocaleString()}
+        <span className="agx-legend" aria-hidden>
+          <span className="syn-tool">{t('features.agents.ed.legendTool')}</span>
+          <span className="syn-ph">[{t('features.agents.ed.legendPh')}]</span>
         </span>
       </div>
+      {tools.mcp.length > 0 && <p className="agx-note">{t('features.agents.ed.toolsKnown', { own: tools.own.length, mcp: tools.mcp.length })}</p>}
     </Field>
   )
 }

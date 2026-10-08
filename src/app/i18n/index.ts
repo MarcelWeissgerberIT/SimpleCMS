@@ -13,8 +13,9 @@ import { messages as editor } from '../editor/messages'
 import { messages as database } from '../database/messages'
 import { messages as features } from '../features/messages'
 import { messages as help } from '../help/messages'
+import { messages as code } from '../ui/code/messages'
 
-export const ALL_MESSAGES = mergeMessages(core, shell, editor, database, features, help)
+export const ALL_MESSAGES = mergeMessages(core, code, shell, editor, database, features, help)
 
 const cache: Partial<Record<Lang, Translate>> = {}
 function translator(lang: Lang): Translate {

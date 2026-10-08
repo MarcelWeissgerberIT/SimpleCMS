@@ -3,7 +3,7 @@
  * getExtensions() (convert.ts) uses it as-is; the live editor (extensions/kit.ts)
  * passes `wrap` to attach React node views to individual nodes.
  */
-import { InputRule, type AnyExtension } from '@tiptap/core'
+import { InputRule, type AnyExtension, type KeyboardShortcutCommand } from '@tiptap/core'
 import StarterKit from '@tiptap/starter-kit'
 import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight'
 import { TaskItem, TaskList } from '@tiptap/extension-list'
@@ -12,7 +12,8 @@ import { TableKit } from '@tiptap/extension-table'
 import { BlockMath } from '@tiptap/extension-mathematics'
 import { TextStyle } from '@tiptap/extension-text-style'
 import UniqueID from '@tiptap/extension-unique-id'
-import { createLowlight, common } from 'lowlight'
+import { lowlight } from '../lib/codeLanguages'
+import { deleteBreakBefore, withCodeLines } from '../extensions/codeLines'
 import { t } from '../../i18n'
 import { OutlineHeading } from './heading'
 import { ButtonNode } from './button'
@@ -44,7 +45,7 @@ import {
   Toc,
 } from './nodes'
 
-export const lowlight = createLowlight(common)
+export { lowlight }
 
 /** Code blocks without a (known) language stay plain text — no highlight.js auto-detection guesses. */
 const plainLowlight = { ...lowlight, highlightAuto: (value: string) => lowlight.highlight('plaintext', value) }
@@ -68,6 +69,27 @@ const FencedCodeBlock = CodeBlockLowlight.extend({
         },
       })
     return [rule(/^```([a-z0-9]+)?[\s\n]$/i), rule(/^~~~([a-z0-9]+)?[\s\n]$/i)]
+  },
+  addKeyboardShortcuts() {
+    const parent = this.parent?.() ?? {}
+    // at the start of a line the line number and current-line widgets sit at the caret: never leave this
+    // Backspace to the browser (it deletes the line break after the line instead)
+    const back: KeyboardShortcutCommand = (props) => !!parent.Backspace?.(props) || deleteBreakBefore(props.editor.view, this.name)
+    return {
+      ...parent,
+      Backspace: back,
+      'Shift-Backspace': back,
+      // Mod+A inside a code block selects its code; a second Mod+A selects the page as usual
+      'Mod-a': ({ editor }) => {
+        const { $from, $to, from, to } = editor.state.selection
+        if ($from.parent.type.name !== this.name || !$from.sameParent($to)) return false
+        if (from === $from.start() && to === $from.end()) return false
+        return editor.commands.setTextSelection({ from: $from.start(), to: $from.end() })
+      },
+    }
+  },
+  addProseMirrorPlugins() {
+    return withCodeLines(this.parent?.() ?? [], this.name)
   },
 })
 

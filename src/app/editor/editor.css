@@ -519,85 +519,11 @@
   border: 0;
   background: none;
   font-size: inherit;
-  white-space: pre;
-  color: var(--ink);
+  white-space: inherit;
+  color: var(--syn-text);
 }
 
-/* syntax: monochrome ink + one signal accent (keywords). Hue only where it carries meaning (diff +/−). */
-.doc-content .hljs-comment,
-.doc-content .hljs-quote {
-  color: var(--ink-3);
-  font-style: italic;
-}
-
-.doc-content .hljs-keyword,
-.doc-content .hljs-selector-tag,
-.doc-content .hljs-built_in,
-.doc-content .hljs-meta .hljs-keyword,
-.doc-content .hljs-doctag {
-  color: var(--signal-ink);
-  font-weight: 600;
-}
-
-.doc-content .hljs-string,
-.doc-content .hljs-regexp,
-.doc-content .hljs-attribute,
-.doc-content .hljs-meta .hljs-string {
-  color: var(--ink-2);
-}
-
-.doc-content .hljs-number,
-.doc-content .hljs-literal,
-.doc-content .hljs-symbol,
-.doc-content .hljs-bullet,
-.doc-content .hljs-variable.constant_ {
-  color: var(--signal-ink);
-}
-
-.doc-content .hljs-title,
-.doc-content .hljs-title.function_,
-.doc-content .hljs-section,
-.doc-content .hljs-selector-id,
-.doc-content .hljs-selector-class {
-  color: var(--ink);
-  font-weight: 650;
-}
-
-.doc-content .hljs-type,
-.doc-content .hljs-title.class_,
-.doc-content .hljs-tag,
-.doc-content .hljs-name {
-  color: var(--ink);
-  font-weight: 600;
-}
-
-.doc-content .hljs-attr,
-.doc-content .hljs-variable,
-.doc-content .hljs-template-variable,
-.doc-content .hljs-params {
-  color: var(--ink-2);
-}
-
-.doc-content .hljs-meta,
-.doc-content .hljs-punctuation {
-  color: var(--ink-3);
-}
-
-.doc-content .hljs-addition {
-  color: var(--c-green-text);
-}
-
-.doc-content .hljs-deletion {
-  color: var(--c-red-text);
-}
-
-.doc-content .hljs-emphasis {
-  font-style: italic;
-}
-
-.doc-content .hljs-strong {
-  font-weight: 700;
-}
+/* syntax colours: ui/code/syntax.css (tokens.css --syn-*), shared with the code area, One Script and diffs */
 
 /* ---------- Tables: hairlines, spec-sheet header ---------- */
 .doc-content .tableWrapper {

@@ -951,7 +951,7 @@
   color: var(--ink-3);
 }
 .kt-code .sc-code {
-  grid-template-rows: minmax(150px, 28vh) auto;
+  --ca-height: max(150px, 28vh);
 }
 .kt-tester {
   display: flex;

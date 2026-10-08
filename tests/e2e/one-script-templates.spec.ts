@@ -146,7 +146,7 @@ async function runIt(page: Page, mode: 'dry' | 'run', answer?: (dialog: import('
 /** A template from the gallery: no syntax error, and its dry run (a query: its live result) succeeds. */
 async function checkTemplate(page: Page, id: string): Promise<void> {
   await useTemplate(page, id)
-  await expect(page.locator('.sc-code__ln--err'), `${id}: syntax`).toHaveCount(0)
+  await expect(page.locator('.sc-code .ca__row[data-mark="error"]'), `${id}: syntax`).toHaveCount(0)
   if (id === 'query') {
     await expect(page.getByTestId('sc-live')).toHaveAttribute('data-state', 'ok')
     return

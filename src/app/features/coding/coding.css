@@ -799,39 +799,7 @@
 .cd-row--hunk .cd-ln {
   background: var(--surface-2);
 }
-/* syntax: the editor's restrained palette — ink, one signal accent */
-.cd-code .hljs-comment,
-.cd-code .hljs-quote {
-  color: var(--ink-3);
-  font-style: italic;
-}
-.cd-code .hljs-keyword,
-.cd-code .hljs-selector-tag,
-.cd-code .hljs-built_in,
-.cd-code .hljs-doctag,
-.cd-code .hljs-number,
-.cd-code .hljs-literal {
-  color: var(--signal-ink);
-}
-.cd-code .hljs-string,
-.cd-code .hljs-regexp,
-.cd-code .hljs-attr,
-.cd-code .hljs-attribute,
-.cd-code .hljs-params,
-.cd-code .hljs-variable {
-  color: var(--ink-2);
-}
-.cd-code .hljs-title,
-.cd-code .hljs-type,
-.cd-code .hljs-tag,
-.cd-code .hljs-name,
-.cd-code .hljs-section {
-  font-weight: 650;
-}
-.cd-code .hljs-meta,
-.cd-code .hljs-punctuation {
-  color: var(--ink-3);
-}
+/* syntax colours: ui/code/syntax.css (.syn-hl on the code cells) */
 
 /* ---------------------------------------------------------------- git box */
 .cg {

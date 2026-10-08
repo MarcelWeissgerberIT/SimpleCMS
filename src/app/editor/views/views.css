@@ -148,21 +148,35 @@
   box-shadow: 0 0 0 1.5px var(--surface), 0 0 0 3px var(--ink);
 }
 
-/* ---------- code block ---------- */
+/* ---------- code block ----------
+ * The bar (language, lines / JSON check, line numbers, wrap, copy) over the code. Line numbers and the current
+ * line are widgets inside the code (extensions/codeLines.ts) positioned against the block itself, so they stay put
+ * while the <pre> scrolls sideways; the <pre> keeps a left margin for them. Without wrap a long line scrolls (the
+ * structure stays readable); with wrap its continuation rows hang indented under the first.
+ */
 .doc-content .code-block {
+  --code-gutter: calc((var(--code-digits, 2) + 2.2) * 1ch);
   position: relative;
+  isolation: isolate;
   margin: 6px 0;
   border: 1px solid var(--rule);
   border-radius: var(--radius-2);
   background: var(--surface-2);
+  transition: border-color var(--dur-1) var(--ease-out), box-shadow var(--dur-1) var(--ease-out);
+}
+
+/* editing inside it (the current-line widget is there only then): a visible focus state */
+.ProseMirror-focused[contenteditable='true'] .code-block:has(.code-cur) {
+  border-color: var(--signal);
+  box-shadow: 0 0 0 1px var(--signal);
 }
 
 .doc-content .code-block__bar {
   display: flex;
   align-items: center;
-  gap: 8px;
-  height: 30px;
-  padding: 0 6px 0 6px;
+  gap: 4px;
+  min-height: 30px;
+  padding: 2px 4px 2px 6px;
   border-bottom: 1px solid var(--rule);
   font-family: var(--font-mono);
   font-size: var(--text-2xs);
@@ -174,11 +188,13 @@
 }
 
 .doc-content .code-block__lang,
-.doc-content .code-block__copy {
+.doc-content .code-block__copy,
+.doc-content .code-block__tool,
+.doc-content .code-block__check--bad {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  height: 22px;
+  height: 24px;
   padding: 0 6px;
   border: 0;
   border-radius: var(--radius-1);
@@ -190,43 +206,182 @@
   cursor: pointer;
 }
 
+.doc-content .code-block__lang {
+  color: var(--ink);
+  font-weight: 600;
+}
+
 .doc-content .code-block__lang:disabled {
   cursor: default;
 }
 
 .doc-content .code-block__lang:not(:disabled):hover,
-.doc-content .code-block__copy:hover {
+.doc-content .code-block__copy:hover,
+.doc-content .code-block__tool:not(:disabled):hover,
+.doc-content .code-block__check--bad:hover {
   background: var(--hover);
   color: var(--ink);
 }
 
-.doc-content .code-block__lines {
-  flex: 1;
+.doc-content .code-block__lang:active,
+.doc-content .code-block__copy:active,
+.doc-content .code-block__tool:active {
+  transform: translateY(1px);
+}
+
+.doc-content .code-block__tool {
+  justify-content: center;
+  width: 26px;
+  padding: 0;
+}
+
+.doc-content .code-block__lang,
+.doc-content .code-block__tool,
+.doc-content .code-block__copy {
+  flex: none;
+}
+
+.doc-content .code-block__tool[aria-pressed='true'] {
+  background: var(--signal-wash);
+  color: var(--signal-ink);
+}
+
+.doc-content .code-block__tool:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.doc-content .code-block__lines,
+.doc-content .code-block__check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.doc-content .code-block__copy {
-  opacity: 0;
-  transition: opacity var(--dur-1) var(--ease-out);
+.doc-content .code-block__check--bad {
+  flex: 0 1 auto;
+  justify-content: flex-start;
+  color: var(--syn-err);
+  text-transform: none;
+  letter-spacing: 0.02em;
 }
 
-.doc-content .code-block:hover .code-block__copy,
-.doc-content .code-block__copy:focus-visible {
-  opacity: 1;
+.doc-content .code-block__check-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.doc-content .code-block__check .led {
+  flex: none;
+}
+
+.doc-content .code-block__led--bad {
+  background: var(--syn-err);
+}
+
+.doc-content .code-block__spacer {
+  flex: 1 1 0;
 }
 
 .doc-content .code-block pre {
+  position: static;
   margin: 0;
+  padding: 11px 16px 13px;
   border: 0;
   border-radius: 0;
   background: none;
-  padding: 11px 16px 13px;
+  white-space: pre;
+  overflow-wrap: normal;
 }
 
-@media (hover: none) {
-  .doc-content .code-block__copy {
-    opacity: 1;
+.doc-content .code-block[data-ln='on'] pre {
+  margin-left: var(--code-gutter);
+  padding-left: 12px;
+  border-left: 1px solid var(--rule);
+}
+
+.doc-content .code-block[data-wrap='on'] pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* where the browser can indent each line's continuation rows (Firefox, Safari): they hang under the first row;
+   elsewhere the line numbers mark where a line starts */
+@supports (text-indent: 1ch each-line) {
+  .doc-content .code-block[data-wrap='on'] pre {
+    text-indent: -2ch each-line;
+    padding-left: calc(16px + 2ch);
+  }
+  .doc-content .code-block[data-wrap='on'][data-ln='on'] pre {
+    padding-left: calc(12px + 2ch);
+  }
+}
+
+/* line numbers: in the gutter, out of the text (CSS content: never copied, never read out) */
+.doc-content .code-ln,
+.doc-content .code-cur {
+  position: absolute;
+  left: 0;
+  height: 1lh;
+  pointer-events: none;
+  user-select: none;
+  text-indent: 0;
+}
+
+.doc-content .code-ln {
+  display: none;
+  width: var(--code-gutter);
+  box-sizing: border-box;
+  padding-right: 1ch;
+  color: var(--syn-gutter);
+  text-align: right;
+}
+
+.doc-content .code-block[data-ln='on'] .code-ln {
+  display: block;
+}
+
+.doc-content .code-ln::before {
+  content: attr(data-n);
+  font-size: 0.8em;
+  letter-spacing: 0.02em;
+}
+
+/* the current line: only while the page is being edited */
+.doc-content .code-cur {
+  display: none;
+  right: 0;
+  z-index: -1;
+  background: var(--syn-line);
+}
+
+.ProseMirror-focused[contenteditable='true'] .code-cur {
+  display: block;
+}
+
+/* the bracket pair at the caret (inline decoration), while editing */
+.ProseMirror-focused[contenteditable='true'] .code-match {
+  border-radius: var(--radius-1);
+  background: var(--syn-match);
+  box-shadow: inset 0 0 0 1px var(--rule-strong);
+}
+
+.doc-content .code-block__copy {
+  margin-left: 2px;
+}
+
+@media (max-width: 560px) {
+  .doc-content .code-block__lines {
+    display: none;
+  }
+  .doc-content .code-block__copy span {
+    display: none;
   }
 }
 

@@ -1,0 +1,153 @@
+/*
+ * The one syntax palette (tokens.css --syn-*): token classes of the code area (.syn-<class>, ui/code/types.ts
+ * SynClass) and highlight.js / lowlight output (.hljs-*) inside `.hljs` (code blocks) or `.syn-hl` (diffs, previews)
+ * — mapped as tokenizers/lowlight.ts HLJS_SYN maps them. Weight and style only where they keep the width (the
+ * code area's text sits over a transparent textarea: JetBrains Mono keeps one advance width in every weight).
+ */
+
+/* ---------- token classes ---------- */
+.syn-kw,
+.syn-tag {
+  color: var(--syn-kw);
+  font-weight: 650;
+}
+.syn-str,
+.syn-regex,
+.syn-code {
+  color: var(--syn-str);
+}
+.syn-num {
+  color: var(--syn-num);
+}
+.syn-lit {
+  color: var(--syn-num);
+  font-weight: 650;
+}
+.syn-key,
+.syn-prop {
+  color: var(--syn-key);
+}
+.syn-fn {
+  color: var(--syn-fn);
+  font-weight: 650;
+}
+.syn-type {
+  color: var(--syn-type);
+}
+.syn-var {
+  color: var(--syn-var);
+  font-weight: 600;
+}
+.syn-comment,
+.syn-quote {
+  color: var(--syn-comment);
+  font-style: italic;
+}
+.syn-punct,
+.syn-op,
+.syn-meta {
+  color: var(--syn-punct);
+}
+.syn-err {
+  color: var(--syn-err);
+}
+.syn-head {
+  color: var(--syn-text);
+  font-weight: 750;
+}
+.syn-list {
+  color: var(--syn-kw);
+  font-weight: 650;
+}
+.syn-strong {
+  color: var(--syn-text);
+  font-weight: 750;
+}
+.syn-em {
+  font-style: italic;
+}
+.syn-link {
+  color: var(--syn-num);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
+.syn-tool {
+  color: var(--syn-tool);
+  font-weight: 650;
+  text-decoration: underline dotted;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+.syn-ph {
+  border-radius: var(--radius-1);
+  background: var(--syn-ph-bg);
+  box-shadow: inset 0 -1px 0 var(--signal);
+  color: var(--syn-kw);
+  font-weight: 650;
+}
+.syn-add {
+  color: var(--syn-add);
+}
+.syn-del {
+  color: var(--syn-del);
+}
+
+/* ---------- highlight.js / lowlight output ---------- */
+:is(.hljs, .syn-hl) :is(.hljs-keyword, .hljs-doctag, .hljs-selector-tag, .hljs-tag, .hljs-name, .hljs-selector-id, .hljs-selector-class, .hljs-selector-pseudo, .hljs-template-tag) {
+  color: var(--syn-kw);
+  font-weight: 650;
+}
+:is(.hljs, .syn-hl) :is(.hljs-string, .hljs-char, .hljs-regexp, .hljs-code, .hljs-meta .hljs-string) {
+  color: var(--syn-str);
+}
+:is(.hljs, .syn-hl) :is(.hljs-number, .hljs-link) {
+  color: var(--syn-num);
+}
+:is(.hljs, .syn-hl) :is(.hljs-literal, .hljs-symbol, .hljs-variable.constant_) {
+  color: var(--syn-num);
+  font-weight: 650;
+}
+:is(.hljs, .syn-hl) :is(.hljs-attr, .hljs-attribute, .hljs-property, .hljs-selector-attr) {
+  color: var(--syn-key);
+}
+:is(.hljs, .syn-hl) :is(.hljs-title, .hljs-title.function_, .hljs-function, .hljs-built_in, .hljs-section) {
+  color: var(--syn-fn);
+  font-weight: 650;
+}
+:is(.hljs, .syn-hl) :is(.hljs-type, .hljs-title.class_, .hljs-class) {
+  color: var(--syn-type);
+  font-weight: 600;
+}
+:is(.hljs, .syn-hl) :is(.hljs-variable, .hljs-template-variable, .hljs-params, .hljs-subst) {
+  color: var(--syn-var);
+}
+:is(.hljs, .syn-hl) .hljs-variable.language_ {
+  color: var(--syn-kw);
+}
+:is(.hljs, .syn-hl) :is(.hljs-comment, .hljs-quote) {
+  color: var(--syn-comment);
+  font-style: italic;
+}
+:is(.hljs, .syn-hl) :is(.hljs-meta, .hljs-punctuation, .hljs-operator) {
+  color: var(--syn-punct);
+}
+:is(.hljs, .syn-hl) .hljs-meta .hljs-keyword {
+  color: var(--syn-kw);
+}
+:is(.hljs, .syn-hl) .hljs-bullet {
+  color: var(--syn-kw);
+  font-weight: 650;
+}
+:is(.hljs, .syn-hl) .hljs-addition {
+  color: var(--syn-add);
+}
+:is(.hljs, .syn-hl) .hljs-deletion {
+  color: var(--syn-del);
+}
+:is(.hljs, .syn-hl) .hljs-emphasis {
+  font-style: italic;
+}
+:is(.hljs, .syn-hl) .hljs-strong {
+  font-weight: 700;
+}

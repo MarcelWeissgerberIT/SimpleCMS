@@ -19,8 +19,8 @@ import { applyTextStep } from './lib/textScale'
 import { applyCachedLook } from './lib/look'
 import { ALL_MESSAGES, t } from './i18n'
 import { startHistory, startAutomations, startRecurringTemplates, startInbox, startSync, startMcp, startCustomFunctions, startMail, startAgents, startCoding, startKit, seedDemoHistory, demoFunctions } from './features'
-import { consumeMcpOAuthReturn } from './features'
-import { startSyncedBlocks } from './editor'
+import { consumeMcpOAuthReturn, oneScriptGrammar } from './features'
+import { registerCodeLanguage, startSyncedBlocks } from './editor'
 import { detectLang, makeTranslator } from '@/shared/i18n'
 import { STORAGE_KEYS, safeLocalGet } from '@/shared/brand'
 import { registerServiceWorker, watchForUpdates } from '@/shared/sw'
@@ -38,6 +38,9 @@ applyTextStep()
   const ref = cloud.expectedWorkspace()
   applyCachedLook(ref.kind === 'cloud' ? ref.id : 'local')
 }
+
+// Code blocks on pages know One Script too (editor/lib/codeLanguages.ts: the language menu is a registry).
+registerCodeLanguage({ id: 'onescript', label: 'One Script', aliases: ['one'], grammar: oneScriptGrammar })
 
 // Another tab erasing the workspace makes this one reload (see shell/lib/reset.ts).
 listenForReset()

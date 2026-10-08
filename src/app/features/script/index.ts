@@ -62,6 +62,7 @@ export { codeHash as scriptCodeHash, isTrusted as isScriptTrusted, trustCode as 
 export type { RunUI, RunMode, ScriptRun, LogLine, ChangeItem, EffectItem, ConfirmItem, ErrorInfo, ResultTable, Cell } from './runtime/types'
 export type { BQuery, BCond, BGroup, BOp, BVal } from './builder/model'
 export { SCRIPT_REFERENCE } from './reference'
+export { oneScriptGrammar } from './editor/hljs'
 export { paletteScripts, type PaletteScript } from './integrations/palette'
 export { runQueryForTool, syntaxErrorText, errorTextOf, findScript, scriptList, runReport, plannedItems, preApprovedUI, TOOL_ROWS_MAX, TOOL_CODE_MAX, type QueryAnswer, type QueryOutcome } from './integrations/tools'
 export { draftWithClaude, workspaceSketch, codeOf as scriptCodeOf } from './integrations/ask'

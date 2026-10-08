@@ -67,7 +67,7 @@ export function EditDiff({ edit }: { edit: ToolEdit }) {
       <span className="clog-edit__path mono">{edit.path}</span>
       {parts.map((rows, k) => (
         <div key={k} className="clog-edit__box">
-          <table className="cd-table clog-edit__table">
+          <table className="cd-table clog-edit__table syn-hl">
             <tbody>
               {rows.map((r, i) => (
                 <tr key={i} className={`cd-row cd-row--${r.kind}`}>
