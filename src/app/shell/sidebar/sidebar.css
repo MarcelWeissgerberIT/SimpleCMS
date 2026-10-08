@@ -386,16 +386,27 @@
 .sb-visited .sb-hint {
   font-size: var(--text-xs);
 }
-/* a narrow sidebar (220 px): the dotted leader and the count give way before the keys do */
+/* a narrow sidebar (220 px) or big text: the leader and the count give way first, then the keys wrap */
+.sb-visited {
+  container: visited / inline-size;
+}
 .sb-visited__head {
-  gap: 5px;
+  flex-wrap: wrap;
+  gap: 2px 5px;
+  height: auto;
+  min-height: 28px;
 }
 .sb-visited__head .sb-sect__leader {
   min-width: 0;
 }
-.sb-visited__head .sb-sect__count {
-  min-width: 0;
-  overflow: hidden;
+@container visited (max-width: 250px) {
+  .sb-visited__head .sb-sect__leader,
+  .sb-visited__head .sb-sect__count {
+    display: none;
+  }
+  .sb-visited__more {
+    margin-left: auto;
+  }
 }
 
 /* ---------- private section (team workspaces) ---------- */
@@ -1019,7 +1030,7 @@ body[data-dragging] .sb-row__toggle {
   }
   /* each tab a 28 px target: the head grows to hold the switch */
   .sb-visited__head {
-    height: 36px;
+    min-height: 36px;
   }
   .sb-switch {
     height: 30px;
