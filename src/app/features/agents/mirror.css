@@ -86,7 +86,10 @@
 .agx-mir__grid .agx-pick {
   width: 100%;
 }
-/* the picker as tall as the name field next to it */
+/* both fields from the top (a shorter hint must not stretch its label), the picker as tall as the name field */
+.agx-mir__grid > .agx-field {
+  align-content: start;
+}
 .agx-mir__grid .agx-pick {
   height: 30px;
 }
