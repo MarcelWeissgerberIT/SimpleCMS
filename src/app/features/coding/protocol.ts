@@ -361,8 +361,32 @@ export const RELAY_TAB_PATH = '/coding/tab'
 export const RELAY_WORKER_PATH = '/coding/worker'
 /** A cloud worker's token: "onew_" + 32 random bytes base64url (never an API token: those start "one_"). */
 export const WORKER_TOKEN = /^onew_[A-Za-z0-9_-]{43}$/
-/** The local port a cloud preset uses for its own task tools and setup page — not 47322, so a local worker can run beside it. */
+/** The lowest local port a cloud preset uses for its own task tools and setup page — not 47322, so a local worker can run beside it. */
 export const WORKER_CLOUD_PORT = 47323
+
+/**
+ * The local port of a workspace's cloud worker: WORKER_CLOUD_PORT + 0…499 from its id (FNV-1a) — cloud workers of
+ * different workspaces run side by side on one computer; a new download for the same workspace uses the same port
+ * (the older worker is stopped first, or ONE_WORKER_PORT picks another).
+ */
+export function cloudWorkerPort(workspaceId: string): number {
+  let h = 0x811c9dc5
+  for (let i = 0; i < workspaceId.length; i++) h = Math.imul(h ^ workspaceId.charCodeAt(i), 0x01000193) >>> 0
+  return WORKER_CLOUD_PORT + (h % 500)
+}
+
+/** Hosts plain http is allowed on for a cloud link (this computer). */
+export const LOOPBACK_HOSTS: ReadonlySet<string> = new Set(['localhost', '127.0.0.1', '[::1]'])
+
+/** May a cloud worker dial this One origin? https — plain http only on this computer (the worker and the tab check the same). */
+export function cloudOriginAllowed(origin: string): boolean {
+  try {
+    const url = new URL(origin)
+    return url.protocol === 'https:' || (url.protocol === 'http:' && LOOPBACK_HOSTS.has(url.hostname))
+  } catch {
+    return false
+  }
+}
 /** The largest frame the relay forwards: an Import chunk (4 MiB → ~5.6 MB base64 → ~7.5 MB boxed) fits. */
 export const RELAY_MAX_FRAME = 8 * 1024 * 1024 + 64 * 1024
 /** The largest protocol frame (plain JSON) a side boxes — its box (base64 of the ciphertext) stays below RELAY_MAX_FRAME. */
@@ -401,7 +425,7 @@ export interface RelayBox {
 export type RelayToTab =
   /** the member's cloud worker: connected? (`token` = its token's id: which download it is; `s` = the pairing) · registered = a live token exists */
   | { type: 'relay'; op: 'worker'; online: boolean; registered: boolean; token: string | null; s: number }
-  /** the relay dropped this many of the worker's events (this tab could not keep up) */
+  /** the relay dropped this many of the worker's droppable events (log lines, progress, live git): the worker sent more at once than its budget */
   | { type: 'relay'; op: 'dropped'; n: number }
 /** tab → server (cloud) */
 export type TabToRelay = { type: 'relay'; op: 'alive' }

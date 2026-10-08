@@ -60,13 +60,25 @@ const B64 = /^[A-Za-z0-9+/]*={0,2}$/
 /** = protocol.ts RELAY_BOX_INFO (repeated here: this file has no runtime imports; worker-box.test.ts checks they agree). */
 export const BOX_INFO = 'one-worker-relay v1'
 
-/** The session key of one pairing (non-extractable). Throws on a malformed secret or nonce. */
-export async function sessionKey(pair: string, tabNonce: string, workerNonce: string, info: string = BOX_INFO): Promise<SessionKey> {
-  if (!NONCE.test(pair) || !NONCE.test(tabNonce) || !NONCE.test(workerNonce)) throw new Error('bad key material')
+/**
+ * A download's pairing secret as the HKDF key this device keeps (cloudKeys.ts): NON-EXTRACTABLE — script in One can
+ * derive session keys with it while it runs, never read the secret out. Throws on a malformed secret.
+ */
+export async function importPairKey(pair: string): Promise<SessionKey> {
+  if (!NONCE.test(pair)) throw new Error('bad key material')
+  return crypto.subtle.importKey('raw', fromB64url(pair), 'HKDF', false, ['deriveKey'])
+}
+
+/**
+ * The session key of one pairing (non-extractable) — from the pairing secret, or from its kept HKDF key
+ * (importPairKey). Throws on a malformed secret or nonce.
+ */
+export async function sessionKey(pair: string | SessionKey, tabNonce: string, workerNonce: string, info: string = BOX_INFO): Promise<SessionKey> {
+  if (!NONCE.test(tabNonce) || !NONCE.test(workerNonce)) throw new Error('bad key material')
   const salt = new Uint8Array(64)
   salt.set(fromB64url(tabNonce), 0)
   salt.set(fromB64url(workerNonce), 32)
-  const base = await crypto.subtle.importKey('raw', fromB64url(pair), 'HKDF', false, ['deriveKey'])
+  const base = typeof pair === 'string' ? await importPairKey(pair) : pair
   return crypto.subtle.deriveKey({ name: 'HKDF', hash: 'SHA-256', salt, info: enc.encode(info) }, base, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt'])
 }
 

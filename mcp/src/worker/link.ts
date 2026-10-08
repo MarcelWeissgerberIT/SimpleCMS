@@ -23,12 +23,14 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { Duplex } from 'node:stream'
 import { WebSocketServer, WebSocket, type RawData } from 'ws'
 import {
+  LOG_MAX,
   RELAY_MAX_PLAIN,
   RELAY_NONCE,
   WORKER_CLOSE_REFUSED,
   WORKER_CLOSE_REPLACED,
   WORKER_SUBPROTOCOL,
   WORKSPACE_ID,
+  type LogLine,
   type RefusedReason,
   type TabMessage,
   type WorkerInfo,
@@ -108,8 +110,76 @@ const MAX_PAYLOAD = 8 * 1024 * 1024
 const HELLO_MS = 5000
 /** a relayed tab: the key exchange and the hello within this */
 const RELAY_HELLO_MS = 15_000
+/** what the outbox holds while no tab is connected: events, and their JSON characters */
 const OUTBOX_MAX = 4000
+const OUTBOX_BYTES = 16 * 1024 * 1024
+/** a flushed log frame: at most this many lines / JSON characters */
+const FLUSH_LOG_LINES = 200
+const FLUSH_LOG_CHARS = 1024 * 1024
+/**
+ * cloud: the outbox goes out in slices (≤ 100 frames / 4 MiB, then a pause of 600 ms) — ≤ 1,700 frames and ~67 MiB per
+ * 10 s, under the relay's budget (2,000 frames / 128 MiB per socket) and under the tab side's 32 MiB send buffer
+ */
+const FLUSH_FRAMES = 100
+const FLUSH_BYTES = 4 * 1024 * 1024
+const FLUSH_GAP_MS = 600
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
+
+type WorkerEvent = Extract<WorkerMessage, { type: 'event' }>
+
+/**
+ * May the relay drop it under load (`k: 'e'`, cloud)? Only what a later frame makes good: log lines, progress, the
+ * live git state (the finish carries the final one). Never a question, a note, an import's progress or its result,
+ * nor any request or answer.
+ */
+export function droppable(m: WorkerMessage): boolean {
+  return m.type === 'event' && (m.kind === 'log' || m.kind === 'progress' || m.kind === 'git')
+}
+
+/**
+ * The outbox, made small before it is sent (a tab connects after a while away): per task its log lines merged into
+ * frames of ≤ 200 lines / 1 MiB (only the newest LOG_MAX — the tab keeps no more), the newest git state and progress
+ * only, an import's newest progress only after its last result; notes, questions and import results all, in order.
+ */
+export function coalesceOutbox(events: readonly WorkerMessage[]): WorkerMessage[] {
+  const logs = new Map<string, LogLine[]>()
+  const lastOf = new Map<string, number>()
+  const key = (m: WorkerEvent) => `${m.kind}\n${String(m.taskId)}`
+  const isEnd = (m: WorkerEvent) => m.kind === 'intake' && isObj(m.intake) && m.intake.state !== 'running'
+  events.forEach((m, i) => {
+    if (m.type !== 'event') return
+    if (m.kind === 'log') {
+      const lines = logs.get(String(m.taskId)) ?? []
+      if (Array.isArray(m.lines)) lines.push(...m.lines)
+      logs.set(String(m.taskId), lines)
+    } else if (m.kind === 'git' || m.kind === 'progress' || (m.kind === 'intake' && !isEnd(m))) lastOf.set(key(m), i)
+    else if (isEnd(m)) lastOf.delete(`intake\n${String(m.taskId)}`)
+  })
+  const out: WorkerMessage[] = []
+  for (const [taskId, all] of logs) {
+    const lines = all.slice(-LOG_MAX)
+    let frame: LogLine[] = []
+    let size = 0
+    for (const line of lines) {
+      const n = JSON.stringify(line ?? null).length
+      if (frame.length && (frame.length >= FLUSH_LOG_LINES || size + n > FLUSH_LOG_CHARS)) {
+        out.push({ type: 'event', taskId, kind: 'log', lines: frame })
+        frame = []
+        size = 0
+      }
+      frame.push(line)
+      size += n
+    }
+    if (frame.length) out.push({ type: 'event', taskId, kind: 'log', lines: frame })
+  }
+  events.forEach((m, i) => {
+    if (m.type !== 'event' || m.kind === 'log') return
+    if (m.kind === 'git' || m.kind === 'progress' || (m.kind === 'intake' && !isEnd(m))) {
+      if (lastOf.get(key(m)) === i) out.push(m)
+    } else out.push(m)
+  })
+  return out
+}
 
 export function workspaceOf(v: unknown): WorkspaceRef | null {
   if (!isObj(v) || typeof v.id !== 'string' || !WORKSPACE_ID.test(v.id)) return null
@@ -152,8 +222,10 @@ export class WorkerLink {
   private conns = new Set<Conn>()
   private seq = 0
   private pending = new Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void; timer: ReturnType<typeof setTimeout> }>()
-  /** events while no tab is connected (sent on the next connect) */
+  /** events while no tab is connected (sent on the next connect) — and, while that is under way, the new ones after them */
   private outbox: WorkerMessage[] = []
+  private outboxChars = 0
+  private flushing = false
   private pinger: ReturnType<typeof setInterval> | null = null
   private refusals = 0
   private dial: CloudDial | null = null
@@ -180,7 +252,13 @@ export class WorkerLink {
     return new Promise((resolve) => {
       const onError = (e: NodeJS.ErrnoException) => {
         this.state = 'in-use'
-        this.opts.log(e.code === 'EADDRINUSE' ? `port ${this.opts.port} is in use — is another one-worker running? (set "port" in worker.json and the same port in One)` : `cannot listen on 127.0.0.1:${this.opts.port}: ${e.message}`)
+        this.opts.log(
+          e.code !== 'EADDRINUSE'
+            ? `cannot listen on 127.0.0.1:${this.opts.port}: ${e.message}`
+            : this.opts.cloud
+              ? `port ${this.opts.port} is in use — another one-worker runs on this computer (an older cloud worker of this workspace? stop it first: this file takes over once it connects) — or start this one with ONE_WORKER_PORT=<a free port>`
+              : `port ${this.opts.port} is in use — is another one-worker running? (set "port" in worker.json and the same port in One)`,
+        )
         resolve('in-use')
       }
       this.http.once('error', onError)
@@ -212,12 +290,66 @@ export class WorkerLink {
 
   /* ------------------------------------------------------------------ messages */
 
-  /** Send to the tab; events wait in the outbox while none is connected. */
+  /** Send to the tab; events wait in the outbox while none is connected (and behind it while it goes out). */
   send(msg: WorkerMessage): void {
-    if (this.tab?.workspace && this.tab.isOpen()) this.tab.send(JSON.stringify(msg), msg.type === 'event')
-    else if (msg.type === 'event') {
-      this.outbox.push(msg)
-      if (this.outbox.length > OUTBOX_MAX) this.outbox.splice(0, this.outbox.length - OUTBOX_MAX)
+    const tab = this.tab
+    if (tab?.workspace && tab.isOpen() && !(msg.type === 'event' && this.flushing)) tab.send(JSON.stringify(msg), droppable(msg))
+    else if (msg.type === 'event') this.queue(msg)
+  }
+
+  private queue(msg: WorkerMessage) {
+    this.outbox.push(msg)
+    this.outboxChars += JSON.stringify(msg).length
+    if (this.outbox.length <= OUTBOX_MAX && this.outboxChars <= OUTBOX_BYTES) return
+    // too much: make it small, then let the oldest droppable events go (questions, notes, imports stay)
+    this.outbox = coalesceOutbox(this.outbox)
+    const sizes = this.outbox.map((m) => JSON.stringify(m).length)
+    this.outboxChars = sizes.reduce((a, b) => a + b, 0)
+    for (let i = 0; i < this.outbox.length && (this.outbox.length > OUTBOX_MAX || this.outboxChars > OUTBOX_BYTES); ) {
+      if (!droppable(this.outbox[i]!)) {
+        i++
+        continue
+      }
+      this.outboxChars -= sizes[i]!
+      this.outbox.splice(i, 1)
+      sizes.splice(i, 1)
+    }
+  }
+
+  /**
+   * The outbox to a tab that said hello — small first (coalesceOutbox), in order; through the relay in paced slices so
+   * the server's per-socket budget never drops the newest of it. Events sent meanwhile queue behind it.
+   */
+  private async flushOutbox(conn: Conn) {
+    if (this.flushing) return
+    this.flushing = true
+    try {
+      while (this.outbox.length && this.tab === conn && conn.isOpen()) {
+        const batch = coalesceOutbox(this.outbox.splice(0))
+        this.outboxChars = 0
+        let frames = 0
+        let chars = 0
+        for (let i = 0; i < batch.length; i++) {
+          const m = batch[i]!
+          const text = JSON.stringify(m)
+          conn.send(text, droppable(m))
+          frames++
+          chars += text.length
+          if (!this.opts.cloud || i === batch.length - 1 || (frames < FLUSH_FRAMES && chars < FLUSH_BYTES)) continue
+          await new Promise((r) => setTimeout(r, FLUSH_GAP_MS))
+          frames = 0
+          chars = 0
+          if (this.tab !== conn || !conn.isOpen()) {
+            // the tab went: the rest waits for the next one (before what came meanwhile)
+            const rest = batch.slice(i + 1)
+            this.outbox.unshift(...rest)
+            this.outboxChars += rest.reduce((a, x) => a + JSON.stringify(x).length, 0)
+            return
+          }
+        }
+      }
+    } finally {
+      this.flushing = false
     }
   }
 
@@ -447,7 +579,7 @@ export class WorkerLink {
         this.tab = conn
         this.opts.log(`One connected: ${JSON.stringify(ws.name)} (${ws.kind}${conn.ws ? '' : `, through ${this.via}`})`)
         conn.send(JSON.stringify({ type: 'welcome', ...this.opts.info() } satisfies WorkerMessage))
-        for (const m of this.outbox.splice(0)) conn.send(JSON.stringify(m), true)
+        void this.flushOutbox(conn)
         this.opts.onConnect(ws)
         return
       }

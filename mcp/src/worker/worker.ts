@@ -20,6 +20,7 @@ import {
   type BusyTask,
   type GitResult,
   type GitVerb,
+  type IntakeState,
   type LogLine,
   type NextResult,
   type OpenSetupResult,
@@ -77,6 +78,8 @@ interface Run {
 }
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
+/** an import's progress events: at most one per task in this time (its result is never held back) */
+const INTAKE_EVENT_MS = 250
 const str = (v: unknown, max: number) => (typeof v === 'string' ? v.slice(0, max) : '')
 /** Control characters and line / paragraph separators → spaces. */
 const oneLine = (s: string) => s.replace(/[\u0000-\u001f\u007f\u2028\u2029]/g, ' ').trim()
@@ -163,6 +166,8 @@ export class Worker {
       },
       onDisconnect: () => {
         this.workspace = null
+        // a ZIP half-received from that tab will not be finished by it (a retry starts afresh, not "another import runs")
+        this.intaker?.drop('One disconnected')
       },
       onRequest: (msg) => this.onRequest(msg),
       onNudge: () => this.tick(),
@@ -465,9 +470,43 @@ export class Worker {
       configFile: opts.configFile,
       reload: opts.reload,
       log: this.opts.log,
-      event: (taskId, intake) => this.link.send({ type: 'event', taskId, kind: 'intake', intake }),
+      event: (taskId, intake) => this.intakeEvent(taskId, intake),
     })
     return this.intaker
+  }
+
+  /** An import's progress at most every 250 ms per task (the newest wins); its result at once, after it — never lost. */
+  private intakeHeld = new Map<string, { latest: IntakeState; timer: ReturnType<typeof setTimeout> }>()
+  private intakeSent = new Map<string, number>()
+
+  private intakeEvent(taskId: string, intake: IntakeState) {
+    const send = (st: IntakeState) => this.link.send({ type: 'event', taskId, kind: 'intake', intake: st })
+    const held = this.intakeHeld.get(taskId)
+    if (intake.state !== 'running') {
+      if (held) clearTimeout(held.timer)
+      this.intakeHeld.delete(taskId)
+      this.intakeSent.delete(taskId)
+      return send(intake)
+    }
+    if (held) {
+      held.latest = intake
+      return
+    }
+    const now = Date.now()
+    const since = now - (this.intakeSent.get(taskId) ?? 0)
+    if (since >= INTAKE_EVENT_MS) {
+      this.intakeSent.set(taskId, now)
+      return send(intake)
+    }
+    const next = {
+      latest: intake,
+      timer: setTimeout(() => {
+        this.intakeHeld.delete(taskId)
+        this.intakeSent.set(taskId, Date.now())
+        send(next.latest)
+      }, INTAKE_EVENT_MS - since),
+    }
+    this.intakeHeld.set(taskId, next)
   }
 
   private async gitVerb(msg: Extract<TabMessage, { op: 'git' }>): Promise<GitResult> {

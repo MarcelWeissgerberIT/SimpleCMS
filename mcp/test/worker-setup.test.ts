@@ -11,7 +11,7 @@ import { chmodSync, mkdirSync, readFileSync, statSync, symlinkSync, writeFileSyn
 import { request } from 'node:http'
 import { join } from 'node:path'
 import { after, afterEach, describe, test } from 'node:test'
-import { WORKER_CLOSE_REFUSED, type OpenSetupResult, type WorkerMessage, type WorkspaceRef } from '../../src/app/features/coding/protocol.ts'
+import { WORKER_CLOSE_REFUSED, WORKER_CLOUD_PORT, WORKER_DEFAULT_PORT, cloudOriginAllowed, cloudWorkerPort, type OpenSetupResult, type WorkerMessage, type WorkspaceRef } from '../../src/app/features/coding/protocol.ts'
 import { readPreset, relayUrl, workerOrigins, sameSecret } from '../src/worker/preset.ts'
 import { cloudConfigFile, cloudOf, defaultConfigFile, saveRepos, splitArgs, withPreset, sanitizeConfig } from '../src/worker/config.ts'
 import { readdir } from 'node:fs/promises'
@@ -158,6 +158,18 @@ describe('the preset of a download', () => {
     assert.equal(c.port, 47323)
     assert.deepEqual(cloudOf(c), { origin: 'https://one.example.com', token: TOKEN })
     assert.equal(cloudOf(withPreset(base, readPreset(PRESET).preset, {})), null)
+  })
+
+  test('one rule for the tab and the worker: a cloud link needs https (plain http only on this computer); each workspace its own cloud port', () => {
+    for (const ok of ['https://one.example.com', 'https://one.example.com:8443', 'http://127.0.0.1:4500', 'http://localhost:5173', 'http://[::1]:4500']) assert.equal(cloudOriginAllowed(ok), true, ok)
+    for (const no of ['http://one.lan:8080', 'http://192.168.1.20:4500', 'http://localhost.example.com', 'ftp://one.example.com', 'not a url']) assert.equal(cloudOriginAllowed(no), false, no)
+    // the port a cloud download carries: stable per workspace, apart for two workspaces, never the local default
+    assert.equal(cloudWorkerPort('team:Ab12cd34'), cloudWorkerPort('team:Ab12cd34'))
+    assert.notEqual(cloudWorkerPort('team:Ab12cd34'), cloudWorkerPort('team:Zz98yx76'))
+    for (const id of ['team:Ab12cd34', 'team:Zz98yx76', 'team:x', 'team:' + 'q'.repeat(64)]) {
+      const port = cloudWorkerPort(id)
+      assert.ok(port >= WORKER_CLOUD_PORT && port < WORKER_CLOUD_PORT + 500 && port !== WORKER_DEFAULT_PORT, `${id} → ${port}`)
+    }
   })
 
   test('a cloud worker keeps its own folder: config, state and worktrees never meet a local worker\'s', () => {

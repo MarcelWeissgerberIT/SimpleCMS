@@ -20,6 +20,8 @@ import { git } from './git.ts'
 export const ZIP_MAX = () => Number(process.env.ONE_WORKER_ZIP_MAX) || 500 * 1024 * 1024
 const UNPACKED_MAX = 2 * 1024 * 1024 * 1024
 const FILES_MAX = 100_000
+/** what Unzip.push gets at a time (≤ a few hundred entries end inside one piece) */
+const PUSH_PIECE = 16 * 1024
 
 const UNSAFE = Symbol('unsafe')
 
@@ -103,7 +105,10 @@ export async function importZip(zipFile: string, base: string, name: string, lab
     })
     uz.register(UnzipInflate)
     for await (const chunk of createReadStream(zipFile, { highWaterMark: 1024 * 1024 })) {
-      uz.push(chunk as Uint8Array)
+      // fflate's Unzip.push recurses once per entry that ends inside the piece it was given: thousands of tiny files
+      // in one 1 MB read overflow the stack — hand it small pieces
+      const bytes = chunk as Uint8Array
+      for (let off = 0; off < bytes.length && !fail; off += PUSH_PIECE) uz.push(bytes.subarray(off, off + PUSH_PIECE))
       if (fail) break
     }
     if (!fail) uz.push(new Uint8Array(0), true)

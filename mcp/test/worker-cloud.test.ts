@@ -11,7 +11,9 @@ import { existsSync } from 'node:fs'
 import { request } from 'node:http'
 import { join } from 'node:path'
 import { after, afterEach, describe, test } from 'node:test'
-import type { WorkspaceRef } from '../../src/app/features/coding/protocol.ts'
+import { strToU8, zipSync } from 'fflate'
+import type { LogLine, WorkerMessage, WorkspaceRef } from '../../src/app/features/coding/protocol.ts'
+import { coalesceOutbox, droppable } from '../src/worker/link.ts'
 import { waitFor } from './helpers.ts'
 import { FakeRelay } from './relay-helpers.ts'
 import { FakeTab, cleanupAll, makeRepo, presetBundle, spawnWorker, task, tempDir, type SpawnedWorker } from './worker-helpers.ts'
@@ -204,6 +206,74 @@ describe('cloud worker', () => {
     assert.equal(refused.child.exitCode, 1)
   })
 
+  test('an Import ZIP of 3,000 files through the relay: its progress comes throttled, never marked droppable — and its result arrives', async () => {
+    const { home } = await boot()
+    await relay!.connected()
+    const tab = relay!.openTab(PAIR)
+    await tab.hello(WS)
+    await tab.next('welcome')
+    const files: Record<string, Uint8Array> = { 'ledger/package.json': strToU8(JSON.stringify({ name: 'ledger-core' })) }
+    for (let i = 0; i < 3000; i++) files[`ledger/src/m${i}.js`] = strToU8(`export const v${i} = ${i}\n`)
+    const zip = Buffer.from(zipSync(files, { level: 0 }))
+    const begin = await tab.request({ op: 'intake-begin', taskId: 'zip1abcd', name: 'ledger.zip', size: zip.length })
+    assert.equal(begin.ok, true, JSON.stringify(begin))
+    const { uploadId, chunk } = (begin as { result: { uploadId: string; chunk: number } }).result
+    const boxesBefore = relay!.frames.filter((f) => f.type === 'box').length
+    for (let off = 0; off < zip.length; off += chunk) assert.equal((await tab.request({ op: 'intake-chunk', uploadId, data: zip.subarray(off, off + chunk).toString('base64') })).ok, true)
+    assert.equal((await tab.request({ op: 'intake-end', uploadId })).ok, true)
+    const intakes = () => tab.messages.filter((m): m is Extract<WorkerMessage, { kind: 'intake' }> => m.type === 'event' && m.kind === 'intake')
+    await waitFor(() => intakes().some((m) => m.intake.state !== 'running'), 30_000, () => worker!.stderr())
+    const last = intakes().at(-1)!
+    assert.equal(last.intake.state, 'done', JSON.stringify(last))
+    assert.equal(last.intake.repo, 'ledger')
+    assert.ok(existsSync(join(home, 'one-repos', 'ledger', 'src', 'm2999.js')))
+    assert.ok(intakes().length < 100, `${intakes().length} import events for 3,000 files`)
+    // nothing the worker sent during the import is marked droppable: no logs ran, only the import's own events
+    const during = relay!.frames.filter((f) => f.type === 'box').slice(boxesBefore)
+    assert.ok(during.length > 0)
+    assert.deepEqual(during.filter((f) => f.k === 'e'), [], 'import events are never droppable')
+  })
+
+  test('a half-sent ZIP is given up when its tab goes away: the next upload is not "another import"', async () => {
+    await boot()
+    await relay!.connected()
+    const tab = relay!.openTab(PAIR)
+    await tab.hello(WS)
+    await tab.next('welcome')
+    const zip = Buffer.from(zipSync({ 'atlas/a.txt': strToU8('a\n') }))
+    const begin = await tab.request({ op: 'intake-begin', taskId: 'zip2abcd', name: 'atlas.zip', size: zip.length })
+    const { uploadId } = (begin as { result: { uploadId: string } }).result
+    // the tab goes while a piece is being written: the worker gives the upload up — and keeps running
+    void tab.request({ op: 'intake-chunk', uploadId, data: zip.subarray(0, 8).toString('base64') }).catch(() => {})
+    await waitFor(() => /receiving atlas\.zip/.test(worker!.stderr()))
+    relay!.tabGone('closed')
+    await waitFor(() => /import for task zip2abcd: dropped \(One disconnected\)/.test(worker!.stderr()), 5000, () => worker!.stderr())
+    const again = relay!.openTab(PAIR)
+    await again.hello(WS)
+    await again.next('welcome')
+    // the tab hears what became of the old upload, then a new one starts at once
+    await waitFor(() => again.messages.some((m) => m.type === 'event' && m.kind === 'intake' && m.taskId === 'zip2abcd' && m.intake.state === 'failed'), 5000)
+    const next = await again.request({ op: 'intake-begin', taskId: 'zip3abcd', name: 'atlas.zip', size: zip.length })
+    assert.equal(next.ok, true, JSON.stringify(next))
+    // the same task beginning again replaces its own unfinished upload (no "failed" for it)
+    const same = await again.request({ op: 'intake-begin', taskId: 'zip3abcd', name: 'atlas.zip', size: zip.length })
+    assert.equal(same.ok, true, JSON.stringify(same))
+    assert.equal(worker!.child.exitCode, null)
+    assert.doesNotMatch(worker!.stderr(), /Unhandled|ERR_STREAM/)
+  })
+
+  test('a second copy for the same workspace on the same computer: the port is taken — it says to stop the older one or pick a port', async () => {
+    await boot()
+    await relay!.connected()
+    const bundle = presetBundle({ workspace: WS.id, origin: relay!.origin, port: PORT, pair: PAIR, name: WS.name, dev: true, cloud: { token: TOKEN } })
+    const second = await spawnWorker({ bundle, home: tempDir('home'), args: ['--no-browser'] })
+    await waitFor(() => second.child.exitCode !== null, 8000, () => second.stderr())
+    assert.equal(second.child.exitCode, 1)
+    assert.match(second.stderr(), /port 47393 is in use — another one-worker runs on this computer \(an older cloud worker of this workspace\? stop it first: this file takes over once it connects\) — or start this one with ONE_WORKER_PORT=<a free port>/)
+    assert.doesNotMatch(second.stderr(), /the same port in One/)
+    assert.equal(worker!.child.exitCode, null, 'the running one keeps running')
+  })
+
   test('the same machine runs a local and a cloud worker side by side (ports and folders apart)', async () => {
     const r = makeRepo()
     const { home } = await boot()
@@ -221,5 +291,51 @@ describe('cloud worker', () => {
     } finally {
       await local.stop()
     }
+  })
+})
+
+describe('cloud worker — what the relay may drop, and the outbox', () => {
+  const log = (taskId: string, n: number, from = 0): WorkerMessage => ({ type: 'event', taskId, kind: 'log', lines: Array.from({ length: n }, (_, i): LogLine => ({ t: from + i, k: 'info', s: `line ${from + i}` })) })
+
+  test('only log lines, progress and the live git state are droppable — never a question, a note, an import, a request or an answer', () => {
+    assert.equal(droppable(log('a', 1)), true)
+    assert.equal(droppable({ type: 'event', taskId: 'a', kind: 'progress', progress: { turns: 1, maxTurns: 10, cost: null, model: null } }), true)
+    assert.equal(droppable({ type: 'event', taskId: 'a', kind: 'git', git: { branch: 'b', base: 'main', ahead: 0, behind: 0, dirty: false, files: [] } as never }), true)
+    assert.equal(droppable({ type: 'event', taskId: 'a', kind: 'question', text: 'Which?' }), false)
+    assert.equal(droppable({ type: 'event', taskId: 'a', kind: 'note', text: 'n' }), false)
+    assert.equal(droppable({ type: 'event', taskId: 'a', kind: 'intake', intake: { state: 'running', source: 'zip', label: 'x.zip', line: '', percent: 1 } }), false)
+    assert.equal(droppable({ type: 'event', taskId: 'a', kind: 'intake', intake: { state: 'done', source: 'zip', label: 'x.zip', line: '', percent: 100, repo: 'x' } }), false)
+    assert.equal(droppable({ type: 'req', id: 'w1', op: 'heartbeat', taskIds: [] }), false)
+    assert.equal(droppable({ type: 'res', id: 't1', ok: true, result: {} }), false)
+  })
+
+  test('coalesceOutbox: logs merged into frames of ≤ 200 lines (newest LOG_MAX), newest git / progress only, every question and import result kept', () => {
+    const events: WorkerMessage[] = []
+    for (let i = 0; i < 1500; i++) events.push(log('t1', 2, i * 2))
+    events.push({ type: 'event', taskId: 't1', kind: 'question', text: 'First?' })
+    for (let i = 0; i < 50; i++) events.push({ type: 'event', taskId: 't1', kind: 'progress', progress: { turns: i, maxTurns: 99, cost: null, model: null } })
+    for (let i = 0; i < 20; i++) events.push({ type: 'event', taskId: 't1', kind: 'git', git: { n: i } as never })
+    for (let i = 0; i < 400; i++) events.push({ type: 'event', taskId: 'z1', kind: 'intake', intake: { state: 'running', source: 'zip', label: 'z.zip', line: `${i}`, percent: 60 } })
+    events.push({ type: 'event', taskId: 'z1', kind: 'intake', intake: { state: 'done', source: 'zip', label: 'z.zip', line: '', percent: 100, repo: 'z' } })
+    events.push({ type: 'event', taskId: 't1', kind: 'note', text: 'noted' })
+    events.push(log('t2', 3))
+    const out = coalesceOutbox(events)
+    const logs = out.filter((m): m is Extract<WorkerMessage, { kind: 'log' }> => m.type === 'event' && m.kind === 'log')
+    const t1 = logs.filter((m) => m.taskId === 't1').flatMap((m) => m.lines)
+    assert.equal(t1.length, 2000, 'the newest LOG_MAX lines of a task')
+    assert.equal(t1[0]!.s, 'line 1000')
+    assert.equal(t1.at(-1)!.s, 'line 2999')
+    assert.ok(logs.every((m) => m.lines.length <= 200))
+    assert.deepEqual(logs.filter((m) => m.taskId === 't2').flatMap((m) => m.lines.map((l) => l.s)), ['line 0', 'line 1', 'line 2'])
+    const kinds = out.filter((m) => m.type === 'event' && m.kind !== 'log').map((m) => (m as { kind: string }).kind)
+    assert.deepEqual(kinds, ['question', 'progress', 'git', 'intake', 'note'])
+    const progress = out.find((m) => m.type === 'event' && m.kind === 'progress') as Extract<WorkerMessage, { kind: 'progress' }>
+    assert.equal(progress.progress.turns, 49)
+    const intake = out.filter((m): m is Extract<WorkerMessage, { kind: 'intake' }> => m.type === 'event' && m.kind === 'intake')
+    assert.deepEqual(intake.map((m) => m.intake.state), ['done'], 'an import\'s progress before its result is left out, the result stays')
+    assert.ok(out.length < 30, `${out.length} frames instead of ${events.length}`)
+    // an import that started again after its result: the result and the newest progress after it
+    const again = coalesceOutbox([...events.slice(-4, -2), { type: 'event', taskId: 'z1', kind: 'intake', intake: { state: 'running', source: 'zip', label: 'z.zip', line: 'again', percent: 5 } }])
+    assert.deepEqual(again.filter((m) => m.type === 'event' && m.kind === 'intake').map((m) => (m as Extract<WorkerMessage, { kind: 'intake' }>).intake.state), ['done', 'running'])
   })
 })

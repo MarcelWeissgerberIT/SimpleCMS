@@ -30,6 +30,20 @@ test('both sides use the same HKDF info and accept the same key material', () =>
   assert.deepEqual([...tab.fromB64url(PAIR)], [...Array(32).keys()])
 })
 
+test('this device keeps the pairing secret as a non-extractable key: the same session as from the secret, never readable again', async () => {
+  const kept = await tab.importPairKey(PAIR)
+  assert.equal(kept.extractable, false)
+  assert.equal(kept.algorithm.name, 'HKDF')
+  await assert.rejects(crypto.subtle.exportKey('raw', kept))
+  await assert.rejects(tab.importPairKey('short'))
+  const t = new tab.BoxSession(await tab.sessionKey(kept, TAB_NONCE, WORKER_NONCE), 7, 'tab')
+  const w = new worker.BoxSession(worker.sessionKey(PAIR, TAB_NONCE, WORKER_NONCE), 7, 'worker')
+  assert.equal(await t.open(w.seal('{"type":"nudge"}', false, Buffer.from(IV))), '{"type":"nudge"}')
+  assert.equal((await t.seal('{"type":"nudge"}', false, IV)).data, T2W, 'the fixed vector from the kept key')
+  // the session keys themselves never leave WebCrypto either
+  await assert.rejects(crypto.subtle.exportKey('raw', await tab.sessionKey(kept, TAB_NONCE, WORKER_NONCE)))
+})
+
 test('fixed vectors: the worker seals what the tab opens and the other way round', async () => {
   const wKey = worker.sessionKey(PAIR, TAB_NONCE, WORKER_NONCE)
   const tKey = await tab.sessionKey(PAIR, TAB_NONCE, WORKER_NONCE)

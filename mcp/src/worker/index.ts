@@ -201,7 +201,12 @@ async function main() {
   worker = new Worker({ config, version: VERSION, bin: claudeBin(), self, log, setup, recent: () => recent, intake: { configFile, reload: () => reload(worker!) }, onFatal })
   const up = await worker.start()
   if (up !== 'listening') {
-    if (command === 'setup') process.stderr.write(`Another one-worker seems to run on port ${config.port}. Use "Change repositories" in One (Settings → Coding worker) to open its setup page — or stop it first.\n`)
+    if (command === 'setup')
+      process.stderr.write(
+        cloud
+          ? `Another one-worker seems to run on port ${config.port}. Stop it first (a new download takes over once it connects), or start this one with ONE_WORKER_PORT=<a free port>.\n`
+          : `Another one-worker seems to run on port ${config.port}. Use "Change repositories" in One (Settings → Coding worker) to open its setup page — or stop it first.\n`,
+      )
     process.exit(1)
   }
 

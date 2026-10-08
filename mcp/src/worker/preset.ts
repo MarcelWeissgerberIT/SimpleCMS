@@ -9,7 +9,7 @@
  * for a tab on 127.0.0.1; `pair` then keys the end-to-end encryption of every frame through the relay (box.ts).
  */
 import { timingSafeEqual, createHash } from 'node:crypto'
-import { PAIR_SECRET, PRESET_GLOBAL, RELAY_WORKER_PATH, WORKER_TOKEN, WORKSPACE_ID, type WorkerPreset } from '../../../src/app/features/coding/protocol.ts'
+import { PAIR_SECRET, PRESET_GLOBAL, RELAY_WORKER_PATH, WORKER_TOKEN, WORKSPACE_ID, cloudOriginAllowed, type WorkerPreset } from '../../../src/app/features/coding/protocol.ts'
 import { allowedOrigins, normalizeOrigin } from '../policy.ts'
 
 export type { WorkerPreset }
@@ -38,16 +38,13 @@ export function readPreset(raw: unknown): { preset: WorkerPreset | null; problem
     const c = isObj(raw.cloud) ? raw.cloud : {}
     if (typeof c.token !== 'string' || !WORKER_TOKEN.test(c.token)) return { preset: null, problem: "the preset's cloud token is not a worker token" }
     if (!workspace.startsWith('team:')) return { preset: null, problem: 'a cloud worker needs a team workspace' }
-    const url = new URL(origin)
-    if (url.protocol !== 'https:' && !(url.protocol === 'http:' && LOOPBACK.has(url.hostname))) return { preset: null, problem: 'a cloud worker needs an https origin (plain http only on this computer)' }
+    if (!cloudOriginAllowed(origin)) return { preset: null, problem: 'a cloud worker needs an https origin (plain http only on this computer)' }
     cloud = { token: c.token }
   }
   return { preset: { workspace, origin, port, pair, name, ...(raw.dev === true ? { dev: true } : {}), ...(cloud ? { cloud } : {}) }, problem: null }
 }
 
-const LOOPBACK = new Set(['localhost', '127.0.0.1', '[::1]'])
-
-/** The relay a cloud worker dials: https \u2192 wss, http (this computer only) \u2192 ws. */
+/** The relay a cloud worker dials: https → wss, http (this computer only) → ws. */
 export function relayUrl(origin: string): string {
   const url = new URL(RELAY_WORKER_PATH, origin)
   url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
