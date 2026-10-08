@@ -9,7 +9,8 @@ import type { Services } from '../context.ts'
 import { ApiError, notFound } from '../errors.ts'
 import { appendBlocks, fragmentText, markdownToNodes } from '../api/content.ts'
 import { type PropertyDef, type Roots, TWO_WAY_SUFFIX, databaseMap, liveDatabase, livePage, newPageMap, nextOrder, pageMap, propertiesMap, readOrdered, roots, rowsOf } from '../api/meta.ts'
-import { contentDoc, findProperty, metaDoc, type WorkspaceModel } from '../api/model.ts'
+import { contentDoc, findProperty, metaDoc, type WorkspaceModel, type WriteOpts } from '../api/model.ts'
+import { checkKey, handOnlyMessage, isHandOnly } from '../api/keys.ts'
 import { schemaOut, type ValueContext } from '../api/values.ts'
 import { newId } from '../tokens.ts'
 
@@ -206,7 +207,7 @@ export class McpWrites {
    * everything else in the input is valid, and never in a locked database. Then the regular
    * create / update path (strict: anything left that doesn't fit is a 422 listing every problem).
    */
-  async prepareRow(wsId: string, target: { databaseId: string } | { rowId: string }, input: { title?: string; properties?: Record<string, unknown> }, actor: string) {
+  async prepareRow(wsId: string, target: { databaseId: string } | { rowId: string }, input: { title?: string; properties?: Record<string, unknown> }, actor: string, opts: WriteOpts = {}) {
     const plan = (r: Roots) => {
       const dbId = 'databaseId' in target ? target.databaseId : (livePage(r, target.rowId)?.databaseId ?? null)
       const db = dbId ? liveDatabase(r, dbId) : null
@@ -225,6 +226,8 @@ export class McpWrites {
           properties[key] = raw
           continue
         }
+        // "Only by hand" (api/keys.ts): refused before anything (a new option) is written
+        if (opts.agent && isHandOnly(prop)) throw unprocessable('invalid_value', handOnlyMessage(prop))
         properties[key] = friendlyIn(r, prop, raw, ctx)
         if (prop.type === 'select' || prop.type === 'multi_select') {
           const fresh = optionNames(prop, raw).filter((n) => !(prop.options ?? []).some((o) => o.id === n || o.name.trim().toLowerCase() === n.toLowerCase()))
@@ -235,7 +238,10 @@ export class McpWrites {
       if (added.size) {
         // dry run against the schema with the new options: nothing is added for a row that can't be written
         const augmented = db.properties.map((p) => (added.has(p.id) ? { ...p, options: [...(p.options ?? []), ...added.get(p.id)!.map((name) => ({ id: name, name }))] } : p))
-        this.model.resolveStrict(augmented, { title, properties }, ctx)
+        const { values } = this.model.resolveStrict(augmented, { title, properties }, ctx, opts)
+        // nor for a row whose key another row holds
+        const self = 'rowId' in target ? target.rowId : null
+        checkKey(r, db.page.id, db.properties, values, self, self ? livePage(r, self)?.properties : undefined)
       }
       return { dbId: db.page.id, title, properties, added }
     }

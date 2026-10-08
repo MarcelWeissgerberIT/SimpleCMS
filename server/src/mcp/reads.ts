@@ -321,6 +321,8 @@ export class McpReads {
         properties: db.properties.map((p) => {
           const out = schemaOut(p) as ReturnType<typeof schemaOut> & { relationDatabaseTitle?: string }
           if (p.type === 'relation' && p.relationDatabaseId) out.relationDatabaseTitle = liveDatabase(r, p.relationDatabaseId)?.page.title ?? '(not available)'
+          // "Only by hand": an MCP client is an agent — it never writes it (api/keys.ts)
+          if (out.onlyByHand) out.readOnly = true
           return out
         }),
         views,

@@ -60,9 +60,9 @@ export const MCP_TEMPLATE =
 
 const HOW_CHANGES_WORK: Record<CustomAgent['write'], string> = {
   stage:
-    'How changes work\n- The writing tools (create_page, append_to_page, create_row, update_row, set_page_title) never change the workspace directly. Each call stages one proposed change; a person reviews the list later and applies or discards each item. Stage what the job needs, then finish.\n- Ids returned for staged pages and rows work right away: you can append to, update, rename or create pages under something you staged earlier in this run.',
+    'How changes work\n- The writing tools (create_page, append_to_page, create_row, update_row, upsert_rows, set_page_title) never change the workspace directly. Each call stages one proposed change (upsert_rows: one per row); a person reviews the list later and applies or discards each item. Stage what the job needs, then finish.\n- Ids returned for staged pages and rows work right away: you can append to, update, rename or create pages under something you staged earlier in this run.',
   apply:
-    'How changes work\n- The writing tools (create_page, append_to_page, create_row, update_row, set_page_title) change the workspace at once. Every change is attributed to you (the agent) and can be undone from the page history, but people see it immediately — change only what the job needs, and never remove or overwrite content your instructions do not ask you to change.',
+    'How changes work\n- The writing tools (create_page, append_to_page, create_row, update_row, upsert_rows, set_page_title) change the workspace at once. Every change is attributed to you (the agent) and can be undone from the page history, but people see it immediately — change only what the job needs, and never remove or overwrite content your instructions do not ask you to change.',
   none: 'How changes work\n- You can only read: you have no writing tools. Put everything you found into your final report.',
 }
 
@@ -76,6 +76,9 @@ export function systemPrompt(agent: CustomAgent, mcp: string[]): string {
       '- You see only the part of the workspace your scope allows (never the trash, templates or anyone\'s private pages). Tools refuse what lies outside it: do not retry those calls.',
       '- Look before you write. Find things with search_pages and list_databases, read them with read_page and query_database. Use only ids that tools returned; never make one up.',
       `- Prefer one query_database call over reading rows one by one. You have at most ${MAX_ROUNDS} rounds of tool calls; independent calls can go in parallel.`,
+      ...(agent.write === 'none'
+        ? []
+        : ['- To keep a database in step with items from elsewhere (an external system, a list), use upsert_rows: it finds each row by its key (list_databases marks a database\'s key) and only writes what changed — one call for up to 50 rows. Never write properties marked "read-only for agents": people fill them in by hand.']),
       '- Set database properties by their exact names with plain JSON values: text, numbers, true/false, option names for select and status (a list of names for multi-select), dates as "YYYY-MM-DD" or {"start": …, "end": …}, people by name, relations by row title or id. Computed properties cannot be set. If a value does not fit, the tool says why: fix it and call again.',
       '- Write page content in Markdown: headings, lists, task lists ("- [ ] …"), quotes, code. Link to a page with [Title](#/p/<page id>).',
       '- Write in the language of your instructions, or of the workspace content if they do not make it clear.',

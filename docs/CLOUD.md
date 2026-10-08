@@ -858,7 +858,12 @@ So the server, not the client, says who changed an entry of the shared meta docu
   up); `pause_turn` is resumed; the history is append-only (whole responses go back unchanged).
 - **Tools** — the app's agent tools over the server's workspace model: `search_pages`, `read_page`,
   `list_databases`, `query_database`; with `write` ≠ `none` also `create_page`, `append_to_page`,
-  `create_row`, `update_row`, `set_page_title`. `write: 'stage'` turns each write into a `StagedChange`
+  `create_row`, `update_row`, `upsert_rows`, `set_page_title`. `upsert_rows` (≤ 50 rows per call) finds each
+  row by the stored value of a key property (the database's key, `api/keys.ts`, or another text / number / url
+  property; trimmed, numbers numerically; staged rows of the run too) and stages — or in `apply` writes — a new
+  row or only the values that differ; it answers per row `{ key, id, action: created | updated | unchanged |
+  refused, reason? }`. A property marked `agentReadOnly` ("Only by hand") is refused for agents and MCP clients
+  naming the field, and every write keeps the database's key unique (`409 duplicate_key`). `write: 'stage'` turns each write into a `StagedChange`
   kept on the run (applied later in the app or with `POST …/agent-runs/:runId/apply`); `write: 'apply'`
   writes at once through the public API's paths (*Server writes*), attributed **`agent:<agentId>`**, live
   for everyone and undoable from history like any edit.
