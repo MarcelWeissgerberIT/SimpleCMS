@@ -20,6 +20,7 @@ import { saveMemory, updateMemory } from '../memory/save'
 import { applyPageEdits } from './edit'
 import { livePage, withPageNodes, type LinkTarget } from './links'
 import { mediaNode } from '../media/blocks'
+import { applyNewTask, applyTaskAction, taskNeedsConfirm } from '../../coding'
 
 const ws = () => useWorkspace.getState()
 const ORIGIN = 'ai'
@@ -123,24 +124,43 @@ export interface ApplyResult {
   failed: Array<{ id: string; error: string }>
   /** staged row id → real row id, for rows created in this batch */
   rowIds: Record<string, ID>
-  /** revert the batch; returns how many changes were kept because they were edited meanwhile */
-  undo: () => number
+  /** changes that cannot be undone (a task action that may have started the worker): Undo leaves them applied */
+  final: string[]
+  /** revert the batch; `kept`: the changes left as they are because they were edited (or taken by the worker) meanwhile */
+  undo: () => { kept: string[] }
 }
 
-/** Apply order: pages → databases → properties → everything else (rows), each in review order. */
-const RANK: Partial<Record<StagedChange['kind'], number>> = { create_page: 0, create_database: 1, add_property: 2 }
+/** Apply order: pages → databases → properties → rows and the rest → pipeline tasks (their pages may link the others). */
+const RANK: Partial<Record<StagedChange['kind'], number>> = { create_page: 0, create_database: 1, add_property: 2, coding: 4 }
 const rank = (c: StagedChange) => RANK[c.kind] ?? 3
+
+/** The undo of a change that cannot be undone (applyChanges lists it in `final`). */
+const FINAL = () => true
+
+export interface ApplyOpts {
+  /**
+   * The AI terminal (session.ts) — the only caller that may apply pipeline tasks ('coding'); its row, page and title
+   * changes of a pipeline task are refused while the task waits for "Confirm on this device". Custom agents never.
+   */
+  terminal?: boolean
+}
+
+/** The terminal's writes on a pipeline task wait for the person's Confirm on its page (a version this device trusts). */
+async function guardTask(id: ID, opts: ApplyOpts): Promise<void> {
+  if (opts.terminal && (await taskNeedsConfirm(id))) throw new Error(t('features.coding.term.err.confirm'))
+}
 
 /**
  * Apply pending changes: pages, then databases, then properties, then rows and the rest, each in
  * review order. A change whose staged parent (or database, or property) is not applied — in this
  * batch or before — fails instead of landing somewhere unexpected.
  */
-export async function applyChanges(changes: StagedChange[], all: StagedChange[], resolveRow: (id: ID) => ID): Promise<ApplyResult> {
+export async function applyChanges(changes: StagedChange[], all: StagedChange[], resolveRow: (id: ID) => ID, opts: ApplyOpts = {}): Promise<ApplyResult> {
   const applied: string[] = []
   const failed: ApplyResult['failed'] = []
   const rowIds: Record<string, ID> = {}
-  const undos: Array<() => boolean> = []
+  const final: string[] = []
+  const undos: Array<{ ids: string[]; fn: () => boolean }> = []
   const done = new Set(all.filter((c) => c.status === 'applied').map((c) => c.id))
   const ordered = [...changes].filter((c) => c.status === 'pending' || c.status === 'failed').sort((a, b) => rank(a) - rank(b) || a.n - b.n)
   const targets = linkTargets(all, resolveRow, rowIds)
@@ -154,8 +174,14 @@ export async function applyChanges(changes: StagedChange[], all: StagedChange[],
       if (editedPages.has(pageId)) continue
       editedPages.add(pageId)
       const group = ordered.filter((x) => x.kind === 'edit' && resolveRow(x.pageId) === pageId)
+      try {
+        await guardTask(pageId, opts)
+      } catch (e) {
+        failed.push(...group.map((x) => ({ id: x.id, error: e instanceof Error ? e.message : String(e) })))
+        continue
+      }
       const res = await applyPageEdits(pageId, group)
-      if (res.applied.length) undos.push(res.undo)
+      if (res.applied.length) undos.push({ ids: res.applied, fn: res.undo })
       applied.push(...res.applied)
       res.applied.forEach((id) => done.add(id))
       failed.push(...res.failed)
@@ -167,7 +193,9 @@ export async function applyChanges(changes: StagedChange[], all: StagedChange[],
         const parent = all.find((x) => x.id === missing)
         throw new Error(`needs change #${parent?.n ?? '?'} first`)
       }
-      undos.push(await applyOne(c, resolveRow, rowIds, toDoc))
+      const undo = await applyOne(c, resolveRow, rowIds, toDoc, opts)
+      if (undo === FINAL) final.push(c.id)
+      else undos.push({ ids: [c.id], fn: undo })
       applied.push(c.id)
       done.add(c.id)
     } catch (e) {
@@ -176,11 +204,11 @@ export async function applyChanges(changes: StagedChange[], all: StagedChange[],
   }
 
   const undo = () => {
-    let kept = 0
-    for (let i = undos.length - 1; i >= 0; i--) if (!undos[i]()) kept += 1
-    return kept
+    const kept: string[] = []
+    for (let i = undos.length - 1; i >= 0; i--) if (!undos[i]!.fn()) kept.push(...undos[i]!.ids)
+    return { kept }
   }
-  return { applied, failed, rowIds, undo }
+  return { applied, failed, rowIds, final, undo }
 }
 
 /**
@@ -222,10 +250,25 @@ function viewsOf(c: StagedChange, properties: PropertyDef[]): View[] {
   return [board, table]
 }
 
-/** Write one change. Returns its undo (false = left alone because it was edited since). */
-async function applyOne(c: StagedChange, resolveRow: (id: ID) => ID, rowIds: Record<string, ID>, toDoc: ToDoc): Promise<() => boolean> {
+/** Write one change. Returns its undo (false = left alone because it was edited since; FINAL = cannot be undone). */
+async function applyOne(c: StagedChange, resolveRow: (id: ID) => ID, rowIds: Record<string, ID>, toDoc: ToDoc, opts: ApplyOpts): Promise<() => boolean> {
   const s = ws()
   switch (c.kind) {
+    case 'coding': {
+      // a pipeline task: only the AI terminal's review applies these (coding/terminal.ts checks it all again)
+      const cd = c.coding
+      if (!opts.terminal) throw new Error('not allowed here')
+      if (!cd) throw new Error('nothing to do')
+      if (cd.op === 'create') {
+        if (!cd.task) throw new Error('nothing to do')
+        const made = await applyNewTask(cd.task)
+        rowIds[c.pageId] = made.id
+        return made.undo
+      }
+      if (!cd.action) throw new Error('nothing to do')
+      const res = await applyTaskAction({ ...cd.action, taskId: resolveRow(cd.action.taskId) })
+      return res.undo ?? FINAL
+    }
     case 'create_page': {
       if (c.parentId && !alive(c.parentId)) throw new Error('the parent page is gone')
       if (s.pages[c.pageId]) throw new Error('already exists')
@@ -251,7 +294,9 @@ async function applyOne(c: StagedChange, resolveRow: (id: ID) => ID, rowIds: Rec
     }
     case 'update_row': {
       const id = resolveRow(c.pageId)
-      const row = s.pages[id]
+      if (!alive(id) || !s.pages[id]?.databaseId) throw new Error('the row is gone')
+      await guardTask(id, opts)
+      const row = ws().pages[id]
       if (!alive(id) || !row?.databaseId) throw new Error('the row is gone')
       const dbId = row.databaseId
       const created = new Map<ID, ID[]>()
@@ -287,6 +332,7 @@ async function applyOne(c: StagedChange, resolveRow: (id: ID) => ID, rowIds: Rec
     case 'append': {
       const id = resolveRow(c.pageId)
       if (!alive(id)) throw new Error('the page is gone')
+      await guardTask(id, opts)
       await snapshotNow(id, 'ai')
       const page = ws().pages[id]
       if (!page) throw new Error('the page is gone')
@@ -397,7 +443,8 @@ async function applyOne(c: StagedChange, resolveRow: (id: ID) => ID, rowIds: Rec
     case 'rename': {
       const id = resolveRow(c.pageId)
       if (!alive(id)) throw new Error('the page is gone')
-      const prev = s.pages[id].title
+      await guardTask(id, opts)
+      const prev = ws().pages[id]!.title
       const title = c.title ?? prev
       aiWrite(() => ws().updatePage(id, { title }))
       return () => {

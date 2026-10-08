@@ -8,6 +8,8 @@ import { EMPTY_USAGE, type AgentStatus, type AgentStep, type AgentTurn, type Age
 import type { MediaItem } from '../media/types'
 import type { MemoryProposal } from '../memory/types'
 import type { ID } from '../../../store/types'
+import type { PipelineKind } from '../../coding'
+import type { OAuthIssue } from '../mcp-servers/oauth'
 
 /** One memory: a proposal in the log ("MERKEN? · 2"), saved only on the person's OK. */
 export interface MemItem {
@@ -43,12 +45,39 @@ export interface EchoEntry {
   id: string
   after: number
   input: string
-  kind: 'help' | 'history' | 'mcp' | 'cost' | 'unknown' | 'info' | 'ask'
+  kind: 'help' | 'history' | 'mcp' | 'cost' | 'unknown' | 'info' | 'ask' | 'connect' | 'servers' | 'pipelines'
   /**
    * kind 'info': message key + vars · 'history': the prompts · 'mcp': server names · 'cost': usage snapshot ·
-   * 'ask': a y / n question (key + vars) and its answer
+   * 'ask': a y / n question (key + vars) and its answer · 'connect': a /connect line (connect.ts) ·
+   * 'pipelines': /pipelines and its kind (null: every pipeline)
    */
-  data?: { key?: string; vars?: Record<string, string | number>; list?: string[]; usage?: AgentUsage; requests?: number; ask?: EchoAsk }
+  data?: { key?: string; vars?: Record<string, string | number>; list?: string[]; usage?: AgentUsage; requests?: number; ask?: EchoAsk; connect?: ConnectState; pipe?: { kind: PipelineKind | null } }
+}
+
+/**
+ * A /connect line (connect.ts): the server, how it is connected (a sign-in window, or a connection test when its token
+ * works), where it stands. While 'working' the line shows the sign-in's live phase (useMcpSignIn: working · waiting · code).
+ */
+export interface ConnectState {
+  serverId: string
+  name: string
+  host: string
+  how: 'signin' | 'test'
+  /** /connect https://… added the server · it was switched off and /connect switched it on */
+  added?: boolean
+  switchedOn?: boolean
+  phase: 'working' | 'testing' | 'ok' | 'failed'
+  issue?: OAuthIssue | 'check' | 'gone' | 'noAnswer'
+  detail?: string
+  /** the connection test's tool count · tested only once Claude is connected · the server needs no sign-in */
+  tools?: number
+  untested?: boolean
+  open?: boolean
+  /** the check said the server turned its token down (Sign in again is offered) */
+  auth?: boolean
+  /** started from a task that failed / left the server out: ↵ runs that task again once connected (epoch + task number) */
+  retry?: { epoch: number; n: number }
+  retried?: boolean
 }
 
 /** A command's y / n question in the log (/clear-history): open until answered (y / n in the prompt, or its keys). */
@@ -97,9 +126,11 @@ export interface AgentState {
   memOffNext: boolean
   /** media from MCP results, per task (features/ai/media) */
   media: TermMedia[]
+  /** staged changes are being written (Apply waits: a second key press never applies them twice) */
+  applying: boolean
 }
 
-export const initialAgentState = (): Pick<AgentState, 'status' | 'turns' | 'steps' | 'changes' | 'usage' | 'live' | 'calls' | 'mcp' | 'echo' | 'unseen' | 'memCards' | 'memOffNext' | 'media'> => ({
+export const initialAgentState = (): Pick<AgentState, 'status' | 'turns' | 'steps' | 'changes' | 'usage' | 'live' | 'calls' | 'mcp' | 'echo' | 'unseen' | 'memCards' | 'memOffNext' | 'media' | 'applying'> => ({
   status: 'idle',
   turns: [],
   steps: [],
@@ -113,6 +144,7 @@ export const initialAgentState = (): Pick<AgentState, 'status' | 'turns' | 'step
   memCards: [],
   memOffNext: false,
   media: [],
+  applying: false,
 })
 
 /* ---------- dock height (a per-device convenience: localStorage, may be unavailable) ---------- */
@@ -155,6 +187,36 @@ export const useAgent = create<AgentState>()(() => ({
   focusTick: 0,
   ...initialAgentState(),
 }))
+
+/* ---------- command output in the log ---------- */
+
+let echoSeq = 0
+/** The log keeps this many command outputs (a /connect still going on is never dropped). */
+const ECHO_MAX = 40
+const busyConnect = (e: EchoEntry) => e.kind === 'connect' && (e.data?.connect?.phase === 'working' || e.data?.connect?.phase === 'testing')
+
+/** Put a command's output into the log (after the tasks so far); returns its id. */
+export function pushEcho(input: string, kind: EchoEntry['kind'], data?: EchoEntry['data']): string {
+  const id = `e${(++echoSeq).toString(36)}`
+  useAgent.setState((s) => {
+    const all = [...s.echo, { id, after: s.turns.length, input, kind, ...(data ? { data } : {}) }]
+    if (all.length <= ECHO_MAX) return { echo: all }
+    // the oldest go first — a connect line still waiting for its window stays
+    let drop = all.length - ECHO_MAX
+    return { echo: all.filter((e) => (drop > 0 && !busyConnect(e) ? (drop--, false) : true)) }
+  })
+  return id
+}
+
+/** Change an entry's data (a /connect line moving on). */
+export function patchEcho(id: string, data: Partial<NonNullable<EchoEntry['data']>>): void {
+  useAgent.setState((s) => ({ echo: s.echo.map((e) => (e.id === id ? { ...e, data: { ...e.data, ...data } } : e)) }))
+}
+
+/** Change a /connect line's state. */
+export function patchConnect(id: string, patch: Partial<ConnectState>): void {
+  useAgent.setState((s) => ({ echo: s.echo.map((e) => (e.id === id && e.data?.connect ? { ...e, data: { ...e.data, connect: { ...e.data.connect, ...patch } } } : e)) }))
+}
 
 /** Set by the session while a task runs (Stop, ⌘. / Ctrl+. and /stop end it). */
 let stopRunning: (() => void) | null = null

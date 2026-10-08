@@ -635,13 +635,22 @@ export function setNudge(fn: () => void) {
   nudge = fn
 }
 
+/**
+ * How a task action treats trust: `confirm` (default true) — the person pressed it on the task (the panel): this
+ * version counts as seen here. The AI terminal passes false: its actions never confirm a version (coding/terminal.ts
+ * refuses them for a task that is not trusted); keepTrust still carries a trusted version across the action's writes.
+ */
+export interface ActOpts {
+  confirm?: boolean
+}
+
 /** Approve at a gate: on to the next stage. */
-export async function approveTask(taskId: ID): Promise<void> {
+export async function approveTask(taskId: ID, opts: ActOpts = {}): Promise<void> {
   const ctx = taskContext(taskId)
   if (!ctx?.stage || ctx.stage.kind !== 'gate') return
   const n = nextStage(ctx.pipeline, ctx.stage)
   if (!n) return
-  await trustTask(taskId)
+  if (opts.confirm !== false) await trustTask(taskId)
   await keepTrust([taskId], () => moveRow(taskId, ctx.props, n.id))
   await patchTask(taskId, { state: 'idle', error: null, runNow: false })
   if (n.kind === 'done') await spawnFollowUps(taskId)
@@ -649,13 +658,13 @@ export async function approveTask(taskId: ID): Promise<void> {
 }
 
 /** Rework with instructions: back to the stage that made it (plan / implement), the note into the page. */
-export async function reworkTask(taskId: ID, note: string): Promise<void> {
+export async function reworkTask(taskId: ID, note: string, opts: ActOpts = {}): Promise<void> {
   const ctx = taskContext(taskId)
   const text = note.trim()
   if (!ctx?.stage || !text) return
   const back = stageNear(ctx.pipeline, ctx.stage, ['implement', 'plan', 'doc'], -1)
   if (!back) return
-  await trustTask(taskId)
+  if (opts.confirm !== false) await trustTask(taskId)
   await keepTrust([taskId], () =>
     aiWrite(() => {
       appendNote(taskId, 'asset:history', 'orange', `${t('features.coding.page.rework')} · ${ctx.stage!.name} · ${stamp()}`, text)
@@ -667,22 +676,22 @@ export async function reworkTask(taskId: ID, note: string): Promise<void> {
 }
 
 /** Answer Claude's question: the Q + A into the page, the stage runs again. */
-export async function answerTask(taskId: ID, answer: string): Promise<void> {
+export async function answerTask(taskId: ID, answer: string, opts: ActOpts = {}): Promise<void> {
   const ctx = taskContext(taskId)
   await loadTask(taskId)
   const local = taskLocal(taskId)
   const a = answer.trim()
   if (!ctx?.stage || !a || !local.question) return
   const q = local.question
-  await trustTask(taskId)
+  if (opts.confirm !== false) await trustTask(taskId)
   await keepTrust([taskId], () => aiWrite(() => appendNote(taskId, 'asset:microphone', 'blue', `${t('features.coding.page.answer')} · ${stamp()}`, `**${t('features.coding.page.q')}** ${q}\n\n**${t('features.coding.page.a')}** ${a}`)))
   await patchTask(taskId, { state: 'idle', question: null, answers: [...(local.answers ?? []), { q, a, stageId: ctx.stage.id }], runNow: true })
   nudge()
 }
 
 /** Run now / Retry: the worker takes the task in its stage once, also when the stage is not automatic. */
-export async function runTaskNow(taskId: ID): Promise<void> {
-  await trustTask(taskId)
+export async function runTaskNow(taskId: ID, opts: ActOpts = {}): Promise<void> {
+  if (opts.confirm !== false) await trustTask(taskId)
   await patchTask(taskId, { state: 'idle', error: null, runNow: true })
   nudge()
 }
@@ -712,10 +721,37 @@ export interface NewTask {
   kind?: PipelineKind
   /** blocks after the goal (a follow-up: the source task's page) */
   extra?: JSONContent[]
+  /** the goal as blocks (the AI terminal: Claude's Markdown, made once when staged and shown in full) — instead of `goal` */
+  goalDoc?: JSONContent[]
   /** "Then": the kinds this task hands on to when it is done */
   followUps?: PipelineKind[]
   /** the project (pipeline database) — default: the one #/coding shows for the kind on this device */
   dbId?: ID
+}
+
+/**
+ * Where a new task starts: `start` — the first stage the worker takes (an Import stage when the code has yet to
+ * arrive, else the first automatic queue, else the first stage); otherwise the first stage (the backlog).
+ */
+export function startStageOf(pipeline: ResolvedStage[], hasRepo: boolean, start: boolean): ResolvedStage | undefined {
+  const first = pipeline[0]
+  // a pipeline that starts with the code (an Import stage): a task without a repo waits there for it
+  const intake = !hasRepo ? pipeline.find((s) => s.kind === 'import') : undefined
+  return start ? (intake ?? pipeline.find((s) => s.kind === 'queue' && s.auto) ?? first) : first
+}
+
+/** A new task's page: the goal (its blocks, or its paragraphs), the acceptance criteria as a to-do list, then `extra`. */
+export function taskBody(input: Pick<NewTask, 'goal' | 'goalDoc' | 'criteria' | 'extra'>): JSONContent[] {
+  const content: JSONContent[] = []
+  if (input.goalDoc) content.push(...input.goalDoc)
+  else for (const line of input.goal.split(/\n{2,}/)) if (line.trim()) content.push(para(line.trim()))
+  const criteria = input.criteria.map((c) => c.trim()).filter(Boolean)
+  if (criteria.length) {
+    content.push({ type: 'heading', attrs: { level: 2 }, content: [{ type: 'text', text: t('features.coding.page.criteria') }] })
+    content.push({ type: 'taskList', content: criteria.map((c) => ({ type: 'taskItem', attrs: { checked: false }, content: [para(c)] })) })
+  }
+  if (input.extra?.length) content.push(...input.extra)
+  return content.length ? content : [para('')]
 }
 
 /** A new task (the Coding database is created on first use). Trusted on this device. */
@@ -726,10 +762,7 @@ export async function createTask(input: NewTask): Promise<ID> {
   const db = ws().databases[dbId]!
   const props = codingProps(db)
   const pipeline = readPipeline(db)
-  const first = pipeline[0]
-  // a pipeline that starts with the code (an Import stage): a task without a repo waits there for it
-  const intake = !input.repo ? pipeline.find((s) => s.kind === 'import') : undefined
-  const start = input.start ? (intake ?? pipeline.find((s) => s.kind === 'queue' && s.auto) ?? first) : first
+  const start = startStageOf(pipeline, !!input.repo, input.start)
   const properties: Record<ID, PropertyValue> = {}
   const repoOpt = input.repo ? optionByName(db, props.repo, input.repo) : null
   if (props.repo && repoOpt) properties[props.repo] = repoOpt
@@ -741,15 +774,8 @@ export async function createTask(input: NewTask): Promise<ID> {
     const ids = input.followUps.map((k) => optionByName(db, props.followUps, t(`features.coding.pipe.${k}`))).filter((x): x is ID => !!x)
     if (ids.length) properties[props.followUps] = ids
   }
-  const content: JSONContent[] = []
-  for (const line of input.goal.split(/\n{2,}/)) if (line.trim()) content.push(para(line.trim()))
-  const criteria = input.criteria.map((c) => c.trim()).filter(Boolean)
-  if (criteria.length) {
-    content.push({ type: 'heading', attrs: { level: 2 }, content: [{ type: 'text', text: t('features.coding.page.criteria') }] })
-    content.push({ type: 'taskList', content: criteria.map((c) => ({ type: 'taskItem', attrs: { checked: false }, content: [para(c)] })) })
-  }
-  if (input.extra?.length) content.push(...input.extra)
-  const id = ws().createRow(dbId, { title: input.title.trim(), properties, content: { type: 'doc', content: content.length ? content : [para('')] } })
+  const content = taskBody(input)
+  const id = ws().createRow(dbId, { title: input.title.trim(), properties, content: { type: 'doc', content } })
   await trustTask(id)
   nudge()
   return id
@@ -878,7 +904,7 @@ export function approvalsOf(local: TaskLocal): Approvals {
 }
 
 /** A gate right after a plan stage approves the plan; every other gate is a review. */
-function skipsGate(level: Approvals, pipeline: ResolvedStage[], gate: ResolvedStage): boolean {
+export function skipsGate(level: Approvals, pipeline: ResolvedStage[], gate: ResolvedStage): boolean {
   if (level === 'none') return true
   return level === 'review' && pipeline[gate.index - 1]?.kind === 'plan'
 }

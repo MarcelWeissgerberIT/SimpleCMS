@@ -6,6 +6,7 @@ import type { ID, PropertyType, PropertyValue } from '../../../store/types'
 import type { AIErrorCode } from '../client'
 import type { MemoryProposal, MemoryUse } from '../memory/types'
 import type { BlockEdit } from './edit'
+import type { NewTaskPlan, PipelineKind, TaskActionPlan, TaskOp } from '../../coding'
 
 export type ToolName =
   | 'search_pages'
@@ -30,6 +31,12 @@ export type ToolName =
   /** One Script (features/script): a read-only query (terminal and custom agents) · a script drafted for review (terminal) */
   | 'run_query'
   | 'write_script'
+  /** the coding pipelines (features/coding, the terminal only): read directly · create / act on tasks (staged, kind 'coding') */
+  | 'list_pipelines'
+  | 'list_tasks'
+  | 'read_task'
+  | 'create_task'
+  | 'task_action'
 
 export type StepState = 'run' | 'ok' | 'err' | 'staged'
 
@@ -87,7 +94,7 @@ export interface ColumnSpec {
   options?: string[]
 }
 
-export type ChangeKind = 'create_page' | 'append' | 'edit' | 'create_row' | 'update_row' | 'rename' | 'create_database' | 'add_property' | 'memory' | 'script' | 'media'
+export type ChangeKind = 'create_page' | 'append' | 'edit' | 'create_row' | 'update_row' | 'rename' | 'create_database' | 'add_property' | 'memory' | 'script' | 'media' | 'coding'
 
 /**
  * Media saved from an MCP result (features/ai/media: the person clicked "Save to One" on a card — the file is in
@@ -114,7 +121,26 @@ export interface StagedScript {
   /** a change: the script as it was when staged (null: a new script) */
   before: { name: string; kind: 'script' | 'query'; code: string } | null
 }
-export type ChangeStatus = 'pending' | 'applied' | 'discarded' | 'failed'
+/**
+ * A task of a coding pipeline (create_task / task_action — the AI terminal only, coding/terminal.ts): applied after
+ * everything else, never part of a bulk apply when it starts the worker, never granting trust.
+ */
+export interface StagedCoding {
+  op: 'create' | TaskOp
+  kind: PipelineKind
+  projectId: ID | null
+  /** the project's title for the review ("Coding", or the kind's name + "new project") */
+  project: string
+  /** applying starts the coding worker (as staged; the review and the apply re-check it live): never part of a bulk apply */
+  starts: boolean
+  /** op 'create': the task exactly as it will be written (the review shows all of it) */
+  task?: NewTaskPlan
+  /** the other ops: the action and what the task looked like when it was staged */
+  action?: TaskActionPlan
+}
+
+/** 'applying': being written right now (Apply waits for it — a second key press never applies it twice) */
+export type ChangeStatus = 'pending' | 'applying' | 'applied' | 'discarded' | 'failed'
 
 export interface StagedChange {
   id: string
@@ -155,6 +181,8 @@ export interface StagedChange {
   script?: StagedScript
   /** media: the saved files whose blocks go into the page (pageId) */
   media?: StagedMedia[]
+  /** coding: a pipeline task to create, or an action on one (pageId = the task, or the id a new one gets) */
+  coding?: StagedCoding
   error?: string
 }
 
@@ -186,7 +214,10 @@ export interface AgentTurn {
   memory?: MemoryUse
   /** "Continue" (/continue): this task picks up task n where it stopped at the tool-call limit (task = that task's text) */
   continues?: number
-  error?: { code: AIErrorCode | 'max_tokens'; message: string }
+  /** server: the MCP server that rejected its token (mcp_auth) — the terminal offers to sign in to it */
+  error?: { code: AIErrorCode | 'max_tokens'; message: string; server?: string }
+  /** MCP servers this task left out because they rejected their token here (the terminal offers a sign-in) */
+  signIn?: string[]
 }
 
 export interface TurnContext {

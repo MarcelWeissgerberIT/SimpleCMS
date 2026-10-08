@@ -28,6 +28,7 @@ import { NowLine, RunCounters } from './NowLine'
 import { FollowUps } from './FollowUps'
 import { ImportBox } from './ImportBox'
 import { RefsLine } from './RefsLine'
+import { taskPhase } from './terminal'
 import './coding.css'
 
 type Tab = 'log' | 'plan' | 'diff' | 'tests' | 'git'
@@ -96,21 +97,7 @@ export default function TaskPanel({ pageId }: { pageId: ID }) {
   const branch = props.branch ? String(task.properties[props.branch] ?? '').trim() || null : null
   const cost = props.cost && typeof task.properties[props.cost] === 'number' ? (task.properties[props.cost] as number) : 0
   const files = local.git?.files ?? []
-  const state: 'running' | 'question' | 'failed' | 'stopped' | 'gate' | 'intake' | 'done' | 'idle' = running
-    ? 'running'
-    : local.state === 'question'
-      ? 'question'
-      : local.state === 'failed'
-        ? 'failed'
-        : local.state === 'stopped'
-          ? 'stopped'
-          : stage?.kind === 'gate'
-            ? 'gate'
-            : stage?.kind === 'import'
-              ? 'intake'
-              : stage?.kind === 'done'
-              ? 'done'
-              : 'idle'
+  const state = taskPhase(stage, local, running)
   // the tab that fits the moment, until the person picks one
   const before = stage && stage.index > 0 ? pipeline[stage.index - 1]?.kind : undefined
   const auto: Tab = state === 'running' ? 'log' : !coding && local.plan && stage?.kind !== 'queue' ? 'plan' : stage?.kind === 'gate' && (before === 'plan' || before === 'doc' || before === 'analyze') ? 'plan' : stage?.kind === 'gate' || stage?.kind === 'git' || stage?.kind === 'done' ? (files.length ? 'diff' : 'log') : local.test && stage?.kind === 'test' ? 'tests' : 'log'

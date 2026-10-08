@@ -140,6 +140,12 @@ export interface ReadLimit {
 
 let readLimit: ((id: ID) => ReadLimit | null) | null = null
 
+/**
+ * The read limit of the tool call running now. It holds for the call's synchronous part only (withReadLimit resets
+ * it when run() returns its Promise): an async tool takes it along as its FIRST statement, before any await.
+ */
+export const currentReadLimit = (): ((id: ID) => ReadLimit | null) | null => readLimit
+
 /** Run `fn` (a tool call) reading pages only as `limit` allows. */
 export function withReadLimit<T>(limit: ((id: ID) => ReadLimit | null) | null, fn: () => T): T {
   const prev = readLimit
@@ -151,7 +157,7 @@ export function withReadLimit<T>(limit: ((id: ID) => ReadLimit | null) | null, f
   }
 }
 
-const LIMITED_NOTE = 'The person limited what you may read on this page'
+export const LIMITED_NOTE = 'The person limited what you may read on this page'
 
 /** Run `fn` (a tool call) seeing only the pages `filter` lets through. */
 export function withToolScope<T>(filter: ((id: ID) => boolean) | null, fn: () => T): T {
@@ -1206,7 +1212,7 @@ export function argLabel(name: ToolName, input: Record<string, unknown>, stage: 
   const s = (k: string) => (typeof input[k] === 'string' ? (input[k] as string).trim() : '')
   const title = (id: string) => {
     if (!id) return ''
-    const staged = stagedCreate(stage, id)
+    const staged = stagedCreate(stage, id) ?? stage.list().find((c) => c.kind === 'coding' && c.pageId === id && c.status !== 'applied')
     if (staged) return staged.title ?? ''
     const p = ws().pages[stage.resolve(id)]
     return p ? titleOf(p) : id
@@ -1249,6 +1255,16 @@ export function argLabel(name: ToolName, input: Record<string, unknown>, stage: 
       return s('name') || title(s('script_id'))
     case 'remember':
       return s('text')
+    case 'list_pipelines':
+      return s('kind')
+    case 'list_tasks':
+      return [s('kind'), s('status'), s('query') ? `“${s('query')}”` : ''].filter(Boolean).join(' · ')
+    case 'read_task':
+      return title(s('id'))
+    case 'create_task':
+      return s('title')
+    case 'task_action':
+      return `${s('action')} · ${title(s('id'))}`
     default:
       return ''
   }

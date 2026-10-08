@@ -54,6 +54,8 @@ export type OAuthIssue =
   | 'nocode'
   /** the device code ran out before the sign-in was finished */
   | 'expired'
+  /** the browser blocked the sign-in window (signIn with `sameTab: false`: the tab never goes away instead) */
+  | 'blocked'
 
 export class OAuthError extends Error {
   issue: OAuthIssue
@@ -523,12 +525,16 @@ function failed(serverId: string, attempt: number, e: unknown, popup: Window | n
 /**
  * "Sign in" (a click — the sign-in window opens right away, before anything is fetched, so the browser lets
  * it). Resolves when signed in; throws OAuthError (the state for Settings is in useMcpSignIn as well).
+ * Everything up to the window runs synchronously: a caller in a key press / click (the AI terminal's /connect) must
+ * call this before any await. `sameTab: false` (the AI terminal — its conversation lives in this tab's memory): a
+ * blocked window ends as OAuthIssue 'blocked' instead of this tab going to the sign-in page.
  */
-export async function signIn(serverId: string): Promise<void> {
+export async function signIn(serverId: string, opts: { sameTab?: boolean } = {}): Promise<void> {
   const server = readServers().find((s) => s.id === serverId)
   if (!server) return
   const attempt = nextAttempt(serverId)
   const popup = blankWindow()
+  if (!popup && opts.sameTab === false) failed(serverId, attempt, new OAuthError('blocked'), null)
   setPhase(serverId, { phase: 'working' })
   try {
     const disc = await discover(server.url)
@@ -548,6 +554,8 @@ export async function signIn(serverId: string): Promise<void> {
     putPending(state, { serverId, verifier, cfg, at: Date.now() })
     const url = authorizeUrl(cfg, state, await challengeOf(verifier))
     if (!popup || popup.closed) {
+      // the window was there and the person closed it meanwhile: nothing to go on with
+      if (opts.sameTab === false) throw new OAuthError(popup ? 'cancelled' : 'blocked')
       // the browser blocked the window: this tab goes to the sign-in and comes back to `?oauth=mcp` → #/oauth/mcp
       window.location.assign(url)
       return

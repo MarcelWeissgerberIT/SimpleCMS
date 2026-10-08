@@ -13,7 +13,7 @@ import type { TermMention } from './types'
 import { examples } from '../memory/example'
 import { memoryInUse } from '../memory/settings'
 
-export type CommandId = 'new' | 'stop' | 'continue' | 'apply' | 'discard' | 'history' | 'clearhistory' | 'help' | 'mcp' | 'cost' | 'context' | 'redo' | 'remember' | 'nomemory' | 'example'
+export type CommandId = 'new' | 'stop' | 'continue' | 'apply' | 'discard' | 'history' | 'clearhistory' | 'help' | 'mcp' | 'pipelines' | 'connect' | 'cost' | 'context' | 'redo' | 'remember' | 'nomemory' | 'example'
 
 export interface Command {
   id: CommandId
@@ -36,6 +36,10 @@ export const COMMANDS: Command[] = [
   { id: 'clearhistory', en: ['clear-history'], de: ['verlauf-leeren'] },
   { id: 'help', en: ['help'], de: ['hilfe'] },
   { id: 'mcp', en: ['mcp'], de: [] },
+  // the coding pipelines: open tasks, what they wait for (session.ts; also with a kind: /pipelines qa)
+  { id: 'pipelines', en: ['pipelines'], de: [] },
+  // an MCP server: list, sign in (the window opens from the key press), test, or add one by its address (connect.ts)
+  { id: 'connect', en: ['connect'], de: ['verbinden'] },
   { id: 'cost', en: ['cost'], de: ['kosten'] },
   { id: 'context', en: ['context'], de: ['kontext'] },
   { id: 'redo', en: ['redo'], de: ['neu-machen'] },
@@ -61,7 +65,7 @@ export function helpNames(c: Command, lang: 'en' | 'de'): string[] {
 const byName = (word: string) => COMMANDS.find((c) => c.en.includes(word) || c.de.includes(word))
 
 /** Commands that take text after their name ("/remember Reports go out on Fridays"). */
-const WITH_TEXT: CommandId[] = ['remember', 'nomemory', 'example']
+const WITH_TEXT: CommandId[] = ['remember', 'nomemory', 'example', 'pipelines', 'connect']
 
 /** A command with text after its name ("/merken Berichte auf Deutsch"): its id and the text; null for anything else. */
 export function parseCommandText(input: string): { id: CommandId; text: string } | null {
@@ -90,10 +94,12 @@ export interface CompletionItem {
   example?: { tag: string; text: string }
   /** a tool of an MCP server ("kb: search_records") */
   tool?: { server: string; name: string }
+  /** an MCP server after /connect */
+  server?: { id: string; name: string; host: string; codeword?: string }
 }
 
 export interface Completion {
-  kind: 'command' | 'mention' | 'tag' | 'tool'
+  kind: 'command' | 'mention' | 'tag' | 'tool' | 'server'
   /** the token's range in the draft */
   from: number
   to: number
@@ -102,6 +108,14 @@ export interface Completion {
 }
 
 const MENTION_MAX = 6
+
+const hostOf = (url: string) => {
+  try {
+    return new URL(url).host
+  } catch {
+    return url
+  }
+}
 
 function mentionCandidates(query: string): CompletionItem[] {
   const { pages } = useWorkspace.getState()
@@ -205,6 +219,16 @@ export function completionAt(draft: string, caret: number, lang: 'en' | 'de', he
     // names of the UI language first ("/hi" in German: /hilfe before /history)
     items.sort((a, b) => Number(b.primary) - Number(a.primary))
     return items.length ? { kind: 'command', from, to: caret, query: word, items: items.map(({ primary: _p, ...x }) => x) } : null
+  }
+  // "/connect <server>": the servers by name or codeword
+  const cn = /^\s*\/(connect|verbinden)\s+([^\s]{0,60})$/iu.exec(before)
+  if (cn) {
+    const query = cn[2].toLowerCase().replace(/:$/, '')
+    const items = readServers()
+      .filter((s) => !query || s.name.includes(query) || (!!s.codeword && s.codeword.startsWith(query)))
+      .slice(0, MENTION_MAX)
+      .map((s) => ({ key: s.id, insert: `/${cn[1]} ${s.name}`, label: s.name, server: { id: s.id, name: s.name, host: hostOf(s.url), ...(s.codeword ? { codeword: s.codeword } : {}) } }))
+    return items.length ? { kind: 'server', from: 0, to: caret, query, items } : null
   }
   // an example of the One memory: "#" at a word start
   const hash = /(^|\s)#([a-z0-9-]{0,32})$/i.exec(before)

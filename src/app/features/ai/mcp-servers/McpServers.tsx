@@ -14,16 +14,15 @@ import { ChevronDown, ChevronRight, Copy, ExternalLink, Info, KeyRound, LogIn, L
 import { useT } from '../../../i18n'
 import { useWorkspace } from '../../../store/store'
 import type { McpServerConfig } from '../../../store/types'
-import { newId } from '../../../lib/ids'
 import { Switch } from '../../../ui/controls'
 import { SecretField } from '../../../ui/SecretField'
 import {
   INSTRUCTIONS_MAX,
+  addServer,
   MAX_SERVERS,
   NAME_MAX,
   PROMPT_MAX,
   defaultInstructions,
-  deriveName,
   nameProblem,
   patchServer,
   readServers,
@@ -155,19 +154,20 @@ function NewServer({ onDone }: { onDone: () => void }) {
   const problem = urlProblem(url)
   const error = problem && (tried || (touched && problem !== 'empty')) ? t(`features.ai.mcp.err.url.${problem}`) : ''
 
+  const [full, setFull] = useState(false)
   const submit = (e: React.FormEvent) => {
     e.preventDefault()
     setTried(true)
     if (problem) return
-    const list = readServers()
-    const id = newId()
-    const clean = url.trim()
-    // the store seals a plaintext token and keeps its marker (store/secrets.ts)
-    writeServers([...list, { id, name: deriveName(clean, list.map((s) => s.name)), url: clean, token: token.trim(), enabled: true, prompt: '' }])
+    const res = addServer(url, token)
+    if ('problem' in res) {
+      if (res.problem === 'full') setFull(true)
+      return
+    }
     setToken('')
     onDone()
     // test + usage prompt, in the background
-    void checkServer(id, 'guide')
+    void checkServer(res.server.id, 'guide')
   }
 
   return (
@@ -200,6 +200,11 @@ function NewServer({ onDone }: { onDone: () => void }) {
             onChange={(e) => setToken(e.target.value)}
           />
         </Field>
+        {full && (
+          <p className="mcps-warn" role="alert">
+            <span className="led mcps-led--warn" aria-hidden /> {t('features.ai.mcp.err.full', { max: MAX_SERVERS })}
+          </p>
+        )}
         <div className="mcps-actions">
           <span className="mcps-actions__note">{t('features.ai.mcp.addNote')}</span>
           <button type="button" className="btn btn--sm btn--ghost" onClick={onDone}>

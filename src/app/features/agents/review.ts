@@ -61,14 +61,18 @@ export async function applyRun(run: AgentRun, ids?: string[]): Promise<void> {
 }
 
 async function undoApply(run: AgentRun, res: ApplyResult) {
-  const kept = res.undo()
+  const { kept } = res.undo()
+  // what was kept (edited since) or cannot be undone stays applied, with its row id
+  const stays = new Set([...kept, ...res.final])
   const rowIds = { ...(run.rowIds ?? {}) }
-  for (const staged of Object.keys(res.rowIds)) delete rowIds[staged]
-  const staged = (run.staged ?? []).map((c) => (res.applied.includes(c.id) ? { ...c, status: 'pending' as const } : c))
+  const keptPages = new Set((run.staged ?? []).filter((c) => stays.has(c.id)).map((c) => c.pageId))
+  for (const staged of Object.keys(res.rowIds)) if (!keptPages.has(staged)) delete rowIds[staged]
+  const undone = res.applied.filter((id) => !stays.has(id))
+  const staged = (run.staged ?? []).map((c) => (undone.includes(c.id) ? { ...c, status: 'pending' as const } : c))
   // a server run stays resolved on the server: only this device's copy goes back to pending
   if (run.runner === 'server') patchServerRun({ ...run, staged, rowIds })
-  else await putRun({ ...run, staged, rowIds, applied: Math.max(0, (run.applied ?? 0) - res.applied.length) })
-  useUI.getState().toast(kept ? tn('features.agent.toast.undoneKept', kept) : t('features.agent.toast.undone'))
+  else await putRun({ ...run, staged, rowIds, applied: Math.max(0, (run.applied ?? 0) - undone.length) })
+  useUI.getState().toast(kept.length ? tn('features.agent.toast.undoneKept', kept.length) : t('features.agent.toast.undone'))
 }
 
 /** Discard a proposal of a run (and the proposals that build on it); null = every open one. */

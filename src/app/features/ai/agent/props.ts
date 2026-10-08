@@ -204,6 +204,12 @@ export function coerceProperty(db: Database, prop: PropertyDef, raw: unknown, ro
   return fail('this property type cannot be set.')
 }
 
+/** A property by the name Claude wrote (trimmed, any case), else by its id — how every value Claude sends is matched. */
+export function findProp(db: Pick<Database, 'properties'>, key: string): PropertyDef | undefined {
+  const name = key.trim().toLowerCase()
+  return db.properties.find((p) => p.name.trim().toLowerCase() === name) ?? db.properties.find((p) => p.id === key)
+}
+
 /**
  * Coerce a `properties` object (property name → value). All-or-nothing: any problem fails the
  * whole call with every error listed, so Claude fixes them in one go.
@@ -214,8 +220,7 @@ export function coerceProperties(db: Database, raw: unknown, row: Page | null): 
   const errors: string[] = []
   const changes: PropChange[] = []
   for (const [key, v] of Object.entries(raw as Record<string, unknown>)) {
-    const name = key.trim().toLowerCase()
-    const prop = db.properties.find((p) => p.name.trim().toLowerCase() === name) ?? db.properties.find((p) => p.id === key)
+    const prop = findProp(db, key)
     if (!prop) {
       errors.push(`unknown property ${JSON.stringify(key)}. Properties: ${db.properties.filter(isSettable).map((p) => JSON.stringify(p.name)).join(', ')}.`)
       continue
