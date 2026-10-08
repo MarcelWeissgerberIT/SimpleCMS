@@ -424,6 +424,17 @@ export function detachAll(): void {
   }
 }
 
+/**
+ * Hand one page's pending refresh to the store right away: a writer that changed the page's open editor (its document
+ * carries the change) and reads the store next — the AI terminal's edit_page.
+ */
+export function flushRefresh(pageId: ID): void {
+  const e = entries.get(pageId)
+  if (!e || e.refreshTimer === undefined) return
+  window.clearTimeout(e.refreshTimer)
+  refresh(e)
+}
+
 /** Hand pending refreshes to the store right away (page hide / unload). */
 export function flushRefreshes(): void {
   for (const e of entries.values()) {

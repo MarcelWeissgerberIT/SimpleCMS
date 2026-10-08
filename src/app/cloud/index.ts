@@ -38,7 +38,7 @@ import {
 import { request } from './api'
 import { bootCloud as bootCloudImpl, refreshMe, switchWorkspaceImpl } from './boot'
 import { isApplyingCloud, withWriteActor } from './binding'
-import { acquire, release } from './content'
+import { acquire, flushRefresh, release } from './content'
 import { uploadLocalWorkspaceImpl } from './upload'
 import { setPresencePageImpl } from './workspace'
 import { createPrivateDatabaseImpl, createPrivatePageImpl, isPrivate, movePagePrivacyImpl, usePrivateModeImpl } from './private'
@@ -268,6 +268,15 @@ export function acquireContentDoc(pageId: string): ContentDocHandle | null {
 
 export function releaseContentDoc(pageId: string): void {
   release(pageId)
+}
+
+/**
+ * The page's content as its open document holds it, in the store right away (team: the store otherwise catches up a
+ * moment after an editor change). For a writer that changed the page's open editor and reads the store next; a no-op
+ * in local mode or with nothing pending.
+ */
+export function flushPageContent(pageId: string): void {
+  flushRefresh(pageId)
 }
 
 /**

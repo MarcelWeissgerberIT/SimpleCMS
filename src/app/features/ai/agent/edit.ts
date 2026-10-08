@@ -16,7 +16,7 @@ import { Fragment, type Node as PMNode, type Schema } from '@tiptap/pm/model'
 import { Transform } from '@tiptap/pm/transform'
 import { closeHistory } from '@tiptap/pm/history'
 import { useWorkspace } from '../../../store/store'
-import { useCloud } from '../../../cloud'
+import { flushPageContent, useCloud } from '../../../cloud'
 import type { ID } from '../../../store/types'
 import { docSchema, docToMarkdown, endUndoStep, liveEditorOf, startUndoStep } from '../../../editor'
 import { claudeBlocks, claudeDoc } from '../claudeDoc'
@@ -507,8 +507,10 @@ export async function applyPageEdits(pageId: ID, changes: StagedChange[]): Promi
     editor.view.dispatch(tr)
     endUndoStep(editor.view)
     next = editor.getJSON()
-    // local: written right away, as Claude's; team: the editor's document carries it (Yjs)
+    // local: written right away, as Claude's; team: the editor's document carries it (Yjs) — handed to the store right
+    // away, so what is applied next (a task action's fingerprint, another write of this page) reads the edited page
     if (useCloud.getState().active.kind !== 'cloud') useWorkspace.getState().setContent(pageId, next, 'ai')
+    else flushPageContent(pageId)
   } else {
     const tr = new Transform(doc)
     try {

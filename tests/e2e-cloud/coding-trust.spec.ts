@@ -155,4 +155,44 @@ test.describe('team cloud — coding tasks', () => {
     await expect(approve).toHaveAttribute('data-status', 'applied')
     expect(await stageOf(a, id)).toBe('Implement')
   })
+
+  test('the AI terminal edits the task page that is open in the editor, then a run staged before the edit applies (the edited page reaches the store at once)', async ({ page: a, context }) => {
+    watch(a, 'ada')
+    await signIn(a, email('ada'))
+    const wsId = await createWorkspace(a, 'Coding team')
+    await openApp(a, wsId)
+    await waitOnline(a)
+    await wsEval(a, (s) => s.updateSettings({ aiApiKey: 'sk-ant-e2e-test-key' }))
+    await a.evaluate(() => (window.location.hash = '#/coding'))
+    await a.getByTestId('coding-new').click()
+    await a.getByTestId('coding-new-title').fill('Ship the footer')
+    await a.getByTestId('coding-new-repo').fill('website')
+    await a.getByTestId('coding-new-goal').fill('Write footer.txt.')
+    await a.getByTestId('coding-create').click()
+    await expect(a.getByTestId('coding-panel')).toHaveAttribute('data-trust', 'yes')
+    const id = await a.evaluate(() => window.location.hash.replace('#/p/', ''))
+    // the task page is open in the editor: the terminal's context page, its document carries the edit
+    await expect(a.locator('.ProseMirror').first()).toContainText('Write footer.txt.')
+
+    await mockAgent(context, [
+      call('toolu_ed', 'edit_page', { id, edits: [{ op: 'replace_all', markdown: 'Write footer.txt with the imprint links.' }] }),
+      call('toolu_rn', 'task_action', { id, action: 'run' }),
+      say('Staged.'),
+    ])
+    await a.keyboard.press('Control+j')
+    const term = a.getByRole('region', { name: 'AI terminal' })
+    await term.getByRole('textbox', { name: 'Task for the agent' }).fill('Tighten the footer task and run it')
+    await term.getByRole('textbox', { name: 'Task for the agent' }).press('Enter')
+    await expect(term.locator('.term-answer')).toContainText('Staged.')
+    const edit = term.locator('.term-change').nth(0)
+    const run = term.locator('.term-change').nth(1)
+    await edit.getByRole('button', { name: 'Apply #1' }).click()
+    await expect(edit).toHaveAttribute('data-status', 'applied')
+    await expect(a.locator('.ProseMirror').first()).toContainText('imprint links')
+    // in the store right away (not a moment later): what is applied next reads the edited page
+    expect(await wsEval(a, (s, id) => s.pages[id].plain as string, id)).toContain('imprint links')
+    await run.getByRole('button', { name: 'Apply #2' }).click()
+    await expect(run).toHaveAttribute('data-status', 'applied')
+    await expect(run.locator('.term-change__error')).toHaveCount(0)
+  })
 })
