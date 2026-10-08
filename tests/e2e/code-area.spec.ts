@@ -2,13 +2,49 @@
  * The shared code area (ui/code) where people meet it: an agent's job ("Instructions": tool names, placeholders
  * counted and jumped to, the run asking first while any is open, line numbers, Tab / Esc then Tab), code blocks on
  * pages (line numbers by default from 4 lines, per block and device; wrap; copy with a spoken confirmation; the JSON
- * check; Mod+A takes the code first; the stored node stays { language }) and the One Script editor (the error and
- * the unclosed bracket that caused it: gutter marks, a list that jumps, the textarea described by it).
+ * check; Mod+A takes the code first; Backspace at a line start joins the right lines; the stored node stays
+ * { language }) and the One Script editor (the error and the unclosed bracket that caused it: gutter marks, a list
+ * that jumps, the textarea described by it).
  */
-import type { Page } from '@playwright/test'
+import type { Locator, Page } from '@playwright/test'
 import { test, expect, openApp, wsEval, createPage, gotoPage, doc, para, mockClaude, reloadApp, MOD } from './fixtures'
 
 const cb = (language: string | null, text: string, id?: string) => ({ type: 'codeBlock', attrs: { language, ...(id ? { id } : {}) }, content: [{ type: 'text', text }] })
+
+/** Clicks a code block's text right before a character (0-based line / column) — a real click, like a person. */
+async function clickCode(page: Page, block: Locator, line: number, col: number) {
+  const pt = await block.locator('code').evaluate(
+    (code, [li, co]) => {
+      const lines = (code.textContent ?? '').split('\n')
+      let target = co
+      for (let i = 0; i < li; i++) target += lines[i].length + 1
+      const walker = document.createTreeWalker(code, NodeFilter.SHOW_TEXT)
+      let off = 0
+      for (let n = walker.nextNode() as Text | null; n; n = walker.nextNode() as Text | null) {
+        if (off + n.data.length > target) {
+          const r = document.createRange()
+          r.setStart(n, target - off)
+          r.setEnd(n, target - off + 1)
+          const b = r.getBoundingClientRect()
+          return { x: b.left + 1, y: b.top + b.height / 2 }
+        }
+        off += n.data.length
+      }
+      throw new Error('no such place')
+    },
+    [line, col],
+  )
+  await page.mouse.click(pt.x, pt.y)
+}
+
+/** The caret in the page editor as [line, column] of its code block. */
+const caretInCode = (page: Page) =>
+  page.evaluate(() => {
+    const ed = (document.querySelector('#main .pv-content .ProseMirror') as unknown as { editor: { state: { selection: { $from: { parent: { textContent: string }; parentOffset: number } } } } }).editor
+    const { $from } = ed.state.selection
+    const before = $from.parent.textContent.slice(0, $from.parentOffset)
+    return [before.split('\n').length - 1, $from.parentOffset - (before.lastIndexOf('\n') + 1)]
+  })
 
 const JOB = [
   '## Mirror the knowledge base',
@@ -149,6 +185,69 @@ test.describe('code blocks on pages', () => {
     // none of this went into the document
     const attrs = await wsEval(page, (s, pid) => (s.pages[pid].content.content as Array<{ type: string; attrs?: Record<string, unknown> }>).filter((n) => n.type === 'codeBlock').map((n) => Object.keys(n.attrs ?? {}).sort()), id)
     for (const keys of attrs) expect(keys.filter((k) => k !== 'id' && k !== 'language')).toEqual([])
+  })
+
+  test('Backspace at the start of a line joins it with the line above — numbers on and off, after Enter, across an empty line, on the last line', async ({ page }) => {
+    await openApp(page)
+    const THREE = 'let a = 1\nlet b = 2\nlet c = 3'
+    const GAP = 'let a = 1\n\nlet b = 2\nlet c = 3'
+    const id = await createPage(page, { title: 'Joins', content: doc(para('Before'), cb('javascript', THREE, 'cbthree'), cb('javascript', GAP, 'cbgap'), para('After')) })
+    await gotoPage(page, id)
+    const blocks = page.locator('#main .code-block')
+    const [three, gap] = [blocks.nth(0), blocks.nth(1)]
+    // 3 lines: no numbers (the current-line mark still sits at the caret); 4 lines: numbers
+    await expect(three).toHaveAttribute('data-ln', 'off')
+    await expect(gap).toHaveAttribute('data-ln', 'on')
+    const text = (b: Locator) => b.locator('code').evaluate((el) => el.textContent)
+
+    // line 2, column 0: joins line 2 to line 1 (never line 2 with line 3)
+    await clickCode(page, three, 1, 0)
+    expect(await caretInCode(page)).toEqual([1, 0])
+    await page.keyboard.press('Backspace')
+    await expect.poll(() => text(three)).toBe('let a = 1let b = 2\nlet c = 3')
+    // Enter takes it back, Backspace joins again
+    await page.keyboard.press('Enter')
+    await expect.poll(() => text(three)).toBe(THREE)
+    await page.keyboard.press('Backspace')
+    await expect.poll(() => text(three)).toBe('let a = 1let b = 2\nlet c = 3')
+    await page.keyboard.press('Enter')
+    // the last line
+    await clickCode(page, three, 2, 0)
+    await page.keyboard.press('Backspace')
+    await expect.poll(() => text(three)).toBe('let a = 1\nlet b = 2let c = 3')
+    await page.keyboard.press('Enter')
+    await expect.poll(() => text(three)).toBe(THREE)
+    // two new lines after line 1, then two Backspaces: as before
+    await clickCode(page, three, 0, 8)
+    await page.keyboard.press('End')
+    await page.keyboard.press('Enter')
+    await page.keyboard.press('Enter')
+    await expect.poll(() => text(three)).toBe('let a = 1\n\n\nlet b = 2\nlet c = 3')
+    await page.keyboard.press('Backspace')
+    await page.keyboard.press('Backspace')
+    await expect.poll(() => text(three)).toBe(THREE)
+
+    // with numbers, across an empty line: the empty line goes first, then line 1 and "let b" meet
+    await clickCode(page, gap, 2, 0)
+    expect(await caretInCode(page)).toEqual([2, 0])
+    await page.keyboard.press('Backspace')
+    await expect.poll(() => text(gap)).toBe(THREE)
+    await page.keyboard.press('Backspace')
+    await expect.poll(() => text(gap)).toBe('let a = 1let b = 2\nlet c = 3')
+    // a delete the browser is about to do without a key (Android keyboards): the editor does it itself
+    await page.keyboard.press('Enter')
+    await expect.poll(() => text(gap)).toBe(THREE)
+    const handled = await page.evaluate(() => {
+      const ev = new InputEvent('beforeinput', { inputType: 'deleteContentBackward', bubbles: true, cancelable: true })
+      document.querySelector('#main .pv-content .ProseMirror')!.dispatchEvent(ev)
+      return ev.defaultPrevented
+    })
+    expect(handled).toBe(true)
+    await expect.poll(() => text(gap)).toBe('let a = 1let b = 2\nlet c = 3')
+    // the store has it too
+    await expect
+      .poll(() => wsEval(page, (s, pid) => (s.pages[pid].content.content as Array<{ type: string; content?: Array<{ text: string }> }>).filter((n) => n.type === 'codeBlock').map((n) => n.content?.[0]?.text), id))
+      .toEqual([THREE, 'let a = 1let b = 2\nlet c = 3'])
   })
 
   test('One Script is a language of code blocks', async ({ page }) => {

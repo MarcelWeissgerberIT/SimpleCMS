@@ -8,9 +8,13 @@
  * Only the code blocks a change touched get new widgets; the rest move with the mapping. The current line is one
  * more widget where the selection's head is, while the selection is inside a code block (the view styles it only
  * while the editor has focus and can be edited), and the bracket pair at the caret gets an inline mark.
+ *
+ * Both widgets sit right before the caret at the start of a line, and a browser's own Backspace there deletes the
+ * wrong line break: the editor deletes it itself (`deleteBreakBefore`, bound to Backspace by the code block, and
+ * the `beforeinput` of keyboards that send no key, Android).
  */
 import { Plugin, PluginKey, type Transaction } from '@tiptap/pm/state'
-import { Decoration, DecorationSet } from '@tiptap/pm/view'
+import { Decoration, DecorationSet, type EditorView } from '@tiptap/pm/view'
 import type { Node as PMNode } from '@tiptap/pm/model'
 import { pairAt, scanBrackets } from '../../ui/code/brackets'
 import type { CodeToken } from '../../ui/code/types'
@@ -36,6 +40,21 @@ function quoted(text: string): CodeToken[] {
 
 const numbersKey = new PluginKey<DecorationSet>('codeLineNumbers')
 const currentKey = new PluginKey('codeCurrentLine')
+const backKey = new PluginKey('codeLineBackspace')
+
+/**
+ * Backspace with the caret right after a line break inside a code block (column 0 of line 2 and on): deletes that
+ * break. Everything else (a selection, the block's very start) is left to the other commands.
+ */
+export function deleteBreakBefore(view: EditorView, type: string): boolean {
+  const { selection } = view.state
+  if (!selection.empty || !view.editable) return false
+  const { $head } = selection
+  if ($head.parent.type.name !== type || $head.parentOffset === 0) return false
+  if ($head.parent.textBetween($head.parentOffset - 1, $head.parentOffset) !== '\n') return false
+  view.dispatch(view.state.tr.delete($head.pos - 1, $head.pos).scrollIntoView())
+  return true
+}
 
 function span(cls: string, n?: number): () => HTMLElement {
   return () => {
@@ -139,5 +158,19 @@ function codeLinesPlugins(type: string): Plugin[] {
       },
     },
   })
-  return [numbers, current]
+  // keyboards that send no Backspace key (Android): the same for the delete the browser is about to do
+  const back = new Plugin({
+    key: backKey,
+    props: {
+      handleDOMEvents: {
+        beforeinput(view, event) {
+          if (event.inputType !== 'deleteContentBackward' || !event.cancelable || view.composing) return false
+          if (!deleteBreakBefore(view, type)) return false
+          event.preventDefault()
+          return true
+        },
+      },
+    },
+  })
+  return [numbers, current, back]
 }
