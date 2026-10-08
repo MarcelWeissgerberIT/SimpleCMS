@@ -29,7 +29,8 @@ src/app/store/**                     data model (types.ts = CONTRACT), zustand s
 src/app/lib/**                       router (hash), ids, files (IndexedDB blobs), colors, theme
 src/app/ui/**                        shared primitives: Popover, Menu/MenuList/useMenu, Modal, Tooltip, Switch/SwitchFace/
                                      Kbd/Led, Screws (ui/screws.ts), roving.ts (radiogroup keys), PageIcon, IconPicker;
-                                     ui.css = base + primitive classes
+                                     ui/code = the shared highlighted code area (CodeArea / CodeView, tokenizers, placeholders,
+                                     brackets; public API ui/code/index.ts); ui.css = base + primitive classes
 src/app/i18n/**                      t()/useT(); per-area strings in src/app/<area>/messages.ts
 src/app/shell/**                     layout, sidebar, topbar, page view, command palette, settings, modals host …
 src/app/editor/**                    TipTap block editor (public API: editor/index.ts)
@@ -467,6 +468,28 @@ the public APIs stable — other areas are built against them in parallel.
   `useUnlocked(f)` / `unlocked(f)` (features/agents/index.ts). Flags and tool lists already set stay in force without one. A
   recipe without `agent.instructions` gets them composed from its OWN properties (integrations/instructions.ts). One presets,
   names and detects NO external service anywhere (code, UI, prompts, help, tests, worker) — integrations.spec has a source guard.
+- Code areas (ui/code): use `CodeArea` for any code or instruction field, never a plain textarea (the integrations JSON
+  editor keeps its own windowed `JsonCodeArea`, same palette). Syntax colours only from tokens.css `--syn-*` (≥ 4.5:1 on
+  bg / surface / surface-2 / surface-3, Paper + Carbon) via `.syn-<class>` or `.hljs-*` inside `.hljs` / `.syn-hl`
+  (ui/code/syntax.css) — no area keeps its own palette. The textarea and the drawn lines share every metric; a
+  `renderToken` drawing keeps the raw text inside, invisible, and draws over it. First Esc releases Tab only. Per device
+  localStorage `one.code.<storageKey>` = { wrap, h }. Code blocks (editor/views/CodeBlockView.tsx + extensions/codeLines.ts):
+  line numbers, current line and bracket pair are view-only decorations; per block + device in `one.code.blocks`; the
+  stored node stays { language } (+ id); Backspace at a line start goes through `deleteBreakBefore` (never the browser);
+  languages are a registry (`registerCodeLanguage`, editor/lib/codeLanguages.ts; One Script = 'onescript'). Agent
+  instructions: `PLACEHOLDER_PATTERN` (typographic quotes allowed) is counted and "Run now" asks first; a mirror recipe's
+  own placeholders (`placeholdersIn`, mirror.ts) refuse a run and switching on; highlighted tools = `instructionTools()`
+  (narrowed by `mcpTools`).
+- MCP overview (features/ai/mcp-servers/McpOverview.tsx + overview.ts, pure): Settings → Claude AI → MCP servers opens
+  with a table per server — codeword, One's Claude (free · all · off), browser agents attaching it (a tool list of [] leaves
+  it out), integration profiles it activates (`matchingServers`), and Claude Code in the worker (repo / no-repo names from
+  `WorkerInfo.mcp`, matched by name or codeword, case-insensitive; only when the worker names 'mcp-list'). A Claude Code
+  name One does not know gets its own row. Cards below a 460 px container.
+- History compare (features/history): Changes compares a version with the one before (default) or until now — per device
+  localStorage `one.history.compare` ('prev' | 'now') and `one.history.markNew`, only through history/prefs.ts. 'prev' opens
+  on the newest version; the oldest counts as all added in Changes and shows plain in Version; "Now" with 'prev' = newest
+  snapshot → the page. Two versions compare properties with `diffPropsBetween` (props.ts); restore notes only in 'now'.
+  Version marks what was new with docDiff `withoutRemovals` + DocDiff `context={Infinity}` (`foldRows` never folds).
 - Custom agents: `Workspace.agents` (`CustomAgent`, store/types.ts; `createdBy` / `updatedBy` = account ids in a team,
   null locally — `upsertAgent` stamps `updatedBy` with the saver; a team browser agent runs only while `updatedBy` is its
   creator, otherwise it waits for the creator to confirm, features/agents/confirm.ts; on the team server `updatedBy` is
