@@ -183,7 +183,12 @@ why in text (*Cloud needs a team workspace on a One server*).
 
 **Tasks run only while one of your One tabs is open** on the device that holds the key (any workspace page; the
 tab hands out the work and writes the outcomes, exactly as with a local worker). The server keeps no queue and
-runs nothing by itself. A tab in the background does not take the worker over from the one you look at. Stages
+runs nothing by itself. A tab in the background does not take the worker over from the one you look at. A tab another
+tab or device took the worker from (*Another tab or device uses the cloud worker*) takes it back by itself once that
+tab lets it go — the server lists the worker online without a tab (checked every 15 s and when you look at the tab
+again). A device whose own new download has not started yet never takes the place of your active worker, also not
+while that worker is offline for a moment (a restart, a network blip, a server redeploy): it waits for its own file.
+Stages
 longer than 10 minutes need such a tab open somewhere — otherwise the claim goes stale (`CLAIM_STALE_MS`) and
 another worker may take the task over.
 
@@ -228,7 +233,8 @@ updates (n left out)*. Questions, notes, an import's progress and result, reques
 marked. An import's progress goes out at most every 250 ms per task (its result at once). What waited while no tab
 was connected is made small before it goes out (per task its newest 2,000 log lines in frames of ≤ 200, the newest
 git state and progress, every question, note and import result) and goes out in paced slices (≤ 100 frames /
-4 MiB, then 600 ms). A finish carries a `finishId`; the tab applies each one once even when the worker sends it
+4 MiB, then 600 ms); a tab that pairs during a pause (a reload, a newer tab, a reconnect) gets the rest, still before
+anything newer. A finish carries a `finishId`; the tab applies each one once even when the worker sends it
 again after a reconnect. An **Import** ZIP goes through in 4 MiB pieces, paced by the tab to ≤ 96 MiB per 10 s (a
 500 MB ZIP takes about a minute and a half); a half-sent upload is given up when its tab goes away.
 

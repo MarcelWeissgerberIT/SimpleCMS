@@ -36,7 +36,7 @@ In a **team workspace on a One server**, **Settings → Coding worker → Where 
 
 The card then reads *Connected · build-box · 1 repo · via cloud*. Everything else works as with a local worker.
 
-- **Keep One open.** Tasks run only while One is open in **this** browser (any page of the workspace) — this tab hands out the work and writes the results. Close it and the worker waits; nothing runs on the server.
+- **Keep One open.** Tasks run only while One is open in **this** browser (any page of the workspace) — this tab hands out the work and writes the results. Close it and the worker waits; nothing runs on the server. A newer tab takes the worker over; the older one takes it back by itself when that tab closes.
 - **Sealed end to end.** The server passes messages between this browser and the worker but cannot read or change them — task text, code, diffs and logs stay between the two.
 - **One device.** The worker is paired with the browser that downloaded it. Another device shows *Paired with another device* and offers **Download for this device** (it replaces the other one — One asks first; until the new file starts, the other device keeps working and this one waits, then connects by itself).
 - **Replace or stop.** A new download takes over as soon as it starts — on the same computer, stop the old worker first. **Revoke** stops the worker for good. Removing someone from the workspace stops theirs too.

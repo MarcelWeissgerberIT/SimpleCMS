@@ -36,7 +36,7 @@ In einem **Team-Arbeitsbereich auf einem One-Server** bietet **Einstellungen →
 
 Die Karte zeigt dann *Verbunden · build-box · 1 Repo · über Cloud*. Alles andere funktioniert wie mit einem lokalen Worker.
 
-- **One offen lassen.** Aufgaben laufen nur, solange One in **diesem** Browser offen ist (irgendeine Seite des Arbeitsbereichs) — dieser Tab verteilt die Arbeit und schreibt die Ergebnisse. Schließt du ihn, wartet der Worker; auf dem Server läuft nichts.
+- **One offen lassen.** Aufgaben laufen nur, solange One in **diesem** Browser offen ist (irgendeine Seite des Arbeitsbereichs) — dieser Tab verteilt die Arbeit und schreibt die Ergebnisse. Schließt du ihn, wartet der Worker; auf dem Server läuft nichts. Ein neuerer Tab übernimmt den Worker; der ältere holt ihn sich von selbst zurück, sobald dieser Tab geschlossen wird.
 - **Durchgehend versiegelt.** Der Server reicht Nachrichten zwischen diesem Browser und dem Worker weiter, kann sie aber weder lesen noch ändern — Aufgabentext, Code, Diffs und Logs bleiben zwischen den beiden.
 - **Ein Gerät.** Der Worker ist mit dem Browser gekoppelt, der ihn heruntergeladen hat. Ein anderes Gerät zeigt *Mit einem anderen Gerät gekoppelt* und bietet **Für dieses Gerät herunterladen** an (ersetzt den anderen — One fragt vorher; bis die neue Datei startet, arbeitet das andere Gerät weiter und dieses wartet, dann verbindet es sich von selbst).
 - **Ersetzen oder beenden.** Ein neuer Download übernimmt, sobald er startet — auf demselben Rechner stoppst du zuerst den alten Worker. **Widerrufen** beendet den Worker endgültig. Wer aus dem Arbeitsbereich entfernt wird, dessen Worker endet ebenfalls.
