@@ -396,8 +396,9 @@ describe('limits and refusals', () => {
     assert.equal(again.status, 'limit')
     const other = await tab.run(task({ kind: 'implement' }, { id: 'lim3abcd' }))
     assert.equal(other.status, 'ok', 'one more cheap task fits under the day limit')
-    const status = tab.messages.filter((m) => m.type === 'status').at(-1) as Extract<WorkerMessage, { type: 'status' }>
-    assert.ok(status.spentToday >= 4.12)
+    // the worker sends its status once One confirmed the outcome (after `run` resolved): wait for it
+    const spent = () => (tab.messages.filter((m) => m.type === 'status').at(-1) as Extract<WorkerMessage, { type: 'status' }> | undefined)?.spentToday ?? 0
+    await waitFor(() => spent() >= 4.12, 5000, () => String(spent()))
   })
 
   test('Stop ends a running stage; unknown repos, unconfirmed team tasks and gates are refused', async () => {
