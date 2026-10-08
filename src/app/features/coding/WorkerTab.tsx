@@ -222,7 +222,9 @@ export function WorkerTab() {
   const cloud = viaFor(ws) === 'cloud'
   const waitingText = cloud
     ? s.pendingHere
-      ? 'features.coding.settings.pendingHere'
+      ? s.relay?.online === false
+        ? 'features.coding.settings.pendingHereOff'
+        : 'features.coding.settings.pendingHere'
       : s.relay?.registered === false
         ? 'features.coding.settings.noCloudWorker'
         : 'features.coding.settings.waitingCloud'

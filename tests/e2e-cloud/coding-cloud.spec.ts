@@ -7,8 +7,9 @@
  * Then the pairing keys: "Download again" while connected keeps the link (no second key exchange) and the running
  * worker's key (also after two downloads and a reload; they are non-extractable keys in IndexedDB, nothing secret in
  * localStorage); another device of the member that downloads waits for its own file instead of taking this one's
- * place, and takes over without a Retry; a viewer promoted back loses the refusal by itself; a page that is not
- * https offers no Cloud.
+ * place (also while this one's worker restarts — this one gets it back by itself), and takes over without a Retry;
+ * a tab that lost the worker to a newer tab takes it back when that tab closes; a viewer promoted back loses the
+ * refusal by itself; a page that is not https offers no Cloud.
  */
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -162,7 +163,7 @@ test('a cloud worker on another computer runs a document stage through the team 
   expect(overflow.panel).toBeLessThanOrEqual(1)
 })
 
-/** The pairing keys this browser keeps (IndexedDB "one-coding"): key, and what WebCrypto says about each. */
+/** The pairing keys this browser keeps (IndexedDB "one-coding"): key, and what WebCrypto says about each — in code-unit order (as `.sort()`). */
 async function pairKeys(p: Page): Promise<Array<{ key: string; extractable: boolean; algorithm: string; type: string; exportable: boolean }>> {
   return p.evaluate(
     () =>
@@ -191,7 +192,7 @@ async function pairKeys(p: Page): Promise<Array<{ key: string; extractable: bool
                   () => false,
                 ),
               })),
-            ).then((list) => resolve(list.sort((x, y) => x.key.localeCompare(y.key))))
+            ).then((list) => resolve(list.sort((x, y) => (x.key < y.key ? -1 : x.key > y.key ? 1 : 0))))
           }
           cursor.onerror = () => reject(cursor.error)
         }
@@ -240,7 +241,7 @@ test('Download again while connected — twice, the new files not started: the l
   const t3 = list.find((w) => w.state === 'pending')!.id
   expect(list.map((w) => w.id).sort()).toEqual([t1, t3].sort())
   // this device keeps keys for the running worker and the newest download — not for the replaced one; nothing secret in localStorage
-  expect((await pairKeys(a)).map((k) => k.key)).toEqual([`cloud:${wsId}|cloudpair|${t1}`, `cloud:${wsId}|cloudpair|${t3}`].sort())
+  expect((await pairKeys(a)).map((k) => k.key).sort()).toEqual([`cloud:${wsId}|cloudpair|${t1}`, `cloud:${wsId}|cloudpair|${t3}`].sort())
   const stored = await a.evaluate(() => JSON.stringify(Object.fromEntries(Object.entries(window.localStorage))))
   for (const f of [first, second, third]) {
     expect(stored).not.toContain(f.preset.pair)
@@ -303,9 +304,76 @@ test('another device of the member downloads while this one works: this one keep
   // B's file starts on its computer: it replaces A's worker, B connects by itself, A says so
   const w2 = await startCloudWorker(theirs.file, repo, PORT_C)
   extra.push(w2)
+  // A goes from Connected to "Paired with another device" — never told to start a file of its own (it has none)
+  const seen = new Set<string>()
+  await expect
+    .poll(
+      async () => {
+        const line = (await connLine(a).textContent()) ?? ''
+        seen.add(line)
+        return line
+      },
+      { timeout: 30_000, intervals: [200] },
+    )
+    .toContain('Paired with another device')
+  expect([...seen].filter((line) => /new download/i.test(line))).toEqual([])
   await expect.poll(() => w1.child.exitCode, { timeout: 15_000 }).toBe(2)
   await expect(connLine(b)).toContainText('Connected · build-box · 1 repo · via cloud', { timeout: 30_000 })
-  await expect(connLine(a)).toContainText('Paired with another device', { timeout: 30_000 })
+  await expect(connLine(a)).toContainText('Paired with another device')
+  await b.close()
+})
+
+test('while another device waits for its own file, this one\'s worker restarts: this one gets it back by itself; a tab that took it over gives it back when it closes', async ({ page: a, context }) => {
+  test.setTimeout(180_000)
+  watch(a, 'ada')
+  const who = email('ada')
+  await signIn(a, who)
+  const wsId = await createWorkspace(a, 'Cloud outage')
+  await openApp(a, wsId)
+  await waitOnline(a)
+  await codingSettings(a)
+  await a.getByTestId('coding-via-cloud').click()
+  const mine = await downloadCloud(a, 'device-a')
+  const w1 = await startCloudWorker(mine.file, repo, PORT_B)
+  extra.push(w1)
+  await expect(connLine(a)).toContainText('Connected · build-box · 1 repo · via cloud', { timeout: 20_000 })
+
+  // the same member on another device downloads: it waits for its own file
+  const b = await newPerson(context)
+  watch(b, 'ada-2')
+  await signIn(b, who)
+  await openApp(b, wsId)
+  await waitOnline(b)
+  await codingSettings(b)
+  await b.getByTestId('coding-via-cloud').click()
+  await downloadCloud(b, 'device-b')
+  await expect(connLine(b)).toContainText('Waiting for your new download to start', { timeout: 15_000 })
+
+  // A's worker is gone for a while (restarted on its computer): B keeps waiting — it does not take A's place
+  await w1.stop()
+  await expect(connLine(a)).toContainText('Waiting for your cloud worker', { timeout: 15_000 })
+  await expect(b.getByTestId('coding-waiting')).toContainText('offline right now', { timeout: 20_000 })
+  await expect(connLine(b)).toContainText('Waiting for your new download to start')
+  const back = await startCloudWorker(mine.file, repo, PORT_B)
+  extra.push(back)
+  // back from the same file: A has it again — no Retry, no reload; B still waits
+  await expect(connLine(a)).toContainText('Connected · build-box · 1 repo · via cloud', { timeout: 20_000 })
+  await expect(b.getByTestId('coding-waiting')).toContainText('is online', { timeout: 20_000 })
+  await expect(connLine(a)).toContainText('Connected · build-box')
+  expect(back.log()).not.toMatch(/refused/)
+
+  // a second tab of A's device takes the worker over (the newest tab wins) …
+  const a2 = await a.context().newPage()
+  watch(a2, 'ada-tab-2')
+  await openApp(a2, wsId)
+  await waitOnline(a2)
+  await codingSettings(a2)
+  await expect(connLine(a2)).toContainText('Connected · build-box', { timeout: 20_000 })
+  await expect(connLine(a)).toContainText('Another tab or device uses the cloud worker', { timeout: 15_000 })
+  // … and when it closes, the first tab takes the worker back by itself
+  await a2.close()
+  await expect(connLine(a)).toContainText('Connected · build-box · 1 repo · via cloud', { timeout: 30_000 })
+  await expect(connLine(b)).toContainText('Waiting for your new download to start')
   await b.close()
 })
 

@@ -18,8 +18,9 @@
  *    worker it downloaded (cloudKeys.ts — non-extractable, one per download whose worker still works). Only a device
  *    with that download connects (another device of the member would only take its place: it shows "paired with
  *    another device"); a device whose own newer download has not started yet waits for it while another device's
- *    worker is online; a tab opened in the background does not take the worker over; tasks run only while such a
- *    tab is connected.
+ *    worker has the member's place (online, or the active one offline for a moment); a tab opened in the background
+ *    does not take the worker over; a tab another tab or device took the worker from takes it back once that tab
+ *    lets it go (the server lists it online without a tab); tasks run only while such a tab is connected.
  */
 import { useWorkspace, pageChanges } from '../../store/store'
 import { t } from '../../i18n'
@@ -292,10 +293,13 @@ async function connectCloud(self: { id: string }) {
     // none of the member's cloud workers came from this device: say so — nothing to connect to
     return set(mine.length ? { conn: 'refused', refused: 'other-device' } : { conn: 'waiting', refused: null })
   }
-  if (online && !held.has(online.id)) {
-    // another device's worker is online and this device's own download has not started yet: wait for that file (it
-    // takes over once it connects) — opening the relay link now would only take the other device's place
-    set({ conn: 'waiting', refused: null, pendingHere: true, relay: { online: true, registered: true, token: online.id } })
+  // another device's worker has the member's place — online, or the active one offline for a moment (a restart, a
+  // network blip, a server redeploy) — and this device's own download has not started yet: wait for that file (it takes
+  // over once it connects). Opening the relay link now would only take the other device's place, and its worker would
+  // come back to a tab that cannot use it
+  const elsewhere = online ? !held.has(online.id) : mine.some((w) => w.state === 'active' && !held.has(w.id)) && !mine.some((w) => w.state === 'active' && held.has(w.id))
+  if (elsewhere) {
+    set({ conn: 'waiting', refused: null, pendingHere: true, relay: { online: !!online, registered: true, token: online?.id ?? null } })
     return pollCloud()
   }
   set({ pendingHere: false })
@@ -304,19 +308,72 @@ async function connectCloud(self: { id: string }) {
   attach((h) => openCloudLink(serverId, (token) => pairFor(self.id, token), h))
 }
 
-/** Waiting for this device's own new download while another device's worker is online: look again soon. */
+const hiddenTab = () => typeof document !== 'undefined' && document.visibilityState !== 'visible'
+
+/** Waiting for this device's own new download while another device's worker has the place: look again soon. */
 function pollCloud() {
   window.clearTimeout(retryTimer)
   if (!get().enabled || link) return
-  const hidden = typeof document !== 'undefined' && document.visibilityState !== 'visible'
-  retryTimer = window.setTimeout(connect, hidden ? 60_000 : Date.now() < fastUntil ? 5000 : 15_000)
+  retryTimer = window.setTimeout(connect, hiddenTab() ? 60_000 : Date.now() < fastUntil ? 5000 : 15_000)
+}
+
+/** when this tab last asked the server again after another device's worker answered (a guard against a loop) */
+let recheckedAt = 0
+
+/**
+ * Another device's worker answered on the relay while this device holds downloads of its own: the server's list says
+ * which it is — this device's new download not started yet (wait for it), or this device's worker just replaced by
+ * another device's newer file ("paired with another device"). Asked once at once, then at the poll's pace.
+ */
+function recheckCloud() {
+  const now = Date.now()
+  if (now - recheckedAt < 10_000) return pollCloud()
+  recheckedAt = now
+  connect()
+}
+
+/** when a replaced cloud tab last asked whether its worker is free again */
+let replacedAt = 0
+
+/**
+ * A cloud tab another tab or device took the worker from (4001) looks now and then (and when it is looked at again)
+ * whether this device's own worker is online with no tab handing out its work — the tab that took its place left,
+ * or connected to a worker it could not use — and then takes it back. A hidden tab never does.
+ */
+async function checkReplaced() {
+  window.clearTimeout(retryTimer)
+  const self = currentWorkspace()
+  if (!get().enabled || link || get().conn !== 'replaced' || !self || viaFor(self) !== 'cloud') return
+  if (hiddenTab() || Date.now() - replacedAt < 3000) return watchReplaced()
+  replacedAt = Date.now()
+  const gen = generation
+  let again = false
+  try {
+    const tokens = get().cloudPairs[self.id]?.tokens ?? []
+    const own = (await listCloudWorkers(useCloud.getState().active.id)).filter((w) => w.mine && tokens.includes(w.id))
+    // free: online, no tab hands out its work · none left: replaced or revoked meanwhile — connectCloud says what is
+    // (it opens no link then)
+    again = !own.length || own.some((w) => w.online && !w.tab)
+  } catch {
+    /* the server cannot be reached right now: look again later */
+  }
+  if (gen !== generation || link || get().conn !== 'replaced' || currentWorkspace()?.id !== self.id) return
+  if (!again) return watchReplaced()
+  attempt = 0
+  connect()
+}
+
+function watchReplaced() {
+  window.clearTimeout(retryTimer)
+  if (!get().enabled || link) return
+  retryTimer = window.setTimeout(() => void checkReplaced(), hiddenTab() ? 60_000 : 15_000)
 }
 
 /** Open a link (local or cloud) with the one set of handlers. */
 function attach(open: (h: LinkHandlers) => LinkHandle) {
   let refused = false
-  /** cloud: closed to wait for this device's own download (another device's worker answered) */
-  let waitForOwn = false
+  /** cloud: closed to ask the server which of this device's downloads still work (another device's worker answered) */
+  let recheck = false
   let handle: LinkHandle | null = null
   const mine = () => !!handle && link === handle
   const h: LinkHandlers = {
@@ -354,10 +411,11 @@ function attach(open: (h: LinkHandlers) => LinkHandle) {
       if (!mine()) return
       rejectPending()
       if (why === 'other-device' && (get().cloudPairs[currentWorkspace()?.id ?? '']?.tokens.length ?? 0) > 0) {
-        // another device's worker came online while this device holds downloads of its own: leave the relay link (not
-        // that device's place) and wait for them — connectCloud asks the server which of them still work
-        waitForOwn = true
-        set({ conn: 'waiting', refused: null, pendingHere: true, worker: null, busy: [] })
+        // another device's worker answered while this device holds downloads of its own: leave the relay link (not that
+        // device's place) and ask the server whether one of them still works — this device's new download not started
+        // yet (wait for it) — or whether this device's worker was just replaced by the other device's newer file
+        recheck = true
+        set({ conn: 'connecting', refused: null, pendingHere: false, worker: null, busy: [] })
       } else {
         refused = true
         set({ conn: 'refused', refused: why, worker: null, busy: [] })
@@ -375,7 +433,7 @@ function attach(open: (h: LinkHandlers) => LinkHandle) {
       rejectPending()
       set({ worker: null, busy: [] })
       if (!get().enabled) return set({ conn: 'off' })
-      if (waitForOwn) return pollCloud()
+      if (recheck) return recheckCloud()
       if (via === 'cloud' && code === RELAY_CLOSE_FORBIDDEN) {
         const why: CodingRefused = reason === 'viewer' || reason === 'role-changed' ? 'viewer' : reason === 'forbidden' ? 'forbidden' : 'removed'
         return set({ conn: 'refused', refused: why, relay: null })
@@ -383,7 +441,10 @@ function attach(open: (h: LinkHandlers) => LinkHandle) {
       if (refused || code === WORKER_CLOSE_REFUSED) return set((s) => ({ conn: 'refused', refused: s.refused ?? (reason === 'pair' ? 'pair' : 'workspace') }))
       if (code === WORKER_CLOSE_REPLACED) {
         wasCurrent = false
-        return set({ conn: 'replaced' })
+        set({ conn: 'replaced' })
+        // through the relay: take this device's worker back once the tab that took its place lets it go
+        if (via === 'cloud') watchReplaced()
+        return
       }
       const was = get().conn === 'connected'
       if (was) {
@@ -745,7 +806,7 @@ export function startCoding() {
     if (get().conn === 'waiting') {
       attempt = Math.min(attempt, 1)
       connect()
-    }
+    } else if (get().conn === 'replaced') void checkReplaced()
   }
   document.addEventListener('visibilitychange', wake)
   window.addEventListener('focus', wake)
