@@ -242,6 +242,10 @@ test.describe('⌘K filters', () => {
     expect(validate(fx, one('in:nowhere'), envOf())).toMatchObject({ hint: 'shell.palette.hint.noPage' })
     expect(validate(fx, parseQuery('nothing:x ').filters[0], envOf())).toMatchObject({ hint: 'shell.palette.hint.unknownKey' })
     expect(validate(fx, one('@me'), envOf({ me: () => null }))).toEqual({ hint: 'shell.palette.hint.noMe' })
+    // locally every change is the one person's: by:<person> explains, by:<agent> / by:me work
+    expect(validate(fx, one('by:alex'), envOf())).toEqual({ hint: 'shell.palette.hint.byLocal' })
+    expect(validate(fx, one('by:tidy'), envOf())).toBe(true)
+    expect(validate(fx, one('by:me'), envOf())).toBe(true)
   })
 
   test('a row shows the values it was found by; a chip reads like the workspace', () => {

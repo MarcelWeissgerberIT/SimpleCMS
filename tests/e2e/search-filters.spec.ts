@@ -1,0 +1,222 @@
+/**
+ * ⌘K filters in the browser (shell/palette): a complete filter + space becomes a chip, suggestions for the
+ * token being typed (Tab / Enter / arrows), Backspace and a focused chip remove chips, results show the
+ * values they were found by, words and filters combine (body text too), text that only looks like a filter
+ * stays text, German spellings, and the keyboard path to a side pane.
+ */
+import type { Locator, Page } from '@playwright/test'
+import { test, expect, openApp, wsEval, pageIdByTitle, gotoPage, MOD } from './fixtures'
+
+async function openPalette(page: Page): Promise<Locator> {
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur?.())
+  await page.keyboard.press(`${MOD}+k`)
+  const pal = page.getByRole('dialog', { name: /Command palette|Befehlspalette/ })
+  await expect(pal).toBeVisible()
+  await expect(pal.getByRole('combobox')).toBeFocused()
+  return pal
+}
+
+const chips = (pal: Locator) => pal.locator('.pal-chips [role="listitem"] .pal-chip')
+const field = (pal: Locator) => pal.getByRole('combobox')
+const groupHeads = (pal: Locator) => pal.locator('.pal-group > span:first-child')
+/** The result rows (pages), by title. */
+const titles = (pal: Locator) => pal.locator('.pal-item--page .pal-item__title').allInnerTexts()
+
+test.describe('⌘K filters', () => {
+  test('status:done becomes a chip; results are entries with their status, never plain pages', async ({ page }) => {
+    await openApp(page)
+    const pal = await openPalette(page)
+    await page.keyboard.type('status:done ')
+    await expect(chips(pal)).toHaveCount(1)
+    await expect(chips(pal).first()).toHaveAccessibleName('Remove filter Status: Done')
+    await expect(chips(pal).first()).toContainText('Status')
+    await expect(chips(pal).first()).toContainText('Done')
+    await expect(field(pal)).toHaveValue('')
+    await expect(groupHeads(pal).first()).toHaveText('Results')
+    const brand = pal.getByRole('option').filter({ has: page.locator('.pal-item__title', { hasText: /^Brand refresh$/ }) })
+    await expect(brand.locator('.pal-item__path')).toHaveText('Projects')
+    await expect(brand.locator('.pal-item__props')).toContainText('Status')
+    await expect(brand.locator('.pal-item__props')).toContainText('Done')
+    const got = await titles(pal)
+    for (const t of ['Brand refresh', 'Import our Notion workspace', 'Less, but better', 'Why we left Notion (and saved €2,880)']) expect(got).toContain(t)
+    // the other databases' done options: Finished (Reading list), Published (Content calendar)
+    await expect(pal.getByRole('option').filter({ hasText: 'Less, but better' }).locator('.pal-item__props')).toContainText('Finished')
+    // no plain page and no database page: every row is an entry with a status
+    const rows = pal.locator('.pal-item--page')
+    const n = await rows.count()
+    expect(n).toBe(got.length)
+    for (let i = 0; i < n; i++) await expect(rows.nth(i).locator('.pal-item__props')).toContainText('Status')
+    // while filtering: no "Create page", no commands, templates or help
+    await expect(pal.locator('.pal-create')).toHaveCount(0)
+    await expect(groupHeads(pal)).toHaveText(['Results'])
+    await page.keyboard.press('Escape')
+    await expect(pal).toBeHidden()
+  })
+
+  test('suggestions: status: groups and options, arrows + Enter take one; @al + Tab gives @ Alex', async ({ page }) => {
+    await openApp(page)
+    const pal = await openPalette(page)
+    await page.keyboard.type('status:')
+    await expect(groupHeads(pal).first()).toHaveText('Filter · Status')
+    const sug = pal.locator('.pal-item--sug')
+    await expect(sug.first()).toContainText('Complete')
+    // the to-do group names what it holds; the option itself is one row
+    await expect(sug.first().locator('.pal-item__hint')).toHaveText('Done · Finished · Published')
+    await expect(sug.filter({ has: page.locator('.pal-item__title', { hasText: /^Backlog$/ }) })).toHaveCount(1)
+    // "Done" is the done group's own word: one row, never two with the same value
+    const values = await sug.evaluateAll((els) => els.map((e) => e.getAttribute('data-value')))
+    expect(new Set(values).size).toBe(values.length)
+    await page.keyboard.press('ArrowDown')
+    await expect(pal.locator('[role="option"][aria-selected="true"]')).toContainText('In progress')
+    await page.keyboard.press('Enter')
+    await expect(chips(pal)).toHaveCount(1)
+    await expect(chips(pal).first()).toHaveAccessibleName('Remove filter Status: In progress')
+    // in-progress = "In progress" and "Review" in Projects
+    const got = await titles(pal)
+    expect(got).toContain('Website relaunch')
+    expect(got).toContain('AI support assistant')
+    await page.keyboard.type('@al')
+    await expect(sug.first()).toContainText('Alex')
+    await page.keyboard.press('Tab')
+    await expect(chips(pal)).toHaveCount(2)
+    await expect(chips(pal).nth(1)).toHaveAccessibleName('Remove filter @Alex')
+    await expect(field(pal)).toBeFocused()
+    expect(await titles(pal)).toEqual(['Website relaunch'])
+  })
+
+  test('Backspace in the empty field and a chip itself remove chips; Enter on a focused chip never opens a result', async ({ page }) => {
+    await openApp(page)
+    const pal = await openPalette(page)
+    await page.keyboard.type('status:done @alex is:row ')
+    await expect(chips(pal)).toHaveCount(3)
+    await page.keyboard.press('Backspace')
+    await expect(chips(pal)).toHaveCount(2)
+    await expect(field(pal)).toBeFocused()
+    // a click on a chip removes it, the field keeps the focus
+    await chips(pal).nth(1).click()
+    await expect(chips(pal)).toHaveCount(1)
+    await expect(field(pal)).toBeFocused()
+    // Shift+Tab to the chip, Enter: the chip goes, the palette stays
+    await page.keyboard.press('Shift+Tab')
+    await expect(chips(pal).first()).toBeFocused()
+    await page.keyboard.press('Enter')
+    await expect(pal).toBeVisible()
+    await expect(chips(pal)).toHaveCount(0)
+    await expect(field(pal)).toBeFocused()
+    // ">" leaves find mode: the chips go
+    await page.keyboard.type('status:done ')
+    await expect(chips(pal)).toHaveCount(1)
+    await page.keyboard.type('>')
+    await expect(pal.locator('.pal-mode')).toHaveText('RUN')
+    await expect(chips(pal)).toHaveCount(0)
+  })
+
+  test('negation, either-or, in:, words and filters together (titles and body text)', async ({ page }) => {
+    await openApp(page)
+    const pal = await openPalette(page)
+    await page.keyboard.type('-status:done in:projects ')
+    await expect(chips(pal)).toHaveCount(2)
+    await expect(chips(pal).first()).toHaveAccessibleName('Remove filter not Status: Done')
+    await expect.poll(async () => (await titles(pal)).sort()).toEqual(['AI support assistant', 'Customer onboarding video', 'Pricing page experiment', 'Q4 content calendar', 'Website relaunch', 'n8n lead-routing automation'].sort())
+    await page.keyboard.press(`${MOD}+a`)
+    await page.keyboard.press('Backspace')
+    await page.keyboard.press('Backspace')
+    await page.keyboard.press('Backspace')
+    await expect(chips(pal)).toHaveCount(0)
+    await page.keyboard.type('status:done status:review in:projects ')
+    await expect(chips(pal)).toHaveCount(3)
+    await expect.poll(async () => (await titles(pal)).length).toBe(4)
+    await expect(pal.locator('.pal-group__n').first()).toHaveText('04')
+    await page.keyboard.type('brand')
+    await expect.poll(() => titles(pal)).toEqual(['Brand refresh'])
+    await expect(pal.locator('.pal-item--page mark').first()).toHaveText('Brand')
+    // a word only in the body: the filtered rows that contain it, counted as shown
+    await page.keyboard.press(`${MOD}+a`)
+    await page.keyboard.type('actually')
+    const content = pal.locator('[cmdk-group]').filter({ has: page.locator('.pal-group', { hasText: 'In content' }) })
+    await expect(content.locator('.pal-item--page')).toHaveCount(4)
+    await expect(content.locator('.pal-group__n')).toHaveText('04')
+    await expect(pal.locator('.pal-more')).toHaveCount(0)
+  })
+
+  test('numbers and dates; nothing matching says so', async ({ page }) => {
+    await openApp(page)
+    const pal = await openPalette(page)
+    await page.keyboard.type('budget:>5000 ')
+    await expect.poll(async () => (await titles(pal)).sort()).toEqual(['AI support assistant', 'Brand refresh', 'Customer onboarding video', 'Website relaunch'])
+    await expect(pal.getByRole('option').filter({ hasText: 'Website relaunch' }).locator('.pal-item__props')).toContainText('€18,000')
+    await page.keyboard.press('Backspace')
+    await page.keyboard.type('budget:lots')
+    await expect(pal.locator('.pal-hint')).toContainText('Budget: a number')
+    await page.keyboard.press(`${MOD}+a`)
+    await page.keyboard.type('edited:today ')
+    await expect(chips(pal)).toHaveCount(1)
+    await expect(chips(pal).first()).toContainText('Today')
+    expect((await titles(pal)).length).toBeGreaterThan(5)
+    await page.keyboard.press('Backspace')
+    await page.keyboard.type('edited:yesterday ')
+    await expect(pal.locator('.pal-empty')).toContainText('Nothing matches these filters.')
+  })
+
+  test('text that only looks like a filter stays text; database commands still rank', async ({ page }) => {
+    await openApp(page)
+    const pal = await openPalette(page)
+    await page.keyboard.type('foo:bar ')
+    await expect(chips(pal)).toHaveCount(0)
+    await expect(field(pal)).toHaveValue('foo:bar ')
+    await expect(pal.getByRole('option', { name: /Create page “foo:bar”/ })).toBeVisible()
+    await page.keyboard.press(`${MOD}+a`)
+    await page.keyboard.type('Re: budget')
+    await expect(chips(pal)).toHaveCount(0)
+    await expect(pal.getByRole('option', { name: /Create page “Re: budget”/ })).toBeVisible()
+    await page.keyboard.press(`${MOD}+a`)
+    await page.keyboard.type('Status: Q3 report')
+    await expect(chips(pal)).toHaveCount(0)
+    await expect(pal.getByRole('option', { name: /Create page “Status: Q3 report”/ })).toBeVisible()
+    await page.keyboard.press(`${MOD}+a`)
+    await page.keyboard.type('Projects: New')
+    await expect(pal.getByRole('option', { name: /Projects: New entry/ })).toBeVisible()
+    // a filter that matches nothing stays a word: the search never gets narrower than before
+    await page.keyboard.press(`${MOD}+a`)
+    await page.keyboard.type('@nobody plan')
+    await expect(chips(pal)).toHaveCount(0)
+    await expect(pal.getByRole('option', { name: /Create page “@nobody plan”/ })).toBeVisible()
+  })
+
+  test('keyboard only: filter, arrow to a result, Alt+Enter opens it in a pane', async ({ page }) => {
+    await openApp(page)
+    const pal = await openPalette(page)
+    await page.keyboard.type('status:done in:reading ')
+    await expect.poll(() => titles(pal)).toContain('Less, but better')
+    const first = (await titles(pal))[0]
+    await page.keyboard.press('ArrowDown')
+    await page.keyboard.press('ArrowUp')
+    await expect(pal.locator('[role="option"][aria-selected="true"] .pal-item__title')).toHaveText(first)
+    await page.keyboard.press('Alt+Enter')
+    await expect(pal).toBeHidden()
+    await expect(page.locator('section.pane .pane__title')).toHaveText(first)
+    expect(await page.evaluate(() => (window as unknown as { __one: { ui: { getState: () => { panes: unknown[] } } } }).__one.ui.getState().panes.length)).toBe(1)
+  })
+})
+
+test.describe('⌘K filters in German', () => {
+  test.use({ locale: 'de-DE' })
+
+  test('ist:favorit lists a starred page; status:erledigt reads like the workspace', async ({ page }) => {
+    await openApp(page)
+    const id = await pageIdByTitle(page, 'Team-Wiki')
+    await wsEval(page, (s, id) => s.toggleFavorite(id), id)
+    await gotoPage(page, id)
+    const pal = await openPalette(page)
+    await page.keyboard.type('ist:favorit ')
+    await expect(chips(pal).first()).toHaveAccessibleName('Filter ist: Favoriten entfernen')
+    await expect.poll(() => titles(pal)).toContain('Team-Wiki')
+    await page.keyboard.press('Backspace')
+    await page.keyboard.type('status:erledigt ')
+    await expect(chips(pal).first()).toHaveAccessibleName('Filter Status: Erledigt entfernen')
+    await expect(groupHeads(pal).first()).toHaveText('Treffer')
+    await expect.poll(() => titles(pal)).toContain('Brand-Refresh')
+    await page.keyboard.type('geändert:')
+    await expect(pal.locator('.pal-item--sug').first()).toContainText('Heute')
+  })
+})

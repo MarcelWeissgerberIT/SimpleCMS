@@ -480,8 +480,12 @@ export function validate(fx: FilterIndex, f: Filter, env: FilterEnv): true | Inv
       if (mentionedPeople(f.value, env).length) return true
       return isMe(f.value) ? { hint: 'shell.palette.hint.noMe' } : { hint: 'shell.palette.hint.unknownPerson', vars: { value: f.value } }
     }
-    case 'by':
-      return actorValid(actorQuery(f.value, env)) ? true : { hint: 'shell.palette.hint.unknownPerson', vars: { value: f.value } }
+    case 'by': {
+      if (actorValid(actorQuery(f.value, env))) return true
+      // locally every change is the one person's: by: finds agents' changes and by:me
+      if (!env.team && peopleFor(f.value, env.people).length) return { hint: 'shell.palette.hint.byLocal' }
+      return { hint: 'shell.palette.hint.unknownPerson', vars: { value: f.value } }
+    }
   }
 }
 

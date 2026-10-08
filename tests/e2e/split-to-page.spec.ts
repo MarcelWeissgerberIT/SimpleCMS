@@ -147,9 +147,9 @@ test.describe('Turn into page', () => {
     expect((await pageById(page, id)).comments ?? []).toEqual([])
 
     // the sidebar shows it below this page
-    const parentRow = page.locator('.sb-row', { has: page.locator('.sb-row__title', { hasText: /^Project notes$/ }) }).first()
+    const parentRow = page.locator('.sb-row[data-section="pages"]', { has: page.locator('.sb-row__title', { hasText: /^Project notes$/ }) }).first()
     await expect(parentRow).toBeVisible()
-    const child = page.locator('.sb-row', { has: page.locator('.sb-row__title', { hasText: /^Launch plan$/ }) })
+    const child = page.locator('.sb-row[data-section="pages"]', { has: page.locator('.sb-row__title', { hasText: /^Launch plan$/ }) })
     const toggle = parentRow.locator('.sb-row__toggle')
     if ((await toggle.getAttribute('aria-label')) === 'Expand') await toggle.click()
     await expect(child.first()).toBeVisible()

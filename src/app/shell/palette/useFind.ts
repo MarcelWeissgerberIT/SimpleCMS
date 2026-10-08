@@ -94,11 +94,12 @@ export function useFind(initial: string): Find {
   const parsed = useMemo(() => parseQuery(mode === 'find' ? q : '', vocab), [q, mode, vocab])
   const { active, text } = useMemo(() => {
     const valid: Filter[] = []
-    const words = [...parsed.words]
-    for (const f of parsed.filters) {
-      if (validate(fx, f, env) === true) valid.push(f)
-      // a finished filter that can match nothing searches as text — the one being typed waits
-      else if (!f.open) words.push(f.raw)
+    const words: string[] = []
+    for (const it of parsed.items) {
+      if (typeof it === 'string') words.push(it)
+      else if (validate(fx, it, env) === true) valid.push(it)
+      // a finished filter that can match nothing searches as text, where it was typed — the one being typed waits
+      else if (!it.open) words.push(it.raw)
     }
     return { active: mode === 'find' ? [...chips, ...valid] : [], text: words.join(' ') }
   }, [parsed, fx, env, chips, mode])

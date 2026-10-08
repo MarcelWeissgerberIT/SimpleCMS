@@ -101,7 +101,7 @@ test.describe('editor', () => {
     await expect(ed2.locator('table')).toContainText('cell A1')
     await expect(ed2).toContainText('The end.')
     // page appears in the sidebar under its new title
-    await expect(page.locator('.sb .sb-row__title', { hasText: 'E2E editor page' })).toBeVisible()
+    await expect(page.locator('.sb section[aria-label="Pages"] .sb-row__title', { hasText: 'E2E editor page' })).toBeVisible()
   })
 
   test('text typed right before a reload is not lost', async ({ page }) => {

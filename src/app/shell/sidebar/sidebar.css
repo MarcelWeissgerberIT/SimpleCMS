@@ -386,6 +386,17 @@
 .sb-visited .sb-hint {
   font-size: var(--text-xs);
 }
+/* a narrow sidebar (220 px): the dotted leader and the count give way before the keys do */
+.sb-visited__head {
+  gap: 5px;
+}
+.sb-visited__head .sb-sect__leader {
+  min-width: 0;
+}
+.sb-visited__head .sb-sect__count {
+  min-width: 0;
+  overflow: hidden;
+}
 
 /* ---------- private section (team workspaces) ---------- */
 .sb-sect__icon {

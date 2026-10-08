@@ -67,6 +67,8 @@ export interface ParsedQuery {
   filters: Filter[]
   /** the token at the end of the input while it is typed (no space after it yet) */
   partial: PartialToken | null
+  /** words and filters in the order they were typed */
+  items: Array<string | Filter>
 }
 
 /** Which keys are property names (exact, folded) — a query without one parses every `key:` as a filter. */
@@ -246,6 +248,11 @@ export function parseQuery(input: string, vocab?: QueryVocab): ParsedQuery {
   const tokens = tokenize(input)
   const words: string[] = []
   const filters: Filter[] = []
+  const items: Array<string | Filter> = []
+  const word = (w: string) => {
+    words.push(w)
+    items.push(w)
+  }
   let partial: PartialToken | null = null
   const endsOpen = input.length > 0 && !isSpace(input[input.length - 1])
   tokens.forEach((tok, i) => {
@@ -261,16 +268,20 @@ export function parseQuery(input: string, vocab?: QueryVocab): ParsedQuery {
     }
     if (!parts) {
       const w = unquote(tok.raw)
-      if (w) words.push(w)
+      if (w) word(w)
       return
     }
     const f = toFilter(tok.raw, parts, vocab)
-    if (f === 'word') words.push(tok.raw)
-    else if (f) filters.push(last ? { ...f, open: true } : f)
+    if (f === 'word') word(tok.raw)
+    else if (f) {
+      const filter: Filter = last ? { ...f, open: true } : f
+      filters.push(filter)
+      items.push(filter)
+    }
     // unfinished ("status:" / "@"): neither while it is typed, text once a space follows ("Status: Q3 report")
-    else if (!last) words.push(tok.raw)
+    else if (!last) word(tok.raw)
   })
-  return { words, text: words.join(' '), filters, partial }
+  return { words, text: words.join(' '), filters, partial, items }
 }
 
 /**
