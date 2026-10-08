@@ -1,7 +1,7 @@
 ---
 id: 2026-10-08-terminal-pipelines
 date: 2026-10-08
-order: 5
+order: 2
 title: The AI terminal runs your pipelines — and signs in to MCP servers
 summary: In ⌘J, Claude lists, creates, approves, sends back, answers, runs and stops tasks of the coding pipelines — every change staged for your review; /connect signs in to an MCP server in a browser window.
 image: assets/shots/changelog/terminal-pipelines.webp
