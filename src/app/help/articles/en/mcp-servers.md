@@ -41,6 +41,9 @@ Some sign-ins don't send the window back to One — they show an error there, or
 
 A sign-in that a browser can't finish at all (the server's sign-in refuses browsers, CORS) says so — then paste a token as before.
 
+### Connect from the AI terminal
+In the [AI terminal](help:agent), `/connect` lists the servers and how they stand (signed in, token, sign-in needed, off). `/connect kb` — a name, a codeword or an address — signs in: the window opens right from your <kbd>Enter</kbd>, and the terminal shows the waiting, the code (with **Use a code instead**), the connection test and **Connected · 3 tools**. A server whose token works is only tested; no window opens. `/connect https://…` adds a server by its address first. When the browser blocks the window, the terminal says so and stays where it is — allow pop-ups for One, or press **Sign in again**. A server you add during a conversation joins after `/new`; a server you sign in to again is used with its new sign-in right away.
+
 ## Save media to One
 Image and video services (and others) return pictures, clips or audio. One shows each as a **card** — file type, host, size when known — under the answer in the AI menu, in `⌘K ?`, in the [AI terminal](help:agent) and in [custom agents'](help:custom-agents) runs. Nothing is loaded until you click.
 - **Save to One** (or **Save all**) fetches the file in this browser, checks that it really is an image, video or audio file (type and content), stores it in this browser and puts the block where you asked: below the selection in the AI menu, at the end of the current page in `⌘K ?`. In the terminal, saving stages **Insert media** for your review — on the page the task worked on, or on a new page "Generated media".

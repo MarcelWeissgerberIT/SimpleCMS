@@ -12,7 +12,8 @@ import { useUI } from '../../store/ui'
 import { useT } from '../../i18n'
 import { useCoding } from './state'
 import { FOLLOW_UPS, codingProps, currentProjectId, readPipeline, type PipelineKind } from './schema'
-import { createTask, workerBranches, type NewTask } from './tasks'
+import { BRANCH_NAME, createTask, workerBranches, type NewTask } from './tasks'
+import { REPO_NAME } from './protocol'
 
 export function NewTaskDialog({ onClose, onCreated, kind = 'coding' }: { onClose: () => void; onCreated: (id: string) => void; kind?: PipelineKind }) {
   const t = useT()
@@ -45,8 +46,8 @@ export function NewTaskDialog({ onClose, onCreated, kind = 'coding' }: { onClose
   // the worker's local branches of the chosen repo (names only) — picked or typed
   const branches = useMemo(() => workerBranches(repo.trim() || null).list, [worker, repo]) // eslint-disable-line react-hooks/exhaustive-deps
   const [saving, setSaving] = useState(false)
-  const repoOk = repo.trim() ? /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(repo.trim()) : repoOptional
-  const ok = title.trim().length > 0 && repoOk && (!branch.trim() || /^[A-Za-z0-9._/-]{1,200}$/.test(branch.trim()))
+  const repoOk = repo.trim() ? REPO_NAME.test(repo.trim()) : repoOptional
+  const ok = title.trim().length > 0 && repoOk && (!branch.trim() || BRANCH_NAME.test(branch.trim()))
 
   const submit = async () => {
     if (!ok || saving) return

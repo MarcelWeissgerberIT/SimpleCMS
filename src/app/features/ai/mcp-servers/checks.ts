@@ -69,6 +69,23 @@ export async function checkServer(id: string, mode: CheckMode = 'guide', opts: {
   }
 }
 
+/** Resolves once no check runs for the server (at once when none does): true — or false after `timeoutMs`. */
+export function whenChecked(id: string, timeoutMs = 60_000): Promise<boolean> {
+  if (!useMcpChecks.getState().running[id]) return Promise.resolve(true)
+  return new Promise((resolve) => {
+    const timer = window.setTimeout(() => {
+      unsub()
+      resolve(false)
+    }, timeoutMs)
+    const unsub = useMcpChecks.subscribe((s) => {
+      if (s.running[id]) return
+      window.clearTimeout(timer)
+      unsub()
+      resolve(true)
+    })
+  })
+}
+
 /** Stop a running check (the server was removed). */
 export function cancelCheck(id: string): void {
   controllers.get(id)?.abort()

@@ -47,6 +47,31 @@ function refIds(taskId: ID, blocks: JSONContent[] = readableBlocks(taskId)): ID[
   return ids
 }
 
+/** The page ids blocks point to (mentions, page links, One addresses), in order — `selfId` left out. */
+export const refIdsOf = (blocks: JSONContent[], selfId: ID = ''): ID[] => refIds(selfId, blocks)
+
+/** A page that goes along to the worker; `staged`: proposed in the AI terminal, not created yet — it goes along once it is. */
+export interface RefPage {
+  id: ID
+  title: string
+  staged?: true
+}
+
+/**
+ * The pages that would go to the worker with these blocks (and the One addresses in `extra`: answers, notes): live,
+ * not in a template, at most 8 — what the AI terminal's review lists before a task is created or acted on. `staged`:
+ * pages the terminal proposed but did not create yet (id → title) — listed too, marked: once applied they go along.
+ */
+export function refPagesOf(blocks: JSONContent[], extra: string[] = [], selfId: ID = '', staged?: ReadonlyMap<ID, string>): RefPage[] {
+  const s = useWorkspace.getState()
+  const ids = refIdsOf(blocks, selfId)
+  for (const text of extra) for (const id of idsInText(text)) if (id !== selfId && !ids.includes(id)) ids.push(id)
+  return ids
+    .filter((id) => usable(id) || (!s.pages[id] && !!staged?.has(id)))
+    .slice(0, MAX_REFS)
+    .map((id): RefPage => (s.pages[id] ? { id, title: s.pages[id]!.title.trim() || t('common.untitled') } : { id, title: staged!.get(id)!.trim() || t('common.untitled'), staged: true }))
+}
+
 const usable = (id: ID) => {
   const s = useWorkspace.getState()
   return !!s.pages[id] && !isEffectivelyTrashed(s.pages, id) && !inTemplate(s.pages, id)

@@ -81,6 +81,16 @@ export function needsConfirm(page: Page): boolean {
   return inTeam() || agentTouched(page)
 }
 
+/**
+ * Local workspaces: would a write from this tab end the task's wait for Confirm? The attribution keeper
+ * (agents/attribution.ts) clears an agent's "last edited" stamp on the next change made here — a task an agent changed
+ * (but did not create) then counts as the person's own again. The AI terminal never writes such a task on its own
+ * (an Undo of its writes leaves it alone): only "Confirm on this device" on the task page ends the wait.
+ */
+export function writeEndsConfirm(page: Page): boolean {
+  return !inTeam() && !agentIdOf(page.createdBy) && !!agentIdOf(page.updatedBy)
+}
+
 /** Trust the watch is still carrying over (changes made here a moment ago). */
 let settling: Promise<void> = Promise.resolve()
 

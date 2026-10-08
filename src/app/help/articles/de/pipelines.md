@@ -41,4 +41,7 @@ Die Business-Analyse-Vorlage **Spezifikation → Stories** endet mit einer Stufe
 ## Import-Stufe
 Eine Pipeline kann mit dem Code beginnen: **Import** (die Vorlage *Altsoftware modernisieren* beginnt damit, ebenso *Für Altsoftware anlegen* auf einer leeren #/coding-Seite). Eine Aufgabe dort zeigt in ihrem Panel ein Feld: **ZIP** ablegen, eine **GitLab-/GitHub-Adresse** einfügen oder ein Repo des Workers nehmen. Der Worker legt ein neues Repository in `~/one-repos` an, die Aufgabe übernimmt es als **Repo** und geht weiter – siehe [Altsoftware modernisieren](help:legacy-modernisation).
 
+## Aus dem KI-Terminal
+Claude im [KI-Terminal](help:agent) kann auch Business-Analyse- und QA-Aufgaben anlegen (mit *Danach*), die Frage einer Aufgabe mit deinen Worten beantworten, ein Dokument mit Anweisungen zurückschicken oder eine fertige Aufgabe übergeben — jede Änderung ein Vorschlag, den du übernimmst. `/pipelines spec` oder `/pipelines qa` listet, was dort offen ist.
+
 > Tipp: Rückfragen gehen in jeder Stufe – Claude Code fragt im Aufgaben-Panel (**Claude fragt**), statt zu raten, auch beim Planen.

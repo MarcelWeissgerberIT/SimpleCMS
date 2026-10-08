@@ -403,6 +403,34 @@ person's browser tabs.
 - **Local workspaces**: nothing to confirm — except a task a custom agent created or changed last (`agent:<id>`,
   stamped on this device): it waits for **Confirm on this device** like a team task (an agent that read injected
   text never starts Claude Code on your machine by itself).
+- **The AI terminal** (features/ai/agent/coding.ts → coding/terminal.ts): Claude reads the pipelines directly
+  (`list_pipelines`, `list_tasks`, `read_task` — the worker's / Claude Code's text framed in `<task_output>`, and
+  withheld under the person's context marks) and **proposes** tasks and actions (`create_task`, `task_action`:
+  approve · rework · answer · run · stop · then · hand_on) as staged changes of kind `coding`, applied only in the
+  review. A new task's card shows its whole page exactly as Claude Code will read it (plus the pages that go along —
+  pages proposed in the same conversation too, marked *staged*; applying refuses when the live list has a page the
+  card did not list); only such a reviewed task is created trusted. Creates staged for "a new project" of a kind land
+  in the project the first applied one made (same template, compared live: start, stop, git stages). Changes that
+  **start the worker** — computed live: where a new task lands (automatic queues hopped, like the worker's pick),
+  approve / rework / answer / run / hand_on, an approval into done with *Then*, a *Then* that adds a pipeline to a task
+  not done yet (a done task's *Then* is refused: hand_on) — and text appended to a task's page (shown in full,
+  **GOES TO CLAUDE CODE**) are never part of "apply all". Text the terminal writes into a task's page (append, edit)
+  lists the pages it links (they go along — a staged one is marked and shown in full as GOES TO CLAUDE CODE; applying
+  refuses a page the card did not list). Applying **never confirms** a version: every action but Stop — *Then* too —
+  is refused for a task this device has not trusted (Confirm stays on the task page), and the actions run with
+  `confirm: false` (keepTrust only). In a local workspace a write from the person's tab clears an agent's "last
+  edited" stamp, which ends the wait for Confirm: the terminal never writes such a task (its Undo leaves it alone
+  too). A fingerprint (stage, phase, title + the page's Markdown, Repo / Branch, this device's local state, the open
+  question) refuses a stale action — except through the terminal's own reviewed writes of the task applied
+  since (a chain of fingerprints; an edit made elsewhere breaks it; in a team the terminal's edit of the open task
+  page is handed from its document to the store at once, so the step is recorded from the edited page). An approval
+  shows Claude Code's plan while the page's section still says the same (a hash kept when the worker writes it), else
+  the section as it stands on the page. Task actions stay applied on Undo, a created task the worker took is kept. The
+  terminal adds no worker verb (Stop only); it never moves a task to a stage, confirms it, changes approvals, runs git
+  verbs, hands over an Import's code or edits a pipeline. Its row tools refuse a pipeline database's rows / properties
+  (`create_row`, `add_property`), the role fields Stage, Repo, Branch, Then, Git, PR, Cost, Worker, Claimed at
+  (`update_row`; Then: `task_action then`), and any row / page / title change of a task that waits for Confirm.
+  `coding` changes apply only from the terminal (never from a custom agent's run, never from a server run's `KINDS`).
 - **Diffs never follow links**: an untracked symbolic link shows as its target, the file it points at is never read.
 - **Cost**: per-task and per-day limits are checked before each stage and passed to Claude Code as
   `--max-budget-usd` (where the CLI knows it). **Stop** (One) or Ctrl+C (worker) kills Claude Code's whole process

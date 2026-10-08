@@ -94,7 +94,7 @@ async function applyStaged(changes: StagedChange[]): Promise<{ rowIds: Record<st
     res.undo()
     throw new McpToolError(`Nothing was changed: ${res.failed.map((f) => f.error).join('; ')}.`)
   }
-  return { rowIds: res.rowIds, undo: () => res.undo() === 0 }
+  return { rowIds: res.rowIds, undo: () => res.undo().kept.length === 0 }
 }
 
 function propLines(props: PropChange[] | undefined, withBefore: boolean): PlanLine[] {

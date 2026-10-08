@@ -133,7 +133,7 @@ export function undoRun(runId: string): number | null {
   const res = undos.get(runId)
   if (!res) return null
   undos.delete(runId)
-  return res.undo()
+  return res.undo().kept.length
 }
 export function rememberUndo(runId: string, res: ApplyResult): void {
   undos.set(runId, res)

@@ -21,6 +21,7 @@ import { linkBaseOf } from '../../../lib/foreignLinks'
 import { addressedLine, codewordGuideLine, codewordProblem, normalizeCodeword, parseCodewords, switchedOffLine, pickedTool, pickedToolLine } from './codeword'
 import { readOAuth } from './oauthConfig'
 import { tokenFor } from './oauth'
+import { newId } from '../../../lib/ids'
 
 /** The MCP connector beta. */
 export const MCP_BETA = 'mcp-client-2025-11-20'
@@ -153,6 +154,47 @@ export function patchServer(id: string, patch: Partial<McpServerConfig>): void {
   writeServers(readServers().map((s) => (s.id === id ? { ...s, ...patch } : s)))
 }
 
+/**
+ * Add a server by its address (Settings → Claude AI "Add", the AI terminal's /connect https://…): its name from the
+ * address, switched on. The caller starts the background check (checks.ts) — this module never imports it.
+ */
+export function addServer(raw: string, token = ''): { server: McpServerConfig } | { problem: Exclude<ReturnType<typeof urlProblem>, ''> | 'full' } {
+  const problem = urlProblem(raw)
+  if (problem) return { problem }
+  const list = readServers()
+  if (list.length >= MAX_SERVERS) return { problem: 'full' }
+  const url = raw.trim()
+  const server: McpServerConfig = { id: newId(), name: deriveName(url, list.map((s) => s.name)), url, token: token.trim(), enabled: true, prompt: '' }
+  // the store seals a plaintext token and keeps its marker (store/secrets.ts)
+  writeServers([...list, server])
+  return { server: readServers().find((s) => s.id === server.id) ?? server }
+}
+
+const sameUrl = (a: string, b: string) => {
+  try {
+    const x = new URL(a.trim())
+    const y = new URL(b.trim())
+    return x.origin === y.origin && x.pathname.replace(/\/+$/, '') === y.pathname.replace(/\/+$/, '') && x.search === y.search
+  } catch {
+    return false
+  }
+}
+
+/** A server by its name, codeword ("kb" or "kb:"), address, or a name typed loosely ("Atlas KB" → atlas-kb). */
+export function findServer(query: string, list: McpServerConfig[] = readServers()): McpServerConfig | null {
+  const raw = query.trim()
+  if (!raw) return null
+  const low = raw.toLowerCase()
+  const word = low.replace(/:$/, '')
+  return (
+    list.find((s) => s.name === low) ??
+    (word !== 'one' ? list.find((s) => !!s.codeword && s.codeword === word) : undefined) ??
+    (/^https?:\/\//i.test(raw) ? list.find((s) => sameUrl(s.url, raw)) : undefined) ??
+    list.find((s) => s.name === slugName(raw).replace(/[-_]+$/, '')) ??
+    null
+  )
+}
+
 /* ------------------------------------------------------------------ */
 /* The system prompt part                                              */
 /* ------------------------------------------------------------------ */
@@ -248,6 +290,27 @@ export function setupKey(setup: McpSetup): string {
 const refused = new Map<string, string>()
 const isRefused = (s: McpServerConfig) => refused.has(s.id) && refused.get(s.id) === (s.token ?? '')
 
+/** This tab left the server out because it rejected its token (until the token changes). */
+export const refusedHere = (s: Pick<McpServerConfig, 'id' | 'token'>) => refused.has(s.id) && refused.get(s.id) === (s.token ?? '')
+
+/**
+ * The server needs a sign-in before it can be used: the last check said its token was rejected, this tab saw it
+ * rejected, or it has no token and was never checked (an open server that works has `checkedAt`).
+ */
+export const needsSignIn = (s: McpServerConfig) => s.checkAuth === true || refusedHere(s) || (!s.token && !s.checkedAt)
+
+/**
+ * A pinned server (a conversation's setup) with the token and sign-in it has NOW: a sign-in or a new token during the
+ * conversation takes effect at once. Only while the server is the same one — its address and name unchanged (an
+ * edited address keeps the old token: a new server's credential never goes to the old address); a removed one: null.
+ */
+export function liveOf(pinned: McpServerConfig, list: McpServerConfig[] = readServers()): McpServerConfig | null {
+  const live = list.find((s) => s.id === pinned.id)
+  if (!live) return null
+  if (live.url !== pinned.url || live.name !== pinned.name) return pinned
+  return { ...pinned, token: live.token, oauth: live.oauth }
+}
+
 /** An API error said this server rejected its token. */
 export function noteRefused(name: string): void {
   const s = readServers().find((x) => x.name === name)
@@ -262,13 +325,21 @@ export function clearRefused(name: string): void {
 
 /** Servers a request of this kind would take but leaves out because they rejected their token here. */
 export function refusedNames(setup: McpSetup = currentSetup(), kind: McpRequestKind = 'free', forced: string[] = []): string[] {
-  return setup.servers.filter((s) => !(kind === 'fixed' && s.scope !== 'all' && !forced.includes(s.name)) && !forced.includes(s.name) && isRefused(s)).map((s) => s.name)
+  const list = readServers()
+  return setup.servers
+    .map((p) => liveOf(p, list))
+    .filter((s): s is McpServerConfig => !!s && !(kind === 'fixed' && s.scope !== 'all' && !forced.includes(s.name)) && !forced.includes(s.name) && isRefused(s))
+    .map((s) => s.name)
 }
 
 export async function attachMcp(setup: McpSetup = currentSetup(), kind: McpRequestKind = 'free', opts: { forced?: string[]; picked?: { server: string; tool: string } | null } = {}): Promise<McpAttachment | null> {
   const forced = opts.forced ?? []
   const usable: Array<{ s: McpServerConfig; token: string }> = []
-  for (const s of setup.servers) {
+  // a pinned setup keeps its servers (prompt, tools) but uses their current token / sign-in (liveOf)
+  const list = readServers()
+  for (const pinned of setup.servers) {
+    const s = liveOf(pinned, list)
+    if (!s) continue
     if (kind === 'fixed' && s.scope !== 'all' && !forced.includes(s.name)) continue
     if (isRefused(s) && !forced.includes(s.name)) continue
     // a signed-in server's access token is refreshed shortly before it expires (oauth.ts)

@@ -27,6 +27,8 @@ export interface TaskLocal {
   /** run once even when the stage is not automatic (Run now / Retry / an answer) */
   runNow?: boolean
   plan?: string | null
+  /** a hash of the plan's section on the task page right after the worker wrote it (an edit of the section since: it differs) */
+  planSig?: string | null
   summary?: string | null
   test?: TestResult | null
   git?: GitInfo | null
@@ -63,9 +65,11 @@ interface LocalState {
   tasks: Record<string, TaskLocal>
   /** `<scope>|<taskId>` → log lines */
   logs: Record<string, LogLine[]>
+  /** bumped whenever this device trusts another task version (Confirm, an action, a carried trust): trust readouts re-check */
+  trustRev: number
 }
 
-export const useCodingLocal = create<LocalState>()(() => ({ tasks: {}, logs: {} }))
+export const useCodingLocal = create<LocalState>()(() => ({ tasks: {}, logs: {}, trustRev: 0 }))
 
 const memKey = (taskId: ID, s = scope()) => `${s}|${taskId}`
 const loaded = new Set<string>()
@@ -178,6 +182,7 @@ export async function addTrusted(hash: string): Promise<void> {
   const set = await trustedHashes()
   if (set.has(hash)) return
   set.add(hash)
+  useCodingLocal.setState((st) => ({ trustRev: st.trustRev + 1 }))
   const list = [...set].slice(-MAX_TRUST)
   await write(`${scope()}|trust`, list)
 }

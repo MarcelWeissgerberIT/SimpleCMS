@@ -17,7 +17,7 @@ import { shortcutLabel } from '../../../ui/controls'
 import { AI_MODELS, resolveModel } from '../client'
 import { MarkdownLite } from '../MarkdownLite'
 import { closeAgent, clampHeight, removeRef, setTermHeight, stopAgent, useAgent, HEIGHT_DEFAULT, type EchoEntry } from './state'
-import { answerAsk, applyStaged, changeTarget, continuable, continueTask, contextPageId, discardAllStaged, discardStaged, newTask, pickContext, restoreStaged, runTask, stageMedia, submitPrompt, tn, undoLastBatch } from './session'
+import { answerAsk, applyStaged, appliesAlone, changeTarget, continueTask, contextPageId, discardAllStaged, discardStaged, emptyEnter, goesToWorker, newTask, pickContext, rerunAfterSignIn, restoreStaged, runTask, stage as stageApi, stageMedia, submitPrompt, tn, undoLastBatch } from './session'
 import { Menu, useMenu, type MenuEntry } from '../../../ui/Menu'
 import { setContextMode, useContextMarks, type ContextMode } from '../../../editor'
 import { effectiveMode } from '../reads'
@@ -30,6 +30,10 @@ import { loadHistory } from './history'
 import { PropDiff, Preview, SchemaDiff } from './ReviewParts'
 import { EditDiff } from './EditDiff'
 import { ScriptDiff } from './ScriptDiff'
+import { CodingDiff, FullText, RefsLine, useCodingFlags } from './CodingDiff'
+import { PipelinesOut } from './PipelinesOut'
+import { ConnectLine, ServersOut, SignInKey, SignInOffer, retryOf } from './ConnectOut'
+import { signInFromTerminal } from './connect'
 import { depsOf, type AgentStep, type AgentTurn, type StagedChange } from './types'
 import { ImageRefChip } from '../image/ImageRefChip'
 import { FileRefChip } from '../file/FileRefChip'
@@ -84,6 +88,9 @@ export default function AgentSheet() {
   const focusTick = useAgent((s) => s.focusTick)
   const running = status === 'running'
   const pending = changes.filter((c) => c.status === 'pending').length
+  // proposals that start the coding worker or whose text goes to Claude Code: "Apply all" leaves them for their own ↵
+  const held = changes.filter((c) => c.status === 'pending' && appliesAlone(c)).length
+  const applying = useAgent((s) => s.applying)
   const readOnly = useCloud((s) => s.readOnly)
   // the dock lives in the content column (below the page); without it (signed out …) it floats
   const [host] = useState<HTMLElement | null>(() => document.querySelector<HTMLElement>('.app-main'))
@@ -171,7 +178,7 @@ export default function AgentSheet() {
       return
     }
     // ⌘↵ / Ctrl+↵: apply all
-    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && !running && pending && !readOnly) {
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && !running && !applying && pending && !readOnly) {
       e.preventDefault()
       void applyStaged()
     }
@@ -209,12 +216,25 @@ export default function AgentSheet() {
           <div className="term-bar" role="region" aria-label={tn('features.agent.review.title', pending)}>
             <span className="led led--on" aria-hidden />
             <span className="term-bar__count">{tn('features.agent.review.title', pending)}</span>
-            <span className="term-bar__hint">{t('features.agent.review.tabHint')}</span>
+            {held > 0 ? (
+              <span className="term-bar__hint term-bar__hint--held" id="term-held" data-testid="term-held">
+                {tn('features.agent.review.held', held)}
+              </span>
+            ) : (
+              <span className="term-bar__hint">{t('features.agent.review.tabHint')}</span>
+            )}
             <span className="term-spacer" />
             <button type="button" className="btn btn--ghost btn--sm" onClick={focusReview}>
               {t('features.agent.review.jump')}
             </button>
-            <button type="button" className="btn btn--primary btn--sm" disabled={running || readOnly} onClick={() => void applyStaged()} title={shortcutLabel('Mod+Enter')}>
+            <button
+              type="button"
+              className="btn btn--primary btn--sm"
+              disabled={running || readOnly || applying || held === pending}
+              onClick={() => void applyStaged()}
+              title={shortcutLabel('Mod+Enter')}
+              aria-describedby={held > 0 ? 'term-held' : undefined}
+            >
               {t('features.agent.review.applyAll')}
             </button>
           </div>
@@ -582,7 +602,8 @@ function TurnView({ turn, last }: { turn: AgentTurn; last: boolean }) {
       <TurnMedia n={turn.n} />
       {turn.status === 'stopped' && <p className="term-note">■ {t('features.agent.stoppedNote')}</p>}
       {turn.status === 'limit' && <LimitNote last={last} />}
-      {turn.status === 'error' && turn.error && <TurnError error={turn.error} />}
+      {turn.status === 'error' && turn.error && <TurnError error={turn.error} n={turn.n} last={last} />}
+      {turn.status === 'done' && last && turn.signIn?.length ? <SignInOffer turn={turn} /> : null}
     </section>
   )
 }
@@ -630,13 +651,15 @@ function LimitNote({ last }: { last: boolean }) {
   )
 }
 
-function TurnError({ error }: { error: NonNullable<AgentTurn['error']> }) {
+function TurnError({ error, n, last }: { error: NonNullable<AgentTurn['error']>; n: number; last: boolean }) {
   const t = useT()
   const keyIssue = error.code === 'invalid_key' || error.code === 'no_key' || error.code === 'permission'
+  const signIn = error.code === 'mcp_auth' && !!error.server && last
   return (
     <div className="term-error" role="alert">
       <span className="term-error__code">✗ ERR · {error.code.toUpperCase()}</span>
       <p>{error.message}</p>
+      {signIn && <SignInKey server={error.server!} retry={retryOf(n)} />}
       {keyIssue && (
         <button type="button" className="btn btn--sm" onClick={() => useUI.getState().openModal({ type: 'settings', tab: 'ai' })}>
           <KeyRound size={13} strokeWidth={1.75} aria-hidden /> {t('features.agent.nokey.open')}
@@ -656,7 +679,7 @@ const GLYPH: Record<AgentStep['state'], string> = { run: '→', ok: '→', stage
 function StepRow({ step }: { step: AgentStep }) {
   const t = useT()
   const tool = step.tool!
-  const arg = step.arg || (tool === 'list_databases' || tool === 'get_current_page' ? t(`features.agent.verb.${tool}.arg`) : '')
+  const arg = step.arg || (tool === 'list_databases' || tool === 'get_current_page' || tool === 'list_pipelines' ? t(`features.agent.verb.${tool}.arg`) : '')
   const result = step.state === 'err' ? t('features.agent.res.rejected') : (step.result ?? '')
   return (
     <li className="term-step" data-state={step.state} data-tool={tool}>
@@ -827,6 +850,15 @@ function Echo({ entry }: { entry: EchoEntry }) {
     case 'ask':
       out = <AskOut entry={entry} />
       break
+    case 'connect':
+      out = <ConnectLine entry={entry} />
+      break
+    case 'servers':
+      out = <ServersOut />
+      break
+    case 'pipelines':
+      out = <PipelinesOut entry={entry} />
+      break
     case 'unknown':
     case 'info':
       out = <p>{t(entry.data?.key ?? 'features.agent.echo.unknown', entry.data?.vars)}</p>
@@ -901,10 +933,11 @@ function Review({ listRef, readOnly }: { listRef: React.RefObject<HTMLOListEleme
   const t = useT()
   const changes = useAgent((s) => s.changes)
   const running = useAgent((s) => s.status === 'running')
+  const applying = useAgent((s) => s.applying)
   const open = changes.filter(isOpen).length
   const [cursor, setCursor] = useState(0)
   const [marked, setMarked] = useState<ReadonlySet<string>>(() => new Set())
-  const disabled = running || readOnly
+  const disabled = running || readOnly || applying
   const at = Math.min(cursor, changes.length - 1)
 
   // marks belong to proposals that are still open
@@ -1069,6 +1102,23 @@ function useTitleOf() {
   )
 }
 
+/** The pages a proposal sends along to the coding worker: a task's, a note's / an answer's, text written into a task's page. */
+const refsOf = (x: StagedChange) => (x.kind === 'coding' ? [...(x.coding?.task?.refs ?? []), ...(x.coding?.action?.refs ?? [])] : x.kind === 'append' || x.kind === 'edit' ? (x.refs ?? []) : [])
+
+/**
+ * Does a proposal's text go to Claude Code? 'task': an append to a pipeline task's page (read at its next stage) ·
+ * 'ref': a page proposed here that a proposed task, a note / answer of a task action, or text added to a task's page
+ * links — it goes along to the worker once both are applied. Such text is shown in full, never as the shortened preview.
+ */
+function useToWorker(c: StagedChange, all: StagedChange[]): 'task' | 'ref' | null {
+  // re-read when the target page changes (it may become, or stop being, a pipeline task)
+  useWorkspace((s) => (c.kind === 'append' ? s.pages[stageApi.resolve(c.pageId)]?.databaseId : null))
+  if (c.kind === 'append' && goesToWorker(c)) return 'task'
+  if (c.kind !== 'create_page') return null
+  const linked = all.some((x) => x.status !== 'discarded' && refsOf(x).some((r) => r.id === c.pageId))
+  return linked ? 'ref' : null
+}
+
 function ChangeItem({
   change: c,
   all,
@@ -1103,7 +1153,16 @@ function ChangeItem({
   else if (c.kind === 'memory' && c.memory) where = t(c.memory.updates ? 'features.memory.review.update' : 'features.memory.review.where', { type: t(`features.memory.type.${c.memory.type}`) })
   else if (c.kind === 'script' && c.script) where = t(c.script.before ? 'features.script.int.review.change' : 'features.script.int.review.new')
   else if (c.kind === 'media') where = t(`features.ai.media.review.where.${(c.media?.length ?? 0) === 1 ? 'one' : 'other'}`, { count: c.media?.length ?? 0 })
+  else if (c.kind === 'coding' && c.coding) where = t('features.agent.review.in', { title: c.coding.project })
   const label = `#${c.n}`
+  // a pipeline task: "STARTS WORKER" / "CONFIRM FIRST" (both live) — in the head, and in the name a screen reader reads
+  const flags = useCodingFlags(c)
+  // text that goes to Claude Code: shown in full, tagged (an append to a task is applied on its own)
+  const toWorker = useToWorker(c, all)
+  const kindLabel = c.kind === 'coding' && c.coding ? t(`features.agent.kind.coding.${c.coding.op === 'run' && c.coding.action?.retry ? 'retry' : c.coding.op}`) : t(`features.agent.kind.${c.kind}`)
+  // Then starts nothing now: its task starts when this one is done
+  const startsTag = t(c.kind === 'coding' && c.coding?.op === 'then' ? 'features.agent.coding.startsLater' : 'features.agent.coding.starts')
+  const tags = [flags.starts && isOpen(c) ? startsTag : '', flags.confirm ? t('features.agent.coding.confirm') : '', toWorker && isOpen(c) ? t('features.agent.coding.toWorker') : ''].filter(Boolean)
   const target = c.status === 'applied' ? (c.kind === 'script' ? savedScript(c) : changeTarget(c)) : null
 
   let title: ReactNode = c.title
@@ -1118,7 +1177,7 @@ function ChangeItem({
   else if (c.kind === 'memory') title = c.memory?.text ?? c.title
   else if (c.kind === 'script') title = c.script?.name ?? c.title
 
-  const name = `${label} ${t(`features.agent.kind.${c.kind}`)}${marked ? `, ${t('features.agent.review.marked')}` : ''}`
+  const name = `${label} ${kindLabel}${tags.length ? `, ${tags.join(', ')}` : ''}${marked ? `, ${t('features.agent.review.marked')}` : ''}`
   return (
     <li
       className="term-change"
@@ -1136,11 +1195,36 @@ function ChangeItem({
           {marked ? '■' : '□'}
         </button>
         <span className="term-change__n">{label}</span>
-        <span className="term-change__kind">{t(`features.agent.kind.${c.kind}`)}</span>
+        <span className="term-change__kind">{kindLabel}</span>
         {title && <span className="term-change__title">{title}</span>}
         {where && <span className="term-change__where">{where}</span>}
+        {tags.length > 0 && (
+          <span className="term-change__tags">
+            {flags.starts && isOpen(c) && (
+              <span className="term-tag" data-tag="starts" data-testid="term-tag-starts">
+                {startsTag}
+              </span>
+            )}
+            {flags.confirm && (
+              <span className="term-tag" data-tag="confirm" data-testid="term-tag-confirm">
+                {t('features.agent.coding.confirm')}
+              </span>
+            )}
+            {toWorker && isOpen(c) && (
+              <span className="term-tag" data-tag="toworker" data-testid="term-tag-toworker">
+                {t('features.agent.coding.toWorker')}
+              </span>
+            )}
+          </span>
+        )}
         <span className="term-spacer" />
-        {isOpen(c) ? (
+        {c.status === 'applying' ? (
+          <span className="term-change__actions">
+            <span className="term-change__state" role="status">
+              <span className="led led--on ai-led--live" aria-hidden /> {t('features.agent.review.applying')}
+            </span>
+          </span>
+        ) : isOpen(c) ? (
           <span className="term-change__actions">
             <button type="button" className="btn btn--ghost btn--sm" onClick={() => discardStaged(c.id)} disabled={disabled} aria-label={`${t('features.agent.review.discard')} ${label}`}>
               {t('features.agent.review.discard')}
@@ -1181,7 +1265,13 @@ function ChangeItem({
       {!compact && c.kind === 'edit' && <EditDiff change={c} />}
       {!compact && c.kind === 'script' && <ScriptDiff change={c} />}
       {!compact && c.kind === 'media' && c.media && <MediaPreview media={c.media} />}
-      {!compact && c.markdown?.trim() && c.kind !== 'rename' && c.kind !== 'edit' && <Preview markdown={c.markdown} append={c.kind === 'append'} />}
+      {!compact && c.kind === 'coding' && <CodingDiff change={c} />}
+      {!compact && c.markdown?.trim() && toWorker && (
+        <FullText label={t(toWorker === 'task' ? 'features.agent.coding.appendFull' : 'features.agent.coding.pageFull')} hint={toWorker === 'task' ? t('features.agent.coding.appendHint') : undefined} text={c.markdown.trim()} testId="term-full-text" />
+      )}
+      {!compact && c.markdown?.trim() && !toWorker && c.kind !== 'rename' && c.kind !== 'edit' && c.kind !== 'coding' && <Preview markdown={c.markdown} append={c.kind === 'append'} />}
+      {/* text written into a pipeline task's page: the pages it links go to Claude Code with the task */}
+      {!compact && (c.kind === 'append' || c.kind === 'edit') && <RefsLine refs={c.refs} />}
       {c.status === 'failed' && c.error && <p className="term-change__error">{t(c.kind === 'edit' ? 'features.agent.review.skipped' : 'features.agent.review.failed', { error: c.error })}</p>}
       {blocked && missing && c.status === 'pending' && <p className="term-change__hint">{t('features.agent.review.needs', { n: missing.n })}</p>}
     </li>
@@ -1357,8 +1447,14 @@ function Prompt({ disabled, onReview }: { disabled: boolean; onReview: () => boo
 
   const submit = () => {
     const text = draft.trim()
-    // ↵ on an empty prompt under a task that stopped at the limit: Continue
-    if (!text && !disabled && !running && !asking && continuable()) return void continueTask()
+    // ↵ on an empty prompt: Continue (stopped at the limit) · sign in to a server that rejected its token (the window
+    // opens from this key press) · run the task again once signed in. A y / n question goes first.
+    if (!text && !running && !asking) {
+      const a = emptyEnter()
+      if (a?.kind === 'continue' && !disabled) return void continueTask()
+      if (a?.kind === 'signin') return signInFromTerminal(a.server, a.retry ? { retry: a.retry } : {})
+      if (a?.kind === 'rerun' && !disabled) return rerunAfterSignIn(a.entry)
+    }
     // without a key (or while a task runs) only /commands and answers go
     if (!text || ((disabled || running) && !text.startsWith('/') && !asking)) return
     hist.current.at = null
@@ -1391,10 +1487,11 @@ function Prompt({ disabled, onReview }: { disabled: boolean; onReview: () => boo
         setDismissed(`${comp.from}:${draft.slice(comp.from, comp.to)}`)
         return
       }
-      // Enter takes the highlighted entry, unless the command is typed out already
+      // Enter takes the highlighted entry, unless the command (or /connect's server) is typed out already
       if (e.key === 'Enter' && !e.shiftKey) {
         const typed = draft.slice(comp.from, comp.to)
-        if (!(comp.kind === 'command' && comp.items.some((x) => x.insert === typed))) {
+        const exact = comp.items.some((x) => x.insert.trim() === typed.trim() || (!!x.server && (x.server.name === comp.query || x.server.codeword === comp.query)))
+        if (!((comp.kind === 'command' || comp.kind === 'server') && exact)) {
           e.preventDefault()
           accept(comp, active)
           return
@@ -1455,15 +1552,23 @@ function Prompt({ disabled, onReview }: { disabled: boolean; onReview: () => boo
   }
 
   const limited = useAgent((s) => s.turns[s.turns.length - 1]?.status === 'limit')
+  // what ↵ on the empty prompt would do (re-read with the log)
+  useAgent((s) => s.echo)
+  useAgent((s) => s.turns)
+  const enter = running || asking ? null : emptyEnter()
   const placeholder = asking
     ? t('features.agent.placeholderAsk')
-    : disabled
-      ? t('features.agent.placeholderNoKey')
-      : limited
-        ? t('features.agent.placeholderContinue')
-        : hasTurns
-          ? t('features.agent.placeholderNext')
-          : t('features.agent.placeholder')
+    : enter?.kind === 'signin'
+      ? t('features.agent.placeholderSignIn', { server: enter.server })
+      : disabled
+        ? t('features.agent.placeholderNoKey')
+        : enter?.kind === 'rerun'
+          ? t('features.agent.placeholderRerun')
+          : limited
+            ? t('features.agent.placeholderContinue')
+            : hasTurns
+              ? t('features.agent.placeholderNext')
+              : t('features.agent.placeholder')
   return (
     <form
       className="term-prompt"
@@ -1474,7 +1579,7 @@ function Prompt({ disabled, onReview }: { disabled: boolean; onReview: () => boo
     >
       <Chips />
       {comp && (
-        <ul className="term-complete" id={listId} role="listbox" aria-label={t(comp.kind === 'command' ? 'features.agent.complete.commands' : comp.kind === 'tag' ? 'features.memory.example.complete' : comp.kind === 'tool' ? 'features.agent.complete.tools' : 'features.agent.complete.pages')}>
+        <ul className="term-complete" id={listId} role="listbox" aria-label={t(comp.kind === 'command' ? 'features.agent.complete.commands' : comp.kind === 'tag' ? 'features.memory.example.complete' : comp.kind === 'tool' ? 'features.agent.complete.tools' : comp.kind === 'server' ? 'features.agent.complete.servers' : 'features.agent.complete.pages')}>
           {comp.items.map((item, i) => (
             <li
               key={item.key}
@@ -1487,7 +1592,7 @@ function Prompt({ disabled, onReview }: { disabled: boolean; onReview: () => boo
               onClick={() => accept(comp, i)}
             >
               <span className="term-complete__label">{item.mention ? `${item.mention.kind === 'database' ? '▦' : '▣'} ${item.label}` : item.label}</span>
-              <span className="term-complete__hint">{item.command ? t(`features.agent.cmd.${item.command}`) : item.example ? item.example.text : item.tool ? t('features.agent.complete.toolOf', { server: item.tool.server }) : item.mention?.where || t(`features.agent.kindOf.${item.mention?.kind ?? 'page'}`)}</span>
+              <span className="term-complete__hint">{item.command ? t(`features.agent.cmd.${item.command}`) : item.example ? item.example.text : item.tool ? t('features.agent.complete.toolOf', { server: item.tool.server }) : item.server ? `${item.server.codeword ? `${item.server.codeword}: · ` : ''}${item.server.host}` : item.mention?.where || t(`features.agent.kindOf.${item.mention?.kind ?? 'page'}`)}</span>
             </li>
           ))}
           <li className="term-complete__foot" aria-hidden>

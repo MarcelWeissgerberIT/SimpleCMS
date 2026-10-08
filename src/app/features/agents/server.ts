@@ -87,6 +87,7 @@ export function readRuntime(v: unknown): AgentRuntime {
 }
 
 const STATUSES: AgentRunStatus[] = ['running', 'ok', 'staged', 'error', 'budget', 'skipped']
+// what a server run may propose — 'coding' (a pipeline task) must never join: applyChanges refuses it outside the AI terminal
 const KINDS: StagedChange['kind'][] = ['create_page', 'append', 'create_row', 'update_row', 'rename']
 const CHANGE_STATUS: StagedChange['status'][] = ['pending', 'applied', 'discarded', 'failed']
 

@@ -12,13 +12,16 @@ import type { ID } from '../../../store/types'
 import { t } from '../../../i18n'
 import { AIError, resolveModel } from '../client'
 import { useCloud } from '../../../cloud'
-import { attachMcp, codewordTask, codewordsIn, currentSetup, refusedNames, setupKey, type McpSetup } from '../mcp-servers/config'
+import { attachMcp, codewordTask, codewordsIn, currentSetup, readServers, refusedNames, setupKey, type McpSetup } from '../mcp-servers/config'
 import { applyChanges, type ApplyResult } from './apply'
 import { AGENT_SYSTEM, runAgent, taskMessage, type RunHooks } from './run'
-import { initialAgentState, openAgent, setStopHandler, useAgent, type EchoAsk, type EchoEntry, type MemCard, type MemItem } from './state'
+import { initialAgentState, openAgent, patchConnect, pushEcho, setStopHandler, useAgent, type EchoAsk, type EchoEntry, type MemCard, type MemItem } from './state'
 import { clearHistory, loadHistory, pushHistory } from './history'
 import { parseCommand, parseCommandText } from './commands'
-import { MAX_TOOL_CALLS, TERMINAL_TOOLS, type ReadLimit, type StageApi } from './tools'
+import { MAX_TOOL_CALLS, TERMINAL_TOOLS, type AgentTool, type ReadLimit, type StageApi } from './tools'
+import { CODING_RULES, CODING_TOOLS, guardPipelineRows } from './coding'
+import { connectCommand } from './connect'
+import { hasPipelines, isPipelineKind, isPipelineTask, startsNow, useCoding, type PipelineKind } from '../../coding'
 import { memoryFor, noteUse } from '../memory/use'
 import { memoryInUse, proposalsOn } from '../memory/settings'
 import { localProposal, proposeAfterTask, terminalSource, trivialTask } from '../memory/propose'
@@ -52,6 +55,17 @@ let seq = 0
 let mcpSetup: McpSetup | null = null
 /** One memory: its tools (recall, remember) and rules join this conversation — pinned at its first task like the MCP setup */
 let memTools: boolean | null = null
+/** the coding pipelines' tools and rules join a conversation started while there is a pipeline or the worker link is on (pinned) */
+let codingTools: boolean | null = null
+/**
+ * This conversation's number (bumped by /new): "Run the task again" after a sign-in names a task by epoch + number,
+ * so a sign-in that ends after /new never runs another conversation's task.
+ */
+let epoch = 0
+/** what a task went with (the conversation before it, its references and mentions) — "Run the task again" */
+const turnSnap = new Map<number, { before: BetaMessageParam[]; refs: TermRef[]; mentions: TermMention[] }>()
+/** this conversation's applied writes of pipeline tasks (fingerprint before → after): a task action staged before them still applies */
+const sigSteps = new Map<ID, Array<[string, string]>>()
 /** the running proposal request (after a task) */
 let proposing: AbortController | null = null
 /** undo of a saved / updated proposal, by item id */
@@ -167,6 +181,7 @@ function context(refs: TermRef[], mentions: TermMention[]): string {
     if (reported[c.id] === c.status) continue
     if (c.status === 'applied') news.push(`#${c.n} applied`)
     else if (c.status === 'discarded') news.push(`#${c.n} discarded`)
+    else if (c.status === 'failed') news.push(`#${c.n} failed (${(c.error ?? '').slice(0, 200)})`)
     else if (c.status === 'pending' && reported[c.id]) news.push(`#${c.n} back to pending (undone)`)
     reported[c.id] = c.status
   }
@@ -190,13 +205,25 @@ function patchTurn(n: number, patch: Partial<AgentTurn>) {
  * setup is pinned per conversation (system prompt and tool list stay the same for every later
  * request: prompt cache, thinking) and the text goes as typed.
  */
-function prepareTask(task: string): { setup: McpSetup; prompt: string; memTools: boolean } {
+function prepareTask(task: string): { setup: McpSetup; prompt: string; memTools: boolean; codingTools: boolean } {
   if (!history.length || !mcpSetup) {
     mcpSetup = currentSetup()
     set({ mcp: { key: setupKey(mcpSetup), names: mcpSetup.servers.map((x) => x.name) } })
   }
   if (!history.length || memTools === null) memTools = memoryInUse()
-  return { setup: mcpSetup, prompt: codewordTask(task), memTools }
+  if (!history.length || codingTools === null) codingTools = hasPipelines() || useCoding.getState().enabled
+  return { setup: mcpSetup, prompt: codewordTask(task), memTools, codingTools }
+}
+
+/**
+ * The terminal's tools and system prompt (a stable order: the cached prompt prefix): its own tools — the row tools
+ * guarded for pipeline databases —, the coding pipelines' and the One memory's when they are pinned to this conversation.
+ */
+function terminalSetup(coding: boolean, mem: boolean): { tools: AgentTool[]; system: string } {
+  return {
+    tools: [...TERMINAL_TOOLS.map(guardPipelineRows), ...(coding ? CODING_TOOLS : []), ...(mem ? [recallTool, rememberTool] : [])],
+    system: [AGENT_SYSTEM, ...(coding ? [CODING_RULES] : []), ...(mem ? [MEMORY_RULES] : [])].join('\n\n'),
+  }
 }
 
 /** Staged changes listed in a continuation, at most (the rest as a count). */
@@ -205,7 +232,7 @@ const CONTINUE_LIST = 80
 /** What Claude gets for "Continue": the task again, a fresh budget, and what is staged already. */
 function continuation(prev: AgentTurn): string {
   const open = get().changes.filter((c) => c.status === 'pending' || c.status === 'failed')
-  const line = (c: StagedChange) => `- #${c.n} ${c.kind}${c.title ? ` ${q(c.title)}` : ''} (id: ${c.pageId})`
+  const line = (c: StagedChange) => `- #${c.n} ${c.kind === 'coding' && c.coding ? `coding:${c.coding.op}` : c.kind}${c.title ? ` ${q(c.title)}` : ''} (id: ${c.pageId})`
   const list = open.slice(0, CONTINUE_LIST).map(line)
   if (open.length > CONTINUE_LIST) list.push(`- … and ${open.length - CONTINUE_LIST} more`)
   return [
@@ -239,7 +266,7 @@ export function continueTask(): Promise<void> {
  * (/no-memory <task>); `history: false` when the prompt went into the history already; `continues`:
  * Continue — task n goes on (raw = its text; Claude gets the continuation, no memory or chips again).
  */
-export async function runTask(raw?: string, opts: { noMemory?: boolean; history?: boolean; continues?: number } = {}): Promise<void> {
+export async function runTask(raw?: string, opts: { noMemory?: boolean; history?: boolean; continues?: number; again?: { refs: TermRef[]; mentions: TermMention[] } } = {}): Promise<void> {
   const task = (raw ?? get().draft).trim()
   if (!task || get().status === 'running') return
   const n = get().turns.length + 1
@@ -249,8 +276,9 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
   setStopHandler(() => ac.abort())
   if (opts.history !== false) pushHistory(task)
   // the chips go along with this task: references, the mentions still in the text, the open page (a continuation: none again)
-  const refs = prevTurn ? [] : get().refs
-  const mentions = prevTurn ? [] : get().mentions.filter((m) => task.includes(`@${m.title}`))
+  // "Run the task again" (after a sign-in): the references and mentions the task had; the chips stay for the next one
+  const refs = prevTurn ? [] : opts.again ? opts.again.refs : get().refs
+  const mentions = prevTurn ? [] : (opts.again ? opts.again.mentions : get().mentions).filter((m) => task.includes(`@${m.title}`))
   const pageId = contextPageId()
   const suffix = pageId ? contextSuffix(pageId) : ''
   const ctx: TurnContext = {
@@ -263,7 +291,7 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
   const memShown = prevTurn ? prevTurn.memory : (mem.use ?? undefined)
   const text = mem.block ? `${context(refs, mentions)}\n\n${mem.block}` : context(refs, mentions)
   const prepared = prepareTask(task)
-  const { setup, memTools: withMemTools } = prepared
+  const { setup, memTools: withMemTools, codingTools: withCoding } = prepared
   const prompt = prevTurn ? continuation(prevTurn) : prepared.prompt
   set((s) => ({
     status: 'running',
@@ -273,8 +301,8 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
     live: '',
     calls: 0,
     unseen: null,
-    refs: prevTurn ? s.refs : [],
-    mentions: prevTurn ? s.mentions : [],
+    refs: prevTurn || opts.again ? s.refs : [],
+    mentions: prevTurn || opts.again ? s.mentions : [],
     memOffNext: prevTurn ? s.memOffNext : false,
     turns: [...s.turns, { n, task, startedAt: Date.now(), status: 'running', answer: '', context: ctx, ...(memShown ? { memory: memShown } : {}), ...(opts.continues ? { continues: opts.continues } : {}) }],
   }))
@@ -379,9 +407,15 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
   // servers addressed by a codeword always join; the others are left out while they reject their token here
   const forced = codewordsIn(task, setup.servers)?.forced ?? []
   const before = history
+  // every task, a Continue too: "Run the task again" after a sign-in sends it once more from here
+  turnSnap.set(n, { before, refs, mentions })
+  const tooling = terminalSetup(withCoding, withMemTools)
   const attempt = async () => {
     const mcp = setup.servers.length ? await attachMcp(setup, 'free', { forced }) : null
-    for (const name of refusedNames(setup, 'free', forced)) note(t('features.ai.mcp.cw.note.refused', { server: name }))
+    const left = refusedNames(setup, 'free', forced)
+    for (const name of left) note(t('features.ai.mcp.cw.note.refused', { server: name }))
+    // servers left out because they rejected their token: the terminal offers a sign-in under the task
+    if (left.length) patchTurn(n, { signIn: [...new Set([...(get().turns.find((x) => x.n === n)?.signIn ?? []), ...left])] })
     // referenced image blocks go along as images (Claude for images); one that cannot be loaded is noted
     const withImages = await withRefImages(taskMessage(history, prompt, text), refs, ac.signal, (title) => note(t('features.ai.image.refFailed', { title })))
     // referenced file blocks go along as documents (Claude for files); one that cannot be read is noted
@@ -394,8 +428,9 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
       hooks,
       mcp,
       readLimit: terminalReadLimit,
-      // the One memory's tools and rules (pinned per conversation: the prompt prefix stays the same)
-      ...(withMemTools ? { tools: [...TERMINAL_TOOLS, recallTool, rememberTool], system: `${AGENT_SYSTEM}\n\n${MEMORY_RULES}` } : {}),
+      // the coding pipelines' and the One memory's tools and rules (pinned per conversation: the prompt prefix stays the same)
+      tools: tooling.tools,
+      system: tooling.system,
     })
   }
   try {
@@ -413,7 +448,8 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
   } catch (e) {
     const err = e instanceof AIError ? e : new AIError('unknown', e instanceof Error ? e.message : String(e))
     if (err.code === 'aborted') finish('stopped')
-    else finish('error', { code: err.code, message: err.message })
+    // a server that rejected its token: named, so the terminal can offer to sign in to it
+    else finish('error', { code: err.code, message: err.message, ...(err.code === 'mcp_auth' && err.server ? { server: err.server } : {}) })
   } finally {
     if (controller === ac) {
       controller = null
@@ -446,11 +482,20 @@ export function stopTask() {
 /* Prompt input: a task or a /command                                  */
 /* ------------------------------------------------------------------ */
 
-function echo(input: string, kind: EchoEntry['kind'], data?: EchoEntry['data']) {
-  set((s) => ({ echo: [...s.echo, { id: nextId('e'), after: s.turns.length, input, kind, ...(data ? { data } : {}) }].slice(-40) }))
-}
+const echo = (input: string, kind: EchoEntry['kind'], data?: EchoEntry['data']) => void pushEcho(input, kind, data)
 
 const info = (input: string, key: string, vars?: Record<string, string | number>) => echo(input, 'info', { key, ...(vars ? { vars } : {}) })
+
+/** Words for a pipeline after /pipelines (both languages). */
+const PIPE_WORDS: Record<string, PipelineKind> = { coding: 'coding', code: 'coding', cd: 'coding', spec: 'spec', ba: 'spec', business: 'spec', analyse: 'spec', analysis: 'spec', qa: 'qa', test: 'qa', tests: 'qa' }
+
+/** /pipelines [kind]: the open tasks of the pipelines, live (works without a key and while a task runs). */
+function pipelinesCommand(input: string, word: string) {
+  const w = word.trim().toLowerCase()
+  const kind = !w ? null : isPipelineKind(w) ? w : (PIPE_WORDS[w] ?? undefined)
+  if (kind === undefined) return info(input, 'features.agent.pipe.unknownKind', { word: word.trim() })
+  echo(input, 'pipelines', { pipe: { kind } })
+}
 
 /* ---------- y / n questions in the log (/clear-history) ---------- */
 
@@ -489,11 +534,14 @@ export async function submitPrompt(raw?: string): Promise<void> {
     }
     answerAsk(asking.id, false)
   }
-  // /remember <sentence> · /no-memory <task>
+  // /remember <sentence> · /no-memory <task> · /connect <server> · /pipelines <kind>
   const withText = parseCommandText(input)
   if (withText) {
     pushHistory(input)
     set({ draft: '' })
+    // synchronous up to the sign-in window: it opens inside this key press (connect.ts)
+    if (withText.id === 'connect') return connectCommand(input, withText.text)
+    if (withText.id === 'pipelines') return pipelinesCommand(input, withText.text)
     if (withText.id === 'remember') return rememberText(input, withText.text)
     if (withText.id === 'example') return exampleDialog(input, withText.text)
     if (get().status === 'running') return info(input, 'features.agent.echo.wait')
@@ -518,12 +566,18 @@ export async function submitPrompt(raw?: string): Promise<void> {
       if (!continuable()) return info(input, 'features.agent.echo.nothingToContinue')
       await continueTask()
       return
-    case 'apply':
+    case 'apply': {
       if (running) return info(input, 'features.agent.echo.wait')
       if (!pending) return info(input, 'features.agent.echo.nothingPending')
       if (useCloud.getState().readOnly) return info(input, 'features.agent.review.readOnly')
+      const waiting = get().changes.filter((c) => c.status === 'pending')
+      // only failed proposals are left: "apply all" never retries them — each on its own
+      if (!waiting.length) return info(input, 'features.agent.echo.failedOnly')
+      // every waiting proposal goes to the coding worker: those are applied one by one
+      if (waiting.every(appliesAlone)) return info(input, 'features.agent.echo.startsOnly')
       await applyStaged()
       return
+    }
     case 'discard':
       if (running) return info(input, 'features.agent.echo.wait')
       if (!pending) return info(input, 'features.agent.echo.nothingPending')
@@ -553,6 +607,12 @@ export async function submitPrompt(raw?: string): Promise<void> {
       echo(input, 'mcp', { list: names, key: get().mcp ? 'pinned' : 'next' })
       return
     }
+    case 'connect':
+      connectCommand(input, '')
+      return
+    case 'pipelines':
+      pipelinesCommand(input, '')
+      return
     case 'cost':
       echo(input, 'cost', { usage: { ...get().usage } })
       return
@@ -638,6 +698,10 @@ export function newTask() {
   lastBatch = null
   mcpSetup = null
   memTools = null
+  codingTools = null
+  epoch += 1
+  turnSnap.clear()
+  sigSteps.clear()
   proposing?.abort()
   proposing = null
   memUndo.clear()
@@ -771,30 +835,67 @@ export function undoProposal(cardId: string, itemId: string) {
 /* Review                                                              */
 /* ------------------------------------------------------------------ */
 
-/** Apply the given changes (default: every pending one). One Undo toast reverts the batch. */
+/** A proposal that starts the coding worker when applied (checked live): never part of a bulk apply. */
+export const startsWorker = (c: StagedChange): boolean => c.kind === 'coding' && (!c.coding || startsNow(c.coding))
+
+/**
+ * Text added to a pipeline task's page (append_to_page): Claude Code reads it at the task's next stage — shown in full,
+ * never part of a bulk apply. (An edit_page shows every changed block in full: it stays in the bulk apply.)
+ */
+export const goesToWorker = (c: StagedChange): boolean => c.kind === 'append' && isPipelineTask(stage.resolve(c.pageId))
+
+/** A proposal "apply all" leaves for its own ↵: it starts the coding worker, or its text goes to Claude Code. */
+export const appliesAlone = (c: StagedChange): boolean => startsWorker(c) || goesToWorker(c)
+
+/**
+ * Apply the given changes (`ids`: Enter on an item, marked items) — or every pending one that is not applied alone
+ * ("apply all": a, /apply, ⌘↵; appliesAlone: it starts the coding worker or its text goes to Claude Code — those wait
+ * for their own ↵). One Undo toast reverts the batch. One apply at a time: the changes are marked 'applying' before the
+ * first await, so a second key press finds nothing to apply.
+ */
 export async function applyStaged(ids?: string[]): Promise<void> {
+  if (get().applying) return
   const all = get().changes
-  const targets = ids ? all.filter((c) => ids.includes(c.id)) : all.filter((c) => c.status === 'pending')
-  if (!targets.length) return
-  const res = await applyChanges(targets, all, stage.resolve)
+  const open = (c: StagedChange) => c.status === 'pending' || c.status === 'failed'
+  const targets = ids ? all.filter((c) => ids.includes(c.id) && open(c)) : all.filter((c) => c.status === 'pending' && !appliesAlone(c))
+  const held = ids ? 0 : all.filter((c) => c.status === 'pending' && appliesAlone(c)).length
+  const ui = useUI.getState()
+  if (!targets.length) {
+    if (held) ui.toast({ message: tn('features.agent.toast.startsHeld', held), kind: 'info' })
+    return
+  }
+  const writing = new Map(targets.map((c) => [c.id, c.status]))
+  set((s) => ({ applying: true, changes: s.changes.map((c) => (writing.has(c.id) ? { ...c, status: 'applying' } : c)) }))
+  let res: ApplyResult
+  try {
+    res = await applyChanges(targets, all, stage.resolve, { terminal: true, sigSteps })
+  } catch (e) {
+    const error = e instanceof Error ? e.message : String(e)
+    set((s) => ({ applying: false, changes: s.changes.map((c) => (writing.has(c.id) && c.status === 'applying' ? { ...c, status: 'failed', error } : c)) }))
+    return
+  }
   Object.assign(rowIds, res.rowIds)
   set((s) => ({
+    applying: false,
     changes: s.changes.map((c) => {
       if (res.applied.includes(c.id)) return { ...c, status: 'applied', error: undefined }
       const f = res.failed.find((x) => x.id === c.id)
-      return f ? { ...c, status: 'failed', error: f.error } : c
+      if (f) return { ...c, status: 'failed', error: f.error }
+      // not written (a change of the batch that was skipped): back to how it was
+      return c.status === 'applying' ? { ...c, status: writing.get(c.id) ?? 'pending' } : c
     }),
   }))
+  const undoable = res.applied.some((id) => !res.final.includes(id))
   if (res.applied.length) lastBatch = res
-  const ui = useUI.getState()
   if (res.applied.length)
     ui.toast({
       message: tn('features.agent.toast.applied', res.applied.length),
       kind: 'success',
-      action: { label: t('common.undo'), run: () => undoBatch(res) },
+      ...(undoable ? { action: { label: t('common.undo'), run: () => undoBatch(res) } } : {}),
       timeout: 10_000,
     })
   if (res.failed.length) ui.toast({ message: tn('features.agent.toast.failed', res.failed.length), kind: 'error' })
+  if (held) ui.toast({ message: tn('features.agent.toast.startsHeld', held), kind: 'info' })
 }
 
 /** The batch the last apply wrote (for `u` in the review list). */
@@ -803,17 +904,25 @@ let lastBatch: ApplyResult | null = null
 /** Undo the last applied batch (`u` in the review list); false when there is nothing to undo. */
 export function undoLastBatch(): boolean {
   const res = lastBatch
-  if (!res || !get().changes.some((c) => res.applied.includes(c.id) && c.status === 'applied')) return false
+  // nothing to undo: every change of the batch is undone already, or cannot be undone (a task action)
+  if (!res || get().applying || !get().changes.some((c) => res.applied.includes(c.id) && !res.final.includes(c.id) && c.status === 'applied')) return false
   undoBatch(res)
   return true
 }
 
+/**
+ * Undo a batch. What was kept (edited since, or a task the worker took meanwhile) and what cannot be undone (a task
+ * action: the worker may have started) stays applied — never back to pending, so it is never applied twice.
+ */
 function undoBatch(res: ApplyResult) {
   if (lastBatch === res) lastBatch = null
-  const kept = res.undo()
-  for (const staged of Object.keys(res.rowIds)) delete rowIds[staged]
-  set((s) => ({ changes: s.changes.map((c) => (res.applied.includes(c.id) && c.status === 'applied' ? { ...c, status: 'pending' } : c)) }))
-  useUI.getState().toast(kept ? tn('features.agent.toast.undoneKept', kept) : t('features.agent.toast.undone'))
+  const { kept } = res.undo()
+  const stays = new Set([...kept, ...res.final])
+  const stayPages = new Set(get().changes.filter((c) => stays.has(c.id)).map((c) => c.pageId))
+  for (const staged of Object.keys(res.rowIds)) if (!stayPages.has(staged)) delete rowIds[staged]
+  set((s) => ({ changes: s.changes.map((c) => (res.applied.includes(c.id) && !stays.has(c.id) && c.status === 'applied' ? { ...c, status: 'pending' } : c)) }))
+  const final = res.final.length
+  useUI.getState().toast(final ? tn('features.agent.toast.undoneFinal', final) : kept.length ? tn('features.agent.toast.undoneKept', kept.length) : t('features.agent.toast.undone'))
 }
 
 /** Discard proposals (and the proposals that build on them). */
@@ -854,4 +963,59 @@ export function changeTarget(c: StagedChange): ID | null {
   const id = stage.resolve(c.pageId)
   const p = useWorkspace.getState().pages[id]
   return p && !p.trashed ? id : null
+}
+
+/* ------------------------------------------------------------------ */
+/* ↵ on the empty prompt; "Run the task again" after a sign-in         */
+/* ------------------------------------------------------------------ */
+
+export type EmptyEnter = { kind: 'continue' } | { kind: 'signin'; server: string; retry?: { epoch: number; n: number } } | { kind: 'rerun'; entry: string } | null
+
+/**
+ * What ↵ on the empty prompt does: Continue (a task stopped at the limit) · after a /connect under the last task that
+ * connected for it: run that task again · a task that failed because a server rejected its token, or left one out:
+ * sign in to it (the window opens from this key press). A /connect still going on under the last task: nothing.
+ */
+export function emptyEnter(): EmptyEnter {
+  if (continuable()) return { kind: 'continue' }
+  const s = get()
+  const last = s.turns[s.turns.length - 1]
+  if (!last || last.status === 'running') return null
+  const connects = s.echo.filter((e) => e.kind === 'connect' && e.after === s.turns.length)
+  const newest = connects[connects.length - 1]
+  if (newest) {
+    const c = newest.data?.connect
+    return c && rerunnable(c) ? { kind: 'rerun', entry: newest.id } : null
+  }
+  const err = last.error
+  if (last.status === 'error' && err?.code === 'mcp_auth' && err.server && readServers().some((x) => x.name === err.server)) return { kind: 'signin', server: err.server, retry: { epoch, n: last.n } }
+  if (last.status === 'done' && last.signIn?.length && readServers().some((x) => x.name === last.signIn![0])) return { kind: 'signin', server: last.signIn[0]! }
+  return null
+}
+
+/** A /connect line that may run its task again: connected, for a task of this conversation that is still the last one. */
+export function rerunnable(c: NonNullable<NonNullable<EchoEntry['data']>['connect']>): boolean {
+  const s = get()
+  const last = s.turns[s.turns.length - 1]
+  return c.phase === 'ok' && !!c.retry && !c.retried && c.retry.epoch === epoch && turnSnap.has(c.retry.n) && !!last && last.n === c.retry.n && last.status !== 'running' && s.status !== 'running'
+}
+
+/** The conversation's number now ("Sign in" keys under a task name it with their retry). */
+export const currentEpoch = () => epoch
+
+/**
+ * "Run the task again" (its key, or ↵): the task that failed or left the server out, once more — the conversation as
+ * it was before it (the failed attempt is not sent twice), with the references and mentions it had.
+ */
+export function rerunAfterSignIn(entryId: string): void {
+  const entry = get().echo.find((e) => e.id === entryId)
+  const c = entry?.data?.connect
+  if (!c?.retry || !rerunnable(c)) return
+  const turn = get().turns.find((x) => x.n === c.retry!.n)
+  const snap = turnSnap.get(c.retry.n)
+  if (!turn || !snap) return
+  patchConnect(entryId, { retried: true })
+  history = snap.before
+  // a Continue goes on again (the same task, a fresh budget, what is staged); a task runs with the chips it had
+  void runTask(turn.task, turn.continues ? { history: false, continues: turn.continues } : { history: false, again: { refs: snap.refs, mentions: snap.mentions } })
 }

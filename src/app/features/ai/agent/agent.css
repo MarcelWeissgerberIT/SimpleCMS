@@ -1399,9 +1399,21 @@
 }
 
 @container (max-width: 760px) {
-  .term-bar__hint,
+  .term-bar__hint:not(.term-bar__hint--held),
   .term-head__read {
     display: none;
+  }
+
+  /* why Apply all waits: on its own line under the keys (never cut away) */
+  .term-bar {
+    flex-wrap: wrap;
+    row-gap: 2px;
+  }
+
+  .term-bar__hint--held {
+    flex-basis: 100%;
+    order: 1;
+    white-space: normal;
   }
 
   .term-standby {
@@ -1821,4 +1833,434 @@
 
 .term-chip__mode {
   color: var(--signal-ink);
+}
+
+/* ======================================================================
+ * Pipeline control (create_task / task_action, /pipelines) and /connect
+ * ====================================================================== */
+
+/* a mono tag in a review head: "STARTS WORKER" (signal), "CONFIRM FIRST" (warn), "EXISTING BRANCH" */
+.term-change__tags {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.term-tag {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 5px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: calc(10px * var(--text-scale));
+  font-weight: 650;
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.term-tag[data-tag='starts'],
+.term-tag[data-tag='toworker'],
+.term-tag[data-tag='nostops'] {
+  border-color: var(--signal);
+  color: var(--signal-ink);
+}
+
+.term-tag[data-tag='confirm'] {
+  border-color: var(--c-red-text);
+  background: var(--c-red-bg);
+  color: var(--c-red-text);
+}
+
+.term-change > .term-full,
+.term-change > .term-change__line {
+  margin-left: 26px;
+}
+
+.term-change__line {
+  margin: 6px 0 0;
+  color: var(--ink-2);
+  font-size: calc(11.5px * var(--text-scale));
+}
+
+.term-change__hint[data-tone='signal'] {
+  color: var(--signal-ink);
+}
+
+.term-change__hint--keys {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+}
+
+.term-change__hint--keys .btn--sm,
+.term-keys .btn--sm,
+.term-server .btn--sm,
+.term-pipe .btn--sm {
+  height: 24px;
+  padding: 0 8px;
+  font-family: var(--font-mono);
+  font-size: calc(10.5px * var(--text-scale));
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/* the whole text that goes to Claude Code (or came from it): plain, all of it, its own scroll */
+.term-full {
+  display: grid;
+  gap: 3px;
+  margin-top: 6px;
+}
+
+.term-full__label,
+.term-full__hint {
+  color: var(--ink-3);
+  font-size: calc(10px * var(--text-scale));
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+}
+
+.term-full__hint {
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: calc(11px * var(--text-scale));
+}
+
+.term-full__text {
+  max-height: 220px;
+  margin: 0;
+  padding: 6px 8px;
+  overflow: auto;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-1);
+  background: var(--surface-2);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: calc(11.5px * var(--text-scale));
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.term-full__text:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+/* keys under a line of output (sign in, run again, open, stop) */
+.term-keys {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin-top: 6px;
+}
+
+.term-error .term-keys__go,
+.term-error > .btn--sm {
+  margin-right: 6px;
+}
+
+.term-keys__go svg {
+  color: var(--signal);
+}
+
+/* a link that is a key (Open sign-in page): no underline, like the buttons beside it */
+.term-keys a.btn {
+  text-decoration: none;
+}
+
+.term-keys__hint {
+  color: var(--ink-3);
+  font-size: calc(11px * var(--text-scale));
+}
+
+.term-signin {
+  margin: 8px 0 0 18px;
+}
+
+.term-signin .term-keys {
+  margin-top: 0;
+}
+
+.term-bar__hint--held {
+  color: var(--signal-ink);
+}
+
+/* ---------- /connect ---------- */
+.term-connect__line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  margin: 0;
+}
+
+.term-connect__name {
+  color: var(--ink);
+  font-weight: 650;
+  letter-spacing: var(--tracking-label);
+}
+
+.term-connect__host,
+.term-connect__note {
+  color: var(--ink-3);
+}
+
+.term-connect__note {
+  font-size: calc(11px * var(--text-scale));
+}
+
+.term-connect__text {
+  margin: 4px 0 0 !important;
+  overflow-wrap: anywhere;
+}
+
+.term-connect__text--ok {
+  color: var(--ink);
+}
+
+.term-connect__text--err {
+  color: var(--c-red-text);
+}
+
+.term-connect__codebox {
+  margin-top: 6px;
+}
+
+.term-connect__code {
+  display: inline-block;
+  max-width: 100%;
+  padding: 4px 10px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: calc(18px * var(--text-scale));
+  font-weight: 650;
+  letter-spacing: 0.14em;
+  user-select: all;
+  overflow-wrap: anywhere;
+}
+
+/* /connect alone: the servers */
+.term-servers {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.term-server {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto auto;
+  align-items: center;
+  gap: 4px 10px;
+  min-height: 30px;
+  padding: 2px 0;
+  border-bottom: 1px solid var(--rule);
+}
+
+.term-server__name {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 8px;
+  min-width: 0;
+}
+
+.term-server__name strong {
+  color: var(--ink);
+  letter-spacing: var(--tracking-label);
+}
+
+.term-server__cw {
+  color: var(--signal-ink);
+}
+
+.term-server__host,
+.term-server__tools {
+  color: var(--ink-3);
+  font-size: calc(11px * var(--text-scale));
+  overflow-wrap: anywhere;
+}
+
+.term-server__state {
+  color: var(--ink-2);
+  font-size: calc(10px * var(--text-scale));
+  letter-spacing: var(--tracking-label);
+  white-space: nowrap;
+}
+
+.term-server[data-state='signIn'] .term-server__state,
+.term-server[data-state='error'] .term-server__state {
+  color: var(--c-red-text);
+}
+
+/* ---------- /pipelines ---------- */
+.term-pipes {
+  display: grid;
+  gap: 6px;
+}
+
+.term-pipes__worker,
+.term-pipes__empty,
+.term-pipes__more,
+.term-pipes__wait {
+  margin: 0 !important;
+}
+
+.term-pipes__worker,
+.term-pipes__more {
+  color: var(--ink-3);
+  font-size: calc(11px * var(--text-scale));
+}
+
+.term-pipes__head {
+  margin: 4px 0 2px;
+  color: var(--ink-2);
+  font-size: calc(10px * var(--text-scale));
+  font-weight: 650;
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+}
+
+.term-pipes__list {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.term-pipe {
+  display: grid;
+  grid-template-columns: minmax(120px, 170px) minmax(0, 1fr) minmax(0, auto) auto;
+  align-items: center;
+  gap: 4px 10px;
+  min-height: 30px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.term-pipe__state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.term-pipe__label {
+  overflow: hidden;
+  color: var(--ink-2);
+  font-size: calc(10px * var(--text-scale));
+  letter-spacing: var(--tracking-label);
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.term-pipe[data-phase='question'] .term-pipe__label,
+.term-pipe[data-phase='gate'] .term-pipe__label,
+.term-pipe[data-confirm] .term-pipe__label {
+  color: var(--signal-ink);
+}
+
+.term-pipe__title {
+  min-width: 0;
+  overflow: hidden;
+  padding: 2px 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-weight: 650;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.term-pipe__title:hover {
+  text-decoration: underline;
+  text-decoration-color: var(--rule-strong);
+  text-underline-offset: 2px;
+}
+
+.term-pipe__title:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.term-pipe__meta {
+  overflow: hidden;
+  color: var(--ink-3);
+  font-size: calc(11px * var(--text-scale));
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.term-pipe__keys {
+  display: inline-flex;
+  gap: 4px;
+}
+
+@media (max-width: 640px) {
+  /* review heads: the tags on a line of their own */
+  .term-change__tags {
+    flex-basis: 100%;
+    order: 5;
+  }
+
+  .term-full__text {
+    max-height: 180px;
+  }
+
+  .term-pipe {
+    grid-template-columns: minmax(0, 1fr) auto;
+    padding: 4px 0;
+  }
+
+  .term-pipe__state {
+    grid-column: 1 / -1;
+  }
+
+  .term-pipe__meta {
+    grid-column: 1;
+  }
+
+  .term-pipe__keys {
+    grid-column: 2;
+    grid-row: 2 / span 2;
+  }
+
+  .term-server {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    padding: 4px 0;
+  }
+
+  .term-server__state,
+  .term-server__tools {
+    grid-column: 2;
+  }
+
+  .term-server .btn--sm {
+    grid-column: 3;
+    grid-row: 1 / span 3;
+    height: 30px;
+  }
+
+  .term-keys .btn--sm,
+  .term-pipe .btn--sm,
+  .term-change__hint--keys .btn--sm {
+    height: 30px;
+  }
+
+  .term-connect__code {
+    font-size: calc(16px * var(--text-scale));
+  }
 }
