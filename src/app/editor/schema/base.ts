@@ -12,7 +12,8 @@ import { TableKit } from '@tiptap/extension-table'
 import { BlockMath } from '@tiptap/extension-mathematics'
 import { TextStyle } from '@tiptap/extension-text-style'
 import UniqueID from '@tiptap/extension-unique-id'
-import { createLowlight, common } from 'lowlight'
+import { lowlight } from '../lib/codeLanguages'
+import { withCodeLines } from '../extensions/codeLines'
 import { t } from '../../i18n'
 import { OutlineHeading } from './heading'
 import { ButtonNode } from './button'
@@ -44,7 +45,7 @@ import {
   Toc,
 } from './nodes'
 
-export const lowlight = createLowlight(common)
+export { lowlight }
 
 /** Code blocks without a (known) language stay plain text — no highlight.js auto-detection guesses. */
 const plainLowlight = { ...lowlight, highlightAuto: (value: string) => lowlight.highlight('plaintext', value) }
@@ -68,6 +69,21 @@ const FencedCodeBlock = CodeBlockLowlight.extend({
         },
       })
     return [rule(/^```([a-z0-9]+)?[\s\n]$/i), rule(/^~~~([a-z0-9]+)?[\s\n]$/i)]
+  },
+  addKeyboardShortcuts() {
+    return {
+      ...this.parent?.(),
+      // Mod+A inside a code block selects its code; a second Mod+A selects the page as usual
+      'Mod-a': ({ editor }) => {
+        const { $from, $to, from, to } = editor.state.selection
+        if ($from.parent.type.name !== this.name || !$from.sameParent($to)) return false
+        if (from === $from.start() && to === $from.end()) return false
+        return editor.commands.setTextSelection({ from: $from.start(), to: $from.end() })
+      },
+    }
+  },
+  addProseMirrorPlugins() {
+    return withCodeLines(this.parent?.() ?? [], this.name)
   },
 })
 

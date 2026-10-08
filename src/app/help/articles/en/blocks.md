@@ -22,6 +22,8 @@ Type these at the start of a line:
 - `> ` — quote, `>> ` — toggle, `!> ` — callout
 - ```` ``` ```` — code block, `$$ ` — equation, `---` — divider
 
+**Code blocks** number their lines from four lines on and keep each line on one row (long lines scroll); the keys in their bar switch line numbers and **Wrap lines** for that block on this device, **Copy** copies the code, and a JSON block says whether it is valid — or where the first mistake is. ⌘/Ctrl+A inside a block selects its code first. *One Script* is one of the languages.
+
 Select text for the formatting toolbar: bold, italic, underline, strikethrough, code, link, colour, **Ask AI** and **Comment**.
 
 > Pasting a link offers to keep it as a link or turn it into a bookmark, an embed or a player.

@@ -364,6 +364,8 @@ export {
   /* overviews (the workspace page): loadScriptRuns(id) → this device's runs of a script into useScriptRuns (key `<scope>|<id>`) */
   loadScriptRuns,
   useScriptRuns,
+  /* code blocks on pages: One Script as a highlight.js grammar (main.tsx registers it with the editor) */
+  oneScriptGrammar,
 } from './script'
 /*
  * Database commands (a database's menu of things to run — sidebar ⌘ key / row menu, toolbar key, ⌘K; see commands/index.ts):

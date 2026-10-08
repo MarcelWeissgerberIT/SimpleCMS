@@ -7,6 +7,7 @@ import { ChevronRight } from 'lucide-react'
 import { createLowlight, common } from 'lowlight'
 import { useT } from '../../i18n'
 import type { GitFile } from './protocol'
+import '../../ui/code/syntax.css'
 
 const lowlight = createLowlight(common)
 
@@ -116,7 +117,7 @@ function FileDiff({ file, open: initial }: { file: GitFile; open: boolean }) {
           ) : !file.diff ? (
             <p className="cd-note">{t('features.coding.diff.left')}</p>
           ) : (
-            <table className="cd-table">
+            <table className="cd-table syn-hl">
               <tbody>
                 {shown.map((l, i) =>
                   l.kind === 'hunk' || l.kind === 'meta' ? (
