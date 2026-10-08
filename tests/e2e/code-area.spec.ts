@@ -4,8 +4,8 @@
  * pages (line numbers by default from 4 lines, per block and device; wrap; copy with a spoken confirmation; the JSON
  * check; Mod+A takes the code first; Backspace at a line start joins the right lines; the stored node stays
  * { language }) and the One Script editor (the error and the unclosed bracket that caused it: gutter marks, a list
- * that jumps, the textarea described by it; the message past a long line painted and reachable). The drawn rows
- * stay one textarea line high at text sizes M and L.
+ * that jumps, the textarea described by it; the message past a long line painted and reachable; @ chips with wide
+ * labels as wide as their text). The drawn rows stay one textarea line high at text sizes M and L.
  */
 import type { Locator, Page } from '@playwright/test'
 import { test, expect, openApp, wsEval, createPage, gotoPage, doc, para, mockClaude, reloadApp, MOD } from './fixtures'
@@ -367,5 +367,38 @@ test.describe('One Script editor: what is drawn past a line', () => {
     })
     expect(edge.lensRight).toBeLessThanOrEqual(edge.boxRight + 0.5)
     expect(edge.lensLeft).toBeGreaterThan(edge.boxLeft)
+  })
+
+  test('an @ chip whose label has CJK and emoji is exactly as wide as its source text in the textarea', async ({ page }) => {
+    await openApp(page)
+    const ids = await wsEval(page, (s) => [s.createPage({ title: '任务清单 📋' }), s.createPage({ title: 'Aufgaben' })] as string[])
+    const code = `let a = @[任务清单 📋](p:${ids[0]}).title + 1\nlet b = @[Aufgaben](p:${ids[1]}).title`
+    await wsEval(page, (s, c) => {
+      const now = Date.now()
+      s.upsertScript({ id: 'scWide', name: 'Wide', code: c, kind: 'script', createdAt: now, updatedAt: now })
+    }, code)
+    await page.evaluate(() => (window.location.hash = '#/scripts/scWide'))
+    await expect(page.locator('.sc-code__input')).toBeVisible()
+    await expect(page.locator('.sc-code .sc-chip')).toHaveCount(2)
+    const widths = await page.evaluate(() => {
+      const ta = document.querySelector<HTMLTextAreaElement>('.sc-code .ca__input')!
+      const cs = getComputedStyle(ta)
+      const probe = document.createElement('span')
+      for (const p of ['fontFamily', 'fontSize', 'fontWeight', 'fontStyle', 'fontStretch', 'fontKerning', 'fontVariantLigatures', 'letterSpacing', 'wordSpacing'] as const) probe.style[p] = cs[p]
+      Object.assign(probe.style, { position: 'fixed', left: '0', top: '0', whiteSpace: 'pre', visibility: 'hidden' })
+      document.body.append(probe)
+      // the chips in order, each against its source token as the textarea draws it
+      const raws = ta.value.match(/@\[[^\]]*\]\([pusa]:[\w-]+\)/g) ?? []
+      const out = [...document.querySelectorAll<HTMLElement>('.sc-code .sc-chip')].map((chip, i) => {
+        probe.textContent = raws[i]
+        return { chip: chip.getBoundingClientRect().width, text: probe.getBoundingClientRect().width, ch: [...raws[i]].length }
+      })
+      probe.remove()
+      return out
+    })
+    for (const w of widths) expect(Math.abs(w.chip - w.text)).toBeLessThan(0.5)
+    // the wide label really is wider than one ch per character (what the chip used to assume)
+    const ch = await page.locator('.sc-code .ca__measure').evaluate((el) => el.getBoundingClientRect().width / 10)
+    expect(widths[0].text).toBeGreaterThan(widths[0].ch * ch + 4)
   })
 })

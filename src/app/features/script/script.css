@@ -501,19 +501,27 @@
   white-space: nowrap;
 }
 
-/* @ reference chips: exactly as wide as their source text (inline style in ch), the label left, the id faint right */
+/* @ reference chips: exactly as wide as their source text (kept inside, invisible, as the room — wide CJK and emoji
+   included); the face lies over it: the label left, the id faint right */
 .sc-chip {
-  display: inline-flex;
+  position: relative;
+  display: inline-block;
+  vertical-align: top;
+  white-space: pre;
+}
+.sc-chip__room {
+  visibility: hidden;
+}
+.sc-chip__face {
+  position: absolute;
+  inset: 1px 0;
+  display: flex;
   align-items: center;
-  height: calc(var(--ca-line) - 2px);
-  margin-top: 1px;
   overflow: hidden;
+  box-sizing: border-box;
   border: 1px solid color-mix(in srgb, var(--signal) 50%, transparent);
   border-radius: var(--radius-1);
   background: var(--signal-wash);
-  vertical-align: top;
-  white-space: pre;
-  box-sizing: border-box;
 }
 .sc-chip__pill {
   flex: 0 1 auto;
@@ -524,15 +532,15 @@
   font-weight: 650;
   text-overflow: ellipsis;
 }
-.sc-chip--u {
+.sc-chip--u .sc-chip__face {
   border-color: color-mix(in srgb, var(--syn-num) 45%, transparent);
   background: var(--c-blue-bg);
 }
 .sc-chip--u .sc-chip__pill {
   color: var(--syn-num);
 }
-.sc-chip--a,
-.sc-chip--s {
+.sc-chip--a .sc-chip__face,
+.sc-chip--s .sc-chip__face {
   border-color: var(--rule-strong);
   background: var(--surface-2);
 }
@@ -790,10 +798,6 @@
   background: var(--surface);
   font-size: calc(12px * var(--text-scale));
 }
-.sc-preview .sc-chip {
-  height: 16px;
-}
-
 /* ---------- console ---------- */
 .sc-console__empty {
   margin: 0;

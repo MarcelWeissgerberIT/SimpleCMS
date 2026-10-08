@@ -86,7 +86,10 @@ export interface CodeAreaProps {
   describedBy?: string
   invalid?: boolean
   disabled?: boolean
-  /** draws a token itself (One Script's @ chips: exactly as wide as their text) */
+  /**
+   * draws a token itself. It must take exactly the width the textarea gives the token's text — keep that text
+   * inside, invisible, and draw over it (One Script's @ chips); counting characters fails for CJK and emoji
+   */
   renderToken?: RenderToken
   /** first look at every key; true = handled */
   onKeyDown?: (e: ReactKeyboardEvent<HTMLTextAreaElement>) => boolean | void

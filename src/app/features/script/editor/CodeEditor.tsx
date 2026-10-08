@@ -134,21 +134,24 @@ const GLYPH: Record<string, string> = { prop: '◆', field: '◇', member: '.', 
 /* ------------------------------------------------------------------ chips, previews, signatures */
 
 /**
- * An @ reference as a chip. It takes exactly the width of its source text (`@[Label](p:id)`, in `ch` of the
- * monospace font), so the caret in the textarea above still lines up: the label as a pill, the id as a faint tail
- * in what is left.
+ * An @ reference as a chip. It takes exactly the width of its source text (`@[Label](p:id)`): the source itself
+ * holds the room, invisible, in the same font as the textarea above — wide characters (CJK, emoji) included — so
+ * the caret still lines up. On top of it: the label as a pill, the id as a faint tail in what is left.
  */
 function Chip({ raw }: { raw: string }) {
   const m = /^@\[(.*)\]\(([pusa]):([\w-]+)\)$/s.exec(raw)
   if (!m) return <span className="syn-ref">{raw}</span>
   const label = m[1].replace(/\\([\]\\])/g, '$1')
   return (
-    <span className={`sc-chip sc-chip--${m[2]}`} style={{ width: `${[...raw].length}ch` }} title={`${label} · ${m[2]}:${m[3]}`}>
-      <span className="sc-chip__pill">
-        <span className="sc-chip__at">@</span>
-        {label}
+    <span className={`sc-chip sc-chip--${m[2]}`} title={`${label} · ${m[2]}:${m[3]}`}>
+      <span className="sc-chip__room">{raw}</span>
+      <span className="sc-chip__face">
+        <span className="sc-chip__pill">
+          <span className="sc-chip__at">@</span>
+          {label}
+        </span>
+        <span className="sc-chip__tail">{m[3]}</span>
       </span>
-      <span className="sc-chip__tail">{m[3]}</span>
     </span>
   )
 }
