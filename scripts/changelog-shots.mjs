@@ -8,7 +8,7 @@
  *
  * (CHANGELOG_DRAFT=1 lets the build pass while a new entry's picture does not exist yet.)
  *
- * Shots: history-compare, mcp-overview, mirror, task-mcp, models, search, terminal-pipelines, cloud-worker, one-picker, pipelines, legacy-modernise, coding-live, text-size, mcp-media, coding-setup, free-board, building-blocks, workspace-settings, diagram-viewer, coding-pipeline, pages-per-item, design-import, tour, quick-capture, script-templates, one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
+ * Shots: glass-switches, history-compare, mcp-overview, mirror, task-mcp, models, search, terminal-pipelines, cloud-worker, one-picker, pipelines, legacy-modernise, coding-live, text-size, mcp-media, coding-setup, free-board, building-blocks, workspace-settings, diagram-viewer, coding-pipeline, pages-per-item, design-import, tour, quick-capture, script-templates, one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
  * custom-agents, gmail, help-centre, mcp-servers, feed-blocks — each named like its image. Every shot starts from a fresh, seeded
  * workspace in English, light theme, 1440 × 900 at device scale 2; the crop of the relevant area is scaled
  * to 1440 px wide and saved as public/assets/shots/changelog/<shot>.webp (≤ 150 KB: the quality steps down
@@ -823,6 +823,46 @@ function drawVolumeTable(t) {
 const toolResult = (body, id) => (body.messages ?? []).flatMap((m) => (Array.isArray(m.content) ? m.content : [])).find((c) => c.type === 'tool_result' && c.tool_use_id === id)
 
 const shots = {
+  /**
+   * The glass rocker switches: Settings → Appearance → Switch LED with Green picked (the six LED keys, a switch off
+   * and on beside them), and below it Claude AI → One memory with its switches on and off, lit green — one above
+   * the other.
+   */
+  async 'glass-switches'(browser) {
+    const { ctx, page } = await freshPage(browser)
+    await page.evaluate(() => window.__one.ui.getState().openModal({ type: 'settings', tab: 'appearance' }))
+    const led = page.getByTestId('switch-led')
+    await led.waitFor()
+    await led.getByRole('radio', { name: 'Green' }).click()
+    await led.scrollIntoViewIfNeeded()
+    await scrollToTop(page.locator('.st-switchled'), 16)
+    await rest(page)
+    const a = `${TMP}/glass-switches-led.png`
+    const lb = await boxOf(page.locator('.st-switchled'), 0)
+    await page.screenshot({ path: a, clip: { x: lb.x - 24, y: lb.y + 4, width: lb.width + 48, height: lb.height + 8 } })
+    // switches on and off in a settings section
+    await page.evaluate(() => window.__one.ui.getState().closeModal())
+    await page.waitForTimeout(200)
+    await page.evaluate(() => window.__one.ui.getState().openModal({ type: 'settings', tab: 'ai' }))
+    const mem = page.getByTestId('memory-settings')
+    await mem.waitFor()
+    const use = mem.getByRole('switch', { name: 'Use the memory' })
+    if ((await use.getAttribute('aria-checked')) !== 'true') await use.click()
+    const log = mem.getByRole('switch', { name: 'Keep a usage log' })
+    if ((await log.getAttribute('aria-checked')) !== 'true') await log.click()
+    const propose = mem.getByRole('switch', { name: 'Propose memories after AI-terminal tasks' })
+    if ((await propose.getAttribute('aria-checked')) !== 'false') await propose.click()
+    await scrollToTop(use, 40)
+    await rest(page)
+    const top = (await use.boundingBox()).y
+    const last = await log.boundingBox()
+    const lb2 = await boxOf(mem, 0)
+    const b = `${TMP}/glass-switches-rows.png`
+    await page.screenshot({ path: b, clip: { x: lb2.x - 24, y: top - 22, width: lb2.width + 48, height: Math.round(last.y + last.height + 88 - top) } })
+    await saveSideBySide('glass-switches', [a, b], { column: true })
+    await ctx.close()
+  },
+
   /**
    * "Integrations unlock the mirror recipe": an integration profile (fictional "Tracker", matched by the server's
    * tested tools and name) makes the recipe appear; its own path — setup (source "tracker", below Team wiki), the

@@ -3,7 +3,7 @@ id: workspace
 title: Workspace-Einstellungen & Personen
 section: start
 order: 6
-keywords: Workspace-Einstellungen, Schriftgröße, Textgröße, Darstellung, Workspace, Personen, Mitglieder, Personen zusammenführen, Person umbenennen, Person entfernen, Überblick, Speicher, Backup, Papierkorb, Automatisierung, Bausteine, Gefahrenzone, Einstellungen, dieses Gerät, workspace settings, people, members, merge
+keywords: Workspace-Einstellungen, Schriftgröße, Textgröße, Darstellung, LED der Schalter, Schalter, Workspace, Personen, Mitglieder, Personen zusammenführen, Person umbenennen, Person entfernen, Überblick, Speicher, Backup, Papierkorb, Automatisierung, Bausteine, Gefahrenzone, Einstellungen, dieses Gerät, workspace settings, people, members, merge
 related: workspace-look, members-roles, invites, export, sidebar
 summary: Eine Seite für alles, was zum Workspace gehört — Name, Aussehen, Personen, Bausteine, Automatisierung und Daten. Die Einstellungen sind dieses Gerät.
 ---
@@ -14,7 +14,9 @@ Das Schild oben liest den Workspace ab: Name, **LOKAL** oder **TEAM · 7 MITGLIE
 ## Überblick
 Der **Name**, den alle sehen (im Team-Workspace benennen Inhaber und Admins um), die Zahlen — Seiten, Datenbanken, Einträge, Wörter, Personen, eigene Vorlagen, Papierkorb, seit wann —, der Speicher auf diesem Gerät, die Dateien darin und wann dieses Gerät zuletzt ein **Komplett-Backup** gesichert hat.
 
-**Darstellung · dieses Gerät** hält die **Schriftgröße** der ganzen App: ein Schieberegler mit vier Stufen — **Standard** (die gewohnten Größen und die kleinste), **M**, **L** und **XL** (14 · 15 · 16 · 17 px für den Text der Oberfläche). Alles folgt sofort — Menüs, Panels, Seitenleiste, Seiten, Tabellen, die Hilfe. Sie gilt nur auf diesem Gerät (Bildschirme sind verschieden) und ist derselbe Regler wie in **Einstellungen → Darstellung**. Die Website und Seiten, die du teilst oder veröffentlichst, behalten ihre eigene Größe.
+**Darstellung · dieses Gerät** hält die **Schriftgröße** der ganzen App: ein Schieberegler mit vier Stufen — **Standard** (die gewohnten Größen und die kleinste), **M**, **L** und **XL** (14 · 15 · 16 · 17 px für den Text der Oberfläche). Alles folgt sofort — Menüs, Panels, Seitenleiste, Seiten, Tabellen, die Hilfe. Sie gilt nur auf diesem Gerät (Bildschirme sind verschieden) und ist derselbe Regler wie in **Einstellungen → Darstellung**. Die Website und Seiten, die du teilst oder veröffentlichst, behalten ihre eigene Größe. Auch die Schalter wachsen mit.
+
+Darunter legt **LED der Schalter** fest, in welcher Farbe jeder eingeschaltete Schalter leuchtet: die **Primärfarbe** (der Standard — die Signalfarbe des Workspace, sie folgt also dem [Aussehen](help:workspace-look)) oder Grün, Blau, Gelb, Rot oder Lila. Ebenfalls nur auf diesem Gerät, ebenfalls dieselben Tasten wie in **Einstellungen → Darstellung**.
 
 ## Aussehen
 **Farben, Schrift und Ecken** des Workspace — für alle darin: eine Vorlage oder eigene Signal-, Papier- und Tintenfarbe, die Schriften für Oberfläche, Seitentext und Überschriften, Standard- oder rechtwinklige Ecken. Der Kontrast bleibt lesbar (One passt eine Farbe an, die das nicht schafft), und Exporte und geteilte Links behalten das Standard-Aussehen von One. Im Team-Workspace legen Inhaber und Admins es fest. *Auf diesem Gerät das Standard-Aussehen verwenden* gilt nur für dieses Gerät. Siehe [Das Aussehen des Workspace](help:workspace-look). Der Überblick zeigt das aktuelle Aussehen mit einer Taste zum Ändern.
