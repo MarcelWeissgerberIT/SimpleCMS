@@ -386,7 +386,7 @@ textarea.input {
   --sw-screw: calc(2.75px * var(--text-scale));
   --sw-legend-h: calc(6px * var(--text-scale));
   --sw-legend-w: calc(4px * var(--text-scale));
-  --sw-stroke: calc(1.25px * var(--text-scale));
+  --sw-stroke: calc(1.5px * var(--text-scale));
   --sw-glow-r: calc(4px * var(--text-scale));
   --sw-frost-r: calc(2px * var(--text-scale));
   --sw-persp: calc(50px * var(--text-scale));

@@ -158,7 +158,7 @@
   --toggle-glass-hi: color-mix(in srgb, var(--ink) 3%, var(--surface)); /* milky glass, unlit */
   --toggle-glass-lo: color-mix(in srgb, var(--ink) 19%, var(--surface));
   --toggle-frost: color-mix(in srgb, var(--toggle-white) 85%, transparent);
-  --toggle-legend: color-mix(in srgb, var(--ink) 52%, var(--surface));  /* the engraved 0 and I, unlit */
+  --toggle-legend: color-mix(in srgb, var(--ink) 60%, var(--surface));  /* the engraved 0 and I, unlit */
   --toggle-seam: color-mix(in srgb, var(--ink) 22%, transparent);       /* between the halves; the pressed half's shade */
   --toggle-lit-hi: color-mix(in srgb, var(--switch-led) 25%, var(--toggle-white));
   --toggle-lit-mid: color-mix(in srgb, var(--switch-led) 70%, var(--toggle-white));
