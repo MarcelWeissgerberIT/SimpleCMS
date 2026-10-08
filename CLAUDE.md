@@ -27,8 +27,9 @@ src/landing/site/**                  the new marketing site (revealed under the 
 app/index.html, src/app/main.tsx     workspace app entry (boot: load IndexedDB → seed → persistence)
 src/app/store/**                     data model (types.ts = CONTRACT), zustand store, persistence, selectors, ui store
 src/app/lib/**                       router (hash), ids, files (IndexedDB blobs), colors, theme
-src/app/ui/**                        shared primitives: Popover, Menu/MenuList/useMenu, Modal, Tooltip, Switch/Kbd/Led,
-                                     PageIcon, IconPicker; ui.css = base + primitive classes
+src/app/ui/**                        shared primitives: Popover, Menu/MenuList/useMenu, Modal, Tooltip, Switch/SwitchFace/
+                                     Kbd/Led, Screws (ui/screws.ts), roving.ts (radiogroup keys), PageIcon, IconPicker;
+                                     ui.css = base + primitive classes
 src/app/i18n/**                      t()/useT(); per-area strings in src/app/<area>/messages.ts
 src/app/shell/**                     layout, sidebar, topbar, page view, command palette, settings, modals host …
 src/app/editor/**                    TipTap block editor (public API: editor/index.ts)
@@ -38,7 +39,7 @@ src/app/features/**                  AI (+ workspace agent), history, graph, sha
                                      GitHub Markdown, per-device IndexedDB `one-sync`), mcp (local bridge UI), sheets
                                      (spreadsheet engine + grid; functions/ = custom functions built by clicking), charts
                                      (SVG renderer, chart builder, data sources) (public API: features/index.ts)
-src/app/help/**                      help centre: panel (?, status bar, ⌘K, workspace menu), 67 articles EN+DE twins
+src/app/help/**                      help centre: panel (?, status bar, ⌘K, workspace menu), 68 articles EN+DE twins
                                      (help/articles/{en,de}/<id>.md, `help:<id>` links), Ask (Claude over the articles);
                                      link UI to an article with `<HelpLink id="…" />` (public API: help/index.ts)
 src/help-site/**                     build-time public /help pages (prerendered from the same articles, hreflang)
@@ -260,12 +261,24 @@ the public APIs stable — other areas are built against them in parallel.
   for the canvas). Never opened from a presentation or a popover (`VIEWER_OFF` / `useViewerAllowed`).
 - What's new (src/app/help/changelog): every user-visible release adds an entry EN + DE with a real screenshot
   (changelog/README.md, `scripts/changelog-shots.mjs`); the build fails without a twin or an image.
-- Workspace settings (shell/workspace, `#/workspace[/overview|people|blocks|automation|data|danger]`): what belongs to the
+- Workspace settings (shell/workspace, `#/workspace[/overview|look|people|blocks|automation|data|danger]`): what belongs to the
   workspace; Settings (the modal) = this device + account. Open with `openWorkspaceSettings(section?)`; team members,
   invites, API and Leave / Delete live there (parts in shell/cloud/Team.tsx). People: write only with `addPerson` /
   `updatePerson` / `removePerson` / `restorePerson`; merge and rename through shell/workspace/people.ts (person values +
   `mention` nodes via `setContent(…, 'people')`, a version first, one Undo); remove only someone unused; team members
   (account ids) are never merged, renamed or removed there. Last full backup per device: localStorage `one.backup.last`.
+- Workspace look (store/look.ts, lib/look, shell/workspace/Look.tsx): `Workspace.look` (WorkspaceLook: preset, colors
+  {paper, ink, signal}, dark?, fonts {ui, text, headings}, corners, updatedAt, updatedBy). Write only with `setLook(look |
+  null)` (refused unless `lookAllowed()`; in teams owners / admins only — enforced by the server guard
+  server/src/collab/workspace-look.ts with the member's CURRENT role). Every reader sanitizes with `sanitizeLook`; the
+  standard look is no value. In the store assign `look = undefined`, never `delete` (zustand merges the next state into
+  the old one); keep the reference when `sameLook`. Team: meta map `workspace`, key `look`. Full backups carry it, page
+  backups never. Per device: localStorage `one.look` (cache for public/look-boot.js before first paint, plus "standard
+  look on this device"). Colours come from the OKLCH engine (lib/look, WCAG AA enforced, text in the signal colour via
+  `--signal-ink` / `--signal-on-ink`, never raw `--signal`); the generated style takes allow-listed token names and hex /
+  rgba only. Fonts only Archivo / JetBrains Mono / Newsreader + system stacks (--font-sans / --font-doc / --font-head /
+  --head-*). Exports, share links (#/s, #/f), the published site, help pages and diagram downloads use the stock tokens
+  (tokens.css?raw / stockTokens, never getComputedStyle).
 - Building blocks (store/kit.ts, features/kit): `Workspace.kit` = { lists, propTypes, recordTypes } — write only with
   upsertList / deleteList / upsertPropType / deletePropType / upsertRecordType / deleteRecordType / attachRecordType /
   setRecordType; every reader sanitizes (`sanitizeKit`); team: meta maps `lists`, `propTypes`, `recordTypes`.
@@ -465,7 +478,11 @@ The user explicitly demands: NO AI slop, it must look unlike everything else, in
   in components except inside tokens.css. Light theme "Paper", dark theme "Carbon" (`html[data-theme]`).
 - Type: Archivo variable (width axis!). UI 13–14px; display headings use `font-stretch: 125%` (class `.display`),
   heavy weight, tight tracking. Micro-labels: JetBrains Mono, 10.5px, UPPERCASE, letter-spacing .08em (class `.label`).
-- Shape: radius 2px controls / 4px menus+cards / 8px modals. Hairline 1px rules (`--rule`). Pills only for LEDs/switches.
+- Shape: radius 2px controls / 4px menus+cards / 8px modals. Hairline 1px rules (`--rule`). Pills only for LEDs.
+  Switches are industrial toggle switches on a screwed plate: `Switch` (size 'md' 52×26 | 'sm' 40×20 for dense rows,
+  `seed` = a stable id for the screw angles, `describedBy`), `SwitchFace` for non-interactive rows (aria-hidden),
+  `Screws` + `.screw-plate` for screwed plates (ui/controls.tsx, ui/screws.ts). Hardware colours are color-mix tokens
+  in tokens.css (--plate*, --screw-*, --toggle-*), never raw colours.
 - Signature details: orange text caret, orange focus ring, keycap-styled shortcuts (`.kbd`), LED status dots
   (`.led`), mono spec labels (e.g. "§ 02 — DATABASES", "REV 14 · 1,204 WORDS"), physical button press (translateY 1px).
 - Motion: fast & mechanical (90–260ms, `--ease-out`). No bouncy springs, no floating blobs.

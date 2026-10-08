@@ -28,7 +28,7 @@ try: terminal
 - `help`: related article ids (`src/app/help/articles/en/<id>.md`); `[text](help:<id>)` links work in the body.
 - `try` (optional): one of `CHANGELOG_TRIES` in `entries.ts` — `terminal`, `settings-ai`, `settings-mcp`,
   `settings-mail`, `settings-sync`, `agents`, `ask`, `palette`, `scripts`, `import`, `inbox`, `history`, `share`,
-  `discover`, `tour`, `slash`, `ai-menu`, `transform`, `database`, `commands`, `sheet`, `automations`, `coding`, `kit` — the "Try it"
+  `discover`, `tour`, `slash`, `ai-menu`, `transform`, `database`, `commands`, `sheet`, `automations`, `coding`, `kit`, `look` — the "Try it"
   key (the cards of "What can One do?" use the same list). New actions go into that allow-list, `try.ts` (or an
   area registers it with `registerTry`, like the shell's tour actions) and the `help.news.try.<id>` strings; never
   code in Markdown.

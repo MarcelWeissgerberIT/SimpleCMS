@@ -2041,6 +2041,53 @@ const shots = {
     await ctx.close()
   },
 
+  /**
+   * The industrial toggle switches: the page menu (⋯) of Welcome to One with Full width on and the other toggles off,
+   * once in Paper and once in Carbon, side by side.
+   */
+  async switches(browser) {
+    const { ctx, page } = await freshPage(browser)
+    const id = await openPage(page, 'Welcome to One')
+    await page.evaluate((id) => window.__one.workspace.getState().updatePage(id, { settings: { ...window.__one.workspace.getState().pages[id].settings, fullWidth: true } }), id)
+    const shots = []
+    for (const theme of ['light', 'dark']) {
+      await page.evaluate((theme) => window.__one.workspace.getState().updateSettings({ theme }), theme)
+      await page.waitForTimeout(300)
+      await page.getByRole('button', { name: 'Page options' }).click()
+      const menu = page.getByRole('menu', { name: 'Page options' })
+      await menu.locator('.pm-toggle').first().waitFor()
+      await page.mouse.move(W - 10, H - 10)
+      await rest(page)
+      // the toggle rows only, so the levers are big enough to see
+      const m = await boxOf(menu)
+      const rows = menu.locator('.pm-toggle')
+      const first = await rows.first().boundingBox()
+      const last = await rows.last().boundingBox()
+      const png = `${TMP}/switches-${theme}.png`
+      await page.screenshot({ path: png, clip: { x: m.x, y: Math.max(0, first.y - 10), width: m.width, height: Math.round(last.y + last.height + 10 - first.y + 10) } })
+      shots.push(png)
+      await page.keyboard.press('Escape')
+      await page.waitForTimeout(200)
+    }
+    await saveSideBySide('switches', shots)
+    await ctx.close()
+  },
+
+  /** Workspace settings → Look with the Blueprint preset picked (the whole tab previews it before Save). */
+  async look(browser) {
+    const { ctx, page } = await freshPage(browser)
+    await page.evaluate(() => (window.location.hash = '#/workspace/look'))
+    const section = page.getByTestId('look-section')
+    await section.waitFor()
+    await page.getByTestId('look-preset-blueprint').click()
+    await page.getByTestId('look-bar').waitFor()
+    await page.mouse.move(W - 10, 10)
+    await rest(page)
+    const colours = await page.getByTestId('look-signal').boundingBox()
+    await save(page, 'look', { x: 0, y: 0, width: W, height: Math.min(H, Math.round(colours.y + colours.height + 16)) })
+    await ctx.close()
+  },
+
   /** Several blocks selected (text, image, table): the wash on each, the pinned grip, the count chip. */
   async 'block-select'(browser) {
     const { ctx, page } = await freshPage(browser)

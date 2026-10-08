@@ -4,6 +4,7 @@
  */
 import { registerTry, type ChangelogTry } from '../../help'
 import { startTour } from './state'
+import { openWorkspaceSettings } from '../workspace/open'
 
 type Actions = typeof import('./actions')
 
@@ -21,6 +22,7 @@ const SHELL_TRIES: Partial<Record<ChangelogTry, () => void>> = {
   commands: lazy((m) => m.tryCommands()),
   sheet: lazy((m) => m.trySheet()),
   automations: lazy((m) => m.tryAutomations()),
+  look: () => openWorkspaceSettings('look'),
 }
 
 for (const [action, run] of Object.entries(SHELL_TRIES)) registerTry(action as ChangelogTry, run)
