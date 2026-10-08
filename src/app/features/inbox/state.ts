@@ -13,13 +13,15 @@ import type { ID } from '../../store/types'
 import type { WorkspaceRef } from '../../cloud'
 import type { TeamFacts } from './scan'
 
-export type InboxKind = 'reminder' | 'mention' | 'comment' | 'assigned'
-export const INBOX_KINDS: InboxKind[] = ['reminder', 'mention', 'comment', 'assigned']
+/** 'agent': a note a custom agent left for the person (notify_me, features/agents/runTools.ts) */
+export type InboxKind = 'reminder' | 'mention' | 'comment' | 'assigned' | 'agent'
+export const INBOX_KINDS: InboxKind[] = ['reminder', 'mention', 'comment', 'assigned', 'agent']
 
 export interface InboxItem {
-  /** r:<reminder key> · m:<page>:<block>:<n> · c:<reply id> · a:<row>:<property> */
+  /** r:<reminder key> · m:<page>:<block>:<n> · c:<reply id> · a:<row>:<property> · g:<run id>:<n> */
   id: string
   kind: InboxKind
+  /** the page it is about ('' = none: an agent's note without a page opens the agent) */
   pageId: ID
   /** when it happened: a reminder's due time, a reply's time, when a mention / assignment arrived */
   at: number
@@ -36,6 +38,9 @@ export interface InboxItem {
   propId?: ID | null
   /** comment reply: its thread */
   threadId?: ID
+  /** agent note: the agent (its label: agentLabel(`agent:<id>`)) and the run that left it */
+  agentId?: ID
+  runId?: string
   read?: boolean
   archived?: boolean
 }
@@ -191,6 +196,21 @@ export async function saveSnapshot(ws: string, snap: Snapshot): Promise<void> {
   } catch (e) {
     console.warn('[one] inbox: could not save the snapshot', e)
   }
+}
+
+/**
+ * Add items from outside the engine (an agent's notes): new ones on top, unread; an item with the same id is
+ * replaced. Loads this device's inbox of the open workspace first when nothing is loaded yet.
+ */
+export async function addInboxItems(ws: string, items: InboxItem[]): Promise<boolean> {
+  if (!items.length) return false
+  if (!useInbox.getState().ws) await loadInbox(ws)
+  if (useInbox.getState().ws !== ws) return false
+  await mutateInbox((d) => {
+    const ids = new Set(items.map((i) => i.id))
+    d.items = [...d.items.filter((i) => !ids.has(i.id)), ...items]
+  })
+  return true
 }
 
 /* ------------------------------------------------------------------ read state (UI) */

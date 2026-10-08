@@ -89,7 +89,16 @@ function teamMe(): { id: ID; name: string } | null {
 /** Open what an item is about (and mark it read). */
 export function openInboxItem(item: InboxItem): void {
   void markRead([item.id])
-  const page = useWorkspace.getState().pages[item.pageId]
+  const pages = useWorkspace.getState().pages
+  const page = item.pageId ? pages[item.pageId] : undefined
+  if (item.kind === 'agent') {
+    // an agent's note: its page (a row in the peek), else — no page, or one gone since — the agent
+    if (page && !page.trashed && !isEffectivelyTrashed(pages, page.id)) {
+      if (page.databaseId) useUI.getState().openPeek(page.id)
+      else openPage(page.id)
+    } else if (item.agentId) navigate(`#/agents/${item.agentId}`)
+    return
+  }
   if (!page) return
   // a row's property (date reminder, assignment) opens in the peek; content opens the page at the block
   if (page.databaseId && (item.kind === 'assigned' || (item.kind === 'reminder' && item.propId))) useUI.getState().openPeek(page.id)

@@ -338,4 +338,20 @@ export const migrations: Migration[] = [
       CREATE UNIQUE INDEX coding_workers_pending ON coding_workers(workspace_id, user_id) WHERE revoked_at IS NULL AND activated_at IS NULL;
     `,
   },
+  {
+    version: 10,
+    name: 'custom agents: their own state between runs',
+    sql: `
+      -- a server agent's small memory (agent_state_set — cursors, last seen ids; JSON ≤ 4 KB), sealed with the
+      -- workspace's key (the AAD names the workspace and the agent); written only when a run ends ok / staged
+      CREATE TABLE agent_state (
+        workspace_id  TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        agent_id      TEXT NOT NULL,
+        data          TEXT NOT NULL,
+        run_id        TEXT NOT NULL,
+        updated_at    INTEGER NOT NULL,
+        PRIMARY KEY (workspace_id, agent_id)
+      );
+    `,
+  },
 ]

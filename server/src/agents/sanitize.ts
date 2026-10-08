@@ -20,6 +20,9 @@ const ID = /^[A-Za-z0-9_-]{1,64}$/
 /** An MCP server name as the app writes it (an `mcp_server_name`). */
 export const MCP_NAME = /^[a-z0-9][a-z0-9_-]{0,31}$/
 const MODEL = /^claude-[a-z0-9][a-z0-9.-]{0,62}$/
+/** An MCP tool name in an agent's allow-list (mcpTools). */
+const MCP_TOOL = /^[A-Za-z0-9_.-]{1,128}$/
+const MAX_TOOLS = 200
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
 export const isId = (v: unknown): v is string => typeof v === 'string' && ID.test(v)
@@ -61,6 +64,17 @@ export function sanitizeTrigger(v: unknown): AgentTrigger | null {
   }
 }
 
+/** The tool allow-list: entries only for the agent's servers (in their order), names checked, ≤ 200 each. */
+export function sanitizeMcpTools(v: unknown, servers: string[]): Record<string, string[]> | undefined {
+  if (!isObj(v)) return undefined
+  const out: Record<string, string[]> = {}
+  for (const name of servers) {
+    const list = Object.prototype.hasOwnProperty.call(v, name) ? v[name] : undefined
+    if (Array.isArray(list)) out[name] = [...new Set(list.filter((x): x is string => typeof x === 'string' && MCP_TOOL.test(x)))].slice(0, MAX_TOOLS)
+  }
+  return Object.keys(out).length ? out : undefined
+}
+
 function sanitizeScope(v: unknown): AgentScope {
   const s = isObj(v) ? v : {}
   return { everything: s.everything === true, pages: ids(s.pages), databases: ids(s.databases) }
@@ -79,6 +93,7 @@ export function sanitizeAgent(key: string, v: unknown): CustomAgent | null {
   const out = isObj(v.output) && isId(v.output.pageId) ? { pageId: v.output.pageId, mode: oneOf(v.output.mode, ['append', 'replace'] as const, 'append') } : null
   const mcp = Array.isArray(v.mcpServers) ? [...new Set(v.mcpServers.filter((n): n is string => typeof n === 'string' && MCP_NAME.test(n)))].slice(0, MAX_MCP) : []
   const createdAt = num(v.createdAt, 0)
+  const mcpTools = sanitizeMcpTools(v.mcpTools, mcp)
   return {
     id: key,
     name: clamp(v.name, MAX_NAME).trim() || 'Agent',
@@ -88,6 +103,7 @@ export function sanitizeAgent(key: string, v: unknown): CustomAgent | null {
     write: oneOf<WriteMode>(v.write, ['none', 'stage', 'apply'], 'stage'),
     output: out,
     mcpServers: mcp,
+    ...(mcpTools ? { mcpTools } : {}),
     runner: oneOf(v.runner, ['browser', 'server'] as const, 'browser'),
     model: typeof v.model === 'string' && MODEL.test(v.model) ? v.model : null,
     effort: v.effort === 'low' || v.effort === 'medium' || v.effort === 'high' ? (v.effort as Effort) : null,

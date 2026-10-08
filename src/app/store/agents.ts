@@ -13,6 +13,8 @@ export const AGENT_LIMITS = {
   /** pages + databases in a scope */
   scope: 200,
   mcpServers: 12,
+  /** allowed tools per MCP server (mcpTools) */
+  mcpTools: 200,
   /** agents per workspace */
   agents: 100,
   minRunUsd: 0.01,
@@ -28,6 +30,8 @@ const SAFE_ID = /^[\w-]{1,64}$/
 const RESERVED_KEYS = new Set(['__proto__', 'constructor', 'prototype'])
 /** an MCP server name (features/ai/mcp-servers/config.ts) */
 const MCP_NAME_RE = /^[a-z0-9][a-z0-9_-]{0,31}$/
+/** an MCP tool name (mcpTools) */
+const MCP_TOOL_RE = /^[A-Za-z0-9_.-]{1,128}$/
 const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/
 const MODEL_RE = /^[a-z0-9][a-z0-9.-]{0,63}$/
 
@@ -115,6 +119,21 @@ export function sanitizeTrigger(v: unknown): AgentTrigger {
   return { type: 'manual' }
 }
 
+/**
+ * The tool allow-list of an agent (mcpTools): entries only for its servers, in their order; tool names checked,
+ * de-duplicated, ≤ AGENT_LIMITS.mcpTools each. Undefined when no server has a list (= all tools everywhere).
+ */
+export function sanitizeMcpTools(v: unknown, servers: string[]): Record<string, string[]> | undefined {
+  if (!isObj(v)) return undefined
+  const out: Record<string, string[]> = {}
+  for (const name of servers) {
+    const list = own(v, name)
+    if (!Array.isArray(list)) continue
+    out[name] = [...new Set(list.filter((x): x is string => typeof x === 'string' && MCP_TOOL_RE.test(x)))].slice(0, AGENT_LIMITS.mcpTools)
+  }
+  return Object.keys(out).length ? out : undefined
+}
+
 function ids(v: unknown, max: number): ID[] {
   if (!Array.isArray(v)) return []
   const out: ID[] = []
@@ -163,6 +182,8 @@ export function sanitizeAgent(id: unknown, raw: unknown): CustomAgent | null {
     createdAt,
     updatedAt: num(own(raw, 'updatedAt'), createdAt),
   }
+  const mcpTools = sanitizeMcpTools(own(raw, 'mcpTools'), agent.mcpServers)
+  if (mcpTools) agent.mcpTools = mcpTools
   const output = own(raw, 'output')
   if (isObj(output)) {
     const pageId = own(output, 'pageId')

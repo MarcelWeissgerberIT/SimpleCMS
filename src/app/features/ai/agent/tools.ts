@@ -1265,6 +1265,10 @@ export function argLabel(name: ToolName, input: Record<string, unknown>, stage: 
       return s('title')
     case 'task_action':
       return `${s('action')} · ${title(s('id'))}`
+    case 'notify_me': {
+      const text = s('text')
+      return text.length > 80 ? `${text.slice(0, 79)}…` : text
+    }
     default:
       return ''
   }

@@ -23,6 +23,7 @@ import { useLang, useT } from '../../i18n'
 import { AI_MODELS, AIError, runAI } from '../ai/client'
 import { readServers } from '../ai/mcp-servers/config'
 import { weekdayName } from './format'
+import { isReadTool, testedTools } from './mcpTools'
 import { createHook, deleteHook, getHook, serverErrorText, useServerAgents, type HookState } from './server'
 import './agents.css'
 
@@ -312,7 +313,7 @@ export function AgentEditor({ initial, isNew, onClose, onSaved }: { initial: Cus
             <Seg
               label={t('features.agents.ed.runner')}
               value={d.runner}
-              onChange={(runner) => set({ runner, ...(runner === 'browser' && d.trigger.type === 'webhook' ? { trigger: { type: 'manual' } } : {}), mcpServers: [] })}
+              onChange={(runner) => set({ runner, ...(runner === 'browser' && d.trigger.type === 'webhook' ? { trigger: { type: 'manual' } } : {}), mcpServers: [], mcpTools: undefined })}
               options={[
                 { v: 'browser', label: t('features.agents.runner.browser') },
                 { v: 'server', label: t('features.agents.runner.server'), disabled: !inCloud || !serverOk },
@@ -702,6 +703,89 @@ function McpFields({ d, set }: { d: CustomAgent; set: (p: Partial<CustomAgent>) 
         </div>
       )}
       <p className="agx-field__hint">{t('features.agents.ed.mcpHint')}</p>
+      {d.mcpServers.map((name) => (
+        <McpToolList
+          key={name}
+          server={name}
+          tools={testedTools(name, readServers(settings), d.runner === 'server' ? (runtime?.mcpServers.find((s) => s.name === name) ?? null) : null)}
+          allow={d.mcpTools && Object.prototype.hasOwnProperty.call(d.mcpTools, name) ? d.mcpTools[name] : undefined}
+          onChange={(list) => {
+            const next = { ...(d.mcpTools ?? {}) }
+            if (list) next[name] = list
+            else delete next[name]
+            set({ mcpTools: Object.keys(next).length ? next : undefined })
+          }}
+        />
+      ))}
+    </div>
+  )
+}
+
+/**
+ * The tools an agent may use of one MCP server (CustomAgent.mcpTools): every tool of the last connection test as a
+ * checkbox, "Read-only tools" (ticks the names that look like reads, unticks the rest) and "All" (no list: also
+ * tools the server adds later). Untested: a pointer to Settings — the agent may use all its tools until then.
+ */
+function McpToolList({ server, tools, allow, onChange }: { server: string; tools: string[] | null; allow: string[] | undefined; onChange: (list: string[] | undefined) => void }) {
+  const t = useT()
+  const id = useId()
+  const known = tools ?? []
+  const shown = [...known, ...(allow ?? []).filter((x) => !known.includes(x))]
+  const on = (tool: string) => allow === undefined || allow.includes(tool)
+  const toggle = (tool: string, v: boolean) => {
+    const base = allow ?? known
+    const next = v ? [...base, tool] : base.filter((x) => x !== tool)
+    onChange(shown.filter((x) => next.includes(x)))
+  }
+  const hint = allow === undefined ? t('features.agents.ed.toolsAllHint') : allow.length ? t('features.agents.ed.toolsSomeHint') : t('features.agents.ed.toolsNone')
+  return (
+    <div className="agx-tools" role="group" aria-labelledby={`${id}-h`} data-server={server} data-none={allow?.length === 0 || undefined}>
+      <div className="agx-tools__head">
+        <span className="label agx-tools__name">
+          <span className="visually-hidden" id={`${id}-h`}>
+            {t('features.agents.ed.toolsOf', { name: server.toUpperCase() })}
+          </span>
+          <span aria-hidden>
+            {server.toUpperCase()} · {t('features.agents.ed.tools')}
+          </span>
+        </span>
+        <span className="label agx-tools__count" data-testid="agx-tools-count">
+          {allow === undefined ? t('features.agents.ed.toolsAllCount') : t('features.agents.ed.toolsCount', { n: allow.length, total: Math.max(known.length, shown.length) })}
+        </span>
+        <span className="agx-tools__acts">
+          {known.length > 0 && (
+            <button type="button" className="btn btn--sm" onClick={() => onChange(known.filter(isReadTool))}>
+              {t('features.agents.ed.toolsRead')}
+            </button>
+          )}
+          <button type="button" className="btn btn--sm" aria-pressed={allow === undefined} onClick={() => onChange(undefined)} disabled={allow === undefined}>
+            {t('features.agents.ed.toolsAll')}
+          </button>
+        </span>
+      </div>
+      {shown.length > 0 && (
+        <div className="agx-tools__list">
+          {shown.map((tool) => (
+            <label key={tool} className="agx-check agx-check--tool" data-missing={!known.includes(tool) || undefined}>
+              <input type="checkbox" checked={on(tool)} onChange={(e) => toggle(tool, e.target.checked)} />
+              <span className="mono agx-tools__tool" title={tool}>
+                {tool}
+              </span>
+              {tools && !known.includes(tool) && <span className="agx-check__note">{t('features.agents.ed.toolsGone')}</span>}
+            </label>
+          ))}
+        </div>
+      )}
+      {tools ? (
+        <p className="agx-field__hint">{hint}</p>
+      ) : (
+        <p className="agx-field__hint">
+          {t('features.agents.ed.toolsUntested')}{' '}
+          <button type="button" className="agx-link" onClick={() => useUI.getState().openModal({ type: 'settings', tab: 'ai' })}>
+            {t('features.agents.ed.toolsTest')}
+          </button>
+        </p>
+      )}
     </div>
   )
 }

@@ -37,6 +37,10 @@ export type ToolName =
   | 'read_task'
   | 'create_task'
   | 'task_action'
+  /** custom agents (features/agents/runTools.ts): their own state between runs · a note for the person's inbox */
+  | 'agent_state_get'
+  | 'agent_state_set'
+  | 'notify_me'
 
 export type StepState = 'run' | 'ok' | 'err' | 'staged'
 
