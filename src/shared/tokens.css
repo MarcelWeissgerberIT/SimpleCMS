@@ -116,10 +116,10 @@
   --focus-ring: 0 0 0 2px var(--surface), 0 0 0 4px var(--signal);
 
   /*
-   * Hardware: screwed plates + toggle switches (ui.css .screw-plate / .switch, ui/controls.tsx). Flat metal shades,
-   * never gradients, and DERIVED from the theme colours above (color-mix), so a workspace look (lib/look) tints the
-   * metal too — workspace data never sets these directly. Plate edge ≥ 3:1 on every surface; lever + ball ≥ 4.5:1 on
-   * the plate; the lit lamp is --signal (the look keeps it ≥ 3:1 against --toggle-window).
+   * Hardware: screwed plates + the glass rocker switches (ui.css .screw-plate / .switch, ui/controls.tsx). DERIVED
+   * from the theme colours above (color-mix), so a workspace look (lib/look) tints the metal too — workspace data
+   * never sets these directly. Plates are flat metal; the rocker's bezel is brushed steel (a 135° sweep of four
+   * shades). Plate / bezel edge = ink-3 (≥ 3:1 on every surface).
    */
   --plate: color-mix(in srgb, var(--ink) 13%, var(--surface));          /* anodised aluminium */
   --plate-edge: var(--ink-3);
@@ -128,21 +128,51 @@
   --screw-head: color-mix(in srgb, var(--ink) 4%, var(--surface));
   --screw-edge: var(--plate-edge);
   --screw-slot: var(--ink-2);
-  --engrave: var(--ink-2);                                               /* engraved legends (the O) */
-  --toggle-nut: color-mix(in srgb, var(--ink) 30%, var(--surface));
-  --toggle-nut-edge: color-mix(in srgb, var(--ink) 70%, var(--surface));
-  --toggle-bore: var(--ink);
-  --toggle-lever: var(--ink-2);
-  --toggle-ball: var(--ink);
-  --toggle-ball-rim: var(--ink);
-  --toggle-window: color-mix(in srgb, var(--ink) 94%, black);            /* the lamp's dark glass */
-  --toggle-window-edge: var(--plate-edge);
-  --toggle-lamp-off: color-mix(in srgb, var(--surface) 34%, var(--toggle-window));
-  /* switch sizes (ui.css .switch / .switch--sm); a column that lines up with switches takes the same width */
-  --switch-w: 52px;
-  --switch-h: 26px;
-  --switch-sm-w: 40px;
-  --switch-sm-h: 20px;
+  /*
+   * The switch LED (per device, Settings → Appearance → Switch LED, lib/switchLed.ts): the signal colour (and so the
+   * workspace look's) unless <html> carries --switch-led-pick: var(--switch-led-<name>) — LED versions of the content
+   * colours, the same hue in Paper and Carbon. Every lit tone of the rocker below is mixed from --switch-led.
+   */
+  --switch-led: var(--switch-led-pick, var(--signal));
+  --switch-led-green: var(--c-green-text);
+  --switch-led-blue: var(--c-blue-text);
+  --switch-led-yellow: var(--c-yellow-text);
+  --switch-led-red: var(--c-red-text);
+  --switch-led-purple: var(--c-purple-text);
+  --toggle-white: #ffffff;                                               /* light itself: the LED's hot core */
+  --toggle-black: #000000;
+  /* the rocker: brushed steel bezel, slotted screws, a dark floor (the LED sits under it), milky glass */
+  --toggle-bezel-1: color-mix(in srgb, var(--ink) 8%, var(--surface));
+  --toggle-bezel-2: color-mix(in srgb, var(--ink) 30%, var(--surface));
+  --toggle-bezel-3: color-mix(in srgb, var(--ink) 17%, var(--surface));
+  --toggle-bezel-4: color-mix(in srgb, var(--ink) 40%, var(--surface));
+  --toggle-brush: color-mix(in srgb, var(--surface) 14%, transparent);  /* the brushing lines */
+  --toggle-lip: color-mix(in srgb, var(--ink) 55%, var(--surface));      /* the bezel's front edge */
+  --toggle-screw-hi: color-mix(in srgb, var(--ink) 2%, var(--surface));
+  --toggle-screw-mid: color-mix(in srgb, var(--ink) 34%, var(--surface));
+  --toggle-screw-lo: color-mix(in srgb, var(--ink) 62%, var(--surface));
+  --toggle-screw-slot: color-mix(in srgb, var(--ink) 72%, var(--surface));
+  --toggle-screw-edge: color-mix(in srgb, var(--ink) 50%, transparent);
+  --toggle-window: color-mix(in srgb, var(--ink) 94%, var(--toggle-black)); /* the floor under the rocker */
+  --toggle-rim: color-mix(in srgb, var(--ink) 62%, var(--surface));     /* the opening's edge */
+  --toggle-glass-hi: color-mix(in srgb, var(--ink) 3%, var(--surface)); /* milky glass, unlit */
+  --toggle-glass-lo: color-mix(in srgb, var(--ink) 19%, var(--surface));
+  --toggle-frost: color-mix(in srgb, var(--toggle-white) 85%, transparent);
+  --toggle-legend: color-mix(in srgb, var(--ink) 52%, var(--surface));  /* the engraved 0 and I, unlit */
+  --toggle-seam: color-mix(in srgb, var(--ink) 22%, transparent);       /* between the halves; the pressed half's shade */
+  --toggle-lit-hi: color-mix(in srgb, var(--switch-led) 25%, var(--toggle-white));
+  --toggle-lit-mid: color-mix(in srgb, var(--switch-led) 70%, var(--toggle-white));
+  --toggle-lit-legend: color-mix(in srgb, var(--switch-led) 45%, var(--toggle-black));
+  --toggle-lit-floor: color-mix(in srgb, var(--switch-led) 22%, var(--toggle-black));
+  --toggle-glow: color-mix(in srgb, var(--switch-led) 55%, transparent);
+  /*
+   * switch sizes (ui.css .switch / .switch--sm; the 120 : 64 rocker of the design, about the old 52 × 26 area), in
+   * step with the text size; a column that lines up with switches takes the same width
+   */
+  --switch-w: calc(52px * var(--text-scale));
+  --switch-h: calc(28px * var(--text-scale));
+  --switch-sm-w: calc(40px * var(--text-scale));
+  --switch-sm-h: calc(22px * var(--text-scale));
 
   /* Content colours (Notion-style text/background colours, tuned for paper) */
   --c-default-text: var(--ink);      --c-default-bg: transparent;
@@ -184,6 +214,17 @@
   --syn-ph-bg: var(--signal-wash-strong);  /* an open placeholder */
 }
 
+/* the switch LEDs: the content colour's hue at LED brightness (browsers without relative colours keep the text colour) */
+@supports (color: oklch(from red l c h)) {
+  :root {
+    --switch-led-green: oklch(from var(--c-green-text) 0.74 0.18 h);
+    --switch-led-blue: oklch(from var(--c-blue-text) 0.66 0.16 h);
+    --switch-led-yellow: oklch(from var(--c-yellow-text) 0.86 0.17 h);
+    --switch-led-red: oklch(from var(--c-red-text) 0.63 0.21 h);
+    --switch-led-purple: oklch(from var(--c-purple-text) 0.62 0.19 h);
+  }
+}
+
 /* ---------- Dark theme: "CARBON" ---------- */
 :root[data-theme='dark'] {
   color-scheme: dark;
@@ -214,7 +255,7 @@
   --shadow-modal: 0 0 0 1px var(--rule-strong), 0 40px 80px -20px rgba(0, 0, 0, 0.8);
   --scrim: rgba(0, 0, 0, 0.55);
 
-  /* hardware: black anodised plate, steel lever; screws and the lamp glass stay ≥ 3:1 against the plate */
+  /* hardware: black anodised plate, gunmetal bezel, smoked glass that stays clearly unlit; screws ≥ 3:1 on the plate */
   --plate: color-mix(in srgb, var(--ink) 14%, var(--surface));
   --plate-edge: var(--ink-3);
   --plate-hi: color-mix(in srgb, var(--ink) 12%, transparent);
@@ -222,16 +263,24 @@
   --screw-head: color-mix(in srgb, var(--ink) 50%, var(--surface));
   --screw-edge: var(--bg);
   --screw-slot: var(--bg);
-  --engrave: var(--ink-3);
-  --toggle-nut: color-mix(in srgb, var(--ink) 36%, var(--surface));
-  --toggle-nut-edge: var(--bg);
-  --toggle-bore: var(--bg);
-  --toggle-lever: var(--ink-2);
-  --toggle-ball: var(--ink);
-  --toggle-ball-rim: var(--bg);
-  --toggle-window: color-mix(in srgb, var(--bg) 70%, black);
-  --toggle-window-edge: color-mix(in srgb, var(--ink) 40%, var(--surface));
-  --toggle-lamp-off: color-mix(in srgb, var(--ink) 28%, var(--toggle-window));
+  --toggle-bezel-1: color-mix(in srgb, var(--ink) 46%, var(--surface));
+  --toggle-bezel-2: color-mix(in srgb, var(--ink) 24%, var(--surface));
+  --toggle-bezel-3: color-mix(in srgb, var(--ink) 34%, var(--surface));
+  --toggle-bezel-4: color-mix(in srgb, var(--ink) 18%, var(--surface));
+  --toggle-brush: color-mix(in srgb, var(--ink) 8%, transparent);
+  --toggle-lip: var(--bg);
+  --toggle-screw-hi: color-mix(in srgb, var(--ink) 85%, var(--surface));
+  --toggle-screw-mid: color-mix(in srgb, var(--ink) 50%, var(--surface));
+  --toggle-screw-lo: color-mix(in srgb, var(--ink) 25%, var(--surface));
+  --toggle-screw-slot: var(--bg);
+  --toggle-screw-edge: color-mix(in srgb, var(--bg) 80%, transparent);
+  --toggle-window: color-mix(in srgb, var(--bg) 70%, var(--toggle-black));
+  --toggle-rim: var(--bg);
+  --toggle-glass-hi: color-mix(in srgb, var(--ink) 62%, var(--surface));
+  --toggle-glass-lo: color-mix(in srgb, var(--ink) 40%, var(--surface));
+  --toggle-frost: color-mix(in srgb, var(--ink) 40%, transparent);
+  --toggle-legend: color-mix(in srgb, var(--ink) 22%, var(--surface));
+  --toggle-seam: color-mix(in srgb, var(--toggle-black) 30%, transparent);
 
   --c-gray-text: #9b978e;            --c-gray-bg: #2a2925;
   --c-brown-text: #c79a7a;           --c-brown-bg: #33281f;

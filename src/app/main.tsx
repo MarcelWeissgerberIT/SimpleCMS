@@ -16,6 +16,7 @@ import { refreshDemoIcons } from './store/demoIcons'
 import { offerTour } from './shell/tour/state'
 import { applyTheme } from './lib/theme'
 import { applyTextStep } from './lib/textScale'
+import { startSwitchLed } from './lib/switchLed'
 import { applyCachedLook } from './lib/look'
 import { ALL_MESSAGES, t } from './i18n'
 import { startHistory, startAutomations, startRecurringTemplates, startInbox, startSync, startMcp, startCustomFunctions, startMail, startAgents, startCoding, startKit, seedDemoHistory, demoFunctions } from './features'
@@ -33,6 +34,8 @@ const storedTheme = safeLocalGet(STORAGE_KEYS.theme)
 applyTheme(storedTheme === 'dark' || storedTheme === 'light' ? storedTheme : 'system')
 // …and this device's text size (Settings → Appearance), so nothing re-flows after the first paint.
 applyTextStep()
+// …and this device's switch LED colour (Settings → Appearance; the signal colour unless it picked another).
+startSwitchLed()
 // …and the workspace look this device last saw for the workspace it is about to open (lib/look)
 {
   const ref = cloud.expectedWorkspace()

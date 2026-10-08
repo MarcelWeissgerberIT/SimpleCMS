@@ -17,6 +17,7 @@ import { WorkspaceNameField, type TeamData } from '../cloud/Team'
 import { Field } from '../settings/SettingsModal'
 import { StorageGauge, type StorageEstimate } from '../settings/data'
 import { TextSizeControl } from '../settings/TextSize'
+import { SwitchLedControl } from '../settings/SwitchLed'
 import { useTrashCount, useWorkspaceStats } from './stats'
 import { GoKey, SectionHead, Spec, SubHead } from './parts'
 import { openWorkspaceSettings } from './open'
@@ -54,6 +55,9 @@ export function Overview({ team, est }: { team: TeamData; est: StorageEstimate |
       <SubHead label={t('shell.ws.overview.display')} id="ws-display" />
       <div className="wsp-display" data-testid="ws-display">
         <TextSizeControl />
+        <div className="wsp-display__led">
+          <SwitchLedControl />
+        </div>
       </div>
       <LookLine />
     </>

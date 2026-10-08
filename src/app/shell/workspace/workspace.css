@@ -817,7 +817,10 @@
   }
 }
 
-/* § 01 Overview → Display: the text size fader (shell/settings/TextSize.tsx) */
+/* § 01 Overview → Display: the text size fader and the switch LED (shell/settings/TextSize.tsx, SwitchLed.tsx) */
 .wsp-display {
   padding: 6px 0 4px;
+}
+.wsp-display__led {
+  margin-top: 18px;
 }

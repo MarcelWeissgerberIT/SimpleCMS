@@ -22,8 +22,9 @@ export function stockTokenTable(mode: Mode): Record<string, string> {
       if (sel === ':root') parseBlock(m[2], light)
       else if (sel === ":root[data-theme='dark']" || sel === ':root[data-theme="dark"]') parseBlock(m[2], dark)
     }
-    // the plates take colours only: the type and size tokens come from the page (text size, the look's fonts)
-    const colours = (t: Record<string, string>) => Object.fromEntries(Object.entries(t).filter(([k]) => !/^--(font|text|tracking|display|condensed|head|radius|sp|z|dur|ease|hairline|switch)/.test(k)))
+    // the plates take colours only: the type and size tokens come from the page (text size, the look's fonts); the
+    // switch LED stays (--switch-led follows the plate's own signal unless this device picked an LED colour)
+    const colours = (t: Record<string, string>) => Object.fromEntries(Object.entries(t).filter(([k]) => !/^--(font|text|tracking|display|condensed|head|radius|sp|z|dur|ease|hairline|switch-(?:w|h|sm))/.test(k)))
     parsed = { light: colours(light), dark: colours({ ...light, ...dark }) }
   }
   return parsed[mode]

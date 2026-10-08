@@ -1,5 +1,5 @@
 /**
- * Slot angles for slotted screw heads (toggle switches, screwed plates): whole degrees in steps of 15
+ * Slot angles for slotted screw heads (the glass rocker switches, screwed plates): whole degrees in steps of 15
  * (−90 … 75), derived from `seed` with FNV-1a. The same seed always gives the same screws (never
  * Math.random during render); different seeds look hand-fastened. Pure — no React, no DOM (specs import it).
  */

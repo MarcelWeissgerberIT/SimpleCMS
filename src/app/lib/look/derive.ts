@@ -2,7 +2,7 @@
  * The workspace look's colour engine (pure; Node specs import it): three inputs per theme — paper, ink, signal —
  * become the theme tokens, with contrast enforced (WCAG AA):
  *  - ink ≥ 7 : 1 on bg / surface / surface-2; quiet text (ink-2, ink-3) ≥ 4.5 : 1 there; ink-faint ≥ 3 : 1 on surface
- *  - signal ≥ 3 : 1 on surface (the focus ring's halo) and, where possible, on the toggle's lamp glass
+ *  - signal ≥ 3 : 1 on surface (the focus ring's halo) and, where possible, on the switch rocker's dark floor
  *  - the key label (on-signal) ≥ 4.5 : 1 on signal, signal used as text (signal-ink) ≥ 4.5 : 1 on bg / surface / surface-2
  *    (Carbon: also on the AI terminal's well — ink-inverse and its 5 / 8 % ink mixes)
  *  - signal used as text on an ink surface (signal-on-ink: toasts, the bubble menu, the Paper AI terminal) ≥ 4.5 : 1 on
@@ -10,7 +10,7 @@
  *  - the paper stays light and calm (Paper L 0.948 – 0.985, Carbon L 0.13 – 0.26, chroma ≤ 0.025), so the fixed
  *    content colours (--c-*-text) keep ≥ 4.5 : 1 on every surface.
  * Only the groups whose inputs differ from tokens.css are emitted: a look that changes only the signal keeps
- * One's paper and inks exactly. The standard look is never derived. Hardware (toggles, screwed plates) follows
+ * One's paper and inks exactly. The standard look is never derived. Hardware (switches, screwed plates) follows
  * by itself: tokens.css mixes it from these tokens.
  *
  * Colour constants: STOCK_TOKENS are tokens.css values the engine computes against when a group is not emitted
@@ -73,7 +73,7 @@ export const PAPER_LIMITS: Record<Mode, { l: [number, number]; c: number }> = {
   dark: { l: [0.13, 0.26], c: 0.025 },
 }
 
-/** The lamp glass of the toggle switch (tokens.css --toggle-window) for this theme's ink / bg. */
+/** The dark floor under the switches' glass rocker, where the LED glows (tokens.css --toggle-window), for this theme's ink / bg. */
 export function lampGlass(mode: Mode, ink: string, bg: string): string {
   return mode === 'light' ? mixSrgb(ink, '#000000', 0.94) : mixSrgb(bg, '#000000', 0.7)
 }
@@ -172,7 +172,7 @@ export function deriveMode(inputs: LookColors, mode: Mode, labels?: Labels): Der
   let on = stock['on-signal']
   if (signalGroup) {
     s = ensureContrast(inputs.signal, [surface], 3, dir)
-    // the toggle's lamp lights in the signal colour behind dark glass: keep it visible there too, if the surface allows
+    // the switch LED glows in the signal colour over the rocker's dark floor: keep it visible there too, if the surface allows
     const glass = lampGlass(mode, full.ink, full.bg)
     if (contrast(s, glass) < 3) {
       const up = ensureContrast(s, [glass], 3, 1)
