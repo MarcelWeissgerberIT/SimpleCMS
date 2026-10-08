@@ -1,7 +1,8 @@
 /**
  * The pipeline editor: the stages of the Coding database (= the options of its Stage select) — name, kind,
- * whether the worker takes tasks there by itself, Claude Code's permission mode and turns, the git action,
- * the stage that follows, the stage's instructions; add, reorder, remove. A locked database shows them
+ * whether the worker takes tasks there by itself, Claude Code's permission mode, turns and model (a chip in the
+ * stage's row when set), the git action, the stage that follows, the stage's instructions; add, reorder, remove. A
+ * locked database shows them
  * read-only. Saved with savePipeline (options + Database.pipeline together).
  */
 import { useMemo, useState } from 'react'
@@ -13,10 +14,10 @@ import { useUI } from '../../store/ui'
 import type { ColorName, PipelineStage, SelectOption } from '../../store/types'
 import { newId } from '../../lib/ids'
 import { useT } from '../../i18n'
-import { GIT_ACTIONS, PERMISSION_MODES, STAGE_KINDS, type StageKind } from './protocol'
+import { GIT_ACTIONS, PERMISSION_MODES, STAGE_KINDS, claudeRuns, cleanModel, type StageKind } from './protocol'
 import { DOC_OUTPUTS, KIND_TEMPLATES, kindOfDb, readPipeline, savePipeline, templatePipeline, type PipelineTemplate } from './schema'
 import { keepTrust } from './trust'
-import { allTasks } from './tasks'
+import { MODEL_CHOICES, allTasks, modelLabel } from './tasks'
 
 interface Draft {
   option: SelectOption
@@ -24,6 +25,14 @@ interface Draft {
 }
 
 const COLOR: Record<StageKind, ColorName> = { queue: 'gray', import: 'red', analyze: 'yellow', plan: 'blue', doc: 'pink', gate: 'orange', implement: 'purple', test: 'yellow', git: 'brown', done: 'green' }
+
+/** The Model select's "Own…" entry. In the draft an own model is its text ('' = chosen, nothing typed yet). */
+const OWN = '__own'
+const knownModel = (m: string) => MODEL_CHOICES.some((c) => c.id === m)
+/** What the Model select shows for a stage's draft model. */
+const modelPick = (m: string | null | undefined) => (m === undefined || m === null ? '' : knownModel(m) ? m : OWN)
+/** Why a draft model can't be saved (null: it can). */
+const modelProblem = (m: string | null | undefined): 'empty' | 'bad' | null => (m === undefined || m === null ? null : !m.trim() ? 'empty' : cleanModel(m) ? null : 'bad')
 
 export function PipelineEditor({ dbId, locked, onClose }: { dbId: string; locked: boolean; onClose: () => void }) {
   const t = useT()
@@ -55,7 +64,14 @@ export function PipelineEditor({ dbId, locked, onClose }: { dbId: string; locked
     setRows((rs) => templatePipeline(which, rs.map((r) => ({ id: r.stage.id, kind: r.stage.kind }))))
     setOpen(null)
   }
-  const ok = rows.length > 0 && rows.every((r) => r.option.name.trim())
+  const ok = rows.length > 0 && rows.every((r) => r.option.name.trim() && (!claudeRuns(r.stage.kind) || !modelProblem(r.stage.model)))
+  const pickModel = (i: number, id: string, value: string) => {
+    if (value !== OWN) return patch(i, { model: value || undefined })
+    // Own…: keep an own name already typed, else an empty field to type into
+    const cur = rows[i]?.stage.model
+    patch(i, { model: cur && !knownModel(cur) ? cur : '' })
+    requestAnimationFrame(() => document.getElementById(`cpe-model-${id}`)?.focus())
+  }
 
   const save = async () => {
     const clean = rows.map((r) => ({ option: { ...r.option, name: r.option.name.trim().slice(0, 60), color: r.option.color ?? COLOR[r.stage.kind] }, stage: r.stage }))
@@ -122,10 +138,17 @@ export function PipelineEditor({ dbId, locked, onClose }: { dbId: string; locked
             <li key={s.id} className="cpe-row" data-kind={s.kind}>
               <div className="cpe-main">
                 <span className="cpe-n label">ST-{String(i + 1).padStart(2, '0')}</span>
-                <input className="input cpe-name" value={r.option.name} onChange={(e) => patch(i, {}, e.target.value)} disabled={ro} aria-label={t('features.coding.pipeline.name')} maxLength={60} />
+                <span className="cpe-namecell">
+                  <input className="input cpe-name" value={r.option.name} onChange={(e) => patch(i, {}, e.target.value)} disabled={ro} aria-label={t('features.coding.pipeline.name')} maxLength={60} />
+                  {claude && s.model?.trim() && (
+                    <span className="label cpe-chip" data-bad={modelProblem(s.model) ? '' : undefined} title={t('features.coding.pipeline.model.chip', { model: s.model.trim() })} data-testid="coding-pipeline-chip">
+                      {modelLabel(s.model.trim())}
+                    </span>
+                  )}
+                </span>
                 <select className="input cpe-kind" value={s.kind} disabled={ro} aria-label={t('features.coding.pipeline.kind')} onChange={(e) => {
                   const kind = e.target.value as StageKind
-                  patch(i, { kind, auto: kind === 'gate' || kind === 'done' || kind === 'import' ? false : s.auto, ...(kind === 'git' && !s.gitAction ? { gitAction: 'pr' as const } : {}), ...(kind !== 'doc' ? { output: undefined } : {}) })
+                  patch(i, { kind, auto: kind === 'gate' || kind === 'done' || kind === 'import' ? false : s.auto, ...(kind === 'git' && !s.gitAction ? { gitAction: 'pr' as const } : {}), ...(kind !== 'doc' ? { output: undefined } : {}), ...(!claudeRuns(kind) ? { model: undefined } : {}) })
                 }}>
                   {STAGE_KINDS.map((k) => (
                     <option key={k} value={k}>
@@ -187,6 +210,7 @@ export function PipelineEditor({ dbId, locked, onClose }: { dbId: string; locked
                       </label>
                     </div>
                   )}
+                  {claude && <ModelField id={s.id} model={s.model} ro={ro} onPick={(v) => pickModel(i, s.id, v)} onType={(v) => patch(i, { model: v })} />}
                   {s.kind === 'git' && (
                     <label className="cpe-grid1">
                       <span className="label">{t('features.coding.pipeline.gitAction')}</span>
@@ -225,5 +249,58 @@ export function PipelineEditor({ dbId, locked, onClose }: { dbId: string; locked
         })}
       </ol>
     </Modal>
+  )
+}
+
+/**
+ * A Claude Code stage's model: Standard (the worker's default), one of MODEL_CHOICES, or Own… — a name typed in,
+ * checked with the shared rule (protocol.ts MODEL_NAME) as it is typed; the pipeline can't be saved while it fails.
+ */
+function ModelField({ id, model, ro, onPick, onType }: { id: string; model: string | null | undefined; ro: boolean; onPick: (value: string) => void; onType: (value: string) => void }) {
+  const t = useT()
+  const pick = modelPick(model)
+  const problem = pick === OWN ? modelProblem(model) : null
+  const errId = `cpe-model-err-${id}`
+  return (
+    <div className="cpe-model" data-testid="coding-pipeline-model-field">
+      <label>
+        <span className="label">{t('features.coding.pipeline.model')}</span>
+        <select className="input" value={pick} disabled={ro} onChange={(e) => onPick(e.target.value)} data-testid="coding-pipeline-model">
+          <option value="">{t('features.coding.pipeline.model.default')}</option>
+          {MODEL_CHOICES.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.label}
+            </option>
+          ))}
+          <option value={OWN}>{t('features.coding.pipeline.model.own')}</option>
+        </select>
+      </label>
+      {pick === OWN && (
+        <label>
+          <span className="label">{t('features.coding.pipeline.model.ownLabel')}</span>
+          <input
+            id={`cpe-model-${id}`}
+            className="input cpe-model__own"
+            value={model ?? ''}
+            disabled={ro}
+            spellCheck={false}
+            autoComplete="off"
+            autoCapitalize="off"
+            placeholder={t('features.coding.pipeline.model.ownPh')}
+            aria-invalid={problem ? true : undefined}
+            aria-describedby={problem ? errId : undefined}
+            onChange={(e) => onType(e.target.value)}
+            data-testid="coding-pipeline-model-own"
+          />
+        </label>
+      )}
+      {problem ? (
+        <p className="cpe-model__err" id={errId} role="alert" data-testid="coding-pipeline-model-err">
+          {t(`features.coding.pipeline.model.${problem}`)}
+        </p>
+      ) : (
+        <p className="cpe-model__hint">{t('features.coding.pipeline.model.hint')}</p>
+      )}
+    </div>
   )
 }

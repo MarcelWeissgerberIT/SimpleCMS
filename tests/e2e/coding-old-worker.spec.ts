@@ -187,10 +187,12 @@ test('an older worker (no `can`) is never handed a document stage: the task fail
     await expect(page.locator('.ctk-box--err')).toHaveCount(0)
     expect(await claimedBy()).toBe('old-box')
 
-    // #/coding: nothing outdated about it any more
+    // #/coding: it still lacks what came later (a stage's model), so the plate keeps offering the newer file — but no
+    // task waits for it any more
     await page.evaluate(() => (window.location.hash = '#/coding'))
     await expect(plate).toContainText('old-box')
-    await expect(page.getByTestId('coding-worker-outdated')).toHaveCount(0)
+    await expect(page.getByTestId('coding-worker-outdated')).toContainText('A newer worker is on the site')
+    await expect(page.getByTestId('coding-needs')).toHaveCount(0)
   } finally {
     await fake.close()
   }
@@ -232,6 +234,80 @@ test('the worker the Business analysis / QA pipelines came with (`docs: true`, n
     await expect(plate).toContainText('ba-box')
     await expect(plate.getByTestId('coding-worker-outdated')).toContainText('A newer worker is on the site')
     await expect(page.getByTestId('coding-needs')).toHaveCount(0)
+  } finally {
+    await fake.close()
+  }
+})
+
+/** Set or clear the model of the Business analysis pipeline's first document stage ("Analysis"). */
+const setAnalysisModel = (page: Page, model: string | null) =>
+  wsEval(page, (s, model) => {
+    const db = Object.values(s.databases).find((d: any) => d.system === 'spec') as any // eslint-disable-line @typescript-eslint/no-explicit-any
+    const first = db.pipeline.find((p: { kind: string }) => p.kind === 'doc')
+    s.updateDatabase(db.id, { pipeline: db.pipeline.map((p: { id: string }) => (p.id === first.id ? { ...p, model: model ?? undefined } : p)) })
+  }, model)
+
+/** A Business analysis task (its database exists already): Ready → Analysis; its page id. */
+async function addAnalysisTask(page: Page, title: string): Promise<string> {
+  await page.evaluate(() => (window.location.hash = '#/coding/spec'))
+  await page.getByTestId('coding-new').click()
+  await page.getByTestId('coding-new-title').fill(title)
+  await page.getByTestId('coding-new-repo').fill('website')
+  await page.getByTestId('coding-new-goal').fill('Describe how invoices are approved, by whom and when.')
+  await page.getByTestId('coding-create').click()
+  await expect(page.getByTestId('coding-panel')).toBeVisible()
+  await expect(page.locator('#main .pv-title')).toContainText(title)
+  return page.evaluate(() => window.location.hash.replace('#/p/', ''))
+}
+
+test('a worker that does not pass a model on (`can` without "model") never gets a stage with one — the stage\'s or the task\'s own; without a model it still runs the stage; a newer worker gets the model in the payload', async ({ page, errors }) => {
+  errors.allow(/WebSocket connection to 'ws:\/\/127\.0\.0\.1/)
+  const fake = await startFakeWorker(PORT, { worker: '1.4.0', name: 'mid-box', repos: [{ name: 'website', baseBranch: 'main' }], parallel: 2, busy: [], spentToday: 0, dayLimit: null, claude: { found: true, version: '2.0.0' } })
+  // what the worker before models named
+  fake.can = ['analyze', 'git:comment', 'git:merge', 'doc']
+  try {
+    await openApp(page)
+    await connect(page, 'mid-box')
+    await page.evaluate(() => (window.location.hash = '#/coding/spec'))
+    await page.getByTestId('coding-setup').click()
+    await setAnalysisModel(page, 'opus')
+
+    // the stage has a model: not for this worker — the task says why, nothing is handed out
+    const id = await addAnalysisTask(page, 'Invoice approval flow')
+    await expect(page.getByTestId('coding-state')).toContainText('Failed', { timeout: 15_000 })
+    await expect(page.locator('.ctk-box--err')).toContainText('This stage needs a newer coding worker')
+    expect(fake.handed()).toEqual([])
+
+    // no model on the stage, but the task's own pick on this device: the same
+    await setAnalysisModel(page, null)
+    await page.getByTestId('coding-model-select').selectOption('haiku')
+    const answered = fake.asked.filter((a) => a.answer).length
+    await page.locator('.ctk-box--err').getByRole('button', { name: 'Retry' }).click()
+    await expect.poll(() => fake.asked.filter((a) => a.answer).length, { timeout: 10_000 }).toBeGreaterThan(answered + 1)
+    await expect(page.locator('.ctk-box--err')).toContainText('This stage needs a newer coding worker')
+    expect(fake.handed()).toEqual([])
+
+    // as the pipeline (no model anywhere): the same worker runs it — the payload names none
+    await page.getByTestId('coding-model-select').selectOption('')
+    await page.locator('.ctk-box--err').getByRole('button', { name: 'Retry' }).click()
+    await expect.poll(() => fake.handed().length, { timeout: 15_000 }).toBe(1)
+    expect(fake.handed()[0]).toMatchObject({ id, stage: { kind: 'doc', name: 'Analysis', model: null } })
+    await expect(page.getByTestId('coding-state')).toContainText('Running')
+
+    // #/coding: the plate offers the newer file
+    await page.evaluate(() => (window.location.hash = '#/coding'))
+    await expect(page.getByTestId('coding-worker').getByTestId('coding-worker-outdated')).toContainText('A newer worker is on the site')
+
+    // the newer worker names "model": a stage with one is handed out, the model in the payload; nothing outdated
+    fake.can = ['analyze', 'git:comment', 'git:merge', 'doc', 'model']
+    await setAnalysisModel(page, 'opus')
+    const second = await addAnalysisTask(page, 'Supplier onboarding')
+    await expect.poll(() => fake.handed().length, { timeout: 15_000 }).toBe(2)
+    expect(fake.handed()[1]).toMatchObject({ id: second, stage: { kind: 'doc', name: 'Analysis', model: 'opus' } })
+    expect(fake.asked.find((a) => a.answer?.result?.task?.id === second)?.can).toContain('model')
+    await page.evaluate(() => (window.location.hash = '#/coding'))
+    await expect(page.getByTestId('coding-worker')).toContainText('mid-box')
+    await expect(page.getByTestId('coding-worker-outdated')).toHaveCount(0)
   } finally {
     await fake.close()
   }

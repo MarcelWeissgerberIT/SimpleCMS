@@ -172,7 +172,7 @@ Per repo:
 | `analyzeTimeoutSec` | `900` | |
 | `push` | `true` | `false`: Ship commits only. |
 | `pr` | `"gh"` | `"gh"`: `gh pr create` on a GitHub host, `glab mr create` on a GitLab host (when the tool is installed and signed in); otherwise (and with `"none"`) a compare / new-merge-request link for GitHub / GitLab remotes. Posting a review and merging need `"gh"` and the host's tool. |
-| `claude.model` | Claude Code's default | A model name Claude Code accepts. |
+| `claude.model` | Claude Code's default | A model name Claude Code accepts (the same rule as a stage's model, § Model per stage). A model One sends for a stage — the stage's or the task's own — wins over it. |
 | `claude.maxTurns` | `30` | Upper bound per stage (a stage may ask for fewer). |
 | `claude.permissionMode.implement` | the stage's | `acceptEdits` or `default` — overrides what the pipeline asks for. Plan stages always run in `plan` mode. A mode that skips permissions is refused. |
 | `claude.allowedTools` / `disallowedTools` | `[]` | Claude Code's own syntax (`"Bash(npm test:*)"`). Headless runs cannot ask, so whatever needs permission must be allowed here. |
@@ -189,8 +189,8 @@ acceptance criteria — and what the pipeline writes (the plan, summaries, rewor
 Views: *Pipeline* (board grouped by Stage) and *All tasks*.
 
 The stages are the options of the Stage select; `Database.pipeline` says what each one is (**Pipeline** on #/coding
-edits it — name, kind, Auto, Claude Code mode, max turns, git action, next stage, instructions; a locked database
-refuses):
+edits it — name, kind, Auto, Claude Code mode, max turns, model, git action, next stage, instructions; a locked
+database refuses):
 
 | Default stage | Kind | Auto | |
 |---|---|---|---|
@@ -203,6 +203,30 @@ refuses):
 | Review | gate | – | Diff + tests. **Approve** · **Rework…** (→ Implement). |
 | Ship | git (pr) | ✓ | Commit (`git add -A`, message = title + summary), push `-u`, pull request (or compare link) → **PR / commit**. |
 | Done | done | – | **Clean up** removes the worktree + branch once merged. |
+
+### Model per stage
+
+A stage that runs Claude Code (plan · implement · doc) may name the model it runs with: `PipelineStage.model` — an
+alias Claude Code accepts (`opus` · `sonnet` · `haiku`), a full model id (`claude-fable-5-1`, `claude-opus-5-5` …) or
+an own name. **One rule** for every model name (protocol.ts `MODEL_NAME`, also `claude.model` in worker.json): letters,
+digits and `. _ : - [ ]`, 1–100 characters, starting with a letter or digit (a leading `-` would read as a flag).
+`readPipeline` sanitizes it (other kinds keep none), `savePipeline` writes it. The pipeline editor's stage details:
+**Model** — *Standard (worker default)* · Opus · Sonnet · Haiku · Fable · *Own…* (a name, checked as it is typed;
+Save waits while it fails); a set model shows as a mono chip in the stage's row.
+
+**Per task, per device**: the task panel's **Model** pick (next to Approvals) — *As the pipeline* or one model for
+every Claude Code stage of the task (the known ones and the own names the pipeline uses). Kept in the task's local
+state (`TaskLocal.model`, IndexedDB `one-coding`), never synced.
+
+**Which model runs**: One sends `stage.model` = the task's pick ?? the stage's ?? `null` (tasks.ts `modelFor`, in
+`pickNext`); the worker drops a name that fails the rule (sanitizeTask) and passes `--model <name>` — the model from One,
+else the repo's `claude.model`, else none (Claude Code's default) — as one argument of the argument list, never through
+a shell. The log says which (`Model: claude-fable-5-1 (chosen in One)` · `(worker.json)` · `Claude Code's default`); while
+Claude Code runs, the task panel's chips show the model it reports (an alias resolves to the model behind it).
+
+**Older workers**: a stage whose model is set needs the capability `model` (`stageNeeds`). A worker that does not
+name it never gets such a stage — the task fails with *This stage needs a newer coding worker* (Retry after
+downloading again, or clear the model) — while stages without a model still go to it.
 
 A task is taken when its stage is **Auto** (or after **Run now** / **Retry** / an answer on this device), its repo
 is free on a connected worker, it is not claimed by another worker within 10 minutes, and — in a team workspace —
@@ -275,7 +299,7 @@ Always `execFile('git', […])` — never a shell line; hooks and your git confi
 ### Claude Code
 
 `claude -p --output-format stream-json --verbose --permission-mode <plan|acceptEdits|default> --max-turns N
-[--model …] [--allowedTools …] [--disallowedTools …] [--max-budget-usd …] --mcp-config <temp file>
+[--model <the stage's model from One, else claude.model>] [--allowedTools …] [--disallowedTools …] [--max-budget-usd …] --mcp-config <temp file>
 [--strict-mcp-config]` in the task's worktree; the prompt goes in on stdin. What the installed CLI supports is read
 from its `--help` (the budget flag, the permission mode names). The stream becomes log lines (text, tool calls,
 tool errors), the plan comes from `ExitPlanMode` — or, when the CLI has it switched off in headless runs, from the
@@ -393,7 +417,9 @@ person's browser tabs.
   for one is refused). Task text is untrusted input: it is data in the prompt, after the worker's own rules.
 - **Team workspaces**: a worker only takes tasks written or confirmed **on this device** — the SHA-256 of the task's
   title, page, **Repo**, **Branch** and **Stage** and the pipeline (every stage's name, kind, Auto, mode, turns, git
-  action, next stage and instructions) must be in this device's trusted set (IndexedDB `one-coding`). New tasks made
+  action, next stage, instructions and model — a stage without a model hashes as it did before models existed, so
+  confirmed tasks stay confirmed) must be in this device's trusted set (IndexedDB `one-coding`). A task's own model
+  (`TaskLocal.model`) is not part of it: only the person at this device can set it, so there is nothing to confirm. New tasks made
   here, the pipeline's own writes, changes made in this tab of a trusted version (typed content — origin other than
   `sync` / `file` —, its fields, the schema and pipeline) and every action pressed here keep it trusted; changes
   from the server or another tab and writes of a custom agent never do — a stage moved past a gate elsewhere shows
@@ -417,7 +443,7 @@ JSON text frames, subprotocol `one-worker.v1`, defined in
 |---|---|
 | tab → worker | `{ type: "hello", app: "one", version, workspace: { id, name, kind, readOnly }, pair? }` (`pair`: this device's secret for a downloaded worker) · `status` (same workspace, or the tab is refused) · `nudge` |
 | worker → tab | `welcome` { worker, name, repos: [{ name, baseBranch }], parallel, busy, spentToday, dayLimit, claude: { found, version }, setup, paired } (sent again when the setup page saves) · `refused` { reason: workspace \| unbound \| pair, paired? } + close 4003 · `status` { busy, spentToday } |
-| worker → tab (req) | `next` { repos, worker, docs?, can? } → `{ task: TaskPayload \| null }` (claimed; `can` = `WORKER_CAN` — 'analyze', 'git:comment', 'git:merge', 'doc': a stage that needs one goes only to a worker that names it, else the task fails with "needs a newer coding worker" — an older worker ran unknown kinds as git stages or dropped the task as unreadable. Document stages came before `can`, together with `docs: true`: a worker that sends either knows them (`workerCan`), one with neither gets none; a worker that does not name all of `WORKER_CAN` shows "Download again" on #/coding) · `heartbeat` { taskIds } · `finish` { taskId, stageId, outcome } (retried until confirmed; a task the worker cannot read — a stage kind it does not know — comes back at once as `{ status: 'refused' }`, so One does not hand it out again) |
+| worker → tab (req) | `next` { repos, worker, docs?, can? } → `{ task: TaskPayload \| null }` (claimed; `stage.model` = the model Claude Code runs with, or null; `can` = `WORKER_CAN` — 'analyze', 'git:comment', 'git:merge', 'doc', 'model' (a stage whose model is set): a stage that needs one goes only to a worker that names it, else the task fails with "needs a newer coding worker" — an older worker ran unknown kinds as git stages or dropped the task as unreadable. Document stages came before `can`, together with `docs: true`: a worker that sends either knows them (`workerCan`), one with neither gets none; a worker that does not name all of `WORKER_CAN` shows "Download again" on #/coding) · `heartbeat` { taskIds } · `finish` { taskId, stageId, outcome } (retried until confirmed; a task the worker cannot read — a stage kind it does not know — comes back at once as `{ status: 'refused' }`, so One does not hand it out again) |
 | worker → tab (event) | `log` { lines } (a tool line of Edit / MultiEdit / Write carries `e`: { path, hunks: [{ old, new }], clipped? } — ≤ 6 changes × 4,000 characters, scrubbed) · `git` { git } · `note` { text } · `question` { text } · `progress` { progress: { turns, maxTurns, cost, model } } · `intake` { intake: { state, source, label, line, percent, repo?, suggest?, error? } } |
 | tab → worker (req) | `stop` { taskId } · `git` { taskId, verb, repo, branch, title, message? } — verbs: refresh, commit, push, force-push, pr, update-base, discard, cleanup, reveal, comment-pr (`message` = the review), merge-pr · `open-setup` → `{ opened, reason?: off \| no-browser }` · `intake-begin` { taskId, name, size } → `{ uploadId, chunk }` · `intake-chunk` { uploadId, data } · `intake-end` { uploadId } · `intake-clone` { taskId, url } |
 
@@ -446,7 +472,7 @@ JSON text frames, subprotocol `one-worker.v1`, defined in
   restart the worker.
 - **This stage needs a newer coding worker** (or *A newer worker is on the site* on #/coding) — the worker running
   was downloaded before One could hand out this kind of stage (document stages of Business analysis / QA, Static
-  analysis, Post review, Merge). **Download again** (#/coding, or Settings → Coding worker), stop the old worker
+  analysis, Post review, Merge, a stage with a model — worker 1.5 or newer). **Download again** (#/coding, or Settings → Coding worker), stop the old worker
   (Ctrl+C), start the new file — the browser may have saved it as `one-worker (1).mjs` — then **Retry** on the task.
 - **Claude Code was not found** — install it, sign in once interactively, or set `CLAUDE_BIN`. `node one-worker.mjs
   check` shows what the worker sees.

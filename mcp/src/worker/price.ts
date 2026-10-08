@@ -10,6 +10,7 @@ const PRICES: Array<[RegExp, number, number, number]> = [
   [/opus-(5|4-[5-8])/, 5, 25, 0.1],
   [/sonnet-5/, 2, 10, 0.1],
   [/sonnet-4/, 3, 15, 0.1],
+  [/haiku-5-5/, 0.1, 0.5, 0.1],
   [/haiku-4-5/, 1, 5, 0.1],
 ]
 

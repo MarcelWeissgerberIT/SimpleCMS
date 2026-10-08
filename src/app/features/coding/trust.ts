@@ -3,8 +3,8 @@
  * whose worker takes it, with their repos and their Claude account — so a task written or changed by
  * someone else must be seen and confirmed on THIS device first. A task version is the SHA-256 of what
  * decides the run: its title, its page (Markdown), its Repo, Branch and Stage, and the pipeline (every
- * stage's name, kind, mode, turns, git action, next stage and instructions — they go into the prompt or
- * decide what runs next); the versions this device wrote or confirmed are kept per device and workspace
+ * stage's name, kind, mode, turns, git action, next stage, instructions and model — they go into the prompt, decide
+ * what runs next or what runs it); the versions this device wrote or confirmed are kept per device and workspace
  * (local.ts "<scope>|trust"). In a team the check never relies on `createdBy` / `updatedBy` (clients
  * write those).
  *
@@ -52,9 +52,17 @@ async function sha256(text: string): Promise<string> {
   return `f${fnv(text, 0x811c9dc5)}${fnv(text, 0x01234567)}${text.length.toString(16)}`
 }
 
-/** The pipeline's part of a task version: what each stage sends to the worker or decides next. */
+/**
+ * The pipeline's part of a task version: what each stage sends to the worker or decides next. A stage's model is
+ * appended only when it has one (as `{ model }`, never to be read as an output): a stage without a model hashes
+ * exactly as before models existed, so tasks confirmed then stay confirmed.
+ *
+ * The task's own model (TaskLocal.model) is not part of the version: it is kept on this device only (never synced),
+ * so only the person at this device can set it — the one whose worker and Claude account run the task. There is no
+ * one else's change to confirm.
+ */
 const pipelineKey = (db: Database | undefined) =>
-  JSON.stringify(readPipeline(db).map((s) => [s.id, s.name, s.kind, !!s.auto, s.permissionMode ?? null, s.maxTurns ?? null, s.gitAction ?? null, s.next ?? null, s.instructions ?? '', ...(s.output ? [s.output] : [])]))
+  JSON.stringify(readPipeline(db).map((s) => [s.id, s.name, s.kind, !!s.auto, s.permissionMode ?? null, s.maxTurns ?? null, s.gitAction ?? null, s.next ?? null, s.instructions ?? '', ...(s.output ? [s.output] : []), ...(s.model ? [{ model: s.model }] : [])]))
 
 /** The row's fields that decide where the worker works: the repo (by name), the branch, the stage. */
 function fieldsKey(page: Page, db: Database | undefined): string {

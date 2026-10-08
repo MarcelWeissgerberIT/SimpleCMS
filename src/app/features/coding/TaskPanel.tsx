@@ -23,7 +23,7 @@ import { LogView } from './LogView'
 import { PlanView } from './PlanView'
 import { DiffView } from './DiffView'
 import { GitBox } from './GitBox'
-import { ApprovalsPick, TaskSetup } from './TaskSetup'
+import { ApprovalsPick, ModelPick, TaskSetup } from './TaskSetup'
 import { NowLine, RunCounters } from './NowLine'
 import { FollowUps } from './FollowUps'
 import { ImportBox } from './ImportBox'
@@ -184,7 +184,12 @@ export default function TaskPanel({ pageId }: { pageId: ID }) {
 
         {intake && trusted !== false && <ImportBox taskId={pageId} canAct={canAct} />}
         {setup && <TaskSetup taskId={pageId} repo={repo} branch={branch} described={taskHasText(task)} kind={kind} />}
-        {canAct && stage?.kind !== 'done' && <ApprovalsPick taskId={pageId} kind={kind} />}
+        {canAct && stage?.kind !== 'done' && (
+          <div className="ctk-picks">
+            <ApprovalsPick taskId={pageId} kind={kind} />
+            <ModelPick taskId={pageId} pipeline={pipeline} />
+          </div>
+        )}
 
         {needsTrust && canAct && (
           <div className="ctk-box ctk-box--trust" role="alert">

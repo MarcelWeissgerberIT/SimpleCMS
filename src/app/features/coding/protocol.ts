@@ -53,11 +53,12 @@ export const GIT_ACTIONS = ['commit', 'push', 'pr', 'update-base', 'comment', 'm
 export type GitAction = (typeof GIT_ACTIONS)[number]
 /**
  * What a worker runs beyond the first protocol, sent with every `next`: 'analyze' (the Static analysis stage), the
- * git actions 'git:comment' / 'git:merge' and 'doc' (document stages). One hands a stage that needs one of them only
- * to a worker that says so — an older worker would run an unknown stage kind as a git stage, or drop the task as
- * unreadable (and get it again on every round).
+ * git actions 'git:comment' / 'git:merge', 'doc' (document stages) and 'model' (it passes the stage's model to Claude
+ * Code). One hands a stage that needs one of them only to a worker that says so — an older worker would run an unknown
+ * stage kind as a git stage, drop the task as unreadable (and get it again on every round), or quietly run Claude
+ * Code with another model than the one picked.
  */
-export const WORKER_CAN = ['analyze', 'git:comment', 'git:merge', 'doc'] as const
+export const WORKER_CAN = ['analyze', 'git:comment', 'git:merge', 'doc', 'model'] as const
 /**
  * What a worker runs, read from its `next`. Document stages came before `can`, together with `docs: true`: a worker
  * that sends either knows them, so a `can` without 'doc' (1.3.x) or `docs` without a `can` (1.3.1 before `can`)
@@ -74,12 +75,37 @@ export function workerOutdated(can: readonly string[] | null): boolean {
   const has = workerCan(can)
   return WORKER_CAN.some((c) => !has.has(c))
 }
-/** The capability a stage needs (null: every worker runs it). */
-export function stageNeeds(stage: { kind: string; gitAction?: string | null }): string | null {
-  if (stage.kind === 'analyze') return 'analyze'
-  if (stage.kind === 'doc') return 'doc'
-  if (stage.kind === 'git' && (stage.gitAction === 'comment' || stage.gitAction === 'merge')) return `git:${stage.gitAction}`
-  return null
+/**
+ * The capabilities a stage needs ([]: every worker runs it). `model` = the model the stage runs with (the task's own
+ * pick on this device, else the stage's): a worker that does not name 'model' would ignore it.
+ */
+export function stageNeeds(stage: { kind: string; gitAction?: string | null; model?: string | null }): string[] {
+  const needs: string[] = []
+  if (stage.kind === 'analyze') needs.push('analyze')
+  if (stage.kind === 'doc') needs.push('doc')
+  if (stage.kind === 'git' && (stage.gitAction === 'comment' || stage.gitAction === 'merge')) needs.push(`git:${stage.gitAction}`)
+  if (stage.model && claudeRuns(stage.kind)) needs.push('model')
+  return needs
+}
+
+/** Stage kinds that run Claude Code — the only ones a model applies to. */
+export const CLAUDE_KINDS = ['plan', 'implement', 'doc'] as const
+export function claudeRuns(kind: string): boolean {
+  return (CLAUDE_KINDS as readonly string[]).includes(kind)
+}
+
+/**
+ * A model name for Claude Code's `--model`: an alias it accepts ('opus' · 'sonnet' · 'haiku'), a full model id or an
+ * own name — letters, digits and . _ : - [ ], 1–100 characters, starting with a letter or digit (a leading "-" would
+ * read as a flag of its own). The one rule for a stage's model from One and `claude.model` in worker.json. It reaches
+ * Claude Code as one entry of an argument list, never through a shell.
+ */
+export const MODEL_NAME = /^[A-Za-z0-9][A-Za-z0-9._:[\]-]{0,99}$/
+/** The name trimmed when it passes MODEL_NAME, else null. */
+export function cleanModel(v: unknown): string | null {
+  if (typeof v !== 'string') return null
+  const m = v.trim()
+  return MODEL_NAME.test(m) ? m : null
 }
 /**
  * The person's git actions in One — fixed verbs the worker maps to its own commands. "reveal" only prints
@@ -138,6 +164,12 @@ export interface TaskStage {
   /** 1–200; the worker's config may lower it */
   maxTurns: number
   gitAction: GitAction | null
+  /**
+   * Claude Code's `--model` for this stage (MODEL_NAME): the task's own pick on the device that hands it out, else the
+   * stage's. null = the worker's default (the repo's `claude.model` in worker.json, else Claude Code's own). Only
+   * stages that run Claude Code carry one, and only a worker whose `can` names 'model' gets one.
+   */
+  model: string | null
 }
 
 /** What the worker gets for one stage of one task. Everything but ids and names is task DATA, never instructions. */

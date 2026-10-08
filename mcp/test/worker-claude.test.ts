@@ -182,6 +182,27 @@ describe('prompt', () => {
     assert.equal(t.review, null)
   })
 
+  test('the stage\'s model: kept only when it passes the shared rule (the same as claude.model in worker.json); --model is one argument', () => {
+    const stage = (model: unknown) => sanitizeTask({ id: 'abc', repo: 'demo', title: 'T', stage: { id: 'st', kind: 'implement', model } })!.stage.model
+    for (const ok of ['opus', 'sonnet', 'haiku', 'claude-fable-5-1', 'claude-opus-5-5', 'my.own_model:v2', 'model[1m]']) assert.equal(stage(ok), ok)
+    assert.equal(stage('  opus  '), 'opus')
+    // never a flag of its own (a leading "-"), never a shell word
+    for (const bad of ['opus; rm -rf ~', '--dangerously-skip-permissions', '-p', '.opus', 'two words', '$(id)', 'a'.repeat(101), '', 42, null, undefined, { name: 'opus' }]) assert.equal(stage(bad), null, JSON.stringify(bad))
+    assert.equal(stage('a'.repeat(100)), 'a'.repeat(100))
+    // an older tab sends no model: none
+    assert.equal(sanitizeTask({ id: 'abc', repo: 'demo', stage: { kind: 'plan' } })!.stage.model, null)
+    // worker.json: the same rule
+    const cfg = (model: unknown) => sanitizeConfig({ workspace: 'local:x1', repos: [{ name: 'a', path: '/tmp/a', claude: { model } }] }, '/tmp/cfg/worker.json').config.repos[0]!.claude.model
+    assert.equal(cfg('sonnet'), 'sonnet')
+    assert.equal(cfg('opus && echo'), null)
+    assert.equal(cfg('--dangerously-skip-permissions'), null)
+    // the argv: the name follows --model as its own entry
+    const caps: ClaudeCaps = { found: true, version: '1', budget: true, modes: [] }
+    const args = claudeArgs({ mode: 'plan', maxTurns: 3, model: 'claude-fable-5-1', allowedTools: [], disallowedTools: [], mcpConfig: null, strictMcp: true, budgetUsd: null, caps })
+    assert.equal(args[args.indexOf('--model') + 1], 'claude-fable-5-1')
+    assert.ok(!claudeArgs({ mode: 'plan', maxTurns: 3, model: null, allowedTools: [], disallowedTools: [], mcpConfig: null, strictMcp: true, budgetUsd: null, caps }).includes('--model'))
+  })
+
   test('tool calls become one short log line', () => {
     assert.equal(toolLine('Bash', { command: 'npm   test\n --silent' }), 'Bash npm test --silent')
     assert.equal(toolLine('TodoWrite', {}), 'TodoWrite')

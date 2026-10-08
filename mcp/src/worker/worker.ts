@@ -17,6 +17,7 @@ import {
   STAGE_KINDS,
   GIT_ACTIONS,
   WORKER_CAN,
+  cleanModel,
   type BusyTask,
   type GitResult,
   type GitVerb,
@@ -105,6 +106,9 @@ export function sanitizeTask(raw: unknown): TaskPayload | null {
       permissionMode: (PERMISSION_MODES as readonly string[]).includes(String(s.permissionMode)) ? (s.permissionMode as TaskPayload['stage']['permissionMode']) : 'default',
       maxTurns: Number.isFinite(turns) ? Math.max(1, Math.min(200, Math.floor(turns))) : 30,
       gitAction: (GIT_ACTIONS as readonly string[]).includes(String(s.gitAction)) ? (s.gitAction as TaskPayload['stage']['gitAction']) : null,
+      // a model name One picked (MODEL_NAME) — anything else is dropped (the repo's claude.model, else Claude Code's
+      // default, runs instead); it reaches Claude Code only as the argument after --model
+      model: cleanModel(s.model),
     },
     text: str(raw.text, 200_000),
     rework: typeof raw.rework === 'string' && raw.rework.trim() ? raw.rework.slice(0, 40_000) : null,

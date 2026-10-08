@@ -35,6 +35,11 @@ export interface TaskLocal {
   testFailures?: number
   /** which gates this task stops at on this device (absent = this device's default, tasks.ts approvalsOf) */
   approvals?: 'all' | 'review' | 'none'
+  /**
+   * the model every Claude Code stage of this task runs with on this device (protocol.ts MODEL_NAME) — absent: as the
+   * pipeline says (each stage's own, else the worker's default). Never synced, so no one else can set it.
+   */
+  model?: string
   /** the follow-up tasks this device created from this one (Business analysis → Coding / QA, QA → Coding) */
   spawned?: Partial<Record<'coding' | 'qa', ID>>
   /** the newest review document (a doc stage with output 'review') — Post review / a git 'comment' stage sends it */

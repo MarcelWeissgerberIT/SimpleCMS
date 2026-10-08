@@ -263,7 +263,7 @@ export function task(stage: Partial<TaskPayload['stage']> & Pick<TaskPayload['st
     id,
     title: 'Add the feature file',
     repo: 'demo',
-    stage: { id: `st-${stage.kind}`, name: stage.kind[0]!.toUpperCase() + stage.kind.slice(1), instructions: '', permissionMode: stage.kind === 'plan' ? 'plan' : 'acceptEdits', maxTurns: 10, gitAction: null, ...stage },
+    stage: { id: `st-${stage.kind}`, name: stage.kind[0]!.toUpperCase() + stage.kind.slice(1), instructions: '', permissionMode: stage.kind === 'plan' ? 'plan' : 'acceptEdits', maxTurns: 10, gitAction: null, ...stage, model: stage.model ?? null },
     text: 'Goal: a feature file.\n\n## Acceptance criteria\n- [ ] feature.txt exists',
     rework: null,
     answers: [],

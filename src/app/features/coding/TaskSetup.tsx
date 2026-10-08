@@ -4,7 +4,7 @@
  * empty — where the task itself is written (the page below: goal + acceptance criteria) with an outline to
  * fill in. No repo yet: "New repo: import a ZIP / clone…" opens the worker's setup page. Business analysis / QA
  * tasks may run without a repo (document stages only: "No repository"). ApprovalsPick: which gates the task stops
- * at (plan + review · review only · none — "just do it").
+ * at (plan + review · review only · none — "just do it"). ModelPick: the model of its Claude Code stages.
  */
 import { useMemo } from 'react'
 import { FileText } from 'lucide-react'
@@ -14,8 +14,9 @@ import type { ID } from '../../store/types'
 import { useCoding } from './state'
 import { useTaskLocal } from './local'
 import { ChangeReposButton } from './SetupCard'
-import type { PipelineKind } from './schema'
-import { APPROVALS, approvalsOf, insertTaskOutline, knownRepos, setTaskApprovals, setTaskBranch, setTaskRepo, workerBranches } from './tasks'
+import type { PipelineKind, ResolvedStage } from './schema'
+import { claudeRuns, cleanModel } from './protocol'
+import { APPROVALS, MODEL_CHOICES, approvalsOf, insertTaskOutline, knownRepos, modelLabel, pipelineModels, setTaskApprovals, setTaskBranch, setTaskModel, setTaskRepo, workerBranches } from './tasks'
 
 export function TaskSetup({ taskId, repo, branch, described, kind = 'coding' }: { taskId: ID; repo: string | null; branch: string | null; described: boolean; kind?: PipelineKind }) {
   const t = useT()
@@ -126,6 +127,45 @@ export function ApprovalsPick({ taskId, kind = 'coding' }: { taskId: ID; kind?: 
         </select>
       </label>
       <span className="ctk-hint">{t(`features.coding.approvals.${level}Hint`)}</span>
+    </div>
+  )
+}
+
+/**
+ * Which model this task's Claude Code stages run with — on this device (TaskLocal.model): as the pipeline says (each
+ * stage's own, else the worker's default), or one model for all of them. Offers the known models and the own names
+ * the pipeline uses. Only for pipelines with a stage that runs Claude Code.
+ */
+export function ModelPick({ taskId, pipeline }: { taskId: ID; pipeline: ResolvedStage[] }) {
+  const t = useT()
+  const current = cleanModel(useTaskLocal(taskId).model)
+  const used = useMemo(() => pipelineModels(pipeline), [pipeline])
+  if (!pipeline.some((s) => claudeRuns(s.kind))) return null
+  // an own name picked before that the pipeline no longer uses stays in the list while it is the task's
+  const own = current && !MODEL_CHOICES.some((c) => c.id === current) && !used.includes(current) ? [...used, current] : used
+  return (
+    <div className="ctk-appr" data-testid="coding-model">
+      <label className="ctk-appr__field">
+        <span className="label">{t('features.coding.task.model.label')}</span>
+        <select className="input" value={current ?? ''} onChange={(e) => void setTaskModel(taskId, e.target.value || null)} data-testid="coding-model-select">
+          <option value="">{t('features.coding.task.model.pipeline')}</option>
+          {MODEL_CHOICES.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.label}
+            </option>
+          ))}
+          {own.length > 0 && (
+            <optgroup label={t('features.coding.task.model.used')}>
+              {own.map((m) => (
+                <option key={m} value={m}>
+                  {m}
+                </option>
+              ))}
+            </optgroup>
+          )}
+        </select>
+      </label>
+      <span className="ctk-hint">{current ? t('features.coding.task.model.setHint', { model: modelLabel(current) }) : t('features.coding.task.model.pipelineHint')}</span>
     </div>
   )
 }

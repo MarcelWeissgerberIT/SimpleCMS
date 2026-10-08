@@ -18,7 +18,7 @@ import { newId } from '../../lib/ids'
 import { createPrivateDatabase, useCloud } from '../../cloud'
 import { NONE_KEY } from '../../database'
 import { ALL_MESSAGES, t } from '../../i18n'
-import { GIT_ACTIONS, PERMISSION_MODES, STAGE_KINDS, type StageKind } from './protocol'
+import { GIT_ACTIONS, PERMISSION_MODES, STAGE_KINDS, claudeRuns, cleanModel, type StageKind } from './protocol'
 import { useCoding } from './state'
 
 export type CodingRole = 'repo' | 'stage' | 'priority' | 'branch' | 'git' | 'pr' | 'cost' | 'worker' | 'claimed' | 'followUps'
@@ -304,6 +304,9 @@ export function sanitizeStage(raw: unknown, id: ID): PipelineStage {
   if (turns) out.maxTurns = turns
   if (kind === 'git') out.gitAction = (GIT_ACTIONS as readonly string[]).includes(String(r.gitAction)) ? (r.gitAction as PipelineStage['gitAction']) : 'pr'
   if (kind === 'doc' && (DOC_OUTPUTS as readonly unknown[]).includes(r.output)) out.output = r.output as PipelineStage['output']
+  // only stages that run Claude Code keep a model — and only one that passes the shared rule
+  const model = claudeRuns(kind) ? cleanModel(r.model) : null
+  if (model) out.model = model
   return out
 }
 

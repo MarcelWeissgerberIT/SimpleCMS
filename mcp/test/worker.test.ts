@@ -236,6 +236,59 @@ describe('a task through the pipeline', () => {
     assert.ok(args.includes('--mcp-config'))
   })
 
+  test('the model: One\'s pick for the stage wins over the repo\'s claude.model; a name that fails the rule never reaches Claude Code; the log names it', async () => {
+    const r = makeRepo()
+    const log = join(r.dir, 'claude-args.jsonl')
+    await boot(r, {}, { claude: { maxTurns: 10, model: 'sonnet' } }, { FAKE_CLAUDE_LOG: log })
+    const tab = await connect()
+    await tab.next('welcome')
+    const runs = () => readFileSync(log, 'utf8').trim().split('\n').map((l) => (JSON.parse(l) as { args: string[] }).args)
+    const modelOf = (args: string[]) => (args.includes('--model') ? args[args.indexOf('--model') + 1] : null)
+    const linesOf = (id: string) => tab.messages.flatMap((m) => (m.type === 'event' && m.kind === 'log' && m.taskId === id ? m.lines : []))
+
+    // One sends a model for the stage (the task's pick or the stage's): it wins over worker.json
+    const plan = await tab.run(task({ kind: 'plan', model: 'claude-fable-5-1' }, { id: 'mdl1abcd' }))
+    assert.equal(plan.status, 'ok', JSON.stringify(plan))
+    assert.equal(modelOf(runs().at(-1)!), 'claude-fable-5-1')
+    assert.deepEqual(linesOf('mdl1abcd').find((l) => l.c === 'modelOne')?.v, { model: 'claude-fable-5-1' })
+    // the progress names the model Claude Code reports
+    const reported = tab.messages.flatMap((m) => (m.type === 'event' && m.kind === 'progress' && m.taskId === 'mdl1abcd' ? [m.progress.model] : []))
+    assert.ok(reported.length > 0 && reported.every((m) => m === 'claude-fable-5-1'), JSON.stringify(reported))
+
+    // a document stage too (an alias)
+    const doc = await tab.run(task({ kind: 'doc', name: 'Analysis', permissionMode: 'default', model: 'haiku' }, { id: 'mdl2abcd' }))
+    assert.equal(doc.status, 'ok', JSON.stringify(doc))
+    assert.equal(modelOf(runs().at(-1)!), 'haiku')
+
+    // One sends none: the repo's claude.model
+    const plain = await tab.run(task({ kind: 'implement' }, { id: 'mdl3abcd' }))
+    assert.equal(plain.status, 'ok', JSON.stringify(plain))
+    assert.equal(modelOf(runs().at(-1)!), 'sonnet')
+    assert.deepEqual(linesOf('mdl3abcd').find((l) => l.c === 'modelRepo')?.v, { model: 'sonnet' })
+
+    // a name that fails the rule is dropped on arrival: the repo's runs instead, the name is in no argv
+    const odd = task({ kind: 'plan' }, { id: 'mdl4abcd' })
+    const bad = await tab.run({ ...odd, stage: { ...odd.stage, model: 'opus; touch pwned --dangerously-skip-permissions' } })
+    assert.equal(bad.status, 'ok', JSON.stringify(bad))
+    assert.equal(modelOf(runs().at(-1)!), 'sonnet')
+    assert.ok(runs().every((args) => !args.some((a) => /touch|pwned|dangerously/.test(a))), JSON.stringify(runs()))
+    assertNoPaths(tab, r)
+  })
+
+  test('the model: none from One and none in worker.json — Claude Code\'s default, no --model', async () => {
+    const r = makeRepo()
+    const log = join(r.dir, 'claude-args.jsonl')
+    await boot(r, {}, {}, { FAKE_CLAUDE_LOG: log })
+    const tab = await connect()
+    await tab.next('welcome')
+    const plan = await tab.run(task({ kind: 'plan' }, { id: 'mdl5abcd' }))
+    assert.equal(plan.status, 'ok', JSON.stringify(plan))
+    const { args } = JSON.parse(readFileSync(log, 'utf8').trim().split('\n').pop()!) as { args: string[] }
+    assert.ok(!args.includes('--model'), args.join(' '))
+    const lines = tab.messages.flatMap((m) => (m.type === 'event' && m.kind === 'log' && m.taskId === 'mdl5abcd' ? m.lines : []))
+    assert.ok(lines.some((l) => l.c === 'modelDefault'), JSON.stringify(lines.map((l) => l.c ?? l.s)))
+  })
+
   test('a question waits for the person; the answer runs the stage again', async () => {
     const r = makeRepo()
     await boot(r)
