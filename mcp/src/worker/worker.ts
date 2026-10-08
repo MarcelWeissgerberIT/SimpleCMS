@@ -36,7 +36,9 @@ import { scratchRepo } from './config.ts'
 import { Intake } from './intake.ts'
 import { checkRepo, cleanup, commentPr, commitAll, discard, info, isDirty, localBranches, mergePr, openPr, prune, push, updateFromBase, worktreeOf, GitError } from './git.ts'
 import { WorkerLink } from './link.ts'
-import { workerOrigins } from './preset.ts'
+import type { CloudFatal } from './cloud.ts'
+import { cloudOf } from './config.ts'
+import { relayUrl, workerOrigins } from './preset.ts'
 import { dataBlock, markerCode, runStage } from './run.ts'
 import { repoScrubber, type Scrubber } from './scrub.ts'
 import type { SetupLive } from './setup.ts'
@@ -58,6 +60,10 @@ export interface WorkerOptions {
   recent?: () => string[]
   /** worker.json and how to read it again — Import stages add the new repository there (null: no imports) */
   intake?: { configFile: string; reload: () => Promise<void> } | null
+  /** cloud mode: the team server let this file go for good (revoked, replaced, left the workspace …) */
+  onFatal?: (reason: CloudFatal, message: string) => void
+  /** cloud mode, tests: the reconnect steps (ms) */
+  backoffMs?: number[]
 }
 
 interface Run {
@@ -132,11 +138,21 @@ export class Worker {
     this.opts = opts
     this.config = opts.config
     this.state = new WorkerState(opts.config.file)
+    const cloud = cloudOf(opts.config)
     this.link = new WorkerLink({
       port: opts.config.port,
       origins: workerOrigins(opts.config.preset, [process.env.ONE_ORIGINS ?? '', ...opts.config.origins], opts.log),
       workspace: opts.config.workspace,
       pair: opts.config.preset?.pair ?? null,
+      cloud: cloud
+        ? {
+            url: relayUrl(cloud.origin),
+            token: cloud.token,
+            version: opts.version,
+            backoffMs: opts.backoffMs,
+            onFatal: (reason, message) => (opts.onFatal ? opts.onFatal(reason, message) : opts.log(message)),
+          }
+        : null,
       http: opts.setup ? (req, res) => opts.setup!.handle(req, res) : undefined,
       log: opts.log,
       info: () => this.info(),
@@ -167,6 +183,7 @@ export class Worker {
       claude: { found: this.caps.found, version: this.caps.version },
       setup: !!this.opts.setup,
       paired: !!this.config.preset,
+      via: cloudOf(this.config) ? 'cloud' : 'local',
     }
   }
 
@@ -246,7 +263,11 @@ export class Worker {
     const up = await this.link.start()
     if (up === 'listening') void this.checkRepos()
     if (up === 'listening') {
-      this.opts.log(`ready on ws://127.0.0.1:${this.config.port} · ${this.config.repos.length} repo(s): ${this.config.repos.map((r) => r.name).join(', ') || 'none'} · ${this.config.workspace ? `workspace ${this.config.workspace}${this.config.preset ? ` ("${this.config.preset.name}", paired download)` : ''}` : 'NOT BOUND to a workspace (set "workspace" in worker.json)'}`)
+      const repos = `${this.config.repos.length} repo(s): ${this.config.repos.map((r) => r.name).join(', ') || 'none'}`
+      if (this.link.via)
+        this.opts.log(`ready (cloud) · task tools and setup page on 127.0.0.1:${this.config.port} · ${repos} · connecting to ${this.link.via} for "${this.config.preset?.name ?? ''}" (${this.config.workspace})`)
+      else
+        this.opts.log(`ready on ws://127.0.0.1:${this.config.port} · ${repos} · ${this.config.workspace ? `workspace ${this.config.workspace}${this.config.preset ? ` ("${this.config.preset.name}", paired download)` : ''}` : 'NOT BOUND to a workspace (set "workspace" in worker.json)'}`)
       this.poller = setInterval(() => this.tick(), this.config.pollSec * 1000)
       this.beater = setInterval(() => void this.heartbeat(), Number(process.env.ONE_WORKER_HEARTBEAT_MS) || HEARTBEAT_MS)
     }
@@ -263,6 +284,7 @@ export class Worker {
     // give the runs a moment to report "stopped"
     const end = Date.now() + 4000
     while (this.runs.size && Date.now() < end) await new Promise((r) => setTimeout(r, 50))
+    this.flushLogs()
     await this.link.close()
   }
 
@@ -346,20 +368,45 @@ export class Worker {
       })
   }
 
+  /** Log lines per task, sent together (cloud mode: every 250 ms or 200 lines — one relay frame instead of hundreds). */
+  private logBuf = new Map<string, LogLine[]>()
+  private logTimer: ReturnType<typeof setTimeout> | null = null
+
   private logLine(taskId: string, line: LogLine) {
-    this.link.send({ type: 'event', taskId, kind: 'log', lines: [line] })
+    if (!this.link.via) return this.link.send({ type: 'event', taskId, kind: 'log', lines: [line] })
+    const buf = this.logBuf.get(taskId) ?? []
+    buf.push(line)
+    this.logBuf.set(taskId, buf)
+    if (buf.length >= 200) return this.flushLogs(taskId)
+    this.logTimer ??= setTimeout(() => this.flushLogs(), 250)
+  }
+
+  private flushLogs(only?: string) {
+    for (const [taskId, lines] of [...this.logBuf]) {
+      if (only !== undefined && taskId !== only) continue
+      this.logBuf.delete(taskId)
+      if (lines.length) this.link.send({ type: 'event', taskId, kind: 'log', lines })
+    }
+    if (!this.logBuf.size && this.logTimer) {
+      clearTimeout(this.logTimer)
+      this.logTimer = null
+    }
   }
 
   private sendStatus() {
     if (this.workspace) this.link.send({ type: 'status', busy: this.busy(), spentToday: this.state.spentToday() })
   }
 
-  /** Hand an outcome to One; kept and retried on reconnect until One confirms it. */
+  /**
+   * Hand an outcome to One; kept and retried on reconnect until One confirms it. `finishId` makes the retry
+   * harmless when One applied it but its answer was lost (a dropped relay connection): One answers ok again.
+   */
   private async finish(taskId: string, stageId: string, outcome: StageOutcome): Promise<void> {
-    const key = `${taskId}|${stageId}|${Date.now()}`
+    const key = `f${Date.now().toString(36)}${randomBytes(6).toString('hex')}`
+    this.flushLogs(taskId)
     this.unsent.set(key, { taskId, stageId, outcome })
     try {
-      await this.link.request({ op: 'finish', taskId, stageId, outcome })
+      await this.link.request({ op: 'finish', taskId, stageId, outcome, finishId: key })
       this.unsent.delete(key)
     } catch {
       /* One is not connected: sent on the next connect */
@@ -369,7 +416,7 @@ export class Worker {
   private async flushUnsent() {
     for (const [key, f] of [...this.unsent]) {
       try {
-        await this.link.request({ op: 'finish', ...f })
+        await this.link.request({ op: 'finish', ...f, finishId: key })
         this.unsent.delete(key)
       } catch {
         return

@@ -431,7 +431,8 @@ export type WorkerMessage =
       can?: string[]
     }
   | { type: 'req'; id: string; op: 'heartbeat'; taskIds: string[] }
-  | { type: 'req'; id: string; op: 'finish'; taskId: string; stageId: string; outcome: StageOutcome }
+  /** `finishId`: the same for every retry of one outcome — One applies it once and answers ok again (older workers send none) */
+  | { type: 'req'; id: string; op: 'finish'; taskId: string; stageId: string; outcome: StageOutcome; finishId?: string }
   | { type: 'event'; taskId: string; kind: 'log'; lines: LogLine[] }
   | { type: 'event'; taskId: string; kind: 'git'; git: GitInfo }
   | { type: 'event'; taskId: string; kind: 'progress'; progress: TaskProgress }

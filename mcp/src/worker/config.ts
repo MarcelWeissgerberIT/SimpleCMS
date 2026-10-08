@@ -82,6 +82,20 @@ export function defaultConfigFile(): string {
   return join(homedir(), '.config', 'one', 'worker.json')
 }
 
+/**
+ * A cloud worker's own folder (~/.config/one/cloud/<workspace>/): its worker.json, worker-state.json, scratch
+ * folders and default worktrees — so a local and a cloud worker (and cloud workers of several workspaces) run
+ * side by side without sharing state. --config / ONE_WORKER_CONFIG still win.
+ */
+export function cloudConfigFile(workspace: string): string {
+  return join(homedir(), '.config', 'one', 'cloud', workspace.replace(/[^A-Za-z0-9_-]/g, '-').slice(0, 80), 'worker.json')
+}
+
+/** How a config is read: a cloud worker keeps its default worktrees in its own folder. */
+export interface ConfigOptions {
+  cloud?: boolean
+}
+
 /* ------------------------------------------------------------------ JSON with comments */
 
 /** Strip // and /* *\/ comments and trailing commas outside strings, then JSON.parse. */
@@ -194,7 +208,7 @@ function mcpNames(raw: unknown, where: string, problems: string[]): string[] {
   return [...new Set(out)]
 }
 
-function repoConfig(raw: unknown, index: number, configDir: string, problems: string[]): RepoConfig | null {
+function repoConfig(raw: unknown, index: number, configDir: string, problems: string[], opts: ConfigOptions = {}): RepoConfig | null {
   const where = `repos[${index}]`
   if (!isObj(raw)) {
     problems.push(`${where} is not an object`)
@@ -227,13 +241,16 @@ function repoConfig(raw: unknown, index: number, configDir: string, problems: st
     problems.push(`${at}: "branchPrefix" ${JSON.stringify(branchPrefix)} is not allowed`)
     return null
   }
-  // default: next to the repo — but never inside iCloud Drive (a checkout there waits for every file and syncs back up)
+  // default: next to the repo — but never inside iCloud Drive (a checkout there waits for every file and syncs back up);
+  // a cloud worker: in its own folder (a local worker on the same repo keeps its own)
   const worktreeDir =
     typeof raw.worktreeDir === 'string' && raw.worktreeDir.trim()
       ? resolve(configDir, expandHome(raw.worktreeDir.trim()))
-      : inICloud(path)
-        ? join(homedir(), '.one-worktrees', name)
-        : join(dirname(path), '.one-worktrees', name)
+      : opts.cloud
+        ? join(configDir, 'worktrees', name)
+        : inICloud(path)
+          ? join(homedir(), '.one-worktrees', name)
+          : join(dirname(path), '.one-worktrees', name)
   let testCommand: string[] | null = null
   if (raw.testCommand !== undefined && raw.testCommand !== null) {
     if (typeof raw.testCommand === 'string') problems.push(`${at}: "testCommand" must be a list (argv), e.g. ["npm", "test"] — a command line is never run through a shell`)
@@ -273,7 +290,7 @@ function repoConfig(raw: unknown, index: number, configDir: string, problems: st
 }
 
 /** Read and check worker.json. Throws (with a readable message) only when the file is missing or not JSON. */
-export function loadConfig(file: string, env: NodeJS.ProcessEnv = process.env): Loaded {
+export function loadConfig(file: string, env: NodeJS.ProcessEnv = process.env, opts: ConfigOptions = {}): Loaded {
   if (!existsSync(file)) throw new Error(`No config file at ${file}. Create one with: node one-worker.mjs init${file === defaultConfigFile() ? '' : ` --config ${file}`}`)
   let raw: unknown
   try {
@@ -281,10 +298,10 @@ export function loadConfig(file: string, env: NodeJS.ProcessEnv = process.env): 
   } catch (e) {
     throw new Error(`${file} is not valid JSON: ${e instanceof Error ? e.message : String(e)}`)
   }
-  return sanitizeConfig(raw, file, env)
+  return sanitizeConfig(raw, file, env, opts)
 }
 
-export function sanitizeConfig(raw: unknown, file: string, env: NodeJS.ProcessEnv = process.env): Loaded {
+export function sanitizeConfig(raw: unknown, file: string, env: NodeJS.ProcessEnv = process.env, opts: ConfigOptions = {}): Loaded {
   const problems: string[] = []
   const r = isObj(raw) ? raw : {}
   const configDir = dirname(file)
@@ -297,7 +314,7 @@ export function sanitizeConfig(raw: unknown, file: string, env: NodeJS.ProcessEn
   const list = Array.isArray(r.repos) ? r.repos : []
   if (!Array.isArray(r.repos)) problems.push('"repos" is missing: list the repositories this worker may work in')
   list.forEach((entry, i) => {
-    const repo = repoConfig(entry, i, configDir, problems)
+    const repo = repoConfig(entry, i, configDir, problems, opts)
     if (!repo) return
     if (repos.some((x) => x.name === repo.name)) problems.push(`repos[${i}]: the name "${repo.name}" is used twice — the second one is ignored`)
     else repos.push(repo)
@@ -451,6 +468,12 @@ export function withPreset(config: WorkerConfig, preset: WorkerPreset | null, en
 /** The config a preset worker starts with when there is no worker.json yet: no repos (the setup page picks them). */
 export function emptyConfig(file: string, env: NodeJS.ProcessEnv = process.env): WorkerConfig {
   return sanitizeConfig({ repos: [] }, file, env).config
+}
+
+/** A cloud worker's connection (from its download's preset): the team server and its worker token — or null (local). */
+export function cloudOf(config: WorkerConfig): { origin: string; token: string } | null {
+  const p = config.preset
+  return p?.cloud ? { origin: p.origin, token: p.cloud.token } : null
 }
 
 /* ------------------------------------------------------------------ the setup page's writes */

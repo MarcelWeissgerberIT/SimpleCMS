@@ -12,8 +12,8 @@ import { request } from 'node:http'
 import { join } from 'node:path'
 import { after, afterEach, describe, test } from 'node:test'
 import { WORKER_CLOSE_REFUSED, type OpenSetupResult, type WorkerMessage, type WorkspaceRef } from '../../src/app/features/coding/protocol.ts'
-import { readPreset, workerOrigins, sameSecret } from '../src/worker/preset.ts'
-import { splitArgs, withPreset, sanitizeConfig } from '../src/worker/config.ts'
+import { readPreset, relayUrl, workerOrigins, sameSecret } from '../src/worker/preset.ts'
+import { cloudConfigFile, cloudOf, defaultConfigFile, saveRepos, splitArgs, withPreset, sanitizeConfig } from '../src/worker/config.ts'
 import { readdir } from 'node:fs/promises'
 import { findRepos, guessAnalyzeAsync, guessTest, remoteHost, repoFacts, factsOf, suggestName, shortPath } from '../src/worker/scan.ts'
 import { pickerCommand } from '../src/worker/picker.ts'
@@ -130,6 +130,57 @@ describe('the preset of a download', () => {
     assert.equal(sameSecret(PAIR, PAIR.slice(0, -1) + 'v'), false)
     assert.equal(sameSecret(PAIR, undefined), false)
     assert.equal(sameSecret(PAIR, 42), false)
+  })
+
+  test('a cloud preset: a worker token, a team workspace, TLS (plain http only on this computer), the pairing secret kept', () => {
+    const TOKEN = `onew_${'A'.repeat(43)}`
+    const CLOUD = { workspace: 'team:Ab12cd34', origin: 'https://one.example.com', port: 47323, pair: PAIR, name: 'Team', cloud: { token: TOKEN } }
+    assert.deepEqual(readPreset(CLOUD).preset, CLOUD)
+    assert.deepEqual(readPreset({ ...CLOUD, origin: 'http://127.0.0.1:4500', dev: true }).preset?.cloud, { token: TOKEN })
+    assert.equal(readPreset({ ...CLOUD, origin: 'http://localhost:4500' }).preset?.origin, 'http://localhost:4500')
+    for (const [bad, why] of [
+      [{ cloud: { token: 'one_' + 'A'.repeat(43) } }, /not a worker token/],
+      [{ cloud: {} }, /not a worker token/],
+      [{ cloud: 'onew_x' }, /not a worker token/],
+      [{ workspace: 'local:abc' }, /team workspace/],
+      [{ origin: 'http://one.example.com' }, /https origin/],
+      [{ pair: undefined }, /pairing secret/],
+    ] as const) {
+      const r = readPreset({ ...CLOUD, ...bad })
+      assert.equal(r.preset, null, JSON.stringify(bad))
+      assert.match(r.problem ?? '', why)
+    }
+    assert.equal(relayUrl('https://one.example.com'), 'wss://one.example.com/coding/worker')
+    assert.equal(relayUrl('http://127.0.0.1:4500'), 'ws://127.0.0.1:4500/coding/worker')
+    // the preset's port (One writes 47323 for cloud downloads) — ONE_WORKER_PORT still wins
+    const base = sanitizeConfig({ repos: [] }, '/tmp/x/worker.json', {}).config
+    const c = withPreset(base, readPreset(CLOUD).preset, {})
+    assert.equal(c.port, 47323)
+    assert.deepEqual(cloudOf(c), { origin: 'https://one.example.com', token: TOKEN })
+    assert.equal(cloudOf(withPreset(base, readPreset(PRESET).preset, {})), null)
+  })
+
+  test('a cloud worker keeps its own folder: config, state and worktrees never meet a local worker\'s', () => {
+    const home = process.env.HOME ?? ''
+    assert.ok(cloudConfigFile('team:Ab12cd34').startsWith(join(home, '.config', 'one', 'cloud', 'team-Ab12cd34')))
+    assert.notEqual(cloudConfigFile('team:Ab12cd34'), defaultConfigFile())
+    assert.notEqual(cloudConfigFile('team:Ab12cd34'), cloudConfigFile('team:Other999'))
+    // default worktrees: next to the repo (local) · in the cloud worker's own folder (cloud)
+    const dir = tempDir('cloudcfg')
+    const repo = plainRepo(join(dir, 'code', 'site'))
+    const local = sanitizeConfig({ repos: [{ name: 'site', path: repo }] }, join(dir, 'local', 'worker.json'), {}).config
+    const cloud = sanitizeConfig({ repos: [{ name: 'site', path: repo }] }, join(dir, 'cloud', 'worker.json'), {}, { cloud: true }).config
+    assert.equal(local.repos[0]!.worktreeDir, join(dir, 'code', '.one-worktrees', 'site'))
+    assert.equal(cloud.repos[0]!.worktreeDir, join(dir, 'cloud', 'worktrees', 'site'))
+    // saving one worker's repos leaves the other's file alone
+    const localFile = join(dir, 'local', 'worker.json')
+    const cloudFile = join(dir, 'cloud', 'worker.json')
+    const choice = { path: repo, name: 'site', baseBranch: 'main', remote: null, testCommand: null, push: false, pr: 'none' as const, maxUsdPerTask: null }
+    assert.deepEqual(saveRepos(localFile, [choice], 'local:abc', {}), [])
+    const before = readFileSync(localFile, 'utf8')
+    assert.deepEqual(saveRepos(cloudFile, [{ ...choice, name: 'site-cloud' }], 'team:Ab12cd34', {}), [])
+    assert.equal(readFileSync(localFile, 'utf8'), before)
+    assert.match(readFileSync(cloudFile, 'utf8'), /"team:Ab12cd34"/)
   })
 })
 
