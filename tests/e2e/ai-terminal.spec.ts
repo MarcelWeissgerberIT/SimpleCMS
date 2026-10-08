@@ -147,7 +147,14 @@ test.describe('AI terminal (mocked Claude API)', () => {
     await expect(help).toContainText('/stop')
     await expect(help).toContainText('/cost')
     await expect(help).toContainText('/übernehmen')
+    // the pipelines and MCP servers: /pipelines, /connect (DE /verbinden)
+    await expect(help).toContainText('/pipelines')
+    await expect(help).toContainText(/\/connect\s+\/verbinden/)
     expect(bodies).toHaveLength(1)
+    // "/con": /connect and /continue
+    await prompt(page).fill('/con')
+    await expect(list.getByRole('option', { name: /\/connect/ })).toBeVisible()
+    await expect(list.getByRole('option', { name: /\/continue/ })).toBeVisible()
 
     // ↑ / ↓ walk the prompt history, ↓ past the end restores what was typed
     await prompt(page).fill('')

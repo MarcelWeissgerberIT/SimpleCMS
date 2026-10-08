@@ -674,6 +674,9 @@ test.describe('MCP servers (mocked Claude API, made-up server)', () => {
     await runAgentTask(page, 'What is new?')
     await expect(agent).toContainText('atlas rejected its token — Claude answers without it.')
     await expect(agent.locator('.term-error')).toHaveCount(1)
+    // the server it left out: a sign-in is offered under the task
+    await expect(agent.getByTestId('term-signin-offer')).toContainText('atlas wants a sign-in.')
+    await expect(agent.getByTestId('term-signin-offer').getByTestId('term-signin')).toHaveText('Sign in to atlas')
     expect(sent[sent.length - 1].body.mcp_servers).toBeUndefined()
     await agent.locator('.term-error').getByRole('button', { name: 'MCP settings' }).click()
     await expect(page.getByTestId('mcp-servers')).toBeVisible()

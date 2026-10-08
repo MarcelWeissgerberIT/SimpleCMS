@@ -41,6 +41,9 @@ Manche Anmeldungen schicken das Fenster nicht zu One zurück — sie zeigen dort
 
 Lässt sich eine Anmeldung im Browser gar nicht abschließen (die Anmeldung des Servers lässt keine Browser zu, CORS), steht das da — dann fügst du wie bisher ein Token ein.
 
+### Aus dem KI-Terminal verbinden
+Im [KI-Terminal](help:agent) listet `/verbinden` die Server und wie sie stehen (angemeldet, Token, Anmeldung nötig, aus). `/verbinden kb` — ein Name, ein Codewort oder eine Adresse — meldet an: Das Fenster öffnet sich direkt mit deinem <kbd>Enter</kbd>, und das Terminal zeigt das Warten, den Code (mit **Stattdessen mit Code**), den Verbindungstest und **Verbunden · 3 Werkzeuge**. Ein Server, dessen Token funktioniert, wird nur getestet; kein Fenster öffnet sich. `/verbinden https://…` fügt zuerst einen Server per Adresse hinzu. Blockiert der Browser das Fenster, sagt das Terminal es und bleibt, wo es ist — erlaube Pop-ups für One oder drück **Neu anmelden**. Ein Server, den du während eines Gesprächs hinzufügst, ist nach `/neu` dabei; einer, bei dem du dich neu anmeldest, wird sofort mit der neuen Anmeldung genutzt.
+
 ## Medien in One speichern
 Bild- und Videodienste (und andere) liefern Bilder, Clips oder Audio. One zeigt jedes als **Karte** — Dateityp, Host, Größe, wenn bekannt — unter der Antwort im KI-Menü, bei `⌘K ?`, im [KI-Terminal](help:agent) und in den Läufen [eigener Agenten](help:custom-agents). Geladen wird erst, wenn du klickst.
 - **In One speichern** (oder **Alle speichern**) holt die Datei in diesem Browser, prüft, ob sie wirklich ein Bild, Video oder Audio ist (Typ und Inhalt), speichert sie in diesem Browser und setzt den Block dorthin, wo du gefragt hast: unter die Auswahl im KI-Menü, ans Ende der aktuellen Seite bei `⌘K ?`. Im Terminal legt das Speichern **Medien einfügen** zur Prüfung vor — auf der Seite, an der die Aufgabe gearbeitet hat, oder auf einer neuen Seite „Generierte Medien“.

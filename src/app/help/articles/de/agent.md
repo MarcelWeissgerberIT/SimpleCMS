@@ -3,8 +3,8 @@ id: agent
 title: Das KI-Terminal
 section: ai
 order: 3
-keywords: agent, ki-terminal, terminal, claude, automatisieren, massenänderung, aufgaben, einträge, seiten, datenbanken, board, übernehmen, prüfen, tastatur, befehle, referenzen, kontext, was claude liest, neu machen, ändern, ersetzen, umschreiben, diff, unterseite pro eintrag, seite pro ticket, tabelle mit links, limit, weitermachen, weiter, workspace agent, AI terminal, context, edit, continue
-related: custom-agents, ai-menu, mcp-servers, mcp-bridge
+keywords: agent, ki-terminal, terminal, claude, automatisieren, massenänderung, aufgaben, einträge, seiten, datenbanken, board, übernehmen, prüfen, tastatur, befehle, referenzen, kontext, was claude liest, neu machen, ändern, ersetzen, umschreiben, diff, unterseite pro eintrag, seite pro ticket, tabelle mit links, limit, weitermachen, weiter, pipelines, coding-aufgabe, freigeben, verbinden, anmelden, mcp, workspace agent, AI terminal, context, edit, continue, connect
+related: custom-agents, ai-menu, mcp-servers, mcp-bridge, coding-pipeline, pipelines
 summary: Gib Claude Aufgaben per Tastatur — es liest deinen Workspace, schlägt Änderungen vor, und du übernimmst sie. Arbeitet auch ausgeblendet weiter.
 ---
 Drück <kbd>Mod+J</kbd> (oder ⌘K → *KI-Terminal*, oder **KI** in der Statusleiste). Das Terminal dockt unter der Seite an — die Seitenleiste bleibt —, auf dem Handy füllt es den Bildschirm.
@@ -24,6 +24,19 @@ Claude ergänzt eine Seite per *Anhängen*. Verlangt eine Aufgabe, Vorhandenes z
 - Blöcke, die du vom Lesen ausgenommen hast (siehe unten), kann Claude auch nicht ändern; die ganze Seite neu schreiben wird dann abgelehnt.
 - [Eigene Agenten](help:custom-agents) können auch Änderungen vorschlagen; selbst ein Agent, der direkt schreibt, wartet auf dein OK, bevor er Text ersetzt.
 
+## Coding-Pipelines aus dem Terminal
+Nutzt du die [Coding-Pipelines](help:coding-pipeline), kann Claude sie lesen — was auf dich wartet, die Stufe einer Aufgabe, ihren Plan, das Testergebnis und das Protokoll — und **vorschlagen**, worum du bittest: eine neue Aufgabe (Coding, Business-Analyse oder QA) oder eine Aktion an einer: freigeben, mit Anweisungen zurückschicken, ihre Frage beantworten, einmal ausführen, stoppen, *Danach* setzen oder übergeben.
+
+- Jede solche Änderung ist ein Vorschlag in der Prüfliste wie alle anderen. Eine neue Aufgabe zeigt sich **vollständig**: Projekt, Repo, Branch, wo sie startet und anhält, ihre ganze Seite genau so, wie Claude Code sie liest (die Box scrollen), und die Seiten, die mitgehen. Eine Freigabe zeigt den Plan, den sie freigibt, und was danach von selbst läuft.
+- Vorschläge, die den **Worker** auf deinem Rechner **starten**, tragen **STARTET WORKER** und sind nie Teil von *Alle übernehmen* (<kbd>a</kbd>, `/übernehmen`, <kbd>Mod+Enter</kbd>): Übernimm jeden mit <kbd>Enter</kbd> darauf.
+- Eine Aufgabe, die anderswo geschrieben oder geändert wurde (auf einem anderen Gerät oder von einem Agenten), zeigt **ERST BESTÄTIGEN**: Übernehmen wird abgelehnt, bis du auf der Aufgabenseite **Auf diesem Gerät bestätigen** drückst — das Terminal bestätigt nie für dich.
+- Hat sich eine Aufgabe bewegt, geändert oder eine neue Frage bekommen, nachdem Claude die Aktion vorgeschlagen hat, wird sie abgelehnt (*inzwischen geändert — frag noch einmal*). Rückgängig lässt eine übernommene Aufgabenaktion stehen: Der Worker hat vielleicht schon angefangen.
+- `/pipelines` (oder `/pipelines qa`) listet die offenen Aufgaben — was auf dich wartet zuerst — mit **Öffnen** und, bei einer laufenden, **Stopp**.
+- Claude kann keine Aufgabe in eine beliebige Stufe schieben, Repo oder Branch einer Aufgabe ändern, sie bestätigen, Freigaben ändern, Git-Befehle ausführen oder die Pipeline bearbeiten.
+
+## Einen MCP-Server verbinden
+`/verbinden` listet deine [MCP-Server](help:mcp-servers) und wie sie stehen. `/verbinden atlas` (ein Name, ein Codewort wie `kb:` oder eine Adresse) meldet an — das Anmeldefenster öffnet sich direkt mit deinem <kbd>Enter</kbd> — oder testet den Server nur, wenn sein Token funktioniert. `/verbinden https://…` fügt zuerst einen neuen Server hinzu. Scheitert eine Aufgabe, weil ein Server sein Token abgelehnt hat, steht **Bei <Server> anmelden** darunter (oder drück <kbd>Enter</kbd> in der leeren Eingabe); ist er verbunden, führt **Aufgabe erneut ausführen** (<kbd>Enter</kbd>) sie mit der neuen Anmeldung aus.
+
 ## Es arbeitet weiter
 Blende das Terminal mit <kbd>Esc</kbd> oder <kbd>Mod+J</kbd> aus und arbeite weiter — die Aufgabe läuft weiter. Die Statusleiste zeigt **KI · arbeitet** und danach **KI · 3 Änderungen zu prüfen**; eine Meldung sagt Bescheid, wenn sie fertig ist, ein Klick holt das Terminal zurück. Nur **Stopp** beendet eine Aufgabe: <kbd>Mod+.</kbd>, <kbd>Ctrl+C</kbd> (ohne Markierung), `/stopp` oder die Stopp-Taste. Die bisherigen Vorschläge bleiben.
 
@@ -38,9 +51,10 @@ Der Chip der offenen Seite sagt, wie viel Claude davon lesen darf: nur der Titel
 ## Tasten und Befehle
 - <kbd>↑</kbd> / <kbd>↓</kbd> in der ersten / letzten Zeile: frühere Eingaben (die letzten 50 auf diesem Gerät und in diesem Workspace, nie synchronisiert).
 - <kbd>Tab</kbd> ergänzt `/Befehle`, `@`-Erwähnungen, `one:` und die Werkzeuge eines Codeworts; bei leerer Eingabe springt es in die Prüfliste.
-- In der Prüfliste: <kbd>j</kbd> / <kbd>k</kbd> (oder Pfeile) bewegen, <kbd>Leertaste</kbd> markiert, <kbd>Enter</kbd> übernimmt die markierten (oder den aktuellen) Einträge, <kbd>a</kbd> übernimmt alle, <kbd>d</kbd> verwirft, <kbd>o</kbd> öffnet die Seite, <kbd>u</kbd> macht das letzte Übernehmen rückgängig, <kbd>Esc</kbd> führt zurück zur Eingabe.
+- <kbd>Enter</kbd> in der leeren Eingabe: eine am Limit angehaltene Aufgabe **weitermachen**, dich bei einem Server **anmelden**, der sein Token abgelehnt hat, oder die Aufgabe nach dieser Anmeldung **erneut ausführen**.
+- In der Prüfliste: <kbd>j</kbd> / <kbd>k</kbd> (oder Pfeile) bewegen, <kbd>Leertaste</kbd> markiert, <kbd>Enter</kbd> übernimmt die markierten (oder den aktuellen) Einträge, <kbd>a</kbd> übernimmt alle (außer denen, die den Coding-Worker starten), <kbd>d</kbd> verwirft, <kbd>o</kbd> öffnet die Seite, <kbd>u</kbd> macht das letzte Übernehmen rückgängig, <kbd>Esc</kbd> führt zurück zur Eingabe.
 - <kbd>Alt+↑</kbd> / <kbd>Alt+↓</kbd> oder Ziehen an der Oberkante ändern die Höhe; Maximieren füllt den Inhaltsbereich.
-- `/neu` (oder `/leeren`) beginnt neu · `/stopp` · `/weiter` (eine am Limit angehaltene Aufgabe geht weiter) · `/übernehmen` · `/verwerfen` · `/verlauf` · `/verlauf-leeren` (vergisst die Eingaben des Workspace auf diesem Gerät — nach einem *y / n*) · `/mcp` (verwendete Server) · `/kosten` (Tokens und geschätzte Kosten) · `/kontext` (was Claude auf der offenen Seite liest) · `/neu-machen` (Stellen mit Vorgaben neu machen) · `/merken <Satz>`, `/ohne-gedächtnis`, `/beispiel <Tag>` ([One-Gedächtnis](help:memory)) · `/hilfe`. Die englischen Namen gehen auch: `/new` (`/clear`), `/stop`, `/continue`, `/apply`, `/discard`, `/history`, `/clear-history`, `/cost`, `/context`, `/redo`, `/remember`, `/no-memory`, `/example`, `/help`.
+- `/neu` (oder `/leeren`) beginnt neu · `/stopp` · `/weiter` (eine am Limit angehaltene Aufgabe geht weiter) · `/übernehmen` · `/verwerfen` · `/verlauf` · `/verlauf-leeren` (vergisst die Eingaben des Workspace auf diesem Gerät — nach einem *y / n*) · `/mcp` (verwendete Server) · `/pipelines` (offene Pipeline-Aufgaben) · `/verbinden` (bei einem MCP-Server anmelden, ihn testen, einen hinzufügen) · `/kosten` (Tokens und geschätzte Kosten) · `/kontext` (was Claude auf der offenen Seite liest) · `/neu-machen` (Stellen mit Vorgaben neu machen) · `/merken <Satz>`, `/ohne-gedächtnis`, `/beispiel <Tag>` ([One-Gedächtnis](help:memory)) · `/hilfe`. Die englischen Namen gehen auch: `/new` (`/clear`), `/stop`, `/continue`, `/apply`, `/discard`, `/history`, `/clear-history`, `/connect`, `/cost`, `/context`, `/redo`, `/remember`, `/no-memory`, `/example`, `/help`.
 
 ## Gut zu wissen
 - Claude kann Datenbanken anlegen (eine Tabelle oder ein Board, gruppiert nach einer Spalte) und Eigenschaften ergänzen und sie in derselben Aufgabe mit Einträgen füllen. Gesperrte Datenbanken lehnen neue Eigenschaften ab.

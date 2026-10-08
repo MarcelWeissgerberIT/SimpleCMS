@@ -8,6 +8,7 @@
 import type { Page } from '@playwright/test'
 import { test, expect, openApp, reloadApp, wsEval, flush, pageIdByTitle, MOD } from './fixtures'
 import { call, mockAgent, openTerminal, prompt, resultText, run, say, setKey, terminal, toolResult, type AnyState } from './helpers/terminal'
+import { makeCodingRepo, startCodingWorker, type CodingRepo, type RunningWorker } from './helpers/coding'
 
 /** #/coding → "Set up" (the Coding project): the terminal then offers the pipeline tools. */
 async function setupCoding(page: Page): Promise<string> {
@@ -485,5 +486,108 @@ test.describe('AI terminal → coding pipelines (mocked Claude API)', () => {
     await expect(de).toContainText('Auf ihrer Seite bestätigen')
     const overflow = await term.locator('.term-scroll').evaluate((el) => el.scrollWidth - el.clientWidth)
     expect(overflow).toBeLessThanOrEqual(0)
+  })
+})
+
+/* ------------------------------------------------------------------ */
+/* With a real worker (the built one-worker + the fake Claude Code CLI) */
+/* ------------------------------------------------------------------ */
+
+test.describe.serial('AI terminal → a real coding worker', () => {
+  const PORT = 47392
+  let repo: CodingRepo
+  let worker: RunningWorker | null = null
+
+  test.beforeAll(() => {
+    repo = makeCodingRepo()
+  })
+  test.afterEach(async () => {
+    await worker?.stop()
+    worker = null
+  })
+  test.afterAll(() => repo?.cleanup())
+
+  /** Settings → Coding worker: the test port, switch on, the worker bound to this tab's workspace. */
+  async function connect(page: Page) {
+    await page.evaluate(() => (window as unknown as { __one: { ui: { getState: () => { openModal: (m: unknown) => void } } } }).__one.ui.getState().openModal({ type: 'settings' }))
+    await page.getByRole('tab', { name: /Coding worker|Coding-Worker/ }).click()
+    const init = await page.locator('.cw-code pre').filter({ hasText: 'init --workspace' }).first().textContent()
+    const id = /--workspace (\S+)/.exec(init ?? '')![1]!
+    worker = await startCodingWorker(repo, id, PORT)
+    const port = page.getByLabel('Port', { exact: true })
+    await port.fill(String(PORT))
+    await port.press('Enter')
+    await page.getByRole('switch', { name: 'Connect to a coding worker on this computer' }).click()
+    await expect(page.getByTestId('coding-conn')).toContainText('Connected')
+    await page.keyboard.press('Escape')
+  }
+
+  const taskIdOf = (page: Page, title: string) => wsEval(page, (s, title) => (Object.values(s.pages as Record<string, AnyState>).find((p) => p.title === title && p.databaseId && !p.trashed) as AnyState | undefined)?.id as string | undefined, title)
+  const stateOf = async (page: Page, id: string) => (await getLocal(page, `local:local|task|${id}`))?.state as string | undefined
+
+  test('create_task start: true (↵) → the worker plans → approve (shows the plan) → implement runs → stop → run again', async ({ page, context }) => {
+    test.setTimeout(150_000)
+    await openApp(page)
+    await setKey(page)
+    await connect(page)
+    const title = 'A slow one'
+    const withId = (name: string, input: (id: string) => Record<string, unknown>, tid: string) => async () => call(tid, name, input((await taskIdOf(page, title))!))()
+    await mockAgent(context, [
+      call('toolu_c', 'create_task', { title, repo: 'website', goal: 'Take your time. FAKE:SLOW', criteria: ['feature.txt exists'], start: true }),
+      say('Staged the task.'),
+      withId('task_action', (id) => ({ id, action: 'approve' }), 'toolu_ap'),
+      say('Staged the approval.'),
+      withId('task_action', (id) => ({ id, action: 'stop' }), 'toolu_st'),
+      say('Staged the stop.'),
+      withId('task_action', (id) => ({ id, action: 'run' }), 'toolu_rn'),
+      say('Staged a retry.'),
+    ])
+    await openTerminal(page)
+    await run(page, 'Create the slow task and start it')
+    await expect(terminal(page).locator('.term-answer').last()).toContainText('Staged the task.')
+    await expect(item(page, 1).getByTestId('term-tag-starts')).toBeVisible()
+    await expect(item(page, 1).getByTestId('term-coding-start')).toContainText('Starts right away')
+    await item(page, 1).focus()
+    await page.keyboard.press('Enter')
+    await expect(item(page, 1)).toHaveAttribute('data-status', 'applied')
+    const id = (await taskIdOf(page, title))!
+    // the worker takes it and plans; the task waits at the gate
+    await expect.poll(() => stageOf(page, id), { timeout: 60_000 }).toBe('Approve plan')
+
+    await run(page, 'Approve the plan')
+    await expect(terminal(page).locator('.term-answer').last()).toContainText('Staged the approval.')
+    const card = item(page, 2)
+    await expect(card.locator('.term-change__kind')).toHaveText('Approve stage')
+    await expect(card.getByTestId('term-coding-output')).not.toBeEmpty()
+    await card.focus()
+    await page.keyboard.press('Enter')
+    await expect(card).toHaveAttribute('data-status', 'applied')
+    await expect.poll(() => stateOf(page, id), { timeout: 30_000 }).toBe('running')
+    expect(await stageOf(page, id)).toBe('Implement')
+
+    // stop: it starts nothing — "a" applies it
+    await run(page, 'Stop it')
+    await expect(terminal(page).locator('.term-answer').last()).toContainText('Staged the stop.')
+    await expect(item(page, 3).getByTestId('term-tag-starts')).toHaveCount(0)
+    await item(page, 3).focus()
+    await page.keyboard.press('a')
+    await expect.poll(() => stateOf(page, id), { timeout: 20_000 }).toBe('stopped')
+    expect(worker!.log()).toContain(': stopped')
+
+    // run again (a retry): applied on its own
+    await run(page, 'Retry it')
+    await expect(terminal(page).locator('.term-answer').last()).toContainText('Staged a retry.')
+    await expect(item(page, 4).locator('.term-change__kind')).toHaveText('Retry')
+    await expect(item(page, 4)).toContainText('Runs “Implement” again (Stopped)')
+    await item(page, 4).focus()
+    await page.keyboard.press('Enter')
+    await expect.poll(() => stateOf(page, id), { timeout: 30_000 }).toBe('running')
+    // /pipelines: the running task with its Stop key (the person's own click)
+    await prompt(page).fill('/pipelines')
+    await prompt(page).press('Enter')
+    const row = terminal(page).getByTestId('term-pipelines').last().locator(`[data-task="${id}"]`)
+    await expect(row).toHaveAttribute('data-phase', 'running')
+    await row.getByTestId('term-pipe-stop').click()
+    await expect.poll(() => stateOf(page, id), { timeout: 20_000 }).toBe('stopped')
   })
 })

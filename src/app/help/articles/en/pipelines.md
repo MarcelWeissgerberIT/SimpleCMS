@@ -41,4 +41,7 @@ The Business analysis template **Spec → stories** ends with a **Stories** stag
 ## Import stage
 A pipeline can start with the code: **Import** (the template *Modernise legacy code* begins with it, as does *Create it for legacy code* on an empty #/coding). A task there shows a box in its panel: drop a **ZIP**, paste a **GitLab / GitHub address** or take a repo the worker has. The worker makes a new repository in `~/one-repos`, the task takes it as its **Repo** and moves on — see [Modernise legacy code](help:legacy-modernisation).
 
+## From the AI terminal
+Claude in the [AI terminal](help:agent) can create Business analysis and QA tasks too (with *Then*), answer a task's question with your words, send a document back with a note or hand a done task on — every change a proposal you apply. `/pipelines spec` or `/pipelines qa` lists what is open there.
+
 > Tip: questions work in every stage — Claude Code asks in the task panel (**Claude asks**) instead of guessing, also while it plans.

@@ -403,6 +403,23 @@ person's browser tabs.
 - **Local workspaces**: nothing to confirm — except a task a custom agent created or changed last (`agent:<id>`,
   stamped on this device): it waits for **Confirm on this device** like a team task (an agent that read injected
   text never starts Claude Code on your machine by itself).
+- **The AI terminal** (features/ai/agent/coding.ts → coding/terminal.ts): Claude reads the pipelines directly
+  (`list_pipelines`, `list_tasks`, `read_task` — the worker's / Claude Code's text framed in `<task_output>`, and
+  withheld under the person's context marks) and **proposes** tasks and actions (`create_task`, `task_action`:
+  approve · rework · answer · run · stop · then · hand_on) as staged changes of kind `coding`, applied only in the
+  review. A new task's card shows its whole page exactly as Claude Code will read it (plus the pages that go along);
+  only such a reviewed task is created trusted. Changes that **start the worker** — computed live: where a new task
+  lands (automatic queues hopped, like the worker's pick), approve / rework / answer / run / hand_on, an approval into
+  done with *Then*, a *Then* that adds a pipeline — are never part of "apply all". Applying **never confirms** a
+  version: approve / rework / answer / run / hand_on are refused for a task this device has not trusted (Confirm stays
+  on the task page) and run with `confirm: false` (keepTrust only). A fingerprint (stage, phase, the page's Markdown,
+  Repo / Branch, this device's local state, the open question) refuses a stale action; task actions stay applied on
+  Undo, a created task the worker took is kept. The terminal adds no worker verb (Stop only); it never moves a task
+  to a stage, confirms it, changes approvals, runs git verbs, hands over an Import's code or edits a pipeline. Its row
+  tools refuse a pipeline database's rows / properties (`create_row`, `add_property`), the role fields Stage, Repo,
+  Branch, Git, PR, Cost, Worker, Claimed at (`update_row`), and any row / page / title change of a task that waits
+  for Confirm. `coding` changes apply only from the terminal (never from a custom agent's run, never from a server
+  run's `KINDS`).
 - **Diffs never follow links**: an untracked symbolic link shows as its target, the file it points at is never read.
 - **Cost**: per-task and per-day limits are checked before each stage and passed to Claude Code as
   `--max-budget-usd` (where the CLI knows it). **Stop** (One) or Ctrl+C (worker) kills Claude Code's whole process
