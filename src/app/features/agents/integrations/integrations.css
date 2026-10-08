@@ -324,7 +324,7 @@
   overflow: hidden;
   border-right: 1px solid var(--rule);
   background: var(--surface-2);
-  color: var(--ink-faint);
+  color: var(--syn-gutter);
   text-align: right;
   user-select: none;
 }
@@ -427,25 +427,25 @@
   display: block;
 }
 
-/* tokens */
+/* tokens — the shared syntax palette (tokens.css --syn-*, as ui/code/syntax.css) */
 .jca-tok--key {
-  color: var(--c-blue-text);
+  color: var(--syn-key);
 }
 .jca-tok--str {
-  color: var(--c-brown-text);
+  color: var(--syn-str);
 }
 .jca-tok--num {
-  color: var(--c-green-text);
+  color: var(--syn-num);
 }
 .jca-tok--lit {
-  color: var(--signal-ink);
-  font-weight: 700;
+  color: var(--syn-num);
+  font-weight: 650;
 }
 .jca-tok--punct {
-  color: var(--ink-3);
+  color: var(--syn-punct);
 }
 .jca-tok--bad {
-  color: var(--c-red-text);
+  color: var(--syn-err);
 }
 .jca-mark {
   text-decoration: underline wavy;
