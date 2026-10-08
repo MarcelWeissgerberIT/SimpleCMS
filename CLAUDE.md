@@ -54,6 +54,7 @@ src/app/cloud/**                     team-cloud client: store ⇄ Yjs binding, p
                                      (public API: cloud/index.ts; protocol + meta-document schema: docs/CLOUD.md)
 server/**                            team-cloud server (Node, Hono, Hocuspocus, SQLite; AGPL) + public API (docs/API.md)
                                      + team MCP at /mcp (docs/MCP.md); content encrypted at rest (docs/CLOUD.md § Tenancy)
+                                     + coding relay for cloud workers (server/src/coding: relay.ts, frames.ts, routes.ts)
 mcp/**                               local MCP bridge (Claude Desktop / Code ⇄ the open tab), bundled to public/mcp/
                                      one-mcp.mjs + the Claude Desktop extension one.mcpb (`npm --prefix mcp test`)
 mcp/src/worker/**                    one-worker (coding pipeline, Claude Code + git on the person's machine), bundled to
@@ -322,7 +323,7 @@ the public APIs stable — other areas are built against them in parallel.
   Worker download (features/coding/download.ts): the site's mcp/one-worker.mjs plus ONE preset line after the shebang
   (`globalThis.ONE_WORKER_PRESET`, protocol.ts `WorkerPreset`); the pairing secret is per download, kept per device and
   workspace in localStorage `one.coding` → `pairs` (never synced or backed up; a new download replaces it); the hello
-  carries `pair`, a preset worker refuses without it (`reason: 'pair'`). Repos are ticked ONLY on the worker's local setup
+  carries `pair`, a local preset worker refuses without it (`reason: 'pair'`; a cloud tab sends none — its first sealed box is the proof). Repos are ticked ONLY on the worker's local setup
   page (mcp/src/worker/setup.ts: 127.0.0.1, token in the fragment sent as a header, Host + Origin checks, CSP); One only
   sends `open-setup` and never learns the page's address or key; scan.ts reads nothing beyond branch, base, remote host,
   last commit date, dirty / clean and the test-command guess.
@@ -355,7 +356,10 @@ the public APIs stable — other areas are built against them in parallel.
   'merge-pr' merge the request with the person's glab / gh (confirmed; never dirty or unpushed work). Projects: several
   pipeline databases per kind (`pipelineDbIdsOf`, `currentProjectId` per device localStorage `one.coding.project.<kind>`,
   `createProject` / `trashProject` with Undo); the worker takes tasks from every project. Stages that need a newer worker
-  (`stageNeeds` → `WORKER_CAN`, sent with every `next` as `can`) go only to a worker that names them — never to an older one.
+  (`stageNeeds` → `WORKER_CAN` incl. 'doc', sent with every `next` as `can`; `workerCan(can, docs)`: any `can` or `docs: true`
+  implies 'doc') go only to a worker that names them — never to an older one (the task fails with err.oldWorker; the #/coding
+  plate shows `OutdatedWorker` from `useCoding.can`). The worker reports a task it cannot read back as 'refused' (`taskIds`),
+  never drops it silently; bump mcp/package.json for every worker change (the site's download = the newest version).
   Pipelines (docs/CODING.md § Pipelines): `Database.system` 'coding' | 'spec' (Business analysis) | 'qa', each its own
   board (#/coding, #/coding/spec, #/coding/qa), each usable alone; find them only with `pipelineDbId(kind)` /
   `kindOfDb()`; "Then" (`followUps` multi-select) spawns follow-ups when a task is done (`spawnFollowUp`). Stage kind
@@ -376,6 +380,43 @@ the public APIs stable — other areas are built against them in parallel.
   (localStorage `one.popover.size:<kind>`, never below the natural size, `[data-resized]`). The base `.popover` chrome
   is in `@layer one-popover-base`. In production ui.css loads AFTER the features chunk's CSS: an area rule that must
   beat `.input` / `.btn` needs two classes. Long labels cut with "…" get a title (ui/clip.ts).
+- Cloud worker (features/coding Local | Cloud, team workspaces only, `viaFor()`; server/src/coding relay; mcp/src/worker
+  cloud.ts / link.ts / box.ts; docs/CODING.md § Cloud worker, docs/CLOUD.md § Coding relay): the worker dials the team
+  server, the relay pairs one tab ⇄ one worker per (workspace, member) and forwards only `key` / `box` / `relay` frames,
+  storing none (`CODING_RELAY=off` disables it; keep server frames.ts in step with protocol.ts). Every frame is AES-256-GCM
+  sealed with HKDF(pair, tabNonce‖workerNonce, 'one-worker-relay v1'), AAD = direction + seq — relayBox.ts (WebCrypto) and
+  box.ts (node:crypto) stay byte-compatible (fixed vectors in worker-box.test). The worker token `onew_…` lives ONLY in the
+  downloaded file (server: HMAC in `coding_workers`); a new token is pending until its first connect, then the older one is
+  revoked. Per device `one.coding` → `via[team:<id>]` and `cloudPairs[team:<id>]` (token ids only, ≤ 4); each download's
+  pairing secret is a NON-extractable HKDF key in IndexedDB `one-coding` (`cloud:<ws>|cloudpair|<tokenId>`, cloudKeys.ts:
+  `cloudKey()` / `keepCloudKey` / `dropCloudKeys`) — never synced or backed up, wiped by cloud/device.ts. A device holding only
+  a pending download never takes the relay slot of the member's active worker (`pendingHere`); a tab closed as 'replaced'
+  takes its worker back when it is online with no tab. Only log / progress / git events are droppable (`k: 'e'`); the outbox
+  is coalesced and paced, the rest goes to a tab that pairs mid-flush. Cloud only on https (or loopback): `cloudContextOk()`
+  / `cloudOriginAllowed()`; its local port `cloudWorkerPort(workspaceId)`. Tasks run only while a paired tab is open.
+- AI terminal ⇄ pipelines (features/ai/agent/coding.ts → coding/terminal.ts via coding/index.ts): list_pipelines /
+  list_tasks / read_task read (Claude Code's text inside `<task_output>`); create_task / task_action (approve · rework ·
+  answer · run · stop · then · hand_on) stage ChangeKind 'coding', applied last, only with `applyChanges(…, { terminal: true })`.
+  Apply never confirms a task version: every action but stop is refused while `taskNeedsConfirm()`; every terminal write of
+  a task goes through `guardTask` (apply.ts); update_row never sets Stage / Repo / Branch / Then (FREE_ROLES = priority +
+  title). What starts the worker (`startsNow`) or goes to Claude Code (append / edit of a task → `StagedChange.refs`, the pages
+  its text links, shown in full, tag GOES TO CLAUDE CODE) is never in a bulk apply. Task-action fingerprints chain across the
+  terminal's own applied writes (`sigSteps`, cleared by /new); approve shows the plan only while the page's section still
+  hashes to `TaskLocal.planSig`. Team: a writer that changed the open editor calls `flushPageContent(pageId)` before reading
+  the store. `/pipelines [kind]`; `/connect` (`/verbinden`) lists MCP servers, adds one, or signs in (`signIn(id, { sameTab:
+  false })` synchronously from the key press; a blocked popup → OAuthIssue 'blocked'); after an `mcp_auth` error the turn
+  offers "Sign in to X".
+- ⌘K filters (shell/palette: query.ts parser · filters.ts evaluator · suggest.ts — pure, no eval / RegExp from input):
+  only exact (folded) property names make filters (a typed beginning of several names suggests the names, never another
+  name's values); chips only through `takeChips()` (≤ MAX_CHIPS; past the cap the filter stays typed) and `setQuery()`;
+  keywords in either language are one filter (is: = ist:, by: = von:, canonical `groupKey` / `filterKey`); each `in:`
+  keeps its own ancestry memo; `me` = the signed-in member (team) / every change no agent made (local), never an agent;
+  locally `by:` suggests Me and agents only. A valid alias suggests what it means (never every value). Filters walk
+  `SearchIndex.pages` (never the page map — perf budget). Enter on a focused button inside the ⌘K `<Command>` clicks it.
+  Visits: FREQUENT per device in localStorage `one.shell.visits:<kind>:<id>`, written only by `noteVisit()`; RECENT
+  (`Workspace.recent`) is per device too — full backups write `recent: []`, a restore keeps this device's list; neither is
+  synced, exported or sent to Claude. Sidebar RECENT | FREQUENT (shell/sidebar/Visited.tsx, `one.shell.visited`); tree rows
+  carry `data-section` (pages | private | fav | recent | frequent) — scope sidebar test locators with it.
 - Text size (lib/textScale.ts): per device localStorage `one.textScale` (step 1–4: Standard · M · L · XL) →
   `--text-scale` + `data-text-size` on `<html>` before first paint; controls in Settings → Appearance and Workspace →
   Overview → Display (shell/settings/TextSize.tsx). App CSS font sizes are `--text-*` tokens or
