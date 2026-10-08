@@ -14605,6 +14605,8 @@ function sanitizeTask(raw) {
     branch: typeof raw.branch === "string" && raw.branch.trim() ? raw.branch.trim().slice(0, 200) : null,
     spent: typeof raw.spent === "number" && Number.isFinite(raw.spent) && raw.spent > 0 ? raw.spent : 0,
     summary: typeof raw.summary === "string" && raw.summary.trim() ? raw.summary.slice(0, 6e3) : null,
+    // the newest review document — what a git 'comment' stage posts (One keeps up to 60,000 characters of it)
+    review: typeof raw.review === "string" && raw.review.trim() ? raw.review.slice(0, 6e4) : null,
     trusted: raw.trusted === true
   };
 }

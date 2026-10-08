@@ -173,6 +173,13 @@ describe('prompt', () => {
     assert.equal(t.stage.permissionMode, 'default')
     assert.equal(t.stage.maxTurns, 200)
     assert.equal(t.trusted, false)
+    // the review document is kept (a git 'comment' stage posts it); blank or not text: none
+    const git = { id: 'abc', repo: 'demo', stage: { id: 'post', kind: 'git', gitAction: 'comment' } }
+    assert.equal(sanitizeTask({ ...git, review: '## Review\n\nLooks good.' })!.review, '## Review\n\nLooks good.')
+    assert.equal(sanitizeTask({ ...git, review: 'x'.repeat(70_000) })!.review!.length, 60_000)
+    assert.equal(sanitizeTask({ ...git, review: '  \n ' })!.review, null)
+    assert.equal(sanitizeTask({ ...git, review: { text: 'x' } })!.review, null)
+    assert.equal(t.review, null)
   })
 
   test('tool calls become one short log line', () => {

@@ -175,6 +175,28 @@ describe('reviews', () => {
     assert.match(p, /<<<DIFF c0de42\n[\s\S]*\nDIFF c0de42>>>$/)
   })
 
+  test('a git "comment" stage posts the review One sends with the task to the pull request (Review & merge: Post review after the gate)', async () => {
+    const r = makeRepo()
+    const host = fakeHosts()
+    const tab = await boot(r, { pr: 'gh' }, { PATH: `${host.bin}:${process.env.PATH}`, GIT_SSH_COMMAND: 'false', ONE_WORKER_FETCH_MS: '5000' })
+    const impl = await tab.run(task({ kind: 'implement' }, { id: 'rev4abcd' }))
+    assert.equal(impl.status, 'ok', JSON.stringify(impl))
+    // a GitHub repository now (fake gh; git's ssh is `false` — nothing leaves the machine)
+    sh(r.path, 'remote', 'set-url', 'origin', 'git@github.com:me/demo.git')
+    const review = '## Review\n\n**Approve** — nit: a name.'
+    const posted = await tab.run(task({ kind: 'git', gitAction: 'comment', name: 'Post review' }, { id: 'rev4abcd', branch: impl.branch!, review }))
+    assert.equal(posted.status, 'ok', JSON.stringify(posted))
+    assert.equal(posted.url, 'https://github.com/me/demo/pull/3')
+    assert.match(posted.summary!, /Review posted to the pull request/)
+    const calls = host.calls()
+    assert.ok(calls.some((c) => c === `gh pr comment ${impl.branch!} --body ## Review`), calls.join('\n'))
+    assert.ok(calls.includes('**Approve** — nit: a name.'), calls.join('\n'))
+    assert.ok(calls.includes('— Review from One (coding pipeline).'), calls.join('\n'))
+    const lines = tab.messages.flatMap((m) => (m.type === 'event' && m.kind === 'log' ? m.lines : []))
+    assert.ok(lines.some((l) => l.c === 'reviewPosted' && l.v?.url === 'https://github.com/me/demo/pull/3'), JSON.stringify(lines.map((l) => l.c ?? l.s)))
+    assertNoPaths(tab, r)
+  })
+
   test('a git "comment" stage without a review fails; the verbs refuse an empty review and a repo without requests', async () => {
     const r = makeRepo()
     const tab = await boot(r)

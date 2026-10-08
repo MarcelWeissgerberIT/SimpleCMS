@@ -75,7 +75,6 @@ const str = (v: unknown, max: number) => (typeof v === 'string' ? v.slice(0, max
 /** Control characters and line / paragraph separators → spaces. */
 const oneLine = (s: string) => s.replace(/[\u0000-\u001f\u007f\u2028\u2029]/g, ' ').trim()
 
-/** The tab's answer to `next`, checked field by field (One is trusted to pick, not to be well-formed). */
 /** The ids of a task the worker could not read — enough to report it back to One. */
 export function taskIds(raw: unknown): { id: string; stageId: string } | null {
   if (!isObj(raw) || !isObj(raw.stage)) return null
@@ -84,6 +83,7 @@ export function taskIds(raw: unknown): { id: string; stageId: string } | null {
   return id && stageId && /^[A-Za-z0-9_-]+$/.test(id) && /^[A-Za-z0-9_-]+$/.test(stageId) ? { id, stageId } : null
 }
 
+/** The tab's answer to `next`, checked field by field (One is trusted to pick, not to be well-formed). */
 export function sanitizeTask(raw: unknown): TaskPayload | null {
   if (!isObj(raw) || !isObj(raw.stage)) return null
   const s = raw.stage
@@ -112,6 +112,8 @@ export function sanitizeTask(raw: unknown): TaskPayload | null {
     branch: typeof raw.branch === 'string' && raw.branch.trim() ? raw.branch.trim().slice(0, 200) : null,
     spent: typeof raw.spent === 'number' && Number.isFinite(raw.spent) && raw.spent > 0 ? raw.spent : 0,
     summary: typeof raw.summary === 'string' && raw.summary.trim() ? raw.summary.slice(0, 6000) : null,
+    // the newest review document — what a git 'comment' stage posts (One keeps up to 60,000 characters of it)
+    review: typeof raw.review === 'string' && raw.review.trim() ? raw.review.slice(0, 60_000) : null,
     trusted: raw.trusted === true,
   }
 }
