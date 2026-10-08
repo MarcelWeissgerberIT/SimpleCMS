@@ -95,6 +95,40 @@ export interface RunningWorker {
   stop: () => Promise<void>
 }
 
+/**
+ * Start a CLOUD worker file downloaded from One (docs/CODING.md § Cloud worker): it dials the team server named in
+ * its preset. Its own worker.json (name "build-box", the repo as "website"), a temp home, the fake Claude Code CLI,
+ * never a browser; `port` = its local task-tools port (each suite its own: ONE_WORKER_PORT).
+ */
+export async function startCloudWorker(file: string, repo: CodingRepo, port: number, env: Record<string, string> = {}): Promise<RunningWorker> {
+  chmodSync(FAKE_CLAUDE, 0o755)
+  const dir = join(repo.root, `cloud-${Date.now()}`)
+  mkdirSync(dir)
+  const config = join(dir, 'worker.json')
+  writeFileSync(config, JSON.stringify({ name: 'build-box', pollSec: 2, repos: [{ name: 'website', path: repo.path, baseBranch: 'main', testCommand: [process.execPath, 'check.mjs'], pr: 'none', maxUsdPerTask: 5 }] }))
+  const child = spawn(process.execPath, [file, '--config', config, '--no-browser'], {
+    env: { PATH: process.env.PATH ?? '', HOME: dir, GIT_CONFIG_GLOBAL: repo.env.GIT_CONFIG_GLOBAL, GIT_CONFIG_NOSYSTEM: '1', GIT_AUTHOR_NAME: 'E2E', GIT_AUTHOR_EMAIL: 'e2e@example.invalid', GIT_COMMITTER_NAME: 'E2E', GIT_COMMITTER_EMAIL: 'e2e@example.invalid', CLAUDE_BIN: FAKE_CLAUDE, ONE_WORKER_BROWSER: 'none', ONE_WORKER_PORT: String(port), ...env },
+    stdio: ['ignore', 'ignore', 'pipe'],
+  })
+  let log = ''
+  child.stderr?.on('data', (d: Buffer) => {
+    log += d.toString()
+  })
+  const end = Date.now() + 10_000
+  while (!/ready \(cloud\)|in use|cannot listen/.test(log) && child.exitCode === null && Date.now() < end) await new Promise((r) => setTimeout(r, 50))
+  if (!/ready \(cloud\)/.test(log)) throw new Error(`cloud worker did not start: ${log}`)
+  return {
+    child,
+    log: () => log,
+    stop: () =>
+      new Promise((resolve) => {
+        if (child.exitCode !== null) return resolve()
+        child.once('exit', () => resolve())
+        child.kill('SIGTERM')
+      }),
+  }
+}
+
 /** Start the built worker bound to `workspace`, serving the repo as "website". */
 export async function startCodingWorker(repo: CodingRepo, workspace: string, port: number, extra: Record<string, unknown> = {}, env: Record<string, string> = {}): Promise<RunningWorker> {
   chmodSync(FAKE_CLAUDE, 0o755)

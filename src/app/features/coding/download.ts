@@ -9,11 +9,14 @@
  */
 import { resolveAssetUrl } from '../../lib/files'
 import { workspaceInfo } from '../mcp/identity'
-import { PAIR_SECRET, PRESET_GLOBAL, type WorkerPreset } from './protocol'
-import { pairDownloaded } from './service'
+import { PAIR_SECRET, PRESET_GLOBAL, WORKER_CLOUD_PORT, type WorkerPreset } from './protocol'
+import { cloudDownloaded, pairDownloaded } from './service'
 import { useCoding } from './state'
+import { createCloudWorker, serverWorkspaceId } from './cloudWorkers'
 
 export const WORKER_FILE = 'one-worker.mjs'
+/** The cloud download's name (it may sit next to a local one-worker.mjs). */
+export const CLOUD_WORKER_FILE = 'one-worker-cloud.mjs'
 
 /** 32 random bytes, base64url without padding (43 characters). */
 export function newPairSecret(): string {
@@ -57,19 +60,19 @@ export function presetFor(secret: string): WorkerPreset {
   }
 }
 
-/** Fetch the worker, write the preset in, save the file, keep the secret, switch the link on. */
-export async function downloadWorker(): Promise<void> {
+/** This site's worker (same origin), not yet preset. */
+async function workerSource(): Promise<string> {
   const res = await fetch(resolveAssetUrl(`mcp/${WORKER_FILE}`), { cache: 'no-store', credentials: 'omit' })
   if (!res.ok) throw new Error(`HTTP ${res.status}`)
-  const source = await res.text()
-  const secret = newPairSecret()
-  const preset = presetFor(secret)
-  const file = withPreset(source, preset)
-  const url = URL.createObjectURL(new Blob([file], { type: 'text/javascript' }))
+  return res.text()
+}
+
+function save(text: string, name: string) {
+  const url = URL.createObjectURL(new Blob([text], { type: 'text/javascript' }))
   try {
     const a = document.createElement('a')
     a.href = url
-    a.download = WORKER_FILE
+    a.download = name
     a.rel = 'noopener'
     document.body.appendChild(a)
     a.click()
@@ -77,11 +80,36 @@ export async function downloadWorker(): Promise<void> {
   } finally {
     window.setTimeout(() => URL.revokeObjectURL(url), 10_000)
   }
+}
+
+/** Fetch the worker, write the preset in, save the file, keep the secret, switch the link on. */
+export async function downloadWorker(): Promise<void> {
+  const source = await workerSource()
+  const secret = newPairSecret()
+  const preset = presetFor(secret)
+  save(withPreset(source, preset), WORKER_FILE)
   pairDownloaded(preset.workspace, secret)
 }
 
+/**
+ * Cloud (docs/CODING.md § Cloud worker): the worker for another computer that dials this team server. The file
+ * comes first (a failed fetch creates no token), then a NEW token from the server — pending: the member's working
+ * cloud worker keeps working until this file connects. The token goes into the file only (never into this
+ * browser's storage); the fresh pairing secret stays on this device and keys the end-to-end encryption.
+ */
+export async function downloadCloudWorker(): Promise<void> {
+  const serverId = serverWorkspaceId()
+  if (!serverId) throw new Error('not a team workspace')
+  const source = await workerSource()
+  const { worker, token } = await createCloudWorker(serverId)
+  const secret = newPairSecret()
+  const preset: WorkerPreset = { ...presetFor(secret), port: WORKER_CLOUD_PORT, cloud: { token } }
+  save(withPreset(source, preset), CLOUD_WORKER_FILE)
+  cloudDownloaded(preset.workspace, secret, worker.id)
+}
+
 /** The command that starts the downloaded file (Windows PowerShell spells the home folder differently). */
-export function startCommand(): string {
+export function startCommand(file: string = WORKER_FILE): string {
   const win = /Windows/i.test(navigator.userAgent)
-  return win ? `node $HOME\\Downloads\\${WORKER_FILE}` : `node ~/Downloads/${WORKER_FILE}`
+  return win ? `node $HOME\\Downloads\\${file}` : `node ~/Downloads/${file}`
 }

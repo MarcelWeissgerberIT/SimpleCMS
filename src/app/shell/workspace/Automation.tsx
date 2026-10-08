@@ -12,7 +12,7 @@ import { useUI } from '../../store/ui'
 import type { Automation as DbAutomation, ID } from '../../store/types'
 import { activeWorkspace } from '../../cloud'
 import { navigate } from '../../lib/router'
-import { agentTriggerText, codingWorkerStateText, formatRun, loadAgentRuns, loadScriptRuns, nextRun, openCodingSettings, templateName, useAgentRuns, useCoding, useScriptRuns, codingDbId } from '../../features'
+import { agentTriggerText, codingWorkerStateText, formatRun, loadAgentRuns, loadScriptRuns, nextRun, openCodingSettings, templateName, useAgentRuns, useCoding, useScriptRuns, codingDbId, CodingCloudWorkers } from '../../features'
 import { Led } from '../../ui/controls'
 import { useLang, useT } from '../../i18n'
 import type { Translate } from '@/shared/i18n'
@@ -184,6 +184,7 @@ export function AutomationSection({ team }: { team: TeamData }) {
     <>
       <SectionHead n="04" title={t('shell.ws.sec.automation')} lead={t('shell.ws.auto.lead', { n: inventoryCount(inv) })} />
       <CodingPlate />
+      <CodingCloudWorkers />
       {groups.map((g) => (
         <Group key={g.id} id={g.id} icon={g.icon} label={t(`shell.ws.auto.group.${g.id}`)} items={g.items} empty={g.empty} add={g.add} />
       ))}

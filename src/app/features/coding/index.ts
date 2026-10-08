@@ -17,3 +17,5 @@ export { useCoding } from './state'
 export { codingDbId } from './schema'
 /** the worker link's state in words (Settings → Coding worker, the workspace page's Automation section) */
 export { workerStateText as codingWorkerStateText } from './stateText'
+/** admins: every member's cloud worker with Revoke (the workspace page's Automation section; renders nothing otherwise) */
+export { CloudWorkers as CodingCloudWorkers } from './CloudWorkers'
