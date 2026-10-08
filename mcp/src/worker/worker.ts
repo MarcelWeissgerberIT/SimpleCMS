@@ -76,6 +76,14 @@ const str = (v: unknown, max: number) => (typeof v === 'string' ? v.slice(0, max
 const oneLine = (s: string) => s.replace(/[\u0000-\u001f\u007f\u2028\u2029]/g, ' ').trim()
 
 /** The tab's answer to `next`, checked field by field (One is trusted to pick, not to be well-formed). */
+/** The ids of a task the worker could not read — enough to report it back to One. */
+export function taskIds(raw: unknown): { id: string; stageId: string } | null {
+  if (!isObj(raw) || !isObj(raw.stage)) return null
+  const id = str(raw.id, 64)
+  const stageId = str(raw.stage.id, 64)
+  return id && stageId && /^[A-Za-z0-9_-]+$/.test(id) && /^[A-Za-z0-9_-]+$/.test(stageId) ? { id, stageId } : null
+}
+
 export function sanitizeTask(raw: unknown): TaskPayload | null {
   if (!isObj(raw) || !isObj(raw.stage)) return null
   const s = raw.stage
@@ -284,9 +292,10 @@ export class Worker {
     void this.link
       .request({ op: 'next', repos: free, worker: this.config.name, docs: true, can: [...WORKER_CAN] })
       .then((res) => {
-        const task = sanitizeTask((res as NextResult | null)?.task)
+        const raw = (res as NextResult | null)?.task
+        const task = sanitizeTask(raw)
         if (task) this.begin(task)
-        else if ((res as NextResult | null)?.task) this.opts.log('One sent a task the worker cannot read — ignored')
+        else if (raw) this.unreadable(raw)
         return !!task
       })
       .catch((e: unknown) => {
@@ -298,6 +307,13 @@ export class Worker {
         // more capacity (or a nudge came in): ask again
         if (got || this.again) setTimeout(() => this.tick(), 50)
       })
+  }
+
+  /** A task this worker cannot read (a stage kind it does not know …): say so in One, or One hands it out again. */
+  private unreadable(raw: unknown) {
+    const ids = taskIds(raw)
+    this.opts.log(`One sent a task the worker cannot read${ids ? ` (${ids.id})` : ''} — refused; a newer worker may know it (download it again in One)`)
+    if (ids) void this.finish(ids.id, ids.stageId, { status: 'refused', error: 'this worker cannot read the task (a stage it does not know?) — download the worker again in One, stop this one and start the new file' })
   }
 
   private begin(task: TaskPayload) {

@@ -52,14 +52,31 @@ export type PermissionMode = (typeof PERMISSION_MODES)[number]
 export const GIT_ACTIONS = ['commit', 'push', 'pr', 'update-base', 'comment', 'merge'] as const
 export type GitAction = (typeof GIT_ACTIONS)[number]
 /**
- * What a worker runs beyond the first protocol, sent with every `next`: 'analyze' (the Static analysis stage) and the
- * git actions 'git:comment' / 'git:merge'. One hands a stage that needs one of them only to a worker that says so — an
- * older worker would run an unknown stage kind as a git stage.
+ * What a worker runs beyond the first protocol, sent with every `next`: 'analyze' (the Static analysis stage), the
+ * git actions 'git:comment' / 'git:merge' and 'doc' (document stages). One hands a stage that needs one of them only
+ * to a worker that says so — an older worker would run an unknown stage kind as a git stage, or drop the task as
+ * unreadable (and get it again on every round).
  */
-export const WORKER_CAN = ['analyze', 'git:comment', 'git:merge'] as const
+export const WORKER_CAN = ['analyze', 'git:comment', 'git:merge', 'doc'] as const
+/**
+ * What a worker runs, read from the `can` of its `next`. Document stages came before `can`: every worker that sends
+ * one knows them, so a `can` without 'doc' (the first workers that sent one) counts as knowing them too.
+ */
+export function workerCan(can: readonly string[]): Set<string> {
+  const set = new Set(can)
+  if (set.size) set.add('doc')
+  return set
+}
+/** A worker that does not name everything this One hands out: older than the download on the site. */
+export function workerOutdated(can: readonly string[] | null): boolean {
+  if (!can) return false
+  const has = workerCan(can)
+  return WORKER_CAN.some((c) => !has.has(c))
+}
 /** The capability a stage needs (null: every worker runs it). */
 export function stageNeeds(stage: { kind: string; gitAction?: string | null }): string | null {
   if (stage.kind === 'analyze') return 'analyze'
+  if (stage.kind === 'doc') return 'doc'
   if (stage.kind === 'git' && (stage.gitAction === 'comment' || stage.gitAction === 'merge')) return `git:${stage.gitAction}`
   return null
 }

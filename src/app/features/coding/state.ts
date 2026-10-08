@@ -85,6 +85,8 @@ export interface CodingState extends CodingSettings {
   intake: Record<string, IntakeState & { at: number }>
   /** bumped when this device picks another project (#/coding re-reads its choice) */
   projectRev: number
+  /** what the connected worker runs, from its last `next` (null: it has not asked yet) — an outdated one is named */
+  can: string[] | null
 }
 
 export const useCoding = create<CodingState>()(() => ({
@@ -98,4 +100,5 @@ export const useCoding = create<CodingState>()(() => ({
   progress: {},
   intake: {},
   projectRev: 0,
+  can: null,
 }))

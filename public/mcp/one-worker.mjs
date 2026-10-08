@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// SimpleCMS One — coding worker 1.3.1 (MIT). Source: https://github.com/MarcelWeissgerberIT/SimpleCMS/tree/main/mcp/src/worker
+// SimpleCMS One — coding worker 1.4.0 (MIT). Source: https://github.com/MarcelWeissgerberIT/SimpleCMS/tree/main/mcp/src/worker
 // Runs coding tasks from One with Claude Code on this computer. Setup: node one-worker.mjs --help
 // Docs and security model: https://github.com/MarcelWeissgerberIT/SimpleCMS/blob/main/docs/CODING.md
 import { createRequire as __createRequire } from 'node:module'; const require = __createRequire(import.meta.url);
@@ -10909,7 +10909,7 @@ var PARALLEL_MAX = 2;
 var STAGE_KINDS = ["queue", "import", "analyze", "plan", "doc", "gate", "implement", "test", "git", "done"];
 var PERMISSION_MODES = ["plan", "acceptEdits", "default"];
 var GIT_ACTIONS = ["commit", "push", "pr", "update-base", "comment", "merge"];
-var WORKER_CAN = ["analyze", "git:comment", "git:merge"];
+var WORKER_CAN = ["analyze", "git:comment", "git:merge", "doc"];
 var GIT_VERBS = ["refresh", "commit", "push", "force-push", "pr", "update-base", "discard", "cleanup", "reveal", "comment-pr", "merge-pr"];
 var REPO_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 var WORKSPACE_ID = /^(local|team):[A-Za-z0-9_-]{1,64}$/;
@@ -14571,6 +14571,12 @@ async function gitStage(ctx, wt, scrub, log2) {
 var isObj5 = (v) => !!v && typeof v === "object" && !Array.isArray(v);
 var str3 = (v, max2) => typeof v === "string" ? v.slice(0, max2) : "";
 var oneLine2 = (s) => s.replace(/[\u0000-\u001f\u007f\u2028\u2029]/g, " ").trim();
+function taskIds(raw) {
+  if (!isObj5(raw) || !isObj5(raw.stage)) return null;
+  const id = str3(raw.id, 64);
+  const stageId = str3(raw.stage.id, 64);
+  return id && stageId && /^[A-Za-z0-9_-]+$/.test(id) && /^[A-Za-z0-9_-]+$/.test(stageId) ? { id, stageId } : null;
+}
 function sanitizeTask(raw) {
   if (!isObj5(raw) || !isObj5(raw.stage)) return null;
   const s = raw.stage;
@@ -14762,9 +14768,10 @@ var Worker2 = class {
     this.polling = true;
     this.again = false;
     void this.link.request({ op: "next", repos: free, worker: this.config.name, docs: true, can: [...WORKER_CAN] }).then((res) => {
-      const task = sanitizeTask(res?.task);
+      const raw = res?.task;
+      const task = sanitizeTask(raw);
       if (task) this.begin(task);
-      else if (res?.task) this.opts.log("One sent a task the worker cannot read \u2014 ignored");
+      else if (raw) this.unreadable(raw);
       return !!task;
     }).catch((e) => {
       if (this.workspace) this.opts.log(`asking One for work failed: ${e instanceof Error ? e.message : String(e)}`);
@@ -14773,6 +14780,12 @@ var Worker2 = class {
       this.polling = false;
       if (got || this.again) setTimeout(() => this.tick(), 50);
     });
+  }
+  /** A task this worker cannot read (a stage kind it does not know …): say so in One, or One hands it out again. */
+  unreadable(raw) {
+    const ids = taskIds(raw);
+    this.opts.log(`One sent a task the worker cannot read${ids ? ` (${ids.id})` : ""} \u2014 refused; a newer worker may know it (download it again in One)`);
+    if (ids) void this.finish(ids.id, ids.stageId, { status: "refused", error: "this worker cannot read the task (a stage it does not know?) \u2014 download the worker again in One, stop this one and start the new file" });
   }
   begin(task) {
     const scratch = !task.repo && task.stage.kind === "doc";
@@ -33291,7 +33304,7 @@ ${prompt}`);
 }
 
 // src/worker/index.ts
-var VERSION = true ? "1.3.1" : "dev";
+var VERSION = true ? "1.4.0" : "dev";
 var quiet = process.env.ONE_WORKER_QUIET === "1";
 var recent = [];
 var log = (msg) => {

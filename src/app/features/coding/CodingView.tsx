@@ -23,7 +23,7 @@ import { openCodingSettings } from './open'
 import { NewTaskDialog } from './NewTaskDialog'
 import { PipelineEditor } from './PipelineEditor'
 import { workerStateText } from './stateText'
-import { ChangeReposButton, SetupCard } from './SetupCard'
+import { ChangeReposButton, OutdatedWorker, SetupCard } from './SetupCard'
 import { NowLine } from './NowLine'
 import { ProjectBar } from './Projects'
 import './coding.css'
@@ -89,6 +89,7 @@ function WorkerPlate() {
           </dd>
         </div>
       </dl>
+      <OutdatedWorker />
     </section>
   )
 }

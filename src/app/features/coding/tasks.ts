@@ -20,7 +20,7 @@ import { claudeDoc } from '../ai/claudeDoc'
 import { navigate, parseHash } from '../../lib/router'
 import { aiWrite } from '../history/snapshots'
 import { t } from '../../i18n'
-import { CLAIM_STALE_MS, stageNeeds, type GitInfo, type StageOutcome, type TaskPayload } from './protocol'
+import { CLAIM_STALE_MS, stageNeeds, workerCan, type GitInfo, type StageOutcome, type TaskPayload } from './protocol'
 import { CASE_TYPES, FOLLOW_UPS, PIPELINE_KINDS, caseProps, codingProps, createProject, currentProjectId, ensureCaseDb, ensurePipelineDb, addRepoOptions, inTeam, kindOfDb, nextStage, optionByName, optionName, pipelineDbIds, priorityRank, readPipeline, stageNear, stageOfRow, type CodingProps, type PipelineKind, type ResolvedStage } from './schema'
 import { parseStories, splitSections, type DocSection, type Story } from './outputs'
 import { createPrivatePage } from '../../cloud'
@@ -150,6 +150,7 @@ export async function pickNext(repos: string[], workerName: string, docs = false
   const s = ws()
   const wanted = new Set(repos)
   const busy = new Set(useCoding.getState().busy.map((b) => b.taskId))
+  const caps = workerCan(can)
   // every pipeline database's tasks (Coding · Business analysis · QA), highest priority first, then the oldest
   const pool: Array<{ dbId: ID; db: Database; props: CodingProps; pipeline: ResolvedStage[]; row: Page }> = []
   for (const dbId of pipelineDbIds()) {
@@ -192,7 +193,7 @@ export async function pickNext(repos: string[], workerName: string, docs = false
     if (stage.kind === 'queue' || stage.kind === 'gate' || stage.kind === 'done' || stage.kind === 'import' || !go(stage)) continue
     // a stage an older worker would misread (it ran unknown kinds as git stages): not for this worker — the task says why
     const needs = stageNeeds(stage)
-    if (needs && !can.includes(needs)) {
+    if (needs && !caps.has(needs)) {
       if (local.error !== OLD_WORKER()) await patchTask(row.id, { state: 'failed', error: OLD_WORKER(), runNow: false })
       continue
     }

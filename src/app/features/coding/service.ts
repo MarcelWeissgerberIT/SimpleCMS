@@ -167,7 +167,7 @@ function connect() {
       p.reject(new Error(t('features.coding.err.gone')))
     }
     pending.clear()
-    set({ worker: null, busy: [] })
+    set({ worker: null, busy: [], can: null })
     if (!get().enabled) return set({ conn: 'off' })
     if (refused || e.code === WORKER_CLOSE_REFUSED) return set({ conn: 'refused' })
     if (e.code === WORKER_CLOSE_REPLACED) return set({ conn: 'replaced' })
@@ -190,7 +190,7 @@ function disconnect(off = true) {
   socket = null
   helloAs = null
   if (ws && ws.readyState <= WebSocket.OPEN) ws.close(1000, off ? 'switched off' : 'reconnecting')
-  set({ conn: off ? 'off' : 'connecting', worker: null, busy: [], refused: null, refusedPaired: false })
+  set({ conn: off ? 'off' : 'connecting', worker: null, busy: [], refused: null, refusedPaired: false, can: null })
 }
 
 /* ------------------------------------------------------------------ messages */
@@ -302,7 +302,10 @@ async function onRequest(msg: Extract<WorkerMessage, { type: 'req' }>) {
     switch (msg.op) {
       case 'next': {
         const name = get().worker?.name ?? String(msg.worker ?? '')
-        const task = await pickNext(Array.isArray(msg.repos) ? msg.repos.map(String) : [], name, msg.docs === true, Array.isArray(msg.can) ? msg.can.filter((c): c is string => typeof c === 'string').slice(0, 32) : [])
+        const can = Array.isArray(msg.can) ? msg.can.filter((c): c is string => typeof c === 'string').slice(0, 32) : []
+        const prev = get().can
+        if (!prev || prev.join() !== can.join()) set({ can })
+        const task = await pickNext(Array.isArray(msg.repos) ? msg.repos.map(String) : [], name, msg.docs === true, can)
         return reply(id, { task })
       }
       case 'heartbeat':

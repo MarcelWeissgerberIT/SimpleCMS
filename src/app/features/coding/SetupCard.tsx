@@ -16,6 +16,7 @@ import { Led } from '../../ui/controls'
 import { useLang, useT } from '../../i18n'
 import { workspaceInfo } from '../mcp/identity'
 import { downloadWorker, startCommand } from './download'
+import { workerOutdated } from './protocol'
 import { openWorkerSetup } from './service'
 import { useCoding } from './state'
 import { CodeBlock } from './CodeBlock'
@@ -79,6 +80,38 @@ function Step({ n, state, title, children, action }: { n: number; state: StepSta
   )
 }
 
+/** The ready-paired download with its toast (step 1, and "Download again" for an outdated worker). */
+async function downloadWithToast(t: ReturnType<typeof useT>): Promise<void> {
+  try {
+    await downloadWorker()
+    useUI.getState().toast({ message: t('features.coding.card.downloaded'), kind: 'success' })
+  } catch {
+    useUI.getState().toast({ message: t('features.coding.card.downloadFailed'), kind: 'error' })
+  }
+}
+
+/** A worker older than the download on the site (it does not name everything One hands out): say so, offer the file. */
+export function OutdatedWorker() {
+  const t = useT()
+  const can = useCoding((s) => s.can)
+  const [busy, setBusy] = useState(false)
+  if (!workerOutdated(can)) return null
+  const download = async () => {
+    setBusy(true)
+    await downloadWithToast(t)
+    setBusy(false)
+  }
+  return (
+    <p className="cv-plate__old" role="status" data-testid="coding-worker-outdated">
+      <Led state="on" />
+      <span>{t('features.coding.worker.outdated')}</span>
+      <button type="button" className="btn btn--sm" onClick={() => void download()} disabled={busy} data-testid="coding-download-again">
+        <Download size={13} strokeWidth={1.75} aria-hidden /> {busy ? t('features.coding.card.downloading') : t('features.coding.card.downloadAgain')}
+      </button>
+    </p>
+  )
+}
+
 export function SetupCard({ code = '§ A' }: { code?: string }) {
   const t = useT()
   const lang = useLang()
@@ -100,14 +133,8 @@ export function SetupCard({ code = '§ A' }: { code?: string }) {
 
   const download = async () => {
     setBusy(true)
-    try {
-      await downloadWorker()
-      useUI.getState().toast({ message: t('features.coding.card.downloaded'), kind: 'success' })
-    } catch {
-      useUI.getState().toast({ message: t('features.coding.card.downloadFailed'), kind: 'error' })
-    } finally {
-      setBusy(false)
-    }
+    await downloadWithToast(t)
+    setBusy(false)
   }
 
   return (
