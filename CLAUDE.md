@@ -360,6 +360,12 @@ the public APIs stable — other areas are built against them in parallel.
   implies 'doc') go only to a worker that names them — never to an older one (the task fails with err.oldWorker; the #/coding
   plate shows `OutdatedWorker` from `useCoding.can`). The worker reports a task it cannot read back as 'refused' (`taskIds`),
   never drops it silently; bump mcp/package.json for every worker change (the site's download = the newest version).
+  Models: `PipelineStage.model` only on stages that run Claude Code (plan · implement · doc; `claudeRuns()`) — an alias
+  ('opus' · 'sonnet' · 'haiku'), a full id or an own name; per task per device `TaskLocal.model` (never synced, never hashed).
+  ONE rule `MODEL_NAME` / `cleanModel()` (protocol.ts; first char a letter or digit, so never a flag) for One and worker.json
+  `claude.model`; payload `stage.model` = task pick ?? stage ?? null (`modelFor`); a stage with a model needs capability
+  'model'; worker `--model` = One's > repo claude.model > none, one argv entry. A stage's model joins the task version
+  only when set (old hashes stay valid). Pickers use `MODEL_CHOICES` / `modelLabel()`.
   Pipelines (docs/CODING.md § Pipelines): `Database.system` 'coding' | 'spec' (Business analysis) | 'qa', each its own
   board (#/coding, #/coding/spec, #/coding/qa), each usable alone; find them only with `pipelineDbId(kind)` /
   `kindOfDb()`; "Then" (`followUps` multi-select) spawns follow-ups when a task is done (`spawnFollowUp`). Stage kind

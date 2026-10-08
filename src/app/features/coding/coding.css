@@ -2285,6 +2285,9 @@ dd:has(> .cw-port) {
     grid-column: 2 / -1;
     grid-row: 2;
     white-space: normal;
+  }
+}
+
 /* ------------------------------------------------------------------ models: per stage (pipeline editor), per task, while running */
 
 /* the task's picks — Approvals · Model: the labels share one width, so the selects line up */
