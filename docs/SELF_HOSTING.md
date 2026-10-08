@@ -131,6 +131,12 @@ MAX_UPLOAD_MB=25
   the runs at the same time, `ANTHROPIC_BASE_URL` points at a proxy in front of the API. The key and the
   MCP tokens are stored encrypted with the workspace's key (like documents) and never shown again —
   details in [`CLOUD.md`](CLOUD.md#agents).
+- **Cloud coding workers** — members can run One's coding worker on any computer (a build server, a VM) that
+  connects **out** to this server; the server relays sealed messages between their One tab and that worker on
+  `/coding/tab` and `/coding/worker` (WebSockets — your proxy must pass the upgrade there too, like `/collab`).
+  Nothing to configure; the server never reads the messages and runs nothing itself. `CODING_RELAY=off` switches
+  the relay off (members then see *Cloud* greyed out with the reason). Details in
+  [`CODING.md`](CODING.md#cloud-worker) and [`CLOUD.md`](CLOUD.md#coding-relay).
 
 ### Encryption at rest (`DATA_KEY`)
 
@@ -205,7 +211,12 @@ docker compose exec one node dist/cli.js list-workspaces
 docker compose exec one node dist/cli.js list-users
 docker compose exec one node dist/cli.js make-owner <workspaceId> someone@yourcompany.com
 docker compose exec one node dist/cli.js revoke-sessions someone@yourcompany.com
+docker compose exec one node dist/cli.js revoke-workers someone@yourcompany.com [workspaceId]
 ```
+
+`revoke-sessions` signs someone out everywhere; their **cloud coding workers** keep their own tokens —
+`revoke-workers` ends those (a running worker is let go within a minute and stops for good). Removing someone
+from a workspace does both for that workspace at once.
 
 ## 8. Backups
 
@@ -382,7 +393,8 @@ Rebuild about once a month even without a new release, to get security fixes of 
       `docker compose logs` could sign in as anyone.
 - [ ] SPF/DKIM/DMARC set for the `MAIL_FROM` domain.
 - [ ] Server logs contain email addresses: keep access restricted and log retention short.
-- [ ] Run one instance per database (rate limits, live sessions and the agents' scheduler are held in memory).
+- [ ] Run one instance per database (rate limits, live sessions, the coding relay's pairings and the agents'
+      scheduler are held in memory).
 - [ ] Outbound firewall: allow HTTPS to `api.anthropic.com` if workspaces use server agents (or set
       `AGENTS=off`). Agent runs cost money on the workspace's Claude key — each agent has a budget per run.
 - [ ] Changed the server code? The AGPL requires you to offer your users the modified source: publish
@@ -438,6 +450,7 @@ server {
 | No sign-in mail | `docker compose logs one` shows `smtp connection failed` or `sending sign-in mail failed`; check port (587), credentials and URL-encoding. With `SIGNUP=invite` unknown addresses get no mail by design — send them a workspace invite or a registration link (Settings → Server) |
 | `bad_origin` errors | The app is opened under another host than `DOMAIN` (e.g. `www.` or the IP) — use exactly `https://DOMAIN` |
 | Live editing doesn't connect behind your own proxy | The proxy drops the WebSocket upgrade on `/collab` — see the nginx example |
+| A cloud coding worker logs `has no worker relay` or keeps reconnecting | `CODING_RELAY=off`, or your proxy does not pass the WebSocket upgrade on `/coding/…` (the nginx example's `location /` does) |
 | `database schema vN is newer than this server` | You went back to an older version — restore the backup from before the update |
 | `DATA_KEY is required in production` | Add `DATA_KEY=$(openssl rand -base64 32)` to `.env` — only for a new server or the first update to encryption at rest; an existing encrypted server needs its old key back |
 | `DATA_KEY (key id …) is not the key this database's workspace keys are wrapped with` | `.env` has another key than the one the data was encrypted with (a restore with today's key, a typo, a half-done rotation). Put the right key back; to finish a rotation run `rotate-data-key` again |

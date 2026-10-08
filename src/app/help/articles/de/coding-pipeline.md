@@ -3,7 +3,7 @@ id: coding-pipeline
 title: Coding-Pipeline (Claude Code auf deinem Rechner)
 section: ai
 order: 9
-keywords: coding, pipeline, claude code, worker, one-worker, download, einrichten, koppeln, repositories anhaken, git, branch, worktree, pull request, pr, diff, tests, repo, repository, code-review, programmieren, aufgaben
+keywords: coding, pipeline, claude code, worker, one-worker, download, einrichten, koppeln, repositories anhaken, git, branch, worktree, pull request, pr, diff, tests, repo, repository, code-review, programmieren, aufgaben, cloud-worker, one-worker-cloud, build-server, vm, relay, anderer rechner, lokal oder cloud
 related: pipelines, legacy-modernisation, mcp-bridge, custom-agents, agent
 summary: Gib Programmieraufgaben an Claude Code auf deinem Rechner — planen, freigeben, umsetzen, testen, ausliefern — und verfolge jeden Schritt in One.
 ---
@@ -26,6 +26,22 @@ Neuer Code? Dieselbe Seite klont von **GitLab / GitHub** (eine Adresse oder ein 
 Später ändern: **Repositories ändern** — der Worker öffnet seine Seite wieder auf deinem Rechner. One erfährt immer nur die Namen der Repos; Pfade und Befehle bleiben in `~/.config/one/worker.json` auf deinem Rechner.
 
 > Tipp: Ein neuer Download ersetzt die Kopplung — starte die zuletzt heruntergeladene Datei. Auf einem Rechner ohne Browser fragt `node one-worker.mjs --no-browser` stattdessen im Terminal (Zahlen haken an, Enter speichert).
+
+## Den Worker auf einem anderen Rechner laufen lassen (Cloud)
+In einem **Team-Arbeitsbereich auf einem One-Server** bietet **Einstellungen → Coding-Worker → Wo der Worker läuft** die Wahl **Lokal | Cloud**. Mit **Cloud** läuft der Worker auf einem beliebigen Rechner — Build-Server, VM, der Rechner im Büro — und verbindet sich selbst mit deinem One-Server: kein Port, kein VPN.
+
+1. **one-worker-cloud.mjs herunterladen.** Die Datei enthält einen Worker-Token nur für dich und nur für diesen Arbeitsbereich und einen Schlüssel, den nur dieser Browser hat.
+2. **Auf den Rechner kopieren und dort starten**: `node one-worker-cloud.mjs` (laufen lassen — tmux oder ein Dienst). Die Datei ist der Schlüssel: Behandle sie vertraulich (`chmod 600`).
+3. **Dort die Repositories anhaken** — die Einrichtungsseite öffnet sich auf jenem Rechner, oder `node one-worker-cloud.mjs setup --no-browser` fragt in seinem Terminal.
+
+Die Karte zeigt dann *Verbunden · build-box · 1 Repo · über Cloud*. Alles andere funktioniert wie mit einem lokalen Worker.
+
+- **One offen lassen.** Aufgaben laufen nur, solange One in **diesem** Browser offen ist (irgendeine Seite des Arbeitsbereichs) — dieser Tab verteilt die Arbeit und schreibt die Ergebnisse. Schließt du ihn, wartet der Worker; auf dem Server läuft nichts.
+- **Durchgehend versiegelt.** Der Server reicht Nachrichten zwischen diesem Browser und dem Worker weiter, kann sie aber weder lesen noch ändern — Aufgabentext, Code, Diffs und Logs bleiben zwischen den beiden.
+- **Ein Gerät.** Der Worker ist mit dem Browser gekoppelt, der ihn heruntergeladen hat. Ein anderes Gerät zeigt *Mit einem anderen Gerät gekoppelt* und bietet **Für dieses Gerät herunterladen** an (ersetzt den anderen — One fragt vorher).
+- **Ersetzen oder beenden.** Ein neuer Download übernimmt, sobald er startet; **Widerrufen** beendet den Worker endgültig. Wer aus dem Arbeitsbereich entfernt wird, dessen Worker endet ebenfalls.
+
+In einem lokalen Arbeitsbereich, für Leser und auf einem Server ohne Worker-Relay ist Cloud ausgegraut – mit dem Grund daneben.
 
 ## Freigaben – oder einfach machen
 Im Coding-Panel wählst du bei **Freigaben**, wo die Aufgabe auf dich wartet: **Plan und Review freigeben** (Standard), **Nur Review – der Plan läuft durch** oder **Keine – einfach machen**: Dann laufen Plan, Umsetzung, Tests und Ausliefern ohne Halt durch; schlagen die Tests zweimal fehl, hält sie trotzdem beim Review. Die Wahl gilt auf diesem Gerät und ist die Vorgabe für neue Aufgaben. Wartet eine Aufgabe schon an einer Freigabe, die du gerade abwählst, geht sie sofort weiter.
@@ -54,6 +70,6 @@ Jede Aufgabe arbeitet auf einem eigenen Branch (`one/<titel>-<id>`) in einem eig
 **Repos in iCloud Drive** (z. B. in Dokumente, wenn „Schreibtisch & Dokumente“ synchronisiert wird): git wartet, sobald eine Datei nur in der Cloud liegt — Schritte können dann Minuten dauern, das Log sagt es. Schneller: den Ordner dauerhaft geladen halten, oder es auf der Setup-Seite des Workers mit **Von GitLab / GitHub klonen …** neu klonen (nach `~/one-repos`, nicht synchronisiert) und diesen Klon anhaken. Der Worker startet in jedem Fall sofort und nennt im Log ein Repository, dessen git langsam ist. Die Arbeitskopien des Workers landen nie in iCloud.
 
 ## Sicherheit
-Der Worker fasst nur die Repos an, die du angehakt hast; One kann ihm Aufgabentext und feste Git-Aktionen schicken — nie einen Befehl, und selbst nie ein Repo anhaken. Ein heruntergeladener Worker nimmt nur diesen Browser und diesen Arbeitsbereich an. Claude Code behält seine Berechtigungsregeln, und Aufgabentext geht als Daten mit, nicht als Anweisung. Eine Kostengrenze pro Aufgabe stellst du auf der Seite des Workers ein, eine pro Tag in der `worker.json`. In einem Team-Arbeitsbereich nimmt dein Worker nur Aufgaben, die du auf diesem Gerät geschrieben oder bestätigt hast (**Auf diesem Gerät bestätigen**) — eine Stufe, ein Repo oder ein Branch, auf einem anderen Gerät geändert, fragt erneut. Eine Aufgabe, die einer deiner eigenen Agenten geschrieben hat, wartet auf dieselbe Bestätigung, auch in deinem lokalen Arbeitsbereich.
+Der Worker fasst nur die Repos an, die du angehakt hast; One kann ihm Aufgabentext und feste Git-Aktionen schicken — nie einen Befehl, und selbst nie ein Repo anhaken. Ein heruntergeladener Worker nimmt nur diesen Browser und diesen Arbeitsbereich an; die Nachrichten eines Cloud-Workers sind zwischen diesem Browser und dem Worker versiegelt — der Server reicht sie nur weiter. Claude Code behält seine Berechtigungsregeln, und Aufgabentext geht als Daten mit, nicht als Anweisung. Eine Kostengrenze pro Aufgabe stellst du auf der Seite des Workers ein, eine pro Tag in der `worker.json`. In einem Team-Arbeitsbereich nimmt dein Worker nur Aufgaben, die du auf diesem Gerät geschrieben oder bestätigt hast (**Auf diesem Gerät bestätigen**) — eine Stufe, ein Repo oder ein Branch, auf einem anderen Gerät geändert, fragt erneut. Eine Aufgabe, die einer deiner eigenen Agenten geschrieben hat, wartet auf dieselbe Bestätigung, auch in deinem lokalen Arbeitsbereich.
 
 > Tipp: Die vollständige Referenz — Konfiguration, Protokoll, Fehlersuche — steht in `docs/CODING.md` im Repository.

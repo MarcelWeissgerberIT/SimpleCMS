@@ -168,6 +168,8 @@ describe('coding relay', () => {
     assert.equal((await fetch(`${server.url}/api/coding/worker`, { headers: { authorization: `Bearer onew_${'x'.repeat(43)}` } })).status, 401)
     assert.equal((await fetch(`${server.url}/api/coding/worker`, { headers: { authorization: `Bearer ${adaToken}`, origin: server.url } })).status, 403)
     assert.equal((await fetch(`${server.url}/api/v1/workspace`, { headers: { authorization: `Bearer ${adaToken}` } })).status, 401, 'not an API token')
+    const mcp = await fetch(`${server.url}/mcp`, { method: 'POST', headers: { authorization: `Bearer ${adaToken}`, 'content-type': 'application/json', accept: 'application/json, text/event-stream' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }) })
+    assert.equal(mcp.status, 401, 'not an MCP token either')
   })
 
   test('upgrade gates: token, origin, subprotocol, workspace, role — and the tab door', async () => {
