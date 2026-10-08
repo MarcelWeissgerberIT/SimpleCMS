@@ -3,7 +3,7 @@ id: mcp-servers
 title: MCP-Server (Wissensdatenbanken & Co.)
 section: ai
 order: 6
-keywords: mcp, mcp-server, werkzeuge, connector, wissensdatenbank, token, externe werkzeuge, integration, codewort, kb:, oauth, anmelden, anmeldecode, code, bild, video, generieren, medien, in one speichern, tools, knowledge base, codeword, sign in, generate image
+keywords: mcp, mcp-server, übersicht, tabelle, freigabe, werkzeuge, connector, wissensdatenbank, token, externe werkzeuge, integration, codewort, kb:, oauth, anmelden, anmeldecode, code, bild, video, generieren, medien, in one speichern, tools, knowledge base, codeword, sign in, generate image
 related: agent, ai-menu, mcp-token-rejected, mcp-bridge, claude-key
 summary: Lass Ones Claude die Werkzeuge anderer Systeme nutzen — eine Wissensdatenbank, einen Tracker, ein CRM.
 ---
@@ -13,6 +13,9 @@ summary: Lass Ones Claude die Werkzeuge anderer Systeme nutzen — eine Wissensd
 1. In deiner Wissensdatenbank die MCP-Server-Adresse kopieren (`https://…/mcp`) und ein Token für One erstellen — nur lesend und auf die nötigen Projekte beschränkt, wenn sie das anbietet.
 2. In One: **Server hinzufügen**, **Server-URL** und **Token** einfügen, **Speichern**.
 3. One benennt den Server nach seiner Adresse, schaltet ihn ein und prüft ihn im Hintergrund: Verbindungstest, Liste der Werkzeuge, die Claude sieht, und ein **Nutzungs-Prompt**, der Claude sagt, welches Werkzeug wofür da ist. Die LED springt auf **Verbunden**.
+
+## Übersicht: wo welcher Server genutzt werden darf
+Der Abschnitt beginnt mit einer Tabelle, eine Zeile pro Server: sein **Codewort**, **Claude in One** (welche Anfragen ihn nutzen, oder *Aus*), die **eigenen Agenten**, die ihn nutzen (mit der Zahl der Werkzeuge, die eine Werkzeugliste erlaubt; ein ausgeschalteter Agent durchgestrichen), die **Integrationen**, die er aktiv macht, und **Claude Code (Worker)** – die Repositories (und *Aufgaben ohne Repository*), in denen Claude Code im Coding-Worker einen Server gleichen Namens oder Codeworts hat. Die Server von Claude Code sind seine eigenen (dein `claude mcp`-Setup, pro Repository auf der Einrichtungsseite des Workers angehakt): Ein Name, den nur Claude Code hat, bekommt eine eigene Zeile. Ein Klick auf den Namen öffnet die Details des Servers.
 
 ## Wo er genutzt wird
 **Erweitert** → **Verwendet bei**:

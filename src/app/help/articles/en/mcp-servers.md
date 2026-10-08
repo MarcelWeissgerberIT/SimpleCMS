@@ -3,7 +3,7 @@ id: mcp-servers
 title: MCP servers (knowledge bases & co)
 section: ai
 order: 6
-keywords: mcp, mcp server, tools, connector, knowledge base, token, external tools, integration, codeword, kb:, oauth, sign in, sign-in code, device code, image, video, generate, media, save to one, MCP-Server, Werkzeuge, Wissensdatenbank, Codewort, Anmelden, Bild generieren
+keywords: mcp, mcp server, overview, table, where used, tools, connector, knowledge base, token, external tools, integration, codeword, kb:, oauth, sign in, sign-in code, device code, image, video, generate, media, save to one, MCP-Server, Werkzeuge, Wissensdatenbank, Codewort, Anmelden, Bild generieren
 related: agent, ai-menu, mcp-token-rejected, mcp-bridge, claude-key
 summary: Let One's Claude use the tools of other systems — a knowledge base, a tracker, a CRM.
 ---
@@ -13,6 +13,9 @@ summary: Let One's Claude use the tools of other systems — a knowledge base, a
 1. In your knowledge base, copy its MCP server address (`https://…/mcp`) and create a token for One — read-only, limited to the projects you need, if it lets you choose.
 2. In One: **Add server**, paste the **Server URL** and the **Token**, **Save**.
 3. One names the server after its address, switches it on and checks it in the background: it tests the connection, lists the tools Claude sees and writes a **Usage prompt** that tells Claude which tool is for what. The LED turns to **Connected**.
+
+## Overview: where each server may be used
+The section opens with a table, one row per server: its **codeword**, **One's Claude** (which requests take it, or *Off*), the **custom agents** that attach it (with the number of tools a tool list allows; a switched-off agent struck through), the **integrations** it makes active, and **Claude Code (worker)** — the repos (and *tasks without a repo*) where Claude Code in the coding worker has a server of the same name or codeword. Claude Code's servers are its own (your `claude mcp` setup, ticked per repo on the worker's setup page): a name only Claude Code has gets a row of its own. Click a server's name to open its details.
 
 ## Where it is used
 **Details** → **Used in**:

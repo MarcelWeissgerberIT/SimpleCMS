@@ -2,8 +2,8 @@ import type { Messages } from '@/shared/i18n'
 
 /**
  * Strings for MCP server codewords (features/ai/mcp-servers: the settings field, the chip next to
- * the AI menu / ⌘K prompt, the note for an addressed server that stayed out). Keys prefixed
- * "features.ai.mcp.cw." — the rest of the MCP server strings live in features/messages-core.ts.
+ * the AI menu / ⌘K prompt, the note for an addressed server that stayed out) and the overview table (McpOverview,
+ * "features.ai.mcp.ov."). Keys prefixed "features.ai.mcp.cw." / ".ov." — the rest of the MCP server strings live in features/messages-core.ts.
  * Always add both en and de.
  */
 export const messages: Messages = {
@@ -24,6 +24,23 @@ export const messages: Messages = {
     'features.ai.mcp.cw.note.token': 'This browser has no token for {server} — Claude answers without it.',
     'features.ai.mcp.cw.tag.refused': 'TOKEN REJECTED',
     'features.ai.mcp.cw.note.refused': '{server} rejected its token — Claude answers without it. Sign in again or replace the token in Settings → Claude AI → MCP servers.',
+    'features.ai.mcp.ov.title': 'Overview — where each server may be used',
+    'features.ai.mcp.ov.server': 'Server',
+    'features.ai.mcp.ov.codeword': 'Codeword',
+    'features.ai.mcp.ov.one': 'One’s Claude',
+    'features.ai.mcp.ov.agents': 'Custom agents',
+    'features.ai.mcp.ov.integrations': 'Integrations',
+    'features.ai.mcp.ov.code': 'Claude Code (worker)',
+    'features.ai.mcp.ov.off': 'Off — not used, its codeword neither',
+    'features.ai.mcp.ov.open': 'Show its settings',
+    'features.ai.mcp.ov.onlyCode': 'only Claude Code',
+    'features.ai.mcp.ov.agentOff': 'This agent is switched off',
+    'features.ai.mcp.ov.tools.one': '{count} tool',
+    'features.ai.mcp.ov.tools.other': '{count} tools',
+    'features.ai.mcp.ov.codeOff': 'Worker not connected',
+    'features.ai.mcp.ov.codeOld': 'Worker too old to tell — download it again',
+    'features.ai.mcp.ov.noRepo': 'tasks without a repo',
+    'features.ai.mcp.ov.note': 'Claude Code in the coding worker has its own MCP servers (your claude mcp setup, ticked per repo on the worker’s setup page). A server of the same name or codeword counts here; a name One does not know gets a row of its own.',
   },
   de: {
     'features.ai.mcp.cw.label': 'Codewort',
@@ -42,5 +59,22 @@ export const messages: Messages = {
     'features.ai.mcp.cw.note.token': 'Dieser Browser hat kein Token für {server} — Claude antwortet ohne ihn.',
     'features.ai.mcp.cw.tag.refused': 'TOKEN ABGELEHNT',
     'features.ai.mcp.cw.note.refused': '{server} hat sein Token abgelehnt — Claude antwortet ohne ihn. Melde dich neu an oder ersetze das Token unter Einstellungen → Claude KI → MCP-Server.',
+    'features.ai.mcp.ov.title': 'Übersicht — wo welcher Server genutzt werden darf',
+    'features.ai.mcp.ov.server': 'Server',
+    'features.ai.mcp.ov.codeword': 'Codewort',
+    'features.ai.mcp.ov.one': 'Claude in One',
+    'features.ai.mcp.ov.agents': 'Eigene Agenten',
+    'features.ai.mcp.ov.integrations': 'Integrationen',
+    'features.ai.mcp.ov.code': 'Claude Code (Worker)',
+    'features.ai.mcp.ov.off': 'Aus — nicht genutzt, auch nicht per Codewort',
+    'features.ai.mcp.ov.open': 'Einstellungen des Servers zeigen',
+    'features.ai.mcp.ov.onlyCode': 'nur Claude Code',
+    'features.ai.mcp.ov.agentOff': 'Dieser Agent ist ausgeschaltet',
+    'features.ai.mcp.ov.tools.one': '{count} Werkzeug',
+    'features.ai.mcp.ov.tools.other': '{count} Werkzeuge',
+    'features.ai.mcp.ov.codeOff': 'Worker nicht verbunden',
+    'features.ai.mcp.ov.codeOld': 'Worker zu alt dafür — bitte neu herunterladen',
+    'features.ai.mcp.ov.noRepo': 'Aufgaben ohne Repository',
+    'features.ai.mcp.ov.note': 'Claude Code im Coding-Worker hat eigene MCP-Server (dein claude-mcp-Setup, pro Repository auf der Einrichtungsseite des Workers angehakt). Ein Server gleichen Namens oder Codeworts zählt hier; ein Name, den One nicht kennt, bekommt eine eigene Zeile.',
   },
 }

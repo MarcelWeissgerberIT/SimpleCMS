@@ -611,6 +611,211 @@
   color: var(--ink-3);
 }
 
+/* ------------------------------------------------------------------ */
+/* Overview table (McpOverview): where each server may be used          */
+/* ------------------------------------------------------------------ */
+
+.mcpo {
+  container-type: inline-size;
+  margin: 0 0 14px;
+}
+.mcpo__code {
+  display: block;
+  margin: 0 0 6px;
+  color: var(--ink-3);
+}
+.mcpo__wrap {
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-2);
+  background: var(--surface);
+  overflow: hidden;
+}
+.mcpo__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+  line-height: 1.4;
+}
+.mcpo__table thead th {
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--rule);
+  background: var(--surface-2);
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: calc(10px * var(--text-scale));
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-align: left;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.mcpo__table tbody th,
+.mcpo__table tbody td {
+  padding: 8px 10px;
+  border-top: 1px solid var(--rule);
+  color: var(--ink-2);
+  text-align: left;
+  vertical-align: top;
+}
+.mcpo__table tbody tr:first-child > * {
+  border-top: 0;
+}
+.mcpo__table tbody tr[data-only='code'] > * {
+  background: var(--surface-2);
+}
+.mcpo__name {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-weight: 400;
+}
+.mcpo__name .led {
+  flex: none;
+  margin-top: calc((1lh - 6px) / 2);
+}
+.mcpo__id {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+.mcpo__link,
+.mcpo__plain {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+.mcpo__link {
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: var(--rule-strong);
+  text-underline-offset: 3px;
+}
+.mcpo__link:hover {
+  text-decoration-color: var(--signal);
+}
+.mcpo__link:focus-visible {
+  border-radius: var(--radius-1);
+  outline: 2px solid var(--signal);
+  outline-offset: 2px;
+}
+.mcpo__host {
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: calc(10.5px * var(--text-scale));
+  overflow-wrap: anywhere;
+}
+.mcpo__cw {
+  padding: 1px 5px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-1);
+  background: var(--surface-2);
+  color: var(--signal-ink);
+  font-family: var(--font-mono);
+  font-size: calc(11.5px * var(--text-scale));
+  white-space: nowrap;
+}
+.mcpo__table td[data-state='off'] .mcpo__scope {
+  color: var(--ink-3);
+}
+.mcpo__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.mcpo__chip {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: baseline;
+  gap: 5px;
+  padding: 1px 6px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-1);
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.mcpo__chip[data-off] {
+  color: var(--ink-3);
+  text-decoration: line-through;
+  text-decoration-color: var(--ink-3);
+}
+.mcpo__chip--repo {
+  font-family: var(--font-mono);
+  font-size: calc(11.5px * var(--text-scale));
+}
+.mcpo__sub {
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: calc(10px * var(--text-scale));
+}
+.mcpo__none,
+.mcpo__muted {
+  color: var(--ink-3);
+}
+.mcpo__note {
+  max-width: 72ch;
+  margin: 6px 0 0;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  line-height: 1.5;
+}
+
+/* narrow (Settings at phone width): each server a card, labels in front of the values */
+@container (max-width: 620px) {
+  .mcpo__table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+  .mcpo__table,
+  .mcpo__table tbody,
+  .mcpo__table tr {
+    display: block;
+  }
+  .mcpo__table tbody tr {
+    padding: 10px 12px;
+    border-top: 1px solid var(--rule);
+  }
+  .mcpo__table tbody tr:first-child {
+    border-top: 0;
+  }
+  .mcpo__table tbody tr[data-only='code'] {
+    background: var(--surface-2);
+  }
+  .mcpo__table tbody th,
+  .mcpo__table tbody td {
+    display: grid;
+    grid-template-columns: 12ch minmax(0, 1fr);
+    gap: 8px;
+    padding: 3px 0;
+    border: 0;
+    background: none;
+  }
+  .mcpo__table tbody td::before {
+    content: attr(data-label);
+    color: var(--ink-3);
+    font-family: var(--font-mono);
+    font-size: calc(10px * var(--text-scale));
+    letter-spacing: 0.06em;
+    line-height: 1.9;
+    text-transform: uppercase;
+  }
+  .mcpo__table tbody th.mcpo__name {
+    display: flex;
+    padding-bottom: 6px;
+  }
+}
+
 @media (max-width: 767px) {
   .mcps__head {
     flex-wrap: wrap;

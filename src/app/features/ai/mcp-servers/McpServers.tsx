@@ -37,6 +37,7 @@ import { linkBaseOf } from '../../../lib/foreignLinks'
 import { cancelSignIn, offersCode, signIn, signInWithCode, signOut, signedIn, useMcpSignIn, type SignInState } from './oauth'
 import { HelpLink } from '../../../help'
 import { CodeArea, markdownTokenizer } from '../../../ui/code'
+import { McpOverview } from './McpOverview'
 import './mcp-servers.css'
 
 type T = ReturnType<typeof useT>
@@ -55,6 +56,11 @@ export function McpServers() {
   /** the server whose details are open */
   const [open, setOpen] = useState<string | null>(null)
   const headId = useId()
+  // the overview's server name: open that server's details and bring them into view
+  const show = (id: string) => {
+    setOpen(id)
+    requestAnimationFrame(() => document.querySelector<HTMLElement>(`.mcps-card[data-id="${CSS.escape(id)}"]`)?.scrollIntoView({ block: 'nearest' }))
+  }
 
   // a key arrived (or Settings opened with one): servers that were never checked get their check now
   useEffect(() => {
@@ -78,6 +84,7 @@ export function McpServers() {
         </button>
       </header>
       <p className="mcps__lead">{t('features.ai.mcp.lead')}</p>
+      <McpOverview servers={servers} onShow={show} />
       {servers.length > 0 && (
         <ul className="mcps__list">
           {servers.map((s) => (
@@ -264,7 +271,7 @@ function ServerRow({ server, others, words, open, onOpen, hasKey }: { server: Mc
   // the server turned the request down (401 / 403): a sign-in instead of a token, right under the address
   const wantsSignIn = server.enabled && !!server.checkAuth && state === 'error'
   return (
-    <li className="mcps-card" data-state={state} data-open={open || undefined} data-server={server.name}>
+    <li className="mcps-card" data-state={state} data-open={open || undefined} data-server={server.name} data-id={server.id}>
       <div className="mcps-card__head">
         <span className={led} aria-hidden />
         <button type="button" className="mcps-card__toggle" aria-expanded={open} aria-controls={open ? bodyId : undefined} onClick={() => onOpen(!open)}>

@@ -382,3 +382,76 @@ test('an older worker names no MCP servers: the task panel shows no MCP line', a
     await fake.close()
   }
 })
+
+test('Settings → MCP servers: the overview table — codeword, One’s Claude, agents, integrations and Claude Code per server; a name only Claude Code has gets its own row; German cards at 390 px', async ({ page, errors }) => {
+  errors.allow(/WebSocket connection to 'ws:\/\/127\.0\.0\.1/)
+  // Claude Code: the repo "website" has "KB" (the codeword of One's "tracker", any case), tasks without a repo have "notes"
+  const fake = await startFakeWorker(PORT, { worker: '1.7.1', name: 'mcp-box', repos: [{ name: 'website', baseBranch: 'main', mcp: ['KB'] }], parallel: 1, busy: [], spentToday: 0, dayLimit: null, claude: { found: true, version: '2.0.0' }, setup: true, mcp: ['notes'] })
+  fake.can = ['analyze', 'git:comment', 'git:merge', 'doc', 'model', 'mcp-list']
+  try {
+    await openApp(page)
+    await wsEval(page, (s) => {
+      const now = Date.now()
+      s.updateSettings({
+        mcpServers: [
+          { id: 'm1', name: 'tracker', codeword: 'kb', scope: 'all', url: 'https://tracker.example.com/mcp', token: '', enabled: true, prompt: '', tools: ['list_items', 'get_item', 'add_comment'], checkedAt: 1 },
+          { id: 'm2', name: 'wiki', url: 'https://wiki.example.com/mcp', token: '', enabled: false, prompt: '' },
+        ],
+      })
+      const agent = { instructions: 'Sum up the tracker.', trigger: { type: 'manual' }, scope: { everything: true, pages: [], databases: [] }, write: 'none', output: null, runner: 'browser', model: null, effort: null, maxRunUsd: 0.5, createdAt: now, updatedAt: now }
+      s.upsertAgent({ ...agent, id: 'ag-digest', name: 'Daily digest', mcpServers: ['tracker'], mcpTools: { tracker: ['list_items', 'get_item'] }, enabled: true })
+      s.upsertAgent({ ...agent, id: 'ag-old', name: 'Old helper', mcpServers: ['tracker'], enabled: false })
+      // a tool list of none leaves the server out
+      s.upsertAgent({ ...agent, id: 'ag-none', name: 'Quiet one', mcpServers: ['tracker'], mcpTools: { tracker: [] }, enabled: true })
+      s.upsertIntegration({ schema: 'one.integration/1', id: 'items', name: 'Item tracker', match: { tools: ['list_items', 'get_item'] }, unlocks: ['keys'] })
+    })
+    await page.evaluate(() => (window as unknown as { __one: { ui: { getState: () => { openModal: (m: unknown) => void } } } }).__one.ui.getState().openModal({ type: 'settings', tab: 'ai' }))
+    const table = page.getByTestId('mcp-overview')
+    await table.scrollIntoViewIfNeeded()
+    // before the worker is connected: "Worker not connected"
+    await expect(table.locator('tr[data-server="tracker"]').getByTestId('mcp-overview-code')).toHaveText('Worker not connected')
+    await page.keyboard.press('Escape')
+    await connect(page, 'mcp-box')
+    await page.evaluate(() => (window as unknown as { __one: { ui: { getState: () => { openModal: (m: unknown) => void } } } }).__one.ui.getState().openModal({ type: 'settings', tab: 'ai' }))
+    await table.scrollIntoViewIfNeeded()
+    await expect(table.locator('thead th')).toHaveText(['Server', 'Codeword', 'One’s Claude', 'Custom agents', 'Integrations', 'Claude Code (worker)'])
+    const tracker = table.locator('tr[data-server="tracker"]')
+    await expect(tracker.locator('th')).toContainText('TRACKER')
+    await expect(tracker.locator('th')).toContainText('tracker.example.com')
+    await expect(tracker.locator('td').nth(0)).toHaveText('kb:')
+    await expect(tracker.locator('td').nth(1)).toHaveText('All AI calls')
+    await expect(tracker.locator('td').nth(2).locator('.mcpo__chip')).toHaveText(['Daily digest2 tools', 'Old helper'])
+    await expect(tracker.locator('td').nth(2).locator('.mcpo__chip[data-off]')).toHaveText('Old helper')
+    await expect(tracker.locator('td').nth(3)).toHaveText('Item tracker')
+    await expect(tracker.getByTestId('mcp-overview-code').locator('.mcpo__chip')).toHaveText(['website'])
+    const wiki = table.locator('tr[data-server="wiki"]')
+    await expect(wiki.locator('td').nth(0)).toHaveText('—')
+    await expect(wiki.locator('td').nth(1)).toHaveText('Off — not used, its codeword neither')
+    await expect(wiki.locator('td').nth(2)).toHaveText('—')
+    await expect(wiki.getByTestId('mcp-overview-code')).toHaveText('—')
+    // a server only Claude Code has: its own row
+    const notes = table.locator('tr[data-server="notes"]')
+    await expect(notes).toHaveAttribute('data-only', 'code')
+    await expect(notes.locator('th')).toContainText('only Claude Code')
+    await expect(notes.getByTestId('mcp-overview-code')).toHaveText('tasks without a repo')
+    await expect(table.locator('tbody tr')).toHaveCount(3)
+    // the name opens that server's details below
+    await tracker.getByRole('button', { name: 'TRACKER' }).click()
+    await expect(page.locator('.mcps-card[data-server="tracker"]')).toHaveAttribute('data-open', 'true')
+
+    // German at 390 px: each server a card with its labels, no sideways scroll
+    await page.keyboard.press('Escape')
+    await wsEval(page, (s) => s.updateSettings({ language: 'de' }))
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.evaluate(() => (window as unknown as { __one: { ui: { getState: () => { openModal: (m: unknown) => void } } } }).__one.ui.getState().openModal({ type: 'settings', tab: 'ai' }))
+    await table.scrollIntoViewIfNeeded()
+    await expect(table.locator('thead')).toHaveCSS('position', 'absolute')
+    await expect(tracker.locator('td').nth(1)).toHaveText('Alle KI-Aufrufe')
+    await expect(wiki.locator('td').nth(1)).toHaveText('Aus — nicht genutzt, auch nicht per Codewort')
+    await expect(notes.getByTestId('mcp-overview-code')).toHaveText('Aufgaben ohne Repository')
+    const wide = await table.evaluate((el) => el.scrollWidth - el.clientWidth)
+    expect(wide).toBeLessThanOrEqual(1)
+  } finally {
+    await fake.close()
+  }
+})

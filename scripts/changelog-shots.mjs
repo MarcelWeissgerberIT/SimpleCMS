@@ -8,7 +8,7 @@
  *
  * (CHANGELOG_DRAFT=1 lets the build pass while a new entry's picture does not exist yet.)
  *
- * Shots: mirror, task-mcp, models, search, terminal-pipelines, cloud-worker, one-picker, pipelines, legacy-modernise, coding-live, text-size, mcp-media, coding-setup, free-board, building-blocks, workspace-settings, diagram-viewer, coding-pipeline, pages-per-item, design-import, tour, quick-capture, script-templates, one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
+ * Shots: mcp-overview, mirror, task-mcp, models, search, terminal-pipelines, cloud-worker, one-picker, pipelines, legacy-modernise, coding-live, text-size, mcp-media, coding-setup, free-board, building-blocks, workspace-settings, diagram-viewer, coding-pipeline, pages-per-item, design-import, tour, quick-capture, script-templates, one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
  * custom-agents, gmail, help-centre, mcp-servers, feed-blocks — each named like its image. Every shot starts from a fresh, seeded
  * workspace in English, light theme, 1440 × 900 at device scale 2; the crop of the relevant area is scaled
  * to 1440 px wide and saved as public/assets/shots/changelog/<shot>.webp (≤ 150 KB: the quality steps down
@@ -2573,6 +2573,54 @@ const shots = {
       const top = await boxOf(panel, 20)
       const end = await line.boundingBox()
       await save(page, 'task-mcp', { ...top, y: Math.max(0, top.y - 4), height: end.y + end.height + 20 - top.y })
+    } finally {
+      worker?.kill('SIGTERM')
+      await ctx.close()
+      rmSync(work.root, { recursive: true, force: true })
+    }
+  },
+
+  /**
+   * Settings → Claude AI → MCP servers: the overview table — "tracker" (codeword kb, every AI call, two agents, an
+   * integration, Claude Code's "kb" in the repo), "wiki" switched off, and "notes", a server only Claude Code has. The
+   * repository's own worker with the fake Claude Code CLI; nothing runs.
+   */
+  async 'mcp-overview'(browser) {
+    const work = codingRepo()
+    const { ctx, page } = await freshPage(browser, { viewport: { width: W, height: H + 200 } })
+    let worker = null
+    try {
+      await page.evaluate(() => {
+        const s = window.__one.workspace.getState()
+        s.updateSettings({
+          mcpServers: [
+            { id: 'm1', name: 'tracker', codeword: 'kb', scope: 'all', url: 'https://tracker.example.com/mcp', token: '', enabled: true, prompt: 'Use list_items.', tools: ['list_items', 'get_item', 'add_comment'], checkedAt: Date.now() },
+            { id: 'm2', name: 'wiki', url: 'https://wiki.example.com/mcp', token: '', enabled: false, prompt: '' },
+          ],
+        })
+        const now = Date.now()
+        const agent = { instructions: 'Sum up the open items.', trigger: { type: 'manual' }, scope: { everything: true, pages: [], databases: [] }, write: 'none', output: null, runner: 'browser', model: null, effort: null, maxRunUsd: 0.5, enabled: true, createdAt: now, updatedAt: now }
+        s.upsertAgent({ ...agent, id: 'ag-digest', name: 'Daily digest', mcpServers: ['tracker'], mcpTools: { tracker: ['list_items', 'get_item'] } })
+        s.upsertAgent({ ...agent, id: 'ag-triage', name: 'Triage', mcpServers: ['tracker'] })
+        s.upsertIntegration({ schema: 'one.integration/1', id: 'items', name: 'Item tracker', match: { tools: ['list_items', 'get_item'] }, unlocks: ['keys', 'upsert'] })
+      })
+      await page.evaluate(() => window.__one.ui.getState().openModal({ type: 'settings' }))
+      await page.getByRole('tab', { name: 'Coding worker' }).click()
+      const init = await page.locator('.cw-code pre').filter({ hasText: 'init --workspace' }).first().textContent()
+      worker = await startCodingWorker(work, /--workspace (\S+)/.exec(init)[1], {}, { claude: { mcpServers: ['kb', 'notes'] } })
+      const port = page.getByLabel('Port', { exact: true })
+      await port.fill(String(WORKER_PORT))
+      await port.press('Enter')
+      await page.getByRole('switch', { name: 'Connect to a coding worker on this computer' }).click()
+      await page.getByTestId('coding-conn').filter({ hasText: 'Connected' }).waitFor({ timeout: 20_000 })
+      await page.keyboard.press('Escape')
+      await page.getByRole('dialog').waitFor({ state: 'detached' })
+      await page.evaluate(() => window.__one.ui.getState().openModal({ type: 'settings', tab: 'ai' }))
+      const table = page.getByTestId('mcp-overview')
+      await table.locator('tr[data-server="notes"]').waitFor({ timeout: 20_000 })
+      await scrollToTop(table, 28)
+      await rest(page)
+      await save(page, 'mcp-overview', await boxOf(table, 16))
     } finally {
       worker?.kill('SIGTERM')
       await ctx.close()
