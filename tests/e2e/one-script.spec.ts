@@ -148,7 +148,8 @@ test.describe('One Script', () => {
     // an error shows inline (gutter mark + message at its line)
     await setCode(page, `db(${ref(dbId)}).where(Unbekannt = 1)`)
     await expect(page.locator('.sc-live .sc-err')).toContainText('has no property Unbekannt')
-    await expect(page.locator('.sc-code .ca__row[data-mark="error"] .ca__ln')).toHaveAttribute('data-n', '1')
+    await expect(page.locator('.sc-code .ca__row[data-mark="error"]')).toHaveAttribute('data-line', '1')
+    await expect(page.locator('.sc-code .ca__gmark[data-mark="error"]')).toHaveAttribute('data-n', '1')
     await expect(page.getByTestId('ca-problems')).toContainText('has no property Unbekannt')
     // a query never writes
     await setCode(page, `db(${ref(dbId)}).first.set(Status: "Erledigt")`)

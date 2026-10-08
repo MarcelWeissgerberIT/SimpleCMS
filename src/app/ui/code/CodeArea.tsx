@@ -182,6 +182,7 @@ export function CodeArea(props: CodeAreaProps) {
   const scroller = useRef<HTMLDivElement | null>(null)
   const ta = useRef<HTMLTextAreaElement | null>(null)
   const measure = useRef<HTMLSpanElement | null>(null)
+  const layer = useRef<HTMLDivElement | null>(null)
   const escaped = useRef(false)
   const [sel, setSel] = useState({ from: 0, to: 0 })
   const [focused, setFocused] = useState(false)
@@ -292,7 +293,7 @@ export function CodeArea(props: CodeAreaProps) {
       if (!wrap) return { x: b.offX + b.gutter + metrics.padX + col * metrics.charW - b.left, y: b.offY + metrics.padY + li * metrics.lineH - b.top }
       // soft wrap: measure the drawn line (only when something floats over it)
       const rootBox = root.current?.getBoundingClientRect()
-      const row = scroller.current?.querySelectorAll<HTMLElement>('.ca__row')[li]
+      const row = layer.current?.children[li] as HTMLElement | undefined
       const text = row?.querySelector<HTMLElement>('.ca__text')
       const rect = text ? caretRect(text, col) : null
       if (rect && rootBox) return { x: rect.left - rootBox.left, y: rect.top - rootBox.top }
@@ -334,7 +335,7 @@ export function CodeArea(props: CodeAreaProps) {
       if (!sc) return
       const st = lineStarts(ta.current?.value ?? value)
       const li = lineIndexAt(st, offset)
-      const row = sc.querySelector<HTMLElement>(`.ca__layer > .ca__row:nth-child(${li + 1})`)
+      const row = layer.current?.children[li] as HTMLElement | undefined
       const top = row ? row.offsetTop : metrics.padY + li * metrics.lineH
       const h = row ? row.offsetHeight : metrics.lineH
       if (top < sc.scrollTop + metrics.padY) sc.scrollTop = Math.max(0, top - metrics.padY - metrics.lineH)
@@ -567,6 +568,10 @@ export function CodeArea(props: CodeAreaProps) {
       [...(markers ?? [])].sort((a, b) => a.line - b.line || a.col - b.col || SEV_RANK[b.severity] - SEV_RANK[a.severity]),
     [markers],
   )
+  // line numbers: with soft wrap each row carries its number (rows differ in height); without wrap one sticky
+  // column holds them all — a thousand sticky cells would cost every frame
+  const rowNumbers = lineNumbers && wrap
+  const columnNumbers = lineNumbers && !wrap
   const rowCache = useRef<RowEntry[]>([])
   const rows: ReactNode[] = []
   const nextCache: RowEntry[] = []
@@ -584,16 +589,33 @@ export function CodeArea(props: CodeAreaProps) {
     const lens = wrap ? null : (p?.lens ?? null)
     const cur = focused && i === caretLine
     const prev = rowCache.current[i]
-    if (prev && prev.text === text && prev.mark === mark && prev.lens === lens && prev.cur === cur && prev.ln === lineNumbers && prev.rt === renderToken && sameSegs(prev.segs, segs) && sameDecos(prev.decos, decos)) {
+    if (prev && prev.text === text && prev.mark === mark && prev.lens === lens && prev.cur === cur && prev.ln === rowNumbers && prev.rt === renderToken && sameSegs(prev.segs, segs) && sameDecos(prev.decos, decos)) {
       nextCache.push(prev)
       rows.push(prev.el)
       continue
     }
-    const el = <Row key={i} n={i + 1} text={text} segs={segs} decos={decos} mark={mark} lens={lens} cur={cur} ln={lineNumbers} renderToken={renderToken} />
-    nextCache.push({ text, segs, decos, mark, lens, cur, ln: lineNumbers, rt: renderToken, el })
+    const el = <Row key={i} n={i + 1} text={text} segs={segs} decos={decos} mark={mark} lens={lens} cur={cur} ln={rowNumbers} renderToken={renderToken} />
+    nextCache.push({ text, segs, decos, mark, lens, cur, ln: rowNumbers, rt: renderToken, el })
     rows.push(el)
   }
   rowCache.current = nextCache
+  const numbersText = useMemo(() => Array.from({ length: lines.length }, (_, i) => i + 1).join('\n'), [lines.length])
+  // without wrap, rows off screen are skipped (content-visibility): the widest line keeps the sheet wide enough
+  const widest = useMemo(() => {
+    if (wrap) return 0
+    let w = 0
+    for (const l of lines) {
+      let n = l.length
+      for (let i = l.indexOf('\t'); i >= 0; i = l.indexOf('\t', i + 1)) n++
+      if (n > w) w = n
+    }
+    return w
+  }, [lines, wrap])
+  const gutterMarks: ReactNode[] = []
+  if (columnNumbers) {
+    for (const [i, p] of problems) if (p.mark) gutterMarks.push(<span key={`m${i}`} className="ca__gmark" data-mark={p.mark} data-cur={(focused && i === caretLine) || undefined} data-n={i + 1} style={{ top: metrics.padY + i * metrics.lineH }} />)
+    if (focused && !problems.get(caretLine)?.mark) gutterMarks.push(<span key="cur" className="ca__gmark" data-cur data-n={caretLine + 1} style={{ top: metrics.padY + caretLine * metrics.lineH }} />)
+  }
   const describe = [hintId, problemList && shownMarkers.length ? listId : null, describedBy, inputProps?.['aria-describedby']].filter(Boolean).join(' ') || undefined
   const sizeStyle = height !== null ? { height } : fixedHeight ? undefined : { minHeight: autoMin, maxHeight: autoMax }
 
@@ -623,7 +645,13 @@ export function CodeArea(props: CodeAreaProps) {
           <span ref={measure} className="ca__measure" aria-hidden>
             0000000000
           </span>
-          <div className="ca__layer" aria-hidden>
+          {columnNumbers && (
+            <div className="ca__gutter" aria-hidden>
+              <div className="ca__nums">{numbersText}</div>
+              {gutterMarks}
+            </div>
+          )}
+          <div ref={layer} className="ca__layer" aria-hidden style={widest ? { minWidth: `calc(var(--ca-gutter) + 2 * var(--ca-pad-x) + ${widest}ch)` } : undefined}>
             {rows}
           </div>
           <textarea

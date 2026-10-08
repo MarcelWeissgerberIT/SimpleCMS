@@ -82,10 +82,9 @@
   display: flex;
   min-height: var(--ca-line);
 }
+/* with soft wrap: a number on each row (rows differ in height; nothing scrolls sideways) */
 .ca__ln {
-  position: sticky;
-  left: 0;
-  z-index: 2;
+  position: relative;
   flex: none;
   box-sizing: border-box;
   width: var(--ca-gutter);
@@ -149,6 +148,74 @@
 }
 .ca__row[data-cur] .ca__text {
   background: var(--syn-line);
+}
+
+/* without wrap: rows off screen are skipped (each is exactly one line high), the numbers are one sticky column */
+.ca[data-wrap='off'] .ca__row {
+  content-visibility: auto;
+  contain-intrinsic-width: 0;
+  contain-intrinsic-height: var(--ca-line);
+}
+.ca[data-wrap='off'][data-ln='on'] .ca__row {
+  padding-left: var(--ca-gutter);
+}
+.ca__gutter {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  width: var(--ca-gutter);
+  height: 0;
+}
+.ca__nums,
+.ca__gmark {
+  position: absolute;
+  /* the column's width comes from .ca__gutter (the code font's ch): these use a smaller font */
+  right: 0;
+  left: 0;
+  box-sizing: border-box;
+  padding-right: 1.2ch;
+  border-right: 1px solid var(--rule);
+  background: var(--surface-2);
+  color: var(--syn-gutter);
+  font-size: calc(11px * var(--text-scale));
+  line-height: var(--ca-line);
+  text-align: right;
+  white-space: pre;
+}
+.ca__nums {
+  top: 0;
+  padding-top: var(--ca-pad-y);
+  padding-bottom: var(--ca-pad-y);
+}
+.ca__gmark {
+  height: var(--ca-line);
+}
+.ca__gmark::before {
+  content: attr(data-n);
+}
+.ca__gmark[data-cur] {
+  color: var(--syn-gutter-cur);
+  font-weight: 650;
+}
+.ca__gmark[data-mark] {
+  color: var(--syn-err);
+  font-weight: 700;
+}
+.ca__gmark[data-mark]::after {
+  content: '';
+  position: absolute;
+  top: calc(var(--ca-line) / 2 - 3px);
+  left: 5px;
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-led);
+  background: var(--syn-err);
+}
+.ca__gmark[data-mark='warning']::after {
+  background: var(--c-yellow-text);
+}
+.ca__gmark[data-mark='info']::after {
+  background: var(--syn-num);
 }
 
 /* problems, the pair at the caret, unmatched brackets — background and decoration only (widths stay) */
