@@ -23,6 +23,8 @@ Business-Analyse und QA haben eigene Pipelines – siehe [Business-Analyse- und 
 
 Neuer Code? Dieselbe Seite klont von **GitLab / GitHub** (eine Adresse oder ein Projekt aus deiner Liste mit `glab` / `gh`) oder importiert eine **ZIP** als neues Repository nach `~/one-repos` – siehe [Altsoftware modernisieren](help:legacy-modernisation). Pro Repository kann sie Claude Code auch deine eigenen MCP-Server geben (z. B. eine Wissensbasis).
 
+**MCP-Server: zwei Claudes.** Deine MCP-Server in One (Einstellungen → Claude KI → [MCP-Server](help:mcp-servers)) gelten für Ones eigenen Claude – KI-Menü, Terminal, Agenten. Claude Code auf deinem Rechner bekommt nur die Aufgaben-Werkzeuge von One, solange die Setup-Seite des Workers nicht mehr erlaubt: pro Repository **Eigene MCP-Server für Claude Code**, für Aufgaben ohne Repository **Aufgaben ohne Repository – eigene MCP-Server** – Namen wie in `claude mcp list` (einen Server gibst du Claude Code zuerst mit `claude mcp add …`). Das Coding-Panel zeigt, welche Server eine Aufgabe nutzen darf (**Claude Code · MCP**), und warnt, wenn ihr Text einen erwähnt, den Claude Code nicht nutzen darf – mit **Setup-Seite öffnen**.
+
 Später ändern: **Repositories ändern** — der Worker öffnet seine Seite wieder auf deinem Rechner. One erfährt immer nur die Namen der Repos; Pfade und Befehle bleiben in `~/.config/one/worker.json` auf deinem Rechner.
 
 > Tipp: Ein neuer Download ersetzt die Kopplung — starte die zuletzt heruntergeladene Datei. Auf einem Rechner ohne Browser fragt `node one-worker.mjs --no-browser` stattdessen im Terminal (Zahlen haken an, Enter speichert).

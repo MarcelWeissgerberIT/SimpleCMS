@@ -1,7 +1,7 @@
 ---
 id: 2026-10-08-terminal-pipelines
 date: 2026-10-08
-order: 3
+order: 4
 title: Das KI-Terminal steuert deine Pipelines – und meldet dich bei MCP-Servern an
 summary: In ⌘J listet Claude Aufgaben der Coding-Pipelines, legt sie an, gibt sie frei, schickt sie zurück, beantwortet Fragen, startet und stoppt sie – jede Änderung als Vorschlag, den du prüfst; /verbinden meldet dich in einem Browserfenster bei einem MCP-Server an.
 image: assets/shots/changelog/terminal-pipelines.webp

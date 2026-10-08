@@ -312,3 +312,73 @@ test('a worker that does not pass a model on (`can` without "model") never gets 
     await fake.close()
   }
 })
+
+test('the task panel names Claude Code\'s own MCP servers for the task; a task that mentions one Claude Code may not use says so, with the setup page one click away', async ({ page, errors }) => {
+  errors.allow(/WebSocket connection to 'ws:\/\/127\.0\.0\.1/)
+  // a current worker: the repo has the person's own "kb" server; tasks without a repository have none
+  const fake = await startFakeWorker(PORT, { worker: '1.7.0', name: 'mcp-box', repos: [{ name: 'website', baseBranch: 'main', mcp: ['kb'] }], parallel: 1, busy: [], spentToday: 0, dayLimit: null, claude: { found: true, version: '2.0.0' }, setup: true, mcp: [] })
+  fake.can = ['analyze', 'git:comment', 'git:merge', 'doc', 'model', 'mcp-list']
+  try {
+    await openApp(page)
+    // One's own MCP servers (for One's Claude): "tracker" (codeword "kb") and "wiki"
+    await wsEval(page, (s) =>
+      s.updateSettings({
+        mcpServers: [
+          { id: 'm1', name: 'tracker', codeword: 'kb', url: 'https://tracker.example.com/mcp', token: '', enabled: true, prompt: '' },
+          { id: 'm2', name: 'wiki', url: 'https://wiki.example.com/mcp', token: '', enabled: true, prompt: '' },
+        ],
+      }),
+    )
+    await connect(page, 'mcp-box')
+    await page.evaluate(() => (window.location.hash = '#/coding/spec'))
+    await page.getByTestId('coding-setup').click()
+    // a task on the repo that names both: "kb" is allowed there, "Wiki" is not
+    await page.getByTestId('coding-new').click()
+    await page.getByTestId('coding-new-title').fill('Approval rules from the tracker')
+    await page.getByTestId('coding-new-repo').fill('website')
+    await page.getByTestId('coding-new-goal').fill('Read ticket 42 with kb and the approval page in the Wiki, then write the rules.')
+    await page.getByTestId('coding-create').click()
+    await expect(page.getByTestId('coding-panel')).toBeVisible()
+    const line = page.getByTestId('coding-task-mcp')
+    await expect(line).toContainText('Claude Code · MCP')
+    await expect(line.locator('.ctk-mcp__name')).toHaveText(['kb'])
+    const missing = line.getByTestId('coding-task-mcp-missing')
+    await expect(missing).toContainText('The task mentions wiki — Claude Code may not use it here.')
+    await expect(missing).toContainText('this repo’s “Own MCP servers for Claude Code”')
+    await expect(missing.getByTestId('coding-task-mcp-fix')).toHaveText('Open the setup page')
+
+    // a task without a repository: no own servers there — the text asks for MCP → the note names the right field
+    await page.evaluate(() => (window.location.hash = '#/coding/spec'))
+    await page.getByTestId('coding-new').click()
+    await page.getByTestId('coding-new-title').fill('Summarise the open questions')
+    await page.getByTestId('coding-new-goal').fill('Use the MCP tools to read the open questions.')
+    await page.getByTestId('coding-create').click()
+    await expect(page.getByTestId('coding-panel')).toBeVisible()
+    await expect(line.locator('.ctk-mcp__none')).toHaveText('only One’s task tools')
+    await expect(line.getByTestId('coding-task-mcp-missing')).toContainText('The task mentions MCP')
+    await expect(line.getByTestId('coding-task-mcp-missing')).toContainText('“Tasks without a repository — own MCP servers”')
+  } finally {
+    await fake.close()
+  }
+})
+
+test('an older worker names no MCP servers: the task panel shows no MCP line', async ({ page, errors }) => {
+  errors.allow(/WebSocket connection to 'ws:\/\/127\.0\.0\.1/)
+  const fake = await startFakeWorker(PORT, { worker: '1.6.0', name: 'mid-box', repos: [{ name: 'website', baseBranch: 'main' }], parallel: 1, busy: [], spentToday: 0, dayLimit: null, claude: { found: true, version: '2.0.0' } })
+  fake.can = ['analyze', 'git:comment', 'git:merge', 'doc', 'model']
+  try {
+    await openApp(page)
+    await connect(page, 'mid-box')
+    await page.evaluate(() => (window.location.hash = '#/coding/spec'))
+    await page.getByTestId('coding-setup').click()
+    await page.getByTestId('coding-new').click()
+    await page.getByTestId('coding-new-title').fill('Read the MCP notes')
+    await page.getByTestId('coding-new-repo').fill('website')
+    await page.getByTestId('coding-new-goal').fill('Use MCP.')
+    await page.getByTestId('coding-create').click()
+    await expect(page.getByTestId('coding-panel')).toBeVisible()
+    await expect(page.getByTestId('coding-task-mcp')).toHaveCount(0)
+  } finally {
+    await fake.close()
+  }
+})

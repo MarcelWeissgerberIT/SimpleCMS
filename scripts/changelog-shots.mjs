@@ -8,7 +8,7 @@
  *
  * (CHANGELOG_DRAFT=1 lets the build pass while a new entry's picture does not exist yet.)
  *
- * Shots: models, search, terminal-pipelines, cloud-worker, one-picker, pipelines, legacy-modernise, coding-live, text-size, mcp-media, coding-setup, free-board, building-blocks, workspace-settings, diagram-viewer, coding-pipeline, pages-per-item, design-import, tour, quick-capture, script-templates, one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
+ * Shots: task-mcp, models, search, terminal-pipelines, cloud-worker, one-picker, pipelines, legacy-modernise, coding-live, text-size, mcp-media, coding-setup, free-board, building-blocks, workspace-settings, diagram-viewer, coding-pipeline, pages-per-item, design-import, tour, quick-capture, script-templates, one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
  * custom-agents, gmail, help-centre, mcp-servers, feed-blocks — each named like its image. Every shot starts from a fresh, seeded
  * workspace in English, light theme, 1440 × 900 at device scale 2; the crop of the relevant area is scaled
  * to 1440 px wide and saved as public/assets/shots/changelog/<shot>.webp (≤ 150 KB: the quality steps down
@@ -2402,6 +2402,59 @@ const shots = {
   },
 
   /** The pipeline editor: Plan open with its Model (Fable), the chips of Plan and Implement (Sonnet) in their rows. */
+  /**
+   * The task panel names Claude Code's own MCP servers for the task: the repo has the person's "kb" server (worker.json
+   * claude.mcpServers); the task also asks for the "Wiki" — one of One's own MCP servers, which never reach Claude
+   * Code — so the panel says where to add it. The repository's own worker with the fake Claude Code CLI; nothing runs.
+   */
+  async 'task-mcp'(browser) {
+    const work = codingRepo()
+    const { ctx, page } = await freshPage(browser, { viewport: { width: W, height: H + 200 } })
+    let worker = null
+    try {
+      await page.evaluate(() =>
+        window.__one.workspace.getState().updateSettings({
+          mcpServers: [
+            { id: 'm1', name: 'tracker', codeword: 'kb', url: 'https://tracker.example.com/mcp', token: '', enabled: true, prompt: '' },
+            { id: 'm2', name: 'wiki', url: 'https://wiki.example.com/mcp', token: '', enabled: true, prompt: '' },
+          ],
+        }),
+      )
+      await page.evaluate(() => window.__one.ui.getState().openModal({ type: 'settings' }))
+      await page.getByRole('tab', { name: 'Coding worker' }).click()
+      const init = await page.locator('.cw-code pre').filter({ hasText: 'init --workspace' }).first().textContent()
+      worker = await startCodingWorker(work, /--workspace (\S+)/.exec(init)[1], {}, { claude: { mcpServers: ['kb'] } })
+      const port = page.getByLabel('Port', { exact: true })
+      await port.fill(String(WORKER_PORT))
+      await port.press('Enter')
+      await page.getByRole('switch', { name: 'Connect to a coding worker on this computer' }).click()
+      await page.getByTestId('coding-conn').filter({ hasText: 'Connected' }).waitFor({ timeout: 20_000 })
+      await page.keyboard.press('Escape')
+      await page.getByRole('dialog').waitFor({ state: 'detached' })
+      await page.evaluate(() => (window.location.hash = '#/coding/spec'))
+      await page.getByTestId('coding-setup').click()
+      await page.getByText('Business analysis database created.').waitFor({ state: 'detached', timeout: 20_000 })
+      await page.getByTestId('coding-new').click()
+      await page.getByTestId('coding-new-title').fill('Approval rules from ticket 42')
+      await page.getByTestId('coding-new-repo').fill('website')
+      await page.getByTestId('coding-new-goal').fill('Read ticket 42 with kb and the approval page in the Wiki, then write down who approves what, and when.')
+      await page.getByTestId('coding-create').click()
+      const panel = page.getByTestId('coding-panel')
+      await panel.waitFor()
+      const line = page.getByTestId('coding-task-mcp')
+      await line.getByTestId('coding-task-mcp-missing').waitFor({ timeout: 20_000 })
+      await scrollToTop(panel, 28)
+      await rest(page)
+      const top = await boxOf(panel, 20)
+      const end = await line.boundingBox()
+      await save(page, 'task-mcp', { ...top, y: Math.max(0, top.y - 4), height: end.y + end.height + 20 - top.y })
+    } finally {
+      worker?.kill('SIGTERM')
+      await ctx.close()
+      rmSync(work.root, { recursive: true, force: true })
+    }
+  },
+
   async models(browser) {
     const { ctx, page } = await freshPage(browser, { viewport: { width: W, height: H + 160 } })
     await page.evaluate(() => (window.location.hash = '#/coding'))

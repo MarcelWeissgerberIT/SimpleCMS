@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// SimpleCMS One — coding worker 1.6.0 (MIT). Source: https://github.com/MarcelWeissgerberIT/SimpleCMS/tree/main/mcp/src/worker
+// SimpleCMS One — coding worker 1.7.0 (MIT). Source: https://github.com/MarcelWeissgerberIT/SimpleCMS/tree/main/mcp/src/worker
 // Runs coding tasks from One with Claude Code on this computer. Setup: node one-worker.mjs --help
 // Docs and security model: https://github.com/MarcelWeissgerberIT/SimpleCMS/blob/main/docs/CODING.md
 import { createRequire as __createRequire } from 'node:module'; const require = __createRequire(import.meta.url);
@@ -10910,7 +10910,7 @@ var PARALLEL_MAX = 2;
 var STAGE_KINDS = ["queue", "import", "analyze", "plan", "doc", "gate", "implement", "test", "git", "done"];
 var PERMISSION_MODES = ["plan", "acceptEdits", "default"];
 var GIT_ACTIONS = ["commit", "push", "pr", "update-base", "comment", "merge"];
-var WORKER_CAN = ["analyze", "git:comment", "git:merge", "doc", "model"];
+var WORKER_CAN = ["analyze", "git:comment", "git:merge", "doc", "model", "mcp-list"];
 var MODEL_NAME = /^[A-Za-z0-9][A-Za-z0-9._:[\]-]{0,99}$/;
 function cleanModel(v) {
   if (typeof v !== "string") return null;
@@ -15229,7 +15229,7 @@ var Worker2 = class {
     return {
       worker: this.opts.version,
       name: this.config.name,
-      repos: this.config.repos.map((r) => ({ name: r.name, baseBranch: r.baseBranch, branches: this.branches.get(r.name) ?? [] })),
+      repos: this.config.repos.map((r) => ({ name: r.name, baseBranch: r.baseBranch, branches: this.branches.get(r.name) ?? [], mcp: r.claude.mcpServers })),
       parallel: this.config.parallel,
       busy: this.busy(),
       spentToday: this.state.spentToday(),
@@ -15237,7 +15237,8 @@ var Worker2 = class {
       claude: { found: this.caps.found, version: this.caps.version },
       setup: !!this.opts.setup,
       paired: !!this.config.preset,
-      via: cloudOf(this.config) ? "cloud" : "local"
+      via: cloudOf(this.config) ? "cloud" : "local",
+      mcp: this.config.mcpServers
     };
   }
   /** What the setup page shows live (local only: titles and the log are fine there). */
@@ -33937,7 +33938,7 @@ ${prompt}`);
 }
 
 // src/worker/index.ts
-var VERSION = true ? "1.6.0" : "dev";
+var VERSION = true ? "1.7.0" : "dev";
 var quiet = process.env.ONE_WORKER_QUIET === "1";
 var recent = [];
 var log = (msg) => {
