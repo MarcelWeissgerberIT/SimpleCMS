@@ -103,7 +103,8 @@ export function createCollab(deps: { config: Config; log: Logger; repo: Repo; se
         document.on('destroy', guardAgentAuthors(document, { workspaceId: doc.workspaceId, log }))
         document.on('destroy', guardAgentAuthors(document, { workspaceId: doc.workspaceId, log, map: 'scripts' }))
         // the workspace look: owners and admins only (docs/CLOUD.md § Meta document schema)
-        document.on('destroy', guardWorkspaceLook(document, { workspaceId: doc.workspaceId, log }))
+        // (the member's role now — not the one their socket opened with)
+        document.on('destroy', guardWorkspaceLook(document, { workspaceId: doc.workspaceId, log, roleOf: (userId) => repo.memberRole(doc.workspaceId, userId) }))
       }
     },
 

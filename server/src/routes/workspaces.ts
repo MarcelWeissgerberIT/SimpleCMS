@@ -105,14 +105,17 @@ export function workspaceRoutes(s: Services) {
       if (actorRole !== 'owner') throw forbidden('owner_only', 'Only the owner can hand over ownership')
       if (userId !== auth.user.id) {
         s.repo.transferOwnership(workspace.id, userId)
-        if (current === 'viewer') s.collab.closeUser(userId, workspace.id, 'role-changed')
+        // the new owner's sockets reconnect with the new role (a viewer's were read-only; the app refreshes its
+        // role on 'role-changed': owner-only parts, the workspace look); the old owner stays admin
+        s.collab.closeUser(userId, workspace.id, 'role-changed')
         s.log.info('ownership transferred', { workspace: workspace.id, from: auth.user.id, to: userId })
       }
     } else if (role !== current) {
       if (current === 'owner') throw conflict('owner_must_transfer', 'Transfer ownership to someone else first')
       s.repo.setRole(workspace.id, userId, role)
-      // a viewer's socket is read-only and a member's is not: reconnect so the new role applies
-      if (current === 'viewer' || role === 'viewer') s.collab.closeUser(userId, workspace.id, 'role-changed')
+      // every role means something on the socket now: a viewer's is read-only, only owners' and admins' may
+      // change the workspace look — reconnect so the new role applies (the app refreshes its role on 'role-changed')
+      s.collab.closeUser(userId, workspace.id, 'role-changed')
     }
     const updated = s.repo.members(workspace.id).find((m) => m.id === userId)
     if (!updated) throw notFound('member_not_found', 'This person is not a member')

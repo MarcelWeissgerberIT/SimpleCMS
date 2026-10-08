@@ -311,7 +311,8 @@ any path but `/collab`. Per document: `authenticated` → `scope` is `'read-writ
 (viewers — make the editor read-only; their updates are not applied); `authenticationFailed` → `reason`
 is `'unauthenticated' | 'forbidden' | 'invalid-document'`. The server closes a document connection
 (provider `close` event, `event.reason`) with `'membership-revoked'` (removed or left), `'role-changed'`
-(viewer ↔ writer: re-attach to get the new scope), `'workspace-deleted'` or `'session-ended'` (logout,
+(every role change, ownership handed over included — the new owner's sockets: re-attach to get the new scope,
+the app refreshes its role), `'workspace-deleted'` or `'session-ended'` (logout,
 revoked or expired session). Name ids: workspace `[A-Za-z0-9_-]{8,64}`, page `[A-Za-z0-9_-]{1,64}`.
 State is stored debounced (2 s, at most 10 s) and on the last disconnect and shutdown — except for a
 tombstoned page document (deleted for good, see the REST notes), which is never stored again unless its
@@ -425,10 +426,13 @@ a client wrote (*Agents → Who changed an agent*). The `workspace` map is fille
 
 The workspace **look** (`workspace.look`: colours, type and corners of the app, app: Workspace → Look,
 `src/app/lib/look`) is the owners' and admins'. The server watches the key (server/src/collab/workspace-look.ts):
-a change from a connection whose role is not owner or admin is put back right away (the value before it, or no
-key) in one server-origin transaction; an owner's or admin's change gets `updatedBy` = their account id, whatever
-the client wrote. A change carried by waiting ("pending") Yjs structs counts only when every member whose update
-left structs waiting may change the look. The value is cosmetic — every reader sanitizes it (hex colours,
+a change from a member who is not owner or admin is put back right away (the value before it, or no key) in one
+server-origin transaction — the role is looked up for every change, not taken from when the socket opened; an
+owner's or admin's change gets `updatedBy` = their account id, whatever the client wrote. A change carried by
+waiting ("pending") Yjs structs counts only when every member whose update left structs waiting may change the
+look; a look removed by waiting deletes (a delete set for clocks not written yet, replayed inside a later update)
+counts as removed by every member whose update left deletes waiting — not allowed: the look is put back (an
+admin's new value stays theirs) and the waiting deletes are dropped. The value is cosmetic — every reader sanitizes it (hex colours,
 allow-listed fonts, no CSS) — and it is never part of a share link, a published site or an export.
 
 Not synced (per person, per device): `favorite`, `recent`, all `Settings` (theme, language,
