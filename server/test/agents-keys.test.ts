@@ -97,6 +97,22 @@ describe('row keys and "Only by hand" on the server', () => {
       pages().set('tk-a', pageEntry({ title: 'Login fails', parentId: 'db-tk', databaseId: 'db-tk', order: 1 }, { 'k-ticket': '8215', 'k-status': 'o-open' }))
       pages().set('tk-b', pageEntry({ title: 'Export broken', parentId: 'db-tk', databaseId: 'db-tk', order: 2 }, { 'k-ticket': '8216', 'k-status': 'o-ready' }))
       pages().set('tk-c', pageEntry({ title: 'Slow search', parentId: 'db-tk', databaseId: 'db-tk', order: 3, plain: 'Seen on phones' }, { 'k-ticket': '8217', 'k-status': 'o-open', 'k-notes': 'Call back Mira first' }))
+      // an older list with the same fields: its rows can move over only with a free key and no protected value
+      pages().set('db-old', pageEntry({ kind: 'database', title: 'Old tickets', order: 2 }))
+      const old = new Y.Map<unknown>()
+      const om = new Y.Map<unknown>()
+      ;[
+        { id: 'x-title', name: 'Name', type: 'title' },
+        { id: 'x-ticket', name: 'Ticket', type: 'text' },
+        { id: 'x-notes', name: 'Notes', type: 'text' },
+      ].forEach((p, i) => om.set(p.id, { ...p, order: i }))
+      old.set('properties', om)
+      old.set('views', new Y.Map<unknown>())
+      old.set('nextUniqueId', 1)
+      meta.doc.getMap('databases').set('db-old', old)
+      pages().set('old-a', pageEntry({ title: 'Login fails (old)', parentId: 'db-old', databaseId: 'db-old', order: 1 }, { 'x-ticket': '8215' }))
+      pages().set('old-b', pageEntry({ title: 'Printing', parentId: 'db-old', databaseId: 'db-old', order: 2 }, { 'x-ticket': '7001', 'x-notes': 'Old note' }))
+      pages().set('old-c', pageEntry({ title: 'Fonts', parentId: 'db-old', databaseId: 'db-old', order: 3 }, { 'x-ticket': '7002' }))
       const agents = meta.doc.getMap('agents')
       agents.set('ag-stage', agentDef('ag-stage', 'Stage mirror', {}))
       agents.set('ag-apply', agentDef('ag-apply', 'Apply mirror', { write: 'apply' }))
@@ -150,9 +166,20 @@ describe('row keys and "Only by hand" on the server', () => {
     const options = ((meta.doc.getMap('databases').get('db-tk') as Y.Map<any>).get('properties') as Y.Map<any>).get('k-status').options as Array<{ name: string }>
     assert.equal(options.some((o) => o.name === 'Brand new option'), false)
     const db = JSON.parse((await call('one_get_database', { id: 'db-tk' })).content[0]!.text)
-    const notes = db.properties.find((p: any) => p.name === 'Notes')
-    assert.deepEqual([notes.onlyByHand, notes.readOnly], [true, true])
+    const notesProp = db.properties.find((p: any) => p.name === 'Notes')
+    assert.deepEqual([notesProp.onlyByHand, notesProp.readOnly], [true, true])
     assert.equal(db.properties.find((p: any) => p.name === 'Ticket').key, true)
+
+    // moving a row in: its key must be free there, and a protected field stays the person's
+    const taken = await call('one_move_row', { id: 'old-a', databaseId: 'db-tk' })
+    assert.equal(taken.isError, true)
+    assert.match(taken.content[0]!.text, /"Ticket" is the key of "Tickets" — unique per row — and "Login fails" has "8215" there already/)
+    const notes = await call('one_move_row', { id: 'old-b', databaseId: 'db-tk' })
+    assert.equal(notes.isError, true)
+    assert.match(notes.content[0]!.text, /"Notes" is filled in only by hand in "Tickets"/)
+    const moved = await call('one_move_row', { id: 'old-c', databaseId: 'db-tk' })
+    assert.equal(moved.isError, undefined, moved.content[0]?.text)
+    await waitFor(() => (pages().get('old-c') as Y.Map<any>).get('databaseId') === 'db-tk', 5000, 'moved')
   })
 
   test('stage mode: list_databases marks; upsert_rows created / updated / unchanged / refused; create_row and update_row refused', async () => {

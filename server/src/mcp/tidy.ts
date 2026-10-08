@@ -10,6 +10,7 @@ import * as Y from 'yjs'
 import type { Services } from '../context.ts'
 import { notFound } from '../errors.ts'
 import { type PageInfo, type PropertyDef, type Roots, type SelectOption, clone, inTemplate, inTrash, liveDatabase, livePage, nextOrder, pageMap, pairedRelation, propertiesMap, readPage, roots, rowsOf } from '../api/meta.ts'
+import { isHandOnly, keyOwner, keyPropOf, keyText } from '../api/keys.ts'
 import { metaDoc, type WorkspaceModel } from '../api/model.ts'
 import { newId } from '../tokens.ts'
 import { pathOf } from './reads.ts'
@@ -340,8 +341,17 @@ export class McpTidy {
           else if (pairedRelation(r, from.page.id, sp) || pairedRelation(r, to.page.id, tp)) problems.push(`${q(sp.name)} is a two-way relation: its links would not follow the row`)
           else values[tp.id] = clone(v)
         } else values[tp.id] = clone(v)
+        // "Only by hand" there: an MCP client never writes it (api/keys.ts)
+        if (tp.id in values && isHandOnly(tp)) {
+          problems.push(`${q(sp.name)} is filled in only by hand in ${q(toTitle)}: an MCP client does not write it`)
+          delete values[tp.id]
+        }
         if (tp.id in values) carried.push(sp.name)
       }
+      // the target's key stays unique per row
+      const key = keyPropOf(to.properties)
+      const owner = key && key.id in values ? keyOwner(r, to.page.id, key, values[key.id], row.id) : null
+      if (key && owner) problems.push(`${q(key.name)} is the key of ${q(toTitle)} — unique per row — and ${q(titleOf(owner))} has ${q(keyText(key.type, values[key.id]))} there already`)
       // rows that link to it would lose it
       const links: string[] = []
       for (const dbId of r.databases.keys()) {

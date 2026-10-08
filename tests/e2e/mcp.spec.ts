@@ -881,3 +881,39 @@ test.describe('tidy up', () => {
     expect(await wsEval(page, (s, id) => [s.pages[id].trashed, s.databases[id].views.length, s.databases[id].properties.length], db.id)).toEqual([false, 2, 4])
   })
 })
+
+test('row keys and "Only by hand": the schema marks both; a key another row holds and a protected field are refused', async ({ page }) => {
+  await openApp(page)
+  await connect(page)
+  await page.getByRole('radio', { name: 'Apply directly' }).click()
+  const { db, a } = await wsEval(page, (s) => {
+    const db = s.createDatabase({
+      title: 'Tickets',
+      parentId: null,
+      properties: [
+        { id: 'tk-title', name: 'Name', type: 'title' },
+        { id: 'tk-ticket', name: 'Ticket', type: 'text', key: true },
+        { id: 'tk-notes', name: 'Notes', type: 'text', agentReadOnly: true },
+      ],
+    })
+    const a = s.createRow(db, { title: 'Login fails', properties: { 'tk-ticket': '8215', 'tk-notes': 'Call back Mira first' } })
+    return { db, a }
+  })
+  const schema = json(await call('one_get_database', { id: db }))
+  const byName = Object.fromEntries((schema.properties as Array<{ name: string }>).map((p) => [p.name, p]))
+  expect(byName.Ticket).toMatchObject({ key: true, readOnly: false })
+  expect(byName.Notes).toMatchObject({ onlyByHand: true, readOnly: true })
+
+  const dup = await call('one_create_row', { databaseId: db, title: 'Twin', properties: { Ticket: ' 8215 ' } })
+  expect(dup.isError).toBe(true)
+  expect(text(dup)).toContain('"Ticket" is this database\'s key')
+  expect(text(dup)).toContain('one_update_row')
+  expect(text(dup)).not.toContain('upsert_rows')
+  const hand = await call('one_update_row', { id: a, properties: { Notes: 'from the agent' } })
+  expect(hand.isError).toBe(true)
+  expect(text(hand)).toContain('"Notes" is filled in only by hand')
+  expect(await wsEval(page, (s, a) => s.pages[a].properties['tk-notes'], a)).toBe('Call back Mira first')
+
+  const fresh = json(await call('one_create_row', { databaseId: db, title: 'Dark mode', properties: { Ticket: '9001' } }))
+  expect(fresh.properties.Ticket).toBe('9001')
+})
