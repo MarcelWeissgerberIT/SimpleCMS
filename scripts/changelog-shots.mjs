@@ -8,7 +8,7 @@
  *
  * (CHANGELOG_DRAFT=1 lets the build pass while a new entry's picture does not exist yet.)
  *
- * Shots: models, search, terminal-pipelines, cloud-worker, one-picker, pipelines, legacy-modernise, coding-live, text-size, mcp-media, coding-setup, free-board, building-blocks, workspace-settings, diagram-viewer, coding-pipeline, pages-per-item, design-import, tour, quick-capture, script-templates, one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
+ * Shots: mirror, models, search, terminal-pipelines, cloud-worker, one-picker, pipelines, legacy-modernise, coding-live, text-size, mcp-media, coding-setup, free-board, building-blocks, workspace-settings, diagram-viewer, coding-pipeline, pages-per-item, design-import, tour, quick-capture, script-templates, one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
  * custom-agents, gmail, help-centre, mcp-servers, feed-blocks — each named like its image. Every shot starts from a fresh, seeded
  * workspace in English, light theme, 1440 × 900 at device scale 2; the crop of the relevant area is scaled
  * to 1440 px wide and saved as public/assets/shots/changelog/<shot>.webp (≤ 150 KB: the quality steps down
@@ -823,6 +823,104 @@ function drawVolumeTable(t) {
 const toolResult = (body, id) => (body.messages ?? []).flatMap((m) => (Array.isArray(m.content) ? m.content : [])).find((c) => c.type === 'tool_result' && c.tool_use_id === id)
 
 const shots = {
+  /**
+   * "Mirror a list into a database": the recipe's own path — setup (source "tracker", below Team wiki), the editor's
+   * placeholders replaced, a run (Claude mocked: upsert_rows by Key, a note, the state), Apply all — then the person
+   * sets My priority on three rows and the Board by Clarity shows the mirror (sidebar folded for the width).
+   */
+  async mirror(browser) {
+    const ids = { db: '' }
+    const items = [
+      ['8216', 'Export to CSV drops the last row', 'Ready', 'High', 'Jonas Berg', ['export'], 2, '', false, false, 'Clear', 'Steps to reproduce and a test file are attached.'],
+      ['8219', 'Dark mode for the settings page', 'Ready', 'Low', 'Mira Lenz', ['ui'], 1, '', false, false, 'Clear', 'Final designs and acceptance criteria are linked.'],
+      ['8224', 'Keyboard shortcut to archive', 'Open', 'Low', 'Jonas Berg', ['ui'], 0, '', false, false, 'Clear', 'Small and fully described.'],
+      ['8215', 'Login fails after password reset', 'In review', 'High', 'Mira Lenz', ['auth'], 4, 'Mira Lenz: Can you confirm the reset link expiry?', true, true, 'Open questions', 'The expiry of the reset link is not decided yet.'],
+      ['8226', 'Upload stalls at 99 %', 'Open', 'Medium', 'Ada Okafor', ['files'], 5, 'Ada Okafor: Which browser shows it?', true, true, 'Open questions', 'Ada asks which browser shows it.'],
+      ['8217', 'Slow search on phones', 'Open', 'Medium', 'Ada Okafor', ['search'], 6, 'Ada Okafor: Waiting for the index rebuild.', true, false, 'Blocked', 'Needs the index rebuild of the platform team first.'],
+      ['8221', 'Invoice PDF shows the wrong VAT', 'In progress', 'High', 'Lukas Brandt', ['billing'], 3, 'Lukas Brandt: The fix is in review.', false, false, 'In progress elsewhere', 'Lukas works on it in the billing team.'],
+      ['8202', 'Onboarding checklist for new teams', 'Closed', 'Medium', 'Mira Lenz', ['onboarding'], 7, 'Mira Lenz: Shipped.', false, false, 'Done', 'Closed in the source on 6 October.'],
+    ]
+    const rows = items.map(([key, title, status, prio, owner, tags, comments, last, isNew, waiting, clarity, why]) => ({
+      key,
+      title,
+      properties: {
+        Link: `https://tracker.example.com/items/${key}`,
+        'Source status': status,
+        'Source priority': prio,
+        Owner: owner,
+        Tags: tags,
+        'Changed at': isoDay(-1),
+        Comments: comments,
+        ...(last ? { 'Last comment': last, 'Last comment at': isoDay(-1) } : {}),
+        'New comment': isNew,
+        'Waiting on me': waiting,
+        Clarity: clarity,
+        Why: why,
+      },
+    }))
+    const turns = [
+      () => sseTurn([{ type: 'thinking', text: 'Reading my state, then the open items of the tracker.' }, { type: 'tool_use', id: 'toolu_s', name: 'agent_state_get', input: {} }]),
+      () => sseTurn([{ type: 'tool_use', id: 'toolu_u', name: 'upsert_rows', input: { database_id: ids.db, key_property: 'Key', rows } }]),
+      () =>
+        sseTurn([
+          { type: 'tool_use', id: 'toolu_n', name: 'notify_me', input: { text: '3 items became ready: #8216, #8219, #8224.' } },
+          { type: 'tool_use', id: 'toolu_x', name: 'agent_state_set', input: { json: JSON.stringify({ last: new Date().toISOString(), comments: Object.fromEntries(items.map((i) => [i[0], i[6]])) }) } },
+        ]),
+      () => sseTurn([{ type: 'text', text: '**8 items mirrored**, all new. **Waiting on you:** #8215 (reset link expiry), #8226 (which browser). **Ready:** #8216, #8219, #8224. **Blocked:** #8217. Nothing was written to the tracker.' }]),
+    ]
+    const { ctx, page } = await freshPage(browser, { claude: { turns } })
+    await page.evaluate(() =>
+      window.__one.workspace.getState().updateSettings({
+        mcpServers: [
+          { id: 'm-tracker', name: 'tracker', url: 'https://tracker.example.com/mcp', token: '', enabled: true, prompt: '', tools: ['list_items', 'get_item', 'search_items', 'list_comments', 'whoami', 'create_item', 'update_item', 'add_comment'], checkedAt: Date.now() },
+        ],
+      }),
+    )
+    // the recipe: setup → the database and its report page → the editor with the draft
+    await page.evaluate(() => (window.location.hash = '#/agents'))
+    await page.locator('.agx-start [data-recipe="mirror"]').click()
+    const setup = page.locator('.agx-mir')
+    await setup.locator('.agx-pick').click()
+    await page.getByRole('menuitem', { name: 'Team wiki' }).click()
+    await setup.getByRole('button', { name: 'Create database and agent' }).click()
+    await page.locator('.agx-editor').waitFor()
+    ids.db = await pageIdByTitle(page, 'Tracker')
+    for (const text of ['list_items with project WEB and status open', 'get_item with the id, comments included', 'the user "marcel"', 'acceptance criteria written, no open question, nothing blocking']) {
+      await page.locator('.agx-ph__btn').first().click()
+      await page.keyboard.insertText(text)
+    }
+    await page.getByRole('button', { name: 'Create agent', exact: true }).click()
+    await page.locator('.agx-dhead').waitFor()
+    await page.getByRole('button', { name: 'Run now' }).click()
+    await page.waitForFunction(() => document.querySelector('.agx-run')?.getAttribute('data-status') === 'staged', null, { timeout: 30_000 })
+    await page.getByRole('button', { name: 'Apply all' }).first().click()
+    await page.waitForFunction((db) => Object.values(window.__one.workspace.getState().pages).filter((p) => p.databaseId === db).length === 8, ids.db, { timeout: 10_000 })
+    // the person's own priorities (only by hand)
+    await page.evaluate((dbId) => {
+      const s = window.__one.workspace.getState()
+      const prop = s.databases[dbId].properties.find((p) => p.name === 'My priority')
+      const rowsOf = Object.values(s.pages).filter((p) => p.databaseId === dbId)
+      for (const [title, name] of [['Export to CSV', 'P1'], ['Login fails', 'P1'], ['Keyboard shortcut', 'P2'], ['Dark mode', 'P3'], ['Upload stalls', 'P2']]) {
+        const row = rowsOf.find((r) => r.title.startsWith(title))
+        const opt = prop.options.find((o) => o.name === name)
+        if (row && opt) s.setRowProperty(row.id, prop.id, opt.id)
+      }
+      s.updateSettings({ sidebarCollapsed: true })
+    }, ids.db)
+    for (const b of await page.locator('.toast__close').all()) await b.click().catch(() => {})
+    await page.evaluate((id) => (window.location.hash = `#/p/${id}`), ids.db)
+    await page.locator('.dbc').first().waitFor()
+    await page.waitForTimeout(900)
+    await rest(page)
+    // the title, the view tabs and the board down to the last card that fits
+    const top = await boxOf(page.locator('#main .pv-title').first())
+    const y = Math.max(0, Math.round(top.y - 28))
+    // down to the status bar (not into it)
+    const foot = Math.round((await page.locator('footer.status').first().boundingBox())?.y ?? H)
+    await save(page, 'mirror', { x: 0, y, width: W, height: foot - y })
+    await ctx.close()
+  },
+
   /** One memory: the memory database above, the AI terminal below with Claude's proposals after a task ("REMEMBER? · 2"). */
   async memory(browser) {
     const proposals = {
