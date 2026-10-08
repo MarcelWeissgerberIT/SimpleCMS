@@ -264,7 +264,7 @@ test.describe('⌘K filters', () => {
   })
 
   test('by: who created / last edited (team: members, both: agents)', () => {
-    const team = { ...pages, w4: { ...pages.w4, createdBy: 'p-sam', updatedBy: 'p-alex' }, w3: { ...pages.w3, updatedBy: 'agent:ag1' } }
+    const team: Record<string, Page> = { ...pages, w4: { ...pages.w4, createdBy: 'p-sam', updatedBy: 'p-alex' }, w3: { ...pages.w3, updatedBy: 'agent:ag1' } }
     const teamList = list.map((p) => team[p.id])
     const tfx = filterIndexOf(teamList, databases)
     const env = envOf({ team: true, meId: 'p-alex', pages: team })
@@ -282,7 +282,7 @@ test.describe('⌘K filters', () => {
       { id: 'ag2', name: 'Meeting summariser' },
       { id: 'ag3', name: 'Ich-Erzähler' },
     ]
-    const stamped = { ...pages, w4: { ...pages.w4, createdBy: 'p-sam', updatedBy: 'p-alex' }, w5: { ...pages.w5, createdBy: 'agent:ag2', updatedBy: 'agent:ag2' }, w3: { ...pages.w3, createdBy: 'agent:ag3', updatedBy: 'agent:ag3' } }
+    const stamped: Record<string, Page> = { ...pages, w4: { ...pages.w4, createdBy: 'p-sam', updatedBy: 'p-alex' }, w5: { ...pages.w5, createdBy: 'agent:ag2', updatedBy: 'agent:ag2' }, w3: { ...pages.w3, createdBy: 'agent:ag3', updatedBy: 'agent:ag3' } }
     const sfx = filterIndexOf(list.map((p) => stamped[p.id]), databases)
     const run = (q: string, env: FilterEnv) => applyFilters(sfx, parseQuery(`${q} `).filters, env).map((p) => p.id)
     const team = envOf({ team: true, meId: 'p-alex', pages: stamped, agents })
@@ -437,6 +437,60 @@ test.describe('⌘K suggestions', () => {
     expect(sug('is:priv').hint).toBe('shell.palette.hint.is{"key":"is","value":"priv"}')
     expect(sug('is:fav').hint).toBeUndefined()
     expect(sug('is:fav').items.map((i) => i.id)).toEqual(['is:favorite'])
+  })
+
+  test('a valid alias suggests the value it means — never every value, where Tab would swap it for the first', () => {
+    const de = envOf({ lang: 'de' })
+    for (const [q, id, env] of [
+      ['is:rows', 'is:row', envOf()],
+      ['is:entry', 'is:row', envOf()],
+      ['is:entries', 'is:row', envOf()],
+      ['is:db', 'is:database', envOf()],
+      ['is:starred', 'is:favorite', envOf()],
+      ['is:pages', 'is:page', envOf()],
+      ['is:zeile', 'is:row', envOf()],
+      ['ist:zeilen', 'is:row', de],
+      ['ist:row', 'is:row', de],
+    ] as const) {
+      const s = sug(q, env)
+      expect(s.hint, q).toBeUndefined()
+      expect(s.items.map((i) => i.id), q).toEqual([id])
+    }
+    // the inserted word is the language's own, the meaning stays
+    expect(sug('is:rows').items[0].insert).toBe('is:row')
+    expect(sug('ist:zeilen', de).items[0].insert).toBe('ist:zeile')
+    // checkbox: a value that is yes or no already offers that one, never the other
+    const flags = db('db-f', [
+      { id: 'f-t', name: 'Name', type: 'title' },
+      { id: 'f-ok', name: 'Shipped flag', type: 'checkbox' },
+    ])
+    const ffx = filterIndexOf([page({ id: 'db-f', title: 'Flags', kind: 'database' })], { 'db-f': flags })
+    const fsug = (q: string, env = envOf()) => suggest(parseQuery(q).partial, ffx, env, t)
+    for (const v of ['false', '0', 'unchecked', 'off', 'open', 'nein', 'n']) {
+      const s = fsug(`shipped-flag:${v}`)
+      expect(s.hint, v).toBeUndefined()
+      expect(s.items.map((i) => i.id), v).toEqual(['bool:no'])
+    }
+    for (const v of ['true', '1', 'x', 'checked', 'on', 'ja']) expect(fsug(`shipped-flag:${v}`).items.map((i) => i.id), v).toEqual(['bool:yes'])
+    expect(fsug('shipped-flag:false', de).items[0].insert).toBe('shipped-flag:nein')
+    // a status group's other names offer that group first, never the first option
+    for (const [v, insert] of [
+      ['complete', 'status:done'],
+      ['finished', 'status:done'],
+      ['closed', 'status:done'],
+      ['wip', 'status:in-progress'],
+      ['open', 'status:todo'],
+      ['backlog', 'status:todo'],
+    ] as const) {
+      const s = sug(`status:${v}`)
+      expect(s.hint, v).toBeUndefined()
+      expect(s.items[0], v).toMatchObject({ kind: 'group', insert })
+    }
+    expect(sug('status:complete').items.map((i) => i.label)).not.toContain('Backlog')
+    expect(sug('status:fertig', de).items[0]).toMatchObject({ kind: 'group', insert: 'status:erledigt' })
+    // a value that means nothing still lists every value under the hint
+    expect(sug('is:xyz').items).toHaveLength(4)
+    expect(fsug('shipped-flag:maybe').items.map((i) => i.id)).toEqual(['bool:yes', 'bool:no'])
   })
 
   test('German: keywords and date presets', () => {

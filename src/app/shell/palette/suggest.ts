@@ -13,7 +13,7 @@
  */
 import type { ColorName, ID, Page, PropertyType } from '../../store/types'
 import type { Translate } from '@/shared/i18n'
-import { fold, IS_NAMES, isMe, KEYWORD_NAMES, keyText, keywordOf, tokenText, type Filter, type PartialToken } from './query'
+import { fold, IS_NAMES, isMe, KEYWORD_NAMES, keyText, keywordOf, parseBool, parseIs, statusGroupOf, tokenText, type Filter, type PartialToken } from './query'
 import { foldedTitle, isDateType, isNumberType, isOptionType, propsForKey, safeColor, validate, type FilterEnv, type FilterIndex, type PropRef } from './filters'
 
 export interface Suggestion {
@@ -259,10 +259,15 @@ export function suggest(partial: PartialToken | null, fx: FilterIndex, env: Filt
     const all = IS_NAMES[env.lang]
       .filter(([value]) => value !== 'private' || env.team)
       .map(([value, word]) => ({ id: `is:${value}`, insert: tokenText(keyPart, word), label: t(`shell.palette.is.${value}`), hint: word, kind: 'is' as const, complete: true }))
-    const items = all.filter((it) => !v || fold(it.hint).startsWith(v) || fold(it.label).startsWith(v))
-    // nothing fits what is typed: every value, under the hint ("pick one below")
-    if (v && !items.length) return done({ items: all, hint: invalidHint(), place: 'top', head: t('shell.palette.kw.is') })
-    return done({ items, place: 'top', head: t('shell.palette.kw.is') })
+    // an alias (`rows`, `db`, `starred`, `zeilen` …) suggests the value it means, first
+    const canon = `is:${parseIs(partial.value)}`
+    const items = all
+      .filter((it) => !v || it.id === canon || fold(it.hint).startsWith(v) || fold(it.label).startsWith(v))
+      .sort((a, b) => Number(b.id === canon) - Number(a.id === canon))
+    // a value that means nothing: every value, under the hint ("pick one below") — never for a valid one,
+    // where Tab / Enter would swap it for the first row
+    const hint = v && !items.length ? invalidHint() : undefined
+    return done({ items: hint ? all : items, hint, place: 'top', head: t('shell.palette.kw.is') })
   }
   if (kw === 'has') {
     const items = rank(fx.names, (n) => n.name, v).map((n) => ({
@@ -317,10 +322,12 @@ export function suggest(partial: PartialToken | null, fx: FilterIndex, env: Filt
   const types = refs.map((r) => r.prop.type)
   if (types.some(isOptionType)) {
     const items: Suggestion[] = []
+    // a group's other names (`complete`, `wip`, `backlog`, `fertig` …) suggest that group
+    const named = types.includes('status') ? statusGroupOf(partial.value) : null
     if (types.includes('status'))
       for (const [group, word] of GROUP_WORDS[env.lang]) {
         const label = t(`database.status.group.${group}`)
-        if (v && !fold(word).startsWith(v) && !fold(label).startsWith(v)) continue
+        if (v && group !== named && !fold(word).startsWith(v) && !fold(label).startsWith(v)) continue
         // what the group holds: "Done · Finished · Published"
         const names = new Map<string, string>()
         for (const { prop } of refs) if (prop.type === 'status') for (const o of prop.options ?? []) if (o.group === group && !names.has(fold(o.name))) names.set(fold(o.name), o.name)
@@ -332,13 +339,13 @@ export function suggest(partial: PartialToken | null, fx: FilterIndex, env: Filt
     for (const { prop } of refs) for (const o of prop.options ?? []) if (!seen.has(fold(o.name))) seen.set(fold(o.name), { name: o.name, color: safeColor(o.color) })
     const all = [...seen.values()]
     let options = rank(all, (o) => o.name, v)
-    // nothing fits what is typed: offer every option ("pick one below")
-    const none = v && !options.length && !items.length
-    if (none) options = all
+    // a value that means nothing: every option, under the hint ("pick one below") — never for a valid one
+    const hint = v && !options.length && !items.length ? invalidHint() : undefined
+    if (hint) options = all
     const counts = optionCounts(fx, propKey, refs)
     for (const o of options)
       items.push({ id: `opt:${fold(o.name)}`, insert: tokenText(kp, o.name), label: o.name, color: o.color, hint: rowsLabel(counts.get(fold(o.name)) ?? 0, t), kind: 'option', complete: true })
-    return done({ items, hint: none ? invalidHint() : undefined, place: 'top', head: name })
+    return done({ items, hint, place: 'top', head: name })
   }
   if (types.some((x) => x === 'person' || x === 'created_by' || x === 'last_edited_by')) {
     // a person property anywhere under this name: its people are values (locally Created by / Last edited by alone: Me + agents)
@@ -353,10 +360,12 @@ export function suggest(partial: PartialToken | null, fx: FilterIndex, env: Filt
       { id: 'bool:yes', insert: tokenText(kp, yes), label: t('database.yes'), kind: 'bool' as const, complete: true },
       { id: 'bool:no', insert: tokenText(kp, no), label: t('database.no'), kind: 'bool' as const, complete: true },
     ]
-    const items = all.filter((s) => !v || fold(words[s.id]).startsWith(v) || fold(s.label).startsWith(v))
-    // nothing fits: both, under the hint ("pick one below")
-    if (v && !items.length) return done({ items: all, hint: invalidHint(), place: 'top', head: name })
-    return done({ items, place: 'top', head: name })
+    // a value that is yes or no already (`false`, `0`, `off`, `nein` …): that one row, never the other
+    const b = parseBool(partial.value)
+    const items = b !== null ? all.filter((s) => s.id === (b ? 'bool:yes' : 'bool:no')) : all.filter((s) => !v || fold(words[s.id]).startsWith(v) || fold(s.label).startsWith(v))
+    // a value that means nothing: both, under the hint ("pick one below") — never for a valid one
+    const hint = v && !items.length ? invalidHint() : undefined
+    return done({ items: hint ? all : items, hint, place: 'top', head: name })
   }
   if (types.some(isDateType)) {
     const items = dateItems(kp, v, env, t)

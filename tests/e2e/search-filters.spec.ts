@@ -221,6 +221,35 @@ test.describe('⌘K filters', () => {
     await expect(sug).toHaveText(['Favorites', 'Pages', 'Databases', 'Database entries'])
   })
 
+  test('a valid alias suggests its own value: is:rows + Tab → Database entries, a checkbox’s false → No', async ({ page }) => {
+    await openApp(page)
+    const projects = await pageIdByTitle(page, 'Projects')
+    await wsEval(page, (s, db) => s.addProperty(db, { type: 'checkbox', name: 'Shipped flag' }), projects)
+    const pal = await openPalette(page)
+    const sug = pal.locator('.pal-item--sug .pal-item__title')
+    const hint = pal.locator('.pal-hint__text')
+    const take = async (typed: string, key: 'Tab' | 'Enter', shown: string[], chip: string) => {
+      await page.keyboard.type(typed)
+      await expect(sug).toHaveText(shown)
+      await expect(hint).toHaveCount(0)
+      await page.keyboard.press(key)
+      await expect(chips(pal)).toHaveCount(1)
+      await expect(chips(pal).first()).toHaveAccessibleName(chip)
+      await expect(field(pal)).toHaveValue('')
+      // Backspace in the empty field takes the chip back off
+      await page.keyboard.press('Backspace')
+      await expect(chips(pal)).toHaveCount(0)
+    }
+    await take('is:rows', 'Tab', ['Database entries'], 'Remove filter is: Database entries')
+    await take('is:entry', 'Enter', ['Database entries'], 'Remove filter is: Database entries')
+    await take('is:db', 'Tab', ['Databases'], 'Remove filter is: Databases')
+    await take('shipped-flag:false', 'Tab', ['No'], 'Remove filter Shipped flag: No')
+    await take('shipped-flag:0', 'Enter', ['No'], 'Remove filter Shipped flag: No')
+    await take('shipped-flag:on', 'Tab', ['Yes'], 'Remove filter Shipped flag: Yes')
+    // a status group's other name (wip = in progress): the group, never the first option
+    await take('status:wip', 'Tab', ['In progress'], 'Remove filter Status: In progress')
+  })
+
   test('Enter on the focused “How filters work” key opens the help — never the selected row', async ({ page }) => {
     await openApp(page)
     const before = await page.evaluate(() => location.hash)
@@ -272,5 +301,11 @@ test.describe('⌘K filters in German', () => {
     await expect.poll(() => titles(pal)).toContain('Brand-Refresh')
     await page.keyboard.type('geändert:')
     await expect(pal.locator('.pal-item--sug').first()).toContainText('Heute')
+    // a valid alias suggests what it means: ist:zeilen + Tab → Datenbank-Einträge (never the first value)
+    await page.keyboard.press(`${MOD}+a`)
+    await page.keyboard.type('ist:zeilen')
+    await expect(pal.locator('.pal-item--sug .pal-item__title')).toHaveText(['Datenbank-Einträge'])
+    await page.keyboard.press('Tab')
+    await expect(chips(pal).last()).toHaveAccessibleName('Filter ist: Datenbank-Einträge entfernen')
   })
 })
