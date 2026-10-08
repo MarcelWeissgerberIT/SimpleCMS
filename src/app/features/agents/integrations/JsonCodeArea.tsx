@@ -4,9 +4,17 @@
  * on hover. Keys: Tab / Shift+Tab indent and outdent (Esc, then Tab, leaves the field), Enter keeps the indentation
  * (one level more after "{" or "["). One small component on purpose — { value, onChange, markers } — so a shared
  * code area can take its place later.
+ *
+ * Bounded work per keystroke: only the lines in view (plus a margin) are highlighted and numbered, a very long line
+ * is shown without colours (its marks stay), and a text longer than `plainAbove` is a plain textarea (no layer).
  */
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import './integrations.css'
+
+/** Lines rendered above and below the visible ones. */
+const OVERSCAN = 24
+/** A line longer than this is not split into coloured tokens (one minified line would be thousands of spans). */
+const LONG_LINE = 2_000
 
 export interface CodeMarker {
   line: number
@@ -27,12 +35,15 @@ export interface JsonCodeAreaProps {
   describedBy?: string
   /** put the caret at a line / column (and bring it into view); `n` makes a repeated jump to the same place count */
   jump?: { line: number; col: number; n: number } | null
+  /** longer texts (characters) are shown as a plain textarea: no colours, no marks (default 200,000) */
+  plainAbove?: number
 }
 
 type Tok = { text: string; cls: string }
 
-/** One line of JSON as tokens (a key is a string followed by ":"). */
+/** One line of JSON as tokens (a key is a string followed by ":"); a very long line is one plain token. */
 function tokens(line: string): Tok[] {
+  if (line.length > LONG_LINE) return [{ text: line, cls: '' }]
   const out: Tok[] = []
   const re = /("(?:[^"\\]|\\.)*"?)|(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)|\b(true|false|null)\b|([{}[\],:])|(\s+)|(.)/g
   let m: RegExpExecArray | null
@@ -58,64 +69,83 @@ function rangeOf(line: string, m: CodeMarker): [number, number] {
   return [from, from + Math.max(1, tok ? tok[0].length : 1)]
 }
 
-const Layer = memo(function Layer({ lines, marks }: { lines: string[]; marks: Map<number, CodeMarker[]> }) {
-  return (
-    <>
-      {lines.map((line, i) => {
-        const ms = marks.get(i + 1) ?? []
-        const ranges = ms.map((m) => ({ r: rangeOf(line, m), sev: m.severity }))
-        // split every token at the marked ranges' edges
-        const parts: ReactNode[] = []
-        let at = 0
-        tokens(line).forEach((tok, k) => {
-          const cuts = new Set<number>([0, tok.text.length])
-          for (const { r } of ranges) for (const edge of r) if (edge > at && edge < at + tok.text.length) cuts.add(edge - at)
-          const sorted = [...cuts].sort((a, b) => a - b)
-          for (let c = 0; c < sorted.length - 1; c++) {
-            const s = at + sorted[c]
-            const e = at + sorted[c + 1]
-            const hit = ranges.find(({ r }) => s >= r[0] && e <= r[1])
-            const cls = [tok.cls ? `jca-tok--${tok.cls}` : '', hit ? `jca-mark jca-mark--${hit.sev}` : ''].filter(Boolean).join(' ')
-            parts.push(
-              cls ? (
-                <span key={`${k}-${c}`} className={cls}>
-                  {line.slice(s, e)}
-                </span>
-              ) : (
-                line.slice(s, e)
-              ),
-            )
-          }
-          at += tok.text.length
-        })
-        // a mark past the end of the line (an unexpected end): a caret-wide squiggle
-        if (ranges.some(({ r }) => r[0] >= line.length))
-          parts.push(
-            <span key="end" className={`jca-mark jca-mark--${ranges.find(({ r }) => r[0] >= line.length)!.sev}`}>
-              {' '}
-            </span>,
-          )
-        return (
-          <div key={i} className="jca__line">
-            {parts.length ? parts : ' '}
-          </div>
-        )
-      })}
-    </>
-  )
-})
+/** The same marks (by what they mark): an unchanged line keeps its rendering. */
+const sameMarks = (a: CodeMarker[] | undefined, b: CodeMarker[] | undefined): boolean =>
+  a === b || (!!a && !!b && a.length === b.length && a.every((m, i) => m.col === b[i].col && m.endCol === b[i].endCol && m.severity === b[i].severity))
 
-export function JsonCodeArea({ value, onChange, markers = [], readOnly, ariaLabel, id, describedBy, jump }: JsonCodeAreaProps) {
+/** One highlighted line: its tokens, split at the marked ranges' edges. */
+const Line = memo(
+  function Line({ line, marks }: { line: string; marks?: CodeMarker[] }) {
+    const ranges = (marks ?? []).map((m) => ({ r: rangeOf(line, m), sev: m.severity }))
+    const parts: ReactNode[] = []
+    let at = 0
+    tokens(line).forEach((tok, k) => {
+      const cuts = new Set<number>([0, tok.text.length])
+      for (const { r } of ranges) for (const edge of r) if (edge > at && edge < at + tok.text.length) cuts.add(edge - at)
+      const sorted = [...cuts].sort((a, b) => a - b)
+      for (let c = 0; c < sorted.length - 1; c++) {
+        const s = at + sorted[c]
+        const e = at + sorted[c + 1]
+        const hit = ranges.find(({ r }) => s >= r[0] && e <= r[1])
+        const cls = [tok.cls ? `jca-tok--${tok.cls}` : '', hit ? `jca-mark jca-mark--${hit.sev}` : ''].filter(Boolean).join(' ')
+        parts.push(
+          cls ? (
+            <span key={`${k}-${c}`} className={cls}>
+              {line.slice(s, e)}
+            </span>
+          ) : (
+            line.slice(s, e)
+          ),
+        )
+      }
+      at += tok.text.length
+    })
+    // a mark past the end of the line (an unexpected end): a caret-wide squiggle
+    const past = ranges.find(({ r }) => r[0] >= line.length)
+    if (past)
+      parts.push(
+        <span key="end" className={`jca-mark jca-mark--${past.sev}`}>
+          {' '}
+        </span>,
+      )
+    return <div className="jca__line">{parts.length ? parts : ' '}</div>
+  },
+  (a, b) => a.line === b.line && sameMarks(a.marks, b.marks),
+)
+
+export function JsonCodeArea({ value, onChange, markers = [], readOnly, ariaLabel, id, describedBy, jump, plainAbove = 200_000 }: JsonCodeAreaProps) {
   const input = useRef<HTMLTextAreaElement>(null)
   const [scroll, setScroll] = useState({ top: 0, left: 0 })
+  // the field's line height and visible height (px): which lines are in view
+  const [box, setBox] = useState({ line: 20, height: 480 })
   const escaped = useRef(false)
+  const plain = value.length > plainAbove
   const lines = useMemo(() => value.split('\n'), [value])
   const marks = useMemo(() => {
     const m = new Map<number, CodeMarker[]>()
-    for (const x of markers) m.set(x.line, [...(m.get(x.line) ?? []), x])
+    if (!plain) for (const x of markers) m.set(x.line, [...(m.get(x.line) ?? []), x])
     return m
-  }, [markers])
+  }, [markers, plain])
   const width = String(lines.length).length
+  // the window of lines rendered (0-based, end exclusive)
+  const first = Math.max(0, Math.floor(scroll.top / box.line) - OVERSCAN)
+  const last = Math.min(lines.length, Math.ceil((scroll.top + box.height) / box.line) + OVERSCAN)
+  const shown = lines.slice(first, last)
+
+  // measure once and whenever the field changes size (text size, window)
+  useLayoutEffect(() => {
+    const el = input.current
+    if (!el) return
+    const measure = () => {
+      const line = parseFloat(getComputedStyle(el).lineHeight) || 20
+      setBox((b) => (b.line === line && b.height === el.clientHeight ? b : { line, height: el.clientHeight || b.height }))
+    }
+    measure()
+    if (typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
 
   // a jump from the problem list: caret there, the line in view
   useLayoutEffect(() => {
@@ -193,27 +223,35 @@ export function JsonCodeArea({ value, onChange, markers = [], readOnly, ariaLabe
     }
   }
 
+  const spacer = first > 0 ? <div className="jca__spacer" style={{ height: first * box.line }} /> : null
   return (
-    <div className="jca" data-readonly={readOnly || undefined} style={{ ['--jca-gutter' as string]: `${width + 2}ch` }}>
+    <div className="jca" data-readonly={readOnly || undefined} data-plain={plain || undefined} style={{ ['--jca-gutter' as string]: `${width + 2}ch` }}>
       <div className="jca__gutter" aria-hidden>
         <div className="jca__nums" style={{ transform: `translateY(${-scroll.top}px)` }}>
-          {lines.map((_, i) => {
-            const ms = marks.get(i + 1)
+          {spacer}
+          {shown.map((_, k) => {
+            const n = first + k + 1
+            const ms = marks.get(n)
             const sev = ms?.some((m) => m.severity === 'error') ? 'error' : ms?.length ? 'warning' : undefined
             return (
-              <div key={i} className="jca__ln" data-mark={sev} title={ms?.map((m) => m.message).join('\n')}>
-                {i + 1}
+              <div key={n} className="jca__ln" data-mark={sev} title={ms?.map((m) => m.message).join('\n')}>
+                {n}
               </div>
             )
           })}
         </div>
       </div>
       <div className="jca__field">
-        <div className="jca__clip" aria-hidden>
-          <pre className="jca__layer" style={{ transform: `translate(${-scroll.left}px, ${-scroll.top}px)` }}>
-            <Layer lines={lines} marks={marks} />
-          </pre>
-        </div>
+        {!plain && (
+          <div className="jca__clip" aria-hidden>
+            <pre className="jca__layer" style={{ transform: `translate(${-scroll.left}px, ${-scroll.top}px)` }}>
+              {spacer}
+              {shown.map((line, k) => (
+                <Line key={first + k} line={line} marks={marks.get(first + k + 1)} />
+              ))}
+            </pre>
+          </div>
+        )}
         <textarea
           ref={input}
           id={id}

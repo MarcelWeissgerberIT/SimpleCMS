@@ -40,6 +40,7 @@ import type {
 import { newId } from '../../../lib/ids'
 import { ALL_MESSAGES } from '../../../i18n'
 import { NONE_KEY } from '../../../database'
+import { composeMirrorInstructions } from './instructions'
 
 /* ------------------------------------------------------------------ the built-in recipe */
 
@@ -81,42 +82,16 @@ export const MIRROR_DEFAULTS = { icon: 'Layers', color: 'brown' as ColorName, at
 
 const translator = (lang: Lang) => makeTranslator(ALL_MESSAGES, lang)
 
-/** The built-in recipe's instructions in a language, with these property names (by role) and tokens left for {db} / {server}. */
-export function mirrorInstructionsText(lang: Lang, nameOf: (role: string) => string, db = '{db}', server = '{server}'): string {
-  const tr = translator(lang)
-  const c = (k: string) => tr(`features.agents.mirror.clarity.${k}`)
-  return tr('features.agents.mirror.instructions', {
-    db,
-    server,
-    phList: tr('features.agents.mirror.ph.list'),
-    phRead: tr('features.agents.mirror.ph.read'),
-    phMe: tr('features.agents.mirror.ph.me'),
-    phClear: tr('features.agents.mirror.ph.clear'),
-    key: nameOf('key'),
-    link: nameOf('link'),
-    status: nameOf('srcStatus'),
-    prio: nameOf('srcPriority'),
-    owner: nameOf('owner'),
-    tags: nameOf('tags'),
-    changed: nameOf('changedAt'),
-    comments: nameOf('comments'),
-    last: nameOf('lastComment'),
-    lastAt: nameOf('lastCommentAt'),
-    new: nameOf('newComment'),
-    waiting: nameOf('waiting'),
-    clarity: nameOf('clarity'),
-    why: nameOf('why'),
-    gone: nameOf('gone'),
-    myStatus: nameOf('myStatus'),
-    myPrio: nameOf('myPriority'),
-    next: nameOf('nextStep'),
-    due: nameOf('due'),
-    clear: c('clear'),
-    open: c('open'),
-    blocked: c('blocked'),
-    elsewhere: c('elsewhere'),
-    done: c('done'),
-  })
+/**
+ * The mirror agent's instructions for these properties (instructions.ts: only the parts whose properties the recipe
+ * has; the built-in properties give the built-in text), `{db}` / `{server}` left as tokens.
+ */
+export function mirrorInstructions(lang: Lang, props: ResolvedProperty[], weekday = true): string {
+  return composeMirrorInstructions(
+    translator(lang),
+    props.map((p) => ({ role: p.role, name: p.name, type: p.type, key: p.key, onlyByHand: p.onlyByHand, options: p.options?.map((o) => o.name) })),
+    { weekday },
+  )
 }
 
 /** The built-in mirror's properties (names in `lang`). */
@@ -227,7 +202,7 @@ export function defaultMirror(lang: Lang, forTemplate = false): RecipeConfig & {
       schedule: { every: MIRROR_DEFAULTS.every, at: MIRROR_DEFAULTS.at },
       write: MIRROR_DEFAULTS.write,
       budget: MIRROR_DEFAULTS.budget,
-      instructions: mirrorInstructionsText(lang, nameOf),
+      instructions: mirrorInstructions(lang, properties.map((p) => resolveProperty(p, lang))),
     },
     report: { name: tr('features.agents.mirror.reportTitle', { name: '{db}' }) },
   }
@@ -321,8 +296,8 @@ export function resolveRecipe(profile: Pick<IntegrationProfile, 'id' | 'name'>, 
   const def = defaultMirror(lang)
   const db = recipe.database ?? {}
   const properties = (db.properties ?? def.database.properties).map((p) => resolveProperty(p, lang))
-  const nameByRole = (role: string) => properties.find((p) => p.role === role)?.name ?? localized(def.database.properties.find((p) => p.role === role)?.name, lang) ?? role
   const a = recipe.agent ?? {}
+  const schedule = a.schedule ?? def.agent.schedule!
   return {
     lang,
     profileId: profile.id,
@@ -338,14 +313,14 @@ export function resolveRecipe(profile: Pick<IntegrationProfile, 'id' | 'name'>, 
     given: { properties: !!db.properties, views: !!db.views },
     agent: {
       name: localized(a.name, lang) || localized(def.agent.name, lang),
-      schedule: a.schedule ?? def.agent.schedule!,
+      schedule,
       write: a.write ?? MIRROR_DEFAULTS.write,
       budget: a.budget ?? MIRROR_DEFAULTS.budget,
       model: a.model ?? null,
       effort: a.effort ?? null,
       tools: a.tools ?? null,
-      // the built-in instructions name the properties this recipe has (by role)
-      instructions: a.instructions !== undefined ? localized(a.instructions, lang) : mirrorInstructionsText(lang, nameByRole),
+      // without its own: composed from the properties this recipe has (never a property it lacks)
+      instructions: a.instructions !== undefined ? localized(a.instructions, lang) : mirrorInstructions(lang, properties, schedule.every === 'weekday'),
     },
     reportName: localized(recipe.report?.name, lang) || localized(def.report!.name, lang),
   }
@@ -394,12 +369,19 @@ function findProperty(props: Array<ResolvedProperty & { id: ID }>, ref: string):
   return loose.length > 1 ? { ambiguous: true } : {}
 }
 
+/** "Did you mean …" hints per validation (each compares one reference with every name — kept cheap on purpose). */
+export const NEAR_HINTS = 50
+/** References and names longer than this get no hint (the comparison grows with the product of both lengths). */
+const NEAR_MAX = 64
+
 /** The closest name (for "did you mean …"), or ''. */
 function closest(ref: string, names: string[]): string {
+  if (ref.length > NEAR_MAX) return ''
   const a = ref.toLowerCase()
   let best = ''
   let score = Infinity
   for (const n of names) {
+    if (n.length > NEAR_MAX) continue
     const d = distance(a, n.toLowerCase())
     if (d < score) {
       score = d
@@ -427,10 +409,17 @@ function distance(a: string, b: string): number {
 /**
  * The database's properties and views (fresh ids, names in the UI language). Every property / option reference is
  * resolved; a problem is reported (path below the recipe: ['database', 'views', 2, 'groupBy'] …) and the part left
- * out. `at`: the recipe's own path (e.g. ['recipes', 0]).
+ * out. `at`: the recipe's own path (e.g. ['recipes', 0]). `hints`: how many "did you mean" searches are left (shared by
+ * every recipe of one validation; a reference past it is reported without one). Without `report` nothing is searched.
  */
-export function buildMirror(r: ResolvedRecipe, report: Report | null = null, at: IssuePath = []): BuiltMirror {
+export function buildMirror(r: ResolvedRecipe, report: Report | null = null, at: IssuePath = [], hints: { left: number } = { left: NEAR_HINTS }): BuiltMirror {
   const issue = (path: IssuePath, code: string, vars?: Record<string, string | number>, severity: 'error' | 'warning' = 'error') => report?.({ path: [...at, ...path], code, ...(vars ? { vars } : {}), severity })
+  /** the closest of `names` while the budget lasts ('' after it, and when nobody hears about it) */
+  const near = (ref: string, names: string[]): string => {
+    if (!report || hints.left <= 0) return ''
+    hints.left--
+    return closest(ref, names)
+  }
   const propsPath = (i: number): IssuePath => (r.given.properties ? ['database', 'properties', i] : ['database'])
   const viewsPath = (i: number, ...rest: Array<string | number>): IssuePath => (r.given.views ? ['database', 'views', i, ...rest] : ['database'])
 
@@ -479,16 +468,16 @@ export function buildMirror(r: ResolvedRecipe, report: Report | null = null, at:
     if (f.ambiguous) issue(path, 'refAmbiguous', { ref })
     else if (!r.given.views) issue(path, 'refDefault', { ref })
     else {
-      const near = closest(ref, names)
-      issue(path, near ? 'refNear' : 'ref', { ref, near })
+      const hint = near(ref, names)
+      issue(path, hint ? 'refNear' : 'ref', { ref, near: hint })
     }
     return null
   }
   const optionId = (path: IssuePath, p: ResolvedProperty & { id: ID }, name: string): ID | null => {
     const id = optionIds.get(p.id)?.get(name) ?? [...(optionIds.get(p.id)?.entries() ?? [])].find(([n]) => n.toLowerCase() === name.toLowerCase())?.[1]
     if (id) return id
-    const near = closest(name, [...(optionIds.get(p.id)?.keys() ?? [])])
-    issue(path, !r.given.views ? 'optionDefault' : near ? 'optionNear' : 'option', { value: name, property: p.name, near })
+    const hint = r.given.views ? near(name, [...(optionIds.get(p.id)?.keys() ?? [])]) : ''
+    issue(path, !r.given.views ? 'optionDefault' : hint ? 'optionNear' : 'option', { value: name, property: p.name, near: hint })
     return null
   }
 

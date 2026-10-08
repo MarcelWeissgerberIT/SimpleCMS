@@ -32,11 +32,14 @@ const MAX_PROFILES = 50
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
 const own = (o: Record<string, unknown>, k: string): unknown => (Object.prototype.hasOwnProperty.call(o, k) ? o[k] : undefined)
 
-/** The part of a profile the server uses, or null when it is none. */
+/** The part of a profile the server uses, or null when it is none (the app's sanitizer drops the same ones). */
 export function sanitizeProfile(key: string, raw: unknown): ServerProfile | null {
   if (!isObj(raw) || own(raw, 'schema') !== 'one.integration/1') return null
   const id = own(raw, 'id')
   if (typeof id !== 'string' || !PROFILE_ID.test(id) || id !== key) return null
+  // a profile without a name is none for the app either
+  const title = own(raw, 'name')
+  if (typeof title !== 'string' || !title.replace(/[\u0000-\u001f\u007f]/g, ' ').trim()) return null
   const match = own(raw, 'match')
   if (!isObj(match)) return null
   const glob = (v: unknown, re: RegExp) => (typeof v === 'string' && re.test(v.trim()) && v.replace(/[*?]/g, '').trim() ? v.trim().toLowerCase() : undefined)
@@ -47,11 +50,17 @@ export function sanitizeProfile(key: string, raw: unknown): ServerProfile | null
   return { id, ...(name ? { name } : {}), ...(host ? { host } : {}), unlocks }
 }
 
-/** Every usable profile of a meta document (the shared one). */
+/**
+ * Every usable profile of a meta document (the shared one): at most MAX_PROFILES, the first valid ones by id — the
+ * same ones the app's binding keeps (src/app/cloud/binding.ts readIntegrations), whatever order the map holds them in.
+ */
 export function readProfiles(doc: Y.Doc): ServerProfile[] {
   const out: ServerProfile[] = []
-  for (const [key, raw] of doc.getMap<unknown>('integrations').entries()) {
+  const map = doc.getMap<unknown>('integrations')
+  const keys = [...map.keys()].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
+  for (const key of keys) {
     if (out.length >= MAX_PROFILES) break
+    const raw = map.get(key)
     try {
       const p = sanitizeProfile(key, raw)
       if (p) out.push(p)

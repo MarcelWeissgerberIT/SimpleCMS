@@ -30,6 +30,8 @@ Ohne aktives Profil werden diese Schalter, Werkzeuge und Bereiche nicht angebote
 ## Rezepte als Einstellung
 Ein Profil kann **Rezepte** mitbringen. Solange es aktiv ist, stehen sie unter **Agenten → Neuer Agent**, benannt nach dem Profil. Ein Rezept der Art `mirror` legt eine Datenbank für die Einträge eines anderen Werkzeugs an, ihre Ansichten, eine Berichtsseite und einen geplanten Agenten — alles darin sind Daten: der Name der Datenbank, ihre Eigenschaften (`role`, `name`, `type`, `options`, `key`, `onlyByHand`, `color`, `description`), ihre Ansichten (`type`, `properties`, `groupBy`, `date`, `filter`, `sort`, `colorRules`, `hiddenGroups`, `hideEmpty`) und der Agent (`name`, `schedule`, `write`, `budget`, `model`, `effort`, `tools`, `instructions`). Was ein Rezept weglässt, nimmt die Werte des eingebauten Spiegels — `{ "kind": "mirror" }` allein ist also das Rezept aus [Eigene Agenten](help:custom-agents).
 
+Ein Rezept ohne `instructions` für den Agenten bekommt Anweisungen, die aus **seinen eigenen** Eigenschaften zusammengesetzt sind — nie aus einer, die es nicht hat. Ein Schritt, der zu einer Rolle gehört, kommt nur vor, wenn eine Eigenschaft diese Rolle hat (`link`, `srcStatus`, `srcPriority`, `owner`, `tags`, `changedAt`, `comments`, `lastComment`, `lastCommentAt`, `newComment`, `waiting`, `clarity` mit ihren Optionen, `why`, `gone`); die Schlüssel-Eigenschaft ist die `key_property`; jede Eigenschaft mit `onlyByHand` steht bei „schreibe nie“; jede andere schreibt der Agent wie in der Quelle. Mit den eingebauten Eigenschaften ist das der Text des eingebauten Rezepts.
+
 Texte sind ein Text oder einer je Sprache: `{ "en": "Ready", "de": "Bereit" }`. Ansichten nennen Eigenschaften beim Namen (in einer der Sprachen) oder bei ihrer `role`, Filterwerte nennen Optionen. Im Namen des Agenten, seinen Anweisungen und im Titel der Berichtsseite werden `{db}`, `{server}` und `{report}` eingesetzt; Teile in **[ECKIGEN KLAMMERN]** ersetzt die Person, bevor der Agent eingeschaltet werden kann.
 
 ## Das Schema
@@ -66,13 +68,15 @@ Ein Profil ist ein JSON-Objekt mit dem Schema `one.integration/1`:
 }
 ```
 
-`id`: Kleinbuchstaben, Ziffern, `-` und `_`. `unlocks`: beliebige der sechs Funktionen. Unbekannte Schlüssel werden abgelehnt, ein Tippfehler fällt also sofort auf.
+Dieses Rezept bringt keine `instructions` mit: Sein Agent soll die Einträge auflisten und lesen, *Item* (den Schlüssel) und *State* mit `upsert_rows` schreiben und *My note* nie — sonst nichts.
+
+`id`: Kleinbuchstaben, Ziffern, `-` und `_`. `unlocks`: beliebige der sechs Funktionen. Unbekannte Schlüssel werden abgelehnt, ein Tippfehler fällt also sofort auf. Ein Workspace hat höchstens **50** Profile.
 
 ## Neu, importieren, exportieren, bearbeiten
 - **Neue Integration → Aus der Vorlage** — der eingebaute Spiegel vollständig ausgeschrieben, mit leerem `match` zum Ausfüllen. **Für einen deiner MCP-Server** füllt `match` mit den getesteten lesenden Werkzeugen dieses Servers und seinem Namen.
 - **Importieren** — ein Profil einfügen oder **.json-Datei laden**. Gespeichert wird erst beim Hinzufügen; ein Profil mit einer vorhandenen Kennung ersetzt dieses.
 - **Exportieren** — lädt `<id>.integration.json` herunter.
-- **Bearbeiten** — das JSON des Profils mit Farben, Zeilennummern und laufender Prüfung: Ein Syntaxfehler nennt Zeile und Spalte, ein Schemaproblem seinen Pfad (`$.recipes[0].database.views[1].groupBy`) und seine Zeile, und die Statuszeile sagt **Gültig · hier aktiv · schaltet frei: … · 1 Rezept**. Ein Klick auf ein Problem springt dorthin; **Formatieren** räumt die Einrückung auf.
+- **Bearbeiten** — das JSON des Profils mit Farben, Zeilennummern und laufender Prüfung: Ein Syntaxfehler nennt Zeile und Spalte, ein Schemaproblem seinen Pfad (`$.recipes[0].database.views[1].groupBy`) und seine Zeile, und die Statuszeile sagt **Gültig · hier aktiv · schaltet frei: … · 1 Rezept**. Ein Klick auf ein Problem springt dorthin; **Formatieren** räumt die Einrückung auf. Ein Profil hat höchstens 200.000 Zeichen: Ein längerer Text erscheint ohne Farben und lässt sich nicht speichern, und mehr als 400.000 eingefügte Zeichen werden nicht übernommen.
 - **Löschen** — mit **Rückgängig** in der Meldung.
 
 ## Team-Workspaces

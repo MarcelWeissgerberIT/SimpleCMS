@@ -9,18 +9,18 @@ import { useDeferredValue, useId, useMemo, useRef, useState } from 'react'
 import { Braces, FileUp } from 'lucide-react'
 import { useWorkspace } from '../../../store/store'
 import { useUI } from '../../../store/ui'
-import { profileStatus } from '../../../store/integrations'
+import { INTEGRATION_LIMITS, integrationsAllowed, profileStatus } from '../../../store/integrations'
 import { Modal } from '../../../ui/Modal'
 import { useLang, useT } from '../../../i18n'
 import { JsonCodeArea, type CodeMarker } from './JsonCodeArea'
 import { parseJson, stringify } from './json'
-import { validateProfileText, type Problem } from './validate'
+import { MAX_PROFILE_CHARS, validateProfileText, type Problem } from './validate'
 import { deviceServers } from './status'
 import { featureList, statusText } from './text'
 
 export type EditorMode = 'new' | 'edit' | 'import' | 'view'
 
-/** Characters of a file the import reads at most. */
+/** Characters of a file the import reads (or a paste the field takes) at most. */
 const MAX_FILE = 400_000
 
 export function IntegrationEditor({ mode, initial, originalId, onClose }: { mode: EditorMode; initial: string; originalId?: string; onClose: () => void }) {
@@ -38,12 +38,19 @@ export function IntegrationEditor({ mode, initial, originalId, onClose }: { mode
   const v = useMemo(() => validateProfileText(deferred, t, lang), [deferred, t, lang])
 
   // the id against the workspace: a new / imported profile with a known id replaces it; an edit may not take another's
-  const clash = v.profile ? (profiles ?? []).find((p) => p.id === v.profile!.id && p.id !== originalId) : undefined
+  const list = profiles ?? []
+  const clash = v.profile ? list.find((p) => p.id === v.profile!.id && p.id !== originalId) : undefined
   const blocked = !!clash && mode === 'edit'
+  // a profile that would be one more than the workspace may hold (an edit replaces its own)
+  const full = !!v.profile && !clash && !(mode === 'edit' && originalId && list.some((p) => p.id === originalId)) && list.length >= INTEGRATION_LIMITS.profiles
   // nothing typed yet (an import): no problems to show, just the hint
   const empty = !text.trim()
-  const problems: Problem[] = empty ? [] : blocked ? [{ severity: 'error', message: t('features.integrations.err.idTaken', { id: clash!.id, name: clash!.name }), path: '$.id', line: 1, col: 1 }, ...v.problems] : v.problems
-  const errors = empty ? 0 : v.errors + (blocked ? 1 : 0)
+  const own: Problem[] = [
+    ...(blocked ? [{ severity: 'error' as const, message: t('features.integrations.err.idTaken', { id: clash!.id, name: clash!.name }), path: '$.id', line: 1, col: 1 }] : []),
+    ...(full ? [{ severity: 'error' as const, message: t('features.integrations.err.profileLimit', { max: INTEGRATION_LIMITS.profiles }), path: '$.id', line: 1, col: 1 }] : []),
+  ]
+  const problems: Problem[] = empty ? [] : [...own, ...v.problems]
+  const errors = empty ? 0 : v.errors + own.length
   const markers: CodeMarker[] = problems.map((p) => ({ line: p.line, col: p.col, endCol: p.endCol, severity: p.severity, message: p.message }))
   const st = v.profile ? profileStatus(v.profile, deviceServers(settings)) : null
   const pending = deferred !== text
@@ -53,11 +60,20 @@ export function IntegrationEditor({ mode, initial, originalId, onClose }: { mode
     if (readOnly || errors || empty || !v.profile || pending) return
     const ws = useWorkspace.getState()
     const before = ws.integrations ?? []
-    if (!ws.upsertIntegration(v.profile)) return setFailed(t('features.integrations.err.refused'))
-    if (mode === 'edit' && originalId && originalId !== v.profile.id) ws.deleteIntegration(originalId)
+    // an edit that changed the id replaces the old profile in the same step
+    if (!ws.upsertIntegration(v.profile, mode === 'edit' ? originalId : undefined))
+      return setFailed(t(integrationsAllowed() ? 'features.integrations.err.notSaved' : 'features.integrations.err.refused'))
     const replaced = mode !== 'edit' && before.some((p) => p.id === v.profile!.id)
     useUI.getState().toast({ message: t(replaced ? 'features.integrations.replaced' : mode === 'edit' ? 'features.integrations.saved' : 'features.integrations.added', { name: v.profile.name }), kind: 'success' })
     onClose()
+  }
+
+  // a paste past the file limit is not taken (the field keeps its text); shorter texts past the profile limit are
+  // kept, shown plain, and reported as too long
+  const change = (x: string) => {
+    if (x.length > MAX_FILE && x.length > text.length) return setFailed(t('features.integrations.err.pasteTooBig', { max: MAX_FILE.toLocaleString(lang) }))
+    if (failed) setFailed('')
+    setText(x)
   }
 
   const format = () => {
@@ -138,7 +154,7 @@ export function IntegrationEditor({ mode, initial, originalId, onClose }: { mode
             </button>
           )}
         </div>
-        <JsonCodeArea value={text} onChange={readOnly ? undefined : (x) => setText(x)} markers={markers} readOnly={readOnly} ariaLabel={t('features.integrations.jsonLabel')} describedBy={statusId} jump={jump} />
+        <JsonCodeArea value={text} onChange={readOnly ? undefined : change} markers={markers} readOnly={readOnly} ariaLabel={t('features.integrations.jsonLabel')} describedBy={statusId} jump={jump} plainAbove={MAX_PROFILE_CHARS} />
         <p className="int-editor__status" id={statusId} role="status" data-state={errors ? 'error' : !text.trim() ? 'empty' : v.warnings ? 'warning' : 'ok'} data-testid="int-editor-status">
           <span className={errors ? 'led int-led--err' : text.trim() ? 'led led--ok' : 'led'} aria-hidden />
           <span>{summary}</span>

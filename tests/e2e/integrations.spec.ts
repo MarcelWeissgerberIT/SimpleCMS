@@ -491,4 +491,182 @@ test.describe('Integration profiles', () => {
     await expect(page.locator('.int-editor').getByTestId('jca-input')).toBeVisible()
     expect(await fits()).toBe(true)
   })
+  test('hostile values are reported, never thrown: an own "toString", objects where text belongs', async ({ page }) => {
+    await openApp(page)
+    await openSection(page)
+    await page.getByTestId('int-import').click()
+    const dialog = page.locator('.int-editor')
+    const area = dialog.getByTestId('jca-input')
+    const status = dialog.getByTestId('int-editor-status')
+    const list = dialog.getByTestId('int-problems')
+    const evil = { toString: 1 }
+    await area.fill(JSON.stringify({ schema: 'one.integration/1', id: evil, name: 'X', match: { tools: ['a'] }, unlocks: [] }))
+    await expect(status).toContainText('1 error')
+    await expect(list).toContainText('“{"toString":1}” is not a valid id')
+    // every checked value of the kind: schema, tools, a recipe's colour, icon, role, time, model, agent tools
+    await area.fill(
+      JSON.stringify({
+        schema: evil,
+        id: 'x',
+        name: 'X',
+        match: { tools: [evil] },
+        unlocks: [],
+        recipes: [
+          {
+            kind: 'mirror',
+            color: evil,
+            icon: evil,
+            database: { properties: [{ name: 'N', type: 'title', role: evil }, { name: 'K', type: 'text', key: true, color: evil }], views: [{ name: 'All', type: 'table' }] },
+            agent: { schedule: { every: 'day', at: evil }, model: evil, tools: [evil] },
+          },
+        ],
+      }),
+    )
+    await expect(status).toContainText('errors')
+    for (const path of ['$.schema', '$.match.tools[0]', '$.recipes[0].color', '$.recipes[0].icon', '$.recipes[0].database.properties[0].role', '$.recipes[0].database.properties[1].color', '$.recipes[0].agent.schedule.at', '$.recipes[0].agent.model', '$.recipes[0].agent.tools[0]'])
+      await expect(list.locator('li', { hasText: path }).first()).toContainText('{"toString":1}')
+    await expect(page.getByTestId('ws-integrations')).toBeVisible()
+    await expect(dialog.getByTestId('int-save')).toBeDisabled()
+    // the store's sanitizer refuses it the same way
+    expect(await addProfile(page, { schema: 'one.integration/1', id: evil, name: 'X', match: { name: 'x' }, unlocks: [] })).toBe(false)
+  })
+
+  test('a recipe with its own properties and no instructions: the agent hears only of them (the help example)', async ({ page }) => {
+    await openApp(page)
+    await setServers(page, [TRACKER_SERVER])
+    // the example of the help article, verbatim
+    const md = readFileSync(new URL('../../src/app/help/articles/en/integrations.md', import.meta.url), 'utf8')
+    const example = JSON.parse(/```json\n([\s\S]+?)\n```/.exec(md)![1])
+    expect(example.recipes[0].agent.instructions).toBeUndefined()
+    expect(await addProfile(page, example)).toBe(true)
+    await openSection(page)
+    await row(page, 'item-tracker').getByRole('button', { name: /^Edit/ }).click()
+    await expect(page.locator('.int-editor').getByTestId('int-editor-status')).toHaveText(/^Valid · active here \(matches TRACKER\)/)
+    await page.keyboard.press('Escape')
+    await page.evaluate(() => (window.location.hash = '#/agents'))
+    await page.locator('.agx-start [data-recipe="item-tracker:mirror"]').click()
+    await page.locator('.agx-mir').getByRole('button', { name: 'Create database and agent' }).click()
+    const editor = page.locator('.agx-editor')
+    const instructions = await editor.getByRole('textbox', { name: 'Instructions' }).inputValue()
+    const props = await wsEval(page, (s) => {
+      const p = (Object.values(s.pages) as AnyState[]).find((x) => x.kind === 'database' && x.title === 'Items')!
+      return s.databases[p.id].properties.map((x: AnyState) => x.name)
+    })
+    expect(props).toEqual(['Name', 'Item', 'State', 'My note'])
+    expect(instructions).toContain('key_property "Item"')
+    expect(instructions).toContain('Per item: title = its title, key = its id, plus State.')
+    expect(instructions).toContain('Never write My note: it is mine (only by hand).')
+    expect(instructions).toContain('- Read one item: [HOW TO READ ONE ITEM]')
+    expect(instructions).toContain('leave it as it is — never delete the row')
+    // nothing of the built-in recipe it does not have
+    for (const absent of ['Link', 'Source status', 'Owner', 'Clarity', 'Waiting on me', 'Gone from source', 'My status', 'Next step', 'notify_me', '[WHO I AM IN THE SOURCE]', 'comments'])
+      expect(instructions).not.toContain(absent)
+    const strip = editor.getByTestId('agx-placeholders')
+    await expect(strip.locator('.agx-ph__btn')).toHaveText(['[HOW TO LIST THE ITEMS]', '[HOW TO READ ONE ITEM]'])
+    await expect(strip).toContainText('Which tool reads one item — e.g. “get_item with the id”.')
+  })
+
+  test('at most 50 profiles: the store refuses the 51st, the editor says so, a backup merge leaves the rest out and tells', async ({ page }) => {
+    await openApp(page)
+    const added = await wsEval(page, (s) => {
+      const p = (i: number) => ({ schema: 'one.integration/1', id: `p${String(i).padStart(2, '0')}`, name: `P ${i}`, match: { name: 'tracker' }, unlocks: ['keys'] })
+      const ok: boolean[] = []
+      for (let i = 0; i < 51; i++) ok.push(s.upsertIntegration(p(i)))
+      // a known id is replaced; an edit that renames one replaces it in the same step
+      ok.push(s.upsertIntegration({ ...p(3), name: 'P 3 again' }))
+      ok.push(s.upsertIntegration({ ...p(4), id: 'p04-renamed' }, 'p04'))
+      const now = (window as AnyState).__one.workspace.getState().integrations as AnyState[]
+      return { ok, n: now.length, ids: now.map((x) => x.id) }
+    })
+    expect(added.ok.slice(0, 50).every(Boolean)).toBe(true)
+    expect(added.ok[50]).toBe(false)
+    expect(added.ok.slice(51)).toEqual([true, true])
+    expect(added.n).toBe(50)
+    expect(added.ids).toContain('p04-renamed')
+    expect(added.ids).not.toContain('p04')
+    await page.evaluate(() => (window as AnyState).__one.flushSave())
+    await page.reload()
+    await page.waitForFunction(() => !!(window as AnyState).__one)
+    expect(await wsEval(page, (s) => s.integrations.length)).toBe(50)
+
+    // the editor: a new one is refused before saving; an existing one still saves
+    await openSection(page)
+    await page.getByTestId('int-import').click()
+    const dialog = page.locator('.int-editor')
+    await dialog.getByTestId('jca-input').fill(JSON.stringify(profileOf('one-more', { name: 'tracker' }, ['keys'])))
+    await expect(dialog.getByTestId('int-problems')).toContainText('A workspace holds at most 50 integrations: delete one first.')
+    await expect(dialog.getByTestId('int-save')).toBeDisabled()
+    await dialog.getByTestId('jca-input').fill(JSON.stringify(profileOf('p05', { name: 'tracker' }, ['keys'], { name: 'P 5 imported' })))
+    await expect(dialog.getByTestId('int-editor-status')).toContainText('replaces “P 5”')
+    await dialog.getByTestId('int-save').click()
+    await expect(row(page, 'p05')).toContainText('P 5 imported')
+
+    // a backup with three new ones, merged while two places are free
+    await wsEval(page, (s) => ['p10', 'p11'].forEach((id) => s.deleteIntegration(id)))
+    const backup = { pages: {}, databases: {}, integrations: ['x1', 'x2', 'x3'].map((id) => profileOf(id, { name: 'tracker' }, ['keys'])) }
+    await page.locator('.sb').getByRole('button', { name: /^Import/ }).click()
+    const chooser = page.waitForEvent('filechooser')
+    await page.getByRole('dialog').getByRole('button', { name: 'Choose files' }).click()
+    await (await chooser).setFiles([{ name: 'backup.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(backup)) }])
+    const io = page.getByRole('dialog')
+    await io.getByRole('radio', { name: /Merge into this workspace/ }).click()
+    await io.getByRole('button', { name: 'Merge backup' }).click()
+    await expect(io.getByTestId('io-integrations-left')).toHaveText('One integration of the backup was left out: a workspace holds at most 50.')
+    const ids = await wsEval(page, () => ((window as AnyState).__one.workspace.getState().integrations as AnyState[]).map((x) => x.id))
+    expect(ids).toHaveLength(50)
+    expect(ids).toEqual(expect.arrayContaining(['x1', 'x2']))
+    expect(ids).not.toContain('x3')
+  })
+
+  test('long texts stay responsive: "did you mean" is bounded, a text past the limit is plain, a huge paste is not taken', async ({ page }) => {
+    await openApp(page)
+    await openSection(page)
+    await page.getByTestId('int-import').click()
+    const dialog = page.locator('.int-editor')
+    const area = dialog.getByTestId('jca-input')
+    const status = dialog.getByTestId('int-editor-status')
+    const setValue = (v: string) =>
+      area.evaluate((el: HTMLTextAreaElement, text) => {
+        const set = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!
+        set.call(el, text)
+        el.dispatchEvent(new Event('input', { bubbles: true }))
+      }, v)
+
+    // 40 properties with 190-character names, 12 views × 40 references that miss them by a little (~110,000 characters)
+    const nm = (i: number, c: string) => (c + String(i).padStart(3, '0')).padEnd(190, c)
+    const properties = [{ name: 'T', type: 'title' }, { name: 'K', type: 'text', key: true }, ...Array.from({ length: 38 }, (_, i) => ({ name: { en: nm(i, 'a'), de: nm(i, 'b') }, type: 'text' }))]
+    const views = Array.from({ length: 12 }, (_, v) => ({ name: `v${v}`, type: 'table', properties: Array.from({ length: 40 }, (_, i) => nm(v * 40 + i, 'c')) }))
+    const slow = JSON.stringify(profileOf('slow', { name: 'x' }, [], { recipes: [{ kind: 'mirror', database: { properties, views } }] }))
+    expect(slow.length).toBeLessThan(200_000)
+    const t0 = Date.now()
+    await setValue(slow)
+    await expect(status).toContainText('errors', { timeout: 30_000 })
+    expect(Date.now() - t0).toBeLessThan(5_000)
+    await expect(dialog.getByTestId('int-problems')).toContainText('No property “c000')
+
+    // 8,000 lines (past the profile limit): a plain field, the problem says why, only the lines in view are numbered
+    const lines = '{\n' + Array.from({ length: 8_000 }, (_, i) => `  "k${i}": "${'x'.repeat(20)}",`).join('\n') + '\n  "z": 1\n}'
+    expect(lines.length).toBeGreaterThan(200_000)
+    await setValue(lines)
+    await expect(status).toContainText('1 error')
+    await expect(dialog.getByTestId('int-problems')).toContainText('Too long for a profile (at most 200,000 characters).')
+    await expect(dialog.locator('.jca')).toHaveAttribute('data-plain', 'true')
+    await expect(dialog.locator('.jca__layer')).toHaveCount(0)
+    expect(await dialog.locator('.jca__ln').count()).toBeLessThan(200)
+    // scrolled to the end: the last line numbers are there
+    await area.evaluate((el) => (el.scrollTop = el.scrollHeight))
+    await expect(dialog.locator('.jca__ln').last()).toHaveText('8003')
+
+    // a profile again: colours and marks are back, still only the lines in view
+    await setValue(JSON.stringify(trackerProfile(), null, 2))
+    await expect(status).toContainText('Valid')
+    await expect(dialog.locator('.jca')).not.toHaveAttribute('data-plain')
+    await expect(dialog.locator('.jca-tok--key').first()).toBeVisible()
+
+    // more than 400,000 characters at once: not taken, the field keeps its text
+    const before = await area.inputValue()
+    await setValue('{"x": "' + 'y'.repeat(410_000) + '"}')
+    await expect(dialog.getByRole('alert')).toContainText('Not taken: too much text for a profile (at most 400,000 characters).')
+    expect(await area.inputValue()).toBe(before)
+  })
 })

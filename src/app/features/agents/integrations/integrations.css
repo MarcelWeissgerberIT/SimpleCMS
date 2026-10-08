@@ -414,6 +414,17 @@
 .jca[data-readonly] .jca__input {
   caret-color: transparent;
 }
+/* too long to highlight: the textarea shows its own text */
+.jca[data-plain] .jca__input {
+  color: var(--ink);
+  -webkit-text-fill-color: currentColor;
+}
+.jca[data-plain] .jca__input::selection {
+  -webkit-text-fill-color: currentColor;
+}
+.jca__spacer {
+  display: block;
+}
 
 /* tokens */
 .jca-tok--key {

@@ -433,7 +433,9 @@ Y.Map 'integrations' profileId → JSON IntegrationProfile   (integration profil
                      updatedBy? }; OWNERS / ADMINS write it (server/src/collab/admin-map.ts puts other members'
                      changes back and stamps updatedBy); last writer wins per profile; every reader sanitizes it —
                      the app src/app/store/integrations.ts, the server agents/integrations.ts (id / match.name /
-                     match.host / unlocks only); see Agents → Integration profiles)
+                     match.host / unlocks only; a profile needs a non-empty name on both). At most 50 profiles count:
+                     the first valid ones by id (plain string order) — the app's binding and the server pick the same
+                     ones, whatever order the map holds; the app refuses a 51st; see Agents → Integration profiles)
 ```
 
 *(client C1 refinements, backwards compatible on read)*: comment **replies** are entries of their

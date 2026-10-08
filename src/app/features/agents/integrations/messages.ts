@@ -159,6 +159,10 @@ export const messages: Messages = {
     'features.integrations.err.refused': 'Not saved: only owners and admins change integrations here.',
     'features.integrations.err.fileTooBig': 'This file is too large for a profile.',
     'features.integrations.err.fileRead': 'The file could not be read.',
+    'features.integrations.err.pasteTooBig': 'Not taken: too much text for a profile (at most {max} characters).',
+    'features.integrations.err.profileLimit': 'A workspace holds at most {max} integrations: delete one first.',
+    'features.integrations.err.notSaved': 'Not saved: this profile could not be stored.',
+    'features.integrations.err.internal': 'This part could not be checked ({msg}). A value of an unexpected kind?',
   },
   de: {
     'features.integrations.new': 'Neue Integration',
@@ -313,5 +317,9 @@ export const messages: Messages = {
     'features.integrations.err.refused': 'Nicht gespeichert: Integrationen ändern hier nur Eigentümer und Admins.',
     'features.integrations.err.fileTooBig': 'Diese Datei ist zu groß für ein Profil.',
     'features.integrations.err.fileRead': 'Die Datei konnte nicht gelesen werden.',
+    'features.integrations.err.pasteTooBig': 'Nicht übernommen: zu viel Text für ein Profil (höchstens {max} Zeichen).',
+    'features.integrations.err.profileLimit': 'Ein Workspace hat höchstens {max} Integrationen: Lösche zuerst eine.',
+    'features.integrations.err.notSaved': 'Nicht gespeichert: Dieses Profil konnte nicht abgelegt werden.',
+    'features.integrations.err.internal': 'Dieser Teil konnte nicht geprüft werden ({msg}). Ein Wert unerwarteter Art?',
   },
 }

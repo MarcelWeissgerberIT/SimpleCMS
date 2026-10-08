@@ -34,7 +34,7 @@ const REPORT_ICON = { type: 'lucide', value: 'ClipboardList' } as const
 
 /* ------------------------------------------------------------------ placeholders */
 
-export const PLACEHOLDER_KEYS = ['list', 'read', 'me', 'clear'] as const
+export const PLACEHOLDER_KEYS = ['list', 'read', 'readItem', 'me', 'clear'] as const
 export type PlaceholderKey = (typeof PLACEHOLDER_KEYS)[number]
 
 /** The built-in recipe's placeholders in both languages. */
@@ -164,9 +164,14 @@ export function createMirror(input: MirrorInput, opts: { onUndo?: () => void } =
   const team = inTeam()
   if (team && useCloud.getState().readOnly) throw new Error('read-only')
   let broken = 0
-  const schema = buildMirror(input.recipe, (i) => {
-    if ((i.severity ?? 'error') === 'error') broken++
-  })
+  const schema = buildMirror(
+    input.recipe,
+    (i) => {
+      if ((i.severity ?? 'error') === 'error') broken++
+    },
+    [],
+    { left: 0 },
+  )
   if (broken) throw new Error(t(broken === 1 ? 'features.agents.mirror.err.recipeOne' : 'features.agents.mirror.err.recipe', { count: broken }))
   const parentId = canHoldMirror(ws().pages, input.parentId, team) ? input.parentId : null
   const dbInput = { parentId, title: name, icon: input.recipe.icon, properties: schema.properties, views: schema.views }

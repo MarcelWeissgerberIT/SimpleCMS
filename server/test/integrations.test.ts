@@ -85,6 +85,21 @@ describe('integration profiles: the server reader and matching', () => {
     map.set('mismatch', profile('other', { name: 'x' }, []))
     assert.deepEqual(readProfiles(doc), [{ id: 'ok', name: 'tracker', unlocks: ['upsert'] }])
   })
+
+  test('readProfiles: at most 50, the first valid ones by id whatever order the map holds them in; no name, no profile', () => {
+    const doc = new Y.Doc()
+    const map = doc.getMap<unknown>('integrations')
+    // 60 profiles, written in reverse order, plus one without a name in front (the app's sanitizer drops it too)
+    map.set('a-noname', { ...profile('a-noname', { name: 'tracker' }, ['upsert']), name: '  ' })
+    for (let i = 59; i >= 0; i--) {
+      const id = `p${String(i).padStart(2, '0')}`
+      map.set(id, profile(id, { name: 'tracker' }, ['upsert']))
+    }
+    const got = readProfiles(doc).map((p) => p.id)
+    assert.equal(got.length, 50)
+    assert.deepEqual(got, Array.from({ length: 50 }, (_, i) => `p${String(i).padStart(2, '0')}`))
+    assert.equal(sanitizeProfile('t', { ...profile('t', { name: 'x' }, []), name: 7 }), null)
+  })
 })
 
 describe('integration profiles on a running server', () => {

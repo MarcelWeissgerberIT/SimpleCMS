@@ -28,7 +28,7 @@ import { sameAgent, sanitizeAgent } from '../store/agents'
 import { sameScript, sanitizeScript } from '../store/scripts'
 import { emptyKit, KIT_SANITIZERS, sameKitEntry, type KitPart } from '../store/kit'
 import { sameLook, sanitizeLook } from '../store/look'
-import { sameIntegration, sanitizeIntegration } from '../store/integrations'
+import { INTEGRATION_LIMITS, sameIntegration, sanitizeIntegration } from '../store/integrations'
 import { defaultView } from '../store/store'
 import { sharedPlain } from './privacy'
 import { clone, LOCAL, newDatabaseMap, newPageMap, readDatabase, readFunctions, readPage, readPeople, roots, writeDatabase, writeFunctions, writePage, writePeople, type YMap } from './schema'
@@ -125,13 +125,16 @@ function writeIntegrations(target: Y.Map<unknown>, next: IntegrationProfile[] | 
 
 /**
  * The store's profiles from the meta document, every entry sanitized (store/integrations.ts), ordered by name; unchanged
- * ones keep their object, and `cur` itself comes back when nothing changed.
+ * ones keep their object, and `cur` itself comes back when nothing changed. At most INTEGRATION_LIMITS.profiles: the
+ * first valid ones by id — the team server takes the same ones (server/src/agents/integrations.ts readProfiles).
  */
 function readIntegrations(source: Y.Map<unknown>, cur: IntegrationProfile[] | undefined): IntegrationProfile[] {
   const prev = new Map((cur ?? []).map((p) => [p.id, p]))
   const out: IntegrationProfile[] = []
-  for (const [id, v] of source.entries()) {
-    const p = sanitizeIntegration(v)
+  const ids = [...source.keys()].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
+  for (const id of ids) {
+    if (out.length >= INTEGRATION_LIMITS.profiles) break
+    const p = sanitizeIntegration(source.get(id))
     if (!p || p.id !== id) continue
     const was = prev.get(id)
     out.push(was && sameIntegration(was, p) && was.updatedAt === p.updatedAt && was.updatedBy === p.updatedBy ? was : p)

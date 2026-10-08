@@ -30,6 +30,8 @@ Without an active profile these switches, tools and sections are not offered. Wh
 ## Recipes as configuration
 A profile can bring **recipes**. While it is active, **Agents → New agent** lists them, named by the profile. A recipe of kind `mirror` creates a database for another tool's items, its views, a report page and a scheduled agent — everything in it is data: the database's name, its properties (`role`, `name`, `type`, `options`, `key`, `onlyByHand`, `color`, `description`), its views (`type`, `properties`, `groupBy`, `date`, `filter`, `sort`, `colorRules`, `hiddenGroups`, `hideEmpty`) and the agent (`name`, `schedule`, `write`, `budget`, `model`, `effort`, `tools`, `instructions`). Whatever a recipe leaves out takes the built-in mirror's values, so `{ "kind": "mirror" }` alone is the recipe described in [Custom agents](help:custom-agents).
 
+A recipe without agent `instructions` gets instructions composed from **its own** properties — never one it does not have. A step tied to a role is there only when a property has that role (`link`, `srcStatus`, `srcPriority`, `owner`, `tags`, `changedAt`, `comments`, `lastComment`, `lastCommentAt`, `newComment`, `waiting`, `clarity` with its options, `why`, `gone`); the key property is the `key_property`; every property marked `onlyByHand` is named in “never write”; every other property is written as in the source. With the built-in properties that is the built-in recipe's text.
+
 Texts can be one string or one per language: `{ "en": "Ready", "de": "Bereit" }`. Views name properties by name (either language) or by `role`, filter values name options. In the agent's name, instructions and report title, `{db}`, `{server}` and `{report}` are filled in; parts in **[SQUARE BRACKETS]** are left for the person to replace before the agent can be switched on.
 
 ## The schema
@@ -66,13 +68,15 @@ A profile is one JSON object, schema `one.integration/1`:
 }
 ```
 
-`id`: lower-case letters, digits, `-` and `_`. `unlocks`: any of the six features. Unknown keys are refused, so a typo shows at once.
+This recipe brings no `instructions`: its agent is told to list and read the items, to write *Item* (the key) and *State* with `upsert_rows`, and never to write *My note* — nothing else.
+
+`id`: lower-case letters, digits, `-` and `_`. `unlocks`: any of the six features. Unknown keys are refused, so a typo shows at once. A workspace holds up to **50** profiles.
 
 ## New, import, export, edit
 - **New integration → From the template** — the built-in mirror written out in full, with an empty `match` to fill in. **For one of your MCP servers** fills `match` with that server's tested reading tools and its name.
 - **Import** — paste a profile or **Load a .json file**. Nothing is saved until you add it; a profile with an id that exists replaces that one.
 - **Export** — downloads `<id>.integration.json`.
-- **Edit** — the profile's JSON with colours, line numbers and live checks: a syntax error names its line and column, a schema problem its path (`$.recipes[0].database.views[1].groupBy`) and line, and the status line says **Valid · active here · unlocks … · 1 recipe**. Click a problem to jump there; **Format** tidies the indentation.
+- **Edit** — the profile's JSON with colours, line numbers and live checks: a syntax error names its line and column, a schema problem its path (`$.recipes[0].database.views[1].groupBy`) and line, and the status line says **Valid · active here · unlocks … · 1 recipe**. Click a problem to jump there; **Format** tidies the indentation. A profile has at most 200,000 characters: a longer text is shown without colours and cannot be saved, and a paste of more than 400,000 characters is not taken.
 - **Delete** — with **Undo** in the message.
 
 ## Team workspaces

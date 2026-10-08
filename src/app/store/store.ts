@@ -18,7 +18,7 @@ import { agentEditor, sanitizeAgent } from './agents'
 import { sanitizeScript } from './scripts'
 import { emptyKit, optionsOfList, sanitizeList, sanitizePropType, sanitizeRecordType, storedTypeOf, syncRecordTypeInto } from './kit'
 import { lookAllowed, sameLook, sanitizeLook } from './look'
-import { integrationsAllowed, sameIntegration, sanitizeIntegration, sanitizeIntegrations } from './integrations'
+import { INTEGRATION_LIMITS, integrationsAllowed, sameIntegration, sanitizeIntegration, sanitizeIntegrations } from './integrations'
 import type {
   CustomAgent,
   IntegrationProfile,
@@ -232,10 +232,11 @@ export interface WorkspaceState extends Workspace {
 
   /**
    * Integration profiles (features/agents/integrations): insert or replace by id (sanitized; updatedAt / updatedBy are
-   * set here) · remove. False when refused: not a profile, or a team member who is not an owner or admin (the server
+   * set here; `replaces`: the id it had before — that profile goes in the same step) · remove. False when refused: not
+   * a profile, a new one past INTEGRATION_LIMITS.profiles, or a team member who is not an owner or admin (the server
    * puts such a change back too).
    */
-  upsertIntegration: (profile: IntegrationProfile) => boolean
+  upsertIntegration: (profile: IntegrationProfile, replaces?: string) => boolean
   deleteIntegration: (id: string) => boolean
 
   // building blocks (features/kit): insert or replace by id (sanitized; updatedAt / updatedBy are set here) · remove.
@@ -553,12 +554,16 @@ export const useWorkspace = create<WorkspaceState>()(
       return true
     },
 
-    upsertIntegration: (profile) => {
+    upsertIntegration: (profile, replaces) => {
       if (!integrationsAllowed()) return false
       const clean = sanitizeIntegration({ ...JSON.parse(JSON.stringify(profile)), updatedAt: now(), updatedBy: agentEditor() })
       if (!clean) return false
+      const cur = get().integrations ?? []
+      const old = replaces && replaces !== clean.id && cur.some((p) => p.id === replaces) ? replaces : null
+      // a new profile past the limit is refused (stored lists, backups and the team server keep only that many)
+      if (!old && !cur.some((p) => p.id === clean.id) && cur.length >= INTEGRATION_LIMITS.profiles) return false
       set((s) => {
-        const list = [...(s.integrations ?? [])]
+        const list = (s.integrations ?? []).filter((p) => p.id !== old)
         const at = list.findIndex((p) => p.id === clean.id)
         if (at >= 0) list[at] = clean
         else list.push(clean)

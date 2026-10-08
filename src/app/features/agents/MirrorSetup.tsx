@@ -74,9 +74,15 @@ export function MirrorSetup({ source, onClose, onCreated, onUndo }: { source: Re
   // the recipe as it builds: its problems block Create (they are listed under Workspace → Integrations)
   const built = useMemo(() => {
     let errors = 0
-    const schema = buildMirror(recipe, (i) => {
-      if ((i.severity ?? 'error') === 'error') errors++
-    })
+    // only counted here: no "did you mean" searches
+    const schema = buildMirror(
+      recipe,
+      (i) => {
+        if ((i.severity ?? 'error') === 'error') errors++
+      },
+      [],
+      { left: 0 },
+    )
     return { schema, errors }
   }, [recipe])
   const servers = useMemo(() => readServers(settings).filter((s) => source.servers.includes(s.name)), [settings, source.servers])

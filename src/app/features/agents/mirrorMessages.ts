@@ -54,10 +54,12 @@ export const messages: Messages = {
 
     'features.agents.mirror.ph.list': '[HOW TO LIST THE ITEMS]',
     'features.agents.mirror.ph.read': '[HOW TO READ ONE ITEM WITH ITS COMMENTS]',
+    'features.agents.mirror.ph.readItem': '[HOW TO READ ONE ITEM]',
     'features.agents.mirror.ph.me': '[WHO I AM IN THE SOURCE]',
     'features.agents.mirror.ph.clear': '[WHAT "CLEAR" MEANS HERE]',
     'features.agents.mirror.phHint.list': 'Which tool lists the items, with which filter — e.g. “list_items with project WEB and status open”.',
     'features.agents.mirror.phHint.read': 'Which tool reads one item with its comments — e.g. “get_item with the id, comments included”.',
+    'features.agents.mirror.phHint.readItem': 'Which tool reads one item — e.g. “get_item with the id”.',
     'features.agents.mirror.phHint.me': 'Your name, user name or address in the tool — so comments addressed to you are found.',
     'features.agents.mirror.phHint.clear': 'When an item is ready to work on — e.g. “acceptance criteria written, no open question, nothing blocking”.',
     'features.agents.mirror.phHint.generic': 'A part the recipe leaves to you: replace it with what applies to your tool.',
@@ -101,26 +103,44 @@ export const messages: Messages = {
     'features.agents.mirror.view.source': 'As in the source',
     'features.agents.mirror.view.all': 'All',
 
-    'features.agents.mirror.instructions': `Keep the database “{db}” in step with the items in {server} (an MCP server), every weekday. Only read {server}.
-
-YOUR PART — replace each part in square brackets:
-- List the items: {phList}
-- Read one item with its comments: {phRead}
-- Who I am in {server}: {phMe}
-- An item is “{clear}” when: {phClear}
-
-THE FIXED PART:
-1. Only read {server}: never create, change, comment on, assign or close anything there.
-2. Start with agent_state_get. Your state holds the time of your last run and the comment count per item: {"last": "<ISO time>", "comments": {"<key>": <count>}}. No state yet = the first run: take every item and leave no notes.
-3. List the items. Read each item that is new or changed since your last run, with its comments.
-4. Write with upsert_rows into “{db}”, key_property "{key}", at most 50 rows per call (more items: more calls). Per item: title = its title, key = its id, plus {link}, {status}, {prio}, {owner}, {tags}, {changed}, {comments} (how many), {last} (the newest comment, its author first, at most 200 characters) and {lastAt}.
-5. {new}: checked when the item has more comments than your state says, otherwise unchecked. {waiting}: checked when the newest comment asks me something or names me and I have not answered since, otherwise unchecked.
-6. {clarity}: {clear} · {open} · {blocked} · {elsewhere} · {done} — judged by what “{clear}” means above. {why}: one short sentence why.
-7. Never write {myStatus}, {myPrio}, {next} or {due}: they are mine (only by hand).
-8. A row whose item {server} no longer lists: check {gone} — never delete the row. An item that is back: uncheck it.
-9. notify_me with page_id = the item’s row: one note per new comment addressed to me ("New comment on #8215") and one note for the items that became “{clear}” since your last run ("3 items became ready"). Nothing else.
-10. At the end: agent_state_set with {"last": "<now, ISO>", "comments": {"<key>": <count>, …}} — keys and counts only, at most 4 KB.
-11. Report in 3–8 lines: new, changed and gone items, what waits for me, what became “{clear}”.`,
+    // the agent's instructions, composed from what the recipe has (integrations/instructions.ts): the built-in recipe
+    // uses every part; a recipe with its own properties only the parts whose properties it has
+    'features.agents.mirror.instr.intro': 'Keep the database “{db}” in step with the items in {server} (an MCP server), every weekday. Only read {server}.',
+    'features.agents.mirror.instr.introAny': 'Keep the database “{db}” in step with the items in {server} (an MCP server). Only read {server}.',
+    'features.agents.mirror.instr.yours': 'YOUR PART — replace each part in square brackets:',
+    'features.agents.mirror.instr.yours.list': '- List the items: {ph}',
+    'features.agents.mirror.instr.yours.read': '- Read one item with its comments: {ph}',
+    'features.agents.mirror.instr.yours.readItem': '- Read one item: {ph}',
+    'features.agents.mirror.instr.yours.me': '- Who I am in {server}: {ph}',
+    'features.agents.mirror.instr.yours.clear': '- An item is “{clear}” when: {ph}',
+    'features.agents.mirror.instr.fixed': 'THE FIXED PART:',
+    'features.agents.mirror.instr.readOnly': 'Only read {server}: never create, change, comment on, assign or close anything there.',
+    'features.agents.mirror.instr.state': 'Start with agent_state_get. Your state holds the time of your last run and the comment count per item: {"last": "<ISO time>", "comments": {"<key>": <count>}}. No state yet = the first run: take every item and leave no notes.',
+    'features.agents.mirror.instr.stateLast': 'Start with agent_state_get. Your state holds the time of your last run: {"last": "<ISO time>"}. No state yet = the first run: take every item and leave no notes.',
+    'features.agents.mirror.instr.list': 'List the items. Read each item that is new or changed since your last run, with its comments.',
+    'features.agents.mirror.instr.listItems': 'List the items. Read each item that is new or changed since your last run.',
+    'features.agents.mirror.instr.write': 'Write with upsert_rows into “{db}”, key_property "{key}", at most 50 rows per call (more items: more calls). Per item: title = its title, key = its id{plus}.',
+    'features.agents.mirror.instr.plus': ', plus {list}',
+    'features.agents.mirror.instr.note.comments': '{name} (how many)',
+    'features.agents.mirror.instr.note.lastComment': '{name} (the newest comment, its author first, at most 200 characters)',
+    'features.agents.mirror.instr.new': '{new}: checked when the item has more comments than your state says, otherwise unchecked.',
+    'features.agents.mirror.instr.waiting': '{waiting}: checked when the newest comment asks me something or names me and I have not answered since, otherwise unchecked.',
+    'features.agents.mirror.instr.clarity': '{clarity}: {options} — judged by what “{clear}” means above.',
+    'features.agents.mirror.instr.why': '{why}: one short sentence why.',
+    'features.agents.mirror.instr.hand': 'Never write {list}: they are mine (only by hand).',
+    'features.agents.mirror.instr.handOne': 'Never write {list}: it is mine (only by hand).',
+    'features.agents.mirror.instr.gone': 'A row whose item {server} no longer lists: check {gone} — never delete the row. An item that is back: uncheck it.',
+    'features.agents.mirror.instr.goneKeep': 'A row whose item {server} no longer lists: leave it as it is — never delete the row.',
+    'features.agents.mirror.instr.notify': 'notify_me with page_id = the item’s row: {what}. Nothing else.',
+    'features.agents.mirror.instr.notify.comment': 'one note per new comment addressed to me ("New comment on #8215")',
+    'features.agents.mirror.instr.notify.clear': 'one note for the items that became “{clear}” since your last run ("3 items became ready")',
+    'features.agents.mirror.instr.stateSet': 'At the end: agent_state_set with {"last": "<now, ISO>", "comments": {"<key>": <count>, …}} — keys and counts only, at most 4 KB.',
+    'features.agents.mirror.instr.stateSetLast': 'At the end: agent_state_set with {"last": "<now, ISO>"} — at most 4 KB.',
+    'features.agents.mirror.instr.report': 'Report in 3–8 lines: new, changed and gone items{more}.',
+    'features.agents.mirror.instr.report.waiting': 'what waits for me',
+    'features.agents.mirror.instr.report.clear': 'what became “{clear}”',
+    'features.agents.mirror.instr.and': 'and',
+    'features.agents.mirror.instr.or': 'or',
   },
   de: {
     'features.agents.recipe.mirror.name': 'Liste in eine Datenbank spiegeln',
@@ -169,10 +189,12 @@ THE FIXED PART:
 
     'features.agents.mirror.ph.list': '[WIE ICH DIE EINTRÄGE AUFLISTE]',
     'features.agents.mirror.ph.read': '[WIE ICH EINEN EINTRAG MIT SEINEN KOMMENTAREN LESE]',
+    'features.agents.mirror.ph.readItem': '[WIE ICH EINEN EINTRAG LESE]',
     'features.agents.mirror.ph.me': '[WER ICH IN DER QUELLE BIN]',
     'features.agents.mirror.ph.clear': '[WAS „KLAR“ HIER HEISST]',
     'features.agents.mirror.phHint.list': 'Welches Werkzeug die Einträge auflistet, mit welchem Filter — z. B. „list_items mit Projekt WEB und Status offen“.',
     'features.agents.mirror.phHint.read': 'Welches Werkzeug einen Eintrag mit seinen Kommentaren liest — z. B. „get_item mit der Kennung, samt Kommentaren“.',
+    'features.agents.mirror.phHint.readItem': 'Welches Werkzeug einen Eintrag liest — z. B. „get_item mit der Kennung“.',
     'features.agents.mirror.phHint.me': 'Dein Name, Benutzername oder deine Adresse im Werkzeug — damit Kommentare an dich gefunden werden.',
     'features.agents.mirror.phHint.clear': 'Wann ein Eintrag bereit zum Arbeiten ist — z. B. „Abnahmekriterien stehen, keine offene Frage, nichts blockiert“.',
     'features.agents.mirror.phHint.generic': 'Ein Teil, den das Rezept dir überlässt: Ersetze ihn durch das, was für dein Werkzeug gilt.',
@@ -216,25 +238,41 @@ THE FIXED PART:
     'features.agents.mirror.view.source': 'Wie in der Quelle',
     'features.agents.mirror.view.all': 'Alle',
 
-    'features.agents.mirror.instructions': `Halte die Datenbank „{db}“ jeden Werktag mit den Einträgen in {server} (ein MCP-Server) im Gleichstand. Lies {server} nur.
-
-DEIN TEIL — ersetze jeden Teil in eckigen Klammern:
-- Einträge auflisten: {phList}
-- Einen Eintrag mit seinen Kommentaren lesen: {phRead}
-- Wer ich in {server} bin: {phMe}
-- Ein Eintrag ist „{clear}“, wenn: {phClear}
-
-DER FESTE TEIL:
-1. Lies {server} nur: Lege dort nichts an und ändere, kommentiere, vergib oder schließe nichts.
-2. Beginne mit agent_state_get. Dein Zustand enthält die Zeit deines letzten Laufs und die Zahl der Kommentare je Eintrag: {"last": "<ISO-Zeit>", "comments": {"<Schlüssel>": <Zahl>}}. Noch kein Zustand = der erste Lauf: Nimm alle Einträge und hinterlasse keine Notizen.
-3. Liste die Einträge auf. Lies jeden Eintrag, der seit deinem letzten Lauf neu ist oder sich geändert hat, mit seinen Kommentaren.
-4. Schreibe mit upsert_rows in „{db}“, key_property "{key}", höchstens 50 Zeilen pro Aufruf (mehr Einträge: mehr Aufrufe). Je Eintrag: title = sein Titel, key = seine Kennung, dazu {link}, {status}, {prio}, {owner}, {tags}, {changed}, {comments} (wie viele), {last} (der neueste Kommentar, zuerst sein Autor, höchstens 200 Zeichen) und {lastAt}.
-5. {new}: angehakt, wenn der Eintrag mehr Kommentare hat, als dein Zustand sagt, sonst nicht. {waiting}: angehakt, wenn der neueste Kommentar mich etwas fragt oder mich nennt und ich seitdem nicht geantwortet habe, sonst nicht.
-6. {clarity}: {clear} · {open} · {blocked} · {elsewhere} · {done} — beurteilt danach, was „{clear}“ oben heißt. {why}: ein kurzer Satz, warum.
-7. Schreibe nie {myStatus}, {myPrio}, {next} oder {due}: Die gehören mir (nur von Hand).
-8. Eine Zeile, deren Eintrag {server} nicht mehr auflistet: {gone} anhaken — die Zeile nie löschen. Ein Eintrag, der wieder da ist: Haken weg.
-9. notify_me mit page_id = die Zeile des Eintrags: eine Notiz je neuem Kommentar an mich („Neuer Kommentar zu #8215“) und eine Notiz für die Einträge, die seit deinem letzten Lauf „{clear}“ geworden sind („3 Einträge sind bereit“). Sonst nichts.
-10. Zum Schluss: agent_state_set mit {"last": "<jetzt, ISO>", "comments": {"<Schlüssel>": <Zahl>, …}} — nur Schlüssel und Zahlen, höchstens 4 KB.
-11. Bericht in 3–8 Zeilen: neue, geänderte und verschwundene Einträge, was auf mich wartet, was „{clear}“ geworden ist.`,
+    'features.agents.mirror.instr.intro': 'Halte die Datenbank „{db}“ jeden Werktag mit den Einträgen in {server} (ein MCP-Server) im Gleichstand. Lies {server} nur.',
+    'features.agents.mirror.instr.introAny': 'Halte die Datenbank „{db}“ mit den Einträgen in {server} (ein MCP-Server) im Gleichstand. Lies {server} nur.',
+    'features.agents.mirror.instr.yours': 'DEIN TEIL — ersetze jeden Teil in eckigen Klammern:',
+    'features.agents.mirror.instr.yours.list': '- Einträge auflisten: {ph}',
+    'features.agents.mirror.instr.yours.read': '- Einen Eintrag mit seinen Kommentaren lesen: {ph}',
+    'features.agents.mirror.instr.yours.readItem': '- Einen Eintrag lesen: {ph}',
+    'features.agents.mirror.instr.yours.me': '- Wer ich in {server} bin: {ph}',
+    'features.agents.mirror.instr.yours.clear': '- Ein Eintrag ist „{clear}“, wenn: {ph}',
+    'features.agents.mirror.instr.fixed': 'DER FESTE TEIL:',
+    'features.agents.mirror.instr.readOnly': 'Lies {server} nur: Lege dort nichts an und ändere, kommentiere, vergib oder schließe nichts.',
+    'features.agents.mirror.instr.state': 'Beginne mit agent_state_get. Dein Zustand enthält die Zeit deines letzten Laufs und die Zahl der Kommentare je Eintrag: {"last": "<ISO-Zeit>", "comments": {"<Schlüssel>": <Zahl>}}. Noch kein Zustand = der erste Lauf: Nimm alle Einträge und hinterlasse keine Notizen.',
+    'features.agents.mirror.instr.stateLast': 'Beginne mit agent_state_get. Dein Zustand enthält die Zeit deines letzten Laufs: {"last": "<ISO-Zeit>"}. Noch kein Zustand = der erste Lauf: Nimm alle Einträge und hinterlasse keine Notizen.',
+    'features.agents.mirror.instr.list': 'Liste die Einträge auf. Lies jeden Eintrag, der seit deinem letzten Lauf neu ist oder sich geändert hat, mit seinen Kommentaren.',
+    'features.agents.mirror.instr.listItems': 'Liste die Einträge auf. Lies jeden Eintrag, der seit deinem letzten Lauf neu ist oder sich geändert hat.',
+    'features.agents.mirror.instr.write': 'Schreibe mit upsert_rows in „{db}“, key_property "{key}", höchstens 50 Zeilen pro Aufruf (mehr Einträge: mehr Aufrufe). Je Eintrag: title = sein Titel, key = seine Kennung{plus}.',
+    'features.agents.mirror.instr.plus': ', dazu {list}',
+    'features.agents.mirror.instr.note.comments': '{name} (wie viele)',
+    'features.agents.mirror.instr.note.lastComment': '{name} (der neueste Kommentar, zuerst sein Autor, höchstens 200 Zeichen)',
+    'features.agents.mirror.instr.new': '{new}: angehakt, wenn der Eintrag mehr Kommentare hat, als dein Zustand sagt, sonst nicht.',
+    'features.agents.mirror.instr.waiting': '{waiting}: angehakt, wenn der neueste Kommentar mich etwas fragt oder mich nennt und ich seitdem nicht geantwortet habe, sonst nicht.',
+    'features.agents.mirror.instr.clarity': '{clarity}: {options} — beurteilt danach, was „{clear}“ oben heißt.',
+    'features.agents.mirror.instr.why': '{why}: ein kurzer Satz, warum.',
+    'features.agents.mirror.instr.hand': 'Schreibe nie {list}: Die gehören mir (nur von Hand).',
+    'features.agents.mirror.instr.handOne': 'Schreibe nie {list}: Das gehört mir (nur von Hand).',
+    'features.agents.mirror.instr.gone': 'Eine Zeile, deren Eintrag {server} nicht mehr auflistet: {gone} anhaken — die Zeile nie löschen. Ein Eintrag, der wieder da ist: Haken weg.',
+    'features.agents.mirror.instr.goneKeep': 'Eine Zeile, deren Eintrag {server} nicht mehr auflistet: Lass sie, wie sie ist — die Zeile nie löschen.',
+    'features.agents.mirror.instr.notify': 'notify_me mit page_id = die Zeile des Eintrags: {what}. Sonst nichts.',
+    'features.agents.mirror.instr.notify.comment': 'eine Notiz je neuem Kommentar an mich („Neuer Kommentar zu #8215“)',
+    'features.agents.mirror.instr.notify.clear': 'eine Notiz für die Einträge, die seit deinem letzten Lauf „{clear}“ geworden sind („3 Einträge sind bereit“)',
+    'features.agents.mirror.instr.stateSet': 'Zum Schluss: agent_state_set mit {"last": "<jetzt, ISO>", "comments": {"<Schlüssel>": <Zahl>, …}} — nur Schlüssel und Zahlen, höchstens 4 KB.',
+    'features.agents.mirror.instr.stateSetLast': 'Zum Schluss: agent_state_set mit {"last": "<jetzt, ISO>"} — höchstens 4 KB.',
+    'features.agents.mirror.instr.report': 'Bericht in 3–8 Zeilen: neue, geänderte und verschwundene Einträge{more}.',
+    'features.agents.mirror.instr.report.waiting': 'was auf mich wartet',
+    'features.agents.mirror.instr.report.clear': 'was „{clear}“ geworden ist',
+    'features.agents.mirror.instr.and': 'und',
+    'features.agents.mirror.instr.or': 'oder',
   },
 }

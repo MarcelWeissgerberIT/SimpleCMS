@@ -133,6 +133,26 @@ type Obj = Record<string, unknown>
 const isObj = (v: unknown): v is Obj => !!v && typeof v === 'object' && !Array.isArray(v)
 const own = (o: Obj, k: string): unknown => (Object.prototype.hasOwnProperty.call(o, k) ? o[k] : undefined)
 const has = (o: Obj, k: string) => Object.prototype.hasOwnProperty.call(o, k) && o[k] !== undefined
+/**
+ * A value as an issue shows it ("the id {value} …"): a string as it is, anything else as JSON — never String(v), which
+ * throws for an object with an own non-callable `toString` (`{"id": {"toString": 1}}`). Clamped for the message.
+ */
+export function show(v: unknown): string {
+  let s: string
+  if (typeof v === 'string') s = v
+  else {
+    try {
+      s = JSON.stringify(v) ?? Object.prototype.toString.call(v)
+    } catch {
+      try {
+        s = Object.prototype.toString.call(v)
+      } catch {
+        s = typeof v
+      }
+    }
+  }
+  return s.length > 80 ? `${s.slice(0, 79)}…` : s
+}
 const clean = (s: string) => s.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, '')
 const oneLine = (s: string) => s.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim()
 
@@ -187,7 +207,7 @@ function str(c: Ctx, v: unknown, max: number, opts: { line?: boolean; empty?: bo
 
 function enumOf<T extends string>(c: Ctx, v: unknown, list: readonly T[]): T | undefined {
   if (typeof v === 'string' && (list as readonly string[]).includes(v)) return v as T
-  c.issue('enum', { value: typeof v === 'string' ? v : JSON.stringify(v) ?? String(v), allowed: list.join(', ') })
+  c.issue('enum', { value: show(v), allowed: list.join(', ') })
   return undefined
 }
 
@@ -211,7 +231,7 @@ function bool(c: Ctx, v: unknown): boolean | undefined {
 
 function color(c: Ctx, v: unknown): ColorName | undefined {
   if (typeof v === 'string' && COLOR_NAMES.includes(v as ColorName)) return v as ColorName
-  c.issue('color', { value: typeof v === 'string' ? v : String(v), allowed: COLOR_NAMES.join(', ') })
+  c.issue('color', { value: show(v), allowed: COLOR_NAMES.join(', ') })
   return undefined
 }
 
@@ -249,7 +269,7 @@ function checkMatch(c: Ctx, v: unknown): IntegrationMatch | undefined {
     if (list) {
       const tools: string[] = []
       list.forEach((x, i) => {
-        if (typeof x !== 'string' || !TOOL_NAME.test(x)) return cc.at(i).issue('tool', { value: typeof x === 'string' ? x : String(x) })
+        if (typeof x !== 'string' || !TOOL_NAME.test(x)) return cc.at(i).issue('tool', { value: show(x) })
         if (tools.includes(x)) return cc.at(i).warn('duplicate', { value: x })
         tools.push(x)
       })
@@ -264,7 +284,7 @@ function checkMatch(c: Ctx, v: unknown): IntegrationMatch | undefined {
     if (!has(o, key)) continue
     const raw = o[key]
     if (typeof raw !== 'string') c.at(key).issue('string')
-    else if (!re.test(raw.trim()) || !raw.replace(/[*?]/g, '').trim()) c.at(key).issue('glob', { value: raw })
+    else if (!re.test(raw.trim()) || !raw.replace(/[*?]/g, '').trim()) c.at(key).issue('glob', { value: show(raw) })
     else out[key] = raw.trim().toLowerCase()
   }
   // a profile without a condition is kept (an inactive draft) — and never matches
@@ -295,13 +315,13 @@ export function checkIntegration(raw: unknown, report: Report | null = null): In
   let ok = true
   if (!c.required(o, 'schema')) ok = false
   else if (o.schema !== INTEGRATION_SCHEMA) {
-    c.at('schema').issue('schema', { value: typeof o.schema === 'string' ? o.schema : String(o.schema), expected: INTEGRATION_SCHEMA })
+    c.at('schema').issue('schema', { value: show(o.schema), expected: INTEGRATION_SCHEMA })
     ok = false
   }
   let id: string | undefined
   if (c.required(o, 'id')) {
     if (typeof o.id === 'string' && PROFILE_ID.test(o.id)) id = o.id
-    else c.at('id').issue('id', { value: typeof o.id === 'string' ? o.id : String(o.id) })
+    else c.at('id').issue('id', { value: show(o.id) })
   }
   const name = c.required(o, 'name') ? str(c.at('name'), o.name, INTEGRATION_LIMITS.name) : undefined
   const description = has(o, 'description') ? str(c.at('description'), o.description, INTEGRATION_LIMITS.description, { empty: true }) : undefined
@@ -354,13 +374,13 @@ function checkRecipe(c: Ctx, v: unknown): RecipeConfig | null {
   const out: RecipeConfig = { kind }
   if (has(o, 'id')) {
     if (typeof o.id === 'string' && RECIPE_ID.test(o.id)) out.id = o.id
-    else c.at('id').issue('id', { value: typeof o.id === 'string' ? o.id : String(o.id) })
+    else c.at('id').issue('id', { value: show(o.id) })
   }
   if (has(o, 'name')) out.name = localText(c.at('name'), o.name, INTEGRATION_LIMITS.name)
   if (has(o, 'description')) out.description = localText(c.at('description'), o.description, INTEGRATION_LIMITS.description)
   if (has(o, 'icon')) {
     if (typeof o.icon === 'string' && LUCIDE.test(o.icon)) out.icon = o.icon
-    else c.at('icon').issue('icon', { value: typeof o.icon === 'string' ? o.icon : String(o.icon) })
+    else c.at('icon').issue('icon', { value: show(o.icon) })
   }
   if (has(o, 'color')) out.color = color(c.at('color'), o.color)
   if (has(o, 'database')) {
@@ -415,7 +435,7 @@ function checkProperties(c: Ctx, v: unknown): RecipePropertyConfig[] | undefined
     if (!name || !type) return
     const p: RecipePropertyConfig = { name, type }
     if (has(o, 'role')) {
-      if (typeof o.role !== 'string' || !ROLE.test(o.role)) pc.at('role').issue('role', { value: typeof o.role === 'string' ? o.role : String(o.role) })
+      if (typeof o.role !== 'string' || !ROLE.test(o.role)) pc.at('role').issue('role', { value: show(o.role) })
       else if (roles.has(o.role)) pc.at('role').issue('duplicate', { value: o.role })
       else {
         roles.add(o.role)
@@ -581,7 +601,7 @@ function checkAgent(c: Ctx, v: unknown): RecipeAgentConfig | null {
       let at: string | undefined
       if (sc.required(s, 'at')) {
         if (typeof s.at === 'string' && TIME.test(s.at)) at = s.at
-        else sc.at('at').issue('time', { value: typeof s.at === 'string' ? s.at : String(s.at) })
+        else sc.at('at').issue('time', { value: show(s.at) })
       }
       const int = (key: 'weekday' | 'day', min: number, max: number) => {
         if (!has(s, key)) return undefined
@@ -604,7 +624,7 @@ function checkAgent(c: Ctx, v: unknown): RecipeAgentConfig | null {
   if (has(o, 'model')) {
     if (o.model === null) out.model = null
     else if (typeof o.model === 'string' && MODEL.test(o.model)) out.model = o.model
-    else c.at('model').issue('model', { value: typeof o.model === 'string' ? o.model : String(o.model) })
+    else c.at('model').issue('model', { value: show(o.model) })
   }
   if (has(o, 'effort')) out.effort = o.effort === null ? null : enumOf(c.at('effort'), o.effort, EFFORTS)
   if (has(o, 'tools')) {
@@ -613,7 +633,7 @@ function checkAgent(c: Ctx, v: unknown): RecipeAgentConfig | null {
     if (list) {
       const tools: string[] = []
       list.forEach((x, i) => {
-        if (typeof x !== 'string' || !TOOL_NAME.test(x)) tc.at(i).issue('tool', { value: typeof x === 'string' ? x : String(x) })
+        if (typeof x !== 'string' || !TOOL_NAME.test(x)) tc.at(i).issue('tool', { value: show(x) })
         else if (!tools.includes(x)) tools.push(x)
       })
       out.tools = tools
@@ -639,19 +659,32 @@ export const sanitizeIntegration = (raw: unknown): IntegrationProfile | null => 
   }
 }
 
-/** Every valid profile of a stored / imported list (unique ids, ≤ the limit; `dropped`: entries that were not valid). */
-export function sanitizeIntegrations(raw: unknown): { integrations: IntegrationProfile[]; dropped: number } {
+/**
+ * Every valid profile of a stored / imported list (unique ids, ≤ the limit). `dropped`: entries left out (not valid,
+ * a repeated id, past the limit); `over`: valid profiles of those, left out only because the list was full.
+ */
+export function sanitizeIntegrations(raw: unknown): { integrations: IntegrationProfile[]; dropped: number; over: number } {
   const out: IntegrationProfile[] = []
   let dropped = 0
-  if (raw === undefined || raw === null) return { integrations: out, dropped }
+  let over = 0
+  if (raw === undefined || raw === null) return { integrations: out, dropped, over }
   const list = Array.isArray(raw) ? raw : isObj(raw) ? Object.values(raw) : null
-  if (!list) return { integrations: out, dropped: 1 }
+  if (!list) return { integrations: out, dropped: 1, over }
+  const ids = new Set<string>()
   for (const v of list) {
-    const p = out.length < INTEGRATION_LIMITS.profiles ? sanitizeIntegration(v) : null
-    if (p && !out.some((x) => x.id === p.id)) out.push(p)
-    else dropped++
+    const p = sanitizeIntegration(v)
+    if (p && !ids.has(p.id) && out.length < INTEGRATION_LIMITS.profiles) {
+      ids.add(p.id)
+      out.push(p)
+      continue
+    }
+    dropped++
+    if (p && !ids.has(p.id)) {
+      ids.add(p.id)
+      over++
+    }
   }
-  return { integrations: out, dropped }
+  return { integrations: out, dropped, over }
 }
 
 /** Two profiles hold the same definition (ignoring updatedAt / updatedBy). */

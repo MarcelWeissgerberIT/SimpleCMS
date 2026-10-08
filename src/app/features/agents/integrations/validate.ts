@@ -4,10 +4,10 @@
  * would be (recipe.ts buildMirror: property / option references, operators, values). Messages in the UI language.
  */
 import type { Translate } from '@/shared/i18n'
-import { checkIntegration, checkRecipeConfig, type IntegrationIssue } from '../../../store/integrations'
+import { INTEGRATION_LIMITS, checkIntegration, checkRecipeConfig, show, type IntegrationIssue } from '../../../store/integrations'
 import type { IntegrationFeature, IntegrationProfile } from '../../../store/types'
 import { parseJson, pathText, spanAt, type JsonPath } from './json'
-import { MIRROR_NEEDS, buildMirror, resolveRecipe } from './recipe'
+import { MIRROR_NEEDS, NEAR_HINTS, buildMirror, resolveRecipe } from './recipe'
 
 /** Characters a profile may have. */
 export const MAX_PROFILE_CHARS = 200_000
@@ -65,15 +65,28 @@ export function validateProfileText(text: string, t: Translate, lang: 'en' | 'de
     const end = found && found.exact && found.span.end.line === pos.line ? found.span.end.col : undefined
     problems.push({ severity: issue.severity ?? 'error', message: messageOf(t, issue), path: pathText(path), line: pos.line, col: pos.col, ...(end && end > pos.col ? { endCol: end } : {}) })
   }
-  const profile = checkIntegration(parsed.value, add)
-  // every recipe as it would be built (by its index in the text)
+  // the checks never throw on purpose — should one still do (a value of a kind nobody expected), the editor shows
+  // a problem instead of falling over: the text is the person's, the panel must stay usable
+  const guarded = <T>(path: JsonPath, fn: () => T): T | null => {
+    try {
+      return fn()
+    } catch (e) {
+      add({ path, code: 'internal', vars: { msg: show(e instanceof Error ? e.message : e) } })
+      return null
+    }
+  }
+  const profile = guarded([], () => checkIntegration(parsed.value, add))
+  // every recipe as it would be built (by its index in the text); "did you mean" hints share one budget
   const raw = isObj(parsed.value) ? parsed.value.recipes : undefined
   if (Array.isArray(raw)) {
-    raw.forEach((r, i) => {
-      const cfg = checkRecipeConfig(r)
-      if (!cfg) return
-      const resolved = resolveRecipe({ id: profile?.id ?? 'x', name: profile?.name ?? '' }, cfg, lang)
-      buildMirror(resolved, add, ['recipes', i])
+    const hints = { left: NEAR_HINTS }
+    raw.slice(0, INTEGRATION_LIMITS.recipes).forEach((r, i) => {
+      guarded(['recipes', i], () => {
+        const cfg = checkRecipeConfig(r)
+        if (!cfg) return
+        const resolved = resolveRecipe({ id: profile?.id ?? 'x', name: profile?.name ?? '' }, cfg, lang)
+        buildMirror(resolved, add, ['recipes', i], hints)
+      })
     })
     // a mirror needs keys, upsert, the state and notes: a profile that offers one should unlock them
     if (profile && raw.length) {
