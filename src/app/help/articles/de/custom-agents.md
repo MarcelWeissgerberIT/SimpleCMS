@@ -10,7 +10,7 @@ summary: Gespeicherte KI-Helfer für wiederkehrende Arbeit — jeder mit Auftrag
 **Agenten** in der Seitenleiste listet deine eigenen Agenten. **Neuer Agent** startet mit einem Rezept — *Tägliche Mail-Sortierung*, *Wochenbericht aus Projekten*, *Neue Formularantworten zusammenfassen*, *Seiten mit der Wissensdatenbank abgleichen* — oder **Leer**. Nichts läuft, bevor du speicherst.
 
 ## Was ein Agent hat
-- **Auftrag** — einen **Namen** und **Anweisungen** in klaren Worten (**Mit Claude verbessern** schleift sie).
+- **Auftrag** — einen **Namen** und **Anweisungen** in klaren Worten (**Mit Claude verbessern** schleift sie). Das Feld nummeriert die Zeilen und unterstreicht die Werkzeuge, die der Agent nutzen kann (die von One und die seiner MCP-Server); Platzhalter in Großbuchstaben wie `[WIE DIE EINTRÄGE AUFGELISTET WERDEN]` sind markiert und gezählt — **Nächster Platzhalter** springt hin, und **Jetzt ausführen** fragt nach, solange einer offen ist.
 - **Auslöser** — **Manuell**, **Zeitplan** (stündlich, täglich, werktags, wöchentlich, monatlich, zu Uhrzeit und Zeitzone), **Neue Zeile** in einer Datenbank (auch Formularantworten und synchronisierte Mails), **Zeile geändert** oder **Webhook** (nur Server-Agenten).
 - **Zugriff** — **Darf nutzen**: alles oder ausgewählte Seiten und Datenbanken. **Änderungen**: **Nur lesen**, **Vorschläge zur Prüfung** oder **Direkt anwenden** (als „Agent · Name“, rückgängig über den Versionsverlauf). **MCP-Server**, die er aufrufen darf, z. B. deine Wissensdatenbank.
 - **Bericht** — eine optionale **Berichtsseite**, auf die jeder Lauf schreibt (unten anfügen oder ersetzen).

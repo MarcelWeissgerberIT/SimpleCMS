@@ -697,17 +697,37 @@
   background-repeat: no-repeat;
   cursor: pointer;
 }
-.agx-textarea {
-  min-height: 132px;
-  padding-top: 8px;
-  padding-bottom: 8px;
-  resize: vertical;
-  line-height: 1.5;
-  font-family: var(--font-sans);
-}
+/* the job: the shared code area (ui/code) — Markdown structure, tool names, placeholders */
 .agx-count {
-  color: var(--ink-faint);
+  color: var(--ink-3);
   font-size: var(--text-2xs);
+}
+.agx-phnote {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0;
+  padding: 6px 10px;
+  border-left: 2px solid var(--signal);
+  border-radius: 0 var(--radius-1) var(--radius-1) 0;
+  background: var(--signal-wash);
+  color: var(--ink);
+  font-size: var(--text-sm);
+  line-height: 1.45;
+}
+.agx-phnote .led {
+  flex: none;
+  transform: translateY(-1px);
+}
+.agx-legend {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
 }
 .agx-seg {
   display: inline-grid;

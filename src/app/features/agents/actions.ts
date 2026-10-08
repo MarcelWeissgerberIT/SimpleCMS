@@ -7,9 +7,25 @@ import { t } from '../../i18n'
 import { executeRun } from './exec'
 import { dropRuns } from './runs'
 import { loadServerRuns, runOnServer, serverErrorText } from './server'
+import { AGENT_PLACEHOLDERS } from './instructions'
+import { findPlaceholders } from '../../ui/code/placeholders'
 
-/** Start a run now: in this tab (browser runner) or on the team server. */
-export async function runNow(agent: CustomAgent): Promise<void> {
+/**
+ * Start a run now: in this tab (browser runner) or on the team server. While the job still has open placeholders
+ * ("[HOW TO LIST THE ITEMS]", instructions.ts) it asks first — Claude would read them literally.
+ */
+export async function runNow(agent: CustomAgent, opts: { confirmed?: boolean } = {}): Promise<void> {
+  const hits = opts.confirmed ? [] : findPlaceholders(agent.instructions, AGENT_PLACEHOLDERS)
+  if (hits.length) {
+    useUI.getState().openModal({
+      type: 'confirm',
+      title: t('features.agents.ph.title'),
+      body: t(hits.length === 1 ? 'features.agents.ph.body.one' : 'features.agents.ph.body.other', { name: agent.name, count: hits.length, first: hits[0].text }),
+      confirmLabel: t('features.agents.ph.run'),
+      onConfirm: () => void runNow(agent, { confirmed: true }),
+    })
+    return
+  }
   if (agent.runner === 'server') {
     try {
       await runOnServer(agent.id)
