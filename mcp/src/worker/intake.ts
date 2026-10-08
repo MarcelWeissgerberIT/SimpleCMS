@@ -7,7 +7,8 @@
  * worker.json switches this off (the setup page still imports).
  *
  *  - begin → chunk … → end: ≤ ZIP_MAX (500 MB) into a 0600 temp file, the declared size must match; one intake at
- *    a time; an upload nobody finishes is dropped after 10 minutes
+ *    a time; an upload nobody finishes is dropped after 10 minutes, when its tab goes away, or when the same task
+ *    begins again
  *  - clone: parseCloneUrl (no tokens in https addresses, no ext:: / file::, nothing option-like)
  */
 import { createWriteStream, rmSync, type WriteStream } from 'node:fs'
@@ -41,6 +42,8 @@ interface Upload {
   size: number
   declared: number
   timer: ReturnType<typeof setTimeout>
+  /** the temp file could not be written (a full disk) — or the upload was dropped while a write was under way */
+  error: Error | null
 }
 
 /** raw bytes per chunk (base64 on the wire stays below the link's 8 MB) */
@@ -61,6 +64,8 @@ export class Intake {
   private check(taskId: unknown): string {
     if (this.host.config().intake === false) throw new Error('This worker does not take imports from One ("intake": false in worker.json) — use its setup page.')
     if (typeof taskId !== 'string' || !TASK_ID.test(taskId)) throw new Error('bad task id')
+    // the same task starts its upload again (the tab that sent it went away, or the person retried): that one is over
+    if (!this.running && this.upload?.taskId === taskId) this.drop('started again', true)
     if (this.running || this.upload) throw new Error('Another import is running on this worker — wait until it is done.')
     return taskId
   }
@@ -82,8 +87,12 @@ export class Intake {
     if (declared > max) throw new Error(`The ZIP is larger than ${Math.round(max / 1024 / 1024)} MB.`)
     this.base()
     const tmp = join(tmpdir(), `one-intake-${randomBytes(8).toString('hex')}.zip`)
-    const upload: Upload = { id: randomBytes(12).toString('hex'), taskId: id, file, tmp, out: createWriteStream(tmp, { mode: 0o600 }), size: 0, declared, timer: setTimeout(() => this.drop('the upload stopped'), IDLE_MS) }
+    const upload: Upload = { id: randomBytes(12).toString('hex'), taskId: id, file, tmp, out: createWriteStream(tmp, { mode: 0o600 }), size: 0, declared, timer: setTimeout(() => this.drop('the upload stopped'), IDLE_MS), error: null }
     upload.timer.unref?.()
+    // a stream error never ends the worker: the upload fails with it
+    upload.out.on('error', (e) => {
+      upload.error ??= e
+    })
     this.upload = upload
     this.host.log(`import for task ${id}: receiving ${file} (${Math.round(declared / 1024)} KB)`)
     this.host.event(id, { state: 'running', source: 'zip', label: file, line: 'Receiving…', percent: 0 })
@@ -95,6 +104,10 @@ export class Intake {
     const u = this.upload
     if (!u || uploadId !== u.id) throw new Error('No such upload.')
     if (typeof data !== 'string' || data.length > Math.ceil(INTAKE_CHUNK / 3) * 4 + 4) throw new Error('bad chunk')
+    if (u.error) {
+      this.drop(`the file could not be written: ${u.error.message}`)
+      throw new Error('The upload could not be written on the worker\'s computer.')
+    }
     const buf = Buffer.from(data, 'base64')
     u.size += buf.length
     if (u.size > u.declared) {
@@ -113,7 +126,7 @@ export class Intake {
     if (!u || uploadId !== u.id) throw new Error('No such upload.')
     clearTimeout(u.timer)
     this.upload = null
-    await new Promise<void>((done, fail) => u.out.end((e?: Error | null) => (e ? fail(e) : done())))
+    await new Promise<void>((done, fail) => u.out.end((e?: Error | null) => (e || u.error ? fail(e ?? u.error) : done())))
     if (u.size !== u.declared) {
       rmSync(u.tmp, { force: true })
       this.host.event(u.taskId, { state: 'failed', source: 'zip', label: u.file, line: '', percent: null, error: 'The upload was cut off — try again.' })
@@ -175,8 +188,8 @@ export class Intake {
     this.host.event(taskId, { state: 'failed', source, label, line: '', percent: null, error })
   }
 
-  /** Give up an unfinished upload (idle, or the tab went away). */
-  drop(why: string): void {
+  /** Give up an unfinished upload (idle, the tab went away; `quiet`: the same task starts it again — no "failed"). */
+  drop(why: string, quiet = false): void {
     const u = this.upload
     if (!u) return
     clearTimeout(u.timer)
@@ -184,6 +197,6 @@ export class Intake {
     u.out.destroy()
     rmSync(u.tmp, { force: true })
     this.host.log(`import for task ${u.taskId}: dropped (${why})`)
-    this.host.event(u.taskId, { state: 'failed', source: 'zip', label: u.file, line: '', percent: null, error: `The upload stopped (${why}).` })
+    if (!quiet) this.host.event(u.taskId, { state: 'failed', source: 'zip', label: u.file, line: '', percent: null, error: `The upload stopped (${why}).` })
   }
 }

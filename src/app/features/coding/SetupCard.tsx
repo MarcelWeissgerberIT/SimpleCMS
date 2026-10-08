@@ -17,7 +17,8 @@ import { useLang, useT } from '../../i18n'
 import { workspaceInfo } from '../mcp/identity'
 import { downloadWorker, startCommand } from './download'
 import { workerOutdated } from './protocol'
-import { openWorkerSetup } from './service'
+import { openWorkerSetup, viaFor } from './service'
+import { CloudSetupCard } from './CloudSetupCard'
 import { useCoding } from './state'
 import { CodeBlock } from './CodeBlock'
 import { workerStateText } from './stateText'
@@ -59,9 +60,30 @@ export function ChangeReposButton({ className = 'btn btn--sm', label, testId = '
   )
 }
 
-type StepState = 'done' | 'current' | 'todo'
+export type StepState = 'done' | 'current' | 'todo'
 
-function Step({ n, state, title, children, action }: { n: number; state: StepState; title: string; children?: ReactNode; action?: ReactNode }) {
+/** "Needs Node.js 20+ and Claude Code, signed in" with the two links (the local and the cloud card). */
+export function NeedsLine() {
+  const t = useT()
+  return (
+    <p className="cs-hint cs-needs">
+      {withLinks(t('features.coding.card.needs'), {
+        node: (
+          <a href={NODE_URL} target="_blank" rel="noreferrer noopener">
+            {t('features.coding.card.node')}
+          </a>
+        ),
+        claude: (
+          <a href={CLAUDE_CODE_URL} target="_blank" rel="noreferrer noopener">
+            {t('features.coding.card.claude')}
+          </a>
+        ),
+      })}
+    </p>
+  )
+}
+
+export function Step({ n, state, title, children, action }: { n: number; state: StepState; title: string; children?: ReactNode; action?: ReactNode }) {
   const t = useT()
   return (
     <li className="cs-step" data-state={state} data-testid={`coding-step-${n}`}>
@@ -113,6 +135,14 @@ export function OutdatedWorker() {
 }
 
 export function SetupCard({ code = '§ A' }: { code?: string }) {
+  useCoding((s) => s.via)
+  useCloud((x) => x.active)
+  // this team workspace reaches its worker through the team server on this device: the cloud steps
+  if (viaFor(workspaceInfo()) === 'cloud') return <CloudSetupCard code={code} />
+  return <LocalSetupCard code={code} />
+}
+
+function LocalSetupCard({ code }: { code: string }) {
   const t = useT()
   const lang = useLang()
   const s = useCoding()
@@ -163,20 +193,7 @@ export function SetupCard({ code = '§ A' }: { code?: string }) {
         <Step n={2} state={state(1)} title={t('features.coding.card.step2')}>
           <p className="cs-hint">{t('features.coding.card.step2Hint')}</p>
           <CodeBlock code={startCommand()} label={t('features.coding.card.startLabel')} testId="coding-start-command" />
-          <p className="cs-hint cs-needs">
-            {withLinks(t('features.coding.card.needs'), {
-              node: (
-                <a href={NODE_URL} target="_blank" rel="noreferrer noopener">
-                  {t('features.coding.card.node')}
-                </a>
-              ),
-              claude: (
-                <a href={CLAUDE_CODE_URL} target="_blank" rel="noreferrer noopener">
-                  {t('features.coding.card.claude')}
-                </a>
-              ),
-            })}
-          </p>
+          <NeedsLine />
         </Step>
         <Step n={3} state={state(2)} title={t('features.coding.card.step3')} action={<ChangeReposButton />}>
           <p className="cs-hint">{t('features.coding.card.step3Hint')}</p>

@@ -281,6 +281,24 @@ async function forget(flag: string[]): Promise<void> {
     })
     if (codingKeys.length) await delMany(codingKeys, store).catch(() => {})
   }
+  // this device's coding settings for them (features/coding/state.ts, localStorage `one.coding`): Local | Cloud and the
+  // ids of its cloud downloads — their pairing keys ("cloud:<ws>|cloudpair|…") went with "one-coding" above
+  try {
+    const raw = JSON.parse(lsGet('one.coding') ?? 'null') as Record<string, unknown> | null
+    let changed = false
+    for (const field of ['via', 'cloudPairs']) {
+      const map = raw?.[field]
+      if (!map || typeof map !== 'object' || Array.isArray(map)) continue
+      for (const id of Object.keys(map)) {
+        if (!id.startsWith('team:') || !targets.has(id.slice(5))) continue
+        delete (map as Record<string, unknown>)[id]
+        changed = true
+      }
+    }
+    if (changed) lsSet('one.coding', JSON.stringify(raw))
+  } catch {
+    /* no settings */
+  }
   // folder + GitHub sync of this device (features/sync/storage.ts)
   if (!dbNames || dbNames.includes('one-sync')) {
     const syncKeys = [...targets].flatMap((ws) =>

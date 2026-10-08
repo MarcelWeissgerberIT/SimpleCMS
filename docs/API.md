@@ -46,6 +46,10 @@ curl https://cloud.example.com/api/v1/workspace \
   browser JavaScript on other sites.
 - The list in the settings shows who made each token, when, and when it was last used (updated at
   most once a minute).
+- **Worker tokens are not API tokens.** A cloud coding worker's token (`onew_…`, written into
+  `one-worker-cloud.mjs`, [`CODING.md`](CODING.md#cloud-worker)) belongs to one member in one workspace and opens
+  only the coding relay and `GET /api/coding/worker` — `/api/v1` and `/mcp` refuse it (`401 invalid_token`), and an
+  API token never opens the relay.
 
 ## Conventions
 

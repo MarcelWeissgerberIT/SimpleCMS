@@ -76,6 +76,7 @@ export function workspaceRoutes(s: Services) {
     // the workspace's key goes first (crypto-shredding): whatever bytes are left anywhere are unreadable
     s.repo.deleteWorkspace(workspace.id)
     s.collab.closeWorkspace(workspace.id, 'workspace-deleted')
+    s.coding.closeWorkspace(workspace.id, 'workspace-deleted')
     await rm(filesDir(s.config.dataDir, workspace.id), { recursive: true, force: true })
     s.log.info('workspace deleted', { workspace: workspace.id, user: auth.user.id })
     return c.body(null, 204)
@@ -116,6 +117,8 @@ export function workspaceRoutes(s: Services) {
       // every role means something on the socket now: a viewer's is read-only, only owners' and admins' may
       // change the workspace look — reconnect so the new role applies (the app refreshes its role on 'role-changed')
       s.collab.closeUser(userId, workspace.id, 'role-changed')
+      // viewers run no coding tasks: their cloud worker and its tab are let go (the token stays: promoted back, it works again)
+      if (role === 'viewer') s.coding.closeUser(userId, workspace.id, 'role-changed')
     }
     const updated = s.repo.members(workspace.id).find((m) => m.id === userId)
     if (!updated) throw notFound('member_not_found', 'This person is not a member')
@@ -130,8 +133,9 @@ export function workspaceRoutes(s: Services) {
     const current = idSchema.safeParse(userId).success ? s.repo.memberRole(workspace.id, userId) : undefined
     if (!current) throw notFound('member_not_found', 'This person is not a member')
     if (current === 'owner') throw conflict('owner_must_transfer', self ? 'Transfer ownership before leaving (or delete the workspace)' : 'The owner cannot be removed')
-    s.repo.removeMember(workspace.id, userId)
+    s.repo.removeMember(workspace.id, userId) // their cloud worker tokens go with it
     s.collab.closeUser(userId, workspace.id, 'membership-revoked')
+    s.coding.closeUser(userId, workspace.id, 'membership-revoked')
     // their private pages go with the membership (docs/CLOUD.md § Private pages); stores of documents
     // still closing are refused for non-members, so nothing comes back
     const documents = s.repo.deletePrivateDocuments(workspace.id, userId)

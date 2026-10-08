@@ -14,16 +14,21 @@
  * connection. Its first start finds the git repos below the home folder and opens a local page to tick them
  * (setup.ts); --no-browser (or no browser to open) asks in this terminal instead (checklist.ts).
  *
+ * A CLOUD download (one-worker-cloud.mjs, team workspaces) carries a worker token too: it dials the team server
+ * instead of waiting for a tab on 127.0.0.1 (cloud.ts), keeps its own config folder
+ * (~/.config/one/cloud/<workspace>/), and stops with exit code 2 when the server lets it go for good (token
+ * revoked or replaced, member removed) — a service manager should not restart it then (RestartPreventExitStatus=2).
+ *
  * Environment: CLAUDE_BIN (the Claude Code CLI, default "claude"), ONE_WORKER_PORT, ONE_ORIGINS,
  * ONE_WORKER_BROWSER (a program that opens the setup page, "none" = never), ONE_WORKER_QUIET=1. Logs go to
  * stderr.
  */
 import { fileURLToPath } from 'node:url'
-import { existsSync } from 'node:fs'
+import { existsSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { resolve } from 'node:path'
 import { WORKER_DEFAULT_PORT } from '../../../src/app/features/coding/protocol.ts'
-import { defaultConfigFile, emptyConfig, initConfig, loadConfig, saveRepos, withPreset, type RepoChoice } from './config.ts'
+import { cloudConfigFile, defaultConfigFile, emptyConfig, initConfig, loadConfig, saveRepos, withPreset, type RepoChoice } from './config.ts'
 import { claudeBin, detectClaude } from './claude.ts'
 import { checkRepo, hasRemote } from './git.ts'
 import { Worker } from './worker.ts'
@@ -53,8 +58,11 @@ const value = (name: string): string | null => {
   return i >= 0 && argv[i + 1] && !argv[i + 1]!.startsWith('--') ? argv[i + 1]! : null
 }
 const command = argv.find((a) => !a.startsWith('-') && argv[argv.indexOf(a) - 1] !== '--config' && argv[argv.indexOf(a) - 1] !== '--workspace') ?? 'run'
-const configFile = resolve(value('--config') ?? process.env.ONE_WORKER_CONFIG ?? defaultConfigFile())
 const { preset, problem: presetProblem } = filePreset()
+const cloud = preset?.cloud ? { origin: preset.origin, host: new URL(preset.origin).host } : null
+// a cloud worker keeps its own folder: a local worker (and cloud workers of other workspaces) run beside it
+const configFile = resolve(value('--config') ?? process.env.ONE_WORKER_CONFIG ?? (preset?.cloud ? cloudConfigFile(preset.workspace) : defaultConfigFile()))
+const configOpts = { cloud: !!cloud }
 
 if (flag('--version') || flag('-v')) {
   process.stdout.write(`${VERSION}\n`)
@@ -63,7 +71,17 @@ if (flag('--version') || flag('-v')) {
 
 if (flag('--help') || flag('-h')) {
   process.stdout.write(`one-worker ${VERSION} — coding tasks from One, run by Claude Code on this computer
-${preset ? `\nThis file was downloaded for the workspace "${preset.name}" (${preset.workspace}) and is paired with that browser.\n` : ''}
+${
+  cloud
+    ? `\nThis CLOUD worker was downloaded for the workspace "${preset!.name}" (${preset!.workspace}). It connects out to
+${cloud.host} (no port to open) and works for the browser that downloaded it, end-to-end encrypted.
+Tasks run while One is open in that browser. The file holds your worker token: keep it private (chmod 600).
+Its config, state and worktrees: ${configFile.replace(/[/\\]worker\.json$/, '')}
+Exit code 2: the server let this file go for good (token revoked or replaced, membership ended) — download it again.\n`
+    : preset
+      ? `\nThis file was downloaded for the workspace "${preset.name}" (${preset.workspace}) and is paired with that browser.\n`
+      : ''
+}
   node one-worker.mjs                         run — keep it running while One should hand out work. The first
                                               start finds your git repos and opens a page to tick them.
   node one-worker.mjs setup                   run and open that page again (change the repos)
@@ -98,7 +116,7 @@ async function main() {
   let loaded
   try {
     // a download from One needs no config file to start: the setup page writes it
-    loaded = existsSync(configFile) || !preset ? loadConfig(configFile) : { config: emptyConfig(configFile), problems: [] }
+    loaded = existsSync(configFile) || !preset ? loadConfig(configFile, process.env, configOpts) : { config: emptyConfig(configFile), problems: [] }
   } catch (e) {
     process.stderr.write(`${e instanceof Error ? e.message : String(e)}\nOr download the worker from One (Settings → Coding worker): that file comes ready-paired and asks for your repos itself.\n`)
     process.exit(1)
@@ -109,14 +127,19 @@ async function main() {
   if (command === 'check') {
     const bin = claudeBin()
     const caps = await detectClaude(bin)
+    const relay = cloud ? await checkCloud(preset!.origin, preset!.cloud!.token) : null
     const lines = [
       `config     ${configFile}${existsSync(configFile) ? '' : ' (not written yet)'}`,
-      ...(preset ? [`download   paired with a browser for "${preset.name}" · accepts ${preset.origin}${preset.dev ? ' (+ localhost)' : ''}`] : []),
+      ...(cloud
+        ? [`download   cloud worker for "${preset!.name}" · paired (end-to-end) with the browser that downloaded it`, `cloud      ${relay!.line}`]
+        : preset
+          ? [`download   paired with a browser for "${preset.name}" · accepts ${preset.origin}${preset.dev ? ' (+ localhost)' : ''}`]
+          : []),
       `workspace  ${config.workspace ?? 'not set — every One tab is refused'}`,
-      `port       ${config.port}`,
+      `port       ${config.port}${cloud ? ' (task tools and the setup page only — One reaches this worker through the team server)' : ''}`,
       `claude     ${caps.found ? `${caps.version ?? 'found'}${caps.budget ? '' : ' (no --max-budget-usd: limits are checked between stages)'}` : `NOT FOUND ("${bin}")`}`,
     ]
-    let ok = caps.found && !!config.workspace && config.repos.length > 0
+    let ok = caps.found && !!config.workspace && config.repos.length > 0 && (relay?.ok ?? true)
     for (const repo of config.repos) {
       try {
         await checkRepo(repo)
@@ -138,6 +161,15 @@ async function main() {
     process.exit(1)
   }
 
+  // the file holds a worker token: it should be readable by its owner only
+  if (cloud && process.platform !== 'win32') {
+    try {
+      if ((statSync(self).mode & 0o077) !== 0) log(`this file holds your worker token — make it private: chmod 600 ${self}`)
+    } catch {
+      /* not readable as a file: nothing to say */
+    }
+  }
+
   // the setup page lives on the worker's own port; --no-browser: none (the terminal asks instead)
   let worker: Worker | null = null
   const setup = flag('--no-browser')
@@ -152,22 +184,32 @@ async function main() {
         reload: () => reload(worker!),
         live: () => worker!.live(),
       })
-  worker = new Worker({ config, version: VERSION, bin: claudeBin(), self, log, setup, recent: () => recent, intake: { configFile, reload: () => reload(worker!) } })
-  const up = await worker.start()
-  if (up !== 'listening') {
-    if (command === 'setup') process.stderr.write(`Another one-worker seems to run on port ${config.port}. Use "Change repositories" in One (Settings → Coding worker) to open its setup page — or stop it first.\n`)
-    process.exit(1)
-  }
-
   let stopping = false
-  const shutdown = async () => {
+  /** code 2: a cloud worker the team server let go for good (a service manager must not restart it) */
+  const shutdown = async (code = 0) => {
     if (stopping) return
     stopping = true
     log('stopping — ending running tasks')
-    setTimeout(() => process.exit(0), 6000).unref()
-    await worker!.stop().catch(() => {})
-    process.exit(0)
+    setTimeout(() => process.exit(code), 6000).unref()
+    await worker?.stop().catch(() => {})
+    process.exit(code)
   }
+  const onFatal = (_reason: string, message: string) => {
+    log(message)
+    void shutdown(2)
+  }
+  worker = new Worker({ config, version: VERSION, bin: claudeBin(), self, log, setup, recent: () => recent, intake: { configFile, reload: () => reload(worker!) }, onFatal })
+  const up = await worker.start()
+  if (up !== 'listening') {
+    if (command === 'setup')
+      process.stderr.write(
+        cloud
+          ? `Another one-worker seems to run on port ${config.port}. Stop it first (a new download takes over once it connects), or start this one with ONE_WORKER_PORT=<a free port>.\n`
+          : `Another one-worker seems to run on port ${config.port}. Use "Change repositories" in One (Settings → Coding worker) to open its setup page — or stop it first.\n`,
+      )
+    process.exit(1)
+  }
+
   process.on('SIGINT', () => void shutdown())
   process.on('SIGTERM', () => void shutdown())
   process.on('SIGHUP', () => void shutdown())
@@ -175,9 +217,26 @@ async function main() {
   if (command === 'setup' || !config.repos.length) await pickRepos(worker, setup)
 }
 
+/** `check` of a cloud worker: does the team server take this file's token (GET /api/coding/worker)? */
+async function checkCloud(origin: string, token: string): Promise<{ ok: boolean; line: string }> {
+  const host = new URL(origin).host
+  try {
+    const res = await fetch(new URL('/api/coding/worker', origin), { headers: { authorization: `Bearer ${token}` }, redirect: 'error', signal: AbortSignal.timeout(15_000) })
+    if (res.status === 401) return { ok: false, line: `${host} · token refused (revoked, replaced by a newer download, or never started within a day) — download the cloud worker again` }
+    if (res.status === 403) return { ok: false, line: `${host} · not allowed: the person this worker belongs to is a viewer or no longer a member` }
+    if (res.status === 404) return { ok: false, line: `${host} · this One server has no worker relay (older, or CODING_RELAY=off)` }
+    if (!res.ok) return { ok: false, line: `${host} · HTTP ${res.status}` }
+    const body = (await res.json()) as { workspace?: { name?: string }; member?: { email?: string }; state?: string; online?: boolean }
+    const name = String(body.workspace?.name ?? '').replace(/[\u0000-\u001f\u007f]/g, '').slice(0, 120)
+    return { ok: true, line: `${host} · "${name}" as ${body.member?.email ?? '?'} · ${body.state === 'pending' ? 'new token (its first start activates it)' : 'token active'} · ${body.online ? 'a worker with this token is connected now' : 'not connected now'}` }
+  } catch (e) {
+    return { ok: false, line: `${host} · cannot reach it: ${e instanceof Error ? e.message : String(e)}` }
+  }
+}
+
 /** Read worker.json again and hand it to the running worker. */
 async function reload(worker: Worker): Promise<void> {
-  const next = loadConfig(configFile)
+  const next = loadConfig(configFile, process.env, configOpts)
   for (const p of next.problems) log(`config: ${p}`)
   await worker.reload(withPreset(next.config, preset))
 }

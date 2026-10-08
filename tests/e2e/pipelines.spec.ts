@@ -12,7 +12,8 @@ import type { Page } from '@playwright/test'
 import { test, expect, openApp, wsEval, createPage, doc, para } from './fixtures'
 import { makeCodingRepo, startCodingWorker, type CodingRepo, type RunningWorker } from './helpers/coding'
 
-const PORT = 47386
+/** CODING_E2E_PORT: another port when suites run side by side */
+const PORT = Number(process.env.CODING_E2E_PORT) || 47386
 
 test.describe.configure({ mode: 'serial' })
 

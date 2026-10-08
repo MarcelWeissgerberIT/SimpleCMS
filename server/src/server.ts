@@ -7,6 +7,7 @@ import { WorkspaceModel } from './api/model.ts'
 import { buildApp } from './app.ts'
 import { RateLimiter } from './auth/ratelimit.ts'
 import { Sessions } from './auth/sessions.ts'
+import { createCodingRelay } from './coding/relay.ts'
 import { createCollab } from './collab/index.ts'
 import { type Config, isSecureUrl } from './config.ts'
 import { Keyring } from './crypto/keyring.ts'
@@ -42,14 +43,16 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
   const mailer = createMailer(config, log)
   const limiter = new RateLimiter()
   const collab = createCollab({ config, log, repo, sessions })
-  const services = { config, log, db, repo, sessions, mailer, limiter, collab }
+  // cloud coding workers ⇄ their member's tab (docs/CLOUD.md § Coding relay)
+  const coding = createCodingRelay({ config, log, repo, sessions, limiter })
+  const services = { config, log, db, repo, sessions, mailer, limiter, collab, coding }
   const model = new WorkspaceModel(services)
   // custom agents (docs/CLOUD.md § Agents): schedules, triggers and runs in this process
   const agents = new AgentService(services, model)
   const app = buildApp(services, { model, agents })
 
   const server = createAdaptorServer({ fetch: app.fetch }) as HttpServer
-  server.on('upgrade', (req, socket, head) => collab.handleUpgrade(req, socket, head))
+  server.on('upgrade', (req, socket, head) => (coding.owns(req.url) ? coding.handleUpgrade(req, socket, head) : collab.handleUpgrade(req, socket, head)))
   server.headersTimeout = 30_000
   server.requestTimeout = 10 * 60_000 // large uploads on slow links
 
@@ -111,6 +114,7 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
     mail: mailer.mode,
     signup: config.signup.mode,
     agents: config.agents.enabled ? undefined : 'off',
+    coding_relay: config.codingRelay ? undefined : 'off',
     admins: config.adminEmails.length || undefined,
     // names the master key without revealing it: tells which DATA_KEY this server runs with
     data_key: keyring.kekId,
@@ -128,6 +132,7 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
         clearInterval(heartbeat)
         server.close()
         await agents.stop() // running runs end (and are saved) before the documents are flushed
+        await coding.destroy()
         await collab.destroy()
         server.closeAllConnections()
         limiter.stop()

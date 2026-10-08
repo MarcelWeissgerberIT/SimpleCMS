@@ -13,6 +13,14 @@
  *    write that nudges the worker.
  *  - The tab only ever serves its own workspace: switching workspace drops the link (and reconnects as the
  *    new one, which a worker of the old one refuses).
+ *  - Cloud (a team workspace switched to Cloud on this device, docs/CODING.md § Cloud worker): the same protocol
+ *    through the team server's relay (transport.ts), end-to-end sealed with this device's pairing key of the cloud
+ *    worker it downloaded (cloudKeys.ts — non-extractable, one per download whose worker still works). Only a device
+ *    with that download connects (another device of the member would only take its place: it shows "paired with
+ *    another device"); a device whose own newer download has not started yet waits for it while another device's
+ *    worker has the member's place (online, or the active one offline for a moment); a tab opened in the background
+ *    does not take the worker over; a tab another tab or device took the worker from takes it back once that tab
+ *    lets it go (the server lists it online without a tab); tasks run only while such a tab is connected.
  */
 import { useWorkspace, pageChanges } from '../../store/store'
 import { t } from '../../i18n'
@@ -21,7 +29,7 @@ import { currentWorkspace, workspaceInfo } from '../mcp/identity'
 import {
   WORKER_CLOSE_REFUSED,
   WORKER_CLOSE_REPLACED,
-  WORKER_SUBPROTOCOL,
+  RELAY_CLOSE_FORBIDDEN,
   type GitResult,
   type GitVerb,
   type OpenSetupResult,
@@ -29,13 +37,17 @@ import {
   type WorkerMessage,
   type WorkspaceRef,
 } from './protocol'
-import { DEFAULT_CODING, CODING_STORAGE_KEY, loadCodingSettings, saveCodingSettings, useCoding, validPort, type CodingSettings } from './state'
-import { appendLog, patchTask, flushLogs, loadTask } from './local'
+import { DEFAULT_CODING, CODING_STORAGE_KEY, MAX_CLOUD_KEYS, legacyCloudSecrets, loadCodingSettings, saveCodingSettings, useCoding, validPort, type CodingRefused, type CodingSettings } from './state'
+import { appendLog, patchTask, flushLogs, loadTask, taskLocal } from './local'
 import { cleanCode, cleanEdit } from './lines'
 import { addRepoOptions, codingProps, pipelineDbIds } from './schema'
 import { finishStage, heartbeat, intakeDone, pickNext, setNudge, taskContext, gitSummary } from './tasks'
 import { startTrustWatch } from './trust'
-import { useCloud } from '../../cloud'
+import { openCloudLink, openLocalLink, type LinkHandle, type LinkHandlers } from './transport'
+import { cloudContextOk, listCloudWorkers, relayAvailable } from './cloudWorkers'
+import { cloudKey, dropCloudKeys, keepCloudKey } from './cloudKeys'
+import type { SessionKey } from './relayBox'
+import { CloudError, useCloud } from '../../cloud'
 
 const set = useCoding.setState
 const get = useCoding.getState
@@ -44,9 +56,86 @@ const get = useCoding.getState
 
 function patchSettings(patch: Partial<CodingSettings>) {
   const s = get()
-  const next: CodingSettings = { enabled: s.enabled, port: s.port, pairs: s.pairs, ...patch }
+  const next: CodingSettings = { enabled: s.enabled, port: s.port, pairs: s.pairs, via: s.via, cloudPairs: s.cloudPairs, ...patch }
   saveCodingSettings(next)
   set(next)
+}
+
+/**
+ * How this device reaches the worker of a workspace: Cloud only for a team workspace switched to Cloud here — and only
+ * on an https page (or this computer's own http): elsewhere the tab has no WebCrypto and the worker refuses the origin.
+ */
+export function viaFor(ws: { id: string; kind: string } | null): 'local' | 'cloud' {
+  return !!ws && ws.kind === 'team' && useCloud.getState().active.kind === 'cloud' && get().via[ws.id] === 'cloud' && cloudContextOk() ? 'cloud' : 'local'
+}
+
+/** "Where the worker runs" (Settings → Coding worker): Local | Cloud for this team workspace on this device. */
+export function setCodingVia(workspaceId: string, via: 'local' | 'cloud') {
+  const next = { ...get().via }
+  if (via === 'cloud') next[workspaceId] = 'cloud'
+  else delete next[workspaceId]
+  patchSettings({ via: next })
+  set({ relay: null, refused: null, dropped: 0, pendingHere: false })
+  if (get().enabled) reconnect()
+}
+
+/** The token ids this device keeps keys for (newest first); the keys of ids that leave the list are dropped. */
+function setCloudTokens(workspaceId: string, tokens: readonly string[], at?: number) {
+  const old = get().cloudPairs[workspaceId]
+  const next = { ...get().cloudPairs }
+  const list = [...new Set(tokens)].slice(0, MAX_CLOUD_KEYS)
+  if (list.length) next[workspaceId] = { tokens: list, at: at ?? old?.at ?? Date.now() }
+  else delete next[workspaceId]
+  void dropCloudKeys(workspaceId, (old?.tokens ?? []).filter((t) => !list.includes(t)))
+  patchSettings({ cloudPairs: next })
+}
+
+/**
+ * A cloud worker was downloaded on this device (download.ts; its key is kept already, cloudKeys.ts): its token id
+ * goes first; of the older downloads only those that still work stay — `stays`: the member's active token as the
+ * server listed it before this download (a pending one is replaced by it), null: not known, keep them all. Switches
+ * the link on, through the team server.
+ */
+export function cloudDownloaded(workspaceId: string, tokenId: string, stays: readonly string[] | null) {
+  const old = get().cloudPairs[workspaceId]?.tokens ?? []
+  setCloudTokens(workspaceId, [tokenId, ...old.filter((t) => !stays || stays.includes(t))], Date.now())
+  patchSettings({ enabled: true, via: { ...get().via, [workspaceId]: 'cloud' } })
+  fastUntil = Date.now() + 10 * 60_000
+  // a worker of an older download may be connected: it stays until the new file connects (no new pairing, no new key)
+  if (get().conn === 'connected') return
+  set({ relay: null, refused: null })
+  disconnect(false)
+  attempt = 0
+  failingSince = 0
+  connect()
+}
+
+/** The member revoked their cloud workers here: this device forgets their keys; the link shows "no cloud worker yet". */
+export function cloudRevoked(workspaceId: string) {
+  setCloudTokens(workspaceId, [])
+  set({ relay: { online: false, registered: false, token: null }, pendingHere: false })
+  if (get().enabled && currentWorkspace()?.id === workspaceId) reconnect()
+}
+
+/** This device's pairing key for the cloud download with this token id (null: none here — another device's). */
+async function pairFor(workspaceId: string, token: string | null): Promise<SessionKey | null> {
+  if (!token || !get().cloudPairs[workspaceId]?.tokens.includes(token)) return null
+  return cloudKey(workspaceId, token)
+}
+
+/** The newest download connected: the server revoked every older token of the member — their keys go. */
+function forgetPrevious(workspaceId: string, token: string | null) {
+  const p = get().cloudPairs[workspaceId]
+  if (p && token && p.tokens[0] === token && p.tokens.length > 1) setCloudTokens(workspaceId, [token])
+}
+
+/** Keys an earlier build kept as plain text in localStorage: into IndexedDB as non-extractable keys, then out of localStorage. */
+async function moveLegacySecrets() {
+  const legacy = legacyCloudSecrets()
+  if (!legacy.length) return
+  for (const l of legacy) await keepCloudKey(l.workspace, l.token, l.secret).catch(() => {})
+  const s = get()
+  saveCodingSettings({ enabled: s.enabled, port: s.port, pairs: s.pairs, via: s.via, cloudPairs: s.cloudPairs })
 }
 
 /** Look for the worker every 1.5 s until then (after a download: the person is about to start it). */
@@ -92,11 +181,17 @@ export function reconnect() {
 
 /* ------------------------------------------------------------------ connection */
 
-let socket: WebSocket | null = null
+let link: LinkHandle | null = null
 let retryTimer = 0
 let attempt = 0
 let failingSince = 0
 let seq = 0
+/** bumped by every connect / disconnect: a cloud connect that waited for the server is stale when it changed */
+let generation = 0
+/** this tab had the worker (a cloud tab that had it may reconnect while in the background) */
+let wasCurrent = false
+/** the workspace of the last connect (a switch to another one reconnects) */
+let lastWs: string | null = null
 const pending = new Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void; timer: number }>()
 /** the workspace this link said hello as */
 let helloAs: string | null = null
@@ -110,87 +205,272 @@ function me(): WorkspaceRef {
 }
 
 function send(msg: TabMessage) {
-  if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(msg))
+  link?.send(msg)
+}
+
+function rejectPending() {
+  for (const p of pending.values()) {
+    window.clearTimeout(p.timer)
+    p.reject(new Error(t('features.coding.err.gone')))
+  }
+  pending.clear()
 }
 
 function schedule() {
   window.clearTimeout(retryTimer)
-  if (!get().enabled || socket) return
+  if (!get().enabled || link) return
   retryTimer = window.setTimeout(connect, delay())
 }
 
 function connect() {
   window.clearTimeout(retryTimer)
-  if (!get().enabled || socket) return
+  if (!get().enabled || link) return
   // between workspaces (loading, signed out): wait
-  if (!currentWorkspace()) {
+  const self = currentWorkspace()
+  if (!self) {
     set({ conn: 'waiting' })
     return schedule()
   }
-  let ws: WebSocket
+  lastWs = self.id
+  if (viaFor(self) === 'cloud') return void connectCloud(self)
+  set({ relay: null })
+  const port = get().port
   try {
-    ws = new WebSocket(`ws://127.0.0.1:${get().port}`, WORKER_SUBPROTOCOL)
+    attach((h) => openLocalLink(port, h))
   } catch {
     set({ conn: 'blocked' })
     return
   }
-  socket = ws
-  let refused = false
   set((s) => ({ conn: attempt === 0 && s.conn !== 'waiting' ? 'connecting' : 'waiting' }))
-  ws.onopen = () => {
-    const self = me()
-    helloAs = self.id
-    // this device's pairing with the worker downloaded for this workspace (a worker.json worker ignores it)
-    const pair = get().pairs[self.id]?.secret
-    ws.send(JSON.stringify({ type: 'hello', app: 'one', version: BRAND.version, workspace: self, ...(pair ? { pair } : {}) } satisfies TabMessage))
-  }
-  ws.onmessage = (e) => {
-    let msg: WorkerMessage
-    try {
-      msg = JSON.parse(String(e.data)) as WorkerMessage
-    } catch {
-      return
-    }
-    if (msg.type === 'refused') {
-      refused = true
-      set({ refused: msg.reason === 'unbound' || msg.reason === 'pair' ? msg.reason : 'workspace', refusedPaired: msg.paired === true })
-      return
-    }
-    void receive(msg)
-  }
-  ws.onclose = (e) => {
-    if (socket !== ws) return
-    socket = null
-    helloAs = null
-    for (const p of pending.values()) {
-      window.clearTimeout(p.timer)
-      p.reject(new Error(t('features.coding.err.gone')))
-    }
-    pending.clear()
-    set({ worker: null, busy: [], can: null })
-    if (!get().enabled) return set({ conn: 'off' })
-    if (refused || e.code === WORKER_CLOSE_REFUSED) return set({ conn: 'refused' })
-    if (e.code === WORKER_CLOSE_REPLACED) return set({ conn: 'replaced' })
-    const was = get().conn === 'connected'
-    if (was) {
-      attempt = 0
-      failingSince = 0
-    } else {
-      attempt += 1
-      failingSince ||= Date.now()
-    }
+}
+
+/**
+ * Cloud: through the team server — only when the relay is there, this member may run tasks, and one of the
+ * member's live cloud workers is a download of THIS device (else connecting would only take another device's place).
+ */
+async function connectCloud(self: { id: string }) {
+  const gen = ++generation
+  const serverId = useCloud.getState().active.id
+  set((s) => ({ conn: s.conn === 'waiting' ? 'waiting' : 'connecting' }))
+  const role = useCloud.getState().role
+  // the role is not known yet (the workspace is still loading): ask the server nothing before it is
+  if (!role) {
     set({ conn: 'waiting' })
-    schedule()
+    return schedule()
   }
+  if (role === 'viewer') return set({ conn: 'refused', refused: 'viewer', relay: null, pendingHere: false })
+  const on = await relayAvailable()
+  const stale = () => gen !== generation || !!link || !get().enabled
+  if (stale()) return
+  if (!on) return set({ conn: 'refused', refused: 'relay-off', relay: null, pendingHere: false })
+  let mine
+  try {
+    mine = (await listCloudWorkers(serverId)).filter((w) => w.mine)
+  } catch (e) {
+    if (gen !== generation || link) return
+    // a member made a viewer meanwhile (the server says so before this tab heard of it)
+    if (e instanceof CloudError && e.code === 'forbidden') return set({ conn: 'refused', refused: 'viewer', relay: null, pendingHere: false })
+    attempt += 1
+    failingSince ||= Date.now()
+    set({ conn: 'waiting' })
+    return schedule()
+  }
+  if (stale()) return
+  // this device's downloads the server no longer lists (revoked, replaced, never started in a day): their keys go —
+  // not a download of the last minutes (another tab of this device may have made it after this list was read)
+  const live = new Set(mine.map((w) => w.id))
+  const pair = get().cloudPairs[self.id]
+  const kept = pair?.tokens ?? []
+  const fresh = !!pair && Date.now() - pair.at < 5 * 60_000
+  const still = kept.filter((t, i) => live.has(t) || (i === 0 && fresh))
+  if (still.length !== kept.length) setCloudTokens(self.id, still)
+  const held = new Set<string>()
+  for (const t of get().cloudPairs[self.id]?.tokens ?? []) if (await cloudKey(self.id, t)) held.add(t)
+  if (stale()) return
+  const online = mine.find((w) => w.online) ?? null
+  if (!mine.some((w) => held.has(w.id))) {
+    set({ pendingHere: false, relay: { online: !!online, registered: mine.length > 0, token: null } })
+    // none of the member's cloud workers came from this device: say so — nothing to connect to
+    return set(mine.length ? { conn: 'refused', refused: 'other-device' } : { conn: 'waiting', refused: null })
+  }
+  // another device's worker has the member's place — online, or the active one offline for a moment (a restart, a
+  // network blip, a server redeploy) — and this device's own download has not started yet: wait for that file (it takes
+  // over once it connects). Opening the relay link now would only take the other device's place, and its worker would
+  // come back to a tab that cannot use it
+  const elsewhere = online ? !held.has(online.id) : mine.some((w) => w.state === 'active' && !held.has(w.id)) && !mine.some((w) => w.state === 'active' && held.has(w.id))
+  if (elsewhere) {
+    set({ conn: 'waiting', refused: null, pendingHere: true, relay: { online: !!online, registered: true, token: online?.id ?? null } })
+    return pollCloud()
+  }
+  set({ pendingHere: false })
+  // a tab opened in the background does not take the worker over (the one the person looks at does)
+  if (!wasCurrent && typeof document !== 'undefined' && document.visibilityState !== 'visible') return set({ conn: 'waiting' })
+  attach((h) => openCloudLink(serverId, (token) => pairFor(self.id, token), h))
+}
+
+const hiddenTab = () => typeof document !== 'undefined' && document.visibilityState !== 'visible'
+
+/** Waiting for this device's own new download while another device's worker has the place: look again soon. */
+function pollCloud() {
+  window.clearTimeout(retryTimer)
+  if (!get().enabled || link) return
+  retryTimer = window.setTimeout(connect, hiddenTab() ? 60_000 : Date.now() < fastUntil ? 5000 : 15_000)
+}
+
+/** when this tab last asked the server again after another device's worker answered (a guard against a loop) */
+let recheckedAt = 0
+
+/**
+ * Another device's worker answered on the relay while this device holds downloads of its own: the server's list says
+ * which it is — this device's new download not started yet (wait for it), or this device's worker just replaced by
+ * another device's newer file ("paired with another device"). Asked once at once, then at the poll's pace.
+ */
+function recheckCloud() {
+  const now = Date.now()
+  if (now - recheckedAt < 10_000) return pollCloud()
+  recheckedAt = now
+  connect()
+}
+
+/** when a replaced cloud tab last asked whether its worker is free again */
+let replacedAt = 0
+
+/**
+ * A cloud tab another tab or device took the worker from (4001) looks now and then (and when it is looked at again)
+ * whether this device's own worker is online with no tab handing out its work — the tab that took its place left,
+ * or connected to a worker it could not use — and then takes it back. A hidden tab never does.
+ */
+async function checkReplaced() {
+  window.clearTimeout(retryTimer)
+  const self = currentWorkspace()
+  if (!get().enabled || link || get().conn !== 'replaced' || !self || viaFor(self) !== 'cloud') return
+  if (hiddenTab() || Date.now() - replacedAt < 3000) return watchReplaced()
+  replacedAt = Date.now()
+  const gen = generation
+  let again = false
+  try {
+    const tokens = get().cloudPairs[self.id]?.tokens ?? []
+    const own = (await listCloudWorkers(useCloud.getState().active.id)).filter((w) => w.mine && tokens.includes(w.id))
+    // free: online, no tab hands out its work · none left: replaced or revoked meanwhile — connectCloud says what is
+    // (it opens no link then)
+    again = !own.length || own.some((w) => w.online && !w.tab)
+  } catch {
+    /* the server cannot be reached right now: look again later */
+  }
+  if (gen !== generation || link || get().conn !== 'replaced' || currentWorkspace()?.id !== self.id) return
+  if (!again) return watchReplaced()
+  attempt = 0
+  connect()
+}
+
+function watchReplaced() {
+  window.clearTimeout(retryTimer)
+  if (!get().enabled || link) return
+  retryTimer = window.setTimeout(() => void checkReplaced(), hiddenTab() ? 60_000 : 15_000)
+}
+
+/** Open a link (local or cloud) with the one set of handlers. */
+function attach(open: (h: LinkHandlers) => LinkHandle) {
+  let refused = false
+  /** cloud: closed to ask the server which of this device's downloads still work (another device's worker answered) */
+  let recheck = false
+  let handle: LinkHandle | null = null
+  const mine = () => !!handle && link === handle
+  const h: LinkHandlers = {
+    open: () => {
+      if (!mine()) return
+      const self = me()
+      helloAs = self.id
+      // this device's pairing with the worker downloaded for this workspace (a worker.json worker ignores it) —
+      // through the relay the sealed box itself is the proof: the secret never travels
+      const pair = handle!.via === 'local' ? get().pairs[self.id]?.secret : undefined
+      handle!.send({ type: 'hello', app: 'one', version: BRAND.version, workspace: self, ...(pair ? { pair } : {}) })
+    },
+    message: (msg) => {
+      if (!mine()) return
+      if (msg.type === 'refused') {
+        refused = true
+        set({ refused: msg.reason === 'unbound' || msg.reason === 'pair' ? msg.reason : 'workspace', refusedPaired: msg.paired === true })
+        return
+      }
+      void receive(msg)
+    },
+    relay: (view) => {
+      if (!mine()) return
+      set({ relay: view })
+      if (view.online) forgetPrevious(currentWorkspace()?.id ?? '', view.token)
+      if (!view.online && get().conn !== 'refused') set({ conn: 'waiting', worker: null, busy: [], can: null })
+    },
+    lost: () => {
+      if (!mine()) return
+      rejectPending()
+      helloAs = null
+      set({ worker: null, busy: [], can: null, conn: 'waiting' })
+    },
+    untrusted: (why) => {
+      if (!mine()) return
+      rejectPending()
+      if (why === 'other-device' && (get().cloudPairs[currentWorkspace()?.id ?? '']?.tokens.length ?? 0) > 0) {
+        // another device's worker answered while this device holds downloads of its own: leave the relay link (not that
+        // device's place) and ask the server whether one of them still works — this device's new download not started
+        // yet (wait for it) — or whether this device's worker was just replaced by the other device's newer file
+        recheck = true
+        set({ conn: 'connecting', refused: null, pendingHere: false, worker: null, busy: [], can: null })
+      } else {
+        refused = true
+        set({ conn: 'refused', refused: why, worker: null, busy: [], can: null })
+      }
+      handle!.close(1000, why)
+    },
+    dropped: (n) => {
+      if (mine() && n > 0) set((s) => ({ dropped: s.dropped + n }))
+    },
+    close: (code, reason) => {
+      if (!mine()) return
+      const via = handle!.via
+      link = null
+      helloAs = null
+      rejectPending()
+      set({ worker: null, busy: [], can: null })
+      if (!get().enabled) return set({ conn: 'off' })
+      if (recheck) return recheckCloud()
+      if (via === 'cloud' && code === RELAY_CLOSE_FORBIDDEN) {
+        const why: CodingRefused = reason === 'viewer' || reason === 'role-changed' ? 'viewer' : reason === 'forbidden' ? 'forbidden' : 'removed'
+        return set({ conn: 'refused', refused: why, relay: null })
+      }
+      if (refused || code === WORKER_CLOSE_REFUSED) return set((s) => ({ conn: 'refused', refused: s.refused ?? (reason === 'pair' ? 'pair' : 'workspace') }))
+      if (code === WORKER_CLOSE_REPLACED) {
+        wasCurrent = false
+        set({ conn: 'replaced' })
+        // through the relay: take this device's worker back once the tab that took its place lets it go
+        if (via === 'cloud') watchReplaced()
+        return
+      }
+      const was = get().conn === 'connected'
+      if (was) {
+        attempt = 0
+        failingSince = 0
+      } else {
+        attempt += 1
+        failingSince ||= Date.now()
+      }
+      set({ conn: 'waiting' })
+      schedule()
+    },
+  }
+  handle = open(h)
+  link = handle
 }
 
 function disconnect(off = true) {
   window.clearTimeout(retryTimer)
-  const ws = socket
-  socket = null
+  generation += 1
+  const l = link
+  link = null
   helloAs = null
-  if (ws && ws.readyState <= WebSocket.OPEN) ws.close(1000, off ? 'switched off' : 'reconnecting')
-  set({ conn: off ? 'off' : 'connecting', worker: null, busy: [], refused: null, refusedPaired: false, can: null })
+  rejectPending()
+  l?.close(1000, off ? 'switched off' : 'reconnecting')
+  set({ conn: off ? 'off' : 'connecting', worker: null, busy: [], can: null, refused: null, refusedPaired: false, pendingHere: false })
 }
 
 /* ------------------------------------------------------------------ messages */
@@ -207,8 +487,9 @@ async function receive(msg: WorkerMessage) {
     case 'welcome': {
       attempt = 0
       failingSince = 0
+      wasCurrent = true
       const { type: _type, ...info } = msg
-      set({ conn: 'connected', refused: null, worker: info, busy: info.busy ?? [], spentToday: info.spentToday ?? 0 })
+      set({ conn: 'connected', refused: null, pendingHere: false, worker: info, busy: info.busy ?? [], spentToday: info.spentToday ?? 0 })
       for (const dbId of pipelineDbIds()) addRepoOptions(dbId, (info.repos ?? []).map((r) => r.name))
       // tasks of this worker that were running when the link dropped: still running there
       for (const b of info.busy ?? []) void patchTask(b.taskId, { state: 'running', stageId: b.stageId })
@@ -311,10 +592,19 @@ async function onRequest(msg: Extract<WorkerMessage, { type: 'req' }>) {
       case 'heartbeat':
         heartbeat(Array.isArray(msg.taskIds) ? msg.taskIds.map(String) : [], get().worker?.name ?? '')
         return reply(id, { ok: true })
-      case 'finish':
-        await finishStage(String(msg.taskId), String(msg.stageId), msg.outcome ?? { status: 'failed', error: 'no outcome' })
+      case 'finish': {
+        const taskId = String(msg.taskId)
+        // the same outcome again (its answer was lost on the way back): answered, not applied twice
+        const finishId = typeof msg.finishId === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(msg.finishId) ? msg.finishId : null
+        if (finishId) {
+          await loadTask(taskId)
+          if (taskLocal(taskId).finished?.includes(finishId)) return reply(id, { ok: true })
+        }
+        await finishStage(taskId, String(msg.stageId), msg.outcome ?? { status: 'failed', error: 'no outcome' })
+        if (finishId && taskContext(taskId)) await patchTask(taskId, { finished: [...(taskLocal(taskId).finished ?? []), finishId].slice(-20) })
         void flushLogs()
         return reply(id, { ok: true })
+      }
       default:
         return fail(id, 'unknown request')
     }
@@ -326,7 +616,8 @@ async function onRequest(msg: Extract<WorkerMessage, { type: 'req' }>) {
 
 /** Ask the worker (Stop, git verbs). */
 function request(body: Omit<Extract<TabMessage, { type: 'req' }>, 'id' | 'type'>, timeoutMs = 120_000): Promise<unknown> {
-  if (!socket || socket.readyState !== WebSocket.OPEN || get().conn !== 'connected') return Promise.reject(new Error(t('features.coding.err.noWorker')))
+  const l = link
+  if (!l || get().conn !== 'connected') return Promise.reject(new Error(t('features.coding.err.noWorker')))
   const id = `t${++seq}`
   return new Promise((resolve, reject) => {
     const timer = window.setTimeout(() => {
@@ -334,7 +625,7 @@ function request(body: Omit<Extract<TabMessage, { type: 'req' }>, 'id' | 'type'>
       reject(new Error(t('features.coding.err.timeout')))
     }, timeoutMs)
     pending.set(id, { resolve, reject, timer })
-    socket!.send(JSON.stringify({ type: 'req', id, ...body }))
+    l.send({ type: 'req', id, ...body } as TabMessage)
   })
 }
 
@@ -365,9 +656,25 @@ function base64Of(blob: Blob): Promise<string> {
   })
 }
 
+/** Through the relay: ZIP pieces per 10 s stay under this on the wire (the relay's budget per socket is 128 MiB). */
+const CLOUD_UPLOAD_WINDOW_MS = 10_000
+const CLOUD_UPLOAD_BYTES = 96 * 1024 * 1024
+
+/** Wait until `n` more bytes fit into the last 10 s of `sent` (cloud uploads), then count them. */
+async function paced(sent: Array<{ at: number; n: number }>, n: number) {
+  for (;;) {
+    const now = Date.now()
+    while (sent.length && now - sent[0]!.at > CLOUD_UPLOAD_WINDOW_MS) sent.shift()
+    if (!sent.length || sent.reduce((a, x) => a + x.n, 0) + n <= CLOUD_UPLOAD_BYTES) break
+    await new Promise((r) => window.setTimeout(r, sent[0]!.at + CLOUD_UPLOAD_WINDOW_MS - now + 20))
+  }
+  sent.push({ at: Date.now(), n })
+}
+
 /**
- * Import stage: hand the worker a ZIP the person picked for this task — in pieces over the link. The worker
- * unpacks it into a new repository; its `intake` events follow (the task takes the repo when it is done).
+ * Import stage: hand the worker a ZIP the person picked for this task — in pieces over the link (through the relay
+ * paced: ≤ 96 MiB per 10 s, a 500 MB ZIP takes about a minute and a half). The worker unpacks it into a new
+ * repository; its `intake` events follow (the task takes the repo when it is done).
  */
 export async function sendTaskZip(taskId: string, file: File): Promise<void> {
   if (!/\.zip$/i.test(file.name)) throw new Error(t('features.coding.intake.notZip'))
@@ -377,7 +684,13 @@ export async function sendTaskZip(taskId: string, file: File): Promise<void> {
     const uploadId = String(begin?.uploadId ?? '')
     if (!uploadId) throw new Error(t('features.coding.err.timeout'))
     const step = Math.max(64 * 1024, Math.min(4 * 1024 * 1024, Number(begin?.chunk) || 4 * 1024 * 1024))
-    for (let off = 0; off < file.size; off += step) await request({ op: 'intake-chunk', uploadId, data: await base64Of(file.slice(off, off + step)) } as never, 120_000)
+    const sent: Array<{ at: number; n: number }> = []
+    for (let off = 0; off < file.size; off += step) {
+      const piece = file.slice(off, off + step)
+      // a boxed piece ≈ 16/9 of its bytes (base64 in the request, base64 of the ciphertext)
+      if (link?.via === 'cloud') await paced(sent, Math.ceil((piece.size * 16) / 9) + 1024)
+      await request({ op: 'intake-chunk', uploadId, data: await base64Of(piece) } as never, 120_000)
+    }
     await request({ op: 'intake-end', uploadId } as never, 60_000)
   } catch (e) {
     const error = e instanceof Error ? e.message : String(e)
@@ -441,13 +754,16 @@ export function startCoding() {
   started = true
   setNudge(nudgeWorker)
   startTrustWatch()
-  if (get().enabled) connect()
-  // the tab shows another workspace now: this link belongs to the old one
+  // an earlier build's plain-text cloud secrets become non-extractable keys before the first cloud link
+  void moveLegacySecrets().finally(() => {
+    if (get().enabled && !link) connect()
+  })
+  // the tab shows another workspace now: this link (or this refusal) belongs to the old one
   const onWorkspace = () => {
     const now = currentWorkspace()
     if (!get().enabled) return
-    if (socket && helloAs && now?.id !== helloAs) reconnect()
-    else if (!socket && get().conn === 'refused' && now && now.id !== helloAs) reconnect()
+    if (link && now?.id !== lastWs) reconnect()
+    else if (!link && now && now.id !== lastWs && get().conn !== 'connecting') reconnect()
   }
   useWorkspace.subscribe((s, prev) => {
     if (s.epoch !== prev.epoch || s.ready !== prev.ready) onWorkspace()
@@ -468,6 +784,8 @@ export function startCoding() {
   })
   useCloud.subscribe((s, prev) => {
     if (s.active !== prev.active || s.status !== prev.status) onWorkspace()
+    // promoted from viewer: the viewer refusal no longer holds (the worker comes back by itself; this tab asks again)
+    if (s.role !== prev.role && s.role && s.role !== 'viewer' && get().enabled && !link && get().conn === 'refused' && get().refused === 'viewer') reconnect()
   })
   // settings changed in another tab: switching off disconnects everywhere
   window.addEventListener('storage', (e) => {
@@ -479,20 +797,25 @@ export function startCoding() {
     }
     if (next.port !== get().port) set({ port: next.port })
     // a download in another tab: its pairing is this device's now (used on the next hello)
-    set({ pairs: next.pairs })
+    const ws = currentWorkspace()
+    const before = ws ? viaFor(ws) : 'local'
+    const pairBefore = ws ? get().cloudPairs[ws.id]?.tokens[0] : undefined
+    set({ pairs: next.pairs, via: next.via, cloudPairs: next.cloudPairs })
+    // Local | Cloud switched, or a new cloud download, in another tab of this device
+    if (ws && get().enabled && (viaFor(ws) !== before || (before === 'cloud' && get().cloudPairs[ws.id]?.tokens[0] !== pairBefore && get().conn !== 'connected'))) reconnect()
   })
   const wake = () => {
-    if (document.visibilityState !== 'visible' || !get().enabled || socket) return
+    if (document.visibilityState !== 'visible' || !get().enabled || link) return
     if (get().conn === 'waiting') {
       attempt = Math.min(attempt, 1)
       connect()
-    }
+    } else if (get().conn === 'replaced') void checkReplaced()
   }
   document.addEventListener('visibilitychange', wake)
   window.addEventListener('focus', wake)
   window.addEventListener('pagehide', () => {
     void flushLogs()
     // a page may only close with 1000 or 3000–4999 (1001 throws)
-    if (socket) socket.close(1000, 'tab closed')
+    link?.close(1000, 'tab closed')
   })
 }

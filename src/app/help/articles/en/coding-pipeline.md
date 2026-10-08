@@ -3,7 +3,7 @@ id: coding-pipeline
 title: Coding pipeline (Claude Code on your machine)
 section: ai
 order: 9
-keywords: coding, pipeline, claude code, worker, one-worker, download, setup, pairing, tick repositories, git, branch, worktree, pull request, pr, diff, tests, repo, repository, code review, programmieren, aufgaben
+keywords: coding, pipeline, claude code, worker, one-worker, download, setup, pairing, tick repositories, git, branch, worktree, pull request, pr, diff, tests, repo, repository, code review, programmieren, aufgaben, cloud worker, one-worker-cloud, build server, vm, relay, remote, another computer, local or cloud
 related: pipelines, legacy-modernisation, mcp-bridge, custom-agents, agent
 summary: Hand coding tasks to Claude Code on your computer — plan, approve, implement, test, ship — and follow every step in One.
 ---
@@ -26,6 +26,23 @@ New code? The same page clones from **GitLab / GitHub** (an address, or a pick f
 To change them later, press **Change repositories** — the worker opens its page again on your computer. One only ever learns the repos' names; paths and commands stay in `~/.config/one/worker.json` on your machine.
 
 > Tip: a new download replaces the pairing — start the file you downloaded last. On a computer without a browser, `node one-worker.mjs --no-browser` asks in the terminal instead (numbers tick, Enter saves).
+
+## Run the worker on another computer (Cloud)
+In a **team workspace on a One server**, **Settings → Coding worker → Where the worker runs** offers **Local | Cloud**. With **Cloud** the worker runs on any computer — a build server, a VM, the desktop at the office — and connects **out** to your One server: no port to open, no VPN.
+
+1. **Download one-worker-cloud.mjs.** It carries a worker token that is only for you and only for this workspace, and a key that only this browser has.
+2. **Copy it to that computer and start it there**: `node one-worker-cloud.mjs` (keep it running — tmux or a service). The file is the key: keep it private (`chmod 600`).
+3. **Tick the repositories on that computer** — its setup page opens there, or `node one-worker-cloud.mjs setup --no-browser` asks in its terminal.
+
+The card then reads *Connected · build-box · 1 repo · via cloud*. Everything else works as with a local worker.
+
+- **Keep One open.** Tasks run only while One is open in **this** browser (any page of the workspace) — this tab hands out the work and writes the results. Close it and the worker waits; nothing runs on the server. A newer tab takes the worker over; the older one takes it back by itself when that tab closes.
+- **Sealed end to end.** The server passes messages between this browser and the worker but cannot read or change them — task text, code, diffs and logs stay between the two.
+- **One device.** The worker is paired with the browser that downloaded it. Another device shows *Paired with another device* and offers **Download for this device** (it replaces the other one — One asks first; until the new file starts, the other device keeps working and this one waits, then connects by itself).
+- **Replace or stop.** A new download takes over as soon as it starts — on the same computer, stop the old worker first. **Revoke** stops the worker for good. Removing someone from the workspace stops theirs too.
+- **https only.** Cloud needs the One server on `https://`; on plain `http://` the option is greyed out with the reason.
+
+Cloud is greyed out with the reason in a local workspace, for viewers, and on a server without the worker relay.
 
 ## Approvals — or just do it
 In the coding panel, **Approvals** sets where the task waits for you: **Approve the plan and the review** (default), **Review only — the plan runs on**, or **None — just do it**: plan, work, tests and shipping then run through without a stop; tests that fail twice still stop at the review. The choice is per device and becomes the default for new tasks. A task already waiting at an approval you just switched off goes on at once.
@@ -57,6 +74,6 @@ Each task works on its own branch (`one/<title>-<id>`) in its own worktree — y
 Ask the [AI terminal](help:agent) (<kbd>Mod+J</kbd>) *“what waits for me in the pipelines?”*, *“create a task to fix the login form in website and start it”* or *“approve the plan of Fix login”*: Claude reads the pipelines and **proposes** tasks and actions, you apply them in its review. The card of a new task shows its whole page as Claude Code will read it; an approval shows the plan. What starts the worker (**STARTS WORKER**) is applied on its own, never with *Apply all*; a task waiting for **Confirm on this device** is confirmed only here in its panel. `/pipelines` lists the open tasks.
 
 ## Safety
-The worker touches only the repos you ticked; One can send it task text and fixed git actions — never a command, and it can never tick a repo itself. A downloaded worker only accepts this browser and this workspace. Claude Code keeps its permission rules, and task text goes to it as data, not as instructions. A cost limit per task is set on the worker's page, one per day in `worker.json`. In a team workspace your worker only takes tasks you wrote or confirmed on this device (**Confirm on this device**) — a stage, repo or branch changed on another device asks again. A task one of your custom agents wrote waits for the same confirmation, also in your local workspace. The AI terminal never confirms a task: its actions are proposals you apply, those that start the worker one by one, and they are refused for a task that waits for Confirm.
+The worker touches only the repos you ticked; One can send it task text and fixed git actions — never a command, and it can never tick a repo itself. A downloaded worker only accepts this browser and this workspace; a cloud worker's messages are sealed between this browser and the worker — the server only passes them on. Claude Code keeps its permission rules, and task text goes to it as data, not as instructions. A cost limit per task is set on the worker's page, one per day in `worker.json`. In a team workspace your worker only takes tasks you wrote or confirmed on this device (**Confirm on this device**) — a stage, repo or branch changed on another device asks again. A task one of your custom agents wrote waits for the same confirmation, also in your local workspace. The AI terminal never confirms a task: its actions are proposals you apply, those that start the worker one by one, and they are refused for a task that waits for Confirm.
 
 > Tip: the full reference — config keys, protocol, troubleshooting — is `docs/CODING.md` in the repository.

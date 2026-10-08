@@ -123,6 +123,7 @@ export function authRoutes(s: Services) {
     if (auth) {
       s.sessions.revoke(auth.session.id)
       s.collab.closeSession(auth.session.id, 'session-ended')
+      s.coding.closeSession(auth.session.id, 'session-ended')
     }
     s.sessions.clearCookie(c)
     return c.body(null, 204)
@@ -143,6 +144,7 @@ export function authRoutes(s: Services) {
     if (previous) {
       s.sessions.revoke(previous.session.id)
       s.collab.closeSession(previous.session.id, 'session-ended')
+      s.coding.closeSession(previous.session.id, 'session-ended')
     }
     const session = s.sessions.create(user.id, c.req.header('user-agent') ?? null)
     s.sessions.setCookie(c, session.token)

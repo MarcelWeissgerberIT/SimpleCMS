@@ -1,3 +1,4 @@
+import type { IncomingMessage } from 'node:http'
 import { getConnInfo } from '@hono/node-server/conninfo'
 import type { Context } from 'hono'
 import { z } from 'zod'
@@ -43,6 +44,16 @@ export function clientIp(c: Context<AppEnv>, config: Config): string {
   } catch {
     return 'unknown'
   }
+}
+
+/** clientIp() for a raw WebSocket upgrade (no Hono context): the same TRUST_PROXY rule. */
+export function ipOfUpgrade(req: IncomingMessage, config: Config): string {
+  if (config.trustProxy) {
+    const raw = req.headers['x-forwarded-for']
+    const last = (Array.isArray(raw) ? raw.join(',') : raw)?.split(',').pop()?.trim()
+    if (last) return last
+  }
+  return req.socket.remoteAddress ?? 'unknown'
 }
 
 /** Only same-origin absolute paths; "//evil.com" and "/\evil.com" would leave the site. */

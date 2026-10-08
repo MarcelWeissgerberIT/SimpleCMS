@@ -65,6 +65,8 @@ The GitHub Pages build stays local-only.
 | `AGENT_CONCURRENCY` | agent runs at the same time over all workspaces (default 4, 1–32; per workspace at most 2) *(server addition)* |
 | `AGENT_TICK_MS` / `AGENT_COALESCE_MS` | schedule check interval (30 s) and the row-trigger collecting window (60 s). **Only with `DEV_MODE=1`** (test servers); otherwise exit 78 *(server addition)* |
 | `MEDIA_FETCH_HOSTS` | `name=127.0.0.1:4601,…`: made-up names `POST …/files/fetch` reaches on this machine over plain HTTP (the e2e suite's media fixture). **Only with `DEV_MODE=1`**; otherwise exit 78 — deployments fetch through the SSRF guard only *(server addition)* |
+| `CODING_RELAY` | `off` (or `0` / `false` / `no`) switches the coding relay off: no `/coding/*` upgrades, `…/coding/workers` answers `404 coding_relay_off`, `GET /api/config` says `coding_relay: false`; default on — see *Coding relay* *(server addition)* |
+| `CODING_PING_MS` | the relay's WebSocket ping interval (default 25 000): a socket that answers no ping (and sends nothing) is closed at the next one (after 1–2 intervals); a tab that sends no `alive` for six intervals is let go (4408). **Only with `DEV_MODE=1`**; otherwise exit 78 *(server addition)* |
 
 In development (`NODE_ENV` ≠ `production`) `DATA_DIR` defaults to `server/.data`, `PUBLIC_URL` to
 `http://localhost:$PORT`, and a `SECRET` and a `DATA_KEY` are generated once into `DATA_DIR/dev-secret` and
@@ -97,7 +99,13 @@ agent_runtime(workspace_id PRIMARY KEY, enabled, enabled_at, data sealed, update
 agent_runs(id PRIMARY KEY, workspace_id, agent_id, status, trigger_type, started_at, ended_at, data sealed)  -- v8
 agent_slots(workspace_id, agent_id, last_slot, sig, seen_at, PRIMARY KEY(workspace_id, agent_id))     -- v8, schedule slots
 agent_hooks(workspace_id, agent_id, secret_hash UNIQUE, created_by, created_at, last_delivery_at, deliveries)  -- v8
+coding_workers(id, workspace_id, user_id, label, token_hash UNIQUE, created_at, created_ua, activated_at NULL, last_used_at, revoked_at)  -- v9
 ```
+
+Migration v9 (*Coding relay* below): cloud coding worker tokens (`onew_<43 chars>`, HMAC-stored, shown once —
+written into the downloaded file). Per member and workspace at most one **active** (`activated_at` set) and one
+**pending** live token (two partial unique indexes); `ON DELETE CASCADE` from `workspaces` and `users`. Removing a
+member revokes theirs. Housekeeping deletes revoked tokens after 90 days and pending ones after a day.
 
 Migration v8 (*Agents* below): the server runtime of custom agents per workspace (the Claude key and the
 MCP servers with their tokens — one sealed JSON value, never a plaintext column), their runs (the
@@ -169,7 +177,11 @@ All mutating requests require `Content-Type: application/json` (CSRF guard toget
 | `GET /api/health` | – | `{ ok: true, version }` |
 | `GET /api/dev/mailbox` | DEV_MODE only | last 50 mails `{ to, subject, text, link }` |
 | `POST /api/auth/verify` | – | *(server addition)* form `token=` (the confirmation page) or JSON `{ token }` → sets cookie, `303` to `redirect` |
-| `GET /api/config` | – | *(server addition)* `{ version, signup: { mode, domains? }, max_upload_mb, dev_mode, source_url }` |
+| `GET /api/config` | – | *(server addition)* `{ version, signup: { mode, domains? }, max_upload_mb, dev_mode, source_url, coding_relay }` |
+| `GET /api/workspaces/:id/coding/workers` | member | *(coding relay)* cloud coding workers `[{ id, label, state: 'pending'\|'active', user: { id, name, email }, mine, created_at, created_from, activated_at, last_used_at, online, tab, since }]` — a member sees their own, admins and the owner everyone's (*Coding relay*) |
+| `POST /api/workspaces/:id/coding/workers` | member | `{ label? }` → `201` worker **+ `token`** (only here; One writes it into the downloaded file). A new token is **pending**; an older pending one of the member is revoked at once, the active one only when the new one first connects. 20 per member per day |
+| `DELETE /api/workspaces/:id/coding/workers/:workerId` | member (own) / admin | revoke → `204`; its worker is closed at once (`404 worker_not_found` — also for someone else's token, to a member) |
+| `GET /api/coding/worker` | worker token | *(coding relay)* `Authorization: Bearer onew_…`, no `Origin` → `{ workspace: { id: 'team:<id>', name }, member: { email, name }, state, online }` (`one-worker check`); 401 unknown / revoked, 403 `forbidden` / `viewer` |
 | `GET /api/workspaces/:id/tokens` | admin | *(public API)* active API tokens `[{ id, name, scope, created_at, last_used_at, revoked, created_by: { id, name, email } \| null }]`, newest first |
 | `POST /api/workspaces/:id/tokens` | admin | `{ name (1–80), scope: 'read'\|'write' }` → `201` token **+ `token`** (the secret, only here); `409 too_many_tokens` past 25 |
 | `DELETE /api/workspaces/:id/tokens/:tokenId` | admin | revoke → `204` (`404 token_not_found`) |
@@ -881,6 +893,59 @@ tokens, estimated $ — never content, never secrets.
 Self-hosting: the server needs **outbound HTTPS to `api.anthropic.com`** for agents (MCP servers are
 called by Anthropic, not by this server); `AGENTS=off` switches the runner off.
 
+## Coding relay
+
+*Settings → Coding worker → Cloud* (docs/CODING.md § Cloud worker): a member's coding worker runs on any computer
+and dials **out** to this server; the server pairs it with that member's One tab and passes the tab ⇄ worker
+protocol between them. It runs no task itself, keeps no queue and stores no frame — tasks run only while one of
+the member's tabs (on the device that downloaded the worker) is connected.
+
+- **Endpoints** (`server/src/coding/relay.ts`, on crossws — the WebSocket layer Hocuspocus already uses; no extra
+  dependency): `wss://<host>/coding/tab?workspace=<id>` — session cookie, same-origin `Origin`, subprotocol
+  `one-worker.v1`, a member (viewers are refused); `wss://<host>/coding/worker` — `Authorization: Bearer onew_…`,
+  `X-One-Workspace: team:<id>` matching the token's workspace, **no** `Origin` (a browser cannot present a worker
+  token). Bad tokens are rate-limited per IP (30 per minute), connects per token (30 / min) and per session
+  (60 / min).
+- **Pairing**: one tab and one worker per (workspace, member). The newest tab of the member wins (4001 to the
+  older), the newest connection of a token wins; close handlers act only while their socket is still the pair's
+  current side. A **pending** token (fresh download) becomes the active one on its first connection; only then is
+  the member's older token revoked and its worker closed (4401 `replaced`). Pending tokens expire after 24 h.
+- **End-to-end sealed**: the tab and the worker derive a session key from the download's pairing secret (which the
+  server never had) and two fresh nonces, and exchange AES-256-GCM boxes with a strictly rising sequence number in
+  the authenticated data. The relay checks the frame shape (`key`, `box`, the small `relay` control frames —
+  `server/src/coding/frames.ts`; re-serialised, nothing extra passes), sizes and rates, and forwards boxes
+  untouched. It cannot read, forge, replay or reorder one. This relay drops only events marked `k: "e"` (log lines,
+  progress, live git) when the worker sends more than its budget, and tells the tab how many. A compromised server
+  can delay or drop **any** frame (gaps in `seq` are allowed, so a dropped one goes unnoticed) or close the
+  connection — denial of service, never tampering.
+- **What the server sees**: who has a cloud worker in which workspace, when it was downloaded (user agent),
+  activated, last used and whether it is online with a tab; pairing numbers; frame sizes, directions and timing.
+  The log names workspace, member and token id — never frames.
+- **Limits**: frames ≤ 8 MiB (1009 above); per socket 2,000 frames / 128 MiB per 10 s, over it the worker's events
+  are dropped (a tab's frames are never dropped and a tab is not closed for it: an Import ZIP goes through in 4 MiB
+  pieces the tab paces to ≤ 96 MiB per 10 s), far over it (8,000 / 512 MiB) the socket is closed (1008); a receiver
+  whose send buffer passes 32 MiB is closed (1013) — never the healthy sender; all buffers together stay below
+  256 MiB. A tab must send `alive` every 20 s (150 s silent → 4408); WebSocket pings every `CODING_PING_MS`.
+- **Announcements**: the tab hears `worker` (online, registered, token, `s`) when the member's worker comes or goes
+  or the tab joins — each a new pairing with a new `s`. Creating or revoking a token (REST) re-announces only while
+  no worker is online (whether one is registered); an online pairing is never announced twice, since the tab would
+  take it for a new one.
+- **Revocation**: *Revoke* (`DELETE …/coding/workers/:id`), a newer download's first connection, removal from the
+  workspace (tokens revoked + links closed), a role change to viewer (links closed; the worker waits), sign-out
+  (that session's tab links), deleting the workspace, and `cli.js revoke-workers <email> [workspaceId]` — the
+  relay's sweep (every minute) re-checks sessions, memberships and tokens, so a change made outside the server
+  process lands within a minute.
+- **Tenancy**: the isolation sweep (`server/test/tenancy.test.ts`) covers the four REST routes and the relay — a
+  member of A never pairs with B's worker, nor reaches B with A's own token.
+
+| Threat | Outcome |
+|---|---|
+| **Server operator / a compromised server** | Sees the metadata above, can deny service (delay or drop any frame). Cannot read or forge the protocol. It *can* serve a modified app to the browser (true of every web app): run your own server, or use a local worker. The browser keeps the pairing secret as a non-extractable key, so such code can use it only while it runs in an open tab — never send it away |
+| **Another member** | Never paired with your worker or tab; sees your worker in the admin list only if admin / owner (label, state, online — no content) |
+| **Stolen session cookie** | Can open a tab link as you, but holds no pairing secret: the worker refuses its boxes (`pair`). Sign-out ends that session's links at once |
+| **Stolen worker token** (a copied file) | The file also carries the pairing secret — it is a key: `chmod 600`, Revoke when lost. The newest connection wins, so a thief displaces your worker (visible in the tab) |
+| **Malicious tab / cross-site page** | Refused at the upgrade (same-origin `Origin` + session); a worker token in a browser is refused (an `Origin` is present) |
+
 ## Security notes
 
 - Magic-link tokens: 15 min, single use, bound to the email; sessions 30 days sliding, revocable.
@@ -901,6 +966,8 @@ called by Anthropic, not by this server); `AGENTS=off` switches the runner off.
   numbers agree (SVG stored as `application/octet-stream`), ≤ 50 MB images / 200 MB video and audio and ≤
   `MAX_UPLOAD_MB`, 2 minutes per download, 20 per minute and 300 per day per member (refused addresses count
   too). The log names the host, never the address (signed links carry secrets).
+- Coding relay (*Coding relay*): forwards end-to-end sealed boxes it cannot read; worker tokens (`onew_…`) are
+  HMAC-stored, per member and workspace, refused from browsers (`Origin` present), and end with the membership.
 - Every query is scoped by workspace membership; viewers can never write (REST or Yjs). The isolation
   sweep (`server/test/tenancy.test.ts`) fails for a new route or MCP tool that does not say how it is scoped.
 - Workspace content is encrypted at rest with a key per workspace, wrapped by `DATA_KEY`; deleting a

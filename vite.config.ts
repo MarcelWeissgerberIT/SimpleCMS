@@ -125,6 +125,8 @@ export default defineConfig({
           proxy: {
             '/api': { target: process.env.ONE_SERVER, changeOrigin: false },
             '/collab': { target: process.env.ONE_SERVER.replace(/^http/, 'ws'), ws: true, changeOrigin: false },
+            // the coding relay (cloud workers, docs/CODING.md § Cloud worker): /coding/tab and /coding/worker
+            '/coding': { target: process.env.ONE_SERVER.replace(/^http/, 'ws'), ws: true, changeOrigin: false },
           },
         }
       : {}),

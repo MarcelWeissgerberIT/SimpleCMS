@@ -398,6 +398,8 @@ export {
 export { startCoding, CodingRoute, CodingTaskSlot, CodingWorkerTab, CodingStatusCell, openCodingSettings, consumeCodingSettingsRequest, codingDbId, useCoding } from './coding'
 /* the worker link's state in words — the workspace page's Automation section */
 export { codingWorkerStateText } from './coding'
+/* admins of a team workspace: the members' cloud workers (docs/CODING.md § Cloud worker) — renders nothing otherwise */
+export { CodingCloudWorkers } from './coding'
 /*
  * Building blocks (shared lists, own property types with One Script bindings, record types; see kit/index.ts):
  *  - KitRoute (#/kit …) · KitHost (mount once) · openKit(tab?, id?) · startKit(): background service (main.tsx)

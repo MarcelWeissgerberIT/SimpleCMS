@@ -20,6 +20,7 @@ import {
   type BusyTask,
   type GitResult,
   type GitVerb,
+  type IntakeState,
   type LogLine,
   type NextResult,
   type OpenSetupResult,
@@ -36,7 +37,9 @@ import { scratchRepo } from './config.ts'
 import { Intake } from './intake.ts'
 import { checkRepo, cleanup, commentPr, commitAll, discard, info, isDirty, localBranches, mergePr, openPr, prune, push, updateFromBase, worktreeOf, GitError } from './git.ts'
 import { WorkerLink } from './link.ts'
-import { workerOrigins } from './preset.ts'
+import type { CloudFatal } from './cloud.ts'
+import { cloudOf } from './config.ts'
+import { relayUrl, workerOrigins } from './preset.ts'
 import { dataBlock, markerCode, runStage } from './run.ts'
 import { repoScrubber, type Scrubber } from './scrub.ts'
 import type { SetupLive } from './setup.ts'
@@ -58,6 +61,10 @@ export interface WorkerOptions {
   recent?: () => string[]
   /** worker.json and how to read it again — Import stages add the new repository there (null: no imports) */
   intake?: { configFile: string; reload: () => Promise<void> } | null
+  /** cloud mode: the team server let this file go for good (revoked, replaced, left the workspace …) */
+  onFatal?: (reason: CloudFatal, message: string) => void
+  /** cloud mode, tests: the reconnect steps (ms) */
+  backoffMs?: number[]
 }
 
 interface Run {
@@ -71,6 +78,8 @@ interface Run {
 }
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
+/** an import's progress events: at most one per task in this time (its result is never held back) */
+const INTAKE_EVENT_MS = 250
 const str = (v: unknown, max: number) => (typeof v === 'string' ? v.slice(0, max) : '')
 /** Control characters and line / paragraph separators → spaces. */
 const oneLine = (s: string) => s.replace(/[\u0000-\u001f\u007f\u2028\u2029]/g, ' ').trim()
@@ -142,11 +151,21 @@ export class Worker {
     this.opts = opts
     this.config = opts.config
     this.state = new WorkerState(opts.config.file)
+    const cloud = cloudOf(opts.config)
     this.link = new WorkerLink({
       port: opts.config.port,
       origins: workerOrigins(opts.config.preset, [process.env.ONE_ORIGINS ?? '', ...opts.config.origins], opts.log),
       workspace: opts.config.workspace,
       pair: opts.config.preset?.pair ?? null,
+      cloud: cloud
+        ? {
+            url: relayUrl(cloud.origin),
+            token: cloud.token,
+            version: opts.version,
+            backoffMs: opts.backoffMs,
+            onFatal: (reason, message) => (opts.onFatal ? opts.onFatal(reason, message) : opts.log(message)),
+          }
+        : null,
       http: opts.setup ? (req, res) => opts.setup!.handle(req, res) : undefined,
       log: opts.log,
       info: () => this.info(),
@@ -157,6 +176,8 @@ export class Worker {
       },
       onDisconnect: () => {
         this.workspace = null
+        // a ZIP half-received from that tab will not be finished by it (a retry starts afresh, not "another import runs")
+        this.intaker?.drop('One disconnected')
       },
       onRequest: (msg) => this.onRequest(msg),
       onNudge: () => this.tick(),
@@ -177,6 +198,7 @@ export class Worker {
       claude: { found: this.caps.found, version: this.caps.version },
       setup: !!this.opts.setup,
       paired: !!this.config.preset,
+      via: cloudOf(this.config) ? 'cloud' : 'local',
     }
   }
 
@@ -256,7 +278,11 @@ export class Worker {
     const up = await this.link.start()
     if (up === 'listening') void this.checkRepos()
     if (up === 'listening') {
-      this.opts.log(`ready on ws://127.0.0.1:${this.config.port} · ${this.config.repos.length} repo(s): ${this.config.repos.map((r) => r.name).join(', ') || 'none'} · ${this.config.workspace ? `workspace ${this.config.workspace}${this.config.preset ? ` ("${this.config.preset.name}", paired download)` : ''}` : 'NOT BOUND to a workspace (set "workspace" in worker.json)'}`)
+      const repos = `${this.config.repos.length} repo(s): ${this.config.repos.map((r) => r.name).join(', ') || 'none'}`
+      if (this.link.via)
+        this.opts.log(`ready (cloud) · task tools and setup page on 127.0.0.1:${this.config.port} · ${repos} · connecting to ${this.link.via} for "${this.config.preset?.name ?? ''}" (${this.config.workspace})`)
+      else
+        this.opts.log(`ready on ws://127.0.0.1:${this.config.port} · ${repos} · ${this.config.workspace ? `workspace ${this.config.workspace}${this.config.preset ? ` ("${this.config.preset.name}", paired download)` : ''}` : 'NOT BOUND to a workspace (set "workspace" in worker.json)'}`)
       this.poller = setInterval(() => this.tick(), this.config.pollSec * 1000)
       this.beater = setInterval(() => void this.heartbeat(), Number(process.env.ONE_WORKER_HEARTBEAT_MS) || HEARTBEAT_MS)
     }
@@ -273,6 +299,7 @@ export class Worker {
     // give the runs a moment to report "stopped"
     const end = Date.now() + 4000
     while (this.runs.size && Date.now() < end) await new Promise((r) => setTimeout(r, 50))
+    this.flushLogs()
     await this.link.close()
   }
 
@@ -364,20 +391,45 @@ export class Worker {
       })
   }
 
+  /** Log lines per task, sent together (cloud mode: every 250 ms or 200 lines — one relay frame instead of hundreds). */
+  private logBuf = new Map<string, LogLine[]>()
+  private logTimer: ReturnType<typeof setTimeout> | null = null
+
   private logLine(taskId: string, line: LogLine) {
-    this.link.send({ type: 'event', taskId, kind: 'log', lines: [line] })
+    if (!this.link.via) return this.link.send({ type: 'event', taskId, kind: 'log', lines: [line] })
+    const buf = this.logBuf.get(taskId) ?? []
+    buf.push(line)
+    this.logBuf.set(taskId, buf)
+    if (buf.length >= 200) return this.flushLogs(taskId)
+    this.logTimer ??= setTimeout(() => this.flushLogs(), 250)
+  }
+
+  private flushLogs(only?: string) {
+    for (const [taskId, lines] of [...this.logBuf]) {
+      if (only !== undefined && taskId !== only) continue
+      this.logBuf.delete(taskId)
+      if (lines.length) this.link.send({ type: 'event', taskId, kind: 'log', lines })
+    }
+    if (!this.logBuf.size && this.logTimer) {
+      clearTimeout(this.logTimer)
+      this.logTimer = null
+    }
   }
 
   private sendStatus() {
     if (this.workspace) this.link.send({ type: 'status', busy: this.busy(), spentToday: this.state.spentToday() })
   }
 
-  /** Hand an outcome to One; kept and retried on reconnect until One confirms it. */
+  /**
+   * Hand an outcome to One; kept and retried on reconnect until One confirms it. `finishId` makes the retry
+   * harmless when One applied it but its answer was lost (a dropped relay connection): One answers ok again.
+   */
   private async finish(taskId: string, stageId: string, outcome: StageOutcome): Promise<void> {
-    const key = `${taskId}|${stageId}|${Date.now()}`
+    const key = `f${Date.now().toString(36)}${randomBytes(6).toString('hex')}`
+    this.flushLogs(taskId)
     this.unsent.set(key, { taskId, stageId, outcome })
     try {
-      await this.link.request({ op: 'finish', taskId, stageId, outcome })
+      await this.link.request({ op: 'finish', taskId, stageId, outcome, finishId: key })
       this.unsent.delete(key)
     } catch {
       /* One is not connected: sent on the next connect */
@@ -387,7 +439,7 @@ export class Worker {
   private async flushUnsent() {
     for (const [key, f] of [...this.unsent]) {
       try {
-        await this.link.request({ op: 'finish', ...f })
+        await this.link.request({ op: 'finish', ...f, finishId: key })
         this.unsent.delete(key)
       } catch {
         return
@@ -436,9 +488,43 @@ export class Worker {
       configFile: opts.configFile,
       reload: opts.reload,
       log: this.opts.log,
-      event: (taskId, intake) => this.link.send({ type: 'event', taskId, kind: 'intake', intake }),
+      event: (taskId, intake) => this.intakeEvent(taskId, intake),
     })
     return this.intaker
+  }
+
+  /** An import's progress at most every 250 ms per task (the newest wins); its result at once, after it — never lost. */
+  private intakeHeld = new Map<string, { latest: IntakeState; timer: ReturnType<typeof setTimeout> }>()
+  private intakeSent = new Map<string, number>()
+
+  private intakeEvent(taskId: string, intake: IntakeState) {
+    const send = (st: IntakeState) => this.link.send({ type: 'event', taskId, kind: 'intake', intake: st })
+    const held = this.intakeHeld.get(taskId)
+    if (intake.state !== 'running') {
+      if (held) clearTimeout(held.timer)
+      this.intakeHeld.delete(taskId)
+      this.intakeSent.delete(taskId)
+      return send(intake)
+    }
+    if (held) {
+      held.latest = intake
+      return
+    }
+    const now = Date.now()
+    const since = now - (this.intakeSent.get(taskId) ?? 0)
+    if (since >= INTAKE_EVENT_MS) {
+      this.intakeSent.set(taskId, now)
+      return send(intake)
+    }
+    const next = {
+      latest: intake,
+      timer: setTimeout(() => {
+        this.intakeHeld.delete(taskId)
+        this.intakeSent.set(taskId, Date.now())
+        send(next.latest)
+      }, INTAKE_EVENT_MS - since),
+    }
+    this.intakeHeld.set(taskId, next)
   }
 
   private async gitVerb(msg: Extract<TabMessage, { op: 'git' }>): Promise<GitResult> {

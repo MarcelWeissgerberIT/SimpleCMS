@@ -112,7 +112,7 @@ export async function spawnWorker(opts: { bundle: string; args?: string[]; env?:
   child.stdout?.on('data', (d: Buffer) => {
     out += d.toString()
   })
-  await waitFor(() => /ready on ws:|in use|cannot listen/.test(err) || child.exitCode !== null, 8000, () => err)
+  await waitFor(() => /ready on ws:|ready \(cloud\)|in use|cannot listen/.test(err) || child.exitCode !== null, 8000, () => err)
   return {
     child,
     stderr: () => err,

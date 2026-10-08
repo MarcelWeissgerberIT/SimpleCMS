@@ -45,6 +45,8 @@ export interface TaskLocal {
   docPages?: Record<ID, ID>
   /** output 'stories': the coding project this device made from the task's stories */
   storiesDb?: ID | null
+  /** the worker's finishIds this device applied (the last 20): a retried outcome is answered, not applied twice */
+  finished?: string[]
   at?: number
 }
 

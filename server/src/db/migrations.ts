@@ -311,4 +311,31 @@ export const migrations: Migration[] = [
       );
     `,
   },
+  {
+    version: 9,
+    name: 'coding relay: cloud worker tokens',
+    sql: `
+      -- cloud coding workers (docs/CLOUD.md § Coding relay): a token per download, scoped to one member and one
+      -- workspace. The secret "onew_<random>" is only in the downloaded file; stored here as HMAC(SECRET).
+      -- A new download starts PENDING (activated_at NULL): the relay activates it on its first connection and only
+      -- then revokes the member's older token — a cancelled download never kills a working worker. Pending rows
+      -- expire after 24 h. created_ua: the browser that downloaded it (shown to the member and the admins).
+      CREATE TABLE coding_workers (
+        id            TEXT PRIMARY KEY,
+        workspace_id  TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        user_id       TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        label         TEXT NOT NULL DEFAULT '',
+        token_hash    TEXT NOT NULL UNIQUE,
+        created_at    INTEGER NOT NULL,
+        created_ua    TEXT,
+        activated_at  INTEGER,
+        last_used_at  INTEGER,
+        revoked_at    INTEGER
+      );
+      CREATE INDEX coding_workers_workspace ON coding_workers(workspace_id, created_at);
+      -- at most one active and one pending token per member and workspace
+      CREATE UNIQUE INDEX coding_workers_active ON coding_workers(workspace_id, user_id) WHERE revoked_at IS NULL AND activated_at IS NOT NULL;
+      CREATE UNIQUE INDEX coding_workers_pending ON coding_workers(workspace_id, user_id) WHERE revoked_at IS NULL AND activated_at IS NULL;
+    `,
+  },
 ]

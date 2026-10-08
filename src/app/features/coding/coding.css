@@ -2169,3 +2169,121 @@ dd:has(> .cw-port) {
   color: var(--ink-3);
   font-size: var(--text-sm);
 }
+
+/* ---------------------------------------------------------------- cloud worker (Local | Cloud, the cloud card, admins) */
+.cw-via {
+  display: grid;
+  gap: 8px;
+}
+.cw-via__seg {
+  justify-self: start;
+}
+.cw-via__opt {
+  min-width: 84px;
+  height: 32px;
+  font-weight: 600;
+}
+.cw-via__opt[aria-disabled='true'] {
+  color: var(--ink-3);
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+.cw-via .cw-switch__hint {
+  margin: 0;
+}
+.cw-via__why {
+  padding-left: 8px;
+  border-left: 2px solid var(--rule-strong);
+}
+.cs-keys {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+}
+.cs-live--cloud {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+}
+.cs-live__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  min-width: 0;
+}
+.cs-live__v.cs-live__aside {
+  color: var(--ink-2);
+}
+.cs-live__note {
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}
+.cwa {
+  margin-top: 10px;
+  padding: 10px 14px 12px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-2);
+  background: var(--surface);
+}
+.cwa-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 8px;
+  color: var(--ink-2);
+}
+.cwa-count {
+  color: var(--ink-3);
+}
+.cwa-none {
+  margin: 0;
+  color: var(--ink-3);
+  font-size: var(--text-sm);
+}
+.cwa-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.cwa-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) minmax(0, 1.4fr) auto;
+  gap: 4px 10px;
+  align-items: center;
+  padding: 7px 0;
+  border-top: 1px solid var(--rule);
+  font-size: var(--text-sm);
+}
+.cwa-item:first-child {
+  border-top: 0;
+}
+.cwa-who {
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cwa-meta {
+  overflow: hidden;
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@media (max-width: 560px) {
+  .cs-keys {
+    justify-content: flex-start;
+  }
+  .cwa-item {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+  .cwa-meta {
+    grid-column: 2 / -1;
+    grid-row: 2;
+    white-space: normal;
+  }
+}

@@ -20,7 +20,11 @@ Usage: node dist/cli.js <command> [arguments]
   list-users                         all accounts
   list-workspaces                    all workspaces with owner and member count
   make-owner <workspaceId> <email>   hand a workspace to this user (the old owner becomes admin)
-  revoke-sessions <email>            sign this user out everywhere
+  revoke-sessions <email>            sign this user out everywhere (their cloud coding workers keep
+                                     running: revoke-workers stops those)
+  revoke-workers <email> [workspaceId]
+                                     revoke this user's cloud coding worker tokens (all workspaces, or
+                                     one); connected workers are closed within a minute
   backup [file]                      consistent copy of the database (VACUUM INTO);
                                      default: DATA_DIR/backups/one-<timestamp>.sqlite
                                      (ciphertext: restoring it needs the same DATA_KEY)
@@ -120,7 +124,17 @@ try {
       const [email] = args
       const user = (email && repo.userByEmail(email)) || fail('usage: revoke-sessions <email> (existing user)')
       const n = db.run('DELETE FROM sessions WHERE user_id = ?', user.id)
-      console.log(`revoked ${n} session(s) of ${user.email}; open connections close within a minute`)
+      console.log(`revoked ${n} session(s) of ${user.email}; open connections close within a minute (cloud coding workers keep running — revoke-workers stops them)`)
+      break
+    }
+    case 'revoke-workers': {
+      const [email, workspaceId] = args
+      const user = (email && repo.userByEmail(email)) || fail('usage: revoke-workers <email> [workspaceId] (existing user)')
+      if (workspaceId && !repo.workspaceById(workspaceId)) fail(`no workspace ${workspaceId}`)
+      const n = workspaceId
+        ? db.run('UPDATE coding_workers SET revoked_at = ? WHERE user_id = ? AND workspace_id = ? AND revoked_at IS NULL', Date.now(), user.id, workspaceId)
+        : db.run('UPDATE coding_workers SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL', Date.now(), user.id)
+      console.log(`revoked ${n} cloud worker token(s) of ${user.email}${workspaceId ? ` in ${workspaceId}` : ''}; connected workers are closed within a minute`)
       break
     }
     case 'backup': {

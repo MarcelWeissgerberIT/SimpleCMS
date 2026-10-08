@@ -72,3 +72,5 @@ export { gitSummary as codingGitSummary } from './tasks'
 export { useTaskLocal as useCodingTaskLocal } from './local'
 /** bumped whenever this device trusts another task version (Confirm …): a trust readout re-checks with it */
 export const useCodingTrustRev = (): number => useCodingLocal((s) => s.trustRev)
+/** admins: every member's cloud worker with Revoke (the workspace page's Automation section; renders nothing otherwise) */
+export { CloudWorkers as CodingCloudWorkers } from './CloudWorkers'
