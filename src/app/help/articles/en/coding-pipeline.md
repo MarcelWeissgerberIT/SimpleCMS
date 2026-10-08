@@ -3,7 +3,7 @@ id: coding-pipeline
 title: Coding pipeline (Claude Code on your machine)
 section: ai
 order: 9
-keywords: coding, pipeline, claude code, worker, one-worker, download, setup, pairing, tick repositories, git, branch, worktree, pull request, pr, diff, tests, repo, repository, code review, programmieren, aufgaben
+keywords: coding, pipeline, claude code, worker, one-worker, download, setup, pairing, model, opus, sonnet, haiku, fable, tick repositories, git, branch, worktree, pull request, pr, diff, tests, repo, repository, code review, programmieren, aufgaben
 related: pipelines, legacy-modernisation, mcp-bridge, custom-agents, agent
 summary: Hand coding tasks to Claude Code on your computer — plan, approve, implement, test, ship — and follow every step in One.
 ---
@@ -32,6 +32,11 @@ In the coding panel, **Approvals** sets where the task waits for you: **Approve 
 
 The **Log** tab shows every step: *Fetching origin…*, the new branch, *Starting Claude Code…*, every tool Claude Code uses — and, while it works quietly, *still working* once a minute. When the worker can't fetch the remote (no network, or git would need a password or an SSH key passphrase), the log says so within 60 seconds and the task goes on with what your computer has. For push and pull requests git needs an SSH agent or a credential helper — the worker can't type anything.
 
+## Model per stage
+Which Claude model Claude Code uses is set in **Pipeline** (on #/coding): open a stage's details (plan, implement and document stages) and pick its **Model** — **Standard** (the repo's model in the worker's `worker.json`, else Claude Code's default), **Opus**, **Sonnet**, **Haiku**, **Fable**, or **Own…** for any other model name (letters, digits and `. _ : - [ ]`; One checks it while you type). A stage with a model shows it as a small chip in its row. Plan with a strong model, implement with a faster one — each stage runs with its own.
+
+For one task, **Model** in the coding panel (next to Approvals) overrides every Claude Code stage of that task — on this device: **As the pipeline**, one of the models above, or an own name the pipeline already uses. While Claude Code runs, a chip under **Now** shows the model it really uses, and the log names the model the worker passed on. A worker downloaded before models existed never gets a stage with a model — the task says *This stage needs a newer coding worker*: download it again, then **Retry**.
+
 ## A task from start to finish
 1. **New task**: title, repo, goal, acceptance criteria. Leave *The worker may start right away* ticked. The task itself is the task's **page** (below the coding panel) — that text is what Claude Code works from. When the page is empty, **Insert outline** adds Goal, Acceptance criteria and Notes to fill in.
 2. **Plan** — Claude Code reads the code in plan mode (it changes nothing) and writes the plan into the task. The task waits at **Approve plan**.
@@ -48,12 +53,12 @@ Each task works on its own branch (`one/<title>-<id>`) in its own worktree — y
 - **Notifications**: in **Settings → Coding worker**, switch on *Notify me while One is in the background* — the browser tells you when a task waits, asks, failed or is done while the tab is in the background (on this device).
 - **Stop** ends Claude Code at once; **Retry** or **Run now** start the stage again.
 - **Git**: Refresh, Commit, Push, Open PR, Update from base, Show folder (the path appears in the worker's terminal only). **Force push** and **Discard worktree** ask twice; **Clean up** waits until the branch is merged. **Merge request**: **Post review** and **Merge** (asked first, with your glab / gh) — see [AI review and merge requests](help:review-merge).
-- **Pipeline** (on #/coding) changes the stages: names, which ones run by themselves, Claude Code's mode, turns and instructions. Templates: *Standard*, *Modernise legacy code*, *Explain the code* ([one page per component](help:explain-code)), *Review & merge*. A **Static analysis** stage runs the repository's linter / compiler (set on the worker's setup page) and puts its findings in the page.
+- **Pipeline** (on #/coding) changes the stages: names, which ones run by themselves, Claude Code's mode, turns, model and instructions. Templates: *Standard*, *Modernise legacy code*, *Explain the code* ([one page per component](help:explain-code)), *Review & merge*. A **Static analysis** stage runs the repository's linter / compiler (set on the worker's setup page) and puts its findings in the page.
 - **Projects**: several Coding databases side by side — pick, create and delete them above the board ([Projects](help:pipelines)).
 
 **Repos in iCloud Drive** (e.g. in Documents with "Desktop & Documents Folders" on): git waits whenever a file is only in the cloud, so steps can take minutes — the log says so. Faster: keep the folder downloaded, or clone it again with **Clone from GitLab / GitHub…** on the worker's setup page (into `~/one-repos`, which is not synced) and tick that one. The worker starts at once either way and names a repository whose git is slow in its log. The worker's own working copies never go into iCloud.
 
 ## Safety
-The worker touches only the repos you ticked; One can send it task text and fixed git actions — never a command, and it can never tick a repo itself. A downloaded worker only accepts this browser and this workspace. Claude Code keeps its permission rules, and task text goes to it as data, not as instructions. A cost limit per task is set on the worker's page, one per day in `worker.json`. In a team workspace your worker only takes tasks you wrote or confirmed on this device (**Confirm on this device**) — a stage, repo or branch changed on another device asks again. A task one of your custom agents wrote waits for the same confirmation, also in your local workspace.
+The worker touches only the repos you ticked; One can send it task text and fixed git actions — never a command, and it can never tick a repo itself. A downloaded worker only accepts this browser and this workspace. Claude Code keeps its permission rules, and task text goes to it as data, not as instructions. A cost limit per task is set on the worker's page, one per day in `worker.json`. In a team workspace your worker only takes tasks you wrote or confirmed on this device (**Confirm on this device**) — a stage (its model too), repo or branch changed on another device asks again. A task one of your custom agents wrote waits for the same confirmation, also in your local workspace.
 
 > Tip: the full reference — config keys, protocol, troubleshooting — is `docs/CODING.md` in the repository.
