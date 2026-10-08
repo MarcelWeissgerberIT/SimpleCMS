@@ -4,7 +4,8 @@
  * pages (line numbers by default from 4 lines, per block and device; wrap; copy with a spoken confirmation; the JSON
  * check; Mod+A takes the code first; Backspace at a line start joins the right lines; the stored node stays
  * { language }) and the One Script editor (the error and the unclosed bracket that caused it: gutter marks, a list
- * that jumps, the textarea described by it).
+ * that jumps, the textarea described by it; the message past a long line painted and reachable). The drawn rows
+ * stay one textarea line high at text sizes M and L.
  */
 import type { Locator, Page } from '@playwright/test'
 import { test, expect, openApp, wsEval, createPage, gotoPage, doc, para, mockClaude, reloadApp, MOD } from './fixtures'
@@ -109,6 +110,40 @@ test.describe('agent job field', () => {
     await expect(dialog).toBeVisible()
     await expect(ta).toHaveAttribute('aria-describedby', /keys/)
   })
+
+  // text steps 2 and 3 (M, L) have line heights with a fraction: a row 1 px taller per line drifted away from the
+  // textarea (caret, selection and clicks landed on another line)
+  for (const step of ['2', '3'])
+    test(`text step ${step}, soft wrap, line numbers: every drawn row is exactly one textarea line high`, async ({ page }) => {
+      await page.addInitScript((s) => localStorage.setItem('one.textScale', s), step)
+      const TEXT = ['## Weekly digest', ...Array.from({ length: 18 }, (_, i) => `${i + 1}. Step ${i + 1}: check the rows`)].join('\n')
+      const dialog = await newAgent(page)
+      const job = dialog.getByTestId('agx-job')
+      await expect(job).toHaveAttribute('data-wrap', 'on')
+      await job.locator('textarea').fill(TEXT)
+      await expect(job.locator('.ca__ln')).toHaveCount(19)
+      const m = await job.evaluate((el) => {
+        const ta = el.querySelector('textarea')!
+        const cs = getComputedStyle(ta)
+        const line = parseFloat(cs.lineHeight)
+        const layer = el.querySelector<HTMLElement>('.ca__layer')!
+        const rows = [...layer.querySelectorAll<HTMLElement>(':scope > .ca__row')]
+        const top = layer.getBoundingClientRect().top + parseFloat(cs.paddingTop)
+        return {
+          scale: getComputedStyle(document.documentElement).getPropertyValue('--text-scale').trim(),
+          line,
+          // where row n starts vs. where the textarea's line n starts (nothing wraps: one row = one line)
+          drift: Math.max(...rows.map((r, i) => Math.abs(r.getBoundingClientRect().top - top - i * line))),
+          heights: [...new Set(rows.map((r) => r.getBoundingClientRect().height.toFixed(1)))],
+          layer: layer.getBoundingClientRect().height,
+          text: rows.length * line + parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom),
+        }
+      })
+      expect(Number(m.scale)).toBeGreaterThan(1)
+      expect(m.drift).toBeLessThan(0.5)
+      expect(m.heights).toEqual([m.line.toFixed(1)])
+      expect(Math.abs(m.layer - m.text)).toBeLessThan(1)
+    })
 
   test('saved with open placeholders: Run now asks first; Cancel runs nothing, "Run anyway" runs', async ({ page, context }) => {
     const bodies = await mockClaude(context, () => 'Checked everything. Nothing to change.')
@@ -303,5 +338,34 @@ test.describe('One Script editor', () => {
     await problems.getByRole('button').first().click()
     await expect(ta).toBeFocused()
     expect(await ta.evaluate((el: HTMLTextAreaElement) => el.selectionStart)).toBe(code.indexOf('t.set(') + 5)
+  })
+})
+
+test.describe('One Script editor: what is drawn past a line', () => {
+  test('the message after the longest line is painted and in the scroll range; squiggled rows are never skipped', async ({ page }) => {
+    await openApp(page)
+    const LONG = 'let total = ' + Array.from({ length: 14 }, (_, i) => `n${i}`).join(' + ') + ' + (n'
+    await wsEval(page, (s, c) => {
+      const now = Date.now()
+      s.upsertScript({ id: 'scLens', name: 'Lens', code: c, kind: 'script', createdAt: now, updatedAt: now })
+    }, ['let n = 1', LONG, 'notify("x")', ''].join('\n'))
+    await page.evaluate(() => (window.location.hash = '#/scripts/scLens'))
+    await expect(page.locator('.sc-code__input')).toBeVisible()
+    const row = page.locator('.sc-code .ca__row[data-line="2"]')
+    await expect(row.locator('.ca__lens')).toHaveText('“(” opened here is never closed')
+    // rows that draw outside their box opt out of skipping (paint containment would clip it); plain rows do not
+    expect(await row.evaluate((el) => getComputedStyle(el).contentVisibility)).toBe('visible')
+    expect(await page.locator('.sc-code .ca__row[data-line="3"]').evaluate((el) => getComputedStyle(el).contentVisibility)).toBe('visible')
+    expect(await page.locator('.sc-code .ca__row[data-line="1"]').evaluate((el) => getComputedStyle(el).contentVisibility)).toBe('auto')
+    // scrolled fully right, the whole message is inside the visible box
+    const edge = await page.evaluate(() => {
+      const sc = document.querySelector<HTMLElement>('.sc-code .ca__scroll')!
+      sc.scrollLeft = sc.scrollWidth
+      const lens = document.querySelector('.sc-code .ca__row[data-line="2"] .ca__lens')!.getBoundingClientRect()
+      const box = sc.getBoundingClientRect()
+      return { lensRight: lens.right, boxRight: box.left + sc.clientWidth, lensLeft: lens.left, boxLeft: box.left }
+    })
+    expect(edge.lensRight).toBeLessThanOrEqual(edge.boxRight + 0.5)
+    expect(edge.lensLeft).toBeGreaterThan(edge.boxLeft)
   })
 })

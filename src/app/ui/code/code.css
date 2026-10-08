@@ -95,9 +95,12 @@
   line-height: var(--ca-line);
   text-align: right;
 }
+/* the smaller number sits at the top of the line: on the baseline its line box would make the row taller than
+   one line at line heights with a fraction (text sizes M, L) — 1px a line away from the textarea */
 .ca__ln::before {
   content: attr(data-n);
   font-size: calc(11px * var(--text-scale));
+  vertical-align: top;
 }
 .ca__row[data-cur] .ca__ln {
   color: var(--syn-gutter-cur);
@@ -155,6 +158,11 @@
   content-visibility: auto;
   contain-intrinsic-width: 0;
   contain-intrinsic-height: var(--ca-line);
+}
+/* …except the few rows that draw outside their box (skipping them clips it): the message after a long line
+   (which also widens the scroll range), the lower half of a squiggle */
+.ca[data-wrap='off'] .ca__row[data-over] {
+  content-visibility: visible;
 }
 .ca[data-wrap='off'][data-ln='on'] .ca__row {
   padding-left: var(--ca-gutter);
@@ -270,6 +278,15 @@
   font-weight: 500;
   line-height: calc(var(--ca-line) - 4px);
   white-space: nowrap;
+}
+/* room after the message at the end of the scroll range */
+.ca__lens::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 100%;
+  width: var(--ca-pad-x);
+  height: 1px;
 }
 .ca__lens--warning {
   border-left-color: var(--c-yellow-text);

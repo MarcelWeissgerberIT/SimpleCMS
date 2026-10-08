@@ -108,10 +108,13 @@ function Text({ text, segs, decos, renderToken }: Pick<RowProps, 'text' | 'segs'
   return out
 }
 
+/** A row that draws outside its own box: the message after the line, a squiggle below the text. */
+const drawsOver = (lens: string | null, decos: LineDeco[]) => !!lens || decos.some((d) => d.kind !== 'match' && d.kind !== 'bad')
+
 export const Row = memo(
   function Row({ n, text, segs, decos, mark, lens, cur, ln, renderToken }: RowProps) {
     return (
-      <div className="ca__row" data-line={n} data-cur={cur || undefined} data-mark={mark ?? undefined}>
+      <div className="ca__row" data-line={n} data-cur={cur || undefined} data-mark={mark ?? undefined} data-over={drawsOver(lens, decos) || undefined}>
         {ln && <span className="ca__ln" data-n={n} />}
         <span className="ca__text">
           <Text text={text} segs={segs} decos={decos} renderToken={renderToken} />
