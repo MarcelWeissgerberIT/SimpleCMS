@@ -2412,3 +2412,39 @@ dd:has(> .cw-port) {
       '. chip chip';
   }
 }
+
+/* ---------------------------------------------------------------- the task's own Claude Code MCP servers */
+.ctk-mcp {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  margin-top: 8px;
+}
+.ctk-mcp__name {
+  padding: 0 5px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+  font-family: var(--font-mono);
+  font-size: calc(11px * var(--text-scale));
+}
+.ctk-mcp__none {
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+}
+.ctk-mcp__warn {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 6px 8px;
+  align-items: start;
+  width: 100%;
+  margin: 2px 0 0;
+  font-size: var(--text-sm);
+}
+.ctk-mcp__warn .led {
+  margin-top: calc((1lh - 6px) / 2);
+}
+.ctk-mcp__warn .btn {
+  grid-column: 2;
+  justify-self: start;
+}

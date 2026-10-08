@@ -20,7 +20,7 @@ import { claudeDoc } from '../ai/claudeDoc'
 import { navigate, parseHash } from '../../lib/router'
 import { aiWrite } from '../history/snapshots'
 import { t } from '../../i18n'
-import { CLAIM_STALE_MS, claudeRuns, cleanModel, stageNeeds, workerCan, type GitInfo, type StageOutcome, type TaskPayload } from './protocol'
+import { CLAIM_STALE_MS, MCP_SERVER_NAME, claudeRuns, cleanModel, stageNeeds, workerCan, type GitInfo, type StageOutcome, type TaskPayload, type WorkerInfo } from './protocol'
 import { CASE_TYPES, FOLLOW_UPS, PIPELINE_KINDS, caseProps, codingProps, createProject, currentProjectId, ensureCaseDb, ensurePipelineDb, addRepoOptions, inTeam, kindOfDb, nextStage, optionByName, optionName, pipelineDbIds, priorityRank, readPipeline, stageNear, stageOfRow, type CodingProps, type PipelineKind, type ResolvedStage } from './schema'
 import { parseStories, splitSections, type DocSection, type Story } from './outputs'
 import { createPrivatePage } from '../../cloud'
@@ -855,6 +855,35 @@ export function knownRepos(): string[] {
 }
 
 /** The connected worker's local branches of a repo — names only, never its base branch (the worker refuses it). */
+/**
+ * The own Claude Code MCP servers a task's stages may use, as the connected worker names them: the repo's, or —
+ * without a repo — the worker's servers for tasks without a repository. null: the worker names none (older).
+ */
+export function taskMcpServers(worker: WorkerInfo, repo: string | null): string[] | null {
+  const raw = repo ? worker.repos.find((r) => r.name === repo)?.mcp : worker.mcp
+  if (!Array.isArray(raw)) return null
+  return [...new Set(raw.filter((n): n is string => typeof n === 'string' && MCP_SERVER_NAME.test(n)))].slice(0, 20)
+}
+
+const foldName = (s: string) => s.trim().toLowerCase()
+const wordIn = (text: string, word: string) => new RegExp(`(^|[^\\p{L}\\p{N}_-])${word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}($|[^\\p{L}\\p{N}_-])`, 'iu').test(text)
+
+/**
+ * The MCP servers a task's text mentions that Claude Code may not use for it: One's own servers by name or codeword
+ * (One's servers never reach Claude Code — the worker's setup page decides), and MCP as such while it has none.
+ */
+export function mentionedMcp(text: string, servers: Array<{ name: string; codeword?: string | null }>, allowed: string[]): string[] {
+  const have = new Set(allowed.map(foldName))
+  const out: string[] = []
+  for (const s of servers) {
+    const words = [s.codeword ?? '', s.name].map((w) => w.trim()).filter((w) => w.length >= 2)
+    const hit = words.find((w) => wordIn(text, w))
+    if (hit && !words.some((w) => have.has(foldName(w)))) out.push(hit)
+  }
+  if (!out.length && !allowed.length && wordIn(text, 'mcp')) out.push('MCP')
+  return [...new Set(out)]
+}
+
 export function workerBranches(repo: string | null): { base: string | null; list: string[] } {
   const r = repo ? useCoding.getState().worker?.repos.find((x) => x.name === repo) : undefined
   if (!r) return { base: null, list: [] }

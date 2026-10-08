@@ -299,7 +299,7 @@ test('a worker that does not pass a model on (`can` without "model") never gets 
     await expect(page.getByTestId('coding-worker').getByTestId('coding-worker-outdated')).toContainText('A newer worker is on the site')
 
     // the newer worker names "model": a stage with one is handed out, the model in the payload; nothing outdated
-    fake.can = ['analyze', 'git:comment', 'git:merge', 'doc', 'model']
+    fake.can = ['analyze', 'git:comment', 'git:merge', 'doc', 'model', 'mcp-list']
     await setAnalysisModel(page, 'opus')
     const second = await addAnalysisTask(page, 'Supplier onboarding')
     await expect.poll(() => fake.handed().length, { timeout: 15_000 }).toBe(2)

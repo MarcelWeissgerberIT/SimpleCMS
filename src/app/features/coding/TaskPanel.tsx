@@ -24,6 +24,7 @@ import { PlanView } from './PlanView'
 import { DiffView } from './DiffView'
 import { GitBox } from './GitBox'
 import { ApprovalsPick, ModelPick, TaskSetup } from './TaskSetup'
+import { TaskMcp } from './TaskMcp'
 import { NowLine, RunCounters } from './NowLine'
 import { FollowUps } from './FollowUps'
 import { ImportBox } from './ImportBox'
@@ -177,6 +178,7 @@ export default function TaskPanel({ pageId }: { pageId: ID }) {
             <ModelPick taskId={pageId} pipeline={pipeline} />
           </div>
         )}
+        {stage?.kind !== 'done' && <TaskMcp taskId={pageId} repo={repo} />}
 
         {needsTrust && canAct && (
           <div className="ctk-box ctk-box--trust" role="alert">

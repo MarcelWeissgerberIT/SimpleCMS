@@ -194,7 +194,7 @@ export class Worker {
     return {
       worker: this.opts.version,
       name: this.config.name,
-      repos: this.config.repos.map((r) => ({ name: r.name, baseBranch: r.baseBranch, branches: this.branches.get(r.name) ?? [] })),
+      repos: this.config.repos.map((r) => ({ name: r.name, baseBranch: r.baseBranch, branches: this.branches.get(r.name) ?? [], mcp: r.claude.mcpServers })),
       parallel: this.config.parallel,
       busy: this.busy(),
       spentToday: this.state.spentToday(),
@@ -203,6 +203,7 @@ export class Worker {
       setup: !!this.opts.setup,
       paired: !!this.config.preset,
       via: cloudOf(this.config) ? 'cloud' : 'local',
+      mcp: this.config.mcpServers,
     }
   }
 

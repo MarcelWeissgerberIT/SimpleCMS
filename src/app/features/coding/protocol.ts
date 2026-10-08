@@ -56,12 +56,12 @@ export const GIT_ACTIONS = ['commit', 'push', 'pr', 'update-base', 'comment', 'm
 export type GitAction = (typeof GIT_ACTIONS)[number]
 /**
  * What a worker runs beyond the first protocol, sent with every `next`: 'analyze' (the Static analysis stage), the
- * git actions 'git:comment' / 'git:merge', 'doc' (document stages) and 'model' (it passes the stage's model to Claude
- * Code). One hands a stage that needs one of them only to a worker that says so — an older worker would run an unknown
+ * git actions 'git:comment' / 'git:merge', 'doc' (document stages), 'model' (it passes the stage's model to Claude
+ * Code) and 'mcp-list' (it names each repo's own Claude Code MCP servers, so the task panel can show them). One hands a stage that needs one of them only to a worker that says so — an older worker would run an unknown
  * stage kind as a git stage, drop the task as unreadable (and get it again on every round), or quietly run Claude
  * Code with another model than the one picked.
  */
-export const WORKER_CAN = ['analyze', 'git:comment', 'git:merge', 'doc', 'model'] as const
+export const WORKER_CAN = ['analyze', 'git:comment', 'git:merge', 'doc', 'model', 'mcp-list'] as const
 /**
  * What a worker runs, read from its `next`. Document stages came before `can`, together with `docs: true`: a worker
  * that sends either knows them, so a `can` without 'doc' (1.3.x) or `docs` without a `can` (1.3.1 before `can`)
@@ -327,6 +327,8 @@ export interface WorkerRepo {
   baseBranch: string
   /** local branch names, newest first (≤ 100; older workers send none) — the task's Branch picker */
   branches?: string[]
+  /** the person's own Claude Code MCP servers this repo's stages may use — names only (older workers send none) */
+  mcp?: string[]
 }
 
 export interface WorkerInfo {
@@ -348,7 +350,11 @@ export interface WorkerInfo {
   paired?: boolean
   /** how it reaches One: 127.0.0.1 (local) or the team server's relay (cloud); older workers send none */
   via?: 'local' | 'cloud'
+  /** own Claude Code MCP servers of document stages of tasks without a repository — names only (older workers send none) */
+  mcp?: string[]
 }
+/** An MCP server name as Claude Code lists it ("claude mcp list") and worker.json takes it. */
+export const MCP_SERVER_NAME = /^[A-Za-z0-9_-]{1,64}$/
 
 /** The answer to `open-setup`: the worker opened its setup page on its own screen (One never learns its address). */
 export interface OpenSetupResult {
