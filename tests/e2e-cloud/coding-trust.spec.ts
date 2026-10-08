@@ -2,7 +2,9 @@
  * Coding pipeline in a team workspace: the worker on a device runs only task versions written or confirmed
  * on THAT device. A task's version covers its repo, branch and stage too — a stage moved past a gate on
  * another device (here: the same person's second browser, the Coding database is private) waits for
- * "Confirm on this device"; a move made here keeps the trust. No worker runs: the panel shows the rule.
+ * "Confirm on this device"; a move made here keeps the trust. A stage's model is part of the version too (set on the
+ * other device it asks again, set here it stays trusted); the task's own model on a device needs nothing. No worker
+ * runs: the panel shows the rule.
  */
 import type { Page } from '@playwright/test'
 import { test, expect, email, signIn, newPerson, openApp, wsEval, waitOnline, createWorkspace } from './fixtures'
@@ -37,6 +39,19 @@ const stageOf = (p: Page, id: string) =>
     const stage = s.databases[page.databaseId].properties.find((x: { name: string }) => x.name === 'Stage')
     return (stage.options.find((o: { id: string }) => o.id === page.properties[stage.id])?.name ?? null) as string | null
   }, id)
+
+/** Set (or clear) the model of the Coding pipeline's stages of one kind — a pipeline edit on that device. */
+const setModel = (p: Page, kind: string, model: string | null) =>
+  wsEval(p, (s, a) => {
+    const db = Object.values(s.databases).find((d: any) => d.system === 'coding') as any // eslint-disable-line @typescript-eslint/no-explicit-any
+    s.updateDatabase(db.id, { pipeline: db.pipeline.map((x: { kind: string }) => (x.kind === a.kind ? { ...x, model: a.model ?? undefined } : x)) })
+  }, { kind, model })
+
+const modelOf = (p: Page, kind: string) =>
+  wsEval(p, (s, kind) => {
+    const db = Object.values(s.databases).find((d: any) => d.system === 'coding') as any // eslint-disable-line @typescript-eslint/no-explicit-any
+    return (db?.pipeline?.find((x: { kind: string }) => x.kind === kind)?.model ?? null) as string | null
+  }, kind)
 
 test.describe('team cloud — coding tasks', () => {
   test('a stage moved on another device waits for "Confirm on this device"; a move made here stays trusted', async ({ page: a, context }) => {
@@ -87,6 +102,24 @@ test.describe('team cloud — coding tasks', () => {
     // confirmed versions stay confirmed after a reload
     await a.reload()
     await expect(a.locator('.ctk-code')).toContainText(/· Ship/i)
+    await expect(panel).toHaveAttribute('data-trust', 'yes')
+    await expect(box).toHaveCount(0)
+
+    // a stage's model is part of the version: set on the other device, it asks again
+    await setModel(b, 'plan', 'opus')
+    await expect.poll(() => modelOf(a, 'plan'), { timeout: 20_000 }).toBe('opus')
+    await expect(panel).toHaveAttribute('data-trust', 'no')
+    await box.getByRole('button', { name: 'Confirm on this device' }).click()
+    await expect(box).toHaveCount(0)
+    // set here, it stays trusted
+    await setModel(a, 'implement', 'claude-fable-5-1')
+    await expect.poll(() => modelOf(a, 'implement')).toBe('claude-fable-5-1')
+    await a.waitForTimeout(800)
+    await expect(panel).toHaveAttribute('data-trust', 'yes')
+    await expect(box).toHaveCount(0)
+    // the task's own model is this device's choice: nothing to confirm
+    await a.getByTestId('coding-model-select').selectOption('haiku')
+    await a.waitForTimeout(800)
     await expect(panel).toHaveAttribute('data-trust', 'yes')
     await expect(box).toHaveCount(0)
   })

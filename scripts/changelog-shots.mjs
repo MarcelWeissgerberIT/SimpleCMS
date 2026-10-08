@@ -8,7 +8,7 @@
  *
  * (CHANGELOG_DRAFT=1 lets the build pass while a new entry's picture does not exist yet.)
  *
- * Shots: search, terminal-pipelines, cloud-worker, one-picker, pipelines, legacy-modernise, coding-live, text-size, mcp-media, coding-setup, free-board, building-blocks, workspace-settings, diagram-viewer, coding-pipeline, pages-per-item, design-import, tour, quick-capture, script-templates, one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
+ * Shots: models, search, terminal-pipelines, cloud-worker, one-picker, pipelines, legacy-modernise, coding-live, text-size, mcp-media, coding-setup, free-board, building-blocks, workspace-settings, diagram-viewer, coding-pipeline, pages-per-item, design-import, tour, quick-capture, script-templates, one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
  * custom-agents, gmail, help-centre, mcp-servers, feed-blocks — each named like its image. Every shot starts from a fresh, seeded
  * workspace in English, light theme, 1440 × 900 at device scale 2; the crop of the relevant area is scaled
  * to 1440 px wide and saved as public/assets/shots/changelog/<shot>.webp (≤ 150 KB: the quality steps down
@@ -1103,7 +1103,7 @@ const shots = {
     await page.evaluate((account) => window.__oneMail.setToken('ya29.shots-token-db', account), ACCOUNT)
     await page.evaluate(() => window.__oneMail.sync())
     await page.waitForFunction(() => window.__oneMail?.state().phase === 'idle' && !!window.__one.workspace.getState().settings.mail?.databaseId, null, { timeout: 30_000 })
-    await page.locator('.toast button[aria-label]').last().click().catch(() => {})
+    await page.locator('.toast__close').last().click().catch(() => {})
     const dbId = await page.evaluate(() => window.__one.workspace.getState().settings.mail.databaseId)
     await openPage(page, dbId)
     const row = page.locator('.sb section[aria-label="Pages"] .sb-row').filter({ has: page.locator(`a[href="#/p/${dbId}"]`) })
@@ -2401,6 +2401,33 @@ const shots = {
     }
   },
 
+  /** The pipeline editor: Plan open with its Model (Fable), the chips of Plan and Implement (Sonnet) in their rows. */
+  async models(browser) {
+    const { ctx, page } = await freshPage(browser, { viewport: { width: W, height: H + 160 } })
+    await page.evaluate(() => (window.location.hash = '#/coding'))
+    await page.getByTestId('coding-setup').click()
+    await page.getByTestId('coding-pipeline-open').click()
+    const rows = page.getByTestId('coding-pipeline').locator('> li')
+    const implement = rows.nth(4)
+    await implement.locator('.cpe-more').click()
+    await implement.getByTestId('coding-pipeline-model').selectOption('sonnet')
+    await implement.locator('.cpe-more').click()
+    const plan = rows.nth(2)
+    await plan.locator('.cpe-more').click()
+    await plan.getByTestId('coding-pipeline-model').selectOption('claude-fable-5-1')
+    await plan.getByTestId('coding-pipeline-chip').waitFor()
+    // the "Coding database created" toast goes first
+    for (const b of await page.locator('.toast__close').all()) await b.click().catch(() => {})
+    await page.locator('.toast').first().waitFor({ state: 'detached', timeout: 10_000 }).catch(() => {})
+    await rest(page)
+    // the stages from Ready to Implement (between their rules), across the whole dialog
+    const dialog = await boxOf(page.getByRole('dialog'))
+    const from = await rows.nth(1).boundingBox()
+    const to = await rows.nth(4).boundingBox()
+    await save(page, 'models', { x: dialog.x, y: Math.round(from.y - 1), width: dialog.width, height: Math.round(to.y + to.height + 1 - (from.y - 1)) })
+    await ctx.close()
+  },
+
   /** Several blocks selected (text, image, table): the wash on each, the pinned grip, the count chip. */
   async 'block-select'(browser) {
     const { ctx, page } = await freshPage(browser)
@@ -2660,7 +2687,7 @@ const shots = {
     await openPage(page, dbId)
     const db = page.locator('#main section.db').first()
     await scrollToTop(db, 12)
-    await page.locator('.toast button[aria-label]').last().click().catch(() => {})
+    await page.locator('.toast__close').last().click().catch(() => {})
     await rest(page)
     await save(page, 'gmail')
     await ctx.close()

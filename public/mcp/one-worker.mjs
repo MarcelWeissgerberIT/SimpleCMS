@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// SimpleCMS One — coding worker 1.5.0 (MIT). Source: https://github.com/MarcelWeissgerberIT/SimpleCMS/tree/main/mcp/src/worker
+// SimpleCMS One — coding worker 1.6.0 (MIT). Source: https://github.com/MarcelWeissgerberIT/SimpleCMS/tree/main/mcp/src/worker
 // Runs coding tasks from One with Claude Code on this computer. Setup: node one-worker.mjs --help
 // Docs and security model: https://github.com/MarcelWeissgerberIT/SimpleCMS/blob/main/docs/CODING.md
 import { createRequire as __createRequire } from 'node:module'; const require = __createRequire(import.meta.url);
@@ -10910,7 +10910,13 @@ var PARALLEL_MAX = 2;
 var STAGE_KINDS = ["queue", "import", "analyze", "plan", "doc", "gate", "implement", "test", "git", "done"];
 var PERMISSION_MODES = ["plan", "acceptEdits", "default"];
 var GIT_ACTIONS = ["commit", "push", "pr", "update-base", "comment", "merge"];
-var WORKER_CAN = ["analyze", "git:comment", "git:merge", "doc"];
+var WORKER_CAN = ["analyze", "git:comment", "git:merge", "doc", "model"];
+var MODEL_NAME = /^[A-Za-z0-9][A-Za-z0-9._:[\]-]{0,99}$/;
+function cleanModel(v) {
+  if (typeof v !== "string") return null;
+  const m = v.trim();
+  return MODEL_NAME.test(m) ? m : null;
+}
 var GIT_VERBS = ["refresh", "commit", "push", "force-push", "pr", "update-base", "discard", "cleanup", "reveal", "comment-pr", "merge-pr"];
 var REPO_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 var WORKSPACE_ID = /^(local|team):[A-Za-z0-9_-]{1,64}$/;
@@ -11021,7 +11027,7 @@ function claudeConfig(raw, where, problems) {
       else problems.push(`${where}: claude.permissionMode.${kind} ${JSON.stringify(mode)} is not allowed (${PERMISSION_MODES.join(", ")} \u2014 never one that skips permissions)`);
     }
   }
-  const model = typeof c.model === "string" && /^[A-Za-z0-9._:[\]-]{1,100}$/.test(c.model.trim()) ? c.model.trim() : null;
+  const model = cleanModel(c.model);
   return {
     model,
     maxTurns: Math.floor(num(c.maxTurns, 30, 1, 200)),
@@ -11397,14 +11403,20 @@ var PRICES = [
   [/opus-(5|4-[5-8])/, 5, 25, 0.1],
   [/sonnet-5/, 2, 10, 0.1],
   [/sonnet-4/, 3, 15, 0.1],
+  [/haiku-5-5/, 0.1, 0.5, 0.1, { over: 1e5, input: 0.5, output: 2.5 }],
   [/haiku-4-5/, 1, 5, 0.1]
 ];
 function estimateCost(model, usages) {
   const row = model ? PRICES.find(([re]) => re.test(model)) : void 0;
   if (!row) return null;
-  const [, inp, out, read2] = row;
+  const [, baseIn, baseOut, read2, long] = row;
   let usd2 = 0;
-  for (const u of usages) usd2 += (u.input * inp + u.cacheWrite * inp * 1.25 + u.cacheRead * inp * read2 + u.output * out) / 1e6;
+  for (const u of usages) {
+    const tier = long && u.input + u.cacheWrite + u.cacheRead > long.over ? long : null;
+    const inp = tier ? tier.input : baseIn;
+    const out = tier ? tier.output : baseOut;
+    usd2 += (u.input * inp + u.cacheWrite * inp * 1.25 + u.cacheRead * inp * read2 + u.output * out) / 1e6;
+  }
   return usd2;
 }
 function usageOf(raw) {
@@ -14798,6 +14810,16 @@ function writeMcpConfig(taskMcp) {
   writeFileSync3(file, JSON.stringify({ mcpServers: { "one-task": { type: "stdio", command: taskMcp.command, args: taskMcp.args, env: taskMcp.env } } }, null, 2), { mode: 384 });
   return { file, dispose: () => rmSync5(dir, { recursive: true, force: true }) };
 }
+function stageModel(task, repo) {
+  if (task.stage.model) return { model: task.stage.model, from: "one" };
+  if (repo.claude.model) return { model: repo.claude.model, from: "repo" };
+  return { model: null, from: "default" };
+}
+function logModel(log2, m) {
+  if (m.from === "one") log2("info", `Model: ${m.model} (chosen in One)`, "modelOne", { model: m.model });
+  else if (m.from === "repo") log2("info", `Model: ${m.model} (worker.json)`, "modelRepo", { model: m.model });
+  else log2("info", "Model: Claude Code's default", "modelDefault");
+}
 var TASK_TOOL_PERMS = ["mcp__one-task__one_task_read", "mcp__one-task__one_task_note", "mcp__one-task__one_task_ask"];
 function limits(ctx) {
   const { repo, state, task } = ctx;
@@ -14869,6 +14891,8 @@ async function claudeStage(ctx, wt, scrub, log2) {
   const plan = task.stage.kind === "plan";
   const mode = plan ? "plan" : repo.claude.permissionMode.implement ?? task.stage.permissionMode;
   const mcp = ctx.taskMcp ? writeMcpConfig(ctx.taskMcp) : null;
+  const model = stageModel(task, repo);
+  logModel(log2, model);
   log2("info", `Starting Claude Code (${mode} mode)\u2026`, "starting", { mode });
   const live = plan ? null : liveDiff(ctx, wt, scrub);
   try {
@@ -14878,7 +14902,7 @@ async function claudeStage(ctx, wt, scrub, log2) {
       prompt: buildPrompt(task, repo, wt.branch),
       mode,
       maxTurns: Math.max(1, Math.min(task.stage.maxTurns || repo.claude.maxTurns, repo.claude.maxTurns)),
-      model: repo.claude.model,
+      model: model.model,
       // the person's own MCP servers this repo may use (setup page): their tools allowed, the strict flag left out
       allowedTools: [.../* @__PURE__ */ new Set([...repo.claude.allowedTools, ...mcp ? TASK_TOOL_PERMS : [], ...repo.claude.mcpServers.map((n) => `mcp__${n}`)])],
       disallowedTools: repo.claude.disallowedTools,
@@ -14922,6 +14946,8 @@ async function docStage(ctx, scrub, log2, branch, dir) {
   const changes = branch ? await branchDiff(repo, branch, dir).catch(() => null) : null;
   if (changes) log2("git", `The branch ${branch} changes ${changes.files} file(s) \u2014 the diff goes along${changes.clipped ? " (clipped)" : ""}`, "docDiff", { branch, n: changes.files });
   const mcp = ctx.taskMcp ? writeMcpConfig(ctx.taskMcp) : null;
+  const model = stageModel(task, repo);
+  logModel(log2, model);
   log2("info", "Starting Claude Code (read only)\u2026", "starting", { mode: "read only" });
   try {
     const res = await runClaude({
@@ -14931,7 +14957,7 @@ async function docStage(ctx, scrub, log2, branch, dir) {
       // headless "default" mode: whatever is not allowed below is refused, nothing can ask
       mode: "default",
       maxTurns: Math.max(1, Math.min(task.stage.maxTurns || repo.claude.maxTurns, repo.claude.maxTurns)),
-      model: repo.claude.model,
+      model: model.model,
       allowedTools: [.../* @__PURE__ */ new Set([...DOC_TOOLS, ...mcp ? TASK_TOOL_PERMS : [], ...repo.claude.mcpServers.map((n) => `mcp__${n}`)])],
       disallowedTools: [.../* @__PURE__ */ new Set([...DOC_DENIED, ...repo.claude.disallowedTools])],
       mcpConfig: mcp?.file ?? null,
@@ -15129,7 +15155,10 @@ function sanitizeTask(raw) {
       instructions: str3(s.instructions, 2e4),
       permissionMode: PERMISSION_MODES.includes(String(s.permissionMode)) ? s.permissionMode : "default",
       maxTurns: Number.isFinite(turns) ? Math.max(1, Math.min(200, Math.floor(turns))) : 30,
-      gitAction: GIT_ACTIONS.includes(String(s.gitAction)) ? s.gitAction : null
+      gitAction: GIT_ACTIONS.includes(String(s.gitAction)) ? s.gitAction : null,
+      // a model name One picked (MODEL_NAME) — anything else is dropped (the repo's claude.model, else Claude Code's
+      // default, runs instead); it reaches Claude Code only as the argument after --model
+      model: cleanModel(s.model)
     },
     text: str3(raw.text, 2e5),
     rework: typeof raw.rework === "string" && raw.rework.trim() ? raw.rework.slice(0, 4e4) : null,
@@ -33908,7 +33937,7 @@ ${prompt}`);
 }
 
 // src/worker/index.ts
-var VERSION = true ? "1.5.0" : "dev";
+var VERSION = true ? "1.6.0" : "dev";
 var quiet = process.env.ONE_WORKER_QUIET === "1";
 var recent = [];
 var log = (msg) => {

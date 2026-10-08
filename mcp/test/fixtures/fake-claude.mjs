@@ -22,7 +22,8 @@
  *                          ## sections (+ a fenced "## " that is no heading); FAKE:STORIES (in a stage named
  *                          "Stories") a json block of three stories; with "Changes on the branch" in the prompt it names the files the diff touches
  * The task tools are reached like Claude Code does: the MCP server from --mcp-config, over stdio.
- * FAKE_CLAUDE_LOG=<file> appends {args, cwd} per run.
+ * FAKE_CLAUDE_LOG=<file> appends {args, cwd} per run. It reports the model given with --model when that is a full
+ * id (claude-…), else its own default.
  */
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
@@ -53,7 +54,8 @@ const arg = (name) => {
 const mode = arg('--permission-mode')
 const session = '0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0'
 const out = (ev) => process.stdout.write(`${JSON.stringify({ ...ev, session_id: session })}\n`)
-const MODEL = 'claude-opus-5-5'
+// the model it reports (init, every message): a full id passed with --model, else its default (aliases too)
+const MODEL = /^claude-[a-z0-9-]+$/.test(arg('--model') ?? '') ? arg('--model') : 'claude-opus-5-5'
 let turn = 0
 // every message is its own turn, with token counts like the real CLI's (the worker's cost estimate)
 const message = (content) => ({ id: `msg_${String(++turn).padStart(4, '0')}`, model: MODEL, content, usage: { input_tokens: 1200, output_tokens: 300, cache_creation_input_tokens: 0, cache_read_input_tokens: 4000 } })

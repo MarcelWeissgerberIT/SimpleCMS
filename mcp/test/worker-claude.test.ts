@@ -80,11 +80,20 @@ describe('Claude Code CLI', () => {
     assert.ok(lines.filter((l) => l.k === 'claude').every((l) => !l.c))
   })
 
-  test('cost estimate: per model, cache writes 1.25 × input, cache reads at the model\'s rate; unknown model = none', () => {
+  test('cost estimate: per model, cache writes 1.25 × input, cache reads at the model\'s rate, long prompts at their tier; unknown model = none', () => {
     const u = usageOf({ input_tokens: 1_000_000, output_tokens: 100_000, cache_creation_input_tokens: 200_000, cache_read_input_tokens: 2_000_000 })!
     assert.equal(estimateCost('claude-opus-5-5', [u])!.toFixed(4), (4 + 2 + 0.25 * 4 + 2 * 4 * 0.05).toFixed(4))
     assert.equal(estimateCost('claude-sonnet-5-5', [u])!.toFixed(4), (2 + 1 + 0.25 * 2 + 2 * 2 * 0.1).toFixed(4))
     assert.equal(estimateCost('some-other-model', [u]), null)
+    // a model priced higher for long prompts: chosen per message by its whole prompt (input + cache writes + reads)
+    const short = { input: 2_000, cacheWrite: 0, cacheRead: 98_000, output: 1_000 }
+    const long = { input: 2_000, cacheWrite: 0, cacheRead: 150_000, output: 1_000 }
+    assert.equal(estimateCost('claude-haiku-5-5', [short])!.toFixed(6), ((2_000 * 0.1 + 98_000 * 0.1 * 0.1 + 1_000 * 0.5) / 1e6).toFixed(6))
+    assert.equal(estimateCost('claude-haiku-5-5', [long])!.toFixed(6), ((2_000 * 0.5 + 150_000 * 0.5 * 0.1 + 1_000 * 2.5) / 1e6).toFixed(6))
+    assert.equal(estimateCost('claude-haiku-5-5', [short, long])!.toFixed(6), (estimateCost('claude-haiku-5-5', [short])! + estimateCost('claude-haiku-5-5', [long])!).toFixed(6))
+    // exactly at the line is still the lower price
+    const edge = { input: 100_000, cacheWrite: 0, cacheRead: 0, output: 0 }
+    assert.equal(estimateCost('claude-haiku-5-5', [edge])!.toFixed(6), (0.01).toFixed(6))
     assert.equal(estimateCost(null, [u]), null)
     assert.deepEqual(usageOf({ input_tokens: 'x' }), { input: 0, output: 0, cacheWrite: 0, cacheRead: 0 })
     assert.equal(usageOf(null), null)
@@ -180,6 +189,27 @@ describe('prompt', () => {
     assert.equal(sanitizeTask({ ...git, review: '  \n ' })!.review, null)
     assert.equal(sanitizeTask({ ...git, review: { text: 'x' } })!.review, null)
     assert.equal(t.review, null)
+  })
+
+  test('the stage\'s model: kept only when it passes the shared rule (the same as claude.model in worker.json); --model is one argument', () => {
+    const stage = (model: unknown) => sanitizeTask({ id: 'abc', repo: 'demo', title: 'T', stage: { id: 'st', kind: 'implement', model } })!.stage.model
+    for (const ok of ['opus', 'sonnet', 'haiku', 'claude-fable-5-1', 'claude-opus-5-5', 'my.own_model:v2', 'model[1m]']) assert.equal(stage(ok), ok)
+    assert.equal(stage('  opus  '), 'opus')
+    // never a flag of its own (a leading "-"), never a shell word
+    for (const bad of ['opus; rm -rf ~', '--dangerously-skip-permissions', '-p', '.opus', 'two words', '$(id)', 'a'.repeat(101), '', 42, null, undefined, { name: 'opus' }]) assert.equal(stage(bad), null, JSON.stringify(bad))
+    assert.equal(stage('a'.repeat(100)), 'a'.repeat(100))
+    // an older tab sends no model: none
+    assert.equal(sanitizeTask({ id: 'abc', repo: 'demo', stage: { kind: 'plan' } })!.stage.model, null)
+    // worker.json: the same rule
+    const cfg = (model: unknown) => sanitizeConfig({ workspace: 'local:x1', repos: [{ name: 'a', path: '/tmp/a', claude: { model } }] }, '/tmp/cfg/worker.json').config.repos[0]!.claude.model
+    assert.equal(cfg('sonnet'), 'sonnet')
+    assert.equal(cfg('opus && echo'), null)
+    assert.equal(cfg('--dangerously-skip-permissions'), null)
+    // the argv: the name follows --model as its own entry
+    const caps: ClaudeCaps = { found: true, version: '1', budget: true, modes: [] }
+    const args = claudeArgs({ mode: 'plan', maxTurns: 3, model: 'claude-fable-5-1', allowedTools: [], disallowedTools: [], mcpConfig: null, strictMcp: true, budgetUsd: null, caps })
+    assert.equal(args[args.indexOf('--model') + 1], 'claude-fable-5-1')
+    assert.ok(!claudeArgs({ mode: 'plan', maxTurns: 3, model: null, allowedTools: [], disallowedTools: [], mcpConfig: null, strictMcp: true, budgetUsd: null, caps }).includes('--model'))
   })
 
   test('tool calls become one short log line', () => {

@@ -35,6 +35,9 @@ export const LOG_CODES = new Set([
   'analyzeFound',
   'reviewPosted',
   'requestMerged',
+  'modelOne',
+  'modelRepo',
+  'modelDefault',
 ])
 
 const CODE = /^[a-zA-Z][a-zA-Z.]{0,40}$/

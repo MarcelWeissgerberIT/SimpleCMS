@@ -1,7 +1,7 @@
 ---
 id: 2026-10-08-cloud-worker
 date: 2026-10-08
-order: 1
+order: 2
 title: Der Coding-Worker auf jedem Rechner – über deinen Team-Server
 summary: In einem Team-Arbeitsbereich lässt Einstellungen → Coding-Worker → Lokal | Cloud den Worker auf einem Build-Server oder einer VM laufen; er verbindet sich selbst mit dem One-Server, der nur Nachrichten weiterreicht, die zwischen diesem Browser und dem Worker versiegelt sind.
 image: assets/shots/changelog/cloud-worker.webp

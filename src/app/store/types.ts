@@ -660,6 +660,13 @@ export interface PipelineStage {
    * 'stories' = the document's stories become tasks of a NEW coding project (its own database)
    */
   output?: 'testcases' | 'pages' | 'review' | 'stories'
+  /**
+   * stages that run Claude Code (plan · implement · doc): the model it runs with — an alias Claude Code accepts
+   * ('opus' · 'sonnet' · 'haiku'), a full model id or an own name (features/coding/protocol.ts MODEL_NAME). Absent /
+   * null = the worker's default (the repo's `claude.model` in worker.json, else Claude Code's own). A task may pick
+   * its own on a device (TaskLocal.model). Sanitized in readPipeline, written with savePipeline.
+   */
+  model?: string | null
 }
 
 /**

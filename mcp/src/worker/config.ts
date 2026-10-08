@@ -8,7 +8,7 @@
 import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { homedir, hostname } from 'node:os'
 import { dirname, isAbsolute, join, resolve, sep } from 'node:path'
-import { PARALLEL_MAX, PERMISSION_MODES, REPO_NAME, WORKER_DEFAULT_PORT, WORKSPACE_ID, type PermissionMode, type WorkerPreset } from '../../../src/app/features/coding/protocol.ts'
+import { PARALLEL_MAX, PERMISSION_MODES, REPO_NAME, cleanModel, WORKER_DEFAULT_PORT, WORKSPACE_ID, type PermissionMode, type WorkerPreset } from '../../../src/app/features/coding/protocol.ts'
 
 export interface ClaudeConfig {
   /** a model name Claude Code accepts (null = its default) */
@@ -185,7 +185,8 @@ function claudeConfig(raw: unknown, where: string, problems: string[]): ClaudeCo
       else problems.push(`${where}: claude.permissionMode.${kind} ${JSON.stringify(mode)} is not allowed (${PERMISSION_MODES.join(', ')} — never one that skips permissions)`)
     }
   }
-  const model = typeof c.model === 'string' && /^[A-Za-z0-9._:[\]-]{1,100}$/.test(c.model.trim()) ? c.model.trim() : null
+  // the same rule as a stage's model from One (protocol.ts MODEL_NAME)
+  const model = cleanModel(c.model)
   return {
     model,
     maxTurns: Math.floor(num(c.maxTurns, 30, 1, 200)),

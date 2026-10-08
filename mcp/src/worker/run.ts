@@ -131,6 +131,23 @@ function writeMcpConfig(taskMcp: NonNullable<StageContext['taskMcp']>): { file: 
   return { file, dispose: () => rmSync(dir, { recursive: true, force: true }) }
 }
 
+/**
+ * The model Claude Code runs with: the one One sent for this stage (the task's pick, else the stage's), else the
+ * repo's `claude.model` in worker.json, else none (Claude Code's own default). Both passed MODEL_NAME.
+ */
+export function stageModel(task: TaskPayload, repo: RepoConfig): { model: string | null; from: 'one' | 'repo' | 'default' } {
+  if (task.stage.model) return { model: task.stage.model, from: 'one' }
+  if (repo.claude.model) return { model: repo.claude.model, from: 'repo' }
+  return { model: null, from: 'default' }
+}
+
+/** The log line that names the model (before Claude Code starts; the progress then names the one it really uses). */
+function logModel(log: Log, m: ReturnType<typeof stageModel>): void {
+  if (m.from === 'one') log('info', `Model: ${m.model} (chosen in One)`, 'modelOne', { model: m.model! })
+  else if (m.from === 'repo') log('info', `Model: ${m.model} (worker.json)`, 'modelRepo', { model: m.model! })
+  else log('info', "Model: Claude Code's default", 'modelDefault')
+}
+
 /** Tool names Claude Code may call without asking: the task tools always. */
 export const TASK_TOOL_PERMS = ['mcp__one-task__one_task_read', 'mcp__one-task__one_task_note', 'mcp__one-task__one_task_ask']
 
@@ -210,6 +227,8 @@ async function claudeStage(ctx: StageContext, wt: TaskWorktree, scrub: Scrubber,
   const plan = task.stage.kind === 'plan'
   const mode = plan ? 'plan' : (repo.claude.permissionMode.implement ?? task.stage.permissionMode)
   const mcp = ctx.taskMcp ? writeMcpConfig(ctx.taskMcp) : null
+  const model = stageModel(task, repo)
+  logModel(log, model)
   log('info', `Starting Claude Code (${mode} mode)…`, 'starting', { mode })
   // while Claude Code changes files: the Diff tab follows along (a snapshot whenever the worktree changed)
   const live = plan ? null : liveDiff(ctx, wt, scrub)
@@ -220,7 +239,7 @@ async function claudeStage(ctx: StageContext, wt: TaskWorktree, scrub: Scrubber,
       prompt: buildPrompt(task, repo, wt.branch),
       mode,
       maxTurns: Math.max(1, Math.min(task.stage.maxTurns || repo.claude.maxTurns, repo.claude.maxTurns)),
-      model: repo.claude.model,
+      model: model.model,
       // the person's own MCP servers this repo may use (setup page): their tools allowed, the strict flag left out
       allowedTools: [...new Set([...repo.claude.allowedTools, ...(mcp ? TASK_TOOL_PERMS : []), ...repo.claude.mcpServers.map((n) => `mcp__${n}`)])],
       disallowedTools: repo.claude.disallowedTools,
@@ -271,6 +290,8 @@ async function docStage(ctx: StageContext, scrub: Scrubber, log: Log, branch: st
   const changes = branch ? await branchDiff(repo, branch, dir).catch(() => null) : null
   if (changes) log('git', `The branch ${branch} changes ${changes.files} file(s) — the diff goes along${changes.clipped ? ' (clipped)' : ''}`, 'docDiff', { branch: branch!, n: changes.files })
   const mcp = ctx.taskMcp ? writeMcpConfig(ctx.taskMcp) : null
+  const model = stageModel(task, repo)
+  logModel(log, model)
   log('info', 'Starting Claude Code (read only)…', 'starting', { mode: 'read only' })
   try {
     const res = await runClaude({
@@ -280,7 +301,7 @@ async function docStage(ctx: StageContext, scrub: Scrubber, log: Log, branch: st
       // headless "default" mode: whatever is not allowed below is refused, nothing can ask
       mode: 'default',
       maxTurns: Math.max(1, Math.min(task.stage.maxTurns || repo.claude.maxTurns, repo.claude.maxTurns)),
-      model: repo.claude.model,
+      model: model.model,
       allowedTools: [...new Set([...DOC_TOOLS, ...(mcp ? TASK_TOOL_PERMS : []), ...repo.claude.mcpServers.map((n) => `mcp__${n}`)])],
       disallowedTools: [...new Set([...DOC_DENIED, ...repo.claude.disallowedTools])],
       mcpConfig: mcp?.file ?? null,

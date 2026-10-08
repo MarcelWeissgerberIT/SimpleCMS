@@ -53,7 +53,7 @@ describe('capabilities', () => {
     tab.send({ type: 'nudge' })
     const next = await tab.next('req')
     assert.equal(next.op, 'next')
-    assert.deepEqual((next as Extract<typeof next, { op: 'next' }>).can, ['analyze', 'git:comment', 'git:merge', 'doc'])
+    assert.deepEqual((next as Extract<typeof next, { op: 'next' }>).can, ['analyze', 'git:comment', 'git:merge', 'doc', 'model'])
   })
 
   test('a task it cannot read (a stage kind it does not know) goes back to One as refused for that task and stage; the worker keeps working', async () => {
@@ -91,7 +91,7 @@ describe('capabilities', () => {
     // every `next` named the same capabilities
     const nexts = tab.messages.filter((m): m is Extract<typeof m, { type: 'req'; op: 'next' }> => m.type === 'req' && m.op === 'next')
     assert.ok(nexts.length >= 3, `${nexts.length} requests`)
-    for (const n of nexts) assert.deepEqual(n.can, ['analyze', 'git:comment', 'git:merge', 'doc'])
+    for (const n of nexts) assert.deepEqual(n.can, ['analyze', 'git:comment', 'git:merge', 'doc', 'model'])
     assertNoPaths(tab, r)
   })
 })

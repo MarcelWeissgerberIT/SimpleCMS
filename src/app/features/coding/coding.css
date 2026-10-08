@@ -1819,7 +1819,7 @@ dd:has(> .cw-port) {
   .cpe-n {
     grid-area: n;
   }
-  .cpe-name {
+  .cpe-namecell {
     grid-area: name;
   }
   .cpe-kind {
@@ -2285,5 +2285,127 @@ dd:has(> .cw-port) {
     grid-column: 2 / -1;
     grid-row: 2;
     white-space: normal;
+/* ------------------------------------------------------------------ models: per stage (pipeline editor), per task, while running */
+
+/* the task's picks — Approvals · Model: the labels share one width, so the selects line up */
+.ctk-picks {
+  display: grid;
+  gap: 8px;
+}
+.ctk-picks .ctk-appr__field > .label {
+  min-width: 11ch;
+}
+/* the model Claude Code reports: ids are lower case (two classes: .label loads after this file) */
+.ctk-chip.ctk-chip--model {
+  text-transform: none;
+  letter-spacing: 0.02em;
+}
+.cpe-namecell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.cpe-namecell .cpe-name {
+  flex: 1 1 0;
+  min-width: 50%;
+}
+.cpe-namecell .cpe-chip {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 26ch;
+  overflow: hidden;
+  padding: 2px 6px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-1);
+  background: var(--surface-2);
+  color: var(--ink-2);
+  letter-spacing: 0.02em;
+  text-overflow: ellipsis;
+  text-transform: none;
+  white-space: nowrap;
+}
+.cpe-namecell .cpe-chip[data-bad] {
+  border-color: var(--c-red-text);
+  color: var(--c-red-text);
+}
+/* the footer may wrap (large text, narrow screens): Cancel + Save stay together on the right (.modal__footer is in
+   ui.css); why Save waits — the first stage whose model can't be saved — sits next to them */
+.modal__footer:has(> .cpe-footkeys) {
+  flex-wrap: wrap;
+  align-items: center;
+}
+.cpe-footkeys {
+  display: inline-flex;
+  gap: 8px;
+  margin-left: auto;
+}
+.cpe-why {
+  display: inline-flex;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+.cpe-why > .led {
+  flex: none;
+}
+.cpe-model {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 6px 10px;
+}
+.cpe-model label {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+.cpe-model .cpe-model__own {
+  font-family: var(--font-mono);
+}
+.cpe-model__hint,
+.cpe-model__err {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: var(--text-sm);
+}
+.cpe-model__hint {
+  color: var(--ink-3);
+}
+.cpe-model__err {
+  color: var(--c-red-text);
+}
+@media (max-width: 560px) {
+  .cpe-model {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .cpe-why {
+    flex-basis: 100%;
+    order: -1;
+  }
+}
+/* narrow stage rows (two lines, see above): the row chip gets a line of its own under the kind, so the name keeps its
+   width and the chip its text */
+@media (max-width: 760px) {
+  .cpe-namecell {
+    display: contents;
+  }
+  .cpe-namecell .cpe-name {
+    grid-area: name;
+    min-width: 0;
+  }
+  .cpe-namecell .cpe-chip {
+    grid-area: chip;
+    justify-self: start;
+    max-width: 100%;
+  }
+  .cpe-main:has(.cpe-chip) {
+    grid-template-areas:
+      'n name keys'
+      '. kind sw'
+      '. chip chip';
   }
 }

@@ -20,7 +20,7 @@ import { claudeDoc } from '../ai/claudeDoc'
 import { navigate, parseHash } from '../../lib/router'
 import { aiWrite } from '../history/snapshots'
 import { t } from '../../i18n'
-import { CLAIM_STALE_MS, stageNeeds, workerCan, type GitInfo, type StageOutcome, type TaskPayload } from './protocol'
+import { CLAIM_STALE_MS, claudeRuns, cleanModel, stageNeeds, workerCan, type GitInfo, type StageOutcome, type TaskPayload } from './protocol'
 import { CASE_TYPES, FOLLOW_UPS, PIPELINE_KINDS, caseProps, codingProps, createProject, currentProjectId, ensureCaseDb, ensurePipelineDb, addRepoOptions, inTeam, kindOfDb, nextStage, optionByName, optionName, pipelineDbIds, priorityRank, readPipeline, stageNear, stageOfRow, type CodingProps, type PipelineKind, type ResolvedStage } from './schema'
 import { parseStories, splitSections, type DocSection, type Story } from './outputs'
 import { createPrivatePage } from '../../cloud'
@@ -227,9 +227,10 @@ export async function pickNext(repos: string[], workerName: string, docs = false
       stage = target
     }
     if (stage.kind === 'queue' || stage.kind === 'gate' || stage.kind === 'done' || stage.kind === 'import' || !go(stage)) continue
-    // a stage an older worker would misread (it ran unknown kinds as git stages): not for this worker — the task says why
-    const needs = stageNeeds(stage)
-    if (needs && !caps.has(needs)) {
+    // a stage an older worker would misread (it ran unknown kinds as git stages, it would ignore the model): not for
+    // this worker — the task says why
+    const model = modelFor(stage, local)
+    if (stageNeeds({ ...stage, model }).some((need) => !caps.has(need))) {
       if (local.error !== OLD_WORKER()) await patchTask(row.id, { state: 'failed', error: OLD_WORKER(), runNow: false })
       continue
     }
@@ -248,7 +249,7 @@ export async function pickNext(repos: string[], workerName: string, docs = false
       id: row.id,
       title: fresh.title.trim() || t('common.untitled'),
       repo,
-      stage: { id: stage.id, name: stage.name, kind: stage.kind, instructions: stage.instructions ?? '', permissionMode: stage.kind === 'plan' ? 'plan' : stage.kind === 'doc' ? 'default' : (stage.permissionMode ?? 'acceptEdits'), maxTurns: stage.maxTurns ?? (stage.kind === 'plan' ? 20 : 40), gitAction: stage.gitAction ?? null },
+      stage: { id: stage.id, name: stage.name, kind: stage.kind, instructions: stage.instructions ?? '', permissionMode: stage.kind === 'plan' ? 'plan' : stage.kind === 'doc' ? 'default' : (stage.permissionMode ?? 'acceptEdits'), maxTurns: stage.maxTurns ?? (stage.kind === 'plan' ? 20 : 40), gitAction: stage.gitAction ?? null, model },
       // the task, then the pages it refers to (@ mentions, links — also in answers and rework notes) as read-only text
       text: taskText(row.id, [...(local.answers ?? []).map((a) => a.a), local.rework?.text ?? '']),
       rework: local.rework?.stageId === stage.id ? local.rework.text : null,
@@ -967,4 +968,41 @@ export async function setTaskApprovals(taskId: ID, level: Approvals): Promise<vo
     appendLog(taskId, [{ t: Date.now(), k: 'info', s: t('features.coding.approvals.passed', { stage: ctx.stage.name }) }])
     await approveTask(taskId)
   }
+}
+
+/* ------------------------------------------------------------------ models */
+
+/** The models the pickers offer by name (Claude Code's aliases, and a full id); any other passing MODEL_NAME is "own". */
+export const MODEL_CHOICES: ReadonlyArray<{ id: string; label: string }> = [
+  { id: 'opus', label: 'Opus' },
+  { id: 'sonnet', label: 'Sonnet' },
+  { id: 'haiku', label: 'Haiku' },
+  { id: 'claude-fable-5-1', label: 'Fable' },
+]
+
+/** How a model shows in One: a known choice by its name, an own one as written. */
+export const modelLabel = (model: string): string => MODEL_CHOICES.find((c) => c.id === model)?.label ?? model
+
+/**
+ * The model a stage runs with for this task on this device: the task's own pick (TaskLocal.model), else the stage's,
+ * else none (the worker's default). Stages that do not run Claude Code have none.
+ */
+export function modelFor(stage: { kind: string; model?: string | null }, local: Pick<TaskLocal, 'model'>): string | null {
+  if (!claudeRuns(stage.kind)) return null
+  return cleanModel(local.model) ?? cleanModel(stage.model) ?? null
+}
+
+/** Own model names (not one of MODEL_CHOICES) the pipeline's stages use — the task's picker offers them too. */
+export function pipelineModels(pipeline: ResolvedStage[]): string[] {
+  const own = pipeline.map((s) => (claudeRuns(s.kind) ? cleanModel(s.model) : null)).filter((m): m is string => !!m && !MODEL_CHOICES.some((c) => c.id === m))
+  return [...new Set(own)]
+}
+
+/**
+ * A task's own model on this device (null: as the pipeline). This device's choice only — kept in its local state,
+ * never synced — so it needs no confirmation (trust.ts).
+ */
+export async function setTaskModel(taskId: ID, model: string | null): Promise<void> {
+  await loadTask(taskId)
+  await patchTask(taskId, { model: cleanModel(model) ?? undefined })
 }

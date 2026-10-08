@@ -1,6 +1,7 @@
 /**
  * While a task runs: what the worker did last and how long ago (ticking), and the running counters —
- * Claude Code's step of the stage's limit, its cost estimate so far, the files changed in the worktree.
+ * Claude Code's step of the stage's limit, the model it reports, its cost estimate so far, the files changed in the
+ * worktree.
  */
 import { useEffect, useState } from 'react'
 import { useLang, useT } from '../../i18n'
@@ -57,6 +58,11 @@ export function RunCounters({ taskId, files, onFiles }: { taskId: ID; files: Git
       {p && p.maxTurns > 0 && (
         <span className="label ctk-chip" title={t('features.coding.now.stepsHint')} data-testid="coding-steps">
           {t('features.coding.now.steps', { n: p.turns, max: p.maxTurns })}
+        </span>
+      )}
+      {p?.model && (
+        <span className="label ctk-chip ctk-chip--model" title={t('features.coding.now.modelHint')} data-testid="coding-run-model">
+          {p.model}
         </span>
       )}
       {p && p.cost !== null && (

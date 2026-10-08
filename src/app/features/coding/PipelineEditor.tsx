@@ -1,8 +1,8 @@
 /**
  * The pipeline editor: the stages of the Coding database (= the options of its Stage select) — name, kind,
- * whether the worker takes tasks there by itself, Claude Code's permission mode and turns, the git action,
- * the stage that follows, the stage's instructions; add, reorder, remove. A locked database shows them
- * read-only. Saved with savePipeline (options + Database.pipeline together).
+ * whether the worker takes tasks there by itself, Claude Code's permission mode, turns and model (a chip in the
+ * stage's row when set), the git action, the stage that follows, the stage's instructions; add, reorder, remove. A
+ * locked database shows them read-only. Saved with savePipeline (options + Database.pipeline together).
  */
 import { useMemo, useState } from 'react'
 import { ArrowDown, ArrowUp, ChevronRight, Plus, Trash2 } from 'lucide-react'
@@ -13,29 +13,44 @@ import { useUI } from '../../store/ui'
 import type { ColorName, PipelineStage, SelectOption } from '../../store/types'
 import { newId } from '../../lib/ids'
 import { useT } from '../../i18n'
-import { GIT_ACTIONS, PERMISSION_MODES, STAGE_KINDS, type StageKind } from './protocol'
+import { GIT_ACTIONS, PERMISSION_MODES, STAGE_KINDS, claudeRuns, cleanModel, type StageKind } from './protocol'
 import { DOC_OUTPUTS, KIND_TEMPLATES, kindOfDb, readPipeline, savePipeline, templatePipeline, type PipelineTemplate } from './schema'
 import { keepTrust } from './trust'
-import { allTasks } from './tasks'
+import { MODEL_CHOICES, allTasks, modelLabel } from './tasks'
 
 interface Draft {
   option: SelectOption
   stage: PipelineStage
+  /**
+   * The Model select stays on "Own…" while set — UI state of its own, never worked out from the text: a name typed
+   * there passes through an alias on its way ('opus' → 'opus[1m]'), and the field must not snap to the list entry.
+   */
+  own?: boolean
 }
 
 const COLOR: Record<StageKind, ColorName> = { queue: 'gray', import: 'red', analyze: 'yellow', plan: 'blue', doc: 'pink', gate: 'orange', implement: 'purple', test: 'yellow', git: 'brown', done: 'green' }
 
+/** The Model select's "Own…" entry. In the draft an own model is its text ('' = chosen, nothing typed yet). */
+const OWN = '__own'
+const knownModel = (m: string) => MODEL_CHOICES.some((c) => c.id === m)
+/** What the Model select shows for a stage's draft model: Own… while the person is on it, or for a name not in the list. */
+const modelPick = (m: string | null | undefined, own?: boolean) => (m === undefined || m === null ? '' : own || !knownModel(m) ? OWN : m)
+/** Why a draft model can't be saved (null: it can). */
+const modelProblem = (m: string | null | undefined): 'empty' | 'bad' | null => (m === undefined || m === null ? null : !m.trim() ? 'empty' : cleanModel(m) ? null : 'bad')
+/** The row chip: a known model by its name, an own one without the common "claude-" prefix (the part that tells ids apart). */
+const chipLabel = (m: string) => modelLabel(m).replace(/^claude-(?=.)/, '')
+
 export function PipelineEditor({ dbId, locked, onClose }: { dbId: string; locked: boolean; onClose: () => void }) {
   const t = useT()
   const db = useWorkspace((s) => s.databases[dbId])
-  const initial = useMemo<Draft[]>(() => readPipeline(db).map(({ name, color, index: _i, ...stage }) => ({ option: { id: stage.id, name, color }, stage })), [db])
+  const initial = useMemo<Draft[]>(() => readPipeline(db).map(({ name, color, index: _i, ...stage }) => ({ option: { id: stage.id, name, color }, stage, own: !!stage.model && !knownModel(stage.model) })), [db])
   const [rows, setRows] = useState<Draft[]>(initial)
   const [open, setOpen] = useState<string | null>(null)
   const ro = locked
   const kind = kindOfDb(dbId) ?? 'coding'
 
   const patch = (i: number, p: Partial<PipelineStage>, name?: string) =>
-    setRows((rs) => rs.map((r, j) => (j === i ? { option: name === undefined ? r.option : { ...r.option, name }, stage: { ...r.stage, ...p } } : r)))
+    setRows((rs) => rs.map((r, j) => (j === i ? { ...r, option: name === undefined ? r.option : { ...r.option, name }, stage: { ...r.stage, ...p } } : r)))
   const move = (i: number, d: -1 | 1) =>
     setRows((rs) => {
       const j = i + d
@@ -55,7 +70,22 @@ export function PipelineEditor({ dbId, locked, onClose }: { dbId: string; locked
     setRows((rs) => templatePipeline(which, rs.map((r) => ({ id: r.stage.id, kind: r.stage.kind }))))
     setOpen(null)
   }
-  const ok = rows.length > 0 && rows.every((r) => r.option.name.trim())
+  const setModel = (i: number, model: string | undefined, own: boolean) => setRows((rs) => rs.map((r, j) => (j === i ? { ...r, own, stage: { ...r.stage, model } } : r)))
+  // Own…: keep an own name already typed, else an empty field to type into. Focus stays on the select — arrowing
+  // through a closed select changes its value, and the field comes right after it for Tab.
+  const pickModel = (i: number, value: string) => {
+    const cur = rows[i]?.stage.model
+    if (value === OWN) setModel(i, cur && !knownModel(cur) ? cur : '', true)
+    else setModel(i, value || undefined, false)
+  }
+  /** The first Claude Code stage whose model can't be saved — named next to Save, which waits for it. */
+  const modelIssue = (() => {
+    const i = rows.findIndex((r) => claudeRuns(r.stage.kind) && modelProblem(r.stage.model))
+    if (i < 0) return null
+    const name = rows[i]!.option.name.trim()
+    return { stage: `ST-${String(i + 1).padStart(2, '0')}${name ? ` · ${name}` : ''}`, problem: modelProblem(rows[i]!.stage.model)! }
+  })()
+  const ok = rows.length > 0 && rows.every((r) => r.option.name.trim()) && !modelIssue
 
   const save = async () => {
     const clean = rows.map((r) => ({ option: { ...r.option, name: r.option.name.trim().slice(0, 60), color: r.option.color ?? COLOR[r.stage.kind] }, stage: r.stage }))
@@ -89,12 +119,20 @@ export function PipelineEditor({ dbId, locked, onClose }: { dbId: string; locked
               <Plus size={14} strokeWidth={1.8} aria-hidden /> {t('features.coding.pipeline.add')}
             </button>
             <span className="cpe-spacer" />
-            <button type="button" className="btn btn--ghost" onClick={onClose}>
-              {t('common.cancel')}
-            </button>
-            <button type="button" className="btn btn--primary" disabled={!ok} onClick={() => void save()} data-testid="coding-pipeline-save">
-              {t('common.save')}
-            </button>
+            {modelIssue && (
+              <span className="cpe-why" id="cpe-save-why" data-testid="coding-pipeline-why">
+                <span className="led led--on" aria-hidden />
+                <span>{t(`features.coding.pipeline.model.why.${modelIssue.problem}`, { stage: modelIssue.stage })}</span>
+              </span>
+            )}
+            <span className="cpe-footkeys">
+              <button type="button" className="btn btn--ghost" onClick={onClose}>
+                {t('common.cancel')}
+              </button>
+              <button type="button" className="btn btn--primary" disabled={!ok} aria-describedby={modelIssue ? 'cpe-save-why' : undefined} onClick={() => void save()} data-testid="coding-pipeline-save">
+                {t('common.save')}
+              </button>
+            </span>
           </>
         )
       }
@@ -122,10 +160,18 @@ export function PipelineEditor({ dbId, locked, onClose }: { dbId: string; locked
             <li key={s.id} className="cpe-row" data-kind={s.kind}>
               <div className="cpe-main">
                 <span className="cpe-n label">ST-{String(i + 1).padStart(2, '0')}</span>
-                <input className="input cpe-name" value={r.option.name} onChange={(e) => patch(i, {}, e.target.value)} disabled={ro} aria-label={t('features.coding.pipeline.name')} maxLength={60} />
+                <span className="cpe-namecell">
+                  <input className="input cpe-name" value={r.option.name} onChange={(e) => patch(i, {}, e.target.value)} disabled={ro} aria-label={t('features.coding.pipeline.name')} maxLength={60} />
+                  {claude && s.model != null && (s.model.trim() || !expanded) && (
+                    // an own name not typed yet shows in the row too once the stage is closed — Save waits for it
+                    <span className="label cpe-chip" data-bad={modelProblem(s.model) ? '' : undefined} title={s.model.trim() ? t('features.coding.pipeline.model.chip', { model: s.model.trim() }) : t('features.coding.pipeline.model.empty')} data-testid="coding-pipeline-chip">
+                      {s.model.trim() ? chipLabel(s.model.trim()) : t('features.coding.pipeline.model.ownMissing')}
+                    </span>
+                  )}
+                </span>
                 <select className="input cpe-kind" value={s.kind} disabled={ro} aria-label={t('features.coding.pipeline.kind')} onChange={(e) => {
                   const kind = e.target.value as StageKind
-                  patch(i, { kind, auto: kind === 'gate' || kind === 'done' || kind === 'import' ? false : s.auto, ...(kind === 'git' && !s.gitAction ? { gitAction: 'pr' as const } : {}), ...(kind !== 'doc' ? { output: undefined } : {}) })
+                  patch(i, { kind, auto: kind === 'gate' || kind === 'done' || kind === 'import' ? false : s.auto, ...(kind === 'git' && !s.gitAction ? { gitAction: 'pr' as const } : {}), ...(kind !== 'doc' ? { output: undefined } : {}), ...(!claudeRuns(kind) ? { model: undefined } : {}) })
                 }}>
                   {STAGE_KINDS.map((k) => (
                     <option key={k} value={k}>
@@ -187,6 +233,7 @@ export function PipelineEditor({ dbId, locked, onClose }: { dbId: string; locked
                       </label>
                     </div>
                   )}
+                  {claude && <ModelField id={s.id} model={s.model} own={r.own} ro={ro} onPick={(v) => pickModel(i, v)} onType={(v) => setModel(i, v, true)} />}
                   {s.kind === 'git' && (
                     <label className="cpe-grid1">
                       <span className="label">{t('features.coding.pipeline.gitAction')}</span>
@@ -225,5 +272,75 @@ export function PipelineEditor({ dbId, locked, onClose }: { dbId: string; locked
         })}
       </ol>
     </Modal>
+  )
+}
+
+/**
+ * A Claude Code stage's model: Standard (the worker's default), one of MODEL_CHOICES, or Own… — a name typed in,
+ * checked with the shared rule (protocol.ts MODEL_NAME) as it is typed; the pipeline can't be saved while it fails.
+ * An empty name is a hint until the field was left (no alert before anything was typed); a bad one is an alert.
+ */
+function ModelField({ id, model, own, ro, onPick, onType }: { id: string; model: string | null | undefined; own?: boolean; ro: boolean; onPick: (value: string) => void; onType: (value: string) => void }) {
+  const t = useT()
+  const [left, setLeft] = useState(false)
+  const pick = modelPick(model, own)
+  const problem = pick === OWN ? modelProblem(model) : null
+  const shown = problem === 'bad' || (problem === 'empty' && left) ? problem : null
+  const errId = `cpe-model-err-${id}`
+  return (
+    <div className="cpe-model" data-testid="coding-pipeline-model-field">
+      <label>
+        <span className="label">{t('features.coding.pipeline.model')}</span>
+        <select
+          className="input"
+          value={pick}
+          disabled={ro}
+          onChange={(e) => {
+            setLeft(false)
+            onPick(e.target.value)
+          }}
+          data-testid="coding-pipeline-model"
+        >
+          <option value="">{t('features.coding.pipeline.model.default')}</option>
+          {MODEL_CHOICES.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.label}
+            </option>
+          ))}
+          <option value={OWN}>{t('features.coding.pipeline.model.own')}</option>
+        </select>
+      </label>
+      {pick === OWN && (
+        <label>
+          <span className="label">{t('features.coding.pipeline.model.ownLabel')}</span>
+          <input
+            id={`cpe-model-${id}`}
+            className="input cpe-model__own"
+            value={model ?? ''}
+            disabled={ro}
+            spellCheck={false}
+            autoComplete="off"
+            autoCapitalize="off"
+            placeholder={t('features.coding.pipeline.model.ownPh')}
+            aria-invalid={shown ? true : undefined}
+            aria-describedby={problem ? errId : undefined}
+            onChange={(e) => onType(e.target.value)}
+            onBlur={() => setLeft(true)}
+            data-testid="coding-pipeline-model-own"
+          />
+        </label>
+      )}
+      {shown ? (
+        <p className="cpe-model__err" id={errId} role={shown === 'bad' ? 'alert' : undefined} data-testid="coding-pipeline-model-err">
+          {t(`features.coding.pipeline.model.${shown}`)}
+        </p>
+      ) : problem === 'empty' ? (
+        <p className="cpe-model__hint" id={errId} data-testid="coding-pipeline-model-need">
+          {t('features.coding.pipeline.model.empty')}
+        </p>
+      ) : (
+        <p className="cpe-model__hint">{t('features.coding.pipeline.model.hint')}</p>
+      )}
+    </div>
   )
 }
