@@ -22,7 +22,7 @@ export function sseMessage(blocks: Block[]): string {
   const ev = (type: string, data: object) => `event: ${type}\ndata: ${JSON.stringify({ type, ...data })}\n\n`
   const stop = blocks.some((b) => b.type === 'tool_use') ? 'tool_use' : 'end_turn'
   let body = ev('message_start', {
-    message: { id: `msg_term_${++msgSeq}`, type: 'message', role: 'assistant', model: 'claude-opus-5-5', content: [], stop_reason: null, stop_sequence: null, usage: { input_tokens: 1200, output_tokens: 1, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } },
+    message: { id: `msg_term_${++msgSeq}`, type: 'message', role: 'assistant', model: 'e2e-mock', content: [], stop_reason: null, stop_sequence: null, usage: { input_tokens: 1200, output_tokens: 1, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } },
   })
   blocks.forEach((b, index) => {
     if (b.type === 'text') {
