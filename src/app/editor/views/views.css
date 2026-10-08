@@ -235,6 +235,12 @@
   padding: 0;
 }
 
+.doc-content .code-block__lang,
+.doc-content .code-block__tool,
+.doc-content .code-block__copy {
+  flex: none;
+}
+
 .doc-content .code-block__tool[aria-pressed='true'] {
   background: var(--signal-wash);
   color: var(--signal-ink);
