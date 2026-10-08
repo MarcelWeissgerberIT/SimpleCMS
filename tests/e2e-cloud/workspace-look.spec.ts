@@ -1,11 +1,12 @@
 /**
  * The workspace look in a team workspace (against the real server): owners and admins change it, everyone sees it
  * at once (meta map `workspace`, key `look`); a member reads the section only — the store refuses, a look written
- * into the member's store is put back, and the owner's look stays as it was. The server guard itself (a raw Yjs
- * write from a member) is covered by server/test/workspace-look.test.ts.
+ * into the member's store is put back, and the owner's look stays as it was; a role change reaches an open tab at
+ * once (demoted: read-only, promoted: editable — no reload). The server guard itself (a raw Yjs write from a
+ * member, roles changed under an open socket) is covered by server/test/workspace-look.test.ts.
  */
 import type { Page } from '@playwright/test'
-import { test, expect, email, signIn, newPerson, openApp, waitOnline, wsEval, createWorkspace, join } from './fixtures'
+import { test, expect, email, signIn, newPerson, openApp, waitOnline, wsEval, cloudEval, createWorkspace, join, api } from './fixtures'
 
 const token = (page: Page, name: string) => page.evaluate((n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim(), name)
 
@@ -69,4 +70,35 @@ test('owners and admins set the look for everyone; a member reads it only', asyn
   await waitOnline(member)
   expect(await token(member, '--signal')).toBe('#d4006e')
   await admin.context().close()
+})
+
+test('a role change reaches the open tab: a demoted admin can no longer style, a promoted member can', async ({ page, context }) => {
+  await signIn(page, email('ida'))
+  const wsId = await createWorkspace(page, 'Look Roles')
+  const other = await newPerson(context)
+  await signIn(other, email('kai'))
+  await join(page, other, wsId, 'admin')
+  const kaiId = (await api<{ user: { id: string } }>(other, 'GET', '/api/me')).json.user.id
+  await openApp(page, wsId)
+  await waitOnline(page)
+  await openApp(other, wsId)
+  await waitOnline(other)
+  await openLook(other)
+  await expect(other.getByTestId('look-preset-ochre')).toBeEnabled()
+
+  // demoted while the section is open: read-only without a reload, the store refuses
+  expect((await api(page, 'PATCH', `/api/workspaces/${wsId}/members/${kaiId}`, { role: 'member' })).status).toBe(200)
+  await expect.poll(() => cloudEval(other, (c) => ({ role: c.role, status: c.status }))).toEqual({ role: 'member', status: 'online' })
+  await expect(other.getByTestId('look-readonly')).toBeVisible()
+  await expect(other.getByTestId('look-preset-ochre')).toBeDisabled()
+  expect(await wsEval(other, (s) => s.setLook({ preset: 'ochre', colors: { paper: '#f3eee2', ink: '#1c1912', signal: '#e0a000' }, fonts: { ui: 'archivo', text: 'ui', headings: 'expanded' }, corners: 'standard', updatedAt: 0, updatedBy: null }))).toBe(false)
+
+  // promoted again: editable at once, the save reaches the owner
+  expect((await api(page, 'PATCH', `/api/workspaces/${wsId}/members/${kaiId}`, { role: 'admin' })).status).toBe(200)
+  await expect.poll(() => cloudEval(other, (c) => ({ role: c.role, status: c.status }))).toEqual({ role: 'admin', status: 'online' })
+  await expect(other.getByTestId('look-readonly')).toBeHidden()
+  await other.getByTestId('look-preset-ochre').click()
+  await other.getByTestId('look-save').click()
+  await expect.poll(() => wsEval(page, (s) => s.look?.preset ?? null)).toBe('ochre')
+  await other.context().close()
 })

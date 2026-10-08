@@ -17,7 +17,7 @@ import { isSafeFunctionId } from './functions'
 import { agentEditor, sanitizeAgent } from './agents'
 import { sanitizeScript } from './scripts'
 import { emptyKit, optionsOfList, sanitizeList, sanitizePropType, sanitizeRecordType, storedTypeOf, syncRecordTypeInto } from './kit'
-import { lookAllowed, sanitizeLook } from './look'
+import { lookAllowed, sameLook, sanitizeLook } from './look'
 import type {
   CustomAgent,
   CustomFunction,
@@ -496,8 +496,11 @@ export const useWorkspace = create<WorkspaceState>()(
       // the Claude API key: a vault marker, never the key (secrets.ts)
       const settings = withSealedKey(ws.settings, get().settings.aiApiKey, ws.epoch)
       set((s) => {
+        const look = sanitizeLook(ws.look)
+        const before = get().look
         Object.assign(s, ws, { pages: freezePages(ws.pages), settings, functions: ws.functions ?? {}, agents: ws.agents ?? {}, scripts: ws.scripts ?? {}, kit: ws.kit ?? emptyKit() })
-        s.look = sanitizeLook(ws.look) ?? undefined
+        // the same look keeps its reference (subscribers compare by reference)
+        s.look = sameLook(look, before ?? null, { meta: true }) ? before : (look ?? undefined)
         s.ready = true
       })
       void checkAIKey()
@@ -516,7 +519,10 @@ export const useWorkspace = create<WorkspaceState>()(
         s.agents = ws.agents ?? {}
         s.scripts = ws.scripts ?? {}
         s.kit = ws.kit ?? emptyKit()
-        s.look = sanitizeLook(ws.look) ?? undefined
+        // an import / merged backup carries the current look along: keep the reference when it is the same one
+        // (a new object would read as a change — the team binding would re-send it)
+        const look = sanitizeLook(ws.look)
+        if (!sameLook(look, s.look ?? null, { meta: true })) s.look = look ?? undefined
       }),
 
     setLook: (look) => {

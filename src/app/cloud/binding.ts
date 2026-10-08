@@ -483,7 +483,9 @@ export function startBinding(o: BindingOptions): Binding {
     const agentsChanged = state.agents !== prev.agents
     const scriptsChanged = state.scripts !== prev.scripts
     const kitChanged = state.kit !== prev.kit
-    const lookChanged = state.look !== prev.look
+    // by value: a bulk write (import, merged backup) hands in a fresh copy of the same look — that is no change
+    // (re-sent, the server would stamp the importer as the one who set it)
+    const lookChanged = state.look !== prev.look && !sameLook(state.look ?? null, prev.look ?? null, { meta: true })
     if (state.settings !== prev.settings) o.onSettings(state.settings, prev.settings)
     if (!pagesChanged && !dbsChanged && !peopleChanged && !functionsChanged && !agentsChanged && !scriptsChanged && !kitChanged && !lookChanged) return
     // a look change by someone who may not style the workspace: the team's look comes back from Y
@@ -616,7 +618,7 @@ export function startBinding(o: BindingOptions): Binding {
         }
       }
       // the look: shared by the whole team (never in the private document)
-      if (lookChanged && o.canStyle()) {
+      if (lookChanged && o.canStyle() && !sameLook(sanitizeLook(rs.workspace.get('look')), state.look ?? null, { meta: true })) {
         if (state.look) rs.workspace.set('look', clone(state.look))
         else if (rs.workspace.has('look')) rs.workspace.delete('look')
       }
