@@ -6,7 +6,7 @@
  * row at most once per interval; versions written before properties were kept still open.
  * Claude is mocked — never api.anthropic.com.
  */
-import type { Page } from '@playwright/test'
+import type { Locator, Page } from '@playwright/test'
 import { test, expect, openApp, gotoPage, wsEval, doc, para, MOD } from './fixtures'
 
 type AnyState = Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -95,6 +95,12 @@ const openHistory = async (page: Page) => {
   return dialog
 }
 
+/** Changes compared with now (the default is the version before; these tests keep one version and change the row after it). */
+const toNow = async (dialog: Locator) => {
+  await dialog.getByRole('radio', { name: 'To now' }).click()
+  await expect(dialog.getByTestId('hist-banner')).toContainText('What changed from this version until now')
+}
+
 const props = (page: Page, id: string) => wsEval(page, (s, id) => s.pages[id].properties as AnyState, id)
 
 test.describe('version history: database entries keep their properties', () => {
@@ -126,6 +132,7 @@ test.describe('version history: database entries keep their properties', () => {
     }, row)
 
     dialog = await openHistory(page)
+    await toNow(dialog)
     const block = dialog.getByTestId('hist-props')
     await expect(block).toBeVisible()
     await expect(dialog.locator('.hist__banner')).toContainText('Properties 6')
@@ -177,6 +184,7 @@ test.describe('version history: database entries keep their properties', () => {
       { id: row, dbId },
     )
     dialog = await openHistory(page)
+    await toNow(dialog)
     const block = dialog.getByTestId('hist-props')
     const note = block.locator('.hprops__row', { hasText: 'Note' })
     await expect(note.locator('.hprops__name')).toHaveText('Note (deleted)')
@@ -211,6 +219,7 @@ test.describe('version history: database entries keep their properties', () => {
     await gotoPage(page, row)
     const dialog = await openHistory(page)
     await expect(dialog.locator('.hist__preview')).toContainText('The old wording')
+    await toNow(dialog)
     await expect(dialog.locator('.hist__preview .ddiff-del').first()).toBeVisible()
     await expect(dialog.getByTestId('hist-props')).toHaveCount(0)
     await dialog.getByRole('button', { name: 'Restore this version' }).click()

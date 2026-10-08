@@ -24,17 +24,17 @@ const show = (code: string, toks: CodeToken[]) => toks.map((t) => `${t.cls}:${co
 const sortedAndApart = (toks: CodeToken[]) => toks.every((t, i) => t.end > t.start && (i === 0 || toks[i - 1].end <= t.start))
 
 test.describe('Markdown-ish instructions', () => {
-  const md = markdownTokenizer({ tools: ['create_row', 'query_database', 'atlas_search'], placeholders: PLACEHOLDER_PATTERN })
+  const md = markdownTokenizer({ tools: ['create_row', 'query_database', 'kb_search'], placeholders: PLACEHOLDER_PATTERN })
 
   test('headings, list markers, task boxes, quotes, inline code, bold, emphasis, links', () => {
-    const code = ['## Mirror the base', '1. Call `atlas_search`; **never** twice', '- [ ] Map *Status*', '> a quote with [a link](https://x.y)', '---'].join('\n')
+    const code = ['## Mirror the base', '1. Call `kb_search`; **never** twice', '- [ ] Map *Status*', '> a quote with [a link](https://x.y)', '---'].join('\n')
     const toks = md(code)
     expect(sortedAndApart(toks)).toBe(true)
     expect(show(code, toks)).toEqual([
       'list:##',
       'head: Mirror the base',
       'list:1.',
-      'code:`atlas_search`',
+      'code:`kb_search`',
       'strong:**never**',
       'list:-',
       'list:[ ]',
@@ -74,8 +74,8 @@ test.describe('Markdown-ish instructions', () => {
 
 test.describe('placeholders', () => {
   test('the default pattern: capitals in square brackets, never task boxes or short / lower-case brackets', () => {
-    const text = '[HOW TO LIST THE ITEMS] [LAST RUN DATE] [x] [ ] [1, 2] [ok] [A] [MAX 50 ITEMS] [STATUS/STAGE] [ÄNDERUNG]'
-    expect(findPlaceholders(text).map((p) => p.text)).toEqual(['[HOW TO LIST THE ITEMS]', '[LAST RUN DATE]', '[MAX 50 ITEMS]', '[STATUS/STAGE]', '[ÄNDERUNG]'])
+    const text = '[HOW TO LIST THE ITEMS] [LAST RUN DATE] [x] [ ] [1, 2] [ok] [A] [MAX 50 ITEMS] [STATUS/STAGE] [ÄNDERUNG] [WAS „KLAR“ HIER HEISST]'
+    expect(findPlaceholders(text).map((p) => p.text)).toEqual(['[HOW TO LIST THE ITEMS]', '[LAST RUN DATE]', '[MAX 50 ITEMS]', '[STATUS/STAGE]', '[ÄNDERUNG]', '[WAS „KLAR“ HIER HEISST]'])
     expect(countPlaceholders('no placeholder here')).toBe(0)
   })
   test('a caller’s own pattern (without the g flag) works the same', () => {
@@ -88,10 +88,10 @@ test.describe('placeholders', () => {
 
 test.describe('JSON', () => {
   test('keys differ from string values; numbers, literals, punctuation, comments', () => {
-    const code = '{\n  "id": "atlas", // the id\n  "n": -1.5e3, "on": true, "x": null\n}'
+    const code = '{\n  "id": "kb", // the id\n  "n": -1.5e3, "on": true, "x": null\n}'
     const toks = tokenizeJson(code)
     expect(sortedAndApart(toks)).toBe(true)
-    expect(show(code, toks)).toEqual(['punct:{', 'key:"id"', 'punct::', 'str:"atlas"', 'punct:,', 'comment:// the id', 'key:"n"', 'punct::', 'num:-1.5e3', 'punct:,', 'key:"on"', 'punct::', 'lit:true', 'punct:,', 'key:"x"', 'punct::', 'lit:null', 'punct:}'])
+    expect(show(code, toks)).toEqual(['punct:{', 'key:"id"', 'punct::', 'str:"kb"', 'punct:,', 'comment:// the id', 'key:"n"', 'punct::', 'num:-1.5e3', 'punct:,', 'key:"on"', 'punct::', 'lit:true', 'punct:,', 'key:"x"', 'punct::', 'lit:null', 'punct:}'])
   })
 
   test('the first error with its line and column', () => {
@@ -109,7 +109,7 @@ test.describe('JSON', () => {
   })
 
   test('where a value sits: schema errors land on their key or value', () => {
-    const code = '{\n  "requires": { "mcp": "atlas", "tools": ["atlas_search", 42] }\n}'
+    const code = '{\n  "requires": { "mcp": "kb", "tools": ["kb_search", 42] }\n}'
     expect(jsonPathRange(code, ['requires', 'tools', 1])).toEqual({ line: 2, col: 59, endLine: 2, endCol: 61 })
     expect(code.split('\n')[1].slice(58, 60)).toBe('42')
     expect(jsonPathRange(code, ['requires', 'mcp'], 'key')).toEqual({ line: 2, col: 17, endLine: 2, endCol: 22 })

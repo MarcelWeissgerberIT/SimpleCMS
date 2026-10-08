@@ -202,6 +202,8 @@ test.describe('edit_page: Claude changes existing content after the OK', () => {
     await page.locator('.tb').getByRole('button', { name: 'Version history' }).click()
     const dialog = page.getByRole('dialog')
     await dialog.locator('.hist__row', { has: page.locator('.hist__tag--ai') }).first().click()
+    // the AI version is the only one: "To now" shows what Claude changed since
+    await dialog.getByRole('radio', { name: 'To now' }).click()
     await expect(dialog.locator('.hist__preview .ddiff-del')).toHaveText(['Monday'])
     await expect(dialog.locator('.hist__preview .ddiff-ins').first()).toHaveText('Tuesday')
     await expect(dialog.locator('.hist__preview .ddiff__seg[data-state="added"]')).toContainText('Owner: Mara')

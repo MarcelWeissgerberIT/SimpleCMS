@@ -49,7 +49,7 @@ const caretInCode = (page: Page) =>
 
 const JOB = [
   '## Mirror the knowledge base',
-  '1. Call atlas_search for [LAST RUN DATE]; then [HOW TO LIST THE ITEMS].',
+  '1. Call kb_search for [LAST RUN DATE]; then [HOW TO FIND THE ROWS].',
   '2. Find the row (use query_database); if none, create_row.',
   '3. Map Status ← [STATUS MAPPING].',
 ].join('\n')
@@ -65,10 +65,10 @@ async function newAgent(page: Page) {
 test.describe('agent job field', () => {
   test('tool names and placeholders highlighted, counted, jumped to; line numbers; Tab indents, Esc then Tab leaves', async ({ page }) => {
     await openApp(page)
-    await wsEval(page, (s) => s.updateSettings({ mcpServers: [{ id: 'm1', name: 'atlas', url: 'https://atlas.example.com/mcp', token: '', enabled: true, prompt: '', tools: ['atlas_search', 'atlas_get'] }] }))
+    await wsEval(page, (s) => s.updateSettings({ mcpServers: [{ id: 'm1', name: 'kb', url: 'https://kb.example.com/mcp', token: '', enabled: true, prompt: '', tools: ['kb_search', 'kb_get'] }] }))
     const dialog = await newAgent(page)
     await dialog.getByLabel('Name').fill('Mirror')
-    await dialog.getByRole('checkbox', { name: /ATLAS/ }).check()
+    await dialog.getByRole('checkbox', { name: /KB/ }).check()
     const job = dialog.getByTestId('agx-job')
     const ta = job.locator('textarea')
     await expect(ta).toHaveAccessibleName('Instructions')
@@ -77,8 +77,8 @@ test.describe('agent job field', () => {
     await expect(job.getByTestId('ca-placeholders')).toHaveText('3 placeholders open')
     await expect(dialog.getByTestId('agx-phnote')).toContainText('3 placeholders are still open')
     // highlighted: One's tools of this agent and the ticked MCP server's tools
-    await expect(job.locator('.syn-ph')).toHaveText(['[LAST RUN DATE]', '[HOW TO LIST THE ITEMS]', '[STATUS MAPPING]'])
-    await expect(job.locator('.syn-tool')).toHaveText(['atlas_search', 'query_database', 'create_row'])
+    await expect(job.locator('.syn-ph')).toHaveText(['[LAST RUN DATE]', '[HOW TO FIND THE ROWS]', '[STATUS MAPPING]'])
+    await expect(job.locator('.syn-tool')).toHaveText(['kb_search', 'query_database', 'create_row'])
     await expect(dialog.getByText('4 tools of its MCP servers')).toHaveCount(0)
     await expect(dialog.getByText(/2 tools of its MCP servers/)).toBeVisible()
     // one line number per line

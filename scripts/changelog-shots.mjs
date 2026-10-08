@@ -8,7 +8,7 @@
  *
  * (CHANGELOG_DRAFT=1 lets the build pass while a new entry's picture does not exist yet.)
  *
- * Shots: mcp-overview, mirror, task-mcp, models, search, terminal-pipelines, cloud-worker, one-picker, pipelines, legacy-modernise, coding-live, text-size, mcp-media, coding-setup, free-board, building-blocks, workspace-settings, diagram-viewer, coding-pipeline, pages-per-item, design-import, tour, quick-capture, script-templates, one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
+ * Shots: history-compare, mcp-overview, mirror, task-mcp, models, search, terminal-pipelines, cloud-worker, one-picker, pipelines, legacy-modernise, coding-live, text-size, mcp-media, coding-setup, free-board, building-blocks, workspace-settings, diagram-viewer, coding-pipeline, pages-per-item, design-import, tour, quick-capture, script-templates, one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
  * custom-agents, gmail, help-centre, mcp-servers, feed-blocks — each named like its image. Every shot starts from a fresh, seeded
  * workspace in English, light theme, 1440 × 900 at device scale 2; the crop of the relevant area is scaled
  * to 1440 px wide and saved as public/assets/shots/changelog/<shot>.webp (≤ 150 KB: the quality steps down
@@ -943,6 +943,61 @@ const shots = {
     const profile = `${TMP}/mirror-profile.png`
     await page.screenshot({ path: profile, clip: { x: left, y: Math.round(head.y - 20), width: Math.round(row.x + row.width + 24 - left), height: Math.round(row.y + row.height + 20 - (head.y - 20)) } })
     await saveSideBySide('mirror', [profile, board], { column: true })
+    await ctx.close()
+  },
+
+  /**
+   * Version history compared with the previous version: a launch plan with three versions (the first a day ago) and its
+   * state now; the middle version selected — the words it added, a new list item and a new paragraph on the signal
+   * tint, the words it replaced struck. The versions go straight into IndexedDB one-history, in the app's own format.
+   */
+  async 'history-compare'(browser) {
+    const p = (text) => ({ type: 'paragraph', content: [{ type: 'text', text }] })
+    const h = (text) => ({ type: 'heading', attrs: { level: 2 }, content: [{ type: 'text', text }] })
+    const ul = (...items) => ({ type: 'bulletList', content: items.map((t) => ({ type: 'listItem', content: [p(t)] })) })
+    const doc = (...content) => ({ type: 'doc', content })
+    const goal = (when) => p(`Ship the new onboarding flow to all ${when}.`)
+    const steps = (...more) => ul('Draft the help articles', 'Record the walkthrough', ...more)
+    const versions = [
+      { id: 'clhistA0001', hoursAgo: 26, reason: 'session', content: doc(h('Goals'), goal('workspaces by the end of the quarter'), p('Budget is open for now.'), h('Next steps'), steps()) },
+      { id: 'clhistB0001', hoursAgo: 5, reason: 'auto', content: doc(h('Goals'), goal('team workspaces by mid November'), p('Budget is open for now.'), h('Next steps'), steps('Invite ten pilot teams'), p('Owner: Mara Lind.')) },
+      { id: 'clhistC0001', hoursAgo: 2, reason: 'manual', content: doc(h('Goals'), goal('team workspaces by mid November'), p('Budget is approved: twelve days of design time.'), h('Next steps'), steps('Invite ten pilot teams'), p('Owner: Mara Lind.')) },
+    ]
+    const now = doc(h('Goals'), goal('team workspaces by mid November'), p('Budget is approved: twelve days of design time.'), h('Next steps'), steps('Invite ten pilot teams'), p('Owner: Mara Lind.'), p('Launch in the week of 16 November.'))
+    const { ctx, page } = await freshPage(browser)
+    const id = await createPage(page, 'Onboarding launch plan', now)
+    await page.evaluate(
+      async ({ id, versions }) => {
+        const db = await new Promise((res, rej) => {
+          const r = indexedDB.open('one-history')
+          r.onupgradeneeded = () => r.result.createObjectStore('snapshots')
+          r.onsuccess = () => res(r.result)
+          r.onerror = () => rej(r.error)
+        })
+        const tx = db.transaction('snapshots', 'readwrite')
+        const store = tx.objectStore('snapshots')
+        const words = (n) => (n.text ?? '').split(/\s+/).filter(Boolean).length + (n.content ?? []).reduce((s, c) => s + words(c), 0)
+        const title = 'Onboarding launch plan'
+        for (const v of versions) store.put({ content: v.content, title, icon: null }, `snap:${v.id}`)
+        store.put(
+          versions.map((v) => ({ id: v.id, pageId: id, at: Date.now() - v.hoursAgo * 3_600_000, reason: v.reason, title, words: words(v.content), blocks: v.content.content.length, hash: `cl.${v.id}` })),
+          `idx:${id}`,
+        )
+        await new Promise((r) => (tx.oncomplete = r))
+        db.close()
+      },
+      { id, versions },
+    )
+    await openPage(page, id)
+    await page.evaluate((id) => window.__one.ui.getState().openModal({ type: 'history', pageId: id }), id)
+    const dialog = page.getByRole('dialog')
+    await dialog.locator('.hist__title').waitFor()
+    // rows newest first: Now, the manual version, the middle one, the first
+    await dialog.locator('.hist__row').nth(2).click()
+    await dialog.getByTestId('hist-banner').filter({ hasText: 'Compared with the previous version' }).waitFor()
+    await dialog.locator('.hist__preview .ddiff-ins').first().waitFor()
+    await rest(page)
+    await save(page, 'history-compare', await boxOf(dialog))
     await ctx.close()
   },
 

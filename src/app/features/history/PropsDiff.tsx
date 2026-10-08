@@ -1,9 +1,10 @@
 /**
- * Version history — the "Properties" block of Changes: what differs in a database entry between a
- * version and now. "Status: In progress → Done" with the old value struck (red tint) and the new one
- * marked (signal tint); options as colour chips (a multi-select as removed / added chips), dates,
- * numbers, people and relations as the cells show them, checkboxes as ☐ / ☑. Title and icon too.
- * A plain page: its title and icon as two lines above the content diff.
+ * Version history — the "Properties" block of Changes: what differs in a database entry between an
+ * older and a newer state of it — the previous version → this one, or this version → now. "Status:
+ * In progress → Done" with the old value struck (red tint) and the new one marked (signal tint);
+ * options as colour chips (a multi-select as removed / added chips), dates, numbers, people and
+ * relations as the cells show them, checkboxes as ☐ / ☑. Title and icon too. A plain page: its title
+ * and icon as two lines above the content diff.
  */
 import type { ReactNode } from 'react'
 import { useT } from '../../i18n'
@@ -11,22 +12,33 @@ import { useWorkspace } from '../../store/store'
 import type { Database, Page, PageIcon as PageIconT, PropertyDef, PropertyValue, SelectOption } from '../../store/types'
 import { propertyValueToText } from '../../database'
 import { PageIcon } from '../../ui/PageIcon'
-import { diffProps, iconKey, isEmptyValue, type PropChangeRow, type SnapshotPropDef } from './props'
+import { diffProps, diffPropsBetween, iconKey, isEmptyValue, type PropChangeRow, type SnapshotPropDef } from './props'
 import type { SnapshotBody } from './snapshots'
 
-/** How many lines the Properties block (or a plain page's title / icon lines) shows. */
-export function metaChangeCount(body: SnapshotBody, page: Page): number {
-  const rows = body.props ? diffProps(body.props, page).length : 0
-  return rows + (page.databaseId && body.title !== page.title ? 1 : 0) + (iconKey(body.icon) !== iconKey(page.icon) ? 1 : 0)
+/**
+ * The newer side against the older `body`: a version (`after`), or the page as it is now (no
+ * `after`). Two versions compare property values only when both kept them (older ones did not).
+ */
+function newerSide(body: SnapshotBody, page: Page, after?: SnapshotBody | null): { title: string; icon: PageIconT | null; rows: PropChangeRow[] } {
+  if (after) return { title: after.title, icon: after.icon, rows: diffPropsBetween(body.props, after.props) }
+  return { title: page.title, icon: page.icon, rows: body.props ? diffProps(body.props, page) : [] }
 }
 
-export function PropsDiff({ body, page }: { body: SnapshotBody; page: Page }) {
+/** How many lines the Properties block (or a plain page's title / icon lines) shows. `body` = the older side. */
+export function metaChangeCount(body: SnapshotBody, page: Page, after?: SnapshotBody | null): number {
+  const next = newerSide(body, page, after)
+  return next.rows.length + (page.databaseId && body.title !== next.title ? 1 : 0) + (iconKey(body.icon) !== iconKey(next.icon) ? 1 : 0)
+}
+
+/** `body` = the older side; `after` = the newer version (none: the page as it is now). */
+export function PropsDiff({ body, page, after }: { body: SnapshotBody; page: Page; after?: SnapshotBody | null }) {
   const t = useT()
   // re-read when the schema or the row changes
   const db = useWorkspace((s) => (body.props ? s.databases[body.props.databaseId] : undefined))
-  const rows = body.props ? diffProps(body.props, page) : []
-  const title = body.title !== page.title
-  const icon = iconKey(body.icon) !== iconKey(page.icon)
+  const next = newerSide(body, page, after)
+  const rows = next.rows
+  const title = body.title !== next.title
+  const icon = iconKey(body.icon) !== iconKey(next.icon)
   if (!page.databaseId)
     return title || icon ? (
       <div className="hist__meta" data-testid="hist-meta">
@@ -35,13 +47,13 @@ export function PropsDiff({ body, page }: { body: SnapshotBody; page: Page }) {
             <span className="label">{t('features.history.titleLabel')}</span>
             <del className="ddiff-del">{body.title || t('common.untitled')}</del>
             <span aria-hidden>→</span>
-            <ins className="ddiff-ins">{page.title || t('common.untitled')}</ins>
+            <ins className="ddiff-ins">{next.title || t('common.untitled')}</ins>
           </div>
         )}
         {icon && (
           <div className="hist__title-diff">
             <span className="label">{t('features.history.props.icon')}</span>
-            <Pair before={<IconOf icon={body.icon} />} after={<IconOf icon={page.icon} />} emptyBefore={!body.icon} emptyAfter={!page.icon} />
+            <Pair before={<IconOf icon={body.icon} />} after={<IconOf icon={next.icon} />} emptyBefore={!body.icon} emptyAfter={!next.icon} />
           </div>
         )}
       </div>
@@ -53,12 +65,12 @@ export function PropsDiff({ body, page }: { body: SnapshotBody; page: Page }) {
       <dl className="hprops__list">
         {title && (
           <Row name={t('features.history.titleLabel')}>
-            <Pair before={<span>{body.title || t('common.untitled')}</span>} after={<span>{page.title || t('common.untitled')}</span>} />
+            <Pair before={<span>{body.title || t('common.untitled')}</span>} after={<span>{next.title || t('common.untitled')}</span>} />
           </Row>
         )}
         {icon && (
           <Row name={t('features.history.props.icon')}>
-            <Pair before={<IconOf icon={body.icon} />} after={<IconOf icon={page.icon} />} emptyBefore={!body.icon} emptyAfter={!page.icon} />
+            <Pair before={<IconOf icon={body.icon} />} after={<IconOf icon={next.icon} />} emptyBefore={!body.icon} emptyAfter={!next.icon} />
           </Row>
         )}
         {rows.map((r) => (

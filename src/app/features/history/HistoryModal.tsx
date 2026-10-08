@@ -1,12 +1,15 @@
 /**
  * Version history: a tape-deck scrubber over all snapshots of a page, a day-grouped list, the
- * changes against the current page (word level inside changed blocks; a database entry's properties
- * above them), and restore.
+ * changes of a version (word level inside changed blocks; a database entry's properties above them)
+ * — against the version before it (default) or until now — the version itself with what was new in
+ * it marked, and restore.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, History as HistoryIcon, Plus, X } from 'lucide-react'
 import { Modal } from '../../ui/Modal'
 import { Tooltip } from '../../ui/Tooltip'
+import { Switch } from '../../ui/controls'
+import { onRovingKey } from '../../ui/roving'
 import { useLang, useT } from '../../i18n'
 import { usePage } from '../../store/selectors'
 import { useWorkspace } from '../../store/store'
@@ -14,9 +17,10 @@ import { useUI } from '../../store/ui'
 import type { ID } from '../../store/types'
 import { ReadOnlyDoc } from '../../editor'
 import { countWords, hashPage, listSnapshots, loadSnapshot, onHistoryChange, restoreSnapshot, snapshotNow, type SnapshotBody, type SnapshotMeta } from './snapshots'
-import { diffDocs, docDiffStats } from './docDiff'
+import { diffDocs, docDiffStats, newWordRuns, withoutRemovals } from './docDiff'
 import { DocDiff } from './DiffDoc'
 import { metaChangeCount, PropsDiff } from './PropsDiff'
+import { readCompare, readMarkNew, writeCompare, writeMarkNew, type CompareBase } from './prefs'
 import './history.css'
 import '../share/readonly.css'
 
@@ -42,7 +46,20 @@ export function HistoryModal({ pageId, onClose }: { pageId: ID; onClose: () => v
   const [mode, setMode] = useState<'changes' | 'version'>('changes')
   const [bodies, setBodies] = useState<Record<ID, SnapshotBody | null>>({})
   const [busy, setBusy] = useState(false)
+  // per device: what Changes compares with, and whether Version marks what is new
+  const [compare, setCompare] = useState<CompareBase>(readCompare)
+  const [markNew, setMarkNew] = useState(readMarkNew)
   const intervalMin = useWorkspace((s) => s.settings.historyIntervalMin)
+  const cmpLabelId = useId()
+
+  const chooseCompare = (c: CompareBase) => {
+    setCompare(c)
+    writeCompare(c)
+  }
+  const chooseMarkNew = (v: boolean) => {
+    setMarkNew(v)
+    writeMarkNew(v)
+  }
 
   const refresh = useCallback(async () => {
     const list = await listSnapshots(pageId)
@@ -52,12 +69,13 @@ export function HistoryModal({ pageId, onClose }: { pageId: ID; onClose: () => v
 
   useEffect(() => {
     let alive = true
-    // open on the newest version that differs from the page (the newest one is often identical)
+    // compared with the version before: open on the newest version (what it added); compared with now: on the newest
+    // version that differs from the page (the newest one is often identical)
     refresh().then((list) => {
       if (!alive) return
       const cur = useWorkspace.getState().pages[pageId]
       const hash = cur ? hashPage(cur) : ''
-      const differs = list.map((m) => m.hash !== hash).lastIndexOf(true)
+      const differs = readCompare() === 'prev' ? list.length - 1 : list.map((m) => m.hash !== hash).lastIndexOf(true)
       setIndex((i) => i ?? (differs >= 0 ? differs : Math.max(0, list.length - 1)))
     })
     const off = onHistoryChange((id) => id === pageId && void refresh())
@@ -73,36 +91,87 @@ export function HistoryModal({ pageId, onClose }: { pageId: ID; onClose: () => v
     return list
   }, [metas, page?.updatedAt, page?.content])
 
-  const sel = index === null ? null : items[Math.min(index, items.length - 1)]
+  const at = index === null ? null : Math.min(index, items.length - 1)
+  const sel = at === null ? null : items[at]
   const selMeta = sel?.kind === 'snap' ? sel.meta : null
+  // the version before the selected item (for "now": the newest version); none for the oldest one
+  const prevItem = at !== null && at > 0 ? items[at - 1] : null
+  const prevMeta = prevItem?.kind === 'snap' ? prevItem.meta : null
+  const snapCount = metas?.length ?? 0
 
-  // load the selected snapshot body (and keep a small cache)
+  // load the selected version and the one before it (kept in a small cache; each body is read once)
+  const loading = useRef(new Set<ID>())
+  const mounted = useRef(true)
   useEffect(() => {
-    if (!selMeta || selMeta.id in bodies) return
-    let alive = true
-    loadSnapshot(selMeta.id)
-      .then((b) => alive && setBodies((m) => ({ ...m, [selMeta.id]: b ?? null })))
-      .catch(() => alive && setBodies((m) => ({ ...m, [selMeta.id]: null })))
+    mounted.current = true
     return () => {
-      alive = false
+      mounted.current = false
     }
-  }, [selMeta, bodies])
+  }, [])
+  useEffect(() => {
+    for (const id of [selMeta?.id, prevMeta?.id]) {
+      if (!id || id in bodies || loading.current.has(id)) continue
+      loading.current.add(id)
+      loadSnapshot(id)
+        .then(
+          (b) => b ?? null,
+          () => null,
+        )
+        .then((b) => {
+          loading.current.delete(id)
+          if (mounted.current) setBodies((m) => ({ ...m, [id]: b }))
+        })
+    }
+  }, [selMeta?.id, prevMeta?.id, bodies])
 
   const body = selMeta ? bodies[selMeta.id] : undefined
+  // undefined: loading · null: could not be read · none before the oldest version
+  const prevBody = prevMeta ? bodies[prevMeta.id] : undefined
   const current = page?.content ?? null
 
-  const diffItems = useMemo(() => (body ? diffDocs(body.content, current) : []), [body, current])
+  // Changes|Version tabs: for a version; for "now" too when it is compared with the newest version
+  const showTabs = !!selMeta || (sel?.kind === 'now' && compare === 'prev' && snapCount > 0)
+  const view: 'changes' | 'version' | 'plain' = sel?.kind === 'now' && (!showTabs || mode === 'version') ? 'plain' : mode
+
+  /**
+   * What Changes compares: `from` → `to` (`to` null = the page now; `from` null = nothing before it,
+   * the oldest version). 'loading' / 'missing' while a body is not there.
+   */
+  const pair = useMemo((): { from: SnapshotBody | null; to: SnapshotBody | null } | 'loading' | 'missing' | null => {
+    if (!sel || view !== 'changes') return null
+    const to = sel.kind === 'now' ? null : body
+    if (to === undefined) return 'loading'
+    if (to === null && sel.kind === 'snap') return 'missing'
+    if (compare === 'now') return { from: to, to: null }
+    if (!prevMeta) return { from: null, to }
+    if (prevBody === undefined) return 'loading'
+    if (prevBody === null) return 'missing'
+    return { from: prevBody, to }
+  }, [sel, view, body, compare, prevMeta, prevBody])
+  const compared = pair && typeof pair === 'object' ? pair : null
+
+  // diffs only for what is shown: the selected item, in the open tab
+  const diffItems = useMemo(() => (compared ? diffDocs(compared.from?.content ?? null, compared.to ? compared.to.content : current) : []), [compared, current])
   const stats = useMemo(() => docDiffStats(diffItems), [diffItems])
-  // title, icon and — for a database entry — its properties that differ (PropsDiff lists them)
-  const propChanges = useMemo(() => (body && page ? metaChangeCount(body, page) : 0), [body, page])
+  // title, icon and — for a database entry — its properties that differ (PropsDiff lists them); the oldest version has nothing to compare
+  const propChanges = useMemo(() => (compared?.from && page ? metaChangeCount(compared.from, page, compared.to) : 0), [compared, page])
+
+  // Version: the version itself, what was new in it (against the version before) marked — the oldest one has nothing
+  // to compare with and shows plain
+  const marking = view === 'version' && markNew && !!selMeta
+  const newItems = useMemo(() => {
+    if (!marking || !body || !prevMeta || !prevBody) return null
+    return withoutRemovals(diffDocs(prevBody.content, body.content))
+  }, [marking, body, prevMeta, prevBody])
+  const newCount = newItems ? newItems.filter((it) => it.kind !== 'same').length : 0
 
   const step = (d: number) => setIndex((i) => Math.max(0, Math.min(items.length - 1, (i ?? 0) + d)))
 
-  // ←/→ anywhere in the dialog (except text fields) moves the playhead
+  // ←/→ anywhere in the dialog (except text fields and the compare choice) moves the playhead
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const el = e.target as HTMLElement | null
-      if (el?.closest('input, textarea, [contenteditable="true"]')) return
+      if (e.defaultPrevented || el?.closest('input, textarea, [contenteditable="true"], [role="radiogroup"]')) return
       if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
         if ((el as HTMLElement | null)?.classList?.contains('tape')) return // the tape handles its own keys
         e.preventDefault()
@@ -120,6 +189,10 @@ export function HistoryModal({ pageId, onClose }: { pageId: ID; onClose: () => v
   )
   const fmtDay = useMemo(() => new Intl.DateTimeFormat(lang === 'de' ? 'de-DE' : 'en-GB', { weekday: 'long', day: 'numeric', month: 'long' }), [lang])
   const fmtNum = useMemo(() => new Intl.NumberFormat(lang === 'de' ? 'de-DE' : 'en-US'), [lang])
+  // the previous version in a banner: "Tue 10:42" within the week, else "6 Oct, 10:42"
+  const fmtWeek = useMemo(() => new Intl.DateTimeFormat(lang === 'de' ? 'de-DE' : 'en-GB', { weekday: 'short', hour: '2-digit', minute: '2-digit' }), [lang])
+  const fmtDate = useMemo(() => new Intl.DateTimeFormat(lang === 'de' ? 'de-DE' : 'en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }), [lang])
+  const fmtWhen = (ts: number) => (Date.now() - ts < 6 * 86_400_000 ? fmtWeek : fmtDate).format(ts).replace(/\s/g, ' ')
 
   const dayLabel = (ts: number) => {
     const today = dayKey(Date.now())
@@ -154,7 +227,22 @@ export function HistoryModal({ pageId, onClose }: { pageId: ID; onClose: () => v
     useUI.getState().toast({ message: meta ? t('features.history.saved') : t('features.history.unchanged'), kind: meta ? 'success' : 'info' })
   }
 
-  const snapCount = metas?.length ?? 0
+  // what Changes compares with: a radio group (← → / Home / End move and choose)
+  const compareBar = (
+    <div className="hist__bar">
+      <span className="label hist__bar-label" id={cmpLabelId}>
+        {t('features.history.compareLabel')}
+      </span>
+      <div className="hist__seg hist__cmp" role="radiogroup" aria-labelledby={cmpLabelId} onKeyDown={(e) => onRovingKey(e)} data-testid="hist-compare">
+        {(['prev', 'now'] as const).map((c) => (
+          <button key={c} type="button" role="radio" aria-checked={compare === c} tabIndex={compare === c ? 0 : -1} className="hist__seg-btn" onClick={() => chooseCompare(c)}>
+            {t(`features.history.compareTo.${c}`)}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+
   const sinceLabel = (ts: number) => relTime(ts, lang)
   const reasonLabel = (m: SnapshotMeta) => (m.reason === 'script' && m.by ? t('features.history.reason.scriptBy', { name: m.by }) : t(`features.history.reason.${m.reason}`))
 
@@ -210,7 +298,7 @@ export function HistoryModal({ pageId, onClose }: { pageId: ID; onClose: () => v
           )}
         </div>
         <span className="hist__spacer" />
-        {selMeta && (
+        {showTabs && (
           <div className="hist__seg" role="tablist">
             <button role="tab" aria-selected={mode === 'changes'} className="hist__seg-btn" onClick={() => setMode('changes')}>
               {t('features.history.changes')}
@@ -253,52 +341,66 @@ export function HistoryModal({ pageId, onClose }: { pageId: ID; onClose: () => v
         </aside>
 
         <section className="hist__preview" aria-live="polite">
-          {sel?.kind === 'now' ? (
-            snapCount === 0 && metas !== null ? (
-              <div className="hist__empty">
-                <HistoryIcon size={22} strokeWidth={1.5} />
-                <h3>{t('features.history.emptyTitle')}</h3>
-                <p>{t('features.history.emptyBody', { min: intervalMin })}</p>
-                <button className="btn" onClick={() => void saveNow()}>
-                  <Plus size={14} /> {t('features.history.saveNow')}
-                </button>
-              </div>
+          {sel?.kind === 'now' && snapCount === 0 && metas !== null ? (
+            <div className="hist__empty">
+              <HistoryIcon size={22} strokeWidth={1.5} />
+              <h3>{t('features.history.emptyTitle')}</h3>
+              <p>{t('features.history.emptyBody', { min: intervalMin })}</p>
+              <button className="btn" onClick={() => void saveNow()}>
+                <Plus size={14} /> {t('features.history.saveNow')}
+              </button>
+            </div>
+          ) : view === 'plain' ? (
+            <div className="hist__doc">
+              {/* "to now" on the current version compares nothing: the choice stays at hand to switch back */}
+              {!showTabs && snapCount > 0 && compareBar}
+              <div className="hist__banner hist__banner--now label">{t('features.history.currentBanner')}</div>
+              <ReadOnlyDoc content={current} />
+            </div>
+          ) : view === 'version' ? (
+            body === undefined || (markNew && prevMeta && prevBody === undefined) ? (
+              <div className="hist__loading label">{t('common.loading')}</div>
+            ) : body === null ? (
+              <div className="hist__loading label">{t('features.history.missing')}</div>
             ) : (
               <div className="hist__doc">
-                <div className="hist__banner hist__banner--now label">{t('features.history.currentBanner')}</div>
-                <ReadOnlyDoc content={current} />
-              </div>
-            )
-          ) : body === undefined ? (
-            <div className="hist__loading label">{t('common.loading')}</div>
-          ) : body === null ? (
-            <div className="hist__loading label">{t('features.history.missing')}</div>
-          ) : mode === 'version' ? (
-            <div className="hist__doc">
-              {body.title !== (page?.title ?? '') && <h1 className="hist__doc-title">{body.title || t('common.untitled')}</h1>}
-              <ReadOnlyDoc content={body.content} />
-            </div>
-          ) : (
-            <div className="hist__doc">
-              <div className="hist__banner label">
-                {stats.added || stats.removed || stats.changed || propChanges ? (
-                  <>
-                    <span>{t('features.history.since')}</span>
-                    {stats.changed > 0 && <span className="hist__legend hist__legend--chg">~{stats.changed} {t('features.history.changed')}</span>}
-                    {/* only the properties changed: no "+0 added −0 removed" */}
-                    {(stats.added > 0 || stats.removed > 0 || stats.changed > 0) && (
-                      <>
-                        <span className="hist__legend hist__legend--add">+{stats.added} {t('features.history.added')}</span>
-                        <span className="hist__legend hist__legend--rem">−{stats.removed} {t('features.history.removed')}</span>
-                      </>
-                    )}
-                    {propChanges > 0 && <span className="hist__legend hist__legend--chg">{t(page?.databaseId ? 'features.history.props.count' : 'features.history.props.meta', { count: propChanges })}</span>}
-                  </>
+                <div className="hist__bar hist__bar--version">
+                  <label className="hist__mark label">
+                    <Switch size="sm" seed="history-mark-new" checked={markNew} onChange={chooseMarkNew} label={t('features.history.markNew')} />
+                    <span aria-hidden>{t('features.history.markNew')}</span>
+                  </label>
+                  {(newItems || (marking && !prevMeta)) && (
+                    <span className={`hist__legend hist__note label ${prevMeta && newCount ? 'hist__legend--add' : 'hist__legend--chg'}`} data-testid="hist-new-note">
+                      {!prevMeta ? t('features.history.newFirst') : t(newCount ? 'features.history.newSince' : 'features.history.nothingNew', { time: fmtWhen(prevMeta.at) })}
+                    </span>
+                  )}
+                </div>
+                <VersionTitle body={body} prev={newItems ? (prevBody ?? null) : undefined} pageTitle={page?.title ?? ''} />
+                {newItems ? (
+                  <div className="hist__new" data-testid="hist-new">
+                    <DocDiff items={newItems} context={Infinity} variant="rich" />
+                  </div>
                 ) : (
-                  <span>{t('features.history.noChanges')}</span>
+                  <ReadOnlyDoc content={body.content} />
                 )}
               </div>
-              {page && <PropsDiff body={body} page={page} />}
+            )
+          ) : pair === null || pair === 'loading' ? (
+            <div className="hist__loading label">{t('common.loading')}</div>
+          ) : pair === 'missing' ? (
+            <div className="hist__loading label">{t('features.history.missing')}</div>
+          ) : (
+            <div className="hist__doc">
+              {compareBar}
+              <ChangesBanner
+                first={!pair.from}
+                base={compare}
+                time={prevMeta ? fmtWhen(prevMeta.at) : ''}
+                stats={stats}
+                props={propChanges}
+                row={!!page?.databaseId}
+              />
+              {page && pair.from && <PropsDiff body={pair.from} page={page} after={pair.to} />}
               <DocDiff items={diffItems} context={2} variant="rich" />
             </div>
           )}
@@ -318,6 +420,78 @@ export function HistoryModal({ pageId, onClose }: { pageId: ID; onClose: () => v
         </button>
       </footer>
     </Modal>
+  )
+}
+
+/**
+ * What Changes compares, and how much differs: "Compared with the previous version (Tue 10:42)" or
+ * "What changed from this version until now", then the legend chips. The oldest version has nothing
+ * before it: all of it counts as added.
+ */
+function ChangesBanner({
+  first,
+  base,
+  time,
+  stats,
+  props,
+  row,
+}: {
+  first: boolean
+  base: CompareBase
+  time: string
+  stats: { added: number; removed: number; changed: number }
+  props: number
+  row: boolean
+}) {
+  const t = useT()
+  const content = stats.added > 0 || stats.removed > 0 || stats.changed > 0
+  const any = content || props > 0
+  const what = first ? t('features.history.firstVersion') : base === 'prev' ? t(any ? 'features.history.sincePrev' : 'features.history.noChangesPrev', { time }) : t(any ? 'features.history.since' : 'features.history.noChanges')
+  return (
+    <div className="hist__banner label" data-testid="hist-banner">
+      <span>{what}</span>
+      {first
+        ? stats.added > 0 && <span className="hist__legend hist__legend--add">+{stats.added} {t('features.history.added')}</span>
+        : any && (
+            <>
+              {stats.changed > 0 && <span className="hist__legend hist__legend--chg">~{stats.changed} {t('features.history.changed')}</span>}
+              {/* only the properties changed: no "+0 added −0 removed" */}
+              {content && (
+                <>
+                  <span className="hist__legend hist__legend--add">+{stats.added} {t('features.history.added')}</span>
+                  <span className="hist__legend hist__legend--rem">−{stats.removed} {t('features.history.removed')}</span>
+                </>
+              )}
+              {props > 0 && <span className="hist__legend hist__legend--chg">{t(row ? 'features.history.props.count' : 'features.history.props.meta', { count: props })}</span>}
+            </>
+          )}
+    </div>
+  )
+}
+
+/**
+ * The version's title above it, when it reads otherwise than the page now — or, while marking, when
+ * words of it were new. `prev`: the version before (null: none, all of it new; undefined: no marking).
+ */
+function VersionTitle({ body, prev, pageTitle }: { body: SnapshotBody; prev: SnapshotBody | null | undefined; pageTitle: string }) {
+  const t = useT()
+  const runs = prev === undefined || prev?.title === body.title ? null : newWordRuns(prev?.title ?? '', body.title)
+  const marked = !!runs?.some((r) => r.op === 'add')
+  if (body.title === pageTitle && !marked) return null
+  return (
+    <h1 className="hist__doc-title">
+      {marked && runs
+        ? runs.map((r, i) =>
+            r.op === 'add' ? (
+              <ins key={i} className="ddiff-ins">
+                {r.text}
+              </ins>
+            ) : (
+              <span key={i}>{r.text}</span>
+            ),
+          )
+        : body.title || t('common.untitled')}
+    </h1>
   )
 }
 
