@@ -50,7 +50,7 @@ export function PipelineEditor({ dbId, locked, onClose }: { dbId: string; locked
   const kind = kindOfDb(dbId) ?? 'coding'
 
   const patch = (i: number, p: Partial<PipelineStage>, name?: string) =>
-    setRows((rs) => rs.map((r, j) => (j === i ? { option: name === undefined ? r.option : { ...r.option, name }, stage: { ...r.stage, ...p } } : r)))
+    setRows((rs) => rs.map((r, j) => (j === i ? { ...r, option: name === undefined ? r.option : { ...r.option, name }, stage: { ...r.stage, ...p } } : r)))
   const move = (i: number, d: -1 | 1) =>
     setRows((rs) => {
       const j = i + d

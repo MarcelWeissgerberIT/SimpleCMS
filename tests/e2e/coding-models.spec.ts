@@ -166,6 +166,12 @@ test('"Own…" stays while a typed name passes through a list entry; arrowing on
   await expect(sel).toHaveValue('__own')
   await expect(own).toBeFocused()
   await expect(chip).toHaveText('Sonnet')
+  // another field of the stage changed meanwhile: Own… and its text stay
+  await plan.locator('input[type="number"]').fill('25')
+  await expect(sel).toHaveValue('__own')
+  await expect(own).toHaveValue('sonnet')
+  await own.focus()
+  await own.press('End')
   await page.keyboard.type('[1m]', { delay: 15 })
   await expect(own).toHaveValue('sonnet[1m]')
   // a list entry picked ends Own…
