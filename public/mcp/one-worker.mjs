@@ -14306,37 +14306,48 @@ var WorkerLink = class {
   }
   /**
    * The outbox to a tab that said hello — small first (coalesceOutbox), in order; through the relay in paced slices so
-   * the server's per-socket budget never drops the newest of it. Events sent meanwhile queue behind it.
+   * the server's per-socket budget never drops the newest of it. Events sent meanwhile queue behind it. A tab that
+   * says hello while a flush runs (a reload, a newer tab, a reconnect during a pause) is served by that flush: the
+   * rest goes to it, still before anything newer.
    */
   async flushOutbox(conn) {
     if (this.flushing) return;
     this.flushing = true;
     try {
-      while (this.outbox.length && this.tab === conn && conn.isOpen()) {
-        const batch = coalesceOutbox(this.outbox.splice(0));
-        this.outboxChars = 0;
-        let frames = 0;
-        let chars = 0;
-        for (let i2 = 0; i2 < batch.length; i2++) {
-          const m = batch[i2];
-          const text2 = JSON.stringify(m);
-          conn.send(text2, droppable(m));
-          frames++;
-          chars += text2.length;
-          if (!this.opts.cloud || i2 === batch.length - 1 || frames < FLUSH_FRAMES && chars < FLUSH_BYTES) continue;
-          await new Promise((r) => setTimeout(r, FLUSH_GAP_MS));
-          frames = 0;
-          chars = 0;
-          if (this.tab !== conn || !conn.isOpen()) {
-            const rest = batch.slice(i2 + 1);
-            this.outbox.unshift(...rest);
-            this.outboxChars += rest.reduce((a, x2) => a + JSON.stringify(x2).length, 0);
-            return;
-          }
-        }
+      let to = conn;
+      for (; ; ) {
+        await this.flushTo(to);
+        const now = this.tab;
+        if (!this.outbox.length || !now || now === to || !now.workspace || !now.isOpen()) return;
+        to = now;
       }
     } finally {
       this.flushing = false;
+    }
+  }
+  async flushTo(conn) {
+    while (this.outbox.length && this.tab === conn && conn.isOpen()) {
+      const batch = coalesceOutbox(this.outbox.splice(0));
+      this.outboxChars = 0;
+      let frames = 0;
+      let chars = 0;
+      for (let i2 = 0; i2 < batch.length; i2++) {
+        const m = batch[i2];
+        const text2 = JSON.stringify(m);
+        conn.send(text2, droppable(m));
+        frames++;
+        chars += text2.length;
+        if (!this.opts.cloud || i2 === batch.length - 1 || frames < FLUSH_FRAMES && chars < FLUSH_BYTES) continue;
+        await new Promise((r) => setTimeout(r, FLUSH_GAP_MS));
+        frames = 0;
+        chars = 0;
+        if (this.tab !== conn || !conn.isOpen()) {
+          const rest = batch.slice(i2 + 1);
+          this.outbox.unshift(...rest);
+          this.outboxChars += rest.reduce((a, x2) => a + JSON.stringify(x2).length, 0);
+          return;
+        }
+      }
     }
   }
   /** Tell the connected tab what the worker is now (a fresh `welcome`: the repos changed in the setup page). */

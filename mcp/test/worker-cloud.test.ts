@@ -13,7 +13,7 @@ import { join } from 'node:path'
 import { after, afterEach, describe, test } from 'node:test'
 import { strToU8, zipSync } from 'fflate'
 import type { LogLine, WorkerMessage, WorkspaceRef } from '../../src/app/features/coding/protocol.ts'
-import { coalesceOutbox, droppable } from '../src/worker/link.ts'
+import { WorkerLink, coalesceOutbox, droppable } from '../src/worker/link.ts'
 import { waitFor } from './helpers.ts'
 import { FakeRelay } from './relay-helpers.ts'
 import { FakeTab, cleanupAll, makeRepo, presetBundle, spawnWorker, task, tempDir, type SpawnedWorker } from './worker-helpers.ts'
@@ -337,5 +337,47 @@ describe('cloud worker — what the relay may drop, and the outbox', () => {
     // an import that started again after its result: the result and the newest progress after it
     const again = coalesceOutbox([...events.slice(-4, -2), { type: 'event', taskId: 'z1', kind: 'intake', intake: { state: 'running', source: 'zip', label: 'z.zip', line: 'again', percent: 5 } }])
     assert.deepEqual(again.filter((m) => m.type === 'event' && m.kind === 'intake').map((m) => (m as Extract<WorkerMessage, { kind: 'intake' }>).intake.state), ['done', 'running'])
+  })
+
+  test('a tab that pairs while the outbox goes out in slices gets the rest of it — in order, before anything newer', async () => {
+    relay = await FakeRelay.start({ id: WS.id, name: WS.name })
+    const link = new WorkerLink({
+      port: 0,
+      origins: [],
+      workspace: WS.id,
+      pair: PAIR,
+      cloud: { url: `ws://127.0.0.1:${relay.port}/coding/worker`, token: TOKEN, version: 'test', onFatal: () => {} },
+      log: () => {},
+      info: () => ({ worker: 'test', name: 'build-box', repos: [], parallel: 1, busy: [], spentToday: 0, dayLimit: null, claude: { found: false, version: null } }),
+      onConnect: () => {},
+      onDisconnect: () => {},
+      onRequest: async () => null,
+      onNudge: () => {},
+      onTask: async () => ({ ok: false, status: 404, error: 'no' }),
+    })
+    const notes = (tab: { messages: WorkerMessage[] }) => tab.messages.flatMap((m) => (m.type === 'event' && m.kind === 'note' ? [m.text] : []))
+    try {
+      assert.equal(await link.start(), 'listening')
+      await relay.connected()
+      // 250 notes while no tab is connected (never coalesced away, never droppable): three slices of ≤ 100
+      for (let i = 0; i < 250; i++) link.send({ type: 'event', taskId: 'task1', kind: 'note', text: `note ${i}` })
+      const tab1 = relay.openTab(PAIR)
+      await tab1.hello(WS)
+      await waitFor(() => notes(tab1).length >= 100, 5000, () => `tab 1 has ${notes(tab1).length}`)
+      // the person reloads during the pause after the first slice: a new pairing says hello before the flush goes on
+      relay.tabGone('closed')
+      const tab2 = relay.openTab(PAIR)
+      await tab2.hello(WS)
+      await tab2.next('welcome')
+      await waitFor(() => notes(tab1).length + notes(tab2).length >= 250, 8000, () => `tab 1 ${notes(tab1).length} + tab 2 ${notes(tab2).length}`)
+      link.send({ type: 'event', taskId: 'task1', kind: 'note', text: 'after' })
+      await waitFor(() => notes(tab2).at(-1) === 'after', 5000, () => JSON.stringify(notes(tab2).slice(-3)))
+      const first = notes(tab1)
+      assert.deepEqual(first, Array.from({ length: first.length }, (_, i) => `note ${i}`), 'tab 1: the first slice, in order')
+      assert.ok(first.length < 250, 'the flush paused before it was done')
+      assert.deepEqual(notes(tab2), [...Array.from({ length: 250 - first.length }, (_, i) => `note ${first.length + i}`), 'after'], 'tab 2: the rest, in order, then the newer note')
+    } finally {
+      await link.close()
+    }
   })
 })

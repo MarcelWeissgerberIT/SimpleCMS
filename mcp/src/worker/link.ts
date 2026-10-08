@@ -318,38 +318,51 @@ export class WorkerLink {
 
   /**
    * The outbox to a tab that said hello — small first (coalesceOutbox), in order; through the relay in paced slices so
-   * the server's per-socket budget never drops the newest of it. Events sent meanwhile queue behind it.
+   * the server's per-socket budget never drops the newest of it. Events sent meanwhile queue behind it. A tab that
+   * says hello while a flush runs (a reload, a newer tab, a reconnect during a pause) is served by that flush: the
+   * rest goes to it, still before anything newer.
    */
   private async flushOutbox(conn: Conn) {
     if (this.flushing) return
     this.flushing = true
     try {
-      while (this.outbox.length && this.tab === conn && conn.isOpen()) {
-        const batch = coalesceOutbox(this.outbox.splice(0))
-        this.outboxChars = 0
-        let frames = 0
-        let chars = 0
-        for (let i = 0; i < batch.length; i++) {
-          const m = batch[i]!
-          const text = JSON.stringify(m)
-          conn.send(text, droppable(m))
-          frames++
-          chars += text.length
-          if (!this.opts.cloud || i === batch.length - 1 || (frames < FLUSH_FRAMES && chars < FLUSH_BYTES)) continue
-          await new Promise((r) => setTimeout(r, FLUSH_GAP_MS))
-          frames = 0
-          chars = 0
-          if (this.tab !== conn || !conn.isOpen()) {
-            // the tab went: the rest waits for the next one (before what came meanwhile)
-            const rest = batch.slice(i + 1)
-            this.outbox.unshift(...rest)
-            this.outboxChars += rest.reduce((a, x) => a + JSON.stringify(x).length, 0)
-            return
-          }
-        }
+      let to = conn
+      for (;;) {
+        await this.flushTo(to)
+        // the tab changed during a pause: the rest (and what queued behind it) goes to the current one
+        const now = this.tab
+        if (!this.outbox.length || !now || now === to || !now.workspace || !now.isOpen()) return
+        to = now
       }
     } finally {
       this.flushing = false
+    }
+  }
+
+  private async flushTo(conn: Conn) {
+    while (this.outbox.length && this.tab === conn && conn.isOpen()) {
+      const batch = coalesceOutbox(this.outbox.splice(0))
+      this.outboxChars = 0
+      let frames = 0
+      let chars = 0
+      for (let i = 0; i < batch.length; i++) {
+        const m = batch[i]!
+        const text = JSON.stringify(m)
+        conn.send(text, droppable(m))
+        frames++
+        chars += text.length
+        if (!this.opts.cloud || i === batch.length - 1 || (frames < FLUSH_FRAMES && chars < FLUSH_BYTES)) continue
+        await new Promise((r) => setTimeout(r, FLUSH_GAP_MS))
+        frames = 0
+        chars = 0
+        if (this.tab !== conn || !conn.isOpen()) {
+          // the tab went: the rest waits for the next one (before what came meanwhile)
+          const rest = batch.slice(i + 1)
+          this.outbox.unshift(...rest)
+          this.outboxChars += rest.reduce((a, x) => a + JSON.stringify(x).length, 0)
+          return
+        }
+      }
     }
   }
 
