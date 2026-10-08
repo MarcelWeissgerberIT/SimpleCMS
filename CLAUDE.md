@@ -39,7 +39,7 @@ src/app/features/**                  AI (+ workspace agent), history, graph, sha
                                      GitHub Markdown, per-device IndexedDB `one-sync`), mcp (local bridge UI), sheets
                                      (spreadsheet engine + grid; functions/ = custom functions built by clicking), charts
                                      (SVG renderer, chart builder, data sources) (public API: features/index.ts)
-src/app/help/**                      help centre: panel (?, status bar, ⌘K, workspace menu), 68 articles EN+DE twins
+src/app/help/**                      help centre: panel (?, status bar, ⌘K, workspace menu), 69 articles EN+DE twins
                                      (help/articles/{en,de}/<id>.md, `help:<id>` links), Ask (Claude over the articles);
                                      link UI to an article with `<HelpLink id="…" />` (public API: help/index.ts)
 src/help-site/**                     build-time public /help pages (prerendered from the same articles, hreflang)
@@ -457,6 +457,16 @@ the public APIs stable — other areas are built against them in parallel.
   registered kind). Write only with `saveDbCommands()` (refuses a locked database — running stays allowed); readers
   sanitize with `readDbCommands()`; page backups empty webhook URLs (`withoutCommandSecrets`). New kinds only via
   `registerCommandKind(def)` from a module loaded at boot; an unknown kind is kept and hidden.
+- Integration profiles (store/integrations.ts, features/agents/integrations, `#/workspace/integrations`): `Workspace.integrations`
+  (schema `one.integration/1`: id, name, match { tools · name glob · host glob }, unlocks ⊆ keys | onlyByHand | upsert |
+  toolAllowList | agentState | notify, recipes = `RecipeConfig` kind 'mirror' — database / properties / views / agent as data).
+  Write only with `upsertIntegration(profile, replaces?)` / `deleteIntegration`; ≤ 50 (the store refuses a 51st; the team
+  binding and the server take the first 50 valid by id); every reader sanitizes; issue vars use `show()`, never `String()`.
+  Team: meta map `integrations`, owners / admins only (server guard). Full backups carry them, page backups never. A profile is
+  ACTIVE on a device while one ENABLED MCP server matches (team server runner: name / host only); read gates only through
+  `useUnlocked(f)` / `unlocked(f)` (features/agents/index.ts). Flags and tool lists already set stay in force without one. A
+  recipe without `agent.instructions` gets them composed from its OWN properties (integrations/instructions.ts). One presets,
+  names and detects NO external service anywhere (code, UI, prompts, help, tests, worker) — integrations.spec has a source guard.
 - Custom agents: `Workspace.agents` (`CustomAgent`, store/types.ts; `createdBy` / `updatedBy` = account ids in a team,
   null locally — `upsertAgent` stamps `updatedBy` with the saver; a team browser agent runs only while `updatedBy` is its
   creator, otherwise it waits for the creator to confirm, features/agents/confirm.ts; on the team server `updatedBy` is
