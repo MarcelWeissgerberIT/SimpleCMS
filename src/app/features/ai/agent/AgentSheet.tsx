@@ -30,7 +30,7 @@ import { loadHistory } from './history'
 import { PropDiff, Preview, SchemaDiff } from './ReviewParts'
 import { EditDiff } from './EditDiff'
 import { ScriptDiff } from './ScriptDiff'
-import { CodingDiff, FullText, useCodingFlags } from './CodingDiff'
+import { CodingDiff, FullText, RefsLine, useCodingFlags } from './CodingDiff'
 import { PipelinesOut } from './PipelinesOut'
 import { ConnectLine, ServersOut, SignInKey, SignInOffer, retryOf } from './ConnectOut'
 import { signInFromTerminal } from './connect'
@@ -1102,17 +1102,20 @@ function useTitleOf() {
   )
 }
 
+/** The pages a proposal sends along to the coding worker: a task's, a note's / an answer's, text written into a task's page. */
+const refsOf = (x: StagedChange) => (x.kind === 'coding' ? [...(x.coding?.task?.refs ?? []), ...(x.coding?.action?.refs ?? [])] : x.kind === 'append' || x.kind === 'edit' ? (x.refs ?? []) : [])
+
 /**
  * Does a proposal's text go to Claude Code? 'task': an append to a pipeline task's page (read at its next stage) ·
- * 'ref': a page proposed here that a proposed task (or a note / answer of a task action) links — it goes along to the
- * worker once both are applied. Such text is shown in full, never as the shortened preview.
+ * 'ref': a page proposed here that a proposed task, a note / answer of a task action, or text added to a task's page
+ * links — it goes along to the worker once both are applied. Such text is shown in full, never as the shortened preview.
  */
 function useToWorker(c: StagedChange, all: StagedChange[]): 'task' | 'ref' | null {
   // re-read when the target page changes (it may become, or stop being, a pipeline task)
   useWorkspace((s) => (c.kind === 'append' ? s.pages[stageApi.resolve(c.pageId)]?.databaseId : null))
   if (c.kind === 'append' && goesToWorker(c)) return 'task'
   if (c.kind !== 'create_page') return null
-  const linked = all.some((x) => x.kind === 'coding' && x.status !== 'discarded' && [...(x.coding?.task?.refs ?? []), ...(x.coding?.action?.refs ?? [])].some((r) => r.id === c.pageId))
+  const linked = all.some((x) => x.status !== 'discarded' && refsOf(x).some((r) => r.id === c.pageId))
   return linked ? 'ref' : null
 }
 
@@ -1267,6 +1270,8 @@ function ChangeItem({
         <FullText label={t(toWorker === 'task' ? 'features.agent.coding.appendFull' : 'features.agent.coding.pageFull')} hint={toWorker === 'task' ? t('features.agent.coding.appendHint') : undefined} text={c.markdown.trim()} testId="term-full-text" />
       )}
       {!compact && c.markdown?.trim() && !toWorker && c.kind !== 'rename' && c.kind !== 'edit' && c.kind !== 'coding' && <Preview markdown={c.markdown} append={c.kind === 'append'} />}
+      {/* text written into a pipeline task's page: the pages it links go to Claude Code with the task */}
+      {!compact && (c.kind === 'append' || c.kind === 'edit') && <RefsLine refs={c.refs} />}
       {c.status === 'failed' && c.error && <p className="term-change__error">{t(c.kind === 'edit' ? 'features.agent.review.skipped' : 'features.agent.review.failed', { error: c.error })}</p>}
       {blocked && missing && c.status === 'pending' && <p className="term-change__hint">{t('features.agent.review.needs', { n: missing.n })}</p>}
     </li>

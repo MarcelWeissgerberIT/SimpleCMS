@@ -692,6 +692,61 @@ test.describe('AI terminal → coding pipelines (mocked Claude API)', () => {
     await expect(task).toHaveAttribute('data-status', 'applied')
   })
 
+  test('text written into a task that links pages: the append and the edit list them (a staged one marked), the staged page is shown in full (GOES TO CLAUDE CODE); a page that appeared since and the card did not list refuses the write', async ({ page, context }) => {
+    await openApp(page)
+    await setKey(page)
+    await setupCoding(page)
+    const id = await makeTask(page, { title: 'Fix payments', stage: 'Backlog', repo: 'website' })
+    const notes = ['Payment notes', '', ...Array.from({ length: 14 }, (_, i) => `- note ${i + 1}`), '', 'NOTES LAST LINE'].join('\n')
+    const pageId = (body: AnyState) => /New page id: ([A-Za-z0-9_-]+)/.exec(resultText(body, 'toolu_cp'))?.[1] ?? 'missing'
+    let notesId = ''
+    const mocked = await mockAgent(context, [
+      call('toolu_cp', 'create_page', { title: 'Payment notes', markdown: notes }),
+      (body) => {
+        notesId = pageId(body)
+        return call('toolu_ap', 'append_to_page', { id, markdown: `See [the payment notes](#/p/${notesId}).` })()
+      },
+      () => call('toolu_ed', 'edit_page', { id, edits: [{ op: 'replace_all', markdown: `Validate the card number. Notes: [payment notes](#/p/${notesId}), [the old ticket](#/p/ghostticket02).` }] })(),
+      say('Staged.'),
+    ])
+    await openTerminal(page)
+    await run(page, 'Write payment notes and add them to the payments task')
+    await expect(terminal(page).locator('.term-answer')).toContainText('Staged.')
+    // Claude is told which pages go along
+    expect(resultText(mocked.bodies[2], 'toolu_ap')).toContain('Pages this text links go to Claude Code with the task as read-only text')
+    expect(resultText(mocked.bodies[2], 'toolu_ap')).toContain('Payment notes')
+    const pageCard = item(page, 1)
+    const append = item(page, 2)
+    const edit = item(page, 3)
+    // the append and the edit name the page that goes along (staged, not created yet); an unknown id is not a page
+    await expect(append.getByTestId('term-coding-refs')).toHaveText('Goes to the worker as read-only text: “Payment notes” (staged — goes along once applied)')
+    await expect(edit.getByTestId('term-coding-refs')).toHaveText('Goes to the worker as read-only text: “Payment notes” (staged — goes along once applied)')
+    // the staged page goes to Claude Code with them: all of it, never the shortened preview
+    await expect(pageCard.getByTestId('term-tag-toworker')).toHaveText('GOES TO CLAUDE CODE')
+    await expect(pageCard.getByTestId('term-full-text')).toContainText('NOTES LAST LINE')
+    await expect(pageCard.locator('.agent-preview')).toHaveCount(0)
+    // a page with the edit's other linked id appears before the apply: its text would go along unseen — refused
+    await wsEval(page, (s) => s.createPage({ id: 'ghostticket02', parentId: null, title: 'Old ticket' }))
+    await pageCard.focus()
+    await page.keyboard.press('a')
+    await expect(pageCard).toHaveAttribute('data-status', 'applied')
+    await expect(edit).toHaveAttribute('data-status', 'failed')
+    await expect(edit.locator('.term-change__error')).toContainText('The pages that go to the worker with it changed since')
+    await expect(append).toHaveAttribute('data-status', 'pending')
+    // created now: listed like any page
+    await expect(append.getByTestId('term-coding-refs')).toHaveText('Goes to the worker as read-only text: “Payment notes”')
+    expect(await wsEval(page, (s, id) => s.pages[id].plain as string, id)).not.toContain('Validate the card number')
+    // gone again: the edit and the append apply; the task now sends the notes along
+    await wsEval(page, (s) => s.trashPage('ghostticket02'))
+    await applyKey(page, 3).click()
+    await expect(edit).toHaveAttribute('data-status', 'applied')
+    await applyKey(page, 2).click()
+    await expect(append).toHaveAttribute('data-status', 'applied')
+    const doc = JSON.stringify(await wsEval(page, (s, id) => s.pages[id].content, id))
+    expect(doc).toContain(notesId)
+    expect(await wsEval(page, (s, id) => s.pages[id].plain as string, id)).toContain('Validate the card number')
+  })
+
   test('approve shows the plan as Claude Code wrote it while the page says the same, else the section as it stands on the page; without a plan the hint is neutral', async ({ page, context }) => {
     await openApp(page)
     await setKey(page)

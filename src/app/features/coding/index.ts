@@ -37,6 +37,8 @@ export {
   taskNeedsConfirm,
   mayNeedConfirm,
   isPipelineTask,
+  textRefs,
+  textRefsGained,
   taskWriteEndsConfirm,
   taskSig,
   newProjectNow,

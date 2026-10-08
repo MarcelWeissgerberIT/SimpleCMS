@@ -16,8 +16,9 @@
  *  - "starts the worker": computed from where the task lands (mirrors pickNext: automatic queues are hopped), approving
  *    into a done stage with "Then" set, and a "Then" that adds a pipeline to a task not done yet — such changes are never
  *    part of a bulk apply. A done task's Then is refused (hand_on hands it on now).
- *  - pages that go along: listed on the review, staged pages too (marked); applying refuses when the live list has a
- *    page the review did not list.
+ *  - pages that go along: listed on the review, staged pages too (marked) — of a new task, a note / an answer, and of
+ *    text the terminal writes into a task's page (textRefs); applying refuses when the live list has a page the review
+ *    did not list.
  *  - Never offered: moving a task to any stage, Confirm, approvals, git verbs, an Import's code, pipeline edits, projects.
  *
  * Model-facing texts (CodingPlanError) are English; errors of apply* are in the person's language.
@@ -608,6 +609,18 @@ function pipelineLine(pipeline: ResolvedStage[], repo: boolean, start: boolean, 
 
 /** Did the live list of pages that go along gain one the review did not list? */
 const newRefs = (live: RefPage[], shown: RefPage[] | undefined) => live.some((r) => !(shown ?? []).some((x) => x.id === r.id))
+
+/**
+ * The pages text written into a task's page (the terminal's append_to_page / edit_page) sends along to the worker: the
+ * One addresses in it — live, not in a template, ≤ 8; `staged`: proposed in the same conversation, marked. None for a
+ * page that is not a pipeline task. What the review of such a change lists.
+ */
+export function textRefs(taskId: ID, markdown: string, staged?: StagedPages): RefPage[] {
+  return isPipelineTask(taskId) && markdown ? refPagesOf([], [markdown], taskId, staged) : []
+}
+
+/** Would the text send along a page now that its review (`shown`) did not list? (Applying it then refuses.) */
+export const textRefsGained = (taskId: ID, markdown: string, shown: RefPage[] | undefined): boolean => newRefs(textRefs(taskId, markdown), shown)
 
 /** Create a planned task (the person applied it). Throws an Error in the person's language. */
 export async function applyNewTask(plan: NewTaskPlan): Promise<{ id: ID; undo: () => boolean }> {

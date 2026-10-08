@@ -20,7 +20,7 @@ import { saveMemory, updateMemory } from '../memory/save'
 import { applyPageEdits } from './edit'
 import { livePage, withPageNodes, type LinkTarget } from './links'
 import { mediaNode } from '../media/blocks'
-import { applyNewTask, applyTaskAction, isPipelineTask, taskNeedsConfirm, taskSig, taskWriteEndsConfirm } from '../../coding'
+import { applyNewTask, applyTaskAction, isPipelineTask, taskNeedsConfirm, taskSig, taskWriteEndsConfirm, textRefsGained } from '../../coding'
 
 const ws = () => useWorkspace.getState()
 const ORIGIN = 'ai'
@@ -156,6 +156,12 @@ async function guardTask(id: ID, opts: ApplyOpts): Promise<void> {
   if (opts.terminal && (await taskNeedsConfirm(id))) throw new Error(t('features.coding.term.err.confirm'))
 }
 
+/**
+ * Text the terminal writes into a pipeline task's page sends the pages it links along to the worker: none its review
+ * did not list (StagedChange.refs — a page that appeared since, or a page that became a task since).
+ */
+const refsGained = (id: ID, c: StagedChange, opts: ApplyOpts): boolean => !!opts.terminal && textRefsGained(id, c.markdown ?? '', c.refs)
+
 /** The kinds that write an existing page or row (their target: the task a fingerprint step / an Undo guard is about). */
 const WRITES_PAGE = new Set<StagedChange['kind']>(['update_row', 'append', 'rename', 'media'])
 
@@ -203,9 +209,13 @@ export async function applyChanges(changes: StagedChange[], all: StagedChange[],
         failed.push(...group.map((x) => ({ id: x.id, error: e instanceof Error ? e.message : String(e) })))
         continue
       }
+      const gained = group.filter((x) => refsGained(pageId, x, opts))
+      failed.push(...gained.map((x) => ({ id: x.id, error: t('features.coding.term.err.refs') })))
+      const edits = group.filter((x) => !gained.includes(x))
+      if (!edits.length) continue
       let res!: Awaited<ReturnType<typeof applyPageEdits>>
       const undoEdits = await onTask(pageId, opts, async () => {
-        res = await applyPageEdits(pageId, group)
+        res = await applyPageEdits(pageId, edits)
         return res.undo
       })
       if (res.applied.length) undos.push({ ids: res.applied, fn: undoEdits })
@@ -361,6 +371,7 @@ async function applyOne(c: StagedChange, resolveRow: (id: ID) => ID, rowIds: Rec
       const id = resolveRow(c.pageId)
       if (!alive(id)) throw new Error('the page is gone')
       await guardTask(id, opts)
+      if (refsGained(id, c, opts)) throw new Error(t('features.coding.term.err.refs'))
       await snapshotNow(id, 'ai')
       const page = ws().pages[id]
       if (!page) throw new Error('the page is gone')

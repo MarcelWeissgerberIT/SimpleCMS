@@ -79,6 +79,22 @@ export function FullText({ label, hint, text, testId }: { label: string; hint?: 
   )
 }
 
+/**
+ * The pages that go along to the worker as read-only text (a new task, a note / an answer, text written into a task's
+ * page); one proposed here and not created yet is marked staged (live: once applied it is a page like the others).
+ */
+export function RefsLine({ refs }: { refs: RefPage[] | undefined }) {
+  const t = useT()
+  const live = useWorkspace((s) => (refs ?? []).map((r) => (s.pages[r.id] ? '1' : '0')).join(''))
+  if (!refs?.length) return null
+  const titles = refs.map((r, i) => (r.staged && live[i] !== '1' ? t('features.agent.coding.refStaged', { title: r.title }) : `“${r.title}”`)).join(', ')
+  return (
+    <p className="term-change__hint" data-testid="term-coding-refs">
+      {t('features.agent.coding.refs', { titles })}
+    </p>
+  )
+}
+
 /** The review body of a pipeline task change. */
 export function CodingDiff({ change: c }: { change: StagedChange }) {
   const t = useT()
@@ -91,12 +107,7 @@ export function CodingDiff({ change: c }: { change: StagedChange }) {
   const pending = c.status === 'pending' || c.status === 'failed'
   const kinds = (list: string[]) => list.map((k) => t(`features.coding.pipe.${k}`)).join(', ') || '—'
   // the pages that go along; a staged one (proposed here, created on apply) is marked
-  const refsLine = (refs: RefPage[] | undefined) =>
-    refs?.length ? (
-      <p className="term-change__hint" data-testid="term-coding-refs">
-        {t('features.agent.coding.refs', { titles: refs.map((r) => (r.staged ? t('features.agent.coding.refStaged', { title: r.title }) : `“${r.title}”`)).join(', ') })}
-      </p>
-    ) : null
+  const refsLine = (refs: RefPage[] | undefined) => <RefsLine refs={refs} />
   let body: React.ReactNode = null
 
   if (cd.op === 'create' && cd.task) {

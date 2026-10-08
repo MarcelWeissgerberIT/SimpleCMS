@@ -6,7 +6,7 @@ import type { ID, PropertyType, PropertyValue } from '../../../store/types'
 import type { AIErrorCode } from '../client'
 import type { MemoryProposal, MemoryUse } from '../memory/types'
 import type { BlockEdit } from './edit'
-import type { NewTaskPlan, PipelineKind, TaskActionPlan, TaskOp } from '../../coding'
+import type { NewTaskPlan, PipelineKind, RefPage, TaskActionPlan, TaskOp } from '../../coding'
 
 export type ToolName =
   | 'search_pages'
@@ -183,6 +183,11 @@ export interface StagedChange {
   media?: StagedMedia[]
   /** coding: a pipeline task to create, or an action on one (pageId = the task, or the id a new one gets) */
   coding?: StagedCoding
+  /**
+   * append / edit of a pipeline task's page (the terminal): the pages its text links — they go along to the worker as
+   * read-only text (`staged`: proposed here, created on apply). Listed on the card; applying refuses a page not listed.
+   */
+  refs?: RefPage[]
   error?: string
 }
 
