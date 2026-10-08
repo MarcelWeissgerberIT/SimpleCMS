@@ -155,6 +155,33 @@
   --c-purple-text: #6b4fa0;          --c-purple-bg: #e6def2;
   --c-pink-text: #a83f73;            --c-pink-bg: #f4dde8;
   --c-red-text: #b42318;             --c-red-bg: #f7dad6;
+
+  /*
+   * Syntax (ui/code/syntax.css: the code area, code blocks, One Script, diffs) — one colour per token class
+   * (ui/code/types.ts SynClass). Each is ≥ 4.5 : 1 on bg, surface, surface-2 and surface-3 (the current-line
+   * band lands there); keys and strings also differ in lightness (≥ 1.5 : 1), not only in hue. The hues are
+   * the content colours' families, darkened a step; neutral classes follow the ink (and so a workspace look).
+   */
+  --syn-text: var(--ink);
+  --syn-kw: #a33200;
+  --syn-str: #1f6633;
+  --syn-num: #1f5d98;
+  --syn-key: #44287d;
+  --syn-type: #7a4914;
+  --syn-fn: var(--ink);
+  --syn-var: var(--ink);
+  --syn-tag: var(--syn-kw);
+  --syn-punct: var(--ink-2);
+  --syn-comment: color-mix(in srgb, var(--ink-3) 80%, var(--ink));
+  --syn-err: var(--c-red-text);
+  --syn-add: var(--c-green-text);
+  --syn-del: var(--c-red-text);
+  --syn-tool: var(--syn-num);
+  --syn-gutter: var(--syn-comment);
+  --syn-gutter-cur: var(--ink);
+  --syn-line: rgba(18, 18, 16, 0.045);     /* the current line */
+  --syn-match: rgba(18, 18, 16, 0.11);     /* the bracket pair at the caret */
+  --syn-ph-bg: var(--signal-wash-strong);  /* an open placeholder */
 }
 
 /* ---------- Dark theme: "CARBON" ---------- */
@@ -215,6 +242,15 @@
   --c-purple-text: #a98ad8;          --c-purple-bg: #2b2338;
   --c-pink-text: #e07aa8;            --c-pink-bg: #38212d;
   --c-red-text: #f0766b;             --c-red-bg: #3d1f1c;
+
+  /* syntax on Carbon (see Paper above): lighter steps, keys lighter than strings */
+  --syn-kw: #ff7a3d;
+  --syn-str: #6ab478;
+  --syn-num: #7fb2e5;
+  --syn-key: #d3c4f7;
+  --syn-type: #e0ae7c;
+  --syn-line: rgba(236, 233, 226, 0.05);
+  --syn-match: rgba(236, 233, 226, 0.14);
 }
 
 ::selection {
