@@ -344,6 +344,8 @@ test.describe('team cloud — custom agents', () => {
     await wsEval(a, (s) => {
       s.updateSettings({ aiApiKey: 'sk-ant-e2e-test-key' })
       s.updateSettings({ mcpServers: [{ id: 'm-tracker', name: 'tracker', url: 'https://tracker.example.com/mcp', token: '', enabled: true, prompt: '', tools: ['list_items', 'get_item', 'update_item'], checkedAt: Date.now() }] })
+      // the owner's integration profile (workspace data, synced): it unlocks the features and brings the recipe
+      s.upsertIntegration({ schema: 'one.integration/1', id: 'tracker', name: 'Tracker', match: { name: 'tracker' }, unlocks: ['keys', 'onlyByHand', 'upsert', 'toolAllowList', 'agentState', 'notify'], recipes: [{ kind: 'mirror' }] })
     })
     const ids: AnyState = {}
     const bodies = await mockClaudeScript(a, [
@@ -353,7 +355,7 @@ test.describe('team cloud — custom agents', () => {
 
     // the setup: only private pages to put it below (the shared one is not offered)
     await a.evaluate(() => (window.location.hash = '#/agents'))
-    await a.locator('.agx-start [data-recipe="mirror"]').click()
+    await a.locator('.agx-start [data-recipe="tracker:mirror"]').click()
     const setup = a.locator('.agx-mir')
     await expect(setup).toContainText('In a team workspace both go into your Private section.')
     await setup.locator('.agx-pick').click()

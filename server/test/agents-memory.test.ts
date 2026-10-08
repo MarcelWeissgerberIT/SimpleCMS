@@ -2,7 +2,8 @@
  * Server agents — the MCP tool allow-list (`mcpTools` → the MCP connector's toolset), the last successful run in
  * the run's context, and the agent's own state (agent_state_get / agent_state_set: sealed at rest, saved only when a
  * run ends ok). Against a real server and the fake Messages API (fake-anthropic.ts — never the real one); the MCP
- * servers are fictional addresses nobody calls.
+ * servers are fictional addresses nobody calls. The state tools are offered because an integration profile matches
+ * the runtime's "tracker" by name (integrations.test.ts covers the gate itself).
  */
 import assert from 'node:assert/strict'
 import { join } from 'node:path'
@@ -65,6 +66,7 @@ describe('server agents: tool allow-list, last run, own state', () => {
       agents.set('ag-allow', agentDef('ag-allow', 'Item mirror', { mcpServers: ['tracker', 'wiki'], mcpTools: { tracker: ['list_items', 'get_item', 'bad name!', 'list_items'], wiki: [], ghost: ['x'] } }))
       agents.set('ag-all', agentDef('ag-all', 'All tools', { mcpServers: ['tracker'] }))
       agents.set('ag-state', agentDef('ag-state', 'Cursor keeper', {}))
+      meta.doc.getMap('integrations').set('tracker', { schema: 'one.integration/1', id: 'tracker', name: 'Tracker', match: { name: 'tracker' }, unlocks: ['upsert', 'toolAllowList', 'agentState', 'notify'] })
     })
     await flushed(meta)
     const put = await owner.json('PUT', `/api/workspaces/${wsId}/agent-runtime`, {

@@ -4,6 +4,8 @@
  * a protected field, MCP clients may not write it and see the marks, server agents' list_databases marks both,
  * upsert_rows created / updated / unchanged / refused in write modes "stage" and "apply", create_row with a taken
  * key and update_row on a protected field are refused, and applying a staged row whose key was taken since fails.
+ * upsert_rows is offered because an integration profile of the workspace matches the runtime's MCP server by name
+ * (integrations.test.ts covers the gate itself).
  */
 import assert from 'node:assert/strict'
 import { after, before, describe, test } from 'node:test'
@@ -117,9 +119,11 @@ describe('row keys and "Only by hand" on the server', () => {
       agents.set('ag-stage', agentDef('ag-stage', 'Stage mirror', {}))
       agents.set('ag-apply', agentDef('ag-apply', 'Apply mirror', { write: 'apply' }))
       agents.set('ag-late', agentDef('ag-late', 'Late mirror', {}))
+      // the profile that unlocks upsert_rows for the runtime's (fictional) tracker server
+      meta.doc.getMap('integrations').set('tracker', { schema: 'one.integration/1', id: 'tracker', name: 'Tracker', match: { name: 'tracker' }, unlocks: ['keys', 'onlyByHand', 'upsert', 'agentState'] })
     })
     await flushed(meta)
-    const rt = await owner.json('PUT', `/api/workspaces/${wsId}/agent-runtime`, { claudeKey: KEY, enabled: true })
+    const rt = await owner.json('PUT', `/api/workspaces/${wsId}/agent-runtime`, { claudeKey: KEY, mcpServers: [{ name: 'tracker', url: 'https://tracker.example.com/mcp' }], enabled: true })
     assert.equal(rt.status, 200)
     token = (await owner.post(`/api/workspaces/${wsId}/tokens`, { name: 'Tracker sync', scope: 'write' })).body.token
     mcp = new McpClient({ name: 'keys-test', version: '1.0.0' })

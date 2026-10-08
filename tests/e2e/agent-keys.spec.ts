@@ -7,6 +7,7 @@
  */
 import type { BrowserContext, Page } from '@playwright/test'
 import { test, expect, openApp, gotoPage, wsEval, MOD } from './fixtures'
+import { unlockAll } from './helpers/integrations'
 
 type AnyState = Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
 type Block = { type: 'text'; text: string } | { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }
@@ -165,6 +166,8 @@ async function shot(page: Page, name: string, show: () => Promise<void>) {
 test.describe('Row keys, "Only by hand" and upsert_rows', () => {
   test('property menu: Key refuses while rows share a value; Only by hand; a locked database shows neither', async ({ page }) => {
     await openApp(page)
+    // an active integration profile unlocks keys, Only by hand, upsert_rows, the tool list, the state and notes
+    await unlockAll(page)
     const t = await tickets(page, { flags: false, dupe: true })
     await gotoPage(page, t.db)
     await header(page, 'Ticket').click()
@@ -225,6 +228,8 @@ test.describe('Row keys, "Only by hand" and upsert_rows', () => {
 
   test('a person typing a key another row holds gets an inline refusal at the cell; a new value is written', async ({ page }) => {
     await openApp(page)
+    // an active integration profile unlocks keys, Only by hand, upsert_rows, the tool list, the state and notes
+    await unlockAll(page)
     const t = await tickets(page)
     await gotoPage(page, t.db)
     await retype(page, 1, 1, '8215')
@@ -238,6 +243,8 @@ test.describe('Row keys, "Only by hand" and upsert_rows', () => {
 
   test('custom agent: upsert_rows created / updated / unchanged / refused; create_row duplicates and protected fields refused', async ({ page, context }) => {
     await openApp(page)
+    // an active integration profile unlocks keys, Only by hand, upsert_rows, the tool list, the state and notes
+    await unlockAll(page)
     await setKey(page)
     const t = await tickets(page)
     const bodies = await mockClaude(context, [
@@ -315,6 +322,8 @@ test.describe('Row keys, "Only by hand" and upsert_rows', () => {
 
   test('apply: a key another row took since the proposal fails that change instead of writing a duplicate', async ({ page, context }) => {
     await openApp(page)
+    // an active integration profile unlocks keys, Only by hand, upsert_rows, the tool list, the state and notes
+    await unlockAll(page)
     await setKey(page)
     const t = await tickets(page)
     await mockClaude(context, [tool('tu1', 'upsert_rows', { database_id: t.db, key_property: 'Ticket', rows: [{ key: '9500', title: 'Offline mode' }] }), say('Proposed one ticket.')])
@@ -332,6 +341,8 @@ test.describe('Row keys, "Only by hand" and upsert_rows', () => {
 
   test('AI terminal: a protected field is refused; upsert_rows stages only what changed', async ({ page, context }) => {
     await openApp(page)
+    // an active integration profile unlocks keys, Only by hand, upsert_rows, the tool list, the state and notes
+    await unlockAll(page)
     await setKey(page)
     const t = await tickets(page)
     const bodies = await mockClaude(context, [
@@ -360,6 +371,8 @@ test.describe('Row keys, "Only by hand" and upsert_rows', () => {
 
   test('a 50-row batch: one call, one card per row, Apply all writes them (51 rows are refused)', async ({ page, context }) => {
     await openApp(page)
+    // an active integration profile unlocks keys, Only by hand, upsert_rows, the tool list, the state and notes
+    await unlockAll(page)
     await setKey(page)
     const t = await tickets(page)
     const rows = [

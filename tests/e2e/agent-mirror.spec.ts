@@ -1,11 +1,14 @@
 /**
  * Custom agents — the recipe "Mirror a list into a database" (features/agents: mirror.ts, MirrorSetup.tsx, the editor's
- * placeholders): the setup creates the database (key, the person's fields "Only by hand", six views) and its report page
- * in one step with one Undo, the editor opens with the agent draft, and a run mirrors items by their key. A mocked Claude
- * API only — never api.anthropic.com; the MCP servers are fictional addresses (Anthropic would call them, nothing does here).
+ * placeholders), brought by an integration profile (here `{ kind: 'mirror' }`: the built-in values; a configured recipe is
+ * integrations.spec.ts): the setup creates the database (key, the person's fields "Only by hand", six views) and its
+ * report page in one step with one Undo, the editor opens with the agent draft, and a run mirrors items by their key.
+ * Without an active profile the gallery has no mirror recipe. A mocked Claude API only — never api.anthropic.com; the
+ * MCP servers are fictional addresses (Anthropic would call them, nothing does here).
  */
 import type { BrowserContext, Page } from '@playwright/test'
 import { test, expect, openApp, pageIdByTitle, wsEval, flush } from './fixtures'
+import { addProfile, trackerProfile } from './helpers/integrations'
 
 type AnyState = Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
 type Block = { type: 'text'; text: string } | { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }
@@ -60,7 +63,12 @@ const SERVERS = [
   { id: 'm-tracker', name: 'tracker', url: 'https://tracker.example.com/mcp', token: '', enabled: true, prompt: '', tools: TRACKER_TOOLS, checkedAt: Date.now() },
   { id: 'm-wiki', name: 'wiki', url: 'https://wiki.example.com/mcp', token: '', enabled: true, prompt: '' },
 ]
-const setServers = (page: Page, servers: AnyState[] = SERVERS) => wsEval(page, (s, list) => s.updateSettings({ mcpServers: list }), servers)
+/** The servers, and the integration profile (both servers match by host) that brings the built-in mirror recipe. */
+async function setServers(page: Page, servers: AnyState[] = SERVERS) {
+  await wsEval(page, (s, list) => s.updateSettings({ mcpServers: list }), servers)
+  await addProfile(page, trackerProfile({ match: { host: '*.example.com' } }))
+}
+const RECIPE = '[data-recipe="tracker:mirror"]'
 
 const EN_PROPS = ['Name', 'Key', 'Link', 'Source status', 'Source priority', 'Owner', 'Tags', 'Changed at', 'Comments', 'Last comment', 'Last comment at', 'New comment', 'Waiting on me', 'Clarity', 'Why', 'Gone from source', 'My status', 'My priority', 'Next step', 'Due']
 const EN_PLACEHOLDERS = ['[HOW TO LIST THE ITEMS]', '[HOW TO READ ONE ITEM WITH ITS COMMENTS]', '[WHO I AM IN THE SOURCE]', '[WHAT "CLEAR" MEANS HERE]']
@@ -70,11 +78,11 @@ async function openSetup(page: Page) {
   await page.evaluate(() => (window.location.hash = '#/agents'))
   await page.locator('.agx').first().waitFor()
   // the empty list shows the recipes inline; otherwise "New agent" opens them
-  const inline = page.locator('.agx-start [data-recipe="mirror"]')
+  const inline = page.locator(`.agx-start ${RECIPE}`)
   if (await inline.count()) await inline.click()
   else {
     await page.locator('.agx-head .btn--primary').click()
-    await page.locator('.agx-recipe-modal [data-recipe="mirror"]').click()
+    await page.locator(`.agx-recipe-modal ${RECIPE}`).click()
   }
   const dialog = page.locator('.agx-mir')
   await expect(dialog).toBeVisible()
@@ -135,7 +143,7 @@ test.describe('Custom agents: the recipe "Mirror a list into a database"', () =>
     await dialog.getByRole('radio', { name: /TRACKER/ }).check()
     await expect(dialog.getByTestId('agx-mir-spec')).toContainText('20 properties · 6 views · key: Key')
     await expect(dialog.getByTestId('agx-mir-spec')).toContainText('My status · My priority · Next step · Due')
-    await expect(dialog.getByTestId('agx-mir-spec')).toContainText('Weekdays 07:30 · proposals first · $1.00 per run')
+    await expect(dialog.getByTestId('agx-mir-spec')).toContainText('Weekdays · 07:30 · proposals first · $1.00 per run')
     // an empty name is refused
     await dialog.getByRole('textbox', { name: /Name/ }).fill('  ')
     await dialog.getByRole('button', { name: 'Create database and agent' }).click()
@@ -410,14 +418,21 @@ test.describe('Custom agents: the recipe "Mirror a list into a database"', () =>
     await expect(page.locator('.agx-run')).toHaveCount(0)
   })
 
-  test('no MCP server: the setup points to Settings and creates nothing', async ({ page }) => {
+  test('no active integration: the gallery has no mirror recipe — no profile, no server, or its server switched off', async ({ page }) => {
     await openApp(page)
-    await setServers(page, [])
-    const dialog = await openSetup(page)
-    await expect(dialog.getByText('No MCP server yet — add the one of your tool first.')).toBeVisible()
-    await expect(dialog.getByRole('button', { name: 'Create database and agent' })).toBeDisabled()
-    await dialog.getByRole('button', { name: 'Settings → MCP servers' }).click()
-    await expect(page.getByRole('dialog', { name: 'Settings' })).toBeVisible()
+    await wsEval(page, (s, list) => s.updateSettings({ mcpServers: list }), SERVERS)
+    await page.evaluate(() => (window.location.hash = '#/agents'))
+    await expect(page.locator('.agx-start [data-recipe="weekly"]')).toBeVisible()
+    await expect(page.locator('[data-recipe*="mirror"]')).toHaveCount(0)
+    // the profile, but no matching server
+    await addProfile(page, trackerProfile({ match: { host: '*.example.org' } }))
+    await expect(page.locator('[data-recipe*="mirror"]')).toHaveCount(0)
+    // a matching one: offered, named by the profile
+    await addProfile(page, trackerProfile({ match: { host: '*.example.com' } }))
+    await expect(page.locator(`.agx-start ${RECIPE}`)).toContainText('Tracker')
+    // its servers switched off: gone again
+    await wsEval(page, (s, list) => s.updateSettings({ mcpServers: list.map((x: AnyState) => ({ ...x, enabled: false })) }), SERVERS)
+    await expect(page.locator('[data-recipe*="mirror"]')).toHaveCount(0)
   })
 
   test('390 px: setup and editor fit the phone width', async ({ page }) => {

@@ -5,6 +5,7 @@
  */
 import type { BrowserContext, Page } from '@playwright/test'
 import { test, expect, openApp, pageIdByTitle, wsEval, flush, gotoPage } from './fixtures'
+import { unlockAll } from './helpers/integrations'
 
 type AnyState = Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
 type Block = { type: 'text'; text: string } | { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }
@@ -127,6 +128,8 @@ const TRACKER_TOOLS = ['list_items', 'get_item', 'search_items', 'create_item', 
 test.describe('Custom agents: tool allow-list, last run + state, inbox notes', () => {
   test('MCP tool allow-list: the toolset switches every other tool off; an empty list leaves the server out; stored lists are sanitised', async ({ page, context }) => {
     await openApp(page)
+    // an active integration profile unlocks keys, Only by hand, upsert_rows, the tool list, the state and notes
+    await unlockAll(page)
     await setKey(page)
     await wsEval(page, (s, servers) => s.updateSettings({ mcpServers: servers }), [
       { ...TRACKER, tools: TRACKER_TOOLS, checkedAt: Date.now() },
@@ -169,6 +172,8 @@ test.describe('Custom agents: tool allow-list, last run + state, inbox notes', (
 
   test('editor: the tools of the last test as checkboxes, "Read-only tools" and "All"; an untested server points to Settings', async ({ page }) => {
     await openApp(page)
+    // an active integration profile unlocks keys, Only by hand, upsert_rows, the tool list, the state and notes
+    await unlockAll(page)
     await wsEval(page, (s, servers) => s.updateSettings({ mcpServers: servers }), [
       { ...TRACKER, tools: TRACKER_TOOLS, checkedAt: Date.now() },
       { id: 'm-notes', name: 'notes', url: 'https://notes.example.com/mcp', token: '', enabled: true, prompt: '' },
@@ -221,6 +226,8 @@ test.describe('Custom agents: tool allow-list, last run + state, inbox notes', (
 
   test('state: saved when a run ends ok, read by the next run with the last successful run in its context; a budget run keeps the old state', async ({ page, context }) => {
     await openApp(page)
+    // an active integration profile unlocks keys, Only by hand, upsert_rows, the tool list, the state and notes
+    await unlockAll(page)
     await setKey(page)
     const bodies = await mockClaude(context, [
       // run 1: nothing saved yet → save a cursor
@@ -276,6 +283,8 @@ test.describe('Custom agents: tool allow-list, last run + state, inbox notes', (
 
   test('notify_me: notes become inbox items of kind "agent" after an ok run (page link, agent label), capped at 10; out-of-scope pages are refused', async ({ page, context }) => {
     await openApp(page)
+    // an active integration profile unlocks keys, Only by hand, upsert_rows, the tool list, the state and notes
+    await unlockAll(page)
     await setKey(page)
     const wiki = await pageIdByTitle(page, 'Team wiki')
     const projects = await pageIdByTitle(page, 'Projects')
@@ -322,6 +331,8 @@ test.describe('Custom agents: tool allow-list, last run + state, inbox notes', (
   test('a failed run delivers no notes; a scheduled apply run that changed something says so in a toast with Open', async ({ page, context }) => {
     await page.clock.install({ time: new Date('2026-10-05T07:59:00+02:00') })
     await openApp(page)
+    // an active integration profile unlocks keys, Only by hand, upsert_rows, the tool list, the state and notes
+    await unlockAll(page)
     await setKey(page)
     const wiki = await pageIdByTitle(page, 'Team wiki')
     await mockClaude(context, [
