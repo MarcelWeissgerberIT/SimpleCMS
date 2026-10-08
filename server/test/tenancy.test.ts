@@ -168,6 +168,8 @@ interface Foreign {
   /** A custom agent of B (meta map `agents`) and one of its runs. */
   agent: string
   run: string
+  /** B's owner's cloud coding worker token (its id). */
+  codingWorker: string
 }
 
 /**
@@ -245,6 +247,10 @@ const ROUTES: Record<string, Entry> = {
   'POST /api/workspaces/:id/agents/:agentId/hook': { scope: 'workspace', req: (ws, x) => ({ method: 'POST', path: `${W(ws)}/agents/${x.agent}/hook` }), own: 404 },
   'DELETE /api/workspaces/:id/agents/:agentId/hook': { scope: 'workspace', req: (ws, x) => ({ method: 'DELETE', path: `${W(ws)}/agents/${x.agent}/hook` }), own: 404 },
   'POST /api/v1/agents/:agentId/hook/:secret': { scope: 'secret', why: 'the agent webhook URL secret is the credential (and names one agent)' },
+  'GET /api/workspaces/:id/coding/workers': { scope: 'workspace', req: (ws) => ({ method: 'GET', path: `${W(ws)}/coding/workers` }) },
+  'POST /api/workspaces/:id/coding/workers': { scope: 'workspace', req: (ws) => ({ method: 'POST', path: `${W(ws)}/coding/workers`, json: {} }) },
+  'DELETE /api/workspaces/:id/coding/workers/:workerId': { scope: 'workspace', req: (ws, x) => ({ method: 'DELETE', path: `${W(ws)}/coding/workers/${x.codingWorker}` }), own: 404 },
+  'GET /api/coding/worker': { scope: 'secret', why: 'the cloud worker token is the credential (it names one workspace and one member; swept as a WebSocket below)' },
 
   'GET /api/v1/workspace': { scope: 'api', req: () => ({ method: 'GET', path: '/api/v1/workspace' }), expect: (b, x) => assert.notEqual(b.id, x.ws) },
   'GET /api/v1/databases': { scope: 'api', req: () => ({ method: 'GET', path: '/api/v1/databases' }), expect: (b, x) => assert.ok(!JSON.stringify(b).includes(x.db)) },
@@ -303,7 +309,7 @@ describe('isolation sweep: a member of A against workspace B', () => {
   let alice: Client, bob: Client
   let A: string, aliceId: string, aliceToken: string
   let x: Foreign
-  let hookSecretB: string, tokenSecretB: string
+  let hookSecretB: string, tokenSecretB: string, codingTokenB: string
   const fileBytes = `file of B ${MARKER}`
   const docs: DocClient[] = []
 
@@ -355,7 +361,10 @@ describe('isolation sweep: a member of A against workspace B', () => {
     const runId = (await bob.post(`${W(B)}/agents/ag-bravo/run`)).body.runId
     await waitFor(async () => (await bob.get(`${W(B)}/agent-runs`)).body[0]?.status === 'error', 15_000, 'B\'s run ends')
     assert.equal((await bob.post(`${W(B)}/agents/ag-bravo/hook`)).status, 201)
-    x = { ws: B, owner: bobId, invite: invite.id, token: token.id, hook: hook.id, signupLink: signupLink.id, file: 'file-bravo', page: 'page-bravo', db: 'db-bravo', row: 'row-bravo', agent: 'ag-bravo', run: runId }
+    const codingWorker = (await bob.post(`${W(B)}/coding/workers`, {})).body
+    assert.match(codingWorker.token, /^onew_/)
+    codingTokenB = codingWorker.token
+    x = { ws: B, owner: bobId, invite: invite.id, token: token.id, hook: hook.id, signupLink: signupLink.id, file: 'file-bravo', page: 'page-bravo', db: 'db-bravo', row: 'row-bravo', agent: 'ag-bravo', run: runId, codingWorker: codingWorker.id }
   })
 
   after(async () => {
@@ -480,6 +489,39 @@ describe('isolation sweep: a member of A against workspace B', () => {
         d.destroy()
       }
     }
+  })
+
+  test('coding relay: A never pairs with B\'s cloud worker, nor reaches it with A\'s own worker token', async () => {
+    const ws = server.url.replace(/^http/, 'ws')
+    const open = (path: string, headers: Record<string, string>) => {
+      const sock = new WebSocket(`${ws}${path}`, { protocols: ['one-worker.v1'], headers } as unknown as string[])
+      const frames: string[] = []
+      let closed: { code: number; reason: string } | null = null
+      sock.onmessage = (e) => frames.push(String(e.data))
+      sock.onclose = (e) => (closed ??= { code: e.code, reason: e.reason })
+      // a refused upgrade (HTTP 403) only errors
+      sock.onerror = () => (closed ??= { code: 1006, reason: 'refused' })
+      return { sock, frames, closed: () => closed }
+    }
+    const workerB = open('/coding/worker', { authorization: `Bearer ${codingTokenB}`, 'x-one-workspace': `team:${x.ws}` })
+    await waitFor(() => workerB.frames.length > 0, 5000, 'B\'s worker ready')
+    // A's owner opens B's relay: accepted, then closed as not allowed — B's worker hears nothing
+    const tabA = open(`/coding/tab?workspace=${x.ws}`, { cookie: alice.cookieHeader(), origin: server.url })
+    await waitFor(() => tabA.closed() !== null, 5000, 'A\'s tab closed')
+    assert.deepEqual(tabA.closed(), { code: 4403, reason: 'forbidden' })
+    assert.deepEqual(tabA.frames, [])
+    // A's own worker token, aimed at B
+    const tokenA = (await alice.post(`${W(A)}/coding/workers`, {})).body.token as string
+    const workerA = open('/coding/worker', { authorization: `Bearer ${tokenA}`, 'x-one-workspace': `team:${x.ws}` })
+    await waitFor(() => workerA.closed() !== null, 5000, 'A\'s worker refused')
+    assert.deepEqual(workerA.closed(), { code: 1006, reason: 'refused' })
+    assert.deepEqual(workerA.frames, [])
+    // B's token from A's side of the relay: the token names B, so it only ever pairs with B's owner
+    const asA = await fetch(`${server.url}/api/coding/worker`, { headers: { authorization: `Bearer ${codingTokenB}` } })
+    assert.equal(((await asA.json()) as { workspace: { id: string } }).workspace.id, `team:${x.ws}`)
+    await new Promise((r) => setTimeout(r, 200))
+    assert.ok(workerB.frames.every((f) => !f.includes('tab-open')), 'B\'s worker was never paired')
+    workerB.sock.close()
   })
 
   test('afterwards B is untouched', async () => {

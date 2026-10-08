@@ -5,8 +5,11 @@
  *
  * One (the browser tab) keeps the tasks, the pipeline, approvals, logs and diffs. The worker runs on the
  * person's machine: it owns the repositories (paths and commands never leave the machine), runs git and
- * Claude Code there, and talks to the tab over ws://127.0.0.1:<port> — origin allow-list, host check and
- * workspace binding exactly like the MCP bridge (docs/MCP.md § Security model, docs/CODING.md).
+ * Claude Code there, and talks to the tab either over ws://127.0.0.1:<port> (Local — origin allow-list, host
+ * check and workspace binding exactly like the MCP bridge, docs/MCP.md § Security model) or, in a team
+ * workspace, through the team server's relay (Cloud — the worker dials out; every protocol frame travels
+ * end-to-end encrypted with a key derived from the download's pairing secret: the server passes boxes it
+ * can neither read nor forge, docs/CODING.md § Cloud worker).
  *
  * The worker asks (`req`), the tab answers (`res`) — and the other way round for the person's actions
  * (Stop, the fixed git verbs). One never sends a command line, a path or a free git argument.
@@ -99,6 +102,12 @@ export interface WorkerPreset {
   name: string
   /** One runs on a loopback origin (development): any http://localhost / 127.0.0.1 port is accepted too */
   dev?: boolean
+  /**
+   * A cloud worker (team workspaces): it dials `origin`'s relay with this worker token instead of waiting for a
+   * tab on 127.0.0.1 — the local port then serves only its task tools and setup page. `pair` keys the
+   * end-to-end encryption between this file and the browser that downloaded it (it never travels).
+   */
+  cloud?: { token: string }
 }
 
 export interface WorkspaceRef {
@@ -287,6 +296,8 @@ export interface WorkerInfo {
   setup?: boolean
   /** it came ready-paired from a download in One */
   paired?: boolean
+  /** how it reaches One: 127.0.0.1 (local) or the team server's relay (cloud); older workers send none */
+  via?: 'local' | 'cloud'
 }
 
 /** The answer to `open-setup`: the worker opened its setup page on its own screen (One never learns its address). */
@@ -336,6 +347,71 @@ export type TabMessage =
 
 /** Why a worker refused a tab: another workspace · not bound to one · a paired worker got no / another pairing secret. */
 export type RefusedReason = 'workspace' | 'unbound' | 'pair'
+
+/* ------------------------------------------------------------------ cloud: the team server's relay */
+
+/**
+ * Cloud mode (docs/CODING.md § Cloud worker): the worker dials RELAY_WORKER_PATH with its worker token, the
+ * member's tab opens RELAY_TAB_PATH with its session; the server pairs them per (workspace, member). Every
+ * TabMessage / WorkerMessage then travels as a `box` (AES-256-GCM; key = HKDF-SHA256(pairing secret, salt =
+ * tab nonce ‖ worker nonce, info RELAY_BOX_INFO)) — the server forwards boxes it can neither read nor forge.
+ * Only `key` (the two fresh nonces), `box` and the small `relay` control frames below are visible to it.
+ */
+export const RELAY_TAB_PATH = '/coding/tab'
+export const RELAY_WORKER_PATH = '/coding/worker'
+/** A cloud worker's token: "onew_" + 32 random bytes base64url (never an API token: those start "one_"). */
+export const WORKER_TOKEN = /^onew_[A-Za-z0-9_-]{43}$/
+/** The local port a cloud preset uses for its own task tools and setup page — not 47322, so a local worker can run beside it. */
+export const WORKER_CLOUD_PORT = 47323
+/** The largest frame the relay forwards: an Import chunk (4 MiB → ~5.6 MB base64 → ~7.5 MB boxed) fits. */
+export const RELAY_MAX_FRAME = 8 * 1024 * 1024 + 64 * 1024
+/** The largest protocol frame (plain JSON) a side boxes — its box (base64 of the ciphertext) stays below RELAY_MAX_FRAME. */
+export const RELAY_MAX_PLAIN = 6 * 1024 * 1024
+/** HKDF info of the session key. */
+export const RELAY_BOX_INFO = 'one-worker-relay v1'
+/** A key-exchange nonce: 32 random bytes, base64url. An AES-GCM iv: 12 random bytes, base64url. */
+export const RELAY_NONCE = /^[A-Za-z0-9_-]{43}$/
+export const RELAY_IV = /^[A-Za-z0-9_-]{16}$/
+/** Relay close codes (besides 4001 replaced / 4003 refused): token revoked or replaced, session ended · not (or no longer) allowed · a tab without a keepalive. */
+export const RELAY_CLOSE_AUTH = 4401
+export const RELAY_CLOSE_FORBIDDEN = 4403
+export const RELAY_CLOSE_IDLE = 4408
+/** The codes a worker may ask the relay to close its tab with (after a refusal). */
+export const RELAY_CLOSE_TAB_CODES = [4001, 4003, 1008] as const
+/** How often a cloud tab tells the relay it is alive (a frozen background tab stops; the relay lets it go after RELAY_TAB_IDLE_MS). */
+export const RELAY_ALIVE_MS = 20_000
+export const RELAY_TAB_IDLE_MS = 150_000
+
+/** The two nonces of a pairing (`s` = the relay's pairing number, from `worker` / `tab-open`). */
+export interface RelayKey {
+  type: 'key'
+  s: number
+  n: string
+}
+/** One protocol frame, sealed. `seq` rises strictly per direction (AAD "tw:<s>:<seq>" / "wt:<s>:<seq>"); `k: 'e'` = an event the relay may drop under load. */
+export interface RelayBox {
+  type: 'box'
+  s: number
+  seq: number
+  iv: string
+  data: string
+  k?: 'e'
+}
+/** server → tab (cloud), besides the worker's boxes */
+export type RelayToTab =
+  /** the member's cloud worker: connected? (`token` = its token's id: which download it is; `s` = the pairing) · registered = a live token exists */
+  | { type: 'relay'; op: 'worker'; online: boolean; registered: boolean; token: string | null; s: number }
+  /** the relay dropped this many of the worker's events (this tab could not keep up) */
+  | { type: 'relay'; op: 'dropped'; n: number }
+/** tab → server (cloud) */
+export type TabToRelay = { type: 'relay'; op: 'alive' }
+/** server → worker (cloud), besides the tab's boxes */
+export type RelayToWorker =
+  | { type: 'relay'; op: 'ready'; workspace: { id: string; name: string } }
+  | { type: 'relay'; op: 'tab-open'; s: number }
+  | { type: 'relay'; op: 'tab-gone'; s: number; reason: 'closed' | 'replaced' | 'ended' | 'idle' }
+/** worker → server: close the current tab (after a refusal) */
+export type WorkerToRelay = { type: 'relay'; op: 'close-tab'; s: number; code: (typeof RELAY_CLOSE_TAB_CODES)[number]; reason: string }
 
 /** worker → tab */
 export type WorkerMessage =

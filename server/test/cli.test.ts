@@ -4,7 +4,7 @@ import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { test } from 'node:test'
-import { signIn, startServer } from './helpers.ts'
+import { signIn, startServer, waitFor } from './helpers.ts'
 
 const CLI = new URL('../dist/cli.js', import.meta.url).pathname
 
@@ -39,6 +39,35 @@ test('admin CLI: list, make-owner, revoke-sessions, backup', async () => {
     assert.equal(row.name, 'CLI Space')
     assert.throws(() => cli('backup', target), /already exists/)
     assert.throws(() => cli('nonsense'))
+  } finally {
+    await server.stop()
+  }
+})
+
+test('admin CLI: revoke-workers stops a cloud coding worker (revoke-sessions does not)', async () => {
+  // a short sweep: the relay notices a token the CLI revoked (another process) at once
+  const server = await startServer({ CODING_PING_MS: '200' })
+  const cli = (...args: string[]) =>
+    execFileSync(process.execPath, ['--disable-warning=ExperimentalWarning', CLI, ...args], { env: { PATH: process.env.PATH, DATA_DIR: server.dataDir }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+  try {
+    const ada = await signIn(server, 'cli-worker@example.com')
+    const ws = (await ada.post('/api/workspaces', { name: 'Workers' })).body
+    const { token } = (await ada.post(`/api/workspaces/${ws.id}/coding/workers`, {})).body
+    const sock = new WebSocket(`${server.url.replace(/^http/, 'ws')}/coding/worker`, { protocols: ['one-worker.v1'], headers: { authorization: `Bearer ${token}`, 'x-one-workspace': `team:${ws.id}` } } as unknown as string[])
+    let closed: { code: number; reason: string } | null = null
+    let ready = false
+    sock.onmessage = () => (ready = true)
+    sock.onclose = (e) => (closed = { code: e.code, reason: e.reason })
+    await waitFor(() => ready, 5000, 'worker ready')
+    assert.match(cli('help'), /revoke-workers/)
+    assert.match(cli('revoke-sessions', 'cli-worker@example.com'), /cloud coding workers keep running/)
+    await new Promise((r) => setTimeout(r, 800))
+    assert.equal(closed, null, 'signing out does not stop the worker')
+    assert.throws(() => cli('revoke-workers', 'nobody@example.com'))
+    assert.match(cli('revoke-workers', 'cli-worker@example.com', ws.id), /revoked 1 cloud worker token/)
+    await waitFor(() => closed !== null, 5000, 'worker closed')
+    assert.deepEqual(closed, { code: 4401, reason: 'revoked' })
+    assert.equal((await fetch(`${server.url}/api/coding/worker`, { headers: { authorization: `Bearer ${token}` } })).status, 401)
   } finally {
     await server.stop()
   }

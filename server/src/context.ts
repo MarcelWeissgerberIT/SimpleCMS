@@ -41,6 +41,21 @@ export interface CollabControl {
 /** Sent to the client as the reason of a per-document close message (provider `close` event). */
 export type CloseReason = 'membership-revoked' | 'role-changed' | 'workspace-deleted' | 'session-ended'
 
+/** What REST routes may ask the coding relay (cloud workers, docs/CLOUD.md § Coding relay) to do. */
+export interface CodingControl {
+  /** both sides of that member in that workspace (4403 with the reason) */
+  closeUser(userId: string, workspaceId: string, reason: CloseReason): number
+  closeWorkspace(workspaceId: string, reason: CloseReason): number
+  /** the tabs of a session that ended (4401) */
+  closeSession(sessionId: string, reason: CloseReason): number
+  /** a worker whose token was revoked or replaced by a newer download (4401) */
+  closeWorker(workerId: string, reason: 'revoked' | 'replaced'): number
+  /** tell the member's tab again whether a worker is registered / online */
+  refresh(workspaceId: string, userId: string): void
+  /** the connected worker tokens of a workspace (token id → since when) and whether their member's tab is there */
+  online(workspaceId: string): Map<string, { since: number; tab: boolean }>
+}
+
 export interface Services {
   config: Config
   log: Logger
@@ -50,6 +65,7 @@ export interface Services {
   mailer: Mailer
   limiter: RateLimiter
   collab: CollabControl
+  coding: CodingControl
 }
 
 export type AppEnv = {

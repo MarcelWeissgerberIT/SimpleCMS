@@ -109,6 +109,28 @@ export interface WebhookRow {
   deliveries: number
 }
 
+/** A cloud coding worker's token (docs/CLOUD.md § Coding relay): one member, one workspace, only /coding/worker. */
+export interface CodingWorkerRow {
+  id: string
+  workspace_id: string
+  user_id: string
+  label: string
+  token_hash: string
+  created_at: number
+  /** the browser that downloaded it (user agent, ≤ 200 characters) */
+  created_ua: string | null
+  /** null = pending: never connected yet (expires after CODING_PENDING_TTL) */
+  activated_at: number | null
+  last_used_at: number | null
+  revoked_at: number | null
+}
+
+/** Worker token secrets: "onew_" + 43 URL-safe chars — never accepted where API tokens ("one_") are. */
+export const WORKER_TOKEN_PREFIX = 'onew_'
+export const isWorkerTokenShape = (s: unknown): s is string => typeof s === 'string' && /^onew_[A-Za-z0-9_-]{43}$/.test(s)
+/** A downloaded cloud worker must connect within a day, else its token lapses. */
+export const CODING_PENDING_TTL = DAY
+
 /** API token secrets: "one_" + 43 URL-safe chars (32 random bytes). */
 export const API_TOKEN_PREFIX = 'one_'
 export const isApiTokenShape = (s: unknown): s is string => typeof s === 'string' && /^one_[A-Za-z0-9_-]{43}$/.test(s)
@@ -308,8 +330,12 @@ export class Repo {
     )
   }
 
+  /** Their cloud worker tokens go with the membership (the relay closes the sockets). */
   removeMember(workspaceId: string, userId: string) {
-    this.db.run('DELETE FROM members WHERE workspace_id = ? AND user_id = ?', workspaceId, userId)
+    this.db.tx(() => {
+      this.db.run('DELETE FROM members WHERE workspace_id = ? AND user_id = ?', workspaceId, userId)
+      this.revokeCodingWorkersOf(workspaceId, userId)
+    })
   }
 
   // ── invites ──────────────────────────────────────────────────────────
@@ -604,6 +630,105 @@ export class Repo {
     this.db.run('UPDATE api_tokens SET last_used_at = ? WHERE id = ?', at, tokenId)
   }
 
+  // ── cloud coding workers (docs/CLOUD.md § Coding relay) ──────────────
+
+  /**
+   * A new download's token, PENDING: the member's working token stays until this one first connects
+   * (activateCodingWorker). An older pending token (a download never started) is revoked now. The secret is
+   * returned once and stored only as HMAC.
+   */
+  createCodingWorker(input: { workspaceId: string; userId: string; label: string; userAgent: string | null }): { token: string; row: CodingWorkerRow; replaced: string[] } {
+    const token = WORKER_TOKEN_PREFIX + randomToken()
+    const now = Date.now()
+    const row: CodingWorkerRow = {
+      id: newId(),
+      workspace_id: input.workspaceId,
+      user_id: input.userId,
+      label: input.label,
+      token_hash: this.hash(token),
+      created_at: now,
+      created_ua: input.userAgent ? input.userAgent.replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, 200) : null,
+      activated_at: null,
+      last_used_at: null,
+      revoked_at: null,
+    }
+    const replaced = this.db.tx(() => {
+      const ids = this.db
+        .all<{ id: string }>('SELECT id FROM coding_workers WHERE workspace_id = ? AND user_id = ? AND revoked_at IS NULL AND activated_at IS NULL', input.workspaceId, input.userId)
+        .map((r) => r.id)
+      for (const id of ids) this.db.run('UPDATE coding_workers SET revoked_at = ? WHERE id = ?', now, id)
+      this.db.run(
+        'INSERT INTO coding_workers (id, workspace_id, user_id, label, token_hash, created_at, created_ua) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        row.id, row.workspace_id, row.user_id, row.label, row.token_hash, row.created_at, row.created_ua,
+      )
+      return ids
+    })
+    return { token, row, replaced }
+  }
+
+  /** Live tokens (active, and pending ones not expired) with their member, newest first — one member's or everyone's. */
+  codingWorkers(workspaceId: string, userId?: string, now = Date.now()) {
+    return this.db.all<CodingWorkerRow & { user_name: string | null; user_email: string }>(
+      `SELECT c.*, u.name AS user_name, u.email AS user_email FROM coding_workers c JOIN users u ON u.id = c.user_id
+       WHERE c.workspace_id = ? AND c.revoked_at IS NULL AND (c.activated_at IS NOT NULL OR c.created_at > ?)${userId ? ' AND c.user_id = ?' : ''}
+       ORDER BY c.created_at DESC`,
+      ...(userId ? [workspaceId, now - CODING_PENDING_TTL, userId] : [workspaceId, now - CODING_PENDING_TTL]),
+    )
+  }
+
+  /** A live token of that workspace. */
+  codingWorker(workspaceId: string, id: string, now = Date.now()): CodingWorkerRow | undefined {
+    return this.db.get<CodingWorkerRow>(
+      'SELECT * FROM coding_workers WHERE id = ? AND workspace_id = ? AND revoked_at IS NULL AND (activated_at IS NOT NULL OR created_at > ?)',
+      id, workspaceId, now - CODING_PENDING_TTL,
+    )
+  }
+
+  /** A live token of an existing workspace by its secret (HMAC lookup; the caller compares in constant time too). */
+  codingWorkerBySecret(token: string, now = Date.now()): CodingWorkerRow | undefined {
+    return this.db.get<CodingWorkerRow>(
+      `SELECT c.* FROM coding_workers c JOIN workspaces w ON w.id = c.workspace_id
+       WHERE c.token_hash = ? AND c.revoked_at IS NULL AND (c.activated_at IS NOT NULL OR c.created_at > ?)`,
+      this.hash(token), now - CODING_PENDING_TTL,
+    )
+  }
+
+  codingWorkerLive(id: string, now = Date.now()): boolean {
+    return !!this.db.get('SELECT 1 AS ok FROM coding_workers WHERE id = ? AND revoked_at IS NULL AND (activated_at IS NOT NULL OR created_at > ?)', id, now - CODING_PENDING_TTL)
+  }
+
+  /**
+   * The token's first connection: it becomes the member's active one, and every other live token of the member
+   * in that workspace is revoked (returned: the relay closes them as "replaced"). Already active: nothing.
+   */
+  activateCodingWorker(id: string, now = Date.now()): { activated: boolean; replaced: string[] } {
+    return this.db.tx(() => {
+      const row = this.db.get<CodingWorkerRow>('SELECT * FROM coding_workers WHERE id = ? AND revoked_at IS NULL', id)
+      if (!row || row.activated_at !== null) return { activated: false, replaced: [] }
+      const replaced = this.db
+        .all<{ id: string }>('SELECT id FROM coding_workers WHERE workspace_id = ? AND user_id = ? AND id != ? AND revoked_at IS NULL', row.workspace_id, row.user_id, id)
+        .map((r) => r.id)
+      for (const other of replaced) this.db.run('UPDATE coding_workers SET revoked_at = ? WHERE id = ?', now, other)
+      this.db.run('UPDATE coding_workers SET activated_at = ?, last_used_at = ? WHERE id = ?', now, now, id)
+      return { activated: true, replaced }
+    })
+  }
+
+  revokeCodingWorker(workspaceId: string, id: string): boolean {
+    return this.db.run('UPDATE coding_workers SET revoked_at = ? WHERE id = ? AND workspace_id = ? AND revoked_at IS NULL', Date.now(), id, workspaceId) > 0
+  }
+
+  /** Every live token of a member in a workspace (leaving, removal). Returns their ids. */
+  revokeCodingWorkersOf(workspaceId: string, userId: string): string[] {
+    const ids = this.db.all<{ id: string }>('SELECT id FROM coding_workers WHERE workspace_id = ? AND user_id = ? AND revoked_at IS NULL', workspaceId, userId).map((r) => r.id)
+    if (ids.length) this.db.run('UPDATE coding_workers SET revoked_at = ? WHERE workspace_id = ? AND user_id = ? AND revoked_at IS NULL', Date.now(), workspaceId, userId)
+    return ids
+  }
+
+  touchCodingWorker(id: string, at = Date.now()) {
+    this.db.run('UPDATE coding_workers SET last_used_at = ? WHERE id = ?', at, id)
+  }
+
   // ── incoming webhooks ────────────────────────────────────────────────
 
   createWebhook(input: { workspaceId: string; databaseId: string; createdBy: string }): { secret: string; row: WebhookRow } {
@@ -698,6 +823,11 @@ export class Repo {
       idempotency: this.db.run('DELETE FROM idempotency WHERE created_at < ?', now - DAY),
       // revoked tokens are kept a while for the audit trail (rows written by `api:<tokenId>`)
       apiTokens: this.db.run('DELETE FROM api_tokens WHERE revoked_at IS NOT NULL AND revoked_at < ?', now - 90 * DAY),
+      // cloud worker tokens: revoked ones kept like API tokens; a download never started lapses after a day
+      codingWorkers: this.db.run(
+        'DELETE FROM coding_workers WHERE (revoked_at IS NOT NULL AND revoked_at < ?) OR (activated_at IS NULL AND revoked_at IS NULL AND created_at < ?)',
+        now - 90 * DAY, now - CODING_PENDING_TTL,
+      ),
     }
   }
 }

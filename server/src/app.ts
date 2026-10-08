@@ -6,6 +6,7 @@ import { AgentService } from './agents/service.ts'
 import { hookRoutes } from './api/hooks.ts'
 import { WorkspaceModel } from './api/model.ts'
 import { apiRoutes } from './api/v1.ts'
+import { codingRoutes, codingWorkerRoutes } from './coding/routes.ts'
 import type { AppEnv, Services } from './context.ts'
 import { ApiError, notFound } from './errors.ts'
 import { csrfGuard, securityHeaders } from './http/security.ts'
@@ -58,6 +59,8 @@ export function buildApp(s: Services, extra: { model?: WorkspaceModel; agents?: 
       max_upload_mb: s.config.maxUploadBytes / 1024 / 1024,
       dev_mode: s.config.devMode,
       source_url: s.config.sourceUrl,
+      // cloud coding workers (docs/CLOUD.md § Coding relay): CODING_RELAY=off → false
+      coding_relay: s.config.codingRelay,
     }),
   )
 
@@ -70,6 +73,8 @@ export function buildApp(s: Services, extra: { model?: WorkspaceModel; agents?: 
   app.route('/api/workspaces', documentRoutes(s))
   app.route('/api/workspaces', integrationRoutes(s, model))
   app.route('/api/workspaces', agentRoutes(s, model, agents))
+  app.route('/api/workspaces', codingRoutes(s))
+  app.route('/api/coding', codingWorkerRoutes(s))
   app.route('/api/invites', inviteRoutes(s))
   app.route('/api/signup', signupRoutes(s))
   app.route('/api/server', serverRoutes(s))
