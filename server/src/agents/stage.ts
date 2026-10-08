@@ -5,7 +5,8 @@
  * NAMES for select / status / multi-select, stored values for the rest), and written only when someone
  * applies them — in the app (apply.ts) or here (`POST …/agent-runs/:runId/apply`).
  */
-import type { PageInfo, PropertyDef, Roots } from '../api/meta.ts'
+import { type PageInfo, type PropertyDef, type Roots, pageMap, readPage, rowsOf } from '../api/meta.ts'
+import { isHandOnly, keyPropOf, keyText } from '../api/keys.ts'
 import { findProperty, type WorkspaceModel } from '../api/model.ts'
 import { READ_ONLY_TYPES, ValueError, coerce, type ValueContext } from '../api/values.ts'
 import { ApiError } from '../errors.ts'
@@ -43,12 +44,14 @@ export function stageProps(r: Roots, db: { properties: PropertyDef[]; locked: bo
   if (input === undefined || input === null) return []
   if (!isObj(input)) throw new ToolInputError('"properties" must be an object: property name → value.')
   const out: PropChange[] = []
-  const names = db.properties.filter(settable).map((p) => q(p.name)).join(', ')
+  const names = db.properties.filter((p) => settable(p) && !isHandOnly(p)).map((p) => q(p.name)).join(', ')
   for (const [key, raw] of Object.entries(input)) {
     const prop = findProperty(db.properties, key)
     if (!prop) throw new ToolInputError(`Unknown property ${q(key)}. Settable properties: ${names || '(none)'}.`)
     if (prop.type === 'title') throw new ToolInputError(`${q(prop.name)} is the title: use the title parameter (or set_page_title).`)
     if (!settable(prop)) throw new ToolInputError(`${q(prop.name)} (${prop.type}) is computed and cannot be set.`)
+    // "Only by hand" (api/keys.ts): agents never write it
+    if (isHandOnly(prop)) throw new ToolInputError(handOnlyError(prop))
     const before = row ? valueText(prop, row, ctx) : ''
     const base = { propId: prop.id, name: prop.name, type: prop.type, before }
     if (prop.type === 'select' || prop.type === 'status' || prop.type === 'multi_select') {
@@ -87,6 +90,65 @@ export function stageProps(r: Roots, db: { properties: PropertyDef[]; locked: bo
   return out
 }
 
+/** The refusal of a property only people fill in (the app's props.ts says the same). */
+export const handOnlyError = (p: Pick<PropertyDef, 'name'>) => `"${p.name}" is filled in only by hand ("Only by hand"): agents never write it. Leave it out.`
+
+/* ------------------------------------------------------------------ keys (api/keys.ts) */
+
+export interface KeyHolder {
+  /** a live row's id, or the id a staged row gets */
+  id: string
+  title: string
+  /** the staged change that gives the row this value (a pending create_row, or the update_row of a live row) */
+  change?: StagedChange
+}
+
+const open = (c: StagedChange) => c.status === 'pending' || c.status === 'failed'
+
+/** The value a staged property change writes (option changes are never keys). */
+export const intentValue = (pc: PropChange | undefined): unknown => (pc?.intent.kind === 'value' ? pc.intent.value : undefined)
+
+/** Key text → who holds it once the run's open changes are applied (the app's agent/keys.ts). */
+export function keyHolders(r: Roots, staged: StagedChange[], dbId: string, prop: PropertyDef): Map<string, KeyHolder[]> {
+  const out = new Map<string, KeyHolder[]>()
+  const add = (k: string, h: KeyHolder) => {
+    if (!k) return
+    const list = out.get(k)
+    if (list) list.push(h)
+    else out.set(k, [h])
+  }
+  const updates = new Map<string, StagedChange>()
+  for (const c of staged) if (c.kind === 'update_row' && open(c) && c.databaseId === dbId && c.props?.some((p) => p.propId === prop.id)) updates.set(c.pageId, c)
+  for (const row of rowsOf(r, dbId)) {
+    const u = updates.get(row.id)
+    const v = u ? intentValue(u.props!.find((p) => p.propId === prop.id)) : row.properties[prop.id]
+    add(keyText(prop.type, v), { id: row.id, title: row.title.trim(), ...(u ? { change: u } : {}) })
+  }
+  for (const c of staged) {
+    if (c.kind !== 'create_row' || !open(c) || c.databaseId !== dbId) continue
+    add(keyText(prop.type, intentValue(c.props?.find((p) => p.propId === prop.id))), { id: c.pageId, title: (c.title ?? '').trim(), change: c })
+  }
+  return out
+}
+
+export function holderText(h: KeyHolder): string {
+  const name = `the row ${q(h.title || 'Untitled')}`
+  return h.change?.kind === 'create_row' ? `${name} staged as change #${h.change.n}` : `${name} (id: ${h.id})`
+}
+
+/** The refusal of staged values that give the database's key a value another row holds (null: fine). */
+export function keyConflict(r: Roots, staged: StagedChange[], dbId: string, props: PropertyDef[], changes: PropChange[], self: string | null, upsert = true): string | null {
+  const key = keyPropOf(props)
+  if (!key) return null
+  const k = keyText(key.type, intentValue(changes.find((c) => c.propId === key.id)))
+  if (!k) return null
+  const row = self ? pageMap(r, self) : null
+  if (row && row.get('databaseId') === dbId && keyText(key.type, readPage(self!, row).properties[key.id]) === k) return null
+  const other = (keyHolders(r, staged, dbId, key).get(k) ?? []).find((h) => h.id !== self)
+  if (!other) return null
+  return `"${key.name}" is this database's key — unique per row — and ${holderText(other)} has ${q(k)} already. Nothing was staged. Change that row instead (update_row${upsert ? `, or upsert_rows by "${key.name}"` : ''}).`
+}
+
 /** Later values for the same property replace earlier ones (a staged row updated again). */
 export function mergeProps(prev: PropChange[] | undefined, next: PropChange[]): PropChange[] {
   const out = [...(prev ?? [])]
@@ -122,13 +184,14 @@ export async function applyChange(model: WorkspaceModel, writes: McpWrites, wsId
       return
     case 'create_row': {
       if (!change.databaseId) throw new Error('the staged row names no database')
-      const row = await writes.prepareRow(wsId, { databaseId: change.databaseId }, { title: change.title, properties: propsInput(change.props) }, actor)
-      await model.createRow(wsId, change.databaseId, { title: row.title ?? change.title ?? '', properties: row.properties, content: change.markdown }, actor, { id: change.pageId })
+      // an agent's write: "Only by hand" refused, the key stays unique (api/keys.ts)
+      const row = await writes.prepareRow(wsId, { databaseId: change.databaseId }, { title: change.title, properties: propsInput(change.props) }, actor, { agent: true })
+      await model.createRow(wsId, change.databaseId, { title: row.title ?? change.title ?? '', properties: row.properties, content: change.markdown }, actor, { id: change.pageId, agent: true })
       return
     }
     case 'update_row': {
-      const row = await writes.prepareRow(wsId, { rowId: change.pageId }, { properties: propsInput(change.props) }, actor)
-      await model.updateRow(wsId, change.pageId, { title: row.title, properties: row.properties }, actor)
+      const row = await writes.prepareRow(wsId, { rowId: change.pageId }, { properties: propsInput(change.props) }, actor, { agent: true })
+      await model.updateRow(wsId, change.pageId, { title: row.title, properties: row.properties }, actor, { agent: true })
       return
     }
   }

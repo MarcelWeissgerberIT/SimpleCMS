@@ -12,6 +12,8 @@ export const workspaceMessages: Messages = {
     'shell.ws.sec.people': 'People',
     'shell.ws.sec.blocks': 'Building blocks',
     'shell.ws.sec.automation': 'Automation',
+    'shell.ws.sec.integrations': 'Integrations',
+    'shell.ws.integrations.lead': 'Profiles that unlock agent features — keys, “Only by hand”, upsert_rows, tool lists, the agent state, inbox notes — and bring recipes while one of your MCP servers matches. Configured here, never built in.',
     'shell.ws.sec.data': 'Data',
     'shell.ws.sec.danger': 'Danger zone',
 
@@ -27,6 +29,7 @@ export const workspaceMessages: Messages = {
 
     'shell.ws.cmd.open': 'Workspace settings',
     'shell.ws.cmd.people': 'People',
+    'shell.ws.cmd.integrations': 'Integrations',
     'shell.ws.cmd.members': 'Members & people',
 
     // Settings (the modal): this device + account
@@ -236,6 +239,8 @@ export const workspaceMessages: Messages = {
     'shell.ws.sec.people': 'Personen',
     'shell.ws.sec.blocks': 'Bausteine',
     'shell.ws.sec.automation': 'Automatisierung',
+    'shell.ws.sec.integrations': 'Integrationen',
+    'shell.ws.integrations.lead': 'Profile, die Agenten-Funktionen freischalten — Schlüssel, „Nur von Hand“, upsert_rows, Werkzeuglisten, den Agenten-Zustand, Notizen im Posteingang — und Rezepte mitbringen, solange einer deiner MCP-Server passt. Hier eingestellt, nie eingebaut.',
     'shell.ws.sec.data': 'Daten',
     'shell.ws.sec.danger': 'Gefahrenzone',
 
@@ -251,6 +256,7 @@ export const workspaceMessages: Messages = {
 
     'shell.ws.cmd.open': 'Workspace-Einstellungen',
     'shell.ws.cmd.people': 'Personen',
+    'shell.ws.cmd.integrations': 'Integrationen',
     'shell.ws.cmd.members': 'Mitglieder & Personen',
 
     'shell.ws.settings.head': 'Einstellungen · dieses Gerät',

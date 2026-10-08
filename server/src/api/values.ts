@@ -6,6 +6,7 @@
  */
 import { iso } from '../tokens.ts'
 import { type PropertyDef, type Roots, outOfReach, pageMap } from './meta.ts'
+import { canBeKey, isHandOnly } from './keys.ts'
 
 /** Computed by the app (or set by it): never written over the API. */
 export const READ_ONLY_TYPES = new Set(['formula', 'rollup', 'created_time', 'last_edited_time', 'created_by', 'last_edited_by', 'unique_id', 'button'])
@@ -241,6 +242,9 @@ export function schemaOut(p: PropertyDef) {
     name: p.name,
     type: p.type,
     readOnly: READ_ONLY_TYPES.has(p.type),
+    // the database's key (unique per row) · "Only by hand": agents and MCP clients never write it (keys.ts)
+    ...(p.key === true && canBeKey(p) ? { key: true } : {}),
+    ...(isHandOnly(p) ? { onlyByHand: true } : {}),
     ...(p.options ? { options: p.options.map((o) => ({ id: o.id, name: o.name, ...(o.color ? { color: o.color } : {}), ...(o.group ? { group: o.group } : {}) })) } : {}),
     ...(p.type === 'relation' && p.relationDatabaseId ? { relationDatabaseId: p.relationDatabaseId } : {}),
     ...(p.type === 'unique_id' && p.idPrefix ? { prefix: p.idPrefix } : {}),

@@ -11,6 +11,7 @@ import type { JSONContent } from '@tiptap/core'
 import { getWorkspaceSnapshot } from '../store/store'
 import { flushSave, migrate, readStoredWorkspace } from '../store/persistence'
 import { sanitizeLook } from '../store/look'
+import { sanitizeIntegrations } from '../store/integrations'
 import type { ID, Workspace } from '../store/types'
 import { FILE_PREFIX, getLocalFile } from '../lib/files'
 import { newId } from '../lib/ids'
@@ -176,6 +177,9 @@ export async function uploadLocalWorkspaceImpl(wsId: string, onProgress?: (p: nu
       // scripts (features/script): the same; the uploader becomes their author
       const scripts = meta.doc.getMap<unknown>('scripts')
       for (const sc of Object.values(local.scripts ?? {})) scripts.set(sc.id, { ...JSON.parse(JSON.stringify(sc)), createdBy: userId, updatedBy: userId })
+      // integration profiles: the same (the uploader saves them — the server checks they may)
+      const integrations = meta.doc.getMap<unknown>('integrations')
+      for (const p of sanitizeIntegrations(local.integrations).integrations) integrations.set(p.id, { ...JSON.parse(JSON.stringify(p)), updatedBy: userId })
       // building blocks (features/kit): the same, one meta map per part
       for (const part of ['lists', 'propTypes', 'recordTypes'] as const) {
         const map = meta.doc.getMap<unknown>(part)

@@ -1,0 +1,43 @@
+import type { Messages } from '@/shared/i18n'
+
+/** Strings for row keys and "Only by hand" (merged into the database messages). */
+export const keyMessages: Messages = {
+  en: {
+    'database.key.menu': 'Key',
+    'database.key.menuHint': 'Unique',
+    'database.key.on': '“{name}” is the key: every row’s value is unique.',
+    'database.key.off': '“{name}” is no longer the key.',
+    'database.key.refused.locked': 'The database is locked: unlock it to change its key.',
+    'database.key.refused.type': 'Only a text, number or URL property can be the key.',
+    'database.key.refused.duplicates': '“{name}” can’t be the key yet: {count} rows share “{value}”. Make the values unique first.',
+    'database.key.taken': '“{value}” is already the {name} of “{row}”. A key is unique per row.',
+    'database.key.takenMany': 'A key is unique per row: “{value}” can’t go into {count} rows at once.',
+    'database.key.mark': 'Key: unique per row',
+    'database.hand.menu': 'Only by hand',
+    'database.hand.menuHint': 'No agents',
+    'database.hand.on': 'Agents no longer write “{name}”. You still can.',
+    'database.hand.off': 'Agents may write “{name}” again.',
+    'database.hand.mark': 'Only by hand: agents never write it',
+    'database.flag.set': 'Set',
+    'database.flag.gated': 'Set earlier and still in force. An active integration unlocks the switch.',
+  },
+  de: {
+    'database.key.menu': 'Schlüssel',
+    'database.key.menuHint': 'Eindeutig',
+    'database.key.on': '„{name}“ ist der Schlüssel: Jeder Eintrag hat einen eigenen Wert.',
+    'database.key.off': '„{name}“ ist kein Schlüssel mehr.',
+    'database.key.refused.locked': 'Die Datenbank ist gesperrt: Entsperre sie, um den Schlüssel zu ändern.',
+    'database.key.refused.type': 'Nur eine Text-, Zahl- oder URL-Eigenschaft kann der Schlüssel sein.',
+    'database.key.refused.duplicates': '„{name}“ kann noch kein Schlüssel sein: {count} Einträge teilen „{value}“. Mach die Werte zuerst eindeutig.',
+    'database.key.taken': '„{value}“ ist schon {name} von „{row}“. Ein Schlüssel gilt nur für einen Eintrag.',
+    'database.key.takenMany': 'Ein Schlüssel gilt nur für einen Eintrag: „{value}“ kann nicht in {count} Einträge zugleich.',
+    'database.key.mark': 'Schlüssel: eindeutig pro Eintrag',
+    'database.hand.menu': 'Nur von Hand',
+    'database.hand.menuHint': 'Keine Agenten',
+    'database.hand.on': 'Agenten schreiben „{name}“ nicht mehr. Du weiterhin.',
+    'database.hand.off': 'Agenten dürfen „{name}“ wieder schreiben.',
+    'database.hand.mark': 'Nur von Hand: Agenten schreiben hier nie',
+    'database.flag.set': 'Gesetzt',
+    'database.flag.gated': 'Früher gesetzt und weiter gültig. Eine aktive Integration schaltet den Schalter frei.',
+  },
+}

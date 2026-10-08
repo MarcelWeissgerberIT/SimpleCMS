@@ -24,6 +24,10 @@ export interface PropertyDef {
   idPrefix?: string
   ratingMax?: number
   description?: string
+  /** the database's key: unique per row (text / number / url, api/keys.ts) */
+  key?: boolean
+  /** "Only by hand": agents and MCP clients never write it (api/keys.ts) */
+  agentReadOnly?: boolean
 }
 
 export interface PageInfo {

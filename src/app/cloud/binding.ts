@@ -23,11 +23,12 @@ import * as Y from 'yjs'
 import type { JSONContent } from '@tiptap/core'
 import { useWorkspace, type CloudPatch } from '../store/store'
 import { runAsRemote } from '../store/persistence'
-import type { CustomAgent, CustomFunction, Database, ID, KitEntry, OneScript, Page, Settings, WorkspaceLook } from '../store/types'
+import type { CustomAgent, CustomFunction, Database, ID, IntegrationProfile, KitEntry, OneScript, Page, Settings, WorkspaceLook } from '../store/types'
 import { sameAgent, sanitizeAgent } from '../store/agents'
 import { sameScript, sanitizeScript } from '../store/scripts'
 import { emptyKit, KIT_SANITIZERS, sameKitEntry, type KitPart } from '../store/kit'
 import { sameLook, sanitizeLook } from '../store/look'
+import { INTEGRATION_LIMITS, sameIntegration, sanitizeIntegration } from '../store/integrations'
 import { defaultView } from '../store/store'
 import { sharedPlain } from './privacy'
 import { clone, LOCAL, newDatabaseMap, newPageMap, readDatabase, readFunctions, readPage, readPeople, roots, writeDatabase, writeFunctions, writePage, writePeople, type YMap } from './schema'
@@ -105,6 +106,41 @@ function readAgents(source: Y.Map<unknown>, cur: Record<ID, CustomAgent> | undef
     }
   }
   if (Object.keys(prev).some((id) => !(id in out))) same = false
+  return same && cur ? cur : out
+}
+
+/* ------------------------------------------------------------------ integration profiles (meta map 'integrations') */
+
+/** Profiles: one JSON entry per profile id (only the ones that changed are written). */
+function writeIntegrations(target: Y.Map<unknown>, next: IntegrationProfile[] | undefined, before: IntegrationProfile[] | undefined): void {
+  const prev = new Map((before ?? []).map((p) => [p.id, p]))
+  const cur = next ?? []
+  for (const p of cur) {
+    if (prev.get(p.id) === p) continue
+    target.set(p.id, JSON.parse(JSON.stringify(p)))
+  }
+  const ids = new Set(cur.map((p) => p.id))
+  for (const id of prev.keys()) if (!ids.has(id)) target.delete(id)
+}
+
+/**
+ * The store's profiles from the meta document, every entry sanitized (store/integrations.ts), ordered by name; unchanged
+ * ones keep their object, and `cur` itself comes back when nothing changed. At most INTEGRATION_LIMITS.profiles: the
+ * first valid ones by id — the team server takes the same ones (server/src/agents/integrations.ts readProfiles).
+ */
+function readIntegrations(source: Y.Map<unknown>, cur: IntegrationProfile[] | undefined): IntegrationProfile[] {
+  const prev = new Map((cur ?? []).map((p) => [p.id, p]))
+  const out: IntegrationProfile[] = []
+  const ids = [...source.keys()].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
+  for (const id of ids) {
+    if (out.length >= INTEGRATION_LIMITS.profiles) break
+    const p = sanitizeIntegration(source.get(id))
+    if (!p || p.id !== id) continue
+    const was = prev.get(id)
+    out.push(was && sameIntegration(was, p) && was.updatedAt === p.updatedAt && was.updatedBy === p.updatedBy ? was : p)
+  }
+  out.sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id))
+  const same = !!cur && out.length === cur.length && out.every((p, i) => p === cur[i])
   return same && cur ? cur : out
 }
 
@@ -268,6 +304,9 @@ export function startBinding(o: BindingOptions): Binding {
   let dirtyAgents = false
   const scriptsMap = o.doc.getMap<unknown>('scripts')
   let dirtyScripts = false
+  // integration profiles: shared by the whole team, owners and admins write them (never in the private document)
+  const integrationsMap = o.doc.getMap<unknown>('integrations')
+  let dirtyIntegrations = false
   // building blocks: shared by the whole team (never in the private document)
   const kitMaps: Record<KitPart, Y.Map<unknown>> = { lists: o.doc.getMap<unknown>('lists'), propTypes: o.doc.getMap<unknown>('propTypes'), recordTypes: o.doc.getMap<unknown>('recordTypes') }
   let dirtyKit = false
@@ -303,6 +342,9 @@ export function startBinding(o: BindingOptions): Binding {
   const onScripts = (_e: unknown, tr: Y.Transaction) => {
     if (tr.origin !== LOCAL) dirtyScripts = true
   }
+  const onIntegrations = (_e: unknown, tr: Y.Transaction) => {
+    if (tr.origin !== LOCAL) dirtyIntegrations = true
+  }
   const onKit = (_e: unknown, tr: Y.Transaction) => {
     if (tr.origin !== LOCAL) dirtyKit = true
   }
@@ -311,6 +353,7 @@ export function startBinding(o: BindingOptions): Binding {
   rs.functions.observe(onFunctions)
   agentsMap.observe(onAgents)
   scriptsMap.observe(onScripts)
+  integrationsMap.observe(onIntegrations)
   for (const part of KIT_PARTS) kitMaps[part].observe(onKit)
 
   function applyRemote(all = false) {
@@ -322,7 +365,7 @@ export function startBinding(o: BindingOptions): Binding {
       }
       for (const id of Object.keys(s.pages)) dirtyPages.add(id)
       for (const id of Object.keys(s.databases)) dirtyDbs.add(id)
-      dirtyPeople = dirtyWorkspace = dirtyFunctions = dirtyAgents = dirtyScripts = dirtyKit = true
+      dirtyPeople = dirtyWorkspace = dirtyFunctions = dirtyAgents = dirtyScripts = dirtyKit = dirtyIntegrations = true
     }
     const patch: CloudPatch = {}
     const created: ID[] = []
@@ -417,6 +460,11 @@ export function startBinding(o: BindingOptions): Binding {
       }
       dirtyScripts = false
     }
+    if (dirtyIntegrations) {
+      const list = readIntegrations(integrationsMap, s.integrations)
+      if (list !== s.integrations) patch.integrations = list
+      dirtyIntegrations = false
+    }
     if (dirtyKit) {
       const kit = s.kit ?? emptyKit()
       const next: Record<string, Record<ID, KitEntry | null>> = {}
@@ -432,14 +480,14 @@ export function startBinding(o: BindingOptions): Binding {
       if (Object.keys(next).length) patch.kit = next as CloudPatch['kit']
       dirtyKit = false
     }
-    if (!patch.pages && !patch.databases && !patch.people && !patch.settings && !patch.functions && !patch.agents && !patch.scripts && !patch.kit && patch.look === undefined) return
+    if (!patch.pages && !patch.databases && !patch.people && !patch.settings && !patch.functions && !patch.agents && !patch.scripts && !patch.kit && !patch.integrations && patch.look === undefined) return
     applyFromCloud(() => s.cloudPatch(patch))
     if (created.length || touched.length || removed.length || rescoped.length) o.onRemotePages({ created, touched, removed, rescoped })
   }
 
   const afterTx = (tr: Y.Transaction) => {
     if (tr.origin === LOCAL) return
-    if (dirtyPages.size || dirtyDbs.size || dirtyPeople || dirtyWorkspace || dirtyFunctions || dirtyAgents || dirtyScripts || dirtyKit) {
+    if (dirtyPages.size || dirtyDbs.size || dirtyPeople || dirtyWorkspace || dirtyFunctions || dirtyAgents || dirtyScripts || dirtyKit || dirtyIntegrations) {
       try {
         applyRemote()
       } catch (e) {
@@ -486,11 +534,16 @@ export function startBinding(o: BindingOptions): Binding {
     // by value: a bulk write (import, merged backup) hands in a fresh copy of the same look — that is no change
     // (re-sent, the server would stamp the importer as the one who set it)
     const lookChanged = state.look !== prev.look && !sameLook(state.look ?? null, prev.look ?? null, { meta: true })
+    const integrationsChanged = state.integrations !== prev.integrations
     if (state.settings !== prev.settings) o.onSettings(state.settings, prev.settings)
-    if (!pagesChanged && !dbsChanged && !peopleChanged && !functionsChanged && !agentsChanged && !scriptsChanged && !kitChanged && !lookChanged) return
+    if (!pagesChanged && !dbsChanged && !peopleChanged && !functionsChanged && !agentsChanged && !scriptsChanged && !kitChanged && !lookChanged && !integrationsChanged) return
     // a look change by someone who may not style the workspace: the team's look comes back from Y
     if (lookChanged && o.writable() && !o.canStyle()) {
       queueMicrotask(() => applyFromCloud(() => useWorkspace.getState().cloudPatch({ look: sanitizeLook(rs.workspace.get('look')) })))
+    }
+    // integration profiles likewise (owners and admins only)
+    if (integrationsChanged && o.writable() && !o.canStyle()) {
+      queueMicrotask(() => applyFromCloud(() => useWorkspace.getState().cloudPatch({ integrations: readIntegrations(integrationsMap, undefined) })))
     }
 
     if (!o.writable()) {
@@ -610,6 +663,7 @@ export function startBinding(o: BindingOptions): Binding {
       if (functionsChanged) writeFunctions(rs.functions, state.functions, prev.functions)
       if (agentsChanged) writeAgents(agentsMap, state.agents, prev.agents)
       if (scriptsChanged) writeScripts(scriptsMap, state.scripts, prev.scripts)
+      if (integrationsChanged && o.canStyle()) writeIntegrations(integrationsMap, state.integrations, prev.integrations)
       if (kitChanged) {
         for (const part of KIT_PARTS) {
           const next = state.kit?.[part] as Record<ID, KitEntry> | undefined
@@ -662,6 +716,15 @@ export function startBinding(o: BindingOptions): Binding {
       console.error('[one] could not read the agents of the cloud workspace', e)
     }
   }
+  // the integration profiles likewise
+  if (integrationsMap.size || (useWorkspace.getState().integrations ?? []).length) {
+    dirtyIntegrations = true
+    try {
+      applyRemote()
+    } catch (e) {
+      console.error('[one] could not read the integrations of the cloud workspace', e)
+    }
+  }
   // the scripts likewise
   if (scriptsMap.size || Object.keys(useWorkspace.getState().scripts ?? {}).length) {
     dirtyScripts = true
@@ -692,6 +755,7 @@ export function startBinding(o: BindingOptions): Binding {
       rs.functions.unobserve(onFunctions)
       agentsMap.unobserve(onAgents)
       scriptsMap.unobserve(onScripts)
+      integrationsMap.unobserve(onIntegrations)
       for (const part of KIT_PARTS) kitMaps[part].unobserve(onKit)
       o.doc.off('afterTransaction', afterTx)
       o.privateDoc?.off('afterTransaction', afterTx)

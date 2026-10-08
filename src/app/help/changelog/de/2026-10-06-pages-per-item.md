@@ -5,7 +5,7 @@ order: 8
 title: Eine Unterseite für jeden Eintrag
 summary: Eine Seite pro Ticket, verlinkt in einer Tabelle auf der Hauptseite — aus dem KI-Terminal in einem Schritt oder aus einer Liste, Überschriften oder einer Tabelle ganz ohne KI.
 image: assets/shots/changelog/pages-per-item.webp
-alt: Eine Seite mit einer Tabelle, die zwölf Ticket-Unterseiten verlinkt, die in der Seitenleiste darunter stehen; unten das Protokoll des KI-Terminals mit einer Atlas-Abfrage, einem Aufruf für alle Seiten und der Tabelle
+alt: Eine Seite mit einer Tabelle, die acht Ticket-Unterseiten verlinkt, die in der Seitenleiste darunter stehen; unten das Protokoll des KI-Terminals mit einer Abfrage der Wissensbasis, einem Aufruf für alle Seiten und der Tabelle
 help: agent, ai-menu, block-handle
 try: terminal
 ---

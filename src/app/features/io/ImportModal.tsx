@@ -17,6 +17,7 @@ import { useLang, useT } from '../../i18n'
 import { resolveAssetUrl } from '../../lib/files'
 import { navigate, openPage } from '../../lib/router'
 import { flushSave } from '../../store/persistence'
+import { INTEGRATION_LIMITS } from '../../store/integrations'
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
 import { pauseAutomations } from '../automations/engine'
@@ -557,6 +558,11 @@ export function ImportModal({ onClose }: { onClose: () => void }) {
                 ? t('features.io.restored.nothing', { n: phase.result.unchanged })
                 : t('features.io.restored.summary', { added: phase.result.added, updated: phase.result.updated, unchanged: phase.result.unchanged })}
             </p>
+            {!!phase.result.integrationsLeft && (
+              <p className="io-done__note" role="status" data-testid="io-integrations-left">
+                <Led state="on" /> {t(phase.result.integrationsLeft === 1 ? 'features.io.restored.integrationsLeftOne' : 'features.io.restored.integrationsLeft', { n: phase.result.integrationsLeft, max: INTEGRATION_LIMITS.profiles })}
+              </p>
+            )}
             <div className="io-readouts">
               <Readout value={phase.result.added} label={t('features.io.restored.added')} />
               <Readout value={phase.result.updated} label={t('features.io.restored.updated')} />

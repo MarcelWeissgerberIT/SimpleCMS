@@ -18,7 +18,7 @@ export function DangerSection({ team }: { team: TeamData }) {
   const myId = useCloud((c) => c.user?.id ?? null)
   return (
     <>
-      <SectionHead n="07" title={t('shell.ws.sec.danger')} lead={inCloud ? (role === 'owner' ? t('shell.ws.danger.leadOwner') : t('shell.ws.danger.leadMember')) : t('shell.ws.danger.lead')} />
+      <SectionHead n="08" title={t('shell.ws.sec.danger')} lead={inCloud ? (role === 'owner' ? t('shell.ws.danger.leadOwner') : t('shell.ws.danger.leadMember')) : t('shell.ws.danger.lead')} />
       <div className="wsp-danger">{inCloud ? team.wsId && <TeamDanger wsId={team.wsId} owner={role === 'owner'} myId={myId} onDone={() => navigate({ name: 'home' })} /> : <ResetWorkspace />}</div>
     </>
   )

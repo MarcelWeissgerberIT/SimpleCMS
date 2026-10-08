@@ -17,6 +17,7 @@ import type { CustomFunction, Database, ID, Page, PageComment, Person, PropertyD
 import { DEFAULT_PAGE_SETTINGS } from '../store/store'
 import { deepEqual } from '../store/merge'
 import { sanitizeFunction } from '../store/functions'
+import { sanitizePropFlags } from '../store/keys'
 
 /** Origin of every store → meta transaction (docs/CLOUD.md: origin 'local'). */
 export const LOCAL = 'local'
@@ -304,7 +305,8 @@ export function writeDatabase(ydb: YMap, db: Database, before: Database): void {
 export function readDatabase(id: ID, ydb: YMap, cur: Database | undefined): Database {
   const next: Record<string, unknown> = { id }
   for (const [k, v] of ydb.entries()) if (!DB_NESTED.has(k) && v !== undefined) next[k] = clone(v)
-  next.properties = readOrdered<PropertyDef>(ydb.get('properties'))
+  // row keys / "Only by hand" (store/keys.ts): only where they fit
+  next.properties = sanitizePropFlags(readOrdered<PropertyDef>(ydb.get('properties')))
   next.views = readOrdered<View>(ydb.get('views'))
   for (const key of ['automations', 'templates'] as const) {
     const v = ydb.get(key)

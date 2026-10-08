@@ -1,8 +1,8 @@
 /**
- * The agents' SQL (migration v8): runtime configuration, runs, schedule slots and webhook secrets.
- * Everything that is workspace content or a secret is sealed with the workspace's key (AES-256-GCM,
- * crypto/aead.ts) under a context naming its row — the Claude key, MCP URLs and tokens, every run's
- * summary, steps and staged changes. Plain columns are only what lists, the scheduler and housekeeping
+ * The agents' SQL (migrations v8, v10): runtime configuration, runs, schedule slots, webhook secrets and
+ * each agent's own state. Everything that is workspace content or a secret is sealed with the workspace's
+ * key (AES-256-GCM, crypto/aead.ts) under a context naming its row — the Claude key, MCP URLs and tokens,
+ * every run's summary, steps and staged changes, the agents' states. Plain columns are only what lists, the scheduler and housekeeping
  * need (ids, status, times). Webhook secrets are stored as HMAC like every other token.
  */
 import { openText, sealText } from '../crypto/aead.ts'
@@ -10,13 +10,14 @@ import type { Keyring } from '../crypto/keyring.ts'
 import type { Db } from '../db/index.ts'
 import { randomToken } from '../tokens.ts'
 import type { SlotState } from './schedule.ts'
-import type { AgentRun, Runtime } from './types.ts'
+import type { AgentRun, AgentStateRow, Runtime } from './types.ts'
 
 /** Runs kept per agent (older ones are deleted when a new one starts). */
 export const RUNS_KEPT = 200
 
 const runtimeContext = (wsId: string) => `agent-runtime\n${wsId}`
 const runContext = (wsId: string, runId: string) => `agent-run\n${wsId}\n${runId}`
+const stateContext = (wsId: string, agentId: string) => `agent-state\n${wsId}\n${agentId}`
 
 export interface RuntimeRow {
   enabled: boolean
@@ -153,6 +154,38 @@ export class AgentStore {
       ? this.db.all<{ id: string; data: string }>('SELECT id, data FROM agent_runs WHERE workspace_id = ? AND agent_id = ? ORDER BY started_at DESC, id DESC LIMIT ?', wsId, opts.agentId, opts.limit)
       : this.db.all<{ id: string; data: string }>('SELECT id, data FROM agent_runs WHERE workspace_id = ? ORDER BY started_at DESC, id DESC LIMIT ?', wsId, opts.limit)
     return rows.map((r) => JSON.parse(openText(key, r.data, runContext(wsId, r.id))) as AgentRun)
+  }
+
+  /** When the agent's newest successful run (ok / staged) started — `exceptRunId` (the run going on) left out. */
+  lastSuccess(wsId: string, agentId: string, exceptRunId?: string): number | null {
+    const row = this.db.get<{ started_at: number }>(
+      "SELECT started_at FROM agent_runs WHERE workspace_id = ? AND agent_id = ? AND status IN ('ok', 'staged') AND id <> ? ORDER BY started_at DESC, id DESC LIMIT 1",
+      wsId, agentId, exceptRunId ?? '',
+    )
+    return row ? row.started_at : null
+  }
+
+  // ── the agents' own state (agent_state_get / agent_state_set) ─────────
+
+  /** The agent's saved state (null: none, or the workspace has no key). */
+  state(wsId: string, agentId: string): AgentStateRow | null {
+    const row = this.db.get<{ data: string; run_id: string; updated_at: number }>('SELECT data, run_id, updated_at FROM agent_state WHERE workspace_id = ? AND agent_id = ?', wsId, agentId)
+    const key = row ? this.aead(wsId) : null
+    if (!row || !key) return null
+    return { json: openText(key, row.data, stateContext(wsId, agentId)), at: row.updated_at, runId: row.run_id }
+  }
+
+  /** Save the state a successful run set (sealed); false when the workspace is gone. */
+  saveState(wsId: string, agentId: string, json: string, runId: string, at = Date.now()): boolean {
+    const key = this.aead(wsId)
+    if (!key) return false
+    return (
+      this.db.run(
+        `INSERT INTO agent_state (workspace_id, agent_id, data, run_id, updated_at) SELECT ?, ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM workspaces WHERE id = ?)
+         ON CONFLICT(workspace_id, agent_id) DO UPDATE SET data = excluded.data, run_id = excluded.run_id, updated_at = excluded.updated_at`,
+        wsId, agentId, sealText(key, json, stateContext(wsId, agentId)), runId, at, wsId,
+      ) > 0
+    )
   }
 
   /** Runs that were 'running' when the server stopped (crash, kill): they end as errors at startup. */

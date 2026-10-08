@@ -25,6 +25,12 @@ export { propertyFormulaValue } from './values'
 /** writePropertyValue(dbId, prop, rowId, value): write one value the way a cell does (two-way relations kept in step) — version history's restore. */
 export { writeValue as writePropertyValue } from './model/actions'
 /**
+ * Row keys and "Only by hand" (rules: store/keys.ts): keyClash(db, prop, rowIds, value) — a key value a person enters
+ * that another row holds already (or that would go into several rows): the cell refuses it · setKeyProperty(dbId,
+ * propId, on) / setHandOnly(dbId, propId, on): the property menu's switches (refused on a locked database).
+ */
+export { keyClash, setKeyProperty, setHandOnly, type KeyResult } from './model/keys'
+/**
  * Who "Me" is on a property right now (person: the member / the local user's own person; created_by /
  * last_edited_by: the member / the local user) — null: nobody. ⌘K `@me` / `owner:me` (shell/palette).
  */

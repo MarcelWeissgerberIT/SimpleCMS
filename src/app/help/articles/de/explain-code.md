@@ -3,7 +3,7 @@ id: explain-code
 title: Altsoftware in One-Dokumenten erklären
 section: ai
 order: 12
-keywords: code erklären, altsoftware, legacy, alter code, dokumentation, doku, verstehen, einarbeitung, komponente, modul, architektur, seitenbaum, statische analyse, lint, linter, eslint, dotnet build, go vet, clippy, ruff, doku-check, wissensbasis, atlas, explain code, documentation check
+keywords: code erklären, altsoftware, legacy, alter code, dokumentation, doku, verstehen, einarbeitung, komponente, modul, architektur, seitenbaum, statische analyse, lint, linter, eslint, dotnet build, go vet, clippy, ruff, doku-check, wissensbasis, explain code, documentation check
 related: legacy-modernisation, coding-pipeline, pipelines, review-merge
 summary: Aus einer Codebasis, die keiner mehr versteht, werden One-Seiten – ein Überblick, die statische Analyse, eine Seite je Komponente und ein Check der vorhandenen Doku. Im Repository ändert sich nichts.
 ---
@@ -29,6 +29,6 @@ Auf der Einrichtungsseite des Workers hat jedes Repository ein Feld **Statische 
 Jede Pipeline kann sie haben: unter **Pipeline** eine Stufe der Art **Statische Analyse** hinzufügen – z. B. vor einem Plan oder einem Review.
 
 ## Deine Wissensbasis
-Mit eigenen MCP-Servern für Claude Code (Einrichtungsseite → *Eigene MCP-Server für Claude Code*, z. B. `atlas`) liest jede Stufe zuerst, was über den Code schon bekannt ist, und kann festhalten, was sie gefunden hat.
+Mit eigenen MCP-Servern für Claude Code (Einrichtungsseite → *Eigene MCP-Server für Claude Code*, z. B. `kb`) liest jede Stufe zuerst, was über den Code schon bekannt ist, und kann festhalten, was sie gefunden hat.
 
 > Tipp: Großer Code – fang im Ziel mit einem Modul an. **Umwandeln in** macht aus einem Abschnitt ein Diagramm oder eine Tabelle; **Für KI-Kontext kopieren** gibt eine Seite an jede andere KI.

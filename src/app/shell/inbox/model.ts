@@ -7,11 +7,11 @@ import type { ID, Page } from '../../store/types'
 import { useInbox, type InboxItem, type InboxKind } from '../../features'
 
 export type InboxFilter = 'all' | InboxKind | 'archived'
-export const INBOX_FILTERS: InboxFilter[] = ['all', 'reminder', 'mention', 'comment', 'assigned', 'archived']
+export const INBOX_FILTERS: InboxFilter[] = ['all', 'reminder', 'mention', 'comment', 'assigned', 'agent', 'archived']
 
-/** Items whose page still exists outside the trash, newest first. */
+/** Items whose page still exists outside the trash (an agent's note always: it opens the agent then), newest first. */
 export function visibleItems(items: InboxItem[], pages: Record<ID, Page>): InboxItem[] {
-  return items.filter((i) => !!pages[i.pageId] && !isEffectivelyTrashed(pages, i.pageId)).sort((a, b) => b.at - a.at)
+  return items.filter((i) => i.kind === 'agent' || (!!pages[i.pageId] && !isEffectivelyTrashed(pages, i.pageId))).sort((a, b) => b.at - a.at)
 }
 
 export function useInboxItems(): InboxItem[] {

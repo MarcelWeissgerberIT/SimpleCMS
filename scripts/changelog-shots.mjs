@@ -8,7 +8,7 @@
  *
  * (CHANGELOG_DRAFT=1 lets the build pass while a new entry's picture does not exist yet.)
  *
- * Shots: task-mcp, models, search, terminal-pipelines, cloud-worker, one-picker, pipelines, legacy-modernise, coding-live, text-size, mcp-media, coding-setup, free-board, building-blocks, workspace-settings, diagram-viewer, coding-pipeline, pages-per-item, design-import, tour, quick-capture, script-templates, one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
+ * Shots: mirror, task-mcp, models, search, terminal-pipelines, cloud-worker, one-picker, pipelines, legacy-modernise, coding-live, text-size, mcp-media, coding-setup, free-board, building-blocks, workspace-settings, diagram-viewer, coding-pipeline, pages-per-item, design-import, tour, quick-capture, script-templates, one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
  * custom-agents, gmail, help-centre, mcp-servers, feed-blocks — each named like its image. Every shot starts from a fresh, seeded
  * workspace in English, light theme, 1440 × 900 at device scale 2; the crop of the relevant area is scaled
  * to 1440 px wide and saved as public/assets/shots/changelog/<shot>.webp (≤ 150 KB: the quality steps down
@@ -134,7 +134,7 @@ async function mockClaude(ctx, { turns, json, text } = {}) {
 }
 
 /** The usage prompt One writes for a knowledge base (shown in the MCP shots). */
-const ATLAS_GUIDE = '**Atlas** is the team knowledge base: decisions, specs and project records.\n- Find records with `atlas_search` (query, project), read one with `atlas_get` (ref).\n- Check plans against `atlas_constraints` before proposing changes.'
+const KB_GUIDE = '**kb** is the team knowledge base: decisions, specs and project records.\n- Find records with `kb_search` (query, project), read one with `kb_get` (ref).\n- Check plans against `kb_constraints` before proposing changes.'
 
 /* ------------------------------------------------------------------ */
 /* Browser                                                              */
@@ -823,6 +823,129 @@ function drawVolumeTable(t) {
 const toolResult = (body, id) => (body.messages ?? []).flatMap((m) => (Array.isArray(m.content) ? m.content : [])).find((c) => c.type === 'tool_result' && c.tool_use_id === id)
 
 const shots = {
+  /**
+   * "Integrations unlock the mirror recipe": an integration profile (fictional "Tracker", matched by the server's
+   * tested tools and name) makes the recipe appear; its own path — setup (source "tracker", below Team wiki), the
+   * editor's placeholders replaced, a run (Claude mocked: upsert_rows by Key, a note, the state), Apply all — then the
+   * person sets My priority on rows. Above: Workspace → Integrations with the active profile; below: the Board by
+   * Clarity (sidebar folded for the width).
+   */
+  async mirror(browser) {
+    const ids = { db: '' }
+    const items = [
+      ['8216', 'Export to CSV drops the last row', 'Ready', 'High', 'Jonas Berg', ['export'], 2, '', false, false, 'Clear', 'Steps to reproduce and a test file are attached.'],
+      ['8219', 'Dark mode for the settings page', 'Ready', 'Low', 'Mira Lenz', ['ui'], 1, '', false, false, 'Clear', 'Final designs and acceptance criteria are linked.'],
+      ['8224', 'Keyboard shortcut to archive', 'Open', 'Low', 'Jonas Berg', ['ui'], 0, '', false, false, 'Clear', 'Small and fully described.'],
+      ['8215', 'Login fails after password reset', 'In review', 'High', 'Mira Lenz', ['auth'], 4, 'Mira Lenz: Can you confirm the reset link expiry?', true, true, 'Open questions', 'The expiry of the reset link is not decided yet.'],
+      ['8226', 'Upload stalls at 99 %', 'Open', 'Medium', 'Ada Okafor', ['files'], 5, 'Ada Okafor: Which browser shows it?', true, true, 'Open questions', 'Ada asks which browser shows it.'],
+      ['8217', 'Slow search on phones', 'Open', 'Medium', 'Ada Okafor', ['search'], 6, 'Ada Okafor: Waiting for the index rebuild.', true, false, 'Blocked', 'Needs the index rebuild of the platform team first.'],
+      ['8221', 'Invoice PDF shows the wrong VAT', 'In progress', 'High', 'Lukas Brandt', ['billing'], 3, 'Lukas Brandt: The fix is in review.', false, false, 'In progress elsewhere', 'Lukas works on it in the billing team.'],
+      ['8202', 'Onboarding checklist for new teams', 'Closed', 'Medium', 'Mira Lenz', ['onboarding'], 7, 'Mira Lenz: Shipped.', false, false, 'Done', 'Closed in the source on 6 October.'],
+    ]
+    const rows = items.map(([key, title, status, prio, owner, tags, comments, last, isNew, waiting, clarity, why]) => ({
+      key,
+      title,
+      properties: {
+        Link: `https://tracker.example.com/items/${key}`,
+        'Source status': status,
+        'Source priority': prio,
+        Owner: owner,
+        Tags: tags,
+        'Changed at': isoDay(-1),
+        Comments: comments,
+        ...(last ? { 'Last comment': last, 'Last comment at': isoDay(-1) } : {}),
+        'New comment': isNew,
+        'Waiting on me': waiting,
+        Clarity: clarity,
+        Why: why,
+      },
+    }))
+    const turns = [
+      () => sseTurn([{ type: 'thinking', text: 'Reading my state, then the open items of the tracker.' }, { type: 'tool_use', id: 'toolu_s', name: 'agent_state_get', input: {} }]),
+      () => sseTurn([{ type: 'tool_use', id: 'toolu_u', name: 'upsert_rows', input: { database_id: ids.db, key_property: 'Key', rows } }]),
+      () =>
+        sseTurn([
+          { type: 'tool_use', id: 'toolu_n', name: 'notify_me', input: { text: '3 items became ready: #8216, #8219, #8224.' } },
+          { type: 'tool_use', id: 'toolu_x', name: 'agent_state_set', input: { json: JSON.stringify({ last: new Date().toISOString(), comments: Object.fromEntries(items.map((i) => [i[0], i[6]])) }) } },
+        ]),
+      () => sseTurn([{ type: 'text', text: '**8 items mirrored**, all new. **Waiting on you:** #8215 (reset link expiry), #8226 (which browser). **Ready:** #8216, #8219, #8224. **Blocked:** #8217. Nothing was written to the tracker.' }]),
+    ]
+    const { ctx, page } = await freshPage(browser, { claude: { turns } })
+    await page.evaluate(() =>
+      window.__one.workspace.getState().updateSettings({
+        mcpServers: [
+          { id: 'm-tracker', name: 'tracker', url: 'https://tracker.example.com/mcp', token: '', enabled: true, prompt: '', tools: ['list_items', 'get_item', 'search_items', 'list_comments', 'whoami', 'create_item', 'update_item', 'add_comment'], checkedAt: Date.now() },
+        ],
+      }),
+    )
+    // the integration profile the person added: it unlocks the agent features and brings the recipe
+    await page.evaluate(() =>
+      window.__one.workspace.getState().upsertIntegration({
+        schema: 'one.integration/1',
+        id: 'tracker',
+        name: 'Tracker',
+        description: 'Our team tracker: its open items, mirrored every weekday.',
+        match: { tools: ['list_items', 'get_item'], name: 'tracker' },
+        unlocks: ['keys', 'onlyByHand', 'upsert', 'toolAllowList', 'agentState', 'notify'],
+        recipes: [{ kind: 'mirror', name: { en: 'Mirror tracker items', de: 'Tracker-Einträge spiegeln' }, description: { en: 'The open items of the tracker → a database, every weekday. Your own fields stay yours.', de: 'Die offenen Einträge des Trackers → eine Datenbank, jeden Werktag. Deine eigenen Felder bleiben deine.' } }],
+      }),
+    )
+    // the recipe: setup → the database and its report page → the editor with the draft
+    await page.evaluate(() => (window.location.hash = '#/agents'))
+    await page.locator('.agx-start [data-recipe="tracker:mirror"]').click()
+    const setup = page.locator('.agx-mir')
+    await setup.locator('.agx-pick').click()
+    await page.getByRole('menuitem', { name: 'Team wiki' }).click()
+    await setup.getByRole('button', { name: 'Create database and agent' }).click()
+    await page.locator('.agx-editor').waitFor()
+    ids.db = await pageIdByTitle(page, 'Tracker')
+    for (const text of ['list_items with project WEB and status open', 'get_item with the id, comments included', 'the user "marcel"', 'acceptance criteria written, no open question, nothing blocking']) {
+      await page.locator('.agx-ph__btn').first().click()
+      await page.keyboard.insertText(text)
+    }
+    await page.getByRole('button', { name: 'Create agent', exact: true }).click()
+    await page.locator('.agx-dhead').waitFor()
+    await page.getByRole('button', { name: 'Run now' }).click()
+    await page.waitForFunction(() => document.querySelector('.agx-run')?.getAttribute('data-status') === 'staged', null, { timeout: 30_000 })
+    await page.getByRole('button', { name: 'Apply all' }).first().click()
+    await page.waitForFunction((db) => Object.values(window.__one.workspace.getState().pages).filter((p) => p.databaseId === db).length === 8, ids.db, { timeout: 10_000 })
+    // the person's own priorities (only by hand)
+    await page.evaluate((dbId) => {
+      const s = window.__one.workspace.getState()
+      const prop = s.databases[dbId].properties.find((p) => p.name === 'My priority')
+      const rowsOf = Object.values(s.pages).filter((p) => p.databaseId === dbId)
+      for (const [title, name] of [['Export to CSV', 'P1'], ['Login fails', 'P1'], ['Keyboard shortcut', 'P2'], ['Dark mode', 'P3'], ['Upload stalls', 'P2']]) {
+        const row = rowsOf.find((r) => r.title.startsWith(title))
+        const opt = prop.options.find((o) => o.name === name)
+        if (row && opt) s.setRowProperty(row.id, prop.id, opt.id)
+      }
+      s.updateSettings({ sidebarCollapsed: true })
+    }, ids.db)
+    for (const b of await page.locator('.toast__close').all()) await b.click().catch(() => {})
+    await page.evaluate((id) => (window.location.hash = `#/p/${id}`), ids.db)
+    await page.locator('.dbc').first().waitFor()
+    await page.waitForTimeout(900)
+    await rest(page)
+    // the title, the view tabs and the board down to the last card that fits
+    const top = await boxOf(page.locator('#main .pv-title').first())
+    const y = Math.max(0, Math.round(top.y - 28))
+    // down to the status bar (not into it)
+    const foot = Math.round((await page.locator('footer.status').first().boundingBox())?.y ?? H)
+    const board = `${TMP}/mirror-board.png`
+    await page.screenshot({ path: board, clip: { x: 0, y, width: W, height: Math.min(560, foot - y) } })
+    // Workspace → Integrations: the active profile, what it unlocks, its recipe
+    await page.evaluate(() => (window.location.hash = '#/workspace/integrations'))
+    await page.locator('[data-testid="int-row"]').first().waitFor()
+    await rest(page)
+    const head = await boxOf(page.locator('#wsp-section-title').first())
+    const row = await boxOf(page.locator('[data-testid="int-row"]').first())
+    const left = Math.round(head.x - 24)
+    const profile = `${TMP}/mirror-profile.png`
+    await page.screenshot({ path: profile, clip: { x: left, y: Math.round(head.y - 20), width: Math.round(row.x + row.width + 24 - left), height: Math.round(row.y + row.height + 20 - (head.y - 20)) } })
+    await saveSideBySide('mirror', [profile, board], { column: true })
+    await ctx.close()
+  },
+
   /** One memory: the memory database above, the AI terminal below with Claude's proposals after a task ("REMEMBER? · 2"). */
   async memory(browser) {
     const proposals = {
@@ -843,9 +966,9 @@ const shots = {
       const prop = (n) => db.properties.find((p) => p.name === n)
       const type = (n) => prop('Type').options.find((o) => o.name === n).id
       const topics = prop('Topics')
-      s.updateProperty(db.id, topics.id, { options: [{ id: 'tp-atlas', name: 'Atlas', color: 'blue' }, { id: 'tp-launch', name: 'Launch', color: 'green' }] })
+      s.updateProperty(db.id, topics.id, { options: [{ id: 'tp-web', name: 'Website', color: 'blue' }, { id: 'tp-launch', name: 'Launch', color: 'green' }] })
       const add = (title, t, tps) => s.createRow(db.id, { title, properties: { [prop('Type').id]: type(t), [prop('Active').id]: true, [topics.id]: tps, [prop('Source').id]: 'AI terminal · 2026-10-02' } })
-      add('Atlas is the team knowledge base for decisions and specs.', 'Fact', ['tp-atlas'])
+      add('Decisions and specs live in the team knowledge base.', 'Fact', ['tp-web'])
       add('Answers are short: bullets first, no preamble.', 'Preference', [])
       add('We launch on Tuesdays, never on Fridays.', 'Decision', ['tp-launch'])
       return db.id
@@ -926,10 +1049,10 @@ const shots = {
     await ctx.close()
   },
 
-  /** The AI menu with "atlas: …" typed: the chip names the server that answers first. */
+  /** The AI menu with "kb: …" typed: the chip names the server that answers first. */
   async 'mcp-codewords'(browser) {
     const { ctx, page } = await freshPage(browser)
-    await page.evaluate((guide) => window.__one.workspace.getState().updateSettings({ mcpServers: [{ id: 'srvkb00001', name: 'atlas', url: 'https://kb.acme.studio/mcp', token: '', enabled: true, prompt: guide, promptSource: 'auto', tools: ['atlas_search', 'atlas_get', 'atlas_constraints'], checkedAt: Date.now() - 3 * 60_000, scope: 'own', codeword: 'atlas' }] }), ATLAS_GUIDE)
+    await page.evaluate((guide) => window.__one.workspace.getState().updateSettings({ mcpServers: [{ id: 'srvkb00001', name: 'kb', url: 'https://kb.example.com/mcp', token: '', enabled: true, prompt: guide, promptSource: 'auto', tools: ['kb_search', 'kb_get', 'kb_constraints'], checkedAt: Date.now() - 3 * 60_000, scope: 'own', codeword: 'kb' }] }), KB_GUIDE)
     const id = await createPage(page, 'Launch plan', doc(h(2, 'Relaunch'), para('Homepage and pricing ship first, the blog follows in a second step.'), para('Open: the final launch date and who signs off on the pricing copy.'), para('')), { icon: { type: 'asset', value: 'megaphone' } })
     await openPage(page, id)
     const ask = page.getByPlaceholder('Ask Claude to write anything…')
@@ -939,7 +1062,7 @@ const shots = {
       await page.keyboard.press('Space')
       await page.waitForTimeout(600)
     }
-    await ask.pressSequentially('atlas: when do we launch?', { delay: 8 })
+    await ask.pressSequentially('kb: when do we launch?', { delay: 8 })
     const panel = page.locator('.ai-panel').first()
     await panel.getByTestId('mcp-codeword-chip').waitFor()
     await page.waitForTimeout(400)
@@ -1392,7 +1515,7 @@ const shots = {
     await board.close()
   },
 
-  /** "A sub-page for every ticket": Atlas (MCP, mocked) → create_pages (one call) → the table; applied: the page with its links, the sub-pages in the sidebar, the terminal's log below. */
+  /** "A sub-page for every ticket": the knowledge base (MCP, mocked) → create_pages (one call) → the table; applied: the page with its links, the sub-pages in the sidebar, the terminal's log below. */
   async 'pages-per-item'(browser) {
     const tickets = [
       ['CHK-101', 'Card declined', 'In progress', 'Lea'],
@@ -1400,7 +1523,7 @@ const shots = {
       ['CHK-103', 'Tax rounds twice', 'Open', 'Mia'],
       ['CHK-104', 'Address timeout', 'Done', 'Jan'],
       ['CHK-105', 'Guest cart lost', 'In progress', 'Lea'],
-      ['CHK-106', 'PayPal flicker', 'Open', 'Tom'],
+      ['CHK-106', 'Wallet flicker', 'Open', 'Tom'],
       ['CHK-107', 'Invoice VAT ID', 'Done', 'Mia'],
       ['CHK-108', 'Late shipping costs', 'Open', 'Jan'],
     ]
@@ -1409,8 +1532,8 @@ const shots = {
     const turns = [
       () =>
         sseTurn([
-          { type: 'thinking', text: 'Find the checkout tickets in Atlas, then one page per ticket under the open page.' },
-          { type: 'mcp_tool_use', id: 'mcptoolu_1', server: 'atlas', name: 'atlas_search', input: { query: 'checkout', project: 'shop' } },
+          { type: 'thinking', text: 'Find the checkout tickets in kb, then one page per ticket under the open page.' },
+          { type: 'mcp_tool_use', id: 'mcptoolu_1', server: 'kb', name: 'kb_search', input: { query: 'checkout', project: 'shop' } },
           { type: 'mcp_tool_result', id: 'mcptoolu_1', text: tickets.map((t) => t.join(' | ')).join('\n') },
           { type: 'tool_use', id: 'toolu_cur', name: 'get_current_page', input: {} },
         ]),
@@ -1420,7 +1543,7 @@ const shots = {
             type: 'tool_use',
             id: 'toolu_pages',
             name: 'create_pages',
-            input: { parent_id: ids.main, pages: tickets.map((t) => ({ title: title(t), markdown: `**Status:** ${t[2]}\n\n**Owner:** ${t[3]}\n\nFrom Atlas, ${t[0]}.` })) },
+            input: { parent_id: ids.main, pages: tickets.map((t) => ({ title: title(t), markdown: `**Status:** ${t[2]}\n\n**Owner:** ${t[3]}\n\nFrom kb, ${t[0]}.` })) },
           },
         ]),
       (body) => {
@@ -1428,17 +1551,17 @@ const shots = {
         const rows = tickets.map((t, i) => `| [${title(t)}](#/p/${got[i]}) | ${t[2]} | ${t[3]} |`)
         return sseTurn([{ type: 'tool_use', id: 'toolu_table', name: 'append_to_page', input: { id: ids.main, markdown: `| Ticket | Status | Owner |\n|---|---|---|\n${rows.join('\n')}` } }])
       },
-      () => sseTurn([{ type: 'text', text: 'Staged **8 sub-pages** under Checkout review — one per Atlas ticket — and a table on this page that links them with status and owner.' }]),
+      () => sseTurn([{ type: 'text', text: 'Staged **8 sub-pages** under Checkout review — one per ticket in kb — and a table on this page that links them with status and owner.' }]),
     ]
     const { ctx, page } = await freshPage(browser, { claude: { turns } })
-    await page.evaluate((guide) => window.__one.workspace.getState().updateSettings({ mcpServers: [{ id: 'srvkb00001', name: 'atlas', url: 'https://kb.acme.studio/mcp', token: '', enabled: true, prompt: guide, promptSource: 'auto', tools: ['atlas_search', 'atlas_get'], checkedAt: Date.now() - 3 * 60_000 }] }), ATLAS_GUIDE)
-    ids.main = await createPage(page, 'Checkout review', doc(para('Everything Atlas knows about the checkout, one page per ticket.')), { icon: { type: 'asset', value: 'binder' } })
+    await page.evaluate((guide) => window.__one.workspace.getState().updateSettings({ mcpServers: [{ id: 'srvkb00001', name: 'kb', url: 'https://kb.example.com/mcp', token: '', enabled: true, prompt: guide, promptSource: 'auto', tools: ['kb_search', 'kb_get'], checkedAt: Date.now() - 3 * 60_000 }] }), KB_GUIDE)
+    ids.main = await createPage(page, 'Checkout review', doc(para('Everything the knowledge base knows about the checkout, one page per ticket.')), { icon: { type: 'asset', value: 'binder' } })
     await openPage(page, ids.main)
     await page.keyboard.press('Control+j')
     const term = page.getByRole('region', { name: 'AI terminal' })
     await term.waitFor()
     const prompt = term.getByRole('textbox', { name: 'Task for the agent' })
-    await prompt.fill('Analyse the checkout topic in Atlas and create a sub-page for every ticket, linked in a table on this page')
+    await prompt.fill('Analyse the checkout topic in kb and create a sub-page for every ticket, linked in a table on this page')
     await prompt.press('Enter')
     await term.locator('.term-head__status').filter({ hasText: 'Done' }).waitFor({ timeout: 30_000 })
     await term.getByRole('button', { name: 'Apply all' }).click()
@@ -1448,10 +1571,12 @@ const shots = {
     const row = page.locator('.sb section[aria-label="Pages"] .sb-row', { has: page.locator('.sb-row__title', { hasText: /^Checkout review$/ }) }).first()
     const toggle = row.locator('.sb-row__toggle')
     if ((await toggle.getAttribute('aria-label')) === 'Expand') await toggle.click()
+    // the page and its sub-pages in view (the sidebar has more sections above it than it used to)
+    await row.evaluate((el) => el.scrollIntoView({ block: 'center' }))
     // the toast steps aside; the page shows its table above the dock
     await page.locator('.toast', { hasText: /changes applied/ }).getByRole('button', { name: /close|dismiss/i }).click().catch(() => {})
-    await scrollToTop(page.locator('#main .ProseMirror p', { hasText: 'Everything Atlas knows' }).first(), 28)
-    // the log from the task down: the Atlas call, one call for all pages, the table
+    await scrollToTop(page.locator('#main .ProseMirror p', { hasText: 'Everything the knowledge base knows' }).first(), 28)
+    // the log from the task down: the knowledge-base call, one call for all pages, the table
     const box = await term.boundingBox()
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
     await page.mouse.wheel(0, -6000)
@@ -2859,7 +2984,7 @@ const shots = {
   /** Settings → Claude AI → MCP servers: a knowledge base, connected (LED), with its tools. */
   async 'mcp-servers'(browser) {
     const { ctx, page } = await freshPage(browser)
-    await page.evaluate((guide) => window.__one.workspace.getState().updateSettings({ mcpServers: [{ id: 'srvkb00001', name: 'atlas', url: 'https://kb.acme.studio/mcp', token: '', enabled: true, prompt: guide, promptSource: 'auto', tools: ['atlas_search', 'atlas_get', 'atlas_constraints'], checkedAt: Date.now() - 3 * 60_000, scope: 'own' }] }), ATLAS_GUIDE)
+    await page.evaluate((guide) => window.__one.workspace.getState().updateSettings({ mcpServers: [{ id: 'srvkb00001', name: 'kb', url: 'https://kb.example.com/mcp', token: '', enabled: true, prompt: guide, promptSource: 'auto', tools: ['kb_search', 'kb_get', 'kb_constraints'], checkedAt: Date.now() - 3 * 60_000, scope: 'own' }] }), KB_GUIDE)
     await page.evaluate(() => window.__one.ui.getState().openModal({ type: 'settings', tab: 'ai' }))
     const section = page.getByTestId('mcp-servers')
     await section.waitFor()

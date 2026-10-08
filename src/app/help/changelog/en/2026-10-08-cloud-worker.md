@@ -1,7 +1,7 @@
 ---
 id: 2026-10-08-cloud-worker
 date: 2026-10-08
-order: 3
+order: 4
 title: The coding worker on any computer — through your team server
 summary: In a team workspace, Settings → Coding worker → Local | Cloud lets the worker run on a build server or a VM; it connects out to the One server, which only passes on messages sealed between this browser and the worker.
 image: assets/shots/changelog/cloud-worker.webp

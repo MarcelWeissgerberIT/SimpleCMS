@@ -309,8 +309,9 @@ export function buildMcpServer(s: Services, model: WorkspaceModel, token: ApiTok
     },
     async (a) =>
       run(a.workspace, async () => {
-        const row = await writes.prepareRow(ws, { databaseId: a.databaseId }, { title: a.title, properties: a.properties }, actor)
-        const created = await model.createRow(ws, a.databaseId, { title: row.title ?? a.title, properties: row.properties, content: a.markdown }, actor)
+        // an MCP client is an agent: properties "Only by hand" are refused (api/keys.ts)
+        const row = await writes.prepareRow(ws, { databaseId: a.databaseId }, { title: a.title, properties: a.properties }, actor, { agent: true })
+        const created = await model.createRow(ws, a.databaseId, { title: row.title ?? a.title, properties: row.properties, content: a.markdown }, actor, { agent: true })
         return { ...created, title: row.title ?? a.title }
       })(),
   )
@@ -325,8 +326,8 @@ export function buildMcpServer(s: Services, model: WorkspaceModel, token: ApiTok
     },
     async (a) =>
       run(a.workspace, async () => {
-        const row = await writes.prepareRow(ws, { rowId: a.id }, { properties: a.properties }, actor)
-        return model.updateRow(ws, a.id, { title: row.title, properties: row.properties }, actor)
+        const row = await writes.prepareRow(ws, { rowId: a.id }, { properties: a.properties }, actor, { agent: true })
+        return model.updateRow(ws, a.id, { title: row.title, properties: row.properties }, actor, { agent: true })
       })(),
   )
 

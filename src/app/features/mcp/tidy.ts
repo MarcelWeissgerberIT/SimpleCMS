@@ -9,6 +9,7 @@
 import { t } from '../../i18n'
 import { inTemplate } from '../../store/selectors'
 import type { Database, ID, Page, PropertyDef, PropertyValue, SelectOption } from '../../store/types'
+import { isHandOnly, keyOwner, keyPropOf, keyText } from '../../store/keys'
 import { newId } from '../../lib/ids'
 import { MCP_BULK_MAX, type McpToolName } from './contract'
 import { chars, clone, idList, itemLines, palette, same, str, tidyPageOrThrow, type PlanLine, type WritePlan } from './plan'
@@ -390,8 +391,17 @@ function mapRow(row: Page, from: Database, to: Database, toTitle: string): RowMa
       else if (paired(from.id, sp) || paired(to.id, tp)) out.problems.push(`${q(sp.name)} is a two-way relation: its links would not follow the row`)
       else out.values[tp.id] = clone(v as string[])
     } else out.values[tp.id] = clone(v as PropertyValue)
+    // "Only by hand" there: an MCP client never writes it (store/keys.ts)
+    if (tp.id in out.values && isHandOnly(tp)) {
+      out.problems.push(`${q(sp.name)} is filled in only by hand in ${q(toTitle)}: an MCP client does not write it`)
+      delete out.values[tp.id]
+    }
     if (tp.id in out.values) out.carried.push(sp.name)
   }
+  // the target's key stays unique per row
+  const key = keyPropOf(to)
+  const owner = key && key.id in out.values ? keyOwner(ws().pages, to.id, key, out.values[key.id], row.id) : undefined
+  if (key && owner) out.problems.push(`${q(key.name)} is the key of ${q(toTitle)} — unique per row — and ${q(titleOf(owner))} has ${q(keyText(key.type, out.values[key.id]))} there already`)
   return out
 }
 

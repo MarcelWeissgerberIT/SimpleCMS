@@ -115,6 +115,9 @@ function Steps({ run }: { run: AgentRun }) {
   )
 }
 
+/** More proposals than this: the review's head (counts, Apply all) stays in view while scrolling. */
+const LONG_REVIEW = 8
+
 function Review({ run }: { run: AgentRun }) {
   const t = useT()
   const readOnly = useCloud((s) => s.readOnly)
@@ -123,10 +126,19 @@ function Review({ run }: { run: AgentRun }) {
   const applied = changes.filter((c) => c.status === 'applied').length
   const undoable = run.runner === 'browser' && canUndoRun(run.id)
   const disabled = readOnly || run.status === 'running'
+  // a long batch (upsert_rows: one change per row): what is open, by kind — the head stays in view while scrolling
+  const kinds = new Map<StagedChange['kind'], number>()
+  for (const c of changes) if (c.status === 'pending' || c.status === 'failed') kinds.set(c.kind, (kinds.get(c.kind) ?? 0) + 1)
+  const long = changes.length > LONG_REVIEW
   return (
-    <section className="agx-review" aria-label={t(changes.length === 1 ? 'features.agent.review.title.one' : 'features.agent.review.title.other', { count: changes.length })}>
+    <section className="agx-review" data-long={long || undefined} aria-label={t(changes.length === 1 ? 'features.agent.review.title.one' : 'features.agent.review.title.other', { count: changes.length })}>
       <div className="agx-review__head">
         <span className="label">{t(changes.length === 1 ? 'features.agent.review.title.one' : 'features.agent.review.title.other', { count: changes.length })}</span>
+        {kinds.size > 0 && (long || kinds.size > 1) && (
+          <span className="agx-review__counts mono" data-testid="agx-review-counts">
+            {[...kinds].sort((a, b) => b[1] - a[1]).map(([kind, n]) => t('features.agents.review.count', { count: n, kind: t(`features.agent.kind.${kind}`) })).join(' · ')}
+          </span>
+        )}
         <span className="agx-spacer" />
         {undoable && applied > 0 && (
           <button

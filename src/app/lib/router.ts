@@ -14,7 +14,7 @@
  *   #/kit           → Building blocks (features/kit) · #/kit/<lists|types|records> · #/kit/<tab>/<id> → one block
  *   #/discover      → "What can One do?" — the feature cards (shell/discover)
  *   #/workspace     → workspace settings (shell/workspace) · #/workspace/<section> → overview | look | people |
- *                     blocks | automation | data | danger
+ *                     blocks | automation | integrations | data | danger
  *   #/s/<payload>   → read-only shared page (payload = compressed page, see features/share)
  *   #/clip?url=…&title=…&text=… → clip a web page into the Inbox, then replaced by #/p/<new page>
  *   #/clip?share=<id> → files shared into the installed app (the service worker kept them, see public/sw.js)

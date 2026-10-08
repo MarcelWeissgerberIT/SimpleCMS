@@ -1,7 +1,7 @@
 ---
 id: 2026-10-08-terminal-pipelines
 date: 2026-10-08
-order: 4
+order: 5
 title: Das KI-Terminal steuert deine Pipelines – und meldet dich bei MCP-Servern an
 summary: In ⌘J listet Claude Aufgaben der Coding-Pipelines, legt sie an, gibt sie frei, schickt sie zurück, beantwortet Fragen, startet und stoppt sie – jede Änderung als Vorschlag, den du prüfst; /verbinden meldet dich in einem Browserfenster bei einem MCP-Server an.
 image: assets/shots/changelog/terminal-pipelines.webp
@@ -15,4 +15,4 @@ try: terminal
 
 `/pipelines` listet die offenen Aufgaben – zuerst das, was auf dich wartet – mit **Öffnen** und, bei einer laufenden, **Stopp**.
 
-`/verbinden` (`/connect`) listet deine [MCP-Server](help:mcp-servers) und wie sie stehen. `/verbinden atlas` – ein Name, ein Codewort oder eine Adresse – meldet dich an: Die Anmeldeseite des Servers öffnet sich direkt mit deinem <kbd>Enter</kbd> in einem Browserfenster (oder per Code, wenn die Rückkehr aus dem Fenster nicht klappt). `/verbinden https://…` fügt zuerst einen Server hinzu. Scheitert eine Aufgabe, weil ein Server sein Token abgelehnt hat, steht **Bei … anmelden** direkt darunter, danach **Aufgabe erneut ausführen**.
+`/verbinden` (`/connect`) listet deine [MCP-Server](help:mcp-servers) und wie sie stehen. `/verbinden wiki` – ein Name, ein Codewort oder eine Adresse – meldet dich an: Die Anmeldeseite des Servers öffnet sich direkt mit deinem <kbd>Enter</kbd> in einem Browserfenster (oder per Code, wenn die Rückkehr aus dem Fenster nicht klappt). `/verbinden https://…` fügt zuerst einen Server hinzu. Scheitert eine Aufgabe, weil ein Server sein Token abgelehnt hat, steht **Bei … anmelden** direkt darunter, danach **Aufgabe erneut ausführen**.

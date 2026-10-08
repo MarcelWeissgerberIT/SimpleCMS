@@ -41,7 +41,7 @@ import './mcp-servers.css'
 type T = ReturnType<typeof useT>
 const tn = (t: T, key: string, count: number) => t(`${key}.${count === 1 ? 'one' : 'other'}`, { count })
 
-/** "https://atlas.example.com/mcp" → "atlas.example.com/mcp" */
+/** "https://kb.example.com/mcp" → "kb.example.com/mcp" */
 const shortUrl = (url: string) => url.replace(/^https:\/\//, '').replace(/\/$/, '')
 
 export function McpServers() {

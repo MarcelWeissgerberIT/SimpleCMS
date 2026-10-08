@@ -280,6 +280,15 @@
   font-weight: 600;
 }
 
+.io-done__note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--ink-2);
+}
+
 .io-readouts {
   display: grid;
   grid-template-columns: repeat(4, 1fr);

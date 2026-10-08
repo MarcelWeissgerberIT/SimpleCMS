@@ -134,7 +134,7 @@ describe('agent definitions are sanitized on the server', () => {
       scope: { everything: 'yes', pages: ['p1', 'bad id!', 'p1'], databases: 'nope' },
       write: 'delete-everything',
       output: { pageId: 'out-1', mode: 'sideways' },
-      mcpServers: ['atlas', 'Bad Name', 'atlas'],
+      mcpServers: ['archive', 'Bad Name', 'archive'],
       runner: 'server',
       model: 'gpt-4',
       effort: 'max',
@@ -151,7 +151,7 @@ describe('agent definitions are sanitized on the server', () => {
     assert.deepEqual(a.scope, { everything: false, pages: ['p1'], databases: [] })
     assert.equal(a.write, 'stage')
     assert.deepEqual(a.output, { pageId: 'out-1', mode: 'append' })
-    assert.deepEqual(a.mcpServers, ['atlas'])
+    assert.deepEqual(a.mcpServers, ['archive'])
     assert.equal(a.model, null)
     assert.equal(a.effort, null)
     assert.equal(a.maxRunUsd, 50)

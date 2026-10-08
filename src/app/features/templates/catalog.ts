@@ -533,7 +533,7 @@ const crm: TemplateDef = {
     })
     const contacts: Array<[string, string, string, number, number[], number | null]> = [
       ['Lena Hoffmann', 'Northwind Studio', 'lena@northwind.example', 2, [1], 10],
-      ['Marcus Chen', 'Atlas Ventures', 'marcus@atlas.example', 0, [0], 3],
+      ['Marcus Chen', 'Larkfield Ventures', 'marcus@larkfield.example', 0, [0], 3],
       ['Priya Raman', 'Kestrel Labs', 'priya@kestrel.example', 1, [2], null],
       ['Jonas Weber', L('Freelance', 'Freiberuflich'), 'jonas@weber.example', 3, [3, 2], 21],
       ['Sofia Alvarez', 'Lumen & Co', 'sofia@lumen.example', 1, [1, 3], 7],

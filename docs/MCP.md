@@ -25,12 +25,12 @@ Contents: [Tools](#tools) · [Tidying up](#tidying-up) · [One Script](#one-scri
 | `one_search` | read | `{ query, limit? }` — titles, text and row values; ids, paths and a snippet per hit |
 | `one_get_page` | read | `{ id }` or `{ title }` — title, icon, path, row properties, the content as **Markdown**, sub-pages, backlinks |
 | `one_list_databases` | read | every database: id, title, path, row count, property names and types |
-| `one_get_database` | read | `{ id }` — the schema (types, options, relations, read-only flags) and the views |
+| `one_get_database` | read | `{ id }` — the schema (types, options, relations, read-only flags — `onlyByHand` properties are read-only for MCP clients, `key` marks the database's key) and the views |
 | `one_query_database` | read | `{ databaseId, filter?, sort?, limit?, cursor? }` — rows with friendly values, filtered and sorted, paginated |
 | `one_create_page` | write | `{ title, parentId?, markdown?, icon? }` |
 | `one_update_page` | write | `{ id, title?, icon?, markdown?, mode: 'append' \| 'replace' }` |
-| `one_create_row` | write | `{ databaseId, title, properties?, markdown? }` |
-| `one_update_row` | write | `{ id, properties }` — only what you pass changes, `null` clears |
+| `one_create_row` | write | `{ databaseId, title, properties?, markdown? }` — a key another row holds and an `onlyByHand` property are refused |
+| `one_update_row` | write | `{ id, properties }` — only what you pass changes, `null` clears; the same refusals |
 | `one_create_property` | write | `{ databaseId, name, type, options?, relation?: { databaseId, twoWay?, reverseName? } }` |
 | `one_update_property` | write · destructive | `{ databaseId, property, name?, description?, type?, options?: { add?, update?: [{ name, newName?, color?, group? }], remove? } }` — removing an option clears it from rows (`cleared`); only [safe type changes](#tidying-up) |
 | `one_delete_property` | write · destructive | `{ databaseId, property }` — the property and its values; not the title (`rowsWithValue`) |
@@ -40,7 +40,7 @@ Contents: [Tools](#tools) · [Tidying up](#tidying-up) · [One Script](#one-scri
 | `one_update_view` | write | `{ databaseId, view, …the same }` — only what you pass changes; `null` clears grouping, filter, sorts |
 | `one_delete_view` | write · destructive | `{ databaseId, view }` — not the last one; the rows stay |
 | `one_move_page` | write | `{ id, parentId?, before? \| after? \| index? }` — pages and databases; `parentId: null` = top level |
-| `one_move_row` | write | `{ id, databaseId }` — a row into another database whose properties fit |
+| `one_move_row` | write | `{ id, databaseId }` — a row into another database whose properties fit (never onto a key another row holds there, never into an `onlyByHand` property) |
 | `one_trash_page` | write · destructive | `{ id }` or `{ ids: [≤ 50] }` — to the trash (a database with its rows: `rows`), never for good |
 | `one_restore_page` | write | `{ id }` or `{ ids: [≤ 50] }` — back from the trash |
 | `one_run_query` | read | `{ code, limit? }` — a read-only [One Script](#one-script) query: `{ count, columns, rows: [{ id?, <column>: text }] (≤ 100), truncated? }` or `{ value }` — local bridge only |
@@ -90,6 +90,8 @@ The tools that delete, adjust, create and reorganise follow the same rules on bo
   `one_move_row` moves a row (with its content) into another database only when every value it has fits a property
   of the same name and type there — select / multi_select options are matched by name and missing ones added, status
   options must exist, relations must point to the same database and not be two-way, and no other row may link to it.
+  The target's key stays unique (a row whose key value another row there holds is refused) and its `onlyByHand`
+  properties stay the person's (a value that would land in one is refused) — bridge and team server alike.
   Otherwise the answer lists what does not fit. Unique ids are numbered anew in the target.
 - **Not offered:** turning a page into a database entry or back (the sidebar's drops — they ask the person on the
   way), and, in a team workspace, moving between *Private* and the workspace. Both stay in the app.

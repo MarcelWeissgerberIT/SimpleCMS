@@ -268,6 +268,17 @@ export interface PropertyDef {
   listId?: ID
   /** Comes from a record type (Workspace.kit.recordTypes): kept in step by upsertRecordType (never deleted by it). */
   fromType?: { id: ID; prop: ID }
+  /**
+   * "Key" (store/keys.ts): this property identifies a row — text, number or url only, at most one per database; its
+   * values are unique per database (empty allowed). Agents' upsert_rows find rows by it; every writer refuses a value
+   * another row holds already (agent tools, MCP, the team server, a person's cell). Absent = no key.
+   */
+  key?: true
+  /**
+   * "Only by hand": agents never write this property (custom agents, the server runner, the AI terminal, MCP writes are
+   * refused naming it); people edit it as usual. Absent = agents may write it.
+   */
+  agentReadOnly?: true
 }
 
 /** What Claude fills a property with. */
@@ -884,7 +895,7 @@ export interface McpServerConfig {
    */
   codeword?: string
   /**
-   * Link address for the server's records ("https://atlas.example.com/"): relative links Claude copies
+   * Link address for the server's records ("https://kb.example.com/"): relative links Claude copies
    * from its results ("/r/11900") open there (lib/foreignLinks.ts). Absent = the server URL's origin
    * when it is the only enabled server. Not a secret.
    */
@@ -973,6 +984,13 @@ export interface Workspace {
    * cache and "standard look on this device" in localStorage `one.look`.
    */
   look?: WorkspaceLook
+  /**
+   * Integration profiles (Workspace → Integrations, features/agents/integrations): which agent features an active MCP
+   * server unlocks, and the recipes it brings. Write only with upsertIntegration / deleteIntegration (team: owners and
+   * admins — the server puts other members' changes back); every reader sanitizes (store/integrations.ts). Team: meta
+   * map `integrations`. Full backups carry them, page backups never.
+   */
+  integrations?: IntegrationProfile[]
 }
 
 /* ------------------------------------------------------------------ */
@@ -1185,6 +1203,12 @@ export interface CustomAgent {
   output?: { pageId: ID | null; mode: 'append' | 'replace' } | null
   /** MCP server NAMES (browser: settings.mcpServers · server: the server runtime's list) */
   mcpServers: string[]
+  /**
+   * Per attached MCP server (by name): the only tools the agent may use (the MCP connector's toolset with
+   * every other tool switched off). Absent — or no entry for a server — = all its tools; [] = none (the
+   * server is left out). Tool names `[A-Za-z0-9_.-]`, ≤ 200 per server; entries only for `mcpServers`.
+   */
+  mcpTools?: Record<string, string[]>
   runner: 'browser' | 'server'
   /** null = the workspace default */
   model?: string | null
@@ -1201,6 +1225,135 @@ export interface CustomAgent {
   updatedBy?: string | null
   createdAt: number
   updatedAt: number
+}
+
+/* ------------------------------------------------------------------ */
+/* Integration profiles (store/integrations.ts, features/agents)       */
+/* ------------------------------------------------------------------ */
+
+/**
+ * What an active integration profile switches on (on this device, or for the team server's agents):
+ * keys = the property menu's "Key" switch · onlyByHand = its "Only by hand" switch · upsert = the agent tool
+ * upsert_rows · toolAllowList = the MCP tool allow-list in the agent editor · agentState = agent_state_get / _set ·
+ * notify = notify_me. Flags already on properties and allow-lists already on agents keep working without it.
+ */
+export type IntegrationFeature = 'keys' | 'onlyByHand' | 'upsert' | 'toolAllowList' | 'agentState' | 'notify'
+export const INTEGRATION_FEATURES: IntegrationFeature[] = ['keys', 'onlyByHand', 'upsert', 'toolAllowList', 'agentState', 'notify']
+
+/** A text in one language, or per UI language ({ en, de } — the other one stands in for a missing one). */
+export type LocalText = string | { en?: string; de?: string }
+
+/**
+ * When a profile is active: ONE enabled MCP server satisfies every given condition — `tools`: each listed tool is in
+ * the server's tool list from its last connection test · `name`: a glob (`*`, `?`, case-insensitive) on its name ·
+ * `host`: a glob on its URL's host. At least one condition. The team server checks `name` / `host` only.
+ */
+export interface IntegrationMatch {
+  tools?: string[]
+  name?: string
+  host?: string
+}
+
+/** Property types a recipe's database may use. */
+export type RecipePropType = 'title' | 'text' | 'number' | 'select' | 'multi_select' | 'status' | 'date' | 'checkbox' | 'url' | 'email' | 'phone' | 'person'
+
+export interface RecipeOptionConfig {
+  name: LocalText
+  color?: ColorName
+  /** status options: the group (default: todo, then in_progress, the last one done) */
+  group?: StatusGroup
+}
+
+export interface RecipePropertyConfig {
+  /** what the property is for (the default views and instructions find properties by it) */
+  role?: string
+  name: LocalText
+  type: RecipePropType
+  options?: RecipeOptionConfig[]
+  /** the database's key (text / number / url; at most one) */
+  key?: boolean
+  /** "Only by hand": agents never write it */
+  onlyByHand?: boolean
+  /** the colour of options that name none */
+  color?: ColorName
+  description?: LocalText
+}
+
+/** A filter condition: `property` = a property's name (either language) or role; `value` per type (option name, date token …). */
+export interface RecipeCondition {
+  property: string
+  op: FilterOperator
+  value?: string | number | boolean
+}
+export type RecipeFilter = RecipeCondition | { and: RecipeFilter[] } | { or: RecipeFilter[] }
+
+export type RecipeViewType = 'table' | 'board' | 'list' | 'gallery' | 'calendar' | 'timeline' | 'feed'
+
+export interface RecipeViewConfig {
+  name: LocalText
+  type: RecipeViewType
+  /** visible properties in order (default: all but the title) */
+  properties?: string[]
+  /** board: select / status / checkbox / person; table / list: optional */
+  groupBy?: string
+  /** calendar / timeline / feed: the date property */
+  date?: string
+  filter?: RecipeFilter
+  sort?: Array<{ property: string; direction?: 'asc' | 'desc' }>
+  colorRules?: Array<{ when: RecipeFilter; color: ColorName; target?: 'accent' | 'background' | 'text' }>
+  /** option names of groupBy whose groups start hidden */
+  hiddenGroups?: string[]
+  /** hide the group of rows without a value */
+  hideEmpty?: boolean
+}
+
+export interface RecipeAgentConfig {
+  /** `{db}` = the database's name */
+  name?: LocalText
+  schedule?: { every: 'hour' | 'day' | 'weekday' | 'week' | 'month'; at: string; weekday?: number; day?: number }
+  write?: 'stage' | 'apply'
+  /** USD per run */
+  budget?: number
+  model?: string | null
+  effort?: 'low' | 'medium' | 'high' | null
+  /** the matched server's tools the agent may use (default: its read tools) */
+  tools?: string[]
+  /** `{db}`, `{server}`, `{report}` are filled in; parts in [ALL CAPS] are for the person to replace */
+  instructions?: LocalText
+}
+
+/** A recipe an active profile offers in the agent gallery. Absent fields take the built-in mirror's values. */
+export interface RecipeConfig {
+  kind: 'mirror'
+  /** unique in its profile (default "mirror", "mirror-2" …) */
+  id?: string
+  name?: LocalText
+  description?: LocalText
+  /** a lucide icon name for the database and the agent, and its colour */
+  icon?: string
+  color?: ColorName
+  database?: { name?: LocalText; properties?: RecipePropertyConfig[]; views?: RecipeViewConfig[] }
+  agent?: RecipeAgentConfig
+  /** the report page (`{db}` = the database's name) */
+  report?: { name?: LocalText }
+}
+
+/**
+ * An integration profile (JSON schema "one.integration/1"): workspace data, written only with upsertIntegration /
+ * deleteIntegration (team: owners and admins), every reader sanitizes (store/integrations.ts). Nothing names a
+ * service in One itself: a profile that does is data the person added.
+ */
+export interface IntegrationProfile {
+  schema: 'one.integration/1'
+  id: string
+  name: string
+  description?: string
+  match: IntegrationMatch
+  unlocks: IntegrationFeature[]
+  recipes?: RecipeConfig[]
+  /** stored only (never exported): the last save and its author (team: stamped by the server) */
+  updatedAt?: number
+  updatedBy?: string | null
 }
 
 /* ------------------------------------------------------------------ */

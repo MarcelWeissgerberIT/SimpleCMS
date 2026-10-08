@@ -1,6 +1,6 @@
 /**
  * MCP activity of a response: `mcp_tool_use` / `mcp_tool_result` blocks run inside one response
- * (Anthropic calls the server), so they are only watched here — shown as "ATLAS · search" chips.
+ * (Anthropic calls the server), so they are only watched here — shown as "KB · search" chips.
  */
 import type { BetaContentBlock } from '@anthropic-ai/sdk/resources/beta/messages/messages'
 
@@ -63,7 +63,7 @@ export function foldMcpBlock(calls: McpCall[], block: BetaContentBlock): McpCall
   return calls
 }
 
-/** "ATLAS · search_records" */
+/** "KB · search_records" */
 export function callLabel(c: Pick<McpCall, 'server' | 'tool'>): string {
   return `${c.server.toUpperCase()} · ${c.tool}`
 }

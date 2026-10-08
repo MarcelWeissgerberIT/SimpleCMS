@@ -23,6 +23,10 @@ import { useLang, useT } from '../../i18n'
 import { AI_MODELS, AIError, runAI } from '../ai/client'
 import { readServers } from '../ai/mcp-servers/config'
 import { weekdayName } from './format'
+import { isReadTool, testedTools } from './mcpTools'
+import { placeholdersIn } from './mirror'
+import { useServerUnlocked, useUnlocked } from './integrations/status'
+import './mirror.css'
 import { createHook, deleteHook, getHook, serverErrorText, useServerAgents, type HookState } from './server'
 import './agents.css'
 
@@ -133,6 +137,7 @@ export function validate(t: T, d: CustomAgent, ctx: { pages: Record<ID, Page>; s
   if (!d.name.trim()) e.name = t('features.agents.err.name')
   if (!d.instructions.trim()) e.instructions = t('features.agents.err.instructions')
   else if (d.instructions.length > AGENT_LIMITS.instructions) e.instructions = t('features.agents.err.tooLong', { max: AGENT_LIMITS.instructions })
+  else if (d.enabled && placeholdersIn(d.instructions).length) e.instructions = t('features.agents.mirror.err.placeholders', { count: placeholdersIn(d.instructions).length })
   const tr = d.trigger
   if ((tr.type === 'row_created' || tr.type === 'row_changed') && !(tr.databaseId && ctx.pages[tr.databaseId] && !ctx.pages[tr.databaseId].trashed)) e.trigger = t('features.agents.err.database')
   if (tr.type === 'schedule' && (!/^([01]\d|2[0-3]):[0-5]\d$/.test(tr.at) || !isTimeZone(tr.tz))) e.trigger = t('features.agents.err.time')
@@ -144,7 +149,11 @@ export function validate(t: T, d: CustomAgent, ctx: { pages: Record<ID, Page>; s
   return e
 }
 
-export function AgentEditor({ initial, isNew, onClose, onSaved }: { initial: CustomAgent; isNew: boolean; onClose: () => void; onSaved: (id: ID) => void }) {
+/**
+ * `intro`: a note on top (a recipe that set something up first says what it made); `writeHint`: the hint under
+ * "Changes" instead of the write mode's own (the mirror recipe: proposals first, Apply once the runs look right).
+ */
+export function AgentEditor({ initial, isNew, onClose, onSaved, intro, writeHint }: { initial: CustomAgent; isNew: boolean; onClose: () => void; onSaved: (id: ID) => void; intro?: string; writeHint?: string }) {
   const t = useT()
   const lang = useLang()
   const [d, setD] = useState<CustomAgent>(initial)
@@ -218,6 +227,12 @@ export function AgentEditor({ initial, isNew, onClose, onSaved }: { initial: Cus
         }}
         noValidate
       >
+        {intro && (
+          <p className="agx-notice agx-editor__notice" role="note" data-testid="agx-editor-intro">
+            <span className="led led--ok" aria-hidden />
+            <span>{intro}</span>
+          </p>
+        )}
         {othersAgent && (
           <p className="agx-notice agx-notice--wait agx-editor__notice" role="note">
             <span className="led led--on" aria-hidden />
@@ -259,7 +274,7 @@ export function AgentEditor({ initial, isNew, onClose, onSaved }: { initial: Cus
         {/* ---------------------------------------------------------- 03 access */}
         <Section n="03" title={t('features.agents.ed.access')}>
           <ScopeFields d={d} set={set} error={errors.scope} />
-          <Field label={t('features.agents.ed.write')} hint={t(`features.agents.write.${d.write}Hint`)}>
+          <Field label={t('features.agents.ed.write')} hint={writeHint && d.write === 'stage' ? writeHint : t(`features.agents.write.${d.write}Hint`)}>
             <Seg
               label={t('features.agents.ed.write')}
               value={d.write}
@@ -312,7 +327,7 @@ export function AgentEditor({ initial, isNew, onClose, onSaved }: { initial: Cus
             <Seg
               label={t('features.agents.ed.runner')}
               value={d.runner}
-              onChange={(runner) => set({ runner, ...(runner === 'browser' && d.trigger.type === 'webhook' ? { trigger: { type: 'manual' } } : {}), mcpServers: [] })}
+              onChange={(runner) => set({ runner, ...(runner === 'browser' && d.trigger.type === 'webhook' ? { trigger: { type: 'manual' } } : {}), mcpServers: [], mcpTools: undefined })}
               options={[
                 { v: 'browser', label: t('features.agents.runner.browser') },
                 { v: 'server', label: t('features.agents.runner.server'), disabled: !inCloud || !serverOk },
@@ -428,7 +443,20 @@ function Instructions({ value, onChange, error, id }: { value: string; onChange:
   const [busy, setBusy] = useState(false)
   const [prev, setPrev] = useState<string | null>(null)
   const ac = useRef<AbortController | null>(null)
+  const area = useRef<HTMLTextAreaElement>(null)
   useEffect(() => () => ac.current?.abort(), [])
+  // a recipe's placeholders still in the text (mirror.ts): a key selects one, so typing replaces it
+  const holes = placeholdersIn(value)
+  const selectHole = (ph: string) => {
+    const el = area.current
+    const at = el ? el.value.indexOf(ph) : -1
+    if (!el || at < 0) return
+    el.focus()
+    el.setSelectionRange(at, at + ph.length)
+    const line = el.value.slice(0, at).split('\n').length - 1
+    const lh = parseFloat(getComputedStyle(el).lineHeight) || 20
+    el.scrollTop = Math.max(0, (line - 2) * lh)
+  }
   const improve = async () => {
     if (!value.trim() || busy) return
     ac.current?.abort()
@@ -458,11 +486,30 @@ function Instructions({ value, onChange, error, id }: { value: string; onChange:
   }
   return (
     <Field label={t('features.agents.ed.instructions')} hint={t('features.agents.ed.instructionsHint')} error={error} id={id}>
+      {holes.length > 0 && (
+        <div className="agx-ph" role="group" aria-label={t('features.agents.mirror.toReplace')} data-testid="agx-placeholders">
+          <span className="label agx-ph__label">
+            {t('features.agents.mirror.toReplace')} · {holes.length}
+          </span>
+          <ul className="agx-ph__list">
+            {holes.map((h) => (
+              <li key={h.text} className="agx-ph__item">
+                <button type="button" className="agx-ph__btn" onClick={() => selectHole(h.text)}>
+                  {h.text}
+                </button>
+                <span className="agx-ph__hint">{h.key ? t(`features.agents.mirror.phHint.${h.key}`) : t('features.agents.mirror.phHint.generic')}</span>
+              </li>
+            ))}
+          </ul>
+          <p className="agx-ph__note">{t('features.agents.mirror.toReplaceHint')}</p>
+        </div>
+      )}
       <textarea
+        ref={area}
         id={id}
         className="input agx-textarea"
         value={value}
-        rows={7}
+        rows={holes.length ? 12 : 7}
         maxLength={AGENT_LIMITS.instructions}
         placeholder={t('features.agents.ed.instructionsPh')}
         aria-invalid={!!error || undefined}
@@ -670,11 +717,18 @@ function ScopeFields({ d, set, error }: { d: CustomAgent; set: (p: Partial<Custo
   )
 }
 
-/** MCP servers by name: browser agents use Settings → Claude AI, server agents the server's list. */
+/**
+ * MCP servers by name: browser agents use Settings → Claude AI, server agents the server's list. The tool allow-list
+ * per server only while an active integration profile unlocks it (this device's servers; for a server agent also the
+ * runtime's, by name / host) — without one, a list the agent already has stays applied and is shown read-only.
+ */
 function McpFields({ d, set }: { d: CustomAgent; set: (p: Partial<CustomAgent>) => void }) {
   const t = useT()
   const settings = useWorkspace((s) => s.settings)
   const runtime = useServerAgents((s) => s.runtime)
+  const here = useUnlocked('toolAllowList')
+  const onServer = useServerUnlocked('toolAllowList')
+  const allowList = here || (d.runner === 'server' && onServer)
   const names = d.runner === 'server' ? (runtime?.mcpServers ?? []).map((s) => s.name) : readServers(settings).map((s) => s.name)
   const all = [...new Set([...names, ...d.mcpServers])]
   const toggle = (name: string, on: boolean) => set({ mcpServers: on ? [...d.mcpServers, name] : d.mcpServers.filter((x) => x !== name) })
@@ -702,6 +756,98 @@ function McpFields({ d, set }: { d: CustomAgent; set: (p: Partial<CustomAgent>) 
         </div>
       )}
       <p className="agx-field__hint">{t('features.agents.ed.mcpHint')}</p>
+      {!allowList &&
+        d.mcpServers
+          .filter((name) => d.mcpTools && Object.prototype.hasOwnProperty.call(d.mcpTools, name))
+          .map((name) => (
+            <p key={name} className="agx-tools-kept" data-testid="agx-tools-kept">
+              <span className="label">{name.toUpperCase()}</span>
+              <span>{t('features.agents.ed.toolsKept', { n: d.mcpTools![name].length })}</span>
+            </p>
+          ))}
+      {allowList && d.mcpServers.map((name) => (
+        <McpToolList
+          key={name}
+          server={name}
+          tools={testedTools(name, readServers(settings), d.runner === 'server' ? (runtime?.mcpServers.find((s) => s.name === name) ?? null) : null)}
+          allow={d.mcpTools && Object.prototype.hasOwnProperty.call(d.mcpTools, name) ? d.mcpTools[name] : undefined}
+          onChange={(list) => {
+            const next = { ...(d.mcpTools ?? {}) }
+            if (list) next[name] = list
+            else delete next[name]
+            set({ mcpTools: Object.keys(next).length ? next : undefined })
+          }}
+        />
+      ))}
+    </div>
+  )
+}
+
+/**
+ * The tools an agent may use of one MCP server (CustomAgent.mcpTools): every tool of the last connection test as a
+ * checkbox, "Read-only tools" (ticks the names that look like reads, unticks the rest) and "All" (no list: also
+ * tools the server adds later). Untested: a pointer to Settings — the agent may use all its tools until then.
+ */
+function McpToolList({ server, tools, allow, onChange }: { server: string; tools: string[] | null; allow: string[] | undefined; onChange: (list: string[] | undefined) => void }) {
+  const t = useT()
+  const id = useId()
+  const known = tools ?? []
+  const shown = [...known, ...(allow ?? []).filter((x) => !known.includes(x))]
+  const on = (tool: string) => allow === undefined || allow.includes(tool)
+  const toggle = (tool: string, v: boolean) => {
+    const base = allow ?? known
+    const next = v ? [...base, tool] : base.filter((x) => x !== tool)
+    onChange(shown.filter((x) => next.includes(x)))
+  }
+  const hint = allow === undefined ? t('features.agents.ed.toolsAllHint') : allow.length ? t('features.agents.ed.toolsSomeHint') : t('features.agents.ed.toolsNone')
+  return (
+    <div className="agx-tools" role="group" aria-labelledby={`${id}-h`} data-server={server} data-none={allow?.length === 0 || undefined}>
+      <div className="agx-tools__head">
+        <span className="label agx-tools__name">
+          <span className="visually-hidden" id={`${id}-h`}>
+            {t('features.agents.ed.toolsOf', { name: server.toUpperCase() })}
+          </span>
+          <span aria-hidden>
+            {server.toUpperCase()} · {t('features.agents.ed.tools')}
+          </span>
+        </span>
+        <span className="label agx-tools__count" data-testid="agx-tools-count">
+          {allow === undefined ? t('features.agents.ed.toolsAllCount') : t('features.agents.ed.toolsCount', { n: allow.length, total: Math.max(known.length, shown.length) })}
+        </span>
+        <span className="agx-tools__acts">
+          {known.length > 0 && (
+            <button type="button" className="btn btn--sm" onClick={() => onChange(known.filter(isReadTool))}>
+              {t('features.agents.ed.toolsRead')}
+            </button>
+          )}
+          <button type="button" className="btn btn--sm" aria-pressed={allow === undefined} onClick={() => onChange(undefined)} disabled={allow === undefined}>
+            {t('features.agents.ed.toolsAll')}
+          </button>
+        </span>
+      </div>
+      {shown.length > 0 && (
+        <div className="agx-tools__list">
+          {shown.map((tool) => (
+            <label key={tool} className="agx-check agx-check--tool" data-missing={!known.includes(tool) || undefined}>
+              <input type="checkbox" checked={on(tool)} onChange={(e) => toggle(tool, e.target.checked)} />
+              <span className="mono agx-tools__tool" title={tool}>
+                {tool}
+              </span>
+              {tools && !known.includes(tool) && <span className="agx-check__note">{t('features.agents.ed.toolsGone')}</span>}
+            </label>
+          ))}
+        </div>
+      )}
+      {tools ? (
+        <p className="agx-field__hint">{hint}</p>
+      ) : (
+        <p className="agx-field__hint">
+          {t('features.agents.ed.toolsUntested')}{' '}
+          <button type="button" className="agx-link" onClick={() => useUI.getState().openModal({ type: 'settings', tab: 'ai' })}>
+            {t('features.agents.ed.toolsTest')}
+          </button>
+        </p>
+      )}
     </div>
   )
 }

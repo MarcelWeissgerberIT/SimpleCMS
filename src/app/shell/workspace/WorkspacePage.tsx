@@ -1,8 +1,8 @@
 /**
  * The workspace page (#/workspace, #/workspace/<section>): what belongs to the workspace, in one place —
- * a spec plate (mark, name, LOCAL / TEAM · n MEMBERS, pages · databases · storage) and seven sections:
- * Overview · Look · People · Building blocks · Automation · Data · Danger zone. A rail on the left (a strip of
- * tabs on narrow screens). Settings (the modal) keeps this device and the account.
+ * a spec plate (mark, name, LOCAL / TEAM · n MEMBERS, pages · databases · storage) and eight sections:
+ * Overview · Look · People · Building blocks · Automation · Integrations · Data · Danger zone. A rail on the left (a
+ * strip of tabs on narrow screens). Settings (the modal) keeps this device and the account.
  */
 import { useEffect, useMemo, useRef } from 'react'
 import { Settings } from 'lucide-react'
@@ -24,6 +24,7 @@ import { LookSection } from './Look'
 import { PeopleSection } from './People'
 import { BlocksSection } from './Blocks'
 import { AutomationSection } from './Automation'
+import { IntegrationsSection } from './Integrations'
 import { DataSection } from './Data'
 import { DangerSection } from './Danger'
 import './workspace.css'
@@ -53,6 +54,7 @@ export function WorkspacePage({ section }: { section?: string }) {
             {active === 'people' && <PeopleSection team={team} />}
             {active === 'blocks' && <BlocksSection />}
             {active === 'automation' && <AutomationSection team={team} />}
+            {active === 'integrations' && <IntegrationsSection />}
             {active === 'data' && <DataSection />}
             {active === 'danger' && <DangerSection team={team} />}
           </section>
@@ -127,10 +129,11 @@ function SectionNav({ active, team }: { active: WorkspaceSection; team: TeamData
   const inCloud = useInCloud()
   const automation = useAutomationCount()
   const kit = useKitCount()
+  const integrations = useWorkspace((s) => s.integrations?.length ?? 0)
   const stripRef = useRef<HTMLUListElement>(null)
   const counts: Partial<Record<WorkspaceSection, number>> = useMemo(
-    () => ({ people: inCloud && team.members ? Math.max(people, team.members.length) : people, blocks: kit, automation }),
-    [people, inCloud, team.members, kit, automation],
+    () => ({ people: inCloud && team.members ? Math.max(people, team.members.length) : people, blocks: kit, automation, integrations }),
+    [people, inCloud, team.members, kit, automation, integrations],
   )
 
   // phones: the strip scrolls sideways — keep the active tab in view (the strip only)

@@ -113,7 +113,11 @@ A list (sorted by title) of, or one:
 
 `readOnly` properties (formula, rollup, created time, last edited time, unique id) can't be set.
 Extra fields per type: `options` (select, multi-select, status), `relationDatabaseId` (relation),
-`prefix` (unique id), `max` (rating).
+`prefix` (unique id), `max` (rating). `key: true` marks the database's **key** (a text, number or url
+property, at most one): its values are unique per row — empty allowed, text compared trimmed, numbers
+numerically — and a write that gives it a value another row holds is a `409 duplicate_key` (`details.errors`:
+`property`, `value`, `rowId` of the row holding it). `onlyByHand: true` marks a property people fill in by
+hand: agents and MCP clients never write it (the API itself may).
 
 ### `GET /api/v1/databases/:id/rows`
 
@@ -373,7 +377,7 @@ bad token), `409 runtime_not_ready`, `409 agent_unavailable` (switched off, not 
 | 401 | `unauthenticated` (no token), `invalid_token` (unknown or revoked) — with `WWW-Authenticate: Bearer` |
 | 403 | `insufficient_scope` (a read token writing) |
 | 404 | `not_found`, `database_not_found`, `row_not_found`, `page_not_found`, `parent_not_found`, `hook_not_found`, `agent_not_found`, `run_not_found` |
-| 409 | agents: `runtime_not_ready`, `agent_not_server`, `agent_unavailable`, `queue_full`, `run_running`, `run_busy` |
+| 409 | `duplicate_key` (a row holds that key already), `page_exists`; agents: `runtime_not_ready`, `agent_not_server`, `agent_unavailable`, `queue_full`, `run_running`, `run_busy` |
 | 413 | `payload_too_large` (over 256 KB; agent webhooks: 16 KB) |
 | 422 | `invalid_value` (`details.errors`: `property`, `message`, `allowed?`), `parent_is_database` |
 | 429 | `rate_limited`, with `Retry-After` (seconds) |

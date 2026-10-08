@@ -119,6 +119,14 @@
   font-weight: 700;
 }
 
+/* the row key / "Only by hand" marks (store/keys.ts) */
+.dbt-hcell__flag {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  color: var(--ink-3);
+}
+
 .dbt-resize {
   position: absolute;
   top: 0;

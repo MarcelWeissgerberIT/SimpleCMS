@@ -14,6 +14,7 @@ import { inTemplate } from '../../store/selectors'
 import type { CustomAgent, ID, Page } from '../../store/types'
 import { useCloud } from '../../cloud'
 import { AGENT_TOOLS, ToolInputError, withToolScope, type AgentTool, type StageApi } from '../ai/agent/tools'
+import { unlocked } from './integrations/status'
 
 /** The ids a tool input can point at. */
 const ID_KEYS = ['id', 'database_id', 'parent_id'] as const
@@ -62,11 +63,13 @@ const isStagedCreate = (stage: StageApi, id: string) => stage.list().some((c) =>
 
 /**
  * The tools of an agent: the workspace agent's, without get_current_page (nobody has a page open),
- * without the writing ones for read-only agents, each call checked against the scope.
+ * without the writing ones for read-only agents, without upsert_rows unless an active integration profile unlocks it
+ * on this device, each call checked against the scope.
  */
-export function agentTools(agent: Pick<CustomAgent, 'scope' | 'write'>): AgentTool[] {
+export function agentTools(agent: Pick<CustomAgent, 'scope' | 'write'>, opts: { upsert?: boolean } = {}): AgentTool[] {
   const filter = scopeFilter(agent)
-  const base = AGENT_TOOLS.filter((t) => t.name !== 'get_current_page' && (agent.write !== 'none' || !t.write))
+  const upsert = opts.upsert ?? unlocked('upsert')
+  const base = AGENT_TOOLS.filter((t) => t.name !== 'get_current_page' && (agent.write !== 'none' || !t.write) && (upsert || t.name !== 'upsert_rows'))
   if (!filter) return base
   return base.map((tool) => ({
     ...tool,

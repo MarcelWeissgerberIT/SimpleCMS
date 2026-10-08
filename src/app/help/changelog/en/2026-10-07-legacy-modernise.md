@@ -13,4 +13,4 @@ try: coding
 
 **The template.** **#/coding → Pipeline → Modernise legacy code**: **Analysis**, **Design** and **Test design** each write their own section into the task's page — architecture with a diagram, risks, the behaviour to keep, the target design, a table of test cases. After you approve the concept, Claude Code writes tests against the old code, then rebuilds, and the same tests have to pass on the new code.
 
-**Your knowledge base.** Per repository, the setup page can give Claude Code your own MCP servers — e.g. `atlas` — to read and record what is known about the code. On GitLab, Ship opens a merge request with `glab`. The walk-through: [Modernise legacy code](help:legacy-modernisation).
+**Your knowledge base.** Per repository, the setup page can give Claude Code your own MCP servers — e.g. `kb` — to read and record what is known about the code. On GitLab, Ship opens a merge request with `glab`. The walk-through: [Modernise legacy code](help:legacy-modernisation).

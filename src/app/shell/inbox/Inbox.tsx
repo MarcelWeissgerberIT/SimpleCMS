@@ -1,5 +1,5 @@
 /**
- * #/inbox — this device's inbox: reminders that came due, and in a team workspace @mentions,
+ * #/inbox — this device's inbox: reminders that came due, notes from custom agents, and in a team workspace @mentions,
  * assignments and replies (features/inbox makes the items). Filters, groups by day, read / archive.
  */
 import { useMemo, useState } from 'react'

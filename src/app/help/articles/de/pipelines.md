@@ -3,7 +3,7 @@ id: pipelines
 title: Business-Analyse- und QA-Pipelines
 section: ai
 order: 11
-keywords: projekt, projekte, neues projekt, projekt löschen, stories, user stories, epic, copy for ai, ai context, clipboard, Für KI-Kontext kopieren, business analysis, ba, spec, specification, sdd, software design document, requirements, analysis, qa, quality assurance, test cases, test design, then, follow-up, chain, pipeline, document stage, import stage, zip, clone, reference, mention, knowledge base, atlas, mcp, Business-Analyse, Spezifikation, Anforderungen, Testfälle, Danach, Folgeaufgabe
+keywords: projekt, projekte, neues projekt, projekt löschen, stories, user stories, epic, copy for ai, ai context, clipboard, Für KI-Kontext kopieren, business analysis, ba, spec, specification, sdd, software design document, requirements, analysis, qa, quality assurance, test cases, test design, then, follow-up, chain, pipeline, document stage, import stage, zip, clone, reference, mention, knowledge base, mcp, Business-Analyse, Spezifikation, Anforderungen, Testfälle, Danach, Folgeaufgabe
 related: coding-pipeline, legacy-modernisation, explain-code, review-merge, mcp-servers
 summary: Neben Coding: eine Business-Analyse-Pipeline, die Analysen und Spezifikationen schreibt, und eine QA-Pipeline, die Testfälle entwirft – jede für sich oder verkettet.
 ---
@@ -14,7 +14,7 @@ summary: Neben Coding: eine Business-Analyse-Pipeline, die Analysen und Spezifik
 1. **Analyse** – Kontext, Beteiligte, Anforderungen (FR / NFR, jede prüfbar), Geschäftsregeln, offene Fragen, Risiken.
 2. **Spezifikation** – Umfang, User Stories mit Akzeptanzkriterien, Abläufe (Mermaid), Datenmodell, Schnittstellen, Nachverfolgbarkeit.
 3. **Spezifikation freigeben** – beide Abschnitte in der Seite lesen; **Nacharbeit…** schickt eine Notiz zurück.
-4. **Festhalten** – mit deinen Wissensbasis-MCP-Servern (z. B. `atlas`) hält Claude Code das freigegebene Ergebnis dort fest und schreibt eine kurze Zusammenfassung.
+4. **Festhalten** – mit deinen Wissensbasis-MCP-Servern (z. B. `kb`) hält Claude Code das freigegebene Ergebnis dort fest und schreibt eine kurze Zusammenfassung.
 
 ## QA
 **#/coding/qa.** Die Stufe **Testfälle** schreibt Teststrategie und Abdeckung – und ihre Testfälle werden Zeilen der Datenbank **Testfälle** (ID, Status *Nicht ausgeführt*, Priorität, Testart, Bereich, Vorbedingungen, Schritte, erwartetes Ergebnis), jede mit ihrer Aufgabe verknüpft. Danach **Testfälle freigeben** und **Festhalten**.

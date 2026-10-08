@@ -5,7 +5,7 @@ order: 8
 title: A sub-page for every item
 summary: One page per ticket, linked in a table on the main page — from the AI terminal in one step, or from a list, headings or a table without AI.
 image: assets/shots/changelog/pages-per-item.webp
-alt: A page with a table linking twelve ticket sub-pages, which show in the sidebar under it; below, the AI terminal's log with one Atlas lookup, one call for all pages and the table
+alt: A page with a table linking eight ticket sub-pages, which show in the sidebar under it; below, the AI terminal's log with one knowledge-base lookup, one call for all pages and the table
 help: agent, ai-menu, block-handle
 try: terminal
 ---

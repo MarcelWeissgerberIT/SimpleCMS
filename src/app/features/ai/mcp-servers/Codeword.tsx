@@ -1,6 +1,6 @@
 /**
  * Codewords in the prompts: the chip next to the AI menu / ⌘K "?" input while a request starts with
- * a recognised codeword ("→ ATLAS"), and the note in a result when an addressed server stayed out.
+ * a recognised codeword ("→ KB"), and the note in a result when an addressed server stayed out.
  */
 import { useMemo } from 'react'
 import { useT } from '../../../i18n'
@@ -10,7 +10,7 @@ import { parseCodewords } from './codeword'
 import type { McpCall } from './activity'
 import './codeword.css'
 
-/** "→ ATLAS" for each server the text addresses by codeword (nothing without one). */
+/** "→ KB" for each server the text addresses by codeword (nothing without one). */
 export function CodewordChip({ text }: { text: string }) {
   const t = useT()
   const raw = useWorkspace((s) => s.settings.mcpServers)
@@ -33,7 +33,7 @@ export function CodewordChip({ text }: { text: string }) {
   )
 }
 
-/** The short label of a skipped entry's chip ("ATLAS · OFF"). */
+/** The short label of a skipped entry's chip ("KB · OFF"). */
 export function skippedLabel(t: ReturnType<typeof useT>, c: McpCall): string {
   return `${c.server.toUpperCase()} · ${t(`features.ai.mcp.cw.tag.${c.skipped}`)}`
 }

@@ -399,7 +399,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
   /** a file's local conversion is shown: text typed now is a question about the file (its kind) */
   const fileLocal = run?.req.kind === 'file' && isLocalAction(run.req.action) ? run.req.fileKind : null
 
-  /** the MCP servers a free-form request would use ("ATLAS · GITHUB", '' = none) */
+  /** the MCP servers a free-form request would use ("KB · TRACKER", '' = none) */
   const mcpNames = useWorkspace((s) =>
     readServers(s.settings)
       .filter((x) => x.enabled)
@@ -2299,7 +2299,7 @@ function Elapsed({ start, end }: { start: number; end?: number }) {
   )
 }
 
-/** Tool calls of external MCP servers: "ATLAS · search_records" chips with an LED; failures said politely. */
+/** Tool calls of external MCP servers: "KB · search_records" chips with an LED; failures said politely. */
 function McpChips({ calls }: { calls: McpCall[] }) {
   const t = useT()
   const failed = calls.filter((c) => c.state === 'err' && !c.skipped)

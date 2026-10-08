@@ -26,12 +26,14 @@
 import { createStore, type UseStore } from 'idb-keyval'
 import { useWorkspace, getWorkspaceSnapshot, emptyWorkspace, pageChanges, WORKSPACE_VERSION, defaultSettings, defaultView, DEFAULT_PAGE_SETTINGS } from './store'
 import type { Database, ID, Page, PropertyDef, Settings, Workspace } from './types'
+import { sanitizePropFlags } from './keys'
 import { newId } from '../lib/ids'
 import { isSecretMarker } from '../lib/vault'
 import { mergePage, samePage } from './merge'
 import { LOCAL_SCOPE, sealStoredAIKey, setStoredKeyMigration } from './secrets'
 import { sanitizeFunctions } from './functions'
 import { sanitizeAgents } from './agents'
+import { sanitizeIntegrations } from './integrations'
 import { sanitizeScripts } from './scripts'
 import { sanitizeKit } from './kit'
 import { sanitizeLook } from './look'
@@ -123,7 +125,8 @@ function normalizeDatabase(id: ID, v: unknown, lang: Settings['language']): { db
     props.unshift({ id: newId(), name: 'Name', type: 'title' })
     repaired = true
   }
-  db.properties = props
+  // row keys / "Only by hand" (keys.ts): only where they fit
+  db.properties = sanitizePropFlags(props)
   const views = Array.isArray(v.views) ? (v.views as unknown[]).filter((x): x is Database['views'][number] => isObj(x) && typeof x.id === 'string') : []
   if (!Array.isArray(v.views) || views.length !== (v.views as unknown[]).length) repaired = true
   if (!views.length) {
@@ -201,6 +204,10 @@ export function migrateWithReport(raw: unknown): { ws: Workspace; repaired: bool
   const kit = sanitizeKit(src.kit)
   ws.kit = kit.kit
   if (kit.dropped) repaired = true
+  // integration profiles: the same (store/integrations.ts)
+  const ints = sanitizeIntegrations(src.integrations)
+  ws.integrations = ints.integrations
+  if (ints.dropped) repaired = true
   // the look: the raw value never stays (a broken one is dropped; the standard look is no value)
   delete ws.look
   const look = sanitizeLook(src.look)
@@ -290,6 +297,7 @@ let dirtyAgents = false
 let dirtyScripts = false
 let dirtyKit = false
 let dirtyLook = false
+let dirtyIntegrations = false
 /** Pages were added or removed: the meta record's page order is rewritten with the next save. */
 let dirtyOrder = false
 /** Being written right now (a sync must not replace them with the older stored copy). */
@@ -303,6 +311,7 @@ let inflightAgents = false
 let inflightScripts = false
 let inflightKit = false
 let inflightLook = false
+let inflightIntegrations = false
 
 /**
  * Per page: the stored copy this tab's current (unsaved) edits descend from. Set when a page
@@ -317,7 +326,7 @@ function trackDirty<T>(next: Record<string, T>, prev: Record<string, T>, into: S
 }
 
 function hasDirty(): boolean {
-  return fullWriteNext || dirtyPages.size > 0 || dirtyDbs.size > 0 || dirtySettings.size > 0 || dirtyPeople || dirtyRecent || dirtyFunctions || dirtyAgents || dirtyScripts || dirtyKit || dirtyLook
+  return fullWriteNext || dirtyPages.size > 0 || dirtyDbs.size > 0 || dirtySettings.size > 0 || dirtyPeople || dirtyRecent || dirtyFunctions || dirtyAgents || dirtyScripts || dirtyKit || dirtyLook || dirtyIntegrations
 }
 
 /* ------------------------------------------------------------------ */
@@ -509,7 +518,7 @@ function readSome(pageIds: ID[], dbIds: ID[], meta: boolean): Promise<{ pages: M
  * otherwise come back sorted by id, and code that walks the page map (first match by title, ties
  * in sorted lists, graph layout) sees the order it always saw.
  */
-const metaOf = (ws: Workspace) => ({ version: ws.version, epoch: ws.epoch, settings: ws.settings, people: ws.people, recent: ws.recent, functions: ws.functions ?? {}, agents: ws.agents ?? {}, scripts: ws.scripts ?? {}, kit: ws.kit, look: ws.look ?? null, order: Object.keys(ws.pages) })
+const metaOf = (ws: Workspace) => ({ version: ws.version, epoch: ws.epoch, settings: ws.settings, people: ws.people, recent: ws.recent, functions: ws.functions ?? {}, agents: ws.agents ?? {}, scripts: ws.scripts ?? {}, kit: ws.kit, look: ws.look ?? null, integrations: ws.integrations ?? [], order: Object.keys(ws.pages) })
 
 /** Records (id → value) in the stored page order; ids the order does not know follow by creation time. */
 function inOrder(records: Obj, order: unknown): Obj {
@@ -672,6 +681,7 @@ async function readChanged(pageIds: ID[], dbIds: ID[], meta: boolean): Promise<W
     ws.agents = m.agents
     ws.scripts = m.scripts
     ws.kit = m.kit
+    ws.integrations = m.integrations
     if (m.look) ws.look = m.look
     else delete ws.look
   }
@@ -730,6 +740,8 @@ interface WriteSet {
   kit: boolean
   /** the workspace look (kept in the meta record) */
   look: boolean
+  /** integration profiles (kept in the meta record) */
+  integrations: boolean
   /** pages were added or removed (the meta record keeps their order) */
   order: boolean
   /** every record (first run, a repair, the conversion from the legacy layout) */
@@ -792,7 +804,7 @@ function writeRecords(set: WriteSet, bases: Map<ID, Page>, merged: Map<ID, [Page
         if (db) os.put(db, DB_PREFIX + id)
         else os.delete(DB_PREFIX + id)
       }
-      if (set.settingKeys.length || set.people || set.recent || set.functions || set.agents || set.scripts || set.kit || set.look || set.order) {
+      if (set.settingKeys.length || set.people || set.recent || set.functions || set.agents || set.scripts || set.kit || set.look || set.integrations || set.order) {
         const next: Obj = { ...(meta.result as Obj), version: snap.version }
         if (set.order) next.order = Object.keys(snap.pages)
         if (set.settingKeys.length) {
@@ -807,6 +819,7 @@ function writeRecords(set: WriteSet, bases: Map<ID, Page>, merged: Map<ID, [Page
         if (set.scripts) next.scripts = snap.scripts ?? {}
         if (set.kit) next.kit = snap.kit
         if (set.look) next.look = snap.look ?? null
+        if (set.integrations) next.integrations = snap.integrations ?? []
         os.put(next, META_KEY)
       }
     }
@@ -843,13 +856,14 @@ async function writeChanges(): Promise<void> {
   const scripts = dirtyScripts
   const kit = dirtyKit
   const look = dirtyLook
+  const integrations = dirtyIntegrations
   const order = dirtyOrder
   const full = fullWriteNext
   const stash = pendingStash
   dirtyPages.clear()
   dirtyDbs.clear()
   dirtySettings.clear()
-  dirtyPeople = dirtyRecent = dirtyFunctions = dirtyAgents = dirtyScripts = dirtyKit = dirtyLook = dirtyOrder = fullWriteNext = false
+  dirtyPeople = dirtyRecent = dirtyFunctions = dirtyAgents = dirtyScripts = dirtyKit = dirtyLook = dirtyIntegrations = dirtyOrder = fullWriteNext = false
   pages.forEach((id) => inflightPages.add(id))
   dbs.forEach((id) => inflightDbs.add(id))
   settingKeys.forEach((k) => inflightSettings.add(k))
@@ -860,6 +874,7 @@ async function writeChanges(): Promise<void> {
   inflightScripts = scripts
   inflightKit = kit
   inflightLook = look
+  inflightIntegrations = integrations
   // the stored copies our edits started from: a different stored copy means another tab wrote
   const bases = new Map<ID, Page>()
   for (const id of pages) {
@@ -870,7 +885,7 @@ async function writeChanges(): Promise<void> {
   try {
     setStatus('saving')
     // nothing stored yet (first run, seed), a repair or the legacy layout: every record (full)
-    const res = await writeRecords({ pages, dbs, settingKeys, people, recent, functions, agents, scripts, kit, look, order, full }, bases, merged)
+    const res = await writeRecords({ pages, dbs, settingKeys, people, recent, functions, agents, scripts, kit, look, integrations, order, full }, bases, merged)
     const written = res.pages
     // what is stored now is what this tab's pages descend from
     for (const id of pages) {
@@ -887,7 +902,7 @@ async function writeChanges(): Promise<void> {
       if (pendingStash === stash) pendingStash = null
     }
     // other tabs read just these records (a full write: everything)
-    const msg: ChangedMessage = { type: 'changed', from: TAB_ID, full: res.full, pages, dbs, meta: settingKeys.length > 0 || people || recent || functions || agents || scripts || kit || look }
+    const msg: ChangedMessage = { type: 'changed', from: TAB_ID, full: res.full, pages, dbs, meta: settingKeys.length > 0 || people || recent || functions || agents || scripts || kit || look || integrations }
     channel?.postMessage(msg)
   } catch (e) {
     console.error('[one] failed to save workspace', e)
@@ -901,6 +916,7 @@ async function writeChanges(): Promise<void> {
     dirtyScripts ||= scripts
     dirtyKit ||= kit
     dirtyLook ||= look
+    dirtyIntegrations ||= integrations
     dirtyOrder ||= order
     fullWriteNext ||= full
     setStatus('error')
@@ -911,7 +927,7 @@ async function writeChanges(): Promise<void> {
     inflightPages.clear()
     inflightDbs.clear()
     inflightSettings.clear()
-    inflightPeople = inflightRecent = inflightFunctions = inflightAgents = inflightScripts = inflightKit = inflightLook = false
+    inflightPeople = inflightRecent = inflightFunctions = inflightAgents = inflightScripts = inflightKit = inflightLook = inflightIntegrations = false
   }
 }
 
@@ -1002,7 +1018,8 @@ export function startPersistence(): () => void {
       state.agents === prev.agents &&
       state.scripts === prev.scripts &&
       state.kit === prev.kit &&
-      state.look === prev.look
+      state.look === prev.look &&
+      state.integrations === prev.integrations
     )
       return
     if (state.pages !== prev.pages) {
@@ -1029,6 +1046,7 @@ export function startPersistence(): () => void {
     if (state.scripts !== prev.scripts) dirtyScripts = true
     if (state.kit !== prev.kit) dirtyKit = true
     if (state.look !== prev.look) dirtyLook = true
+    if (state.integrations !== prev.integrations) dirtyIntegrations = true
     scheduleSave(SAVE_DELAY)
   })
 
@@ -1077,6 +1095,7 @@ export function startPersistence(): () => void {
       if (local.look) ws.look = local.look
       else delete ws.look
     }
+    if (dirtyIntegrations || inflightIntegrations) ws.integrations = local.integrations
     // pages taken over from storage are in sync again (the next local change sets a new base)
     for (const id of [...syncBase.keys()]) {
       if (!dirtyPages.has(id) && !inflightPages.has(id)) syncBase.delete(id)

@@ -439,6 +439,30 @@
 .agx-runsec__where {
   margin-left: auto;
 }
+/* the agent's saved state on this device (agent_state_set) */
+.agx-state {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  margin: 0 0 12px;
+  padding: 6px 10px;
+  border: 1px dashed var(--rule-strong);
+  border-radius: var(--radius-1);
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+}
+.agx-state .label {
+  color: var(--ink-3);
+}
+.agx-state__val {
+  min-width: 0;
+  font-size: var(--text-xs);
+  overflow-wrap: anywhere;
+}
+.agx-state .agx-link {
+  margin-left: auto;
+}
 .agx-empty {
   padding: 22px 0;
   color: var(--ink-3);
@@ -601,6 +625,20 @@
 }
 .agx-review__head > .label {
   color: var(--signal-ink);
+}
+.agx-review__counts {
+  min-width: 0;
+  font-size: var(--text-xs);
+  color: var(--ink-3);
+}
+/* a long batch: counts and Apply all stay in view while the cards scroll by */
+.agx-review[data-long] .agx-review__head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--rule);
+  background: var(--bg);
 }
 .agx-changes {
   margin: 0;
@@ -878,6 +916,72 @@
 .agx-check__note {
   color: var(--c-red-text);
 }
+/* the tool allow-list of one MCP server (under its ticked checkbox) */
+.agx-tools {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding: 10px 12px 12px;
+  border: 1px solid var(--rule);
+  border-left: 2px solid var(--ink);
+  border-radius: var(--radius-1);
+  background: var(--surface);
+}
+.agx-tools[data-none] {
+  border-left-color: var(--c-red-text);
+}
+.agx-tools__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  min-width: 0;
+}
+.agx-tools__name {
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.agx-tools__count {
+  padding: 1px 6px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+.agx-tools__acts {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-left: auto;
+}
+.agx-tools[data-none] .agx-tools__count {
+  border-color: var(--c-red-text);
+  color: var(--c-red-text);
+}
+.agx-tools__list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-height: 232px;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+.agx-check--tool {
+  max-width: 100%;
+  min-width: 0;
+  height: 28px;
+  padding: 0 8px;
+}
+.agx-check--tool:not(:has(input:checked)) {
+  color: var(--ink-3);
+  border-style: dashed;
+}
+.agx-tools__tool {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .agx-link {
   padding: 0;
   border: 0;
@@ -1109,4 +1213,32 @@
 }
 .agx-hook__confirm {
   font-size: var(--text-sm);
+}
+
+/* ---------- integration profiles (integrations/): their recipes in the gallery, an allow-list kept read-only ---------- */
+.agx-recipe--int {
+  border-left: 3px solid var(--led-ok);
+}
+.agx-recipe--int .agx-recipe__code {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 14ch;
+  overflow: hidden;
+  color: var(--ink-2);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agx-tools-kept {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  border: 1px solid var(--rule);
+  border-left: 2px solid var(--ink-3);
+  border-radius: var(--radius-1);
+  font-size: calc(12px * var(--text-scale));
+  color: var(--ink-2);
 }

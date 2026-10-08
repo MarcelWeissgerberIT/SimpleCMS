@@ -27,6 +27,7 @@ import {
   subItemsParent,
 } from './meta.ts'
 import { READ_ONLY_TYPES, ValueError, coerce, friendly, schemaOut, type ValueContext } from './values.ts'
+import { checkKey, handOnlyMessage, isHandOnly } from './keys.ts'
 
 export const metaDoc = (wsId: string) => `ws:${wsId}`
 export const contentDoc = (wsId: string, pageId: string) => `ws:${wsId}:p:${pageId}`
@@ -53,6 +54,11 @@ const unprocessable = (errors: ValueError[], code = 'invalid_value') =>
   new ApiError(422, code, errors.map((e) => e.message).join('; '), {
     details: { errors: errors.map((e) => ({ property: e.property, message: e.message, ...(e.allowed ? { allowed: e.allowed } : {}) })) },
   })
+
+/** Who writes: `agent` — a server agent or an MCP client, which never writes a property "Only by hand" (keys.ts). */
+export interface WriteOpts {
+  agent?: boolean
+}
 
 /** A property by id, else by name (case-insensitive, trimmed). */
 export function findProperty(props: PropertyDef[], key: string): PropertyDef | undefined {
@@ -198,14 +204,18 @@ export class WorkspaceModel {
    * Friendly row input → stored values (strict: unknown properties and values that don't fit are a
    * 422 listing every problem). A title given as a property counts as the title.
    */
-  resolveStrict(props: PropertyDef[], input: RowInput, ctx: ValueContext): { title: string | undefined; values: Record<string, unknown> } {
+  resolveStrict(props: PropertyDef[], input: RowInput, ctx: ValueContext, opts: WriteOpts = {}): { title: string | undefined; values: Record<string, unknown> } {
     const errors: ValueError[] = []
     const values: Record<string, unknown> = {}
     let title = input.title
     for (const [key, raw] of Object.entries(input.properties ?? {})) {
       const prop = findProperty(props, key)
       if (!prop) {
-        errors.push(new ValueError(key, `Unknown property "${key}"`, props.filter((p) => !READ_ONLY_TYPES.has(p.type)).map((p) => p.name)))
+        errors.push(new ValueError(key, `Unknown property "${key}"`, props.filter((p) => !READ_ONLY_TYPES.has(p.type) && !(opts.agent && isHandOnly(p))).map((p) => p.name)))
+        continue
+      }
+      if (opts.agent && isHandOnly(prop)) {
+        errors.push(new ValueError(prop.name, handOnlyMessage(prop)))
         continue
       }
       try {
@@ -234,12 +244,14 @@ export class WorkspaceModel {
   /* ---------------------------------------------------------------- writes */
 
   /** Validates (strict), then creates. `opts.id`: the new row's id (agents' staged rows), else a fresh one. */
-  async createRow(wsId: string, dbId: string, input: RowInput, actor: string, opts: { id?: string } = {}) {
+  async createRow(wsId: string, dbId: string, input: RowInput, actor: string, opts: { id?: string } & WriteOpts = {}) {
     const resolved = await this.read(wsId, (r) => {
       const db = liveDatabase(r, dbId)
       if (!db) throw notFound('database_not_found', 'No such database in this workspace')
       if (opts.id && pageMap(r, opts.id)) throw new ApiError(409, 'page_exists', 'A page with this id exists already')
-      const { title, values } = this.resolveStrict(db.properties, input, this.context(wsId, r))
+      const { title, values } = this.resolveStrict(db.properties, input, this.context(wsId, r), opts)
+      // the database's key stays unique (checked again when the row is written)
+      checkKey(r, dbId, db.properties, values, null)
       return { title: title ?? '', values, nodes: input.content !== undefined && input.content.trim() ? markdownToNodes(input.content) : null }
     })
     return this.insertRow(wsId, dbId, resolved, actor, opts.id)
@@ -251,7 +263,14 @@ export class WorkspaceModel {
    */
   async insertRow(wsId: string, dbId: string, row: ResolvedRow, actor: string, presetId?: string): Promise<{ id: string; url: string }> {
     const id = presetId ?? newId()
-    if (row.nodes?.length) await this.s.collab.write(contentDoc(wsId, id), (doc) => appendBlocks(doc, row.nodes!), actor)
+    if (row.nodes?.length) {
+      // a row refused for its key (keys.ts) leaves no content document behind
+      await this.read(wsId, (r) => {
+        const db = liveDatabase(r, dbId)
+        if (db) checkKey(r, dbId, db.properties, row.values, null)
+      })
+      await this.s.collab.write(contentDoc(wsId, id), (doc) => appendBlocks(doc, row.nodes!), actor)
+    }
     await this.s.collab.write(
       metaDoc(wsId),
       (doc) => {
@@ -260,6 +279,8 @@ export class WorkspaceModel {
         if (!db) throw notFound('database_not_found', 'No such database in this workspace')
         if (presetId && pageMap(r, id)) throw new ApiError(409, 'page_exists', 'A page with this id exists already')
         this.checkHierarchy(db.ydb, db.properties, id, row.values)
+        // the database's key: unique per row (keys.ts) — webhooks, the API, MCP and agents alike
+        checkKey(r, dbId, db.properties, row.values, null)
         const values = { ...row.values }
         const uniques = db.properties.filter((p) => p.type === 'unique_id')
         const counter = db.ydb.get('nextUniqueId')
@@ -277,15 +298,16 @@ export class WorkspaceModel {
     return { id, url: this.url(wsId, id) }
   }
 
-  async updateRow(wsId: string, rowId: string, input: RowInput, actor: string) {
+  async updateRow(wsId: string, rowId: string, input: RowInput, actor: string, opts: WriteOpts = {}) {
     const out = await this.s.collab.write(
       metaDoc(wsId),
       (doc) => {
         const r = roots(doc)
-        const { db } = this.liveRow(r, rowId)
+        const { db, row } = this.liveRow(r, rowId)
         const ctx = this.context(wsId, r)
-        const { title, values } = this.resolveStrict(db.properties, input, ctx)
+        const { title, values } = this.resolveStrict(db.properties, input, ctx, opts)
         this.checkHierarchy(db.ydb, db.properties, rowId, values)
+        checkKey(r, db.page.id, db.properties, values, rowId, row.properties)
         const yp = pageMap(r, rowId)!
         const pm = propertiesMap(yp)
         const before: Record<string, unknown> = {}

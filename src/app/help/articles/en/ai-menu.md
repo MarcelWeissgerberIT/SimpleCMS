@@ -54,7 +54,7 @@ Some requests are really actions, and the AI menu runs them instead of sending t
 - *“make a sub-page out of this”*, *“mach daraus eine Unterseite”*, *“auslagern”* → **Turn into page**;
 - *“one page per item”*, *“für jeden Punkt eine Unterseite”*, *“pro Ticket eine Seite”* → **Sub-page per item**;
 - *“as a board”*, *“als Tabelle”* → **Turn into database** with your words as its instruction;
-- anything that works beyond the selection — *“create pages for every ticket in Atlas”*, *“update the database …”* → **This needs the AI terminal — run it there**: the [AI terminal](help:agent) opens with your request and the selection as a reference, and starts.
+- anything that works beyond the selection — *“create pages for every ticket in the tracker”*, *“update the database …”* → **This needs the AI terminal — run it there**: the [AI terminal](help:agent) opens with your request and the selection as a reference, and starts.
 
 Writing requests (*shorter*, *translate*, *explain …*) go to Claude as before; **Ask Claude** stays in the list for any request.
 

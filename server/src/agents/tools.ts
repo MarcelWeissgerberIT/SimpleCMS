@@ -8,14 +8,20 @@
  * - write mode "apply" writes through the public API's own paths, attributed `agent:<agentId>`, so
  *   everyone who has the workspace open sees the change at once (and can undo it from history);
  * - write mode "none" offers no write tools at all.
+ * - agent_state_get / agent_state_set: a small JSON state of its own between runs (≤ 4 KB), saved by the service only
+ *   when the run ends ok / staged. There is no notify_me here: the inbox is per device (the app makes its items), so a
+ *   server agent has no inbox to write to — it says what is new in its report.
+ * - upsert_rows and the state tools are offered only while an integration profile of the workspace that matches one
+ *   of the runtime's MCP servers unlocks them (integrations.ts: 'upsert', 'agentState'). Keys and "Only by hand" are
+ *   enforced by every writer whatever is unlocked.
  *
  * Results are model-facing English text, clipped. A call that cannot be done throws ToolInputError
  * with a message Claude can act on.
  */
 import type { BetaTool } from '@anthropic-ai/sdk/resources/beta/messages/messages'
 import { fragmentMarkdown } from '../api/markdown.ts'
-import { type PageInfo, type Roots, allPages, liveDatabase, livePage, outOfReach, pageMap, rowsOf } from '../api/meta.ts'
-import { contentDoc, type WorkspaceModel } from '../api/model.ts'
+import { type PageInfo, type PropertyDef, type Roots, allPages, liveDatabase, livePage, outOfReach, pageMap, rowsOf } from '../api/meta.ts'
+import { contentDoc, findProperty, type WorkspaceModel } from '../api/model.ts'
 import type { Services } from '../context.ts'
 import { ApiError } from '../errors.ts'
 import { FILTER_OPS, type Condition, type FilterOp, encodeCursor } from '../mcp/query.ts'
@@ -23,14 +29,30 @@ import type { McpReads } from '../mcp/reads.ts'
 import type { McpWrites } from '../mcp/writes.ts'
 import { newId } from '../tokens.ts'
 import { inScope, redact, valueText } from './scope.ts'
-import { ToolInputError, explain, mergeProps, settable, stageProps } from './stage.ts'
-import type { ChangeKind, CustomAgent, StagedChange } from './types.ts'
+import { ToolInputError, explain, holderText, intentValue, keyConflict, keyHolders, mergeProps, propsInput, settable, stageProps, type KeyHolder } from './stage.ts'
+import type { AgentStateRow, ChangeKind, CustomAgent, PropChange, StagedChange } from './types.ts'
+import { canBeKey, isHandOnly, keyPropOf, keyText } from '../api/keys.ts'
 
 /** Characters of one page part (read_page) and of any other tool result. */
 export const PAGE_PART_CHARS = 12_000
 export const RESULT_CHARS = 16_000
 
-export type ToolName = 'search_pages' | 'read_page' | 'list_databases' | 'query_database' | 'create_page' | 'append_to_page' | 'create_row' | 'update_row' | 'set_page_title'
+export type ToolName =
+  | 'search_pages'
+  | 'read_page'
+  | 'list_databases'
+  | 'query_database'
+  | 'create_page'
+  | 'append_to_page'
+  | 'create_row'
+  | 'update_row'
+  | 'upsert_rows'
+  | 'set_page_title'
+  | 'agent_state_get'
+  | 'agent_state_set'
+
+/** agent_state_set: the JSON text at most (UTF-8 bytes). */
+export const STATE_BYTES = 4096
 
 export interface ToolCtx {
   s: Services
@@ -45,6 +67,10 @@ export interface ToolCtx {
   staged: StagedChange[]
   /** write mode "apply": changes written */
   applied: number
+  /** the agent's own state: as saved before the run, and what this run set (saved when it ends ok) */
+  state?: { saved: AgentStateRow | null; pending?: string }
+  /** upsert_rows is offered in this run (an integration profile unlocks it): refusals may point to it */
+  upsert?: boolean
 }
 
 export interface AgentTool {
@@ -256,12 +282,15 @@ function redactedRelation(r: Roots, ctx: ToolCtx, propId: string, row: PageInfo)
     .join(', ')
 }
 
-function schemaLine(props: Array<{ name: string; type: string; options?: Array<{ name: string }> }>, locked: boolean): string {
+function schemaLine(props: PropertyDef[], locked: boolean): string {
+  const key = keyPropOf(props)
   return props
     .map((p) => {
       const opts = p.options?.length ? `: ${p.options.map((o) => o.name).join(' | ')}` : ''
-      const ro = p.type === 'title' || settable(p as Parameters<typeof settable>[0]) ? '' : ', read-only'
-      return `${p.name} (${p.type}${ro}${opts})`
+      const ro = p.type === 'title' || settable(p) ? '' : ', read-only'
+      // the database's key (unique per row) · "Only by hand" (api/keys.ts) — the app's list_databases says the same
+      const marks = `${key?.id === p.id ? ', key: unique per row' : ''}${isHandOnly(p) ? ', read-only for agents (only by hand)' : ''}`
+      return `${p.name} (${p.type}${ro}${marks}${opts})`
     })
     .join('; ')
     .concat(locked ? ' · locked (rows can be added and changed; no new options)' : '')
@@ -470,14 +499,17 @@ const createRow: AgentTool = {
     if (props !== undefined && props !== null && (typeof props !== 'object' || Array.isArray(props))) throw new ToolInputError('"properties" must be an object: property name → value.')
     if (ctx.agent.write === 'apply') {
       const dbTitle = await read(ctx, (r) => titleOf(scopedDatabase(r, ctx, dbId).page))
-      const row = await api(() => ctx.writes.prepareRow(ctx.wsId, { databaseId: dbId }, { title, properties: (props as Record<string, unknown> | undefined) ?? {} }, ctx.actor))
-      const created = await api(() => ctx.model.createRow(ctx.wsId, dbId, { title: row.title ?? title, properties: row.properties, content: markdown || undefined }, ctx.actor))
+      const row = await api(() => ctx.writes.prepareRow(ctx.wsId, { databaseId: dbId }, { title, properties: (props as Record<string, unknown> | undefined) ?? {} }, ctx.actor, { agent: true }))
+      const created = await api(() => ctx.model.createRow(ctx.wsId, dbId, { title: row.title ?? title, properties: row.properties, content: markdown || undefined }, ctx.actor, { agent: true }))
       ctx.applied++
       return `Created row ${q(row.title ?? title)} (id: ${created.id}) in ${q(dbTitle)}.`
     }
     const { changes, dbTitle } = await read(ctx, (r) => {
       const db = scopedDatabase(r, ctx, dbId)
-      return { dbTitle: titleOf(db.page), changes: stageProps(r, { properties: db.properties, locked: db.ydb.get('locked') === true }, null, props, ctx.model.context(ctx.wsId, r)) }
+      const changes = stageProps(r, { properties: db.properties, locked: db.ydb.get('locked') === true }, null, props, ctx.model.context(ctx.wsId, r))
+      const clash = keyConflict(r, ctx.staged, dbId, db.properties, changes, null, ctx.upsert === true)
+      if (clash) throw new ToolInputError(clash)
+      return { dbTitle: titleOf(db.page), changes }
     })
     const c = stage(ctx, { kind: 'create_row', pageId: newId(), databaseId: dbId, title, props: changes, ...(markdown.trim() ? { markdown } : {}) })
     return `${stagedNote(c)} New row id: ${c.pageId} in ${q(dbTitle)}${changes.length ? ` with ${changes.map((x) => `${x.name} = ${q(x.after)}`).join(', ')}` : ''}.${newOptionsNote(changes)}`
@@ -516,7 +548,10 @@ const updateRow: AgentTool = {
     if (staged?.kind === 'create_row' && staged.databaseId) {
       const changes = await read(ctx, (r) => {
         const db = scopedDatabase(r, ctx, staged.databaseId!)
-        return stageProps(r, { properties: db.properties, locked: db.ydb.get('locked') === true }, null, props, ctx.model.context(ctx.wsId, r))
+        const changes = stageProps(r, { properties: db.properties, locked: db.ydb.get('locked') === true }, null, props, ctx.model.context(ctx.wsId, r))
+        const clash = keyConflict(r, ctx.staged, staged.databaseId!, db.properties, changes, staged.pageId, ctx.upsert === true)
+        if (clash) throw new ToolInputError(clash)
+        return changes
       })
       staged.props = mergeProps(staged.props, changes)
       return `Updated staged row #${staged.n} (${q(staged.title ?? '')}).${newOptionsNote(changes)}`
@@ -527,8 +562,8 @@ const updateRow: AgentTool = {
         if (!row.databaseId) throw new ToolInputError(`${q(titleOf(row))} is not a database row. Only rows have properties; use set_page_title or append_to_page for pages.`)
         return titleOf(row)
       })
-      const row = await api(() => ctx.writes.prepareRow(ctx.wsId, { rowId: id }, { properties: props as Record<string, unknown> }, ctx.actor))
-      await api(() => ctx.model.updateRow(ctx.wsId, id, { title: row.title, properties: row.properties }, ctx.actor))
+      const row = await api(() => ctx.writes.prepareRow(ctx.wsId, { rowId: id }, { properties: props as Record<string, unknown> }, ctx.actor, { agent: true }))
+      await api(() => ctx.model.updateRow(ctx.wsId, id, { title: row.title, properties: row.properties }, ctx.actor, { agent: true }))
       ctx.applied++
       return `Updated ${q(title)}: ${Object.keys(props).map(q).join(', ')}.`
     }
@@ -537,6 +572,8 @@ const updateRow: AgentTool = {
       if (!row.databaseId) throw new ToolInputError(`${q(titleOf(row))} is not a database row. Only rows have properties; use set_page_title or append_to_page for pages.`)
       const db = scopedDatabase(r, ctx, row.databaseId)
       const changes = stageProps(r, { properties: db.properties, locked: db.ydb.get('locked') === true }, row, props, ctx.model.context(ctx.wsId, r))
+      const clash = keyConflict(r, ctx.staged, db.page.id, db.properties, changes, row.id, ctx.upsert === true)
+      if (clash) throw new ToolInputError(clash)
       return { row, dbId: db.page.id, changed: changes.filter((c) => c.before !== c.after || c.newOptions?.length) }
     })
     if (!changed.length) return `No change: ${q(titleOf(row))} already has these values.`
@@ -544,6 +581,227 @@ const updateRow: AgentTool = {
     if (pending) pending.props = mergeProps(pending.props, changed)
     const c = pending ?? stage(ctx, { kind: 'update_row', pageId: row.id, databaseId: dbId, title: titleOf(row), props: changed })
     return `${stagedNote(c)} ${q(titleOf(row))}: ${changed.map((x) => `${x.name} ${q(x.before)} → ${q(x.after)}`).join(', ')}.${newOptionsNote(changed)}`
+  },
+}
+
+/* ------------------------------------------------------------------ upsert_rows (the app's twin, agent/tools.ts) */
+
+/** Rows one upsert_rows call may write or stage. */
+export const MAX_UPSERT_ROWS = 50
+
+type UpsertAction = 'created' | 'updated' | 'unchanged' | 'refused'
+
+interface UpsertResult {
+  key: string
+  id?: string
+  action: UpsertAction
+  reason?: string
+  /** write mode "stage": the staged change (#n) that creates or changes the row */
+  change?: number
+  /** a body for a row whose page has content already: left as it is */
+  body?: 'kept'
+}
+
+interface UpsertItem {
+  key: string | number
+  title: string | null
+  props: Record<string, unknown>
+  body: string
+}
+
+function upsertItem(item: unknown, where: string): UpsertItem {
+  if (!item || typeof item !== 'object' || Array.isArray(item)) throw new ToolInputError(`${where} must be an object with "key".`)
+  const o = item as Record<string, unknown>
+  try {
+    const key = o.key
+    if ((typeof key !== 'string' && typeof key !== 'number') || (typeof key === 'string' && !key.trim()) || (typeof key === 'number' && !Number.isFinite(key))) throw new ToolInputError('"key" must be a non-empty string or a number.')
+    const title = str(o, 'title', { max: 500 }).replace(/\s+/g, ' ').trim() || null
+    const props = o.properties
+    if (props !== undefined && props !== null && (typeof props !== 'object' || Array.isArray(props))) throw new ToolInputError('"properties" must be an object: property name → value.')
+    return { key, title, props: (props as Record<string, unknown> | null | undefined) ?? {}, body: str(o, 'body', { max: 100_000 }).trim() }
+  } catch (e) {
+    throw new ToolInputError(`${where}: ${e instanceof Error ? e.message : String(e)}`)
+  }
+}
+
+const reasonOf = (error: string) => error.replace(/ Nothing was staged\./, '')
+
+/** What one row of an upsert_rows call does, decided on the workspace as it is now. */
+type UpsertPlan =
+  | { kind: 'refused'; reason: string; id?: string }
+  | { kind: 'create'; changes: PropChange[]; title: string }
+  | { kind: 'merge'; prev: StagedChange; fresh: PropChange[]; title: string | null; body: string | null }
+  | { kind: 'update'; row: PageInfo; changed: PropChange[]; pending?: StagedChange; title: string | null; body: string | null; kept: boolean }
+
+const upsertRows: AgentTool = {
+  name: 'upsert_rows',
+  write: true,
+  description: (mode) =>
+    `${verb(mode, 'Mirror items (of another system, a list, a feed …) into a database in ONE call', 'Mirror items (of another system, a list, a feed …) into a database at once, in ONE call')} — at most ${MAX_UPSERT_ROWS} rows — by their key: the value of key_property that identifies an item (its number, code or address). Per row: when a row with that key exists${mode === 'apply' ? '' : ' (also one staged earlier in this run)'}, only the values that differ are ${verb(mode, 'staged as its update', 'written')} (title included); otherwise a new row is ${verb(mode, 'staged', 'added')}. key_property: the database's key (list_databases marks it "key: unique per row"), else another text, number or url property. Properties marked "read-only for agents" are filled in only by hand: leave them out (a row that sets one is refused). body: Markdown for the page of a new row (an existing row's page gets it only while empty). Answers per row: key, id, action (created, updated, unchanged or refused) and the reason of a refusal.`,
+  input_schema: {
+    type: 'object',
+    properties: {
+      database_id: { type: 'string', description: 'Database id from list_databases.' },
+      key_property: { type: 'string', description: "Exact name of the property that identifies a row (text, number or url) — the database's key when it has one." },
+      rows: {
+        type: 'array',
+        description: `The items, in order (1–${MAX_UPSERT_ROWS}).`,
+        items: {
+          type: 'object',
+          properties: {
+            key: { type: ['string', 'number'], description: 'The value of key_property for this item, e.g. "8215".' },
+            title: { type: 'string', description: 'Row title.' },
+            properties: { type: 'object', description: 'Property name → value, as for create_row (not the key property: that is "key").', additionalProperties: true },
+            body: { type: 'string', description: "Markdown for a new row's page." },
+          },
+          required: ['key'],
+          additionalProperties: false,
+        },
+      },
+    },
+    required: ['database_id', 'key_property', 'rows'],
+    additionalProperties: false,
+  },
+  label: (i) => `upsert_rows · ${Array.isArray(i.rows) ? i.rows.length : 0} rows`,
+  async run(input, ctx) {
+    const dbId = str(input, 'database_id', { required: true, max: 80 }).trim()
+    const keyName = str(input, 'key_property', { required: true, max: 120 }).trim()
+    const raw = input.rows
+    if (!Array.isArray(raw) || !raw.length) throw new ToolInputError('"rows" must list at least one row ({"key", "title", "properties"}).')
+    if (raw.length > MAX_UPSERT_ROWS) throw new ToolInputError(`Too many rows (${raw.length}, at most ${MAX_UPSERT_ROWS} per call). Send the first ${MAX_UPSERT_ROWS}, then the rest with a second upsert_rows call.`)
+    const items = raw.map((item, i) => upsertItem(item, `rows[${i}]`))
+    const apply = ctx.agent.write === 'apply'
+    const { keyProp, dbTitle, holders } = await read(ctx, (r) => {
+      const db = scopedDatabase(r, ctx, dbId)
+      const dbKey = keyPropOf(db.properties)
+      const keyProp = findProperty(db.properties, keyName)
+      if (!keyProp) throw new ToolInputError(`Unknown property ${q(keyName)}. ${dbKey ? `This database's key is ${q(dbKey.name)}.` : `Text, number and url properties: ${db.properties.filter(canBeKey).map((p) => q(p.name)).join(', ') || '(none)'}.`}`)
+      if (!canBeKey(keyProp)) throw new ToolInputError(`${q(keyProp.name)} is a ${keyProp.type} property: a key is a text, number or url property.${dbKey ? ` This database's key is ${q(dbKey.name)}.` : ''}`)
+      return { keyProp, dbTitle: titleOf(db.page), holders: keyHolders(r, ctx.staged, dbId, keyProp) }
+    })
+
+    const plan = (r: Roots, item: UpsertItem): UpsertPlan & { key: string } => {
+      const db = scopedDatabase(r, ctx, dbId)
+      const shape = { properties: db.properties, locked: db.ydb.get('locked') === true }
+      const vctx = ctx.model.context(ctx.wsId, r)
+      let keyChange: PropChange | null = null
+      let keyError = ''
+      try {
+        keyChange = stageProps(r, shape, null, { [keyProp.id]: item.key }, vctx)[0] ?? null
+      } catch (e) {
+        if (!(e instanceof ToolInputError)) throw e
+        keyError = e.message
+      }
+      const kRaw = keyText(keyProp.type, item.key)
+      const key = (keyChange ? keyText(keyProp.type, intentValue(keyChange)) : '') || kRaw
+      const refuse = (reason: string, id?: string) => ({ key, kind: 'refused' as const, reason: reasonOf(reason), ...(id ? { id } : {}) })
+      // the key goes in "key"; in "properties" only with the same value
+      const props: Record<string, unknown> = {}
+      for (const [name, v] of Object.entries(item.props)) {
+        if (findProperty(db.properties, name)?.id !== keyProp.id) props[name] = v
+        else if (keyText(keyProp.type, v) !== key && keyText(keyProp.type, v) !== kRaw) return refuse(`"properties" sets ${q(keyProp.name)} to another value than "key": give the key once, as "key".`)
+      }
+      const found = holders.get(key) ?? (kRaw !== key ? holders.get(kRaw) : undefined) ?? []
+      if (found.length > 1) return refuse(`${found.length} rows have this key (${found.map(holderText).join('; ')}): it does not identify one row. Make it unique first, or update the row you mean with update_row.`)
+      const h: KeyHolder | undefined = found[0]
+      try {
+        if (!h) {
+          if (!keyChange) return refuse(keyError || `"key" does not fit ${q(keyProp.name)}.`)
+          const changes = [keyChange, ...stageProps(r, shape, null, props, vctx)]
+          const clash = keyConflict(r, ctx.staged, dbId, db.properties, changes, null)
+          if (clash) return refuse(clash)
+          return { key, kind: 'create', changes, title: item.title ?? key }
+        }
+        if (h.change?.kind === 'create_row') {
+          const prev = h.change
+          const fresh = stageProps(r, shape, null, props, vctx).filter((pc) => {
+            const old = prev.props?.find((x) => x.propId === pc.propId)
+            return !old || old.after !== pc.after || !!pc.newOptions?.length
+          })
+          const clash = keyConflict(r, ctx.staged, dbId, db.properties, fresh, prev.pageId)
+          if (clash) return refuse(clash, prev.pageId)
+          return { key, kind: 'merge', prev, fresh, title: item.title && item.title !== (prev.title ?? '').trim() ? item.title : null, body: item.body && item.body !== (prev.markdown ?? '').trim() ? item.body : null }
+        }
+        const row = livePage(r, h.id)
+        if (!row || !inScope(r, ctx.agent.scope, h.id)) return refuse("The row with this key is outside this agent's scope.", h.id)
+        const pending = apply ? undefined : pendingFor(ctx, 'update_row', row.id)
+        const changed = stageProps(r, shape, row, props, vctx).filter((pc) => {
+          const staged = pending?.props?.find((x) => x.propId === pc.propId)
+          return staged ? staged.after !== pc.after || !!pc.newOptions?.length : pc.before !== pc.after || !!pc.newOptions?.length
+        })
+        const clash = keyConflict(r, ctx.staged, dbId, db.properties, changed, row.id)
+        if (clash) return refuse(clash, row.id)
+        // the person's page is never written over: a body goes only into an empty page
+        const empty = !String(pageMap(r, row.id)?.get('plain') ?? '').trim()
+        return { key, kind: 'update', row, changed, pending, title: item.title && item.title !== row.title.trim() ? item.title : null, body: item.body && empty ? item.body : null, kept: !!item.body && !empty }
+      } catch (e) {
+        if (e instanceof ToolInputError) return refuse(e.message, h?.id)
+        throw e
+      }
+    }
+
+    const one = async (item: UpsertItem): Promise<UpsertResult> => {
+      const p = await read(ctx, (r) => plan(r, item))
+      const key = p.key
+      if (p.kind === 'refused') return { key, ...(p.id ? { id: p.id } : {}), action: 'refused', reason: p.reason }
+      try {
+        if (p.kind === 'create') {
+          if (apply) {
+            const row = await ctx.writes.prepareRow(ctx.wsId, { databaseId: dbId }, { title: p.title, properties: propsInput(p.changes) }, ctx.actor, { agent: true })
+            const created = await ctx.model.createRow(ctx.wsId, dbId, { title: row.title ?? p.title, properties: row.properties, content: item.body || undefined }, ctx.actor, { agent: true })
+            ctx.applied++
+            holders.set(key, [{ id: created.id, title: p.title }])
+            return { key, id: created.id, action: 'created' }
+          }
+          const c = stage(ctx, { kind: 'create_row', pageId: newId(), databaseId: dbId, title: p.title, props: p.changes, ...(item.body ? { markdown: item.body } : {}) })
+          holders.set(key, [{ id: c.pageId, title: p.title, change: c }])
+          return { key, id: c.pageId, action: 'created', change: c.n }
+        }
+        if (p.kind === 'merge') {
+          if (!p.fresh.length && !p.title && !p.body) return { key, id: p.prev.pageId, action: 'unchanged', change: p.prev.n }
+          p.prev.props = mergeProps(p.prev.props, p.fresh)
+          if (p.title) p.prev.title = p.title
+          if (p.body) p.prev.markdown = p.body
+          return { key, id: p.prev.pageId, action: 'updated', change: p.prev.n }
+        }
+        const { row } = p
+        const kept = p.kept ? { body: 'kept' as const } : {}
+        if (!p.changed.length && !p.title && !p.body) return { key, id: row.id, action: 'unchanged', ...kept }
+        if (apply) {
+          if (p.changed.length || p.title) {
+            const prepared = await ctx.writes.prepareRow(ctx.wsId, { rowId: row.id }, { properties: propsInput(p.changed) }, ctx.actor, { agent: true })
+            await ctx.model.updateRow(ctx.wsId, row.id, { ...(p.title ? { title: p.title } : {}), properties: prepared.properties }, ctx.actor, { agent: true })
+          }
+          if (p.body) await ctx.writes.updatePage(ctx.wsId, { id: row.id, markdown: p.body, mode: 'append' }, ctx.actor)
+          ctx.applied++
+          return { key, id: row.id, action: 'updated', ...kept }
+        }
+        let first: StagedChange | null = null
+        if (p.changed.length) {
+          if (p.pending) p.pending.props = mergeProps(p.pending.props, p.changed)
+          first = p.pending ?? stage(ctx, { kind: 'update_row', pageId: row.id, databaseId: dbId, title: titleOf(row), props: p.changed })
+        }
+        if (p.title) {
+          const rename = pendingFor(ctx, 'rename', row.id)
+          if (rename) rename.title = p.title
+          const r = rename ?? stage(ctx, { kind: 'rename', pageId: row.id, beforeTitle: titleOf(row), title: p.title })
+          first ??= r
+        }
+        if (p.body && !pendingFor(ctx, 'append', row.id)) first ??= stage(ctx, { kind: 'append', pageId: row.id, title: titleOf(row), markdown: p.body })
+        return first ? { key, id: row.id, action: 'updated', change: first.n, ...kept } : { key, id: row.id, action: 'unchanged', ...kept }
+      } catch (e) {
+        if (e instanceof ApiError) return { key, action: 'refused', reason: explain(e) }
+        throw e
+      }
+    }
+
+    const results: UpsertResult[] = []
+    for (const item of items) results.push(await one(item))
+    const count = (a: UpsertAction) => results.filter((r) => r.action === a).length
+    const n = { created: count('created'), updated: count('updated'), same: count('unchanged'), refused: count('refused') }
+    const note = apply ? '' : n.created + n.updated ? ' Nothing is written until a person reviews and applies the staged changes (every row is its own proposed change).' : ''
+    const head = `upsert_rows into ${q(dbTitle)} by ${q(keyProp.name)}: ${n.created} created, ${n.updated} updated, ${n.same} unchanged, ${n.refused} refused.${note}${n.refused ? ' Fix the refused rows and send them again.' : ''}`
+    return clipResult(`${head}\n${results.map((r) => JSON.stringify(r)).join('\n')}`)
   },
 }
 
@@ -584,8 +842,77 @@ const setPageTitle: AgentTool = {
   },
 }
 
-/** Stable order: the tool list is part of the cached prompt prefix. */
-export const AGENT_TOOLS: AgentTool[] = [searchPages, readPage, listDatabases, queryDatabase, createPage, appendToPage, createRow, updateRow, setPageTitle]
+/* ------------------------------------------------------------------ the agent's own state */
 
-/** The tools of an agent's write mode ("none": reads only). */
-export const toolsFor = (write: CustomAgent['write']) => AGENT_TOOLS.filter((t) => write !== 'none' || !t.write)
+const stateGet: AgentTool = {
+  name: 'agent_state_get',
+  write: false,
+  description: () =>
+    'Read your own saved state: the small JSON value an earlier run of yours saved with agent_state_set (cursors, the last ids or times you saw, counts). Use it at the start of a recurring job to find what is new since then. "Nothing saved" means a first run, or that no run saved anything yet.',
+  input_schema: { type: 'object', properties: {}, additionalProperties: false },
+  label: () => 'agent_state_get',
+  async run(_input, ctx) {
+    const st = ctx.state
+    if (st?.pending !== undefined) return `State set in this run (saved when the run ends without an error):\n${st.pending}`
+    if (!st?.saved) return 'Nothing saved yet: this is the first run that keeps a state.'
+    return `Saved state (from the run of ${new Date(st.saved.at).toISOString()}):\n${st.saved.json}`
+  },
+}
+
+/** The JSON text agent_state_set was given (a JSON string, or a JSON value as is), compact. */
+export function stateJson(raw: unknown): string {
+  let value: unknown = raw
+  if (typeof raw === 'string') {
+    try {
+      value = JSON.parse(raw)
+    } catch {
+      throw new ToolInputError('"json" must be valid JSON (an object, an array, a string, a number …).')
+    }
+  }
+  if (value === undefined) throw new ToolInputError('Missing required parameter "json".')
+  const text = JSON.stringify(value)
+  if (typeof text !== 'string') throw new ToolInputError('"json" must be a JSON value.')
+  const n = Buffer.byteLength(text, 'utf8')
+  if (n > STATE_BYTES) throw new ToolInputError(`The state is too large (${n} bytes, at most ${STATE_BYTES}): keep only cursors and ids, not content.`)
+  return text
+}
+
+const stateSet: AgentTool = {
+  name: 'agent_state_set',
+  write: false,
+  description: () =>
+    `Save your state for the next run: one JSON value (at most ${STATE_BYTES} bytes) that replaces the saved one — e.g. {"cursor": "2026-10-08T06:00:00Z", "seen": ["#8215"]}. It is kept only if this run ends without an error or a budget stop (then the old state stays), so save it once the work it stands for is done; the last call of a run wins. Cursors and ids only — never secrets or page content.`,
+  input_schema: {
+    type: 'object',
+    properties: { json: { type: 'string', description: 'The state as JSON text, e.g. {"cursor":"2026-10-08T06:00:00Z"}.' } },
+    required: ['json'],
+    additionalProperties: false,
+  },
+  label: () => 'agent_state_set',
+  async run(input, ctx) {
+    const text = stateJson(input.json)
+    ctx.state = { saved: ctx.state?.saved ?? null, pending: text }
+    return `State set (${Buffer.byteLength(text, 'utf8')} bytes). It is saved when this run ends without an error; the next run reads it with agent_state_get.`
+  },
+}
+
+/** Stable order: the tool list is part of the cached prompt prefix. */
+export const AGENT_TOOLS: AgentTool[] = [searchPages, readPage, listDatabases, queryDatabase, createPage, appendToPage, createRow, updateRow, upsertRows, setPageTitle]
+
+/** Every agent's own tools (after the workspace tools; no notify_me on the server — see above). */
+export const STATE_TOOLS: AgentTool[] = [stateGet, stateSet]
+
+/** What the workspace's integration profiles unlock for its server agents (integrations.ts). */
+export interface ToolUnlocks {
+  upsert: boolean
+  state: boolean
+}
+
+/**
+ * The tools of an agent's write mode ("none": reads only) — upsert_rows and the state tools only while unlocked
+ * (absent `unlocks` = nothing unlocked).
+ */
+export const toolsFor = (write: CustomAgent['write'], unlocks: ToolUnlocks = { upsert: false, state: false }) => [
+  ...AGENT_TOOLS.filter((t) => (write !== 'none' || !t.write) && (unlocks.upsert || t.name !== 'upsert_rows')),
+  ...(unlocks.state ? STATE_TOOLS : []),
+]

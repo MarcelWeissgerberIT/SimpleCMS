@@ -444,6 +444,9 @@ export function guardPipelineRows(tool: AgentTool): AgentTool {
       case 'create_row':
         if (typeof input.database_id === 'string' && kindOfDb(stage.resolve(input.database_id.trim()))) throw new ToolInputError('That is a pipeline database: use create_task for its tasks. Nothing was staged.')
         return null
+      case 'upsert_rows':
+        if (typeof input.database_id === 'string' && kindOfDb(stage.resolve(input.database_id.trim()))) throw new ToolInputError('That is a pipeline database: use create_task and task_action for its tasks. Nothing was staged.')
+        return null
       case 'add_property':
         if (typeof input.database_id === 'string' && kindOfDb(input.database_id.trim())) throw new ToolInputError('That is a pipeline database: its properties stay as they are. Nothing was staged.')
         return null
@@ -469,7 +472,7 @@ export function guardPipelineRows(tool: AgentTool): AgentTool {
         return null
     }
   }
-  if (!['create_row', 'add_property', 'update_row', 'edit_page', 'append_to_page', 'set_page_title'].includes(tool.name)) return tool
+  if (!['create_row', 'upsert_rows', 'add_property', 'update_row', 'edit_page', 'append_to_page', 'set_page_title'].includes(tool.name)) return tool
   const writesText = tool.name === 'append_to_page' || tool.name === 'edit_page'
   return {
     ...tool,

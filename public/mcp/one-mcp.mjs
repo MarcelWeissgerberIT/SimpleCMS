@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// SimpleCMS One — local MCP bridge 1.7.0 (MIT). Source: https://github.com/MarcelWeissgerberIT/SimpleCMS/tree/main/mcp
+// SimpleCMS One — local MCP bridge 1.7.1 (MIT). Source: https://github.com/MarcelWeissgerberIT/SimpleCMS/tree/main/mcp
 // Lets an MCP client (Claude Desktop, Claude Code …) work in the One tab open in your browser.
 // Setup and security model: https://github.com/MarcelWeissgerberIT/SimpleCMS/blob/main/docs/MCP.md
 import { createRequire as __createRequire } from 'node:module'; const require = __createRequire(import.meta.url);
@@ -28316,7 +28316,7 @@ function createMcpServer(bridge2, version2) {
 }
 
 // src/index.ts
-var VERSION = true ? "1.7.0" : "dev";
+var VERSION = true ? "1.7.1" : "dev";
 var quiet = process.env.ONE_MCP_QUIET === "1";
 var log = (msg) => {
   if (!quiet) process.stderr.write(`[one-mcp] ${msg}

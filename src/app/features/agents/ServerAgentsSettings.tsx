@@ -155,7 +155,7 @@ export function ServerAgentsSettings() {
                 <li key={i} className="agx-srv__item">
                   {admin ? (
                     <>
-                      <input className="input mono" aria-label={t('features.agents.srv.mcpName')} placeholder="atlas" value={r.name} onChange={(e) => (setDirty(true), setRows(rows.map((x, j) => (j === i ? { ...x, name: slugName(e.target.value) } : x))))} />
+                      <input className="input mono" aria-label={t('features.agents.srv.mcpName')} placeholder="kb" value={r.name} onChange={(e) => (setDirty(true), setRows(rows.map((x, j) => (j === i ? { ...x, name: slugName(e.target.value) } : x))))} />
                       <input className="input mono" aria-label={t('features.agents.srv.mcpUrl')} placeholder="https://…/mcp" value={r.url} onChange={(e) => (setDirty(true), setRows(rows.map((x, j) => (j === i ? { ...x, url: e.target.value } : x))))} />
                       <input
                         className="input mono"

@@ -256,15 +256,15 @@ test.describe('team cloud — custom agents', () => {
     await srv.getByRole('button', { name: 'Save key' }).click()
     await expect(srv.locator('.agx-secret').nth(1)).toContainText('Set · ••••wxyz')
     await srv.getByRole('button', { name: 'Add MCP server' }).click()
-    await srv.getByRole('textbox', { name: 'Name' }).fill('atlas')
-    await srv.getByRole('textbox', { name: 'Address (https)' }).fill('https://atlas.example.com/mcp')
-    await srv.getByLabel('Token').fill('atlas-token-0000000000001234')
+    await srv.getByRole('textbox', { name: 'Name' }).fill('archive')
+    await srv.getByRole('textbox', { name: 'Address (https)' }).fill('https://archive.example.com/mcp')
+    await srv.getByLabel('Token').fill('archive-token-0000000000001234')
     await srv.getByRole('button', { name: 'Save servers' }).click()
     await expect(a.getByText('MCP servers saved on the server')).toBeVisible()
     await srv.getByRole('switch', { name: 'Server runner' }).click()
     await expect(srv).toContainText('On')
     const rt = await a.evaluate(async (ws) => (await fetch(`/api/workspaces/${ws}/agent-runtime`)).json(), wsId)
-    expect(rt).toMatchObject({ enabled: true, available: true, claudeKey: { set: true, last4: 'wxyz' }, mcpServers: [{ name: 'atlas', url: 'https://atlas.example.com/mcp', token: { set: true, last4: '1234' } }] })
+    expect(rt).toMatchObject({ enabled: true, available: true, claudeKey: { set: true, last4: 'wxyz' }, mcpServers: [{ name: 'archive', url: 'https://archive.example.com/mcp', token: { set: true, last4: '1234' } }] })
     expect(JSON.stringify(rt)).not.toContain('0000000000000000wxyz')
     await a.keyboard.press('Escape')
 
@@ -278,7 +278,7 @@ test.describe('team cloud — custom agents', () => {
 
     // mocked runs: one staged run with a change to the row; run now; resolve
     const now = Date.now()
-    const staged = { id: 'run-1', agentId: 'ag-srv', runner: 'server', trigger: { type: 'schedule', detail: 'schedule 09:00' }, startedAt: now - 60_000, endedAt: now - 30_000, status: 'staged', summary: 'Moved **Big deal** forward.', steps: [{ kind: 'tool', label: 'Query · Deals', state: 'ok' }, { kind: 'mcp', label: 'ATLAS · search', state: 'ok' }], staged: [{ id: 'c1', n: 1, kind: 'update_row', status: 'pending', pageId: ids.row, databaseId: ids.db, title: 'Big deal', props: [{ propId: 'dStage', name: 'Stage', type: 'text', before: 'lead', after: 'won', intent: { kind: 'value', value: 'won' } }] }], usage: { input: 9000, output: 400, cacheRead: 0, usd: 0.044 } }
+    const staged = { id: 'run-1', agentId: 'ag-srv', runner: 'server', trigger: { type: 'schedule', detail: 'schedule 09:00' }, startedAt: now - 60_000, endedAt: now - 30_000, status: 'staged', summary: 'Moved **Big deal** forward.', steps: [{ kind: 'tool', label: 'Query · Deals', state: 'ok' }, { kind: 'mcp', label: 'ARCHIVE · search', state: 'ok' }], staged: [{ id: 'c1', n: 1, kind: 'update_row', status: 'pending', pageId: ids.row, databaseId: ids.db, title: 'Big deal', props: [{ propId: 'dStage', name: 'Stage', type: 'text', before: 'lead', after: 'won', intent: { kind: 'value', value: 'won' } }] }], usage: { input: 9000, output: 400, cacheRead: 0, usd: 0.044 } }
     const resolved: AnyState[] = []
     let started = 0
     await a.route('**/api/workspaces/*/agent-runs?*', (route: Route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([staged]) }))
@@ -294,7 +294,7 @@ test.describe('team cloud — custom agents', () => {
     await a.evaluate(() => (window.location.hash = '#/agents/ag-srv'))
     const run = a.locator('.agx-run').first()
     await expect(run).toHaveAttribute('data-status', 'staged')
-    await expect(run.locator('.agx-step[data-kind="mcp"]')).toContainText('ATLAS · search')
+    await expect(run.locator('.agx-step[data-kind="mcp"]')).toContainText('ARCHIVE · search')
     await expect(a.getByTestId('agents-review')).toContainText('01')
     await run.getByRole('button', { name: 'Apply all' }).click()
     await expect.poll(() => wsEval(a, (s, row) => s.pages[row].properties.dStage, ids.row)).toBe('won')
@@ -325,6 +325,75 @@ test.describe('team cloud — custom agents', () => {
     await dialog.getByRole('button', { name: 'Save' }).click()
     await expect(dialog).toBeHidden()
     expect(await wsEval(a, (s) => s.agents['ag-srv'].trigger)).toEqual({ type: 'webhook' })
+  })
+
+  test('the recipe "Mirror a list into a database": database and report page go into the creator’s Private section, the agent mirrors into it, another member never sees them', async ({ page: a, context }) => {
+    watch(a, 'ada')
+    await signIn(a, email('ada'))
+    const wsId = await createWorkspace(a, 'Acme Mirror')
+    const b = await newPerson(context)
+    watch(b, 'bob')
+    await signIn(b, email('bob'))
+    await joinWorkspace(a, b, wsId, 'member')
+    for (const p of [a, b]) {
+      await openApp(p, wsId)
+      await waitOnline(p)
+    }
+    const mine = await a.evaluate(() => (window as any).__one.cloud.createPrivatePage({ title: 'My work' })) // eslint-disable-line @typescript-eslint/no-explicit-any
+    await wsEval(a, (s) => s.createPage({ title: 'Team space' }))
+    await wsEval(a, (s) => {
+      s.updateSettings({ aiApiKey: 'sk-ant-e2e-test-key' })
+      s.updateSettings({ mcpServers: [{ id: 'm-tracker', name: 'tracker', url: 'https://tracker.example.com/mcp', token: '', enabled: true, prompt: '', tools: ['list_items', 'get_item', 'update_item'], checkedAt: Date.now() }] })
+      // the owner's integration profile (workspace data, synced): it unlocks the features and brings the recipe
+      s.upsertIntegration({ schema: 'one.integration/1', id: 'tracker', name: 'Tracker', match: { name: 'tracker' }, unlocks: ['keys', 'onlyByHand', 'upsert', 'toolAllowList', 'agentState', 'notify'], recipes: [{ kind: 'mirror' }] })
+    })
+    const ids: AnyState = {}
+    const bodies = await mockClaudeScript(a, [
+      () => sseMessage([{ type: 'tool_use', id: 'tu1', name: 'upsert_rows', input: { database_id: ids.db, key_property: 'Key', rows: [{ key: '8215', title: 'Login fails after password reset', properties: { Clarity: 'Open questions', 'Waiting on me': true } }] } }]),
+      () => sseMessage([{ type: 'text', text: '1 new item.' }]),
+    ])
+
+    // the setup: only private pages to put it below (the shared one is not offered)
+    await a.evaluate(() => (window.location.hash = '#/agents'))
+    await a.locator('.agx-start [data-recipe="tracker:mirror"]').click()
+    const setup = a.locator('.agx-mir')
+    await expect(setup).toContainText('In a team workspace both go into your Private section.')
+    await setup.locator('.agx-pick').click()
+    await expect(a.getByRole('menuitem', { name: 'Team space' })).toHaveCount(0)
+    await a.getByRole('menuitem', { name: 'My work' }).click()
+    await setup.getByRole('button', { name: 'Create database and agent' }).click()
+    await expect(a.locator('.agx-editor')).toBeVisible()
+    const made = await wsEval(a, (s) => {
+      const all = Object.values(s.pages) as AnyState[]
+      const db = all.find((p) => p.kind === 'database' && p.title === 'Tracker')
+      const report = all.find((p) => p.title === 'Tracker · Report')
+      return { db: db?.id, dbParent: db?.parentId, dbPrivate: !!db?.private, report: report?.id, reportParent: report?.parentId, reportPrivate: !!report?.private }
+    })
+    expect(made).toMatchObject({ dbParent: mine, dbPrivate: true, reportParent: mine, reportPrivate: true })
+    ids.db = made.db
+    for (const text of ['list_items', 'get_item with comments', 'ada', 'acceptance criteria written']) {
+      await a.locator('.agx-ph__btn').first().click()
+      await a.keyboard.insertText(text)
+    }
+    await a.getByRole('button', { name: 'Create agent', exact: true }).click()
+    await expect(a.locator('.agx-dhead')).toBeVisible()
+    const saved = await wsEval(a, (s) => JSON.parse(JSON.stringify((Object.values(s.agents) as AnyState[]).find((x) => x.name === 'Mirror · Tracker'))))
+    expect(saved).toMatchObject({ runner: 'browser', write: 'stage', scope: { everything: false, databases: [made.db] }, mcpTools: { tracker: ['list_items', 'get_item'] } })
+
+    // a run reaches the private database (its scope names it); applied rows stay private
+    await a.getByRole('button', { name: 'Run now' }).click()
+    const run = a.locator('.agx-run').first()
+    await expect(run).toHaveAttribute('data-status', 'staged', { timeout: 30_000 })
+    expect(JSON.stringify(toolResults(bodies[1]).find((r: AnyState) => r.tool_use_id === 'tu1')?.content)).toContain('1 created')
+    await run.getByRole('button', { name: 'Apply all' }).click()
+    await expect
+      .poll(() => wsEval(a, (s, db) => (Object.values(s.pages) as AnyState[]).filter((p) => p.databaseId === db).map((p) => [p.title, !!p.private]), made.db))
+      .toEqual([['Login fails after password reset', true]])
+
+    // Bob gets the agent's definition (the shared meta map) — never its database, rows or report page
+    await expect.poll(() => wsEval(b, (s) => (Object.values(s.agents ?? {}) as AnyState[]).some((x) => x.name === 'Mirror · Tracker')), { timeout: 20_000 }).toBe(true)
+    expect(await wsEval(b, (s, x) => [x.db, x.report].filter((id: string) => !!s.pages[id]).length + (Object.values(s.pages) as AnyState[]).filter((p) => p.databaseId === x.db).length, made)).toBe(0)
+    await b.context().close()
   })
 
   test('an older server without agent endpoints: "does not support agents yet"', async ({ page: a }) => {

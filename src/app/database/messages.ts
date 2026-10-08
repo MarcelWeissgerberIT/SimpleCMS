@@ -6,6 +6,7 @@ import { peopleMessages } from './people-messages'
 import { createMessages } from './create/messages'
 import { feedMessages } from './views/feed-messages'
 import { recordTypeMessages } from './rtype-messages'
+import { keyMessages } from './keys-messages'
 
 /** Strings for the database area. Keys MUST be prefixed with "database." — always add both en and de. */
 export const messages: Messages = {
@@ -17,6 +18,7 @@ export const messages: Messages = {
     ...createMessages.en,
     ...feedMessages.en,
     ...recordTypeMessages.en,
+    ...keyMessages.en,
     'database.title': 'Database title',
     'database.toolbar': 'Database toolbar',
     'database.search': 'Search',
@@ -524,6 +526,7 @@ export const messages: Messages = {
     ...createMessages.de,
     ...feedMessages.de,
     ...recordTypeMessages.de,
+    ...keyMessages.de,
     'database.title': 'Titel der Datenbank',
     'database.toolbar': 'Datenbank-Werkzeugleiste',
     'database.search': 'Suchen',

@@ -69,7 +69,7 @@ export type { TransformPick } from './ai/transform/types'
 export { McpServers } from './ai/mcp-servers/McpServers'
 /*
  * MCP server codewords ("kb: …" in a free-form request — runAI applies them): CodewordChip { text } = the
- * "→ ATLAS" chip next to a prompt input · McpSkippedNote { calls } = the note for an addressed server that
+ * "→ KB" chip next to a prompt input · McpSkippedNote { calls } = the note for an addressed server that
  * stayed out (calls = what runAI's onMcp reported; McpCall entries with `skipped`)
  */
 export { CodewordChip, McpSkippedNote } from './ai/mcp-servers/Codeword'
@@ -328,6 +328,12 @@ export {
 export { startAgents, AgentsRoute, AgentsNavBadge, useAgentsAttention, ServerAgentsSettings, agentLabel } from './agents'
 /* overviews (the workspace page, shell/workspace): agentTriggerText(t, trigger, { pages, databases, lang }) · loadAgentRuns(id) → this device's runs into useAgentRuns */
 export { agentTriggerText, loadAgentRuns, useAgentRuns } from './agents'
+/*
+ * Integration profiles (Workspace.integrations — which agent features an active MCP server unlocks, and its recipes;
+ * see agents/integrations): useUnlocked(feature) / unlocked(feature) on this device (the database's property menu
+ * gates its Key / Only by hand switches with it) · IntegrationsPanel: the body of Workspace → Integrations
+ */
+export { useUnlocked, unlocked, IntegrationsPanel } from './agents'
 /*
  * One Script (features/script — a small, safe script language that only reaches One; see script/index.ts):
  *  - ScriptsRoute { scriptId? } (route #/scripts, #/scripts/<id>) · ScriptDialogHost (mount once: what a run asks)

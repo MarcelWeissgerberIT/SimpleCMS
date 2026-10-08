@@ -58,6 +58,7 @@ export const CHANGELOG_TRIES = [
   'coding',
   'kit',
   'look',
+  'integrations',
 ] as const
 export type ChangelogTry = (typeof CHANGELOG_TRIES)[number]
 

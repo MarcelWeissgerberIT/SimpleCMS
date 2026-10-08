@@ -8,6 +8,7 @@ import { useWorkspace, getWorkspaceSnapshot, descendantIds, defaultSettings } fr
 import { migrate } from '../../store/persistence'
 import { COLOR_NAMES, type Database, type ID, type Kit, type KitEntry, type Page, type Settings, type Workspace } from '../../store/types'
 import { emptyKit } from '../../store/kit'
+import { INTEGRATION_LIMITS, integrationsAllowed, sanitizeIntegrations } from '../../store/integrations'
 import { FILE_PREFIX, getFile, readAsDataUrl, saveFile } from '../../lib/files'
 import { newId } from '../../lib/ids'
 import { useCloud } from '../../cloud'
@@ -93,11 +94,13 @@ export async function buildBackup(rootId: ID | null, onProgress?: (done: number,
   const { pages, topId } = scoped
   // (database commands' webhooks too: features/commands)
   const databases = rootId ? Object.fromEntries(Object.entries(scoped.databases).map(([id, db]) => [id, withoutCommandSecrets(withoutWebhookSecrets(db))])) : scoped.databases
-  // the workspace look belongs to the whole workspace: full backups carry it, a page backup never does
-  const { look, ...rest } = snap
+  // the workspace look and the integration profiles belong to the whole workspace: full backups carry them, a page
+  // backup never does
+  const { look, integrations, ...rest } = snap
   const workspace: Workspace = {
     ...rest,
     ...(look && !rootId ? { look } : {}),
+    ...(integrations?.length && !rootId ? { integrations } : {}),
     pages: topId && pages[topId] ? { ...pages, [topId]: { ...pages[topId], parentId: null } } : pages,
     databases,
     // never export the API key, nor the MCP servers' token markers
@@ -186,6 +189,8 @@ export interface RestoreResult {
   /** pages skipped because the local copy is as new or newer */
   unchanged: number
   files: number
+  /** integration profiles of the backup that found no room (a workspace holds INTEGRATION_LIMITS.profiles) */
+  integrationsLeft?: number
 }
 
 const byId = <T extends { id: string }>(a: T[] = [], b: T[] = []): T[] => [...a, ...b.filter((x) => !a.some((y) => y.id === x.id))]
@@ -300,6 +305,9 @@ export async function applyBackup(b: Backup, mode: 'merge' | 'replace', onProgre
   if (mode === 'replace' && cloud.active.kind === 'cloud') throw new Error(t('features.io.err.replaceTeam'))
   const snap = getWorkspaceSnapshot()
   const source = migrate(JSON.parse(JSON.stringify(b.workspace)))
+  // profiles past the limit in the backup itself (migrate keeps the first ones)
+  const raw = b.workspace as unknown as { integrations?: unknown } | null
+  const overInBackup = b.scope === 'page' ? 0 : sanitizeIntegrations(raw?.integrations).over
   const rootId = sanitizeIds(source, typeof b.rootId === 'string' ? b.rootId : null)
   source.settings = sanitizeSettings(source.settings, snap.settings)
   source.people = source.people
@@ -361,15 +369,28 @@ export async function applyBackup(b: Backup, mode: 'merge' | 'replace', onProgre
       settings: { ...source.settings, aiApiKey: snap.settings.aiApiKey || source.settings.aiApiKey },
       // this device's recent pages stay (where they still exist) — an older backup's list is never taken over
       recent: snap.recent.filter((id) => !!pages[id]),
+      // a page backup carries no integration profiles: this workspace's stay
+      integrations: b.scope === 'page' ? snap.integrations : source.integrations,
     })
-    return { target: rootId ?? source.settings.startPageId ?? firstRoot(pages), mode, added, updated, unchanged, files }
+    return { target: rootId ?? source.settings.startPageId ?? firstRoot(pages), mode, added, updated, unchanged, files, ...(overInBackup ? { integrationsLeft: overInBackup } : {}) }
   }
 
   const people = [...snap.people]
   for (const person of source.people) if (!people.some((x) => x.id === person.id)) people.push(person)
-  store.replaceAll({ ...snap, pages, databases, people, functions: mergeFunctions(snap.functions, source.functions), kit: mergeKit(snap.kit, source.kit) })
+  // integration profiles: only someone who may edit them takes a backup's along (team: owners and admins)
+  const ints = integrationsAllowed() ? mergeIntegrations(snap.integrations, source.integrations) : null
+  const integrationsLeft = ints ? ints.left + overInBackup : 0
+  store.replaceAll({
+    ...snap,
+    pages,
+    databases,
+    people,
+    functions: mergeFunctions(snap.functions, source.functions),
+    kit: mergeKit(snap.kit, source.kit),
+    integrations: ints ? ints.integrations : snap.integrations,
+  })
   const target = rootId && pages[rootId] ? rootId : firstRoot(incoming.pages) ?? firstRoot(source.pages)
-  return { target, mode, added, updated, unchanged, files }
+  return { target, mode, added, updated, unchanged, files, ...(integrationsLeft ? { integrationsLeft } : {}) }
 }
 
 /**
@@ -385,6 +406,23 @@ function mergeFunctions(local: Workspace['functions'], incoming: Workspace['func
     out[fn.id] = fn
   }
   return out
+}
+
+/**
+ * Integration profiles of a merge (already checked by migrate): new ones are added while the workspace has room
+ * (INTEGRATION_LIMITS.profiles), a newer copy of one we have replaces it. `left`: new ones that found no room.
+ */
+function mergeIntegrations(local: Workspace['integrations'], incoming: Workspace['integrations']): { integrations: NonNullable<Workspace['integrations']>; left: number } {
+  const out = [...(local ?? [])]
+  let left = 0
+  for (const p of incoming ?? []) {
+    const at = out.findIndex((x) => x.id === p.id)
+    if (at >= 0) {
+      if ((out[at].updatedAt ?? 0) < (p.updatedAt ?? 0)) out[at] = p
+    } else if (out.length < INTEGRATION_LIMITS.profiles) out.push(p)
+    else left++
+  }
+  return { integrations: out, left }
 }
 
 /** Building blocks of a merge (already checked by migrate): new ones are added, a newer copy of one we have replaces it. */

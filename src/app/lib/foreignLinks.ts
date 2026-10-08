@@ -18,7 +18,7 @@ export function isForeignRelative(href: string): boolean {
   return true
 }
 
-/** A link address as a base ("https://atlas.example.com/" — origin plus an optional path), or null. */
+/** A link address as a base ("https://kb.example.com/" — origin plus an optional path), or null. */
 export function linkBaseOf(raw: unknown): string | null {
   if (typeof raw !== 'string' || !raw.trim()) return null
   try {

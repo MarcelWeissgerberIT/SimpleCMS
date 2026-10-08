@@ -8,6 +8,7 @@
  *    `settings.mcpInstructions` (the editable template; '' = the default in the UI language).
  *  - A request: `mcp_servers` (url, name, authorization_token) + one `mcp_toolset` per server in
  *    `tools` + the beta header, and the system prompt gets the template and each server's usage prompt.
+ *    A custom agent's tool allow-list (`opts.allow`, CustomAgent.mcpTools) switches the other tools off.
  *  - Readers sanitize: names / URLs / codewords are checked again here, whatever the stored list says.
  *  - Codewords (codeword.ts): a free-form request starting with "kb:" gets that server attached
  *    whatever its scope (codewordsIn + attachMcp(…, { forced })); client.ts decides, every caller gets it.
@@ -33,7 +34,7 @@ export const MAX_SERVERS = 12
 
 const NAME_RE = /^[a-z0-9][a-z0-9_-]{0,31}$/
 
-/** A typed name as an `mcp_server_name` ("Atlas KB" → "atlas-kb"). */
+/** A typed name as an `mcp_server_name` ("Team KB" → "team-kb"). */
 export function slugName(raw: string): string {
   return raw
     .normalize('NFKD')
@@ -75,8 +76,8 @@ const GENERIC = new Set(['mcp', 'sse', 'api', 'apis', 'server', 'servers', 'http
 
 /**
  * A name for a server from its URL: the last meaningful path part, else a meaningful subdomain,
- * else the domain ("https://example.com/api/atlas/mcp" → "atlas", "https://mcp.linear.app/sse" →
- * "linear"), made unique among `others`.
+ * else the domain ("https://example.com/api/kb/mcp" → "kb", "https://mcp.tracker.example/sse" →
+ * "tracker"), made unique among `others`.
  */
 export function deriveName(url: string, others: string[]): string {
   let base = ''
@@ -180,7 +181,7 @@ const sameUrl = (a: string, b: string) => {
   }
 }
 
-/** A server by its name, codeword ("kb" or "kb:"), address, or a name typed loosely ("Atlas KB" → atlas-kb). */
+/** A server by its name, codeword ("kb" or "kb:"), address, or a name typed loosely ("Team KB" → team-kb). */
 export function findServer(query: string, list: McpServerConfig[] = readServers()): McpServerConfig | null {
   const raw = query.trim()
   if (!raw) return null
@@ -227,13 +228,16 @@ function linkLine(s: McpServerConfig): string {
 
 /**
  * The system prompt part for these servers: the template, then each server's usage prompt (with its
- * codeword, if it has one), then — for a request that starts with codewords — who was addressed.
+ * codeword, if it has one, and the tools an allow-list leaves switched on), then — for a request that
+ * starts with codewords — who was addressed.
  */
-export function mcpSystemText(servers: McpServerConfig[], instructions: string, addressed: string[] = [], picked: { server: string; tool: string } | null = null): string {
+export function mcpSystemText(servers: McpServerConfig[], instructions: string, addressed: string[] = [], picked: { server: string; tool: string } | null = null, allow: McpToolAllow = {}): string {
   const parts = [`<mcp_instructions>\n${instructions.trim()}\n</mcp_instructions>`]
   for (const s of servers) {
     const prompt = s.prompt.trim() || 'No usage guide yet: read the tool descriptions carefully before you use them.'
-    parts.push(`<mcp_server name="${s.name}">\n${prompt}${s.codeword ? `\n${codewordGuideLine(s.codeword)}` : ''}\n${linkLine(s)}\n</mcp_server>`)
+    const only = allowedTools(allow, s.name)
+    const onlyLine = only ? `\nOnly these of its tools are switched on for you: ${only.join(', ')}. Its other tools are not available — never try to call them.` : ''
+    parts.push(`<mcp_server name="${s.name}">\n${prompt}${s.codeword ? `\n${codewordGuideLine(s.codeword)}` : ''}${onlyLine}\n${linkLine(s)}\n</mcp_server>`)
   }
   const pickedLine = picked && addressed.includes(picked.server) ? [pickedToolLine(picked.server, picked.tool)] : []
   if (addressed.length) parts.push(`<mcp_codeword>\n${[...addressed.map(addressedLine), ...pickedLine].join('\n')}\n</mcp_codeword>`)
@@ -250,6 +254,26 @@ export function mcpSystemText(servers: McpServerConfig[], instructions: string, 
  * summaries, "Ask your workspace") gets only the servers whose scope is "All AI calls".
  */
 export type McpRequestKind = 'free' | 'fixed'
+
+/**
+ * Tool allow-lists per server name (a custom agent's `mcpTools`): a listed server offers only those tools — its
+ * toolset switches every tool off (`default_config`) and the listed ones on (`configs`); [] = no tool, the server
+ * is left out. A server without an entry offers all its tools.
+ */
+export type McpToolAllow = Record<string, string[]>
+
+/** The allow-list of a server (null = all its tools). Own entries only. */
+export function allowedTools(allow: McpToolAllow | undefined, name: string): string[] | null {
+  if (!allow || !Object.prototype.hasOwnProperty.call(allow, name)) return null
+  const list = allow[name]
+  return Array.isArray(list) ? list : null
+}
+
+/** The `mcp_toolset` of one server: all its tools, or only the allowed ones (every other tool switched off). */
+export function toolsetFor(name: string, only: string[] | null = null): BetaMCPToolset {
+  if (!only) return { type: 'mcp_toolset', mcp_server_name: name }
+  return { type: 'mcp_toolset', mcp_server_name: name, default_config: { enabled: false }, configs: Object.fromEntries(only.map((tool) => [tool, { enabled: true }])) }
+}
 
 /** What one request sends for MCP. */
 export interface McpAttachment {
@@ -332,8 +356,13 @@ export function refusedNames(setup: McpSetup = currentSetup(), kind: McpRequestK
     .map((s) => s.name)
 }
 
-export async function attachMcp(setup: McpSetup = currentSetup(), kind: McpRequestKind = 'free', opts: { forced?: string[]; picked?: { server: string; tool: string } | null } = {}): Promise<McpAttachment | null> {
+export async function attachMcp(
+  setup: McpSetup = currentSetup(),
+  kind: McpRequestKind = 'free',
+  opts: { forced?: string[]; picked?: { server: string; tool: string } | null; allow?: McpToolAllow } = {},
+): Promise<McpAttachment | null> {
   const forced = opts.forced ?? []
+  const allow = opts.allow ?? {}
   const usable: Array<{ s: McpServerConfig; token: string }> = []
   // a pinned setup keeps its servers (prompt, tools) but uses their current token / sign-in (liveOf)
   const list = readServers()
@@ -342,6 +371,8 @@ export async function attachMcp(setup: McpSetup = currentSetup(), kind: McpReque
     if (!s) continue
     if (kind === 'fixed' && s.scope !== 'all' && !forced.includes(s.name)) continue
     if (isRefused(s) && !forced.includes(s.name)) continue
+    // an allow-list without a tool: the server has nothing to offer
+    if (allowedTools(allow, s.name)?.length === 0) continue
     // a signed-in server's access token is refreshed shortly before it expires (oauth.ts)
     const token = await tokenFor(s)
     if (token === null) continue
@@ -351,12 +382,13 @@ export async function attachMcp(setup: McpSetup = currentSetup(), kind: McpReque
   const names = usable.map(({ s }) => s.name)
   return {
     servers: usable.map(({ s, token }) => ({ type: 'url', url: s.url, name: s.name, ...(token ? { authorization_token: token } : {}) })),
-    toolsets: usable.map(({ s }) => ({ type: 'mcp_toolset', mcp_server_name: s.name })),
+    toolsets: usable.map(({ s }) => toolsetFor(s.name, allowedTools(allow, s.name))),
     system: mcpSystemText(
       usable.map(({ s }) => s),
       setup.instructions,
       forced.filter((n) => names.includes(n)),
       opts.picked ?? null,
+      allow,
     ),
     names,
   }

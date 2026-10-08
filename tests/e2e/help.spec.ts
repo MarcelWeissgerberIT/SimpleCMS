@@ -122,7 +122,7 @@ test.describe('help panel', () => {
     await setKey(page)
     // an enabled MCP server for every AI call: Ask the help must still not attach it
     await wsEval(page, (s) =>
-      s.updateSettings({ mcpServers: [{ id: 'srvhelp01', name: 'atlas', url: 'https://mcp.example.test/mcp', token: '', enabled: true, prompt: 'Atlas.', promptSource: 'auto', tools: ['search'], checkedAt: 1, scope: 'all' }] }),
+      s.updateSettings({ mcpServers: [{ id: 'srvhelp01', name: 'archive', url: 'https://mcp.example.test/mcp', token: '', enabled: true, prompt: 'Archive.', promptSource: 'auto', tools: ['search'], checkedAt: 1, scope: 'all' }] }),
     )
     await pressHelpKey(page)
     await panel(page).getByRole('tab', { name: /Ask/ }).click()
@@ -141,7 +141,7 @@ test.describe('help panel', () => {
     expect(JSON.stringify(body.tools ?? [])).not.toContain('mcp_toolset')
     const system = typeof body.system === 'string' ? body.system : JSON.stringify(body.system)
     expect(system).toContain('help desk of One')
-    expect(system).not.toContain('Atlas.')
+    expect(system).not.toContain('Archive.')
     const prompt = JSON.stringify(body.messages)
     expect(prompt).toContain('<article id=\\"share-links\\"')
     expect(prompt).toContain('How do I protect a share link with a password?')

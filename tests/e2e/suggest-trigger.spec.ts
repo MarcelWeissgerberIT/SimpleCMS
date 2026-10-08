@@ -4,7 +4,7 @@
  */
 import { test, expect, openApp, gotoPage, editorOf, createPage, doc, para, plainOf, MOD } from './fixtures'
 
-const REF = 'Dossier in Atlas: /r/24772 and @home and :smile here'
+const REF = 'Dossier in Archive: /r/24772 and @home and :smile here'
 
 test.describe('suggestion triggers', () => {
   test('moving the caret through existing "/r/24772", "@home", ":smile" opens no menu', async ({ page }) => {
@@ -22,7 +22,7 @@ test.describe('suggestion triggers', () => {
     const box = await p.boundingBox()
     await page.mouse.click(box!.x + 5, box!.y + box!.height / 2)
     await page.keyboard.press('Home')
-    for (let i = 0; i < 'Dossier in Atlas: /r/24'.length; i++) await page.keyboard.press('ArrowRight')
+    for (let i = 0; i < 'Dossier in Archive: /r/24'.length; i++) await page.keyboard.press('ArrowRight')
     await page.waitForTimeout(150)
     await expect(page.locator('.slash')).toBeHidden()
     await expect.poll(() => plainOf(page, id)).toBe(REF)
