@@ -1017,8 +1017,12 @@ body[data-dragging] .sb-row__toggle {
     width: 32px;
     height: 32px;
   }
+  /* each tab a 28 px target: the head grows to hold the switch */
+  .sb-visited__head {
+    height: 36px;
+  }
   .sb-switch {
-    height: 28px;
+    height: 30px;
   }
   .sb-switch__tab {
     padding: 0 10px;

@@ -105,7 +105,7 @@ function Palette() {
   useLayoutEffect(() => {
     if (!find.rev) return
     const first = listRef.current?.querySelector<HTMLElement>('[cmdk-item]:not([aria-disabled="true"])')
-    setValue(first?.getAttribute('data-value') ?? '')
+    if (first) setValue(first.getAttribute('data-value') ?? '')
   }, [find.rev])
 
   const finish = (restoreFocus = false) => {

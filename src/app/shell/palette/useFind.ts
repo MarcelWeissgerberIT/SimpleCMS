@@ -65,7 +65,8 @@ export function useFind(initial: string): Find {
 
   /** Split typed text into new chips (complete, valid filters) and the rest. */
   const take = (v: string, cur: Filter[]): { q: string; chips: Filter[] } => {
-    if (modeOf(v) !== 'find') return { q: v, chips: [] }
+    // > / ?: the chips go (the same empty list when there were none: nothing to re-select)
+    if (modeOf(v) !== 'find') return { q: v, chips: cur.length ? [] : cur }
     const { filters, rest } = takeFilters(v, (f) => validate(fx, f, env) === true, vocab)
     if (!filters.length) return { q: v, chips: cur }
     const keys = new Set(cur.map(filterKey))
