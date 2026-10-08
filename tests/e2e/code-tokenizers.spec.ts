@@ -110,8 +110,8 @@ test.describe('JSON', () => {
 
   test('where a value sits: schema errors land on their key or value', () => {
     const code = '{\n  "requires": { "mcp": "kb", "tools": ["kb_search", 42] }\n}'
-    expect(jsonPathRange(code, ['requires', 'tools', 1])).toEqual({ line: 2, col: 59, endLine: 2, endCol: 61 })
-    expect(code.split('\n')[1].slice(58, 60)).toBe('42')
+    expect(jsonPathRange(code, ['requires', 'tools', 1])).toEqual({ line: 2, col: 53, endLine: 2, endCol: 55 })
+    expect(code.split('\n')[1].slice(52, 54)).toBe('42')
     expect(jsonPathRange(code, ['requires', 'mcp'], 'key')).toEqual({ line: 2, col: 17, endLine: 2, endCol: 22 })
     expect(jsonPathRange(code, ['nope'])).toBeNull()
     expect(jsonPathRange('{ broken', ['a'])).toBeNull()
