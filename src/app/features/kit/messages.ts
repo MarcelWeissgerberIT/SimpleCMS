@@ -344,7 +344,7 @@ export const messages: Messages = {
     'features.kit.fill.nothing': 'Claude hat nichts Neues gefunden.',
     'features.kit.fill.discard': 'Verwerfen',
     'features.kit.fill.add': '{n} Einträge hinzufügen',
-    'features.kit.fill.noKey': 'Hinterlege deinen Claude-API-Schlüssel unter Einstellungen → Claude AI, dann kann Claude Listen füllen.',
+    'features.kit.fill.noKey': 'Hinterlege deinen Claude-API-Schlüssel unter Einstellungen → Claude KI, dann kann Claude Listen füllen.',
 
     'features.kit.types.new': 'Neuer Eigenschaftstyp',
     'features.kit.types.newName': 'Mein Typ ({base})',

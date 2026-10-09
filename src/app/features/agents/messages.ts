@@ -35,7 +35,7 @@ export const messages: Messages = {
     'features.agents.state.off': 'Off',
     'features.agents.state.error': 'Fault',
     'features.agents.state.ready': 'Ready',
-    'features.agents.state.idle': 'Standby',
+    'features.agents.state.idle': 'No run yet',
     'features.agents.state.waiting': 'Waiting',
 
     'features.agents.wait.text': 'Changed by {editor} — waiting for {creator} to confirm.',
@@ -403,7 +403,7 @@ export const messages: Messages = {
     'features.agents.state.off': 'Aus',
     'features.agents.state.error': 'Störung',
     'features.agents.state.ready': 'Bereit',
-    'features.agents.state.idle': 'Bereitschaft',
+    'features.agents.state.idle': 'Noch kein Lauf',
     'features.agents.state.waiting': 'Wartet',
 
     'features.agents.wait.text': 'Geändert von {editor} — wartet auf Bestätigung von {creator}.',
@@ -524,7 +524,7 @@ export const messages: Messages = {
     'features.agents.ed.improve': 'Mit Claude verbessern',
     'features.agents.ed.improving': 'Wird verbessert …',
     'features.agents.ed.improveUndo': 'Zurück zu meinem Text',
-    'features.agents.ed.needsKey': 'Braucht deinen Claude-API-Key (Einstellungen → Claude AI)',
+    'features.agents.ed.needsKey': 'Braucht deinen Claude-API-Key (Einstellungen → Claude KI)',
     'features.agents.ed.when': 'Startet',
     'features.agents.ed.every': 'Wiederholen',
     'features.agents.ed.weekday': 'Tag',

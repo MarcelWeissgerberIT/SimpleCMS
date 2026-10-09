@@ -244,7 +244,7 @@ export const messages: Messages = {
     'features.imp.design.tokens.none': 'Noch keine Farben, Schriften oder Größen — sie kommen aus dem HTML- oder PPTX-Export.',
     'features.imp.design.describe': 'Screenshots mit Claude beschreiben',
     'features.imp.design.describeDesc': 'Alternativtext, eine Bildunterschrift und der Text in jedem Bild. Die Screenshots gehen an Anthropic.',
-    'features.imp.design.describeNoKey': 'Braucht deinen Claude-Schlüssel (Einstellungen → Claude AI).',
+    'features.imp.design.describeNoKey': 'Braucht deinen Claude-Schlüssel (Einstellungen → Claude KI).',
     'features.imp.design.remember': 'Stil im One-Gedächtnis speichern',
     'features.imp.design.rememberDesc': 'Als Beispiel: Später lässt „#{tag}“ in einer Anfrage Claude in diesem Stil schreiben und gestalten.',
     'features.imp.design.rememberNone': 'Braucht den HTML- oder PPTX-Export — der Stil kommt aus ihnen.',

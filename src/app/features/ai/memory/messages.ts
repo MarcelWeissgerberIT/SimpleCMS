@@ -309,7 +309,7 @@ export const messages: Messages = {
     'features.memory.settings.readOnly': 'Nur Ansicht: In diesem Workspace lässt sich das Gedächtnis nicht einrichten.',
 
     'features.memory.echo.offNext': 'Die nächste Aufgabe läuft ohne das One-Gedächtnis.',
-    'features.memory.echo.notInUse': 'Das One-Gedächtnis ist nicht in Gebrauch: ausgeschaltet oder nicht eingerichtet (Einstellungen → Claude AI).',
+    'features.memory.echo.notInUse': 'Das One-Gedächtnis ist nicht in Gebrauch: ausgeschaltet oder nicht eingerichtet (Einstellungen → Claude KI).',
     'features.memory.echo.nothingToPropose': 'Noch nichts, woraus sich etwas vorschlagen ließe — erst eine Aufgabe ausführen oder /merken <Satz> tippen.',
     'features.memory.standby.k': 'Gedächtnis',
     'features.memory.standby.count.one': '{count} Erinnerung · /merken',
