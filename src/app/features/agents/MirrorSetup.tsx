@@ -5,9 +5,10 @@
  * top). "Create" makes the database and its report page (mirror.ts; the editor's note carries the Undo) and hands the
  * agent draft to the editor. A live database with the same name is never duplicated silently: Create waits, and one
  * holding the recipe's key (named in either language; private in a team) is offered for the agent ("Use …",
- * reuseMirror — the recipe then in the language of its names); one a saved agent mirrors into already offers that
- * agent instead, a shared one in a team only says why it is not used. The spec plate reads the recipe: properties,
- * views, key, own fields, schedule, budget, report.
+ * reuseMirror — the recipe then in the language of its names, a new report page next to it); one a saved agent
+ * mirrors into already (mirrorAgentOf: it reads one of these servers) offers that agent instead; a shared one in a
+ * team only says why it is not used — before anything else, even when a teammate's agent mirrors into it. The spec
+ * plate reads the recipe: properties, views, key, own fields, schedule, budget, report.
  */
 import { useId, useMemo, useState } from 'react'
 import { ChevronDown } from 'lucide-react'
@@ -122,7 +123,7 @@ export function MirrorSetup({ source, onClose, onCreated }: { source: RecipeSour
 
   const keyProp = built.schema.properties.find((p) => p.key)
   // a live database of this name: never a second one silently (one holding the recipe's key can take the agent)
-  const existing = useMemo(() => sameNamedDb(pages, databases, agents, name, keys, team), [pages, databases, agents, name, keys, team])
+  const existing = useMemo(() => sameNamedDb(pages, databases, agents, name, keys, source.servers, team), [pages, databases, agents, name, keys, source.servers, team])
 
   const run = (make: () => MirrorMade) => {
     setTried(true)
@@ -139,7 +140,7 @@ export function MirrorSetup({ source, onClose, onCreated }: { source: RecipeSour
     run(() => createMirror({ recipe, server, name, parentId }))
   }
   const takeExisting = () => {
-    if (!existing?.fits || existing.agent) return
+    if (!existing?.fits || existing.shared || existing.agent) return
     // the agent's names and instructions in the language the database's properties are named in
     const lang = existing.lang ?? recipe.lang
     run(() => reuseMirror({ recipe: lang === recipe.lang ? recipe : resolveRecipe(source.profile, source.recipe, lang), server, dbId: existing.id }))
@@ -149,12 +150,13 @@ export function MirrorSetup({ source, onClose, onCreated }: { source: RecipeSour
     onClose()
     navigate(`#/agents/${id}`)
   }
+  // a team's shared database first: the mirror never uses it, whoever's agent writes into it (never "Open" a teammate's)
   const existsText = !existing
     ? ''
-    : existing.agent
-      ? t('features.agents.mirror.exists.mirrored', { name: existing.title, agent: existing.agent.name })
-      : existing.shared
-        ? t('features.agents.mirror.exists.shared', { name: existing.title })
+    : existing.shared
+      ? t('features.agents.mirror.exists.shared', { name: existing.title })
+      : existing.agent
+        ? t('features.agents.mirror.exists.mirrored', { name: existing.title, agent: existing.agent.name })
         : t(existing.fits ? 'features.agents.mirror.exists.fits' : 'features.agents.mirror.exists.other', { name: existing.title })
 
   const yours = built.schema.properties
@@ -278,7 +280,7 @@ export function MirrorSetup({ source, onClose, onCreated }: { source: RecipeSour
           <div className="agx-notice agx-mir__exists" role="status" data-testid="agx-mir-exists">
             <span className="led led--on" aria-hidden />
             <span>{existsText}</span>
-            {existing.agent ? (
+            {existing.shared ? null : existing.agent ? (
               <button type="button" className="btn btn--sm btn--ink" onClick={() => existing.agent && openAgent(existing.agent.id)}>
                 {t('features.agents.mirror.exists.open', { agent: existing.agent.name })}
               </button>

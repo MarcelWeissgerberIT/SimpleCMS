@@ -29,11 +29,13 @@ export interface ModalProps {
 /* Modals and popovers are portaled to <body>, outside the app root.   */
 /* ------------------------------------------------------------------ */
 
-const stack: HTMLElement[] = []
-let inerted: Element[] = []
+/** The open dialogs, each with the element focused when it opened (its opener). */
+const stack: Array<{ dialog: HTMLElement; prev: HTMLElement | null }> = []
+/** null = the background is not locked */
+let inerted: Element[] | null = null
 
 function lockBackground() {
-  if (stack.length !== 1) return
+  if (inerted) return
   const root = document.getElementById('root')
   if (!root) return
   // the app shell's direct children (fall back to #root itself when there is no shell)
@@ -43,10 +45,37 @@ function lockBackground() {
   inerted.forEach((el) => el.setAttribute('inert', ''))
 }
 
+/** Once no dialog is in the document any more — dialogs closing in the same commit are gone before their cleanup runs. */
 function unlockBackground() {
-  if (stack.length) return
+  if (!inerted || stack.some((e) => e.dialog.isConnected)) return
   inerted.forEach((el) => el.removeAttribute('inert'))
-  inerted = []
+  inerted = null
+}
+
+/** Can take focus: in the document, not inert, shown. */
+const canFocus = (el: Element | null | undefined): el is HTMLElement =>
+  el instanceof HTMLElement && el !== document.body && el.isConnected && !el.closest('[inert]') && (el.offsetParent !== null || el.getClientRects().length > 0)
+
+/** Focus is nowhere (the page body) or on something removed or inert. */
+const focusLost = () => !canFocus(document.activeElement)
+
+/**
+ * Focus back to the dialog's opener — or, when that is gone (it closed with this dialog, a route change took it) or
+ * inert, to the opener of the next dialog on the stack, then into the dialog still open, then the main region (as the
+ * skip link). Never the page body, whatever order dialogs closing together clean up in — unless nothing had the focus
+ * when the dialog opened.
+ */
+function giveFocusBack(prev: HTMLElement | null) {
+  if (canFocus(prev)) return restoreFocus(prev)
+  if (!prev || prev === document.body || !focusLost()) return
+  const open = [...stack].reverse().find((e) => e.dialog.isConnected)?.dialog
+  const openers = [...stack].reverse().flatMap((e) => (e.prev && (!open || open.contains(e.prev)) ? [e.prev] : []))
+  const main = document.querySelector<HTMLElement>('#main:not([data-folded]), .stage-col[tabindex]:not([data-folded]), main[tabindex]')
+  for (const el of [...openers, open, main]) {
+    if (!canFocus(el)) continue
+    restoreFocus(el)
+    if (!focusLost()) return
+  }
 }
 
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex], [contenteditable="true"]'
@@ -77,9 +106,9 @@ export function Modal({ open, onClose, title, label, children, footer, width, cl
     if (!dialog) return
     fresh.current = true
     const prev = document.activeElement as HTMLElement | null
-    stack.push(dialog)
+    stack.push({ dialog, prev })
     lockBackground()
-    const isTop = () => stack[stack.length - 1] === dialog
+    const isTop = () => stack[stack.length - 1]?.dialog === dialog
 
     const onKey = (e: KeyboardEvent) => {
       if (!isTop()) return
@@ -136,11 +165,11 @@ export function Modal({ open, onClose, title, label, children, footer, width, cl
     return () => {
       cancelAnimationFrame(raf)
       document.removeEventListener('keydown', onKey)
-      const i = stack.lastIndexOf(dialog)
+      const i = stack.findLastIndex((e) => e.dialog === dialog)
       if (i >= 0) stack.splice(i, 1)
       // un-inert first: an inert element cannot take focus back
       unlockBackground()
-      restoreFocus(prev)
+      giveFocusBack(prev)
     }
   }, [open, bare, ariaLabel, titleId])
 
