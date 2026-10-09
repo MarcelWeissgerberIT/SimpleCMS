@@ -3,6 +3,8 @@ import { createPortal } from 'react-dom'
 import { autoUpdate, flip, offset as offsetMw, shift, size, useFloating, type Placement, type VirtualElement } from '@floating-ui/react'
 import { useT } from '../i18n'
 import { canResize, clearPopoverSize, loadPopoverSize, savePopoverSize, type PopoverSize } from './popoverSize'
+import { returnFocusAfterClose } from './focus'
+import { outsidePress } from './gesture'
 
 export type PopoverAnchor = Element | VirtualElement | null
 
@@ -144,11 +146,42 @@ export function Popover({
     return () => window.removeEventListener('resize', unpin)
   }, [shown])
 
+  /* -------- a menu closed by Esc or a pick: focus back to the key that opened it (the ARIA menu button) -------- */
+
+  // why it closed: a press outside leaves focus where that press put it
+  const why = useRef<'escape' | 'outside' | null>(null)
+  // the panel held the keyboard (a menu in it: its root, its search field, an item)
+  const held = useRef<{ menu: boolean } | null>(null)
+  // the anchor it was opened from (the prop is null once it closes)
+  const opener = useRef<PopoverAnchor>(null)
+  useLayoutEffect(() => {
+    if (shown && anchor) opener.current = anchor
+  })
+  useLayoutEffect(() => {
+    if (!shown) return
+    why.current = null
+    held.current = null
+    return () => {
+      const trigger = opener.current
+      if (held.current?.menu && why.current !== 'outside' && trigger instanceof Element) returnFocusAfterClose(trigger)
+      held.current = null
+    }
+  }, [shown])
+  const onFocusIn = (e: React.FocusEvent<HTMLDivElement>) => {
+    held.current = { menu: role === 'menu' || !!e.currentTarget.querySelector('[role="menu"]') }
+  }
+  const onFocusOut = (e: React.FocusEvent<HTMLDivElement>) => {
+    const to = e.relatedTarget
+    // focus moved on to something of its own (outside the panel, not a nested popover); nowhere (removed, the window) keeps it
+    if (to instanceof Element && !e.currentTarget.contains(to) && !to.closest('[data-popover]')) held.current = null
+  }
+
   useEffect(() => {
     if (!open) return
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.stopPropagation()
+        why.current = 'escape'
         onCloseRef.current()
       }
     }
@@ -159,7 +192,11 @@ export function Popover({
       if (anchor instanceof Element && anchor.contains(target)) return
       // clicks inside another (nested) popover — or on a popover's resize grip — should not close this one
       if ((target as Element).closest?.('[data-popover]')) return
-      onCloseRef.current()
+      // the second click of a double-click that closed a dialog over it closes nothing
+      outsidePress(e, () => {
+        why.current = 'outside'
+        onCloseRef.current()
+      })
     }
     document.addEventListener('keydown', onKey, true)
     document.addEventListener('pointerdown', onDown, true)
@@ -338,6 +375,8 @@ export function Popover({
         className={bare ? className : `popover ${className ?? ''}`}
         // until floating-ui has placed it, the panel sits at (0, 0): not seen, not under the pointer
         style={{ ...floatingStyles, ...style, ...place, ...(isPositioned ? null : UNPLACED) }}
+        onFocus={onFocusIn}
+        onBlur={onFocusOut}
         onMouseDown={(e) => e.stopPropagation()}
         onAnimationEnd={grip ? placeGrip : undefined}
       >

@@ -29,6 +29,8 @@ Diese gibt es mit einer aktiven [Integration](help:integrations), die sie freisc
 
 Liegt eine Seite, mit der der Agent arbeitet, im Papierkorb oder ist sie endgültig gelöscht — eine Seite oder Datenbank unter **Darf nutzen**, die Datenbank, deren Zeilen ihn starten, seine Berichtsseite —, nennt seine Seite jede davon, mit **Wiederherstellen** für eine im Papierkorb. Ein Browser-Lauf startet nicht, solange nichts unter **Darf nutzen** nutzbar ist oder seine Berichtsseite fehlt: Er steht dann als Fehler mit dem Grund in der Liste.
 
+Meldungen zu Läufen liegen nie über einem Dialog: Kommt eine, während ein Dialog offen ist (der Editor eines Agenten, die Einstellungen), wartet sie und erscheint, sobald der letzte Dialog zu ist — ist sie dann älter als zwei Minuten, entfällt sie (der Lauf zeigt ohnehin alles).
+
 ## Browser oder Server
 - **Browser**-Agenten laufen in One, solange ein Tab offen ist — mit deinem Claude-Schlüssel und deinen MCP-Servern. Ein geplanter Lauf, der verpasst wurde, weil One geschlossen war, findet einmal beim nächsten Öffnen statt.
 - **Server**-Agenten (Team-Workspaces) laufen rund um die Uhr auf dem Team-Server, mit einem Claude-Schlüssel und MCP-Servern, die ein Admin unter **Einstellungen → Agenten · MCP** einrichtet.

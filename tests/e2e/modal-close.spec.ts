@@ -1,8 +1,10 @@
 /**
  * Dialogs closing (ui/Modal.tsx), app-wide:
  *  - a double-click / double tap on a key that closes a dialog never acts on what lies underneath: the rest of that
- *    gesture (a mouse's second click, a touch tap on the same spot) is swallowed for a moment outside any dialog still
- *    open — single clicks and taps elsewhere are never touched
+ *    gesture (a mouse's second click, a touch tap within a finger's reach or on the key) is swallowed for a moment
+ *    outside any modal dialog still open — the side peek is no exception, and its outside-press close waits for the
+ *    click count — single clicks and taps elsewhere are never touched
+ *  - a short label stays beside a title that fits on one line there (also at phone width, text size XL)
  *  - focus never ends on the page body: an opener that cannot take focus any more (disabled meanwhile), a route change
  *    right after closing (it takes the restored element), a click on the scrim — focus goes to the main region instead
  *  - at phone width a long header label goes on its own line above the title (cut with "…", the full text as a title),
@@ -10,7 +12,7 @@
  * The recipe dialogs use a fictional MCP server (tracker.example.com) and a mocked nothing — no request leaves.
  */
 import type { Locator, Page } from '@playwright/test'
-import { test, expect, openApp, uiEval, wsEval, flush } from './fixtures'
+import { test, expect, openApp, uiEval, wsEval, flush, createPage, MOD } from './fixtures'
 import { addProfile, trackerProfile } from './helpers/integrations'
 
 type AnyState = Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -331,5 +333,209 @@ test.describe('Dialogs: a long header label at phone width', () => {
     await wsEval(page, (s) => s.updateSettings({ language: 'de' }))
     dialog = await openSetup(page)
     expect(await headerOf(dialog)).toMatchObject({ stacked: true, labelAbove: true, clipped: false, titleOneLine: true, titleFull: true })
+  })
+})
+
+/** A counting button of the app at a point (behind any dialog), planted before the dialog opens or while it is open. */
+async function plantAt(page: Page, at: { x: number; y: number }, id: string, size = 16): Promise<Locator> {
+  await page.evaluate(
+    ({ at, id, size }) => {
+      document.getElementById(id)?.remove()
+      const b = document.createElement('button')
+      b.id = id
+      b.type = 'button'
+      Object.assign(b.style, { position: 'fixed', left: `${at.x - size / 2}px`, top: `${at.y - size / 2}px`, width: `${size}px`, height: `${size}px`, zIndex: '50' })
+      b.dataset.clicks = '0'
+      b.dataset.downs = '0'
+      b.addEventListener('mousedown', () => (b.dataset.downs = String(Number(b.dataset.downs) + 1)))
+      b.addEventListener('click', () => (b.dataset.clicks = String(Number(b.dataset.clicks) + 1)))
+      document.querySelector('#root .app')!.appendChild(b)
+    },
+    { at, id, size },
+  )
+  return page.locator(`#${id}`)
+}
+
+const peekId = (page: Page) => uiEval(page, (s) => s.peekPageId as string | null)
+
+test.describe('Dialogs over the side peek: the closing double-click never reaches it', () => {
+  test('1440, mouse: a double-click on a confirm’s Cancel over a peek with to-dos never toggles the to-do lying under it', async ({ page }) => {
+    await openApp(page)
+    const content = { type: 'doc', content: Array.from({ length: 30 }, (_, i) => ({ type: 'taskList', content: [{ type: 'taskItem', attrs: { checked: false }, content: [{ type: 'paragraph', content: [{ type: 'text', text: `Task ${i + 1} with a longer label so the row is wide enough` }] }] }] })) }
+    const id = await createPage(page, { title: 'Peek to-dos', content })
+    await uiEval(page, (s, id) => s.openPeek(id, 'side'), id)
+    await expect(page.locator('.peek input[type="checkbox"]').first()).toBeVisible()
+    // where the confirm's keys are
+    await openConfirm(page)
+    const keys = await page.getByRole('dialog').locator('.confirm__actions button').evaluateAll((bs) => bs.map((b) => { const r = b.getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height } }))
+    await page.keyboard.press('Escape')
+    await expect(page.locator('.modal-scrim')).toHaveCount(0)
+    const cb = (await page.locator('.peek input[type="checkbox"]').first().boundingBox())!
+    const key = keys.find((k) => k.x <= cb.x + cb.width / 2 && cb.x + cb.width / 2 <= k.x + k.w)
+    expect(key, 'a confirm key over the to-dos’ checkbox column').toBeTruthy()
+    const at = { x: cb.x + cb.width / 2, y: key!.y + key!.h / 2 }
+    // the peek scrolled so that a to-do's checkbox lies right under that key
+    const under = await page.evaluate((t) => {
+      const sc = document.querySelector<HTMLElement>('.peek__scroll')!
+      const items = Array.from(document.querySelectorAll<HTMLElement>('.peek input[type="checkbox"]'))
+      const first = items.find((el) => el.getBoundingClientRect().top > t.y + 40) ?? items[items.length - 1]
+      const r = first.getBoundingClientRect()
+      sc.scrollTop += r.top + r.height / 2 - t.y
+      const hit = document.elementFromPoint(t.x, t.y)
+      return !!hit && (hit.matches('input[type="checkbox"]') || !!hit.closest('label')?.querySelector('input[type="checkbox"]'))
+    }, at)
+    expect(under).toBe(true)
+    const checked = () => page.locator('.peek input[type="checkbox"]:checked').count()
+    expect(await checked()).toBe(0)
+    await openConfirm(page)
+    await page.mouse.dblclick(at.x, at.y)
+    await expect(page.locator('.modal-scrim')).toHaveCount(0)
+    await page.waitForTimeout(500)
+    expect(await checked()).toBe(0)
+    expect(await wsEval(page, (s, id) => JSON.stringify(s.pages[id].content).includes('"checked":true'), id)).toBe(false)
+    expect(await peekId(page)).toBe(id)
+  })
+
+  test('1440, mouse: a double-click on a dialog’s scrim keeps the side peek; a single click there right after a close is the person’s own (it closes the peek)', async ({ page }) => {
+    await openApp(page)
+    const id = await createPage(page, { title: 'Peek target' })
+    await uiEval(page, (s, id) => s.openPeek(id, 'side'), id)
+    await expect(page.locator('.peek')).toBeVisible()
+    await openConfirm(page)
+    await page.mouse.dblclick(200, 500)
+    await expect(page.locator('.modal-scrim')).toHaveCount(0)
+    await page.waitForTimeout(300)
+    expect(await peekId(page)).toBe(id)
+    // a single click on the scrim closes only the dialog; one more at the same spot right after: the peek closes
+    await openConfirm(page)
+    await page.mouse.click(200, 500)
+    await expect(page.locator('.modal-scrim')).toHaveCount(0)
+    expect(await peekId(page)).toBe(id)
+    await page.mouse.click(200, 500)
+    await expect.poll(() => peekId(page)).toBe(null)
+  })
+
+  test('1440, mouse: a double-click on a confirm key over the main column keeps a narrow side peek', async ({ page }) => {
+    await openApp(page)
+    await page.evaluate(() => localStorage.setItem('one.shell.peekWidth', '0.3'))
+    await page.reload()
+    await page.waitForFunction(() => !!(window as unknown as { __one?: unknown }).__one)
+    const id = await createPage(page, { title: 'Peek narrow' })
+    await uiEval(page, (s, id) => s.openPeek(id, 'side'), id)
+    const pr = (await page.locator('.peek').boundingBox())!
+    const key = await openConfirm(page)
+    const kb = (await key.boundingBox())!
+    const at = { x: Math.min(kb.x + kb.width / 2, pr.x - 8), y: kb.y + kb.height / 2 }
+    expect(at.x).toBeGreaterThan(kb.x)
+    await page.mouse.dblclick(at.x, at.y)
+    await expect(page.locator('.modal-scrim')).toHaveCount(0)
+    await page.waitForTimeout(300)
+    expect(await peekId(page)).toBe(id)
+  })
+
+  test('1440, mouse: ⌘K → Import over a side peek, the dialog’s × double-clicked — nothing in the peek is pressed', async ({ page }) => {
+    await openApp(page)
+    const id = await createPage(page, { title: 'Peek under import' })
+    await uiEval(page, (s, id) => s.openPeek(id, 'side'), id)
+    await expect(page.locator('.peek')).toBeVisible()
+    await page.keyboard.press(`${MOD}+k`)
+    await expect(page.locator('.pal-scrim')).toBeVisible()
+    await page.keyboard.type('Import')
+    await page.keyboard.press('Enter')
+    const dialog = page.locator('.modal.io-modal')
+    await expect(dialog).toBeVisible()
+    const xb = (await dialog.locator('.modal__close').boundingBox())!
+    const at = { x: xb.x + xb.width / 2, y: xb.y + xb.height / 2 }
+    // a key inside the peek, under the dialog's ×
+    await page.evaluate((at) => {
+      const b = document.createElement('button')
+      b.id = 'e2e-in-peek'
+      b.type = 'button'
+      Object.assign(b.style, { position: 'fixed', left: `${at.x - 10}px`, top: `${at.y - 10}px`, width: '20px', height: '20px', zIndex: '1' })
+      b.dataset.clicks = '0'
+      b.dataset.downs = '0'
+      b.addEventListener('mousedown', () => (b.dataset.downs = String(Number(b.dataset.downs) + 1)))
+      b.addEventListener('click', () => (b.dataset.clicks = String(Number(b.dataset.clicks) + 1)))
+      document.querySelector('.peek')!.appendChild(b)
+    }, at)
+    await page.mouse.dblclick(at.x, at.y)
+    await expect(dialog).toHaveCount(0)
+    await page.waitForTimeout(300)
+    expect(await page.locator('#e2e-in-peek').evaluate((b) => ({ downs: Number(b.dataset.downs), clicks: Number(b.dataset.clicks) }))).toEqual({ downs: 0, clicks: 0 })
+    expect(await peekId(page)).toBe(id)
+  })
+})
+
+test.describe('Dialogs: a finger’s double tap', () => {
+  test.use({ viewport: { width: 390, height: 844 }, hasTouch: true })
+
+  test('390 px: a second tap 20 px or 30 px off the closing tap — or on the closing key’s far edge — is part of the gesture; a tap farther away is the person’s own', async ({ page }) => {
+    await openApp(page, '#/agents')
+    const cases: Array<{ name: string; dx: number; dy: number; edge?: boolean }> = [
+      { name: '20 px right', dx: 20, dy: 0 },
+      { name: '30 px below', dx: 0, dy: 30 },
+      { name: 'on the key’s far edge', dx: 0, dy: 0, edge: true },
+      { name: 'far away', dx: 0, dy: -160 },
+    ]
+    const out: Record<string, number> = {}
+    for (const [i, c] of cases.entries()) {
+      const key = await openConfirm(page)
+      // the dialog settled (its opening slide done) before the key is measured
+      await page.waitForTimeout(300)
+      const kb = (await key.boundingBox())!
+      const first = { x: kb.x + kb.width / 2, y: kb.y + kb.height / 2 }
+      const second = c.edge ? { x: kb.x + kb.width + 4, y: first.y } : { x: first.x + c.dx, y: first.y + c.dy }
+      if (c.edge) expect(second.x - first.x, 'the far edge lies beyond the tap radius').toBeGreaterThan(32)
+      const under = await plantAt(page, second, `e2e-tap-${i}`, 8)
+      // when each tap's pointerdown happened (a busy machine can stretch the gap past the gesture's moment)
+      await page.evaluate(() => {
+        const w = window as unknown as { __downs: number[] }
+        w.__downs = []
+        window.addEventListener('pointerdown', () => w.__downs.push(performance.now()), { capture: true })
+      })
+      await page.touchscreen.tap(first.x, first.y)
+      await page.touchscreen.tap(second.x, second.y)
+      await expect(page.locator('.modal-scrim')).toHaveCount(0)
+      await page.waitForTimeout(200)
+      expect(await page.evaluate((p) => document.elementFromPoint(p.x, p.y)?.id, second), 'the planted key is on top there').toBe(`e2e-tap-${i}`)
+      const gap = await page.evaluate(() => {
+        const d = (window as unknown as { __downs: number[] }).__downs
+        return Math.round(d[d.length - 1] - d[d.length - 2])
+      })
+      expect(gap, 'the two taps came within the gesture’s moment').toBeLessThan(400)
+      out[c.name] = (await counts(under)).clicks
+      await under.evaluate((b) => b.remove())
+      await page.waitForTimeout(500)
+    }
+    expect(out).toEqual({ '20 px right': 0, '30 px below': 0, 'on the key’s far edge': 0, 'far away': 1 })
+  })
+})
+
+test.describe('Dialogs: label and title on one row whenever the title fits there', () => {
+  test('390 px, text size XL: a short label stays beside a title that fits on one line (Import, Export, Templates); a long one still goes above', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 })
+    await openApp(page)
+    await page.evaluate(() => localStorage.setItem('one.textScale', '4'))
+    await page.reload()
+    await page.waitForFunction(() => !!(window as unknown as { __one?: unknown }).__one)
+    const id = await createPage(page, { title: 'Header page' })
+    const kinds: AnyState[] = [{ type: 'import' }, { type: 'export', pageId: id }, { type: 'templates' }]
+    const heights: number[] = []
+    for (const k of kinds) {
+      await uiEval(page, (s, k) => s.openModal(k), k)
+      const dialog = page.locator('.modal').last()
+      await expect(dialog.locator('.modal__header')).toBeVisible()
+      await page.waitForTimeout(150)
+      expect(await headerOf(dialog), JSON.stringify(k)).toMatchObject({ stacked: false, sameRow: true, clipped: false, titleOneLine: true })
+      heights.push(Math.round((await dialog.locator('.modal__header').boundingBox())!.height))
+      await page.keyboard.press('Escape')
+      await expect(page.locator('.modal')).toHaveCount(0)
+    }
+    // the same header height for each
+    expect(new Set(heights).size, JSON.stringify(heights)).toBe(1)
+    // a long label with a title that would wrap beside it: above
+    await setServers(page, { name: 'Tracker · Handoff-Board des Plattform-Teams' })
+    const dialog = await openSetup(page)
+    expect(await headerOf(dialog)).toMatchObject({ stacked: true, labelAbove: true, titleOneLine: true })
   })
 })

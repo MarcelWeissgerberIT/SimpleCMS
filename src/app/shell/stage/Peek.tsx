@@ -9,6 +9,7 @@ import { goToPage } from '../lib/actions'
 import { useColumnScroll, useIsMobile, useLocalPref } from '../lib/hooks'
 import { useBreadcrumbs } from '../../store/selectors'
 import { PageIcon } from '../../ui/PageIcon'
+import { outsidePress } from '../../ui/gesture'
 
 let lastClosedAt = 0
 
@@ -56,14 +57,15 @@ function PeekPanel({ id }: { id: string }) {
     useUI.getState().closePeek()
   }
 
-  // side mode: a pointer-down anywhere outside closes the peek
+  // side mode: a pointer-down anywhere outside closes the peek — not the second click of the double-click that closed a
+  // dialog over it (ui/gesture.ts)
   useEffect(() => {
     if (mode !== 'side') return
     const onDown = (e: PointerEvent) => {
       const target = e.target as Element | null
       if (!target?.closest || ref.current?.contains(target)) return
       if (target.closest('[data-popover], .modal-scrim, .pal-scrim, .toasts, [data-peek-keep], .sb-resize')) return
-      close()
+      outsidePress(e, close)
     }
     document.addEventListener('pointerdown', onDown)
     return () => document.removeEventListener('pointerdown', onDown)

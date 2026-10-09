@@ -37,7 +37,21 @@ export interface Toast {
   /** further keys after `action` (e.g. "Describe" · "Read out text") */
   more?: Array<{ label: string; run: () => void }>
   timeout?: number
+  /**
+   * Raised by work going on in the background (an agent run), not by what the person just did: it never sits over a
+   * dialog. Raised (or still shown) while one is open, it waits and shows once the last one has closed — unless it was
+   * dismissed meanwhile or is older than two minutes by then.
+   */
+  background?: boolean
 }
+
+/** A background toast held while a dialog is open, with the time it was raised. */
+export interface WaitingToast extends Toast {
+  raisedAt: number
+}
+
+/** A held background toast older than this is dropped instead of shown. */
+const WAIT_MAX_MS = 2 * 60_000
 
 export interface UIState {
   /** ⌘K palette */
@@ -56,6 +70,8 @@ export interface UIState {
   mobileSidebarOpen: boolean
   modal: ModalState | null
   toasts: Toast[]
+  /** background toasts held while a dialog is open (shown when the last one closes) */
+  waitingToasts: WaitingToast[]
 
   openPalette: (query?: string) => void
   closePalette: () => void
@@ -83,6 +99,7 @@ export const useUI = create<UIState>()((set, get) => ({
   mobileSidebarOpen: false,
   modal: null,
   toasts: [],
+  waitingToasts: [],
 
   openPalette: (query = '') => set({ paletteOpen: true, paletteQuery: query }),
   closePalette: () => set({ paletteOpen: false, paletteQuery: '' }),
@@ -102,13 +119,76 @@ export const useUI = create<UIState>()((set, get) => ({
   closeModal: () => set({ modal: null }),
   toast: (t) => {
     const toast: Toast = typeof t === 'string' ? { id: newId(), message: t } : { ...t, id: newId() }
-    set((s) => ({ toasts: [...s.toasts, toast].slice(-4) }))
-    const timeout = toast.timeout ?? (toast.action ? 6000 : 3200)
-    if (timeout > 0) window.setTimeout(() => get().dismissToast(toast.id), timeout)
+    if (toast.background) raisedAt.set(toast.id, Date.now())
+    // background work never puts a toast over an open dialog: it waits for the last one to close
+    if (toast.background && held) set((s) => ({ waitingToasts: [...s.waitingToasts, { ...toast, raisedAt: Date.now() }].slice(-MAX_TOASTS) }))
+    else showToast(toast)
     return toast.id
   },
-  dismissToast: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
+  dismissToast: (id) => {
+    stopTimer(id)
+    raisedAt.delete(id)
+    const s = get()
+    if (!s.toasts.some((t) => t.id === id) && !s.waitingToasts.some((t) => t.id === id)) return
+    set({ toasts: s.toasts.filter((t) => t.id !== id), waitingToasts: s.waitingToasts.filter((t) => t.id !== id) })
+  },
 }))
+
+/** Toasts shown at once (the oldest goes). */
+const MAX_TOASTS = 4
+/** Each shown toast's dismiss timer. */
+const timers = new Map<ID, number>()
+/** When each background toast was raised (it may wait, and wait again). */
+const raisedAt = new Map<ID, number>()
+/** A dialog is open: background toasts wait. */
+let held = false
+
+function stopTimer(id: ID) {
+  const h = timers.get(id)
+  if (h === undefined) return
+  window.clearTimeout(h)
+  timers.delete(id)
+}
+
+function showToast(toast: Toast) {
+  useUI.setState((s) => ({ toasts: [...s.toasts, toast].slice(-MAX_TOASTS) }))
+  const timeout = toast.timeout ?? (toast.action ? 6000 : 3200)
+  if (timeout > 0)
+    timers.set(
+      toast.id,
+      window.setTimeout(() => {
+        timers.delete(toast.id)
+        useUI.getState().dismissToast(toast.id)
+      }, timeout),
+    )
+}
+
+/**
+ * ui/Modal.tsx: a dialog is open (true) — background toasts wait, and those on screen step back until it closes — or
+ * the last one has closed (false): the waiting ones show, each with its full time; any raised over two minutes ago is
+ * dropped.
+ */
+export function holdBackgroundToasts(on: boolean): void {
+  if (on === held) return
+  held = on
+  const s = useUI.getState()
+  if (on) {
+    const shown = s.toasts.filter((t) => t.background)
+    if (!shown.length) return
+    shown.forEach((t) => stopTimer(t.id))
+    useUI.setState({
+      toasts: s.toasts.filter((t) => !t.background),
+      waitingToasts: [...s.waitingToasts, ...shown.map((t) => ({ ...t, raisedAt: raisedAt.get(t.id) ?? Date.now() }))].slice(-MAX_TOASTS),
+    })
+    return
+  }
+  if (!s.waitingToasts.length) return
+  const now = Date.now()
+  const due = s.waitingToasts.filter((w) => now - w.raisedAt <= WAIT_MAX_MS)
+  useUI.setState({ waitingToasts: [] })
+  for (const w of s.waitingToasts) if (!due.includes(w)) raisedAt.delete(w.id)
+  for (const { raisedAt: _at, ...toast } of due) showToast(toast)
+}
 
 /** Shorthand usable outside React. */
 export const toast = (t: Omit<Toast, 'id'> | string) => useUI.getState().toast(t)
