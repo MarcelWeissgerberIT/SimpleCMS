@@ -2,8 +2,9 @@
  * Custom agents — closing the editor of a mirror draft unsaved (Cancel, Esc, ×, the scrim) when the setup created
  * something (mirror.ts `created`): it asks instead of dropping the draft. Keep editing (the safe choice, focused; Esc,
  * × and the scrim mean it too) · Discard the agent, keep what was made · Discard and move what THIS setup made to the
- * trash (toast with Undo). Set up for a database that was there, only a report page made again is named — the
- * database is never offered for the trash. Nothing made: the editor closes without asking (AgentsView).
+ * trash (toast with Undo; a page a saved agent uses by then stays, and the toast says so). Set up for a database that
+ * was there, only the new report page made for it is named — the database is never offered for the trash. Nothing
+ * made: the editor closes without asking (AgentsView).
  */
 import { Modal } from '../../ui/Modal'
 import { useT } from '../../i18n'

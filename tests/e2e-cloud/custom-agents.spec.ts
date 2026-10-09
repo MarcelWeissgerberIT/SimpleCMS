@@ -445,6 +445,46 @@ test.describe('team cloud — custom agents', () => {
     ])
   })
 
+  test('a shared namesake a teammate’s agent mirrors into: the member’s setup only says it is shared — never "Open" that teammate’s agent', async ({ page: a, context }) => {
+    watch(a, 'ada')
+    await signIn(a, email('ada'))
+    const wsId = await createWorkspace(a, 'Acme Mirror Teammate')
+    const b = await newPerson(context)
+    watch(b, 'bob')
+    await signIn(b, email('bob'))
+    await joinWorkspace(a, b, wsId, 'member')
+    for (const p of [a, b]) {
+      await openApp(p, wsId)
+      await waitOnline(p)
+    }
+    const adaId = await cloudEval(a, (c) => c.user.id as string)
+    const server = { id: 'm-tracker', name: 'tracker', url: 'https://tracker.example.com/mcp', token: '', enabled: true, prompt: '', tools: ['list_items', 'get_item'], checkedAt: Date.now() }
+    // Ada: the profile, the team's shared "Tracker" (with the recipe's key) and her agent mirroring "tracker" into it
+    const db = await wsEval(
+      a,
+      (s, x) => {
+        s.updateSettings({ mcpServers: [x.server] })
+        s.upsertIntegration({ schema: 'one.integration/1', id: 'tracker', name: 'Tracker', match: { name: 'tracker' }, unlocks: ['keys', 'onlyByHand', 'upsert', 'toolAllowList', 'agentState', 'notify'], recipes: [{ kind: 'mirror' }] })
+        return s.createDatabase({ title: 'Tracker', properties: [{ id: 'p-name', name: 'Name', type: 'title' }, { id: 'p-key', name: 'Key', type: 'text', key: true }] }) as string
+      },
+      { server },
+    )
+    await wsEval(a, (s, x) => s.upsertAgent(x), agent({ id: 'ag-ada-mirror', name: 'Ada mirror', scope: { everything: false, pages: [], databases: [db] }, write: 'stage', mcpServers: ['tracker'], enabled: false, createdBy: adaId }))
+    // Bob: the same server on his device; the database, the profile and Ada's agent arrive
+    await wsEval(b, (s, x) => s.updateSettings({ mcpServers: [x] }), server)
+    await expect.poll(() => wsEval(b, (s, db) => [!!s.pages[db] && !s.pages[db].private, !!s.agents?.['ag-ada-mirror'], (s.integrations ?? []).length], db), { timeout: 20_000 }).toEqual([true, true, 1])
+
+    await b.evaluate(() => (window.location.hash = '#/agents'))
+    await b.locator('.agx-head .btn--primary').click()
+    await b.locator('.agx-recipe-modal [data-recipe="tracker:mirror"]').click()
+    const setup = b.locator('.agx-mir')
+    const exists = setup.getByTestId('agx-mir-exists')
+    await expect(exists).toHaveText('A shared database “Tracker” exists already. The mirror writes your own fields, so it only uses a private database — give the new one another name.')
+    await expect(exists.getByRole('button')).toHaveCount(0)
+    await expect(setup.getByRole('button', { name: 'Create database and agent' })).toBeDisabled()
+    await b.context().close()
+  })
+
   test('an older server without agent endpoints: "does not support agents yet"', async ({ page: a }) => {
     watch(a, 'ada')
     await signIn(a, email('ada'))

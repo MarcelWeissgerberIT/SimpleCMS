@@ -25,7 +25,7 @@ import { RunHistory } from './RunHistory'
 import { RECIPES, blankAgent, recipeDraft, type RecipeId } from './recipes'
 import { MirrorSetup, type RecipeSource } from './MirrorSetup'
 import { useRecipeSources } from './integrations/status'
-import { madeKind, restoreMirror, trashMirror, undoMirror, type MirrorMade } from './mirror'
+import { madeKind, restoreMirror, trashMirror, undoMirror, type KeptPage, type MirrorMade } from './mirror'
 import { MirrorDiscard } from './MirrorDiscard'
 import { deleteAgent, runNow, setEnabled } from './actions'
 import { awaitsReview, getAgentState, loadRuns, onRunsChanged, putAgentState, useAgentRuns, type AgentState } from './runs'
@@ -139,26 +139,61 @@ export default function AgentsView({ agentId }: { agentId?: string }) {
 type RecipePick = RecipeId | RecipeSource
 type Draft = { agent: CustomAgent; mirror?: MirrorMade }
 
-/** What a mirror setup created (only that) to the trash — a toast's Undo brings it back. */
-function trashWithUndo(made: MirrorMade, ids: ID[] = trashMirror(made)) {
-  if (!ids.length) return
-  const key = madeKind(made) === 'both' ? 'features.agents.mirror.discard.trashed' : 'features.agents.mirror.discard.trashedReport'
-  useUI.getState().toast({ message: tr(key, { name: made.name, report: made.reportTitle }), kind: 'info', action: { label: tr('common.undo'), run: () => restoreMirror(ids) } })
+/** "“Tracker” stays — the agent “Digest” uses it." for the pages a saved agent kept out of the trash. */
+function keptText(kept: KeptPage[]): string {
+  if (kept.length === 1) return tr('features.agents.mirror.kept.one', { title: kept[0].title, agent: kept[0].agent })
+  const [a, b] = kept
+  return kept.every((k) => k.agent === a.agent) ? tr('features.agents.mirror.kept.both', { a: a.title, b: b.title, agent: a.agent }) : tr('features.agents.mirror.kept.bothAgents', { a: a.title, b: b.title })
+}
+
+/**
+ * What a mirror setup created (only that, and never what a saved agent uses — trashMirror) to the trash; the toast says
+ * what went and what stayed, its Undo brings back what went.
+ */
+function trashWithUndo(made: MirrorMade, res: ReturnType<typeof trashMirror> = trashMirror(made)) {
+  const { ids, kept } = res
+  if (!ids.length && !kept.length) return
+  const vars = { name: made.name, report: made.reportTitle }
+  const db = ids.includes(made.dbId)
+  const report = ids.includes(made.reportId)
+  const went = db && report ? 'trashed' : report ? 'trashedReport' : db ? 'trashedDb' : 'nothing'
+  const message = [tr(`features.agents.mirror.discard.${went}`, vars), ...(kept.length ? [keptText(kept)] : [])].join(' ')
+  useUI.getState().toast({ message, kind: 'info', ...(kept.length ? { timeout: 8_000 } : {}), ...(ids.length ? { action: { label: tr('common.undo'), run: () => restoreMirror(ids) } } : {}) })
+}
+
+/** The left-behind toasts (leftBehind) still out, by the database their setup made or used. */
+const leftToasts = new Map<ID, ID>()
+
+/** A new setup for that database (its "Use …"): the old toast's Undo would take back what the new one stands on. */
+function dismissLeft(dbId: ID) {
+  const id = leftToasts.get(dbId)
+  if (!id) return
+  leftToasts.delete(dbId)
+  useUI.getState().dismissToast(id)
 }
 
 /**
  * The list went while a mirror draft was open and unsaved (a route change: Back, ⌘⌥N, ⌘K …) — no prompt is possible
- * any more: what the setup created stays, and the toast's Undo moves it (only it) to the trash.
+ * any more: what the setup created stays, and the toast's Undo moves it (only it, and nothing a saved agent uses by
+ * then) to the trash.
  */
 function leftBehind(made: MirrorMade) {
   const kind = madeKind(made)
   if (kind === 'none') return
-  useUI.getState().toast({
+  dismissLeft(made.dbId)
+  const id = useUI.getState().toast({
     message: tr(kind === 'both' ? 'features.agents.mirror.left' : 'features.agents.mirror.leftReport', { name: made.name, report: made.reportTitle }),
     kind: 'info',
     timeout: 10_000,
-    action: { label: tr('common.undo'), run: () => trashWithUndo(made) },
+    action: {
+      label: tr('common.undo'),
+      run: () => {
+        leftToasts.delete(made.dbId)
+        trashWithUndo(made)
+      },
+    },
   })
+  leftToasts.set(made.dbId, id)
 }
 
 function useNewAgent() {
@@ -231,13 +266,12 @@ function useNewAgent() {
           source={mirror}
           onClose={() => setMirror(null)}
           onCreated={(m) => {
+            dismissLeft(m.dbId)
             setMirror(null)
             setDraft({ agent: m.draft, mirror: m })
           }}
         />
       )}
-      {/* the prompt before the editor: closing both at once, the prompt's dialog goes first and focus returns past the editor */}
-      {discarding && made && <MirrorDiscard made={made} onKeep={keep} onDiscard={discard} />}
       {draft && (
         <AgentEditor
           initial={draft.agent}
@@ -252,6 +286,8 @@ function useNewAgent() {
           }}
         />
       )}
+      {/* closing both at once, focus goes back to the editor's opener whichever dialog closes first (ui/Modal.tsx) */}
+      {discarding && made && <MirrorDiscard made={made} onKeep={keep} onDiscard={discard} />}
     </>
   )
   return { open: () => setPicking(true), pick, ui }
