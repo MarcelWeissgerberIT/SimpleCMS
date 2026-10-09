@@ -60,7 +60,7 @@ function RunItem({ run, n, first }: { run: AgentRun; n: number; first: boolean }
         <span className="agx-run__meta agx-run__meta--when mono">{fmtWhen(t, run.startedAt, lang)}</span>
         <span className="agx-run__meta agx-run__meta--dur mono">{dur}</span>
         <span className="agx-run__meta agx-run__meta--usd mono" data-testid="agx-run-usd">
-          {run.usage ? fmtUsd(run.usage.usd) : '—'}
+          {run.usage ? fmtUsd(run.usage.usd, lang) : '—'}
         </span>
       </button>
       {open && (
@@ -85,7 +85,7 @@ function RunItem({ run, n, first }: { run: AgentRun; n: number; first: boolean }
           {(run.staged?.length ?? 0) > 0 && <Review run={run} />}
           {run.usage && (
             <p className="agx-run__usage mono">
-              IN {run.usage.input.toLocaleString()} · CACHE {run.usage.cacheRead.toLocaleString()} · OUT {run.usage.output.toLocaleString()} · ≈ {fmtUsd(run.usage.usd)}
+              IN {run.usage.input.toLocaleString()} · CACHE {run.usage.cacheRead.toLocaleString()} · OUT {run.usage.output.toLocaleString()} · ≈ {fmtUsd(run.usage.usd, lang)}
             </p>
           )}
         </div>

@@ -387,6 +387,11 @@ the public APIs stable — other areas are built against them in parallel.
   (localStorage `one.popover.size:<kind>`, never below the natural size, `[data-resized]`). The base `.popover` chrome
   is in `@layer one-popover-base`. In production ui.css loads AFTER the features chunk's CSS: an area rule that must
   beat `.input` / `.btn` needs two classes. Long labels cut with "…" get a title (ui/clip.ts).
+  Modal (ui/Modal.tsx): a dialog closed by a pointer press swallows the rest of that gesture for 450 ms outside any dialog
+  still open (mouse: click count ≥ 2 only; touch / pen: a tap within 16 px) — single clicks are never touched; for 600 ms
+  after closing (renewed by a route change in that time) focus that falls to the body because the element it went back to
+  is gone goes to the main region; the scrim's mousedown never moves focus. A `label` that would leave the title too
+  narrow goes on its own line above it (`.modal__header[data-stacked]`, measured, cut with "…").
 - Cloud worker (features/coding Local | Cloud, team workspaces only, `viaFor()`; server/src/coding relay; mcp/src/worker
   cloud.ts / link.ts / box.ts; docs/CODING.md § Cloud worker, docs/CLOUD.md § Coding relay): the worker dials the team
   server, the relay pairs one tab ⇄ one worker per (workspace, member) and forwards only `key` / `box` / `relay` frames,
@@ -503,7 +508,10 @@ the public APIs stable — other areas are built against them in parallel.
   every reader sanitizes (store/agents.ts); team: meta map `agents`. Runs are per device (IndexedDB `one-agents`, last
   100 per agent), never synced; server runs come from `GET agent-runs`. Browser agents (features/agents/runner.ts) run in
   one leader tab per workspace (Web Lock), in team workspaces only in their creator's browser; one run per agent at a
-  time. Agent writes are stamped `agent:<agentId>` (team: `writeAsAgent()`, cloud/index.ts) and never trigger agents;
+  time. A browser run whose proposals wait for review keeps the agent state it replaced (`AgentRun.stateBefore`, per
+  device with the run): every proposal discarded, none applied → it goes back (review.ts `stateBack`), only while the saved
+  state is still that run's. No "has N proposals" toast while that agent's page is the current view. Money reads in the
+  UI's language: `fmtUsd(usd, lang)` (lib/money.ts: "$3.00" · "3,00 $"). Agent writes are stamped `agent:<agentId>` (team: `writeAsAgent()`, cloud/index.ts) and never trigger agents;
   render `agent:` ids with `agentLabel()` ("Agent · <name>"). Routes `#/agents`, `#/agents/<id>`. Team workspaces: a
   browser agent's "everything" scope is the shared pages; private pages only when named in its scope. Anything an
   agent writes turns web images into links (features/agents/images.ts) — no auto-loading pixels from injected text.

@@ -19,8 +19,9 @@ import { isEffectivelyTrashed } from '../../store/selectors'
 import type { CustomAgent, ID } from '../../store/types'
 import { useUI } from '../../store/ui'
 import { newId } from '../../lib/ids'
-import { navigate } from '../../lib/router'
-import { t } from '../../i18n'
+import { navigate, parseHash } from '../../lib/router'
+import { fmtUsd } from '../../lib/money'
+import { currentLang, t } from '../../i18n'
 import { AIError, resolveModel } from '../ai/client'
 import { allowedTools, attachMcp, instructionsText, readServers } from '../ai/mcp-servers/config'
 import { callLabel } from '../ai/mcp-servers/activity'
@@ -378,7 +379,7 @@ async function runOnce(agent: CustomAgent, req: RunRequest): Promise<AgentRun> {
     run.summary = withoutWebImages(answer)
     if (overBudget) {
       run.status = 'budget'
-      run.error = t('features.agents.run.budget', { usd: agent.maxRunUsd.toFixed(2) })
+      run.error = t('features.agents.run.budget', { usd: fmtUsd(agent.maxRunUsd, currentLang()) })
     } else {
       const err = e instanceof AIError ? e : new AIError('unknown', e instanceof Error ? e.message : String(e))
       run.status = 'error'
@@ -453,6 +454,8 @@ async function settleExtras(agent: CustomAgent, run: AgentRun, extras: RunExtras
   if (extras.pending !== undefined) {
     if (done) {
       try {
+        // proposals wait for review: the run keeps the state it replaces — discarding every one of them puts it back
+        if (run.status === 'staged') run.stateBefore = await getAgentState(agent.id)
         await putAgentState(agent.id, { json: extras.pending, at: Date.now(), runId: run.id })
         run.steps.push({ kind: 'note', label: t('features.agents.state.saved', { n: new TextEncoder().encode(extras.pending).length }), state: 'ok' })
       } catch (e) {
@@ -475,13 +478,21 @@ async function settleExtras(agent: CustomAgent, run: AgentRun, extras: RunExtras
   }
 }
 
+/** The agent's own page is the current view (#/agents/<id>): its run history shows the run and its review already. */
+function onAgentPage(agentId: ID): boolean {
+  const r = parseHash(window.location.hash)
+  return r.name === 'agents' && r.id === agentId
+}
+
 /** Tell the person about a run that needs them — or that a scheduled run changed things on its own. */
 function notify(agent: CustomAgent, run: AgentRun, req: RunRequest) {
   const pending = (run.staged ?? []).filter((c) => c.status === 'pending').length
   const ui = useUI.getState()
   const open = { label: t('features.agents.toast.review'), run: () => navigate(`#/agents/${agent.id}`) }
-  if (pending) ui.toast({ message: t(pending === 1 ? 'features.agents.toast.staged.one' : 'features.agents.toast.staged.other', { name: agent.name, count: pending }), kind: 'info', action: open, timeout: 10_000 })
-  else if (run.status === 'error' || run.status === 'budget') ui.toast({ message: t('features.agents.toast.failed', { name: agent.name }), kind: 'error', action: { ...open, label: t('common.open') }, timeout: 8000 })
+  if (pending) {
+    if (!onAgentPage(agent.id))
+      ui.toast({ message: t(pending === 1 ? 'features.agents.toast.staged.one' : 'features.agents.toast.staged.other', { name: agent.name, count: pending }), kind: 'info', action: open, timeout: 10_000 })
+  } else if (run.status === 'error' || run.status === 'budget') ui.toast({ message: t('features.agents.toast.failed', { name: agent.name }), kind: 'error', action: { ...open, label: t('common.open') }, timeout: 8000 })
   else if (req.manual) ui.toast({ message: t('features.agents.toast.done', { name: agent.name }), kind: 'success', action: { ...open, label: t('common.open') } })
   else if (run.applied && req.trigger.type === 'schedule') {
     // an 'apply' run on its schedule wrote something: say so once (the run lists what)

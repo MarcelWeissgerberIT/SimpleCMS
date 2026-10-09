@@ -63,10 +63,8 @@ export function nextRunText(t: Translate, agent: CustomAgent, lang: string, now 
   return t('features.agents.next.manual')
 }
 
-export function fmtUsd(usd: number): string {
-  if (usd > 0 && usd < 0.01) return '< $0.01'
-  return `$${usd.toFixed(2)}`
-}
+/** Money in the UI's language ("$3.00" · "3,00 $"): every caller passes the language (lib/money.ts). */
+export { fmtUsd } from '../../lib/money'
 
 export function fmtDuration(ms: number): string {
   const s = Math.max(0, Math.round(ms / 1000))

@@ -475,7 +475,7 @@ function AgentCard({ agent, n, now }: { agent: CustomAgent; n: number; now: numb
         <div>
           <dt>{t('features.agents.spec.cost')}</dt>
           <dd className="mono">
-            {fmtUsd(cost)} <span className="agx-spec__aside faint">{t('features.agents.spec.lastN', { n: Math.min(runs.length, 10) })}</span>
+            {fmtUsd(cost, lang)} <span className="agx-spec__aside faint">{t('features.agents.spec.lastN', { n: Math.min(runs.length, 10) })}</span>
           </dd>
         </div>
       </dl>
@@ -637,7 +637,7 @@ function AgentDetail({ id }: { id: ID }) {
         <div>
           <dt>{t('features.agents.spec.budget')}</dt>
           <dd className="mono">
-            {fmtUsd(agent.maxRunUsd)} {t('features.agents.spec.perRun')}
+            {fmtUsd(agent.maxRunUsd, lang)} {t('features.agents.spec.perRun')}
           </dd>
         </div>
       </dl>

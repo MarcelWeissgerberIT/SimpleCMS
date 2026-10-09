@@ -19,10 +19,11 @@ import { Popover } from '../../ui/Popover'
 import { IconPicker } from '../../ui/IconPicker'
 import { PageIcon } from '../../ui/PageIcon'
 import { Switch } from '../../ui/controls'
-import { useLang, useT } from '../../i18n'
+import { currentLang, useLang, useT } from '../../i18n'
 import { AI_MODELS, AIError, runAI } from '../ai/client'
 import { readServers } from '../ai/mcp-servers/config'
-import { weekdayName } from './format'
+import { fmtUsd, weekdayName } from './format'
+import { usdSignAfter } from '../../lib/money'
 import { isReadTool, testedTools } from './mcpTools'
 import { placeholdersIn } from './mirror'
 import { useServerUnlocked, useUnlocked } from './integrations/status'
@@ -146,7 +147,7 @@ export function validate(t: T, d: CustomAgent, ctx: { pages: Record<ID, Page>; s
   if (tr.type === 'webhook' && d.runner !== 'server') e.trigger = t('features.agents.err.webhook')
   if (!d.scope.everything && !d.scope.pages.length && !d.scope.databases.length) e.scope = t('features.agents.err.scope')
   if (d.output && d.output.pageId && !ctx.pages[d.output.pageId]) e.output = t('features.agents.err.output')
-  if (!(d.maxRunUsd >= AGENT_LIMITS.minRunUsd && d.maxRunUsd <= AGENT_LIMITS.maxRunUsd)) e.budget = t('features.agents.err.budget', { max: AGENT_LIMITS.maxRunUsd })
+  if (!(d.maxRunUsd >= AGENT_LIMITS.minRunUsd && d.maxRunUsd <= AGENT_LIMITS.maxRunUsd)) e.budget = t('features.agents.err.budget', { min: fmtUsd(AGENT_LIMITS.minRunUsd, currentLang()), max: fmtUsd(AGENT_LIMITS.maxRunUsd, currentLang()) })
   if (d.runner === 'server' && (!ctx.inCloud || !ctx.serverOk)) e.runner = t('features.agents.err.server')
   return e
 }
@@ -387,7 +388,8 @@ export function AgentEditor({
           </div>
           <div className="agx-grid2">
             <Field label={t('features.agents.ed.budget')} hint={t('features.agents.ed.budgetHint')} error={errors.budget} id={ids.budget}>
-              <div className="agx-money">
+              {/* the sign where the UI's language puts it: "$ 1.00" · "1,00 $" */}
+              <div className="agx-money" data-after={usdSignAfter(lang) || undefined}>
                 <span className="agx-money__sign mono" aria-hidden>
                   $
                 </span>
