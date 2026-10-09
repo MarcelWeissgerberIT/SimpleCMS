@@ -1,18 +1,20 @@
 /**
  * Dialogs closing (ui/Modal.tsx), app-wide:
  *  - a double-click / double tap on a key that closes a dialog never acts on what lies underneath: the rest of that
- *    gesture (a mouse's second click, a touch tap within a finger's reach or on the key) is swallowed for a moment
- *    outside any modal dialog still open — the side peek is no exception, and its outside-press close waits for the
- *    click count — single clicks and taps elsewhere are never touched
+ *    gesture (a mouse's second click; a touch tap on the closing key, or within a finger's reach on a spot that acts on
+ *    nothing) is swallowed for a moment outside any modal dialog still open — the side peek is no exception, and its
+ *    outside-press close waits for the click count — single clicks, and taps on another key, are never touched
+ *  - a double tap on a key that opens a dialog never presses what opened under the finger in it (its click counts 1)
  *  - a short label stays beside a title that fits on one line there (also at phone width, text size XL)
- *  - focus never ends on the page body: an opener that cannot take focus any more (disabled meanwhile), a route change
- *    right after closing (it takes the restored element), a click on the scrim — focus goes to the main region instead
+ *  - focus never ends on the page body: an opener that cannot take focus any more (disabled or aria-disabled meanwhile,
+ *    also just after the close), a route change right after closing (it takes the restored element), a click on the
+ *    scrim — focus goes to the main region instead
  *  - at phone width a long header label goes on its own line above the title (cut with "…", the full text as a title),
  *    the title gets the whole width
  * The recipe dialogs use a fictional MCP server (tracker.example.com) and a mocked nothing — no request leaves.
  */
 import type { Locator, Page } from '@playwright/test'
-import { test, expect, openApp, uiEval, wsEval, flush, createPage, MOD } from './fixtures'
+import { test, expect, openApp, uiEval, wsEval, flush, createPage, sse, MOD } from './fixtures'
 import { addProfile, trackerProfile } from './helpers/integrations'
 
 type AnyState = Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -201,6 +203,8 @@ test.describe('Dialogs: a pointer that closes a dialog never acts on what lies u
       await dialog.getByRole('button', { name: 'Datenbank und Agent anlegen' }).tap()
       const editor = page.locator('.agx-editor')
       await expect(editor).toBeVisible()
+      // a person reads the editor first: a tap in it within 450 ms near the opening tap is that tap's rest
+      await page.waitForTimeout(500)
       await editor.getByRole('button', { name: 'Abbrechen' }).tap()
       const trash = page.locator('.agx-discard .btn--danger')
       await expect(trash).toBeVisible()
@@ -233,6 +237,83 @@ test.describe('Dialogs: focus never ends on the page body after closing', () => 
     await expect(page.getByRole('dialog')).toHaveCount(0)
     await page.waitForTimeout(100)
     expect(await focusState(page)).toEqual({ body: false, inMain: true, tag: 'MAIN' })
+  })
+
+  test('an opener that becomes disabled just after the close (the action it confirmed starts), or is aria-disabled: focus goes to the main region, never stays on the body', async ({ page }) => {
+    await openApp(page, '#/agents')
+    const plantOpener = () =>
+      page.evaluate(() => {
+        document.getElementById('e2e-opener')?.remove()
+        const b = document.createElement('button')
+        b.id = 'e2e-opener'
+        b.type = 'button'
+        b.textContent = 'opener'
+        document.querySelector('#main')!.prepend(b)
+        b.focus()
+      })
+    // disabled 80 ms after "Go on" (what it confirmed starts a moment later): by mouse and by Enter
+    for (const how of ['mouse', 'keyboard'] as const) {
+      await plantOpener()
+      await uiEval(page, (s) =>
+        s.openModal({ type: 'confirm', title: 'Sure?', body: 'It starts.', confirmLabel: 'Run anyway', onConfirm: () => setTimeout(() => ((document.getElementById('e2e-opener') as HTMLButtonElement).disabled = true), 80) }),
+      )
+      const go = page.getByRole('dialog').getByRole('button', { name: 'Run anyway' })
+      await expect(go).toBeVisible()
+      if (how === 'mouse') await go.click()
+      else {
+        await go.focus()
+        await page.keyboard.press('Enter')
+      }
+      await expect(page.getByRole('dialog')).toHaveCount(0)
+      await expect.poll(() => page.evaluate(() => (document.getElementById('e2e-opener') as HTMLButtonElement).disabled)).toBe(true)
+      await expect.poll(() => focusState(page), { timeout: 3000 }).toEqual({ body: false, inMain: true, tag: 'MAIN' })
+    }
+    // aria-disabled while the dialog is open: focus does not go back to it
+    await plantOpener()
+    await openConfirm(page)
+    await page.evaluate(() => document.getElementById('e2e-opener')!.setAttribute('aria-disabled', 'true'))
+    await page.keyboard.press('Escape')
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+    await page.waitForTimeout(150)
+    expect(await focusState(page)).toEqual({ body: false, inMain: true, tag: 'MAIN' })
+  })
+
+  test('agent page “Run now” with a placeholder left → “Run anyway” (mouse and Enter): Run now is disabled while the run goes, focus is in the main region — never on the body', async ({ page, context }) => {
+    await context.route('https://api.anthropic.com/**', async (route) => {
+      const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': 'POST, GET' }
+      if (route.request().method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors })
+      if (route.request().method() === 'GET') return route.fulfill({ status: 200, headers: { ...cors, 'content-type': 'application/json' }, body: JSON.stringify({ data: [], has_more: false }) })
+      // the run takes a while: Run now stays disabled
+      await new Promise((r) => setTimeout(r, 2500))
+      return route.fulfill({ status: 200, headers: { ...cors, 'content-type': 'text/event-stream' }, body: sse('Done.') }).catch(() => {})
+    })
+    await openApp(page)
+    await wsEval(page, (s) => s.updateSettings({ aiApiKey: 'sk-ant-e2e-test-key' }))
+    await saveAgent(page, { id: 'ag-ph', name: 'Digest', instructions: 'Report on [PROJECT NAME] weekly.', scope: { everything: true, pages: [], databases: [] } })
+    await flush(page)
+    await page.evaluate(() => (window.location.hash = '#/agents/ag-ph'))
+    await expect(page.locator('.agx-dhead')).toBeVisible()
+    const run = page.locator('.agx-dhead').getByRole('button', { name: 'Run now' }).first()
+    const dialog = page.getByRole('dialog')
+    for (const how of ['mouse', 'keyboard'] as const) {
+      await expect(run).toBeEnabled({ timeout: 15_000 })
+      if (how === 'mouse') await run.click()
+      else {
+        await run.focus()
+        await page.keyboard.press('Enter')
+      }
+      await expect(dialog).toBeVisible()
+      if (how === 'mouse') await dialog.getByRole('button', { name: 'Run anyway' }).click()
+      else {
+        await dialog.getByRole('button', { name: 'Run anyway' }).focus()
+        await page.keyboard.press('Enter')
+      }
+      await expect(dialog).toHaveCount(0)
+      await expect(run).toBeDisabled()
+      await expect.poll(() => focusState(page), { timeout: 3000 }).toMatchObject({ body: false, inMain: true })
+      await page.waitForTimeout(400)
+      expect(await focusState(page)).toMatchObject({ body: false, inMain: true })
+    }
   })
 
   test('the setup’s “Open “X”” (closes, then opens the agent): focus lands in the main region of the agent page', async ({ page }) => {
@@ -336,14 +417,17 @@ test.describe('Dialogs: a long header label at phone width', () => {
   })
 })
 
-/** A counting button of the app at a point (behind any dialog), planted before the dialog opens or while it is open. */
-async function plantAt(page: Page, at: { x: number; y: number }, id: string, size = 16): Promise<Locator> {
+/**
+ * A counting button of the app at a point (behind any dialog), planted before the dialog opens or while it is open —
+ * or (`tag` div) a spot that acts on nothing, counting the clicks that reach it.
+ */
+async function plantAt(page: Page, at: { x: number; y: number }, id: string, size = 16, tag: 'button' | 'div' = 'button'): Promise<Locator> {
   await page.evaluate(
-    ({ at, id, size }) => {
+    ({ at, id, size, tag }) => {
       document.getElementById(id)?.remove()
-      const b = document.createElement('button')
+      const b = document.createElement(tag)
       b.id = id
-      b.type = 'button'
+      if (b instanceof HTMLButtonElement) b.type = 'button'
       Object.assign(b.style, { position: 'fixed', left: `${at.x - size / 2}px`, top: `${at.y - size / 2}px`, width: `${size}px`, height: `${size}px`, zIndex: '50' })
       b.dataset.clicks = '0'
       b.dataset.downs = '0'
@@ -351,7 +435,7 @@ async function plantAt(page: Page, at: { x: number; y: number }, id: string, siz
       b.addEventListener('click', () => (b.dataset.clicks = String(Number(b.dataset.clicks) + 1)))
       document.querySelector('#root .app')!.appendChild(b)
     },
-    { at, id, size },
+    { at, id, size, tag },
   )
   return page.locator(`#${id}`)
 }
@@ -469,11 +553,12 @@ test.describe('Dialogs over the side peek: the closing double-click never reache
 test.describe('Dialogs: a finger’s double tap', () => {
   test.use({ viewport: { width: 390, height: 844 }, hasTouch: true })
 
-  test('390 px: a second tap 20 px or 30 px off the closing tap — or on the closing key’s far edge — is part of the gesture; a tap farther away is the person’s own', async ({ page }) => {
+  test('390 px: a second tap on the closing key (its box widened a little: 20 px right, its far edge) or 30 px off on a spot that acts on nothing is part of the gesture; a tap on another key 30 px off — or farther away — is the person’s own', async ({ page }) => {
     await openApp(page, '#/agents')
-    const cases: Array<{ name: string; dx: number; dy: number; edge?: boolean }> = [
+    const cases: Array<{ name: string; dx: number; dy: number; edge?: boolean; spot?: boolean }> = [
       { name: '20 px right', dx: 20, dy: 0 },
-      { name: '30 px below', dx: 0, dy: 30 },
+      { name: '30 px below, another key', dx: 0, dy: 30 },
+      { name: '30 px below, no key', dx: 0, dy: 30, spot: true },
       { name: 'on the key’s far edge', dx: 0, dy: 0, edge: true },
       { name: 'far away', dx: 0, dy: -160 },
     ]
@@ -486,7 +571,8 @@ test.describe('Dialogs: a finger’s double tap', () => {
       const first = { x: kb.x + kb.width / 2, y: kb.y + kb.height / 2 }
       const second = c.edge ? { x: kb.x + kb.width + 4, y: first.y } : { x: first.x + c.dx, y: first.y + c.dy }
       if (c.edge) expect(second.x - first.x, 'the far edge lies beyond the tap radius').toBeGreaterThan(32)
-      const under = await plantAt(page, second, `e2e-tap-${i}`, 8)
+      if (c.dy === 30) expect(second.y, '30 px below lies off the closing key’s widened box').toBeGreaterThan(kb.y + kb.height + 8)
+      const under = await plantAt(page, second, `e2e-tap-${i}`, 8, c.spot ? 'div' : 'button')
       // when each tap's pointerdown happened (a busy machine can stretch the gap past the gesture's moment)
       await page.evaluate(() => {
         const w = window as unknown as { __downs: number[] }
@@ -507,7 +593,145 @@ test.describe('Dialogs: a finger’s double tap', () => {
       await under.evaluate((b) => b.remove())
       await page.waitForTimeout(500)
     }
-    expect(out).toEqual({ '20 px right': 0, '30 px below': 0, 'on the key’s far edge': 0, 'far away': 1 })
+    expect(out).toEqual({ '20 px right': 0, '30 px below, another key': 1, '30 px below, no key': 0, 'on the key’s far edge': 0, 'far away': 1 })
+  })
+
+  test('German: a tap on the recipe card 300 ms after closing the discard prompt with a tap — 29 px from it, another key — opens the setup', async ({ page }) => {
+    await openApp(page)
+    await setServers(page)
+    await wsEval(page, (s) => s.updateSettings({ language: 'de' }))
+    const dialog = await openSetup(page)
+    await dialog.getByRole('button', { name: 'Datenbank und Agent anlegen' }).tap()
+    const editor = page.locator('.agx-editor')
+    await expect(editor).toBeVisible()
+    // a person reads the editor first: a tap in it within 450 ms near the opening tap is that tap's rest
+    await page.waitForTimeout(500)
+    await editor.getByRole('button', { name: 'Abbrechen' }).tap()
+    const keep = page.locator('.agx-discard').getByRole('button', { name: /beide behalten/ })
+    await expect(keep).toBeVisible()
+    await page.waitForTimeout(300)
+    const kb = (await keep.boundingBox())!
+    const at = { x: kb.x + kb.width / 2, y: kb.y + kb.height / 2 }
+    await page.touchscreen.tap(at.x, at.y)
+    await expect(editor).toHaveCount(0)
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+    // the recipe card, 29 px below the closing tap: within a finger's reach, off the closing key's widened box
+    const card = page.locator(`.agx-start ${RECIPE}`)
+    const second = { x: at.x, y: at.y + 29 }
+    expect(second.y).toBeGreaterThan(kb.y + kb.height + 8)
+    expect(await page.evaluate((p) => !!document.elementFromPoint(p.x, p.y)?.closest('[data-recipe="tracker:mirror"]'), second), 'the card lies there').toBe(true)
+    await page.waitForTimeout(300)
+    await page.touchscreen.tap(second.x, second.y)
+    await expect(page.locator('.agx-mir')).toBeVisible()
+    await expect(card).toHaveCount(1)
+  })
+})
+
+/**
+ * A finger's double tap at `at`, `gap` ms apart. `count`: the click count the second tap's click gets — 2 as Chrome
+ * counts a quick second tap here, or 1 as phones often give it (the first tap's events are stamped half a second
+ * earlier, past the browser's double-tap time, so its tap counter starts anew at the second; on the page both taps
+ * still come `gap` ms apart). Touch events must keep their order: the last tap before lies over 0.6 s back.
+ */
+async function doubleTap(page: Page, at: { x: number; y: number }, gap: number, count: 1 | 2) {
+  if (count === 2) {
+    await page.touchscreen.tap(at.x, at.y)
+    await page.waitForTimeout(gap)
+    await page.touchscreen.tap(at.x, at.y)
+    return
+  }
+  const cdp = await page.context().newCDPSession(page)
+  const tap = async (t: number) => {
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: at.x, y: at.y }], timestamp: t })
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [], timestamp: t + 0.03 })
+  }
+  await tap(Date.now() / 1000 - 0.5)
+  await page.waitForTimeout(gap)
+  await tap(Date.now() / 1000)
+  await cdp.detach()
+}
+
+test.describe('Dialogs: a finger’s double tap that opens one', () => {
+  test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true })
+
+  test('390 px: a double tap on a key that opens a dialog never presses the dialog’s key that opened under the finger (its click counts 1); a single tap after the moment does', async ({ page }) => {
+    await openApp(page, '#/agents')
+    // where the confirm's key lies once it has settled
+    const key = await openConfirm(page)
+    await page.waitForTimeout(300)
+    const kb = (await key.boundingBox())!
+    const at = { x: kb.x + kb.width / 2, y: kb.y + kb.height / 2 }
+    await page.keyboard.press('Escape')
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+    // a key of the app right there opens that confirm: its "Go on" lands under the finger
+    await page.evaluate((at) => {
+      const w = window as unknown as { __confirmed: number; __clicks: string[]; __one: { ui: { getState: () => AnyState } } }
+      w.__confirmed = 0
+      w.__clicks = []
+      const b = document.createElement('button')
+      b.id = 'e2e-opener'
+      b.type = 'button'
+      Object.assign(b.style, { position: 'fixed', left: `${at.x - 30}px`, top: `${at.y - 16}px`, width: '60px', height: '32px', zIndex: '50' })
+      b.addEventListener('click', () =>
+        w.__one.ui.getState().openModal({ type: 'confirm', title: 'Sure?', body: 'Nothing happens.', confirmLabel: 'Go on', onConfirm: () => (w.__confirmed += 1) }),
+      )
+      document.querySelector('#root .app')!.appendChild(b)
+      // where each tap landed, and each click with its count (a swallowed tap has none)
+      for (const type of ['pointerdown', 'click'])
+        window.addEventListener(type, (e) => w.__clicks.push(`${type}:${(e.target as HTMLElement).closest('button')?.textContent?.trim() ?? '?'}:d${(e as MouseEvent).detail}`), true)
+    }, at)
+    const confirmed = () => page.evaluate(() => (window as unknown as { __confirmed: number }).__confirmed)
+    for (const [gap, count] of [
+      [60, 1],
+      [120, 1],
+      [200, 1],
+      [90, 2],
+    ] as const) {
+      await page.evaluate(() => ((window as unknown as { __clicks: string[] }).__clicks.length = 0))
+      await doubleTap(page, at, gap, count)
+      await page.waitForTimeout(500)
+      const clicks = await page.evaluate(() => (window as unknown as { __clicks: string[] }).__clicks.splice(0))
+      expect(clicks.filter((c) => c.startsWith('pointerdown:'))[1], `gap ${gap} ms, click count ${count}: the second tap lands on the dialog’s key (${clicks.join(', ')})`).toMatch(/^pointerdown:Go on/)
+      expect(await confirmed(), `gap ${gap} ms, click count ${count}: ${clicks.join(', ')}`).toBe(0)
+      await expect(page.getByRole('dialog')).toBeVisible()
+      // after the moment, a single tap on that key is the person's own
+      await page.getByRole('dialog').getByRole('button', { name: 'Go on' }).tap()
+      await expect(page.getByRole('dialog')).toHaveCount(0)
+      expect(await confirmed()).toBe(1)
+      await page.evaluate(() => ((window as unknown as { __confirmed: number }).__confirmed = 0))
+      await page.waitForTimeout(800)
+    }
+  })
+
+  test('German: a double tap on “Datenbank und Agent anlegen” opens the editor and saves nothing; a tap on “Agent anlegen” after the moment saves', async ({ page }) => {
+    await openApp(page)
+    // instructions without placeholders: "Agent anlegen" saves at once
+    await setServers(page, { recipes: [{ kind: 'mirror', agent: { instructions: 'Halte die Datenbank „{db}“ mit den Einträgen in {server} im Gleichstand. Lies {server} nur.' } }] })
+    await wsEval(page, (s) => s.updateSettings({ language: 'de' }))
+    const agents = () => wsEval(page, (s) => Object.keys(s.agents ?? {}).length)
+    const editor = page.locator('.agx-editor')
+    for (const [round, [gap, count]] of ([
+      [90, 1],
+      [200, 1],
+      [90, 2],
+    ] as const).entries()) {
+      const dialog = await openSetup(page)
+      await dialog.getByRole('textbox', { name: /Name/ }).fill(`Tracker Handoff ${round + 1}`)
+      const create = dialog.getByRole('button', { name: 'Datenbank und Agent anlegen' })
+      await create.scrollIntoViewIfNeeded()
+      await page.waitForTimeout(700)
+      const b = (await create.boundingBox())!
+      const at = { x: b.x + b.width / 2, y: b.y + b.height / 2 }
+      await doubleTap(page, at, gap, count)
+      await page.waitForTimeout(800)
+      await expect(editor).toBeVisible()
+      expect(await agents(), `gap ${gap} ms, click count ${count}`).toBe(round)
+      expect(await page.evaluate(() => window.location.hash)).toBe('#/agents')
+      // a deliberate tap after the moment works
+      await editor.getByRole('button', { name: 'Agent anlegen', exact: true }).tap()
+      await expect(editor).toHaveCount(0)
+      expect(await agents()).toBe(round + 1)
+    }
   })
 })
 

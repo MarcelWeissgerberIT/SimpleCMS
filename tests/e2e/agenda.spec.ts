@@ -3,7 +3,7 @@
  * The clock is pinned to Wed 14 Oct 2026 so days and months are deterministic.
  */
 import type { Page } from '@playwright/test'
-import { test, expect, openApp, reloadApp, wsEval, uiEval, flush, createPage, doc, MOD } from './fixtures'
+import { test, expect, openApp, reloadApp, wsEval, uiEval, flush, createPage, doc, sidebarRow, MOD } from './fixtures'
 
 const NOW = new Date('2026-10-14T10:00:00')
 
@@ -194,6 +194,53 @@ test.describe('agenda', () => {
     await page.keyboard.press('w')
     await reloadApp(page)
     await expect(page.locator('.ag')).toHaveAttribute('data-view', 'week')
+  })
+
+  test('keyboard: right after a sidebar row’s ⋯ menu (Esc, or a pick that stays on the agenda) the keys work — the tree row’s own arrows stay the tree’s', async ({ page }) => {
+    await openApp(page)
+    await createPage(page, { title: 'Agenda side page' })
+    await openAgenda(page)
+    const ag = page.locator('.ag')
+    const title = page.locator('.ag-title')
+    const row = sidebarRow(page, 'Agenda side page')
+    const inSidebar = () => page.evaluate(() => !!document.activeElement?.closest('.sb'))
+    // ⋯ → Esc: focus back on ⋯, in the sidebar
+    await row.hover()
+    await row.getByRole('button', { name: 'More' }).click()
+    await expect(page.getByRole('menuitem').first()).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect.poll(inSidebar).toBe(true)
+    await page.keyboard.press('w')
+    await expect(ag).toHaveAttribute('data-view', 'week')
+    await expect(title).toContainText('11 OCT – 17 OCT')
+    await page.keyboard.press('ArrowRight')
+    await expect(title).toContainText('18 OCT – 24 OCT')
+    await page.keyboard.press('ArrowLeft')
+    await page.keyboard.press('ArrowLeft')
+    await expect(title).toContainText('4 OCT – 10 OCT')
+    await page.keyboard.press('t')
+    await expect(title).toContainText('11 OCT – 17 OCT')
+    // ⋯ → Add to favorites (the agenda stays): focus back in the sidebar, the letters work
+    await row.hover()
+    await row.getByRole('button', { name: 'More' }).click()
+    await page.getByRole('menuitem', { name: /Add to favorites/ }).click()
+    await expect(page.locator('[data-popover]')).toHaveCount(0)
+    await expect.poll(inSidebar).toBe(true)
+    await page.keyboard.press('m')
+    await expect(ag).toHaveAttribute('data-view', 'month')
+    await page.keyboard.press('l')
+    await expect(ag).toHaveAttribute('data-view', 'list')
+    await page.keyboard.press('m')
+    await expect(title).toContainText('October')
+    // on a tree row the arrows move through the tree, never the agenda
+    await row.locator('.sb-row__link').focus()
+    await page.keyboard.press('ArrowDown')
+    await expect.poll(() => page.evaluate(() => !!document.activeElement?.matches('.sb-row__link'))).toBe(true)
+    await page.keyboard.press('ArrowRight')
+    await page.keyboard.press('ArrowLeft')
+    await expect(title).toContainText('October')
+    await page.keyboard.press('w')
+    await expect(ag).toHaveAttribute('data-view', 'week')
   })
 
   test('dragging a row to another day moves its date (time and range length kept)', async ({ page }) => {

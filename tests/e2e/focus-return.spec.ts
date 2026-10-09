@@ -1,7 +1,8 @@
 /**
  * Focus never ends on the page body (ui/focus.ts, ui/Popover.tsx, ui/Modal.tsx, shell/stage/Toasts.tsx):
  *  - a menu closed by Esc or by a pick gives focus back to the key that opened it (the ARIA menu button) — also inside
- *    a dialog — unless the pick moved it on (a dialog opened, the route changed, a field took it)
+ *    a dialog — unless the pick moved it on (a dialog opened, the route changed, a field took it); a pick that changes
+ *    the route leaves focus to the new view (the main region), never on the old key
  *  - a dialog opened from a menu item (or from ⌘K) gives focus back to that menu's key (or to where it was before ⌘K)
  *    when it closes; that key hidden now (a sidebar row's ⋯, shown only on hover): the row's link
  *  - a dialog opened while nothing had the focus, closing with focus lost: the main region — and every global shortcut
@@ -10,7 +11,7 @@
  * The recipe dialogs use a fictional MCP server (tracker.example.com); nothing leaves the page.
  */
 import type { Locator, Page } from '@playwright/test'
-import { test, expect, openApp, uiEval, wsEval, flush, createPage, sidebarRow, MOD } from './fixtures'
+import { test, expect, openApp, uiEval, wsEval, flush, createPage, sidebarRow, gotoPage, doc, para, MOD } from './fixtures'
 import { addProfile, trackerProfile } from './helpers/integrations'
 
 type AnyState = Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -168,6 +169,65 @@ test.describe('Menus and the dialogs they open give focus back to their key', ()
     await expect(page.locator('[data-popover]')).toHaveCount(0)
     await expect(setup).toBeVisible()
     await focused(pick)
+  })
+})
+
+test.describe('A menu pick that changes the route leaves focus to the new view', () => {
+  /** Focus a few times over the second after a pick (the new view renders, the main region anew): never the menu's key, never the body — the main region. */
+  const settled = async (page: Page, trigger: Locator) => {
+    const seen: AnyState[] = []
+    for (let i = 0; i < 7; i++) {
+      await page.waitForTimeout(150)
+      const f = await focusOf(page)
+      seen.push({ ...f, onTrigger: await trigger.evaluate((el) => el === document.activeElement), inMain: await page.evaluate(() => !!document.activeElement?.closest('#main')) })
+    }
+    for (const f of seen) expect(f, JSON.stringify(seen)).toMatchObject({ body: false, onTrigger: false, inMain: true })
+  }
+  const hash = (page: Page) => page.evaluate(() => window.location.hash)
+
+  test('page ⋯ → Duplicate (keyboard and mouse), sidebar row ⋯ → Duplicate, workspace menu → Workspace settings: focus in the main region, never back on the old key', async ({ page }) => {
+    await openApp(page)
+    const a = await createPage(page, { title: 'Route page A', content: doc(para('Alpha')) })
+    await createPage(page, { title: 'Route page B', content: doc(para('Beta')) })
+    await gotoPage(page, a)
+    const more = page.locator('header.tb button[aria-label="Page options"]').first()
+
+    // keyboard: Enter on ⋯, down to Duplicate, Enter
+    let before = await hash(page)
+    await more.focus()
+    await page.keyboard.press('Enter')
+    await expect(page.getByRole('menuitem', { name: 'Duplicate' })).toBeVisible()
+    const names = await page.getByRole('menuitem').allInnerTexts()
+    for (let i = 0; i < names.findIndex((n) => /^Duplicate/.test(n.trim())); i++) await page.keyboard.press('ArrowDown')
+    await page.keyboard.press('Enter')
+    await expect.poll(() => hash(page)).not.toBe(before)
+    await settled(page, more)
+
+    // mouse
+    await gotoPage(page, a)
+    before = await hash(page)
+    await more.click()
+    await page.getByRole('menuitem', { name: 'Duplicate' }).click()
+    await expect.poll(() => hash(page)).not.toBe(before)
+    await settled(page, more)
+
+    // sidebar row ⋯ → Duplicate (another page): its copy opens
+    await gotoPage(page, a)
+    before = await hash(page)
+    const row = sidebarRow(page, 'Route page B')
+    await row.hover()
+    await row.getByRole('button', { name: 'More' }).click()
+    await page.getByRole('menuitem', { name: 'Duplicate' }).click()
+    await expect.poll(() => hash(page)).not.toBe(before)
+    await settled(page, row.locator('.sb-row__link'))
+    expect(await row.evaluate((r) => r.contains(document.activeElement))).toBe(false)
+
+    // workspace menu → Workspace settings
+    const ws = page.locator('.sb-head__ws')
+    await ws.click()
+    await page.getByRole('menuitem', { name: /Workspace settings/ }).click()
+    await expect.poll(() => hash(page)).toMatch(/^#\/workspace/)
+    await settled(page, ws)
   })
 })
 
