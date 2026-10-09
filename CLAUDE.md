@@ -390,14 +390,22 @@ the public APIs stable — other areas are built against them in parallel.
   beat `.input` / `.btn` needs two classes. Long labels cut with "…" get a title (ui/clip.ts).
   Closing gesture (ui/gesture.ts): a dialog closed by a pointer press — and a toast's key, which removes its toast —
   swallows the rest of that gesture for 450 ms (`armClosingGesture`; mouse: click count ≥ 2 within 16 px only; touch /
-  pen: a tap within 32 px or on the closing key's box + 8 px) — single clicks are never touched. Only presses inside an
+  pen: a tap on the closing key's box + 8 px, or within 32 px on a spot that acts on nothing — a tap on another key,
+  field or text is the person's own however near) — single clicks are never touched. Only presses inside an
   open MODAL dialog (`[aria-modal="true"]`) are exempt, and only for a dialog's close (a toast exempts nothing) — never
-  the side peek or other non-modal panels. Outside-press handlers on pointerdown (Popover, Peek, CellMenu) go through
+  the side peek or other non-modal panels. Opening gesture: a dialog opened by a touch / pen tap (`armOpeningGesture`
+  from ui/Modal.tsx — the tap still down, its click being handled or ≤ 150 ms after; a dialog that opens on its own later
+  is not) swallows for 450 ms taps inside its scrim within 32 px of that tap or on its key's box + 8 px (a double tap's
+  second click counts 1 on touch). Scripted touch tests wait ~500 ms before tapping into a dialog a tap just opened.
+  Outside-press handlers on pointerdown (Popover, Peek, CellMenu) go through
   `outsidePress(e, close)`: a mouse pointerdown carries no click count, so one near the closing press waits for its
   mousedown (a double-click's second closes nothing). A toast key ignores a click count ≥ 2 whose sequence began elsewhere.
   Focus (ui/focus.ts) never ends on the body: a menu (a popover holding `[role="menu"]`) closed by Esc or a pick gives it
   back to its Element anchor (`returnFocusAfterClose`, two frames later, unless a dialog / field took it or the route
-  changed; a trigger gone → main region); a dialog opening as focus is lost takes the key handed over by a menu, the
+  changed; a trigger gone → main region). A pick that changes the route — compared with the route `notePick()` noted
+  before its action ran (ui/Menu.tsx) — leaves focus to the new view: the main region unless something there took it.
+  `canFocus` refuses disabled and `aria-disabled="true"` elements (the fallbacks then apply, also for an opener disabled
+  just after a dialog closed). A dialog opening as focus is lost takes the key handed over by a menu, the
   palette or a toast (`handFocusOver` / `takeFocusHandoff`) as its opener; an opener hidden now (a row's ⋯ shown on hover)
   → `focusNear` (its row's link); nothing at all → `mainRegion()`. A toast removed while it holds focus gives it back
   to where it was before the press / before the keyboard came in, else the main region. "Take the keyboard if nobody has
@@ -407,8 +415,12 @@ the public APIs stable — other areas are built against them in parallel.
   fits on one line there; a title that would wrap goes below it when the column beside it is under ~13em or the label
   takes > 30 % of the row (`.modal__header[data-stacked]`, measured, cut with "…").
   Toasts: `toast({ background: true })` = raised by background work (agent runs, features/agents exec.ts `notify()`):
-  never over a dialog — held in `waitingToasts` while one is open (on-screen ones step back too), shown when the last
-  closes (`holdBackgroundToasts`, driven by ui/Modal.tsx), dropped when dismissed meanwhile or raised > 2 min before.
+  never over a dialog — held in `waitingToasts` while one is open (on-screen ones step back too, their timer keeps
+  running), shown when the last closes (`holdBackgroundToasts`, driven by ui/Modal.tsx) placed before the person's
+  newest toast; dropped when dismissed meanwhile, raised > 2 min before, or (stepped back) with < 1 s of its time left.
+  At most 4 on screen: the oldest background toast goes first; a toast the person raised only for a newer one of theirs.
+  Agenda keys (shell/agenda): work with focus on a sidebar key too — only text fields, menus, dialogs and keys that use
+  ← / → themselves (tree rows, tabs, separators …) keep theirs.
 - Cloud worker (features/coding Local | Cloud, team workspaces only, `viaFor()`; server/src/coding relay; mcp/src/worker
   cloud.ts / link.ts / box.ts; docs/CODING.md § Cloud worker, docs/CLOUD.md § Coding relay): the worker dials the team
   server, the relay pairs one tab ⇄ one worker per (workspace, member) and forwards only `key` / `box` / `relay` frames,
