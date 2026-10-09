@@ -490,6 +490,12 @@ the public APIs stable — other areas are built against them in parallel.
   on the newest version; the oldest counts as all added in Changes and shows plain in Version; "Now" with 'prev' = newest
   snapshot → the page. Two versions compare properties with `diffPropsBetween` (props.ts); restore notes only in 'now'.
   Version marks what was new with docDiff `withoutRemovals` + DocDiff `context={Infinity}` (`foldRows` never folds).
+- Mirror recipe setup (features/agents/mirror.ts, MirrorSetup.tsx, MirrorDiscard.tsx): `createMirror` shows no toast — a step
+  that opens a dialog right away keeps its Undo inside the dialog (AgentEditor intro Undo = `undoMirror`, only what the setup
+  created), never a toast over the dialog's footer. Closing an unsaved mirror draft asks (keep editing · keep both · both to
+  the trash via `trashMirror` / `restoreMirror`). A setup never makes a second live database of the same folded name
+  (`sameNamedDb`); "Use …" → `reuseMirror` only when that database holds the recipe's key property. German strings name the
+  settings tab "Claude KI" (shell.settings.tab.ai), never "Claude AI".
 - Custom agents: `Workspace.agents` (`CustomAgent`, store/types.ts; `createdBy` / `updatedBy` = account ids in a team,
   null locally — `upsertAgent` stamps `updatedBy` with the saver; a team browser agent runs only while `updatedBy` is its
   creator, otherwise it waits for the creator to confirm, features/agents/confirm.ts; on the team server `updatedBy` is

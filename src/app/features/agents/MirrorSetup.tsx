@@ -2,8 +2,10 @@
  * Custom agents — the first step of a mirror recipe (an active integration profile's RecipeConfig): the source (the
  * MCP servers of this device that match the profile — the first one preselected —, their tool count from the last
  * connection test), a name and the page it goes below (team workspace: a private page, or the Private section's
- * top). "Create" makes the database and its report page (mirror.ts — one toast, one Undo) and hands the agent draft
- * to the editor. The spec plate reads the recipe: properties, views, key, own fields, schedule, budget, report.
+ * top). "Create" makes the database and its report page (mirror.ts; the editor's note carries the Undo) and hands the
+ * agent draft to the editor. A live database with the same name is never duplicated silently: Create waits, and one
+ * holding the recipe's key is offered for the agent ("Use …", reuseMirror). The spec plate reads the recipe:
+ * properties, views, key, own fields, schedule, budget, report.
  */
 import { useId, useMemo, useState } from 'react'
 import { ChevronDown } from 'lucide-react'
@@ -17,7 +19,7 @@ import { PageIcon } from '../../ui/PageIcon'
 import { useLang, useT } from '../../i18n'
 import { readServers } from '../ai/mcp-servers/config'
 import { isReadTool } from './mcpTools'
-import { canHoldMirror, createMirror, nameFromServer, type MirrorMade } from './mirror'
+import { canHoldMirror, createMirror, nameFromServer, reuseMirror, sameNamedDb, type MirrorMade } from './mirror'
 import { buildMirror, fillTokens, resolveRecipe } from './integrations/recipe'
 import { openIntegrations } from './integrations/open'
 import { fmtUsd, triggerText } from './format'
@@ -62,7 +64,7 @@ function WherePicker({ value, onPick, id }: { value: ID | null; onPick: (id: ID 
   )
 }
 
-export function MirrorSetup({ source, onClose, onCreated, onUndo }: { source: RecipeSource; onClose: () => void; onCreated: (made: MirrorMade) => void; onUndo: () => void }) {
+export function MirrorSetup({ source, onClose, onCreated }: { source: RecipeSource; onClose: () => void; onCreated: (made: MirrorMade) => void }) {
   const t = useT()
   const lang = useLang()
   const uid = useId()
@@ -104,18 +106,28 @@ export function MirrorSetup({ source, onClose, onCreated, onUndo }: { source: Re
     if (!named) setName(nameFromServer(n))
   }
 
-  const create = () => {
+  const keyProp = built.schema.properties.find((p) => p.key)
+  // a live database of this name: never a second one silently (one holding the recipe's key can take the agent)
+  const existing = useMemo(() => sameNamedDb(pages, databases, name, keyProp?.name), [pages, databases, name, keyProp?.name])
+
+  const run = (make: () => MirrorMade) => {
     setTried(true)
     setFailed('')
-    if (!name.trim() || !servers.some((s) => s.name === server) || built.errors) return
+    if (!servers.some((s) => s.name === server)) return
     try {
-      onCreated(createMirror({ recipe, server, name, parentId }, { onUndo }))
+      onCreated(make())
     } catch (e) {
       setFailed(t('features.agents.mirror.err.failed', { msg: e instanceof Error ? e.message : String(e) }))
     }
   }
+  const create = () => {
+    if (!name.trim() || existing || built.errors) return setTried(true)
+    run(() => createMirror({ recipe, server, name, parentId }))
+  }
+  const takeExisting = () => {
+    if (existing?.fits) run(() => reuseMirror({ recipe, server, dbId: existing.id }))
+  }
 
-  const keyProp = built.schema.properties.find((p) => p.key)
   const yours = built.schema.properties
     .filter((p) => p.agentReadOnly)
     .map((p) => p.name)
@@ -146,7 +158,7 @@ export function MirrorSetup({ source, onClose, onCreated, onUndo }: { source: Re
           <button type="button" className="btn btn--ghost" onClick={onClose}>
             {t('common.cancel')}
           </button>
-          <button type="button" className="btn btn--primary" onClick={create} disabled={!servers.length || built.errors > 0}>
+          <button type="button" className="btn btn--primary" onClick={create} disabled={!servers.length || built.errors > 0 || !!existing}>
             {t('features.agents.mirror.create')}
           </button>
         </div>
@@ -233,6 +245,17 @@ export function MirrorSetup({ source, onClose, onCreated, onUndo }: { source: Re
             <p className="agx-field__hint">{team ? `${t('features.agents.mirror.whereHint')} ${t('features.agents.mirror.whereTeam')}` : t('features.agents.mirror.whereHint')}</p>
           </div>
         </div>
+        {existing && (
+          <div className="agx-notice agx-mir__exists" role="status" data-testid="agx-mir-exists">
+            <span className="led led--on" aria-hidden />
+            <span>{t(existing.fits ? 'features.agents.mirror.exists.fits' : 'features.agents.mirror.exists.other', { name: existing.title })}</span>
+            {existing.fits && (
+              <button type="button" className="btn btn--sm btn--ink" onClick={takeExisting}>
+                {t('features.agents.mirror.exists.use', { name: existing.title })}
+              </button>
+            )}
+          </div>
+        )}
 
         <dl className="agx-spec agx-mir__spec" data-testid="agx-mir-spec">
           <div>

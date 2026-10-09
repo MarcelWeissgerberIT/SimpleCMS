@@ -175,7 +175,7 @@ export const messages: Messages = {
     'features.integrations.profiles': 'Profile',
     'features.integrations.empty': 'Noch keine Integration. Ein Profil sagt, für welchen MCP-Server es gilt (seine Werkzeuge, sein Name oder seine Adresse) und was es freischaltet, solange dieser Server hier eingeschaltet ist. Starte mit der Vorlage oder importiere eines.',
     'features.integrations.here': 'Auf diesem Gerät freigeschaltet',
-    'features.integrations.hereHint': 'Was freigeschaltet ist, hängt von den MCP-Servern dieses Geräts ab (Einstellungen → Claude AI → MCP-Server). Schlüssel und „Nur von Hand“, die Eigenschaften schon haben, und Werkzeuglisten, die Agenten schon haben, gelten immer weiter.',
+    'features.integrations.hereHint': 'Was freigeschaltet ist, hängt von den MCP-Servern dieses Geräts ab (Einstellungen → Claude KI → MCP-Server). Schlüssel und „Nur von Hand“, die Eigenschaften schon haben, und Werkzeuglisten, die Agenten schon haben, gelten immer weiter.',
     'features.integrations.edit': 'Bearbeiten',
     'features.integrations.view': 'Ansehen',
     'features.integrations.export': 'Exportieren',

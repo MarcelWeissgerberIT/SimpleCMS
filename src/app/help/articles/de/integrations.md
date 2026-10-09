@@ -10,7 +10,7 @@ summary: Profile, die Agenten-Funktionen freischalten — Schlüssel, „Nur von
 Manche Agenten-Funktionen ergeben nur zusammen mit einem anderen Werkzeug Sinn: dessen Einträge über einen Schlüssel in eine Datenbank spiegeln, die eigenen Felder vor Agenten schützen, einen Agenten auf die lesenden Werkzeuge dieses Werkzeugs begrenzen. One baut sie für kein bestimmtes Werkzeug ein. Ein **Integrationsprofil** sagt, für welchen MCP-Server sie gelten, und schaltet sie frei, solange dieser Server da ist. Profile richtest du unter **Workspace → Integrationen** ein.
 
 ## Wann ein Profil aktiv ist
-Ein Profil ist **auf diesem Gerät aktiv**, wenn einer deiner **eingeschalteten** MCP-Server (**Einstellungen → Claude AI → MCP-Server**) jede Bedingung seines `match` erfüllt:
+Ein Profil ist **auf diesem Gerät aktiv**, wenn einer deiner **eingeschalteten** MCP-Server (**Einstellungen → Claude KI → MCP-Server**) jede Bedingung seines `match` erfüllt:
 - `tools` — jedes genannte Werkzeug steht in der Werkzeugliste des Servers aus seinem letzten **Verbindungstest** (ein nie getesteter Server hat noch keine Liste).
 - `name` — ein Muster auf den Namen des Servers: `*` steht für beliebige Zeichen, `?` für eines, Groß- und Kleinschreibung zählen nicht (`tracker*`).
 - `host` — ein Muster auf den Host seiner Adresse (`*.example.com`).

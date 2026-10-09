@@ -5,7 +5,7 @@
  * its spec plate, run now, edit, and its run history with the review of staged changes. A team browser
  * agent changed by another member waits for its creator, who confirms it on its page (confirm.ts).
  */
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowLeft, Check, KeyRound, MoreHorizontal, Pencil, Play, Plus, Trash2 } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
@@ -13,6 +13,7 @@ import type { CustomAgent, ID, Person } from '../../store/types'
 import { navigate } from '../../lib/router'
 import { useCloud } from '../../cloud'
 import { Modal } from '../../ui/Modal'
+import { restoreFocus } from '../../ui/focus'
 import { Menu, useMenu } from '../../ui/Menu'
 import { PageIcon } from '../../ui/PageIcon'
 import { Switch } from '../../ui/controls'
@@ -24,7 +25,8 @@ import { RunHistory } from './RunHistory'
 import { RECIPES, blankAgent, recipeDraft, type RecipeId } from './recipes'
 import { MirrorSetup, type RecipeSource } from './MirrorSetup'
 import { useRecipeSources } from './integrations/status'
-import type { MirrorMade } from './mirror'
+import { restoreMirror, trashMirror, undoMirror, type MirrorMade } from './mirror'
+import { MirrorDiscard } from './MirrorDiscard'
 import { deleteAgent, runNow, setEnabled } from './actions'
 import { awaitsReview, getAgentState, loadRuns, onRunsChanged, putAgentState, useAgentRuns, type AgentState } from './runs'
 import { loadRuntime, loadServerRuns, teamId, useServerAgents } from './server'
@@ -141,6 +143,9 @@ function useNewAgent() {
   const [picking, setPicking] = useState(false)
   const [mirror, setMirror] = useState<RecipeSource | null>(null)
   const [draft, setDraft] = useState<{ agent: CustomAgent; mirror?: MirrorMade } | null>(null)
+  // closing a mirror draft unsaved asks first (its database is made already); focus goes back where it was
+  const [discarding, setDiscarding] = useState(false)
+  const back = useRef<HTMLElement | null>(null)
   const pick = (id: RecipePick) => {
     setPicking(false)
     // a profile's mirror asks for its source, name and place first and creates its database (MirrorSetup)
@@ -148,6 +153,30 @@ function useNewAgent() {
     setDraft({ agent: id === 'blank' ? blankAgent() : recipeDraft(id) })
   }
   const made = draft?.mirror
+  const close = () => {
+    if (!made) return setDraft(null)
+    const active = document.activeElement
+    back.current = active instanceof HTMLElement && active.closest('.agx-editor') ? active : document.querySelector<HTMLElement>('.agx-editor')
+    setDiscarding(true)
+  }
+  const keep = () => {
+    setDiscarding(false)
+    requestAnimationFrame(() => restoreFocus(back.current))
+  }
+  const discard = (trash: boolean) => {
+    setDiscarding(false)
+    setDraft(null)
+    if (!made || !trash) return
+    const ids = trashMirror(made)
+    if (ids.length) useUI.getState().toast({ message: t('features.agents.mirror.discard.trashed', { name: made.name }), kind: 'info', action: { label: t('common.undo'), run: () => restoreMirror(ids) } })
+  }
+  // the note's Undo: what the setup made goes again, and the draft that points at it
+  const undo = () => {
+    if (!made) return
+    undoMirror(made)
+    setDraft(null)
+    useUI.getState().toast({ message: t('features.agents.mirror.undone', { name: made.name }), kind: 'info' })
+  }
   const ui = (
     <>
       {picking && <RecipeModal onPick={pick} onClose={() => setPicking(false)} />}
@@ -159,8 +188,6 @@ function useNewAgent() {
             setMirror(null)
             setDraft({ agent: m.draft, mirror: m })
           }}
-          // the toast's Undo took the database away: the draft that points at it goes too
-          onUndo={() => setDraft((d) => (d?.mirror ? null : d))}
         />
       )}
       {draft && (
@@ -168,14 +195,16 @@ function useNewAgent() {
           initial={draft.agent}
           isNew
           intro={made ? t(made.placeholders > 1 ? 'features.agents.mirror.intro' : made.placeholders === 1 ? 'features.agents.mirror.introOne' : 'features.agents.mirror.introNone', { name: made.name, report: made.reportTitle, count: made.placeholders }) : undefined}
+          introUndo={made && !made.reused ? { title: t('features.agents.mirror.undoTitle', { name: made.name, report: made.reportTitle }), run: undo } : undefined}
           writeHint={made ? t('features.agents.mirror.writeHint') : undefined}
-          onClose={() => setDraft(null)}
+          onClose={close}
           onSaved={(id) => {
             setDraft(null)
             navigate(`#/agents/${id}`)
           }}
         />
       )}
+      {discarding && made && <MirrorDiscard made={made} onKeep={keep} onDiscard={discard} />}
     </>
   )
   return { open: () => setPicking(true), pick, ui }

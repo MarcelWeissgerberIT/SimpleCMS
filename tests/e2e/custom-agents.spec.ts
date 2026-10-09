@@ -170,6 +170,10 @@ test.describe('Custom agents', () => {
     expect(agent).toMatchObject({ name: 'Wochenbericht aus Projekten', write: 'none', trigger: { type: 'schedule', every: 'week', weekday: 1, at: '08:00', tz: 'Europe/Berlin' }, scope: { everything: false, databases: [projects] } })
     await expect(page.locator('.agx-spec--plate')).toContainText('Montags · 08:00')
     await expect(page.locator('.agx-runsec')).toContainText('Noch keine Läufe')
+    // before the first run: "Noch kein Lauf" (after one: "Bereit") — not "Bereitschaft" next to "Bereit"
+    await expect(page.locator('.agx-dhead').getByTestId('agx-state')).toHaveText('Noch kein Lauf')
+    await page.getByRole('link', { name: 'Agenten' }).first().click()
+    await expect(page.locator('.agx-card').getByTestId('agx-state')).toHaveText('Noch kein Lauf')
   })
 
   test('the knowledge-base recipe picks no server by its name: the only one there is, else the person picks', async ({ page }) => {
@@ -545,6 +549,8 @@ test.describe('Custom agents', () => {
     await mockClaude(context)
     const id = await addAgent(page, { id: 'ag-keep', name: 'Keeper' })
     await goAgent(page, id)
+    // before its first run the state says so — never two near-identical words for "before" and "after"
+    await expect(page.locator('.agx-dhead').getByTestId('agx-state')).toHaveText('No run yet')
     await page.getByRole('button', { name: 'Run now' }).click()
     await expect(page.locator('.agx-run').first()).toHaveAttribute('data-status', 'ok', { timeout: 20_000 })
     await waitRuns(page, id, 1)
@@ -552,7 +558,7 @@ test.describe('Custom agents', () => {
     await page.locator('.sb-nav').getByRole('button', { name: 'Agents' }).click()
     await expect(page).toHaveURL(/#\/agents$/)
     const card = page.locator('.agx-card', { hasText: 'Keeper' })
-    await expect(card.getByTestId('agx-state')).toContainText('Ready')
+    await expect(card.getByTestId('agx-state')).toHaveText('Ready')
     await expect(card).toContainText('Done')
     await card.getByRole('link', { name: 'Keeper' }).click()
     await expect(page.locator('.agx-run')).toHaveCount(1)

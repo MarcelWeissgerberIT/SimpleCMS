@@ -152,10 +152,27 @@ export function validate(t: T, d: CustomAgent, ctx: { pages: Record<ID, Page>; s
 }
 
 /**
- * `intro`: a note on top (a recipe that set something up first says what it made); `writeHint`: the hint under
+ * `intro`: a note on top (a recipe that set something up first says what it made), `introUndo` an Undo key in it
+ * (what the recipe made goes again — in the note, never a toast over the footer); `writeHint`: the hint under
  * "Changes" instead of the write mode's own (the mirror recipe: proposals first, Apply once the runs look right).
  */
-export function AgentEditor({ initial, isNew, onClose, onSaved, intro, writeHint }: { initial: CustomAgent; isNew: boolean; onClose: () => void; onSaved: (id: ID) => void; intro?: string; writeHint?: string }) {
+export function AgentEditor({
+  initial,
+  isNew,
+  onClose,
+  onSaved,
+  intro,
+  introUndo,
+  writeHint,
+}: {
+  initial: CustomAgent
+  isNew: boolean
+  onClose: () => void
+  onSaved: (id: ID) => void
+  intro?: string
+  introUndo?: { title?: string; run: () => void }
+  writeHint?: string
+}) {
   const t = useT()
   const lang = useLang()
   const [d, setD] = useState<CustomAgent>(initial)
@@ -233,6 +250,11 @@ export function AgentEditor({ initial, isNew, onClose, onSaved, intro, writeHint
           <p className="agx-notice agx-editor__notice" role="note" data-testid="agx-editor-intro">
             <span className="led led--ok" aria-hidden />
             <span>{intro}</span>
+            {introUndo && (
+              <button type="button" className="btn btn--sm" title={introUndo.title} onClick={introUndo.run} data-testid="agx-editor-intro-undo">
+                <Undo2 size={12} strokeWidth={1.8} aria-hidden /> {t('common.undo')}
+              </button>
+            )}
           </p>
         )}
         {othersAgent && (

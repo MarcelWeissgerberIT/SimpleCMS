@@ -35,6 +35,6 @@ Neben dem Gedächtnis gibt es eine zweite Datenbank, **Gedächtnis-Verlauf**: ei
 - Er speichert, was du getippt hast, und Links — nie Seiteninhalt oder Claudes Antwort.
 
 ## Einstellungen
-**Einstellungen → Claude AI → One-Gedächtnis** (je Gerät): **Gedächtnis verwenden**, **Nach Aufgaben im KI-Terminal Erinnerungen vorschlagen** (standardmäßig an, sobald das Gedächtnis eingerichtet ist — eine kleine zusätzliche Anfrage je Aufgabe), **Verlauf führen** (aus: keine neuen Zeilen; vorhandene bleiben), **Gedächtnis einrichten** und Links zu beiden Datenbanken.
+**Einstellungen → Claude KI → One-Gedächtnis** (je Gerät): **Gedächtnis verwenden**, **Nach Aufgaben im KI-Terminal Erinnerungen vorschlagen** (standardmäßig an, sobald das Gedächtnis eingerichtet ist — eine kleine zusätzliche Anfrage je Aufgabe), **Verlauf führen** (aus: keine neuen Zeilen; vorhandene bleiben), **Gedächtnis einrichten** und Links zu beiden Datenbanken.
 
 > Erinnerungen gehen mit den Anfragen an Anthropic, für die sie ausgewählt werden — wie der Seitentext, den du mitschickst. Halte Geheimnisse aus dem Gedächtnis heraus.
