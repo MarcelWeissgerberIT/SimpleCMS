@@ -132,6 +132,8 @@ export async function runPendingReset(onBlocked?: () => void): Promise<boolean> 
   )
   try {
     for (const k of Object.keys(localStorage)) if (k.startsWith('one.shell.')) localStorage.removeItem(k)
+    // the report pages the local workspace's mirror setups made (features/agents/mirrorMemory.ts)
+    localStorage.removeItem('one.mirror.reports:local:local')
     // the local workspace's look cache (team workspaces keep theirs, "standard look here" included)
     forgetLookCache('local')
   } catch {

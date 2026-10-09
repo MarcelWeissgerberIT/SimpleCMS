@@ -495,7 +495,17 @@ the public APIs stable — other areas are built against them in parallel.
   created), never a toast over the dialog's footer. Closing an unsaved mirror draft asks (keep editing · keep both · both to
   the trash via `trashMirror` / `restoreMirror`). A setup never makes a second live database of the same folded name
   (`sameNamedDb`); "Use …" → `reuseMirror` only when that database holds the recipe's key property. German strings name the
-  settings tab "Claude KI" (shell.settings.tab.ai), never "Claude AI".
+  settings tab "Claude KI" (shell.settings.tab.ai), never "Claude AI". A database's mirror (`mirrorAgentOf`): the agent
+  marked `CustomAgent.mirrorOf` = it (set by `mirrorDraft`, kept by sanitizeAgent) while its scope names it — whatever its
+  switch, write mode or servers; an unmarked one only by write ≠ none + a server of this device matching the profile (on
+  or off; not one whose `mcpTools` entry is []); never one marked for another database; team: only the member's own
+  (`createdBy`). "Use" takes back the report page this device's setup made for the database (mirrorMemory.ts, localStorage
+  `one.mirror.reports:<kind>:<id>` = { dbId: reportId } ≤ 100, never synced / backed up, wiped with the copy and the
+  local reset) while it is live and no saved agent uses it (then `created` = []: no Undo, no prompt, no toast). Titles
+  and agent names the setup makes are distinct (`distinctTitle`: " · <db>", then " (2)" …). Mirror toasts go through
+  `mirrorToast()`; every agent dialog (gallery, setup, any AgentEditor) calls `useDismissMirrorToasts()`. The editor never
+  saves against a trashed / effectively trashed scope page, trigger database or report page; the note's Undo asks
+  (MirrorUndoAsk) when the draft changed.
 - Custom agents: `Workspace.agents` (`CustomAgent`, store/types.ts; `createdBy` / `updatedBy` = account ids in a team,
   null locally — `upsertAgent` stamps `updatedBy` with the saver; a team browser agent runs only while `updatedBy` is its
   creator, otherwise it waits for the creator to confirm, features/agents/confirm.ts; on the team server `updatedBy` is

@@ -1209,6 +1209,13 @@ export interface CustomAgent {
    * server is left out). Tool names `[A-Za-z0-9_.-]`, ≤ 200 per server; entries only for `mcpServers`.
    */
   mcpTools?: Record<string, string[]>
+  /**
+   * The database the mirror recipe set this agent up for (features/agents/mirror.ts mirrorDraft): while its scope still
+   * names that database it is that database's mirror — whatever its switch, write mode or servers — so a setup never
+   * makes a second one. Kept by sanitizeAgent (store, backups, the team meta map); the team server's own runner
+   * sanitizer does not use it.
+   */
+  mirrorOf?: ID
   runner: 'browser' | 'server'
   /** null = the workspace default */
   model?: string | null

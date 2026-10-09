@@ -10,7 +10,7 @@ import { ChevronDown, Copy, PenLine, Plus, Undo2, X } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
 import { inTemplate, isEffectivelyTrashed } from '../../store/selectors'
-import { AGENT_LIMITS, localTimeZone, isTimeZone } from '../../store/agents'
+import { AGENT_LIMITS, localTimeZone, isTimeZone, sameAgent } from '../../store/agents'
 import type { AgentTrigger, CustomAgent, ID, Page } from '../../store/types'
 import { useCloud } from '../../cloud'
 import { Modal } from '../../ui/Modal'
@@ -25,6 +25,7 @@ import { readServers } from '../ai/mcp-servers/config'
 import { weekdayName } from './format'
 import { isReadTool, testedTools } from './mcpTools'
 import { placeholdersIn } from './mirror'
+import { useDismissMirrorToasts } from './mirrorToasts'
 import { useServerUnlocked, useUnlocked } from './integrations/status'
 import './mirror.css'
 import { AGENT_PLACEHOLDERS, instructionTools, openPlaceholders } from './instructions'
@@ -134,18 +135,43 @@ function PagePicker({ value, onPick, kind, label, placeholder, allowNone, id }: 
   )
 }
 
+/** “A”, “B” and “C” — page titles quoted the way the UI language quotes. */
+function titleList(t: T, titles: string[]): string {
+  const q = titles.map((title) => t('features.agents.err.quoted', { title }))
+  return q.length < 2 ? (q[0] ?? '') : `${q.slice(0, -1).join(', ')} ${t('features.agents.err.and')} ${q[q.length - 1]}`
+}
+
+/**
+ * The draft's problems by field. Nothing is saved against a page in the trash (or below one): a trashed page or
+ * database in its scope, its trigger's database or its report page is named — the person takes it out or restores it
+ * (it may have gone to the trash while the editor was open: here, in another tab, by an Undo).
+ */
 export function validate(t: T, d: CustomAgent, ctx: { pages: Record<ID, Page>; serverOk: boolean; inCloud: boolean }): Errors {
   const e: Errors = {}
+  const binned = (id: ID) => {
+    const p = ctx.pages[id]
+    return !!p && (!!p.trashed || isEffectivelyTrashed(ctx.pages, id))
+  }
+  const title = (id: ID) => ctx.pages[id]?.title.trim() || t('common.untitled')
   if (!d.name.trim()) e.name = t('features.agents.err.name')
   if (!d.instructions.trim()) e.instructions = t('features.agents.err.instructions')
   else if (d.instructions.length > AGENT_LIMITS.instructions) e.instructions = t('features.agents.err.tooLong', { max: AGENT_LIMITS.instructions })
   else if (d.enabled && placeholdersIn(d.instructions).length) e.instructions = t('features.agents.mirror.err.placeholders', { count: placeholdersIn(d.instructions).length })
   const tr = d.trigger
-  if ((tr.type === 'row_created' || tr.type === 'row_changed') && !(tr.databaseId && ctx.pages[tr.databaseId] && !ctx.pages[tr.databaseId].trashed)) e.trigger = t('features.agents.err.database')
+  if (tr.type === 'row_created' || tr.type === 'row_changed') {
+    if (tr.databaseId && binned(tr.databaseId)) e.trigger = t('features.agents.err.databaseTrashed', { title: title(tr.databaseId) })
+    else if (!(tr.databaseId && ctx.pages[tr.databaseId])) e.trigger = t('features.agents.err.database')
+  }
   if (tr.type === 'schedule' && (!/^([01]\d|2[0-3]):[0-5]\d$/.test(tr.at) || !isTimeZone(tr.tz))) e.trigger = t('features.agents.err.time')
   if (tr.type === 'webhook' && d.runner !== 'server') e.trigger = t('features.agents.err.webhook')
   if (!d.scope.everything && !d.scope.pages.length && !d.scope.databases.length) e.scope = t('features.agents.err.scope')
+  else if (!d.scope.everything) {
+    const trashed = [...d.scope.pages, ...d.scope.databases].filter(binned)
+    if (trashed.length === 1) e.scope = t('features.agents.err.scopeTrashed.one', { title: title(trashed[0]) })
+    else if (trashed.length) e.scope = t('features.agents.err.scopeTrashed.other', { list: titleList(t, trashed.map(title)) })
+  }
   if (d.output && d.output.pageId && !ctx.pages[d.output.pageId]) e.output = t('features.agents.err.output')
+  else if (d.output?.pageId && binned(d.output.pageId)) e.output = t('features.agents.err.outputTrashed', { title: title(d.output.pageId) })
   if (!(d.maxRunUsd >= AGENT_LIMITS.minRunUsd && d.maxRunUsd <= AGENT_LIMITS.maxRunUsd)) e.budget = t('features.agents.err.budget', { max: AGENT_LIMITS.maxRunUsd })
   if (d.runner === 'server' && (!ctx.inCloud || !ctx.serverOk)) e.runner = t('features.agents.err.server')
   return e
@@ -153,8 +179,10 @@ export function validate(t: T, d: CustomAgent, ctx: { pages: Record<ID, Page>; s
 
 /**
  * `intro`: a note on top (a recipe that set something up first says what it made), `introUndo` an Undo key in it
- * (what the recipe made goes again — in the note, never a toast over the footer); `writeHint`: the hint under
- * "Changes" instead of the write mode's own (the mirror recipe: proposals first, Apply once the runs look right).
+ * (what the recipe made goes again — in the note, never a toast over the footer; `run(dirty)`: dirty = the draft
+ * differs from what the editor opened with, so the caller asks before the changes are lost); `writeHint`: the hint
+ * under "Changes" instead of the write mode's own (the mirror recipe: proposals first, Apply once the runs look right).
+ * Opening, it takes down the mirror setup's toasts (mirrorToasts.ts): their Undo never takes a click meant for it.
  */
 export function AgentEditor({
   initial,
@@ -170,11 +198,12 @@ export function AgentEditor({
   onClose: () => void
   onSaved: (id: ID) => void
   intro?: string
-  introUndo?: { title?: string; run: () => void }
+  introUndo?: { title?: string; run: (dirty: boolean) => void }
   writeHint?: string
 }) {
   const t = useT()
   const lang = useLang()
+  useDismissMirrorToasts()
   const [d, setD] = useState<CustomAgent>(initial)
   const [errors, setErrors] = useState<Errors>({})
   const [tried, setTried] = useState(false)
@@ -251,7 +280,7 @@ export function AgentEditor({
             <span className="led led--ok" aria-hidden />
             <span>{intro}</span>
             {introUndo && (
-              <button type="button" className="btn btn--sm" title={introUndo.title} onClick={introUndo.run} data-testid="agx-editor-intro-undo">
+              <button type="button" className="btn btn--sm" title={introUndo.title} onClick={() => introUndo.run(!sameAgent(d, initial))} data-testid="agx-editor-intro-undo">
                 <Undo2 size={12} strokeWidth={1.8} aria-hidden /> {t('common.undo')}
               </button>
             )}
@@ -749,15 +778,20 @@ function ScopeFields({ d, set, error }: { d: CustomAgent; set: (p: Partial<Custo
       />
       {!d.scope.everything && (
         <div className="agx-chips" aria-label={t('features.agents.ed.scope')}>
-          {chosen.map((id) => (
-            <span key={id} className="agx-chipx">
-              <PageIcon icon={pages[id]?.icon} kind={pages[id]?.kind ?? 'page'} size={14} />
-              <span className="agx-chipx__text">{pages[id] ? pages[id].title.trim() || t('common.untitled') : t('features.agents.ed.gone')}</span>
-              <button type="button" className="icon-btn icon-btn--sm" onClick={() => remove(id)} aria-label={t('features.agents.ed.removeScope', { title: pages[id]?.title.trim() || t('common.untitled') })}>
-                <X size={12} strokeWidth={1.8} />
-              </button>
-            </span>
-          ))}
+          {chosen.map((id) => {
+            // in the trash (or below a page there): saving refuses it (validate) — the chip says which one
+            const binned = !!pages[id] && (!!pages[id].trashed || isEffectivelyTrashed(pages, id))
+            return (
+              <span key={id} className="agx-chipx" data-trashed={binned || undefined}>
+                <PageIcon icon={pages[id]?.icon} kind={pages[id]?.kind ?? 'page'} size={14} />
+                <span className="agx-chipx__text">{pages[id] ? pages[id].title.trim() || t('common.untitled') : t('features.agents.ed.gone')}</span>
+                {binned && <span className="agx-chipx__note label">{t('features.agents.ed.inTrash')}</span>}
+                <button type="button" className="icon-btn icon-btn--sm" onClick={() => remove(id)} aria-label={t('features.agents.ed.removeScope', { title: pages[id]?.title.trim() || t('common.untitled') })}>
+                  <X size={12} strokeWidth={1.8} />
+                </button>
+              </span>
+            )
+          })}
           <button type="button" className="btn btn--sm btn--ghost agx-chips__add" onClick={menu.toggle} aria-haspopup="menu" aria-expanded={menu.open}>
             <Plus size={13} strokeWidth={1.8} aria-hidden /> {t('features.agents.ed.addScope')}
           </button>

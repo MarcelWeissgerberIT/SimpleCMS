@@ -184,6 +184,9 @@ export function sanitizeAgent(id: unknown, raw: unknown): CustomAgent | null {
   }
   const mcpTools = sanitizeMcpTools(own(raw, 'mcpTools'), agent.mcpServers)
   if (mcpTools) agent.mcpTools = mcpTools
+  // the mirror recipe's marker (features/agents/mirror.ts): a database id, nothing else
+  const mirrorOf = own(raw, 'mirrorOf')
+  if (isSafeAgentId(mirrorOf)) agent.mirrorOf = mirrorOf
   const output = own(raw, 'output')
   if (isObj(output)) {
     const pageId = own(output, 'pageId')
