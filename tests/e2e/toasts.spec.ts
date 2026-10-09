@@ -133,6 +133,8 @@ test.describe('Toasts: a double press acts once', () => {
       expect(await trackerTrashed(page, LONG)).toEqual([true])
       await expect(trashed).toBeVisible()
       await expect(page.locator('.modal-scrim')).toHaveCount(0)
+      // focus went back where it was before the press, never to the page body
+      expect(await page.evaluate(() => !!document.activeElement && document.activeElement !== document.body)).toBe(true)
     })
   }
 
@@ -162,6 +164,7 @@ test.describe('Toasts: a double press acts once', () => {
       expect(await trackerTrashed(page)).toEqual([false])
       await expect(page.locator('.modal-scrim')).toHaveCount(0)
       expect(await page.evaluate(() => window.location.hash)).toBe(hash)
+      expect(await page.evaluate(() => !!document.activeElement && document.activeElement !== document.body)).toBe(true)
     })
   })
 })
