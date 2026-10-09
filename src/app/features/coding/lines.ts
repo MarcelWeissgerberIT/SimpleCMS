@@ -3,7 +3,9 @@
  * `features.coding.log.c.<code>` with its values (`v`); every other line — Claude's text, tool calls, test
  * output, an older worker — as the worker wrote it (`s`).
  */
-import type { Translate } from '@/shared/i18n'
+import type { Lang, Translate } from '@/shared/i18n'
+import { currentLang } from '../../i18n'
+import { fmtUsd } from '../../lib/money'
 import { EDIT_CHARS, EDIT_HUNKS, type LogLine, type ToolEdit } from './protocol'
 
 export const LOG_CODES = new Set([
@@ -55,8 +57,21 @@ export function cleanCode(l: { c?: unknown; v?: unknown }): Pick<LogLine, 'c' | 
   return { c: l.c, v }
 }
 
-export function lineText(t: Translate, l: LogLine): string {
-  return l.c && LOG_CODES.has(l.c) ? t(`features.coding.log.c.${l.c}`, l.v) : l.s
+/** Lines whose `cost` value is the worker's number in US dollars ("0.05"): One formats it in the UI's language. */
+const COST_CODES = new Set(['claudeDone', 'claudeEnded'])
+
+/**
+ * A line in the person's language — `lang`: the language `t` speaks (money: "$0.05" · "0,05 $", lib/money.ts; the
+ * worker's own number is parsed here — no worker change).
+ */
+export function lineText(t: Translate, l: LogLine, lang: Lang = currentLang()): string {
+  if (!l.c || !LOG_CODES.has(l.c)) return l.s
+  const v = l.v ?? {}
+  if (COST_CODES.has(l.c) && v.cost !== undefined) {
+    const n = typeof v.cost === 'number' ? v.cost : Number(String(v.cost).trim())
+    return t(`features.coding.log.c.${l.c}`, { ...v, cost: Number.isFinite(n) && String(v.cost).trim() !== '' ? fmtUsd(n, lang) : String(v.cost) })
+  }
+  return t(`features.coding.log.c.${l.c}`, v)
 }
 
 /** An edit as it arrives from the worker: strings only, within the limits; anything else is dropped. */

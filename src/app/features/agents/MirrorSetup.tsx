@@ -1,17 +1,20 @@
 /**
  * Custom agents — the first step of a mirror recipe (an active integration profile's RecipeConfig): the source (the
  * MCP servers of this device that match the profile — the first one preselected —, their tool count from the last
- * connection test), a name and the page it goes below (team workspace: a private page, or the Private section's
- * top). "Create" makes the database and its report page (mirror.ts; the editor's note carries the Undo) and hands the
+ * connection test; the list follows this device's settings live: a server switched off while the setup is open drops
+ * out — the picked one stays, marked off, the field says so and Create waits), a name and the page it goes below (team
+ * workspace: a private page, or the Private section's top). "Create" makes the database and its report page (mirror.ts; the editor's note carries the Undo) and hands the
  * agent draft to the editor. A live database with the same name is never duplicated silently: Create waits, and one
  * holding the recipe's key (named in either language; private in a team) is offered for the agent ("Use …",
  * reuseMirror — the recipe then in the language of its names, the report page this device's setup made for it before,
  * else a new one next to it); one a saved agent mirrors into already (mirrorAgentOf: the agent set up for it, or one
  * that reads any of this device's servers matching the profile — switched on or off; in a team only the member's own
- * agents) offers that agent instead; a shared one in a team only says why it is not used — before anything else. The
- * name's hint says what is named after it (the recipe's agent and report names with `{db}`). The spec plate reads the
- * recipe: properties, views, key, own fields, schedule, budget, report (its title as Create would make it). Opening,
- * it takes down the mirror toasts (mirrorToasts.ts).
+ * agents) offers that agent instead; a shared one in a team only says why it is not used — before anything else. A
+ * database of that name in the trash that one of the member's saved agents is marked for is named with Restore and
+ * Open that agent (Create waits). The name's hint says what is named after it (the recipe's agent and report names with
+ * `{db}`). The spec plate reads the recipe: properties, views, key, own fields, the agent's name, schedule, budget,
+ * report — the names exactly as the offered action makes them (mirrorTitles: Create, or "Use" with the recipe in the
+ * database's language and the report page it takes back). Opening, it takes down the mirror toasts (mirrorToasts.ts).
  */
 import { useId, useMemo, useState } from 'react'
 import { ChevronDown } from 'lucide-react'
@@ -28,9 +31,9 @@ import { LANGS } from '@/shared/i18n'
 import { readServers } from '../ai/mcp-servers/config'
 import { matchingServers } from '../../store/integrations'
 import { isReadTool } from './mcpTools'
-import { canHoldMirror, createMirror, distinctTitle, nameFromServer, pageTitles, reuseMirror, sameNamedDb, type KeyName, type MirrorMade } from './mirror'
+import { canHoldMirror, createMirror, mirrorTitles, nameFromServer, reuseMirror, sameNamedDb, type KeyName, type MirrorMade, type SameNamed } from './mirror'
 import { useDismissMirrorToasts } from './mirrorToasts'
-import { buildMirror, fillTokens, resolveRecipe } from './integrations/recipe'
+import { buildMirror, resolveRecipe } from './integrations/recipe'
 import { deviceServers } from './integrations/status'
 import { openIntegrations } from './integrations/open'
 import { fmtUsd, triggerText } from './format'
@@ -112,7 +115,11 @@ export function MirrorSetup({ source, onClose, onCreated }: { source: RecipeSour
     )
     return { schema, errors }
   }, [recipe])
-  const servers = useMemo(() => readServers(settings).filter((s) => source.servers.includes(s.name)), [settings, source.servers])
+  // the profile's sources on this device as they are now: switched on and matching (Settings can change while it is open)
+  const servers = useMemo(() => {
+    const names = matchingServers(source.profile, deviceServers(settings))
+    return readServers(settings).filter((s) => names.includes(s.name))
+  }, [settings, source.profile])
   // the recipe's sources as far as an existing mirror goes: every server of this device that matches the profile,
   // switched on or off (a mirror whose server is off now is still that database's mirror)
   const sourceServers = useMemo(() => matchingServers(source.profile, deviceServers(settings).map((s) => ({ ...s, enabled: true }))), [source.profile, settings])
@@ -126,7 +133,15 @@ export function MirrorSetup({ source, onClose, onCreated }: { source: RecipeSour
   const ids = { name: `${uid}-name`, where: `${uid}-where`, src: `${uid}-src` }
 
   const errName = tried && !name.trim() ? t('features.agents.mirror.err.name') : ''
-  const errServer = tried && !servers.some((s) => s.name === server) ? t('features.agents.mirror.err.server') : ''
+  // the picked source was switched off (or no longer matches) meanwhile: it stays in the list, marked, and Create waits
+  const pickedOff = !!server && !servers.some((s) => s.name === server) ? (readServers(settings).find((s) => s.name === server) ?? null) : null
+  const errServer = pickedOff
+    ? t('features.agents.mirror.err.serverOff', { name: pickedOff.name.toUpperCase() })
+    : tried && !servers.some((s) => s.name === server)
+      ? t('features.agents.mirror.err.server')
+      : ''
+  // the switched-off pick keeps its place in the list
+  const shownServers = pickedOff ? readServers(settings).filter((s) => s.name === pickedOff.name || servers.some((x) => x.name === s.name)) : servers
 
   const pickServer = (n: string) => {
     setServer(n)
@@ -140,10 +155,19 @@ export function MirrorSetup({ source, onClose, onCreated }: { source: RecipeSour
   // what the name names: the database always, the agent and the report page when the recipe's names hold {db}
   const dbIn = { agent: recipe.agent.name.includes('{db}'), report: recipe.reportName.includes('{db}') }
   const nameHint = t(dbIn.agent ? (dbIn.report ? 'features.agents.mirror.nameHint' : 'features.agents.mirror.nameHintAgent') : dbIn.report ? 'features.agents.mirror.nameHintReport' : 'features.agents.mirror.nameHintDb')
-  // the report page's title as Create would make it (distinct from the pages there)
-  const titles = useMemo(() => pageTitles(pages), [pages])
+  // "Use" is offered: the recipe as reuseMirror resolves it — in the language the database's key is named in
+  const usable = !!existing && existing.fits && !existing.shared && !existing.agent && !existing.trashed
+  const recipeFor = (x: SameNamed) => {
+    const l = x.lang ?? recipe.lang
+    return l === recipe.lang ? recipe : resolveRecipe(source.profile, source.recipe, l)
+  }
   const shownName = name.replace(/\s+/g, ' ').trim()
-  const reportTitle = distinctTitle(fillTokens(recipe.reportName, { db: shownName || t('features.agents.mirror.namePh'), server }), shownName, titles, 200)
+  // the names on the plate exactly as the offered action makes them — "Use" (the page it takes back, or the new one's
+  // title) or Create: one function for the plate, createMirror and reuseMirror (mirrorTitles)
+  const titles =
+    usable && existing
+      ? mirrorTitles({ recipe: recipeFor(existing), server, name: existing.title, dbId: existing.id, reuse: true }, { pages, agents, team })
+      : mirrorTitles({ recipe, server, name: shownName || t('features.agents.mirror.namePh'), dbId: null }, { pages, agents, team })
 
   const run = (make: () => MirrorMade) => {
     setTried(true)
@@ -160,11 +184,13 @@ export function MirrorSetup({ source, onClose, onCreated }: { source: RecipeSour
     run(() => createMirror({ recipe, server, name, parentId }))
   }
   const takeExisting = () => {
-    if (!existing?.fits || existing.shared || existing.agent) return
+    if (!usable || !existing) return
     // the agent's names and instructions in the language the database's properties are named in
-    const lang = existing.lang ?? recipe.lang
-    run(() => reuseMirror({ recipe: lang === recipe.lang ? recipe : resolveRecipe(source.profile, source.recipe, lang), server, dbId: existing.id }))
+    run(() => reuseMirror({ recipe: recipeFor(existing), server, dbId: existing.id }))
   }
+  // in the trash with an agent marked for it: restore it (the page in the trash that holds it) — the notice then offers
+  // that agent
+  const restore = (root: ID) => useWorkspace.getState().restorePage(root)
   // a saved agent mirrors into it already: that one, never a second
   const openAgent = (id: ID) => {
     onClose()
@@ -175,7 +201,9 @@ export function MirrorSetup({ source, onClose, onCreated }: { source: RecipeSour
     ? ''
     : existing.shared
       ? t('features.agents.mirror.exists.shared', { name: existing.title })
-      : existing.agent
+      : existing.trashed && existing.agent
+        ? t('features.agents.mirror.exists.trashed', { name: existing.title, agent: existing.agent.name })
+        : existing.agent
         ? t('features.agents.mirror.exists.mirrored', { name: existing.title, agent: existing.agent.name })
         : t(existing.fits ? 'features.agents.mirror.exists.fits' : 'features.agents.mirror.exists.other', { name: existing.title })
 
@@ -209,7 +237,7 @@ export function MirrorSetup({ source, onClose, onCreated }: { source: RecipeSour
           <button type="button" className="btn btn--ghost" onClick={onClose}>
             {t('common.cancel')}
           </button>
-          <button type="button" className="btn btn--primary" onClick={create} disabled={!servers.length || built.errors > 0 || !!existing}>
+          <button type="button" className="btn btn--primary" onClick={create} disabled={!servers.length || built.errors > 0 || !!existing || !!pickedOff}>
             {t('features.agents.mirror.create')}
           </button>
         </div>
@@ -239,12 +267,13 @@ export function MirrorSetup({ source, onClose, onCreated }: { source: RecipeSour
             <span className="agx-mir__n label">01</span> {t('features.agents.mirror.source')}
           </span>
           <div className="agx-mir__servers" role="radiogroup" aria-labelledby={ids.src}>
-            {servers.map((s) => {
+            {shownServers.map((s) => {
               const tools = s.tools ?? []
-              const state = tools.length ? t('features.agents.mirror.tools', { n: tools.length, read: tools.filter(isReadTool).length }) : t('features.agents.mirror.untested')
+              const off = !!pickedOff && s.name === pickedOff.name
+              const state = off ? t('features.agents.mirror.serverOff') : tools.length ? t('features.agents.mirror.tools', { n: tools.length, read: tools.filter(isReadTool).length }) : t('features.agents.mirror.untested')
               return (
-                <label key={s.id} className="agx-mir__server" data-untested={!tools.length || undefined}>
-                  <input type="radio" name={`${uid}-server`} value={s.name} checked={server === s.name} onChange={() => pickServer(s.name)} />
+                <label key={s.id} className="agx-mir__server" data-untested={(!off && !tools.length) || undefined} data-off={off || undefined}>
+                  <input type="radio" name={`${uid}-server`} value={s.name} checked={server === s.name} disabled={off} onChange={() => pickServer(s.name)} />
                   <span className="agx-mir__srvname mono">{s.name.toUpperCase()}</span>
                   <span className="agx-mir__srvstate">{state}</span>
                 </label>
@@ -253,7 +282,7 @@ export function MirrorSetup({ source, onClose, onCreated }: { source: RecipeSour
           </div>
           <p className="agx-field__hint">{t('features.agents.mirror.sourceHintProfile', { profile: source.profile.name })}</p>
           {errServer && (
-            <p className="agx-field__error" role="alert">
+            <p className="agx-field__error" role="alert" data-testid="agx-mir-server-err">
               {errServer}
             </p>
           )}
@@ -301,12 +330,19 @@ export function MirrorSetup({ source, onClose, onCreated }: { source: RecipeSour
             <span className="led led--on" aria-hidden />
             <span>{existsText}</span>
             {existing.shared ? null : existing.agent ? (
-              <button type="button" className="btn btn--sm btn--ink" onClick={() => existing.agent && openAgent(existing.agent.id)}>
-                {t('features.agents.mirror.exists.open', { agent: existing.agent.name })}
-              </button>
+              <span className="agx-mir__keys">
+                {existing.trashed && (
+                  <button type="button" className="btn btn--sm" onClick={() => existing.trashed && restore(existing.trashed.root)}>
+                    {t('features.agents.mirror.exists.restore')}
+                  </button>
+                )}
+                <button type="button" className="btn btn--sm btn--ink" onClick={() => existing.agent && openAgent(existing.agent.id)}>
+                  {t('features.agents.mirror.exists.open', { agent: existing.agent.name })}
+                </button>
+              </span>
             ) : (
               existing.fits && (
-                <button type="button" className="btn btn--sm btn--ink" onClick={takeExisting}>
+                <button type="button" className="btn btn--sm btn--ink" onClick={takeExisting} disabled={!!pickedOff}>
                   {t('features.agents.mirror.exists.use', { name: existing.title })}
                 </button>
               )
@@ -325,11 +361,16 @@ export function MirrorSetup({ source, onClose, onCreated }: { source: RecipeSour
           </div>
           <div>
             <dt>{t('features.agents.mirror.spec.agent')}</dt>
-            <dd>{t('features.agents.mirror.spec.agentValue', { when, mode: t(recipe.agent.write === 'apply' ? 'features.agents.mirror.spec.apply' : 'features.agents.mirror.spec.stage'), usd: fmtUsd(recipe.agent.budget, lang) })}</dd>
+            <dd>
+              <span className="agx-mir__agentname" data-testid="agx-mir-agent">
+                {titles.agentName}
+              </span>
+              <span>{t('features.agents.mirror.spec.agentValue', { when, mode: t(recipe.agent.write === 'apply' ? 'features.agents.mirror.spec.apply' : 'features.agents.mirror.spec.stage'), usd: fmtUsd(recipe.agent.budget, lang) })}</span>
+            </dd>
           </div>
           <div>
             <dt>{t('features.agents.mirror.spec.report')}</dt>
-            <dd>{reportTitle}</dd>
+            <dd data-testid="agx-mir-report">{titles.reportTitle}</dd>
           </div>
         </dl>
         <button type="submit" hidden tabIndex={-1} aria-hidden />

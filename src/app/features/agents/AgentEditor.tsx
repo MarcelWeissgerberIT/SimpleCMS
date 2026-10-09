@@ -22,7 +22,8 @@ import { Switch } from '../../ui/controls'
 import { currentLang, useLang, useT } from '../../i18n'
 import { AI_MODELS, AIError, runAI } from '../ai/client'
 import { readServers } from '../ai/mcp-servers/config'
-import { fmtUsd, weekdayName } from './format'
+import { fmtAmount, fmtUsd, parseAmount, weekdayName } from './format'
+import { lostPages, seesAllPagesOf, trashedRoot } from './gone'
 import { usdSignAfter } from '../../lib/money'
 import { isReadTool, testedTools } from './mcpTools'
 import { placeholdersIn } from './mirror'
@@ -143,37 +144,64 @@ function titleList(t: T, titles: string[]): string {
 }
 
 /**
- * The draft's problems by field. Nothing is saved against a page in the trash (or below one): a trashed page or
- * database in its scope, its trigger's database or its report page is named — the person takes it out or restores it
- * (it may have gone to the trash while the editor was open: here, in another tab, by an Undo).
+ * The draft's problems by field. Nothing is saved against a page in the trash (or below one) or one deleted for good: a
+ * trashed page or database in its scope, its trigger's database or its report page is named — the person takes it out
+ * or restores it (it may have gone to the trash while the editor was open: here, in another tab, by an Undo); one that
+ * is only below a page in the trash names that page (the trash lists only it); a scope entry that does not exist any
+ * more (deleted for good) is named by the title it had while the editor was open (`titles`), and the person takes it
+ * out. `budget`: the budget field's text in the UI's language (parseAmount) — a text that is no number is refused.
  */
-export function validate(t: T, d: CustomAgent, ctx: { pages: Record<ID, Page>; serverOk: boolean; inCloud: boolean }): Errors {
+export function validate(
+  t: T,
+  d: CustomAgent,
+  ctx: { pages: Record<ID, Page>; serverOk: boolean; inCloud: boolean; titles?: Record<ID, string>; budget?: { text: string; lang: string }; seesAll?: boolean },
+): Errors {
   const e: Errors = {}
   const binned = (id: ID) => {
     const p = ctx.pages[id]
     return !!p && (!!p.trashed || isEffectivelyTrashed(ctx.pages, id))
   }
   const title = (id: ID) => ctx.pages[id]?.title.trim() || t('common.untitled')
+  // the page in the trash that holds `id` when it is only below one (null: in the trash itself, or not at all)
+  const parentBin = (id: ID) => {
+    const root = trashedRoot(ctx.pages, id)
+    return root && root.id !== id ? root.title.trim() || t('common.untitled') : null
+  }
   if (!d.name.trim()) e.name = t('features.agents.err.name')
   if (!d.instructions.trim()) e.instructions = t('features.agents.err.instructions')
   else if (d.instructions.length > AGENT_LIMITS.instructions) e.instructions = t('features.agents.err.tooLong', { max: AGENT_LIMITS.instructions })
   else if (d.enabled && placeholdersIn(d.instructions).length) e.instructions = t('features.agents.mirror.err.placeholders', { count: placeholdersIn(d.instructions).length })
   const tr = d.trigger
   if (tr.type === 'row_created' || tr.type === 'row_changed') {
-    if (tr.databaseId && binned(tr.databaseId)) e.trigger = t('features.agents.err.databaseTrashed', { title: title(tr.databaseId) })
+    const parent = tr.databaseId ? parentBin(tr.databaseId) : null
+    if (tr.databaseId && parent) e.trigger = t('features.agents.err.databaseBelow', { title: title(tr.databaseId), parent })
+    else if (tr.databaseId && binned(tr.databaseId)) e.trigger = t('features.agents.err.databaseTrashed', { title: title(tr.databaseId) })
     else if (!(tr.databaseId && ctx.pages[tr.databaseId])) e.trigger = t('features.agents.err.database')
   }
   if (tr.type === 'schedule' && (!/^([01]\d|2[0-3]):[0-5]\d$/.test(tr.at) || !isTimeZone(tr.tz))) e.trigger = t('features.agents.err.time')
   if (tr.type === 'webhook' && d.runner !== 'server') e.trigger = t('features.agents.err.webhook')
   if (!d.scope.everything && !d.scope.pages.length && !d.scope.databases.length) e.scope = t('features.agents.err.scope')
   else if (!d.scope.everything) {
-    const trashed = [...d.scope.pages, ...d.scope.databases].filter(binned)
-    if (trashed.length === 1) e.scope = t('features.agents.err.scopeTrashed.one', { title: title(trashed[0]) })
-    else if (trashed.length) e.scope = t('features.agents.err.scopeTrashed.other', { list: titleList(t, trashed.map(title)) })
+    const lost = lostPages({ scope: d.scope, trigger: { type: 'manual' }, output: null }, ctx.pages, '', ctx.seesAll ?? true)
+    const out: string[] = []
+    // deleted for good: named by the title it had while the editor was open, else by what it was
+    const gone = lost.filter((l) => l.state === 'gone')
+    const known = gone.map((l) => ctx.titles?.[l.id]?.trim() ?? '')
+    if (gone.length === 1)
+      out.push(known[0] ? t('features.agents.err.scopeGone.one', { title: known[0] }) : t(gone[0].database ? 'features.agents.err.scopeGone.database' : 'features.agents.err.scopeGone.page'))
+    else if (gone.length) out.push(known.every(Boolean) ? t('features.agents.err.scopeGone.other', { list: titleList(t, known) }) : t('features.agents.err.scopeGone.some', { count: gone.length }))
+    const trashed = lost.filter((l) => l.state === 'trashed').map((l) => l.id)
+    if (trashed.length === 1) out.push(t('features.agents.err.scopeTrashed.one', { title: title(trashed[0]) }))
+    else if (trashed.length) out.push(t('features.agents.err.scopeTrashed.other', { list: titleList(t, trashed.map(title)) }))
+    for (const l of lost) if (l.state === 'below' && l.root) out.push(t('features.agents.err.scopeBelow', { title: title(l.id), parent: l.root.title || t('common.untitled') }))
+    if (out.length) e.scope = out.join(' ')
   }
+  const outParent = d.output?.pageId ? parentBin(d.output.pageId) : null
   if (d.output && d.output.pageId && !ctx.pages[d.output.pageId]) e.output = t('features.agents.err.output')
+  else if (d.output?.pageId && outParent) e.output = t('features.agents.err.outputBelow', { title: title(d.output.pageId), parent: outParent })
   else if (d.output?.pageId && binned(d.output.pageId)) e.output = t('features.agents.err.outputTrashed', { title: title(d.output.pageId) })
-  if (!(d.maxRunUsd >= AGENT_LIMITS.minRunUsd && d.maxRunUsd <= AGENT_LIMITS.maxRunUsd)) e.budget = t('features.agents.err.budget', { min: fmtUsd(AGENT_LIMITS.minRunUsd, currentLang()), max: fmtUsd(AGENT_LIMITS.maxRunUsd, currentLang()) })
+  if (ctx.budget && parseAmount(ctx.budget.text, ctx.budget.lang) === null) e.budget = t('features.agents.err.budgetNumber', { example: fmtAmount(1.5, ctx.budget.lang) })
+  else if (!(d.maxRunUsd >= AGENT_LIMITS.minRunUsd && d.maxRunUsd <= AGENT_LIMITS.maxRunUsd)) e.budget = t('features.agents.err.budget', { min: fmtUsd(AGENT_LIMITS.minRunUsd, currentLang()), max: fmtUsd(AGENT_LIMITS.maxRunUsd, currentLang()) })
   if (d.runner === 'server' && (!ctx.inCloud || !ctx.serverOk)) e.runner = t('features.agents.err.server')
   return e
 }
@@ -221,15 +249,31 @@ export function AgentEditor({
   const creatorName = othersAgent ? people.find((p) => p.id === initial.createdBy)?.name.trim() : ''
   const set = (patch: Partial<CustomAgent>) => setD((x) => ({ ...x, ...patch }))
   const ids = { name: `${uid}-name`, instr: `${uid}-instr`, budget: `${uid}-budget`, out: `${uid}-out`, db: `${uid}-db` }
+  // the budget as typed, in the UI's language ("1,50" · "1.50"); the draft holds the number it reads as (NaN: none)
+  const [budgetText, setBudgetText] = useState(() => fmtAmount(initial.maxRunUsd, lang))
+  const shownLang = useRef(lang)
+  useEffect(() => {
+    // the language changed while the editor is open: the amount in the new one's format
+    if (shownLang.current === lang) return
+    const v = parseAmount(budgetText, shownLang.current)
+    shownLang.current = lang
+    if (v !== null) setBudgetText(fmtAmount(v, lang))
+  }, [lang, budgetText])
+  // the titles of the pages it names, as long as they are there: a page deleted for good meanwhile is still named
+  const titles = useRef<Record<ID, string>>({})
+  for (const id of [...d.scope.pages, ...d.scope.databases]) if (pages[id]) titles.current[id] = pages[id].title.trim() || t('common.untitled')
+  // a page missing here is deleted for good — unless it may be a teammate's private page (their agent, a team)
+  const seesAll = seesAllPagesOf(initial, inCloud, me)
+  const ctx = { pages, serverOk, inCloud, titles: titles.current, budget: { text: budgetText, lang }, seesAll }
 
   // errors follow the draft once a save was tried
   useEffect(() => {
-    if (tried) setErrors(validate(t, d, { pages, serverOk, inCloud }))
-  }, [d, tried, t, pages, serverOk, inCloud])
+    if (tried) setErrors(validate(t, d, { pages, serverOk, inCloud, titles: titles.current, budget: { text: budgetText, lang }, seesAll }))
+  }, [d, tried, t, pages, serverOk, inCloud, budgetText, lang, seesAll])
 
   const save = () => {
     setTried(true)
-    const e = validate(t, d, { pages, serverOk, inCloud })
+    const e = validate(t, d, ctx)
     setErrors(e)
     const first = Object.keys(e)[0]
     if (first) {
@@ -327,7 +371,7 @@ export function AgentEditor({
 
         {/* ---------------------------------------------------------- 03 access */}
         <Section n="03" title={t('features.agents.ed.access')}>
-          <ScopeFields d={d} set={set} error={errors.scope} />
+          <ScopeFields d={d} set={set} error={errors.scope} titles={titles.current} />
           <Field label={t('features.agents.ed.write')} hint={writeHint && d.write === 'stage' ? writeHint : t(`features.agents.write.${d.write}Hint`)}>
             <Seg
               label={t('features.agents.ed.write')}
@@ -422,17 +466,25 @@ export function AgentEditor({
                 <span className="agx-money__sign mono" aria-hidden>
                   $
                 </span>
+                {/* text, not type=number: the UI language's decimal mark (and a dot) — never a comma dropped silently */}
                 <input
                   id={ids.budget}
                   className="input mono"
-                  type="number"
+                  type="text"
                   inputMode="decimal"
-                  min={AGENT_LIMITS.minRunUsd}
-                  max={AGENT_LIMITS.maxRunUsd}
-                  step={0.05}
-                  value={Number.isFinite(d.maxRunUsd) ? d.maxRunUsd : ''}
+                  autoComplete="off"
+                  spellCheck={false}
+                  value={budgetText}
                   aria-invalid={!!errors.budget || undefined}
-                  onChange={(e) => set({ maxRunUsd: e.target.value === '' ? NaN : Number(e.target.value) })}
+                  aria-describedby={errors.budget ? `${ids.budget}-err` : `${ids.budget}-hint`}
+                  onChange={(e) => {
+                    setBudgetText(e.target.value)
+                    set({ maxRunUsd: parseAmount(e.target.value, lang) ?? NaN })
+                  }}
+                  onBlur={() => {
+                    const v = parseAmount(budgetText, lang)
+                    if (v !== null) setBudgetText(fmtAmount(v, lang))
+                  }}
                 />
               </div>
             </Field>
@@ -754,7 +806,7 @@ function TriggerFields({ t, lang, d, set, error, dbId, pages, databases }: { t: 
   )
 }
 
-function ScopeFields({ d, set, error }: { d: CustomAgent; set: (p: Partial<CustomAgent>) => void; error?: string }) {
+function ScopeFields({ d, set, error, titles }: { d: CustomAgent; set: (p: Partial<CustomAgent>) => void; error?: string; titles: Record<ID, string> }) {
   const t = useT()
   const pages = useWorkspace((s) => s.pages)
   const menu = useMenu()
@@ -781,14 +833,27 @@ function ScopeFields({ d, set, error }: { d: CustomAgent; set: (p: Partial<Custo
       {!d.scope.everything && (
         <div className="agx-chips" aria-label={t('features.agents.ed.scope')}>
           {chosen.map((id) => {
-            // in the trash (or below a page there): saving refuses it (validate) — the chip says which one
-            const binned = !!pages[id] && (!!pages[id].trashed || isEffectivelyTrashed(pages, id))
+            // in the trash (or below a page there — named) or deleted for good: saving refuses it (validate) — the chip
+            // says which one, and its × takes it out
+            const p = pages[id]
+            const binned = !!p && (!!p.trashed || isEffectivelyTrashed(pages, id))
+            const root = binned ? trashedRoot(pages, id) : null
+            const isDb = p ? p.kind === 'database' : d.scope.databases.includes(id)
+            const label = p ? p.title.trim() || t('common.untitled') : titles[id] || t(isDb ? 'features.agents.ed.goneDb' : 'features.agents.ed.gone')
             return (
-              <span key={id} className="agx-chipx" data-trashed={binned || undefined}>
-                <PageIcon icon={pages[id]?.icon} kind={pages[id]?.kind ?? 'page'} size={14} />
-                <span className="agx-chipx__text">{pages[id] ? pages[id].title.trim() || t('common.untitled') : t('features.agents.ed.gone')}</span>
-                {binned && <span className="agx-chipx__note label">{t('features.agents.ed.inTrash')}</span>}
-                <button type="button" className="icon-btn icon-btn--sm" onClick={() => remove(id)} aria-label={t('features.agents.ed.removeScope', { title: pages[id]?.title.trim() || t('common.untitled') })}>
+              <span key={id} className="agx-chipx" data-trashed={binned || undefined} data-gone={!p || undefined}>
+                <PageIcon icon={p?.icon} kind={p?.kind ?? (isDb ? 'database' : 'page')} size={14} />
+                <span className="agx-chipx__text">{label}</span>
+                {binned && (() => {
+                  const note = root && root.id !== id ? t('features.agents.ed.inTrashBelow', { parent: root.title.trim() || t('common.untitled') }) : t('features.agents.ed.inTrash')
+                  return (
+                    <span className="agx-chipx__note label" title={note}>
+                      {note}
+                    </span>
+                  )
+                })()}
+                {!p && titles[id] && <span className="agx-chipx__note label">{t('features.agents.ed.deleted')}</span>}
+                <button type="button" className="icon-btn icon-btn--sm" onClick={() => remove(id)} aria-label={t('features.agents.ed.removeScope', { title: label })}>
                   <X size={12} strokeWidth={1.8} />
                 </button>
               </span>

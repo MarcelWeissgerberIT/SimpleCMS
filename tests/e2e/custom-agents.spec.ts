@@ -215,7 +215,9 @@ test.describe('Custom agents', () => {
     await expect(run.locator('.agx-step').first()).toContainText('Search · “launch”')
     await expect(run.locator('.agx-step').nth(1)).toContainText('Query · Projects')
     await expect(run.getByTestId('agx-run-usd')).toHaveText(/\$\d|< \$0\.01/)
-    await expect(page.getByText('Status reader: run finished')).toBeVisible()
+    // its own page shows the run: no "run finished" toast over it
+    await page.waitForTimeout(500)
+    await expect(page.locator('.toast').filter({ hasText: 'Status reader: run finished' })).toHaveCount(0)
 
     const [rec] = await waitRuns(page, id, 1)
     expect(rec).toMatchObject({ agentId: id, runner: 'browser', status: 'ok', trigger: { type: 'manual' } })
@@ -521,7 +523,9 @@ test.describe('Custom agents', () => {
     const run = page.locator('.agx-run').first()
     await expect(run).toHaveAttribute('data-status', 'budget', { timeout: 20_000 })
     await expect(run).toContainText('Stopped: the budget of $0.10 for this run was used up.')
-    await expect(page.getByText('Spender: the run failed')).toBeVisible()
+    // its own page shows the stop: no "the run failed" toast over it
+    await page.waitForTimeout(500)
+    await expect(page.locator('.toast').filter({ hasText: 'Spender: the run failed' })).toHaveCount(0)
     const [rec] = await waitRuns(page, id, 1)
     expect(rec.status).toBe('budget')
     expect(rec.usage.usd).toBeGreaterThan(0.1)
