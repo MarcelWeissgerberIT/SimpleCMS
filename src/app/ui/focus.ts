@@ -25,9 +25,15 @@ export function restoreFocus(el: Element | null | undefined): void {
 /* region.                                                             */
 /* ------------------------------------------------------------------ */
 
-/** Can take focus: in the document, not inert, shown. */
+/** Can take focus: in the document, not inert, shown, not disabled (nor marked aria-disabled — a key that cannot act). */
 export const canFocus = (el: Element | null | undefined): el is HTMLElement =>
-  el instanceof HTMLElement && el !== document.body && el.isConnected && !el.closest('[inert]') && (el.offsetParent !== null || el.getClientRects().length > 0)
+  el instanceof HTMLElement &&
+  el !== document.body &&
+  el.isConnected &&
+  !el.closest('[inert]') &&
+  !el.matches(':disabled') &&
+  el.getAttribute('aria-disabled') !== 'true' &&
+  (el.offsetParent !== null || el.getClientRects().length > 0)
 
 /** Focus is nowhere (the page body) or on something removed or inert. */
 export const focusLost = (): boolean => !canFocus(document.activeElement)
@@ -112,13 +118,43 @@ export function dropFocusHandoff(el: Element | null | undefined): void {
 }
 
 /** Triggers of menus that just closed, checked together (a submenu closes with its menu). */
-let returning: { triggers: HTMLElement[]; hash: string } | null = null
+let returning: { triggers: HTMLElement[]; route: string } | null = null
+/** The route when a menu item was picked — before its action ran (it may navigate before the menu closes). */
+let picked: { route: string; at: number } | null = null
+const PICK_FRESH_MS = 1000
+/** The view shown: the hash without its query (`?b=` only scrolls the same page). */
+const routeNow = () => window.location.hash.split('?')[0]
+
+/** A menu item is picked: note the route before its action runs (ui/Menu.tsx; returnFocusAfterClose compares with it). */
+export function notePick(): void {
+  picked = { route: routeNow(), at: performance.now() }
+}
+
+/** How long after a pick changed the route its new view is watched (it renders a moment later, the main region anew). */
+const ROUTE_WATCH_MS = 600
+
+/**
+ * A pick changed the route: the new view renders a moment later and replaces the main region (the shell keys it by
+ * route), taking the focus with it. For a moment, focus that falls to the page body (two frames in a row) goes to the
+ * main region again — unless something of the new view took it.
+ */
+function mainAfterRoute(): void {
+  const until = performance.now() + ROUTE_WATCH_MS
+  let lost = false
+  const check = () => {
+    if (focusLost() && lost) focusMainRegion()
+    lost = focusLost()
+    if (performance.now() < until) requestAnimationFrame(check)
+  }
+  requestAnimationFrame(check)
+}
 
 /**
  * A menu closed by Esc or by a pick: focus goes back to `trigger` — the ARIA menu button — unless the pick moved it on
- * (a dialog opened, the route changed, a field took it). Checked two frames later, when what the pick opened has taken
+ * (a dialog opened, a field took it, the route changed). Checked two frames later, when what the pick opened has taken
  * the keyboard; a dialog opening right away gets `trigger` handed over. Of menus closing together the first trigger
- * still there takes it; all of them gone: the main region.
+ * still there takes it; all of them gone: the main region. A pick that changed the route (compared with the route
+ * before the pick's action ran — notePick()) leaves focus to the new view: the main region unless something there took it.
  */
 export function returnFocusAfterClose(trigger: Element | null | undefined): void {
   if (!(trigger instanceof HTMLElement) || trigger === document.body) return
@@ -127,13 +163,20 @@ export function returnFocusAfterClose(trigger: Element | null | undefined): void
     returning.triggers.push(trigger)
     return
   }
-  const batch = { triggers: [trigger], hash: window.location.hash }
+  const route = picked && performance.now() - picked.at <= PICK_FRESH_MS ? picked.route : routeNow()
+  picked = null
+  const batch = { triggers: [trigger], route }
   returning = batch
   requestAnimationFrame(() =>
     requestAnimationFrame(() => {
       returning = null
       batch.triggers.forEach(dropFocusHandoff)
-      if (window.location.hash !== batch.hash || !focusLost()) return
+      if (!focusLost()) return
+      if (routeNow() !== batch.route) {
+        focusMainRegion()
+        mainAfterRoute()
+        return
+      }
       const live = batch.triggers.filter((t) => t.isConnected)
       if (live.some((t) => focusNear(t))) return
       if (live.length < batch.triggers.length) focusMainRegion()

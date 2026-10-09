@@ -4,7 +4,7 @@ import { X } from 'lucide-react'
 import { useT } from '../i18n'
 import { titleIfClipped } from './clip'
 import { canFocus, focusLost, focusNear, mainRegion, restoreFocus, takeFocusHandoff } from './focus'
-import { armClosingGesture, pressOf, type Press } from './gesture'
+import { armClosingGesture, armOpeningGesture, pressOf, type Press } from './gesture'
 import { holdBackgroundToasts } from '../store/ui'
 
 export interface ModalProps {
@@ -187,6 +187,8 @@ export function Modal({ open, onClose, title, label, children, footer, width, cl
     stack.push({ dialog, prev })
     lockBackground()
     holdToasts()
+    // opened by a tap: a double tap's second tap never presses what now lies under the finger in here
+    armOpeningGesture(dialog.parentElement ?? dialog)
     const isTop = () => stack[stack.length - 1]?.dialog === dialog
 
     const onKey = (e: KeyboardEvent) => {
@@ -303,7 +305,8 @@ export function Modal({ open, onClose, title, label, children, footer, width, cl
   /**
    * The rest of a double-click whose first click opened this dialog never acts in it: the second press would land on
    * whatever now sits under the pointer (a footer key, the scrim). A click count above 1 before any click sequence
-   * began inside the dialog is swallowed; a sequence that starts here (count 1) is the person's own.
+   * began inside the dialog is swallowed; a sequence that starts here (count 1) is the person's own. A finger's double
+   * tap counts 1 on its second click: armOpeningGesture() (as the dialog opens) takes care of that.
    */
   const guard = (e: ReactMouseEvent) => {
     if (e.detail <= 1) {

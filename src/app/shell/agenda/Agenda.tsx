@@ -25,6 +25,8 @@ import './agenda.css'
 export type AgendaViewName = 'month' | 'week' | 'list'
 const VIEWS: AgendaViewName[] = ['month', 'week', 'list']
 const LIST_DAYS = 28
+/** Keys that use ← / → themselves (a tree row, tabs, a resize handle …): those arrows stay theirs. */
+const ARROW_KEYS = '[role="treeitem"], [role="tab"], [role="separator"], [role="slider"], [role="radio"], [role="option"], [role="gridcell"]'
 
 function useWidth(ref: RefObject<HTMLElement | null>): number {
   const [w, setW] = useState(0)
@@ -78,14 +80,17 @@ export function Agenda() {
     setCursor((c) => (view === 'month' ? dateToDay(addMonths(dayToDate(c), dir)) : view === 'week' ? c + 7 * dir : c + LIST_DAYS * dir))
   const goToday = () => setCursor(dateToDay(new Date()))
 
-  // ← / → move, T today, M / W / L switch views (not while typing, in a menu, the peek or a dialog)
+  // ← / → move, T today, M / W / L switch views (not while typing, in a menu, the peek or a dialog). Focus on a key of
+  // the sidebar (where a menu there gives it back) keeps them: only the keys that key uses itself are its own — the
+  // tree's arrows (handled, so defaultPrevented), the arrows of tabs and resize handles
   const keys = useRef({ step, goToday, setView })
   keys.current = { step, goToday, setView }
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.defaultPrevented || e.isComposing || e.metaKey || e.ctrlKey || e.altKey) return
       const el = e.target as HTMLElement | null
-      if (el?.closest?.('input, textarea, select, [contenteditable="true"], [contenteditable=""], [role="dialog"], [role="menu"], [data-popover], .sb')) return
+      if (el?.closest?.('input, textarea, select, [contenteditable="true"], [contenteditable=""], [role="dialog"], [role="menu"], [data-popover]')) return
+      if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && el?.closest?.(ARROW_KEYS)) return
       if (document.querySelector('[data-popover], .modal-scrim, .pal-scrim')) return
       const ui = useUI.getState()
       if (ui.peekPageId || ui.paletteOpen || ui.modal) return

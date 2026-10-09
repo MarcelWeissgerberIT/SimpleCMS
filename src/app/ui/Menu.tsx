@@ -5,6 +5,7 @@ import type { Placement } from '@floating-ui/react'
 import { useT } from '../i18n'
 import { usePointerIntent } from './pointer'
 import { titleIfClipped } from './clip'
+import { notePick } from './focus'
 
 const NARROW = '(max-width: 640px)'
 
@@ -112,6 +113,8 @@ function MenuListInner({ entries, onClose, searchable, searchPlaceholder = 'Sear
       if (el) setSub({ index: idx, el })
       return
     }
+    // the route before the pick's action runs: one that navigates leaves focus to the new view (ui/focus.ts)
+    if (!e.keepOpen) notePick()
     e.onSelect?.()
     if (!e.keepOpen) onClose()
   }

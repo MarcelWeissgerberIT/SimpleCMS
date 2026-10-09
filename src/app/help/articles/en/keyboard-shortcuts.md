@@ -21,9 +21,11 @@ Keys are shown for your system — ⌘ on a Mac, Ctrl elsewhere. The complete li
 - <kbd>?</kbd> — this help
 
 ## Menus and dialogs
-- <kbd>Esc</kbd> closes the menu or dialog on top. Focus goes back to the key that opened it — after a menu item too, and after a dialog that a menu item (or <kbd>Mod+K</kbd>) opened. Is that key gone, it lands in the page area, so the shortcuts above keep working.
+- <kbd>Esc</kbd> closes the menu or dialog on top. Focus goes back to the key that opened it — after a menu item too, and after a dialog that a menu item (or <kbd>Mod+K</kbd>) opened. Is that key gone, or can it not act right now, it lands in the page area, so the shortcuts above keep working. A menu item that opens another page (**Duplicate**, **Workspace settings**) leaves focus on that page.
 - A message's key (**Undo**, **Open**) gives focus back to where you were before you pressed it.
-- A double-click or double tap on a key that closes a dialog or a message acts once: the second press never lands on what lies underneath.
+- A double-click or double tap on a key that closes a dialog or a message acts once: the second press never lands on what lies underneath. A tap on another key right after is yours and works.
+- A double tap on a key that opens a dialog opens it once: the second tap never presses what just appeared under your finger.
+- The agenda's keys (← → T M W L) work while a key in the sidebar has the focus, too — on a page row the arrows still move through the tree.
 
 ## Writing
 - `/` — insert a block, <kbd>Space</kbd> on an empty line — ask Claude
