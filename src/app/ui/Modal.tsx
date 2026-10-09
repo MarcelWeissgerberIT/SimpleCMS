@@ -3,15 +3,18 @@ import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
 import { useT } from '../i18n'
 import { titleIfClipped } from './clip'
-import { restoreFocus } from './focus'
+import { canFocus, focusLost, focusNear, mainRegion, restoreFocus, takeFocusHandoff } from './focus'
+import { armClosingGesture, pressOf, type Press } from './gesture'
+import { holdBackgroundToasts } from '../store/ui'
 
 export interface ModalProps {
   open: boolean
   onClose: () => void
   title?: ReactNode
   /**
-   * Mono label shown before the title, e.g. "§ 04" or "SETTINGS". One too long to leave the title a comfortable width
-   * beside it (a phone) goes on its own line above the title, cut with "…" (its full text as a title on hover).
+   * Mono label shown before the title, e.g. "§ 04" or "SETTINGS". A title that fits on one line beside it stays there;
+   * one that would wrap in a narrow column beside it (under ~13em, a phone) or beside a label taking a good part of the
+   * row goes below it, the label on its own line above, cut with "…" (its full text as a title on hover).
    */
   label?: string
   children: ReactNode
@@ -56,30 +59,30 @@ function unlockBackground() {
   inerted = null
 }
 
-/** Can take focus: in the document, not inert, shown. */
-const canFocus = (el: Element | null | undefined): el is HTMLElement =>
-  el instanceof HTMLElement && el !== document.body && el.isConnected && !el.closest('[inert]') && (el.offsetParent !== null || el.getClientRects().length > 0)
-
-/** Focus is nowhere (the page body) or on something removed or inert. */
-const focusLost = () => !canFocus(document.activeElement)
-
-/** The main region (the skip link's target): where focus goes when nothing better is left. */
-const mainRegion = () => document.querySelector<HTMLElement>('#main:not([data-folded]), .stage-col[tabindex]:not([data-folded]), main[tabindex]')
-
 const anyOpen = () => stack.some((e) => e.dialog.isConnected)
 
 /**
- * Focus back to the dialog's opener — or, when that is gone (it closed with this dialog, a route change took it), inert
- * or unable to take it (disabled meanwhile), to the opener of the next dialog on the stack, then into the dialog still
- * open, then the main region (as the skip link). Never the page body, whatever order dialogs closing together clean up
- * in — unless nothing had the focus when the dialog opened.
+ * Background toasts (agent runs) never sit over a dialog: held while one is open, shown once the last one has closed —
+ * a frame later, so a dialog that closes as the next one opens (setup → editor) keeps them held.
+ */
+function holdToasts() {
+  if (anyOpen()) return holdBackgroundToasts(true)
+  requestAnimationFrame(() => holdBackgroundToasts(anyOpen()))
+}
+
+/**
+ * Focus back to the dialog's opener (or the key standing for it when it is hidden now — a row's action key shown only
+ * on hover) — or, when that is gone (it closed with this dialog, a route change took it), inert or unable to take it
+ * (disabled meanwhile), to the opener of the next dialog on the stack, then into the dialog still open, then the main
+ * region (as the skip link). Never the page body, whatever order dialogs closing together clean up in — also when
+ * nothing had the focus when the dialog opened.
  */
 function giveFocusBack(prev: HTMLElement | null) {
   if (canFocus(prev)) {
     restoreFocus(prev)
     if (!focusLost()) return
   }
-  if (!prev || prev === document.body || !focusLost()) return
+  if (!focusLost() || (prev && focusNear(prev))) return
   const open = [...stack].reverse().find((e) => e.dialog.isConnected)?.dialog
   const openers = [...stack].reverse().flatMap((e) => (e.prev && e.prev !== prev && (!open || open.contains(e.prev)) ? [e.prev] : []))
   for (const el of [...openers, open, mainRegion()]) {
@@ -142,70 +145,6 @@ function watchFocus(given: HTMLElement | null) {
   w.raf = requestAnimationFrame(check)
 }
 
-/* ------------------------------------------------------------------ */
-/* A dialog closed by a pointer: the rest of that gesture (the second  */
-/* click of a double-click, a double tap) never acts on what lies      */
-/* underneath — for a moment, outside any dialog still open.           */
-/* ------------------------------------------------------------------ */
-
-/** A press in a dialog or on its scrim. */
-interface Press {
-  at: number
-  x: number
-  y: number
-  /** touch or pen (a mouse: false) */
-  touch: boolean
-}
-
-/** How long after closing the rest of the closing gesture is swallowed. */
-const THROUGH_MS = 450
-/** A tap (or a mouse's next click) this close to the closing press belongs to the same gesture (px). */
-const TAP_SLOP = 16
-/** A press longer ago than this did not close the dialog (a key, a timer did). */
-const PRESS_FRESH_MS = 1000
-const THROUGH_EVENTS = ['pointerdown', 'pointerup', 'mousedown', 'mouseup', 'click', 'dblclick', 'touchstart', 'touchend'] as const
-
-let through: (Press & { until: number }) | null = null
-let throughTimer = 0
-
-function pointOf(e: Event): { x: number; y: number } | null {
-  if (typeof TouchEvent !== 'undefined' && e instanceof TouchEvent) {
-    const p = e.changedTouches[0]
-    return p ? { x: p.clientX, y: p.clientY } : null
-  }
-  return e instanceof MouseEvent ? { x: e.clientX, y: e.clientY } : null
-}
-
-/**
- * Capture listener while armed: a mouse's second click (click count ≥ 2 — single clicks are never touched) or a touch /
- * pen tap near the closing press, landing outside any dialog still open (its scrim counts as outside), is swallowed.
- */
-function swallowThrough(e: Event) {
-  const g = through
-  if (!g || performance.now() > g.until) return disarmThrough()
-  if (e.target instanceof Element && e.target.closest('[aria-modal="true"], [role="dialog"], [role="alertdialog"]')) return
-  const p = pointOf(e)
-  if (!p || Math.hypot(p.x - g.x, p.y - g.y) > TAP_SLOP) return
-  if (!g.touch && (e as UIEvent).detail < 2) return
-  e.stopImmediatePropagation()
-  if (e.cancelable && e.type !== 'touchstart') e.preventDefault()
-}
-
-function armThrough(p: Press) {
-  through = { ...p, until: performance.now() + THROUGH_MS }
-  if (throughTimer) window.clearTimeout(throughTimer)
-  else for (const type of THROUGH_EVENTS) window.addEventListener(type, swallowThrough, { capture: true, passive: type === 'touchstart' })
-  throughTimer = window.setTimeout(disarmThrough, THROUGH_MS)
-}
-
-function disarmThrough() {
-  if (!throughTimer) return
-  window.clearTimeout(throughTimer)
-  throughTimer = 0
-  through = null
-  for (const type of THROUGH_EVENTS) window.removeEventListener(type, swallowThrough, { capture: true })
-}
-
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex], [contenteditable="true"]'
 
 /** Tab stops inside `root`: skips roving items (tabindex=-1), inert and hidden elements. */
@@ -218,7 +157,7 @@ function focusables(root: HTMLElement): HTMLElement[] {
   )
 }
 
-/** The title keeps at least this much room (in its own font size) beside the label; less, and the label goes above it. */
+/** A title that would wrap beside the label keeps at least this much room (in its own font size) there; less, and the label goes above it. */
 const TITLE_ROOM_EM = 13
 /** A label wider than this share of the header row goes above a title that would wrap beside it. */
 const LABEL_SHARE = 0.3
@@ -242,9 +181,12 @@ export function Modal({ open, onClose, title, label, children, footer, width, cl
     if (!dialog) return
     fresh.current = true
     press.current = null
-    const prev = document.activeElement as HTMLElement | null
+    // the opener — or, focus already gone with a menu that opened this dialog (the palette too), the key it handed over
+    const active = document.activeElement
+    const prev = canFocus(active) ? active : takeFocusHandoff()
     stack.push({ dialog, prev })
     lockBackground()
+    holdToasts()
     const isTop = () => stack[stack.length - 1]?.dialog === dialog
 
     const onKey = (e: KeyboardEvent) => {
@@ -308,12 +250,12 @@ export function Modal({ open, onClose, title, label, children, footer, width, cl
       // un-inert first: an inert element cannot take focus back
       unlockBackground()
       giveFocusBack(prev)
+      holdToasts()
       // closed (not just re-run): look after focus for a moment; closed by a press, swallow the rest of its gesture
       if (dialog.isConnected) return
-      const active = document.activeElement
-      watchFocus(active instanceof HTMLElement && active !== document.body ? active : null)
-      const p = press.current
-      if (p && performance.now() - p.at < PRESS_FRESH_MS) armThrough(p)
+      const now = document.activeElement
+      watchFocus(now instanceof HTMLElement && now !== document.body ? now : null)
+      armClosingGesture(press.current)
     }
   }, [open, bare, ariaLabel, titleId])
 
@@ -337,8 +279,10 @@ export function Modal({ open, onClose, title, label, children, footer, width, cl
       range.selectNodeContents(title)
       const oneLine = range.getBoundingClientRect().width
       title.style.whiteSpace = ws
-      // too narrow for the title at all — or a label that takes a good part of the row makes the title wrap
-      const stack = room < TITLE_ROOM_EM * parseFloat(getComputedStyle(title).fontSize) || (room < oneLine && labelWidth > LABEL_SHARE * inner)
+      // a title that fits on one line beside the label stays there; one that would wrap goes below the label when
+      // that leaves it too narrow a column (under ~13em) or the label takes a good part of the row
+      const wraps = oneLine > room + 0.5
+      const stack = wraps && (room < TITLE_ROOM_EM * parseFloat(getComputedStyle(title).fontSize) || labelWidth > LABEL_SHARE * inner)
       head.toggleAttribute('data-stacked', stack)
     }
     fit()
@@ -354,7 +298,7 @@ export function Modal({ open, onClose, title, label, children, footer, width, cl
   const named = !bare && title !== undefined && title !== null && title !== ''
   /** A press in the dialog or on its scrim (a close right after it swallows the rest of that gesture). */
   const pressed = (e: ReactPointerEvent) => {
-    press.current = { at: performance.now(), x: e.clientX, y: e.clientY, touch: e.pointerType !== 'mouse' }
+    press.current = pressOf(e)
   }
   /**
    * The rest of a double-click whose first click opened this dialog never acts in it: the second press would land on

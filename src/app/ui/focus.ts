@@ -19,6 +19,129 @@ export function restoreFocus(el: Element | null | undefined): void {
   else el.focus({ preventScroll: true })
 }
 
+/* ------------------------------------------------------------------ */
+/* Focus never ends on the page body: dialogs, menus and toasts that   */
+/* close give it back — to their opener, a key beside it, the main     */
+/* region.                                                             */
+/* ------------------------------------------------------------------ */
+
+/** Can take focus: in the document, not inert, shown. */
+export const canFocus = (el: Element | null | undefined): el is HTMLElement =>
+  el instanceof HTMLElement && el !== document.body && el.isConnected && !el.closest('[inert]') && (el.offsetParent !== null || el.getClientRects().length > 0)
+
+/** Focus is nowhere (the page body) or on something removed or inert. */
+export const focusLost = (): boolean => !canFocus(document.activeElement)
+
+/** The main region (the skip link's target): where focus goes when nothing better is left. */
+export const mainRegion = (): HTMLElement | null => document.querySelector<HTMLElement>('#main:not([data-folded]), .stage-col[tabindex]:not([data-folded]), main[tabindex]')
+
+/**
+ * Nothing in particular has the focus: the page body, or the main region itself — where a closing dialog, menu or toast
+ * leaves it when nothing better is left. "Take the keyboard if nobody has it" checks use this, never `=== body`.
+ */
+export function focusIsNowhere(el: Element | null = document.activeElement): boolean {
+  return !el || el === document.body || el === document.documentElement || el.matches('#main, .stage-col[tabindex], main[tabindex]')
+}
+
+/** Main region, as the last place for focus to go. True when it took it. */
+export function focusMainRegion(): boolean {
+  const main = mainRegion()
+  if (!canFocus(main)) return false
+  restoreFocus(main)
+  return !focusLost()
+}
+
+const TAB_STOP = 'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"]), [contenteditable="true"]'
+/** Among the keys around a hidden opener, these stand for its row or item (a sidebar row's link). */
+const ITEM = '[role="treeitem"], [role="row"], [role="option"], [role="gridcell"], a[href]'
+
+/** A focusable stand-in inside `root`: its row / item first, else its first visible tab stop. */
+function standIn(root: Element): HTMLElement | null {
+  const keys = Array.from(root.querySelectorAll<HTMLElement>(TAB_STOP)).filter((k) => canFocus(k) && getComputedStyle(k).opacity !== '0')
+  return keys.find((k) => k.matches(ITEM)) ?? keys[0] ?? null
+}
+
+/**
+ * Focus `el` — or, when it cannot take it now (an action key shown only on hover, a row that is no key itself), the
+ * key that stands for it nearby: its row's link, the first visible key of the closest container that has one (never
+ * past a dialog, a popover or the main region). True when focus landed.
+ */
+export function focusNear(el: Element | null | undefined): boolean {
+  if (!(el instanceof HTMLElement) || !el.isConnected || el.closest('[inert]')) return false
+  if (canFocus(el) && el.matches(`${TAB_STOP}, [tabindex]`)) {
+    restoreFocus(el)
+    if (!focusLost()) return true
+  }
+  for (let box: HTMLElement | null = el, depth = 0; box && depth < 4; box = box.parentElement, depth++) {
+    if (box === document.body || (box !== el && box.matches('[role="dialog"], [data-popover], main, #main, .stage-col'))) break
+    const key = standIn(box)
+    if (!key) continue
+    restoreFocus(key)
+    if (!focusLost()) return true
+  }
+  return false
+}
+
+/*
+ * A key in a menu (or the palette, a toast) that opens a dialog: the menu is gone before the dialog opens, so the
+ * dialog would find focus on the page body. The menu hands its trigger over for a moment; the dialog opening then takes
+ * it as the element to give focus back to. A submenu and its menu closing together hand over both: the first one still
+ * in the document wins (the submenu's own opener is an item of the menu that closed).
+ */
+let handed: Array<{ el: HTMLElement; until: number }> = []
+const HANDOFF_MS = 1000
+
+/** Hand `el` to a dialog that opens in a moment (it gives focus back there when it closes). */
+export function handFocusOver(el: Element | null | undefined): void {
+  if (!(el instanceof HTMLElement) || el === document.body || !el.isConnected) return
+  const now = performance.now()
+  handed = [...handed.filter((h) => h.el !== el && h.until >= now), { el, until: now + HANDOFF_MS }]
+}
+
+/** The element handed over a moment ago and still in the document (once — the rest are dropped). */
+export function takeFocusHandoff(): HTMLElement | null {
+  const now = performance.now()
+  const h = handed.find((x) => x.until >= now && x.el.isConnected)
+  handed = []
+  return h?.el ?? null
+}
+
+/** No dialog took `el` (still handed over): drop it. */
+export function dropFocusHandoff(el: Element | null | undefined): void {
+  handed = handed.filter((h) => h.el !== el)
+}
+
+/** Triggers of menus that just closed, checked together (a submenu closes with its menu). */
+let returning: { triggers: HTMLElement[]; hash: string } | null = null
+
+/**
+ * A menu closed by Esc or by a pick: focus goes back to `trigger` — the ARIA menu button — unless the pick moved it on
+ * (a dialog opened, the route changed, a field took it). Checked two frames later, when what the pick opened has taken
+ * the keyboard; a dialog opening right away gets `trigger` handed over. Of menus closing together the first trigger
+ * still there takes it; all of them gone: the main region.
+ */
+export function returnFocusAfterClose(trigger: Element | null | undefined): void {
+  if (!(trigger instanceof HTMLElement) || trigger === document.body) return
+  handFocusOver(trigger)
+  if (returning) {
+    returning.triggers.push(trigger)
+    return
+  }
+  const batch = { triggers: [trigger], hash: window.location.hash }
+  returning = batch
+  requestAnimationFrame(() =>
+    requestAnimationFrame(() => {
+      returning = null
+      batch.triggers.forEach(dropFocusHandoff)
+      if (window.location.hash !== batch.hash || !focusLost()) return
+      const live = batch.triggers.filter((t) => t.isConnected)
+      if (live.some((t) => focusNear(t))) return
+      if (live.length < batch.triggers.length) focusMainRegion()
+    }),
+  )
+}
+
+
 /**
  * Focus a field that a click is about to show — in the same commit, not a frame later: the first letters
  * typed right after the click (on a busy machine a frame can take long) would go elsewhere. Call the

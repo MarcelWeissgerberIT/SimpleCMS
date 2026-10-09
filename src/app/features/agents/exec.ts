@@ -491,12 +491,12 @@ function notify(agent: CustomAgent, run: AgentRun, req: RunRequest) {
   const open = { label: t('features.agents.toast.review'), run: () => navigate(`#/agents/${agent.id}`) }
   if (pending) {
     if (!onAgentPage(agent.id))
-      ui.toast({ message: t(pending === 1 ? 'features.agents.toast.staged.one' : 'features.agents.toast.staged.other', { name: agent.name, count: pending }), kind: 'info', action: open, timeout: 10_000 })
-  } else if (run.status === 'error' || run.status === 'budget') ui.toast({ message: t('features.agents.toast.failed', { name: agent.name }), kind: 'error', action: { ...open, label: t('common.open') }, timeout: 8000 })
-  else if (req.manual) ui.toast({ message: t('features.agents.toast.done', { name: agent.name }), kind: 'success', action: { ...open, label: t('common.open') } })
+      ui.toast({ message: t(pending === 1 ? 'features.agents.toast.staged.one' : 'features.agents.toast.staged.other', { name: agent.name, count: pending }), kind: 'info', action: open, timeout: 10_000, background: true })
+  } else if (run.status === 'error' || run.status === 'budget') ui.toast({ message: t('features.agents.toast.failed', { name: agent.name }), kind: 'error', action: { ...open, label: t('common.open') }, timeout: 8000, background: true })
+  else if (req.manual) ui.toast({ message: t('features.agents.toast.done', { name: agent.name }), kind: 'success', action: { ...open, label: t('common.open') }, background: true })
   else if (run.applied && req.trigger.type === 'schedule') {
     // an 'apply' run on its schedule wrote something: say so once (the run lists what)
     const label = agentLabel(`agent:${agent.id}`) ?? agent.name
-    ui.toast({ message: t(run.applied === 1 ? 'features.agents.toast.applied.one' : 'features.agents.toast.applied.other', { label, count: run.applied }), kind: 'info', action: { ...open, label: t('common.open') } })
+    ui.toast({ message: t(run.applied === 1 ? 'features.agents.toast.applied.one' : 'features.agents.toast.applied.other', { label, count: run.applied }), kind: 'info', action: { ...open, label: t('common.open') }, background: true })
   }
 }

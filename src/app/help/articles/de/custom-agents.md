@@ -27,6 +27,8 @@ Diese gibt es mit einer aktiven [Integration](help:integrations), die sie freisc
 ## Läufe
 **Jetzt ausführen** startet sofort einen Lauf. Jeder Lauf steht unter **Läufe** mit Bericht, Schritten und Kosten; Vorschläge warten dort auf **Prüfen**, und die Seitenleiste zeigt, wie viele warten. Hat ein Agent neue Vorschläge, sagt es eine Meldung — außer seine eigene Seite ist offen, die zeigt sie ja schon.
 
+Meldungen zu Läufen liegen nie über einem Dialog: Kommt eine, während ein Dialog offen ist (der Editor eines Agenten, die Einstellungen), wartet sie und erscheint, sobald der letzte Dialog zu ist — ist sie dann älter als zwei Minuten, entfällt sie (der Lauf zeigt ohnehin alles).
+
 ## Browser oder Server
 - **Browser**-Agenten laufen in One, solange ein Tab offen ist — mit deinem Claude-Schlüssel und deinen MCP-Servern. Ein geplanter Lauf, der verpasst wurde, weil One geschlossen war, findet einmal beim nächsten Öffnen statt.
 - **Server**-Agenten (Team-Workspaces) laufen rund um die Uhr auf dem Team-Server, mit einem Claude-Schlüssel und MCP-Servern, die ein Admin unter **Einstellungen → Agenten · MCP** einrichtet.

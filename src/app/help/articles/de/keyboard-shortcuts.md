@@ -20,6 +20,11 @@ Die Tasten erscheinen passend zu deinem System — ⌘ auf dem Mac, sonst Strg/C
 - <kbd>Mod+J</kbd> — der Agent
 - <kbd>?</kbd> — diese Hilfe
 
+## Menüs und Dialoge
+- <kbd>Esc</kbd> schließt das Menü oder den Dialog obenauf. Der Fokus geht zurück auf die Taste, die ihn geöffnet hat — auch nach einem Menüeintrag und nach einem Dialog, den ein Menüeintrag (oder <kbd>Mod+K</kbd>) geöffnet hat. Gibt es diese Taste nicht mehr, landet er im Seitenbereich, und die Tastenkürzel oben wirken weiter.
+- Die Taste einer Meldung (**Rückgängig**, **Öffnen**) gibt den Fokus dorthin zurück, wo du vor dem Drücken warst.
+- Ein Doppelklick oder doppeltes Tippen auf eine Taste, die einen Dialog oder eine Meldung schließt, wirkt einmal: Der zweite Druck landet nie auf dem, was darunter liegt.
+
 ## Schreiben
 - `/` — Block einfügen, <kbd>Leertaste</kbd> in einer leeren Zeile — Claude fragen
 - <kbd>Mod+B</kbd>, <kbd>Mod+I</kbd> — fett, kursiv; <kbd>Mod+K</kbd> auf markiertem Text — Link

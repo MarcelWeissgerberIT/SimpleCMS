@@ -11,7 +11,7 @@ import { MediaToPage, type MediaItem } from '../../features'
 import { readableContent, ReadOnlyDoc } from '../../editor'
 import { TypeIcon } from '../../database'
 import { PageIcon } from '../../ui/PageIcon'
-import { restoreFocus as restoreFocusTo } from '../../ui/focus'
+import { handFocusOver, restoreFocus as restoreFocusTo } from '../../ui/focus'
 import { shortcutLabel, ALT } from '../../ui/controls'
 import { useT } from '../../i18n'
 import type { ID, Page } from '../../store/types'
@@ -128,6 +128,8 @@ function Palette() {
       setQuery('? ')
       return
     }
+    // a dialog the command opens gives focus back where it was before ⌘K
+    handFocusOver(prevFocus.current)
     finish()
     c.run()
   }

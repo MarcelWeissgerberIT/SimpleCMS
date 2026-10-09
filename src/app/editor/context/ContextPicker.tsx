@@ -10,6 +10,7 @@ import { createPortal } from 'react-dom'
 import type { Editor } from '@tiptap/core'
 import { Check } from 'lucide-react'
 import { Kbd } from '../../ui/controls'
+import { focusIsNowhere } from '../../ui/focus'
 import { useLang, useT } from '../../i18n'
 import type { ID } from '../../store/types'
 import { blockKey, countWords } from './read'
@@ -150,7 +151,7 @@ function PickerLayer({ editor, pageId }: { editor: Editor; pageId: ID }) {
       const inLayer = !!target && !!layerRef.current?.contains(target)
       const inBar = !!target && !!barRef.current?.contains(target)
       // typing somewhere else (the AI terminal's prompt …) is left alone — Esc still cancels from the bar
-      if (!inLayer && !inBar && target !== document.body) return
+      if (!inLayer && !inBar && !focusIsNowhere(target)) return
       const onButton = inBar && target?.tagName === 'BUTTON'
       const key = e.key
       let handled = true

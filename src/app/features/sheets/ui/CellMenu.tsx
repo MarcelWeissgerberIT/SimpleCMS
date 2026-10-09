@@ -12,6 +12,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 're
 import { createPortal } from 'react-dom'
 import { ArrowDownToLine, ArrowRightToLine, ChartColumnBig, ChevronLeft, ChevronRight, ClipboardPaste, Copy, Ellipsis, Eraser, ListChecks, PencilLine, Scissors, SquareDashedPlus } from 'lucide-react'
 import { MenuList, type MenuEntry } from '../../../ui/Menu'
+import { outsidePress } from '../../../ui/gesture'
 import { PickPanel } from './PickList'
 
 type T = (key: string, vars?: Record<string, string | number>) => string
@@ -200,7 +201,8 @@ export function CellMenu({ getBox, label, cells, editable, pick, areaOn, canFill
     const onDown = (e: PointerEvent | TouchEvent) => {
       const target = e.target as Element
       if (el.contains(target) || target.closest?.('[data-popover]')) return
-      closeRef.current('press')
+      // not the second click of the double-click that closed a dialog over it
+      outsidePress(e, () => closeRef.current('press'))
     }
     const onScroll = (e: Event) => {
       if (el.contains(e.target as Node)) return

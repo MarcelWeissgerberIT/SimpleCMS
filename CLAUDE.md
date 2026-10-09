@@ -28,7 +28,8 @@ app/index.html, src/app/main.tsx     workspace app entry (boot: load IndexedDB �
 src/app/store/**                     data model (types.ts = CONTRACT), zustand store, persistence, selectors, ui store
 src/app/lib/**                       router (hash), ids, files (IndexedDB blobs), colors, theme
 src/app/ui/**                        shared primitives: Popover, Menu/MenuList/useMenu, Modal, Tooltip, Switch/SwitchFace/
-                                     Kbd/Led, Screws (ui/screws.ts), roving.ts (radiogroup keys), PageIcon, IconPicker;
+                                     Kbd/Led, Screws (ui/screws.ts), roving.ts (radiogroup keys), PageIcon, IconPicker,
+                                     gesture.ts (closing-gesture guard), focus.ts (focus back after a close);
                                      ui/code = the shared highlighted code area (CodeArea / CodeView, tokenizers, placeholders,
                                      brackets; public API ui/code/index.ts); ui.css = base + primitive classes
 src/app/i18n/**                      t()/useT(); per-area strings in src/app/<area>/messages.ts
@@ -387,11 +388,27 @@ the public APIs stable — other areas are built against them in parallel.
   (localStorage `one.popover.size:<kind>`, never below the natural size, `[data-resized]`). The base `.popover` chrome
   is in `@layer one-popover-base`. In production ui.css loads AFTER the features chunk's CSS: an area rule that must
   beat `.input` / `.btn` needs two classes. Long labels cut with "…" get a title (ui/clip.ts).
-  Modal (ui/Modal.tsx): a dialog closed by a pointer press swallows the rest of that gesture for 450 ms outside any dialog
-  still open (mouse: click count ≥ 2 only; touch / pen: a tap within 16 px) — single clicks are never touched; for 600 ms
-  after closing (renewed by a route change in that time) focus that falls to the body because the element it went back to
-  is gone goes to the main region; the scrim's mousedown never moves focus. A `label` that would leave the title too
-  narrow goes on its own line above it (`.modal__header[data-stacked]`, measured, cut with "…").
+  Closing gesture (ui/gesture.ts): a dialog closed by a pointer press — and a toast's key, which removes its toast —
+  swallows the rest of that gesture for 450 ms (`armClosingGesture`; mouse: click count ≥ 2 within 16 px only; touch /
+  pen: a tap within 32 px or on the closing key's box + 8 px) — single clicks are never touched. Only presses inside an
+  open MODAL dialog (`[aria-modal="true"]`) are exempt, and only for a dialog's close (a toast exempts nothing) — never
+  the side peek or other non-modal panels. Outside-press handlers on pointerdown (Popover, Peek, CellMenu) go through
+  `outsidePress(e, close)`: a mouse pointerdown carries no click count, so one near the closing press waits for its
+  mousedown (a double-click's second closes nothing). A toast key ignores a click count ≥ 2 whose sequence began elsewhere.
+  Focus (ui/focus.ts) never ends on the body: a menu (a popover holding `[role="menu"]`) closed by Esc or a pick gives it
+  back to its Element anchor (`returnFocusAfterClose`, two frames later, unless a dialog / field took it or the route
+  changed; a trigger gone → main region); a dialog opening as focus is lost takes the key handed over by a menu, the
+  palette or a toast (`handFocusOver` / `takeFocusHandoff`) as its opener; an opener hidden now (a row's ⋯ shown on hover)
+  → `focusNear` (its row's link); nothing at all → `mainRegion()`. A toast removed while it holds focus gives it back
+  to where it was before the press / before the keyboard came in, else the main region. "Take the keyboard if nobody has
+  it" checks use `focusIsNowhere()` (body or the main region itself), never `=== document.body`. Modal (ui/Modal.tsx): for
+  600 ms after closing (renewed by a route change in that time) focus that falls to the body because the element it went
+  back to is gone goes to the main region; the scrim's mousedown never moves focus. A `label` stays beside a title that
+  fits on one line there; a title that would wrap goes below it when the column beside it is under ~13em or the label
+  takes > 30 % of the row (`.modal__header[data-stacked]`, measured, cut with "…").
+  Toasts: `toast({ background: true })` = raised by background work (agent runs, features/agents exec.ts `notify()`):
+  never over a dialog — held in `waitingToasts` while one is open (on-screen ones step back too), shown when the last
+  closes (`holdBackgroundToasts`, driven by ui/Modal.tsx), dropped when dismissed meanwhile or raised > 2 min before.
 - Cloud worker (features/coding Local | Cloud, team workspaces only, `viaFor()`; server/src/coding relay; mcp/src/worker
   cloud.ts / link.ts / box.ts; docs/CODING.md § Cloud worker, docs/CLOUD.md § Coding relay): the worker dials the team
   server, the relay pairs one tab ⇄ one worker per (workspace, member) and forwards only `key` / `box` / `relay` frames,

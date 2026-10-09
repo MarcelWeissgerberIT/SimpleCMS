@@ -11,6 +11,7 @@ import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
 import { navigate } from '../../lib/router'
 import { shortcutLabel } from '../../ui/controls'
+import { focusIsNowhere } from '../../ui/focus'
 import { useT } from '../../i18n'
 import { useIsMobile } from '../lib/hooks'
 import { endTour, rememberTour, useTour, TOUR_STEP_COUNT } from './state'
@@ -99,7 +100,7 @@ function Tour() {
     const onKey = (e: KeyboardEvent) => {
       if (e.defaultPrevented || e.isComposing || e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return
       const a = document.activeElement
-      if (a && a !== document.body && !placardRef.current?.contains(a)) return
+      if (!focusIsNowhere(a) && !placardRef.current?.contains(a)) return
       if (placardRef.current?.contains(a) && (e.target as HTMLElement).closest('input, textarea')) return
       if (e.key === 'ArrowRight') next()
       else if (e.key === 'ArrowLeft') back()
