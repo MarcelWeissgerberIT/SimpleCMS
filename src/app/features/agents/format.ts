@@ -66,6 +66,25 @@ export function nextRunText(t: Translate, agent: CustomAgent, lang: string, now 
 /** Money in the UI's language ("$3.00" · "3,00 $"): every caller passes the language (lib/money.ts). */
 export { fmtUsd } from '../../lib/money'
 
+/** An amount for a text field in the UI's language, without the sign: "1.50" · "1,50" ('' when not a number). */
+export function fmtAmount(n: number, lang: string): string {
+  if (!Number.isFinite(n)) return ''
+  return new Intl.NumberFormat(lang === 'de' ? 'de-DE' : 'en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4, useGrouping: false }).format(n)
+}
+
+/**
+ * An amount typed into a field: digits with the UI language's decimal mark — and a dot in any language ("1,5" and
+ * "1.5" in German, "1.5" in English); spaces and a "$" around it are ignored. Anything else is null (the field says
+ * so) — never a silent "15" for "1,5".
+ */
+export function parseAmount(text: string, lang: string): number | null {
+  const s = text.replace(/[\s  ]+/g, '').replace(/^\$|\$$/g, '')
+  const ok = lang === 'de' ? /^(?:\d+(?:[.,]\d*)?|[.,]\d+)$/ : /^(?:\d+(?:\.\d*)?|\.\d+)$/
+  if (!ok.test(s)) return null
+  const n = Number(s.replace(',', '.'))
+  return Number.isFinite(n) ? n : null
+}
+
 export function fmtDuration(ms: number): string {
   const s = Math.max(0, Math.round(ms / 1000))
   if (s < 60) return `${s}s`

@@ -2,7 +2,9 @@
  * Custom agents — reviewing what a run staged: apply (all or one, through the workspace agent's
  * apply.ts, stamped `agent:<id>`), discard (with the proposals that build on it), undo an applied
  * batch. Browser runs are stored on this device; server runs are applied here and then marked on
- * the server (POST …/agent-runs/:runId/resolve).
+ * the server (POST …/agent-runs/:runId/resolve). "Apply all" says so in a toast with Undo; ONE proposal applied
+ * shows its result in its own row, with an Undo there (canUndoChange / undoChange) — no toast that could cover the
+ * next key. Every proposal of a run discarded (none applied) puts back the agent state the run replaced (stateBack).
  */
 import type { ID } from '../../store/types'
 import { useUI } from '../../store/ui'
@@ -12,7 +14,7 @@ import type { StagedChange } from '../ai/agent/types'
 import { asAgent, stampLocal } from './attribution'
 import { touchedBy } from './exec'
 import { withoutWebImages } from './images'
-import { getAgentState, putAgentState, putRun } from './runs'
+import { getAgentState, loadRuns, putAgentState, putRun, type AgentState } from './runs'
 import { patchServerRun, resolveServerRun, serverErrorText } from './server'
 import type { AgentRun } from './types'
 
@@ -30,8 +32,16 @@ async function save(run: AgentRun, applied: string[], discarded: string[]): Prom
   } else await putRun(run)
 }
 
-/** Apply the given proposals of a run (default: every pending one). One Undo toast reverts them. */
-export async function applyRun(run: AgentRun, ids?: string[]): Promise<void> {
+/** ONE proposal applied from its row: its Undo (this tab, this session), by run and change. */
+const rowUndos = new Map<string, ApplyResult>()
+const rowKey = (runId: string, changeId: string) => `${runId}:${changeId}`
+export const canUndoChange = (runId: string, changeId: string) => rowUndos.has(rowKey(runId, changeId))
+
+/**
+ * Apply the given proposals of a run (default: every pending one). Several: one Undo toast reverts them. `row`: ONE
+ * proposal from its own row — its result shows there (applied, or why not) with an Undo key (undoChange), no toast.
+ */
+export async function applyRun(run: AgentRun, ids?: string[], opts: { row?: boolean } = {}): Promise<void> {
   const all = run.staged ?? []
   const targets = ids ? all.filter((c) => ids.includes(c.id)) : all.filter((c) => c.status === 'pending' || c.status === 'failed')
   if (!targets.length) return
@@ -48,7 +58,10 @@ export async function applyRun(run: AgentRun, ids?: string[]): Promise<void> {
   const [changed, created] = touchedBy(staged, res.applied, rowIds)
   stampLocal(run.agentId, changed, created)
   const next: AgentRun = { ...run, staged, rowIds, applied: (run.applied ?? 0) + res.applied.length }
+  // the row's Undo before the run is stored: the row draws it as soon as it shows the change applied
+  if (opts.row) for (const id of res.applied) rowUndos.set(rowKey(run.id, id), res)
   await save(next, res.applied, [])
+  if (opts.row) return
   const ui = useUI.getState()
   if (res.applied.length)
     ui.toast({
@@ -60,7 +73,19 @@ export async function applyRun(run: AgentRun, ids?: string[]): Promise<void> {
   if (res.failed.length) ui.toast({ message: tn('features.agent.toast.failed', res.failed.length), kind: 'error' })
 }
 
-async function undoApply(run: AgentRun, res: ApplyResult) {
+/**
+ * The Undo in the row of a proposal applied on its own: reverts it (`run`: the run as it is now). Returns how many of
+ * its changes were kept because they were edited since (null: nothing to undo here).
+ */
+export async function undoChange(run: AgentRun, changeId: string): Promise<number | null> {
+  const key = rowKey(run.id, changeId)
+  const res = rowUndos.get(key)
+  if (!res) return null
+  rowUndos.delete(key)
+  return undoApply(run, res, true)
+}
+
+async function undoApply(run: AgentRun, res: ApplyResult, row = false): Promise<number> {
   const { kept } = res.undo()
   // what was kept (edited since) or cannot be undone stays applied, with its row id
   const stays = new Set([...kept, ...res.final])
@@ -72,7 +97,8 @@ async function undoApply(run: AgentRun, res: ApplyResult) {
   // a server run stays resolved on the server: only this device's copy goes back to pending
   if (run.runner === 'server') patchServerRun({ ...run, staged, rowIds })
   else await putRun({ ...run, staged, rowIds, applied: Math.max(0, (run.applied ?? 0) - undone.length) })
-  useUI.getState().toast(kept.length ? tn('features.agent.toast.undoneKept', kept.length) : t('features.agent.toast.undone'))
+  if (!row) useUI.getState().toast(kept.length ? tn('features.agent.toast.undoneKept', kept.length) : t('features.agent.toast.undone'))
+  return kept.length
 }
 
 /** Discard a proposal of a run (and the proposals that build on it); null = every open one. */
@@ -94,16 +120,28 @@ export async function discardRun(run: AgentRun, id: string | null): Promise<void
   await save(await stateBack({ ...run, staged }), [], ids)
 }
 
+/** Every change of the run discarded, none applied (an 'apply' run's changes undone first): its work was never written. */
+const allDiscarded = (r: AgentRun) => !!r.staged?.length && r.staged.every((c) => c.status === 'discarded')
+
 /**
  * Every proposal of a browser run discarded, none applied: the agent state the run saved (its comment counts, cursors …
  * stand for work that was never written) goes back to the one it replaced — only while the saved state is still this
- * run's (no later run, no Clear since). A run partly applied keeps its state. The run's steps say so.
+ * run's (no later run, no Clear since). Runs discarded in any order end alike: the state it replaced was saved by
+ * another run whose every change is discarded too → on to the state THAT run replaced, and so on — the state of the
+ * newest run that still has applied (or open) work, or the one from before them all. A run partly applied keeps its
+ * state. The run's steps say so.
  */
 async function stateBack(run: AgentRun): Promise<AgentRun> {
-  const staged = run.staged ?? []
-  if (run.runner !== 'browser' || run.stateBefore === undefined || !staged.length || staged.some((c) => c.status !== 'discarded')) return run
+  if (run.runner !== 'browser' || run.stateBefore === undefined || !allDiscarded(run)) return run
   const cur = await getAgentState(run.agentId)
   if (cur?.runId !== run.id) return run
-  await putAgentState(run.agentId, run.stateBefore)
+  let back: AgentState | null = run.stateBefore
+  const runs = await loadRuns(run.agentId).catch(() => [] as AgentRun[])
+  const seen = new Set<string>([run.id])
+  for (let r = back ? runs.find((x) => x.id === back!.runId) : undefined; back && r && !seen.has(r.id) && allDiscarded(r) && r.stateBefore !== undefined; r = back ? runs.find((x) => x.id === back!.runId) : undefined) {
+    seen.add(r.id)
+    back = r.stateBefore
+  }
+  await putAgentState(run.agentId, back)
   return { ...run, steps: [...run.steps, { kind: 'note', label: t('features.agents.state.restored'), state: 'ok' }] }
 }

@@ -1,9 +1,12 @@
 /**
  * Custom agents — the run history of one agent: one instrument row per run (LED, trigger, start,
- * duration, cost), unfolding to the report, the step chips (tools, MCP calls, notes) and the review
- * of what the run staged (apply all / one, discard; the workspace agent's diff UI).
+ * duration, cost), unfolding to the report, the step chips (tools, MCP calls, notes — notes wrap, never cut) and the
+ * review of what the run staged (apply all / one, discard; the workspace agent's diff UI). ONE proposal applied shows
+ * its result in its row with an Undo there (no toast over the next key); after a key that goes away (Discard, Apply,
+ * Undo …) focus moves to the next proposal's first key or the review's heading — never to the page body. Numbers in
+ * the UI's language. Fits 390 px.
  */
-import { useState, type ReactNode } from 'react'
+import { useRef, useState, type ReactNode, type RefObject } from 'react'
 import { ChevronRight, ExternalLink, Undo2 } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
@@ -16,7 +19,7 @@ import { PropDiff, Preview } from '../ai/agent/AgentSheet'
 import { EditDiff } from '../ai/agent/EditDiff'
 import type { StagedChange } from '../ai/agent/types'
 import { canUndoRun, undoRun } from './exec'
-import { applyRun, discardRun } from './review'
+import { applyRun, canUndoChange, discardRun, undoChange } from './review'
 import { awaitsReview, putRun } from './runs'
 import { fmtDuration, fmtUsd, fmtWhen, statusLed } from './format'
 import type { AgentRun } from './types'
@@ -84,8 +87,8 @@ function RunItem({ run, n, first }: { run: AgentRun; n: number; first: boolean }
           {run.steps.length > 0 && <Steps run={run} />}
           {(run.staged?.length ?? 0) > 0 && <Review run={run} />}
           {run.usage && (
-            <p className="agx-run__usage mono">
-              IN {run.usage.input.toLocaleString()} · CACHE {run.usage.cacheRead.toLocaleString()} · OUT {run.usage.output.toLocaleString()} · ≈ {fmtUsd(run.usage.usd, lang)}
+            <p className="agx-run__usage mono" data-testid="agx-run-usage">
+              IN {run.usage.input.toLocaleString(lang)} · CACHE {run.usage.cacheRead.toLocaleString(lang)} · OUT {run.usage.output.toLocaleString(lang)} · ≈ {fmtUsd(run.usage.usd, lang)}
             </p>
           )}
         </div>
@@ -118,8 +121,33 @@ function Steps({ run }: { run: AgentRun }) {
 /** More proposals than this: the review's head (counts, Apply all) stays in view while scrolling. */
 const LONG_REVIEW = 8
 
+/** Where focus goes once a key is gone: a proposal's row (its Undo, else its first key), the next open one, the heading. */
+type FocusTo = { row: string; undo?: boolean } | { after: number } | 'head'
+
+/** Move focus inside the review once the store has the run's new state (the pressed key is gone by then). */
+function focusIn(root: RefObject<HTMLElement | null>, to: FocusTo) {
+  requestAnimationFrame(() => {
+    const el = root.current
+    if (!el) return
+    const head = el.querySelector<HTMLElement>('.agx-review__title')
+    const keysOf = (li: Element | null | undefined) => li?.querySelector<HTMLElement>('.agent-change__actions button:not(:disabled)') ?? null
+    let target: HTMLElement | null = null
+    if (to === 'head') target = head
+    else if ('row' in to) {
+      const li = el.querySelector(`li[data-change="${CSS.escape(to.row)}"]`)
+      target = (to.undo ? li?.querySelector<HTMLElement>('.agent-change__undo') : null) ?? keysOf(li)
+    } else {
+      const open = [...el.querySelectorAll<HTMLElement>('li.agent-change[data-status="pending"], li.agent-change[data-status="failed"]')]
+      const next = open.find((li) => Number(li.dataset.n) > to.after) ?? open[0]
+      target = keysOf(next)
+    }
+    ;(target ?? head)?.focus()
+  })
+}
+
 function Review({ run }: { run: AgentRun }) {
   const t = useT()
+  const root = useRef<HTMLElement>(null)
   const readOnly = useCloud((s) => s.readOnly)
   const changes = run.staged ?? []
   const open = changes.filter((c) => c.status === 'pending' || c.status === 'failed').length
@@ -130,10 +158,13 @@ function Review({ run }: { run: AgentRun }) {
   const kinds = new Map<StagedChange['kind'], number>()
   for (const c of changes) if (c.status === 'pending' || c.status === 'failed') kinds.set(c.kind, (kinds.get(c.kind) ?? 0) + 1)
   const long = changes.length > LONG_REVIEW
+  const headId = `agx-review-${run.id}`
   return (
-    <section className="agx-review" data-long={long || undefined} aria-label={t(changes.length === 1 ? 'features.agent.review.title.one' : 'features.agent.review.title.other', { count: changes.length })}>
+    <section ref={root} className="agx-review" data-long={long || undefined} aria-labelledby={headId}>
       <div className="agx-review__head">
-        <span className="label">{t(changes.length === 1 ? 'features.agent.review.title.one' : 'features.agent.review.title.other', { count: changes.length })}</span>
+        <h3 className="agx-review__title label" id={headId} tabIndex={-1}>
+          {t(changes.length === 1 ? 'features.agent.review.title.one' : 'features.agent.review.title.other', { count: changes.length })}
+        </h3>
         {kinds.size > 0 && (long || kinds.size > 1) && (
           <span className="agx-review__counts mono" data-testid="agx-review-counts">
             {[...kinds].sort((a, b) => b[1] - a[1]).map(([kind, n]) => t('features.agents.review.count', { count: n, kind: t(`features.agent.kind.${kind}`) })).join(' · ')}
@@ -149,6 +180,7 @@ function Review({ run }: { run: AgentRun }) {
               if (kept === null) return
               void putRun({ ...run, staged: changes.map((c) => (c.status === 'applied' ? { ...c, status: 'pending' } : c)), applied: 0, status: run.status === 'ok' ? 'staged' : run.status })
               useUI.getState().toast(kept ? t(kept === 1 ? 'features.agent.toast.undoneKept.one' : 'features.agent.toast.undoneKept.other', { count: kept }) : t('features.agent.toast.undone'))
+              focusIn(root, 'head')
             }}
           >
             <Undo2 size={12} strokeWidth={1.75} aria-hidden /> {t('features.agents.review.undo')}
@@ -156,10 +188,10 @@ function Review({ run }: { run: AgentRun }) {
         )}
         {open > 0 && (
           <>
-            <button type="button" className="btn btn--ghost btn--sm" disabled={disabled} onClick={() => void discardRun(run, null)}>
+            <button type="button" className="btn btn--ghost btn--sm" disabled={disabled} onClick={() => void discardRun(run, null).then(() => focusIn(root, 'head'))}>
               {t('features.agent.review.discardAll')}
             </button>
-            <button type="button" className="btn btn--primary btn--sm" disabled={disabled} onClick={() => void applyRun(run)}>
+            <button type="button" className="btn btn--primary btn--sm" disabled={disabled} onClick={() => void applyRun(run).then(() => focusIn(root, 'head'))}>
               {t('features.agent.review.applyAll')}
             </button>
           </>
@@ -168,16 +200,18 @@ function Review({ run }: { run: AgentRun }) {
       {readOnly && open > 0 && <p className="agx-note">{t('features.agent.review.readOnly')}</p>}
       <ol className="agent-changes agx-changes">
         {changes.map((c) => (
-          <Change key={c.id} run={run} change={c} disabled={disabled} />
+          <Change key={c.id} run={run} change={c} disabled={disabled} focus={(to) => focusIn(root, to)} />
         ))}
       </ol>
     </section>
   )
 }
 
-function Change({ run, change: c, disabled }: { run: AgentRun; change: StagedChange; disabled: boolean }) {
+function Change({ run, change: c, disabled, focus }: { run: AgentRun; change: StagedChange; disabled: boolean; focus: (to: FocusTo) => void }) {
   const t = useT()
   const pages = useWorkspace((s) => s.pages)
+  // what the row's own Undo did (undone; some of it kept because it was edited since) — shown while it is open again
+  const [note, setNote] = useState('')
   const all = run.staged ?? []
   const titleOf = (id: string | null | undefined) => {
     if (!id) return ''
@@ -201,8 +235,22 @@ function Change({ run, change: c, disabled }: { run: AgentRun; change: StagedCha
       </>
     )
   else if (c.kind === 'append' || c.kind === 'update_row' || c.kind === 'edit') title = titleOf(targetId) || c.title
+  const rowUndo = c.status === 'applied' && canUndoChange(run.id, c.id)
+  const apply = () => {
+    setNote('')
+    void applyRun(run, [c.id], { row: true }).then(() => focus({ row: c.id, undo: true }))
+  }
+  const discard = () => {
+    setNote('')
+    void discardRun(run, c.id).then(() => focus({ after: c.n }))
+  }
+  const undo = () =>
+    void undoChange(run, c.id).then((kept) => {
+      setNote(kept ? t(kept === 1 ? 'features.agent.toast.undoneKept.one' : 'features.agent.toast.undoneKept.other', { count: kept }) : t('features.agent.toast.undone'))
+      focus({ row: c.id })
+    })
   return (
-    <li className="agent-change" data-status={c.status} data-kind={c.kind} aria-label={`${label} ${t(`features.agent.kind.${c.kind}`)}`}>
+    <li className="agent-change" data-status={c.status} data-kind={c.kind} data-change={c.id} data-n={c.n} aria-label={`${label} ${t(`features.agent.kind.${c.kind}`)}`}>
       <div className="agent-change__head">
         <span className="agent-change__n mono">{label}</span>
         <span className="agent-change__kind label">{t(`features.agent.kind.${c.kind}`)}</span>
@@ -210,13 +258,13 @@ function Change({ run, change: c, disabled }: { run: AgentRun; change: StagedCha
         <span className="agent-spacer" />
         {c.status === 'pending' || c.status === 'failed' ? (
           <span className="agent-change__actions">
-            <button type="button" className="btn btn--ghost btn--sm" onClick={() => void discardRun(run, c.id)} disabled={disabled} aria-label={`${t('features.agent.review.discard')} ${label}`}>
+            <button type="button" className="btn btn--ghost btn--sm" onClick={discard} disabled={disabled} aria-label={`${t('features.agent.review.discard')} ${label}`}>
               {t('features.agent.review.discard')}
             </button>
             <button
               type="button"
               className="btn btn--sm btn--ink"
-              onClick={() => void applyRun(run, [c.id])}
+              onClick={apply}
               disabled={disabled || blocked}
               aria-label={`${t('features.agent.review.apply')} ${label}`}
               title={blocked && parent ? t('features.agent.review.needs', { n: parent.n }) : undefined}
@@ -229,6 +277,11 @@ function Change({ run, change: c, disabled }: { run: AgentRun; change: StagedCha
             <span className="agent-change__state label">
               <span className="led led--ok" aria-hidden /> {t('features.agent.review.applied')}
             </span>
+            {rowUndo && (
+              <button type="button" className="btn btn--ghost btn--sm agent-change__undo" onClick={undo} disabled={disabled} aria-label={`${t('common.undo')} ${label}`}>
+                <Undo2 size={12} strokeWidth={1.75} aria-hidden /> {t('common.undo')}
+              </button>
+            )}
             {target && (
               <button
                 type="button"
@@ -246,6 +299,11 @@ function Change({ run, change: c, disabled }: { run: AgentRun; change: StagedCha
           </span>
         )}
       </div>
+      {note && c.status === 'pending' && (
+        <p className="agent-change__note" role="status">
+          {note}
+        </p>
+      )}
       {title && <div className="agent-change__title">{title}</div>}
       {c.props && c.props.length > 0 && <PropDiff props={c.props} />}
       {c.kind === 'edit' && <EditDiff change={c} />}

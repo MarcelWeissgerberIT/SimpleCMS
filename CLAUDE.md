@@ -501,16 +501,26 @@ the public APIs stable — other areas are built against them in parallel.
   the trash via `trashMirror` / `restoreMirror`). A setup never makes a second live database of the same folded name
   (`sameNamedDb`); "Use …" → `reuseMirror` only when that database holds the recipe's key property. German strings name the
   settings tab "Claude KI" (shell.settings.tab.ai), never "Claude AI". A database's mirror (`mirrorAgentOf`): the agent
-  marked `CustomAgent.mirrorOf` = it (set by `mirrorDraft`, kept by sanitizeAgent) while its scope names it — whatever its
-  switch, write mode or servers; an unmarked one only by write ≠ none + a server of this device matching the profile (on
-  or off; not one whose `mcpTools` entry is []); never one marked for another database; team: only the member's own
-  (`createdBy`). "Use" takes back the report page this device's setup made for the database (mirrorMemory.ts, localStorage
-  `one.mirror.reports:<kind>:<id>` = { dbId: reportId } ≤ 100, never synced / backed up, wiped with the copy and the
-  local reset) while it is live and no saved agent uses it (then `created` = []: no Undo, no prompt, no toast). Titles
-  and agent names the setup makes are distinct (`distinctTitle`: " · <db>", then " (2)" …). Mirror toasts go through
-  `mirrorToast()`; every agent dialog (gallery, setup, any AgentEditor) calls `useDismissMirrorToasts()`. The editor never
-  saves against a trashed / effectively trashed scope page, trigger database or report page; the note's Undo asks
-  (MirrorUndoAsk) when the draft changed.
+  marked `CustomAgent.mirrorOf` = it (set by `mirrorDraft`, kept by sanitizeAgent) while it reaches it — its scope names
+  it, or (local workspace only) its scope is "everything" — whatever its switch, write mode or servers; an unmarked one
+  only by write ≠ none + a server of this device matching the profile (on or off; not one whose `mcpTools` entry is []);
+  never one marked for another database; team: only the member's own (`createdBy`). No live database of that name but one
+  in the trash that a saved agent (team: own) is marked for → the setup names both (Restore · Open, Create waits). "Use"
+  takes back the newest report page this device's setups made for the database (mirrorMemory.ts, localStorage
+  `one.mirror.reports:<kind>:<id>` = { dbId: [reportId, …] } newest first, ≤ 5 per database, ≤ 100 databases, never synced /
+  backed up, wiped with the copy and the local reset; the tab's own copy is merged into every read, so a refused write
+  still counts) that is live and that no saved agent holds — none that uses it or a page below it, none that may write
+  (write ≠ none) and names it or a page above it in its scope or as its report page; "everything" holds none (then
+  `created` = []: no Undo, no prompt, no toast). Titles: ONE function, `mirrorTitles()`, for the spec plate, `createMirror`
+  and `reuseMirror` — the plate shows exactly what the offered action makes ("Use": the kept page or the new title, the
+  recipe in the database's language, the agent's name too). Distinct (`distinctTitle`: " (<db>)", then " (2)" …) among
+  the other live pages — never the mirror's own database (report '{db}' → page 'Delta' next to database 'Delta') — and
+  the agent's name among the agents. The source list follows this device's settings live (a server switched off drops
+  out; the picked one stays marked, its field says so, Create waits). Mirror toasts go through `mirrorToast()`; every
+  agent dialog (gallery, setup, any AgentEditor) calls `useDismissMirrorToasts()`. The editor never saves against a
+  trashed / effectively trashed (the page in the trash named) or deleted scope page, trigger database or report page; the
+  note's Undo asks (MirrorUndoAsk) when the draft changed. The budget field is text in the UI's language
+  (format.ts `parseAmount` / `fmtAmount`: "1,5" and "1.5" in German, only "1.5" in English; anything else refused).
 - Custom agents: `Workspace.agents` (`CustomAgent`, store/types.ts; `createdBy` / `updatedBy` = account ids in a team,
   null locally — `upsertAgent` stamps `updatedBy` with the saver; a team browser agent runs only while `updatedBy` is its
   creator, otherwise it waits for the creator to confirm, features/agents/confirm.ts; on the team server `updatedBy` is
@@ -518,10 +528,16 @@ the public APIs stable — other areas are built against them in parallel.
   every reader sanitizes (store/agents.ts); team: meta map `agents`. Runs are per device (IndexedDB `one-agents`, last
   100 per agent), never synced; server runs come from `GET agent-runs`. Browser agents (features/agents/runner.ts) run in
   one leader tab per workspace (Web Lock), in team workspaces only in their creator's browser; one run per agent at a
-  time. A browser run whose proposals wait for review keeps the agent state it replaced (`AgentRun.stateBefore`, per
-  device with the run): every proposal discarded, none applied → it goes back (review.ts `stateBack`), only while the saved
-  state is still that run's. No "has N proposals" toast while that agent's page is the current view. Money reads in the
-  UI's language: `fmtUsd(usd, lang)` (lib/money.ts: "$3.00" · "3,00 $"). Agent writes are stamped `agent:<agentId>` (team: `writeAsAgent()`, cloud/index.ts) and never trigger agents;
+  time. A browser run that staged or applied changes keeps the agent state it replaced (`AgentRun.stateBefore`, per
+  device with the run): every change discarded (an 'apply' run's undone first), none applied → it goes back (review.ts
+  `stateBack`), only while the saved state is still that run's — and on through runs whose every change is discarded too
+  (any order ends at the newest run with applied work, or before them all). None of an agent's run toasts (finished,
+  failed, proposals) while its page is the current view. Pages it works with in the trash or gone (gone.ts `lostPages`):
+  named on its page with Restore; a browser run does not start while nothing in its scope or its report page is usable
+  (`runBlock` → an 'error' run with the reason + a toast). ONE proposal applied shows its result and Undo in its row (no
+  toast); focus after a key that goes goes to the next proposal or the review heading. Money and numbers read in the UI's
+  language: `fmtUsd(usd, lang)` (lib/money.ts: "$3.00" · "3,00 $"), also the mail cost line and the coding log's Claude
+  Code cost (coding/lines.ts formats the worker's number). Agent writes are stamped `agent:<agentId>` (team: `writeAsAgent()`, cloud/index.ts) and never trigger agents;
   render `agent:` ids with `agentLabel()` ("Agent · <name>"). Routes `#/agents`, `#/agents/<id>`. Team workspaces: a
   browser agent's "everything" scope is the shared pages; private pages only when named in its scope. Anything an
   agent writes turns web images into links (features/agents/images.ts) — no auto-loading pixels from injected text.

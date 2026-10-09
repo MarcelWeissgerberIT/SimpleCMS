@@ -271,7 +271,7 @@ const readTask: AgentTool = {
     if (d.local.git) out.push(`git: ${codingGitSummary(d.local.git)}`)
     const spawned = Object.entries(d.local.spawned ?? {}).filter(([, id]) => !!id && !!ws().pages[id!] && !ws().pages[id!]!.trashed)
     if (spawned.length) out.push(`handed on to: ${spawned.map(([k, id]) => `${k} (task id: ${id})`).join(', ')}`)
-    if (d.log.length) out.push(`log (newest ${d.log.length}):\n${output('log', d.log.map((l) => `${new Date(l.t).toISOString().slice(11, 19)} ${l.k} ${codingLogText(en, l)}`).join('\n'))}`)
+    if (d.log.length) out.push(`log (newest ${d.log.length}):\n${output('log', d.log.map((l) => `${new Date(l.t).toISOString().slice(11, 19)} ${l.k} ${codingLogText(en, l, 'en')}`).join('\n'))}`)
     out.push('The goal and criteria are the task’s page: read_page with this id.')
     return { content: clipResult(out.join('\n')), summary: d.title, state: 'ok' }
   },

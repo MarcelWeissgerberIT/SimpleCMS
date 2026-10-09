@@ -171,7 +171,7 @@ test.describe('Custom agents: a staged run’s agent state', () => {
     await expect.poll(() => stateJson(page, id)).toBe('{"comments":{"#1":2}}')
     await run.getByRole('button', { name: 'Discard all' }).click()
     await expect.poll(() => stateOf(page, id)).toEqual(first)
-    await expect(run.locator('.agx-step').last()).toHaveText('Every proposal discarded: the state is back to the one from before this run')
+    await expect(run.locator('.agx-step').last()).toHaveText('Every proposal discarded: the state from before this run applies again.')
     expect(await wsEval(page, (s, db) => (Object.values(s.pages) as AnyState[]).filter((p) => p.databaseId === db && !p.trashed).length, db)).toBe(0)
 
     // ---- proposals, Apply all: the new state stays
@@ -302,5 +302,255 @@ test.describe('Custom agents: money in the UI’s language', () => {
     await page.locator('.agx-head .btn--primary').click()
     await page.locator('.agx-recipe-modal [data-recipe="tracker:mirror"]').click()
     await expect(page.locator('.agx-mir').getByTestId('agx-mir-spec')).toContainText('1,00 $ pro Lauf')
+  })
+})
+
+test.describe('Custom agents: discarding runs, the review, toasts on the agent’s page, money and numbers', () => {
+  const rowsOf = (page: Page, db: string) => wsEval(page, (s, db) => (Object.values(s.pages) as AnyState[]).filter((p) => p.databaseId === db && !p.trashed).length, db)
+  /** Every toast message shown from now on (a toast that came and went counts too). Before openApp. */
+  const recordToasts = (page: Page) =>
+    page.addInitScript(() => {
+      const w = window as unknown as { __toasts: string[] }
+      w.__toasts = []
+      const seen = new WeakSet<Element>()
+      new MutationObserver(() => {
+        for (const el of document.querySelectorAll('.toast__msg'))
+          if (!seen.has(el)) {
+            seen.add(el)
+            w.__toasts.push(el.textContent ?? '')
+          }
+      }).observe(document, { childList: true, subtree: true, characterData: true })
+    })
+  const toastsSeen = (page: Page) => page.evaluate(() => (window as unknown as { __toasts: string[] }).__toasts)
+
+  test('C10 on the agent’s own page none of its run toasts show (finished, failed); from the list they do, and another agent’s show on that page', async ({ page, context }) => {
+    await recordToasts(page)
+    await openApp(page)
+    await setKey(page)
+    const db = await itemsDb(page)
+    const big = () => sseMessage([tool('t1', 'list_databases', {})], { input: 200_000, output: 50 })
+    await mockClaude(context, [
+      // 1: on its page, finished
+      () => sseMessage([say('Nothing new.')]),
+      // 2: on its page, over budget
+      big,
+      // 3: from the list, over budget
+      big,
+      // 4: another agent (a new row starts it) over budget while the first one's page is open
+      big,
+    ])
+    const id = await addAgent(page, { id: 'ag-quiet', name: 'Watcher', write: 'none' })
+    await addAgent(page, { id: 'ag-other', name: 'Row watcher', write: 'none', maxRunUsd: 0.01, trigger: { type: 'row_created', databaseId: db }, scope: { everything: false, pages: [], databases: [db] } })
+    const toastOf = (text: string) => page.locator('.toast').filter({ hasText: text })
+    await goAgent(page, id)
+    await runNow(page, 'ok', 1)
+    await wsEval(page, (s, id) => s.upsertAgent({ ...s.agents[id], maxRunUsd: 0.01 }), id)
+    await flush(page)
+    await runNow(page, 'budget', 2)
+    // (the run is stored first, its toast comes after: wait, then look at every toast that was shown)
+    await page.waitForTimeout(1500)
+    expect((await toastsSeen(page)).filter((m) => m.startsWith('Watcher:'))).toEqual([])
+    // from the list: the toast comes
+    await page.evaluate(() => (window.location.hash = '#/agents'))
+    await page.getByRole('button', { name: 'Run Watcher now' }).click()
+    await expect(toastOf('Watcher: the run failed')).toBeVisible({ timeout: 20_000 })
+    // another agent's toast while "Watcher" is open
+    await goAgent(page, id)
+    await wsEval(page, (s, db) => s.createRow(db, { title: 'Item new' }), db)
+    await expect(toastOf('Row watcher: the run failed')).toBeVisible({ timeout: 30_000 })
+  })
+
+  /** Two runs waiting for review that each set a state, after a first run (read only) set #1:1. */
+  async function twoWaiting(page: Page, context: BrowserContext, base: number) {
+    const db = await itemsDb(page)
+    await mockClaude(context, [
+      () => sseMessage([setState('a1', 1)]),
+      () => sseMessage([say('First look.')]),
+      () => sseMessage([upsert('b1', db, ['1']), setState('b2', base)]),
+      () => sseMessage([say('1 new item.')]),
+      () => sseMessage([upsert('c1', db, ['2']), setState('c2', base + 1)]),
+      () => sseMessage([say('1 new item.')]),
+    ])
+    return db
+  }
+
+  for (const order of ['older first', 'newer first'] as const) {
+    test(`C11 two waiting runs discarded (${order}): the state from before both is back`, async ({ page, context }) => {
+      await openApp(page)
+      await setKey(page)
+      await unlockAll(page)
+      const db = await twoWaiting(page, context, 2)
+      const id = await addAgent(page, { id: 'ag-two', name: 'Item mirror', write: 'none' })
+      await goAgent(page, id)
+      await runNow(page, 'ok', 1)
+      await expect.poll(() => stateJson(page, id)).toBe('{"comments":{"#1":1}}')
+      const first = await stateOf(page, id)
+      await wsEval(page, (s, id) => s.upsertAgent({ ...s.agents[id], write: 'stage' }), id)
+      await flush(page)
+      await runNow(page, 'staged', 2)
+      await expect.poll(() => stateJson(page, id)).toBe('{"comments":{"#1":2}}')
+      await runNow(page, 'staged', 3)
+      await expect.poll(() => stateJson(page, id)).toBe('{"comments":{"#1":3}}')
+      // runs newest first: B (#1:3) on top, A (#1:2) below it
+      const [b, a] = [page.locator('.agx-run').nth(0), page.locator('.agx-run').nth(1)]
+      const steps = order === 'older first' ? [a, b] : [b, a]
+      for (const run of steps) {
+        await run.getByRole('button', { name: 'Discard all' }).click()
+        await expect(run.locator('.agent-change[data-status="discarded"]')).toHaveCount(1)
+      }
+      await expect.poll(() => stateOf(page, id)).toEqual(first)
+      expect(await rowsOf(page, db)).toBe(0)
+    })
+  }
+
+  test('C11 an "apply" run undone and then discarded puts back the state it replaced, like a run of proposals', async ({ page, context }) => {
+    await openApp(page)
+    await setKey(page)
+    await unlockAll(page)
+    const db = await itemsDb(page)
+    await mockClaude(context, [
+      () => sseMessage([setState('a1', 1)]),
+      () => sseMessage([say('First look.')]),
+      () => sseMessage([upsert('b1', db, ['1']), setState('b2', 2)]),
+      () => sseMessage([say('1 new item.')]),
+    ])
+    const id = await addAgent(page, { id: 'ag-apply', name: 'Item mirror', write: 'none' })
+    await goAgent(page, id)
+    await runNow(page, 'ok', 1)
+    await expect.poll(() => stateJson(page, id)).toBe('{"comments":{"#1":1}}')
+    const first = await stateOf(page, id)
+    await wsEval(page, (s, id) => s.upsertAgent({ ...s.agents[id], write: 'apply' }), id)
+    await flush(page)
+    await runNow(page, 'ok', 2)
+    await expect.poll(() => rowsOf(page, db)).toBe(1)
+    await expect.poll(() => stateJson(page, id)).toBe('{"comments":{"#1":2}}')
+    const run = page.locator('.agx-run').first()
+    await run.getByRole('button', { name: 'Undo changes' }).click()
+    await expect.poll(() => rowsOf(page, db)).toBe(0)
+    await run.getByRole('button', { name: 'Discard all' }).click()
+    await expect.poll(() => stateOf(page, id)).toEqual(first)
+    await expect(run.locator('.agx-step').last()).toHaveText('Every proposal discarded: the state from before this run applies again.')
+  })
+
+  test('C12 the review at 390 px in German: nothing runs off the edge; one proposal applied shows its result and Rückgängig in its row (no toast); focus moves on, never to the page; numbers and the restore note in German', async ({ page, context }) => {
+    await page.setViewportSize({ width: 390, height: 844 })
+    await openApp(page)
+    await setKey(page)
+    await unlockAll(page)
+    const db = await itemsDb(page)
+    await mockClaude(context, [
+      () => sseMessage([upsert('a1', db, ['1', '2', '3']), setState('a2', 1)]),
+      () => sseMessage([say('3 neue Einträge.')]),
+      () => sseMessage([upsert('b1', db, ['4', '5'])]),
+      () => sseMessage([say('2 neue Einträge.')]),
+    ])
+    await wsEval(page, (s) => s.updateSettings({ language: 'de' }))
+    const id = await addAgent(page, { id: 'ag-phone', name: 'Spiegel', write: 'stage' })
+    await goAgent(page, id)
+    await page.getByRole('button', { name: 'Jetzt ausführen' }).click()
+    const run = page.locator('.agx-run').first()
+    await expect(run).toHaveAttribute('data-status', 'staged', { timeout: 20_000 })
+    await expect(run.locator('.agent-change')).toHaveCount(3)
+    // nothing wider than the phone
+    const wide = await page.evaluate(() => {
+      const main = document.querySelector('#main') as HTMLElement
+      const keys = [...document.querySelectorAll<HTMLElement>('.agx-review button, .agx-review .label')].filter((el) => el.getBoundingClientRect().right > window.innerWidth + 0.5).map((el) => el.textContent)
+      return { main: main.scrollWidth - main.clientWidth, keys }
+    })
+    expect(wide).toEqual({ main: 0, keys: [] })
+    // numbers in German
+    await expect(run.getByTestId('agx-run-usage')).toContainText('IN 2.400')
+
+    // one proposal: its result in its row, with Rückgängig there — no toast that could cover the next key
+    await run.getByRole('button', { name: 'Übernehmen #1' }).click()
+    await expect(run.locator('.agent-change').nth(0)).toHaveAttribute('data-status', 'applied')
+    await expect.poll(() => rowsOf(page, db)).toBe(1)
+    const undo1 = run.getByRole('button', { name: 'Rückgängig #1' })
+    await expect(undo1).toBeVisible()
+    await expect(undo1).toBeFocused()
+    await page.waitForTimeout(300)
+    await expect(page.locator('.toast')).toHaveCount(0)
+    await undo1.click()
+    await expect(run.locator('.agent-change').nth(0)).toHaveAttribute('data-status', 'pending')
+    await expect.poll(() => rowsOf(page, db)).toBe(0)
+    await expect(run.getByRole('button', { name: 'Verwerfen #1' })).toBeFocused()
+    await expect(page.locator('.toast')).toHaveCount(0)
+
+    // discarding one: focus on the next proposal's first key, the heading once none is left
+    await run.getByRole('button', { name: 'Verwerfen #1' }).click()
+    await expect(run.getByRole('button', { name: 'Verwerfen #2' })).toBeFocused()
+    await run.getByRole('button', { name: 'Verwerfen #2' }).click()
+    await expect(run.getByRole('button', { name: 'Verwerfen #3' })).toBeFocused()
+    await run.getByRole('button', { name: 'Verwerfen #3' }).click()
+    await expect(run.locator('.agx-review__title')).toBeFocused()
+    // the note that the state is back: whole, wrapped — never cut
+    const note = run.locator('.agx-step').last().locator('.agx-step__text')
+    await expect(note).toHaveText('Alle Vorschläge verworfen: Der Zustand von vor diesem Lauf gilt wieder.')
+    expect(await note.evaluate((el) => el.scrollWidth <= el.clientWidth + 1)).toBe(true)
+
+    // "Alle verwerfen": focus on the review's heading
+    await page.getByRole('button', { name: 'Jetzt ausführen' }).click()
+    const second = page.locator('.agx-run').first()
+    await expect(second).toHaveAttribute('data-status', 'staged', { timeout: 20_000 })
+    await second.getByRole('button', { name: 'Alle verwerfen' }).click()
+    await expect(second.locator('.agx-review__title')).toBeFocused()
+    expect(await page.evaluate(() => document.activeElement === document.body)).toBe(false)
+  })
+
+  test('C14 the budget field in the UI’s language: German “1,5” is 1,50 $ (a dot too), anything else is refused — never a silent ×10', async ({ page }) => {
+    await openApp(page)
+    const id = await addAgent(page, { id: 'ag-budget', name: 'Kasse', write: 'none', maxRunUsd: 0.5 })
+    await wsEval(page, (s) => s.updateSettings({ language: 'de' }))
+    await goAgent(page, id)
+    const editor = page.locator('.agx-editor')
+    const input = editor.locator('.agx-money input')
+    const edit = async () => {
+      await page.getByRole('button', { name: 'Bearbeiten' }).click()
+      await expect(editor).toBeVisible()
+    }
+    await edit()
+    await expect(input).toHaveAttribute('type', 'text')
+    await expect(input).toHaveAttribute('inputmode', 'decimal')
+    await expect(input).toHaveValue('0,50')
+    await input.fill('')
+    await input.pressSequentially('1,5')
+    await expect(input).toHaveValue('1,5')
+    await editor.getByRole('button', { name: 'Speichern' }).click()
+    await expect(editor).toHaveCount(0)
+    expect(await wsEval(page, (s, id) => s.agents[id].maxRunUsd, id)).toBe(1.5)
+    await expect(page.locator('.agx-spec--plate')).toContainText('1,50 $ pro Lauf')
+    // shown in German; a dot is read too
+    await edit()
+    await expect(input).toHaveValue('1,50')
+    await input.fill('0.75')
+    await editor.getByRole('button', { name: 'Speichern' }).click()
+    await expect(editor).toHaveCount(0)
+    expect(await wsEval(page, (s, id) => s.agents[id].maxRunUsd, id)).toBe(0.75)
+    // no number: refused, said so
+    await edit()
+    await input.fill('1,5 Euro')
+    await editor.getByRole('button', { name: 'Speichern' }).click()
+    await expect(editor.locator('.agx-field__error')).toHaveText('Gib den Betrag als Zahl an, etwa 1,50.')
+    expect(await wsEval(page, (s, id) => s.agents[id].maxRunUsd, id)).toBe(0.75)
+    // English: the comma is not its decimal mark — refused, never 15
+    await wsEval(page, (s) => s.updateSettings({ language: 'en' }))
+    await input.fill('1,5')
+    await editor.getByRole('button', { name: 'Save' }).click()
+    await expect(editor.locator('.agx-field__error')).toHaveText('Enter the amount as a number, such as 1.50.')
+    expect(await wsEval(page, (s, id) => s.agents[id].maxRunUsd, id)).toBe(0.75)
+  })
+
+  test('C13 Settings → E-Mail: the cost per run in the UI’s language (“≈ 0,27 $”)', async ({ page }) => {
+    await openApp(page)
+    await setKey(page)
+    await wsEval(page, (s) => s.updateSettings({ language: 'de' }))
+    await page.evaluate(() => (window as unknown as { __one: { ui: { getState: () => { openModal: (m: unknown) => void } } } }).__one.ui.getState().openModal({ type: 'settings' }))
+    await page.getByRole('tab', { name: /E-Mail/ }).click()
+    const dialog = page.getByRole('dialog')
+    await dialog.getByRole('switch', { name: /Neue Mails mit Claude ordnen/ }).first().click()
+    const cost = dialog.getByTestId('mail-cost')
+    await expect(cost).toBeVisible()
+    await expect(cost).toContainText(/≈ \d+,\d\d\s\$|< 0,01\s\$/)
+    await expect(cost).not.toContainText('$0.')
   })
 })

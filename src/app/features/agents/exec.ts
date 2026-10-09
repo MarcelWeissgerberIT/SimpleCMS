@@ -43,6 +43,7 @@ import type { AgentRun, AgentRunStep } from './types'
 import { memoryFor, noteUse } from '../ai/memory/use'
 import { recallTool } from '../ai/memory/tools'
 import { unlocked } from './integrations/status'
+import { blockText, lostText, runBlock } from './gone'
 
 /* ------------------------------------------------------------------ */
 /* Prompt                                                              */
@@ -229,6 +230,10 @@ export async function executeRun(agent: CustomAgent, req: RunRequest): Promise<A
 }
 
 async function runOnce(agent: CustomAgent, req: RunRequest): Promise<AgentRun> {
+  // nothing in its scope can be used, or its report page is in the trash or gone (gone.ts): no run — it ends as an error
+  // that says why (the run list and a toast), never as a run that "finished"
+  const block = runBlock(agent, useWorkspace.getState().pages, t('common.untitled'))
+  if (block) return blockedRun(agent, req, blockText(t, block), block.lost.map((l) => lostText(t, l)).join(' '))
   // what earlier runs left: the last successful one (context), the agent's saved state (runTools.ts)
   let last: AgentRun | null = null
   let saved: AgentState | null = null
@@ -445,17 +450,32 @@ async function runOnce(agent: CustomAgent, req: RunRequest): Promise<AgentRun> {
 }
 
 /**
+ * A run that never started (runBlock): stored as an error with its reason, and a toast that names it — none while the
+ * agent's own page is open (the run list shows it there).
+ */
+async function blockedRun(agent: CustomAgent, req: RunRequest, reason: string, detail: string): Promise<AgentRun> {
+  const now = Date.now()
+  const run: AgentRun = { id: newId(), agentId: agent.id, runner: 'browser', trigger: req.trigger, startedAt: now, endedAt: now, status: 'error', error: reason, summary: '', steps: [] }
+  await putRun(run)
+  if (!onAgentPage(agent.id))
+    useUI.getState().toast({ message: t('features.agents.toast.blocked', { name: agent.name, detail }), kind: 'error', action: { label: t('common.open'), run: () => navigate(`#/agents/${agent.id}`) }, timeout: 10_000 })
+  return run
+}
+
+/**
  * The run's own bookkeeping (runTools.ts), once it is over: a run that did its job (ok, or proposals for review)
  * saves the state it set and delivers its notes to the inbox; a failed or budget run keeps the old state and
- * drops its notes (the steps say so).
+ * drops its notes (the steps say so). A run that wrote or proposed changes keeps the state it replaces
+ * (`stateBefore`): discarding every one of its changes — undone first, for an 'apply' run — puts it back (review.ts).
  */
 async function settleExtras(agent: CustomAgent, run: AgentRun, extras: RunExtras, rowIds: Record<string, ID>) {
   const done = run.status === 'ok' || run.status === 'staged'
   if (extras.pending !== undefined) {
     if (done) {
       try {
-        // proposals wait for review: the run keeps the state it replaces — discarding every one of them puts it back
-        if (run.status === 'staged') run.stateBefore = await getAgentState(agent.id)
+        // proposals wait for review (or changes were applied — undoable): the run keeps the state it replaces —
+        // discarding every one of them puts it back
+        if (run.status === 'staged' || run.staged?.length) run.stateBefore = await getAgentState(agent.id)
         await putAgentState(agent.id, { json: extras.pending, at: Date.now(), runId: run.id })
         run.steps.push({ kind: 'note', label: t('features.agents.state.saved', { n: new TextEncoder().encode(extras.pending).length }), state: 'ok' })
       } catch (e) {
@@ -484,8 +504,13 @@ function onAgentPage(agentId: ID): boolean {
   return r.name === 'agents' && r.id === agentId
 }
 
-/** Tell the person about a run that needs them — or that a scheduled run changed things on its own. */
+/**
+ * Tell the person about a run that needs them — or that a scheduled run changed things on its own. None of the agent's
+ * run toasts while its own page is open: the page shows the run (finished, failed, proposals) already.
+ */
 function notify(agent: CustomAgent, run: AgentRun, req: RunRequest) {
+  if (onAgentPage(agent.id)) return
+
   const pending = (run.staged ?? []).filter((c) => c.status === 'pending').length
   const ui = useUI.getState()
   const open = { label: t('features.agents.toast.review'), run: () => navigate(`#/agents/${agent.id}`) }

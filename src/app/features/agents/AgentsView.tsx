@@ -3,7 +3,9 @@
  * last runs, what waits for review), "New agent" from a starter recipe — or from a recipe an active integration
  * profile brings (named by the profile; a mirror sets up its database first, MirrorSetup.tsx); #/agents/<id> — one agent:
  * its spec plate, run now, edit, and its run history with the review of staged changes. A team browser
- * agent changed by another member waits for its creator, who confirms it on its page (confirm.ts).
+ * agent changed by another member waits for its creator, who confirms it on its page (confirm.ts). Pages the agent
+ * works with that are in the trash or gone are named on its page, each trashed one with Restore (gone.ts — a browser
+ * run does not start while nothing in its scope or its report page is usable).
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowLeft, Check, KeyRound, MoreHorizontal, Pencil, Play, Plus, Trash2 } from 'lucide-react'
@@ -35,6 +37,7 @@ import { fmtUsd, fmtWhen, nextRunText, recentCost, statusLed, triggerText } from
 import { runsHere } from './runner'
 import { confirmAgent, useConfirmState, type ConfirmState } from './confirm'
 import type { AgentRun } from './types'
+import { lostPages, lostText, restoreTarget, runBlock, seesAllPagesOf } from './gone'
 import './agents.css'
 
 const pad = (n: number) => String(n).padStart(2, '0')
@@ -80,6 +83,52 @@ function SavedState({ agent, runs }: { agent: CustomAgent; runs: AgentRun[] }) {
         {t('features.agents.state.clear')}
       </button>
     </p>
+  )
+}
+
+/**
+ * The pages a saved agent works with that are in the trash or gone (gone.ts): each named with what it is for, a trashed
+ * one (or the page in the trash above it) with Restore. Says when its browser runs do not start because of them.
+ */
+function LostNotice({ agent }: { agent: CustomAgent }) {
+  const t = useT()
+  const pages = useWorkspace((s) => s.pages)
+  const readOnly = useCloud((s) => s.readOnly)
+  const team = useCloud((s) => s.active.kind === 'cloud')
+  const me = useCloud((s) => s.user?.id ?? null)
+  // a teammate's agent may name their private pages, which this device never sees: those are not "gone"
+  const sees = seesAllPagesOf(agent, team, me)
+  const lost = useMemo(() => lostPages(agent, pages, t('common.untitled'), sees), [agent, pages, t, sees])
+  if (!lost.length) return null
+  const blocked = agent.runner === 'browser' && !!runBlock(agent, pages)
+  const role = { scope: t('features.agents.ed.scope'), trigger: t('features.agents.ed.trigger'), report: t('features.agents.ed.reportPage') }
+  return (
+    <div className="agx-notice agx-lost" role="status" data-testid="agx-lost">
+      <span className="led agx-led--err" aria-hidden />
+      <div className="agx-lost__body">
+        <p className="agx-lost__title">
+          {t('features.agents.lost.title')}
+          {blocked ? ` ${t('features.agents.lost.blocked')}` : ''}
+        </p>
+        <ul className="agx-lost__list">
+          {lost.map((l) => {
+            const back = restoreTarget(l)
+            const backTitle = l.state === 'below' ? (l.root?.title ?? '') : l.title
+            return (
+              <li key={`${l.role}:${l.id}`} className="agx-lost__item" data-state={l.state}>
+                <span className="label agx-lost__role">{role[l.role]}</span>
+                <span className="agx-lost__text">{lostText(t, l)}</span>
+                {back && !readOnly && (
+                  <button type="button" className="btn btn--sm btn--ink" onClick={() => useWorkspace.getState().restorePage(back)} aria-label={t('features.agents.lost.restoreNamed', { title: backTitle })}>
+                    {t('features.agents.lost.restore')}
+                  </button>
+                )}
+              </li>
+            )
+          })}
+        </ul>
+      </div>
+    </div>
   )
 }
 
@@ -317,8 +366,10 @@ function RecipeList({ onPick }: { onPick: (id: RecipePick) => void }) {
                   <span className="agx-recipe__name">{localized(recipe.name, lang) || t('features.agents.recipe.mirror.name')}</span>
                   <span className="agx-recipe__desc">{localized(recipe.description, lang) || t('features.agents.recipe.mirror.desc')}</span>
                 </span>
+                {/* the whole profile name: it wraps (a phone has no hover title), never cut without a sign */}
                 <span className="agx-recipe__code label" title={t('features.integrations.recipeFrom', { name: profile.name })}>
-                  <span className="led led--ok" aria-hidden /> {profile.name}
+                  <span className="led led--ok" aria-hidden />
+                  <span className="agx-recipe__from">{profile.name}</span>
                 </span>
               </button>
             </li>
@@ -554,7 +605,9 @@ function AgentDetail({ id }: { id: ID }) {
   const creator = agent.createdBy ? people.find((p) => p.id === agent.createdBy)?.name : null
   const scope = agent.scope.everything
     ? t('features.agents.scope.all')
-    : [...agent.scope.pages, ...agent.scope.databases].map((x) => pages[x]?.title.trim() || t('common.untitled')).join(', ') || '—'
+    : [...agent.scope.pages, ...agent.scope.databases]
+        .map((x) => (pages[x] ? pages[x].title.trim() || t('common.untitled') : t(agent.scope.databases.includes(x) ? 'features.agents.ed.goneDb' : 'features.agents.ed.gone')))
+        .join(', ') || '—'
   const model = agent.model ? resolveModel(agent.model).short : t('features.agents.ed.modelDefault')
 
   return (
@@ -667,6 +720,7 @@ function AgentDetail({ id }: { id: ID }) {
           )}
         </div>
       )}
+      <LostNotice agent={agent} />
       {!hasKey && agent.runner === 'browser' && !elsewhere && (
         <div className="agx-notice" role="note">
           <span className="led" aria-hidden />

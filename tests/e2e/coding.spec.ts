@@ -544,6 +544,9 @@ test('while a stage runs: what the worker did last (ticking), Step x/y, the esti
   await page.getByTestId('coding-tab-log').click()
   const log = page.getByTestId('coding-log')
   await expect(log).toContainText('Claude Code fertig · ')
+  // its cost in the UI's money (One formats the worker's number): "0,05 $", never "0.05 $"
+  await expect(log).toContainText(/Claude Code fertig · \d+ Schritte · \d+,\d\d\s\$/)
+  await expect(log).not.toContainText(/Schritte · \d+\.\d\d/)
   await expect(log).toContainText('Claude Code startet (acceptEdits-Modus) …')
   await expect(log).toContainText('Tests bestanden (')
   await expect(log).toContainText('Working… step 3')

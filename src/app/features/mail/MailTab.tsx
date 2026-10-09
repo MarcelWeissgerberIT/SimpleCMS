@@ -14,6 +14,7 @@ import { openPage } from '../../lib/router'
 import { useCloud } from '../../cloud'
 import { Led } from '../../ui/controls'
 import { useLang, useT } from '../../i18n'
+import { fmtUsd } from '../../lib/money'
 import { CLIENT_ID_RE, EVERY_MIN, MAX_PER_RUN, PUBLIC_ORIGIN, SECRET_RE, cleanCategory, MAX_CATEGORIES, setMail, setOrganise, useMailSettings } from './settings'
 import { preloadGis } from './auth'
 import { builtinClientId, effectiveClient, useBuiltinClient } from './builtin'
@@ -588,6 +589,7 @@ function Categories() {
 
 function OrganisePanel() {
   const t = useT()
+  const lang = useLang()
   const uid = useId()
   const cfg = useMailSettings()
   const o = cfg.organise
@@ -605,7 +607,8 @@ function OrganisePanel() {
   )
   const on = o.enabled && hasKey
   const est = estimateOrganise(cfg.maxPerRun)
-  const usd = est.usd < 0.01 ? '< $0.01' : `≈ $${est.usd.toFixed(2)}`
+  // in the UI's language ("≈ $0.27" · "≈ 0,27 $"); less than a cent: "< $0.01" (lib/money.ts)
+  const usd = est.usd < 0.01 ? fmtUsd(0.001, lang) : `≈ ${fmtUsd(est.usd, lang)}`
   return (
     <Panel id={uid} code="§ D" title={t('features.mail.claude.title')} state={on ? 'ok' : 'off'} stateText={on ? t('features.mail.claude.on') : t('features.mail.claude.off')}>
       <SwitchRow

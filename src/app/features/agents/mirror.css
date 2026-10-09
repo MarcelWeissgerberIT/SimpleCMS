@@ -74,6 +74,13 @@
 .agx-mir__server[data-off] .agx-mir__srvname {
   color: var(--ink-3);
 }
+/* the picked source was switched off while the setup was open: it stays, marked, until another is picked */
+.agx-mir__server[data-off] {
+  cursor: default;
+}
+.agx-mir__server[data-off] .agx-mir__srvstate {
+  color: var(--c-red-text);
+}
 .agx-mir__none {
   margin: 0;
 }
@@ -106,6 +113,7 @@
   background: var(--surface);
 }
 .agx-mir__spec > div {
+  align-content: start;
   padding: 9px 12px;
 }
 .agx-mir__spec > div:nth-child(even) {
@@ -113,6 +121,20 @@
 }
 .agx-mir__spec > div:nth-last-child(-n + 2) {
   border-bottom: 0;
+}
+/* the agent's name as the offered action makes it, above its schedule */
+.agx-mir__agentname {
+  display: block;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.agx-mir__spec dd {
+  overflow-wrap: anywhere;
+}
+.agx-mir__keys {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
 /* ---------- editor: the recipe's placeholders still to replace ---------- */
@@ -185,18 +207,24 @@
   line-height: 1.5;
 }
 
-/* a scope chip whose page is in the trash: saving refuses it until it is taken out or restored */
-.agx-chipx[data-trashed] {
+/* a scope chip whose page is in the trash (or below one) or deleted for good: saving refuses it until it is taken out
+   or restored */
+.agx-chipx[data-trashed],
+.agx-chipx[data-gone] {
   border-style: dashed;
   border-color: var(--c-red-text);
 }
-.agx-chipx[data-trashed] .agx-chipx__text {
+.agx-chipx[data-trashed] .agx-chipx__text,
+.agx-chipx[data-gone] .agx-chipx__text {
   color: var(--ink-3);
   text-decoration: line-through;
 }
 /* two classes: ui.css (.label) loads after this file in production */
 .agx-chipx .agx-chipx__note {
+  min-width: 0;
+  overflow: hidden;
   color: var(--c-red-text);
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
