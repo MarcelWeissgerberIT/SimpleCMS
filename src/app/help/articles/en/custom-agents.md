@@ -29,7 +29,7 @@ These come with an active [integration](help:integrations) that unlocks them —
 
 When a page the agent works with is in the trash or deleted for good — a page or database under **May use**, the database its rows start it from, its report page — its page names each one, with **Restore** for one in the trash. A browser run does not start while nothing under **May use** can be used or its report page is gone: it is listed as an error that says why.
 
-Messages about runs never cover a dialog: one that comes while a dialog is open (an agent's editor, the settings) waits and shows when the last dialog closes — one older than two minutes by then is dropped (the run lists everything anyway).
+Messages about runs never cover a dialog: one that comes while a dialog is open (an agent's editor, the settings) waits and shows when the last dialog closes — one older than two minutes by then is dropped (the run lists everything anyway). One already on screen steps back while a dialog is open and comes back only for the rest of its time. They never push your own message (such as **Undo**) off the screen: yours stays the newest, at the bottom.
 
 ## Browser or server
 - **Browser** agents run in One while a tab is open — with your Claude key and your MCP servers. A scheduled run missed while One was closed happens once, the next time it opens.

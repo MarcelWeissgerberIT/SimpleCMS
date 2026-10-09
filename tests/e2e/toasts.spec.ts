@@ -4,7 +4,8 @@
  *    never acts on what then lies there — a new toast in the old one's place, the app, a dialog — single clicks on toast
  *    keys right after a toast appears always work
  *  - background toasts (agent runs) never sit over a dialog: raised while one is open they wait, and show once the last
- *    one closes (dismissed meanwhile or older than two minutes: never)
+ *    one closes (dismissed meanwhile or older than two minutes: never) — before the person's newest toast, never pushing
+ *    one of theirs out; one that stepped back for a dialog comes back only for the rest of its time
  * The mirror recipe uses a fictional MCP server (tracker.example.com); Claude is mocked, nothing leaves the page.
  */
 import type { BrowserContext, Locator, Page } from '@playwright/test'
@@ -48,7 +49,13 @@ async function setupMirror(page: Page, lang: 'de' | 'en' = 'de') {
   await wsEval(page, (s, lang) => s.updateSettings({ language: lang }), lang)
   await page.evaluate(() => (window.location.hash = '#/agents'))
   await page.locator('.agx').first().waitFor()
-  await page.locator(`.agx-start ${RECIPE}`).click()
+  // no agent yet: the recipes show on the page; else behind "New agent"
+  const inline = page.locator(`.agx-start ${RECIPE}`)
+  if (await inline.count()) await inline.click()
+  else {
+    await page.locator('.agx-head .btn--primary').click()
+    await page.locator(`.agx-recipe-modal ${RECIPE}`).click()
+  }
   const setup = page.locator('.agx-mir')
   await expect(setup).toBeVisible()
   return setup
@@ -147,6 +154,8 @@ test.describe('Toasts: a double press acts once', () => {
       await setup.getByRole('button', { name: 'Datenbank und Agent anlegen' }).tap()
       const editor = page.locator('.agx-editor')
       await expect(editor).toBeVisible()
+      // a person reads the editor first: a tap in it within 450 ms near the opening tap is that tap's rest
+      await page.waitForTimeout(500)
       await editor.getByRole('button', { name: 'Abbrechen' }).tap()
       await page.locator('.agx-discard .btn--danger').tap()
       await expect(editor).toHaveCount(0)
@@ -214,6 +223,101 @@ test.describe('Background toasts never sit over a dialog', () => {
     expect(await uiEval(page, (s) => (s.waitingToasts ?? []).length)).toBe(0)
   })
 
+  /** The toasts on screen, oldest first (the newest sits at the bottom). */
+  const onScreen = (page: Page) => page.locator('.toast .toast__msg').allInnerTexts()
+
+  test('four background toasts waiting, the closing key raises the person’s own toast: it stays, the newest — the oldest background one makes room; background work never pushes a person’s toast out', async ({ page }) => {
+    await openApp(page)
+    // the confirm's key raises the person's toast (as "Delete" raises its Undo)
+    await uiEval(page, (s) =>
+      s.openModal({ type: 'confirm', title: 'Sure?', body: 'Nothing happens.', confirmLabel: 'Go on', onConfirm: () => s.toast({ message: 'Moved “Plan” to the trash.', action: { label: 'Undo', run: () => {} }, timeout: 20_000 }) }),
+    )
+    await expect(page.locator('.modal-scrim')).toBeVisible()
+    for (const n of [1, 2, 3, 4]) await raise(page, `Watcher ${n}: the run failed`)
+    expect(await uiEval(page, (s) => (s.waitingToasts ?? []).length)).toBe(4)
+    await page.getByRole('dialog').getByRole('button', { name: 'Go on' }).click()
+    await expect(page.locator('.modal-scrim')).toHaveCount(0)
+    const mine = page.locator('.toast').filter({ hasText: 'Moved “Plan” to the trash.' })
+    await expect(mine).toBeVisible()
+    await page.waitForTimeout(300)
+    expect(await onScreen(page)).toEqual(['Watcher 2: the run failed', 'Watcher 3: the run failed', 'Watcher 4: the run failed', 'Moved “Plan” to the trash.'])
+    await expect(mine.getByRole('button', { name: 'Undo' })).toBeVisible()
+
+    // four toasts of the person's own on screen: a background one raised now never pushes one of them out
+    await uiEval(page, (s) => {
+      for (const t of [...s.toasts]) s.dismissToast(t.id)
+      for (const n of [1, 2, 3, 4]) s.toast({ message: `Mine ${n}`, action: { label: 'Undo', run: () => {} }, timeout: 20_000 })
+    })
+    await raise(page, 'Watcher 5: the run failed')
+    await page.waitForTimeout(200)
+    expect(await onScreen(page)).toEqual(['Mine 1', 'Mine 2', 'Mine 3', 'Mine 4'])
+    // a newer one of the person's own does push the oldest out
+    await uiEval(page, (s) => s.toast({ message: 'Mine 5', timeout: 20_000 }))
+    await expect.poll(() => onScreen(page)).toEqual(['Mine 2', 'Mine 3', 'Mine 4', 'Mine 5'])
+  })
+
+  test('a background toast that stepped back for a dialog comes back only for the rest of its time — run out meanwhile (or under a second left): never, not after any later dialog either', async ({ page }) => {
+    await openApp(page)
+    const raiseFor = (message: string, timeout: number) => uiEval(page, (s, a) => s.toast({ message: a.message, kind: 'error', action: { label: 'Open', run: () => {} }, timeout: a.timeout, background: true }), { message, timeout })
+    const now = () => page.evaluate(() => performance.now())
+    const closeDialog = async () => {
+      await page.keyboard.press('Escape')
+      await expect(page.locator('.modal-scrim')).toHaveCount(0)
+    }
+
+    // 4 s on screen: 1.2 s shown, then a dialog for a moment — back for the ~2.4 s left (not 4 s more)
+    const t0 = await now()
+    await raiseFor('Watcher: comes back', 4000)
+    const back = page.locator('.toast').filter({ hasText: 'Watcher: comes back' })
+    await expect(back).toBeVisible()
+    await page.waitForTimeout(1200)
+    await openConfirm(page)
+    await expect(back).toHaveCount(0)
+    await page.waitForTimeout(400)
+    await closeDialog()
+    await expect(back).toBeVisible()
+    const closedAt = await now()
+    // its 4 s (from when it showed) are over at t0 + 4 s; a full 4 s again would last until 4 s after the close
+    await page.waitForTimeout(Math.max(0, t0 + 4600 - closedAt))
+    // still well before a full 4 s after the close would end (the check means something on a slow machine too)
+    expect(closedAt + 3600 - (await now())).toBeGreaterThan(0)
+    expect(await back.count()).toBe(0)
+    // later dialogs never bring it back
+    await openConfirm(page)
+    await closeDialog()
+    await page.waitForTimeout(300)
+    await expect(back).toHaveCount(0)
+
+    // its time runs out while the dialog is open: it does not come back
+    await raiseFor('Watcher: run out', 2000)
+    const out = page.locator('.toast').filter({ hasText: 'Watcher: run out' })
+    await expect(out).toBeVisible()
+    await page.waitForTimeout(400)
+    await openConfirm(page)
+    await page.waitForTimeout(2000)
+    expect(await uiEval(page, (s) => (s.waitingToasts ?? []).length)).toBe(0)
+    await closeDialog()
+    await page.waitForTimeout(300)
+    await expect(out).toHaveCount(0)
+
+    // under a second left by the time the dialog closes: it does not come back for a blink
+    await raiseFor('Watcher: almost over', 2000)
+    const almost = page.locator('.toast').filter({ hasText: 'Watcher: almost over' })
+    await expect(almost).toBeVisible()
+    await page.waitForTimeout(300)
+    await openConfirm(page)
+    await page.waitForTimeout(1100)
+    await closeDialog()
+    await page.waitForTimeout(300)
+    await expect(almost).toHaveCount(0)
+    for (let i = 0; i < 2; i++) {
+      await openConfirm(page)
+      await closeDialog()
+    }
+    await page.waitForTimeout(300)
+    expect(await page.locator('.toast').count()).toBe(0)
+  })
+
   /** Claude answers every request with an error (the run fails). */
   async function failingClaude(ctx: BrowserContext) {
     await ctx.route('https://api.anthropic.com/**', async (route) => {
@@ -256,5 +360,47 @@ test.describe('Background toasts never sit over a dialog', () => {
     await editor.getByRole('button', { name: 'Cancel' }).click()
     await expect(editor).toHaveCount(0)
     await expect(page.locator('.toast').filter({ hasText: 'Project rows watcher: the run failed' })).toBeVisible()
+  })
+
+  test('German: four agent runs fail while the mirror editor is open, then “Verwerfen, beide in den Papierkorb” — the person’s trash toast with “Rückgängig” stays on screen, the newest, and its Undo works', async ({ page, context, errors }) => {
+    errors.allow(/400|e2e: refused|Failed to load resource/)
+    await failingClaude(context)
+    await openApp(page)
+    await wsEval(page, (s) => s.updateSettings({ aiApiKey: 'sk-ant-e2e-test-key' }))
+    const projects = await pageIdByTitle(page, 'Projects')
+    await wsEval(
+      page,
+      (s, db) => {
+        const now = Date.now()
+        ;['Wächter Projektzeilen', 'Zeilenprüfer', 'Zeilenwache', 'Projektlotse'].forEach((name, i) =>
+          s.upsertAgent({ id: `ag-w${i}`, name, instructions: 'Sieh dir neue Zeilen an.', trigger: { type: 'row_created', databaseId: db }, scope: { everything: true, pages: [], databases: [] }, write: 'none', output: null, mcpServers: [], runner: 'browser', model: null, effort: null, maxRunUsd: 0.5, enabled: true, createdAt: now + i, updatedAt: now + i }),
+        )
+      },
+      projects,
+    )
+    await flush(page)
+    const setup = await setupMirror(page)
+    await setup.getByRole('textbox', { name: /Name/ }).fill('Tracker Handoff')
+    await setup.getByRole('button', { name: 'Datenbank und Agent anlegen' }).click()
+    const editor = page.locator('.agx-editor')
+    await expect(editor).toBeVisible()
+    await wsEval(page, (s, db) => s.createRow(db, { title: 'Neue Zeile' }), projects)
+    // all four runs fail while the editor is open: their toasts wait
+    await expect.poll(() => uiEval(page, (s) => (s.waitingToasts ?? []).length), { timeout: 40_000 }).toBe(4)
+    expect(await page.locator('.toast').count()).toBe(0)
+    await editor.getByRole('button', { name: 'Abbrechen' }).click()
+    await page.locator('.agx-discard').getByRole('button', { name: 'Verwerfen, beide in den Papierkorb' }).click()
+    await expect(editor).toHaveCount(0)
+    const mine = page.locator('.toast').filter({ hasText: 'liegen im Papierkorb' })
+    await expect(mine).toBeVisible()
+    await page.waitForTimeout(600)
+    await expect(mine).toBeVisible()
+    const shown = await onScreen(page)
+    expect(shown, JSON.stringify(shown)).toHaveLength(4)
+    expect(shown[3]).toContain('„Tracker Handoff“ und die Berichtsseite liegen im Papierkorb')
+    expect(shown.slice(0, 3).every((m) => m.includes('fehlgeschlagen')), JSON.stringify(shown)).toBe(true)
+    expect(await trackerTrashed(page, 'Tracker Handoff')).toEqual([true])
+    await mine.getByRole('button', { name: 'Rückgängig' }).click()
+    await expect.poll(() => trackerTrashed(page, 'Tracker Handoff')).toEqual([false])
   })
 })
