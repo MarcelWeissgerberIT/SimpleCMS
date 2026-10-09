@@ -428,10 +428,11 @@ test.describe('team cloud — custom agents', () => {
     await exists.getByRole('button', { name: 'Use “Tracker”' }).click()
     const editor = a.locator('.agx-editor')
     await expect(editor).toBeVisible()
-    const reports = await wsEval(a, (s) => (Object.values(s.pages) as AnyState[]).filter((p) => p.title === 'Tracker · Report' && !p.trashed).map((p) => ({ id: p.id, private: !!p.private })))
+    // its title is distinct from the shared page's (titles the setup makes never repeat a live page's)
+    const reports = await wsEval(a, (s) => (Object.values(s.pages) as AnyState[]).filter((p) => p.title.startsWith('Tracker · Report') && !p.trashed).map((p) => ({ id: p.id, title: p.title, private: !!p.private })))
     expect(reports).toHaveLength(2)
     const own = reports.find((r) => r.id !== shared.report)!
-    expect(own.private).toBe(true)
+    expect(own).toMatchObject({ private: true, title: 'Tracker · Report (2)' })
     await editor.getByRole('switch', { name: 'Active' }).click()
     await editor.getByRole('button', { name: 'Create agent', exact: true }).click()
     await expect(a.locator('.agx-dhead')).toBeVisible()
@@ -482,6 +483,61 @@ test.describe('team cloud — custom agents', () => {
     await expect(exists).toHaveText('A shared database “Tracker” exists already. The mirror writes your own fields, so it only uses a private database — give the new one another name.')
     await expect(exists.getByRole('button')).toHaveCount(0)
     await expect(setup.getByRole('button', { name: 'Create database and agent' })).toBeDisabled()
+    await b.context().close()
+  })
+
+  test('a teammate’s agent is never the mirror of the member’s own database: Bob moves Ada’s “Tracker” into his Private section — his setup offers “Use”, never “Open” Ada’s agent', async ({ page: a, context }) => {
+    watch(a, 'ada')
+    await signIn(a, email('ada'))
+    const wsId = await createWorkspace(a, 'Acme Mirror Moved')
+    const b = await newPerson(context)
+    watch(b, 'bob')
+    await signIn(b, email('bob'))
+    await joinWorkspace(a, b, wsId, 'member')
+    for (const p of [a, b]) {
+      await openApp(p, wsId)
+      await waitOnline(p)
+    }
+    const adaId = await cloudEval(a, (c) => c.user.id as string)
+    const server = { id: 'm-tracker', name: 'tracker', url: 'https://tracker.example.com/mcp', token: '', enabled: true, prompt: '', tools: ['list_items', 'get_item'], checkedAt: Date.now() }
+    // Ada: the profile, the team's shared "Tracker" (with the recipe's key) and her agent mirroring "tracker" into it
+    const db = await wsEval(
+      a,
+      (s, x) => {
+        s.updateSettings({ mcpServers: [x.server] })
+        s.upsertIntegration({ schema: 'one.integration/1', id: 'tracker', name: 'Tracker', match: { name: 'tracker' }, unlocks: ['keys', 'onlyByHand', 'upsert', 'toolAllowList', 'agentState', 'notify'], recipes: [{ kind: 'mirror' }] })
+        return s.createDatabase({ title: 'Tracker', properties: [{ id: 'p-name', name: 'Name', type: 'title' }, { id: 'p-key', name: 'Key', type: 'text', key: true }] }) as string
+      },
+      { server },
+    )
+    await wsEval(a, (s, x) => s.upsertAgent(x), agent({ id: 'ag-ada-mirror', name: 'Ada mirror', scope: { everything: false, pages: [], databases: [db] }, write: 'stage', mcpServers: ['tracker'], enabled: false, createdBy: adaId }))
+    await wsEval(b, (s, x) => s.updateSettings({ mcpServers: [x] }), server)
+    await expect.poll(() => wsEval(b, (s, db) => [!!s.pages[db], !!s.agents?.['ag-ada-mirror'], (s.integrations ?? []).length], db), { timeout: 20_000 }).toEqual([true, true, 1])
+    // Bob takes the database into his Private section (Ada's agent cannot reach it any more)
+    await b.evaluate((id) => (window as any).__one.cloud.movePagePrivacy(id, true), db) // eslint-disable-line @typescript-eslint/no-explicit-any
+    await expect.poll(() => wsEval(b, (s, db) => !!s.pages[db]?.private, db), { timeout: 20_000 }).toBe(true)
+
+    await b.evaluate(() => (window.location.hash = '#/agents'))
+    await b.locator('.agx-head .btn--primary').click()
+    await b.locator('.agx-recipe-modal [data-recipe="tracker:mirror"]').click()
+    const setup = b.locator('.agx-mir')
+    const exists = setup.getByTestId('agx-mir-exists')
+    await expect(exists).toContainText('“Tracker” exists already — a database from this recipe.')
+    await expect(exists.getByRole('button', { name: 'Open “Ada mirror”' })).toHaveCount(0)
+    await exists.getByRole('button', { name: 'Use “Tracker”' }).click()
+    const editor = b.locator('.agx-editor')
+    await expect(editor).toBeVisible()
+    await editor.getByRole('switch', { name: 'Active' }).click()
+    await editor.getByRole('button', { name: 'Create agent', exact: true }).click()
+    await expect(b.locator('.agx-dhead')).toBeVisible()
+    const bobId = await cloudEval(b, (c) => c.user.id as string)
+    const mine = await wsEval(b, (s, me) => JSON.parse(JSON.stringify((Object.values(s.agents ?? {}) as AnyState[]).find((x) => x.createdBy === me) ?? null)), bobId)
+    expect(mine).toMatchObject({ scope: { databases: [db] }, mirrorOf: db, mcpServers: ['tracker'] })
+    // and now Bob's own mirror is the one his next setup opens
+    await b.evaluate(() => (window.location.hash = '#/agents'))
+    await b.locator('.agx-head .btn--primary').click()
+    await b.locator('.agx-recipe-modal [data-recipe="tracker:mirror"]').click()
+    await expect(b.locator('.agx-mir').getByTestId('agx-mir-exists').getByRole('button', { name: `Open “${mine.name}”` })).toBeVisible()
     await b.context().close()
   })
 

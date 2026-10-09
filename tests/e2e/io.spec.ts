@@ -29,6 +29,8 @@ test.describe('import / export', () => {
     await page.evaluate(() => {
       localStorage.setItem('one.shell.visits:local:local', JSON.stringify({ v: 1, e: { 'reset-canary': [3, Date.now(), 3] } }))
       localStorage.setItem('one.shell.visited', JSON.stringify({ tab: 'frequent', open: false }))
+      // the report pages this device's mirror setups made (features/agents/mirrorMemory.ts): the same
+      localStorage.setItem('one.mirror.reports:local:local', JSON.stringify({ 'mirror-canary-db': 'mirror-canary-page' }))
     })
 
     // export (Workspace settings → Data → Export workspace → Full backup)
@@ -44,6 +46,7 @@ test.describe('import / export', () => {
     const backup = JSON.parse(readFileSync(file, 'utf8'))
     expect(JSON.stringify(backup)).toContain('canary content 4711')
     expect(JSON.stringify(backup)).not.toContain('reset-canary')
+    expect(JSON.stringify(backup)).not.toContain('mirror-canary')
     expect(backup.workspace.recent).toEqual([])
     // an older backup still carried the list: a restore never takes it over
     backup.workspace.recent = [canary]
@@ -59,6 +62,7 @@ test.describe('import / export', () => {
     await waitForApp(page)
     expect(await page.evaluate(() => localStorage.getItem('one.shell.visits:local:local') ?? '')).not.toContain('reset-canary')
     expect(await page.evaluate(() => localStorage.getItem('one.shell.visited'))).toBeNull()
+    expect(await page.evaluate(() => localStorage.getItem('one.mirror.reports:local:local'))).toBeNull()
     // a fresh demo workspace: the canary is gone
     await expect(page.locator('#main .pv-title')).toHaveValue('Welcome to One')
     expect(await wsEval(page, (s, id) => !!s.pages[id], canary)).toBe(false)

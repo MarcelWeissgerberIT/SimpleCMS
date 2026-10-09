@@ -185,6 +185,21 @@
   line-height: 1.5;
 }
 
+/* a scope chip whose page is in the trash: saving refuses it until it is taken out or restored */
+.agx-chipx[data-trashed] {
+  border-style: dashed;
+  border-color: var(--c-red-text);
+}
+.agx-chipx[data-trashed] .agx-chipx__text {
+  color: var(--ink-3);
+  text-decoration: line-through;
+}
+/* two classes: ui.css (.label) loads after this file in production */
+.agx-chipx .agx-chipx__note {
+  color: var(--c-red-text);
+  white-space: nowrap;
+}
+
 /* narrow: one choice per row, the safe one on top */
 @media (max-width: 700px) {
   .agx-editor__foot.agx-discard__foot {

@@ -9,28 +9,34 @@
  *    member's Private section, createPrivateDatabase / createPrivatePage). Store actions only, like the mail and
  *    coding databases. No toast (it would sit on the editor's footer): the editor's note says what is made and
  *    carries the Undo (undoMirror); closing the editor unsaved asks whether both stay or go to the trash
- *    (MirrorDiscard.tsx, trashMirror / restoreMirror).
+ *    (MirrorDiscard.tsx, trashMirror / restoreMirror). The report page is remembered for the database on this device
+ *    (mirrorMemory.ts).
  *  - The rule for taking back: the setup only ever trashes what THIS setup created (`MirrorMade.created`) — never a
  *    database or page that was there before, never one a saved agent uses at that moment (agentUses: its scope, its
  *    trigger, its report page — or a page below one of them), never for good (trash + Undo) — and in a team workspace
  *    it only ever touches or reuses PRIVATE pages.
  *  - sameNamedDb() / reuseMirror(): a live database with the name the setup is about to use is never duplicated
  *    silently — the setup says so and, when it holds the recipe's key property (in either language; private in a
- *    team) and no saved agent mirrors into it already (mirrorAgentOf: scoped to it, may write, reads one of the
- *    recipe's source servers), sets the agent up for it with a NEW report page next to it — a page is never taken by
- *    its title (it could be another mirror's report, a hand-written page or a deleted agent's).
+ *    team) and no saved agent mirrors into it already (mirrorAgentOf: the agent the recipe set up for it — `mirrorOf` —,
+ *    or an older one that reads one of the profile's servers; in a team only the member's own), sets the agent up for
+ *    it: with the report page this device's setup made for that database before (still live, used by no saved agent —
+ *    a deleted agent's report goes on), else a NEW report page next to it. A page is never taken by its title (it could
+ *    be another mirror's report or a hand-written page).
+ *  - Titles the setup makes are distinct (distinctTitle): a report title another live page has already gets
+ *    " · <database>" (then " (2)", " (3)" …), the agent's name likewise among the agents — the first mirror keeps the
+ *    configured names exactly. So prompts, notes and toasts that name pages by title stay unambiguous.
  *  - mirrorDraft(): the agent the editor opens with — the recipe's schedule in this browser's time zone, browser
  *    runner, its write mode and budget, the source server with the recipe's tools (default: its reading tools from
- *    the last connection test), scope = the database, the report page, its instructions (`{db}` / `{server}` /
- *    `{report}` filled in) with the PLACEHOLDERS the person replaces (the editor refuses to save a switched-on agent
- *    that still holds one).
+ *    the last connection test), scope = the database (and `mirrorOf` = it), the report page, its instructions (`{db}` /
+ *    `{server}` / `{report}` filled in) with the PLACEHOLDERS the person replaces (the editor refuses to save a
+ *    switched-on agent that still holds one).
  *
  * Generic on purpose: no service is named or preset; the source is whatever MCP server the person added, the recipe
  * whatever profile the person configured.
  */
 import { useWorkspace } from '../../store/store'
 import { inTemplate, isEffectivelyTrashed } from '../../store/selectors'
-import { localTimeZone } from '../../store/agents'
+import { AGENT_LIMITS, localTimeZone } from '../../store/agents'
 import { variants } from '../../store/integrations'
 import type { CustomAgent, Database, ID, IntegrationProfile, Page } from '../../store/types'
 import type { Lang } from '@/shared/i18n'
@@ -40,6 +46,7 @@ import { readServers } from '../ai/mcp-servers/config'
 import { isReadTool, testedTools } from './mcpTools'
 import { blankAgent } from './recipes'
 import { buildMirror, fillTokens, type ResolvedRecipe } from './integrations/recipe'
+import { rememberReport, rememberedReport } from './mirrorMemory'
 
 const REPORT_ICON = { type: 'lucide', value: 'ClipboardList' } as const
 
@@ -91,7 +98,8 @@ export function placeholdersIn(text: string): Array<{ text: string; key?: Placeh
 /**
  * The agent a mirror starts with (not saved: the editor opens with it). `tools`: the source server's tools from its
  * last connection test — the recipe's tools (default: its reading tools) are its allow-list; null (never tested)
- * leaves the list to the editor unless the recipe names tools.
+ * leaves the list to the editor unless the recipe names tools. Set up for a database, it carries `mirrorOf` = that
+ * database (mirrorAgentOf).
  */
 export function mirrorDraft(input: { recipe: ResolvedRecipe; server: string; name: string; dbId: ID | null; reportId: ID | null; reportTitle: string; tools: string[] | null }): CustomAgent {
   const base = blankAgent()
@@ -116,6 +124,7 @@ export function mirrorDraft(input: { recipe: ResolvedRecipe; server: string; nam
     if (r.agent.tools) draft.mcpTools = { [input.server]: r.agent.tools }
     else if (input.tools?.length) draft.mcpTools = { [input.server]: input.tools.filter(isReadTool) }
   }
+  if (input.dbId) draft.mirrorOf = input.dbId
   return draft
 }
 
@@ -156,13 +165,16 @@ export interface MirrorMade {
   /** placeholders left in the draft's instructions */
   placeholders: number
   draft: CustomAgent
-  /** the pages this setup created — the only ones it may ever trash (trashMirror; never one a saved agent uses): both, or (set up for a database that was there) its new report page */
+  /**
+   * the pages this setup created — the only ones it may ever trash (trashMirror; never one a saved agent uses): both;
+   * set up for a database that was there, its new report page — or nothing when its report page was taken back
+   */
   created: ID[]
   /** set up for a database that was there already (reuseMirror) */
   reused?: boolean
 }
 
-/** What the setup created: both, only the report page (a database that was there), or nothing. */
+/** What the setup created: both, only the report page (a database that was there), or nothing (its report page taken back too). */
 export function madeKind(made: Pick<MirrorMade, 'created' | 'dbId'>): 'both' | 'report' | 'none' {
   return made.created.includes(made.dbId) ? 'both' : made.created.length ? 'report' : 'none'
 }
@@ -240,15 +252,28 @@ export function undoMirror(made: Pick<MirrorMade, 'created' | 'draft'>): ReturnT
 const fold = (s: string) => s.normalize('NFC').replace(/\s+/g, ' ').trim().toLocaleLowerCase()
 const live = (pages: Record<ID, Page>, p: Page) => !p.trashed && !isEffectivelyTrashed(pages, p.id) && !inTemplate(pages, p.id)
 
+/** The signed-in member in a team workspace (only their own agents count there), undefined locally (every agent). */
+const ownerHere = (team: boolean): string | null | undefined => (team ? (useCloud.getState().user?.id ?? null) : undefined)
+
 /**
- * A saved agent that mirrors into the database already: scoped to it, it may write, and it reads one of the recipe's
- * source servers (`servers`: the MCP servers that match the profile) — an agent that only reports on the database, or
- * reads another server, is not its mirror.
+ * The saved agent that mirrors into the database already (the oldest of them):
+ *  1. the agent the recipe set up for it (`mirrorOf` = the database) while its scope still names it — whatever its
+ *     switch, write mode or servers (a server switched off, renamed or no longer matching changes nothing);
+ *  2. an agent without that marker (saved before it existed): scoped to the database, it may write, and it reads one
+ *     of the recipe's source servers — `servers`: every MCP server of this device that matches the profile, switched
+ *     on or off — with tools (a server whose tool list is empty is left out of its runs, exec.ts).
+ * An agent marked for another database, one that only reports on it, or one that reads another server is not its
+ * mirror. `owner` (team workspace): only that member's own agents count — a teammate's agent never reaches the
+ * member's private database, so it is never offered there; undefined = every agent.
  */
-export function mirrorAgentOf(agents: Record<ID, CustomAgent> | undefined, dbId: ID, servers: readonly string[]): CustomAgent | null {
+export function mirrorAgentOf(agents: Record<ID, CustomAgent> | undefined, dbId: ID, servers: readonly string[], owner?: string | null): CustomAgent | null {
+  const reads = (a: CustomAgent) =>
+    a.mcpServers.some((s) => servers.includes(s) && !(a.mcpTools && Object.prototype.hasOwnProperty.call(a.mcpTools, s) && a.mcpTools[s].length === 0))
+  const mirrors = (a: CustomAgent) =>
+    a.mirrorOf ? a.mirrorOf === dbId && a.scope.databases.includes(dbId) : !a.scope.everything && a.scope.databases.includes(dbId) && a.write !== 'none' && reads(a)
   return (
     Object.values(agents ?? {})
-      .filter((a) => !a.scope.everything && a.scope.databases.includes(dbId) && a.write !== 'none' && a.mcpServers.some((s) => servers.includes(s)))
+      .filter((a) => (owner === undefined || a.createdBy === owner) && mirrors(a))
       .sort((a, b) => a.createdAt - b.createdAt)[0] ?? null
   )
 }
@@ -268,14 +293,15 @@ export interface SameNamed {
   lang?: Lang
   /** team workspace: a shared database — never used for the member's private mirror */
   shared?: boolean
-  /** a saved agent mirrors into it already: that one is opened instead of making a second */
+  /** a saved agent (in a team: the member's own) mirrors into it already: that one is opened instead of making a second */
   agent?: { id: ID; name: string }
 }
 
 /**
  * A live database named like `name` (NFC, spaces and case folded): the setup never makes a second one silently.
- * `keys`: the recipe's key property name per language; `servers`: the recipe's source servers (mirrorAgentOf). The
- * usable one first (fits, no agent on it yet), then the fitting one, then the newest.
+ * `keys`: the recipe's key property name per language; `servers`: the recipe's source servers, switched on or off
+ * (mirrorAgentOf); `owner`: whose agents count (team: the signed-in member). The usable one first (fits, no agent on
+ * it yet), then the fitting one, then the newest.
  */
 export function sameNamedDb(
   pages: Record<ID, Page>,
@@ -285,6 +311,7 @@ export function sameNamedDb(
   keys: KeyName[],
   servers: readonly string[],
   team = inTeam(),
+  owner: string | null | undefined = ownerHere(team),
 ): SameNamed | null {
   const want = fold(name)
   if (!want) return null
@@ -298,7 +325,7 @@ export function sameNamedDb(
     .map((p) => {
       const lang = keyLang(p.id)
       const shared = team && !p.private
-      const agent = mirrorAgentOf(agents, p.id, servers)
+      const agent = mirrorAgentOf(agents, p.id, servers, owner)
       const out: SameNamed = { id: p.id, title: p.title.trim(), fits: !!lang && !shared }
       if (lang) out.lang = lang
       if (shared) out.shared = true
@@ -309,6 +336,39 @@ export function sameNamedDb(
   return found?.out ?? null
 }
 
+/* ------------------------------------------------------------------ distinct titles */
+
+/** Folded titles of the live pages and databases as this device sees them (rows and templates left out). */
+export function pageTitles(pages: Record<ID, Page>): Set<string> {
+  const out = new Set<string>()
+  for (const p of Object.values(pages)) if (!p.databaseId && p.title.trim() && live(pages, p)) out.add(fold(p.title))
+  return out
+}
+
+/** Folded names of the saved agents. */
+const agentNames = (agents: Record<ID, CustomAgent> | undefined) => new Set(Object.values(agents ?? {}).map((a) => fold(a.name)))
+
+/**
+ * A title the setup makes that none of `taken` (folded) has: `title` itself when free — the first mirror keeps the
+ * configured names exactly —, else `title · <db>`, then `… (2)`, `… (3)` until free. A title that names the database
+ * already skips the ` · <db>` step (it would only repeat the name): `title (2)`, `title (3)` … At most `max`
+ * characters (the counter stays whole).
+ */
+export function distinctTitle(title: string, db: string, taken: ReadonlySet<string>, max: number): string {
+  const first = title.slice(0, max)
+  if (!taken.has(fold(first))) return first
+  const fit = (base: string, suffix: string) => `${base.slice(0, Math.max(0, max - suffix.length)).trimEnd()}${suffix}`
+  const stem = fold(db) && !fold(title).includes(fold(db)) ? `${title} · ${db}` : title
+  if (stem !== title && !taken.has(fold(fit(stem, '')))) return fit(stem, '')
+  for (let n = 2; n < 10_000; n++) {
+    const next = fit(stem, ` (${n})`)
+    if (!taken.has(fold(next))) return next
+  }
+  return first
+}
+
+/* ------------------------------------------------------------------ the report page */
+
 /** The report page (private in a team workspace). */
 function makeReport(parentId: ID | null, title: string, team: boolean): ID {
   const input = { parentId, title, icon: REPORT_ICON }
@@ -316,9 +376,30 @@ function makeReport(parentId: ID | null, title: string, team: boolean): ID {
 }
 
 /**
- * Create the mirror database and its report page (private in a team workspace). Returns them with the agent draft for
- * the editor (its note carries the Undo). Throws when nothing can be created here (a viewer, no name, a recipe that
- * does not build — its problems are listed under Workspace → Integrations).
+ * The report page this device's setup made for the database before (mirrorMemory.ts) — while it is a live, ordinary
+ * page (private in a team) that no saved agent uses (its scope, trigger or report page — or a page below it): a
+ * deleted agent's report goes on; a page another agent writes to or reads is never taken, nor is a page no setup here
+ * made (it is never remembered — a page is never found by its title).
+ */
+function keptReport(pages: Record<ID, Page>, dbId: ID, team: boolean): Page | null {
+  const id = rememberedReport(dbId)
+  const p = id ? pages[id] : undefined
+  if (!p || p.kind !== 'page' || p.databaseId || !live(pages, p) || (team && !p.private)) return null
+  return usedBy(pages, agentUses(ws().agents), p.id) ? null : p
+}
+
+/** The agent draft for a database: its name distinct among the saved agents (distinctTitle). */
+function draftFor(recipe: ResolvedRecipe, server: string, name: string, dbId: ID, reportId: ID, reportTitle: string): CustomAgent {
+  const draft = mirrorDraft({ recipe, server, name, dbId, reportId, reportTitle, tools: testedTools(server, readServers()) })
+  draft.name = distinctTitle(draft.name, name, agentNames(ws().agents), AGENT_LIMITS.name)
+  return draft
+}
+
+/**
+ * Create the mirror database and its report page (private in a team workspace; the page remembered for the database on
+ * this device). Returns them with the agent draft for the editor (its note carries the Undo). Throws when nothing can
+ * be created here (a viewer, no name, a recipe that does not build — its problems are listed under Workspace →
+ * Integrations).
  */
 export function createMirror(input: MirrorInput): MirrorMade {
   const name = input.name.replace(/\s+/g, ' ').trim().slice(0, 120)
@@ -338,7 +419,8 @@ export function createMirror(input: MirrorInput): MirrorMade {
   const parentId = canHoldMirror(ws().pages, input.parentId, team) ? input.parentId : null
   const dbInput = { parentId, title: name, icon: input.recipe.icon, properties: schema.properties, views: schema.views }
   const dbId = team ? createPrivateDatabase(dbInput) : ws().createDatabase(dbInput)
-  const reportTitle = fillTokens(input.recipe.reportName, { db: name, server: input.server }).slice(0, 200)
+  // distinct from every live page — the new database included
+  const reportTitle = distinctTitle(fillTokens(input.recipe.reportName, { db: name, server: input.server }), name, pageTitles(ws().pages), 200)
   let reportId: ID
   try {
     reportId = makeReport(parentId, reportTitle, team)
@@ -346,16 +428,17 @@ export function createMirror(input: MirrorInput): MirrorMade {
     ws().deletePagePermanently(dbId)
     throw e
   }
-  const server = input.server
-  const draft = mirrorDraft({ recipe: input.recipe, server, name, dbId, reportId, reportTitle, tools: testedTools(server, readServers()) })
+  rememberReport(dbId, reportId)
+  const draft = draftFor(input.recipe, input.server, name, dbId, reportId, reportTitle)
   return { dbId, reportId, name, reportTitle, views: schema.views.length, placeholders: placeholdersIn(draft.instructions).length, draft, created: [dbId, reportId] }
 }
 
 /**
- * The agent draft for a database that is there already (sameNamedDb, `fits`; the recipe resolved in the language
- * its key is named in) with a NEW report page right next to it (private in a team) — the only page `created`, so
- * discarding takes back only that page. Never a page found by its title. Throws when the database is gone, shared in a
- * team workspace, or nothing can be written here.
+ * The agent draft for a database that is there already (sameNamedDb, `fits`; the recipe resolved in the language its
+ * key is named in): with the report page this device's setup made for it before while that one is free (keptReport —
+ * then nothing is `created`: the note has no Undo, closing asks nothing), else a NEW report page right next to it
+ * (private in a team; remembered) — the only page `created`, so discarding takes back only that page. Never a page
+ * found by its title. Throws when the database is gone, shared in a team workspace, or nothing can be written here.
  */
 export function reuseMirror(input: { recipe: ResolvedRecipe; server: string; dbId: ID }): MirrorMade {
   const team = inTeam()
@@ -366,9 +449,20 @@ export function reuseMirror(input: { recipe: ResolvedRecipe; server: string; dbI
   // a team mirror writes the member's own fields: only into a private database
   if (team && !db.private) throw new Error(t('features.agents.mirror.err.shared', { name: db.title.trim() }))
   const name = db.title.trim()
-  const reportTitle = fillTokens(input.recipe.reportName, { db: name, server: input.server }).slice(0, 200)
-  const reportId = makeReport(canHoldMirror(pages, db.parentId, team) ? db.parentId : null, reportTitle, team)
-  const created: ID[] = [reportId]
-  const draft = mirrorDraft({ recipe: input.recipe, server: input.server, name, dbId: db.id, reportId, reportTitle, tools: testedTools(input.server, readServers()) })
+  const kept = keptReport(pages, db.id, team)
+  const created: ID[] = []
+  let reportId: ID
+  let reportTitle: string
+  if (kept) {
+    reportId = kept.id
+    reportTitle = kept.title.trim() || t('common.untitled')
+  } else {
+    reportTitle = distinctTitle(fillTokens(input.recipe.reportName, { db: name, server: input.server }), name, pageTitles(pages), 200)
+    reportId = makeReport(canHoldMirror(pages, db.parentId, team) ? db.parentId : null, reportTitle, team)
+    created.push(reportId)
+  }
+  // the newest entry either way (the memory keeps the 100 used last)
+  rememberReport(db.id, reportId)
+  const draft = draftFor(input.recipe, input.server, name, db.id, reportId, reportTitle)
   return { dbId: db.id, reportId, name, reportTitle, views: ws().databases[db.id]?.views.length ?? 0, placeholders: placeholdersIn(draft.instructions).length, draft, created, reused: true }
 }
