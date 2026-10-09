@@ -3,7 +3,8 @@
  *   runs:<agentId>   AgentRun[] newest first, the last MAX_RUNS of the agent
  *   slot:<agentId>   the newest schedule slot this device has handled (ms)
  *   state:<ws>:<agentId>   the agent's own small memory (agent_state_set: cursors, last seen ids …) —
- *                    `<ws>` = local:<id> | cloud:<id>; written only when a run ends ok (state.ts)
+ *                    `<ws>` = local:<id> | cloud:<id>; written only when a run ends ok (exec.ts) — and put back
+ *                    to the run's `stateBefore` when every proposal of that run is discarded (review.ts)
  * Every write is an atomic read-modify-write (idb-keyval update), then the other tabs are told to
  * reload that agent's runs. Without IndexedDB (private modes) everything still works in memory.
  */

@@ -246,8 +246,9 @@ test.describe('Custom agents', () => {
     await page.getByRole('button', { name: 'Run now' }).click()
     const run = page.locator('.agx-run').first()
     await expect(run).toHaveAttribute('data-status', 'staged', { timeout: 20_000 })
-    await expect(page.getByText('Agent · Triage has 1 proposal')).toBeVisible()
+    // its own page is open and shows the run: no "has 1 proposal" toast (agent-runs.spec.ts: elsewhere it comes)
     await expect(page.getByTestId('agents-review')).toContainText('01')
+    expect(await page.getByText('Agent · Triage has 1 proposal').count()).toBe(0)
     const change = run.getByRole('listitem', { name: '#1 Edit row' })
     await expect(change.locator('.agent-diff__row', { hasText: 'Priority' })).toContainText('Low')
     // nothing written yet

@@ -26,6 +26,11 @@ export function t(key: string, vars?: Record<string, string | number>): string {
   return translator(useWorkspace.getState().settings.language)(key, vars)
 }
 
+/** The UI's language now (outside React; components use useLang()). */
+export function currentLang(): Lang {
+  return useWorkspace.getState().settings.language
+}
+
 export function useLang(): Lang {
   return useWorkspace((s) => s.settings.language)
 }

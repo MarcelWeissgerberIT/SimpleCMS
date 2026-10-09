@@ -12,6 +12,7 @@ import { useLang, useT } from '../../../i18n'
 import { useWorkspace } from '../../../store/store'
 import { useUI } from '../../../store/ui'
 import { navigate, openPage, useRoute } from '../../../lib/router'
+import { fmtUsd } from '../../../lib/money'
 import { useCloud } from '../../../cloud'
 import { shortcutLabel } from '../../../ui/controls'
 import { AI_MODELS, resolveModel } from '../client'
@@ -59,10 +60,6 @@ function fmtTokens(n: number): string {
   return `${(n / 1_000_000).toFixed(2)}M`
 }
 
-function fmtUsd(usd: number): string {
-  if (usd > 0 && usd < 0.01) return '< $0.01'
-  return `$${usd.toFixed(2)}`
-}
 
 function fmtMs(ms: number): string {
   const s = Math.floor(ms / 1000)
@@ -327,6 +324,7 @@ function Elapsed({ start, end }: { start: number; end?: number }) {
 
 function Head() {
   const t = useT()
+  const lang = useLang()
   const status = useAgent((s) => s.status)
   const turns = useAgent((s) => s.turns.length)
   const changes = useAgent((s) => s.changes.length)
@@ -364,7 +362,7 @@ function Head() {
       <MemoryChip />
       {usage.requests > 0 && (
         <span className="term-head__read">
-          <span aria-hidden>· </span>≈ {fmtUsd(usage.usd)}
+          <span aria-hidden>· </span>≈ {fmtUsd(usage.usd, lang)}
         </span>
       )}
       <span className="term-head__status" aria-live="polite">
@@ -833,7 +831,7 @@ function Echo({ entry }: { entry: EchoEntry }) {
                 ['features.agent.meter.cacheWrite', fmtTokens(u.cacheWrite)],
                 ['features.agent.meter.cache', fmtTokens(u.cacheRead)],
                 ['features.agent.meter.out', fmtTokens(u.output)],
-                ['features.agent.meter.usd', `≈ ${fmtUsd(u.usd)}`],
+                ['features.agent.meter.usd', `≈ ${fmtUsd(u.usd, lang)}`],
               ] as const
             ).map(([k, v]) => (
               <div key={k}>
@@ -1646,6 +1644,7 @@ function Prompt({ disabled, onReview }: { disabled: boolean; onReview: () => boo
 
 function Foot() {
   const t = useT()
+  const lang = useLang()
   const usage = useAgent((s) => s.usage)
   const calls = useAgent((s) => s.calls)
   const running = useAgent((s) => s.status === 'running')
@@ -1685,7 +1684,7 @@ function Foot() {
           </div>
           <div className="term-meter__usd">
             <dt className="visually-hidden">USD</dt>
-            <dd data-testid="agent-cost">≈ {fmtUsd(usage.usd)}</dd>
+            <dd data-testid="agent-cost">≈ {fmtUsd(usage.usd, lang)}</dd>
           </div>
         </dl>
         <span className="term-meter__note">{t('features.agent.meter.billed')}</span>

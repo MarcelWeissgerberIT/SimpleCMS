@@ -5,6 +5,7 @@
 import type { MediaItem } from '../ai/media/types'
 import type { AgentTrigger, CustomAgent, ID } from '../../store/types'
 import type { StagedChange } from '../ai/agent/types'
+import type { AgentState } from './runs'
 
 export type { AgentTrigger, CustomAgent }
 
@@ -44,6 +45,12 @@ export interface AgentRun {
   error?: string | null
   /** browser runs (local only): staged row id → the id the row got when it was applied */
   rowIds?: Record<string, ID>
+  /**
+   * browser runs (local only) whose proposals wait for review and that saved an agent state: the state it replaced
+   * (null: none was saved). Every proposal discarded, none applied → it goes back (review.ts), while the saved state
+   * is still this run's.
+   */
+  stateBefore?: AgentState | null
   /** media the agent's MCP servers returned (features/ai/media): cards in the run, saved only on a click */
   media?: MediaItem[]
 }

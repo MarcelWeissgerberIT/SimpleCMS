@@ -868,11 +868,41 @@ textarea.input {
   border-bottom: 1px solid var(--rule);
 }
 
+.modal__label {
+  flex: none;
+  white-space: nowrap;
+}
+
 .modal__title {
   flex: 1;
+  min-width: 0;
   margin: 0;
   font-size: var(--text-md);
   font-weight: 650;
+}
+
+/* a long label beside the title would squeeze it (a phone): the label above (cut with "…"), the title the full width */
+.modal__header[data-stacked] {
+  flex-wrap: wrap;
+  row-gap: 4px;
+  padding-top: 10px;
+}
+
+.modal__header[data-stacked] .modal__label {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.modal__header[data-stacked] .modal__close {
+  order: 1;
+  margin: -4px -6px -4px 0;
+}
+
+.modal__header[data-stacked] .modal__title {
+  order: 2;
+  flex: 1 0 100%;
 }
 
 .modal__body {

@@ -12,7 +12,7 @@ import type { StagedChange } from '../ai/agent/types'
 import { asAgent, stampLocal } from './attribution'
 import { touchedBy } from './exec'
 import { withoutWebImages } from './images'
-import { putRun } from './runs'
+import { getAgentState, putAgentState, putRun } from './runs'
 import { patchServerRun, resolveServerRun, serverErrorText } from './server'
 import type { AgentRun } from './types'
 
@@ -91,5 +91,19 @@ export async function discardRun(run: AgentRun, id: string | null): Promise<void
   const ids = all.filter((c) => drop.has(c.id) && c.status !== 'applied').map((c) => c.id)
   if (!ids.length) return
   const staged = all.map((c) => (ids.includes(c.id) ? { ...c, status: 'discarded' as const } : c))
-  await save({ ...run, staged }, [], ids)
+  await save(await stateBack({ ...run, staged }), [], ids)
+}
+
+/**
+ * Every proposal of a browser run discarded, none applied: the agent state the run saved (its comment counts, cursors …
+ * stand for work that was never written) goes back to the one it replaced — only while the saved state is still this
+ * run's (no later run, no Clear since). A run partly applied keeps its state. The run's steps say so.
+ */
+async function stateBack(run: AgentRun): Promise<AgentRun> {
+  const staged = run.staged ?? []
+  if (run.runner !== 'browser' || run.stateBefore === undefined || !staged.length || staged.some((c) => c.status !== 'discarded')) return run
+  const cur = await getAgentState(run.agentId)
+  if (cur?.runId !== run.id) return run
+  await putAgentState(run.agentId, run.stateBefore)
+  return { ...run, steps: [...run.steps, { kind: 'note', label: t('features.agents.state.restored'), state: 'ok' }] }
 }

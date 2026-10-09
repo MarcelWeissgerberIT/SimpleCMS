@@ -325,7 +325,7 @@ export function MirrorSetup({ source, onClose, onCreated }: { source: RecipeSour
           </div>
           <div>
             <dt>{t('features.agents.mirror.spec.agent')}</dt>
-            <dd>{t('features.agents.mirror.spec.agentValue', { when, mode: t(recipe.agent.write === 'apply' ? 'features.agents.mirror.spec.apply' : 'features.agents.mirror.spec.stage'), usd: fmtUsd(recipe.agent.budget) })}</dd>
+            <dd>{t('features.agents.mirror.spec.agentValue', { when, mode: t(recipe.agent.write === 'apply' ? 'features.agents.mirror.spec.apply' : 'features.agents.mirror.spec.stage'), usd: fmtUsd(recipe.agent.budget, lang) })}</dd>
           </div>
           <div>
             <dt>{t('features.agents.mirror.spec.report')}</dt>

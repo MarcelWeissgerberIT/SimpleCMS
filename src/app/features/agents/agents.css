@@ -1032,6 +1032,16 @@
   border-top-left-radius: 0;
   border-bottom-left-radius: 0;
 }
+/* German: the sign after the amount ("1,00 $") */
+.agx-money[data-after] .agx-money__sign {
+  order: 1;
+  border-right: 1px solid var(--rule-strong);
+  border-left: 0;
+  border-radius: 0 var(--radius-1) var(--radius-1) 0;
+}
+.agx-money[data-after] .input {
+  border-radius: var(--radius-1) 0 0 var(--radius-1);
+}
 .agx-editor__foot {
   display: flex;
   align-items: center;
