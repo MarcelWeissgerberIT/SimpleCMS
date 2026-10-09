@@ -874,6 +874,10 @@ function ScopeFields({ d, set, error, titles }: { d: CustomAgent; set: (p: Parti
  * per server only while an active integration profile unlocks it (this device's servers; for a server agent also the
  * runtime's, by name / host) — without one, a list the agent already has stays applied and is shown read-only.
  */
+/**
+ * The MCP servers it may call. A browser agent's ticked server that is switched off on this device, or not set up here
+ * at all, is said under the list (its runs leave such a server out, exec.ts) — a hint: saving stays possible.
+ */
 function McpFields({ d, set }: { d: CustomAgent; set: (p: Partial<CustomAgent>) => void }) {
   const t = useT()
   const settings = useWorkspace((s) => s.settings)
@@ -881,9 +885,13 @@ function McpFields({ d, set }: { d: CustomAgent; set: (p: Partial<CustomAgent>) 
   const here = useUnlocked('toolAllowList')
   const onServer = useServerUnlocked('toolAllowList')
   const allowList = here || (d.runner === 'server' && onServer)
-  const names = d.runner === 'server' ? (runtime?.mcpServers ?? []).map((s) => s.name) : readServers(settings).map((s) => s.name)
+  const local = readServers(settings)
+  const names = d.runner === 'server' ? (runtime?.mcpServers ?? []).map((s) => s.name) : local.map((s) => s.name)
   const all = [...new Set([...names, ...d.mcpServers])]
   const toggle = (name: string, on: boolean) => set({ mcpServers: on ? [...d.mcpServers, name] : d.mcpServers.filter((x) => x !== name) })
+  const off = (name: string) => d.runner !== 'server' && local.some((s) => s.name === name && !s.enabled)
+  type Note = { name: string; kind: 'missing' | 'off' }
+  const notes = d.runner === 'server' ? [] : d.mcpServers.flatMap((name): Note[] => (!names.includes(name) ? [{ name, kind: 'missing' }] : off(name) ? [{ name, kind: 'off' }] : []))
   return (
     <div className="agx-field">
       <span className="agx-field__label">{t('features.agents.ed.mcp')}</span>
@@ -899,14 +907,22 @@ function McpFields({ d, set }: { d: CustomAgent; set: (p: Partial<CustomAgent>) 
       ) : (
         <div className="agx-checks" role="group" aria-label={t('features.agents.ed.mcp')}>
           {all.map((name) => (
-            <label key={name} className="agx-check" data-missing={!names.includes(name) || undefined}>
+            <label key={name} className="agx-check" data-missing={!names.includes(name) || undefined} data-off={off(name) || undefined}>
               <input type="checkbox" checked={d.mcpServers.includes(name)} onChange={(e) => toggle(name, e.target.checked)} />
               <span className="mono">{name.toUpperCase()}</span>
-              {!names.includes(name) && <span className="agx-check__note">{t('features.agents.ed.mcpMissing')}</span>}
+              {!names.includes(name) ? <span className="agx-check__note">{t('features.agents.ed.mcpMissing')}</span> : off(name) ? <span className="agx-check__note agx-check__note--off">{t('features.agents.ed.mcpOff')}</span> : null}
             </label>
           ))}
         </div>
       )}
+      {notes.map((n) => (
+        <p key={n.name} className="agx-mcp-note" role="note" data-testid="agx-mcp-note" data-kind={n.kind}>
+          <span>{t(n.kind === 'off' ? 'features.agents.ed.mcpNoteOff' : 'features.agents.ed.mcpNoteMissing', { name: n.name })}</span>
+          <button type="button" className="agx-link" onClick={() => useUI.getState().openModal({ type: 'settings', tab: 'ai' })}>
+            {t('features.agents.ed.mcpNoteOpen')}
+          </button>
+        </p>
+      ))}
       <p className="agx-field__hint">{t('features.agents.ed.mcpHint')}</p>
       {!allowList &&
         d.mcpServers

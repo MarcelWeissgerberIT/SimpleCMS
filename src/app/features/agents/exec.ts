@@ -348,11 +348,13 @@ async function runOnce(agent: CustomAgent, req: RunRequest): Promise<AgentRun> {
   }
 
   try {
-    // the agent's MCP servers, by name, as set up in this browser (Settings → Claude AI); only the tools its
-    // allow-list names (mcpTools) — a server whose list is empty is left out
+    // the agent's MCP servers, by name, as set up and switched on in this browser (Settings → Claude AI); only the tools
+    // its allow-list names (mcpTools) — a server whose list is empty is left out, a switched-off one too (the editor says so)
     const allow = agent.mcpTools ?? {}
-    const configured = readServers().filter((s) => agent.mcpServers.includes(s.name))
-    for (const name of agent.mcpServers) if (!configured.some((s) => s.name === name)) step({ kind: 'note', label: t('features.agents.run.mcpMissing', { name: name.toUpperCase() }), state: 'err' })
+    const named = readServers().filter((s) => agent.mcpServers.includes(s.name))
+    for (const name of agent.mcpServers) if (!named.some((s) => s.name === name)) step({ kind: 'note', label: t('features.agents.run.mcpMissing', { name: name.toUpperCase() }), state: 'err' })
+    for (const s of named) if (!s.enabled) step({ kind: 'note', label: t('features.agents.run.mcpOff', { name: s.name.toUpperCase() }), state: 'err' })
+    const configured = named.filter((s) => s.enabled)
     const usable = configured.filter((s) => allowedTools(allow, s.name)?.length !== 0)
     for (const s of configured) if (!usable.includes(s)) step({ kind: 'note', label: t('features.agents.run.mcpNoTools', { name: s.name.toUpperCase() }), state: 'err' })
     const mcp = usable.length ? await attachMcp({ servers: usable, instructions: instructionsText() }, 'free', { forced: agent.mcpServers, allow }) : null

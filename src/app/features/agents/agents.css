@@ -1020,6 +1020,30 @@
 .agx-check__note {
   color: var(--c-red-text);
 }
+/* switched off on this device: a hint, not a fault */
+.agx-check__note--off {
+  color: var(--ink-3);
+}
+/* a ticked MCP server that is switched off here, or not set up here (McpFields): said under the list, saving stays */
+.agx-mcp-note {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  border: 1px solid var(--rule);
+  border-left: 2px solid var(--signal);
+  border-radius: var(--radius-1);
+  background: var(--signal-wash);
+  font-size: calc(12px * var(--text-scale));
+  color: var(--ink);
+}
+.agx-mcp-note > span {
+  flex: 1 1 240px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
 /* the tool allow-list of one MCP server (under its ticked checkbox) */
 .agx-tools {
   display: grid;

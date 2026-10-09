@@ -1733,7 +1733,7 @@ test.describe('Custom agents: the mirror setup shows what it makes; pages in the
     dialog = await openSetup(page)
     await dialog.getByRole('textbox', { name: /Name/ }).fill('Tracker')
     const exists = dialog.getByTestId('agx-mir-exists')
-    await expect(exists).toContainText(`„Tracker“ liegt im Papierkorb, und der Agent „${agent.name}“ spiegelt hinein. Stell sie wieder her oder gib der neuen einen anderen Namen.`)
+    await expect(exists).toContainText(`„Tracker“ liegt im Papierkorb, und der Agent „${agent.name}“ hält sie im Gleichstand. Stell sie wieder her oder gib der neuen einen anderen Namen.`)
     await expect(dialog.getByRole('button', { name: 'Datenbank und Agent anlegen' })).toBeDisabled()
     await expect(exists.getByRole('button', { name: `„${agent.name}“ öffnen` })).toBeVisible()
     await exists.getByRole('button', { name: 'Wiederherstellen' }).click()

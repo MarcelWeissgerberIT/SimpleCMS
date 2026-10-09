@@ -1,8 +1,10 @@
 /**
  * Custom agents — the first step of a mirror recipe (an active integration profile's RecipeConfig): the source (the
  * MCP servers of this device that match the profile — the first one preselected —, their tool count from the last
- * connection test; the list follows this device's settings live: a server switched off while the setup is open drops
- * out — the picked one stays, marked off, the field says so and Create waits), a name and the page it goes below (team
+ * connection test; the list follows this device's settings live: a server switched off or no longer matching while the
+ * setup is open drops out — the picked one (followed by its id through a rename) stays, marked, and the field says what
+ * happened to it: switched off, no longer matching the profile (its address, its tools or its name changed — sourceState)
+ * or deleted (also when the list is empty then); Create waits), a name and the page it goes below (team
  * workspace: a private page, or the Private section's top). "Create" makes the database and its report page (mirror.ts; the editor's note carries the Undo) and hands the
  * agent draft to the editor. A live database with the same name is never duplicated silently: Create waits, and one
  * holding the recipe's key (named in either language; private in a team) is offered for the agent ("Use …",
@@ -11,15 +13,18 @@
  * that reads any of this device's servers matching the profile — switched on or off; in a team only the member's own
  * agents) offers that agent instead; a shared one in a team only says why it is not used — before anything else. A
  * database of that name in the trash that one of the member's saved agents is marked for is named with Restore and
- * Open that agent (Create waits). The name's hint says what is named after it (the recipe's agent and report names with
- * `{db}`). The spec plate reads the recipe: properties, views, key, own fields, the agent's name, schedule, budget,
- * report — the names exactly as the offered action makes them (mirrorTitles: Create, or "Use" with the recipe in the
- * database's language and the report page it takes back). Opening, it takes down the mirror toasts (mirrorToasts.ts).
+ * Open that agent (Create waits) — in the trash only because a page above it is: that page is named and restored (“X”
+ * is in “P”, and “P” is in the trash · Restore “P”); after Restore focus goes to the Open key that shows then (else the
+ * name field). The name's hint says what is named after it (the recipe's agent and report names with `{db}`). The spec
+ * plate reads the recipe: properties, views, key, own fields, the agent's name, schedule, budget, report — the names
+ * exactly as the offered action makes them (mirrorTitles: Create, or "Use" with the recipe in the database's language
+ * and the report page it takes back); while only "Open …" (and Restore) is offered it shows what is there: that agent,
+ * its report page ("—": none) and its database. Opening, it takes down the mirror toasts (mirrorToasts.ts).
  */
-import { useId, useMemo, useState } from 'react'
+import { useId, useMemo, useRef, useState } from 'react'
 import { ChevronDown } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
-import type { ID, IntegrationProfile, RecipeConfig } from '../../store/types'
+import type { ID, IntegrationProfile, McpServerConfig, RecipeConfig } from '../../store/types'
 import { localTimeZone } from '../../store/agents'
 import { useCloud } from '../../cloud'
 import { Modal } from '../../ui/Modal'
@@ -29,7 +34,7 @@ import { useLang, useT } from '../../i18n'
 import { navigate } from '../../lib/router'
 import { LANGS } from '@/shared/i18n'
 import { readServers } from '../ai/mcp-servers/config'
-import { matchingServers } from '../../store/integrations'
+import { matchMiss, matchingServers } from '../../store/integrations'
 import { isReadTool } from './mcpTools'
 import { canHoldMirror, createMirror, mirrorTitles, nameFromServer, reuseMirror, sameNamedDb, type KeyName, type MirrorMade, type SameNamed } from './mirror'
 import { useDismissMirrorToasts } from './mirrorToasts'
@@ -78,6 +83,29 @@ function WherePicker({ value, onPick, id }: { value: ID | null; onPick: (id: ID 
   )
 }
 
+/** What became of the picked source (Settings can change while the setup is open). */
+type SourceState =
+  | { state: 'none' }
+  | { state: 'ok' }
+  | { state: 'off' }
+  | { state: 'mismatch'; why: 'host' | 'tools' | 'untested' | 'name' | 'other'; missing: string[] }
+  | { state: 'gone' }
+
+/**
+ * `picked`: the picked server as last seen (null: none picked); `current`: its entry in Settings now (null: deleted);
+ * `servers`: the profile's sources now (switched on and matching). Switched off · no longer matching the profile (why:
+ * its address, its tools, its name) · deleted · fine.
+ */
+function sourceState(profile: Pick<IntegrationProfile, 'match'>, picked: McpServerConfig | null, current: McpServerConfig | null, servers: McpServerConfig[]): SourceState {
+  if (!picked) return { state: 'none' }
+  if (!current) return { state: 'gone' }
+  if (servers.some((s) => s.id === current.id)) return { state: 'ok' }
+  if (!current.enabled) return { state: 'off' }
+  const miss = profile.match ? matchMiss(profile.match, { name: current.name, url: current.url, enabled: true, tools: current.tools }) : null
+  if (miss?.kind === 'tools') return { state: 'mismatch', why: 'tools', missing: miss.missing }
+  return { state: 'mismatch', why: miss && miss.kind !== 'disabled' ? miss.kind : 'other', missing: [] }
+}
+
 export function MirrorSetup({ source, onClose, onCreated }: { source: RecipeSource; onClose: () => void; onCreated: (made: MirrorMade) => void }) {
   const t = useT()
   const lang = useLang()
@@ -124,29 +152,67 @@ export function MirrorSetup({ source, onClose, onCreated }: { source: RecipeSour
   // switched on or off (a mirror whose server is off now is still that database's mirror)
   const sourceServers = useMemo(() => matchingServers(source.profile, deviceServers(settings).map((s) => ({ ...s, enabled: true }))), [source.profile, settings])
   const first = servers[0]
-  const [server, setServer] = useState<string>(first?.name ?? '')
+  // the pick is a server of this device (its id: a rename in Settings keeps it); its last known entry names it once
+  // it is deleted there
+  const [pickId, setPickId] = useState<string>(first?.id ?? '')
+  const lastSeen = useRef<McpServerConfig | null>(first ?? null)
+  // the servers listed before it when it was last seen: a deleted pick keeps its place in the list
+  const seenBefore = useRef<string[]>([])
   const [name, setName] = useState(() => recipe.dbName || (first ? nameFromServer(first.name) : ''))
   const [named, setNamed] = useState(!!recipe.dbName)
   const [parentId, setParentId] = useState<ID | null>(null)
   const [tried, setTried] = useState(false)
   const [failed, setFailed] = useState('')
   const ids = { name: `${uid}-name`, where: `${uid}-where`, src: `${uid}-src` }
+  const nameInput = useRef<HTMLInputElement>(null)
+  const openKey = useRef<HTMLButtonElement>(null)
 
   const errName = tried && !name.trim() ? t('features.agents.mirror.err.name') : ''
-  // the picked source was switched off (or no longer matches) meanwhile: it stays in the list, marked, and Create waits
-  const pickedOff = !!server && !servers.some((s) => s.name === server) ? (readServers(settings).find((s) => s.name === server) ?? null) : null
-  const errServer = pickedOff
-    ? t('features.agents.mirror.err.serverOff', { name: pickedOff.name.toUpperCase() })
-    : tried && !servers.some((s) => s.name === server)
-      ? t('features.agents.mirror.err.server')
-      : ''
-  // the switched-off pick keeps its place in the list
-  const shownServers = pickedOff ? readServers(settings).filter((s) => s.name === pickedOff.name || servers.some((x) => x.name === s.name)) : servers
+  // what became of the picked source in Settings while the setup is open (it keeps its place in the list, marked, and
+  // Create waits): switched off · no longer matching the profile (address, tools, name) · deleted
+  const all = readServers(settings)
+  // by its id (a rename keeps it), else by its name (deleted and set up again: agents name servers by name)
+  const known = lastSeen.current
+  const current = pickId ? (all.find((s) => s.id === pickId) ?? (known ? all.find((s) => s.name === known.name) : undefined) ?? null) : null
+  if (current) {
+    lastSeen.current = current
+    seenBefore.current = all.slice(0, all.indexOf(current)).map((s) => s.id)
+  }
+  const picked = current ?? (pickId ? lastSeen.current : null)
+  const pickedId = current?.id ?? pickId
+  const server = picked?.name ?? ''
+  const pick = sourceState(source.profile, picked, current, servers)
+  const others = servers.filter((s) => s.id !== pickedId).length
+  const pickName = server.toUpperCase()
+  const errServer =
+    pick.state === 'off'
+      ? t('features.agents.mirror.err.serverOff', { name: pickName })
+      : pick.state === 'mismatch'
+        ? t(`features.agents.mirror.err.serverMiss.${pick.why}`, { name: pickName, profile: source.profile.name, missing: pick.missing.join(', ') })
+        : pick.state === 'gone'
+          ? t(others ? 'features.agents.mirror.err.serverGone' : 'features.agents.mirror.err.serverGoneLast', { name: pickName, profile: source.profile.name })
+          : !servers.length
+            ? t('features.agents.mirror.err.noServers', { profile: source.profile.name })
+            : tried && pick.state !== 'ok'
+              ? t('features.agents.mirror.err.server')
+              : ''
+  // the pick keeps its place in the list when it is off, no longer matches or was deleted
+  const at = servers.filter((s) => seenBefore.current.includes(s.id)).length
+  const shownServers =
+    picked && pick.state !== 'ok' && pick.state !== 'none'
+      ? current
+        ? all.filter((s) => s.id === current.id || servers.some((x) => x.id === s.id))
+        : [...servers.slice(0, at), picked, ...servers.slice(at)]
+      : servers
+  // switched off, no longer matching, deleted (nothing picked yet — no source when it opened — is said when Create is pressed)
+  const pickBad = pick.state !== 'ok' && pick.state !== 'none'
 
-  const pickServer = (n: string) => {
-    setServer(n)
+  const pickServer = (s: McpServerConfig) => {
+    setPickId(s.id)
+    lastSeen.current = s
+    seenBefore.current = all.slice(0, all.findIndex((x) => x.id === s.id)).map((x) => x.id)
     // the name follows the source until the person typed one (or the recipe names the database)
-    if (!named) setName(nameFromServer(n))
+    if (!named) setName(nameFromServer(s.name))
   }
 
   const keyProp = built.schema.properties.find((p) => p.key)
@@ -189,8 +255,11 @@ export function MirrorSetup({ source, onClose, onCreated }: { source: RecipeSour
     run(() => reuseMirror({ recipe: recipeFor(existing), server, dbId: existing.id }))
   }
   // in the trash with an agent marked for it: restore it (the page in the trash that holds it) — the notice then offers
-  // that agent
-  const restore = (root: ID) => useWorkspace.getState().restorePage(root)
+  // that agent, and focus goes to its key (else the name field; never the page body: the Restore key is gone)
+  const restore = (root: ID) => {
+    useWorkspace.getState().restorePage(root)
+    requestAnimationFrame(() => (openKey.current ?? nameInput.current)?.focus())
+  }
   // a saved agent mirrors into it already: that one, never a second
   const openAgent = (id: ID) => {
     onClose()
@@ -202,7 +271,9 @@ export function MirrorSetup({ source, onClose, onCreated }: { source: RecipeSour
     : existing.shared
       ? t('features.agents.mirror.exists.shared', { name: existing.title })
       : existing.trashed && existing.agent
-        ? t('features.agents.mirror.exists.trashed', { name: existing.title, agent: existing.agent.name })
+        ? existing.trashed.parent
+          ? t('features.agents.mirror.exists.trashedBelow', { name: existing.title, parent: existing.trashed.parent, agent: existing.agent.name })
+          : t('features.agents.mirror.exists.trashed', { name: existing.title, agent: existing.agent.name })
         : existing.agent
         ? t('features.agents.mirror.exists.mirrored', { name: existing.title, agent: existing.agent.name })
         : t(existing.fits ? 'features.agents.mirror.exists.fits' : 'features.agents.mirror.exists.other', { name: existing.title })
@@ -217,6 +288,26 @@ export function MirrorSetup({ source, onClose, onCreated }: { source: RecipeSour
     { type: 'schedule', every: sched.every, at: sched.at, tz: localTimeZone(), ...(sched.weekday !== undefined ? { weekday: sched.weekday } : {}), ...(sched.day !== undefined ? { day: sched.day } : {}) },
     { pages, databases, lang },
   )
+  // only "Open …" (and Restore) is offered: the plate shows what is there — that agent, its report page and its
+  // database — never names no offered action makes
+  const there = existing && !existing.shared && existing.agent ? (agents?.[existing.agent.id] ?? null) : null
+  const thereDb = there && existing ? databases[existing.id] : undefined
+  const thereReport = there?.output?.pageId ? pages[there.output.pageId] : undefined
+  const plate = there
+    ? {
+        db: t('features.agents.mirror.spec.dbValue', { props: thereDb?.properties.length ?? 0, views: thereDb?.views.length ?? 0, key: thereDb?.properties.find((p) => p.key)?.name ?? '—' }),
+        yours: (thereDb?.properties ?? []).filter((p) => p.agentReadOnly).map((p) => p.name).join(' · '),
+        agent: there.name,
+        agentValue: t('features.agents.mirror.spec.agentValue', { when: triggerText(t, there.trigger, { pages, databases, lang }), mode: t(`features.agents.mirror.spec.${there.write}`), usd: fmtUsd(there.maxRunUsd, lang) }),
+        report: thereReport ? thereReport.title.trim() || t('common.untitled') : '—',
+      }
+    : {
+        db: t('features.agents.mirror.spec.dbValue', { props: built.schema.properties.length, views: built.schema.views.length, key: keyProp?.name ?? '—' }),
+        yours,
+        agent: titles.agentName,
+        agentValue: t('features.agents.mirror.spec.agentValue', { when, mode: t(recipe.agent.write === 'apply' ? 'features.agents.mirror.spec.apply' : 'features.agents.mirror.spec.stage'), usd: fmtUsd(recipe.agent.budget, lang) }),
+        report: titles.reportTitle,
+      }
 
   return (
     <Modal
@@ -237,7 +328,7 @@ export function MirrorSetup({ source, onClose, onCreated }: { source: RecipeSour
           <button type="button" className="btn btn--ghost" onClick={onClose}>
             {t('common.cancel')}
           </button>
-          <button type="button" className="btn btn--primary" onClick={create} disabled={!servers.length || built.errors > 0 || !!existing || !!pickedOff}>
+          <button type="button" className="btn btn--primary" onClick={create} disabled={!servers.length || built.errors > 0 || !!existing || pickBad}>
             {t('features.agents.mirror.create')}
           </button>
         </div>
@@ -269,11 +360,16 @@ export function MirrorSetup({ source, onClose, onCreated }: { source: RecipeSour
           <div className="agx-mir__servers" role="radiogroup" aria-labelledby={ids.src}>
             {shownServers.map((s) => {
               const tools = s.tools ?? []
-              const off = !!pickedOff && s.name === pickedOff.name
-              const state = off ? t('features.agents.mirror.serverOff') : tools.length ? t('features.agents.mirror.tools', { n: tools.length, read: tools.filter(isReadTool).length }) : t('features.agents.mirror.untested')
+              // the pick that was switched off, no longer matches or was deleted: marked, never picked again from here
+              const off = s.id === pickedId && pickBad
+              const state = off
+                ? t(pick.state === 'gone' ? 'features.agents.mirror.serverGone' : pick.state === 'mismatch' ? 'features.agents.mirror.serverMiss' : 'features.agents.mirror.serverOff')
+                : tools.length
+                  ? t('features.agents.mirror.tools', { n: tools.length, read: tools.filter(isReadTool).length })
+                  : t('features.agents.mirror.untested')
               return (
-                <label key={s.id} className="agx-mir__server" data-untested={(!off && !tools.length) || undefined} data-off={off || undefined}>
-                  <input type="radio" name={`${uid}-server`} value={s.name} checked={server === s.name} disabled={off} onChange={() => pickServer(s.name)} />
+                <label key={s.id} className="agx-mir__server" data-untested={(!off && !tools.length) || undefined} data-off={off || undefined} data-state={off ? pick.state : undefined}>
+                  <input type="radio" name={`${uid}-server`} value={s.name} checked={s.id === pickedId} disabled={off} onChange={() => pickServer(s)} aria-describedby={off && errServer ? `${ids.src}-err` : undefined} />
                   <span className="agx-mir__srvname mono">{s.name.toUpperCase()}</span>
                   <span className="agx-mir__srvstate">{state}</span>
                 </label>
@@ -282,7 +378,7 @@ export function MirrorSetup({ source, onClose, onCreated }: { source: RecipeSour
           </div>
           <p className="agx-field__hint">{t('features.agents.mirror.sourceHintProfile', { profile: source.profile.name })}</p>
           {errServer && (
-            <p className="agx-field__error" role="alert" data-testid="agx-mir-server-err">
+            <p className="agx-field__error" id={`${ids.src}-err`} role="alert" data-testid="agx-mir-server-err">
               {errServer}
             </p>
           )}
@@ -294,6 +390,7 @@ export function MirrorSetup({ source, onClose, onCreated }: { source: RecipeSour
               <span className="agx-mir__n label">02</span> {t('features.agents.mirror.name')}
             </label>
             <input
+              ref={nameInput}
               id={ids.name}
               className="input"
               value={name}
@@ -333,16 +430,16 @@ export function MirrorSetup({ source, onClose, onCreated }: { source: RecipeSour
               <span className="agx-mir__keys">
                 {existing.trashed && (
                   <button type="button" className="btn btn--sm" onClick={() => existing.trashed && restore(existing.trashed.root)}>
-                    {t('features.agents.mirror.exists.restore')}
+                    {existing.trashed.parent ? t('features.agents.mirror.exists.restoreParent', { parent: existing.trashed.parent }) : t('features.agents.mirror.exists.restore')}
                   </button>
                 )}
-                <button type="button" className="btn btn--sm btn--ink" onClick={() => existing.agent && openAgent(existing.agent.id)}>
+                <button type="button" ref={openKey} className="btn btn--sm btn--ink" onClick={() => existing.agent && openAgent(existing.agent.id)}>
                   {t('features.agents.mirror.exists.open', { agent: existing.agent.name })}
                 </button>
               </span>
             ) : (
               existing.fits && (
-                <button type="button" className="btn btn--sm btn--ink" onClick={takeExisting} disabled={!!pickedOff}>
+                <button type="button" className="btn btn--sm btn--ink" onClick={takeExisting} disabled={pickBad}>
                   {t('features.agents.mirror.exists.use', { name: existing.title })}
                 </button>
               )
@@ -350,27 +447,27 @@ export function MirrorSetup({ source, onClose, onCreated }: { source: RecipeSour
           </div>
         )}
 
-        <dl className="agx-spec agx-mir__spec" data-testid="agx-mir-spec">
+        <dl className="agx-spec agx-mir__spec" data-testid="agx-mir-spec" data-there={there ? '' : undefined}>
           <div>
             <dt>{t('features.agents.mirror.spec.db')}</dt>
-            <dd>{t('features.agents.mirror.spec.dbValue', { props: built.schema.properties.length, views: built.schema.views.length, key: keyProp?.name ?? '—' })}</dd>
+            <dd>{plate.db}</dd>
           </div>
           <div>
             <dt>{t('features.agents.mirror.spec.yours')}</dt>
-            <dd>{yours || '—'}</dd>
+            <dd>{plate.yours || '—'}</dd>
           </div>
           <div>
             <dt>{t('features.agents.mirror.spec.agent')}</dt>
             <dd>
               <span className="agx-mir__agentname" data-testid="agx-mir-agent">
-                {titles.agentName}
+                {plate.agent}
               </span>
-              <span>{t('features.agents.mirror.spec.agentValue', { when, mode: t(recipe.agent.write === 'apply' ? 'features.agents.mirror.spec.apply' : 'features.agents.mirror.spec.stage'), usd: fmtUsd(recipe.agent.budget, lang) })}</span>
+              <span>{plate.agentValue}</span>
             </dd>
           </div>
           <div>
             <dt>{t('features.agents.mirror.spec.report')}</dt>
-            <dd data-testid="agx-mir-report">{titles.reportTitle}</dd>
+            <dd data-testid="agx-mir-report">{plate.report}</dd>
           </div>
         </dl>
         <button type="submit" hidden tabIndex={-1} aria-hidden />

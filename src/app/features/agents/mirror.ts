@@ -304,9 +304,10 @@ export interface SameNamed {
   agent?: { id: ID; name: string }
   /**
    * it is in the trash (no live one has the name) and `agent` is marked for it (`mirrorOf`): `root` is the page in the
-   * trash that holds it (itself, or a page above it) — restoring that brings it back
+   * trash that holds it (itself, or a page above it) — restoring that brings it back; `parent`: that page's title when
+   * it is a page above it (the database is in the trash only because that page is — restoring it brings its pages back)
    */
-  trashed?: { root: ID }
+  trashed?: { root: ID; parent?: string }
 }
 
 /**
@@ -358,7 +359,8 @@ export function sameNamedDb(
     .sort((a, b) => b.p.createdAt - a.p.createdAt)[0]
   if (!binned) return null
   const agent = marked.find((a) => a.mirrorOf === binned.p.id)!
-  return { id: binned.p.id, title: binned.p.title.trim(), fits: false, agent: { id: agent.id, name: agent.name }, trashed: { root: binned.root.id } }
+  const parent = binned.root.id === binned.p.id ? null : binned.root.title.trim() || t('common.untitled')
+  return { id: binned.p.id, title: binned.p.title.trim(), fits: false, agent: { id: agent.id, name: agent.name }, trashed: { root: binned.root.id, ...(parent ? { parent } : {}) } }
 }
 
 /* ------------------------------------------------------------------ distinct titles */
@@ -376,27 +378,52 @@ export function pageTitles(pages: Record<ID, Page>, except?: ID | null): Set<str
 /** Folded names of the saved agents. */
 const agentNames = (agents: Record<ID, CustomAgent> | undefined) => new Set(Object.values(agents ?? {}).map((a) => fold(a.name)))
 
+/** `s` in at most `n` characters: cut with "…" at the end (never inside a surrogate pair). */
+export function clipTitle(s: string, n: number): string {
+  if (s.length <= n) return s
+  if (n < 2) return n === 1 ? '…' : ''
+  let end = n - 1
+  if (/[\uD800-\uDBFF]/.test(s.charAt(end - 1))) end--
+  return `${s.slice(0, end).trimEnd()}…`
+}
+
+/** What a title keeps of itself at least before the database's name in parentheses is shortened. */
+const KEEP_OF_TITLE = 24
+
 /**
  * A title the setup makes that none of `taken` (folded) has: `title` itself when free — the first mirror keeps the
  * configured names exactly —, else `title (<db>)`, then `title (<db>) (2)`, `… (3)` until free. A title that names the
  * database already skips the ` (<db>)` step (it would only repeat the name): `title (2)`, `title (3)` … At most `max`
- * characters (the title is cut, the suffix stays whole).
+ * characters: the counter and the closing parenthesis are never cut — the title is cut first (with "…", down to its
+ * first KEEP_OF_TITLE characters), then the database's name inside the parentheses (with "…"). Never a taken title:
+ * the counter goes on until one is free (titles with counters of one length differ in the counter alone).
  */
 export function distinctTitle(title: string, db: string, taken: ReadonlySet<string>, max: number): string {
-  const first = title.slice(0, max)
+  const first = clipTitle(title, max)
   if (!taken.has(fold(first))) return first
-  const fit = (suffix: string) => {
-    const room = max - suffix.length
-    return room > 0 ? `${title.slice(0, room).trimEnd()}${suffix}` : `${title}${suffix}`.slice(0, max)
+  const dbName = db.replace(/\s+/g, ' ').trim()
+  const named = !fold(dbName) || fold(title).includes(fold(dbName))
+  const make = (counter: string): string => {
+    const room = Math.max(0, max - counter.length)
+    if (named) return `${clipTitle(title, room)}${counter}`
+    const whole = ` (${dbName})`
+    if (title.length + whole.length <= room) return `${title}${whole}${counter}`
+    const keep = Math.min(title.length, KEEP_OF_TITLE)
+    if (keep + whole.length <= room) return `${clipTitle(title, room - whole.length)}${whole}${counter}`
+    // the database's name itself is too long: shortened inside the parentheses, which stay whole
+    const dbRoom = room - keep - 3
+    if (dbRoom < 2) return `${clipTitle(title, room)}${counter}`
+    return `${clipTitle(title, keep)} (${clipTitle(dbName, dbRoom)})${counter}`
   }
-  const named = !fold(db) || fold(title).includes(fold(db))
-  const dbPart = named ? '' : ` (${db.replace(/\s+/g, ' ').trim()})`
-  if (dbPart && !taken.has(fold(fit(dbPart)))) return fit(dbPart)
-  for (let n = 2; n < 10_000; n++) {
-    const next = fit(`${dbPart} (${n})`)
-    if (!taken.has(fold(next))) return next
+  if (!named) {
+    const withDb = make('')
+    if (!taken.has(fold(withDb))) return withDb
   }
-  return first
+  // ends: among taken.size + 1 counters at least one title is free
+  for (let n = 2; ; n++) {
+    const next = make(` (${n})`)
+    if (!taken.has(fold(next)) || n > taken.size + 2) return next
+  }
 }
 
 /* ------------------------------------------------------------------ the report page */
@@ -472,7 +499,8 @@ export function mirrorTitles(
   const { recipe, server, name, dbId } = input
   const kept = input.reuse && dbId ? keptReport(ctx.pages, ctx.agents, dbId, ctx.team) : null
   const reportTitle = kept ? kept.title.trim() || t('common.untitled') : distinctTitle(fillTokens(recipe.reportName, { db: name, server }), name, pageTitles(ctx.pages, dbId), 200)
-  const agentName = distinctTitle(fillTokens(recipe.agent.name, { db: name, server, report: reportTitle }).slice(0, 80), name, agentNames(ctx.agents), AGENT_LIMITS.name)
+  // the whole name: distinctTitle cuts it (a cut name could hide that it names the database already)
+  const agentName = distinctTitle(fillTokens(recipe.agent.name, { db: name, server, report: reportTitle }), name, agentNames(ctx.agents), AGENT_LIMITS.name)
   return { reportTitle, keptId: kept?.id ?? null, agentName }
 }
 
