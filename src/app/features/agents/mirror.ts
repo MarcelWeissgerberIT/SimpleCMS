@@ -10,9 +10,14 @@
  *    coding databases. No toast (it would sit on the editor's footer): the editor's note says what is made and
  *    carries the Undo (undoMirror); closing the editor unsaved asks whether both stay or go to the trash
  *    (MirrorDiscard.tsx, trashMirror / restoreMirror).
+ *  - The rule for taking back: the setup only ever trashes what THIS setup created (`MirrorMade.created`) — never a
+ *    database or page that was there before, never for good (trash + Undo) — and in a team workspace it only ever
+ *    touches or reuses PRIVATE pages.
  *  - sameNamedDb() / reuseMirror(): a live database with the name the setup is about to use is never duplicated
- *    silently — the setup says so and, when it holds the recipe's key property, sets the agent up for it (its
- *    report page found by title, made again when gone).
+ *    silently — the setup says so and, when it holds the recipe's key property (in either language; private in a
+ *    team) and no saved agent mirrors into it already (mirrorAgentOf), sets the agent up for it: its report page is
+ *    the one such an agent reports into, else the recipe's page right next to it that no agent uses, else made
+ *    again.
  *  - mirrorDraft(): the agent the editor opens with — the recipe's schedule in this browser's time zone, browser
  *    runner, its write mode and budget, the source server with the recipe's tools (default: its reading tools from
  *    the last connection test), scope = the database, the report page, its instructions (`{db}` / `{server}` /
@@ -27,6 +32,7 @@ import { inTemplate, isEffectivelyTrashed } from '../../store/selectors'
 import { localTimeZone } from '../../store/agents'
 import { variants } from '../../store/integrations'
 import type { CustomAgent, Database, ID, IntegrationProfile, Page } from '../../store/types'
+import type { Lang } from '@/shared/i18n'
 import { createPrivateDatabase, createPrivatePage, useCloud } from '../../cloud'
 import { ALL_MESSAGES, t } from '../../i18n'
 import { readServers } from '../ai/mcp-servers/config'
@@ -149,21 +155,20 @@ export interface MirrorMade {
   /** placeholders left in the draft's instructions */
   placeholders: number
   draft: CustomAgent
-  /** the pages this setup created (Undo removes only these): both, or — set up for a database that was there — none or a new report page */
+  /** the pages this setup created — the only ones it may ever trash: both, or (set up for a database that was there) none or a new report page */
   created: ID[]
   /** set up for a database that was there already (reuseMirror) */
   reused?: boolean
 }
 
-/** Remove what the setup created — and the agent, when it was saved from the draft. */
-export function undoMirror(made: Pick<MirrorMade, 'created' | 'draft'>): void {
-  if (ws().agents?.[made.draft.id]) ws().deleteAgent(made.draft.id)
-  for (const id of made.created) if (ws().pages[id]) ws().deletePagePermanently(id)
+/** What the setup created: both, only the report page (a database that was there), or nothing. */
+export function madeKind(made: Pick<MirrorMade, 'created' | 'dbId'>): 'both' | 'report' | 'none' {
+  return made.created.includes(made.dbId) ? 'both' : made.created.length ? 'report' : 'none'
 }
 
-/** The database and the report page of a discarded draft to the trash; returns the ids it trashed (for restoreMirror). */
-export function trashMirror(made: Pick<MirrorMade, 'dbId' | 'reportId'>): ID[] {
-  const ids = [made.dbId, made.reportId].filter((id) => ws().pages[id] && !ws().pages[id].trashed)
+/** What the setup created (only that) to the trash; returns the ids it trashed (for restoreMirror). */
+export function trashMirror(made: Pick<MirrorMade, 'created'>): ID[] {
+  const ids = made.created.filter((id) => ws().pages[id] && !ws().pages[id].trashed)
   for (const id of ids) ws().trashPage(id)
   return ids
 }
@@ -173,23 +178,98 @@ export function restoreMirror(ids: ID[]): void {
   for (const id of ids) if (ws().pages[id]?.trashed) ws().restorePage(id)
 }
 
-const fold = (s: string) => s.replace(/\s+/g, ' ').trim().toLocaleLowerCase()
+/**
+ * The note's Undo: the agent goes when it was saved from the draft, and what the setup created goes to the trash —
+ * never for good (rows or sub-pages added meanwhile, here or on another device, come back with restoreMirror).
+ */
+export function undoMirror(made: Pick<MirrorMade, 'created' | 'draft'>): ID[] {
+  if (ws().agents?.[made.draft.id]) ws().deleteAgent(made.draft.id)
+  return trashMirror(made)
+}
+
+/** Names folded for comparing: Unicode NFC, spaces collapsed, case ignored. */
+const fold = (s: string) => s.normalize('NFC').replace(/\s+/g, ' ').trim().toLocaleLowerCase()
 const live = (pages: Record<ID, Page>, p: Page) => !p.trashed && !isEffectivelyTrashed(pages, p.id) && !inTemplate(pages, p.id)
 
+/** A saved agent that mirrors into the database already: scoped to it, it reads an MCP server and may write. */
+export function mirrorAgentOf(agents: Record<ID, CustomAgent> | undefined, dbId: ID): CustomAgent | null {
+  return (
+    Object.values(agents ?? {})
+      .filter((a) => !a.scope.everything && a.scope.databases.includes(dbId) && a.write !== 'none' && a.mcpServers.length > 0)
+      .sort((a, b) => a.createdAt - b.createdAt)[0] ?? null
+  )
+}
+
+/** The recipe's key property name in one language (the recipe resolved in `lang`). */
+export interface KeyName {
+  name: string
+  lang: Lang
+}
+
+export interface SameNamed {
+  id: ID
+  title: string
+  /** holds the recipe's key property (either language) and — in a team — is private: the agent can mirror into it */
+  fits: boolean
+  /** the language its key property is named in (reuseMirror resolves the recipe in it) */
+  lang?: Lang
+  /** team workspace: a shared database — never used for the member's private mirror */
+  shared?: boolean
+  /** a saved agent mirrors into it already: that one is opened instead of making a second */
+  agent?: { id: ID; name: string }
+}
+
 /**
- * A live database named like `name` (spaces and case folded): the setup never makes a second one silently. `fits`: it
- * holds the recipe's key property (`keyName`, marked as key), so the agent can mirror into it (reuseMirror). The
- * fitting one first, then the newest.
+ * A live database named like `name` (NFC, spaces and case folded): the setup never makes a second one silently.
+ * `keys`: the recipe's key property name per language. The usable one first (fits, no agent on it yet), then the
+ * fitting one, then the newest.
  */
-export function sameNamedDb(pages: Record<ID, Page>, databases: Record<ID, Database>, name: string, keyName: string | undefined): { id: ID; title: string; fits: boolean } | null {
+export function sameNamedDb(
+  pages: Record<ID, Page>,
+  databases: Record<ID, Database>,
+  agents: Record<ID, CustomAgent> | undefined,
+  name: string,
+  keys: KeyName[],
+  team = inTeam(),
+): SameNamed | null {
   const want = fold(name)
   if (!want) return null
-  const fits = (id: ID) => !!keyName && !!databases[id]?.properties.some((p) => p.key && p.name === keyName)
+  const keyLang = (id: ID): Lang | undefined => {
+    const props = databases[id]?.properties ?? []
+    return keys.find((k) => props.some((p) => p.key && p.name === k.name))?.lang
+  }
+  const usable = (x: SameNamed) => x.fits && !x.agent
   const found = Object.values(pages)
     .filter((p) => p.kind === 'database' && fold(p.title) === want && live(pages, p))
-    .map((p) => ({ id: p.id, title: p.title.trim(), fits: fits(p.id), at: p.createdAt }))
-    .sort((a, b) => Number(b.fits) - Number(a.fits) || b.at - a.at)[0]
-  return found ? { id: found.id, title: found.title, fits: found.fits } : null
+    .map((p) => {
+      const lang = keyLang(p.id)
+      const shared = team && !p.private
+      const agent = mirrorAgentOf(agents, p.id)
+      const out: SameNamed = { id: p.id, title: p.title.trim(), fits: !!lang && !shared }
+      if (lang) out.lang = lang
+      if (shared) out.shared = true
+      if (agent) out.agent = { id: agent.id, name: agent.name }
+      return { out, at: p.createdAt }
+    })
+    .sort((a, b) => Number(usable(b.out)) - Number(usable(a.out)) || Number(b.out.fits) - Number(a.out.fits) || b.at - a.at)[0]
+  return found?.out ?? null
+}
+
+/**
+ * The report page for a database that was there: the one an agent mirroring into it reports into, else a page with
+ * the recipe's report title right next to the database (same parent) that no agent reports into — private in a
+ * team. Never a page elsewhere, another agent's report or a shared page (null: make one).
+ */
+function reportFor(pages: Record<ID, Page>, agents: Record<ID, CustomAgent> | undefined, db: Page, title: string, team: boolean): ID | null {
+  const ok = (p: Page | undefined): p is Page => !!p && p.kind === 'page' && !p.databaseId && live(pages, p) && (!team || !!p.private)
+  const own = mirrorAgentOf(agents, db.id)?.output?.pageId
+  if (own && ok(pages[own])) return own
+  const taken = new Set(Object.values(agents ?? {}).flatMap((a) => (a.output?.pageId ? [a.output.pageId] : [])))
+  const want = fold(title)
+  const next = Object.values(pages)
+    .filter((p) => ok(p) && (p.parentId ?? null) === (db.parentId ?? null) && fold(p.title) === want && !taken.has(p.id))
+    .sort((x, y) => y.createdAt - x.createdAt)[0]
+  return next?.id ?? null
 }
 
 /** The report page (private in a team workspace). */
@@ -235,9 +315,9 @@ export function createMirror(input: MirrorInput): MirrorMade {
 }
 
 /**
- * The agent draft for a database that is there already (sameNamedDb, `fits`): its report page by the recipe's title —
- * the one next to the database first —, made again when there is none. Throws when the database is gone or nothing
- * can be written here.
+ * The agent draft for a database that is there already (sameNamedDb, `fits`; the recipe resolved in the language
+ * its key is named in): its report page by reportFor, made again when there is none (then the only page `created`).
+ * Throws when the database is gone, shared in a team workspace, or nothing can be written here.
  */
 export function reuseMirror(input: { recipe: ResolvedRecipe; server: string; dbId: ID }): MirrorMade {
   const team = inTeam()
@@ -245,13 +325,12 @@ export function reuseMirror(input: { recipe: ResolvedRecipe; server: string; dbI
   const pages = ws().pages
   const db = pages[input.dbId]
   if (!db || db.kind !== 'database' || !live(pages, db)) throw new Error('gone')
+  // a team mirror writes the member's own fields: only into a private database
+  if (team && !db.private) throw new Error(t('features.agents.mirror.err.shared', { name: db.title.trim() }))
   const name = db.title.trim()
   const reportTitle = fillTokens(input.recipe.reportName, { db: name, server: input.server }).slice(0, 200)
-  const report = Object.values(pages)
-    .filter((p) => p.kind === 'page' && !p.databaseId && p.title.trim() === reportTitle && live(pages, p))
-    .sort((a, b) => Number(b.parentId === db.parentId) - Number(a.parentId === db.parentId) || b.createdAt - a.createdAt)[0]
   const created: ID[] = []
-  let reportId = report?.id
+  let reportId = reportFor(pages, ws().agents, db, reportTitle, team)
   if (!reportId) {
     reportId = makeReport(canHoldMirror(pages, db.parentId, team) ? db.parentId : null, reportTitle, team)
     created.push(reportId)

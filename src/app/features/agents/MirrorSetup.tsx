@@ -4,8 +4,10 @@
  * connection test), a name and the page it goes below (team workspace: a private page, or the Private section's
  * top). "Create" makes the database and its report page (mirror.ts; the editor's note carries the Undo) and hands the
  * agent draft to the editor. A live database with the same name is never duplicated silently: Create waits, and one
- * holding the recipe's key is offered for the agent ("Use …", reuseMirror). The spec plate reads the recipe:
- * properties, views, key, own fields, schedule, budget, report.
+ * holding the recipe's key (named in either language; private in a team) is offered for the agent ("Use …",
+ * reuseMirror — the recipe then in the language of its names); one a saved agent mirrors into already offers that
+ * agent instead, a shared one in a team only says why it is not used. The spec plate reads the recipe: properties,
+ * views, key, own fields, schedule, budget, report.
  */
 import { useId, useMemo, useState } from 'react'
 import { ChevronDown } from 'lucide-react'
@@ -17,9 +19,11 @@ import { Modal } from '../../ui/Modal'
 import { Menu, useMenu, type MenuEntry } from '../../ui/Menu'
 import { PageIcon } from '../../ui/PageIcon'
 import { useLang, useT } from '../../i18n'
+import { navigate } from '../../lib/router'
+import { LANGS } from '@/shared/i18n'
 import { readServers } from '../ai/mcp-servers/config'
 import { isReadTool } from './mcpTools'
-import { canHoldMirror, createMirror, nameFromServer, reuseMirror, sameNamedDb, type MirrorMade } from './mirror'
+import { canHoldMirror, createMirror, nameFromServer, reuseMirror, sameNamedDb, type KeyName, type MirrorMade } from './mirror'
 import { buildMirror, fillTokens, resolveRecipe } from './integrations/recipe'
 import { openIntegrations } from './integrations/open'
 import { fmtUsd, triggerText } from './format'
@@ -71,8 +75,18 @@ export function MirrorSetup({ source, onClose, onCreated }: { source: RecipeSour
   const settings = useWorkspace((s) => s.settings)
   const pages = useWorkspace((s) => s.pages)
   const databases = useWorkspace((s) => s.databases)
+  const agents = useWorkspace((s) => s.agents)
   const team = useCloud((s) => s.active.kind === 'cloud')
   const recipe = useMemo(() => resolveRecipe(source.profile, source.recipe, lang), [source, lang])
+  // the key property's name in every language (the UI's first): a database set up in the other language still fits
+  const keys = useMemo<KeyName[]>(
+    () =>
+      [lang, ...LANGS.filter((l) => l !== lang)].flatMap((l) => {
+        const key = (l === lang ? recipe : resolveRecipe(source.profile, source.recipe, l)).properties.find((p) => p.key)
+        return key ? [{ name: key.name, lang: l }] : []
+      }),
+    [source, recipe, lang],
+  )
   // the recipe as it builds: its problems block Create (they are listed under Workspace → Integrations)
   const built = useMemo(() => {
     let errors = 0
@@ -108,7 +122,7 @@ export function MirrorSetup({ source, onClose, onCreated }: { source: RecipeSour
 
   const keyProp = built.schema.properties.find((p) => p.key)
   // a live database of this name: never a second one silently (one holding the recipe's key can take the agent)
-  const existing = useMemo(() => sameNamedDb(pages, databases, name, keyProp?.name), [pages, databases, name, keyProp?.name])
+  const existing = useMemo(() => sameNamedDb(pages, databases, agents, name, keys, team), [pages, databases, agents, name, keys, team])
 
   const run = (make: () => MirrorMade) => {
     setTried(true)
@@ -125,8 +139,23 @@ export function MirrorSetup({ source, onClose, onCreated }: { source: RecipeSour
     run(() => createMirror({ recipe, server, name, parentId }))
   }
   const takeExisting = () => {
-    if (existing?.fits) run(() => reuseMirror({ recipe, server, dbId: existing.id }))
+    if (!existing?.fits || existing.agent) return
+    // the agent's names and instructions in the language the database's properties are named in
+    const lang = existing.lang ?? recipe.lang
+    run(() => reuseMirror({ recipe: lang === recipe.lang ? recipe : resolveRecipe(source.profile, source.recipe, lang), server, dbId: existing.id }))
   }
+  // a saved agent mirrors into it already: that one, never a second
+  const openAgent = (id: ID) => {
+    onClose()
+    navigate(`#/agents/${id}`)
+  }
+  const existsText = !existing
+    ? ''
+    : existing.agent
+      ? t('features.agents.mirror.exists.mirrored', { name: existing.title, agent: existing.agent.name })
+      : existing.shared
+        ? t('features.agents.mirror.exists.shared', { name: existing.title })
+        : t(existing.fits ? 'features.agents.mirror.exists.fits' : 'features.agents.mirror.exists.other', { name: existing.title })
 
   const yours = built.schema.properties
     .filter((p) => p.agentReadOnly)
@@ -248,11 +277,17 @@ export function MirrorSetup({ source, onClose, onCreated }: { source: RecipeSour
         {existing && (
           <div className="agx-notice agx-mir__exists" role="status" data-testid="agx-mir-exists">
             <span className="led led--on" aria-hidden />
-            <span>{t(existing.fits ? 'features.agents.mirror.exists.fits' : 'features.agents.mirror.exists.other', { name: existing.title })}</span>
-            {existing.fits && (
-              <button type="button" className="btn btn--sm btn--ink" onClick={takeExisting}>
-                {t('features.agents.mirror.exists.use', { name: existing.title })}
+            <span>{existsText}</span>
+            {existing.agent ? (
+              <button type="button" className="btn btn--sm btn--ink" onClick={() => existing.agent && openAgent(existing.agent.id)}>
+                {t('features.agents.mirror.exists.open', { agent: existing.agent.name })}
               </button>
+            ) : (
+              existing.fits && (
+                <button type="button" className="btn btn--sm btn--ink" onClick={takeExisting}>
+                  {t('features.agents.mirror.exists.use', { name: existing.title })}
+                </button>
+              )
             )}
           </div>
         )}

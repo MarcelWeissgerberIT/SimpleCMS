@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, type ReactNode } from 'react'
+import { useEffect, useId, useRef, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
 import { useT } from '../i18n'
@@ -68,11 +68,14 @@ export function Modal({ open, onClose, title, label, children, footer, width, cl
   const ref = useRef<HTMLDivElement>(null)
   const onCloseRef = useRef(onClose)
   onCloseRef.current = onClose
+  // true until a click sequence starts inside this dialog (see `guard`)
+  const fresh = useRef(true)
 
   useEffect(() => {
     if (!open) return
     const dialog = ref.current
     if (!dialog) return
+    fresh.current = true
     const prev = document.activeElement as HTMLElement | null
     stack.push(dialog)
     lockBackground()
@@ -143,8 +146,29 @@ export function Modal({ open, onClose, title, label, children, footer, width, cl
 
   if (!open) return null
   const named = !bare && title !== undefined && title !== null && title !== ''
+  /**
+   * The rest of a double-click whose first click opened this dialog never acts in it: the second press would land on
+   * whatever now sits under the pointer (a footer key, the scrim). A click count above 1 before any click sequence
+   * began inside the dialog is swallowed; a sequence that starts here (count 1) is the person's own.
+   */
+  const guard = (e: ReactMouseEvent) => {
+    if (e.detail <= 1) {
+      if (e.type === 'mousedown') fresh.current = false
+      return
+    }
+    if (!fresh.current) return
+    e.preventDefault()
+    e.stopPropagation()
+  }
   return createPortal(
-    <div className="modal-scrim" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+    <div
+      className="modal-scrim"
+      onMouseDownCapture={guard}
+      onMouseUpCapture={guard}
+      onClickCapture={guard}
+      onDoubleClickCapture={guard}
+      onMouseDown={(e) => e.target === e.currentTarget && onClose()}
+    >
       <div
         ref={ref}
         role="dialog"

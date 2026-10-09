@@ -396,6 +396,55 @@ test.describe('team cloud — custom agents', () => {
     await b.context().close()
   })
 
+  test('the mirror recipe in a team never uses a shared database or a shared report page: a shared namesake only says why, a private one is used with a private report page', async ({ page: a }) => {
+    watch(a, 'ada')
+    await signIn(a, email('ada'))
+    const wsId = await createWorkspace(a, 'Acme Mirror Shared')
+    await openApp(a, wsId)
+    await waitOnline(a)
+    const keyed = () => [
+      { id: 'p-name', name: 'Name', type: 'title' },
+      { id: 'p-key', name: 'Key', type: 'text', key: true },
+    ]
+    // the team's shared "Tracker" (it even holds the recipe's key) and a shared "Tracker · Report" next to it
+    const shared = await wsEval(a, (s, props) => {
+      s.updateSettings({ mcpServers: [{ id: 'm-tracker', name: 'tracker', url: 'https://tracker.example.com/mcp', token: '', enabled: true, prompt: '', tools: ['list_items', 'get_item'], checkedAt: Date.now() }] })
+      s.upsertIntegration({ schema: 'one.integration/1', id: 'tracker', name: 'Tracker', match: { name: 'tracker' }, unlocks: ['keys', 'onlyByHand', 'upsert', 'toolAllowList', 'agentState', 'notify'], recipes: [{ kind: 'mirror' }] })
+      return { db: s.createDatabase({ title: 'Tracker', properties: props }) as string, report: s.createPage({ title: 'Tracker · Report' }) as string }
+    }, keyed())
+    await expect.poll(() => wsEval(a, (s, x) => [x.db, x.report].map((id: string) => !!s.pages[id]?.private), shared)).toEqual([false, false])
+
+    await a.evaluate(() => (window.location.hash = '#/agents'))
+    await a.locator('.agx-start [data-recipe="tracker:mirror"]').click()
+    const setup = a.locator('.agx-mir')
+    const exists = setup.getByTestId('agx-mir-exists')
+    await expect(exists).toHaveText('A shared database “Tracker” exists already. The mirror writes your own fields, so it only uses a private database — give the new one another name.')
+    await expect(exists.getByRole('button')).toHaveCount(0)
+    await expect(setup.getByRole('button', { name: 'Create database and agent' })).toBeDisabled()
+
+    // a private "Tracker" of Ada's: that one is offered — and its report page is a new private one, never the shared one
+    const mine = await a.evaluate((props) => (window as any).__one.cloud.createPrivateDatabase({ title: 'Tracker', properties: props }) as string, keyed()) // eslint-disable-line @typescript-eslint/no-explicit-any
+    await expect(exists).toContainText('“Tracker” exists already — a database from this recipe.')
+    await exists.getByRole('button', { name: 'Use “Tracker”' }).click()
+    const editor = a.locator('.agx-editor')
+    await expect(editor).toBeVisible()
+    const reports = await wsEval(a, (s) => (Object.values(s.pages) as AnyState[]).filter((p) => p.title === 'Tracker · Report' && !p.trashed).map((p) => ({ id: p.id, private: !!p.private })))
+    expect(reports).toHaveLength(2)
+    const own = reports.find((r) => r.id !== shared.report)!
+    expect(own.private).toBe(true)
+    await editor.getByRole('switch', { name: 'Active' }).click()
+    await editor.getByRole('button', { name: 'Create agent', exact: true }).click()
+    await expect(a.locator('.agx-dhead')).toBeVisible()
+    const saved = await wsEval(a, (s) => JSON.parse(JSON.stringify(Object.values(s.agents ?? {})[0])))
+    expect(saved.scope.databases).toEqual([mine])
+    expect(saved.output).toEqual({ pageId: own.id, mode: 'append' })
+    // the shared ones untouched
+    expect(await wsEval(a, (s, x) => [x.db, x.report].map((id: string) => [!!s.pages[id]?.trashed, !!s.pages[id]?.private]), shared)).toEqual([
+      [false, false],
+      [false, false],
+    ])
+  })
+
   test('an older server without agent endpoints: "does not support agents yet"', async ({ page: a }) => {
     watch(a, 'ada')
     await signIn(a, email('ada'))

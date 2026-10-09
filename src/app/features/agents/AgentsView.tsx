@@ -17,7 +17,7 @@ import { restoreFocus } from '../../ui/focus'
 import { Menu, useMenu } from '../../ui/Menu'
 import { PageIcon } from '../../ui/PageIcon'
 import { Switch } from '../../ui/controls'
-import { useLang, useT } from '../../i18n'
+import { t as tr, useLang, useT } from '../../i18n'
 import { localized } from '../../store/integrations'
 import { resolveModel } from '../ai/client'
 import { AgentEditor } from './AgentEditor'
@@ -25,7 +25,7 @@ import { RunHistory } from './RunHistory'
 import { RECIPES, blankAgent, recipeDraft, type RecipeId } from './recipes'
 import { MirrorSetup, type RecipeSource } from './MirrorSetup'
 import { useRecipeSources } from './integrations/status'
-import { restoreMirror, trashMirror, undoMirror, type MirrorMade } from './mirror'
+import { madeKind, restoreMirror, trashMirror, undoMirror, type MirrorMade } from './mirror'
 import { MirrorDiscard } from './MirrorDiscard'
 import { deleteAgent, runNow, setEnabled } from './actions'
 import { awaitsReview, getAgentState, loadRuns, onRunsChanged, putAgentState, useAgentRuns, type AgentState } from './runs'
@@ -137,24 +137,73 @@ export default function AgentsView({ agentId }: { agentId?: string }) {
 
 /** A recipe picked in the gallery: a built-in one, or one an active integration profile brings. */
 type RecipePick = RecipeId | RecipeSource
+type Draft = { agent: CustomAgent; mirror?: MirrorMade }
+
+/** What a mirror setup created (only that) to the trash — a toast's Undo brings it back. */
+function trashWithUndo(made: MirrorMade, ids: ID[] = trashMirror(made)) {
+  if (!ids.length) return
+  const key = madeKind(made) === 'both' ? 'features.agents.mirror.discard.trashed' : 'features.agents.mirror.discard.trashedReport'
+  useUI.getState().toast({ message: tr(key, { name: made.name, report: made.reportTitle }), kind: 'info', action: { label: tr('common.undo'), run: () => restoreMirror(ids) } })
+}
+
+/**
+ * The list went while a mirror draft was open and unsaved (a route change: Back, ⌘⌥N, ⌘K …) — no prompt is possible
+ * any more: what the setup created stays, and the toast's Undo moves it (only it) to the trash.
+ */
+function leftBehind(made: MirrorMade) {
+  const kind = madeKind(made)
+  if (kind === 'none') return
+  useUI.getState().toast({
+    message: tr(kind === 'both' ? 'features.agents.mirror.left' : 'features.agents.mirror.leftReport', { name: made.name, report: made.reportTitle }),
+    kind: 'info',
+    timeout: 10_000,
+    action: { label: tr('common.undo'), run: () => trashWithUndo(made) },
+  })
+}
 
 function useNewAgent() {
   const t = useT()
   const [picking, setPicking] = useState(false)
   const [mirror, setMirror] = useState<RecipeSource | null>(null)
-  const [draft, setDraft] = useState<{ agent: CustomAgent; mirror?: MirrorMade } | null>(null)
-  // closing a mirror draft unsaved asks first (its database is made already); focus goes back where it was
+  const [draft, setDraftState] = useState<Draft | null>(null)
+  // closing a mirror draft unsaved asks first when its setup created something; focus goes back where it was
   const [discarding, setDiscarding] = useState(false)
   const back = useRef<HTMLElement | null>(null)
+  // the open, unsaved mirror draft — kept outside the render: when the list unmounts with it, leftBehind() says so
+  const pending = useRef<MirrorMade | null>(null)
+  const setDraft = (d: Draft | null) => {
+    pending.current = d?.mirror ?? null
+    setDraftState(d)
+  }
+  useEffect(
+    () => () => {
+      const m = pending.current
+      pending.current = null
+      if (m) leftBehind(m)
+    },
+    [],
+  )
+  const made = draft?.mirror
+  const madeHere = made ? madeKind(made) : 'none'
+  // closing the tab with it open: the browser asks
+  useEffect(() => {
+    if (madeHere === 'none') return
+    const warn = (e: BeforeUnloadEvent) => {
+      e.preventDefault()
+      e.returnValue = ''
+    }
+    window.addEventListener('beforeunload', warn)
+    return () => window.removeEventListener('beforeunload', warn)
+  }, [madeHere])
   const pick = (id: RecipePick) => {
     setPicking(false)
     // a profile's mirror asks for its source, name and place first and creates its database (MirrorSetup)
     if (typeof id !== 'string') return setMirror(id)
     setDraft({ agent: id === 'blank' ? blankAgent() : recipeDraft(id) })
   }
-  const made = draft?.mirror
   const close = () => {
-    if (!made) return setDraft(null)
+    // nothing this setup made (a database and report page that were there): nothing to ask about
+    if (madeHere === 'none') return setDraft(null)
     const active = document.activeElement
     back.current = active instanceof HTMLElement && active.closest('.agx-editor') ? active : document.querySelector<HTMLElement>('.agx-editor')
     setDiscarding(true)
@@ -166,16 +215,13 @@ function useNewAgent() {
   const discard = (trash: boolean) => {
     setDiscarding(false)
     setDraft(null)
-    if (!made || !trash) return
-    const ids = trashMirror(made)
-    if (ids.length) useUI.getState().toast({ message: t('features.agents.mirror.discard.trashed', { name: made.name }), kind: 'info', action: { label: t('common.undo'), run: () => restoreMirror(ids) } })
+    if (made && trash) trashWithUndo(made)
   }
-  // the note's Undo: what the setup made goes again, and the draft that points at it
+  // the note's Undo: what the setup made goes to the trash (Undo in the toast), and the draft that points at it
   const undo = () => {
     if (!made) return
-    undoMirror(made)
     setDraft(null)
-    useUI.getState().toast({ message: t('features.agents.mirror.undone', { name: made.name }), kind: 'info' })
+    trashWithUndo(made, undoMirror(made))
   }
   const ui = (
     <>
@@ -190,12 +236,14 @@ function useNewAgent() {
           }}
         />
       )}
+      {/* the prompt before the editor: closing both at once, the prompt's dialog goes first and focus returns past the editor */}
+      {discarding && made && <MirrorDiscard made={made} onKeep={keep} onDiscard={discard} />}
       {draft && (
         <AgentEditor
           initial={draft.agent}
           isNew
           intro={made ? t(made.placeholders > 1 ? 'features.agents.mirror.intro' : made.placeholders === 1 ? 'features.agents.mirror.introOne' : 'features.agents.mirror.introNone', { name: made.name, report: made.reportTitle, count: made.placeholders }) : undefined}
-          introUndo={made && !made.reused ? { title: t('features.agents.mirror.undoTitle', { name: made.name, report: made.reportTitle }), run: undo } : undefined}
+          introUndo={made && madeHere !== 'none' ? { title: t(madeHere === 'both' ? 'features.agents.mirror.undoTitle' : 'features.agents.mirror.undoTitleReport', { name: made.name, report: made.reportTitle }), run: undo } : undefined}
           writeHint={made ? t('features.agents.mirror.writeHint') : undefined}
           onClose={close}
           onSaved={(id) => {
@@ -204,7 +252,6 @@ function useNewAgent() {
           }}
         />
       )}
-      {discarding && made && <MirrorDiscard made={made} onKeep={keep} onDiscard={discard} />}
     </>
   )
   return { open: () => setPicking(true), pick, ui }
