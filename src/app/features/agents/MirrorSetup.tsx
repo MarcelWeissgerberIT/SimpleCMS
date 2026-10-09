@@ -283,7 +283,7 @@ export function MirrorSetup({ source, onClose, onCreated }: { source: RecipeSour
                 {errName}
               </p>
             ) : (
-              <p className="agx-field__hint" id={`${ids.name}-hint`} data-testid="agx-mir-name-hint">
+              <p className="agx-field__hint" id={`${ids.name}-hint`}>
                 {nameHint}
               </p>
             )}
