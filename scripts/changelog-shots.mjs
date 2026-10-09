@@ -8,7 +8,7 @@
  *
  * (CHANGELOG_DRAFT=1 lets the build pass while a new entry's picture does not exist yet.)
  *
- * Shots: glass-switches, history-compare, mcp-overview, mirror, task-mcp, models, search, terminal-pipelines, cloud-worker, one-picker, pipelines, legacy-modernise, coding-live, text-size, mcp-media, coding-setup, free-board, building-blocks, workspace-settings, diagram-viewer, coding-pipeline, pages-per-item, design-import, tour, quick-capture, script-templates, one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
+ * Shots: mirror-again, glass-switches, history-compare, mcp-overview, mirror, task-mcp, models, search, terminal-pipelines, cloud-worker, one-picker, pipelines, legacy-modernise, coding-live, text-size, mcp-media, coding-setup, free-board, building-blocks, workspace-settings, diagram-viewer, coding-pipeline, pages-per-item, design-import, tour, quick-capture, script-templates, one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
  * custom-agents, gmail, help-centre, mcp-servers, feed-blocks — each named like its image. Every shot starts from a fresh, seeded
  * workspace in English, light theme, 1440 × 900 at device scale 2; the crop of the relevant area is scaled
  * to 1440 px wide and saved as public/assets/shots/changelog/<shot>.webp (≤ 150 KB: the quality steps down
@@ -870,6 +870,61 @@ const shots = {
    * person sets My priority on rows. Above: Workspace → Integrations with the active profile; below: the Board by
    * Clarity (sidebar folded for the width).
    */
+  /**
+   * The mirror recipe set up a second time: left the prompt after closing the new mirror's editor unsaved (keep
+   * editing · keep both · both to the trash), right the setup opened again with the same name — it offers the
+   * database that is there ("Use …") and its plate names the report page it takes back.
+   */
+  async 'mirror-again'(browser) {
+    const { ctx, page } = await freshPage(browser)
+    await page.evaluate(() => {
+      const s = window.__one.workspace.getState()
+      s.updateSettings({
+        mcpServers: [
+          { id: 'm-tracker', name: 'tracker', url: 'https://tracker.example.com/mcp', token: '', enabled: true, prompt: '', tools: ['list_items', 'get_item', 'search_items', 'list_comments', 'whoami', 'create_item', 'update_item', 'add_comment'], checkedAt: Date.now() },
+        ],
+      })
+      s.upsertIntegration({
+        schema: 'one.integration/1',
+        id: 'tracker',
+        name: 'Tracker',
+        description: 'Our team tracker: its open items, mirrored every weekday.',
+        match: { tools: ['list_items', 'get_item'], name: 'tracker' },
+        unlocks: ['keys', 'onlyByHand', 'upsert', 'toolAllowList', 'agentState', 'notify'],
+        recipes: [{ kind: 'mirror', name: { en: 'Mirror tracker items', de: 'Tracker-Einträge spiegeln' }, description: { en: 'The open items of the tracker → a database, every weekday. Your own fields stay yours.', de: 'Die offenen Einträge des Trackers → eine Datenbank, jeden Werktag. Deine eigenen Felder bleiben deine.' } }],
+      })
+    })
+    await page.evaluate(() => (window.location.hash = '#/agents'))
+    const card = page.locator('.agx-start [data-recipe="tracker:mirror"]')
+    await card.click()
+    await page.locator('.agx-mir').getByRole('button', { name: 'Create database and agent' }).click()
+    await page.locator('.agx-editor').waitFor()
+    await page.locator('.agx-editor .cm-area, .agx-editor textarea').first().waitFor()
+    await page.waitForTimeout(600)
+    await page.locator('.agx-editor').getByRole('button', { name: 'Cancel', exact: true }).click()
+    const prompt = page.locator('.agx-discard')
+    await prompt.waitFor()
+    await rest(page)
+    const pad = 20
+    const clipOf = async (loc) => {
+      const b = await boxOf(loc)
+      return { x: Math.max(0, Math.round(b.x - pad)), y: Math.max(0, Math.round(b.y - pad)), width: Math.round(b.width + pad * 2), height: Math.round(b.height + pad * 2) }
+    }
+    // the prompt over the editor it asks about: about as tall as the setup on the right
+    const a = `${TMP}/mirror-again-prompt.png`
+    await page.screenshot({ path: a, clip: await clipOf(page.locator('.agx-editor')) })
+    await prompt.getByRole('button', { name: 'Discard agent, keep both' }).click()
+    await prompt.waitFor({ state: 'detached' })
+    await card.click()
+    const setup = page.locator('.agx-mir')
+    await setup.getByTestId('agx-mir-exists').waitFor()
+    await rest(page)
+    const b = `${TMP}/mirror-again-setup.png`
+    await page.screenshot({ path: b, clip: await clipOf(setup) })
+    await saveSideBySide('mirror-again', [a, b])
+    await ctx.close()
+  },
+
   async mirror(browser) {
     const ids = { db: '' }
     const items = [
