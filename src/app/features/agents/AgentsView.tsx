@@ -88,10 +88,13 @@ function SavedState({ agent, runs }: { agent: CustomAgent; runs: AgentRun[] }) {
 
 /**
  * The pages a saved agent works with that are in the trash or gone (gone.ts): each named with what it is for, a trashed
- * one (or the page in the trash above it) with Restore. Says when its browser runs do not start because of them.
+ * one (or the page in the trash above it) with Restore. Says when its browser runs do not start because of them. A
+ * Restore key goes with its page: focus moves to the next Restore key still there, else to the notice's heading, else
+ * (the notice gone) to the page's heading — never the page body.
  */
 function LostNotice({ agent }: { agent: CustomAgent }) {
   const t = useT()
+  const box = useRef<HTMLDivElement>(null)
   const pages = useWorkspace((s) => s.pages)
   const readOnly = useCloud((s) => s.readOnly)
   const team = useCloud((s) => s.active.kind === 'cloud')
@@ -102,11 +105,22 @@ function LostNotice({ agent }: { agent: CustomAgent }) {
   if (!lost.length) return null
   const blocked = agent.runner === 'browser' && !!runBlock(agent, pages)
   const role = { scope: t('features.agents.ed.scope'), trigger: t('features.agents.ed.trigger'), report: t('features.agents.ed.reportPage') }
+  const keyOf = (l: (typeof lost)[number]) => `${l.role}:${l.id}`
+  const restore = (back: ID, key: string) => {
+    // the items after this one: a page above several brings them all back, so the next key still there takes focus
+    const after = lost.slice(lost.findIndex((l) => keyOf(l) === key) + 1).map(keyOf)
+    useWorkspace.getState().restorePage(back)
+    requestAnimationFrame(() => {
+      const keys = [...(box.current?.querySelectorAll<HTMLButtonElement>('button[data-lost]') ?? [])]
+      const next = after.map((k) => keys.find((b) => b.dataset.lost === k)).find(Boolean) ?? keys[0]
+      ;(next ?? box.current?.querySelector<HTMLElement>('.agx-lost__title') ?? document.querySelector<HTMLElement>('.agx-dhead .agx-title'))?.focus()
+    })
+  }
   return (
-    <div className="agx-notice agx-lost" role="status" data-testid="agx-lost">
+    <div className="agx-notice agx-lost" role="status" data-testid="agx-lost" ref={box}>
       <span className="led agx-led--err" aria-hidden />
       <div className="agx-lost__body">
-        <p className="agx-lost__title">
+        <p className="agx-lost__title" tabIndex={-1}>
           {t('features.agents.lost.title')}
           {blocked ? ` ${t('features.agents.lost.blocked')}` : ''}
         </p>
@@ -119,7 +133,7 @@ function LostNotice({ agent }: { agent: CustomAgent }) {
                 <span className="label agx-lost__role">{role[l.role]}</span>
                 <span className="agx-lost__text">{lostText(t, l)}</span>
                 {back && !readOnly && (
-                  <button type="button" className="btn btn--sm btn--ink" onClick={() => useWorkspace.getState().restorePage(back)} aria-label={t('features.agents.lost.restoreNamed', { title: backTitle })}>
+                  <button type="button" className="btn btn--sm btn--ink" data-lost={keyOf(l)} onClick={() => restore(back, keyOf(l))} aria-label={t('features.agents.lost.restoreNamed', { title: backTitle })}>
                     {t('features.agents.lost.restore')}
                   </button>
                 )}
@@ -627,7 +641,7 @@ function AgentDetail({ id }: { id: ID }) {
           </span>
         </div>
         <div className="agx-head__row">
-          <h1 className="agx-title agx-title--agent">
+          <h1 className="agx-title agx-title--agent" tabIndex={-1}>
             <PageIcon icon={agent.icon} size={30} />
             <span>{agent.name}</span>
           </h1>

@@ -22,6 +22,8 @@ Der Abschnitt beginnt mit einer Tabelle, eine Zeile pro Server: sein **Codewort*
 - **Agent, eigene Anfragen und ⌘K-Fragen** (Standard) — der Agent, deine eigenen Anfragen im KI-Menü und `?` in ⌘K.
 - **Alle KI-Aufrufe** — auch die Ein-Klick-Aktionen, KI-Autofill und Besprechungszusammenfassungen. Jede dieser Anfragen wird länger und langsamer.
 
+Einen ausgeschalteten Server nutzt One auf diesem Gerät nicht — auch eigene Agenten, die ihn angekreuzt haben, lassen ihn in ihren Läufen weg, und ihr Editor sagt es.
+
 Unter **Erweitert** stehen außerdem Name, Codewort (unten), Token, Nutzungs-Prompt (**Erzeugen** / **Neu erzeugen**, oder selbst schreiben), **Verbindung testen** und **Server entfernen**. Während Claude arbeitet, erscheinen MCP-Aufrufe als kleine Chips, z. B. `KB · search`.
 
 Ein Server, der sein Token ablehnt (abgelaufen oder noch nicht angemeldet), hält deine Anfragen nicht mehr auf: Claude antwortet ohne ihn, und ein Hinweis sagt *„… hat sein Token abgelehnt — Claude antwortet ohne ihn“*. In diesem Tab bleibt er draußen, bis du dich neu anmeldest oder das Token ersetzt — oder du sprichst ihn mit seinem Codewort an, dann siehst du den Fehler.

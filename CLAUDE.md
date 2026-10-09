@@ -522,7 +522,10 @@ the public APIs stable — other areas are built against them in parallel.
   it, or (local workspace only) its scope is "everything" — whatever its switch, write mode or servers; an unmarked one
   only by write ≠ none + a server of this device matching the profile (on or off; not one whose `mcpTools` entry is []);
   never one marked for another database; team: only the member's own (`createdBy`). No live database of that name but one
-  in the trash that a saved agent (team: own) is marked for → the setup names both (Restore · Open, Create waits). "Use"
+  in the trash that a saved agent (team: own) is marked for → the setup names both (Restore · Open, Create waits); in the
+  trash only because a page above it is → that page is named and its key restores it (`SameNamed.trashed.parent`, worded
+  like gone.ts); after Restore focus goes to the Open key (else the name field). While only Open (and Restore) is offered
+  the spec plate shows what is there — that agent, its report page ("—": none), its database. "Use"
   takes back the newest report page this device's setups made for the database (mirrorMemory.ts, localStorage
   `one.mirror.reports:<kind>:<id>` = { dbId: [reportId, …] } newest first, ≤ 5 per database, ≤ 100 databases, never synced /
   backed up, wiped with the copy and the local reset; the tab's own copy is merged into every read, so a refused write
@@ -532,12 +535,20 @@ the public APIs stable — other areas are built against them in parallel.
   and `reuseMirror` — the plate shows exactly what the offered action makes ("Use": the kept page or the new title, the
   recipe in the database's language, the agent's name too). Distinct (`distinctTitle`: " (<db>)", then " (2)" …) among
   the other live pages — never the mirror's own database (report '{db}' → page 'Delta' next to database 'Delta') — and
-  the agent's name among the agents. The source list follows this device's settings live (a server switched off drops
-  out; the picked one stays marked, its field says so, Create waits). Mirror toasts go through `mirrorToast()`; every
+  the agent's name among the agents; within the limit (agent 80, report 200) the counter and the closing parenthesis stay
+  whole: the title is cut first ("…", down to 24 characters), then the database's name inside the parentheses ("…");
+  never a taken title (the counter goes on). The source list follows this device's settings live (a server switched off
+  or no longer matching drops out; the picked one — followed by its id through a rename — stays marked and its field
+  says what happened: switched off · no longer matching the profile (address / tools / name, `matchMiss`) · deleted, also
+  with the list empty; Create waits). Mirror toasts go through `mirrorToast()`; every
   agent dialog (gallery, setup, any AgentEditor) calls `useDismissMirrorToasts()`. The editor never saves against a
   trashed / effectively trashed (the page in the trash named) or deleted scope page, trigger database or report page; the
   note's Undo asks (MirrorUndoAsk) when the draft changed. The budget field is text in the UI's language
-  (format.ts `parseAmount` / `fmtAmount`: "1,5" and "1.5" in German, only "1.5" in English; anything else refused).
+  (format.ts `parseAmount` / `fmtAmount`: "1,5" and "1.5" in German, only "1.5" in English; grouped thousands — German
+  "1.000" / "1.000,5" (a dot + exactly three digits, the first group 1–9), English "1,000" — read as thousands and refused
+  by the range, never saved as 1; anything else refused). The editor names a ticked MCP server of a browser agent that is
+  switched off on this device or not set up here (a hint; saving stays) — its runs leave such a server out (exec.ts, a
+  note step).
 - Custom agents: `Workspace.agents` (`CustomAgent`, store/types.ts; `createdBy` / `updatedBy` = account ids in a team,
   null locally — `upsertAgent` stamps `updatedBy` with the saver; a team browser agent runs only while `updatedBy` is its
   creator, otherwise it waits for the creator to confirm, features/agents/confirm.ts; on the team server `updatedBy` is
@@ -550,7 +561,8 @@ the public APIs stable — other areas are built against them in parallel.
   `stateBack`), only while the saved state is still that run's — and on through runs whose every change is discarded too
   (any order ends at the newest run with applied work, or before them all). None of an agent's run toasts (finished,
   failed, proposals) while its page is the current view. Pages it works with in the trash or gone (gone.ts `lostPages`):
-  named on its page with Restore; a browser run does not start while nothing in its scope or its report page is usable
+  named on its page with Restore (focus then: the next Restore key, else the notice's heading, else the page's h1); a
+  browser run does not start while nothing in its scope or its report page is usable
   (`runBlock` → an 'error' run with the reason + a toast). ONE proposal applied shows its result and Undo in its row (no
   toast); focus after a key that goes goes to the next proposal or the review heading. Money and numbers read in the UI's
   language: `fmtUsd(usd, lang)` (lib/money.ts: "$3.00" · "3,00 $"), also the mail cost line and the coding log's Claude
