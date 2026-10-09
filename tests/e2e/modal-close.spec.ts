@@ -292,6 +292,7 @@ const headerOf = (dialog: Locator) =>
       titleFull: t.width >= head.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight) - 1,
       clipped: label.scrollWidth > label.clientWidth + 1,
       inside: l.left >= head.getBoundingClientRect().left && l.right <= head.getBoundingClientRect().right + 0.5,
+      titleOneLine: t.height < 1.5 * (parseFloat(getComputedStyle(head.querySelector('.modal__title')!).lineHeight) || 20),
     }
   })
 
@@ -303,7 +304,7 @@ test.describe('Dialogs: a long header label at phone width', () => {
     await wsEval(page, (s) => s.updateSettings({ language: 'de' }))
     const dialog = await openSetup(page)
     const h = await headerOf(dialog)
-    expect(h).toMatchObject({ stacked: true, labelAbove: true, closeOnLabelRow: true, titleFull: true, clipped: true, inside: true })
+    expect(h).toMatchObject({ stacked: true, labelAbove: true, closeOnLabelRow: true, titleFull: true, clipped: true, inside: true, titleOneLine: true })
     // its full text on hover
     const label = dialog.locator('.modal__header > .label')
     await label.hover()
@@ -319,10 +320,16 @@ test.describe('Dialogs: a long header label at phone width', () => {
     expect(await headerOf(io)).toMatchObject({ stacked: false, sameRow: true, clipped: false })
   })
 
-  test('1440: the same dialog keeps label and title on one row', async ({ page }) => {
+  test('1440: a usual label stays beside the title on one row; a label that takes a good part of the row and would make the title wrap goes above it', async ({ page }) => {
     await openApp(page)
     await setServers(page)
-    const dialog = await openSetup(page)
-    expect(await headerOf(dialog)).toMatchObject({ stacked: false, sameRow: true, clipped: false })
+    let dialog = await openSetup(page)
+    expect(await headerOf(dialog)).toMatchObject({ stacked: false, sameRow: true, clipped: false, titleOneLine: true })
+    await page.keyboard.press('Escape')
+    await expect(dialog).toHaveCount(0)
+    await setServers(page, { name: 'Tracker · Handoff-Board des Plattform-Teams' })
+    await wsEval(page, (s) => s.updateSettings({ language: 'de' }))
+    dialog = await openSetup(page)
+    expect(await headerOf(dialog)).toMatchObject({ stacked: true, labelAbove: true, clipped: false, titleOneLine: true, titleFull: true })
   })
 })

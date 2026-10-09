@@ -220,6 +220,8 @@ function focusables(root: HTMLElement): HTMLElement[] {
 
 /** The title keeps at least this much room (in its own font size) beside the label; less, and the label goes above it. */
 const TITLE_ROOM_EM = 13
+/** A label wider than this share of the header row goes above a title that would wrap beside it. */
+const LABEL_SHARE = 0.3
 
 /** Centered dialog with scrim. Escape / scrim click closes. Tab stays inside. Restores focus on close. */
 export function Modal({ open, onClose, title, label, children, footer, width, className, bare, ariaLabel }: ModalProps) {
@@ -326,14 +328,25 @@ export function Modal({ open, onClose, title, label, children, footer, width, cl
       const close = head.querySelector<HTMLElement>('.modal__close')?.offsetWidth ?? 0
       const gap = parseFloat(cs.columnGap) || 0
       const inner = head.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight)
-      const room = inner - lab.scrollWidth - close - 2 * gap
-      head.toggleAttribute('data-stacked', room < TITLE_ROOM_EM * parseFloat(getComputedStyle(title).fontSize))
+      const labelWidth = lab.scrollWidth
+      const room = inner - labelWidth - close - 2 * gap
+      // the title's width on one line (the same in either layout)
+      const ws = title.style.whiteSpace
+      title.style.whiteSpace = 'nowrap'
+      const range = document.createRange()
+      range.selectNodeContents(title)
+      const oneLine = range.getBoundingClientRect().width
+      title.style.whiteSpace = ws
+      // too narrow for the title at all — or a label that takes a good part of the row makes the title wrap
+      const stack = room < TITLE_ROOM_EM * parseFloat(getComputedStyle(title).fontSize) || (room < oneLine && labelWidth > LABEL_SHARE * inner)
+      head.toggleAttribute('data-stacked', stack)
     }
     fit()
     if (typeof ResizeObserver === 'undefined') return
     const ro = new ResizeObserver(fit)
     ro.observe(head)
     ro.observe(lab)
+    ro.observe(title)
     return () => ro.disconnect()
   }, [open, label])
 
