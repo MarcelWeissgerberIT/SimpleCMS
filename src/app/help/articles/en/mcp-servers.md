@@ -22,6 +22,8 @@ The section opens with a table, one row per server: its **codeword**, **One's Cl
 - **Agent, own requests and ⌘K ask** (default) — the agent, your own requests in the AI menu, and `?` in ⌘K.
 - **All AI calls** — also the one-click actions, database autofill and meeting summaries. Each of those requests gets longer and slower.
 
+A server you switch off is not used by One on this device — custom agents that attach it leave it out of their runs too, and their editor says so.
+
 **Details** also holds the name, the codeword (below), the token, the usage prompt (**Generate** / **Regenerate**, or write your own), **Test connection** and **Remove server**. While Claude works, MCP calls show as small chips, e.g. `KB · search`.
 
 A server that rejects its token (expired, or not signed in yet) no longer stops your requests: Claude answers without it and a note says *“… rejected its token — Claude answers without it”*. It stays left out in this tab until you sign in again or replace the token — or address it by its codeword, which shows the error instead.

@@ -9,7 +9,7 @@ alt: Left, the prompt “Discard the agent?” after closing the editor of a new
 help: custom-agents, integrations
 try: agents
 ---
-**Never twice.** Set up the mirror recipe again with the same name and it offers the database that is there — **Use “Tracker”** — and takes back the report page it made for it before. If an agent already mirrors into it, the setup opens that agent instead, even while its server is switched off. The plate shows exactly the pages and names the next step will make.
+**Never twice.** Set up the mirror recipe again with the same name and it offers the database that is there — **Use “Tracker”** — and takes back the report page it made for it before. If an agent already mirrors into it, the setup opens that agent instead, even while its server is switched off. The plate shows exactly the pages and names the next step will make — or, while it offers the agent that is there, that agent and its report page.
 
 **Nothing lost.** Closing the editor before you save asks: keep editing, keep both, or both to the trash. Undo only ever takes back what this setup made, never a page a saved agent uses — and the note's **Undo** asks first when you have changed the draft.
 

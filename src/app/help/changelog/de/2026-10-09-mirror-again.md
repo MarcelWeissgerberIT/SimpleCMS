@@ -9,7 +9,7 @@ alt: Links die Frage „Agent verwerfen?“ nach dem Schließen des Editors eine
 help: custom-agents, integrations
 try: agents
 ---
-**Nie doppelt.** Richtest du das Spiegel-Rezept noch einmal mit demselben Namen ein, bietet es dir die vorhandene Datenbank an – **„Tracker“ verwenden** – und nimmt die Berichtsseite zurück, die es vorher dafür angelegt hat. Spiegelt schon ein Agent hinein, öffnet die Einrichtung stattdessen diesen Agenten, auch wenn sein Server gerade ausgeschaltet ist. Das Typenschild zeigt genau die Seiten und Namen, die der nächste Schritt anlegt.
+**Nie doppelt.** Richtest du das Spiegel-Rezept noch einmal mit demselben Namen ein, bietet es dir die vorhandene Datenbank an – **„Tracker“ verwenden** – und nimmt die Berichtsseite zurück, die es vorher dafür angelegt hat. Hält schon ein Agent sie im Gleichstand, öffnet die Einrichtung stattdessen diesen Agenten, auch wenn sein Server gerade ausgeschaltet ist. Das Typenschild zeigt genau die Seiten und Namen, die der nächste Schritt anlegt – oder, solange es den vorhandenen Agenten anbietet, diesen Agenten und seine Berichtsseite.
 
 **Nichts verloren.** Schließt du den Editor, bevor du speicherst, fragt One: weiter bearbeiten, beide behalten oder beide in den Papierkorb. Rückgängig nimmt nur zurück, was diese Einrichtung angelegt hat, nie eine Seite, die ein gespeicherter Agent nutzt – und **Rückgängig** im Hinweis fragt erst nach, wenn du den Entwurf geändert hast.
 
