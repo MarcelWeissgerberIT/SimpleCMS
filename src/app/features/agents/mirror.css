@@ -1,5 +1,5 @@
-/* Custom agents — "Mirror a list into a database": the setup dialog (MirrorSetup.tsx) and the placeholders strip
-   of the agent editor (AgentEditor.tsx). Tokens only; works at 390 px. */
+/* Custom agents — "Mirror a list into a database": the setup dialog (MirrorSetup.tsx), the placeholders strip
+   of the agent editor (AgentEditor.tsx) and the close prompt (MirrorDiscard.tsx). Tokens only; works at 390 px. */
 
 .agx-mir .modal__body {
   padding-top: 4px;
@@ -93,6 +93,13 @@
 .agx-mir__grid .agx-pick {
   height: 30px;
 }
+/* a database with this name is there already: use it, or another name (Create waits) */
+.agx-notice.agx-mir__exists {
+  margin: 0;
+  border-color: var(--signal);
+  background: var(--signal-wash);
+  color: var(--ink);
+}
 .agx-mir__spec {
   border: 1px solid var(--rule-strong);
   border-radius: var(--radius-2);
@@ -169,6 +176,24 @@
   margin: 0;
   color: var(--ink-3);
   font-size: var(--text-xs);
+}
+
+/* ---------- closing a mirror draft unsaved (MirrorDiscard.tsx) ---------- */
+.agx-discard__body {
+  margin: 0;
+  color: var(--ink-2);
+  line-height: 1.5;
+}
+
+/* narrow: one choice per row, the safe one on top */
+@media (max-width: 700px) {
+  .agx-editor__foot.agx-discard__foot {
+    flex-direction: column-reverse;
+    align-items: stretch;
+  }
+  .agx-discard__foot .agx-spacer {
+    display: none;
+  }
 }
 
 @media (max-width: 720px) {
