@@ -397,10 +397,13 @@ test.describe('Custom agents: the recipe "Mirror a list into a database"', () =>
     expect(text).toContain('Schreibe nie Mein Status, Meine Prio, Nächster Schritt oder Fällig')
 
     // no toast over the editor: the Undo is a key in its note — database and report page go to the trash (never for
-    // good: rows another tab or device added meanwhile come back with them), the open draft goes
+    // good: rows another tab or device added meanwhile come back with them), the open draft goes; the draft is unchanged,
+    // so nothing is asked
     await expect(page.locator('.toast')).toHaveCount(0)
     const report = await pageIdByTitle(page, 'Tickets · Bericht')
     const row = await wsEval(page, (s, db) => s.createRow(db, { title: 'Aus dem anderen Tab' }) as string, made.page.id)
+    // they were never in the trash: the key's title says where they go, not "again"
+    await expect(editor.getByTestId('agx-editor-intro-undo')).toHaveAttribute('title', '„Tickets“ und „Tickets · Bericht“ in den Papierkorb legen')
     await editor.getByTestId('agx-editor-intro').getByRole('button', { name: 'Rückgängig' }).click()
     await expect(editor).toHaveCount(0)
     expect(await wsEval(page, (s, ids) => ids.map((id: string) => s.pages[id]?.trashed ?? 'gone'), [made.page.id, report, row])).toEqual([true, true, false])
@@ -463,7 +466,7 @@ test.describe('Custom agents: the recipe "Mirror a list into a database"', () =>
     })
   }
 
-  test('closing the editor after setup asks (Esc, ×, Cancel, scrim): keep editing, keep both, or both to the trash; a second setup never duplicates silently and never trashes what was there', async ({ page }) => {
+  test('closing the editor after setup asks (Esc, ×, Cancel, scrim): keep editing, keep both, or both to the trash; a second setup never duplicates silently, takes back the kept report page and never trashes what was there', async ({ page }) => {
     await openApp(page)
     await setKey(page)
     await setServers(page)
@@ -481,6 +484,8 @@ test.describe('Custom agents: the recipe "Mirror a list into a database"', () =>
     await page.keyboard.press('Escape')
     await expect(prompt).toBeVisible()
     await expect(prompt).toContainText('Die Datenbank „Tracker“ und die Seite „Tracker · Bericht“ gibt es schon.')
+    // keeping them pays off: the next setup with that name offers the database, with this page as its report
+    await expect(prompt).toContainText('richtest du das Rezept mit demselben Namen noch einmal ein, wird dir die Datenbank angeboten, mit dieser Seite als Bericht')
     await expect(prompt.getByRole('button', { name: 'Weiter bearbeiten' })).toBeFocused()
     await prompt.getByRole('button', { name: 'Weiter bearbeiten' }).click()
     await expect(prompt).toHaveCount(0)
@@ -508,8 +513,9 @@ test.describe('Custom agents: the recipe "Mirror a list into a database"', () =>
     expect(report.trashed).toBe(false)
     expect(await wsEval(page, (s) => Object.keys(s.agents ?? {}).length)).toBe(0)
 
-    // the recipe again with the same name: it says so, Create waits, "Use" sets the agent up for the one there — with a
-    // report page of its own right next to it (a page is never taken by its title)
+    // the recipe again with the same name: it says so, Create waits, "Use" sets the agent up for the one there — with the
+    // report page this setup made for it and that was kept (remembered on this device, never found by its title):
+    // nothing new is made, so the note has no Undo and closing asks nothing
     dialog = await openSetup(page)
     const exists = dialog.getByTestId('agx-mir-exists')
     await expect(exists).toContainText('„Tracker“ gibt es schon — eine Datenbank aus diesem Rezept.')
@@ -522,24 +528,20 @@ test.describe('Custom agents: the recipe "Mirror a list into a database"', () =>
     await exists.getByRole('button', { name: '„Tracker“ verwenden' }).click()
     await expect(editor).toBeVisible()
     expect(await liveDbs('Tracker')).toEqual([dbId])
-    const reports = () => wsEval(page, (s) => (Object.values(s.pages) as AnyState[]).filter((p) => p.title === 'Tracker · Bericht' && !p.trashed).map((p) => p.id as string))
-    const fresh = (await reports()).find((id) => id !== report.id) as string
-    expect(await reports()).toHaveLength(2)
-    expect(await wsEval(page, (s, ids) => ids.map((id: string) => s.pages[id].parentId ?? null), [dbId, fresh])).toEqual([report.parentId ?? null, report.parentId ?? null])
-    await expect(editor.getByTestId('agx-editor-intro')).toContainText('Die Datenbank „Tracker“ und die Seite „Tracker · Bericht“ sind angelegt.')
-    // only that page to take back
-    await expect(editor.getByTestId('agx-editor-intro-undo')).toHaveAttribute('title', '„Tracker · Bericht“ wieder in den Papierkorb legen')
-
-    // the scrim asks about that page only; to the trash: the new page goes, the database and the page that were there
-    // stay live
+    const reports = () => wsEval(page, (s) => (Object.values(s.pages) as AnyState[]).filter((p) => p.title.startsWith('Tracker · Bericht') && !p.trashed).map((p) => p.id as string))
+    expect(await reports()).toEqual([report.id])
+    await expect(editor.getByTestId('agx-editor-intro')).toHaveText(
+      '„Tracker“ und die Seite „Tracker · Bericht“ gab es schon. Ersetze die 4 Teile in [ECKIGEN KLAMMERN] in den Anweisungen durch das, was für dein Werkzeug gilt, und speichere dann.',
+    )
+    await expect(editor.getByTestId('agx-editor-intro-undo')).toHaveCount(0)
+    // the scrim closes it without asking: nothing of it was made by this setup; both stay live
     await page.mouse.click(4, 4)
-    await expect(prompt.getByTestId('agx-discard-body')).toContainText('die Datenbank „Tracker“ gab es schon, sie bleibt')
-    await prompt.getByRole('button', { name: 'Verwerfen, Seite in den Papierkorb' }).click()
     await expect(editor).toHaveCount(0)
+    await expect(prompt).toHaveCount(0)
     expect(await liveDbs('Tracker')).toEqual([dbId])
-    expect(await wsEval(page, (s, ids) => ids.map((id: string) => !!s.pages[id].trashed), [report.id, fresh])).toEqual([false, true])
+    expect(await wsEval(page, (s, id) => !!s.pages[id].trashed, report.id)).toBe(false)
 
-    // saved through "Use": the agent mirrors into the database that was there and reports into a new page of its own
+    // saved through "Use": the agent mirrors into the database that was there and reports into the page kept for it
     dialog = await openSetup(page)
     await dialog.getByTestId('agx-mir-exists').getByRole('button', { name: '„Tracker“ verwenden' }).click()
     await editor.getByRole('switch', { name: 'Aktiv' }).click()
@@ -547,9 +549,9 @@ test.describe('Custom agents: the recipe "Mirror a list into a database"', () =>
     await expect(page.locator('.agx-dhead')).toBeVisible()
     const agent = await wsEval(page, (s) => JSON.parse(JSON.stringify(Object.values(s.agents)[0])))
     expect(agent.scope.databases).toEqual([dbId])
-    expect(agent.output.mode).toBe('append')
-    expect([report.id, fresh]).not.toContain(agent.output.pageId)
-    expect(await reports()).toEqual(expect.arrayContaining([report.id, agent.output.pageId]))
+    expect(agent.mirrorOf).toBe(dbId)
+    expect(agent.output).toEqual({ pageId: report.id, mode: 'append' })
+    expect(await reports()).toEqual([report.id])
     expect(await liveDbs('Tracker')).toEqual([dbId])
   })
 
@@ -602,10 +604,13 @@ test.describe('Custom agents: the recipe "Mirror a list into a database"', () =>
 /**
  * The setup may only ever take back what THIS setup created (MirrorMade.created) — never a database or page that was
  * there, never one a saved agent uses by then, never for good — and a draft never disappears silently (route changes
- * leave a toast with Undo, dismissed when a new setup takes that database). "Use" makes a report page of its own, never
- * one found by its title. A double-click on Create never acts in the editor it opens; focus comes back after the prompt
- * (whichever dialog cleans up first; the main region after a route change); the key matches in both languages; names
- * fold with NFC; a database a saved agent mirrors into (reading the recipe's server) offers that agent instead.
+ * leave a toast with Undo; every agent dialog takes such toasts down as it opens, so their Undo never takes a click meant
+ * for the dialog). "Use" takes back the report page this device's setup made for that database (while no saved agent
+ * uses it), else makes one of its own — never one found by its title; titles the setup makes are distinct. A double-click
+ * on Create never acts in the editor it opens; focus comes back after the prompt (whichever dialog cleans up first; the
+ * main region after a route change); the key matches in both languages; names fold with NFC; a database a saved agent
+ * mirrors into (marked `mirrorOf`, or an older one reading a server that matches the profile, on or off) offers that
+ * agent instead; nothing is saved against a page in the trash; the note's Undo asks before an edited draft is lost.
  */
 test.describe('Custom agents: the mirror setup takes back only what it made', () => {
   const liveDbs = (page: Page, title: string) => wsEval(page, (s, title) => (Object.values(s.pages) as AnyState[]).filter((p) => p.kind === 'database' && p.title === title && !p.trashed).map((p) => p.id), title)
@@ -649,43 +654,61 @@ test.describe('Custom agents: the mirror setup takes back only what it made', ()
       for (const x of w.__one.ui.getState().toasts) w.__one.ui.getState().dismissToast(x.id)
     })
 
-  test('#1 set up for a database that was there: "Use" makes only a report page next to it — the note and the prompt name only it, only it goes to the trash, the database and the page that were there stay', async ({ page }) => {
+  test('#1 set up for a database that was there whose kept report page a saved agent uses: "Use" makes only a report page next to it — the note and the prompt name only it, only it goes to the trash, the database and the page that were there stay; kept, the next "Use" takes it back', async ({ page }) => {
     await openApp(page)
     await setServers(page)
     await wsEval(page, (s) => s.updateSettings({ language: 'de' }))
     const { db, report } = await setUpAndKeep(page, 'Tracker', true)
+    // a digest (no mirror: it only reads) reports into the page kept for "Tracker" — "Use" never takes a page a saved
+    // agent uses
+    await saveAgent(page, { id: 'ag-digest', name: 'Digest', output: { pageId: report, mode: 'append' } })
     const editor = page.locator('.agx-editor')
+    const intro = editor.getByTestId('agx-editor-intro')
     const prompt = page.getByRole('dialog', { name: 'Agent verwerfen?' })
     const parentOf = (id: string) => wsEval(page, (s, id) => s.pages[id]?.parentId ?? null, id)
 
-    // "Use": a new report page right next to the database — never the one there (found by its title)
+    // "Use": a new report page right next to the database — never the one there (found by its title); its title is
+    // distinct from the page that is there
     let dialog = await openSetup(page)
     await dialog.getByTestId('agx-mir-exists').getByRole('button', { name: '„Tracker“ verwenden' }).click()
     await expect(editor).toBeVisible()
-    const fresh = (await titled(page, 'Tracker · Bericht')).find((id) => id !== report) as string
+    const [fresh] = await titled(page, 'Tracker · Bericht (2)')
     expect(fresh).toBeTruthy()
     expect(await parentOf(fresh)).toBe(await parentOf(db))
-    await expect(editor.getByTestId('agx-editor-intro-undo')).toHaveAttribute('title', '„Tracker · Bericht“ wieder in den Papierkorb legen')
+    await expect(intro).toContainText('„Tracker“ gab es schon; die Seite „Tracker · Bericht (2)“ ist neu angelegt.')
+    await expect(editor.getByTestId('agx-editor-intro-undo')).toHaveAttribute('title', '„Tracker · Bericht (2)“ in den Papierkorb legen')
     await page.keyboard.press('Escape')
     await expect(prompt.getByTestId('agx-discard-body')).toHaveText(
-      'Der Agent ist noch nicht gespeichert. Seine Berichtsseite „Tracker · Bericht“ wurde dafür angelegt — die Datenbank „Tracker“ gab es schon, sie bleibt. Behalte die Seite oder leg sie in den Papierkorb.',
+      'Der Agent ist noch nicht gespeichert. Seine Berichtsseite „Tracker · Bericht (2)“ wurde dafür angelegt — die Datenbank „Tracker“ gab es schon, sie bleibt. Behalte die Seite — die nächste Einrichtung für „Tracker“ nimmt sie wieder als Bericht — oder leg sie in den Papierkorb.',
     )
     await expect(prompt.getByRole('button', { name: 'Agent verwerfen, Seite behalten' })).toBeVisible()
     await prompt.getByRole('button', { name: 'Verwerfen, Seite in den Papierkorb' }).click()
     await expect(editor).toHaveCount(0)
-    await expect(page.locator('.toast').filter({ hasText: 'Die Seite „Tracker · Bericht“ liegt im Papierkorb.' })).toBeVisible()
+    await expect(page.locator('.toast').filter({ hasText: 'Die Seite „Tracker · Bericht (2)“ liegt im Papierkorb.' })).toBeVisible()
     // the database and the page that were there stay live
     expect(await trashedOf(page, [db, report, fresh])).toEqual([false, false, true])
 
-    // again, and keep the page: it stays next to the others
+    // again (the remembered page is in the trash now: a new one), and keep the page: it stays next to the others
     dialog = await openSetup(page)
     await dialog.getByTestId('agx-mir-exists').getByRole('button', { name: '„Tracker“ verwenden' }).click()
     await expect(editor).toBeVisible()
-    const again = (await titled(page, 'Tracker · Bericht')).find((id) => id !== report) as string
+    const [again] = await titled(page, 'Tracker · Bericht (2)')
     expect([report, fresh]).not.toContain(again)
     await page.keyboard.press('Escape')
     await prompt.getByRole('button', { name: 'Agent verwerfen, Seite behalten' }).click()
     await expect(editor).toHaveCount(0)
+    expect(await trashedOf(page, [db, report, fresh, again])).toEqual([false, false, true, false])
+
+    // kept: the next "Use" takes it back as the report — nothing new, no Undo, nothing to ask
+    dialog = await openSetup(page)
+    await dialog.getByTestId('agx-mir-exists').getByRole('button', { name: '„Tracker“ verwenden' }).click()
+    await expect(editor).toBeVisible()
+    await expect(intro).toContainText('„Tracker“ und die Seite „Tracker · Bericht (2)“ gab es schon.')
+    await expect(editor.getByTestId('agx-editor-intro-undo')).toHaveCount(0)
+    expect(await titled(page, 'Tracker · Bericht (2)')).toEqual([again])
+    await page.keyboard.press('Escape')
+    await expect(editor).toHaveCount(0)
+    await expect(prompt).toHaveCount(0)
     expect(await trashedOf(page, [db, report, fresh, again])).toEqual([false, false, true, false])
   })
 
@@ -718,42 +741,52 @@ test.describe('Custom agents: the mirror setup takes back only what it made', ()
     })
   }
 
-  test('#5 "Use" never adopts a page by its title — not another mirror’s report, not a hand-written page, not a deleted agent’s: it makes its own', async ({ page }) => {
+  test('#5 "Use" never adopts a page by its title: with a report name without {db} ("Weekly report") each database gets back only its OWN page — a deleted agent’s report goes on, a hand-written page of the same title is never taken', async ({ page }) => {
     await openApp(page)
     await wsEval(page, (s, list) => s.updateSettings({ mcpServers: list }), SERVERS)
     await addProfile(page, trackerProfile({ match: { host: '*.example.com' }, recipes: [{ kind: 'mirror', report: { name: 'Weekly report' } }] }))
     const editor = page.locator('.agx-editor')
-    // "Features" and "Bugs": both kept, no agent — two "Weekly report" pages at the top level
+    // "Features" and "Bugs": both kept, no agent — the second report gets a distinct title
     const features = await setUpAndKeep(page, 'Features', false, 'Weekly report')
-    const bugs = await setUpAndKeep(page, 'Bugs', false, 'Weekly report')
+    const bugs = await setUpAndKeep(page, 'Bugs', false, 'Weekly report · Bugs')
     // "Old": saved (switched off), then deleted — its report stays behind
     let dialog = await openSetup(page)
     await dialog.getByRole('textbox', { name: /Name/ }).fill('Old')
+    await expect(dialog.getByTestId('agx-mir-spec')).toContainText('Weekly report · Old')
     await dialog.getByRole('button', { name: 'Create database and agent' }).click()
     await editor.getByRole('switch', { name: 'Active' }).click()
     await editor.getByRole('button', { name: 'Create agent', exact: true }).click()
     await expect(page.locator('.agx-dhead')).toBeVisible()
     const [old] = await agentsOf(page)
+    const oldDb = old.scope.databases[0]
     await wsEval(page, (s, id) => s.deleteAgent(id), old.id)
-    // and a hand-written "Weekly report", the newest of them
+    // and a hand-written "Weekly report", the newest page of that title
     const hand = await wsEval(page, (s) => s.createPage({ title: 'Weekly report' }) as string)
-    const before = await titled(page, 'Weekly report')
-    expect(before).toEqual(expect.arrayContaining([features.report, bugs.report, old.output.pageId, hand]))
-
-    // "Features" again → Use: a page of its own, none of those
-    dialog = await openSetup(page)
-    await dialog.getByRole('textbox', { name: /Name/ }).fill('Features')
-    await dialog.getByTestId('agx-mir-exists').getByRole('button', { name: 'Use “Features”' }).click()
-    await expect(editor).toBeVisible()
-    const mine = (await titled(page, 'Weekly report')).filter((id) => !before.includes(id))
-    expect(mine).toHaveLength(1)
-    await editor.getByRole('switch', { name: 'Active' }).click()
-    await editor.getByRole('button', { name: 'Create agent', exact: true }).click()
-    await expect(page.locator('.agx-dhead')).toBeVisible()
-    const featuresAgent = (await agentsOf(page)).find((a) => a.scope.databases.includes(features.db))
-    expect(featuresAgent?.output).toEqual({ pageId: mine[0], mode: 'append' })
-    // nothing else was touched
-    expect(await trashedOf(page, before)).toEqual(before.map(() => false))
+    const all = [features.report, bugs.report, old.output.pageId, hand]
+    const pageCount = () => wsEval(page, (s) => Object.keys(s.pages).length)
+    const useAndSave = async (name: string) => {
+      const before = await pageCount()
+      const d = await openSetup(page)
+      await d.getByRole('textbox', { name: /Name/ }).fill(name)
+      await d.getByTestId('agx-mir-exists').getByRole('button', { name: `Use “${name}”` }).click()
+      await expect(editor).toBeVisible()
+      // nothing new: its own page comes back
+      await expect(editor.getByTestId('agx-editor-intro')).toContainText(`“${name}” and the page “`)
+      await expect(editor.getByTestId('agx-editor-intro')).toContainText('were there already.')
+      expect(await pageCount()).toBe(before)
+      await editor.getByRole('switch', { name: 'Active' }).click()
+      await editor.getByRole('button', { name: 'Create agent', exact: true }).click()
+      await expect(page.locator('.agx-dhead')).toBeVisible()
+      return (await agentsOf(page)).find((a) => a.scope.databases[0] === (name === 'Features' ? features.db : name === 'Bugs' ? bugs.db : oldDb)) as AnyState
+    }
+    // each database gets back exactly the page its own setup made
+    expect((await useAndSave('Features')).output).toEqual({ pageId: features.report, mode: 'append' })
+    expect((await useAndSave('Bugs')).output).toEqual({ pageId: bugs.report, mode: 'append' })
+    // the deleted agent's report (with its history) goes on
+    expect((await useAndSave('Old')).output).toEqual({ pageId: old.output.pageId, mode: 'append' })
+    // the hand-written page is never a report; nothing went to the trash
+    expect((await agentsOf(page)).map((a) => a.output?.pageId)).not.toContain(hand)
+    expect(await trashedOf(page, all)).toEqual(all.map(() => false))
   })
 
   test('#6 a route change with the draft open (Back, another page) leaves a toast: what the setup made stays, its Undo trashes only that; saving leaves none', async ({ page }) => {
@@ -907,7 +940,7 @@ test.describe('Custom agents: the mirror setup takes back only what it made', ()
     const left = page.locator('.toast').filter({ hasText: 'The agent was not saved. “Tracker” and its report page stay.' })
     await expect(left).toBeVisible()
     // back within its 10 s, the setup again, "Use “Tracker”": that toast goes at once (its Undo would take back what the
-    // new agent stands on)
+    // new agent stands on) — the setup takes back the report page it made
     dialog = await openSetup(page)
     await dialog.getByTestId('agx-mir-exists').getByRole('button', { name: 'Use “Tracker”' }).click()
     await expect(editor).toBeVisible()
@@ -917,7 +950,8 @@ test.describe('Custom agents: the mirror setup takes back only what it made', ()
     await expect(page.locator('.agx-dhead')).toBeVisible()
     const [agent] = await agentsOf(page)
     expect(agent.scope.databases).toEqual([db])
-    expect(await trashedOf(page, [db, report, agent.output.pageId])).toEqual([false, false, false])
+    expect(agent.output.pageId).toBe(report)
+    expect(await trashedOf(page, [db, report])).toEqual([false, false])
 
     // "Tracker 2" left open; meanwhile an agent saved elsewhere reads the database: the Undo trashes only the report
     // page and says why the database stays — its own Undo brings the page back
@@ -1001,5 +1035,417 @@ test.describe('Custom agents: the mirror setup takes back only what it made', ()
     await expect(editor).toHaveCount(0)
     await page.waitForTimeout(300)
     expect(await page.evaluate(() => ({ tag: document.activeElement?.tagName, inMain: !!document.activeElement?.closest('#main'), inert: document.querySelectorAll('[inert]').length }))).toEqual({ tag: 'MAIN', inMain: true, inert: 0 })
+  })
+})
+
+/**
+ * Review round 3: a database's mirror is the agent the recipe set up for it (`mirrorOf`), whatever became of its server
+ * — an older one counts by the servers that match the profile, switched on or off, never one whose tool list for them
+ * is empty or one marked for another database. "Use" takes back the report page this device's setup made for that
+ * database (localStorage `one.mirror.reports:<kind>:<id>`). The mirror toasts never take a click meant for an agent
+ * dialog; nothing is saved against a page in the trash; the note's Undo asks before an edited draft is lost; the texts
+ * say what was made, the name's hint what is named after it, and titles the setup makes are distinct.
+ */
+test.describe('Custom agents: the mirror setup — markers, report memory, toasts, texts', () => {
+  const editorOf = (page: Page) => page.locator('.agx-editor')
+  const liveDbs = (page: Page, title: string) => wsEval(page, (s, title) => (Object.values(s.pages) as AnyState[]).filter((p) => p.kind === 'database' && p.title === title && !p.trashed).map((p) => p.id as string), title)
+  const trashedOf = (page: Page, ids: string[]) => wsEval(page, (s, ids) => ids.map((id: string) => s.pages[id]?.trashed ?? 'gone'), ids)
+  const agentsOf = (page: Page) => wsEval(page, (s) => JSON.parse(JSON.stringify(Object.values(s.agents ?? {}))) as AnyState[])
+  const titled = (page: Page, title: string) => wsEval(page, (s, t) => (Object.values(s.pages) as AnyState[]).filter((p) => p.title === t && !p.trashed).map((p) => p.id as string), title)
+  const saveAgent = (page: Page, over: AnyState) =>
+    wsEval(
+      page,
+      (s, a) => {
+        const now = Date.now()
+        s.upsertAgent({ instructions: 'Report on it.', trigger: { type: 'manual' }, scope: { everything: false, pages: [], databases: [] }, write: 'none', output: null, mcpServers: [], runner: 'browser', model: null, effort: null, maxRunUsd: 0.5, enabled: false, createdAt: now, updatedAt: now, ...a })
+      },
+      over,
+    )
+  /** A database holding the recipe's key property (English names), made by hand. */
+  const keyedDb = (page: Page, title: string) =>
+    wsEval(page, (s, title) => s.createDatabase({ title, properties: [{ id: 'p-name', name: 'Name', type: 'title' }, { id: 'p-key', name: 'Key', type: 'text', key: true }] }) as string, title)
+
+  /** Setup → Create (`name`), switched off, saved; returns the agent. */
+  async function setUpAndSave(page: Page, name = 'Tracker'): Promise<AnyState> {
+    const dialog = await openSetup(page)
+    await dialog.getByRole('textbox', { name: /Name/ }).fill(name)
+    await dialog.getByRole('button', { name: 'Create database and agent' }).click()
+    const editor = editorOf(page)
+    await editor.getByRole('switch', { name: 'Active' }).click()
+    await editor.getByRole('button', { name: 'Create agent', exact: true }).click()
+    await expect(page.locator('.agx-dhead')).toBeVisible()
+    return (await agentsOf(page)).find((a) => a.name === `Mirror · ${name}`) as AnyState
+  }
+
+  /** The setup with `name` typed: its notice. */
+  async function noticeFor(page: Page, name: string) {
+    const dialog = await openSetup(page)
+    await dialog.getByRole('textbox', { name: /Name/ }).fill(name)
+    const exists = dialog.getByTestId('agx-mir-exists')
+    await expect(exists).toBeVisible()
+    return { dialog, exists }
+  }
+
+  /** The point in the middle of `el`, clicked like a person would — whatever lies on top there takes the click. */
+  async function clickAtCentre(page: Page, el: ReturnType<Page['locator']>) {
+    const box = await el.boundingBox()
+    if (!box) throw new Error('not on screen')
+    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2)
+  }
+
+  /** German, two matching servers, a recipe without placeholders (a switched-on draft saves at once). */
+  async function germanNoPlaceholders(page: Page) {
+    await page.setViewportSize({ width: 1280, height: 720 })
+    await openApp(page)
+    await setKey(page)
+    await wsEval(page, (s, list) => s.updateSettings({ mcpServers: list }), SERVERS)
+    await addProfile(page, trackerProfile({ match: { host: '*.example.com' }, recipes: [{ kind: 'mirror', agent: { instructions: 'Halte die Datenbank „{db}“ mit den Einträgen in {server} im Gleichstand. Lies {server} nur.' } }] }))
+    await wsEval(page, (s) => s.updateSettings({ language: 'de' }))
+  }
+
+  test('A1 probe E: a mirror whose server is switched off (another server still matches) stays the mirror — the setup offers that agent, never "Use"; an older mirror without the marker too', async ({ page }) => {
+    await openApp(page)
+    await setServers(page)
+    const agent = await setUpAndSave(page)
+    const [db] = await liveDbs(page, 'Tracker')
+    // the recipe marked it for its database
+    expect(agent.mirrorOf).toBe(db)
+    expect(agent.scope.databases).toEqual([db])
+    // an older mirror (saved before the marker existed) of "Legacy", reading "tracker" too
+    const legacy = await keyedDb(page, 'Legacy')
+    await saveAgent(page, { id: 'ag-legacy', name: 'Legacy mirror', scope: { everything: false, pages: [], databases: [legacy] }, write: 'stage', mcpServers: ['tracker'] })
+    // "tracker" switched off — "wiki" still matches the profile, so the recipe stays on offer
+    await wsEval(page, (s, list) => s.updateSettings({ mcpServers: list.map((x: AnyState) => (x.name === 'tracker' ? { ...x, enabled: false } : x)) }), SERVERS)
+
+    let { dialog, exists } = await noticeFor(page, 'Tracker')
+    await expect(dialog.getByRole('radio', { name: /WIKI/ })).toBeChecked()
+    await expect(exists).toContainText('“Tracker” exists already, and the agent “Mirror · Tracker” keeps it in step. Open that agent, or give the new database another name.')
+    await expect(exists.getByRole('button', { name: 'Open “Mirror · Tracker”' })).toBeVisible()
+    await expect(exists.getByRole('button', { name: 'Use “Tracker”' })).toHaveCount(0)
+    await dialog.getByRole('button', { name: 'Cancel' }).click()
+    ;({ dialog, exists } = await noticeFor(page, 'Legacy'))
+    await expect(exists.getByRole('button', { name: 'Open “Legacy mirror”' })).toBeVisible()
+    await expect(exists.getByRole('button', { name: 'Use “Legacy”' })).toHaveCount(0)
+    await exists.getByRole('button', { name: 'Open “Legacy mirror”' }).click()
+    expect(await page.evaluate(() => window.location.hash)).toBe('#/agents/ag-legacy')
+    // never a second mirror
+    expect(await agentsOf(page)).toHaveLength(2)
+  })
+
+  test('A1 a marked mirror stays the mirror when its server is renamed, and switched off and read-only', async ({ page }) => {
+    await openApp(page)
+    await setServers(page)
+    const agent = await setUpAndSave(page)
+    // "tracker" renamed to "issues" (the agent still names "tracker"): the marker holds
+    await wsEval(page, (s, list) => s.updateSettings({ mcpServers: list.map((x: AnyState) => (x.name === 'tracker' ? { ...x, name: 'issues' } : x)) }), SERVERS)
+    let { dialog, exists } = await noticeFor(page, 'Tracker')
+    await expect(exists.getByRole('button', { name: 'Open “Mirror · Tracker”' })).toBeVisible()
+    await expect(exists.getByRole('button', { name: 'Use “Tracker”' })).toHaveCount(0)
+    await dialog.getByRole('button', { name: 'Cancel' }).click()
+    // switched off (it is) and set to "Read only": still that database's mirror
+    await wsEval(page, (s, id) => s.upsertAgent({ ...s.agents[id], write: 'none', enabled: false }), agent.id)
+    ;({ exists } = await noticeFor(page, 'Tracker'))
+    await expect(exists.getByRole('button', { name: 'Open “Mirror · Tracker”' })).toBeVisible()
+    await expect(exists.getByRole('button', { name: 'Use “Tracker”' })).toHaveCount(0)
+  })
+
+  test('A1 variant C: an agent whose tool list for the source server is empty is not the mirror, nor is one marked for another database', async ({ page }) => {
+    await openApp(page)
+    await setServers(page)
+    const tracker = await keyedDb(page, 'Tracker')
+    const other = await keyedDb(page, 'Other')
+    // "tracker" left out of its runs (no tools) — no mirror
+    await saveAgent(page, { id: 'ag-none', name: 'Tool-less', scope: { everything: false, pages: [], databases: [tracker] }, write: 'stage', mcpServers: ['tracker'], mcpTools: { tracker: [] } })
+    // set up for "Other", it also reads and writes "Tracker" — "Other"'s mirror, never "Tracker"'s
+    await saveAgent(page, { id: 'ag-other', name: 'Other mirror', scope: { everything: false, pages: [], databases: [other, tracker] }, write: 'stage', mcpServers: ['tracker'], mirrorOf: other })
+    let { dialog, exists } = await noticeFor(page, 'Tracker')
+    await expect(exists).toHaveText(/^“Tracker” exists already — a database from this recipe\./)
+    await expect(exists.getByRole('button', { name: 'Use “Tracker”' })).toBeVisible()
+    await expect(exists.getByRole('button', { name: /^Open/ })).toHaveCount(0)
+    await dialog.getByRole('button', { name: 'Cancel' }).click()
+    ;({ exists } = await noticeFor(page, 'Other'))
+    await expect(exists.getByRole('button', { name: 'Open “Other mirror”' })).toBeVisible()
+  })
+
+  test('A3 keep both → "Use": no new page — the kept one is the report; nothing made: no Undo, closing asks nothing, a route change leaves no toast; the memory keeps the newest 100 per workspace', async ({ page }) => {
+    await openApp(page)
+    await setServers(page)
+    const editor = editorOf(page)
+    let dialog = await openSetup(page)
+    await dialog.getByRole('button', { name: 'Create database and agent' }).click()
+    await expect(editor).toBeVisible()
+    const [db] = await liveDbs(page, 'Tracker')
+    const [report] = await titled(page, 'Tracker · Report')
+    await page.keyboard.press('Escape')
+    await page.getByRole('button', { name: 'Discard agent, keep both' }).click()
+    await expect(editor).toHaveCount(0)
+    // remembered on this device, per workspace
+    const KEY = 'one.mirror.reports:local:local'
+    const memory = () => page.evaluate((k) => JSON.parse(localStorage.getItem(k) ?? 'null'), KEY)
+    expect(await memory()).toEqual({ [db]: report })
+    // 99 older entries before it: a new setup adds one, the oldest goes — at most 100
+    await page.evaluate(
+      ({ k, db, report }) => {
+        const old: Record<string, string> = {}
+        for (let i = 0; i < 99; i++) old[`fk-db-${i}`] = `fk-page-${i}`
+        localStorage.setItem(k, JSON.stringify({ ...old, [db]: report }))
+      },
+      { k: KEY, db, report },
+    )
+    dialog = await openSetup(page)
+    await dialog.getByRole('textbox', { name: /Name/ }).fill('Tracker 2')
+    await dialog.getByRole('button', { name: 'Create database and agent' }).click()
+    await expect(editor).toBeVisible()
+    const [db2] = await liveDbs(page, 'Tracker 2')
+    const mem = (await memory()) as Record<string, string>
+    expect(Object.keys(mem)).toHaveLength(100)
+    expect(mem['fk-db-0']).toBeUndefined()
+    expect(mem['fk-db-1']).toBe('fk-page-1')
+    expect(mem[db]).toBe(report)
+    expect(Object.keys(mem).at(-1)).toBe(db2)
+    await page.keyboard.press('Escape')
+    await page.getByRole('button', { name: 'Discard agent, keep both' }).click()
+    await expect(editor).toHaveCount(0)
+
+    // "Use": the kept page is the report — no page is made
+    const count = () => wsEval(page, (s) => Object.keys(s.pages).length)
+    const before = await count()
+    dialog = await openSetup(page)
+    await dialog.getByTestId('agx-mir-exists').getByRole('button', { name: 'Use “Tracker”' }).click()
+    await expect(editor).toBeVisible()
+    expect(await count()).toBe(before)
+    await expect(editor.getByTestId('agx-editor-intro')).toHaveText(
+      '“Tracker” and the page “Tracker · Report” were there already. Replace the 4 parts in [SQUARE BRACKETS] in the instructions with how your tool works, then save.',
+    )
+    await expect(editor.getByTestId('agx-editor-intro-undo')).toHaveCount(0)
+    // closing asks nothing
+    await page.keyboard.press('Escape')
+    await expect(editor).toHaveCount(0)
+    await expect(page.getByRole('dialog', { name: 'Discard the agent?' })).toHaveCount(0)
+    // a route change leaves no toast (nothing of it was made by this setup)
+    dialog = await openSetup(page)
+    await dialog.getByTestId('agx-mir-exists').getByRole('button', { name: 'Use “Tracker”' }).click()
+    await expect(editor).toBeVisible()
+    const wiki = await pageIdByTitle(page, 'Team wiki')
+    await page.evaluate((id) => (window.location.hash = `#/p/${id}`), wiki)
+    await expect(editor).toHaveCount(0)
+    await page.waitForTimeout(300)
+    await expect(page.locator('.toast').filter({ hasText: 'was not saved' })).toHaveCount(0)
+    // saved: it reports into the kept page
+    dialog = await openSetup(page)
+    await dialog.getByTestId('agx-mir-exists').getByRole('button', { name: 'Use “Tracker”' }).click()
+    await editor.getByRole('switch', { name: 'Active' }).click()
+    await editor.getByRole('button', { name: 'Create agent', exact: true }).click()
+    await expect(page.locator('.agx-dhead')).toBeVisible()
+    const [agent] = await agentsOf(page)
+    expect(agent).toMatchObject({ scope: { databases: [db] }, output: { pageId: report, mode: 'append' }, mirrorOf: db })
+    expect(await count()).toBe(before)
+    expect(await trashedOf(page, [db, report])).toEqual([false, false])
+  })
+
+  test('A4a 1280 × 720, German: a stale "in the trash" toast never takes the click on "Agent anlegen" — the next setup with the same name saves, nothing comes back', async ({ page }) => {
+    await germanNoPlaceholders(page)
+    const editor = editorOf(page)
+    let dialog = await openSetup(page)
+    await dialog.getByRole('textbox', { name: /Name/ }).fill('Overlap')
+    await dialog.getByRole('button', { name: 'Datenbank und Agent anlegen' }).click()
+    await expect(editor).toBeVisible()
+    const [first] = await liveDbs(page, 'Overlap')
+    await page.keyboard.press('Escape')
+    await page.getByRole('button', { name: 'Verwerfen, beide in den Papierkorb' }).click()
+    const binned = page.locator('.toast').filter({ hasText: '„Overlap“ und die Berichtsseite liegen im Papierkorb.' })
+    await expect(binned).toBeVisible()
+    // within its 6 s: the recipe again, the same name, Create (Enter in the field), a click on "Agent anlegen" where it
+    // is — whatever lies there takes it
+    dialog = await openSetup(page)
+    await dialog.getByRole('textbox', { name: /Name/ }).fill('Overlap')
+    await dialog.getByRole('textbox', { name: /Name/ }).press('Enter')
+    await expect(editor).toBeVisible()
+    await clickAtCentre(page, editor.getByRole('button', { name: 'Agent anlegen', exact: true }))
+    await expect(page.locator('.agx-dhead')).toBeVisible()
+    expect(await agentsOf(page)).toHaveLength(1)
+    // the first "Overlap" stays in the trash: one live database of that name, the toast went with the first dialog
+    const live = await liveDbs(page, 'Overlap')
+    expect(live).toHaveLength(1)
+    expect(live).not.toContain(first)
+    await expect(binned).toHaveCount(0)
+  })
+
+  test('A4a Back variant, German: the left-behind toast of "Erster" never takes the click on "Agent anlegen" of "Zweiter"', async ({ page }) => {
+    await germanNoPlaceholders(page)
+    const editor = editorOf(page)
+    let dialog = await openSetup(page)
+    await dialog.getByRole('textbox', { name: /Name/ }).fill('Erster')
+    await dialog.getByRole('button', { name: 'Datenbank und Agent anlegen' }).click()
+    await expect(editor).toBeVisible()
+    const [erster] = await liveDbs(page, 'Erster')
+    const ersterReport = await pageIdByTitle(page, 'Erster · Bericht')
+    await page.goBack()
+    const left = page.locator('.toast').filter({ hasText: 'Der Agent ist nicht gespeichert. „Erster“ und die Berichtsseite bleiben.' })
+    await expect(left).toBeVisible()
+    // within its 10 s: set up "Zweiter" (Enter in the field), then a click on "Agent anlegen" where it is
+    dialog = await openSetup(page)
+    await dialog.getByRole('textbox', { name: /Name/ }).fill('Zweiter')
+    await dialog.getByRole('textbox', { name: /Name/ }).press('Enter')
+    await expect(editor).toBeVisible()
+    await clickAtCentre(page, editor.getByRole('button', { name: 'Agent anlegen', exact: true }))
+    await expect(page.locator('.agx-dhead')).toBeVisible()
+    expect(await agentsOf(page)).toHaveLength(1)
+    expect(await trashedOf(page, [erster, ersterReport])).toEqual([false, false])
+    await expect(left).toHaveCount(0)
+  })
+
+  test('A4a the recipe gallery and a blank editor take a stale mirror toast down before anything in them is clicked (sweep S3: "Neuer Agent" → "Leer")', async ({ page }) => {
+    await germanNoPlaceholders(page)
+    const editor = editorOf(page)
+    const dialog = await openSetup(page)
+    await dialog.getByRole('button', { name: 'Datenbank und Agent anlegen' }).click()
+    await expect(editor).toBeVisible()
+    await page.goBack()
+    const left = page.locator('.toast').filter({ hasText: '„Tracker“ und die Berichtsseite bleiben.' })
+    await expect(left).toBeVisible()
+    await page.evaluate(() => (window.location.hash = '#/agents'))
+    await page.locator('.agx-head .btn--primary').click()
+    await expect(page.locator('.agx-recipe-modal')).toBeVisible()
+    // at once — not when its own 10 s are up
+    await expect(left).toHaveCount(0, { timeout: 500 })
+    await page.locator('.agx-recipe-modal [data-recipe="blank"]').click()
+    await expect(editor).toBeVisible()
+    await expect(page.locator('.toast')).toHaveCount(0, { timeout: 500 })
+  })
+
+  test('A4b nothing is saved against a page in the trash: a scope database or the report page trashed while the editor is open (or below a trashed page) is named, and saving waits', async ({ page }) => {
+    await openApp(page)
+    const tracker = await wsEval(page, (s) => s.createDatabase({ title: 'Tracker' }) as string)
+    const archive = await wsEval(page, (s) => s.createPage({ title: 'Archive' }) as string)
+    const notes = await wsEval(page, (s, parentId) => s.createPage({ title: 'Agent notes', parentId }) as string, archive)
+    await page.evaluate(() => (window.location.hash = '#/agents'))
+    await page.locator('.agx-start [data-recipe="blank"]').click()
+    const editor = editorOf(page)
+    await editor.getByRole('textbox', { name: 'Name' }).fill('Watcher')
+    await editor.getByLabel('Instructions').fill('Report on the tracker.')
+    await editor.getByRole('radio', { name: 'Chosen pages' }).click()
+    await editor.getByRole('button', { name: 'Add page or database' }).click()
+    await page.getByRole('menuitem', { name: /^Tracker/ }).click()
+    await editor.getByRole('button', { name: 'Report page' }).click()
+    await page.getByRole('menuitem', { name: 'Agent notes' }).click()
+    // meanwhile (another tab, an Undo in a toast) "Tracker" goes to the trash
+    await wsEval(page, (s, id) => s.trashPage(id), tracker)
+    const create = editor.getByRole('button', { name: 'Create agent', exact: true })
+    await create.click()
+    await expect(editor.getByText('“Tracker” is in the trash — remove it from “May use” or restore it.')).toBeVisible()
+    await expect(editor.locator('.agx-chipx[data-trashed]')).toContainText('In the trash')
+    expect(await agentsOf(page)).toHaveLength(0)
+    // back from the trash; now the report page's parent goes there (the page itself is not trashed, only below one)
+    await wsEval(page, (s, id) => s.restorePage(id), tracker)
+    await wsEval(page, (s, id) => s.trashPage(id), archive)
+    await create.click()
+    await expect(editor.getByText('The report page “Agent notes” is in the trash — choose another one or restore it.')).toBeVisible()
+    expect(await agentsOf(page)).toHaveLength(0)
+    // restored: it saves
+    await wsEval(page, (s, id) => s.restorePage(id), archive)
+    await create.click()
+    await expect(page.locator('.agx-dhead')).toBeVisible()
+    const [agent] = await agentsOf(page)
+    expect(agent).toMatchObject({ scope: { everything: false, databases: [tracker] }, output: { pageId: notes } })
+  })
+
+  test('A5 the note’s Undo asks first when the draft was changed: "Weiter bearbeiten" keeps it (Esc too), "Rückgängig, Änderungen verwerfen" takes it all back', async ({ page }) => {
+    await openApp(page)
+    await setServers(page)
+    await wsEval(page, (s) => s.updateSettings({ language: 'de' }))
+    const editor = editorOf(page)
+    const dialog = await openSetup(page)
+    await dialog.getByRole('textbox', { name: /Name/ }).fill('Zweiter')
+    await dialog.getByRole('button', { name: 'Datenbank und Agent anlegen' }).click()
+    await expect(editor).toBeVisible()
+    const [db] = await liveDbs(page, 'Zweiter')
+    const report = await pageIdByTitle(page, 'Zweiter · Bericht')
+    const name = editor.getByRole('textbox', { name: 'Name' })
+    await name.fill('Spiegel · Geändert')
+    const undo = editor.getByTestId('agx-editor-intro-undo')
+    await undo.click()
+    const ask = page.getByRole('dialog', { name: 'Rückgängig machen und Änderungen verwerfen?' })
+    await expect(ask).toBeVisible()
+    await expect(ask.getByTestId('agx-undoask-body')).toHaveText(
+      'Du hast den Agenten geändert. „Rückgängig“ legt die Datenbank „Zweiter“ und die Seite „Zweiter · Bericht“ in den Papierkorb und verwirft den Agenten samt deinen Änderungen.',
+    )
+    await expect(ask.getByRole('button', { name: 'Weiter bearbeiten' })).toBeFocused()
+    // Esc means "keep editing": nothing went, the change is there, focus back on the key
+    await page.keyboard.press('Escape')
+    await expect(ask).toHaveCount(0)
+    await expect(editor).toBeVisible()
+    await expect(name).toHaveValue('Spiegel · Geändert')
+    await expect(undo).toBeFocused()
+    expect(await trashedOf(page, [db, report])).toEqual([false, false])
+    // the danger key: both to the trash (toast with Undo), the draft goes
+    await undo.click()
+    await ask.getByRole('button', { name: 'Rückgängig, Änderungen verwerfen' }).click()
+    await expect(ask).toHaveCount(0)
+    await expect(editor).toHaveCount(0)
+    expect(await trashedOf(page, [db, report])).toEqual([true, true])
+    await expect(page.locator('.toast').filter({ hasText: '„Zweiter“ und die Berichtsseite liegen im Papierkorb.' })).toBeVisible()
+    expect(await agentsOf(page)).toHaveLength(0)
+  })
+
+  test('A6 the name’s hint says what is named after it; titles the setup makes are distinct (" · <database>"), the first keeps the configured names', async ({ page }) => {
+    await openApp(page)
+    await wsEval(page, (s, list) => s.updateSettings({ mcpServers: list }), SERVERS)
+    await addProfile(
+      page,
+      trackerProfile({
+        match: { host: '*.example.com' },
+        recipes: [
+          { kind: 'mirror', id: 'both' },
+          { kind: 'mirror', id: 'agent', report: { name: 'Weekly report' } },
+          { kind: 'mirror', id: 'report', agent: { name: 'Weekly mirror' } },
+          { kind: 'mirror', id: 'none', agent: { name: 'Weekly mirror' }, report: { name: 'Weekly report' } },
+        ],
+      }),
+    )
+    const open = async (id: string) => {
+      await page.evaluate(() => (window.location.hash = '#/agents'))
+      await page.locator('.agx-head').waitFor()
+      const inline = page.locator(`.agx-start [data-recipe="tracker:${id}"]`)
+      if (await inline.count()) await inline.click()
+      else {
+        await page.locator('.agx-head .btn--primary').click()
+        await page.locator(`.agx-recipe-modal [data-recipe="tracker:${id}"]`).click()
+      }
+      const dialog = page.locator('.agx-mir')
+      await expect(dialog).toBeVisible()
+      return dialog
+    }
+    const hints: Array<[string, string]> = [
+      ['both', 'The database’s name — the agent and its report page are named after it.'],
+      ['agent', 'The database’s name — the agent is named after it.'],
+      ['report', 'The database’s name — its report page is named after it.'],
+      ['none', 'The database’s name.'],
+    ]
+    for (const [id, hint] of hints) {
+      const dialog = await open(id)
+      await expect(dialog.getByTestId('agx-mir-name-hint')).toHaveText(hint)
+      await dialog.getByRole('button', { name: 'Cancel' }).click()
+      await expect(dialog).toHaveCount(0)
+    }
+
+    // "Features": the configured names exactly; "Bugs": " · Bugs" on both
+    const editor = editorOf(page)
+    for (const name of ['Features', 'Bugs']) {
+      const dialog = await open('none')
+      await dialog.getByRole('textbox', { name: /Name/ }).fill(name)
+      const report = name === 'Features' ? 'Weekly report' : 'Weekly report · Bugs'
+      await expect(dialog.getByTestId('agx-mir-spec')).toContainText(report)
+      await dialog.getByRole('button', { name: 'Create database and agent' }).click()
+      await expect(editor).toBeVisible()
+      await expect(editor.getByRole('textbox', { name: 'Name' })).toHaveValue(name === 'Features' ? 'Weekly mirror' : 'Weekly mirror · Bugs')
+      await expect(editor.getByTestId('agx-editor-intro')).toContainText(`The database “${name}” and the page “${report}” are ready.`)
+      expect(await titled(page, report)).toHaveLength(1)
+      await editor.getByRole('switch', { name: 'Active' }).click()
+      await editor.getByRole('button', { name: 'Create agent', exact: true }).click()
+      await expect(page.locator('.agx-dhead')).toBeVisible()
+    }
+    expect((await agentsOf(page)).map((a) => a.name).sort()).toEqual(['Weekly mirror', 'Weekly mirror · Bugs'])
+    expect(await titled(page, 'Weekly report')).toHaveLength(1)
   })
 })

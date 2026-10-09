@@ -271,6 +271,9 @@ test.describe('team cloud — hardening', () => {
     await a.evaluate((ws) => {
       localStorage.setItem(`one.shell.visits:cloud:${ws}`, JSON.stringify({ v: 1, e: { teamvisit: [3, Date.now(), 3] } }))
       localStorage.setItem('one.shell.visits:local:local', JSON.stringify({ v: 1, e: { localvisit: [3, Date.now(), 3] } }))
+      // the report pages this device's mirror setups made (features/agents/mirrorMemory.ts): the same rule
+      localStorage.setItem(`one.mirror.reports:cloud:${ws}`, JSON.stringify({ 'team-db': 'team-report' }))
+      localStorage.setItem('one.mirror.reports:local:local', JSON.stringify({ 'local-db': 'local-report' }))
     }, wsId)
 
     await a.keyboard.press('Control+,')
@@ -295,6 +298,8 @@ test.describe('team cloud — hardening', () => {
     expect(await aiRuns('list', wsId)).toEqual(['local:local|r-local'])
     expect(await a.evaluate((ws) => localStorage.getItem(`one.shell.visits:cloud:${ws}`), wsId)).toBeNull()
     expect(await a.evaluate(() => localStorage.getItem('one.shell.visits:local:local') ?? '')).toContain('localvisit')
+    expect(await a.evaluate((ws) => localStorage.getItem(`one.mirror.reports:cloud:${ws}`), wsId)).toBeNull()
+    expect(await a.evaluate(() => localStorage.getItem('one.mirror.reports:local:local') ?? '')).toContain('local-report')
     // the team workspace itself is untouched: opening it again downloads it
     await openApp(a, wsId)
     await waitOnline(a)
