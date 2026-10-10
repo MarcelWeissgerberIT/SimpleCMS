@@ -4,8 +4,9 @@
  * `unknown` lane). A row = mark the tape → do the thing → `expectLane`. Claude, Gmail and every other host are
  * mocked; the test data is fictional (Nordlicht, Tessera, Mara Lind).
  */
-import type { Locator, Page } from '@playwright/test'
-import { test, expect, openApp, wsEval, flush, gotoPage, editorOf, createPage, doc, para, sidebarRow, selectText, pageById, escapeRe, MOD } from './fixtures'
+import type { BrowserContext, Locator, Page } from '@playwright/test'
+import { test, expect, openApp, wsEval, flush, gotoPage, editorOf, createPage, doc, para, sidebarRow, selectText, pageById, escapeRe, sse, MOD } from './fixtures'
+import { docxBytes } from './helpers/files'
 import { expectLane, markRec, nordlichtDb, rec, startRecorder } from './helpers/recorder'
 
 type AnyRec = Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -34,6 +35,96 @@ async function pointerDrag(page: Page, from: Locator, to: Locator, dy = 0): Prom
   await page.mouse.move(b.x + b.width / 2, b.y + (dy || b.height / 2), { steps: 20 })
   await page.waitForTimeout(150)
   await page.mouse.up()
+}
+
+/** Select from the start of `from` to the end of `to` (a DOM range — ProseMirror picks it up). */
+async function selectRange(page: Page, editor: Locator, from: string, to: string): Promise<void> {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    await editor.evaluate(
+      (root, [a, b]) => {
+        const find = (needle: string) => {
+          const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
+          let node: Node | null
+          while ((node = walker.nextNode())) {
+            const i = (node as Text).data.indexOf(needle)
+            if (i >= 0) return { node, i }
+          }
+          throw new Error(`text not found: ${needle}`)
+        }
+        const s = find(a)
+        const e = find(b)
+        const r = document.createRange()
+        r.setStart(s.node, s.i)
+        r.setEnd(e.node, e.i + b.length)
+        const sel = window.getSelection()!
+        sel.removeAllRanges()
+        sel.addRange(r)
+      },
+      [from, to] as const,
+    )
+    await page.waitForTimeout(150)
+    const got = await page.evaluate(() => window.getSelection()?.toString() ?? '')
+    if (got.startsWith(from) && got.trimEnd().endsWith(to)) return
+  }
+  throw new Error('selection did not hold')
+}
+
+const setKey = (page: Page) => wsEval(page, (s) => s.updateSettings({ aiApiKey: 'sk-ant-e2e-test-key' }))
+const aiPanel = (page: Page) => page.locator('.ai-panel')
+
+/** Open the AI menu on the current selection (bubble toolbar → Ask AI). */
+async function askAI(page: Page): Promise<Locator> {
+  const bubble = page.locator('[aria-label="Formatting"]').first()
+  await expect(bubble).toBeVisible()
+  await bubble.getByRole('button', { name: /^Ask AI$/ }).click()
+  await expect(aiPanel(page)).toBeVisible()
+  return aiPanel(page)
+}
+
+const IMPROVED = 'Nordlicht startet am Montag um neun.'
+
+/**
+ * api.anthropic.com for the AI family: streamed requests get IMPROVED (an image's "Find every table" a table),
+ * structured ones the answer their system prompt asks for (todb, toggles, redo passages).
+ */
+async function mockAIFamily(ctx: BrowserContext): Promise<void> {
+  await ctx.route('https://api.anthropic.com/**', async (route) => {
+    const req = route.request()
+    const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': 'POST, GET' }
+    if (req.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors })
+    if (req.method() === 'GET') return route.fulfill({ status: 200, headers: { ...cors, 'content-type': 'application/json' }, body: JSON.stringify({ data: [], has_more: false }) })
+    const body = JSON.parse(req.postData() ?? '{}')
+    const system = typeof body.system === 'string' ? body.system : JSON.stringify(body.system ?? '')
+    const content = body.messages?.[0]?.content
+    const task = Array.isArray(content) ? content.map((b: AnyRec) => (b.type === 'text' ? b.text : '')).join('\n') : String(content ?? '')
+    let text = IMPROVED
+    if (/Find every table/.test(task)) text = JSON.stringify({ tables: [{ title: 'Volumen', header: ['Reagenz', 'µl'], rows: [['Puffer', '50'], ['Enzym', '2,5']] }] })
+    else if (task.includes('<passage n=')) text = JSON.stringify({ items: [...task.matchAll(/<passage n="(\d+)">\n([\s\S]*?)\n<\/passage>/g)].map((m) => ({ n: Number(m[1]), markdown: `${m[2]} (neu)` })) })
+    else if (system.includes('a list of toggles'))
+      text = JSON.stringify({ sections: [{ title: 'Wann?', icon: null, items: [{ style: 'text', text: 'Am Montag.', done: false }] }, { title: 'Wer?', icon: null, items: [{ style: 'text', text: 'Mara Lind.', done: false }] }], keep: [], left: [] })
+    else if (system.includes('You turn structured text'))
+      text = JSON.stringify({
+        title: 'Nordlicht Aufgaben',
+        columns: [{ name: 'Status', type: 'select', options: ['Offen', 'Fertig'] }],
+        entries: [
+          { title: 'Kaffee bestellen', values: [{ column: 'Status', value: 'Offen' }], body: null },
+          { title: 'Raum buchen', values: [{ column: 'Status', value: 'Fertig' }], body: null },
+        ],
+        groupBy: 'Status',
+        keep: [],
+      })
+    try {
+      if (body.stream) await route.fulfill({ status: 200, headers: { ...cors, 'content-type': 'text/event-stream' }, body: sse(text) })
+      else
+        await route.fulfill({
+          status: 200,
+          headers: { ...cors, 'content-type': 'application/json' },
+          body: JSON.stringify({ id: 'msg_e2e', type: 'message', role: 'assistant', model: body.model, content: [{ type: 'text', text }], stop_reason: 'end_turn', stop_sequence: null, usage: { input_tokens: 10, output_tokens: 10 } }),
+        })
+    } catch {
+      /* the page went away */
+    }
+  })
 }
 
 /** The person's writes through the UI: editors name themselves, everything else is a user event (you~ui). */
@@ -329,5 +420,140 @@ test.describe('flight recorder — every writer has a lane', () => {
     await expect(page.locator('.toast', { hasText: 'Saved to Clippings' })).toBeVisible()
     await expectLane(page, m, 'you', undefined, 'you~clip')
     void escapeRe
+  })
+
+  test('the AI family: accept, transform, redo, turn into database / page, pages per item, image → table, file → page', async ({ page, context }) => {
+    await mockAIFamily(context)
+    const ids = await boot(page, async () => {
+      await setKey(page)
+      const text = await createPage(page, { title: 'Tessera Entwurf', content: doc(para('Einleitung bleibt.'), para('nordlicht startet irgendwann montag'), para('Schluss.')) })
+      const list = await createPage(page, { title: 'Tessera Liste', content: doc(para('Aufgaben:'), para('Kaffee bestellen — Offen'), para('Raum buchen — Fertig'), para('Ende.')) })
+      const faq = await createPage(page, { title: 'Tessera FAQ', content: doc(para('Wann? Am Montag.'), para('Wer? Mara Lind.')) })
+      const items = await createPage(page, {
+        title: 'Tessera Tickets',
+        content: doc(para('Diese Woche:'), { type: 'bulletList', content: ['TS-1 Login', 'TS-2 Export'].map((t) => ({ type: 'listItem', content: [para(t)] })) }, para('Danach.')),
+      })
+      const split = await createPage(page, { title: 'Tessera Teilen', content: doc(para('Bleibt hier.'), { type: 'heading', attrs: { level: 2 }, content: [{ type: 'text', text: 'Abschnitt Nordlicht' }] }, para('Zieht um.')) })
+      const file = await page.evaluate(async (data) => {
+        const one = (window as unknown as { __one: AnyRec }).__one
+        const bytes = Uint8Array.from(atob(data), (c) => c.charCodeAt(0))
+        const src = await one.files.saveFile(new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }), 'Nordlicht.docx')
+        const s = one.workspace.getState()
+        const id = s.createPage({ title: 'Tessera Datei', parentId: null })
+        s.setContent(id, { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Anhang:' }] }, { type: 'fileBlock', attrs: { src, name: 'Nordlicht.docx', size: bytes.length, display: 'file' } }, { type: 'paragraph' }] }, 'e2e')
+        return id
+      }, Buffer.from(docxBytes()).toString('base64'))
+      return { text, list, faq, items, split, file }
+    })
+
+    // the AI menu: Improve writing → Replace selection (ai:<run>:accept)
+    await gotoPage(page, ids.text)
+    let ed = editorOf(page, ids.text)
+    await ed.locator('p', { hasText: 'nordlicht startet' }).click()
+    await selectText(page, ed, 'nordlicht startet irgendwann montag')
+    let m = await markRec(page)
+    let ai = await askAI(page)
+    await ai.getByRole('option', { name: /Improve writing/ }).click()
+    await ai.getByRole('option', { name: /Replace selection/ }).click()
+    await expect(ed.locator('p').nth(1)).toHaveText(IMPROVED)
+    await expectLane(page, m, 'ai', /^ai:/, /^ai:.+:accept$/)
+
+    // redo with instructions: one passage, review y, apply
+    await selectText(page, ed, 'Einleitung bleibt.')
+    m = await markRec(page)
+    ai = await askAI(page)
+    await ai.locator('#ai-row-more').click()
+    await ai.getByRole('option', { name: /Redo with instructions/ }).click()
+    await expect(page.getByTestId('ctx-layer')).toBeVisible()
+    await page.keyboard.press('Enter')
+    await expect(page.getByTestId('redo-setup').getByRole('textbox', { name: 'Instructions' })).toBeFocused()
+    await page.keyboard.type('Kürzer.')
+    await page.keyboard.press(`${MOD}+Enter`)
+    await expect(page.getByTestId('redo-review')).toBeVisible()
+    await page.keyboard.press('y')
+    await page.keyboard.press('Enter')
+    await expect(ed.locator('p').first()).toHaveText('Einleitung bleibt. (neu)')
+    await expectLane(page, m, 'ai', /^ai:/, /^ai:.+:redo$/)
+
+    // Turn into database (AI menu → More → preview → Convert)
+    await gotoPage(page, ids.list)
+    ed = editorOf(page, ids.list)
+    await ed.locator('p', { hasText: 'Aufgaben:' }).click()
+    await selectRange(page, ed, 'Aufgaben:', 'Raum buchen — Fertig')
+    m = await markRec(page)
+    ai = await askAI(page)
+    await ai.locator('#ai-row-more').click()
+    await ai.getByRole('option', { name: /Turn into database/ }).click()
+    await expect(page.getByTestId('todb-preview')).toBeVisible()
+    await ai.getByRole('option', { name: /Convert/ }).click()
+    await expect(ed.locator('section.db')).toBeVisible()
+    await expectLane(page, m, 'ai', /^ai:/, /^ai:.+:todb$/)
+
+    // Transform into → Toggles
+    await gotoPage(page, ids.faq)
+    ed = editorOf(page, ids.faq)
+    await ed.locator('p', { hasText: 'Wann?' }).click()
+    await selectRange(page, ed, 'Wann?', 'Mara Lind.')
+    m = await markRec(page)
+    ai = await askAI(page)
+    await ai.getByRole('option', { name: /^Transform into…/ }).click()
+    await ai.getByRole('option', { name: /^Toggles/ }).click()
+    await expect(page.getByTestId('transform-preview')).toBeVisible()
+    await ai.getByRole('option', { name: /^Transform/ }).click()
+    await expect(ed.locator('[data-type="details"], details').first()).toBeVisible()
+    await expectLane(page, m, 'ai', /^ai:/, /^ai:.+:transform$/)
+
+    // Turn into page (Mod+Alt+9): the person's split
+    await gotoPage(page, ids.split)
+    ed = editorOf(page, ids.split)
+    await ed.getByText('Abschnitt Nordlicht').click()
+    await selectRange(page, ed, 'Abschnitt Nordlicht', 'Zieht um.')
+    m = await markRec(page)
+    await page.keyboard.press(`${MOD}+Alt+9`)
+    await expect(ed.locator('[data-type="page-link"], .page-link, .pagelink').first()).toBeVisible()
+    await expectLane(page, m, 'you', undefined, 'you~ui')
+
+    // Sub-page per item: grip → Turn into → Sub-page per item
+    await gotoPage(page, ids.items)
+    ed = editorOf(page, ids.items)
+    await ed.locator('li p', { hasText: 'TS-1 Login' }).click()
+    await selectRange(page, ed, 'TS-1 Login', 'TS-2 Export')
+    await ed.locator('li p', { hasText: 'TS-2 Export' }).hover()
+    m = await markRec(page)
+    await page.getByRole('button', { name: /^Block menu$/ }).click()
+    await page.locator('[data-popover][role="menu"]').first().getByRole('menuitem', { name: 'Turn into', exact: true }).click()
+    await page.getByRole('menuitem', { name: /^Sub-page per item · 2 items/ }).click()
+    await expect.poll(() => wsEval(page, (s, id) => Object.values(s.pages).filter((p: AnyRec) => p.parentId === id && !p.trashed).length, ids.items)).toBe(2)
+    await expectLane(page, m, 'you', undefined, 'you~ui')
+
+    // a Word file → Open as page (converted here: an import of the file run)
+    await gotoPage(page, ids.file)
+    const fileCard = editorOf(page, ids.file).locator('.file-view, .pdf-view', { hasText: 'Nordlicht.docx' }).first()
+    m = await markRec(page)
+    await fileCard.hover()
+    await fileCard.getByTestId('file-ai-key').click()
+    await page.getByRole('menuitem', { name: /Open as page/ }).click()
+    await page.getByRole('dialog', { name: /Ask Claude/ }).getByRole('option', { name: /^Create the page/ }).click()
+    await expect.poll(() => wsEval(page, (s, id) => Object.values(s.pages).some((p: AnyRec) => p.parentId === id && !p.trashed), ids.file)).toBe(true)
+    await expectLane(page, m, 'import', /^import:/, /^import:.+:file$/)
+
+    // an image → table (Claude reads the picture; the table lands below it)
+    const img = await createPage(page, { title: 'Tessera Bild', content: doc(para('Protokoll:'), { type: 'image', attrs: { src: null } }, para('Unten.')) })
+    await gotoPage(page, img)
+    const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64')
+    let chooser = page.waitForEvent('filechooser')
+    await editorOf(page, img).locator('.media-empty').getByRole('button', { name: /Upload/ }).click()
+    await (await chooser).setFiles({ name: 'protokoll.png', mimeType: 'image/png', buffer: png })
+    const figure = editorOf(page, img).locator('.image-view').first()
+    await expect(figure.locator('img')).toBeVisible()
+    await flush(page)
+    m = await markRec(page)
+    await figure.hover()
+    await figure.getByTestId('image-ai-key').click()
+    await page.getByRole('menuitem', { name: /Image → table/ }).click()
+    await page.getByRole('dialog', { name: /Ask Claude/ }).getByRole('option', { name: /^Insert as table/ }).click()
+    await expect(editorOf(page, img).locator('table')).toBeVisible()
+    await expectLane(page, m, 'ai', /^ai:/, /^ai:.+:image$/)
+    void chooser
   })
 })
