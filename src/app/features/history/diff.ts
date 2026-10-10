@@ -19,6 +19,16 @@ export interface DiffSegment {
 /** a task block's itemId (copies re-mint it) and doneAt (follows the status) never count as a change either */
 const VOLATILE = new Set(['id', 'blockId', 'uid', 'data-id', 'itemId', 'doneAt'])
 
+/**
+ * Does an attribute value say anything? Null / undefined never do; on a task block (`workItem`) neither do an
+ * empty list nor the default status — the editor fills those in when it first writes a task, which is no change.
+ */
+export function meaningfulAttr(type: string | undefined, key: string, v: unknown): boolean {
+  if (v === null || v === undefined) return false
+  if (type === 'workItem' && ((Array.isArray(v) && !v.length) || (key === 'status' && v === 'todo'))) return false
+  return true
+}
+
 function normalize(node: JSONContent): unknown {
   const out: Record<string, unknown> = { t: node.type }
   if (node.text !== undefined) out.x = node.text
@@ -27,7 +37,7 @@ function normalize(node: JSONContent): unknown {
     for (const k of Object.keys(node.attrs).sort()) {
       if (VOLATILE.has(k) && node.type !== 'mention') continue
       const v = node.attrs[k]
-      if (v !== null && v !== undefined) attrs[k] = v
+      if (meaningfulAttr(node.type, k, v)) attrs[k] = v
     }
     if (Object.keys(attrs).length) out.a = attrs
   }

@@ -541,6 +541,9 @@ test.describe('task block (P0): pure parts', () => {
     const v1 = doc(item({ itemId: A, status: 'todo' }, 'Same'))
     const v2 = doc(item({ itemId: 'wi_zzzzzzzzzz', status: 'todo', doneAt: 99 }, 'Same'))
     expect(diffDocs(v1, v2).every((x) => x.kind === 'same')).toBe(true)
+    // the defaults the editor fills in when it first writes a task are no change either
+    const filled = doc(item({ itemId: A, status: 'todo', due: null, reminder: null, people: [], blockedBy: [], related: [], doneAt: null, frozen: null }, 'Same'))
+    expect(diffDocs(doc(item({ itemId: A }, 'Same')), filled).every((x) => x.kind === 'same')).toBe(true)
     const v3 = doc(item({ itemId: A, status: 'done' }, 'Same'))
     const changed = diffDocs(v1, v3).find((x) => x.kind === 'changed')
     expect(changed && changed.kind === 'changed' ? changed.merged.was : null).toMatchObject({ status: 'todo' })

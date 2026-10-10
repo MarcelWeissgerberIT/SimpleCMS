@@ -13,7 +13,7 @@
  * (`diff: 'del'`, struck) and the new parts marked (`diff: 'add'`).
  */
 import type { JSONContent } from '@tiptap/core'
-import { blockKey } from './diff'
+import { blockKey, meaningfulAttr } from './diff'
 
 export type WordOp = 'same' | 'del' | 'add'
 
@@ -155,7 +155,7 @@ const VOLATILE = new Set(['id', 'blockId', 'uid', 'data-id', 'itemId', 'doneAt']
 
 function attrsOf(node: JSONContent): Record<string, unknown> {
   const out: Record<string, unknown> = {}
-  for (const [k, v] of Object.entries(node.attrs ?? {})) if (!VOLATILE.has(k) && v !== null && v !== undefined) out[k] = v
+  for (const [k, v] of Object.entries(node.attrs ?? {})) if (!VOLATILE.has(k) && meaningfulAttr(node.type, k, v)) out[k] = v
   return out
 }
 
