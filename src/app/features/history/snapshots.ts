@@ -17,7 +17,8 @@ import type { JSONContent } from '@tiptap/core'
 import { createStore, delMany, get, setMany, type UseStore } from 'idb-keyval'
 import { pageChanges, plainText, useWorkspace } from '../../store/store'
 import { isApplyingRemote, onReplacedByOlder } from '../../store/persistence'
-import type { ID, Page, PageIcon } from '../../store/types'
+import { withWriter } from '../../store/writer'
+import type { Database, ID, Page, PageIcon } from '../../store/types'
 import { newId } from '../../lib/ids'
 import { getSchema } from '@tiptap/core'
 import type { Schema } from '@tiptap/pm/model'
@@ -26,8 +27,11 @@ import { docKey } from './diff'
 import { t } from '../../i18n'
 import { blankRow, iconKey, propsChanged, propsKey, propsOf, restoreProps, type NotRestored, type SnapshotProps } from './props'
 
-/** 'older': the version this build had before an older build of One (another tab) let a task go (store/persistence.ts) */
-export type SnapshotReason = 'session' | 'auto' | 'ai' | 'restore' | 'manual' | 'script' | 'older'
+/**
+ * 'older': the version this build had before an older build of One (another tab) let a task go (store/persistence.ts);
+ * 'eject' / 'rewind': before the flight recorder ejected a writer's work / brought a past state back (features/recorder)
+ */
+export type SnapshotReason = 'session' | 'auto' | 'ai' | 'restore' | 'manual' | 'script' | 'older' | 'eject' | 'rewind'
 
 export interface SnapshotMeta {
   id: ID
@@ -52,7 +56,12 @@ export interface SnapshotBody {
 
 /** A page's current state as a snapshot body (rows with their properties). */
 export function bodyOf(p: Page): SnapshotBody {
-  const props = p.databaseId ? propsOf(p) : null
+  return bodyOfPage(p, useWorkspace.getState().databases[p.databaseId ?? ''])
+}
+
+/** A page as a snapshot body, its row values read with `db` (the database as it was then — flight recorder pins). */
+export function bodyOfPage(p: Page, db: Database | undefined): SnapshotBody {
+  const props = p.databaseId ? propsOf(p, db) : null
   return { content: p.content, title: p.title, icon: p.icon, ...(props ? { props } : {}) }
 }
 
@@ -63,6 +72,9 @@ function db(): UseStore | undefined {
   if (!store && typeof indexedDB !== 'undefined') store = createStore('one-history', 'snapshots')
   return store
 }
+
+/** The version store (`one-history / snapshots`) — also holds the flight recorder's pins (history/pins.ts). */
+export const historyStore = (): UseStore | undefined => db()
 
 const idxKey = (pageId: ID) => `idx:${pageId}`
 const bodyKey = (id: ID) => `snap:${id}`
@@ -96,15 +108,23 @@ let schema: Schema | null = null
  */
 export function contentKey(content: JSONContent | null | undefined): string {
   if (!content) return docKey(content)
+  return docKey(normalizeContent(content))
+}
+
+/**
+ * The doc as the editor's schema reads it — default attributes filled in, the empty trailing paragraph dropped
+ * (the editor keeps one after a final atom block). As stored when the schema cannot read it.
+ */
+export function normalizeContent(content: JSONContent | null | undefined): JSONContent | null {
+  if (!content) return null
   try {
     schema ??= getSchema(getExtensions())
     const json = schema.nodeFromJSON(content).toJSON() as JSONContent
-    // the editor keeps an empty trailing paragraph after a final atom block (trailing node)
     const blocks = [...(json.content ?? [])]
     while (blocks.length > 1 && blocks[blocks.length - 1].type === 'paragraph' && !blocks[blocks.length - 1].content?.length) blocks.pop()
-    return docKey({ ...json, content: blocks })
+    return { ...json, content: blocks }
   } catch {
-    return docKey(content)
+    return content
   }
 }
 
@@ -285,12 +305,15 @@ export async function restoreSnapshot(pageId: ID, snapId: ID): Promise<RestoreRe
   const st = useWorkspace.getState()
   restoring++
   try {
-    st.setContent(pageId, body.content, 'history')
-    const page = useWorkspace.getState().pages[pageId]
-    if (page && body.title !== page.title) st.updatePage(pageId, { title: body.title })
-    if (page && iconKey(body.icon) !== iconKey(page.icon)) st.updatePage(pageId, { icon: body.icon ?? null })
-    const notRestored = body.props ? restoreProps(pageId, body.props) : []
-    return { before, notRestored }
+    // one writer for the whole restore (the flight recorder's "undo" lane)
+    return withWriter({ kind: 'history', snap: snapId }, () => {
+      st.setContent(pageId, body.content, 'history')
+      const page = useWorkspace.getState().pages[pageId]
+      if (page && body.title !== page.title) st.updatePage(pageId, { title: body.title })
+      if (page && iconKey(body.icon) !== iconKey(page.icon)) st.updatePage(pageId, { icon: body.icon ?? null })
+      const notRestored = body.props ? restoreProps(pageId, body.props) : []
+      return { before, notRestored }
+    })
   } finally {
     restoring--
   }
@@ -483,8 +506,9 @@ export function startHistory(): () => void {
       // title, icon, a row's property values
       const meta = p.title !== before.title || iconKey(p.icon) !== iconKey(before.icon) || propsChanged(before, p)
       if (!content && !meta) continue
-      // Restores, sync from other tabs and imports are not user edits; a folder / GitHub pick-up ('file') snapshots itself.
-      if (!meta && (p.contentOrigin === 'history' || p.contentOrigin === 'sync' || p.contentOrigin === 'import' || p.contentOrigin === 'file')) continue
+      // Restores, sync from other tabs and imports are not user edits; a folder / GitHub pick-up ('file') snapshots itself;
+      // the flight recorder's eject / bring-back keep their own version first.
+      if (!meta && (p.contentOrigin === 'history' || p.contentOrigin === 'sync' || p.contentOrigin === 'import' || p.contentOrigin === 'file' || p.contentOrigin === 'eject' || p.contentOrigin === 'rewind')) continue
       // Claude / an agent / an automation: the state right before, as an "AI" version
       if (meta && aiDepth && !aiKept.has(id)) {
         aiKept.add(id)

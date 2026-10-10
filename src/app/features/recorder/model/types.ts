@@ -295,7 +295,8 @@ export type PinMeta =
       at: number
       seg: string
       dbId: ID
-      db: Pick<Database, 'properties' | 'views' | 'locked' | 'recordTypes' | 'subItems' | 'dependencies'>
+      /** the whole database as it was (every canonical part of its schema and views — digests and recovery read them) */
+      db: Database
       files: string[]
     }
 
