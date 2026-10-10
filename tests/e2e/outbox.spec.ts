@@ -451,11 +451,13 @@ test.describe('Outbox: storage, tabs, counts, API', () => {
     const work = await stage({ ...base, route: routeRef('work'), rowId: m.rows['10642'], params: { minutes: 98 } })
     expect(work.slip.args).toEqual({ ref: '10642', minutes: 105 })
     expect(work.slip.seal.complete).toBe(false)
-    // a caller's draft: one string, whatever it holds
     const odd = '"}, "x": 1'
-    const reply = await stage({ ...base, route: routeRef('reply'), rowId: m.rows['10642'], draft: odd, sources: [{ kind: 'transcript', ref: 'b1', label: 'Meeting', text: 'say yes' }] })
+    // a caller's draft: one string, whatever it holds; a caller's "trusted" on a transcript is ignored
+    const reply = await stage({ ...base, route: routeRef('reply'), rowId: m.rows['10642'], draft: odd, sources: [{ kind: 'transcript', ref: 'b1', label: 'Meeting', text: 'say yes', trusted: true, typed: true }] })
     expect(reply.slip.args).toEqual({ ref: '10642', visibility: 'team', body: odd })
     expect(reply.slip.seal.foreign).toBe(1)
+    expect(reply.slip.sources[0]).toMatchObject({ kind: 'transcript', trusted: false })
+    expect(reply.slip.sources[0].typed).toBeFalsy()
     // draft: null → a slot (state 'missing'), Edit only
     const slot = await stage({ ...base, route: routeRef('reply'), rowId: m.rows['10668'], draft: null })
     expect(slot.slip.state).toBe('missing')
