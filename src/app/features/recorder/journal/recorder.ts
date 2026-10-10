@@ -18,7 +18,7 @@ import { resolveHot } from './attribute'
 import { Budget } from './budget'
 import { openJournal, journalIfOpen, wipeScope } from './db'
 import { forgetScopeKey } from './key'
-import { Processor, type QItem, type Stats } from './process'
+import { noteTask, Processor, type QItem, type Stats } from './process'
 import { pruneHumanPins, pruneOldestDays, pruneRetention } from './prune'
 import { recoverScope } from './recover'
 import { installSeam } from './seam'
@@ -31,6 +31,8 @@ const FLUSH_MS = 500
 const PRUNE_FIRST = 60_000
 const PRUNE_EVERY = 6 * 3600_000
 const HOT_RING = 2048
+/** what the tab still records while it is being left (page hide) */
+const PAGEHIDE_MS = 40
 
 
 const pairsOf = (c: PageChanges, next: Record<ID, Page>, prev: Record<ID, Page>): Array<[ID, Page | undefined, Page | undefined]> => {
@@ -45,7 +47,7 @@ const pairsOf = (c: PageChanges, next: Record<ID, Page>, prev: Record<ID, Page>)
 
 export class Recorder {
   readonly tab = newId().slice(0, 10)
-  readonly stats: Stats = { hot: [], idleDiffScans: 0, sliceMax: 0 }
+  readonly stats: Stats = { hot: [], idleDiffScans: 0, sliceMax: 0, taskMax: 0, long: [] }
   private hotRing = new Float64Array(HOT_RING)
   private hotN = 0
   readonly queue: QItem[] = []
@@ -96,14 +98,18 @@ export class Recorder {
     const onHide = () => {
       if (document.visibilityState !== 'hidden') return
       this.processor.closeAll(Date.now())
-      void this.flush().catch(() => undefined)
+      this.schedule()
     }
+    // leaving: what fits in a moment is recorded and written (best effort) — a tab that could not finish is not clean,
+    // so the next start marks its lost tail and closes its open segments (recovery)
     const onPageHide = () => {
-      this.drain()
+      const deadline = performance.now() + PAGEHIDE_MS
+      const drained = this.drain(deadline)
       this.processor.closeAll(Date.now())
+      const closed = this.processor.finishCloses(deadline)
       void this.processor
         .flush()
-        .then(() => this.markClean())
+        .then(() => (drained && closed ? this.markClean() : undefined))
         .catch(() => undefined)
     }
     document.addEventListener('visibilitychange', onHide)
@@ -124,8 +130,8 @@ export class Recorder {
     this.offs.forEach((f) => f())
     this.offs = []
     for (const t of [this.flushTimer, this.dueTimer, this.pruneTimer]) if (t) clearTimeout(t)
-    this.drain()
     this.processor.closeAll(Date.now())
+    this.drain()
     await this.processor.flush().catch(() => undefined)
     await this.markClean().catch(() => undefined)
     this.releaseLock?.()
@@ -204,6 +210,15 @@ export class Recorder {
     this.hotN++
   }
 
+  /** Start the measurements over (the perf spec reads one kind of write at a time). */
+  resetStats(): void {
+    this.hotN = 0
+    this.stats.idleDiffScans = 0
+    this.stats.sliceMax = 0
+    this.stats.taskMax = 0
+    this.stats.long = []
+  }
+
   /** p50 / p95 / max of the hot path over the last 2,048 store updates. */
   hotStats(): { p50: number; p95: number; max: number; n: number } {
     const n = Math.min(this.hotN, HOT_RING)
@@ -235,36 +250,50 @@ export class Recorder {
   private slice(): void {
     this.sliceQueued = false
     if (!this.on) return
+    const t0 = performance.now()
     const scope = scopeNow()
     if (!this.recovering.has(scope)) this.recovering.set(scope, this.recover(scope))
-    const budget = this.hidden() ? HIDDEN_SLICE : VISIBLE_SLICE
-    const t0 = performance.now()
-    while (this.queue.length && performance.now() - t0 < budget) this.take()
+    const deadline = t0 + (this.hidden() ? HIDDEN_SLICE : VISIBLE_SLICE)
+    let done = true
+    while (this.queue.length && performance.now() < deadline) if (!(done = this.take(deadline))) break
+    // segments closed meanwhile are summed up in the time left
+    if (done && performance.now() < deadline) done = this.processor.finishCloses(deadline)
     this.stats.sliceMax = Math.max(this.stats.sliceMax, performance.now() - t0)
-    if (this.queue.length) this.schedule()
+    // what is processed is written; the queue goes on in slices (a flush never drains it in one go)
     const due = this.processor.urgent || this.processor.waiting >= 50 || this.queue.length > 200 || this.hidden()
-    if (due) void this.flush().catch(() => undefined)
-    else if (this.processor.waiting && !this.flushTimer)
-      this.flushTimer = setTimeout(() => {
-        this.flushTimer = null
-        void this.flush().catch(() => undefined)
-      }, FLUSH_MS)
+    if (due) this.writeOut()
+    else if (this.processor.waiting && !this.flushTimer) this.flushTimer = setTimeout(() => this.writeOut(), FLUSH_MS)
     this.armDue()
+    if (this.queue.length || this.processor.closingCount) this.schedule()
+    noteTask(this.stats, 'slice', t0)
   }
 
-  private take(): void {
-    const it = this.queue.shift()!
-    if (it.maps) this.rawPending = Math.max(0, this.rawPending - 1)
+  /** Write what is processed (the queue stays for the slices). */
+  private writeOut(): void {
+    if (this.flushTimer) clearTimeout(this.flushTimer)
+    this.flushTimer = null
+    void this.processor.flush().catch((e) => console.warn('[recorder] journal write failed', e))
+  }
+
+  /** Record the next queued item, until `deadline`; false = a big one stopped there (it stays first in the queue). */
+  private take(deadline = Infinity): boolean {
+    const it = this.queue[0]
+    let done = true
     try {
-      this.processor.process(it)
+      done = this.processor.process(it, deadline)
     } catch (e) {
       console.warn('[recorder] an update could not be recorded', e)
     }
+    if (!done) return false
+    this.queue.shift()
+    if (it.maps) this.rawPending = Math.max(0, this.rawPending - 1)
+    return true
   }
 
-  /** Process everything queued (no time limit). */
-  drain(): void {
-    while (this.queue.length) this.take()
+  /** Record everything queued and sum up the closed segments (until `deadline`); true = all done. */
+  drain(deadline = Infinity): boolean {
+    while (this.queue.length) if (!this.take(deadline) || performance.now() > deadline) return !this.queue.length && this.processor.finishCloses(deadline)
+    return this.processor.finishCloses(deadline)
   }
 
   /** Segments due to close (2 min without an event) close on one timer to the next due time. */
@@ -272,17 +301,18 @@ export class Recorder {
     if (this.dueTimer) clearTimeout(this.dueTimer)
     this.dueTimer = null
     const next = this.processor.closeDue(Date.now())
-    if (this.processor.waiting && !this.flushTimer)
-      this.flushTimer = setTimeout(() => {
-        this.flushTimer = null
-        void this.flush().catch(() => undefined)
-      }, FLUSH_MS)
+    if (this.processor.waiting && !this.flushTimer) this.flushTimer = setTimeout(() => this.writeOut(), FLUSH_MS)
     if (next === null || !this.on) return
     this.dueTimer = setTimeout(
       () => {
         this.dueTimer = null
-        this.drain()
+        // the queue first (in slices; the slice closes what is due after it)
+        if (this.queue.length) return this.schedule()
+        const t0 = performance.now()
         this.armDue()
+        // the segments due are summed up in slices
+        if (this.processor.closingCount) this.schedule()
+        noteTask(this.stats, 'due', t0)
       },
       Math.max(50, next - Date.now()),
     )

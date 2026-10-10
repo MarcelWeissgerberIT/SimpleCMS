@@ -123,6 +123,9 @@ export interface Journal {
   close(): void
 }
 
+/** a transaction's puts are handed over in pieces of about this long */
+const PUT_PIECE_MS = 8
+
 const req2p = <T>(r: IDBRequest<T>) =>
   new Promise<T>((resolve, reject) => {
     r.onsuccess = () => resolve(r.result)
@@ -144,10 +147,25 @@ function idbJournal(db: IDBDatabase): Journal {
       if (!names.size) return
       const t = db.transaction([...names], 'readwrite')
       const done = tx2p(t)
+      // the puts go in in pieces: a piece's last request carries on in its callback (the transaction stays active)
+      // — a put clones its record right away, and thousands of them at once would block the page
+      const puts: Array<[IDBObjectStore, Record<string, unknown>]> = []
       for (const [name, recs] of Object.entries(b.put ?? {}) as Array<[StoreName, Array<Record<string, unknown>>]>) {
         const st = t.objectStore(name)
-        for (const r of recs) st.put(r)
+        for (const r of recs) puts.push([st, r])
       }
+      let i = 0
+      const piece = () => {
+        const t0 = performance.now()
+        let last: IDBRequest | null = null
+        while (i < puts.length) {
+          const [st, r] = puts[i++]
+          last = st.put(r)
+          if ((i & 63) === 0 && performance.now() - t0 > PUT_PIECE_MS) break
+        }
+        if (i < puts.length && last) last.onsuccess = piece
+      }
+      piece()
       for (const x of b.bump ?? []) {
         const st = t.objectStore(x.store)
         const r = st.get(x.key)

@@ -99,7 +99,8 @@ export function installSeam(rec: Recorder): void {
     },
     unknowns: () => fallbackReports(),
     clearUnknowns: () => clearFallbackReports(),
-    stats: () => ({ hot: rec.hotStats(), idleDiffScans: rec.stats.idleDiffScans, queue: rec.queue.length, sliceMax: rec.stats.sliceMax }),
+    stats: () => ({ hot: rec.hotStats(), idleDiffScans: rec.stats.idleDiffScans, queue: rec.queue.length, sliceMax: rec.stats.sliceMax, taskMax: rec.stats.taskMax, long: rec.stats.long.slice(), waiting: rec.processor.waiting }),
+    resetStats: () => rec.resetStats(),
     /** real store actions under the step's writer (one update per action); the calls' results */
     step: async (s: StoryStep) => {
       const st = useWorkspace.getState() as unknown as Record<string, (...a: unknown[]) => unknown>
