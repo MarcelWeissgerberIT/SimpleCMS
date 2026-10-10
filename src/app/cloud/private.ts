@@ -26,6 +26,7 @@ import { LOCAL, roots } from './schema'
 import { isConnected } from './socket'
 import { CloudError, useCloud } from './state'
 import { activeCloud } from './workspace'
+import { withWriter, type Writer } from '../store/writer'
 
 /** Is this page in my Private section (only I can see it)? */
 export function isPrivate(pageId: ID | null | undefined): boolean {
@@ -84,6 +85,9 @@ const isMap = (v: unknown): v is Y.Map<unknown> => v instanceof Y.Map
  * 'not_found', 'invalid_request' (a row, or a parent that can't take it), 'offline' (no connection
  * — nothing changed), 'timeout', 'busy' (another move is running).
  */
+/** The person moving pages between Private and the workspace (store/writer.ts). */
+const PRIVACY: Writer = { kind: 'you', via: 'privacy' }
+
 export async function movePagePrivacyImpl(pageId: ID, toPrivate: boolean, target: { parentId?: ID | null; index?: number } = {}): Promise<void> {
   const a = requireWritable()
   const s = useWorkspace.getState()
@@ -97,7 +101,7 @@ export async function movePagePrivacyImpl(pageId: ID, toPrivate: boolean, target
     if (!ok) throw new CloudError('invalid_request', 'The page cannot go there.', 400)
   }
   if (!!page.private === toPrivate) {
-    s.movePage(pageId, parentId, target.index)
+    withWriter(PRIVACY, () => s.movePage(pageId, parentId, target.index))
     return
   }
   if (moving) throw new CloudError('busy', 'Another page is being moved.', 409)
@@ -182,8 +186,8 @@ export async function movePagePrivacyImpl(pageId: ID, toPrivate: boolean, target
     }, LOCAL)
     flipped = true
 
-    // the store: same pages, the other scope (no echo — the meta documents already say so)
-    applyFromCloud(() => {
+    // the store: same pages, the other scope (no echo — the meta documents already say so); the person's move
+    withWriter(PRIVACY, () => applyFromCloud(() => {
       const pages: Record<ID, Page> = {}
       for (const id of ids) {
         const p = useWorkspace.getState().pages[id]
@@ -193,7 +197,7 @@ export async function movePagePrivacyImpl(pageId: ID, toPrivate: boolean, target
         pages[id] = id === pageId ? { ...next, parentId, order, updatedAt: at, updatedBy: uid } : next
       }
       useWorkspace.getState().cloudPatch({ pages })
-    })
+    }))
     moves.forEach((m) => m.commit())
     // the old content documents go on the server (once the meta change is confirmed)
     queuePurge(ids.map((id) => ({ pageId: id, private: !toPrivate })))

@@ -20,6 +20,8 @@ import { BLOCK_ID_TYPES } from '../schema/base'
 import type { ButtonAction, PropertyPreset } from '../schema/button'
 import { isWebhookUrl, postWebhook } from '../../lib/webhook'
 import { safeHref } from './embeds'
+import { withWriter, type Writer } from '../../store/writer'
+import { editAs } from './editAs'
 
 /* ------------------------------------------------------------------ */
 /* Fresh buttons (inserted from the slash menu → open their settings) */
@@ -219,6 +221,8 @@ export interface Step {
 }
 
 const fail = (text: string): Step => ({ ok: false, text })
+/** The person pressed the button (store/writer.ts): every action's store write is theirs, also after an await. */
+const BUTTON: Writer = { kind: 'you', via: 'button' }
 const plural = (key: string, count: number, vars: Record<string, string | number> = {}) => t(count === 1 ? `${key}.one` : key, { count, ...vars })
 
 function insertBlocks(ctx: RunContext, content: JSONContent[], now: Date): Step {
@@ -241,7 +245,7 @@ function insertBlocks(ctx: RunContext, content: JSONContent[], now: Date): Step 
   const tr = editor.state.tr.insert(at, Fragment.from(nodes))
   // a short flash on the first new block shows where it went (no scrolling: it is right below)
   tr.setMeta(flashKey, { pos: at })
-  editor.view.dispatch(tr)
+  editAs(editor, BUTTON, () => editor.view.dispatch(tr))
   window.setTimeout(() => {
     if (!editor.isDestroyed) editor.view.dispatch(editor.state.tr.setMeta(flashKey, null).setMeta('addToHistory', false))
   }, 1600)
@@ -295,9 +299,9 @@ async function runAction(ctx: RunContext, a: ButtonAction, now: Date): Promise<S
     case 'insert_blocks':
       return insertBlocks(ctx, a.content, now)
     case 'add_page':
-      return addPage(a, now)
+      return withWriter(BUTTON, () => addPage(a, now))
     case 'edit_properties':
-      return editProperties(ctx, a, now)
+      return withWriter(BUTTON, () => editProperties(ctx, a, now))
     case 'webhook': {
       const res = await sendWebhook(a.url, a.method, await buildPayload(ctx))
       return { ok: res.ok, unconfirmed: res.unconfirmed, text: t('editor.button.res.webhook', { method: a.method, status: res.message }) }

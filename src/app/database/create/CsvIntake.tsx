@@ -10,6 +10,8 @@ import { create } from 'zustand'
 import type { ID, PropertyDef, PropertyValue, SelectOption } from '../../store/types'
 import { useWorkspace } from '../../store/store'
 import { toast } from '../../store/ui'
+import { endRun, noteRun, withWriter, type Writer } from '../../store/writer'
+import { newId } from '../../lib/ids'
 import { pageTitle } from '../../store/selectors'
 import { t as translate, useT } from '../../i18n'
 import { csvIntakeRows, planCsvIntake, CSV_INTAKE_MAX_ROWS, type CsvIntakePlan } from '../../features'
@@ -58,8 +60,18 @@ export function startCsvIntake(dbId: ID, file: string, text: string): void {
   usePending.setState({ cur: { dbId, file, plan } })
 }
 
-/** Write the rows: `results` = what the dialog made of the unmatched columns. */
+/** Write the rows: `results` = what the dialog made of the unmatched columns — one import run (store/writer.ts). */
 function applyIntake(dbId: ID, plan: CsvIntakePlan, results: SuggestionResult[]): void {
+  const w: Writer = { kind: 'import', run: newId(), source: 'csv' }
+  noteRun(w, { source: 'csv' })
+  try {
+    withWriter(w, () => writeIntake(dbId, plan, results))
+  } finally {
+    endRun(w)
+  }
+}
+
+function writeIntake(dbId: ID, plan: CsvIntakePlan, results: SuggestionResult[]): void {
   const s = ws()
   const db = s.databases[dbId]
   if (!db) return
@@ -99,11 +111,12 @@ function applyIntake(dbId: ID, plan: CsvIntakePlan, results: SuggestionResult[])
     kind: 'success',
     action: {
       label: translate('common.undo'),
-      run: () => {
-        for (const id of ids) if (ws().pages[id]) ws().deletePagePermanently(id)
-        for (const [propId, list] of before) if (propOf(propId)) ws().updateProperty(dbId, propId, { options: list })
-        dropCreated(dbId, created)
-      },
+      run: () =>
+        withWriter({ kind: 'you', via: 'undo' }, () => {
+          for (const id of ids) if (ws().pages[id]) ws().deletePagePermanently(id)
+          for (const [propId, list] of before) if (propOf(propId)) ws().updateProperty(dbId, propId, { options: list })
+          dropCreated(dbId, created)
+        }),
     },
   })
 }

@@ -6,6 +6,7 @@
  */
 import { ListChecks } from 'lucide-react'
 import { useWorkspace } from '../../../store/store'
+import { withWriter, type Writer } from '../../../store/writer'
 import { useUI } from '../../../store/ui'
 import { isEffectivelyTrashed } from '../../../store/selectors'
 import type { Database, ID } from '../../../store/types'
@@ -87,6 +88,9 @@ function rowsPayload(dbId: ID, rowIds: ID[]) {
   })
 }
 
+/** The person ran a database command (store/writer.ts): its writes are theirs, also after an earlier action's await. */
+const COMMAND: Writer = { kind: 'you', via: 'command' }
+
 async function runAction(ctx: CommandRunContext<ActionsConfig>, a: ButtonAction, now: Date): Promise<Step> {
   const s = useWorkspace.getState()
   switch (a.type) {
@@ -98,7 +102,7 @@ async function runAction(ctx: CommandRunContext<ActionsConfig>, a: ButtonAction,
       const preset = buttonPresetValues(db, a.values, null, now)
       if ('error' in preset) return fail(preset.error)
       const title = fillButtonVars(a.title, now).trim()
-      const id = s.createRow(dbId, { title, properties: preset.values })
+      const id = withWriter(COMMAND, () => s.createRow(dbId, { title, properties: preset.values }))
       if (a.open) useUI.getState().openPeek(id)
       return { ok: true, text: t('features.cmd.actions.added', { title: title || t('common.untitled'), db: dbPage.title.trim() || t('common.untitled') }) }
     }
@@ -109,7 +113,9 @@ async function runAction(ctx: CommandRunContext<ActionsConfig>, a: ButtonAction,
       for (const row of rows) {
         const preset = buttonPresetValues(db, a.values, row, now)
         if ('error' in preset) return fail(preset.error)
-        for (const [propId, value] of Object.entries(preset.values)) useWorkspace.getState().setRowProperty(row.id, propId, value)
+        withWriter(COMMAND, () => {
+          for (const [propId, value] of Object.entries(preset.values)) useWorkspace.getState().setRowProperty(row.id, propId, value)
+        })
       }
       return { ok: true, text: t(rows.length === 1 ? 'features.cmd.actions.edited.one' : 'features.cmd.actions.edited', { n: rows.length }) }
     }

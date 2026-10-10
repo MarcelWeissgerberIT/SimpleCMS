@@ -19,6 +19,7 @@ import { t } from '../../i18n'
 import type { FileBlockKind } from '../../features'
 import { CLIP_ORIGIN, INBOX_ID_PREFIX, ensureInbox, fileInInbox } from './inbox'
 import { storeFiles } from './share'
+import { withWriter, type Writer } from '../../store/writer'
 
 export type CaptureTarget = { kind: 'inbox' } | { kind: 'page'; id: ID } | { kind: 'database'; id: ID }
 
@@ -38,6 +39,7 @@ export interface CaptureResult {
 
 const TITLE_MAX = 120
 const ws = () => useWorkspace.getState()
+const CLIP: Writer = { kind: 'you', via: 'clip' }
 
 /** "# Title", "- item", "> quote", "1. step", "[ ] task" → the words of the line. */
 const bare = (line: string) =>
@@ -98,6 +100,11 @@ export async function saveCapture(input: { text: string; files: CaptureFile[]; t
   const { text, target } = input
   if (target.kind !== 'inbox' && !writable(ws().pages[target.id])) throw new Error('target not writable')
   const { blocks: fileBlocks, kinds, failed } = await storeFiles(input.files)
+  // the person's capture (store/writer.ts) — after the files are stored, one synchronous burst
+  return withWriter(CLIP, () => writeCapture(text, target, fileBlocks, kinds, failed))
+}
+
+function writeCapture(text: string, target: CaptureTarget, fileBlocks: JSONContent[], kinds: CaptureResult['kinds'], failed: CaptureResult['failed']): CaptureResult {
   const { title, body } = splitCapture(text)
 
   if (target.kind === 'page') {

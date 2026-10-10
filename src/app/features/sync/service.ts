@@ -32,6 +32,7 @@ import {
 } from './storage'
 import { defaultGitHubConfig, emptyStatus, type GitHubConfig, type LogEntry, type LogKind, type TargetKind, type TargetStatus } from './types'
 import type { ConnectionInfo } from './github'
+import { withWriter } from '../../store/writer'
 
 export type FolderState = 'unsupported' | 'off' | 'permission' | 'ready' | 'running' | 'error'
 export type GitHubState = 'off' | 'ready' | 'running' | 'error'
@@ -245,7 +246,10 @@ export async function resolveMissing(trash: boolean): Promise<void> {
   if (!m) return
   useSync.setState({ missing: null })
   if (trash) {
-    for (const it of m.items) if (useWorkspace.getState().pages[it.id]) useWorkspace.getState().trashPage(it.id)
+    // the person confirmed it (store/writer.ts)
+    withWriter({ kind: 'you', via: 'ui' }, () => {
+      for (const it of m.items) if (useWorkspace.getState().pages[it.id]) useWorkspace.getState().trashPage(it.id)
+    })
   } else {
     const manifest = await loadManifest(m.target)
     for (const it of m.items) delete manifest.entries[it.path]

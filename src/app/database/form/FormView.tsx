@@ -6,6 +6,7 @@
 import { useId, useMemo, useState } from 'react'
 import { ArrowUpRight, BarChart3, ClipboardPen, PencilRuler, Share2 } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
+import { withWriter } from '../../store/writer'
 import { useLang, useT } from '../../i18n'
 import { useLocalState, useModel, type DbModel } from '../hooks'
 import { Segmented } from '../parts'
@@ -104,8 +105,12 @@ function LocalFill({ m, fields }: { m: DbModel; fields: Field[] }) {
     if (marker) properties[marker.prop.id] = marker.option.id
     const s = useWorkspace.getState()
     if (!s.databases[dbId]) return { ok: false, message: t('database.missing.gone') }
-    const id = s.createRow(dbId, { title: draft.title, properties })
-    for (const { prop, ids } of draft.relations) writeValue(dbId, prop, id, ids)
+    // the person's answer (store/writer.ts) — also after the files' upload
+    const id = withWriter({ kind: 'you', via: 'form' }, () => {
+      const row = s.createRow(dbId, { title: draft.title, properties })
+      for (const { prop, ids } of draft.relations) writeValue(dbId, prop, row, ids)
+      return row
+    })
     return { ok: true, rowId: id }
   }
 

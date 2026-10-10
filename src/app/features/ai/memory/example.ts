@@ -20,12 +20,17 @@ import { completeStructured, isAIConfigured, usesDemo } from '../client'
 import { ensureExampleSchema, ensureMemoryDb, memoryProps, optionIds, typeOption } from './schema'
 import { readMemories } from './read'
 import { pageSource, removeCreated } from './save'
+import { withWriter, type Writer } from '../../../store/writer'
 import type { Memory } from './types'
 
 const ORIGIN = 'ai'
 const ws = () => useWorkspace.getState()
 
 /** Example tags: a–z, 0–9 and "-", 2–32 characters. */
+/** The person keeping an example (store/writer.ts); its Undo is an Undo. */
+const MEMORY: Writer = { kind: 'you', via: 'memory' }
+const UNDO: Writer = { kind: 'you', via: 'undo' }
+
 export const TAG_RE = /^[a-z0-9][a-z0-9-]{1,31}$/
 
 /** "Wöchentlicher Statusbericht" → "woechentlicher-statusbericht" (≤ 32). */
@@ -235,48 +240,49 @@ export async function saveExample(o: SaveExample): Promise<{ id: ID; how: 'new' 
   const markdown = docToMarkdown({ type: 'doc', content: ex.blocks })
   const described = await describeExample({ title, tag, note: o.note, markdown, blocks: ex.blocks, signal: o.signal })
   if (o.signal?.aborted) throw new ExampleError('gone')
-
-  let dbId: ID
-  try {
-    dbId = ensureMemoryDb()
-  } catch {
-    throw new ExampleError('readonly')
-  }
-  let roles: { typeId: ID; tagId: ID }
-  try {
-    roles = ensureExampleSchema(dbId)
-  } catch {
-    throw new ExampleError('locked')
-  }
-  const db = ws().databases[dbId]!
-  const r = memoryProps(db)
-  const props: Record<ID, PropertyValue> = {}
-  const typeId = typeOption(dbId, roles.typeId, 'example')
-  if (typeId) props[roles.typeId] = typeId
-  props[roles.tagId] = tag
-  if (r.topics) props[r.topics] = optionIds(dbId, r.topics, o.topics)
-  if (r.source) props[r.source] = pageSource(o.pageId)
-  if (r.active) props[r.active] = true
-  const body: JSONContent = {
-    type: 'doc',
-    content: [
-      ...(o.note.trim() ? [para(o.note.trim())] : []),
-      heading(t('features.memory.example.pattern')),
-      ...below(claudeDoc(described.pattern).content ?? [para('')]),
-      heading(t('features.memory.example.example')),
-      ...ex.blocks,
-    ],
-  }
-  const replace = o.replace && ws().pages[o.replace]?.databaseId === dbId && !ws().pages[o.replace]?.trashed ? o.replace : null
-  if (replace) {
-    ws().updatePage(replace, { title: described.description })
-    for (const [propId, v] of Object.entries(props)) ws().setRowProperty(replace, propId, v)
-    ws().setContent(replace, body, ORIGIN)
-    return { id: replace, how: 'replaced' }
-  }
-  const id = ws().createRow(dbId, { title: described.description, properties: props })
-  ws().setContent(id, body, ORIGIN)
-  return { id, how: 'new' }
+  return withWriter(MEMORY, () => {
+    let dbId: ID
+    try {
+      dbId = ensureMemoryDb()
+    } catch {
+      throw new ExampleError('readonly')
+    }
+    let roles: { typeId: ID; tagId: ID }
+    try {
+      roles = ensureExampleSchema(dbId)
+    } catch {
+      throw new ExampleError('locked')
+    }
+    const db = ws().databases[dbId]!
+    const r = memoryProps(db)
+    const props: Record<ID, PropertyValue> = {}
+    const typeId = typeOption(dbId, roles.typeId, 'example')
+    if (typeId) props[roles.typeId] = typeId
+    props[roles.tagId] = tag
+    if (r.topics) props[r.topics] = optionIds(dbId, r.topics, o.topics)
+    if (r.source) props[r.source] = pageSource(o.pageId)
+    if (r.active) props[r.active] = true
+    const body: JSONContent = {
+      type: 'doc',
+      content: [
+        ...(o.note.trim() ? [para(o.note.trim())] : []),
+        heading(t('features.memory.example.pattern')),
+        ...below(claudeDoc(described.pattern).content ?? [para('')]),
+        heading(t('features.memory.example.example')),
+        ...ex.blocks,
+      ],
+    }
+    const replace = o.replace && ws().pages[o.replace]?.databaseId === dbId && !ws().pages[o.replace]?.trashed ? o.replace : null
+    if (replace) {
+      ws().updatePage(replace, { title: described.description })
+      for (const [propId, v] of Object.entries(props)) ws().setRowProperty(replace, propId, v)
+      ws().setContent(replace, body, ORIGIN)
+      return { id: replace, how: 'replaced' }
+    }
+    const id = ws().createRow(dbId, { title: described.description, properties: props })
+    ws().setContent(id, body, ORIGIN)
+    return { id, how: 'new' }
+  })
 }
 
 /** The tag a new example of this page would get (the page title, slugified; numbered when taken). */
@@ -303,6 +309,10 @@ export interface SavePatternExample {
  * memory database is created on this explicit action when there is none. Throws ExampleError.
  */
 export function savePatternExample(o: SavePatternExample): { id: ID; how: 'new' | 'replaced'; undo: () => void } {
+  return withWriter(MEMORY, () => savePatternNow(o))
+}
+
+function savePatternNow(o: SavePatternExample): { id: ID; how: 'new' | 'replaced'; undo: () => void } {
   const tag = slugTag(o.tag)
   if (!TAG_RE.test(tag)) throw new ExampleError('tag')
   if (!o.pattern.length) throw new ExampleError('empty')
@@ -341,9 +351,11 @@ export function savePatternExample(o: SavePatternExample): { id: ID; how: 'new' 
     ws().setContent(taken.id, body, ORIGIN)
     const undo = () => {
       if (!ws().pages[taken.id]) return
-      ws().updatePage(taken.id, { title: before.title })
-      for (const [propId, v] of Object.entries(before.properties)) ws().setRowProperty(taken.id, propId, v)
-      ws().setContent(taken.id, before.content, ORIGIN)
+      withWriter(UNDO, () => {
+        ws().updatePage(taken.id, { title: before.title })
+        for (const [propId, v] of Object.entries(before.properties)) ws().setRowProperty(taken.id, propId, v)
+        ws().setContent(taken.id, before.content, ORIGIN)
+      })
     }
     return { id: taken.id, how: 'replaced', undo }
   }

@@ -2,6 +2,7 @@
  * Agenda writes — all through the workspace store.
  */
 import { useWorkspace } from '../../store/store'
+import { withWriter, type Writer } from '../../store/writer'
 import { useUI } from '../../store/ui'
 import type { DateValue, ID, PropertyDef } from '../../store/types'
 import { t } from '../../i18n'
@@ -10,6 +11,9 @@ import { dayToDate, dayToIso, isoToDay, type AgendaItem } from './model'
 import { fmtDayStamp } from './format'
 
 const ws = () => useWorkspace.getState()
+/** The person in the agenda (store/writer.ts); its toasts' Undo is an Undo. */
+const AGENDA: Writer = { kind: 'you', via: 'agenda' }
+const UNDO: Writer = { kind: 'you', via: 'undo' }
 
 export function openItem(it: Pick<AgendaItem, 'pageId'>) {
   useUI.getState().openPeek(it.pageId, 'side')
@@ -31,7 +35,7 @@ export function moveItem(it: AgendaItem, days: number, opts: { undo?: boolean } 
   const next: DateValue = { ...old, start: shiftIso(old.start, days), end: old.end ? shiftIso(old.end, days) : (old.end ?? null) }
   if (old.end === undefined) delete next.end
   const propId = it.propId
-  ws().setRowProperty(row.id, propId, next)
+  withWriter(AGENDA, () => ws().setRowProperty(row.id, propId, next))
   if (opts.undo) {
     const lang = ws().settings.language
     useUI.getState().toast({
@@ -39,7 +43,7 @@ export function moveItem(it: AgendaItem, days: number, opts: { undo?: boolean } 
       action: {
         label: t('common.undo'),
         run: () => {
-          if (ws().pages[row.id]) ws().setRowProperty(row.id, propId, old)
+          if (ws().pages[row.id]) withWriter(UNDO, () => ws().setRowProperty(row.id, propId, old))
         },
       },
     })
@@ -52,14 +56,14 @@ export function createRowOn(dbId: ID, prop: PropertyDef, day: number, hour?: num
   if (!ws().databases[dbId]) return null
   const value: DateValue =
     hour === undefined ? { start: dayToIso(day) } : { start: `${dayToIso(day)}T${String(hour).padStart(2, '0')}:00`, includeTime: true }
-  const id = ws().createRow(dbId, { properties: { [prop.id]: value } })
+  const id = withWriter(AGENDA, () => ws().createRow(dbId, { properties: { [prop.id]: value } }))
   openItem({ pageId: id })
   return id
 }
 
 /** Find or create the journal entry for `day` and open it in the peek. */
 export function openJournalFor(day: number): ID | null {
-  const entry = journalEntryFor(dayToDate(day))
+  const entry = withWriter(AGENDA, () => journalEntryFor(dayToDate(day)))
   if (!entry) return null
   if (entry.createdDatabase) useUI.getState().toast({ message: t('features.journal.created'), kind: 'success' })
   openItem({ pageId: entry.id })

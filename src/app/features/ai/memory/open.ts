@@ -8,6 +8,7 @@ import { t } from '../../../i18n'
 import { logDbId, memoryDbId } from './schema'
 import { findDuplicate, saveMemory, updateMemory } from './save'
 import type { MemoryProposal } from './types'
+import { withWriter } from '../../../store/writer'
 
 /** A memory entry or a log row: in the side peek. */
 export const openEntry = (id: ID) => useUI.getState().openPeek(id)
@@ -35,11 +36,12 @@ export interface Confirmed {
 export function confirmProposal(p: MemoryProposal, update: ID | null, opts: { toast?: boolean } = {}): Confirmed | null {
   let out: Confirmed
   try {
-    if (update) out = { id: update, how: 'updated', undo: updateMemory(update, p) }
-    else {
+    // the person confirmed it (store/writer.ts)
+    out = withWriter({ kind: 'you', via: 'memory' }, (): Confirmed => {
+      if (update) return { id: update, how: 'updated', undo: updateMemory(update, p) }
       const saved = saveMemory(p)
-      out = { id: saved.id, how: 'new', undo: saved.undo }
-    }
+      return { id: saved.id, how: 'new', undo: saved.undo }
+    })
   } catch (e) {
     console.warn('[one] memory: not saved', e)
     useUI.getState().toast({ message: t('features.memory.toast.failed'), kind: 'error' })

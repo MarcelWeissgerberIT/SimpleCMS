@@ -238,7 +238,7 @@ function leftBehind(made: MirrorMade) {
     message: tr(kind === 'both' ? 'features.agents.mirror.left' : 'features.agents.mirror.leftReport', { name: made.name, report: made.reportTitle }),
     kind: 'info',
     timeout: 10_000,
-    action: { label: tr('common.undo'), run: () => trashWithUndo(made) },
+    action: { label: tr('common.undo'), run: () => trashWithUndo(made, trashMirror(made, { kind: 'you', via: 'undo' })) },
   })
 }
 

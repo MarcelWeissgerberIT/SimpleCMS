@@ -10,7 +10,8 @@ import { isEffectivelyTrashed } from '../../store/selectors'
 import type { ID } from '../../store/types'
 import { useUI } from '../../store/ui'
 import { createPrivatePage, useCloud } from '../../cloud'
-import { liveEditorOf } from '../../editor'
+import { editAs, liveEditorOf } from '../../editor'
+import { withWriter, type Writer } from '../../store/writer'
 import { t } from '../../i18n'
 import { navigate } from '../../lib/router'
 import { rememberTour, useTour } from './state'
@@ -33,6 +34,12 @@ function tourDoc(): JSONContent {
   }
 }
 
+/** The tour writes for the person (store/writer.ts): its practice page and what it types there. */
+export const TOUR: Writer = { kind: 'you', via: 'tour' }
+
+/** A tour edit in the practice page's editor, as the person's (editAs). */
+export const tourEdit = (editor: Editor, fn: () => void): void => editAs(editor, TOUR, fn)
+
 /** The Tour page if it still lives (not trashed). */
 export function liveTourPage(): ID | null {
   const id = useTour.getState().memory.page
@@ -47,13 +54,14 @@ export function ensureTourPage(): ID | null {
   const cloud = useCloud.getState()
   if (cloud.readOnly) return null
   const input = { title: t('shell.tour.page.title'), icon: { type: 'asset' as const, value: 'compass' }, content: tourDoc() }
-  let id: ID
-  try {
-    // a team workspace: in my Private section (nobody else needs the practice page)
-    id = cloud.active.kind === 'cloud' ? createPrivatePage(input) : useWorkspace.getState().createPage(input)
-  } catch {
-    id = useWorkspace.getState().createPage(input)
-  }
+  const id = withWriter(TOUR, () => {
+    try {
+      // a team workspace: in my Private section (nobody else needs the practice page)
+      return cloud.active.kind === 'cloud' ? createPrivatePage(input) : useWorkspace.getState().createPage(input)
+    } catch {
+      return useWorkspace.getState().createPage(input)
+    }
+  })
   rememberTour({ page: id })
   return id
 }
@@ -64,7 +72,7 @@ export function trashTourPage(): void {
   if (!id) return
   const ws = useWorkspace.getState()
   const title = ws.pages[id]?.title ?? ''
-  ws.trashPage(id)
+  withWriter(TOUR, () => ws.trashPage(id))
   rememberTour({ page: null })
   if (window.location.hash.startsWith(`#/p/${id}`)) navigate({ name: 'home' })
   useUI.getState().toast({
@@ -73,7 +81,7 @@ export function trashTourPage(): void {
     action: {
       label: t('common.undo'),
       run: () => {
-        useWorkspace.getState().restorePage(id)
+        withWriter({ kind: 'you', via: 'undo' }, () => useWorkspace.getState().restorePage(id))
         rememberTour({ page: id })
       },
     },
@@ -109,7 +117,7 @@ export function emptyLine(editor: Editor): number {
   if (at >= 0) return at
   const first = editor.state.doc.firstChild
   const after = first ? first.nodeSize : 0
-  editor.chain().insertContentAt(after, { type: 'paragraph' }).run()
+  tourEdit(editor, () => editor.chain().insertContentAt(after, { type: 'paragraph' }).run())
   return after + 1
 }
 

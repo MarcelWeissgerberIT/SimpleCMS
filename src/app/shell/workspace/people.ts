@@ -16,6 +16,7 @@ import { inTemplate, isEffectivelyTrashed } from '../../store/selectors'
 import type { ColorName, Database, ID, Page, Person, PropertyValue } from '../../store/types'
 import { snapshotNow } from '../../features'
 import { t } from '../../i18n'
+import { withWriter, type Writer } from '../../store/writer'
 
 /** The writer of people changes in page content (Page.contentOrigin). */
 export const PEOPLE_ORIGIN = 'people'
@@ -41,6 +42,9 @@ export interface PersonUse {
 export const usedCount = (u: PersonUse | undefined) => (u ? u.rows.length + u.mentions.length : 0)
 
 const ws = () => useWorkspace.getState()
+/** The person merging / renaming people (store/writer.ts); a toast's Undo is an Undo. */
+const PEOPLE: Writer = { kind: 'you', via: 'people' }
+const UNDO: Writer = { kind: 'you', via: 'undo' }
 
 /* ------------------------------------------------------------------ reading */
 
@@ -168,12 +172,14 @@ export function renamePerson(id: ID, raw: string): NameCheck | null {
   const problem = checkPersonName(raw, id)
   if (problem) return problem
   const name = clean(raw)
-  ws().updatePerson(id, { name })
-  for (const p of Object.values(ws().pages)) {
-    if (!p.content || !mentionedPeople(p.content).has(id)) continue
-    const next = mapPersonMentions(p.content, (a) => (a.id === id && a.label !== name ? { ...a, label: name } : null))
-    if (next !== p.content) ws().setContent(p.id, next, PEOPLE_ORIGIN)
-  }
+  withWriter(PEOPLE, () => {
+    ws().updatePerson(id, { name })
+    for (const p of Object.values(ws().pages)) {
+      if (!p.content || !mentionedPeople(p.content).has(id)) continue
+      const next = mapPersonMentions(p.content, (a) => (a.id === id && a.label !== name ? { ...a, label: name } : null))
+      if (next !== p.content) ws().setContent(p.id, next, PEOPLE_ORIGIN)
+    }
+  })
   return null
 }
 
@@ -191,7 +197,7 @@ export function removeUnusedPerson(id: ID): boolean {
     message: t('shell.ws.people.removed', { name: person.name }),
     kind: 'success',
     timeout: 8000,
-    action: { label: t('common.undo'), run: () => ws().restorePerson(person, index) },
+    action: { label: t('common.undo'), run: () => withWriter(UNDO, () => ws().restorePerson(person, index)) },
   })
   return true
 }
@@ -219,6 +225,11 @@ export async function mergePeople(fromId: ID, intoId: ID): Promise<MergeResult |
   // a version of every page whose text changes, before it changes
   await Promise.all(mentionPages.map((id) => snapshotNow(id, 'auto').catch(() => null)))
 
+  // from here on synchronous: the merge is ONE burst of the person's (after the versions above)
+  return withWriter(PEOPLE, () => mergeNow(from, into, fromId, intoId, usage, mentionPages))
+}
+
+function mergeNow(from: Person, into: Person, fromId: ID, intoId: ID, usage: PersonUse | undefined, mentionPages: ID[]): MergeResult {
   const s = ws()
   const props = personProps(s.databases)
   const values: Array<{ rowId: ID; propId: ID; before: PropertyValue; after: PropertyValue }> = []
@@ -245,13 +256,14 @@ export async function mergePeople(fromId: ID, intoId: ID): Promise<MergeResult |
   }
   const index = ws().removePerson(fromId)
 
-  const undo = () => {
-    const now = ws()
-    now.restorePerson(from, index)
-    for (const v of values) if (sameValue(ws().pages[v.rowId]?.properties[v.propId], v.after)) ws().setRowProperty(v.rowId, v.propId, v.before)
-    // content edited since the merge keeps its newer state
-    for (const c of contents) if (ws().pages[c.pageId]?.contentRev === c.rev) ws().setContent(c.pageId, c.before, PEOPLE_ORIGIN)
-  }
+  const undo = () =>
+    withWriter(UNDO, () => {
+      const now = ws()
+      now.restorePerson(from, index)
+      for (const v of values) if (sameValue(ws().pages[v.rowId]?.properties[v.propId], v.after)) ws().setRowProperty(v.rowId, v.propId, v.before)
+      // content edited since the merge keeps its newer state
+      for (const c of contents) if (ws().pages[c.pageId]?.contentRev === c.rev) ws().setContent(c.pageId, c.before, PEOPLE_ORIGIN)
+    })
   const rows = new Set(values.map((v) => v.rowId)).size
   useUI.getState().toast({
     message: t('shell.ws.people.merged', { from: from.name, into: into.name, rows, pages: contents.length }),

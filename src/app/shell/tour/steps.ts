@@ -14,7 +14,7 @@ import { openAIPanel } from '../../editor'
 import { closeAgent, openAgent, runScript, silentScriptUI } from '../../features'
 import { closeHelp, openHelp } from '../../help'
 import { t } from '../../i18n'
-import { emptyLine, openTourPage, selectList } from './tourPage'
+import { emptyLine, openTourPage, selectList, tourEdit } from './tourPage'
 import { TOUR_STEP_COUNT } from './state'
 
 export type StepId = 'slash' | 'ai' | 'palette' | 'database' | 'terminal' | 'history' | 'scripts' | 'help'
@@ -84,7 +84,7 @@ export function showcaseDatabase(): { page: Page; db: Database } | null {
 async function typeInto(editor: Editor, text: string, gap = 80) {
   for (const ch of text) {
     if (editor.isDestroyed) return
-    editor.commands.insertContent(ch)
+    tourEdit(editor, () => editor.commands.insertContent(ch))
     await sleep(gap)
   }
 }
@@ -92,7 +92,7 @@ async function typeInto(editor: Editor, text: string, gap = 80) {
 /** A key press for the editor's own handlers (the slash menu's Enter). */
 function press(editor: Editor, key: string) {
   const ev = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })
-  editor.view.someProp('handleKeyDown', (f) => f(editor.view, ev))
+  tourEdit(editor, () => void editor.view.someProp('handleKeyDown', (f) => f(editor.view, ev)))
 }
 
 const bq = (name: string) => `\`${name.replace(/`/g, '')}\``

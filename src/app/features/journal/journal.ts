@@ -13,6 +13,7 @@ import { newId } from '../../lib/ids'
 import { navigate, parseHash } from '../../lib/router'
 import { toast } from '../../store/ui'
 import { t } from '../../i18n'
+import { withWriter } from '../../store/writer'
 
 export const JOURNAL_ID_PREFIX = 'jrnl'
 
@@ -116,7 +117,8 @@ export function journalEntryFor(date: Date): { id: ID; createdDatabase: boolean 
 /** Find or create today's journal entry and open it. Returns the entry's page id. */
 export function openTodayJournal(): ID | null {
   try {
-    const entry = journalEntryFor(new Date())
+    // the person opening today's journal (store/writer.ts) — also from the #/journal route, outside any event
+    const entry = withWriter({ kind: 'you', via: 'journal' }, () => journalEntryFor(new Date()))
     if (!entry) return null
     if (entry.createdDatabase) toast({ message: t('features.journal.created'), kind: 'success' })
     // replace the #/journal route so "back" does not bounce into it again

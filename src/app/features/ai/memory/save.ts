@@ -15,6 +15,7 @@ import { t } from '../../../i18n'
 import { ensureMemoryDb, memoryDbId, memoryProps, optionIds, typeOption } from './schema'
 import { readMemories } from './read'
 import type { Memory, MemoryProposal } from './types'
+import { withWriter, type Writer } from '../../../store/writer'
 
 const ORIGIN = 'ai'
 const ws = () => useWorkspace.getState()
@@ -65,6 +66,9 @@ function values(dbId: ID, p: MemoryProposal, keepSource?: string): Record<ID, Pr
   return out
 }
 
+/** An Undo of a memory the person confirmed (store/writer.ts). */
+const UNDO: Writer = { kind: 'you', via: 'undo' }
+
 /** Save a confirmed memory as a new row: its id and the undo. Throws when the memory cannot be written (read-only). */
 export function saveMemory(p: MemoryProposal): { id: ID; undo: () => void } {
   const dbId = ensureMemoryDb()
@@ -86,8 +90,10 @@ export function removeCreated(id: ID): () => void {
     const { pages } = ws()
     const now = pages[id]
     if (!now || now.trashed) return
-    if (now.contentRev !== rev || now.title !== title || isEffectivelyTrashed(pages, id)) ws().trashPage(id)
-    else ws().deletePagePermanently(id)
+    withWriter(UNDO, () => {
+      if (now.contentRev !== rev || now.title !== title || isEffectivelyTrashed(pages, id)) ws().trashPage(id)
+      else ws().deletePagePermanently(id)
+    })
   }
 }
 
@@ -109,9 +115,11 @@ export function updateMemory(id: ID, p: MemoryProposal): () => void {
   if (doc) ws().setContent(id, doc, ORIGIN)
   return () => {
     if (!ws().pages[id]) return
-    ws().updatePage(id, { title: before.title })
-    for (const [propId, v] of Object.entries(before.properties)) ws().setRowProperty(id, propId, v)
-    if (doc) ws().setContent(id, before.content, ORIGIN)
+    withWriter(UNDO, () => {
+      ws().updatePage(id, { title: before.title })
+      for (const [propId, v] of Object.entries(before.properties)) ws().setRowProperty(id, propId, v)
+      if (doc) ws().setContent(id, before.content, ORIGIN)
+    })
   }
 }
 

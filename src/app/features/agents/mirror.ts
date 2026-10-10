@@ -51,6 +51,7 @@ import { blankAgent } from './recipes'
 import { buildMirror, fillTokens, type ResolvedRecipe } from './integrations/recipe'
 import { rememberReport, rememberedReports } from './mirrorMemory'
 import { trashedRoot } from './gone'
+import { withWriter, type Writer } from '../../store/writer'
 
 const REPORT_ICON = { type: 'lucide', value: 'ClipboardList' } as const
 
@@ -135,6 +136,10 @@ export function mirrorDraft(input: { recipe: ResolvedRecipe; server: string; nam
 /* ------------------------------------------------------------------ creating it */
 
 export const inTeam = () => useCloud.getState().active.kind === 'cloud'
+
+/** The person setting up a mirror (store/writer.ts); taking it back again is an Undo. */
+const SETUP: Writer = { kind: 'you', via: 'setup' }
+const UNDO: Writer = { kind: 'you', via: 'undo' }
 const ws = () => useWorkspace.getState()
 
 /** A page the database may go below: a live, ordinary page (not a row, not a template) — private in a team. */
@@ -222,7 +227,7 @@ function usedBy(pages: Record<ID, Page>, uses: Map<ID, string>, id: ID): string 
  * in a toast, an agent saved meanwhile here or on another device). Returns the ids it trashed (for restoreMirror) and
  * the pages it kept.
  */
-export function trashMirror(made: Pick<MirrorMade, 'created'>): { ids: ID[]; kept: KeptPage[] } {
+export function trashMirror(made: Pick<MirrorMade, 'created'>, writer: Writer = SETUP): { ids: ID[]; kept: KeptPage[] } {
   const pages = ws().pages
   const uses = agentUses(ws().agents)
   const ids: ID[] = []
@@ -234,13 +239,17 @@ export function trashMirror(made: Pick<MirrorMade, 'created'>): { ids: ID[]; kep
     if (agent) kept.push({ id, title: p.title.trim(), agent })
     else ids.push(id)
   }
-  for (const id of ids) ws().trashPage(id)
+  withWriter(writer, () => {
+    for (const id of ids) ws().trashPage(id)
+  })
   return { ids, kept }
 }
 
 /** Undo of trashMirror. */
 export function restoreMirror(ids: ID[]): void {
-  for (const id of ids) if (ws().pages[id]?.trashed) ws().restorePage(id)
+  withWriter(UNDO, () => {
+    for (const id of ids) if (ws().pages[id]?.trashed) ws().restorePage(id)
+  })
 }
 
 /**
@@ -248,8 +257,8 @@ export function restoreMirror(ids: ID[]): void {
  * never for good (rows or sub-pages added meanwhile, here or on another device, come back with restoreMirror).
  */
 export function undoMirror(made: Pick<MirrorMade, 'created' | 'draft'>): ReturnType<typeof trashMirror> {
-  if (ws().agents?.[made.draft.id]) ws().deleteAgent(made.draft.id)
-  return trashMirror(made)
+  if (ws().agents?.[made.draft.id]) withWriter(UNDO, () => ws().deleteAgent(made.draft.id))
+  return trashMirror(made, UNDO)
 }
 
 /** Names folded for comparing: Unicode NFC, spaces collapsed, case ignored. */
@@ -518,6 +527,10 @@ function draftFor(recipe: ResolvedRecipe, server: string, name: string, dbId: ID
  * Integrations).
  */
 export function createMirror(input: MirrorInput): MirrorMade {
+  return withWriter(SETUP, () => createMirrorNow(input))
+}
+
+function createMirrorNow(input: MirrorInput): MirrorMade {
   const name = input.name.replace(/\s+/g, ' ').trim().slice(0, 120)
   if (!name) throw new Error('name')
   const team = inTeam()
@@ -557,6 +570,10 @@ export function createMirror(input: MirrorInput): MirrorMade {
  * title. Throws when the database is gone, shared in a team workspace, or nothing can be written here.
  */
 export function reuseMirror(input: { recipe: ResolvedRecipe; server: string; dbId: ID }): MirrorMade {
+  return withWriter(SETUP, () => reuseMirrorNow(input))
+}
+
+function reuseMirrorNow(input: { recipe: ResolvedRecipe; server: string; dbId: ID }): MirrorMade {
   const team = inTeam()
   if (team && useCloud.getState().readOnly) throw new Error('read-only')
   const pages = ws().pages

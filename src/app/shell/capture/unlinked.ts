@@ -11,6 +11,7 @@ import type { JSONContent } from '@tiptap/core'
 import { useWorkspace } from '../../store/store'
 import { inTemplate, isEffectivelyTrashed, mayChangeAnswer } from '../../store/selectors'
 import type { ID, Page } from '../../store/types'
+import { withWriter } from '../../store/writer'
 
 export const UNLINKED_CAP = 50
 /** setContent origin of a "Link" write (editors apply it as an external update). */
@@ -276,6 +277,10 @@ export function linkMentions(targetId: ID, sourceIds: ID[]): LinkResult[] {
  * the inserted mention back into plain text, leaving later edits alone.
  */
 export function unlinkMentions(targetId: ID, results: LinkResult[]): void {
+  withWriter({ kind: 'you', via: 'undo' }, () => unlinkNow(targetId, results))
+}
+
+function unlinkNow(targetId: ID, results: LinkResult[]): void {
   const ws = useWorkspace.getState()
   for (const r of results) {
     const p = useWorkspace.getState().pages[r.id]

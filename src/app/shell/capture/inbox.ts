@@ -25,6 +25,7 @@ import { t } from '../../i18n'
 import type { ID, PageIcon } from '../../store/types'
 import { safeLocalGet, safeLocalSet } from '@/shared/brand'
 import { goToPage } from '../lib/actions'
+import { withWriter, type Writer } from '../../store/writer'
 
 export const INBOX_ID_PREFIX = 'inbx'
 /** setContent origin for pages written by capture */
@@ -34,6 +35,8 @@ const INBOX_ICON: PageIcon = { type: 'asset', value: 'import' }
 const DEDUPE_MS = 60_000
 
 const ws = () => useWorkspace.getState()
+/** The person's clips and notes (store/writer.ts) — they confirmed each one. */
+const CLIP: Writer = { kind: 'you', via: 'clip' }
 const isDe = () => ws().settings.language === 'de'
 
 /* ------------------------------------------------------------------ */
@@ -198,6 +201,10 @@ function recentDuplicate(inbox: ID, c: Clip): ID | null {
  * shared files: each share is its own). `title` overrides the clip's own (shared files). Returns its id.
  */
 export function clipToInbox(input: ClipInput, extras: ClipExtras & { title?: string } = {}): ID {
+  return withWriter(CLIP, () => writeClip(input, extras))
+}
+
+function writeClip(input: ClipInput, extras: ClipExtras & { title?: string }): ID {
   const c = normalizeClip(input)
   if (extras.title) c.title = extras.title
   const inbox = ensureInbox()
@@ -363,12 +370,15 @@ export function bookmarkletHref(app = appUrl(), token = clipToken()): string {
 
 /** A timestamped page in the Inbox, opened with the caret in its body. */
 export function quickNoteToInbox(): ID {
-  const inbox = ensureInbox()
   const de = isDe()
   const stamp = format(new Date(), de ? 'd. MMM yyyy, HH:mm' : 'MMM d, yyyy, HH:mm', { locale: de ? deLocale : enUS })
-  const id = ws().createPage({ parentId: inbox, title: t('shell.capture.noteTitle', { time: stamp }) })
-  ws().setContent(id, { type: 'doc', content: [{ type: 'paragraph' }] }, CLIP_ORIGIN)
-  fileInInbox(inbox, id)
+  const id = withWriter(CLIP, () => {
+    const inbox = ensureInbox()
+    const note = ws().createPage({ parentId: inbox, title: t('shell.capture.noteTitle', { time: stamp }) })
+    ws().setContent(note, { type: 'doc', content: [{ type: 'paragraph' }] }, CLIP_ORIGIN)
+    fileInInbox(inbox, note)
+    return note
+  })
   goToPage(id)
   focusBodyOf(id)
   return id

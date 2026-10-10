@@ -10,7 +10,7 @@ import { inTemplate, isEffectivelyTrashed } from '../../store/selectors'
 import type { ID } from '../../store/types'
 import { navigate, parseHash } from '../../lib/router'
 import { openAIPanel } from '../../editor'
-import { emptyLine, openTourPage, selectList } from './tourPage'
+import { emptyLine, openTourPage, selectList, tourEdit } from './tourPage'
 import { showcaseDatabase } from './steps'
 
 const sleep = (ms: number) => new Promise((r) => window.setTimeout(r, ms))
@@ -31,7 +31,7 @@ export async function trySlash(query = ''): Promise<void> {
   const ed = at?.editor
   if (!ed) return
   ed.chain().focus().setTextSelection(emptyLine(ed)).run()
-  ed.commands.insertContent(`/${query}`)
+  tourEdit(ed, () => ed.commands.insertContent(`/${query}`))
 }
 
 /** The AI menu on the practice page's first paragraph (without a key it asks for one — the real first step). */
