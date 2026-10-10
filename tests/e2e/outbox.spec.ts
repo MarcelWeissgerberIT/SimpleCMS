@@ -322,7 +322,7 @@ test.describe('Outbox: storage, tabs, counts, API', () => {
     const m = await setup(page)
     const res = await outbox(page, (o, a) => o.stageSlip({ route: a.route, rowId: a.row, params: { minutes: 45 }, origin: { kind: 'api' }, sources: [] }), { route: routeRef('work'), row: m.rows['10642'] })
     expect(res.slip.state).toBe('ready')
-    // a record of another workspace in the same store is never loaded here
+    // a record of another workspace in the same store is never loaded here — nor a damaged (or other version's) one
     await page.evaluate(
       () =>
         new Promise<void>((resolve, reject) => {
@@ -331,6 +331,7 @@ test.describe('Outbox: storage, tabs, counts, API', () => {
           r.onsuccess = () => {
             const tx = r.result.transaction('kv', 'readwrite')
             tx.objectStore('kv').put({ v: 1, id: 'out_OTHERscope', scope: 'cloud:elsewhere', state: 'ready' }, 'cloud:elsewhere|slip|out_OTHERscope')
+            tx.objectStore('kv').put({ v: 1, id: 'out_Damaged001', scope: 'local:local', state: 'ready' }, 'local:local|slip|out_Damaged001')
             tx.oncomplete = () => (r.result.close(), resolve())
             tx.onerror = () => reject(tx.error)
           }

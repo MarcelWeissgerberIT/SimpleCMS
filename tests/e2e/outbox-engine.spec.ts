@@ -133,6 +133,7 @@ test.describe('Outbox engine · slice 1a: contract and lock', () => {
     expect(lockedOnly(undefined, [])).toBeNull()
     expect(outLine([])).toBe('')
     expect(outLine(['add_comment'])).toContain('switched off for you: add_comment')
+    expect(outLine(['add_comment'])).toContain("from One's Outbox")
   })
 
   test('mergeTestedTools: a re-test keeps the OUT tools the server had; pickedTool never picks one', () => {

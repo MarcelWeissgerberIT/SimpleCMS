@@ -7,7 +7,7 @@
  * every send key stays off — never a slip that lives only in memory.
  */
 import { createStore, entries, get, update, delMany, type UseStore } from 'idb-keyval'
-import type { Slip, SlipId } from './types'
+import { SLIP_ID, SLIP_STATES, type Slip, type SlipId } from './types'
 
 let kv: UseStore | null = null
 let broken: string | null = null
@@ -23,6 +23,26 @@ function store(): UseStore {
 }
 
 export const slipKey = (scope: string, id: SlipId) => `${scope}|slip|${id}`
+
+const obj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
+const str = (v: unknown): v is string => typeof v === 'string'
+
+/**
+ * A stored record the Outbox can show: an older, newer or damaged record is left alone (never shown, never sent) —
+ * the reader must not crash on what another version or a hand-edited store left there.
+ */
+export function isSlip(v: unknown, scope?: string): v is Slip {
+  if (!obj(v) || v.v !== 1 || !str(v.id) || !SLIP_ID.test(v.id) || !str(v.scope) || (scope !== undefined && v.scope !== scope)) return false
+  if (!SLIP_STATES.includes(v.state as Slip['state']) || typeof v.createdAt !== 'number' || typeof v.updatedAt !== 'number') return false
+  const t = v.target
+  const r = v.route
+  if (!obj(t) || !str(t.dbId) || !str(t.rowId) || !str(t.key) || !str(t.serverId) || !str(t.serverName)) return false
+  if (!obj(r) || !str(r.profileId) || !str(r.routeId) || !str(r.tool) || !str(r.sig) || !obj(r.snapshot)) return false
+  if (!obj(v.origin) || !obj(v.params) || !obj(v.args) || !str(v.argsHash) || !str(v.title) || !obj(v.seal)) return false
+  if (!Array.isArray(v.after) || !Array.isArray(v.answers) || !Array.isArray(v.sources) || !Array.isArray(v.log)) return false
+  if (!Array.isArray((v.seal as Record<string, unknown>).addresses) || !Array.isArray((v.seal as Record<string, unknown>).hidden)) return false
+  return v.draft === null || obj(v.draft)
+}
 
 /** Can this device keep slips? (one read; false and the reason when the store is blocked) */
 export async function probeStorage(): Promise<{ ok: true } | { ok: false; reason: string }> {
@@ -40,14 +60,15 @@ export async function probeStorage(): Promise<{ ok: true } | { ok: false; reason
 export async function loadSlips(scope: string): Promise<Slip[]> {
   const prefix = `${scope}|slip|`
   const out: Slip[] = []
-  for (const [k, v] of await entries<IDBValidKey, Slip>(store())) {
-    if (typeof k === 'string' && k.startsWith(prefix) && v && typeof v === 'object' && v.v === 1) out.push(v)
+  for (const [k, v] of await entries<IDBValidKey, unknown>(store())) {
+    if (typeof k === 'string' && k.startsWith(prefix) && isSlip(v, scope) && k === slipKey(scope, v.id)) out.push(v)
   }
   return out
 }
 
 export async function readSlip(scope: string, id: SlipId): Promise<Slip | undefined> {
-  return get<Slip>(slipKey(scope, id), store())
+  const v = await get<unknown>(slipKey(scope, id), store())
+  return isSlip(v, scope) && v.id === id ? v : undefined
 }
 
 /**
@@ -59,7 +80,7 @@ export async function updateSlip(scope: string, id: SlipId, fn: (cur: Slip | und
   await update<Slip | undefined>(
     slipKey(scope, id),
     (cur) => {
-      after = fn(cur)
+      after = fn(isSlip(cur, scope) && cur.id === id ? cur : undefined)
       return after
     },
     store(),

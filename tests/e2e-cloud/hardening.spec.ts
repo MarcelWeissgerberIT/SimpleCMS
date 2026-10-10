@@ -267,6 +267,36 @@ test.describe('team cloud — hardening', () => {
         { op, ws },
       )
     await aiRuns('seed', wsId)
+    // this device's Outbox slips (features/outbox/db.ts): the team workspace's go with its copy, the local one's stay
+    const slips = (op: 'seed' | 'list', ws: string) =>
+      a.evaluate(
+        ({ op, ws }) =>
+          new Promise<string[]>((resolve, reject) => {
+            const r = indexedDB.open('one-outbox')
+            r.onupgradeneeded = () => r.result.createObjectStore('kv')
+            r.onerror = () => reject(r.error)
+            r.onsuccess = () => {
+              const db = r.result
+              const tx = db.transaction('kv', op === 'seed' ? 'readwrite' : 'readonly')
+              const os = tx.objectStore('kv')
+              let out: string[] = []
+              if (op === 'seed') {
+                os.put({ v: 1, id: 'out_TeamSlip01', scope: `cloud:${ws}`, state: 'held' }, `cloud:${ws}|slip|out_TeamSlip01`)
+                os.put({ v: 1, id: 'out_LocalSlip1', scope: 'local:local', state: 'held' }, 'local:local|slip|out_LocalSlip1')
+              } else {
+                const k = os.getAllKeys()
+                k.onsuccess = () => (out = k.result.map(String).filter((key) => key.endsWith('TeamSlip01') || key.endsWith('LocalSlip1')))
+              }
+              tx.oncomplete = () => {
+                db.close()
+                resolve(out)
+              }
+              tx.onerror = () => reject(tx.error)
+            }
+          }),
+        { op, ws },
+      )
+    await slips('seed', wsId)
     // a write held for a page's first server sync (cloud/content.ts: one record per hold) goes with the copy too
     await a.evaluate(
       ({ ws, page }) =>
@@ -315,6 +345,7 @@ test.describe('team cloud — hardening', () => {
       })
       .toBe(0)
     expect(await aiRuns('list', wsId)).toEqual(['local:local|r-local'])
+    expect(await slips('list', wsId)).toEqual(['local:local|slip|out_LocalSlip1'])
     expect(await a.evaluate((ws) => localStorage.getItem(`one.shell.visits:cloud:${ws}`), wsId)).toBeNull()
     expect(await a.evaluate(() => localStorage.getItem('one.shell.visits:local:local') ?? '')).toContain('localvisit')
     expect(await a.evaluate((ws) => localStorage.getItem(`one.mirror.reports:cloud:${ws}`), wsId)).toBeNull()

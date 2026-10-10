@@ -36,7 +36,7 @@ export function toolsetFor(name: string, only: readonly string[] | null = null, 
 /** What Claude is told about a server's OUT tools (none: ''). */
 export function outLine(out: readonly string[]): string {
   if (!out.length) return ''
-  return `These tools of it send data out and are switched off for you: ${out.join(', ')}. If the person wants something sent there, write the text in your answer instead: sending it is the person's own step.`
+  return `These tools of it send data out and are switched off for you: ${out.join(', ')}. If the person wants something sent there, write the text in your answer instead: the person sends it themselves, from One's Outbox.`
 }
 
 /**
