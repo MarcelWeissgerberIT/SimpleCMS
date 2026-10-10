@@ -8,46 +8,36 @@
  * ../workitem/markdown.ts). Team workspaces: an older tab would DELETE this node from a shared document,
  * so the collab server only lets clients of DOC_SCHEMA_VERSION ≥ its minimum write (docs/CLOUD.md § Schema gate).
  *
- * Editor rules (one plugin, local transactions only):
- *  - no task inside a task: a nested one is unwrapped (its title + notes stay, as plain blocks)
- *  - never inside a table cell (heavy, like databases or tabs): unwrapped there the same way
+ * Placement (../workitem/place.ts): never inside another task, never in a table — a task that lands there
+ * (paste, drop) is moved out whole, after the outermost task / table, fields and all. Local transactions
+ * only; documents written elsewhere are repaired when they are loaded (sanitize), never on mount in a
+ * shared document (two members opening it would both repair it).
  * HTML: <div data-type="work-item" data-item-id data-status data-due …> head (key + label) +
  *   <div class="workitem__body"> title + notes + <div class="workitem__chips"> — a static placard (exports).
+ *   It parses back into a task ONLY as this One's own clipboard copy (../workitem/clip.ts): raw HTML in
+ *   Markdown, Claude's answers, imports and other sites' clipboards read it as plain blocks.
  * Markdown: `> [!TODO] Title {#wi_…}` + the field line + the notes (../workitem/markdown.ts).
  */
 import { Node, mergeAttributes } from '@tiptap/core'
-import type { Fragment, Node as PMNode } from '@tiptap/pm/model'
-import { Plugin, PluginKey, type Transaction } from '@tiptap/pm/state'
+import { DOMSerializer, type DOMOutputSpec, type Fragment, type Node as PMNode } from '@tiptap/pm/model'
+import { Plugin, PluginKey, TextSelection, type Transaction } from '@tiptap/pm/state'
 import { ySyncPluginKey } from '@tiptap/y-tiptap'
 import { currentLang, t } from '../../i18n'
 import { useWorkspace } from '../../store/store'
+import { useUI } from '../../store/ui'
 import { itemAttrs, readDoneAt, readDue, readFrozen, readItemId, readLinks, readPeople, readReminder, readStatus, WORK_ITEM } from '../workitem/attrs'
+import { CLIP_ATTR, clipKey, isOwnCopy } from '../workitem/clip'
 import { chipWords, placardModel } from '../workitem/format'
 import { workItemMarkdown } from '../workitem/markdown'
+import { liftMisplaced } from '../workitem/place'
 
 export { WORK_ITEM }
 
 const isItem = (n: PMNode | null | undefined): boolean => !!n && n.type.name === WORK_ITEM
-const CELLS = new Set(['tableCell', 'tableHeader'])
 
 /* ------------------------------------------------------------------ */
-/* No task inside a task, none in a table cell                         */
+/* No task inside a task, none in a table (workitem/place.ts)          */
 /* ------------------------------------------------------------------ */
-
-/** Tasks that sit inside another task or a table cell (outermost first, in document order). */
-export function misplacedItems(doc: PMNode): Array<{ pos: number; node: PMNode }> {
-  const hits: Array<{ pos: number; node: PMNode }> = []
-  const walk = (node: PMNode, pos: number, banned: boolean) => {
-    node.forEach((child, offset) => {
-      const at = pos + offset
-      if (child.isTextblock || child.isLeaf) return
-      if (isItem(child) && banned) hits.push({ pos: at, node: child })
-      walk(child, at + 1, banned || isItem(child) || CELLS.has(child.type.name))
-    })
-  }
-  walk(doc, 0, false)
-  return hits
-}
 
 function insertsItem(tr: Transaction): boolean {
   return tr.steps.some((step) => {
@@ -61,17 +51,11 @@ function insertsItem(tr: Transaction): boolean {
   })
 }
 
-/** Replace each misplaced task by its blocks — later (and inner) ones first, so earlier positions stay valid. */
-function unwrap(tr: Transaction, hits: Array<{ pos: number }>): Transaction {
-  for (const { pos } of [...hits].reverse()) {
-    // read again: an inner one may have been unwrapped into it already
-    const cur = tr.doc.nodeAt(pos)
-    if (cur && isItem(cur)) tr.replaceWith(pos, pos + cur.nodeSize, cur.content)
-  }
-  return tr
-}
-
 const isRemote = (tr: Transaction) => !!(tr.getMeta(ySyncPluginKey) as { isChangeOrigin?: boolean } | undefined)?.isChangeOrigin
+const byHand = (tr: Transaction) => {
+  const ui = tr.getMeta('uiEvent')
+  return ui === 'paste' || ui === 'drop'
+}
 
 /* ------------------------------------------------------------------ */
 /* Node                                                                */
@@ -114,11 +98,15 @@ export const WorkItem = Node.create({
     return [
       {
         tag: 'div[data-type="work-item"]',
-        // only a task's own copy (clipboard, drag: it carries its itemId) comes back as a task. Exported or shared
-        // HTML (frozen, no ids) reads as plain blocks — in this release nothing creates a task, not even an import
-        getAttrs: (dom) => (readItemId((dom as HTMLElement).getAttribute('data-item-id')) ? null : false),
+        // only a task's own clipboard copy (copy / cut / drag in an editor of this device: it carries the clip
+        // key) comes back as a task — raw HTML in Markdown, Claude's answers, imports, exported or shared pages
+        // and other sites' clipboards read it as plain blocks: in this release nothing creates a task
+        getAttrs: (dom) => (isOwnCopy(dom as HTMLElement) && readItemId((dom as HTMLElement).getAttribute('data-item-id')) ? null : false),
         contentElement: (dom) => (dom as HTMLElement).querySelector<HTMLElement>(':scope > .workitem__body') ?? (dom as HTMLElement),
       },
+      // a placard read as plain blocks: its key, label and chips are chrome, not text
+      { tag: 'div.workitem__head', ignore: true },
+      { tag: 'div.workitem__chips', ignore: true },
     ]
   },
   renderHTML({ node, HTMLAttributes }) {
@@ -144,7 +132,12 @@ export const WorkItem = Node.create({
         'div',
         { class: 'workitem__head', contenteditable: 'false' },
         ['span', { class: 'workitem__key', role: 'img', 'aria-label': m.statusText, title: m.statusText }, ['span', { class: led }]],
-        ['span', { class: 'workitem__label' }, m.label],
+        [
+          'span',
+          { class: 'workitem__label' },
+          ['span', { class: 'workitem__state', ...(m.state.signal ? { 'data-signal': '' } : {}) }, m.state.word],
+          ...(m.state.id ? [['span', { class: 'workitem__id' }, ` · ${m.state.id}`]] : []),
+        ],
       ],
       ['div', { class: 'workitem__body' }, 0],
     ]
@@ -161,26 +154,45 @@ export const WorkItem = Node.create({
   },
 
   addProseMirrorPlugins() {
+    const type = this.type
     return [
       new Plugin({
         key: new PluginKey('workItem'),
-        // a page that opens with a misplaced task (written elsewhere) is repaired once, when it can be edited
-        view(view) {
-          const timer = window.setTimeout(() => {
-            if (view.isDestroyed || !view.editable) return
-            const hits = misplacedItems(view.state.doc)
-            if (hits.length) view.dispatch(unwrap(view.state.tr, hits))
-          }, 0)
-          return { destroy: () => window.clearTimeout(timer) }
+        props: {
+          // copy / cut / drag: every task carries this device's clip key, so it pastes back as a task (clip.ts)
+          clipboardSerializer: clipSerializer(this.editor.schema, type.name),
         },
         appendTransaction(trs, _old, state) {
           if (!trs.some((tr) => tr.docChanged && !isRemote(tr) && insertsItem(tr))) return null
-          const hits = misplacedItems(state.doc)
-          if (!hits.length) return null
-          const tr = unwrap(state.tr, hits)
-          return tr.docChanged ? tr : null
+          const tr = state.tr
+          const at = liftMisplaced(tr)
+          if (at === null || !tr.docChanged) return null
+          // the caret goes with the task (the end of its title)
+          const moved = tr.doc.nodeAt(at)
+          if (moved && isItem(moved)) tr.setSelection(TextSelection.create(tr.doc, at + 1 + moved.child(0).nodeSize - 1))
+          if (trs.some(byHand)) useUI.getState().toast({ message: t('editor.workItem.moved') })
+          return tr
         },
       }),
     ]
   },
 })
+
+/** The schema's clipboard serializer, with the clip key on every task (clip.ts). */
+function clipSerializer(schema: Parameters<typeof DOMSerializer.fromSchema>[0], name: string): DOMSerializer {
+  const base = DOMSerializer.fromSchema(schema)
+  const render = base.nodes[name]
+  if (!render) return base
+  const nodes = {
+    ...base.nodes,
+    [name]: (node: PMNode): DOMOutputSpec => {
+      const spec = render(node)
+      if (!Array.isArray(spec)) return spec
+      const [tag, maybeAttrs, ...rest] = spec as unknown as [string, unknown, ...unknown[]]
+      const isAttrs = !!maybeAttrs && typeof maybeAttrs === 'object' && !Array.isArray(maybeAttrs) && !(maybeAttrs as { nodeType?: unknown }).nodeType
+      const attrs = { ...(isAttrs ? (maybeAttrs as Record<string, unknown>) : {}), [CLIP_ATTR]: clipKey() }
+      return [tag, attrs, ...(isAttrs ? rest : [maybeAttrs, ...rest])] as unknown as DOMOutputSpec
+    },
+  }
+  return new DOMSerializer(nodes, base.marks)
+}

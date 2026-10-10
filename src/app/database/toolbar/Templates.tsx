@@ -295,7 +295,8 @@ function TemplateModal({ m, template, onClose }: { m: DbModel; template: Templat
     let content = template.content
     if (conv && md !== initialMd.current) {
       try {
-        content = md.trim() ? conv.markdownToDoc(md) : null
+        // its tasks written back as `> [!TODO] … {#wi_…}` stay those tasks
+        content = md.trim() ? conv.keepItems(conv.markdownToDoc(md), template.content) : null
       } catch {
         /* keep previous content */
       }

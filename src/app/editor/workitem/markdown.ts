@@ -7,6 +7,8 @@
  *   > notes…
  *
  * - Keys and values are written in English; empty fields and the status "todo" are left out.
+ * - Lossless: a hard break in the title stays one (`\` at the line's end, the title goes on in the next
+ *   quoted line); the time a task was done rides in its id braces (`{#wi_… done=2026-10-09T08:53:20.000Z}`).
  * - Reading (`workItemFromQuote`) also takes the German keys / values (Status / Fällig / Verantwortlich /
  *   Blockiert durch / Verknüpft; offen / in Arbeit / erledigt). A field line with an unknown key stays body
  *   text, so nothing is lost. The parser works on the parsed quote (TipTap JSON) BEFORE anything drops
@@ -80,7 +82,12 @@ const quoteLines = (md: string) =>
  * Markdown (already rendered by the caller's serializer).
  */
 export function workItemMarkdown(attrs: WorkItemAttrs, title: string, notes: string, labels: ItemMarkdownLabels): string {
-  const head = `[!TODO] ${title.replace(/\s*\n\s*/g, ' ').trim()}${attrs.itemId ? ` {#${attrs.itemId}}` : ''}`.trimEnd()
+  // a hard break ("  \n" from the serializer) stays one: "\" at the end of the line (CommonMark)
+  const line = title
+    .trim()
+    .replace(/[ \t]*\\?[ \t]*\n[ \t]*/g, (m) => (/\\|  /.test(m) ? '\\\n' : ' '))
+  const done = attrs.doneAt ? ` done=${new Date(attrs.doneAt).toISOString()}` : ''
+  const head = `[!TODO] ${line}${attrs.itemId ? ` {#${attrs.itemId}${done}}` : ''}`.trimEnd()
   const fields = fieldLine(attrs, labels)
   const body = notes.trim()
   return quoteLines([head, ...(fields ? [fields] : []), ...(body ? ['', body] : [])].join('\n'))
@@ -91,7 +98,8 @@ export function workItemMarkdown(attrs: WorkItemAttrs, title: string, notes: str
 /* ------------------------------------------------------------------ */
 
 const MARKER = /^\[!TODO\][ \t]*/i
-const ID_SUFFIX = /\s*\{#(wi_[A-Za-z0-9_-]{10})\}\s*$/
+/** `{#wi_…}` at the end of the title line, with the time it was done (`done=<ISO>`) when it is done. */
+const ID_SUFFIX = /\s*\{#(wi_[A-Za-z0-9_-]{10})(?:\s+done=(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?Z))?\}\s*$/
 
 type Key = 'status' | 'due' | 'people' | 'blockedBy' | 'related'
 
@@ -134,14 +142,10 @@ const hrefOf = (n: JSONContent): string | null => {
   return typeof href === 'string' ? href.trim() : null
 }
 
-/** Inline content split into lines (at "\n" inside text and at hard breaks). */
+/** Inline content split into lines at soft line breaks ("\n" inside text); hard breaks stay in their line. */
 function lines(inline: JSONContent[]): JSONContent[][] {
   const out: JSONContent[][] = [[]]
   for (const n of inline) {
-    if (n.type === 'hardBreak') {
-      out.push([])
-      continue
-    }
     if (n.type === 'text' && typeof n.text === 'string' && n.text.includes('\n')) {
       n.text.split('\n').forEach((part, i) => {
         if (i > 0) out.push([])
@@ -176,6 +180,7 @@ function segments(line: JSONContent[]): Piece[][] {
 }
 
 const ONE_LINK = /^one:(date|person|item)\/([^?#\s]+)(?:\?r=([^&#\s]*))?$/
+const KEY_HEAD = /^\s*([\p{L} ]{2,24}?)\s*:\s*/u
 
 function decode(s: string): string | null {
   try {
@@ -198,7 +203,7 @@ interface Fields {
 function readSegment(seg: Piece[], fields: Fields): boolean {
   const first = seg[0]
   if (!first || first.href) return false
-  const m = /^\s*([\p{L} ]{2,24}?)\s*:\s*/u.exec(first.text)
+  const m = KEY_HEAD.exec(first.text)
   if (!m) return false
   const key = KEYS[m[1].toLowerCase().replace(/\s+/g, ' ')]
   if (!key || key in fields) return false
@@ -254,11 +259,35 @@ export function readFieldLine(line: JSONContent[]): Fields | null {
   return fields
 }
 
+/** The visible text of a line (mentions as "@label", atoms as nothing). */
+const lineText = (line: JSONContent[]): string =>
+  line.map((n) => (n.type === 'text' ? (n.text ?? '') : n.type === 'mention' ? `@${String(n.attrs?.label ?? n.attrs?.id ?? '')}` : '')).join('')
+
+/**
+ * Does this line read as a field line ("Key: … · Key: …", every key one this form knows)? Lenient: the values
+ * may be anything — mention nodes, plain names, links of any kind (what a file or Claude wrote back).
+ */
+function looksLikeFieldLine(line: JSONContent[]): boolean {
+  const segs = lineText(line)
+    .split(/\s+·\s+/)
+    .map((x) => x.trim())
+    .filter(Boolean)
+  return (
+    segs.length > 0 &&
+    segs.every((seg) => {
+      const m = KEY_HEAD.exec(seg)
+      return !!m && !!KEYS[m[1].toLowerCase().replace(/\s+/g, ' ')]
+    })
+  )
+}
+
 const isBlank = (inline: JSONContent[]) => inline.every((n) => n.type === 'text' && !n.text?.trim())
 
-/** Trim leading / trailing whitespace of a line's text runs. */
+/** Trim leading / trailing whitespace (and hard breaks) of a line. */
 function trimLine(inline: JSONContent[]): JSONContent[] {
   const out = inline.map((n) => ({ ...n }))
+  while (out[0]?.type === 'hardBreak') out.shift()
+  while (out[out.length - 1]?.type === 'hardBreak') out.pop()
   const first = out[0]
   if (first?.type === 'text') first.text = (first.text ?? '').replace(/^\s+/, '')
   const last = out[out.length - 1]
@@ -266,11 +295,17 @@ function trimLine(inline: JSONContent[]): JSONContent[] {
   return out.filter((n) => n.type !== 'text' || n.text)
 }
 
-/**
- * A parsed `> [!TODO] …` quote (TipTap JSON) → a task block, or null for any other quote. The title line
- * may end with `{#wi_…}` (the task's id); the second line is read as the field line when it is one.
- */
-export function workItemFromQuote(quote: JSONContent): JSONContent | null {
+interface QuoteParts {
+  itemId: string | null
+  doneAt: number | null
+  title: JSONContent[]
+  /** the second line, when it is a field line by `isFields` */
+  fieldLine: JSONContent[] | null
+  notes: JSONContent[]
+}
+
+/** A `> [!TODO] …` quote taken apart: id (+ done time), title line, field line, notes — null for any other quote. */
+function splitQuote(quote: JSONContent, isFields: (line: JSONContent[]) => boolean): QuoteParts | null {
   if (quote.type !== 'blockquote') return null
   const firstPara = quote.content?.[0]
   if (firstPara?.type !== 'paragraph') return null
@@ -281,21 +316,20 @@ export function workItemFromQuote(quote: JSONContent): JSONContent | null {
   // the title line: its id suffix comes off
   let title = trimLine(split[0])
   let itemId: string | null = null
+  let doneAt: number | null = null
   const last = title[title.length - 1]
   const idm = last?.type === 'text' && !hrefOf(last) ? ID_SUFFIX.exec(last.text ?? '') : null
   if (idm && last) {
     itemId = idm[1]
+    doneAt = idm[2] ? Date.parse(idm[2]) || null : null
     const text = (last.text ?? '').slice(0, idm.index)
-    title = text ? [...title.slice(0, -1), { ...last, text }] : title.slice(0, -1)
+    title = trimLine(text ? [...title.slice(0, -1), { ...last, text }] : title.slice(0, -1))
   }
   let rest = split.slice(1)
-  let fields: Fields = {}
-  if (rest.length) {
-    const read = readFieldLine(rest[0])
-    if (read) {
-      fields = read
-      rest = rest.slice(1)
-    }
+  let fieldLine: JSONContent[] | null = null
+  if (rest.length && isFields(rest[0])) {
+    fieldLine = rest[0]
+    rest = rest.slice(1)
   }
   const notes: JSONContent[] = []
   const leftover = rest.map(trimLine).filter((l) => !isBlank(l))
@@ -308,10 +342,73 @@ export function workItemFromQuote(quote: JSONContent): JSONContent | null {
     notes.push({ type: 'paragraph', content })
   }
   notes.push(...(quote.content ?? []).slice(1))
-  const attrs = itemAttrs({ itemId, ...fields })
+  return { itemId, doneAt, title, fieldLine, notes }
+}
+
+/**
+ * A parsed `> [!TODO] …` quote (TipTap JSON) → a task block, or null for any other quote. The title line
+ * may end with `{#wi_…}` (the task's id); the second line is read as the field line when it is one.
+ */
+export function workItemFromQuote(quote: JSONContent): JSONContent | null {
+  const q = splitQuote(quote, (line) => !!readFieldLine(line))
+  if (!q) return null
+  const fields = q.fieldLine ? (readFieldLine(q.fieldLine) ?? {}) : {}
+  const attrs = itemAttrs({ itemId: q.itemId, doneAt: q.doneAt, ...fields })
   return {
     type: WORK_ITEM,
     attrs: storedItemAttrs({ ...attrs, id: null }),
-    content: [{ type: 'paragraph', ...(title.length ? { content: title } : {}) }, ...notes],
+    content: [{ type: 'paragraph', ...(q.title.length ? { content: q.title } : {}) }, ...q.notes],
   }
+}
+
+/* ------------------------------------------------------------------ */
+/* Known tasks written back as Markdown (while the reader is off)      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Markdown that comes back for a document that HOLDS tasks (a folder / GitHub file picked up, Claude's
+ * replace of a page or of blocks it read, a record type's or template's text edited, a script's replace):
+ * every `> [!TODO] … {#wi_X}` quote whose X is a task of `known` (the document before — or the blocks being
+ * replaced) becomes that task again — with ALL its fields as they are (status, due, people, links: they are
+ * changed in One only, the field line written back is not read), its title and notes from the Markdown.
+ *
+ * Never creates a task: only ids `known` holds, each as often as `known` holds it, and not where `doc` has
+ * that task already. `same(a, b)`: two blocks read the same (their Markdown) — then the old block is kept
+ * with everything Markdown cannot carry (colours, comments, block ids).
+ */
+export function keepItems(doc: JSONContent, known: JSONContent | null | undefined, same?: (a: JSONContent, b: JSONContent) => boolean): JSONContent {
+  if (!known) return doc
+  const pool = new Map<string, JSONContent[]>()
+  const collect = (n: JSONContent | undefined, into: (id: string, node: JSONContent) => void) => {
+    if (!n || typeof n !== 'object') return
+    if (n.type === WORK_ITEM) {
+      const id = itemAttrs(n).itemId
+      if (id) into(id, n)
+    }
+    n.content?.forEach((c) => collect(c, into))
+  }
+  collect(known, (id, node) => pool.set(id, [...(pool.get(id) ?? []), node]))
+  if (!pool.size) return doc
+  // tasks the new document holds already (blocks kept as they were) use up their copies
+  collect(doc, (id) => pool.get(id)?.shift())
+  const restore = (q: QuoteParts, old: JSONContent): JSONContent => {
+    const [oldTitle, ...oldNotes] = old.content ?? []
+    const title: JSONContent = { type: 'paragraph', ...(q.title.length ? { content: q.title } : {}) }
+    const notes = q.notes.map((n, i) => (oldNotes[i] && same?.(oldNotes[i], n) ? oldNotes[i] : n))
+    return {
+      ...old,
+      content: [oldTitle?.type === 'paragraph' && (same?.(oldTitle, title) ?? false) ? oldTitle : { ...(oldTitle?.type === 'paragraph' ? { attrs: oldTitle.attrs } : {}), ...title }, ...notes],
+    }
+  }
+  const walk = (n: JSONContent): JSONContent => {
+    if (n.type === 'blockquote') {
+      const q = splitQuote(n, looksLikeFieldLine)
+      const old = q?.itemId ? pool.get(q.itemId)?.shift() : undefined
+      if (q && old) return restore(q, old)
+    }
+    if (!n.content?.length) return n
+    const kids = n.content.map(walk)
+    return kids.some((k, i) => k !== n.content![i]) ? { ...n, content: kids } : n
+  }
+  return walk(doc)
 }

@@ -14,7 +14,7 @@ import { newId } from '../../../lib/ids'
 import { navigate } from '../../../lib/router'
 import { useCloud } from '../../../cloud'
 import { propertyValueToText, writePropertyValue } from '../../../database'
-import { markdownToDoc } from '../../../editor'
+import { keepItems, markdownToDoc } from '../../../editor'
 import { snapshotNow } from '../../history/snapshots'
 import { withoutWebImages } from '../../agents/images'
 import { ScriptError, type Pos, type Value } from '../lang'
@@ -240,14 +240,14 @@ export class Host {
     if (!this.real) {
       if (this.isDraft(page.id)) {
         const d = this.drafts.get(page.id)!
-        this.drafts.set(page.id, { ...d, content: joinDocs(d.content, toDoc(md), how) })
+        this.drafts.set(page.id, { ...d, content: joinDocs(d.content, toDoc(md, how === 'replace' ? d.content : null), how) })
       }
       return
     }
     await this.touch(page.id)
     const cur = useWorkspace.getState().pages[page.id]
     if (!cur) return
-    useWorkspace.getState().setContent(page.id, joinDocs(cur.content, toDoc(md), how), SCRIPT_ORIGIN)
+    useWorkspace.getState().setContent(page.id, joinDocs(cur.content, toDoc(md, how === 'replace' ? cur.content : null), how), SCRIPT_ORIGIN)
   }
 
   /* ---------------------------------------------------------------- create */
@@ -433,7 +433,8 @@ export class Host {
 }
 
 /** A script's Markdown as page content (md_chart's fences become chart blocks). */
-const toDoc = (md: string): JSONContent => chartBlocks(markdownToDoc(md))
+/** Markdown → blocks; replacing content that holds tasks: those written back (`{#wi_…}`) stay tasks. */
+const toDoc = (md: string, replaces: JSONContent | null = null): JSONContent => keepItems(chartBlocks(markdownToDoc(md)), replaces)
 
 function safeText(db: Database, prop: PropertyDef, row: Page): string {
   try {

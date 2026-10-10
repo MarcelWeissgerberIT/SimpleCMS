@@ -28,7 +28,7 @@ Contents: [Tools](#tools) · [Tidying up](#tidying-up) · [One Script](#one-scri
 | `one_get_database` | read | `{ id }` — the schema (types, options, relations, read-only flags — `onlyByHand` properties are read-only for MCP clients, `key` marks the database's key) and the views |
 | `one_query_database` | read | `{ databaseId, filter?, sort?, limit?, cursor? }` — rows with friendly values, filtered and sorted, paginated |
 | `one_create_page` | write | `{ title, parentId?, markdown?, icon? }` |
-| `one_update_page` | write | `{ id, title?, icon?, markdown?, mode: 'append' \| 'replace' }` |
+| `one_update_page` | write | `{ id, title?, icon?, markdown?, mode: 'append' \| 'replace' }` — a task block of the page written back as it was read (`> [!TODO] … {#wi_…}`) stays that task: its title and notes from the Markdown, its fields as the app has them |
 | `one_create_row` | write | `{ databaseId, title, properties?, markdown? }` — a key another row holds and an `onlyByHand` property are refused |
 | `one_update_row` | write | `{ id, properties }` — only what you pass changes, `null` clears; the same refusals |
 | `one_create_property` | write | `{ databaseId, name, type, options?, relation?: { databaseId, twoWay?, reverseName? } }` |

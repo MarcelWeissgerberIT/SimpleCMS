@@ -29,6 +29,7 @@ import { cellValue } from '../io/import/csv'
 import { mimeOf } from '../io/import/apply'
 import { mentionFromLink, toFileMarkdown } from '../io/import/mentions'
 import { deepEqual } from '../../store/merge'
+import { keepItems } from '../../editor'
 import { DB_FILE, FILES_DIR, ROWS_FILE, TRASH_DIR } from './layout'
 import { BASE_KEYS, EDITABLE_PROPS, iconText, parseIcon, propKey, propYaml, type RenderCtx } from './render'
 import { readFrontMatter, yamlList, yamlText, type YamlValue } from './yaml'
@@ -427,7 +428,9 @@ export async function applyPickup(input: PickupInput): Promise<PickupResult> {
     }
     if (applyProps(page, fm.data, file.path)) changed = true
     const ours = ws().pages[page.id]?.content ?? null
-    const merged = mergeBlocks(editor, ours, await toOne(body, file.path), parse)
+    // a task whose Markdown changed (its file edited, a person renamed …) is still that task: keepItems
+    // (the Markdown reader is off — without it the task would come back as a plain quote)
+    const merged = keepItems(mergeBlocks(editor, ours, await toOne(body, file.path), parse), ours, (a, b) => mdKey(editor, a) === mdKey(editor, b))
     const empty = !body.trim()
     if (!(empty && !ours) && !deepEqual(merged, ours)) {
       if (ours) await snapshotNow(page.id, 'manual').catch(() => null)

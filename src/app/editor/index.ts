@@ -88,7 +88,17 @@ export { workItemExportCss } from './workitem/exportCss'
 export { dueText as workItemDueText, reminderShort as workItemReminderShort } from './workitem/format'
 /** itemChanges(before attrs, after attrs): the fields that changed (status, due, reminder, people, blockedBy, related) — history diff. */
 export { itemChanges, type ItemChange, type ItemField } from './workitem/diff'
-export { DOC_SCHEMA_VERSION } from './schema/base'
+/**
+ * keepItems(doc, known, same?): Markdown that came back for a document holding tasks (a picked-up file, Claude's
+ * replace, an edited template text) — every `> [!TODO] … {#wi_X}` quote whose X `known` holds is that task again
+ * (all fields as they are, title + notes from the Markdown; blocks whose Markdown — or `same` — did not change
+ * stay One's own). Never creates one. Use it wherever Markdown REPLACES content that may hold tasks (the
+ * Markdown reader itself is off in this release).
+ */
+export { keepItems } from './convert'
+/** liftMisplacedItems(json): tasks inside a task / a table moved out whole, after it (sanitize() does it too). */
+export { liftMisplacedItems } from './workitem/place'
+export { DOC_SCHEMA_VERSION, NODE_GENERATIONS } from './schema/base'
 export { contextMarksOf, pageContextMarks, readableContent, readableBlocks, isContextLimited, useContextMarks, useContextPicking, type ContextMarks, type ReadableContent } from './context/read'
 export { setContextMode, openContextPicker, closeContextPicker, contextPickingPage, topBlockKeys } from './context/api'
 export { startRedo } from './context/redo'

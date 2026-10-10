@@ -15,7 +15,8 @@ import { safeHref } from './lib/embeds'
 import { freezeBreadcrumbs } from './lib/breadcrumbs'
 import { escapeMarkdownText } from './lib/mdText'
 import { freezeWorkItems } from './workitem/freeze'
-import { WORK_ITEMS_FROM_MARKDOWN, workItemFromQuote } from './workitem/markdown'
+import { WORK_ITEMS_FROM_MARKDOWN, keepItems as keepItemsWith, workItemFromQuote } from './workitem/markdown'
+import { liftMisplacedItems } from './workitem/place'
 import { useWorkspace } from '../store/store'
 
 export function getExtensions(opts: { readOnly?: boolean } = {}): Extensions {
@@ -234,9 +235,13 @@ function repairNode(schema: Schema, n: Json): Json | null {
   return null
 }
 
-/** Validate against the schema; repair only the invalid parts (never drop a whole block for one bad child). */
-export function sanitize(doc: JSONContent): JSONContent {
+/**
+ * Validate against the schema; repair only the invalid parts (never drop a whole block for one bad child).
+ * A task inside a task / a table is moved out whole first (workitem/place.ts — a rule the schema can't say).
+ */
+export function sanitize(input: JSONContent): JSONContent {
   const schema = docSchema()
+  const doc = liftMisplacedItems(input)
   try {
     schema.nodeFromJSON(doc).check()
     return doc
@@ -307,6 +312,17 @@ export function docToMarkdown(doc: JSONContent | null): string {
     console.warn('[editor] markdown serialize failed', err)
     return ''
   }
+}
+
+/** One block's Markdown (what a file or Claude can change of it). */
+const blockMarkdown = (n: JSONContent) => docToMarkdown({ type: 'doc', content: [n] })
+
+/**
+ * Markdown that came back for content holding tasks (workitem/markdown.ts keepItems): `> [!TODO] … {#wi_X}`
+ * quotes of tasks `known` holds are those tasks again; blocks whose Markdown did not change stay One's own.
+ */
+export function keepItems(doc: JSONContent, known: JSONContent | null | undefined, same: (a: JSONContent, b: JSONContent) => boolean = (a, b) => blockMarkdown(a) === blockMarkdown(b)): JSONContent {
+  return keepItemsWith(doc, known, same)
 }
 
 export function docToHTML(doc: JSONContent | null): string {

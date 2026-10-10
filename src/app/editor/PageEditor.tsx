@@ -19,6 +19,7 @@ import { createBridge, type Bridge } from './lib/bridge'
 import { editorExtensions } from './extensions/kit'
 import { findBlockById, flashBlock } from './extensions/behaviors'
 import { sanitize, withBlockIds } from './convert'
+import { liftMisplacedItems } from './workitem/place'
 import { EditorOverlays } from './menus/EditorOverlays'
 import { Comments } from './comments/CommentsRail'
 import { ContextPicker } from './context/ContextPicker'
@@ -241,11 +242,12 @@ function CloudEditor(props: PageEditorProps) {
   return <EditorInstance {...props} collab={handle} />
 }
 
-/** Sanitised content with block ids filled in (ids missing → persist once after mount). */
+/** Sanitised content with block ids filled in (ids missing, or a misplaced task moved out → persist once after mount). */
 function prepareContent(c: JSONContent | null | undefined): { doc: JSONContent | undefined; idsAdded: boolean } {
   if (!c) return { doc: undefined, idsAdded: false }
-  const { doc, changed } = withBlockIds(sanitize(c))
-  return { doc, idsAdded: changed }
+  const lifted = liftMisplacedItems(c)
+  const { doc, changed } = withBlockIds(sanitize(lifted))
+  return { doc, idsAdded: changed || lifted !== c }
 }
 
 function EditorInstance({ pageId, readOnly, autoFocus, onReady, className, collab }: PageEditorProps & { collab?: ContentDocHandle }) {

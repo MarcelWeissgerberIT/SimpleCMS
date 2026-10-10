@@ -16,6 +16,7 @@ import { SYNCED, SYNCED_META, newSyncedJson, syncedAround } from '../schema/sync
 import { insertBlock } from '../lib/blocks'
 import { expectOriginal, syncedEntry } from './state'
 import { unsyncEverywhere } from './service'
+import { CLIP_ATTR, clipKey } from '../workitem/clip'
 
 const LIST_ITEMS = new Set(['listItem', 'taskItem'])
 
@@ -33,7 +34,10 @@ export function editorPageId(editor: Editor): string | null {
  */
 function payload(syncId: string, sourcePageId: string, content: JSONContent[]): { html: string; text: string } {
   const ref: JSONContent = { type: 'doc', content: [{ type: SYNCED, attrs: { syncId, sourcePageId }, content }] }
-  const html = generateHTML(stripComments(stripButtonActions(ref)), getExtensions({ readOnly: true })).replace(/^<div /, '<div data-pm-slice="0 0 []" ')
+  const html = generateHTML(stripComments(stripButtonActions(ref)), getExtensions({ readOnly: true }))
+    .replace(/^<div /, '<div data-pm-slice="0 0 []" ')
+    // task blocks in it come back as tasks only with this device's clip key (workitem/clip.ts)
+    .replace(/data-type="work-item"/g, `data-type="work-item" ${CLIP_ATTR}="${clipKey()}"`)
   return { html, text: docToMarkdown({ type: 'doc', content }).trim() }
 }
 

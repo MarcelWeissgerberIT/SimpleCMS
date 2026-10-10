@@ -18,7 +18,7 @@ import { closeHistory } from '@tiptap/pm/history'
 import { useWorkspace } from '../../../store/store'
 import { flushPageContent, useCloud } from '../../../cloud'
 import type { ID } from '../../../store/types'
-import { docSchema, docToMarkdown, endUndoStep, liveEditorOf, startUndoStep } from '../../../editor'
+import { docSchema, docToMarkdown, endUndoStep, keepItems, liveEditorOf, startUndoStep } from '../../../editor'
 import { claudeBlocks, claudeDoc } from '../claudeDoc'
 import { webImagesOf } from '../../agents/images'
 import { t } from '../../../i18n'
@@ -390,11 +390,15 @@ function shownMedia(doc: PMNode): Set<string> {
   return out
 }
 
-/** New blocks for a place: list / to-do items inside a list, blocks elsewhere; the first keeps `keepId`. */
-function fitted(schema: Schema, markdown: string, parent: PMNode, keepId: string | null, shown?: ReadonlySet<string>): PMNode[] {
+/**
+ * New blocks for a place: list / to-do items inside a list, blocks elsewhere; the first keeps `keepId`.
+ * `replaced`: the blocks being replaced — a task among them that Claude wrote back as `> [!TODO] … {#wi_…}`
+ * stays that task (its fields as they are; keepItems). Nothing else ever becomes a task here.
+ */
+function fitted(schema: Schema, markdown: string, parent: PMNode, keepId: string | null, shown?: ReadonlySet<string>, replaced?: JSONContent): PMNode[] {
   // Claude's Markdown: nothing in it loads by itself — only what the page shows already may stay;
   // `[Title](#/p/<id>)` links to pages become page mentions (page link blocks outside lists) — links.ts
-  let blocks = (withPageNodes(claudeDoc(markdown, shown), livePage, { blocks: !(parent.type.name in LISTS) }).content ?? []).filter(Boolean)
+  let blocks = (withPageNodes(keepItems(claudeDoc(markdown, shown), replaced), livePage, { blocks: !(parent.type.name in LISTS) }).content ?? []).filter(Boolean)
   if (parent.type.name in LISTS) blocks = asItems(blocks, parent.type.name)
   if (keepId && blocks[0]) blocks[0] = { ...blocks[0], attrs: { ...(blocks[0].attrs ?? {}), id: keepId } }
   const nodes = blocks.map((b) => schema.nodeFromJSON(b))
@@ -419,7 +423,7 @@ function spotOf(doc: PMNode, c: StagedChange): Spot | { error: string } {
   try {
     if (e.op === 'replace_all') {
       if (contentKey(doc.toJSON() as JSONContent) !== e.pageKey) return { error: changedNote() }
-      return { id: c.id, n: c.n, from: 0, to: doc.content.size, nodes: fitted(schema, c.markdown ?? '', doc, null, shownMedia(doc)) }
+      return { id: c.id, n: c.n, from: 0, to: doc.content.size, nodes: fitted(schema, c.markdown ?? '', doc, null, shownMedia(doc), doc.toJSON() as JSONContent) }
     }
     const locs = e.targets.map((x) => locate(doc, x))
     if (!locs.length || locs.some((l) => !l)) return { error: goneNote() }
@@ -445,7 +449,8 @@ function spotOf(doc: PMNode, c: StagedChange): Spot | { error: string } {
       }
       return { id: c.id, n: c.n, from, to, nodes: [] }
     }
-    return { id: c.id, n: c.n, from, to, nodes: fitted(schema, c.markdown ?? '', first.parent, idOf(first.node), shownMedia(doc)) }
+    const replaced: JSONContent = { type: 'doc', content: locs.map((l) => l!.node.toJSON() as JSONContent) }
+    return { id: c.id, n: c.n, from, to, nodes: fitted(schema, c.markdown ?? '', first.parent, idOf(first.node), shownMedia(doc), replaced) }
   } catch {
     return { error: t('features.agent.edit.invalid') }
   }
@@ -547,9 +552,11 @@ export type EditPreview = { state: 'ready'; items: DocItem[] } | { state: 'chang
 export function stagedItems(c: StagedChange): DocItem[] {
   const e = c.edit
   if (!e) return []
-  const after = c.markdown ? claudeBlocks(c.markdown, webImagesOf(useWorkspace.getState().pages[c.pageId]?.content)) : []
-  if (e.op === 'replace_all') return diffDocs(e.pageBefore ?? null, { type: 'doc', content: after })
   const targets = e.targets.map((x) => x.block)
+  // the review shows what Apply writes: tasks written back stay tasks (see fitted)
+  const replaced: JSONContent | null = e.op === 'replace_all' ? (e.pageBefore ?? null) : e.op === 'replace' ? { type: 'doc', content: targets } : null
+  const after = c.markdown ? (keepItems({ type: 'doc', content: claudeBlocks(c.markdown, webImagesOf(useWorkspace.getState().pages[c.pageId]?.content)) }, replaced).content ?? []) : []
+  if (e.op === 'replace_all') return diffDocs(e.pageBefore ?? null, { type: 'doc', content: after })
   const first = targets[0]?.type ?? ''
   const list = ITEMS.has(first) ? (e.targets[0].list ?? (first === 'taskItem' ? 'taskList' : 'bulletList')) : null
   const wrap = (blocks: JSONContent[]): JSONContent[] => (list && blocks.length ? [{ type: list, content: blocks }] : blocks)

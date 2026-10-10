@@ -130,7 +130,7 @@ function linkLine(label: string, address: string): DocNode {
  * …) becomes editor blocks too, and entities or escapes hide an address from a text filter. So the
  * finished document is checked: web images, video and audio become links (addresses in `keep` — the ones
  * the page shows already — stay), files from the web and embeds (frames) become links, bookmarks become
- * links (no preview image), synced-block references and meeting blocks become their plain blocks.
+ * links (no preview image), synced-block references, meeting blocks and task blocks become their plain blocks.
  * Legitimate Markdown never makes those blocks (they are written out as links), so nothing real is lost.
  */
 export function withoutWebLoads<T extends DocNode>(doc: T, keep?: ReadonlySet<string>): T {
@@ -145,7 +145,9 @@ export function withoutWebLoads<T extends DocNode>(doc: T, keep?: ReadonlySet<st
       const url = str(a.url).trim()
       return url && /^https?:\/\//i.test(url) ? [linkLine(str(a.title) || url, url)] : []
     }
-    if (n.type === 'syncedBlock' || n.type === 'meetingNotes') return (n.content ?? []).flatMap(fix)
+    // blocks Markdown never makes (raw HTML could): their plain blocks — a task too (Claude never writes one
+    // this way: a task it read and writes back stays that task only through keepItems, editor/workitem)
+    if (n.type === 'syncedBlock' || n.type === 'meetingNotes' || n.type === 'workItem') return (n.content ?? []).flatMap(fix)
     if (!n.content) return [n]
     const kids = n.content.flatMap(fix)
     return kids.length === n.content.length && kids.every((k, i) => k === n.content![i]) ? [n] : [{ ...n, content: kids }]

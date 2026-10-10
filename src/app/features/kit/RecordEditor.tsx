@@ -22,7 +22,7 @@ import { Menu } from '../../ui/Menu'
 import type { MenuEntry } from '../../ui/Menu'
 import { PageIcon } from '../../ui/PageIcon'
 import { TypeIcon } from '../../database'
-import { docToMarkdown, markdownToDoc } from '../../editor'
+import { docToMarkdown, keepItems, markdownToDoc } from '../../editor'
 import { RECORD_TYPES, databasesOfRecordType } from './model'
 import { EntryHead, SaveBar, Section, Swatches, UsedList, pad2 } from './ui'
 
@@ -55,7 +55,8 @@ export function RecordEditor({ rt, n }: { rt: RecordType; n: number }) {
 
   const save = () => {
     const md = content.trim()
-    const next: RecordType = { ...draft, content: md ? markdownToDoc(md) : null }
+    // the text as it was: the content as it is (Markdown can't carry everything); edited: its tasks stay tasks
+    const next: RecordType = { ...draft, content: md === savedMd ? (rt.content ?? null) : md ? keepItems(markdownToDoc(md), rt.content) : null }
     ws().upsertRecordType(next)
     toast(t('features.kit.save.saved', { name: next.name }))
   }
