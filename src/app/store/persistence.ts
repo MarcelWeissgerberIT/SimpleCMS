@@ -51,6 +51,7 @@ import { sanitizeKit } from './kit'
 import { sanitizeLook } from './look'
 import { contentFingerprint, DOC_SCHEMA_VERSION, newerBlockPrints, newerCounts, rewrapNewer } from './generations'
 import { plainText } from './plain'
+import { SYSTEM, withWriter } from './writer'
 
 /** The single-record layout before v2 (read once, then converted). */
 const LEGACY_KEY = 'one.workspace.v1'
@@ -1194,11 +1195,12 @@ function adoptMerged(merged: Map<ID, [Page, Page]>) {
   if (next) applyRemote({ ...getWorkspaceSnapshot(), pages: next })
 }
 
+/** Another tab's save (or a closed tab's unsaved stash) replayed here — that tab journals its own writes (store/writer.ts). */
 function applyRemote(ws: Workspace) {
   const local = useWorkspace.getState()
   applyingRemote = true
   try {
-    local.replaceAll(ws)
+    withWriter(SYSTEM('tab'), () => local.replaceAll(ws))
   } finally {
     applyingRemote = false
   }

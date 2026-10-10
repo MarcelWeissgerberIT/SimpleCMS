@@ -7,6 +7,7 @@
  */
 import { pageChanges, useWorkspace } from '../../store/store'
 import { isApplyingRemote } from '../../store/persistence'
+import { SYSTEM, withWriter } from '../../store/writer'
 import type { ID } from '../../store/types'
 import { useCloud, writeAsAgent } from '../../cloud'
 import { contentKey } from '../history/snapshots'
@@ -38,10 +39,13 @@ export function stampLocal(agentId: ID, changed: ID[], created: ID[] = []): void
   const s = useWorkspace.getState()
   writing++
   try {
-    for (const id of new Set([...changed, ...created])) {
-      if (!s.pages[id]) continue
-      s.updatePage(id, { updatedBy: actor, ...(created.includes(id) ? { createdBy: actor } : {}) })
-    }
+    // a stamp, not a change (the flight recorder never journals it)
+    withWriter(SYSTEM('stamp'), () => {
+      for (const id of new Set([...changed, ...created])) {
+        if (!s.pages[id]) continue
+        s.updatePage(id, { updatedBy: actor, ...(created.includes(id) ? { createdBy: actor } : {}) })
+      }
+    })
   } finally {
     writing--
   }
@@ -67,7 +71,9 @@ export function startAttributionKeeper(): () => void {
     if (clear.length)
       queueMicrotask(() => {
         const s = useWorkspace.getState()
-        for (const id of clear) if (agentIdOf(s.pages[id]?.updatedBy)) s.updatePage(id, { updatedBy: null })
+        withWriter(SYSTEM('stamp'), () => {
+          for (const id of clear) if (agentIdOf(s.pages[id]?.updatedBy)) s.updatePage(id, { updatedBy: null })
+        })
       })
   })
   keeper = () => {

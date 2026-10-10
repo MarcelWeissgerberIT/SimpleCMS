@@ -27,6 +27,7 @@ import { LOCAL, roots } from './schema'
 import { closeSocket, getSocket, isConnected, onConnection, reconnectSocket } from './socket'
 import { useCloud, useCloudSync, type CloudUser, type CloudWorkspace, type Peer, type Role } from './state'
 import { readOnlyFor, watchSchema } from './schemaGate'
+import { SYSTEM, withWriter } from '../store/writer'
 
 export interface ActiveCloud {
   ws: CloudWorkspace
@@ -237,12 +238,15 @@ export async function openCloudWorkspace(ws: CloudWorkspace, user: CloudUser, on
       window.clearTimeout(repairTimer)
       repairTimer = window.setTimeout(() => {
         if (!writable() || !firstSynced || !privateSynced) return
-        const s = useWorkspace.getState()
-        for (const { id, patch } of structuralRepairs(s.pages, s.databases)) useWorkspace.getState().updatePage(id, patch)
-        // unique_id numbers handed out twice at the same moment on two devices: later rows move on
-        const ids = uniqueIdRepairs(useWorkspace.getState().pages, useWorkspace.getState().databases)
-        for (const r of ids.rows) useWorkspace.getState().setRowProperty(r.id, r.propId, r.value)
-        for (const c of ids.counters) useWorkspace.getState().updateDatabase(c.id, { nextUniqueId: c.next })
+        // repairs, not anyone's change (store/writer.ts)
+        withWriter(SYSTEM('repair'), () => {
+          const s = useWorkspace.getState()
+          for (const { id, patch } of structuralRepairs(s.pages, s.databases)) useWorkspace.getState().updatePage(id, patch)
+          // unique_id numbers handed out twice at the same moment on two devices: later rows move on
+          const ids = uniqueIdRepairs(useWorkspace.getState().pages, useWorkspace.getState().databases)
+          for (const r of ids.rows) useWorkspace.getState().setRowProperty(r.id, r.propId, r.value)
+          for (const c of ids.counters) useWorkspace.getState().updateDatabase(c.id, { nextUniqueId: c.next })
+        })
       }, 1500)
     }
     // a row numbered here (the database's counter moved) may have taken a number that is in use
@@ -384,7 +388,7 @@ async function mirrorMembers(wsId: string, user: CloudUser): Promise<void> {
     }
   }
   // a store change like any other: the binding writes it into the meta document
-  if (changed && writable()) s.cloudPatch({ people })
+  if (changed && writable()) withWriter(SYSTEM('members'), () => s.cloudPatch({ people }))
 }
 
 /* ------------------------------------------------------------------ close reasons */

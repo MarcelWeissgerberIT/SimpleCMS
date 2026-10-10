@@ -6,6 +6,7 @@
  */
 import type { ID, PageIcon } from './types'
 import { useWorkspace } from './store'
+import { SYSTEM, withWriter } from './writer'
 
 /** seeded emoji → [titles (EN, DE), new asset icon] */
 const DEMO: Array<[string, string[], string]> = [
@@ -25,6 +26,10 @@ const DEMO: Array<[string, string[], string]> = [
 const asset = (value: string): PageIcon => ({ type: 'asset', value })
 
 export function refreshDemoIcons(): number {
+  return withWriter(SYSTEM('maintenance'), refreshIcons)
+}
+
+function refreshIcons(): number {
   const s = useWorkspace.getState()
   let changed = 0
   for (const page of Object.values(s.pages)) {

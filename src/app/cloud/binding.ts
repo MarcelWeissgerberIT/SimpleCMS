@@ -32,6 +32,7 @@ import { INTEGRATION_LIMITS, sameIntegration, sanitizeIntegration } from '../sto
 import { defaultView } from '../store/store'
 import { sharedPlain } from './privacy'
 import { clone, LOCAL, newDatabaseMap, newPageMap, readDatabase, readFunctions, readPage, readPeople, roots, writeDatabase, writeFunctions, writePage, writePeople, type YMap } from './schema'
+import { SYSTEM, withWriter } from '../store/writer'
 
 let applying = 0
 
@@ -503,7 +504,8 @@ export function startBinding(o: BindingOptions): Binding {
   let revertTimer: number | undefined
   const scheduleRevert = () => {
     window.clearTimeout(revertTimer)
-    revertTimer = window.setTimeout(() => applyRemote(true), 30)
+    // what a viewer (or a refused move) changed here goes back to what the documents hold — not a change of anyone's
+    revertTimer = window.setTimeout(() => withWriter(SYSTEM('revert'), () => applyRemote(true)), 30)
   }
 
   /** Where a page's entry is (the store's marker decides while a move is half through). */
@@ -539,11 +541,11 @@ export function startBinding(o: BindingOptions): Binding {
     if (!pagesChanged && !dbsChanged && !peopleChanged && !functionsChanged && !agentsChanged && !scriptsChanged && !kitChanged && !lookChanged && !integrationsChanged) return
     // a look change by someone who may not style the workspace: the team's look comes back from Y
     if (lookChanged && o.writable() && !o.canStyle()) {
-      queueMicrotask(() => applyFromCloud(() => useWorkspace.getState().cloudPatch({ look: sanitizeLook(rs.workspace.get('look')) })))
+      queueMicrotask(() => withWriter(SYSTEM('refused'), () => applyFromCloud(() => useWorkspace.getState().cloudPatch({ look: sanitizeLook(rs.workspace.get('look')) }))))
     }
     // integration profiles likewise (owners and admins only)
     if (integrationsChanged && o.writable() && !o.canStyle()) {
-      queueMicrotask(() => applyFromCloud(() => useWorkspace.getState().cloudPatch({ integrations: readIntegrations(integrationsMap, undefined) })))
+      queueMicrotask(() => withWriter(SYSTEM('refused'), () => applyFromCloud(() => useWorkspace.getState().cloudPatch({ integrations: readIntegrations(integrationsMap, undefined) }))))
     }
 
     if (!o.writable()) {
@@ -695,7 +697,7 @@ export function startBinding(o: BindingOptions): Binding {
           const by = (k: string) => (typeof yp.get(k) === 'string' && yp.get(k) ? (yp.get(k) as string) : undefined)
           if (cur.createdBy !== by('createdBy') || cur.updatedBy !== by('updatedBy')) pages[id] = { ...cur, createdBy: by('createdBy'), updatedBy: by('updatedBy') }
         }
-        if (Object.keys(pages).length) applyFromCloud(() => useWorkspace.getState().cloudPatch({ pages }))
+        if (Object.keys(pages).length) withWriter(SYSTEM('stamp'), () => applyFromCloud(() => useWorkspace.getState().cloudPatch({ pages })))
       })
     }
     if (blocked.length) {
