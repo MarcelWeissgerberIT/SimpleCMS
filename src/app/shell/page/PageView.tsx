@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { Editor } from '@tiptap/core'
 import { ImagePlus, SmilePlus, RotateCcw, Trash2 } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
+import { withWriter } from '../../store/writer'
 import { useUI } from '../../store/ui'
 import { isEffectivelyTrashed, usePage } from '../../store/selectors'
 import { PageEditor } from '../../editor'
@@ -207,7 +208,7 @@ function PageHeaderControls({ page, readOnly }: { page: Page; readOnly: boolean 
                     ...list.map((c) => ({ type: 'image' as const, value: coverAssetPath(c), positionY: 50 })),
                     ...GRADIENTS.slice(0, 4).map((g) => ({ type: 'gradient' as const, value: g.value, positionY: 50 })),
                   ]
-                  update({ cover: pool[Math.floor(Math.random() * pool.length)] })
+                  withWriter({ kind: 'you', via: 'ui' }, () => update({ cover: pool[Math.floor(Math.random() * pool.length)] }))
                 })
               }}
             >

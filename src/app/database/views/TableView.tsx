@@ -7,6 +7,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronRight, Copy, GripVertical, Hand, KeyRound, PencilLine, Plus, Shapes, Trash, X } from 'lucide-react'
 import type { ColorRule, ID, Page, PropertyDef, PropertyValue } from '../../store/types'
 import { useWorkspace } from '../../store/store'
+import { withWriter } from '../../store/writer'
 import { toast } from '../../store/ui'
 import { Tooltip } from '../../ui/Tooltip'
 import { useT } from '../../i18n'
@@ -379,7 +380,8 @@ export function TableView({ onFilterProp }: { onFilterProp: (id: ID) => void }) 
         // the database's key stays unique per row (store/keys.ts): a pasted value another row holds is refused
         const clash = keyClash(db, p, [ri.it.row.id], v)
         if (clash?.row) toast({ message: t('database.key.taken', { value: clash.value, name: p.name, row: clash.row.title.trim() || t('common.untitled') }), kind: 'error' })
-        else writeValue(db.id, p, ri.it.row.id, v)
+        // the person's paste, written once the clipboard answered (store/writer.ts)
+        else withWriter({ kind: 'you', via: 'ui' }, () => writeValue(db.id, p, ri.it.row.id, v))
       })
       return
     }

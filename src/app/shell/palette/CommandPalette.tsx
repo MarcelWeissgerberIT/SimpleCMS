@@ -15,6 +15,8 @@ import { handFocusOver, restoreFocus as restoreFocusTo } from '../../ui/focus'
 import { shortcutLabel, ALT } from '../../ui/controls'
 import { useT } from '../../i18n'
 import type { ID, Page } from '../../store/types'
+import { withWriter, type Writer } from '../../store/writer'
+import { newId } from '../../lib/ids'
 import { buildCommands, type Command as Cmd } from '../lib/commands'
 import { contextPageId, createPageAndOpen, goToPage } from '../lib/actions'
 import { useMediaQuery } from '../lib/hooks'
@@ -602,6 +604,8 @@ function AskPanel({ question, pageId, onDone }: { question: string; pageId: ID |
   /** the One memory that went along with the question (null: not in use) */
   const [memory, setMemory] = useState<MemoryUse | null>(null)
   const abort = useRef<AbortController | null>(null)
+  // the answer's run (store/writer.ts: `ai:<run>:ask` when it is appended or saved as a page)
+  const runId = useRef('')
 
   useEffect(() => () => abort.current?.abort(), [])
 
@@ -610,6 +614,7 @@ function AskPanel({ question, pageId, onDone }: { question: string; pageId: ID |
     abort.current?.abort()
     const ctrl = new AbortController()
     abort.current = ctrl
+    runId.current = newId()
     setAnswer('')
     setMcpCalls([])
     setMedia([])
@@ -649,17 +654,19 @@ function AskPanel({ question, pageId, onDone }: { question: string; pageId: ID |
     }
   }
 
+  const askWriter = (): Writer => ({ kind: 'ai', run: runId.current || newId(), action: 'ask' })
+
   const append = () => {
     if (!page || !answer) return
     const doc = claudeDoc(answer, webImagesOf(page.content))
     const cur = page.content?.content ?? []
-    useWorkspace.getState().setContent(page.id, { type: 'doc', content: [...cur, ...(doc.content ?? [])] }, 'ai')
+    withWriter(askWriter(), () => useWorkspace.getState().setContent(page.id, { type: 'doc', content: [...cur, ...(doc.content ?? [])] }, 'ai'))
     useUI.getState().toast({ message: t('shell.ask.appended'), kind: 'success' })
     onDone()
   }
 
   const toNewPage = () => {
-    const id = useWorkspace.getState().createPage({ title: question.slice(0, 80), content: claudeDoc(answer) })
+    const id = withWriter(askWriter(), () => useWorkspace.getState().createPage({ title: question.slice(0, 80), content: claudeDoc(answer) }))
     onDone()
     goToPage(id)
   }

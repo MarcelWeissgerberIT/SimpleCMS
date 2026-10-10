@@ -5,6 +5,7 @@ import { useMemo, useRef, useState } from 'react'
 import { Check, Link2, Plus, Upload, X } from 'lucide-react'
 import type { ID, Page, PropertyDef } from '../../store/types'
 import { useWorkspace } from '../../store/store'
+import { withWriter } from '../../store/writer'
 import { useT } from '../../i18n'
 import { caretToEnd } from './TextEditor'
 import { PageIcon } from '../../ui/PageIcon'
@@ -259,7 +260,8 @@ export function FilesEditor({ value, onChange }: { value: string[]; onChange: (v
     setBusy(true)
     try {
       const refs = await uploadFiles(files)
-      onChange([...latest.current, ...refs])
+      // the person's upload, written once the files are stored (store/writer.ts)
+      withWriter({ kind: 'you', via: 'ui' }, () => onChange([...latest.current, ...refs]))
     } finally {
       setBusy(false)
     }

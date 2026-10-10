@@ -10,6 +10,8 @@ import { plainText, useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
 import { navigate, openPage } from '../../lib/router'
 import { resolveAssetUrl, saveFile } from '../../lib/files'
+import { newId } from '../../lib/ids'
+import { withWriter } from '../../store/writer'
 import { PageIcon } from '../../ui/PageIcon'
 import { ReadOnlyDoc } from '../../editor'
 import { logoMarkSvg } from '@/shared/logo'
@@ -82,7 +84,8 @@ export function SharedPageView({ payload }: { payload: string }) {
     setSaving(true)
     try {
       const content = page.content ? { ...page.content, content: await storeImages(page.content.content) } : null
-      const id = useWorkspace.getState().createPage({ title: page.title, icon: page.icon, cover: page.cover, content })
+      // a copy of a shared page into this workspace: an import (store/writer.ts)
+      const id = withWriter({ kind: 'import', run: newId(), source: 'share' }, () => useWorkspace.getState().createPage({ title: page.title, icon: page.icon, cover: page.cover, content }))
       setSavedId(id)
       useUI.getState().toast({ message: t('features.share.view.saved'), kind: 'success' })
       openPage(id)
