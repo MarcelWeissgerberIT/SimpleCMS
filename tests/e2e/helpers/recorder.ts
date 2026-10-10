@@ -3,7 +3,7 @@
  * the seam `window.__oneRecorder`, run story steps under a writer, read what the journal recorded since a
  * moment and assert a lane. Test data is fictional (Nordlicht, Tessera).
  */
-import type { Page } from '@playwright/test'
+import { expect, type Page } from '@playwright/test'
 
 type AnyRec = Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -68,4 +68,54 @@ export async function nordlichtDb(page: Page): Promise<{ db: string; stage: stri
     const rows = ['NL-1398', 'NL-1399', 'NL-1400', 'NL-1401'].map((title, i) => g().createRow(db, { title, properties: { [stage]: i % 2 ? 'o-ready' : 'o-backlog', [est]: i + 1, [note]: `Nordlicht ${i}` } }) as string)
     return { db, stage, est, note, rows, ready: 'o-ready', done: 'o-done', backlog: 'o-backlog' }
   })
+}
+
+/* ------------------------------------------------------------------ */
+/* The lane sweep (recorder-writers.spec)                              */
+/* ------------------------------------------------------------------ */
+
+/** A moment on the tape: the ops written so far (their keys) — what comes after it is the row's. */
+export interface RecMark {
+  seen: string[]
+}
+
+/**
+ * Mark the tape now: everything queued is written and every open segment closed first — so the row's first write
+ * opens its own op (typing would otherwise fold into the person's open event of the setup).
+ */
+export async function markRec(page: Page): Promise<RecMark> {
+  await rec(page, 'settle')
+  return { seen: (await recOps(page)).map((o) => o.k as string) }
+}
+
+/** The ops written after `since` (the queue drained first), oldest first. */
+export async function recorderOps(page: Page, since: RecMark): Promise<AnyRec[]> {
+  await flushRec(page)
+  const seen = new Set(since.seen)
+  return (await recOps(page)).filter((o) => !seen.has(o.k)).sort((a, b) => a.at - b.at || (a.k < b.k ? -1 : 1))
+}
+
+const matches = (v: string | undefined, m: string | RegExp): boolean => (typeof m === 'string' ? v === m : !!v && m.test(v))
+
+/**
+ * Wait until an op on `lane` (and, given, with run key `run` / writer key `w`) was written after `since`; then
+ * nothing written since then fell back to a guess (no `unknown` lane, the seam's `unknowns()` empty). Returns
+ * the row's ops.
+ */
+export async function expectLane(page: Page, since: RecMark, lane: string | RegExp, run?: string | RegExp, w?: string | RegExp): Promise<AnyRec[]> {
+  const hit = (o: AnyRec) => matches(o.l, lane) && (run === undefined || matches(o.r, run)) && (w === undefined || matches(o.w, w))
+  let ops: AnyRec[] = []
+  const until = Date.now() + 15_000
+  for (;;) {
+    ops = await recorderOps(page, since)
+    if (ops.some(hit)) break
+    if (Date.now() > until) {
+      const state = { paused: await rec(page, 'paused'), stats: await rec(page, 'stats'), unknowns: await rec(page, 'unknowns') }
+      throw new Error(`no op on lane ${lane}${run ? ` run ${run}` : ''}${w ? ` writer ${w}` : ''} — got ${JSON.stringify(ops.map((o) => [o.l, o.w, o.r ?? null]))} · ${JSON.stringify(state)}`)
+    }
+    await page.waitForTimeout(250)
+  }
+  expect(ops.filter((o) => o.l === 'unknown').map((o) => o.w), 'ops that fell back to unknown').toEqual([])
+  expect(await rec(page, 'unknowns'), 'writes without a writer').toEqual([])
+  return ops
 }
