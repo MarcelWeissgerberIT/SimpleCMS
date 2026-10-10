@@ -8,8 +8,8 @@ import { endRun, fallbackReports, clearFallbackReports, noteRun, withWriter, typ
 import { dropPins, listPinBodies, listPinMetas, pinToBody } from '../../history/pins'
 import { readPinBodies, readPinMetas } from './pins'
 import type { JOp, JSegment, LaneKey, Scope } from '../model/types'
-import { HI, openJournal, pad13, pad8, scopeRange, STORES, wipeScope, type Batch } from './db'
-import { digestWhole, forgetScopeKey, scopeKey } from './key'
+import { HI, openJournal, pad13, pad8, scopeRange, STORES, type Batch } from './db'
+import { digestWhole, scopeKey } from './key'
 import { lostTails } from './recover'
 import { scopeNow } from './scope'
 import type { Recorder } from './recorder'
@@ -143,12 +143,7 @@ export function installSeam(rec: Recorder): void {
     recover: (scope?: Scope) => rec.recover(scope ?? scopeOf()),
     recovered: (scope?: Scope) => rec.recovered(scope ?? scopeOf()),
     crash: () => rec.crash(),
-    wipe: async (scope?: Scope) => {
-      const s = scope ?? scopeOf()
-      await rec.flush().catch(() => undefined)
-      await wipeScope(s)
-      forgetScopeKey(s)
-    },
+    wipe: (scope?: Scope) => rec.wipe(scope ?? scopeOf()),
     stop: () => rec.stop(),
   }
   ;(window as unknown as { __oneRecorder?: unknown }).__oneRecorder = api

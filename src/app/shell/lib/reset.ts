@@ -1,6 +1,7 @@
 import { safeLocalGet, safeLocalSet } from '@/shared/brand'
 import { useCloud } from '../../cloud'
 import { forgetLookCache } from '../../lib/look/apply'
+import { RECORDER_DB } from '../../features'
 
 /** localStorage flag: wipe all IndexedDB data on the next boot (before anything opens a connection). */
 export const RESET_FLAG = 'one.resetPending'
@@ -90,7 +91,7 @@ export async function runPendingReset(onBlocked?: () => void): Promise<boolean> 
     /* "1" or junk: start over */
   }
   if (!names) {
-    const all = new Set<string>(['keyval-store', 'one-files', 'one-vault'])
+    const all = new Set<string>(['keyval-store', 'one-files', 'one-vault', RECORDER_DB])
     try {
       const dbs = (await indexedDB.databases?.()) ?? []
       for (const d of dbs) if (d.name) all.add(d.name)
@@ -131,7 +132,8 @@ export async function runPendingReset(onBlocked?: () => void): Promise<boolean> 
     ),
   )
   try {
-    for (const k of Object.keys(localStorage)) if (k.startsWith('one.shell.')) localStorage.removeItem(k)
+    // the shell's per-device lists, and the flight recorder's deck settings (features/recorder)
+    for (const k of Object.keys(localStorage)) if (k.startsWith('one.shell.') || k.startsWith('one.recorder.')) localStorage.removeItem(k)
     // the report pages the local workspace's mirror setups made (features/agents/mirrorMemory.ts)
     localStorage.removeItem('one.mirror.reports:local:local')
     // the local workspace's look cache (team workspaces keep theirs, "standard look here" included)

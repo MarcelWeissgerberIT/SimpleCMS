@@ -600,8 +600,11 @@ device opened, how often — localStorage `one.shell.visits:cloud:<id>`, never s
   `one:ws:<id>:p:*`), the `one-cloud` keys (`overlay` incl. the AI key, `content`, `uploads`, `purge`),
   this device's page visits (localStorage `one.shell.visits:cloud:<id>` — removed even when nothing else
   of the copy is left), the version history of their pages (`one-history`: `idx:<page>` + `snap:*`, except pages the local
-  workspace has with the same id) and cached files that nothing else in this browser uses (the local
-  workspace, history of other pages, other workspaces' cached content and pending uploads keep theirs).
+  workspace has with the same id; read keys first — the values only of the index lists and the versions), this device's
+  flight recorder of it (IndexedDB `one-recorder`, every record of scope `cloud:<id>`, and its before-images in `one-history`
+  `pin:cloud:<id>|…`, whose metas name the files they hold) and cached files that nothing else in this browser uses (the local
+  workspace, history of other pages, other scopes' before-images, other workspaces' cached content and pending uploads keep
+  theirs).
   The server is not touched. Because an open workspace holds its databases, a removal is a flag
   (localStorage `one.cloud.forget`: workspace ids or `*`) that the next boot carries out before any
   cloud database opens (≤ 5 s wait; a database another tab holds is deleted when it lets go, the flag

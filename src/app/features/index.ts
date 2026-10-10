@@ -3,6 +3,7 @@
  *
  *  Background services (started once from main.tsx after hydrate):
  *   - startHistory(): periodic page snapshots for version history
+ *   - startRecorder(): the flight recorder — every store write with its writer, on this device (right after startHistory)
  *   - startAutomations(): runs database automations (webhooks …) on store changes
  *   - seedDemoHistory(pageId): back-dated versions for a freshly seeded page (version tape demo)
  *
@@ -20,6 +21,13 @@ export { snapshotNow } from './history/snapshots'
 /* aiWrite(fn): synchronous writes by Claude / an agent / an automation — the row's (page's) state right before is kept as an "AI" version (once per page per call) */
 export { aiWrite } from './history/snapshots'
 export { HistoryModal } from './history/HistoryModal'
+/*
+ * Flight recorder (Flugschreiber; see recorder/index.ts): who wrote what, when — ids, kinds, times, counts and digests per
+ * device in IndexedDB `one-recorder`, before-images ("pins") in the version store.
+ *  - startRecorder(): background service (main.tsx, right after startHistory) · RECORDER_DB (shell/lib/reset.ts)
+ *  - wipeRecorderScope(scope) · recorderFileRefs(): the device-copy wipe (cloud/device.ts)
+ */
+export { startRecorder, wipeRecorderScope, recorderFileRefs, RECORDER_DB } from './recorder'
 export { startAutomations } from './automations/engine'
 export { AutomationsModal } from './automations/AutomationsModal'
 export { isAIConfigured, runAI, type AIAction, type RunAIOptions } from './ai/client'

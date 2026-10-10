@@ -16,7 +16,8 @@ import { newId } from '../../../lib/ids'
 import type { PlaceKey, Scope } from '../model/types'
 import { resolveHot } from './attribute'
 import { Budget } from './budget'
-import { openJournal, journalIfOpen } from './db'
+import { openJournal, journalIfOpen, wipeScope } from './db'
+import { forgetScopeKey } from './key'
 import { Processor, type QItem, type Stats } from './process'
 import { pruneHumanPins, pruneOldestDays, pruneRetention } from './prune'
 import { recoverScope } from './recover'
@@ -298,6 +299,18 @@ export class Recorder {
       console.warn('[recorder] journal write failed', e)
       throw e
     }
+  }
+
+  /**
+   * Wipe a scope's journal and pins (the Data line's "erase the tape", the test seam): what waits is written first,
+   * then every record and pin of the scope goes, its key is forgotten and — the scope of this tab — nothing in memory
+   * refers to them any more (open segments, the identity chain, digests).
+   */
+  async wipe(scope: Scope): Promise<void> {
+    await this.flush().catch(() => undefined)
+    await wipeScope(scope)
+    forgetScopeKey(scope)
+    if (scope === scopeNow()) this.processor.reset()
   }
 
   /** Flush and close segments (all, or a writer's: its segmentation key, run key, writer key or lane). */

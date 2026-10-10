@@ -7,7 +7,9 @@
  *   one-cloud / kv                      overlay:<id> (settings incl. the AI key's marker, favourites, recent),
  *                                       content:<id>:<page>, held:<id>:<page>, uploads:<id>, purge:<id>, privfiles:<id>
  *   one-files / files                   cached files — only those nothing else in this browser uses
- *   one-history / snapshots             version history of the workspace's pages (idx:<page>, snap:<id>)
+ *   one-history / snapshots             version history of the workspace's pages (idx:<page>, snap:<id>) and the
+ *                                       flight recorder's before-images of scope cloud:<id> (pin:cloud:<id>|…)
+ *   one-recorder                        the flight recorder's journal of scope cloud:<id> (features/recorder)
  *   one-vault / kv                      sealed secrets of scope cloud:<id> (the AI key, the GitHub token)
  *   localStorage one.shell.visits:cloud:<id>   which pages this device opened, how often (FREQUENT)
  *   localStorage one.mirror.reports:cloud:<id> the report pages this device's mirror setups made (features/agents)
@@ -21,7 +23,7 @@
  */
 import * as Y from 'yjs'
 import { IndexeddbPersistence } from 'y-indexeddb'
-import { createStore, delMany, entries, keys } from 'idb-keyval'
+import { createStore, delMany, getMany, keys } from 'idb-keyval'
 import { deleteFile, FILE_PREFIX } from '../lib/files'
 import { lsGet, lsSet, readChoice, readSession, sleep, writeChoice, WS_ID } from './env'
 import { allDeviceEntries, dropDeviceKeys } from './local'
@@ -235,29 +237,39 @@ async function forget(flag: string[]): Promise<void> {
   }
 
   /* ---------------- version history of the targets' pages */
+  // keys first: values are read only for the index lists, the versions that go (refs) and the other versions (keep) —
+  // never the flight recorder's pins (a whole scope of them can be tens of MB); their metas name their files
   const history = createStore('one-history', 'snapshots')
   const historyDrop: string[] = []
   try {
-    const list = await entries<IDBValidKey, unknown>(history)
+    const stored = (await keys<IDBValidKey>(history)).map(String)
+    const idxKeys = stored.filter((k) => k.startsWith('idx:') && pages.has(k.slice(4)) && !localPages.has(k.slice(4)))
     const dropSnaps = new Set<string>()
-    for (const [k, v] of list) {
-      const key = String(k)
-      if (!key.startsWith('idx:')) continue
-      const pageId = key.slice(4)
-      if (!pages.has(pageId) || localPages.has(pageId)) continue
+    const idxLists = idxKeys.length ? await getMany<unknown>(idxKeys, history) : []
+    idxKeys.forEach((key, i) => {
       historyDrop.push(key)
+      const v = idxLists[i]
       for (const meta of Array.isArray(v) ? v : []) if (meta && typeof (meta as { id?: unknown }).id === 'string') dropSnaps.add(`snap:${(meta as { id: string }).id}`)
-    }
-    for (const [k, v] of list) {
-      const key = String(k)
-      if (!key.startsWith('snap:')) continue
-      if (dropSnaps.has(key)) {
-        historyDrop.push(key)
-        collectRefs(v, refs)
-      } else collectRefs(v, keep)
-    }
+    })
+    const snapKeys = stored.filter((k) => k.startsWith('snap:'))
+    const gone = snapKeys.filter((k) => dropSnaps.has(k))
+    const stays = snapKeys.filter((k) => !dropSnaps.has(k))
+    for (const v of gone.length ? await getMany<unknown>(gone, history) : []) collectRefs(v, refs)
+    for (const v of stays.length ? await getMany<unknown>(stays, history) : []) collectRefs(v, keep)
+    historyDrop.push(...gone)
   } catch {
     /* no history */
+  }
+  // the flight recorder's before-images: files in the targets' pin metas may go, every other scope's stay
+  let recorder: typeof import('../features') | null = null
+  try {
+    recorder = await import('../features')
+    for (const [scope, files] of await recorder.recorderFileRefs()) {
+      const target = scope.startsWith('cloud:') && targets.has(scope.slice(6))
+      for (const id of files) (target ? refs : keep).add(id)
+    }
+  } catch {
+    /* no pins */
   }
 
   /* ---------------- remove */
@@ -333,6 +345,8 @@ async function forget(flag: string[]): Promise<void> {
     )
     await delMany(syncKeys, createStore('one-sync', 'kv')).catch(() => {})
   }
+  // the flight recorder of this device (features/recorder): the journal's records and the pins of scope cloud:<ws>
+  if (recorder) for (const ws of targets) await recorder.wipeRecorderScope(`cloud:${ws}`).catch(() => {})
   // this device's sealed secrets for them (lib/vault.ts): the AI key, the GitHub token
   await clearSecrets((scope) => scope.startsWith('cloud:') && (all || targets.has(scope.slice(6)))).catch(() => {})
   for (const id of refs) if (!keep.has(id)) await deleteFile(FILE_PREFIX + id).catch(() => {})

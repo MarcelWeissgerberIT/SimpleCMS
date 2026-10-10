@@ -9,6 +9,7 @@ import { listenForReset, runPendingReset, withBootLock } from './shell/lib/reset
 import { consumeShareTarget } from './shell/capture/inbox'
 import { bootRedirect } from './shell/lib/global'
 import { useWorkspace, emptyWorkspace } from './store/store'
+import { currentWriter, withWriter, type Writer } from './store/writer'
 import { useUI } from './store/ui'
 import { flushSave, loadWorkspace, startPersistence } from './store/persistence'
 import { seedWorkspace } from './store/seed'
@@ -19,7 +20,7 @@ import { applyTextStep } from './lib/textScale'
 import { startSwitchLed } from './lib/switchLed'
 import { applyCachedLook } from './lib/look'
 import { ALL_MESSAGES, t } from './i18n'
-import { startHistory, startAutomations, startRecurringTemplates, startInbox, startSync, startMcp, startCustomFunctions, startMail, startAgents, startCoding, startKit, seedDemoHistory, demoFunctions } from './features'
+import { startHistory, startRecorder, startAutomations, startRecurringTemplates, startInbox, startSync, startMcp, startCustomFunctions, startMail, startAgents, startCoding, startKit, seedDemoHistory, demoFunctions } from './features'
 import { consumeMcpOAuthReturn, oneScriptGrammar } from './features'
 import { registerCodeLanguage, startSyncedBlocks } from './editor'
 import { detectLang, makeTranslator } from '@/shared/i18n'
@@ -91,6 +92,9 @@ async function boot() {
 
   if (mode !== 'signed-out') {
     startService('history', startHistory)
+    // flight recorder (features/recorder): right after history — its listener takes history's page diff as a memo hit,
+    // the reset above is done (its database never blocks one), and the seed of a fresh workspace is not journaled
+    startService('recorder', startRecorder)
     startService('automations', startAutomations)
     startService('recurring templates', startRecurringTemplates)
     startService('inbox', startInbox)
@@ -127,13 +131,11 @@ async function boot() {
   // Automation hook for end-to-end tests and the screenshot script (dev, or ?e2e).
   if (import.meta.env.DEV || new URLSearchParams(window.location.search).has('e2e')) {
     ;(window as unknown as { __one?: unknown }).__one = {
-      workspace: useWorkspace,
+      workspace: testStore(),
       ui: useUI,
       flushSave,
       cloud,
       files: { saveFile, getFile },
-      // TEMPORARY (flight recorder R1a): specs start the recorder by hand until boot starts it after startHistory (R1a A10)
-      recorder: () => import('./features/recorder').then((m) => void m.startRecorder()),
     }
   }
 
@@ -145,6 +147,30 @@ async function boot() {
     const qs = params.toString()
     history.replaceState(null, '', `${window.location.pathname}${qs ? `?${qs}` : ''}${window.location.hash}`)
   }
+}
+
+/**
+ * The test hook's store (DEV / ?e2e): a spec's setup writes run as the person's (`you~ui:e2e`, store/writer.ts) unless
+ * a writer frame is open — so the flight recorder's net (a write without a writer) reports only the app's own paths.
+ */
+function testStore() {
+  const TEST: Writer = { kind: 'you', via: 'ui', ref: 'e2e' }
+  const wrap =
+    <A extends unknown[], R>(fn: (...a: A) => R) =>
+    (...a: A): R =>
+      currentWriter() ? fn(...a) : withWriter(TEST, () => fn(...a))
+  const states = new WeakMap<object, object>()
+  const getState = () => {
+    const s = useWorkspace.getState()
+    let out = states.get(s)
+    if (!out) {
+      const o = Object.create(s) as Record<string, unknown>
+      for (const [k, v] of Object.entries(s)) if (typeof v === 'function') o[k] = wrap(v as (...a: unknown[]) => unknown)
+      states.set(s, (out = o))
+    }
+    return out as ReturnType<typeof useWorkspace.getState>
+  }
+  return { ...useWorkspace, getState, setState: wrap(useWorkspace.setState) }
 }
 
 /** The browser-only workspace: load (or seed) it from IndexedDB and start saving + cross-tab sync. */

@@ -1,17 +1,14 @@
 /**
- * Flight recorder helpers for the e2e specs: start the recorder (by hand until boot starts it), call the
- * seam `window.__oneRecorder`, run story steps under a writer. Test data is fictional (Nordlicht, Tessera).
+ * Flight recorder helpers for the e2e specs: wait for the recorder (boot starts it right after history), call
+ * the seam `window.__oneRecorder`, run story steps under a writer, read what the journal recorded since a
+ * moment and assert a lane. Test data is fictional (Nordlicht, Tessera).
  */
 import type { Page } from '@playwright/test'
 
 type AnyRec = Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
 
-/** Start the recorder in this page (idempotent) and wait for its seam. */
+/** Wait until the recorder runs in this page (boot starts it; DEV / ?e2e install its seam). */
 export async function startRecorder(page: Page): Promise<void> {
-  await page.evaluate(async () => {
-    const w = window as unknown as { __one: { recorder?: () => Promise<void> }; __oneRecorder?: unknown }
-    if (!w.__oneRecorder) await w.__one.recorder?.()
-  })
   await page.waitForFunction(() => !!(window as unknown as { __oneRecorder?: unknown }).__oneRecorder)
 }
 
