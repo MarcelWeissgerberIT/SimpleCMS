@@ -523,6 +523,16 @@ the public APIs stable — other areas are built against them in parallel.
   `useUnlocked(f)` / `unlocked(f)` (features/agents/index.ts). Flags and tool lists already set stay in force without one. A
   recipe without `agent.instructions` gets them composed from its OWN properties (integrations/instructions.ts). One presets,
   names and detects NO external service anywhere (code, UI, prompts, help, tests, worker) — integrations.spec has a source guard.
+- Outbox lock (features/ai/mcp-servers/lock.ts; the Outbox is features/outbox): a profile's `sends[].tool` are OUT on every
+  server the profile matches by name / host (`outToolsOf`, store/integrations.ts — independent of unlocks, the server's
+  switch and tested tool lists). Every toolset `toolsetFor` (app) / `toolsetOf` (server runner, `RunInput.out`) builds
+  switches them off (`configs: { <tool>: { enabled: false } }`; an allow-list loses them, left empty → the server is
+  left out); `forced`, codewords, a picked tool and allow-lists never lift it; the system prompt names them. A profile
+  with `sends` must match by name or host (`sendsNeedsName`; the sanitizer drops its `sends`). A connection test keeps
+  the OUT tools a server had (`mergeTestedTools`; `LISTING_SHOWS_DISABLED` = spike SP1). `ChangeKind 'send'` (+
+  `send.slipId`) is never applied by `applyChanges` (applyOne throws), not even in write mode "apply". Only the Outbox
+  calls an OUT tool, outside any Claude request. Route templates: `placeholdersIn` / `placeholderProblem`, paths
+  `ROUTE_PATH`, keys `ROUTE_KEY`, limits `SEND_LIMITS`.
 - Code areas (ui/code): use `CodeArea` for any code or instruction field, never a plain textarea (the integrations JSON
   editor keeps its own windowed `JsonCodeArea`, same palette). Syntax colours only from tokens.css `--syn-*` (≥ 4.5:1 on
   bg / surface / surface-2 / surface-3, Paper + Carbon) via `.syn-<class>` or `.hljs-*` inside `.hljs` / `.syn-hl`
