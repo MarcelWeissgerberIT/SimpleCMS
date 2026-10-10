@@ -10,35 +10,11 @@
  */
 import type { Page } from '../../../store/types'
 import { isApplyingRemote } from '../../../store/persistence'
-import { reportFallback, SYSTEM, type Writer } from '../../../store/writer'
+import { inPersonEvent, reportFallback, SYSTEM, type Writer } from '../../../store/writer'
 import { isApplyingCloudChange } from '../../../cloud'
 import { isAgentWriting } from '../../agents/attribution'
 import { isAIWriting } from '../../history/snapshots'
 
-const USER_EVENTS = new Set([
-  'click',
-  'dblclick',
-  'contextmenu',
-  'keydown',
-  'keyup',
-  'keypress',
-  'input',
-  'beforeinput',
-  'compositionend',
-  'change',
-  'pointerdown',
-  'pointerup',
-  'mousedown',
-  'mouseup',
-  'touchend',
-  'drop',
-  'dragend',
-  'paste',
-  'cut',
-  'submit',
-  'blur',
-  'focusout',
-])
 
 /** What the hot path knew about a write without a frame (decided in idle). */
 export interface Pending {
@@ -56,13 +32,23 @@ const traces = (() => {
   }
 })()
 
+/** The call stack, deep enough to reach the write's caller through the store and zustand (DEV / e2e). */
+export function deepStack(): string {
+  const limit = Error.stackTraceLimit
+  Error.stackTraceLimit = 40
+  try {
+    return new Error().stack ?? ''
+  } finally {
+    Error.stackTraceLimit = limit
+  }
+}
+
 /** Steps 1–3 on the hot path; null = a missing frame (`pending` carries what is known now). */
 export function resolveHot(): { w: Writer } | { pending: Pending } {
   if (isApplyingCloudChange()) return { w: { kind: 'team' } }
   if (isApplyingRemote()) return { w: SYSTEM('tab') }
-  const ev = typeof window !== 'undefined' ? (window as unknown as { event?: Event }).event : undefined
-  if (ev?.isTrusted && USER_EVENTS.has(ev.type)) return { w: { kind: 'you', via: 'ui' } }
-  return { pending: { agent: isAgentWriting(), ai: isAIWriting(), stack: traces ? (new Error().stack ?? '') : '' } }
+  if (inPersonEvent()) return { w: { kind: 'you', via: 'ui' } }
+  return { pending: { agent: isAgentWriting(), ai: isAIWriting(), stack: traces ? deepStack() : '' } }
 }
 
 const CONTENT_ONLY_FIELDS = new Set(['content', 'contentRev', 'contentOrigin', 'plain', 'updatedAt'])

@@ -9,8 +9,11 @@ import type { ID } from '../../store/types'
 import { useCloud } from '../../cloud'
 import { t } from '../../i18n'
 import { useWorkspace } from '../../store/store'
+import { withWriter, type Writer } from '../../store/writer'
 import { CommandFailure } from './failure'
 import type { CommandEntry, CommandHost, CommandSurface, Runner, SubItem } from './types'
+
+const COMMAND: Writer = { kind: 'you', via: 'command' }
 
 /** Commands running now, by "<databaseId>|<commandId>". */
 export const useCommandBusy = create<{ busy: Record<string, true> }>(() => ({ busy: {} }))
@@ -45,7 +48,10 @@ async function exec(dbId: ID, id: string, label: string, runner: Runner, opts: R
   setBusy(k, true)
   const ui = useUI.getState()
   try {
-    const res = await runner({ databaseId: dbId, rowIds: opts.rowIds ?? [], surface: opts.surface, host: opts.host })
+    // the person's command (flight recorder): what the runner writes before its first await is theirs, from any
+    // surface (⌘K runs it after the palette closed); its async work names its own writer (mail, import …)
+    const started = withWriter(COMMAND, () => ({ out: runner({ databaseId: dbId, rowIds: opts.rowIds ?? [], surface: opts.surface, host: opts.host }) }))
+    const res = await started.out
     if (typeof res === 'string' && res) ui.toast({ message: `${title(dbId, label)} · ${res}`, kind: 'success' })
   } catch (e) {
     const failure = e instanceof CommandFailure ? e : null

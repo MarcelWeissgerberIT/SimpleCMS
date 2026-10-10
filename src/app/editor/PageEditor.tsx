@@ -14,7 +14,7 @@ import { Selection, TextSelection, type Transaction } from '@tiptap/pm/state'
 import { ySyncPluginKey } from '@tiptap/y-tiptap'
 import type { ID } from '../store/types'
 import { useWorkspace } from '../store/store'
-import { reportFallback, withWriter, type Writer } from '../store/writer'
+import { inPersonEvent, reportFallback, withWriter, type Writer } from '../store/writer'
 import { navigate, pageHref, useRoute } from '../lib/router'
 import { newId } from '../lib/ids'
 import { createBridge, type Bridge } from './lib/bridge'
@@ -27,7 +27,7 @@ import { Comments } from './comments/CommentsRail'
 import { ContextPicker } from './context/ContextPicker'
 import { registerBridge } from './context/redo'
 import { acquireContentDoc, flushPageContent, releaseContentDoc, useCloud, type ContentDocHandle } from '../cloud'
-import { inEditAs, NORMALISE_META, registerEditorFlush } from './lib/editAs'
+import { inEditAs, NORMALISE_META, PERSON_META, registerEditorFlush } from './lib/editAs'
 import { useT } from '../i18n'
 import { ReadOnlyDoc } from './ReadOnlyDoc'
 import './editor.css'
@@ -61,6 +61,8 @@ const NET = (() => {
 const INPUT_EVENTS = ['keydown', 'keypress', 'beforeinput', 'input', 'compositionstart', 'compositionend', 'paste', 'cut', 'drop', 'dragend', 'pointerdown', 'mousedown', 'mouseup', 'click', 'touchend'] as const
 /** ProseMirror reads some DOM changes a little later (flushSoon, compositions). */
 const INPUT_WINDOW_MS = 150
+/** The e2e driver's own frames (page.evaluate): a transaction dispatched straight from a spec. */
+const TEST_DRIVER = /\bUtilityScript\.evaluate\b/
 
 /** Two documents that differ at most in block ids (UniqueID filling them in is a normalisation). */
 function sameButIds(a: PMNode, b: PMNode): boolean {
@@ -78,9 +80,9 @@ function sameButIds(a: PMNode, b: PMNode): boolean {
 /** Did this transaction come from somewhere the flush cannot name (no user event, no editAs, no Y sync, no normalisation)? */
 function untrackedChange(tr: Transaction, lastInput: number): boolean {
   if (!tr.docChanged || inEditAs()) return false
-  if (tr.getMeta(NORMALISE_META) || tr.getMeta(ySyncPluginKey) || tr.getMeta('uiEvent')) return false
+  if (tr.getMeta(NORMALISE_META) || tr.getMeta(PERSON_META) || tr.getMeta(ySyncPluginKey) || tr.getMeta('uiEvent')) return false
   const ev = (window as unknown as { event?: Event }).event
-  if (ev?.isTrusted || performance.now() - lastInput <= INPUT_WINDOW_MS) return false
+  if (ev?.isTrusted || inPersonEvent() || performance.now() - lastInput <= INPUT_WINDOW_MS) return false
   return !sameButIds(tr.before, tr.doc)
 }
 
@@ -410,7 +412,14 @@ function EditorInstance({ pageId, readOnly, autoFocus, onReady, className, colla
         if (collab || !ed.isEditable || ed.isDestroyed) return
         editorRef.current = ed
         dirty.current = true
-        if (NET && untracked.current === null && untrackedChange(transaction, lastInput.current)) untracked.current = new Error().stack ?? ''
+        if (NET && untracked.current === null && untrackedChange(transaction, lastInput.current)) {
+          const limit = Error.stackTraceLimit
+          Error.stackTraceLimit = 40
+          const stack = new Error().stack ?? ''
+          Error.stackTraceLimit = limit
+          // a spec driving the editor itself (Playwright's evaluate) stands in for the person, like the test hook's store
+          if (!TEST_DRIVER.test(stack)) untracked.current = stack
+        }
         window.clearTimeout(timer.current)
         timer.current = window.setTimeout(() => flush(), SAVE_DELAY)
       },
@@ -434,8 +443,9 @@ function EditorInstance({ pageId, readOnly, autoFocus, onReady, className, colla
   useEffect(() => {
     if (!NET || !editor || editor.isDestroyed) return
     const dom = editor.view.dom
-    const note = (e: Event) => {
-      if (e.isTrusted) lastInput.current = performance.now()
+    // (synthetic ones too: in DEV / e2e the test driver's events stand in for the person's, store/writer.ts inPersonEvent)
+    const note = () => {
+      lastInput.current = performance.now()
     }
     INPUT_EVENTS.forEach((t) => dom.addEventListener(t, note, true))
     return () => INPUT_EVENTS.forEach((t) => dom.removeEventListener(t, note, true))

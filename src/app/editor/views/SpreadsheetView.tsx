@@ -7,6 +7,7 @@ import { Component, lazy, Suspense, useCallback, useEffect, useReducer, type Rea
 import { NodeViewWrapper, type ReactNodeViewProps } from '@tiptap/react'
 import type { JSONContent } from '@tiptap/core'
 import { closeHistory } from '@tiptap/pm/history'
+import { PERSON_META } from '../lib/editAs'
 import { loadSheetBlock } from '../../features'
 import { useWorkspace } from '../../store/store'
 import { useCloud } from '../../cloud'
@@ -48,7 +49,8 @@ export function SpreadsheetView({ node, editor, getPos, selected }: ReactNodeVie
       if (typeof pos !== 'number' || editor.isDestroyed) return
       const current = editor.state.doc.nodeAt(pos)
       if (!current || current.type.name !== 'spreadsheet') return
-      const tr = editor.state.tr.setNodeMarkup(pos, undefined, { ...current.attrs, ...patch })
+      // the grid is the person's (also a paste that waited for the clipboard, a CSV they picked)
+      const tr = editor.state.tr.setNodeMarkup(pos, undefined, { ...current.attrs, ...patch }).setMeta(PERSON_META, true)
       closeHistory(tr)
       editor.view.dispatch(tr)
     },

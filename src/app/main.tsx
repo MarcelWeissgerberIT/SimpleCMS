@@ -165,7 +165,8 @@ function testStore() {
     let out = states.get(s)
     if (!out) {
       const o = Object.create(s) as Record<string, unknown>
-      for (const [k, v] of Object.entries(s)) if (typeof v === 'function') o[k] = wrap(v as (...a: unknown[]) => unknown)
+      // defined, not assigned: a state Immer froze has read-only properties an assignment through the prototype refuses
+      for (const [k, v] of Object.entries(s)) if (typeof v === 'function') Object.defineProperty(o, k, { value: wrap(v as (...a: unknown[]) => unknown), enumerable: true, writable: true, configurable: true })
       states.set(s, (out = o))
     }
     return out as ReturnType<typeof useWorkspace.getState>

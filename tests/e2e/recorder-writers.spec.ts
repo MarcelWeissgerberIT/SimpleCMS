@@ -406,6 +406,29 @@ test.describe('flight recorder — every writer has a lane', () => {
     await expect.poll(() => wsEval(page, (s) => Object.values(s.pages).some((p: AnyRec) => p.title === 'NL-1410'))).toBe(true)
     await expectLane(page, m, 'you', undefined, 'you~command')
 
+    // a default command from ⌘K (it runs after the palette closed, outside the key's event): New entry
+    m = await markRec(page)
+    const rowsBefore = await wsEval(page, (s, db) => Object.values(s.pages).filter((p: AnyRec) => p.databaseId === db).length, n.db)
+    await page.keyboard.press(`${MOD}+k`)
+    const pal = page.locator('.pal')
+    await pal.locator('input').fill('Nordlicht Handoff: new entry')
+    await expect(pal.getByRole('option', { name: 'Nordlicht Handoff: New entry', exact: true })).toHaveAttribute('aria-selected', 'true')
+    await page.keyboard.press('Enter')
+    await expect.poll(() => wsEval(page, (s, db) => Object.values(s.pages).filter((p: AnyRec) => p.databaseId === db).length, n.db)).toBe(rowsBefore + 1)
+    await expectLane(page, m, 'you', undefined, 'you~command')
+    await page.keyboard.press('Escape')
+
+    // the form builder's text fields: what was typed is committed after a pause (a timer, not an event) — the person's
+    await gotoPage(page, n.db)
+    await dbSection(page).getByRole('tab').filter({ hasText: 'Formular' }).click()
+    await dbSection(page).getByRole('radio', { name: 'Build' }).click()
+    const heading = dbSection(page).locator('input.fb-title')
+    await expect(heading).toBeVisible()
+    m = await markRec(page)
+    await heading.fill('Nordlicht Meldung')
+    await expect.poll(() => wsEval(page, (s, db) => (s.databases[db].views as AnyRec[]).find((v) => v.type === 'form')?.form?.title ?? '', n.db)).toBe('Nordlicht Meldung')
+    await expectLane(page, m, 'you', undefined, 'you~ui')
+
     // a form: fill mode, submit
     await gotoPage(page, n.db)
     await dbSection(page).getByRole('tab').filter({ hasText: 'Formular' }).click()

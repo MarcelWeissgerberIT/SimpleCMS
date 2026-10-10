@@ -36,6 +36,13 @@ export const inEditAs = (): boolean => depth > 0
 export const NORMALISE_META = 'one:normalise'
 
 /**
+ * Meta of a transaction from the person's own controls inside the document (a node view's UI: the spreadsheet grid)
+ * that may land after their event — a clipboard read, a file the person picked. The flush that carries it is the
+ * person's (the editor's own frame); the editor net skips it.
+ */
+export const PERSON_META = 'one:person'
+
+/**
  * Run `fn` (transactions on the editor: `view.dispatch` or `chain()…run()`, plus any store calls that go with
  * them — an Undo's put-back) as `writer`'s write: the person's pending typing is flushed first (their frame),
  * then `fn` inside `writer`'s frame, then the editor's store write at once inside it too. Synchronous only —

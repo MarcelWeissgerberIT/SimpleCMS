@@ -48,7 +48,7 @@ import { cloudContextOk, listCloudWorkers, relayAvailable } from './cloudWorkers
 import { cloudKey, dropCloudKeys, keepCloudKey } from './cloudKeys'
 import type { SessionKey } from './relayBox'
 import { CloudError, useCloud } from '../../cloud'
-import { SYSTEM, withWriter } from '../../store/writer'
+import { SYSTEM, withWriter, type Writer } from '../../store/writer'
 
 const set = useCoding.setState
 const get = useCoding.getState
@@ -491,7 +491,10 @@ async function receive(msg: WorkerMessage) {
       wasCurrent = true
       const { type: _type, ...info } = msg
       set({ conn: 'connected', refused: null, pendingHere: false, worker: info, busy: info.busy ?? [], spentToday: info.spentToday ?? 0 })
-      for (const dbId of pipelineDbIds()) addRepoOptions(dbId, (info.repos ?? []).map((r) => r.name))
+      // the worker's repos as Repo options: upkeep, nobody's change (flight recorder)
+      withWriter(SYSTEM('maintenance'), () => {
+        for (const dbId of pipelineDbIds()) addRepoOptions(dbId, (info.repos ?? []).map((r) => r.name))
+      })
       // tasks of this worker that were running when the link dropped: still running there
       for (const b of info.busy ?? []) void patchTask(b.taskId, { state: 'running', stageId: b.stageId })
       return
@@ -718,6 +721,9 @@ export async function stopTask(taskId: string): Promise<void> {
   await request({ op: 'stop', taskId } as never, 15_000)
 }
 
+/** A git verb the person asked for in the task panel: its results are theirs (flight recorder). */
+const PERSON: Writer = { kind: 'you', via: 'ui' }
+
 /** One of the fixed git verbs for a task's branch. Updates the git state and the PR field. */
 export async function gitTask(taskId: string, verb: GitVerb, message?: string): Promise<GitResult> {
   const ctx = taskContext(taskId)
@@ -728,14 +734,15 @@ export async function gitTask(taskId: string, verb: GitVerb, message?: string): 
   const res = (await request({ op: 'git', taskId, verb, repo, branch, title: ctx.row.title.trim() || t('common.untitled'), ...(message ? { message } : {}) } as never)) as GitResult
   await loadTask(taskId)
   const s = useWorkspace.getState()
+  // the git summary is bookkeeping (like the live snapshot); the request's address and a branch gone are the person's
   if (res?.git) {
     await patchTask(taskId, { git: res.git })
-    if (ctx.props.git) s.setRowProperty(taskId, ctx.props.git, gitSummary(res.git))
+    if (ctx.props.git) withWriter(SYSTEM('bookkeeping'), () => s.setRowProperty(taskId, ctx.props.git!, gitSummary(res.git!)))
   }
-  if (res?.url && ctx.props.pr) s.setRowProperty(taskId, ctx.props.pr, res.url)
+  if (res?.url && ctx.props.pr) withWriter(PERSON, () => s.setRowProperty(taskId, ctx.props.pr!, res.url!))
   if (verb === 'discard' || verb === 'cleanup') {
-    if (ctx.props.git) s.setRowProperty(taskId, ctx.props.git, null)
-    if (res?.branchGone && ctx.props.branch) s.setRowProperty(taskId, ctx.props.branch, null)
+    if (ctx.props.git) withWriter(SYSTEM('bookkeeping'), () => s.setRowProperty(taskId, ctx.props.git!, null))
+    if (res?.branchGone && ctx.props.branch) withWriter(PERSON, () => s.setRowProperty(taskId, ctx.props.branch!, null))
     await patchTask(taskId, { git: null })
   }
   return res

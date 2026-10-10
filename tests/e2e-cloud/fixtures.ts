@@ -2,10 +2,42 @@
  * Helpers for the team-cloud suite. Mutating API calls run inside the page (the server checks
  * Origin / Sec-Fetch-Site), sign-in links come from the server's dev mailbox.
  */
-import { test as base, expect, type BrowserContext, type Page } from '@playwright/test'
+import { test as base, expect, type Browser, type BrowserContext, type Page } from '@playwright/test'
 
 export { expect }
-export const test = base
+
+/**
+ * The flight recorder's net: in `?e2e` a store write without a writer frame is a console error starting with
+ * "[recorder]" (store/writer.ts reportFallback). Every page of a test — the default one, popups, and pages of
+ * contexts a test opens itself (newPerson, browser.newContext) — is watched; any such report fails the test.
+ */
+function recorderNet(browser: Browser, context: BrowserContext): { list: string[]; done: () => void } {
+  const list: string[] = []
+  const watch = (p: Page) =>
+    p.on('console', (m) => {
+      if (m.type() === 'error' && m.text().startsWith('[recorder]')) list.push(m.text())
+    })
+  context.on('page', watch)
+  const orig = browser.newContext
+  browser.newContext = async function (this: Browser, ...args: Parameters<Browser['newContext']>) {
+    const ctx = await orig.apply(this, args)
+    ctx.on('page', watch)
+    return ctx
+  } as Browser['newContext']
+  return { list, done: () => void (browser.newContext = orig) }
+}
+
+export const test = base.extend<{ recorderNet: void }>({
+  recorderNet: [
+    async ({ browser, context }, use) => {
+      const net = recorderNet(browser, context)
+      await use()
+      net.done()
+      expect.soft(net.list, 'store writes without a writer (flight recorder)').toEqual([])
+    },
+    { auto: true },
+  ],
+})
 
 let seq = 0
 /** A unique address per call, so tests never share accounts. */

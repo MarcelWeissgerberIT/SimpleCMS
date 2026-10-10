@@ -215,7 +215,18 @@ export function formatWriterKey(w: Writer): WriterKey {
 }
 
 /** Events of the person: a store write inside one of them without a frame is theirs (the recorder's fallback, step 3). */
-const USER_EVENTS = new Set(['click', 'dblclick', 'contextmenu', 'keydown', 'keyup', 'keypress', 'input', 'beforeinput', 'compositionend', 'change', 'pointerdown', 'pointerup', 'mousedown', 'mouseup', 'touchend', 'drop', 'dragend', 'paste', 'cut', 'submit', 'blur', 'focusout'])
+export const USER_EVENTS: ReadonlySet<string> = new Set(['click', 'dblclick', 'contextmenu', 'keydown', 'keyup', 'keypress', 'input', 'beforeinput', 'compositionend', 'change', 'pointerdown', 'pointerup', 'mousedown', 'mouseup', 'touchend', 'drop', 'dragend', 'paste', 'cut', 'submit', 'blur', 'focusout'])
+
+/**
+ * Is the code running now inside an event of the person (a user interaction the browser dispatched)? DEV / e2e also
+ * take a synthetic one of those types: there the test driver stands in for the person (Playwright's fill on date and
+ * time fields, selectOption and a spec's dispatchEvent send untrusted events), like the test hook's store writes.
+ */
+export function inPersonEvent(): boolean {
+  const ev = typeof window !== 'undefined' ? (window as unknown as { event?: Event }).event : undefined
+  if (!ev || !USER_EVENTS.has(ev.type)) return false
+  return ev.isTrusted || strict()
+}
 
 /**
  * The key of the writer of the write happening now — for a service that reacts to it later (an automation, autofill,
@@ -225,8 +236,7 @@ const USER_EVENTS = new Set(['click', 'dblclick', 'contextmenu', 'keydown', 'key
 export function causeKey(): WriterKey {
   const w = currentWriter()
   if (w) return formatWriterKey(w)
-  const ev = typeof window !== 'undefined' ? (window as unknown as { event?: Event }).event : undefined
-  return ev?.isTrusted && USER_EVENTS.has(ev.type) ? 'you~ui' : 'unknown'
+  return inPersonEvent() ? 'you~ui' : 'unknown'
 }
 
 /* ------------------------------------------------------------------ */
@@ -280,7 +290,8 @@ function siteOf(stack: string): string {
 
 /**
  * A store write had no writer frame and fell back to a guess (features/recorder journal/attribute.ts
- * steps 4–6). Kept for the test seam; DEV / e2e: reported once per call site.
+ * steps 4–6). Kept for the test seam; DEV / e2e: a console error once per call site — the e2e suite fails on
+ * it, so every spec is the net for write paths without a writer.
  */
 export function reportFallback(step: string, places: string[], stack = ''): void {
   const report: FallbackReport = { at: Date.now(), step, places: places.slice(0, 20), stack }
@@ -290,7 +301,7 @@ export function reportFallback(step: string, places: string[], stack = ''): void
   const site = siteOf(stack)
   if (warned.has(site)) return
   warned.add(site)
-  console.warn('[recorder] write without a writer', step, report.places.join(' '), stack)
+  console.error('[recorder] write without a writer', step, report.places.join(' '), stack)
 }
 
 /** Writes that fell back to a guess (test seam). */

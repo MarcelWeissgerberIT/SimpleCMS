@@ -22,6 +22,7 @@ import { useT } from '../../i18n'
 import { useUI } from '../../store/ui'
 import { useWorkspace } from '../../store/store'
 import { flushSave } from '../../store/persistence'
+import { withWriter, type Writer } from '../../store/writer'
 import { safeLocalGet, safeLocalSet } from '@/shared/brand'
 import { SpeechRecognizer, openAgent, speechSupported, type SpeechErrorCode } from '../../features'
 import { useIsMobile } from '../lib/hooks'
@@ -35,6 +36,8 @@ import { closeQuickCapture, openQuickCapture, useCaptureUI, QUICK_CAPTURE_SHORTC
 import './capture.css'
 
 const DRAFT_KEY = 'one.capture.draft'
+/** A home-screen shortcut the person tapped (?launch=new-page): its page is theirs (flight recorder). */
+const LAUNCHED: Writer = { kind: 'you', via: 'ui' }
 
 /* ------------------------------------------------------------------ */
 /* Host: the key, the sheet, the placard, the shortcuts                */
@@ -88,7 +91,7 @@ function useLaunchAction() {
     // after the start page took its place
     requestAnimationFrame(() => {
       if (what === 'capture' && !isReadOnly()) openQuickCapture()
-      else if (what === 'new-page' && !isReadOnly()) createPageAndOpen(null)
+      else if (what === 'new-page' && !isReadOnly()) withWriter(LAUNCHED, () => createPageAndOpen(null))
       else if (what === 'search') useUI.getState().openPalette()
       else if (what === 'terminal') openAgent()
     })

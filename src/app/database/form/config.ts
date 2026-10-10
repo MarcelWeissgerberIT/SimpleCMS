@@ -5,6 +5,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { FormConfig, FormLogic, FormPageBreak, FormQuestion, ID } from '../../store/types'
 import { useWorkspace } from '../../store/store'
+import { withWriter, type Writer } from '../../store/writer'
 import { newId } from '../../lib/ids'
 import { formConfig, pageBreaksOf, questionOf } from './fields'
 import { isDbLocked } from '../model/lock'
@@ -56,12 +57,15 @@ export function removeBreak(dbId: ID, viewId: ID, id: ID): void {
   setBreaks(dbId, viewId, (bs) => bs.filter((b) => b.id !== id))
 }
 
+/** What the person typed, committed after a pause (flight recorder: theirs, like an editor's flush). */
+const TYPED: Writer = { kind: 'you', via: 'ui' }
+
 /** Input props for a text field bound to a stored value. */
 export function useDraft(value: string, commit: (v: string) => void, delay = 450) {
   const [draft, setDraft] = useState(value)
   const focused = useRef(false)
-  const commitRef = useRef(commit)
-  commitRef.current = commit
+  const commitRef = useRef((v: string) => withWriter(TYPED, () => commit(v)))
+  commitRef.current = (v: string) => withWriter(TYPED, () => commit(v))
   const last = useRef(value)
   // follow outside changes while the field is not being edited
   useEffect(() => {
