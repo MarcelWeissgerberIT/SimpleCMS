@@ -128,6 +128,7 @@ export const messages: Messages = {
 
     'features.outbox.changed.bar': 'Changed since draft',
     'features.outbox.changed.same': '{label} unchanged',
+    'features.outbox.changed.today': 'today',
     'features.outbox.changed.hold': 'Hold',
     'features.outbox.changed.redraft': 'Redraft',
     'features.outbox.changed.anyway': 'Send anyway',
@@ -406,6 +407,7 @@ export const messages: Messages = {
 
     'features.outbox.changed.bar': 'Geändert seit Entwurf',
     'features.outbox.changed.same': '{label} unverändert',
+    'features.outbox.changed.today': 'heute',
     'features.outbox.changed.hold': 'Zurückhalten',
     'features.outbox.changed.redraft': 'Neu entwerfen',
     'features.outbox.changed.anyway': 'Trotzdem senden',

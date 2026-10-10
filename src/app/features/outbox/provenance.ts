@@ -93,6 +93,13 @@ export interface RowRead extends RowReading {
 
 const text = (db: Database, prop: PropertyDef | null, row: Page) => (prop ? propertyValueToText(db, prop, row).trim() : '')
 
+/** A date field as its stored stamp (with the time, so a later comment the same day counts), anything else as text. */
+const stamp = (db: Database, prop: PropertyDef | null, row: Page) => {
+  if (prop?.type !== 'date') return text(db, prop, row)
+  const v = row.properties[prop.id] as { start?: unknown } | null | undefined
+  return typeof v?.start === 'string' ? v.start : ''
+}
+
 /** A row as the Outbox reads it: key, link, owner, the source fields compared for CHANGED, the newest comment. */
 export function readRow(rowId: ID, roles: Record<string, string[]>): RowRead | null {
   const s = ws()
@@ -103,7 +110,7 @@ export function readRow(rowId: ID, roles: Record<string, string[]>): RowRead | n
   const values: Partial<Record<string, { label: string; text: string }>> = {}
   for (const role of BASELINE_ROLES) {
     const prop = propByRef(db, role, roles)
-    if (prop) values[role] = { label: prop.name, text: text(db, prop, row) }
+    if (prop) values[role] = { label: prop.name, text: stamp(db, prop, row) }
   }
   const latest = text(db, propByRef(db, 'lastComment', roles), row)
   const link = text(db, propByRef(db, 'link', roles), row)

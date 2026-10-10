@@ -265,6 +265,8 @@ test.describe('Outbox: by hand, CHANGED, keys', () => {
     await expect(band).toContainText(/comments 7 → 8/i)
     await expect(band).toContainText(/source status unchanged/i)
     await expect(band).toContainText('It is settled, B7 fits. Thanks!')
+    // the comment's time from the stored stamp ("today 08:09" or "10 Oct 08:09")
+    await expect(band.locator('.obx-band__when')).toContainText('08:09')
     await expect(slip(page).getByTestId('outbox-lamp-changed')).toHaveAttribute('data-lit', 'true')
     await expect(copyKey(page)).toHaveAttribute('aria-disabled', 'true')
     await expect(slip(page).getByTestId('outbox-why')).toHaveText('Changed since the draft — hold, redraft or send anyway')

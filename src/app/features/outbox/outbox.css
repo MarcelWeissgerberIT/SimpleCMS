@@ -163,7 +163,8 @@
   top: 0;
   right: 0;
   bottom: 0;
-  z-index: var(--z-sidebar);
+  /* above the page's floating keys, below popovers opened from the sheet */
+  z-index: calc(var(--z-popover) - 1);
   width: min(440px, 100vw);
   border-left: 1px solid var(--rule-strong);
   box-shadow: var(--shadow-pop);
@@ -227,16 +228,23 @@
   white-space: nowrap;
 }
 .obx-dbchip {
-  display: block;
+  display: flex;
+  gap: 0.5em;
   height: calc(22px * var(--text-scale));
   line-height: calc(20px * var(--text-scale));
   padding: 0 7px;
   border: 1px solid var(--rule-strong);
   border-radius: var(--radius-1);
   background: var(--surface);
+  white-space: nowrap;
+}
+.obx-dbchip__name {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
+}
+.obx-dbchip__n {
+  flex: none;
 }
 .obx-dock__body {
   flex: 1;
@@ -289,6 +297,16 @@
   flex: 1;
   height: 40px;
   white-space: normal;
+}
+.obx-bottombar .btn.btn--primary[aria-disabled='true'] {
+  background: var(--surface);
+  border-color: var(--rule-strong);
+  color: var(--ink-3);
+  box-shadow: none;
+  cursor: not-allowed;
+}
+.obx-bottombar .btn[aria-disabled='true']:active {
+  transform: none;
 }
 @media (max-width: 600px) {
   .obx-bottombar {
@@ -737,10 +755,10 @@ button.obx-strip:hover {
 }
 .obx-hand {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  grid-template-areas: 'title key' 'steps key' 'set set' 'why why';
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas: 'title' 'steps' 'key' 'set' 'why';
   align-items: center;
-  gap: 4px 12px;
+  gap: 6px;
   min-width: 0;
 }
 .obx-hand__title {
@@ -757,12 +775,6 @@ button.obx-strip:hover {
 }
 .obx-hand__why {
   grid-area: why;
-}
-@media (max-width: 600px) {
-  .obx-hand {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-areas: 'title' 'steps' 'set' 'key' 'why';
-  }
 }
 .obx-hand__title {
   color: var(--ink-2);
@@ -803,6 +815,7 @@ button.obx-strip:hover {
 }
 .obx-hand__key {
   justify-self: start;
+  margin: 4px 0 2px;
   height: 34px;
   padding: 0 12px;
   font-weight: 650;
@@ -1023,7 +1036,12 @@ button.obx-strip:hover {
   gap: 7px;
   min-width: 0;
 }
+.obx-rcard__head .obx-srv,
+.obx-rcard__head .obx-tt {
+  flex: none;
+}
 .obx-rcard__title {
+  flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;

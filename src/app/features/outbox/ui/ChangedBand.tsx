@@ -2,13 +2,25 @@
  * CHANGED since the draft (per mirror): a black band — what changed ("Comments 7 → 8 · Status unchanged") — the
  * newest comment quoted and marked FOREIGN, and the keys: H Hold (primary), R Redraft, Send anyway (ghost).
  */
-import { useT } from '../../../i18n'
+import { useLang, useT } from '../../../i18n'
 import { isChanged } from '../counts'
 import type { Slip } from '../types'
 import { ForeignMark } from './parts'
 
+/** "today 08:09" / "9 Oct 16:42" from a stored date stamp; anything else as it is. */
+function whenText(v: string, lang: string, today: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}:\d{2}))?/.exec(v)
+  if (!m) return v
+  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]))
+  const now = new Date()
+  const same = d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate()
+  const day = same ? today : d.toLocaleDateString(lang, { day: 'numeric', month: 'short' })
+  return m[4] ? `${day} ${m[4]}` : day
+}
+
 export function ChangedBand({ slip, onHold, onRedraft, onAnyway, busy }: { slip: Slip; onHold: () => void; onRedraft: () => void; onAnyway: () => void; busy: boolean }) {
   const t = useT()
+  const lang = useLang()
   if (!isChanged(slip) || !slip.lastCheck) return null
   const lc = slip.lastCheck
   const fields = lc.changed.filter((c) => c.field !== 'lastCommentAt')
@@ -45,7 +57,7 @@ export function ChangedBand({ slip, onHold, onRedraft, onAnyway, busy }: { slip:
             <ForeignMark />
             <span className="obx-band__fword">{t('features.outbox.src.foreign')}</span>
             {who && <span className="obx-band__who">{who}</span>}
-            {when && <span className="obx-band__when">{when.replace('T', ' ')}</span>} — „{lc.latest}“
+            {when && <span className="obx-band__when">{whenText(when, lang, t('features.outbox.changed.today'))}</span>} — „{lc.latest}“
           </p>
         )}
         <div className="obx-band__keys">

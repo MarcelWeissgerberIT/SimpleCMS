@@ -239,7 +239,9 @@ function Card({ slip, focused, lang }: { slip: Slip; focused: boolean; lang: 'en
   const foreign = isForeign(slip)
   const text = slipText(slip)
   const why = clean ? [] : reasons(slip, t, lang)
-  const check = slip.baseline ? Object.entries(slip.baseline.fields).filter(([k]) => k === 'srcStatus' || k === 'comments')[0] : undefined
+  // the pre-read field this slip read (its typed source), else the first one
+  const checks = slip.baseline ? Object.entries(slip.baseline.fields).filter(([k]) => k === 'srcStatus' || k === 'comments') : []
+  const check = checks.find(([k]) => slip.sources.some((s) => s.label === slip.baseline?.labels?.[k])) ?? checks[0]
   const args = handArgs(slip)
   const foreignLabel = slip.sources.find((s) => !s.trusted && !s.typed && s.label.includes(' '))?.label
   return (

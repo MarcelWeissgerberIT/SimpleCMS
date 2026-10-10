@@ -109,8 +109,9 @@ function DockPanel({ dbId, mode }: { dbId: ID; mode: 'column' | 'sheet' }) {
         <span className="obx-count" data-testid="outbox-dock-count" data-n={counts.open}>
           {t('features.outbox.open', { n: counts.open })}
         </span>
-        <span className="obx-dbchip label" title={title}>
-          {t('features.outbox.dbFilter', { db: title, n: counts.open })}
+        <span className="obx-dbchip label" title={t('features.outbox.dbFilter', { db: title, n: counts.open })}>
+          <span className="obx-dbchip__name">{title}</span>
+          <span className="obx-dbchip__n">· {counts.open}</span>
         </span>
         <span className="obx-sp" />
         <button type="button" className="btn btn--ghost btn--sm obx-dock__all" title={t('features.outbox.allTitle')} onClick={() => openOutbox({ dbId })}>
