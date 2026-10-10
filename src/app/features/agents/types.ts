@@ -28,6 +28,8 @@ export interface AgentRun {
   id: string
   agentId: ID
   runner: 'browser' | 'server'
+  /** browser runs: the run's number for this agent on this device (1, 2, 3 …; runs.ts nextSeq) — server runs have none */
+  seq?: number
   /** e.g. a row id / "schedule 08:00" */
   trigger: { type: AgentTrigger['type']; detail?: string }
   startedAt: number

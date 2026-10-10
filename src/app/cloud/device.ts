@@ -277,15 +277,15 @@ async function forget(flag: string[]): Promise<void> {
     })
     if (runKeys.length) await delMany(runKeys, runs).catch(() => {})
   }
-  // custom agents of this device (features/agents/runs.ts): runs and schedule slots of the targets' agents ("runs:<agent>",
-  // "slot:<agent>") and their saved state ("state:cloud:<ws>:<agent>")
+  // custom agents of this device (features/agents/runs.ts): runs, schedule slots and run numbers of the targets' agents
+  // ("runs:<agent>", "slot:<agent>", "seq:<agent>") and their saved state ("state:cloud:<ws>:<agent>")
   if (!dbNames || dbNames.includes('one-agents')) {
     const store = createStore('one-agents', 'runs')
     const agentKeys = (await keys(store).catch(() => [] as IDBValidKey[])).filter((k) => {
       const key = String(k)
       const st = /^state:cloud:([^:]+):/.exec(key)
       if (st) return targets.has(st[1])
-      const run = /^(?:runs|slot):(.+)$/.exec(key)
+      const run = /^(?:runs|slot|seq):(.+)$/.exec(key)
       return !!run && agentIds.has(run[1])
     })
     if (agentKeys.length) await delMany(agentKeys, store).catch(() => {})

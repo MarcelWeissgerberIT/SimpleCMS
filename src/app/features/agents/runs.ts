@@ -2,6 +2,7 @@
  * Custom agents — run records of this device (IndexedDB "one-agents" / "runs"; never synced):
  *   runs:<agentId>   AgentRun[] newest first, the last MAX_RUNS of the agent
  *   slot:<agentId>   the newest schedule slot this device has handled (ms)
+ *   seq:<agentId>    the number of the agent's newest browser run on this device (AgentRun.seq: 1, 2, 3 …)
  *   state:<ws>:<agentId>   the agent's own small memory (agent_state_set: cursors, last seen ids …) —
  *                    `<ws>` = local:<id> | cloud:<id>; written only when a run ends ok (exec.ts) — and put back
  *                    to the run's `stateBefore` when every proposal of that run is discarded (review.ts)
@@ -142,11 +143,13 @@ export async function dropRuns(agentId: ID): Promise<void> {
     return { byAgent }
   })
   memState.delete(stateKey(agentId))
+  memSeq.delete(agentId)
   const store = kv()
   if (!store) return
   try {
     await set(`runs:${agentId}`, [], store)
     await del(`slot:${agentId}`, store)
+    await del(`seq:${agentId}`, store)
     await del(stateKey(agentId), store)
     slots.delete(agentId)
     post(agentId)
@@ -188,6 +191,31 @@ export async function setSlot(agentId: ID, slot: number): Promise<void> {
 /** Forget cached slots (another tab may have advanced them). */
 export function forgetSlots(): void {
   slots.clear()
+}
+
+/** without IndexedDB: this tab only */
+const memSeq = new Map<ID, number>()
+const count = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? Math.floor(v) : 0)
+
+/**
+ * The number of an agent's next browser run on this device (1, 2, 3 …) — one atomic read-modify-write, so two tabs
+ * never hand out the same number. Server runs have none.
+ */
+export async function nextSeq(agentId: ID): Promise<number> {
+  const store = kv()
+  if (store) {
+    try {
+      let n = 0
+      await update<unknown>(`seq:${agentId}`, (cur) => (n = count(cur) + 1), store)
+      memSeq.set(agentId, n)
+      return n
+    } catch {
+      /* in memory only */
+    }
+  }
+  const n = (memSeq.get(agentId) ?? 0) + 1
+  memSeq.set(agentId, n)
+  return n
 }
 
 /** A run with staged changes nobody has reviewed yet. */

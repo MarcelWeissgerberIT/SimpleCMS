@@ -22,7 +22,7 @@ import { isAgentWriting, startAttributionKeeper } from './attribution'
 import { awaitsConfirm } from './confirm'
 import { isRunningAnywhere, wsKey } from './locks'
 import { latestSlot } from './schedule'
-import { forgetSlots, getSlot, loadRuns, putRun, setSlot, useAgentRuns } from './runs'
+import { forgetSlots, getSlot, loadRuns, nextSeq, putRun, setSlot, useAgentRuns } from './runs'
 import { newId } from '../../lib/ids'
 
 /** The run code (the agent loop, its tools, apply) loads on the first run, not at boot. */
@@ -148,7 +148,7 @@ export async function tick(now = Date.now()): Promise<void> {
       await setSlot(agent.id, slot)
       const detail = `schedule ${agent.trigger.at}`
       if (await isRunningAnywhere(agent.id)) {
-        await putRun({ id: newId(), agentId: agent.id, runner: 'browser', trigger: { type: 'schedule', detail }, startedAt: Date.now(), endedAt: Date.now(), status: 'skipped', summary: t('features.agents.run.skipped'), steps: [] })
+        await putRun({ id: newId(), agentId: agent.id, runner: 'browser', seq: await nextSeq(agent.id), trigger: { type: 'schedule', detail }, startedAt: Date.now(), endedAt: Date.now(), status: 'skipped', summary: t('features.agents.run.skipped'), steps: [] })
         continue
       }
       void exec().then((m) => m.executeRun(agent, { trigger: { type: 'schedule', detail } }))

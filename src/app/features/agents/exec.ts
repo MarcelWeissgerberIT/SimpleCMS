@@ -32,7 +32,7 @@ import type { StagedChange } from '../ai/agent/types'
 import { snapshotNow } from '../history/snapshots'
 import { agentTools, scopeFilter, scopeText } from './scope'
 import { asAgent, stampLocal } from './attribution'
-import { getAgentState, lastSuccess, loadRuns, putAgentState, putRun, type AgentState } from './runs'
+import { getAgentState, lastSuccess, loadRuns, nextSeq, putAgentState, putRun, type AgentState } from './runs'
 import { agentLabel } from './label'
 import { deliverNotes, lastRunLine, runTools, type RunExtras } from './runTools'
 import { exclusive } from './locks'
@@ -246,7 +246,8 @@ async function runOnce(agent: CustomAgent, req: RunRequest): Promise<AgentRun> {
   const extras: RunExtras = { saved, notes: [] }
   // what this run may use beyond the workspace tools: what the active integration profiles unlock on this device
   const unlocks: RunUnlocks = { upsert: unlocked('upsert'), state: unlocked('agentState'), notes: unlocked('notify') }
-  const run: AgentRun = { id: newId(), agentId: agent.id, runner: 'browser', trigger: req.trigger, startedAt: Date.now(), status: 'running', summary: '', steps: [] }
+  const seq = await nextSeq(agent.id)
+  const run: AgentRun = { id: newId(), agentId: agent.id, runner: 'browser', seq, trigger: req.trigger, startedAt: Date.now(), status: 'running', summary: '', steps: [] }
   const changes: StagedChange[] = []
   const rowIds: Record<string, ID> = {}
   let saveTimer = 0
@@ -456,8 +457,9 @@ async function runOnce(agent: CustomAgent, req: RunRequest): Promise<AgentRun> {
  * agent's own page is open (the run list shows it there).
  */
 async function blockedRun(agent: CustomAgent, req: RunRequest, reason: string, detail: string): Promise<AgentRun> {
+  const seq = await nextSeq(agent.id)
   const now = Date.now()
-  const run: AgentRun = { id: newId(), agentId: agent.id, runner: 'browser', trigger: req.trigger, startedAt: now, endedAt: now, status: 'error', error: reason, summary: '', steps: [] }
+  const run: AgentRun = { id: newId(), agentId: agent.id, runner: 'browser', seq, trigger: req.trigger, startedAt: now, endedAt: now, status: 'error', error: reason, summary: '', steps: [] }
   await putRun(run)
   if (!onAgentPage(agent.id))
     useUI.getState().toast({ message: t('features.agents.toast.blocked', { name: agent.name, detail }), kind: 'error', action: { label: t('common.open'), run: () => navigate(`#/agents/${agent.id}`) }, timeout: 10_000, background: true })

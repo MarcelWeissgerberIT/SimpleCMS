@@ -548,6 +548,27 @@ test.describe('Custom agents', () => {
     expect(bodies[0].system).toContain('<mcp_server name="archive">')
   })
 
+  test('browser runs are numbered per agent on this device: 1, 2 — and 3 after a reload', async ({ page, context }) => {
+    await openApp(page)
+    await setKey(page)
+    await mockClaude(context)
+    const id = await addAgent(page, { id: 'ag-seq', name: 'Nordlicht-Spiegel' })
+    await goAgent(page, id)
+    await page.getByRole('button', { name: 'Run now' }).click()
+    await waitRuns(page, id, 1)
+    await page.getByRole('button', { name: 'Run now' }).click()
+    expect((await waitRuns(page, id, 2)).map((r) => r.seq)).toEqual([2, 1])
+    await reloadApp(page)
+    await goAgent(page, id)
+    await page.getByRole('button', { name: 'Run now' }).click()
+    expect((await waitRuns(page, id, 3)).map((r) => r.seq)).toEqual([3, 2, 1])
+    // another agent counts on its own
+    const other = await addAgent(page, { id: 'ag-seq-2', name: 'Tessera-Bericht' })
+    await goAgent(page, other)
+    await page.getByRole('button', { name: 'Run now' }).click()
+    expect((await waitRuns(page, other, 1)).map((r) => r.seq)).toEqual([1])
+  })
+
   test('runs survive a reload; the sidebar entry opens the list', async ({ page, context }) => {
     await openApp(page)
     await setKey(page)
