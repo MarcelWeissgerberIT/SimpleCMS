@@ -30,6 +30,7 @@ import { docSchema } from '../convert'
 import { liveIds } from '../lib/livePages'
 import { SYNCED_ORIGIN, adoptIds, contentKey, findSynced, mapSynced, unsyncDoc, type SyncedHit } from './model'
 import { allEntries, canonContent, putEntries, setCanon, setRunning, syncedEntry, type SyncedEntry, type SyncedUse } from './state'
+import { causeKey, SYSTEM, withWriter, type WriterKey } from '../../store/writer'
 
 /** Writers whose change to a REFERENCE is a restore, not an edit: the reference follows the canon. */
 const PULL_ORIGINS = new Set(['history', 'import'])
@@ -83,10 +84,21 @@ function setCanonFrom(syncId: string, content: JSONContent[] | undefined, key: s
 
 /* ------------------------------------------------------------------ writes */
 
+/**
+ * Who made the change the copies follow (store/writer.ts): set while a store change is handled (onChange — the
+ * triggering write's frame is still open) or a dupe check runs; null = the service's own upkeep (boot).
+ */
+let cause: WriterKey | null = null
+/** per page waiting for its write: the cause of its newest queued change */
+const queuedCause = new Map<ID, WriterKey | null>()
+/** per group waiting for the dupe check: the cause that made the second original */
+const dupeCause = new Map<string, WriterKey | null>()
+
 function queue(pageId: ID, syncId: string) {
   let set = queued.get(pageId)
   if (!set) queued.set(pageId, (set = new Set()))
   set.add(syncId)
+  queuedCause.set(pageId, cause)
   if (!writeTimer) writeTimer = window.setTimeout(flushWrites, WRITE_DELAY)
 }
 
@@ -120,12 +132,17 @@ function flushWrites() {
   if (!started || !queued.size) return
   const jobs = [...queued]
   queued.clear()
+  const causes = new Map(queuedCause)
+  queuedCause.clear()
   const ws = useWorkspace.getState()
   for (const [pageId, ids] of jobs) {
     const page = ws.pages[pageId]
     if (!page?.content || !live.has(pageId)) continue
     const next = refreshDoc(pageId, page.content, ids)
-    if (next !== page.content) useWorkspace.getState().setContent(pageId, next, SYNCED_ORIGIN)
+    if (next === page.content) continue
+    // a copy following its writer's change is that writer's (synced<cause>); the boot's upkeep is nobody's
+    const c = causes.get(pageId)
+    withWriter(c ? { kind: 'synced', cause: c } : SYSTEM('maintenance'), () => useWorkspace.getState().setContent(pageId, next, SYNCED_ORIGIN))
   }
   convert.clear()
 }
@@ -148,14 +165,18 @@ function resolveDupes() {
     }
     if (originals < 2) continue
     convert.add(syncId)
+    cause = dupeCause.get(syncId) ?? null
     pages.forEach((p) => queue(p, syncId))
+    cause = null
   }
   dupeCheck.clear()
+  dupeCause.clear()
   flushWrites()
 }
 
 function scheduleDupes(syncId: string) {
   dupeCheck.add(syncId)
+  if (cause) dupeCause.set(syncId, cause)
   window.clearTimeout(dupesTimer)
   dupesTimer = window.setTimeout(resolveDupes, DUPES_DELAY)
 }
@@ -314,6 +335,15 @@ function recompute(touched: Set<string>, pass: Pass | null) {
 
 function onChange(s: { pages: Record<ID, Page> }, prev: { pages: Record<ID, Page> }) {
   if (!started || s.pages === prev.pages) return
+  cause = causeKey()
+  try {
+    handleChange(s, prev)
+  } finally {
+    cause = null
+  }
+}
+
+function handleChange(s: { pages: Record<ID, Page> }, prev: { pages: Record<ID, Page> }) {
   const changed: ID[] = []
   let liveDirty = false
   const diff = pageChanges(s.pages, prev.pages)
@@ -398,6 +428,8 @@ export function stopSyncedBlocks(): void {
   holders.clear()
   canonKey.clear()
   queued.clear()
+  queuedCause.clear()
+  dupeCause.clear()
   convert.clear()
   dupeCheck.clear()
   live = new Set()

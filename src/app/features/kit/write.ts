@@ -14,6 +14,7 @@ import { keyClash, writePropertyValue } from '../../database'
 import { ownTypeOf } from './model'
 import { refusalOf, runBinding, runError, untrustedOf } from './scripts'
 import { openReview } from './review'
+import { withWriter, type Writer } from '../../store/writer'
 
 /** A refusal shown at a cell (KitHost renders it). */
 export interface Refusal {
@@ -55,6 +56,9 @@ export function isKitComputed(prop: PropertyDef): boolean {
  * holds already is refused at the cell (false). Plain properties: written at once (true). Own types: validated, written, onChange — resolves with whether it was written
  * (to at least one row).
  */
+/** The person entering a value (store/writer.ts). */
+const YOU: Writer = { kind: 'you', via: 'ui' }
+
 export async function writeUserValue(db: Database, prop: PropertyDef, rowIds: ID[], value: PropertyValue, anchor?: Element | null): Promise<boolean> {
   // the database's key (store/keys.ts): unique per row — a value another row holds is refused at the cell
   const clash = keyClash(db, prop, rowIds, value)
@@ -73,7 +77,9 @@ export async function writeUserValue(db: Database, prop: PropertyDef, rowIds: ID
     return false
   }
   if (!type || !kitChecksWrite(prop)) {
-    for (const id of rowIds) writePropertyValue(db.id, prop, id, value)
+    withWriter(YOU, () => {
+      for (const id of rowIds) writePropertyValue(db.id, prop, id, value)
+    })
     return true
   }
   const untrusted = untrustedOf(type)
@@ -99,7 +105,8 @@ export async function writeUserValue(db: Database, prop: PropertyDef, rowIds: ID
       }
     }
     const old = (useWorkspace.getState().pages[rowId]?.properties[prop.id] ?? null) as PropertyValue
-    writePropertyValue(db.id, prop, rowId, value)
+    // the person's value, also after a validate script ran (store/writer.ts)
+    withWriter(YOU, () => writePropertyValue(db.id, prop, rowId, value))
     written.push({ rowId, old })
   }
   if (refused) showRefusal(nRefused > 1 ? t('features.kit.validate.refusedRows', { n: nRefused, msg: refused }) : refused, anchor)

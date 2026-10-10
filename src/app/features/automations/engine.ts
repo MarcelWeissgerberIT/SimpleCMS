@@ -19,6 +19,7 @@ import { postWebhook, type WebhookOutcome } from '../../lib/webhook'
 import { t } from '../../i18n'
 import { aiWrite } from '../history/snapshots'
 import { errorMessage, runScriptById } from '../script'
+import { causeKey, endRun, formatWriterKey, noteRun, SYSTEM, withWriter, type Writer, type WriterKey } from '../../store/writer'
 
 /* The database area is loaded lazily so this always-on service doesn't pull it in statically. */
 type DatabaseApi = typeof import('../../database')
@@ -233,9 +234,12 @@ function setStatus(dbId: ID, automationId: ID, status: 'ok' | 'error', message: 
   const s = useWorkspace.getState()
   const db = s.databases[dbId]
   if (!db?.automations) return
-  s.updateDatabase(dbId, {
-    automations: db.automations.map((a) => (a.id === automationId ? { ...a, lastRunAt: Date.now(), lastStatus: status, lastMessage: message.slice(0, 200) } : a)),
-  })
+  // the run's status: bookkeeping, not a change of the database (store/writer.ts)
+  withWriter(SYSTEM('bookkeeping'), () =>
+    s.updateDatabase(dbId, {
+      automations: db.automations!.map((a) => (a.id === automationId ? { ...a, lastRunAt: Date.now(), lastStatus: status, lastMessage: message.slice(0, 200) } : a)),
+    }),
+  )
 }
 
 function fill(template: string, db: Database, row: Page): string {
@@ -250,12 +254,26 @@ function fill(template: string, db: Database, row: Page): string {
   })
 }
 
-async function runAutomation(dbId: ID, automationId: ID, rowSnapshot: Page, event: EventType, changes: Change[]) {
+async function runAutomation(dbId: ID, automationId: ID, rowSnapshot: Page, event: EventType, changes: Change[], cause: WriterKey) {
   await loadDatabaseApi().catch(() => null)
   const state = useWorkspace.getState()
   const db = state.databases[dbId]
   const automation = db?.automations?.find((a) => a.id === automationId)
   if (!db || !automation?.enabled) return
+  // one run of the automation (store/writer.ts): its writes, with the write that started it as their cause
+  const writer: Writer = { kind: 'automation', db: dbId, id: automationId, run: newId(), cause }
+  noteRun(writer)
+  try {
+    await runActions(db, automation, rowSnapshot, event, changes, writer)
+  } finally {
+    endRun(writer)
+  }
+}
+
+async function runActions(db: Database, automation: Automation, rowSnapshot: Page, event: EventType, changes: Change[], writer: Writer) {
+  const dbId = db.id
+  const automationId = automation.id
+  const state = useWorkspace.getState()
   const row = state.pages[rowSnapshot.id] ?? rowSnapshot
   let status: 'ok' | 'error' = 'ok'
   const messages: string[] = []
@@ -274,10 +292,12 @@ async function runAutomation(dbId: ID, automationId: ID, rowSnapshot: Page, even
         applyingAction = true
         try {
           // version history keeps the row as it was (an "AI" version: written by an automation)
-          aiWrite(() => {
-            if (prop.type === 'title') useWorkspace.getState().updatePage(row.id, { title: String(action.value ?? '') })
-            else useWorkspace.getState().setRowProperty(row.id, prop.id, resolveSetValue(prop, action.value))
-          })
+          withWriter(writer, () =>
+            aiWrite(() => {
+              if (prop.type === 'title') useWorkspace.getState().updatePage(row.id, { title: String(action.value ?? '') })
+              else useWorkspace.getState().setRowProperty(row.id, prop.id, resolveSetValue(prop, action.value))
+            }),
+          )
         } finally {
           applyingAction = false
         }
@@ -287,7 +307,7 @@ async function runAutomation(dbId: ID, automationId: ID, rowSnapshot: Page, even
         toast({ message: text, kind: 'info', action: event !== 'row_deleted' ? { label: t('common.open'), run: () => (window.location.hash = `#/p/${row.id}`) } : undefined })
         message = t('features.auto.res.notified')
       } else if (action.type === 'run_script') {
-        const out = await runScriptAction(action.scriptId, event === 'row_deleted' ? dbId : row.id)
+        const out = await runScriptAction(action.scriptId, event === 'row_deleted' ? dbId : row.id, writer)
         ok = out.ok
         message = out.message
       }
@@ -307,12 +327,12 @@ async function runAutomation(dbId: ID, automationId: ID, rowSnapshot: Page, even
  * while it runs: its own writes (and anything else written meanwhile) never start them again. Its
  * effects are asked first like any run; its toast says what it changed (with Undo).
  */
-async function runScriptAction(scriptId: ID | null, contextPageId: ID): Promise<{ ok: boolean; message: string }> {
+async function runScriptAction(scriptId: ID | null, contextPageId: ID, writer: Writer): Promise<{ ok: boolean; message: string }> {
   const script = scriptId ? useWorkspace.getState().scripts?.[scriptId] : undefined
   if (!script) return { ok: false, message: t('features.auto.err.script') }
   const resume = pauseAutomations()
   try {
-    const r = await runScriptById(script.id, { contextPageId })
+    const r = await runScriptById(script.id, { contextPageId, writer: { via: formatWriterKey(writer) } })
     if (!r) return { ok: false, message: t('features.auto.err.scriptBusy', { name: script.name }) }
     if (r.status === 'error' && r.error) return { ok: false, message: `${script.name}: ${errorMessage(r.error, t)}` }
     if (r.status !== 'ok') return { ok: true, message: t('features.auto.res.scriptCancelled', { name: script.name }) }
@@ -337,6 +357,8 @@ interface Pending {
   event: EventType
   changes: Map<ID, Change>
   firstAt: number
+  /** the writer of the newest change that scheduled it (store/writer.ts) — the run's cause */
+  cause: WriterKey
 }
 const pending = new Map<string, Pending>()
 /** Quiet time before an event fires (edits within it are merged). */
@@ -360,7 +382,7 @@ function flush(key: string) {
     // still untitled (e.g. the title cell is being typed) → keep waiting, up to the cap
     if (!latest.title.trim() && Date.now() - entry.firstAt < CREATED_MAX_MS) return arm(key, entry, 1000)
     pending.delete(key)
-    void runAutomation(entry.dbId, entry.automationId, latest, 'row_created', [])
+    void runAutomation(entry.dbId, entry.automationId, latest, 'row_created', [], entry.cause)
     return
   }
   pending.delete(key)
@@ -369,10 +391,10 @@ function flush(key: string) {
     if (!trig || trig.type !== 'property_changed' || !latest || latest.trashed) return
     let list = [...entry.changes.values()].filter((c) => !sameValue(c.from, c.to))
     if (trig.toValue !== undefined && trig.toValue !== null) list = list.filter((c) => reachesValue(c.from, c.to, trig.toValue!))
-    if (list.length) void runAutomation(entry.dbId, entry.automationId, latest, 'property_changed', list)
+    if (list.length) void runAutomation(entry.dbId, entry.automationId, latest, 'property_changed', list, entry.cause)
     return
   }
-  void runAutomation(entry.dbId, entry.automationId, latest ?? entry.row, entry.event, [])
+  void runAutomation(entry.dbId, entry.automationId, latest ?? entry.row, entry.event, [], entry.cause)
 }
 
 function schedule(db: Database, automation: Automation, row: Page, event: EventType, changes: Change[]) {
@@ -380,10 +402,12 @@ function schedule(db: Database, automation: Automation, row: Page, event: EventT
   let entry = pending.get(key)
   if (!entry || entry.event !== event) {
     if (entry) window.clearTimeout(entry.timer)
-    entry = { timer: 0, dbId: db.id, automationId: automation.id, rowId: row.id, row, event, changes: new Map(), firstAt: Date.now() }
+    entry = { timer: 0, dbId: db.id, automationId: automation.id, rowId: row.id, row, event, changes: new Map(), firstAt: Date.now(), cause: 'unknown' }
     pending.set(key, entry)
   }
   entry.row = row
+  // read inside the store listener: the triggering write's frame is still open
+  entry.cause = causeKey()
   for (const c of changes) {
     const had = entry.changes.get(c.propertyId)
     entry.changes.set(c.propertyId, { propertyId: c.propertyId, from: had ? had.from : c.from, to: c.to })

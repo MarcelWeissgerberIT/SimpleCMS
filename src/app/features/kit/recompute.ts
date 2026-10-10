@@ -10,6 +10,7 @@
  */
 import { create } from 'zustand'
 import { useWorkspace } from '../../store/store'
+import { causeKey, withWriter, type WriterKey } from '../../store/writer'
 import { useCloud } from '../../cloud'
 import type { Database, ID, Page, PropertyDef, Workspace } from '../../store/types'
 import { ownTypeOf } from './model'
@@ -48,16 +49,16 @@ function valueProps(db: Database): PropertyDef[] {
 
 /* ------------------------------------------------------------------ queue */
 
-/** `${dbId}|${propId}` → rows to compute */
-const queue = new Map<string, Set<ID>>()
+/** `${dbId}|${propId}` → rows to compute, each with the writer whose change queued it (store/writer.ts: the cause) */
+const queue = new Map<string, Map<ID, WriterKey>>()
 let timer: number | null = null
 let busy = false
 const waiters: Array<() => void> = []
 
-function enqueue(dbId: ID, propId: ID, rowIds: Iterable<ID>): void {
+function enqueue(dbId: ID, propId: ID, rowIds: Iterable<ID>, cause: WriterKey): void {
   const key = `${dbId}|${propId}`
-  const set = queue.get(key) ?? new Set<ID>()
-  for (const id of rowIds) set.add(id)
+  const set = queue.get(key) ?? new Map<ID, WriterKey>()
+  for (const id of rowIds) set.set(id, cause)
   if (set.size) queue.set(key, set)
   if (timer !== null) window.clearTimeout(timer)
   timer = window.setTimeout(() => {
@@ -80,12 +81,12 @@ export function scheduleValue(dbId: ID, propId: ID, rowId: ID): void {
   const key = `${rowId}|${propId}`
   if (seen.get(key) === code) return
   seen.set(key, code)
-  enqueue(dbId, propId, [rowId])
+  enqueue(dbId, propId, [rowId], 'you~ui')
 }
 
 /** "Recompute values": every row of the database for one property (≤ 500 per pass). Resolves with the number of changed values. */
 export async function recomputeProperty(dbId: ID, propId: ID): Promise<number> {
-  enqueue(dbId, propId, rowsOfDb(dbId).map((r) => r.id))
+  enqueue(dbId, propId, rowsOfDb(dbId).map((r) => r.id), 'you~ui')
   return new Promise<number>((resolve) => {
     const before = changedTotal
     waiters.push(() => resolve(changedTotal - before))
@@ -106,7 +107,7 @@ async function pass(): Promise<void> {
       if (budget <= 0) break
       const [dbId, propId] = key.split('|')
       const ids = [...rows].slice(0, budget)
-      ids.forEach((id) => rows.delete(id))
+      ids.forEach(([id]) => rows.delete(id))
       if (!rows.size) queue.delete(key)
       budget -= ids.length
       await computeRows(dbId, propId, ids)
@@ -126,9 +127,9 @@ function enqueueLater(): void {
   }, DEBOUNCE)
 }
 
-async function computeRows(dbId: ID, propId: ID, rowIds: ID[]): Promise<void> {
+async function computeRows(dbId: ID, propId: ID, rowIds: Array<[ID, WriterKey]>): Promise<void> {
   if (useCloud.getState().readOnly) return
-  for (const rowId of rowIds) {
+  for (const [rowId, cause] of rowIds) {
     const s = ws()
     const db = s.databases[dbId]
     const prop = db?.properties.find((p) => p.id === propId)
@@ -154,8 +155,11 @@ async function computeRows(dbId: ID, propId: ID, rowIds: ID[]): Promise<void> {
       if (sameValue(row2.properties[propId], value)) continue
       writing++
       try {
-        if (added.length) now.updateProperty(dbId, propId, { options: [...(prop2.options ?? []), ...added] })
-        now.setRowProperty(rowId, propId, value)
+        // the computed value as the kit's write, caused by the change that queued the row (store/writer.ts)
+        withWriter({ kind: 'kit', type: type.id, cause }, () => {
+          if (added.length) now.updateProperty(dbId, propId, { options: [...(prop2.options ?? []), ...added] })
+          now.setRowProperty(rowId, propId, value)
+        })
         changedTotal++
       } finally {
         writing--
@@ -185,6 +189,8 @@ export function startKit(): () => void {
 
   const unsubWs = useWorkspace.subscribe((s: Workspace, prev: Workspace) => {
     if (writing > 0) return
+    // read inside the listener: the triggering write's frame is still open
+    const cause = causeKey()
     // code or properties changed: every row of the affected databases
     if (s.databases !== prev.databases || s.kit !== prev.kit) {
       for (const db of Object.values(s.databases)) {
@@ -193,7 +199,7 @@ export function startKit(): () => void {
         const before = new Set((sigs.get(db.id) ?? '').split('\n'))
         sigs.set(db.id, sig)
         const rows = rowsOfDb(db.id).map((r) => r.id)
-        for (const p of valueProps(db)) if (!before.has(`${p.id}:${ownTypeOf(p)?.scripts?.value ?? ''}`)) enqueue(db.id, p.id, rows)
+        for (const p of valueProps(db)) if (!before.has(`${p.id}:${ownTypeOf(p)?.scripts?.value ?? ''}`)) enqueue(db.id, p.id, rows, cause)
       }
     }
     // rows that changed (or were created): their value properties
@@ -207,7 +213,7 @@ export function startKit(): () => void {
           props = db ? valueProps(db) : []
           byDb.set(p.databaseId, props)
         }
-        for (const prop of props) enqueue(p.databaseId, prop.id, [id])
+        for (const prop of props) enqueue(p.databaseId, prop.id, [id], cause)
       }
     }
   })

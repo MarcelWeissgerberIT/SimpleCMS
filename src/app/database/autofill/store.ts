@@ -13,6 +13,8 @@ import { useEffect, useId, useState } from 'react'
 import { create } from 'zustand'
 import type { AutofillConfig, Database, ID, Page, PropertyDef, PropertyValue } from '../../store/types'
 import { useWorkspace } from '../../store/store'
+import { endRun, noteRun, SYSTEM, withWriter, type Writer } from '../../store/writer'
+import { newId } from '../../lib/ids'
 import { useUI } from '../../store/ui'
 import { t } from '../../i18n'
 import { newOption, rowsOf, writeValue } from '../model/actions'
@@ -75,6 +77,8 @@ export interface Job {
   key: string
   dbId: ID
   propId: ID
+  /** the run's id (store/writer.ts autofill:<db>/<prop>:<run>): its writes, also those accepted in the review */
+  run?: string
   mode: RunMode
   review: boolean
   phase: 'running' | 'review' | 'finished'
@@ -206,7 +210,12 @@ export async function fillRow(dbId: ID, propId: ID, rowId: ID, signal: AbortSign
  * Write a proposal into its row (creating new options first). Returns the value it replaced, or
  * undefined when nothing was written (row or property gone).
  */
-export function writeProposal(dbId: ID, propId: ID, p: Proposal): PropertyValue | undefined {
+export function writeProposal(dbId: ID, propId: ID, p: Proposal, writer: Writer): PropertyValue | undefined {
+  // Claude's value (and its new options) as the autofill's write (store/writer.ts)
+  return withWriter(writer, () => writeNow(dbId, propId, p))
+}
+
+function writeNow(dbId: ID, propId: ID, p: Proposal): PropertyValue | undefined {
   const s = useWorkspace.getState()
   const db = s.databases[dbId]
   const prop = db?.properties.find((x) => x.id === propId)
@@ -250,7 +259,8 @@ export function recordFills(dbId: ID, propId: ID, entries: Record<ID, { at: numb
   const fills: Record<ID, { at: number; hash: string }> = {}
   for (const [id, f] of Object.entries(cfg.fills ?? {})) if (live.has(id)) fills[id] = f
   Object.assign(fills, entries)
-  s.updateProperty(dbId, propId, { autofill: { ...cfg, fills } })
+  // when rows were filled from what: bookkeeping, not a change of the property (store/writer.ts)
+  withWriter(SYSTEM('bookkeeping'), () => s.updateProperty(dbId, propId, { autofill: { ...cfg, fills } }))
 }
 
 /* ------------------------------------------------------------------ */
@@ -289,7 +299,10 @@ export async function startFill(dbId: ID, propId: ID, mode: RunMode, only?: ID[]
   const review = !cfg.skipReview
   const ac = new AbortController()
   controllers.set(key, ac)
-  set((s) => ({ jobs: { ...s.jobs, [key]: { key, dbId, propId, mode, review, phase: 'running', cancelled: false, rows: rows.map((r) => r.id), done: 0, results: {}, recent: [] } } }))
+  // the person started this run (store/writer.ts)
+  const run = newId()
+  const writer: Writer = { kind: 'autofill', db: dbId, prop: propId, run, cause: 'you~ui' }
+  set((s) => ({ jobs: { ...s.jobs, [key]: { key, dbId, propId, run, mode, review, phase: 'running', cancelled: false, rows: rows.map((r) => r.id), done: 0, results: {}, recent: [] } } }))
   setCells(Object.fromEntries(rows.map((r) => [cellKey(propId, r.id), { state: 'queued' as const }])))
 
   const fills: Record<ID, { at: number; hash: string }> = {}
@@ -317,7 +330,7 @@ export async function startFill(dbId: ID, propId: ID, mode: RunMode, only?: ID[]
         patchJob(key, () => ({ fatal: proposal.error }))
       }
       if (!review && proposal.status === 'pending') {
-        const prev = writeProposal(dbId, propId, proposal)
+        const prev = writeProposal(dbId, propId, proposal, writer)
         if (prev !== undefined) Object.assign(proposal, { status: 'applied', prev })
       }
       if (!review && (proposal.status === 'applied' || proposal.status === 'same')) fills[proposal.rowId] = { at: Date.now(), hash: proposal.hash }
@@ -325,7 +338,8 @@ export async function startFill(dbId: ID, propId: ID, mode: RunMode, only?: ID[]
       patchJob(key, (j) => ({ done: j.done + 1, results: { ...j.results, [proposal.rowId]: proposal }, recent: [proposal.rowId, ...j.recent].slice(0, 6) }))
     }
   }
-  await Promise.all(Array.from({ length: Math.min(CONCURRENCY, rows.length) }, worker))
+  noteRun(writer)
+  await Promise.all(Array.from({ length: Math.min(CONCURRENCY, rows.length) }, worker)).finally(() => endRun(writer))
   controllers.delete(key)
   // rows that never ran (cancelled / stopped)
   const cells = st().cells
@@ -369,7 +383,7 @@ function finishRun(key: string) {
           label: t('common.undo'),
           run: () => {
             const prop = useWorkspace.getState().databases[j.dbId]?.properties.find((x) => x.id === j.propId)
-            if (prop && useWorkspace.getState().pages[p.rowId]) writeValue(j.dbId, prop, p.rowId, before)
+            if (prop && useWorkspace.getState().pages[p.rowId]) withWriter(UNDO, () => writeValue(j.dbId, prop, p.rowId, before))
           },
         },
       })
@@ -404,11 +418,15 @@ function settleIfDone(key: string) {
   if (j && j.phase === 'review' && !Object.values(j.results).some((p) => p.status === 'pending')) patchJob(key, () => ({ phase: 'finished' }))
 }
 
+/** A proposal the person accepts in the review is still the run's write (store/writer.ts). */
+const reviewWriter = (j: Job): Writer => ({ kind: 'autofill', db: j.dbId, prop: j.propId, ...(j.run ? { run: j.run } : {}), cause: 'you~ui' })
+const UNDO: Writer = { kind: 'you', via: 'undo' }
+
 export function acceptProposal(key: string, rowId: ID) {
   const j = st().jobs[key]
   const p = j?.results[rowId]
   if (!j || !p || p.status !== 'pending') return
-  const prev = writeProposal(j.dbId, j.propId, p)
+  const prev = writeProposal(j.dbId, j.propId, p, reviewWriter(j))
   if (prev !== undefined) recordFills(j.dbId, j.propId, { [rowId]: { at: Date.now(), hash: p.hash } })
   patchResult(key, rowId, prev !== undefined ? { status: 'applied', prev } : { status: 'rejected' })
   settleIfDone(key)
@@ -428,7 +446,7 @@ export function acceptAll(key: string) {
   const results = { ...j.results }
   for (const p of Object.values(j.results)) {
     if (p.status === 'pending') {
-      const prev = writeProposal(j.dbId, j.propId, p)
+      const prev = writeProposal(j.dbId, j.propId, p, reviewWriter(j))
       results[p.rowId] = prev !== undefined ? { ...p, status: 'applied', prev } : { ...p, status: 'rejected' }
       if (prev !== undefined) fills[p.rowId] = { at: Date.now(), hash: p.hash }
     } else if (p.status === 'same') fills[p.rowId] = { at: Date.now(), hash: p.hash }
@@ -455,14 +473,14 @@ export function undoApplied(key: string) {
   const undone = new Set<ID>()
   for (const p of Object.values(j.results)) {
     if (p.status !== 'applied' || p.prev === undefined || !useWorkspace.getState().pages[p.rowId]) continue
-    writeValue(j.dbId, prop, p.rowId, p.prev)
+    withWriter(UNDO, () => writeValue(j.dbId, prop, p.rowId, p.prev!))
     results[p.rowId] = { ...p, status: 'rejected' }
     undone.add(p.rowId)
   }
   const cfg = useWorkspace.getState().databases[j.dbId]?.properties.find((p) => p.id === j.propId)?.autofill
   if (cfg?.fills && undone.size) {
     const fills = Object.fromEntries(Object.entries(cfg.fills).filter(([id]) => !undone.has(id)))
-    s.updateProperty(j.dbId, j.propId, { autofill: { ...cfg, fills } })
+    withWriter(SYSTEM('bookkeeping'), () => s.updateProperty(j.dbId, j.propId, { autofill: { ...cfg, fills } }))
   }
   patchJob(key, () => ({ results, undone: true }))
 }

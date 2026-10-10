@@ -12,6 +12,7 @@
 import type { Database, ID, PropertyDef } from '../../store/types'
 import { pageChanges, useWorkspace } from '../../store/store'
 import { isApplyingRemote } from '../../store/persistence'
+import { causeKey, type Writer, type WriterKey } from '../../store/writer'
 import { autofillOf, configIssue } from './config'
 import { rowHash } from './context'
 import { isDbReadOnly } from '../readonly'
@@ -50,11 +51,17 @@ export function startAutofillWatch(): void {
       changed.push({ dbId: p.databaseId, rowId: id })
       if (changed.length > BULK) return
     }
-    for (const c of changed) schedule(c.dbId, c.rowId)
+    // the write that changed the rows (store/writer.ts): the cause of their auto fills — read inside the listener
+    const cause = causeKey()
+    for (const c of changed) schedule(c.dbId, c.rowId, cause)
   })
 }
 
-function schedule(dbId: ID, rowId: ID) {
+/** Per row: the writer of the newest change that queued it (its fills' cause). */
+const causes = new Map<ID, WriterKey>()
+
+function schedule(dbId: ID, rowId: ID, cause: WriterKey) {
+  causes.set(rowId, cause)
   window.clearTimeout(timers.get(rowId))
   timers.set(
     rowId,
@@ -112,7 +119,8 @@ async function run(k: string, { dbId, propId, rowId }: { dbId: ID; propId: ID; r
       setCells({ [k]: { state: 'error', message: p.error ?? '' } })
       return
     }
-    if (p.status === 'same' || (p.status === 'pending' && writeProposal(dbId, propId, p) !== undefined)) recordFills(dbId, propId, { [rowId]: { at: Date.now(), hash: p.hash } })
+    const writer: Writer = { kind: 'autofill', db: dbId, prop: propId, cause: causes.get(rowId) ?? 'unknown' }
+    if (p.status === 'same' || (p.status === 'pending' && writeProposal(dbId, propId, p, writer) !== undefined)) recordFills(dbId, propId, { [rowId]: { at: Date.now(), hash: p.hash } })
     setCells({ [k]: null })
   } catch {
     setCells({ [k]: null })

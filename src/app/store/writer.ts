@@ -214,6 +214,21 @@ export function formatWriterKey(w: Writer): WriterKey {
   return key.length > MAX_KEY ? key.slice(0, MAX_KEY) : key
 }
 
+/** Events of the person: a store write inside one of them without a frame is theirs (the recorder's fallback, step 3). */
+const USER_EVENTS = new Set(['click', 'dblclick', 'contextmenu', 'keydown', 'keyup', 'keypress', 'input', 'beforeinput', 'compositionend', 'change', 'pointerdown', 'pointerup', 'mousedown', 'mouseup', 'touchend', 'drop', 'dragend', 'paste', 'cut', 'submit', 'blur', 'focusout'])
+
+/**
+ * The key of the writer of the write happening now — for a service that reacts to it later (an automation, autofill,
+ * the kit, synced blocks: their `cause`). Read inside a store listener: the triggering write's frame is still open.
+ * Without a frame: the person inside a user event, else 'unknown'.
+ */
+export function causeKey(): WriterKey {
+  const w = currentWriter()
+  if (w) return formatWriterKey(w)
+  const ev = typeof window !== 'undefined' ? (window as unknown as { event?: Event }).event : undefined
+  return ev?.isTrusted && USER_EVENTS.has(ev.type) ? 'you~ui' : 'unknown'
+}
+
 /* ------------------------------------------------------------------ */
 /* Runs                                                                */
 /* ------------------------------------------------------------------ */
