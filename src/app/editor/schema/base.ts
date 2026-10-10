@@ -21,6 +21,7 @@ import { Tab, Tabs } from './tabs'
 import { CommentMark } from './comment'
 import { SyncedBlock } from './synced'
 import { MeetingNotes } from './meetingNotes'
+import { WorkItem } from './workItem'
 import { Spreadsheet } from './spreadsheet'
 import { ChartNode } from './chart'
 import { ToggleDetails, ToggleHeadingInput, ToggleSummary } from './toggle'
@@ -93,6 +94,15 @@ const FencedCodeBlock = CodeBlockLowlight.extend({
   },
 })
 
+/**
+ * Generation of the document schema this build reads and writes. A tab that does not know a node type
+ * DELETES it from a shared document (y-prosemirror), so the team server lets a collab connection write only
+ * when it sends a generation ≥ the server's minimum (docs/CLOUD.md § Schema gate). Bump it with every new
+ * node type or attribute an older client would lose — and raise the server's MIN_CLIENT_SCHEMA one release later.
+ *  1 = the task block (`workItem`)
+ */
+export const DOC_SCHEMA_VERSION = 1
+
 /** Block types that carry a stable `id` attribute (block links, ?b=…, TOC anchors). */
 export const BLOCK_ID_TYPES = [
   'paragraph',
@@ -125,6 +135,7 @@ export const BLOCK_ID_TYPES = [
   'tab',
   'syncedBlock',
   'meetingNotes',
+  'workItem',
   'spreadsheet',
   'chart',
   'breadcrumb',
@@ -206,6 +217,8 @@ export function baseExtensions({ readOnly = false, wrap = {}, headingOffset = 0,
     Tab,
     w('syncedBlock', SyncedBlock),
     w('meetingNotes', MeetingNotes),
+    // the task block (never the first block type: `block+` content fills with a paragraph, not a task)
+    w('workItem', WorkItem),
     w('spreadsheet', Spreadsheet),
     w('chart', ChartNode),
     w('breadcrumb', Breadcrumb),

@@ -7,7 +7,7 @@
  */
 import type { JSONContent } from '@tiptap/core'
 import tokensCss from '@/shared/tokens.css?raw'
-import { docToHTML } from '../../editor'
+import { docToHTML, workItemExportCss } from '../../editor'
 import { readAsDataUrl, resolveAssetUrl } from '../../lib/files'
 import { plainText } from '../../store/store'
 import { t } from '../../i18n'
@@ -288,6 +288,7 @@ ${['gray', 'brown', 'orange', 'yellow', 'green', 'blue', 'purple', 'pink', 'red'
 .doc .file-block,.doc .page-link,.doc .database-block{padding:8px 12px;border:1px solid var(--rule);border-radius:4px;margin:0 0 .75em}
 .doc .toc:empty{display:none}
 ${tabsCss('.doc')}
+${workItemExportCss('.doc')}
 .doc .one-button{margin:0 0 1em}
 .doc .one-button__key{font:650 15px var(--font-sans);padding:7px 15px;border:1px solid var(--signal-press);border-radius:2px;background:var(--signal);color:var(--on-signal);opacity:1}
 .doc .one-button--ink .one-button__key{background:var(--ink);border-color:var(--ink);color:var(--ink-inverse)}

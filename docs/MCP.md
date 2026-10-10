@@ -423,7 +423,8 @@ curl -s https://team.example.com/mcp \
 - **Content out** is Markdown: headings, paragraphs with bold / italic / strike / code / links, bulleted, numbered and
   to-do lists (nested), quotes, code blocks, dividers, tables, toggles (`<details>`), callouts (`> [!NOTE]`), math,
   Mermaid, images, files, bookmarks, embeds, page links (`[Title](#/p/<id>)`), @-mentions, database blocks, tabs,
-  synced blocks and meeting notes (with transcript). Comments never leave; buttons show their label only.
+  synced blocks and meeting notes (with transcript); a task block (`workItem`) as its title line and notes (its fields
+  stay the app's for now — the team MCP never writes the `> [!TODO]` form). Comments never leave; buttons show their label only.
 - **Content in** is the API's [markdown-lite](API.md#content-markdown-lite) (headings, paragraphs, lists, to-dos,
   quotes, code, dividers, marks, links); other Markdown stays text. `one_update_page` appends after the last block or,
   with `mode: "replace"`, replaces everything — editors open on that page follow along live.

@@ -250,8 +250,11 @@ export function keyValueList(entries: Array<[string, string]>): Node[] {
 
 /* ------------------------------------------------------------------ Y */
 
-/** Block types that carry a unique `id` (the editor's BLOCK_ID_TYPES, src/app/editor/schema/base.ts). */
-const BLOCK_ID_TYPES = new Set(['paragraph', 'heading', 'blockquote', 'bulletList', 'orderedList', 'taskList', 'listItem', 'taskItem', 'codeBlock', 'horizontalRule'])
+/**
+ * Block types that carry a unique `id` (the editor's BLOCK_ID_TYPES, src/app/editor/schema/base.ts) — those
+ * the API writes, plus the task block (`workItem`; the API never writes one before server parity, phase 4).
+ */
+const BLOCK_ID_TYPES = new Set(['paragraph', 'heading', 'blockquote', 'bulletList', 'orderedList', 'taskList', 'listItem', 'taskItem', 'codeBlock', 'horizontalRule', 'workItem'])
 
 function toY(node: Node): Y.XmlElement {
   const el = new Y.XmlElement(node.type)

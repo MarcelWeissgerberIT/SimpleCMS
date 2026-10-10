@@ -1,0 +1,332 @@
+/*
+ * Task block (`workItem`) — the read-only placard ("INSTRUMENT"): the callout's plate with a 3 px status
+ * rail, a keycap holding the status LED, the mono spec label and a strip of keycap chips.
+ *
+ * One grid for the editor's node view and the static StaticWorkItem: the head, the content holder and
+ * (in the editor) TipTap's content element are `display: contents`, so the status key, the title line, the
+ * spec label, the chips and the notes are all cells of the placard's grid:
+ *     [key] [title ……………………] [label]
+ *           [chips …………………………………]
+ *           [notes …………………………………]
+ * Content items are `.workitem__body > *` (static) or `.workitem__body > [data-node-view-content-react] > *`
+ * (editor). Exported HTML styles itself (workitem/exportCss.ts).
+ */
+
+.workitem {
+  --wi-rail: var(--ink-3);
+  --wi-bg: var(--surface-2);
+  --wi-key: calc(22px * var(--text-scale));
+  --wi-line: calc(var(--doc-lh, 1.65) * var(--doc-size, 1em));
+  --wi-pad: var(--block-pad, 3px);
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  column-gap: 10px;
+  align-items: start;
+  padding: 6px 12px 8px 15px;
+  border-radius: var(--radius-2);
+  background: var(--wi-bg);
+  box-shadow: inset 0 0 0 1px var(--rule);
+  container-type: inline-size;
+}
+
+/* Carbon: surface-2 sits below the page there — the plate takes surface-3 to stay raised */
+:root[data-theme='dark'] .workitem {
+  --wi-bg: var(--surface-3);
+}
+
+/* the status rail */
+.workitem::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  border-radius: inherit;
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+  background: var(--wi-rail);
+  pointer-events: none;
+}
+
+.workitem__head,
+.workitem__body,
+.workitem__body > [data-node-view-content-react] {
+  display: contents;
+}
+
+/* ---------- head: status key + spec label ---------- */
+.workitem__key {
+  grid-column: 1;
+  grid-row: 1;
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  width: var(--wi-key);
+  height: var(--wi-key);
+  margin-top: calc(var(--wi-pad) + (var(--wi-line) - var(--wi-key)) / 2);
+  border: 1px solid var(--rule-strong);
+  border-bottom-width: 2.5px;
+  border-radius: 3px;
+  background: var(--surface);
+  user-select: none;
+}
+
+.workitem__key .led {
+  width: 7px;
+  height: 7px;
+}
+
+.workitem__label {
+  grid-column: 3;
+  grid-row: 1;
+  margin-top: calc(var(--wi-pad) + (var(--wi-line) - var(--text-2xs)) / 2);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--ink-3);
+  user-select: none;
+}
+
+/* ---------- content: the title line + the notes ---------- */
+.workitem__body > :not([data-node-view-content-react]),
+.workitem__body > [data-node-view-content-react] > * {
+  grid-column: 2 / -1;
+  min-width: 0;
+}
+
+.workitem__body > :first-child:not([data-node-view-content-react]),
+.workitem__body > [data-node-view-content-react] > :first-child {
+  grid-column: 2;
+  grid-row: 1;
+  font-weight: 600;
+}
+
+/* the first note: a hairline above it */
+.workitem__body > :nth-child(2):not([data-node-view-content-react]),
+.workitem__body > [data-node-view-content-react] > :nth-child(2) {
+  margin-top: 6px;
+  border-top: 1px solid var(--rule);
+  padding-top: calc(var(--wi-pad) + 4px);
+}
+
+.workitem__body > :not([data-node-view-content-react]) + *,
+.workitem__body > [data-node-view-content-react] > * + :not(:nth-child(2)) {
+  margin-top: 2px;
+}
+
+/* ---------- chips ---------- */
+.workitem__chips {
+  grid-column: 2 / -1;
+  grid-row: 2;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px 6px;
+  margin: 1px 0 2px;
+  min-width: 0;
+  user-select: none;
+}
+
+.workitem__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  box-sizing: border-box;
+  height: 23px;
+  max-width: 100%;
+  padding: 0 7px;
+  border: 1px solid var(--rule-strong);
+  border-bottom-width: 2px;
+  border-radius: 3px;
+  background: var(--surface);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.workitem__chip svg {
+  flex: none;
+  color: var(--ink-3);
+}
+
+.workitem__chip--due > svg:first-child {
+  color: var(--signal);
+}
+
+.workitem__dot {
+  color: var(--ink-faint);
+}
+
+.workitem__rem {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--ink-2);
+}
+
+.workitem__rem svg {
+  color: var(--signal-ink);
+}
+
+.workitem__chip--due[data-late] {
+  border-color: var(--signal);
+  background: var(--signal-wash);
+  color: var(--signal-ink);
+  font-weight: 600;
+}
+
+.workitem__chip--due[data-late] svg,
+.workitem__chip--due[data-late] .workitem__dot {
+  color: var(--signal-ink);
+}
+
+.workitem__chip--person {
+  gap: 6px;
+  padding: 0 7px 0 3px;
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  font-weight: 550;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.workitem__avatar {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  border-radius: var(--radius-1);
+  font-family: var(--font-mono);
+  font-size: calc(8.5px * var(--text-scale));
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.02em;
+}
+
+/* ---------- states ---------- */
+.workitem[data-status='in_progress'],
+.workitem[data-late] {
+  --wi-rail: var(--signal);
+}
+
+.workitem[data-status='done'] {
+  --wi-rail: var(--rule-strong);
+  background: color-mix(in srgb, var(--wi-bg) 45%, var(--surface));
+}
+
+.workitem[data-status='done'] .workitem__key {
+  transform: translateY(1px);
+  border-bottom-width: 1px;
+}
+
+.workitem[data-status='done'] .workitem__body > :first-child:not([data-node-view-content-react]),
+.workitem[data-status='done'] .workitem__body > [data-node-view-content-react] > :first-child {
+  color: var(--ink-3);
+  font-weight: 550;
+  text-decoration: line-through;
+  text-decoration-color: var(--rule-strong);
+  text-decoration-thickness: 1px;
+}
+
+.workitem[data-status='done'] .workitem__body > :not(:first-child):not([data-node-view-content-react]),
+.workitem[data-status='done'] .workitem__body > [data-node-view-content-react] > :not(:first-child) {
+  color: var(--ink-2);
+}
+
+.workitem[data-status='done'] .workitem__chip {
+  border-bottom-width: 1px;
+  background: transparent;
+  color: var(--ink-3);
+}
+
+.workitem[data-status='done'] .workitem__avatar {
+  opacity: 0.7;
+}
+
+/* ---------- spacing + stacking: consecutive tasks read as one plate ---------- */
+.doc-content .node-workItem {
+  margin: 8px 0;
+}
+
+/* (sibling margins collapse: the one before keeps none, so the gap is exactly 2px) */
+.doc-content .node-workItem:has(+ .node-workItem) {
+  margin-bottom: 0;
+}
+
+.doc-content .node-workItem + .node-workItem {
+  margin-top: 2px;
+}
+
+.doc-content .node-workItem:has(+ .node-workItem) > .workitem {
+  border-bottom-left-radius: var(--radius-1);
+  border-bottom-right-radius: var(--radius-1);
+}
+
+.doc-content .node-workItem + .node-workItem > .workitem {
+  border-top-left-radius: var(--radius-1);
+  border-top-right-radius: var(--radius-1);
+}
+
+/* outside an editor (history diff): the same stacking on the placards themselves */
+.workitem + .workitem {
+  margin-top: 2px;
+}
+
+/* ---------- narrow: the spec label goes, chips + notes take the full width ---------- */
+@container (max-width: 420px) {
+  .workitem__label {
+    display: none;
+  }
+
+  .workitem__body > :first-child:not([data-node-view-content-react]),
+  .workitem__body > [data-node-view-content-react] > :first-child {
+    grid-column: 2 / -1;
+  }
+
+  .workitem__chips,
+  .workitem__body > :not(:first-child):not([data-node-view-content-react]),
+  .workitem__body > [data-node-view-content-react] > :not(:first-child) {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 760px) {
+  .workitem {
+    --wi-key: calc(28px * var(--text-scale));
+    column-gap: 8px;
+    padding: 6px 8px 9px 13px;
+  }
+
+  .workitem__key .led {
+    width: 8px;
+    height: 8px;
+  }
+
+  .workitem__chips {
+    gap: 6px;
+    margin-top: 4px;
+  }
+
+  .workitem__chip {
+    height: 28px;
+    padding: 0 9px;
+  }
+
+  .workitem__chip--person {
+    padding: 0 9px 0 5px;
+  }
+}

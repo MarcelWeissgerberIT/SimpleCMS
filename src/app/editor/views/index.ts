@@ -17,6 +17,7 @@ import { StaticTabsView, TabsView, tabsViewOptions } from './TabsView'
 import { SyncedBlockView, syncedViewOptions } from './SyncedBlockView'
 import { AudioView, VideoView } from './MediaBlockViews'
 import { MeetingNotesView, meetingViewOptions } from './MeetingNotesView'
+import { StaticWorkItemView, WorkItemView, workItemViewOptions } from './WorkItemView'
 import { SpreadsheetView, spreadsheetViewOptions } from './SpreadsheetView'
 import { ChartBlockView, chartViewOptions } from './ChartBlockView'
 import { withInlineIconView } from './InlineIconView'
@@ -72,6 +73,8 @@ export function nodeViewWraps({ readOnly }: { readOnly: boolean }): ExtensionWra
     ...(readOnly ? {} : { syncedBlock: withView(SyncedBlockView, syncedViewOptions) }),
     // meeting notes: controls from the features area around the notes (content hole: no guard)
     meetingNotes: withView(MeetingNotesView, meetingViewOptions),
+    // task block: the placard around its title + notes (content hole: no guard)
+    workItem: withView(readOnly ? StaticWorkItemView : WorkItemView, workItemViewOptions),
     // spreadsheet: the grid (lazy) while editing; read-only renders show the schema's static tables
     ...(readOnly ? {} : { spreadsheet: withView(guardView(SpreadsheetView), spreadsheetViewOptions) }),
     // chart: the live chart (features/charts); read-only renders keep the readouts, without the tools

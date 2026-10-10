@@ -368,6 +368,8 @@ function sanitizeShared(node: JSONContent): JSONContent {
       a.icon = sanitizeCalloutIcon(a.icon)
       a.color = typeof a.color === 'string' && /^[a-z]{1,16}$/.test(a.color) ? a.color : 'gray'
     }
+    // a task arrives frozen (names, no ids): ids a crafted link might still carry never meet this workspace's people
+    if (n.type === 'workItem') Object.assign(a, { itemId: null, people: [], blockedBy: [], related: [], reminder: null })
     if (n.type === 'codeBlock' && a.language != null && !/^[\w#+.-]{1,32}$/.test(String(a.language))) a.language = null
     if ('color' in a && n.type !== 'callout' && a.color != null && !/^[a-z]{1,16}$/.test(String(a.color))) a.color = null
     n.attrs = a

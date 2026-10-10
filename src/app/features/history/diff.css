@@ -310,3 +310,36 @@
   font-family: var(--font-mono);
   font-size: 0.95em;
 }
+
+/* ---------- task block: the placard as it is now, then its fields before → after ---------- */
+.ddiff-item > .workitem {
+  margin: 4px 0;
+}
+
+.ddiff-fields {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-items: baseline;
+  gap: 4px 14px;
+  margin: 4px 0 8px;
+  padding: 6px 10px;
+  border-left: 2px solid var(--signal);
+  background: var(--surface);
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}
+
+.ddiff-fields__row {
+  display: contents;
+}
+
+.ddiff-fields dt,
+.ddiff-fields dd {
+  margin: 0;
+}
+
+.ddiff-fields dd {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}

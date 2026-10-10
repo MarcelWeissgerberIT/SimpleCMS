@@ -131,6 +131,7 @@ const TYPE_LABEL: Record<string, string> = {
   tabs: 'tabs',
   syncedBlock: 'synced',
   meetingNotes: 'meetingNotes',
+  workItem: 'workItem',
   button: 'button',
   breadcrumb: 'breadcrumb',
 }

@@ -8,8 +8,8 @@
  */
 import { Fragment, useMemo, useState, type ReactNode } from 'react'
 import type { JSONContent } from '@tiptap/core'
-import { useT } from '../../i18n'
-import { ReadOnlyDoc } from '../../editor'
+import { useLang, useT } from '../../i18n'
+import { ReadOnlyDoc, StaticWorkItem, itemChanges, workItemDueText, workItemReminderShort, type ItemChange } from '../../editor'
 import { useWorkspace } from '../../store/store'
 import { foldRows, toDiffNode, type DiffNode, type DiffRow, type DocItem } from './docDiff'
 import './diff.css'
@@ -249,6 +249,8 @@ function renderNode(n: DiffNode, key: string): ReactNode {
           {kids(n)}
         </div>
       )
+    case 'workItem':
+      return <WorkItemDiff key={key} node={n} />
     case 'tab':
       return (
         <div key={key} className="ddiff-box ddiff-box--tab" {...d}>
@@ -291,6 +293,79 @@ function renderNode(n: DiffNode, key: string): ReactNode {
       return <hr key={key} {...d} />
     default:
       return <AtomBlock key={key} node={n} />
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Task block: the placard (as it is now) + its fields before → after  */
+/* ------------------------------------------------------------------ */
+
+function WorkItemDiff({ node }: { node: DiffNode }) {
+  const t = useT()
+  const changes = useMemo(() => (node.was ? itemChanges(node.was, node.attrs) : []), [node.was, node.attrs])
+  return (
+    <div className="ddiff-item" {...diffAttr(node)}>
+      <StaticWorkItem attrs={node.attrs}>{kids(node)}</StaticWorkItem>
+      {changes.length > 0 && (
+        <dl className="ddiff-fields" aria-label={t('features.history.item.label')} data-testid="workitem-changes">
+          {changes.map((c) => (
+            <div key={c.field} className="ddiff-fields__row" data-field={c.field}>
+              <dt className="label">{t(`features.history.item.${c.field}`)}</dt>
+              <dd>
+                <FieldValue change={c} />
+              </dd>
+            </div>
+          ))}
+        </dl>
+      )}
+    </div>
+  )
+}
+
+/** One field's change: the value before (struck) → after; people added / removed by name. */
+function FieldValue({ change: c }: { change: ItemChange }) {
+  const t = useT()
+  const lang = useLang()
+  const people = useWorkspace((s) => s.people)
+  const none = t('features.history.item.none')
+  const pair = (a: string, b: string) => (
+    <>
+      <del className="ddiff-del">{a}</del> <span aria-hidden>→</span> <ins className="ddiff-ins">{b}</ins>
+    </>
+  )
+  switch (c.field) {
+    case 'status':
+      return pair(t(`editor.workItem.status.${c.before.status}`), t(`editor.workItem.status.${c.after.status}`))
+    case 'due':
+      return pair(c.before.due ? workItemDueText(c.before.due, lang) : none, c.after.due ? workItemDueText(c.after.due, lang) : none)
+    case 'reminder': {
+      const r = (code: string | null) => (code ? workItemReminderShort(code, t) || '🔔' : none)
+      return pair(r(c.before.reminder), r(c.after.reminder))
+    }
+    case 'people': {
+      const name = (id: string) => people.find((p) => p.id === id)?.name ?? null
+      const kept = c.after.people.filter((id) => !c.added.includes(id)).map(name).filter(Boolean) as string[]
+      const added = c.added.map(name).filter(Boolean) as string[]
+      const removed = c.removed.map(name).filter(Boolean) as string[]
+      // frozen copies: names only
+      if (!c.before.people.length && !c.after.people.length) return pair(c.before.frozen?.people.join(', ') || none, c.after.frozen?.people.join(', ') || none)
+      if (!kept.length && !added.length && !removed.length) return <>{none}</>
+      return (
+        <>
+          {[...kept.map((n) => <span key={`k${n}`}>{n}</span>), ...removed.map((n) => <del key={`r${n}`} className="ddiff-del">{n}</del>), ...added.map((n) => <ins key={`a${n}`} className="ddiff-ins">{n}</ins>)].map((el, i) => (
+            <Fragment key={i}>
+              {i > 0 && ', '}
+              {el}
+            </Fragment>
+          ))}
+        </>
+      )
+    }
+    case 'blockedBy':
+    case 'related': {
+      const n = (list: string[]) => (list.length ? t(list.length === 1 ? 'features.history.item.links.one' : 'features.history.item.links', { n: list.length }) : none)
+      return pair(n(c.before[c.field]), n(c.after[c.field]))
+    }
   }
 }
 

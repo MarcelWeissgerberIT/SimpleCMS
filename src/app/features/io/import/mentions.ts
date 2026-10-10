@@ -5,6 +5,8 @@
  *
  *   [@Oct 17](one:date/2026-10-17?r=-1d)       date mention (id = stored date, r = reminder code)
  *   [@Alex](one:person/<personId>)              person mention
+ *   [Draft copy](one:item/wi_1b2c3d4e5f)        a linked task (task blocks' field line, editor/workitem/markdown.ts):
+ *                                               no node of its own — its text stays, the link goes
  *
  * Page mentions keep their relative link (`[@Title](Page.md)`), they come back by title.
  * Share links and published sites never use this (they render mentions as text / links).
@@ -14,7 +16,8 @@ import { normalizeReminder } from '../../inbox/reminders'
 
 /** The serializer only keeps web links: mention links travel under this host and become `one:` after. */
 const HOST = 'https://one.invalid/'
-const ONE = /^one:(date|person)\/([^?#\s]+)(?:\?r=([^&#\s]*))?$/
+const ONE = /^one:(date|person|item)\/([^?#\s]+)(?:\?r=([^&#\s]*))?$/
+const ITEM = /^wi_[A-Za-z0-9_-]{10}$/
 const DATE = /^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2})?$/
 
 const str = (v: unknown) => (typeof v === 'string' ? v : '')
@@ -55,13 +58,17 @@ export function toFileMarkdown(docToMarkdown: (doc: JSONContent | null) => strin
 /** Is this href one of the mention links above? */
 export const isMentionHref = (href: string) => href.trim().startsWith('one:')
 
-/** A `one:` mention link (its text, its href) → the mention node, or null for anything else. */
+/**
+ * A `one:` mention link (its text, its href) → the mention node, or null for anything else. A task link
+ * (`one:item/<itemId>`, outside a task block's field line) has no node: its text, without the link.
+ */
 export function mentionFromLink(text: string, href: string): JSONContent | null {
   const m = ONE.exec(href.trim())
   if (!m) return null
   const id = decode(m[2])
   if (!id) return null
   const label = text.replace(/^@/, '').trim()
+  if (m[1] === 'item') return ITEM.test(id) ? { type: 'text', text: text.trim() || id } : null
   if (m[1] === 'person') return { type: 'mention', attrs: { id, label, kind: 'person' } }
   if (!DATE.test(id)) return null
   const code = m[3] ? normalizeReminder(decode(m[3])) : null

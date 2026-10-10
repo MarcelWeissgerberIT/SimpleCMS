@@ -36,7 +36,7 @@ export const TODB_MAX_INPUT = 60_000
 /** Whole lists and tables go along when the selection is inside them (their items / rows are not containers). */
 const WRAPPERS = new Set(['bulletList', 'orderedList', 'taskList', 'table', 'tableRow'])
 /** A selection inside one of these offers nothing — and no database block goes below them. */
-const INSIDE = new Set(['listItem', 'taskItem', 'tableCell', 'tableHeader', 'blockquote', 'detailsSummary', 'codeBlock'])
+const INSIDE = new Set(['listItem', 'taskItem', 'tableCell', 'tableHeader', 'blockquote', 'detailsSummary', 'codeBlock', 'workItem'])
 /** Blocks Claude may turn into rows. Anything else in the range (a callout, an image …) stays as it is. */
 const CONSUMABLE = new Set(['paragraph', 'heading', 'bulletList', 'orderedList', 'taskList', 'table', 'blockquote', 'horizontalRule'])
 /** Nodes that must never disappear with a consumed block (files, embeds, sub-page links, live blocks …). */
@@ -55,6 +55,7 @@ const PRECIOUS = new Set([
   'blockMath',
   'syncedBlock',
   'meetingNotes',
+  'workItem',
   'button',
   'tabs',
   'columns',

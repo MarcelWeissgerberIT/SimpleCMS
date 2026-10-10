@@ -327,7 +327,7 @@ ${tabsCss('.doc')}
 @media (prefers-reduced-motion:reduce){*{transition:none !important}}
 `
 
-/** The complete assets/site.css. */
-export function siteCss(): string {
-  return `/* Published with SimpleCMS One — INSTRUMENT */\n${FONT_FACES.trim()}\n${tokens()}\n${SITE_CSS.trim()}\n`
+/** The complete assets/site.css. `extra`: CSS the editor contributes for its blocks (the task placard). */
+export function siteCss(extra = ''): string {
+  return `/* Published with SimpleCMS One — INSTRUMENT */\n${FONT_FACES.trim()}\n${tokens()}\n${SITE_CSS.trim()}\n${extra ? `${extra.trim()}\n` : ''}`
 }

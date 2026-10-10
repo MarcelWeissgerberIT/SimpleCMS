@@ -4,6 +4,7 @@ import { iconMessages } from './icons/messages'
 import { contextMessages } from './context/messages'
 import { splitMessages } from './split/messages'
 import { selectMessages } from './select/messages'
+import { workItemMessages } from './workitem/messages'
 
 /** Strings for the editor area. Keys MUST be prefixed with "editor." — always add both en and de. */
 export const messages: Messages = {
@@ -13,6 +14,7 @@ export const messages: Messages = {
     ...contextMessages.en,
     ...splitMessages.en,
     ...selectMessages.en,
+    ...workItemMessages.en,
     // blocks: name + description (slash menu, turn into, block menu)
     'editor.block.text': 'Text',
     'editor.block.text.desc': 'Plain paragraph. The default line.',
@@ -549,6 +551,7 @@ export const messages: Messages = {
     ...contextMessages.de,
     ...splitMessages.de,
     ...selectMessages.de,
+    ...workItemMessages.de,
     'editor.block.text': 'Text',
     'editor.block.text.desc': 'Einfacher Absatz. Die Standardzeile.',
     'editor.block.heading1': 'Überschrift 1',

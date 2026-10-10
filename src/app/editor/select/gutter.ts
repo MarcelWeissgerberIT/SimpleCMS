@@ -13,7 +13,7 @@ import type { Node as PMNode } from '@tiptap/pm/model'
 import type { EditorView } from '@tiptap/pm/view'
 
 /** Containers with chrome around their blocks (padding, an icon, a bar): left of / above / below their blocks they are the target. */
-const CHROME = new Set(['callout', 'blockquote', 'syncedBlock'])
+const CHROME = new Set(['callout', 'blockquote', 'syncedBlock', 'workItem'])
 
 let measureCtx: CanvasRenderingContext2D | null | undefined
 

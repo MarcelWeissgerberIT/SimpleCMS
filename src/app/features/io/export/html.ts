@@ -422,7 +422,7 @@ function dbTable(db: Database, rows: Page[], ids: Set<ID>, untitled: string, row
 
 export async function buildHTML(tree: ExportTree, opts: HtmlOptions): Promise<string> {
   // editor + database renderers are loaded on demand
-  const [{ docToHTML }, database] = await Promise.all([import('../../../editor'), import('../../../database')])
+  const [{ docToHTML, workItemExportCss }, database] = await Promise.all([import('../../../editor'), import('../../../database')])
   propertyValueToText = database.propertyValueToText
   withTypeColumn = database.withTypeColumn
   const files = await fileUrlMap(tree)
@@ -515,7 +515,7 @@ export async function buildHTML(tree: ExportTree, opts: HtmlOptions): Promise<st
 <meta name="generator" content="SimpleCMS One">
 <title>${esc(opts.title)}</title>
 ${opts.forPrint ? '' : FONT_LINK}
-<style>${opts.forPrint ? fontFaceCSS() : await inlineFontCSS()}\n${tokenCSS()}\n${DOC_CSS}</style>
+<style>${opts.forPrint ? fontFaceCSS() : await inlineFontCSS()}\n${tokenCSS()}\n${DOC_CSS}\n${workItemExportCss()}</style>
 </head>
 <body>
 <main class="sheet">

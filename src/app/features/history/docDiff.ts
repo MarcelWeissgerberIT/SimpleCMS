@@ -150,7 +150,8 @@ const TEXTBLOCKS = new Set(['paragraph', 'heading', 'codeBlock', 'detailsSummary
 /** Paired when at least this alike (same type). */
 const PAIR_AT = 0.25
 
-const VOLATILE = new Set(['id', 'blockId', 'uid', 'data-id'])
+/** block ids, a task's itemId and doneAt (diff.ts) */
+const VOLATILE = new Set(['id', 'blockId', 'uid', 'data-id', 'itemId', 'doneAt'])
 
 function attrsOf(node: JSONContent): Record<string, unknown> {
   const out: Record<string, unknown> = {}

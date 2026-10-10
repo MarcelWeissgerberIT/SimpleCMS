@@ -71,6 +71,24 @@ export {
   type MeetingStatus,
   type TranscriptSegment,
 } from './schema/meetingNotes'
+/**
+ * Task block (UI "Task" / "Aufgabe"), node `workItem` — schema release: every client reads, shows, stores,
+ * exports and diffs it; nothing creates one yet. content: the title paragraph + notes (blocks); attrs: id,
+ * itemId ('wi_' + 10), status ('todo' | 'in_progress' | 'done'), due, reminder, people (≤ 12), blockedBy /
+ * related (itemIds, ≤ 20), doneAt — read them ONLY through itemAttrs(node | json | attrs). `frozen` exists only
+ * in documents that left the workspace (stripPrivate → freezeWorkItems: names + status kept, every id gone).
+ * StaticWorkItem { attrs, children }: the read-only placard outside an editor (history diff).
+ * workItemExportCss(scope): the placard's CSS for exported / shared HTML. DOC_SCHEMA_VERSION: the document
+ * schema generation this build reads (sent with every collab connection — docs/CLOUD.md § Schema gate).
+ */
+export { WORK_ITEM, WORK_ITEM_STATUSES, itemAttrs, shortItemId, type WorkItemAttrs, type WorkItemStatus, type FrozenWorkItem } from './workitem/attrs'
+export { StaticWorkItem } from './workitem/Placard'
+export { freezeWorkItems, hasWorkItems } from './workitem/freeze'
+export { workItemExportCss } from './workitem/exportCss'
+export { dueText as workItemDueText, reminderShort as workItemReminderShort } from './workitem/format'
+/** itemChanges(before attrs, after attrs): the fields that changed (status, due, reminder, people, blockedBy, related) — history diff. */
+export { itemChanges, type ItemChange, type ItemField } from './workitem/diff'
+export { DOC_SCHEMA_VERSION } from './schema/base'
 export { contextMarksOf, pageContextMarks, readableContent, readableBlocks, isContextLimited, useContextMarks, useContextPicking, type ContextMarks, type ReadableContent } from './context/read'
 export { setContextMode, openContextPicker, closeContextPicker, contextPickingPage, topBlockKeys } from './context/api'
 export { startRedo } from './context/redo'

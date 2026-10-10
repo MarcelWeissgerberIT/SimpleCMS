@@ -215,7 +215,9 @@ Any page: a page, a database row or a database page.
 ```
 
 `kind` is `page`, `row` or `database`; `properties` only for rows. `text` is the page's plain text,
-read from its live content (one line per block, like the app's search excerpt).
+read from its live content (one line per block, like the app's search excerpt). A task block (the app's
+`workItem`) reads as its title line and its notes; its fields (status, due date, people, links) are not part
+of the API yet.
 
 ### `POST /api/v1/pages`
 

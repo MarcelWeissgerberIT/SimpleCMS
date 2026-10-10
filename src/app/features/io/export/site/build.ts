@@ -113,7 +113,7 @@ export async function buildSite(tree: ExportTree, rootId: ID | null, opts: SiteO
   const usesMath = plan.order.some((n) => n.page.content && /"(block|inline)Math"/.test(JSON.stringify(n.page.content)))
   const usesMermaid = plan.order.some((n) => n.page.content && /"mermaid"/.test(JSON.stringify(n.page.content)))
   // renderers are loaded on demand
-  const [{ docToHTML, docToMarkdown, stripButtonActions }, { propertyValueToText, rowsOfView }, purify, katex, share] = await Promise.all([
+  const [{ docToHTML, docToMarkdown, stripButtonActions, workItemExportCss }, { propertyValueToText, rowsOfView }, purify, katex, share] = await Promise.all([
     import('../../../../editor'),
     import('../../../../database'),
     import('dompurify').then((m) => m.default),
@@ -207,7 +207,7 @@ export async function buildSite(tree: ExportTree, rootId: ID | null, opts: SiteO
     put('index.md', `# ${meta.title}\n\n${top.join('\n')}\n`)
   }
   step()
-  put('assets/site.css', siteCss())
+  put('assets/site.css', siteCss(workItemExportCss('.doc')))
   put('assets/favicon.svg', logoMarkSvg(32))
   for (const f of SITE_FONTS) {
     const bytes = await fetchBytes(f.url)

@@ -1,0 +1,46 @@
+import type { Messages } from '@/shared/i18n'
+
+/** Task block strings (merged into the editor area's messages). Keys: "editor.workItem.*". */
+export const workItemMessages: Messages = {
+  en: {
+    // the block menu's name for the block (no slash item yet: nothing creates a task in this release)
+    'editor.block.workItem': 'Task',
+    'editor.workItem.label': 'Task',
+    'editor.workItem.status.todo': 'Open',
+    'editor.workItem.status.in_progress': 'In progress',
+    'editor.workItem.status.done': 'Done',
+    'editor.workItem.statusKey': 'Status: {status}',
+    'editor.workItem.overdue': 'Overdue',
+    'editor.workItem.due': 'Due {date}',
+    'editor.workItem.reminder': 'Reminder {code}',
+    'editor.workItem.reminderAt': 'Reminder at the time',
+    'editor.workItem.people': 'Assigned',
+    'editor.workItem.blockedBy': 'Blocked by {n}',
+    'editor.workItem.related': '{n} related',
+    'editor.workItem.fields': 'Task fields',
+    'editor.workItem.unit.m': 'min',
+    'editor.workItem.unit.h': 'h',
+    'editor.workItem.unit.d': 'd',
+    'editor.workItem.unit.w': 'wk',
+  },
+  de: {
+    'editor.block.workItem': 'Aufgabe',
+    'editor.workItem.label': 'Aufgabe',
+    'editor.workItem.status.todo': 'Offen',
+    'editor.workItem.status.in_progress': 'In Arbeit',
+    'editor.workItem.status.done': 'Erledigt',
+    'editor.workItem.statusKey': 'Status: {status}',
+    'editor.workItem.overdue': 'Überfällig',
+    'editor.workItem.due': 'Fällig {date}',
+    'editor.workItem.reminder': 'Erinnerung {code}',
+    'editor.workItem.reminderAt': 'Erinnerung zum Termin',
+    'editor.workItem.people': 'Zugewiesen',
+    'editor.workItem.blockedBy': 'Blockiert durch {n}',
+    'editor.workItem.related': '{n} verknüpft',
+    'editor.workItem.fields': 'Felder der Aufgabe',
+    'editor.workItem.unit.m': 'Min',
+    'editor.workItem.unit.h': 'Std',
+    'editor.workItem.unit.d': 'T',
+    'editor.workItem.unit.w': 'Wo',
+  },
+}

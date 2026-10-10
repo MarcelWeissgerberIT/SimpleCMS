@@ -16,7 +16,8 @@ export interface DiffSegment {
   blocks: JSONContent[]
 }
 
-const VOLATILE = new Set(['id', 'blockId', 'uid', 'data-id'])
+/** a task block's itemId (copies re-mint it) and doneAt (follows the status) never count as a change either */
+const VOLATILE = new Set(['id', 'blockId', 'uid', 'data-id', 'itemId', 'doneAt'])
 
 function normalize(node: JSONContent): unknown {
   const out: Record<string, unknown> = { t: node.type }

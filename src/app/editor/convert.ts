@@ -14,6 +14,9 @@ import { iconFromImage } from './schema/icon'
 import { safeHref } from './lib/embeds'
 import { freezeBreadcrumbs } from './lib/breadcrumbs'
 import { escapeMarkdownText } from './lib/mdText'
+import { freezeWorkItems } from './workitem/freeze'
+import { WORK_ITEMS_FROM_MARKDOWN, workItemFromQuote } from './workitem/markdown'
+import { useWorkspace } from '../store/store'
 
 export function getExtensions(opts: { readOnly?: boolean } = {}): Extensions {
   return baseExtensions({ readOnly: opts.readOnly })
@@ -87,6 +90,16 @@ function postProcess(nodes: JSONContent[] | undefined): JSONContent[] {
     if (n.type === 'codeBlock' && String(n.attrs?.language ?? '').toLowerCase() === 'mermaid') {
       out.push({ type: 'mermaid', attrs: { code: (n.content ?? []).map((c) => c.text ?? '').join('') } })
       continue
+    }
+
+    // `> [!TODO] …` → a task block: read BEFORE anything drops its `one:` links — off in the schema release
+    // (workitem/markdown.ts: the quote stays a quote until every client understands the block)
+    if (WORK_ITEMS_FROM_MARKDOWN && n.type === 'blockquote') {
+      const item = workItemFromQuote(n)
+      if (item) {
+        out.push(item)
+        continue
+      }
     }
 
     if (n.type === 'blockquote' && n.content?.[0]?.type === 'paragraph') {
@@ -269,15 +282,19 @@ function withoutUnsafeLinks(doc: JSONContent): JSONContent {
   return walk(doc)
 }
 
+/** A person's name in this workspace (task blocks frozen for documents that leave it). */
+const personName = (id: string): string | null => useWorkspace.getState().people.find((p) => p.id === id)?.name ?? null
+
 /**
  * The doc without anything that must stay in this workspace / on this device: button actions
  * (webhook URLs, database ids), comment anchors, synced-block links (their content stays,
  * as plain blocks) and live chart sources (charts keep the numbers they show right now).
- * Breadcrumbs are frozen into the titles of their page's path (nobody outside can look it up).
+ * Breadcrumbs are frozen into the titles of their page's path (nobody outside can look it up);
+ * task blocks keep their status and the names of their people, every id goes (freezeWorkItems).
  * For share links, exports, AI input.
  */
 export function stripPrivate(doc: JSONContent): JSONContent {
-  return freezeCharts(stripSynced(stripComments(stripButtonActions(freezeBreadcrumbs(doc)))))
+  return freezeWorkItems(freezeCharts(stripSynced(stripComments(stripButtonActions(freezeBreadcrumbs(doc))))), personName)
 }
 
 export function docToMarkdown(doc: JSONContent | null): string {

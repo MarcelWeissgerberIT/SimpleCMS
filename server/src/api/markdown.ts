@@ -349,6 +349,10 @@ function block(n: MdNode, ctx: MarkdownContext): string {
       return spreadsheet(n)
     case 'chart':
       return chart(n)
+    case 'workItem':
+      // a task block (the app's editor/schema/workItem.ts) prints as its plain blocks — the title line, then the
+      // notes — never dropped; its fields (status, due, people, links) are the app's until server parity (phase 4)
+      return blocks(kids, ctx)
     case 'meetingNotes': {
       const lines = transcriptLines(n.attrs.transcript)
       const head = `**${str(n.attrs.title) || 'Meeting notes'}**`

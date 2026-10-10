@@ -114,7 +114,7 @@ export type TurnTarget =
 const LIST_TYPES: Record<string, string> = { bulletList: 'bulletList', orderedList: 'orderedList', taskList: 'taskList' }
 
 /** Containers whose lines are blocks of their own: turning a line into something converts it in place. */
-const TURN_STOPS = new Set(['detailsContent', 'column', 'tableCell', 'tableHeader', 'callout', 'tab', 'syncedBlock', 'meetingNotes'])
+const TURN_STOPS = new Set(['detailsContent', 'column', 'tableCell', 'tableHeader', 'callout', 'tab', 'syncedBlock', 'meetingNotes', 'workItem'])
 
 /**
  * The "Turn into" type of the block at the caret. Lines inside callouts, toggles and columns are
@@ -402,7 +402,7 @@ export function caretIntoBlock(editor: Editor, pos: number): boolean {
 
 const NEEDS_INPUT = new Set(['image', 'bookmark', 'embed', 'fileBlock', 'blockMath', 'video', 'audio'])
 /** Blocks too big for a table cell: they go after the table instead. */
-const HEAVY = new Set(['databaseBlock', 'columns', 'table', 'toc', 'embed', 'mermaid', 'tabs'])
+const HEAVY = new Set(['databaseBlock', 'columns', 'table', 'toc', 'embed', 'mermaid', 'tabs', 'workItem'])
 const CELLS = new Set(['tableCell', 'tableHeader'])
 
 /**
