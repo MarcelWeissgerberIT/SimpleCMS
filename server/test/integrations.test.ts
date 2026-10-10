@@ -10,7 +10,8 @@
 import assert from 'node:assert/strict'
 import { after, before, describe, test } from 'node:test'
 import * as Y from 'yjs'
-import { globMatch, profileMatch, readProfiles, sanitizeProfile, serverUnlocks } from '../src/agents/integrations.ts'
+import { globMatch, outOf, profileMatch, readProfiles, sanitizeProfile, serverUnlocks } from '../src/agents/integrations.ts'
+import { lockedOnly, outLine, systemPrompt, toolsetOf } from '../src/agents/runner.ts'
 import { toolsFor } from '../src/agents/tools.ts'
 import { type FakeAnthropic, type FakeRequest, fakeAnthropic, say } from './fake-anthropic.ts'
 import { type Client, type DocClient, flushed, openDoc, signIn, startServer, type TestServer, waitFor } from './helpers.ts'
@@ -99,6 +100,50 @@ describe('integration profiles: the server reader and matching', () => {
     assert.equal(got.length, 50)
     assert.deepEqual(got, Array.from({ length: 50 }, (_, i) => `p${String(i).padStart(2, '0')}`))
     assert.equal(sanitizeProfile('t', { ...profile('t', { name: 'x' }, []), name: 7 }), null)
+  })
+})
+
+describe('the OUT lock on the server: send routes switch their tools off (the app twin: mcp-servers/lock.ts)', () => {
+  const reply = { id: 'reply', label: 'Reply', tool: 'add_comment', args: { ref: '{key}', body: '{draft}' } }
+  const servers = [
+    { name: 'tracker', url: 'https://tracker.example.com/mcp' },
+    { name: 'wiki', url: 'https://wiki.example.org/mcp' },
+  ]
+
+  test('sanitizeProfile reads out = sends[].tool (tool names only, ≤ 20, once); none without name / host', () => {
+    const p = sanitizeProfile('t', profile('t', { name: 'tracker' }, ['sends'], { sends: [reply, { ...reply, id: 'again' }, { id: 'work', tool: 'log_work' }, { tool: 'not a name' }, 'junk', { tool: 7 }] }))!
+    assert.deepEqual(p.out, ['add_comment', 'log_work'])
+    // a broken route still locks its tool (more than the app keeps is the safe side)
+    assert.deepEqual(sanitizeProfile('t', profile('t', { host: '*.example.com' }, [], { sends: [{ tool: 'delete_item' }] }))!.out, ['delete_item'])
+    // a tools-only profile: no lock (it never matches on the server, and the app drops its routes)
+    assert.equal(sanitizeProfile('t', profile('t', { tools: ['get_item'] }, [], { sends: [reply] }))!.out, undefined)
+    // at most 20 routes count
+    const many = Array.from({ length: 25 }, (_, i) => ({ ...reply, id: `r${i}`, tool: `tool_${i}` }))
+    assert.equal(sanitizeProfile('t', profile('t', { name: 'tracker' }, [], { sends: many }))!.out!.length, 20)
+    // no sends: no key (old readers' results stay the same)
+    assert.deepEqual(sanitizeProfile('t', profile('t', { name: 'tracker' }, ['upsert'])), { id: 't', name: 'tracker', unlocks: ['upsert'] })
+  })
+
+  test('outOf: per runtime server, by name / host, a union over profiles; whatever the profiles unlock', () => {
+    const a = sanitizeProfile('a', profile('a', { name: 'track*' }, [], { sends: [reply] }))!
+    const b = sanitizeProfile('b', profile('b', { host: '*.example.com' }, ['upsert'], { sends: [{ tool: 'log_work' }, reply] }))!
+    const c = sanitizeProfile('c', profile('c', { name: 'wiki', host: '*.example.com' }, [], { sends: [{ tool: 'delete_page' }] }))!
+    assert.deepEqual(outOf([a, b, c], servers[0]!), ['add_comment', 'log_work'])
+    assert.deepEqual(outOf([a, b, c], servers[1]!), [])
+    assert.deepEqual(outOf([], servers[0]!), [])
+  })
+
+  test('toolsetOf and the prompt: no list · list · list minus OUT · only OUT tools', () => {
+    assert.deepEqual(toolsetOf('tracker'), { type: 'mcp_toolset', mcp_server_name: 'tracker' })
+    assert.deepEqual(toolsetOf('tracker', undefined, ['add_comment']), { type: 'mcp_toolset', mcp_server_name: 'tracker', configs: { add_comment: { enabled: false } } })
+    assert.deepEqual(toolsetOf('tracker', ['get_item', 'add_comment'], ['add_comment']), { type: 'mcp_toolset', mcp_server_name: 'tracker', default_config: { enabled: false }, configs: { get_item: { enabled: true } } })
+    assert.deepEqual(lockedOnly(['add_comment'], ['add_comment']), [])
+    assert.equal(lockedOnly(undefined, ['add_comment']), undefined)
+    const agent = agentDef('ag-x', 'X agent', { mcpServers: ['tracker'], mcpTools: { tracker: ['get_item', 'add_comment'] } }) as any
+    const sys = systemPrompt(agent, ['tracker'], undefined, { tracker: ['add_comment'] })
+    assert.match(sys, /Only these of its tools are switched on for you: get_item\. /)
+    assert.ok(sys.includes(outLine(['add_comment'])))
+    assert.doesNotMatch(systemPrompt(agent, ['tracker']), /send data out/)
   })
 })
 
@@ -211,5 +256,45 @@ describe('integration profiles on a running server', () => {
     await write(A, 'by-host', profile('by-host', { host: '*.example.net' }, ['agentState', 'upsert']))
     const r4 = await run('ag-mirror', 'Mirror agent')
     assert.equal(toolNames(r4).some((n) => n === 'upsert_rows' || n.startsWith('agent_state')), false)
+  })
+
+  test('send routes lock their tools in every server agent toolset — no list, an allow-list, only OUT tools; whatever the profile unlocks', async () => {
+    const reply = { id: 'reply', label: 'Reply', tool: 'add_comment', args: { ref: '{key}', body: '{draft}' } }
+    const mcpSets = (req: FakeRequest) => (req.body.tools as any[]).filter((t) => t.type === 'mcp_toolset')
+    const agents = A.doc.getMap('agents')
+    agents.set('ag-all', agentDef('ag-all', 'All tools agent', { mcpServers: ['tracker'] }))
+    agents.set('ag-some', agentDef('ag-some', 'Some tools agent', { mcpServers: ['tracker'], mcpTools: { tracker: ['get_item', 'add_comment'] } }))
+    agents.set('ag-only', agentDef('ag-only', 'Only out agent', { mcpServers: ['tracker'], mcpTools: { tracker: ['add_comment'] } }))
+    await flushed(A)
+    for (const name of ['All tools agent', 'Some tools agent', 'Only out agent']) fake.script(name, () => say('Done.'))
+    // the profile unlocks nothing: the lock holds anyway
+    await write(A, 'tracker-out', profile('tracker-out', { name: 'tracker' }, [], { sends: [reply] }))
+
+    const all = await run('ag-all', 'All tools agent')
+    assert.deepEqual(mcpSets(all), [{ type: 'mcp_toolset', mcp_server_name: 'tracker', configs: { add_comment: { enabled: false } } }])
+    assert.match(all.body.system, /These tools of it send data out and are switched off for you: add_comment\./)
+
+    const some = await run('ag-some', 'Some tools agent')
+    assert.deepEqual(mcpSets(some), [{ type: 'mcp_toolset', mcp_server_name: 'tracker', default_config: { enabled: false }, configs: { get_item: { enabled: true } } }])
+    assert.match(some.body.system, /Only these of its tools are switched on for you: get_item\./)
+    const someRun = (await runs('ag-some'))[0]
+    assert.ok(someRun.steps.some((st: any) => st.kind === 'note' && /tracker.*add_comment switched off/.test(st.label)), JSON.stringify(someRun.steps))
+
+    // only an OUT tool allowed: the server is left out, the run says why
+    const before = fake.of('Only out agent').length
+    const started = await ada.post(`/api/workspaces/${wsId}/agents/ag-only/run`)
+    assert.equal(started.status, 202)
+    await waitFor(async () => (await runs('ag-only')).some((r) => r.id === started.body.runId && r.status !== 'running'), 20_000, 'run of ag-only')
+    const only = fake.of('Only out agent')[before]!
+    assert.equal(only.body.mcp_servers, undefined)
+    assert.deepEqual(mcpSets(only), [])
+    const onlyRun = (await runs('ag-only')).find((r) => r.id === started.body.runId)
+    assert.ok(onlyRun.steps.some((st: any) => /no tool is allowed for this agent — left out/.test(st.label)), JSON.stringify(onlyRun.steps))
+
+    // the profile gone: the full toolset again
+    await write(A, 'tracker-out', null)
+    const again = await run('ag-all', 'All tools agent')
+    assert.deepEqual(mcpSets(again), [{ type: 'mcp_toolset', mcp_server_name: 'tracker' }])
+    assert.doesNotMatch(again.body.system, /send data out/)
   })
 })

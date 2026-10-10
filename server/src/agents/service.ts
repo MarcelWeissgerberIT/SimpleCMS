@@ -24,7 +24,7 @@ import { McpWrites } from '../mcp/writes.ts'
 import { newId } from '../tokens.ts'
 import { DEFAULT_MODEL, type RunOutcome, runAgent } from './runner.ts'
 import { readAgents, serverAgents } from './sanitize.ts'
-import { readProfiles, serverUnlocks } from './integrations.ts'
+import { outOf, readProfiles, serverUnlocks } from './integrations.ts'
 import { decideSlot, describeSchedule, scheduleSig, slotAt, wallClock } from './schedule.ts'
 import { inScope } from './scope.ts'
 import { AgentStore } from './store.ts'
@@ -367,14 +367,19 @@ export class AgentService {
     if (!agent || agent.runner !== 'server') return skip('The agent no longer exists or does not run on the server.')
     if (!agent.enabled && job.trigger.type !== 'manual') return skip('The agent is switched off.')
     const task = await this.taskMessage(job, agent, run.id)
-    // what the workspace's integration profiles unlock for the runtime's MCP servers (by name / host)
+    // what the workspace's integration profiles unlock for the runtime's MCP servers (by name / host), and the send
+    // tools they lock there (whatever they unlock)
     let unlocks = { upsert: false, state: false }
+    let out: Record<string, string[]> = {}
     try {
       const profiles = await this.s.collab.read(metaName(job.wsId), (doc) => readProfiles(doc))
       const set = serverUnlocks(profiles, rt.runtime.mcpServers)
       unlocks = { upsert: set.has('upsert'), state: set.has('agentState') }
+      out = Object.fromEntries(rt.runtime.mcpServers.map((m) => [m.name, outOf(profiles, m)]))
     } catch (err) {
+      // unreadable profiles: no server agent runs with MCP servers then — the lock could not be built
       this.s.log.warn('integration profiles unreadable', { workspace: job.wsId, error: (err as Error).message })
+      if (agent.mcpServers.length) return skip('The integration profiles could not be read, so the MCP tools that send data out could not be switched off.')
     }
     let state: AgentStateRow | null = null
     try {
@@ -394,6 +399,7 @@ export class AgentService {
       task,
       state,
       unlocks,
+      out,
       signal,
       progress: (snap) => {
         // progress for GET agent-runs, at most every 2 s
