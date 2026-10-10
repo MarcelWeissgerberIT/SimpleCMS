@@ -126,7 +126,15 @@ async function boot() {
 
   // Automation hook for end-to-end tests and the screenshot script (dev, or ?e2e).
   if (import.meta.env.DEV || new URLSearchParams(window.location.search).has('e2e')) {
-    ;(window as unknown as { __one?: unknown }).__one = { workspace: useWorkspace, ui: useUI, flushSave, cloud, files: { saveFile, getFile } }
+    ;(window as unknown as { __one?: unknown }).__one = {
+      workspace: useWorkspace,
+      ui: useUI,
+      flushSave,
+      cloud,
+      files: { saveFile, getFile },
+      // TEMPORARY (flight recorder R1a): specs start the recorder by hand until boot starts it after startHistory (R1a A10)
+      recorder: () => import('./features/recorder').then((m) => void m.startRecorder()),
+    }
   }
 
   // Deep link from the landing page: /app/?import → open the importer.
