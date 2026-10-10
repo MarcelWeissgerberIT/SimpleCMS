@@ -500,6 +500,30 @@ export interface StructuredOptions {
   maxRetries?: number
   /** MCP servers as for streamCompletion — default 'fixed': only servers set to "All AI calls" */
   mcp?: McpRequestKind | false
+  /** what the request cost (tokens, and USD from AI_MODELS' prices) — once per answer that arrived */
+  onUsage?: (u: StructuredUsage) => void
+}
+
+export interface StructuredUsage {
+  model: string
+  input: number
+  output: number
+  cacheRead: number
+  cacheWrite: number
+  usd: number
+}
+
+type UsageLike = { input_tokens?: number | null; output_tokens?: number | null; cache_read_input_tokens?: number | null; cache_creation_input_tokens?: number | null } | null | undefined
+
+/** A response's usage in USD (the model's prices; cache writes at 1.25 × input). */
+export function usageOf(model: string, u: UsageLike): StructuredUsage {
+  const price = resolveModel(model).price
+  const input = u?.input_tokens ?? 0
+  const output = u?.output_tokens ?? 0
+  const cacheRead = u?.cache_read_input_tokens ?? 0
+  const cacheWrite = u?.cache_creation_input_tokens ?? 0
+  const usd = (input * price.input + cacheWrite * price.input * 1.25 + cacheRead * price.cacheRead + output * price.output) / 1_000_000
+  return { model, input, output, cacheRead, cacheWrite, usd }
 }
 
 /**
@@ -508,7 +532,7 @@ export interface StructuredOptions {
  * caller's job, so a malformed answer can become a per-item error instead of an exception here.
  */
 export async function completeStructured(opts: StructuredOptions, again = false): Promise<string> {
-  const { system, prompt, schema, maxTokens = 4096, signal, maxRetries = 4, mcp } = opts
+  const { system, prompt, schema, maxTokens = 4096, signal, maxRetries = 4, mcp, onUsage } = opts
   const apiKey = await getAIKey()
   if (!apiKey) throw new AIError('no_key')
   const settings = useWorkspace.getState().settings
@@ -544,6 +568,7 @@ export async function completeStructured(opts: StructuredOptions, again = false)
           },
           { signal, maxRetries },
         )
+        onUsage?.(usageOf(model, msg.usage))
         if (msg.stop_reason !== 'pause_turn' || resumes >= MAX_RESUMES) break
         turn.push({ role: 'assistant', content: msg.content })
       }
@@ -551,6 +576,7 @@ export async function completeStructured(opts: StructuredOptions, again = false)
       blocks = [{ type: 'text', text: answerText(msg.content) }]
     } else if (model === 'claude-haiku-4-5') {
       const msg = await client.messages.create({ model, max_tokens: maxTokens, system, messages, output_config: { format } }, { signal, maxRetries })
+      onUsage?.(usageOf(model, msg.usage))
       stopReason = msg.stop_reason
       blocks = msg.content
     } else {
@@ -560,6 +586,7 @@ export async function completeStructured(opts: StructuredOptions, again = false)
         { model, max_tokens: maxTokens, betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default', output_config: { effort: 'low', format }, system, messages },
         { signal, maxRetries },
       )
+      onUsage?.(usageOf(model, msg.usage))
       stopReason = msg.stop_reason
       blocks = msg.content
     }

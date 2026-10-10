@@ -39,6 +39,8 @@ export type Route =
   | { name: 'scripts'; id?: string }
   /** #/coding → the coding pipeline (see features/coding); kind: the Business analysis / QA pipeline */
   | { name: 'coding'; kind?: 'spec' | 'qa' }
+  /** the Outbox (features/outbox): slips of every database, receipts, send routes; `slip`: that slip opened */
+  | { name: 'outbox'; slip?: string }
   /** #/kit → Building blocks: lists · own property types · record types (see features/kit) */
   | { name: 'kit'; tab?: 'lists' | 'types' | 'records'; id?: string }
   /** #/discover → "What can One do?" (see shell/discover) */
@@ -74,6 +76,7 @@ export function parseHash(hash: string): Route {
   if (parts[0] === 'inbox') return { name: 'inbox' }
   if (parts[0] === 'agents') return parts[1] ? { name: 'agents', id: parts[1] } : { name: 'agents' }
   if (parts[0] === 'scripts') return parts[1] ? { name: 'scripts', id: parts[1] } : { name: 'scripts' }
+  if (parts[0] === 'outbox') return parts[1] && /^out_[A-Za-z0-9]{10}$/.test(parts[1]) ? { name: 'outbox', slip: parts[1] } : { name: 'outbox' }
   if (parts[0] === 'coding') return parts[1] === 'spec' || parts[1] === 'qa' ? { name: 'coding', kind: parts[1] } : { name: 'coding' }
   if (parts[0] === 'kit') {
     const tab = parts[1] === 'lists' || parts[1] === 'types' || parts[1] === 'records' ? parts[1] : undefined
@@ -115,6 +118,8 @@ export function routeHref(r: Route): string {
       return r.id ? `#/scripts/${r.id}` : '#/scripts'
     case 'coding':
       return r.kind ? `#/coding/${r.kind}` : '#/coding'
+    case 'outbox':
+      return r.slip ? `#/outbox/${r.slip}` : '#/outbox'
     case 'kit':
       return r.tab ? `#/kit/${r.tab}${r.id ? `/${r.id}` : ''}` : '#/kit'
     case 'discover':

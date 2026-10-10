@@ -53,12 +53,14 @@ function toItem(dbId: ID, e: CommandEntry, opts: RunOptions, busy: Record<string
   const runningHint = translate('features.cmd.running')
   if (e.source === 'default') {
     const s = e.spec
+    // a row command on the toolbar with nothing selected
+    const noRow = s.needsRow && opts.surface === 'toolbar' && !opts.rowIds?.length ? translate('features.cmd.pickRow') : undefined
     return {
       id: `cmd-${e.id}`,
       label: s.label,
       icon: <CmdGlyph icon={s.icon} led={s.led} />,
-      hint: running ? runningHint : (s.disabled ?? s.hint),
-      disabled: running || !!s.disabled,
+      hint: running ? runningHint : (noRow ?? s.disabled ?? s.hint),
+      disabled: running || !!s.disabled || !!noRow,
       keywords: e.id,
       submenu: s.items?.map((item) => ({ id: item.id, label: item.label, icon: item.icon, checked: item.checked, onSelect: () => void runEntry(dbId, e, opts, item) })),
       onSelect: s.items ? undefined : () => void runEntry(dbId, e, opts),
@@ -86,6 +88,8 @@ export function useCommandMenu(dbId: ID, opts: MenuOptions, { head = true, edit 
   useWorkspace((s) => s.databases[dbId])
   useWorkspace((s) => s.pages[dbId]?.title)
   useWorkspace((s) => s.agents)
+  useWorkspace((s) => s.integrations)
+  useWorkspace((s) => s.settings.mcpServers)
   useWorkspace((s) => s.settings.mail)
   useMail((s) => `${s.phase}|${s.lastAt}|${s.error}|${s.progress?.done}`)
   useKinds((s) => s.kinds)

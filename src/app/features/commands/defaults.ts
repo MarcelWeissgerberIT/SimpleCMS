@@ -5,8 +5,10 @@
  *  - the Mails database (features/mail): Sync now (LED + last sync), Organise with Claude now (when on), Mail settings…
  *  - databases custom agents watch (a row trigger) or name in their scope: Run "<agent>" now, one per agent
  *  - the One memory: Open the memory log (when there is one)
+ *  - a mirrored database with active send routes (the Outbox): one command per route — it opens the draft popover
+ *    for the selected rows (the toolbar; none: "Pick a row") or the row on screen; nothing is sent by a command
  */
-import { Bot, Download, FilePlus2, FileText, FileUp, LayoutTemplate, Link2, ListTree, Mail, RefreshCw, Sparkles, Table2 } from 'lucide-react'
+import { Bot, Download, FilePlus2, FileText, FileUp, LayoutTemplate, Link2, ListTree, Mail, RefreshCw, Send, Sparkles, Table2 } from 'lucide-react'
 import { createElement } from 'react'
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
@@ -18,6 +20,7 @@ import { t } from '../../i18n'
 import { isAIConfigured } from '../ai/client'
 import { openMailSettings, organiseEarlier, syncNow, useMail } from '../mail'
 import { runAgentNow } from '../agents'
+import { outboxCommands } from '../outbox'
 import { CommandFailure } from './failure'
 import type { DefaultSpec, Runner, SubItem } from './types'
 
@@ -197,6 +200,9 @@ export function defaultsFor(dbId: ID): DefaultSpec[] {
 
   for (const agent of agentsOf(dbId, s.agents))
     out.push({ key: `agent:${agent.id}`, group: 'agent', label: t('features.cmd.agent', { name: agent.name }), icon: Bot, writes: true, run: runAgent(agent.id) })
+
+  for (const c of outboxCommands(dbId))
+    out.push({ key: c.key, group: 'outbox', label: c.label, icon: Send, writes: true, hint: 'OUT', needsRow: true, run: ({ rowIds, surface }) => c.run({ rowIds, surface }) })
 
   if (db.system === 'memory') {
     const log = memoryLog(s.pages, s.databases)

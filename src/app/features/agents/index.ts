@@ -25,3 +25,11 @@ export { loadRuns as loadAgentRuns, useAgentRuns } from './runs'
  */
 export { useUnlocked, unlocked } from './integrations/status'
 export { IntegrationsPanel } from './integrations/IntegrationsPanel'
+/**
+ * mirrorSourceOf(dbId) → { agentId, servers } | null: the agent that mirrors into a database (its `mirrorOf` marker, or
+ * an older one that reads a matching server; in a team the member's own) and the MCP servers it reads — the Outbox
+ * offers a profile's send routes on the rows of that database.
+ */
+export { mirrorSourceOf } from './mirror'
+/** recipeRoleNames(profile) → role → its property names in both languages (the profile's first recipe, else the built-in mirror) */
+export { recipeRoleNames } from './integrations/recipe'
