@@ -11,6 +11,7 @@ import { useUI } from '../../store/ui'
 import { useT } from '../../i18n'
 import { KIND_TEMPLATES, chooseProject, createProject, pipelineDbIdsOf, trashProject, type PipelineKind, type PipelineTemplate } from './schema'
 import { useCoding } from './state'
+import { withWriter } from '../../store/writer'
 
 export function ProjectBar({ kind, dbId, readOnly }: { kind: PipelineKind; dbId: string; readOnly: boolean }) {
   const t = useT()
@@ -34,7 +35,7 @@ export function ProjectBar({ kind, dbId, readOnly }: { kind: PipelineKind; dbId:
       action: {
         label: t('common.undo'),
         run: () => {
-          useWorkspace.getState().restorePage(dbId)
+          withWriter({ kind: 'you', via: 'undo' }, () => useWorkspace.getState().restorePage(dbId))
           chooseProject(dbId)
         },
       },

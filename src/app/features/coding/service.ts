@@ -48,6 +48,7 @@ import { cloudContextOk, listCloudWorkers, relayAvailable } from './cloudWorkers
 import { cloudKey, dropCloudKeys, keepCloudKey } from './cloudKeys'
 import type { SessionKey } from './relayBox'
 import { CloudError, useCloud } from '../../cloud'
+import { SYSTEM, withWriter } from '../../store/writer'
 
 const set = useCoding.setState
 const get = useCoding.getState
@@ -543,7 +544,8 @@ function onEvent(msg: Extract<WorkerMessage, { type: 'event' }>) {
     case 'git': {
       void patchTask(taskId, { git: msg.git })
       const ctx = taskContext(taskId)
-      if (ctx?.props.git && msg.git) useWorkspace.getState().setRowProperty(taskId, ctx.props.git, gitSummary(msg.git))
+      // the live git snapshot of a running stage: progress bookkeeping (store/writer.ts)
+      if (ctx?.props.git && msg.git) withWriter(SYSTEM('bookkeeping'), () => useWorkspace.getState().setRowProperty(taskId, ctx.props.git!, gitSummary(msg.git!)))
       return
     }
     case 'note':

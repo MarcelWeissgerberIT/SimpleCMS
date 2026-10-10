@@ -28,6 +28,8 @@ import { useCloud } from '../../cloud'
 import { emptyState, loadBody, loadState, saveBody, saveState, type MailSyncState } from './storage'
 import { readMail, scopeOf, setMail } from './settings'
 import { ORGANISE_BATCH, organiseBatch, type OrganiseMail } from './organise'
+import { asMail } from './writer'
+import { withWriter } from '../../store/writer'
 
 export interface RunCtx {
   token: () => string | null
@@ -199,8 +201,11 @@ export async function runSync(ctx: RunCtx): Promise<RunResult> {
         const { doc, remote } = await mailDoc(m, false, props.images ?? null, { loadProp: props.load, msgId: m.id })
         const ws = useWorkspace.getState()
         if (!ws.databases[dbId]) throw new GmailError('aborted')
-        const rowId = ws.createRow(dbId, { title: m.subject || t('features.mail.noSubject'), properties: rowValues(m, props, labelOptions) })
-        ws.setContent(rowId, doc, MAIL_ORIGIN)
+        const rowId = asMail(() => {
+          const id = ws.createRow(dbId, { title: m.subject || t('features.mail.noSubject'), properties: rowValues(m, props, labelOptions) })
+          ws.setContent(id, doc, MAIL_ORIGIN)
+          return id
+        })
         if (auto && props.load && m.attachments.some(auto)) {
           try {
             await loadAttachments(rowId, null, g, { msg: m, filter: auto, keepHash: true })
@@ -234,8 +239,8 @@ export async function runSync(ctx: RunCtx): Promise<RunResult> {
       }
       const unread = labels.includes('UNREAD')
       const ws = useWorkspace.getState()
-      if (!sameSet(labels, k.l) && props.labels) ws.setRowProperty(k.r, props.labels, labelOptions(labels))
-      if (unread !== k.u && props.unread) ws.setRowProperty(k.r, props.unread, unread)
+      if (!sameSet(labels, k.l) && props.labels) asMail(() => ws.setRowProperty(k.r, props.labels!, labelOptions(labels)))
+      if (unread !== k.u && props.unread) asMail(() => ws.setRowProperty(k.r, props.unread!, unread))
       if (!sameSet(labels, k.l) || unread !== k.u) updated++
       k.l = labels
       k.u = unread
@@ -331,7 +336,7 @@ export async function organiseRows(ids: string[], signal: AbortSignal, progress:
             const pid = props[role]
             if (!pid || value === undefined || value === null || value === '') return
             if (!isEmpty(row.properties[pid])) return
-            useWorkspace.getState().setRowProperty(k.r, pid, value)
+            asMail(() => useWorkspace.getState().setRowProperty(k.r, pid, value))
           }
           if (a.category) set('category', cats.get(a.category.toLowerCase()))
           if (a.priority) set('priority', prios.get(a.priority))
@@ -384,7 +389,8 @@ export async function applyImages(rowId: ID, on: boolean, g: GmailCtx | null, fo
   const loaded = loadedBlocks(useWorkspace.getState().pages[rowId]?.content, src.attachments)
   const { doc } = await mailDoc({ html: src.html, text: null, attachments: src.attachments }, on, cfg.props?.images ?? null, { loadProp: cfg.props?.load, msgId, loaded })
   if (!useWorkspace.getState().pages[rowId]) return 'none'
-  useWorkspace.getState().setContent(rowId, doc, MAIL_ORIGIN)
+  // the person's "Load images" / "Block images" (store/writer.ts)
+  withWriter({ kind: 'you', via: 'ui' }, () => useWorkspace.getState().setContent(rowId, doc, MAIL_ORIGIN))
   if (k) {
     k.h = textHash(useWorkspace.getState().pages[rowId]?.plain ?? '')
     await saveState(state)

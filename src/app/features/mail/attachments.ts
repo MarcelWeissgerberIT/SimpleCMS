@@ -25,6 +25,8 @@ import { base64UrlBytes, parseMessage, type MailAttachment, type ParsedMail } fr
 import { LOAD_ALL, MAIL_ORIGIN, attKey, textHash } from './body'
 import { ATTACHMENT_MAX, AUTO_MEDIA_MAX, readMail } from './settings'
 import { loadState, saveState } from './storage'
+import { mailWriter } from './writer'
+import { withWriter, type Writer } from '../../store/writer'
 
 export type AttachmentKind = 'image' | 'pdf' | 'audio' | 'video' | 'file'
 
@@ -157,7 +159,7 @@ export function autoFilter(mode: 'off' | 'media' | 'all'): ((a: MailAttachment) 
  * fetched (the sync), else it is fetched now. `keepHash`: the sync writes the body's fingerprint itself.
  * Throws GmailError (auth → sign in again).
  */
-export async function loadAttachments(rowId: ID, keys: string[] | null, g: GmailCtx, opts: { msg?: ParsedMail; filter?: (a: MailAttachment) => boolean; keepHash?: boolean } = {}): Promise<LoadResult> {
+export async function loadAttachments(rowId: ID, keys: string[] | null, g: GmailCtx, opts: { msg?: ParsedMail; filter?: (a: MailAttachment) => boolean; keepHash?: boolean; writer?: Writer } = {}): Promise<LoadResult> {
   const res: LoadResult = { loaded: [], tooBig: [], missing: [] }
   const cfg = readMail()
   const prop = cfg.props?.load
@@ -217,7 +219,8 @@ export async function loadAttachments(rowId: ID, keys: string[] | null, g: Gmail
   }
   if (!res.loaded.length) return res
   const before = textHash(now.plain ?? '')
-  useWorkspace.getState().setContent(rowId, doc, MAIL_ORIGIN)
+  // the person's Load, or the mail job's own loading (store/writer.ts)
+  withWriter(opts.writer ?? mailWriter(), () => useWorkspace.getState().setContent(rowId, doc, MAIL_ORIGIN))
   if (!opts.keepHash) {
     // an unedited body stays "unedited" for "Load images"
     const state = await loadState()

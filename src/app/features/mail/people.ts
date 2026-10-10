@@ -32,6 +32,8 @@ import type { Database, ID, MailPropRole, Page, PropertyDef, PropertyValue } fro
 import { inTeam } from './schema'
 import { readMail, setMail } from './settings'
 import { loadState, saveState } from './storage'
+import { asMail } from './writer'
+import { withWriter } from '../../store/writer'
 
 export type PeopleKind = 'contacts' | 'companies' | 'conversations'
 export const PEOPLE_KINDS: PeopleKind[] = ['contacts', 'companies', 'conversations']
@@ -256,6 +258,11 @@ export interface PeopleCtx {
  * gets no new properties (the links it would hold are then left out).
  */
 export function ensurePeople(mailDbId: ID): PeopleCtx {
+  // the mail job's (or the person's setup) — store/writer.ts
+  return asMail(() => ensurePeopleNow(mailDbId))
+}
+
+function ensurePeopleNow(mailDbId: ID): PeopleCtx {
   const made: PeopleKind[] = []
   const parent = ws().pages[mailDbId]?.parentId ?? null
   const db = {} as Record<PeopleKind, ID>
@@ -450,11 +457,14 @@ export async function linkPending(signal: AbortSignal, progress: (p: { done: num
   try {
     for (let i = 0; i < pending.length; i += LINK_BATCH) {
       if (signal.aborted) break
-      for (const k of pending.slice(i, i + LINK_BATCH)) {
-        linker.row(k.r)
-        k.c = 1
-        done++
-      }
+      // one batch of links: one synchronous burst of the mail job's writes
+      asMail(() => {
+        for (const k of pending.slice(i, i + LINK_BATCH)) {
+          linker.row(k.r)
+          k.c = 1
+          done++
+        }
+      })
       progress({ done, total: pending.length })
       await saveState(state)
       await tick()
@@ -475,6 +485,11 @@ export async function linkPending(signal: AbortSignal, progress: (p: { done: num
  * rows can't be merged.
  */
 export function mergeRows(dbId: ID, fromId: ID, intoId: ID): boolean {
+  // the person's merge (store/writer.ts) — named, a mail job may be running meanwhile
+  return withWriter({ kind: 'you', via: 'ui' }, () => mergeNow(dbId, fromId, intoId))
+}
+
+function mergeNow(dbId: ID, fromId: ID, intoId: ID): boolean {
   const s = ws()
   const db = s.databases[dbId]
   const kind = peopleKindOf(db)
@@ -522,10 +537,11 @@ export function mergeRows(dbId: ID, fromId: ID, intoId: ID): boolean {
     timeout: 10_000,
     action: {
       label: t('common.undo'),
-      run: () => {
-        ws().restorePage(fromId)
-        for (const [rowId, props] of before) for (const [propId, v] of Object.entries(props)) ws().setRowProperty(rowId, propId, v)
-      },
+      run: () =>
+        withWriter({ kind: 'you', via: 'undo' }, () => {
+          ws().restorePage(fromId)
+          for (const [rowId, props] of before) for (const [propId, v] of Object.entries(props)) ws().setRowProperty(rowId, propId, v)
+        }),
     },
   })
   return true

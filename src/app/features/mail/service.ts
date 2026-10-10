@@ -20,6 +20,9 @@ import { clearAll, emptyState, loadState, saveState, wsKey } from './storage'
 import type { GmailCtx, GmailLabel } from './gmail'
 import type { TargetProblem } from './schema'
 import type { ID } from '../../store/types'
+import { inMailJob } from './writer'
+import { SYSTEM, withWriter, type Writer } from '../../store/writer'
+import { newId } from '../../lib/ids'
 
 export type MailPhase = 'idle' | 'connecting' | 'running' | 'linking' | 'organising'
 
@@ -247,6 +250,11 @@ export function syncNow(opts: { connect?: boolean } = {}): Promise<void> {
   return running
 }
 
+/** The person on a mail page (Load images, Load) — named: a mail job may be running meanwhile (store/writer.ts). */
+const YOU: Writer = { kind: 'you', via: 'ui' }
+/** Claude organising mails: an AI run of its own (store/writer.ts). */
+const ORGANISE = (): Writer => ({ kind: 'ai', run: newId(), action: 'mail_organise' })
+
 async function run(): Promise<void> {
   abort?.abort()
   const ctrl = new AbortController()
@@ -254,13 +262,15 @@ async function run(): Promise<void> {
   patch({ phase: 'running', error: null, errorAt: null, target: null, reconnect: false, progress: { done: 0, total: 0 } })
   try {
     const { runSync, organiseRows } = await engine()
-    const res = await runSync({
+    // the sync (and the linking after it) is one mail job, the organising Claude's (store/writer.ts)
+    const job: Writer = { kind: 'mail', run: newId() }
+    const res = await inMailJob(job, () => runSync({
       token: currentToken,
       signal: ctrl.signal,
       progress: (p) => patch({ progress: p }),
       retrying: (ms) => patch({ retryUntil: Date.now() + ms }),
       account: (a) => patch({ account: a }),
-    })
+    }))
     patch({ retryUntil: null })
     if (res.added > 0) {
       useUI.getState().toast({
@@ -272,11 +282,12 @@ async function run(): Promise<void> {
     const cfg = readMail()
     if (cfg.people.enabled) {
       patch({ phase: 'linking', progress: null })
-      await (await peopleApi()).linkPending(ctrl.signal, (p) => patch({ progress: p }))
+      const people = await peopleApi()
+      await inMailJob(job, () => people.linkPending(ctrl.signal, (p) => patch({ progress: p })))
     }
     if (cfg.organise.enabled && res.created.length && isAIConfigured()) {
       patch({ phase: 'organising' })
-      await organiseRows(res.created, ctrl.signal, (p) => patch({ progress: p }))
+      await inMailJob(ORGANISE(), () => organiseRows(res.created, ctrl.signal, (p) => patch({ progress: p })))
     }
   } catch (e) {
     if (ctrl.signal.aborted) return
@@ -306,7 +317,7 @@ export async function organiseEarlier(): Promise<void> {
     try {
       const { organiseCandidates, organiseRows } = await engine()
       const ids = await organiseCandidates(readMail().maxPerRun)
-      await organiseRows(ids, ctrl.signal, (p) => patch({ progress: p }))
+      await inMailJob(ORGANISE(), () => organiseRows(ids, ctrl.signal, (p) => patch({ progress: p })))
     } catch (e) {
       if (!ctrl.signal.aborted) patch({ error: errorInfo(e).text, errorAt: 'sync' })
     } finally {
@@ -332,7 +343,8 @@ export function linkNow(): Promise<void> {
       abort = ctrl
       patch({ phase: 'linking', error: null, errorAt: null, progress: null })
       try {
-        await (await peopleApi()).linkPending(ctrl.signal, (p) => patch({ progress: p }))
+        const people = await peopleApi()
+        await inMailJob({ kind: 'mail', run: newId() }, () => people.linkPending(ctrl.signal, (p) => patch({ progress: p })))
       } catch (e) {
         if (!ctrl.signal.aborted) patch({ error: errorInfo(e).text, errorAt: 'sync' })
       } finally {
@@ -436,7 +448,7 @@ async function onImagesToggle(rowId: ID, on: boolean, force = false): Promise<vo
   const revert = () => {
     if (!prop) return
     ignoreNext.add(rowId)
-    useWorkspace.getState().setRowProperty(rowId, prop, !on)
+    withWriter(YOU, () => useWorkspace.getState().setRowProperty(rowId, prop, !on))
   }
   try {
     const r = await applyImages(rowId, on, currentToken() ? gctx() : null, force)
@@ -463,7 +475,7 @@ async function replaceAnyway(rowId: ID, on: boolean): Promise<void> {
   const prop = readMail().props?.images
   if (prop) {
     ignoreNext.add(rowId)
-    useWorkspace.getState().setRowProperty(rowId, prop, on)
+    withWriter(YOU, () => useWorkspace.getState().setRowProperty(rowId, prop, on))
   }
   await onImagesToggle(rowId, on, true)
 }
@@ -476,7 +488,8 @@ function onLoadRequest(rowId: ID, key: string): void {
   // the request is taken: the property is cleared, so the next press is a change again
   window.setTimeout(() => {
     const prop = readMail().props?.load
-    if (prop && useWorkspace.getState().pages[rowId]?.properties[prop]) useWorkspace.getState().setRowProperty(rowId, prop, '')
+    // the request is taken: bookkeeping, not anyone's change (store/writer.ts)
+    if (prop && useWorkspace.getState().pages[rowId]?.properties[prop]) withWriter(SYSTEM('bookkeeping'), () => useWorkspace.getState().setRowProperty(rowId, prop, ''))
   }, 0)
   if (currentToken()) void loadNow(rowId, key)
   else askSignIn(rowId, key)
@@ -502,7 +515,7 @@ async function loadNow(rowId: ID, key: string): Promise<void> {
   const toast = useUI.getState().toast
   try {
     const { loadAttachments } = await attachmentsApi()
-    const r = await loadAttachments(rowId, key === '*' ? null : [key], gctx())
+    const r = await loadAttachments(rowId, key === '*' ? null : [key], gctx(), { writer: YOU })
     if (r.loaded.length) toast({ message: r.loaded.length === 1 ? t('features.mail.att.loaded', { name: r.loaded[0] }) : t('features.mail.att.loadedN', { n: r.loaded.length }), kind: 'success' })
     for (const name of r.tooBig) toast({ message: t('features.mail.att.refused', { name }), kind: 'error' })
     for (const name of r.missing) toast({ message: t('features.mail.att.none', { name }), kind: 'error' })

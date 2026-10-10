@@ -17,6 +17,7 @@ import { t } from '../../../i18n'
 import { ensureLog, logDbId, logProps, memoryDbId, memoryProps, memoryReadOnly, optionIds } from './schema'
 import { memorySettings } from './settings'
 import type { MemoryUse, PickedMemory } from './types'
+import { SYSTEM, withWriter } from '../../../store/writer'
 
 export const LOG_KEEP = 500
 const ORIGIN = 'ai'
@@ -45,6 +46,11 @@ function appendRel(rowId: ID, propId: ID, add: ID) {
  * the workspace is read-only). Returns the log row id.
  */
 export function logUse(opts: { task: string; where: LogWhere; pageId?: ID | null; use: MemoryUse | null | undefined; cited: PickedMemory[]; result?: string }): ID | null {
+  // an audit log: bookkeeping, never journaled or ejected by the flight recorder (store/writer.ts)
+  return withWriter(SYSTEM('bookkeeping'), () => logNow(opts))
+}
+
+function logNow(opts: { task: string; where: LogWhere; pageId?: ID | null; use: MemoryUse | null | undefined; cited: PickedMemory[]; result?: string }): ID | null {
   const use = opts.use
   if (!use?.items.length || !memorySettings().log || memoryReadOnly()) return null
   const memId = memoryDbId()
@@ -97,7 +103,9 @@ export function pruneLog(logId: ID | null = logDbId(), keep = LOG_KEEP): number 
     .filter((p) => p.databaseId === logId && !p.trashed)
     .sort((a, b) => b.createdAt - a.createdAt || (b.order ?? 0) - (a.order ?? 0))
   const old = rows.slice(keep)
-  for (const r of old) ws().trashPage(r.id)
+  withWriter(SYSTEM('bookkeeping'), () => {
+    for (const r of old) ws().trashPage(r.id)
+  })
   return old.length
 }
 

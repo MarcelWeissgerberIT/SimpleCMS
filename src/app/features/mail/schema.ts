@@ -17,6 +17,7 @@ import { createPrivateDatabase, useCloud } from '../../cloud'
 import { ALL_MESSAGES, t } from '../../i18n'
 import type { ColorName, Database, ID, MailPropRole, MailSettings, PropertyDef, PropertyValue, SelectOption, View } from '../../store/types'
 import type { ParsedMail } from './parse'
+import { asMail } from './writer'
 
 export const GMAIL_ROLES: MailPropRole[] = ['from', 'to', 'date', 'labels', 'unread', 'attachments', 'link', 'thread', 'messageId', 'images', 'load']
 const HIDDEN_ROLES: MailPropRole[] = ['to', 'thread', 'link', 'messageId', 'images', 'load']
@@ -127,6 +128,11 @@ export const inTeam = () => useCloud.getState().active.kind === 'cloud'
 
 /** Create the Mails database (private in a team workspace). Returns its id and the property ids by role. */
 export function createMailDatabase(cfg: MailSettings): { dbId: ID; props: Partial<Record<MailPropRole, ID>> } {
+  // the mail job's (or the person's setup) — store/writer.ts
+  return asMail(() => createMailDatabaseNow(cfg))
+}
+
+function createMailDatabaseNow(cfg: MailSettings): { dbId: ID; props: Partial<Record<MailPropRole, ID>> } {
   const roles = neededRoles(cfg)
   const title: PropertyDef = { id: newId(), name: nameOf('subject'), type: 'title' }
   const made = roles.map((r) => [r, makeProp(r, cfg)] as const)
@@ -165,6 +171,10 @@ export function checkTarget(dbId: ID): Database {
  * (EN / DE) and type, else a new property (not in a locked database — the role is then left out).
  */
 export function ensureProps(dbId: ID, cfg: MailSettings): Partial<Record<MailPropRole, ID>> {
+  return asMail(() => ensurePropsNow(dbId, cfg))
+}
+
+function ensurePropsNow(dbId: ID, cfg: MailSettings): Partial<Record<MailPropRole, ID>> {
   const s = useWorkspace.getState()
   const db = s.databases[dbId]
   if (!db) return {}
@@ -200,6 +210,10 @@ export function ensureProps(dbId: ID, cfg: MailSettings): Partial<Record<MailPro
  * (not in a locked database — those names are left out).
  */
 export function ensureOptions(dbId: ID, propId: ID, names: string[]): Map<string, ID> {
+  return asMail(() => ensureOptionsNow(dbId, propId, names))
+}
+
+function ensureOptionsNow(dbId: ID, propId: ID, names: string[]): Map<string, ID> {
   const s = useWorkspace.getState()
   const db = s.databases[dbId]
   const prop = db?.properties.find((p) => p.id === propId)
