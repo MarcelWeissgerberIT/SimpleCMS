@@ -1,15 +1,19 @@
 /**
  * Flight recorder — the journal in the browser (R1a): the digest key, pins in the version store, segments
  * and the identity chain, typing folds, retention / the save-error pause, recovery of a tab that died,
- * purging what the person deleted for good, and what the journal may hold (ids, kinds, times, counts,
- * digests — never page text or values). Writes go through the real store under a story step's writer
- * (the seam); time comes from Playwright's clock. Test data is fictional (Nordlicht, Tessera).
+ * purging what the person deleted for good, the local reset and backups, the story's lanes, and what the
+ * journal may hold (ids, kinds, times, counts, digests — never page text or values). Writes go through the
+ * real store under a story step's writer (the seam); time comes from Playwright's clock. Test data is
+ * fictional (Nordlicht, Tessera — the story: tests/e2e/fixtures/recorder-story.json).
  *
  * Boot starts the recorder; a test's setup is recorded too (as the person's), so `boot()` wipes the tape after it.
  */
+import { readFileSync } from 'node:fs'
 import type { Page } from '@playwright/test'
-import { test, expect, openApp, wsEval, flush, gotoPage, editorOf } from './fixtures'
-import { F, K, eventsOf, flushRec, nordlichtDb, rec, recEvents, recOps, recPins, recRuns, recSegments, segmentsOf, startRecorder, step } from './helpers/recorder'
+import { test, expect, openApp, waitForApp, wsEval, uiEval, flush, gotoPage, editorOf } from './fixtures'
+import { F, K, eventsOf, flushRec, nordlichtDb, playStory, rec, recEvents, recOps, recPins, recRuns, recSegments, segmentsOf, startRecorder, step, storyTime, type Story } from './helpers/recorder'
+
+const story = JSON.parse(readFileSync(new URL('./fixtures/recorder-story.json', import.meta.url), 'utf8')) as Story
 
 const T0 = new Date('2026-10-05T07:00:00+02:00').getTime()
 const S = 1000
@@ -417,25 +421,59 @@ test.describe('flight recorder journal', () => {
     expect(gone.f & F.GONE).toBeTruthy()
   })
 
+  test('the story: every lane counts as in the mock; run 212 = 52 Vorgänge at 37 places, +212 −40 words', async ({ page }) => {
+    test.setTimeout(120_000)
+    await boot(page, undefined, storyTime(story, story.setupAt))
+    await playStory(page, story)
+    const [a, b] = story.span.map((t) => storyTime(story, t))
+    const ops = (await recOps(page)).filter((o) => o.at >= a && o.at < b)
+    const lanes: Record<string, number> = {}
+    for (const o of ops) lanes[o.l] = (lanes[o.l] ?? 0) + 1
+    expect(lanes).toEqual(story.expect.lanes)
+    const r = story.expect.run212
+    const run = (await recRuns(page)).find((x) => x.key === r.key)!
+    expect(run).toMatchObject({ kind: 'agent', ops: r.ops, from: storyTime(story, r.from), to: storyTime(story, r.to), meta: { seq: 212 }, words: r.words })
+    expect(run.places).toMatchObject(r.places)
+    expect(run.ended).toBeTruthy()
+    // every staged change of the run is its own event (`c` = the change id)
+    const evs = (await recEvents(page)).filter((e) => e.r === r.key)
+    expect(new Set(evs.map((e) => e.c)).size).toBe(52)
+    // the flags the tape draws: terminal batches, MCP calls of "tessera-desk", the script's run, the pick-ups
+    const runs = await recRuns(page)
+    expect(runs.filter((x) => x.kind === 'terminal').map((x) => x.ops).sort()).toEqual([1, 5])
+    expect(runs.filter((x) => x.kind === 'mcp').every((x) => x.l === 'mcp:tessera-desk' && x.meta?.client === 'tessera-desk')).toBe(true)
+    expect(runs.filter((x) => x.kind === 'mcp').reduce((n, x) => n + x.places.trashed, 0)).toBe(3)
+    expect(runs.filter((x) => x.kind === 'sync')).toHaveLength(7)
+    expect(runs.find((x) => x.kind === 'script')).toMatchObject({ l: 'script:tagesplan', ops: 1, places: { pages: 1, newPages: 1 } })
+    expect(await rec(page, 'unknowns')).toEqual([])
+  })
+
   test('privacy: the journal holds no page text and no values; option / view names only in schema deltas', async ({ page }) => {
-    const n = await boot(page, () => nordlichtDb(page))
+    test.setTimeout(120_000)
+    await boot(page, undefined, storyTime(story, story.setupAt))
+    const ids = await playStory(page, story)
+    // extra writes put known strings everywhere: content, a title, a number, a text cell, an option, a view
+    await at(page, storyTime(story, '08:06:00'))
+    const db = story.database.id
+    const note = await wsEval(page, (s, db) => s.addProperty(db, { name: 'Notiz', type: 'text' }) as string, db)
     const page2 = await step<string[]>(page, you, [['createPage', { title: 'Platzhalter' }]])
-    await step(page, agent('r12'), [
+    await step(page, agent('r213'), [
       ['setContent', page2[0], { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Nordlicht-Geheimwert-7' }] }] }, 'ai'],
       ['updatePage', page2[0], { title: 'Tessera Quartalsplan' }],
-      ['setRowProperty', n.rows[0], n.est, 98765.4321],
-      ['setRowProperty', n.rows[0], n.note, 'Lindenweg 12'],
-    ], { note: { seq: 12 } })
-    const stage = await wsEval(page, (s, a) => JSON.parse(JSON.stringify(s.databases[a.db].properties.find((p: { id: string }) => p.id === a.stage))), { db: n.db, stage: n.stage })
-    await step(page, agent('r12'), [
-      ['updateProperty', n.db, n.stage, { options: [...stage.options, { id: 'o-tessera', name: 'Tessera-Option', color: 'red' }] }],
-      ['addView', n.db, { type: 'table', name: 'Tessera-Ansicht' }],
+      ['setRowProperty', ids['NL-1398'], 'story-est', 98765.4321],
+      ['setRowProperty', ids['NL-1398'], note, 'Lindenweg 12'],
+    ], { note: { seq: 213 } })
+    const stage = await wsEval(page, (s, db) => JSON.parse(JSON.stringify(s.databases[db].properties.find((p: { id: string }) => p.id === 'story-stage'))), db)
+    await step(page, agent('r213'), [
+      ['updateProperty', db, 'story-stage', { options: [...stage.options, { id: 'o-tessera', name: 'Tessera-Option', color: 'red' }] }],
+      ['addView', db, { type: 'table', name: 'Tessera-Ansicht' }],
     ], { end: true })
     await rec(page, 'settle')
     const dump = await rec<Record<string, Array<Record<string, unknown>>>>(page, 'rawDump')
-    expect(dump.events.length).toBeGreaterThan(5)
+    expect(dump.events.length).toBeGreaterThan(100)
     const all = JSON.stringify(dump)
-    for (const secret of ['Nordlicht-Geheimwert-7', 'Tessera Quartalsplan', '98765.4321', 'Lindenweg 12', 'Nordlicht Handoff', 'NL-1398', 'Platzhalter'])
+    // the extra writes' strings, and the story's own text: titles, cells, content words
+    for (const secret of ['Nordlicht-Geheimwert-7', 'Tessera Quartalsplan', '98765.4321', 'Lindenweg 12', 'Nordlicht Handoff', 'NL-1398', 'NL-1408', 'Platzhalter', 'Tessera Notizen', 'Übergabe Risiken', 'Offene Fragen', 'Abstimmung', 'Tagesplan 09.10.', 'Abgleich 7'])
       expect(all, secret).not.toContain(secret)
     // names of options and views: only inside `x` of schema / view events
     for (const name of ['Tessera-Option', 'Tessera-Ansicht']) {
@@ -452,11 +490,153 @@ test.describe('flight recorder journal', () => {
         }
       expect(seen, name).toBe(1)
     }
+    // the option the agent removed in the story: its name only in that schema event's delta
+    const ready = dump.events.filter((r) => JSON.stringify(r).includes('"Ready"'))
+    expect(ready.length).toBeGreaterThan(0)
+    for (const r of ready) expect((r.x as Array<{ part: string }>).map((d) => d.part)).toContain('opt-')
     // kv: ids, numbers, the key and lane ids only
-    for (const r of dump.kv) expect(JSON.stringify(r)).not.toMatch(/Tessera|Lindenweg|Platzhalter/)
+    for (const r of dump.kv) expect(JSON.stringify(r)).not.toMatch(/Tessera|Lindenweg|Platzhalter|Nordlicht|NL-/)
     // the pins in the version store DO hold what was there before (that is their job)
     const pins = JSON.stringify(await recPins(page))
     expect(pins).toContain('Platzhalter')
-    expect(pins).toContain('Nordlicht 0')
+    expect(pins).toContain('Offene Fragen zur Zuordnung')
+    expect(pins).toContain('NL-1408')
+  })
+
+  test('pins are exact for every machine writer: agent, MCP, sync, terminal and script pin the state before their first write', async ({ page }) => {
+    const n = await boot(page, () => nordlichtDb(page))
+    const pages = await wsEval(page, (s) => ['Tessera Abgleich', 'Tessera Plan', 'Tessera Fragen'].map((title, i) => s.createPage({ title, icon: i ? null : { type: 'emoji', value: '🧭' }, content: { type: 'doc', content: [{ type: 'paragraph', attrs: { id: `pe-${i}` }, content: [{ type: 'text', text: `Nordlicht Stand ${i}` }] }] } }) as string))
+    await rec(page, 'settle')
+    const doc = (text: string) => ({ type: 'doc', content: [{ type: 'paragraph', attrs: { id: 'pe-x' }, content: [{ type: 'text', text }] }] })
+    const cases: Array<{ writer: Record<string, unknown>; run: string; id: string; calls: Array<[string, ...unknown[]]>; note?: Record<string, unknown> }> = [
+      { writer: agent('rp1'), run: `agent:${AGENT}:rp1`, id: n.rows[0], calls: [['setRowProperty', n.rows[0], n.est, 77], ['setContent', n.rows[0], doc('Agent Notiz'), 'ai']], note: { seq: 1 } },
+      { writer: mcp, run: 'mcp:s-tessera:c1', id: n.rows[1], calls: [['updatePage', n.rows[1], { title: 'NL-1399 neu' }], ['setRowProperty', n.rows[1], n.stage, n.done]], note: { tool: 'one_update_property', client: 'tessera-desk' } },
+      { writer: { kind: 'sync', source: 'folder', run: 'pk1' }, run: 'sync:folder:pk1', id: pages[0], calls: [['setContent', pages[0], doc('Abgleich vom Ordner'), 'file'], ['updatePage', pages[0], { title: 'Tessera Abgleich (Ordner)' }]] },
+      { writer: { kind: 'terminal', run: 'tb1', change: 'c1' }, run: 'terminal:tb1', id: pages[1], calls: [['updatePage', pages[1], { icon: { type: 'emoji', value: '📌' } }], ['setContent', pages[1], doc('Terminal Plan'), 'ai']] },
+      { writer: { kind: 'script', id: 'tagesplan', run: 'sr1' }, run: 'script:tagesplan:sr1', id: pages[2], calls: [['setContent', pages[2], doc('Skript Fragen'), 'script'], ['trashPage', pages[2]]] },
+    ]
+    for (const [i, c] of cases.entries()) {
+      // the test's own copy, taken right before the writer's first write
+      const before = await wsEval(page, rowOf, c.id)
+      await at(page, T0 + (i + 1) * MIN)
+      await step(page, c.writer, [c.calls[0]], { note: c.note ?? true })
+      await at(page, T0 + (i + 1) * MIN + 5 * S)
+      await step(page, c.writer, [c.calls[1]], { end: true })
+      await rec(page, 'settle', c.run)
+      const segs = (await segmentsOf(page, `p:${c.id}`)).filter((x) => x.r === c.run)
+      expect(segs, c.run).toHaveLength(1)
+      expect(segs[0].n, c.run).toBe(2)
+      const body = await rec(page, 'pinBody', segs[0].before)
+      expect(body, c.run).not.toBeNull()
+      expect(body.content, c.run).toEqual(before.content ?? null)
+      expect(body.title, c.run).toBe(before.title)
+      expect(body.icon ?? null, c.run).toEqual(before.icon ?? null)
+      if (before.databaseId) {
+        const values = Object.fromEntries(Object.entries(before.properties).filter(([, v]) => v !== null && v !== '' && v !== false && !(Array.isArray(v) && !v.length)))
+        expect(body.props.values, c.run).toEqual(values)
+      } else expect(body.props ?? null, c.run).toBeNull()
+      // the pin's page object: everything but the content as it was (trash state, parent, settings)
+      const meta = (await recPins(page)).metas.find((m) => m.id === segs[0].before)!.meta
+      const { content: _c, plain: _p, comments: _m, ...rest } = before
+      expect(meta.page, c.run).toEqual(rest)
+    }
+    expect(await rec(page, 'unknowns')).toEqual([])
+  })
+
+  test('the person: a title edit, then typing in the peek and in the main view = one segment', async ({ page }) => {
+    const id = await boot(page, () => wsEval(page, (s) => s.createPage({ title: 'Tessera Protokoll', content: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Nordlicht' }] }] } }) as string))
+    await gotoPage(page, id)
+    await rec(page, 'settle')
+    const title = page.locator('#main .pv-title')
+    await title.click()
+    await page.keyboard.press('End')
+    await page.keyboard.type(' 2026')
+    await expect(title).toHaveValue('Tessera Protokoll 2026')
+    // the same page in the peek: its own editor instance
+    await uiEval(page, (u, id) => u.openPeek(id, 'side'), id)
+    const peek = page.locator('.peek .ProseMirror')
+    await expect(peek).toBeVisible()
+    await peek.click()
+    await page.keyboard.press('End')
+    await page.keyboard.type(' im Seitenblick')
+    await expect.poll(() => wsEval(page, (s, id) => s.pages[id].plain, id)).toContain('im Seitenblick')
+    await page.keyboard.press('Escape')
+    await uiEval(page, (u) => u.closePeek?.())
+    await expect(page.locator('.peek')).toHaveCount(0)
+    await editorOf(page).click()
+    await page.keyboard.press('End')
+    await page.keyboard.type(' und vorne')
+    await expect.poll(() => wsEval(page, (s, id) => s.pages[id].plain, id)).toContain('und vorne')
+    await rec(page, 'settle')
+    const segs = await segmentsOf(page, `p:${id}`)
+    expect(segs).toHaveLength(1)
+    expect(segs[0]).toMatchObject({ sk: 'you', l: 'you' })
+    expect(segs[0].touched).toEqual(expect.arrayContaining(['t']))
+    // two editor instances and the title field wrote: all the person's, folded while within 30 s of each other
+    const evs = await eventsOf(page, `p:${id}`)
+    expect(evs.every((e) => e.l === 'you' && e.g === segs[0].id)).toBe(true)
+    expect(evs.reduce((n, e) => n + e.ops, 0)).toBeGreaterThan(2)
+    expect(await rec(page, 'unknowns')).toEqual([])
+  })
+
+  test('wipe: a backup carries nothing of the tape; the local reset erases it, also with the journal open in another tab', async ({ page, context, errors }, testInfo) => {
+    const n = await boot(page, () => nordlichtDb(page))
+    await step(page, agent('r14'), [['setRowProperty', n.rows[0], n.est, 14], ['setContent', n.rows[1], { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Tessera Rückblick' }] }] }, 'ai']], { note: { seq: 14 }, end: true })
+    await rec(page, 'settle')
+    const ops = await recOps(page)
+    const segs = await recSegments(page)
+    expect(ops.length).toBe(2)
+    expect((await recPins(page)).metas.length).toBe(2)
+    // the full backup (Workspace settings → Data → Export workspace) holds the workspace, never the tape or its pins
+    await page.evaluate(() => (window.location.hash = '#/workspace/data'))
+    const section = page.getByTestId('workspace-page')
+    await expect(section).toHaveAttribute('data-section', 'data')
+    await section.getByRole('button', { name: 'Export workspace' }).click()
+    const dialog = page.getByRole('dialog')
+    await dialog.getByRole('radio', { name: /Whole workspace/ }).click()
+    await dialog.getByRole('radio', { name: /Full backup/ }).click()
+    const download = page.waitForEvent('download')
+    await dialog.locator('[data-export-run]').click()
+    const file = testInfo.outputPath('backup.json')
+    await (await download).saveAs(file)
+    const backup = readFileSync(file, 'utf8')
+    expect(backup).toContain('Tessera Rückblick')
+    for (const mark of ['one-recorder', 'pin:', 'local:local|', ops[0].v, segs[0].id, segs[0].bh, segs[0].left.h]) expect(backup, mark).not.toContain(mark)
+    await page.keyboard.press('Escape')
+
+    // a second tab with the journal open (its connection closes on versionchange)
+    const p2 = await context.newPage()
+    errors.watch(p2)
+    await openApp(p2)
+    await startRecorder(p2)
+    expect((await recOps(p2)).length).toBe(2)
+
+    // the reset (Workspace settings → Danger zone): it finishes, and nothing of the tape is left
+    await page.evaluate(() => (window.location.hash = '#/workspace/danger'))
+    await expect(section).toHaveAttribute('data-section', 'danger')
+    await section.getByRole('button', { name: 'Reset workspace' }).click()
+    const confirm = page.getByRole('dialog').filter({ hasText: 'Reset the entire workspace?' })
+    await expect(confirm).toBeVisible()
+    await Promise.all([page.waitForEvent('load'), confirm.getByRole('button', { name: 'Erase & restart' }).click()])
+    await waitForApp(page)
+    await startRecorder(page)
+    await expect(page.locator('#main .pv-title')).toHaveValue('Welcome to One')
+    expect(await page.evaluate(() => localStorage.getItem('one.resetPending'))).toBeNull()
+    const dump = await rec<Record<string, unknown[]>>(page, 'rawDump')
+    for (const store of ['ops', 'events', 'segs', 'runs', 'minutes', 'quarters', 'ejects', 'checkpoints']) expect(dump[store] ?? [], store).toEqual([])
+    expect(JSON.stringify(dump.kv)).not.toContain('lanes')
+    const keys = await page.evaluate(async () => {
+      const open = indexedDB.open('one-history')
+      const db: IDBDatabase = await new Promise((r) => (open.onsuccess = () => r(open.result)))
+      if (!db.objectStoreNames.contains('snapshots')) return []
+      const t = db.transaction('snapshots', 'readonly').objectStore('snapshots')
+      const keys: string[] = await new Promise((r) => {
+        const q = t.getAllKeys()
+        q.onsuccess = () => r(q.result.map(String))
+      })
+      db.close()
+      return keys
+    })
+    expect(keys.filter((k) => k.startsWith('pin:'))).toEqual([])
   })
 })
