@@ -96,7 +96,7 @@ test.describe('Integration profiles', () => {
     await expect(status('draft')).toHaveText('Inactive · no match conditions')
     await expect(row(page, 'by-tools')).toHaveAttribute('data-active', 'true')
     await expect(row(page, 'draft')).not.toHaveAttribute('data-active')
-    await expect(page.getByTestId('int-unlocked').locator('[data-on]')).toHaveCount(6)
+    await expect(page.getByTestId('int-unlocked').locator('[data-on]')).toHaveCount(ALL_FEATURES.length)
 
     // the tracker switched off: its profiles go inactive; switched on again, they are back
     await setServers(page, [{ ...TRACKER_SERVER, enabled: false }, WIKI])

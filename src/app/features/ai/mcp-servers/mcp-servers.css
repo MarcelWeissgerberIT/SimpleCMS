@@ -765,6 +765,7 @@
 /* OUT n: the send tools of the profiles that match the server (names on hover) */
 .mcpo__out {
   display: inline-block;
+  justify-self: start;
   padding: 2px 4px;
   border-radius: var(--radius-1);
   background: var(--ink);
