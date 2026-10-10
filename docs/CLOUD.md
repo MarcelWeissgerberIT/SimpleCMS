@@ -372,26 +372,34 @@ may write:
   by a newer build of the same browser (a reload, a new tab) over a writable connection, that stored deletion
   would reach the server after all. So local copies of page documents are kept per generation:
   `one:g<n>:ws:<id>…:p:<page>` (`src/app/cloud/content.ts`; generation 0 had no prefix: `one:ws:…`). A build
-  reads only its own generation's copy. An older generation's copy of a page is looked at when the page's
-  document opens (`prepareOlder`):
+  reads only its own generation's copy. An older generation's copy of a page — under its document's name or the
+  other scope's (the page may have moved between Private and the workspace since; a move copies the whole
+  document) — is looked at when the page's document opens (`prepareOlder`; `pending` is read then, and never
+  dropped before: a server sync that comes first waits for it):
   - **no changes the server never confirmed** (the page is not `pending`): the server has all of it — its
     deletions too, since a gated connection never gets one confirmed (Hocuspocus answers a read-only
     connection's update with a failed sync status, so the older tab's page stays pending). It fills this
-    generation's copy when that is still empty (offline too: the page opens as before the update), then goes.
+    generation's copy when that is still empty and the server has not answered yet (offline too: the page opens
+    as before the update), then goes.
   - **`pending`**: its changes may delete a node it could not read, so they are judged against the server's
     state: they wait for the first sync — however long that takes, on every sync until done, and the page
     stays `pending` meanwhile (`adoptAll`) — then are taken over as they are when they delete nothing newer than
     its generation (`lostNewer`, `src/app/store/generations.ts`), else merged at the content level with every
     newer node put back (`restoreNewer`: the older tab's text edits kept, its deletion not). The copy goes right
-    after its takeover (taken over twice, a merged copy's text would come twice); one that does not open in time
-    stays for the next sync.
+    after its takeover (taken over twice, a merged copy's text would come twice) — one tab of the browser at a
+    time (a Web Lock per copy; a copy another tab took over meanwhile is gone and skipped), and only by a tab that
+    may write (a viewer's or an outdated tab's copies and `pending` wait); one that does not open in time stays
+    for the next sync.
   - **A document with nothing in it yet that the server has not answered for** — such a page right after the
-    update, or a page never opened on this device — is never edited or written blind: written into the empty
-    copy, its text would come twice once the server's state is in. The editor waits for the server (the page
-    shows its last known text read-only, with "Offline · read only" or "Loading"); non-editor writes (AI,
-    templates, history restore, imports …) wait in the page's write queue and are kept on this device
-    (`held:<ws>:<page>` in `one-cloud`, the page `pending`, its text in the content cache): a tab closed
-    meanwhile merges them in after the next boot, once the server has answered.
+    update, or a page never opened on this device — is never edited or written blind when the page has
+    something in it (text, or any block — its search excerpt or last known content): written into the empty
+    copy, it would come twice once the server's state is in. The editor waits for the server (the page shows its
+    last known content read-only, with "Offline · read only" or "Loading"; a page made offline opens at once);
+    non-editor writes (AI, templates, history restore, imports …) wait in the page's write queue and are kept on
+    this device (`held:<ws>:<page>` in `one-cloud`: the first base and the newest text queued — each write done
+    moves the base on, so a reload never merges one twice; the page `pending`, its text in the content cache): a
+    tab closed meanwhile merges them in after the next boot, once the server has answered (a member who may not
+    write then keeps them for a later boot).
   Wiping a workspace copy (`cloud/device.ts`) removes every generation's copies.
 - The server's own writes (public API, webhooks, agents — direct connections) are not affected.
 - Releasing a node type an older client would lose: ship it in the app with `DOC_SCHEMA_VERSION` + 1, the

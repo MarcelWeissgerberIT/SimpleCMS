@@ -19,7 +19,10 @@ export const messages: Messages = {
     'editor.wait.loading.label': 'Loading',
     'editor.wait.loading': 'From the server — editable in a moment. This is the last known text.',
     'editor.wait.offline.label': 'Offline · read only',
-    'editor.wait.offline': 'Editable once the connection is back: this page is loaded from the server once after the update. This is the last known text.',
+    'editor.wait.offline': 'Editable once the connection is back: this device loads the page from the server first (once after an update, or the first time here). This is the last known text.',
+    // the same for someone who reads only (a viewer, an outdated tab): never "editable"
+    'editor.wait.loading.ro': 'From the server in a moment. This is the last known text.',
+    'editor.wait.offline.ro': 'From the server once the connection is back. This is the last known text.',
     // blocks: name + description (slash menu, turn into, block menu)
     'editor.block.text': 'Text',
     'editor.block.text.desc': 'Plain paragraph. The default line.',
@@ -560,7 +563,9 @@ export const messages: Messages = {
     'editor.wait.loading.label': 'Lädt',
     'editor.wait.loading': 'Vom Server – gleich bearbeitbar. Das ist der zuletzt bekannte Stand.',
     'editor.wait.offline.label': 'Offline · nur lesen',
-    'editor.wait.offline': 'Bearbeitbar, sobald die Verbindung zurück ist: Nach dem Update wird diese Seite einmal vom Server geladen. Das ist der zuletzt bekannte Stand.',
+    'editor.wait.offline': 'Bearbeitbar, sobald die Verbindung zurück ist: Dieses Gerät lädt die Seite zuerst vom Server (einmal nach einem Update oder beim ersten Öffnen hier). Das ist der zuletzt bekannte Stand.',
+    'editor.wait.loading.ro': 'Gleich vom Server. Das ist der zuletzt bekannte Stand.',
+    'editor.wait.offline.ro': 'Vom Server, sobald die Verbindung zurück ist. Das ist der zuletzt bekannte Stand.',
     'editor.block.text': 'Text',
     'editor.block.text.desc': 'Einfacher Absatz. Die Standardzeile.',
     'editor.block.heading1': 'Überschrift 1',

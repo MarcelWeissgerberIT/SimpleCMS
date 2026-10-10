@@ -123,6 +123,12 @@ const idbName = (pageId: ID, priv: boolean) => `one:g${DOC_SCHEMA_VERSION}:${doc
 /** Older generations' copies of the same document: generation 0 had no prefix. */
 const olderNames = (pageId: ID, priv: boolean): OlderCopy[] =>
   Array.from({ length: DOC_SCHEMA_VERSION }, (_, gen) => ({ name: gen ? `one:g${gen}:${docName(pageId, priv)}` : `one:${docName(pageId, priv)}`, gen }))
+/**
+ * Every older copy of a page: under its document's name first, then under the other scope's — the page may have
+ * moved between Private and the workspace (another device) since an older build wrote it; a move copies the
+ * document's full state, so that copy's changes belong to the same document.
+ */
+const olderCopies = (pageId: ID, priv: boolean): OlderCopy[] => [...olderNames(pageId, priv), ...olderNames(pageId, !priv)]
 /** Where the page lives now (the binding keeps the marker in step with the meta documents). */
 const isPrivate = (pageId: ID) => !!useWorkspace.getState().pages[pageId]?.private
 /** Changes that came from the server or this device's IndexedDB copy (not typed / written here). */
@@ -161,6 +167,8 @@ function ensure(pageId: ID): Entry {
       .catch((err) => console.warn('[one] could not look at older local copies', err))
       .then(() => {
         entry.isLoaded = true
+        // `pending` is judged only now: a server sync that came first must not drop it before the older copies were looked at
+        checkConfirmed(entry)
       }),
     isLoaded: false,
     synced: false,
@@ -225,16 +233,18 @@ async function prepareOlder(e: Entry): Promise<void> {
   const c = ctx
   if (!c) return
   const listed = await listDatabases()
+  // read only now, and never dropped before (checkConfirmed waits for `isLoaded`)
   const pending = c.pending.has(e.pageId)
   // without a listing: only a page with unconfirmed changes is worth opening the older names for
-  const older = olderNames(e.pageId, e.priv).filter((o) => (listed ? listed.has(o.name) : pending))
+  const older = olderCopies(e.pageId, e.priv).filter((o) => (listed ? listed.has(o.name) : pending))
   if (!older.length || entries.get(e.pageId) !== e || ctx !== c) return
   if (pending) {
     e.older = older
     if (e.synced) void adoptAll(e)
     return
   }
-  if (!e.doc.getXmlFragment(FIELD).length) {
+  // the server's state already in: it has all of the copy (an empty document there is not filled from it again)
+  if (!e.synced && !e.doc.getXmlFragment(FIELD).length) {
     for (const o of older) {
       if (entries.get(e.pageId) !== e) return
       await seedFrom(e, o.name).catch((err) => console.warn('[one] could not read an older local copy', err))
@@ -244,6 +254,27 @@ async function prepareOlder(e: Entry): Promise<void> {
     void clearDocument(o.name).catch(() => {})
     listed?.delete(o.name)
   }
+}
+
+/** An older copy is gone from this browser: the session's listing forgets it. */
+function unlist(name: string) {
+  void dbList?.then((s) => s?.delete(name))
+}
+
+/** Is this database still in the browser (another tab may have taken the copy over meanwhile)? Can't say → yes. */
+async function stillThere(name: string): Promise<boolean> {
+  try {
+    if (typeof indexedDB === 'undefined' || typeof indexedDB.databases !== 'function') return true
+    return (await indexedDB.databases()).some((d) => d.name === name)
+  } catch {
+    return true
+  }
+}
+
+/** `fn` while no other tab of this browser runs one under `name` (Web Locks; without them, at once). */
+function exclusive(name: string, fn: () => Promise<void>): Promise<void> {
+  const locks = typeof navigator !== 'undefined' ? navigator.locks : undefined
+  return locks?.request ? locks.request(name, fn).then(() => {}) : fn()
 }
 
 /** An older generation's copy, opened on its own (throws when it does not open in time — it is kept then). */
@@ -274,24 +305,31 @@ async function seedFrom(e: Entry, name: string): Promise<void> {
 /**
  * Take over the older copies' unconfirmed changes now that the server's state is in (adoptOlder), then let
  * them go. A copy that does not open in time stays, and so does the page's `pending`: the next sync tries again.
+ * A tab that may not write (a viewer, an outdated tab) takes nothing over: the copies wait for one that may.
  */
 function adoptAll(e: Entry): Promise<void> {
   if (e.adoption) return e.adoption
   const c = ctx
   const older = e.older
-  if (!c || !older) return Promise.resolve()
+  if (!c || !older || !c.writable()) return Promise.resolve()
   const run = (async () => {
     const live = () => entries.get(e.pageId) === e && ctx === c
     for (const o of older) {
       if (!live()) return
       try {
-        await adoptOlder(e, o.name, o.gen)
+        // one tab of this browser at a time, and only while the copy is there: taken over twice (two tabs of
+        // the update), a merged copy's text would come twice — it goes right after its takeover
+        await exclusive(`one:older:${o.name}`, async () => {
+          if (!live() || !(await stillThere(o.name))) return
+          await adoptOlder(e, o.name, o.gen)
+          await within(clearDocument(o.name).then(() => true), OLDER_OPEN_MS, false)
+        })
       } catch (err) {
         console.warn('[one] could not take over an older local copy — trying again on the next sync', err)
         return
       }
-      // taken over: it goes at once (taken over twice, a merged copy's text would come twice)
-      void clearDocument(o.name).catch(() => {})
+      if (!live()) return
+      unlist(o.name)
       e.older = e.older?.filter((x) => x !== o) ?? null
     }
     if (live() && !e.older?.length) e.older = null
@@ -344,6 +382,13 @@ function resetSync(e: Entry) {
 /** Nothing in this copy yet, and the server has not answered for the page: what it holds is not here. */
 const blind = (e: Entry) => !e.synced && !e.doc.getXmlFragment(FIELD).length
 const hasText = (plain: string | undefined) => !!plain?.trim()
+/** A doc with more in it than one empty paragraph (an image, a divider, a table … count, not only text). */
+const hasContent = (json: JSONContent | null | undefined) => !!json?.content?.some((n) => n.type !== 'paragraph' || !!n.content?.length)
+/** This device knows the page has something in it: its search excerpt (meta document) or its last known content. */
+function known(pageId: ID): boolean {
+  const p = useWorkspace.getState().pages[pageId]
+  return !!p && (hasText(p.plain) || hasContent(p.content))
+}
 
 /** Resolves once the server's state is in and older copies are taken over (or the entry is gone) — offline, when back. */
 async function serverIn(e: Entry): Promise<void> {
@@ -432,9 +477,12 @@ function retarget(e: Entry, priv: boolean, provider?: HocuspocusProvider) {
   updateUnsynced()
 }
 
-/** The server confirmed every local change of this page: it is no longer pending (never while an older copy's wait). */
+/**
+ * The server confirmed every local change of this page: it is no longer pending — never before the local copies
+ * are loaded (an older copy's changes hang on `pending`, prepareOlder reads it) and never while older copies wait.
+ */
 function checkConfirmed(e: Entry) {
-  if (!ctx || e.older || e.adoption || !e.synced || e.provider.hasUnsyncedChanges || !ctx.pending.has(e.pageId)) return
+  if (!ctx || entries.get(e.pageId) !== e || !e.isLoaded || e.older || e.adoption || !e.synced || e.provider.hasUnsyncedChanges || !ctx.pending.has(e.pageId)) return
   ctx.pending.delete(e.pageId)
   ctx.savePending()
   if (!e.refs && !e.holds) linger(e)
@@ -564,9 +612,9 @@ export function acquire(pageId: ID): ContentDocHandle | null {
     const ready = (async () => {
       await e.loaded
       if (blind(e)) {
-        // nothing here yet, but the page has text (or older copies wait for the server): typed into this empty
-        // copy, it would come twice — the server first, however long that takes (the page shows its text meanwhile)
-        if (e.older || hasText(useWorkspace.getState().pages[pageId]?.plain)) await serverIn(e)
+        // nothing here yet, but the page has something in it (or older copies wait for the server): typed into this
+        // empty copy, it would come twice — the server first, however long that takes (the page shows it meanwhile)
+        if (e.older || known(pageId)) await serverIn(e)
         // first time on this device: wait (briefly) for the server's copy instead of showing an empty page
         else if (isConnected()) await within(e.firstSync, 4000, undefined)
       }
@@ -652,6 +700,49 @@ const writeQueues = new Map<ID, Promise<void>>()
  * cache (the store shows it after a reload).
  */
 const heldWrites = new Map<ID, HeldWrite>()
+/** The newest text queued for a page: a write that starts waiting holds that (later ones queued behind it are in it). */
+const queuedText = new Map<ID, JSONContent | null>()
+/**
+ * This tab's held writes are its own: it keeps the Web Lock `one:held:<ws>:<page>` while one waits, and another tab
+ * of this browser resumes a held record only once it gets that lock (the tab gone, or the write in and the record
+ * with it) — two tabs writing the same held text would bring it twice. The value lets the lock go.
+ */
+const heldLocks = new Map<ID, () => void>()
+
+/**
+ * Take the page's held-write lock and keep it until `dropHeldLock` (or the tab goes). `first` runs once it is
+ * granted — false lets it go at once. Without Web Locks: `first` at once.
+ */
+function takeHeldLock(wsId: string, pageId: ID, first?: () => Promise<boolean>): void {
+  if (heldLocks.has(pageId)) return
+  const locks = typeof navigator !== 'undefined' ? navigator.locks : undefined
+  if (!locks?.request) {
+    void first?.()
+    return
+  }
+  let release!: () => void
+  const kept = new Promise<void>((r) => (release = r))
+  heldLocks.set(pageId, release)
+  locks
+    .request(`one:held:${wsId}:${pageId}`, async () => {
+      if (first && !(await first().catch(() => false))) {
+        if (heldLocks.get(pageId) === release) heldLocks.delete(pageId)
+        return
+      }
+      await kept
+    })
+    .catch(() => {
+      if (heldLocks.get(pageId) === release) heldLocks.delete(pageId)
+    })
+}
+
+/** The held record is gone: once `stored`, the lock goes too (a tab waiting for it reads the record after that). */
+function dropHeldLock(pageId: ID, stored: Promise<void> = Promise.resolve()) {
+  const release = heldLocks.get(pageId)
+  if (!release) return
+  heldLocks.delete(pageId)
+  void stored.then(release)
+}
 
 function holdWrite(pageId: ID, base: JSONContent | null, ours: JSONContent | null) {
   const c = ctx
@@ -660,6 +751,7 @@ function holdWrite(pageId: ID, base: JSONContent | null, ours: JSONContent | nul
   const v: HeldWrite = { base: prev ? prev.base : base, ours }
   heldWrites.set(pageId, v)
   saveHeldWrite(c.wsId, pageId, v)
+  takeHeldLock(c.wsId, pageId)
   const cached = { json: ours, at: 0 }
   c.cache.set(pageId, cached)
   saveContentCache(c.wsId, pageId, cached)
@@ -669,12 +761,23 @@ function holdWrite(pageId: ID, base: JSONContent | null, ours: JSONContent | nul
   }
 }
 
-/** The held write ending in `ours` is in (a later one, still queued, keeps the record). */
-function letGo(pageId: ID, ours: JSONContent | null) {
+/**
+ * The write ending in `ours` is done (`written`: in the document; else it failed). The held record goes with
+ * the last one; a later write, still queued, keeps it — from what is in the document now (a reload merges only
+ * the rest, never this write a second time).
+ */
+function letGo(pageId: ID, ours: JSONContent | null, written: boolean) {
+  const c = ctx
   const v = heldWrites.get(pageId)
-  if (!v || v.ours !== ours || !ctx) return
-  heldWrites.delete(pageId)
-  saveHeldWrite(ctx.wsId, pageId, null)
+  if (!v || !c) return
+  if (v.ours === ours) {
+    heldWrites.delete(pageId)
+    dropHeldLock(pageId, saveHeldWrite(c.wsId, pageId, null))
+  } else if (written && v.base !== ours) {
+    const next: HeldWrite = { base: ours, ours: v.ours }
+    heldWrites.set(pageId, next)
+    saveHeldWrite(c.wsId, pageId, next)
+  }
 }
 
 function canonical(json: JSONContent | null): JSONContent | null {
@@ -692,17 +795,21 @@ export function bridgeContent(pageId: ID, base: JSONContent | null, ours: JSONCo
   if (deepEqual(base, ours)) return
   // a write before this one waits for the server: this one is the text to keep now
   if (heldWrites.has(pageId)) holdWrite(pageId, base, ours)
+  queuedText.set(pageId, ours)
   const prev = writeQueues.get(pageId) ?? Promise.resolve()
   const job = prev.then(async () => {
     if (!ctx || !useWorkspace.getState().pages[pageId]) return
     const e = hold(pageId)
     try {
       await e.loaded
-      // nothing here yet while the page had text: written into this empty copy, all of it would come twice once
-      // the server's state is in — the write waits for the server (the store shows it meanwhile)
-      if (blind(e) && (e.older || hasText(base ? plainText(base) : ''))) {
-        holdWrite(pageId, base, ours)
+      // nothing here yet while the page had something in it: written into this empty copy, all of it would come
+      // twice once the server's state is in — the write waits for the server (the store shows it meanwhile)
+      if (blind(e) && (e.older || hasContent(base))) {
+        holdWrite(pageId, base, queuedText.has(pageId) ? (queuedText.get(pageId) ?? null) : ours)
         await serverIn(e)
+        // gone meanwhile (deleted for good, the workspace closed) or no longer allowed to write: nothing is
+        // written — a write still held stays on this device for the next boot
+        if (e.forgotten || !useWorkspace.getState().pages[pageId] || !ctx?.writable()) return
       } else if (isConnected() && !e.synced) await within(e.firstSync, 5000, undefined)
       if (entries.get(pageId) !== e) return
       const frag = e.doc.getXmlFragment(FIELD)
@@ -718,35 +825,50 @@ export function bridgeContent(pageId: ID, base: JSONContent | null, ours: JSONCo
           else prosemirrorJSONToYXmlFragment(docSchema(), prepareCollabContent(target, true), frag)
         }, BRIDGE)
       }
-      letGo(pageId, ours)
+      letGo(pageId, ours, true)
     } catch (err) {
       console.error('[one] could not write content into the page document', err)
-      letGo(pageId, ours)
+      letGo(pageId, ours, false)
     } finally {
       unhold(e)
     }
   })
-  writeQueues.set(
-    pageId,
-    job.finally(() => {
-      if (writeQueues.get(pageId) === job) writeQueues.delete(pageId)
-    }),
-  )
+  // the queue's tail is the promise stored here (not `job`): only the last one cleans up
+  const tail: Promise<void> = job.finally(() => {
+    if (writeQueues.get(pageId) !== tail) return
+    writeQueues.delete(pageId)
+    queuedText.delete(pageId)
+  })
+  writeQueues.set(pageId, tail)
 }
 
-/** Writes a tab left waiting for their page's first server sync (holdWrite): merged in once it answers. */
+/**
+ * Writes a tab left waiting for their page's first server sync (holdWrite): merged in once it answers. A record
+ * another open tab still holds is its own — this tab takes it over only once that tab let it go (closed), and
+ * reads it again then (written meanwhile, it is gone).
+ */
 export async function resumeHeldWrites(): Promise<void> {
   const c = ctx
   if (!c) return
   const list = await loadHeldWrites(c.wsId)
   if (ctx !== c) return
-  for (const [id, v] of list) {
-    if (!useWorkspace.getState().pages[id] || !c.writable()) {
+  for (const [id, first] of list) {
+    // the page is gone, or nothing is left to write (a later write took the first one back)
+    if (!useWorkspace.getState().pages[id] || deepEqual(first.base, first.ours)) {
       saveHeldWrite(c.wsId, id, null)
       continue
     }
-    heldWrites.set(id, v)
-    bridgeContent(id, v.base, v.ours)
+    // not allowed to write now (a viewer, an outdated tab): kept for a boot that may
+    if (!c.writable()) continue
+    takeHeldLock(c.wsId, id, async () => {
+      // a write of this tab waits for the page meanwhile: the record is its (the lock stays with it)
+      if (heldWrites.has(id)) return true
+      const v = (await loadHeldWrites(c.wsId)).get(id)
+      if (!v || ctx !== c || !c.writable() || !useWorkspace.getState().pages[id]) return false
+      heldWrites.set(id, v)
+      bridgeContent(id, v.base, v.ours)
+      return true
+    })
   }
 }
 
@@ -837,13 +959,13 @@ export function forget(pageId: ID): void {
   const e = entries.get(pageId)
   if (e && (e.refs || e.holds)) {
     e.forgotten = true
-    if (heldWrites.delete(pageId)) saveHeldWrite(ctx.wsId, pageId, null)
+    if (heldWrites.delete(pageId)) dropHeldLock(pageId, saveHeldWrite(ctx.wsId, pageId, null))
     return
   }
   if (e) destroy(e)
   ctx.cache.delete(pageId)
   dropContentCache(ctx.wsId, pageId)
-  if (heldWrites.delete(pageId)) saveHeldWrite(ctx.wsId, pageId, null)
+  if (heldWrites.delete(pageId)) dropHeldLock(pageId, saveHeldWrite(ctx.wsId, pageId, null))
   if (ctx.pending.delete(pageId)) ctx.savePending()
   if (!PAGE_ID.test(pageId)) return
   for (const priv of [false, true]) for (const name of [idbName(pageId, priv), ...olderNames(pageId, priv).map((o) => o.name)]) void clearDocument(name).catch(() => {})
@@ -1010,6 +1132,8 @@ export function startContent(c: ContentContext): () => void {
     queue.length = 0
     queued.clear()
     heldWrites.clear()
+    queuedText.clear()
+    for (const id of [...heldLocks.keys()]) dropHeldLock(id)
     ctx = null
   }
 }

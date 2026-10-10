@@ -112,12 +112,12 @@ export async function loadHeldWrites(wsId: string): Promise<Map<ID, HeldWrite>> 
   return out
 }
 
-/** `null`: the write is in (or gone). */
-export function saveHeldWrite(wsId: string, pageId: ID, v: HeldWrite | null): void {
+/** `null`: the write is in (or gone). Resolves once stored (never rejects). */
+export function saveHeldWrite(wsId: string, pageId: ID, v: HeldWrite | null): Promise<void> {
   const s = db()
-  if (!s) return
+  if (!s) return Promise.resolve()
   const key = `held:${wsId}:${pageId}`
-  void (v ? set(key, v, s) : del(key, s)).catch(() => {})
+  return (v ? set(key, v, s) : del(key, s)).catch(() => {})
 }
 
 export interface QueuedUpload {

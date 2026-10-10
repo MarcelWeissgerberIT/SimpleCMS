@@ -105,6 +105,112 @@ async function writeYCopy(page: Page, name: string, update: Uint8Array): Promise
 
 const dbNames = (page: Page) => page.evaluate(async () => (await indexedDB.databases()).map((d) => d.name ?? ''))
 
+/** What an older tab noted: the page has changes the server has not confirmed (cloud/local.ts overlay `pending`). */
+const markPending = (page: Page, wsId: string, pageId: string) =>
+  page.evaluate(
+    async ({ wsId, pageId }) => {
+      const db = await new Promise<IDBDatabase>((res, rej) => {
+        const r = indexedDB.open('one-cloud')
+        r.onsuccess = () => res(r.result)
+        r.onerror = () => rej(r.error)
+      })
+      await new Promise<void>((res, rej) => {
+        const tx = db.transaction('kv', 'readwrite')
+        const store = tx.objectStore('kv')
+        const q = store.get(`overlay:${wsId}`)
+        q.onsuccess = () => {
+          const o = q.result ?? { settings: null, favorites: [], recent: [], pending: [] }
+          store.put({ ...o, pending: [...(o.pending ?? []), pageId] }, `overlay:${wsId}`)
+        }
+        tx.oncomplete = () => res()
+        tx.onerror = () => rej(tx.error)
+      })
+      db.close()
+    },
+    { wsId, pageId },
+  )
+
+/** One value of this origin's `one-cloud` kv store (cloud/local.ts). */
+const cloudValue = (page: Page, key: string) =>
+  page.evaluate(async (key) => {
+    const db = await new Promise<IDBDatabase>((res, rej) => {
+      const r = indexedDB.open('one-cloud')
+      r.onsuccess = () => res(r.result)
+      r.onerror = () => rej(r.error)
+    })
+    try {
+      return await new Promise<unknown>((res, rej) => {
+        const q = db.transaction('kv', 'readonly').objectStore('kv').get(key)
+        q.onsuccess = () => res(q.result ?? null)
+        q.onerror = () => rej(q.error)
+      })
+    } finally {
+      db.close()
+    }
+  }, key)
+
+/** The pages this device notes as not confirmed by the server. */
+const pendingOf = async (page: Page, wsId: string) => (((await cloudValue(page, `overlay:${wsId}`)) as { pending?: string[] } | null)?.pending ?? [])
+
+/** Writes held for a page's first server sync (content.ts holdWrite): their `held:<ws>:<page>` keys. */
+const heldKeys = (page: Page) =>
+  page.evaluate(async () => {
+    const db = await new Promise<IDBDatabase>((res, rej) => {
+      const r = indexedDB.open('one-cloud')
+      r.onsuccess = () => res(r.result)
+      r.onerror = () => rej(r.error)
+    })
+    try {
+      const keys = await new Promise<IDBValidKey[]>((res, rej) => {
+        const q = db.transaction('kv', 'readonly').objectStore('kv').getAllKeys()
+        q.onsuccess = () => res(q.result)
+        q.onerror = () => rej(q.error)
+      })
+      return keys.map(String).filter((k) => k.startsWith('held:'))
+    } finally {
+      db.close()
+    }
+  })
+
+/**
+ * The collab socket refused until `open()`: the app boots and opens page documents before the server answers
+ * (a slow first connection) — the socket retries by itself (socket.ts: 1 s, 2 s …).
+ */
+async function lateSocket(page: Page): Promise<{ open: () => void }> {
+  let open = false
+  await page.routeWebSocket(/\/collab/, (ws) => {
+    if (open) ws.connectToServer()
+    else ws.close()
+  })
+  return { open: () => void (open = true) }
+}
+
+/**
+ * The collab sockets of these pages connect, but what the pages send is held until `open()` — then all of it goes
+ * at once: every tab gets the server's state at the same moment (a slow server answering several tabs).
+ */
+async function heldSockets(pages: Page[]): Promise<{ open: () => void }> {
+  let open = false
+  const flushers: Array<() => void> = []
+  for (const p of pages) {
+    await p.routeWebSocket(/\/collab/, (ws) => {
+      const server = ws.connectToServer()
+      const queue: Array<string | Buffer> = []
+      ws.onMessage((m) => (open ? server.send(m) : queue.push(m)))
+      server.onMessage((m) => ws.send(m))
+      flushers.push(() => queue.splice(0).forEach((m) => server.send(m)))
+    })
+  }
+  return {
+    open: () => {
+      open = true
+      flushers.forEach((f) => f())
+    },
+  }
+}
+
+const occurrences = (hay: string, needle: string) => hay.split(needle).length - 1
+
 /** The server's API text of a page (a read token made by the signed-in owner). */
 async function apiText(page: Page, token: string, pageId: string): Promise<string> {
   const res = await page.request.get(`/api/v1/pages/${pageId}`, { headers: bearer(token) })
@@ -281,28 +387,7 @@ test.describe('schema gate + task block (team cloud)', () => {
     await page.goto(`${origin}/`)
     await writeYCopy(page, `one:${docName}`, Y.encodeStateAsUpdate(stale))
     // …and it noted the page as having changes the server has not confirmed (cloud/local.ts overlay)
-    await page.evaluate(
-      async ({ wsId, pageId }) => {
-        const db = await new Promise<IDBDatabase>((res, rej) => {
-          const r = indexedDB.open('one-cloud')
-          r.onsuccess = () => res(r.result)
-          r.onerror = () => rej(r.error)
-        })
-        await new Promise<void>((res, rej) => {
-          const tx = db.transaction('kv', 'readwrite')
-          const store = tx.objectStore('kv')
-          const q = store.get(`overlay:${wsId}`)
-          q.onsuccess = () => {
-            const o = q.result ?? { settings: null, favorites: [], recent: [], pending: [] }
-            store.put({ ...o, pending: [...(o.pending ?? []), pageId] }, `overlay:${wsId}`)
-          }
-          tx.oncomplete = () => res()
-          tx.onerror = () => rej(tx.error)
-        })
-        db.close()
-      },
-      { wsId, pageId },
-    )
+    await markPending(page, wsId, pageId)
 
     await openApp(page, wsId)
     await waitOnline(page)
@@ -319,6 +404,241 @@ test.describe('schema gate + task block (team cloud)', () => {
     await expect(editorOf(page, pageId)).toContainText('Typed offline in the older tab.')
     await expect.poll(() => dbNames(page)).not.toContain(`one:${docName}`)
   })
+
+  test('a first sync that comes late: the older copy waits for it, is taken over once, and goes only after; pending stays until then', async ({ page }) => {
+    await signIn(page, email('late'))
+    const wsId = await createWorkspace(page, 'Late HQ')
+    await openApp(page, wsId)
+    await waitOnline(page)
+    const pageId = await wsEval(page, (s) => s.createPage({ title: 'Late plan', parentId: null }) as string)
+    await wsEval(page, (s, { id, doc }) => s.setContent(id, doc, 'e2e'), { id: pageId, doc: task('Ship the pricing page', 'Notes.') })
+    const docName = `ws:${wsId}:p:${pageId}`
+    const reader = await rawClient(page, docName, 1)
+    await reader.synced
+    await expect.poll(() => names(reader.doc)).toContain('workItem')
+    // the older tab: the task deleted (it could not read it), a line typed — offline, unconfirmed, noted as pending
+    const stale = new Y.Doc()
+    Y.applyUpdate(stale, Y.encodeStateAsUpdate(reader.doc))
+    reader.destroy()
+    const frag = stale.getXmlFragment('default')
+    frag.delete(names(stale).indexOf('workItem'), 1)
+    frag.insert(frag.length, [yPara('Typed before the update.')])
+    const origin = new URL(page.url()).origin
+    await page.goto(`${origin}/`)
+    await writeYCopy(page, `one:${docName}`, Y.encodeStateAsUpdate(stale))
+    await markPending(page, wsId, pageId)
+    // right after the update there is no copy of this build's generation yet (this one was made by the setup above)
+    await page.evaluate((n) => new Promise<void>((res) => {
+      const r = indexedDB.deleteDatabase(n)
+      r.onsuccess = r.onerror = r.onblocked = () => res()
+    }), `one:g1:${docName}`)
+
+    // the collab socket gets in only later: the page's document opens (and is looked at) before the server answers
+    const socket = await lateSocket(page)
+    await openApp(page, wsId, `/p/${pageId}`)
+    await expect(page.getByTestId('waiting-doc')).toBeVisible()
+    await expect(page.getByTestId('waiting-doc')).toContainText('Ship the pricing page')
+    await expect(editorOf(page, pageId)).toHaveCount(0)
+    await page.waitForTimeout(2500)
+    // nothing judged without the server: the copy and the page's pending stay
+    expect(await dbNames(page)).toContain(`one:${docName}`)
+    expect(await pendingOf(page, wsId)).toContain(pageId)
+
+    socket.open()
+    await waitOnline(page)
+    const ed = editorOf(page, pageId)
+    await expect(ed).toBeVisible()
+    await expect(ed).toHaveAttribute('contenteditable', 'true')
+    await expect(ed.locator('.workitem')).toHaveCount(1)
+    await expect(ed).toContainText('Typed before the update.')
+    const check = await rawClient(page, docName, 1)
+    try {
+      await check.synced
+      await expect.poll(() => occurrences(check.doc.getXmlFragment('default').toString(), 'Typed before the update.'), { timeout: 15_000 }).toBe(1)
+      expect(names(check.doc)).toContain('workItem')
+    } finally {
+      check.destroy()
+    }
+    // gone after its takeover, and the page confirmed after that
+    await expect.poll(() => dbNames(page)).not.toContain(`one:${docName}`)
+    await expect.poll(() => pendingOf(page, wsId), { timeout: 15_000 }).not.toContain(pageId)
+
+    // a reload takes nothing over a second time
+    await page.reload()
+    await waitForApp(page)
+    await waitOnline(page)
+    await gotoPage(page, pageId)
+    await page.waitForTimeout(1500)
+    const again = await rawClient(page, docName, 1)
+    try {
+      await again.synced
+      expect(occurrences(again.doc.getXmlFragment('default').toString(), 'Typed before the update.')).toBe(1)
+    } finally {
+      again.destroy()
+    }
+    expect(occurrences(await editorOf(page, pageId).innerText(), 'Typed before the update.')).toBe(1)
+  })
+
+  test('two tabs of the update open the same older copy at once: its merged edits come once', async ({ page }) => {
+    await signIn(page, email('twotabs'))
+    const wsId = await createWorkspace(page, 'Two tabs HQ')
+    await openApp(page, wsId)
+    await waitOnline(page)
+    const pageId = await wsEval(page, (s) => s.createPage({ title: 'Twice', parentId: null }) as string)
+    await wsEval(page, (s, { id, doc }) => s.setContent(id, doc, 'e2e'), { id: pageId, doc: task('Ship the pricing page', 'Notes.') })
+    const docName = `ws:${wsId}:p:${pageId}`
+    const reader = await rawClient(page, docName, 1)
+    await reader.synced
+    await expect.poll(() => names(reader.doc)).toContain('workItem')
+    // the older tab deleted the task (so its edits are merged, not replayed) and typed a line
+    const stale = new Y.Doc()
+    Y.applyUpdate(stale, Y.encodeStateAsUpdate(reader.doc))
+    reader.destroy()
+    const frag = stale.getXmlFragment('default')
+    frag.delete(names(stale).indexOf('workItem'), 1)
+    frag.insert(frag.length, [yPara('Typed in the older tab.')])
+    const origin = new URL(page.url()).origin
+    await page.goto(`${origin}/`)
+    await writeYCopy(page, `one:${docName}`, Y.encodeStateAsUpdate(stale))
+    await markPending(page, wsId, pageId)
+    await page.evaluate((n) => new Promise<void>((res) => {
+      const r = indexedDB.deleteDatabase(n)
+      r.onsuccess = r.onerror = r.onblocked = () => res()
+    }), `one:g1:${docName}`)
+
+    // two tabs of this browser on the page, both waiting for the server — which answers both at the same moment
+    const second = await page.context().newPage()
+    const server = await heldSockets([page, second])
+    await Promise.all([page, second].map((p) => p.goto(`/app/?e2e&w=${wsId}#/p/${pageId}`)))
+    await Promise.all([page, second].map((p) => waitForApp(p)))
+    for (const p of [page, second]) await expect(p.getByTestId('waiting-doc')).toBeVisible()
+    server.open()
+    await Promise.all([page, second].map((p) => waitOnline(p)))
+    for (const p of [page, second]) await expect(editorOf(p, pageId)).toContainText('Typed in the older tab.')
+    await page.waitForTimeout(2500)
+    const check = await rawClient(page, docName, 1)
+    try {
+      await check.synced
+      const xml = check.doc.getXmlFragment('default').toString()
+      expect(occurrences(xml, 'Typed in the older tab.')).toBe(1)
+      expect(names(check.doc).filter((n) => n === 'workItem')).toHaveLength(1)
+    } finally {
+      check.destroy()
+    }
+    for (const p of [page, second]) expect(occurrences(await editorOf(p, pageId).innerText(), 'Typed in the older tab.')).toBe(1)
+    await expect.poll(() => dbNames(page)).not.toContain(`one:${docName}`)
+    await second.close()
+  })
+
+  test('a write into a page this device has no copy of waits for the server — kept over a reload, then merged once', async ({ page }) => {
+    await signIn(page, email('blind'))
+    const wsId = await createWorkspace(page, 'Blind HQ')
+    await openApp(page, wsId)
+    await waitOnline(page)
+    const pageId = await wsEval(page, (s) => s.createPage({ title: 'Blind plan', parentId: null }) as string)
+    const para = (text: string) => ({ type: 'paragraph', content: [{ type: 'text', text }] })
+    await wsEval(page, (s, { id, doc }) => s.setContent(id, doc, 'e2e'), { id: pageId, doc: { type: 'doc', content: [para('First line.'), para('Second line.')] } })
+    const docName = `ws:${wsId}:p:${pageId}`
+    const reader = await rawClient(page, docName, 1)
+    await reader.synced
+    await expect.poll(() => reader.doc.getXmlFragment('default').toString()).toContain('Second line.')
+    reader.destroy()
+    // its text is known here (the content cache), its document is not: as for a page never opened on this device
+    await expect.poll(async () => !!((await cloudValue(page, `content:${wsId}:${pageId}`)) as { json?: unknown } | null)?.json).toBe(true)
+    const origin = new URL(page.url()).origin
+    await page.goto(`${origin}/`)
+    await page.evaluate((names) => Promise.all(names.map((n) => new Promise<void>((res) => {
+      const r = indexedDB.deleteDatabase(n)
+      r.onsuccess = r.onerror = r.onblocked = () => res()
+    }))), [`one:g1:${docName}`, `one:${docName}`])
+
+    const socket = await lateSocket(page)
+    await openApp(page, wsId)
+    expect(await wsEval(page, (s, id) => s.pages[id]?.plain as string, pageId)).toContain('Second line.')
+    // a non-editor writer (AI, a template …) adds a line before the server has answered for the page
+    await wsEval(page, (s, id) => {
+      const c = s.pages[id].content
+      s.setContent(id, { ...c, content: [...c.content, { type: 'paragraph', content: [{ type: 'text', text: 'Written before the server answered.' }] }] }, 'ai')
+    }, pageId)
+    await expect.poll(() => heldKeys(page)).toContain(`held:${wsId}:${pageId}`)
+    await page.evaluate((id) => (window.location.hash = `#/p/${id}`), pageId)
+    await expect(page.getByTestId('waiting-doc')).toContainText('Written before the server answered.')
+
+    // the tab goes away while the write waits: the next one still has it
+    await page.reload()
+    await waitForApp(page)
+    expect(await wsEval(page, (s, id) => s.pages[id]?.plain as string, pageId)).toContain('Written before the server answered.')
+    expect(await heldKeys(page)).toContain(`held:${wsId}:${pageId}`)
+
+    socket.open()
+    await waitOnline(page)
+    const check = await rawClient(page, docName, 1)
+    try {
+      await check.synced
+      const xml = () => check.doc.getXmlFragment('default').toString()
+      await expect.poll(() => occurrences(xml(), 'Written before the server answered.'), { timeout: 15_000 }).toBe(1)
+      await page.waitForTimeout(1500)
+      expect([occurrences(xml(), 'First line.'), occurrences(xml(), 'Second line.'), occurrences(xml(), 'Written before the server answered.')]).toEqual([1, 1, 1])
+    } finally {
+      check.destroy()
+    }
+    await expect.poll(() => heldKeys(page)).toEqual([])
+    const ed = editorOf(page, pageId)
+    await expect(ed).toHaveAttribute('contenteditable', 'true')
+    expect(occurrences(await ed.innerText(), 'First line.')).toBe(1)
+    expect(occurrences(await ed.innerText(), 'Written before the server answered.')).toBe(1)
+  })
+
+  for (const closes of [false, true]) {
+    test(`a held write is one tab's: another tab opened meanwhile ${closes ? 'takes it over when that tab closes' : 'leaves it to that tab'} — written once`, async ({ page }) => {
+      await signIn(page, email(closes ? 'heldclose' : 'heldtwo'))
+      const wsId = await createWorkspace(page, 'Held HQ')
+      await openApp(page, wsId)
+      await waitOnline(page)
+      const pageId = await wsEval(page, (s) => s.createPage({ title: 'Held plan', parentId: null }) as string)
+      const para = (text: string) => ({ type: 'paragraph', content: [{ type: 'text', text }] })
+      await wsEval(page, (s, { id, doc }) => s.setContent(id, doc, 'e2e'), { id: pageId, doc: { type: 'doc', content: [para('Known line.')] } })
+      const docName = `ws:${wsId}:p:${pageId}`
+      await expect.poll(async () => !!((await cloudValue(page, `content:${wsId}:${pageId}`)) as { json?: unknown } | null)?.json).toBe(true)
+      const origin = new URL(page.url()).origin
+      await page.goto(`${origin}/`)
+      await page.evaluate((n) => new Promise<void>((res) => {
+        const r = indexedDB.deleteDatabase(n)
+        r.onsuccess = r.onerror = r.onblocked = () => res()
+      }), `one:g1:${docName}`)
+
+      // tab 1 writes while the server has not answered: held
+      const second = await page.context().newPage()
+      const server = await heldSockets([page, second])
+      await openApp(page, wsId)
+      await wsEval(page, (s, id) => {
+        const c = s.pages[id].content
+        s.setContent(id, { ...c, content: [...c.content, { type: 'paragraph', content: [{ type: 'text', text: 'Held in tab one.' }] }] }, 'ai')
+      }, pageId)
+      await expect.poll(() => heldKeys(page)).toContain(`held:${wsId}:${pageId}`)
+      // tab 2 boots meanwhile: it finds the record — tab 1's
+      await openApp(second, wsId)
+      expect(await wsEval(second, (s, id) => s.pages[id]?.plain as string, pageId)).toContain('Held in tab one.')
+      await second.waitForTimeout(800)
+      if (closes) await page.close()
+      server.open()
+      const alive = closes ? second : page
+      await waitOnline(alive)
+      if (!closes) await waitOnline(second)
+      const check = await rawClient(alive, docName, 1)
+      try {
+        await check.synced
+        const xml = () => check.doc.getXmlFragment('default').toString()
+        await expect.poll(() => occurrences(xml(), 'Held in tab one.'), { timeout: 15_000 }).toBe(1)
+        await alive.waitForTimeout(2500)
+        expect([occurrences(xml(), 'Known line.'), occurrences(xml(), 'Held in tab one.')]).toEqual([1, 1])
+      } finally {
+        check.destroy()
+      }
+      await expect.poll(() => heldKeys(alive)).toEqual([])
+      if (!closes) await second.close()
+    })
+  }
 
   test('a task stored inside another task, opened by two tabs at once, is not doubled', async ({ page }) => {
     await signIn(page, email('nested'))

@@ -30,9 +30,10 @@
  *   newer nodes also gets a shadow copy (`one.page.g<n>:<id>`, a key older builds never touch). A record
  *   without a valid stamp (an older writer) that lacks newer nodes its shadow (or this tab's copy) has gets
  *   them back around what is left of their blocks (rewrapNewer: the older tab's edits kept, inside a task
- *   too) — at boot, from another tab's save, from its stash, and before a save merges. A node none of whose
- *   blocks is left there (deleted, or the page replaced: a restore, an import) stays gone; the version that
- *   had it goes to the page's history (onReplacedByOlder). Shadows of pages an older build deleted go too.
+ *   too; the stale copy of our blocks its own merge keeps is ours, wroteHere) — at boot, from another tab's
+ *   save, from its stash, and before a save merges. A node none of whose blocks is left there (deleted), and
+ *   every one when it replaced the page as a whole (a restore, an import: REPLACING), stays gone; the version
+ *   that had it goes to the page's history (onReplacedByOlder). Shadows of pages an older build deleted go too.
  */
 import { createStore, type UseStore } from 'idb-keyval'
 import { useWorkspace, getWorkspaceSnapshot, emptyWorkspace, pageChanges, WORKSPACE_VERSION, defaultSettings, defaultView, DEFAULT_PAGE_SETTINGS } from './store'
@@ -48,7 +49,7 @@ import { sanitizeIntegrations } from './integrations'
 import { sanitizeScripts } from './scripts'
 import { sanitizeKit } from './kit'
 import { sanitizeLook } from './look'
-import { DOC_SCHEMA_VERSION, newerCounts, newerFingerprint, rewrapNewer } from './generations'
+import { contentFingerprint, DOC_SCHEMA_VERSION, newerBlockPrints, newerCounts, rewrapNewer } from './generations'
 import { plainText } from './plain'
 
 /** The single-record layout before v2 (read once, then converted). */
@@ -60,7 +61,7 @@ const PAGE_PREFIX = 'one.page.v2:'
 const DB_PREFIX = 'one.db.v2:'
 /** This build's copy of a page that holds node types older builds don't know (outside their key ranges). */
 const SHADOW_PREFIX = `one.page.g${DOC_SCHEMA_VERSION}:`
-/** The stamp on every page record this build writes: { g: generation, rev, at } of the copy written. */
+/** The stamp on every page record this build writes: { g: generation, f: the fingerprint of the content written }. */
 const STAMP = '_schema'
 /** localStorage: pages (and databases) that were not saved yet when the page went away. */
 const UNSAVED_KEY = 'one.unsaved'
@@ -135,7 +136,7 @@ function normalizePage(id: ID, v: unknown, now: number): { page: Page; repaired:
 /* ------------------------------------------------------------------ */
 
 /** A page as this build stores it: with the stamp of its generation, bound to exactly this content. */
-const stamped = (p: Page): Obj => ({ ...p, [STAMP]: { g: DOC_SCHEMA_VERSION, f: newerFingerprint(p.content) } })
+const stamped = (p: Page): Obj => ({ ...p, [STAMP]: { g: DOC_SCHEMA_VERSION, f: contentFingerprint(p.content) } })
 
 /**
  * The generation of the build that wrote this stored page: its stamp — when it belongs to this very content (an
@@ -145,11 +146,37 @@ const stamped = (p: Page): Obj => ({ ...p, [STAMP]: { g: DOC_SCHEMA_VERSION, f: 
 function writerGen(raw: unknown): number {
   if (!isObj(raw) || !isObj(raw[STAMP])) return 0
   const s = raw[STAMP] as Obj
-  return isNum(s.g) && isNum(s.f) && s.f === newerFingerprint(isObj(raw.content) ? (raw.content as Page['content']) : null) ? s.g : 0
+  return isNum(s.g) && isNum(s.f) && s.f === contentFingerprint(isObj(raw.content) ? (raw.content as Page['content']) : null) ? s.g : 0
 }
 
 /** Does this content hold nodes an older build would lose (it needs a shadow copy)? */
 const holdsNewer = (content: Page['content']) => !!content && newerCounts(content, 0).size > 0
+
+/** Origins an older build writes a page's content with as a whole (a version restored, a backup, an import). */
+const REPLACING = new Set(['history', 'import'])
+
+/**
+ * The recent versions (prints) of the blocks inside tasks that this generation stored — this tab's saves and the
+ * ones it read from other tabs of this version (page → prints, oldest first). An older tab saving with typing of
+ * its own merges our copy in but keeps ITS stale version of every task's blocks (to it the unwrapped task is a
+ * change of its own): a block that comes back as one of these is ours, not an edit made there.
+ */
+const wroteHere = new Map<ID, Set<number>>()
+const WROTE_KEEP = 400
+
+function noteWritten(p: Page) {
+  if (!holdsNewer(p.content)) return
+  const prints = wroteHere.get(p.id) ?? new Set<number>()
+  for (const print of newerBlockPrints(p.content)) {
+    prints.delete(print)
+    prints.add(print)
+  }
+  for (const old of prints) {
+    if (prints.size <= WROTE_KEEP) break
+    prints.delete(old)
+  }
+  wroteHere.set(p.id, prints)
+}
 
 /** A version of a page from before an older build of One replaced it (what it had that the older copy let go). */
 export interface ReplacedByOlder {
@@ -175,22 +202,27 @@ export function onReplacedByOlder(fn: (v: ReplacedByOlder) => void): () => void 
 function keepReplaced(page: Page, content: Page['content']) {
   const v: ReplacedByOlder = { pageId: page.id, content, title: page.title, icon: page.icon }
   if (replacedListeners.size) replacedListeners.forEach((fn) => fn(v))
-  else replacedQueue.push(v)
+  else if (replacedQueue.push(v) > 200) replacedQueue.shift()
 }
 
 /**
  * A page an older build may have written (`raw`): its content with every newer node of `known` (what a build
  * of this generation stored or holds) wrapped again around what is left of its blocks — the older build's own
- * edits kept (rewrapNewer). A node with nothing left there stays gone; `known` then goes to the page's history.
- * The page as it is when nothing was lost (or a current build wrote it).
+ * edits kept (rewrapNewer). A node with nothing left there stays gone, and so does every one when the older build
+ * replaced the content as a whole (a restore, an import); `known` then goes to the page's history (titled as
+ * `cur`, this build's copy of the page, has it). The page as it is when nothing was lost (or a current build wrote
+ * it); a copy when only something stayed gone, so the caller stores it again (stamped: never checked twice).
  */
-function guardOlder(page: Page, raw: unknown, known: Page['content'] | undefined): Page {
+function guardOlder(page: Page, raw: unknown, known: Page['content'] | undefined, cur?: Page): Page {
+  if (!known || !holdsNewer(known)) return page
   const gen = writerGen(raw)
-  if (gen >= DOC_SCHEMA_VERSION || !known || !holdsNewer(known)) return page
+  if (gen >= DOC_SCHEMA_VERSION) return page
   try {
-    const { doc, dropped } = rewrapNewer(known, page.content, gen)
-    if (dropped.length) keepReplaced(page, known)
-    if (doc === page.content && !dropped.length) return page
+    const prints = wroteHere.get(page.id)
+    const wrote = prints && ((print: number) => prints.has(print))
+    const { doc, dropped } = rewrapNewer(known, page.content, gen, { whole: REPLACING.has(page.contentOrigin ?? ''), wrote })
+    if (dropped.length) keepReplaced(cur ?? page, known)
+    if (doc === page.content) return dropped.length ? { ...page } : page
     return { ...page, content: doc, plain: plainText(doc) }
   } catch (e) {
     console.warn('[one] could not merge a page an older version of One stored', e)
@@ -517,7 +549,7 @@ function takeStash(ws: Workspace, stash: Stash, keepDbs?: Set<ID>): { pages: ID[
     const cur = ws.pages[id]
     if (cur && cur.updatedAt >= r.page.updatedAt) continue
     // a stash an older build left: what it could not read comes back from our copy
-    ws.pages[id] = guardOlder(r.page, v, cur?.content)
+    ws.pages[id] = guardOlder(r.page, v, cur?.content, cur)
     out.pages.push(id)
   }
   for (const [id, v] of Object.entries(stash.databases)) {
@@ -782,11 +814,13 @@ async function readStored(): Promise<Workspace | null> {
   const local = useWorkspace.getState().pages
   const rawPages = isObj(raw.pages) ? raw.pages : {}
   for (const [id, page] of Object.entries(ws.pages)) {
-    const next = guardOlder(page, rawPages[id], shadowContent(stored?.shadows[id]) ?? local[id]?.content)
+    const next = guardOlder(page, rawPages[id], shadowContent(stored?.shadows[id]) ?? local[id]?.content, local[id])
     if (next === page) continue
     ws.pages[id] = next
     restoredHere.add(id)
   }
+  // shadow copies of pages an older build deleted for good (its full write leaves them behind)
+  dropOrphanShadows(Object.keys(stored?.shadows ?? {}).filter((id) => rawPages[id] === undefined))
   return ws
 }
 
@@ -835,8 +869,10 @@ async function readChanged(pageIds: ID[], dbIds: ID[], meta: boolean): Promise<W
       continue
     }
     // saved by an older build (another tab opened before an update): it never takes what it could not read
-    const page = guardOlder(r.page, v, shadowContent(rec.shadows.get(id)) ?? local.pages[id]?.content)
+    const page = guardOlder(r.page, v, shadowContent(rec.shadows.get(id)) ?? local.pages[id]?.content, local.pages[id])
     if (page !== r.page) restoredHere.add(id)
+    // stored by another tab of this generation: its versions of the tasks' blocks are ours too
+    else if (holdsNewer(page.content) && writerGen(v) >= DOC_SCHEMA_VERSION) noteWritten(page)
     ws.pages[id] = page
   }
   for (const [id, v] of rec.dbs) {
@@ -862,7 +898,7 @@ function pageToWrite(id: ID, ours: Page, base: Page | undefined, theirs: unknown
   try {
     const read = normalizePage(id, theirs, Date.now())?.page
     // stored by an older build since: never its loss of what it could not read (our base still has it)
-    const t = read && guardOlder(read, theirs, base.content)
+    const t = read && guardOlder(read, theirs, base.content, ours)
     if (!t || samePage(t, base)) return ours
     const m = mergePage(base, t, ours)
     if (m === ours) return ours // theirs adds nothing ours does not have
@@ -938,6 +974,7 @@ function writeRecords(set: WriteSet, bases: Map<ID, Page>, merged: Map<ID, [Page
       for (const [id, p] of Object.entries(snap.pages)) {
         put(PAGE_PREFIX + id, stamped(p))
         if (holdsNewer(p.content)) put(SHADOW_PREFIX + id, { content: p.content })
+        noteWritten(p)
       }
       for (const [id, db] of Object.entries(snap.databases)) put(DB_PREFIX + id, db)
       for (const k of storedKeys) if (!keep.has(String(k))) os.delete(k)
@@ -960,6 +997,7 @@ function writeRecords(set: WriteSet, bases: Map<ID, Page>, merged: Map<ID, [Page
         // the copy an older build's write is checked against (store/generations.ts)
         if (holdsNewer(page.content)) os.put({ content: page.content }, SHADOW_PREFIX + id)
         else os.delete(SHADOW_PREFIX + id)
+        noteWritten(page)
       }
       for (const id of set.dbs) {
         const db = snap.databases[id]

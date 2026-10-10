@@ -255,16 +255,27 @@ function CloudEditor(props: PageEditorProps) {
   return <EditorInstance {...props} collab={handle} />
 }
 
-/** The page's last known text while its document waits for the server. */
+/** Plain text as paragraphs (one per line) — what is known of a page whose content this device never had. */
+function textDoc(plain: string): JSONContent | null {
+  const lines = plain.split('\n').filter((l) => l.trim())
+  return lines.length ? { type: 'doc', content: lines.map((text) => ({ type: 'paragraph', content: [{ type: 'text', text }] })) } : null
+}
+
+/** The page's last known text while its document waits for the server (its content, else its search text). */
 function WaitingDoc({ pageId, className }: { pageId: ID; className?: string }) {
   const t = useT()
-  const content = useWorkspace((s) => s.pages[pageId]?.content ?? null)
+  const stored = useWorkspace((s) => s.pages[pageId]?.content ?? null)
+  const plain = useWorkspace((s) => s.pages[pageId]?.plain ?? '')
+  const content = useMemo(() => stored ?? textDoc(plain), [stored, plain])
   const offline = useCloud((s) => s.status === 'offline')
+  // a viewer (or an outdated tab) reads only: the line never promises editing
+  const ro = useCloud((s) => s.readOnly)
+  const line = offline ? (ro ? 'editor.wait.offline.ro' : 'editor.wait.offline') : ro ? 'editor.wait.loading.ro' : 'editor.wait.loading'
   return (
-    <div className={['one-editor', 'is-waiting', className ?? ''].filter(Boolean).join(' ')} aria-busy="true">
+    <div className={['one-editor', 'is-waiting', className ?? ''].filter(Boolean).join(' ')} aria-busy="true" data-testid="waiting-doc">
       <p className="one-editor__wait" role="status">
         <span className="label">{t(offline ? 'editor.wait.offline.label' : 'editor.wait.loading.label')}</span>
-        <span>{t(offline ? 'editor.wait.offline' : 'editor.wait.loading')}</span>
+        <span>{t(line)}</span>
       </p>
       {content && <ReadOnlyDoc content={content} headingOffset={1} />}
     </div>

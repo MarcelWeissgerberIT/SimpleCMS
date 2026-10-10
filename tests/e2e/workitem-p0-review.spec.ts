@@ -2,7 +2,10 @@
  * Task block (`workItem`), schema release (P0) — the review round. Each finding of the review has a test here
  * that failed before its fix:
  *  - an older build of One in another tab (same browser) never takes a task: its save, its stash and what it
- *    stored while no current tab was open are merged back (the stamp + shadow copy, store/generations.ts);
+ *    stored while no current tab was open are merged back (the stamp + shadow copy, store/generations.ts) — text
+ *    typed there inside a task stays in it, a stamp its own merge carried over counts for nothing, a page without
+ *    block ids never doubles, a task deleted there or a page replaced there stays so (the version in the history),
+ *    a page it deleted for good takes its shadow copy along;
  *  - a folder sync pickup keeps a task a task when its Markdown changed (a person renamed, its title or field
  *    line edited in the file) — keepItems;
  *  - nothing outside the editor's own copy and paste makes a task: raw HTML in Markdown (paste, import), an
@@ -25,7 +28,8 @@ import { test, expect, openApp, gotoPage, wsEval, uiEval, createPage, doc, para,
 import { itemAttrs } from '../../src/app/editor/workitem/attrs'
 import { keepItems, workItemFromQuote } from '../../src/app/editor/workitem/markdown'
 import { liftMisplacedItems } from '../../src/app/editor/workitem/place'
-import { asGeneration, lostNewer, restoreNewer } from '../../src/app/store/generations'
+import { asGeneration, contentFingerprint, lostNewer, newerBlockPrints, restoreNewer, rewrapNewer } from '../../src/app/store/generations'
+import { mergeContent } from '../../src/app/store/merge'
 
 type AnyState = Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -137,6 +141,76 @@ function asOlderBuild(record: AnyState, typed: string): AnyState {
   return { ...record, content, contentRev: record.contentRev + 1, updatedAt: Date.now(), plain: `${record.plain ?? ''}\n${typed}` }
 }
 
+/** An older tab stores this record and tells the others (its BroadcastChannel message). */
+async function saveOlder(page: Page, id: string, record: AnyState): Promise<void> {
+  await idbPut(page, `one.page.v2:${id}`, record)
+  await page.evaluate((id) => new BroadcastChannel('one-sync').postMessage({ type: 'changed', from: 'older-tab', full: false, pages: [id], dbs: [], meta: false }), id)
+}
+
+function idbDelete(page: Page, key: string): Promise<void> {
+  return page.evaluate(async (key) => {
+    const db = await new Promise<IDBDatabase>((res, rej) => {
+      const r = indexedDB.open('keyval-store')
+      r.onsuccess = () => res(r.result)
+      r.onerror = () => rej(r.error)
+    })
+    try {
+      await new Promise<void>((res, rej) => {
+        const tx = db.transaction('keyval', 'readwrite')
+        tx.objectStore('keyval').delete(key)
+        tx.oncomplete = () => res()
+        tx.onerror = () => rej(tx.error)
+      })
+    } finally {
+      db.close()
+    }
+  }, key)
+}
+
+const plainOf = (n: AnyState): string => (n.text ?? '') + (n.content ?? []).map(plainOf).join('')
+
+/** The older tab typed at the end of the lines that start so (plain blocks to it: a task's title and notes too). */
+function typedInside(record: AnyState, typed: Record<string, string>): AnyState {
+  const walk = (n: AnyState): AnyState => {
+    if (n.type === 'paragraph') {
+      const line = Object.keys(typed).find((k) => plainOf(n).startsWith(k))
+      return line ? { ...n, content: [{ type: 'text', text: plainOf(n) + typed[line] }] } : n
+    }
+    return n.content ? { ...n, content: n.content.map(walk) } : n
+  }
+  return { ...record, content: walk(record.content) }
+}
+
+/** The older editor gives every block without an id a fresh one, at every load. */
+let madeUp = 0
+function withMadeUpIds(record: AnyState): AnyState {
+  const walk = (n: AnyState): AnyState => {
+    if (n.type === 'text') return n
+    const out: AnyState = n.type === 'doc' || n.attrs?.id ? { ...n } : { ...n, attrs: { ...(n.attrs ?? {}), id: `older-${++madeUp}` } }
+    if (n.content) out.content = n.content.map(walk)
+    return out
+  }
+  return { ...record, content: walk(record.content) }
+}
+
+/** The page history holds the version an older tab let go of (it had `text`), labelled in English and in German. */
+async function expectOlderVersion(page: Page, id: string, text: string): Promise<void> {
+  await gotoPage(page, id)
+  await page.locator('.tb').getByRole('button', { name: 'Version history' }).click()
+  const dialog = page.getByRole('dialog')
+  const row = dialog.locator('.hist__row').filter({ hasText: 'Old tab' })
+  await expect(row).toHaveCount(1)
+  await row.click()
+  await expect(dialog).toContainText('Before an older One tab changed it')
+  await expect(dialog.locator('.hist__preview')).toContainText(text)
+  await page.keyboard.press('Escape')
+  await wsEval(page, (s) => s.updateSettings({ language: 'de' }))
+  await page.locator('.tb').getByRole('button', { name: 'Versionsverlauf' }).click()
+  await expect(page.getByRole('dialog').locator('.hist__row').filter({ hasText: 'Alter Tab' })).toHaveCount(1)
+  await page.getByRole('dialog').locator('.hist__row').filter({ hasText: 'Alter Tab' }).click()
+  await expect(page.getByRole('dialog')).toContainText('Bevor ein älterer One-Tab sie änderte')
+}
+
 test.describe('task block (P0 review): an older build of One in the same browser', () => {
   test('its save reaches this tab without the tasks: merged back — its own text kept, every task and field too', async ({ page }) => {
     await openApp(page)
@@ -147,7 +221,7 @@ test.describe('task block (P0 review): an older build of One in the same browser
     await expect(editorOf(page, id).locator('.workitem')).toHaveCount(2)
     await flush(page)
     const record = (await idbGet(page, `one.page.v2:${id}`))!
-    expect(record._schema).toMatchObject({ g: 1, rev: record.contentRev, at: record.updatedAt })
+    expect(record._schema).toEqual({ g: 1, f: expect.any(Number) })
     expect(JSON.stringify(await idbGet(page, `one.page.g1:${id}`))).toContain('workItem')
 
     // the older tab saves and tells the others (its BroadcastChannel message)
@@ -165,7 +239,8 @@ test.describe('task block (P0 review): an older build of One in the same browser
     // this tab stores the merged copy again (stamped), so a reload — or the older tab — reads it
     await expect.poll(async () => JSON.stringify((await idbGet(page, `one.page.v2:${id}`))?.content)).toContain('workItem')
     const stored = (await idbGet(page, `one.page.v2:${id}`))!
-    expect(stored._schema).toMatchObject({ g: 1, rev: stored.contentRev, at: stored.updatedAt })
+    expect(stored._schema).toEqual({ g: 1, f: expect.any(Number) })
+    expect(stored._schema.f).not.toBe(record._schema.f)
     await reloadApp(page)
     expect(Object.keys(await tasksOf(page, id))).toEqual([A, B])
     expect(await wsEval(page, (s, id) => s.pages[id].plain as string, id)).toContain('9911')
@@ -206,6 +281,109 @@ test.describe('task block (P0 review): an older build of One in the same browser
     }, raw)
     await expect.poll(() => wsEval(page, (s, id) => s.pages[id].plain as string, id)).toContain('9913')
     expect(Object.keys(await tasksOf(page, id))).toEqual([A, B])
+  })
+  test('text typed there inside a task (its title and notes: plain blocks to it) stays in that task', async ({ page }) => {
+    await openApp(page)
+    const { alex, mara } = await addPeople(page)
+    const id = await createPage(page, { title: 'Older tab in a task', content: plan(alex, mara) })
+    const before = await tasksOf(page, id)
+    await gotoPage(page, id)
+    await expect(editorOf(page, id).locator('.workitem')).toHaveCount(2)
+    await flush(page)
+    const record = (await idbGet(page, `one.page.v2:${id}`))!
+    await saveOlder(page, id, typedInside(asOlderBuild(record, 'Typed below 9921.'), { 'Ship pricing': ' 9922', 'notes of the task': ' 9923', 'Legal review': ' 9924' }))
+    await expect.poll(() => wsEval(page, (s, id) => s.pages[id].plain as string, id)).toContain('9922')
+    const after = await tasksOf(page, id)
+    expect(Object.keys(after)).toEqual([A, B])
+    expect(after[A]!.title).toBe('Ship pricing 9922')
+    expect(after[A]!.notes).toEqual(['notes of the task 9923'])
+    expect(after[B]!.title).toBe('Legal review 9924')
+    for (const k of [A, B]) expect(fields(after[k]!.attrs), k).toEqual(fields(before[k]!.attrs))
+    // nothing doubled, the line typed below the tasks stays outside them
+    const plain = await wsEval(page, (s, id) => s.pages[id].plain as string, id)
+    for (const line of ['Before the tasks.', 'Ship pricing', 'notes of the task', 'Legal review', 'After the tasks.', '9921']) expect(plain.split(line).length - 1, line).toBe(1)
+    expect(await topTypes(page, id)).toEqual(['paragraph', 'workItem', 'workItem', 'paragraph', 'paragraph'])
+    await expect(editorOf(page, id).locator('.workitem').first()).toContainText('Ship pricing 9922')
+  })
+
+  test('a copy its own merge stamped with ours (same rev, same time) but without the tasks: the stamp no longer fits', async ({ page }) => {
+    await openApp(page)
+    const { alex, mara } = await addPeople(page)
+    const id = await createPage(page, { title: 'Older stamp', content: plan(alex, mara) })
+    await flush(page)
+    const record = (await idbGet(page, `one.page.v2:${id}`))!
+    // what the older build's merge stores: our stamp (and rev / time) on its own copy, which lost the tasks
+    const older = { ...asOlderBuild(record, 'Merged in the older tab 9931.'), _schema: record._schema, contentRev: record.contentRev, updatedAt: record.updatedAt }
+    await saveOlder(page, id, older)
+    await expect.poll(() => wsEval(page, (s, id) => s.pages[id].plain as string, id)).toContain('9931')
+    expect(Object.keys(await tasksOf(page, id))).toEqual([A, B])
+    await expect.poll(async () => JSON.stringify((await idbGet(page, `one.page.v2:${id}`))?.content)).toContain('workItem')
+    await reloadApp(page)
+    expect(Object.keys(await tasksOf(page, id))).toEqual([A, B])
+  })
+
+  test('a page without block ids: the older editor makes new ones at every load — the page never doubles', async ({ page }) => {
+    await openApp(page)
+    const { alex, mara } = await addPeople(page)
+    // never shown in this tab's editor: its blocks keep no ids
+    const id = await createPage(page, { title: 'Older without ids', content: plan(alex, mara) })
+    for (let round = 0; round < 4; round++) {
+      const record = (await idbGet(page, `one.page.v2:${id}`))!
+      await saveOlder(page, id, withMadeUpIds(typedInside(asOlderBuild(record, `Round ${round} 994${round}.`), { 'Ship pricing': ` r${round}` })))
+      await expect.poll(() => wsEval(page, (s, id) => s.pages[id].plain as string, id)).toContain(`994${round}`)
+      await expect.poll(async () => JSON.stringify((await idbGet(page, `one.page.v2:${id}`))?.content)).toContain('workItem')
+    }
+    const after = await tasksOf(page, id)
+    expect(Object.keys(after)).toEqual([A, B])
+    expect(after[A]!.title).toBe('Ship pricing r0 r1 r2 r3')
+    const plain = await wsEval(page, (s, id) => s.pages[id].plain as string, id)
+    for (const line of ['Before the tasks.', 'notes of the task', 'Legal review', 'After the tasks.', '9940', '9943']) expect(plain.split(line).length - 1, line).toBe(1)
+  })
+
+  test('a task deleted there stays deleted — the version that had it is in the page history (EN + DE)', async ({ page }) => {
+    await openApp(page)
+    const { alex, mara } = await addPeople(page)
+    const id = await createPage(page, { title: 'Older deleted a task', content: plan(alex, mara) })
+    await gotoPage(page, id)
+    await expect(editorOf(page, id).locator('.workitem')).toHaveCount(2)
+    await flush(page)
+    const record = (await idbGet(page, `one.page.v2:${id}`))!
+    const older = asOlderBuild(record, 'Deleted a task there 9951.')
+    older.content.content = older.content.content.filter((n: AnyState) => plainOf(n) !== 'Legal review')
+    await saveOlder(page, id, older)
+    await expect.poll(() => wsEval(page, (s, id) => s.pages[id].plain as string, id)).toContain('9951')
+    expect(Object.keys(await tasksOf(page, id))).toEqual([A])
+    await expectOlderVersion(page, id, 'Legal review')
+  })
+
+  test('the page replaced there as a whole (a backup or version restored): nothing of ours mixed in, ours in the history', async ({ page }) => {
+    await openApp(page)
+    const { alex, mara } = await addPeople(page)
+    const id = await createPage(page, { title: 'Older restored', content: plan(alex, mara) })
+    await flush(page)
+    const record = (await idbGet(page, `one.page.v2:${id}`))!
+    // the restored version has a line as it is in the task now: still nothing of the task comes back
+    const restored = doc(p('Version one of the page.'), p('Ship pricing'))
+    await saveOlder(page, id, { ...record, _schema: undefined, content: restored, plain: 'Version one of the page.\nShip pricing', contentOrigin: 'import', contentRev: record.contentRev + 1, updatedAt: Date.now() })
+    await expect.poll(() => wsEval(page, (s, id) => JSON.stringify(s.pages[id].content), id)).toContain('Version one of the page.')
+    expect(await tasksOf(page, id)).toEqual({})
+    expect(await wsEval(page, (s, id) => s.pages[id].content, id)).toEqual(restored)
+    // stored again, stamped; no shadow copy left
+    await expect.poll(async () => (await idbGet(page, `one.page.v2:${id}`))?._schema?.g).toBe(1)
+    await expect.poll(() => idbGet(page, `one.page.g1:${id}`)).toBeUndefined()
+    await expectOlderVersion(page, id, 'Ship pricing')
+  })
+
+  test('a page it deleted for good takes its shadow copy along', async ({ page }) => {
+    await openApp(page)
+    const { alex, mara } = await addPeople(page)
+    const id = await createPage(page, { title: 'Older deleted the page', content: plan(alex, mara) })
+    await flush(page)
+    expect(await idbGet(page, `one.page.g1:${id}`)).toBeDefined()
+    await idbDelete(page, `one.page.v2:${id}`)
+    await page.evaluate((id) => new BroadcastChannel('one-sync').postMessage({ type: 'changed', from: 'older-tab', full: false, pages: [id], dbs: [], meta: false }), id)
+    await expect.poll(() => wsEval(page, (s, id) => !!s.pages[id], id)).toBe(false)
+    await expect.poll(() => idbGet(page, `one.page.g1:${id}`)).toBeUndefined()
   })
 })
 
@@ -817,5 +995,75 @@ test.describe('task block (P0 review): pure parts', () => {
     expect(restoreNewer(before, olderEdit, 1, 'unwrap')).toBe(olderEdit)
     const kept = doc(p('Intro'), before.content![1]!, p('more'))
     expect(restoreNewer(before, kept, 0, 'unwrap')).toBe(kept)
+  })
+
+  test('rewrapNewer: edits inside a task stay in it; added between its blocks joins it, at its edge stays out; nothing doubled', () => {
+    const P = (text: string, id?: string): JSONContent => ({ type: 'paragraph', ...(id ? { attrs: { id } } : {}), content: [{ type: 'text', text }] })
+    const textOf = (n: JSONContent): string => (n.text ?? '') + (n.content ?? []).map(textOf).join('')
+    const tasks = (d: JSONContent | null) => (d?.content ?? []).filter((n) => n.type === 'workItem').map((n) => n.content!.map(textOf))
+    const unwrap = (d: JSONContent): JSONContent => asGeneration(d, 0, 'unwrap')
+    for (const ids of [true, false]) {
+      const I = (id: string) => (ids ? id : undefined)
+      const before = doc(P('Intro', I('i')), item({ itemId: A, ...(ids ? { id: 'w' } : {}) }, 'Title', P('note one', I('n1')), P('note two', I('n2'))), P('Outro', I('o')))
+      // the older editor: ids made up for blocks without one, then typing
+      let seq = 0
+      const made = (d: JSONContent): JSONContent => ({ ...d, ...(d.type !== 'doc' && d.type !== 'text' && !d.attrs?.id ? { attrs: { ...d.attrs, id: `x${++seq}` } } : {}), ...(d.content ? { content: d.content.map(made) } : {}) })
+      const older = made(unwrap(before))
+      const edit = (d: JSONContent, f: (list: JSONContent[]) => JSONContent[]) => ({ ...d, content: f(d.content!) })
+      const typed = edit(older, (l) => l.map((n) => (textOf(n) === 'Title' ? { ...n, content: [{ type: 'text', text: 'Title typed' }] } : textOf(n) === 'note two' ? { ...n, content: [{ type: 'text', text: 'note two typed' }] } : n)))
+      const added = edit(typed, (l) => [l[0]!, l[1]!, P('between'), l[2]!, l[3]!, P('at the edge'), l[4]!])
+      const r = rewrapNewer(before, added, 0)
+      expect(tasks(r.doc), `ids ${ids}`).toEqual([['Title typed', 'between', 'note one', 'note two typed']])
+      expect(textOf(r.doc!)).toBe('IntroTitle typedbetweennote onenote two typedat the edgeOutro')
+      expect(r.dropped).toEqual([])
+      // again (nothing lost now): the same object; a reload loop of the older editor never grows the page
+      expect(rewrapNewer(before, r.doc, 0).doc).toBe(r.doc)
+      let cur = r.doc!
+      for (let i = 0; i < 4; i++) cur = rewrapNewer(cur, made(unwrap(cur)), 0).doc!
+      expect(textOf(cur)).toBe(textOf(r.doc!))
+      expect(tasks(cur)).toEqual(tasks(r.doc))
+      // all its blocks deleted there: it stays deleted, listed as dropped (the caller keeps that version)
+      const gone = rewrapNewer(before, edit(older, (l) => [l[0]!, l[4]!]), 0)
+      expect(tasks(gone.doc)).toEqual([])
+      expect(gone.dropped.map((n) => n.attrs?.itemId)).toEqual([A])
+      // the page replaced as a whole: exactly that copy, every task dropped
+      const restored = doc(P('Version one'), P('Title'))
+      const whole = rewrapNewer(before, restored, 0, { whole: true })
+      expect(whole.doc).toBe(restored)
+      expect(whole.dropped).toHaveLength(1)
+    }
+  })
+
+  test('rewrapNewer: the older build\'s own merge kept our task beside its edited copy — no doubling, both edits kept', () => {
+    const P = (text: string, id?: string): JSONContent => ({ type: 'paragraph', ...(id ? { attrs: { id } } : {}), content: [{ type: 'text', text }] })
+    const textOf = (n: JSONContent): string => (n.text ?? '') + (n.content ?? []).map(textOf).join('')
+    const count = (d: JSONContent, s: string) => textOf(d).split(s).length - 1
+    for (const ids of [true, false]) {
+      const I = (id: string) => (ids ? id : undefined)
+      const Rj = doc(P('Top', I('t')), item({ itemId: A, ...(ids ? { id: 'w1' } : {}) }, 'One'), P('Mid', I('m')), { type: 'workItem', attrs: { itemId: B, ...(ids ? { id: 'w2' } : {}) }, content: [P('Two', I('t2')), P('two note', I('n2'))] }, P('End', I('e')))
+      // we typed into task B; the older tab (its base: Rj, its editor: Rj unwrapped with ids made up) typed at the end
+      const Rk = { ...Rj, content: Rj.content!.map((n) => (n.attrs?.itemId === B ? { ...n, content: [P('Two ours', I('t2')), n.content![1]!] } : n)) }
+      let seq = 0
+      const made = (d: JSONContent): JSONContent => ({ ...d, ...(d.type !== 'doc' && d.type !== 'text' && !d.attrs?.id ? { attrs: { ...d.attrs, id: `x${++seq}` } } : {}), ...(d.content ? { content: d.content.map(made) } : {}) })
+      const ours = made(asGeneration(Rj, 0, 'unwrap'))
+      ours.content = ours.content!.map((n) => (textOf(n) === 'End' ? { ...n, content: [{ type: 'text', text: 'End typed' }] } : n))
+      const merged = mergeContent(Rj, Rk, ours)!
+      const wrote = new Set([...newerBlockPrints(Rj), ...newerBlockPrints(Rk)])
+      const r = rewrapNewer(Rk, merged, 0, { wrote: (print) => wrote.has(print) })
+      expect(count(r.doc!, 'Two'), `ids ${ids}`).toBe(1)
+      expect(count(r.doc!, 'two note')).toBe(1)
+      expect(textOf(r.doc!)).toContain('Two ours')
+      expect(textOf(r.doc!)).toContain('End typed')
+      expect(r.doc!.content!.filter((n) => n.type === 'workItem').map((n) => n.attrs?.itemId)).toEqual([A, B])
+    }
+  })
+
+  test('contentFingerprint: the stamp fits exactly the content written (a structured clone, JSON) — with or without tasks', () => {
+    const withTask = doc(p('a'), item({ itemId: A }, 'Task'))
+    expect(contentFingerprint(structuredClone(withTask))).toBe(contentFingerprint(withTask))
+    expect(contentFingerprint(JSON.parse(JSON.stringify(withTask)))).toBe(contentFingerprint(withTask))
+    expect(contentFingerprint(asGeneration(withTask, 0, 'unwrap'))).not.toBe(contentFingerprint(withTask))
+    expect(contentFingerprint(doc(p('a')))).not.toBe(contentFingerprint(doc(p('b'))))
+    expect(contentFingerprint(null)).toBe(contentFingerprint(undefined))
   })
 })
