@@ -130,6 +130,7 @@ export class Recorder {
     this.offs.forEach((f) => f())
     this.offs = []
     for (const t of [this.flushTimer, this.dueTimer, this.pruneTimer]) if (t) clearTimeout(t)
+    this.drain()
     this.processor.closeAll(Date.now())
     this.drain()
     await this.processor.flush().catch(() => undefined)
