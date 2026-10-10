@@ -102,6 +102,17 @@ the public APIs stable — other areas are built against them in parallel.
 - Markdown files One reads back (Markdown export, folder / GitHub sync) write date / person mentions as
   `[@label](one:date/<id>?r=<code>)` / `[@label](one:person/<id>)` (features/io/import/mentions.ts); share / site /
   HTML exports never do.
+- Task blocks (`workItem`, editor/workitem): every reader goes through `itemAttrs()` (one sanitizer; limits + formats);
+  no titles or names are ever cached in attrs; `itemId` / `doneAt` are VOLATILE in the history diff (DiffDoc shows the
+  fields before → after). The workspace index, writes from outside the editor (`write.ts`, origin 'items'), re-minting ids
+  on copies, pickers and Claude's settle gate come in P1 / P2 — until then nothing creates a task (no slash item, input
+  rule, Turn into or AI path; the Markdown reader stays off).
+- Schema gate (docs/CLOUD.md § Schema gate): an older tab DELETES nodes its schema does not know from a shared document,
+  so every collab connection sends `?schema=<DOC_SCHEMA_VERSION>` (editor/schema/base.ts) and the server
+  (server/src/collab/schema-gate.ts `MIN_CLIENT_SCHEMA`) makes a missing / lower one read-only — a lower one also gets the
+  stateless "outdated" notice → `useCloud().outdated`, read-only until reload ("Reload to keep editing"). A new node type
+  or attr an older client would lose: bump DOC_SCHEMA_VERSION in a release that cannot create it yet, then raise the
+  server minimum.
 - Team cloud: every account gets a personal workspace (`CloudWorkspace.personal`); server content is encrypted at rest
   with a key per workspace wrapped by `DATA_KEY` (docs/CLOUD.md § Tenancy & encryption at rest).
 - Team cloud invites: workspace invites can be reusable (`max_uses`, validity, allowed domains; never admin) or sent to
@@ -611,7 +622,13 @@ name, caption) — src = `onefile:<id>` or an http(s) URL, `syncedBlock` (attrs:
 original, else a reference holding a cached copy; content: blocks; never nested; the sync service writes with origin
 'synced'; `stripButtonActions()` unwraps it to plain blocks), `meetingNotes` (content: the notes as normal blocks; attrs:
 title, status 'idle'|'recording'|'paused'|'summarizing'|'done', language, startedAt, endedAt, duration, transcript =
-[{ t: ms offset, text }], recordedBy; never nested; runtime + Claude in features/ai/meeting), `button` (attrs: label, variant 'signal'|'ink'|'ghost', actions = JSON
+[{ t: ms offset, text }], recordedBy; never nested; runtime + Claude in features/ai/meeting), `workItem` (the task block,
+UI "Task" / "Aufgabe"; content `paragraph block*` = the title line + notes; attrs: id, itemId 'wi_' + 10, status 'todo' |
+'in_progress' | 'done', due 'yyyy-MM-dd[THH:mm]', reminder (null without due), people ≤ 12 ids, blockedBy / related ≤ 20 itemIds,
+doneAt (done only), frozen = { people names, blockedBy n, related n } only in docs that left the workspace — read ONLY through
+`itemAttrs()`; never nested, never in a table cell (unwrapped); Markdown `> [!TODO] Title {#wi_…}` + field line, the reader
+off (`WORK_ITEMS_FROM_MARKDOWN`); `stripPrivate()` → `freezeWorkItems()`: no ids, names frozen; schema release (P0): nothing
+creates one yet), `button` (attrs: label, variant 'signal'|'ink'|'ghost', actions = JSON
 array, see editor/schema/button.ts — strip with `stripButtonActions()` before a doc leaves the workspace),
 `tabs` (container of `tab`, no tabs inside tabs; the shown tab is editor view state) / `tab` (attrs: title; content:
 blocks), `icon` (inline atom; attrs: kind 'asset'|'lucide', name, color — glyphs only; editor/schema/icon.ts),

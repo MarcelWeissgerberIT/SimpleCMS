@@ -197,6 +197,12 @@ export const cloudMessages: Messages = {
     // read-only
     'shell.cloud.viewOnly': 'View only',
     'shell.cloud.viewOnlyHint': 'You can read this workspace. Ask an admin for edit access.',
+    // schema gate (docs/CLOUD.md § Schema gate): the server needs a newer version of One to write
+    'shell.cloud.outdated': 'Reload to keep editing',
+    'shell.cloud.outdatedShort': 'Reload',
+    'shell.cloud.outdatedHint': 'This tab runs an older version of One than the server needs for changes. It stays read-only until you reload it.',
+    'shell.cloud.outdatedToast': 'This tab is out of date and now read-only. Reload to keep editing.',
+    'shell.cloud.outdatedCell': 'Outdated · read only',
 
     // sync status
     'shell.cloud.sync.online': 'Synced · Team',
@@ -620,6 +626,11 @@ export const cloudMessages: Messages = {
 
     'shell.cloud.viewOnly': 'Nur lesen',
     'shell.cloud.viewOnlyHint': 'Du kannst diesen Workspace lesen. Bitte einen Admin um Schreibrechte.',
+    'shell.cloud.outdated': 'Neu laden, um weiter zu bearbeiten',
+    'shell.cloud.outdatedShort': 'Neu laden',
+    'shell.cloud.outdatedHint': 'Dieser Tab läuft mit einer älteren Version von One, als der Server für Änderungen braucht. Er bleibt schreibgeschützt, bis du ihn neu lädst.',
+    'shell.cloud.outdatedToast': 'Dieser Tab ist veraltet und jetzt schreibgeschützt. Neu laden, um weiter zu bearbeiten.',
+    'shell.cloud.outdatedCell': 'Veraltet · nur lesen',
 
     'shell.cloud.sync.online': 'Synchron · Team',
     'shell.cloud.sync.offline': 'Offline · Änderungen warten',

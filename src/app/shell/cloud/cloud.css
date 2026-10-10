@@ -595,6 +595,39 @@
   display: none;
 }
 
+/* an outdated tab (schema gate): a key that reloads it, in the signal colour */
+.cl-viewonly.cl-outdated {
+  border: 1px solid var(--signal);
+  background: var(--signal-wash);
+  color: var(--signal-ink);
+  cursor: pointer;
+  font: inherit;
+  font-family: var(--font-mono);
+  font-size: calc(9.5px * var(--text-scale));
+  font-weight: 600;
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+}
+.cl-viewonly.cl-outdated:hover {
+  background: var(--signal-wash-strong);
+}
+.cl-viewonly.cl-outdated:focus-visible {
+  box-shadow: 0 0 0 2px var(--focus-ring, var(--signal));
+}
+.cl-viewonly.cl-outdated:active {
+  transform: translateY(1px);
+}
+.cl-outdated__short {
+  display: none;
+}
+.app[data-mobile] .cl-viewonly.cl-outdated {
+  height: 32px;
+  padding: 0 9px;
+}
+.app[data-mobile] .cl-outdated__short {
+  display: inline;
+}
+
 /* ---------- status bar cells ---------- */
 .status__save[data-cloud='connecting'] .led,
 .status__save[data-cloud='checking'] .led,

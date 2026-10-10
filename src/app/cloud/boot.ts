@@ -14,6 +14,7 @@ import { fetchConfig, getSession, notifyUnauthenticated, setServerKnown, setServ
 import { listenForForget, runPendingForget } from './device'
 import { hasStoredChoice, readChoice, readSession, SERVER_CAPABLE, writeChoice, writeSession } from './env'
 import { useCloud, useCloudSync, type WorkspaceRef } from './state'
+import { readOnlyFor } from './schemaGate'
 import { emptySettings, openCloudWorkspace } from './workspace'
 
 const LOCAL: WorkspaceRef = { kind: 'local', id: 'local' }
@@ -82,7 +83,7 @@ async function openOffline(choice: { id: string }): Promise<'cloud' | null> {
   const cached = readSession()
   const ws = cached?.workspaces.find((w) => w.id === choice.id)
   if (!cached || !ws) return null
-  useCloud.setState({ available: true, user: cached.user, workspaces: cached.workspaces, role: ws.role, readOnly: ws.role === 'viewer', status: 'offline' })
+  useCloud.setState({ available: true, user: cached.user, workspaces: cached.workspaces, role: ws.role, readOnly: readOnlyFor(ws.role), status: 'offline' })
   await openCloudWorkspace(ws, cached.user, false)
   return 'cloud'
 }
@@ -188,7 +189,7 @@ export async function bootCloud(): Promise<'local' | 'cloud' | 'signed-out'> {
     fallBackToLocal('workspace_not_found', true)
     return 'local'
   }
-  useCloud.setState({ role: ws.role, readOnly: ws.role === 'viewer', status: 'connecting', error: null })
+  useCloud.setState({ role: ws.role, readOnly: readOnlyFor(ws.role), status: 'connecting', error: null })
   await openCloudWorkspace(ws, me.user, true)
   return 'cloud'
 }

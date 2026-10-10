@@ -11,6 +11,7 @@ import type { Repo, Role } from '../repo.ts'
 import { guardAgentAuthors } from './agent-authors.ts'
 import { guardIntegrations, guardWorkspaceLook } from './workspace-look.ts'
 import { metaName, parseDocName } from './names.ts'
+import { MIN_CLIENT_SCHEMA, outdatedNotice, schemaAccess } from './schema-gate.ts'
 
 export const COLLAB_PATH = '/collab'
 /** Big enough for the first sync of a large workspace that was built offline. */
@@ -23,6 +24,8 @@ interface ConnContext {
   role: Role
   /** Direct connections of the server itself (public API, incoming webhooks): `api:<tokenId>` · `hook:<hookId>`. */
   actor?: string
+  /** The client sent a schema generation below the minimum (schema-gate.ts): read-only, told so once connected. */
+  outdated?: boolean
 }
 
 interface Entry extends ConnContext {
@@ -55,7 +58,7 @@ export function createCollab(deps: { config: Config; log: Logger; repo: Repo; se
     maxDebounce: 10_000,
     websocketOptions: { maxPayload: MAX_MESSAGE_BYTES },
 
-    async onAuthenticate({ documentName, requestHeaders, connectionConfig }) {
+    async onAuthenticate({ documentName, requestHeaders, requestParameters, connectionConfig }) {
       const doc = parseDocName(documentName)
       if (!doc) throw deny('invalid-document')
       const auth = sessions.resolve(cookieFromHeader(requestHeaders.get('cookie'), SESSION_COOKIE))
@@ -68,9 +71,11 @@ export function createCollab(deps: { config: Config; log: Logger; repo: Repo; se
         log.warn('private document refused', { workspace: doc.workspaceId, user: auth.user.id })
         throw deny('forbidden')
       }
-      // viewers read (their own private pages too, e.g. after a demotion) but never write
-      connectionConfig.readOnly = role === 'viewer'
-      return { userId: auth.user.id, sessionId: auth.session.id, workspaceId: doc.workspaceId, role } satisfies ConnContext
+      // viewers read (their own private pages too, e.g. after a demotion) but never write — and neither does a
+      // client that may not know every node type: it would delete what it cannot read (schema-gate.ts)
+      const schema = schemaAccess(requestParameters.get('schema'))
+      connectionConfig.readOnly = role === 'viewer' || schema !== 'current'
+      return { userId: auth.user.id, sessionId: auth.session.id, workspaceId: doc.workspaceId, role, ...(schema === 'outdated' ? { outdated: true } : {}) } satisfies ConnContext
     },
 
     async connected({ context, connection }) {
@@ -83,6 +88,8 @@ export function createCollab(deps: { config: Config; log: Logger; repo: Repo; se
       const entry: Entry = { ...context, connection }
       live.add(entry)
       connection.onClose(() => live.delete(entry))
+      // new enough to listen, too old to write: say why it is read-only ("Reload to keep editing")
+      if (context.outdated) connection.sendStateless(outdatedNotice(MIN_CLIENT_SCHEMA))
     },
 
     async onLoadDocument({ documentName }) {

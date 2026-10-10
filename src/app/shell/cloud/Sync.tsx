@@ -1,4 +1,4 @@
-import { Eye } from 'lucide-react'
+import { Eye, RotateCw } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import { useCloud, useCloudSync, type CloudStatus } from '../../cloud'
 import { Led } from '../../ui/controls'
@@ -33,8 +33,8 @@ export function useCloudReadout(): CloudReadout | null {
 /** Status-bar cells in a cloud workspace: sync state, VIEW ONLY, files on their way, people online. */
 export function CloudStatusCells({ readout }: { readout: CloudReadout }) {
   const t = useT()
-  const { readOnly, others } = useCloud(
-    useShallow((s) => ({ readOnly: s.readOnly, others: new Set(s.peers.filter((p) => p.userId !== s.user?.id).map((p) => p.userId)).size })),
+  const { readOnly, outdated, others } = useCloud(
+    useShallow((s) => ({ readOnly: s.readOnly, outdated: !!s.outdated, others: new Set(s.peers.filter((p) => p.userId !== s.user?.id).map((p) => p.userId)).size })),
   )
   const { unsynced, pending, failed } = useCloudSync(useShallow((s) => ({ unsynced: s.unsynced, pending: s.pendingUploads, failed: s.failedUploads })))
   // online but the server has not confirmed the last change yet: show the write in flight
@@ -45,7 +45,7 @@ export function CloudStatusCells({ readout }: { readout: CloudReadout }) {
         <Led state={syncing ? 'on' : readout.led} />
         {syncing ? t('shell.cloud.sync.syncing') : readout.text}
       </span>
-      {readOnly && <span className="status__cell status__ro">{t('shell.cloud.viewOnly')}</span>}
+      {readOnly && <span className="status__cell status__ro">{outdated ? t('shell.cloud.outdatedCell') : t('shell.cloud.viewOnly')}</span>}
       {pending > 0 && <span className="status__cell">↑ {t(plural('shell.cloud.sync.pending', pending), { n: pending })}</span>}
       {failed.length > 0 && (
         <span className="status__cell status__failed" title={failed.map((f) => f.name).join(', ')}>
@@ -57,10 +57,23 @@ export function CloudStatusCells({ readout }: { readout: CloudReadout }) {
   )
 }
 
-/** Topbar tag for viewers. */
+/** Topbar tag for viewers — and, for a tab the server finds outdated, a key that reloads it. */
 export function ViewOnlyTag() {
   const t = useT()
   const readOnly = useCloud((s) => s.readOnly && s.active.kind === 'cloud')
+  const outdated = useCloud((s) => !!s.outdated && s.active.kind === 'cloud')
+  if (outdated)
+    return (
+      <Tooltip label={t('shell.cloud.outdatedHint')}>
+        <button type="button" className="cl-viewonly cl-outdated" data-testid="outdated-reload" onClick={() => window.location.reload()}>
+          <RotateCw size={12} strokeWidth={2} aria-hidden />
+          <span className="cl-viewonly__text">{t('shell.cloud.outdated')}</span>
+          <span className="cl-outdated__short" aria-hidden>
+            {t('shell.cloud.outdatedShort')}
+          </span>
+        </button>
+      </Tooltip>
+    )
   if (!readOnly) return null
   return (
     <Tooltip label={t('shell.cloud.viewOnlyHint')}>

@@ -318,7 +318,8 @@ the database file), and compared through their HMAC like every other token.
 ## Realtime documents (Yjs over Hocuspocus, `wss://…/collab`)
 
 Authentication: the WebSocket upgrade carries the session cookie; `onAuthenticate` resolves the
-user and the membership for the document's workspace; viewers get `connection.readOnly = true`.
+user and the membership for the document's workspace; viewers get `connection.readOnly = true` — and so
+does a client whose document schema generation is missing or too old (*Schema gate* below).
 Unknown document names are rejected.
 
 As implemented: one socket per browser tab can carry many documents (`HocuspocusProviderWebsocket`
@@ -346,6 +347,31 @@ Document names:
 - `ws:<workspaceId>:u:<userId>` — one member's **private meta document** (same schema; only their
   private pages, databases and rows) and `ws:<workspaceId>:u:<userId>:p:<pageId>` — the content of one of
   their private pages. Opened for that user only (see *Private pages*). User ids `[A-Za-z0-9_-]{8,64}`.
+
+### Schema gate (document schema generations)
+
+A tab whose editor does not know a node type does **not** turn it into plain blocks: y-prosemirror drops
+what its schema cannot read, and that deletion syncs — an older tab open on a page would delete every
+task block (`workItem`) a newer one wrote there. So only clients that read the current document schema
+may write:
+
+- The app sends its generation on the socket URL: `wss://…/collab?schema=<n>` (`DOC_SCHEMA_VERSION`,
+  `src/app/editor/schema/base.ts`; `1` = the task block). One socket per tab, so every document it opens
+  carries it (`src/app/cloud/socket.ts`).
+- `onAuthenticate` (`server/src/collab/index.ts`, next to the viewer check) reads it with
+  `schemaAccess()` (`server/src/collab/schema-gate.ts`): **missing or unreadable** → the connection is
+  `readOnly` (an older build — it reads live, its updates are never applied, and it cannot be told why);
+  **below `MIN_CLIENT_SCHEMA`** → `readOnly` too, and once connected the server sends a stateless message
+  `{"type":"one.schema","status":"outdated","min":<n>}` on that document; **at or above** → as the role allows.
+- The client (`src/app/cloud/schemaGate.ts`) listens on every provider before it attaches: the notice sets
+  `useCloud().outdated` and `readOnly` for the rest of the tab's life (role refreshes keep it read-only), a
+  toast and the topbar key say **"Reload to keep editing"** ("Neu laden, um weiter zu bearbeiten"); the
+  reload is the only way back. Local edits made before stay in IndexedDB and sync after the reload.
+- The server's own writes (public API, webhooks, agents — direct connections) are not affected.
+- Releasing a node type an older client would lose: ship it in the app with `DOC_SCHEMA_VERSION` + 1 and
+  **no way to create it** (the schema release); raise `MIN_CLIENT_SCHEMA` to that number in the same server
+  release when, as for `1`, clients without the parameter must stop writing — later raises can follow the
+  app by one release. The first gate (generation 1) makes every tab of a build before it read-only at once.
 
 ### Server writes (public API, incoming webhooks)
 

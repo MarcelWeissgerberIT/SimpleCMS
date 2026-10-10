@@ -26,6 +26,7 @@ import { loadContentCache, loadOverlay, saveOverlay, type Overlay } from './loca
 import { LOCAL, roots } from './schema'
 import { closeSocket, getSocket, isConnected, onConnection, reconnectSocket } from './socket'
 import { useCloud, useCloudSync, type CloudUser, type CloudWorkspace, type Peer, type Role } from './state'
+import { readOnlyFor, watchSchema } from './schemaGate'
 
 export interface ActiveCloud {
   ws: CloudWorkspace
@@ -97,6 +98,8 @@ export async function openCloudWorkspace(ws: CloudWorkspace, user: CloudUser, on
 
   const socket = getSocket()
   const provider = new HocuspocusProvider({ websocketProvider: socket, name: `ws:${ws.id}`, document: doc })
+  // too old a document schema for the server: read-only, "Reload to keep editing" (schemaGate.ts)
+  watchSchema(provider)
   let firstSynced = false
   let resolveFirst!: () => void
   const firstSync = new Promise<void>((r) => (resolveFirst = r))
@@ -108,6 +111,7 @@ export async function openCloudWorkspace(ws: CloudWorkspace, user: CloudUser, on
   provider.attach()
   // no presence there: only this member ever connects to it
   const privateProvider = new HocuspocusProvider({ websocketProvider: socket, name: privateName, document: privateDoc, awareness: null })
+  watchSchema(privateProvider)
   let privateSynced = false
   const privateFirstSync = new Promise<void>((r) =>
     privateProvider.on('synced', () => {
@@ -296,7 +300,7 @@ export async function openCloudWorkspace(ws: CloudWorkspace, user: CloudUser, on
     provider.on('unsyncedChanges', unsynced)
     privateProvider.on('unsyncedChanges', unsynced)
     provider.on('authenticated', ({ scope }: { scope: string }) => {
-      const ro = scope === 'readonly'
+      const ro = scope === 'readonly' || !!useCloud.getState().outdated
       if (useCloud.getState().readOnly !== ro && !stopped) useCloud.setState({ readOnly: ro })
     })
     for (const p of [provider, privateProvider]) {
@@ -429,7 +433,7 @@ async function refreshRole(): Promise<void> {
       stop('error', 'membership-revoked')
       return
     }
-    useCloud.setState({ user: me.user, workspaces: me.workspaces, serverAdmin: me.serverAdmin, role: ws.role, readOnly: ws.role === 'viewer' })
+    useCloud.setState({ user: me.user, workspaces: me.workspaces, serverAdmin: me.serverAdmin, role: ws.role, readOnly: readOnlyFor(ws.role) })
   } catch {
     /* offline: the reconnect authenticates with whatever the server says */
   }

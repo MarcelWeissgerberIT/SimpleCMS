@@ -54,8 +54,13 @@ export interface CloudState {
   active: WorkspaceRef
   /** Role in the active cloud workspace (null in local mode). */
   role: Role | null
-  /** Viewers (and a revoked membership) can't write. */
+  /** Viewers (and a revoked membership) can't write — nor an outdated tab. */
   readOnly: boolean
+  /**
+   * The server needs a newer document schema than this tab reads (docs/CLOUD.md § Schema gate): the tab stays
+   * read-only until it is reloaded ("Reload to keep editing"). Never reset in this tab.
+   */
+  outdated?: boolean
   /** Other people in the active workspace right now. */
   peers: Peer[]
   /**
@@ -96,6 +101,7 @@ export const useCloud = create<CloudState>(() => ({
   active: { kind: 'local', id: 'local' },
   role: null,
   readOnly: false,
+  outdated: false,
   peers: [],
   error: null,
   signup: null,

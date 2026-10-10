@@ -35,6 +35,7 @@ import { dropContentCache, saveContentCache, type CachedContent } from './local'
 import { getSocket, isConnected, onConnection } from './socket'
 import { PAGE_ID, within } from './env'
 import { CloudError, type ContentDocHandle } from './state'
+import { watchSchema } from './schemaGate'
 
 /** setContent origin for content typed in this tab's editors (not an editor instance id, not 'sync'). */
 export const CLOUD_EDIT_ORIGIN = 'cloud'
@@ -173,6 +174,7 @@ function resetSync(e: Entry) {
 function connect(e: Entry, name: string, awareness?: HocuspocusProvider['awareness']): HocuspocusProvider {
   const c = ctx!
   const provider = new HocuspocusProvider({ websocketProvider: getSocket(), name, document: e.doc, ...(awareness ? { awareness } : {}) })
+  watchSchema(provider)
   const mine = () => e.provider === provider && entries.get(e.pageId) === e
   provider.on('synced', () => {
     if (!mine()) return

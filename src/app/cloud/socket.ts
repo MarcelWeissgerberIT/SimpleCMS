@@ -4,12 +4,17 @@
  * is closed on purpose (edits stay in IndexedDB), online → reconnect at once.
  */
 import { HocuspocusProviderWebsocket, WebSocketStatus } from '@hocuspocus/provider'
+import { DOC_SCHEMA_VERSION } from '../editor'
 
 let socket: HocuspocusProviderWebsocket | null = null
 let connected = false
 const listeners = new Set<(connected: boolean) => void>()
 
-export const collabUrl = () => `${window.location.origin.replace(/^http/, 'ws')}/collab`
+/**
+ * The collab socket, with the document schema generation this build reads (docs/CLOUD.md § Schema gate): the
+ * server lets a connection write only at or above its minimum — an older tab would delete nodes it cannot read.
+ */
+export const collabUrl = () => `${window.location.origin.replace(/^http/, 'ws')}/collab?schema=${DOC_SCHEMA_VERSION}`
 
 const browserOnline = () => typeof navigator === 'undefined' || navigator.onLine !== false
 

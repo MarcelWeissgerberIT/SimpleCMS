@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { HocuspocusProvider, HocuspocusProviderWebsocket } from '@hocuspocus/provider'
 import * as Y from 'yjs'
+import { MIN_CLIENT_SCHEMA } from '../src/collab/schema-gate.ts'
 
 const SERVER = new URL('../dist/index.js', import.meta.url).pathname
 
@@ -189,15 +190,21 @@ export interface DocClient {
   destroy(): void
 }
 
-/** A Hocuspocus provider that carries the client's session cookie on the WebSocket upgrade. */
-export function openDoc(server: TestServer, client: Client | null, name: string, extraHeaders: Record<string, string> = {}): DocClient {
+/**
+ * A Hocuspocus provider that carries the client's session cookie on the WebSocket upgrade. It connects as
+ * the current app does — with its document schema generation (`?schema=`, src/collab/schema-gate.ts);
+ * `opts.schema`: another generation, or null for none (an older build).
+ */
+export function openDoc(server: TestServer, client: Client | null, name: string, extraHeaders: Record<string, string> = {}, opts: { schema?: number | string | null } = {}): DocClient {
   const headers = { ...extraHeaders, ...(client?.cookies.size ? { cookie: client.cookieHeader() } : {}) }
   class CookieWebSocket extends WebSocket {
     constructor(url: string | URL) {
       super(url, { headers } as unknown as string[])
     }
   }
-  const socket = new HocuspocusProviderWebsocket({ url: `${server.url.replace(/^http/, 'ws')}/collab`, WebSocketPolyfill: CookieWebSocket, maxAttempts: 1 })
+  const schema = opts.schema === undefined ? MIN_CLIENT_SCHEMA : opts.schema
+  const query = schema === null ? '' : `?schema=${encodeURIComponent(String(schema))}`
+  const socket = new HocuspocusProviderWebsocket({ url: `${server.url.replace(/^http/, 'ws')}/collab${query}`, WebSocketPolyfill: CookieWebSocket, maxAttempts: 1 })
   const doc = new Y.Doc()
   const provider = new HocuspocusProvider({ websocketProvider: socket, name, document: doc })
   const closes: string[] = []

@@ -23,6 +23,7 @@ import {
 import { refreshMe, SIGNED_IN_PARAM, switchWorkspaceImpl } from './boot'
 import { runPendingForget, scheduleForget } from './device'
 import { writeSession } from './env'
+import { readOnlyFor } from './schemaGate'
 import {
   useCloud,
   type CloudWorkspace,
@@ -124,7 +125,7 @@ export async function setMemberRoleImpl(wsId: string, userId: string, role: Role
     const me = await refreshMe()
     const ws = me?.workspaces.find((w) => w.id === wsId)
     const c = useCloud.getState()
-    if (ws && c.active.kind === 'cloud' && c.active.id === wsId) useCloud.setState({ role: ws.role, readOnly: ws.role === 'viewer' })
+    if (ws && c.active.kind === 'cloud' && c.active.id === wsId) useCloud.setState({ role: ws.role, readOnly: readOnlyFor(ws.role) })
   }
 }
 
