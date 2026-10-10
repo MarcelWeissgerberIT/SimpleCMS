@@ -9,10 +9,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
 import { EditorContent, useEditor } from '@tiptap/react'
 import type { Editor, JSONContent } from '@tiptap/core'
-import type { Node as PMNode } from '@tiptap/pm/model'
-import { Selection, TextSelection } from '@tiptap/pm/state'
+import { Mark, type Node as PMNode } from '@tiptap/pm/model'
+import { Selection, TextSelection, type Transaction } from '@tiptap/pm/state'
+import { ySyncPluginKey } from '@tiptap/y-tiptap'
 import type { ID } from '../store/types'
 import { useWorkspace } from '../store/store'
+import { reportFallback, withWriter, type Writer } from '../store/writer'
 import { navigate, pageHref, useRoute } from '../lib/router'
 import { newId } from '../lib/ids'
 import { createBridge, type Bridge } from './lib/bridge'
@@ -24,7 +26,8 @@ import { EditorOverlays } from './menus/EditorOverlays'
 import { Comments } from './comments/CommentsRail'
 import { ContextPicker } from './context/ContextPicker'
 import { registerBridge } from './context/redo'
-import { acquireContentDoc, releaseContentDoc, useCloud, type ContentDocHandle } from '../cloud'
+import { acquireContentDoc, flushPageContent, releaseContentDoc, useCloud, type ContentDocHandle } from '../cloud'
+import { inEditAs, NORMALISE_META, registerEditorFlush } from './lib/editAs'
 import { useT } from '../i18n'
 import { ReadOnlyDoc } from './ReadOnlyDoc'
 import './editor.css'
@@ -39,6 +42,47 @@ export interface PageEditorProps {
 }
 
 const SAVE_DELAY = 300
+
+/* ------------------------------------------------------------------ */
+/* The writer net (DEV / ?e2e, flight recorder): a transaction that    */
+/* changed the document outside a user event, outside editAs, not from */
+/* Y sync and not marked as a normalisation reaches the store with the */
+/* editor's flush as "typed" — that flush is reported (store/writer).  */
+/* ------------------------------------------------------------------ */
+
+const NET = (() => {
+  try {
+    return import.meta.env.DEV || new URLSearchParams(window.location.search).has('e2e')
+  } catch {
+    return false
+  }
+})()
+/** Events of the person on an editor (capture): a change read from the DOM shortly after one of them is theirs. */
+const INPUT_EVENTS = ['keydown', 'keypress', 'beforeinput', 'input', 'compositionstart', 'compositionend', 'paste', 'cut', 'drop', 'dragend', 'pointerdown', 'mousedown', 'mouseup', 'click', 'touchend'] as const
+/** ProseMirror reads some DOM changes a little later (flushSoon, compositions). */
+const INPUT_WINDOW_MS = 150
+
+/** Two documents that differ at most in block ids (UniqueID filling them in is a normalisation). */
+function sameButIds(a: PMNode, b: PMNode): boolean {
+  if (a === b) return true
+  if (a.type !== b.type || a.childCount !== b.childCount || a.text !== b.text || !Mark.sameSet(a.marks, b.marks)) return false
+  for (const k of new Set([...Object.keys(a.attrs), ...Object.keys(b.attrs)])) {
+    const x = a.attrs[k]
+    const y = b.attrs[k]
+    if (k !== 'id' && x !== y && JSON.stringify(x) !== JSON.stringify(y)) return false
+  }
+  for (let i = 0; i < a.childCount; i++) if (!sameButIds(a.child(i), b.child(i))) return false
+  return true
+}
+
+/** Did this transaction come from somewhere the flush cannot name (no user event, no editAs, no Y sync, no normalisation)? */
+function untrackedChange(tr: Transaction, lastInput: number): boolean {
+  if (!tr.docChanged || inEditAs()) return false
+  if (tr.getMeta(NORMALISE_META) || tr.getMeta(ySyncPluginKey) || tr.getMeta('uiEvent')) return false
+  const ev = (window as unknown as { event?: Event }).event
+  if (ev?.isTrusted || performance.now() - lastInput <= INPUT_WINDOW_MS) return false
+  return !sameButIds(tr.before, tr.doc)
+}
 
 /* ------------------------------------------------------------------ */
 /* Mod+K with a text selection = link (Notion). The global palette     */
@@ -291,7 +335,9 @@ function prepareContent(c: JSONContent | null | undefined): { doc: JSONContent |
 }
 
 function EditorInstance({ pageId, readOnly, autoFocus, onReady, className, collab }: PageEditorProps & { collab?: ContentDocHandle }) {
-  const instanceId = useMemo(() => `editor:${newId()}`, [])
+  /** The editor's writer id (store/writer.ts); `editor:<id>` = its content origin. */
+  const editorKey = useMemo(() => newId(), [])
+  const instanceId = `editor:${editorKey}`
   const bridge = useMemo(() => createBridge(), [])
   const locked = useWorkspace((s) => !!s.pages[pageId]?.settings.locked)
   const font = useWorkspace((s) => s.pages[pageId]?.settings.font ?? 'sans')
@@ -308,23 +354,33 @@ function EditorInstance({ pageId, readOnly, autoFocus, onReady, className, colla
   const editorRef = useRef<Editor | null>(null)
   const onReadyRef = useRef(onReady)
   onReadyRef.current = onReady
+  /** The net (DEV / ?e2e): when the person last used this editor, and a change nobody named since the last flush. */
+  const lastInput = useRef(0)
+  const untracked = useRef<string | null>(null)
 
-  const flush = useCallback(() => {
-    window.clearTimeout(timer.current)
-    const ed = editorRef.current
-    if (!dirty.current || !ed) return
-    dirty.current = false
-    let json: JSONContent
-    try {
-      json = ed.getJSON()
-    } catch {
-      return
-    }
-    const ws = useWorkspace.getState()
-    if (!ws.pages[pageId]) return
-    ws.setContent(pageId, json, instanceId)
-    lastRev.current = useWorkspace.getState().pages[pageId]?.contentRev ?? lastRev.current
-  }, [pageId, instanceId])
+  /** Hand the editor's document to the store: as `writer`'s write (editAs), else as this editor's (the person typing). */
+  const flush = useCallback(
+    (writer?: Writer) => {
+      window.clearTimeout(timer.current)
+      const ed = editorRef.current
+      if (!dirty.current || !ed) return
+      dirty.current = false
+      const stray = untracked.current
+      untracked.current = null
+      let json: JSONContent
+      try {
+        json = ed.getJSON()
+      } catch {
+        return
+      }
+      const ws = useWorkspace.getState()
+      if (!ws.pages[pageId]) return
+      if (!writer && stray !== null) reportFallback('editor', [`p:${pageId}`], stray)
+      withWriter(writer ?? { kind: 'editor', id: editorKey }, () => ws.setContent(pageId, json, instanceId))
+      lastRev.current = useWorkspace.getState().pages[pageId]?.contentRev ?? lastRev.current
+    },
+    [pageId, instanceId, editorKey],
+  )
 
   // the page title is the one <h1>: heading blocks render as <h2>–<h4> beneath it
   const extensions = useMemo(() => editorExtensions({ bridge, headingOffset: 1, collab }), [bridge])
@@ -346,16 +402,17 @@ function EditorInstance({ pageId, readOnly, autoFocus, onReady, className, colla
         // persist freshly generated block ids once, so block links stay valid
         if (initial.idsAdded && ed === editorRef.current && ed.isEditable) {
           dirty.current = true
-          timer.current = window.setTimeout(flush, 1500)
+          timer.current = window.setTimeout(() => flush(), 1500)
         }
       },
-      onUpdate: ({ editor: ed }) => {
+      onUpdate: ({ editor: ed, transaction }) => {
         // collaboration: the Y document is the copy; the cloud area refreshes page.content
         if (collab || !ed.isEditable || ed.isDestroyed) return
         editorRef.current = ed
         dirty.current = true
+        if (NET && untracked.current === null && untrackedChange(transaction, lastInput.current)) untracked.current = new Error().stack ?? ''
         window.clearTimeout(timer.current)
-        timer.current = window.setTimeout(flush, SAVE_DELAY)
+        timer.current = window.setTimeout(() => flush(), SAVE_DELAY)
       },
       onBlur: ({ editor: ed }) => {
         if (!ed.isDestroyed) editorRef.current = ed
@@ -368,6 +425,20 @@ function EditorInstance({ pageId, readOnly, autoFocus, onReady, className, colla
 
   useEffect(() => {
     if (editor && !editor.isDestroyed) onReadyRef.current?.(editor)
+  }, [editor])
+
+  // writes applied through this editor under their writer (editAs): its flush, or the content document's refresh
+  useEffect(() => (editor ? registerEditorFlush(editor, collab ? (w) => flushPageContent(pageId, w) : flush) : undefined), [editor, collab, pageId, flush])
+
+  // the net (DEV / ?e2e): the person's own input on this editor
+  useEffect(() => {
+    if (!NET || !editor || editor.isDestroyed) return
+    const dom = editor.view.dom
+    const note = (e: Event) => {
+      if (e.isTrusted) lastInput.current = performance.now()
+    }
+    INPUT_EVENTS.forEach((t) => dom.addEventListener(t, note, true))
+    return () => INPUT_EVENTS.forEach((t) => dom.removeEventListener(t, note, true))
   }, [editor])
 
   // "Redo with instructions" from outside the page (block menu, AI terminal) opens this editor's AI panel
@@ -406,7 +477,7 @@ function EditorInstance({ pageId, readOnly, autoFocus, onReady, className, colla
       const base = prev.pages[pageId]?.content
       if (dirty.current && base && mergeExternal(editor, prepareContent(base).doc!, theirs)) {
         window.clearTimeout(timer.current)
-        timer.current = window.setTimeout(flush, SAVE_DELAY)
+        timer.current = window.setTimeout(() => flush(), SAVE_DELAY)
         return
       }
       window.clearTimeout(timer.current)
@@ -417,11 +488,12 @@ function EditorInstance({ pageId, readOnly, autoFocus, onReady, className, colla
 
   // flush on unload (module-level listener, see flushAllEditors) / tab hide / unmount
   useEffect(() => {
+    const own = () => flush()
     const onHide = () => document.visibilityState === 'hidden' && flush()
-    unloadFlushers.add(flush)
+    unloadFlushers.add(own)
     document.addEventListener('visibilitychange', onHide)
     return () => {
-      unloadFlushers.delete(flush)
+      unloadFlushers.delete(own)
       document.removeEventListener('visibilitychange', onHide)
       flush()
     }

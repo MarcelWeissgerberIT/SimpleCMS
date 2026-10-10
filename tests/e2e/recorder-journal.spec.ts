@@ -5,7 +5,7 @@
  * digests — never page text or values). Writes go through the real store under a story step's writer
  * (the seam); time comes from Playwright's clock. Test data is fictional (Nordlicht, Tessera).
  *
- * Until boot starts the recorder (R1a A10), every page starts it by hand (helpers/recorder.ts).
+ * Boot starts the recorder; a test's setup is recorded too (as the person's), so `boot()` wipes the tape after it.
  */
 import type { Page } from '@playwright/test'
 import { test, expect, openApp, wsEval, flush, gotoPage, editorOf } from './fixtures'
@@ -16,13 +16,14 @@ const S = 1000
 const MIN = 60 * S
 const DAY = 24 * 60 * MIN
 
-/** Open the app at a fixed time; `setup` runs before the recorder listens (not journaled). */
+/** Open the app at a fixed time; the tape starts empty after `setup` (its writes are wiped from the journal). */
 async function boot<T>(page: Page, setup?: () => Promise<T>, at = T0): Promise<T> {
   await page.clock.install({ time: at })
   await openApp(page)
+  await startRecorder(page)
   const out = setup ? await setup() : (undefined as T)
   await flush(page)
-  await startRecorder(page)
+  await rec(page, 'wipe')
   return out
 }
 
@@ -226,10 +227,8 @@ test.describe('flight recorder journal', () => {
     expect(segs.every((s) => !(s.f & F.GAP))).toBe(true)
   })
 
-  test('the person: a title edit and body typing in the page = one segment', async ({ page, errors }) => {
-    // body typing reaches the store as the editor's flush; until the editor names itself (R1a A11) it falls
-    // back to the person through its content-only change — reported as a missing frame (a warning for now)
-    errors.allow(/\[recorder\] write without a writer/)
+  test('the person: a title edit and body typing in the page = one segment', async ({ page }) => {
+    // body typing reaches the store as the editor's flush, under the editor's own frame (editor:<id> → lane you)
     const id = await boot(page, () => wsEval(page, (s) => s.createPage({ title: 'Tessera Notizen' }) as string))
     await gotoPage(page, id)
     const title = page.locator('#main .pv-title')
@@ -250,6 +249,7 @@ test.describe('flight recorder journal', () => {
     expect(evs[0].ops).toBeGreaterThan(2)
     expect(evs[0].wa).toBe(3)
     expect(segs[0].touched).toEqual(expect.arrayContaining(['t']))
+    expect(await rec(page, 'unknowns')).toEqual([])
   })
 
   test('typing folds: 2 min = 4 events in one segment; a machine write in between splits it', async ({ page }) => {

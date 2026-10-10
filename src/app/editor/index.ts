@@ -52,6 +52,13 @@ export { PageEditor, type PageEditorProps } from './PageEditor'
 export { ReadOnlyDoc } from './ReadOnlyDoc'
 /* Claude's change as its own undo step, also in a shared page (Y undo): startUndoStep(view) before building the transaction, endUndoStep(view) after dispatching it */
 export { startUndoStep, endUndoStep } from './collab'
+/*
+ * A write applied through an open editor under its writer (store/writer.ts; the flight recorder): editAs(editor, writer,
+ * fn) flushes the person's pending typing, runs fn (dispatch / chain().run()), then hands the document to the store at
+ * once inside the writer's frame; dispatchAs(editor, writer, tr) for one transaction. Synchronous, one per burst.
+ * EDITOR_NORMALISE_META: the meta of a transaction that only repairs structure (no one writes) — the editor net skips it.
+ */
+export { editAs, dispatchAs, NORMALISE_META as EDITOR_NORMALISE_META } from './lib/editAs'
 export { getExtensions, markdownToDoc, docToMarkdown, docToHTML, stripPrivate, stripPrivate as stripButtonActions, docSchema, prepareCollabContent } from './convert'
 export { stripComments, commentIdsIn } from './schema/comment'
 export { startSyncedBlocks, stopSyncedBlocks } from './synced/service'

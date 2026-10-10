@@ -46,6 +46,7 @@ import { setPresencePageImpl } from './workspace'
 import { createPrivateDatabaseImpl, createPrivatePageImpl, isPrivate, movePagePrivacyImpl, usePrivateModeImpl } from './private'
 import type { NewDatabaseInput, NewPageInput } from '../store/store'
 import type { ID } from '../store/types'
+import type { Writer } from '../store/writer'
 import { useUI } from '../store/ui'
 import { navigate } from '../lib/router'
 import {
@@ -288,10 +289,10 @@ export function releaseContentDoc(pageId: string): void {
 /**
  * The page's content as its open document holds it, in the store right away (team: the store otherwise catches up a
  * moment after an editor change). For a writer that changed the page's open editor and reads the store next; a no-op
- * in local mode or with nothing pending.
+ * in local mode or with nothing pending. `writer` (store/writer.ts): the store write is theirs (editor editAs).
  */
-export function flushPageContent(pageId: string): void {
-  flushRefresh(pageId)
+export function flushPageContent(pageId: string, writer?: Writer): void {
+  flushRefresh(pageId, writer)
 }
 
 /**

@@ -39,6 +39,7 @@ import type { JSONContent } from '@tiptap/core'
 import { useWorkspace, plainText } from '../store/store'
 import { deepEqual, mergeContent } from '../store/merge'
 import type { ID, Page } from '../store/types'
+import { SYSTEM, withWriter, type Writer } from '../store/writer'
 import { docSchema, prepareCollabContent } from '../editor'
 import { DOC_SCHEMA_VERSION, lostNewer, restoreNewer } from '../store/generations'
 import { applyFromCloud, markFromCloud } from './binding'
@@ -59,6 +60,8 @@ const FIELD = 'default'
 /** Remote changes reach the store quickly; your own typing in pauses (it also writes the meta document's search excerpt). */
 const REFRESH_MS = 300
 const REFRESH_LOCAL_MS = 900
+/** How long a writer's hint (editAs during a takeover, or before its change reached the document) names the next refresh. */
+const HINT_MS = 2000
 /** How long an unused entry lingers (StrictMode remounts, quick back-and-forth). */
 const LINGER_MS = 4000
 const CONCURRENCY = 3
@@ -100,6 +103,12 @@ interface Entry {
   older: OlderCopy[] | null
   /** Their takeover, while it runs. */
   adoption: Promise<void> | null
+  /** Since when updates from the server wait in the document for the next refresh (0: none) — a refresh with them is mixed. */
+  remoteSince: number
+  /** When this tab last changed the document (typed, undone — not a bridge write). */
+  lastLocal: number
+  /** A writer whose change the next refresh carries (its own refresh could not write: a takeover ran, nothing was pending). */
+  writerHint: { w: Writer; at: number } | null
   refreshTimer?: number
   lingerTimer?: number
   handle: ContentDocHandle | null
@@ -178,6 +187,9 @@ function ensure(pageId: ID): Entry {
     forgotten: false,
     older: null,
     adoption: null,
+    remoteSince: 0,
+    lastLocal: 0,
+    writerHint: null,
     handle: null,
   }
   resetSync(entry)
@@ -191,10 +203,15 @@ function ensure(pageId: ID): Entry {
         c.pending.add(pageId)
         c.savePending()
       }
-      if (origin !== BRIDGE) entry.localEdit = true
+      if (origin !== BRIDGE) {
+        entry.localEdit = true
+        entry.lastLocal = Date.now()
+      }
       scheduleRefresh(entry, origin === BRIDGE ? REFRESH_MS : REFRESH_LOCAL_MS)
       return
     }
+    // from the server (others): a refresh that also carries this tab's typing is mixed (flight recorder)
+    if (origin instanceof HocuspocusProvider && !entry.remoteSince) entry.remoteSince = Date.now()
     scheduleRefresh(entry)
   })
   doc.getXmlFragment(FIELD).observeDeep((events, tr) => scrubPrivateMentions(entry, events, tr))
@@ -540,12 +557,33 @@ function fragmentJSON(e: Entry): JSONContent | null {
   return yXmlFragmentToProsemirrorJSON(frag) as JSONContent
 }
 
-function refresh(e: Entry) {
+/** Typing in a team workspace (store/writer.ts): the person through this tab's editors; `mixed` = others' changes came along. */
+const editorCollab = (mixed: boolean): Writer => (mixed ? { kind: 'editor', id: 'collab', mixed: true } : { kind: 'editor', id: 'collab' })
+
+/**
+ * Who the store write of this refresh is (flight recorder): the writer that asked for it (editAs → flushPageContent),
+ * else a writer's hint left by a refresh that could not write — mixed when others' changes or this tab's typing came
+ * after it — else the person typing here (mixed when the server's updates came along).
+ */
+function refreshWriter(e: Entry, writer: Writer | undefined, remote: number): Writer {
+  if (writer) return writer
+  const hint = e.writerHint
+  e.writerHint = null
+  if (hint && Date.now() - hint.at < HINT_MS) return (remote && remote > hint.at) || e.lastLocal > hint.at ? editorCollab(true) : hint.w
+  return editorCollab(remote > 0)
+}
+
+function refresh(e: Entry, writer?: Writer) {
   e.refreshTimer = undefined
   const c = ctx
   if (!c || entries.get(e.pageId) !== e) return
   // older copies are being taken over: the server's state without them would hide their text for a moment
-  if (e.adoption) return
+  if (e.adoption) {
+    if (writer) e.writerHint = { w: writer, at: Date.now() }
+    return
+  }
+  const remote = e.remoteSince
+  e.remoteSince = 0
   const s = useWorkspace.getState()
   const page = s.pages[e.pageId]
   if (!page) return
@@ -562,7 +600,7 @@ function refresh(e: Entry) {
   }
   markFromCloud(json)
   if (local && c.writable()) {
-    s.setContent(e.pageId, json, CLOUD_EDIT_ORIGIN)
+    withWriter(refreshWriter(e, writer, remote), () => s.setContent(e.pageId, json, CLOUD_EDIT_ORIGIN))
   } else {
     applyFromCloud(() => {
       const cur = useWorkspace.getState().pages[e.pageId]
@@ -673,13 +711,18 @@ export function detachAll(): void {
 
 /**
  * Hand one page's pending refresh to the store right away: a writer that changed the page's open editor (its document
- * carries the change) and reads the store next — the AI terminal's edit_page.
+ * carries the change) and reads the store next — the AI terminal's edit_page, editAs. With `writer`, the store write
+ * runs as theirs; with nothing pending, the next refresh names them (a hint, ≤ 2 s).
  */
-export function flushRefresh(pageId: ID): void {
+export function flushRefresh(pageId: ID, writer?: Writer): void {
   const e = entries.get(pageId)
-  if (!e || e.refreshTimer === undefined) return
+  if (!e) return
+  if (e.refreshTimer === undefined) {
+    if (writer) e.writerHint = { w: writer, at: Date.now() }
+    return
+  }
   window.clearTimeout(e.refreshTimer)
-  refresh(e)
+  refresh(e, writer)
 }
 
 /** Hand pending refreshes to the store right away (page hide / unload). */
@@ -879,10 +922,12 @@ export function revertContent(pageId: ID): void {
     const json = fragmentJSON(e)
     if (!json) return
     markFromCloud(json)
-    applyFromCloud(() => {
-      const cur = useWorkspace.getState().pages[pageId]
-      if (cur) useWorkspace.getState().cloudPatch({ pages: { [pageId]: { ...cur, content: json, plain: plainText(json), contentRev: cur.contentRev + 1, contentOrigin: 'sync' } } })
-    })
+    withWriter(SYSTEM('revert'), () =>
+      applyFromCloud(() => {
+        const cur = useWorkspace.getState().pages[pageId]
+        if (cur) useWorkspace.getState().cloudPatch({ pages: { [pageId]: { ...cur, content: json, plain: plainText(json), contentRev: cur.contentRev + 1, contentOrigin: 'sync' } } })
+      }),
+    )
   } else enqueueSync([pageId], true)
 }
 
