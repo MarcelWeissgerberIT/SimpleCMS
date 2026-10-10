@@ -143,6 +143,12 @@ export function IntegrationsPanel() {
                   <dt>{t('features.integrations.spec.recipes')}</dt>
                   <dd>{p.recipes?.length ? p.recipes.map((r) => localized(r.name, lang) || t('features.agents.recipe.mirror.name')).join(' · ') : '—'}</dd>
                 </div>
+                {!!p.sends?.length && (
+                  <div>
+                    <dt>{t('features.integrations.spec.sends')}</dt>
+                    <dd data-testid="int-sends">{p.sends.map((r) => `${localized(r.label, lang)} (${r.tool})`).join(' · ')}</dd>
+                  </div>
+                )}
               </dl>
             </li>
           ))}

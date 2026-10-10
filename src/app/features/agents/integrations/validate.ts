@@ -34,11 +34,34 @@ export interface Validation {
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
 
-/** The message of an issue (`features.integrations.err.<code>`). */
+/** The message of an issue (`features.integrations.err.<code>`; a `why` is its own text, `features.integrations.why.<why>`). */
 function messageOf(t: Translate, issue: IntegrationIssue): string {
   const vars = { ...(issue.vars ?? {}) }
-  if (issue.code === 'needs' && typeof vars.features === 'string') vars.features = vars.features.split(',').map((f) => t(`features.integrations.feature.${f}`)).join(', ')
+  if ((issue.code === 'needs' || issue.code === 'sendsNeeds') && typeof vars.features === 'string') vars.features = vars.features.split(',').map((f) => t(`features.integrations.feature.${f}`)).join(', ')
+  if (typeof vars.why === 'string') vars.why = t(`features.integrations.why.${vars.why}`)
   return t(`features.integrations.err.${issue.code}`, vars)
+}
+
+const fold = (s: string) => s.trim().toLowerCase()
+
+/**
+ * A send route's row patch names properties by role or name: one no recipe of the profile has is said (a warning — the
+ * Outbox checks it again against the database it writes).
+ */
+function checkAfterRefs(profile: IntegrationProfile, add: (issue: IntegrationIssue) => void, lang: 'en' | 'de'): void {
+  if (!profile.recipes?.length || !profile.sends?.length) return
+  const known = new Set<string>()
+  for (const r of profile.recipes) {
+    for (const p of resolveRecipe(profile, r, lang).properties) {
+      if (p.role) known.add(fold(p.role))
+      for (const n of p.names) known.add(fold(n))
+    }
+  }
+  profile.sends.forEach((route, i) =>
+    route.after?.forEach((a, j) => {
+      if (!known.has(fold(a.property))) add({ path: ['sends', i, 'after', j, 'property'], code: 'afterUnknown', vars: { value: a.property }, severity: 'warning' })
+    }),
+  )
 }
 
 export function validateProfileText(text: string, t: Translate, lang: 'en' | 'de'): Validation {
@@ -98,6 +121,10 @@ export function validateProfileText(text: string, t: Translate, lang: 'en' | 'de
       const missing = MIRROR_NEEDS.filter((f: IntegrationFeature) => !profile.unlocks.includes(f))
       if (missing.length) add({ path: ['unlocks'], code: 'needs', vars: { features: missing.join(',') }, severity: 'warning' })
     }
+  }
+  if (profile) {
+    const p = profile
+    guarded(['sends'], () => checkAfterRefs(p, add, lang))
   }
   return done(profile)
 }

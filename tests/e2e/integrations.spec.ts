@@ -13,7 +13,7 @@ import { fileURLToPath } from 'node:url'
 import type { Page } from '@playwright/test'
 import { test, expect, openApp, gotoPage, wsEval } from './fixtures'
 import { mockAgent, say, call, setKey, openTerminal, run as runTask, type AnyState } from './helpers/terminal'
-import { ALL_FEATURES, TRACKER_SERVER, addProfile, trackerProfile } from './helpers/integrations'
+import { ALL_FEATURES, REPLY_ROUTE, TRACKER_SERVER, addProfile, trackerProfile, trackerSendsProfile } from './helpers/integrations'
 
 const WIKI = { id: 'm-wiki', name: 'wiki', url: 'https://wiki.example.com/mcp', token: '', enabled: true, prompt: '' }
 const DOCS = { id: 'm-docs', name: 'docs', url: 'https://docs.example.org/mcp', token: '', enabled: false, prompt: '', tools: ['list_documents', 'get_document'], checkedAt: Date.now() }
@@ -399,7 +399,8 @@ test.describe('Integration profiles', () => {
     await expect(row(page, 'tracker').getByTestId('int-status')).toHaveText('Active · matches TRACKER')
     const saved = await wsEval(page, (s) => JSON.parse(JSON.stringify(s.integrations)))
     expect(saved).toHaveLength(1)
-    expect(saved[0]).toMatchObject({ schema: 'one.integration/1', id: 'tracker', unlocks: [...ALL_FEATURES] })
+    // the template unlocks every feature but "sends" (it brings no send route)
+    expect(saved[0]).toMatchObject({ schema: 'one.integration/1', id: 'tracker', unlocks: ALL_FEATURES.filter((f) => f !== 'sends') })
 
     // edit: a new name
     await row(page, 'tracker').getByRole('button', { name: /^Edit/ }).click()
@@ -531,6 +532,91 @@ test.describe('Integration profiles', () => {
     await expect(dialog.getByTestId('int-save')).toBeDisabled()
     // the store's sanitizer refuses it the same way
     expect(await addProfile(page, { schema: 'one.integration/1', id: evil, name: 'X', match: { name: 'x' }, unlocks: [] })).toBe(false)
+  })
+
+  test('send routes ("sends"): every problem said with its path, EN and DE; warnings do not block; the export round-trips the routes', async ({ page }) => {
+    await openApp(page)
+    await setServers(page, [TRACKER_SERVER])
+    await openSection(page)
+    await page.getByTestId('int-import').click()
+    const dialog = page.locator('.int-editor')
+    const area = dialog.getByTestId('jca-input')
+    const status = dialog.getByTestId('int-editor-status')
+    const list = dialog.getByTestId('int-problems')
+    const problem = (path: string) => list.locator('li', { hasText: path }).first()
+    const base = trackerSendsProfile({ recipes: undefined })
+
+    // valid: saved as it is
+    await area.fill(JSON.stringify(base))
+    await expect(status).toContainText('Valid')
+    await expect(list).toHaveCount(0)
+
+    // errors: a profile matched by tools only, an unknown placeholder, {draft} inside a text, a pre-read that sends,
+    // arguments over 4 KB, a bad path, an unknown way to send
+    await area.fill(JSON.stringify({ ...base, match: { tools: ['get_item'] } }))
+    await expect(problem('$.sends')).toContainText('A profile with “sends” must match its server by “name” or “host”')
+    await expect(dialog.getByTestId('int-save')).toBeDisabled()
+    const broken = {
+      ...base,
+      sends: [
+        {
+          ...REPLY_ROUTE,
+          args: { ref: '{key}', body: 'Hi {draft}', note: '{whatever|x}', pad: 'x'.repeat(10) },
+          check: { ...REPLY_ROUTE.check, tool: 'add_comment', fields: ['status', 'comments..length'] },
+          via: ['worker', 'pigeon'],
+        },
+        { ...REPLY_ROUTE, id: 'big', role: 'big', args: { ref: '{key}', body: '{draft}', pad: 'y'.repeat(4200) } },
+      ],
+    }
+    await area.fill(JSON.stringify(broken))
+    await expect(status).toContainText('errors')
+    await expect(problem('$.sends[0].args.body')).toContainText('“{draft}” is not allowed here: it must be the whole value (“{draft}”, never text around it).')
+    await expect(problem('$.sends[0].args.note')).toContainText('“{whatever|x}” is not allowed here: no such placeholder')
+    await expect(problem('$.sends[0].check.tool')).toContainText('“add_comment” is one of this profile’s send tools: a pre-read or read-back must only read.')
+    await expect(problem('$.sends[0].check.fields[1]')).toContainText('“comments..length” is not a path here')
+    await expect(problem('$.sends[0].via[1]')).toContainText('“pigeon” is no way to send. Allowed: worker, hand, tab, connector.')
+    await expect(problem('$.sends[1].args')).toContainText('Too large: at most 4096 bytes as JSON.')
+    await expect(dialog.getByTestId('int-save')).toBeDisabled()
+
+    // warnings only: the unlocks, no read-back via the worker, a match on a send tool, a row patch no recipe names —
+    // saving stays possible
+    const { confirm: _confirm, ...noConfirm } = REPLY_ROUTE
+    void _confirm
+    const warned = { ...trackerSendsProfile(), match: { name: 'tracker', tools: ['get_item', 'add_comment'] }, unlocks: ['upsert'], sends: [{ ...noConfirm, after: [{ property: 'Nonexistent', value: true }] }] }
+    await area.fill(JSON.stringify(warned))
+    await expect(status).toContainText('Valid')
+    await expect(status).toContainText('warnings')
+    const said = (text: string) => list.locator('li', { hasText: text })
+    await expect(said('The send routes need this in “unlocks”: Send routes, Key')).toContainText('$.unlocks')
+    await expect(said('No “confirm”: a send through the worker can never be confirmed')).toContainText('$.sends[0]')
+    await expect(said('“add_comment” is a send tool')).toContainText('$.match.tools[1]')
+    await expect(said('No recipe property “Nonexistent”')).toContainText('$.sends[0].after[0].property')
+    await expect(dialog.getByTestId('int-save')).toBeEnabled()
+    await page.keyboard.press('Escape')
+
+    // the export keeps the routes (and reads); importing it again gives the same profile
+    await addProfile(page, base)
+    const [download] = await Promise.all([page.waitForEvent('download'), row(page, 'tracker-out').getByRole('button', { name: 'Export: Tracker out' }).click()])
+    const json = JSON.parse(readFileSync((await download.path())!, 'utf8'))
+    expect(json.sends).toEqual([REPLY_ROUTE])
+    expect(json.reads).toEqual(base.reads)
+    expect(await wsEval(page, (s) => JSON.parse(JSON.stringify(s.integrations[0].sends)))).toEqual([REPLY_ROUTE])
+    // the row names its routes; the unlock is listed like every other feature
+    await expect(row(page, 'tracker-out').getByTestId('int-sends')).toHaveText('Reply in the ticket tool (add_comment)')
+    await expect(page.getByTestId('int-unlocked')).toContainText('The profile’s send routes for the Outbox')
+
+    // German
+    await wsEval(page, (s) => s.updateSettings({ language: 'de' }))
+    await page.getByTestId('int-import').click()
+    const de = page.locator('.int-editor')
+    await de.getByTestId('jca-input').fill(JSON.stringify({ ...broken, match: { tools: ['get_item'] } }))
+    await expect(de.getByTestId('int-problems').locator('li', { hasText: '$.sends' }).first()).toContainText('Ein Profil mit „sends“ muss seinen Server über „name“ oder „host“ treffen')
+    await de.getByTestId('jca-input').fill(JSON.stringify(broken))
+    await expect(de.getByTestId('int-problems').locator('li', { hasText: '$.sends[0].args.body' }).first()).toContainText('„{draft}“ ist hier nicht erlaubt: er muss der ganze Wert sein')
+    await expect(de.getByTestId('int-problems').locator('li', { hasText: '$.sends[0].check.tool' }).first()).toContainText('ist ein Sendewerkzeug dieses Profils')
+    await expect(de.getByTestId('int-problems').locator('li', { hasText: '$.sends[1].args' }).first()).toContainText('Zu groß: höchstens 4096 Byte als JSON.')
+    await de.getByTestId('jca-input').fill(JSON.stringify(warned))
+    await expect(de.getByTestId('int-problems').locator('li', { hasText: 'Die Sendewege brauchen in „unlocks“: Sendewege, Schlüssel' })).toContainText('$.unlocks')
   })
 
   test('a recipe with its own properties and no instructions: the agent hears only of them (the help example)', async ({ page }) => {
