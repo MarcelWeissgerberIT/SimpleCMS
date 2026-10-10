@@ -530,7 +530,8 @@ the public APIs stable — other areas are built against them in parallel.
   switch and tested tool lists). Every toolset `toolsetFor` (app) / `toolsetOf` (server runner, `RunInput.out`) builds
   switches them off (`configs: { <tool>: { enabled: false } }`; an allow-list loses them, left empty → the server is
   left out); `forced`, codewords, a picked tool and allow-lists never lift it; the system prompt names them. A profile
-  with `sends` must match by name or host (`sendsNeedsName`; the sanitizer drops its `sends`). A connection test keeps
+  with `sends` must match by name or host (`sendsNeedsName`; the sanitizer drops its `sends`); a route the sanitizer
+  leaves out keeps its tool OUT through `IntegrationProfile.outTools` (the server reads it too). A connection test keeps
   the OUT tools a server had (`mergeTestedTools`; `LISTING_SHOWS_DISABLED` = spike SP1). `ChangeKind 'send'` (+
   `send.slipId`) is never applied by `applyChanges` (applyOne throws), not even in write mode "apply". Only the Outbox
   calls an OUT tool, outside any Claude request. Route templates: `placeholdersIn` / `placeholderProblem`, paths
@@ -538,20 +539,25 @@ the public APIs stable — other areas are built against them in parallel.
 - Outbox (features/outbox, public API outbox/index.ts, docs/OUTBOX.md): the only place an OUT tool's call is prepared;
   slice 1 sends BY HAND only (Copy & open → "Sent in X?" → Mark as sent; a receipt "by hand · not checked") — worker
   sends, pre-read, read-back, probe, groups' plate, `fire` / `Arm` / `ui/Guard` are slice 2 and do not exist yet (a static
-  guard in outbox-engine.spec). Slips live per device in IndexedDB `one-outbox` (`<scope>|slip|<id>`, CAS via idb-keyval
+  guard in outbox-engine.spec). Slips live per device in IndexedDB `one-outbox` (`<scope>|slip|<id>`; team scope
+  `cloud:<ws>:u:<account>` = the member's own; CAS via idb-keyval
   `update`, BroadcastChannel `one-outbox` between tabs); never synced, exported, backed up or sent to Claude; wiped with
   the workspace copy (cloud/device.ts); storage refused → nothing staged (fail closed). Write slips only through
   `stageSlip` / `stageGroup` / `draftSlip` / `replaceDraft` / `setIncluded` / `withdrawSlip` / `withdrawGroup` and the
-  Outbox's own actions; states only via machine.ts `next()` (no ready → sent except `markSent` by hand). Trust is computed
-  by the Outbox (provenance.ts: typed row fields exempt, free text and ALWAYS_FOREIGN kinds foreign) — never taken from a
-  caller; a slip without sources is incomplete, never clean. The draft request has no MCP and no tools
+  Outbox's own actions; states only via machine.ts `next()` (no ready → sent except `markSent` by hand, and only for the
+  arguments that were copied). Trust is computed by the Outbox (provenance.ts: typed row fields — and select / status
+  options the profile declares — exempt, free text and ALWAYS_FOREIGN kinds foreign; a caller's page source is read from
+  the page, never its text) — never taken from a caller; a slip without sources is incomplete, never clean. Only the
+  person's typing in the slip's editor (`writeText`) can make an address theirs, per address against every earlier text
+  of the slip (seal.ts `personAddresses`); `replaceDraft` never does. A page made with Claude's or someone else's text is
+  created with `createPage({ contentOrigin })` ('ai', 'share' …). A text counts as seen only once shown unclipped (Payload). The draft request has no MCP and no tools
   (`completeStructured({ mcp: false })`); route args are built as values (template.ts `fillArgs`, `{sentAt}` kept as a
   token until the press), hashed with `canonicalJson` (coding/protocol.ts) + SHA-256. CHANGED per mirror = the row's
   baseline roles (comments / lastCommentAt / srcStatus / changedAt; dates as stored stamps) against the row now (watch.ts),
-  the person's own sends explained away. Row patches (`after`) and Reset row write with `setRowProperty` inside
+  the person's own sends explained away; the baseline is read when the draft request is built (draft.ts), not when it returns. Row patches (`after`) and Reset row write with `setRowProperty` inside
   `aiWrite(fn, { reason: 'outbox', by })` — one version, a value changed since staging is skipped / kept. ONE count:
   `outboxCounts()` (held wins over foreign) for sidebar badge, tree chip, readout, dock, #/outbox and status bar. Routes
-  are database commands (`send:<profileId>/<routeId>`, group 'outbox', `needsRow`). Dock: a 420 px column portalled into
+  are database commands (`send:<profileId>:<routeId>`, group 'outbox', `needsRow`). Dock: a 420 px column portalled into
   `.app .stage` at ≥ 1200 px (open state per device `one.outbox.dock`), else a sheet (full screen ≤ 600 px, above floating
   keys). e2e seam `window.__oneOutbox` under `?e2e` only; fixtures tests/fixtures/mock-mcp.mjs (+ fake-net.mjs).
 - Code areas (ui/code): use `CodeArea` for any code or instruction field, never a plain textarea (the integrations JSON

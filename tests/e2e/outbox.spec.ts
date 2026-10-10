@@ -179,7 +179,7 @@ test.describe('Outbox: routes, drafts and the seal', () => {
     await mockDrafts(context, (_b, n) => (n === 1 ? 'Approved ‮txt.exe for today' : long))
     const m = await setup(page)
     await draftReply(page, m, 0)
-    await expect(slip(page).locator('.obx-hidden')).toHaveText('⟦U+202E⟧')
+    await expect(slip(page).getByTestId('outbox-text').locator('.obx-hidden')).toHaveText('⟦U+202E⟧')
     await expect(slip(page).getByTestId('outbox-lamp-hidden')).toHaveAttribute('data-lit', 'true')
 
     await outbox(page, (o) => o.withdrawSlip(o.getSlips()[0].id, 'person'))
@@ -210,6 +210,8 @@ test.describe('Outbox: by hand, CHANGED, keys', () => {
     await expect.poll(() => outbox(page, (o) => o.inbox().filter((i: AnyState) => i.kind === 'agent').length)).toBe(1)
     await draftReply(page, m, 0)
     await expect(slip(page).getByTestId('outbox-after')).toContainText('Archive inbox note')
+    // a short text counts as seen once it is on screen in full
+    await expect(copyKey(page)).not.toHaveAttribute('aria-disabled', 'true')
     const popup = context.waitForEvent('page')
     await copyKey(page).click()
     const opened = await popup
@@ -242,11 +244,12 @@ test.describe('Outbox: by hand, CHANGED, keys', () => {
     const next = await outbox(page, (o, a) => o.stageSlip({ route: a.route, rowId: a.row, draft: 'Done, logged.', origin: { kind: 'api' }, sources: [] }), { route: routeRef('reply'), row: m.rows['10642'] })
     await outbox(page, (o, a) => o.useOutbox.setState({ focus: a.id }), { id: next.slip.id })
     await expect(slip(page)).toHaveAttribute('data-slip', next.slip.id)
+    await expect(copyKey(page)).not.toHaveAttribute('aria-disabled', 'true')
     const popup2 = context.waitForEvent('page')
     await copyKey(page).click()
     await (await popup2).close().catch(() => undefined)
     await slip(page).getByTestId('outbox-mark-sent').click()
-    expect(await rowValue(page, m.rows['10642'], m.props.waiting)).toBe(false)
+    await expect.poll(() => rowValue(page, m.rows['10642'], m.props.waiting)).toBe(false)
     await wsEval(page, (s, a) => s.setRowProperty(a.row, a.p, null), { row: m.rows['10642'], p: m.props.waiting })
     const second = dock(page).getByTestId('outbox-receipt').first()
     await second.getByTestId('outbox-reset').click()
@@ -281,8 +284,8 @@ test.describe('Outbox: by hand, CHANGED, keys', () => {
     await expect(slip(page).getByTestId('outbox-text')).toHaveText('Good to hear B7 fits — nothing more from me.')
     await expect(slip(page)).toHaveAttribute('data-state', 'ready')
     await expect(slip(page).getByTestId('outbox-changed')).toHaveCount(0)
-    const s = await outbox(page, (o) => o.getSlips()[0])
-    expect(s.draft).toMatchObject({ rev: 2, by: 'claude', seenRev: 2 })
+    // revision 2, seen once it is on screen
+    await expect.poll(() => outbox(page, (o) => o.getSlips()[0].draft)).toMatchObject({ rev: 2, by: 'claude', seenRev: 2 })
     // "Send anyway" after a new change: the person read it, the key works again
     await mirrorWrite(page, m, '10668', { comments: 9, last: 'One more thing: the freeze moves to 16.10.', at: '2026-10-10T09:00' })
     await expect(slip(page).getByTestId('outbox-changed')).toBeVisible()
@@ -304,6 +307,7 @@ test.describe('Outbox: by hand, CHANGED, keys', () => {
     await expect(slip(page)).toBeFocused()
     await page.keyboard.press('k')
     await expect(slip(page)).toHaveAttribute('data-slip', first!)
+    await expect(slip(page)).toBeFocused()
     await page.keyboard.press('h')
     await expect(slip(page)).toHaveAttribute('data-state', 'held')
     await page.keyboard.press('h')
