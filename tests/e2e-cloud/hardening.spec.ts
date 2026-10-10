@@ -267,6 +267,25 @@ test.describe('team cloud — hardening', () => {
         { op, ws },
       )
     await aiRuns('seed', wsId)
+    // a write held for a page's first server sync (cloud/content.ts: one record per hold) goes with the copy too
+    await a.evaluate(
+      ({ ws, page }) =>
+        new Promise<void>((resolve, reject) => {
+          const r = indexedDB.open('one-cloud')
+          r.onerror = () => reject(r.error)
+          r.onsuccess = () => {
+            const tx = r.result.transaction('kv', 'readwrite')
+            tx.objectStore('kv').put({ base: null, ours: { type: 'doc', content: [] }, at: 1 }, `held:${ws}:${page}:e2eheldrecord`)
+            tx.oncomplete = () => {
+              r.result.close()
+              resolve()
+            }
+            tx.onerror = () => reject(tx.error)
+          }
+        }),
+      { ws: wsId, page: teamPage },
+    )
+    expect((await deviceData(a)).kv).toContain(`held:${wsId}:${teamPage}:e2eheldrecord`)
     // this device's page visits (shell/lib/visits.ts): the team workspace's go with its copy, the local one's stay
     await a.evaluate((ws) => {
       localStorage.setItem(`one.shell.visits:cloud:${ws}`, JSON.stringify({ v: 1, e: { teamvisit: [3, Date.now(), 3] } }))

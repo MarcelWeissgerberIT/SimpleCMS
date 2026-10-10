@@ -396,10 +396,17 @@ may write:
     copy, it would come twice once the server's state is in. The editor waits for the server (the page shows its
     last known content read-only, with "Offline · read only" or "Loading"; a page made offline opens at once);
     non-editor writes (AI, templates, history restore, imports …) wait in the page's write queue and are kept on
-    this device (`held:<ws>:<page>` in `one-cloud`: the first base and the newest text queued — each write done
-    moves the base on, so a reload never merges one twice; the page `pending`, its text in the content cache): a
-    tab closed meanwhile merges them in after the next boot, once the server has answered (a member who may not
-    write then keeps them for a later boot).
+    this device (`held:<ws>:<page>:<rid>` in `one-cloud`, one record per hold — a tab's later writes to the page
+    fold into its own record, never into another tab's: the first base and the newest text queued — each write
+    done moves the base on, so a reload never merges one twice; the page `pending`, its text in the content
+    cache): a tab closed meanwhile merges them in after the next boot, once the server has answered, every record
+    of a page in the order it was held (a member who may not write then keeps them for a later boot). A record is
+    the tab's that holds it: another tab of the browser takes it over only once that tab let it go (closed) — the
+    owner keeps a Web Lock per record (`one:held:<ws>:<rid>`); without Web Locks (a server on plain http, Safari
+    before 15.4) the tabs ask each other on a BroadcastChannel (`one-held`: taken only when nobody answered within
+    300 ms, asked again when the owner lets go or every 5 s). A record goes only once its own text is written, or
+    with its page (deleted for good): a write cut short (a role change, an outdated tab, an error) leaves it as it
+    is, and later writes of the session never fold into it.
   Wiping a workspace copy (`cloud/device.ts`) removes every generation's copies.
 - The server's own writes (public API, webhooks, agents — direct connections) are not affected.
 - Releasing a node type an older client would lose: ship it in the app with `DOC_SCHEMA_VERSION` + 1, the
@@ -597,7 +604,7 @@ device opened, how often — localStorage `one.shell.visits:cloud:<id>`, never s
   later-created row's number then changes once (e.g. `BUG-2` → `BUG-3`).
 - **This browser's copies** (`device.ts`): `removeDeviceCopy(wsId)` and `signOut({ forgetDevice })`
   remove team workspace copies from this browser — the y-indexeddb databases (`one:ws:<id>`,
-  `one:ws:<id>:p:*`), the `one-cloud` keys (`overlay` incl. the AI key, `content`, `uploads`, `purge`),
+  `one:ws:<id>:p:*`), the `one-cloud` keys (`overlay` incl. the AI key, `content`, `held`, `uploads`, `purge`, `privfiles`),
   this device's page visits (localStorage `one.shell.visits:cloud:<id>` — removed even when nothing else
   of the copy is left), the version history of their pages (`one-history`: `idx:<page>` + `snap:*`, except pages the local
   workspace has with the same id) and cached files that nothing else in this browser uses (the local

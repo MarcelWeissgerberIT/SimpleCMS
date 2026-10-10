@@ -9,13 +9,17 @@
  *  - local copies are per schema generation: the copy an older build left in this browser (holding its deletion
  *    of the task) is never replayed — its unconfirmed text edits are taken over, the task stays;
  *  - a task stored inside another task (a raw writer) and opened by two tabs at once is not doubled (no repair
- *    on mount in a shared document).
+ *    on mount in a shared document);
+ *  - a write into a page this device has no copy of waits for the server (held, one record per hold): one tab's
+ *    record is never written by another tab while the first lives — with Web Locks and without them (a server on
+ *    plain http: the tabs ask each other) — two tabs' records never overwrite each other, and a record cut short by
+ *    a role change stays until a boot that may write writes it (a later write never takes it along).
  */
-import type { Page } from '@playwright/test'
+import type { BrowserContext, Page } from '@playwright/test'
 import { HocuspocusProvider, HocuspocusProviderWebsocket } from '@hocuspocus/provider'
 import * as Y from 'yjs'
 import * as encoding from 'lib0/encoding'
-import { test, expect, api, email, signIn, openApp, waitForApp, waitOnline, wsEval, cloudEval, createWorkspace, gotoPage, editorOf } from './fixtures'
+import { test, expect, api, email, signIn, openApp, waitForApp, waitOnline, wsEval, cloudEval, createWorkspace, gotoPage, editorOf, newPerson, join } from './fixtures'
 
 const bearer = (token: string) => ({ authorization: `Bearer ${token}` })
 
@@ -152,7 +156,7 @@ const cloudValue = (page: Page, key: string) =>
 /** The pages this device notes as not confirmed by the server. */
 const pendingOf = async (page: Page, wsId: string) => (((await cloudValue(page, `overlay:${wsId}`)) as { pending?: string[] } | null)?.pending ?? [])
 
-/** Writes held for a page's first server sync (content.ts holdWrite): their `held:<ws>:<page>` keys. */
+/** Writes held for a page's first server sync (content.ts holdWrite): their `held:<ws>:<page>:<rid>` keys. */
 const heldKeys = (page: Page) =>
   page.evaluate(async () => {
     const db = await new Promise<IDBDatabase>((res, rej) => {
@@ -171,6 +175,52 @@ const heldKeys = (page: Page) =>
       db.close()
     }
   })
+
+/** The held records of one page. */
+const heldFor = async (page: Page, wsId: string, pageId: string) => (await heldKeys(page)).filter((k) => k.startsWith(`held:${wsId}:${pageId}:`))
+
+/** This browser without Web Locks (no secure context: a team server on plain http; Safari before 15.4) — every tab. */
+const withoutLocks = (context: BrowserContext) =>
+  context.addInitScript(() => {
+    delete (Navigator.prototype as unknown as { locks?: unknown }).locks
+  })
+
+/** A non-editor writer (AI, a template …) adds a line at the end of a page. */
+const addLine = (page: Page, pageId: string, text: string) =>
+  wsEval(
+    page,
+    (s, { id, text }) => {
+      const c = s.pages[id].content ?? { type: 'doc', content: [] }
+      s.setContent(id, { ...c, content: [...(c.content ?? []), { type: 'paragraph', content: [{ type: 'text', text }] }] }, 'ai')
+    },
+    { id: pageId, text },
+  )
+
+/**
+ * A page whose text this device knows (the content cache) but whose document it has no copy of — as for a page never
+ * opened here: a new one with `lines`, or one that exists with `text` (synced in the background), then this
+ * generation's copy of its document goes. The tab is left on the landing page.
+ */
+async function blindPage(page: Page, wsId: string, spec: { title: string; lines: string[] } | { existing: string; text: string }): Promise<{ pageId: string; docName: string }> {
+  await openApp(page, wsId)
+  await waitOnline(page)
+  const pageId = 'existing' in spec ? spec.existing : await wsEval(page, (s, title) => s.createPage({ title, parentId: null }) as string, spec.title)
+  if ('lines' in spec) for (const line of spec.lines) await addLine(page, pageId, line)
+  const text = 'text' in spec ? spec.text : spec.lines[spec.lines.length - 1]!
+  const docName = `ws:${wsId}:p:${pageId}`
+  await expect.poll(async () => JSON.stringify(((await cloudValue(page, `content:${wsId}:${pageId}`)) as { json?: unknown } | null)?.json ?? null), { timeout: 20_000 }).toContain(text)
+  const origin = new URL(page.url()).origin
+  await page.goto(`${origin}/`)
+  await page.evaluate(
+    (n) =>
+      new Promise<void>((res) => {
+        const r = indexedDB.deleteDatabase(n)
+        r.onsuccess = r.onerror = r.onblocked = () => res()
+      }),
+    `one:g1:${docName}`,
+  )
+  return { pageId, docName }
+}
 
 /**
  * The collab socket refused until `open()`: the app boots and opens page documents before the server answers
@@ -560,7 +610,7 @@ test.describe('schema gate + task block (team cloud)', () => {
       const c = s.pages[id].content
       s.setContent(id, { ...c, content: [...c.content, { type: 'paragraph', content: [{ type: 'text', text: 'Written before the server answered.' }] }] }, 'ai')
     }, pageId)
-    await expect.poll(() => heldKeys(page)).toContain(`held:${wsId}:${pageId}`)
+    await expect.poll(async () => (await heldFor(page, wsId, pageId)).length).toBe(1)
     await page.evaluate((id) => (window.location.hash = `#/p/${id}`), pageId)
     await expect(page.getByTestId('waiting-doc')).toContainText('Written before the server answered.')
 
@@ -568,7 +618,7 @@ test.describe('schema gate + task block (team cloud)', () => {
     await page.reload()
     await waitForApp(page)
     expect(await wsEval(page, (s, id) => s.pages[id]?.plain as string, pageId)).toContain('Written before the server answered.')
-    expect(await heldKeys(page)).toContain(`held:${wsId}:${pageId}`)
+    expect(await heldFor(page, wsId, pageId)).toHaveLength(1)
 
     socket.open()
     await waitOnline(page)
@@ -589,56 +639,142 @@ test.describe('schema gate + task block (team cloud)', () => {
     expect(occurrences(await ed.innerText(), 'Written before the server answered.')).toBe(1)
   })
 
-  for (const closes of [false, true]) {
-    test(`a held write is one tab's: another tab opened meanwhile ${closes ? 'takes it over when that tab closes' : 'leaves it to that tab'} — written once`, async ({ page }) => {
-      await signIn(page, email(closes ? 'heldclose' : 'heldtwo'))
-      const wsId = await createWorkspace(page, 'Held HQ')
-      await openApp(page, wsId)
-      await waitOnline(page)
-      const pageId = await wsEval(page, (s) => s.createPage({ title: 'Held plan', parentId: null }) as string)
-      const para = (text: string) => ({ type: 'paragraph', content: [{ type: 'text', text }] })
-      await wsEval(page, (s, { id, doc }) => s.setContent(id, doc, 'e2e'), { id: pageId, doc: { type: 'doc', content: [para('Known line.')] } })
-      const docName = `ws:${wsId}:p:${pageId}`
-      await expect.poll(async () => !!((await cloudValue(page, `content:${wsId}:${pageId}`)) as { json?: unknown } | null)?.json).toBe(true)
-      const origin = new URL(page.url()).origin
-      await page.goto(`${origin}/`)
-      await page.evaluate((n) => new Promise<void>((res) => {
-        const r = indexedDB.deleteDatabase(n)
-        r.onsuccess = r.onerror = r.onblocked = () => res()
-      }), `one:g1:${docName}`)
+  for (const locks of [true, false]) {
+    for (const closes of [false, true]) {
+      const how = locks ? '' : ' (no Web Locks: the tabs ask each other)'
+      test(`a held write is one tab's${how}: another tab opened meanwhile ${closes ? 'takes it over when that tab closes' : 'leaves it to that tab'} — written once`, async ({ page }) => {
+        if (!locks) await withoutLocks(page.context())
+        await signIn(page, email(`${closes ? 'heldclose' : 'heldtwo'}${locks ? '' : 'nl'}`))
+        if (!locks) expect(await page.evaluate(() => 'locks' in navigator)).toBe(false)
+        const wsId = await createWorkspace(page, 'Held HQ')
+        const { pageId, docName } = await blindPage(page, wsId, { title: 'Held plan', lines: ['Known line.'] })
 
-      // tab 1 writes while the server has not answered: held
+        // tab 1 writes while the server has not answered: held
+        const second = await page.context().newPage()
+        const server = await heldSockets([page, second])
+        await openApp(page, wsId)
+        await addLine(page, pageId, 'Held in tab one.')
+        await expect.poll(async () => (await heldFor(page, wsId, pageId)).length).toBe(1)
+        // tab 2 boots meanwhile: it finds the record — tab 1's
+        await openApp(second, wsId)
+        expect(await wsEval(second, (s, id) => s.pages[id]?.plain as string, pageId)).toContain('Held in tab one.')
+        await second.waitForTimeout(800)
+        if (closes) await page.close()
+        server.open()
+        const alive = closes ? second : page
+        await waitOnline(alive)
+        if (!closes) await waitOnline(second)
+        const check = await rawClient(alive, docName, 1)
+        try {
+          await check.synced
+          const xml = () => check.doc.getXmlFragment('default').toString()
+          await expect.poll(() => occurrences(xml(), 'Held in tab one.'), { timeout: 15_000 }).toBe(1)
+          await alive.waitForTimeout(2500)
+          expect([occurrences(xml(), 'Known line.'), occurrences(xml(), 'Held in tab one.')]).toEqual([1, 1])
+        } finally {
+          check.destroy()
+        }
+        await expect.poll(() => heldKeys(alive)).toEqual([])
+        if (!closes) await second.close()
+      })
+    }
+
+    test(`two tabs hold writes to the same page${locks ? '' : ' (no Web Locks)'}: each its own record — the closed tab's is written by the next boot, both once`, async ({ page }) => {
+      if (!locks) await withoutLocks(page.context())
+      await signIn(page, email(`heldboth${locks ? '' : 'nl'}`))
+      const wsId = await createWorkspace(page, 'Held twice')
+      const { pageId, docName } = await blindPage(page, wsId, { title: 'Held by both', lines: ['Known line.'] })
+
       const second = await page.context().newPage()
       const server = await heldSockets([page, second])
       await openApp(page, wsId)
-      await wsEval(page, (s, id) => {
-        const c = s.pages[id].content
-        s.setContent(id, { ...c, content: [...c.content, { type: 'paragraph', content: [{ type: 'text', text: 'Held in tab one.' }] }] }, 'ai')
-      }, pageId)
-      await expect.poll(() => heldKeys(page)).toContain(`held:${wsId}:${pageId}`)
-      // tab 2 boots meanwhile: it finds the record — tab 1's
       await openApp(second, wsId)
-      expect(await wsEval(second, (s, id) => s.pages[id]?.plain as string, pageId)).toContain('Held in tab one.')
-      await second.waitForTimeout(800)
-      if (closes) await page.close()
+      // both tabs write before the server answered: two records — the second tab never writes over the first's
+      await addLine(page, pageId, 'Written in tab one.')
+      await expect.poll(async () => (await heldFor(page, wsId, pageId)).length).toBe(1)
+      await addLine(second, pageId, 'Written in tab two.')
+      await expect.poll(async () => (await heldFor(page, wsId, pageId)).length).toBe(2)
+
+      // tab one goes before the server answers: its record stays on this device
+      await page.close()
       server.open()
-      const alive = closes ? second : page
-      await waitOnline(alive)
-      if (!closes) await waitOnline(second)
-      const check = await rawClient(alive, docName, 1)
+      await waitOnline(second)
+      const check = await rawClient(second, docName, 1)
       try {
         await check.synced
         const xml = () => check.doc.getXmlFragment('default').toString()
-        await expect.poll(() => occurrences(xml(), 'Held in tab one.'), { timeout: 15_000 }).toBe(1)
-        await alive.waitForTimeout(2500)
-        expect([occurrences(xml(), 'Known line.'), occurrences(xml(), 'Held in tab one.')]).toEqual([1, 1])
+        await expect.poll(() => occurrences(xml(), 'Written in tab two.'), { timeout: 15_000 }).toBe(1)
+        await expect.poll(async () => (await heldFor(second, wsId, pageId)).length).toBe(1)
+        // the next boot writes the closed tab's record
+        await second.reload()
+        await waitForApp(second)
+        await waitOnline(second)
+        await expect.poll(() => occurrences(xml(), 'Written in tab one.'), { timeout: 15_000 }).toBe(1)
+        await second.waitForTimeout(2000)
+        expect([occurrences(xml(), 'Known line.'), occurrences(xml(), 'Written in tab one.'), occurrences(xml(), 'Written in tab two.')]).toEqual([1, 1, 1])
       } finally {
         check.destroy()
       }
-      await expect.poll(() => heldKeys(alive)).toEqual([])
-      if (!closes) await second.close()
+      await expect.poll(() => heldKeys(second)).toEqual([])
+      await second.close()
     })
   }
+
+  test('a held write cut short by a role change stays on this device: a later write never takes it along — the next boot that may write writes it once', async ({ page, context }) => {
+    await signIn(page, email('heldowner'))
+    const wsId = await createWorkspace(page, 'Held roles')
+    await openApp(page, wsId)
+    await waitOnline(page)
+    const pageId = await wsEval(page, (s) => s.createPage({ title: 'Held role plan', parentId: null }) as string)
+    await addLine(page, pageId, 'Known line.')
+    const docName = `ws:${wsId}:p:${pageId}`
+
+    const member = await newPerson(context)
+    await signIn(member, email('heldmember'))
+    await join(page, member, wsId, 'member')
+    const memberId = (await api<{ user: { id: string } }>(member, 'GET', '/api/me')).json.user.id
+    await blindPage(member, wsId, { existing: pageId, text: 'Known line.' })
+
+    // the member writes before the server answered (offline): held
+    const socket = await lateSocket(member)
+    await openApp(member, wsId)
+    await addLine(member, pageId, 'Held before the role change.')
+    await expect.poll(async () => (await heldFor(member, wsId, pageId)).length).toBe(1)
+
+    // a viewer by the time the server answers: nothing written, the record stays
+    expect((await api(page, 'PATCH', `/api/workspaces/${wsId}/members/${memberId}`, { role: 'viewer' })).status).toBe(200)
+    socket.open()
+    await expect.poll(() => cloudEval(member, (c) => c.readOnly as boolean), { timeout: 20_000 }).toBe(true)
+    await expect.poll(() => wsEval(member, (s, id) => s.pages[id]?.plain as string, pageId), { timeout: 15_000 }).not.toContain('Held before the role change.')
+    await member.waitForTimeout(1000)
+    expect(await heldFor(member, wsId, pageId)).toHaveLength(1)
+
+    // a member again, the same session: a later write goes in on its own — the held record stays as it is
+    expect((await api(page, 'PATCH', `/api/workspaces/${wsId}/members/${memberId}`, { role: 'member' })).status).toBe(200)
+    await expect.poll(() => cloudEval(member, (c) => ({ role: c.role, readOnly: c.readOnly, status: c.status })), { timeout: 20_000 }).toEqual({ role: 'member', readOnly: false, status: 'online' })
+    await addLine(member, pageId, 'Written once the role came back.')
+    const check = await rawClient(page, docName, 1)
+    try {
+      await check.synced
+      const xml = () => check.doc.getXmlFragment('default').toString()
+      await expect.poll(() => occurrences(xml(), 'Written once the role came back.'), { timeout: 15_000 }).toBe(1)
+      await member.waitForTimeout(1500)
+      expect(await heldFor(member, wsId, pageId)).toHaveLength(1)
+      expect(occurrences(xml(), 'Held before the role change.')).toBe(0)
+
+      // the next boot (it may write): the held write goes in — once, next to the later one
+      await member.reload()
+      await waitForApp(member)
+      await waitOnline(member)
+      await expect.poll(() => occurrences(xml(), 'Held before the role change.'), { timeout: 15_000 }).toBe(1)
+      await member.waitForTimeout(2000)
+      expect([occurrences(xml(), 'Known line.'), occurrences(xml(), 'Held before the role change.'), occurrences(xml(), 'Written once the role came back.')]).toEqual([1, 1, 1])
+    } finally {
+      check.destroy()
+    }
+    await expect.poll(() => heldFor(member, wsId, pageId)).toEqual([])
+    await member.context().close()
+  })
 
   test('a task stored inside another task, opened by two tabs at once, is not doubled', async ({ page }) => {
     await signIn(page, email('nested'))

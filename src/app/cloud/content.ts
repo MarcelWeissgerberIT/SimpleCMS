@@ -43,7 +43,8 @@ import { docSchema, prepareCollabContent } from '../editor'
 import { DOC_SCHEMA_VERSION, lostNewer, restoreNewer } from '../store/generations'
 import { applyFromCloud, markFromCloud } from './binding'
 import { stripHiddenMentions } from './privacy'
-import { dropContentCache, loadHeldWrites, saveContentCache, saveHeldWrite, type CachedContent, type HeldWrite } from './local'
+import { dropContentCache, dropHeldWrites, loadHeldWrites, saveContentCache, saveHeldWrite, type CachedContent, type HeldRecord, type HeldWrite } from './local'
+import { newId } from '../lib/ids'
 import { getSocket, isConnected, onConnection } from './socket'
 import { PAGE_ID, within } from './env'
 import { CloudError, type ContentDocHandle } from './state'
@@ -695,63 +696,184 @@ export function flushRefreshes(): void {
 
 const writeQueues = new Map<ID, Promise<void>>()
 /**
- * Writes waiting for their page's first server sync (blind): the first base, the latest text. Kept on this device
- * (a tab closed meanwhile writes them on the next boot) with the page marked pending and its text in the content
- * cache (the store shows it after a reload).
+ * Writes waiting for their page's first server sync (blind) are kept on this device — a tab closed meanwhile writes
+ * them on the next boot — one record per hold (cloud/local.ts `held:<ws>:<page>:<rid>`: the first base, the latest
+ * text), with the page marked pending and its text in the content cache (the store shows it after a reload). This
+ * tab's own record per page: a later write to the page folds into it while it waits.
  */
-const heldWrites = new Map<ID, HeldWrite>()
+const heldWrites = new Map<ID, Held>()
+interface Held extends HeldWrite {
+  rid: string
+}
+/** Pages with records taken over from a tab that went, queued to be written (a write of this tab behind them is held too). */
+const resuming = new Map<ID, number>()
 /** The newest text queued for a page: a write that starts waiting holds that (later ones queued behind it are in it). */
 const queuedText = new Map<ID, JSONContent | null>()
-/**
- * This tab's held writes are its own: it keeps the Web Lock `one:held:<ws>:<page>` while one waits, and another tab
- * of this browser resumes a held record only once it gets that lock (the tab gone, or the write in and the record
- * with it) — two tabs writing the same held text would bring it twice. The value lets the lock go.
- */
-const heldLocks = new Map<ID, () => void>()
+
+/* ------------------------------------------------------------------ held records: one tab's at a time */
 
 /**
- * Take the page's held-write lock and keep it until `dropHeldLock` (or the tab goes). `first` runs once it is
- * granted — false lets it go at once. Without Web Locks: `first` at once.
+ * A held record is the tab's that holds it (its own, or one it took over): another tab of this browser takes it over
+ * only once that tab let it go (the tab gone, or the record written and gone with it) — two tabs writing the same held
+ * text would bring it twice. The owner keeps the Web Lock `one:held:<ws>:<rid>`. Without Web Locks (no secure context
+ * — a team server on plain http — or Safari before 15.4) it answers the others' question about the record on a
+ * BroadcastChannel instead: a tab takes a record over only when nobody answered within ASK_MS (the earlier of two
+ * asking at once gets it), and asks again when its owner lets go or every ASK_AGAIN_MS. rid → its page, letting go.
  */
-function takeHeldLock(wsId: string, pageId: ID, first?: () => Promise<boolean>): void {
-  if (heldLocks.has(pageId)) return
-  const locks = typeof navigator !== 'undefined' ? navigator.locks : undefined
-  if (!locks?.request) {
-    void first?.()
+const owned = new Map<string, Owned>()
+interface Owned {
+  pageId: ID
+  release: () => void
+  /** let go once something is stored (its deletion): this tab answers for it until then */
+  leaving?: boolean
+}
+/** Lock requests waiting for a record another tab owns: they end when the workspace closes. */
+let waits: AbortController | null = null
+const ASK_MS = 300
+const ASK_AGAIN_MS = 5000
+/** BroadcastChannels of one tab hear each other: messages carry the sender. */
+const TAB = newId()
+type HeldMessage = { t: 'ask'; rid: string; from: string; at: number } | { t: 'mine'; rid: string; from: string; to: string } | { t: 'free'; rid: string; from: string }
+/** This tab's open questions: rid → when it asked, and whether another tab owns the record (or asked first). */
+const asking = new Map<string, { at: number; taken: boolean }>()
+/** Records this tab waits for: rid → wake-ups when their owner lets them go. */
+const freed = new Map<string, Set<() => void>>()
+let heldChannel: BroadcastChannel | null | undefined
+
+const webLocks = (): LockManager | null => {
+  const locks = typeof navigator !== 'undefined' ? (navigator.locks as LockManager | undefined) : undefined
+  return typeof locks?.request === 'function' ? locks : null
+}
+const lockName = (wsId: string, rid: string) => `one:held:${wsId}:${rid}`
+
+/** The channel tabs without Web Locks ask each other on (opened the first time this tab owns or asks for a record). */
+function heldMessages(): BroadcastChannel | null {
+  if (heldChannel !== undefined) return heldChannel
+  const ch = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('one-held') : null
+  heldChannel = ch
+  ch?.addEventListener('message', (ev: MessageEvent) => {
+    const m = ev.data as HeldMessage | null
+    if (!m || typeof m.rid !== 'string' || m.from === TAB) return
+    if (m.t === 'ask') {
+      const q = asking.get(m.rid)
+      // ours — or both asking: the earlier question wins (at the same moment, the smaller tab id)
+      if (owned.has(m.rid) || (q && !q.taken && (q.at < m.at || (q.at === m.at && TAB < m.from)))) ch.postMessage({ t: 'mine', rid: m.rid, from: TAB, to: m.from })
+      else if (q) q.taken = true
+    } else if (m.t === 'mine') {
+      const q = m.to === TAB ? asking.get(m.rid) : undefined
+      if (q) q.taken = true
+    } else if (m.t === 'free') freed.get(m.rid)?.forEach((wake) => wake())
+  })
+  return ch
+}
+
+/** Without Web Locks: what lets an owned record go (the tabs waiting for it ask again). */
+const announceFree = (rid: string) => () => heldMessages()?.postMessage({ t: 'free', rid, from: TAB })
+
+/** A record this tab just made is its own (no other tab knows it yet). */
+function own(wsId: string, pageId: ID, rid: string): void {
+  if (owned.has(rid)) return
+  const locks = webLocks()
+  if (!locks) {
+    heldMessages()
+    owned.set(rid, { pageId, release: announceFree(rid) })
     return
   }
   let release!: () => void
   const kept = new Promise<void>((r) => (release = r))
-  heldLocks.set(pageId, release)
-  locks
-    .request(`one:held:${wsId}:${pageId}`, async () => {
-      if (first && !(await first().catch(() => false))) {
-        if (heldLocks.get(pageId) === release) heldLocks.delete(pageId)
-        return
-      }
-      await kept
-    })
-    .catch(() => {
-      if (heldLocks.get(pageId) === release) heldLocks.delete(pageId)
-    })
+  owned.set(rid, { pageId, release })
+  locks.request(lockName(wsId, rid), () => kept).catch(() => {})
 }
 
-/** The held record is gone: once `stored`, the lock goes too (a tab waiting for it reads the record after that). */
-function dropHeldLock(pageId: ID, stored: Promise<void> = Promise.resolve()) {
-  const release = heldLocks.get(pageId)
-  if (!release) return
-  heldLocks.delete(pageId)
-  void stored.then(release)
+/**
+ * This tab is done with the record — once `stored` (its deletion, or nothing to store), another tab may take it over;
+ * until then this tab still answers for it.
+ */
+function disown(rid: string, stored: Promise<void> = Promise.resolve()): void {
+  const o = owned.get(rid)
+  if (!o || o.leaving) return
+  o.leaving = true
+  void stored.then(() => {
+    if (owned.get(rid) !== o) return
+    owned.delete(rid)
+    o.release()
+  })
 }
+
+/**
+ * Make a record another tab left this tab's: true once it is. `wait`: until the tab that owns it lets it go — else
+ * false at once while one does. False when the workspace closed meanwhile.
+ */
+function takeOver(c: ContentContext, pageId: ID, rid: string, wait: boolean): Promise<boolean> {
+  if (owned.has(rid)) return Promise.resolve(false)
+  const locks = webLocks()
+  if (!locks) return askFor(c, pageId, rid, wait)
+  const signal = waits?.signal
+  return new Promise<boolean>((resolve) => {
+    let release!: () => void
+    const kept = new Promise<void>((r) => (release = r))
+    const granted = async (lock: Lock | null) => {
+      if (!lock || ctx !== c || owned.has(rid)) return resolve(false)
+      owned.set(rid, { pageId, release })
+      resolve(true)
+      await kept
+    }
+    const options: LockOptions = wait ? (signal ? { signal } : {}) : { ifAvailable: true }
+    locks.request(lockName(c.wsId, rid), options, granted).catch(() => resolve(false))
+  })
+}
+
+/** takeOver without Web Locks: ask the other tabs whether one owns the record (see `owned`). */
+async function askFor(c: ContentContext, pageId: ID, rid: string, wait: boolean): Promise<boolean> {
+  const ch = heldMessages()
+  for (;;) {
+    if (ctx !== c) return false
+    // nobody to ask — no BroadcastChannel either (Safari before 15.4, which this build does not run in): taken
+    if (!ch) {
+      owned.set(rid, { pageId, release: () => {} })
+      return true
+    }
+    const q = { at: Date.now(), taken: false }
+    asking.set(rid, q)
+    ch.postMessage({ t: 'ask', rid, from: TAB, at: q.at })
+    const mine = await new Promise<boolean>((resolve) =>
+      window.setTimeout(() => {
+        if (asking.get(rid) === q) asking.delete(rid)
+        const free = !q.taken && ctx === c && !owned.has(rid)
+        // in the same task as the question ends: from now on this tab answers it
+        if (free) owned.set(rid, { pageId, release: announceFree(rid) })
+        resolve(free)
+      }, ASK_MS),
+    )
+    if (mine) return true
+    if (!wait || ctx !== c) return false
+    // asked again once its owner lets it go — or after a while (an owner may go without a word)
+    await new Promise<void>((resolve) => {
+      const wakes = freed.get(rid) ?? new Set<() => void>()
+      freed.set(rid, wakes)
+      const wake = () => {
+        window.clearTimeout(timer)
+        wakes.delete(wake)
+        if (!wakes.size && freed.get(rid) === wakes) freed.delete(rid)
+        resolve()
+      }
+      const timer = window.setTimeout(wake, ASK_AGAIN_MS)
+      wakes.add(wake)
+    })
+  }
+}
+
+/* ------------------------------------------------------------------ held writes */
 
 function holdWrite(pageId: ID, base: JSONContent | null, ours: JSONContent | null) {
   const c = ctx
   if (!c) return
   const prev = heldWrites.get(pageId)
-  const v: HeldWrite = { base: prev ? prev.base : base, ours }
+  const v: Held = prev ? { ...prev, ours } : { rid: newId(), base, ours, at: Date.now() }
   heldWrites.set(pageId, v)
-  saveHeldWrite(c.wsId, pageId, v)
-  takeHeldLock(c.wsId, pageId)
+  // owned before it is stored: a tab that reads it finds it taken
+  if (!prev) own(c.wsId, pageId, v.rid)
+  void saveHeldWrite(c.wsId, pageId, v.rid, v)
   const cached = { json: ours, at: 0 }
   c.cache.set(pageId, cached)
   saveContentCache(c.wsId, pageId, cached)
@@ -762,22 +884,36 @@ function holdWrite(pageId: ID, base: JSONContent | null, ours: JSONContent | nul
 }
 
 /**
- * The write ending in `ours` is done (`written`: in the document; else it failed). The held record goes with
- * the last one; a later write, still queued, keeps it — from what is in the document now (a reload merges only
- * the rest, never this write a second time).
+ * The write ending in `ours` is done. Written into the document: the held record goes with the last one; a later
+ * write, still queued, keeps it — from what is in the document now (a reload merges only the rest, never this write
+ * a second time). Not written (it failed, the tab may no longer write, the page went): this tab lets go of the record
+ * as it is — a later write here never folds into it, and a boot (or another tab) that may write writes it. A record
+ * goes only once its own text is written, or with its page (gone for good, `forget`).
  */
 function letGo(pageId: ID, ours: JSONContent | null, written: boolean) {
   const c = ctx
   const v = heldWrites.get(pageId)
   if (!v || !c) return
-  if (v.ours === ours) {
+  if (!written) {
     heldWrites.delete(pageId)
-    dropHeldLock(pageId, saveHeldWrite(c.wsId, pageId, null))
-  } else if (written && v.base !== ours) {
-    const next: HeldWrite = { base: ours, ours: v.ours }
+    disown(v.rid)
+  } else if (v.ours === ours) {
+    heldWrites.delete(pageId)
+    disown(v.rid, saveHeldWrite(c.wsId, pageId, v.rid, null))
+  } else if (v.base !== ours) {
+    const next: Held = { ...v, base: ours }
     heldWrites.set(pageId, next)
-    saveHeldWrite(c.wsId, pageId, next)
+    void saveHeldWrite(c.wsId, pageId, v.rid, next)
   }
+}
+
+/** The page is gone for good: every held record of it goes (any tab's) — this tab's hold on them once that is stored. */
+function dropHeld(pageId: ID): void {
+  const c = ctx
+  if (!c) return
+  heldWrites.delete(pageId)
+  const stored = dropHeldWrites(c.wsId, pageId)
+  for (const [rid, o] of owned) if (o.pageId === pageId) disown(rid, stored)
 }
 
 function canonical(json: JSONContent | null): JSONContent | null {
@@ -789,27 +925,30 @@ function canonical(json: JSONContent | null): JSONContent | null {
   }
 }
 
-/** Write a non-editor content change into the page's Y document (merged with what Y has meanwhile). */
-export function bridgeContent(pageId: ID, base: JSONContent | null, ours: JSONContent | null): void {
-  if (!ctx || !ctx.writable() || !PAGE_ID.test(pageId)) return
-  if (deepEqual(base, ours)) return
-  // a write before this one waits for the server: this one is the text to keep now
-  if (heldWrites.has(pageId)) holdWrite(pageId, base, ours)
-  queuedText.set(pageId, ours)
+/** A write's part in its page's queue: `hold` keeps it on this device while it waits for the server, `done` after. */
+interface WriteHold {
+  hold(): void
+  done(written: boolean): void
+}
+
+/** Merge `base` → `ours` into the page's Y document in its turn (with what Y has by then). */
+function queueWrite(pageId: ID, base: JSONContent | null, ours: JSONContent | null, h: WriteHold): void {
   const prev = writeQueues.get(pageId) ?? Promise.resolve()
   const job = prev.then(async () => {
-    if (!ctx || !useWorkspace.getState().pages[pageId]) return
+    const c = ctx
+    if (!c || !useWorkspace.getState().pages[pageId]) return h.done(false)
     const e = hold(pageId)
+    let written = false
     try {
       await e.loaded
       // nothing here yet while the page had something in it: written into this empty copy, all of it would come
       // twice once the server's state is in — the write waits for the server (the store shows it meanwhile)
       if (blind(e) && (e.older || hasContent(base))) {
-        holdWrite(pageId, base, queuedText.has(pageId) ? (queuedText.get(pageId) ?? null) : ours)
+        h.hold()
         await serverIn(e)
-        // gone meanwhile (deleted for good, the workspace closed) or no longer allowed to write: nothing is
-        // written — a write still held stays on this device for the next boot
-        if (e.forgotten || !useWorkspace.getState().pages[pageId] || !ctx?.writable()) return
+        // gone meanwhile (deleted for good, the workspace closed) or no longer allowed to write (a role change, an
+        // outdated tab): nothing is written — a held write stays on this device for a boot that may write it
+        if (e.forgotten || ctx !== c || !useWorkspace.getState().pages[pageId] || !c.writable()) return
       } else if (isConnected() && !e.synced) await within(e.firstSync, 5000, undefined)
       if (entries.get(pageId) !== e) return
       const frag = e.doc.getXmlFragment(FIELD)
@@ -825,12 +964,12 @@ export function bridgeContent(pageId: ID, base: JSONContent | null, ours: JSONCo
           else prosemirrorJSONToYXmlFragment(docSchema(), prepareCollabContent(target, true), frag)
         }, BRIDGE)
       }
-      letGo(pageId, ours, true)
+      written = true
     } catch (err) {
       console.error('[one] could not write content into the page document', err)
-      letGo(pageId, ours, false)
     } finally {
       unhold(e)
+      h.done(written)
     }
   })
   // the queue's tail is the promise stored here (not `job`): only the last one cleans up
@@ -842,34 +981,66 @@ export function bridgeContent(pageId: ID, base: JSONContent | null, ours: JSONCo
   writeQueues.set(pageId, tail)
 }
 
+/** Write a non-editor content change into the page's Y document (merged with what Y has meanwhile). */
+export function bridgeContent(pageId: ID, base: JSONContent | null, ours: JSONContent | null): void {
+  if (!ctx || !ctx.writable() || !PAGE_ID.test(pageId)) return
+  if (deepEqual(base, ours)) return
+  // a write before this one waits for the server: this one is the text to keep now
+  if (heldWrites.has(pageId) || resuming.has(pageId)) holdWrite(pageId, base, ours)
+  queuedText.set(pageId, ours)
+  queueWrite(pageId, base, ours, {
+    hold: () => holdWrite(pageId, base, queuedText.has(pageId) ? (queuedText.get(pageId) ?? null) : ours),
+    done: (written) => letGo(pageId, ours, written),
+  })
+}
+
+/** A record taken over from a tab that went, written in its turn (it is on this device already); it goes once written. */
+function writeResumed(c: ContentContext, r: HeldRecord): void {
+  resuming.set(r.pageId, (resuming.get(r.pageId) ?? 0) + 1)
+  queueWrite(r.pageId, r.base, r.ours, {
+    hold: () => {},
+    done: (written) => {
+      const left = (resuming.get(r.pageId) ?? 1) - 1
+      if (left > 0) resuming.set(r.pageId, left)
+      else resuming.delete(r.pageId)
+      disown(r.rid, written && ctx === c ? saveHeldWrite(c.wsId, r.pageId, r.rid, null) : undefined)
+    },
+  })
+}
+
+/** A record this tab just took over, read again (`r`; written meanwhile, it is gone): written, or let go as it is. */
+function resume(c: ContentContext, rid: string, r: HeldRecord | undefined): void {
+  if (!r || ctx !== c || !c.writable() || !useWorkspace.getState().pages[r.pageId]) disown(rid)
+  else writeResumed(c, r)
+}
+
 /**
- * Writes a tab left waiting for their page's first server sync (holdWrite): merged in once it answers. A record
- * another open tab still holds is its own — this tab takes it over only once that tab let it go (closed), and
- * reads it again then (written meanwhile, it is gone).
+ * Writes tabs left waiting for their page's first server sync (holdWrite): merged in once it answers, in the order
+ * they were held. A record another open tab still owns is its own — this tab takes it over only once that tab let it
+ * go (closed), and reads it again then (written meanwhile, it is gone).
  */
 export async function resumeHeldWrites(): Promise<void> {
   const c = ctx
   if (!c) return
   const list = await loadHeldWrites(c.wsId)
   if (ctx !== c) return
-  for (const [id, first] of list) {
+  const todo: HeldRecord[] = []
+  for (const r of list) {
     // the page is gone, or nothing is left to write (a later write took the first one back)
-    if (!useWorkspace.getState().pages[id] || deepEqual(first.base, first.ours)) {
-      saveHeldWrite(c.wsId, id, null)
-      continue
-    }
+    if (!useWorkspace.getState().pages[r.pageId] || deepEqual(r.base, r.ours)) void saveHeldWrite(c.wsId, r.pageId, r.rid, null)
     // not allowed to write now (a viewer, an outdated tab): kept for a boot that may
-    if (!c.writable()) continue
-    takeHeldLock(c.wsId, id, async () => {
-      // a write of this tab waits for the page meanwhile: the record is its (the lock stays with it)
-      if (heldWrites.has(id)) return true
-      const v = (await loadHeldWrites(c.wsId)).get(id)
-      if (!v || ctx !== c || !c.writable() || !useWorkspace.getState().pages[id]) return false
-      heldWrites.set(id, v)
-      bridgeContent(id, v.base, v.ours)
-      return true
-    })
+    else if (c.writable() && !owned.has(r.rid)) todo.push(r)
   }
+  if (!todo.length) return
+  const taken = await Promise.all(todo.map((r) => takeOver(c, r.pageId, r.rid, false)))
+  const now = new Map((await loadHeldWrites(c.wsId)).map((r) => [r.rid, r]))
+  todo.forEach((r, i) => {
+    if (taken[i]) resume(c, r.rid, now.get(r.rid))
+    else
+      void takeOver(c, r.pageId, r.rid, true).then(async (ok) => {
+        if (ok) resume(c, r.rid, (await loadHeldWrites(c.wsId, r.pageId)).find((x) => x.rid === r.rid))
+      })
+  })
 }
 
 /** A viewer's local content change: show the document's content again. */
@@ -959,13 +1130,13 @@ export function forget(pageId: ID): void {
   const e = entries.get(pageId)
   if (e && (e.refs || e.holds)) {
     e.forgotten = true
-    if (heldWrites.delete(pageId)) dropHeldLock(pageId, saveHeldWrite(ctx.wsId, pageId, null))
+    dropHeld(pageId)
     return
   }
   if (e) destroy(e)
   ctx.cache.delete(pageId)
   dropContentCache(ctx.wsId, pageId)
-  if (heldWrites.delete(pageId)) dropHeldLock(pageId, saveHeldWrite(ctx.wsId, pageId, null))
+  dropHeld(pageId)
   if (ctx.pending.delete(pageId)) ctx.savePending()
   if (!PAGE_ID.test(pageId)) return
   for (const priv of [false, true]) for (const name of [idbName(pageId, priv), ...olderNames(pageId, priv).map((o) => o.name)]) void clearDocument(name).catch(() => {})
@@ -1112,6 +1283,7 @@ function scrubPrivateMentions(e: Entry, events: Array<Y.YEvent<Y.AbstractType<un
 export function startContent(c: ContentContext): () => void {
   ctx = c
   dbList = null
+  waits = new AbortController()
   const offConn = onConnection((up) => {
     if (!up) return
     // back online: what could only be read locally gets its server sync now
@@ -1132,8 +1304,11 @@ export function startContent(c: ContentContext): () => void {
     queue.length = 0
     queued.clear()
     heldWrites.clear()
+    resuming.clear()
     queuedText.clear()
-    for (const id of [...heldLocks.keys()]) dropHeldLock(id)
+    waits?.abort()
+    waits = null
+    for (const rid of [...owned.keys()]) disown(rid)
     ctx = null
   }
 }

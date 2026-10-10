@@ -4,7 +4,9 @@
  *                         pages with local edits the server hasn't confirmed yet
  *   content:<ws>:<page>   the last known content JSON of a page (search/export/graph at boot
  *                         without opening every page document) + the page's updatedAt it matches
- *   held:<ws>:<page>      a non-editor write waiting for the page's first server sync (content.ts)
+ *   held:<ws>:<page>:<rid>
+ *                         a non-editor write waiting for the page's first server sync (content.ts) — one
+ *                         record per hold: two tabs never write into each other's
  *   uploads:<ws>          files waiting for upload (or for publishing: private uploads, § Private pages)
  *   privfiles:<ws>        files this device uploaded from private pages and hasn't published
  *   purge:<ws>            pages deleted for good (or moved between Private and the workspace) whose
@@ -85,39 +87,63 @@ export function dropContentCache(wsId: string, pageId: ID): void {
 
 /**
  * A non-editor content write waiting for its page's first server sync (content.ts `bridgeContent`: written
- * into a copy with nothing in it yet, its text would come twice): merged in then, also after a reload.
+ * into a copy with nothing in it yet, its text would come twice): merged in then, also after a reload. One record
+ * per hold (`held:<ws>:<page>:<rid>`): a tab's later writes to the page fold into its own record, another tab's are
+ * records of their own.
  */
 export interface HeldWrite {
   base: JSONContent | null
   ours: JSONContent | null
+  /** When it was held first: the records of a page are written in this order. */
+  at: number
 }
 
-export async function loadHeldWrites(wsId: string): Promise<Map<ID, HeldWrite>> {
-  const out = new Map<ID, HeldWrite>()
+export interface HeldRecord extends HeldWrite {
+  pageId: ID
+  /** The record's own id (its key's last part). */
+  rid: string
+}
+
+/** Every held record of a workspace (or of one page), in the order they were held. */
+export async function loadHeldWrites(wsId: string, pageId?: ID): Promise<HeldRecord[]> {
+  const out: HeldRecord[] = []
   const s = db()
   if (!s) return out
-  const prefix = `held:${wsId}:`
+  const prefix = pageId ? `held:${wsId}:${pageId}:` : `held:${wsId}:`
   try {
     await s('readonly', async (store) => {
       const range = IDBKeyRange.bound(prefix, `${prefix}￿`)
       const [keys, values] = await Promise.all([promisifyRequest(store.getAllKeys(range)), promisifyRequest(store.getAll(range))])
       keys.forEach((k, i) => {
-        const v = values[i] as HeldWrite | undefined
-        if (v && typeof v === 'object' && 'ours' in v) out.set(String(k).slice(prefix.length), { base: v.base ?? null, ours: v.ours ?? null })
+        const v = values[i] as Partial<HeldWrite> | undefined
+        const [page, rid, more] = String(k).slice(`held:${wsId}:`.length).split(':')
+        if (!v || typeof v !== 'object' || !('ours' in v) || !page || !rid || more !== undefined) return
+        out.push({ pageId: page, rid, base: v.base ?? null, ours: v.ours ?? null, at: typeof v.at === 'number' ? v.at : 0 })
       })
     })
   } catch (e) {
     console.warn('[one] held cloud writes unreadable', e)
   }
-  return out
+  return out.sort((a, b) => a.at - b.at || (a.rid < b.rid ? -1 : a.rid > b.rid ? 1 : 0))
 }
 
 /** `null`: the write is in (or gone). Resolves once stored (never rejects). */
-export function saveHeldWrite(wsId: string, pageId: ID, v: HeldWrite | null): Promise<void> {
+export function saveHeldWrite(wsId: string, pageId: ID, rid: string, v: HeldWrite | null): Promise<void> {
   const s = db()
   if (!s) return Promise.resolve()
-  const key = `held:${wsId}:${pageId}`
-  return (v ? set(key, v, s) : del(key, s)).catch(() => {})
+  const key = `held:${wsId}:${pageId}:${rid}`
+  return (v ? set(key, { base: v.base, ours: v.ours, at: v.at }, s) : del(key, s)).catch(() => {})
+}
+
+/** Every held record of a page goes (the page is gone for good). Resolves once stored (never rejects). */
+export function dropHeldWrites(wsId: string, pageId: ID): Promise<void> {
+  const s = db()
+  if (!s) return Promise.resolve()
+  const prefix = `held:${wsId}:${pageId}:`
+  return s('readwrite', (store) => {
+    store.delete(IDBKeyRange.bound(prefix, `${prefix}￿`))
+    return promisifyRequest(store.transaction)
+  }).catch(() => {})
 }
 
 export interface QueuedUpload {

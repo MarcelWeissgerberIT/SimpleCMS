@@ -34,6 +34,9 @@
  *   save, from its stash, and before a save merges. A node none of whose blocks is left there (deleted), and
  *   every one when it replaced the page as a whole (a restore, an import: REPLACING), stays gone; the version
  *   that had it goes to the page's history (onReplacedByOlder). Shadows of pages an older build deleted go too.
+ *   What this costs a save or a boot when no older build wrote anything: one hash per content object (cached),
+ *   the shadow copies' keys (a shadow's content is read only where a record's stamp does not fit), and a shadow
+ *   deleted only where one may be stored (mayShadow).
  */
 import { createStore, type UseStore } from 'idb-keyval'
 import { useWorkspace, getWorkspaceSnapshot, emptyWorkspace, pageChanges, WORKSPACE_VERSION, defaultSettings, defaultView, DEFAULT_PAGE_SETTINGS } from './store'
@@ -135,8 +138,17 @@ function normalizePage(id: ID, v: unknown, now: number): { page: Page; repaired:
 /* Older builds (store/generations.ts)                                 */
 /* ------------------------------------------------------------------ */
 
+/** Fingerprints of content objects (the store's are never changed in place): a page saved again is not hashed again. */
+const fingerprints = new WeakMap<object, number>()
+function fingerprint(content: Page['content']): number {
+  if (!content) return contentFingerprint(content)
+  let f = fingerprints.get(content)
+  if (f === undefined) fingerprints.set(content, (f = contentFingerprint(content)))
+  return f
+}
+
 /** A page as this build stores it: with the stamp of its generation, bound to exactly this content. */
-const stamped = (p: Page): Obj => ({ ...p, [STAMP]: { g: DOC_SCHEMA_VERSION, f: contentFingerprint(p.content) } })
+const stamped = (p: Page): Obj => ({ ...p, [STAMP]: { g: DOC_SCHEMA_VERSION, f: fingerprint(p.content) } })
 
 /**
  * The generation of the build that wrote this stored page: its stamp — when it belongs to this very content (an
@@ -146,36 +158,51 @@ const stamped = (p: Page): Obj => ({ ...p, [STAMP]: { g: DOC_SCHEMA_VERSION, f: 
 function writerGen(raw: unknown): number {
   if (!isObj(raw) || !isObj(raw[STAMP])) return 0
   const s = raw[STAMP] as Obj
-  return isNum(s.g) && isNum(s.f) && s.f === contentFingerprint(isObj(raw.content) ? (raw.content as Page['content']) : null) ? s.g : 0
+  return isNum(s.g) && isNum(s.f) && s.f === fingerprint(isObj(raw.content) ? (raw.content as Page['content']) : null) ? s.g : 0
 }
 
-/** Does this content hold nodes an older build would lose (it needs a shadow copy)? */
-const holdsNewer = (content: Page['content']) => !!content && newerCounts(content, 0).size > 0
+const newerHeld = new WeakMap<object, boolean>()
+/** Does this content hold nodes an older build would lose (it needs a shadow copy)? Walked once per content object. */
+function holdsNewer(content: Page['content'] | undefined): boolean {
+  if (!content) return false
+  let v = newerHeld.get(content)
+  if (v === undefined) newerHeld.set(content, (v = newerCounts(content, 0).size > 0))
+  return v
+}
 
 /** Origins an older build writes a page's content with as a whole (a version restored, a backup, an import). */
 const REPLACING = new Set(['history', 'import'])
 
 /**
- * The recent versions (prints) of the blocks inside tasks that this generation stored — this tab's saves and the
- * ones it read from other tabs of this version (page → prints, oldest first). An older tab saving with typing of
- * its own merges our copy in but keeps ITS stale version of every task's blocks (to it the unwrapped task is a
- * change of its own): a block that comes back as one of these is ours, not an edit made there.
+ * The recent versions of pages holding tasks that this generation stored — this tab's saves and the ones it read
+ * from other tabs of this version (page → the contents, oldest first). An older tab saving with typing of its own
+ * merges our copy in but keeps ITS stale version of every task's blocks (to it the unwrapped task is a change of its
+ * own): a block that comes back as in one of these is ours, not an edit made there. Kept as they are (the store's
+ * own objects): their blocks' prints are worked out only once an older build's copy turns up (`wroteOf`).
  */
-const wroteHere = new Map<ID, Set<number>>()
-const WROTE_KEEP = 400
+const wroteHere = new Map<ID, { versions: NonNullable<Page['content']>[]; prints: Set<number> | null }>()
+/** Versions kept per page: the stale copy an older tab's merge keeps is one of the last few stored. */
+const WROTE_VERSIONS = 6
 
-function noteWritten(p: Page) {
-  if (!holdsNewer(p.content)) return
-  const prints = wroteHere.get(p.id) ?? new Set<number>()
-  for (const print of newerBlockPrints(p.content)) {
-    prints.delete(print)
-    prints.add(print)
+function noteWritten(p: Page, newer = holdsNewer(p.content)) {
+  if (!newer || !p.content) return
+  const w = wroteHere.get(p.id) ?? { versions: [], prints: null }
+  if (w.versions[w.versions.length - 1] === p.content) return
+  w.versions.push(p.content)
+  if (w.versions.length > WROTE_VERSIONS) w.versions.shift()
+  w.prints = null
+  wroteHere.set(p.id, w)
+}
+
+/** The prints of the blocks inside tasks in the versions of a page this generation stored (newerBlockPrints). */
+function wroteOf(id: ID): Set<number> | undefined {
+  const w = wroteHere.get(id)
+  if (!w) return undefined
+  if (!w.prints) {
+    w.prints = new Set()
+    for (const content of w.versions) for (const print of newerBlockPrints(content)) w.prints.add(print)
   }
-  for (const old of prints) {
-    if (prints.size <= WROTE_KEEP) break
-    prints.delete(old)
-  }
-  wroteHere.set(p.id, prints)
+  return w.prints
 }
 
 /** A version of a page from before an older build of One replaced it (what it had that the older copy let go). */
@@ -206,19 +233,20 @@ function keepReplaced(page: Page, content: Page['content']) {
 }
 
 /**
- * A page an older build may have written (`raw`): its content with every newer node of `known` (what a build
+ * A page an older build may have written: its content with every newer node of `known` (what a build
  * of this generation stored or holds) wrapped again around what is left of its blocks — the older build's own
  * edits kept (rewrapNewer). A node with nothing left there stays gone, and so does every one when the older build
  * replaced the content as a whole (a restore, an import); `known` then goes to the page's history (titled as
  * `cur`, this build's copy of the page, has it). The page as it is when nothing was lost (or a current build wrote
- * it); a copy when only something stayed gone, so the caller stores it again (stamped: never checked twice).
+ * it); a copy when only something stayed gone, so the caller stores it again (stamped: never checked twice). `genOf`:
+ * the generation of the build that wrote `page` (writerGen of its stored record — asked only when `known` has tasks).
  */
-function guardOlder(page: Page, raw: unknown, known: Page['content'] | undefined, cur?: Page): Page {
+function guardOlder(page: Page, genOf: () => number, known: Page['content'] | undefined, cur?: Page): Page {
   if (!known || !holdsNewer(known)) return page
-  const gen = writerGen(raw)
+  const gen = genOf()
   if (gen >= DOC_SCHEMA_VERSION) return page
   try {
-    const prints = wroteHere.get(page.id)
+    const prints = wroteOf(page.id)
     const wrote = prints && ((print: number) => prints.has(print))
     const { doc, dropped } = rewrapNewer(known, page.content, gen, { whole: REPLACING.has(page.contentOrigin ?? ''), wrote })
     if (dropped.length) keepReplaced(cur ?? page, known)
@@ -228,6 +256,22 @@ function guardOlder(page: Page, raw: unknown, known: Page['content'] | undefined
     console.warn('[one] could not merge a page an older version of One stored', e)
     return page
   }
+}
+
+/**
+ * Pages whose shadow copy may be stored: the shadow keys read at boot (and with another tab's full write), this tab's
+ * shadow writes, and every page another tab saved since (its message, heard from the start). A save of a page without
+ * newer nodes deletes a shadow copy only there — and for every page while that is not known (before the boot read;
+ * after another tab's full write until it was read).
+ */
+const mayShadow = new Set<ID>()
+let shadowsKnown = false
+/** Full writes other tabs told of. */
+let fullWrites = 0
+
+function noteShadows(ids: ID[], fullsBefore: number): void {
+  for (const id of ids) mayShadow.add(id)
+  if (fullWrites === fullsBefore) shadowsKnown = true
 }
 
 /** Shadow copies of pages whose record is gone (an older build deleted the page for good) — dropped while still so. */
@@ -549,7 +593,7 @@ function takeStash(ws: Workspace, stash: Stash, keepDbs?: Set<ID>): { pages: ID[
     const cur = ws.pages[id]
     if (cur && cur.updatedAt >= r.page.updatedAt) continue
     // a stash an older build left: what it could not read comes back from our copy
-    ws.pages[id] = guardOlder(r.page, v, cur?.content, cur)
+    ws.pages[id] = guardOlder(r.page, () => writerGen(v), cur?.content, cur)
     out.pages.push(id)
   }
   for (const [id, v] of Object.entries(stash.databases)) {
@@ -599,8 +643,8 @@ function zip(prefix: string, keys: IDBValidKey[], values: unknown[]): Obj {
 interface StoredRaw {
   /** the workspace as stored: { version, epoch, settings, people, recent, pages, databases } */
   raw: unknown
-  /** this generation's shadow copies (page id → { content }) */
-  shadows: Obj
+  /** the pages with a shadow copy of this generation (only their keys: a value is read when a stamp fails, readShadows) */
+  shadowIds: ID[]
   /** stored in the single-record layout of older versions */
   legacy: boolean
   /** v2 records without their meta record (damage) */
@@ -616,32 +660,67 @@ function readAll(): Promise<StoredRaw | null> {
     const dk = os.getAllKeys(prefixRange(DB_PREFIX))
     const dv = os.getAll(prefixRange(DB_PREFIX))
     const sk = os.getAllKeys(prefixRange(SHADOW_PREFIX))
-    const sv = os.getAll(prefixRange(SHADOW_PREFIX))
     // requests of a transaction complete in order: the last one sees every result
-    sv.onsuccess = () => {
+    sk.onsuccess = () => {
       if (meta.result === undefined && !pk.result.length && !dk.result.length) {
         const legacy = os.get(LEGACY_KEY)
-        legacy.onsuccess = () => (out.value = legacy.result === undefined ? null : { raw: legacy.result, shadows: {}, legacy: true, noMeta: false })
+        legacy.onsuccess = () => (out.value = legacy.result === undefined ? null : { raw: legacy.result, shadowIds: [], legacy: true, noMeta: false })
         return
       }
       const { order, ...m }: Obj = isObj(meta.result) ? meta.result : {}
       const pages = inOrder(zip(PAGE_PREFIX, pk.result, pv.result), order)
       const databases = inOrder(zip(DB_PREFIX, dk.result, dv.result), Object.keys(pages))
-      out.value = { raw: { ...m, pages, databases }, shadows: zip(SHADOW_PREFIX, sk.result, sv.result), legacy: false, noMeta: !isObj(meta.result) }
+      const shadowIds = sk.result.map((k) => String(k).slice(SHADOW_PREFIX.length))
+      out.value = { raw: { ...m, pages, databases }, shadowIds, legacy: false, noMeta: !isObj(meta.result) }
     }
   })
 }
 
-/** Some records (another tab saved them): undefined = not stored (deleted). */
-function readSome(pageIds: ID[], dbIds: ID[], meta: boolean): Promise<{ pages: Map<ID, unknown>; shadows: Map<ID, unknown>; dbs: Map<ID, unknown>; meta: unknown }> {
+/** These pages' shadow copies (id → { content }; undefined = none stored any more). */
+function readShadows(ids: ID[]): Promise<Map<ID, unknown>> {
   return inTx('readonly', (os, out) => {
-    const res = { pages: new Map<ID, unknown>(), shadows: new Map<ID, unknown>(), dbs: new Map<ID, unknown>(), meta: undefined as unknown }
+    const res = new Map<ID, unknown>()
+    out.value = res
+    for (const id of ids) {
+      const r = os.get(SHADOW_PREFIX + id)
+      r.onsuccess = () => res.set(id, r.result)
+    }
+  })
+}
+
+interface SomeRecords {
+  pages: Map<ID, unknown>
+  /** pages with a shadow copy stored */
+  shadowed: Set<ID>
+  /** the shadow copies read: only where the record's stamp does not fit its content */
+  shadows: Map<ID, unknown>
+  /** the writer's generation of the records checked for that (writerGen) */
+  gens: Map<ID, number>
+  dbs: Map<ID, unknown>
+  meta: unknown
+}
+
+/** Some records (another tab saved them): undefined = not stored (deleted). */
+function readSome(pageIds: ID[], dbIds: ID[], meta: boolean): Promise<SomeRecords> {
+  return inTx('readonly', (os, out) => {
+    const res: SomeRecords = { pages: new Map(), shadowed: new Set(), shadows: new Map(), gens: new Map(), dbs: new Map(), meta: undefined }
     out.value = res
     for (const id of pageIds) {
       const r = os.get(PAGE_PREFIX + id)
       r.onsuccess = () => res.pages.set(id, r.result)
-      const sh = os.get(SHADOW_PREFIX + id)
-      sh.onsuccess = () => res.shadows.set(id, sh.result)
+      const key = os.getKey(SHADOW_PREFIX + id)
+      key.onsuccess = () => {
+        if (key.result === undefined) return
+        res.shadowed.add(id)
+        // the record gone (an orphan), or stamped by this generation for this very content: the shadow copy has
+        // nothing to tell
+        if (r.result === undefined) return
+        const gen = writerGen(r.result)
+        res.gens.set(id, gen)
+        if (gen >= DOC_SCHEMA_VERSION) return
+        const sh = os.get(SHADOW_PREFIX + id)
+        sh.onsuccess = () => res.shadows.set(id, sh.result)
+      }
     }
     for (const id of dbIds) {
       const r = os.get(DB_PREFIX + id)
@@ -742,7 +821,9 @@ setStoredKeyMigration(sealStoredKey)
  * an erase); read errors reject, so the caller never seeds over existing data.
  */
 export async function loadWorkspace(): Promise<Workspace | null> {
+  const fullsBefore = fullWrites
   const stored = await readAll()
+  noteShadows(stored?.shadowIds ?? [], fullsBefore)
   const raw: unknown = stored ? stored.raw : undefined
   if (raw === undefined) {
     // stashed edits belong to a workspace that no longer exists
@@ -755,14 +836,21 @@ export async function loadWorkspace(): Promise<Workspace | null> {
   // pages an older build stored since this generation last did: what it could not read comes back
   const rawPages = isObj(raw) && isObj(raw.pages) ? raw.pages : {}
   const orphans: ID[] = []
-  for (const [id, sh] of Object.entries(stored?.shadows ?? {})) {
-    const page = ws.pages[id]
-    if (!page) {
+  const older: Array<[ID, number]> = []
+  for (const id of stored?.shadowIds ?? []) {
+    if (!ws.pages[id]) {
       // the page was deleted for good by an older build (its record is gone; an unreadable one keeps its shadow)
       if (rawPages[id] === undefined) orphans.push(id)
       continue
     }
-    const next = guardOlder(page, rawPages[id], shadowContent(sh))
+    // stamped by this generation for this very content: nothing lost (its shadow copy is not even read)
+    const gen = writerGen(rawPages[id])
+    if (gen < DOC_SCHEMA_VERSION) older.push([id, gen])
+  }
+  const shadows = older.length ? await readShadows(older.map(([id]) => id)) : null
+  for (const [id, gen] of older) {
+    const page = ws.pages[id]
+    const next = guardOlder(page, () => gen, shadowContent(shadows?.get(id)))
     if (next === page) continue
     ws.pages[id] = next
     dirtyPages.add(id)
@@ -807,20 +895,35 @@ export async function loadWorkspace(): Promise<Workspace | null> {
 
 /** Stored workspace for a sync (errors are the caller's business). */
 async function readStored(): Promise<Workspace | null> {
+  const fullsBefore = fullWrites
   const stored = await readAll()
   const raw = stored?.raw
-  if (!isObj(raw)) return null
+  if (!stored || !isObj(raw)) return null
+  noteShadows(stored.shadowIds, fullsBefore)
   const ws = migrate(raw)
   const local = useWorkspace.getState().pages
   const rawPages = isObj(raw.pages) ? raw.pages : {}
-  for (const [id, page] of Object.entries(ws.pages)) {
-    const next = guardOlder(page, rawPages[id], shadowContent(stored?.shadows[id]) ?? local[id]?.content, local[id])
+  const shadowed = new Set(stored.shadowIds)
+  // what an older build may have lost — the newer nodes of the shadow copy, else of this tab's copy — counts only
+  // where the stored record's stamp does not fit its content
+  const older: Array<[ID, number]> = []
+  for (const id of Object.keys(ws.pages)) {
+    if (!shadowed.has(id) && !holdsNewer(local[id]?.content)) continue
+    const gen = writerGen(rawPages[id])
+    if (gen < DOC_SCHEMA_VERSION) older.push([id, gen])
+  }
+  const toRead = older.filter(([id]) => shadowed.has(id)).map(([id]) => id)
+  const shadows = toRead.length ? await readShadows(toRead) : null
+  for (const [id, gen] of older) {
+    const page = ws.pages[id]
+    const next = guardOlder(page, () => gen, shadowContent(shadows?.get(id)) ?? local[id]?.content, local[id])
     if (next === page) continue
     ws.pages[id] = next
     restoredHere.add(id)
   }
+  for (const id of wroteHere.keys()) if (!ws.pages[id]) wroteHere.delete(id)
   // shadow copies of pages an older build deleted for good (its full write leaves them behind)
-  dropOrphanShadows(Object.keys(stored?.shadows ?? {}).filter((id) => rawPages[id] === undefined))
+  dropOrphanShadows(stored.shadowIds.filter((id) => rawPages[id] === undefined))
   return ws
 }
 
@@ -833,6 +936,18 @@ interface ChangedMessage {
   dbs: ID[]
   meta: boolean
 }
+
+// heard from the start (before the boot read): a page another tab saved may have a shadow copy now (mayShadow)
+channel?.addEventListener('message', (ev: MessageEvent) => {
+  const msg = ev.data as Partial<ChangedMessage> | null
+  if (msg?.type !== 'changed' || msg.from === TAB_ID) return
+  if (!msg.full && Array.isArray(msg.pages) && Array.isArray(msg.dbs)) {
+    for (const id of msg.pages) if (typeof id === 'string') mayShadow.add(id)
+  } else {
+    fullWrites++
+    shadowsKnown = false
+  }
+})
 
 /**
  * This tab's workspace with the records another tab just saved read back in (a page / database
@@ -864,15 +979,18 @@ async function readChanged(pageIds: ID[], dbIds: ID[], meta: boolean): Promise<W
     const r = normalizePage(id, v, now)
     if (!r) {
       delete ws.pages[id]
+      wroteHere.delete(id)
       // deleted for good there (an older build leaves the shadow copy behind)
-      if (v === undefined && rec.shadows.get(id) !== undefined) orphans.push(id)
+      if (v === undefined && rec.shadowed.has(id)) orphans.push(id)
       continue
     }
+    let gen = rec.gens.get(id)
+    const genOf = () => (gen ??= writerGen(v))
     // saved by an older build (another tab opened before an update): it never takes what it could not read
-    const page = guardOlder(r.page, v, shadowContent(rec.shadows.get(id)) ?? local.pages[id]?.content, local.pages[id])
+    const page = guardOlder(r.page, genOf, shadowContent(rec.shadows.get(id)) ?? local.pages[id]?.content, local.pages[id])
     if (page !== r.page) restoredHere.add(id)
     // stored by another tab of this generation: its versions of the tasks' blocks are ours too
-    else if (holdsNewer(page.content) && writerGen(v) >= DOC_SCHEMA_VERSION) noteWritten(page)
+    else if (holdsNewer(page.content) && genOf() >= DOC_SCHEMA_VERSION) noteWritten(page, true)
     ws.pages[id] = page
   }
   for (const [id, v] of rec.dbs) {
@@ -897,9 +1015,11 @@ function pageToWrite(id: ID, ours: Page, base: Page | undefined, theirs: unknown
   if (!base || !isObj(theirs)) return ours
   try {
     const read = normalizePage(id, theirs, Date.now())?.page
+    // nobody stored another copy since our edits started: ours as it is
+    if (!read || samePage(read, base)) return ours
     // stored by an older build since: never its loss of what it could not read (our base still has it)
-    const t = read && guardOlder(read, theirs, base.content, ours)
-    if (!t || samePage(t, base)) return ours
+    const t = guardOlder(read, () => writerGen(theirs), base.content, ours)
+    if (samePage(t, base)) return ours
     const m = mergePage(base, t, ours)
     if (m === ours) return ours // theirs adds nothing ours does not have
     merged.set(id, [m, ours])
@@ -973,13 +1093,25 @@ function writeRecords(set: WriteSet, bases: Map<ID, Page>, merged: Map<ID, [Page
       }
       for (const [id, p] of Object.entries(snap.pages)) {
         put(PAGE_PREFIX + id, stamped(p))
-        if (holdsNewer(p.content)) put(SHADOW_PREFIX + id, { content: p.content })
-        noteWritten(p)
+        const newer = holdsNewer(p.content)
+        if (newer) {
+          put(SHADOW_PREFIX + id, { content: p.content })
+          mayShadow.add(id)
+        }
+        noteWritten(p, newer)
       }
+      for (const id of wroteHere.keys()) if (!snap.pages[id]) wroteHere.delete(id)
       for (const [id, db] of Object.entries(snap.databases)) put(DB_PREFIX + id, db)
       for (const k of storedKeys) if (!keep.has(String(k))) os.delete(k)
       os.put(metaOf(snap), META_KEY)
       os.delete(LEGACY_KEY)
+    }
+
+    // a shadow copy goes where one may be stored (a failed save puts its pages back into mayShadow)
+    const unshadow = (id: ID) => {
+      if (shadowsKnown && !mayShadow.has(id)) return
+      os.delete(SHADOW_PREFIX + id)
+      mayShadow.delete(id)
     }
 
     const writeChanged = () => {
@@ -989,15 +1121,19 @@ function writeRecords(set: WriteSet, bases: Map<ID, Page>, merged: Map<ID, [Page
         const ours = snap.pages[id]
         if (!ours) {
           os.delete(PAGE_PREFIX + id)
-          os.delete(SHADOW_PREFIX + id)
+          unshadow(id)
+          wroteHere.delete(id)
           continue
         }
         const page = pageToWrite(id, ours, bases.get(id), theirs.get(id), merged)
         os.put(stamped(page), PAGE_PREFIX + id)
         // the copy an older build's write is checked against (store/generations.ts)
-        if (holdsNewer(page.content)) os.put({ content: page.content }, SHADOW_PREFIX + id)
-        else os.delete(SHADOW_PREFIX + id)
-        noteWritten(page)
+        const newer = holdsNewer(page.content)
+        if (newer) {
+          os.put({ content: page.content }, SHADOW_PREFIX + id)
+          mayShadow.add(id)
+        } else unshadow(id)
+        noteWritten(page, newer)
       }
       for (const id of set.dbs) {
         const db = snap.databases[id]
@@ -1106,7 +1242,11 @@ async function writeChanges(): Promise<void> {
     channel?.postMessage(msg)
   } catch (e) {
     console.error('[one] failed to save workspace', e)
-    pages.forEach((id) => dirtyPages.add(id))
+    pages.forEach((id) => {
+      dirtyPages.add(id)
+      // a shadow copy it meant to delete may still be there
+      mayShadow.add(id)
+    })
     dbs.forEach((id) => dirtyDbs.add(id))
     settingKeys.forEach((k) => dirtySettings.add(k))
     dirtyPeople ||= people
