@@ -1,13 +1,16 @@
 /**
  * Writing into a meeting block. Through its editor when one is mounted (a proper transaction:
  * runtime writes stay out of the undo history, the generated notes are one undo step), else
- * through the store — setContent(…, 'meeting') — when the page is no longer open.
+ * through the store — setContent(…, 'meeting') — when the page is no longer open. Every write names its
+ * writer (store/writer.ts): the recording `ai:<run>:meeting_transcript`, the summary `ai:<run>:meeting_summary`,
+ * the deck's own keys the person.
  */
 import type { Editor, JSONContent } from '@tiptap/core'
 import { Fragment } from '@tiptap/pm/model'
 import { closeHistory } from '@tiptap/pm/history'
-import { findMeeting, meetingAttrs, MEETING, type MeetingAttrs } from '../../../editor'
+import { editAs, findMeeting, meetingAttrs, MEETING, type MeetingAttrs } from '../../../editor'
 import { useWorkspace } from '../../../store/store'
+import { withWriter, type Writer } from '../../../store/writer'
 
 export interface MeetingTarget {
   blockId: string
@@ -62,8 +65,8 @@ export function readMeeting(target: MeetingTarget): { attrs: MeetingAttrs; notes
   return found
 }
 
-/** Change attrs (outside the undo history unless `history`). False when the block is gone. */
-export function patchMeeting(target: MeetingTarget, patch: PatchArg, opts: { history?: boolean } = {}): boolean {
+/** Change attrs (outside the undo history unless `history`) as `writer`'s write. False when the block is gone. */
+export function patchMeeting(target: MeetingTarget, patch: PatchArg, writer: Writer, opts: { history?: boolean } = {}): boolean {
   const resolve = (a: MeetingAttrs) => (typeof patch === 'function' ? patch(a) : patch)
   if (alive(target.editor)) {
     const { editor } = target
@@ -74,7 +77,7 @@ export function patchMeeting(target: MeetingTarget, patch: PatchArg, opts: { his
       const tr = editor.state.tr
       for (const [k, v] of Object.entries(p)) tr.setNodeAttribute(hit.pos, k, v)
       if (!opts.history) tr.setMeta('addToHistory', false)
-      editor.view.dispatch(tr)
+      editAs(editor, writer, () => editor.view.dispatch(tr))
       return true
     }
     if (editorPageId(editor) === target.pageId) return false
@@ -92,7 +95,7 @@ export function patchMeeting(target: MeetingTarget, patch: PatchArg, opts: { his
     return { ...n, attrs: { ...n.attrs, ...p } }
   })
   if (!next) return false
-  if (!skip) ws.setContent(page.id, next, 'meeting')
+  if (!skip) withWriter(writer, () => ws.setContent(page.id, next, 'meeting'))
   return true
 }
 
@@ -100,7 +103,7 @@ export function patchMeeting(target: MeetingTarget, patch: PatchArg, opts: { his
  * Put generated notes into the block — one undo step with the attrs patch. 'replace' swaps the
  * whole notes area, 'prepend' keeps what the user typed during the meeting below.
  */
-export function writeNotes(target: MeetingTarget, blocks: JSONContent[], patch: MeetingPatch, mode: 'replace' | 'prepend'): boolean {
+export function writeNotes(target: MeetingTarget, blocks: JSONContent[], patch: MeetingPatch, mode: 'replace' | 'prepend', writer: Writer): boolean {
   if (alive(target.editor)) {
     const { editor } = target
     const hit = findMeeting(editor.state.doc, target.blockId)
@@ -117,7 +120,7 @@ export function writeNotes(target: MeetingTarget, blocks: JSONContent[], patch: 
       if (mode === 'replace') tr.replaceWith(start, hit.pos + hit.node.nodeSize - 1, frag)
       else tr.insert(start, frag)
       for (const [k, v] of Object.entries(patch)) tr.setNodeAttribute(hit.pos, k, v)
-      editor.view.dispatch(closeHistory(tr))
+      editAs(editor, writer, () => editor.view.dispatch(closeHistory(tr)))
       return true
     }
     if (editorPageId(editor) === target.pageId) return false
@@ -131,6 +134,6 @@ export function writeNotes(target: MeetingTarget, blocks: JSONContent[], patch: 
     content: mode === 'replace' ? blocks : [...blocks, ...(n.content ?? [])],
   }))
   if (!next) return false
-  ws.setContent(page.id, next, 'ai')
+  withWriter(writer, () => ws.setContent(page.id, next, 'ai'))
   return true
 }

@@ -15,7 +15,7 @@ import type { Editor, JSONContent } from '@tiptap/core'
 import { Fragment, type Node as PMNode } from '@tiptap/pm/model'
 import { TextSelection } from '@tiptap/pm/state'
 import { closeHistory } from '@tiptap/pm/history'
-import { endUndoStep, startUndoStep } from '../../../editor'
+import { editAs, endUndoStep, startUndoStep } from '../../../editor'
 import { claudeDoc } from '../claudeDoc'
 import { useWorkspace } from '../../../store/store'
 import { useUI } from '../../../store/ui'
@@ -24,6 +24,8 @@ import { t } from '../../../i18n'
 import { snapshotNow } from '../../history/snapshots'
 import { completeStructured } from '../client'
 import { blockGist, buildDatabase, buildTodbPrompt, initialDraft, parseTodbAnswer, placementOf, rangeNodes, readBlocks, type BlockRange, type RangeNodes, type TableDraft, type TablePlan, type TodbFocus } from './plan'
+import { withWriter, type Writer } from '../../../store/writer'
+import { newId } from '../../../lib/ids'
 
 /** Why a request or a conversion did not happen (an i18n key under features.ai.todb.err). */
 export type TodbIssue = 'none' | 'bad' | 'changed' | 'gone'
@@ -72,6 +74,8 @@ export function sameBlocks(doc: PMNode, range: BlockRange | null, blocks: JSONCo
 export interface ConvertOptions {
   /** "Keep the original below" (Transform into): the consumed blocks go into a collapsed toggle with this title right after the database */
   original?: string | null
+  /** whose write (store/writer.ts): the AI run that made the table (default: a run of its own) */
+  writer?: Writer
 }
 
 /**
@@ -93,12 +97,16 @@ export async function convertToDatabase(editor: Editor, pageId: ID, range: Block
   if (!dbType) throw new TodbError('gone')
 
   const spec = buildDatabase(answer.plan, draft, { board: t('features.ai.todb.view.board'), table: t('features.ai.todb.view.table'), timeline: t('features.ai.todb.view.timeline'), untitled: t('common.untitled') })
+  const writer: Writer = opts.writer ?? { kind: 'ai', run: newId(), action: 'todb' }
   // its own page: a full-page database below this page (private exactly when this page is — the cloud binding follows the parent)
-  const dbId = ws.createDatabase({ parentId: pageId, inline: !asPage, title: spec.title, properties: spec.properties, views: spec.views })
-  for (const row of spec.rows) {
-    const rowId = useWorkspace.getState().createRow(dbId, { title: row.title, properties: row.properties })
-    if (row.body) useWorkspace.getState().setContent(rowId, claudeDoc(row.body), 'ai')
-  }
+  const dbId = withWriter(writer, () => {
+    const id = ws.createDatabase({ parentId: pageId, inline: !asPage, title: spec.title, properties: spec.properties, views: spec.views })
+    for (const row of spec.rows) {
+      const rowId = useWorkspace.getState().createRow(id, { title: row.title, properties: row.properties })
+      if (row.body) useWorkspace.getState().setContent(rowId, claudeDoc(row.body), 'ai')
+    }
+    return id
+  })
 
   const dbNode = asPage ? dbType.create({ pageId: dbId }) : dbType.create({ databaseId: dbId, viewId: null })
   const consumed: PMNode[] = []
@@ -118,7 +126,7 @@ export async function convertToDatabase(editor: Editor, pageId: ID, range: Block
     if (original) nodes.splice(nodes.indexOf(dbNode) + 1, 0, original)
     const content = Fragment.from(nodes)
     if (!at.parent.canReplace(at.start, at.end, content)) {
-      useWorkspace.getState().deletePagePermanently(dbId)
+      withWriter(writer, () => useWorkspace.getState().deletePagePermanently(dbId))
       throw new TodbError('changed')
     }
     tr = tr.replaceWith(at.from, at.to, content)
@@ -133,9 +141,11 @@ export async function convertToDatabase(editor: Editor, pageId: ID, range: Block
   }
   // the caret just after the database block (never a node selection: typing would replace it)
   tr.setSelection(TextSelection.near(tr.doc.resolve(Math.min(dbPos + dbNode.nodeSize, tr.doc.content.size)))).scrollIntoView()
-  startUndoStep(editor.view)
-  editor.view.dispatch(tr)
-  endUndoStep(editor.view)
+  editAs(editor, writer, () => {
+    startUndoStep(editor.view)
+    editor.view.dispatch(tr)
+    endUndoStep(editor.view)
+  })
   editor.view.focus()
   const after = editor.state.doc
 
@@ -162,6 +172,13 @@ export function originalToggle(editor: Editor, title: string, blocks: PMNode[]):
 
 /** The toast's Undo: the text back (the editor's own undo while nothing changed since), the database gone. */
 function undoConversion(editor: Editor, dbId: ID, after: PMNode, consumed: PMNode[]) {
+  // the toast's Undo (store/writer.ts)
+  const undo: Writer = { kind: 'you', via: 'undo' }
+  if (editor.isDestroyed) withWriter(undo, () => undoNow(editor, dbId, after, consumed))
+  else editAs(editor, undo, () => undoNow(editor, dbId, after, consumed))
+}
+
+function undoNow(editor: Editor, dbId: ID, after: PMNode, consumed: PMNode[]) {
   if (!editor.isDestroyed) {
     if (editor.state.doc.eq(after)) editor.commands.undo()
     else {

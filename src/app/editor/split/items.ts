@@ -33,6 +33,8 @@ import { commentIdsIn } from '../schema/comment'
 import { docSchema } from '../convert'
 import { cutTitle, firstLine, holdsBusyMeeting, leafText, readSplit, splitRange, squash, SPLIT_LISTS, TITLE_MAX, type SplitAt, type SplitRange } from './range'
 import { childrenIn, closeUndoStep, hasNode, moveThreads, replacement, SPLIT_ORIGIN } from './split'
+import { withWriter, type Writer } from '../../store/writer'
+import { editAs } from '../lib/editAs'
 
 /* ------------------------------------------------------------------ */
 /* Reading the items (pure)                                            */
@@ -349,6 +351,8 @@ export interface PagesPerItemOptions {
   pageId?: ID
   /** a refusal stays silent (the caller says it) */
   quiet?: boolean
+  /** who splits (store/writer.ts): the person by default; the AI menu passes its run */
+  writer?: Writer
 }
 
 interface NewPage {
@@ -421,8 +425,9 @@ export function pagesPerItem(editor: Editor, opts: PagesPerItemOptions = {}): ID
 
   void snapshotNow(pageId, 'auto')
   const pages: NewPage[] = []
+  const writer: Writer = opts.writer ?? { kind: 'you', via: 'ui' }
   try {
-    plan.items.forEach((it, i) => {
+    withWriter(writer, () => plan.items.forEach((it, i) => {
       const input = { id: ids[i], parentId: pageId, title: it.title }
       if (privatePages) createPrivatePage(input)
       else useWorkspace.getState().createPage(input)
@@ -433,10 +438,12 @@ export function pagesPerItem(editor: Editor, opts: PagesPerItemOptions = {}): ID
       const threads = commentIdsIn({ type: 'doc', content: it.nodes.map((n) => n.toJSON() as JSONContent) })
       moveThreads(pageId, ids[i], threads)
       pages.push({ id: ids[i], title: it.title, plain: useWorkspace.getState().pages[ids[i]]?.plain ?? '', kids, threads })
-    })
+    }))
   } catch {
     // nothing half-done stays behind
-    for (const p of pages) undoPage(pageId, p, true)
+    withWriter(writer, () => {
+      for (const p of pages) undoPage(pageId, p, true)
+    })
     return refuse('failed', opts.quiet)
   }
 
@@ -444,8 +451,10 @@ export function pagesPerItem(editor: Editor, opts: PagesPerItemOptions = {}): ID
   closeUndoStep(editor)
   const tr = closeHistory(editor.state.tr).replaceWith(swap.from, swap.to, swap.nodes)
   tr.setSelection(TextSelection.near(tr.doc.resolve(Math.min(swap.from + swap.tableAt + 1, tr.doc.content.size)))).scrollIntoView()
-  editor.view.dispatch(tr)
-  editor.view.dispatch(closeHistory(editor.state.tr))
+  editAs(editor, writer, () => {
+    editor.view.dispatch(tr)
+    editor.view.dispatch(closeHistory(editor.state.tr))
+  })
   closeUndoStep(editor)
   editor.view.focus()
 
@@ -562,6 +571,14 @@ function storeAgain(b: Batch) {
 
 /** The toast's Undo: the editor's own undo while nothing changed since, else the table becomes the items again. */
 function undoBatch(editor: Editor, b: Batch) {
+  // the toast's Undo (store/writer.ts): the editor's undo and the store's put-back as one Undo
+  if (editor.isDestroyed) withWriter(UNDO, () => undoBatchNow(editor, b))
+  else editAs(editor, UNDO, () => undoBatchNow(editor, b))
+}
+
+const UNDO: Writer = { kind: 'you', via: 'undo' }
+
+function undoBatchNow(editor: Editor, b: Batch) {
   if (!b.applied) return
   if (!editor.isDestroyed && editor.state.doc.eq(b.after)) {
     b.force = true

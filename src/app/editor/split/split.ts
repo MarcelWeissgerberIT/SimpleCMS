@@ -32,6 +32,8 @@ import { snapshotNow } from '../../features'
 import { commentIdsIn } from '../schema/comment'
 import { docSchema } from '../convert'
 import { holdsBusyMeeting, readSplit, splitRange, splitTitle, type SplitAt, type SplitRange } from './range'
+import { withWriter, type Writer } from '../../store/writer'
+import { editAs } from '../lib/editAs'
 
 /** setContent origin of the new page's content (and of a put-back into a page whose editor is gone). */
 export const SPLIT_ORIGIN = 'split'
@@ -46,6 +48,8 @@ export interface TurnIntoPageOptions {
   pageId?: ID
   /** a refusal stays silent (the caller says it) */
   quiet?: boolean
+  /** who splits (store/writer.ts): the person by default; the AI menu passes its run */
+  writer?: Writer
 }
 
 interface Split {
@@ -108,23 +112,30 @@ export function turnIntoPage(editor: Editor, opts: TurnIntoPageOptions = {}): ID
   if (!swap) return refuse('none', opts.quiet)
 
   void snapshotNow(pageId, 'auto')
+  const writer: Writer = opts.writer ?? { kind: 'you', via: 'ui' }
   try {
     const input = { id, parentId: pageId, title }
-    if (isPrivatePage(pageId)) createPrivatePage(input)
-    else ws.createPage(input)
+    withWriter(writer, () => {
+      if (isPrivatePage(pageId)) createPrivatePage(input)
+      else ws.createPage(input)
+    })
   } catch {
     return refuse('failed', opts.quiet)
   }
-  useWorkspace.getState().setContent(id, content, SPLIT_ORIGIN)
-  for (const kid of kids) useWorkspace.getState().movePage(kid, id)
-  moveThreads(pageId, id, threads)
+  withWriter(writer, () => {
+    useWorkspace.getState().setContent(id, content, SPLIT_ORIGIN)
+    for (const kid of kids) useWorkspace.getState().movePage(kid, id)
+    moveThreads(pageId, id, threads)
+  })
 
-  // ONE transaction: the link where the blocks were, selected; its own undo step
+  // ONE transaction: the link where the blocks were, selected; its own undo step — written as the splitter's
   closeUndoStep(editor)
   const tr = closeHistory(editor.state.tr).replaceWith(swap.from, swap.to, swap.nodes)
   tr.setSelection(NodeSelection.create(tr.doc, swap.from + swap.linkOffset)).scrollIntoView()
-  editor.view.dispatch(tr)
-  editor.view.dispatch(closeHistory(editor.state.tr))
+  editAs(editor, writer, () => {
+    editor.view.dispatch(tr)
+    editor.view.dispatch(closeHistory(editor.state.tr))
+  })
   closeUndoStep(editor)
   editor.view.focus()
 
@@ -318,6 +329,14 @@ function storeAgain(s: Split) {
 
 /** The toast's Undo: the blocks back here (the editor's own undo while nothing changed since), the page in the trash. */
 function undoSplit(editor: Editor, s: Split) {
+  // the toast's Undo (store/writer.ts): the editor's undo and the store's put-back as one Undo
+  if (editor.isDestroyed) withWriter(UNDO, () => undoSplitNow(editor, s))
+  else editAs(editor, UNDO, () => undoSplitNow(editor, s))
+}
+
+const UNDO: Writer = { kind: 'you', via: 'undo' }
+
+function undoSplitNow(editor: Editor, s: Split) {
   if (!s.applied) return
   if (!editor.isDestroyed && editor.state.doc.eq(s.after)) {
     s.force = true

@@ -99,7 +99,7 @@ export function useTransformPanel({ editor, pageId, run, phase, target, start, f
     const at = !tg.lost && tg.range && sameBlocks(editor.state.doc, tg.range, own) ? tg.range : null
     applying.current = true
     try {
-      await applyTransform(editor, pageId, at, st)
+      await applyTransform(editor, pageId, at, st, { kind: 'ai', run: run.id, action: 'transform' })
       finish()
     } catch (e) {
       applying.current = false

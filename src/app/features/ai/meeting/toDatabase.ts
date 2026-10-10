@@ -6,8 +6,9 @@
  */
 import type { Editor, JSONContent } from '@tiptap/core'
 import type { Node as PMNode } from '@tiptap/pm/model'
-import { findMeeting } from '../../../editor'
+import { editAs, findMeeting } from '../../../editor'
 import { useWorkspace } from '../../../store/store'
+import { withWriter, type Writer } from '../../../store/writer'
 import type { ID, PropertyValue } from '../../../store/types'
 import { t } from '../../../i18n'
 import { actionItemsIn, matchPerson, type ActionRef } from './notes'
@@ -38,6 +39,9 @@ function ownerId(item: ActionRef): ID | null {
   return matchPerson(item.ownerName, people)?.id ?? null
 }
 
+/** The person's "Send to database" (store/writer.ts). */
+const YOU: Writer = { kind: 'you', via: 'ui' }
+
 /** Create the rows and link them in the notes. Returns the number of rows created. */
 export function sendActionItems(editor: Editor, blockId: string, pageId: string | null, dbId: ID): number {
   const ws = useWorkspace.getState()
@@ -52,14 +56,16 @@ export function sendActionItems(editor: Editor, blockId: string, pageId: string 
     ? { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: `${t('features.meeting.db.fromMeeting')} ` }, { type: 'mention', attrs: { id: pageId, label: ws.pages[pageId]?.title ?? '', kind: 'page' } }] }] }
     : null
 
-  const rows = items.map((item) => {
-    const properties: Record<ID, PropertyValue> = {}
-    const owner = personProp ? ownerId(item) : null
-    if (personProp && owner) properties[personProp.id] = [owner]
-    if (dateProp && item.due) properties[dateProp.id] = { start: item.due }
-    const id = ws.createRow(dbId, { title: item.text, properties, content: backlink })
-    return { item, id }
-  })
+  const rows = withWriter(YOU, () =>
+    items.map((item) => {
+      const properties: Record<ID, PropertyValue> = {}
+      const owner = personProp ? ownerId(item) : null
+      if (personProp && owner) properties[personProp.id] = [owner]
+      if (dateProp && item.due) properties[dateProp.id] = { start: item.due }
+      const id = ws.createRow(dbId, { title: item.text, properties, content: backlink })
+      return { item, id }
+    }),
+  )
 
   // the item's words → a mention of its row; owner / date mentions stay (last item first: positions hold)
   const { schema } = editor
@@ -77,6 +83,6 @@ export function sendActionItems(editor: Editor, blockId: string, pageId: string 
     for (const k of keep) inline.push(schema.text(' '), k)
     tr.replaceWith(at + 1, at + 1 + para.content.size, inline)
   }
-  if (tr.docChanged) editor.view.dispatch(tr)
+  if (tr.docChanged) editAs(editor, YOU, () => editor.view.dispatch(tr))
   return rows.length
 }

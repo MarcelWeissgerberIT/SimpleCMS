@@ -85,6 +85,7 @@ export function RedoReview({ run, editor, pageId, onDone }: RedoReviewProps) {
       editor,
       pageId,
       accepted.map((r) => ({ passage: r.p, after: r.item.after! })),
+      { kind: 'ai', run: run.id, action: 'redo' },
     )
     setBusy(false)
     const outcome: Record<number, 'applied' | 'changed'> = {}

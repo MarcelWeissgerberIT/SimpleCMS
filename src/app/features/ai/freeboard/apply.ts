@@ -19,6 +19,8 @@ import { syncRecordTypeInto } from '../../../store/kit'
 import { useUI } from '../../../store/ui'
 import { COLOR_NAMES, type ColorName, type Database, type ID, type Kit, type Page, type PropertyDef, type PropertyValue, type RecordTypeProp, type SelectOption, type View } from '../../../store/types'
 import { newId } from '../../../lib/ids'
+import { withWriter, type Writer } from '../../../store/writer'
+import { editAs } from '../../../editor'
 import { t } from '../../../i18n'
 import { snapshotNow } from '../../history/snapshots'
 import { completeStructured } from '../client'
@@ -185,7 +187,8 @@ function buildBoard(plan: FreeBoardPlan, typeIds: ID[], parentId: ID, kit: Kit, 
  * Put the free board in place of the blocks (`range` null: at the end of the page). Resolves with the database id;
  * throws TodbError ('changed': the blocks were edited meanwhile, 'gone': the page or the editor went away).
  */
-export async function applyFreeBoard(editor: Editor, pageId: ID, range: BlockRange | null, res: FreeBoardResult, opts: { original?: string | null } = {}): Promise<ID> {
+export async function applyFreeBoard(editor: Editor, pageId: ID, range: BlockRange | null, res: FreeBoardResult, opts: { original?: string | null; writer?: Writer } = {}): Promise<ID> {
+  const writer: Writer = opts.writer ?? { kind: 'ai', run: newId(), action: 'freeboard' }
   if (editor.isDestroyed) throw new TodbError('gone')
   if (range && !sameBlocks(editor.state.doc, range, res.blocks)) throw new TodbError('changed')
   await snapshotNow(pageId, 'ai')
@@ -197,15 +200,18 @@ export async function applyFreeBoard(editor: Editor, pageId: ID, range: BlockRan
   const dbType = editor.schema.nodes.databaseBlock
   if (!dbType) throw new TodbError('gone')
 
-  const { ids, created } = saveNewTypes(res.board)
-  const st = useWorkspace.getState()
-  const kit: Kit = st.kit ?? { lists: {}, propTypes: {}, recordTypes: {} }
-  const { db, page, rows } = buildBoard(res.board, ids, pageId, kit, st.pages)
-  // ONE store update: the database, its page and every card
-  useWorkspace.setState((s) => {
-    s.pages[page.id] = page
-    s.databases[db.id] = db
-    for (const r of rows) s.pages[r.id] = r
+  const { created, db, page, rows } = withWriter(writer, () => {
+    const { ids, created } = saveNewTypes(res.board)
+    const st = useWorkspace.getState()
+    const kit: Kit = st.kit ?? { lists: {}, propTypes: {}, recordTypes: {} }
+    const built = buildBoard(res.board, ids, pageId, kit, st.pages)
+    // ONE store update: the database, its page and every card
+    useWorkspace.setState((s) => {
+      s.pages[built.page.id] = built.page
+      s.databases[built.db.id] = built.db
+      for (const r of built.rows) s.pages[r.id] = r
+    })
+    return { created, ...built }
   })
 
   const dbNode = dbType.create({ databaseId: db.id, viewId: null })
@@ -226,7 +232,7 @@ export async function applyFreeBoard(editor: Editor, pageId: ID, range: BlockRan
     if (original) nodes.splice(nodes.indexOf(dbNode) + 1 + leftNodes.length, 0, original)
     const content = Fragment.from(nodes)
     if (!at.parent.canReplace(at.start, at.end, content)) {
-      removeBoard(db.id, created)
+      withWriter(writer, () => removeBoard(db.id, created))
       throw new TodbError('changed')
     }
     tr = tr.replaceWith(at.from, at.to, content)
@@ -240,7 +246,7 @@ export async function applyFreeBoard(editor: Editor, pageId: ID, range: BlockRan
     tr = tr.insert(dbPos, Fragment.from([dbNode, ...leftNodes]))
   }
   tr.setSelection(TextSelection.near(tr.doc.resolve(Math.min(dbPos + dbNode.nodeSize, tr.doc.content.size)))).scrollIntoView()
-  editor.view.dispatch(tr)
+  editAs(editor, writer, () => editor.view.dispatch(tr))
   editor.view.focus()
   const after = editor.state.doc
 
@@ -250,13 +256,15 @@ export async function applyFreeBoard(editor: Editor, pageId: ID, range: BlockRan
     action: {
       label: t('common.undo'),
       run: () => {
-        if (!editor.isDestroyed && editor.state.doc.eq(after)) editor.commands.undo()
-        removeBoard(db.id, created)
+        if (!editor.isDestroyed && editor.state.doc.eq(after)) editAs(editor, UNDO, () => editor.commands.undo())
+        withWriter(UNDO, () => removeBoard(db.id, created))
       },
     },
   })
   return db.id
 }
+
+const UNDO: Writer = { kind: 'you', via: 'undo' }
 
 /** The board gone again — and the record types it added, while no other database holds them. */
 function removeBoard(dbId: ID, createdTypes: ID[]): void {

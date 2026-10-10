@@ -30,9 +30,13 @@ import {
   type MeetingRuntime,
 } from './session'
 import { patchMeeting, editorPageId, type MeetingTarget } from './write'
+import type { Writer } from '../../../store/writer'
 import './meeting.css'
 
 export type DeckMode = 'blank' | 'starting' | 'listening' | 'paused' | 'interrupted' | 'stopping' | 'remote' | 'summarizing' | 'remoteSummarizing' | 'ready' | 'done'
+
+/** The deck's own keys (title, language, pasted transcript, clear) — the person's write. */
+const YOU: Writer = { kind: 'you', via: 'ui' }
 
 const IDLE_RT: MeetingRuntime = { phase: 'idle', interim: '', since: null, base: 0, speechError: null, aiError: null }
 
@@ -125,7 +129,7 @@ export function MeetingDeck({ editor, node, editable }: MeetingDeckProps) {
   const applyPasted = (segs: TranscriptSegment[]) => {
     if (!blockId) return
     setPaste(false)
-    const ok = patchMeeting(target(), (a) => ({ transcript: [...a.transcript, ...segs], startedAt: a.startedAt ?? Date.now(), endedAt: a.endedAt ?? Date.now() }), { history: true })
+    const ok = patchMeeting(target(), (a) => ({ transcript: [...a.transcript, ...segs], startedAt: a.startedAt ?? Date.now(), endedAt: a.endedAt ?? Date.now() }), YOU, { history: true })
     if (ok) void summarizeMeeting(blockId)
   }
   const regenerate = () => {
@@ -153,7 +157,7 @@ export function MeetingDeck({ editor, node, editable }: MeetingDeckProps) {
       body: t('features.meeting.deleteBody'),
       danger: true,
       confirmLabel: t('features.meeting.deleteOk'),
-      onConfirm: () => patchMeeting(target(), { transcript: [] }, { history: true }),
+      onConfirm: () => patchMeeting(target(), { transcript: [] }, YOU, { history: true }),
     })
 
   const recordingNow = mode === 'starting' || mode === 'listening' || mode === 'paused' || mode === 'stopping'
@@ -164,7 +168,7 @@ export function MeetingDeck({ editor, node, editable }: MeetingDeckProps) {
       label: l.name,
       hint: l.code,
       checked: l.code === attrs.language,
-      onSelect: () => patchMeeting(target(), { language: l.code }),
+      onSelect: () => patchMeeting(target(), { language: l.code }, YOU),
     }))
   const menuEntries: MenuEntry[] = [
     { label: t('features.meeting.language'), icon: <Languages size={15} />, hint: attrs.language || '—', disabled: recordingNow, submenu: recordingNow ? undefined : langEntries },
@@ -181,7 +185,7 @@ export function MeetingDeck({ editor, node, editable }: MeetingDeckProps) {
     <div className="mtg__deck" contentEditable={false} suppressContentEditableWarning role="group" aria-label={t('features.meeting.region')} data-mode={mode}>
       <Bar mode={mode} elapsed={elapsed} attrs={attrs} editable={canAct} onMenu={menu.toggle} menuOpen={menu.open} />
       <div className="mtg__head">
-        <TitleField value={attrs.title} editable={canAct} onCommit={(v) => patchMeeting(target(), { title: v }, { history: true })} />
+        <TitleField value={attrs.title} editable={canAct} onCommit={(v) => patchMeeting(target(), { title: v }, YOU, { history: true })} />
         <Meta attrs={attrs} words={words} lang={lang} />
       </div>
 

@@ -14,11 +14,12 @@
 import type { Editor, JSONContent } from '@tiptap/core'
 import { NodeSelection, TextSelection } from '@tiptap/pm/state'
 import { closeHistory } from '@tiptap/pm/history'
-import { endUndoStep, startUndoStep } from '../../../editor'
+import { editAs, endUndoStep, startUndoStep } from '../../../editor'
 import { useWorkspace } from '../../../store/store'
 import { useUI } from '../../../store/ui'
 import type { ID } from '../../../store/types'
 import { saveFile } from '../../../lib/files'
+import { withWriter, type Writer } from '../../../store/writer'
 import { createPrivateDatabase, createPrivatePage, isPrivatePage } from '../../../cloud'
 import { t } from '../../../i18n'
 import { claudeBlocks, claudeDoc } from '../claudeDoc'
@@ -34,6 +35,11 @@ import type { FileRunRequest } from './run'
 const pageOf = (editor: Editor): ID | null => (editor.isDestroyed ? null : editor.view.dom.getAttribute('data-page-id'))
 
 /** The request of an action on this file (labels in the UI language). */
+/** The file run's write (store/writer.ts): Claude's answer, or a local conversion (nothing sent) = an import. */
+const fileWriter = (run: Pick<AIRun, 'id'>, origin: 'ai' | 'import' = 'ai'): Writer =>
+  origin === 'import' ? { kind: 'import', run: run.id, source: 'file' } : { kind: 'ai', run: run.id, action: 'file' }
+const UNDO: Writer = { kind: 'you', via: 'undo' }
+
 export function fileRequest(action: FileAction, hit: FileHit, extra: { question?: string; instruction?: string } = {}): FileRunRequest {
   return {
     kind: 'file',
@@ -106,12 +112,14 @@ export async function insertBelowFile(editor: Editor, pageId: ID, run: AIRun, bl
   await snapshotNow(pageId, 'ai')
   if (editor.isDestroyed) return
   startUndoStep(editor.view)
-  editor
-    .chain()
-    .focus()
-    .command(({ tr }) => (closeHistory(tr), true))
-    .insertContentAt(belowFile(editor, run), blocks)
-    .run()
+  editAs(editor, fileWriter(run), () => {
+    editor
+      .chain()
+      .focus()
+      .command(({ tr }) => (closeHistory(tr), true))
+      .insertContentAt(belowFile(editor, run), blocks)
+      .run()
+  })
   endUndoStep(editor.view)
 }
 
@@ -121,12 +129,12 @@ export function insertMarkdownBelowFile(editor: Editor, pageId: ID, run: AIRun, 
 }
 
 /** A link block below the file, selected after it (one transaction). */
-function linkBelow(editor: Editor, run: AIRun, node: ReturnType<Editor['schema']['nodes']['pageLink']['create']>) {
+function linkBelow(editor: Editor, run: AIRun, node: ReturnType<Editor['schema']['nodes']['pageLink']['create']>, writer: Writer) {
   const at = belowFile(editor, run)
   const tr = closeHistory(editor.state.tr).insert(at, node)
   tr.setSelection(TextSelection.near(tr.doc.resolve(Math.min(at + node.nodeSize, tr.doc.content.size)))).scrollIntoView()
   startUndoStep(editor.view)
-  editor.view.dispatch(tr)
+  editAs(editor, writer, () => editor.view.dispatch(tr))
   endUndoStep(editor.view)
   editor.view.focus()
 }
@@ -142,10 +150,10 @@ function undoCreated(editor: Editor, id: ID, attr: 'pageId' | 'databaseId') {
     })
     if (at >= 0) {
       const node = editor.state.doc.nodeAt(at)
-      if (node) editor.view.dispatch(editor.state.tr.delete(at, at + node.nodeSize))
+      if (node) editAs(editor, UNDO, () => editor.view.dispatch(editor.state.tr.delete(at, at + node.nodeSize)))
     }
   }
-  if (useWorkspace.getState().pages[id]) useWorkspace.getState().deletePagePermanently(id)
+  if (useWorkspace.getState().pages[id]) withWriter(UNDO, () => useWorkspace.getState().deletePagePermanently(id))
 }
 
 /**
@@ -157,9 +165,13 @@ export async function createFilePage(editor: Editor, pageId: ID, run: AIRun, pag
   const ws = useWorkspace.getState()
   if (editor.isDestroyed || !ws.pages[pageId] || ws.pages[pageId].trashed) return null
   const input = { title: page.title.trim().slice(0, 200) || t('common.untitled'), parentId: pageId }
-  const id = isPrivatePage(pageId) ? createPrivatePage(input) : ws.createPage(input)
-  useWorkspace.getState().setContent(id, page.doc, page.origin)
-  linkBelow(editor, run, editor.schema.nodes.pageLink.create({ pageId: id }))
+  const writer = fileWriter(run, page.origin)
+  const id = withWriter(writer, () => {
+    const id = isPrivatePage(pageId) ? createPrivatePage(input) : ws.createPage(input)
+    useWorkspace.getState().setContent(id, page.doc, page.origin)
+    return id
+  })
+  linkBelow(editor, run, editor.schema.nodes.pageLink.create({ pageId: id }), writer)
   useUI.getState().toast({
     message: t('features.ai.file.pageDone', { title: input.title }),
     kind: 'success',
@@ -190,13 +202,17 @@ export async function createFileDatabase(
   // the title property keeps the name of the table's first column
   const properties = spec.properties.map((p, i) => (i === 0 && p.type === 'title' ? { ...p, name: titleName.slice(0, 100) || p.name } : p))
   const input = { parentId: pageId, inline: !asPage, title: spec.title, properties, views: spec.views }
-  const dbId = isPrivatePage(pageId) ? createPrivateDatabase(input) : ws.createDatabase(input)
-  for (const row of spec.rows) {
-    const rowId = useWorkspace.getState().createRow(dbId, { title: row.title, properties: row.properties })
-    if (row.body) useWorkspace.getState().setContent(rowId, claudeDoc(row.body), origin)
-  }
+  const writer = fileWriter(run, origin)
+  const dbId = withWriter(writer, () => {
+    const dbId = isPrivatePage(pageId) ? createPrivateDatabase(input) : ws.createDatabase(input)
+    for (const row of spec.rows) {
+      const rowId = useWorkspace.getState().createRow(dbId, { title: row.title, properties: row.properties })
+      if (row.body) useWorkspace.getState().setContent(rowId, claudeDoc(row.body), origin)
+    }
+    return dbId
+  })
   if (editor.isDestroyed) return dbId
-  linkBelow(editor, run, asPage ? editor.schema.nodes.pageLink.create({ pageId: dbId }) : editor.schema.nodes.databaseBlock.create({ databaseId: dbId, viewId: null }))
+  linkBelow(editor, run, asPage ? editor.schema.nodes.pageLink.create({ pageId: dbId }) : editor.schema.nodes.databaseBlock.create({ databaseId: dbId, viewId: null }), writer)
   useUI.getState().toast({
     message: spec.rows.length === 1 ? t('features.ai.todb.doneOne') : t('features.ai.todb.done', { n: spec.rows.length }),
     kind: 'success',
@@ -244,6 +260,6 @@ export async function uploadFileCopy(editor: Editor, run: AIRun): Promise<FileHi
   if (!hit || editor.isDestroyed) return null
   // the copy keeps the block's name unless it is another kind of file
   const name = fileKind(file.name) ? file.name : String(hit.node.attrs.name ?? file.name)
-  editor.view.dispatch(editor.state.tr.setNodeMarkup(hit.pos, undefined, { ...hit.node.attrs, src: ref, name, size: file.size }))
+  editAs(editor, { kind: 'you', via: 'ui' }, () => editor.view.dispatch(editor.state.tr.setNodeMarkup(hit.pos, undefined, { ...hit.node.attrs, src: ref, name, size: file.size })))
   return fileAt(editor.state.doc, hit.pos)
 }

@@ -11,6 +11,11 @@ import { toast } from '../../store/ui'
 import { t } from '../../i18n'
 import { MEDIA_MAX_BYTES, mediaKindOf, mediaNameFromUrl, type MediaKind } from '../schema/media'
 import { pickFiles } from './upload'
+import type { Writer } from '../../store/writer'
+import { editAs } from './editAs'
+
+/** The person's upload (store/writer.ts): the stored file's ref lands after the save. */
+const YOU: Writer = { kind: 'you', via: 'ui' }
 
 export interface PendingSave {
   name: string
@@ -73,7 +78,7 @@ function findBlock(editor: Editor, id: string, type: string): number | null {
  * store the file. Returns false when the file isn't media; true once it was handled (also
  * when it was refused or failed — a toast told the user).
  */
-export async function insertMediaFile(editor: Editor, file: File, insert: (node: JSONContent) => void): Promise<boolean> {
+export async function insertMediaFile(editor: Editor, file: File, insert: (node: JSONContent) => void, writer: Writer = YOU): Promise<boolean> {
   const kind: MediaKind | null = mediaKindOf(file)
   if (!kind) return false
   if (!mediaFits(file)) return true
@@ -98,7 +103,7 @@ export async function insertMediaFile(editor: Editor, file: File, insert: (node:
     const pos = findBlock(editor, id, kind)
     const node = pos === null ? null : editor.state.doc.nodeAt(pos)
     // a block deleted (or undone) while saving simply stays gone
-    if (pos !== null && node) editor.view.dispatch(editor.state.tr.setNodeMarkup(pos, undefined, { ...node.attrs, src: ref }).setMeta('addToHistory', false))
+    if (pos !== null && node) editAs(editor, writer, () => editor.view.dispatch(editor.state.tr.setNodeMarkup(pos, undefined, { ...node.attrs, src: ref }).setMeta('addToHistory', false)))
   } catch (err) {
     console.warn('[editor] media save failed', err)
     toast({ message: t('editor.upload.failed'), kind: 'error' })
@@ -132,7 +137,7 @@ export async function pickMediaFile(editor: Editor, pos: number): Promise<number
     const at = id ? findBlock(editor, id, kind) : editor.state.doc.nodeAt(pos)?.type.name === kind ? pos : null
     const current = at === null ? null : editor.state.doc.nodeAt(at)
     if (at === null || !current) return null
-    editor.view.dispatch(editor.state.tr.setNodeMarkup(at, undefined, { ...current.attrs, src: ref, name: file.name }))
+    editAs(editor, YOU, () => editor.view.dispatch(editor.state.tr.setNodeMarkup(at, undefined, { ...current.attrs, src: ref, name: file.name })))
     return at
   } catch (err) {
     console.warn('[editor] media save failed', err)

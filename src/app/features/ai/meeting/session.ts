@@ -10,6 +10,8 @@ import type { Editor } from '@tiptap/core'
 import { create } from 'zustand'
 import { docToMarkdown, type MeetingAttrs, type MeetingStatus } from '../../../editor'
 import { useWorkspace } from '../../../store/store'
+import type { Writer } from '../../../store/writer'
+import { newId } from '../../../lib/ids'
 import { toast } from '../../../store/ui'
 import { openPage } from '../../../lib/router'
 import { useCloud } from '../../../cloud'
@@ -54,6 +56,8 @@ interface Live {
   abort: AbortController | null
   detachTimer?: number
   onEnd?: () => void
+  /** the recording's run (store/writer.ts: `ai:<run>:meeting_transcript` — the transcript and the status it keeps) */
+  run: string
 }
 
 const live = new Map<string, Live>()
@@ -61,11 +65,14 @@ const live = new Map<string, Live>()
 function entry(blockId: string): Live {
   let l = live.get(blockId)
   if (!l) {
-    l = { target: { blockId, pageId: null, editor: null }, before: 'idle', rec: null, abort: null }
+    l = { target: { blockId, pageId: null, editor: null }, before: 'idle', rec: null, abort: null, run: newId() }
     live.set(blockId, l)
   }
   return l
 }
+
+/** The recording's writer: transcript lines fold like typing; its status changes go with them. */
+const recWriter = (l: Live): Writer => ({ kind: 'ai', run: l.run, action: 'meeting_transcript' })
 
 const recording = (p: MeetingPhase) => p === 'starting' || p === 'listening' || p === 'paused' || p === 'stopping'
 
@@ -123,7 +130,7 @@ function appendFinal(blockId: string, text: string) {
   const l = live.get(blockId)
   if (!l) return
   const at = elapsedMs(runtimeOf(blockId))
-  const ok = patchMeeting(l.target, (a) => ({ transcript: [...a.transcript, { t: at, text }] }))
+  const ok = patchMeeting(l.target, (a) => ({ transcript: [...a.transcript, { t: at, text }] }), recWriter(l))
   if (!ok) dropRecording(blockId)
 }
 
@@ -138,6 +145,8 @@ export function startRecording(blockId: string, opts: { language: string; resume
   const base = rt.phase === 'paused' ? rt.base : (opts.resumeFrom ?? 0)
   l.before = rt.phase === 'paused' ? 'paused' : 'idle'
   l.onEnd = undefined
+  // a new recording is a new run; a resume goes on with the paused one
+  if (rt.phase !== 'paused') l.run = newId()
   setRuntime(blockId, { phase: 'starting', interim: '', since: null, base, speechError: null, aiError: null })
   const rec = new Recognizer(opts.language, {
     onStart: () => {
@@ -149,7 +158,7 @@ export function startRecording(blockId: string, opts: { language: string; resume
         endedAt: null,
         language: opts.language,
         recordedBy: recorderName(),
-      }))
+      }), recWriter(l))
       if (!ok) dropRecording(blockId)
     },
     onFinal: (text) => appendFinal(blockId, text),
@@ -169,7 +178,7 @@ export function startRecording(blockId: string, opts: { language: string; resume
       else {
         const ms = elapsedMs(cur)
         setRuntime(blockId, { phase: 'paused', since: null, base: ms, speechError: error, interim: '' })
-        patchMeeting(l.target, { status: 'paused', duration: ms })
+        patchMeeting(l.target, { status: 'paused', duration: ms }, recWriter(l))
       }
     },
   })
@@ -187,7 +196,7 @@ export function pauseRecording(blockId: string): boolean {
   l.onEnd = () => undefined
   l.rec?.stop()
   if (rt.phase === 'starting') return true
-  return patchMeeting(l.target, { status: 'paused', duration: ms, recordedBy: recorderName() })
+  return patchMeeting(l.target, { status: 'paused', duration: ms, recordedBy: recorderName() }, recWriter(l))
 }
 
 /** Stop: wait for the last phrases, close the recording, then (optionally) summarise. */
@@ -200,7 +209,7 @@ export function stopRecording(blockId: string, opts: { summarize: boolean }): vo
     window.clearTimeout(timer)
     if (runtimeOf(blockId).phase !== 'stopping') return
     setRuntime(blockId, { phase: 'idle', since: null, base: ms, interim: '' })
-    const ok = patchMeeting(l.target, { status: 'idle', endedAt: Date.now(), duration: ms, recordedBy: null })
+    const ok = patchMeeting(l.target, { status: 'idle', endedAt: Date.now(), duration: ms, recordedBy: null }, recWriter(l))
     if (ok && opts.summarize) void summarizeMeeting(blockId)
   }
   setRuntime(blockId, { phase: 'stopping', since: null, base: ms, speechError: null })
@@ -245,7 +254,8 @@ export async function summarizeMeeting(blockId: string): Promise<void> {
   const ac = new AbortController()
   l.abort = ac
   setRuntime(blockId, { phase: 'summarizing', aiError: null })
-  patchMeeting(l.target, { status: 'summarizing' })
+  const writer: Writer = { kind: 'ai', run: newId(), action: 'meeting_summary' }
+  patchMeeting(l.target, { status: 'summarizing' }, writer)
   try {
     const summary = await requestMeetingSummary(
       {
@@ -259,15 +269,15 @@ export async function summarizeMeeting(blockId: string): Promise<void> {
       ac.signal,
     )
     // the status goes back first, so undoing the notes returns to "ready to summarise"
-    patchMeeting(l.target, { status: prev })
+    patchMeeting(l.target, { status: prev }, writer)
     const now = useWorkspace.getState()
     const patch: Partial<MeetingAttrs> = { status: 'done' }
     const fresh = readMeeting(l.target)?.attrs ?? attrs
     if (!fresh.title.trim() && summary.title) patch.title = summary.title
     if (!fresh.endedAt) patch.endedAt = Date.now()
-    writeNotes(l.target, notesBlocks(summary, now.people, now.settings.language), patch, prev === 'done' || blank ? 'replace' : 'prepend')
+    writeNotes(l.target, notesBlocks(summary, now.people, now.settings.language), patch, prev === 'done' || blank ? 'replace' : 'prepend', writer)
   } catch (e) {
-    patchMeeting(l.target, (a) => (a.status === 'summarizing' ? { status: prev } : null))
+    patchMeeting(l.target, (a) => (a.status === 'summarizing' ? { status: prev } : null), writer)
     const err = e instanceof AIError ? e : new AIError('unknown', e instanceof Error ? e.message : String(e))
     if (err.code !== 'aborted') setRuntime(blockId, { aiError: { code: err.code, message: err.message } })
   } finally {

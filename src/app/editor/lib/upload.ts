@@ -7,6 +7,8 @@ import { t } from '../../i18n'
 import { insertBlock } from './blocks'
 import { insertMediaFile } from './mediaSave'
 import { startFileAction } from '../../features'
+import type { Writer } from '../../store/writer'
+import { editAs } from './editAs'
 
 const MAX_BYTES = 25 * 1024 * 1024
 
@@ -40,16 +42,20 @@ function offerDeck(editor: Editor, ref: string, name: string) {
   })
 }
 
-/** Store files locally (IndexedDB) and insert image / video / audio / file blocks. */
-export async function uploadFiles(editor: Editor, files: File[], pos?: number | null): Promise<void> {
+/**
+ * Store files locally (IndexedDB) and insert image / video / audio / file blocks — as `writer`'s write
+ * (store/writer.ts; the person's drop / paste by default): the blocks land after the file is stored.
+ */
+export async function uploadFiles(editor: Editor, files: File[], pos?: number | null, writer: Writer = { kind: 'you', via: 'ui' }): Promise<void> {
   for (const file of files) {
     // video + audio: own size limit, the block shows up right away while the file is stored
     const media = await insertMediaFile(editor, file, (node) => {
       if (pos !== undefined && pos !== null) {
-        editor.chain().focus().insertContentAt(blockDropPos(editor, pos, node), node).run()
+        const at = blockDropPos(editor, pos, node)
+        editAs(editor, writer, () => editor.chain().focus().insertContentAt(at, node).run())
         pos = undefined
-      } else insertBlock(editor, node)
-    })
+      } else editAs(editor, writer, () => insertBlock(editor, node))
+    }, writer)
     if (editor.isDestroyed) return
     if (media) continue
     if (file.size > MAX_BYTES) {
@@ -62,10 +68,11 @@ export async function uploadFiles(editor: Editor, files: File[], pos?: number | 
       const node = file.type.startsWith('image/')
         ? { type: 'image', attrs: { src: ref, alt: file.name.replace(/\.[a-z0-9]+$/i, '') } }
         : { type: 'fileBlock', attrs: { src: ref, name: file.name, size: file.size } }
-      if (pos !== undefined && pos !== null) {
-        editor.chain().focus().insertContentAt(pos, node).run()
+      const at = pos
+      if (at !== undefined && at !== null) {
+        editAs(editor, writer, () => editor.chain().focus().insertContentAt(at, node).run())
         pos = undefined
-      } else insertBlock(editor, node)
+      } else editAs(editor, writer, () => insertBlock(editor, node))
       if (node.type === 'fileBlock' && /\.pptx$/i.test(file.name)) offerDeck(editor, ref, file.name)
     } catch (err) {
       console.warn('[editor] upload failed', err)

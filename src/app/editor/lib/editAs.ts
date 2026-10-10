@@ -10,7 +10,7 @@
  */
 import type { Editor } from '@tiptap/core'
 import type { Transaction } from '@tiptap/pm/state'
-import type { Writer } from '../../store/writer'
+import { withWriter, type Writer } from '../../store/writer'
 
 /** A mounted editor's flush: no writer = the editor's own frame. */
 export type EditorFlush = (writer?: Writer) => void
@@ -36,16 +36,17 @@ export const inEditAs = (): boolean => depth > 0
 export const NORMALISE_META = 'one:normalise'
 
 /**
- * Run `fn` (transactions on the editor: `view.dispatch` or `chain()…run()`) as `writer`'s write: the person's
- * pending typing is flushed first (their frame), then `fn`, then the store write at once inside `writer`'s frame.
- * Synchronous only — open one per burst after each await.
+ * Run `fn` (transactions on the editor: `view.dispatch` or `chain()…run()`, plus any store calls that go with
+ * them — an Undo's put-back) as `writer`'s write: the person's pending typing is flushed first (their frame),
+ * then `fn` inside `writer`'s frame, then the editor's store write at once inside it too. Synchronous only —
+ * open one per burst after each await.
  */
 export function editAs(editor: Editor, writer: Writer, fn: () => void): void {
   const flush = editor.isDestroyed ? undefined : flushers.get(editor)
   flush?.()
   depth++
   try {
-    fn()
+    withWriter(writer, fn)
   } finally {
     depth--
   }

@@ -11,7 +11,7 @@ import type { Editor, JSONContent } from '@tiptap/core'
 import { Fragment, type Node as PMNode } from '@tiptap/pm/model'
 import { TextSelection } from '@tiptap/pm/state'
 import { closeHistory } from '@tiptap/pm/history'
-import { endUndoStep, startUndoStep } from '../../../editor'
+import { editAs, endUndoStep, startUndoStep } from '../../../editor'
 import { useWorkspace } from '../../../store/store'
 import { useUI } from '../../../store/ui'
 import type { ID } from '../../../store/types'
@@ -23,9 +23,11 @@ import { leftBlocks, resultBlocks } from './build'
 import { applyFreeBoard } from '../freeboard/apply'
 import { typeLabel } from './forms'
 import { shownResult, type TransformState } from './types'
+import { type Writer } from '../../../store/writer'
+import { newId } from '../../../lib/ids'
 
 /** Put the shown result in place of `range` (null: at the end of the page). Throws TodbError. */
-export async function applyTransform(editor: Editor, pageId: ID, range: BlockRange | null, state: TransformState): Promise<void> {
+export async function applyTransform(editor: Editor, pageId: ID, range: BlockRange | null, state: TransformState, writer: Writer = { kind: 'ai', run: newId(), action: 'transform' }): Promise<void> {
   const res = shownResult(state)
   const type = state.shown
   if (!res || !type) throw new TodbError('bad')
@@ -33,12 +35,12 @@ export async function applyTransform(editor: Editor, pageId: ID, range: BlockRan
   if (res.type === 'db') {
     // the form is the view (a board without a group column / a timeline without dates opens as a table)
     const view = type === 'timeline' ? 'timeline' : type === 'board' ? 'board' : 'table'
-    await convertToDatabase(editor, pageId, range, res.table, { ...res.table.draft, view }, { original })
+    await convertToDatabase(editor, pageId, range, res.table, { ...res.table.draft, view }, { original, writer })
     return
   }
 
   if (res.type === 'freeboard') {
-    await applyFreeBoard(editor, pageId, range, res, { original })
+    await applyFreeBoard(editor, pageId, range, res, { original, writer })
     return
   }
 
@@ -87,9 +89,12 @@ export async function applyTransform(editor: Editor, pageId: ID, range: BlockRan
   const end = pos + made.reduce((n, x) => n + x.nodeSize, 0)
   // the caret right after the new block (never a node selection: typing would replace it)
   tr.setSelection(TextSelection.near(tr.doc.resolve(Math.min(end, tr.doc.content.size)))).scrollIntoView()
-  startUndoStep(editor.view)
-  editor.view.dispatch(tr)
-  endUndoStep(editor.view)
+  // the run's write, handed to the store at once (store/writer.ts)
+  editAs(editor, writer, () => {
+    startUndoStep(editor.view)
+    editor.view.dispatch(tr)
+    endUndoStep(editor.view)
+  })
   editor.view.focus()
   const after = editor.state.doc
 
@@ -100,7 +105,7 @@ export async function applyTransform(editor: Editor, pageId: ID, range: BlockRan
       label: t('common.undo'),
       run: () => {
         if (editor.isDestroyed) return
-        if (editor.state.doc.eq(after)) editor.commands.undo()
+        if (editor.state.doc.eq(after)) editAs(editor, { kind: 'you', via: 'undo' }, () => editor.commands.undo())
         else useUI.getState().toast({ message: t('features.ai.transform.undoLate'), kind: 'info' })
       },
     },

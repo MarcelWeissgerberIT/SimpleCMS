@@ -12,12 +12,13 @@
 import type { Editor, JSONContent } from '@tiptap/core'
 import { TextSelection, NodeSelection } from '@tiptap/pm/state'
 import { closeHistory } from '@tiptap/pm/history'
-import { endUndoStep, startUndoStep } from '../../../editor'
+import { editAs, endUndoStep, startUndoStep } from '../../../editor'
 import { create } from 'zustand'
 import { useWorkspace } from '../../../store/store'
 import { useUI } from '../../../store/ui'
 import type { ID } from '../../../store/types'
 import { saveFile } from '../../../lib/files'
+import { withWriter, type Writer } from '../../../store/writer'
 import { t } from '../../../i18n'
 import { snapshotNow } from '../../history/snapshots'
 import { startRun, useAIRuns, type AIRun } from '../runs'
@@ -34,6 +35,9 @@ export const IMAGE_CODES: Record<ImageAction, string> = { describe: 'ALT', read:
 const pageOf = (editor: Editor): ID | null => (editor.isDestroyed ? null : editor.view.dom.getAttribute('data-page-id'))
 
 /** The request of an action on this image (labels in the UI language). */
+/** The image run's write (store/writer.ts). */
+const imageWriter = (run: Pick<AIRun, 'id'>): Writer => ({ kind: 'ai', run: run.id, action: 'image' })
+
 export function imageRequest(action: ImageAction, hit: ImageHit, extra: { question?: string; instruction?: string } = {}): ImageRunRequest {
   return {
     kind: 'image',
@@ -117,7 +121,7 @@ export async function applyDescription(editor: Editor, pageId: ID, run: AIRun, d
   const tr = closeHistory(editor.state.tr).setNodeMarkup(hit.pos, undefined, { ...hit.node.attrs, alt: desc.alt.trim() || null, caption: desc.caption.trim() })
   tr.setSelection(NodeSelection.create(tr.doc, hit.pos))
   startUndoStep(editor.view)
-  editor.view.dispatch(tr)
+  editAs(editor, imageWriter(run), () => editor.view.dispatch(tr))
   endUndoStep(editor.view)
   editor.view.focus()
   return true
@@ -131,12 +135,14 @@ export async function insertBelowImage(editor: Editor, pageId: ID, run: AIRun, b
   const hit = runImage(editor, run)
   const at = hit ? belowImage(editor, hit) : editor.state.doc.content.size
   startUndoStep(editor.view)
-  editor
-    .chain()
-    .focus()
-    .command(({ tr }) => (closeHistory(tr), true))
-    .insertContentAt(at, blocks)
-    .run()
+  editAs(editor, imageWriter(run), () => {
+    editor
+      .chain()
+      .focus()
+      .command(({ tr }) => (closeHistory(tr), true))
+      .insertContentAt(at, blocks)
+      .run()
+  })
   endUndoStep(editor.view)
 }
 
@@ -157,11 +163,15 @@ export async function createImageDatabase(editor: Editor, pageId: ID, run: AIRun
   const spec = buildDatabase(plan, draft, { board: t('features.ai.todb.view.board'), table: t('features.ai.todb.view.table'), untitled: t('common.untitled') })
   // the title property keeps the name of the table's first column
   const properties = spec.properties.map((p, i) => (i === 0 && p.type === 'title' ? { ...p, name: titleName.slice(0, 100) || p.name } : p))
-  const dbId = ws.createDatabase({ parentId: pageId, inline: !asPage, title: spec.title, properties, views: spec.views })
-  for (const row of spec.rows) {
-    const rowId = useWorkspace.getState().createRow(dbId, { title: row.title, properties: row.properties })
-    if (row.body) useWorkspace.getState().setContent(rowId, claudeDoc(row.body), 'ai')
-  }
+  const writer = imageWriter(run)
+  const dbId = withWriter(writer, () => {
+    const id = ws.createDatabase({ parentId: pageId, inline: !asPage, title: spec.title, properties, views: spec.views })
+    for (const row of spec.rows) {
+      const rowId = useWorkspace.getState().createRow(id, { title: row.title, properties: row.properties })
+      if (row.body) useWorkspace.getState().setContent(rowId, claudeDoc(row.body), 'ai')
+    }
+    return id
+  })
   if (editor.isDestroyed) return dbId
   const node = asPage ? editor.schema.nodes.pageLink.create({ pageId: dbId }) : editor.schema.nodes.databaseBlock.create({ databaseId: dbId, viewId: null })
   const hit = runImage(editor, run)
@@ -169,7 +179,7 @@ export async function createImageDatabase(editor: Editor, pageId: ID, run: AIRun
   const tr = closeHistory(editor.state.tr).insert(at, node)
   tr.setSelection(TextSelection.near(tr.doc.resolve(Math.min(at + node.nodeSize, tr.doc.content.size)))).scrollIntoView()
   startUndoStep(editor.view)
-  editor.view.dispatch(tr)
+  editAs(editor, writer, () => editor.view.dispatch(tr))
   endUndoStep(editor.view)
   editor.view.focus()
   useUI.getState().toast({ message: spec.rows.length === 1 ? t('features.ai.todb.doneOne') : t('features.ai.todb.done', { n: spec.rows.length }), kind: 'success' })
@@ -213,6 +223,7 @@ export async function uploadImageCopy(editor: Editor, run: AIRun): Promise<Image
   const ref = await saveFile(file, file.name)
   const hit = runImage(editor, run)
   if (!hit || editor.isDestroyed) return null
-  editor.view.dispatch(editor.state.tr.setNodeMarkup(hit.pos, undefined, { ...hit.node.attrs, src: ref }))
+  // the person's own copy (a file they picked)
+  editAs(editor, { kind: 'you', via: 'ui' }, () => editor.view.dispatch(editor.state.tr.setNodeMarkup(hit.pos, undefined, { ...hit.node.attrs, src: ref })))
   return imageAt(editor.state.doc, hit.pos)
 }

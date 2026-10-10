@@ -80,7 +80,8 @@ import { Kbd } from '../../ui/controls'
 import { useLang, useT } from '../../i18n'
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
-import { endUndoStep, openContextPicker, pageContextMarks, setContextMode, startUndoStep, topBlockKeys, useContextMarks, type ContextMode } from '../../editor'
+import { editAs, endUndoStep, openContextPicker, pageContextMarks, setContextMode, startUndoStep, topBlockKeys, useContextMarks, type ContextMode } from '../../editor'
+import { newId } from '../../lib/ids'
 import { closeHistory } from '@tiptap/pm/history'
 import { toMarkdown } from '../share/markdown'
 import { turnIntoPage } from '../../editor'
@@ -654,22 +655,25 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
     const tg = useAIRuns.getState().runs[run.id]?.target ?? targetRef.current
     const size = editor.state.doc.content.size
     const clamp = (n: number) => Math.max(0, Math.min(n, size))
-    // Claude's result is its own undo step (also in a shared page, where Y undo merges by time)
-    startUndoStep(editor.view)
-    const chain = editor
-      .chain()
-      .focus()
-      .command(({ tr }) => (closeHistory(tr), true))
-    if (how === 'replace' && tg.mode === 'selection' && !tg.lost && tg.to > tg.from) {
-      const range = { from: clamp(tg.from), to: clamp(tg.to) }
-      const single = blocks.length === 1 && blocks[0].type === 'paragraph'
-      chain.insertContentAt(range, single && tg.inlineOnly ? (blocks[0].content ?? []) : blocks).run()
-    } else if (how === 'fill' && targetBlockEmpty(tg)) {
-      chain.insertContentAt({ from: clamp(tg.blockFrom), to: clamp(tg.blockTo) }, blocks).run()
-    } else {
-      chain.insertContentAt(insertionPoint(tg), blocks).run()
-    }
-    endUndoStep(editor.view)
+    // Claude's result is its own undo step (also in a shared page, where Y undo merges by time) — and the AI run's
+    // write, handed to the store at once (store/writer.ts: editAs)
+    editAs(editor, { kind: 'ai', run: run.id, action: 'accept' }, () => {
+      startUndoStep(editor.view)
+      const chain = editor
+        .chain()
+        .focus()
+        .command(({ tr }) => (closeHistory(tr), true))
+      if (how === 'replace' && tg.mode === 'selection' && !tg.lost && tg.to > tg.from) {
+        const range = { from: clamp(tg.from), to: clamp(tg.to) }
+        const single = blocks.length === 1 && blocks[0].type === 'paragraph'
+        chain.insertContentAt(range, single && tg.inlineOnly ? (blocks[0].content ?? []) : blocks).run()
+      } else if (how === 'fill' && targetBlockEmpty(tg)) {
+        chain.insertContentAt({ from: clamp(tg.blockFrom), to: clamp(tg.blockTo) }, blocks).run()
+      } else {
+        chain.insertContentAt(insertionPoint(tg), blocks).run()
+      }
+      endUndoStep(editor.view)
+    })
     removeRun(run.id)
     onClose()
   }
@@ -685,15 +689,18 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
     const tg = (runId ? useAIRuns.getState().runs[runId]?.target : null) ?? targetRef.current
     const { doc } = editor.state
     const at = !tg.lost && tg.from <= doc.content.size ? doc.nodeAt(tg.from) : null
-    startUndoStep(editor.view)
-    const chain = editor
-      .chain()
-      .focus()
-      .command(({ tr }) => (closeHistory(tr), true))
-    if (how === 'fill' && at?.type.name === 'image' && !at.attrs.src) chain.insertContentAt({ from: tg.from, to: tg.from + at.nodeSize }, nodes).run()
-    else if (how === 'fill' && targetBlockEmpty(tg)) chain.insertContentAt({ from: tg.blockFrom, to: tg.blockTo }, nodes).run()
-    else chain.insertContentAt(insertionPoint(tg), nodes).run()
-    endUndoStep(editor.view)
+    // media from the run's answer, saved by the person's click: the run's write (store/writer.ts)
+    editAs(editor, { kind: 'ai', run: runId ?? newId(), action: 'media' }, () => {
+      startUndoStep(editor.view)
+      const chain = editor
+        .chain()
+        .focus()
+        .command(({ tr }) => (closeHistory(tr), true))
+      if (how === 'fill' && at?.type.name === 'image' && !at.attrs.src) chain.insertContentAt({ from: tg.from, to: tg.from + at.nodeSize }, nodes).run()
+      else if (how === 'fill' && targetBlockEmpty(tg)) chain.insertContentAt({ from: tg.blockFrom, to: tg.blockTo }, nodes).run()
+      else chain.insertContentAt(insertionPoint(tg), nodes).run()
+      endUndoStep(editor.view)
+    })
   }
 
   /** "Turn into database": in place of the blocks Claude read (one undo step) — or at the end when they changed. */
@@ -704,7 +711,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
     const range: BlockRange | null = !tg.lost && tg.todb && sameBlocks(editor.state.doc, tg.todb, run.table.blocks) ? tg.todb : null
     convertingRef.current = true
     try {
-      await convertToDatabase(editor, pageId, range, run.table, run.table.draft)
+      await convertToDatabase(editor, pageId, range, run.table, run.table.draft, { writer: { kind: 'ai', run: run.id, action: 'todb' } })
       removeRun(run.id)
       onClose()
     } catch (e) {
@@ -1100,7 +1107,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
           keywords: 'page subpage new page extract seite unterseite neue seite auslagern',
           run: () => {
             onClose()
-            turnIntoPage(editor, { pageId, range: { from: own.t.from, to: own.t.to } })
+            turnIntoPage(editor, { pageId, range: { from: own.t.from, to: own.t.to }, writer: { kind: 'ai', run: newId(), action: 'split' } })
           },
         },
         // "Sub-page per item" (editor/split/items.ts): no Claude — each item a sub-page, one table of links in their place
@@ -1114,7 +1121,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
           hidden: itemCount(editor.state.doc, { from: own.t.from, to: own.t.to }) < 2,
           run: () => {
             onClose()
-            pagesPerItem(editor, { pageId, range: { from: own.t.from, to: own.t.to } })
+            pagesPerItem(editor, { pageId, range: { from: own.t.from, to: own.t.to }, writer: { kind: 'ai', run: newId(), action: 'split' } })
           },
         },
         // "Turn into list" (features/kit): no Claude — one item per line / list item becomes a shared list (previewed first)

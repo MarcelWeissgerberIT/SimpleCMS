@@ -7,10 +7,12 @@
 import type { Editor, JSONContent } from '@tiptap/core'
 import { Fragment, type Node as PMNode } from '@tiptap/pm/model'
 import { closeHistory } from '@tiptap/pm/history'
-import { endUndoStep, startUndoStep } from '../../../editor'
+import { editAs, endUndoStep, startUndoStep } from '../../../editor'
 import { snapshotNow } from '../../history/snapshots'
 import type { ID } from '../../../store/types'
 import { passageBlocks, type RedoPassage } from './passages'
+import { type Writer } from '../../../store/writer'
+import { newId } from '../../../lib/ids'
 
 export interface RedoApplyItem {
   passage: RedoPassage
@@ -37,7 +39,7 @@ function locate(doc: PMNode, p: RedoPassage): { pos: number; node: PMNode } | 'c
   return found.node.type.name === p.type && plainOf(found.node) === p.anchor ? found : 'changed'
 }
 
-export async function applyRedo(editor: Editor, pageId: ID, items: RedoApplyItem[]): Promise<RedoApplyResult> {
+export async function applyRedo(editor: Editor, pageId: ID, items: RedoApplyItem[], writer: Writer = { kind: 'ai', run: newId(), action: 'redo' }): Promise<RedoApplyResult> {
   const res: RedoApplyResult = { applied: [], changed: [] }
   if (!items.length || editor.isDestroyed) return res
   await snapshotNow(pageId, 'ai')
@@ -66,9 +68,12 @@ export async function applyRedo(editor: Editor, pageId: ID, items: RedoApplyItem
   spots.sort((a, b) => b.pos - a.pos)
   const tr = closeHistory(state.tr)
   for (const s of spots) tr.replaceWith(s.pos, s.pos + s.node.nodeSize, Fragment.fromArray(s.nodes))
-  startUndoStep(editor.view)
-  editor.view.dispatch(tr.scrollIntoView())
-  endUndoStep(editor.view)
+  // the run's write, handed to the store at once (store/writer.ts)
+  editAs(editor, writer, () => {
+    startUndoStep(editor.view)
+    editor.view.dispatch(tr.scrollIntoView())
+    endUndoStep(editor.view)
+  })
   res.applied = spots.map((s) => s.n).sort((a, b) => a - b)
   return res
 }
