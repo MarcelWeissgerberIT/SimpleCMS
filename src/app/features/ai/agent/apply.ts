@@ -207,7 +207,8 @@ export async function applyChanges(changes: StagedChange[], all: StagedChange[],
   const final: string[] = []
   const undos: Array<{ ids: string[]; fn: () => boolean }> = []
   const done = new Set(all.filter((c) => c.status === 'applied').map((c) => c.id))
-  const ordered = [...changes].filter((c) => c.status === 'pending' || c.status === 'failed').sort((a, b) => rank(a) - rank(b) || a.n - b.n)
+  // a send is never applied here (the Outbox sends it, after a person's press): it stays as it is
+  const ordered = [...changes].filter((c) => (c.status === 'pending' || c.status === 'failed') && c.kind !== 'send').sort((a, b) => rank(a) - rank(b) || a.n - b.n)
   const targets = linkTargets(all, resolveRow, rowIds)
   const toDoc: ToDoc = (markdown, keep) => withPageNodes(claudeDoc(markdown, keep), targets)
 
@@ -307,6 +308,8 @@ function viewsOf(c: StagedChange, properties: PropertyDef[]): View[] {
 async function applyOne(c: StagedChange, resolveRow: (id: ID) => ID, rowIds: Record<string, ID>, toDoc: ToDoc, opts: ApplyOpts): Promise<() => boolean> {
   const s = ws()
   switch (c.kind) {
+    case 'send':
+      throw new Error('sends go through the Outbox')
     case 'coding': {
       // a pipeline task: only the AI terminal's review applies these (coding/terminal.ts checks it all again)
       const cd = c.coding

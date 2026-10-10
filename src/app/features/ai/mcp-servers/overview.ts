@@ -3,12 +3,13 @@
  *
  * One row per MCP server of this device: its codeword, which of One's Claude requests take it (scope, switched
  * off), the custom agents that attach it (browser runner; a tool list narrows it, [] leaves it out), the integration
- * profiles it activates, and whether Claude Code in the coding worker has a server of the same name (or codeword) —
+ * profiles it activates, its OUT tools (the send tools of profiles that match it by name / host: switched off in every
+ * Claude request, lock.ts), and whether Claude Code in the coding worker has a server of the same name (or codeword) —
  * per repo and for tasks without a repo. Claude Code's servers are its own (the person's `claude mcp` setup, named in
  * worker.json); a name One does not know gets a row of its own. Nothing here is fixed per service.
  */
 import type { CustomAgent, IntegrationProfile, McpServerConfig } from '../../../store/types'
-import { matchingServers } from '../../../store/integrations'
+import { matchingServers, outToolsOf } from '../../../store/integrations'
 
 /** What One knows of the coding worker's Claude Code servers (features/coding WorkerInfo, names only). */
 export interface WorkerMcp {
@@ -34,6 +35,8 @@ export interface OverviewRow {
   agents: Array<{ id: string; name: string; tools: number | null; enabled: boolean }>
   /** integration profiles active through this server */
   integrations: string[]
+  /** its OUT tools: switched off in every Claude request (only the Outbox sends with them) */
+  out: string[]
   code: CodeUse
 }
 
@@ -100,6 +103,7 @@ export function overviewRows(
       one: !s.enabled ? 'off' : s.scope === 'all' ? 'all' : 'free',
       agents: attached,
       integrations: profiles.filter((p) => matchingServers(p, matchServers).length > 0).map((p) => p.name),
+      out: outToolsOf(profiles, s),
       code,
     }
   })
@@ -108,7 +112,7 @@ export function overviewRows(
     const extra = new Map<string, string>()
     for (const names of places.values()) for (const n of names) if (!seen.has(fold(n)) && !extra.has(fold(n))) extra.set(fold(n), n)
     for (const [key, name] of [...extra].sort((a, b) => a[0].localeCompare(b[0])))
-      rows.push({ key: `code:${key}`, name, host: '', codeword: null, one: null, agents: [], integrations: [], code: useIn(places, (n) => fold(n) === key) })
+      rows.push({ key: `code:${key}`, name, host: '', codeword: null, one: null, agents: [], integrations: [], out: [], code: useIn(places, (n) => fold(n) === key) })
   }
   return rows
 }

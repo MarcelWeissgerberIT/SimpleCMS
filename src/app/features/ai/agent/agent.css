@@ -1306,6 +1306,20 @@
   white-space: nowrap;
 }
 
+/* an OUT tool (only the Outbox sends with it): struck through, never taken */
+.term-complete__item[data-out] .term-complete__label {
+  color: var(--ink-3);
+  text-decoration: line-through;
+}
+
+.term-complete__item[data-out] .term-complete__hint {
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: calc(10px * var(--text-scale));
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+}
+
 .term-complete__hint {
   overflow: hidden;
   color: var(--ink-3);

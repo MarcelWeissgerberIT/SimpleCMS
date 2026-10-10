@@ -66,12 +66,13 @@ export function parseCodewords(text: string, servers: McpServerConfig[]): Codewo
 
 /**
  * A tool picked after the codeword ("kb: search_records …", the terminal's tool list): the text starts with one of
- * the addressed servers' tool names (from their connection test). null: no such tool.
+ * the addressed servers' tool names (from their connection test). null: no such tool. `outOf`: a server's OUT tools
+ * (config.ts outToolsFor) — never picked: they are switched off in every request (lock.ts).
  */
-export function pickedTool(text: string, servers: McpServerConfig[]): { server: string; tool: string } | null {
+export function pickedTool(text: string, servers: McpServerConfig[], outOf: (s: McpServerConfig) => readonly string[] = () => []): { server: string; tool: string } | null {
   const word = /^\s*([A-Za-z0-9_.-]{1,80})(?=\s|$)/.exec(text)?.[1]
   if (!word) return null
-  const s = servers.find((x) => x.enabled && (x.tools ?? []).includes(word))
+  const s = servers.find((x) => x.enabled && (x.tools ?? []).includes(word) && !outOf(x).includes(word))
   return s ? { server: s.name, tool: word } : null
 }
 

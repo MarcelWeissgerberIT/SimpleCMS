@@ -12,17 +12,24 @@
  *  - Readers sanitize: names / URLs / codewords are checked again here, whatever the stored list says.
  *  - Codewords (codeword.ts): a free-form request starting with "kb:" gets that server attached
  *    whatever its scope (codewordsIn + attachMcp(…, { forced })); client.ts decides, every caller gets it.
+ *  - The OUT lock (lock.ts): the send tools of the integration profiles that match a server by name / host
+ *    (outToolsFor) are switched off in every toolset built here — forced, codewords, a picked tool and allow-lists
+ *    never lift it; the system prompt says which tools are off.
  */
 import type { BetaMCPToolset, BetaRequestMCPServerURLDefinition } from '@anthropic-ai/sdk/resources/beta/messages/messages'
 import { useWorkspace } from '../../../store/store'
 import { getMcpToken } from '../../../store/secrets'
-import type { McpServerConfig, Settings } from '../../../store/types'
+import type { IntegrationProfile, McpServerConfig, Settings } from '../../../store/types'
+import { outToolsOf } from '../../../store/integrations'
 import { t } from '../../../i18n'
 import { linkBaseOf } from '../../../lib/foreignLinks'
 import { addressedLine, codewordGuideLine, codewordProblem, normalizeCodeword, parseCodewords, switchedOffLine, pickedTool, pickedToolLine } from './codeword'
 import { readOAuth } from './oauthConfig'
 import { tokenFor } from './oauth'
 import { newId } from '../../../lib/ids'
+import { lockedOnly, outLine, toolsetFor } from './lock'
+
+export { toolsetFor }
 
 /** The MCP connector beta. */
 export const MCP_BETA = 'mcp-client-2025-11-20'
@@ -231,13 +238,22 @@ function linkLine(s: McpServerConfig): string {
  * codeword, if it has one, and the tools an allow-list leaves switched on), then — for a request that
  * starts with codewords — who was addressed.
  */
-export function mcpSystemText(servers: McpServerConfig[], instructions: string, addressed: string[] = [], picked: { server: string; tool: string } | null = null, allow: McpToolAllow = {}): string {
+export function mcpSystemText(
+  servers: McpServerConfig[],
+  instructions: string,
+  addressed: string[] = [],
+  picked: { server: string; tool: string } | null = null,
+  allow: McpToolAllow = {},
+  out: Record<string, string[]> = {},
+): string {
   const parts = [`<mcp_instructions>\n${instructions.trim()}\n</mcp_instructions>`]
   for (const s of servers) {
     const prompt = s.prompt.trim() || 'No usage guide yet: read the tool descriptions carefully before you use them.'
-    const only = allowedTools(allow, s.name)
+    const off = out[s.name] ?? []
+    const only = lockedOnly(allowedTools(allow, s.name), off)
     const onlyLine = only ? `\nOnly these of its tools are switched on for you: ${only.join(', ')}. Its other tools are not available — never try to call them.` : ''
-    parts.push(`<mcp_server name="${s.name}">\n${prompt}${s.codeword ? `\n${codewordGuideLine(s.codeword)}` : ''}${onlyLine}\n${linkLine(s)}\n</mcp_server>`)
+    const lockLine = off.length ? `\n${outLine(off)}` : ''
+    parts.push(`<mcp_server name="${s.name}">\n${prompt}${s.codeword ? `\n${codewordGuideLine(s.codeword)}` : ''}${onlyLine}${lockLine}\n${linkLine(s)}\n</mcp_server>`)
   }
   const pickedLine = picked && addressed.includes(picked.server) ? [pickedToolLine(picked.server, picked.tool)] : []
   if (addressed.length) parts.push(`<mcp_codeword>\n${[...addressed.map(addressedLine), ...pickedLine].join('\n')}\n</mcp_codeword>`)
@@ -269,10 +285,17 @@ export function allowedTools(allow: McpToolAllow | undefined, name: string): str
   return Array.isArray(list) ? list : null
 }
 
-/** The `mcp_toolset` of one server: all its tools, or only the allowed ones (every other tool switched off). */
-export function toolsetFor(name: string, only: string[] | null = null): BetaMCPToolset {
-  if (!only) return { type: 'mcp_toolset', mcp_server_name: name }
-  return { type: 'mcp_toolset', mcp_server_name: name, default_config: { enabled: false }, configs: Object.fromEntries(only.map((tool) => [tool, { enabled: true }])) }
+/**
+ * The OUT tools of a server here: the send tools of every integration profile that matches it by name / host — whatever
+ * the profile unlocks, the server's switch or its tested tools (store/integrations.ts outToolsOf).
+ */
+export function outToolsFor(server: Pick<McpServerConfig, 'name' | 'url'>, profiles: IntegrationProfile[] | undefined = useWorkspace.getState().integrations): string[] {
+  return outToolsOf(profiles, server)
+}
+
+/** The tools an allow-list leaves on for a server once the lock took the OUT tools (null = no list: all but those). */
+export function allowFor(allow: McpToolAllow | undefined, server: Pick<McpServerConfig, 'name' | 'url'>): string[] | null {
+  return lockedOnly(allowedTools(allow, server.name), outToolsFor(server))
 }
 
 /** What one request sends for MCP. */
@@ -364,6 +387,7 @@ export async function attachMcp(
   const forced = opts.forced ?? []
   const allow = opts.allow ?? {}
   const usable: Array<{ s: McpServerConfig; token: string }> = []
+  const out: Record<string, string[]> = {}
   // a pinned setup keeps its servers (prompt, tools) but uses their current token / sign-in (liveOf)
   const list = readServers()
   for (const pinned of setup.servers) {
@@ -371,24 +395,30 @@ export async function attachMcp(
     if (!s) continue
     if (kind === 'fixed' && s.scope !== 'all' && !forced.includes(s.name)) continue
     if (isRefused(s) && !forced.includes(s.name)) continue
-    // an allow-list without a tool: the server has nothing to offer
-    if (allowedTools(allow, s.name)?.length === 0) continue
+    // the lock (lock.ts): this server's OUT tools, whatever the request
+    const off = outToolsFor(s)
+    // an allow-list without a tool (or only OUT tools): the server has nothing to offer
+    if (lockedOnly(allowedTools(allow, s.name), off)?.length === 0) continue
     // a signed-in server's access token is refreshed shortly before it expires (oauth.ts)
     const token = await tokenFor(s)
     if (token === null) continue
     usable.push({ s, token })
+    out[s.name] = off
   }
   if (!usable.length) return null
   const names = usable.map(({ s }) => s.name)
+  // a picked tool that is OUT is never named to Claude (pickedTool does not pick one either)
+  const picked = opts.picked && !(out[opts.picked.server] ?? []).includes(opts.picked.tool) ? opts.picked : null
   return {
     servers: usable.map(({ s, token }) => ({ type: 'url', url: s.url, name: s.name, ...(token ? { authorization_token: token } : {}) })),
-    toolsets: usable.map(({ s }) => toolsetFor(s.name, allowedTools(allow, s.name))),
+    toolsets: usable.map(({ s }) => toolsetFor(s.name, allowedTools(allow, s.name), out[s.name])),
     system: mcpSystemText(
       usable.map(({ s }) => s),
       setup.instructions,
       forced.filter((n) => names.includes(n)),
-      opts.picked ?? null,
+      picked,
       allow,
+      out,
     ),
     names,
   }
@@ -413,7 +443,7 @@ export interface Codewords {
 export function codewordsIn(text: string, servers: McpServerConfig[] = readServers()): Codewords | null {
   const hit = parseCodewords(text, servers)
   if (!hit.servers.length) return null
-  return { text: hit.text, forced: hit.servers.filter((s) => s.enabled).map((s) => s.name), off: hit.servers.filter((s) => !s.enabled).map((s) => s.name), picked: pickedTool(hit.text, hit.servers) }
+  return { text: hit.text, forced: hit.servers.filter((s) => s.enabled).map((s) => s.name), off: hit.servers.filter((s) => !s.enabled).map((s) => s.name), picked: pickedTool(hit.text, hit.servers, (s) => outToolsFor(s)) }
 }
 
 /**
@@ -424,7 +454,7 @@ export function codewordTask(task: string, servers: McpServerConfig[] = readServ
   const hit = parseCodewords(task, servers)
   if (!hit.servers.length) return task
   const lines = hit.servers.map((s) => (s.enabled ? addressedLine(s.name) : switchedOffLine(s.name)))
-  const picked = pickedTool(hit.text, hit.servers)
+  const picked = pickedTool(hit.text, hit.servers, (s) => outToolsFor(s))
   if (picked) lines.push(pickedToolLine(picked.server, picked.tool))
   return `${lines.join('\n')}\n\n${hit.text}`
 }

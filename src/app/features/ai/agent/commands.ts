@@ -8,7 +8,7 @@ import { useWorkspace } from '../../../store/store'
 import { inTemplate, isEffectivelyTrashed, selectBreadcrumbs } from '../../../store/selectors'
 import type { ID, Page } from '../../../store/types'
 import { t } from '../../../i18n'
-import { readServers } from '../mcp-servers/config'
+import { outToolsFor, readServers } from '../mcp-servers/config'
 import type { TermMention } from './types'
 import { examples } from '../memory/example'
 import { memoryInUse } from '../memory/settings'
@@ -92,8 +92,8 @@ export interface CompletionItem {
   mention?: TermMention & { where: string }
   /** an example of the One memory: "#wochenbericht" → its name */
   example?: { tag: string; text: string }
-  /** a tool of an MCP server ("kb: search_records") */
-  tool?: { server: string; name: string }
+  /** a tool of an MCP server ("kb: search_records"); `out`: an OUT tool — shown struck through, never taken */
+  tool?: { server: string; name: string; out?: boolean }
   /** an MCP server after /connect */
   server?: { id: string; name: string; host: string; codeword?: string }
 }
@@ -189,16 +189,20 @@ function refCandidates(query: string, here: ID | null): CompletionItem[] {
   })
 }
 
-/** "<codeword>:" at the start — the tools of that server (from its connection test), by name. */
+/**
+ * "<codeword>:" at the start — the tools of that server (from its connection test), by name. An OUT tool (a send tool
+ * of an integration profile, mcp-servers/lock.ts) is listed but marked: only the Outbox sends with it.
+ */
 function toolCandidates(word: string, query: string): CompletionItem[] | null {
   const server = readServers().find((s) => s.codeword === word.toLowerCase())
   if (!server) return null
   const q = query.toLowerCase()
+  const out = outToolsFor(server)
   return (server.tools ?? [])
     .filter((name) => !q || name.toLowerCase().includes(q))
     .sort((a, b) => Number(!a.toLowerCase().startsWith(q)) - Number(!b.toLowerCase().startsWith(q)))
     .slice(0, REF_MAX)
-    .map((name) => ({ key: `${server.id}:${name}`, insert: `${server.codeword}: ${name} `, label: name, tool: { server: server.name, name } }))
+    .map((name) => ({ key: `${server.id}:${name}`, insert: `${server.codeword}: ${name} `, label: name, tool: { server: server.name, name, ...(out.includes(name) ? { out: true } : {}) } }))
 }
 
 /** What Tab would complete at the caret (null = nothing to complete). `here`: the page open in One (for "one:"). */
