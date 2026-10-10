@@ -17,6 +17,7 @@
  */
 import { createElement } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
+import { nanoid } from 'nanoid'
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
 import { useCloud } from '../../cloud'
@@ -212,7 +213,7 @@ function connect() {
     const wasConnected = get().conn === 'connected'
     // approvals of this connection can never be answered now
     for (const a of get().approvals) settle(a.id, 'gone')
-    set({ peers: [] })
+    set({ peers: [], session: null })
     if (!get().enabled) return set({ conn: 'off', client: null })
     if (replaced || e.code === MCP_CLOSE_REPLACED) return set({ conn: 'replaced', client: null })
     if (wasConnected) {
@@ -240,7 +241,7 @@ function disconnect(off = true) {
   socket = null
   for (const a of get().approvals) settle(a.id, 'gone')
   if (ws && ws.readyState <= WebSocket.OPEN) ws.close(1000, off ? 'switched off' : 'reconnecting')
-  set({ conn: off ? 'off' : 'connecting', client: null, blocked: null, busy: 0, peers: [] })
+  set({ conn: off ? 'off' : 'connecting', client: null, session: null, blocked: null, busy: 0, peers: [] })
 }
 
 /** The tab came back into view: a waiting connection retries now. */
@@ -259,7 +260,7 @@ function receive(msg: BridgeMessage) {
     case 'welcome':
       attempt = 0
       failingSince = 0
-      set({ conn: 'connected', blocked: null, prompt: false, client: msg.client ?? null, bridge: msg.bridge ?? null, calls: 0 })
+      set({ conn: 'connected', blocked: null, prompt: false, client: msg.client ?? null, session: nanoid(10), bridge: msg.bridge ?? null, calls: 0 })
       lastStatus = JSON.stringify({ type: 'status', workspace: workspaceMsg(), mode: get().mode })
       // the workspace may have changed between hello and welcome
       sendStatus()
@@ -292,7 +293,7 @@ const LOG_MAX = 100
 
 function logStart(id: string, tool: McpToolName, write: boolean, target: string): string {
   const key = `${id}:${Date.now().toString(36)}`
-  const entry: McpActivity = { id: key, at: Date.now(), tool, write, target, state: 'run' }
+  const entry: McpActivity = { id: key, at: Date.now(), session: get().session, tool, write, target, state: 'run' }
   set((s) => ({ activity: [entry, ...s.activity].slice(0, LOG_MAX) }))
   return key
 }
@@ -499,4 +500,18 @@ export function startMcp() {
     // a page may only close with 1000 or 3000–4999 (1001 throws)
     if (socket) socket.close(1000, 'tab closed')
   })
+}
+
+/* ------------------------------------------------------------------ */
+/* Test hook (dev, or ?e2e)                                            */
+/* ------------------------------------------------------------------ */
+
+if (typeof window !== 'undefined' && (import.meta.env.DEV || new URLSearchParams(window.location.search).has('e2e'))) {
+  ;(window as unknown as { __oneMcp?: unknown }).__oneMcp = {
+    state: () => {
+      const s = get()
+      return { conn: s.conn, session: s.session, client: s.client?.name ?? null }
+    },
+    activity: () => get().activity.map(({ undo, ...a }) => ({ ...a, undoable: !!undo })),
+  }
 }

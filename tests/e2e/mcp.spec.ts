@@ -173,6 +173,34 @@ test('connects and reads: overview, search, page Markdown, schema, filtered rows
   expect(pageErrors).toEqual([])
 })
 
+test('a session id per bridge connection: set on welcome, gone while off, new on reconnect; every call carries it', async ({ page }) => {
+  type Seam = { state: () => { conn: string; session: string | null; client: string | null }; activity: () => Array<{ tool: string; session: string | null }> }
+  const state = () => page.evaluate(() => (window as unknown as { __oneMcp: Seam }).__oneMcp.state())
+  const activity = () => page.evaluate(() => (window as unknown as { __oneMcp: Seam }).__oneMcp.activity())
+  await openApp(page)
+  expect(await state()).toMatchObject({ conn: 'off', session: null })
+  await connect(page)
+  const first = await state()
+  expect(first).toMatchObject({ conn: 'connected', client: 'claude-code' })
+  expect(first.session).toMatch(/^[A-Za-z0-9_-]{10}$/)
+  json(await call('one_overview'))
+  expect((await activity()).filter((a) => a.tool === 'one_overview').map((a) => a.session)).toEqual([first.session])
+
+  // switched off: no session; on again: a new one, and the next call carries it
+  const toggle = page.getByRole('switch', { name: 'Allow AI agents on this computer' })
+  await toggle.click()
+  await expect.poll(state).toMatchObject({ conn: 'off', session: null })
+  await toggle.click()
+  await expect(page.getByTestId('mcp-state')).toContainText('Connected · Claude Code')
+  const second = await state()
+  expect(second.session).toMatch(/^[A-Za-z0-9_-]{10}$/)
+  expect(second.session).not.toBe(first.session)
+  json(await call('one_search', { query: 'Team wiki', limit: 1 }))
+  const log = await activity()
+  expect(log.find((a) => a.tool === 'one_search')?.session).toBe(second.session)
+  expect(log.find((a) => a.tool === 'one_overview')?.session).toBe(first.session)
+})
+
 test('Ask first: the card shows the change; Approve writes it, Reject tells the agent', async ({ page }) => {
   await openApp(page)
   await connect(page)

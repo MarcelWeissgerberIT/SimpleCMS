@@ -60,6 +60,8 @@ export type ActivityState = 'run' | 'wait' | 'ok' | 'same' | 'err' | 'rejected' 
 export interface McpActivity {
   id: string
   at: number
+  /** the bridge connection the call came over (McpState.session) */
+  session: string | null
   tool: McpToolName
   write: boolean
   target: string
@@ -90,6 +92,8 @@ export interface McpState extends McpSettings {
   /** the browser will ask (Chrome: "apps on this device") */
   prompt: boolean
   client: McpClientInfo | null
+  /** this connection to the bridge: a new id on every welcome, null while not connected */
+  session: string | null
   bridge: string | null
   /** the bridge speaks only the first protocol (one tab, calls not bound to a workspace): update it */
   legacy: boolean
@@ -109,6 +113,7 @@ export const useMcp = create<McpState>()(() => ({
   blocked: null,
   prompt: false,
   client: null,
+  session: null,
   bridge: null,
   legacy: false,
   peers: [],
