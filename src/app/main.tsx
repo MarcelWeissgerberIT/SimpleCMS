@@ -134,7 +134,7 @@ async function boot() {
       workspace: testStore(),
       ui: useUI,
       flushSave,
-      cloud,
+      cloud: testApi(cloud),
       files: { saveFile, getFile },
     }
   }
@@ -149,16 +149,27 @@ async function boot() {
   }
 }
 
+/** A spec's own writes through the test hook: the person's (`you~ui:e2e`, store/writer.ts) unless a frame is open. */
+const TEST: Writer = { kind: 'you', via: 'ui', ref: 'e2e' }
+
+/** `fn` as the test's writer — its synchronous part (an async function opens its own frames after each await). */
+const asTest =
+  <A extends unknown[], R>(fn: (...a: A) => R) =>
+  (...a: A): R => {
+    if (currentWriter()) return fn(...a)
+    let out!: R
+    withWriter(TEST, () => {
+      out = fn(...a)
+    })
+    return out
+  }
+
 /**
- * The test hook's store (DEV / ?e2e): a spec's setup writes run as the person's (`you~ui:e2e`, store/writer.ts) unless
- * a writer frame is open — so the flight recorder's net (a write without a writer) reports only the app's own paths.
+ * The test hook's store (DEV / ?e2e): a spec's setup writes run as the person's unless a writer frame is open — so the
+ * flight recorder's net (a write without a writer) reports only the app's own paths.
  */
 function testStore() {
-  const TEST: Writer = { kind: 'you', via: 'ui', ref: 'e2e' }
-  const wrap =
-    <A extends unknown[], R>(fn: (...a: A) => R) =>
-    (...a: A): R =>
-      currentWriter() ? fn(...a) : withWriter(TEST, () => fn(...a))
+  const wrap = asTest
   const states = new WeakMap<object, object>()
   const getState = () => {
     const s = useWorkspace.getState()
@@ -172,6 +183,13 @@ function testStore() {
     return out as ReturnType<typeof useWorkspace.getState>
   }
   return { ...useWorkspace, getState, setState: wrap(useWorkspace.setState) }
+}
+
+/** The test hook's cloud API: its functions as the test's writes too (stores — they have getState — stay as they are). */
+function testApi<T extends object>(mod: T): T {
+  const out: Record<string, unknown> = {}
+  for (const [k, v] of Object.entries(mod)) out[k] = typeof v === 'function' && !('getState' in v) ? asTest(v as (...a: unknown[]) => unknown) : v
+  return out as T
 }
 
 /** The browser-only workspace: load (or seed) it from IndexedDB and start saving + cross-tab sync. */
