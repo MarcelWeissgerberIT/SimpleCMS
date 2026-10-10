@@ -270,6 +270,18 @@ test.describe('flight recorder — every writer has a lane', () => {
     await trash.locator('.trash-item', { hasText: 'Nordlicht Handoff' }).getByRole('button', { name: 'Restore' }).click()
     await expect.poll(async () => (await pageById(page, n.db)).trashed).toBe(false)
     await expectLane(page, m, 'you', undefined, 'you~ui')
+    await page.keyboard.press('Escape')
+
+    // ⌘K, Enter on "Create page": cmdk runs the row inside its own select event, relayed from the person's key
+    m = await markRec(page)
+    await page.keyboard.press(`${MOD}+k`)
+    const pal = page.locator('.pal')
+    await pal.locator('input').fill('Tessera Neuanlage')
+    await expect(pal.getByRole('option').last()).toContainText('Create page “Tessera Neuanlage”')
+    await pal.getByRole('option').last().hover()
+    await page.keyboard.press('Enter')
+    await expect(page.locator('#main .pv-title')).toHaveValue('Tessera Neuanlage')
+    await expectLane(page, m, 'you', undefined, 'you~ui')
   })
 
   test('the workspace: template, Markdown import, CSV intake, history restore, people merge, synced copy, kit value', async ({ page }) => {

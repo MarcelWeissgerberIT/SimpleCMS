@@ -9,6 +9,7 @@ import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import type { Page, Route } from '@playwright/test'
 import { test, expect, openApp, wsEval, pageIdByTitle, MOD, openExportDialog } from './fixtures'
+import { expectLane, markRec } from './helpers/recorder'
 
 declare global {
   interface Window {
@@ -494,12 +495,14 @@ test.describe('sync to GitHub', () => {
     expect(remoteText(repo, 'one/Team wiki/Brand voice.md')).toContain('Pushed change 5150')
     expect(remoteText(repo, 'one/Team wiki/Brand voice.md')).toContain('[📎 data.bin](../_files/data.bin)')
 
-    // pull: a file edited on GitHub comes back into the page
+    // pull: a file edited on GitHub comes back into the page — on the flight recorder's lane of the GitHub sync
     const text = remoteText(repo, 'one/Team wiki/Brand voice.md')!
     commitRemote(repo, { 'one/Team wiki/Brand voice.md': text.replace('Pushed change 5150', 'Edited on github.com 6060') })
+    const mark = await markRec(page)
     await gh.getByRole('button', { name: 'Pull' }).click()
     const voice = await pageIdByTitle(page, 'Brand voice')
     await expect.poll(() => wsEval(page, (s, id) => s.pages[id].plain, voice)).toContain('Edited on github.com 6060')
+    await expectLane(page, mark, 'sync:github', /^sync:github:/)
     // the attachment block survived (the file block's line was unchanged)
     expect(await wsEval(page, (s, id) => s.pages[id].content.content.map((n: { type: string }) => n.type), voice)).toEqual(['paragraph', 'fileBlock'])
     // nothing to push afterwards: the repository already has that version

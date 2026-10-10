@@ -224,9 +224,14 @@ export const USER_EVENTS: ReadonlySet<string> = new Set(['click', 'dblclick', 'c
  */
 export function inPersonEvent(): boolean {
   const ev = typeof window !== 'undefined' ? (window as unknown as { event?: Event }).event : undefined
-  if (!ev || !USER_EVENTS.has(ev.type)) return false
+  if (!ev) return false
+  if (RELAYED_EVENTS.has(ev.type)) return true
+  if (!USER_EVENTS.has(ev.type)) return false
   return ev.isTrusted || strict()
 }
+
+/** Events a component dispatches inside the person's own key or click: cmdk runs a row's onSelect in one (⌘K, Enter). */
+const RELAYED_EVENTS: ReadonlySet<string> = new Set(['cmdk-item-select'])
 
 /**
  * The key of the writer of the write happening now — for a service that reacts to it later (an automation, autofill,
