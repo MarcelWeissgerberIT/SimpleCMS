@@ -28,6 +28,8 @@ export const LOG_MAX = 500
 const PALETTE = COLOR_NAMES.filter((c) => c !== 'default') as ColorName[]
 
 export interface HostOptions {
+  /** the run this host belongs to (minted when runScript starts; the run log entry carries the same id) */
+  runId: string
   mode: RunMode
   scriptId: ID | null
   scriptName: string
@@ -44,7 +46,13 @@ export interface HostOptions {
 
 const EFFECT_KIND: Record<EffectName, EffectKind> = { 'mail.send': 'mail', claude: 'claude', 'http.post': 'http' }
 
+/** DEV / ?e2e: the run id each run's first write of a page happened under (window.__oneScript.writes) */
+const seam: Array<{ run: string; page: ID }> | null =
+  typeof window !== 'undefined' && (import.meta.env.DEV || new URLSearchParams(window.location.search).has('e2e')) ? [] : null
+if (seam) (window as unknown as { __oneScript?: unknown }).__oneScript = { writes: () => seam.slice() }
+
 export class Host {
+  readonly runId: string
   readonly mode: RunMode
   readonly scriptId: ID | null
   readonly scriptName: string
@@ -75,6 +83,7 @@ export class Host {
   line: number | undefined
 
   constructor(o: HostOptions) {
+    this.runId = o.runId
     this.mode = o.mode
     this.scriptId = o.scriptId
     this.scriptName = o.scriptName
@@ -131,11 +140,17 @@ export class Host {
     return this.mode === 'run'
   }
 
+  /** A page the run touches for the first time: as it was before (null = the run created it). */
+  private keep(id: ID, page: Page | null): void {
+    this.before.set(id, page)
+    if (seam && seam.length < 500) seam.push({ run: this.runId, page: id })
+  }
+
   /** The first change of an existing page in a run: keep it as it was (undo) and as a version (history). */
   private async touch(id: ID): Promise<void> {
     if (!this.real || this.before.has(id)) return
     const p = useWorkspace.getState().pages[id]
-    this.before.set(id, p ?? null)
+    this.keep(id, p ?? null)
     if (p) {
       try {
         await snapshotNow(id, 'script', this.scriptName)
@@ -266,7 +281,7 @@ export class Host {
     }
     const s = useWorkspace.getState()
     const id = s.createPage({ parentId: input.parentId, title })
-    this.before.set(id, null)
+    this.keep(id, null)
     if (input.markdown) s.setContent(id, toDoc(input.markdown.slice(0, 500_000)), SCRIPT_ORIGIN)
     this.changes.push({ kind: 'create', pageId: id, title, dbId: null, parentId: input.parentId })
     return id
@@ -315,7 +330,7 @@ export class Host {
       } else plain[c.prop.id] = c.value
     }
     const id = s.createRow(db.id, { title: name, properties: plain })
-    this.before.set(id, null)
+    this.keep(id, null)
     for (const c of later) await this.writeOne(db, id, c)
     this.changes.push({ kind: 'create', pageId: id, title: name, dbId: db.id, parentId: db.id, props })
     return id

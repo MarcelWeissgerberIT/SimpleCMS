@@ -136,9 +136,9 @@ interface PassResult {
   interp: Interpreter
 }
 
-async function pass(program: Program, code: string, mode: RunMode, o: RunOptions, ui: RunUI, signal: AbortSignal, approved: { keys: Set<string>; labels: Map<string, string> } | null, onLog?: (l: LogLine) => void): Promise<PassResult> {
+async function pass(runId: string, program: Program, code: string, mode: RunMode, o: RunOptions, ui: RunUI, signal: AbortSignal, approved: { keys: Set<string>; labels: Map<string, string> } | null, onLog?: (l: LogLine) => void): Promise<PassResult> {
   const lang = useWorkspace.getState().settings.language === 'de' ? 'de' : 'en'
-  const host = new Host({ mode, scriptId: o.scriptId ?? null, scriptName: o.name ?? '', contextPageId: o.contextPageId ?? null, ui, signal, lang, onLog, approved, scope: o.scope ?? null })
+  const host = new Host({ runId, mode, scriptId: o.scriptId ?? null, scriptName: o.name ?? '', contextPageId: o.contextPageId ?? null, ui, signal, lang, onLog, approved, scope: o.scope ?? null })
   const interp = new Interpreter({
     globals: { ...globalsFor(host), ...varsFor(host, o.vars) },
     fallback: customFunction,
@@ -197,6 +197,8 @@ function undoData(host: Host): UndoData | null {
 
 export async function runScript(o: RunOptions): Promise<RunResult> {
   const t0 = Date.now()
+  // the run's id from its start: every write of the run happens under it, the run log entry carries it
+  const runId = newId()
   const ui = o.ui ?? appRunUI
   const signal = o.signal ?? new AbortController().signal
   const empty = (status: RunResult['status'], error: ErrorInfo | null = null): RunResult => ({ status, value: null, plain: null, text: '', table: null, log: [], changes: [], effects: [], error, ms: Date.now() - t0, run: null })
@@ -220,7 +222,7 @@ export async function runScript(o: RunOptions): Promise<RunResult> {
   // a run first lists what will leave One or go to the trash, and asks once
   let approved: { keys: Set<string>; labels: Map<string, string> } | null = null
   if (o.mode === 'run' && needsCheck(program)) {
-    const check = await pass(program, o.code, 'check', o, silentRunUI, signal, null)
+    const check = await pass(runId, program, o.code, 'check', o, silentRunUI, signal, null)
     if (signal.aborted) return empty('stopped', errorInfo(new ScriptError('stopped')))
     const items = check.host.confirmItems
     // a script that asks the person first (ask, choose …) may do other things than the check saw:
@@ -232,7 +234,7 @@ export async function runScript(o: RunOptions): Promise<RunResult> {
     }
   }
 
-  const main = await pass(program, o.code, o.mode, o, ui, signal, approved, o.onLog)
+  const main = await pass(runId, program, o.code, o.mode, o, ui, signal, approved, o.onLog)
   const { host } = main
   let status: RunResult['status'] = 'ok'
   let error: ErrorInfo | null = null
@@ -260,7 +262,7 @@ export async function runScript(o: RunOptions): Promise<RunResult> {
   if (record && o.scriptId && (o.mode === 'run' || o.mode === 'dry')) {
     const undo = o.mode === 'run' ? undoData(host) : null
     run = {
-      id: newId(),
+      id: runId,
       scriptId: o.scriptId,
       name: o.name ?? '',
       scope: scriptScope(),

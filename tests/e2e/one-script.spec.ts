@@ -339,6 +339,48 @@ test.describe('One Script', () => {
     await expect(page.locator('.sc-live .sc-err')).toContainText('Seite @Gibt es nicht nicht gefunden')
   })
 
+  test('a run has its id from the start: the id its writes ran under is the id of the stored run', async ({ page }) => {
+    await openApp(page)
+    const { dbId, ids } = await makeTasks(page)
+    const id = await addScript(page, { code: `for t in db(${ref(dbId)}).where(Status = "Offen") {\n  t.set(Priorität: "Hoch")\n}\n`, name: 'Tagesplan' })
+    await openScript(page, id)
+    const writes = () => page.evaluate(() => (window as unknown as { __oneScript: { writes: () => Array<{ run: string; page: string }> } }).__oneScript.writes())
+    const stored = () =>
+      page.evaluate(async (key) => {
+        const db: IDBDatabase = await new Promise((res, rej) => {
+          const q = indexedDB.open('one-scripts')
+          q.onsuccess = () => res(q.result)
+          q.onerror = () => rej(q.error)
+        })
+        try {
+          return await new Promise<AnyState[]>((res) => {
+            const r = db.transaction('kv').objectStore('kv').get(key)
+            r.onsuccess = () => res(r.result ?? [])
+          })
+        } finally {
+          db.close()
+        }
+      }, `local:local|runs|${id}`)
+    // a dry run writes nothing
+    await page.getByTestId('sc-dry').click()
+    await expect(page.locator('.sc-summary--dry')).toContainText('change 3 entries in Aufgaben')
+    expect(await writes()).toEqual([])
+    await page.getByTestId('sc-run').click()
+    await expect(page.locator('.sc-summary--run')).toContainText('Changed 3 entries in Aufgaben')
+    await expect.poll(async () => (await stored()).length).toBe(2)
+    const [run] = await stored()
+    expect(run).toMatchObject({ mode: 'run', status: 'ok' })
+    const seen = await writes()
+    expect(seen.map((w) => w.page).sort()).toEqual([ids[0], ids[1], ids[3]].sort())
+    expect(new Set(seen.map((w) => w.run))).toEqual(new Set([run.id]))
+    // the next run has its own id
+    await page.getByTestId('sc-run').click()
+    await expect.poll(async () => (await stored()).length).toBe(3)
+    const [next] = await stored()
+    expect(next.id).not.toBe(run.id)
+    expect((await writes()).filter((w) => w.run === next.id).length).toBe(3)
+  })
+
   test('a reload keeps the scripts and the run log', async ({ page }) => {
     await openApp(page)
     const { dbId } = await makeTasks(page)
