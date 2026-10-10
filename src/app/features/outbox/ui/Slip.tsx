@@ -11,9 +11,9 @@ import { Screws } from '../../../ui/controls'
 import { currentLang, useLang, useT, t as translate } from '../../../i18n'
 import { ackChanged, toggleHold, withdrawSlip } from '../actions'
 import { redraft } from '../draft'
-import { copyAndOpen, markSent, notYet } from '../hand'
+import { copyAndOpen, markBlock, markSent, notYet } from '../hand'
 import { isForeign } from '../counts'
-import { useOutbox } from '../store'
+import { getSlip, useOutbox } from '../store'
 import { unsent } from '../machine'
 import type { Slip as SlipT } from '../types'
 import { After } from './After'
@@ -21,7 +21,8 @@ import { ChangedBand } from './ChangedBand'
 import { AskSent, HandPlate } from './HandPlate'
 import { Inputs } from './Inputs'
 import { Lamps } from './Lamps'
-import { OriginChip, ServerTag, ToolTarget } from './parts'
+import { OriginChip, ServerTag, Shown, ToolTarget } from './parts'
+import { focusSlipEl } from '../keys'
 import { Payload } from './Payload'
 import { Sources } from './Sources'
 
@@ -35,6 +36,9 @@ export async function runCopy(slip: SlipT): Promise<void> {
 }
 
 export async function runMarkSent(slip: SlipT, after?: () => void): Promise<void> {
+  const cur = getSlip(slip.id)
+  const block = cur ? markBlock(cur) : 'state'
+  if (block) return void useUI.getState().toast({ message: translate(`features.outbox.block.${block}`), kind: 'error' })
   const done = await markSent(slip.id)
   if (!done) return
   const label = localized(done.route.label, currentLang()) || done.route.routeId
@@ -46,13 +50,15 @@ export async function runRedraft(slip: SlipT, setBusy: (b: boolean) => void): Pr
   setBusy(true)
   const res = await redraft(slip.id)
   setBusy(false)
-  if (!res.ok) useUI.getState().toast({ message: translate('features.outbox.act.redraftFailed', { detail: res.detail }), kind: 'error', timeout: 8000 })
+  // it answers seconds later — maybe over a dialog the person opened meanwhile: a background toast waits for it
+  if (!res.ok) useUI.getState().toast({ message: translate('features.outbox.act.redraftFailed', { detail: res.detail }), kind: 'error', timeout: 8000, background: true })
 }
 
-export function SlipCard({ slip, editing, onEditing, onSent }: { slip: SlipT; editing: boolean; onEditing: (on: boolean) => void; onSent?: () => void }) {
+/** `onGone`: the slip left the open ones (sent, withdrawn) — focus moves on (the next slip, else the dock's heading). */
+export function SlipCard({ slip, editing, onEditing, onGone }: { slip: SlipT; editing: boolean; onEditing: (on: boolean) => void; onGone?: () => void }) {
   const t = useT()
   const lang = useLang()
-  const asking = useOutbox((s) => s.asking === slip.id)
+  const asking = useOutbox((s) => s.asking?.id === slip.id)
   const drafting = useOutbox((s) => Object.values(s.drafting).some((d) => d.rowId === slip.target.rowId))
   const [busy, setBusy] = useState(false)
   const foreign = isForeign(slip)
@@ -66,7 +72,7 @@ export function SlipCard({ slip, editing, onEditing, onSent }: { slip: SlipT; ed
         <OriginChip slip={slip} lang={lang} />
       </div>
       <h3 className="obx-slip__title" id={`obx-t-${slip.id}`}>
-        {slip.title}
+        <Shown text={slip.title} />
       </h3>
       <Payload slip={slip} editing={editing} onEditing={onEditing} />
       <div className="obx-kv">
@@ -83,7 +89,16 @@ export function SlipCard({ slip, editing, onEditing, onSent }: { slip: SlipT; ed
         <Lamps slip={slip} />
       </div>
       <ChangedBand slip={slip} busy={busy || drafting} onHold={() => void toggleHold(slip.id)} onRedraft={() => void runRedraft(slip, setBusy)} onAnyway={() => void ackChanged(slip.id)} />
-      {asking && slip.state === 'ready' && <AskSent slip={slip} onYes={() => void runMarkSent(slip, onSent)} onNo={() => notYet(slip.id)} />}
+      {asking && slip.state === 'ready' && (
+        <AskSent
+          slip={slip}
+          onYes={() => void runMarkSent(slip, onGone)}
+          onNo={() => {
+            notYet(slip.id)
+            focusSlipEl(slip.id)
+          }}
+        />
+      )}
       {open && (
         <div className="obx-slip__acts">
           {slip.state !== 'missing' && (
@@ -112,7 +127,9 @@ export function SlipCard({ slip, editing, onEditing, onSent }: { slip: SlipT; ed
             type="button"
             className="btn btn--ghost btn--sm"
             onClick={async () => {
-              if ((await withdrawSlip(slip.id, 'person')) === 'withdrawn') useUI.getState().toast({ message: translate('features.outbox.act.withdrawn') })
+              if ((await withdrawSlip(slip.id, 'person')) !== 'withdrawn') return
+              useUI.getState().toast({ message: translate('features.outbox.act.withdrawn') })
+              onGone?.()
             }}
             data-testid="outbox-withdraw"
           >

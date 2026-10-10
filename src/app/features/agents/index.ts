@@ -33,3 +33,5 @@ export { IntegrationsPanel } from './integrations/IntegrationsPanel'
 export { mirrorSourceOf } from './mirror'
 /** recipeRoleNames(profile) → role → its property names in both languages (the profile's first recipe, else the built-in mirror) */
 export { recipeRoleNames } from './integrations/recipe'
+/** recipeOptionNames(profile) → property name → the option names the profile declares (both languages, lower case) */
+export { recipeOptionNames } from './integrations/recipe'

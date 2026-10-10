@@ -1,13 +1,15 @@
 /**
  * The annunciator lamps (a role="status" list with words, changes announced): FOREIGN TEXT (red, outlined twice,
  * hatched, the "!" box), CHANGED (orange), SENT, CONFIRMED — and, only when lit, HIDDEN CHARS and UNCLEAR. Under them
- * the status lines: where the comparison comes from, the receipt key.
+ * the status lines: when the mirror last ran here ("per mirror 07:30" — never the draft's time; "run not seen here"
+ * when another device or the team server ran it), when this slip read the row (and noticed a change), the cost, the
+ * receipt key.
  */
 import { useLang, useT } from '../../../i18n'
 import { fmtUsd } from '../../../lib/money'
 import { isChanged, isForeign } from '../counts'
 import type { Slip } from '../types'
-import { clock, ForeignMark } from './parts'
+import { clock, ForeignMark, useMirrorRanAt } from './parts'
 
 export function Lamps({ slip }: { slip: Slip }) {
   const t = useT()
@@ -24,7 +26,7 @@ export function Lamps({ slip }: { slip: Slip }) {
     { id: 'unclear', lit: slip.state === 'unclear', always: false, kind: 'foreign' },
   ]
   const lit = lamps.filter((l) => l.lit).map((l) => t(`features.outbox.lamp.${l.id}`))
-  const at = slip.lastCheck?.at ?? slip.baseline?.at
+  const ran = useMirrorRanAt(slip.target.dbId)
   return (
     <div className="obx-lamps-wrap">
       <ul className="obx-lamps" role="status" aria-label={t('features.outbox.lamp.list')}>
@@ -42,7 +44,9 @@ export function Lamps({ slip }: { slip: Slip }) {
         {lit.join(', ')}
       </p>
       <div className="obx-lines label">
-        {at !== undefined && <span>{t('features.outbox.line.mirror', { time: clock(at, lang) })}</span>}
+        <span data-testid="outbox-line-mirror">{ran !== null ? t('features.outbox.line.mirror', { time: clock(ran, lang) }) : t('features.outbox.line.mirrorUnseen')}</span>
+        {slip.baseline && <span data-testid="outbox-line-read">{t('features.outbox.line.read', { time: clock(slip.baseline.at, lang) })}</span>}
+        {slip.lastCheck && <span>{t('features.outbox.line.checked', { time: clock(slip.lastCheck.at, lang) })}</span>}
         {slip.draft?.by === 'claude' || slip.usd > 0 ? <span data-testid="outbox-cost">{t('features.outbox.line.cost', { usd: fmtUsd(slip.usd, lang) })}</span> : null}
         <span>{t('features.outbox.line.receipt', { id: slip.id })}</span>
       </div>

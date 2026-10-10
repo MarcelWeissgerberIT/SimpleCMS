@@ -3,13 +3,13 @@
  * caller: only typed values and text the person typed or owns count as clean. What a slip's free text carries:
  *  - hidden characters (bidi controls, zero-width and tag characters, runs of variation selectors) → `⟦U+202E⟧`
  *    markers and the HIDDEN CHARS lamp;
- *  - addresses (URLs, Markdown link targets, bare host/paths, e-mail addresses): each is looked up in the sources.
- *    Found in a trusted source (or typed by the person — the words they added in an edit, found by a word diff) it
- *    passes; found only in foreign text it is flagged with that source's label; found nowhere it is flagged too;
- *    one pointing into One (`#/p/…`, One's own origin) is flagged 'internal'. A flagged address needs a tick.
+ *  - addresses (URLs of any scheme, Markdown link targets, bare host/paths, IP literals, e-mail addresses): each is
+ *    looked up in the sources. Found in a trusted source (or typed by the person — an address that is in no earlier
+ *    text of the slip, decided per address: a "." or "/" added next to one makes no new one) it passes; found only in
+ *    foreign text it is flagged with that source's label; found nowhere it is flagged too; one pointing into One
+ *    (`#/p/…`, One's own origin) is flagged 'internal'. A flagged address needs a tick.
  *  - a host-only trusted match never clears an address with a path ("teilen.example" ≠ "teilen.example/rp").
  */
-import { wordRuns } from '../history/docDiff'
 import type { Seal, SealAddress, SourceRef } from './types'
 
 /* ------------------------------------------------------------------ hidden characters */
@@ -76,6 +76,12 @@ export interface FoundAddress {
 }
 
 const URL_RE = /\b(?:https?:\/\/|www\.)[^\s<>"'`)\]]+/gi
+/** any other scheme with an authority: ftp://, sftp://, wss://, smb://, file:///… */
+const SCHEME_RE = /\b[a-z][a-z0-9+.-]{1,31}:\/\/[^\s<>"'`)\]]*/gi
+/** a bare IPv4 address (four octets, not part of a longer number), with a port and a path */
+const IPV4_RE = /(?<![\w@./:-])(?:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.){3}(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(?![\w-]|\.\d)(?::\d{2,5})?(?:\/[^\s<>"'`)\]]*)?/g
+/** a bracketed IPv6 literal ("[2001:db8::1]:8080/x") */
+const IPV6_RE = /(?<![\w\]])\[(?=[0-9a-f.]*:[0-9a-f.]*:)[0-9a-f:.]{2,45}\](?::\d{2,5})?(?:\/[^\s<>"'`)\]]*)?/gi
 const EMAIL_RE = /(?:mailto:)?[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,24}\b/g
 const HOST_RE = /(?<![\w@./-])(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,24}(?::\d{2,5})?(?:\/[^\s<>"'`)\]]*)?/gi
 const INTERNAL_RE = /(?<![\w/])#\/[A-Za-z0-9/_?=&.-]+/g
@@ -84,7 +90,7 @@ const FILE_EXT = new Set(['pdf', 'doc', 'docx', 'xls', 'xlsx', 'csv', 'tsv', 'tx
 
 const trimEnd = (s: string) => s.replace(/[.,;:!?'"’”»)]+$/u, '')
 
-/** host + path, lower-case host, no scheme, no "www.", no trailing slash. */
+/** host + path, lower-case host, no "http(s)://" (another scheme stays: "ftp://host/x"), no "www.", no trailing slash. */
 export function normAddress(raw: string): { norm: string; host: string } | null {
   let s = trimEnd(raw.trim())
   if (/^mailto:/i.test(s)) s = s.slice(7)
@@ -92,14 +98,21 @@ export function normAddress(raw: string): { norm: string; host: string } | null 
     const lower = s.toLowerCase()
     return { norm: lower, host: lower.split('@')[1] }
   }
-  s = s.replace(/^https?:\/\//i, '')
+  let scheme = ''
+  const sm = /^([a-z][a-z0-9+.-]*):\/\//i.exec(s)
+  if (sm) {
+    const name = sm[1].toLowerCase()
+    if (name !== 'http' && name !== 'https') scheme = `${name}://`
+    s = s.slice(sm[0].length)
+  }
   const slash = s.search(/[/?#]/)
   const hostPart = (slash < 0 ? s : s.slice(0, slash)).toLowerCase().replace(/^www\./, '').replace(/:(80|443)$/, '')
-  if (!hostPart) return null
+  // "file:///x" has no host, still an address
+  if (!hostPart && !scheme) return null
   let rest = slash < 0 ? '' : s.slice(slash)
   rest = rest.replace(/#.*$/, '').replace(/\/+$/, '')
   if (rest === '/') rest = ''
-  return { norm: `${hostPart}${rest}`, host: hostPart }
+  return { norm: `${scheme}${hostPart}${rest}`, host: hostPart }
 }
 
 /** Every address in a text (each place it is written), with One's own links marked internal. `origin`: One's origin. */
@@ -123,8 +136,11 @@ export function scanAddresses(text: string, origin = ''): FoundAddress[] {
     out.push({ text, norm: n.norm, host: n.host, at, kind: ownHost && n.host === ownHost ? 'internal' : kind })
   }
   for (const m of text.matchAll(URL_RE)) push(m[0], m.index ?? 0, 'url')
+  for (const m of text.matchAll(SCHEME_RE)) push(m[0], m.index ?? 0, 'url')
   for (const m of text.matchAll(EMAIL_RE)) push(m[0], m.index ?? 0, 'email')
   for (const m of text.matchAll(INTERNAL_RE)) push(m[0], m.index ?? 0, 'internal')
+  for (const m of text.matchAll(IPV6_RE)) push(m[0], m.index ?? 0, 'host')
+  for (const m of text.matchAll(IPV4_RE)) push(m[0], m.index ?? 0, 'host')
   for (const m of text.matchAll(HOST_RE)) push(m[0], m.index ?? 0, 'host')
   return out.sort((a, b) => a.at - b.at)
 }
@@ -143,7 +159,12 @@ export function linkTargets(text: string): string[] {
   return out
 }
 
-const hostOfNorm = (norm: string) => (norm.includes('@') ? norm.split('@')[1] : norm.split(/[/?]/)[0])
+/** The host of a normalized address (an e-mail's domain; "ftp://host/x" → "host"). */
+function hostOfNorm(norm: string): string {
+  const s = norm.replace(/^[a-z][a-z0-9+.-]*:\/\//, '')
+  if (/^[^@/]+@[^@/]+$/.test(s)) return s.split('@')[1]
+  return s.split(/[/?]/)[0]
+}
 
 /** Does a source's address set clear the address? Exact match; a host-only address is cleared by its host. */
 function covers(set: readonly string[], a: { norm: string; host: string }): boolean {
@@ -154,13 +175,21 @@ function covers(set: readonly string[], a: { norm: string; host: string }): bool
 /** Is it at least about the same place (the foreign source to name)? */
 const near = (set: readonly string[], a: { norm: string; host: string }) => set.some((s) => s === a.norm || hostOfNorm(s) === a.host)
 
-/** The words the person added in an edit: the added runs of a word diff between Claude's text and theirs. */
-export function personAdded(claudeText: string | undefined, text: string): string {
-  if (claudeText === undefined) return ''
-  return wordRuns(claudeText, text)
-    .filter((r) => r.op === 'add')
-    .map((r) => r.text)
-    .join(' ')
+/**
+ * The addresses the person typed in an edit, decided per address: in the new text and in no earlier text of the slip
+ * (`before`: the previous revision, Claude's draft) — neither as an address there (a "." or "/" added next to one
+ * makes no new one), nor written anywhere in it, nor grown out of one of its addresses. Internal links never count.
+ */
+export function personAddresses(before: string, text: string, origin = ''): string[] {
+  const had = scanAddresses(before, origin).map((a) => a.norm)
+  const lower = before.toLowerCase()
+  const out: string[] = []
+  for (const a of scanAddresses(text, origin)) {
+    if (a.kind === 'internal' || out.includes(a.norm)) continue
+    if (had.includes(a.norm) || lower.includes(a.norm) || had.some((h) => a.norm.startsWith(h))) continue
+    out.push(a.norm)
+  }
+  return out
 }
 
 export interface SealInput {
@@ -169,8 +198,10 @@ export interface SealInput {
   sources: SourceRef[]
   /** the provenance is fully known (a caller without sources: false) */
   complete: boolean
-  /** text the person typed (the instruction, the words added in an edit) — trusted */
+  /** text the person typed (the instruction) — trusted */
   ownText?: string
+  /** addresses the person typed in an edit (personAddresses, kept across revisions) — trusted */
+  ownAddresses?: readonly string[]
   origin?: string
   /** the previous seal: ticks stay with their address */
   previous?: Seal | null
@@ -180,7 +211,7 @@ export function sealOf(i: SealInput): Seal {
   const text = i.text ?? ''
   const hidden = text ? hiddenChars(text) : []
   const shaping = text ? i.sources.filter((s) => !s.trusted && !s.typed) : []
-  const trusted = [...i.sources.filter((s) => s.trusted).flatMap((s) => s.addresses), ...(i.ownText ? addressSet(i.ownText, i.origin) : [])]
+  const trusted = [...i.sources.filter((s) => s.trusted).flatMap((s) => s.addresses), ...(i.ownText ? addressSet(i.ownText, i.origin) : []), ...(i.ownAddresses ?? [])]
   const ticked = new Set((i.previous?.addresses ?? []).filter((a) => a.ticked).map((a) => `${a.only}|${a.norm}`))
   const addresses: SealAddress[] = []
   const seen = new Set<string>()

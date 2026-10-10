@@ -282,10 +282,12 @@ test.describe('team cloud — hardening', () => {
               let out: string[] = []
               if (op === 'seed') {
                 os.put({ v: 1, id: 'out_TeamSlip01', scope: `cloud:${ws}`, state: 'held' }, `cloud:${ws}|slip|out_TeamSlip01`)
+                // a member's own slips (the scope names the account)
+                os.put({ v: 1, id: 'out_TeamSlip02', scope: `cloud:${ws}:u:e2emember01`, state: 'held' }, `cloud:${ws}:u:e2emember01|slip|out_TeamSlip02`)
                 os.put({ v: 1, id: 'out_LocalSlip1', scope: 'local:local', state: 'held' }, 'local:local|slip|out_LocalSlip1')
               } else {
                 const k = os.getAllKeys()
-                k.onsuccess = () => (out = k.result.map(String).filter((key) => key.endsWith('TeamSlip01') || key.endsWith('LocalSlip1')))
+                k.onsuccess = () => (out = k.result.map(String).filter((key) => key.endsWith('TeamSlip01') || key.endsWith('TeamSlip02') || key.endsWith('LocalSlip1')))
               }
               tx.oncomplete = () => {
                 db.close()

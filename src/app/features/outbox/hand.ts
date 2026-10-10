@@ -4,11 +4,13 @@
  * comes back: "Mark as sent" turns the slip 'sent' (path 'hand'), then writes the row patch (one version, Undo =
  * "Reset row"), archives the answered inbox notes and keeps a receipt "BY HAND · not checked". The gate is the same
  * as for any send: ready, the text seen, every flagged address ticked, CHANGED acknowledged, the route unchanged, the
- * row and its key unchanged, storage working.
+ * row and its key unchanged, storage working — and the row's link (a value the mirror wrote) pointing at the route's
+ * server, its link base, or a host the person ticked for this slip.
  */
 import { useWorkspace } from '../../store/store'
 import { useCloud } from '../../cloud'
-import { localized } from '../../store/integrations'
+import { hostOf, localized } from '../../store/integrations'
+import { readServers } from '../ai/mcp-servers/config'
 import { recipeRoleNames } from '../agents'
 import { archiveItems } from '../inbox/state'
 import { currentLang } from '../../i18n'
@@ -18,12 +20,13 @@ import { tabId } from './db'
 import { routeSigOf } from './hash'
 import { readRow } from './provenance'
 import { resolveRoute } from './routes'
-import { getSlip, mutateSlip, storageOk, transition, useOutbox, withLog } from './store'
+import { getSlip, mutateSlip, storageOk, useOutbox, withLog } from './store'
+import { next } from './machine'
 import { isChanged } from './counts'
 import { slipText } from './text'
 import type { Receipt, Slip, SlipId } from './types'
 
-export type HandRefusal = 'storage' | 'state' | 'unseen' | 'ticks' | 'changed' | 'route' | 'row' | 'key' | 'via' | 'viewer'
+export type HandRefusal = 'storage' | 'state' | 'unseen' | 'ticks' | 'changed' | 'route' | 'row' | 'key' | 'via' | 'viewer' | 'link' | 'copied'
 
 /** Why the hand path's keys are off for this slip now (null: they work). Synchronous: the route's sig is checked on the press. */
 export function handBlock(s: Slip): HandRefusal | null {
@@ -36,6 +39,8 @@ export function handBlock(s: Slip): HandRefusal | null {
   if (s.draft && s.draft.seenRev !== s.draft.rev) return 'unseen'
   if (!checksDone(s)) return 'ticks'
   if (isChanged(s)) return 'changed'
+  const link = linkOf(s)
+  if (link && !linkHome(s, link) && s.linkOk !== link) return 'link'
   return null
 }
 
@@ -53,6 +58,21 @@ async function stillSame(s: Slip): Promise<HandRefusal | null> {
 export function linkOf(s: Slip): string | null {
   const p = (useWorkspace.getState().integrations ?? []).find((x) => x.id === s.route.profileId)
   return readRow(s.target.rowId, p ? recipeRoleNames(p) : {})?.link ?? null
+}
+
+/** Same host, or one inside the other ("app.tracker.example" ↔ "tracker.example"; never a bare top-level name). */
+const sameSite = (a: string, b: string) => !!a && !!b && (a === b || a.endsWith(`.${b}`) || (b.endsWith(`.${a}`) && a.includes('.')))
+
+/**
+ * Does the row's link lead where the route's server lives — its host (or one inside it) or the link base set for the
+ * server on this device? A mirror writes the link from what the server returned; anything else is shown and needs a tick.
+ */
+export function linkHome(s: Slip, link: string): boolean {
+  const host = hostOf(link)
+  if (!host) return false
+  const server = readServers(useWorkspace.getState().settings).find((x) => x.id === s.target.serverId || x.name === s.target.serverName)
+  const homes = [hostOf(s.target.serverUrl), ...(server?.linkBase ? [hostOf(server.linkBase)] : [])]
+  return homes.some((h) => sameSite(host, h))
 }
 
 /** "Copy & open": the text to the clipboard, the row's link in a new tab; then the slip asks "Sent in the ticket tool?". */
@@ -80,19 +100,35 @@ export async function copyAndOpen(id: SlipId): Promise<{ ok: true; copied: boole
       opened = false
     }
   }
-  useOutbox.setState({ asking: id })
+  // the question is about exactly these arguments: a new text (E, R, a caller) drops it
+  useOutbox.setState({ asking: { id, argsHash: s.argsHash } })
   await mutateSlip(id, (cur) => withLog(cur, 'hand.copied', { copied: copied ? 1 : 0, opened: url ? 1 : 0 }))
   return { ok: true, copied, opened }
 }
 
-/** "Mark as sent": 'sent' by hand, then the row patch, the inbox notes, the receipt. */
+/** Why "Mark as sent" is refused now (null: it may go): the hand path's gate, and the text must be the one copied. */
+export function markBlock(s: Slip): HandRefusal | null {
+  const asked = useOutbox.getState().asking
+  if (!asked || asked.id !== s.id || asked.argsHash !== s.argsHash) return 'copied'
+  return handBlock(s)
+}
+
+/** "Mark as sent": 'sent' by hand, then the row patch, the inbox notes, the receipt. Only for the text that was copied. */
 export async function markSent(id: SlipId): Promise<Slip | null> {
   const s = getSlip(id)
-  if (!s || handBlock(s)) return null
+  if (!s || markBlock(s)) return null
+  const copiedHash = s.argsHash
   const forced = !!s.lastCheck?.ack
-  const sent = await transition(id, 'markSent', (cur) => withLog({ ...cur, attempt: { at: Date.now(), path: 'hand', tab: tabId(), forced } }, 'hand.sent'))
-  useOutbox.setState((st) => (st.asking === id ? { asking: null } : {}))
-  if (!sent) return null
+  // one compare-and-set: still the arguments that were copied (another tab may have changed the text), still ready
+  let ok = false
+  const sent = await mutateSlip(id, (cur) => {
+    const to = cur.argsHash === copiedHash ? next(cur.state, 'markSent') : null
+    if (!to) return cur
+    ok = true
+    return { ...withLog({ ...cur, attempt: { at: Date.now(), path: 'hand', tab: tabId(), forced } }, 'hand.sent'), state: to }
+  })
+  useOutbox.setState((st) => (st.asking?.id === id ? { asking: null } : {}))
+  if (!ok || !sent) return null
   const label = localized(sent.route.label, currentLang()) || sent.route.routeId
   const rowPatch = applyAfter(sent.target.rowId, sent.after, label)
   const archived = sent.answers.length ? sent.answers : []
@@ -122,7 +158,16 @@ export async function markSent(id: SlipId): Promise<Slip | null> {
 
 /** "Not yet": the question goes away, the slip stays ready. */
 export function notYet(id: SlipId): void {
-  useOutbox.setState((st) => (st.asking === id ? { asking: null } : {}))
+  useOutbox.setState((st) => (st.asking?.id === id ? { asking: null } : {}))
+}
+
+/** The person accepts the row's link for this slip although it leads elsewhere (the tick on the hand plate). */
+export async function acceptLink(id: SlipId, link: string | null): Promise<void> {
+  await mutateSlip(id, (cur) => {
+    if ((cur.linkOk ?? null) === link) return cur
+    const { linkOk: _drop, ...rest } = cur
+    return withLog(link ? { ...rest, linkOk: link } : rest, link ? 'link.ticked' : 'link.unticked', { host: link ? hostOf(link).slice(0, 80) : '' })
+  })
 }
 
 /** "Reset row" (only in One): the values before the send where the Outbox's value is still there. */

@@ -1,16 +1,21 @@
 /**
  * The hand path's half of the switch plate (slice 1: nothing leaves One): the three steps, the arguments to set by
- * hand there, and the "Copy & open" key — aria-disabled with the reason until the text is seen, every flagged
- * address ticked and a change acknowledged. After it: "Sent in <server>?" ↵ Yes, mark as sent · Esc Not yet.
+ * hand there, where "Copy & open" leads (the row's link — a value the mirror wrote: off the server's host it is
+ * flagged FOREIGN and needs a tick), and the "Copy & open" key — aria-disabled with the reason until the text is seen,
+ * every flagged address ticked and a change acknowledged. After it: "Sent in <server>?" ↵ Yes, mark as sent · Esc Not
+ * yet (the slip keeps the focus when the question goes).
  */
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ClipboardCopy } from 'lucide-react'
 import { useT } from '../../../i18n'
 import { MOD } from '../../../ui/controls'
-import { handBlock, linkOf } from '../hand'
+import { hostOf } from '../../../store/integrations'
+import { acceptLink, handBlock, linkHome, linkOf } from '../hand'
+import { unsent } from '../machine'
 import { slipText } from '../text'
 import { SENT_AT } from '../template'
 import type { Slip } from '../types'
+import { ForeignMark, Shown, shownText } from './parts'
 
 /** The arguments a person sets by hand (everything but the text). */
 export function handArgs(slip: Slip): string {
@@ -28,6 +33,7 @@ export function HandPlate({ slip, onCopy }: { slip: Slip; onCopy: () => void }) 
   const why = slip.state === 'missing' ? t('features.outbox.block.missing') : block ? t(`features.outbox.block.${block}`) : null
   const set = handArgs(slip)
   const reason = `obx-why-${slip.id}`
+  const link = linkOf(slip)
   return (
     <div className="obx-hand">
       <span className="label obx-hand__title">{t('features.outbox.hand.title')}</span>
@@ -45,7 +51,12 @@ export function HandPlate({ slip, onCopy }: { slip: Slip; onCopy: () => void }) 
           {t('features.outbox.hand.step3')}
         </li>
       </ol>
-      {set && <p className="obx-hand__set">{t('features.outbox.hand.setThere', { args: set })}</p>}
+      {set && (
+        <p className="obx-hand__set">
+          {t('features.outbox.hand.setThereLabel')} <Shown text={set} />
+        </p>
+      )}
+      {link && <Destination slip={slip} link={link} />}
       <button
         type="button"
         className="btn btn--primary obx-hand__key"
@@ -59,11 +70,50 @@ export function HandPlate({ slip, onCopy }: { slip: Slip; onCopy: () => void }) 
         <kbd className="kbd obx-fine">{MOD}↵</kbd>
       </button>
       {why && (
-        <p id={reason} className="obx-hand__why" data-testid="outbox-why">
+        <p id={reason} className="obx-hand__why" data-why={block ?? 'missing'} data-testid="outbox-why">
           {why}
         </p>
       )}
     </div>
+  )
+}
+
+/** Where "Copy & open" leads: the host, and — off the server's host — FOREIGN with a tick of its own. */
+function Destination({ slip, link }: { slip: Slip; link: string }) {
+  const t = useT()
+  const host = hostOf(link)
+  const home = linkHome(slip, link)
+  // shown at once, stored right after (one compare-and-set), like an address's tick
+  const [ticked, setTicked] = useState(slip.linkOk === link)
+  useEffect(() => setTicked(slip.linkOk === link), [slip.linkOk, link])
+  return (
+    <p className="obx-hand__dest" data-foreign={!home || undefined} data-testid="outbox-dest" title={shownText(link)}>
+      <span className="label">{t('features.outbox.hand.dest')}</span>
+      <code className="obx-hand__host">
+        <Shown text={host || link} />
+      </code>
+      {!home && (
+        <>
+          <span className="obx-hand__fword">
+            <ForeignMark />
+            {t('features.outbox.hand.destForeign', { server: slip.target.serverName })}
+          </span>
+          <label className="obx-addr__tick">
+            <input
+              type="checkbox"
+              checked={ticked}
+              disabled={!unsent(slip.state)}
+              aria-label={shownText(t('features.outbox.hand.destTick', { host: host || link }))}
+              onChange={(e) => {
+                setTicked(e.target.checked)
+                void acceptLink(slip.id, e.target.checked ? link : null)
+              }}
+              data-testid="outbox-dest-tick"
+            />
+          </label>
+        </>
+      )}
+    </p>
   )
 }
 

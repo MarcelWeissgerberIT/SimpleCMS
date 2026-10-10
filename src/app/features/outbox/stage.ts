@@ -8,23 +8,23 @@
  */
 import { customAlphabet } from 'nanoid'
 import { useWorkspace } from '../../store/store'
-import type { ID, SendRoute } from '../../store/types'
+import type { ID, RouteParam, SendRoute } from '../../store/types'
 import { ROUTE_KEY } from '../../store/integrations'
 import { useCloud } from '../../cloud'
 import { useInbox } from '../inbox/state'
-import { mirrorSourceOf, recipeRoleNames } from '../agents'
+import { mirrorSourceOf, recipeOptionNames, recipeRoleNames } from '../agents'
 import { t, currentLang } from '../../i18n'
 import { localized } from '../../store/integrations'
 import { resolveAfter } from './after'
 import { argsBytes, argsHashOf, routeSigOf } from './hash'
-import { judgeSource, ownOrigin, readRow } from './provenance'
+import { judgeSource, ownOrigin, readRow, type RowRead } from './provenance'
 import { resolveRoute } from './routes'
 import { sealOf } from './seal'
 import { OUTBOX_LIMITS, getSlips, insertSlip, scopeNow, storageOk, withLog } from './store'
 import { cleanParams, fillArgs, textParam } from './template'
 import { OPEN_STATES, type Slip, type SlipId, type SourceRef, type StageInput, type StageRefusal } from './types'
 import { withdrawSlip } from './actions'
-import { shortTextOf } from './text'
+import { checkRows } from './watch'
 
 const base62 = customAlphabet('0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz', 10)
 export const newSlipId = (): SlipId => `out_${base62()}`
@@ -33,13 +33,30 @@ export const newSlipId = (): SlipId => `out_${base62()}`
 export type StageResult = { slip: Slip } | { refused: StageRefusal; detail?: string }
 
 export interface StageOptions {
-  /** sources judged by the Outbox itself (the draft path); else the caller's are judged */
+  /** sources judged by the Outbox itself (the draft path, the popover's typed values); else the caller's are judged */
   judged?: SourceRef[]
   /** the person's own words (the instruction) — trusted */
   ownText?: string
   /** Claude wrote the draft */
   claude?: { text: string; usd: number }
+  /** the row as the draft read it (draft.ts: taken when the request was built) — CHANGED compares against this */
+  baseline?: Slip['baseline']
 }
+
+/**
+ * What the person picked or typed in the draft popover (an option, minutes …) as the slip's sources: typed values,
+ * judged here — so a typed-only slip, or a text the person writes themselves, has complete provenance (clean when
+ * nothing else marks it). Never for a caller: stageSlip judges the caller's own sources.
+ */
+export function typedParamSources(params: readonly RouteParam[], values: Record<string, string | number>): SourceRef[] {
+  const lang = currentLang()
+  return params
+    .filter((p) => p.type !== 'text' && values[p.name] !== undefined && values[p.name] !== '')
+    .map((p) => ({ kind: 'text' as const, ref: `param:${p.name}`, label: (localized(p.label, lang) || p.name).slice(0, 120), trusted: false, typed: true, addresses: [] }))
+}
+
+/** A row's reading as a slip's baseline (CHANGED compares later readings with it). */
+export const baselineOf = (read: RowRead, at = Date.now()): NonNullable<Slip['baseline']> => ({ at, from: 'row', fields: read.fields, labels: read.labels, ...(read.latest ? { latest: read.latest.slice(0, 600) } : {}) })
 
 /** The row's notes from its mirror agent that the send answers (archived after it). */
 function mirrorNotes(dbId: ID, rowId: ID): string[] {
@@ -90,7 +107,8 @@ export async function stage(input: StageInput, opts: StageOptions = {}): Promise
   if (argsBytes(filled.value) > OUTBOX_LIMITS.argsBytes) return { refused: 'tooLong', detail: 'args' }
 
   const text = tp ? String(clean.params[tp.name] ?? '') : null
-  const sources = opts.judged ?? input.sources.map(judgeSource)
+  const declared = recipeOptionNames(profile)
+  const sources = opts.judged ?? input.sources.map((x) => judgeSource(x, declared))
   const complete = opts.judged ? true : input.sources.length > 0
   const now = Date.now()
   const missing = !!tp && draft === null
@@ -114,7 +132,8 @@ export async function stage(input: StageInput, opts: StageOptions = {}): Promise
           rev: 1,
           by,
           ...(opts.claude ? { claudeText: opts.claude.text } : {}),
-          seenRev: !missing && text !== null && shortTextOf(text) ? 1 : null,
+          // seen once shown in full (Payload), never before anything is on screen
+          seenRev: null,
         }
       : null,
     title: (input.title ?? titleFor(route, read.owner, clean.params)).slice(0, 80),
@@ -122,7 +141,7 @@ export async function stage(input: StageInput, opts: StageOptions = {}): Promise
     after: resolveAfter(route.after, db, row.id, roles),
     answers: input.answers ?? mirrorNotes(dbId, row.id),
     ...(input.quote ? { quote: { text: String(input.quote.text).slice(0, 600), ...(input.quote.at ? { at: input.quote.at } : {}), ...(input.quote.label ? { label: input.quote.label } : {}) } } : {}),
-    baseline: { at: now, from: 'row', fields: read.fields, labels: read.labels, ...(read.latest ? { latest: read.latest.slice(0, 600) } : {}) },
+    baseline: opts.baseline ?? baselineOf(read, now),
     sources,
     seal: sealOf({ text, sources, complete, ownText: opts.ownText, origin: ownOrigin() }),
     ...(input.group ? { group: { id: input.group.id, label: input.group.label, order: input.group.order, include: input.group.include !== false } } : {}),
@@ -133,5 +152,7 @@ export async function stage(input: StageInput, opts: StageOptions = {}): Promise
   const stored = await insertSlip(logged).catch(() => null)
   if (!stored) return { refused: 'storage' }
   if (input.replaces) await withdrawSlip(input.replaces, 'origin')
-  return { slip: stored }
+  // the row may have moved on while Claude drafted: CHANGED against the reading the draft was built from
+  if (opts.baseline) await checkRows([row.id]).catch(() => undefined)
+  return { slip: getSlips().find((x) => x.id === stored.id) ?? stored }
 }

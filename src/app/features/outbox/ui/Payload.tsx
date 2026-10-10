@@ -1,19 +1,22 @@
 /**
- * The slip's text exactly as it goes out: raw (never HTML, no image loads), hidden characters drawn as ⟦U+202E⟧,
- * flagged addresses marked inline with a tick box each, Markdown link targets listed in full below. Longer than
- * ~6 lines / 600 characters: clipped until "Show full text" (which counts as seen). E edits it in place (prose, not
- * code); after an edit the word diff shows Claude's draft against the person's text.
+ * The slip's text exactly as it goes out: raw (never HTML, no image loads), hidden characters drawn as ⟦U+202E⟧ —
+ * also inside a flagged address and a link target —, flagged addresses marked inline with a tick box each, Markdown
+ * link targets listed in full below. It counts as seen once it is on screen unclipped: a short text (≤ 6 lines,
+ * ≤ 600 characters) when it renders, a longer one by "Show full text". E edits it in place (prose, not code); after an
+ * edit the word diff shows Claude's draft against the person's text.
  */
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useT } from '../../../i18n'
 import { wordRuns } from '../../history/docDiff'
-import { markSeen, replaceDraft, tickAddress } from '../actions'
+import { markSeen, tickAddress, writeText } from '../actions'
 import { hiddenParts, linkTargets, scanAddresses } from '../seal'
 import { ownOrigin } from '../provenance'
 import { textMax } from '../template'
 import { shortTextOf, slipText } from '../text'
 import { unsent } from '../machine'
+import { focusSlipEl } from '../keys'
 import type { SealAddress, Slip } from '../types'
+import { Shown, shownText } from './parts'
 
 /** The text cut into plain runs, hidden code points and flagged addresses. */
 function Segments({ text, flags, slip }: { text: string; flags: SealAddress[]; slip: Slip }) {
@@ -47,9 +50,9 @@ function Segments({ text, flags, slip }: { text: string; flags: SealAddress[]; s
     const first = !shown.has(m.flag.norm)
     shown.add(m.flag.norm)
     out.push(
-      <span key={k++} className="obx-addr" data-only={m.flag.only} data-ticked={m.flag.ticked || undefined} title={reason}>
-        {text.slice(m.at, m.end)}
-        {first && <Tick slip={slip} flag={m.flag} label={`${t('features.outbox.addr.tick', { address: m.flag.text })} — ${reason}`} />}
+      <span key={k++} className="obx-addr" data-only={m.flag.only} data-ticked={m.flag.ticked || undefined} title={shownText(reason)}>
+        <Shown text={text.slice(m.at, m.end)} />
+        {first && <Tick slip={slip} flag={m.flag} label={shownText(`${t('features.outbox.addr.tick', { address: m.flag.text })} — ${reason}`)} />}
       </span>,
     )
     at = m.end
@@ -85,16 +88,33 @@ export function Payload({ slip, editing, onEditing }: { slip: Slip; editing: boo
   const seen = !!slip.draft && slip.draft.seenRev === slip.draft.rev
   const short = shortTextOf(text)
   const [open, setOpen] = useState(false)
+  const textRef = useRef<HTMLDivElement>(null)
   useEffect(() => setOpen(false), [rev])
   const clipped = !short && !open && !seen
+  const writing = editing || slip.state === 'missing'
+  // on screen in full (nothing clipped away): this revision is seen
+  useEffect(() => {
+    if (slip.draft && !writing && !seen && (short || open) && unsent(slip.state)) void markSeen(slip.id, rev)
+  }, [slip.id, slip.draft, slip.state, rev, writing, seen, short, open])
 
   if (!slip.draft) return null
-  if (editing || slip.state === 'missing') return <Editor slip={slip} text={text} onDone={() => onEditing(false)} autoFocus={editing} />
+  if (writing)
+    return (
+      <Editor
+        slip={slip}
+        text={text}
+        onDone={() => {
+          onEditing(false)
+          focusSlipEl(slip.id)
+        }}
+        autoFocus={editing}
+      />
+    )
   const links = linkTargets(text)
   const diff = slip.draft.by === 'person' && slip.draft.claudeText !== undefined && slip.draft.claudeText !== text
   return (
     <div className="obx-payload">
-      <div className="obx-payload__text" data-clipped={clipped || undefined} aria-label={t('features.outbox.text.label')} data-testid="outbox-text">
+      <div className="obx-payload__text" data-clipped={clipped || undefined} aria-label={t('features.outbox.text.label')} data-testid="outbox-text" ref={textRef} tabIndex={-1}>
         <Segments text={text} flags={slip.seal.addresses} slip={slip} />
       </div>
       {clipped && (
@@ -105,6 +125,8 @@ export function Payload({ slip, editing, onEditing }: { slip: Slip; editing: boo
           onClick={() => {
             setOpen(true)
             void markSeen(slip.id, rev)
+            // the key goes away: the reader stays with the text it opened
+            requestAnimationFrame(() => textRef.current?.focus({ preventScroll: true }))
           }}
         >
           {t('features.outbox.text.show', { n: [...text].length })}
@@ -115,7 +137,7 @@ export function Payload({ slip, editing, onEditing }: { slip: Slip; editing: boo
           <span className="label">{t('features.outbox.text.links')}</span>
           {links.map((l) => (
             <code key={l} className="obx-payload__link">
-              {l}
+              <Shown text={l} />
             </code>
           ))}
         </div>
@@ -126,14 +148,16 @@ export function Payload({ slip, editing, onEditing }: { slip: Slip; editing: boo
           <p className="obx-diff">
             {wordRuns(slip.draft.claudeText ?? '', text).map((r, i) =>
               r.op === 'same' ? (
-                <span key={i}>{r.text}</span>
+                <span key={i}>
+                  <Shown text={r.text} />
+                </span>
               ) : r.op === 'del' ? (
                 <del key={i} className="obx-diff__del">
-                  {r.text}
+                  <Shown text={r.text} />
                 </del>
               ) : (
                 <ins key={i} className="obx-diff__add">
-                  {r.text}
+                  <Shown text={r.text} />
                 </ins>
               ),
             )}
@@ -155,7 +179,7 @@ function Editor({ slip, text, onDone, autoFocus }: { slip: Slip; text: string; o
   }, [autoFocus])
   const save = async () => {
     if (over || !value.trim()) return
-    if (await replaceDraft(slip.id, value, 'person')) onDone()
+    if (await writeText(slip.id, value)) onDone()
   }
   return (
     <div className="obx-payload obx-payload--edit">

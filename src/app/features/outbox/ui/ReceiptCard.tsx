@@ -5,7 +5,7 @@ import { useLang, useT } from '../../../i18n'
 import { fmtUsd } from '../../../lib/money'
 import { resetRow } from '../hand'
 import type { Slip } from '../types'
-import { clock, ServerTag, ToolTarget } from './parts'
+import { clock, ServerTag, Shown, ToolTarget, shownText } from './parts'
 
 export function ReceiptCard({ slip }: { slip: Slip }) {
   const t = useT()
@@ -19,15 +19,15 @@ export function ReceiptCard({ slip }: { slip: Slip }) {
       <div className="obx-rcard__head">
         <ServerTag name={slip.target.serverName} />
         <ToolTarget slip={slip} />
-        <span className="obx-rcard__title" title={slip.title}>
-          {slip.title}
+        <span className="obx-rcard__title" title={shownText(slip.title)}>
+          <Shown text={slip.title} />
         </span>
         <span className="obx-sp" />
         {canReset && (
           <button
             type="button"
             className="btn btn--ghost btn--sm obx-rcard__reset"
-            title={t('features.outbox.sent.resetHint')}
+            title={`${t('features.outbox.sent.reset')} — ${t('features.outbox.sent.resetHint')}`}
             data-testid="outbox-reset"
             onClick={async () => {
               const res = await resetRow(slip.id)
@@ -36,7 +36,7 @@ export function ReceiptCard({ slip }: { slip: Slip }) {
             }}
           >
             <Undo2 size={13} aria-hidden />
-            {t('features.outbox.sent.reset')}
+            <span className="obx-rcard__resetword">{t('features.outbox.sent.reset')}</span>
           </button>
         )}
       </div>

@@ -61,6 +61,8 @@ export interface SourceRef {
   addresses: string[]
   /** ≤ 280 characters for the chip's tooltip; full texts are never kept */
   excerpt?: string
+  /** the row's last comment (the mirror's `lastComment` role): the CHANGED band and the cards name it by this */
+  role?: 'comment'
 }
 
 export interface SealAddress {
@@ -124,7 +126,7 @@ export interface LogLine {
 export interface Slip {
   v: 1
   id: SlipId
-  /** 'local:local' | 'cloud:<wsId>' */
+  /** 'local:local' | 'cloud:<wsId>:u:<accountId>' (a member's own slips) */
   scope: string
   state: SlipState
   createdAt: number
@@ -143,6 +145,10 @@ export interface Slip {
   title: string
   /** the person's instruction for the draft (this device only; a redraft takes it again) */
   instruction?: string
+  /** addresses the person typed in an edit (seal.ts personAddresses) — trusted, kept across revisions */
+  typedAddrs?: string[]
+  /** the row's link the person accepted for "Copy & open" although it leads off the server's host (hand.ts linkHome) */
+  linkOk?: string
   after: AfterEntry[]
   /** inbox item ids archived after the send */
   answers: string[]

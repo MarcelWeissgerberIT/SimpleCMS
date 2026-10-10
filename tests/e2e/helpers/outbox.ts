@@ -114,9 +114,9 @@ export interface ClaudeCall {
 
 /**
  * api.anthropic.com → a structured answer `{"text": <draft>}` for every message request (`draft(body)` decides the
- * text), recorded. Streams (other features) get a short text.
+ * text — a promise holds the answer back, e.g. while the test moves the row on), recorded.
  */
-export async function mockDrafts(ctx: BrowserContext | Page, draft: (body: AnyState, n: number) => string): Promise<ClaudeCall[]> {
+export async function mockDrafts(ctx: BrowserContext | Page, draft: (body: AnyState, n: number) => string | Promise<string>): Promise<ClaudeCall[]> {
   const calls: ClaudeCall[] = []
   await ctx.route('https://api.anthropic.com/**', async (route) => {
     const req = route.request()
@@ -125,7 +125,7 @@ export async function mockDrafts(ctx: BrowserContext | Page, draft: (body: AnySt
     if (req.method() === 'GET') return route.fulfill({ status: 200, headers: { ...cors, 'content-type': 'application/json' }, body: JSON.stringify({ data: [], has_more: false, first_id: null, last_id: null }) })
     const body = JSON.parse(req.postData() ?? '{}')
     calls.push({ body })
-    const text = draft(body, calls.length)
+    const text = await draft(body, calls.length)
     try {
       await route.fulfill({
         status: 200,

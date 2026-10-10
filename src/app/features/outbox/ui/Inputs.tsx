@@ -1,8 +1,12 @@
-/** EINGABEN / INPUTS: the exact tool arguments, mono key → value (the long text points up at the body). */
+/**
+ * EINGABEN / INPUTS: the exact tool arguments, mono key → value (the long text points up at the body). Values are
+ * drawn with their hidden code points visible (⟦U+202E⟧), in the tooltip too — a bidi override never flips them here.
+ */
 import { useT } from '../../../i18n'
 import { SENT_AT } from '../template'
 import { slipText } from '../text'
 import type { Slip } from '../types'
+import { Shown, shownText } from './parts'
 
 const LONG = 40
 
@@ -26,9 +30,11 @@ export function Inputs({ slip }: { slip: Slip }) {
         const value = v === SENT_AT ? t('features.outbox.inputs.sentAt') : isText ? t('features.outbox.inputs.text', { n: [...text].length }) : shown(v)
         return (
           <div key={k} className="obx-args__pair">
-            <dt>{k}</dt>
-            <dd data-arg={k} data-dim={isText || v === SENT_AT || undefined} title={isText ? undefined : shown(v)}>
-              {value}
+            <dt>
+              <Shown text={k} />
+            </dt>
+            <dd data-arg={k} data-dim={isText || v === SENT_AT || undefined} title={isText ? undefined : shownText(shown(v))}>
+              <Shown text={value} />
             </dd>
           </div>
         )

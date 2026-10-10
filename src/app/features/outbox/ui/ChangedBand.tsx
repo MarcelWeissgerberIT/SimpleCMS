@@ -1,11 +1,13 @@
 /**
  * CHANGED since the draft (per mirror): a black band — what changed ("Comments 7 → 8 · Status unchanged") — the
- * newest comment quoted and marked FOREIGN, and the keys: H Hold (primary), R Redraft, Send anyway (ghost).
+ * newest comment quoted and marked FOREIGN (named by the field it sits in: the mirror knows no comment's author), and
+ * while the slip is ready the keys: H Hold (primary), R Redraft, Send anyway (ghost). A held slip keeps the band and
+ * the quote; its own keys (Release, Redraft) are in the slip's row of keys.
  */
 import { useLang, useT } from '../../../i18n'
 import { isChanged } from '../counts'
 import type { Slip } from '../types'
-import { ForeignMark } from './parts'
+import { ForeignMark, Quote, Shown } from './parts'
 
 /** "today 08:09" / "9 Oct 16:42" from a stored date stamp; anything else as it is. */
 function whenText(v: string, lang: string, today: string): string {
@@ -26,7 +28,7 @@ export function ChangedBand({ slip, onHold, onRedraft, onAnyway, busy }: { slip:
   const fields = lc.changed.filter((c) => c.field !== 'lastCommentAt')
   const unchanged = slip.baseline && 'srcStatus' in slip.baseline.fields && !lc.changed.some((c) => c.field === 'srcStatus') ? (slip.baseline.labels?.srcStatus ?? 'Status') : null
   const when = lc.changed.find((c) => c.field === 'lastCommentAt')?.now
-  const who = slip.sources.find((s) => !s.trusted && !s.typed && s.label.includes(' '))?.label
+  const ready = slip.state === 'ready'
   return (
     <section className="obx-band" aria-label={t('features.outbox.changed.bar')} data-testid="outbox-changed">
       <div className="obx-band__bar">
@@ -37,9 +39,9 @@ export function ChangedBand({ slip, onHold, onRedraft, onAnyway, busy }: { slip:
           {fields.map((c, i) => (
             <span key={c.field}>
               {i > 0 && ' · '}
-              {c.label ?? c.field}{' '}
+              <Shown text={c.label ?? c.field} />{' '}
               <b>
-                {c.before || '—'} → {c.now || '—'}
+                <Shown text={c.before || '—'} /> → <Shown text={c.now || '—'} />
               </b>
             </span>
           ))}
@@ -56,24 +58,26 @@ export function ChangedBand({ slip, onHold, onRedraft, onAnyway, busy }: { slip:
           <p className="obx-band__quote" aria-label={t('features.outbox.changed.quoteLabel')}>
             <ForeignMark />
             <span className="obx-band__fword">{t('features.outbox.src.foreign')}</span>
-            {who && <span className="obx-band__who">{who}</span>}
-            {when && <span className="obx-band__when">{whenText(when, lang, t('features.outbox.changed.today'))}</span>} — „{lc.latest}“
+            <span className="obx-band__who">{t('features.outbox.src.lastComment')}</span>
+            {when && <span className="obx-band__when">{whenText(when, lang, t('features.outbox.changed.today'))}</span>} — <Quote text={lc.latest} />
           </p>
         )}
-        <div className="obx-band__keys">
-          <button type="button" className="btn btn--primary btn--sm" onClick={onHold} disabled={busy} data-testid="outbox-hold">
-            <kbd className="kbd">H</kbd>
-            {t('features.outbox.changed.hold')}
-          </button>
-          <button type="button" className="btn btn--sm" onClick={onRedraft} disabled={busy} data-testid="outbox-redraft">
-            <kbd className="kbd">R</kbd>
-            {t('features.outbox.changed.redraft')}
-          </button>
-          <span className="obx-sp" />
-          <button type="button" className="btn btn--ghost btn--sm" onClick={onAnyway} disabled={busy} data-testid="outbox-anyway">
-            {t('features.outbox.changed.anyway')}
-          </button>
-        </div>
+        {ready && (
+          <div className="obx-band__keys">
+            <button type="button" className="btn btn--primary btn--sm" onClick={onHold} disabled={busy} data-testid="outbox-hold">
+              <kbd className="kbd obx-fine">H</kbd>
+              {t('features.outbox.changed.hold')}
+            </button>
+            <button type="button" className="btn btn--sm" onClick={onRedraft} disabled={busy} data-testid="outbox-redraft">
+              <kbd className="kbd obx-fine">R</kbd>
+              {t('features.outbox.changed.redraft')}
+            </button>
+            <span className="obx-sp" />
+            <button type="button" className="btn btn--ghost btn--sm" onClick={onAnyway} disabled={busy} data-testid="outbox-anyway">
+              {t('features.outbox.changed.anyway')}
+            </button>
+          </div>
+        )}
       </div>
     </section>
   )

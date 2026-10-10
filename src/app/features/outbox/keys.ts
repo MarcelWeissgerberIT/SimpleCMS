@@ -47,7 +47,7 @@ export function onOutboxKey(e: KeyboardEvent<HTMLElement>, ctx: KeyContext): voi
     const asking = useOutbox.getState().asking
     if (asking) {
       e.preventDefault()
-      notYet(asking)
+      notYet(asking.id)
       return
     }
     if (ctx.close) {

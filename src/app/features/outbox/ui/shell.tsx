@@ -13,6 +13,7 @@ import { setDockOpen, showDock, openSlip, useDockOpen, useOutboxCounts, useSlips
 import { useListRoutes, useRoutesFor } from '../routes'
 import { useOutbox } from '../store'
 import { openDraft } from './draftState'
+import { Shown, shownText } from './parts'
 import { OPEN_STATES, type Slip } from '../types'
 
 const pad = (n: number) => (n > 99 ? '99+' : String(n).padStart(2, '0'))
@@ -133,7 +134,9 @@ export function RowSlips({ pageId }: { pageId: ID }) {
           <button key={s.id} type="button" className="obx-rowslip" data-state={w} onClick={() => openSlip(s.id)}>
             <span className={w === 'changed' ? 'led led--on' : w === 'unclear' ? 'obx-led obx-led--red' : 'led'} aria-hidden />
             <span className="label">{t(`features.outbox.strip.${w}`)}</span>
-            <span className="obx-rowslip__title">{s.title}</span>
+            <span className="obx-rowslip__title" title={shownText(s.title)}>
+              <Shown text={s.title} />
+            </span>
             <span className="obx-rowslip__open">
               {t('features.outbox.row.open')}
               <ArrowUpRight size={12} aria-hidden />

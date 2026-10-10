@@ -16,11 +16,13 @@ import { isAIConfigured } from '../../ai/client'
 import { HelpLink } from '../../../help'
 import { draftSlip, estimateDraft } from '../draft'
 import { keyPropOf, useRoutesFor } from '../routes'
-import { stage } from '../stage'
+import { stage, typedParamSources } from '../stage'
 import { showDock } from '../hooks'
 import { useOutbox, OUTBOX_LIMITS } from '../store'
 import type { ResolvedRoute, StageRefusal } from '../types'
-import { ServerTag } from './parts'
+import { ServerTag, Shown, shownText } from './parts'
+import { focusSlipEl } from '../keys'
+import { focusIsNowhere, focusMainRegion, returnFocusAfterClose } from '../../../ui/focus'
 import { closeDraft, useDraftUI, type DraftRequest } from './draftState'
 import { mentionAt, mentionHits, rowHits, type MentionHit } from './mentions'
 
@@ -47,7 +49,12 @@ function DraftPopover({ req }: { req: DraftRequest }) {
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const anchor = useMemo(() => (req.anchor && req.anchor.isConnected ? req.anchor : virtualAnchor(() => new DOMRect(window.innerWidth / 2 - 1, 64, 2, 2))), [req.anchor])
-  const close = () => closeDraft()
+  /** Closed without a slip (Esc, a press outside), or with a draft running: focus goes back to the key that opened it. */
+  const close = () => {
+    closeDraft()
+    if (req.anchor instanceof HTMLElement && req.anchor.isConnected) returnFocusAfterClose(req.anchor)
+    else requestAnimationFrame(() => requestAnimationFrame(() => focusIsNowhere() && focusMainRegion()))
+  }
 
   if (!route) {
     return (
@@ -70,8 +77,10 @@ function DraftPopover({ req }: { req: DraftRequest }) {
     if (mode === 'typed' || mode === 'self') {
       setBusy(true)
       const made: string[] = []
+      // what the person picked here is the slip's provenance (typed values; a text they write themselves is theirs)
+      const judged = mode === 'typed' ? typedParamSources(typed, params) : []
       for (const rowId of rowIds) {
-        const res = await stage({ route: route.ref, rowId, ...(mode === 'self' ? { draft: null } : {}), params, origin, sources: [] })
+        const res = await stage({ route: route.ref, rowId, ...(mode === 'self' ? { draft: null } : {}), params, origin, sources: [] }, { judged })
         if ('refused' in res) {
           setBusy(false)
           return setError(refusalText(res))
@@ -79,9 +88,11 @@ function DraftPopover({ req }: { req: DraftRequest }) {
         made.push(res.slip.id)
       }
       setBusy(false)
-      close()
+      closeDraft()
       if (made[0]) useOutbox.setState({ focus: made[0] })
       showDock(req.dbId)
+      // the new slip takes the focus (its text field when the person writes it themselves)
+      if (made[0]) focusSlipEl(made[0])
       toastDone(route, made.length, rowIds[0])
       return
     }
@@ -132,7 +143,7 @@ function DraftPopover({ req }: { req: DraftRequest }) {
           <>
             <button type="button" className="btn btn--primary" disabled={!aiOk || busy || !rowIds.length} onClick={() => void go('claude')} data-testid="outbox-draft-claude">
               {t('features.outbox.draft.claude')}
-              <kbd className="kbd">↵</kbd>
+              <kbd className="kbd obx-fine">↵</kbd>
             </button>
             <button type="button" className="btn" disabled={busy || !rowIds.length} onClick={() => void go('self')} data-testid="outbox-draft-self">
               {t('features.outbox.draft.self')}
@@ -141,7 +152,7 @@ function DraftPopover({ req }: { req: DraftRequest }) {
         ) : (
           <button type="button" className="btn btn--primary" disabled={busy || !rowIds.length} onClick={() => void go('typed')} data-testid="outbox-draft-stage">
             {t('features.outbox.draft.stage')}
-            <kbd className="kbd">↵</kbd>
+            <kbd className="kbd obx-fine">↵</kbd>
           </button>
         )}
       </div>
@@ -149,11 +160,13 @@ function DraftPopover({ req }: { req: DraftRequest }) {
   )
 }
 
-function toastDone(route: ResolvedRoute, n: number, firstRow: ID): void {
+/** `background`: raised by drafts that finish after the popover closed — never over a dialog opened meanwhile. */
+function toastDone(route: ResolvedRoute, n: number, firstRow: ID, background = false): void {
   const key = rowKeyOf(firstRow)
   useUI.getState().toast({
     message: n === 1 ? translate('features.outbox.draft.done', { label: route.label, key }) : translate('features.outbox.draft.doneN', { n }),
     kind: 'success',
+    ...(background ? { background: true } : {}),
   })
 }
 
@@ -172,7 +185,7 @@ async function runDrafts(route: ResolvedRoute, rowIds: ID[], instruction: string
   for (let i = 0; i < rowIds.length; i++) {
     const res = await draftSlip({ route: route.ref, rowId: rowIds[i], instruction, mentions, origin: { kind: 'command', ref: `${route.ref.profileId}/${route.ref.routeId}` }, ...(rowIds.length > 1 ? { step: { n: i + 1, of: rowIds.length } } : {}) })
     if ('refused' in res) {
-      useUI.getState().toast({ message: `${route.label} · #${rowKeyOf(rowIds[i])} · ${refusalText(res)}`, kind: 'error', timeout: 8000 })
+      useUI.getState().toast({ message: `${route.label} · #${rowKeyOf(rowIds[i])} · ${refusalText(res)}`, kind: 'error', timeout: 8000, background: true })
       continue
     }
     made++
@@ -183,7 +196,7 @@ async function runDrafts(route: ResolvedRoute, rowIds: ID[], instruction: string
         return cur && cur.target.dbId === dbId && cur.state !== 'withdrawn' && cur.id !== res.slip.id && rowIds.length > 1 ? {} : { focus: res.slip.id }
       })
   }
-  if (made) toastDone(route, made, rowIds[0])
+  if (made) toastDone(route, made, rowIds[0], true)
 }
 
 function RowPicker({ dbId, keyPropId, rowIds, onChange }: { dbId: ID; keyPropId: ID | null; rowIds: ID[]; onChange: (ids: ID[]) => void }) {
@@ -199,8 +212,8 @@ function RowPicker({ dbId, keyPropId, rowIds, onChange }: { dbId: ID; keyPropId:
           return (
             <li key={id} className="obx-draft__row">
               <span className="obx-tt__key">#{keyPropId ? String(p?.properties[keyPropId] ?? '') : ''}</span>
-              <span className="obx-draft__rowtitle" title={p?.title}>
-                {p?.title || t('common.untitled')}
+              <span className="obx-draft__rowtitle" title={p?.title ? shownText(p.title) : undefined}>
+                <Shown text={p?.title || t('common.untitled')} />
               </span>
               {rowIds.length > 1 && (
                 <button type="button" className="icon-btn icon-btn--sm" aria-label={t('common.remove')} onClick={() => onChange(rowIds.filter((x) => x !== id))}>

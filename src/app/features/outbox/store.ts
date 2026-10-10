@@ -9,7 +9,7 @@
  *    `lastCheck` says what changed since the draft (watch.ts).
  */
 import { create } from 'zustand'
-import { activeWorkspace } from '../../cloud'
+import { activeWorkspace, useCloud } from '../../cloud'
 import type { ID } from '../../store/types'
 import { dropSlips, loadSlips, onChanged, postChanged, probeStorage, readSlip, updateSlip } from './db'
 import { next, type SlipEvent } from './machine'
@@ -51,15 +51,21 @@ export interface OutboxState {
   drafting: Record<string, Drafting>
   /** the slip the dock / #/outbox has open */
   focus: SlipId | null
-  /** the hand path asks "Sent in the ticket tool?" for this slip */
-  asking: SlipId | null
+  /** the hand path asks "Sent in the ticket tool?" for this slip — about the arguments that were copied */
+  asking: { id: SlipId; argsHash: string } | null
   /** a phone / narrow screen: the dock as a sheet, opened on demand */
   sheet: ID | null
 }
 
+/**
+ * Whose slips: 'local:local', or in a team workspace this member's own ('cloud:<ws>:u:<account>') — another member
+ * signing in on the same browser never sees, counts or acts on them (their drafts can quote the member's private pages).
+ */
 export const scopeNow = (): string => {
   const ref = activeWorkspace()
-  return `${ref.kind}:${ref.id}`
+  if (ref.kind !== 'cloud') return `${ref.kind}:${ref.id}`
+  const uid = useCloud.getState().user?.id
+  return uid ? `cloud:${ref.id}:u:${uid}` : `cloud:${ref.id}`
 }
 
 export const useOutbox = create<OutboxState>(() => ({

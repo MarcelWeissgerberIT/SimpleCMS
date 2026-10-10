@@ -7,21 +7,22 @@
  * returns (closing the popover never stops it); only then is a slip staged.
  */
 import { useWorkspace } from '../../store/store'
-import type { Database, ID, Page, PropertyDef, SendRoute } from '../../store/types'
+import type { Database, ID, IntegrationProfile, Page, PropertyDef, SendRoute } from '../../store/types'
 import { propertyValueToText } from '../../database'
 import { localized } from '../../store/integrations'
 import { readableContent } from '../../editor'
 import { completeStructured, resolveModel, AIError } from '../ai/client'
 import { memoryFor, noteUse } from '../ai/memory'
-import { recipeRoleNames } from '../agents'
+import { recipeOptionNames, recipeRoleNames } from '../agents'
 import { currentLang, t } from '../../i18n'
 import { applyRedraft } from './actions'
 import { pageTrust, readRow, rowSources, sourceRef } from './provenance'
 import { resolveRoute } from './routes'
-import { stage, type StageResult } from './stage'
+import { baselineOf, stage, type StageResult } from './stage'
+import { checkRows } from './watch'
 import { getSlip, useOutbox, type Drafting } from './store'
 import { textMax, textParam } from './template'
-import type { RouteRef, SlipId, SlipOrigin, SourceRef, StageRefusal } from './types'
+import type { RouteRef, Slip, SlipId, SlipOrigin, SourceRef, StageRefusal } from './types'
 
 const PAGE_MAX = 8000
 const PAGES_MAX = 4
@@ -48,10 +49,13 @@ interface Built {
   prompt: string
   sources: SourceRef[]
   max: number
+  /** the row as this request reads it — the slip's baseline (a comment arriving while Claude drafts lights CHANGED) */
+  baseline: NonNullable<Slip['baseline']>
 }
 
 /** The request for a row: system text, prompt, and the sources it holds (judged here). */
-export function buildDraft(route: SendRoute, rowId: ID, roles: Record<string, string[]>, instruction: string, mentions: ID[], server: string): Built | null {
+export function buildDraft(route: SendRoute, rowId: ID, profile: Pick<IntegrationProfile, 'id' | 'name' | 'recipes'>, instruction: string, mentions: ID[], server: string): Built | null {
+  const roles = recipeRoleNames(profile)
   const s = useWorkspace.getState()
   const row = s.pages[rowId]
   const db = row?.databaseId ? s.databases[row.databaseId] : undefined
@@ -81,12 +85,13 @@ export function buildDraft(route: SendRoute, rowId: ID, roles: Record<string, st
     sources.push(sourceRef({ kind: 'text', ref: 'instruction', label: t('features.outbox.src.instruction'), text: own }, { trusted: true }))
   }
   // the record: typed fields plainly, free text marked untrusted
-  const fields = rowSources(rowId, roles)
+  const fields = rowSources(rowId, roles, recipeOptionNames(profile))
   const typed = fields.filter((f) => f.typed)
+  // typed values only, each on its own line — names and values escaped like everything else
   const typedLines = typed.map((f) => {
     const [, propId] = f.ref.split(':')
     const prop = db.properties.find((p) => p.id === propId)
-    return prop ? `${prop.name}: ${readValue(db.id, propId, rowId)}` : ''
+    return prop ? `${attr(prop.name)}: ${esc(readValue(db.id, propId, rowId)).replace(/\s+/g, ' ').slice(0, 200)}` : ''
   })
   parts.push(`<record server="${attr(server)}" key="${attr(read.key)}">\n${typedLines.filter(Boolean).join('\n')}\n</record>`)
   sources.push(...typed)
@@ -108,7 +113,7 @@ export function buildDraft(route: SendRoute, rowId: ID, roles: Record<string, st
     parts.push(trust.trusted ? `<page title="${attr(title)}" id="${id}">\n${esc(md)}\n</page>` : `<untrusted source="${attr(title)}">\n${esc(md)}\n</untrusted>`)
     sources.push(sourceRef({ kind: 'page', ref: id, label: title, text: md }, { trusted: trust.trusted }))
   }
-  return { system, prompt: parts.join('\n\n'), sources, max }
+  return { system, prompt: parts.join('\n\n'), sources, max, baseline: baselineOf(read) }
 }
 
 function readValue(_dbId: ID, propId: string, rowId: ID): string {
@@ -171,7 +176,7 @@ export async function draftSlip(i: DraftInput): Promise<DraftResult> {
   if (!textParam(r.route)) return { refused: 'param', detail: 'draft' }
   const roles = recipeRoleNames(r.profile)
   const instruction = (i.instruction ?? '').trim()
-  const built = buildDraft(r.route, i.rowId, roles, instruction, i.mentions ?? [], r.server.name)
+  const built = buildDraft(r.route, i.rowId, r.profile, instruction, i.mentions ?? [], r.server.name)
   if (!built) return { refused: 'noKey' }
   const key = draftKey(i.route, i.rowId)
   setDrafting(key, { key, dbId: row.databaseId, rowId: i.rowId, rowKey: readRow(i.rowId, roles)?.key ?? '', label: localized(r.route.label, currentLang()) || r.route.id, startedAt: Date.now(), ...(i.step ? { step: i.step } : {}) })
@@ -181,7 +186,7 @@ export async function draftSlip(i: DraftInput): Promise<DraftResult> {
     const sources = got.memory ? [...built.sources, sourceRef({ kind: 'memory', ref: 'memory', label: t('features.outbox.src.memory'), text: got.memory }, { trusted: true })] : built.sources
     return await stage(
       { route: i.route, rowId: i.rowId, draft: got.text, origin: i.origin, sources: [] },
-      { judged: sources, ownText: instruction, claude: { text: got.text, usd: got.usd } },
+      { judged: sources, ownText: instruction, claude: { text: got.text, usd: got.usd }, baseline: built.baseline },
     )
   } catch (e) {
     if (i.signal?.aborted || (e instanceof AIError && e.code === 'aborted')) return { refused: 'aborted' }
@@ -197,19 +202,18 @@ export async function redraft(id: SlipId, signal?: AbortSignal): Promise<{ ok: t
   if (!slip || !slip.draft) return { ok: false, detail: 'state' }
   const r = resolveRoute({ profileId: slip.route.profileId, routeId: slip.route.routeId }, slip.target.dbId)
   if ('refused' in r) return { ok: false, detail: r.refused }
-  const roles = recipeRoleNames(r.profile)
   const mentions = slip.sources.filter((x) => x.kind === 'page').map((x) => x.ref)
   const instruction = slip.instruction ?? ''
-  const built = buildDraft(slip.route.snapshot, slip.target.rowId, roles, instruction, mentions, slip.target.serverName)
+  const built = buildDraft(slip.route.snapshot, slip.target.rowId, r.profile, instruction, mentions, slip.target.serverName)
   if (!built) return { ok: false, detail: 'noKey' }
   const key = draftKey({ profileId: slip.route.profileId, routeId: slip.route.routeId }, slip.target.rowId)
   setDrafting(key, { key, dbId: slip.target.dbId, rowId: slip.target.rowId, rowKey: slip.target.key, label: localized(slip.route.label, currentLang()), startedAt: Date.now() })
   try {
     const got = await ask(built, instruction, signal)
-    const read = readRow(slip.target.rowId, roles)
-    const baseline = read ? { at: Date.now(), from: 'row' as const, fields: read.fields, labels: read.labels, ...(read.latest ? { latest: read.latest.slice(0, 600) } : {}) } : slip.baseline
     const sources = got.memory ? [...built.sources, sourceRef({ kind: 'memory', ref: 'memory', label: t('features.outbox.src.memory'), text: got.memory }, { trusted: true })] : built.sources
-    const ok = await applyRedraft(id, got.text, got.usd, baseline, sources)
+    // the baseline is the row as the request read it: what arrived while Claude wrote lights CHANGED again
+    const ok = await applyRedraft(id, got.text, got.usd, built.baseline, sources)
+    if (ok) await checkRows([slip.target.rowId]).catch(() => undefined)
     return ok ? { ok: true } : { ok: false, detail: 'state' }
   } catch (e) {
     return { ok: false, detail: (e as Error)?.message || String(e) }
@@ -224,7 +228,7 @@ export function estimateDraft(route: RouteRef, rowId: ID, instruction: string, m
   if (!row?.databaseId) return null
   const r = resolveRoute(route, row.databaseId)
   if ('refused' in r) return null
-  const built = buildDraft(r.route, rowId, recipeRoleNames(r.profile), instruction, mentions, r.server.name)
+  const built = buildDraft(r.route, rowId, r.profile, instruction, mentions, r.server.name)
   if (!built) return null
   const m = resolveModel(useWorkspace.getState().settings.aiModel)
   const input = Math.ceil((built.system.length + built.prompt.length) / 4)

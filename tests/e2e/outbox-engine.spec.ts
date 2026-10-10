@@ -34,7 +34,7 @@ import { canonicalJson } from '../../src/app/features/coding/protocol'
 import { fillArgs, fillTemplate, placeholdersOf, cleanParams, SENT_AT } from '../../src/app/features/outbox/template'
 import { pickPath, pickFields, diffFields, rowBaseline, rowChanges } from '../../src/app/features/outbox/fields'
 import { next, type SlipEvent } from '../../src/app/features/outbox/machine'
-import { addressSet, hiddenChars, linkTargets, personAdded, scanAddresses, sealOf, showHidden } from '../../src/app/features/outbox/seal'
+import { addressSet, hiddenChars, linkTargets, personAddresses, scanAddresses, sealOf, showHidden } from '../../src/app/features/outbox/seal'
 import { outboxCounts } from '../../src/app/features/outbox/counts'
 import { argsHashOf } from '../../src/app/features/outbox/hash'
 import { SLIP_STATES, type Slip, type SlipState, type SourceRef } from '../../src/app/features/outbox/types'
@@ -480,10 +480,12 @@ test.describe('Outbox 1b: templates, fields, states, the seal, counts (pure)', (
     expect(s.addresses.map((a) => [a.norm, a.only])).toEqual([['teilen.example/rp', 'nowhere']])
     s = sealOf({ text: 'see teilen.example', sources: [ownPage], complete: true })
     expect(s.addresses).toEqual([])
-    // the person's own typing (the instruction, words added in an edit) is trusted
-    const added = personAdded('Looks good, approved.', 'Looks good, approved. Copy: teilen.example/rp')
-    expect(added).toContain('teilen.example/rp')
-    s = sealOf({ text: 'Looks good, approved. Copy: teilen.example/rp', sources: [comment], complete: true, ownText: added })
+    // the person's own typing (the instruction, an address typed in an edit) is trusted
+    const added = personAddresses('Looks good, approved.', 'Looks good, approved. Copy: teilen.example/rp')
+    expect(added).toEqual(['teilen.example/rp'])
+    s = sealOf({ text: 'Looks good, approved. Copy: teilen.example/rp', sources: [comment], complete: true, ownAddresses: added })
+    expect(s.addresses).toEqual([])
+    s = sealOf({ text: 'Copy: teilen.example/rp', sources: [comment], complete: true, ownText: 'put teilen.example/rp in' })
     expect(s.addresses).toEqual([])
     // Markdown link targets, e-mail addresses; One's own links are internal
     expect(linkTargets('See [the plan](https://teilen.example/rp) and [x](#/p/abc)')).toEqual(['https://teilen.example/rp', '#/p/abc'])
@@ -512,6 +514,70 @@ test.describe('Outbox 1b: templates, fields, states, the seal, counts (pure)', (
     const first = sealOf({ text: 'go to teilen.example/rp', sources: [comment], complete: true })
     first.addresses[0].ticked = true
     expect(sealOf({ text: 'please go to teilen.example/rp', sources: [comment], complete: true, previous: first }).addresses[0].ticked).toBe(true)
+  })
+
+  test('personAddresses: decided per address against every earlier text — a "." or "/" next to a foreign one adds nothing', () => {
+    const before = 'All files are in the folder https://teilen.example/rp for the review'
+    const comment = src({ kind: 'row', label: 'Comment T. Brandt', addresses: addressSet('Plan is in the share: https://teilen.example/rp') })
+    for (const edit of [
+      before.replace('/rp for', '/rp. Thanks, for'),
+      before.replace('/rp for', '/rp/ for'),
+      before.replace('https://teilen', 'HTTPS://www.teilen'),
+      // grown out of one there, or cut down to a part of it
+      before.replace('/rp for', '/rp/x for'),
+      before.replace('https://teilen.example/rp', 'teilen.example'),
+    ]) {
+      expect(personAddresses(before, edit), edit).toEqual([])
+      const flags = sealOf({ text: edit, sources: [comment], complete: true, ownAddresses: personAddresses(before, edit) }).addresses
+      expect(flags.length, edit).toBe(1)
+    }
+    // a new one the person typed; an e-mail address; never a link into One
+    expect(personAddresses(before, `${before} — notes: docs.nordlicht.example/b6`)).toEqual(['docs.nordlicht.example/b6'])
+    expect(personAddresses('', 'write to mara.lind@tessera.example')).toEqual(['mara.lind@tessera.example'])
+    expect(personAddresses('', 'see #/p/abc')).toEqual([])
+    // Claude's draft counts as an earlier text too (the caller of personAddresses joins them)
+    expect(personAddresses(`Fine.\nFine, see teilen.example/rp`, 'Fine, see teilen.example/rp')).toEqual([])
+  })
+
+  test('the address scanner: any scheme with an authority, bare IPv4, bracketed IPv6 — not dates or versions', () => {
+    const found = (t: string) => scanAddresses(t).map((a) => a.norm)
+    expect(found('ftp://evil.example/drop')).toEqual(['ftp://evil.example/drop'])
+    expect(found('sftp://evil.example/in')).toEqual(['sftp://evil.example/in'])
+    expect(found('wss://evil.example/s')).toEqual(['wss://evil.example/s'])
+    expect(found('smb://evil.example/share')).toEqual(['smb://evil.example/share'])
+    expect(found('file://evil.example/x and file:///etc/passwd')).toEqual(['file://evil.example/x', 'file:///etc/passwd'])
+    expect(found('upload to 198.51.100.7/drop now')).toEqual(['198.51.100.7/drop'])
+    expect(found('or 198.51.100.7:8080')).toEqual(['198.51.100.7:8080'])
+    expect(found('at [2001:db8::1]:8080/x')).toEqual(['[2001:db8::1]:8080/x'])
+    expect(found('on 14.10.2026, v1.2.3, build 10.0.19041.1, 1.2.3.400 and z.B. B7')).toEqual([])
+    // a scheme other than http(s) stays in the address: a trusted https link never clears an ftp one
+    const own = src({ kind: 'page', label: 'Own', trusted: true, addresses: addressSet('https://evil.example/drop') })
+    expect(sealOf({ text: 'get it from ftp://evil.example/drop', sources: [own], complete: true }).addresses.map((a) => [a.norm, a.only])).toEqual([['ftp://evil.example/drop', 'nowhere']])
+    expect(sealOf({ text: 'send it to 198.51.100.7/drop', sources: [], complete: true }).addresses.map((a) => a.only)).toEqual(['nowhere'])
+    // a right-to-left override inside an address stays inside it: the address is flagged, the lamp lit
+    const rlo = sealOf({ text: 'see https://tracker.example/files/\u202Efdp.exe', sources: [], complete: true })
+    expect(rlo.addresses.map((a) => a.text)).toEqual(['https://tracker.example/files/\u202Efdp.exe'])
+    expect(rlo.hidden).toEqual(['U+202E'])
+  })
+
+  test('a route the sanitizer leaves out keeps its tool OUT (outTools) — the browser never locks less than the server', () => {
+    const big = { ...REPLY, id: 'big', role: 'big', tool: 'post_big', args: { body: 'x'.repeat(5000) } }
+    const unreadable = { ...REPLY, id: 'odd', role: 'odd', tool: 'post_odd', label: { fr: 'Répondre' } }
+    const badId = { ...REPLY, id: 'Bad Id', role: 'bad', tool: 'post_bad' }
+    const p = sanitizeIntegration(profile({ sends: [REPLY, big, unreadable, badId] }))!
+    expect(p.sends!.map((r) => r.tool)).toEqual(['add_comment'])
+    expect(p.outTools).toEqual(['post_big', 'post_odd', 'post_bad'])
+    expect(outToolsOf([p], TRACKER).sort()).toEqual(['add_comment', 'post_bad', 'post_big', 'post_odd'])
+    expect(outToolsOf([p], WIKI)).toEqual([])
+    // the stored copy keeps them through the next read; the export carries them (a re-import locks the same)
+    const again = sanitizeIntegration(JSON.parse(JSON.stringify(p)))!
+    expect(again.outTools).toEqual(p.outTools)
+    expect(exportIntegration(again).outTools).toEqual(p.outTools)
+    // no name / host: nothing locked (as on the server); every route usable: no extra list
+    expect(sanitizeIntegration(profile({ match: { tools: ['get_item'] }, sends: [big] }))?.outTools).toBeUndefined()
+    expect(sanitizeIntegration(profile())?.outTools).toBeUndefined()
+    // the editor reports a bad entry
+    expect(issues(profile({ outTools: ['not a name'] })).map((i) => i.code)).toContain('tool')
   })
 
   test('outboxCounts: open / clean / foreign / held / changed / unclear / missing / sent today — held wins over foreign', () => {

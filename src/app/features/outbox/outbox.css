@@ -206,6 +206,9 @@
   flex: 0 1 auto;
   min-width: 0;
 }
+.obx-dock__head[data-tight] .obx-dbchip {
+  display: none;
+}
 .obx-dock__all {
   padding: 0 6px;
 }
@@ -338,17 +341,35 @@ button.obx-strip:hover {
   background: color-mix(in srgb, var(--surface) 70%, var(--surface-2));
 }
 .obx-strip__t {
-  min-width: 0;
+  flex: 1 1 6ch;
+  min-width: 2ch;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   font-weight: 650;
 }
+.obx-strip > .obx-sp {
+  flex: 0 1 0;
+}
+/* the state word gives way first (… with its title), the LED stays; the lid never leaves the strip */
 .obx-strip__state {
   display: inline-flex;
   align-items: center;
   gap: 5px;
+  flex: 0 1 auto;
+  min-width: calc(8px * var(--text-scale));
+  overflow: hidden;
   white-space: nowrap;
+}
+.obx-strip__word {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.obx-strip .obx-lid,
+.obx-strip .obx-fmark,
+.obx-strip .obx-srv {
+  flex: none;
 }
 .obx-strip[data-kind='changed'] .obx-strip__state,
 .obx-strip[data-kind='held'] .obx-strip__state {
@@ -383,15 +404,26 @@ button.obx-strip:hover {
   box-shadow: none;
   border-style: dashed;
 }
+/* the key never shrinks away; a long tool name is cut instead (and hidden on a phone / at large text) */
 .obx-strip .obx-tt {
   flex: none;
-  max-width: 44%;
 }
+.obx-strip .obx-tt__tool {
+  max-width: 14ch;
+  min-width: 0;
+}
+/* the strip's title comes first: the tool's name (shown on the open slip) gives way on a phone and at large text */
 @media (max-width: 600px) {
   .obx-strip .obx-tt__tool,
   .obx-strip .obx-tt__to {
     display: none;
   }
+}
+:root[data-text-size='3'] .obx-strip .obx-tt__tool,
+:root[data-text-size='3'] .obx-strip .obx-tt__to,
+:root[data-text-size='4'] .obx-strip .obx-tt__tool,
+:root[data-text-size='4'] .obx-strip .obx-tt__to {
+  display: none;
 }
 
 /* ---------- the slip ---------- */
@@ -557,9 +589,9 @@ button.obx-strip:hover {
   box-shadow: inset 0 -1.5px 0 var(--c-red-text);
 }
 .obx-addr[data-only='internal'] {
-  background: var(--signal-wash);
-  color: var(--signal-ink);
-  box-shadow: inset 0 -1.5px 0 var(--signal);
+  background: var(--surface-2);
+  color: var(--ink);
+  box-shadow: inset 0 -1.5px 0 var(--ink-3);
 }
 .obx-addr[data-ticked] {
   box-shadow: inset 0 -1.5px 0 var(--rule-strong);
@@ -660,7 +692,7 @@ button.obx-strip:hover {
 }
 .obx-after__op {
   font: 600 var(--text-xs) / 1 var(--font-mono);
-  color: var(--signal-ink);
+  color: var(--ink-3);
 }
 .obx-after__none,
 .obx-read__none {
@@ -756,7 +788,7 @@ button.obx-strip:hover {
 .obx-hand {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  grid-template-areas: 'title' 'steps' 'key' 'set' 'why';
+  grid-template-areas: 'title' 'steps' 'key' 'set' 'dest' 'why';
   align-items: center;
   gap: 6px;
   min-width: 0;
@@ -775,6 +807,9 @@ button.obx-strip:hover {
 }
 .obx-hand__why {
   grid-area: why;
+}
+.obx-hand__dest {
+  grid-area: dest;
 }
 .obx-hand__title {
   color: var(--ink-2);
@@ -843,8 +878,58 @@ button.obx-strip:hover {
 .obx-hand__why {
   margin: 0;
   font-size: var(--text-xs);
-  color: var(--signal-ink);
+  color: var(--ink-3);
   line-height: 1.4;
+}
+/* the signal colour only for what it is reserved for: a change since the draft */
+.obx-hand__why[data-why='changed'] {
+  color: var(--signal-ink);
+}
+.obx-hand__why[data-why='ticks'],
+.obx-hand__why[data-why='link'] {
+  color: var(--c-red-text);
+}
+/* where "Copy & open" leads: the host; off the server's host FOREIGN (box, hatch, word) with a tick */
+.obx-hand__dest {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+  margin: 0;
+  min-width: 0;
+  font-size: var(--text-xs);
+  color: var(--ink-2);
+}
+.obx-hand__host {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 600 var(--text-2xs) / 1.4 var(--font-mono);
+}
+.obx-hand__dest[data-foreign] {
+  position: relative;
+  padding: 4px 6px 4px 12px;
+  border: 1px solid var(--c-red-text);
+  border-radius: var(--radius-1);
+  background: var(--c-red-bg);
+  color: var(--c-red-text);
+}
+.obx-hand__dest[data-foreign]::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 5px;
+  background: repeating-linear-gradient(-45deg, var(--c-red-text) 0 1.5px, transparent 1.5px 5px);
+}
+.obx-hand__fword {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
 }
 .obx-lamps-wrap {
   min-width: 0;
@@ -1032,8 +1117,9 @@ button.obx-strip:hover {
 }
 .obx-rcard__head {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 7px;
+  gap: 4px 7px;
   min-width: 0;
 }
 .obx-rcard__head .obx-srv,
@@ -1051,7 +1137,15 @@ button.obx-strip:hover {
   color: var(--ink-2);
 }
 .obx-rcard__reset {
-  flex: none;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  margin-left: auto;
+}
+.obx-rcard__resetword {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .obx-rcard__line {
   margin: 6px 0 0;
@@ -1125,7 +1219,7 @@ button.obx-strip:hover {
   color: var(--ink);
 }
 .obx-readout__btn[aria-pressed='true'] {
-  box-shadow: inset 0 -2px 0 var(--signal);
+  box-shadow: inset 0 -2px 0 var(--ink);
 }
 .obx-dbfoot {
   display: flex;
@@ -1213,7 +1307,11 @@ button.obx-strip:hover {
   text-transform: uppercase;
   letter-spacing: var(--tracking-label);
 }
-.obx-badge--red {
+/* grey mono like the mock: orange is for the cover, Hold and CHANGED */
+.sb-navrow__badge.obx-badge {
+  color: var(--ink-3);
+}
+.sb-navrow__badge.obx-badge--red {
   color: var(--c-red-text);
 }
 .obx-treecount {
@@ -1633,7 +1731,10 @@ button.obx-strip:hover {
 .obx-slip[data-foreign]::before {
   border-color: var(--c-red-text);
 }
-.obx-card[data-focused],
+/* the card J / K last went to: a rule on its edge (only real focus draws the focus ring) */
+.obx-card[data-current] {
+  box-shadow: inset 3px 0 0 var(--ink);
+}
 .obx-card:focus-visible {
   box-shadow: var(--focus-ring);
 }
@@ -1681,15 +1782,51 @@ button.obx-strip:hover {
 .obx-checkline b {
   color: var(--ink);
 }
+.obx-checkline__sep {
+  color: var(--ink-faint);
+}
+.obx-checkline__v {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+/* why it stays — each reason its own colour: red only for foreign / hidden / unclear, the signal for held / changed */
 .obx-card__why {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
   margin: 8px 0 0;
-  padding: 6px 8px 6px 22px;
-  border: 1px solid var(--c-red-text);
-  border-radius: var(--radius-1);
-  background: var(--c-red-bg);
-  color: var(--c-red-text);
+  padding: 0;
+  list-style: none;
   font-size: var(--text-xs);
   line-height: 1.4;
+}
+.obx-card__why li {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  padding: 5px 8px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+  background: var(--surface);
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+.obx-card__why li[data-kind='foreign'],
+.obx-card__why li[data-kind='hidden'],
+.obx-card__why li[data-kind='unclear'] {
+  border-color: var(--c-red-text);
+  background: var(--c-red-bg);
+  color: var(--c-red-text);
+}
+.obx-card__why li[data-kind='held'],
+.obx-card__why li[data-kind='changed'] {
+  border-color: color-mix(in srgb, var(--signal) 50%, var(--rule-strong));
+  background: var(--signal-wash);
+  color: var(--signal-ink);
+}
+.obx-card__why .led {
+  align-self: center;
 }
 .obx-card__foot {
   display: flex;

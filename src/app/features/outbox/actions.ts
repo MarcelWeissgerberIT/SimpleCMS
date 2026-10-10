@@ -3,67 +3,90 @@
  * hold / release, withdraw, a tick on a flagged address, "seen", "send anyway" after CHANGED, a group item's tick.
  * Every change is one compare-and-set on the stored slip (store.ts mutateSlip / transition); nothing here sends.
  */
-import { addressesTicked, personAdded, sealOf } from './seal'
+import { addressesTicked, personAddresses, sealOf } from './seal'
 import { argsHashOf } from './hash'
 import { ownOrigin } from './provenance'
-import { getSlip, mutateSlip, transition, withLog } from './store'
+import { getSlip, mutateSlip, transition, useOutbox, withLog } from './store'
 import { cleanParams, fillArgs, textParam } from './template'
-import { shortTextOf } from './text'
+import { slipText } from './text'
 import { unsent } from './machine'
 import type { Slip, SlipId } from './types'
 
-/** The slip with a new text: params, args, hash, seal recomputed; rev + 1, "seen" again only for a short text. */
-async function withText(cur: Slip, text: string, by: 'person' | 'caller' | 'claude', claudeText?: string): Promise<Slip | null> {
+/**
+ * The slip with a new text: params, args, hash, seal recomputed; rev + 1 and unseen (a text counts as seen only once
+ * it is shown in full, Payload). `typed`: the person typed it in the slip's editor — only then can an address be theirs,
+ * decided per address against every earlier text of the slip (the previous revision, Claude's draft); a caller's text,
+ * or a caller's word that the person wrote it, never makes one theirs. Addresses the person typed stay theirs.
+ */
+async function withText(cur: Slip, text: string, by: 'person' | 'caller' | 'claude', typed: boolean): Promise<Slip | null> {
   const route = cur.route.snapshot
   const tp = textParam(route)
   if (!tp || !cur.draft) return null
-  const typed: Record<string, string | number> = { ...cur.params }
-  const clean = cleanParams(route, typed, text)
+  const clean = cleanParams(route, { ...cur.params }, text)
   if (!clean.ok) return null
   const filled = fillArgs(route, { key: cur.target.key, params: clean.params })
   if (!filled.ok) return null
   const rev = cur.draft.rev + 1
-  const fromClaude = by === 'claude' ? text : (claudeText ?? cur.draft.claudeText)
-  const own = [cur.instruction ?? '', by === 'claude' ? '' : personAdded(fromClaude ?? '', text)].filter(Boolean).join('\n')
+  const claudeText = by === 'claude' ? text : cur.draft.claudeText
+  const fresh = typed ? personAddresses(`${slipText(cur)}\n${cur.draft.claudeText ?? ''}`, text, ownOrigin()) : []
+  const typedAddrs = [...new Set([...(cur.typedAddrs ?? []), ...fresh])].slice(-50)
   return {
     ...cur,
     params: clean.params,
     args: filled.value,
     argsHash: await argsHashOf(filled.value),
-    draft: { rev, by, ...(fromClaude !== undefined ? { claudeText: fromClaude } : {}), seenRev: shortTextOf(text) ? rev : null },
-    seal: sealOf({ text, sources: cur.sources, complete: cur.seal.complete, ownText: own, origin: ownOrigin(), previous: cur.seal }),
+    draft: { rev, by, ...(claudeText !== undefined ? { claudeText } : {}), seenRev: null },
+    ...(typedAddrs.length ? { typedAddrs } : {}),
+    seal: sealOf({ text, sources: cur.sources, complete: cur.seal.complete, ownText: cur.instruction, ownAddresses: typedAddrs, origin: ownOrigin(), previous: cur.seal }),
   }
 }
 
-/** A new text for an unsent slip (E, or the caller replacing its draft). A 'missing' or held slip becomes ready. */
-export async function replaceDraft(id: SlipId, text: string, by: 'person' | 'caller'): Promise<boolean> {
+/** The hand path's question ("Sent in …?") was about the text that was copied — a new text drops it. */
+const dropAsking = (id: SlipId) => useOutbox.setState((st) => (st.asking?.id === id ? { asking: null } : {}))
+
+async function setText(id: SlipId, text: string, by: 'person' | 'caller', typed: boolean): Promise<boolean> {
   const cur = getSlip(id)
   if (!cur || !unsent(cur.state)) return false
-  const nx = await withText(cur, text, by)
+  const nx = await withText(cur, text, by, typed)
   if (!nx) return false
   let ok = false
   await mutateSlip(id, (stored) => {
-    if (stored.argsHash !== cur.argsHash || !unsent(stored.state)) return stored
+    if (stored.argsHash !== cur.argsHash || stored.draft?.rev !== cur.draft?.rev || !unsent(stored.state)) return stored
     ok = true
     const state = stored.state === 'missing' || stored.state === 'held' ? 'ready' : stored.state
     return withLog({ ...nx, state, log: stored.log }, by === 'person' ? 'edited' : 'replaced', { rev: nx.draft!.rev })
   })
+  if (ok) dropAsking(id)
   return ok
 }
 
-/** Claude's new draft for the slip (R): new text, the baseline of the row again, CHANGED cleared, seen reset. */
+/**
+ * A new text from the feature that staged the slip (the public API). A 'missing' or held slip becomes ready. `by`
+ * is kept on the slip, nothing more: an address in the text is never taken as the person's own from a caller.
+ */
+export function replaceDraft(id: SlipId, text: string, by: 'person' | 'caller'): Promise<boolean> {
+  return setText(id, text, by, false)
+}
+
+/** The person's own text, typed in the slip's editor (E, or the text of a 'missing' slip). */
+export function writeText(id: SlipId, text: string): Promise<boolean> {
+  return setText(id, text, 'person', true)
+}
+
+/** Claude's new draft for the slip (R): new text, the row's baseline from when the request was built, CHANGED cleared, unseen. */
 export async function applyRedraft(id: SlipId, text: string, usd: number, baseline: Slip['baseline'], sources?: Slip['sources']): Promise<boolean> {
   const cur = getSlip(id)
   if (!cur || !unsent(cur.state) || cur.state === 'missing') return false
-  const nx = await withText(sources ? { ...cur, sources } : cur, text, 'claude')
+  const nx = await withText(sources ? { ...cur, sources } : cur, text, 'claude', false)
   if (!nx) return false
   let ok = false
   await mutateSlip(id, (stored) => {
-    if (stored.argsHash !== cur.argsHash || !unsent(stored.state)) return stored
+    if (stored.argsHash !== cur.argsHash || stored.draft?.rev !== cur.draft?.rev || !unsent(stored.state)) return stored
     ok = true
     const { lastCheck: _drop, ...rest } = nx
     return withLog({ ...rest, baseline, state: stored.state === 'held' ? 'ready' : stored.state, usd: stored.usd + usd, log: stored.log }, 'redrafted', { rev: nx.draft!.rev })
   })
+  if (ok) dropAsking(id)
   return ok
 }
 
