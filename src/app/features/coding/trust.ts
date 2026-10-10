@@ -28,6 +28,7 @@ import { agentIdOf, isAgentWriting } from '../agents/attribution'
 import { addTrusted, trustedHashes } from './local'
 import { refsKey } from './refs'
 import { codingProps, optionName, pipelineDbIds, readPipeline } from './schema'
+import { withWriter, type Writer } from '../../store/writer'
 
 const inTeam = () => useCloud.getState().active.kind === 'cloud'
 
@@ -123,14 +124,15 @@ export async function trustTask(taskId: ID): Promise<void> {
  * Run a write of this device (the pipeline's plan / summary, a stage move, a pipeline edit): tasks whose
  * version was trusted before stay trusted after it.
  */
-export async function keepTrust(taskIds: ID[], write: () => void): Promise<void> {
+export async function keepTrust(taskIds: ID[], write: () => void, writer: Writer): Promise<void> {
   const s0 = useWorkspace.getState()
   const set = await trustedHashes()
   const before = await Promise.all(taskIds.map(async (id) => {
     const p = s0.pages[id]
     return !!p?.databaseId && set.has(await versionOf(p, s0.databases[p.databaseId]))
   }))
-  write()
+  // the write itself runs under its writer (store/writer.ts): the worker's stage, the person on the panel, the terminal
+  withWriter(writer, write)
   const s = useWorkspace.getState()
   await Promise.all(taskIds.map(async (id, i) => {
     const p = s.pages[id]

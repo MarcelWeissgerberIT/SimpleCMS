@@ -37,6 +37,7 @@ import { depsOf, type AgentStatus, type AgentStep, type AgentTurn, type StagedCh
 import { newId } from '../../../lib/ids'
 import { isEffectivelyTrashed } from '../../../store/selectors'
 import type { SavedMedia } from '../media/types'
+import { endRun, noteRun, withWriter, type Writer } from '../../../store/writer'
 
 const set = useAgent.setState
 const get = useAgent.getState
@@ -873,13 +874,19 @@ export async function applyStaged(ids?: string[]): Promise<void> {
   const writing = new Map(targets.map((c) => [c.id, c.status]))
   set((s) => ({ applying: true, changes: s.changes.map((c) => (writing.has(c.id) ? { ...c, status: 'applying' } : c)) }))
   let res: ApplyResult
+  // one apply = one terminal batch (store/writer.ts): its writes, each with its change id; its Undo names it
+  const writer: Writer = { kind: 'terminal', run: newId() }
+  noteRun(writer)
   try {
-    res = await applyChanges(targets, all, stage.resolve, { terminal: true, sigSteps })
+    res = await applyChanges(targets, all, stage.resolve, { terminal: true, sigSteps, writer })
   } catch (e) {
     const error = e instanceof Error ? e.message : String(e)
     set((s) => ({ applying: false, changes: s.changes.map((c) => (writing.has(c.id) && c.status === 'applying' ? { ...c, status: 'failed', error } : c)) }))
     return
+  } finally {
+    endRun(writer)
   }
+  batchOf.set(res, writer.run)
   Object.assign(rowIds, res.rowIds)
   set((s) => ({
     applying: false,
@@ -906,6 +913,8 @@ export async function applyStaged(ids?: string[]): Promise<void> {
 
 /** The batch the last apply wrote (for `u` in the review list). */
 let lastBatch: ApplyResult | null = null
+/** Each applied batch's run id (its Undo is you~undo:<batch>). */
+const batchOf = new WeakMap<ApplyResult, string>()
 
 /** Undo the last applied batch (`u` in the review list); false when there is nothing to undo. */
 export function undoLastBatch(): boolean {
@@ -922,7 +931,7 @@ export function undoLastBatch(): boolean {
  */
 function undoBatch(res: ApplyResult) {
   if (lastBatch === res) lastBatch = null
-  const { kept } = res.undo()
+  const { kept } = withWriter({ kind: 'you', via: 'undo', ...(batchOf.has(res) ? { ref: batchOf.get(res) } : {}) }, () => res.undo())
   const stays = new Set([...kept, ...res.final])
   const stayPages = new Set(get().changes.filter((c) => stays.has(c.id)).map((c) => c.pageId))
   for (const staged of Object.keys(res.rowIds)) if (!stayPages.has(staged)) delete rowIds[staged]

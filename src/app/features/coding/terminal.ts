@@ -40,6 +40,7 @@ import { isTrusted, needsConfirm, writeEndsConfirm } from './trust'
 import { isRunning, stopTask } from './service'
 import { useCoding, type CodingConn } from './state'
 import { refPagesOf, type RefPage } from './refs'
+import { withWriter, type Writer } from '../../store/writer'
 
 export { REPO_NAME }
 
@@ -623,14 +624,14 @@ export function textRefs(taskId: ID, markdown: string, staged?: StagedPages): Re
 export const textRefsGained = (taskId: ID, markdown: string, shown: RefPage[] | undefined): boolean => newRefs(textRefs(taskId, markdown), shown)
 
 /** Create a planned task (the person applied it). Throws an Error in the person's language. */
-export async function applyNewTask(plan: NewTaskPlan): Promise<{ id: ID; undo: () => boolean }> {
+export async function applyNewTask(plan: NewTaskPlan, writer: Writer): Promise<{ id: ID; undo: () => boolean }> {
   notFromAgent()
   if (codingReadOnly()) throw new Error(t('features.coding.setup.readOnly'))
   let dbId: ID | null = plan.projectId
   if (dbId && kindOfDb(dbId) !== plan.kind) throw new Error(t('features.coding.term.err.project'))
   // a project made meanwhile: only the one an earlier create of this tab made from the same template is taken
   if (!dbId && currentProjectId(plan.kind)) {
-    const made = newProjectNow(plan.kind)
+    const made = withWriter(writer, () => newProjectNow(plan.kind))
     if (!made) throw new Error(t('features.coding.term.err.pipelineChanged'))
     dbId = made
   }
@@ -654,7 +655,7 @@ export async function applyNewTask(plan: NewTaskPlan): Promise<{ id: ID; undo: (
     branch: plan.kind === 'coding' ? (plan.branch ?? '') : '',
     start: plan.start,
     followUps: plan.then,
-  })
+  }, writer)
   if (!dbId) {
     dbId = ws().pages[id]?.databaseId ?? null
     if (dbId) madeHere.set(madeKey(plan.kind), dbId)
@@ -903,7 +904,8 @@ export function startsNow(c: { op: 'create' | TaskOp; starts: boolean; task?: Ne
  * Apply a planned action (the person applied it). Throws an Error in the person's language. `undo` null: it stays.
  * `steps`: the terminal's own reviewed writes of this task since the action was staged (SigSteps).
  */
-export async function applyTaskAction(plan: TaskActionPlan, opts: { steps?: SigSteps } = {}): Promise<{ undo: (() => boolean) | null }> {
+export async function applyTaskAction(plan: TaskActionPlan, opts: { steps?: SigSteps; writer: Writer }): Promise<{ undo: (() => boolean) | null }> {
+  const writer = opts.writer
   notFromAgent()
   if (codingReadOnly()) throw new Error(t('features.coding.setup.readOnly'))
   const id = plan.taskId
@@ -929,13 +931,13 @@ export async function applyTaskAction(plan: TaskActionPlan, opts: { steps?: SigS
     // done meanwhile: Then would start nothing (hand_on does)
     if (ctx.stage?.kind === 'done') throw moved()
     const after = plan.then?.after ?? []
-    setFollowUps(id, after)
+    setFollowUps(id, after, writer)
     return {
       undo: () => {
         if (JSON.stringify(followUpsOf(id)) !== JSON.stringify(after)) return false
         // an agent changed the task since: left alone (the write would end its wait for Confirm)
         if (taskWriteEndsConfirm(id)) return false
-        setFollowUps(id, plan.then?.before ?? [])
+        setFollowUps(id, plan.then?.before ?? [], { kind: 'you', via: 'undo' })
         return true
       },
     }
@@ -950,20 +952,20 @@ export async function applyTaskAction(plan: TaskActionPlan, opts: { steps?: SigS
   if (plan.op === 'answer' && newRefs(refPagesOf([], [plan.answer ?? ''], id), plan.refs)) throw new Error(t('features.coding.term.err.refs'))
   switch (plan.op) {
     case 'approve':
-      await approveTask(id, { confirm: false })
+      await approveTask(id, { confirm: false, writer })
       return { undo: null }
     case 'rework':
-      await reworkTask(id, plan.note ?? '', { confirm: false })
+      await reworkTask(id, plan.note ?? '', { confirm: false, writer })
       return { undo: null }
     case 'answer':
-      await answerTask(id, plan.answer ?? '', { confirm: false })
+      await answerTask(id, plan.answer ?? '', { confirm: false, writer })
       return { undo: null }
     case 'run':
       await runTaskNow(id, { confirm: false })
       return { undo: null }
     case 'hand_on': {
       if (!plan.handOn) throw new Error(t('features.coding.term.err.handOn'))
-      const made = await spawnFollowUp(id, plan.handOn)
+      const made = await spawnFollowUp(id, plan.handOn, writer)
       if (!made) throw new Error(t('features.coding.term.err.handOn'))
       return { undo: null }
     }

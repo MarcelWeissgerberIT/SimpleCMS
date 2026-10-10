@@ -172,6 +172,8 @@ export async function runCode(code: string, name: string, key: BindingKey, ctx: 
       scope,
       table: false,
       limits: mode === 'query' ? QUERY_LIMITS : undefined,
+      // a value / onChange script of an own property type: the person's value started it (store/writer.ts)
+      writer: { via: 'you' },
     })
   const result = mode === 'query' ? await slot(go) : await go()
   const ok = result.status === 'ok'

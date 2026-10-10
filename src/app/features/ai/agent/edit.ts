@@ -16,9 +16,10 @@ import { Fragment, type Node as PMNode, type Schema } from '@tiptap/pm/model'
 import { Transform } from '@tiptap/pm/transform'
 import { closeHistory } from '@tiptap/pm/history'
 import { useWorkspace } from '../../../store/store'
-import { flushPageContent, useCloud } from '../../../cloud'
+import { useCloud } from '../../../cloud'
+import { withWriter, type Writer } from '../../../store/writer'
 import type { ID } from '../../../store/types'
-import { docSchema, docToMarkdown, endUndoStep, keepItems, liveEditorOf, startUndoStep } from '../../../editor'
+import { docSchema, docToMarkdown, editAs, endUndoStep, keepItems, liveEditorOf, startUndoStep } from '../../../editor'
 import { claudeBlocks, claudeDoc } from '../claudeDoc'
 import { webImagesOf } from '../../agents/images'
 import { t } from '../../../i18n'
@@ -489,7 +490,7 @@ export interface PageEditResult {
 }
 
 /** Apply edits of one page: a version first, then ONE transaction (one ⌘Z in the open editor), origin 'ai'. */
-export async function applyPageEdits(pageId: ID, changes: StagedChange[]): Promise<PageEditResult> {
+export async function applyPageEdits(pageId: ID, changes: StagedChange[], writer: Writer): Promise<PageEditResult> {
   const none: PageEditResult = { applied: [], failed: [], undo: () => true }
   if (!useWorkspace.getState().pages[pageId]) return { ...none, failed: changes.map((c) => ({ id: c.id, error: goneNote() })) }
   await snapshotNow(pageId, 'ai')
@@ -508,14 +509,17 @@ export async function applyPageEdits(pageId: ID, changes: StagedChange[]): Promi
     } catch {
       return invalid()
     }
-    startUndoStep(editor.view)
-    editor.view.dispatch(tr)
-    endUndoStep(editor.view)
+    // the person's pending typing goes in first (theirs); then the edit, handed to the store at once as the writer's
+    // (store/writer.ts) — local through the editor's flush, team through the document's refresh (flushPageContent) —
+    // so what is applied next (a task action's fingerprint, another write of this page) reads the edited page
+    editAs(editor, writer, () => {
+      startUndoStep(editor.view)
+      editor.view.dispatch(tr)
+      endUndoStep(editor.view)
+    })
     next = editor.getJSON()
-    // local: written right away, as Claude's; team: the editor's document carries it (Yjs) — handed to the store right
-    // away, so what is applied next (a task action's fingerprint, another write of this page) reads the edited page
-    if (useCloud.getState().active.kind !== 'cloud') useWorkspace.getState().setContent(pageId, next, 'ai')
-    else flushPageContent(pageId)
+    // local: written as Claude's content (origin 'ai'; the same text the flush just wrote)
+    if (useCloud.getState().active.kind !== 'cloud') withWriter(writer, () => useWorkspace.getState().setContent(pageId, next, 'ai'))
   } else {
     const tr = new Transform(doc)
     try {
@@ -524,7 +528,7 @@ export async function applyPageEdits(pageId: ID, changes: StagedChange[]): Promi
       return invalid()
     }
     next = tr.doc.toJSON() as JSONContent
-    useWorkspace.getState().setContent(pageId, next, 'ai')
+    withWriter(writer, () => useWorkspace.getState().setContent(pageId, next, 'ai'))
   }
   const nextKey = contentKey(next)
   return {

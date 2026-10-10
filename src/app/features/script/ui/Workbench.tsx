@@ -249,6 +249,8 @@ export function Workbench({ id }: { id: ID }) {
         name: script.name,
         mode,
         signal: ctrl.signal,
+        // the person pressed Run (store/writer.ts: the run's cause)
+        writer: { via: 'you' },
         onLog: (l) => {
           lines.push(l)
           if (pending) return

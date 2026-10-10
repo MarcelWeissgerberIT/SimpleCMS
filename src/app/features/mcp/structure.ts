@@ -15,6 +15,7 @@ import type { Database, DateValue, Filter, FilterGroup, FilterOperator, ID, Page
 import { MCP_FILTER_OPS, MCP_TYPE_CHANGES, MCP_VIEW_TYPES, type McpToolName } from './contract'
 import { chars, cleanName, clone, colorOf, optionsOf, palette, parseIcon, same, str, type PlanLine, type WritePlan } from './plan'
 import { databaseOrThrow, iconText, McpToolError, pageUrl, propertyJson, q, titleOf, TWO_WAY_SUFFIX, ws } from './values'
+import { withWriter } from '../../store/writer'
 
 /* ------------------------------------------------------------------ */
 /* Lookups                                                             */
@@ -87,26 +88,29 @@ function planUpdateDatabase(args: Record<string, unknown>): WritePlan {
     target: name,
     lines,
     noop: changed.length ? undefined : { ...result(), note: 'No change: the database already looks like that.' },
-    async apply() {
-      const prev = ws().pages[db.id]
-      if (!prev || prev.trashed) throw new McpToolError(`${q(name)} is gone. Nothing was changed.`)
-      const patch: Partial<Page> = {}
-      if (changed.includes('title')) patch.title = title!
-      if (changed.includes('icon')) patch.icon = icon ?? null
-      const before = { title: prev.title, icon: prev.icon }
-      ws().updatePage(db.id, patch)
-      return {
-        result: result(),
-        undo: () => {
-          const now = ws().pages[db.id]
-          if (!now) return false
-          const back: Partial<Page> = {}
-          if (patch.title !== undefined && now.title === patch.title) back.title = before.title
-          if (patch.icon !== undefined && iconText(now.icon) === iconText(patch.icon)) back.icon = before.icon
-          if (Object.keys(back).length) ws().updatePage(db.id, back)
-          return Object.keys(back).length === Object.keys(patch).length
-        },
-      }
+    async apply(writer) {
+      // every write of this call under its writer (store/writer.ts) — one synchronous burst
+      return withWriter(writer, () => {
+        const prev = ws().pages[db.id]
+        if (!prev || prev.trashed) throw new McpToolError(`${q(name)} is gone. Nothing was changed.`)
+        const patch: Partial<Page> = {}
+        if (changed.includes('title')) patch.title = title!
+        if (changed.includes('icon')) patch.icon = icon ?? null
+        const before = { title: prev.title, icon: prev.icon }
+        ws().updatePage(db.id, patch)
+        return {
+          result: result(),
+          undo: () => {
+            const now = ws().pages[db.id]
+            if (!now) return false
+            const back: Partial<Page> = {}
+            if (patch.title !== undefined && now.title === patch.title) back.title = before.title
+            if (patch.icon !== undefined && iconText(now.icon) === iconText(patch.icon)) back.icon = before.icon
+            if (Object.keys(back).length) ws().updatePage(db.id, back)
+            return Object.keys(back).length === Object.keys(patch).length
+          },
+        }
+      })
     },
   }
 }
@@ -235,12 +239,15 @@ function planDeleteProperty(args: Record<string, unknown>): WritePlan {
     summary: t('features.mcp.sum.deleteProperty', { name: prop.name, db: title }),
     target: `${title} / ${prop.name}`,
     lines,
-    async apply() {
-      const now = ws().databases[db.id]
-      if (!now?.properties.some((p) => p.id === prop.id)) throw new McpToolError(`${q(prop.name)} is gone already. Nothing was changed.`)
-      if (now.locked) throw new McpToolError(`${q(title)} was locked meanwhile. Nothing was changed.`)
-      const undo = removeProperty(db.id, prop.id)
-      return { result: { databaseId: db.id, deleted: { id: prop.id, name: prop.name, type: prop.type }, rowsWithValue: withValue, note: 'Deleted with its values. The person can undo it in One (Agent activity).' }, undo }
+    async apply(writer) {
+      // every write of this call under its writer (store/writer.ts) — one synchronous burst
+      return withWriter(writer, () => {
+        const now = ws().databases[db.id]
+        if (!now?.properties.some((p) => p.id === prop.id)) throw new McpToolError(`${q(prop.name)} is gone already. Nothing was changed.`)
+        if (now.locked) throw new McpToolError(`${q(title)} was locked meanwhile. Nothing was changed.`)
+        const undo = removeProperty(db.id, prop.id)
+        return { result: { databaseId: db.id, deleted: { id: prop.id, name: prop.name, type: prop.type }, rowsWithValue: withValue, note: 'Deleted with its values. The person can undo it in One (Agent activity).' }, undo }
+      })
     },
   }
 }
@@ -414,68 +421,71 @@ function planUpdateProperty(args: Record<string, unknown>): WritePlan {
     target: `${title} / ${prop.name}`,
     lines,
     noop: changed.length ? undefined : { ...result(), note: 'No change: the property already looks like that.' },
-    async apply() {
-      const d = ws().databases[db.id]
-      const cur = d?.properties.find((p) => p.id === prop.id)
-      if (!d || !cur || !same(cur, prop)) throw new McpToolError(`${q(prop.name)} changed meanwhile. Nothing was changed — read it again (one_get_database).`)
-      if (d.locked) throw new McpToolError(`${q(title)} was locked meanwhile. Nothing was changed.`)
-      const before = { def: clone(cur), values: new Map(allRows(db.id).map((r) => [r.id, clone(r.properties[prop.id])] as const)) }
-      const full: Partial<PropertyDef> = { ...patch }
-      if (toType) {
-        full.type = toType
-        let options: SelectOption[] | undefined
-        if (SELECTISH.has(toType)) {
-          if (SELECTISH.has(prop.type)) options = (prop.options ?? []).map((o) => (toType === 'status' ? { ...o, group: o.group ?? 'todo' } : { id: o.id, name: o.name, color: o.color }))
-          else {
-            // text → options: one per distinct value (multi_select: comma-separated parts)
-            options = []
-            for (const r of allRows(db.id)) {
-              const text = typeof r.properties[prop.id] === 'string' ? (r.properties[prop.id] as string) : ''
-              for (const part of toType === 'multi_select' ? text.split(',') : [text]) {
-                const n = part.replace(/\s+/g, ' ').trim().slice(0, 60)
-                if (n && !options.some((o) => norm(o.name) === norm(n)) && options.length < 200) options.push({ id: newId(), name: n, color: palette[options.length % palette.length] })
+    async apply(writer) {
+      // every write of this call under its writer (store/writer.ts) — one synchronous burst
+      return withWriter(writer, () => {
+        const d = ws().databases[db.id]
+        const cur = d?.properties.find((p) => p.id === prop.id)
+        if (!d || !cur || !same(cur, prop)) throw new McpToolError(`${q(prop.name)} changed meanwhile. Nothing was changed — read it again (one_get_database).`)
+        if (d.locked) throw new McpToolError(`${q(title)} was locked meanwhile. Nothing was changed.`)
+        const before = { def: clone(cur), values: new Map(allRows(db.id).map((r) => [r.id, clone(r.properties[prop.id])] as const)) }
+        const full: Partial<PropertyDef> = { ...patch }
+        if (toType) {
+          full.type = toType
+          let options: SelectOption[] | undefined
+          if (SELECTISH.has(toType)) {
+            if (SELECTISH.has(prop.type)) options = (prop.options ?? []).map((o) => (toType === 'status' ? { ...o, group: o.group ?? 'todo' } : { id: o.id, name: o.name, color: o.color }))
+            else {
+              // text → options: one per distinct value (multi_select: comma-separated parts)
+              options = []
+              for (const r of allRows(db.id)) {
+                const text = typeof r.properties[prop.id] === 'string' ? (r.properties[prop.id] as string) : ''
+                for (const part of toType === 'multi_select' ? text.split(',') : [text]) {
+                  const n = part.replace(/\s+/g, ' ').trim().slice(0, 60)
+                  if (n && !options.some((o) => norm(o.name) === norm(n)) && options.length < 200) options.push({ id: newId(), name: n, color: palette[options.length % palette.length] })
+                }
               }
             }
           }
-        }
-        full.options = options
-        if (prop.type === 'number') Object.assign(full, { numberFormat: undefined, numberDisplay: undefined })
-        for (const r of allRows(db.id)) {
-          const v = r.properties[prop.id]
-          if (v === undefined) continue
-          ws().setRowProperty(r.id, prop.id, convertValue(prop, toType, v, options ?? []))
-        }
-      }
-      ws().updateProperty(db.id, prop.id, full)
-      if (removed.size)
-        for (const r of allRows(db.id)) {
-          const v = r.properties[prop.id]
-          if (typeof v === 'string' && removed.has(v)) ws().setRowProperty(r.id, prop.id, null)
-          else if (Array.isArray(v) && v.some((x) => removed.has(x))) ws().setRowProperty(r.id, prop.id, v.filter((x) => !removed.has(x)))
-        }
-      const after = { def: clone(ws().databases[db.id].properties.find((p) => p.id === prop.id)!), values: new Map(allRows(db.id).map((r) => [r.id, clone(r.properties[prop.id])] as const)) }
-      return {
-        result: result(),
-        undo: () => {
-          const now = ws().databases[db.id]?.properties.find((p) => p.id === prop.id)
-          if (!now || !same(now, after.def)) return false
-          // the old definition exactly: fields the change added are cleared
-          const back: Record<string, unknown> = { ...before.def }
-          for (const k of Object.keys(now)) if (!(k in before.def)) back[k] = undefined
-          ws().updateProperty(db.id, prop.id, back as Partial<PropertyDef>)
-          let clean = true
-          for (const [rowId, v] of before.values) {
-            const row = ws().pages[rowId]
-            if (!row) continue
-            if (!same(row.properties[prop.id], after.values.get(rowId))) {
-              clean = false
-              continue
-            }
-            if (!same(v, row.properties[prop.id])) ws().setRowProperty(rowId, prop.id, v ?? null)
+          full.options = options
+          if (prop.type === 'number') Object.assign(full, { numberFormat: undefined, numberDisplay: undefined })
+          for (const r of allRows(db.id)) {
+            const v = r.properties[prop.id]
+            if (v === undefined) continue
+            ws().setRowProperty(r.id, prop.id, convertValue(prop, toType, v, options ?? []))
           }
-          return clean
-        },
-      }
+        }
+        ws().updateProperty(db.id, prop.id, full)
+        if (removed.size)
+          for (const r of allRows(db.id)) {
+            const v = r.properties[prop.id]
+            if (typeof v === 'string' && removed.has(v)) ws().setRowProperty(r.id, prop.id, null)
+            else if (Array.isArray(v) && v.some((x) => removed.has(x))) ws().setRowProperty(r.id, prop.id, v.filter((x) => !removed.has(x)))
+          }
+        const after = { def: clone(ws().databases[db.id].properties.find((p) => p.id === prop.id)!), values: new Map(allRows(db.id).map((r) => [r.id, clone(r.properties[prop.id])] as const)) }
+        return {
+          result: result(),
+          undo: () => {
+            const now = ws().databases[db.id]?.properties.find((p) => p.id === prop.id)
+            if (!now || !same(now, after.def)) return false
+            // the old definition exactly: fields the change added are cleared
+            const back: Record<string, unknown> = { ...before.def }
+            for (const k of Object.keys(now)) if (!(k in before.def)) back[k] = undefined
+            ws().updateProperty(db.id, prop.id, back as Partial<PropertyDef>)
+            let clean = true
+            for (const [rowId, v] of before.values) {
+              const row = ws().pages[rowId]
+              if (!row) continue
+              if (!same(row.properties[prop.id], after.values.get(rowId))) {
+                clean = false
+                continue
+              }
+              if (!same(v, row.properties[prop.id])) ws().setRowProperty(rowId, prop.id, v ?? null)
+            }
+            return clean
+          },
+        }
+      })
     },
   }
 }
@@ -789,21 +799,24 @@ function planCreateView(args: Record<string, unknown>): WritePlan {
     summary: t('features.mcp.sum.createView', { name: view.name, db: title }),
     target: `${title} / ${view.name}`,
     lines,
-    async apply() {
-      const d = ws().databases[db.id]
-      if (!d || d.locked) throw new McpToolError(`${q(title)} is gone or was locked meanwhile. Nothing was changed.`)
-      ws().addView(db.id, view)
-      const made = ws().databases[db.id].views.find((v) => v.id === view.id)!
-      const after = clone(made)
-      return {
-        result: { databaseId: db.id, view: viewJson(ws().databases[db.id], made), url: `${pageUrl(db.id)}` },
-        undo: () => {
-          const now = ws().databases[db.id]?.views.find((v) => v.id === view.id)
-          if (!now || !same(now, after)) return false
-          ws().deleteView(db.id, view.id)
-          return true
-        },
-      }
+    async apply(writer) {
+      // every write of this call under its writer (store/writer.ts) — one synchronous burst
+      return withWriter(writer, () => {
+        const d = ws().databases[db.id]
+        if (!d || d.locked) throw new McpToolError(`${q(title)} is gone or was locked meanwhile. Nothing was changed.`)
+        ws().addView(db.id, view)
+        const made = ws().databases[db.id].views.find((v) => v.id === view.id)!
+        const after = clone(made)
+        return {
+          result: { databaseId: db.id, view: viewJson(ws().databases[db.id], made), url: `${pageUrl(db.id)}` },
+          undo: () => {
+            const now = ws().databases[db.id]?.views.find((v) => v.id === view.id)
+            if (!now || !same(now, after)) return false
+            ws().deleteView(db.id, view.id)
+            return true
+          },
+        }
+      })
     },
   }
 }
@@ -824,25 +837,28 @@ function planUpdateView(args: Record<string, unknown>): WritePlan {
     target: `${title} / ${view.name}`,
     lines,
     noop: Object.keys(patch).length ? undefined : { ...result(), note: 'No change: the view already looks like that.' },
-    async apply() {
-      const d = ws().databases[db.id]
-      const cur = d?.views.find((v) => v.id === view.id)
-      if (!d || !cur || d.locked) throw new McpToolError(`${q(view.name)} is gone or ${q(title)} was locked meanwhile. Nothing was changed.`)
-      const keys = Object.keys(patch) as Array<keyof View>
-      const before = Object.fromEntries(keys.map((k) => [k, clone(cur[k])])) as Partial<View>
-      ws().updateView(db.id, view.id, patch)
-      const after = clone(ws().databases[db.id].views.find((v) => v.id === view.id)!)
-      return {
-        result: result(),
-        undo: () => {
-          const now = ws().databases[db.id]?.views.find((v) => v.id === view.id)
-          if (!now) return false
-          const back: Record<string, unknown> = {}
-          for (const k of keys) if (same(now[k], after[k])) back[k] = before[k]
-          if (Object.keys(back).length) ws().updateView(db.id, view.id, back as Partial<View>)
-          return Object.keys(back).length === keys.length
-        },
-      }
+    async apply(writer) {
+      // every write of this call under its writer (store/writer.ts) — one synchronous burst
+      return withWriter(writer, () => {
+        const d = ws().databases[db.id]
+        const cur = d?.views.find((v) => v.id === view.id)
+        if (!d || !cur || d.locked) throw new McpToolError(`${q(view.name)} is gone or ${q(title)} was locked meanwhile. Nothing was changed.`)
+        const keys = Object.keys(patch) as Array<keyof View>
+        const before = Object.fromEntries(keys.map((k) => [k, clone(cur[k])])) as Partial<View>
+        ws().updateView(db.id, view.id, patch)
+        const after = clone(ws().databases[db.id].views.find((v) => v.id === view.id)!)
+        return {
+          result: result(),
+          undo: () => {
+            const now = ws().databases[db.id]?.views.find((v) => v.id === view.id)
+            if (!now) return false
+            const back: Record<string, unknown> = {}
+            for (const k of keys) if (same(now[k], after[k])) back[k] = before[k]
+            if (Object.keys(back).length) ws().updateView(db.id, view.id, back as Partial<View>)
+            return Object.keys(back).length === keys.length
+          },
+        }
+      })
     },
   }
 }
@@ -860,23 +876,26 @@ function planDeleteView(args: Record<string, unknown>): WritePlan {
       { k: 'fact', label: t('features.mcp.plan.layout'), value: layoutName(view.type) },
       { k: 'note', value: t('features.mcp.plan.viewGoneNote') },
     ],
-    async apply() {
-      const d = ws().databases[db.id]
-      const index = d?.views.findIndex((v) => v.id === view.id) ?? -1
-      if (!d || index < 0 || d.locked || d.views.length <= 1) throw new McpToolError(`${q(view.name)} is gone, the last view or ${q(title)} was locked meanwhile. Nothing was changed.`)
-      const copy = clone(d.views[index])
-      ws().deleteView(db.id, view.id)
-      return {
-        result: { databaseId: db.id, deleted: { id: view.id, name: view.name, type: view.type }, views: ws().databases[db.id].views.map((v) => ({ id: v.id, name: v.name, type: v.type })) },
-        undo: () => {
-          const now = ws().databases[db.id]
-          if (!now || now.views.some((v) => v.id === view.id)) return false
-          const views = [...now.views]
-          views.splice(Math.min(index, views.length), 0, copy)
-          ws().updateDatabase(db.id, { views })
-          return true
-        },
-      }
+    async apply(writer) {
+      // every write of this call under its writer (store/writer.ts) — one synchronous burst
+      return withWriter(writer, () => {
+        const d = ws().databases[db.id]
+        const index = d?.views.findIndex((v) => v.id === view.id) ?? -1
+        if (!d || index < 0 || d.locked || d.views.length <= 1) throw new McpToolError(`${q(view.name)} is gone, the last view or ${q(title)} was locked meanwhile. Nothing was changed.`)
+        const copy = clone(d.views[index])
+        ws().deleteView(db.id, view.id)
+        return {
+          result: { databaseId: db.id, deleted: { id: view.id, name: view.name, type: view.type }, views: ws().databases[db.id].views.map((v) => ({ id: v.id, name: v.name, type: v.type })) },
+          undo: () => {
+            const now = ws().databases[db.id]
+            if (!now || now.views.some((v) => v.id === view.id)) return false
+            const views = [...now.views]
+            views.splice(Math.min(index, views.length), 0, copy)
+            ws().updateDatabase(db.id, { views })
+            return true
+          },
+        }
+      })
     },
   }
 }

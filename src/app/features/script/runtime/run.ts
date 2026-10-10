@@ -23,6 +23,7 @@ import { appRunUI, silentRunUI } from './dialogs'
 import { putScriptRun, scriptScope } from './runs'
 import { codeHash, isTrusted, trustCode } from './trust'
 import type { ChangeItem, EffectItem, ErrorInfo, LogLine, ResultTable, RunMode, RunUI, ScriptRun, UndoData } from './types'
+import { endRun, noteRun, withWriter, type Writer, type WriterKey } from '../../../store/writer'
 
 export interface RunOptions {
   code: string
@@ -50,6 +51,11 @@ export interface RunOptions {
    * a page / row object, a stored value of a row's property read like `row.<Prop>`, or plain JSON.
    */
   vars?: Record<string, RunVar>
+  /**
+   * Who started the run (store/writer.ts): `via` = the caller's writer key — a button (you~button), an automation, an
+   * MCP call, the kit (you) … Absent: the run itself is the writer (script:<id>:<run>).
+   */
+  writer?: { via?: WriterKey }
 }
 
 /** An extra name of a run (RunOptions.vars). */
@@ -138,7 +144,7 @@ interface PassResult {
 
 async function pass(runId: string, program: Program, code: string, mode: RunMode, o: RunOptions, ui: RunUI, signal: AbortSignal, approved: { keys: Set<string>; labels: Map<string, string> } | null, onLog?: (l: LogLine) => void): Promise<PassResult> {
   const lang = useWorkspace.getState().settings.language === 'de' ? 'de' : 'en'
-  const host = new Host({ runId, mode, scriptId: o.scriptId ?? null, scriptName: o.name ?? '', contextPageId: o.contextPageId ?? null, ui, signal, lang, onLog, approved, scope: o.scope ?? null })
+  const host = new Host({ runId, mode, scriptId: o.scriptId ?? null, scriptName: o.name ?? '', contextPageId: o.contextPageId ?? null, ui, signal, lang, onLog, approved, scope: o.scope ?? null, writer: scriptWriter(o, runId) })
   const interp = new Interpreter({
     globals: { ...globalsFor(host), ...varsFor(host, o.vars) },
     fallback: customFunction,
@@ -195,10 +201,26 @@ function undoData(host: Host): UndoData | null {
   return Object.keys(fields).length ? { before, fields } : null
 }
 
+/** The writer of a run's writes (store/writer.ts): script:<id | ->:<run>, with the caller as its cause. */
+const scriptWriter = (o: RunOptions, runId: string): Writer => ({ kind: 'script', id: o.scriptId ?? null, run: runId, ...(o.writer?.via ? { via: o.writer.via } : {}) })
+
 export async function runScript(o: RunOptions): Promise<RunResult> {
+  if (o.mode !== 'run') return runScriptNow(o)
+  // a run that may write: the recorder learns of it before its first write, and its segments close when it ends
+  const runId = newId()
+  const w = scriptWriter(o, runId)
+  noteRun(w)
+  try {
+    return await runScriptNow(o, runId)
+  } finally {
+    endRun(w)
+  }
+}
+
+async function runScriptNow(o: RunOptions, id?: string): Promise<RunResult> {
   const t0 = Date.now()
   // the run's id from its start: every write of the run happens under it, the run log entry carries it
-  const runId = newId()
+  const runId = id ?? newId()
   const ui = o.ui ?? appRunUI
   const signal = o.signal ?? new AbortController().signal
   const empty = (status: RunResult['status'], error: ErrorInfo | null = null): RunResult => ({ status, value: null, plain: null, text: '', table: null, log: [], changes: [], effects: [], error, ms: Date.now() - t0, run: null })
@@ -295,6 +317,14 @@ export const canUndo = (run: ScriptRun): boolean => run.mode === 'run' && !run.u
 export async function undoRun(run: ScriptRun): Promise<boolean> {
   const undo = undoMemory.get(run.id) ?? run.undo
   if (!undo || run.undone) return false
+  // the person's Undo of the run (store/writer.ts) — one synchronous burst
+  withWriter({ kind: 'you', via: 'undo', ref: run.id }, () => undoNow(undo))
+  undoMemory.delete(run.id)
+  await putScriptRun({ ...run, undone: true, undo: null })
+  return true
+}
+
+function undoNow(undo: UndoData): void {
   const s = useWorkspace.getState()
   for (const [id, fields] of Object.entries(undo.fields)) {
     const before = undo.before[id]
@@ -312,9 +342,6 @@ export async function undoRun(run: ScriptRun): Promise<boolean> {
       else s.restorePage(id)
     }
   }
-  undoMemory.delete(run.id)
-  await putScriptRun({ ...run, undone: true, undo: null })
-  return true
 }
 
 /**

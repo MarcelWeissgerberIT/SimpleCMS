@@ -16,6 +16,9 @@ import { runScriptById } from '../runtime/active'
 import { errorMessage } from '../ui/errors'
 import { openScripts } from '../actions'
 
+/** The person ran a database command (store/writer.ts: the run's cause). */
+const VIA = { via: 'you~command' }
+
 export interface ScriptCommandConfig {
   scriptId: ID | null
 }
@@ -80,14 +83,14 @@ export const scriptCommandKind: CommandKindDef<ScriptCommandConfig> = {
     const targets = rowIds.length ? rowIds : [databaseId]
     // one target: the run's own toast (changes with Undo, or the error)
     if (targets.length === 1) {
-      const r = await runScriptById(script.id, { contextPageId: targets[0] })
+      const r = await runScriptById(script.id, { contextPageId: targets[0], writer: VIA })
       if (!r) throw new CommandFailure(t('features.script.int.busy', { name: script.name }), null)
       return null
     }
     let done = 0
     let changes = 0
     for (const id of targets) {
-      const r = await runScriptById(script.id, { contextPageId: id, notify: false })
+      const r = await runScriptById(script.id, { contextPageId: id, notify: false, writer: VIA })
       if (!r) throw new CommandFailure(t('features.script.int.busy', { name: script.name }), null)
       if (r.status === 'cancelled' || r.status === 'stopped') break
       if (r.status === 'error' && r.error) throw new CommandFailure(t('features.script.failedToast', { name: script.name, message: errorMessage(r.error, t) }), null)

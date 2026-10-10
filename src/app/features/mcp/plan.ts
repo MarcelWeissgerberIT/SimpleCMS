@@ -11,6 +11,7 @@ import type { ColorName, ID, Page, PageIcon, PropertyType, SelectOption, StatusG
 import { COLOR_NAMES } from '../../store/types'
 import type { McpToolName } from './contract'
 import { live, McpToolError, q, ws } from './values'
+import type { Writer } from '../../store/writer'
 
 /** One line of the approval card. */
 export type PlanLine =
@@ -41,7 +42,8 @@ export interface WritePlan {
   noop?: unknown
   /** asked even when changes are applied directly (one_run_script: a script may send mail, call Claude …) */
   alwaysAsk?: boolean
-  apply(): Promise<Applied>
+  /** write it as `writer`'s (store/writer.ts: the MCP call) — every synchronous burst inside its frame */
+  apply(writer: Writer): Promise<Applied>
 }
 
 export const str = (v: unknown, key: string, opts: { required?: boolean; max?: number } = {}): string => {

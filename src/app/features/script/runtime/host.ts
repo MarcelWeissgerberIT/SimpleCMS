@@ -22,6 +22,7 @@ import { coerceProp, propByName, type Coerced } from './props'
 import { chartBlocks } from './markdown'
 import { effectImpl, type EffectInputs, type EffectName, type EffectOutputs } from './effects'
 import type { ChangeItem, ConfirmItem, EffectItem, EffectKind, LogLine, PropDiff, ResultTable, RunMode, RunUI } from './types'
+import { withWriter, type Writer } from '../../../store/writer'
 
 export const SCRIPT_ORIGIN = 'script'
 export const LOG_MAX = 500
@@ -42,6 +43,8 @@ export interface HostOptions {
   approved?: { keys: Set<string>; labels: Map<string, string> } | null
   /** only these pages are reachable (a custom agent's scope); null = all */
   scope?: ((id: ID) => boolean) | null
+  /** who writes (store/writer.ts): script:<id>:<run>, with the caller as its cause */
+  writer: Writer
 }
 
 const EFFECT_KIND: Record<EffectName, EffectKind> = { 'mail.send': 'mail', claude: 'claude', 'http.post': 'http' }
@@ -62,6 +65,8 @@ export class Host {
   readonly lang: 'en' | 'de'
   /** only these pages are reachable (a custom agent's scope); null = all */
   readonly scope: ((id: ID) => boolean) | null
+  /** the run's writer: every store write of the run runs in its frame (one per synchronous burst) */
+  readonly writer: Writer
   readonly started = Date.now()
   readonly log: LogLine[] = []
   readonly changes: ChangeItem[] = []
@@ -94,6 +99,12 @@ export class Host {
     this.onLog = o.onLog
     this.approved = o.approved ?? null
     this.scope = o.scope ?? null
+    this.writer = o.writer
+  }
+
+  /** A synchronous burst of store writes as this run's (store/writer.ts). */
+  private as<T>(fn: () => T): T {
+    return withWriter(this.writer, fn)
   }
 
   /** Is this page inside the run's scope (always, without one)? */
@@ -201,7 +212,7 @@ export class Host {
     for (const c of coerced) diffs.push({ name: c.prop.name, before: this.isDraft(page.id) ? '' : safeText(db!, c.prop, page), after: c.text })
     if (this.real) {
       await this.touch(page.id)
-      if (title !== null) s.updatePage(page.id, { title })
+      if (title !== null) this.as(() => s.updatePage(page.id, { title }))
       for (const c of coerced) await this.writeOne(db!, page.id, c)
     } else if (this.isDraft(page.id)) {
       const d = this.drafts.get(page.id)!
@@ -224,7 +235,7 @@ export class Host {
       const cur = (useWorkspace.getState().pages[rowId]?.properties[c.prop.id] as ID[] | undefined) ?? []
       for (const id of new Set([...cur, ...((value as ID[]) ?? [])])) await this.touch(id)
     }
-    writePropertyValue(db.id, c.prop, rowId, value)
+    this.as(() => writePropertyValue(db.id, c.prop, rowId, value))
   }
 
   private ensureOptions(dbId: ID, prop: PropertyDef, names: string[]): ID[] {
@@ -240,7 +251,7 @@ export class Host {
       }
       return o.id
     })
-    if (opts.length !== before) s.updateProperty(dbId, prop.id, { options: opts })
+    if (opts.length !== before) this.as(() => s.updateProperty(dbId, prop.id, { options: opts }))
     return ids
   }
 
@@ -262,7 +273,7 @@ export class Host {
     await this.touch(page.id)
     const cur = useWorkspace.getState().pages[page.id]
     if (!cur) return
-    useWorkspace.getState().setContent(page.id, joinDocs(cur.content, toDoc(md, how === 'replace' ? cur.content : null), how), SCRIPT_ORIGIN)
+    this.as(() => useWorkspace.getState().setContent(page.id, joinDocs(cur.content, toDoc(md, how === 'replace' ? cur.content : null), how), SCRIPT_ORIGIN))
   }
 
   /* ---------------------------------------------------------------- create */
@@ -280,9 +291,12 @@ export class Host {
       return id
     }
     const s = useWorkspace.getState()
-    const id = s.createPage({ parentId: input.parentId, title })
-    this.keep(id, null)
-    if (input.markdown) s.setContent(id, toDoc(input.markdown.slice(0, 500_000)), SCRIPT_ORIGIN)
+    const id = this.as(() => {
+      const made = s.createPage({ parentId: input.parentId, title })
+      this.keep(made, null)
+      if (input.markdown) s.setContent(made, toDoc(input.markdown.slice(0, 500_000)), SCRIPT_ORIGIN)
+      return made
+    })
     this.changes.push({ kind: 'create', pageId: id, title, dbId: null, parentId: input.parentId })
     return id
   }
@@ -322,15 +336,18 @@ export class Host {
     // plain values go in with the row; relations through the database's write (two-way partners)
     const plain: Record<ID, PropertyValue> = {}
     const later: Coerced[] = []
-    for (const c of coerced) {
-      if (c.prop.type === 'relation') later.push(c)
-      else if (c.names) {
-        const ids = this.ensureOptions(db.id, c.prop, c.names)
-        plain[c.prop.id] = c.prop.type === 'multi_select' ? ids : (ids[0] ?? null)
-      } else plain[c.prop.id] = c.value
-    }
-    const id = s.createRow(db.id, { title: name, properties: plain })
-    this.keep(id, null)
+    const id = this.as(() => {
+      for (const c of coerced) {
+        if (c.prop.type === 'relation') later.push(c)
+        else if (c.names) {
+          const ids = this.ensureOptions(db.id, c.prop, c.names)
+          plain[c.prop.id] = c.prop.type === 'multi_select' ? ids : (ids[0] ?? null)
+        } else plain[c.prop.id] = c.value
+      }
+      const row = s.createRow(db.id, { title: name, properties: plain })
+      this.keep(row, null)
+      return row
+    })
     for (const c of later) await this.writeOne(db, id, c)
     this.changes.push({ kind: 'create', pageId: id, title: name, dbId: db.id, parentId: db.id, props })
     return id
@@ -351,7 +368,7 @@ export class Host {
     this.changes.push({ kind: 'trash', pageId: page.id, title: page.title, dbId: page.databaseId })
     if (this.real) {
       await this.touch(page.id)
-      useWorkspace.getState().trashPage(page.id)
+      this.as(() => useWorkspace.getState().trashPage(page.id))
     } else if (this.isDraft(page.id)) this.drafts.delete(page.id)
     return true
   }

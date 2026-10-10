@@ -20,7 +20,7 @@ import { BLOCK_ID_TYPES } from '../schema/base'
 import type { ButtonAction, PropertyPreset } from '../schema/button'
 import { isWebhookUrl, postWebhook } from '../../lib/webhook'
 import { safeHref } from './embeds'
-import { withWriter, type Writer } from '../../store/writer'
+import { formatWriterKey, withWriter, type Writer } from '../../store/writer'
 import { editAs } from './editAs'
 
 /* ------------------------------------------------------------------ */
@@ -321,7 +321,7 @@ async function runScriptAction(ctx: RunContext, a: Extract<ButtonAction, { type:
   const script = a.scriptId ? useWorkspace.getState().scripts?.[a.scriptId] : undefined
   if (!script) return fail(t(a.scriptId ? 'editor.button.err.scriptMissing' : 'editor.button.err.noScript'))
   const { runScriptById } = await import('../../features')
-  const r = await runScriptById(script.id, { contextPageId: ctx.pageId })
+  const r = await runScriptById(script.id, { contextPageId: ctx.pageId, writer: { via: formatWriterKey(BUTTON) } })
   if (!r) return fail(t('editor.button.err.scriptBusy', { name: script.name }))
   // its own toast told what happened (changes with Undo, or the error); a cancelled run is no failure
   return { ok: r.status !== 'error', text: '', quiet: true }

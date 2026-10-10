@@ -15,6 +15,7 @@ import { MCP_BULK_MAX, type McpToolName } from './contract'
 import { chars, clone, idList, itemLines, palette, same, str, tidyPageOrThrow, type PlanLine, type WritePlan } from './plan'
 import { databaseOrThrow, kindOf, live, McpToolError, pageUrl, pathOf, q, rowProperties, rowsOf, titleOf, TWO_WAY_SUFFIX, ws } from './values'
 import { adoptRowType } from '../../database'
+import { withWriter } from '../../store/writer'
 
 /* ------------------------------------------------------------------ */
 /* Helpers                                                             */
@@ -119,22 +120,25 @@ function planTrash(args: Record<string, unknown>): WritePlan {
     summary,
     target: single ? titleOf(items[0].page) : summary,
     lines,
-    async apply() {
-      const gone = items.filter((x) => !live(x.page.id))
-      if (gone.length) throw new McpToolError(`${gone.map((x) => q(titleOf(x.page))).join(', ')} is gone by now. Nothing was changed.`)
-      for (const x of items) ws().trashPage(x.page.id)
-      const note = 'Moved to the trash (nothing is deleted for good): one_restore_page or the trash in One brings it back.'
-      return {
-        result: single ? { ...out(items[0]), trashed: true, note } : { trashed: items.map(out), count: items.length, alsoTrashed: total, note },
-        undo: () => {
-          let clean = true
-          for (const x of items) {
-            if (ws().pages[x.page.id]?.trashed) ws().restorePage(x.page.id)
-            else clean = false
-          }
-          return clean
-        },
-      }
+    async apply(writer) {
+      // every write of this call under its writer (store/writer.ts) — one synchronous burst
+      return withWriter(writer, () => {
+        const gone = items.filter((x) => !live(x.page.id))
+        if (gone.length) throw new McpToolError(`${gone.map((x) => q(titleOf(x.page))).join(', ')} is gone by now. Nothing was changed.`)
+        for (const x of items) ws().trashPage(x.page.id)
+        const note = 'Moved to the trash (nothing is deleted for good): one_restore_page or the trash in One brings it back.'
+        return {
+          result: single ? { ...out(items[0]), trashed: true, note } : { trashed: items.map(out), count: items.length, alsoTrashed: total, note },
+          undo: () => {
+            let clean = true
+            for (const x of items) {
+              if (ws().pages[x.page.id]?.trashed) ws().restorePage(x.page.id)
+              else clean = false
+            }
+            return clean
+          },
+        }
+      })
     },
   }
 }
@@ -200,31 +204,34 @@ function planRestore(args: Record<string, unknown>): WritePlan {
     summary,
     target: single ? titleOf(items[0].page) : summary,
     lines,
-    async apply() {
-      const before = items.map((x) => ({ id: x.page.id, parentId: ws().pages[x.page.id]?.parentId ?? null }))
-      const moved = items.filter((x) => !ws().pages[x.page.id]?.trashed)
-      if (moved.length) throw new McpToolError(`${moved.map((x) => q(titleOf(x.page))).join(', ')} is no longer in the trash. Nothing was changed.`)
-      for (const x of items) {
-        ws().restorePage(x.page.id)
-        // the store looks at the parent only; under a trashed grandparent it would stay out of sight
-        if (x.top && ws().pages[x.page.id]?.parentId) ws().updatePage(x.page.id, { parentId: null })
-      }
-      return {
-        result: single ? out(items[0].page.id) : { restored: items.map((x) => out(x.page.id)), count: items.length },
-        undo: () => {
-          let clean = true
-          for (const b of before) {
-            const now = ws().pages[b.id]
-            if (!now || now.trashed) {
-              clean = false
-              continue
+    async apply(writer) {
+      // every write of this call under its writer (store/writer.ts) — one synchronous burst
+      return withWriter(writer, () => {
+        const before = items.map((x) => ({ id: x.page.id, parentId: ws().pages[x.page.id]?.parentId ?? null }))
+        const moved = items.filter((x) => !ws().pages[x.page.id]?.trashed)
+        if (moved.length) throw new McpToolError(`${moved.map((x) => q(titleOf(x.page))).join(', ')} is no longer in the trash. Nothing was changed.`)
+        for (const x of items) {
+          ws().restorePage(x.page.id)
+          // the store looks at the parent only; under a trashed grandparent it would stay out of sight
+          if (x.top && ws().pages[x.page.id]?.parentId) ws().updatePage(x.page.id, { parentId: null })
+        }
+        return {
+          result: single ? out(items[0].page.id) : { restored: items.map((x) => out(x.page.id)), count: items.length },
+          undo: () => {
+            let clean = true
+            for (const b of before) {
+              const now = ws().pages[b.id]
+              if (!now || now.trashed) {
+                clean = false
+                continue
+              }
+              if (now.parentId !== b.parentId) ws().updatePage(b.id, { parentId: b.parentId })
+              ws().trashPage(b.id)
             }
-            if (now.parentId !== b.parentId) ws().updatePage(b.id, { parentId: b.parentId })
-            ws().trashPage(b.id)
-          }
-          return clean
-        },
-      }
+            return clean
+          },
+        }
+      })
     },
   }
 }
@@ -303,29 +310,32 @@ function planMovePage(args: Record<string, unknown>): WritePlan {
     summary: sameParent ? t('features.mcp.sum.reorder', { title: name, where: whereTo }) : t('features.mcp.sum.move', { title: name, where: whereTo }),
     target: name,
     lines,
-    async apply() {
-      const now = live(page.id)
-      if (!now) throw new McpToolError(`${q(name)} is gone. Nothing was changed.`)
-      if (parentId && !live(parentId)) throw new McpToolError(`${q(titleOf(ws().pages[parentId]))} is gone. Nothing was changed.`)
-      const prev = { parentId: now.parentId, order: now.order }
-      ws().movePage(page.id, parentId, storeIndex)
-      const moved = ws().pages[page.id]
-      if (!moved || moved.parentId !== parentId) throw new McpToolError(`One did not move ${q(name)} there. Nothing was changed.`)
-      const placed = { parentId: moved.parentId, order: moved.order }
-      const index = Object.values(ws().pages)
-        .filter((p) => p.parentId === parentId && live(p.id) && !p.hidden)
-        .sort((a, b) => a.order - b.order)
-        .findIndex((p) => p.id === page.id)
-      return {
-        result: { id: page.id, title: moved.title, kind: kindOf(moved), parentId, path: pathOf(page.id), index, url: pageUrl(page.id) },
-        undo: () => {
-          const cur = ws().pages[page.id]
-          if (!cur || cur.parentId !== placed.parentId || cur.order !== placed.order) return false
-          if (prev.parentId && !live(prev.parentId)) return false
-          ws().updatePage(page.id, { parentId: prev.parentId, order: prev.order })
-          return true
-        },
-      }
+    async apply(writer) {
+      // every write of this call under its writer (store/writer.ts) — one synchronous burst
+      return withWriter(writer, () => {
+        const now = live(page.id)
+        if (!now) throw new McpToolError(`${q(name)} is gone. Nothing was changed.`)
+        if (parentId && !live(parentId)) throw new McpToolError(`${q(titleOf(ws().pages[parentId]))} is gone. Nothing was changed.`)
+        const prev = { parentId: now.parentId, order: now.order }
+        ws().movePage(page.id, parentId, storeIndex)
+        const moved = ws().pages[page.id]
+        if (!moved || moved.parentId !== parentId) throw new McpToolError(`One did not move ${q(name)} there. Nothing was changed.`)
+        const placed = { parentId: moved.parentId, order: moved.order }
+        const index = Object.values(ws().pages)
+          .filter((p) => p.parentId === parentId && live(p.id) && !p.hidden)
+          .sort((a, b) => a.order - b.order)
+          .findIndex((p) => p.id === page.id)
+        return {
+          result: { id: page.id, title: moved.title, kind: kindOf(moved), parentId, path: pathOf(page.id), index, url: pageUrl(page.id) },
+          undo: () => {
+            const cur = ws().pages[page.id]
+            if (!cur || cur.parentId !== placed.parentId || cur.order !== placed.order) return false
+            if (prev.parentId && !live(prev.parentId)) return false
+            ws().updatePage(page.id, { parentId: prev.parentId, order: prev.order })
+            return true
+          },
+        }
+      })
     },
   }
 }
@@ -463,45 +473,48 @@ function planMoveRow(args: Record<string, unknown>): WritePlan {
     summary: t('features.mcp.sum.moveRow', { title: name, from: fromTitle, to: toTitle }),
     target: `${fromTitle} → ${toTitle}`,
     lines,
-    async apply() {
-      const cur = live(row.id)
-      const target = ws().databases[to.id]
-      if (!cur || cur.databaseId !== from.id || !target || !live(to.id)) throw new McpToolError(`${q(name)} or ${q(toTitle)} changed meanwhile. Nothing was changed.`)
-      const before = { properties: clone(cur.properties), order: cur.order }
-      for (const [propId, opts] of map.fresh) {
-        const def = target.properties.find((p) => p.id === propId)
-        if (def) ws().updateProperty(to.id, propId, { options: [...(def.options ?? []), ...opts] })
-      }
-      const values: Record<ID, PropertyValue> = { ...map.values }
-      // unique ids: numbered in the new database, like a new row
-      const uid = target.properties.filter((p) => p.type === 'unique_id')
-      if (uid.length) {
-        for (const p of uid) values[p.id] = target.nextUniqueId
-        ws().updateDatabase(to.id, { nextUniqueId: target.nextUniqueId + 1 })
-      }
-      const order = Math.max(0, ...Object.values(ws().pages).filter((p) => p.parentId === to.id).map((p) => p.order)) + 1
-      ws().updatePage(row.id, { databaseId: to.id, parentId: to.id, properties: values, order })
-      // a row of a record type the target does not hold yet: the type comes along (database/model/recordTypes)
-      adoptRowType(row.id)
-      const moved = ws().pages[row.id]
-      const d = ws().databases[to.id]
-      return {
-        result: { id: row.id, title: moved.title, from: { id: from.id, title: fromTitle }, databaseId: to.id, database: toTitle, url: pageUrl(row.id), properties: rowProperties(d, moved), ...(freshNames.length ? { addedOptions: freshNames } : {}) },
-        undo: () => {
-          const now = ws().pages[row.id]
-          if (!now || now.databaseId !== to.id || !same(now.properties, values) || !live(from.id)) return false
-          ws().updatePage(row.id, { databaseId: from.id, parentId: from.id, properties: before.properties, order: before.order })
-          // options added for it go again when nothing else took them up
-          for (const [propId, opts] of map.fresh) {
-            const def = ws().databases[to.id]?.properties.find((p) => p.id === propId)
-            if (!def) continue
-            const used = new Set(Object.values(ws().pages).flatMap((p) => (p.databaseId === to.id ? [p.properties[propId]].flat() : [])))
-            const drop = new Set(opts.filter((o) => !used.has(o.id)).map((o) => o.id))
-            if (drop.size) ws().updateProperty(to.id, propId, { options: (def.options ?? []).filter((o) => !drop.has(o.id)) })
-          }
-          return true
-        },
-      }
+    async apply(writer) {
+      // every write of this call under its writer (store/writer.ts) — one synchronous burst
+      return withWriter(writer, () => {
+        const cur = live(row.id)
+        const target = ws().databases[to.id]
+        if (!cur || cur.databaseId !== from.id || !target || !live(to.id)) throw new McpToolError(`${q(name)} or ${q(toTitle)} changed meanwhile. Nothing was changed.`)
+        const before = { properties: clone(cur.properties), order: cur.order }
+        for (const [propId, opts] of map.fresh) {
+          const def = target.properties.find((p) => p.id === propId)
+          if (def) ws().updateProperty(to.id, propId, { options: [...(def.options ?? []), ...opts] })
+        }
+        const values: Record<ID, PropertyValue> = { ...map.values }
+        // unique ids: numbered in the new database, like a new row
+        const uid = target.properties.filter((p) => p.type === 'unique_id')
+        if (uid.length) {
+          for (const p of uid) values[p.id] = target.nextUniqueId
+          ws().updateDatabase(to.id, { nextUniqueId: target.nextUniqueId + 1 })
+        }
+        const order = Math.max(0, ...Object.values(ws().pages).filter((p) => p.parentId === to.id).map((p) => p.order)) + 1
+        ws().updatePage(row.id, { databaseId: to.id, parentId: to.id, properties: values, order })
+        // a row of a record type the target does not hold yet: the type comes along (database/model/recordTypes)
+        adoptRowType(row.id)
+        const moved = ws().pages[row.id]
+        const d = ws().databases[to.id]
+        return {
+          result: { id: row.id, title: moved.title, from: { id: from.id, title: fromTitle }, databaseId: to.id, database: toTitle, url: pageUrl(row.id), properties: rowProperties(d, moved), ...(freshNames.length ? { addedOptions: freshNames } : {}) },
+          undo: () => {
+            const now = ws().pages[row.id]
+            if (!now || now.databaseId !== to.id || !same(now.properties, values) || !live(from.id)) return false
+            ws().updatePage(row.id, { databaseId: from.id, parentId: from.id, properties: before.properties, order: before.order })
+            // options added for it go again when nothing else took them up
+            for (const [propId, opts] of map.fresh) {
+              const def = ws().databases[to.id]?.properties.find((p) => p.id === propId)
+              if (!def) continue
+              const used = new Set(Object.values(ws().pages).flatMap((p) => (p.databaseId === to.id ? [p.properties[propId]].flat() : [])))
+              const drop = new Set(opts.filter((o) => !used.has(o.id)).map((o) => o.id))
+              if (drop.size) ws().updateProperty(to.id, propId, { options: (def.options ?? []).filter((o) => !drop.has(o.id)) })
+            }
+            return true
+          },
+        }
+      })
     },
   }
 }

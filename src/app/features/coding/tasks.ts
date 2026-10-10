@@ -29,6 +29,7 @@ import { isTrusted, keepTrust, trustTask } from './trust'
 import { taskText } from './refs'
 import { useCoding } from './state'
 import { notifyAway } from './notify'
+import { endRun, noteRun, SYSTEM, withWriter, type Writer } from '../../store/writer'
 
 const ws = () => useWorkspace.getState()
 
@@ -223,7 +224,7 @@ export async function pickNext(repos: string[], workerName: string, docs = false
     }
     if (target !== stage) {
       const to = target.id
-      await keepTrust([row.id], () => moveRow(row.id, props, to))
+      await keepTrust([row.id], () => moveRow(row.id, props, to), codingWriter(row.id, to))
       stage = target
     }
     if (stage.kind === 'queue' || stage.kind === 'gate' || stage.kind === 'done' || stage.kind === 'import' || !go(stage)) continue
@@ -240,9 +241,11 @@ export async function pickNext(repos: string[], workerName: string, docs = false
     const fresh = ws().pages[row.id]
     if (!fresh || fresh.trashed || ws().databases[dbId] !== db || !(await isTrusted(row.id)) || ws().pages[row.id] !== fresh || ws().databases[dbId] !== db) continue
     // claim it
-    // bookkeeping, not content: no "AI" version for a claim
-    set(row.id, props.worker, workerName)
-    set(row.id, props.claimed, nowValue())
+    // bookkeeping, not content: no "AI" version for a claim (and nobody's change for the flight recorder)
+    withWriter(SYSTEM('bookkeeping'), () => {
+      set(row.id, props.worker, workerName)
+      set(row.id, props.claimed, nowValue())
+    })
     const repo = optionName(db, props.repo, fresh.properties[props.repo!]) ?? ''
     await patchTask(row.id, { state: 'running', stageId: stage.id, error: null, runNow: false })
     return {
@@ -272,7 +275,7 @@ export function heartbeat(taskIds: ID[], workerName: string): void {
     // only when the minute changed (Claimed at has minute precision): no write every heartbeat
     const now = nowValue()
     const cur = ctx.row.properties[ctx.props.claimed ?? '']
-    if (!(cur && typeof cur === 'object' && !Array.isArray(cur) && (cur as DateValue).start === now.start)) set(id, ctx.props.claimed, now)
+    if (!(cur && typeof cur === 'object' && !Array.isArray(cur) && (cur as DateValue).start === now.start)) withWriter(SYSTEM('bookkeeping'), () => set(id, ctx.props.claimed, now))
   }
 }
 
@@ -285,6 +288,9 @@ export async function finishStage(taskId: ID, stageId: ID, outcome: StageOutcome
   await loadTask(taskId)
   const { props, pipeline, row } = ctx
   const stage = pipeline.find((s) => s.id === stageId) ?? null
+  // the worker's stage run (store/writer.ts): everything it writes, the follow-ups it starts included
+  const w = codingWriter(taskId, stageId)
+  noteRun(w)
   const local = taskLocal(taskId)
   const stillThere = !!stage && ctx.stage?.id === stage.id
   const patch: Partial<TaskLocal> = { state: 'idle', error: null, question: null, stageId }
@@ -308,7 +314,7 @@ export async function finishStage(taskId: ID, stageId: ID, outcome: StageOutcome
   if (doc && output === 'stories' && stillThere) {
     const parsed = parseStories(doc)
     // the json leaves the page only once its stories are tasks (a viewer / a failure keeps it there)
-    const made = parsed.stories.length ? await createStories(taskId, parsed.stories, parsed.project, local.storiesDb ?? null).catch(() => null) : null
+    const made = parsed.stories.length ? await createStories(taskId, parsed.stories, parsed.project, local.storiesDb ?? null, w).catch(() => null) : null
     if (made) {
       doc = parsed.rest
       patch.storiesDb = made.dbId
@@ -403,6 +409,7 @@ export async function finishStage(taskId: ID, stageId: ID, outcome: StageOutcome
         appendNote(taskId, KIND_ICON[stage.kind] ?? 'asset:code', 'gray', `${stage.name} · ${stamp()}`, outcome.summary)
       if (moveTo) moveRow(taskId, props, moveTo.id)
     }),
+    w,
   )
   // the section as the worker wrote it (an approval shows Claude Code's text only while the page still says the same)
   if (wrote) patch.planSig = textHash(planSection(taskId, sectionTitleOf(pipeline, stage)) ?? '')
@@ -412,7 +419,8 @@ export async function finishStage(taskId: ID, stageId: ID, outcome: StageOutcome
     if (moveTo?.auto) nudge()
   }
   dropProgress(taskId)
-  if (moveTo?.kind === 'done') await spawnFollowUps(taskId)
+  if (moveTo?.kind === 'done') await spawnFollowUps(taskId, w)
+  endRun(w)
   if (!toast) return
   const message = t(toast.key, { title: ws().pages[taskId]?.title.trim() || t('common.untitled'), stage: moveTo?.name ?? stage?.name ?? '' })
   // One in the background: the browser says it (when switched on here, notify.ts)
@@ -580,11 +588,11 @@ function pagesNote(rootId: ID, children: Array<{ id: ID; title: string }>): JSON
  * shown here) and a task per story — same repo and priority rules, a mention of the source, in the backlog. A re-run
  * adds only stories whose title is not there yet.
  */
-async function createStories(taskId: ID, stories: Story[], project: string, known: ID | null): Promise<{ dbId: ID; created: number }> {
+async function createStories(taskId: ID, stories: Story[], project: string, known: ID | null, writer: Writer): Promise<{ dbId: ID; created: number }> {
   const ctx = taskContext(taskId)
   if (!ctx) throw new Error('gone')
   const title = ctx.row.title.trim() || t('common.untitled')
-  const dbId = known && kindOfDb(known) === 'coding' ? known : createProject('coding', t('features.coding.out.storiesDb', { name: project || title }), undefined, { show: false })
+  const dbId = known && kindOfDb(known) === 'coding' ? known : withWriter(writer, () => createProject('coding', t('features.coding.out.storiesDb', { name: project || title }), undefined, { show: false }))
   const have = new Set(Object.values(ws().pages).filter((p) => p.databaseId === dbId && !p.trashed).map((p) => p.title.trim().toLowerCase()))
   const repo = optionName(ctx.db, ctx.props.repo, ctx.row.properties[ctx.props.repo ?? ''])
   let created = 0
@@ -602,7 +610,7 @@ async function createStories(taskId: ID, stories: Story[], project: string, know
       branch: '',
       start: false,
       extra: [{ type: 'paragraph', content: [{ type: 'text', text: `${t('features.coding.out.storyFrom')} ` }, mentionOf(taskId, title)] }],
-    })
+    }, writer)
     created++
   }
   return { dbId, created }
@@ -628,18 +636,18 @@ export function followUpsOf(taskId: ID): PipelineKind[] {
 }
 
 /** Set the "Then" field (the kinds this task hands on to when it is done). */
-export function setFollowUps(taskId: ID, kinds: PipelineKind[]): void {
+export function setFollowUps(taskId: ID, kinds: PipelineKind[], writer: Writer = PANEL): void {
   const ctx = taskContext(taskId)
   if (!ctx?.props.followUps) return
   const ids = kinds.filter((k) => FOLLOW_UPS[ctx.kind].includes(k)).map((k) => optionByName(ctx.db, ctx.props.followUps, t(`features.coding.pipe.${k}`))).filter((x): x is ID => !!x)
-  set(taskId, ctx.props.followUps, ids)
+  withWriter(writer, () => set(taskId, ctx.props.followUps, ids))
 }
 
 /**
  * A follow-up task of another kind from a done task: same repo and priority, the source's page as its text (with a
  * mention of the source), straight into its first automatic stage. The source gets a note with a mention of it.
  */
-export async function spawnFollowUp(taskId: ID, kind: PipelineKind): Promise<ID | null> {
+export async function spawnFollowUp(taskId: ID, kind: PipelineKind, writer: Writer = PANEL): Promise<ID | null> {
   const ctx = taskContext(taskId)
   if (!ctx || !FOLLOW_UPS[ctx.kind].includes(kind)) return null
   await loadTask(taskId)
@@ -654,7 +662,7 @@ export async function spawnFollowUp(taskId: ID, kind: PipelineKind): Promise<ID 
     { type: 'heading', attrs: { level: 2 }, content: [{ type: 'text', text: title }] },
     ...source.map((b) => (b.type === 'heading' && (b.attrs?.level ?? 1) < 3 ? { ...b, attrs: { ...b.attrs, level: 3 } } : b)),
   ]
-  const id = await createTask({ kind, title: kind === 'qa' ? t('features.coding.follow.qaTitle', { title }) : title, repo: optionName(ctx.db, ctx.props.repo, ctx.row.properties[ctx.props.repo ?? '']), goal: t(`features.coding.follow.goal.${kind}`), criteria: [], priority, branch: '', start: true, extra })
+  const id = await createTask({ kind, title: kind === 'qa' ? t('features.coding.follow.qaTitle', { title }) : title, repo: optionName(ctx.db, ctx.props.repo, ctx.row.properties[ctx.props.repo ?? '']), goal: t(`features.coding.follow.goal.${kind}`), criteria: [], priority, branch: '', start: true, extra }, writer)
   await patchTask(taskId, { spawned: { ...(taskLocal(taskId).spawned ?? {}), [kind]: id } })
   await keepTrust([taskId], () => aiWrite(() => {
     const p = ws().pages[taskId]
@@ -662,13 +670,13 @@ export async function spawnFollowUp(taskId: ID, kind: PipelineKind): Promise<ID 
     const blocks = docOf(p)
     blocks.push({ type: 'callout', attrs: { icon: 'asset:publish', color: 'green' }, content: [{ type: 'paragraph', content: [{ type: 'text', text: `${t(`features.coding.follow.to.${kind}`)} `, marks: [{ type: 'bold' }] }, { type: 'mention', attrs: { id, label: ws().pages[id]?.title ?? title, kind: 'page' } }] }] })
     ws().setContent(taskId, { type: 'doc', content: blocks }, 'coding')
-  }))
+  }), writer)
   return id
 }
 
 /** When a task is done: the follow-ups its "Then" field names. */
-async function spawnFollowUps(taskId: ID): Promise<void> {
-  for (const kind of followUpsOf(taskId)) await spawnFollowUp(taskId, kind)
+async function spawnFollowUps(taskId: ID, writer: Writer): Promise<void> {
+  for (const kind of followUpsOf(taskId)) await spawnFollowUp(taskId, kind, writer)
 }
 
 /* ------------------------------------------------------------------ the person's side */
@@ -686,7 +694,15 @@ export function setNudge(fn: () => void) {
  */
 export interface ActOpts {
   confirm?: boolean
+  /** who acts (store/writer.ts): the person on the task panel (default), the AI terminal's change */
+  writer?: Writer
 }
+
+/** The person acting on the task panel (store/writer.ts). */
+const PANEL: Writer = { kind: 'you', via: 'ui' }
+
+/** The worker's run of a stage on a task (store/writer.ts): coding:<task>:<stage>. */
+const codingWriter = (task: ID, stage: ID): Writer => ({ kind: 'coding', task, run: stage })
 
 /** Approve at a gate: on to the next stage. */
 export async function approveTask(taskId: ID, opts: ActOpts = {}): Promise<void> {
@@ -695,9 +711,9 @@ export async function approveTask(taskId: ID, opts: ActOpts = {}): Promise<void>
   const n = nextStage(ctx.pipeline, ctx.stage)
   if (!n) return
   if (opts.confirm !== false) await trustTask(taskId)
-  await keepTrust([taskId], () => moveRow(taskId, ctx.props, n.id))
+  await keepTrust([taskId], () => moveRow(taskId, ctx.props, n.id), opts.writer ?? PANEL)
   await patchTask(taskId, { state: 'idle', error: null, runNow: false })
-  if (n.kind === 'done') await spawnFollowUps(taskId)
+  if (n.kind === 'done') await spawnFollowUps(taskId, opts.writer ?? PANEL)
   nudge()
 }
 
@@ -714,6 +730,7 @@ export async function reworkTask(taskId: ID, note: string, opts: ActOpts = {}): 
       appendNote(taskId, 'asset:history', 'orange', `${t('features.coding.page.rework')} · ${ctx.stage!.name} · ${stamp()}`, text)
       moveRow(taskId, ctx.props, back.id)
     }),
+    opts.writer ?? PANEL,
   )
   await patchTask(taskId, { state: 'idle', error: null, rework: { stageId: back.id, text }, runNow: !back.auto })
   nudge()
@@ -728,7 +745,7 @@ export async function answerTask(taskId: ID, answer: string, opts: ActOpts = {})
   if (!ctx?.stage || !a || !local.question) return
   const q = local.question
   if (opts.confirm !== false) await trustTask(taskId)
-  await keepTrust([taskId], () => aiWrite(() => appendNote(taskId, 'asset:microphone', 'blue', `${t('features.coding.page.answer')} · ${stamp()}`, `**${t('features.coding.page.q')}** ${q}\n\n**${t('features.coding.page.a')}** ${a}`)))
+  await keepTrust([taskId], () => aiWrite(() => appendNote(taskId, 'asset:microphone', 'blue', `${t('features.coding.page.answer')} · ${stamp()}`, `**${t('features.coding.page.q')}** ${q}\n\n**${t('features.coding.page.a')}** ${a}`)), opts.writer ?? PANEL)
   await patchTask(taskId, { state: 'idle', question: null, answers: [...(local.answers ?? []), { q, a, stageId: ctx.stage.id }], runNow: true })
   nudge()
 }
@@ -799,7 +816,14 @@ export function taskBody(input: Pick<NewTask, 'goal' | 'goalDoc' | 'criteria' | 
 }
 
 /** A new task (the Coding database is created on first use). Trusted on this device. */
-export async function createTask(input: NewTask): Promise<ID> {
+export async function createTask(input: NewTask, writer: Writer = PANEL): Promise<ID> {
+  const id = withWriter(writer, () => createTaskRow(input))
+  await trustTask(id)
+  nudge()
+  return id
+}
+
+function createTaskRow(input: NewTask): ID {
   const kind = input.kind ?? 'coding'
   const dbId = input.dbId && kindOfDb(input.dbId) === kind ? input.dbId : (currentProjectId(kind) ?? ensurePipelineDb(kind))
   if (input.repo) addRepoOptions(dbId, [input.repo])
@@ -819,10 +843,7 @@ export async function createTask(input: NewTask): Promise<ID> {
     if (ids.length) properties[props.followUps] = ids
   }
   const content = taskBody(input)
-  const id = ws().createRow(dbId, { title: input.title.trim(), properties, content: { type: 'doc', content } })
-  await trustTask(id)
-  nudge()
-  return id
+  return ws().createRow(dbId, { title: input.title.trim(), properties, content: { type: 'doc', content } })
 }
 
 /** Every task of every pipeline database (or of one kind), with its stage — for #/coding. */
@@ -912,7 +933,7 @@ export async function intakeDone(taskId: ID, repo: string, label?: string): Prom
   await keepTrust([taskId], () => {
     setTaskRepo(taskId, repo)
     if (n) moveRow(taskId, ctx.props, n.id)
-  })
+  }, codingWriter(taskId, ctx.stage.id))
   appendLog(taskId, [{ t: Date.now(), k: 'info', s: label ? t('features.coding.intake.logged', { label, repo }) : t('features.coding.intake.taken', { repo }) }])
   useUI.getState().toast({ message: t('features.coding.intake.done', { repo }), kind: 'success' })
   nudge()

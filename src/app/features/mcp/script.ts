@@ -13,6 +13,7 @@ import { appRunUI, findScript, preApprovedUI, plannedItems, runQueryForTool, run
 import { MCP_QUERY_ROWS } from './contract'
 import { chars, str, type PlanLine, type WritePlan } from './plan'
 import { live, McpToolError, q, titleOf, ws } from './values'
+import { formatWriterKey } from '../../store/writer'
 
 /* ------------------------------------------------------------------ one_run_query */
 
@@ -92,14 +93,15 @@ export async function planRunScript(args: Record<string, unknown>): Promise<Writ
     ...base,
     summary: t('features.mcp.sum.runScript', { name: script.name }),
     lines: dryLines(dry),
-    async apply() {
+    async apply(writer) {
       if (!scriptExists(script.id)) throw new McpToolError(`The script ${q(script.name)} was deleted meanwhile. Nothing was changed.`)
       // the person approved what the dry run of THIS code showed: a script edited while the card was open
       // (another tab, the AI terminal, a team member) is not what they approved
       if (ws().scripts?.[script.id]?.code !== script.code)
         throw new McpToolError(`The script ${q(script.name)} was changed after its dry run. Nothing was changed — call one_run_script again to show the person the new plan.`)
       // the approval toast ("Done: …" with Undo) tells the person; the script's own toast would repeat it
-      const r = await runScriptById(script.id, { mode: 'run', contextPageId, ui: preApprovedUI(appRunUI, approved), notify: false })
+      // a script run started by this MCP call (store/writer.ts: script:<id>:<run> with the call as its cause)
+      const r = await runScriptById(script.id, { mode: 'run', contextPageId, ui: preApprovedUI(appRunUI, approved), notify: false, writer: { via: formatWriterKey(writer) } })
       if (!r) throw new McpToolError(`${q(script.name)} is already running in One. Nothing was changed — try again when it is done.`)
       const report = await runReport(r, 'run')
       if (r.status === 'cancelled') throw new McpToolError(`The person cancelled the run of ${q(script.name)} in One. Nothing was changed. Do not retry it; ask them instead.`)

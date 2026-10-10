@@ -96,6 +96,8 @@ export function PipelineEditor({ dbId, locked, onClose }: { dbId: string; locked
       () => {
         saved = savePipeline(dbId, clean)
       },
+      // the person saving the pipeline (after the awaited trust lookup)
+      { kind: 'you', via: 'ui' },
     )
     useUI.getState().toast({ message: saved ? t('features.coding.pipeline.saved') : t('features.coding.pipeline.locked'), kind: saved ? 'success' : 'error' })
     if (saved) onClose()

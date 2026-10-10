@@ -24,6 +24,7 @@ import { databaseOrThrow, iconText, kindOf, live, McpToolError, pageUrl, pathOf,
 import { chars, optionsOf, pageOrThrow, parseIcon, preview, str, type PlanLine, type WritePlan } from './plan'
 import { TIDY_PLANNERS } from './tidy'
 import { STRUCTURE_PLANNERS } from './structure'
+import { withWriter, type Writer } from '../../store/writer'
 
 export type { Applied, PlanLine, WritePlan } from './plan'
 
@@ -89,11 +90,12 @@ function stageWith(stage: StageApi, name: ToolName, input: Record<string, unknow
   }
 }
 
-async function applyStaged(changes: StagedChange[]): Promise<{ rowIds: Record<string, ID>; undo: () => boolean }> {
+async function applyStaged(changes: StagedChange[], writer: Writer): Promise<{ rowIds: Record<string, ID>; undo: () => boolean }> {
   if (!changes.length) return { rowIds: {}, undo: () => true }
-  const res = await applyChanges(changes, changes, (id) => id)
+  const res = await applyChanges(changes, changes, (id) => id, { writer })
   if (res.failed.length) {
-    res.undo()
+    // the call takes back what it wrote (its own rollback)
+    withWriter(writer, () => res.undo())
     throw new McpToolError(`Nothing was changed: ${res.failed.map((f) => f.error).join('; ')}.`)
   }
   return { rowIds: res.rowIds, undo: () => res.undo().kept.length === 0 }
@@ -145,9 +147,9 @@ function planCreatePage(args: Record<string, unknown>): WritePlan {
     summary: t('features.mcp.sum.createPage', { title, where }),
     target: title,
     lines,
-    async apply() {
-      const { undo } = await applyStaged(stage.changes)
-      if (icon) ws().updatePage(c.pageId, { icon })
+    async apply(writer) {
+      const { undo } = await applyStaged(stage.changes, writer)
+      if (icon) withWriter(writer, () => ws().updatePage(c.pageId, { icon }))
       return { result: { id: c.pageId, title, url: pageUrl(c.pageId), parentId: c.parentId ?? null, path: pathOf(c.pageId) }, undo }
     },
   }
@@ -201,15 +203,15 @@ function planUpdatePage(args: Record<string, unknown>): WritePlan {
     target: name,
     lines,
     noop: changed.length ? undefined : { id: page.id, title: page.title, url: pageUrl(page.id), changed: [], note: 'No change: the page already looks like that.' },
-    async apply() {
+    async apply(writer) {
       if (!live(page.id)) throw new McpToolError(`${q(name)} is gone (deleted or in the trash). Nothing was changed.`)
       const undos: Array<() => boolean> = []
-      const staged = await applyStaged(stage.changes)
+      const staged = await applyStaged(stage.changes, writer)
       undos.push(staged.undo)
       if (replaceWith) {
         await snapshotNow(page.id, 'ai')
         const prev = ws().pages[page.id]?.content ?? null
-        ws().setContent(page.id, replaceWith, 'ai')
+        withWriter(writer, () => ws().setContent(page.id, replaceWith!, 'ai'))
         const rev = ws().pages[page.id]?.contentRev
         undos.push(() => {
           const now = ws().pages[page.id]
@@ -221,7 +223,7 @@ function planUpdatePage(args: Record<string, unknown>): WritePlan {
       if (iconChanged) {
         const prev = ws().pages[page.id]?.icon ?? null
         // the page as it was is kept as an "AI" version first (features/history)
-        aiWrite(() => ws().updatePage(page.id, { icon: icon ?? null }))
+        withWriter(writer, () => aiWrite(() => ws().updatePage(page.id, { icon: icon ?? null })))
         undos.push(() => {
           const now = ws().pages[page.id]
           if (!now || iconText(now.icon) !== iconText(icon)) return false
@@ -257,8 +259,8 @@ function planCreateRow(args: Record<string, unknown>): WritePlan {
     summary: `${t('features.mcp.sum.createRow', { title, db: dbName })}${first ? ` · ${first.name}: ${first.after}` : ''}`,
     target: dbName,
     lines,
-    async apply() {
-      const { rowIds, undo } = await applyStaged(stage.changes)
+    async apply(writer) {
+      const { rowIds, undo } = await applyStaged(stage.changes, writer)
       const id = rowIds[c.pageId] ?? c.pageId
       const row = ws().pages[id]
       const live = ws().databases[db.id]
@@ -299,8 +301,8 @@ function planUpdateRow(args: Record<string, unknown>): WritePlan {
     target: `${dbName} / ${name}`,
     lines,
     noop: stage.changes.length ? undefined : { ...result(), note: 'No change: the row already has these values.' },
-    async apply() {
-      const { undo } = await applyStaged(stage.changes)
+    async apply(writer) {
+      const { undo } = await applyStaged(stage.changes, writer)
       return { result: result(), undo }
     },
   }
@@ -380,11 +382,11 @@ function planCreateProperty(args: Record<string, unknown>): WritePlan {
     summary: t('features.mcp.sum.createProperty', { name: spec.def.name, db: dbTitle }),
     target: dbTitle,
     lines: spec.lines,
-    async apply() {
+    async apply(writer) {
       const now = ws().databases[db.id]
       if (!now || !live(db.id)) throw new McpToolError(`${q(dbTitle)} is gone. Nothing was changed.`)
       if (now.properties.some((p) => p.name.toLowerCase() === spec.def.name.toLowerCase())) throw new McpToolError(`A property named ${q(spec.def.name)} exists by now. Nothing was changed.`)
-      const undo = addProperties(db.id, [spec])
+      const undo = withWriter(writer, () => addProperties(db.id, [spec]))
       const d = ws().databases[db.id]
       const prop = d.properties.find((p) => p.id === spec.def.id)!
       const back = spec.reverse && ws().databases[spec.reverse.dbId]
@@ -426,13 +428,16 @@ function planCreateDatabase(args: Record<string, unknown>): WritePlan {
     summary: t('features.mcp.sum.createDatabase', { title, where }),
     target: title,
     lines,
-    async apply() {
+    async apply(writer) {
       if (parent && !live(parent.id)) throw new McpToolError(`${q(titleOf(parent))} is gone. Nothing was changed.`)
       const titleProp: PropertyDef = { id: newId(), name: titleName, type: 'title' }
-      ws().createDatabase({ id, title, parentId: parent?.id ?? null, ...(specs ? { properties: [titleProp, ...specs.map((s) => s.def)] } : {}) })
       // the reverse sides of two-way relations live on the related databases
-      const reverses = (specs ?? []).flatMap((s) => (s.reverse && ws().databases[s.reverse.dbId] ? [s.reverse] : []))
-      for (const r of reverses) ws().addProperty(r.dbId, r.def)
+      const reverses = withWriter(writer, () => {
+        ws().createDatabase({ id, title, parentId: parent?.id ?? null, ...(specs ? { properties: [titleProp, ...specs.map((s) => s.def)] } : {}) })
+        const back = (specs ?? []).flatMap((s) => (s.reverse && ws().databases[s.reverse.dbId] ? [s.reverse] : []))
+        for (const r of back) ws().addProperty(r.dbId, r.def)
+        return back
+      })
       const rev = ws().pages[id]?.contentRev
       const d = ws().databases[id]
       return {

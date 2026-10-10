@@ -30,6 +30,7 @@ import { McpToolError } from './values'
 import { mcpMessage, planWrite, type WritePlan } from './write'
 import { planRunScript } from './script'
 import { DEFAULT_SETTINGS, loadSettings, MCP_STORAGE_KEY, saveSettings, useMcp, validPort, type ActivityState, type McpActivity, type McpSettings, type Verdict } from './state'
+import { endRun, noteRun, withWriter, type Writer } from '../../store/writer'
 
 const set = useMcp.setState
 const get = useMcp.getState
@@ -306,11 +307,15 @@ export function clearMcpActivity() {
   set({ activity: [] })
 }
 
+/** An MCP client's name as a run note carries it (store/writer.ts RunMeta.client: an identifier, never content). */
+const clientName = (name: string): string => name.replace(/[^A-Za-z0-9 ._-]/g, '').trim().slice(0, 40)
+
 /** Undo an applied write from the log. */
 export function undoMcpActivity(key: string) {
   const a = get().activity.find((x) => x.id === key)
   if (!a?.undo || a.state !== 'ok') return
-  const clean = a.undo()
+  // the person's Undo of the call (store/writer.ts)
+  const clean = withWriter({ kind: 'you', via: 'undo', ref: key.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 64) }, () => a.undo!())
   logPatch(key, { state: 'undone', undo: undefined })
   useUI.getState().toast(clean ? t('features.mcp.toast.undone') : t('features.mcp.toast.undoneKept'))
 }
@@ -420,7 +425,15 @@ async function handleCall(id: string, tool: McpToolName, args: Record<string, un
     // still the same workspace right before anything is written
     const still = boundWorkspace(expected)
     if (!still.ok || still.ws.id !== at.ws.id) return fail(still.ok ? mismatch(at.ws.id, still.ws) : still.error, 'rejected')
-    const applied = await plan.apply()
+    // the call writes as itself (store/writer.ts): mcp:<session>:<call>:<tool>; the recorder learns its client first
+    const writer: Writer = { kind: 'mcp', session: get().session ?? '-', call: id, tool }
+    noteRun(writer, { tool, ...(get().client?.name ? { client: clientName(get().client!.name) } : {}) })
+    let applied: Awaited<ReturnType<WritePlan['apply']>>
+    try {
+      applied = await plan.apply(writer)
+    } finally {
+      endRun(writer)
+    }
     send({ type: 'result', id, result: stamped(applied.result, at.ws) })
     logPatch(key, { state: 'ok', ms: ms(), undo: applied.undo })
     // approved by hand: confirm with an undo (Apply directly stays quiet — the log has it)

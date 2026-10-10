@@ -42,7 +42,8 @@ export function paletteScripts(pageId: ID | null): PaletteScript[] {
         keywords: 'run script skript ausführen one script',
         icon: SquareCode,
         run: () => {
-          void runScriptById(s.id, { contextPageId: pageId }).then((r) => {
+          // the person ran it from ⌘K (store/writer.ts: the run's cause)
+          void runScriptById(s.id, { contextPageId: pageId, writer: { via: 'you' } }).then((r) => {
             if (!r && useWorkspace.getState().scripts?.[s.id]) toast({ kind: 'info', message: t('features.script.int.busy', { name: s.name }) })
           })
         },

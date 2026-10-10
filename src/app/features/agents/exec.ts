@@ -27,7 +27,7 @@ import { allowedTools, attachMcp, instructionsText, readServers } from '../ai/mc
 import { callLabel } from '../ai/mcp-servers/activity'
 import { MAX_TOOL_CALLS, type StageApi } from '../ai/agent/tools'
 import { runAgent, taskMessage, type RunHooks } from '../ai/agent/run'
-import { applyChanges, type ApplyResult } from '../ai/agent/apply'
+import { applyChanges, changeWriter, type ApplyResult } from '../ai/agent/apply'
 import type { StagedChange } from '../ai/agent/types'
 import { snapshotNow } from '../history/snapshots'
 import { agentTools, scopeFilter, scopeText } from './scope'
@@ -44,6 +44,7 @@ import { memoryFor, noteUse } from '../ai/memory/use'
 import { recallTool } from '../ai/memory/tools'
 import { unlocked } from './integrations/status'
 import { blockText, lostText, runBlock } from './gone'
+import { endRun, noteRun, withWriter, type Writer } from '../../store/writer'
 
 /* ------------------------------------------------------------------ */
 /* Prompt                                                              */
@@ -174,7 +175,8 @@ export function undoRunResult(runId: string): { kept: string[]; batch: ApplyResu
   const batch = undos.get(runId)
   if (!batch) return null
   undos.delete(runId)
-  return { kept: batch.undo().kept, batch }
+  // the person's Undo of the run (store/writer.ts)
+  return { kept: withWriter({ kind: 'you', via: 'undo', ref: runId }, () => batch.undo()).kept, batch }
 }
 
 /** Revert what an 'apply' run wrote; returns how many changes were kept because they were edited since. */
@@ -205,7 +207,7 @@ export function touchedBy(changes: StagedChange[], applied: string[], rowIds: Re
 }
 
 /** Write the run's report into the agent's report page (a version is kept first). */
-async function writeReport(agent: CustomAgent, run: AgentRun): Promise<boolean> {
+async function writeReport(agent: CustomAgent, run: AgentRun, writer: Writer): Promise<boolean> {
   const out = agent.output
   if (!out?.pageId || !alive(out.pageId) || !run.summary.trim()) return false
   const pageId = out.pageId
@@ -217,7 +219,7 @@ async function writeReport(agent: CustomAgent, run: AgentRun): Promise<boolean> 
   const prev = page.content?.content ?? []
   const empty = prev.every((b) => b.type === 'paragraph' && !(b.content ?? []).length)
   const content: JSONContent = { type: 'doc', content: out.mode === 'replace' || empty ? [heading, ...body] : [...prev, heading, ...body] }
-  await asAgent(agent.id, () => useWorkspace.getState().setContent(pageId, content, 'ai'))
+  await asAgent(agent.id, () => withWriter(changeWriter(writer, 'report'), () => useWorkspace.getState().setContent(pageId, content, 'ai')))
   stampLocal(agent.id, [pageId])
   return true
 }
@@ -256,6 +258,9 @@ async function runOnce(agent: CustomAgent, req: RunRequest): Promise<AgentRun> {
   const unlocks: RunUnlocks = { upsert: unlocked('upsert'), state: unlocked('agentState'), notes: unlocked('notify') }
   const seq = await nextSeq(agent.id)
   const run: AgentRun = { id: newId(), agentId: agent.id, runner: 'browser', seq, trigger: req.trigger, startedAt: Date.now(), status: 'running', summary: '', steps: [] }
+  // the run's writes (store/writer.ts): agent:<id>:<run>, each change with its id, the report as 'report'
+  const writer: Writer = { kind: 'agent', id: agent.id, run: run.id }
+  noteRun(writer, { seq })
   const changes: StagedChange[] = []
   const rowIds: Record<string, ID> = {}
   let saveTimer = 0
@@ -409,7 +414,7 @@ async function runOnce(agent: CustomAgent, req: RunRequest): Promise<AgentRun> {
     if (agent.write === 'apply' && run.status === 'ok') {
       // edits of existing text always wait for a person's OK: they stay in the run for review
       const direct = changes.filter((c) => c.kind !== 'edit')
-      const res = await asAgent(agent.id, () => applyChanges(direct, changes, (id) => rowIds[id] ?? id))
+      const res = await asAgent(agent.id, () => applyChanges(direct, changes, (id) => rowIds[id] ?? id, { writer }))
       Object.assign(rowIds, res.rowIds)
       for (let i = 0; i < changes.length; i++) {
         const c = changes[i]
@@ -433,7 +438,7 @@ async function runOnce(agent: CustomAgent, req: RunRequest): Promise<AgentRun> {
   }
   if (run.status === 'ok' || run.status === 'staged') {
     try {
-      if (await writeReport(agent, run)) run.steps.push({ kind: 'note', label: t('features.agents.run.reported'), state: 'ok' })
+      if (await writeReport(agent, run, writer)) run.steps.push({ kind: 'note', label: t('features.agents.run.reported'), state: 'ok' })
     } catch (e) {
       run.steps.push({ kind: 'note', label: t('features.agents.run.reportFailed'), state: 'err' })
       console.warn('[one] agents: could not write the report', e)
@@ -456,6 +461,7 @@ async function runOnce(agent: CustomAgent, req: RunRequest): Promise<AgentRun> {
   run.usage = { input: usage.input, output: usage.output, cacheRead: usage.cacheRead, usd: Math.round(usage.usd * 10_000) / 10_000 }
   run.endedAt = Date.now()
   await putRun({ ...run, steps: [...run.steps] })
+  endRun(writer)
   notify(agent, run, req)
   return run
 }

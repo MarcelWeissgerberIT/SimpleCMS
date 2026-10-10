@@ -19,6 +19,7 @@ import { withoutWebImages } from './images'
 import { getAgentState, loadRuns, putAgentState, putRun, type AgentState } from './runs'
 import { patchServerRun, resolveServerRun, serverErrorText } from './server'
 import type { AgentRun } from './types'
+import { endRun, withWriter, type Writer } from '../../store/writer'
 
 const tn = (key: string, count: number) => t(`${key}.${count === 1 ? 'one' : 'other'}`, { count })
 
@@ -50,7 +51,10 @@ export async function applyRun(run: AgentRun, ids?: string[], opts: { row?: bool
   const rowIds: Record<string, ID> = { ...(run.rowIds ?? {}) }
   // proposals from a server run (or stored before images.ts) load no web image either
   const safe = (c: StagedChange): StagedChange => (typeof c.markdown === 'string' ? { ...c, markdown: withoutWebImages(c.markdown) } : c)
-  const res = await asAgent(run.agentId, () => applyChanges(targets.map(safe), all.map(safe), (id) => rowIds[id] ?? id))
+  // the run's proposals, applied by the person's review, are still the agent run's writes (store/writer.ts)
+  const writer: Writer = { kind: 'agent', id: run.agentId, run: run.id }
+  const res = await asAgent(run.agentId, () => applyChanges(targets.map(safe), all.map(safe), (id) => rowIds[id] ?? id, { writer }))
+  endRun(writer)
   Object.assign(rowIds, res.rowIds)
   const staged = all.map((c): StagedChange => {
     if (res.applied.includes(c.id)) return { ...c, status: 'applied', error: undefined }
@@ -98,7 +102,7 @@ export async function undoRunAll(run: AgentRun): Promise<number | null> {
 }
 
 async function undoApply(run: AgentRun, res: ApplyResult, row = false): Promise<number> {
-  const { kept } = res.undo()
+  const { kept } = withWriter({ kind: 'you', via: 'undo', ref: run.id }, () => res.undo())
   return settleUndone(run, res, kept, row)
 }
 

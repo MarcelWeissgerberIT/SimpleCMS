@@ -22,6 +22,7 @@ import { livePage, withPageNodes, type LinkTarget } from './links'
 import { mediaNode } from '../media/blocks'
 import { applyNewTask, applyTaskAction, isPipelineTask, taskNeedsConfirm, taskSig, taskWriteEndsConfirm, textRefsGained } from '../../coding'
 import { isHandOnly, keyOwner, keyPropOf, keyText } from '../../../store/keys'
+import { withWriter, type Writer } from '../../../store/writer'
 
 const ws = () => useWorkspace.getState()
 const ORIGIN = 'ai'
@@ -155,6 +156,11 @@ const FINAL = () => true
 
 export interface ApplyOpts {
   /**
+   * Who applies (store/writer.ts): the terminal's batch, an agent's run, an MCP call. Every synchronous burst of a
+   * change runs under it (terminal / agent: with the change's id). The Undo's caller opens its own frame (you~undo).
+   */
+  writer: Writer
+  /**
    * The AI terminal (session.ts) — the only caller that may apply pipeline tasks ('coding'); its row, page and title
    * changes of a pipeline task are refused while the task waits for "Confirm on this device", and their Undo leaves a
    * task alone that an agent changed since (local: the write would end its wait). Custom agents never.
@@ -200,7 +206,7 @@ async function onTask<T extends () => boolean>(id: ID, opts: ApplyOpts, write: (
  * review order. A change whose staged parent (or database, or property) is not applied — in this
  * batch or before — fails instead of landing somewhere unexpected.
  */
-export async function applyChanges(changes: StagedChange[], all: StagedChange[], resolveRow: (id: ID) => ID, opts: ApplyOpts = {}): Promise<ApplyResult> {
+export async function applyChanges(changes: StagedChange[], all: StagedChange[], resolveRow: (id: ID) => ID, opts: ApplyOpts): Promise<ApplyResult> {
   const applied: string[] = []
   const failed: ApplyResult['failed'] = []
   const rowIds: Record<string, ID> = {}
@@ -231,7 +237,7 @@ export async function applyChanges(changes: StagedChange[], all: StagedChange[],
       if (!edits.length) continue
       let res!: Awaited<ReturnType<typeof applyPageEdits>>
       const undoEdits = await onTask(pageId, opts, async () => {
-        res = await applyPageEdits(pageId, edits)
+        res = await applyPageEdits(pageId, edits, opts.writer)
         return res.undo
       })
       if (res.applied.length) undos.push({ ids: res.applied, fn: undoEdits })
@@ -304,9 +310,17 @@ function viewsOf(c: StagedChange, properties: PropertyDef[]): View[] {
   return [board, table]
 }
 
+/** The writer of one staged change: the terminal's / an agent's with the change's id (an MCP call is one change). */
+export function changeWriter(w: Writer, change: string): Writer {
+  return w.kind === 'terminal' || w.kind === 'agent' ? { ...w, change } : w
+}
+
 /** Write one change. Returns its undo (false = left alone because it was edited since; FINAL = cannot be undone). */
 async function applyOne(c: StagedChange, resolveRow: (id: ID) => ID, rowIds: Record<string, ID>, toDoc: ToDoc, opts: ApplyOpts): Promise<() => boolean> {
   const s = ws()
+  // every synchronous burst of this change under its writer (after each await a new frame)
+  const w = changeWriter(opts.writer, c.id)
+  const as = <T>(fn: () => T): T => withWriter(w, fn)
   switch (c.kind) {
     case 'coding': {
       // a pipeline task: only the AI terminal's review applies these (coding/terminal.ts checks it all again)
@@ -315,36 +329,42 @@ async function applyOne(c: StagedChange, resolveRow: (id: ID) => ID, rowIds: Rec
       if (!cd) throw new Error('nothing to do')
       if (cd.op === 'create') {
         if (!cd.task) throw new Error('nothing to do')
-        const made = await applyNewTask(cd.task)
+        const made = await applyNewTask(cd.task, w)
         rowIds[c.pageId] = made.id
         return made.undo
       }
       if (!cd.action) throw new Error('nothing to do')
       const taskId = resolveRow(cd.action.taskId)
-      const res = await applyTaskAction({ ...cd.action, taskId }, { steps: opts.sigSteps?.get(taskId) })
+      const res = await applyTaskAction({ ...cd.action, taskId }, { steps: opts.sigSteps?.get(taskId), writer: w })
       return res.undo ?? FINAL
     }
     case 'create_page': {
       if (c.parentId && !alive(c.parentId)) throw new Error('the parent page is gone')
       if (s.pages[c.pageId]) throw new Error('already exists')
-      const id = s.createPage({ id: c.pageId, parentId: c.parentId ?? null, title: c.title ?? '' })
-      if (c.markdown?.trim()) ws().setContent(id, toDoc(c.markdown), ORIGIN)
+      const id = as(() => {
+        const made = s.createPage({ id: c.pageId, parentId: c.parentId ?? null, title: c.title ?? '' })
+        if (c.markdown?.trim()) ws().setContent(made, toDoc(c.markdown), ORIGIN)
+        return made
+      })
       return removeCreated(id)
     }
     case 'create_row': {
       const dbId = c.databaseId!
       if (!alive(dbId) || !s.databases[dbId]) throw new Error('the database is gone')
       const created = new Map<ID, ID[]>()
-      const properties: Record<ID, PropertyValue> = {}
-      for (const pc of c.props ?? []) properties[pc.propId] = resolveValue(dbId, pc, created)
-      try {
-        checkKey(dbId, properties, null)
-      } catch (e) {
-        dropUnusedOptions(dbId, created)
-        throw e
-      }
-      const id = ws().createRow(dbId, { title: c.title ?? '', properties })
-      if (c.markdown?.trim()) ws().setContent(id, toDoc(c.markdown), ORIGIN)
+      const id = as(() => {
+        const properties: Record<ID, PropertyValue> = {}
+        for (const pc of c.props ?? []) properties[pc.propId] = resolveValue(dbId, pc, created)
+        try {
+          checkKey(dbId, properties, null)
+        } catch (e) {
+          dropUnusedOptions(dbId, created)
+          throw e
+        }
+        const row = ws().createRow(dbId, { title: c.title ?? '', properties })
+        if (c.markdown?.trim()) ws().setContent(row, toDoc(c.markdown), ORIGIN)
+        return row
+      })
       rowIds[c.pageId] = id
       const remove = removeCreated(id)
       return () => {
@@ -363,19 +383,21 @@ async function applyOne(c: StagedChange, resolveRow: (id: ID) => ID, rowIds: Rec
       const created = new Map<ID, ID[]>()
       const prev: Record<ID, PropertyValue | undefined> = {}
       const next: Record<ID, PropertyValue> = {}
-      for (const pc of c.props ?? []) {
-        prev[pc.propId] = row.properties[pc.propId]
-        next[pc.propId] = keepReminder(prev[pc.propId], resolveValue(dbId, pc, created))
-      }
-      try {
-        checkKey(dbId, next, id)
-      } catch (e) {
-        dropUnusedOptions(dbId, created)
-        throw e
-      }
-      // the row as it was is kept as an "AI" version first (features/history)
-      aiWrite(() => {
-        for (const [propId, v] of Object.entries(next)) ws().setRowProperty(id, propId, v)
+      as(() => {
+        for (const pc of c.props ?? []) {
+          prev[pc.propId] = row.properties[pc.propId]
+          next[pc.propId] = keepReminder(prev[pc.propId], resolveValue(dbId, pc, created))
+        }
+        try {
+          checkKey(dbId, next, id)
+        } catch (e) {
+          dropUnusedOptions(dbId, created)
+          throw e
+        }
+        // the row as it was is kept as an "AI" version first (features/history)
+        aiWrite(() => {
+          for (const [propId, v] of Object.entries(next)) ws().setRowProperty(id, propId, v)
+        })
       })
       return () => {
         const now = ws().pages[id]
@@ -407,7 +429,7 @@ async function applyOne(c: StagedChange, resolveRow: (id: ID) => ID, rowIds: Rec
       const prev = page.content
       const add = blocksOf(c.markdown ?? '', toDoc, prev)
       const next: JSONContent = { type: 'doc', content: isEmptyDoc(prev) ? add : [...(prev?.content ?? []), ...add] }
-      ws().setContent(id, next, ORIGIN)
+      as(() => ws().setContent(id, next, ORIGIN))
       const rev = ws().pages[id]?.contentRev
       return () => {
         const now = ws().pages[id]
@@ -427,7 +449,7 @@ async function applyOne(c: StagedChange, resolveRow: (id: ID) => ID, rowIds: Rec
       const page = ws().pages[id]
       if (!page) throw new Error('the page is gone')
       const prev = page.content
-      ws().setContent(id, { type: 'doc', content: isEmptyDoc(prev) ? add : [...(prev?.content ?? []), ...add] }, ORIGIN)
+      as(() => ws().setContent(id, { type: 'doc', content: isEmptyDoc(prev) ? add : [...(prev?.content ?? []), ...add] }, ORIGIN))
       const rev = ws().pages[id]?.contentRev
       return () => {
         const now = ws().pages[id]
@@ -440,7 +462,7 @@ async function applyOne(c: StagedChange, resolveRow: (id: ID) => ID, rowIds: Rec
       if (c.parentId && !alive(c.parentId)) throw new Error('the parent page is gone')
       if (s.pages[c.pageId]) throw new Error('already exists')
       const properties: PropertyDef[] = [{ id: c.titlePropId ?? newId(), name: 'Name', type: 'title' }, ...(c.columns ?? []).map(columnDef)]
-      const id = s.createDatabase({ id: c.pageId, parentId: c.parentId ?? null, title: c.title ?? '', properties, views: viewsOf(c, properties) })
+      const id = as(() => s.createDatabase({ id: c.pageId, parentId: c.parentId ?? null, title: c.title ?? '', properties, views: viewsOf(c, properties) }))
       return removeCreated(id)
     }
     case 'add_property': {
@@ -452,7 +474,7 @@ async function applyOne(c: StagedChange, resolveRow: (id: ID) => ID, rowIds: Rec
       if (db.locked) throw new Error('the database is locked')
       if (db.properties.some((p) => p.id === prop.id)) throw new Error('already exists')
       if (db.properties.some((p) => p.name.trim().toLowerCase() === prop.name.toLowerCase())) throw new Error(`there is already a property "${prop.name}"`)
-      s.addProperty(dbId, columnDef(prop))
+      as(() => s.addProperty(dbId, columnDef(prop)))
       return () => {
         const now = ws().databases[dbId]
         if (!now?.properties.some((p) => p.id === prop.id)) return true
@@ -472,7 +494,7 @@ async function applyOne(c: StagedChange, resolveRow: (id: ID) => ID, rowIds: Rec
       const m = c.memory
       if (!m) throw new Error('nothing to remember')
       if (m.updates && alive(m.updates)) {
-        const undo = aiWrite(() => updateMemory(m.updates!, m))
+        const undo = as(() => aiWrite(() => updateMemory(m.updates!, m)))
         return () => {
           undo()
           return true
@@ -480,7 +502,7 @@ async function applyOne(c: StagedChange, resolveRow: (id: ID) => ID, rowIds: Rec
       }
       let saved: ReturnType<typeof saveMemory>
       try {
-        saved = saveMemory(m)
+        saved = as(() => saveMemory(m))
       } catch {
         throw new Error('the memory cannot be written here')
       }
@@ -499,7 +521,7 @@ async function applyOne(c: StagedChange, resolveRow: (id: ID) => ID, rowIds: Rec
       if (sc.before && !prev) throw new Error('the script was deleted')
       const now = Date.now()
       const next = { ...(prev ?? {}), id: sc.id, name: sc.name, kind: sc.kind, code: sc.code, ...(sc.description ? { description: sc.description } : {}), createdAt: prev?.createdAt ?? now, updatedAt: now }
-      if (!saveScript(next)) throw new Error('scripts cannot be changed here')
+      if (!as(() => saveScript(next))) throw new Error('scripts cannot be changed here')
       return () => {
         const cur = ws().scripts?.[sc.id]
         // changed by hand since: kept
@@ -515,7 +537,7 @@ async function applyOne(c: StagedChange, resolveRow: (id: ID) => ID, rowIds: Rec
       await guardTask(id, opts)
       const prev = ws().pages[id]!.title
       const title = c.title ?? prev
-      aiWrite(() => ws().updatePage(id, { title }))
+      as(() => aiWrite(() => ws().updatePage(id, { title })))
       return () => {
         const now = ws().pages[id]
         if (!now || now.title !== title) return false

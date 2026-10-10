@@ -11,6 +11,8 @@ import { createPrivatePage, isPrivatePage } from '../../../cloud'
 import { t } from '../../../i18n'
 import { snapshotNow } from '../../history/snapshots'
 import type { SavedMedia } from './types'
+import { withWriter, type Writer } from '../../../store/writer'
+import { newId } from '../../../lib/ids'
 
 /** The block for a saved file: image / video / audio — an SVG (stored for download) as a file block. */
 export function mediaNode(m: Pick<SavedMedia, 'src' | 'kind' | 'name' | 'size' | 'caption' | 'alt'>): JSONContent {
@@ -37,18 +39,20 @@ const isEmptyDoc = (doc: JSONContent | null | undefined) => (doc?.content ?? [])
  * Append the media to a page (a version first; origin 'ai'). Without a page (or a page that is gone): a new
  * page "Generated media" — private in a team workspace when `privateNew`. Returns the page id.
  */
-export async function appendMedia(pageId: ID | null, saved: SavedMedia[], opts: { privateNew?: boolean } = {}): Promise<ID> {
+export async function appendMedia(pageId: ID | null, saved: SavedMedia[], opts: { privateNew?: boolean; writer?: Writer } = {}): Promise<ID> {
   const nodes = saved.map(mediaNode)
+  // media from Claude's answer, saved by the person's click: an AI write of its own (store/writer.ts)
+  const writer: Writer = opts.writer ?? { kind: 'ai', run: newId(), action: 'media' }
   if (alive(pageId)) {
     await snapshotNow(pageId, 'ai')
     const page = useWorkspace.getState().pages[pageId]
     const prev = page?.content
     const content: JSONContent = { type: 'doc', content: isEmptyDoc(prev) ? nodes : [...(prev?.content ?? []), ...nodes] }
-    useWorkspace.getState().setContent(pageId, content, 'ai')
+    withWriter(writer, () => useWorkspace.getState().setContent(pageId, content, 'ai'))
     return pageId
   }
   const input = { title: t('features.ai.media.newPage'), content: { type: 'doc', content: nodes } as JSONContent }
-  return opts.privateNew ? createPrivatePage(input) : useWorkspace.getState().createPage(input)
+  return withWriter(writer, () => (opts.privateNew ? createPrivatePage(input) : useWorkspace.getState().createPage(input)))
 }
 
 /** A page is private (team: its files are uploaded as private too). */

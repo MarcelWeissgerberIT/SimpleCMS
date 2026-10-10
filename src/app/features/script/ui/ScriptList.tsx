@@ -75,7 +75,7 @@ function ScriptRow({ script, n }: { script: OneScript; n: number }) {
                 <FlaskConical size={13} strokeWidth={1.8} aria-hidden /> <span className="sc-hide-narrow">{t('features.script.dry')}</span>
               </button>
               {!readOnly && (
-                <button type="button" className="btn btn--sm" onClick={() => void runScriptById(script.id)} aria-label={t('features.script.runNamed', { name: script.name })}>
+                <button type="button" className="btn btn--sm" onClick={() => void runScriptById(script.id, { writer: { via: 'you' } })} aria-label={t('features.script.runNamed', { name: script.name })}>
                   <Play size={11} strokeWidth={2} aria-hidden /> <span className="sc-hide-narrow">{t('features.script.run')}</span>
                 </button>
               )}
