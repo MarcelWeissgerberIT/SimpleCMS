@@ -261,8 +261,10 @@ function guardOlder(page: Page, genOf: () => number, known: Page['content'] | un
     if (doc === page.content) return kept ? { ...page } : page
     return { ...page, content: doc, plain: plainText(doc) }
   } catch (e) {
+    // the older copy as it is — and what this build had of the page in its history (stored again: never checked twice)
     console.warn('[one] could not merge a page an older version of One stored', e)
-    return page
+    keepReplaced(cur ?? page, known)
+    return { ...page }
   }
 }
 
