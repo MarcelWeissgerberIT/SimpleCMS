@@ -7,6 +7,7 @@
 import type { BrowserContext, Locator, Page } from '@playwright/test'
 import { test, expect, openApp, wsEval, flush, gotoPage, editorOf, createPage, doc, para, sidebarRow, selectText, pageById, escapeRe, sse, MOD } from './fixtures'
 import { docxBytes } from './helpers/files'
+import { mockAgent, openTerminal, run as runTask, sseMessage, terminal } from './helpers/terminal'
 import { expectLane, markRec, nordlichtDb, rec, startRecorder } from './helpers/recorder'
 
 type AnyRec = Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -555,5 +556,122 @@ test.describe('flight recorder — every writer has a lane', () => {
     await expect(editorOf(page, img).locator('table')).toBeVisible()
     await expectLane(page, m, 'ai', /^ai:/, /^ai:.+:image$/)
     void chooser
+  })
+
+  test('Claude at work: terminal apply + edit_page, memory, agent run / undo / review, ⌘K script, MCP media', async ({ page, context }) => {
+    const MEDIA = 'https://media.e2e.test'
+    const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64')
+    await context.route(`${MEDIA}/**`, (route) => route.fulfill({ status: 200, headers: { 'access-control-allow-origin': '*', 'content-type': 'image/png' }, body: PNG }))
+    let n: Awaited<ReturnType<typeof nordlichtDb>> | null = null
+    let target = ''
+    const tool = (id: string, name: string, input: Record<string, unknown>) => ({ type: 'tool_use' as const, id, name, input })
+    await mockAgent(context, [
+      // the terminal: a row and a whole-page edit, staged
+      () => sseMessage([tool('tu1', 'create_row', { database_id: n!.db, title: 'NL-1420', properties: {} }), tool('tu2', 'edit_page', { id: target, edits: [{ op: 'replace_all', markdown: 'Nordlicht: alles neu von Claude.' }] })]),
+      () => sseMessage([{ type: 'text', text: 'Staged a row and the edit.' }]),
+      // a custom agent that applies
+      () => sseMessage([tool('ag1', 'update_row', { id: n!.rows[0], properties: { Notiz: 'vom Agenten' } })]),
+      () => sseMessage([{ type: 'text', text: '1 row updated.' }]),
+      // a custom agent whose changes wait for review
+      () => sseMessage([tool('ag2', 'update_row', { id: n!.rows[1], properties: { Notiz: 'Vorschlag' } })]),
+      () => sseMessage([{ type: 'text', text: '1 proposal.' }]),
+      // the AI menu with an image service: a result with a picture
+      () =>
+        sseMessage([
+          { type: 'mcp_tool_use', id: 'mcptoolu_1', server: 'studio', name: 'generate_image', input: { prompt: 'Nordlicht über Tromsø' } },
+          { type: 'mcp_tool_result', id: 'mcptoolu_1', text: JSON.stringify({ status: 'completed', images: [{ url: `${MEDIA}/out/nordlicht.png`, width: 64, height: 64 }] }) },
+          { type: 'text', text: 'Hier ist das Bild.' },
+        ]),
+    ])
+    await boot(page, async () => {
+      await setKey(page)
+      n = await nordlichtDb(page)
+      target = await createPage(page, { title: 'Tessera Bericht', content: doc(para('Alter Stand.')) })
+      await wsEval(page, (s) => {
+        const now = Date.now()
+        s.upsertScript({ id: 'sc-tessera', name: 'Tessera markieren', code: 'page.current.set(Notiz: "markiert")\n', kind: 'script', createdAt: now, updatedAt: now })
+        s.updateSettings({ mcpServers: [{ id: 'srvstudio1', name: 'studio', url: 'https://mcp.studio.test/mcp', token: 'studio-e2e-token-0001', enabled: true, prompt: 'Makes images.', promptSource: 'auto', tools: ['generate_image'], checkedAt: 1 }] })
+      })
+    })
+    const db = n!
+
+    // the AI terminal: two staged changes, Apply all → the terminal's batch
+    let m = await markRec(page)
+    await openTerminal(page)
+    await runTask(page, 'Neue Zeile und den Bericht neu schreiben')
+    await expect(terminal(page).locator('.term-turn').last()).toHaveAttribute('data-status', 'done', { timeout: 20_000 })
+    await terminal(page).locator('.term-bar').getByRole('button', { name: 'Apply all' }).click()
+    await expect.poll(() => wsEval(page, (s, id) => s.pages[id].plain, target)).toContain('alles neu von Claude')
+    const term = await expectLane(page, m, 'terminal', /^terminal:/)
+    expect(term.filter((o) => o.l === 'terminal').map((o) => o.p1)).toEqual(expect.arrayContaining([`p:${target}`]))
+
+    // /remember: the person's own words, saved on y
+    m = await markRec(page)
+    await runTask(page, '/remember Nordlicht-Berichte immer auf Deutsch')
+    await expect(terminal(page).getByTestId('term-memory').last()).toContainText('REMEMBER?')
+    await page.locator('.term-prompt__input').press('Tab')
+    await page.keyboard.press('y')
+    await expect(terminal(page).getByTestId('term-memory').last().locator('.term-change')).toHaveAttribute('data-status', 'saved')
+    await expectLane(page, m, 'you', undefined, 'you~memory')
+    await page.keyboard.press(`${MOD}+j`)
+
+    // a custom agent that applies (agent:<id>:<run>), then its Undo (the undo lane)
+    const addAgent = (a: AnyRec) =>
+      wsEval(page, (s, a) => {
+        const now = Date.now()
+        s.upsertAgent({ instructions: 'Keep Nordlicht in step.', trigger: { type: 'manual' }, scope: { everything: false, pages: [], databases: [a.db] }, write: a.write, output: null, mcpServers: [], runner: 'browser', model: null, effort: null, maxRunUsd: 0.5, enabled: true, createdAt: now, updatedAt: now, id: a.id, name: a.name })
+      }, a)
+    await addAgent({ id: 'ag-spiegel', name: 'Nordlicht-Spiegel', write: 'apply', db: db.db })
+    await addAgent({ id: 'ag-vorschlag', name: 'Nordlicht-Vorschlag', write: 'stage', db: db.db })
+    await flush(page)
+    await page.evaluate(() => (window.location.hash = '#/agents/ag-spiegel'))
+    await expect(page.locator('.agx-dhead')).toBeVisible()
+    m = await markRec(page)
+    await page.getByRole('button', { name: 'Run now' }).click()
+    await expect(page.locator('.agx-run').first()).toHaveAttribute('data-status', 'ok', { timeout: 20_000 })
+    await expectLane(page, m, 'agent:ag-spiegel', /^agent:ag-spiegel:/)
+    m = await markRec(page)
+    await page.locator('.agx-run').first().getByRole('button', { name: 'Undo changes' }).click()
+    await expect.poll(() => wsEval(page, (s, a) => s.pages[a.row].properties[a.note], { row: db.rows[0], note: db.note })).toBe('Nordlicht 0')
+    await expectLane(page, m, 'undo', undefined, /^you~undo/)
+
+    await page.evaluate(() => (window.location.hash = '#/agents/ag-vorschlag'))
+    await expect(page.locator('.agx-dhead')).toContainText('Nordlicht-Vorschlag')
+    await page.getByRole('button', { name: 'Run now' }).click()
+    await expect(page.locator('.agx-run').first()).toHaveAttribute('data-status', 'staged', { timeout: 20_000 })
+    m = await markRec(page)
+    await page.locator('.agx-run').first().getByRole('button', { name: 'Apply all' }).click()
+    await expect.poll(() => wsEval(page, (s, a) => s.pages[a.row].properties[a.note], { row: db.rows[1], note: db.note })).toBe('Vorschlag')
+    await expectLane(page, m, 'agent:ag-vorschlag', /^agent:ag-vorschlag:/)
+
+    // ⌘K "Run script: <name>" for the open row
+    await gotoPage(page, db.rows[2])
+    m = await markRec(page)
+    await page.keyboard.press(`${MOD}+k`)
+    await page.locator('.pal-scrim input').first().fill('Run script: Tessera')
+    await expect(page.locator('.pal-scrim [cmdk-item][aria-selected="true"]')).toContainText('Run script: Tessera markieren')
+    await page.keyboard.press('Enter')
+    await expect.poll(() => wsEval(page, (s, a) => s.pages[a.row].properties[a.note], { row: db.rows[2], note: db.note })).toBe('markiert')
+    await expectLane(page, m, 'script:sc-tessera', /^script:sc-tessera:/, /<you(~ui)?$/)
+
+    // an MCP result's picture saved from the AI menu (ai:<run>:media)
+    await gotoPage(page, target)
+    const ed = editorOf(page, target)
+    const ask = page.getByPlaceholder('Ask Claude to write anything…')
+    await expect(async () => {
+      await ed.locator('p').last().click()
+      await page.keyboard.press('End')
+      await page.keyboard.press('Enter')
+      await page.keyboard.press('Space')
+      await expect(ask).toBeFocused({ timeout: 2000 })
+    }).toPass({ timeout: 15_000 })
+    await ask.fill('studio: Nordlicht über Tromsø')
+    await ask.press('Enter')
+    const aiDialog = page.getByRole('dialog', { name: 'Ask Claude' })
+    await expect(aiDialog.locator('.ai-out__body')).toContainText('Hier ist das Bild')
+    m = await markRec(page)
+    await aiDialog.locator('[data-testid="media-card"][data-url$="nordlicht.png"]').getByTestId('media-save').click()
+    await expect.poll(() => wsEval(page, (s, id) => (s.pages[id].content?.content ?? []).some((b: AnyRec) => b.type === 'image'), target)).toBe(true)
+    await expectLane(page, m, 'ai', /^ai:/, /^ai:.+:media$/)
   })
 })
