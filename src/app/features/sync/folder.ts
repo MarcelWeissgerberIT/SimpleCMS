@@ -15,6 +15,8 @@ import { gitBlobSha } from './hash'
 import { applyPickup, isPickable, type ExternalFile, type PickupResult } from './pickup'
 import { TRASH_DIR } from './layout'
 import type { Manifest } from './types'
+import { endRun, noteRun, type Writer } from '../../store/writer'
+import { newId } from '../../lib/ids'
 
 export interface WriteResult {
   written: number
@@ -146,7 +148,11 @@ export async function pickupFolder(root: FileSystemDirectoryHandle, manifest: Ma
   if (!changed.length && !added.length && !missing) return empty
 
   const plan = await planSync(manifest)
+  // one pick-up = one sync run (store/writer.ts): its writes, noted before the first and ended after the last
+  const writer: Writer = { kind: 'sync', source: 'folder', run: newId() }
+  noteRun(writer, { source: 'folder' })
   const res = await applyPickup({
+    writer,
     plan,
     manifest,
     changed,
@@ -156,7 +162,7 @@ export async function pickupFolder(root: FileSystemDirectoryHandle, manifest: Ma
       const f = await fileOf(root, path)
       return f ? new Uint8Array(await f.arrayBuffer()) : null
     },
-  })
+  }).finally(() => endRun(writer))
   const copies: string[] = []
   for (const c of res.conflicts) {
     // One's version stays; the folder's version is kept next to it

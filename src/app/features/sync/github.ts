@@ -20,6 +20,8 @@ import { conflictPath, pageCount, planSync, type SyncPlan } from './engine'
 import { applyPickup, isPickable, type ExternalFile, type PickupResult } from './pickup'
 import { openGitHubToken } from './storage'
 import type { GitHubConfig, Manifest } from './types'
+import { endRun, noteRun, type Writer } from '../../store/writer'
+import { newId } from '../../lib/ids'
 
 const API = 'https://api.github.com'
 export const MAX_FILE_BYTES = 50 * 1024 * 1024
@@ -337,7 +339,11 @@ export async function pullFromGitHub(cfg: GitHubConfig, manifest: Manifest): Pro
   }
   if (!changed.length && !added.length && [...Object.keys(manifest.entries)].every((p) => remote.has(p) || p.startsWith('.trash/'))) return { ...empty, head: base.commit }
   const plan = await planSync(manifest, planOpts(cfg))
+  // one pick-up = one sync run (store/writer.ts): its writes, noted before the first and ended after the last
+  const writer: Writer = { kind: 'sync', source: 'github', run: newId() }
+  noteRun(writer, { source: 'github' })
   const res = await applyPickup({
+    writer,
     plan,
     manifest,
     changed,
@@ -347,6 +353,6 @@ export async function pullFromGitHub(cfg: GitHubConfig, manifest: Manifest): Pro
       const sha = remote.get(path)
       return sha ? readBlob(cfg, sha) : null
     },
-  })
+  }).finally(() => endRun(writer))
   return { ...res, head: base.commit }
 }

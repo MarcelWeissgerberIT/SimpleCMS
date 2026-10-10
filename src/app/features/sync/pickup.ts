@@ -36,6 +36,7 @@ import { readFrontMatter, yamlList, yamlText, type YamlValue } from './yaml'
 import { isConflictCopy, type SyncPlan } from './engine'
 import { textOf } from './hash'
 import type { Manifest, ManifestEntry } from './types'
+import { withWriter, type Writer } from '../../store/writer'
 
 export interface ExternalFile {
   path: string
@@ -54,6 +55,8 @@ export interface PickupInput {
   present: Set<string>
   /** another file on the target (attachments a new / edited page links to) */
   readFile: (path: string) => Promise<Uint8Array | null>
+  /** who writes (store/writer.ts): this pick-up run — every synchronous burst runs in its frame */
+  writer: Writer
 }
 
 export interface PickupResult {
@@ -262,6 +265,8 @@ export async function applyPickup(input: PickupInput): Promise<PickupResult> {
   const { plan, manifest } = input
   const { editor } = plan.ctx
   const ws = () => useWorkspace.getState()
+  /** a synchronous burst of store writes as this pick-up's (there are awaits between them) */
+  const as = <T>(fn: () => T): T => withWriter(input.writer, fn)
   const untitled = plan.ctx.untitled
   const res: PickupResult = { updated: [], created: [], moved: [], conflicts: [], ignored: [], missing: [], entries: {}, removed: [], touched: [] }
 
@@ -334,7 +339,7 @@ export async function applyPickup(input: PickupInput): Promise<PickupResult> {
     if (ws().databases[dbId]?.locked) return null
     const opt: SelectOption = { id: newId(), name: name.trim(), color: 'default', ...(d.type === 'status' ? { group: 'todo' as const } : {}) }
     list.push(opt)
-    ws().updateProperty(dbId, d.id, { options: [...list] })
+    as(() => ws().updateProperty(dbId, d.id, { options: [...list] }))
     return opt.id
   }
   const norm = (v: YamlValue) => (Array.isArray(v) ? v.join('\u0001') : v === null || v === undefined ? '' : String(v))
@@ -393,7 +398,7 @@ export async function applyPickup(input: PickupInput): Promise<PickupResult> {
         default:
           value = text
       }
-      ws().setRowProperty(page.id, d.id, value)
+      as(() => ws().setRowProperty(page.id, d.id, value))
       changed = true
     }
     return changed
@@ -416,13 +421,13 @@ export async function applyPickup(input: PickupInput): Promise<PickupResult> {
     }
     let changed = false
     if (title !== null && title !== current) {
-      ws().updatePage(page.id, { title })
+      as(() => ws().updatePage(page.id, { title: title! }))
       changed = true
     }
     if (fm.data.has('icon')) {
       const raw = yamlText(fm.data.get('icon'))
       if (raw !== (iconText(page.icon) ?? '')) {
-        ws().updatePage(page.id, { icon: parseIcon(raw) })
+        as(() => ws().updatePage(page.id, { icon: parseIcon(raw) }))
         changed = true
       }
     }
@@ -434,7 +439,7 @@ export async function applyPickup(input: PickupInput): Promise<PickupResult> {
     const empty = !body.trim()
     if (!(empty && !ours) && !deepEqual(merged, ours)) {
       if (ours) await snapshotNow(page.id, 'manual').catch(() => null)
-      ws().setContent(page.id, empty ? null : merged, FILE_ORIGIN)
+      as(() => ws().setContent(page.id, empty ? null : merged, FILE_ORIGIN))
       changed = true
     }
     return changed
@@ -450,7 +455,7 @@ export async function applyPickup(input: PickupInput): Promise<PickupResult> {
     }
     const up = parentFor(dirname(dir))
     const s = ws()
-    const created = up.dbId ? s.createRow(up.dbId, { title: basename(dir) }) : s.createPage({ parentId: up.parentId, title: basename(dir) })
+    const created = as(() => (up.dbId ? s.createRow(up.dbId, { title: basename(dir) }) : s.createPage({ parentId: up.parentId, title: basename(dir) })))
     folderToId.set(dir, created)
     res.created.push(created)
     return { parentId: created, dbId: null }
@@ -496,7 +501,7 @@ export async function applyPickup(input: PickupInput): Promise<PickupResult> {
       await update(existing, file, { renamedFrom: oldPath })
       if (!existing.databaseId) {
         const { parentId, dbId } = parentFor(dir)
-        if (!dbId && parentId !== existing.parentId && parentId !== existing.id) ws().movePage(existing.id, parentId)
+        if (!dbId && parentId !== existing.parentId && parentId !== existing.id) as(() => ws().movePage(existing.id, parentId))
       }
       res.moved.push(existing.id)
       res.entries[file.path] = { kind: existing.databaseId ? 'row' : 'page', id: existing.id, sha: file.sha, out: '' }
@@ -507,7 +512,7 @@ export async function applyPickup(input: PickupInput): Promise<PickupResult> {
     const title = h1 || yamlText(fm.data.get('title')).trim() || basename(file.path).replace(/\.(md|markdown)$/i, '')
     const { parentId, dbId } = parentFor(dir)
     const s = ws()
-    const pageId = dbId ? s.createRow(dbId, { title }) : s.createPage({ parentId, title })
+    const pageId = as(() => (dbId ? s.createRow(dbId, { title }) : s.createPage({ parentId, title })))
     const created = ws().pages[pageId]
     await update(created, file)
     res.created.push(pageId)
