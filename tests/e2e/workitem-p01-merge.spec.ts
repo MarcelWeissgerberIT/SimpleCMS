@@ -10,12 +10,13 @@
  *    stays as typed, an emptied line is never a stale version, a cleared line keeps a version;
  *  - MEDIUM: a line the newer tab added inside a task that the older merge dropped is in the page or in a version;
  *  - LOW: the trial path never leaves a stale whole copy beside an id-less task; moves never give one task another
- *    task's block.
+ *    task's block; the shadow copies an earlier generation kept go once this one wrote the page (or it is gone).
  * The randomized harness behind these (thousands of sessions of an older build against this one, both loss paths)
  * is described in the commit that added this file.
  */
+import type { Page } from '@playwright/test'
 import type { JSONContent } from '@tiptap/core'
-import { test, expect } from './fixtures'
+import { test, expect, openApp, createPage, flush, waitForApp, wsEval } from './fixtures'
 import { asGeneration, blockVersions, restoreNewer, rewrapNewer, type RewrapOptions } from '../../src/app/store/generations'
 import { mergeContent } from '../../src/app/store/merge'
 
@@ -398,5 +399,62 @@ test.describe('task block (P0.1): the trial path and moves', () => {
     const r2 = rewrap(before, lostOne)
     expect(tasks(r2.doc).map((x) => x.lines)).toEqual([['Task', 'note']])
     sane(before, r2)
+  })
+})
+
+/** A record of the local workspace (idb-keyval's keyval-store): read, write (undefined deletes). */
+function idb(page: Page, key: string, value?: unknown, write = false): Promise<unknown> {
+  return page.evaluate(
+    async ({ key, value, write }) => {
+      const db = await new Promise<IDBDatabase>((res, rej) => {
+        const r = indexedDB.open('keyval-store')
+        r.onsuccess = () => res(r.result)
+        r.onerror = () => rej(r.error)
+      })
+      try {
+        return await new Promise<unknown>((res, rej) => {
+          const tx = db.transaction('keyval', write ? 'readwrite' : 'readonly')
+          const os = tx.objectStore('keyval')
+          if (!write) {
+            const q = os.get(key)
+            q.onsuccess = () => res(q.result)
+            q.onerror = () => rej(q.error)
+            return
+          }
+          if (value === undefined) os.delete(key)
+          else os.put(value, key)
+          tx.oncomplete = () => res(undefined)
+          tx.onerror = () => rej(tx.error)
+        })
+      } finally {
+        db.close()
+      }
+    },
+    { key, value, write },
+  )
+}
+
+test.describe('task block (P0.1): shadow copies an earlier generation kept', () => {
+  test('go at the start once this generation wrote the page (or it is gone); one an earlier build wrote last stays', async ({ page }) => {
+    await openApp(page)
+    const mine = await createPage(page, { title: 'Written here', content: doc(P('text here')) })
+    const older = await createPage(page, { title: 'Written by an older build', content: doc(P('older text')) })
+    await flush(page)
+    // an older build stored `older` last: its record carries no stamp of this generation
+    const rec = (await idb(page, `one.page.v2:${older}`)) as Record<string, unknown>
+    const { _schema: _, ...unstamped } = rec
+    await idb(page, `one.page.v2:${older}`, unstamped, true)
+    for (const id of [mine, older, 'page-deleted-for-good']) await idb(page, `one.page.g0:${id}`, { content: doc(P('an earlier copy')) }, true)
+    await page.reload()
+    await waitForApp(page)
+    await expect.poll(() => idb(page, `one.page.g0:${mine}`)).toBeUndefined()
+    expect(await idb(page, 'one.page.g0:page-deleted-for-good')).toBeUndefined()
+    expect(await idb(page, `one.page.g0:${older}`)).toBeDefined()
+    // this generation writes it again: gone with the next start
+    await wsEval(page, (s, id) => s.setContent(id, { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'typed now' }] }] }, 'test'), older)
+    await flush(page)
+    await page.reload()
+    await waitForApp(page)
+    await expect.poll(() => idb(page, `one.page.g0:${older}`)).toBeUndefined()
   })
 })
