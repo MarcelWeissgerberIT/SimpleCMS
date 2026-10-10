@@ -19,6 +19,11 @@
  *    (and an IndexedDB copy of that name) takes over — open editors keep their document and carets.
  *  - Workspace pages never keep the title of a private page in a mention's `label` (others would read
  *    it): local edits that bring one in are cleared at once.
+ *  - Local copies are kept per document schema generation (`one:g<n>:ws:…`, docs/CLOUD.md § Schema gate): a
+ *    copy an OLDER build of One wrote (`one:ws:…` before generation 1) may hold the deletion of a node it
+ *    could not read — never replayed as it is. It is dropped; when it holds changes the server never
+ *    confirmed (`pending`), they are taken over after the server's state is in: as they are when they delete
+ *    nothing newer, else merged with every newer node put back (takeOverOlder).
  */
 import * as Y from 'yjs'
 import { HocuspocusProvider } from '@hocuspocus/provider'
@@ -29,6 +34,7 @@ import { useWorkspace, plainText } from '../store/store'
 import { deepEqual, mergeContent } from '../store/merge'
 import type { ID, Page } from '../store/types'
 import { docSchema, prepareCollabContent } from '../editor'
+import { DOC_SCHEMA_VERSION, lostNewer, restoreNewer } from '../store/generations'
 import { applyFromCloud, markFromCloud } from './binding'
 import { stripHiddenMentions } from './privacy'
 import { dropContentCache, saveContentCache, type CachedContent } from './local'
@@ -95,7 +101,11 @@ export function contentContext(): ContentContext | null {
 }
 
 const docName = (pageId: ID, priv: boolean) => (priv ? `ws:${ctx!.wsId}:u:${ctx!.userId}:p:${pageId}` : `ws:${ctx!.wsId}:p:${pageId}`)
-const idbName = (pageId: ID, priv: boolean) => `one:${docName(pageId, priv)}`
+/** This build's local copy of a page document: one per document schema generation (see the top). */
+const idbName = (pageId: ID, priv: boolean) => `one:g${DOC_SCHEMA_VERSION}:${docName(pageId, priv)}`
+/** Older generations' copies of the same document: generation 0 had no prefix. */
+const olderNames = (pageId: ID, priv: boolean): Array<{ name: string; gen: number }> =>
+  Array.from({ length: DOC_SCHEMA_VERSION }, (_, gen) => ({ name: gen ? `one:g${gen}:${docName(pageId, priv)}` : `one:${docName(pageId, priv)}`, gen }))
 /** Where the page lives now (the binding keeps the marker in step with the meta documents). */
 const isPrivate = (pageId: ID) => !!useWorkspace.getState().pages[pageId]?.private
 /** Changes that came from the server or this device's IndexedDB copy (not typed / written here). */
@@ -158,7 +168,87 @@ function ensure(pageId: ID): Entry {
   })
   doc.getXmlFragment(FIELD).observeDeep((events, tr) => scrubPrivateMentions(entry, events, tr))
   entry.provider = connect(entry, docName(pageId, priv))
+  void takeOverOlder(entry)
   return entry
+}
+
+/* ------------------------------------------------------------------ older generations' copies */
+
+let dbList: Promise<Set<string> | null> | null = null
+
+/** The IndexedDB databases this browser holds (null: it can't say) — listed once per workspace session. */
+function listDatabases(): Promise<Set<string> | null> {
+  dbList ??= (async () => {
+    try {
+      if (typeof indexedDB === 'undefined' || typeof indexedDB.databases !== 'function') return null
+      return new Set((await indexedDB.databases()).map((d) => d.name ?? '').filter(Boolean))
+    } catch {
+      return null
+    }
+  })()
+  return dbList
+}
+
+/**
+ * Copies of this page an older build of One left in this browser: unconfirmed changes in them are taken
+ * over (only once the server's state is in — offline they wait for the next time), then they go.
+ */
+async function takeOverOlder(e: Entry): Promise<void> {
+  const c = ctx
+  if (!c) return
+  const listed = await listDatabases()
+  const pending = c.pending.has(e.pageId)
+  // without a listing: only a page with unconfirmed changes is worth opening the older names for
+  const older = olderNames(e.pageId, e.priv).filter((o) => (listed ? listed.has(o.name) : pending))
+  if (!older.length) return
+  if (pending) {
+    await e.loaded
+    if (isConnected() && !e.synced) await within(e.firstSync, 15_000, undefined)
+    // offline (or gone): judged against the server's state only — next time
+    if (!e.synced || entries.get(e.pageId) !== e || ctx !== c) return
+    for (const o of older) {
+      if (entries.get(e.pageId) !== e || ctx !== c) return
+      await adoptOlder(e, o.name, o.gen).catch((err) => console.warn('[one] could not take over an older local copy', err))
+    }
+  }
+  for (const o of older) {
+    void clearDocument(o.name).catch(() => {})
+    listed?.delete(o.name)
+  }
+}
+
+/**
+ * One older copy's state into the page document: as it is when it deletes nothing newer than its generation
+ * (`gen`), else its content merged with every newer node put back (the older build deleted what it could not
+ * read — that deletion never reaches the server).
+ */
+async function adoptOlder(e: Entry, name: string, gen: number): Promise<void> {
+  const old = new Y.Doc()
+  const idb = new IndexeddbPersistence(name, old)
+  const probe = new Y.Doc()
+  try {
+    await within(idb.whenSynced, 4000, undefined)
+    const update = Y.encodeStateAsUpdate(old)
+    const before = fragmentJSON(e)
+    Y.applyUpdate(probe, Y.encodeStateAsUpdate(e.doc))
+    Y.applyUpdate(probe, update)
+    const frag = probe.getXmlFragment(FIELD)
+    const after = frag.length ? (yXmlFragmentToProsemirrorJSON(frag) as JSONContent) : null
+    if (deepEqual(before, after)) return
+    if (!lostNewer(before, after, gen)) {
+      Y.applyUpdate(e.doc, update, BRIDGE)
+      return
+    }
+    const merged = restoreNewer(before, after, gen, 'drop')
+    if (!merged || deepEqual(merged, before)) return
+    e.doc.transact(() => {
+      prosemirrorJSONToYXmlFragment(docSchema(), prepareCollabContent(merged, true), e.doc.getXmlFragment(FIELD))
+    }, BRIDGE)
+  } finally {
+    probe.destroy()
+    await idb.destroy().catch(() => {})
+    old.destroy()
+  }
 }
 
 function resetSync(e: Entry) {
@@ -591,8 +681,7 @@ export function forget(pageId: ID): void {
   dropContentCache(ctx.wsId, pageId)
   if (ctx.pending.delete(pageId)) ctx.savePending()
   if (!PAGE_ID.test(pageId)) return
-  void clearDocument(idbName(pageId, false)).catch(() => {})
-  void clearDocument(idbName(pageId, true)).catch(() => {})
+  for (const priv of [false, true]) for (const name of [idbName(pageId, priv), ...olderNames(pageId, priv).map((o) => o.name)]) void clearDocument(name).catch(() => {})
 }
 
 /* ------------------------------------------------------------------ private ⇄ workspace */
@@ -735,6 +824,7 @@ function scrubPrivateMentions(e: Entry, events: Array<Y.YEvent<Y.AbstractType<un
 
 export function startContent(c: ContentContext): () => void {
   ctx = c
+  dbList = null
   const offConn = onConnection((up) => {
     if (!up) return
     // back online: what could only be read locally gets its server sync now

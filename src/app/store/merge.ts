@@ -13,7 +13,7 @@
  *   changed the very same characters does ours win there.
  */
 import type { JSONContent } from '@tiptap/core'
-import { plainText } from './store'
+import { plainText } from './plain'
 import type { Page } from './types'
 
 type Json = unknown

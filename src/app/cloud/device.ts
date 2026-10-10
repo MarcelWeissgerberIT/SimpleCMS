@@ -2,7 +2,8 @@
  * This browser's copies of team workspaces (docs/CLOUD.md § This device's data) — and removing them
  * (shared computers, "remove this workspace's copy"). A copy is:
  *   one:ws:<id>, one:ws:<id>:p:<page>   y-indexeddb databases (meta document + page documents;
- *   one:ws:<id>:u:<user>[:p:<page>]     the private ones too, docs/CLOUD.md § Private pages)
+ *   one:ws:<id>:u:<user>[:p:<page>]     the private ones too, docs/CLOUD.md § Private pages; page documents
+ *   one:g<n>:ws:<id>…:p:<page>          per document schema generation, docs/CLOUD.md § Schema gate)
  *   one-cloud / kv                      overlay:<id> (settings incl. the AI key's marker, favourites, recent),
  *                                       content:<id>:<page>, uploads:<id>, purge:<id>, privfiles:<id>
  *   one-files / files                   cached files — only those nothing else in this browser uses
@@ -27,6 +28,7 @@ import { allDeviceEntries, dropDeviceKeys } from './local'
 import { readStoredWorkspace } from '../store/persistence'
 import { clearSecrets } from '../lib/vault'
 import { forgetLookCache } from '../lib/look/apply'
+import { DOC_SCHEMA_VERSION } from '../store/generations'
 
 const FLAG = 'one.cloud.forget'
 const CHANNEL = 'one-cloud-forget'
@@ -35,7 +37,7 @@ const ALL = '*'
 const TAB = Math.random().toString(36).slice(2)
 const REF_RE = /onefile:([A-Za-z0-9_-]{1,64})/g
 /** A workspace's documents: meta, page content, and (`:u:<userId>`) a member's private ones. */
-const DOC_DB = /^one:ws:([A-Za-z0-9_-]{8,64})(?::u:[A-Za-z0-9_-]{8,64})?(?::p:([A-Za-z0-9_-]{1,64}))?$/
+const DOC_DB = /^one:(?:g\d{1,4}:)?ws:([A-Za-z0-9_-]{8,64})(?::u:[A-Za-z0-9_-]{8,64})?(?::p:([A-Za-z0-9_-]{1,64}))?$/
 const PRIVATE_META_DB = /^one:ws:([A-Za-z0-9_-]{8,64}):u:[A-Za-z0-9_-]{8,64}$/
 const KV_KEY = /^(overlay|uploads|purge|content|privfiles):([A-Za-z0-9_-]{8,64})(?::([A-Za-z0-9_-]{1,64}))?$/
 
@@ -213,7 +215,14 @@ async function forget(flag: string[]): Promise<void> {
     const m = DOC_DB.exec(n)
     if (m && targets.has(m[1])) docDbs.add(n)
   }
-  if (!dbNames) for (const ws of targets) for (const p of pages) for (const meta of metaNames(ws)) docDbs.add(`${meta}:p:${p}`)
+  // without a listing: every name a page document can have here (each schema generation's copy)
+  if (!dbNames)
+    for (const ws of targets)
+      for (const p of pages)
+        for (const meta of metaNames(ws)) {
+          docDbs.add(`${meta}:p:${p}`)
+          for (let g = 1; g <= DOC_SCHEMA_VERSION; g++) docDbs.add(`${meta.replace(/^one:/, `one:g${g}:`)}:p:${p}`)
+        }
 
   // the local workspace keeps its pages' history and its files
   const localPages = new Set<string>()

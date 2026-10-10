@@ -5,7 +5,11 @@
  *    block it does not know never reaches the server;
  *  - the public API prints a task as its title + notes;
  *  - a tab the server finds outdated (its stateless notice) turns read-only and offers "Reload to keep editing";
- *    a reload brings the editor back.
+ *    a reload brings the editor back;
+ *  - local copies are per schema generation: the copy an older build left in this browser (holding its deletion
+ *    of the task) is never replayed — its unconfirmed text edits are taken over, the task stays;
+ *  - a task stored inside another task (a raw writer) and opened by two tabs at once is not doubled (no repair
+ *    on mount in a shared document).
  */
 import type { Page } from '@playwright/test'
 import { HocuspocusProvider, HocuspocusProviderWebsocket } from '@hocuspocus/provider'
@@ -60,6 +64,46 @@ async function rawClient(page: Page, name: string, schema: number | null) {
     },
   }
 }
+
+/** Node names at the top of a page document. */
+const names = (doc: Y.Doc) => doc.getXmlFragment('default').toArray().map((n) => (n as Y.XmlElement).nodeName)
+
+/** A paragraph as y-prosemirror stores it. */
+function yPara(text: string): Y.XmlElement {
+  const p = new Y.XmlElement('paragraph')
+  const t = new Y.XmlText()
+  t.insert(0, text)
+  p.insert(0, [t])
+  return p
+}
+
+/** Write a Y update into a y-indexeddb database of this origin (as y-indexeddb stores it: one row per update). */
+async function writeYCopy(page: Page, name: string, update: Uint8Array): Promise<void> {
+  await page.evaluate(
+    async ({ name, update }) => {
+      const db = await new Promise<IDBDatabase>((res, rej) => {
+        const r = indexedDB.open(name)
+        r.onupgradeneeded = () => {
+          const d = r.result
+          if (!d.objectStoreNames.contains('updates')) d.createObjectStore('updates', { autoIncrement: true })
+          if (!d.objectStoreNames.contains('custom')) d.createObjectStore('custom')
+        }
+        r.onsuccess = () => res(r.result)
+        r.onerror = () => rej(r.error)
+      })
+      await new Promise<void>((res, rej) => {
+        const tx = db.transaction('updates', 'readwrite')
+        tx.objectStore('updates').add(new Uint8Array(update))
+        tx.oncomplete = () => res()
+        tx.onerror = () => rej(tx.error)
+      })
+      db.close()
+    },
+    { name, update: Array.from(update) as unknown as Uint8Array },
+  )
+}
+
+const dbNames = (page: Page) => page.evaluate(async () => (await indexedDB.databases()).map((d) => d.name ?? ''))
 
 /** The server's API text of a page (a read token made by the signed-in owner). */
 async function apiText(page: Page, token: string, pageId: string): Promise<string> {
@@ -173,5 +217,152 @@ test.describe('schema gate + task block (team cloud)', () => {
     expect(await cloudEval(page, (c) => ({ readOnly: c.readOnly, outdated: !!c.outdated }))).toEqual({ readOnly: false, outdated: false })
     await gotoPage(page, pageId)
     await expect(editorOf(page, pageId)).toHaveAttribute('contenteditable', 'true')
+  })
+
+  test('the copy of a page an older build left in this browser never deletes its task on the server', async ({ page }) => {
+    await signIn(page, email('stale'))
+    const wsId = await createWorkspace(page, 'Stale HQ')
+    await openApp(page, wsId)
+    await waitOnline(page)
+    const pageId = await wsEval(page, (s) => s.createPage({ title: 'Launch plan', parentId: null }) as string)
+    await wsEval(page, (s, { id, doc }) => s.setContent(id, doc, 'e2e'), { id: pageId, doc: task('Ship the pricing page', 'The last draft is in the wiki.') })
+    const docName = `ws:${wsId}:p:${pageId}`
+    const reader = await rawClient(page, docName, 1)
+    await reader.synced
+    await expect.poll(() => names(reader.doc)).toContain('workItem')
+    // what a tab of an older build (before generation 1) kept of the page: the task deleted (y-prosemirror)
+    const stale = new Y.Doc()
+    Y.applyUpdate(stale, Y.encodeStateAsUpdate(reader.doc))
+    reader.destroy()
+    const frag = stale.getXmlFragment('default')
+    frag.delete(names(stale).indexOf('workItem'), 1)
+    const origin = new URL(page.url()).origin
+    // a page of this origin that is not the app (the app is closed while the older copy is written)
+    await page.goto(`${origin}/`)
+    await writeYCopy(page, `one:${docName}`, Y.encodeStateAsUpdate(stale))
+
+    // this build opens the page: its own generation's copy — the older one is never replayed, and goes
+    await openApp(page, wsId)
+    await waitOnline(page)
+    await gotoPage(page, pageId)
+    await expect(editorOf(page, pageId).locator('.workitem')).toHaveCount(1)
+    await expect.poll(() => dbNames(page)).not.toContain(`one:${docName}`)
+    expect(await dbNames(page)).toContain(`one:g1:${docName}`)
+    await page.waitForTimeout(1000)
+    const check = await rawClient(page, docName, 1)
+    try {
+      await check.synced
+      expect(names(check.doc)).toContain('workItem')
+    } finally {
+      check.destroy()
+    }
+  })
+
+  test('unconfirmed edits in a copy an older build left are taken over — its deletion of the task is not', async ({ page }) => {
+    await signIn(page, email('pending'))
+    const wsId = await createWorkspace(page, 'Pending HQ')
+    await openApp(page, wsId)
+    await waitOnline(page)
+    const pageId = await wsEval(page, (s) => s.createPage({ title: 'Offline plan', parentId: null }) as string)
+    await wsEval(page, (s, { id, doc }) => s.setContent(id, doc, 'e2e'), { id: pageId, doc: task('Ship the pricing page', 'Notes.') })
+    const docName = `ws:${wsId}:p:${pageId}`
+    const reader = await rawClient(page, docName, 1)
+    await reader.synced
+    await expect.poll(() => names(reader.doc)).toContain('workItem')
+    // the older tab: it deleted the task (it could not read it) and the person typed a line — offline, unconfirmed
+    const stale = new Y.Doc()
+    Y.applyUpdate(stale, Y.encodeStateAsUpdate(reader.doc))
+    reader.destroy()
+    const frag = stale.getXmlFragment('default')
+    frag.delete(names(stale).indexOf('workItem'), 1)
+    frag.insert(frag.length, [yPara('Typed offline in the older tab.')])
+    const origin = new URL(page.url()).origin
+    // a page of this origin that is not the app (the app is closed while the older copy is written)
+    await page.goto(`${origin}/`)
+    await writeYCopy(page, `one:${docName}`, Y.encodeStateAsUpdate(stale))
+    // …and it noted the page as having changes the server has not confirmed (cloud/local.ts overlay)
+    await page.evaluate(
+      async ({ wsId, pageId }) => {
+        const db = await new Promise<IDBDatabase>((res, rej) => {
+          const r = indexedDB.open('one-cloud')
+          r.onsuccess = () => res(r.result)
+          r.onerror = () => rej(r.error)
+        })
+        await new Promise<void>((res, rej) => {
+          const tx = db.transaction('kv', 'readwrite')
+          const store = tx.objectStore('kv')
+          const q = store.get(`overlay:${wsId}`)
+          q.onsuccess = () => {
+            const o = q.result ?? { settings: null, favorites: [], recent: [], pending: [] }
+            store.put({ ...o, pending: [...(o.pending ?? []), pageId] }, `overlay:${wsId}`)
+          }
+          tx.oncomplete = () => res()
+          tx.onerror = () => rej(tx.error)
+        })
+        db.close()
+      },
+      { wsId, pageId },
+    )
+
+    await openApp(page, wsId)
+    await waitOnline(page)
+    const check = await rawClient(page, docName, 1)
+    try {
+      await check.synced
+      await expect.poll(() => check.doc.getXmlFragment('default').toString(), { timeout: 20_000 }).toContain('Typed offline in the older tab.')
+      expect(names(check.doc)).toContain('workItem')
+    } finally {
+      check.destroy()
+    }
+    await gotoPage(page, pageId)
+    await expect(editorOf(page, pageId).locator('.workitem')).toHaveCount(1)
+    await expect(editorOf(page, pageId)).toContainText('Typed offline in the older tab.')
+    await expect.poll(() => dbNames(page)).not.toContain(`one:${docName}`)
+  })
+
+  test('a task stored inside another task, opened by two tabs at once, is not doubled', async ({ page }) => {
+    await signIn(page, email('nested'))
+    const wsId = await createWorkspace(page, 'Nested HQ')
+    await openApp(page, wsId)
+    await waitOnline(page)
+    const pageId = await wsEval(page, (s) => s.createPage({ title: 'Nested', parentId: null }) as string)
+    await wsEval(page, (s, id) => s.setContent(id, { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'top' }] }] }, 'e2e'), pageId)
+    // a raw writer puts a task inside a task (nothing in the app does)
+    const docName = `ws:${wsId}:p:${pageId}`
+    const writer = await rawClient(page, docName, 1)
+    await writer.synced
+    await expect.poll(() => names(writer.doc)).toContain('paragraph')
+    writer.doc.transact(() => {
+      const outer = new Y.XmlElement('workItem')
+      outer.setAttribute('itemId', 'wi_outer00001')
+      const inner = new Y.XmlElement('workItem')
+      inner.setAttribute('itemId', 'wi_inner00001')
+      inner.insert(0, [yPara('INNER TITLE'), yPara('inner note')])
+      outer.insert(0, [yPara('OUTER TITLE'), inner])
+      const frag = writer.doc.getXmlFragment('default')
+      frag.insert(frag.length, [outer])
+    })
+    await page.waitForTimeout(800)
+    writer.destroy()
+
+    const second = await page.context().newPage()
+    await openApp(second, wsId)
+    await waitOnline(second)
+    // both open the page at the same moment
+    await Promise.all([page, second].map((p) => p.evaluate((id) => (window.location.hash = `#/p/${id}`), pageId)))
+    await expect(editorOf(page, pageId)).toContainText('INNER TITLE')
+    await expect(editorOf(second, pageId)).toContainText('INNER TITLE')
+    await page.waitForTimeout(3000)
+    const check = await rawClient(page, docName, 1)
+    try {
+      await check.synced
+      const xml = check.doc.getXmlFragment('default').toString()
+      expect(xml.split('INNER TITLE').length - 1).toBe(1)
+      expect(xml.split('inner note').length - 1).toBe(1)
+    } finally {
+      check.destroy()
+    }
+    for (const p of [page, second]) expect((await editorOf(p, pageId).innerText()).split('INNER TITLE').length - 1).toBe(1)
+    await second.close()
   })
 })

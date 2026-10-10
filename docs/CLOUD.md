@@ -356,8 +356,8 @@ task block (`workItem`) a newer one wrote there. So only clients that read the c
 may write:
 
 - The app sends its generation on the socket URL: `wss://…/collab?schema=<n>` (`DOC_SCHEMA_VERSION`,
-  `src/app/editor/schema/base.ts`; `1` = the task block). One socket per tab, so every document it opens
-  carries it (`src/app/cloud/socket.ts`).
+  `src/app/store/generations.ts`, re-exported by the editor's schema; `1` = the task block). One socket per
+  tab, so every document it opens carries it (`src/app/cloud/socket.ts`).
 - `onAuthenticate` (`server/src/collab/index.ts`, next to the viewer check) reads it with
   `schemaAccess()` (`server/src/collab/schema-gate.ts`): **missing or unreadable** → the connection is
   `readOnly` (an older build — it reads live, its updates are never applied, and it cannot be told why);
@@ -366,12 +366,33 @@ may write:
 - The client (`src/app/cloud/schemaGate.ts`) listens on every provider before it attaches: the notice sets
   `useCloud().outdated` and `readOnly` for the rest of the tab's life (role refreshes keep it read-only), a
   toast and the topbar key say **"Reload to keep editing"** ("Neu laden, um weiter zu bearbeiten"); the
-  reload is the only way back. Local edits made before stay in IndexedDB and sync after the reload.
+  reload is the only way back.
+- **The gate keeps the deletion off the server — and the browser's own copy never brings it back.** An older
+  tab deletes the node in ITS copy of the document, and y-indexeddb stores that copy in the browser. Replayed
+  by a newer build of the same browser (a reload, a new tab) over a writable connection, that stored deletion
+  would reach the server after all. So local copies of page documents are kept per generation:
+  `one:g<n>:ws:<id>…:p:<page>` (`src/app/cloud/content.ts`; generation 0 had no prefix: `one:ws:…`). A build
+  reads only its own generation's copy. An older generation's copy of a page is dropped when the page is
+  opened — unless the page is marked as having changes the server never confirmed (`pending`): then, once the
+  server's state is in, its changes are taken over as they are when they delete nothing newer than its
+  generation (`lostNewer`, `src/app/store/generations.ts`), else merged at the content level with every newer
+  node put back (`restoreNewer`: the older tab's text edits kept, its deletion not); offline it waits. So the
+  first open of a page after the update loads it from the server (offline: as on a new device — the content
+  cache still serves search and the page list). Wiping a workspace copy (`cloud/device.ts`) removes every
+  generation's copies.
 - The server's own writes (public API, webhooks, agents — direct connections) are not affected.
-- Releasing a node type an older client would lose: ship it in the app with `DOC_SCHEMA_VERSION` + 1 and
-  **no way to create it** (the schema release); raise `MIN_CLIENT_SCHEMA` to that number in the same server
-  release when, as for `1`, clients without the parameter must stop writing — later raises can follow the
-  app by one release. The first gate (generation 1) makes every tab of a build before it read-only at once.
+- Releasing a node type an older client would lose: ship it in the app with `DOC_SCHEMA_VERSION` + 1, the
+  type in `NODE_GENERATIONS`, and **no way to create it** (the schema release); raise `MIN_CLIENT_SCHEMA` to
+  that number in the same server release when, as for `1`, clients without the parameter must stop writing —
+  later raises can follow the app by one release. The first gate (generation 1) makes every tab of a build
+  before it read-only at once.
+- **A misplaced node is never repaired on mount in a shared document**: every member opening it would repair
+  the same spot at once and Y would merge both repairs (a task inside a task came out doubled). Placement
+  rules are enforced where content is written: local edits (paste / drop: the task moves out whole) and JSON
+  writers (`sanitize()`, which the bridge uses). A task a raw writer nested stays where it is.
+- The local workspace has the same problem without a server (an older tab of the same browser saves a page
+  with its tasks unwrapped): page records carry a stamp of the generation that wrote them and pages holding
+  newer nodes a shadow copy; an older writer's record is merged back (`src/app/store/persistence.ts`).
 
 ### Server writes (public API, incoming webhooks)
 

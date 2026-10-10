@@ -22,6 +22,13 @@
  * - Leaving the page (pagehide / beforeunload / tab hidden) flushes at once and mirrors the
  *   not-yet-saved pages synchronously to localStorage, because the browser may abort the async
  *   IndexedDB write. The next boot (or another open tab) puts them back.
+ * - Older builds (a tab of One opened before an update, same browser): they lose node types they don't
+ *   know (store/generations.ts — the editor unwraps a task into its blocks) and store that. So every page
+ *   record this build writes carries a stamp (`_schema`: its generation, valid only for the very copy it
+ *   was written with), and a page holding newer nodes also gets a shadow copy (`one.page.g<n>:<id>`, a key
+ *   older builds never touch). A record without a valid stamp (an older writer) that lacks newer nodes its
+ *   shadow (or this tab's copy) has is merged back — the older tab's own edits kept, the newer nodes put
+ *   back (restoreNewer) — at boot, from another tab's save, from its stash, and before a save merges.
  */
 import { createStore, type UseStore } from 'idb-keyval'
 import { useWorkspace, getWorkspaceSnapshot, emptyWorkspace, pageChanges, WORKSPACE_VERSION, defaultSettings, defaultView, DEFAULT_PAGE_SETTINGS } from './store'
@@ -37,6 +44,7 @@ import { sanitizeIntegrations } from './integrations'
 import { sanitizeScripts } from './scripts'
 import { sanitizeKit } from './kit'
 import { sanitizeLook } from './look'
+import { DOC_SCHEMA_VERSION, newerCounts, restoreNewer } from './generations'
 
 /** The single-record layout before v2 (read once, then converted). */
 const LEGACY_KEY = 'one.workspace.v1'
@@ -45,6 +53,10 @@ const BACKUP_KEY = 'one.workspace.v1.bak'
 const META_KEY = 'one.ws.v2'
 const PAGE_PREFIX = 'one.page.v2:'
 const DB_PREFIX = 'one.db.v2:'
+/** This build's copy of a page that holds node types older builds don't know (outside their key ranges). */
+const SHADOW_PREFIX = `one.page.g${DOC_SCHEMA_VERSION}:`
+/** The stamp on every page record this build writes: { g: generation, rev, at } of the copy written. */
+const STAMP = '_schema'
 /** localStorage: pages (and databases) that were not saved yet when the page went away. */
 const UNSAVED_KEY = 'one.unsaved'
 /** Epoch of workspaces stored before epochs existed. */
@@ -89,6 +101,8 @@ function normalizePage(id: ID, v: unknown, now: number): { page: Page; repaired:
     return fallback
   }
   const p = { ...v } as unknown as Page
+  // the generation stamp belongs to the stored record, not to the page (writerGen reads it there)
+  delete (p as unknown as Obj)[STAMP]
   p.id = fix(v.id === id, id, v.id)
   p.kind = fix(v.kind === 'page' || v.kind === 'database', 'page', v.kind)
   p.title = fix(typeof v.title === 'string', '', v.title)
@@ -110,6 +124,45 @@ function normalizePage(id: ID, v: unknown, now: number): { page: Page; repaired:
   p.settings = { ...DEFAULT_PAGE_SETTINGS, ...(isObj(v.settings) ? (v.settings as Partial<Page['settings']>) : {}) }
   return { page: p, repaired }
 }
+
+/* ------------------------------------------------------------------ */
+/* Older builds (store/generations.ts)                                 */
+/* ------------------------------------------------------------------ */
+
+/** A page as this build stores it: with the stamp of its generation for exactly this copy. */
+const stamped = (p: Page): Obj => ({ ...p, [STAMP]: { g: DOC_SCHEMA_VERSION, rev: p.contentRev, at: p.updatedAt } })
+
+/**
+ * The generation of the build that wrote this stored page: its stamp — when it belongs to this very copy (an
+ * older build carries a stamp it read along unchanged, but its own writes change the copy). 0: an older build.
+ */
+function writerGen(raw: unknown): number {
+  if (!isObj(raw) || !isObj(raw[STAMP])) return 0
+  const s = raw[STAMP] as Obj
+  return isNum(s.g) && s.rev === raw.contentRev && s.at === raw.updatedAt ? s.g : 0
+}
+
+/** Does this content hold nodes an older build would lose (it needs a shadow copy)? */
+const holdsNewer = (content: Page['content']) => !!content && newerCounts(content, 0).size > 0
+
+/**
+ * A page an older build may have written (`raw`): its content with every newer node of `known` (what a build
+ * of this generation stored or holds) put back — the older build's own edits kept. The page as it is when
+ * nothing was lost (or a current build wrote it).
+ */
+function guardOlder(page: Page, raw: unknown, known: Page['content'] | undefined): Page {
+  const gen = writerGen(raw)
+  if (gen >= DOC_SCHEMA_VERSION || !known || !holdsNewer(known)) return page
+  try {
+    const content = restoreNewer(known, page.content, gen, 'unwrap')
+    return content === page.content ? page : { ...page, content }
+  } catch (e) {
+    console.warn('[one] could not merge a page an older version of One stored', e)
+    return page
+  }
+}
+
+const shadowContent = (v: unknown): Page['content'] | undefined => (isObj(v) && isObj(v.content) ? (v.content as Page['content']) : undefined)
 
 function normalizeDatabase(id: ID, v: unknown, lang: Settings['language']): { db: Database; repaired: boolean } | null {
   if (!isObj(v)) return null
@@ -385,7 +438,7 @@ function stashUnsaved() {
   }
   for (const id of pageIds) {
     const p = s.pages[id]
-    if (p && !(stash.pages[id]?.updatedAt > p.updatedAt)) stash.pages[id] = p
+    if (p && !(stash.pages[id]?.updatedAt > p.updatedAt)) stash.pages[id] = stamped(p) as unknown as Page
   }
   for (const id of dbIds) {
     const db = s.databases[id]
@@ -414,7 +467,8 @@ function takeStash(ws: Workspace, stash: Stash, keepDbs?: Set<ID>): { pages: ID[
     if (!r) continue
     const cur = ws.pages[id]
     if (cur && cur.updatedAt >= r.page.updatedAt) continue
-    ws.pages[id] = r.page
+    // a stash an older build left: what it could not read comes back from our copy
+    ws.pages[id] = guardOlder(r.page, v, cur?.content)
     out.pages.push(id)
   }
   for (const [id, v] of Object.entries(stash.databases)) {
@@ -464,6 +518,8 @@ function zip(prefix: string, keys: IDBValidKey[], values: unknown[]): Obj {
 interface StoredRaw {
   /** the workspace as stored: { version, epoch, settings, people, recent, pages, databases } */
   raw: unknown
+  /** this generation's shadow copies (page id → { content }) */
+  shadows: Obj
   /** stored in the single-record layout of older versions */
   legacy: boolean
   /** v2 records without their meta record (damage) */
@@ -478,29 +534,33 @@ function readAll(): Promise<StoredRaw | null> {
     const pv = os.getAll(prefixRange(PAGE_PREFIX))
     const dk = os.getAllKeys(prefixRange(DB_PREFIX))
     const dv = os.getAll(prefixRange(DB_PREFIX))
+    const sk = os.getAllKeys(prefixRange(SHADOW_PREFIX))
+    const sv = os.getAll(prefixRange(SHADOW_PREFIX))
     // requests of a transaction complete in order: the last one sees every result
-    dv.onsuccess = () => {
+    sv.onsuccess = () => {
       if (meta.result === undefined && !pk.result.length && !dk.result.length) {
         const legacy = os.get(LEGACY_KEY)
-        legacy.onsuccess = () => (out.value = legacy.result === undefined ? null : { raw: legacy.result, legacy: true, noMeta: false })
+        legacy.onsuccess = () => (out.value = legacy.result === undefined ? null : { raw: legacy.result, shadows: {}, legacy: true, noMeta: false })
         return
       }
       const { order, ...m }: Obj = isObj(meta.result) ? meta.result : {}
       const pages = inOrder(zip(PAGE_PREFIX, pk.result, pv.result), order)
       const databases = inOrder(zip(DB_PREFIX, dk.result, dv.result), Object.keys(pages))
-      out.value = { raw: { ...m, pages, databases }, legacy: false, noMeta: !isObj(meta.result) }
+      out.value = { raw: { ...m, pages, databases }, shadows: zip(SHADOW_PREFIX, sk.result, sv.result), legacy: false, noMeta: !isObj(meta.result) }
     }
   })
 }
 
 /** Some records (another tab saved them): undefined = not stored (deleted). */
-function readSome(pageIds: ID[], dbIds: ID[], meta: boolean): Promise<{ pages: Map<ID, unknown>; dbs: Map<ID, unknown>; meta: unknown }> {
+function readSome(pageIds: ID[], dbIds: ID[], meta: boolean): Promise<{ pages: Map<ID, unknown>; shadows: Map<ID, unknown>; dbs: Map<ID, unknown>; meta: unknown }> {
   return inTx('readonly', (os, out) => {
-    const res = { pages: new Map<ID, unknown>(), dbs: new Map<ID, unknown>(), meta: undefined as unknown }
+    const res = { pages: new Map<ID, unknown>(), shadows: new Map<ID, unknown>(), dbs: new Map<ID, unknown>(), meta: undefined as unknown }
     out.value = res
     for (const id of pageIds) {
       const r = os.get(PAGE_PREFIX + id)
       r.onsuccess = () => res.pages.set(id, r.result)
+      const sh = os.get(SHADOW_PREFIX + id)
+      sh.onsuccess = () => res.shadows.set(id, sh.result)
     }
     for (const id of dbIds) {
       const r = os.get(DB_PREFIX + id)
@@ -611,6 +671,16 @@ export async function loadWorkspace(): Promise<Workspace | null> {
     return null
   }
   const { ws, repaired } = migrateWithReport(raw)
+  // pages an older build stored since this generation last did: what it could not read comes back
+  const rawPages = isObj(raw) && isObj(raw.pages) ? raw.pages : {}
+  for (const [id, sh] of Object.entries(stored?.shadows ?? {})) {
+    const page = ws.pages[id]
+    if (!page) continue
+    const next = guardOlder(page, rawPages[id], shadowContent(sh))
+    if (next === page) continue
+    ws.pages[id] = next
+    dirtyPages.add(id)
+  }
   if (repaired) {
     // keep the original before anything is written (a failure here fails the boot: nothing is lost) — but never the API key
     await inTx<void>('readwrite', (os) => void os.put(plainKeyIn(raw) !== null ? withKey(raw as Obj, '') : raw, BACKUP_KEY))
@@ -650,8 +720,19 @@ export async function loadWorkspace(): Promise<Workspace | null> {
 
 /** Stored workspace for a sync (errors are the caller's business). */
 async function readStored(): Promise<Workspace | null> {
-  const raw = (await readAll())?.raw
-  return isObj(raw) ? migrate(raw) : null
+  const stored = await readAll()
+  const raw = stored?.raw
+  if (!isObj(raw)) return null
+  const ws = migrate(raw)
+  const local = useWorkspace.getState().pages
+  const rawPages = isObj(raw.pages) ? raw.pages : {}
+  for (const [id, page] of Object.entries(ws.pages)) {
+    const next = guardOlder(page, rawPages[id], shadowContent(stored?.shadows[id]) ?? local[id]?.content)
+    if (next === page) continue
+    ws.pages[id] = next
+    restoredHere.add(id)
+  }
+  return ws
 }
 
 /** What a save tells the other tabs: the records it wrote (`full`: all of them). */
@@ -668,6 +749,9 @@ interface ChangedMessage {
  * This tab's workspace with the records another tab just saved read back in (a page / database
  * not stored any more is gone). Only those records are read: the rest of the store stays as is.
  */
+/** Pages a read from another tab's save had to merge back (an older build lost nodes): this tab stores them again. */
+const restoredHere = new Set<ID>()
+
 async function readChanged(pageIds: ID[], dbIds: ID[], meta: boolean): Promise<Workspace> {
   const rec = await readSome(pageIds, dbIds, meta)
   const local = useWorkspace.getState()
@@ -688,8 +772,14 @@ async function readChanged(pageIds: ID[], dbIds: ID[], meta: boolean): Promise<W
   const now = Date.now()
   for (const [id, v] of rec.pages) {
     const r = normalizePage(id, v, now)
-    if (r) ws.pages[id] = r.page
-    else delete ws.pages[id]
+    if (!r) {
+      delete ws.pages[id]
+      continue
+    }
+    // saved by an older build (another tab opened before an update): it never takes what it could not read
+    const page = guardOlder(r.page, v, shadowContent(rec.shadows.get(id)) ?? local.pages[id]?.content)
+    if (page !== r.page) restoredHere.add(id)
+    ws.pages[id] = page
   }
   for (const [id, v] of rec.dbs) {
     const r = normalizeDatabase(id, v, ws.settings.language)
@@ -711,7 +801,9 @@ async function readChanged(pageIds: ID[], dbIds: ID[], meta: boolean): Promise<W
 function pageToWrite(id: ID, ours: Page, base: Page | undefined, theirs: unknown, merged: Map<ID, [Page, Page]>): Page {
   if (!base || !isObj(theirs)) return ours
   try {
-    const t = normalizePage(id, theirs, Date.now())?.page
+    const read = normalizePage(id, theirs, Date.now())?.page
+    // stored by an older build since: never its loss of what it could not read (our base still has it)
+    const t = read && guardOlder(read, theirs, base.content)
     if (!t || samePage(t, base)) return ours
     const m = mergePage(base, t, ours)
     if (m === ours) return ours // theirs adds nothing ours does not have
@@ -784,7 +876,10 @@ function writeRecords(set: WriteSet, bases: Map<ID, Page>, merged: Map<ID, [Page
         keep.add(key)
         os.put(value, key)
       }
-      for (const [id, p] of Object.entries(snap.pages)) put(PAGE_PREFIX + id, p)
+      for (const [id, p] of Object.entries(snap.pages)) {
+        put(PAGE_PREFIX + id, stamped(p))
+        if (holdsNewer(p.content)) put(SHADOW_PREFIX + id, { content: p.content })
+      }
       for (const [id, db] of Object.entries(snap.databases)) put(DB_PREFIX + id, db)
       for (const k of storedKeys) if (!keep.has(String(k))) os.delete(k)
       os.put(metaOf(snap), META_KEY)
@@ -796,8 +891,16 @@ function writeRecords(set: WriteSet, bases: Map<ID, Page>, merged: Map<ID, [Page
       out.value = { pages: snap.pages, full: false }
       for (const id of set.pages) {
         const ours = snap.pages[id]
-        if (ours) os.put(pageToWrite(id, ours, bases.get(id), theirs.get(id), merged), PAGE_PREFIX + id)
-        else os.delete(PAGE_PREFIX + id)
+        if (!ours) {
+          os.delete(PAGE_PREFIX + id)
+          os.delete(SHADOW_PREFIX + id)
+          continue
+        }
+        const page = pageToWrite(id, ours, bases.get(id), theirs.get(id), merged)
+        os.put(stamped(page), PAGE_PREFIX + id)
+        // the copy an older build's write is checked against (store/generations.ts)
+        if (holdsNewer(page.content)) os.put({ content: page.content }, SHADOW_PREFIX + id)
+        else os.delete(SHADOW_PREFIX + id)
       }
       for (const id of set.dbs) {
         const db = snap.databases[id]
@@ -827,7 +930,7 @@ function writeRecords(set: WriteSet, bases: Map<ID, Page>, merged: Map<ID, [Page
     afterAll([meta, ...reads], () => {
       merged.clear()
       if (!set.full && isObj(meta.result)) return writeChanged()
-      const keys = [PAGE_PREFIX, DB_PREFIX].map((prefix) => os.getAllKeys(prefixRange(prefix)))
+      const keys = [PAGE_PREFIX, DB_PREFIX, SHADOW_PREFIX].map((prefix) => os.getAllKeys(prefixRange(prefix)))
       afterAll(keys, () => writeAll(keys.flatMap((k) => k.result)))
     })
   })
@@ -1104,6 +1207,12 @@ export function startPersistence(): () => void {
       for (const id of some.pages) if (ws.pages[id]) markIncoming(local.pages[id], ws.pages[id])
     } else for (const p of Object.values(ws.pages)) markIncoming(local.pages[p.id], p)
     applyRemote(ws)
+    // an older build's save that lost nodes: our merged copy replaces it in storage (and in the other tabs)
+    if (restoredHere.size) {
+      for (const id of restoredHere) if (ws.pages[id]) dirtyPages.add(id)
+      restoredHere.clear()
+      scheduleSave(0)
+    }
   }
   channel?.addEventListener('message', onMessage)
 
