@@ -4,7 +4,9 @@
  * batch. Browser runs are stored on this device; server runs are applied here and then marked on
  * the server (POST …/agent-runs/:runId/resolve). "Apply all" says so in a toast with Undo; ONE proposal applied
  * shows its result in its own row, with an Undo there (canUndoChange / undoChange) — no toast that could cover the
- * next key. Every proposal of a run discarded (none applied) puts back the agent state the run replaced (stateBack).
+ * next key. The run-level Undo of an 'apply' run (undoRunAll) settles its changes the same way: what went back is a
+ * proposal again, what was kept (edited since) stays applied. Every proposal of a run discarded (none applied) puts back
+ * the agent state the run replaced (stateBack).
  */
 import type { ID } from '../../store/types'
 import { useUI } from '../../store/ui'
@@ -12,7 +14,7 @@ import { t } from '../../i18n'
 import { applyChanges, type ApplyResult } from '../ai/agent/apply'
 import type { StagedChange } from '../ai/agent/types'
 import { asAgent, stampLocal } from './attribution'
-import { touchedBy } from './exec'
+import { touchedBy, undoRunResult } from './exec'
 import { withoutWebImages } from './images'
 import { getAgentState, loadRuns, putAgentState, putRun, type AgentState } from './runs'
 import { patchServerRun, resolveServerRun, serverErrorText } from './server'
@@ -85,8 +87,23 @@ export async function undoChange(run: AgentRun, changeId: string): Promise<numbe
   return undoApply(run, res, true)
 }
 
+/**
+ * The Undo of an 'apply' run as a whole (its key in the run's review; this tab, this session): its writes go back, those
+ * changes are proposals again; a change edited since stays applied. Returns how many were kept (null: nothing to undo).
+ */
+export async function undoRunAll(run: AgentRun): Promise<number | null> {
+  const res = undoRunResult(run.id)
+  if (!res) return null
+  return settleUndone(run, res.batch, res.kept)
+}
+
 async function undoApply(run: AgentRun, res: ApplyResult, row = false): Promise<number> {
   const { kept } = res.undo()
+  return settleUndone(run, res, kept, row)
+}
+
+/** After an Undo of `res` (`kept`: left as they were, edited since): the run's changes as the review shows them. */
+async function settleUndone(run: AgentRun, res: ApplyResult, kept: string[], row = false): Promise<number> {
   // what was kept (edited since) or cannot be undone stays applied, with its row id
   const stays = new Set([...kept, ...res.final])
   const rowIds = { ...(run.rowIds ?? {}) }
@@ -94,9 +111,11 @@ async function undoApply(run: AgentRun, res: ApplyResult, row = false): Promise<
   for (const staged of Object.keys(res.rowIds)) if (!keptPages.has(staged)) delete rowIds[staged]
   const undone = res.applied.filter((id) => !stays.has(id))
   const staged = (run.staged ?? []).map((c) => (undone.includes(c.id) ? { ...c, status: 'pending' as const } : c))
+  // an 'apply' run whose writes went back has proposals to review now
+  const status = undone.length && run.status === 'ok' ? 'staged' : run.status
   // a server run stays resolved on the server: only this device's copy goes back to pending
   if (run.runner === 'server') patchServerRun({ ...run, staged, rowIds })
-  else await putRun({ ...run, staged, rowIds, applied: Math.max(0, (run.applied ?? 0) - undone.length) })
+  else await putRun({ ...run, status, staged, rowIds, applied: Math.max(0, (run.applied ?? 0) - undone.length) })
   if (!row) useUI.getState().toast(kept.length ? tn('features.agent.toast.undoneKept', kept.length) : t('features.agent.toast.undone'))
   return kept.length
 }

@@ -554,3 +554,67 @@ test.describe('Custom agents: discarding runs, the review, toasts on the agent�
     await expect(cost).not.toContainText('$0.')
   })
 })
+
+test.describe('Custom agents: the run-level Undo', () => {
+  /** This device's runs of an agent (IndexedDB "one-agents", key runs:<agentId>). */
+  const storedRuns = (page: Page, agentId: string) =>
+    page.evaluate(async (id) => {
+      const db = await new Promise<IDBDatabase>((res, rej) => {
+        const r = indexedDB.open('one-agents')
+        r.onsuccess = () => res(r.result)
+        r.onerror = () => rej(r.error)
+      })
+      try {
+        return await new Promise<AnyState[]>((res, rej) => {
+          const q = db.transaction('runs').objectStore('runs').get(`runs:${id}`)
+          q.onsuccess = () => res(Array.isArray(q.result) ? q.result : [])
+          q.onerror = () => rej(q.error)
+        })
+      } finally {
+        db.close()
+      }
+    }, agentId)
+
+  test('an "apply" run of 3 changes, one row edited by hand since: Undo reverts 2 (proposals again), the edited one stays applied — "1 kept"', async ({ page, context }) => {
+    await openApp(page)
+    await setKey(page)
+    const { db, rows, key } = await wsEval(page, (s) => {
+      const db = s.createDatabase({ title: 'Nordlicht Handoff' }) as string
+      const key = s.addProperty(db, { type: 'text', name: 'Key' }) as string
+      const rows = ['NL-1398', 'NL-1408', 'NL-1415'].map((title) => s.createRow(db, { title, properties: { [key]: 'alt' } }) as string)
+      return { db, rows, key }
+    })
+    await mockClaude(context, [
+      () => sseMessage(rows.map((id, i) => tool(`u${i}`, 'update_row', { id, properties: { Key: `neu ${i + 1}` } }))),
+      () => sseMessage([say('3 rows updated.')]),
+    ])
+    const id = await addAgent(page, { id: 'ag-undo', name: 'Nordlicht-Spiegel', write: 'apply', scope: { everything: false, pages: [], databases: [db] } })
+    await goAgent(page, id)
+    await runNow(page, 'ok', 1)
+    const keys = () => wsEval(page, (s, a) => a.rows.map((r: string) => s.pages[r].properties[a.key] ?? null), { rows, key })
+    await expect.poll(keys).toEqual(['neu 1', 'neu 2', 'neu 3'])
+    const run = page.locator('.agx-run').first()
+    await expect(run.locator('li.agent-change[data-status="applied"]')).toHaveCount(3)
+    // the person edits NL-1408 after the run
+    await wsEval(page, (s, a) => s.setRowProperty(a.row, a.key, 'von Hand'), { row: rows[1], key })
+    await flush(page)
+
+    await run.getByRole('button', { name: 'Undo changes' }).click()
+    await expect(page.locator('.toast', { hasText: 'Undone — 1 change was kept because it was edited since' })).toBeVisible()
+    await expect.poll(keys).toEqual(['alt', 'von Hand', 'alt'])
+    // the two undone changes are proposals again, the kept one stays applied
+    await expect(run.locator('li.agent-change[data-status="pending"]')).toHaveCount(2)
+    await expect(run.locator('li.agent-change[data-status="applied"]')).toHaveCount(1)
+    await expect(run.locator('li.agent-change[data-status="applied"]')).toContainText('NL-1408')
+    await expect(run.getByRole('button', { name: 'Undo changes' })).toHaveCount(0)
+    await expect.poll(async () => {
+      const [r] = await storedRuns(page, id)
+      return { status: r.status, applied: r.applied, staged: r.staged.map((c: AnyState) => c.status) }
+    }).toEqual({ status: 'staged', applied: 1, staged: ['pending', 'applied', 'pending'] })
+
+    // Apply all writes the two again; the edited row keeps the person's value
+    await run.getByRole('button', { name: 'Apply all' }).click()
+    await expect.poll(keys).toEqual(['neu 1', 'von Hand', 'neu 3'])
+    await expect(run.locator('li.agent-change[data-status="applied"]')).toHaveCount(3)
+  })
+})

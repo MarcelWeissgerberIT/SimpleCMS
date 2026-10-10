@@ -18,9 +18,9 @@ import { MediaToPage } from '../ai/media/MediaToPage'
 import { PropDiff, Preview } from '../ai/agent/AgentSheet'
 import { EditDiff } from '../ai/agent/EditDiff'
 import type { StagedChange } from '../ai/agent/types'
-import { canUndoRun, undoRun } from './exec'
-import { applyRun, canUndoChange, discardRun, undoChange } from './review'
-import { awaitsReview, putRun } from './runs'
+import { canUndoRun } from './exec'
+import { applyRun, canUndoChange, discardRun, undoChange, undoRunAll } from './review'
+import { awaitsReview } from './runs'
 import { fmtDuration, fmtUsd, fmtWhen, statusLed } from './format'
 import type { AgentRun } from './types'
 
@@ -175,13 +175,11 @@ function Review({ run }: { run: AgentRun }) {
           <button
             type="button"
             className="btn btn--ghost btn--sm"
-            onClick={() => {
-              const kept = undoRun(run.id)
-              if (kept === null) return
-              void putRun({ ...run, staged: changes.map((c) => (c.status === 'applied' ? { ...c, status: 'pending' } : c)), applied: 0, status: run.status === 'ok' ? 'staged' : run.status })
-              useUI.getState().toast(kept ? t(kept === 1 ? 'features.agent.toast.undoneKept.one' : 'features.agent.toast.undoneKept.other', { count: kept }) : t('features.agent.toast.undone'))
-              focusIn(root, 'head')
-            }}
+            onClick={() =>
+              void undoRunAll(run).then((kept) => {
+                if (kept !== null) focusIn(root, 'head')
+              })
+            }
           >
             <Undo2 size={12} strokeWidth={1.75} aria-hidden /> {t('features.agents.review.undo')}
           </button>

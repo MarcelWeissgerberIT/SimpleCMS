@@ -166,12 +166,20 @@ export interface RunRequest {
 const undos = new Map<string, ApplyResult>()
 export const canUndoRun = (runId: string) => undos.has(runId)
 
-/** Revert what an 'apply' run (or a review) wrote; returns how many changes were kept because they were edited since. */
-export function undoRun(runId: string): number | null {
-  const res = undos.get(runId)
-  if (!res) return null
+/**
+ * Revert what an 'apply' run wrote: the ids of its changes kept because they were edited since, and the batch it
+ * reverted (null: nothing to undo in this tab). The review settles the run's proposals with it (review.ts undoRunAll).
+ */
+export function undoRunResult(runId: string): { kept: string[]; batch: ApplyResult } | null {
+  const batch = undos.get(runId)
+  if (!batch) return null
   undos.delete(runId)
-  return res.undo().kept.length
+  return { kept: batch.undo().kept, batch }
+}
+
+/** Revert what an 'apply' run wrote; returns how many changes were kept because they were edited since. */
+export function undoRun(runId: string): number | null {
+  return undoRunResult(runId)?.kept.length ?? null
 }
 export function rememberUndo(runId: string, res: ApplyResult): void {
   undos.set(runId, res)
