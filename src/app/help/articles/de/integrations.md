@@ -4,7 +4,7 @@ title: Integrationen
 section: ai
 order: 14
 keywords: Integrationen, Integrationsprofil, Profil, freischalten, MCP-Server, passen, Werkzeuge, Rezept, spiegeln, importieren, exportieren, JSON, Schema, one.integration, Schlüssel, nur von Hand, upsert, Werkzeugliste, Agenten-Zustand, Notizen, integrations, profile, unlock, recipe
-related: custom-agents, mcp-servers, properties, members-roles
+related: custom-agents, mcp-servers, outbox, properties, members-roles
 summary: Profile, die Agenten-Funktionen freischalten — Schlüssel, „Nur von Hand“, upsert_rows, Werkzeuglisten, den Agenten-Zustand, Notizen im Posteingang — und Rezepte mitbringen, solange einer deiner MCP-Server passt.
 ---
 Manche Agenten-Funktionen ergeben nur zusammen mit einem anderen Werkzeug Sinn: dessen Einträge über einen Schlüssel in eine Datenbank spiegeln, die eigenen Felder vor Agenten schützen, einen Agenten auf die lesenden Werkzeuge dieses Werkzeugs begrenzen. One baut sie für kein bestimmtes Werkzeug ein. Ein **Integrationsprofil** sagt, für welchen MCP-Server sie gelten, und schaltet sie frei, solange dieser Server da ist. Profile richtest du unter **Workspace → Integrationen** ein.
@@ -24,6 +24,7 @@ Mindestens eine Bedingung ist nötig. Die Liste zeigt je Profil eine LED und den
 - `toolAllowList` — die Werkzeugliste je MCP-Server im Agenten-Editor.
 - `agentState` — `agent_state_get` / `agent_state_set` zwischen Läufen.
 - `notify` — `notify_me`: Notizen eines Agenten in deinem Posteingang.
+- `sends` — die Sendewege des Profils für den [Ausgang](help:outbox): ⌘ → „Im Ticket-Tool antworten“ an einer gespiegelten Zeile, ohne Werkzeuge entworfen, von dir gesendet.
 
 Ohne aktives Profil werden diese Schalter, Werkzeuge und Bereiche nicht angeboten. Was schon gesetzt ist, **gilt weiter**: Eine Schlüssel-Eigenschaft bleibt eindeutig, Felder „Nur von Hand“ bleiben für jeden Agenten zu (im Eigenschaftsmenü als Markierung zu sehen), und ein Agent mit Werkzeugliste behält sie.
 
@@ -33,6 +34,9 @@ Ein Profil kann **Rezepte** mitbringen. Solange es aktiv ist, stehen sie unter *
 Ein Rezept ohne `instructions` für den Agenten bekommt Anweisungen, die aus **seinen eigenen** Eigenschaften zusammengesetzt sind — nie aus einer, die es nicht hat. Ein Schritt, der zu einer Rolle gehört, kommt nur vor, wenn eine Eigenschaft diese Rolle hat (`link`, `srcStatus`, `srcPriority`, `owner`, `tags`, `changedAt`, `comments`, `lastComment`, `lastCommentAt`, `newComment`, `waiting`, `clarity` mit ihren Optionen, `why`, `gone`); die Schlüssel-Eigenschaft ist die `key_property`; jede Eigenschaft mit `onlyByHand` steht bei „schreibe nie“; jede andere schreibt der Agent wie in der Quelle. Mit den eingebauten Eigenschaften ist das der Text des eingebauten Rezepts.
 
 Texte sind ein Text oder einer je Sprache: `{ "en": "Ready", "de": "Bereit" }`. Ansichten nennen Eigenschaften beim Namen (in einer der Sprachen) oder bei ihrer `role`, Filterwerte nennen Optionen. Im Namen des Agenten, seinen Anweisungen und im Titel der Berichtsseite werden `{db}`, `{server}` und `{report}` eingesetzt; Teile in **[ECKIGEN KLAMMERN]** ersetzt die Person, bevor der Agent eingeschaltet werden kann.
+
+## Sendewege
+Ein Profil kann auch sagen, wie man in sein Werkzeug **zurück**schreibt: `sends` listet Sendewege (das Werkzeug, seine Eingaben als Vorlage, die Änderung an der Zeile danach) und `reads` die Werkzeuge, die nur lesen. Jedes Werkzeug eines Sendewegs ist **OUT** — abgeschaltet in jeder Claude-Anfrage, die One für einen Server stellt, den das Profil über Name oder Host findet, auch solange das Profil nicht aktiv ist. Nur der [Ausgang](help:outbox) benutzt sie, und nur, wenn du die Taste drückst; dort steht das Format.
 
 ## Das Schema
 Ein Profil ist ein JSON-Objekt mit dem Schema `one.integration/1`:
@@ -70,7 +74,7 @@ Ein Profil ist ein JSON-Objekt mit dem Schema `one.integration/1`:
 
 Dieses Rezept bringt keine `instructions` mit: Sein Agent soll die Einträge auflisten und lesen, *Item* (den Schlüssel) und *State* mit `upsert_rows` schreiben und *My note* nie — sonst nichts.
 
-`id`: Kleinbuchstaben, Ziffern, `-` und `_`. `unlocks`: beliebige der sechs Funktionen. Unbekannte Schlüssel werden abgelehnt, ein Tippfehler fällt also sofort auf. Ein Workspace hat höchstens **50** Profile.
+`id`: Kleinbuchstaben, Ziffern, `-` und `_`. `unlocks`: beliebige der sieben Funktionen. Unbekannte Schlüssel werden abgelehnt, ein Tippfehler fällt also sofort auf. Ein Workspace hat höchstens **50** Profile.
 
 ## Neu, importieren, exportieren, bearbeiten
 - **Neue Integration → Aus der Vorlage** — der eingebaute Spiegel vollständig ausgeschrieben, mit leerem `match` zum Ausfüllen. **Für einen deiner MCP-Server** füllt `match` mit den getesteten lesenden Werkzeugen dieses Servers und seinem Namen.
