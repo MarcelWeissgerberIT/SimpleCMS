@@ -20,6 +20,7 @@ import { sanitizeScript } from './scripts'
 import { emptyKit, optionsOfList, sanitizeList, sanitizePropType, sanitizeRecordType, storedTypeOf, syncRecordTypeInto } from './kit'
 import { lookAllowed, sameLook, sanitizeLook } from './look'
 import { INTEGRATION_LIMITS, integrationsAllowed, sameIntegration, sanitizeIntegration, sanitizeIntegrations } from './integrations'
+import { SYSTEM, withWriter } from './writer'
 import type {
   CustomAgent,
   IntegrationProfile,
@@ -479,14 +480,17 @@ export const useWorkspace = create<WorkspaceState>()(
     hydrate: (ws) => {
       // the Claude API key: a vault marker, never the key (secrets.ts)
       const settings = withSealedKey(ws.settings, get().settings.aiApiKey, ws.epoch)
-      set((s) => {
-        const look = sanitizeLook(ws.look)
-        const before = get().look
-        Object.assign(s, ws, { pages: freezePages(ws.pages), settings, functions: ws.functions ?? {}, agents: ws.agents ?? {}, scripts: ws.scripts ?? {}, kit: ws.kit ?? emptyKit(), integrations: sanitizeIntegrations(ws.integrations).integrations })
-        // the same look keeps its reference (subscribers compare by reference)
-        s.look = sameLook(look, before ?? null, { meta: true }) ? before : (look ?? undefined)
-        s.ready = true
-      })
+      // boot / workspace switch: no writer's change (the recorder is not listening yet at boot; a re-hydrate is system)
+      withWriter(SYSTEM('hydrate'), () =>
+        set((s) => {
+          const look = sanitizeLook(ws.look)
+          const before = get().look
+          Object.assign(s, ws, { pages: freezePages(ws.pages), settings, functions: ws.functions ?? {}, agents: ws.agents ?? {}, scripts: ws.scripts ?? {}, kit: ws.kit ?? emptyKit(), integrations: sanitizeIntegrations(ws.integrations).integrations })
+          // the same look keeps its reference (subscribers compare by reference)
+          s.look = sameLook(look, before ?? null, { meta: true }) ? before : (look ?? undefined)
+          s.ready = true
+        }),
+      )
       void checkAIKey()
     },
 
@@ -1259,6 +1263,37 @@ export function pageChanges(next: Record<ID, Page>, prev: Record<ID, Page>): Pag
   const before = keyCounts.get(prev) ?? Object.keys(prev).length
   if (before + out.added.length > keys.length) for (const id of Object.keys(prev)) if (!(id in next)) out.removed.push(id)
   rememberChanges(next, prev, out, keys.length, before)
+  return out
+}
+
+/**
+ * The shared diff of two page maps if somebody already computed it (a subscriber that ran before, or a
+ * write that knew it) — never computes it (the flight recorder's hot path: null = diff later, in idle).
+ */
+export function peekPageChanges(next: Record<ID, Page>, prev: Record<ID, Page>): PageChanges | null {
+  if (next === prev) return NO_CHANGES
+  for (const d of recentDiffs) if (d.next === next && d.prev === prev) return d.out
+  return null
+}
+
+export interface DatabaseChanges {
+  /** databases that are new or a different object than before (added ones included) */
+  changed: ID[]
+  added: ID[]
+  removed: ID[]
+}
+
+/** Which databases differ between two database maps (by reference; a plain loop — the map is small). */
+export function databaseChanges(next: Record<ID, Database>, prev: Record<ID, Database>): DatabaseChanges {
+  const out: DatabaseChanges = { changed: [], added: [], removed: [] }
+  if (next === prev) return out
+  for (const id in next) {
+    const o = prev[id]
+    if (next[id] === o) continue
+    out.changed.push(id)
+    if (o === undefined) out.added.push(id)
+  }
+  for (const id in prev) if (!(id in next)) out.removed.push(id)
   return out
 }
 
