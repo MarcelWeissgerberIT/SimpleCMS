@@ -22,7 +22,7 @@ import { F, K, type JEvent, type JOp, type JSegment, type LaneKey, type LeftHash
 import { resolvePending, type Pending } from './attribute'
 import { deps } from './deps'
 import { digestLeft, digestPart, digestWhole } from './key'
-import { pad13, pad8, type Batch, type Bump, type Journal } from './db'
+import { pad13, pad8, type Batch, type Bump, type Journal, type StoreName } from './db'
 import { pagePin, schemaPin, storePins } from './pins'
 import { RunBook } from './runs'
 import type { PinInput } from '../../history/pins'
@@ -36,10 +36,19 @@ const PIN_CHUNK = 200
 const PIN_CHUNK_BYTES = 2_000_000
 const DIGEST_CHUNK = 500
 const YIELD_MS = 12
+/** records per transaction of a big flush (writeInParts) */
+const TX_RECORDS = 1500
 
-/** The next task (a MessageChannel: not throttled in a hidden tab like a timer). */
-function nextTask(): Promise<void> {
+/**
+ * Go on when the page is idle (a visible tab: requestIdleCallback, the person's frames first), else in the next task
+ * (a hidden tab: a MessageChannel, not throttled like a timer).
+ */
+export function idleTask(): Promise<void> {
   return new Promise((resolve) => {
+    if (typeof document !== 'undefined' && document.visibilityState !== 'hidden' && typeof requestIdleCallback === 'function') {
+      requestIdleCallback(() => resolve(), { timeout: 1000 })
+      return
+    }
     const ch = new MessageChannel()
     ch.port1.onmessage = () => {
       ch.port1.close()
@@ -428,6 +437,8 @@ export class Processor {
       }
       const i = op.n++
       op.kinds |= pl.kinds
+      // (a big Vorgang goes on across slices: the op is written again with every flush that has more of it)
+      this.ops.set(op.k, op)
       const delta = pl.kinds & K.CONTENT ? contentDelta((pl.prevRaw as Page | undefined)?.content, (pl.nextRaw as Page | undefined)?.content, deps) : null
       const f = baseF | pl.f | (seg.rec.n === 0 ? seg.rec.f & F.GAP : 0)
       const ev: JEvent = {
@@ -764,7 +775,8 @@ export class Processor {
 
       // 2. digests, in the order the records were made (signed in pieces: each piece hands its strings over at once)
       const digests: Array<string | LeftHash> = []
-      for (let i = 0; i < jobs.length; i += DIGEST_CHUNK)
+      for (let i = 0; i < jobs.length; i += DIGEST_CHUNK) {
+        if (i) await lap(idleTask())
         digests.push(
           ...(await lap(
             Promise.all(
@@ -776,8 +788,9 @@ export class Processor {
             ),
           )),
         )
+      }
       for (let i = 0; i < jobs.length; i++) {
-        if (i % 256 === 255 && performance.now() - t > YIELD_MS) await lap(nextTask())
+        if (i % 256 === 255 && performance.now() - t > YIELD_MS) await lap(idleTask())
         const job = jobs[i]
         const d = digests[i]
         if (job.t === 'ev') {
@@ -807,7 +820,7 @@ export class Processor {
         [segs.values(), put.segs],
       ] as Array<[Iterable<object>, Array<Record<string, unknown>>]>)
         for (const r of list) {
-          if (n++ % 256 === 255 && performance.now() - t > YIELD_MS) await lap(nextTask())
+          if (n++ % 256 === 255 && performance.now() - t > YIELD_MS) await lap(idleTask())
           const copy = { ...r } as Record<string, unknown>
           bytes += approxSize(copy)
           into.push(copy)
@@ -837,7 +850,7 @@ export class Processor {
         bump.push({ store: 'kv', key: `${scope}|tab|${this.tab}`, fn: (cur) => ({ k: `${scope}|tab|${this.tab}`, start: Number(cur?.start ?? now), lastFlush: now, clean: false }) })
       }
       if (lost) batch.put!.kv = [{ k: `${lost.s}|gap|${pad13(lost.from)}`, from: lost.from, to: lost.to, tab: this.tab }]
-      await lap(this.write(j, batch))
+      await this.writeInParts(j, batch, lap)
       this.gate.wrote(bytes)
       this.lastFlush = now
     } catch (e) {
@@ -861,6 +874,25 @@ export class Processor {
     // 4. after the write: what the person deleted for good loses its pins
     if (purge.length) await lap(this.applyPurge(j, purge, memory))
     noteTask(this.stats, 'flush', t)
+  }
+
+  /**
+   * A big flush (an import's thousands of places) goes in several transactions of ≤ TX_RECORDS records, the page idle
+   * between them: segments, events, ops, runs, kv — the counters and histograms (read-modify-write) with the last one.
+   * A tab dying in between leaves records without their counts (never counts without records) — and a lost tail.
+   */
+  private async writeInParts(j: Journal, batch: Batch, lap: <T>(p: Promise<T>) => Promise<T>): Promise<void> {
+    const order: StoreName[] = ['segs', 'events', 'ops', 'runs', 'kv']
+    const all: Array<[StoreName, Record<string, unknown>]> = []
+    for (const store of order) for (const r of batch.put?.[store] ?? []) all.push([store, r])
+    if (all.length <= TX_RECORDS) return lap(this.write(j, batch))
+    for (let i = 0; i < all.length; i += TX_RECORDS) {
+      const last = i + TX_RECORDS >= all.length
+      const put: NonNullable<Batch['put']> = {}
+      for (const [store, r] of all.slice(i, i + TX_RECORDS)) (put[store] ??= []).push(r)
+      await lap(this.write(j, last ? { put, bump: batch.bump, del: batch.del } : { put }))
+      if (!last) await lap(idleTask())
+    }
   }
 
   private async write(j: Journal, batch: Batch): Promise<void> {

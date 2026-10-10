@@ -244,17 +244,19 @@ export class Recorder {
       this.channel ??= new MessageChannel()
       this.channel.port1.onmessage = () => this.slice()
       this.channel.port2.postMessage(0)
-    } else if (typeof requestIdleCallback === 'function') requestIdleCallback(() => this.slice(), { timeout: 2000 })
+    } else if (typeof requestIdleCallback === 'function') requestIdleCallback((idle) => this.slice(idle), { timeout: 2000 })
     else setTimeout(() => this.slice(), 50)
   }
 
-  private slice(): void {
+  private slice(idle?: IdleDeadline): void {
     this.sliceQueued = false
     if (!this.on) return
     const t0 = performance.now()
     const scope = scopeNow()
     if (!this.recovering.has(scope)) this.recovering.set(scope, this.recover(scope))
-    const deadline = t0 + (this.hidden() ? HIDDEN_SLICE : VISIBLE_SLICE)
+    // an idle period: no longer than it lasts (the next frame is the person's), never more than a slice
+    const budget = this.hidden() ? HIDDEN_SLICE : idle && !idle.didTimeout ? Math.min(VISIBLE_SLICE, Math.max(2, idle.timeRemaining())) : VISIBLE_SLICE
+    const deadline = t0 + budget
     let done = true
     while (this.queue.length && performance.now() < deadline) if (!(done = this.take(deadline))) break
     // segments closed meanwhile are summed up in the time left

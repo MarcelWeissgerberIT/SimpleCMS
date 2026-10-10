@@ -51,6 +51,21 @@ const note = (what: string, value: unknown) => {
   console.log(`[recorder-perf] ${what}: ${JSON.stringify(value)}`)
 }
 
+/** No page-map scan for 1.5 s: the deferred work of earlier writes (repairs, the search index …) is done. */
+async function quiet(page: Page): Promise<void> {
+  let last = -1
+  let since = Date.now()
+  const end = Date.now() + 30_000
+  while (Date.now() < end) {
+    const n = await page.evaluate(() => (window as unknown as { __scans: number }).__scans)
+    if (n !== last) {
+      last = n
+      since = Date.now()
+    } else if (Date.now() - since >= 1500) return
+    await page.waitForTimeout(250)
+  }
+}
+
 /** The queue drained and everything written. */
 async function settled(page: Page): Promise<void> {
   await expect.poll(async () => (await stats(page)).queue, { timeout: 60_000 }).toBe(0)
@@ -160,11 +175,13 @@ test.describe('flight recorder: performance', () => {
       const s = await stats(page)
       expect(s.idleDiffScans, 'idle page-map diffs').toBe(0)
 
-      // a store write walks the page map no more often with the recorder than without it
+      // a store write walks the page map no more often with the recorder than without it (each from a quiet start)
       await rec(page, 'resetStats')
+      await quiet(page)
       const on = await scansPerWrite(page, big)
       expect((await stats(page)).idleDiffScans).toBe(0)
       await rec(page, 'stop')
+      await quiet(page)
       const off = await scansPerWrite(page, big)
       note('page-map scans per write (recorder on / off)', { on, off })
       for (const kind of ['content', 'title', 'cell'] as const) {
