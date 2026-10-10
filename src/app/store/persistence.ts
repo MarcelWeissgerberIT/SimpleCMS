@@ -52,7 +52,7 @@ import { sanitizeIntegrations } from './integrations'
 import { sanitizeScripts } from './scripts'
 import { sanitizeKit } from './kit'
 import { sanitizeLook } from './look'
-import { contentFingerprint, DOC_SCHEMA_VERSION, newerBlockPrints, newerCounts, rewrapNewer } from './generations'
+import { blockVersions, contentFingerprint, DOC_SCHEMA_VERSION, newerCounts, rewrapNewer } from './generations'
 import { plainText } from './plain'
 
 /** The single-record layout before v2 (read once, then converted). */
@@ -177,10 +177,11 @@ const REPLACING = new Set(['history', 'import'])
  * The recent versions of pages holding tasks that this generation stored — this tab's saves and the ones it read
  * from other tabs of this version (page → the contents, oldest first). An older tab saving with typing of its own
  * merges our copy in but keeps ITS stale version of every task's blocks (to it the unwrapped task is a change of its
- * own): a block that comes back as in one of these is ours, not an edit made there. Kept as they are (the store's
- * own objects): their blocks' prints are worked out only once an older build's copy turns up (`wroteOf`).
+ * own): a block that comes back as one of these versions of that very block is ours, not an edit made there. Kept as
+ * they are (the store's own objects): their entries (block → print) are worked out only once an older build's copy
+ * turns up (`wroteOf`).
  */
-const wroteHere = new Map<ID, { versions: NonNullable<Page['content']>[]; prints: Set<number> | null }>()
+const wroteHere = new Map<ID, { versions: NonNullable<Page['content']>[]; prints: Set<string> | null }>()
 /** Versions kept per page: the stale copy an older tab's merge keeps is one of the last few stored. */
 const WROTE_VERSIONS = 6
 
@@ -194,13 +195,13 @@ function noteWritten(p: Page, newer = holdsNewer(p.content)) {
   wroteHere.set(p.id, w)
 }
 
-/** The prints of the blocks inside tasks in the versions of a page this generation stored (newerBlockPrints). */
-function wroteOf(id: ID): Set<number> | undefined {
+/** The versions of the blocks in the versions of a page with tasks this generation stored (blockVersions: block → print). */
+function wroteOf(id: ID): Set<string> | undefined {
   const w = wroteHere.get(id)
   if (!w) return undefined
   if (!w.prints) {
     w.prints = new Set()
-    for (const content of w.versions) for (const print of newerBlockPrints(content)) w.prints.add(print)
+    for (const content of w.versions) for (const entry of blockVersions(content)) w.prints.add(entry)
   }
   return w.prints
 }
@@ -237,8 +238,10 @@ function keepReplaced(page: Page, content: Page['content']) {
  * of this generation stored or holds) wrapped again around what is left of its blocks — the older build's own
  * edits kept (rewrapNewer). A node with nothing left there stays gone, and so does every one when the older build
  * replaced the content as a whole (a restore, an import); `known` then goes to the page's history (titled as
- * `cur`, this build's copy of the page, has it). The page as it is when nothing was lost (or a current build wrote
- * it); a copy when only something stayed gone, so the caller stores it again (stamped: never checked twice). `genOf`:
+ * `cur`, this build's copy of the page, has it) — as it does when lines of a task put back are gone or emptied there
+ * (deleted there, or a line we added that its own merge dropped). The page as it is when nothing was lost (or a
+ * current build wrote it); a copy when only something stayed gone, so the caller stores it again (stamped: never
+ * checked twice). `genOf`:
  * the generation of the build that wrote `page` (writerGen of its stored record — asked only when `known` has tasks).
  */
 function guardOlder(page: Page, genOf: () => number, known: Page['content'] | undefined, cur?: Page): Page {
@@ -247,10 +250,11 @@ function guardOlder(page: Page, genOf: () => number, known: Page['content'] | un
   if (gen >= DOC_SCHEMA_VERSION) return page
   try {
     const prints = wroteOf(page.id)
-    const wrote = prints && ((print: number) => prints.has(print))
-    const { doc, dropped } = rewrapNewer(known, page.content, gen, { whole: REPLACING.has(page.contentOrigin ?? ''), wrote })
-    if (dropped.length) keepReplaced(cur ?? page, known)
-    if (doc === page.content) return dropped.length ? { ...page } : page
+    const wrote = prints && ((entry: string) => prints.has(entry))
+    const { doc, dropped, missed } = rewrapNewer(known, page.content, gen, { whole: REPLACING.has(page.contentOrigin ?? ''), wrote })
+    const kept = dropped.length > 0 || missed > 0
+    if (kept) keepReplaced(cur ?? page, known)
+    if (doc === page.content) return kept ? { ...page } : page
     return { ...page, content: doc, plain: plainText(doc) }
   } catch (e) {
     console.warn('[one] could not merge a page an older version of One stored', e)

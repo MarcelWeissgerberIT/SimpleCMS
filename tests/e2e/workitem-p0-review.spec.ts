@@ -31,7 +31,7 @@ import { test, expect, openApp, gotoPage, wsEval, uiEval, createPage, doc, para,
 import { itemAttrs } from '../../src/app/editor/workitem/attrs'
 import { keepItems, workItemFromQuote } from '../../src/app/editor/workitem/markdown'
 import { liftMisplacedItems } from '../../src/app/editor/workitem/place'
-import { asGeneration, contentFingerprint, lostNewer, newerBlockPrints, restoreNewer, rewrapNewer } from '../../src/app/store/generations'
+import { asGeneration, blockVersions, contentFingerprint, lostNewer, restoreNewer, rewrapNewer } from '../../src/app/store/generations'
 import { mergeContent } from '../../src/app/store/merge'
 
 type AnyState = Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -1161,8 +1161,8 @@ test.describe('task block (P0 review): pure parts', () => {
       const ours = made(asGeneration(Rj, 0, 'unwrap'))
       ours.content = ours.content!.map((n) => (textOf(n) === 'End' ? { ...n, content: [{ type: 'text', text: 'End typed' }] } : n))
       const merged = mergeContent(Rj, Rk, ours)!
-      const wrote = new Set([...newerBlockPrints(Rj), ...newerBlockPrints(Rk)])
-      const r = rewrapNewer(Rk, merged, 0, { wrote: (print) => wrote.has(print) })
+      const wrote = new Set([...blockVersions(Rj), ...blockVersions(Rk)])
+      const r = rewrapNewer(Rk, merged, 0, { wrote: (entry) => wrote.has(entry) })
       expect(count(r.doc!, 'Two'), `ids ${ids}`).toBe(1)
       expect(count(r.doc!, 'two note')).toBe(1)
       expect(textOf(r.doc!)).toContain('Two ours')
