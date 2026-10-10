@@ -24,6 +24,7 @@ import { useWorkspace } from '../../store/store'
 import type { Database, ID, Page, PageTemplate, PropertyValue, TemplateRepeat } from '../../store/types'
 import { newId } from '../../lib/ids'
 import { createPrivateDatabase, createPrivatePage } from '../../cloud'
+import { withWriter } from '../../store/writer'
 
 /** Back side of a two-way relation pair: `<forward id>.2way` (database/model/actions.ts TWO_WAY_SUFFIX). */
 const TWO_WAY = '.2way'
@@ -145,6 +146,11 @@ function crossingPairs(list: Page[], dbs: Record<ID, Database>, inside: Set<ID>)
 
 /** Copy the subtree of `rootId` (see the module comment). Null when the page is gone. */
 export function copyTree(rootId: ID, opts: CopyOptions): CopyResult | null {
+  // a copy of a template (or a page into the templates) is the template's write (store/writer.ts) — one run
+  return withWriter({ kind: 'template', id: rootId, run: newId() }, () => copyTreeNow(rootId, opts))
+}
+
+function copyTreeNow(rootId: ID, opts: CopyOptions): CopyResult | null {
   const st = useWorkspace.getState()
   const list = subtreeOf(st.pages, rootId)
   if (!list.length) return null

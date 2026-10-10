@@ -35,6 +35,7 @@ import { Meter, Readout } from './parts'
 import { countList, unitOf } from './count'
 import { onRovingKey } from './roving'
 import './io.css'
+import { withWriter } from '../../store/writer'
 
 interface Picked {
   path: string
@@ -188,8 +189,11 @@ export function ImportModal({ onClose }: { onClose: () => void }) {
 
   /** Undo of a finished import: its pages (and what the source added) gone, back where the person was. */
   const undoImport = (result: ImportResult, extra: ImportExtra | undefined, before: string | undefined) => {
-    extra?.undo?.()
-    if (result.rootId && useWorkspace.getState().pages[result.rootId]) useWorkspace.getState().deletePagePermanently(result.rootId)
+    // the person's Undo of the import (store/writer.ts)
+    withWriter({ kind: 'you', via: 'undo' }, () => {
+      extra?.undo?.()
+      if (result.rootId && useWorkspace.getState().pages[result.rootId]) useWorkspace.getState().deletePagePermanently(result.rootId)
+    })
     navigate(before || '#/', { replace: true })
     useUI.getState().toast({ message: t('features.imp.done.undone'), kind: 'success' })
     setPhase({ name: 'idle' })

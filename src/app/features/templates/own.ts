@@ -22,6 +22,8 @@ import { pauseAutomations } from '../automations/engine'
 import type { TemplateDef, Tr } from './catalog'
 import { copyTree } from './copy'
 import { templateFiller } from './vars'
+import { withWriter } from '../../store/writer'
+import { newId } from '../../lib/ids'
 
 export const TEMPLATE_CATEGORIES: TemplateCategory[] = ['work', 'product', 'personal', 'knowledge']
 
@@ -138,10 +140,14 @@ export function createBlankTemplate(): ID {
 export function customiseBuiltin(def: TemplateDef, L: Tr): ID {
   const resume = pauseAutomations()
   try {
-    const id = def.build(null, L)
-    ws().updatePage(id, {
-      hidden: true,
-      template: { name: def.title(L), description: def.description(L), category: def.category, icon: { type: 'asset', value: def.icon }, from: def.id },
+    // the built-in's builder writes as the template (store/writer.ts)
+    const id = withWriter({ kind: 'template', id: def.id, run: newId() }, () => {
+      const made = def.build(null, L)
+      ws().updatePage(made, {
+        hidden: true,
+        template: { name: def.title(L), description: def.description(L), category: def.category, icon: { type: 'asset', value: def.icon }, from: def.id },
+      })
+      return made
     })
     void flushSave()
     return id
@@ -179,7 +185,7 @@ export function removeTemplate(rootId: ID, kind: 'delete' | 'reset') {
   void flushSave()
   useUI.getState().toast({
     message: t(kind === 'reset' ? 'features.tpl.resetDone' : 'features.tpl.deleted', { name }),
-    action: { label: t('common.undo'), run: () => ws().pages[rootId] && ws().restorePage(rootId) },
+    action: { label: t('common.undo'), run: () => ws().pages[rootId] && withWriter({ kind: 'you', via: 'undo' }, () => ws().restorePage(rootId)) },
   })
 }
 

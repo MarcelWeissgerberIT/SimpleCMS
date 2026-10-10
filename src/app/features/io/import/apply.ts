@@ -17,6 +17,7 @@ import { FRAG, calloutBlocks, hasCalloutMarker } from './obsidian'
 import { isMentionHref, mentionFromLink } from './mentions'
 import { warningsToReport, type ReportItem } from './report'
 import type { HtmlToDoc } from './htmldoc'
+import { endRun, noteRun, withWriter, type Writer } from '../../../store/writer'
 
 export interface ImportProgress {
   stage: 'files' | 'pages' | 'commit'
@@ -117,6 +118,9 @@ function budget(ms = 12) {
 
 const headingKey = (s: string) => s.replace(/[*_`~=[\]]/g, '').replace(/\s+/g, ' ').trim().toLowerCase()
 const blockId = () => (typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`)
+
+/** The import's source as a writer key names it ([a-z0-9_]: md, notion, obsidian, pptx, design …). */
+const importSource = (plan: ImportPlan): string => (plan.source ?? (plan.isNotion ? 'notion' : 'md')).toLowerCase().replace(/[^a-z0-9_]/g, '_').slice(0, 40) || 'md'
 
 export async function applyPlan(
   plan: ImportPlan,
@@ -620,12 +624,18 @@ export async function applyPlan(
   /* ---------- 4. commit (single store update) ---------- */
   progress({ stage: 'commit', done: 1, total: 1 })
   const snap = getWorkspaceSnapshot()
-  useWorkspace.getState().replaceAll({
-    ...snap,
-    pages: { ...snap.pages, ...pages },
-    databases: { ...snap.databases, ...databases },
-    people: [...snap.people, ...people.filter((p) => !snap.people.some((x) => x.id === p.id))],
-  })
+  // one import run (store/writer.ts): ONE update, named by its source
+  const writer: Writer = { kind: 'import', run: newId(), source: importSource(plan) }
+  noteRun(writer, { source: importSource(plan) })
+  withWriter(writer, () =>
+    useWorkspace.getState().replaceAll({
+      ...snap,
+      pages: { ...snap.pages, ...pages },
+      databases: { ...snap.databases, ...databases },
+      people: [...snap.people, ...people.filter((p) => !snap.people.some((x) => x.id === p.id))],
+    }),
+  )
+  endRun(writer)
 
   let nPages = 0
   let nDbs = 0

@@ -14,6 +14,7 @@ import { newId } from '../../lib/ids'
 import { useCloud } from '../../cloud'
 import { t } from '../../i18n'
 import { withoutCommandSecrets } from '../commands'
+import { endRun, noteRun, withWriter, type Writer } from '../../store/writer'
 
 export const BACKUP_FORMAT = 'simplecms-one-backup'
 
@@ -361,36 +362,47 @@ export async function applyBackup(b: Backup, mode: 'merge' | 'replace', onProgre
   }
   const files = new Set(refMap.values()).size
 
-  if (mode === 'replace') {
-    store.replaceAll({
-      ...source,
-      pages,
-      databases,
-      settings: { ...source.settings, aiApiKey: snap.settings.aiApiKey || source.settings.aiApiKey },
-      // this device's recent pages stay (where they still exist) — an older backup's list is never taken over
-      recent: snap.recent.filter((id) => !!pages[id]),
-      // a page backup carries no integration profiles: this workspace's stay
-      integrations: b.scope === 'page' ? snap.integrations : source.integrations,
-    })
-    return { target: rootId ?? source.settings.startPageId ?? firstRoot(pages), mode, added, updated, unchanged, files, ...(overInBackup ? { integrationsLeft: overInBackup } : {}) }
+  // a backup's restore is one import run (store/writer.ts)
+  const writer: Writer = { kind: 'import', run: newId(), source: 'backup' }
+  noteRun(writer, { source: 'backup' })
+  try {
+    return withWriter(writer, () => commitBackup())
+  } finally {
+    endRun(writer)
   }
 
-  const people = [...snap.people]
-  for (const person of source.people) if (!people.some((x) => x.id === person.id)) people.push(person)
-  // integration profiles: only someone who may edit them takes a backup's along (team: owners and admins)
-  const ints = integrationsAllowed() ? mergeIntegrations(snap.integrations, source.integrations) : null
-  const integrationsLeft = ints ? ints.left + overInBackup : 0
-  store.replaceAll({
-    ...snap,
-    pages,
-    databases,
-    people,
-    functions: mergeFunctions(snap.functions, source.functions),
-    kit: mergeKit(snap.kit, source.kit),
-    integrations: ints ? ints.integrations : snap.integrations,
-  })
-  const target = rootId && pages[rootId] ? rootId : firstRoot(incoming.pages) ?? firstRoot(source.pages)
-  return { target, mode, added, updated, unchanged, files, ...(integrationsLeft ? { integrationsLeft } : {}) }
+  function commitBackup(): RestoreResult {
+    if (mode === 'replace') {
+      store.replaceAll({
+        ...source,
+        pages,
+        databases,
+        settings: { ...source.settings, aiApiKey: snap.settings.aiApiKey || source.settings.aiApiKey },
+        // this device's recent pages stay (where they still exist) — an older backup's list is never taken over
+        recent: snap.recent.filter((id) => !!pages[id]),
+        // a page backup carries no integration profiles: this workspace's stay
+        integrations: b.scope === 'page' ? snap.integrations : source.integrations,
+      })
+      return { target: rootId ?? source.settings.startPageId ?? firstRoot(pages), mode, added, updated, unchanged, files, ...(overInBackup ? { integrationsLeft: overInBackup } : {}) }
+    }
+
+    const people = [...snap.people]
+    for (const person of source.people) if (!people.some((x) => x.id === person.id)) people.push(person)
+    // integration profiles: only someone who may edit them takes a backup's along (team: owners and admins)
+    const ints = integrationsAllowed() ? mergeIntegrations(snap.integrations, source.integrations) : null
+    const integrationsLeft = ints ? ints.left + overInBackup : 0
+    store.replaceAll({
+      ...snap,
+      pages,
+      databases,
+      people,
+      functions: mergeFunctions(snap.functions, source.functions),
+      kit: mergeKit(snap.kit, source.kit),
+      integrations: ints ? ints.integrations : snap.integrations,
+    })
+    const target = rootId && pages[rootId] ? rootId : firstRoot(incoming.pages) ?? firstRoot(source.pages)
+    return { target, mode, added, updated, unchanged, files, ...(integrationsLeft ? { integrationsLeft } : {}) }
+  }
 }
 
 /**

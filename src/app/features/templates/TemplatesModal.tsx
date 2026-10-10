@@ -37,6 +37,8 @@ import {
   templateRoots,
 } from './own'
 import './templates.css'
+import { withWriter } from '../../store/writer'
+import { newId } from '../../lib/ids'
 
 type Source = 'builtin' | 'mine'
 type Cat = 'all' | TemplateCategory
@@ -205,7 +207,8 @@ export function TemplatesModal({ parentId, tab, select, onClose }: { parentId?: 
     guarded(() => {
       const from = window.location.hash
       const where = target?.id ?? null
-      const id = e.root ? applyTemplate(e.root.id, where) : e.def!.build(where, L)
+      // a built-in's builder writes as the template (store/writer.ts); an own template copies itself (copyTree)
+      const id = e.root ? applyTemplate(e.root.id, where) : withWriter({ kind: 'template', id: e.def!.id, run: newId() }, () => e.def!.build(where, L))
       if (!id) throw new Error('template is gone')
       void flushSave()
       onClose()

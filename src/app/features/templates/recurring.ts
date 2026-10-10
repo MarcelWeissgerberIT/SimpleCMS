@@ -23,6 +23,8 @@ import type { Database, ID, PropertyValue } from '../../store/types'
 import { activeWorkspace, useCloud } from '../../cloud'
 import { t } from '../../i18n'
 import { DEFAULT_REPEAT_TITLE, MAX_CATCH_UP, fillRepeatVars, occurrenceRowId, occurrencesBetween, type FillVars, type Occurrence } from './schedule'
+import { SYSTEM, withWriter } from '../../store/writer'
+import { newId } from '../../lib/ids'
 
 type Template = NonNullable<Database['templates']>[number]
 
@@ -115,11 +117,13 @@ export function runRecurringTemplates(now = Date.now()): RecurringNotice[] {
       if (!due.length) return tpl
       changed = true
       const recent = due.slice(-MAX_CATCH_UP)
-      const rows = recent.map((occ) => createOccurrence(db.id, tpl, occ)).filter((x): x is { id: ID; title: string } => !!x)
+      // the repeating template's run (store/writer.ts): its occurrences, one burst
+      const rows = withWriter({ kind: 'template', id: tpl.id, run: newId(), repeat: true }, () => recent.map((occ) => createOccurrence(db.id, tpl, occ))).filter((x): x is { id: ID; title: string } => !!x)
       if (rows.length) notices.push({ databaseId: db.id, templateName: tpl.name || t('common.untitled'), rows, skipped: due.length - recent.length })
       return { ...tpl, repeat: { ...r, lastRunAt: now } }
     })
-    if (changed) useWorkspace.getState().updateDatabase(db.id, { templates: next })
+    // when each template last ran: bookkeeping (store/writer.ts)
+    if (changed) withWriter(SYSTEM('bookkeeping'), () => useWorkspace.getState().updateDatabase(db.id, { templates: next }))
   }
   return notices
 }
