@@ -4,11 +4,16 @@
  * `unknown` lane). A row = mark the tape → do the thing → `expectLane`. Claude, Gmail and every other host are
  * mocked; the test data is fictional (Nordlicht, Tessera, Mara Lind).
  */
+import { existsSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import type { BrowserContext, Locator, Page } from '@playwright/test'
+import { Client } from '../../mcp/node_modules/@modelcontextprotocol/sdk/dist/esm/client/index.js'
+import { StdioClientTransport } from '../../mcp/node_modules/@modelcontextprotocol/sdk/dist/esm/client/stdio.js'
 import { test, expect, openApp, wsEval, flush, gotoPage, editorOf, createPage, doc, para, sidebarRow, selectText, pageById, escapeRe, sse, MOD } from './fixtures'
 import { docxBytes } from './helpers/files'
 import { mockAgent, openTerminal, run as runTask, sseMessage, terminal } from './helpers/terminal'
 import { addProfile, trackerProfile } from './helpers/integrations'
+import { makeCodingRepo, startCodingWorker, type CodingRepo, type RunningWorker } from './helpers/coding'
 import { expectLane, markRec, nordlichtDb, rec, startRecorder } from './helpers/recorder'
 
 type AnyRec = Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -858,3 +863,115 @@ test.describe('flight recorder — every writer has a lane', () => {
     await expectLane(page, m, 'import', /^import:/, /^import:.+:backup$/)
   })
 })
+
+/* ------------------------------------------------------------------ */
+/* MCP: the built local bridge, driven like Claude Code would          */
+/* ------------------------------------------------------------------ */
+
+test.describe('flight recorder — MCP writes', () => {
+  test.describe.configure({ mode: 'serial' })
+  const BRIDGE = fileURLToPath(new URL('../../public/mcp/one-mcp.mjs', import.meta.url))
+  /** RECORDER_MCP_PORT: a port of its own (mcp.spec uses 47399) */
+  const PORT = Number(process.env.RECORDER_MCP_PORT) || 47388
+  let client: Client
+  let stderr = ''
+
+  test.beforeAll(async () => {
+    expect(existsSync(BRIDGE), 'public/mcp/one-mcp.mjs (npm run build:mcp)').toBe(true)
+    const transport = new StdioClientTransport({ command: process.execPath, args: [BRIDGE], env: { PATH: process.env.PATH ?? '', ONE_MCP_PORT: String(PORT), ONE_MCP_WAIT_MS: '8000' }, stderr: 'pipe' })
+    transport.stderr?.on('data', (d: Buffer) => {
+      stderr += d.toString()
+    })
+    client = new Client({ name: 'claude-code', version: '2.0.0' })
+    await client.connect(transport)
+    await expect.poll(() => stderr).toContain(`waiting for One on ws://127.0.0.1:${PORT}`)
+  })
+  test.afterAll(async () => {
+    await client?.close()
+  })
+
+  type ToolResult = { content?: Array<{ type: string; text?: string }>; isError?: boolean }
+  const call = async (name: string, args: Record<string, unknown> = {}) => {
+    const r = (await client.callTool({ name, arguments: args })) as ToolResult
+    const text = (r.content ?? []).map((c) => c.text ?? '').join('')
+    expect(r.isError, text).toBeFalsy()
+    return JSON.parse(text)
+  }
+
+  test('an MCP client: create (mcp:<session>:<call>:<tool>), trash and restore (tidy)', async ({ page }) => {
+    await boot(page)
+    await page.evaluate(() => (window as unknown as { __one: AnyRec }).__one.ui.getState().openModal({ type: 'settings' }))
+    await page.getByRole('tab', { name: /Agents · MCP/ }).click()
+    const port = page.getByLabel('Port', { exact: true })
+    await port.fill(String(PORT))
+    await port.press('Enter')
+    await page.getByRole('switch', { name: 'Allow AI agents on this computer' }).click()
+    await expect(page.getByTestId('mcp-state')).toContainText('Connected · Claude Code')
+    await page.getByRole('radio', { name: 'Apply directly' }).click()
+    await expect.poll(async () => (await call('one_list_workspaces')).workspaces.length).toBe(1)
+
+    let m = await markRec(page)
+    const created = await call('one_create_page', { title: 'Tessera vom Agenten', markdown: '# Nordlicht\n\nVon Claude Code.' })
+    await expect.poll(() => wsEval(page, (s, id) => !!s.pages[id], created.id)).toBe(true)
+    await expectLane(page, m, /^mcp:/, /^mcp:/, /:one_create_page$/)
+
+    m = await markRec(page)
+    await call('one_trash_page', { id: created.id })
+    await expect.poll(() => wsEval(page, (s, id) => s.pages[id].trashed, created.id)).toBe(true)
+    await expectLane(page, m, /^mcp:/, /^mcp:/, /:one_trash_page$/)
+
+    m = await markRec(page)
+    await call('one_restore_page', { id: created.id })
+    await expect.poll(() => wsEval(page, (s, id) => s.pages[id].trashed, created.id)).toBe(false)
+    await expectLane(page, m, /^mcp:/, /^mcp:/, /:one_restore_page$/)
+  })
+})
+
+/* ------------------------------------------------------------------ */
+/* Coding: the built worker with the fake Claude Code CLI              */
+/* ------------------------------------------------------------------ */
+
+test.describe('flight recorder — coding worker', () => {
+  test.describe.configure({ mode: 'serial' })
+  /** RECORDER_CODING_PORT: a port of its own (coding.spec uses 47383 / 47384) */
+  const PORT = Number(process.env.RECORDER_CODING_PORT) || 47387
+  let repo: CodingRepo
+  let worker: RunningWorker | null = null
+  test.beforeAll(() => {
+    repo = makeCodingRepo()
+  })
+  test.afterAll(async () => {
+    await worker?.stop()
+    repo?.cleanup()
+  })
+
+  test('a stage the worker finishes: its outcome in the task page (coding:<task>:<stage>)', async ({ page }) => {
+    await boot(page)
+    await page.evaluate(() => (window as unknown as { __one: AnyRec }).__one.ui.getState().openModal({ type: 'settings' }))
+    await page.getByRole('tab', { name: /Coding worker/ }).click()
+    await expect(page.getByTestId('coding-settings')).toBeVisible()
+    const init = await page.locator('.cw-code pre').filter({ hasText: 'init --workspace' }).first().textContent()
+    const ws = /--workspace (\S+)/.exec(init ?? '')![1]
+    worker = await startCodingWorker(repo, ws, PORT)
+    const port = page.getByLabel('Port', { exact: true })
+    await port.fill(String(PORT))
+    await port.press('Enter')
+    await page.getByRole('switch', { name: 'Connect to a coding worker on this computer' }).click()
+    await expect(page.getByTestId('coding-conn')).toContainText('Connected · e2e-box · 1 repo')
+    await page.keyboard.press('Escape')
+
+    await page.evaluate(() => (window.location.hash = '#/coding'))
+    await page.getByTestId('coding-new').click()
+    await page.getByTestId('coding-new-title').fill('Nordlicht Datei anlegen')
+    await page.getByTestId('coding-new-repo').fill('website')
+    await page.getByTestId('coding-new-goal').fill('Write feature.txt with the title.')
+    await page.getByTestId('coding-new-criteria').fill('feature.txt exists')
+    const m = await markRec(page)
+    await page.getByTestId('coding-create').click()
+    await expect(page.getByTestId('coding-panel')).toBeVisible()
+    // Ready → Plan: the worker's plan lands in the task page, the task waits at "Approve plan"
+    await expect(page.getByTestId('coding-approve')).toBeVisible({ timeout: 30_000 })
+    await expectLane(page, m, 'coding', /^coding:/)
+  })
+})
+
