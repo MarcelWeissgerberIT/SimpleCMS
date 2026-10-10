@@ -55,15 +55,20 @@ export function sanitizeProfile(key: string, raw: unknown): ServerProfile | null
   const host = glob(own(match, 'host'), HOST_GLOB)
   const raws = own(raw, 'unlocks')
   const unlocks = Array.isArray(raws) ? INTEGRATION_FEATURES.filter((f) => raws.includes(f)) : []
-  // the send routes' tools — every route with a tool name counts (more than the app keeps is the safe side); a profile
-  // without name / host has none, as in the app
+  // the send routes' tools — every route with a tool name counts (more than the app keeps is the safe side), and the
+  // tools an app copy kept locked for routes it had to leave out (`outTools`); a profile without name / host has none,
+  // as in the app
   const out: string[] = []
   const sends = own(raw, 'sends')
-  if ((name || host) && Array.isArray(sends))
-    for (const r of sends.slice(0, MAX_ROUTES)) {
-      const tool = isObj(r) ? own(r, 'tool') : undefined
-      if (typeof tool === 'string' && TOOL_NAME.test(tool) && !out.includes(tool)) out.push(tool)
-    }
+  const extra = own(raw, 'outTools')
+  if (name || host) {
+    if (Array.isArray(sends))
+      for (const r of sends.slice(0, MAX_ROUTES)) {
+        const tool = isObj(r) ? own(r, 'tool') : undefined
+        if (typeof tool === 'string' && TOOL_NAME.test(tool) && !out.includes(tool)) out.push(tool)
+      }
+    if (Array.isArray(extra)) for (const tool of extra.slice(0, MAX_ROUTES)) if (typeof tool === 'string' && TOOL_NAME.test(tool) && !out.includes(tool)) out.push(tool)
+  }
   return { id, ...(name ? { name } : {}), ...(host ? { host } : {}), unlocks, ...(out.length ? { out } : {}) }
 }
 

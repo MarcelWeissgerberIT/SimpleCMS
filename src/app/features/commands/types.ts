@@ -76,7 +76,7 @@ export interface SubItem {
 
 /** A computed default command of a database (never stored; only its place and `hidden`). */
 export interface DefaultSpec {
-  /** the stored id: 'new-entry', 'templates', 'views', 'import-csv', 'export-csv', 'copy-link', 'mail-sync', 'mail-organise', 'mail-settings', 'agent:<id>', 'memory-log', 'send:<profileId>/<routeId>' (the Outbox) */
+  /** the stored id: 'new-entry', 'templates', 'views', 'import-csv', 'export-csv', 'copy-link', 'mail-sync', 'mail-organise', 'mail-settings', 'agent:<id>', 'memory-log', 'send:<profileId>:<routeId>' (the Outbox) */
   key: string
   group: 'db' | 'mail' | 'agent' | 'memory' | 'outbox'
   label: string

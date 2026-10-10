@@ -280,7 +280,7 @@ function localText(c: Ctx, v: unknown, max: number, opts: { line?: boolean } = {
 
 /* ------------------------------------------------------------------ the profile */
 
-const PROFILE_KEYS = ['schema', 'id', 'name', 'description', 'match', 'unlocks', 'recipes', 'sends', 'reads'] as const
+const PROFILE_KEYS = ['schema', 'id', 'name', 'description', 'match', 'unlocks', 'recipes', 'sends', 'reads', 'outTools'] as const
 /** stored fields that may come along (never reported, never exported) */
 const STORED_KEYS = ['updatedAt', 'updatedBy'] as const
 
@@ -381,6 +381,7 @@ export function checkIntegration(raw: unknown, report: Report | null = null): In
   if (recipes.length) out.recipes = recipes
   if (routes.sends?.length) out.sends = routes.sends
   if (routes.reads) out.reads = routes.reads
+  if (routes.outTools?.length) out.outTools = routes.outTools
   const updatedAt = own(o, 'updatedAt')
   if (typeof updatedAt === 'number' && Number.isFinite(updatedAt)) out.updatedAt = updatedAt
   const updatedBy = own(o, 'updatedBy')
@@ -1118,8 +1119,36 @@ function checkRoute(c: Ctx, v: unknown, sendTools: readonly string[], reads: rea
  * `sends` and `reads` of a profile (empty when it has none). A profile with routes matches by name or host — without,
  * its routes are an error (the sanitizer leaves them out: the team server could not lock what the browser does).
  */
-function checkSends(c: Ctx, o: Obj, match: IntegrationMatch | undefined, unlocks: IntegrationFeature[]): { sends?: SendRoute[]; reads?: string[] } {
-  const out: { sends?: SendRoute[]; reads?: string[] } = {}
+/** The tool names of raw routes (the first SEND_LIMITS.routes; also of a route that is broken otherwise). */
+const rawSendTools = (v: unknown): string[] =>
+  Array.isArray(v) ? [...new Set(v.slice(0, SEND_LIMITS.routes).flatMap((x) => (isObj(x) && typeof x.tool === 'string' && TOOL_NAME.test(x.tool) ? [x.tool] : [])))] : []
+
+/**
+ * `outTools`: what the lock must hold beyond the routes this copy keeps — the tool of every route given (a route left
+ * out for any reason still locks its tool: the team server reads every `sends[].tool`, and the browser must never lock
+ * less) plus a stored `outTools`. Only a profile that matches by name / host locks anything.
+ */
+function checkOutTools(c: Ctx, o: Obj, match: IntegrationMatch | undefined, kept: SendRoute[]): string[] {
+  const given: string[] = []
+  if (has(o, 'outTools')) {
+    const oc = c.at('outTools')
+    arr(oc, o.outTools, SEND_LIMITS.routes)?.forEach((x, i) => {
+      if (typeof x !== 'string' || !TOOL_NAME.test(x)) return oc.at(i).issue('tool', { value: show(x) })
+      if (!given.includes(x)) given.push(x)
+    })
+  }
+  if (!match?.name && !match?.host) return []
+  const sent = new Set(kept.map((r) => r.tool))
+  return [...new Set([...rawSendTools(o.sends), ...given])].filter((t) => !sent.has(t)).slice(0, SEND_LIMITS.routes)
+}
+
+function checkSends(c: Ctx, o: Obj, match: IntegrationMatch | undefined, unlocks: IntegrationFeature[]): { sends?: SendRoute[]; reads?: string[]; outTools?: string[] } {
+  const out: { sends?: SendRoute[]; reads?: string[]; outTools?: string[] } = {}
+  const lockRest = () => {
+    const rest = checkOutTools(c, o, match, out.sends ?? [])
+    if (rest.length) out.outTools = rest
+    return out
+  }
   if (has(o, 'reads')) {
     const rc = c.at('reads')
     const list = arr(rc, o.reads, SEND_LIMITS.reads)
@@ -1133,17 +1162,17 @@ function checkSends(c: Ctx, o: Obj, match: IntegrationMatch | undefined, unlocks
       out.reads = reads
     }
   }
-  if (!has(o, 'sends')) return out
+  if (!has(o, 'sends')) return lockRest()
   const sc = c.at('sends')
   const list = arr(sc, o.sends, SEND_LIMITS.routes)
-  if (!list) return out
+  if (!list) return lockRest()
   if (!list.length) {
     sc.issue('empty')
-    return out
+    return lockRest()
   }
   if (!match?.name && !match?.host) {
     sc.issue('sendsNeedsName')
-    return out
+    return lockRest()
   }
   // every route's tool (also of a route that is broken otherwise): no pre-read or read-back may use one
   const sendTools = list.flatMap((x) => (isObj(x) && typeof x.tool === 'string' && TOOL_NAME.test(x.tool) ? [x.tool] : []))
@@ -1172,7 +1201,7 @@ function checkSends(c: Ctx, o: Obj, match: IntegrationMatch | undefined, unlocks
   const missing = (['sends', 'keys'] as IntegrationFeature[]).filter((f) => !unlocks.includes(f))
   if (missing.length) c.at('unlocks').warn('sendsNeeds', { features: missing.join(',') })
   if (sends.length) out.sends = sends
-  return out
+  return lockRest()
 }
 
 /* ------------------------------------------------------------------ store helpers */
@@ -1233,6 +1262,7 @@ export function exportIntegration(p: IntegrationProfile): Omit<IntegrationProfil
     ...(p.recipes?.length ? { recipes: p.recipes } : {}),
     ...(p.sends?.length ? { sends: p.sends } : {}),
     ...(p.reads ? { reads: p.reads } : {}),
+    ...(p.outTools?.length ? { outTools: p.outTools } : {}),
   }
 }
 
@@ -1389,8 +1419,9 @@ export function serverUnlockedBy(profiles: IntegrationProfile[] | undefined, ser
 export function outToolsOf(profiles: IntegrationProfile[] | undefined, server: { name: string; url: string }): string[] {
   const out: string[] = []
   for (const p of profiles ?? []) {
-    if (!p.sends?.length || !serverMatch(p, [server])) continue
-    for (const r of p.sends) if (!out.includes(r.tool)) out.push(r.tool)
+    const tools = [...(p.sends ?? []).map((r) => r.tool), ...(p.outTools ?? [])]
+    if (!tools.length || !serverMatch(p, [server])) continue
+    for (const t of tools) if (!out.includes(t)) out.push(t)
   }
   return out
 }

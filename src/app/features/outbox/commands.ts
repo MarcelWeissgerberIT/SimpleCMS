@@ -1,5 +1,6 @@
 /**
- * Send routes as database commands (features/commands/defaults.ts group 'outbox', key `send:<profileId>/<routeId>`):
+ * Send routes as database commands (features/commands/defaults.ts group 'outbox', key `send:<profileId>:<routeId>` —
+ * ids of the commands grammar, so hiding or moving one in the Commands editor is kept):
  * on the toolbar they act on the selected rows (none: "Pick a row"), elsewhere on the row open in the page / peek —
  * or the popover asks for one. They open the draft popover; nothing is sent from a command.
  */
@@ -30,7 +31,7 @@ const openKey = (): Element | null => document.querySelector('[data-testid="db-c
 
 export function outboxCommands(dbId: ID): OutboxCommand[] {
   return routesFor(dbId).map((r) => ({
-    key: `send:${r.ref.profileId}/${r.ref.routeId}`,
+    key: `send:${r.ref.profileId}:${r.ref.routeId}`,
     label: r.label,
     run: ({ rowIds, surface }) => {
       const rows = rowIds.length ? rowIds : surface === 'toolbar' ? [] : [rowOnScreen(dbId)].filter((x): x is ID => !!x)

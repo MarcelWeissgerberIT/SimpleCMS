@@ -12,7 +12,8 @@ import type { CommandEntry, DefaultSpec } from './types'
 
 export const COMMAND_LIMITS = { commands: 60, label: 60, config: 20_000 }
 
-const ID_RE = /^[\w:.-]{1,80}$/
+/** a stored id: also the Outbox's 'send:<profile>:<route>' (≤ 5 + 64 + 1 + 32 characters) */
+const ID_RE = /^[\w:.-]{1,120}$/
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
 const own = (o: Record<string, unknown>, k: string): unknown => (Object.prototype.hasOwnProperty.call(o, k) ? o[k] : undefined)
 

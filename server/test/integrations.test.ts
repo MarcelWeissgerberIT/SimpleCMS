@@ -122,6 +122,10 @@ describe('the OUT lock on the server: send routes switch their tools off (the ap
     assert.equal(sanitizeProfile('t', profile('t', { name: 'tracker' }, [], { sends: many }))!.out!.length, 20)
     // no sends: no key (old readers' results stay the same)
     assert.deepEqual(sanitizeProfile('t', profile('t', { name: 'tracker' }, ['upsert'])), { id: 't', name: 'tracker', unlocks: ['upsert'] })
+    // an app copy that had to leave a route out keeps its tool in `outTools`: the server locks it too
+    assert.deepEqual(sanitizeProfile('t', profile('t', { name: 'tracker' }, ['sends'], { sends: [reply], outTools: ['post_big', 'not a name', 7, 'post_big'] }))!.out, ['add_comment', 'post_big'])
+    assert.deepEqual(sanitizeProfile('t', profile('t', { name: 'tracker' }, [], { outTools: ['post_big'] }))!.out, ['post_big'])
+    assert.equal(sanitizeProfile('t', profile('t', { tools: ['get_item'] }, [], { outTools: ['post_big'] }))!.out, undefined)
   })
 
   test('outOf: per runtime server, by name / host, a union over profiles; whatever the profiles unlock', () => {

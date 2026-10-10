@@ -1444,6 +1444,11 @@ export interface IntegrationProfile {
   sends?: SendRoute[]
   /** the profile's reading tools (≤ 50): when set, every check / confirm tool is one of them and no send tool is */
   reads?: string[]
+  /**
+   * More send tools to lock (≤ 20): the sanitizer keeps here the tool of a route it had to leave out (too big, a
+   * label this version cannot read …) — the route is gone from this copy, its tool stays OUT, as on the team server
+   */
+  outTools?: string[]
   /** stored only (never exported): the last save and its author (team: stamped by the server) */
   updatedAt?: number
   updatedBy?: string | null
