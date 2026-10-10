@@ -94,6 +94,7 @@ export const messages: Messages = {
     'features.outbox.lamp.off': 'off',
     'features.outbox.line.mirror': 'Per mirror {time} · by hand',
     'features.outbox.line.drafted': 'Drafted {time}',
+    'features.outbox.line.cost': 'Draft {usd} · no tools',
     'features.outbox.line.receipt': 'Receipt {id} · only in One',
     'features.outbox.line.heldAt': 'Held {time}',
 
@@ -371,6 +372,7 @@ export const messages: Messages = {
     'features.outbox.lamp.off': 'aus',
     'features.outbox.line.mirror': 'Laut Spiegel {time} · von Hand',
     'features.outbox.line.drafted': 'Entwurf {time}',
+    'features.outbox.line.cost': 'Entwurf {usd} · ohne Werkzeuge',
     'features.outbox.line.receipt': 'Quittung {id} · nur in One',
     'features.outbox.line.heldAt': 'Zurückgehalten {time}',
 

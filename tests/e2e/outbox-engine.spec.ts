@@ -26,6 +26,18 @@ import type { IntegrationProfile, McpServerConfig } from '../../src/app/store/ty
 import { LISTING_SHOWS_DISABLED, lockedOnly, mergeTestedTools, outLine, toolsetFor } from '../../src/app/features/ai/mcp-servers/lock'
 import { pickedTool } from '../../src/app/features/ai/mcp-servers/codeword'
 import { overviewRows } from '../../src/app/features/ai/mcp-servers/overview'
+import { readFileSync, readdirSync, statSync } from 'node:fs'
+import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { createHash } from 'node:crypto'
+import { canonicalJson } from '../../src/app/features/coding/protocol'
+import { fillArgs, fillTemplate, placeholdersOf, cleanParams, SENT_AT } from '../../src/app/features/outbox/template'
+import { pickPath, pickFields, diffFields, rowBaseline, rowChanges } from '../../src/app/features/outbox/fields'
+import { next, type SlipEvent } from '../../src/app/features/outbox/machine'
+import { addressSet, hiddenChars, linkTargets, personAdded, scanAddresses, sealOf, showHidden } from '../../src/app/features/outbox/seal'
+import { outboxCounts } from '../../src/app/features/outbox/counts'
+import { argsHashOf } from '../../src/app/features/outbox/hash'
+import { SLIP_STATES, type Slip, type SlipState, type SourceRef } from '../../src/app/features/outbox/types'
 
 type AnyState = Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -323,5 +335,247 @@ test.describe('Outbox engine · slice 1a: contract and lock', () => {
       ['tracker', ['add_comment', 'log_work']],
       ['wiki', []],
     ])
+  })
+})
+
+/* ------------------------------------------------------------------ slice 1b: the Outbox's pure parts */
+
+test.describe('Outbox 1b: templates, fields, states, the seal, counts (pure)', () => {
+  const ctx = { key: '10668', params: { draft: 'Hi', minutes: 90 } }
+
+  test('fillArgs builds values: the draft as one whole string, {key} inside a text, {key|number}, {sentAt} kept until the press', () => {
+    const r = fillArgs(REPLY as never, { key: '10668', params: { draft: '"}, "x": 1' } })
+    expect(r).toEqual({ ok: true, value: { ref: '10668', visibility: 'team', body: '"}, "x": 1' } })
+    const w = fillArgs(WORK as never, { key: '10668', params: { minutes: 90 } })
+    expect(w).toEqual({ ok: true, value: { ref: 'LDG-10668', minutes: 90, at: SENT_AT, ticket: 10668 } })
+    expect(fillArgs(WORK as never, { key: '10668', params: { minutes: 90 }, sentAt: '2026-10-10T08:12:00.000Z' })).toMatchObject({ ok: true, value: { at: '2026-10-10T08:12:00.000Z' } })
+    // {key|number}: digits only
+    expect(fillArgs(WORK as never, { key: 'CNSX-4512', params: { minutes: 30 } })).toMatchObject({ ok: false, why: 'keyNumber' })
+    // a draft inside a longer text, an unknown placeholder, {check.*}, {result.*} outside the read-back: refused at fill time
+    expect(fillArgs({ args: { body: 'Re: {draft}' }, params: [{ name: 'draft', type: 'text' }] } as never, ctx)).toMatchObject({ ok: false, why: 'whole' })
+    expect(fillArgs({ args: { x: '{nope}' } } as never, ctx)).toMatchObject({ ok: false, why: 'undeclared' })
+    expect(fillArgs({ args: { x: '{Nope.x}' } } as never, ctx)).toMatchObject({ ok: false, why: 'unknown' })
+    expect(fillArgs({ args: { x: '{check.status}' } } as never, ctx)).toMatchObject({ ok: false, why: 'check' })
+    expect(fillArgs({ args: { x: '{result.id}' } } as never, ctx)).toMatchObject({ ok: false, why: 'result' })
+    // the read-back: {result.<path>} filled from the send's result, also inside a text
+    expect(fillTemplate({ ref: '{key}', id: '{result.items.0.id}', note: 'c-{result.items.-1.id}' }, 'confirm', { key: '10668', params: {}, result: { items: [{ id: 'a1' }, { id: 'b2' }] } })).toEqual({ ok: true, value: { ref: '10668', id: 'a1', note: 'c-b2' } })
+    // braces that are no token stay text; nested values are copied
+    expect(fillArgs({ args: { q: '{ x }', deep: { list: ['{key}', 2, null] } } } as never, ctx)).toEqual({ ok: true, value: { q: '{ x }', deep: { list: ['10668', 2, null] } } })
+    expect(placeholdersOf(WORK.args)).toEqual(['{key}', '{minutes}', '{sentAt}', '{key|number}'])
+  })
+
+  test('typed params: text within its limit, minutes rounded to the step and bounded, options from the list', () => {
+    expect(cleanParams(REPLY as never, {}, 'Hello')).toEqual({ ok: true, params: { draft: 'Hello' } })
+    expect(cleanParams(REPLY as never, {}, 'x'.repeat(4001))).toEqual({ ok: false, problem: { why: 'tooLong', name: 'draft' } })
+    expect(cleanParams(REPLY as never, {}, null)).toEqual({ ok: true, params: { draft: '' } })
+    expect(cleanParams(WORK as never, { minutes: 98 }, undefined)).toEqual({ ok: true, params: { minutes: 105 } })
+    expect(cleanParams(WORK as never, { minutes: '1,5' as never }, undefined)).toMatchObject({ ok: false })
+    expect(cleanParams(WORK as never, { minutes: 640 }, undefined)).toMatchObject({ ok: false, problem: { why: 'param' } })
+    expect(cleanParams(WORK as never, {}, undefined)).toMatchObject({ ok: false, problem: { name: 'minutes' } })
+    const opt = { params: [{ name: 'status', type: 'option', values: ['Open', 'Done'] }] }
+    expect(cleanParams(opt as never, { status: 'Done' }, undefined)).toEqual({ ok: true, params: { status: 'Done' } })
+    expect(cleanParams(opt as never, { status: 'done' }, undefined)).toMatchObject({ ok: false })
+  })
+
+  test('canonicalJson + SHA-256: fixed vectors (the worker hashes the same bytes)', async () => {
+    const vectors: Array<[unknown, string, string]> = [
+      [{ b: 1, a: [true, null, 'x'] }, '{"a":[true,null,"x"],"b":1}', '54a65415ad370228851a1da4b31b6fd42dc58b19a50d35cae759325f7388ce64'],
+      [{ é: '‮', z: 'a"b\n' }, '{"z":"a\\"b\\n","é":"‮"}', '447d88b8dd18229e860bdc8ab04b98e14c6577b99e63c4c4dcdaa30918023d77'],
+      [{ a: undefined, c: { y: 2, x: [1, { k: 'v' }] } }, '{"c":{"x":[1,{"k":"v"}],"y":2}}', '35ef94395a80b82310a8fb8059bf3f1da0a0e7d18ddca50f5d64b7b00e38524e'],
+      [{ n: 1e21, m: -0, f: 1.5, s: '' }, '{"f":1.5,"m":0,"n":1e+21,"s":""}', 'cf7e380a5185b004ec39c0b68176f08c8f1002cf5f0327c7a8f499dd66461f1c'],
+      [{ ref: '10668', visibility: 'team', body: '"}, "x": 1' }, '{"body":"\\"}, \\"x\\": 1","ref":"10668","visibility":"team"}', 'ac69218e2c40f83b2cce4b1c48deb75f8e4b3a294deab0b2cec9cfae96d94a23'],
+    ]
+    for (const [v, text, sha] of vectors) {
+      expect(canonicalJson(v)).toBe(text)
+      expect(createHash('sha256').update(text, 'utf8').digest('hex')).toBe(sha)
+      expect(await argsHashOf(v as Record<string, unknown>)).toBe(sha)
+    }
+    expect(() => canonicalJson({ x: Number.NaN })).toThrow()
+    const cyc: Record<string, unknown> = {}
+    cyc.self = cyc
+    expect(() => canonicalJson(cyc)).toThrow()
+  })
+
+  test('paths: names, indexes from the end, length — never a prototype; pickFields / diffFields; the row baseline', () => {
+    const rec = { ref: '10668', status: 'In Development', comments: [{ body: 'a' }, { body: 'b', by: 'J. Weber' }], meta: { tags: ['x'] } }
+    expect(pickPath(rec, 'comments.-1.body')).toBe('b')
+    expect(pickPath(rec, 'comments.0.body')).toBe('a')
+    expect(pickPath(rec, 'comments.length')).toBe(2)
+    expect(pickPath(rec, 'meta.tags.length')).toBe(1)
+    expect(pickPath(rec, 'ref.length')).toBe(5)
+    expect(pickPath(rec, 'comments.5.body')).toBeUndefined()
+    expect(pickPath(rec, 'constructor')).toBeUndefined()
+    expect(pickPath(rec, '__proto__.x')).toBeUndefined()
+    expect(pickPath(rec, 'comments[0]')).toBeUndefined()
+    expect(pickFields(rec, ['status', 'comments.length', 'missing'])).toEqual({ status: 'In Development', 'comments.length': '2', missing: '' })
+    expect(diffFields({ status: 'A', n: '7' }, { status: 'A', n: '8', extra: 'x' })).toEqual([
+      { field: 'n', before: '7', now: '8' },
+      { field: 'extra', before: '', now: 'x' },
+    ])
+    const b = rowBaseline({ comments: { label: 'Comments', text: '7' }, srcStatus: { label: 'Source status', text: 'Open' }, owner: { label: 'Owner', text: 'J. Weber' } }, 'B6 or B7?')
+    expect(b).toEqual({ fields: { comments: '7', srcStatus: 'Open' }, labels: { comments: 'Comments', srcStatus: 'Source status' }, latest: 'B6 or B7?' })
+    // changes; a reply this device sent explains one more comment (and the newest one's time when it is that reply)
+    const now = { comments: '8', srcStatus: 'Open', lastCommentAt: '2026-10-10T08:09' }
+    const base = { comments: '7', srcStatus: 'Open', lastCommentAt: '2026-10-09T16:42' }
+    expect(rowChanges(base, now).map((c) => c.field)).toEqual(['comments', 'lastCommentAt'])
+    expect(rowChanges(base, now, { texts: ['Take B6.'], latest: 'Take  B6.' })).toEqual([])
+    expect(rowChanges(base, now, { texts: ['Take B6.'], latest: 'B7 fits, thanks' }).map((c) => c.field)).toEqual(['lastCommentAt'])
+    expect(rowChanges(base, { ...now, comments: '9' }, { texts: ['Take B6.'], latest: 'x' }).map((c) => c.field)).toEqual(['comments', 'lastCommentAt'])
+  })
+
+  test('the state machine: every allowed transition, and nothing else (no ready → sent but by hand)', () => {
+    const allowed: Array<[SlipState, SlipEvent, SlipState]> = [
+      ['missing', 'write', 'ready'],
+      ['ready', 'hold', 'held'],
+      ['held', 'release', 'ready'],
+      ['ready', 'withdraw', 'withdrawn'],
+      ['held', 'withdraw', 'withdrawn'],
+      ['missing', 'withdraw', 'withdrawn'],
+      ['failed', 'withdraw', 'withdrawn'],
+      ['ready', 'press', 'sending'],
+      ['failed', 'press', 'sending'],
+      ['sending', 'ok', 'sent'],
+      ['sending', 'failBefore', 'failed'],
+      ['sending', 'failAfter', 'unclear'],
+      ['sending', 'toolErrorAbsent', 'failed'],
+      ['sending', 'toolErrorPresent', 'sent'],
+      ['sending', 'toolErrorNoConfirm', 'failed'],
+      ['sending', 'boot', 'unclear'],
+      ['sent', 'readMatch', 'confirmed'],
+      ['sent', 'readMismatch', 'unconfirmed'],
+      ['unclear', 'settleArrived', 'sent'],
+      ['unclear', 'settleMissing', 'ready'],
+      ['ready', 'markSent', 'sent'],
+    ]
+    const events: SlipEvent[] = ['write', 'hold', 'release', 'withdraw', 'press', 'ok', 'failBefore', 'failAfter', 'toolErrorAbsent', 'toolErrorPresent', 'toolErrorNoConfirm', 'readMatch', 'readMismatch', 'settleArrived', 'settleMissing', 'markSent', 'boot']
+    for (const from of SLIP_STATES)
+      for (const ev of events) {
+        const hit = allowed.find(([f, e]) => f === from && e === ev)
+        expect(next(from, ev), `${from} --${ev}->`).toBe(hit ? hit[2] : null)
+      }
+    // the only ways into 'sent': ok after the write-ahead, a tool error the read-back found, a settled UNCLEAR — and by hand
+    const intoSent = allowed.filter(([, , to]) => to === 'sent').map(([f, e]) => `${f}:${e}`)
+    expect(intoSent).toEqual(['sending:ok', 'sending:toolErrorPresent', 'unclear:settleArrived', 'ready:markSent'])
+    // UNCLEAR never becomes 'failed'
+    expect(events.map((e) => next('unclear', e)).includes('failed')).toBe(false)
+  })
+
+  const src = (s: Partial<SourceRef> & Pick<SourceRef, 'kind' | 'label'>): SourceRef => ({ ref: s.label, trusted: false, addresses: [], ...s })
+
+  test('the seal: addresses by their source, hidden characters, the person\'s own words, typed values', () => {
+    const comment = src({ kind: 'row', label: 'Comment T. Brandt', addresses: addressSet('Plan is in the share: teilen.example/rp — approve it there') })
+    const ownPage = src({ kind: 'page', label: 'Baselines overview', trusted: true, addresses: addressSet('Docs: https://docs.example.org/baselines and teilen.example') })
+    const typed = src({ kind: 'row', label: 'Comments', typed: true })
+    // only in foreign text → 'foreign' with its label; in no source → 'nowhere'
+    let s = sealOf({ text: 'Approve here: teilen.example/rp, see also evil.example/x', sources: [comment, typed], complete: true })
+    expect(s.addresses.map((a) => [a.norm, a.only, a.source ?? null])).toEqual([
+      ['teilen.example/rp', 'foreign', 'Comment T. Brandt'],
+      ['evil.example/x', 'nowhere', null],
+    ])
+    expect(s.foreign).toBe(1)
+    expect(s.clean).toBe(false)
+    // a host-only trusted match does not clear an address with a path; an exact one does (scheme, www., case, trailing slash ignored)
+    s = sealOf({ text: 'see teilen.example/rp and HTTPS://www.Docs.Example.org/baselines/', sources: [ownPage], complete: true })
+    expect(s.addresses.map((a) => [a.norm, a.only])).toEqual([['teilen.example/rp', 'nowhere']])
+    s = sealOf({ text: 'see teilen.example', sources: [ownPage], complete: true })
+    expect(s.addresses).toEqual([])
+    // the person's own typing (the instruction, words added in an edit) is trusted
+    const added = personAdded('Looks good, approved.', 'Looks good, approved. Copy: teilen.example/rp')
+    expect(added).toContain('teilen.example/rp')
+    s = sealOf({ text: 'Looks good, approved. Copy: teilen.example/rp', sources: [comment], complete: true, ownText: added })
+    expect(s.addresses).toEqual([])
+    // Markdown link targets, e-mail addresses; One's own links are internal
+    expect(linkTargets('See [the plan](https://teilen.example/rp) and [x](#/p/abc)')).toEqual(['https://teilen.example/rp', '#/p/abc'])
+    expect(scanAddresses('Write to Mara.Lind@Nordlicht.example or [x](#/p/abc) or https://one.example/app/#/p/x', 'https://one.example').map((a) => [a.norm, a.kind])).toEqual([
+      ['mara.lind@nordlicht.example', 'email'],
+      ['#/p/abc', 'internal'],
+      ['one.example/app', 'internal'],
+    ])
+    s = sealOf({ text: 'open #/p/abc', sources: [], complete: true })
+    expect(s.addresses.map((a) => a.only)).toEqual(['internal'])
+    // file names are not hosts; dates and abbreviations neither
+    expect(addressSet('see notes.md, report.pdf, 14.10., z.B. B7')).toEqual([])
+    // hidden characters: every class, variation selectors only in runs
+    const zoo = 'a​b‮c⁡d⁦e؜f﻿g\u{E0041}h️️i ❤️'
+    expect(hiddenChars(zoo)).toEqual(['U+200B', 'U+202E', 'U+2061', 'U+2066', 'U+061C', 'U+FEFF', 'U+E0041', 'U+FE0F'])
+    expect(showHidden('ok‮exe')).toBe('ok⟦U+202E⟧exe')
+    expect(hiddenChars('I ❤️ it')).toEqual([])
+    s = sealOf({ text: 'ok‮exe', sources: [typed], complete: true })
+    expect(s.hidden).toEqual(['U+202E'])
+    expect(s.clean).toBe(false)
+    // typed values never shape free text; a typed-only slip with complete sources is clean; no sources: never clean
+    expect(sealOf({ text: null, sources: [typed, comment], complete: true })).toMatchObject({ foreign: 0, clean: true })
+    expect(sealOf({ text: 'Thanks!', sources: [typed], complete: true }).clean).toBe(true)
+    expect(sealOf({ text: 'Thanks!', sources: [], complete: false }).clean).toBe(false)
+    // ticks stay with their address across a recomputation
+    const first = sealOf({ text: 'go to teilen.example/rp', sources: [comment], complete: true })
+    first.addresses[0].ticked = true
+    expect(sealOf({ text: 'please go to teilen.example/rp', sources: [comment], complete: true, previous: first }).addresses[0].ticked).toBe(true)
+  })
+
+  test('outboxCounts: open / clean / foreign / held / changed / unclear / missing / sent today — held wins over foreign', () => {
+    const now = new Date(2026, 9, 10, 12, 0).getTime()
+    const seal = (o: Partial<Slip['seal']> = {}) => ({ complete: true, foreign: 0, addresses: [], hidden: [], cross: false, clean: true, ...o })
+    const mk = (state: SlipState, o: Partial<Slip> = {}): Slip => ({ state, seal: seal(), target: { dbId: 'db1' }, ...o }) as Slip
+    const foreignSeal = seal({ foreign: 1, clean: false })
+    const slips = [
+      mk('ready'),
+      mk('ready'),
+      mk('ready', { seal: foreignSeal }),
+      mk('ready', { seal: seal({ addresses: [{ text: 'x', norm: 'x', only: 'foreign', ticked: false }], clean: false }) }),
+      mk('held', { seal: foreignSeal }),
+      mk('ready', { lastCheck: { at: 1, from: 'row', changed: [{ field: 'comments', before: '7', now: '8' }] } }),
+      mk('unclear'),
+      mk('missing', { seal: seal({ complete: false, clean: false }) }),
+      mk('sent', { receipt: { at: now - 1000 } as Slip['receipt'] }),
+      mk('confirmed', { receipt: { at: now - 3600_000 } as Slip['receipt'] }),
+      mk('sent', { receipt: { at: now - 86_400_000 } as Slip['receipt'] }),
+      mk('withdrawn'),
+      mk('ready', { target: { dbId: 'db2' } as Slip['target'] }),
+    ]
+    expect(outboxCounts(slips, 'db1', now)).toEqual({ open: 8, clean: 2, foreign: 2, held: 1, changed: 1, unclear: 1, missing: 1, sentToday: 2 })
+    expect(outboxCounts(slips, null, now).open).toBe(9)
+    // "send anyway" read the change: no longer CHANGED
+    expect(outboxCounts([mk('ready', { lastCheck: { at: 1, from: 'row', changed: [{ field: 'n', before: '1', now: '2' }], ack: 2 } })], null, now)).toMatchObject({ changed: 0, clean: 1 })
+  })
+})
+
+/* ------------------------------------------------------------------ T1-guard: who may reach what (static scan) */
+
+test.describe('Outbox guard: a static look at the imports', () => {
+  const root = fileURLToPath(new URL('../../src/app', import.meta.url))
+  const files = (dir: string): string[] =>
+    readdirSync(dir).flatMap((f) => {
+      const p = join(dir, f)
+      return statSync(p).isDirectory() ? files(p) : /\.(ts|tsx)$/.test(f) ? [p] : []
+    })
+  const read = (p: string) => readFileSync(p, 'utf8')
+
+  test('features/outbox never reaches the MCP attach / toolset / token code; the draft request has no MCP', () => {
+    for (const f of files(join(root, 'features/outbox'))) {
+      const src = read(f)
+      for (const name of ['attachMcp', 'toolsetFor', 'tokenFor', 'getMcpToken', 'mcpParams'])
+        expect(new RegExp(`\\b${name}\\b`).test(src), `${f} mentions ${name}`).toBe(false)
+      expect(/\bnew Function\b|\beval\(/.test(src), `${f} evaluates code`).toBe(false)
+    }
+    const draft = read(join(root, 'features/outbox/draft.ts'))
+    const calls = draft.match(/completeStructured\(\{[\s\S]*?\}\)/g) ?? []
+    expect(calls.length).toBe(1)
+    expect(calls[0]).toContain('mcp: false')
+    expect(/streamCompletion|runAI\(/.test(draft)).toBe(false)
+  })
+
+  test('the MCP token is opened only where it may be; nothing outside the Outbox imports its internals', () => {
+    for (const f of files(root)) {
+      const rel = f.slice(root.length + 1).replace(/\\/g, '/')
+      const src = read(f)
+      if (/\bimport[^;]*\b(tokenFor|getMcpToken)\b[^;]*from/.test(src)) expect(['features/ai/mcp-servers/config.ts', 'features/ai/mcp-servers/oauth.ts', 'features/ai/mcp-servers/McpServers.tsx', 'features/ai/mcp-servers/checks.ts', 'store/secrets.ts']).toContain(rel)
+      // only its public API (index) — and the strings aggregator (features/messages.ts) — from outside
+      if (!rel.startsWith('features/outbox/')) expect(/from ['"][./]*(?:features\/)?outbox\/(?!index|messages['"])[a-zA-Z]/.test(src), `${rel} imports the Outbox's internals`).toBe(false)
+    }
+    // no sender exists in slice 1: nothing named fire / Arm in the Outbox
+    for (const f of files(join(root, 'features/outbox'))) expect(/\bexport (async )?function fire\b|\bexport (class|interface|type|const) Arm\b|import[^;]*\b(fire|Arm)\b[^;]*from/.test(read(f)), f).toBe(false)
+    // the bridge / MCP tools never reach the Outbox at all in slice 1
+    for (const f of files(join(root, 'features/mcp'))) expect(/outbox/.test(read(f)), f).toBe(false)
   })
 })

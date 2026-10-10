@@ -4,6 +4,7 @@
  * the status lines: where the comparison comes from, the receipt key.
  */
 import { useLang, useT } from '../../../i18n'
+import { fmtUsd } from '../../../lib/money'
 import { isChanged, isForeign } from '../counts'
 import type { Slip } from '../types'
 import { clock, ForeignMark } from './parts'
@@ -42,6 +43,7 @@ export function Lamps({ slip }: { slip: Slip }) {
       </p>
       <div className="obx-lines label">
         {at !== undefined && <span>{t('features.outbox.line.mirror', { time: clock(at, lang) })}</span>}
+        {slip.draft?.by === 'claude' || slip.usd > 0 ? <span data-testid="outbox-cost">{t('features.outbox.line.cost', { usd: fmtUsd(slip.usd, lang) })}</span> : null}
         <span>{t('features.outbox.line.receipt', { id: slip.id })}</span>
       </div>
     </div>

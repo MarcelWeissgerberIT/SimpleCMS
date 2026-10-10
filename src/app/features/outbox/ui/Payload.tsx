@@ -49,23 +49,33 @@ function Segments({ text, flags, slip }: { text: string; flags: SealAddress[]; s
     out.push(
       <span key={k++} className="obx-addr" data-only={m.flag.only} data-ticked={m.flag.ticked || undefined} title={reason}>
         {text.slice(m.at, m.end)}
-        {first && (
-          <label className="obx-addr__tick">
-            <input
-              type="checkbox"
-              checked={m.flag.ticked}
-              disabled={!unsent(slip.state)}
-              aria-label={`${t('features.outbox.addr.tick', { address: m.flag.text })} — ${reason}`}
-              onChange={(e) => void tickAddress(slip.id, m.flag.norm, e.target.checked)}
-            />
-          </label>
-        )}
+        {first && <Tick slip={slip} flag={m.flag} label={`${t('features.outbox.addr.tick', { address: m.flag.text })} — ${reason}`} />}
       </span>,
     )
     at = m.end
   }
   plain(text.slice(at))
   return <>{out}</>
+}
+
+/** The tick of a flagged address: shown at once, stored right after (one compare-and-set). */
+function Tick({ slip, flag, label }: { slip: Slip; flag: SealAddress; label: string }) {
+  const [on, setOn] = useState(flag.ticked)
+  useEffect(() => setOn(flag.ticked), [flag.ticked])
+  return (
+    <label className="obx-addr__tick">
+      <input
+        type="checkbox"
+        checked={on}
+        disabled={!unsent(slip.state)}
+        aria-label={label}
+        onChange={(e) => {
+          setOn(e.target.checked)
+          void tickAddress(slip.id, flag.norm, e.target.checked)
+        }}
+      />
+    </label>
+  )
 }
 
 export function Payload({ slip, editing, onEditing }: { slip: Slip; editing: boolean; onEditing: (on: boolean) => void }) {

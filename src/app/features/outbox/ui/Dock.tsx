@@ -71,7 +71,7 @@ function DockPanel({ dbId, mode }: { dbId: ID; mode: 'column' | 'sheet' }) {
   const foreignFold = rest.filter((s) => s.state === 'ready' && isForeign(s) && !isChanged(s))
   const strips = showForeign ? rest : rest.filter((s) => !foreignFold.includes(s))
   const sent = all.filter((s) => sentToday(s)).sort((a, b) => (b.receipt?.at ?? 0) - (a.receipt?.at ?? 0))
-  const order = [...(focus ? [focus] : []), ...rest].map((s) => s.id)
+  const order = open.map((s) => s.id)
 
   const setFocus = (id: string) => useOutbox.setState({ focus: id })
   const close = () => (mode === 'column' ? setDockOpen(false) : useOutbox.setState({ sheet: null }))
