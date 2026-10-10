@@ -8,6 +8,7 @@
  */
 import type { JSONContent } from '@tiptap/core'
 import { useWorkspace } from '../../../store/store'
+import { isEffectivelyTrashed } from '../../../store/selectors'
 import type { ID, PropertyValue } from '../../../store/types'
 import { claudeDoc } from '../claudeDoc'
 import { t } from '../../../i18n'
@@ -74,14 +75,18 @@ export function saveMemory(p: MemoryProposal): { id: ID; undo: () => void } {
   return { id, undo: removeCreated(id) }
 }
 
-/** Undo of a created memory: deleted for good while untouched, else to the trash (recoverable). */
-function removeCreated(id: ID): () => void {
+/**
+ * Undo of a created memory (or example): deleted for good while untouched, else to the trash (recoverable) — one the
+ * person put in the trash (or below a page in the trash) meanwhile stays there.
+ */
+export function removeCreated(id: ID): () => void {
   const rev = ws().pages[id]?.contentRev
   const title = ws().pages[id]?.title
   return () => {
-    const now = ws().pages[id]
-    if (!now) return
-    if (now.contentRev !== rev || now.title !== title) ws().trashPage(id)
+    const { pages } = ws()
+    const now = pages[id]
+    if (!now || now.trashed) return
+    if (now.contentRev !== rev || now.title !== title || isEffectivelyTrashed(pages, id)) ws().trashPage(id)
     else ws().deletePagePermanently(id)
   }
 }

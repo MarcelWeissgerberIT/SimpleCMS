@@ -19,7 +19,7 @@ import { t } from '../../../i18n'
 import { completeStructured, isAIConfigured, usesDemo } from '../client'
 import { ensureExampleSchema, ensureMemoryDb, memoryProps, optionIds, typeOption } from './schema'
 import { readMemories } from './read'
-import { pageSource } from './save'
+import { pageSource, removeCreated } from './save'
 import type { Memory } from './types'
 
 const ORIGIN = 'ai'
@@ -349,6 +349,6 @@ export function savePatternExample(o: SavePatternExample): { id: ID; how: 'new' 
   }
   const id = ws().createRow(dbId, { title, properties: props })
   ws().setContent(id, body, ORIGIN)
-  return { id, how: 'new', undo: () => ws().pages[id] && ws().deletePagePermanently(id) }
+  return { id, how: 'new', undo: removeCreated(id) }
 }
 

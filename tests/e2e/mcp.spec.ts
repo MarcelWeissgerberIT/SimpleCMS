@@ -310,6 +310,25 @@ test('Apply directly writes at once; Read only refuses; a no-op needs no approva
   await flush(page)
 })
 
+test('Undo never deletes for good what the person put in the trash meanwhile: a created page and database stay there', async ({ page }) => {
+  await openApp(page)
+  await connect(page)
+  await page.getByRole('radio', { name: 'Apply directly' }).click()
+  const created = json(await call('one_create_page', { title: 'Tessera notes' }))
+  const db = json(await call('one_create_database', { title: 'Nordlicht Handoff' }))
+  // the person puts both in the trash
+  await wsEval(page, (s, ids) => ids.forEach((id: string) => s.trashPage(id)), [created.id, db.id])
+  const before = await wsEval(page, (s, ids) => ids.map((id: string) => s.pages[id].trashedAt as number), [created.id, db.id])
+  // … then takes the agent's writes back from the log
+  await page.locator('.mcp-log__row').getByRole('button', { name: 'Undo one_create_database' }).click()
+  await page.locator('.mcp-log__row').getByRole('button', { name: 'Undo one_create_page' }).click()
+  await expect(page.locator('.mcp-log__row', { hasText: 'Undone' })).toHaveCount(2)
+  // still in the trash with their trash time — never deleted for good
+  const now = await wsEval(page, (s, ids) => ids.map((id: string) => (s.pages[id] ? { trashed: s.pages[id].trashed, at: s.pages[id].trashedAt } : null)), [created.id, db.id])
+  expect(now).toEqual(before.map((at) => ({ trashed: true, at })))
+  expect(await wsEval(page, (s, id) => !!s.databases[id], db.id)).toBe(true)
+})
+
 test('German UI, Reject button, and the newest tab wins', async ({ page, context }) => {
   await openApp(page)
   await wsEval(page, (s) => s.updateSettings({ language: 'de' }))

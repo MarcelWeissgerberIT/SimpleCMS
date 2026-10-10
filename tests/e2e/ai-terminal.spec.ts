@@ -359,6 +359,31 @@ test.describe('AI terminal (mocked Claude API)', () => {
     expect(await wsEval(page, (s, id) => s.databases[id].properties.some((p: AnyState) => p.name === 'Effort'), projects)).toBe(false)
   })
 
+  test('Undo never deletes for good what the person put in the trash meanwhile: the row the terminal created stays there', async ({ page, context }) => {
+    await openApp(page)
+    await setKey(page)
+    const projects = await pageIdByTitle(page, 'Projects')
+    await mockAgent(context, [
+      () => sseMessage([{ type: 'tool_use', id: 'toolu_r1', name: 'create_row', input: { database_id: projects, title: 'NL-1429 Übergabe Tessera' } }]),
+      () => sseMessage([{ type: 'text', text: 'Staged one row.' }]),
+    ])
+    await openTerminal(page)
+    await run(page, 'Add the handoff row')
+    await expect(terminal(page).locator('.term-head__status')).toContainText('Done', { timeout: 20_000 })
+    await run(page, '/apply')
+    const toast = page.locator('.toast', { hasText: '1 change applied' })
+    await expect(toast).toBeVisible()
+    const row = await wsEval(page, (s) => ((Object.values(s.pages) as AnyState[]).find((p) => p.title === 'NL-1429 Übergabe Tessera')?.id as string) ?? '')
+    expect(row).not.toBe('')
+    // the person puts it in the trash, then takes the terminal's change back
+    await wsEval(page, (s, id) => s.trashPage(id), row)
+    const trashedAt = await wsEval(page, (s, id) => s.pages[id].trashedAt as number, row)
+    await toast.getByRole('button', { name: 'Undo' }).click()
+    await expect(page.locator('.toast', { hasText: /^Undone/ })).toBeVisible()
+    // still in the trash (restorable from there), its trash time unchanged — never deleted for good
+    expect(await wsEval(page, (s, id) => (s.pages[id] ? { trashed: s.pages[id].trashed, at: s.pages[id].trashedAt } : null), row)).toEqual({ trashed: true, at: trashedAt })
+  })
+
   test('DE: KI-Terminal, /hilfe, /kosten, /übernehmen and unknown commands answer in German', async ({ page, context }) => {
     await openApp(page)
     await setKey(page)

@@ -14,6 +14,7 @@ import { keepItems, markdownToDoc } from '../../editor'
 import { newId } from '../../lib/ids'
 import { t } from '../../i18n'
 import type { Database, ID, PropertyDef, PropertyType } from '../../store/types'
+import { isEffectivelyTrashed } from '../../store/selectors'
 import { aiWrite, snapshotNow } from '../history/snapshots'
 import { AGENT_TOOLS, ToolInputError, type StageApi } from '../ai/agent/tools'
 import { applyChanges } from '../ai/agent/apply'
@@ -445,10 +446,12 @@ function planCreateDatabase(args: Record<string, unknown>): WritePlan {
         },
         undo: () => {
           for (const r of reverses) if (ws().databases[r.dbId]?.properties.some((p) => p.id === r.def.id)) ws().deleteProperty(r.dbId, r.def.id)
-          const now = ws().pages[id]
-          if (!now) return true
-          // rows or sub-pages added since: keep them recoverable
-          const touched = now.contentRev !== rev || Object.values(ws().pages).some((p) => p.parentId === id)
+          const { pages } = ws()
+          const now = pages[id]
+          // in the trash already (the person put it there): it stays there, never deleted for good
+          if (!now || now.trashed) return true
+          // rows or sub-pages added since, or a page above it in the trash: keep it recoverable
+          const touched = now.contentRev !== rev || isEffectivelyTrashed(pages, id) || Object.values(pages).some((p) => p.parentId === id)
           if (touched) ws().trashPage(id)
           else ws().deletePagePermanently(id)
           return true

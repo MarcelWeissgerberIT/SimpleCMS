@@ -265,16 +265,17 @@ export async function applyChanges(changes: StagedChange[], all: StagedChange[],
 }
 
 /**
- * Undo of a created page / row: deleted for good while untouched; once someone edited it or
- * put pages under it, it goes to the trash instead (recoverable).
+ * Undo of a created page / row: deleted for good while untouched; once someone edited it, put pages under it or put it
+ * (or a page above it) in the trash, it goes to the trash instead (recoverable) — one in the trash stays as it is.
  */
 function removeCreated(id: ID): () => boolean {
   const rev = ws().pages[id]?.contentRev
   const title = ws().pages[id]?.title
   return () => {
-    const now = ws().pages[id]
-    if (!now) return true
-    const touched = now.contentRev !== rev || now.title !== title || Object.values(ws().pages).some((p) => p.parentId === id)
+    const { pages } = ws()
+    const now = pages[id]
+    if (!now || now.trashed) return true
+    const touched = now.contentRev !== rev || now.title !== title || isEffectivelyTrashed(pages, id) || Object.values(pages).some((p) => p.parentId === id)
     if (touched) ws().trashPage(id)
     else ws().deletePagePermanently(id)
     return true
