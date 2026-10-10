@@ -8,6 +8,7 @@ import type { BrowserContext, Locator, Page } from '@playwright/test'
 import { test, expect, openApp, wsEval, flush, gotoPage, editorOf, createPage, doc, para, sidebarRow, selectText, pageById, escapeRe, sse, MOD } from './fixtures'
 import { docxBytes } from './helpers/files'
 import { mockAgent, openTerminal, run as runTask, sseMessage, terminal } from './helpers/terminal'
+import { addProfile, trackerProfile } from './helpers/integrations'
 import { expectLane, markRec, nordlichtDb, rec, startRecorder } from './helpers/recorder'
 
 type AnyRec = Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -673,5 +674,187 @@ test.describe('flight recorder — every writer has a lane', () => {
     await aiDialog.locator('[data-testid="media-card"][data-url$="nordlicht.png"]').getByTestId('media-save').click()
     await expect.poll(() => wsEval(page, (s, id) => (s.pages[id].content?.content ?? []).some((b: AnyRec) => b.type === 'image'), target)).toBe(true)
     await expectLane(page, m, 'ai', /^ai:/, /^ai:.+:media$/)
+  })
+
+  test('the machines: folder pick-up, automation, autofill, recurring template, mail sync, mirror setup, backup restore', async ({ page, context }, testInfo) => {
+    // Claude for autofill (structured: one value, new each time), Google's sign-in and a one-mail Gmail
+    let fills = 0
+    await context.route('https://api.anthropic.com/**', async (route) => {
+      const req = route.request()
+      const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': 'POST, GET' }
+      if (req.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors })
+      const body = JSON.parse(req.postData() ?? '{}')
+      await route.fulfill({ status: 200, headers: { ...cors, 'content-type': 'application/json' }, body: JSON.stringify({ id: 'msg_e2e', type: 'message', role: 'assistant', model: body.model, content: [{ type: 'text', text: JSON.stringify({ value: `Kurzfassung ${++fills}` }) }], stop_reason: 'end_turn', stop_sequence: null, usage: { input_tokens: 10, output_tokens: 10 } }) })
+    })
+    await context.route('https://accounts.google.com/**', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/javascript',
+        body: `window.google = { accounts: { oauth2: { initTokenClient(cfg) { return { requestAccessToken() { setTimeout(() => cfg.callback({ access_token: 'ya29.e2e-tessera', expires_in: 3599, scope: cfg.scope, token_type: 'Bearer' }), 30) } } }, hasGrantedAllScopes(r, ...s) { return s.every((x) => String(r.scope || '').split(' ').includes(x)) }, revoke(t, done) { done && done() } } } }`,
+      }),
+    )
+    const mailAt = Date.now() - 2 * 86_400_000
+    await context.route('https://gmail.googleapis.com/**', (route) => {
+      const req = route.request()
+      const cors = { 'access-control-allow-origin': '*' }
+      if (req.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: { ...cors, 'access-control-allow-headers': 'authorization, accept', 'access-control-allow-methods': 'GET' } })
+      const path = new URL(req.url()).pathname.replace('/gmail/v1/users/me/', '')
+      const json = (body: unknown) => route.fulfill({ status: 200, headers: { ...cors, 'content-type': 'application/json' }, body: JSON.stringify(body) })
+      const text = 'Hallo Mara, das Nordlicht-Treffen ist am Montag.'
+      if (path === 'profile') return json({ emailAddress: 'mara@example.com', messagesTotal: 1, historyId: '1000' })
+      if (path === 'labels') return json({ labels: [{ id: 'INBOX', name: 'INBOX', type: 'system' }] })
+      if (path === 'messages') return json({ messages: [{ id: 'm1', threadId: 't1' }], resultSizeEstimate: 1 })
+      if (path === 'messages/m1')
+        return json({
+          id: 'm1', threadId: 't1', labelIds: ['INBOX'], snippet: text, historyId: '1000', internalDate: String(mailAt), sizeEstimate: 512,
+          payload: { mimeType: 'text/plain', filename: '', headers: [{ name: 'Subject', value: 'Nordlicht Treffen' }, { name: 'From', value: 'Tessera Team <team@example.test>' }, { name: 'To', value: 'mara@example.com' }, { name: 'Date', value: new Date(mailAt).toUTCString() }, { name: 'Content-Type', value: 'text/plain; charset="UTF-8"' }], body: { size: text.length, data: Buffer.from(text).toString('base64url') } },
+        })
+      if (path === 'history') return json({ history: [], historyId: '1000' })
+      return route.fulfill({ status: 400, headers: cors, body: '{}' })
+    })
+
+    const { n, projects, meetings } = await boot(page, async () => {
+      await setKey(page)
+      const n = await nordlichtDb(page)
+      await wsEval(page, (s, n) => s.updateDatabase(n.db, { automations: [{ id: 'au-nl', name: 'Fertig notieren', enabled: true, trigger: { type: 'property_changed', propertyId: n.stage, toValue: n.done }, actions: [{ type: 'set_property', propertyId: n.note, value: 'automatisch' }] }] }), n)
+      const projects = await wsEval(page, (s) => {
+        const db = s.createDatabase({ title: 'Tessera Projekte' }) as string
+        const pts = s.addProperty(db, { type: 'number', name: 'Punkte' }) as string
+        s.addProperty(db, { type: 'text', name: 'Kurzfassung', autofill: { preset: 'summary', auto: true, skipReview: true } })
+        s.createRow(db, { title: 'Polarlicht Karte', properties: { [pts]: 1 } })
+        return db
+      })
+      // the scheduler waits until the row below starts it (main.tsx starts it at boot)
+      await page.evaluate(() => (window as unknown as { __oneRecurring: { stop: () => void } }).__oneRecurring.stop())
+      const meetings = await wsEval(page, (s) => {
+        const db = s.createDatabase({ title: 'Tessera Termine', properties: [{ id: 'tName', name: 'Name', type: 'title' }, { id: 'tDate', name: 'Datum', type: 'date' }] }) as string
+        // missed runs since three days ago: the next pass catches up
+        const start = new Date(Date.now() - 5 * 86_400_000).toISOString().slice(0, 10)
+        s.updateDatabase(db, { templates: [{ id: 'tpl-standup', name: 'Standup', icon: null, content: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Agenda' }] }] }, properties: {}, repeat: { freq: 'daily', time: '08:00', start, title: 'Standup {{date}}', dateProperty: 'tDate', lastRunAt: Date.now() - 3 * 86_400_000 } }] })
+        return db
+      })
+      await wsEval(page, (s) => s.updateSettings({ mail: { ...(s.settings.mail ?? {}), clientId: '123456789012-e2etestclientid0001.apps.googleusercontent.com', from: new Date(Date.now() - 10 * 86_400_000).toISOString().slice(0, 10) } }))
+      await page.evaluate(async () => {
+        const root = await navigator.storage.getDirectory()
+        const dir = await root.getDirectoryHandle('one-sync-recorder', { create: true })
+        await (window as unknown as { __oneSync: { connect: (d: unknown) => Promise<void> } }).__oneSync.connect(dir)
+      })
+      return { n, projects, meetings }
+    })
+
+    // the folder: a new Markdown file picked up (sync:folder:<run>)
+    let m = await markRec(page)
+    await page.evaluate(async () => {
+      const root = await navigator.storage.getDirectory()
+      const dir = await root.getDirectoryHandle('one-sync-recorder', { create: true })
+      const w = await (await dir.getFileHandle('Nordlicht aus dem Ordner.md', { create: true })).createWritable()
+      await w.write('# Nordlicht aus dem Ordner\n\nGeschrieben von Hand.\n')
+      await w.close()
+      await (window as unknown as { __oneSync: { pickup: () => Promise<void> } }).__oneSync.pickup()
+    })
+    await expect.poll(() => wsEval(page, (s) => Object.values(s.pages).some((p: AnyRec) => p.title === 'Nordlicht aus dem Ordner'))).toBe(true)
+    await expectLane(page, m, 'sync:folder', /^sync:folder:/)
+
+    // an automation: the person sets the stage, the automation writes the note (caused by the person)
+    await gotoPage(page, n.db)
+    m = await markRec(page)
+    const row = dbSection(page).locator('.dbt-row[role="row"]', { has: page.locator('.dbt-cell--title', { hasText: /^NL-1401/ }) })
+    await row.locator('[role="gridcell"][data-type="select"]').click()
+    await page.locator('.db-picker .db-opt', { hasText: 'Erledigt' }).click()
+    await page.keyboard.press('Escape')
+    await expect.poll(() => wsEval(page, (s, a) => s.pages[a.row].properties[a.note], { row: n.rows[3], note: n.note })).toBe('automatisch')
+    await expectLane(page, m, `automation:${n.db}/au-nl`, new RegExp(`^automation:${escapeRe(n.db)}/au-nl:`), /<you~ui$/)
+
+    // autofill: an input edited by the person → the summary filled automatically (autofill<you~ui)
+    await gotoPage(page, projects)
+    const summary = () => wsEval(page, (s, db) => {
+      const d = s.databases[db]
+      const prop = d.properties.find((p: AnyRec) => p.name === 'Kurzfassung').id
+      return (Object.values(s.pages).find((p: AnyRec) => p.databaseId === db) as AnyRec).properties[prop] ?? null
+    }, projects)
+    // the fill of the new property (setup) first
+    await expect.poll(summary, { timeout: 20_000 }).not.toBeNull()
+    const before = await summary()
+    m = await markRec(page)
+    const prow = dbSection(page).locator('.dbt-row[role="row"]', { has: page.locator('.dbt-cell--title', { hasText: /^Polarlicht Karte/ }) })
+    await prow.locator('[role="gridcell"][data-type="number"]').click()
+    await expect(page.locator('.db-textedit__area')).toBeFocused()
+    await page.keyboard.press('Control+a')
+    await page.keyboard.type('7')
+    await page.keyboard.press('Enter')
+    await expect.poll(summary, { timeout: 20_000 }).not.toBe(before)
+    // the watch's fill has no run of its own (autofill:<db>/<prop><cause>, no flag on the tape)
+    await expectLane(page, m, 'autofill', undefined, new RegExp(`^autofill:${escapeRe(projects)}/[^:<]+<you~ui$`))
+
+    // a recurring template: the scheduler's pass creates the missed occurrences (template:<id>:<run>)
+    m = await markRec(page)
+    await page.evaluate(() => {
+      const r = (window as unknown as { __oneRecurring: { start: () => void; run: () => unknown } }).__oneRecurring
+      r.start()
+      r.run()
+    })
+    await expect.poll(() => wsEval(page, (s, db) => Object.values(s.pages).filter((p: AnyRec) => p.databaseId === db).length, meetings)).toBeGreaterThan(0)
+    await expectLane(page, m, 'template', /^template:tpl-standup:/)
+
+    // mail: connect (mocked Google), sync → the Mails database (mail:<run>)
+    m = await markRec(page)
+    await page.evaluate(() => (window as unknown as { __one: AnyRec }).__one.ui.getState().openModal({ type: 'settings' }))
+    const settings = page.getByRole('dialog', { name: 'Settings' })
+    await settings.getByRole('tab', { name: /Mail$/ }).click()
+    await settings.getByRole('button', { name: 'Connect Gmail' }).click()
+    await expect(settings.getByTestId('mail-account')).toHaveText('mara@example.com')
+    await page.evaluate(() => (window as unknown as { __oneMail: { sync: () => Promise<void> } }).__oneMail.sync())
+    await expect.poll(() => page.evaluate(() => (window as unknown as { __oneMail: { state: () => { phase: string } } }).__oneMail.state().phase)).toBe('idle')
+    await expect.poll(() => wsEval(page, (s) => Object.values(s.pages).some((p: AnyRec) => p.title === 'Nordlicht Treffen'))).toBe(true)
+    await expectLane(page, m, 'mail', /^mail:/)
+    await page.keyboard.press('Escape')
+
+    // the mirror setup: database, report page and agent made by the person's setup (you~setup)
+    await wsEval(page, (s) => s.updateSettings({ mcpServers: [{ id: 'm-tracker', name: 'tracker', url: 'https://tracker.example.com/mcp', token: '', enabled: true, prompt: '', tools: ['list_items', 'get_item', 'search_items', 'whoami', 'create_item', 'update_item', 'add_comment'], checkedAt: Date.now() }] }))
+    await addProfile(page, trackerProfile({ match: { host: '*.example.com' } }))
+    await page.evaluate(() => (window.location.hash = '#/agents'))
+    await page.locator('.agx').first().waitFor()
+    const inline = page.locator('.agx-start [data-recipe="tracker:mirror"]')
+    if (await inline.count()) await inline.click()
+    else {
+      await page.locator('.agx-head .btn--primary').click()
+      await page.locator('.agx-recipe-modal [data-recipe="tracker:mirror"]').click()
+    }
+    const setup = page.locator('.agx-mir')
+    await expect(setup).toBeVisible()
+    m = await markRec(page)
+    await setup.getByRole('button', { name: 'Create database and agent' }).click()
+    await expect.poll(() => wsEval(page, (s) => Object.values(s.pages).some((p: AnyRec) => p.title === 'Tracker' && !!s.databases[p.id]))).toBe(true)
+    await expectLane(page, m, 'you', undefined, 'you~setup')
+    await page.keyboard.press('Escape')
+
+    // backup restore: export the workspace, replace it with the backup (import:<run>:backup)
+    await page.keyboard.press('Escape')
+    await page.evaluate(() => (window.location.hash = '#/workspace/data'))
+    const ws = page.getByTestId('workspace-page')
+    await expect(ws).toHaveAttribute('data-section', 'data')
+    await ws.getByRole('button', { name: 'Export workspace' }).click()
+    let dialog = page.getByRole('dialog')
+    await dialog.getByRole('radio', { name: /Whole workspace/ }).click()
+    await dialog.getByRole('radio', { name: /Full backup/ }).click()
+    const download = page.waitForEvent('download')
+    await dialog.locator('[data-export-run]').click()
+    const file = testInfo.outputPath('tessera-backup.json')
+    await (await download).saveAs(file)
+    await page.keyboard.press('Escape')
+    // something the backup does not hold: the restore takes it away
+    const later = await createPage(page, { title: 'Nach dem Export' })
+    m = await markRec(page)
+    await page.locator('.sb').getByRole('button', { name: /^Import/ }).click()
+    const chooser = page.waitForEvent('filechooser')
+    await page.getByRole('dialog').getByRole('button', { name: 'Choose files' }).click()
+    await (await chooser).setFiles(file)
+    dialog = page.getByRole('dialog')
+    await dialog.getByRole('radio', { name: /Replace workspace/ }).click()
+    await dialog.getByRole('button', { name: 'Replace workspace' }).click()
+    await dialog.getByRole('button', { name: 'Yes, replace everything' }).click()
+    await expect(dialog.getByText(/Workspace restored/)).toBeVisible()
+    await expect.poll(() => wsEval(page, (s, id) => !s.pages[id] || !!s.pages[id].trashed, later)).toBe(true)
+    await expectLane(page, m, 'import', /^import:/, /^import:.+:backup$/)
   })
 })
