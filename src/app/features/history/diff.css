@@ -343,3 +343,12 @@
   min-width: 0;
   overflow-wrap: anywhere;
 }
+
+/* a rewritten title: old (struck) above new, both in the title cell */
+.ddiff-item__title > * {
+  margin: 0;
+}
+
+.ddiff-item__title > * + * {
+  margin-top: 2px;
+}

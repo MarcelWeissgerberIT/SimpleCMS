@@ -219,6 +219,51 @@
   font-size: 1.2em;
 }
 
+/* task blocks on a slide: the placard's chrome scales with the slide text (it is sized for the page otherwise) */
+.pres .pres__doc .workitem {
+  --wi-key: 1em;
+  column-gap: 0.45em;
+  padding: 0.3em 0.55em 0.4em 0.7em;
+}
+
+.pres .pres__doc .workitem__key .led {
+  width: 0.32em;
+  height: 0.32em;
+}
+
+.pres .pres__doc .workitem__label {
+  font-size: 0.42em;
+  margin-top: calc(var(--wi-pad) + (var(--wi-line) - 1.2em) / 2);
+}
+
+.pres .pres__doc .workitem__chips {
+  gap: 0.25em 0.3em;
+  margin-top: 0.15em;
+}
+
+.pres .pres__doc .workitem__chip {
+  height: auto;
+  min-height: 1.9em;
+  padding: 0.3em 0.55em;
+  gap: 0.4em;
+  font-size: 0.5em;
+}
+
+.pres .pres__doc .workitem__chip--person {
+  font-size: 0.58em;
+}
+
+.pres .pres__doc .workitem__chip svg {
+  width: 1.15em;
+  height: 1.15em;
+}
+
+.pres .pres__doc .workitem__avatar {
+  width: 1.45em;
+  height: 1.45em;
+  font-size: 0.75em;
+}
+
 .pres .pres__doc .doc-content img {
   max-height: 58cqh;
   width: auto;

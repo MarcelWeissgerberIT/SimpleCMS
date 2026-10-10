@@ -93,6 +93,11 @@
   user-select: none;
 }
 
+/* the state in words: in progress / overdue in the signal colour (text: --signal-ink) */
+.workitem__state[data-signal] {
+  color: var(--signal-ink);
+}
+
 /* ---------- content: the title line + the notes ---------- */
 .workitem__body > :not([data-node-view-content-react]),
 .workitem__body > [data-node-view-content-react] > * {
@@ -253,6 +258,10 @@
   color: var(--ink-3);
 }
 
+.workitem[data-status='done'] .workitem__chip svg {
+  color: var(--ink-3);
+}
+
 .workitem[data-status='done'] .workitem__avatar {
   opacity: 0.7;
 }
@@ -286,14 +295,22 @@
   margin-top: 2px;
 }
 
-/* ---------- narrow: the spec label goes, chips + notes take the full width ---------- */
+/*
+ * ---------- narrow: the id goes; the state word stays only where nothing else says it ----------
+ * (in progress: its rail and LED are colour — overdue says it in its due chip, done strikes its title,
+ * open is the default). Without the label, the title, chips + notes take the full width.
+ */
 @container (max-width: 420px) {
-  .workitem__label {
+  .workitem__id {
     display: none;
   }
 
-  .workitem__body > :first-child:not([data-node-view-content-react]),
-  .workitem__body > [data-node-view-content-react] > :first-child {
+  .workitem:is(:not([data-status='in_progress']), [data-late]) .workitem__label {
+    display: none;
+  }
+
+  .workitem:is(:not([data-status='in_progress']), [data-late]) .workitem__body > :first-child:not([data-node-view-content-react]),
+  .workitem:is(:not([data-status='in_progress']), [data-late]) .workitem__body > [data-node-view-content-react] > :first-child {
     grid-column: 2 / -1;
   }
 

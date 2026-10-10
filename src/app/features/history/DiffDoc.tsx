@@ -305,7 +305,7 @@ function WorkItemDiff({ node }: { node: DiffNode }) {
   const changes = useMemo(() => (node.was ? itemChanges(node.was, node.attrs) : []), [node.was, node.attrs])
   return (
     <div className="ddiff-item" {...diffAttr(node)}>
-      <StaticWorkItem attrs={node.attrs}>{kids(node)}</StaticWorkItem>
+      <StaticWorkItem attrs={node.attrs}>{itemKids(node)}</StaticWorkItem>
       {changes.length > 0 && (
         <dl className="ddiff-fields" aria-label={t('features.history.item.label')} data-testid="workitem-changes">
           {changes.map((c) => (
@@ -320,6 +320,25 @@ function WorkItemDiff({ node }: { node: DiffNode }) {
       )}
     </div>
   )
+}
+
+/**
+ * A task's children: its title is the first cell of the placard — a rewritten title (the old one removed,
+ * the new one added) shares that cell, old above new; the notes follow.
+ */
+function itemKids(n: DiffNode): ReactNode {
+  const list = n.content ?? []
+  let head = 0
+  while (head < list.length && list[head].diff === 'del') head++
+  // the old title(s) + the first block that is still there: one title cell
+  if (!head || head >= list.length) return kids(n)
+  const title = list.slice(0, head + 1)
+  return [
+    <div key="title" className="ddiff-item__title">
+      {title.map((c, i) => renderNode(c, `t${i}`))}
+    </div>,
+    ...list.slice(head + 1).map((c, i) => renderNode(c, String(i + head + 1))),
+  ]
 }
 
 /** One field's change: the value before (struck) → after; people added / removed by name. */
@@ -339,7 +358,8 @@ function FieldValue({ change: c }: { change: ItemChange }) {
     case 'due':
       return pair(c.before.due ? workItemDueText(c.before.due, lang) : none, c.after.due ? workItemDueText(c.after.due, lang) : none)
     case 'reminder': {
-      const r = (code: string | null) => (code ? workItemReminderShort(code, t) || '🔔' : none)
+      // 'at' has no short form on the placard (its bell says it): in words here
+      const r = (code: string | null) => (code ? workItemReminderShort(code, t) || t('editor.workItem.reminderAt') : none)
       return pair(r(c.before.reminder), r(c.after.reminder))
     }
     case 'people': {

@@ -1,14 +1,15 @@
 /**
  * Task block (`workItem`) — the schema release (P0): every client reads, shows, stores, exports and diffs a
  * task, nothing creates one. Content holding tasks is injected through the store (setContent), never a UI path.
- *  - the read-only placard: status rail + LED key, "TASK · 7F3A", chips (due, people by name, link counts), done
- *    struck, consecutive tasks one plate — 1440 / 390, light / dark;
+ *  - the read-only placard: status rail + LED key, the state in words + the id ("OPEN · 7F3A", "IN PROGRESS"
+ *    in the signal colour), chips (due, people by name, link counts), done struck, one plate — 1440 / 390,
+ *    light / dark;
  *  - editing the title keeps every attr; a reload keeps it all;
  *  - Markdown export writes `> [!TODO] Title {#wi_…}` + the field line; importing that file gives a plain quote
  *    (the reader is switched off);
  *  - a share link and the HTML export carry no ids, only frozen names;
  *  - history "Changes" lists the fields before → after;
- *  - a task inside a task (or a table cell) is unwrapped;
+ *  - a task inside a task (or a table cell) is moved out whole, after it;
  *  - no slash item, no Turn into, no ⌘K entry creates one.
  * The pure parts (itemAttrs, the Markdown form and its reader, freezeWorkItems, itemChanges) run without a page.
  */
@@ -135,18 +136,31 @@ test.describe('task block (P0): the read-only placard', () => {
       await expect(first.locator('button')).toHaveCount(0)
       await expect(all.nth(1).locator('.workitem__key .led--on')).toHaveCount(1)
       await expect(all.nth(4).locator('.workitem__key .led--ok')).toHaveCount(1)
-      // the spec label "TASK · 2D01" (the last four of the itemId) — hidden on a phone
-      if (w > 420) await expect(first.locator('.workitem__label')).toHaveText('Task · 2D01')
-      else await expect(first.locator('.workitem__label')).toBeHidden()
+      // the spec label: the state in words + the last four of the itemId ("OPEN · 2D01"); on a phone only the
+      // states nothing else says (in progress) — the id goes
+      const state = (i: number) => all.nth(i).locator('.workitem__state')
+      if (w > 420) {
+        await expect(state(0)).toHaveText('Open')
+        await expect(first.locator('.workitem__id')).toHaveText(' · 2D01')
+        await expect(state(3)).toHaveText('Overdue')
+        await expect(state(3)).toHaveAttribute('data-signal', '')
+        await expect(state(4)).toHaveText('Done Thu 09 Oct')
+      } else {
+        await expect(first.locator('.workitem__label')).toBeHidden()
+        await expect(all.nth(1).locator('.workitem__id')).toBeHidden()
+      }
+      await expect(state(1)).toHaveText('In progress')
+      await expect(state(1)).toBeVisible()
+      await expect(state(1)).toHaveAttribute('data-signal', '')
       // chips: due (+ reminder), people by name, counts of linked tasks
       await expect(first.locator('.workitem__chip--due')).toContainText('Fri 17 Oct')
-      await expect(first.locator('.workitem__rem')).toHaveAttribute('aria-label', 'Reminder −1 d')
+      await expect(first.locator('.workitem__rem')).toHaveAttribute('title', 'Reminder −1 d')
       await expect(first.locator('.workitem__chip--person')).toHaveText([/Alex Kern/, /Mara Sommer/])
       await expect(all.nth(1).locator('.workitem__chip--related')).toHaveText('1 related')
       await expect(all.nth(2).locator('.workitem__chip--due')).toContainText('Fri 17 Oct · 9:00 AM')
-      await expect(all.nth(2).locator('.workitem__chip--blocked')).toHaveText('Blocked by 2')
+      await expect(all.nth(2).locator('.workitem__chip--blocked')).toHaveText('Depends on 2')
       await expect(all.nth(3).locator('.workitem__chip--due')).toHaveAttribute('data-late', '')
-      await expect(all.nth(3).locator('.workitem__chip--due')).toContainText('Overdue')
+      await expect(all.nth(3).locator('.workitem__chip--due')).toContainText(/Overdue · \d+ d\s*·\s*Mon 06 Jan/)
       // done: dimmed, the title struck
       const doneTitle = all.nth(4).locator('p').first()
       expect(await doneTitle.evaluate((el) => getComputedStyle(el).textDecorationLine)).toContain('line-through')
@@ -185,7 +199,7 @@ test.describe('task block (P0): the read-only placard', () => {
     expect((await storedItems(page, id)).map((x) => fields(x.attrs))).toEqual(before.map((x) => fields(x.attrs)))
   })
 
-  test('a task inside a task, or in a table cell, is unwrapped — its title and notes stay', async ({ page }) => {
+  test('a task inside a task, or in a table cell, is moved out whole — after the task / the table, fields and all', async ({ page }) => {
     await openApp(page)
     const nested = doc(
       item({ itemId: A, status: 'todo' }, 'Outer task', p('Outer note'), item({ itemId: B, status: 'done' }, 'Inner task', p('Inner note'))),
@@ -217,10 +231,14 @@ test.describe('task block (P0): the read-only placard', () => {
       )
       .toBe(0)
     const left = await storedItems(page, id)
-    expect(left.map((x) => x.attrs.itemId)).toEqual([A])
-    expect(left[0]!.notes).toEqual(['Outer note', 'Inner task', 'Inner note'])
-    await expect(editorOf(page, id).locator('td')).toContainText('Task in a cell')
-    await expect(items(page, id)).toHaveCount(1)
+    // B right after A (out of its notes), C right after the table — every field kept
+    expect(left.map((x) => x.attrs.itemId)).toEqual([A, B, C])
+    expect(left[0]!.notes).toEqual(['Outer note'])
+    expect(left[1]).toMatchObject({ title: 'Inner task', notes: ['Inner note'] })
+    expect(itemAttrs(left[1]!.attrs).status).toBe('done')
+    expect(await wsEval(page, (s, id) => (s.pages[id].content.content as AnyState[]).map((n) => n.type), id)).toEqual(['workItem', 'workItem', 'table', 'workItem', 'paragraph'])
+    await expect(editorOf(page, id).locator('td')).not.toContainText('Task in a cell')
+    await expect(items(page, id)).toHaveCount(3)
   })
 
   test('nothing creates a task: no slash item, no Turn into, no ⌘K entry', async ({ page }) => {
@@ -312,7 +330,8 @@ test.describe('task block (P0): Markdown, share link, HTML export', () => {
     )
     expect(md).toMatch(/> - \[x\] Name the plans\n> - \[ \] Shorten the small print/)
     expect(md).toContain(`> Due: [@Fri 17 Oct 09:00](one:date/2031-10-17T09:00) · Owner: [@Alex Kern](one:person/${alex}) · Blocked by: [${A}](one:item/${A}), [${B}](one:item/${B})`)
-    expect(md).toContain(`> [!TODO] Legal review of the terms {#${E}}\n> Status: done · Owner: [@Mara Sommer](one:person/${mara})`)
+    // the time it was done rides in the id braces (lossless)
+    expect(md).toContain(`> [!TODO] Legal review of the terms {#${E} done=2025-10-09T08:53:20.000Z}\n> Status: done · Owner: [@Mara Sommer](one:person/${mara})`)
     // a todo status and empty fields are left out
     expect(md).not.toContain('Status: todo')
 
@@ -346,7 +365,7 @@ test.describe('task block (P0): Markdown, share link, HTML export', () => {
     expect(html).toContain('class="workitem"')
     expect(html).toMatch(/data-status="in_progress"/)
     expect(html).toContain('Alex Kern')
-    expect(html).toContain('Blocked by 2')
+    expect(html).toContain('Depends on 2')
     expect(html).toContain('.workitem{')
     for (const secret of ['wi_', alex, mara, 'data-item-id', 'data-people', 'data-blocked-by', 'data-reminder']) expect(html, secret).not.toContain(secret)
 
@@ -360,9 +379,11 @@ test.describe('task block (P0): Markdown, share link, HTML export', () => {
     await p2.goto(link)
     const shared = p2.locator('.shv__doc')
     await expect(shared.locator('.workitem')).toHaveCount(5)
-    await expect(shared.locator('.workitem').nth(0).locator('.workitem__label')).toHaveText('Task')
+    // frozen: the state in words, no id
+    await expect(shared.locator('.workitem').nth(0).locator('.workitem__state')).toHaveText('Open')
+    await expect(shared.locator('.workitem').nth(0).locator('.workitem__id')).toHaveCount(0)
     await expect(shared.locator('.workitem').nth(0).locator('.workitem__chip--person')).toHaveText([/Alex Kern/, /Mara Sommer/])
-    await expect(shared.locator('.workitem').nth(2).locator('.workitem__chip--blocked')).toHaveText('Blocked by 2')
+    await expect(shared.locator('.workitem').nth(2).locator('.workitem__chip--blocked')).toHaveText('Depends on 2')
     await expect(shared.locator('.workitem').nth(4)).toHaveAttribute('data-status', 'done')
     const inner = await shared.innerHTML()
     for (const secret of ['wi_', alex, mara]) expect(inner, secret).not.toContain(secret)

@@ -1,7 +1,9 @@
 /**
  * Task block — the read-only placard ("INSTRUMENT"): a 3 px status rail, the status key (a keycap holding
- * the LED — not a control in this release), the mono spec label "TASK · 7F3A" and a chip strip (due date,
- * people by name, counts of linked tasks). The title and notes are the block's own content between them.
+ * the LED — not a control in this release), the mono spec label with the state in words ("IN PROGRESS · 1B2C",
+ * "OVERDUE · 4C1A" in the signal colour — never by colour alone) and a chip strip (due date, people by name,
+ * counts of linked tasks). The title and notes are the block's own content between them. Every chip says
+ * what it is to a screen reader ("Due: …", "reminder …", "Assigned to: …").
  *
  * - PlacardHead / PlacardChips: the chrome around the editor's content (views/WorkItemView.tsx).
  * - StaticWorkItem: the whole placard around rendered children — for surfaces drawn outside an editor
@@ -15,7 +17,7 @@ import { Led } from '../../ui/controls'
 import { useLang, useT } from '../../i18n'
 import { useWorkspace } from '../../store/store'
 import { itemAttrs, type WorkItemAttrs } from './attrs'
-import { placardModel, type PlacardModel } from './format'
+import { lateText, placardModel, type PlacardModel } from './format'
 import './workitem.css'
 
 export function usePlacardModel(attrs: WorkItemAttrs): PlacardModel {
@@ -37,7 +39,11 @@ export function PlacardHead({ model }: { model: PlacardModel }) {
         <Led state={led} />
       </span>
       <span className="workitem__label" title={model.label}>
-        {model.label}
+        <span className="visually-hidden">{t('editor.workItem.label')}: </span>
+        <span className="workitem__state" data-signal={model.state.signal ? '' : undefined}>
+          {model.state.word}
+        </span>
+        {model.state.id && <span className="workitem__id"> · {model.state.id}</span>}
       </span>
     </div>
   )
@@ -53,9 +59,10 @@ export function PlacardChips({ model }: { model: PlacardModel }) {
       {model.due && (
         <span className="workitem__chip workitem__chip--due" data-late={model.due.late ? '' : undefined} title={t('editor.workItem.due', { date: model.due.text })}>
           <CalendarDays {...ICON} />
+          <span className="visually-hidden">{t('editor.workItem.sr.due')} </span>
           {model.due.late && (
             <>
-              <span>{t('editor.workItem.overdue')}</span>
+              <span>{lateText(model, t)}</span>
               <span className="workitem__dot" aria-hidden>
                 ·
               </span>
@@ -67,14 +74,22 @@ export function PlacardChips({ model }: { model: PlacardModel }) {
               <span className="workitem__dot" aria-hidden>
                 ·
               </span>
-              <span className="workitem__rem" aria-label={reminder ? t('editor.workItem.reminder', { code: reminder }) : t('editor.workItem.reminderAt')}>
+              <span className="workitem__rem" title={reminder ? t('editor.workItem.reminder', { code: reminder }) : t('editor.workItem.reminderAt')}>
                 <BellRing {...ICON} />
-                {reminder}
+                {reminder ? (
+                  <>
+                    <span className="visually-hidden">, {t('editor.workItem.sr.reminder')} </span>
+                    {reminder}
+                  </>
+                ) : (
+                  <span className="visually-hidden">, {t('editor.workItem.reminderAt')}</span>
+                )}
               </span>
             </>
           )}
         </span>
       )}
+      {model.people.length > 0 && <span className="visually-hidden">{t('editor.workItem.sr.people')}</span>}
       {model.people.map((p) => (
         <span key={p.key} className="workitem__chip workitem__chip--person">
           <span className="workitem__avatar" style={{ background: `var(--c-${p.color}-bg)`, color: `var(--c-${p.color}-text)` }} aria-hidden>
