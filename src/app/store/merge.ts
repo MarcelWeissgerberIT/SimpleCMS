@@ -54,7 +54,7 @@ function mergeRecord(base: Rec, theirs: Rec, ours: Rec): Rec {
 /* ------------------------------------------------------------------ */
 
 /** base[a0, a1) became side[b0, b1). */
-interface Hunk {
+export interface Hunk {
   a0: number
   a1: number
   b0: number
@@ -128,7 +128,8 @@ function myers(a: string[], b: string[]): Hunk[] {
   return hunks
 }
 
-function diff(a: string[], b: string[]): Hunk[] {
+/** How the key sequence `a` became `b`: the changed stretches, in order (Myers, common prefix / suffix first). */
+export function diff(a: string[], b: string[]): Hunk[] {
   let pre = 0
   while (pre < a.length && pre < b.length && a[pre] === b[pre]) pre++
   let suf = 0

@@ -25,6 +25,8 @@ import { Comments } from './comments/CommentsRail'
 import { ContextPicker } from './context/ContextPicker'
 import { registerBridge } from './context/redo'
 import { acquireContentDoc, releaseContentDoc, useCloud, type ContentDocHandle } from '../cloud'
+import { useT } from '../i18n'
+import { ReadOnlyDoc } from './ReadOnlyDoc'
 import './editor.css'
 
 export interface PageEditorProps {
@@ -217,10 +219,18 @@ export function PageEditor(props: PageEditorProps) {
   return <EditorInstance key={props.pageId} {...props} />
 }
 
-/** Team cloud: hold the page's content document while mounted; render once its local copy is loaded. */
+/** How long a page document may take before the page shows its last known text (read-only) meanwhile. */
+const WAIT_SHOW_MS = 500
+
+/**
+ * Team cloud: hold the page's content document while mounted; render once its local copy is loaded. A
+ * document that waits for the server (first open after an update, offline) shows the page's last known
+ * text, read-only, with a line saying why.
+ */
 function CloudEditor(props: PageEditorProps) {
   const [handle, setHandle] = useState<ContentDocHandle | null>(null)
   const [unbound, setUnbound] = useState(false)
+  const [slow, setSlow] = useState(false)
   const { pageId } = props
   useEffect(() => {
     const h = acquireContentDoc(pageId)
@@ -231,15 +241,34 @@ function CloudEditor(props: PageEditorProps) {
     let alive = true
     const show = () => alive && setHandle(h)
     h.ready.then(show, show)
+    const timer = window.setTimeout(() => alive && setSlow(true), WAIT_SHOW_MS)
     return () => {
       alive = false
+      window.clearTimeout(timer)
       setHandle(null)
+      setSlow(false)
       releaseContentDoc(pageId)
     }
   }, [pageId])
   if (unbound) return <EditorInstance {...props} />
-  if (!handle) return <div className={['one-editor', 'is-loading', props.className ?? ''].filter(Boolean).join(' ')} aria-busy="true" />
+  if (!handle) return slow ? <WaitingDoc pageId={pageId} className={props.className} /> : <div className={['one-editor', 'is-loading', props.className ?? ''].filter(Boolean).join(' ')} aria-busy="true" />
   return <EditorInstance {...props} collab={handle} />
+}
+
+/** The page's last known text while its document waits for the server. */
+function WaitingDoc({ pageId, className }: { pageId: ID; className?: string }) {
+  const t = useT()
+  const content = useWorkspace((s) => s.pages[pageId]?.content ?? null)
+  const offline = useCloud((s) => s.status === 'offline')
+  return (
+    <div className={['one-editor', 'is-waiting', className ?? ''].filter(Boolean).join(' ')} aria-busy="true">
+      <p className="one-editor__wait" role="status">
+        <span className="label">{t(offline ? 'editor.wait.offline.label' : 'editor.wait.loading.label')}</span>
+        <span>{t(offline ? 'editor.wait.offline' : 'editor.wait.loading')}</span>
+      </p>
+      {content && <ReadOnlyDoc content={content} headingOffset={1} />}
+    </div>
+  )
 }
 
 /** Sanitised content with block ids filled in (ids missing, or a misplaced task moved out → persist once after mount). */

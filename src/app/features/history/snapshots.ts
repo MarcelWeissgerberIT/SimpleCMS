@@ -16,7 +16,7 @@
 import type { JSONContent } from '@tiptap/core'
 import { createStore, delMany, get, setMany, type UseStore } from 'idb-keyval'
 import { pageChanges, plainText, useWorkspace } from '../../store/store'
-import { isApplyingRemote } from '../../store/persistence'
+import { isApplyingRemote, onReplacedByOlder } from '../../store/persistence'
 import type { ID, Page, PageIcon } from '../../store/types'
 import { newId } from '../../lib/ids'
 import { getSchema } from '@tiptap/core'
@@ -26,7 +26,8 @@ import { docKey } from './diff'
 import { t } from '../../i18n'
 import { blankRow, iconKey, propsChanged, propsKey, propsOf, restoreProps, type NotRestored, type SnapshotProps } from './props'
 
-export type SnapshotReason = 'session' | 'auto' | 'ai' | 'restore' | 'manual' | 'script'
+/** 'older': the version this build had before an older build of One (another tab) let a task go (store/persistence.ts) */
+export type SnapshotReason = 'session' | 'auto' | 'ai' | 'restore' | 'manual' | 'script' | 'older'
 
 export interface SnapshotMeta {
   id: ID
@@ -515,10 +516,15 @@ export function startHistory(): () => void {
   }
   document.addEventListener('visibilitychange', onVisibility)
   window.addEventListener('pagehide', flush)
+  // an older build of One (another tab) let a task go — deleted there, or the page replaced: the version that had it
+  const offOlder = onReplacedByOlder((v) => {
+    if (v.content) void writeSnapshot(v.pageId, { content: v.content, title: v.title, icon: v.icon }, 'older', Date.now() - 1)
+  })
 
   return () => {
     running = false
     unsub()
+    offOlder()
     document.removeEventListener('visibilitychange', onVisibility)
     window.removeEventListener('pagehide', flush)
     for (const s of session.values()) if (s.timer) window.clearTimeout(s.timer)

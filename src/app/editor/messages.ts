@@ -15,6 +15,11 @@ export const messages: Messages = {
     ...splitMessages.en,
     ...selectMessages.en,
     ...workItemMessages.en,
+    // a page document waiting for the server (team cloud: first open after an update, offline)
+    'editor.wait.loading.label': 'Loading',
+    'editor.wait.loading': 'From the server — editable in a moment. This is the last known text.',
+    'editor.wait.offline.label': 'Offline · read only',
+    'editor.wait.offline': 'Editable once the connection is back: this page is loaded from the server once after the update. This is the last known text.',
     // blocks: name + description (slash menu, turn into, block menu)
     'editor.block.text': 'Text',
     'editor.block.text.desc': 'Plain paragraph. The default line.',
@@ -552,6 +557,10 @@ export const messages: Messages = {
     ...splitMessages.de,
     ...selectMessages.de,
     ...workItemMessages.de,
+    'editor.wait.loading.label': 'Lädt',
+    'editor.wait.loading': 'Vom Server – gleich bearbeitbar. Das ist der zuletzt bekannte Stand.',
+    'editor.wait.offline.label': 'Offline · nur lesen',
+    'editor.wait.offline': 'Bearbeitbar, sobald die Verbindung zurück ist: Nach dem Update wird diese Seite einmal vom Server geladen. Das ist der zuletzt bekannte Stand.',
     'editor.block.text': 'Text',
     'editor.block.text.desc': 'Einfacher Absatz. Die Standardzeile.',
     'editor.block.heading1': 'Überschrift 1',

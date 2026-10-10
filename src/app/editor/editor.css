@@ -871,6 +871,28 @@
   min-height: 120px;
 }
 
+/* a page document waiting for the server: its last known text, read-only, under a line saying why */
+.one-editor.is-waiting .one-doc {
+  opacity: 0.72;
+}
+
+.one-editor__wait {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--sp-1) var(--sp-2);
+  margin: 0 0 var(--sp-3);
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-1);
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+}
+
+.one-editor__wait .label {
+  color: var(--ink);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .doc-content .collab-caret__label {
     transition: none;

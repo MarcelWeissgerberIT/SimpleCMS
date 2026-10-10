@@ -4,6 +4,7 @@
  *                         pages with local edits the server hasn't confirmed yet
  *   content:<ws>:<page>   the last known content JSON of a page (search/export/graph at boot
  *                         without opening every page document) + the page's updatedAt it matches
+ *   held:<ws>:<page>      a non-editor write waiting for the page's first server sync (content.ts)
  *   uploads:<ws>          files waiting for upload (or for publishing: private uploads, § Private pages)
  *   privfiles:<ws>        files this device uploaded from private pages and hasn't published
  *   purge:<ws>            pages deleted for good (or moved between Private and the workspace) whose
@@ -80,6 +81,43 @@ export function saveContentCache(wsId: string, pageId: ID, v: CachedContent): vo
 export function dropContentCache(wsId: string, pageId: ID): void {
   const s = db()
   if (s) del(`content:${wsId}:${pageId}`, s).catch(() => {})
+}
+
+/**
+ * A non-editor content write waiting for its page's first server sync (content.ts `bridgeContent`: written
+ * into a copy with nothing in it yet, its text would come twice): merged in then, also after a reload.
+ */
+export interface HeldWrite {
+  base: JSONContent | null
+  ours: JSONContent | null
+}
+
+export async function loadHeldWrites(wsId: string): Promise<Map<ID, HeldWrite>> {
+  const out = new Map<ID, HeldWrite>()
+  const s = db()
+  if (!s) return out
+  const prefix = `held:${wsId}:`
+  try {
+    await s('readonly', async (store) => {
+      const range = IDBKeyRange.bound(prefix, `${prefix}￿`)
+      const [keys, values] = await Promise.all([promisifyRequest(store.getAllKeys(range)), promisifyRequest(store.getAll(range))])
+      keys.forEach((k, i) => {
+        const v = values[i] as HeldWrite | undefined
+        if (v && typeof v === 'object' && 'ours' in v) out.set(String(k).slice(prefix.length), { base: v.base ?? null, ours: v.ours ?? null })
+      })
+    })
+  } catch (e) {
+    console.warn('[one] held cloud writes unreadable', e)
+  }
+  return out
+}
+
+/** `null`: the write is in (or gone). */
+export function saveHeldWrite(wsId: string, pageId: ID, v: HeldWrite | null): void {
+  const s = db()
+  if (!s) return
+  const key = `held:${wsId}:${pageId}`
+  void (v ? set(key, v, s) : del(key, s)).catch(() => {})
 }
 
 export interface QueuedUpload {

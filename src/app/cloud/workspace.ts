@@ -17,7 +17,7 @@ import { useUI } from '../store/ui'
 import { t } from '../i18n'
 import { getMembers, getSession, onUnauthenticated, patchMe, patchWorkspace } from './api'
 import { isApplyingCloud, readAll, startBinding, structuralRepairs, uniqueIdRepairs, type Binding } from './binding'
-import { bridgeContent, contentHasUnsynced, detachAll, reauthenticate, enqueueSync, forget, onRemotePages, reattachAll, revertContent, staleAtBoot, startContent, type ContentContext } from './content'
+import { bridgeContent, contentHasUnsynced, detachAll, reauthenticate, enqueueSync, forget, onRemotePages, reattachAll, resumeHeldWrites, revertContent, staleAtBoot, startContent, type ContentContext } from './content'
 import { displayName, toneCss, userTone, within, writeSession } from './env'
 import { isForgetting } from './device'
 import { kickUploads, publishReferenced, startFiles } from './files'
@@ -356,7 +356,8 @@ export async function openCloudWorkspace(ws: CloudWorkspace, user: CloudUser, on
     // files: uploads + downloads
     void startFiles(ws.id, writable)
 
-    // page content: whatever this device doesn't have fresh, in the background
+    // page content: writes a tab left waiting for a page's first server sync, then whatever this device doesn't have fresh
+    void resumeHeldWrites()
     enqueueSync(staleAtBoot(useWorkspace.getState().pages, contentCtx))
   } catch (e) {
     console.error('[one] a cloud workspace service failed to start', e)

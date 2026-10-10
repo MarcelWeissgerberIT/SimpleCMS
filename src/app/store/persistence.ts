@@ -24,11 +24,15 @@
  *   IndexedDB write. The next boot (or another open tab) puts them back.
  * - Older builds (a tab of One opened before an update, same browser): they lose node types they don't
  *   know (store/generations.ts — the editor unwraps a task into its blocks) and store that. So every page
- *   record this build writes carries a stamp (`_schema`: its generation, valid only for the very copy it
- *   was written with), and a page holding newer nodes also gets a shadow copy (`one.page.g<n>:<id>`, a key
- *   older builds never touch). A record without a valid stamp (an older writer) that lacks newer nodes its
- *   shadow (or this tab's copy) has is merged back — the older tab's own edits kept, the newer nodes put
- *   back (restoreNewer) — at boot, from another tab's save, from its stash, and before a save merges.
+ *   record this build writes carries a stamp (`_schema`: { g: its generation, f: the fingerprint of the
+ *   content written }) — an older build copies the stamp along with the record (its own cross-tab merge even
+ *   takes the newer side's stamp), so it counts only for content with that very fingerprint. A page holding
+ *   newer nodes also gets a shadow copy (`one.page.g<n>:<id>`, a key older builds never touch). A record
+ *   without a valid stamp (an older writer) that lacks newer nodes its shadow (or this tab's copy) has gets
+ *   them back around what is left of their blocks (rewrapNewer: the older tab's edits kept, inside a task
+ *   too) — at boot, from another tab's save, from its stash, and before a save merges. A node none of whose
+ *   blocks is left there (deleted, or the page replaced: a restore, an import) stays gone; the version that
+ *   had it goes to the page's history (onReplacedByOlder). Shadows of pages an older build deleted go too.
  */
 import { createStore, type UseStore } from 'idb-keyval'
 import { useWorkspace, getWorkspaceSnapshot, emptyWorkspace, pageChanges, WORKSPACE_VERSION, defaultSettings, defaultView, DEFAULT_PAGE_SETTINGS } from './store'
@@ -44,7 +48,8 @@ import { sanitizeIntegrations } from './integrations'
 import { sanitizeScripts } from './scripts'
 import { sanitizeKit } from './kit'
 import { sanitizeLook } from './look'
-import { DOC_SCHEMA_VERSION, newerCounts, restoreNewer } from './generations'
+import { DOC_SCHEMA_VERSION, newerCounts, newerFingerprint, rewrapNewer } from './generations'
+import { plainText } from './plain'
 
 /** The single-record layout before v2 (read once, then converted). */
 const LEGACY_KEY = 'one.workspace.v1'
@@ -129,37 +134,81 @@ function normalizePage(id: ID, v: unknown, now: number): { page: Page; repaired:
 /* Older builds (store/generations.ts)                                 */
 /* ------------------------------------------------------------------ */
 
-/** A page as this build stores it: with the stamp of its generation for exactly this copy. */
-const stamped = (p: Page): Obj => ({ ...p, [STAMP]: { g: DOC_SCHEMA_VERSION, rev: p.contentRev, at: p.updatedAt } })
+/** A page as this build stores it: with the stamp of its generation, bound to exactly this content. */
+const stamped = (p: Page): Obj => ({ ...p, [STAMP]: { g: DOC_SCHEMA_VERSION, f: newerFingerprint(p.content) } })
 
 /**
- * The generation of the build that wrote this stored page: its stamp — when it belongs to this very copy (an
- * older build carries a stamp it read along unchanged, but its own writes change the copy). 0: an older build.
+ * The generation of the build that wrote this stored page: its stamp — when it belongs to this very content (an
+ * older build carries a stamp it read along, or takes the newer side's in its own merge, but its own writes
+ * change the content). 0: an older build.
  */
 function writerGen(raw: unknown): number {
   if (!isObj(raw) || !isObj(raw[STAMP])) return 0
   const s = raw[STAMP] as Obj
-  return isNum(s.g) && s.rev === raw.contentRev && s.at === raw.updatedAt ? s.g : 0
+  return isNum(s.g) && isNum(s.f) && s.f === newerFingerprint(isObj(raw.content) ? (raw.content as Page['content']) : null) ? s.g : 0
 }
 
 /** Does this content hold nodes an older build would lose (it needs a shadow copy)? */
 const holdsNewer = (content: Page['content']) => !!content && newerCounts(content, 0).size > 0
 
+/** A version of a page from before an older build of One replaced it (what it had that the older copy let go). */
+export interface ReplacedByOlder {
+  pageId: ID
+  content: Page['content']
+  title: string
+  icon: Page['icon']
+}
+const replacedQueue: ReplacedByOlder[] = []
+const replacedListeners = new Set<(v: ReplacedByOlder) => void>()
+
+/**
+ * Versions this build had of pages an older build changed so that a node it could not read is gone (none of a
+ * task's blocks left there: the person deleted them, or the page was replaced — a restore, an import). The page
+ * history keeps them (features/history); ones found before anybody listens (at boot) are handed over then.
+ */
+export function onReplacedByOlder(fn: (v: ReplacedByOlder) => void): () => void {
+  replacedListeners.add(fn)
+  for (const v of replacedQueue.splice(0)) fn(v)
+  return () => replacedListeners.delete(fn)
+}
+
+function keepReplaced(page: Page, content: Page['content']) {
+  const v: ReplacedByOlder = { pageId: page.id, content, title: page.title, icon: page.icon }
+  if (replacedListeners.size) replacedListeners.forEach((fn) => fn(v))
+  else replacedQueue.push(v)
+}
+
 /**
  * A page an older build may have written (`raw`): its content with every newer node of `known` (what a build
- * of this generation stored or holds) put back — the older build's own edits kept. The page as it is when
- * nothing was lost (or a current build wrote it).
+ * of this generation stored or holds) wrapped again around what is left of its blocks — the older build's own
+ * edits kept (rewrapNewer). A node with nothing left there stays gone; `known` then goes to the page's history.
+ * The page as it is when nothing was lost (or a current build wrote it).
  */
 function guardOlder(page: Page, raw: unknown, known: Page['content'] | undefined): Page {
   const gen = writerGen(raw)
   if (gen >= DOC_SCHEMA_VERSION || !known || !holdsNewer(known)) return page
   try {
-    const content = restoreNewer(known, page.content, gen, 'unwrap')
-    return content === page.content ? page : { ...page, content }
+    const { doc, dropped } = rewrapNewer(known, page.content, gen)
+    if (dropped.length) keepReplaced(page, known)
+    if (doc === page.content && !dropped.length) return page
+    return { ...page, content: doc, plain: plainText(doc) }
   } catch (e) {
     console.warn('[one] could not merge a page an older version of One stored', e)
     return page
   }
+}
+
+/** Shadow copies of pages whose record is gone (an older build deleted the page for good) — dropped while still so. */
+function dropOrphanShadows(ids: ID[]): void {
+  if (!ids.length) return
+  void inTx<void>('readwrite', (os) => {
+    for (const id of ids) {
+      const r = os.get(PAGE_PREFIX + id)
+      r.onsuccess = () => {
+        if (r.result === undefined) os.delete(SHADOW_PREFIX + id)
+      }
+    }
+  }).catch((e) => console.warn('[one] could not drop a shadow copy', e))
 }
 
 const shadowContent = (v: unknown): Page['content'] | undefined => (isObj(v) && isObj(v.content) ? (v.content as Page['content']) : undefined)
@@ -673,14 +722,20 @@ export async function loadWorkspace(): Promise<Workspace | null> {
   const { ws, repaired } = migrateWithReport(raw)
   // pages an older build stored since this generation last did: what it could not read comes back
   const rawPages = isObj(raw) && isObj(raw.pages) ? raw.pages : {}
+  const orphans: ID[] = []
   for (const [id, sh] of Object.entries(stored?.shadows ?? {})) {
     const page = ws.pages[id]
-    if (!page) continue
+    if (!page) {
+      // the page was deleted for good by an older build (its record is gone; an unreadable one keeps its shadow)
+      if (rawPages[id] === undefined) orphans.push(id)
+      continue
+    }
     const next = guardOlder(page, rawPages[id], shadowContent(sh))
     if (next === page) continue
     ws.pages[id] = next
     dirtyPages.add(id)
   }
+  dropOrphanShadows(orphans)
   if (repaired) {
     // keep the original before anything is written (a failure here fails the boot: nothing is lost) — but never the API key
     await inTx<void>('readwrite', (os) => void os.put(plainKeyIn(raw) !== null ? withKey(raw as Obj, '') : raw, BACKUP_KEY))
@@ -770,10 +825,13 @@ async function readChanged(pageIds: ID[], dbIds: ID[], meta: boolean): Promise<W
     else delete ws.look
   }
   const now = Date.now()
+  const orphans: ID[] = []
   for (const [id, v] of rec.pages) {
     const r = normalizePage(id, v, now)
     if (!r) {
       delete ws.pages[id]
+      // deleted for good there (an older build leaves the shadow copy behind)
+      if (v === undefined && rec.shadows.get(id) !== undefined) orphans.push(id)
       continue
     }
     // saved by an older build (another tab opened before an update): it never takes what it could not read
@@ -786,6 +844,7 @@ async function readChanged(pageIds: ID[], dbIds: ID[], meta: boolean): Promise<W
     if (r) ws.databases[id] = r.db
     else delete ws.databases[id]
   }
+  dropOrphanShadows(orphans)
   return ws
 }
 

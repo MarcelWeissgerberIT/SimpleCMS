@@ -5,7 +5,7 @@
  *   one:ws:<id>:u:<user>[:p:<page>]     the private ones too, docs/CLOUD.md § Private pages; page documents
  *   one:g<n>:ws:<id>…:p:<page>          per document schema generation, docs/CLOUD.md § Schema gate)
  *   one-cloud / kv                      overlay:<id> (settings incl. the AI key's marker, favourites, recent),
- *                                       content:<id>:<page>, uploads:<id>, purge:<id>, privfiles:<id>
+ *                                       content:<id>:<page>, held:<id>:<page>, uploads:<id>, purge:<id>, privfiles:<id>
  *   one-files / files                   cached files — only those nothing else in this browser uses
  *   one-history / snapshots             version history of the workspace's pages (idx:<page>, snap:<id>)
  *   one-vault / kv                      sealed secrets of scope cloud:<id> (the AI key, the GitHub token)
@@ -39,7 +39,7 @@ const REF_RE = /onefile:([A-Za-z0-9_-]{1,64})/g
 /** A workspace's documents: meta, page content, and (`:u:<userId>`) a member's private ones. */
 const DOC_DB = /^one:(?:g\d{1,4}:)?ws:([A-Za-z0-9_-]{8,64})(?::u:[A-Za-z0-9_-]{8,64})?(?::p:([A-Za-z0-9_-]{1,64}))?$/
 const PRIVATE_META_DB = /^one:ws:([A-Za-z0-9_-]{8,64}):u:[A-Za-z0-9_-]{8,64}$/
-const KV_KEY = /^(overlay|uploads|purge|content|privfiles):([A-Za-z0-9_-]{8,64})(?::([A-Za-z0-9_-]{1,64}))?$/
+const KV_KEY = /^(overlay|uploads|purge|content|privfiles|held):([A-Za-z0-9_-]{8,64})(?::([A-Za-z0-9_-]{1,64}))?$/
 
 function readFlag(): string[] {
   try {
@@ -185,7 +185,7 @@ async function forget(flag: string[]): Promise<void> {
     } else if (kind === 'uploads') {
       // another workspace's files that haven't reached its server yet
       for (const item of Array.isArray(v) ? v : []) if (item && typeof (item as { id?: unknown }).id === 'string') keep.add((item as { id: string }).id)
-    } else if (kind === 'content') collectRefs(v, keep)
+    } else if (kind === 'content' || kind === 'held') collectRefs(v, keep)
   }
   const docDbs = new Set<string>()
   // the targets' custom agents (meta map `agents`): their runs, slots and saved state on this device go too
