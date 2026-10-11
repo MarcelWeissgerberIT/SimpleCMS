@@ -25,16 +25,17 @@ import { messages as recorderMessages } from '../../src/app/features/recorder/me
 import { contentDelta, countOps, countPlaces, countWords, windowMeters, wordDelta } from '../../src/app/features/recorder/model/counts'
 import { barHeights, followSpan, fracOf, loupeK, loupeLabel, makeAxis, pct, phoneFit, quarterHot, rulerLabels, rulerTicks, runBracket, snapTime, spanAround, stripBars, stripRange, stripTicks, tAtX, tOfU, uOf, xOf } from '../../src/app/features/recorder/model/axis'
 import { hiddenRulerLabels, settleHead, settleLabels, underHeads } from '../../src/app/features/recorder/model/labels'
-import { F, K, type EjectRecord, type Foreign, type JEvent, type JOp, type JSegment, type NowDigest, type PlaceWindow } from '../../src/app/features/recorder/model/types'
+import { F, K, type EjectRecord, type Foreign, type JEvent, type JOp, type JSegment, type NowDigest, type PinMeta, type PlaceKey, type PlaceWindow } from '../../src/app/features/recorder/model/types'
 import type { Database, Page, PropertyDef, View } from '../../src/app/store/types'
 import { rewindAllowed, rewindState, setRewindGuard } from '../../src/app/store/rewind'
 import { thinSnapshots } from '../../src/app/features/history/thin'
 import type { SnapshotMeta } from '../../src/app/features/history/snapshots'
 import { planRestoreProps, type SnapshotProps } from '../../src/app/features/history/propsCore'
 import { invalidTargetsIn, pairedRelationIn, relationRestoreOk } from '../../src/app/database/model/hierarchyCore'
-import { withoutProperty } from '../../src/app/database/model/withoutProperty'
 import { overlay, overlayDb } from '../../src/app/features/recorder/model/overlay'
 import { blockHunks, locateUnique } from '../../src/app/features/recorder/model/blocks'
+import { core, targetsFor, type CoreInput } from '../../src/app/features/recorder/model/plan'
+import { optionRefs, propertyRefs, withoutProperty } from '../../src/app/database/model/withoutProperty'
 
 /* ------------------------------------------------------------------ */
 /* stub deps (the browser spec covers the real helpers)                */
@@ -1321,6 +1322,234 @@ test.describe('blocks for the eject (E5): hunks and where they sit now', () => {
     expect(locateUnique(['#=p', '#=x', '#=r'], [], ['#=p', '#=r'])).toBeNull()
     // the doc's start and end are neighbours too
     expect(locateUnique(['#=s', '#=p'], ['#=s'], [null, '#=p'])).toEqual([0, 1])
+  })
+})
+
+test.describe('the planner core (E6)', () => {
+  const S = 'local:local' as const
+  const LANE = 'agent:nordlicht-spiegel'
+  const RUN = `${LANE}:r212`
+  const SEL = { scope: S, lane: LANE, run: RUN, a: 1000, b: 90_000 }
+  const DB = 'db-nordlicht'
+  let n = 0
+  const seg = (p: string, from: number, over: Partial<JSegment> = {}): JSegment => ({ id: `${S}|g${++n}`, s: S, p: p as JSegment['p'], pk: 'row', db: DB, w: `${RUN}#c${n}`, sk: RUN, l: LANE, r: RUN, from, to: from + 100, n: 1, before: `${p}|pin${n}`, bh: 'B', left: { h: 'L', parts: {} }, lastLh: 'L', touched: [], tab: 't1', f: 0, ...over })
+  const evOf = (g: JSegment, kinds = K.PROPS): JEvent => ({ k: `${S}|${g.from}|v${g.id}|0`, s: S, at: g.from, v: `v${g.id}`, w: g.w, l: g.l, r: g.r, c: `c-${g.id.slice(-3)}`, p: g.p, pk: g.pk, ...(g.db ? { db: g.db } : {}), kinds, ops: 1, g: g.id, lh: g.left?.h ?? '-' })
+  const win = (own: JSegment[], foreign: Foreign[] = []): PlaceWindow => ({ p: own[0].p, pk: own[0].pk, ...(own[0].db ? { db: own[0].db } : {}), own, foreign, ownEvents: own.map((g) => evOf(g, g.pk === 'page' ? K.CONTENT : g.pk === 'schema' ? K.SCHEMA : K.PROPS)), cut: false })
+  const fr = (from: number, touched: string[] | '*', lane = 'you'): Foreign => ({ from, lane, w: lane === 'you' ? 'you~ui' : lane, touched, seg: `${S}|f${from}`, open: false })
+  const nowD = (parts: Record<string, string>, blocks?: string[], over: Partial<NowDigest> = {}): NowDigest => ({ exists: true, h: 'L', parts, ...(blocks ? { blocks } : {}), key: 'k', ...over })
+  const rowPage = (id: string, over: Partial<Page> = {}) => page({ id, parentId: DB, databaseId: DB, title: id, ...over })
+  const stdDb = () => database({ id: DB })
+  const pageMeta = (pg: Page, body: string | null, defs: SnapshotProps['defs'] | null = null): PinMeta => {
+    const { content: _c, plain: _p, comments: _m, ...rest } = pg
+    return { v: 1, kind: 'page', at: 1, seg: 'x', page: rest, defs, body, files: [] }
+  }
+  const schemaMeta = (db: Database): PinMeta => ({ v: 1, kind: 'schema', at: 1, seg: 'x', dbId: db.id, db, files: [] })
+  const itemsIn = (c: JSONContent | null | undefined): Array<{ itemId: string; blockedBy: string[] }> => {
+    const out: Array<{ itemId: string; blockedBy: string[] }> = []
+    const walk = (x: JSONContent) => {
+      if (x.type === 'workItem') out.push({ itemId: String(x.attrs?.itemId), blockedBy: (x.attrs?.blockedBy as string[]) ?? [] })
+      x.content?.forEach(walk)
+    }
+    if (c) walk(c)
+    return out
+  }
+  const fns = { planRestoreProps, relationRestoreOk, withoutProperty, propertyRefs, optionRefs, itemsOf: itemsIn, liftMisplacedItems: (d: JSONContent) => d }
+  interface Fx {
+    places: PlaceWindow[]
+    now: Record<string, NowDigest>
+    metas?: Record<string, PinMeta>
+    bodies?: Record<string, JSONContent | null>
+    pinBlocks?: Record<string, { strings: string[]; json: JSONContent[] }>
+    nowBlocks?: Record<string, { strings: string[]; json: JSONContent[] }>
+    pages: Page[]
+    dbs?: Database[]
+    items?: { live?: Record<string, string[]>; loops?: string[] }
+    pipeline?: boolean
+    status?: Record<string, string>
+  }
+  const coreOf = (fx: Fx, forced: string[] = []) => {
+    const dbs = fx.dbs ?? [stdDb()]
+    const state = { pages: Object.fromEntries(fx.pages.map((x) => [x.id, x])), databases: Object.fromEntries(dbs.map((d) => [d.id, d])) }
+    const input: CoreInput = {
+      data: { sel: SEL, places: new Map(fx.places.map((w) => [w.p, w])), runs: {}, lostTails: [], ejects: [], schemaEvents: new Map() },
+      now: new Map(Object.entries(fx.now) as Array<[PlaceKey, NowDigest]>),
+      pins: { metas: new Map(Object.entries(fx.metas ?? {})), bodies: new Map(Object.entries(fx.bodies ?? {})), blocks: new Map(Object.entries(fx.pinBlocks ?? {})) },
+      nowBlocks: new Map(Object.entries(fx.nowBlocks ?? {}) as Array<[PlaceKey, { strings: string[]; json: JSONContent[] }]>),
+      state,
+      empty: (k) => `E(${k})`,
+      kitComputed: () => false,
+      readOnly: { pageLocked: (id) => !!state.pages[id]?.settings.locked, dbLocked: (id) => !!state.databases[id]?.locked },
+      db: { system: (id) => state.databases[id]?.system, pipelineRole: (id, prop) => (fx.pipeline && id === DB ? (prop === 'title' ? 'title' : prop === 'est' ? 'priority' : prop ? 'stage' : null) : undefined), props: (id) => state.databases[id]?.properties ?? [] },
+      items: { livePagesOf: (id) => fx.items?.live?.[id] ?? [], wouldLoop: (from, to) => !!fx.items?.loops?.includes(`${from}>${to}`) },
+      sources: { changeStatus: fx.status ? (c) => fx.status![c] : undefined },
+      fns,
+    }
+    const plan = core(input, new Set(forced as PlaceKey[]))
+    return { plan, by: (p: string) => plan.places.find((x) => x.p === p)!, state, input }
+  }
+  const ROW = { t: 'T', i: '', c: 'C', tr: '0', pa: 'PA', r: '', o: 'O', 'p:stage': 'S1', 'p:est': 'E1' }
+
+  test('F1 page: two appends of the writer go, the person\'s fix between them stays', () => {
+    const P = 'p:report'
+    const b = (id: string, text: string): JSONContent => para(text, id)
+    const s1 = seg(P, 2000, { pk: 'page', db: undefined, touched: ['b:a1', 'bo'], left: { h: 'L1', parts: { t: 'T' }, blocks: ['b1=1', 'b2=2', 'b3=3', 'a1=x'] } })
+    const s2 = seg(P, 4000, { pk: 'page', db: undefined, touched: ['b:a2', 'bo'], left: { h: 'L2', parts: { t: 'T' }, blocks: ['b1=1', 'b2=2', 'b3=3f', 'a1=x', 'a2=y'] } })
+    const cur = page({ id: 'report', content: docOf(b('b1', 'eins'), b('b2', 'zwei'), b('b3', 'drei, korrigiert'), b('a1', 'Absatz A'), b('a2', 'Absatz B')) })
+    const fx: Fx = {
+      places: [win([s1, s2], [fr(3000, ['b:b3'])])],
+      now: { [P]: nowD({ t: 'T' }, ['b1=1', 'b2=2', 'b3=3f', 'a1=x', 'a2=y'], { h: 'L2' }) },
+      metas: { [s1.before!]: pageMeta(cur, 'd1'), [s2.before!]: pageMeta(cur, 'd2') },
+      bodies: { 'report|d1': null, 'report|d2': null },
+      pinBlocks: {
+        [s1.before!]: { strings: ['b1=1', 'b2=2', 'b3=3'], json: [b('b1', 'eins'), b('b2', 'zwei'), b('b3', 'drei')] },
+        [s2.before!]: { strings: ['b1=1', 'b2=2', 'b3=3f', 'a1=x'], json: [b('b1', 'eins'), b('b2', 'zwei'), b('b3', 'drei, korrigiert'), b('a1', 'Absatz A')] },
+      },
+      nowBlocks: { [P]: { strings: ['b1=1', 'b2=2', 'b3=3f', 'a1=x', 'a2=y'], json: cur.content!.content! } },
+      pages: [cur],
+    }
+    const { by, plan, state, input } = coreOf(fx)
+    const x = by(P)
+    expect(x).toMatchObject({ outcome: 'back', hunks: { back: 2, held: 0 } })
+    const target = targetsFor(plan, state, input.pins, fns).pages.report
+    expect(target.content!.content!.map((c) => c.content?.[0]?.text)).toEqual(['eins', 'zwei', 'drei, korrigiert'])
+    // id-less paragraphs: the fix sits between them — the earlier append is held (its neighbour is not what it was)
+    const loose = (blocks: string[]) => blocks.map((x2) => `#=${x2.split('=')[1]}`)
+    const t1 = seg(P, 2000, { pk: 'page', db: undefined, touched: ['b#', 'bo'], left: { h: 'L1', parts: { t: 'T' }, blocks: loose(['b1=1', 'b2=2', 'b3=3', 'a1=x']) } })
+    const t2 = seg(P, 4000, { pk: 'page', db: undefined, touched: ['b#', 'bo'], left: { h: 'L2', parts: { t: 'T' }, blocks: loose(['b1=1', 'b2=2', 'b3=3f', 'a1=x', 'a2=y']) } })
+    const fx2: Fx = {
+      ...fx,
+      places: [win([t1, t2], [fr(3000, ['b#'])])],
+      now: { [P]: nowD({ t: 'T' }, loose(['b1=1', 'b2=2', 'b3=3f', 'a1=x', 'a2=y']), { h: 'L2' }) },
+      metas: { [t1.before!]: pageMeta(cur, 'd1'), [t2.before!]: pageMeta(cur, 'd2') },
+      pinBlocks: { [t1.before!]: { strings: loose(['b1=1', 'b2=2', 'b3=3']), json: fx.pinBlocks![s1.before!].json }, [t2.before!]: { strings: loose(['b1=1', 'b2=2', 'b3=3f', 'a1=x']), json: fx.pinBlocks![s2.before!].json } },
+      nowBlocks: { [P]: { strings: loose(['b1=1', 'b2=2', 'b3=3f', 'a1=x', 'a2=y']), json: cur.content!.content! } },
+    }
+    expect(coreOf(fx2).by(P)).toMatchObject({ outcome: 'back', hunks: { back: 1, held: 1 } })
+  })
+
+  test('F1 schema: the writer\'s option renames go back, the person\'s rename between them stays; a view the writer changed goes back', () => {
+    const S1 = `s:${DB}`
+    const pin1 = database()
+    const after1 = database({ properties: [pin1.properties[0], { ...statusProp, options: statusProp.options!.map((o) => (o.id === 'o-ready' ? { ...o, name: 'Bereit' } : o)) }, pin1.properties[2], pin1.properties[3]] })
+    const pin2 = database({ properties: [after1.properties[0], { ...after1.properties[1], options: after1.properties[1].options!.map((o) => (o.id === 'o-done' ? { ...o, name: 'Fertig' } : o)) }, after1.properties[2], after1.properties[3]] })
+    const cur = database({ properties: [pin2.properties[0], { ...pin2.properties[1], options: pin2.properties[1].options!.map((o) => (o.id === 'o-backlog' ? { ...o, name: 'Rückstand' } : o)) }, pin2.properties[2], pin2.properties[3]], views: [view({ name: 'Tessera (Agent)' })] })
+    const g1 = seg(S1, 2000, { pk: 'schema', touched: ['o:stage/o-ready'], left: { h: 'L1', parts: { 'o:stage/o-ready': 'R2' } } })
+    const g2 = seg(S1, 4000, { pk: 'schema', touched: ['o:stage/o-backlog'], left: { h: 'L2', parts: { 'o:stage/o-ready': 'R2', 'o:stage/o-backlog': 'K2' } } })
+    const V = `v:${DB}/v-board`
+    const gv = seg(V, 2500, { pk: 'view', touched: ['v'], left: { h: 'LV', parts: { v: 'V2' } } })
+    const fx: Fx = {
+      places: [win([g1, g2], [fr(3000, ['o:stage/o-done'])]), win([gv])],
+      now: { [S1]: nowD({ 'o:stage/o-ready': 'R2', 'o:stage/o-backlog': 'K2', 'o:stage/o-done': 'D2' }, undefined, { h: 'L2' }), [V]: nowD({ v: 'V2' }, undefined, { h: 'LV' }) },
+      metas: { [g1.before!]: schemaMeta(pin1), [g2.before!]: schemaMeta(pin2), [gv.before!]: schemaMeta(pin1) },
+      pages: [],
+      dbs: [cur],
+    }
+    const { plan, by, state, input } = coreOf(fx)
+    expect(by(S1)).toMatchObject({ outcome: 'back', parts: { back: ['o:stage/o-backlog', 'o:stage/o-ready'] } })
+    expect(by(V).outcome).toBe('back')
+    const db = targetsFor(plan, state, input.pins, fns).databases[DB]
+    expect(db.properties[1].options!.map((o) => o.name)).toEqual(['Backlog', 'Ready', 'Fertig'])
+    expect(db.views[0].name).toBe('Tessera-Ansicht')
+    // the person renamed the option W renamed first: that part is held (interleaved), the later one still goes back
+    const fx2 = { ...fx, places: [win([g1, g2], [fr(3000, ['o:stage/o-ready'])]), win([gv])] }
+    const x2 = coreOf(fx2).by(S1)
+    expect(x2).toMatchObject({ outcome: 'back', parts: { back: ['o:stage/o-backlog'], held: [{ part: 'o:stage/o-ready', reason: 'interleaved' }] } })
+    // a locked database: schema and view held, rows still planned
+    const locked = coreOf({ ...fx, places: [...fx.places, win([seg('p:r1', 2000, { touched: ['p:stage'], left: { h: 'L', parts: ROW } })])], now: { ...fx.now, 'p:r1': nowD(ROW) }, metas: { ...fx.metas, [`p:r1|pin${n}`]: pageMeta(rowPage('r1', { properties: { stage: 'o-ready' } }), null, [{ id: 'stage', name: 'Stage', type: 'select', options: statusProp.options }]) }, pages: [rowPage('r1', { properties: { stage: 'o-backlog' } })], dbs: [{ ...cur, locked: true }] })
+    expect(locked.by(S1)).toMatchObject({ outcome: 'held', reason: 'locked' })
+    expect(locked.by(V)).toMatchObject({ outcome: 'held', reason: 'locked' })
+    expect(locked.by('p:r1').outcome).toBe('back')
+  })
+
+  test('rows: back with the planned values, held whole when changed; new rows to the trash unless a kept row links them; recreate never written', () => {
+    const r1 = seg('p:r1', 2000, { touched: ['p:stage', 't'], left: { h: 'L', parts: ROW } })
+    const r2 = seg('p:r2', 2100, { touched: ['p:stage'], left: { h: 'L', parts: ROW } })
+    const nw = seg('p:r3', 2200, { touched: '*', before: null, f: F.NEW, left: { h: 'L', parts: ROW } })
+    const gone = seg('p:r4', 2300, { touched: '*', f: F.GONE, left: { h: '-', parts: {} } })
+    const defs = [{ id: 'stage', name: 'Stage', type: 'select' as const, options: statusProp.options }, { id: 'est', name: 'Schätzung', type: 'number' as const }]
+    const fx: Fx = {
+      places: [win([r1]), win([r2]), win([nw]), win([gone])],
+      now: { 'p:r1': nowD(ROW), 'p:r2': nowD({ ...ROW, 'p:stage': 'S9' }), 'p:r3': nowD(ROW), 'p:r4': { exists: false, h: '-', parts: {}, key: '-' } },
+      metas: { [r1.before!]: pageMeta(rowPage('r1', { title: 'NL-1402', properties: { stage: 'o-ready' } }), null, defs), [r2.before!]: pageMeta(rowPage('r2', { properties: { stage: 'o-ready' } }), null, defs) },
+      pages: [rowPage('r1', { title: 'NL-1402 neu', properties: { stage: 'o-backlog', est: 3 } }), rowPage('r2', { properties: { stage: 'o-done' } }), rowPage('r3')],
+    }
+    const { plan, by, state, input } = coreOf(fx)
+    expect(by('p:r1')).toMatchObject({ outcome: 'back', fates: { stage: 'back', '#title': 'back' } })
+    expect(by('p:r2')).toMatchObject({ outcome: 'held', reason: 'changed' })
+    expect(by('p:r3').outcome).toBe('trash')
+    expect(by('p:r4')).toMatchObject({ outcome: 'recreate', reason: 'noBefore' })
+    expect(plan.counts).toMatchObject({ all: 4, back: 2, held: 1, partial: 1, rows: 3, newRows: 1 })
+    const patch = targetsFor(plan, state, input.pins, fns)
+    expect(patch.pages.r1).toMatchObject({ title: 'NL-1402', properties: { stage: 'o-ready', est: 3 } })
+    expect(patch.pages.r3.trashed).toBe(true)
+    expect(Object.keys(patch.pages).sort()).toEqual(['r1', 'r3'])
+    // a row outside the plan links the new row: it stays (inUse)
+    const linked = coreOf({ ...fx, dbs: [database({ properties: [...stdDb().properties, { id: 'rel', name: 'Verweis', type: 'relation', relationDatabaseId: DB }] })], pages: [...fx.pages, rowPage('keep', { properties: { rel: ['r3'] } })] })
+    expect(linked.by('p:r3')).toMatchObject({ outcome: 'held', reason: 'inUse' })
+    // forced (a flip at the commit) and an undone review
+    expect(coreOf(fx, ['p:r1']).by('p:r1')).toMatchObject({ outcome: 'held', reason: 'changed' })
+    expect(coreOf({ ...fx, status: { [`c-${r1.id.slice(-3)}`]: 'discarded' } }).by('p:r1')).toMatchObject({ outcome: 'skip', reason: 'reviewUndone' })
+  })
+
+  test('a property the writer added goes only when unused; a type change only with every row; record types; pipeline rows keep the agent stamp', () => {
+    const S1 = `s:${DB}`
+    const pin = database()
+    const withNote = database({ properties: [...pin.properties, { id: 'note', name: 'Notiz', type: 'text' }] })
+    const g = seg(S1, 2000, { pk: 'schema', touched: ['p:note', 'po'], left: { h: 'L', parts: { 'p:note': 'N', po: 'PO' } } })
+    const base: Fx = { places: [win([g])], now: { [S1]: nowD({ 'p:note': 'N', po: 'PO' }) }, metas: { [g.before!]: schemaMeta(pin) }, pages: [rowPage('r1')], dbs: [withNote] }
+    expect(coreOf(base).by(S1).parts.back).toEqual(['p:note', 'po'])
+    // a row that stays keeps a value; a view filters on it; a formula names it — each keeps it
+    expect(coreOf({ ...base, pages: [rowPage('r1', { properties: { note: 'Mara Lind' } })] }).by(S1).parts.held).toEqual([{ part: 'p:note', reason: 'inUse' }])
+    const filtered = database({ ...withNote, views: [view({ filter: { id: 'f', op: 'and', items: [{ id: 'i', propertyId: 'note', operator: 'is_not_empty' }] } as never })] })
+    expect(coreOf({ ...base, dbs: [filtered] }).by(S1).parts.held).toEqual([{ part: 'p:note', reason: 'inUse' }])
+    const formula = database({ ...withNote, properties: [...withNote.properties, { id: 'f2', name: 'F', type: 'formula', formula: 'prop("Notiz")' }] })
+    expect(coreOf({ ...base, dbs: [formula] }).by(S1).parts.held).toEqual([{ part: 'p:note', reason: 'inUse' }])
+    // a type change: back only when every row W touched in this database goes back
+    const typed = database({ properties: [pin.properties[0], pin.properties[1], { id: 'est', name: 'Schätzung', type: 'text' }, pin.properties[3]] })
+    const gt = seg(S1, 2000, { pk: 'schema', touched: ['p:est'], left: { h: 'L', parts: { 'p:est': 'X' } } })
+    const rr = seg('p:r1', 2100, { touched: ['p:est'], left: { h: 'L', parts: ROW } })
+    const tfx: Fx = { places: [win([gt]), win([rr])], now: { [S1]: nowD({ 'p:est': 'X' }), 'p:r1': nowD({ ...ROW, 'p:est': 'E9' }) }, metas: { [gt.before!]: schemaMeta(pin), [rr.before!]: pageMeta(rowPage('r1'), null, []) }, pages: [rowPage('r1')], dbs: [typed] }
+    expect(coreOf(tfx).by(S1)).toMatchObject({ outcome: 'held', reason: 'dependsOnHeld' })
+    expect(coreOf({ ...tfx, now: { ...tfx.now, 'p:r1': nowD(ROW) } }).by(S1).outcome).toBe('back')
+    // a record type the planned database no longer holds: the row stays whole
+    const rt = seg('p:r1', 2000, { touched: ['r'], left: { h: 'L', parts: ROW } })
+    const rfx: Fx = { places: [win([rt])], now: { 'p:r1': nowD(ROW) }, metas: { [rt.before!]: pageMeta(rowPage('r1', { recordType: 'rt-bug' }), null, []) }, pages: [rowPage('r1', { recordType: null })] }
+    expect(coreOf(rfx).by('p:r1')).toMatchObject({ outcome: 'held', reason: 'recordType' })
+    expect(coreOf({ ...rfx, dbs: [database({ recordTypes: ['rt-bug'] })] }).by('p:r1').outcome).toBe('back')
+    // a pipeline task: its title goes back with the agent's stamp (a Confirm before the worker takes it)
+    const pt = seg('p:r1', 2000, { touched: ['t'], left: { h: 'L', parts: ROW } })
+    const pfx: Fx = { places: [win([pt])], now: { 'p:r1': nowD(ROW) }, metas: { [pt.before!]: pageMeta(rowPage('r1', { title: 'Tessera bauen', updatedBy: 'agent:a1' }), null, []) }, pages: [rowPage('r1', { title: 'Tessera bauen (du)' })], pipeline: true }
+    const pp = coreOf(pfx)
+    expect(pp.by('p:r1').build).toMatchObject({ kind: 'page', stamp: 'agent:a1' })
+    expect(targetsFor(pp.plan, pp.state, pp.input.pins, fns).pages.r1).toMatchObject({ title: 'Tessera bauen', updatedBy: 'agent:a1' })
+  })
+
+  test('parents: a move back under its own descendant is held; tasks that live elsewhere or would loop are held', () => {
+    const P = 'p:b'
+    const g = seg(P, 2000, { pk: 'page', db: undefined, touched: ['pa', 't'], left: { h: 'L', parts: { pa: 'PA2', t: 'T2' } } })
+    // B was under C; W moved B to the root and C under B — moving B back under C would be a cycle
+    const pages = [page({ id: 'b', parentId: null, title: 'B neu' }), page({ id: 'c', parentId: 'b' })]
+    const fx: Fx = { places: [win([g])], now: { [P]: nowD({ pa: 'PA2', t: 'T2' }) }, metas: { [g.before!]: pageMeta(page({ id: 'b', parentId: 'c', title: 'B' }), null) }, pages }
+    expect(coreOf(fx).by(P)).toMatchObject({ outcome: 'back', parts: { back: ['t'], held: [{ part: 'pa', reason: 'parent' }] } })
+    // a task block that comes back while its itemId lives on another page now; one whose wait would loop
+    const task = (itemId: string, blockedBy: string[] = []): JSONContent => ({ type: 'workItem', attrs: { id: 'w1', itemId, blockedBy }, content: [para('Launch plan')] })
+    const r = seg('p:r1', 2000, { touched: ['c'], left: { h: 'L', parts: ROW } })
+    const rfx: Fx = { places: [win([r])], now: { 'p:r1': nowD(ROW) }, metas: { [r.before!]: pageMeta(rowPage('r1'), 'd') }, bodies: { 'r1|d': docOf(task('wi_aaaaaaaaaa')) }, pages: [rowPage('r1')] }
+    expect(coreOf(rfx).by('p:r1').outcome).toBe('back')
+    expect(coreOf({ ...rfx, items: { live: { wi_aaaaaaaaaa: ['other'] } } }).by('p:r1')).toMatchObject({ outcome: 'held', reason: 'taskElsewhere' })
+    expect(coreOf({ ...rfx, items: { live: { wi_aaaaaaaaaa: ['r1'] } } }).by('p:r1').outcome).toBe('back')
+    expect(coreOf({ ...rfx, bodies: { 'r1|d': docOf(task('wi_aaaaaaaaaa', ['wi_bbbbbbbbbb'])) }, items: { loops: ['wi_aaaaaaaaaa>wi_bbbbbbbbbb'] } }).by('p:r1')).toMatchObject({ outcome: 'held', reason: 'taskLoop' })
+  })
+
+  test('kit parts are never ejected; a pure view reorder is not either', () => {
+    const S1 = `s:${DB}`
+    const g = seg(S1, 2000, { pk: 'schema', touched: ['cmd', 'tpl'], left: { h: 'L', parts: { cmd: 'C', tpl: 'T' } } })
+    const fx: Fx = { places: [win([g])], now: { [S1]: nowD({ cmd: 'C', tpl: 'T' }) }, metas: { [g.before!]: schemaMeta(database()) }, pages: [] }
+    expect(coreOf(fx).by(S1)).toMatchObject({ outcome: 'held', reason: 'notEjectable', why: 'commands' })
+    const ro = seg(S1, 2000, { pk: 'schema', touched: [], left: { h: 'L', parts: {} } })
+    const w = win([ro])
+    w.ownEvents = [{ ...w.ownEvents[0], kinds: K.DBMETA, x: [{ part: 'dbmeta' }] }]
+    expect(coreOf({ ...fx, places: [w], now: { [S1]: nowD({}) } }).by(S1)).toMatchObject({ outcome: 'held', reason: 'notEjectable', why: 'viewOrder' })
   })
 })
 

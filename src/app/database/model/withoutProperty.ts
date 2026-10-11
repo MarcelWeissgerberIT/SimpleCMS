@@ -62,3 +62,50 @@ export function withoutProperty(db: Database, propId: ID): Database {
   })
   return { ...db, properties: db.properties.filter((p) => p.id !== propId), views }
 }
+
+const inFilter = (g: FilterGroup | null | undefined, propId: ID): boolean => !!g && g.items.some((it) => ('items' in it ? inFilter(it, propId) : it.propertyId === propId))
+
+/**
+ * What still points at a property besides row values — view settings a delete would not clean up (filter, sort,
+ * grouping, date, chart, feed, a free board's fields), a formula naming it, a rollup through it or of it, an
+ * automation, an autofill source, a command. Empty: it can go without a trace. Pure.
+ */
+export function propertyRefs(db: Database, databases: Record<ID, Database>, propId: ID): string[] {
+  const out = new Set<string>()
+  const prop = db.properties.find((p) => p.id === propId)
+  for (const v of db.views) {
+    if (inFilter(v.filter, propId)) out.add('filter')
+    if (v.sorts.some((x) => x.propertyId === propId)) out.add('sort')
+    if (v.groupBy === propId) out.add('groupBy')
+    if (v.dateProperty === propId) out.add('dateProperty')
+    if (v.chart && (v.chart.xPropertyId === propId || v.chart.yPropertyId === propId || v.chart.seriesPropertyId === propId)) out.add('chart')
+    if (v.feed?.dateProperty === propId) out.add('feed')
+    if (v.typeFields && Object.values(v.typeFields).some((ids) => ids.includes(propId))) out.add('typeFields')
+  }
+  for (const p of db.properties) {
+    if (p.id === propId) continue
+    const f = p.formula ?? ''
+    if (f && (f.includes(propId) || (prop && (f.includes(`"${prop.name}"`) || f.includes(`'${prop.name}'`))))) out.add('formula')
+    if (p.autofill?.source === propId) out.add('autofill')
+    if (p.rollup?.relationPropertyId === propId) out.add('rollup')
+  }
+  for (const d of Object.values(databases)) {
+    for (const p of d.properties) {
+      if (p.type !== 'rollup' || !p.rollup || p.rollup.targetPropertyId !== propId) continue
+      const rel = d.properties.find((x) => x.id === p.rollup!.relationPropertyId)
+      if (rel?.relationDatabaseId === db.id) out.add('rollup')
+    }
+  }
+  if (JSON.stringify(db.automations ?? null).includes(propId)) out.add('automation')
+  if (JSON.stringify(db.commands ?? null).includes(propId)) out.add('command')
+  return [...out]
+}
+
+/** What still points at an option of a database besides row values: a view's filter or colour rule, an automation, a command. */
+export function optionRefs(db: Database, optId: ID): string[] {
+  const out: string[] = []
+  if (db.views.some((v) => JSON.stringify([v.filter ?? null, v.colorRules ?? null]).includes(optId))) out.push('view')
+  if (JSON.stringify(db.automations ?? null).includes(optId)) out.push('automation')
+  if (JSON.stringify(db.commands ?? null).includes(optId)) out.push('command')
+  return out
+}
