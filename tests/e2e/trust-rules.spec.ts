@@ -166,6 +166,20 @@ test.describe('the row note (first rule that applies)', () => {
       for (const key of ['otherDevice', 'direct', 'directSpot.one', 'directSpot.other', 'idle', 'revoked', 'lesson', 'ready', 'earliest.one', 'earliest.other', 'unexplained', 'rare.one', 'rare.other', 'edited', 'counts', 'more.one', 'more.other'])
         expect(messages[lang][`features.agents.trust.note.${key}`], `${lang} ${key}`).toBeTruthy()
   })
+
+  test('EN and DE hold the same keys, none empty, the same placeholders', () => {
+    const en = Object.keys(messages.en).sort()
+    expect(Object.keys(messages.de).sort()).toEqual(en)
+    const vars = (s: string) => [...s.matchAll(/\{(\w+)\}/g)].map((m) => m[1]).sort()
+    for (const k of en) {
+      expect(messages.en[k].trim(), k).not.toBe('')
+      expect(messages.de[k].trim(), k).not.toBe('')
+      expect(vars(messages.de[k]), k).toEqual(vars(messages.en[k]))
+    }
+    // the S1 surfaces: reasons, the review, the plate, the touch group
+    for (const k of ['reason.wrong', 'why.done', 'reasons.head', 'review.keys', 'row.discardedWhy', 'live.inert.needs', 'touch.none', 'plate.lede', 'lamp.ready', 'never.hand', 'always.text', 'legend.rule'])
+      expect(messages.de[`features.agents.trust.${k}`], k).toBeTruthy()
+  })
 })
 
 test.describe('the meter label', () => {
