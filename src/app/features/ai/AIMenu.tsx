@@ -83,7 +83,7 @@ import { useUI } from '../../store/ui'
 import { editAs, endUndoStep, holdsItem, openContextPicker, pageContextMarks, setContextMode, startUndoStep, topBlockKeys, useContextMarks, type ContextMode } from '../../editor'
 import { newId } from '../../lib/ids'
 import { closeHistory } from '@tiptap/pm/history'
-import { toMarkdown } from '../share/markdown'
+import { toAIMarkdown } from '../share/markdown'
 import { turnIntoPage } from '../../editor'
 // own requests that are really structure actions or terminal tasks (intent.ts) · Sub-page per item (editor/split/items.ts)
 import { FileStack, ListPlus } from 'lucide-react'
@@ -170,7 +170,7 @@ function sliceToMarkdown(state: EditorState, from: number, to: number): string {
     if (!json?.length) return ''
     const first = slice.content.firstChild
     const doc: JSONContent = first?.isInline ? { type: 'doc', content: [{ type: 'paragraph', content: json }] } : { type: 'doc', content: json }
-    const md = toMarkdown(doc).trim()
+    const md = toAIMarkdown(doc).trim()
     if (md) return md
   } catch {
     /* fall through */

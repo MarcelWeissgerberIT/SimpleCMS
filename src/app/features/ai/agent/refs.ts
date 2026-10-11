@@ -9,7 +9,7 @@ import { useWorkspace } from '../../../store/store'
 import { useUI } from '../../../store/ui'
 import { newId } from '../../../lib/ids'
 import { t } from '../../../i18n'
-import { toMarkdown } from '../../share/markdown'
+import { toAIMarkdown } from '../../share/markdown'
 import { addRef, openAgent, REF_MAX } from './state'
 import { imageOnlyIn, imageRef } from '../image/terminal'
 import { imageBytes } from '../image/load'
@@ -28,7 +28,7 @@ function sliceToMarkdown(state: EditorState, from: number, to: number): string {
     if (!json?.length) return ''
     const first = slice.content.firstChild
     const doc: JSONContent = first?.isInline ? { type: 'doc', content: [{ type: 'paragraph', content: json }] } : { type: 'doc', content: json }
-    const md = toMarkdown(doc).trim()
+    const md = toAIMarkdown(doc).trim()
     if (md) return md
   } catch {
     /* fall through */

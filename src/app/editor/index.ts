@@ -60,6 +60,15 @@ export { startUndoStep, endUndoStep } from './collab'
  */
 export { editAs, dispatchAs, NORMALISE_META as EDITOR_NORMALISE_META } from './lib/editAs'
 export { getExtensions, markdownToDoc, docToMarkdown, docToHTML, stripPrivate, stripPrivate as stripButtonActions, docSchema, prepareCollabContent } from './convert'
+/**
+ * docToFileMarkdown(doc): docToMarkdown with date / person mentions as `one:` links (`[@Oct 17](one:date/2026-10-17?r=-1d)`,
+ * `[@Alex](one:person/<id>)`) — the form of Markdown files One reads back and of the AI reads Claude writes back (opt-in:
+ * coding trust hashes, Outbox seals and the clipboard keep docToMarkdown). linkMentions(doc) + unhost(md): its two
+ * halves, for a caller with its own serializer (the Markdown export). sanitize(json): schema repair + tasks lifted out
+ * of tasks / tables (markdownToDoc ends with it; claudeDoc runs it again after its own steps).
+ */
+export { docToFileMarkdown, linkMentions, unhost } from './lib/fileMarkdown'
+export { sanitize } from './convert'
 export { stripComments, commentIdsIn } from './schema/comment'
 export { startSyncedBlocks, stopSyncedBlocks } from './synced/service'
 export { registerCodeLanguage, codeLanguages, languageLabel as codeLanguageLabel, type CodeLanguage } from './lib/codeLanguages'
@@ -88,8 +97,9 @@ export {
  * StaticWorkItem { attrs, children }: the read-only placard outside an editor (history diff).
  * workItemExportCss(scope): the placard's CSS for exported / shared HTML. DOC_SCHEMA_VERSION: the document
  * schema generation this build reads (sent with every collab connection — docs/CLOUD.md § Schema gate).
+ * readDue(v) / readReminder(v): a valid due ('yyyy-MM-dd[THH:mm]', a real day) / reminder code, else null.
  */
-export { WORK_ITEM, WORK_ITEM_STATUSES, MAX_PEOPLE, MAX_LINKS, itemAttrs, shortItemId, type WorkItemAttrs, type WorkItemStatus, type FrozenWorkItem } from './workitem/attrs'
+export { WORK_ITEM, WORK_ITEM_STATUSES, MAX_PEOPLE, MAX_LINKS, itemAttrs, shortItemId, readDue, readReminder, type WorkItemAttrs, type WorkItemStatus, type FrozenWorkItem } from './workitem/attrs'
 export { StaticWorkItem } from './workitem/Placard'
 export { freezeWorkItems, hasWorkItems } from './workitem/freeze'
 export { workItemExportCss } from './workitem/exportCss'

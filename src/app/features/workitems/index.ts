@@ -30,3 +30,5 @@ export { toastUnblocked } from './unblockToast'
 export { PeoplePicker } from './PeoplePicker'
 export { ItemLinkPicker, pagePath } from './ItemPicker'
 export { RefCard, RefList } from './RefCard'
+// the e2e seam of Claude's writing path (window.__oneSettle — DEV / ?e2e only)
+import './seam'

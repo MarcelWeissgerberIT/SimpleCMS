@@ -4,11 +4,17 @@
  * text is used as is (decoding it again would turn a literal "&amp;" into "\&").
  */
 import type { JSONContent } from '@tiptap/core'
-import { docToMarkdown } from '../../editor'
+import { docToFileMarkdown, docToMarkdown } from '../../editor'
 
 export function toMarkdown(doc: JSONContent | null): string {
   return docToMarkdown(doc)
 }
+
+/**
+ * Markdown for Claude to read AND write back (the AI menu's selection, "Add to terminal"): dates and people as `one:`
+ * links (`[@Alex](one:person/<id>)`), so a rewrite keeps them as mentions (features/ai/claudeDoc.ts).
+ */
+export const toAIMarkdown = (doc: JSONContent | null): string => (doc ? docToFileMarkdown(doc) : '')
 
 /**
  * "# Title" + body. The title goes through the same serializer as a heading node, so a title like

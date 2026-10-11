@@ -19,7 +19,7 @@ import { useWorkspace } from '../../../store/store'
 import { useCloud } from '../../../cloud'
 import { withWriter, type Writer } from '../../../store/writer'
 import type { ID } from '../../../store/types'
-import { docSchema, docToMarkdown, editAs, endUndoStep, keepItems, liveEditorOf, startUndoStep } from '../../../editor'
+import { docSchema, docToFileMarkdown, editAs, endUndoStep, keepItems, liveEditorOf, startUndoStep } from '../../../editor'
 import { claudeBlocks, claudeDoc } from '../claudeDoc'
 import { webImagesOf } from '../../agents/images'
 import { t } from '../../../i18n'
@@ -201,7 +201,7 @@ export function readWithRefs(pageId: ID, readable: ReadonlySet<string> | null): 
     if (node.type.name === 'paragraph' && !node.content.size) return
     const ref = refFor(pageId, node, [i])
     const json = withItemRefs(pageId, node, node.toJSON() as JSONContent, [i])
-    const md = docToMarkdown({ type: 'doc', content: [json] }).trim()
+    const md = docToFileMarkdown({ type: 'doc', content: [json] }).trim()
     parts.push(`⟦${ref}⟧\n${md || `(${node.type.name})`}`)
   })
   return { markdown: parts.join('\n\n'), blocks: parts.length }

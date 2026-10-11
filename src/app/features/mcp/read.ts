@@ -7,7 +7,7 @@ import { format } from 'date-fns'
 import { useUI } from '../../store/ui'
 import { inTemplate, selectBacklinks } from '../../store/selectors'
 import type { Database, ID, Page, PropertyDef } from '../../store/types'
-import { docToMarkdown } from '../../editor'
+import { docToFileMarkdown } from '../../editor'
 import { parseHash } from '../../lib/router'
 import { t } from '../../i18n'
 import { retrieve, workspaceDocs } from '../ai/workspace'
@@ -189,7 +189,8 @@ function getPage(args: Record<string, unknown>) {
     .sort((a, b) => a.order - b.order)
   if (children.length) out.children = children.slice(0, 100).map(ref)
   if (others.length) out.alsoTitled = others.slice(0, 10).map((o) => ({ id: o.id, path: pathOf(o.id) }))
-  const md = docToMarkdown(p.content).trim()
+  // the file form: dates and people as `one:` links — a replace that copies them keeps them as mentions
+  const md = docToFileMarkdown(p.content).trim()
   out.markdown = md.length > MARKDOWN_MAX ? `${md.slice(0, MARKDOWN_MAX)}\n[Truncated: ${MARKDOWN_MAX.toLocaleString('en')} of ${md.length.toLocaleString('en')} characters]` : md
   if (md.length > MARKDOWN_MAX) out.truncated = true
   out.backlinks = selectBacklinks(pages, p.id)

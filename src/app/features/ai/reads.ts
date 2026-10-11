@@ -96,7 +96,8 @@ export interface PageRead {
 export function pageRead(pageId: ID, selection: string | null): PageRead {
   const p = useWorkspace.getState().pages[pageId]
   const title = p?.title.trim() ? `# ${p.title.trim()}\n\n` : ''
-  const r = readableContent(pageId)
+  // the file form: dates and people as `one:` links (an answer that copies them keeps them as mentions)
+  const r = readableContent(pageId, { form: 'file' })
   const mode = effectiveMode(r)
   const sel = selection ? countWords(selection) : 0
   if (mode === 'none') return { context: '', marked: '', reads: { mode, selection: !!selection, blocks: 0, words: sel } }

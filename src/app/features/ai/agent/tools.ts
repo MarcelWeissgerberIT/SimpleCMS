@@ -9,7 +9,7 @@ import { useUI } from '../../../store/ui'
 import { inTemplate, isEffectivelyTrashed, selectBreadcrumbs } from '../../../store/selectors'
 import type { Database, ID, Page, PropertyDef } from '../../../store/types'
 import { propertyValueToText, typeOfRow } from '../../../database'
-import { docToMarkdown } from '../../../editor'
+import { docToFileMarkdown } from '../../../editor'
 import { parseHash } from '../../../lib/router'
 import { newId } from '../../../lib/ids'
 import { t } from '../../../i18n'
@@ -323,8 +323,9 @@ function pendingFor(stage: StageApi, kind: ChangeKind, pageId: ID): StagedChange
   return stage.list().find((c) => c.kind === kind && c.pageId === pageId && c.status === 'pending')
 }
 
+/** A page as read_page gives it: the file form — dates and people as `one:` links Claude can write back. */
 function markdownOf(doc: JSONContent | null): string {
-  return docToMarkdown(doc).trim()
+  return docToFileMarkdown(doc).trim()
 }
 
 const stagedNote = (c: StagedChange) => `Staged as change #${c.n}. Nothing is written until the user applies it.`

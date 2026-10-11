@@ -133,7 +133,8 @@ const q = (s: string) => JSON.stringify(s)
  */
 export function terminalReadLimit(id: ID): ReadLimit | null {
   if (!isContextLimited(id)) return null
-  const r = readableContent(id)
+  // the file form: dates and people as `one:` links (Claude writes them back as mentions)
+  const r = readableContent(id, { form: 'file' })
   // the marked blocks by id (read_page with refs / edit_page see only these)
   const ids = () => readableBlocks(id).flatMap((b) => (typeof b.attrs?.id === 'string' && b.attrs.id ? [b.attrs.id] : []))
   if (r.mode === 'marked' && r.blocks) return { mode: 'marked', markdown: r.markdown, plain: r.plain, blocks: r.blocks, ids: ids() }
