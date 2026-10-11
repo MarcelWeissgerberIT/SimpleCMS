@@ -1238,7 +1238,8 @@ test.describe('the AI never removes a task (B13)', () => {
       await expect(rows.first()).toHaveAttribute('id', 'ai-row-insert')
       const replace = panel(page).locator('#ai-row-replace')
       await expect(replace).toHaveAttribute('aria-disabled', 'true')
-      await expect(replace).toContainText('Holds a task — insert below instead')
+      // P2: the selection holds the task whole, so the reason is the answer's — it drops the task
+      await expect(replace).toContainText('Claude’s answer drops a task — insert below instead')
       // Enter takes the first row: Insert below
       await page.keyboard.press('Enter')
       await expect(panel(page)).toHaveCount(0)
