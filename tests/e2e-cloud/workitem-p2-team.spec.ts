@@ -131,6 +131,8 @@ test.describe('Claude writes tasks in a team workspace', () => {
     await openApp(page, wsId)
     await waitOnline(page)
     const id = await taskPage(page, 'Older plan', item({ id: 'x1', itemId: X, status: 'todo' }, 'Shared launch'), p('Bottom line'))
+    // on the server before the reload below
+    await expect.poll(() => page.evaluate(() => (window as any).__one.cloud.useCloudSync.getState().unsynced), { timeout: 15_000 }).toBe(false) // eslint-disable-line @typescript-eslint/no-explicit-any
     // the server answers like one without the schema gate
     await page.route('**/api/config', async (route) => {
       const res = await route.fetch()

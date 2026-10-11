@@ -274,11 +274,12 @@ test.describe('1440 light', () => {
     await expect.poll(() => topTypes(page, id)).toEqual(['paragraph', 'bulletList'])
   })
 
-  test('Make tasks at the cursor (make_tasks): <people> + the page in the file form; two new tasks at the line, the echo of a task left out; context "none" asks first; the gate shut', async ({ page, context }) => {
-    const answer = `> [!TODO] Draft the launch copy\n> Owner: Alex · Due: ${day(5)}\n\n> [!TODO] Book the venue\n> Blocked by: Draft the launch copy\n\n> [!TODO] Order the banners {#${A}}`
+  test('Make tasks at the cursor (make_tasks): <people> + the page in the file form; two new tasks at the line, the echo of a task left out, an unknown owner left out (nobody created); context "none" asks first; the gate shut', async ({ page, context }) => {
+    const answer = `> [!TODO] Draft the launch copy\n> Owner: Alex, Bob · Due: ${day(5)}\n\n> [!TODO] Book the venue\n> Blocked by: Draft the launch copy\n\n> [!TODO] Order the banners {#${A}}`
     const captured = await mockMenu(context, { stream: () => answer })
     const id = await setup(page, 'Nordlicht kick-off', doc(p('Alex drafts the copy, then the venue gets booked.'), item({ itemId: A }, 'Order the banners'), p('')))
     const ppl = await peopleIds(page)
+    const before = await peopleCount(page)
     let ai = await askAtCursor(page, id)
     expect(await rowIds(ai)).toEqual(['continue', 'outline', 'brainstorm', 'summarize', 'action_items', 'workItems', 'workspace', 'more'])
     await expect(row(page, 'workItems')).toContainText('Make tasks from this page')
@@ -294,7 +295,9 @@ test.describe('1440 light', () => {
     await expect(panel(page).locator('[data-md-task]')).toHaveCount(3)
     const strip = panel(page).getByTestId('ai-items')
     await expect(strip.locator('.item-facts__row')).toHaveCount(2)
-    await expect(strip.locator('.item-facts__warn')).toContainText('is a task already')
+    await expect(strip.locator('.item-facts__warn').filter({ hasText: 'is a task already' })).toHaveCount(1)
+    // an owner who is no person of the workspace: left out and said so — nobody is created
+    await expect(strip.locator('.item-facts__warn').filter({ hasText: '“Bob” is no person in this workspace' })).toHaveCount(1)
     await expect(strip.getByTestId('ai-items-people')).toContainText(/names go along/)
     await page.keyboard.press('Enter')
     await expect(panel(page)).toHaveCount(0)
@@ -303,6 +306,7 @@ test.describe('1440 light', () => {
     expect(tasks.map((t) => t.title)).toEqual(['Order the banners', 'Draft the launch copy', 'Book the venue'])
     expect(tasks[1]).toMatchObject({ people: [ppl.Alex] })
     expect(tasks[2].blockedBy).toEqual([tasks[1].itemId])
+    expect(await peopleCount(page)).toBe(before)
     const index = await page.evaluate(() => (window as unknown as { __oneItems: { index(): { dups: Record<string, unknown> } } }).__oneItems.index())
     expect(Object.keys(index.dups)).toEqual([])
 
