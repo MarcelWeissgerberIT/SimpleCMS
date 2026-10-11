@@ -106,7 +106,8 @@ export function applyTemplate(rootId: ID, parentId: ID | null): ID | null {
   const resume = pauseAutomations()
   try {
     const title = root.title.trim() ? fill(root.title) : name
-    const res = copyTree(rootId, { parentId, root: { title, hidden: false, template: null }, fill })
+    // its tasks start fresh: open, no done time, no due date, no reminder (people and links stay)
+    const res = copyTree(rootId, { parentId, root: { title, hidden: false, template: null }, fill, items: 'reset' })
     void flushSave()
     return res?.rootId ?? null
   } finally {
@@ -119,7 +120,7 @@ export function saveAsTemplate(pageId: ID, meta: PageTemplate, opts: { private?:
   flushEditors()
   const resume = pauseAutomations()
   try {
-    const res = copyTree(pageId, { parentId: null, root: { hidden: true, template: meta }, private: opts.private })
+    const res = copyTree(pageId, { parentId: null, root: { hidden: true, template: meta }, private: opts.private, items: 'keep' })
     void flushSave()
     return res?.rootId ?? null
   } finally {
@@ -168,6 +169,7 @@ export function duplicateTemplate(rootId: ID): ID | null {
       parentId: null,
       root: { hidden: true, template: { ...meta, name: t('features.tpl.copyName', { name: templateName(root) }) } },
       private: !!root.private,
+      items: 'keep',
     })
     void flushSave()
     return res?.rootId ?? null

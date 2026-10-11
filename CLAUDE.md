@@ -46,7 +46,10 @@ src/app/features/outbox/**           the Outbox: slips for another tool's send r
 src/app/features/recorder/**         flight recorder: writer journal (IndexedDB one-recorder) + the deck (Mod+Alt+Z); window
                                      reading, eject and the ghost come later (public API recorder/index.ts via
                                      features/index.ts); store/writer.ts = the writer context every store write runs under
-src/app/help/**                      help centre: panel (?, status bar, ⌘K, workspace menu), 71 articles EN+DE twins
+src/app/features/workitems/**        tasks outside the editor: the workspace index (lazy, incremental), graph (blocked / loops),
+                                     views, writeItems (origin 'items'), the unblock toast, members + reminder audience, the
+                                     people / link pickers and cards (public API workitems/index.ts, via features/index.ts)
+src/app/help/**                      help centre: panel (?, status bar, ⌘K, workspace menu), 72 articles EN+DE twins
                                      (help/articles/{en,de}/<id>.md, `help:<id>` links), Ask (Claude over the articles);
                                      link UI to an article with `<HelpLink id="…" />` (public API: help/index.ts)
 src/help-site/**                     build-time public /help pages (prerendered from the same articles, hreflang)
@@ -79,7 +82,8 @@ the public APIs stable — other areas are built against them in parallel.
 - All persistent data goes through `useWorkspace` actions in `src/app/store/store.ts`. Never mutate state directly.
 - Page content is TipTap JSON. Write it ONLY with `setContent(pageId, json, origin)`; `origin` is the writer
   (editor instance id, 'history', 'ai', 'sync', 'import', 'synced' = synced-block service, 'file' = folder / GitHub
-  pick-up, 'template' = a template copy, 'split' = blocks turned into a page …). Editors must apply external updates when
+  pick-up, 'template' = a template copy, 'split' = blocks turned into a page, 'items' = a task written from outside its
+  editor (features/workitems `writeItems`) …). Editors must apply external updates when
   `page.contentOrigin !== <own id>` and `contentRev` changed.
 - Database rows are pages with `databaseId` set (parentId = database page id). Title lives in `page.title`.
 - Binary files (images, attachments) go to IndexedDB via `saveFile()` → `"onefile:<id>"`; display with `useFileUrl()`.
@@ -109,9 +113,27 @@ the public APIs stable — other areas are built against them in parallel.
   HTML exports never do.
 - Task blocks (`workItem`, editor/workitem): every reader goes through `itemAttrs()` (one sanitizer; limits + formats);
   no titles or names are ever cached in attrs; `itemId` / `doneAt` are VOLATILE in the history diff (DiffDoc shows the
-  fields before → after). The workspace index, writes from outside the editor (`write.ts`, origin 'items'), re-minting ids
-  on copies, pickers and Claude's settle gate come in P1 / P2 — until then nothing creates a task (no slash item, input
-  rule, Turn into or AI path; the Markdown reader stays off). HTML becomes a task ONLY as the editor's own clipboard copy
+  fields before → after). P1 (the block): tasks are created ONLY by the editor (slash `/task`, `[!] `, Turn into, Enter
+  after a title) and by copies of existing tasks; no Claude path creates or edits one before P2 (Markdown reader still
+  OFF). The workspace index (features/workitems: `getItemIndex()`, `useItemView()`) is lazy and incremental
+  (`pageChanges`, no page-map scan per write); blocked / overdue / loops / duplicates are computed, never stored. Editor
+  field writes go through `commitItem` (only the changed attr keys — y-tiptap compares attrs by reference); writes from
+  outside an editor only through features/workitems `writeItems()` (live editor first, else `setContent(…, 'items')`;
+  refuses locked / read-only / trashed / blind pages, loops and shared → private links). Copy = new itemId
+  (`lib/itemIds.ts` `remintItems`: paste / drop via the `workItemIds` plugin, duplicate, duplicatePage, copyTree, row /
+  type / recurring templates, unsync of a synced reference; "Use" resets to open without a date), move = same itemId;
+  never re-minted on remote or external transactions; duplicates are shown (DUPLICATE · NEW ID), never auto-fixed. ONE
+  creation gate: every path that makes a new itemId asks `itemLookup().canCreate()` and degrades to plain blocks when
+  refused (team: only when `/api/config` `schema_min` ≥ 1). Button templates never hold a task (`cleanTemplate`). AI-menu
+  Replace is off over a range holding a task; meeting-notes regenerate and a browser agent's 'replace' report keep the
+  tasks; the team server refuses a Markdown replace of a page holding a task (`page_holds_tasks`). Bridge writes keep Y's
+  attribute objects (`keepYRefs`, cloud/content.ts). Task titles in Markdown only inside `withItemLabels` (Markdown
+  export); every other `docToMarkdown` writes ids. Item reminders: key `w:<itemId>:<due>:<code>` (one per itemId, at the
+  index's winner); team: rings only for its people (`ringsHere`), unassigned for every member. The agenda shows tasks with
+  a due date (moves write `due` through `writeItems`); people usage / merge count and rewrite task people (origin
+  'people'). A person's finish in an editor writes that editor's pending content first (`flushContentOf`,
+  editor/lib/contentFlush.ts; team: `flushPageContent`) — the unblock toast reads the index, which reads the store.
+  HTML becomes a task ONLY as the editor's own clipboard copy
   (workitem/clip.ts: the clipboard serializer stamps a per-device key, localStorage `one.clip.key`; raw HTML in Markdown,
   Claude's answers, imports and other sites never make one; `withoutWebLoads` unwraps one). Markdown that REPLACES content
   holding tasks (sync pickup, MCP replace, edit_page replace, record type / template text, script replace) goes through
@@ -713,8 +735,8 @@ UI "Task" / "Aufgabe"; content `paragraph block*` = the title line + notes; attr
 doneAt (done only), frozen = { people names, blockedBy n, related n } only in docs that left the workspace — read ONLY through
 `itemAttrs()`; never nested, never in a table (moved out whole, after it); Markdown `> [!TODO] Title {#wi_… done=<ISO>}` +
 field line (a hard break in the title = `\` + the next quoted line), the reader off (`WORK_ITEMS_FROM_MARKDOWN`);
-`stripPrivate()` → `freezeWorkItems()`: no ids, names frozen; parses from HTML only with the clip key; schema release (P0):
-nothing creates one yet), `button` (attrs: label, variant 'signal'|'ink'|'ghost', actions = JSON
+`stripPrivate()` → `freezeWorkItems()`: no ids, names frozen; parses from HTML only with the clip key; P1: created only by
+the editor and by copies, see Data rules), `button` (attrs: label, variant 'signal'|'ink'|'ghost', actions = JSON
 array, see editor/schema/button.ts — strip with `stripButtonActions()` before a doc leaves the workspace),
 `tabs` (container of `tab`, no tabs inside tabs; the shown tab is editor view state) / `tab` (attrs: title; content:
 blocks), `icon` (inline atom; attrs: kind 'asset'|'lucide', name, color — glyphs only; editor/schema/icon.ts),

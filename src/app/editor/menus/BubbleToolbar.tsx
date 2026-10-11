@@ -18,7 +18,7 @@ import { pageTitle } from '../../store/selectors'
 import { useT } from '../../i18n'
 import type { Bridge } from '../lib/bridge'
 import { activeTurnTarget, turnInto } from '../lib/blocks'
-import { TURN_INTO_ITEMS } from '../lib/catalog'
+import { TURN_INTO_ITEMS, turnIntoChoices } from '../lib/catalog'
 import { isUrl } from '../lib/embeds'
 import { livePages } from '../lib/livePages'
 import { useEscapeFirst } from '../lib/escape'
@@ -390,7 +390,7 @@ export function BubbleToolbar({ editor, bridge }: { editor: Editor; bridge: Brid
         width={220}
         entries={[
           { kind: 'section', label: t('editor.bubble.turnInto') },
-          ...TURN_INTO_ITEMS.map((b) => ({
+          ...turnIntoChoices().map((b) => ({
             label: t(`editor.block.${b.id}`),
             icon: <BlockGlyph item={b} size={15} />,
             hint: b.md,

@@ -12,12 +12,12 @@ import { de, enUS } from 'date-fns/locale'
 import { BellRing, PanelRightClose, PanelRightOpen } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
 import { inTemplate, isEffectivelyTrashed } from '../../store/selectors'
-import { collectReminders, type ReminderEntry } from '../../features'
+import { audienceHere, collectReminders, ringingHere, useMemberIds, type ReminderEntry } from '../../features'
 import { Tooltip } from '../../ui/Tooltip'
 import { useLang, useT } from '../../i18n'
 import type { Database, ID, Page } from '../../store/types'
 import { useKbdHint, useNow } from '../lib/hooks'
-import { jumpToDate, jumpToHeading, outlineOf, scrollToBlock, useOutline, type OutlineItem } from './outline'
+import { jumpToBlockId, jumpToDate, jumpToHeading, outlineOf, scrollToBlock, useOutline, type OutlineItem } from './outline'
 import { RAIL_SHORTCUT, toggleMarginRail, useMarginRailOpen } from './railPref'
 
 /** From how many headings the rail shows an outline. */
@@ -180,7 +180,9 @@ function useUpcomingReminders(page: Page): ReminderEntry[] {
   const db = useWorkspace((s) => (page.databaseId ? s.databases[page.databaseId] : undefined))
   const silent = useWorkspace((s) => isSilent(s.pages, page.id))
   const now = useNow(60_000)
-  const all = useMemo(() => (silent ? [] : remindersOf(page, db)), [silent, page, db])
+  // a team task's reminder only where it rings (its people)
+  const members = useMemberIds()
+  const all = useMemo(() => (silent ? [] : ringingHere(remindersOf(page, db), audienceHere(members))), [silent, page, db, members])
   return useMemo(() => all.filter((r) => r.dueAt > now).slice(0, UPCOMING_MAX), [all, now])
 }
 
@@ -189,6 +191,7 @@ function Reminders({ list, editor }: { list: ReminderEntry[]; editor: Editor | n
   const lang = useLang()
   const jump = (r: ReminderEntry, from: HTMLElement) => {
     if (r.source === 'mention') return jumpToDate(editor, r.iso, r.code)
+    if (r.source === 'item') return r.blockId ? jumpToBlockId(editor, r.blockId) : false
     // a date property: the entry's property list
     const props = from.closest('.pv')?.querySelector<HTMLElement>(':scope > .pv-head .pv-props')
     if (props) scrollToBlock(props)

@@ -903,3 +903,27 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* a block that can't be made here (a task on an older server): greyed, its reason beside the name, inert */
+.slash__item[aria-disabled='true'] {
+  cursor: default;
+}
+
+.slash__item[aria-disabled='true'] .slash__name,
+.slash__item[aria-disabled='true'] .slash__icon {
+  color: var(--ink-3);
+}
+
+.slash__why {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-xs);
+  color: var(--ink-3);
+}
+
+.slash__item[aria-disabled='true'] .slash__name {
+  flex: none;
+}

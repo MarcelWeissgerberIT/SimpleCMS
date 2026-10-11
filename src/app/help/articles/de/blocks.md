@@ -3,13 +3,13 @@ id: blocks
 title: Blöcke & Slash-Menü
 section: writing
 order: 1
-keywords: slash, block, einfügen, überschrift, liste, to-do, hinweisbox, zitat, code, trennlinie, markdown, bild, einbetten, blocks, slash menu
-related: block-handle, layout-blocks, media-embeds, mentions-dates
+keywords: slash, block, einfügen, überschrift, liste, to-do, hinweisbox, zitat, code, trennlinie, markdown, bild, einbetten, blocks, slash menu, Aufgabe, task
+related: block-handle, layout-blocks, media-embeds, mentions-dates, tasks
 summary: Alles auf einer Seite ist ein Block. Tippe / zum Einfügen — oder nutze Markdown-Kürzel.
 ---
-Tippe `/` in einer leeren Zeile (oder nach einem Leerzeichen) und schreib weiter, um zu filtern: `/aufgabe`, `/tabelle`, `/board`, `/diagramm`. <kbd>↑</kbd> <kbd>↓</kbd> wählen, <kbd>Enter</kbd> fügt ein, <kbd>Esc</kbd> bricht ab. Englische Namen gehen auch: `/todo`, `/table`.
+Tippe `/` in einer leeren Zeile (oder nach einem Leerzeichen) und schreib weiter, um zu filtern: `/aufgabe`, `/checkliste`, `/tabelle`, `/board`, `/diagramm`. <kbd>↑</kbd> <kbd>↓</kbd> wählen, <kbd>Enter</kbd> fügt ein, <kbd>Esc</kbd> bricht ab. `/aufgabe` legt eine [Aufgabe](help:tasks) an, `/checkliste` eine To-do-Liste. Englische Namen gehen auch: `/todo`, `/task`, `/table`.
 
-Das Menü ist gruppiert: **Basis** (Text, Überschriften, Seite, Link zur Seite, Hinweisbox, Zitat, Trennlinie, Tabelle, Tabellenkalkulation, Diagramm), **Listen** (Aufzählung, nummeriert, To-do, Aufklapplisten), **Medien** (Bild, Lesezeichen, Einbetten, PDF, Datei, Video, Audio), **Datenbank** (Tabellen-, Board-, Listen-, Galerie-, Kalenderansicht, Zeitleiste, Diagrammansicht, Formular, verknüpfte Datenbank), **Erweitert** (Code, Formeln, Mermaid-Diagramme, Inhaltsverzeichnis, Brotkrumen, 2 bis 5 Spalten, Tabs, synchronisierter Block, Schaltfläche), **Im Text** (Erwähnung, Datum, Emoji, Icon, Formel im Text) und **KI** (KI fragen, Besprechungsnotizen).
+Das Menü ist gruppiert: **Basis** (Text, Überschriften, Seite, Link zur Seite, Hinweisbox, Zitat, Trennlinie, Tabelle, Tabellenkalkulation, Diagramm), **Listen** (Aufzählung, nummeriert, To-do, [Aufgabe](help:tasks), Aufklapplisten), **Medien** (Bild, Lesezeichen, Einbetten, PDF, Datei, Video, Audio), **Datenbank** (Tabellen-, Board-, Listen-, Galerie-, Kalenderansicht, Zeitleiste, Diagrammansicht, Formular, verknüpfte Datenbank), **Erweitert** (Code, Formeln, Mermaid-Diagramme, Inhaltsverzeichnis, Brotkrumen, 2 bis 5 Spalten, Tabs, synchronisierter Block, Schaltfläche), **Im Text** (Erwähnung, Datum, Emoji, Icon, Formel im Text) und **KI** (KI fragen, Besprechungsnotizen).
 
 Ein Mermaid-Diagramm musst du nicht tippen: Markiere eine Liste von Schritten → **KI fragen** → **Verwandeln in …** → **Schaubild** ([KI-Menü & Fragen](help:ai-menu)).
 
@@ -18,7 +18,7 @@ Zu breit für die Seite? **Groß öffnen** — die ↗-Taste am Schaubild, sein 
 ## Markdown-Kürzel
 Am Zeilenanfang tippen:
 - `# `, `## `, `### ` — Überschriften
-- `- ` oder `* ` — Aufzählung, `1. ` — nummerierte Liste, `[] ` — To-do
+- `- ` oder `* ` — Aufzählung, `1. ` — nummerierte Liste, `[] ` — To-do, `[!] ` — eine [Aufgabe](help:tasks)
 - `> ` — Zitat, `>> ` — Aufklappliste, `!> ` — Hinweisbox
 - ```` ``` ```` — Codeblock, `$$ ` — Formel, `---` — Trennlinie
 

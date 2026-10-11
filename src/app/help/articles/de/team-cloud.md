@@ -18,5 +18,7 @@ Klick auf den Workspace-Namen oben in der Seitenleiste: **Dieser Browser (lokal)
 ## Zusammenarbeiten
 - Alle bearbeiten live: Präsenz und Cursor zeigen, wer wo ist.
 - Offline? Deine Änderungen bleiben auf dem Gerät und synchronisieren, sobald die Verbindung zurück ist.
-- Kommentare, Erwähnungen und Zuweisungen landen im **Posteingang** der Personen.
+- Kommentare, Erwähnungen und Zuweisungen landen im **Posteingang** der Personen. Die Erinnerung einer [Aufgabe](help:tasks) erinnert ihre Personen (jedes Mitglied, wenn niemand zugewiesen ist).
+- Ändern zwei Personen gleichzeitig dasselbe Feld (die Personen einer Aufgabe, ihren Status), gewinnt für dieses Feld die letzte Änderung.
+- Ein Tab mit einer älteren Version von One kann in einem geteilten Arbeitsbereich nur lesen, bis er neu lädt (**Neu laden, um weiter zu bearbeiten**) — er entfernt nie, was eine neuere Version geschrieben hat.
 - Dein Claude-Schlüssel, MCP-Server und Sync-Einstellungen bleiben pro Person und Gerät — sie werden nie mit dem Team geteilt.

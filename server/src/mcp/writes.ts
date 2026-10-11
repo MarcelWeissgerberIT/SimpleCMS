@@ -7,7 +7,7 @@
 import * as Y from 'yjs'
 import type { Services } from '../context.ts'
 import { ApiError, notFound } from '../errors.ts'
-import { appendBlocks, fragmentText, markdownToNodes } from '../api/content.ts'
+import { appendBlocks, fragmentText, holdsWorkItem, markdownToNodes } from '../api/content.ts'
 import { type PropertyDef, type Roots, TWO_WAY_SUFFIX, databaseMap, liveDatabase, livePage, newPageMap, nextOrder, pageMap, propertiesMap, readOrdered, roots, rowsOf } from '../api/meta.ts'
 import { contentDoc, findProperty, metaDoc, type WorkspaceModel, type WriteOpts } from '../api/model.ts'
 import { checkKey, handOnlyMessage, isHandOnly } from '../api/keys.ts'
@@ -60,6 +60,9 @@ interface Option {
 }
 
 export const unprocessable = (code: string, message: string) => new ApiError(422, code, message)
+
+/** The refusal of a Markdown replace of a page holding a task (one_update_page, a server agent's report). */
+export const PAGE_HOLDS_TASKS = 'This page holds tasks; a replace would turn them into plain text. Append instead, or edit the page in One.'
 
 /** PageIcon JSON from the tools' icon string: an emoji, `asset:<name>` or `lucide:<Name>`; '' clears. */
 export function iconIn(raw: string | null | undefined): unknown {
@@ -172,6 +175,8 @@ export class McpWrites {
         contentDoc(wsId, input.id),
         (doc) => {
           const frag = doc.getXmlFragment('default')
+          // a task block cannot be read or written here yet (server parity, P4): a replace would turn it into paragraphs
+          if (input.mode === 'replace' && holdsWorkItem(doc)) throw unprocessable('page_holds_tasks', PAGE_HOLDS_TASKS)
           if (input.mode === 'replace' && frag.length) frag.delete(0, frag.length)
           appendBlocks(doc, nodes)
           return fragmentText(doc, 20_000)

@@ -22,6 +22,10 @@ import type { CDPSession, Page } from '@playwright/test'
 import { test, expect, openApp, reloadApp, wsEval, flush } from './fixtures'
 import { loadBigWorkspace, type BigInfo } from './helpers/bigWorkspace'
 
+// no trace in this file: its DOM snapshot after every action walks the whole page (the big table, the 300-task page)
+// in the page's own main thread — 50–200 ms on a busy box, counted as the app's long tasks
+test.use({ trace: 'off' })
+
 /**
  * Page-map scans (Object.keys / values / entries of ≥ 2,000 entries) allowed until the app is up,
  * and per store write. Today: ~20 at boot; 1 per write (its copy of the map — the diff every reader
@@ -316,6 +320,201 @@ test.describe('performance budget (big workspace)', () => {
       const { metrics } = (await cdp.send('Performance.getMetrics')) as { metrics: Array<{ name: string; value: number }> }
       const heap = metrics.find((m) => m.name === 'JSHeapUsedSize')?.value ?? 0
       expect(heap / 1048576, 'JS heap (MB) after GC').toBeLessThan(450)
+    })
+  })
+})
+
+/**
+ * Tasks (P1, brief §17) on the same big workspace with `{ tasks: true }`: 3,000 tasks on the rich pages, ~1,000
+ * links, 20 in a template, "Perf · Task page" with 300 (task 0 blocks tasks 1–3). The index is lazy and incremental
+ * (pageChanges, no page-map scan of its own); placards re-render only where their view changed.
+ * Measured budgets (TASKS) — measured first on this box, medians of repeated runs inside the test (see the commit
+ * message of P1 B21); the brief's ceilings are the limits.
+ */
+const TASKS = { coldMs: 60, incrementalMs: 5, graphMs: 15, pickerOpenMs: 50, pickerKeyMs: 8, longTaskMs: 50, inboxColdMs: 400 }
+
+test.describe('performance budget: tasks (big workspace + 3,300 tasks)', () => {
+  test('the index stays incremental and cheap, placards re-render only where they change, the link picker stays quick', async ({ page, errors }) => {
+    test.setTimeout(480_000)
+    void errors
+    await page.addInitScript(installCounters)
+    const big: BigInfo = await loadBigWorkspace(page, { tasks: true })
+    const taskPage = big.taskPageId!
+    expect(big.taskCount).toBeGreaterThanOrEqual(3300)
+    // the start page is the 300-task page: the index is used on the way up
+    await wsEval(page, (s, id) => s.updateSettings({ startPageId: id }), taskPage)
+    await flush(page)
+    const placards = `#main .ProseMirror[data-page-id="${taskPage}"] [data-type="work-item"]`
+    type Seam = { renders: number; rebuild: (fromScratch?: boolean) => number; flushMs: () => number; graphMs: () => { ms: number; items: number; edges: number } }
+    const renders = () => page.evaluate(() => (window as unknown as { __oneItems: Seam }).__oneItems.renders)
+
+    await test.step('cold boot onto the 300-task page', async () => {
+      await page.goto('app/?e2e')
+      await page.waitForFunction((sel) => document.querySelectorAll(sel).length >= 300, placards, { polling: 'raf', timeout: 120_000 })
+      const c = await counters(page)
+      await page.waitForTimeout(3000) // the services' first passes; the index's first notification
+      const r = await renders()
+      note('tasks boot', { scans: c.scans, renders: r })
+      expect(c.scans, 'page-map scans until the app is up (the index adds none)').toBeLessThanOrEqual(BOOT_SCANS)
+      expect(r, 'placard renders opening the 300-task page (≤ 2 each)').toBeLessThanOrEqual(600)
+    })
+
+    await test.step('cold build, incremental update, graph pass', async () => {
+      const m = await page.evaluate(async (id) => {
+        const w = window as unknown as { __oneItems: Seam; __one: { workspace: { getState: () => Record<string, any> } } } // eslint-disable-line @typescript-eslint/no-explicit-any
+        const frame = () => new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)))
+        // a REAL cold build: every page's content walked again (the cached walks forgotten first) — the first build
+        // of a session; `warm` reuses the walks the inbox / placards already cached
+        const cold: number[] = []
+        const warm: number[] = []
+        for (let i = 0; i < 5; i++) {
+          cold.push(w.__oneItems.rebuild(true))
+          await frame()
+          warm.push(w.__oneItems.rebuild())
+          await frame()
+        }
+        // a typing pause on task #150's title: the store gets the page's new content, the index rescans that page
+        const inc: number[] = []
+        for (let i = 0; i < 10; i++) {
+          const s = w.__one.workspace.getState()
+          const content = JSON.parse(JSON.stringify(s.pages[id].content))
+          content.content[150].content[0].content[0].text += ` ${i}`
+          s.setContent(id, content, 'perf-budget')
+          inc.push(w.__oneItems.flushMs())
+          await frame()
+        }
+        const graph: Array<{ ms: number; items: number; edges: number }> = []
+        for (let i = 0; i < 5; i++) graph.push(w.__oneItems.graphMs())
+        return { cold, warm, inc, graph }
+      }, taskPage)
+      const med = { cold: median(m.cold), warm: median(m.warm), inc: median(m.inc), graph: median(m.graph.map((g) => g.ms)) }
+      note('tasks index ms', { ...med, items: m.graph[0].items, edges: m.graph[0].edges, cold: m.cold.map(Math.round), warm: m.warm.map(Math.round), inc: m.inc.map((x) => +x.toFixed(2)) })
+      expect(m.graph[0].items, 'live tasks in the index').toBeGreaterThanOrEqual(3000)
+      expect(med.cold, 'a cold build of the index, every content walked again (median of 5)').toBeLessThanOrEqual(TASKS.coldMs)
+      expect(med.warm, 'a build over the cached walks (median of 5)').toBeLessThanOrEqual(TASKS.coldMs)
+      expect(med.inc, 'an incremental update after a typing pause (median of 10)').toBeLessThanOrEqual(TASKS.incrementalMs)
+      expect(med.graph, 'the graph pass (dependents, related, loops) over ~3,000 tasks (median of 5)').toBeLessThanOrEqual(TASKS.graphMs)
+    })
+
+    await test.step("the inbox's first pass walks only the contents that hold a task for its task reminders", async () => {
+      type Inbox = { collectCold: () => { ms: number; taskWalks: number; reminders: number } }
+      const runs: Array<{ ms: number; taskWalks: number; reminders: number }> = []
+      for (let i = 0; i < 3; i++) runs.push(await page.evaluate(() => (window as unknown as { __oneInbox: Inbox }).__oneInbox.collectCold()))
+      const holding = await wsEval(page, (s) => Object.values(s.pages as Record<string, { content?: unknown }>).filter((p) => JSON.stringify(p.content ?? null).includes('"workItem"')).length)
+      note('inbox first pass', { ms: runs.map((r) => Math.round(r.ms)), taskWalks: runs[0].taskWalks, holding, reminders: runs[0].reminders })
+      // counted, not timed: the task walk reads the pages holding a task (~550), never every page's content (3,300+)
+      expect(runs[0].taskWalks, 'contents the task walk read in the inbox pass').toBeLessThanOrEqual(holding)
+      expect(median(runs.map((r) => r.ms)), "the inbox's whole reminder collection, every cache cold (median of 3)").toBeLessThanOrEqual(TASKS.inboxColdMs)
+    })
+
+    await test.step('store writes on the task page walk the page map as often as before', async () => {
+      const res = await page.evaluate(async (id) => {
+        const w = window as unknown as { __perf: PerfCounters; __one: { workspace: { getState: () => Record<string, any> } } } // eslint-disable-line @typescript-eslint/no-explicit-any
+        const out: number[] = []
+        for (let i = 0; i < 4; i++) {
+          const s = w.__one.workspace.getState()
+          const content = JSON.parse(JSON.stringify(s.pages[id].content))
+          content.content[20].content[0].content[0].text += ` w${i}`
+          const before = w.__perf.scans
+          s.setContent(id, content, 'perf-budget')
+          await new Promise((r) => setTimeout(r, 120))
+          out.push(w.__perf.scans - before)
+        }
+        return out
+      }, taskPage)
+      note('tasks write scans', res)
+      for (const n of res) expect(n, `page-map scans per content write on the task page (${res.join(', ')})`).toBeLessThanOrEqual(WRITE_SCANS.content)
+      await page.waitForTimeout(1500)
+    })
+
+    await test.step('typing in task #150: its page record + shadow copy only, no long task; ≤ 2 placards re-render per key', async () => {
+      // the caret at the end of task #150's title (placed by the editor: the column holds its scroll until a reader
+      // touches it, and a click could land on a neighbour's chips)
+      await page.evaluate((id) => {
+        const el = document.querySelector(`.ProseMirror[data-page-id="${id}"]`) as unknown as { editor: { state: { doc: { descendants: (fn: (n: { type: { name: string }; nodeSize: number; firstChild: { nodeSize: number } | null }, pos: number) => boolean | void) => void } }; commands: { focus: (pos: number, o?: unknown) => void } } }
+        let n = 0
+        let at = -1
+        el.editor.state.doc.descendants((node, pos) => {
+          if (at >= 0) return false
+          if (node.type.name !== 'workItem') return true
+          if (n++ === 150) at = pos + 1 + (node.firstChild?.nodeSize ?? 2) - 1
+          return false
+        })
+        el.editor.commands.focus(at, { scrollIntoView: true })
+      }, taskPage)
+      await page.waitForTimeout(800)
+      // one key, the placards it re-renders (median over 6 keys)
+      const perKey: number[] = []
+      for (const ch of 'abcdef') {
+        const r0 = await renders()
+        await page.keyboard.type(ch)
+        await page.waitForTimeout(250)
+        perKey.push((await renders()) - r0)
+      }
+      await page.waitForTimeout(1200)
+      const t0 = await now(page)
+      for (const word of ' the quick brown fox jumps'.split(/(?= )/)) {
+        await page.keyboard.type(word, { delay: 40 })
+        await page.waitForTimeout(380)
+      }
+      await page.waitForTimeout(1500)
+      const c = await counters(page)
+      const puts = since(c.puts, t0).filter((p) => p.db === 'keyval-store')
+      const keys = [...new Set(puts.map((p) => p.key))].sort()
+      const long = since(c.longTasks, t0)
+      note('tasks typing', { perKey, keys, longTasks: long.map((x) => Math.round(x.d)) })
+      expect(median(perKey), `placards re-rendered per key in task #150 (${perKey.join(', ')})`).toBeLessThanOrEqual(2)
+      expect(keys, 'records written while typing on the task page').toEqual(expect.arrayContaining([`one.page.v2:${taskPage}`, `one.page.g1:${taskPage}`]))
+      for (const k of keys) expect(k, 'only this page (record + shadow copy) and the meta record').toMatch(new RegExp(`^one\\.(page\\.v2:${taskPage}|page\\.g1:${taskPage}|ws\\.v2)$`))
+      expect(Math.max(0, ...long.map((x) => x.d)), 'longest main-thread task while typing on the 300-task page').toBeLessThanOrEqual(TASKS.longTaskMs)
+    })
+
+    await test.step('toggling a blocker re-renders itself and its dependents only', async () => {
+      const r0 = await renders()
+      await page.evaluate((id) => {
+        const seam = (window as unknown as { __oneItemsEditor: { commit: (p: string, t: unknown, patch: unknown) => boolean; itemPos: (p: string, n: number) => number } }).__oneItemsEditor
+        const el = document.querySelector(`.ProseMirror[data-page-id="${id}"]`) as unknown as { editor: { state: { doc: { nodeAt: (p: number) => { attrs: Record<string, unknown> } } } } }
+        const pos = seam.itemPos(id, 0)
+        const attrs = el.editor.state.doc.nodeAt(pos).attrs
+        seam.commit(id, { pos, itemId: attrs.itemId, blockId: attrs.id }, { status: 'done' })
+      }, taskPage)
+      await page.waitForTimeout(600)
+      const delta = (await renders()) - r0
+      note('tasks blocker toggle renders', delta)
+      // the blocker (its attrs, then its view) + its three dependents (their views)
+      expect(delta, 'placard renders after marking a blocker of 3 tasks done').toBeLessThanOrEqual(5)
+    })
+
+    await test.step('the link picker over ~3,300 tasks', async () => {
+      const m = await page.evaluate(async (id) => {
+        const seam = (window as unknown as { __oneItemsEditor: { openPicker: (p: string, pos: number, kind: string) => boolean; itemPos: (p: string, n: number) => number } }).__oneItemsEditor
+        const frame = () => new Promise<void>((r) => requestAnimationFrame(() => r()))
+        const open: number[] = []
+        const keys: number[] = []
+        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
+        for (let round = 0; round < 3; round++) {
+          const t0 = performance.now()
+          seam.openPicker(id, seam.itemPos(id, 200), 'blockedBy')
+          while (!document.querySelector('[role="dialog"] [role="option"]')) await frame()
+          open.push(performance.now() - t0)
+          const input = document.querySelector<HTMLInputElement>('[role="dialog"] input')!
+          let q = ''
+          for (const ch of 'ledger') {
+            q += ch
+            const k0 = performance.now()
+            setter.call(input, q)
+            input.dispatchEvent(new Event('input', { bubbles: true }))
+            keys.push(performance.now() - k0)
+            await frame()
+          }
+          input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+          while (document.querySelector('[role="dialog"] [role="option"]')) await frame()
+        }
+        return { open, keys }
+      }, taskPage)
+      note('tasks picker ms', { open: m.open.map(Math.round), keys: m.keys.map((x) => +x.toFixed(1)) })
+      expect(median(m.open), 'opening the blocked-by picker (median of 3)').toBeLessThanOrEqual(TASKS.pickerOpenMs)
+      expect(median(m.keys), 'a keystroke in its search (median)').toBeLessThanOrEqual(TASKS.pickerKeyMs)
     })
   })
 })

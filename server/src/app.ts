@@ -8,6 +8,7 @@ import { WorkspaceModel } from './api/model.ts'
 import { apiRoutes } from './api/v1.ts'
 import { codingRoutes, codingWorkerRoutes } from './coding/routes.ts'
 import type { AppEnv, Services } from './context.ts'
+import { MIN_CLIENT_SCHEMA } from './collab/schema-gate.ts'
 import { ApiError, notFound } from './errors.ts'
 import { csrfGuard, securityHeaders } from './http/security.ts'
 import { mountStatic } from './http/static.ts'
@@ -61,6 +62,9 @@ export function buildApp(s: Services, extra: { model?: WorkspaceModel; agents?: 
       source_url: s.config.sourceUrl,
       // cloud coding workers (docs/CLOUD.md § Coding relay): CODING_RELAY=off → false
       coding_relay: s.config.codingRelay,
+      // the document schema gate (docs/CLOUD.md § Schema gate): the lowest generation that may write; the app
+      // creates task blocks in a team workspace only when this is ≥ 1
+      schema_min: MIN_CLIENT_SCHEMA,
     }),
   )
 

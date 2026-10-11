@@ -79,8 +79,9 @@ export {
   type TranscriptSegment,
 } from './schema/meetingNotes'
 /**
- * Task block (UI "Task" / "Aufgabe"), node `workItem` — schema release: every client reads, shows, stores,
- * exports and diffs it; nothing creates one yet. content: the title paragraph + notes (blocks); attrs: id,
+ * Task block (UI "Task" / "Aufgabe"), node `workItem` — every client reads, shows, stores, exports and diffs it;
+ * P1: the editor creates tasks (slash, `[!] `, Turn into, Enter after a title) and copies re-mint their ids
+ * (lib/itemIds.ts). content: the title paragraph + notes (blocks); attrs: id,
  * itemId ('wi_' + 10), status ('todo' | 'in_progress' | 'done'), due, reminder, people (≤ 12), blockedBy /
  * related (itemIds, ≤ 20), doneAt — read them ONLY through itemAttrs(node | json | attrs). `frozen` exists only
  * in documents that left the workspace (stripPrivate → freezeWorkItems: names + status kept, every id gone).
@@ -88,11 +89,42 @@ export {
  * workItemExportCss(scope): the placard's CSS for exported / shared HTML. DOC_SCHEMA_VERSION: the document
  * schema generation this build reads (sent with every collab connection — docs/CLOUD.md § Schema gate).
  */
-export { WORK_ITEM, WORK_ITEM_STATUSES, itemAttrs, shortItemId, type WorkItemAttrs, type WorkItemStatus, type FrozenWorkItem } from './workitem/attrs'
+export { WORK_ITEM, WORK_ITEM_STATUSES, MAX_PEOPLE, MAX_LINKS, itemAttrs, shortItemId, type WorkItemAttrs, type WorkItemStatus, type FrozenWorkItem } from './workitem/attrs'
 export { StaticWorkItem } from './workitem/Placard'
 export { freezeWorkItems, hasWorkItems } from './workitem/freeze'
 export { workItemExportCss } from './workitem/exportCss'
 export { dueText as workItemDueText, reminderShort as workItemReminderShort } from './workitem/format'
+/**
+ * Tasks outside the editor (features/workitems — the workspace index, write.ts, reminders, the agenda):
+ *  - itemsOfContent(doc): the tasks of a page's content (ScannedItem: attrs, blockId, title, progress, synced
+ *      'original' | 'copy' | null, inList, order) — blocks only, cached per content object;
+ *      compareOccurrence(a, b): THE winner order among occurrences of one itemId (earliest page, then document order).
+ *  - itemTitleText(node | json): a task's title as one line (≤ 140 chars); todoProgress(node | json): its steps.
+ *  - patchItemAttrs(attrs, patch, now): ONLY the attrs that change (write `{ ...attrs, ...delta }` — never a rebuilt
+ *      attrs object: y-tiptap compares attrs by reference); patchItemInDoc(doc, itemId, patch, now) (JSON: null =
+ *      not there, same doc = no change); findItemPos(pmDoc, itemId).
+ *  - itemBlocks(task json): the task as plain blocks (title paragraph + notes, fields dropped); unwrapItemsIn(blocks):
+ *      every task in a block list as its plain blocks (a copy that may not become a task while the gate is shut).
+ *  - setItemLookup(lookup) / itemLookup(): the registry the editor asks (taken / gone / isPrivate / canCreate —
+ *      the ONE creation gate); fail-closed until features/workitems registers. itemCounters: e2e counters.
+ *  - setItemTitleLookup(fn) / withItemLabels(fn): linked tasks' titles in the Markdown field line ONLY inside
+ *      withItemLabels (the Markdown export); every other docToMarkdown writes ids (labels.ts).
+ */
+export { itemsOfContent, compareOccurrence, forgetScans, type ScannedItem, type Occurrence } from './workitem/scan'
+export { itemTitleText, todoProgress } from './workitem/text'
+export { patchItemAttrs, patchItemInDoc, findItemPos, type ItemPatch } from './workitem/patch'
+export { itemBlocks, unwrapItemsIn } from './workitem/turn'
+export { setItemLookup, itemLookup, itemCounters, setItemHooks, type ItemLookup, type ItemHooks } from './workitem/lookup'
+export { setItemTitleLookup, withItemLabels } from './workitem/labels'
+/**
+ * commitItem(editor, target, patch, opts?) / commitItems(editor, edits, opts?): THE editor-side field write — delta-only
+ * setNodeMarkup, one transaction, one undo step in every editor; target = { pos, itemId, blockId } (the block acted on:
+ * mapped pos → block id → nothing) or { itemId } (the doc's first occurrence outside synced copies). opts.by 'person' →
+ * the unblock toast for tasks it finished (setItemHooks).
+ */
+export { commitItem, commitItems, resolveItemTarget, type ItemTarget, type CommitOptions } from './workitem/keys'
+/** PickerCtx: what a task picker / card gets from the editor's picker host (features/workitems renders them). */
+export type { PickerCtx } from './workitem/ItemPickers'
 /** itemChanges(before attrs, after attrs): the fields that changed (status, due, reminder, people, blockedBy, related) — history diff. */
 export { itemChanges, type ItemChange, type ItemField } from './workitem/diff'
 /**
@@ -104,11 +136,13 @@ export { itemChanges, type ItemChange, type ItemField } from './workitem/diff'
  */
 export { keepItems } from './convert'
 /** liftMisplacedItems(json): tasks inside a task / a table moved out whole, after it (sanitize() does it too). */
-export { liftMisplacedItems } from './workitem/place'
+export { liftMisplacedItems, holdsItem } from './workitem/place'
 export { DOC_SCHEMA_VERSION, NODE_GENERATIONS } from './schema/base'
 export { contextMarksOf, pageContextMarks, readableContent, readableBlocks, isContextLimited, useContextMarks, useContextPicking, type ContextMarks, type ReadableContent } from './context/read'
 export { setContextMode, openContextPicker, closeContextPicker, contextPickingPage, topBlockKeys } from './context/api'
 export { startRedo } from './context/redo'
+/** bridgeOf(editor): the editor's overlay bridge (null for read-only / template editors) — the task placard and pickers use it. */
+export { bridgeOf } from './context/redo'
 /** openAIPanel(editor, { mode, transform?, open? }): the editor's AI panel from outside it (the guided tour, "What can One do?"). */
 export { openAIPanel } from './context/redo'
 /** liveEditorOf(pageId): the page's mounted editor (the main column's first, else a pane or the peek), null when it is not open — for writes that must be one undo step there (the AI terminal's edit_page). */

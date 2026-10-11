@@ -4,10 +4,13 @@
  * edit only rescans what changed.
  *
  *  - reminders: date mentions with `attrs.reminder` in any page + date properties of rows with
- *    `DateValue.reminder`. A reminder's key changes with its date or code, so changing either
- *    cancels the old one; trashed pages (or pages under a trashed parent) have none. A date mention
- *    inside a synced block is one reminder however many pages show the block (keyed by the sync
- *    group, at the page of the original when it is live).
+ *    `DateValue.reminder` + tasks (`workItem`) with a due date and a reminder that are not done. A
+ *    reminder's key changes with its date or code, so changing either cancels the old one (a task
+ *    marked done drops its reminder); trashed pages (or pages under a trashed parent) have none. A
+ *    date mention inside a synced block is one reminder however many pages show the block (keyed by
+ *    the sync group, at the page of the original when it is live); a task is one reminder however
+ *    many blocks carry its itemId (keyed by the itemId, at the occurrence the task index takes:
+ *    `compareOccurrence`), a synced reference's copy of a task none.
  *  - team facts (cloud workspaces): my person mentions per block (and the sync group of those in
  *    synced blocks), the person properties I am in, and every comment reply id of a page — the
  *    engine diffs them against a snapshot.
@@ -16,12 +19,16 @@ import type { JSONContent } from '@tiptap/core'
 import type { Database, DateValue, ID, Page, PageComment } from '../../store/types'
 import { inTemplate, isEffectivelyTrashed } from '../../store/selectors'
 import { pageChanges } from '../../store/store'
+import { compareOccurrence, itemsOfContent } from '../../editor'
 import { normalizeReminder, reminderDueAt } from './reminders'
 
 export interface ReminderEntry {
-  /** 'm:<page>:<iso>:<code>' (date mention) · 's:<syncId>:<iso>:<code>' (date mention in a synced block) · 'p:<row>:<prop>:<iso>:<code>' (date property) */
+  /**
+   * 'm:<page>:<iso>:<code>' (date mention) · 's:<syncId>:<iso>:<code>' (date mention in a synced block) ·
+   * 'p:<row>:<prop>:<iso>:<code>' (date property) · 'w:<itemId>:<due>:<code>' (a task)
+   */
   key: string
-  source: 'mention' | 'property'
+  source: 'mention' | 'property' | 'item'
   pageId: ID
   propId: ID | null
   iso: string
@@ -29,8 +36,14 @@ export interface ReminderEntry {
   dueAt: number
   /** the block a date mention sits in (deep link), if it has an id */
   blockId: string | null
-  /** the line of a date mention */
+  /** the line of a date mention · a task's title */
   excerpt: string
+  /** a task: its itemId and people (team workspaces: who it rings for — features/workitems `ringsHere`) */
+  itemId?: string
+  people?: readonly string[]
+  /** a task: where this occurrence sits (the winner among blocks sharing the itemId: `compareOccurrence`) */
+  pageCreatedAt?: number
+  order?: number
 }
 
 interface Spot {
@@ -51,6 +64,8 @@ interface ContentFacts {
   persons: Map<ID, Array<Spot & { synced: SyncedSpot | null }>>
   /** comment thread id → the block its mark sits in */
   comments: Map<ID, string | null>
+  /** the content holds a task (a block of type workItem): only then does remindersOf ask for its tasks */
+  items: boolean
 }
 
 const LINE_MAX = 140
@@ -68,12 +83,12 @@ function inlineText(nodes: JSONContent[]): string {
   return s.replace(/\s+/g, ' ').trim()
 }
 
-const contentCache = new WeakMap<JSONContent, ContentFacts>()
+let contentCache = new WeakMap<JSONContent, ContentFacts>()
 
 function scanContent(doc: JSONContent): ContentFacts {
   const hit = contentCache.get(doc)
   if (hit) return hit
-  const facts: ContentFacts = { dates: [], persons: new Map(), comments: new Map() }
+  const facts: ContentFacts = { dates: [], persons: new Map(), comments: new Map(), items: false }
   const walk = (n: JSONContent, block: string | null, synced: SyncedSpot | null) => {
     const kids = n.content
     if (!kids) return
@@ -101,7 +116,10 @@ function scanContent(doc: JSONContent): ContentFacts {
           const id = m.type === 'comment' ? m.attrs?.id : null
           if (typeof id === 'string' && !facts.comments.has(id)) facts.comments.set(id, here)
         }
-      } else walk(c, here, synced)
+      } else {
+        if (c.type === 'workItem') facts.items = true
+        walk(c, here, synced)
+      }
     }
   }
   walk(doc, null, null)
@@ -117,7 +135,14 @@ function isDateValue(v: unknown): v is DateValue {
 
 /** Reminders of synced blocks: from the copy that is the original (the others show the same). */
 const fromOriginal = new WeakSet<ReminderEntry>()
-const pageReminders = new WeakMap<Page, { db: Database | undefined; list: ReminderEntry[] }>()
+let pageReminders = new WeakMap<Page, { db: Database | undefined; list: ReminderEntry[] }>()
+
+/** Measuring only (the e2e perf budget): forget the cached walks — the next collectReminders reads every page again. */
+export function forgetReminderScans(): void {
+  contentCache = new WeakMap()
+  pageReminders = new WeakMap()
+  last = null
+}
 
 function remindersOf(page: Page, db: Database | undefined): ReminderEntry[] {
   const hit = pageReminders.get(page)
@@ -133,6 +158,33 @@ function remindersOf(page: Page, db: Database | undefined): ReminderEntry[] {
       const entry: ReminderEntry = { key, source: 'mention', pageId: page.id, propId: null, iso: d.iso, code: d.code, dueAt, blockId: d.blockId, excerpt: d.line }
       if (d.synced?.original) fromOriginal.add(entry)
       list.push(entry)
+    }
+    // tasks: a due date with a reminder, not done; a synced reference's copy is the original's task. Only for a
+    // content the walk above saw a task in: the task walk is never paid for the many pages without one
+    for (const it of scanContent(page.content).items ? itemsOfContent(page.content) : []) {
+      const a = it.attrs
+      if (!a.itemId || !a.due || !a.reminder || a.status === 'done' || it.synced === 'copy') continue
+      const code = normalizeReminder(a.reminder)
+      const dueAt = code ? reminderDueAt(a.due, code) : null
+      const key = `w:${a.itemId}:${a.due}:${code}`
+      // two blocks of one page with one itemId: the first in the document (the index's order)
+      if (!code || dueAt === null || seen.has(key)) continue
+      seen.add(key)
+      list.push({
+        key,
+        source: 'item',
+        pageId: page.id,
+        propId: null,
+        iso: a.due,
+        code,
+        dueAt,
+        blockId: it.blockId,
+        excerpt: it.title,
+        itemId: a.itemId,
+        people: a.people,
+        pageCreatedAt: page.createdAt,
+        order: it.order,
+      })
     }
   }
   if (db) {
@@ -150,8 +202,20 @@ function remindersOf(page: Page, db: Database | undefined): ReminderEntry[] {
   return list
 }
 
+const samePeople = (a: readonly string[] | undefined, b: readonly string[] | undefined) =>
+  a === b || ((a?.length ?? 0) === (b?.length ?? 0) && (a ?? []).every((p, i) => p === b![i]))
+
 const sameEntry = (a: ReminderEntry, b: ReminderEntry) =>
-  a.key === b.key && a.dueAt === b.dueAt && a.blockId === b.blockId && a.excerpt === b.excerpt && a.propId === b.propId && fromOriginal.has(a) === fromOriginal.has(b)
+  a.key === b.key &&
+  a.dueAt === b.dueAt &&
+  a.blockId === b.blockId &&
+  a.excerpt === b.excerpt &&
+  a.propId === b.propId &&
+  fromOriginal.has(a) === fromOriginal.has(b) &&
+  samePeople(a.people, b.people)
+
+/** A task occurrence's place (pageCreatedAt / order are set on every 'item' entry). */
+const occurrence = (r: ReminderEntry) => ({ pageCreatedAt: r.pageCreatedAt ?? 0, pageId: r.pageId, order: r.order ?? 0 })
 
 /**
  * Did a store change (prev → pages) leave every reminder as it was? Only changed pages are looked
@@ -192,7 +256,7 @@ export function collectReminders(pages: Record<ID, Page>, dbs: Record<ID, Databa
   }
   const inTrash: ReminderEntry[] = []
   const out: ReminderEntry[] = []
-  /** synced blocks: one entry per key, the original's when it is live */
+  /** synced blocks: one entry per key, the original's when it is live · tasks: one per key, the index's winner */
   const shared = new Map<string, ReminderEntry>()
   // Object.keys: for…in over a map of thousands of pages costs several times more (a pass per change)
   for (const id of Object.keys(pages)) {
@@ -206,7 +270,11 @@ export function collectReminders(pages: Record<ID, Page>, dbs: Record<ID, Databa
       continue
     }
     for (const r of list) {
-      if (!r.key.startsWith('s:')) out.push(r)
+      if (r.source === 'item') {
+        // one itemId in several blocks (a duplicate): the occurrence the task index takes, so the deep link opens it
+        const had = shared.get(r.key)
+        if (!had || compareOccurrence(occurrence(r), occurrence(had)) < 0) shared.set(r.key, r)
+      } else if (!r.key.startsWith('s:')) out.push(r)
       else {
         const had = shared.get(r.key)
         if (!had || (fromOriginal.has(r) && !fromOriginal.has(had))) shared.set(r.key, r)

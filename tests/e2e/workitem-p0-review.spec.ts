@@ -14,7 +14,7 @@
  *  - the record type editor keeps a task in its content (renaming the type);
  *  - the AI terminal's edit_page replacing a task with the Markdown it read keeps the task;
  *  - the Markdown form is lossless (a hard break in the title, the time a task was done);
- *  - the placard: the state in words, the overdue day count, "Depends on" (no computed "blocked"), chips that
+ *  - the placard: the state in words, the overdue day count, a chip per blocker (P1), chips that
  *    say what they are to a screen reader, a done task's icons dimmed, chips scaled on slides, consecutive
  *    tasks one plate in an HTML export too;
  *  - history "Changes": the 'at' reminder in words (no emoji), a rewritten title stays in the title cell;
@@ -31,7 +31,7 @@ import { test, expect, openApp, gotoPage, wsEval, uiEval, createPage, doc, para,
 import { itemAttrs } from '../../src/app/editor/workitem/attrs'
 import { keepItems, workItemFromQuote } from '../../src/app/editor/workitem/markdown'
 import { liftMisplacedItems } from '../../src/app/editor/workitem/place'
-import { asGeneration, contentFingerprint, lostNewer, newerBlockPrints, restoreNewer, rewrapNewer } from '../../src/app/store/generations'
+import { asGeneration, blockVersions, contentFingerprint, lostNewer, restoreNewer, rewrapNewer } from '../../src/app/store/generations'
 import { mergeContent } from '../../src/app/store/merge'
 
 type AnyState = Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -903,7 +903,8 @@ test.describe('task block (P0 review): the placard', () => {
     const snap = await all.nth(0).locator('.workitem__chips').ariaSnapshot()
     expect(snap).toContain('group "Task fields"')
     expect(snap).toMatch(/Due: Fri 17 Oct\s*, reminder −1 d/)
-    expect(snap).toMatch(/Assigned to:\s*Alex Kern\s*Mara Sommer/)
+    // P1: the chips are keys (each opens its picker) — named by what they say
+    expect(snap).toMatch(/Assigned to:[\s\S]*button "Alex Kern"[\s\S]*button "Mara Sommer"/)
     expect(snap).not.toContain('AK')
     await expect(all.nth(1).locator('.workitem__chips')).toContainText('Reminder at the time')
     await expect(all.nth(0).locator('.workitem__label')).toContainText('Task:')
@@ -920,12 +921,14 @@ test.describe('task block (P0 review): the placard', () => {
     expect(await color('.workitem__chip--due svg')).not.toBe(signal)
     expect(await color('.workitem__chip--due svg')).toBe(await color('.workitem__chip--person'))
     await expect(all.nth(2).locator('.workitem__state')).toHaveText('Done Thu 09 Oct')
-    await expect(all.nth(2).locator('.workitem__chip--blocked')).toHaveText('Depends on 1')
+    // P1: a chip per blocker, the state in words for a screen reader
+    await expect(all.nth(2).locator('.workitem__dep')).toHaveCount(1)
+    await expect(all.nth(2).locator('.workitem__chip--dep')).toHaveAttribute('aria-label', 'Waiting for: With a reminder — open')
 
     await wsEval(page, (s) => s.updateSettings({ language: 'de' }))
     await expect(all.nth(0).locator('.workitem__state')).toHaveText('Offen')
     await expect(all.nth(2).locator('.workitem__state')).toHaveText('Erledigt Do 09 Okt')
-    await expect(all.nth(2).locator('.workitem__chip--blocked')).toHaveText('Abhängig von 1')
+    await expect(all.nth(2).locator('.workitem__chip--dep')).toHaveAttribute('aria-label', 'Wartet auf: With a reminder — offen')
     await expect(all.nth(0).locator('.workitem__chips')).toContainText('Fällig:')
     await expect(all.nth(0).locator('.workitem__chips')).toContainText('Zugewiesen an:')
   })
@@ -1161,8 +1164,8 @@ test.describe('task block (P0 review): pure parts', () => {
       const ours = made(asGeneration(Rj, 0, 'unwrap'))
       ours.content = ours.content!.map((n) => (textOf(n) === 'End' ? { ...n, content: [{ type: 'text', text: 'End typed' }] } : n))
       const merged = mergeContent(Rj, Rk, ours)!
-      const wrote = new Set([...newerBlockPrints(Rj), ...newerBlockPrints(Rk)])
-      const r = rewrapNewer(Rk, merged, 0, { wrote: (print) => wrote.has(print) })
+      const wrote = new Set([...blockVersions(Rj), ...blockVersions(Rk)])
+      const r = rewrapNewer(Rk, merged, 0, { wrote: (entry) => wrote.has(entry) })
       expect(count(r.doc!, 'Two'), `ids ${ids}`).toBe(1)
       expect(count(r.doc!, 'two note')).toBe(1)
       expect(textOf(r.doc!)).toContain('Two ours')

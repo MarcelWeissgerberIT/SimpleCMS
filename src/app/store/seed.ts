@@ -1,8 +1,9 @@
 /**
  * First-run demo workspace (EN/DE). Shows off what One can do on first open:
  * a guided welcome page (tabs, a button), a project database with many views
- * (form, sub-items, dependencies, a colour rule, AI autofill), a reading list gallery,
- * a content calendar, meeting notes (a comment, a button) and a small linked wiki (nice graph).
+ * (form, sub-items, dependencies, a colour rule, AI autofill), a launch plan of tasks (workItem:
+ * status, due dates, people, blockers — one reminder), a reading list gallery, a content calendar,
+ * meeting notes (a comment, a button) and a small linked wiki (nice graph).
  * Uses ONLY the node names from the CLAUDE.md contract.
  */
 import type { JSONContent } from '@tiptap/core'
@@ -10,6 +11,7 @@ import type { Lang } from '@/shared/i18n'
 import { useWorkspace, defaultView } from './store'
 import type { ColorName, ID, PropertyDef, SelectOption } from './types'
 import { newId } from '../lib/ids'
+import { newItemId } from '../lib/itemIds'
 
 /* ---------- tiny doc builders ---------- */
 type Inline = JSONContent
@@ -65,6 +67,15 @@ const table = (rows: string[][]): JSONContent => ({
 })
 const doc = (...blocks: JSONContent[]): JSONContent => ({ type: 'doc', content: blocks })
 
+/** A block id (UniqueID contract), as PageEditor gives every block on first open — tasks need one before. */
+const blockId = (): string => (typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`)
+/** A task (workItem): the title paragraph + notes, both the task and its title with a block id (deep links). */
+const workItem = (attrs: Record<string, unknown>, title: string, ...notes: JSONContent[]): JSONContent => ({
+  type: 'workItem',
+  attrs: { id: blockId(), ...attrs },
+  content: [{ type: 'paragraph', attrs: { id: blockId() }, content: [txt(title)] }, ...notes],
+})
+
 /* ---------- helpers ---------- */
 const opt = (name: string, color: ColorName, group?: SelectOption['group']): SelectOption => ({ id: newId(), name, color, ...(group ? { group } : {}) })
 const iso = (d: Date) => d.toISOString().slice(0, 10)
@@ -91,6 +102,7 @@ export function seedWorkspace(lang: Lang): void {
   const projects = newId()
   const reading = newId()
   const calendar = newId()
+  const launch = s.createPage({ title: L('Launch plan: new pricing page', 'Launch-Plan: neue Preisseite'), icon: { type: 'asset', value: 'publish' } })
   const wiki = s.createPage({ title: L('Team wiki', 'Team-Wiki'), icon: { type: 'asset', value: 'binder' } })
   const meeting = s.createPage({ title: L('Weekly sync — notes', 'Weekly Sync — Notizen'), icon: { type: 'asset', value: 'notepad' } })
   const budget = s.createPage({ title: L('Budget 2026', 'Budget 2026'), icon: { type: 'asset', value: 'code' } })
@@ -639,14 +651,55 @@ export function seedWorkspace(lang: Lang): void {
     'seed',
   )
 
+  /* ---------- Launch plan: tasks (workItem) — status, due dates, people, blockers ---------- */
+  {
+    const [A, B, C, D, E, F, G] = Array.from({ length: 7 }, () => newItemId())
+    const mac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent)
+    const modEnter = mac ? '⌘+Enter' : L('Ctrl+Enter', 'Strg+Enter')
+    const todo = (checked: boolean, text: string): JSONContent => ({ type: 'taskItem', attrs: { checked }, content: [p(text)] })
+    s.setContent(
+      launch,
+      doc(
+        p(L('The new plans go live on ', 'Die neuen Tarife gehen am '), dateMention(day(5), day(5)), L('. Everything that has to happen before is a task here — with a date, who does it and what it waits for.', ' live. Alles, was bis dahin passieren muss, steht hier als Aufgabe — mit Termin, Verantwortlichen und dem, worauf sie wartet.')),
+        h2(L('This week', 'Diese Woche')),
+        // no reminder on A: inbox.spec moves the clock two days on the demo seed
+        workItem({ itemId: A, status: 'todo', due: day(2), people: [alex, sam] }, L('Run the checkout with test cards', 'Checkout mit Testkarten durchspielen')),
+        workItem(
+          { itemId: B, status: 'in_progress', due: day(3), people: [mira], related: [E] },
+          L('Approve the final pricing copy', 'Preistexte final freigeben'),
+          p(L('The last draft is in the team wiki, legal has signed off.', 'Die letzte Fassung liegt im Team-Wiki, der Rechts-Check ist durch.')),
+          tasks(todo(true, L('Name the plans', 'Tarifnamen festlegen')), todo(true, L('Match prices with finance', 'Preise mit den Finanzen abgleichen')), todo(false, L('Shorten the small print', 'Kleingedrucktes kürzen')), todo(false, L('English version', 'Englische Fassung'))),
+        ),
+        // the seed's one task reminder: the day before, 09:00
+        workItem({ itemId: C, status: 'todo', due: `${day(5)}T09:00`, reminder: '-1d', people: [alex], blockedBy: [A, B, E] }, L('Switch the pricing page live', 'Preisseite live schalten')),
+        workItem({ itemId: D, status: 'todo', due: day(-2), people: [sam] }, L('Move the invoice template to the new plans', 'Rechnungsvorlage auf die neuen Tarife umstellen')),
+        p(code('[!]'), L(' + space turns a line into a task · ', ' + Leertaste macht aus einer Zeile eine Aufgabe · '), code(modEnter), L(' marks it done · ', ' hakt sie ab · '), code('Enter'), L(' at the end of a title starts the next one.', ' am Ende eines Titels legt die nächste an.')),
+        h2(L('Done', 'Erledigt')),
+        workItem({ itemId: E, status: 'done', doneAt: Date.now() - 3 * 86_400_000, people: [mira] }, L('Legal review of the terms', 'Rechtliche Prüfung der AGB')),
+        h2(L('For the newsletter', 'Für den Newsletter')),
+        ul(
+          {
+            type: 'listItem',
+            content: [
+              p(L('Prepare images and subject line:', 'Bilder und Betreff vorbereiten:')),
+              workItem({ itemId: F, status: 'todo', due: day(4), people: [mira] }, L('Screenshots of the new prices', 'Screenshots der neuen Preise')),
+              workItem({ itemId: G, status: 'todo', blockedBy: [B], people: [alex] }, L('A/B test the subject line', 'Betreffzeile A/B testen')),
+            ],
+          },
+        ),
+      ),
+      'seed',
+    )
+  }
+
   s.addComment(meeting, {
     id: 'seed-c1',
     quote: L('Relaunch goes live on ', 'Relaunch geht live am '),
     body: L('Only after Alex signs off QA on staging. (Margin notes: select text, press Comment or ⌘⌥M / Ctrl+Alt+M — they stay on this device.)', 'Erst nach Alex’ QA-Freigabe auf Staging. (Randnotizen: Text markieren, Kommentieren oder ⌘⌥M / Strg+Alt+M — sie bleiben auf diesem Gerät.)'),
   })
 
-  // order in sidebar: Welcome, Projects, Reading list, Content calendar, Wiki, Meeting, Meetings, Budget
-  const order: ID[] = [welcome, projects, reading, calendar, wiki, meeting, meetings, budget]
+  // order in sidebar: Welcome, Projects, Launch plan, Reading list, Content calendar, Wiki, Meeting, Meetings, Budget
+  const order: ID[] = [welcome, projects, launch, reading, calendar, wiki, meeting, meetings, budget]
   order.forEach((id, idx) => s.updatePage(id, { order: idx + 1 }))
   s.toggleFavorite(welcome)
   s.toggleFavorite(projects)

@@ -19,6 +19,7 @@ import { metaName, parseDocName } from '../collab/names.ts'
 import { type Roots, liveDatabase, livePage, readProperties, roots } from '../api/meta.ts'
 import type { WorkspaceModel } from '../api/model.ts'
 import type { Services } from '../context.ts'
+import { ApiError } from '../errors.ts'
 import { McpReads } from '../mcp/reads.ts'
 import { McpWrites } from '../mcp/writes.ts'
 import { newId } from '../tokens.ts'
@@ -468,8 +469,15 @@ export class AgentService {
     try {
       await this.writes.updatePage(wsId, { id: out.pageId, markdown, mode: out.mode }, agentActor(agent.id))
       outcome.steps.push({ kind: 'note', label: `Report ${out.mode === 'replace' ? 'written to' : 'added to'} the output page.`, state: 'ok' })
-    } catch {
-      outcome.steps.push({ kind: 'note', label: 'The report could not be written to the output page (deleted, in the trash, private or a database?).', state: 'err' })
+    } catch (e) {
+      const holdsTasks = e instanceof ApiError && e.code === 'page_holds_tasks'
+      outcome.steps.push({
+        kind: 'note',
+        label: holdsTasks
+          ? 'The output page holds tasks — a replace would turn them into plain text. Switch the agent\'s output to append.'
+          : 'The report could not be written to the output page (deleted, in the trash, private or a database?).',
+        state: 'err',
+      })
     }
   }
 

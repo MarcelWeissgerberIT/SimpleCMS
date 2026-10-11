@@ -10,7 +10,7 @@ import { dragHandlePluginDefaultKey, type NestedOptions } from '@tiptap/extensio
 import { DragHandle } from '@tiptap/extension-drag-handle-react'
 import { useEditorState } from '@tiptap/react'
 import { useStore } from 'zustand'
-import { ArrowRightLeft, Copy, GripVertical, Link, MessageSquareText, Paintbrush, Plus, Repeat2, Trash2 } from 'lucide-react'
+import { ArrowRightFromLine, ArrowRightLeft, CalendarDays, CircleDot, Copy, GripVertical, Hourglass, Link, Link2, MessageSquareText, Paintbrush, Plus, Repeat2, Trash2, UserRound } from 'lucide-react'
 import { Menu, MenuList, type MenuEntry } from '../../ui/Menu'
 import { Popover, type PopoverAnchor } from '../../ui/Popover'
 import { PageIcon } from '../../ui/PageIcon'
@@ -24,7 +24,7 @@ import type { Bridge } from '../lib/bridge'
 import { blockTextRange, currentBlock, deleteBlock, duplicateBlock, turnBlockInto, type BlockRef, type TurnTarget } from '../lib/blocks'
 import { trackMove } from '../lib/moves'
 import { livePages } from '../lib/livePages'
-import { TURN_INTO_ITEMS } from '../lib/catalog'
+import { turnIntoChoices } from '../lib/catalog'
 import { BlockGlyph } from './SlashMenu'
 import { toggleHeadingLevel } from '../schema/toggle'
 import { mediaMenuEntries } from './mediaMenu'
@@ -42,8 +42,12 @@ import { blockSelectionAt, extendSelection, isBlockSelection, menuSelection, rea
 import { chromeBoxAt, columnLeftAt, contentLeft, gutterAt, gutterLeftAt, ownBox, pageColumn } from '../select/gutter'
 import { selectionMenuEntries } from '../select/menu'
 import { moveBlocks } from '../select/actions'
+import { handFocusOver } from '../../ui/focus'
+import { itemAttrs, WORK_ITEM_STATUSES } from '../workitem/attrs'
+import { openItemPickerAt, setItemStatus } from '../workitem/keys'
+import type { ItemPickerKind } from '../lib/bridge'
 
-const TEXTUAL = new Set(['paragraph', 'heading', 'bulletList', 'orderedList', 'taskList', 'listItem', 'taskItem', 'blockquote', 'callout', 'details', 'codeBlock'])
+const TEXTUAL = new Set(['paragraph', 'heading', 'bulletList', 'orderedList', 'taskList', 'listItem', 'taskItem', 'blockquote', 'callout', 'details', 'codeBlock', 'workItem'])
 const EXCLUDED = new Set(['column', 'detailsSummary', 'detailsContent', 'tab'])
 /** This many px past the hovered block's own lines still belong to it: the handle never flickers between levels. */
 const STICKY = 3
@@ -68,6 +72,8 @@ function nestedOptions(pointer: { current: { x: number; y: number } }, hovered: 
     rules: [
       { id: 'noWrappers', evaluate: ({ node }) => (EXCLUDED.has(node.type.name) ? 1000 : 0) },
       { id: 'noCellContent', evaluate: ({ parent }) => (parent && (parent.type.name === 'tableCell' || parent.type.name === 'tableHeader') ? 1000 : 0) },
+      // a task's title line is never the grip's target — the task is (its notes stay their own targets)
+      { id: 'itemTitle', evaluate: ({ node, parent }) => (parent?.type.name === 'workItem' && parent.firstChild === node ? 1000 : 0) },
       {
         id: 'columns',
         evaluate: ({ pos, view }) => {
@@ -163,6 +169,7 @@ function turnTargetOf(editor: Editor, ref: BlockRef): TurnTarget | null {
     case 'blockquote':
     case 'callout':
     case 'codeBlock':
+    case 'workItem':
       return n.type.name as TurnTarget
   }
   return null
@@ -208,7 +215,7 @@ export function BlockHandle({ editor, bridge, pageId }: { editor: Editor; bridge
   const [kind, setKind] = useState<string>('paragraph')
   // `sel`: several selected blocks the menu acts on (editor/select), else the block at `ref`;
   // `fromHover`: opened from the hover grip with no blocks selected — the selection it makes is soft (below)
-  const [menu, setMenu] = useState<{ el: PopoverAnchor; ref: BlockRef; keyboard?: boolean; sel?: BlockSel | null; fromHover?: boolean } | null>(null)
+  const [menu, setMenu] = useState<{ el: PopoverAnchor; ref: BlockRef; keyboard?: boolean; sel?: BlockSel | null; fromHover?: boolean; atKey?: boolean; hadFocus?: boolean } | null>(null)
   const [moveFor, setMoveFor] = useState<{ el: PopoverAnchor; ref: BlockRef; sel?: BlockSel | null } | null>(null)
   const requested = useStore(bridge, (s) => s.blockMenu)
   /** "Turn into page": the selected blocks when the menu's block is one of them (read before the block gets selected) */
@@ -358,9 +365,11 @@ export function BlockHandle({ editor, bridge, pageId }: { editor: Editor; bridge
   }
 
   const openAt = useCallback(
-    (el: PopoverAnchor, pos: number, keyboard = false, fromHover = false) => {
+    (el: PopoverAnchor, pos: number, keyboard = false, fromHover = false, atKey = false) => {
       const node = editor.state.doc.nodeAt(pos)
       if (!node) return
+      // the editor had the keyboard before the menu took it (a task's picker opened from here gives the caret back)
+      const hadFocus = editor.view.hasFocus()
       splitFor.current = blockSplitRange(editor.state, pos)
       // the block is one of several selected blocks: the menu acts on all of them (they stay selected)
       const sel = menuSelection(editor.state, pos)
@@ -368,7 +377,7 @@ export function BlockHandle({ editor, bridge, pageId }: { editor: Editor; bridge
       editor.view.dispatch(editor.state.tr.setSelection(selection ?? NodeSelection.create(editor.state.doc, pos)))
       editor.view.dispatch(editor.state.tr.setMeta('lockDragHandle', true))
       locked.current = true
-      setMenu({ el, ref: { node, pos }, keyboard, sel: selection ? sel : null, fromHover })
+      setMenu({ el, ref: { node, pos }, keyboard, sel: selection ? sel : null, fromHover, atKey, hadFocus })
     },
     [editor],
   )
@@ -382,11 +391,13 @@ export function BlockHandle({ editor, bridge, pageId }: { editor: Editor; bridge
     openAt(e.currentTarget, ref.pos, false, !sel || sel.soft)
   }
 
-  // keyboard (Alt+Enter) / touch grip → block menu anchored at the block itself
+  // keyboard (Alt+Enter) / touch grip → block menu anchored at the block itself; a key that asked for it (a task's ⋯)
+  // → right below that key, where the press was
   useEffect(() => {
     if (!requested) return
     bridge.setState({ blockMenu: null })
-    openAt(blockAnchor(editor, requested.pos), requested.pos, true)
+    const key = requested.anchor && requested.anchor.isConnected ? requested.anchor : null
+    openAt(key ?? blockAnchor(editor, requested.pos), requested.pos, true, false, !!key)
   }, [requested, bridge, editor, openAt])
 
   /** Hand the keyboard back to the editor (the block stays selected — typing can't replace it). */
@@ -424,12 +435,35 @@ export function BlockHandle({ editor, bridge, pageId }: { editor: Editor; bridge
     const currentTurn = turnTargetOf(editor, ref)
     const colors = blockColors(node)
     const items: MenuEntry[] = [{ kind: 'section', label: t(blockLabelKey(node)) }]
+    // a task: its fields first (Status ▸ · Due date… · Assign… · Blocked by… · Related… · Blocks…) — each "…" opens
+    // the task's picker at its placard (the menu hands the keyboard over to it)
+    if (node.type.name === 'workItem' && editor.isEditable) {
+      const status = itemAttrs(node).status
+      const pick = (kind: ItemPickerKind) => () => {
+        handFocusOver(editor.view.dom)
+        openItemPickerAt(editor, ref.pos, kind, 'menu', { hadFocus: !!menu.hadFocus })
+      }
+      items.push(
+        {
+          id: 'item-status',
+          label: t('editor.blockMenu.item.status'),
+          icon: <CircleDot size={15} />,
+          submenu: WORK_ITEM_STATUSES.map((s) => ({ id: `item-status-${s}`, label: t(`editor.workItem.status.${s}`), checked: s === status, onSelect: () => void setItemStatus(editor, ref.pos, s, 'menu') })),
+        },
+        { id: 'item-due', label: t('editor.blockMenu.item.due'), icon: <CalendarDays size={15} />, onSelect: pick('due') },
+        { id: 'item-assign', label: t('editor.blockMenu.item.assign'), icon: <UserRound size={15} />, onSelect: pick('people') },
+        { id: 'item-blockedBy', label: t('editor.blockMenu.item.blockedBy'), icon: <Hourglass size={15} />, onSelect: pick('blockedBy') },
+        { id: 'item-related', label: t('editor.blockMenu.item.related'), icon: <Link2 size={15} />, onSelect: pick('related') },
+        { id: 'item-blocks', label: t('editor.blockMenu.item.blocks'), icon: <ArrowRightFromLine size={15} />, onSelect: pick('blocks') },
+        { kind: 'separator' },
+      )
+    }
     if (textual)
       items.push({
         label: t('editor.blockMenu.turnInto'),
         icon: <Repeat2 size={15} />,
         submenu: [
-          ...TURN_INTO_ITEMS.map((b) => ({
+          ...turnIntoChoices().map((b) => ({
             label: t(`editor.block.${b.id}`),
             icon: <BlockGlyph item={b} size={15} />,
             hint: b.md,
@@ -622,7 +656,7 @@ export function BlockHandle({ editor, bridge, pageId }: { editor: Editor; bridge
           if (b) openAt(el, b.from, keyboard)
         }}
       />
-      <Menu open={!!menu} anchor={menu?.el ?? null} onClose={closeMenu} entries={entries} placement="left-start" width={240} searchable={!isTouch} searchPlaceholder={t('editor.blockMenu.search')} emptyLabel={t('editor.slash.empty')} />
+      <Menu open={!!menu} anchor={menu?.el ?? null} onClose={closeMenu} entries={entries} placement={menu?.atKey ? 'bottom-end' : 'left-start'} width={240} searchable={!isTouch} searchPlaceholder={t('editor.blockMenu.search')} emptyLabel={t('editor.slash.empty')} />
       <Popover open={!!moveFor} anchor={moveFor?.el ?? null} onClose={closeMove} placement="left-start" style={{ width: 280 }}>
         <MenuList entries={moveEntries} onClose={closeMove} searchable searchPlaceholder={t('editor.blockMenu.movePlaceholder')} emptyLabel={t('editor.slash.empty')} />
       </Popover>

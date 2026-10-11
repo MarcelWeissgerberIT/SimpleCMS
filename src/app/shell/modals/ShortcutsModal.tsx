@@ -54,6 +54,15 @@ export function useShortcutGroups(): ShortcutGroup[] {
       ],
     },
     {
+      label: t('shell.keys.tasks'),
+      items: [
+        [t('shell.keys.taskDone'), ['Mod+Enter']],
+        [t('shell.keys.taskProgress'), ['Mod+Alt+Enter']],
+        [t('shell.keys.taskMenu'), ['Alt+Enter']],
+        [t('shell.keys.taskNext'), ['↵']],
+      ],
+    },
+    {
       label: t('shell.nav.inbox'),
       items: [
         [t('shell.keys.inbox'), ['G I']],

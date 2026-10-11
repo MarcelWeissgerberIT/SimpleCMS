@@ -206,9 +206,11 @@ export {
  *    openInboxItem, openInbox, eventLabel; notification permission helpers
  *  - reminder codes ('at', '-15m', '-1d' …): parse / label / due time / options (the one definition)
  *  - ReminderSelect, DateReminderEditor: reminder UI for database dates and editor date mentions
- *  - collectReminders(pages, dbs): every scheduled reminder (for lists / agenda)
+ *  - collectReminders(pages, dbs): every scheduled reminder (for lists / agenda) — date mentions, date properties
+ *    and tasks; ringingHere(list, audienceHere(members?)): those that ring on this device (a team task's only
+ *    for its people); without a ctx, audienceOf(list) asks for the member list only when a reminder needs it
  */
-export { startInbox, stopInbox, openInboxItem, openInbox, eventLabel } from './inbox/engine'
+export { startInbox, stopInbox, openInboxItem, openInbox, eventLabel, audienceHere, audienceOf, ringingHere } from './inbox/engine'
 export { useInbox, markRead, archiveItems, setNotify, INBOX_KINDS, type InboxItem, type InboxKind, type InboxData } from './inbox/state'
 export { notifyPermission, requestNotifyPermission, type NotifyPermission } from './inbox/notify'
 export { collectReminders, type ReminderEntry } from './inbox/scan'
@@ -470,3 +472,43 @@ export {
   RowSlips,
   openOutbox,
 } from './outbox'
+/**
+ * Tasks outside the editor (features/workitems — see workitems/index.ts): startItems() (main.tsx, before the first
+ * editor mounts: the editor's lookup + the ONE creation gate), getItemIndex() (lazy, incremental workspace index),
+ * useItemView(attrs, pageId, blockId?) (blockers, dependents, related, duplicate — cached per component),
+ * useItemIndexVersion(), useNowMinute(), canCreateItems(), wouldLoop(), memberIds() / useMemberIds(),
+ * ringsHere() / audienceText() (who a task's reminder rings for), writeItems() (THE write to tasks outside their
+ * editor: live editor first, else setContent(…, 'items'); refusals; undo), unblockedBy() / toastUnblocked().
+ */
+export {
+  startItems,
+  getItemIndex,
+  peekItemIndex,
+  subscribeItems,
+  useItemIndexVersion,
+  useItemView,
+  useNowMinute,
+  canCreateItems,
+  wouldLoop,
+  refOf as itemRefOf,
+  DUP_DELAY,
+  memberIds,
+  useMemberIds,
+  ringsHere,
+  audienceText,
+  joinNames,
+  writeItems,
+  unblockedBy,
+  toastUnblocked,
+  type ItemEdit,
+  type WriteResult,
+  type WriteRefusal,
+  type WriteOptions,
+  type ItemView,
+  type ItemRef,
+  type RefState,
+  type ItemIndex,
+  type ItemEntry,
+  type PageItems,
+  type AudienceCtx,
+} from './workitems'

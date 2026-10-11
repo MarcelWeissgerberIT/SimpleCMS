@@ -3,8 +3,10 @@
  * passes the translator, the language, the workspace's people and "now"). One model for the editor's
  * node view, the schema's static HTML (exports, clipboard) and the history diff.
  *
- * P0 shows counts for linked tasks only: their titles (and whether a blocker is still open) need the workspace
- * index (P1) — so the chip says what is stored ("Depends on 2"), never a computed state ("blocked").
+ * Static renders (exports, clipboard, share links) show counts for linked tasks only ("Depends on 2"): titles and
+ * whether a blocker is still open need the workspace index. The editor's placard passes what the index computed
+ * (`computed`): blocked / after all / a template's task / a duplicate — the label says it in words, the root carries
+ * it as `data-state`.
  */
 import { differenceInCalendarDays, format } from 'date-fns'
 import { de, enUS } from 'date-fns/locale'
@@ -21,8 +23,27 @@ export interface PlacardPerson {
   color: ColorName
 }
 
+/** What the workspace index adds to a task's own fields (the editor's placard; static renders have none). */
+export interface PlacardComputed {
+  /** status ≠ done ∧ an open blocker */
+  blocked: boolean
+  /** waits for tasks that are all finished now */
+  afterAll: boolean
+  /** how many tasks it waits for (any state) */
+  blockers: number
+  /** the task sits in a template (it is created when the template is used) */
+  template: boolean
+  /** another block holds the same itemId and wins */
+  duplicate: boolean
+}
+
+/** The computed state the root carries (`data-state`): only the label says it, so narrow layouts keep the label. */
+export type PlacardState = 'blocked' | 'after' | 'template' | 'duplicate'
+
 export interface PlacardModel {
   status: WorkItemStatus
+  /** a computed state (null: the status says it all) */
+  computed: PlacardState | null
   /**
    * The spec label: the state in words (never by colour alone) + the id's last four — "Open · 7F3A",
    * "In progress · 1B2C" / "Overdue · 4C1A" (signal), "Done Thu 08 Oct" (the day it was done).
@@ -80,7 +101,7 @@ export function reminderShort(code: string | null, t: T): string | null {
   return m ? `−${Number(m[1])} ${t(`editor.workItem.unit.${m[2]}`)}` : null
 }
 
-export function placardModel(a: WorkItemAttrs, ctx: { t: T; lang: Lang; people: Person[]; now: number }): PlacardModel {
+export function placardModel(a: WorkItemAttrs, ctx: { t: T; lang: Lang; people: Person[]; now: number }, computed?: PlacardComputed | null): PlacardModel {
   const { t } = ctx
   const short = shortItemId(a.itemId)
   const people: PlacardPerson[] = []
@@ -95,16 +116,29 @@ export function placardModel(a: WorkItemAttrs, ctx: { t: T; lang: Lang; people: 
   }
   const late = !!a.due && a.status !== 'done' && isLate(a.due, ctx.now)
   const statusText = t(`editor.workItem.status.${a.status}`)
-  const state =
-    a.status === 'done'
-      ? a.doneAt
-        ? { word: `${statusText} ${dayText(new Date(a.doneAt), ctx.lang)}`, signal: false, id: '' }
-        : { word: statusText, signal: false, id: short }
-      : late
-        ? { word: t('editor.workItem.overdue'), signal: true, id: short }
-        : { word: statusText, signal: a.status === 'in_progress', id: short }
+  // the label's word: duplicate > template > done > blocked > overdue > after all > the status
+  let kind: PlacardState | null = null
+  let state: PlacardModel['state']
+  if (computed?.duplicate) {
+    kind = 'duplicate'
+    state = { word: t('editor.workItem.state.duplicate'), signal: true, id: '' }
+  } else if (computed?.template) {
+    kind = 'template'
+    state = { word: t('editor.workItem.state.template'), signal: false, id: '' }
+  } else if (a.status === 'done') {
+    state = a.doneAt ? { word: `${statusText} ${dayText(new Date(a.doneAt), ctx.lang)}`, signal: false, id: '' } : { word: statusText, signal: false, id: short }
+  } else if (computed?.blocked) {
+    kind = 'blocked'
+    state = { word: t('editor.workItem.state.blocked'), signal: true, id: short }
+  } else if (late) {
+    state = { word: t('editor.workItem.overdue'), signal: true, id: short }
+  } else if (computed?.afterAll) {
+    kind = 'after'
+    state = { word: t('editor.workItem.state.after', { n: computed.blockers }), signal: false, id: short }
+  } else state = { word: statusText, signal: a.status === 'in_progress', id: short }
   return {
     status: a.status,
+    computed: kind,
     state,
     label: state.id ? `${state.word} · ${state.id}` : state.word,
     statusText,

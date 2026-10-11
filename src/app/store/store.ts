@@ -12,6 +12,7 @@ import { plainText } from './plain'
 import { immer } from 'zustand/middleware/immer'
 import type { JSONContent } from '@tiptap/core'
 import { newId } from '../lib/ids'
+import { collectItemIds, newItemId } from '../lib/itemIds'
 import { detectLang } from '@/shared/i18n'
 import { aiKeyValue, attachSecrets, checkAIKey, mcpServersValue, withSealedKey } from './secrets'
 import { isSafeFunctionId } from './functions'
@@ -360,10 +361,16 @@ const copySuffix = () => L('(copy)', '(Kopie)')
  * Point references inside copied content at the copies: page links, page mentions, inline
  * databases (+ their view ids) and internal link hrefs (#/p/<id>, any ?b=… suffix is kept).
  */
-function remapContent(node: JSONContent, idMap: Map<ID, ID>, viewMap: Map<ID, ID>): JSONContent {
+/** A list of task ids through `itemMap` (others kept). */
+const remapItems = (v: unknown, itemMap: Map<string, string>) => (Array.isArray(v) ? v.map((x) => (typeof x === 'string' ? (itemMap.get(x) ?? x) : x)) : v)
+
+function remapContent(node: JSONContent, idMap: Map<ID, ID>, viewMap: Map<ID, ID>, itemMap: Map<string, string>): JSONContent {
   const a = node.attrs
   if (a) {
-    if (node.type === 'pageLink' && idMap.has(a.pageId)) node.attrs = { ...a, pageId: idMap.get(a.pageId) }
+    // a copied task is a new task (lib/itemIds.ts): its id and its links among the copy follow the copy
+    if (node.type === 'workItem' && itemMap.size) {
+      node.attrs = { ...a, itemId: typeof a.itemId === 'string' ? (itemMap.get(a.itemId) ?? a.itemId) : a.itemId, blockedBy: remapItems(a.blockedBy, itemMap), related: remapItems(a.related, itemMap) }
+    } else if (node.type === 'pageLink' && idMap.has(a.pageId)) node.attrs = { ...a, pageId: idMap.get(a.pageId) }
     else if (node.type === 'mention' && a.kind === 'page' && idMap.has(a.id)) node.attrs = { ...a, id: idMap.get(a.id) }
     else if (node.type === 'databaseBlock' && idMap.has(a.databaseId)) {
       node.attrs = { ...a, databaseId: idMap.get(a.databaseId), ...(a.viewId && viewMap.has(a.viewId) ? { viewId: viewMap.get(a.viewId) } : {}) }
@@ -377,7 +384,7 @@ function remapContent(node: JSONContent, idMap: Map<ID, ID>, viewMap: Map<ID, ID
       }
     }
   }
-  node.content?.forEach((c) => remapContent(c, idMap, viewMap))
+  node.content?.forEach((c) => remapContent(c, idMap, viewMap, itemMap))
   return node
 }
 
@@ -624,6 +631,15 @@ export const useWorkspace = create<WorkspaceState>()(
       const viewMap = new Map<ID, ID>()
       for (const oldId of all) for (const v of state.databases[oldId]?.views ?? []) viewMap.set(v.id, newId())
       const remapIds = (v: PropertyValue): PropertyValue => (Array.isArray(v) ? v.map((x) => idMap.get(x) ?? x) : v)
+      // the copy's tasks are new tasks: one fresh itemId per task id of the copied pages (and their row templates);
+      // synced references are not collected — they carry their original's ids and follow it through the same map
+      const itemIds = new Set<string>()
+      for (const oldId of all) {
+        collectItemIds(state.pages[oldId]?.content, itemIds)
+        for (const tpl of state.databases[oldId]?.templates ?? []) collectItemIds(tpl.content, itemIds)
+      }
+      const itemMap = new Map<string, string>()
+      for (const x of itemIds) itemMap.set(x, newItemId())
       const suffix = copySuffix()
       set((s) => {
         for (const oldId of all) {
@@ -640,7 +656,7 @@ export const useWorkspace = create<WorkspaceState>()(
           copy.contentRev = 0
           copy.contentOrigin = null
           if (copy.content) {
-            copy.content = remapContent(copy.content, idMap, viewMap)
+            copy.content = remapContent(copy.content, idMap, viewMap, itemMap)
             copy.plain = plainText(copy.content)
           }
           // relations between copied rows point at the copies
@@ -675,7 +691,7 @@ export const useWorkspace = create<WorkspaceState>()(
             }
             for (const tpl of dbCopy.templates ?? []) {
               tpl.id = newId()
-              if (tpl.content) tpl.content = remapContent(tpl.content, idMap, viewMap)
+              if (tpl.content) tpl.content = remapContent(tpl.content, idMap, viewMap, itemMap)
             }
             s.databases[copy.id] = dbCopy
           }

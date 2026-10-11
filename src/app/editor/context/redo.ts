@@ -11,6 +11,7 @@ import type { TransformPick } from '../../features'
 import { blockKey } from './read'
 import { liveEditorOf } from './store'
 import { openContextPicker, topBlockKeys } from './api'
+import { idsBridge } from '../workitem/ids'
 
 const bridges = new WeakMap<Editor, Bridge>()
 
@@ -20,6 +21,15 @@ export function registerBridge(editor: Editor, bridge: Bridge): () => void {
   return () => {
     if (bridges.get(editor) === bridge) bridges.delete(editor)
   }
+}
+
+/**
+ * The bridge of an editable editor: from its `workItemIds` extension's storage (set when the editor was made — never
+ * a question of effect timing), else the one PageEditor registered. Null for read-only and template editors.
+ */
+export function bridgeOf(editor: Editor): Bridge | null {
+  if (editor.isDestroyed) return null
+  return idsBridge(editor) ?? bridges.get(editor) ?? null
 }
 
 /** Open the AI panel of an editor on passages to redo (the caret goes to the first one). */

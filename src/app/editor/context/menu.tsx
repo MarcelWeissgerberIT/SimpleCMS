@@ -11,8 +11,8 @@ import type { BlockRef } from '../lib/blocks'
 import { topBlockKeys } from './api'
 import { startRedo } from './redo'
 
-/** Blocks with text a rewrite can work on. */
-const TEXTUAL = new Set(['paragraph', 'heading', 'bulletList', 'orderedList', 'taskList', 'listItem', 'taskItem', 'blockquote', 'callout', 'details', 'codeBlock', 'table'])
+/** Blocks with text a rewrite can work on — a task too (it can be marked; Redo skips its passage until P2: passages.ts TEXT_TYPES). */
+const TEXTUAL = new Set(['paragraph', 'heading', 'bulletList', 'orderedList', 'taskList', 'listItem', 'taskItem', 'blockquote', 'callout', 'details', 'codeBlock', 'table', 'workItem'])
 
 export function redoBlockMenuEntries(editor: Editor, ref: BlockRef, t: Translate): MenuEntry[] {
   if (!TEXTUAL.has(ref.node.type.name) || !editor.isEditable) return []

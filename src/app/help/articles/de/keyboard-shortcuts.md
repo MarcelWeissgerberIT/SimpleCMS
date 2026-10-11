@@ -4,7 +4,7 @@ title: Tastenkürzel
 section: start
 order: 4
 keywords: tasten, tastatur, kürzel, tastenkürzel, shortcut, hotkey, keyboard
-related: command-palette, blocks, block-handle
+related: command-palette, blocks, block-handle, tasks
 summary: Die Tasten, die sich zuerst lohnen. Die ganze Liste steht im Tab „Tasten“ der Hilfe.
 ---
 Die Tasten erscheinen passend zu deinem System — ⌘ auf dem Mac, sonst Strg/Ctrl. Die vollständige Liste: der Tab **Tasten** der Hilfe, oder <kbd>Mod+/</kbd>.
@@ -36,3 +36,13 @@ Die Tasten erscheinen passend zu deinem System — ⌘ auf dem Mac, sonst Strg/C
 - <kbd>Alt+Enter</kbd> — Blockmenü (umwandeln, Farbe, verschieben, löschen)
 - <kbd>Mod+Alt+M</kbd> — Auswahl kommentieren
 - <kbd>Mod+Z</kbd> — rückgängig
+
+## Aufgaben
+Mit dem Cursor in einer [Aufgabe](help:tasks):
+- <kbd>Mod+Enter</kbd> — erledigt / wieder offen (ein To-do in ihren Notizen zuerst)
+- <kbd>Mod+Alt+Enter</kbd> — in Arbeit / wieder offen
+- <kbd>Alt+Enter</kbd> — Menü der Aufgabe: Status, Termin, Personen, blockiert durch, verknüpft, hält auf
+- <kbd>Enter</kbd> am Ende eines Titels — die nächste Aufgabe; am Anfang — eine neue davor
+- <kbd>Shift+Enter</kbd> im Titel — zu den Notizen
+- <kbd>Backspace</kbd> am Anfang eines leeren Titels — Aufgabe auflösen
+- `[!]` und ein Leerzeichen am Zeilenanfang — eine neue Aufgabe

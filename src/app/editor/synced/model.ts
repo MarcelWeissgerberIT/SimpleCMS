@@ -4,6 +4,7 @@
  */
 import type { JSONContent } from '@tiptap/core'
 import { BLOCK_ID_TYPES } from '../schema/base'
+import { remintItems } from '../../lib/itemIds'
 
 export const SYNCED = 'syncedBlock'
 /** setContent origin of every write the synced-block service makes. */
@@ -124,11 +125,22 @@ export function mapSynced(doc: JSONContent, fn: Mapper): JSONContent {
   return walk(doc)
 }
 
+/**
+ * A synced block's content as normal blocks. A REFERENCE's content is a copy of its original — once it stops
+ * being one, its tasks are copies: new itemIds (one map per reference: links among them follow). The original
+ * keeps its tasks' ids.
+ */
+export function unsyncedContent(n: JSONContent): JSONContent[] {
+  const content = n.content?.length ? n.content : [{ type: 'paragraph' }]
+  if (!str(n.attrs?.sourcePageId)) return content
+  return remintItems({ type: 'doc', content }).doc.content ?? content
+}
+
 /** The doc with the synced blocks of `syncId` (all, or only references) replaced by their content. */
 export function unsyncDoc(doc: JSONContent, syncId: string, which: 'all' | 'references' = 'all'): JSONContent {
   return mapSynced(doc, (n) => {
     if (str(n.attrs?.syncId) !== syncId) return n
     if (which === 'references' && !str(n.attrs?.sourcePageId)) return n
-    return n.content?.length ? n.content : [{ type: 'paragraph' }]
+    return unsyncedContent(n)
   })
 }

@@ -9,7 +9,7 @@ import { useLang, useT } from '../../i18n'
 import { PageIcon } from '../../ui/PageIcon'
 import { Tooltip } from '../../ui/Tooltip'
 import type { PopoverAnchor } from '../../ui/Popover'
-import { collectReminders, formatDue, markRead, openInboxItem, useInbox, type InboxItem } from '../../features'
+import { audienceHere, collectReminders, formatDue, markRead, openInboxItem, ringingHere, useInbox, useMemberIds, type InboxItem } from '../../features'
 import { useCloud } from '../../cloud'
 import { useLocalPref, useNow } from '../lib/hooks'
 import { INBOX_FILTERS, groupItems, isUnread, matches, useInboxItems, type InboxFilter } from './model'
@@ -117,7 +117,12 @@ function Scheduled({ now }: { now: number }) {
   const pages = useWorkspace((s) => s.pages)
   const dbs = useWorkspace((s) => s.databases)
   const rem = useInbox((s) => s.data.rem)
-  const next = useMemo(() => collectReminders(pages, dbs).filter((r) => r.dueAt > now && !rem[r.key]?.fired), [pages, dbs, rem, now])
+  // a team task's reminder only where it rings (its people)
+  const members = useMemberIds()
+  const next = useMemo(
+    () => ringingHere(collectReminders(pages, dbs), audienceHere(members)).filter((r) => r.dueAt > now && !rem[r.key]?.fired),
+    [pages, dbs, rem, now, members],
+  )
   if (!next.length) return null
   return (
     <section className="ibx-sched" aria-label={t('shell.inbox.scheduled')}>

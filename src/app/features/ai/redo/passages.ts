@@ -2,7 +2,9 @@
  * "Redo with instructions" — the passages: the marked top-level blocks of a page, in document order,
  * numbered. Each goes to Claude as Markdown; inline atoms (page / date / person mentions, inline icons,
  * inline math) travel as tokens ⟦n⟧ and come back as the very same nodes, so a rewrite keeps them.
- * Blocks that are not text (images, databases, embeds, spreadsheets …) are kept out with a reason.
+ * Blocks that are not text (images, databases, embeds, spreadsheets …) are kept out with a reason — and so is every
+ * block that holds a task (a task, or a list / callout / toggle / quote with one inside): its Markdown form would come
+ * back as a quote, the task's id, fields and links gone (no Claude path changes a task in P1).
  */
 import type { Editor, JSONContent } from '@tiptap/core'
 import type { Node as PMNode } from '@tiptap/pm/model'
@@ -14,7 +16,7 @@ const TEXT_TYPES = new Set(['paragraph', 'heading', 'blockquote', 'bulletList', 
 /** Inline nodes that travel as tokens. */
 const ATOMS = new Set(['mention', 'icon', 'inlineMath'])
 
-export type SkipReason = 'kind' | 'empty'
+export type SkipReason = 'kind' | 'empty' | 'task'
 
 export interface RedoPassage {
   /** 1-based, in document order */
@@ -64,6 +66,18 @@ export function readable(markdown: string, atoms: JSONContent[]): string {
 
 const plainOf = (node: PMNode) => node.textBetween(0, node.content.size, '\n', ' ')
 
+/** Is the block a task, or does it hold one anywhere (a synced reference's included)? */
+export function holdsTask(node: PMNode): boolean {
+  if (node.type.name === 'workItem') return true
+  let hit = false
+  node.descendants((n) => {
+    if (hit) return false
+    if (n.type.name === 'workItem') hit = true
+    return !hit && !n.isTextblock
+  })
+  return hit
+}
+
 /** The passages for these block ids (document order). Ids that are gone are left out. */
 export function capturePassages(editor: Editor, ids: string[]): RedoPassage[] {
   const want = new Set(ids)
@@ -75,6 +89,8 @@ export function capturePassages(editor: Editor, ids: string[]): RedoPassage[] {
     const anchor = plainOf(node)
     const atoms: JSONContent[] = []
     const base = { n: out.length + 1, key, type, anchor, atoms }
+    // a task, or a block with one inside (a synced reference's too)
+    if (holdsTask(node)) return out.push({ ...base, markdown: '', skip: 'task' })
     if (!TEXT_TYPES.has(type)) return out.push({ ...base, markdown: '', skip: 'kind' })
     if (!anchor.trim()) return out.push({ ...base, markdown: '', skip: 'empty' })
     const json = tokenize(node.toJSON() as JSONContent, atoms)

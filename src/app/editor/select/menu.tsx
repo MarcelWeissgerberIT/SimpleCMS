@@ -14,20 +14,20 @@ import { shortcutLabel } from '../../ui/controls'
 import { toast } from '../../store/ui'
 import { pageHref } from '../../lib/router'
 import type { Bridge } from '../lib/bridge'
-import { TURN_INTO_ITEMS } from '../lib/catalog'
+import { turnIntoChoices } from '../lib/catalog'
 import { BlockGlyph } from '../menus/SlashMenu'
 import { ColorGrid } from '../menus/BubbleToolbar'
 import { topBlockKeys } from '../context/api'
 import { startRedo } from '../context/redo'
 import { itemsMenuEntries, splitMenuEntries } from '../split/menu'
-import { colorBlocks, colorsOf, deleteBlocks, duplicateBlocks, fresh, turnBlocksInto } from './actions'
+import { colorBlocks, colorsOf, deleteBlocks, duplicateBlocks, fresh, turnBlocksInto, turnBlocksIntoItems } from './actions'
 import type { BlockSel } from './model'
 
 const isTouch = typeof window !== 'undefined' && !!window.matchMedia?.('(hover: none)').matches
 /** Blocks "Turn into" converts as a group (their text changes type). */
 const TEXT_LIKE = new Set(['paragraph', 'heading', 'bulletList', 'orderedList', 'taskList', 'listItem', 'taskItem', 'blockquote'])
 /** Blocks with text a rewrite / colour can work on. */
-const HAS_TEXT = new Set([...TEXT_LIKE, 'callout', 'details', 'codeBlock', 'table'])
+const HAS_TEXT = new Set([...TEXT_LIKE, 'callout', 'details', 'codeBlock', 'table', 'workItem'])
 
 export interface SelectionMenuContext {
   pageId: string
@@ -60,11 +60,12 @@ export function selectionMenuEntries(editor: Editor, b: BlockSel, t: Translate, 
       label: t('editor.blockMenu.turnInto'),
       icon: <Repeat2 size={15} />,
       submenu: [
-        ...TURN_INTO_ITEMS.map((x) => ({
+        ...turnIntoChoices().map((x) => ({
           label: t(`editor.block.${x.id}`),
           icon: <BlockGlyph item={x} size={15} />,
           hint: x.md,
-          onSelect: () => void turnBlocksInto(editor, b, x.turnInto!),
+          // Task: one task per block, all in one transaction
+          onSelect: () => void (x.turnInto === 'workItem' ? turnBlocksIntoItems(editor, b) : turnBlocksInto(editor, b, x.turnInto!)),
         })),
         ...splitMenuEntries(editor, t, { range: { from: b.from, to: b.to }, pageId: ctx.pageId, inTurnInto: true }),
       ],

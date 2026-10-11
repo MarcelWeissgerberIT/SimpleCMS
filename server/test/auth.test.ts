@@ -186,6 +186,8 @@ describe('server basics', () => {
     assert.equal(config.max_upload_mb, 25)
     assert.equal(config.dev_mode, true)
     assert.match(config.source_url, /^https:\/\//)
+    // the schema gate's minimum (docs/CLOUD.md § Schema gate): the app creates tasks only when it is ≥ 1
+    assert.equal(config.schema_min, 1)
   })
 })
 

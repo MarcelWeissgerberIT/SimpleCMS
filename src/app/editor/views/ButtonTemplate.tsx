@@ -17,7 +17,8 @@ import { InlinePickers } from '../icons/InlinePickers'
 import '../editor.css'
 import '../menus/menus.css'
 
-const NOT_IN_TEMPLATES = new Set(['page', 'dbTable', 'dbBoard', 'dbList', 'dbGallery', 'dbCalendar', 'dbTimeline', 'dbChart', 'dbFeed', 'dbLinked', 'form', 'toc', 'breadcrumb', 'mention', 'ai', 'button'])
+// a button template never holds a task ('workItem': lib/buttonRun.ts cleanTemplate unwraps any that gets in)
+const NOT_IN_TEMPLATES = new Set(['page', 'dbTable', 'dbBoard', 'dbList', 'dbGallery', 'dbCalendar', 'dbTimeline', 'dbChart', 'dbFeed', 'dbLinked', 'form', 'toc', 'breadcrumb', 'mention', 'ai', 'button', 'workItem'])
 const templateBlock = (item: BlockItem) => !NOT_IN_TEMPLATES.has(item.id)
 
 export function TemplateEditor({
@@ -44,7 +45,8 @@ export function TemplateEditor({
       content: initial,
       immediatelyRender: true,
       shouldRerenderOnTransaction: false,
-      editorProps: { attributes: { class: 'doc-content', role: 'textbox', 'aria-multiline': 'true', 'aria-label': label } },
+      // data-template-editor: the task input rule refuses here (a button template holds no task)
+      editorProps: { attributes: { class: 'doc-content', role: 'textbox', 'aria-multiline': 'true', 'aria-label': label, 'data-template-editor': '' } },
       onUpdate: ({ editor: ed }) => onChangeRef.current(ed.getJSON().content ?? []),
     },
     [],

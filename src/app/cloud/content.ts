@@ -50,6 +50,7 @@ import { getSocket, isConnected, onConnection } from './socket'
 import { PAGE_ID, within } from './env'
 import { CloudError, type ContentDocHandle } from './state'
 import { watchSchema } from './schemaGate'
+import { keepYRefs } from './yrefs'
 
 /** setContent origin for content typed in this tab's editors (not an editor instance id, not 'sync'). */
 export const CLOUD_EDIT_ORIGIN = 'cloud'
@@ -1069,7 +1070,8 @@ function queueWrite(pageId: ID, base: JSONContent | null, ours: JSONContent | nu
         if (l) noteLanded(e, l)
         e.doc.transact(() => {
           if (!target) frag.delete(0, frag.length)
-          else prosemirrorJSONToYXmlFragment(docSchema(), prepareCollabContent(target, true), frag)
+          // unchanged object / array attrs keep Y's own objects: y-tiptap compares by reference (yrefs.ts)
+          else prosemirrorJSONToYXmlFragment(docSchema(), keepYRefs(prepareCollabContent(target, true), frag), frag)
         }, BRIDGE)
       }
       written = true

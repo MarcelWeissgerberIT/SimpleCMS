@@ -2,9 +2,9 @@
 id: templates
 title: Templates
 section: writing
-order: 10
+order: 11
 keywords: template, gallery, reuse, save as template, repeat, recurring, weekly, daily, Vorlage, wiederholen, wiederkehrend
-related: databases, buttons, synced-blocks
+related: databases, buttons, synced-blocks, tasks
 summary: Start from a built-in template, save your own, or let a database template repeat on a schedule.
 ---
 ## Built-in templates
@@ -16,6 +16,8 @@ summary: Start from a built-in template, save your own, or let a database templa
 3. Give it a name, a description and a category, then **Save template**.
 
 Your templates are under **Mine** in the gallery. Variables such as `{{date}}` or `{{user}}` are filled in each time a template is used. **Customise** turns a built-in into your own version.
+
+**Use template** starts its [tasks](help:tasks) fresh: open, without a date or reminder — people and the links between them stay. The same holds for a new row from a row template.
 
 ## Row templates and repeating rows
 In a database, the arrow next to **New** lists the database's templates: pre-filled properties and content for a new row. **New template** creates one.

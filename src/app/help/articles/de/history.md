@@ -2,7 +2,7 @@
 id: history
 title: Versionsverlauf
 section: writing
-order: 11
+order: 12
 keywords: verlauf, versionen, wiederherstellen, rückgängig, snapshot, sicherung, frühere version, vorversion, vergleich, vergleichen, was ist neu, diff, änderungen, eigenschaften, datenbank-eintrag, history, restore, compare, properties
 related: lock, export, ai-menu
 summary: One bewahrt frühere Versionen jeder Seite auf. Zurückspulen, sehen, was jede Version neu brachte, und wiederherstellen.

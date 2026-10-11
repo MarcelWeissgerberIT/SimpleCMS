@@ -19,6 +19,9 @@ import type { ContentDocHandle } from '../../cloud'
 import { collabExtensions } from '../collab'
 import { ContextMarks } from '../context/plugin'
 import { SplitKeys } from '../split/split'
+import { WorkItemIds } from '../workitem/ids'
+import { WorkItemCaret } from '../workitem/caret'
+import { WorkItemKeys } from '../workitem/keys'
 
 const typography = () =>
   Typography.configure({ oneHalf: false, oneQuarter: false, threeQuarters: false, superscriptTwo: false, superscriptThree: false, laquo: false, raquo: false })
@@ -68,6 +71,12 @@ export function editorExtensions({
     commentsExtension(bridge),
     // what Claude may read of the page (context marks + the picker's paused typing)
     ContextMarks,
+    // tasks: a pasted / dropped copy gets a new itemId, a move keeps it (+ relink); carries the bridge (bridgeOf)
+    WorkItemIds.configure({ bridge }),
+    // tasks: the one holding the caret shows its ghost keys (data-caret); Enter / Shift+Enter / Backspace /
+    // Mod+Alt+Enter in a task (Mod+Enter: the behaviors walk)
+    WorkItemCaret,
+    WorkItemKeys,
     QuietStart,
     FileHandler.configure({
       onPaste: (editor, files) => void uploadFiles(editor, files),

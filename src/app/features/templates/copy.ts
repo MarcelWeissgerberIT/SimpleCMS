@@ -15,6 +15,10 @@
  *    (fresh property id) — the other side keeps listing the original's rows only
  *  - unique ids are numbered again from 1 (row order); recurring row templates start counting at
  *    the next scheduler pass (no catch-up for the time before the copy existed)
+ *  - tasks (`workItem`): a copied task is a NEW task — a fresh itemId for every task id of the subtree (and of its
+ *    row templates), links among them follow, links to tasks outside stay; a synced reference to an original
+ *    inside follows it through the same map (lib/itemIds.ts). `items: 'reset'` ("Use") starts them fresh: open,
+ *    no done time, no due date, no reminder (people and links stay).
  * Comments (margin notes) stay with the original: the copy's content has no comment anchors.
  * `fill` fills variables in the copy's titles, text and text properties (never in row templates,
  * button actions or repeat titles — those fill in when they run).
@@ -23,6 +27,7 @@ import type { JSONContent } from '@tiptap/core'
 import { useWorkspace } from '../../store/store'
 import type { Database, ID, Page, PageTemplate, PropertyValue, TemplateRepeat } from '../../store/types'
 import { newId } from '../../lib/ids'
+import { collectItemIds, newItemId, resetItems } from '../../lib/itemIds'
 import { createPrivateDatabase, createPrivatePage } from '../../cloud'
 import { withWriter } from '../../store/writer'
 
@@ -43,6 +48,8 @@ export interface CopyOptions {
   fill?: ((text: string) => string) | null
   /** Team workspaces: create the root in my Private section (everything below follows it). */
   private?: boolean
+  /** The copy's tasks: 'keep' their fields (default) or 'reset' them (open, no date — "Use template"). */
+  items?: 'keep' | 'reset'
 }
 
 export interface CopyResult {
@@ -160,6 +167,14 @@ function copyTreeNow(rootId: ID, opts: CopyOptions): CopyResult | null {
   for (const p of list) for (const v of st.databases[p.id]?.views ?? []) map.set(v.id, newId())
   for (const syncId of syncedOriginals(list)) map.set(syncId, newId())
   for (const propId of crossingPairs(list, st.databases, inside)) map.set(propId, newId())
+  // tasks: new ids for the copy (synced references are not collected: they follow their original through `map`)
+  const itemIds = new Set<string>()
+  for (const p of list) {
+    collectItemIds(p.content, itemIds)
+    for (const tpl of st.databases[p.id]?.templates ?? []) collectItemIds(tpl.content, itemIds)
+  }
+  for (const itemId of itemIds) map.set(itemId, newItemId())
+  const reset = opts.items === 'reset'
   const fill = opts.fill ?? null
   const fillStr = (s: string) => (fill ? fill(s) : s)
 
@@ -182,7 +197,8 @@ function copyTreeNow(rootId: ID, opts: CopyOptions): CopyResult | null {
     const databaseId = isRoot ? null : src.databaseId ? (map.get(src.databaseId) ?? src.databaseId) : null
     const title = isRoot && opts.root.title !== undefined ? opts.root.title : fillStr(src.title)
     const hidden = isRoot ? opts.root.hidden || undefined : src.hidden
-    const content = src.content ? copyContent(src.content, map, fill) : null
+    const copied = src.content ? copyContent(src.content, map, fill) : null
+    const content = copied && reset ? resetItems(copied) : copied
     const index = isRoot ? opts.index : undefined
     const db = st.databases[src.id]
 

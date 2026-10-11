@@ -339,6 +339,16 @@ incoming webhooks and custom agents** (see *Server writes* below and *Agents*) �
 workspace means `PATCH /api/workspaces/:id` (what `/api/me` and invites show) **and** the meta document's
 `workspace` map; mirroring members into `people` is the client's job.
 
+**Attributes are last-writer-wins per key.** A node's attrs are Y attributes on its `Y.XmlElement`; an array or
+object value is one value (a task's `people`, `blockedBy`, `related` are replaced whole, never merged item by item:
+two members assigning at the same moment can keep only one of the two changes — accepted for tasks in P1). So
+writers keep unchanged attribute values **by reference**: y-tiptap writes an attribute when `yAttrs[key] !==
+pAttrs[key]` (a reference compare), and a fresh but equal array would overwrite a member's concurrent change. The
+editor writes only the changed keys (`setNodeMarkup(pos, undefined, { ...node.attrs, ...delta })`,
+`patchItemAttrs` / `commitItem`); writes without an editor (`bridgeContent` → `queueWrite`, whose JSON comes from
+the store — structured clones) go through `keepYRefs(json, frag)` (`src/app/cloud/yrefs.ts`): every object / array
+attr deep-equal to the Y element's current value (matched by block id and node name) is handed back as THAT value.
+
 Document names:
 
 - `ws:<workspaceId>` — the workspace **meta document** (structure, properties, databases).
@@ -412,6 +422,12 @@ may write:
     journaled it — several writers, or the server's updates in the same refresh).
   Wiping a workspace copy (`cloud/device.ts`) removes every generation's copies.
 - The server's own writes (public API, webhooks, agents — direct connections) are not affected.
+- **Creating the newer node needs a server with the gate.** `GET /api/config` returns `schema_min`
+  (`MIN_CLIENT_SCHEMA`); the app creates tasks in a team workspace only when it is ≥ 1 and the tab is neither
+  read-only nor outdated (`canCreate()`, `src/app/features/workitems/live.ts`; the last answer is kept per device in
+  localStorage `one.cloud.schemaMin`, read at boot before the config answers — never heard → no creation; a server
+  that answers without the field counts as 0). Every creation path asks that one gate and degrades to plain blocks
+  when refused (a pasted copy of a task is unwrapped to its text; a cut + paste is a move and always allowed).
 - Releasing a node type an older client would lose: ship it in the app with `DOC_SCHEMA_VERSION` + 1, the
   type in `NODE_GENERATIONS`, and **no way to create it** (the schema release); raise `MIN_CLIENT_SCHEMA` to
   that number in the same server release when, as for `1`, clients without the parameter must stop writing —

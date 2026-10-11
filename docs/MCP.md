@@ -28,7 +28,7 @@ Contents: [Tools](#tools) · [Tidying up](#tidying-up) · [One Script](#one-scri
 | `one_get_database` | read | `{ id }` — the schema (types, options, relations, read-only flags — `onlyByHand` properties are read-only for MCP clients, `key` marks the database's key) and the views |
 | `one_query_database` | read | `{ databaseId, filter?, sort?, limit?, cursor? }` — rows with friendly values, filtered and sorted, paginated |
 | `one_create_page` | write | `{ title, parentId?, markdown?, icon? }` |
-| `one_update_page` | write | `{ id, title?, icon?, markdown?, mode: 'append' \| 'replace' }` — a task block of the page written back as it was read (`> [!TODO] … {#wi_…}`) stays that task: its title and notes from the Markdown, its fields as the app has them |
+| `one_update_page` | write | `{ id, title?, icon?, markdown?, mode: 'append' \| 'replace' }` — a task block of the page written back as it was read (`> [!TODO] … {#wi_…}`) stays that task: its title and notes from the Markdown, its fields as the app has them; the team server refuses a `replace` of a page holding a task (`page_holds_tasks`, below) |
 | `one_create_row` | write | `{ databaseId, title, properties?, markdown? }` — a key another row holds and an `onlyByHand` property are refused |
 | `one_update_row` | write | `{ id, properties }` — only what you pass changes, `null` clears; the same refusals |
 | `one_create_property` | write | `{ databaseId, name, type, options?, relation?: { databaseId, twoWay?, reverseName? } }` |
@@ -427,7 +427,11 @@ curl -s https://team.example.com/mcp \
   stay the app's for now — the team MCP never writes the `> [!TODO]` form). Comments never leave; buttons show their label only.
 - **Content in** is the API's [markdown-lite](API.md#content-markdown-lite) (headings, paragraphs, lists, to-dos,
   quotes, code, dividers, marks, links); other Markdown stays text. `one_update_page` appends after the last block or,
-  with `mode: "replace"`, replaces everything — editors open on that page follow along live.
+  with `mode: "replace"`, replaces everything — editors open on that page follow along live. A page that holds a
+  task block is never replaced: the server cannot read or write a task yet (its Markdown prints one as plain blocks,
+  so a read → edit → replace round trip would turn every task into paragraphs) — `replace` answers 422
+  `page_holds_tasks` and changes nothing (a server agent's report in replace mode notes it in its run); `append`
+  works as always, until server parity.
 - **Beyond the REST API**: `one_update_page` (content, title, icon), `one_create_database`, `one_create_property`
   (options, two-way relations, unique ids numbered for the existing rows, the property shown in every view), new
   select options from `one_create_row` / `one_update_row`, the [tidy-up tools](#tidying-up) (properties, options,

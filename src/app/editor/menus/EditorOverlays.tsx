@@ -14,6 +14,7 @@ import { UrlPasteMenu } from './UrlPasteMenu'
 import { TableToolbar } from './TableToolbar'
 import { LinkHover } from './LinkHover'
 import { InlinePickers } from '../icons/InlinePickers'
+import { ItemPickers } from '../workitem/ItemPickers'
 import { useUI } from '../../store/ui'
 import './menus.css'
 
@@ -45,6 +46,7 @@ export const EditorOverlays = memo(function EditorOverlays({ editor, bridge, pag
       <RefMenu editor={editor} bridge={bridge} pageId={pageId} />
       <EmojiMenu editor={editor} bridge={bridge} />
       <InlinePickers editor={editor} bridge={bridge} />
+      <ItemPickers editor={editor} bridge={bridge} pageId={pageId} />
       <BubbleToolbar editor={editor} bridge={bridge} />
       <UrlPasteMenu editor={editor} bridge={bridge} />
       <TableToolbar editor={editor} />

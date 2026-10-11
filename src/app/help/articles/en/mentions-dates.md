@@ -4,7 +4,7 @@ title: Mentions, dates & reminders
 section: writing
 order: 5
 keywords: one:, reference, same level, mention, @, link page, date, today, tomorrow, reminder, remind, notification, inbox, agenda, Erwähnung, Datum, Erinnerung
-related: blocks, properties, comments
+related: blocks, properties, comments, tasks
 summary: Type @ to link a page, a date or a person — dates can remind you.
 ---
 Type `@` and keep typing:
@@ -19,8 +19,10 @@ Type `@` and keep typing:
 ## Reminders
 Click a date mention: change the day, **Include time**, and choose **Remind** — at the time of the event, minutes, hours, days or a week before. Database date properties have the same **Remind** option.
 
+A [task](help:tasks) reminds the same way: **Remind** in its due date picker. A task that is done reminds nobody; in a team workspace a task with people rings only for them, one with nobody assigned for every member.
+
 When a reminder is due, it appears in the **Inbox** (sidebar) and as a notice in the app. Switch on **Browser notifications** in the Inbox settings to get them while One is in the background.
 
 > Reminders fire while One is open in a tab on this device. The Inbox and its reminders are per device and are never synced.
 
-The **Agenda** in the sidebar shows everything dated — mentions, database dates, journal days — by month, week or as a list.
+The **Agenda** in the sidebar shows everything dated — mentions, database dates, tasks, journal days — by month, week or as a list. Drag a task to another day to move its due date; a click opens it on its page.

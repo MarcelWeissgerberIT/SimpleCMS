@@ -36,8 +36,12 @@ async function open(page: Page, path?: string) {
   await openApp(page, path)
   seeded.set(page, new Set(await wsEval(page, (s) => Object.keys(s.pages))))
 }
-/** Reminder keys ("m:<pageId>:…" / "p:<rowId>:…") of the pages this test made. */
-const seenKeys = async (page: Page) => Object.keys((await inbox(page)).rem).filter((k) => !seeded.get(page)?.has(k.split(':')[1]))
+/**
+ * Reminder keys ("m:<pageId>:…" / "p:<rowId>:…") of the pages this test made. Task reminders ("w:<itemId>:…" —
+ * the seed's "Launch plan" has one) are left out: this spec makes no tasks.
+ */
+const ownKey = (page: Page, k: string) => !k.startsWith('w:') && !seeded.get(page)?.has(k.split(':')[1])
+const seenKeys = async (page: Page) => Object.keys((await inbox(page)).rem).filter((k) => ownKey(page, k))
 
 const dateMention = (id: string, reminder: string | null = null): JSONContent => ({ type: 'mention', attrs: { id, label: id, kind: 'date', reminder } })
 const line = (...content: JSONContent[]): JSONContent => ({ type: 'paragraph', content })
@@ -153,7 +157,7 @@ test.describe('inbox & reminders', () => {
     await expect.poll(() => seenKeys(page)).toContain(`p:${rowId}:pDue:2026-10-08:-1d`)
     // the old one (7 Oct) was cancelled by the change
     const scheduled = await wsEval(page, () => (window as unknown as W).__oneInbox.reminders().map((r) => r.key))
-    expect(scheduled.filter((k) => !seeded.get(page)?.has(k.split(':')[1]))).toEqual([`p:${rowId}:pDue:2026-10-08:-1d`])
+    expect(scheduled.filter((k) => ownKey(page, k))).toEqual([`p:${rowId}:pDue:2026-10-08:-1d`])
 
     // Wed 7 Oct 09:00 → fires; "Open" shows the row in the peek
     await page.clock.fastForward(2 * DAY + 30_000)

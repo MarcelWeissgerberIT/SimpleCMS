@@ -8,7 +8,7 @@
  *
  * (CHANGELOG_DRAFT=1 lets the build pass while a new entry's picture does not exist yet.)
  *
- * Shots: flight-recorder, outbox, mirror-again, glass-switches, history-compare, mcp-overview, mirror, task-mcp, models, search, terminal-pipelines, cloud-worker, one-picker, pipelines, legacy-modernise, coding-live, text-size, mcp-media, coding-setup, free-board, building-blocks, workspace-settings, diagram-viewer, coding-pipeline, pages-per-item, design-import, tour, quick-capture, script-templates, one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
+ * Shots: tasks, flight-recorder, outbox, mirror-again, glass-switches, history-compare, mcp-overview, mirror, task-mcp, models, search, terminal-pipelines, cloud-worker, one-picker, pipelines, legacy-modernise, coding-live, text-size, mcp-media, coding-setup, free-board, building-blocks, workspace-settings, diagram-viewer, coding-pipeline, pages-per-item, design-import, tour, quick-capture, script-templates, one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
  * custom-agents, gmail, help-centre, mcp-servers, feed-blocks — each named like its image. Every shot starts from a fresh, seeded
  * workspace in English, light theme, 1440 × 900 at device scale 2; the crop of the relevant area is scaled
  * to 1440 px wide and saved as public/assets/shots/changelog/<shot>.webp (≤ 150 KB: the quality steps down
@@ -871,6 +871,31 @@ const shots = {
     await page.waitForFunction(() => /\d/.test(document.querySelector('.deck .win .mtr b')?.textContent ?? ''))
     await rest(page)
     await save(page, 'flight-recorder')
+    await ctx.close()
+  },
+  /**
+   * Tasks (P1): the demo seed's "Launch plan" — the "This week" stack on one plate: open with a date and two people
+   * (the caret in its title: the ghost keys show), in progress with 2/4 steps, blocked with a chip per blocker and
+   * "Waiting for 2 of 3", overdue.
+   */
+  async tasks(browser) {
+    // taller than the other shots: the four tasks of "This week" are one plate, shown whole
+    const { ctx, page } = await freshPage(browser, { viewport: { width: W, height: 1200 } })
+    const id = await openPage(page, 'Launch plan: new pricing page')
+    const ed = page.locator(`.ProseMirror[data-page-id="${id}"]`)
+    const items = ed.locator('[data-type="work-item"]')
+    await items.nth(3).waitFor()
+    const head = ed.locator('h2, h3', { hasText: 'This week' })
+    await scrollToTop(head, 40)
+    // the caret at the end of the first title: its empty fields show as dashed keys
+    await items.first().locator('.workitem__body p').first().click()
+    await page.keyboard.press('End')
+    await page.mouse.move(W + 40, 1200 + 40)
+    await page.waitForTimeout(600)
+    // the stack and the hint line under it (whole, never cut by the crop)
+    const hint = ed.locator('p', { hasText: 'turns a line into a task' })
+    const stack = union(await boxOf(head), await boxOf(items.nth(3)), await boxOf(hint))
+    await save(page, 'tasks', frameAround(stack, page.viewportSize(), 16 / 10, 28))
     await ctx.close()
   },
 

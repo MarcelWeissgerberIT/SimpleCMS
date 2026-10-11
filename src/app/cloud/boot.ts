@@ -14,7 +14,7 @@ import { fetchConfig, getSession, notifyUnauthenticated, setServerKnown, setServ
 import { listenForForget, runPendingForget } from './device'
 import { hasStoredChoice, readChoice, readSession, SERVER_CAPABLE, writeChoice, writeSession } from './env'
 import { useCloud, useCloudSync, type WorkspaceRef } from './state'
-import { readOnlyFor } from './schemaGate'
+import { readOnlyFor, rememberSchemaMin, storedSchemaMin } from './schemaGate'
 import { emptySettings, openCloudWorkspace } from './workspace'
 
 const LOCAL: WorkspaceRef = { kind: 'local', id: 'local' }
@@ -56,6 +56,8 @@ function consumeSignedInMarker(): boolean {
 /** What the server says about itself, into useCloud / useCloudSync. */
 export function applyConfig(cfg: ServerConfig): void {
   setServerKnown(true)
+  // the schema gate's minimum: task blocks are created in a team workspace only when it is ≥ 1 (kept per device)
+  rememberSchemaMin(cfg.schema_min)
   useCloudSync.setState({ maxUploadMb: cfg.max_upload_mb })
   const mode = cfg.signup?.mode
   useCloud.setState({
@@ -136,6 +138,8 @@ export async function bootCloud(): Promise<'local' | 'cloud' | 'signed-out'> {
     () => (useCloud.getState().active.kind === 'cloud' ? useCloud.getState().active.id : null),
     () => switchWorkspaceImpl(LOCAL),
   )
+  // what this device last heard of the server's schema minimum, before the config answers (an offline boot)
+  useCloud.setState({ schemaMin: storedSchemaMin() })
   let choice = readChoice()
   const signedInMarker = consumeSignedInMarker()
   let session: Me | null | undefined

@@ -97,6 +97,8 @@ export function SlashMenu({ editor, bridge, pageId, filter }: { editor: Editor; 
   const run = (i: number) => {
     const row = rows[i]
     if (!row || !suggest) return
+    // a block that can't be made here: the menu stays open (its row says why)
+    if (row.item.disabled?.()) return
     const kind = row.item.picker
     if (kind) {
       const pos = suggest.range.from
@@ -149,6 +151,7 @@ export function SlashMenu({ editor, bridge, pageId, filter }: { editor: Editor; 
                 <div
                   role="option"
                   aria-selected={i === active}
+                  aria-disabled={r.item.disabled?.() ? 'true' : undefined}
                   data-index={i}
                   className="slash__item"
                   onMouseMove={() => i !== active && setActive(i)}
@@ -158,6 +161,7 @@ export function SlashMenu({ editor, bridge, pageId, filter }: { editor: Editor; 
                     <BlockGlyph item={r.item} />
                   </span>
                   <span className="slash__name">{r.label}</span>
+                  {r.item.disabled?.() && <span className="slash__why">{r.item.disabled()}</span>}
                   {r.item.md && <span className="slash__md">{r.item.md}</span>}
                 </div>
               </div>
@@ -169,7 +173,7 @@ export function SlashMenu({ editor, bridge, pageId, filter }: { editor: Editor; 
                 <BlockGlyph item={current.item} size={26} />
               </div>
               <div className="slash__spec-name">{current.label}</div>
-              <p className="slash__spec-desc">{current.desc}</p>
+              <p className="slash__spec-desc">{current.item.disabled?.() ?? current.desc}</p>
               <dl className="slash__spec-table">
                 <div>
                   <dt className="label">{t('editor.slash.markdown')}</dt>

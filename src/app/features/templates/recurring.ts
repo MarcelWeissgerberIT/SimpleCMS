@@ -25,6 +25,7 @@ import { t } from '../../i18n'
 import { DEFAULT_REPEAT_TITLE, MAX_CATCH_UP, fillRepeatVars, occurrenceRowId, occurrencesBetween, type FillVars, type Occurrence } from './schedule'
 import { SYSTEM, withWriter } from '../../store/writer'
 import { newId } from '../../lib/ids'
+import { remintItems } from '../../lib/itemIds'
 
 type Template = NonNullable<Database['templates']>[number]
 
@@ -84,7 +85,8 @@ function createOccurrence(dbId: ID, tpl: Template, occ: Occurrence): { id: ID; t
     title,
     icon: tpl.icon ?? null,
     properties,
-    content: tpl.content ? fillContent(clone(tpl.content), at, vars) : null,
+    // the row's tasks are new ones, started fresh (lib/itemIds.ts): open, no date, no reminder
+    content: tpl.content ? remintItems(fillContent(clone(tpl.content), at, vars), { reset: true }).doc : null,
   })
   if (uniqueIds.length) s.updateDatabase(dbId, { nextUniqueId: db.nextUniqueId + 1 })
   return { id, title }

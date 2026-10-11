@@ -3,7 +3,7 @@
  * Copy and sync, Unsync, Unsync all, Go to original, insert a new original.
  */
 import { generateHTML, type Editor, type JSONContent, type Range } from '@tiptap/core'
-import type { Node as PMNode } from '@tiptap/pm/model'
+import { Fragment, type Node as PMNode } from '@tiptap/pm/model'
 import { NodeSelection, TextSelection } from '@tiptap/pm/state'
 import { newId } from '../../lib/ids'
 import { openPage } from '../../lib/router'
@@ -16,6 +16,7 @@ import { SYNCED, SYNCED_META, newSyncedJson, syncedAround } from '../schema/sync
 import { insertBlock } from '../lib/blocks'
 import { expectOriginal, syncedEntry } from './state'
 import { unsyncEverywhere } from './service'
+import { unsyncedContent } from './model'
 import { CLIP_ATTR, clipKey } from '../workitem/clip'
 
 const LIST_ITEMS = new Set(['listItem', 'taskItem'])
@@ -143,10 +144,16 @@ export function insertSynced(editor: Editor, range?: Range | null): void {
 }
 
 /** This synced block becomes normal blocks (its content stays in place). */
+/** A synced block's content as normal blocks: a reference's tasks get new ids (model.ts unsyncedContent). */
+function contentOf(editor: Editor, node: PMNode): Fragment {
+  if (!node.attrs.sourcePageId) return node.content
+  return Fragment.fromJSON(editor.schema, unsyncedContent(node.toJSON() as JSONContent))
+}
+
 export function unsyncAt(editor: Editor, pos: number): boolean {
   const node = syncedAt(editor, pos)
   if (!node) return false
-  const tr = editor.state.tr.replaceWith(pos, pos + node.nodeSize, node.content)
+  const tr = editor.state.tr.replaceWith(pos, pos + node.nodeSize, contentOf(editor, node))
   tr.setSelection(TextSelection.near(tr.doc.resolve(Math.min(pos + 1, tr.doc.content.size))))
   editor.view.dispatch(tr.setMeta(SYNCED_META, true).scrollIntoView())
   editor.view.focus()
@@ -172,7 +179,7 @@ export function unsyncAll(editor: Editor, pos: number): void {
       return !n.isTextblock
     })
     const tr = editor.state.tr
-    for (const s of spots.reverse()) tr.replaceWith(s.pos, s.pos + s.node.nodeSize, s.node.content)
+    for (const s of spots.reverse()) tr.replaceWith(s.pos, s.pos + s.node.nodeSize, contentOf(editor, s.node))
     if (tr.docChanged) editor.view.dispatch(tr.setMeta(SYNCED_META, true))
     const n = unsyncEverywhere(syncId, pageId)
     toast({ message: n ? t('editor.synced.unsyncedAll', { count: n + 1 }) : t('editor.synced.unsynced'), kind: 'success' })

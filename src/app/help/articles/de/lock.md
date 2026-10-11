@@ -2,7 +2,7 @@
 id: lock
 title: Seiten & Datenbanken sperren
 section: writing
-order: 12
+order: 13
 keywords: sperren, schreibgeschützt, schützen, einfrieren, entsperren, lock, read only
 related: history, databases, properties
 summary: Sperr eine Seite gegen versehentliche Änderungen — oder eine Datenbank gegen Umbauten.

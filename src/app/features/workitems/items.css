@@ -1,0 +1,222 @@
+/*
+ * Task pickers and cards (features/workitems): people, links (blocked by / related / blocks), a linked task's card,
+ * the BLOCKS / FREED and RELATED lists. Popovers (ui/Popover) — tokens only; sizes follow the text size.
+ */
+
+.wi-people,
+.wi-links {
+  width: calc(320px * var(--text-scale));
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.wi-pop__head {
+  padding: 10px 12px 0;
+}
+
+.wi-pop__search {
+  width: auto;
+  margin: 8px 8px 4px;
+}
+
+.wi-pop__list {
+  max-height: calc(300px * var(--text-scale));
+  overflow: auto;
+  padding: 2px 4px 4px;
+}
+
+.wi-pop__section {
+  padding: 8px 8px 4px;
+}
+
+.wi-pop__empty {
+  padding: 10px 8px;
+}
+
+.wi-pop__unknown {
+  margin: 0 8px 4px;
+  align-self: flex-start;
+}
+
+.wi-pop__foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  border-top: 1px solid var(--rule);
+}
+
+.wi-pop__note {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--text-xs);
+  color: var(--ink-3);
+}
+
+.wi-opt {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 30px;
+  padding: 3px 8px;
+  border-radius: var(--radius-1);
+  cursor: pointer;
+  font-size: var(--text-sm);
+}
+
+.wi-opt[data-active] {
+  background: var(--hover);
+}
+
+.wi-opt[aria-disabled='true'] {
+  cursor: default;
+  color: var(--ink-3);
+}
+
+.wi-opt[aria-disabled='true'] .wi-opt__sub {
+  color: var(--signal-ink);
+}
+
+.wi-opt__avatar {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border-radius: var(--radius-1);
+  font-family: var(--font-mono);
+  font-size: calc(9px * var(--text-scale));
+  font-weight: 600;
+}
+
+.wi-opt__main {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+
+.wi-opt__name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wi-opt__sub {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-xs);
+  color: var(--ink-3);
+}
+
+.wi-opt__check {
+  flex: none;
+  color: var(--signal-ink);
+}
+
+.wi-opt .led {
+  flex: none;
+}
+
+/* a linked task's card — the padding sits on the inner element, so the pointer on the card's edge is ON the card
+   (a card the resting pointer opened closes only when the pointer leaves it) */
+.wi-card {
+  width: calc(300px * var(--text-scale));
+  padding: 0;
+}
+
+.wi-card__inner {
+  padding: 12px;
+}
+
+.wi-card__title {
+  margin-bottom: 8px;
+  font-weight: 600;
+  font-size: var(--text-md);
+  line-height: 1.35;
+  color: var(--ink);
+}
+
+.wi-card__facts {
+  display: grid;
+  gap: 4px;
+  margin: 0 0 10px;
+}
+
+.wi-card__facts > div {
+  display: grid;
+  grid-template-columns: calc(64px * var(--text-scale)) minmax(0, 1fr);
+  gap: 8px;
+  align-items: baseline;
+}
+
+.wi-card__facts dt {
+  margin: 0;
+}
+
+.wi-card__facts dd {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: var(--text-sm);
+  color: var(--ink-2);
+}
+
+.wi-card__keys {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.wi-card__keys .btn {
+  gap: 6px;
+}
+
+.wi-card__why {
+  margin: 8px 0 0;
+  font-size: var(--text-xs);
+  color: var(--signal-ink);
+}
+
+/* the BLOCKS / FREED and RELATED lists */
+.wi-list {
+  width: calc(320px * var(--text-scale));
+  padding: 0;
+}
+
+.wi-list__rows {
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+}
+
+.wi-list__row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 34px;
+  padding: 2px 4px 2px 8px;
+  border-radius: var(--radius-1);
+}
+
+.wi-list__row:hover {
+  background: var(--hover);
+}
+
+@media (pointer: coarse) {
+  .wi-opt,
+  .wi-list__row {
+    min-height: 40px;
+  }
+
+  .wi-list__row .icon-btn {
+    width: 36px;
+    height: 36px;
+  }
+}

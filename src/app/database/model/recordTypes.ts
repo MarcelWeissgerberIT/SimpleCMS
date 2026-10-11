@@ -17,6 +17,7 @@ import type { Resolver } from './resolve'
 import { isEmptyValue } from './resolve'
 
 import { TYPE_PROP_ID } from './typeId'
+import { remintItems } from '../../lib/itemIds'
 
 export { TYPE_PROP_ID }
 /** `View.typeFields` key of cards without a type. */
@@ -113,7 +114,8 @@ export function typeNewRow(rowId: ID, typeId: ID): boolean {
   const rt = s.kit?.recordTypes[typeId]
   if (!rt || !s.setRecordType(rowId, typeId)) return false
   const body = contentOfType(rt)
-  if (body && !ws().pages[rowId]?.content) ws().setContent(rowId, body, 'template')
+  // the type's tasks become the row's own new tasks, started fresh (lib/itemIds.ts)
+  if (body && !ws().pages[rowId]?.content) ws().setContent(rowId, remintItems(body, { reset: true }).doc, 'template')
   return true
 }
 
@@ -125,7 +127,10 @@ export function createTypedRow(dbId: ID, input: Parameters<ReturnType<typeof use
   const props = { ...(input.properties ?? {}) }
   const preset = props[TYPE_PROP_ID]
   delete props[TYPE_PROP_ID]
-  const id = ws().createRow(dbId, { ...input, properties: props })
+  // a row made from a template: its tasks are new ones, started fresh (the ONLY database place that re-mints —
+  // every row-from-template path comes through here)
+  const content = input.content ? remintItems(input.content, { reset: true }).doc : input.content
+  const id = ws().createRow(dbId, { ...input, properties: props, ...(content !== undefined ? { content } : {}) })
   const want = typeId ?? (typeof preset === 'string' && preset ? preset : null)
   if (want) typeNewRow(id, want)
   return id

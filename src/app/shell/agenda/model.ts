@@ -4,6 +4,8 @@
  *  - database rows: one item per filled `date` property (ranges and times included)
  *  - journal entries: rows of the journal database (recognised like features/journal does it)
  *  - date mentions: `mention` nodes with kind 'date' (attrs.id = "yyyy-MM-dd") in any page
+ *  - tasks: `workItem` blocks with a due date (one per itemId and page; a synced reference's copy is the
+ *    original's) — done ones faded; they move by their due date (writeItems) and open at their block
  *  - activity: pages created / last edited per day (a faint count, not items)
  *
  * Built from the immutable store maps and cached per page object (immer keeps unchanged pages
@@ -14,6 +16,8 @@ import type { JSONContent } from '@tiptap/core'
 import { useWorkspace } from '../../store/store'
 import { inTemplate, isEffectivelyTrashed } from '../../store/selectors'
 import type { ColorName, Database, DateValue, ID, Page, PageIcon, PropertyDef } from '../../store/types'
+import { useCloud } from '../../cloud'
+import { itemsOfContent } from '../../editor'
 
 /* ------------------------------------------------------------------ */
 /* Day numbers: whole days since 1970-01-01 (calendar dates, no TZ)     */
@@ -56,13 +60,13 @@ function timeOf(s: string | null | undefined): string | null {
 /* Items                                                               */
 /* ------------------------------------------------------------------ */
 
-export type AgendaKind = 'row' | 'journal' | 'mention'
+export type AgendaKind = 'row' | 'journal' | 'mention' | 'item'
 
 export interface AgendaItem {
-  /** unique: `r:<row>:<prop>` or `m:<page>:<iso>` */
+  /** unique: `r:<row>:<prop>`, `m:<page>:<iso>` or `w:<page>:<itemId>` */
   key: string
   kind: AgendaKind
-  /** filter source: database id, 'journal' or 'mentions' */
+  /** filter source: database id, 'journal', 'mentions' or 'items' */
   source: string
   pageId: ID
   dbId: ID | null
@@ -83,17 +87,23 @@ export interface AgendaItem {
   statusName: string | null
   /** null: the row has no status or checkbox to be done with */
   done: boolean | null
-  /** the line a date mention sits in */
+  /** the line a date mention sits in · a task's page */
   excerpt: string | null
+  /** a task: its block (the page opens there) and its itemId (moves write it) */
+  blockId?: string | null
+  itemId?: string
+  /** a task on a locked page: it does not move */
+  locked?: boolean
 }
 
 export const SOURCE_JOURNAL = 'journal'
 export const SOURCE_MENTIONS = 'mentions'
+export const SOURCE_ITEMS = 'items'
 export const SOURCE_ACTIVITY = 'activity'
 
 export interface AgendaSource {
   id: string
-  kind: 'database' | 'journal' | 'mentions' | 'activity'
+  kind: 'database' | 'journal' | 'mentions' | 'items' | 'activity'
   label: string
   icon: PageIcon | null
   /** LED colour */
@@ -254,6 +264,46 @@ function mentionItems(page: Page): AgendaItem[] {
   })
 }
 
+/** The tasks of a page with a due date: one per itemId (the first in the document), synced copies left out. */
+function itemItems(page: Page): AgendaItem[] {
+  const list = itemsOfContent(page.content)
+  if (!list.length) return []
+  const out: AgendaItem[] = []
+  const seen = new Set<string>()
+  const locked = !!page.settings?.locked
+  for (const it of list) {
+    const a = it.attrs
+    if (it.synced === 'copy' || !a.itemId || !a.due || seen.has(a.itemId)) continue
+    const day = isoToDay(a.due)
+    if (day === null) continue
+    seen.add(a.itemId)
+    out.push({
+      key: `w:${page.id}:${a.itemId}`,
+      kind: 'item',
+      source: SOURCE_ITEMS,
+      pageId: page.id,
+      dbId: null,
+      propId: null,
+      propName: null,
+      title: it.title || page.title,
+      icon: page.icon,
+      pageKind: page.kind,
+      start: day,
+      end: day,
+      time: timeOf(a.due),
+      endTime: null,
+      color: null,
+      statusName: null,
+      done: a.status === 'done',
+      excerpt: page.title.trim() || null,
+      blockId: it.blockId,
+      itemId: a.itemId,
+      locked,
+    })
+  }
+  return out
+}
+
 /** Per page: its items, valid while the page object and its database stay the same. */
 const pageCache = new WeakMap<Page, { db: Database | undefined; journal: boolean; items: AgendaItem[]; created: number; edited: number }>()
 
@@ -282,7 +332,7 @@ export function buildIndex(pages: Record<ID, Page>, dbs: Record<ID, Database>): 
       hit = {
         db,
         journal,
-        items: [...(db ? rowItems(page, db, journal) : []), ...mentionItems(page)],
+        items: [...(db ? rowItems(page, db, journal) : []), ...mentionItems(page), ...itemItems(page)],
         created: dateToDay(new Date(page.createdAt)),
         edited: dateToDay(new Date(page.updatedAt)),
       }
@@ -311,6 +361,7 @@ export function buildIndex(pages: Record<ID, Page>, dbs: Record<ID, Database>): 
   }))
   if (journalId)
     sources.push({ id: SOURCE_JOURNAL, kind: 'journal', label: '', icon: pages[journalId]?.icon ?? null, color: 'yellow', dateProps: [], count: counts.get(SOURCE_JOURNAL) ?? 0 })
+  if (counts.get(SOURCE_ITEMS)) sources.push({ id: SOURCE_ITEMS, kind: 'items', label: '', icon: null, color: 'red', dateProps: [], count: counts.get(SOURCE_ITEMS) ?? 0 })
   if (counts.get(SOURCE_MENTIONS))
     sources.push({ id: SOURCE_MENTIONS, kind: 'mentions', label: '', icon: null, color: 'orange', dateProps: [], count: counts.get(SOURCE_MENTIONS) ?? 0 })
   sources.push({ id: SOURCE_ACTIVITY, kind: 'activity', label: '', icon: null, color: 'gray', dateProps: [], count: 0 })
@@ -342,10 +393,16 @@ export function itemsBetween(items: AgendaItem[], from: number, to: number, hidd
   return items.filter((it) => it.start <= to && it.end >= from && !hidden.has(it.source))
 }
 
-/** Rows that should be done by now: past end day, a status/checkbox that is not done. */
+/** Rows and tasks that should be done by now: past end day, a status/checkbox (a task's status) that is not done. */
 export function overdueItems(items: AgendaItem[], day: number, hidden: ReadonlySet<string>): AgendaItem[] {
-  return items.filter((it) => it.kind === 'row' && it.done === false && it.end < day && !hidden.has(it.source)).sort((a, b) => a.end - b.end || compareItems(a, b))
+  return items
+    .filter((it) => (it.kind === 'row' || it.kind === 'item') && it.done === false && it.end < day && !hidden.has(it.source))
+    .sort((a, b) => a.end - b.end || compareItems(a, b))
 }
 
-/** Draggable: database rows (journal entries carry their date in their title, mentions live in text). */
-export const canMove = (it: AgendaItem) => it.kind === 'row' && !!it.propId
+/**
+ * Draggable: database rows, and tasks that are not done on a page this member may write (journal entries carry
+ * their date in their title, mentions live in text).
+ */
+export const canMove = (it: AgendaItem) =>
+  (it.kind === 'row' && !!it.propId) || (it.kind === 'item' && !!it.itemId && it.done === false && !it.locked && !useCloud.getState().readOnly)

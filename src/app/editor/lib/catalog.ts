@@ -47,6 +47,7 @@ import {
   Sheet,
   Shapes,
   Signpost,
+  SquareCheckBig,
   Sigma,
   Smile,
   SquareKanban,
@@ -78,6 +79,7 @@ import { insertSpreadsheet } from '../schema/spreadsheet'
 import { insertChart } from '../schema/chart'
 import { Columns5, ToggleHeading1, ToggleHeading2, ToggleHeading3 } from './blockGlyphs'
 import { toast } from '../../store/ui'
+import { itemLookup } from '../workitem/lookup'
 import { freeBoardSpec } from '../../database'
 import { t } from '../../i18n'
 
@@ -109,6 +111,8 @@ export interface BlockItem {
   turnInto?: TurnTarget
   /** The slash menu opens this picker (the item's `run` is not called). */
   picker?: BlockPicker
+  /** null = available; else why not (shown as the row's description, the row greyed and inert) */
+  disabled?: () => string | null
   run: (ctx: RunCtx) => void
 }
 
@@ -250,7 +254,18 @@ export const BLOCKS: BlockItem[] = [
   // ---------------- lists
   { id: 'bullet', group: 'lists', icon: List, md: '-', keys: 'Mod+Shift+8', keywords: 'bullet list unordered ul aufzählung liste punkte', turnInto: 'bulletList', run: turn('bulletList') },
   { id: 'numbered', group: 'lists', icon: ListOrdered, md: '1.', keys: 'Mod+Shift+7', keywords: 'numbered ordered list ol nummeriert liste', turnInto: 'orderedList', run: turn('orderedList') },
-  { id: 'todo', group: 'lists', icon: ListTodo, md: '[]', keys: 'Mod+Shift+9', keywords: 'todo task checkbox check aufgabe checkliste', turnInto: 'taskList', run: turn('taskList') },
+  { id: 'todo', group: 'lists', icon: ListTodo, md: '[]', keys: 'Mod+Shift+9', keywords: 'todo checkbox check checkliste abhaken', turnInto: 'taskList', run: turn('taskList') },
+  // a task: status, due date, people, what it waits for (editor/workitem) — only where tasks may be made (the gate)
+  {
+    id: 'workItem',
+    group: 'lists',
+    icon: SquareCheckBig,
+    md: '[!]',
+    keywords: 'task aufgabe action item assignee due deadline owner blocked depends waiting zuständig fällig termin blockiert abhängig',
+    turnInto: 'workItem',
+    run: turn('workItem'),
+    disabled: () => (itemLookup().canCreate() ? null : t('editor.workItem.createOff')),
+  },
   { id: 'toggle', group: 'lists', icon: ChevronRight, md: '>>', keywords: 'toggle collapse details fold aufklappen umschalter', turnInto: 'toggle', run: turn('toggle') },
   { id: 'toggleHeading1', group: 'lists', icon: ToggleHeading1, md: '>#', keywords: 'toggle heading h1 collapsible section fold aufklapp überschrift einklappbar abschnitt', turnInto: 'toggleHeading1', run: turn('toggleHeading1') },
   { id: 'toggleHeading2', group: 'lists', icon: ToggleHeading2, md: '>##', keywords: 'toggle heading h2 collapsible section fold aufklapp überschrift einklappbar abschnitt', turnInto: 'toggleHeading2', run: turn('toggleHeading2') },
@@ -518,5 +533,10 @@ function columns(n: number) {
   }
 }
 
-/** Items that make sense in "Turn into" menus, in display order. */
+/** Items that make sense in "Turn into" menus, in display order (all of them — to name what a block is now). */
 export const TURN_INTO_ITEMS = BLOCKS.filter((b) => b.turnInto)
+
+/** The Turn into choices offered now: Task only while new tasks may be made (the creation gate). */
+export function turnIntoChoices(): BlockItem[] {
+  return TURN_INTO_ITEMS.filter((b) => !b.disabled || b.disabled() === null)
+}
