@@ -57,20 +57,38 @@ export const PLAN_FNS: PlanFns = {
   liftMisplacedItems,
 }
 
-/** What the sources know about the window's change ids (review statuses) — agent runs for now; E14 adds the others. */
+/**
+ * What the sources know about the window's change ids: review statuses (agent runs, this tab's terminal batches — a
+ * change id in two runs: applied wins, fewer skipped places, never more) and the changes that cannot be undone (a
+ * terminal task action that may have started the worker: its places are held).
+ */
 async function sourceFacts(data: WindowData): Promise<SourceFacts> {
-  const byAgent = agentRunsOf(data)
-  if (!byAgent.size) return {}
-  const { loadAgentRuns } = await import('../../agents')
   const status = new Map<string, string>()
-  for (const [agentId, refs] of byAgent) {
-    for (const run of await loadAgentRuns(agentId)) {
-      if (!refs.has(run.id)) continue
-      // the same change id in two runs: applied wins (fewer skipped places, never more)
-      for (const c of run.staged ?? []) if (status.get(c.id) !== 'applied') status.set(c.id, c.status)
+  const final = new Set<string>()
+  const note = (id: string, st: string) => {
+    if (status.get(id) !== 'applied') status.set(id, st)
+  }
+  const byAgent = agentRunsOf(data)
+  if (byAgent.size) {
+    const { loadAgentRuns } = await import('../../agents')
+    for (const [agentId, refs] of byAgent) {
+      for (const run of await loadAgentRuns(agentId)) {
+        if (!refs.has(run.id)) continue
+        for (const c of run.staged ?? []) note(c.id, c.status)
+      }
     }
   }
-  return status.size ? { changeStatus: (id) => status.get(id) } : {}
+  const terminal = Object.values(data.runs).filter((r) => r.kind === 'terminal')
+  if (terminal.length) {
+    const { batchFacts } = await import('../../ai/agent/session')
+    for (const r of terminal) {
+      const f = batchFacts(r.ref)
+      if (!f) continue
+      for (const [id, st] of Object.entries(f.status)) note(id, st)
+      for (const id of f.final) final.add(id)
+    }
+  }
+  return { ...(status.size ? { changeStatus: (id: string) => status.get(id) } : {}), ...(final.size ? { final } : {}) }
 }
 
 const isEmptyPara = (b: JSONContent) => b.type === 'paragraph' && !b.content?.length

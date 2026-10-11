@@ -962,6 +962,18 @@ export function undoStagedBatch(res: ApplyResult, opts: { quiet?: boolean } = {}
 export const terminalBusy = (): boolean => get().applying
 
 /**
+ * A batch of this tab as the eject reads it (null: not in this tab — another tab's, or one from before a reload): the
+ * review status of its applied changes, the ones that cannot be undone (a task action: never ejected either).
+ */
+export function batchFacts(runId: string): { status: Record<string, string>; final: string[] } | null {
+  const res = batchById.get(runId)
+  if (!res) return null
+  const status: Record<string, string> = {}
+  for (const c of get().changes) if (res.applied.includes(c.id)) status[c.id] = c.status
+  return { status, final: [...res.final] }
+}
+
+/**
  * An eject (`eject`: its id and time) took back these applied changes of a batch (`runId`: the batch's run): they are
  * discarded + ejected (never open again: restoreStaged / undiscardStaged refuse them), the batch is no longer the
  * review list's `u`, the staged ids of the rows they made are forgotten. Held ones stay applied. Idempotent.

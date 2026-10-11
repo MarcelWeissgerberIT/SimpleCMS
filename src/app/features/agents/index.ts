@@ -69,6 +69,6 @@ export { ejectBusy, settleEjected, unsettleEjected, forgetUndos, type EjectState
 export { forgetRunUndo } from './undos'
 export { withRunLock } from './runs'
 export { AgentChangeBody, AGENT_BODY_KINDS } from './body'
-export { setSupersedeGuard, type SupersedeGuard } from './supersede'
+export { setSupersedeGuard, supersedeGuard, type SupersedeGuard } from './supersede'
 export { catchUpSupersede } from './runner'
 export { setProposalsShown } from './hold'

@@ -452,6 +452,10 @@ export interface EjectRecord {
   changes: Record<PlaceKey, string[]>
   counts: PlanCounts
   versionAt: number
+  /** the agent runs it settled; `discarded`: the open proposals it discarded (`<runKey>#<change>` — its Undo opens them
+   * again); `stateBefore` / `stateAfter`: which run's state the agent had after / before the eject (ids only, never the state) */
   agent?: { agentId: string; runIds: string[]; discarded: string[]; stateBefore?: unknown; stateAfter?: unknown }
+  /** Outbox slips it withdrew (they stay withdrawn after its Undo) */
+  slips?: number
   undone?: number
 }
