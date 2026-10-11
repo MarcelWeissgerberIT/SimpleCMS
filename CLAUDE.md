@@ -47,8 +47,8 @@ src/app/features/preflight/**        Preflight ("Vorflug-Check"): the lamp panel
                                      (lamps register through preflight/registry.ts; public API preflight/index.ts; sources/ =
                                      built-in lamps; queue/calls.ts = every call into another area)
 src/app/features/recorder/**         flight recorder: writer journal (IndexedDB one-recorder) + the deck (Mod+Alt+Z); window
-                                     reading, eject and the ghost come later (public API recorder/index.ts via
-                                     features/index.ts); store/writer.ts = the writer context every store write runs under
+                                     reading + report (window/**); eject and ghost come later (public API recorder/index.ts
+                                     via features/index.ts); store/writer.ts = the writer context every store write runs under
 src/app/features/workitems/**        tasks outside the editor: the workspace index (lazy, incremental), graph (blocked / loops),
                                      views, writeItems (origin 'items'), the unblock toast, members + reminder audience, the
                                      people / link pickers and cards (public API workitems/index.ts, via features/index.ts)
@@ -684,6 +684,11 @@ the public APIs stable — other areas are built against them in parallel.
   status bar sheds low-priority parts the same way (StatusBar `data-shed-1…6`). Orange on the deck = playhead + selected window only
   (+ the shared REC `<Led>`); colours are the `--tp-*` mixes of recorder.css, kept AA under every look by lib/look/derive.ts
   `deckPlate` / `deckText` (look-engine.spec reads both). The deck only reads — it never writes the workspace.
+- Window reading (features/recorder/window): read-only — `loadWindow` flushes (never settles, never flushes editors),
+  `verdicts` (model/hold.ts) is the one held check for the plate, the read dialog and the eject; rows compare over the
+  property keys present at the writer's end and now (rowkeys.ts; absent `p:` = empty at flush; `bhr` explains chain
+  breaks after a property add); NEW lefts carry parts; the incident report holds titles, schema names, writer labels,
+  counts and times — never values or text, generated on demand, never stored.
 - Mirror recipe setup (features/agents/mirror.ts, MirrorSetup.tsx, MirrorDiscard.tsx): `createMirror` shows no toast — a step
   that opens a dialog right away keeps its Undo inside the dialog (AgentEditor intro Undo = `undoMirror`, only what the setup
   created), never a toast over the dialog's footer. Closing an unsaved mirror draft asks (keep editing · keep both · both to

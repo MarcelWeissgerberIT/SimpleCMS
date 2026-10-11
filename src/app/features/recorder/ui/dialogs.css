@@ -108,8 +108,10 @@
   border-right: 1px solid var(--rule);
   background: var(--surface-2);
 }
+/* the list's focus shows on its active place (the list itself is tall: a ring around it would be cut) */
 .plan__list:focus-visible {
   outline: none;
+  box-shadow: none;
 }
 .plan__list:focus-visible .pi[data-on] {
   outline: 2px solid var(--signal);

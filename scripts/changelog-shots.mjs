@@ -8,7 +8,7 @@
  *
  * (CHANGELOG_DRAFT=1 lets the build pass while a new entry's picture does not exist yet.)
  *
- * Shots: preflight, flight-recorder, tasks, outbox, mirror-again, glass-switches, history-compare, mcp-overview, mirror, task-mcp, models, search, terminal-pipelines, cloud-worker, one-picker, pipelines, legacy-modernise, coding-live, text-size, mcp-media, coding-setup, free-board, building-blocks, workspace-settings, diagram-viewer, coding-pipeline, pages-per-item, design-import, tour, quick-capture, script-templates, one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
+ * Shots: flight-recorder-window, preflight, flight-recorder, tasks, outbox, mirror-again, glass-switches, history-compare, mcp-overview, mirror, task-mcp, models, search, terminal-pipelines, cloud-worker, one-picker, pipelines, legacy-modernise, coding-live, text-size, mcp-media, coding-setup, free-board, building-blocks, workspace-settings, diagram-viewer, coding-pipeline, pages-per-item, design-import, tour, quick-capture, script-templates, one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
  * custom-agents, gmail, help-centre, mcp-servers, feed-blocks — each named like its image. Every shot starts from a fresh, seeded
  * workspace in English, light theme, 1440 × 900 at device scale 2; the crop of the relevant area is scaled
  * to 1440 px wide and saved as public/assets/shots/changelog/<shot>.webp (≤ 150 KB: the quality steps down
@@ -887,6 +887,40 @@ const shots = {
     await page.waitForFunction(() => /\d/.test(document.querySelector('.deck .win .mtr b')?.textContent ?? ''))
     await rest(page)
     await save(page, 'flight-recorder')
+    await ctx.close()
+  },
+  /**
+   * Reading a window: the same morning, run 212 bracketed by its flag, ↵ on the flag reads it — "Fenster lesen" over
+   * the board with the places grouped (schema, the report page, 32 rows with the two held ones, 3 new rows) and
+   * NL-1402 picked: Stage Ready → In Arbeit, in ink. English UI, Paper, 1440.
+   */
+  async 'flight-recorder-window'(browser) {
+    const story = JSON.parse(readFileSync('tests/e2e/fixtures/recorder-story.json', 'utf8'))
+    const { ctx, page } = await freshPage(browser, { setup: (ctx) => ctx.clock.install({ time: storyTime(story, story.setupAt) }) })
+    await playStoryPage(page, story, { wipeSetup: true })
+    await page.evaluate((id) => (window.location.hash = `#/p/${id}`), story.database.id)
+    await page.locator('#main .db-tabs [role="tab"]', { hasText: 'Board' }).click()
+    await page.locator('#main .dbb').first().waitFor()
+    await page.waitForTimeout(600)
+    await rest(page)
+    await page.keyboard.press('Control+Alt+z')
+    await page.locator('.deck .lane').first().waitFor()
+    await page.waitForTimeout(600)
+    const flag = page.locator('.lane[data-lane^="agent:"] .flag').first()
+    await flag.click()
+    await page.locator('.deck .held').first().waitFor()
+    await flag.focus()
+    await page.keyboard.press('Enter')
+    const dialog = page.locator('.modal.rec-read')
+    await dialog.locator('.pi').first().waitFor()
+    await dialog.locator('.pi--more').first().click()
+    await dialog.locator('.pi', { hasText: 'NL-1402' }).first().click()
+    await dialog.locator('.rec-prev .hprops__row').first().waitFor()
+    // a click on the preview's heading, as a reader would: the list's keyboard ring goes
+    await dialog.locator('.rec-prev .prev__h').click()
+    await page.mouse.move(W + 40, H + 40)
+    await page.waitForTimeout(600)
+    await save(page, 'flight-recorder-window')
     await ctx.close()
   },
   /**

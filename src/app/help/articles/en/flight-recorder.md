@@ -3,7 +3,7 @@ id: flight-recorder
 title: Flight recorder
 section: writing
 order: 14
-keywords: flight recorder, rewind, tape, deck, track, tracks, writer, writers, who changed, who did that, what happened, timeline, audit, run, flag, window, loupe, agent, mcp, script, sync, undo, writes, places, Flugschreiber, Zurückspulen, Rückspulen, Band, Spur, Spuren, Schreiber, wer war das, Vorgänge, Stellen, Lauf, Fenster, Lupe
+keywords: flight recorder, rewind, tape, deck, track, tracks, writer, writers, who changed, who did that, what happened, timeline, audit, run, flag, window, loupe, agent, mcp, script, sync, undo, writes, places, read window, incident report, held, changed since, word by word, Flugschreiber, Fenster lesen, Vorfallbericht, gehalten, Zurückspulen, Rückspulen, Band, Spur, Spuren, Schreiber, wer war das, Vorgänge, Stellen, Lauf, Fenster, Lupe
 related: history, custom-agents, mcp-bridge, privacy, lock
 summary: Every write in the workspace on one tape, one track per writer — you, the AI terminal, each agent, MCP clients, scripts, sync. See what happened between 07:00 and 08:00, and who it was.
 ---
@@ -26,7 +26,22 @@ The deck docks under the page; the page stays usable, and a tick you click opens
 - **Span.** **15 min · 75 min · 6 h · 24 h**. The strip on top shows the last 24 hours in quarter hours — click it to move the tape there. With a window on the tape, **Loupe** gives it up to six times the room (not at 15 min, which is wide enough).
 - **Playhead.** The orange line; the counter shows its time. The keys beside the counter move it to the previous run, a minute back, a minute forward, and **Now** back to the present.
 
-Orange marks the playhead and the selected window — the rest of the deck is ink, apart from the REC lamp.
+Orange marks the playhead, the selected window and the places held (changed since) — the rest of the deck is ink, apart from the REC lamp.
+
+## Reading a window
+With a window on the tape, press <kbd>↵</kbd> — on the playhead, a track or a run's flag (a flag brackets its run first) — or **Read window** on the plate. A tick with several places has **Read window** too: that one write, bracketed.
+
+- **What changed, grouped.** Schema, views, pages, rows, new rows (and what went to the trash or moved). Each group shows three places and **+ n more**; <kbd>↑</kbd> / <kbd>↓</kbd> walk the list, <kbd>Home</kbd> / <kbd>End</kbd> jump, <kbd>↵</kbd> on **+ n more** opens the group. The picked place shows on the right: its writes and when, the state it is read from (*Before run 212 · 07:31:21*), who changed it since.
+- **Values and text, word by word.** A row's properties before → after, the page text word by word — in ink, like a printed proof. Titles are read live, the values from the versions One kept on this device.
+- **Held: changed since.** A place someone changed after the window — you, a colleague, another agent, a sync — is *held*: a diamond on the tape and an orange mark in the list (*2 rows changed since (you) — they are held*). What another writer did in the middle of the window is marked *contains changes by …* on its block or value and is never counted as the window's.
+- **Partly.** A window that cuts a writer's stretch (it began before the window or went on after it) reads *Partly*; the key **Extend the bracket to …** (or **Bracket the whole run**) takes in all of it.
+- **Possibly incomplete.** A tab closed before it wrote what it recorded during the window: what it did is unknown.
+- **Only after the fact.** *State after only approximate*: the place changed again before One had written down the window's result.
+
+On a phone the dialog is a sheet; tap a place for its values and text on a second sheet, **‹ Plan** goes back. <kbd>Esc</kbd> closes the dialog first, then the deck. Reading never changes the workspace.
+
+## Incident report
+**Report** — on the plate or in the dialog's footer — downloads a Markdown file (`incident-<date>-<time>-<writer>.md`): the window, every writer with writes in it, what changed (schema changes by name, pages with their word counts, rows with the names of the properties that changed) and notes (held, partly, incomplete). It holds titles, property and option names, writer labels, counts and times — **never a value, never a line of text**. It is made when you press the key and stored nowhere; what you do with the file is up to you.
 
 ## Keys
 With the playhead, a track or a flag focused:
@@ -35,6 +50,7 @@ With the playhead, a track or a flag focused:
 - <kbd>↑</kbd> / <kbd>↓</kbd> — the track above / below
 - <kbd>PageUp</kbd> / <kbd>PageDown</kbd> — the previous / next flag on the track
 - <kbd>Home</kbd> / <kbd>End</kbd> — the start of the span / now
+- <kbd>↵</kbd> — read the window (on a flag: its run)
 - <kbd>Esc</kbd> — close; the playhead goes back to now
 
 The grip on the deck's top edge sets its height (drag, or <kbd>↑</kbd> / <kbd>↓</kbd> on it).

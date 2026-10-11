@@ -3,7 +3,7 @@ id: flight-recorder
 title: Flugschreiber
 section: writing
 order: 14
-keywords: flugschreiber, zurückspulen, rückspulen, band, deck, spur, spuren, schreiber, wer war das, wer hat das geändert, was ist passiert, zeitleiste, protokoll, lauf, fähnchen, fenster, lupe, agent, mcp, skript, sync, rückgängig, vorgänge, stellen, flight recorder, rewind, tape, writers, who changed
+keywords: flugschreiber, zurückspulen, rückspulen, band, deck, spur, spuren, schreiber, wer war das, wer hat das geändert, was ist passiert, zeitleiste, protokoll, lauf, fähnchen, fenster, lupe, agent, mcp, skript, sync, rückgängig, vorgänge, stellen, fenster lesen, vorfallbericht, bericht, gehalten, seitdem geändert, wort für wort, flight recorder, read window, incident report, rewind, tape, writers, who changed
 related: history, custom-agents, mcp-bridge, privacy, lock
 summary: Jeder Schreibvorgang im Arbeitsbereich auf einem Band, je Schreiber eine Spur — du, das KI-Terminal, jeder Agent, MCP-Clients, Skripte, Sync. Sieh, was zwischen 07:00 und 08:00 passiert ist, und wer es war.
 ---
@@ -26,7 +26,22 @@ Das Deck dockt unter der Seite an; die Seite bleibt benutzbar, und ein Strich, d
 - **Ausschnitt.** **15 Min · 75 Min · 6 Std · 24 Std**. Der Streifen oben zeigt die letzten 24 Stunden in Viertelstunden — klick hinein, und das Band rückt dorthin. Liegt ein Fenster auf dem Band, gibt ihm die **Lupe** bis zu sechsfachen Platz (nicht bei 15 Min, das ist breit genug).
 - **Abspielkopf.** Die orange Linie; der Zähler zeigt ihre Zeit. Die Tasten neben dem Zähler setzen ihn auf den vorigen Lauf, eine Minute zurück, eine Minute vor, und **Jetzt** zurück in die Gegenwart.
 
-Orange markiert den Abspielkopf und das gewählte Fenster — der Rest des Decks ist Tinte, bis auf die REC-Lampe.
+Orange markiert den Abspielkopf, das gewählte Fenster und gehaltene Stellen (seitdem geändert) — der Rest des Decks ist Tinte, bis auf die REC-Lampe.
+
+## Ein Fenster lesen
+Liegt ein Fenster auf dem Band, drück <kbd>↵</kbd> — auf dem Abspielkopf, einer Spur oder dem Fähnchen eines Laufs (ein Fähnchen klammert zuerst seinen Lauf) — oder **Fenster lesen** auf dem Schild. Ein Strich mit mehreren Stellen hat ebenfalls **Fenster lesen**: genau dieser Vorgang, geklammert.
+
+- **Was sich geändert hat, gruppiert.** Schema, Ansichten, Seiten, Zeilen, neue Zeilen (und was in den Papierkorb ging oder verschoben wurde). Jede Gruppe zeigt drei Stellen und **+ n weitere**; <kbd>↑</kbd> / <kbd>↓</kbd> gehen die Liste durch, <kbd>Pos1</kbd> / <kbd>Ende</kbd> springen, <kbd>↵</kbd> auf **+ n weitere** öffnet die Gruppe. Rechts steht die gewählte Stelle: ihre Vorgänge und wann, der Stand, von dem aus gelesen wird (*Stand vor Lauf 212 · 07:31:21*), wer sie seitdem geändert hat.
+- **Werte und Text, Wort für Wort.** Die Eigenschaften einer Zeile vorher → nachher, der Text einer Seite Wort für Wort — in Tinte, wie ein Korrekturabzug. Titel werden live gelesen, die Werte aus den Ständen, die One auf diesem Gerät behalten hat.
+- **Gehalten: seitdem geändert.** Eine Stelle, die nach dem Fenster jemand geändert hat — du, jemand aus dem Team, ein anderer Agent, ein Sync — ist *gehalten*: eine Raute auf dem Band und eine orange Markierung in der Liste (*2 Zeilen seitdem geändert (du) — sie werden gehalten*). Was ein anderer Schreiber mitten im Fenster getan hat, ist an seinem Block oder Wert markiert (*enthält Änderungen von …*) und zählt nie zum Fenster.
+- **Teilweise.** Ein Fenster, das die Strecke eines Schreibers schneidet (sie begann davor oder ging danach weiter), heißt *Teilweise*; die Taste **Klammer auf … erweitern** (oder **Den ganzen Lauf klammern**) nimmt sie ganz auf.
+- **Möglicherweise unvollständig.** Ein Tab hat geschlossen, bevor er aufschrieb, was er im Fenster aufgezeichnet hatte: was er getan hat, ist unbekannt.
+- **Nur ungefähr danach.** *Stand danach nur ungefähr*: die Stelle wurde noch einmal geändert, bevor One das Ergebnis des Fensters aufgeschrieben hatte.
+
+Auf dem Telefon ist der Dialog ein Blatt; tipp eine Stelle an, und ihre Werte und ihr Text kommen auf einem zweiten Blatt, **‹ Plan** führt zurück. <kbd>Esc</kbd> schließt erst den Dialog, dann das Deck. Lesen ändert den Arbeitsbereich nie.
+
+## Vorfallbericht
+**Bericht** — auf dem Schild oder unten im Dialog — lädt eine Markdown-Datei (`incident-<Datum>-<Uhrzeit>-<Schreiber>.md`): das Fenster, alle Schreiber mit Vorgängen darin, was sich geändert hat (Schema-Änderungen mit Namen, Seiten mit ihren Wortzahlen, Zeilen mit den Namen der geänderten Eigenschaften) und Hinweise (gehalten, teilweise, unvollständig). Er enthält Titel, Namen von Eigenschaften und Optionen, Schreiber, Zahlen und Zeiten — **nie einen Wert, nie eine Zeile Text**. Er entsteht, wenn du die Taste drückst, und wird nirgends gespeichert; was du mit der Datei machst, entscheidest du.
 
 ## Tasten
 Wenn der Abspielkopf, eine Spur oder ein Fähnchen den Fokus hat:
@@ -35,6 +50,7 @@ Wenn der Abspielkopf, eine Spur oder ein Fähnchen den Fokus hat:
 - <kbd>↑</kbd> / <kbd>↓</kbd> — die Spur darüber / darunter
 - <kbd>Bild↑</kbd> / <kbd>Bild↓</kbd> — das vorige / nächste Fähnchen auf der Spur
 - <kbd>Pos1</kbd> / <kbd>Ende</kbd> — Anfang des Ausschnitts / jetzt
+- <kbd>↵</kbd> — das Fenster lesen (auf einem Fähnchen: seinen Lauf)
 - <kbd>Esc</kbd> — schließen; der Abspielkopf geht zurück auf jetzt
 
 Der Griff an der Oberkante des Decks stellt seine Höhe ein (ziehen, oder <kbd>↑</kbd> / <kbd>↓</kbd> darauf).
