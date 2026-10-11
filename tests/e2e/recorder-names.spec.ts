@@ -1,6 +1,6 @@
 /**
  * Flight recorder — test data is fictional (design §10, B10): no word in the recorder's sources, messages, specs,
- * helpers, fixtures, the story generator or its help pages is one of the real names the product spec was written
+ * helpers, fixtures, the story generator, its help pages or its changelog entries is one of the real names the product spec was written
  * with. Only SHA-256 digests of those names are here — the names themselves never enter the repository.
  * Node only (no browser).
  */
@@ -28,7 +28,7 @@ function walk(dir: string): string[] {
   })
 }
 
-/** The recorder's own files: sources and messages, specs, helpers, fixtures, the story generator, help pages. */
+/** The recorder's own files: sources and messages, specs, helpers, fixtures, the story generator, help pages, its changelog entries. */
 function recorderFiles(): string[] {
   const inDir = (dir: string, re: RegExp) => readdirSync(join(ROOT, dir)).filter((n) => re.test(n)).map((n) => join(ROOT, dir, n))
   return [
@@ -39,6 +39,7 @@ function recorderFiles(): string[] {
     join(ROOT, 'tests/e2e/helpers/recorder.ts'),
     join(ROOT, 'scripts/recorder-story.mjs'),
     ...['en', 'de'].map((l) => join(ROOT, `src/app/help/articles/${l}/flight-recorder.md`)),
+    ...['en', 'de'].flatMap((l) => inDir(`src/app/help/changelog/${l}`, /flight-recorder/)),
   ].filter((p) => existsSync(p))
 }
 

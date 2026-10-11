@@ -259,14 +259,14 @@ test.describe('guided tour', () => {
 /* ------------------------------------------------------------------ */
 
 test.describe('What can One do?', () => {
-  test('six groups, eighteen cards — each Try it opens the real place', async ({ page, context }) => {
+  test('six groups, nineteen cards — each Try it opens the real place', async ({ page, context }) => {
     test.setTimeout(120_000)
     await blockClaude(context)
     await openApp(page, '#/discover')
     await wsEval(page, (s) => s.updateSettings({ aiApiKey: 'sk-ant-e2e-test-key' }))
     await expect(page.getByRole('heading', { level: 1, name: 'What can One do?' })).toBeVisible()
     await expect(page.locator('.disc__group')).toHaveCount(6)
-    await expect(page.locator('.disc-card')).toHaveCount(18)
+    await expect(page.locator('.disc-card')).toHaveCount(19)
     await expect(page.locator('.disc__head')).toHaveText([/Write/, /Organise/, /Claude/, /Automate/, /Share & team/, /Capture/])
     // every card: a title, what, how, Try it and its article
     for (const c of await page.locator('.disc-card').all()) {
@@ -282,6 +282,7 @@ test.describe('What can One do?', () => {
       ['slash', () => expect(page.locator('.slash')).toBeVisible()],
       ['sheet', () => expect(title()).toHaveValue('Budget 2026')],
       ['history', () => expect(page.locator('.hist')).toBeVisible()],
+      ['recorder', () => expect(page.locator('.deck')).toBeVisible()],
       ['database', () => expect(title()).toHaveValue('Projects')],
       ['palette', () => expect(dialog('Command palette')).toBeVisible()],
       ['commands', () => expect(page.locator('.cmd-menu')).toBeVisible()],
@@ -301,7 +302,7 @@ test.describe('What can One do?', () => {
     expect(await page.locator('.disc-card__try').evaluateAll((els) => els.map((e) => (e as HTMLElement).dataset.try))).toEqual(places.map(([k]) => k))
     for (const [key, check] of places) {
       await page.evaluate(() => (window.location.hash = '#/discover'))
-      await expect(page.locator('.disc-card')).toHaveCount(18)
+      await expect(page.locator('.disc-card')).toHaveCount(19)
       await page.locator(`.disc-card__try[data-try="${key}"]`).click()
       await check()
       // close what it opened

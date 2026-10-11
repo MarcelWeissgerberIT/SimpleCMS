@@ -9,6 +9,7 @@ import { useShallow } from 'zustand/react/shallow'
 import { useCloud, useCloudSync } from '../../cloud'
 import { openSyncSettings, useSync, RecorderDataLine } from '../../features'
 import { Led } from '../../ui/controls'
+import { HelpLink } from '../../help'
 import { useLang, useT } from '../../i18n'
 import type { Translate } from '@/shared/i18n'
 import { fmtNumber, fmtStamp } from '../lib/format'
@@ -33,7 +34,9 @@ export function DataSection() {
       <LastBackupLine />
       <SubHead label={t('shell.ws.data.trash')} />
       <TrashLine />
-      <SubHead label={t('features.recorder.data.title')} />
+      <SubHead label={t('features.recorder.data.title')}>
+        <HelpLink id="flight-recorder" topic={t('features.recorder.title')} />
+      </SubHead>
       <RecorderDataLine />
       <SubHead label={t('shell.ws.data.copies')} />
       <ul className="wsp-copies" data-testid="ws-copies">

@@ -43,7 +43,10 @@ src/app/features/**                  AI (+ workspace agent), history, graph, sha
                                      (SVG renderer, chart builder, data sources) (public API: features/index.ts)
 src/app/features/outbox/**           the Outbox: slips for another tool's send routes, drafted without tools, sent by hand
                                      (dock, #/outbox, receipts; public API outbox/index.ts; docs/OUTBOX.md)
-src/app/help/**                      help centre: panel (?, status bar, ⌘K, workspace menu), 70 articles EN+DE twins
+src/app/features/recorder/**         flight recorder: writer journal (IndexedDB one-recorder) + the deck (Mod+Alt+Z); window
+                                     reading, eject and the ghost come later (public API recorder/index.ts via
+                                     features/index.ts); store/writer.ts = the writer context every store write runs under
+src/app/help/**                      help centre: panel (?, status bar, ⌘K, workspace menu), 71 articles EN+DE twins
                                      (help/articles/{en,de}/<id>.md, `help:<id>` links), Ask (Claude over the articles);
                                      link UI to an article with `<HelpLink id="…" />` (public API: help/index.ts)
 src/help-site/**                     build-time public /help pages (prerendered from the same articles, hreflang)
@@ -582,6 +585,33 @@ the public APIs stable — other areas are built against them in parallel.
   on the newest version; the oldest counts as all added in Changes and shows plain in Version; "Now" with 'prev' = newest
   snapshot → the page. Two versions compare properties with `diffPropsBetween` (props.ts); restore notes only in 'now'.
   Version marks what was new with docDiff `withoutRemovals` + DocDiff `context={Infinity}` (`foldRows` never folds).
+- Flight recorder (features/recorder): every store write runs under a writer — store/writer.ts `withWriter(w, fn)` is
+  SYNC ONLY (a frame never spans an await; async flows carry the `Writer` as a value: `ApplyOpts.writer`, `Host.writer`,
+  `PickupInput.writer`, `opts.writer` …); innermost frame wins; editor flushes always name themselves; editor-applied AI
+  results go through `editAs(editor, writer, fn)` (editor/index.ts). Derived writers (automation, autofill, kit, synced)
+  keep the `cause` (`causeKey()`) read in their subscriber. Bookkeeping / binding follow-ups / repairs / cross-tab replays /
+  the memory log run under `SYSTEM(why)`. New write paths need a writer: in DEV / `?e2e` a write without one is a
+  console.error (`[recorder] write without a writer`), so any spec that reaches it fails; the test hook's store writes as
+  `you~ui:e2e`. Seam `window.__oneRecorder` (DEV / `?e2e` only: flush, settle, step, seedBulk, wipe …).
+- The journal (IndexedDB `one-recorder`, per device, keys `<scope>|…`, team scope `cloud:<ws>:u:<account>`, 30 days, one
+  device-wide budget ≤ 250 MB incl. pins; the workspace's save always wins) holds ids, kinds, times, counts and HMAC
+  digests (per-scope non-extractable key) — NEVER page text or property values; text only in schema events / daily
+  checkpoints (property / option / view names). Never synced, never in backups / exports; wiped with the device copy
+  (cloud/device.ts) and the local reset; Workspace → Data "Erase the tape" wipes this scope only. Before-images are pins in
+  the version store `one-history` (`pin:<scope>|m|…` meta + `pin:<scope>|b|<page>|<digest>` content,
+  features/history/pins.ts) taken from the listener's frozen prev object at every segment start; a place without one is
+  "partial" — never guessed. Delete forever by the person drops that page's pins. The recorder starts right after
+  startHistory and opens its database lazily (a reset / wipe is never blocked).
+- The deck (features/recorder/ui, lazy chunk; `RecorderHost` in ModalHost portals it into `.app-main`): UI state only in
+  its own store `useRecorderUI` (never `useWorkspace`); prefs per device in localStorage `one.recorder.ui` = { zoom, loupe,
+  filter, height }; open with `openRecorder()` / `toggleRecorder()` — Mod+Alt+Z (`REWIND_SHORTCUT`; shell/lib/global.ts
+  before the AltGr bail-out: pc tests `e.key === 'z'`, never `e.code` — German QWERTZ has Z on KeyY; AltGraph never), the
+  status bar's Rewind key, ⌘K `rewind`, the page / sidebar / phone menus, Workspace → Data. One dock at a time with the AI
+  terminal (opening one closes the other; work keeps running). The deck publishes its height as `--deck-dock` on <html>
+  (toasts and floating keys sit above it); other tabs ping on BroadcastChannel `one-recorder` (debounced re-read); the deck
+  reads only ops + histograms of the span (< 150 ms with 40k events). Orange on the deck = playhead + selected window only
+  (+ the shared REC `<Led>`); colours are the `--tp-*` mixes of recorder.css, kept AA under every look by lib/look/derive.ts
+  `deckPlate` / `deckText` (look-engine.spec reads both). The deck only reads — it never writes the workspace.
 - Mirror recipe setup (features/agents/mirror.ts, MirrorSetup.tsx, MirrorDiscard.tsx): `createMirror` shows no toast — a step
   that opens a dialog right away keeps its Undo inside the dialog (AgentEditor intro Undo = `undoMirror`, only what the setup
   created), never a toast over the dialog's footer. Closing an unsaved mirror draft asks (keep editing · keep both · both to

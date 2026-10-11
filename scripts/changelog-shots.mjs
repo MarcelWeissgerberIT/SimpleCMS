@@ -8,7 +8,7 @@
  *
  * (CHANGELOG_DRAFT=1 lets the build pass while a new entry's picture does not exist yet.)
  *
- * Shots: outbox, mirror-again, glass-switches, history-compare, mcp-overview, mirror, task-mcp, models, search, terminal-pipelines, cloud-worker, one-picker, pipelines, legacy-modernise, coding-live, text-size, mcp-media, coding-setup, free-board, building-blocks, workspace-settings, diagram-viewer, coding-pipeline, pages-per-item, design-import, tour, quick-capture, script-templates, one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
+ * Shots: flight-recorder, outbox, mirror-again, glass-switches, history-compare, mcp-overview, mirror, task-mcp, models, search, terminal-pipelines, cloud-worker, one-picker, pipelines, legacy-modernise, coding-live, text-size, mcp-media, coding-setup, free-board, building-blocks, workspace-settings, diagram-viewer, coding-pipeline, pages-per-item, design-import, tour, quick-capture, script-templates, one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
  * custom-agents, gmail, help-centre, mcp-servers, feed-blocks — each named like its image. Every shot starts from a fresh, seeded
  * workspace in English, light theme, 1440 × 900 at device scale 2; the crop of the relevant area is scaled
  * to 1440 px wide and saved as public/assets/shots/changelog/<shot>.webp (≤ 150 KB: the quality steps down
@@ -823,6 +823,57 @@ function drawVolumeTable(t) {
 const toolResult = (body, id) => (body.messages ?? []).flatMap((m) => (Array.isArray(m.content) ? m.content : [])).find((c) => c.type === 'tool_result' && c.tool_use_id === id)
 
 const shots = {
+  /**
+   * The flight recorder: the deck docked under the board "Nordlicht Handoff" after the fictional morning of
+   * tests/e2e/fixtures/recorder-story.json — the same story the specs play (every step real store actions under its
+   * writer, at its time on the page clock): six tracks, the agent's run 212 bracketed by a click on its flag, the
+   * window plate counting it. The clock stays at the story's 08:05:40.
+   */
+  async 'flight-recorder'(browser) {
+    const story = JSON.parse(readFileSync('tests/e2e/fixtures/recorder-story.json', 'utf8'))
+    const at = (hms) => new Date(`${story.day}T${hms}${story.tz}`).getTime()
+    const { ctx, page } = await freshPage(browser, { setup: (ctx) => ctx.clock.install({ time: at(story.setupAt) }) })
+    await page.waitForFunction(() => !!window.__oneRecorder)
+    await page.clock.setFixedTime(at(story.setupAt))
+    const ids = await page.evaluate((story) => {
+      const g = () => window.__one.workspace.getState()
+      const d = story.database
+      g().createDatabase({ id: d.id, title: d.title })
+      for (const p of d.properties) g().addProperty(d.id, p)
+      g().addView(d.id, { id: d.board.id, type: 'board', name: d.board.name, groupBy: d.board.groupBy })
+      const ids = {}
+      for (const r of d.rows) ids[r.ref] = g().createRow(d.id, { title: r.title, properties: r.properties, content: r.content })
+      for (const p of story.pages) g().createPage({ id: p.id, title: p.title, parentId: p.parentId ?? null, content: p.content })
+      const now = Date.now()
+      g().upsertAgent({ id: story.agent.id, name: story.agent.name, instructions: 'Mirrors the Nordlicht hand-off.', trigger: { type: 'manual' }, scope: { everything: false, pages: [], databases: [d.id] }, write: 'apply', output: { pageId: 'story-report', mode: 'replace' }, mcpServers: [], runner: 'browser', maxRunUsd: 1, enabled: false, createdBy: null, updatedBy: null, createdAt: now, updatedAt: now })
+      g().upsertScript({ id: story.script.id, name: story.script.name, code: "page.create({ title: 'Tagesplan' })", kind: 'script', createdBy: null, updatedBy: null, createdAt: now, updatedAt: now })
+      return ids
+    }, story)
+    // the setup is not part of the morning on the tape
+    await page.evaluate(() => window.__oneRecorder.settle())
+    await page.evaluate(() => window.__oneRecorder.wipe())
+    const resolve = (v) => (typeof v === 'string' ? (v.startsWith('$') && ids[v.slice(1)] ? ids[v.slice(1)] : v) : Array.isArray(v) ? v.map(resolve) : v && typeof v === 'object' ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, resolve(x)])) : v)
+    for (const s of story.steps) {
+      await page.clock.setFixedTime(at(s.at))
+      await page.evaluate((st) => window.__oneRecorder.step(st), { writer: s.writer, calls: resolve(s.calls), ...(s.note ? { note: s.note } : {}), ...(s.end ? { end: true } : {}) })
+    }
+    await page.clock.setFixedTime(at(story.now))
+    await page.evaluate(() => window.__oneRecorder.settle())
+    await page.evaluate((id) => (window.location.hash = `#/p/${id}`), story.database.id)
+    await page.locator('#main .db-tabs [role="tab"]', { hasText: 'Board' }).click()
+    await page.locator('#main .dbb').first().waitFor()
+    await page.waitForTimeout(600)
+    await rest(page)
+    await page.keyboard.press('Control+Alt+z')
+    await page.locator('.deck .lane').first().waitFor()
+    await page.waitForTimeout(600)
+    await page.locator('.lane[data-lane^="agent:"] .flag').first().click()
+    await page.waitForFunction(() => /\d/.test(document.querySelector('.deck .win .mtr b')?.textContent ?? ''))
+    await rest(page)
+    await save(page, 'flight-recorder')
+    await ctx.close()
+  },
+
   /**
    * The Outbox by hand: a fictional mirror ("CNSX Handoff" of the server "tracker") with three send routes; five
    * open slips (two clean, two with foreign text, one held), three sent by hand; the mirror moved on for #10668 after

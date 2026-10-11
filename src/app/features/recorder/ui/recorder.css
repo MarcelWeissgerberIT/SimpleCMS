@@ -166,6 +166,16 @@
   text-transform: uppercase;
   color: var(--tp-ink);
 }
+.deck .deck__help {
+  margin: 0;
+  border-color: var(--tp-key-edge);
+  background: var(--tp-key);
+  color: var(--tp-ink-2);
+}
+.deck .deck__help:hover {
+  border-color: var(--tp-ink-3);
+  color: var(--tp-ink);
+}
 .deck-rec {
   display: inline-flex;
   align-items: center;
@@ -1087,10 +1097,13 @@
 /* ---------- width tiers (the deck measures its own width) ---------- */
 .deck[data-tier='l'] .deck-rec,
 .deck[data-tier='l'] .deck__nm,
+.deck[data-tier='l'] .deck__help,
 .deck[data-tier='m'] .deck-rec,
 .deck[data-tier='m'] .deck__nm,
+.deck[data-tier='m'] .deck__help,
 .deck[data-tier='s'] .deck-rec,
-.deck[data-tier='s'] .deck__nm {
+.deck[data-tier='s'] .deck__nm,
+.deck[data-tier='s'] .deck__help {
   display: none;
 }
 /* 768–959: narrow labels with short names, the plate under the tape; the deck as tall as it needs (≤ 60vh, scrolls) */
@@ -1159,6 +1172,7 @@
     padding: 8px 12px 0;
   }
   .deck__nm,
+  .deck__help,
   .deck-rec,
   .deck__num,
   .deck__phone-hide,

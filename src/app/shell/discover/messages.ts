@@ -32,6 +32,9 @@ export const discoverMessages: Messages = {
     'shell.discover.card.history.title': 'History, word by word',
     'shell.discover.card.history.what': 'Every version is kept; Changes shows exactly which words changed, Restore brings one back.',
     'shell.discover.card.history.how': 'The clock in the top bar → Changes',
+    'shell.discover.card.recorder.title': 'Flight recorder',
+    'shell.discover.card.recorder.what': 'Every write on one tape, a track per writer — you, the AI terminal, agents, MCP, scripts, sync. What happened at 07:30, and who was it?',
+    'shell.discover.card.recorder.how': 'or Rewind in the status bar',
 
     'shell.discover.card.database.title': 'Databases & views',
     'shell.discover.card.database.what': 'Table, board, timeline, calendar, chart, feed, form — one set of entries, many views.',
@@ -113,6 +116,9 @@ export const discoverMessages: Messages = {
     'shell.discover.card.history.title': 'Verlauf, Wort für Wort',
     'shell.discover.card.history.what': 'Jede Version bleibt; Änderungen zeigt genau, welche Wörter sich geändert haben, Wiederherstellen holt eine zurück.',
     'shell.discover.card.history.how': 'Die Uhr in der Kopfleiste → Änderungen',
+    'shell.discover.card.recorder.title': 'Flugschreiber',
+    'shell.discover.card.recorder.what': 'Jeder Schreibvorgang auf einem Band, eine Spur je Schreiber — du, das KI-Terminal, Agenten, MCP, Skripte, Sync. Was ist um 07:30 passiert, und wer war das?',
+    'shell.discover.card.recorder.how': 'oder Rückspulen in der Statusleiste',
 
     'shell.discover.card.database.title': 'Datenbanken & Ansichten',
     'shell.discover.card.database.what': 'Tabelle, Board, Zeitleiste, Kalender, Diagramm, Feed, Formular — dieselben Einträge, viele Ansichten.',

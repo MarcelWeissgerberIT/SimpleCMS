@@ -1,10 +1,10 @@
 /**
- * "What can One do?" — the cards: six groups of three. Each card: an icon, what it is, how to get there
+ * "What can One do?" — the cards: six groups of three (Write has a fourth: the flight recorder beside the history). Each card: an icon, what it is, how to get there
  * (keys + a short path), a "Try it" key from the help's allow-list (help runTry — no code in text) and its
  * help article. Texts: shell.discover.card.<id>.title / .what / .how (EN + DE).
  */
 import type { LucideIcon } from 'lucide-react'
-import { Bot, Command, Inbox, Mail, MessageSquareText, Plug, RefreshCw, Shapes, Share2, Sheet, SquareCode, SquareSlash, SquareTerminal, Table2, Upload, Workflow, Search, Clock3 } from 'lucide-react'
+import { Bot, Command, Inbox, Mail, MessageSquareText, Plug, RefreshCw, Rewind, Shapes, Share2, Sheet, SquareCode, SquareSlash, SquareTerminal, Table2, Upload, Workflow, Search, Clock3 } from 'lucide-react'
 import type { ChangelogTry } from '../../help'
 
 export type DiscoverGroupId = 'write' | 'organise' | 'claude' | 'automate' | 'share' | 'capture'
@@ -26,6 +26,7 @@ export const DISCOVER_GROUPS: Array<{ id: DiscoverGroupId; cards: DiscoverCard[]
       { id: 'slash', icon: SquareSlash, keys: ['/'], try: 'slash', help: 'blocks' },
       { id: 'sheet', icon: Sheet, try: 'sheet', help: 'spreadsheets' },
       { id: 'history', icon: Clock3, try: 'history', help: 'history' },
+      { id: 'recorder', icon: Rewind, keys: ['Mod+Alt+Z'], try: 'recorder', help: 'flight-recorder' },
     ],
   },
   {

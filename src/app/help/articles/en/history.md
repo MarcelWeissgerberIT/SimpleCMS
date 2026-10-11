@@ -27,7 +27,7 @@ A version of a database entry also keeps its **title, icon and property values**
 
 - A property deleted since, or turned into another type, can't take its old value: it is listed as *not restored*, the others go back.
 - Computed properties (formulas, rollups, created / edited time and by) are never part of a version; an ID stays as it is.
-- Columns and views of a database are not in the history — only the entries' values. A change of values starts versions like typing does; so does a bulk edit, at most one version per entry every few minutes.
+- Columns and views of a database are not in the history — only the entries' values. Who changed them, and when, shows the [flight recorder](help:flight-recorder). A change of values starts versions like typing does; so does a bulk edit, at most one version per entry every few minutes.
 
 ## When versions are saved
 - **Start** — the state before you begin editing in a session,

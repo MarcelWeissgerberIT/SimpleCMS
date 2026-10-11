@@ -6,6 +6,7 @@
 import { ChevronDown, FastForward, Rewind, SkipBack, SkipForward, X } from 'lucide-react'
 import { useLang, useT } from '../../../i18n'
 import { Kbd, Led } from '../../../ui/controls'
+import { HelpLink } from '../../../help'
 import { Menu, useMenu } from '../../../ui/Menu'
 import { onRovingKey } from '../../../ui/roving'
 import { ZOOM, ZOOMS, loupeLabel, type Zoom } from '../model/axis'
@@ -34,6 +35,7 @@ export function DeckHead({ tier, phone, loupeK, knownLanes, days }: { tier: stri
         <span className="deck__nm" id="deck-title">
           {t('features.recorder.title')}
         </span>
+        <HelpLink id="flight-recorder" topic={t('features.recorder.title')} className="deck__help" />
       </span>
       <span className="deck-rec">
         <Led state="on" />

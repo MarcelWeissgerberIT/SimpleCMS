@@ -612,8 +612,8 @@ device opened, how often — localStorage `one.shell.visits:cloud:<id>`, never s
   this device's page visits (localStorage `one.shell.visits:cloud:<id>` — removed even when nothing else
   of the copy is left), the version history of their pages (`one-history`: `idx:<page>` + `snap:*`, except pages the local
   workspace has with the same id; read keys first — the values only of the index lists and the versions), this device's
-  flight recorder of it (IndexedDB `one-recorder`, every record of scope `cloud:<id>`, and its before-images in `one-history`
-  `pin:cloud:<id>|…`, whose metas name the files they hold) and cached files that nothing else in this browser uses (the local
+  flight recorder of it (IndexedDB `one-recorder`, every record of scope `cloud:<id>` and of each member's `cloud:<id>:u:<account>`,
+  and its before-images in `one-history` `pin:cloud:<id>…|…`, whose metas name the files they hold) and cached files that nothing else in this browser uses (the local
   workspace, history of other pages, other scopes' before-images, other workspaces' cached content and pending uploads keep
   theirs).
   The server is not touched. Because an open workspace holds its databases, a removal is a flag
@@ -622,6 +622,12 @@ device opened, how often — localStorage `one.shell.visits:cloud:<id>`, never s
   stays until then); the tab reloads into the local workspace, other tabs showing that workspace switch
   too (BroadcastChannel `one-cloud-forget`), and nothing writes the overlay back meanwhile.
   Unconfirmed changes in a removed copy are lost — the UI warns when `useCloudSync()` reports any.
+- **Flight recorder** (features/recorder, the deck on Mod+Alt+Z): a tape per device and per member — scope
+  `cloud:<ws>:u:<account>` (`cloud:<ws>` only while nobody is signed in), never read under another account, kept at
+  sign-out like the member's private documents. It records what this tab saw: the member's own writers (typing, the AI
+  terminal, agents running in this browser, MCP, scripts, sync) and, on lane `team`, every change the binding applied
+  from the server (`isApplyingCloud()`); per-member lanes need the server's remote frames (later). Nothing of it reaches
+  the server, and the deck only reads — it writes nothing into the shared documents.
 - **Writes a team workspace refuses in the UI**: "Erase workspace" (`requestReset`) is for the local
   workspace only — in a cloud workspace Settings → Data offers *Remove this workspace's copy from this
   browser* instead, and only the owner deletes the team workspace (Workspace settings → Danger zone). A JSON backup

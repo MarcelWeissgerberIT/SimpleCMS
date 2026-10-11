@@ -27,7 +27,7 @@ Eine Version eines Datenbank-Eintrags bewahrt auch seinen **Titel, sein Symbol u
 
 - Eine inzwischen gelöschte Eigenschaft oder eine mit anderem Typ kann ihren alten Wert nicht zurückbekommen: Sie steht dann als *nicht wiederhergestellt* da, die übrigen kommen zurück.
 - Berechnete Eigenschaften (Formeln, Rollups, Erstellt / Bearbeitet am und von) gehören nie zu einer Version; eine ID bleibt, wie sie ist.
-- Spalten und Ansichten einer Datenbank sind nicht im Verlauf — nur die Werte der Einträge. Geänderte Werte lösen Versionen aus wie Tippen; eine Massenänderung auch, höchstens eine Version je Eintrag alle paar Minuten.
+- Spalten und Ansichten einer Datenbank sind nicht im Verlauf — nur die Werte der Einträge. Wer sie wann geändert hat, zeigt der [Flugschreiber](help:flight-recorder). Geänderte Werte lösen Versionen aus wie Tippen; eine Massenänderung auch, höchstens eine Version je Eintrag alle paar Minuten.
 
 ## Wann Versionen entstehen
 - **Start** — der Stand, bevor du in einer Sitzung zu bearbeiten beginnst,

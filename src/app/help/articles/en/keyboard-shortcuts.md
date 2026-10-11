@@ -18,6 +18,7 @@ Keys are shown for your system — ⌘ on a Mac, Ctrl elsewhere. The complete li
 - <kbd>Mod+Shift+L</kbd> — light / dark
 - <kbd>Mod+,</kbd> — settings
 - <kbd>Mod+J</kbd> — the agent
+- <kbd>Mod+Alt+Z</kbd> — the [flight recorder](help:flight-recorder): who wrote what, on one tape
 - <kbd>?</kbd> — this help
 
 ## Menus and dialogs
