@@ -110,7 +110,7 @@ async function instant(rec: EjectRecord, mem: UndoMemo): Promise<UndoResult> {
     if (db !== cur) patch.databases[dbId] = db
   }
   const kept = mem.post.size - back.size
-  const ok = withWriter(undoWriter(rec.id), () => withRestoring(() => s.applyRewind(patch, 'eject')))
+  const ok = measured(() => withWriter(undoWriter(rec.id), () => withRestoring(() => s.applyRewind(patch, 'eject'))))
   if (!ok) return { refused: { key: 'writeRefused' } }
   await unsettle(rec, back, mem.states)
   await putEject({ ...rec, undone: Date.now() })
@@ -132,7 +132,7 @@ async function planned(rec: EjectRecord): Promise<UndoResult> {
     const s = useWorkspace.getState()
     if (flips(plan, s).length || removalsInUse(plan, s)) continue
     const patch = targetsFor(plan, s, input.pins, PLAN_FNS)
-    const ok = withWriter(undoWriter(rec.id), () => withRestoring(() => s.applyRewind(patch, 'eject')))
+    const ok = measured(() => withWriter(undoWriter(rec.id), () => withRestoring(() => s.applyRewind(patch, 'eject'))))
     if (!ok) return { refused: { key: 'writeRefused' } }
     const back = new Set(plan.places.filter((x) => BACK.has(x.outcome)).map((x) => x.p))
     await unsettle(rec, back)
@@ -140,4 +140,16 @@ async function planned(rec: EjectRecord): Promise<UndoResult> {
     return { ok: true, back: back.size, kept: plan.counts.held + plan.counts.partial, slips: rec.slips ?? 0 }
   }
   return { refused: { key: 'workspaceChanged' } }
+}
+
+/** The Undo's one store update, as the performance mark `rec-eject-undo`. */
+function measured(fn: () => boolean): boolean {
+  const t0 = performance.now()
+  const ok = fn()
+  try {
+    performance.measure('rec-eject-undo', { start: t0, end: performance.now() })
+  } catch {
+    /* no marks */
+  }
+  return ok
 }

@@ -37,6 +37,7 @@ import { blockHunks, locateUnique } from '../../src/app/features/recorder/model/
 import { core, targetsFor, type CoreInput } from '../../src/app/features/recorder/model/plan'
 import { optionRefs, propertyRefs, withoutProperty } from '../../src/app/database/model/withoutProperty'
 import { isEjectWriter, isSettled, markSettled, noteEject, onSettled, unmarkSettled, type SettledNote } from '../../src/app/features/recorder/settled'
+import { agentOf, changeMap, splitUnit, unitFates } from '../../src/app/features/recorder/eject/sources'
 
 /* ------------------------------------------------------------------ */
 /* stub deps (the browser spec covers the real helpers)                */
@@ -1604,6 +1605,78 @@ test.describe('settled.ts (E7): what an eject settled, and its own writers', () 
       other.close()
     }
   })
+})
+
+test.describe('sources (E14): units, their fates (Δ29)', () => {
+  const A = 1_000_000
+  const B = A + 300_000
+  const ev = (at: number, r: string | undefined, c?: string) => ({ at, r, ...(c ? { c } : {}) }) as unknown as JEvent
+  const place = (p: PlaceKey, events: JEvent[]) => [p, { p, ownEvents: events }] as const
+  test('changeMap: agent / terminal units per change, MCP / script per run; events outside [a, b) and without a run left out', () => {
+    const data = {
+      sel: { lane: 'agent:a1', run: 'agent:a1:r212', a: A, b: B },
+      places: new Map([
+        place('p:row1', [ev(A + 10, 'agent:a1:r212', 'c5'), ev(A + 20, 'agent:a1:r212', 'c6'), ev(A + 30, 'agent:a1:r212', 'c5')]),
+        place('p:row2', [ev(A - 1, 'agent:a1:r212', 'c1'), ev(B, 'agent:a1:r212', 'c2'), ev(A + 5, undefined, 'c3')]),
+        place('p:row3', [ev(A + 40, 'terminal:b7', 'c1')]),
+        place('p:page', [ev(A + 50, 'mcp:desk:k9', 'x'), ev(A + 60, 'script:s1:run9')]),
+      ]),
+    } as unknown as Parameters<typeof changeMap>[0]
+    const plan = { places: [{ p: 'p:row1' }, { p: 'p:row2' }, { p: 'p:row3' }, { p: 'p:page' }, { p: 'p:gone' }] } as unknown as Parameters<typeof changeMap>[1]
+    expect(changeMap(data, plan)).toEqual({
+      'p:row1': ['agent:a1:r212#c5', 'agent:a1:r212#c6'],
+      'p:row3': ['terminal:b7#c1'],
+      'p:page': ['mcp:desk:k9', 'script:s1:run9'],
+    })
+    expect(splitUnit('agent:a1:r212#c5')).toEqual({ runKey: 'agent:a1:r212', change: 'c5' })
+    expect(splitUnit('mcp:desk:k9')).toEqual({ runKey: 'mcp:desk:k9' })
+    expect(agentOf({ lane: 'agent:a1', run: 'agent:a1:r212' })).toBe('a1')
+    expect(agentOf({ lane: 'you', run: undefined })).toBeNull()
+  })
+  test('unitFates: ejected when every place is done and one went back now; a change with one held place stays applied (held, with who and when); nothing back now → neither', () => {
+    const changes: Record<PlaceKey, string[]> = {
+      'p:row1': ['agent:a1:r212#c5'],
+      'p:row2': ['agent:a1:r212#c6', 'agent:a1:r212#c7'],
+      'p:row3': ['agent:a1:r212#c7'],
+      'p:row4': ['agent:a1:r212#c8'],
+      'p:row5': ['agent:a1:r212#c9'],
+      'p:page': ['script:s1:run9'],
+    }
+    const outcomes = { 'p:row1': 'back', 'p:row2': 'trash', 'p:row3': 'held', 'p:row4': 'already', 'p:row5': 'partial', 'p:page': 'back' } as Record<PlaceKey, EjectRecord['outcomes'][PlaceKey]>
+    const f = unitFates(changes, outcomes, (p) => (p === 'p:row3' ? { lane: 'you', at: 4242 } : undefined))
+    expect(f.ejected).toEqual(['agent:a1:r212#c5', 'agent:a1:r212#c6', 'script:s1:run9'])
+    // c7 touched row2 (back) and row3 (held): it stays applied, held by the person
+    expect(f.held).toEqual([{ unit: 'agent:a1:r212#c7', by: 'you', at: 4242 }])
+    // c8 only on a place ejected before, c9 on a partial place: neither ejected nor held
+    expect(f.ejected).not.toContain('agent:a1:r212#c8')
+    expect(f.held.map((h) => h.unit)).not.toContain('agent:a1:r212#c9')
+  })
+})
+
+test('source guard (C23): the recorder calls no store action but applyRewind — and that only in eject/commit.ts and eject/undo.ts; never useWorkspace.setState (the seam excepted)', () => {
+  const root = fileURLToPath(new URL('../../src/app/', import.meta.url))
+  const store = readFileSync(root + 'store/store.ts', 'utf8')
+  const i = store.indexOf('export interface WorkspaceState')
+  const body = store.slice(i, store.indexOf('\n}\n', i))
+  const actions = [...body.matchAll(/^\s{2}(\w+)\??\s*:\s*(?:<[^>]*>)?\(/gm)].map((m) => m[1])
+  expect(actions).toEqual(expect.arrayContaining(['updatePage', 'setContent', 'setRowProperty', 'trashPage', 'applyRewind']))
+  const walk = (d: string): string[] => readdirSync(d, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(`${d}${e.name}/`) : [`${d}${e.name}`]))
+  const dir = root + 'features/recorder/'
+  const bad: string[] = []
+  const rewinds: string[] = []
+  for (const f of walk(dir).filter((n) => /\.tsx?$/.test(n))) {
+    const rel = f.slice(dir.length)
+    if (rel === 'journal/seam.ts') continue
+    const src = readFileSync(f, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')
+    if (/useWorkspace\.setState/.test(src)) bad.push(`${rel}: useWorkspace.setState`)
+    for (const a of actions) {
+      if (!new RegExp(`\\b${a}\\(`).test(src)) continue
+      if (a === 'applyRewind') rewinds.push(rel)
+      else bad.push(`${rel}: ${a}(`)
+    }
+  }
+  expect(bad).toEqual([])
+  expect(rewinds.sort()).toEqual(['eject/commit.ts', 'eject/undo.ts'])
 })
 
 /* ------------------------------------------------------------------ */

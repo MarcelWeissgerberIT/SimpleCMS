@@ -7,7 +7,7 @@ import { readFileSync } from 'node:fs'
 import type { Page } from '@playwright/test'
 import { test, expect, openApp, flush, wsEval, reloadApp, MOD } from './fixtures'
 import { playStory, rec, startRecorder, storyTime, type Story } from './helpers/recorder'
-import { setKey } from './helpers/terminal'
+import { setKey, sseMessage } from './helpers/terminal'
 
 const story = JSON.parse(readFileSync(new URL('./fixtures/recorder-story.json', import.meta.url), 'utf8')) as Story
 const AGENT = `agent:${story.agent.id}`
@@ -341,7 +341,277 @@ test.describe('flight recorder — the eject', () => {
     expect(await call('busy', 's2')).toBe(false)
   })
 
-  test('the plan of 37 places < 300 ms (performance mark; the story at real time: a page clock hides marks)', async ({ page }) => {
+  test('the UI (German): EJECT · 35 / 37 under its cover, the dialog, ↵ guarded, the eject, toast with Mod+Z, the after-plate, bracket--out on the agent lane and the eject on lane undo; a hand window over it reads "Schon ausgeworfen 08:05"', async ({ page }) => {
+    test.setTimeout(180_000)
+    const ids = await bootStory(page)
+    await wsEval(page, (s) => s.updateSettings({ language: 'de' }))
+    const DB = story.database.id
+    await page.evaluate((id) => (window.location.hash = `#/p/${id}`), DB)
+    await page.locator('#main .db-tabs [role="tab"]', { hasText: 'Board' }).click()
+    await page.keyboard.press('Control+Alt+z')
+    const deck = page.locator('section.deck')
+    await page.locator(`.lane[data-lane="${AGENT}"] .flag`).first().click()
+    // the key counts from the reading; the cover lies over it, the key beneath is inert
+    const key = deck.locator('.eject__key')
+    await expect(key.locator('small')).toHaveText('· 35 / 37')
+    await expect(key).toHaveAttribute('inert', '')
+    const cover = deck.locator('.eject__cover')
+    await expect(cover).toHaveAccessibleName('Deckel von Auswerfen öffnen')
+    await cover.click()
+    await expect(key).toBeFocused()
+    await expect(key).not.toHaveAttribute('inert', '')
+    // the key opens the dialog; ↵ at once confirms nothing
+    await page.keyboard.press('Enter')
+    const dialog = page.locator('.modal.rec-eject')
+    await expect(dialog).toBeVisible()
+    await page.keyboard.press('Enter')
+    await expect(dialog.locator('.rec-title')).toHaveText('52 Vorgänge von Agent · Nordlicht-Spiegel auswerfen?')
+    await expect(dialog.locator('.plan__n')).toHaveText(['01', '02', '03', '04', '05'])
+    await expect(dialog.locator('.plan__label')).toHaveText([/^Schema/, /^Seite/, /^Zeilen/, /^Neue Zeilen/, /^Gehalten/])
+    await expect(dialog.locator('.plan__act')).toHaveText(['zurück', 'zurück', 'zurück', 'Papierkorb', 'bleibt'])
+    await expect(dialog.locator('.pi--held')).toHaveCount(2)
+    expect(await rec<unknown[]>(page, 'ejects')).toEqual([])
+    const confirm = dialog.locator('.btn--eject')
+    await expect(confirm).toHaveText(/^35 Stellen zurücknehmen\s*↵$/)
+    await confirm.click()
+    await expect(dialog).toHaveCount(0)
+    // the toast: glyph, "35 Stellen von … zurück · 2 gehalten", Undo with its keycap, "Gehaltene zeigen"
+    const toast = page.locator('.toast[data-glyph="eject"]')
+    await expect(toast.locator('.toast__msg')).toContainText('35 Stellen von Agent · Nordlicht-Spiegel zurück')
+    await expect(toast.locator('.toast__s')).toContainText('2 gehalten')
+    await expect(toast.locator('.toast__kbd')).toHaveText('Ctrl+Z')
+    await expect(toast.getByRole('button', { name: 'Gehaltene zeigen' })).toBeVisible()
+    // the after-plate (focus on its Undo key), the hatched bracket, the eject's write on lane undo
+    const out = deck.locator('.win--out')
+    await expect(out.locator('.win__t--out')).toHaveText('Ausgeworfen 08:05')
+    await expect(out.locator('.outlist li').first()).toContainText('35 von 37 zurückgenommen')
+    await expect(out.locator('.outlist__held')).toContainText('NL-1408 (du) · NL-1415 (du)')
+    await expect(out.locator('.outlist__version')).toContainText('„Vor dem Auswurf“')
+    await expect(out.locator('.dbtn--undo')).toBeFocused()
+    await expect(deck.locator(`.lane[data-lane="${AGENT}"] .bracket--out`)).toHaveCount(1)
+    await expect(deck.locator('.trk[data-lane="undo"] .trk__c')).not.toHaveText('00')
+    // board marks: "Ready" back as a column, the held cards tagged
+    await expect(page.locator('#main .back-tag')).toHaveCount(1)
+    await expect(page.locator(`#main [data-held]:not(i)`)).toHaveCount(2)
+    const counts = () => wsEval(page, (s, db) => Object.values(s.pages).filter((p: { databaseId?: string; trashed?: boolean }) => p.databaseId === db && !p.trashed).length, DB)
+    const ejected = await counts()
+    // Mod+Z belongs to a field with focus in it, and Mod+Shift+Z is redo: neither undoes the eject
+    await page.evaluate(() => {
+      const i = document.createElement('input')
+      i.id = 'rec-probe'
+      document.body.append(i)
+      i.focus()
+    })
+    await page.keyboard.press('Control+z')
+    await page.evaluate(() => document.getElementById('rec-probe')?.remove())
+    await out.locator('.dbtn--undo').focus()
+    await page.keyboard.press('Control+Shift+z')
+    await page.waitForTimeout(300)
+    expect(await counts()).toBe(ejected)
+    await expect(toast).toHaveCount(1)
+    // Mod+Z while the toast shows: the Undo
+    await page.keyboard.press('Control+z')
+    await expect(page.locator('.toast', { hasText: 'Auswurf zurückgenommen' })).toBeVisible()
+    await expect.poll(counts).toBe(ejected + story.expect.eject.trash.length)
+    await expect(out).toHaveCount(0)
+    expect((await rec<Array<{ undone?: number }>>(page, 'ejects'))[0].undone).toBeGreaterThan(0)
+
+    // eject again through the seam, then a hand window over the same stretch of the agent's track
+    const again = await rec<{ id: string; state: string }>(page, 'eject', window212())
+    expect(again.state).toBe('done')
+    await page.keyboard.press('Escape')
+    await page.keyboard.press('Escape')
+    await expect(deck).toHaveCount(0)
+    await page.keyboard.press('Control+Alt+z')
+    const lane = deck.locator(`.lane[data-lane="${AGENT}"]`)
+    await lane.focus()
+    for (let i = 0; i < 36; i++) await page.keyboard.press('ArrowLeft')
+    await page.keyboard.press('[')
+    for (let i = 0; i < 7; i++) await page.keyboard.press('ArrowRight')
+    await page.keyboard.press(']')
+    await expect(deck.locator('.eject__off')).toHaveText('Schon ausgeworfen 08:05')
+    await expect(deck.locator('.eject__key')).toBeDisabled()
+    await expect(deck.locator('.eject__cover')).toHaveCount(0)
+    expect(ids['NL-1408']).toBeTruthy()
+    expect(await rec(page, 'unknowns')).toEqual([])
+  })
+
+  test('re-plan (Δ26): a row of the plan changed while the dialog is open → nothing written, the new plan shown, the second confirm writes; refusals: an eject: run (C34), the Undo after a workspace switch (C24)', async ({ page }) => {
+    test.setTimeout(180_000)
+    const ids = await bootStory(page)
+    await wsEval(page, (s) => s.updateSettings({ language: 'de' }))
+    await page.keyboard.press('Control+Alt+z')
+    const deck = page.locator('section.deck')
+    await page.locator(`.lane[data-lane="${AGENT}"] .flag`).first().click()
+    await expect(deck.locator('.eject__key small')).toHaveText('· 35 / 37')
+    await deck.locator('.eject__cover').click()
+    await deck.locator('.eject__key').click()
+    const dialog = page.locator('.modal.rec-eject')
+    const confirm = dialog.locator('.btn--eject')
+    await expect(confirm).toHaveText(/^35 Stellen zurücknehmen/)
+    // the person changes NL-1402 while the dialog is open
+    await rec(page, 'step', { writer: { kind: 'you', via: 'ui' }, calls: [['updatePage', ids['NL-1402'], { title: 'NL-1402 (geprüft)' }]] })
+    await rec(page, 'flush')
+    await confirm.click()
+    await expect(dialog.locator('[data-replanned]')).toHaveText('Seit dem Öffnen hat sich etwas geändert — der Plan ist neu gerechnet. Bitte noch einmal bestätigen.')
+    await expect(confirm).toHaveText(/^34 Stellen zurücknehmen/)
+    // nothing was written: the row keeps its title, no eject is done
+    expect(await wsEval(page, (s, id) => s.pages[id].title, ids['NL-1402'])).toBe('NL-1402 (geprüft)')
+    expect((await rec<Array<{ state: string }>>(page, 'ejects')).filter((e) => e.state === 'done')).toEqual([])
+    await expect(dialog.locator('.pi--held')).toHaveCount(3)
+    await confirm.click()
+    await expect(dialog).toHaveCount(0)
+    const done = (await rec<Array<{ id: string; state: string; counts: { back: number } }>>(page, 'ejects')).filter((e) => e.state === 'done')
+    expect(done.map((e) => e.counts.back)).toEqual([34])
+    expect(await wsEval(page, (s, id) => s.pages[id].title, ids['NL-1402'])).toBe('NL-1402 (geprüft)')
+    // an eject is never ejected: its own run is refused, before any plan
+    const raw = await rec<{ refused?: { key: string } }>(page, 'ejectRaw', { lane: 'undo', run: `eject:${done[0].id}`, a: storyTime(story, story.now) - 60_000, b: storyTime(story, story.now) + 600_000 })
+    expect(raw.refused?.key).toBe('ejectRun')
+    // another workspace loaded in this tab (a new epoch): the Undo refuses, nothing written
+    await page.evaluate(() => {
+      const w = (window as unknown as { __one: { workspace: { getState: () => Record<string, unknown> & { hydrate: (ws: unknown) => void } } } }).__one.workspace
+      const s = w.getState()
+      const ws: Record<string, unknown> = {}
+      for (const k of ['version', 'name', 'pages', 'databases', 'people', 'settings', 'recent', 'functions', 'agents', 'scripts', 'kit', 'integrations']) if (k in s) ws[k] = s[k]
+      s.hydrate({ ...ws, epoch: 'e2e-another-workspace' })
+    })
+    const u = await rec<{ refused?: { key: string } }>(page, 'undoEject', done[0].id)
+    expect(u.refused?.key).toBe('workspaceChanged')
+    expect(await rec(page, 'unknowns')).toEqual([])
+  })
+
+  test('triggers (C16, C22): an automation and a row-triggered agent fire on a plain write — never on an eject, its Undo, or its Undo after a reload', async ({ page, context }) => {
+    test.setTimeout(240_000)
+    const T0 = storyTime(story, '07:00:00')
+    await page.clock.install({ time: T0 })
+    let claude = 0
+    await context.route('https://api.anthropic.com/**', async (route) => {
+      const req = route.request()
+      const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': 'POST, GET' }
+      if (req.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors })
+      if (req.method() === 'GET') return route.fulfill({ status: 200, headers: { ...cors, 'content-type': 'application/json' }, body: JSON.stringify({ data: [], has_more: false }) })
+      claude++
+      await route.fulfill({ status: 200, headers: { ...cors, 'content-type': 'text/event-stream' }, body: sseMessage([{ type: 'text', text: 'Tessera geprüft. Nichts zu tun.' }]) }).catch(() => undefined)
+    })
+    await openApp(page)
+    await startRecorder(page)
+    await setKey(page)
+    const f = await wsEval(page, () => {
+      const s = (window as unknown as { __one: { workspace: { getState: () => Record<string, (...a: unknown[]) => unknown> } } }).__one.workspace.getState()
+      const db = s.createDatabase({ title: 'Tessera Aufgaben' }) as string
+      const stage = s.addProperty(db, { type: 'select', name: 'Stufe', options: [{ id: 'o-offen', name: 'Offen', color: 'gray' }, { id: 'o-fertig', name: 'Fertig', color: 'green' }] }) as string
+      s.updateDatabase(db, { automations: [{ id: 'au-tessera', name: 'Stufe gemeldet', enabled: true, trigger: { type: 'property_changed', propertyId: stage }, actions: [{ type: 'notify', message: 'Stufe geändert' }] }] })
+      const r1 = s.createRow(db, { title: 'Tessera Karte', properties: { [stage]: 'o-offen' } }) as string
+      const r2 = s.createRow(db, { title: 'Tessera Abgleich', properties: { [stage]: 'o-offen' } }) as string
+      const now = Date.now()
+      s.upsertAgent({ id: 'ag-tessera', name: 'Tessera Wächter', instructions: 'Sieh dir die geänderte Zeile an und berichte.', trigger: { type: 'row_changed', databaseId: db, propertyId: stage }, scope: { everything: true, pages: [], databases: [] }, write: 'none', output: null, mcpServers: [], runner: 'browser', model: null, effort: null, maxRunUsd: 0.5, enabled: true, createdAt: now, updatedAt: now })
+      return { db, stage, r1, r2 }
+    })
+    await flush(page)
+    const autoRuns = () => wsEval(page, (s, db) => s.databases[db].automations?.[0]?.lastRunAt ?? null, f.db)
+    const agentRuns = async () => (await page.evaluate(async () => (await (window as unknown as { __oneAgents: { loadRuns: (id: string) => Promise<unknown[]> } }).__oneAgents.loadRuns('ag-tessera')) ?? [])).length
+    const setStage = (row: string, opt: string) => wsEval(page, (s, a) => s.setRowProperty(a.row, a.stage, a.opt), { row, stage: f.stage, opt })
+    // past the agent's one-minute gap and the automation's coalescing
+    const pass = async () => {
+      await page.clock.fastForward(65_000)
+      await page.waitForTimeout(400)
+      await page.clock.fastForward(5_000)
+      await page.waitForTimeout(400)
+    }
+
+    // positive control: a plain write fires both
+    await page.clock.fastForward(60_000)
+    await setStage(f.r1, 'o-fertig')
+    await pass()
+    await expect.poll(autoRuns).not.toBeNull()
+    await expect.poll(agentRuns, { timeout: 20_000 }).toBe(1)
+    // the window to eject: the person's change of the second row (it fires both too)
+    await pass()
+    const a = await page.evaluate(() => Date.now())
+    await setStage(f.r2, 'o-fertig')
+    await pass()
+    await expect.poll(agentRuns, { timeout: 20_000 }).toBe(2)
+    await pass()
+    const b = await page.evaluate(() => Date.now())
+    await rec(page, 'settle')
+    const auto0 = await autoRuns()
+    const claude0 = claude
+
+    // the eject: the row goes back, nothing fires
+    const r = await rec<{ id: string; state: string; counts: { back: number } }>(page, 'eject', { lane: 'you', a, b })
+    expect(r.state).toBe('done')
+    expect(r.counts.back).toBe(1)
+    expect(await wsEval(page, (s, a) => s.pages[a.r2].properties[a.stage], f)).toBe('o-offen')
+    await pass()
+    await pass()
+    expect(await autoRuns()).toBe(auto0)
+    expect(await agentRuns()).toBe(2)
+    // its Undo (the toast's way): the row forward again, nothing fires
+    expect(await rec(page, 'undoEject', r.id)).toMatchObject({ ok: true })
+    expect(await wsEval(page, (s, a) => s.pages[a.r2].properties[a.stage], f)).toBe('o-fertig')
+    await pass()
+    await pass()
+    expect(await autoRuns()).toBe(auto0)
+    expect(await agentRuns()).toBe(2)
+    // eject again, reload, the Undo through the planner: nothing fires either
+    const r2 = await rec<{ id: string; state: string }>(page, 'eject', { lane: 'you', a, b })
+    expect(r2.state).toBe('done')
+    await pass()
+    await flush(page)
+    await reloadApp(page)
+    await startRecorder(page)
+    expect(await rec(page, 'undoEject', r2.id)).toMatchObject({ ok: true })
+    expect(await wsEval(page, (s, a) => s.pages[a.r2].properties[a.stage], f)).toBe('o-fertig')
+    await pass()
+    await pass()
+    expect(await autoRuns()).toBe(auto0)
+    expect(await agentRuns()).toBe(2)
+    expect(claude).toBe(claude0)
+    expect(await rec(page, 'unknowns')).toEqual([])
+  })
+
+  test('390: no cover, the key opens a bottom sheet; a place on the second sheet has no eject key ("‹ Plan" back); one 42 px primary key; the after-plate\'s Undo', async ({ page }) => {
+    test.setTimeout(150_000)
+    await page.setViewportSize({ width: 390, height: 844 })
+    await bootStory(page)
+    await page.keyboard.press('Control+Alt+z')
+    const deck = page.locator('section.deck')
+    await page.locator(`.lane[data-lane="${AGENT}"] .flag`).first().click()
+    await expect(deck.locator('.eject__cover')).toHaveCount(0)
+    const key = deck.locator('.eject__key')
+    await expect(key.locator('small')).toHaveText('· 35 / 37')
+    await key.click()
+    const dialog = page.locator('.modal.rec-eject:not(.rec-sheet2)')
+    await expect(dialog.locator('.plan .pi').first()).toBeVisible()
+    await page.waitForTimeout(500)
+    const box = (await dialog.boundingBox())!
+    expect(Math.round(box.width)).toBe(390)
+    expect(Math.round(box.y + box.height)).toBe(844)
+    await expect(dialog.locator('.rec-prev')).toHaveCount(0)
+    const primary = dialog.locator('.btn--primary')
+    await expect(primary).toHaveCount(1)
+    expect(Math.round((await primary.boundingBox())!.height)).toBeGreaterThanOrEqual(42)
+    await dialog.locator('.pi', { hasText: 'NL-1408' }).first().click()
+    const sheet = page.locator('.modal.rec-sheet2')
+    await expect(sheet).toBeVisible()
+    await expect(sheet.locator('.prev__h')).toHaveText('NL-1408')
+    await expect(sheet.locator('.btn--eject')).toHaveCount(0)
+    await page.waitForTimeout(500)
+    await sheet.locator('.rec-bar__back').click()
+    await expect(sheet).toHaveCount(0)
+    await page.waitForTimeout(400)
+    await primary.click()
+    await expect(dialog).toHaveCount(0)
+    await expect(page.locator('.toast[data-glyph="eject"]')).toBeVisible()
+    // the after-plate's wide Undo key takes it back
+    const undo = deck.locator('.win--out .dbtn--undo')
+    await expect(undo).toBeVisible()
+    await undo.click()
+    await expect(page.locator('.toast', { hasText: /Eject undone|Auswurf zurückgenommen/ })).toBeVisible()
+    expect((await rec<Array<{ undone?: number }>>(page, 'ejects'))[0].undone).toBeGreaterThan(0)
+  })
+
+  test('the plan of 37 places < 300 ms, the eject\'s store update and its Undo < 16 ms (performance marks; the story at real time: a page clock hides marks)', async ({ page }) => {
     test.setTimeout(150_000)
     const realTime = new Proxy(page, { get: (p, k) => (k === 'clock' ? { setFixedTime: async () => undefined } : typeof (p as never)[k] === 'function' ? ((p as never)[k] as (...a: unknown[]) => unknown).bind(p) : (p as never)[k]) })
     await openApp(page)
@@ -356,5 +626,14 @@ test.describe('flight recorder — the eject', () => {
     const ms = await page.evaluate(() => performance.getEntriesByName('rec-plan').map((e) => e.duration))
     expect(ms.length).toBe(2)
     expect(Math.min(...ms)).toBeLessThan(300)
+    // the eject's ONE store update and its Undo's, each < 16 ms (the store's own subscribers included)
+    const r = await rec<{ id: string; state: string }>(page, 'eject', sel)
+    expect(r.state).toBe('done')
+    expect(await rec(page, 'undoEject', r.id)).toMatchObject({ ok: true })
+    const [write] = await page.evaluate(() => performance.getEntriesByName('rec-eject').map((e) => e.duration))
+    const [undo] = await page.evaluate(() => performance.getEntriesByName('rec-eject-undo').map((e) => e.duration))
+    console.log(`[recorder] eject store update ${write.toFixed(1)} ms · undo ${undo.toFixed(1)} ms`)
+    expect(write).toBeLessThan(16)
+    expect(undo).toBeLessThan(16)
   })
 })
