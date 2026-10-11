@@ -18,6 +18,7 @@
  *    freezeWorkItems): { people: names, blockedBy: count, related: count }; every id above is gone there.
  * No titles or names are ever cached in the stored attrs.
  */
+import { ITEM_ID } from '../../lib/itemIds'
 
 export const WORK_ITEM = 'workItem'
 
@@ -49,7 +50,7 @@ export interface WorkItemAttrs {
   frozen: FrozenWorkItem | null
 }
 
-export const ITEM_ID = /^wi_[A-Za-z0-9_-]{10}$/
+export { ITEM_ID }
 /** Person ids: local ids (12 lowercase) and account ids (base64url) — never whitespace or markup. */
 export const PERSON_ID = /^[A-Za-z0-9_.:@-]{1,64}$/
 const DUE = /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2}))?$/

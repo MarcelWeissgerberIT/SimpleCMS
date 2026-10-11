@@ -72,8 +72,9 @@ export {
   type TranscriptSegment,
 } from './schema/meetingNotes'
 /**
- * Task block (UI "Task" / "Aufgabe"), node `workItem` — schema release: every client reads, shows, stores,
- * exports and diffs it; nothing creates one yet. content: the title paragraph + notes (blocks); attrs: id,
+ * Task block (UI "Task" / "Aufgabe"), node `workItem` — every client reads, shows, stores, exports and diffs it;
+ * P1: the editor creates tasks (slash, `[!] `, Turn into, Enter after a title) and copies re-mint their ids
+ * (lib/itemIds.ts). content: the title paragraph + notes (blocks); attrs: id,
  * itemId ('wi_' + 10), status ('todo' | 'in_progress' | 'done'), due, reminder, people (≤ 12), blockedBy /
  * related (itemIds, ≤ 20), doneAt — read them ONLY through itemAttrs(node | json | attrs). `frozen` exists only
  * in documents that left the workspace (stripPrivate → freezeWorkItems: names + status kept, every id gone).
@@ -86,6 +87,24 @@ export { StaticWorkItem } from './workitem/Placard'
 export { freezeWorkItems, hasWorkItems } from './workitem/freeze'
 export { workItemExportCss } from './workitem/exportCss'
 export { dueText as workItemDueText, reminderShort as workItemReminderShort } from './workitem/format'
+/**
+ * Tasks outside the editor (features/workitems — the workspace index, write.ts, reminders, the agenda):
+ *  - itemsOfContent(doc): the tasks of a page's content (ScannedItem: attrs, blockId, title, progress, synced
+ *      'original' | 'copy' | null, inList, order) — blocks only, cached per content object;
+ *      compareOccurrence(a, b): THE winner order among occurrences of one itemId (earliest page, then document order).
+ *  - itemTitleText(node | json): a task's title as one line (≤ 140 chars); todoProgress(node | json): its steps.
+ *  - patchItemAttrs(attrs, patch, now): ONLY the attrs that change (write `{ ...attrs, ...delta }` — never a rebuilt
+ *      attrs object: y-tiptap compares attrs by reference); patchItemInDoc(doc, itemId, patch, now) (JSON: null =
+ *      not there, same doc = no change); findItemPos(pmDoc, itemId).
+ *  - itemBlocks(task json): the task as plain blocks (title paragraph + notes, fields dropped).
+ *  - setItemLookup(lookup) / itemLookup(): the registry the editor asks (taken / gone / isPrivate / canCreate —
+ *      the ONE creation gate); fail-closed until features/workitems registers.
+ */
+export { itemsOfContent, compareOccurrence, type ScannedItem, type Occurrence } from './workitem/scan'
+export { itemTitleText, todoProgress } from './workitem/text'
+export { patchItemAttrs, patchItemInDoc, findItemPos, type ItemPatch } from './workitem/patch'
+export { itemBlocks } from './workitem/turn'
+export { setItemLookup, itemLookup, type ItemLookup } from './workitem/lookup'
 /** itemChanges(before attrs, after attrs): the fields that changed (status, due, reminder, people, blockedBy, related) — history diff. */
 export { itemChanges, type ItemChange, type ItemField } from './workitem/diff'
 /**
