@@ -204,7 +204,8 @@ test.describe('editor in German', () => {
     await slash(page, 'überschrift 2', 'Überschrift 2')
     await page.keyboard.type('Zwischentitel')
     await page.keyboard.press('Enter')
-    await slash(page, 'aufgabe', 'To-do-Liste')
+    // "aufgabe" finds the Task block now (P1, node-name checklist #16); the to-do list answers to "checkliste"
+    await slash(page, 'checkliste', 'To-do-Liste')
     await expect(editorOf(page, id).locator('h3')).toHaveText('Zwischentitel')
     await expect(editorOf(page, id).locator('[data-type="taskList"], ul[data-type="taskList"]').first()).toBeVisible()
   })
