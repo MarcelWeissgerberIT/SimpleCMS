@@ -7,10 +7,15 @@
  *    a bad lamp left out and the profile kept, export / same;
  *  - the lamps' pure core (features/preflight/lamps.ts, day.ts, prefs.ts — T-P1-1): levels, the "new" rule and its chip,
  *    the ids hash, the Preflight day around 07:00 and over a daylight-saving switch, working days, the panel's order and
- *    cap, the lamp test's budget, the prefs sanitizer, the plate mode table, the optimistic overlay.
+ *    cap, the lamp test's budget, the prefs sanitizer, the plate mode table, the optimistic overlay;
+ *  - the static guards (T-P1-6): no Claude client, no Outbox import, no store write action in Preflight; other areas'
+ *    actions only from queue/calls.ts; the Outbox's lamp imports only Preflight's registry.
  * Every page and value is fictional.
  */
 import { test, expect } from '@playwright/test'
+import { readdirSync, readFileSync, statSync } from 'node:fs'
+import { join, relative } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { classifyChange } from '../../src/app/store/rowChange'
 import { gridNext } from '../../src/app/ui/roving'
 import { checkIntegration, checkProfileLamps, exportIntegration, sameIntegration, type IntegrationIssue } from '../../src/app/store/integrations'
@@ -205,7 +210,7 @@ test.describe('profile lamps — checkLamps (read release)', () => {
     expect(p).not.toBeNull()
     expect(p.lamps).toEqual([waiting])
     expect(exportIntegration(p).lamps).toEqual([waiting])
-    expect(sameIntegration(p, { ...p, lamps: [{ ...waiting, amber: 2 }] })).toBe(false)
+    expect(sameIntegration(p, { ...p, lamps: [{ ...waiting, amber: 2 }] } as typeof p)).toBe(false)
     expect(sameIntegration(p, checkIntegration(JSON.parse(JSON.stringify(raw))))).toBe(true)
     // "lamps" is a known key now: the editor does not call it unknown
     const issues: IntegrationIssue[] = []
@@ -426,5 +431,87 @@ test.describe('the plate mode (§5.6)', () => {
   test('views survive JSON (the seam hands them to tests)', () => {
     const v: LampView = buildView(meta('gate'), { state: 'ok', count: 1, ids: ['t'] }, undefined, 0, 0)
     expect(JSON.parse(JSON.stringify(v))).toEqual(v)
+  })
+})
+
+/* ------------------------------------------------------------------ */
+/* Static guards (T-P1-6)                                              */
+/* ------------------------------------------------------------------ */
+
+const ROOT = fileURLToPath(new URL('../../', import.meta.url))
+const APP = join(ROOT, 'src/app')
+const PF = join(APP, 'features/preflight')
+
+function filesUnder(dir: string): string[] {
+  const out: string[] = []
+  for (const name of readdirSync(dir)) {
+    const p = join(dir, name)
+    if (statSync(p).isDirectory()) out.push(...filesUnder(p))
+    else if (/\.(ts|tsx)$/.test(name)) out.push(p)
+  }
+  return out
+}
+
+/** The module specifiers a file imports (static imports, re-exports, dynamic imports). */
+function importsOf(file: string): string[] {
+  const src = readFileSync(file, 'utf8')
+  const out: string[] = []
+  for (const m of src.matchAll(/(?:import|export)\s[^'"]*?from\s*['"]([^'"]+)['"]|import\(\s*['"]([^'"]+)['"]\s*\)|import\s+['"]([^'"]+)['"]/g)) out.push(m[1] ?? m[2] ?? m[3])
+  return out
+}
+
+/** The names a file imports from a specifier matching `re`. */
+function namesFrom(file: string, re: RegExp): string[] {
+  const src = readFileSync(file, 'utf8')
+  const out: string[] = []
+  for (const m of src.matchAll(/import\s*(?:type\s*)?\{([^}]*)\}\s*from\s*['"]([^'"]+)['"]/g)) {
+    if (!re.test(m[2])) continue
+    for (const part of m[1].split(',')) {
+      const name = part.trim().replace(/^type\s+/, '').split(/\s+as\s+/)[0].trim()
+      if (name) out.push(name)
+    }
+  }
+  return out
+}
+
+/** The other areas' action functions only queue/calls.ts may import (§4 of the design). */
+const ACTIONS = ['applyRun', 'discardRun', 'undoChange', 'applyStaged', 'undoStagedBatch', 'discardStaged', 'undiscardStaged', 'saveProposal', 'undoProposal', 'dismissProposal', 'saveRunMemory', 'restoreRun', 'removeRun', 'applyTaskAction', 'confirmTaskVersion', 'markRead', 'archiveItems', 'openInboxItem', 'resolveMissing', 'resumeFolder', 'signIn', 'syncNow', 'runAgentNow', 'openAutofillPanel']
+
+test.describe('static guards (T-P1-6)', () => {
+  const pf = filesUnder(PF)
+  const rel = (f: string) => relative(ROOT, f)
+
+  test('the lamps never import the Claude client (Preflight, coding/waiting.ts, agents/health.ts)', () => {
+    expect(pf.length).toBeGreaterThan(20)
+    for (const f of [...pf, join(APP, 'features/coding/waiting.ts'), join(APP, 'features/agents/health.ts')]) {
+      for (const spec of importsOf(f)) expect(/(^|\/)ai\/client$|^\.\/client$/.test(spec) && !f.includes('/features/ai/'), `${rel(f)} imports ${spec}`).toBe(false)
+    }
+  })
+
+  test('Preflight never imports the Outbox; the Outbox’s lamp imports only Preflight’s registry', () => {
+    for (const f of pf) for (const spec of importsOf(f)) expect(/(^|\/)outbox(\/|$)/.test(spec), `${rel(f)} imports ${spec}`).toBe(false)
+    const lamp = join(APP, 'features/outbox/lamp.ts')
+    const fromPreflight = importsOf(lamp).filter((s) => s.includes('preflight'))
+    expect(fromPreflight).toEqual(['../preflight/registry'])
+  })
+
+  test('no store write action in Preflight', () => {
+    for (const f of pf) {
+      const src = readFileSync(f, 'utf8')
+      // the workspace store is read only (useWorkspace, its getState()); zustand setState is on Preflight's own stores
+      expect(src.match(/useWorkspace\.getState\(\)\.(?!settings\b|pages\b|databases\b|agents\b|epoch\b)\w+\(/g) ?? [], rel(f)).toEqual([])
+      expect(src.match(/useWorkspace\.setState/g) ?? [], rel(f)).toEqual([])
+      for (const name of namesFrom(f, /store\/store$/)) expect(['useWorkspace', 'pageChanges'], `${rel(f)} imports ${name} from store/store`).toContain(name)
+    }
+  })
+
+  test('other areas’ actions are imported only by queue/calls.ts', () => {
+    const calls = join(PF, 'queue/calls.ts')
+    for (const f of pf) {
+      if (f === calls) continue
+      const names = namesFrom(f, /^\.\.?\//).filter((n) => ACTIONS.includes(n))
+      expect(names, rel(f)).toEqual([])
+    }
+    expect(namesFrom(calls, /./).filter((n) => ACTIONS.includes(n))).toEqual(['resumeFolder'])
   })
 })

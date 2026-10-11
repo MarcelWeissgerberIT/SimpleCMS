@@ -7,7 +7,7 @@
  * refusals; budget stop; MCP server names; two tabs → one runner.
  */
 import type { BrowserContext, Page } from '@playwright/test'
-import { test, expect, openApp, pageIdByTitle, wsEval, uiEval, flush, reloadApp, waitForApp, gotoPage } from './fixtures'
+import { test, expect, openApp, pageIdByTitle, wsEval, uiEval, flush, reloadApp, waitForApp, gotoPage, preflightOff } from './fixtures'
 
 type AnyState = Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
 type Block = { type: 'text'; text: string } | { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }
@@ -233,6 +233,8 @@ test.describe('Custom agents', () => {
   })
 
   test('stage mode: proposals wait for review (badge, toast), apply → row changed, "Last edited by" shows the agent', async ({ page, context }) => {
+    // the Agents badge is Preflight's job while it is on (the test below): this one checks the badge itself
+    await preflightOff(page)
     await openApp(page)
     await setKey(page)
     const projects = await pageIdByTitle(page, 'Projects')
@@ -277,6 +279,32 @@ test.describe('Custom agents', () => {
     // the next edit by the person takes "Last edited by" back
     await wsEval(page, (s, row) => s.updatePage(row, { title: 'Website relaunch 2' }), row)
     await expect.poll(() => wsEval(page, (s, row) => s.pages[row].updatedBy ?? null, row)).toBeNull()
+  })
+
+
+  test('with Preflight on, the Agents badge goes: the proposals lamp counts the staged change', async ({ page, context }) => {
+    await openApp(page)
+    await setKey(page)
+    const projects = await pageIdByTitle(page, 'Projects')
+    const row = await wsEval(page, (s, db) => (Object.values(s.pages) as AnyState[]).find((p) => p.databaseId === db && p.title === 'Website relaunch')!.id as string, projects)
+    await mockClaude(context, [
+      () => sseMessage([{ type: 'tool_use', id: 'tu1', name: 'update_row', input: { id: row, properties: { Priority: 'Low' } } }]),
+      () => sseMessage([{ type: 'text', text: 'Proposed: Website relaunch → Low priority.' }]),
+    ])
+    const id = await addAgent(page, { id: 'ag-stage-pf', name: 'Triage', write: 'stage', scope: { everything: false, pages: [], databases: [projects] } })
+    await goAgent(page, id)
+    await page.getByRole('button', { name: 'Run now' }).click()
+    await expect(page.locator('.agx-run').first()).toHaveAttribute('data-status', 'staged', { timeout: 20_000 })
+    await expect
+      .poll(() =>
+        page.evaluate(async () => {
+          const pf = (window as unknown as { __onePreflight: { flush: () => Promise<void>; readings: () => Record<string, { count: number } | null> } }).__onePreflight
+          await pf.flush()
+          return pf.readings().proposals?.count ?? null
+        }),
+      )
+      .toBe(1)
+    await expect(page.getByTestId('agents-review')).toHaveCount(0)
   })
 
   test('apply mode writes directly (stamped as the agent) and is undone through version history', async ({ page, context }) => {

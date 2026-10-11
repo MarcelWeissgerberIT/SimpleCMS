@@ -242,6 +242,8 @@ test.describe('team cloud — custom agents', () => {
 
   test('server runner: runtime set / last 4 (real server), runs list, run now and the review of a staged server run (mocked)', async ({ page: a }) => {
     watch(a, 'ada')
+    // the Agents badge is checked with Preflight off (with it on, the plate counts the proposals — checked below)
+    await a.addInitScript(() => localStorage.setItem('one.preflight.prefs', JSON.stringify({ on: false })))
     await signIn(a, email('ada'))
     const wsId = await createWorkspace(a, 'Acme Server Agents')
     await openApp(a, wsId)
@@ -282,6 +284,8 @@ test.describe('team cloud — custom agents', () => {
     const resolved: AnyState[] = []
     let started = 0
     await a.route('**/api/workspaces/*/agent-runs?*', (route: Route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([staged]) }))
+    // Preflight's lean read of the member's own staged server runs
+    await a.route('**/api/workspaces/*/agent-runs/open?*', (route: Route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ runs: [staged], latest: [{ id: staged.id, agentId: 'ag-srv', status: 'staged', startedAt: staged.startedAt, endedAt: staged.endedAt }] }) }))
     await a.route('**/api/workspaces/*/agents/ag-srv/run', (route: Route) => {
       started++
       return route.fulfill({ status: 202, contentType: 'application/json', body: JSON.stringify({ runId: 'run-2' }) })
@@ -295,6 +299,20 @@ test.describe('team cloud — custom agents', () => {
     const run = a.locator('.agx-run').first()
     await expect(run).toHaveAttribute('data-status', 'staged')
     await expect(run.locator('.agx-step[data-kind="mcp"]')).toContainText('ARCHIVE · search')
+    await expect(a.getByTestId('agents-review')).toContainText('01')
+    // Preflight on: the badge goes and the proposals lamp counts the staged server change (agent-runs/open)
+    await a.evaluate(() => (window as any).__onePreflight.setPrefs({ on: true })) // eslint-disable-line @typescript-eslint/no-explicit-any
+    await expect(a.getByTestId('agents-review')).toHaveCount(0)
+    await expect
+      .poll(() =>
+        a.evaluate(async () => {
+          const pf = (window as any).__onePreflight // eslint-disable-line @typescript-eslint/no-explicit-any
+          await pf.flush()
+          return pf.readings().proposals?.count ?? null
+        }),
+      )
+      .toBe(1)
+    await a.evaluate(() => (window as any).__onePreflight.setPrefs({ on: false })) // eslint-disable-line @typescript-eslint/no-explicit-any
     await expect(a.getByTestId('agents-review')).toContainText('01')
     await run.getByRole('button', { name: 'Apply all' }).click()
     await expect.poll(() => wsEval(a, (s, row) => s.pages[row].properties.dStage, ids.row)).toBe('won')

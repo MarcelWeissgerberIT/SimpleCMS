@@ -202,6 +202,15 @@ export async function flush(lampId?: LampId): Promise<void> {
   await run(deadlineNow)
 }
 
+/** Read every lamp now (the seam: one full pass for the perf budget, PB3). Resolves with the pass's ms. */
+export async function passAll(): Promise<number> {
+  if (!active || !scope) return 0
+  for (const s of lampSources()) dirty.add(s.id)
+  const t0 = performance.now()
+  await flush()
+  return performance.now() - t0
+}
+
 /* ---------------- views */
 
 function metaOf(src: LampSourceDef): LampMeta {
@@ -563,7 +572,11 @@ function activate(): void {
 }
 
 function deactivate(): void {
-  if (!active) return
+  if (!active) {
+    // off from the start: the state says so (its default is on, read before the engine starts)
+    if (usePreflight.getState().on) usePreflight.setState({ on: false, ready: false })
+    return
+  }
   active = false
   for (const stop of stops.splice(0)) {
     try {

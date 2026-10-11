@@ -120,6 +120,8 @@ test.describe('performance budget (big workspace)', () => {
     // the generated page mentions point at pages by id only: nothing to fetch, nothing should fail
     void errors
     await page.addInitScript(installCounters)
+    // no Preflight morning hold here: the boot to the start page is measured (the held boot: preflight-perf.spec)
+    await page.addInitScript(() => localStorage.setItem('one.preflight.prefs', JSON.stringify({ hold: false })))
     const big: BigInfo = await loadBigWorkspace(page)
     expect(big.pages).toBeGreaterThan(12_000)
     const cdp = await page.context().newCDPSession(page)
@@ -180,6 +182,8 @@ test.describe('performance budget (big workspace)', () => {
     })
 
     await test.step('store writes of the open page walk the page map only a few times', async () => {
+      // Preflight's first pass (the row index's one build) is done before the writes are counted
+      await page.evaluate(() => (window as unknown as { __onePreflight?: { flush: () => Promise<void> } }).__onePreflight?.flush())
       const res = await page.evaluate(
         async ({ id, rowId, propId }) => {
           const w = window as unknown as { __perf: PerfCounters; __one: { workspace: { getState: () => Record<string, any> } } } // eslint-disable-line @typescript-eslint/no-explicit-any

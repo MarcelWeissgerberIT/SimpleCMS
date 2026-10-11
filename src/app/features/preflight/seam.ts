@@ -10,13 +10,16 @@ import type { AgentRun } from '../agents/types'
 import { useAgent } from '../ai/agent/state'
 import { useAIRuns } from '../ai/runs'
 import { useCoding } from '../coding'
+import { useCodingLocal } from '../coding/local'
+import { noteRefused } from '../ai/mcp-servers/config'
 import { useInbox } from '../inbox/state'
 import { useMail } from '../mail'
 import { useSync } from '../sync'
 import { lampSources, registerLampSource, type LampReading } from './registry'
-import { ackLamps, acksNow, flush, readings, renderCounts, stats } from './engine'
+import { ackLamps, acksNow, flush, fold, passAll, readings, renderCounts, stats, unfold } from './engine'
 import { planMode } from './lamps'
-import { todayKey } from './prefs'
+import { todayKey, writePrefs } from './prefs'
+import type { PreflightPrefs } from './types'
 import { usePreflight } from './state'
 import { resetQueue, useQueue } from './queue/state'
 import { noBlink } from './blink'
@@ -37,12 +40,21 @@ export function installSeam(): void {
     },
     readings: () => JSON.parse(JSON.stringify(readings())),
     flush: (lampId?: string) => flush(lampId),
+    /** every lamp read once more, now (PB3); resolves with the pass's ms */
+    pass: () => passAll(),
     stats,
     acks: () => JSON.parse(JSON.stringify(acksNow())),
     ack: (lampId: string) => ackLamps([lampId]),
     lamps: () => lampSources().map((s) => s.id),
     renders: () => ({ ...renderCounts }),
     noBlink,
+    /** the plate folded to its strip / unfolded (as the ⋯ menu and the strip's chevron do) */
+    fold: () => fold(),
+    unfold: () => unfold(),
+    /** an MCP server refused in this tab (as a request's 401 would note it) */
+    refuse: (name: string) => noteRefused(name),
+    /** this device's preferences (as Settings → Appearance writes them) */
+    setPrefs: (patch: Partial<PreflightPrefs>) => writePrefs(patch),
     resetDay: () => {
       const scope = usePreflight.getState().scope
       if (scope) localStorage.removeItem(todayKey(scope))
@@ -78,6 +90,7 @@ export function installSeam(): void {
       mail: useMail,
       sync: useSync,
       coding: useCoding,
+      codingLocal: useCodingLocal,
       cloud: useCloud,
       cloudSync: useCloudSync,
       inbox: useInbox,

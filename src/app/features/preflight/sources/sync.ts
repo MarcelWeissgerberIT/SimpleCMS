@@ -5,7 +5,8 @@
  * runs inside the key press).
  */
 import { t } from '../../../i18n'
-import { openSyncSettings, resumeFolder, useSync } from '../../sync'
+import { openSyncSettings, useSync } from '../../sync'
+import { grantFolder } from '../queue/calls'
 import { fnv1a, hex8 } from '../lamps'
 import { fmtTime } from '../format'
 import type { LampReading, LampSourceDef } from '../registry'
@@ -57,5 +58,5 @@ export const syncLamp: LampSourceDef = {
     return { state: 'ok', count: 0, ids: [], second: '' }
   },
   open: () => openSyncSettings(),
-  fix: { label: () => t('features.preflight.lamp.sync.grant'), run: () => resumeFolder() },
+  fix: { label: () => t('features.preflight.lamp.sync.grant'), run: () => grantFolder() },
 }

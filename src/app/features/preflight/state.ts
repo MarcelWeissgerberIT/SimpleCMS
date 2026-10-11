@@ -4,6 +4,7 @@
  */
 import { create } from 'zustand'
 import type { LampId } from './registry'
+import { readPrefs } from './prefs'
 import type { LastCache, LampView, TodayRecord } from './types'
 
 export interface PreflightState {
@@ -40,7 +41,8 @@ export interface PreflightState {
 }
 
 export const usePreflight = create<PreflightState>()(() => ({
-  on: true,
+  // this device's preference from the first render on (no flash of Home's own line when it is off)
+  on: readPrefs().on,
   scope: null,
   ready: false,
   views: [],
