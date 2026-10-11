@@ -104,10 +104,12 @@ export async function digestBlock(scope: Scope, canon: string): Promise<string> 
   return d
 }
 
-/** What a writer left on a place: the whole digest, part digests and (pages) the ordered block digests. New places: the whole digest only. */
-export async function digestLeft(scope: Scope, c: { parts: Record<string, string>; blocks?: Array<{ id: string | null; canon: string }> }, whole: string, isNew: boolean): Promise<LeftHash> {
+/**
+ * What a writer left on a place: the whole digest, part digests and (pages) the ordered block digests — a place the
+ * writer created too (a NEW row or page compares part by part like any other; Δ28).
+ */
+export async function digestLeft(scope: Scope, c: { parts: Record<string, string>; blocks?: Array<{ id: string | null; canon: string }> }, whole: string): Promise<LeftHash> {
   const h = await digestWhole(scope, whole)
-  if (isNew) return { h, parts: {} }
   const out: LeftHash = { h, parts: await digestParts(scope, c.parts) }
   if (c.blocks) out.blocks = await Promise.all(c.blocks.map(async (b) => `${b.id ?? '#'}=${await digestBlock(scope, b.canon)}`))
   return out

@@ -97,7 +97,7 @@ export async function recoverScope(scope: Scope, ownTab: string, memory: boolean
     delete next.o
     if (leftObj && leftCanon) {
       const isNew = !!(seg.f & F.NEW)
-      next.left = await digestLeft(scope, leftCanon.c, leftCanon.whole, isNew)
+      next.left = await digestLeft(scope, leftCanon.c, leftCanon.whole)
       const first = !isNew && seg.before ? await pinPlace(scope, seg.before, seg.p, memory) : null
       next.touched = isNew || !first ? '*' : touchedParts(first, leftObj, deps)
       res.exact++

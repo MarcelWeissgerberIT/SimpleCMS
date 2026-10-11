@@ -363,6 +363,50 @@ test.describe('flight recorder journal', () => {
     expect(segs[1].bh).toBe(theirs[0].left.h)
   })
 
+  test('Δ12: a property added between two runs on a row is no unseen change — run 2 carries bhr = run 1’s left, no GAP; a real unseen change still is one', async ({ page }) => {
+    const n = await boot(page, () => nordlichtDb(page))
+    const [row, other] = n.rows
+    await at(page, T0 + MIN)
+    await step(page, agent('r31'), [['setRowProperty', row, n.est, 31], ['setRowProperty', other, n.est, 41]], { note: { seq: 31 }, end: true })
+    await rec(page, 'settle')
+    // the person adds a property: every row's canon gains a `p:` part, no value changes
+    await at(page, T0 + 2 * MIN)
+    await step(page, you, [['addProperty', n.db, { name: 'Hinweis', type: 'text' }]])
+    await rec(page, 'settle')
+    // … and, on the other row only, an unseen change (a write the journal never sees: bookkeeping on a place no segment holds open)
+    await step(page, { kind: 'system', why: 'bookkeeping' }, [['setRowProperty', other, n.est, 99]])
+    await at(page, T0 + 3 * MIN)
+    await step(page, agent('r32'), [['setRowProperty', row, n.est, 32], ['setRowProperty', other, n.est, 42]], { note: { seq: 32 }, end: true })
+    await rec(page, 'settle')
+    const run = (place: string, r: string) => segmentsOf(page, `p:${place}`).then((segs) => segs.find((g) => g.r === `agent:${AGENT}:${r}`)!)
+    const [r1, r2] = [await run(row, 'r31'), await run(row, 'r32')]
+    expect(r2.bh, 'the whole digest moved with the schema').not.toBe(r1.left.h)
+    expect(r2.f & F.GAP, 'no GAP for a property added').toBe(0)
+    expect(r2.bhr).toBe(r1.left.h)
+    const [o1, o2] = [await run(other, 'r31'), await run(other, 'r32')]
+    expect(o2.f & F.GAP, 'an unseen value change is one').toBe(F.GAP)
+    expect(o2.bhr).toBeTruthy()
+    expect(o2.bhr).not.toBe(o1.left.h)
+    expect(await rec(page, 'unknowns')).toEqual([])
+  })
+
+  test('Δ28: a NEW row’s and a NEW page’s closed segments carry part digests like any other', async ({ page }) => {
+    const n = await boot(page, () => nordlichtDb(page))
+    await at(page, T0 + MIN)
+    const [rowId] = await step<string[]>(page, agent('r33'), [['createRow', n.db, { title: 'NL-1432', properties: { [n.stage]: n.backlog } }]], { note: { seq: 33 } })
+    const [pageId] = await step<string[]>(page, agent('r33'), [['createPage', { title: 'Tessera Bericht', content: { type: 'doc', content: [{ type: 'paragraph', attrs: { id: 'tb1' }, content: [{ type: 'text', text: 'Nordlicht' }] }] } }]], { end: true })
+    await rec(page, 'settle')
+    const seg = (await segmentsOf(page, `p:${rowId}`)).at(-1)!
+    expect(seg.f & F.NEW).toBe(F.NEW)
+    expect(seg.touched).toBe('*')
+    expect(Object.keys(seg.left.parts)).toEqual(expect.arrayContaining(['t', 'c', `p:${n.stage}`, `p:${n.est}`]))
+    const pg = (await segmentsOf(page, `p:${pageId}`)).at(-1)!
+    expect(pg.f & F.NEW).toBe(F.NEW)
+    expect(Object.keys(pg.left.parts)).toEqual(expect.arrayContaining(['t', 'pa']))
+    expect(pg.left.blocks).toHaveLength(1)
+    expect(pg.left.blocks[0]).toMatch(/^tb1=/)
+  })
+
   test('retention: 31 days later prune removes the old records and their pins and sets the floor', async ({ page }) => {
     const n = await boot(page, () => nordlichtDb(page))
     await step(page, agent('r5'), [['setRowProperty', n.rows[0], n.est, 31]], { note: { seq: 5 }, end: true })

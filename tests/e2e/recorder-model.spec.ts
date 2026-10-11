@@ -15,6 +15,7 @@ import { classifyPage, placeKey, placeKindOf, parsePlace } from '../../src/app/f
 import { databaseChangesDetail } from '../../src/app/features/recorder/model/schema'
 import { blockList, pageParts, partsKey, rowParts, schemaParts, viewPart, wholeCanon, type CanonDeps } from '../../src/app/features/recorder/model/canon'
 import { touchedParts } from '../../src/app/features/recorder/model/touched'
+import { keySet, partsDiffer, propKeysAt, propKeysOf, restrictRowParts } from '../../src/app/features/recorder/model/rowkeys'
 import { contentDelta, countOps, countPlaces, countWords, windowMeters, wordDelta } from '../../src/app/features/recorder/model/counts'
 import { barHeights, followSpan, fracOf, loupeK, loupeLabel, makeAxis, pct, phoneFit, quarterHot, rulerLabels, rulerTicks, runBracket, snapTime, spanAround, stripBars, stripRange, stripTicks, tAtX, tOfU, uOf, xOf } from '../../src/app/features/recorder/model/axis'
 import { hiddenRulerLabels, settleHead, settleLabels, underHeads } from '../../src/app/features/recorder/model/labels'
@@ -473,6 +474,71 @@ test.describe('canonical parts and touched parts', () => {
     expect(partsKey({ kind: 'page', page: p }, deps)).toBe(partsKey({ kind: 'page', page: { ...p, updatedAt: 99, updatedBy: 'agent:n', comments: [] } }, deps))
     expect(partsKey({ kind: 'page', page: p }, deps)).not.toBe(partsKey({ kind: 'page', page: { ...p, title: 'y' } }, deps))
     expect(partsKey(null, deps)).toBe('-')
+  })
+})
+
+/* ------------------------------------------------------------------ */
+/* model/rowkeys.ts (Δ12)                                              */
+/* ------------------------------------------------------------------ */
+
+test.describe('row keys across schema changes (Δ12)', () => {
+  const schemaEv = (at: number, x: JEvent['x']): JEvent => ({ k: `local:local|${at}|v|0`, s: 'local:local', at, v: 'v', w: 'you', l: 'you', p: 's:db-nordlicht', pk: 'schema', kinds: K.SCHEMA, ops: 1, g: 'g', lh: '-', x })
+
+  test('restrictRowParts: non-p parts kept, p: only for the keys, a missing key empty', () => {
+    const parts = { t: '"NL-1408"', c: 'doc', 'p:stage': '"o-ready"', 'p:note': '"Lindenweg"' }
+    expect(restrictRowParts(parts, new Set(['p:stage', 'p:est']))).toEqual({ t: '"NL-1408"', c: 'doc', 'p:stage': '"o-ready"', 'p:est': '' })
+    expect(propKeysOf(parts)).toBe('p:note,p:stage')
+    expect([...keySet('p:note,p:stage')]).toEqual(['p:note', 'p:stage'])
+    expect(keySet('').size).toBe(0)
+    // a property added with no value since: the row restricted to the keys then canonicalises exactly as then
+    const db = database()
+    const row = page({ id: 'r1', databaseId: db.id, parentId: db.id, title: 'NL-1408', properties: { stage: 'o-ready', est: 3 } })
+    const then = rowParts(row, db, deps)
+    const now = rowParts(row, { ...db, properties: [...db.properties, { id: 'note', name: 'Notiz', type: 'text' }] }, deps)
+    expect(wholeCanon(now)).not.toBe(wholeCanon(then))
+    expect(wholeCanon(restrictRowParts(now, keySet(propKeysOf(then))))).toBe(wholeCanon(then))
+  })
+
+  test('partsDiffer: union of keys, a key on one side equal when empty there; o and kit-computed never differ', () => {
+    const empty = (k: string) => `E(${k})`
+    const left = { t: 'a', o: '1', 'p:stage': 's1', 'p:gone': 'E(p:gone)', 'p:kit': 'k1' }
+    const now = { t: 'a', o: '2', 'p:stage': 's1', 'p:new': 'E(p:new)', 'p:kit': 'k2' }
+    expect(partsDiffer(left, now, empty, (k) => k === 'p:kit')).toEqual([])
+    expect(partsDiffer({ ...left, 'p:gone': 'x' }, now, empty)).toEqual(['p:gone', 'p:kit'])
+    expect(partsDiffer(left, { ...now, 'p:new': 'filled', t: 'b' }, empty, (k) => k === 'p:kit')).toEqual(['p:new', 't'])
+  })
+
+  test('propKeysAt: the keys a database had then, from the deltas after it (newest first); a stored ↔ computed type change → null', () => {
+    const nowProps = [
+      { id: 'title', type: 'title' as const },
+      { id: 'stage', type: 'select' as const },
+      { id: 'note', type: 'text' as const },
+      { id: 'uid', type: 'unique_id' as const },
+    ]
+    const T = 1000
+    // now: stage, note, uid stored; note added after T; est deleted after T; a formula added and deleted after T
+    const evs = [
+      schemaEv(T + 10, [{ part: 'prop+', prop: { id: 'note', name: 'Notiz', type: 'text' } }]),
+      schemaEv(T + 20, [{ part: 'prop-', prop: { id: 'est', name: 'Schätzung', type: 'number' } }]),
+      schemaEv(T + 30, [{ part: 'prop+', prop: { id: 'tmp', name: 'Tessera', type: 'text' } }]),
+      schemaEv(T + 40, [{ part: 'prop-', prop: { id: 'tmp', name: 'Tessera', type: 'text' } }]),
+      schemaEv(T - 5, [{ part: 'prop+', prop: { id: 'stage', name: 'Stage', type: 'select' } }]),
+    ]
+    expect([...propKeysAt(nowProps, evs, T)!].sort()).toEqual(['p:est', 'p:stage', 'p:uid'])
+    // at a later moment only the deletion of the temporary property is after it
+    expect([...propKeysAt(nowProps, evs, T + 35)!].sort()).toEqual(['p:note', 'p:stage', 'p:tmp', 'p:uid'])
+    // a rename after T is no type change; a change text → formula is (null); a delta without `was` counts as none
+    expect(propKeysAt(nowProps, [schemaEv(T + 5, [{ part: 'prop~', prop: { id: 'stage', name: 'Phase', type: 'select' } }])], T)).not.toBeNull()
+    expect(propKeysAt(nowProps, [schemaEv(T + 5, [{ part: 'prop~', prop: { id: 'note', name: 'Notiz', type: 'formula' }, was: 'text' }])], T)).toBeNull()
+    expect(propKeysAt(nowProps, [schemaEv(T + 5, [{ part: 'prop~', prop: { id: 'note', name: 'Notiz', type: 'url' }, was: 'text' }])], T)).not.toBeNull()
+  })
+
+  test('schema deltas say the old type of a property whose type changed', () => {
+    const db = database()
+    const next = { ...db, properties: db.properties.map((p) => (p.id === 'est' ? { ...p, type: 'formula' as const, formula: '2' } : p.id === 'stage' ? { ...p, name: 'Phase' } : p)) }
+    const d = databaseChangesDetail(db, next).schema!
+    expect(d.find((x) => x.prop?.id === 'est')).toMatchObject({ part: 'prop~', was: 'number', prop: { type: 'formula' } })
+    expect(d.find((x) => x.prop?.id === 'stage')!.was).toBeUndefined()
   })
 })
 
