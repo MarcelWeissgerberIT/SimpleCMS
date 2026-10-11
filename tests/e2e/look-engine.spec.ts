@@ -8,13 +8,14 @@
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { test, expect } from '@playwright/test'
-import { contrast, mixSrgb, toOklch } from '../../src/app/lib/look/color'
+import { contrast, mixOklab, mixSrgb, toOklch } from '../../src/app/lib/look/color'
 import { darkInputsFrom, deckPlate, deckText, DECK_MIX, deriveLook, deriveMode, inkPanel, inkWell, lampGlass, LOOK_TOKENS, PAPER_LIMITS, signalFamily, STOCK_TOKENS } from '../../src/app/lib/look/derive'
 import { lookCss } from '../../src/app/lib/look/css'
 import { LOOK_PRESETS, SWATCHES } from '../../src/app/lib/look/presets'
 import { lookMessages } from '../../src/app/shell/workspace/look-messages'
 import { LOOK_CORNERS, LOOK_HEADINGS, LOOK_PRESET_IDS, LOOK_TEXT_FONTS, LOOK_UI_FONTS } from '../../src/app/store/types'
 import { normalizeHex, sameLook, sanitizeLook, STOCK_COLORS } from '../../src/app/store/look'
+import { METER_MIX, meterMix } from '../../src/app/features/agents/trust/meter'
 import type { LookColors, WorkspaceLook } from '../../src/app/store/types'
 
 const TOKENS = readFileSync(fileURLToPath(new URL('../../src/shared/tokens.css', import.meta.url)), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '')
@@ -26,6 +27,7 @@ function block(selector: RegExp): Record<string, string> {
 }
 const LIGHT = block(/:root\s*\{([^}]*)\}/)
 const DARK = { ...LIGHT, ...block(/:root\[data-theme='dark'\]\s*\{([^}]*)\}/) }
+const TRUST = readFileSync(fileURLToPath(new URL('../../src/app/features/agents/trust/trust.css', import.meta.url)), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '')
 const RECORDER = readFileSync(fileURLToPath(new URL('../../src/app/features/recorder/ui/recorder.css', import.meta.url)), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '')
 function rule(css: string, selector: string): Record<string, string> {
   const at = css.indexOf(selector + ' {')
@@ -216,6 +218,46 @@ test('the flight recorder deck: its text ≥ 4.5 : 1 on the deck and the window 
   for (const ink of ['#2b3440', '#3b2f22', '#444444', '#4a4a4a', ...SWATCHES.ink.map((s) => s.hex)]) {
     expect(deriveLook({ colors: { paper: '#f2f0ea', ink, signal: '#ff4f00' } }).light.report.used.ink, ink).toBe(ink)
   }
+})
+
+test('the trust meter: trust.css mixes what the engine checks; every fill ≥ 3 : 1 on the plate — standard look, presets, swatches, 640 random looks, Paper and Carbon', () => {
+  // the two fills are exactly the mixes of trust/meter.ts (the shapes are cut-outs, never a second colour)
+  const meter = rule(TRUST, '.agt-meter')
+  expect(meter['--agt-ok']).toBe(meterMix('led-ok', METER_MIX.ok))
+  expect(meter['--agt-wrong']).toBe(meterMix('led-on', METER_MIX.wrong))
+  expect(meterMix('led-ok', METER_MIX.ok)).toBe(`color-mix(in oklab, var(--led-ok) ${Math.round(METER_MIX.ok * 100)}%, var(--ink))`)
+  // every segment is drawn with the two fills (the empty tick with --led-off) — the shapes are cut-outs, never a colour
+  const body = (sel: string) => {
+    const at = TRUST.indexOf(sel + ' {')
+    return at < 0 ? '' : TRUST.slice(at, TRUST.indexOf('}', at))
+  }
+  for (const [seg, fill] of [['g', 'agt-ok'], ['s', 'agt-ok'], ['e', 'agt-ok'], ['w', 'agt-wrong'], ['u', 'agt-wrong'], ['x', 'led-off']]) expect(body(`.agt-meter .m-${seg}`), seg).toContain(`var(--${fill})`)
+  expect(body('.agt-meter .m-w')).toContain('margin-top: -3px')
+  expect(TRUST).not.toMatch(/#[0-9a-f]{3,8}\b/i)
+  const failures: string[] = []
+  let checked = 0
+  const check = (name: string, f: Record<string, string>, mode: 'light' | 'dark') => {
+    // color-mix(in oklab, LED p%, ink) = from the ink p of the way to the LED
+    const ok = mixOklab(f.ink, f['led-ok'] ?? LIGHT['--led-ok'], METER_MIX.ok)
+    const wrong = mixOklab(f.ink, f['led-on'] ?? LIGHT['--led-on'], METER_MIX.wrong)
+    for (const [k, c] of [['ok', ok], ['wrong', wrong]] as const) {
+      const r = contrast(c, f.surface)
+      if (!(r >= 3)) failures.push(`${name} ${mode} ${k} ${c} on ${f.surface}: ${r.toFixed(2)}`)
+    }
+    checked++
+  }
+  for (const mode of ['light', 'dark'] as const) check('standard', { ...STOCK_TOKENS[mode], 'led-ok': (mode === 'light' ? LIGHT : DARK)['--led-ok'], 'led-on': (mode === 'light' ? LIGHT : DARK)['--led-on'] }, mode)
+  const looks: Array<[string, Pick<WorkspaceLook, 'colors'>]> = [
+    ...Object.entries(LOOK_PRESETS).map(([id, p]) => [id, p] as [string, Pick<WorkspaceLook, 'colors'>]),
+    ...SWATCHES.signal.map((s) => [`swatch ${s.id}`, { colors: { ...STOCK_COLORS.light, signal: s.hex } }] as [string, Pick<WorkspaceLook, 'colors'>]),
+    ...[...EDGE, ...triples(640)].map((colors) => [`${colors.paper} ${colors.ink} ${colors.signal}`, { colors }] as [string, Pick<WorkspaceLook, 'colors'>]),
+  ]
+  for (const [name, l] of looks) {
+    const d = deriveLook(l)
+    for (const mode of ['light', 'dark'] as const) check(name, d[mode].full, mode)
+  }
+  expect(failures.slice(0, 20)).toEqual([])
+  expect(checked).toBe(2 + looks.length * 2)
 })
 
 test('a green signal keeps the "fine" LED apart from the "working" one', () => {
