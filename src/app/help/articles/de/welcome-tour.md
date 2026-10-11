@@ -2,7 +2,7 @@
 id: welcome-tour
 title: Die Willkommens-Tour
 section: start
-order: 5
+order: 6
 keywords: willkommen, tour, rundgang, geführte tour, demo, beispiel, beispielseiten, zurücksetzen, übungsseite, mach's für mich, welcome, sample
 related: first-steps, templates, export
 summary: Eine geführte 3-Minuten-Tour durch die echte Oberfläche, Beispielseiten, die zeigen, was One kann — behalte oder lösche sie.

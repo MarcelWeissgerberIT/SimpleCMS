@@ -2,7 +2,7 @@
 id: workspace-look
 title: Das Aussehen des Workspace — Farben, Schriften, Ecken
 section: start
-order: 7
+order: 8
 keywords: Aussehen, Farben, Akzentfarbe, Signalfarbe, Marke, Schriftart, Schrift, Schriftfarbe, Tinte, Papier, Paper, Hintergrund, dunkles Design, Carbon, Ecken, eckig, rechtwinklig, Überschriften, Serifen, Schalter, LED der Schalter, Kippschalter, Design, Thema, look, theme, colours, colors, fonts, text colour, corners
 related: workspace, members-roles, export, share-links
 summary: Gib One die Farben und die Schrift deines Workspace — für alle darin. Der Kontrast bleibt lesbar; Exporte und geteilte Links behalten das Standard-Aussehen von One.

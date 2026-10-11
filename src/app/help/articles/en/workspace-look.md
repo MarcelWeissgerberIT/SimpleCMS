@@ -2,7 +2,7 @@
 id: workspace-look
 title: The workspace look — colours, fonts, corners
 section: start
-order: 7
+order: 8
 keywords: look, theme, colours, colors, accent, signal colour, brand, fonts, typeface, text colour, ink, paper, background, dark mode, carbon, corners, square, headings, serif, switch, switch LED, Aussehen, Farben, Schriftart, Schriftfarbe, Design, Thema, Akzentfarbe, Ecken, Überschriften
 related: workspace, members-roles, export, share-links
 summary: Give One your workspace's colours and type — for everyone in it. Contrast stays readable; exports and shared links keep One's standard look.

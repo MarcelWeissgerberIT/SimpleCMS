@@ -7,6 +7,7 @@ import { useT } from '../../../i18n'
 import { Switch } from '../../../ui/controls'
 import { onPrefsChanged, readPrefs, writePrefs } from '../prefs'
 import type { PreflightPrefs } from '../types'
+import { HelpLink } from '../../../help'
 
 function usePrefs(): PreflightPrefs {
   const [p, setP] = useState(readPrefs)
@@ -36,7 +37,7 @@ export function PreflightSettings() {
   return (
     <section className="pf-settings" data-testid="pf-settings" aria-labelledby={`${atId}-title`}>
       <h4 className="st-h pf-settings__h" id={`${atId}-title`}>
-        {t('features.preflight.settings.title')}
+        {t('features.preflight.settings.title')} <HelpLink id="preflight" />
       </h4>
       <p className="st-p">{t('features.preflight.settings.body')}</p>
       <Row label={t('features.preflight.settings.on')} hint={t('features.preflight.settings.onHint')}>

@@ -2,7 +2,7 @@
 id: keyboard-shortcuts
 title: Keyboard shortcuts
 section: start
-order: 4
+order: 5
 keywords: keys, keyboard, shortcut, hotkey, Tastenkürzel, Tastatur
 related: command-palette, blocks, block-handle
 summary: The keys worth learning first. The full list is on the Keys tab of the Help panel.

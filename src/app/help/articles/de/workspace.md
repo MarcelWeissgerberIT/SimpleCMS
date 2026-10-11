@@ -2,7 +2,7 @@
 id: workspace
 title: Workspace-Einstellungen & Personen
 section: start
-order: 6
+order: 7
 keywords: Workspace-Einstellungen, Schriftgröße, Textgröße, Darstellung, LED der Schalter, Schalter, Workspace, Personen, Mitglieder, Personen zusammenführen, Person umbenennen, Person entfernen, Überblick, Speicher, Backup, Papierkorb, Automatisierung, Bausteine, Gefahrenzone, Einstellungen, dieses Gerät, workspace settings, people, members, merge
 related: workspace-look, members-roles, invites, export, sidebar
 summary: Eine Seite für alles, was zum Workspace gehört — Name, Aussehen, Personen, Bausteine, Automatisierung und Daten. Die Einstellungen sind dieses Gerät.
