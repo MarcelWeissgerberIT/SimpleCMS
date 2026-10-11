@@ -22,6 +22,11 @@ export function setContextMode(target: Target, mode: ContextMode): void {
   if (cur.mode !== mode) putPageContext(pageId, { ...cur, mode })
 }
 
+/** Mark exactly these top-level blocks (their keys: block ids) — Claude reads only them ('marked'). */
+export function setContextMarks(pageId: ID, ids: readonly string[]): void {
+  putPageContext(pageId, { mode: 'marked', ids: [...ids] })
+}
+
 /**
  * Open the picker on the page (false: the page has no live editor). purpose 'read' (default): what
  * Claude may read — Done sets the context marks; 'redo': passages to redo — `ids` pre-marks blocks, the

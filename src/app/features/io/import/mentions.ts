@@ -75,8 +75,12 @@ export interface MentionRules {
   person(id: string): string | null
   /** the replaced content held a date mention of this date WITH this reminder code (only then the code stays) */
   knownDate(iso: string, code: string): boolean
-  /** the replaced content held a mention of this person already (not counted as added) */
-  knownPerson?(id: string): boolean
+  /**
+   * the replaced content held a mention of this person in this very block (`block`: the nearest block id around the
+   * mention — the inbox's key, features/inbox/scan.ts; null: no block id around it, as in Markdown just written) — not
+   * counted as added. One known mention covers one new one.
+   */
+  knownPerson?(id: string, block: string | null): boolean
 }
 
 const hrefOf = (n: JSONContent): string | null => {
@@ -102,7 +106,7 @@ const withoutLink = (marks: JSONContent['marks']) => {
 export function mentionsFromLinks(doc: JSONContent, rules: MentionRules | null): { doc: JSONContent; mentionsAdded: number; datesDropped: number } {
   let mentionsAdded = 0
   let datesDropped = 0
-  const convert = (text: string, href: string, marks: JSONContent['marks']): JSONContent | null => {
+  const convert = (text: string, href: string, marks: JSONContent['marks'], block: string | null): JSONContent | null => {
     const rest = withoutLink(marks)
     const m = ONE.exec(href)
     const id = m ? decode(m[2]) : null
@@ -110,7 +114,7 @@ export function mentionsFromLinks(doc: JSONContent, rules: MentionRules | null):
     if (m && id && m[1] === 'person') {
       const name = rules && PERSON.test(id) ? rules.person(id) : null
       if (name) {
-        if (!rules?.knownPerson?.(id)) mentionsAdded++
+        if (!rules?.knownPerson?.(id, block)) mentionsAdded++
         return { type: 'mention', attrs: { id, label: name, kind: 'person' }, ...rest }
       }
       const at = `@${label || id}`
@@ -129,8 +133,8 @@ export function mentionsFromLinks(doc: JSONContent, rules: MentionRules | null):
     // a task link, an invalid date, any other `one:` address: the text, without the link
     return text ? { type: 'text', text, ...rest } : null
   }
-  /** an inline list with its `one:` runs converted (the same array when there are none) */
-  const inline = (kids: JSONContent[]): JSONContent[] => {
+  /** an inline list with its `one:` runs converted (the same array when there are none); `block`: the nearest block id */
+  const inline = (kids: JSONContent[], block: string | null): JSONContent[] => {
     if (!kids.some((k) => hrefOf(k))) return kids
     const out: JSONContent[] = []
     for (let i = 0; i < kids.length; i++) {
@@ -141,25 +145,26 @@ export function mentionsFromLinks(doc: JSONContent, rules: MentionRules | null):
       }
       let text = kids[i].text ?? ''
       while (i + 1 < kids.length && hrefOf(kids[i + 1]) === href) text += kids[++i].text ?? ''
-      const made = convert(text, href, kids[i].marks)
+      const made = convert(text, href, kids[i].marks, block)
       if (made) out.push(made)
     }
     return out
   }
   // iterative rebuild: a frame per node with content; a parent is rebuilt only when a child changed
-  type Frame = { n: JSONContent; kids: JSONContent[]; out: JSONContent[]; i: number; changed: boolean }
-  const frame = (n: JSONContent): Frame => {
+  type Frame = { n: JSONContent; kids: JSONContent[]; out: JSONContent[]; i: number; changed: boolean; block: string | null }
+  const frame = (n: JSONContent, outer: string | null): Frame => {
+    const block = typeof n.attrs?.id === 'string' && n.attrs.id ? n.attrs.id : outer
     const kids = n.content ?? []
-    const conv = inline(kids)
-    return { n, kids: conv, out: [], i: 0, changed: conv !== kids }
+    const conv = inline(kids, block)
+    return { n, kids: conv, out: [], i: 0, changed: conv !== kids, block }
   }
-  const stack: Frame[] = [frame(doc)]
+  const stack: Frame[] = [frame(doc, null)]
   let result = doc
   while (stack.length) {
     const f = stack[stack.length - 1]
     if (f.i < f.kids.length) {
       const c = f.kids[f.i++]
-      if (c.content?.length) stack.push(frame(c))
+      if (c.content?.length) stack.push(frame(c, f.block))
       else f.out.push(c)
       continue
     }

@@ -40,16 +40,22 @@ export function holdsOfReport(report: Pick<SettleReport, 'created' | 'kept' | 'r
 }
 
 /**
- * The holds of a field change (update_work_item). `current`: the task's people now — null for a task staged in this
- * conversation (not in the workspace yet: nobody's work to change, no existing task to block).
+ * The holds of a field change (update_work_item). `current`: the task's fields now — null for a task staged in this
+ * conversation (not in the workspace yet: nobody's work to change, no existing task to block). A reminder the task
+ * keeps rings again when the change moves its due date or reopens it: that holds like setting one.
  */
-export function holdsOfEdit(patch: ItemPatch, current: { people: readonly string[] } | null): HoldReason[] {
+export function holdsOfEdit(patch: ItemPatch, current: { people: readonly string[]; reminder?: string | null; due?: string | null; status?: string } | null): HoldReason[] {
   const out = new Set<HoldReason>()
   if (patch.people?.add?.length) out.add('names')
   if (typeof patch.reminder === 'string' && patch.reminder) out.add('reminder')
   if (current) {
     if (current.people.length) out.add('assigned')
     if (patch.blockedBy?.add?.length) out.add('blocker')
+    // the reminder the task carries after the change (a due date cleared takes it along)
+    const reminds = patch.due !== null && (patch.reminder !== undefined ? !!patch.reminder : !!current.reminder)
+    const moved = typeof patch.due === 'string' && patch.due !== (current.due ?? null)
+    const reopened = patch.status !== undefined && patch.status !== 'done' && current.status === 'done'
+    if (reminds && (moved || reopened)) out.add('reminder')
   }
   return ordered(out)
 }

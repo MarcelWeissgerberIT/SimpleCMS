@@ -21,7 +21,7 @@ import { keepsSingle, knownOf, planEdits, readWithRefs, settlesItems, stripRefs,
 import type { ChangeKind, ColumnSpec, ColumnType, PropChange, StagedChange, ToolName } from './types'
 import { SCRIPT_REFERENCE } from '../../script/reference'
 import { currentReadLimit, currentToolScope, LIMITED_NOTE, ToolInputError } from './toolScope'
-import { commitItems, listWorkItems, pagePrivate, registerItems, scratchSession, stageBlocks, stageItems, stagedPrivacy, updateWorkItem, withNeeds, type ItemSession, type ItemStaging } from './workItems'
+import { commitItems, itemsWithNeeds, listWorkItems, pagePrivate, registerChange, registerItems, scratchSession, stageBlocks, stageItems, stagedPrivacy, updateWorkItem, withNeeds, type ItemSession, type ItemStaging } from './workItems'
 
 /* ------------------------------------------------------------------ */
 /* Contracts                                                           */
@@ -683,7 +683,8 @@ const createPages: AgentTool = {
       const pageId = again?.pageId ?? newId()
       if (!p.markdown.trim()) return { again, pageId, staging: null }
       try {
-        const staging = stageItems(p.markdown, scratch, { pageId, private: stagedPrivacy(stage, parentId), change: again?.id ?? temp(i) }, again?.items)
+        // a page staged again: its text is REPLACED (ids kept only by handle / title)
+        const staging = stageItems(p.markdown, scratch, { pageId, private: stagedPrivacy(stage, parentId), change: again?.id ?? temp(i) }, again ? { items: again.items, extends: false } : undefined)
         registerItems(scratch.items, again?.id ?? temp(i), staging)
         return { again, pageId, staging }
       } catch (e) {
@@ -709,13 +710,15 @@ const createPages: AgentTool = {
     const extra: string[] = []
     changes.forEach((c, i) => {
       const staging = settled[i].staging
-      if (staging) registerItems(stage.items, c.id, staging)
+      if (staging) extra.push(...registerChange(stage, c.id, staging).map((l) => `${i + 1}. ${l}`))
     })
     changes.forEach((c, i) => {
       const staging = settled[i].staging
       if (!staging) return
-      const needs = withNeeds(c, staging.needs.map((n) => real.get(n) ?? n))
-      const cur = needs.length ? stage.update(c.id, { needs }) : c
+      const mapped = staging.needs.map((n) => real.get(n) ?? n)
+      // the earlier text's needs go with it (`again`: the change before this call)
+      const needs = withNeeds({ id: c.id, dependsOn: c.dependsOn, needs: c.needs, items: settled[i].again?.items }, mapped)
+      const cur = stage.update(c.id, { needs: needs.length ? needs : undefined, items: itemsWithNeeds(staging.items, mapped) })
       extra.push(...staging.lines.map((l) => `${i + 1}. ${l}`), ...stageBlocks(stage, cur, staging))
     })
     const sorted = [...ns].sort((a, b) => a - b)
@@ -753,7 +756,7 @@ const appendToPage: AgentTool = {
       // the staged page's text again, joined: its earlier tasks keep their ids (by position)
       const joined = [staged.markdown?.trim(), markdown].filter(Boolean).join('\n\n')
       const priv = staged.kind === 'create_row' ? stagedPrivacy(stage, staged.databaseId) : stagedPrivacy(stage, staged.parentId)
-      const staging = stageItems(joined, stage, { pageId: staged.pageId, private: priv, change: staged.id }, staged.items)
+      const staging = stageItems(joined, stage, { pageId: staged.pageId, private: priv, change: staged.id }, { items: staged.items, extends: true })
       const c = stage.update(staged.id, { markdown: joined, ...itemFields(staging, staged) })
       const more = [...staging.lines, ...commitItems(stage, c, staging)]
       return { content: `Added to staged change #${c.n} (the new page ${q(c.title ?? '')}).${itemsNote(more)}`, summary: t('features.agent.res.staged', { n: c.n }), state: 'staged', changeId: c.id }
@@ -762,7 +765,7 @@ const appendToPage: AgentTool = {
     if (p.kind === 'database') throw new ToolInputError(`${q(titleOf(p))} is a database. Use create_row to add rows.`)
     const pending = pendingFor(stage, 'append', p.id)
     const text = pending ? `${pending.markdown}\n\n${markdown}` : markdown
-    const staging = stageItems(text, stage, { pageId: p.id, private: pagePrivate(p.id), change: pending?.id ?? null }, pending?.items)
+    const staging = stageItems(text, stage, { pageId: p.id, private: pagePrivate(p.id), change: pending?.id ?? null }, pending ? { items: pending.items, extends: true } : undefined)
     const c = pending
       ? stage.update(pending.id, { markdown: text, ...itemFields(staging, pending) })
       : stage.add({ kind: 'append', pageId: p.id, title: titleOf(p), markdown, ...itemFields(staging) })
@@ -827,7 +830,9 @@ const editPage: AgentTool = {
       if (!settlesItems(plan.edit, markdown)) return { markdown, staging: null }
       let staging: ItemStaging
       try {
-        staging = stageItems(markdown ?? '', scratch, { pageId: p.id, private: priv, known: knownOf(plan.edit), keepSingle: keepsSingle(plan.edit), change: prev?.id ?? temp(k) }, prev?.items)
+        // insert_after the same block again joins the texts (ids by position); any other revision REPLACES the text
+        const prevText = prev ? { items: prev.items, extends: plan.edit.op === 'insert_after' && !!prev.markdown } : undefined
+        staging = stageItems(markdown ?? '', scratch, { pageId: p.id, private: priv, known: knownOf(plan.edit), keepSingle: keepsSingle(plan.edit), change: prev?.id ?? temp(k) }, prevText)
       } catch (e) {
         throw new ToolInputError(`edits[${k}]: ${e instanceof Error ? e.message : String(e)}`)
       }
@@ -854,13 +859,15 @@ const editPage: AgentTool = {
     const more: string[] = []
     out.forEach(({ c }, k) => {
       const staging = texts[k].staging
-      if (staging) registerItems(stage.items, c.id, staging)
+      if (staging) more.push(...registerChange(stage, c.id, staging).map((l) => `#${c.n}: ${l}`))
     })
     out.forEach((o, k) => {
       const staging = texts[k].staging
       if (!staging) return
-      const needs = withNeeds(o.c, staging.needs.map((n) => real.get(n) ?? n))
-      if (needs.length) o.c = stage.update(o.c.id, { needs })
+      const mapped = staging.needs.map((n) => real.get(n) ?? n)
+      // a revised edit: its earlier text's needs go with it
+      const needs = withNeeds({ id: o.c.id, dependsOn: o.c.dependsOn, needs: o.c.needs, items: res.plans[k].revises?.items }, mapped)
+      o.c = stage.update(o.c.id, { needs: needs.length ? needs : undefined, items: itemsWithNeeds(staging.items, mapped) })
       more.push(...staging.lines.map((l) => `#${o.c.n}: ${l}`), ...stageBlocks(stage, o.c, staging))
     })
     const lines = out.map(({ c, revised }) => `#${c.n} ${c.edit!.op} ${c.edit!.refs}${revised ? ' (revised)' : ''}`)
@@ -1144,12 +1151,13 @@ const upsertRows: AgentTool = {
         if (clash) return refused(clash, prev.pageId)
         let staging: ItemStaging | null = null
         try {
-          staging = body ? stageItems(body, stage, { pageId: prev.pageId, private: schemaPrivate(stage, schema), change: prev.id }, prev.items) : null
+          staging = body ? stageItems(body, stage, { pageId: prev.pageId, private: schemaPrivate(stage, schema), change: prev.id }, { items: prev.items, extends: false }) : null
         } catch (e) {
           if (e instanceof ToolInputError) return refused(e.message, prev.pageId)
           throw e
         }
-        const needs = withNeeds(prev, [...needsOf(schema, fresh, prev.needs), ...(staging?.needs ?? [])])
+        // a new body replaces the old one's needs (its tasks' links); the property needs stay
+        const needs = staging ? withNeeds(prev, [...needsOf(schema, fresh, withNeeds(prev, [])), ...staging.needs]) : withNeeds(prev, needsOf(schema, fresh, prev.needs))
         const c = touched(stage.update(prev.id, { props: mergeProps(prev.props, fresh), ...(title ? { title } : {}), ...(body ? { markdown: body } : {}), ...(needs.length ? { needs } : {}), ...(staging ? { items: staging.items } : {}), status: 'pending', error: undefined }))
         if (staging) itemLines.push(...staging.lines.map((l) => `${k}: ${l}`), ...commitItems(stage, c, staging))
         h.change = c

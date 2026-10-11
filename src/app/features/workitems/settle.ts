@@ -23,7 +23,7 @@ import type { JSONContent } from '@tiptap/core'
 import type { ID } from '../../store/types'
 import { keepItems, readClaudeQuote, type ClaudeItemDraft, type PersonDraft, type RefDraft } from '../../editor/workitem/markdown'
 import { itemAttrs, MAX_LINKS, MAX_PEOPLE, storedItemAttrs, WORK_ITEM, type WorkItemAttrs, type WorkItemStatus } from '../../editor/workitem/attrs'
-import { outermostItems } from '../../lib/itemIds'
+import { isSyncedRef, outermostItems } from '../../lib/itemIds'
 import { wouldLoop } from './graph'
 import { factsOfNode, type FactWorld, type ItemFact, type ItemRefFact } from './facts'
 
@@ -69,6 +69,17 @@ export interface SettleContext {
    * its n-th new task keeps firstIds[n] (other changes may point at it already), the rest get fresh ids.
    */
   firstIds?: readonly string[]
+  /**
+   * STAGING of a change whose text was REPLACED (a page staged again, an edit revised, a row's body written again): a new
+   * task takes the id of the earlier text's task with the same handle, else with the same title (each once) — never by
+   * position: another change may link that id, and it must stay the task the person reviewed.
+   */
+  reuse?: ReadonlyArray<{ itemId: string; handle: string | null; title: string }>
+  /**
+   * APPLY (with `ids`): what staging resolved per new task (pins[n] ↔ ids[n]) — the people and links are these ids,
+   * never names or titles resolved again; one that is gone by now is left out (a warning).
+   */
+  pins?: ReadonlyArray<ItemPin | null>
   /** a review render of a staged change (`ids` given): its ids are used as they are — the change itself may hold them by now */
   preview?: boolean
   /** handles known before this write (earlier calls of the conversation / run, or the staged change's own map) */
@@ -81,6 +92,11 @@ export interface SettleContext {
   existing?: 'copy' | 'skip'
   /** `me` resolves (custom agents: false — they name the person) */
   me: boolean
+  /**
+   * blockedBy edges the pending changes add (staged link changes, other staged tasks' links): a link of this write
+   * that would close a loop through them is left out like one through live links
+   */
+  pendingEdges?: ReadonlyMap<string, readonly string[]>
 }
 
 export type SettleWarningCode =
@@ -137,7 +153,16 @@ export interface SettleReport {
   fieldsIgnored: string[]
   /** new person mentions (hold 'names') — counted in claudeSettled step 5 */
   mentionsAdded: number
+  /** per new task (↔ ids): the people and links it got — staging stores them, apply writes exactly these */
+  pins: ItemPin[]
   warnings: SettleWarning[]
+}
+
+/** The people and links one new task got, with the names / titles shown when they were resolved. */
+export interface ItemPin {
+  people: Array<{ id: string; name: string }>
+  blockedBy: Array<{ id: string; title: string }>
+  related: Array<{ id: string; title: string }>
 }
 
 /** What is wrong with a strict write — model-facing English; the tool appends "Nothing was staged." */
@@ -149,6 +174,8 @@ export class SettleRefusal extends Error {
 }
 
 export const MAX_NEW_ITEMS = 100
+/** Existing tasks one write may change: update_work_item's entries per call, a write's `Blocks:` targets. */
+export const MAX_ITEM_UPDATES = 50
 
 export interface SettleWorld {
   now(): number
@@ -257,7 +284,8 @@ interface Draft {
   node: JSONContent
   draft: ClaudeItemDraft
   title: string
-  decision: { kind: 'quote' } | { kind: 'drop' } | { kind: 'restore'; old: JSONContent } | { kind: 'new'; itemId: string }
+  /** new: `n` = its place among the write's new tasks (ids[n], pins[n]) */
+  decision: { kind: 'quote' } | { kind: 'drop' } | { kind: 'restore'; old: JSONContent } | { kind: 'new'; itemId: string; n: number }
   /** new: its resolved fields */
   fields?: { status: WorkItemStatus; due: string | null; reminder: string | null; people: string[]; doneAt: number | null; blockedBy: string[]; related: string[] }
   built?: JSONContent
@@ -282,7 +310,7 @@ function draftsOf(doc: JSONContent): Draft[] {
   return out
 }
 
-/** Every task node of a doc with its itemId, document order (synced references too — keepItems' own view). */
+/** Every task node of a doc with its itemId, document order (synced references too — what the doc shows). */
 function tasksOf(doc: JSONContent | null | undefined): Array<{ id: string; node: JSONContent }> {
   const out: Array<{ id: string; node: JSONContent }> = []
   if (!doc) return out
@@ -300,6 +328,45 @@ function tasksOf(doc: JSONContent | null | undefined): Array<{ id: string; node:
     }
   }
   return out
+}
+
+/**
+ * `known` without the tasks of synced REFERENCES (their cached copy of the original's blocks): those tasks are the
+ * original page's — written back with their id they are a copy (a new id) or left out, never this page's task again.
+ * Iterative; the same object back when it holds no reference.
+ */
+function withoutRefTasks(doc: JSONContent): JSONContent {
+  type Frame = { n: JSONContent; i: number; out: JSONContent[] | null }
+  const stack: Frame[] = [{ n: doc, i: 0, out: null }]
+  let result = doc
+  while (stack.length) {
+    const f = stack[stack.length - 1]
+    const kids = Array.isArray(f.n.content) ? f.n.content : null
+    if (kids && f.i < kids.length) {
+      const c = kids[f.i++]
+      if (c && typeof c === 'object' && isSyncedRef(c) && Array.isArray(c.content) && c.content.length) {
+        if (!f.out) f.out = kids.slice(0, f.i - 1)
+        f.out.push({ ...c, content: [] })
+        continue
+      }
+      if (c && typeof c === 'object' && Array.isArray(c.content) && c.type !== 'paragraph' && c.type !== 'heading') {
+        stack.push({ n: c, i: 0, out: null })
+        continue
+      }
+      if (f.out) f.out.push(c)
+      continue
+    }
+    stack.pop()
+    const node = f.out ? { ...f.n, content: f.out } : f.n
+    const parent = stack[stack.length - 1]
+    if (!parent) {
+      result = node
+      break
+    }
+    if (node !== f.n && !parent.out) parent.out = (parent.n.content as JSONContent[]).slice(0, parent.i - 1)
+    if (parent.out) parent.out.push(node)
+  }
+  return result
 }
 
 /** P0 restore semantics: a quote's title + notes into a known task (blocks that read the same stay One's own). */
@@ -375,7 +442,7 @@ export function peopleResolver(world: SettleWorld, me: boolean): { name: (id: st
 /* ------------------------------------------------------------------ the gate */
 
 export function settleDoc(input: JSONContent, ctx: SettleContext, world: SettleWorld): { doc: JSONContent; report: SettleReport } {
-  const report: SettleReport = { created: [], kept: [], removed: [], keptChanged: [], ids: [], idTaken: [], handles: {}, blocks: [], needs: [], fieldsIgnored: [], mentionsAdded: 0, warnings: [] }
+  const report: SettleReport = { created: [], kept: [], removed: [], keptChanged: [], ids: [], idTaken: [], handles: {}, blocks: [], needs: [], fieldsIgnored: [], mentionsAdded: 0, pins: [], warnings: [] }
   const problems: string[] = []
   const warn = (code: SettleWarningCode, task: string, value?: string) => {
     if (!report.warnings.some((w) => w.code === code && w.task === task && w.value === value)) report.warnings.push({ code, task, ...(value !== undefined ? { value } : {}) })
@@ -408,7 +475,8 @@ export function settleDoc(input: JSONContent, ctx: SettleContext, world: SettleW
   }
 
   /* ---------- 1. known tasks come back (keepItems), field lines compared ---------- */
-  const known = ctx.known ?? null
+  // a synced reference's tasks are the original page's: never known here (withoutRefTasks)
+  const known = ctx.known ? withoutRefTasks(ctx.known) : null
   const knownTasks = tasksOf(known)
   const knownById = new Map<string, JSONContent>()
   for (const k of knownTasks) if (!knownById.has(k.id)) knownById.set(k.id, k.node)
@@ -464,6 +532,22 @@ export function settleDoc(input: JSONContent, ctx: SettleContext, world: SettleW
   }
   const handles = new Map<string, string>()
   const newById = new Map<string, Draft>()
+  // a replaced text's tasks: the id of the earlier task with the same handle, else the same title (each once)
+  const reused = new Map<Draft, string>()
+  if (ctx.reuse?.length && !ctx.ids) {
+    const left = [...ctx.reuse]
+    const loose = drafts.filter((d) => d.decision.kind !== 'restore')
+    for (const d of loose) {
+      if (!d.draft.handle) continue
+      const i = left.findIndex((r) => r.handle === d.draft.handle)
+      if (i >= 0) reused.set(d, left.splice(i, 1)[0].itemId)
+    }
+    for (const d of loose) {
+      if (reused.has(d) || !d.title) continue
+      const i = left.findIndex((r) => foldTitle(r.title) === foldTitle(d.title))
+      if (i >= 0) reused.set(d, left.splice(i, 1)[0].itemId)
+    }
+  }
   let count = 0
   let gateShut: boolean | null = null
   for (const d of drafts) {
@@ -505,11 +589,11 @@ export function settleDoc(input: JSONContent, ctx: SettleContext, world: SettleW
         continue
       }
     } else {
-      const first = ctx.firstIds?.[n]
+      const first = ctx.firstIds?.[n] ?? reused.get(d)
       itemId = first && !world.taken(first) && !newById.has(first) ? first : world.newItemId()
     }
     if (copy) warn('copy', d.title)
-    d.decision = { kind: 'new', itemId }
+    d.decision = { kind: 'new', itemId, n }
     newById.set(itemId, d)
     report.ids.push(itemId)
     if (draft.handle) {
@@ -518,10 +602,15 @@ export function settleDoc(input: JSONContent, ctx: SettleContext, world: SettleW
     }
   }
   const fresh = drafts.filter((d) => d.decision.kind === 'new')
+  /** the tool loops (terminal, agents, MCP) stage `Blocks:` onto existing tasks; the AI menu and Transform leave it out (said so) */
+  const stages = ctx.source !== 'menu' && ctx.source !== 'transform'
+  /** apply: what staging resolved for this new task (null: resolve the text — staging, a one-shot path, an older change) */
+  const pinOf = (d: Draft): ItemPin | null => (ctx.ids && ctx.pins ? (ctx.pins[(d.decision as { n: number }).n] ?? null) : null)
 
   /* ---------- 3. fields of the new tasks ---------- */
   for (const d of fresh) {
     const { draft, title } = d
+    const pin = pinOf(d)
     let status: WorkItemStatus = 'todo'
     if (draft.status !== undefined) {
       if (typeof draft.status === 'string') status = draft.status
@@ -539,7 +628,12 @@ export function settleDoc(input: JSONContent, ctx: SettleContext, world: SettleW
       else reminder = draft.reminder
     }
     const people: string[] = []
-    for (const p of draft.people ?? []) {
+    // apply: the people staging resolved — never a name resolved again (someone else may carry it by now)
+    for (const p of pin?.people ?? []) {
+      if (personName(p.id) === null) warn('person', title, p.name)
+      else if (!people.includes(p.id) && people.length < MAX_PEOPLE) people.push(p.id)
+    }
+    for (const p of pin ? [] : (draft.people ?? [])) {
       const id = resolvePerson(p, title)
       if (!id || people.includes(id)) continue
       if (people.length >= MAX_PEOPLE) {
@@ -569,6 +663,8 @@ export function settleDoc(input: JSONContent, ctx: SettleContext, world: SettleW
     if (newById.has(id)) return { id, kind: 'new', private: ctx.private }
     const st = ctx.staged?.get(id)
     if (st) {
+      // a task this change's earlier text made that this text no longer makes: it will not exist
+      if (st.change && st.change === (ctx.change ?? null)) return { miss: 'link', value: label }
       if (!ctx.private && st.private) return { miss: 'scope', value: label }
       if (st.change && st.change !== (ctx.change ?? null)) needs.add(st.change)
       return { id, kind: 'staged', private: st.private }
@@ -625,14 +721,27 @@ export function settleDoc(input: JSONContent, ctx: SettleContext, world: SettleW
     }
     return out
   }
-  // the overlay graph: live blockedBy edges + this write's
+  /** apply: the links staging resolved, by id — gone, out of scope or no longer staged → left out (a warning) */
+  const pinnedRefs = (list: ItemPin['blockedBy'], task: string): Array<Extract<Hit, { id: string }>> => {
+    const out: Array<Extract<Hit, { id: string }>> = []
+    for (const r of list) {
+      const h = classify(r.id, r.title)
+      if ('id' in h) {
+        if (!out.some((x) => x.id === h.id)) out.push(h)
+      } else if (h.miss === 'scope') warn('scope', task)
+      else warn('link', task, r.title)
+    }
+    return out
+  }
+  // the overlay graph: live blockedBy edges + the pending changes' (other staged tasks, staged link changes) + this write's
   const added = new Map<string, string[]>()
   const overlay = {
     byId: {
       get: (v: string) => {
         const live = world.entry(v)?.blockedBy ?? []
+        const pending = ctx.pendingEdges?.get(v) ?? []
         const mine = added.get(v) ?? []
-        return live.length || mine.length ? { attrs: { blockedBy: [...mine, ...live] } } : undefined
+        return live.length || mine.length || pending.length ? { attrs: { blockedBy: [...mine, ...pending, ...live] } } : undefined
       },
     },
   } as unknown as Parameters<typeof wouldLoop>[0]
@@ -641,7 +750,8 @@ export function settleDoc(input: JSONContent, ctx: SettleContext, world: SettleW
   for (const d of fresh) {
     const self = (d.decision as { itemId: string }).itemId
     const f = d.fields!
-    for (const hit of resolveRefs(d.draft.blockedBy ?? [], d.title)) {
+    const pin = pinOf(d)
+    for (const hit of pin ? pinnedRefs(pin.blockedBy, d.title) : resolveRefs(d.draft.blockedBy ?? [], d.title)) {
       if (hit.id === self) {
         warn('self', d.title)
         continue
@@ -658,7 +768,7 @@ export function settleDoc(input: JSONContent, ctx: SettleContext, world: SettleW
       f.blockedBy.push(hit.id)
       addEdge(self, hit.id)
     }
-    for (const hit of resolveRefs(d.draft.related ?? [], d.title)) {
+    for (const hit of pin ? pinnedRefs(pin.related, d.title) : resolveRefs(d.draft.related ?? [], d.title)) {
       if (hit.id === self) {
         warn('self', d.title)
         continue
@@ -671,17 +781,29 @@ export function settleDoc(input: JSONContent, ctx: SettleContext, world: SettleW
       f.related.push(hit.id)
     }
   }
-  // Blocks: a new target waits for this task; an existing one gets its own change (the caller stages / folds / drops)
+  // Blocks: a new target waits for this task; an existing one gets its own change — staged by the tool loops (the
+  // terminal, agents, MCP), left out with a warning where nothing stages it (the AI menu, Transform). At most MAX_LINKS
+  // per task, MAX_ITEM_UPDATES existing tasks per write. Apply: the targets' own pins hold it already.
   for (const d of fresh) {
+    if (pinOf(d)) continue
     const self = (d.decision as { itemId: string }).itemId
+    let n = 0
     for (const hit of resolveRefs(d.draft.blocks ?? [], d.title)) {
       if (hit.id === self) {
         warn('self', d.title)
         continue
       }
+      if (n >= MAX_LINKS) {
+        warn('cap', d.title)
+        break
+      }
       if (hit.kind !== 'new' && ctx.private && !hit.private) {
         // a shared task would wait for a private one
         warn('scope', d.title)
+        continue
+      }
+      if (hit.kind !== 'new' && !stages) {
+        warn('blocks', d.title)
         continue
       }
       if (wouldLoop(overlay, hit.id, self)) {
@@ -696,7 +818,16 @@ export function settleDoc(input: JSONContent, ctx: SettleContext, world: SettleW
           continue
         }
         target.blockedBy.push(self)
-      } else blocks.set(hit.id, [...(blocks.get(hit.id) ?? []), self])
+      } else {
+        if (!blocks.has(hit.id) && blocks.size >= MAX_ITEM_UPDATES) {
+          fail(`"Blocks" in task "${d.title}" reaches more than ${MAX_ITEM_UPDATES} existing tasks in this write — split it over several writes, or use update_work_item.`, 'cap', d.title)
+          break
+        }
+        const list = blocks.get(hit.id) ?? []
+        if (list.includes(self)) continue
+        blocks.set(hit.id, [...list, self])
+      }
+      n++
       addEdge(hit.id, self)
     }
   }
@@ -791,6 +922,16 @@ export function settleDoc(input: JSONContent, ctx: SettleContext, world: SettleW
     }
   }
   report.blocks = [...blocks].map(([itemId, add]) => ({ itemId, add }))
+  // per new task (↔ report.ids): what it got, for apply to write exactly that
+  const refTitle = (id: string) => newById.get(id)?.title ?? world.entry(id)?.title ?? id
+  report.pins = fresh.map((d) => {
+    const f = d.fields!
+    return {
+      people: f.people.map((id) => ({ id, name: personName(id) ?? id })),
+      blockedBy: f.blockedBy.map((id) => ({ id, title: refTitle(id) })),
+      related: f.related.map((id) => ({ id, title: refTitle(id) })),
+    }
+  })
   report.needs = [...needs]
   report.handles = Object.fromEntries([...handles, ...usedHandles])
   return { doc: result, report }

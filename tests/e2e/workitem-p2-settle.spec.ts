@@ -86,8 +86,14 @@ test.describe('one: links back + the file form (in the app)', () => {
     expect(textOf(withRules.doc)).toBe('[person:p_alex] and @Bob[date:2026-10-17] · [date:2026-10-18]@Feb 30 · Draft copy · oddweb site')
     // only the web link keeps a link mark
     expect(hrefsIn(withRules.doc)).toEqual(['https://example.com/'])
-    // a person the replaced content mentioned already is not counted as added
-    expect((await settle<{ mentionsAdded: number }>(page, 'mentionsFromLinks', input, { people: { p_alex: 'Alex Lind' }, known: ['p_alex'] })).mentionsAdded).toBe(0)
+    // a person the replaced content mentioned already IN THAT BLOCK (same block id — the inbox's key) is not counted as
+    // added; the same person in a block written from Markdown (no id: new to the inbox) is, once per mention
+    const rules = { people: { p_alex: 'Alex Lind' }, known: ['b1|p_alex'] }
+    const inBlock = doc({ type: 'paragraph', attrs: { id: 'b1' }, content: [linked('@Al', 'one:person/p_alex')] })
+    expect((await settle<{ mentionsAdded: number }>(page, 'mentionsFromLinks', inBlock, rules)).mentionsAdded).toBe(0)
+    const twice = doc({ type: 'paragraph', attrs: { id: 'b1' }, content: [linked('@Al', 'one:person/p_alex'), { type: 'text', text: ' and ' }, linked('@Al', 'one:person/p_alex')] })
+    expect((await settle<{ mentionsAdded: number }>(page, 'mentionsFromLinks', twice, rules)).mentionsAdded).toBe(1)
+    expect((await settle<{ mentionsAdded: number }>(page, 'mentionsFromLinks', input, rules)).mentionsAdded).toBe(1)
     // without rules (no settle context): no person mention, no reminder (D2)
     const none = await settle<{ doc: JSONContent; mentionsAdded: number; datesDropped: number }>(page, 'mentionsFromLinks', input, null)
     expect(mentionsIn(none.doc)).toEqual([
@@ -575,9 +581,9 @@ test.describe('settle: links, scope, loops (pure)', () => {
 
   test('a staged task of another change is a need; self links, caps, loops (new ↔ new, new → existing chain back)', () => {
     const staged = new Map([['wi_stage00001', { change: 'c1', private: false }], ['wi_stage00002', { change: 'c2', private: false }]])
-    const r = settleDoc(doc(tq('[!TODO] x\nBlocked by: wi_stage00001, wi_stage00002')), ctxOf({ staged, change: 'c2' }), fakeWorld())
+    const r = settleDoc(doc(tq('[!TODO] x\nBlocked by: wi_stage00001, wi_stage00002')), ctxOf({ staged, change: 'c3' }), fakeWorld())
     expect(tasks(r.doc)[0].blockedBy).toEqual(['wi_stage00001', 'wi_stage00002'])
-    expect(r.report.needs).toEqual(['c1'])
+    expect(r.report.needs).toEqual(['c1', 'c2'])
     expect(codes(settleDoc(doc(tq('[!TODO] Self {#me1}\nBlocked by: #me1')), ctxOf(), fakeWorld()).report)).toEqual(['self'])
     const crowd = Array.from({ length: 13 }, (_, i) => ({ id: `p_${i}`, name: `Person ${i}` }))
     const capped = settleDoc(doc(tq(`[!TODO] x\nOwner: ${crowd.map((c) => c.name).join(', ')}`)), ctxOf(), fakeWorld({ people: crowd }))
@@ -607,6 +613,123 @@ test.describe('settle: links, scope, loops (pure)', () => {
     const [first, second] = tasks(r.doc)
     expect(second.blockedBy).toEqual([first.itemId])
     expect(r.report.blocks).toEqual([{ itemId: 'wi_exist00001', add: [first.itemId] }])
+  })
+})
+
+test.describe('settle: review fixes (pure)', () => {
+  test("a synced reference's task is the original page's: written back with its id it is a copy (or left out), never kept, never removed", () => {
+    const X = 'wi_ABCDEFGHIJ'
+    const OWN = 'wi_own0000001'
+    const known = doc({ type: 'syncedBlock', attrs: { syncId: 's1', sourcePageId: 'pg_src' }, content: [item({ itemId: X, status: 'todo' }, 'Synced errand')] }, item({ itemId: OWN, status: 'todo' }, 'Own errand'))
+    const w = fakeWorld({ entries: [{ itemId: X, pageId: 'pg_src', title: 'Synced errand' }, { itemId: OWN, pageId: 'pg_plan', title: 'Own errand' }] })
+    const r = settleDoc(doc(tq(`[!TODO] Synced errand {#${X}}`), tq(`[!TODO] Own errand {#${OWN}}`)), ctxOf({ known }), w)
+    const [copy, own] = tasks(r.doc)
+    expect(copy.itemId).not.toBe(X)
+    expect(copy.itemId).toBe(w.minted[0])
+    expect(own.itemId).toBe(OWN)
+    expect(r.report.kept.map((f) => f.itemId)).toEqual([OWN])
+    expect(r.report.removed).toEqual([])
+    expect(codes(r.report)).toEqual(['copy'])
+    // the AI menu (existing: 'skip'): left out, never a second X
+    const menu = settleDoc(doc(tq(`[!TODO] Synced errand {#${X}}`)), ctxOf({ known, existing: 'skip', source: 'menu' }), w)
+    expect(tasks(menu.doc)).toEqual([])
+    expect(codes(menu.report)).toEqual(['exists'])
+  })
+
+  test('Blocks: a loop through pending staged links is left out; at most 20 per task, 50 existing tasks per write', () => {
+    const [E1, E2] = ['wi_e1aaaaaaaa', 'wi_e2bbbbbbbb']
+    const w = fakeWorld({ entries: [{ itemId: E1, pageId: 'pg_plan', title: 'First' }, { itemId: E2, pageId: 'pg_plan', title: 'Second' }] })
+    const md = doc(tq(`[!TODO] New one\nBlocked by: ${E1} · Blocks: ${E2}`))
+    // without the pending change "E1 waits for E2" the Blocks link is fine …
+    expect(settleDoc(md, ctxOf(), w).report.blocks).toEqual([{ itemId: E2, add: [w.minted[0]] }])
+    // … with it, E1 → E2 → New → E1 would be a loop
+    const r = settleDoc(md, ctxOf({ pendingEdges: new Map([[E1, [E2]]]) }), fakeWorld({ entries: [{ itemId: E1, pageId: 'pg_plan', title: 'First' }, { itemId: E2, pageId: 'pg_plan', title: 'Second' }] }))
+    expect(tasks(r.doc)[0].blockedBy).toEqual([E1])
+    expect(r.report.blocks).toEqual([])
+    expect(codes(r.report)).toEqual(['loop'])
+    // caps
+    const many = Array.from({ length: 60 }, (_, i) => ({ itemId: `wi_blk${String(i).padStart(7, '0')}`, pageId: 'pg_plan', title: `Blk ${i}` }))
+    const one = settleDoc(doc(tq(`[!TODO] x\nBlocks: ${many.slice(0, 25).map((m) => m.itemId).join(', ')}`)), ctxOf(), fakeWorld({ entries: many }))
+    expect(one.report.blocks).toHaveLength(20)
+    expect(codes(one.report)).toEqual(['cap'])
+    const three = doc(...[0, 20, 40].map((k, i) => tq(`[!TODO] t${i}\nBlocks: ${many.slice(k, k + 20).map((m) => m.itemId).join(', ')}`)))
+    expect(refusal(() => settleDoc(three, ctxOf({ strict: true }), fakeWorld({ entries: many })))).toContain('reaches more than 50 existing tasks')
+    const soft = settleDoc(three, ctxOf(), fakeWorld({ entries: many }))
+    expect(soft.report.blocks).toHaveLength(50)
+    expect(codes(soft.report)).toEqual(['cap'])
+  })
+
+  test('the AI menu: Blocks onto an existing task is left out — and said so (nothing stages it there); the terminal stages it', () => {
+    const w = () => fakeWorld({ entries: [{ itemId: 'wi_exist00001', pageId: 'pg_plan', title: 'Launch review' }] })
+    const md = doc(tq('[!TODO] Draft copy\nDue: 2026-10-17 · Blocks: Launch review'))
+    const menu = settleDoc(md, ctxOf({ source: 'menu', existing: 'skip' }), w())
+    expect(menu.report.blocks).toEqual([])
+    expect(menu.report.warnings).toEqual([{ code: 'blocks', task: 'Draft copy' }])
+    const transform = settleDoc(md, ctxOf({ source: 'transform' }), w())
+    expect(codes(transform.report)).toEqual(['blocks'])
+    // the terminal stages it as its own change
+    const term = settleDoc(md, ctxOf(), w())
+    expect(term.report.blocks).toHaveLength(1)
+    expect(codes(term.report)).toEqual([])
+  })
+
+  test('pins: apply writes the people and links staging resolved — a person or task gone since is left out, never someone else by that name', () => {
+    const L1 = 'wi_legal00001'
+    const md = doc(tq('[!TODO] Draft copy\nOwner: Alex · Blocked by: Legal review'))
+    const staging = settleDoc(md, ctxOf(), fakeWorld({ entries: [{ itemId: L1, pageId: 'pg_plan', title: 'Legal review' }] }))
+    expect(staging.report.pins).toEqual([{ people: [{ id: 'p_alex', name: 'Alex' }], blockedBy: [{ id: L1, title: 'Legal review' }], related: [] }])
+    // since: Alex removed and someone else named Alex; the legal task gone and another one carries its title
+    const later = () => fakeWorld({ people: [...PEOPLE.filter((x) => x.id !== 'p_alex'), { id: 'p_alex2', name: 'Alex' }], entries: [{ itemId: 'wi_legal00002', pageId: 'pg_plan', title: 'Legal review' }] })
+    const pinned = settleDoc(md, ctxOf({ ids: staging.report.ids, pins: staging.report.pins }), later())
+    expect(tasks(pinned.doc)[0]).toMatchObject({ itemId: staging.report.ids[0], people: [], blockedBy: [] })
+    expect(pinned.report.warnings).toEqual([
+      { code: 'person', task: 'Draft copy', value: 'Alex' },
+      { code: 'link', task: 'Draft copy', value: 'Legal review' },
+    ])
+    // an older change without pins resolves the text again (what the pins prevent)
+    expect(tasks(settleDoc(md, ctxOf({ ids: staging.report.ids }), later()).doc)[0]).toMatchObject({ people: ['p_alex2'], blockedBy: ['wi_legal00002'] })
+    // the same world: the pins write exactly what was staged
+    expect(tasks(settleDoc(md, ctxOf({ ids: staging.report.ids, pins: staging.report.pins }), fakeWorld({ entries: [{ itemId: L1, pageId: 'pg_plan', title: 'Legal review' }] })).doc)[0]).toMatchObject({ people: ['p_alex'], blockedBy: [L1] })
+  })
+
+  test('a REPLACED text keeps an earlier id only by handle or title (never by position); a task its earlier text made and this one does not is no link target', () => {
+    const [A, B] = ['wi_aaaaaaaaaa', 'wi_bbbbbbbbbb']
+    const reuse = [
+      { itemId: A, handle: 'copy', title: 'Draft copy' },
+      { itemId: B, handle: null, title: 'Ship pricing' },
+    ]
+    const swapped = settleDoc(doc(tq('[!TODO] Ship pricing'), tq('[!TODO] Draft copy {#copy}')), ctxOf({ reuse, change: 'c1' }), fakeWorld())
+    expect(tasks(swapped.doc).map((t) => [t.title, t.itemId])).toEqual([
+      ['Ship pricing', B],
+      ['Draft copy', A],
+    ])
+    // the task dropped, another one new: a fresh id — the next task never inherits the dropped one's
+    const w = fakeWorld()
+    const dropped = settleDoc(doc(tq('[!TODO] Review the copy'), tq('[!TODO] Draft copy {#copy}')), ctxOf({ reuse, change: 'c1' }), w)
+    expect(tasks(dropped.doc).map((t) => t.itemId)).toEqual([w.minted[0], A])
+    // extending (an append joined on): by position, as before
+    const ext = settleDoc(doc(tq('[!TODO] One'), tq('[!TODO] Two')), ctxOf({ firstIds: [A], change: 'c1' }), fakeWorld())
+    expect(tasks(ext.doc)[0].itemId).toBe(A)
+    // the earlier text's #copy (A) no longer made by this text: refused, never a link to a task that will not exist
+    const staged = new Map([[A, { change: 'c1', private: false }]])
+    const stale = () => settleDoc(doc(tq('[!TODO] Review\nBlocked by: #copy')), ctxOf({ strict: true, change: 'c1', staged, handles: new Map([['copy', A]]) }), fakeWorld())
+    expect(refusal(stale)).toContain('No task "#copy"')
+    // another change's staged task is still a need
+    const other = settleDoc(doc(tq('[!TODO] Review\nBlocked by: #copy')), ctxOf({ change: 'c2', staged, handles: new Map([['copy', A]]) }), fakeWorld())
+    expect(tasks(other.doc)[0].blockedBy).toEqual([A])
+    expect(other.report.needs).toEqual(['c1'])
+  })
+
+  test('holdsOfEdit: moving the due date or reopening a task that keeps its reminder holds like setting one', () => {
+    const cur = { people: [] as string[], reminder: 'at', due: '2026-10-17', status: 'todo' }
+    expect(holdsOfEdit({ due: '2026-10-20' }, cur)).toEqual(['reminder'])
+    expect(holdsOfEdit({ status: 'todo' }, { ...cur, status: 'done' })).toEqual(['reminder'])
+    expect(holdsOfEdit({ status: 'in_progress' }, { ...cur, status: 'done' })).toEqual(['reminder'])
+    expect(holdsOfEdit({ due: '2026-10-17' }, cur)).toEqual([])
+    expect(holdsOfEdit({ due: null }, cur)).toEqual([])
+    expect(holdsOfEdit({ due: '2026-10-20', reminder: null }, cur)).toEqual([])
+    expect(holdsOfEdit({ due: '2026-10-20' }, { ...cur, reminder: null })).toEqual([])
+    expect(holdsOfEdit({ status: 'done' }, cur)).toEqual([])
   })
 })
 
@@ -783,6 +906,18 @@ test.describe('claudeSettled: the order of the steps (in the app)', () => {
     expect(r.report.fieldsIgnored).toEqual(['Ship the pricing page'])
   })
 
+  test("a replace that writes known people's mentions into new blocks counts them (the inbox pings per block): it holds 'names'", async ({ page }) => {
+    await openApp(page)
+    const ids = await people(page)
+    const known = doc({ type: 'paragraph', attrs: { id: 'blk-known' }, content: [{ type: 'text', text: 'Ask ' }, person(ids.Alex, 'Alex')] })
+    const md = [`Ask [@Alex](one:person/${ids.Alex}) about the venue.`, '', `Then [@Alex](one:person/${ids.Alex}) books it.`, '', `And [@Alex](one:person/${ids.Alex}) pays.`].join('\n')
+    const ctx = { ...baseCtx, source: 'mcp', strict: true, pageId: 'pg_x', known }
+    const r = (await settle<Settled>(page, 'settled', md, ctx)) as { doc: JSONContent; report: Record<string, any> } // eslint-disable-line @typescript-eslint/no-explicit-any
+    expect(mentionsIn(r.doc)).toHaveLength(3)
+    expect(r.report.mentionsAdded).toBe(3)
+    expect(holdsOfReport(r.report as Parameters<typeof holdsOfReport>[0])).toEqual(['names'])
+  })
+
   test('pins in the app: a pasted `> [!TODO]` and Markdown without a context stay quotes', async ({ page }) => {
     await openApp(page)
     expect(tasks(await settle<JSONContent>(page, 'claudeDoc', '> [!TODO] Not a task here'))).toEqual([])
@@ -836,5 +971,28 @@ test.describe("writeItems with Claude's origin (in the app)", () => {
     await write([{ itemId: B, patch: { status: 'done' } }], { origin: 'ai', by: 'system', toasts: false, writer: { kind: 'terminal', run: 'run8' } })
     expect(await wsEval(page, (s, id) => s.pages[id].contentOrigin, id)).toBe('ai')
     expect(tasks(await wsEval(page, (s, id) => s.pages[id].content, id))[1].status).toBe('done')
+  })
+
+  test('one batch: an edit is checked against the blockers the edits before it add — two that each look fine alone never close a loop', async ({ page }) => {
+    await openApp(page)
+    const content = doc(item({ itemId: A }, 'Draft copy'), item({ itemId: B }, 'Ship pricing'))
+    const id = await createPage(page, { title: 'Nordlicht plan', content })
+    const r = await page.evaluate(
+      ({ A, B }) =>
+        (window as unknown as { __oneItems: Seam }).__oneItems.write(
+          [
+            { itemId: A, patch: { blockedBy: { add: [B] } } },
+            { itemId: B, patch: { blockedBy: { add: [A] } } },
+          ],
+          { origin: 'ai', by: 'system', toasts: false, writer: { kind: 'terminal', run: 'run9' } },
+        ),
+      { A, B },
+    )
+    expect(r.results.map((x: { ok: boolean; refused?: string }) => [x.ok, x.refused ?? null])).toEqual([
+      [true, null],
+      [false, 'loop'],
+    ])
+    const after = tasks(await wsEval(page, (s, id) => s.pages[id].content, id))
+    expect(after.map((t) => t.blockedBy)).toEqual([[B], []])
   })
 })

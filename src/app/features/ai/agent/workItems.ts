@@ -27,7 +27,8 @@ import { WORK_ITEM_STATUSES, type WorkItemStatus } from '../../../editor/workite
 import { claudeSettled } from '../claudeDoc'
 import { webImagesOf } from '../../agents/images'
 import { snapshotNow } from '../../history/snapshots'
-import { SettleRefusal, foldTitle, peopleResolver, personDraftOf, warningText, type SettleContext, type SettleReport, type SettleSource, type SettleWorld, type StagedRef } from '../../workitems/settle'
+import { MAX_ITEM_UPDATES, SettleRefusal, foldTitle, peopleResolver, personDraftOf, warningText, type SettleContext, type SettleReport, type SettleSource, type SettleWorld, type StagedRef } from '../../workitems/settle'
+import { ITEM_ID } from '../../../lib/itemIds'
 import { settleWorld } from '../../workitems/world'
 import { factLineEn, type FactWorld, type ItemFact, type ItemRefFact } from '../../workitems/facts'
 import { holdsOfEdit, holdsOfReport } from '../../workitems/holds'
@@ -81,6 +82,59 @@ function creatorOf(stage: StageApi, itemId: string): StagedChange | null {
   return c && isOpen(c) ? c : null
 }
 
+/**
+ * The session's staged tasks whose change is still open — this call's own (an MCP replace: no change; a scratch write:
+ * its provisional `__` id) or a pending / failed one. A discarded change's tasks will never exist: never linked.
+ */
+function openStaged(stage: StageApi): Map<string, StagedRef & { pageId: ID | null }> {
+  const byId = new Map(stage.list().map((c) => [c.id, c]))
+  const out = new Map<string, StagedRef & { pageId: ID | null }>()
+  for (const [id, ref] of stage.items.staged) {
+    const c = ref.change ? byId.get(ref.change) : undefined
+    if (!ref.change || (c ? isOpen(c) : ref.change.startsWith('__'))) out.set(id, ref)
+  }
+  return out
+}
+
+/**
+ * blockedBy edges the open changes add, by task: staged link changes ('workItem' adds) and the links of tasks other
+ * changes stage (their facts) — `except`: the change being written again (its text's links are this write's own).
+ */
+export function pendingEdges(stage: StageApi, except?: string | null): Map<string, string[]> {
+  const out = new Map<string, string[]>()
+  const add = (from: string, to: readonly string[]) => {
+    if (to.length) out.set(from, [...(out.get(from) ?? []), ...to])
+  }
+  for (const c of stage.list()) {
+    if (!isOpen(c) || c.id === except) continue
+    if (c.kind === 'workItem' && c.workItem) add(c.workItem.itemId, c.workItem.patch.blockedBy?.add ?? [])
+    for (const f of c.items?.facts ?? []) if (f.tag === 'new') add(f.itemId, f.blockedBy.map((r) => r.itemId))
+  }
+  return out
+}
+
+/** The task graph as the open changes would leave it: live (or staged) links − staged removals + staged additions. */
+function stagedGraph(stage: StageApi, world: SettleWorld): Parameters<typeof wouldLoop>[0] {
+  const adds = pendingEdges(stage)
+  const removes = new Map<string, Set<string>>()
+  for (const c of stage.list()) {
+    if (c.kind !== 'workItem' || !isOpen(c) || !c.workItem?.patch.blockedBy?.remove?.length) continue
+    const set = removes.get(c.workItem.itemId) ?? new Set<string>()
+    for (const x of c.workItem.patch.blockedBy.remove) set.add(x)
+    removes.set(c.workItem.itemId, set)
+  }
+  return {
+    byId: {
+      get: (id: string) => {
+        const gone = removes.get(id)
+        const base = (world.entry(id)?.blockedBy ?? []).filter((x) => !gone?.has(x))
+        const more = adds.get(id) ?? []
+        return base.length || more.length ? { attrs: { blockedBy: [...base, ...more] } } : undefined
+      },
+    },
+  } as unknown as Parameters<typeof wouldLoop>[0]
+}
+
 /** The facts a pending change holds for one of its new tasks. */
 const stagedFact = (c: StagedChange | null, itemId: string): ItemFact | undefined => c?.items?.facts.find((f) => f.itemId === itemId && f.tag === 'new')
 
@@ -130,6 +184,16 @@ export interface ItemTarget {
   change?: string | null
 }
 
+/**
+ * The earlier text of the change being staged again: `extends` — the new text is the old one with more after it (an
+ * append joined onto a pending one, insert_after the same block again): its new tasks keep their ids by position;
+ * otherwise the text was REPLACED: a task keeps an earlier id only by its handle or its title (settle `reuse`).
+ */
+export interface ItemPrev {
+  items: StagedItems | undefined
+  extends: boolean
+}
+
 export interface ItemStaging {
   items: StagedItems | undefined
   /** lines for the tool result (model-facing English) */
@@ -176,9 +240,12 @@ function resultLines(report: SettleReport): string[] {
  * ids its earlier text got, by position — `prev`). Throws ToolInputError on a refusal (nothing staged, the session
  * untouched). Nothing is registered in the session here: commitItems does that once the change is staged.
  */
-export function stageItems(markdown: string, stage: StageApi, target: ItemTarget, prev?: StagedItems): ItemStaging {
+export function stageItems(markdown: string, stage: StageApi, target: ItemTarget, prevText?: ItemPrev): ItemStaging {
   const session = stage.items
   const page = target.pageId ? ws().pages[target.pageId] : undefined
+  const prev = prevText?.items
+  const reuse = prev && !prevText.extends ? prev.facts.filter((f) => f.tag === 'new').map((f) => ({ itemId: f.itemId, handle: f.handle, title: f.title })) : []
+  const edges = pendingEdges(stage, target.change ?? null)
   const ctx: SettleContext = {
     source: session.source,
     creates: true,
@@ -190,9 +257,11 @@ export function stageItems(markdown: string, stage: StageApi, target: ItemTarget
     known: target.known ?? null,
     keepSingle: !!target.keepSingle,
     handles: prev ? new Map([...session.handles, ...Object.entries(prev.handles)]) : session.handles,
-    staged: session.staged,
+    staged: openStaged(stage),
     change: target.change ?? null,
-    ...(prev?.ids.length ? { firstIds: prev.ids } : {}),
+    ...(prevText?.extends && prev?.ids.length ? { firstIds: prev.ids } : {}),
+    ...(reuse.length ? { reuse } : {}),
+    ...(edges.size ? { pendingEdges: edges } : {}),
     existing: 'copy',
     me: session.source !== 'agent',
   }
@@ -206,23 +275,59 @@ export function stageItems(markdown: string, stage: StageApi, target: ItemTarget
   const facts = [...report.created, ...report.kept, ...report.removed]
   const holds = holdsOfReport(report)
   const items: StagedItems | undefined =
-    report.ids.length || facts.length || report.warnings.length || holds.length ? { ids: report.ids, handles: report.handles, facts, warnings: report.warnings, holds } : undefined
+    report.ids.length || facts.length || report.warnings.length || holds.length
+      ? { ids: report.ids, handles: report.handles, facts, warnings: report.warnings, holds, pins: report.pins, ...(report.needs.length ? { needs: report.needs } : {}) }
+      : undefined
   return { items, lines: resultLines(report), blocks: report.blocks, needs: report.needs, report, target }
 }
 
-/** needs of a change: its own plus the text's (never itself or what it depends on). */
-export const withNeeds = (c: Pick<StagedChange, 'id' | 'dependsOn' | 'needs'> | null, add: readonly string[]): string[] => {
-  const out = new Set(c?.needs ?? [])
+/**
+ * needs of a change whose text was settled (again): its own minus what its earlier text needed (`c.items.needs` — the
+ * new text's needs replace them), plus the new text's — never itself or what it depends on. `c`: the change as it was
+ * BEFORE this write (its earlier items).
+ */
+export const withNeeds = (c: Pick<StagedChange, 'id' | 'dependsOn' | 'needs' | 'items'> | null, add: readonly string[]): string[] => {
+  const earlier = new Set(c?.items?.needs ?? [])
+  const out = new Set((c?.needs ?? []).filter((n) => !earlier.has(n)))
   for (const n of add) if (n !== c?.id && n !== c?.dependsOn) out.add(n)
   return [...out]
 }
 
+/** A staging's items with its needs as the real change ids (a scratch write's provisional ids mapped). */
+export const itemsWithNeeds = (items: StagedItems | undefined, needs: readonly string[]): StagedItems | undefined => (items ? { ...items, ...(needs.length ? { needs: [...needs] } : { needs: undefined }) } : items)
+
 /** A session learns a staged change's new task ids and the handles it declared (`change`: its id, or a provisional one). */
 export function registerItems(session: ItemSession, change: string, staging: ItemStaging): void {
   const ids = new Set(staging.report.ids)
-  for (const [id, ref] of [...session.staged]) if (ref.change === change && !ids.has(id)) session.staged.delete(id)
+  const before = new Set([...session.staged].filter(([, ref]) => ref.change === change).map(([id]) => id))
+  for (const id of before) if (!ids.has(id)) session.staged.delete(id)
   for (const id of ids) session.staged.set(id, { change, private: staging.target.private, pageId: staging.target.pageId })
-  for (const [h, id] of Object.entries(staging.report.handles)) if (ids.has(id)) session.handles.set(h, id)
+  // a handle of this change's tasks that the new text no longer declares (for that task) is gone
+  const declared = staging.report.handles
+  for (const [h, id] of [...session.handles]) if ((before.has(id) || ids.has(id)) && declared[h] !== id) session.handles.delete(h)
+  for (const [h, id] of Object.entries(declared)) if (ids.has(id)) session.handles.set(h, id)
+}
+
+/**
+ * registerItems for a change staged (again) — and the lines that tell Claude which OTHER open changes point at a task
+ * this text no longer makes (written again without it): their link is left out at apply unless they are staged again.
+ */
+export function registerChange(stage: StageApi, change: string, staging: ItemStaging): string[] {
+  const before = [...stage.items.staged].filter(([, ref]) => ref.change === change).map(([id]) => id)
+  registerItems(stage.items, change, staging)
+  const kept = new Set(staging.report.ids)
+  const gone = new Set(before.filter((id) => !kept.has(id)))
+  if (!gone.size) return []
+  const lines: string[] = []
+  for (const x of stage.list()) {
+    if (x.id === change || !isOpen(x)) continue
+    const linked = [
+      ...(x.items?.pins ?? []).flatMap((p) => [...p.blockedBy, ...p.related].map((r) => r.id)),
+      ...(x.workItem ? [x.workItem.itemId, ...(x.workItem.patch.blockedBy?.add ?? []), ...(x.workItem.patch.related?.add ?? [])] : []),
+    ].filter((id) => gone.has(id))
+    for (const id of new Set(linked)) lines.push(`Change #${x.n} points at ${id}, a task this text no longer makes: stage #${x.n} again (as it is, that link is left out — a task change fails).`)
+  }
+  return lines
 }
 
 /**
@@ -230,8 +335,8 @@ export function registerItems(session: ItemSession, change: string, staging: Ite
  * 'workItem' changes that depend on it. Returns the lines that say so.
  */
 export function commitItems(stage: StageApi, change: StagedChange, staging: ItemStaging): string[] {
-  registerItems(stage.items, change.id, staging)
-  return stageBlocks(stage, change, staging)
+  const orphans = registerChange(stage, change.id, staging)
+  return [...orphans, ...stageBlocks(stage, change, staging)]
 }
 
 /** `Blocks:` of a staged text change onto existing tasks: one 'workItem' change per task, depending on it. */
@@ -352,6 +457,10 @@ export function stageItemEdit(stage: StageApi, itemId: string, patch: ItemPatch,
     const gate = pageGate(target.pageId)
     if (gate) return { error: gate }
   }
+  // a new blocker that closes a loop through live links and every open change's (staged tasks, staged link changes)
+  const graph = stagedGraph(stage, world)
+  const loop = (patch.blockedBy?.add ?? []).find((to) => wouldLoop(graph, itemId, to))
+  if (loop) return { error: `waiting for ${loop} would close a loop (${loop} already waits for it, also through staged changes)` }
   const pending = stage.list().find((c) => c.kind === 'workItem' && c.status === 'pending' && c.workItem?.itemId === itemId)
   const merged = pending?.workItem ? mergePatch(pending.workItem.patch, patch) : patch
   const delta = patchItemAttrs(target.attrs as unknown as Record<string, unknown>, merged, Date.now())
@@ -368,7 +477,7 @@ export function stageItemEdit(stage: StageApi, itemId: string, patch: ItemPatch,
     const now = JSON.parse(fieldsJson(target.attrs, keys)) as Record<string, unknown>
     before = JSON.stringify(Object.fromEntries(keys.slice().sort().map((k) => [k, k in prev ? prev[k] : now[k]])))
   }
-  const holds = holdsOfEdit(merged, target.creator ? null : { people: target.attrs.people })
+  const holds = holdsOfEdit(merged, target.creator ? null : target.attrs)
   const edit: StagedItemEdit = { itemId, patch: merged, before, facts: factOf(itemId, target.title, after, fw, target.attrs), holds, ...(opts.from ?? pending?.workItem?.from ? { from: opts.from ?? pending!.workItem!.from } : {}) }
   const dependsOn = pending?.dependsOn ?? opts.from ?? target.creator?.id
   const needs = withNeeds({ id: pending?.id ?? '', dependsOn, needs: pending?.needs }, [...(opts.needs ?? []), ...(target.creator && target.creator.id !== dependsOn ? [target.creator.id] : []), ...(opts.from && opts.from !== dependsOn ? [opts.from] : [])])
@@ -420,7 +529,7 @@ function resolveTaskRef(stage: StageApi, world: SettleWorld, inScope: (e: { item
     const id = stage.items.handles.get(h[1].toLowerCase())
     return id ? { id } : { error: `No task with the handle #${h[1].toLowerCase()} in this conversation. Use a task id (wi_…) from list_work_items or a tool result.` }
   }
-  if (/^wi_[A-Za-z0-9]{10}$/.test(s)) {
+  if (ITEM_ID.test(s)) {
     if (creatorOf(stage, s)) return { id: s }
     const e = world.entry(s)
     return e && inScope(e) ? { id: s } : { error: `No task ${s} here. Use list_work_items to find task ids.` }
@@ -596,8 +705,8 @@ export function listItems(input: Record<string, unknown>, stage: StageApi, world
 /* update_work_item                                                    */
 /* ------------------------------------------------------------------ */
 
-/** Updates one update_work_item call may stage. */
-export const MAX_ITEM_UPDATES = 50
+/** Updates one update_work_item call may stage (settle.ts: also a write's `Blocks:` targets). */
+export { MAX_ITEM_UPDATES }
 
 interface PlannedEdit {
   itemId: string
@@ -822,6 +931,8 @@ export function itemCtx(c: StagedChange, at: { pageId: ID | null; private: boole
     known: at.known ?? null,
     keepSingle: !!at.keepSingle,
     ids: c.items?.ids ?? [],
+    // what staging resolved per new task (people, links) — written as it was reviewed, never resolved again
+    ...(c.items?.pins ? { pins: c.items.pins } : {}),
     handles: new Map(Object.entries(c.items?.handles ?? {})),
     staged: opts.staged,
     change: c.id,
@@ -881,6 +992,12 @@ export async function applyItemChanges(pageId: ID, changes: StagedChange[], ctx:
     const missing = depsOf(c).find((id) => !ctx.done.has(id))
     if (missing) {
       failed.push({ id: c.id, error: `needs change #${ctx.all.find((x) => x.id === missing)?.n ?? '?'} first` })
+      continue
+    }
+    // a task it links must exist now (one a revised text no longer makes never did): never a dangling link
+    const links = [...(w.patch.blockedBy?.add ?? []), ...(w.patch.related?.add ?? [])]
+    if (links.some((id) => !getItemIndex().byId.has(id))) {
+      failed.push({ id: c.id, error: t('features.agent.item.linkGone') })
       continue
     }
     const now = attrsNow(pageId, w.itemId)

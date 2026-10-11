@@ -45,7 +45,7 @@ Contents: [Tools](#tools) · [Tidying up](#tidying-up) · [One Script](#one-scri
 | `one_restore_page` | write | `{ id }` or `{ ids: [≤ 50] }` — back from the trash |
 | `one_run_query` | read | `{ code, limit? }` — a read-only [One Script](#one-script) query: `{ count, columns, rows: [{ id?, <column>: text }] (≤ 100), truncated? }` or `{ value }` — local bridge only |
 | `one_run_script` | write · destructive | `{ script (id or name), pageId?, dryRun? }` — a saved script, [always approved first](#one-script) — local bridge only |
-| `one_list_work_items` | read | `{ status?, person?, page_id?, blocked?, overdue?, due_before?, query?, limit? }` — task blocks as JSON ([Tasks](#tasks)) — local bridge only (team server: later) |
+| `one_list_work_items` | read | `{ status?, person?, pageId?, blocked?, overdue?, dueBefore?, query?, limit? }` — task blocks as JSON ([Tasks](#tasks)) — local bridge only (team server: later) |
 | `one_update_work_item` | write | `{ updates: [{ item, status?, due?, reminder?, people?, blocked_by?, related? }] }` — a task's fields ([Tasks](#tasks)) — local bridge only (team server: later) |
 
 Every tool but `one_list_workspaces` also takes **`workspace`** (optional): the id (`"local:…"`, `"team:…"`) or the
@@ -123,12 +123,13 @@ Task blocks (`workItem`, UI "Task") through the **local bridge** — the team se
 - **People are never created.** An owner must be a person of the workspace — by name (exact, any case), a member's
   email or `me`; an unknown name refuses the call with the list of names (never emails).
 - **Links** reach only live tasks of the workspace (never a template's, never one in the trash), never so that a
-  shared task waits for a private one; a link that would close a loop is refused. ≤ 100 new tasks per write, ≤ 50
-  updates per call, ≤ 12 people and ≤ 20 links per task.
+  shared task waits for a private one; a link that would close a loop — also through changes still waiting for approval
+  — is refused (in Markdown: left out, and said so). ≤ 100 new tasks per write, ≤ 50 updates per call (and ≤ 50 existing tasks a write's `Blocks:` reaches),
+  ≤ 12 people and ≤ 20 links per task (`Blocks:` included).
 - **Reminders and assignments are always asked** — see *Apply directly* below.
 - `one_list_work_items` — filters: `status` (`open` = todo + in progress, the default · `todo` · `in_progress` ·
-  `done` · `any`), `person` (a name, a member's email, `me`, `none`), `page_id` (that page and below), `blocked`,
-  `overdue`, `due_before`, `query` (part of the title), `limit` (1–100, 50). Answer: `{ count, items: [{ id, title,
+  `done` · `any`), `person` (a name, a member's email, `me`, `none`), `pageId` (that page and below), `blocked`,
+  `overdue`, `dueBefore`, `query` (part of the title), `limit` (1–100, 50). Answer: `{ count, items: [{ id, title,
   status, due, reminder, people: [{ id, name }], blocked, overdue, blockedBy: [{ id, title, status }], related: [{ id,
   title }], page: { id, title, path }, url }], truncated?, loading? }` — overdue first, then by due date.
 - `one_update_work_item` — `updates: [{ item: "wi_…", status?, due? (null clears), reminder? (null clears), people?:

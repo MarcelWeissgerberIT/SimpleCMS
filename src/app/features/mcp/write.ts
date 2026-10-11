@@ -16,7 +16,7 @@ import { newId } from '../../lib/ids'
 import { t } from '../../i18n'
 import type { Database, ID, PropertyDef, PropertyType } from '../../store/types'
 import { isEffectivelyTrashed } from '../../store/selectors'
-import { aiWrite, snapshotNow } from '../history/snapshots'
+import { aiWrite, contentKey, snapshotNow } from '../history/snapshots'
 import { pagePrivate, registerItems, stageBlocks, type ItemStaging } from '../ai/agent/workItems'
 import type { PropChange } from '../ai/agent/types'
 import { getItemIndex, SettleRefusal, type SettleReport } from '../workitems'
@@ -186,9 +186,12 @@ function planUpdatePage(args: Record<string, unknown>): WritePlan {
         const prev = ws().pages[page.id]?.content ?? null
         withWriter(writer, () => ws().setContent(page.id, replaceWith!, 'ai'))
         const after = ws().pages[page.id]?.contentRev
+        const afterKey = contentKey(ws().pages[page.id]?.content)
         undos.push(() => {
           const now = ws().pages[page.id]
-          if (!now || now.contentRev !== after) return false
+          // untouched since: the same revision, or the same content (a folded task change of this page undone first
+          // writes it back — a new revision of the replaced text)
+          if (!now || (now.contentRev !== after && contentKey(now.content) !== afterKey)) return false
           ws().setContent(page.id, prev, 'ai')
           return true
         })

@@ -127,7 +127,15 @@ the public APIs stable — other areas are built against them in parallel.
   private in either direction, no loops, titles of out-of-scope tasks never to Claude), never inside a task or a table.
   Text never changes an existing task's fields — `update_work_item` / `one_update_work_item` (ChangeKind 'workItem',
   fingerprint, `guardTask` + `onTask`, one `writeItems(…, { origin: 'ai' })` per page after `snapshotNow`). Task links
-  between staged changes are `needs`. `list_work_items` / `one_list_work_items` read the index in scope. Holds
+  between staged changes are `needs`: applyChanges orders a batch so a change follows every change it needs (`applyOrder`;
+  an edit / task change whose need is not applied fails "needs change #n first"); staging PINS what it resolved per new
+  task (`StagedItems.pins`: people + link ids — apply writes those, never names / titles resolved again); a text written
+  again keeps an earlier task id only by handle or title (an append joined on: by position); a discarded change's tasks
+  and a synced reference's tasks are never link targets / `known`; loops are checked through pending changes too
+  (`pendingEdges`, one `writeItems` batch against its own earlier edits); `Blocks:` ≤ 20 per task, ≤ 50 existing tasks per
+  write; a person mention counts as added (hold 'names') unless the replaced content had it under the same inbox key (the
+  nearest block id); the terminal's read limit is memoised per page for one tool call (`withReadLimit`).
+  `list_work_items` / `one_list_work_items` read the index in scope. Holds
   (features/workitems/holds.ts): names a person · sets a reminder · changes an assigned task (any field or its text) · adds
   a blocker to an existing task · removes tasks — custom agents in apply mode and MCP Apply directly never write such a
   change, or anything depending on it (`heldClosure`), without review; reminders are never stripped silently. Only `one:`

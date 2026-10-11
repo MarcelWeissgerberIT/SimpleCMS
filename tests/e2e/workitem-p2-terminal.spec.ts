@@ -66,7 +66,7 @@ test.describe('1440 light', () => {
     await run(page, 'Plan the copy work')
     await done(page)
     const res = resultText(m.bodies[1], 't1')
-    const ids = [...res.matchAll(/→ (wi_[A-Za-z0-9]{10})/g)].map((x) => x[1])
+    const ids = [...res.matchAll(/→ (wi_[A-Za-z0-9_-]{10})/g)].map((x) => x[1])
     expect(ids).toHaveLength(2)
     expect(res).toContain(`"Draft copy" → ${ids[0]} (#copy)`)
     // the review: TASK · NEW rows with the owner, the due date and the link to the new task
@@ -474,6 +474,165 @@ test.describe('1440 light', () => {
       expect.objectContaining({ id: '2026-10-16', kind: 'date' }),
     ])
     expect(mentions[2].reminder ?? null).toBeNull()
+  })
+})
+
+test.describe('review fixes', () => {
+  test('an edit that links a task of a change that fails fails too ("needs change #1 first") — never a link onto another page\'s task', async ({ page, context }) => {
+    const id = await setup(page)
+    const other = await createPage(page, { title: 'Tessera plan', content: doc(p('Pricing notes')) })
+    // the append goes to the other page; the edit to the open one (its blocks carry ids: refs)
+    await mockAgent(context, [
+      call('a1', 'append_to_page', { id: other, markdown: '> [!TODO] Draft copy {#copy}' }),
+      call('r1', 'read_page', { id, refs: true }),
+      (body) => {
+        const ref = /⟦(b\d+)⟧/.exec(resultText(body, 'r1'))![1]
+        return call('e1', 'edit_page', { id, edits: [{ op: 'insert_after', ref, markdown: '> [!TODO] Ship pricing\n> Blocked by: #copy' }] })()
+      },
+      say('Staged.'),
+    ])
+    await openTerminal(page)
+    await run(page, 'Plan copy and pricing')
+    await done(page)
+    const [a, e] = await changes(page)
+    expect(e.kind).toBe('edit')
+    expect(e.needs).toEqual([a.id])
+    // the staged id is taken by now (a paste of a copy on a third page): #1 fails, and so does the edit that needs it
+    const third = await createPage(page, { title: 'Nordlicht archive', content: doc(item({ itemId: a.items.ids[0], status: 'todo' }, 'Pasted copy')) })
+    const res = await applyAlone(page, a.id, e.id)
+    expect(res.applied).toEqual([])
+    expect(res.failed).toEqual([
+      { id: a.id, error: 'A task id of this change is in use by now — ask Claude to stage it again.' },
+      { id: e.id, error: 'needs change #1 first' },
+    ])
+    expect(tasksIn(await pageContent(page, id))).toEqual([])
+    expect(tasksIn(await pageContent(page, other))).toEqual([])
+    expect(tasksIn(await pageContent(page, third))).toMatchObject([{ itemId: a.items.ids[0], title: 'Pasted copy' }])
+  })
+
+  test('apply order follows what a change needs: a new page whose task waits for an append\'s task applies after it, in one batch', async ({ page, context }) => {
+    const id = await setup(page)
+    await mockAgent(context, [
+      call('a1', 'append_to_page', { id, markdown: '> [!TODO] Call the vendor {#vendor}' }),
+      call('c1', 'create_page', { title: 'Vendor contract', markdown: '> [!TODO] Sign the contract\n> Blocked by: #vendor' }),
+      say('Staged.'),
+    ])
+    await openTerminal(page)
+    await run(page, 'Plan the vendor work')
+    await done(page)
+    const [a, c] = await changes(page)
+    expect(c.needs).toEqual([a.id])
+    const res = await applyAlone(page, a.id, c.id)
+    expect(res.failed).toEqual([])
+    expect(res.applied).toEqual([a.id, c.id])
+    expect(tasksIn(await pageContent(page, c.pageId))).toMatchObject([{ title: 'Sign the contract', blockedBy: [a.items.ids[0]] }])
+  })
+
+  test('a task change of a task whose new page fails says "needs change #1 first" (not "no longer here")', async ({ page, context }) => {
+    await setup(page)
+    await mockAgent(context, [
+      call('c1', 'create_page', { title: 'Copy work', markdown: '> [!TODO] Draft copy {#copy}' }),
+      call('u1', 'update_work_item', { updates: [{ item: '#copy', status: 'in progress' }] }),
+      say('Staged.'),
+    ])
+    await openTerminal(page)
+    await run(page, 'Plan the copy page')
+    await done(page)
+    const [c, u] = await changes(page)
+    await createPage(page, { title: 'Tessera notes', content: doc(item({ itemId: c.items.ids[0], status: 'todo' }, 'Pasted copy')) })
+    const res = await applyAlone(page, c.id, u.id)
+    expect(res.failed).toEqual([
+      { id: c.id, error: 'A task id of this change is in use by now — ask Claude to stage it again.' },
+      { id: u.id, error: 'needs change #1 first' },
+    ])
+  })
+
+  test('update_work_item takes every task id One mints — "_" and "-" included', async ({ page, context }) => {
+    const [ODD, ODD2] = ['wi_ab_cd-EFGH', 'wi_x-y_z12345']
+    const id = await setup(page, doc(item({ itemId: ODD, status: 'todo' }, 'Odd id task'), item({ itemId: ODD2, status: 'todo' }, 'Other odd task')))
+    const m = await mockAgent(context, [call('u1', 'update_work_item', { updates: [{ item: ODD, status: 'done', blocked_by: { add: [ODD2] } }] }), say('Staged.')])
+    await openTerminal(page)
+    await run(page, 'Close the odd task')
+    await done(page)
+    expect(resultText(m.bodies[1], 'u1')).toContain(`Staged as change #1: ${ODD} "Odd id task"`)
+    const [u] = await changes(page)
+    expect(u.workItem).toMatchObject({ itemId: ODD, patch: { status: 'done', blockedBy: { add: [ODD2] } } })
+    void id
+  })
+
+  test('a discarded change\'s handle is no link target: the text is refused, nothing is staged', async ({ page, context }) => {
+    const id = await setup(page)
+    const m = await mockAgent(context, [
+      call('c1', 'create_page', { title: 'Copy work', markdown: '> [!TODO] Draft copy {#copy}' }),
+      say('Staged.'),
+      call('a1', 'append_to_page', { id, markdown: '> [!TODO] Review copy\n> Blocked by: #copy' }),
+      say('Tried.'),
+    ])
+    await openTerminal(page)
+    await run(page, 'Stage the copy page')
+    await done(page)
+    await change(page, 1).getByRole('button', { name: /^Discard #1/ }).click()
+    await expect(change(page, 1)).toHaveAttribute('data-status', 'discarded')
+    await run(page, 'Add the review')
+    await done(page)
+    const res = resultText(m.bodies[3], 'a1')
+    expect(res).toContain('No task "#copy"')
+    expect(res).toContain('Nothing was staged.')
+    expect(await changes(page)).toHaveLength(1)
+  })
+
+  test('a page staged again with its tasks in another order keeps each id by handle / title; dropping one names the change that linked it', async ({ page, context }) => {
+    const id = await setup(page)
+    const m = await mockAgent(context, [
+      call('p1', 'create_pages', { pages: [{ title: 'Copy work', markdown: '> [!TODO] Draft copy {#copy}\n\n> [!TODO] Ship pricing' }] }),
+      call('a1', 'append_to_page', { id, markdown: '> [!TODO] Review\n> Blocked by: #copy' }),
+      call('p2', 'create_pages', { pages: [{ title: 'Copy work', markdown: '> [!TODO] Ship pricing\n\n> [!TODO] Draft copy {#copy}' }] }),
+      call('p3', 'create_pages', { pages: [{ title: 'Copy work', markdown: '> [!TODO] Ship pricing\n\n> [!TODO] Announce it' }] }),
+      say('Staged.'),
+    ])
+    await openTerminal(page)
+    await run(page, 'Plan the copy work')
+    await done(page)
+    // the ids the first text got (from its tool result: the change itself holds the newest text's by now)
+    const firstRes = resultText(m.bodies[1], 'p1')
+    const A = /"Draft copy" → (wi_[A-Za-z0-9_-]{10}) \(#copy\)/.exec(firstRes)![1]
+    const B = /"Ship pricing" → (wi_[A-Za-z0-9_-]{10})/.exec(firstRes)![1]
+    // the reordered text: Draft copy keeps A (its handle), Ship pricing keeps B (its title)
+    const reordered = resultText(m.bodies[3], 'p2')
+    expect(reordered).toContain(`"Ship pricing" → ${B}`)
+    expect(reordered).toContain(`"Draft copy" → ${A} (#copy)`)
+    // the copy task dropped: the review that links it is named; the new task gets a fresh id (never A)
+    const dropped = resultText(m.bodies[4], 'p3')
+    expect(dropped).toContain(`Change #2 points at ${A}, a task this text no longer makes`)
+    const [c1, c2] = await changes(page)
+    expect(c1.items.ids[0]).toBe(B)
+    expect(c1.items.ids[1]).not.toBe(A)
+    // applied together: the review's link to the task that is no more is left out (a note), never another task
+    const res = await applyAlone(page, c1.id, c2.id)
+    expect(res.failed).toEqual([])
+    const review = tasksIn(await pageContent(page, id)).find((t) => t.title === 'Review')!
+    expect(review.blockedBy).toEqual([])
+  })
+
+  test('a Blocks: link that would close a loop through a pending task change is left out at staging', async ({ page, context }) => {
+    const [E1, E2] = ['wi_loopa00001', 'wi_loopb00002']
+    const id = await setup(page, doc(item({ itemId: E1, status: 'todo' }, 'First'), item({ itemId: E2, status: 'todo' }, 'Second')))
+    const m = await mockAgent(context, [
+      call('u1', 'update_work_item', { updates: [{ item: E1, blocked_by: { add: [E2] } }] }),
+      call('a1', 'append_to_page', { id, markdown: `> [!TODO] New one\n> Blocked by: ${E1} · Blocks: ${E2}` }),
+      say('Staged.'),
+    ])
+    await openTerminal(page)
+    await run(page, 'Chain the tasks')
+    await done(page)
+    expect(resultText(m.bodies[2], 'a1')).toContain('A link would make a loop')
+    const all = await changes(page)
+    expect(all).toHaveLength(2)
+    const res = await applyAlone(page, ...all.map((c: AnyState) => c.id))
+    expect(res.failed).toEqual([])
+    const by = Object.fromEntries(tasksIn(await pageContent(page, id)).map((t) => [t.title, t.blockedBy]))
+    expect(by.First).toEqual([E2])
+    expect(by.Second).toEqual([])
   })
 })
 

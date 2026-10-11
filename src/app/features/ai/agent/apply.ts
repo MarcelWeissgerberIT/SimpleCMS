@@ -160,6 +160,28 @@ export interface ApplyResult {
 const RANK: Partial<Record<StagedChange['kind'], number>> = { create_page: 0, create_database: 1, add_property: 2, workItem: 3.5, coding: 4 }
 const rank = (c: StagedChange) => RANK[c.kind] ?? 3
 
+/**
+ * The batch in apply order: by RANK, then review order — but never before a change of the batch it needs (depsOf: a new
+ * page may link a task an append makes, a later rank). A loop (nothing stages one) keeps rank order; its changes fail.
+ */
+function applyOrder(changes: StagedChange[]): StagedChange[] {
+  let left = [...changes].sort((a, b) => rank(a) - rank(b) || a.n - b.n)
+  const inBatch = new Set(left.map((c) => c.id))
+  const placed = new Set<string>()
+  const out: StagedChange[] = []
+  while (left.length) {
+    const next = left.find((c) => depsOf(c).every((d) => !inBatch.has(d) || placed.has(d)))
+    if (!next) {
+      out.push(...left)
+      break
+    }
+    out.push(next)
+    placed.add(next.id)
+    left = left.filter((c) => c !== next)
+  }
+  return out
+}
+
 /** The undo of a change that cannot be undone (applyChanges lists it in `final`). */
 const FINAL = () => true
 
@@ -216,9 +238,10 @@ async function onTask<T extends () => boolean | string[]>(id: ID, opts: ApplyOpt
 }
 
 /**
- * Apply pending changes: pages, then databases, then properties, then rows and the rest, each in
- * review order. A change whose staged parent (or database, or property) is not applied — in this
- * batch or before — fails instead of landing somewhere unexpected.
+ * Apply pending changes: pages, then databases, then properties, then rows and the rest, each in review order — and a
+ * change after every change of the batch it needs (applyOrder). A change whose staged parent (or database, or
+ * property, or a change whose new task it links) is not applied — in this batch or before — fails instead of landing
+ * somewhere unexpected.
  */
 export async function applyChanges(changes: StagedChange[], all: StagedChange[], resolveRow: (id: ID) => ID, opts: ApplyOpts): Promise<ApplyResult> {
   const applied: string[] = []
@@ -231,10 +254,27 @@ export async function applyChanges(changes: StagedChange[], all: StagedChange[],
   const undos: Array<{ ids: string[]; fn: () => boolean | string[] }> = []
   const done = new Set(all.filter((c) => c.status === 'applied').map((c) => c.id))
   // a send is never applied here (the Outbox sends it, after a person's press): it stays as it is
-  const ordered = [...changes].filter((c) => (c.status === 'pending' || c.status === 'failed') && c.kind !== 'send').sort((a, b) => rank(a) - rank(b) || a.n - b.n)
+  const ordered = applyOrder(changes.filter((c) => (c.status === 'pending' || c.status === 'failed') && c.kind !== 'send'))
+  const inBatch = new Set(ordered.map((c) => c.id))
+  /** the batch's changes already written or failed */
+  const handled = new Set<string>()
+  const failedNow = new Set<string>()
+  const fail = (id: string, error: string) => {
+    failed.push({ id, error })
+    failedNow.add(id)
+    handled.add(id)
+  }
+  /** why a change can't be applied: a change it needs is not applied — before or in this batch (null: none) */
+  const missingNeed = (c: StagedChange): string | null => {
+    const missing = depsOf(c).find((id) => !done.has(id))
+    return missing ? `needs change #${all.find((x) => x.id === missing)?.n ?? '?'} first` : null
+  }
+  /** a change it needs comes later in this batch: it waits for its own turn (never in the group of an earlier one) */
+  const waits = (c: StagedChange) => depsOf(c).some((id) => inBatch.has(id) && !handled.has(id))
   const targets = linkTargets(all, resolveRow, rowIds)
-  // the settle gate at apply: the batch's tasks not applied yet (a link to one is kept), who writes, the scope
-  const itemOpts = (): ItemApplyOpts => ({ source: sourceOfWriter(opts.writer), visible: opts.items?.visible ?? null, creates: opts.items?.creates !== false, staged: stagedTasksOf(all.filter((x) => !done.has(x.id)), resolveRow) })
+  // the settle gate at apply: the batch's tasks not applied yet — never those of a change that failed here (a link to
+  // one is kept), who writes, the scope
+  const itemOpts = (): ItemApplyOpts => ({ source: sourceOfWriter(opts.writer), visible: opts.items?.visible ?? null, creates: opts.items?.creates !== false, staged: stagedTasksOf(all.filter((x) => !done.has(x.id) && !failedNow.has(x.id)), resolveRow) })
   const toDoc: ToDoc = (markdown, c, at, keep) => {
     const { doc, report } = claudeSettled(markdown, keep, itemCtx(c, at, itemOpts()))
     // a task id this change staged is in use by now: the change fails (never a new id — other changes point at it)
@@ -243,29 +283,44 @@ export async function applyChanges(changes: StagedChange[], all: StagedChange[],
     if (left.length) notes[c.id] = left
     return withPageNodes(doc, targets)
   }
+  /**
+   * The changes of one page written together ('edit', 'workItem'): `c` and the batch's other changes of that kind and
+   * page that are ready — one that needs a change still to come waits for its own turn; one whose need is not applied
+   * fails ("needs change #n first") before anything else is looked at.
+   */
+  const groupOf = (c: StagedChange, pageOf: (x: StagedChange) => ID, pageId: ID): StagedChange[] => {
+    const group: StagedChange[] = []
+    for (const x of ordered) {
+      if (handled.has(x.id) || x.kind !== c.kind || pageOf(x) !== pageId || (x !== c && waits(x))) continue
+      const why = missingNeed(x)
+      if (why) fail(x.id, why)
+      else group.push(x)
+    }
+    for (const x of group) handled.add(x.id)
+    return group
+  }
 
-  const editedPages = new Set<ID>()
-  const itemPages = new Set<ID>()
   for (const c of ordered) {
+    if (handled.has(c.id)) continue
     // task fields: every 'workItem' change of the task's page in the batch, in ONE write (after a version was kept)
     if (c.kind === 'workItem') {
       if (opts.items?.creates === false) {
-        failed.push({ id: c.id, error: t('features.agent.item.server') })
+        fail(c.id, t('features.agent.item.server'))
         continue
       }
-      const pageId = itemPageOf(c, resolveRow)
-      if (itemPages.has(pageId)) continue
-      itemPages.add(pageId)
-      const group = ordered.filter((x) => x.kind === 'workItem' && itemPageOf(x, resolveRow) === pageId)
+      const pageOf = (x: StagedChange) => itemPageOf(x, resolveRow)
+      const pageId = pageOf(c)
+      const group = groupOf(c, pageOf, pageId)
+      if (!group.length) continue
       // a task on a page in the trash (or gone) is not changed
       if (!alive(pageId)) {
-        failed.push(...group.map((x) => ({ id: x.id, error: t('features.workItems.refused.gone') })))
+        for (const x of group) fail(x.id, t('features.workItems.refused.gone'))
         continue
       }
       try {
         await guardTask(pageId, opts)
       } catch (e) {
-        failed.push(...group.map((x) => ({ id: x.id, error: e instanceof Error ? e.message : String(e) })))
+        for (const x of group) fail(x.id, e instanceof Error ? e.message : String(e))
         continue
       }
       let res!: ItemApply
@@ -279,23 +334,23 @@ export async function applyChanges(changes: StagedChange[], all: StagedChange[],
         done.add(id)
         pages[id] = pageId
       }
-      failed.push(...res.failed)
+      for (const f of res.failed) fail(f.id, f.error)
       continue
     }
     // edits of existing content: every edit of this page in the batch, in one transaction
     if (c.kind === 'edit') {
-      const pageId = resolveRow(c.pageId)
-      if (editedPages.has(pageId)) continue
-      editedPages.add(pageId)
-      const group = ordered.filter((x) => x.kind === 'edit' && resolveRow(x.pageId) === pageId)
+      const pageOf = (x: StagedChange) => resolveRow(x.pageId)
+      const pageId = pageOf(c)
+      const group = groupOf(c, pageOf, pageId)
+      if (!group.length) continue
       try {
         await guardTask(pageId, opts)
       } catch (e) {
-        failed.push(...group.map((x) => ({ id: x.id, error: e instanceof Error ? e.message : String(e) })))
+        for (const x of group) fail(x.id, e instanceof Error ? e.message : String(e))
         continue
       }
       const gained = group.filter((x) => refsGained(pageId, x, opts))
-      failed.push(...gained.map((x) => ({ id: x.id, error: t('features.coding.term.err.refs') })))
+      for (const x of gained) fail(x.id, t('features.coding.term.err.refs'))
       const edits = group.filter((x) => !gained.includes(x))
       if (!edits.length) continue
       let res!: Awaited<ReturnType<typeof applyPageEdits>>
@@ -309,16 +364,14 @@ export async function applyChanges(changes: StagedChange[], all: StagedChange[],
         done.add(id)
         pages[id] = pageId
       })
-      failed.push(...res.failed)
+      for (const f of res.failed) fail(f.id, f.error)
       Object.assign(notes, res.notes ?? {})
       continue
     }
+    handled.add(c.id)
     try {
-      const missing = depsOf(c).find((id) => !done.has(id))
-      if (missing) {
-        const parent = all.find((x) => x.id === missing)
-        throw new Error(`needs change #${parent?.n ?? '?'} first`)
-      }
+      const why = missingNeed(c)
+      if (why) throw new Error(why)
       const undo = WRITES_PAGE.has(c.kind) ? await onTask(resolveRow(c.pageId), opts, () => applyOne(c, resolveRow, rowIds, toDoc, opts)) : await applyOne(c, resolveRow, rowIds, toDoc, opts)
       if (undo === FINAL) final.push(c.id)
       else undos.push({ ids: [c.id], fn: undo })
@@ -327,7 +380,7 @@ export async function applyChanges(changes: StagedChange[], all: StagedChange[],
       pages[c.id] = rowIds[c.pageId] ?? resolveRow(c.pageId)
     } catch (e) {
       delete notes[c.id]
-      failed.push({ id: c.id, error: e instanceof Error ? e.message : String(e) })
+      fail(c.id, e instanceof Error ? e.message : String(e))
     }
   }
 

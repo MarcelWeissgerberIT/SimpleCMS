@@ -11,7 +11,7 @@ import type { Page } from '@playwright/test'
 import type { JSONContent } from '@tiptap/core'
 import { Client } from '../../mcp/node_modules/@modelcontextprotocol/sdk/dist/esm/client/index.js'
 import { StdioClientTransport } from '../../mcp/node_modules/@modelcontextprotocol/sdk/dist/esm/client/stdio.js'
-import { test, expect, openApp, wsEval, createPage, doc, para, flush } from './fixtures'
+import { test, expect, openApp, wsEval, createPage, doc, para, flush, gotoPage, editorOf } from './fixtures'
 
 type AnyState = Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
 type ToolResult = { content?: Array<{ type: string; text?: string }>; isError?: boolean }
@@ -126,6 +126,17 @@ test('get_page reads mentions as one: links; a replace with them keeps mentions 
   await card(page).getByRole('button', { name: /Reject/ }).click()
   expect((await pending).isError).toBe(true)
   expect(tasksIn(await contentOf(page, id))).toHaveLength(1)
+  // the page opened (its blocks carry ids — the inbox keys @mentions by them): a round trip writes every paragraph anew,
+  // so Alex's mention lands in a new block (a ping) — asked, even in Apply directly
+  await gotoPage(page, id)
+  await expect(editorOf(page, id)).toContainText('Ship pricing')
+  await expect.poll(() => wsEval(page, (s, id) => typeof s.pages[id].content.content[0].attrs?.id === 'string', id)).toBe(true)
+  const md2 = json(await call('one_get_page', { id })).markdown as string
+  const pinged = call('one_update_page', { id, mode: 'replace', markdown: md2.replace('first.', 'first, please.') })
+  await expect(card(page)).toBeVisible()
+  await expect(card(page)).toContainText('Always asked: Names a person')
+  await card(page).getByRole('button', { name: /Reject/ }).click()
+  expect((await pinged).isError).toBe(true)
 })
 
 test('create_page in Apply directly: a plain task applies at once; an owner or a reminder is asked; the answer lists the ids; nobody is created', async ({ page }) => {
@@ -190,6 +201,13 @@ test('replace: a page typed into while the card waits is not replaced; a folded 
   await flush(page)
   const tasks = tasksIn(await contentOf(page, id))
   expect(tasks.find((t) => t.itemId === L)!.blockedBy).toEqual([draft])
+  // Undo (the toast's key): the folded change wrote the page after the replace — both go back, the replace too
+  await page.locator('.toast').filter({ hasText: /one_update_page|Tessera MCP/ }).getByRole('button', { name: 'Undo' }).click()
+  await expect(page.locator('.toast').filter({ hasText: 'Agent change undone' })).toBeVisible()
+  await flush(page)
+  const back = await contentOf(page, id)
+  expect(JSON.stringify(back)).not.toContain('Draft copy')
+  expect(tasksIn(back).map((t) => [t.itemId, t.blockedBy ?? []])).toEqual([[L, []]])
   // the folded change fails (its task went to the trash meanwhile): the replace is set back
   const other = await createPage(page, { title: 'Tessera side', content: doc(item({ itemId: 'wi_mcpside001', status: 'todo' }, 'Side check')) })
   const md3 = json(await call('one_get_page', { id })).markdown as string

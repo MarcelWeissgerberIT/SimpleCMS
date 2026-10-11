@@ -41,10 +41,24 @@ export const currentReadLimit = (): ((id: ID) => ReadLimit | null) | null => rea
 /** The pages the tool call running now may see (custom agents' scope; null = everything) — like currentReadLimit. */
 export const currentToolScope = (): ((id: ID) => boolean) | null => visible
 
-/** Run `fn` (a tool call) reading pages only as `limit` allows. */
+/**
+ * The limit memoised per page for one tool call: it reads and measures the page each time (the terminal's
+ * terminalReadLimit), and a call asks for it per task, per link, per line — never twice for one page.
+ */
+function memoLimit(limit: (id: ID) => ReadLimit | null): (id: ID) => ReadLimit | null {
+  const memo = new Map<ID, ReadLimit | null>()
+  return (id) => {
+    if (memo.has(id)) return memo.get(id)!
+    const out = limit(id)
+    memo.set(id, out)
+    return out
+  }
+}
+
+/** Run `fn` (a tool call) reading pages only as `limit` allows (asked once per page during the call). */
 export function withReadLimit<T>(limit: ((id: ID) => ReadLimit | null) | null, fn: () => T): T {
   const prev = readLimit
-  readLimit = limit
+  readLimit = limit ? memoLimit(limit) : null
   try {
     return fn()
   } finally {

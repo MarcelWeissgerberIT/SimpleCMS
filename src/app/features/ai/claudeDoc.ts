@@ -23,19 +23,24 @@ import { mentionsFromLinks, type MentionRules } from '../io/import/mentions'
 import { settleDoc, type SettleContext, type SettleReport, type SettleWorld } from '../workitems/settle'
 import { settleWorld } from '../workitems/world'
 
-/** The date / person mentions a document holds (what a write replaces). Iterative. */
-function mentionsOf(doc: JSONContent | null | undefined): { dates: Set<string>; people: Set<string> } {
+/**
+ * The date / person mentions a document holds (what a write replaces): dates with their reminder; people per block
+ * (`<block id>|<person id>` → how many — the inbox keys @mentions by the nearest block id, '' for none: only a mention
+ * under the same key pings nobody new). Iterative.
+ */
+function mentionsOf(doc: JSONContent | null | undefined): { dates: Set<string>; people: Map<string, number> } {
   const dates = new Set<string>()
-  const people = new Set<string>()
-  const stack: JSONContent[] = doc ? [doc] : []
+  const people = new Map<string, number>()
+  const stack: Array<[JSONContent, string | null]> = doc ? [[doc, null]] : []
   while (stack.length) {
-    const n = stack.pop()!
+    const [n, outer] = stack.pop()!
+    const block = typeof n.attrs?.id === 'string' && n.attrs.id && n.type !== 'mention' ? n.attrs.id : outer
     if (n.type === 'mention') {
       const a = n.attrs ?? {}
       if (a.kind === 'date' && typeof a.id === 'string' && typeof a.reminder === 'string' && a.reminder) dates.add(`${a.id}|${a.reminder}`)
-      if (a.kind === 'person' && typeof a.id === 'string') people.add(a.id)
+      if (a.kind === 'person' && typeof a.id === 'string') people.set(`${block ?? ''}|${a.id}`, (people.get(`${block ?? ''}|${a.id}`) ?? 0) + 1)
     }
-    if (Array.isArray(n.content)) for (const c of n.content) if (c && typeof c === 'object') stack.push(c)
+    if (Array.isArray(n.content)) for (const c of n.content) if (c && typeof c === 'object') stack.push([c, block])
   }
   return { dates, people }
 }
@@ -47,7 +52,14 @@ function rulesOf(ctx: SettleContext, world: SettleWorld): MentionRules {
   return {
     person: (id) => (names ??= new Map(world.people().map((p) => [p.id, p.name]))).get(id) ?? null,
     knownDate: (iso, code) => known.dates.has(`${iso}|${code}`),
-    knownPerson: (id) => known.people.has(id),
+    // a mention under a key the replaced content held (the same block id — or none on both sides, as the inbox keys it)
+    // with that person: no new ping — once per known one
+    knownPerson: (id, block) => {
+      const key = `${block ?? ''}|${id}`
+      const left = known.people.get(key) ?? 0
+      if (left > 0) known.people.set(key, left - 1)
+      return left > 0
+    },
   }
 }
 

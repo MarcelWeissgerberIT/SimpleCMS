@@ -5,7 +5,8 @@
  * append goes to a throw-away stage of its own).
  */
 import type { JSONContent } from '@tiptap/core'
-import { docSchema, docToFileMarkdown, itemSafePoint, markdownToDoc, readClaudeQuote, readableContent } from '../../editor'
+import { docSchema, docToFileMarkdown, itemSafePoint, markdownToDoc, readClaudeQuote, readableContent, setContextMarks, setContextMode } from '../../editor'
+import { useWorkspace } from '../../store/store'
 import type { ID } from '../../store/types'
 import { mentionFromLink, mentionsFromLinks } from '../io/import/mentions'
 import { claudeSettled } from '../ai/claudeDoc'
@@ -22,7 +23,7 @@ type ContextData = Omit<SettleContext, 'visible' | 'readLimit' | 'handles' | 'st
   staged?: Record<string, { change: string | null; private: boolean }>
 }
 
-/** Rules as data (a spec can't pass functions): names by person id, known `<iso>|<code>` date reminders, known people. */
+/** Rules as data (a spec can't pass functions): names by person id, known `<iso>|<code>` date reminders, known `<block id or ''>|<person>` mentions. */
 interface RulesData {
   people?: Record<string, string>
   dates?: string[]
@@ -31,17 +32,24 @@ interface RulesData {
 
 if (typeof window !== 'undefined' && (import.meta.env.DEV || new URLSearchParams(window.location.search).has('e2e'))) {
   ;(window as unknown as { __oneSettle?: unknown }).__oneSettle = {
-    mentionsFromLinks: (doc: JSONContent, rules: RulesData | null) =>
-      mentionsFromLinks(
+    mentionsFromLinks: (doc: JSONContent, rules: RulesData | null) => {
+      // each known `<block>|<person>` covers one new mention, as claudeDoc's rules do
+      const known = [...(rules?.known ?? [])]
+      return mentionsFromLinks(
         doc,
         rules
           ? {
               person: (id) => rules.people?.[id] ?? null,
               knownDate: (iso, code) => !!rules.dates?.includes(`${iso}|${code}`),
-              knownPerson: (id) => !!rules.known?.includes(id),
+              knownPerson: (id, block) => {
+                const i = known.indexOf(`${block ?? ''}|${id}`)
+                if (i >= 0) known.splice(i, 1)
+                return i >= 0
+              },
             }
           : null,
-      ),
+      )
+    },
     mentionFromLink,
     docToFileMarkdown,
     toAIMarkdown,
@@ -67,10 +75,11 @@ if (typeof window !== 'undefined' && (import.meta.env.DEV || new URLSearchParams
     /**
      * perf-budget: ms per run (`runs` each, after one untimed run) of queryItems over every task, claudeSettled of
      * `markdown` (a staging context), staging it as an append (the agent tool on a throw-away stage) and
-     * list_work_items with a 'marked' read limit on `limitPages` — nothing is written.
+     * list_work_items under the terminal's REAL read limit (terminalReadLimit) with 3 blocks marked on each of
+     * `limitPages` (the marks are put back to the whole page after) — nothing is written.
      */
     perf: async (o: { pageId: ID; markdown: string; limitPages: ID[]; runs: number }) => {
-      const [{ callStage, stageWith }, { withReadLimit }] = await Promise.all([import('../mcp/stage'), import('../ai/agent/toolScope')])
+      const [{ callStage, stageWith }, { withReadLimit }, { terminalReadLimit }] = await Promise.all([import('../mcp/stage'), import('../ai/agent/toolScope'), import('../ai/agent/session')])
       const time = (fn: () => unknown) => {
         const out: number[] = []
         // one untimed run first: the steady cost per call, not the first call's lazy parser / schema set-up
@@ -94,18 +103,45 @@ if (typeof window !== 'undefined' && (import.meta.env.DEV || new URLSearchParams
       const stage = time(() => {
         staged = stageWith(callStage(), 'append_to_page', { id: o.pageId, markdown: o.markdown }).content
       })
-      const marked = new Set(o.limitPages)
-      const limit = (id: ID) => (marked.has(id) ? { mode: 'marked' as const, markdown: '', plain: '', blocks: 0, ids: [] } : null)
+      // three top-level blocks marked per page (their keys: block id, else the index — editor/context/read.ts blockKey)
+      for (const id of o.limitPages) {
+        const blocks = useWorkspace.getState().pages[id]?.content?.content ?? []
+        setContextMarks(
+          id,
+          blocks.slice(0, 3).map((b, i) => (typeof b.attrs?.id === 'string' && b.attrs.id ? b.attrs.id : `#${i}`)),
+        )
+      }
       let listed = ''
-      const list = time(() => {
-        listed = withReadLimit(limit, () => stageWith(callStage(), 'list_work_items', { status: 'any', limit: 100 }).content)
-      })
+      let list: number[]
+      try {
+        list = time(() => {
+          listed = withReadLimit(terminalReadLimit, () => stageWith(callStage(), 'list_work_items', { status: 'any', limit: 100 }).content)
+        })
+      } finally {
+        for (const id of o.limitPages) setContextMode(id, 'page')
+      }
       return { query, settle, stage, list, count, created, staged: staged.slice(0, 200), listed: listed.split('\n')[0] }
     },
     /** Claude's form of the first quote of a Markdown text (the real parse: link marks, soft breaks) */
     readQuoteMd: (markdown: string) => {
       const quote = (markdownToDoc(markdown).content ?? []).find((n) => n.type === 'blockquote')
       return quote ? readClaudeQuote(quote) : null
+    },
+    /** the AI menu's replaceRange (features/ai/menuItems.ts) from the first occurrence of `from` to the end of `to` */
+    replaceRangeAt: async (json: JSONContent, from: string, to: string) => {
+      const { replaceRange } = await import('../ai/menuItems')
+      const doc = docSchema().nodeFromJSON(json)
+      const at = (text: string, end: boolean) => {
+        let pos = -1
+        doc.descendants((n, p) => {
+          if (pos >= 0) return false
+          const i = n.isText ? (n.text ?? '').indexOf(text) : -1
+          if (i >= 0) pos = p + i + (end ? text.length : 0)
+          return pos < 0
+        })
+        return pos
+      }
+      return replaceRange(doc, at(from, false), at(to, true))
     },
     /**
      * itemSafePoint for the position right before the first occurrence of `text` in `json`: the position, the safe

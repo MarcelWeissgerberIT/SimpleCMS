@@ -167,7 +167,7 @@ export { storedItemAttrs } from './workitem/attrs'
 export { itemFromTodo, splitListAround } from './workitem/turn'
 export { DOC_SCHEMA_VERSION, NODE_GENERATIONS } from './schema/base'
 export { contextMarksOf, pageContextMarks, readableContent, readableBlocks, isContextLimited, useContextMarks, useContextPicking, type ContextMarks, type ReadableContent } from './context/read'
-export { setContextMode, openContextPicker, closeContextPicker, contextPickingPage, topBlockKeys } from './context/api'
+export { setContextMode, setContextMarks, openContextPicker, closeContextPicker, contextPickingPage, topBlockKeys } from './context/api'
 export { startRedo } from './context/redo'
 /** bridgeOf(editor): the editor's overlay bridge (null for read-only / template editors) — the task placard and pickers use it. */
 export { bridgeOf } from './context/redo'

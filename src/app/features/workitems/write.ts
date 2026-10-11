@@ -118,9 +118,9 @@ function placeOf(index: ItemIndex, itemId: string, fromTpl: ID | null, pageId?: 
 }
 
 /** A refusal for one edit's links (loop, shared → private, live ⇄ template), or null. */
-function linkRefusal(index: ItemIndex, entry: ItemEntry, patch: ItemPatch, team: boolean, pagePrivate: boolean): WriteRefusal | null {
+function linkRefusal(index: ItemIndex, graph: Parameters<typeof wouldLoop>[0], entry: ItemEntry, patch: ItemPatch, team: boolean, pagePrivate: boolean): WriteRefusal | null {
   const added = [...(patch.blockedBy?.add ?? []), ...(patch.related?.add ?? [])]
-  for (const to of patch.blockedBy?.add ?? []) if (wouldLoop(index, entry.itemId, to)) return 'loop'
+  for (const to of patch.blockedBy?.add ?? []) if (wouldLoop(graph, entry.itemId, to)) return 'loop'
   for (const to of added) {
     const target = index.byId.get(to)
     if (team && !pagePrivate && target?.private) return 'scope'
@@ -139,6 +139,18 @@ export function writeItems(edits: readonly ItemEdit[], opts: WriteOptions = {}):
   const results: WriteResult[] = edits.map((e) => ({ itemId: e.itemId, ok: false }))
   const writer = opts.writer ?? currentWriter() ?? PERSON
   const byPage = new Map<ID, number[]>()
+  // the graph as this batch leaves it: an edit is checked against the blockers the edits before it add (two edits that
+  // each look fine alone may close a loop together)
+  const batchEdges = new Map<string, string[]>()
+  const graph = {
+    byId: {
+      get: (id: string) => {
+        const e = index.byId.get(id)
+        const more = batchEdges.get(id)
+        return more ? { attrs: { blockedBy: [...(e?.attrs.blockedBy ?? []), ...more] } } : e
+      },
+    },
+  } as unknown as Parameters<typeof wouldLoop>[0]
 
   // 1 + 2: place and gate
   edits.forEach((edit, i) => {
@@ -157,8 +169,10 @@ export function writeItems(edits: readonly ItemEdit[], opts: WriteOptions = {}):
     else if (team && cloud.outdated) r.refused = 'outdated'
     else if (team && cloud.readOnly) r.refused = 'readonly'
     else if (page.content == null) r.refused = 'blind'
-    else r.refused = linkRefusal(index, placed.entry, edit.patch, team, !!page.private) ?? undefined
+    else r.refused = linkRefusal(index, graph, placed.entry, edit.patch, team, !!page.private) ?? undefined
     if (r.refused) return
+    const adds = edit.patch.blockedBy?.add ?? []
+    if (adds.length) batchEdges.set(placed.entry.itemId, [...(batchEdges.get(placed.entry.itemId) ?? []), ...adds])
     const list = byPage.get(pageId)
     if (list) list.push(i)
     else byPage.set(pageId, [i])

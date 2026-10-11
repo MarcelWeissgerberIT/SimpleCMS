@@ -10,7 +10,7 @@ import type { NewTaskPlan, PipelineKind, RefPage, TaskActionPlan, TaskOp } from 
 import type { ItemPatch } from '../../../editor/workitem/patch'
 import type { ItemFact } from '../../workitems/facts'
 import type { HoldReason } from '../../workitems/holds'
-import type { SettleWarning } from '../../workitems/settle'
+import type { ItemPin, SettleWarning } from '../../workitems/settle'
 
 export type ToolName =
   | 'search_pages'
@@ -126,6 +126,10 @@ export interface StagedItems {
   facts: ItemFact[]
   warnings: SettleWarning[]
   holds: HoldReason[]
+  /** per new task (↔ ids): the people and links staging resolved — apply writes these ids (an older change: none) */
+  pins?: ItemPin[]
+  /** the changes whose new tasks this text links (part of StagedChange.needs — a text written again replaces them) */
+  needs?: string[]
 }
 
 /** A task's fields changed (ChangeKind 'workItem'; StagedChange.pageId = the task's page, .title = its title). */
