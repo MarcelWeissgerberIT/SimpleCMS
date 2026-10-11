@@ -101,6 +101,18 @@ describe('integration profiles: the server reader and matching', () => {
     assert.deepEqual(got, Array.from({ length: 50 }, (_, i) => `p${String(i).padStart(2, '0')}`))
     assert.equal(sanitizeProfile('t', { ...profile('t', { name: 'x' }, []), name: 7 }), null)
   })
+
+  test('a profile with Preflight lamps (the app’s read release) stays a profile; the server never reads them', () => {
+    const lamps = [
+      { id: 'waiting', label: { en: 'Waiting', de: 'Wartet' }, where: [{ role: 'waiting', equals: true }], read: { role: 'waiting', value: false } },
+      { id: 'comments', label: 'New comments', view: { en: 'New comments', de: 'Neue Kommentare' }, amber: 3, red: 10 },
+    ]
+    const p = profile('tessera', { name: 'relay' }, ['upsert'], { lamps })
+    assert.deepEqual(sanitizeProfile('tessera', p), { id: 'tessera', name: 'relay', unlocks: ['upsert'] })
+    const doc = new Y.Doc()
+    doc.getMap<unknown>('integrations').set('tessera', p)
+    assert.deepEqual(readProfiles(doc), [{ id: 'tessera', name: 'relay', unlocks: ['upsert'] }])
+  })
 })
 
 describe('the OUT lock on the server: send routes switch their tools off (the app twin: mcp-servers/lock.ts)', () => {

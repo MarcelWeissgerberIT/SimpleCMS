@@ -14,6 +14,8 @@
  * 'notify' and 'sends' have no server side: the inbox and the Outbox are per device.)
  * Whatever it unlocks, a matching profile's send tools are OUT for that server (`outOf`): switched off in every server
  * agent's toolset (runner.ts toolsetOf) — the app's lock (src/app/features/ai/mcp-servers/lock.ts) has the same rules.
+ * Keys the server has no use for (recipes, `lamps` — the app's Preflight lamps read the device's own data) are ignored,
+ * never a reason to drop a profile.
  */
 import * as Y from 'yjs'
 
