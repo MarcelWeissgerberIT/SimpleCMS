@@ -138,8 +138,9 @@ the public APIs stable — other areas are built against them in parallel.
   (features/ai/agent/workItems.ts): handles + staged ids per terminal conversation (reset by `/new`), agent run, MCP
   call. AI menu: "Make tasks" (`ai-row-workItems`) = Transform → Tasks on selected blocks (form 'items', its own <people>,
   ids minted in the result, re-checked at Transform) or the page-level action `make_tasks` at the cursor; every answer is
-  settled with a menu context (`existing: 'skip'`) and inserted at `itemSafePoint`; meeting notes "Make tasks"
-  (features/ai/meeting/toItems.ts, local, one transaction, toast Undo). The workspace index (features/workitems: `getItemIndex()`, `useItemView()`) is lazy and incremental
+  settled with a menu context (`existing: 'skip'`) and inserted at `itemSafePoint` (tasks made → toast Undo); meeting
+  notes "Make tasks" (features/ai/meeting/toItems.ts, local, one transaction, toast Undo; keyboard: Esc on a heading of
+  the notes, Tab → the foot keys, editor/extensions/blockTools.ts). The workspace index (features/workitems: `getItemIndex()`, `useItemView()`) is lazy and incremental
   (`pageChanges`, no page-map scan per write); blocked / overdue / loops / duplicates are computed, never stored. Editor
   field writes go through `commitItem` (only the changed attr keys — y-tiptap compares attrs by reference); writes from
   outside an editor only through features/workitems `writeItems()` (writer: opts.writer, else the frame open, else
