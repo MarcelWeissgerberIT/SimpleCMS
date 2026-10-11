@@ -434,7 +434,7 @@ html[data-text-size='4'] .pf-cap__pos {
   color: var(--lamp-legend);
   box-shadow: 0 0 0 3px var(--lamp-housing);
 }
-.pf-mkey__led {
+.led.pf-mkey__led {
   width: 10px;
   height: 10px;
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--led-ok) 22%, transparent);
@@ -908,7 +908,7 @@ html[data-pf-noblink] .pf-pip[data-flash] {
   min-width: 0;
   margin: 2px 0 8px;
 }
-.pf-qbar__pos {
+.label.pf-qbar__pos {
   color: var(--ink);
   white-space: nowrap;
 }
@@ -1248,7 +1248,7 @@ html[data-pf-noblink] .pf-pip[data-flash] {
 .pf-card__more summary::-webkit-details-marker {
   display: none;
 }
-.pf-card__swipe {
+.label.pf-card__swipe {
   margin: -2px 0 0;
   padding: 0 12px 12px 16px;
   color: var(--ink-3);
@@ -1288,7 +1288,7 @@ html[data-pf-noblink] .pf-pip[data-flash] {
   border-color: var(--rule-strong);
   background: var(--surface-2);
 }
-.pf-input__field {
+.input.pf-input__field {
   width: 100%;
   min-height: calc(64px * var(--text-scale));
   resize: vertical;
@@ -1401,7 +1401,7 @@ html[data-pf-noblink] .pf-pip[data-flash] {
   cursor: pointer;
 }
 .pf-q__empty,
-.pf-q__more {
+.label.pf-q__more {
   margin: 8px 0;
   color: var(--ink-2);
   font-size: var(--text-sm);
@@ -1535,7 +1535,7 @@ html[data-pf-noblink] .pf-pip[data-flash] {
   grid-template-columns: 1fr !important;
 }
 .pf-log__off,
-.pf-log__more {
+.label.pf-log__more {
   margin: 0 0 6px;
   color: var(--ink-2);
   font-size: calc(12px * var(--text-scale));
