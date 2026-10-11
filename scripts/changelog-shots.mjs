@@ -8,7 +8,7 @@
  *
  * (CHANGELOG_DRAFT=1 lets the build pass while a new entry's picture does not exist yet.)
  *
- * Shots: mirror-again, glass-switches, history-compare, mcp-overview, mirror, task-mcp, models, search, terminal-pipelines, cloud-worker, one-picker, pipelines, legacy-modernise, coding-live, text-size, mcp-media, coding-setup, free-board, building-blocks, workspace-settings, diagram-viewer, coding-pipeline, pages-per-item, design-import, tour, quick-capture, script-templates, one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
+ * Shots: outbox, mirror-again, glass-switches, history-compare, mcp-overview, mirror, task-mcp, models, search, terminal-pipelines, cloud-worker, one-picker, pipelines, legacy-modernise, coding-live, text-size, mcp-media, coding-setup, free-board, building-blocks, workspace-settings, diagram-viewer, coding-pipeline, pages-per-item, design-import, tour, quick-capture, script-templates, one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
  * custom-agents, gmail, help-centre, mcp-servers, feed-blocks — each named like its image. Every shot starts from a fresh, seeded
  * workspace in English, light theme, 1440 × 900 at device scale 2; the crop of the relevant area is scaled
  * to 1440 px wide and saved as public/assets/shots/changelog/<shot>.webp (≤ 150 KB: the quality steps down
@@ -823,6 +823,139 @@ function drawVolumeTable(t) {
 const toolResult = (body, id) => (body.messages ?? []).flatMap((m) => (Array.isArray(m.content) ? m.content : [])).find((c) => c.type === 'tool_result' && c.tool_use_id === id)
 
 const shots = {
+  /**
+   * The Outbox by hand: a fictional mirror ("CNSX Handoff" of the server "tracker") with three send routes; five
+   * open slips (two clean, two with foreign text, one held), three sent by hand; the mirror moved on for #10668 after
+   * its reply was drafted — the dock shows that slip with CHANGED, its band quoting the new comment, the hand plate
+   * waiting. Never a real host: tracker.example.com is aborted, Claude is not asked (the drafts are given).
+   */
+  async outbox(browser) {
+    const { ctx, page } = await freshPage(browser, {
+      setup: async (ctx) => {
+        await ctx.grantPermissions(['clipboard-read', 'clipboard-write'])
+        await ctx.route('https://tracker.example.com/**', (route) => route.abort())
+      },
+    })
+    await page.evaluate(() => localStorage.setItem('one.outbox.dock', 'open'))
+    await page.waitForFunction(() => window.__oneOutbox?.useOutbox.getState().loaded === true)
+    const ids = await page.evaluate(() => {
+      const one = window.__one
+      const s = one.workspace.getState()
+      const reply = {
+        id: 'reply', role: 'reply', label: { en: 'Reply in the ticket tool', de: 'Im Ticket-Tool antworten' }, tool: 'add_comment',
+        args: { ref: '{key}', visibility: 'team', body: '{draft}' },
+        params: [{ name: 'draft', type: 'text', max: 4000, style: { en: 'Short and friendly' } }],
+        check: { tool: 'get_item', args: { ref: '{key}' }, fields: ['status', 'comments.length'], latest: 'comments.-1', identity: 'ref' },
+        confirm: { tool: 'list_comments', args: { ref: '{key}' }, find: 'items', match: [{ path: 'body', equals: '{draft}' }], capture: { id: 'id' } },
+        after: [{ property: 'waiting', value: false }],
+      }
+      const work = { id: 'work', role: 'work', label: { en: 'Log work', de: 'Arbeit buchen' }, tool: 'log_work', args: { ref: '{key}', minutes: '{minutes}' }, params: [{ name: 'minutes', type: 'minutes', max: 600, round: 15 }], confirm: { tool: 'list_comments', args: { ref: '{key}' }, match: [{ path: 'kind', equals: 'work' }] } }
+      const status = { id: 'status', role: 'status', label: { en: 'Set status', de: 'Status setzen' }, tool: 'update_item', args: { ref: '{key}', status: '{status}' }, params: [{ name: 'status', type: 'option', values: ['In Development', 'Ready for ICM Integration', 'Done'] }], confirm: { tool: 'get_item', args: { ref: '{key}' }, match: [{ path: 'status', equals: '{status}' }] } }
+      s.updateSettings({ mcpServers: [{ id: 'm-tracker', name: 'tracker', url: 'https://tracker.example.com/mcp', token: '', enabled: true, prompt: '', tools: ['list_items', 'get_item', 'search_items', 'whoami', 'create_item', 'update_item', 'add_comment', 'list_comments', 'log_work'], checkedAt: Date.now() }] })
+      s.upsertIntegration({ schema: 'one.integration/1', id: 'tracker-out', name: 'IN-01', match: { name: 'tracker' }, unlocks: ['keys', 'onlyByHand', 'upsert', 'toolAllowList', 'agentState', 'notify', 'sends'], recipes: [{ kind: 'mirror' }], reads: ['list_items', 'get_item', 'search_items', 'list_comments'], sends: [reply, work, status] })
+      const id = () => Math.random().toString(36).slice(2, 12)
+      const opt = (name, color) => ({ id: id(), name, color })
+      const st = [opt('In Development', 'blue'), opt('Ready for ICM Integration', 'green')]
+      const props = {
+        title: { id: id(), name: 'Name', type: 'title' },
+        key: { id: id(), name: 'Key', type: 'text', key: true },
+        link: { id: id(), name: 'Link', type: 'url' },
+        srcStatus: { id: id(), name: 'Source status', type: 'select', options: st },
+        owner: { id: id(), name: 'Owner', type: 'text' },
+        comments: { id: id(), name: 'Comments', type: 'number', numberFormat: 'number' },
+        lastComment: { id: id(), name: 'Last comment', type: 'text' },
+        lastCommentAt: { id: id(), name: 'Last comment at', type: 'date' },
+        waiting: { id: id(), name: 'Waiting on me', type: 'checkbox' },
+      }
+      const dbId = s.createDatabase({ title: 'CNSX Handoff', properties: Object.values(props), icon: { type: 'lucide', value: 'Layers', color: 'brown' } })
+      const rows = {}
+      for (const r of [
+        ['10668', 'Weber: which baseline for the release state?', 'J. Weber', 7, 'For the comparison: B6 or B7? Please confirm briefly.', '2026-10-09T16:42'],
+        ['10642', 'Export filter drops umlauts in the CSV', 'A. Krüger', 4, 'Can you confirm the fix is in?', '2026-10-08T11:05'],
+        ['10655', 'ICM interface v3: acceptance', 'S. Okafor', 2, 'Logs attached. If green, please move it on.', '2026-10-09T14:10'],
+        ['10681', 'Comment on the rollout plan for plant south', 'T. Brandt', 5, 'Plan is in the share: teilen.example/rp — please approve it there.', '2026-10-09T18:27'],
+        ['10679', 'Gateway: lower the log level in production', 'M. Ilić', 3, '@Marcel a quick take on the risk?', '2026-10-07T09:31'],
+        ['10690', 'License server: timeout after update', 'R. Hoffmann', 1, 'Only happens in plant north.', '2026-10-06T13:58'],
+      ]) {
+        const p = {}
+        p[props.key.id] = r[0]
+        p[props.link.id] = `https://tracker.example.com/item/${r[0]}`
+        p[props.srcStatus.id] = st[0].id
+        p[props.owner.id] = r[2]
+        p[props.comments.id] = r[3]
+        p[props.lastComment.id] = r[4]
+        p[props.lastCommentAt.id] = { start: r[5] }
+        p[props.waiting.id] = true
+        rows[r[0]] = one.workspace.getState().createRow(dbId, { title: r[1], properties: p })
+      }
+      const now = Date.now()
+      one.workspace.getState().upsertAgent({ id: 'mirror1', name: 'CNSX mirror', icon: null, instructions: 'Keep CNSX Handoff in step with the tracker.', trigger: { type: 'manual' }, scope: { everything: false, pages: [], databases: [dbId] }, write: 'stage', output: null, mcpServers: ['tracker'], runner: 'browser', model: null, effort: null, maxRunUsd: 0.5, enabled: true, createdAt: now, updatedAt: now, mirrorOf: dbId })
+      return { dbId, rows, props: Object.fromEntries(Object.entries(props).map(([k, v]) => [k, v.id])) }
+    })
+    const stage = (list) =>
+      page.evaluate(
+        async ({ ids, list }) => {
+          const o = window.__oneOutbox
+          const routes = o.routesFor(ids.dbId)
+          const out = []
+          for (const x of list) {
+            const route = routes.find((r) => r.ref.routeId === x.route).ref
+            const sources = [{ kind: 'row', ref: `${ids.rows[x.row]}:${ids.props[x.prop]}`, label: x.label, ...(x.text ? { text: x.text } : {}) }]
+            const res = await o.stageSlip({ route, rowId: ids.rows[x.row], draft: x.draft, params: x.params, origin: { kind: 'command' }, sources })
+            if (res.refused) throw new Error(`refused: ${res.refused}`)
+            out.push(res.slip.id)
+          }
+          return out
+        },
+        { ids, list },
+      )
+    await page.evaluate((id) => (window.location.hash = `#/p/${id}`), ids.dbId)
+    await page.locator('#main .pv-title').waitFor()
+    // three sent by hand: Copy & open (the tracker tab is aborted), "Yes, mark as sent"
+    const sent = await stage([
+      { route: 'reply', row: '10642', prop: 'lastComment', label: 'Comment A. Krüger', text: 'Can you confirm the fix is in?', draft: 'Yes, the fix is in 2.4.1 — the CSV export keeps umlauts now.' },
+      { route: 'work', row: '10655', prop: 'comments', label: 'Comments', params: { minutes: 45 } },
+      { route: 'status', row: '10690', prop: 'srcStatus', label: 'Source status', params: { status: 'In Development' } },
+    ])
+    for (const id of sent) {
+      await page.evaluate((id) => window.__oneOutbox.useOutbox.setState({ focus: id }), id)
+      const slip = page.locator(`[data-slip="${id}"]`)
+      const popup = ctx.waitForEvent('page', { timeout: 5000 }).catch(() => null)
+      await slip.getByTestId('outbox-copy').click()
+      const tab = await popup
+      if (tab) await tab.close().catch(() => undefined)
+      await slip.getByTestId('outbox-mark-sent').click()
+      await page.waitForTimeout(300)
+    }
+    const open = await stage([
+      { route: 'reply', row: '10668', prop: 'lastComment', label: 'Comment J. Weber', text: 'For the comparison: B6 or B7?', draft: 'Hi Jana, please take B6 — B7 is only frozen after the review on 14.10. Regards, Marcel' },
+      { route: 'work', row: '10642', prop: 'comments', label: 'Comments', params: { minutes: 90 } },
+      { route: 'status', row: '10655', prop: 'srcStatus', label: 'Source status', params: { status: 'Ready for ICM Integration' } },
+      { route: 'reply', row: '10681', prop: 'lastComment', label: 'Comment T. Brandt', text: 'teilen.example/rp', draft: 'Fine by me. Approve it here: teilen.example/rp' },
+      { route: 'reply', row: '10679', prop: 'lastComment', label: 'Comment M. Ilić', text: '@Marcel a quick take on the risk?', draft: 'Low risk, WARN is enough. Rollback by flag is possible.' },
+    ])
+    // the last one held (H on the focused slip)
+    await page.evaluate((id) => window.__oneOutbox.useOutbox.setState({ focus: id }), open[4])
+    await page.locator(`[data-slip="${open[4]}"]`).focus()
+    await page.keyboard.press('h')
+    await page.locator(`[data-slip="${open[4]}"][data-state="held"]`).waitFor()
+    // the mirror's next run: a new comment on #10668 after its reply was drafted
+    await page.evaluate((ids) => {
+      const s = window.__one.workspace.getState()
+      const d = new Date()
+      const day = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+      s.setRowProperty(ids.rows['10668'], ids.props.comments, 8)
+      s.setRowProperty(ids.rows['10668'], ids.props.lastComment, 'It is settled, B7 fits. Thanks!')
+      s.setRowProperty(ids.rows['10668'], ids.props.lastCommentAt, { start: `${day}T08:09` })
+    }, ids)
+    await page.evaluate((id) => window.__oneOutbox.useOutbox.setState({ focus: id }), open[0])
+    await page.locator(`[data-slip="${open[0]}"] [data-testid="outbox-changed"]`).waitFor()
+    await page.evaluate(() => window.__one.ui.setState({ toasts: [] }))
+    await rest(page)
+    await save(page, 'outbox')
+    await ctx.close()
+  },
+
   /**
    * The glass rocker switches: Settings → Appearance → Switch LED with Green picked (the six LED keys, a switch off
    * and on beside them), and below it Claude AI → One memory with its switches on and off, lit green — one above

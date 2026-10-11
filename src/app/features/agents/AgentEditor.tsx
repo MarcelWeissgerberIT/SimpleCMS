@@ -22,6 +22,7 @@ import { Switch } from '../../ui/controls'
 import { currentLang, useLang, useT } from '../../i18n'
 import { AI_MODELS, AIError, runAI } from '../ai/client'
 import { readServers } from '../ai/mcp-servers/config'
+import { outToolsOf } from '../../store/integrations'
 import { fmtAmount, fmtUsd, parseAmount, weekdayName } from './format'
 import { lostPages, seesAllPagesOf, trashedRoot } from './gone'
 import { usdSignAfter } from '../../lib/money'
@@ -884,8 +885,14 @@ function McpFields({ d, set }: { d: CustomAgent; set: (p: Partial<CustomAgent>) 
   const runtime = useServerAgents((s) => s.runtime)
   const here = useUnlocked('toolAllowList')
   const onServer = useServerUnlocked('toolAllowList')
+  const profiles = useWorkspace((s) => s.integrations)
   const allowList = here || (d.runner === 'server' && onServer)
   const local = readServers(settings)
+  // the OUT tools of a server (send tools of the profiles matching it by name / host): off for every agent
+  const outOf = (name: string): string[] => {
+    const server = d.runner === 'server' ? runtime?.mcpServers.find((s) => s.name === name) : local.find((s) => s.name === name)
+    return server ? outToolsOf(profiles, server) : []
+  }
   const names = d.runner === 'server' ? (runtime?.mcpServers ?? []).map((s) => s.name) : local.map((s) => s.name)
   const all = [...new Set([...names, ...d.mcpServers])]
   const toggle = (name: string, on: boolean) => set({ mcpServers: on ? [...d.mcpServers, name] : d.mcpServers.filter((x) => x !== name) })
@@ -939,6 +946,7 @@ function McpFields({ d, set }: { d: CustomAgent; set: (p: Partial<CustomAgent>) 
           server={name}
           tools={testedTools(name, readServers(settings), d.runner === 'server' ? (runtime?.mcpServers.find((s) => s.name === name) ?? null) : null)}
           allow={d.mcpTools && Object.prototype.hasOwnProperty.call(d.mcpTools, name) ? d.mcpTools[name] : undefined}
+          out={outOf(name)}
           onChange={(list) => {
             const next = { ...(d.mcpTools ?? {}) }
             if (list) next[name] = list
@@ -954,9 +962,11 @@ function McpFields({ d, set }: { d: CustomAgent; set: (p: Partial<CustomAgent>) 
 /**
  * The tools an agent may use of one MCP server (CustomAgent.mcpTools): every tool of the last connection test as a
  * checkbox, "Read-only tools" (ticks the names that look like reads, unticks the rest) and "All" (no list: also
- * tools the server adds later). Untested: a pointer to Settings — the agent may use all its tools until then.
+ * tools the server adds later). Untested: a pointer to Settings — the agent may use all its tools until then. `out`:
+ * the server's OUT tools (an integration profile's send routes) — struck through, switched off for every agent
+ * whatever is ticked (mcp-servers/lock.ts).
  */
-function McpToolList({ server, tools, allow, onChange }: { server: string; tools: string[] | null; allow: string[] | undefined; onChange: (list: string[] | undefined) => void }) {
+function McpToolList({ server, tools, allow, out, onChange }: { server: string; tools: string[] | null; allow: string[] | undefined; out: string[]; onChange: (list: string[] | undefined) => void }) {
   const t = useT()
   const id = useId()
   const known = tools ?? []
@@ -996,15 +1006,26 @@ function McpToolList({ server, tools, allow, onChange }: { server: string; tools
       {shown.length > 0 && (
         <div className="agx-tools__list">
           {shown.map((tool) => (
-            <label key={tool} className="agx-check agx-check--tool" data-missing={!known.includes(tool) || undefined}>
+            <label key={tool} className="agx-check agx-check--tool" data-missing={!known.includes(tool) || undefined} data-out={out.includes(tool) || undefined} title={out.includes(tool) ? t('features.agents.ed.toolOut') : undefined}>
               <input type="checkbox" checked={on(tool)} onChange={(e) => toggle(tool, e.target.checked)} />
               <span className="mono agx-tools__tool" title={tool}>
                 {tool}
               </span>
-              {tools && !known.includes(tool) && <span className="agx-check__note">{t('features.agents.ed.toolsGone')}</span>}
+              {out.includes(tool) ? (
+                <span className="agx-check__out" data-testid="agx-tool-out">
+                  {t('features.agents.ed.outTag')}
+                </span>
+              ) : (
+                tools && !known.includes(tool) && <span className="agx-check__note">{t('features.agents.ed.toolsGone')}</span>
+              )}
             </label>
           ))}
         </div>
+      )}
+      {shown.some((tool) => out.includes(tool)) && (
+        <p className="agx-field__hint agx-tools__out" data-testid="agx-tools-out">
+          {t('features.agents.ed.toolsOut', { tools: shown.filter((tool) => out.includes(tool)).join(', ') })}
+        </p>
       )}
       {tools ? (
         <p className="agx-field__hint">{hint}</p>

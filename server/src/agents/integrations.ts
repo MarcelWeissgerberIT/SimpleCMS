@@ -3,31 +3,39 @@
  * document schema → integrations, § Agents → Integration profiles). Profiles are workspace data in the shared meta
  * document's `integrations` map (owners and admins write it — collab/admin-map.ts puts other members' changes back).
  *
- * The server reads only what it needs — `id`, `match.name`, `match.host`, `unlocks` — with its own sanitizer: a value
- * that is no profile is ignored. Matching: the runtime's MCP servers have no tested tool lists here, so only `name` /
- * `host` count (globs with `*` and `?`, case-insensitive, the whole text); a profile without either never matches on
- * the server. A matching profile unlocks its features for every server agent of the workspace:
+ * The server reads only what it needs — `id`, `match.name`, `match.host`, `unlocks`, the send routes' tools
+ * (`sends[].tool`) — with its own sanitizer: a value that is no profile is ignored. Matching: the runtime's MCP servers
+ * have no tested tool lists here, so only `name` / `host` count (globs with `*` and `?`, case-insensitive, the whole
+ * text); a profile without either never matches on the server. A matching profile unlocks its features for every
+ * server agent of the workspace:
  *  - 'upsert'     → the tool upsert_rows
  *  - 'agentState' → agent_state_get / agent_state_set
  * (keys / "Only by hand" on properties and an agent's tool allow-list are always ENFORCED — nothing here loosens them;
- * 'notify' has no server side: the inbox is per device.)
+ * 'notify' and 'sends' have no server side: the inbox and the Outbox are per device.)
+ * Whatever it unlocks, a matching profile's send tools are OUT for that server (`outOf`): switched off in every server
+ * agent's toolset (runner.ts toolsetOf) — the app's lock (src/app/features/ai/mcp-servers/lock.ts) has the same rules.
  */
 import * as Y from 'yjs'
 
-export type IntegrationFeature = 'keys' | 'onlyByHand' | 'upsert' | 'toolAllowList' | 'agentState' | 'notify'
-export const INTEGRATION_FEATURES: readonly IntegrationFeature[] = ['keys', 'onlyByHand', 'upsert', 'toolAllowList', 'agentState', 'notify']
+export type IntegrationFeature = 'keys' | 'onlyByHand' | 'upsert' | 'toolAllowList' | 'agentState' | 'notify' | 'sends'
+export const INTEGRATION_FEATURES: readonly IntegrationFeature[] = ['keys', 'onlyByHand', 'upsert', 'toolAllowList', 'agentState', 'notify', 'sends']
 
 export interface ServerProfile {
   id: string
   name?: string
   host?: string
   unlocks: IntegrationFeature[]
+  /** the send routes' tools: OUT on every runtime server the profile matches */
+  out?: string[]
 }
 
 const PROFILE_ID = /^[a-z0-9][a-z0-9_-]{0,63}$/
 const NAME_GLOB = /^[A-Za-z0-9_*?-]{1,100}$/
 const HOST_GLOB = /^[A-Za-z0-9.*?-]{1,100}$/
+/** an MCP tool name (the app's TOOL_NAME) */
+const TOOL_NAME = /^[A-Za-z0-9_.-]{1,128}$/
 const MAX_PROFILES = 50
+const MAX_ROUTES = 20
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
 const own = (o: Record<string, unknown>, k: string): unknown => (Object.prototype.hasOwnProperty.call(o, k) ? o[k] : undefined)
@@ -47,7 +55,21 @@ export function sanitizeProfile(key: string, raw: unknown): ServerProfile | null
   const host = glob(own(match, 'host'), HOST_GLOB)
   const raws = own(raw, 'unlocks')
   const unlocks = Array.isArray(raws) ? INTEGRATION_FEATURES.filter((f) => raws.includes(f)) : []
-  return { id, ...(name ? { name } : {}), ...(host ? { host } : {}), unlocks }
+  // the send routes' tools — every route with a tool name counts (more than the app keeps is the safe side), and the
+  // tools an app copy kept locked for routes it had to leave out (`outTools`); a profile without name / host has none,
+  // as in the app
+  const out: string[] = []
+  const sends = own(raw, 'sends')
+  const extra = own(raw, 'outTools')
+  if (name || host) {
+    if (Array.isArray(sends))
+      for (const r of sends.slice(0, MAX_ROUTES)) {
+        const tool = isObj(r) ? own(r, 'tool') : undefined
+        if (typeof tool === 'string' && TOOL_NAME.test(tool) && !out.includes(tool)) out.push(tool)
+      }
+    if (Array.isArray(extra)) for (const tool of extra.slice(0, MAX_ROUTES)) if (typeof tool === 'string' && TOOL_NAME.test(tool) && !out.includes(tool)) out.push(tool)
+  }
+  return { id, ...(name ? { name } : {}), ...(host ? { host } : {}), unlocks, ...(out.length ? { out } : {}) }
 }
 
 /**
@@ -118,5 +140,15 @@ export function profileMatch(p: ServerProfile, servers: ReadonlyArray<{ name: st
 export function serverUnlocks(profiles: ServerProfile[], servers: ReadonlyArray<{ name: string; url: string }>): Set<IntegrationFeature> {
   const out = new Set<IntegrationFeature>()
   for (const p of profiles) if (profileMatch(p, servers)) for (const f of p.unlocks) out.add(f)
+  return out
+}
+
+/** A runtime server's OUT tools: the send tools of every profile that matches it by name / host (the app's outToolsOf). */
+export function outOf(profiles: ServerProfile[], server: { name: string; url: string }): string[] {
+  const out: string[] = []
+  for (const p of profiles) {
+    if (!p.out?.length || !profileMatch(p, [server])) continue
+    for (const t of p.out) if (!out.includes(t)) out.push(t)
+  }
   return out
 }

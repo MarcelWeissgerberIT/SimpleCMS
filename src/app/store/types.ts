@@ -1242,10 +1242,12 @@ export interface CustomAgent {
  * What an active integration profile switches on (on this device, or for the team server's agents):
  * keys = the property menu's "Key" switch · onlyByHand = its "Only by hand" switch · upsert = the agent tool
  * upsert_rows · toolAllowList = the MCP tool allow-list in the agent editor · agentState = agent_state_get / _set ·
- * notify = notify_me. Flags already on properties and allow-lists already on agents keep working without it.
+ * notify = notify_me · sends = the profile's send routes are offered (the Outbox). Flags already on properties and
+ * allow-lists already on agents keep working without it — and a profile's send tools stay switched off in every Claude
+ * request whether or not it unlocks `sends` (store/integrations.ts outToolsOf).
  */
-export type IntegrationFeature = 'keys' | 'onlyByHand' | 'upsert' | 'toolAllowList' | 'agentState' | 'notify'
-export const INTEGRATION_FEATURES: IntegrationFeature[] = ['keys', 'onlyByHand', 'upsert', 'toolAllowList', 'agentState', 'notify']
+export type IntegrationFeature = 'keys' | 'onlyByHand' | 'upsert' | 'toolAllowList' | 'agentState' | 'notify' | 'sends'
+export const INTEGRATION_FEATURES: IntegrationFeature[] = ['keys', 'onlyByHand', 'upsert', 'toolAllowList', 'agentState', 'notify', 'sends']
 
 /** A text in one language, or per UI language ({ en, de } — the other one stands in for a missing one). */
 export type LocalText = string | { en?: string; de?: string }
@@ -1346,6 +1348,86 @@ export interface RecipeConfig {
 }
 
 /**
+ * A send route (the Outbox, features/outbox): ONE tool call that writes to the profile's server — a comment, a status,
+ * a time booking. `tool` is OUT on every server the profile matches by name / host: switched off in every Claude
+ * request One makes (outToolsOf), whatever the profile unlocks. Templates (`args`, `check.args`, `confirm.*`) are values
+ * with placeholders: `{key}` (the row's key; also inside a string), `{key|number}`, `{sentAt}`, `{<param>}` (whole values
+ * only) and, in `confirm` only, `{result.<path>}`. Paths follow ROUTE_PATH (store/integrations.ts).
+ */
+export interface SendRoute {
+  /** unique in its profile (a recipe id's grammar) */
+  id: string
+  /** what the route is for ('reply', 'status', 'work' …) — features find routes by it */
+  role?: string
+  label: LocalText
+  /** the tool that writes (OUT) */
+  tool: string
+  /** the tool's arguments as a template (≤ 4 KB as JSON, nested ≤ 4 levels) */
+  args: Record<string, unknown>
+  params?: RouteParam[]
+  /** the pre-read before a send */
+  check?: RouteCheck
+  /** the read-back after a send */
+  confirm?: RouteConfirm
+  /** the tool's own idempotency argument (the slip id goes into it) */
+  idem?: string
+  /** a `check.fields` path the send overwrites (the slip shows before → after) */
+  overwrites?: string
+  /** the row patch after a send */
+  after?: RouteAfter[]
+  /** how it may be sent (absent: worker, then by hand); 'tab' / 'connector' only when named */
+  via?: SendVia[]
+}
+
+export type SendVia = 'worker' | 'hand' | 'tab' | 'connector'
+
+/** A value a send route takes: `draft` = the text Claude may write · `minutes` = a duration. */
+export interface RouteParam {
+  /** [a-z][a-z0-9_]{0,23} */
+  name: string
+  type: 'text' | 'number' | 'minutes' | 'option'
+  label?: LocalText
+  /** text: characters (default 4,000, ≤ 20,000) · number / minutes: the upper bound */
+  max?: number
+  /** option: the values to pick from (≤ 30) */
+  values?: string[]
+  /** text: a style hint for the draft ("short, friendly") */
+  style?: LocalText
+  /** minutes: the rounding step */
+  round?: number
+}
+
+/** The pre-read: a reading tool, the fields compared between draft time and the press. */
+export interface RouteCheck {
+  tool: string
+  args: Record<string, unknown>
+  /** ≤ 12 paths */
+  fields: string[]
+  /** the newest foreign item to quote ("comments.-1") */
+  latest?: string
+  /** a path whose value must equal {key} */
+  identity?: string
+}
+
+/** The read-back: a reading tool and how the sent item is found again. */
+export interface RouteConfirm {
+  tool: string
+  args: Record<string, unknown>
+  /** the array to search (absent: the result itself) */
+  find?: string
+  /** ≤ 6 conditions; values may use {draft}, {key}, {result.*} */
+  match: Array<{ path: string; equals?: string; contains?: string }>
+  /** name → path: ids kept on the receipt (≤ 4) */
+  capture?: Record<string, string>
+}
+
+/** A row property written after a send (by role or name, either language). */
+export interface RouteAfter {
+  property: string
+  value: boolean | number | string | null
+}
+
+/**
  * An integration profile (JSON schema "one.integration/1"): workspace data, written only with upsertIntegration /
  * deleteIntegration (team: owners and admins), every reader sanitizes (store/integrations.ts). Nothing names a
  * service in One itself: a profile that does is data the person added.
@@ -1358,6 +1440,15 @@ export interface IntegrationProfile {
   match: IntegrationMatch
   unlocks: IntegrationFeature[]
   recipes?: RecipeConfig[]
+  /** send routes (≤ 20; the profile then matches by name or host): their tools are OUT on every server it matches */
+  sends?: SendRoute[]
+  /** the profile's reading tools (≤ 50): when set, every check / confirm tool is one of them and no send tool is */
+  reads?: string[]
+  /**
+   * More send tools to lock (≤ 20): the sanitizer keeps here the tool of a route it had to leave out (too big, a
+   * label this version cannot read …) — the route is gone from this copy, its tool stays OUT, as on the team server
+   */
+  outTools?: string[]
   /** stored only (never exported): the last save and its author (team: stamped by the server) */
   updatedAt?: number
   updatedBy?: string | null

@@ -120,6 +120,8 @@ export interface NewPageInput {
   settings?: Partial<PageSettings>
   hidden?: boolean
   id?: ID
+  /** who wrote `content` ('ai', 'share', 'coding' …; see setContent) — a page made with someone else's text says so */
+  contentOrigin?: string | null
 }
 
 export interface NewDatabaseInput {
@@ -169,7 +171,7 @@ export interface WorkspaceState extends Workspace {
   updateView: (dbId: ID, viewId: ID, patch: Partial<View>) => void
   deleteView: (dbId: ID, viewId: ID) => void
   duplicateView: (dbId: ID, viewId: ID) => ID | null
-  createRow: (dbId: ID, input?: { title?: string; properties?: Record<ID, PropertyValue>; content?: JSONContent | null; index?: number; icon?: Page['icon'] }) => ID
+  createRow: (dbId: ID, input?: { title?: string; properties?: Record<ID, PropertyValue>; content?: JSONContent | null; index?: number; icon?: Page['icon']; contentOrigin?: string | null }) => ID
   setRowProperty: (rowId: ID, propId: ID, value: PropertyValue) => void
 
   // people & settings
@@ -393,7 +395,7 @@ function makePage(input: NewPageInput, pages: Record<ID, Page>): Page {
     properties: input.properties ?? {},
     content: input.content ?? null,
     contentRev: 0,
-    contentOrigin: null,
+    contentOrigin: input.content ? (input.contentOrigin ?? null) : null,
     favorite: false,
     trashed: false,
     trashedAt: null,
@@ -871,7 +873,7 @@ export const useWorkspace = create<WorkspaceState>()(
         for (const p of db.properties) if (p.type === 'unique_id' && properties[p.id] === undefined) properties[p.id] = db.nextUniqueId
       }
       const page = makePage(
-        { parentId: dbId, databaseId: dbId, title: input.title ?? '', properties, content: input.content ?? null, index: input.index, icon: input.icon },
+        { parentId: dbId, databaseId: dbId, title: input.title ?? '', properties, content: input.content ?? null, index: input.index, icon: input.icon, contentOrigin: input.contentOrigin },
         state.pages,
       )
       set((s) => {

@@ -5,12 +5,14 @@
  *   one:ws:<id>:u:<user>[:p:<page>]     the private ones too, docs/CLOUD.md § Private pages; page documents
  *   one:g<n>:ws:<id>…:p:<page>          per document schema generation, docs/CLOUD.md § Schema gate)
  *   one-cloud / kv                      overlay:<id> (settings incl. the AI key's marker, favourites, recent),
- *                                       content:<id>:<page>, held:<id>:<page>, uploads:<id>, purge:<id>, privfiles:<id>
+ *                                       content:<id>:<page>, held:<id>:<page>:<rid>, uploads:<id>, purge:<id>,
+ *                                       privfiles:<id>
  *   one-files / files                   cached files — only those nothing else in this browser uses
  *   one-history / snapshots             version history of the workspace's pages (idx:<page>, snap:<id>) and the
  *                                       flight recorder's before-images of scope cloud:<id>[:u:<user>] (pin:cloud:<id>…|…)
  *   one-recorder                        the flight recorder's journal of scope cloud:<id>[:u:<user>] (features/recorder)
  *   one-vault / kv                      sealed secrets of scope cloud:<id> (the AI key, the GitHub token)
+ *   one-outbox / kv                     the Outbox's slips and receipts (cloud:<id>:u:<user>|slip|<slip>)
  *   localStorage one.shell.visits:cloud:<id>   which pages this device opened, how often (FREQUENT)
  *   localStorage one.mirror.reports:cloud:<id> the report pages this device's mirror setups made (features/agents)
  * The team workspace on the server is never touched, nor is the local workspace or anything it uses
@@ -41,7 +43,8 @@ const REF_RE = /onefile:([A-Za-z0-9_-]{1,64})/g
 /** A workspace's documents: meta, page content, and (`:u:<userId>`) a member's private ones. */
 const DOC_DB = /^one:(?:g\d{1,4}:)?ws:([A-Za-z0-9_-]{8,64})(?::u:[A-Za-z0-9_-]{8,64})?(?::p:([A-Za-z0-9_-]{1,64}))?$/
 const PRIVATE_META_DB = /^one:ws:([A-Za-z0-9_-]{8,64}):u:[A-Za-z0-9_-]{8,64}$/
-const KV_KEY = /^(overlay|uploads|purge|content|privfiles|held):([A-Za-z0-9_-]{8,64})(?::([A-Za-z0-9_-]{1,64}))?$/
+/** A `one-cloud` key: kind, workspace, page (content, held) and the record (held: one per hold, content.ts). */
+const KV_KEY = /^(overlay|uploads|purge|content|privfiles|held):([A-Za-z0-9_-]{8,64})(?::([A-Za-z0-9_-]{1,64})(?::([A-Za-z0-9_-]{1,64}))?)?$/
 
 function readFlag(): string[] {
   try {
@@ -311,6 +314,15 @@ async function forget(flag: string[]): Promise<void> {
       return !!m && targets.has(m[1])
     })
     if (scriptKeys.length) await delMany(scriptKeys, store).catch(() => {})
+  }
+  // the Outbox of this device (features/outbox/db.ts): slips and receipts — keys "cloud:<ws>:u:<account>|slip|<id>"
+  if (!dbNames || dbNames.includes('one-outbox')) {
+    const store = createStore('one-outbox', 'kv')
+    const outboxKeys = (await keys(store).catch(() => [] as IDBValidKey[])).filter((k) => {
+      const m = /^cloud:([^|:]+)(?::u:[^|]+)?\|/.exec(String(k))
+      return !!m && targets.has(m[1])
+    })
+    if (outboxKeys.length) await delMany(outboxKeys, store).catch(() => {})
   }
   // coding pipeline of this device (features/coding/local.ts): logs, run states, trusted task versions — keys "cloud:<ws>|…"
   if (!dbNames || dbNames.includes('one-coding')) {

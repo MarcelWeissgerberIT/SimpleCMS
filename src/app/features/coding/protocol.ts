@@ -534,3 +534,37 @@ export interface GitResult {
   /** discard / cleanup deleted the task's branch (One clears the Branch field: the next run makes a new one) */
   branchGone?: boolean
 }
+
+/* ------------------------------------------------------------------ the Outbox: exactly the reviewed bytes */
+
+/**
+ * Canonical JSON (the Outbox's `argsHash = sha256(canonicalJson(args))`, the same in tab and worker): object keys
+ * sorted by code unit, no whitespace, strings exactly as JSON.stringify writes them, arrays in order. `undefined`
+ * members are left out (as JSON does); a non-finite number, a function or a cycle throws — never hashed silently.
+ */
+export function canonicalJson(v: unknown): string {
+  const seen: unknown[] = []
+  const walk = (x: unknown): string => {
+    if (x === null) return 'null'
+    if (typeof x === 'string' || typeof x === 'boolean') return JSON.stringify(x)
+    if (typeof x === 'number') {
+      if (!Number.isFinite(x)) throw new Error('canonicalJson: a non-finite number')
+      return JSON.stringify(x)
+    }
+    if (typeof x !== 'object') throw new Error(`canonicalJson: ${typeof x}`)
+    if (seen.includes(x)) throw new Error('canonicalJson: a cycle')
+    seen.push(x)
+    let out: string
+    if (Array.isArray(x)) out = `[${x.map((e) => (e === undefined ? 'null' : walk(e))).join(',')}]`
+    else {
+      const o = x as Record<string, unknown>
+      const keys = Object.keys(o)
+        .filter((k) => o[k] !== undefined)
+        .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
+      out = `{${keys.map((k) => `${JSON.stringify(k)}:${walk(o[k])}`).join(',')}}`
+    }
+    seen.pop()
+    return out
+  }
+  return walk(v)
+}

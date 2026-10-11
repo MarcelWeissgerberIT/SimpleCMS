@@ -84,8 +84,11 @@ export function SharedPageView({ payload }: { payload: string }) {
     setSaving(true)
     try {
       const content = page.content ? { ...page.content, content: await storeImages(page.content.content) } : null
-      // a copy of a shared page into this workspace: an import (store/writer.ts)
-      const id = withWriter({ kind: 'import', run: newId(), source: 'share' }, () => useWorkspace.getState().createPage({ title: page.title, icon: page.icon, cover: page.cover, content }))
+      // a copy of a shared page into this workspace: an import (store/writer.ts); someone else's page: its text is
+      // theirs (contentOrigin 'share' — never the person's own words, features/outbox)
+      const id = withWriter({ kind: 'import', run: newId(), source: 'share' }, () =>
+        useWorkspace.getState().createPage({ title: page.title, icon: page.icon, cover: page.cover, content, contentOrigin: 'share' }),
+      )
       setSavedId(id)
       useUI.getState().toast({ message: t('features.share.view.saved'), kind: 'success' })
       openPage(id)

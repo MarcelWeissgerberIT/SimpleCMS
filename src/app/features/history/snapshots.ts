@@ -29,16 +29,17 @@ import { blankRow, iconKey, propsChanged, propsKey, propsOf, restoreProps, type 
 
 /**
  * 'older': the version this build had before an older build of One (another tab) let a task go (store/persistence.ts);
+ * 'outbox': a route's row patch or a receipt's Reset row (features/outbox);
  * 'eject' / 'rewind': before the flight recorder ejected a writer's work / brought a past state back (features/recorder)
  */
-export type SnapshotReason = 'session' | 'auto' | 'ai' | 'restore' | 'manual' | 'script' | 'older' | 'eject' | 'rewind'
+export type SnapshotReason = 'session' | 'auto' | 'ai' | 'restore' | 'manual' | 'script' | 'older' | 'outbox' | 'eject' | 'rewind'
 
 export interface SnapshotMeta {
   id: ID
   pageId: ID
   at: number
   reason: SnapshotReason
-  /** who wrote next, shown with the reason ('script': the script's name) */
+  /** who wrote next, shown with the reason ('script': the script's name · 'outbox': the send route's label) */
   by?: string
   title: string
   words: number
@@ -327,20 +328,28 @@ let restoring = 0
 let aiDepth = 0
 /** pages already kept as an "AI" version in the current aiWrite (outermost scope) */
 let aiKept = new Set<ID>()
+/** the outermost aiWrite's version label ('ai' unless it names another reason) */
+let aiLabel: { reason: SnapshotReason; by?: string } | null = null
 
 /**
  * Run writes by Claude, an agent, an automation or the MCP bridge (synchronous store writes). Before
  * the first of them touches a row's properties or a page's title / icon, that page's state is kept as
  * an "AI" version — once per page per call, however many writes follow (no snapshot storm).
  * Content writes keep their version themselves (snapshotNow(…, 'ai') before setContent).
+ * `opts` (the outermost call's count): the version's reason and writer instead — the Outbox's row patch keeps
+ * "Outbox · <route>" ({ reason: 'outbox', by: <route label> }).
  */
-export function aiWrite<T>(fn: () => T): T {
+export function aiWrite<T>(fn: () => T, opts?: { reason?: SnapshotReason; by?: string }): T {
+  if (!aiDepth) aiLabel = opts ? { reason: opts.reason ?? 'ai', ...(opts.by ? { by: opts.by } : {}) } : null
   aiDepth++
   try {
     return fn()
   } finally {
     aiDepth--
-    if (!aiDepth) aiKept = new Set()
+    if (!aiDepth) {
+      aiKept = new Set()
+      aiLabel = null
+    }
   }
 }
 
@@ -512,7 +521,7 @@ export function startHistory(): () => void {
       // Claude / an agent / an automation: the state right before, as an "AI" version
       if (meta && aiDepth && !aiKept.has(id)) {
         aiKept.add(id)
-        if (!nothingToKeep(before)) void writeSnapshot(id, bodyOf(before), 'ai', Date.now() - 1)
+        if (!nothingToKeep(before)) void writeSnapshot(id, bodyOf(before), aiLabel?.reason ?? 'ai', Date.now() - 1, aiLabel?.by)
       }
       let s = session.get(id)
       if (!s) {

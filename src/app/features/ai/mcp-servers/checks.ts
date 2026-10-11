@@ -8,8 +8,9 @@ import { create } from 'zustand'
 import type { McpServerConfig } from '../../../store/types'
 import { t } from '../../../i18n'
 import { AIError, isAIConfigured } from '../client'
-import { PROMPT_MAX, patchServer, readServers } from './config'
+import { PROMPT_MAX, outToolsFor, patchServer, readServers } from './config'
 import { inspectServer } from './generate'
+import { LISTING_SHOWS_DISABLED, mergeTestedTools } from './lock'
 
 export type CheckMode = 'test' | 'guide'
 
@@ -43,7 +44,9 @@ export async function checkServer(id: string, mode: CheckMode = 'guide', opts: {
     if (ctrl.signal.aborted) return
     const now = readServers().find((s) => s.id === id)
     if (!now) return
-    const patch: Partial<McpServerConfig> = { tools: res.tools, checkedAt: Date.now(), checkError: undefined, checkAuth: undefined }
+    // the test ran under the OUT lock: the OUT tools the server had stay on its list (a profile matched by tools never flips)
+    const tools = mergeTestedTools(now.tools, res.tools, outToolsFor(now), !!res.listed && LISTING_SHOWS_DISABLED)
+    const patch: Partial<McpServerConfig> = { tools, checkedAt: Date.now(), checkError: undefined, checkAuth: undefined }
     const keep = now.promptSource === 'edited' && !!now.prompt.trim() && !opts.replaceEdited
     if (mode === 'guide' && res.guide && !keep) Object.assign(patch, { prompt: res.guide.slice(0, PROMPT_MAX), promptSource: 'auto' })
     patchServer(id, patch)

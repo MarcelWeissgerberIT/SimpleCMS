@@ -537,7 +537,7 @@ function createCases(taskId: ID, taskTitle: string, cases: TestCase[]): ID {
     ]
     if (c.steps.length) content.push({ type: 'orderedList', content: c.steps.map((s) => ({ type: 'listItem', content: [para(s)] })) })
     if (c.expected) content.push({ type: 'paragraph', content: [{ type: 'text', text: `${t('features.coding.case.expected')}: `, marks: [{ type: 'bold' }] }, { type: 'text', text: c.expected }] })
-    ws().createRow(dbId, { title: c.title, properties, content: { type: 'doc', content } })
+    ws().createRow(dbId, { title: c.title, properties, content: { type: 'doc', content }, contentOrigin: 'coding' })
   }
   return dbId
 }

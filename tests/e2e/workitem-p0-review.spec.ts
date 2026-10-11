@@ -17,14 +17,17 @@
  *  - the placard: the state in words, the overdue day count, "Depends on" (no computed "blocked"), chips that
  *    say what they are to a screen reader, a done task's icons dimmed, chips scaled on slides, consecutive
  *    tasks one plate in an HTML export too;
- *  - history "Changes": the 'at' reminder in words (no emoji), a rewritten title stays in the title cell.
+ *  - history "Changes": the 'at' reminder in words (no emoji), a rewritten title stays in the title cell;
+ *  - with no older build around, the stamp and the shadow copies cost no extra reads: a save of a page without tasks
+ *    touches no shadow copy, a start reads only their keys (a copy's content only where a stamp does not fit), a
+ *    page read from another tab of this version is read without its copy — and a copy still goes with its tasks.
  * Pure parts (keepItems, liftMisplacedItems, restoreNewer) run without a page.
  */
 import { strFromU8, unzipSync } from 'fflate'
 import { readFileSync } from 'node:fs'
 import type { BrowserContext, Page } from '@playwright/test'
 import type { JSONContent } from '@tiptap/core'
-import { test, expect, openApp, gotoPage, wsEval, uiEval, createPage, doc, para, flush, reloadApp, editorOf, MOD } from './fixtures'
+import { test, expect, openApp, gotoPage, wsEval, uiEval, createPage, doc, para, flush, reloadApp, waitForApp, editorOf, MOD } from './fixtures'
 import { itemAttrs } from '../../src/app/editor/workitem/attrs'
 import { keepItems, workItemFromQuote } from '../../src/app/editor/workitem/markdown'
 import { liftMisplacedItems } from '../../src/app/editor/workitem/place'
@@ -384,6 +387,116 @@ test.describe('task block (P0 review): an older build of One in the same browser
     await page.evaluate((id) => new BroadcastChannel('one-sync').postMessage({ type: 'changed', from: 'older-tab', full: false, pages: [id], dbs: [], meta: false }), id)
     await expect.poll(() => wsEval(page, (s, id) => !!s.pages[id], id)).toBe(false)
     await expect.poll(() => idbGet(page, `one.page.g1:${id}`)).toBeUndefined()
+  })
+})
+
+/* ------------------------------------------------------------------ */
+/* What the stamp and the shadow copies cost with no older build       */
+/* ------------------------------------------------------------------ */
+
+/**
+ * IndexedDB requests on this generation's shadow copies (`one.page.g1:`), counted per method in the page: an init
+ * script wraps the object store's methods before the app runs (every page of the context, after a reload too).
+ */
+function countShadowRequests(context: BrowserContext): Promise<void> {
+  return context.addInitScript(() => {
+    const counts: Record<string, number> = {}
+    ;(window as unknown as { __shadowRequests: Record<string, number> }).__shadowRequests = counts
+    const proto = IDBObjectStore.prototype as unknown as Record<string, (...args: unknown[]) => unknown>
+    for (const name of ['get', 'getAll', 'getKey', 'getAllKeys', 'put', 'delete']) {
+      const orig = proto[name]!
+      proto[name] = function (this: IDBObjectStore, ...args: unknown[]) {
+        const key = name === 'put' ? args[1] : args[0]
+        const text = key instanceof IDBKeyRange ? String(key.lower) : String(key)
+        if (text.startsWith('one.page.g1:')) counts[name] = (counts[name] ?? 0) + 1
+        return orig.apply(this, args)
+      }
+    }
+  })
+}
+
+const shadowRequests = (page: Page) => page.evaluate(() => ({ ...(window as unknown as { __shadowRequests: Record<string, number> }).__shadowRequests }))
+const resetShadowRequests = (page: Page) =>
+  page.evaluate(() => {
+    const counts = (window as unknown as { __shadowRequests: Record<string, number> }).__shadowRequests
+    for (const k of Object.keys(counts)) delete counts[k]
+  })
+
+const setDoc = (page: Page, id: string, content: JSONContent) => wsEval(page, (s, { id, content }) => s.setContent(id, content, 'e2e'), { id, content })
+
+test.describe('task block (P0 review): what the stamp and the shadow copies cost', () => {
+  test('saving a page without tasks never touches a shadow copy; a page that loses its tasks loses its copy — wherever the copy came from', async ({ page, context }) => {
+    await countShadowRequests(context)
+    await openApp(page)
+    const plainPage = await createPage(page, { title: 'No tasks here', content: doc(p('Just text.')) })
+    await resetShadowRequests(page)
+    for (let i = 0; i < 3; i++) {
+      await setDoc(page, plainPage, doc(p(`Edit ${i}.`)))
+      await flush(page)
+    }
+    expect(await shadowRequests(page)).toEqual({})
+    expect((await idbGet(page, `one.page.v2:${plainPage}`))?._schema).toEqual({ g: 1, f: expect.any(Number) })
+
+    // this tab gives a page a task and takes it away again
+    const own = await createPage(page, { title: 'Own task', content: doc(p('a'), item({ itemId: A }, 'Task one')) })
+    expect(await idbGet(page, `one.page.g1:${own}`)).toBeDefined()
+    await setDoc(page, own, doc(p('a'), p('Task one')))
+    await flush(page)
+    expect(await idbGet(page, `one.page.g1:${own}`)).toBeUndefined()
+
+    // another tab gives a page this tab holds without a copy a task: read without its shadow copy (its stamp fits) …
+    const other = await context.newPage()
+    await openApp(other)
+    await resetShadowRequests(page)
+    await setDoc(other, plainPage, doc(p('With a task now.'), item({ itemId: B }, 'Task from the other tab')))
+    await flush(other)
+    await expect.poll(() => wsEval(page, (s, id) => JSON.stringify(s.pages[id].content), plainPage)).toContain('Task from the other tab')
+    const read = await shadowRequests(page)
+    expect(read.getKey).toBeGreaterThan(0)
+    expect(read.get ?? 0).toBe(0)
+    expect(await idbGet(page, `one.page.g1:${plainPage}`)).toBeDefined()
+    // … and when this tab takes the task away, the copy goes
+    await setDoc(page, plainPage, doc(p('With a task now.')))
+    await flush(page)
+    expect(await idbGet(page, `one.page.g1:${plainPage}`)).toBeUndefined()
+    await other.close()
+
+    // after a start: the keys read then tell where a copy is
+    await setDoc(page, own, doc(p('a'), item({ itemId: C }, 'Task two')))
+    await flush(page)
+    expect(await idbGet(page, `one.page.g1:${own}`)).toBeDefined()
+    await page.reload()
+    await waitForApp(page)
+    await setDoc(page, own, doc(p('a'), p('Task two')))
+    await flush(page)
+    expect(await idbGet(page, `one.page.g1:${own}`)).toBeUndefined()
+    expect(await tasksOf(page, own)).toEqual({})
+  })
+
+  test('a start reads only the shadow copies\' keys while every stamp fits — the copy of a page an older build stored is read and its tasks come back', async ({ page, context }) => {
+    await countShadowRequests(context)
+    await openApp(page)
+    const kept = await createPage(page, { title: 'Stamped', content: doc(p('Kept as it is.'), item({ itemId: A }, 'Task kept')) })
+    const older = await createPage(page, { title: 'Older wrote it', content: doc(p('Before.'), item({ itemId: B }, 'Task back'), p('After.')) })
+    await flush(page)
+
+    await page.reload()
+    await waitForApp(page)
+    let boot = await shadowRequests(page)
+    expect(boot.getAllKeys).toBeGreaterThan(0)
+    expect([boot.getAll ?? 0, boot.get ?? 0]).toEqual([0, 0])
+    expect(Object.keys(await tasksOf(page, kept))).toEqual([A])
+
+    // an older build stored one of them meanwhile (without its task): only that page's copy is read
+    const record = (await idbGet(page, `one.page.v2:${older}`))!
+    await idbPut(page, `one.page.v2:${older}`, asOlderBuild(record, 'Typed by the older build 9971.'))
+    await page.reload()
+    await waitForApp(page)
+    boot = await shadowRequests(page)
+    expect([boot.getAll ?? 0, boot.get ?? 0]).toEqual([0, 1])
+    expect(Object.keys(await tasksOf(page, older))).toEqual([B])
+    expect(await wsEval(page, (s, id) => s.pages[id].plain as string, older)).toContain('9971')
+    expect(Object.keys(await tasksOf(page, kept))).toEqual([A])
   })
 })
 

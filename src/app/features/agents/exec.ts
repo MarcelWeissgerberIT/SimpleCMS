@@ -23,7 +23,7 @@ import { navigate, parseHash } from '../../lib/router'
 import { fmtUsd } from '../../lib/money'
 import { currentLang, t } from '../../i18n'
 import { AIError, resolveModel } from '../ai/client'
-import { allowedTools, attachMcp, instructionsText, readServers } from '../ai/mcp-servers/config'
+import { allowFor, allowedTools, attachMcp, instructionsText, outToolsFor, readServers } from '../ai/mcp-servers/config'
 import { callLabel } from '../ai/mcp-servers/activity'
 import { MAX_TOOL_CALLS, type StageApi } from '../ai/agent/tools'
 import { runAgent, taskMessage, type RunHooks } from '../ai/agent/run'
@@ -369,7 +369,12 @@ async function runOnce(agent: CustomAgent, req: RunRequest): Promise<AgentRun> {
     for (const name of agent.mcpServers) if (!named.some((s) => s.name === name)) step({ kind: 'note', label: t('features.agents.run.mcpMissing', { name: name.toUpperCase() }), state: 'err' })
     for (const s of named) if (!s.enabled) step({ kind: 'note', label: t('features.agents.run.mcpOff', { name: s.name.toUpperCase() }), state: 'err' })
     const configured = named.filter((s) => s.enabled)
-    const usable = configured.filter((s) => allowedTools(allow, s.name)?.length !== 0)
+    // the lock (mcp-servers/lock.ts): ticked tools that send data out stay off — said, so the run explains itself
+    for (const s of configured) {
+      const off = outToolsFor(s).filter((tool) => allowedTools(allow, s.name)?.includes(tool))
+      if (off.length) step({ kind: 'note', label: t('features.agents.run.mcpOut', { name: s.name.toUpperCase(), tools: off.join(', ') }), state: 'ok' })
+    }
+    const usable = configured.filter((s) => allowFor(allow, s)?.length !== 0)
     for (const s of configured) if (!usable.includes(s)) step({ kind: 'note', label: t('features.agents.run.mcpNoTools', { name: s.name.toUpperCase() }), state: 'err' })
     const mcp = usable.length ? await attachMcp({ servers: usable, instructions: instructionsText() }, 'free', { forced: agent.mcpServers, allow }) : null
     for (const s of usable) if (!mcp?.names.includes(s.name)) step({ kind: 'note', label: t('features.agents.run.mcpNoToken', { name: s.name.toUpperCase() }), state: 'err' })
@@ -412,8 +417,9 @@ async function runOnce(agent: CustomAgent, req: RunRequest): Promise<AgentRun> {
   // what the run wrote or proposed
   if (changes.length) {
     if (agent.write === 'apply' && run.status === 'ok') {
-      // edits of existing text always wait for a person's OK: they stay in the run for review
-      const direct = changes.filter((c) => c.kind !== 'edit')
+      // edits of existing text always wait for a person's OK: they stay in the run for review; a send is never applied
+      // (the Outbox sends, after a person's press)
+      const direct = changes.filter((c) => c.kind !== 'edit' && c.kind !== 'send')
       const res = await asAgent(agent.id, () => applyChanges(direct, changes, (id) => rowIds[id] ?? id, { writer }))
       Object.assign(rowIds, res.rowIds)
       for (let i = 0; i < changes.length; i++) {

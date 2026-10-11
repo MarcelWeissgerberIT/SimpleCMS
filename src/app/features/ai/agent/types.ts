@@ -100,7 +100,8 @@ export interface ColumnSpec {
   options?: string[]
 }
 
-export type ChangeKind = 'create_page' | 'append' | 'edit' | 'create_row' | 'update_row' | 'rename' | 'create_database' | 'add_property' | 'memory' | 'script' | 'media' | 'coding'
+/** 'send': a slip in the Outbox (features/outbox) — never applied here, not even in write mode "apply": the Outbox sends after a person's press */
+export type ChangeKind = 'create_page' | 'append' | 'edit' | 'create_row' | 'update_row' | 'rename' | 'create_database' | 'add_property' | 'memory' | 'script' | 'media' | 'coding' | 'send'
 
 /**
  * Media saved from an MCP result (features/ai/media: the person clicked "Save to One" on a card — the file is in
@@ -189,6 +190,8 @@ export interface StagedChange {
   media?: StagedMedia[]
   /** coding: a pipeline task to create, or an action on one (pageId = the task, or the id a new one gets) */
   coding?: StagedCoding
+  /** send: the Outbox slip it stands for (pageId = the row it answers); discarding the change withdraws an unsent slip */
+  send?: { slipId: string }
   /**
    * append / edit of a pipeline task's page (the terminal): the pages its text links — they go along to the worker as
    * read-only text (`staged`: proposed here, created on apply). Listed on the card; applying refuses a page not listed.

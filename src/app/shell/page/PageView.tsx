@@ -7,7 +7,7 @@ import { useUI } from '../../store/ui'
 import { isEffectivelyTrashed, usePage } from '../../store/selectors'
 import { PageEditor } from '../../editor'
 import { DatabaseView, RowProperties } from '../../database'
-import { TemplateBanner, CodingTaskSlot } from '../../features'
+import { TemplateBanner, CodingTaskSlot, OutboxDockSlot, OutboxDbFoot, OutboxReadout, RowSlips } from '../../features'
 import { PageIcon } from '../../ui/PageIcon'
 import { IconPicker } from '../../ui/IconPicker'
 import { Popover } from '../../ui/Popover'
@@ -85,6 +85,8 @@ function PageViewInner({ page, variant }: { page: Page; variant: PageVariant }) 
           <PageTitle page={page} readOnly={readOnly} variant={variant} onEnter={() => focusEditor('start')} />
           {/* a freshly seeded workspace: "Take the 3-minute tour" on its Welcome page (shell/tour) */}
           {variant === 'main' && !readOnly && <TourOffer pageId={page.id} />}
+          {/* a database with send routes or slips: IN OUTBOX · SENT TODAY (features/outbox) */}
+          {isDb && !trashed && <OutboxReadout dbId={page.id} />}
           {isRow && (
             <div className="pv-props">
               <RowProperties pageId={page.id} />
@@ -92,12 +94,17 @@ function PageViewInner({ page, variant }: { page: Page; variant: PageVariant }) 
           )}
           {/* a task of the coding pipeline: its panel (features/coding; nothing for other rows) */}
           {isRow && <CodingTaskSlot pageId={page.id} />}
+          {/* a mirrored row: its open slips and send routes (features/outbox; nothing elsewhere) */}
+          {isRow && !trashed && <RowSlips pageId={page.id} />}
         </div>
       </header>
       <div className="pv-body">
         <div className="pv-col pv-content">
           {isDb ? (
-            <DatabaseView databaseId={page.id} />
+            <>
+              <DatabaseView databaseId={page.id} />
+              {!trashed && <OutboxDbFoot dbId={page.id} />}
+            </>
           ) : (
             <PageEditor
               pageId={page.id}
@@ -122,6 +129,8 @@ function PageViewInner({ page, variant }: { page: Page; variant: PageVariant }) 
           />
         )}
       </div>
+      {/* the Outbox's dock beside a database page (a column on wide screens, else a sheet) */}
+      {isDb && variant === 'main' && !trashed && <OutboxDockSlot pageId={page.id} />}
       <footer className="pv-foot">
         <div className="pv-col">
           <Backlinks pageId={page.id} />

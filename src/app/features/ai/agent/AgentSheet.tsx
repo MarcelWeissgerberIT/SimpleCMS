@@ -85,8 +85,10 @@ export default function AgentSheet() {
   const focusTick = useAgent((s) => s.focusTick)
   const running = status === 'running'
   const pending = changes.filter((c) => c.status === 'pending').length
-  // proposals that start the coding worker or whose text goes to Claude Code: "Apply all" leaves them for their own ↵
-  const held = changes.filter((c) => c.status === 'pending' && appliesAlone(c)).length
+  // proposals that start the coding worker or whose text goes to Claude Code: "Apply all" leaves them for their own ↵;
+  // sends are never applied here at all (the Outbox sends them)
+  const sends = changes.filter((c) => c.status === 'pending' && c.kind === 'send').length
+  const held = changes.filter((c) => c.status === 'pending' && c.kind !== 'send' && appliesAlone(c)).length
   const applying = useAgent((s) => s.applying)
   const readOnly = useCloud((s) => s.readOnly)
   // the dock lives in the content column (below the page); without it (signed out …) it floats
@@ -227,7 +229,7 @@ export default function AgentSheet() {
             <button
               type="button"
               className="btn btn--primary btn--sm"
-              disabled={running || readOnly || applying || held === pending}
+              disabled={running || readOnly || applying || held + sends === pending}
               onClick={() => void applyStaged()}
               title={shortcutLabel('Mod+Enter')}
               aria-describedby={held > 0 ? 'term-held' : undefined}
@@ -1433,7 +1435,8 @@ function Prompt({ disabled, onReview }: { disabled: boolean; onReview: () => boo
 
   const accept = (c: Completion, i: number) => {
     const item = c.items[i]
-    if (!item) return
+    // an OUT tool is shown, never taken (only the Outbox sends with it)
+    if (!item || item.tool?.out) return
     const next = draft.slice(0, c.from) + item.insert + draft.slice(c.to)
     if (item.mention) {
       const { where: _where, ...m } = item.mention
@@ -1584,13 +1587,15 @@ function Prompt({ disabled, onReview }: { disabled: boolean; onReview: () => boo
               id={`${listId}-${i}`}
               role="option"
               aria-selected={i === active}
+              aria-disabled={item.tool?.out || undefined}
               className="term-complete__item"
+              data-out={item.tool?.out || undefined}
               onMouseDown={(e) => e.preventDefault()}
               onMouseEnter={() => setActive(i)}
               onClick={() => accept(comp, i)}
             >
               <span className="term-complete__label">{item.mention ? `${item.mention.kind === 'database' ? '▦' : '▣'} ${item.label}` : item.label}</span>
-              <span className="term-complete__hint">{item.command ? t(`features.agent.cmd.${item.command}`) : item.example ? item.example.text : item.tool ? t('features.agent.complete.toolOf', { server: item.tool.server }) : item.server ? `${item.server.codeword ? `${item.server.codeword}: · ` : ''}${item.server.host}` : item.mention?.where || t(`features.agent.kindOf.${item.mention?.kind ?? 'page'}`)}</span>
+              <span className="term-complete__hint">{item.command ? t(`features.agent.cmd.${item.command}`) : item.example ? item.example.text : item.tool?.out ? t('features.agent.complete.toolOut') : item.tool ? t('features.agent.complete.toolOf', { server: item.tool.server }) : item.server ? `${item.server.codeword ? `${item.server.codeword}: · ` : ''}${item.server.host}` : item.mention?.where || t(`features.agent.kindOf.${item.mention?.kind ?? 'page'}`)}</span>
             </li>
           ))}
           <li className="term-complete__foot" aria-hidden>

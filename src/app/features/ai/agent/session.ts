@@ -579,6 +579,8 @@ export async function submitPrompt(raw?: string): Promise<void> {
       const waiting = get().changes.filter((c) => c.status === 'pending')
       // only failed proposals are left: "apply all" never retries them — each on its own
       if (!waiting.length) return info(input, 'features.agent.echo.failedOnly')
+      // sends are never applied here (the Outbox sends them, after a person's press)
+      if (waiting.every((c) => c.kind === 'send')) return info(input, 'features.agent.echo.sendsOnly')
       // every waiting proposal goes to the coding worker: those are applied one by one
       if (waiting.every(appliesAlone)) return info(input, 'features.agent.echo.startsOnly')
       await applyStaged()
@@ -851,8 +853,11 @@ export const startsWorker = (c: StagedChange): boolean => c.kind === 'coding' &&
  */
 export const goesToWorker = (c: StagedChange): boolean => c.kind === 'append' && isPipelineTask(stage.resolve(c.pageId))
 
-/** A proposal "apply all" leaves for its own ↵: it starts the coding worker, or its text goes to Claude Code. */
-export const appliesAlone = (c: StagedChange): boolean => startsWorker(c) || goesToWorker(c)
+/**
+ * A proposal "apply all" leaves for its own ↵: it starts the coding worker, or its text goes to Claude Code — or it is
+ * a send (only the Outbox sends it; applyChanges never does).
+ */
+export const appliesAlone = (c: StagedChange): boolean => c.kind === 'send' || startsWorker(c) || goesToWorker(c)
 
 /**
  * Apply the given changes (`ids`: Enter on an item, marked items) — or every pending one that is not applied alone
@@ -865,7 +870,7 @@ export async function applyStaged(ids?: string[]): Promise<void> {
   const all = get().changes
   const open = (c: StagedChange) => c.status === 'pending' || c.status === 'failed'
   const targets = ids ? all.filter((c) => ids.includes(c.id) && open(c)) : all.filter((c) => c.status === 'pending' && !appliesAlone(c))
-  const held = ids ? 0 : all.filter((c) => c.status === 'pending' && appliesAlone(c)).length
+  const held = ids ? 0 : all.filter((c) => c.status === 'pending' && c.kind !== 'send' && appliesAlone(c)).length
   const ui = useUI.getState()
   if (!targets.length) {
     if (held) ui.toast({ message: tn('features.agent.toast.startsHeld', held), kind: 'info' })
@@ -1033,4 +1038,9 @@ export function rerunAfterSignIn(entryId: string): void {
   history = snap.before
   // a Continue goes on again (the same task, a fresh budget, what is staged); a task runs with the chips it had
   void runTask(turn.task, turn.continues ? { history: false, continues: turn.continues } : { history: false, again: { refs: snap.refs, mentions: snap.mentions } })
+}
+
+// e2e seam (dev, or ?e2e): the terminal's state and the apply step — a test can stage what no tool stages yet (a send)
+if (typeof window !== 'undefined' && (import.meta.env.DEV || new URLSearchParams(window.location.search).has('e2e'))) {
+  ;(window as unknown as { __oneTerm?: unknown }).__oneTerm = { state: useAgent, applyChanges }
 }

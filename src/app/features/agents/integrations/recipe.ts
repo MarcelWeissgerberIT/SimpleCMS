@@ -569,3 +569,39 @@ export function buildMirror(r: ResolvedRecipe, report: Report | null = null, at:
   if (!views.length) issue(['database'], 'noViews')
   return { properties, views }
 }
+
+/**
+ * The options the profile itself declares for its properties (the profile's first recipe, else the built-in mirror):
+ * property name (any language, lower case) → its option names (any language, lower case). Options a mirror creates on
+ * the fly from the source (status, priority, tags) are not among them.
+ */
+export function recipeOptionNames(profile: Pick<IntegrationProfile, 'id' | 'name' | 'recipes'>): Record<string, string[]> {
+  const recipe: RecipeConfig = profile.recipes?.[0] ?? { kind: 'mirror' }
+  const out: Record<string, string[]> = {}
+  for (const lang of ['en', 'de'] as const)
+    for (const p of resolveRecipe(profile, recipe, lang).properties) {
+      if (!p.options?.length) continue
+      const names = p.options.flatMap((o) => (o.names.length ? o.names : [o.name])).map((n) => n.toLowerCase())
+      for (const n of p.names.length ? p.names : [p.name]) {
+        const list = (out[n.toLowerCase()] ??= [])
+        for (const o of names) if (!list.includes(o)) list.push(o)
+      }
+    }
+  return out
+}
+
+/**
+ * The names a profile's mirror gives each role, in both languages (role → names): the first recipe of the profile,
+ * else the built-in one. The Outbox finds a row's key, link, comment and "waiting" fields by these.
+ */
+export function recipeRoleNames(profile: Pick<IntegrationProfile, 'id' | 'name' | 'recipes'>): Record<string, string[]> {
+  const recipe: RecipeConfig = profile.recipes?.[0] ?? { kind: 'mirror' }
+  const out: Record<string, string[]> = {}
+  for (const lang of ['en', 'de'] as const)
+    for (const p of resolveRecipe(profile, recipe, lang).properties) {
+      if (!p.role) continue
+      const list = (out[p.role] ??= [])
+      for (const n of p.names.length ? p.names : [p.name]) if (!list.includes(n)) list.push(n)
+    }
+  return out
+}
