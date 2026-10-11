@@ -6,37 +6,15 @@
  * last event left), else null (partial); a tab that did not end cleanly leaves a lost-tail marker
  * `kv <scope>|gap|<lastFlush>` ("recording interrupted"). Nothing is ever guessed.
  */
-import type { Database, Page } from '../../../store/types'
 import { placeCanon, wholeCanon, type PlaceObject } from '../model/canon'
-import { parsePlace } from '../model/places'
 import { touchedParts } from '../model/touched'
-import { F, type JSegment, type LostTail, type PinMeta, type Scope, type TabRecord } from '../model/types'
+import { F, type JSegment, type LostTail, type Scope, type TabRecord } from '../model/types'
 import { currentPlace } from './current'
 import { HI, openJournal, pad13 } from './db'
 import { deps } from './deps'
 import { digestLeft, digestWhole } from './key'
-import { readPinBodies, readPinMetas } from './pins'
 import { liveTabs } from './prune'
-
-/** A pin read back as the place object it pinned (rows with the definitions then). */
-async function pinPlace(scope: Scope, pinId: string, place: string, memory: boolean): Promise<PlaceObject | null> {
-  const meta: PinMeta | undefined = (await readPinMetas(scope, [pinId], memory)).get(pinId)
-  if (!meta) return null
-  if (meta.kind === 'schema') {
-    if (place.startsWith('s:')) return { kind: 'schema', db: meta.db }
-    const view = meta.db.views.find((v) => v.id === parsePlace(place as JSegment['p']).view)
-    return view ? { kind: 'view', view } : null
-  }
-  let content = null
-  if (meta.body) {
-    const bodies = await readPinBodies(scope, [[meta.page.id, meta.body]], memory)
-    if (!bodies.has(`${meta.page.id}|${meta.body}`)) return null
-    content = bodies.get(`${meta.page.id}|${meta.body}`) ?? null
-  }
-  const page = { ...meta.page, content } as Page
-  if (meta.page.databaseId) return { kind: 'row', page, db: meta.defs ? { properties: meta.defs.map((d) => ({ ...d })) as Database['properties'] } : null }
-  return { kind: 'page', page }
-}
+import { pinObjectOf } from '../window/digest'
 
 const canonOf = (o: PlaceObject) => {
   const c = placeCanon(o, deps)
@@ -68,7 +46,7 @@ export async function recoverScope(scope: Scope, ownTab: string, memory: boolean
     let leftObj: PlaceObject | null = null
     let leftCanon: ReturnType<typeof canonOf> | null = null
     if (seg.lastLh && seg.lastLh !== '-') {
-      const candidate = later.length ? (later[0].before ? await pinPlace(scope, later[0].before, seg.p, memory) : null) : current ? currentPlace(seg.p) : null
+      const candidate = later.length ? (later[0].before ? await pinObjectOf(scope, later[0].before, seg.p, memory) : null) : current ? currentPlace(seg.p) : null
       if (candidate) {
         const cc = canonOf(candidate)
         if ((await digestWhole(scope, cc.whole)) === seg.lastLh) {
@@ -82,7 +60,7 @@ export async function recoverScope(scope: Scope, ownTab: string, memory: boolean
     if (leftObj && leftCanon) {
       const isNew = !!(seg.f & F.NEW)
       next.left = await digestLeft(scope, leftCanon.c, leftCanon.whole)
-      const first = !isNew && seg.before ? await pinPlace(scope, seg.before, seg.p, memory) : null
+      const first = !isNew && seg.before ? await pinObjectOf(scope, seg.before, seg.p, memory) : null
       next.touched = isNew || !first ? '*' : touchedParts(first, leftObj, deps)
       res.exact++
     } else {
