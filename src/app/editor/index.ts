@@ -82,7 +82,7 @@ export {
  * workItemExportCss(scope): the placard's CSS for exported / shared HTML. DOC_SCHEMA_VERSION: the document
  * schema generation this build reads (sent with every collab connection — docs/CLOUD.md § Schema gate).
  */
-export { WORK_ITEM, WORK_ITEM_STATUSES, itemAttrs, shortItemId, type WorkItemAttrs, type WorkItemStatus, type FrozenWorkItem } from './workitem/attrs'
+export { WORK_ITEM, WORK_ITEM_STATUSES, MAX_PEOPLE, MAX_LINKS, itemAttrs, shortItemId, type WorkItemAttrs, type WorkItemStatus, type FrozenWorkItem } from './workitem/attrs'
 export { StaticWorkItem } from './workitem/Placard'
 export { freezeWorkItems, hasWorkItems } from './workitem/freeze'
 export { workItemExportCss } from './workitem/exportCss'

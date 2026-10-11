@@ -26,6 +26,7 @@ export const agendaMessages: Messages = {
     'shell.agenda.sources': 'Sources',
     'shell.agenda.source.journal': 'Journal',
     'shell.agenda.source.mentions': 'Mentions',
+    'shell.agenda.source.items': 'Tasks',
     'shell.agenda.source.activity': 'Activity',
 
     'shell.agenda.more': '+{n} more',
@@ -76,6 +77,7 @@ export const agendaMessages: Messages = {
     'shell.agenda.sources': 'Quellen',
     'shell.agenda.source.journal': 'Journal',
     'shell.agenda.source.mentions': 'Erwähnungen',
+    'shell.agenda.source.items': 'Aufgaben',
     'shell.agenda.source.activity': 'Aktivität',
 
     'shell.agenda.more': '+{n} weitere',

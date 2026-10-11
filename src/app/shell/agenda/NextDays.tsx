@@ -1,6 +1,6 @@
 /** Home panel: the next 7 days from the agenda (3–6 items) + a way into the full agenda. */
 import { useMemo, type CSSProperties } from 'react'
-import { ArrowRight, AtSign } from 'lucide-react'
+import { ArrowRight, AtSign, SquareCheckBig } from 'lucide-react'
 import { useLang, useT } from '../../i18n'
 import { PageIcon } from '../../ui/PageIcon'
 import { navigate } from '../../lib/router'
@@ -95,7 +95,13 @@ export function NextDays() {
                 </span>
               </span>
               <span className="nx-row__main">
-                {it.kind === 'mention' ? <AtSign size={14} className="nx-row__at" /> : <PageIcon icon={it.icon} kind={it.pageKind} size={16} />}
+                {it.kind === 'mention' ? (
+                  <AtSign size={14} className="nx-row__at" />
+                ) : it.kind === 'item' ? (
+                  <SquareCheckBig size={14} className="nx-row__at" />
+                ) : (
+                  <PageIcon icon={it.icon} kind={it.pageKind} size={16} />
+                )}
                 <span className="nx-row__title" data-untitled={!it.title.trim() || undefined}>
                   {it.title.trim() || t('common.untitled')}
                 </span>

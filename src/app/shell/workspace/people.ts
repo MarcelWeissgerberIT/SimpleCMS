@@ -2,10 +2,12 @@
  * Workspace people (Workspace.people) — where each person is used, and the tools of the People section
  * (shell/workspace/People.tsx):
  *  - peopleUsage(pages, databases): per person the rows that hold them in a person property, the pages that
- *    @mention them, and (team) the pages they created or edited last (`createdBy` / `updatedBy`)
- *  - addPerson / renamePerson (mention labels follow) / recolourPerson
- *  - mergePeople(from, into): every person value and every @mention of `from` points at `into`, then `from`
- *    leaves the list — one Undo (toast) puts everything back; a version of each rewritten page is kept first
+ *    @mention them, the pages whose tasks assign them (`workItem` people), and (team) the pages they created
+ *    or edited last (`createdBy` / `updatedBy`)
+ *  - addPerson / renamePerson (mention labels follow; tasks hold ids only — nothing to rewrite) / recolourPerson
+ *  - mergePeople(from, into): every person value, every @mention and every task assignment of `from` points at
+ *    `into`, then `from` leaves the list — one Undo (toast) puts everything back; a version of each rewritten
+ *    page is kept first
  *  - removePerson: only someone nobody uses (otherwise: merge them into someone)
  * Page content is written only with setContent(…, 'people').
  */
@@ -15,6 +17,7 @@ import { useUI } from '../../store/ui'
 import { inTemplate, isEffectivelyTrashed } from '../../store/selectors'
 import type { ColorName, Database, ID, Page, Person, PropertyValue } from '../../store/types'
 import { snapshotNow } from '../../features'
+import { itemsOfContent, MAX_PEOPLE } from '../../editor'
 import { t } from '../../i18n'
 
 /** The writer of people changes in page content (Page.contentOrigin). */
@@ -34,11 +37,16 @@ export interface PersonUse {
   rows: UseRef[]
   /** pages that @mention them */
   mentions: UseRef[]
+  /** pages whose tasks assign them (`count`: how many tasks there) */
+  items: Array<UseRef & { count: number }>
   /** pages and rows they created or edited last (team workspaces: their account id) */
   authored: number
 }
 
-export const usedCount = (u: PersonUse | undefined) => (u ? u.rows.length + u.mentions.length : 0)
+export const usedCount = (u: PersonUse | undefined) => (u ? u.rows.length + u.mentions.length + u.items.length : 0)
+
+/** How many tasks assign a person in all (the pages' counts summed). */
+export const taskCount = (u: PersonUse | undefined) => (u ? u.items.reduce((n, r) => n + r.count, 0) : 0)
 
 const ws = () => useWorkspace.getState()
 
@@ -65,6 +73,27 @@ export function mentionedPeople(content: JSONContent | null | undefined): Readon
   const set = out.size ? out : NONE
   mentionCache.set(content, set)
   return set
+}
+
+/**
+ * Person id → how many tasks of a content assign them, per (immutable) content object. A synced reference's copy
+ * of a task is the original's (counted where the original is), as in the task index.
+ */
+const assignCache = new WeakMap<object, ReadonlyMap<ID, number>>()
+const NO_ONE: ReadonlyMap<ID, number> = new Map()
+
+export function assignedPeople(content: JSONContent | null | undefined): ReadonlyMap<ID, number> {
+  if (!content || typeof content !== 'object') return NO_ONE
+  const hit = assignCache.get(content)
+  if (hit) return hit
+  const out = new Map<ID, number>()
+  for (const it of itemsOfContent(content)) {
+    if (it.synced === 'copy') continue
+    for (const id of it.attrs.people) out.set(id, (out.get(id) ?? 0) + 1)
+  }
+  const map = out.size ? out : NO_ONE
+  assignCache.set(content, map)
+  return map
 }
 
 /** The person ids of a person value (a list; an odd single id counts too). */
@@ -95,7 +124,7 @@ export function peopleUsage(pages: Record<ID, Page>, databases: Record<ID, Datab
   const out = new Map<ID, PersonUse>()
   const use = (id: ID) => {
     let u = out.get(id)
-    if (!u) out.set(id, (u = { rows: [], mentions: [], authored: 0 }))
+    if (!u) out.set(id, (u = { rows: [], mentions: [], items: [], authored: 0 }))
     return u
   }
   for (const p of Object.values(pages)) {
@@ -109,6 +138,7 @@ export function peopleUsage(pages: Record<ID, Page>, databases: Record<ID, Datab
       for (const id of ids) use(id).rows.push({ pageId: p.id, dbId: p.databaseId!, hidden: where() })
     }
     for (const id of mentioned) use(id).mentions.push({ pageId: p.id, hidden: where() })
+    for (const [id, count] of assignedPeople(p.content)) use(id).items.push({ pageId: p.id, hidden: where(), count })
     if (typeof p.createdBy === 'string' && p.createdBy) use(p.createdBy).authored++
     if (typeof p.updatedBy === 'string' && p.updatedBy && p.updatedBy !== p.createdBy) use(p.updatedBy).authored++
   }
@@ -117,6 +147,7 @@ export function peopleUsage(pages: Record<ID, Page>, databases: Record<ID, Datab
   for (const u of out.values()) {
     u.rows.sort(order)
     u.mentions.sort(order)
+    u.items.sort(order)
   }
   return out
 }
@@ -140,6 +171,35 @@ export function mapPersonMentions(node: JSONContent, fn: (attrs: Record<string, 
     return n
   })
   return changed ? { ...node, content } : node
+}
+
+const BLOCK_ONLY = new Set(['paragraph', 'heading', 'codeBlock', 'detailsSummary', 'text', 'mention', 'hardBreak', 'inlineMath', 'icon'])
+
+/**
+ * The content with every task's people passed through `fn` (it returns the new list, or null to keep the task as
+ * it is). Only the `people` attr changes — every other attr keeps its value object (y-tiptap compares attrs by
+ * reference). Walks blocks only. The same object when nothing changed.
+ */
+export function mapItemPeople(node: JSONContent, fn: (people: string[]) => string[] | null): JSONContent {
+  if (!Array.isArray(node.content) || BLOCK_ONLY.has(node.type ?? '')) return node
+  let attrs = node.attrs
+  if (node.type === 'workItem' && Array.isArray(node.attrs?.people)) {
+    const next = fn((node.attrs.people as unknown[]).filter((x): x is string => typeof x === 'string'))
+    if (next) attrs = { ...node.attrs, people: next }
+  }
+  let changed = attrs !== node.attrs
+  const content = node.content.map((c) => {
+    const n = c && typeof c === 'object' ? mapItemPeople(c, fn) : c
+    if (n !== c) changed = true
+    return n
+  })
+  return changed ? { ...node, attrs, content } : node
+}
+
+/** `from` → `into` in a task's people (deduped, at most 12); null when `from` is not among them. */
+export function swapPerson(people: string[], fromId: ID, intoId: ID): string[] | null {
+  if (!people.includes(fromId)) return null
+  return [...new Set(people.map((x) => (x === fromId ? intoId : x)))].slice(0, MAX_PEOPLE)
 }
 
 /* ------------------------------------------------------------------ the tools */
@@ -215,9 +275,10 @@ export async function mergePeople(fromId: ID, intoId: ID): Promise<MergeResult |
   const into = s0.people.find((p) => p.id === intoId)
   if (!from || !into || fromId === intoId) return null
   const usage = peopleUsage(s0.pages, s0.databases).get(fromId)
-  const mentionPages = (usage?.mentions ?? []).map((r) => r.pageId)
+  // pages whose content changes: @mentions and task assignments
+  const contentPages = [...new Set([...(usage?.mentions ?? []), ...(usage?.items ?? [])].map((r) => r.pageId))]
   // a version of every page whose text changes, before it changes
-  await Promise.all(mentionPages.map((id) => snapshotNow(id, 'auto').catch(() => null)))
+  await Promise.all(contentPages.map((id) => snapshotNow(id, 'auto').catch(() => null)))
 
   const s = ws()
   const props = personProps(s.databases)
@@ -235,10 +296,12 @@ export async function mergePeople(fromId: ID, intoId: ID): Promise<MergeResult |
   for (const v of values) ws().setRowProperty(v.rowId, v.propId, v.after)
 
   const contents: Array<{ pageId: ID; before: JSONContent; rev: number }> = []
-  for (const pageId of mentionPages) {
+  for (const pageId of contentPages) {
     const page = ws().pages[pageId]
     if (!page?.content) continue
-    const next = mapPersonMentions(page.content, (a) => (a.id === fromId ? { ...a, id: intoId, label: into.name } : null))
+    // ONE write per page: its @mentions and its tasks' people
+    const mentioned = mapPersonMentions(page.content, (a) => (a.id === fromId ? { ...a, id: intoId, label: into.name } : null))
+    const next = mapItemPeople(mentioned, (people) => swapPerson(people, fromId, intoId))
     if (next === page.content) continue
     ws().setContent(pageId, next, PEOPLE_ORIGIN)
     contents.push({ pageId, before: page.content, rev: ws().pages[pageId]?.contentRev ?? -1 })

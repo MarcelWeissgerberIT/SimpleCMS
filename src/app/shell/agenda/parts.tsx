@@ -1,6 +1,6 @@
 import { createContext, useContext, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react'
 import { PointerSensor, pointerWithin, useDraggable, useDroppable, useSensor, useSensors, type DragEndEvent, type DragStartEvent } from '@dnd-kit/core'
-import { AtSign, CornerDownRight } from 'lucide-react'
+import { AtSign, CornerDownRight, SquareCheckBig } from 'lucide-react'
 import type { Lang, Translate } from '@/shared/i18n'
 import { PageIcon } from '../../ui/PageIcon'
 import type { PopoverAnchor } from '../../ui/Popover'
@@ -35,6 +35,7 @@ export function sourceLabel(src: AgendaSource | undefined, t: Translate): string
   if (!src) return ''
   if (src.kind === 'journal') return t('shell.agenda.source.journal')
   if (src.kind === 'mentions') return t('shell.agenda.source.mentions')
+  if (src.kind === 'items') return t('shell.agenda.source.items')
   if (src.kind === 'activity') return t('shell.agenda.source.activity')
   return src.label || t('common.untitled')
 }
@@ -84,7 +85,13 @@ export function ItemChip({ it, overlay }: { it: AgendaItem; overlay?: boolean })
   const src = ctx.sources.get(it.source)
   return (
     <span className="ag-chip" data-overlay={overlay || undefined} data-done={it.done || undefined} data-kind={it.kind} style={{ '--ag-accent': accentOf(it, src) } as CSSProperties}>
-      {it.kind === 'mention' ? <AtSign size={11} strokeWidth={2} className="ag-chip__at" /> : it.icon ? <PageIcon icon={it.icon} kind={it.pageKind} size={12} /> : null}
+      {it.kind === 'mention' ? (
+        <AtSign size={11} strokeWidth={2} className="ag-chip__at" />
+      ) : it.kind === 'item' ? (
+        <SquareCheckBig size={11} strokeWidth={2} className="ag-chip__at" />
+      ) : it.icon ? (
+        <PageIcon icon={it.icon} kind={it.pageKind} size={12} />
+      ) : null}
       {it.time && <span className="ag-chip__time">{fmtTime(it.time, ctx.lang)}</span>}
       <span className="ag-chip__title" data-untitled={!it.title.trim() || undefined}>
         {it.title.trim() || ctx.t('common.untitled')}
@@ -230,7 +237,13 @@ export function ListRow({ it, day, overdue }: { it: AgendaItem; day: number; ove
       </span>
       <span className="ag-row__body">
         <span className="ag-row__line">
-          {it.kind === 'mention' ? <AtSign size={14} strokeWidth={1.8} className="ag-row__at" /> : <PageIcon icon={it.icon} kind={it.pageKind} size={16} />}
+          {it.kind === 'mention' ? (
+            <AtSign size={14} strokeWidth={1.8} className="ag-row__at" />
+          ) : it.kind === 'item' ? (
+            <SquareCheckBig size={14} strokeWidth={1.8} className="ag-row__at" />
+          ) : (
+            <PageIcon icon={it.icon} kind={it.pageKind} size={16} />
+          )}
           <span className="ag-row__title" data-untitled={!it.title.trim() || undefined}>
             {it.title.trim() || t('common.untitled')}
           </span>

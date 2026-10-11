@@ -20,7 +20,7 @@ import { toggleMenu } from '../lib/menu'
 import { goToPage } from '../lib/actions'
 import { useInCloud, useReadOnly } from '../cloud/state'
 import { TeamInvites, TeamMembers, type TeamData } from '../cloud/Team'
-import { addPerson, checkPersonName, mergePeople, mergeTargets, peopleUsage, recolourPerson, removeUnusedPerson, renamePerson, usedCount, PERSON_NAME_MAX, type NameCheck, type PersonUse, type UseRef } from './people'
+import { addPerson, checkPersonName, mergePeople, mergeTargets, peopleUsage, recolourPerson, removeUnusedPerson, renamePerson, taskCount, usedCount, PERSON_NAME_MAX, type NameCheck, type PersonUse, type UseRef } from './people'
 import { PersonAvatar, SectionHead, SubHead } from './parts'
 
 const LIST_MAX = 60
@@ -280,11 +280,13 @@ function RenameField({ person, onDone }: { person: Person; onDone: () => void })
 
 /* ------------------------------------------------------------------ where they are used */
 
-/** "12 rows · 3 mentions" (+ "5 created or edited" in a team workspace). */
+/** "12 rows · 3 mentions · 2 tasks" (+ "5 created or edited" in a team workspace). */
 function useParts(t: Translate, lang: Lang, use: PersonUse | undefined, team = false): string[] {
+  const tasks = taskCount(use)
   return [
     use?.rows.length ? t(use.rows.length === 1 ? 'shell.ws.people.row' : 'shell.ws.people.rows', { n: fmtNumber(use.rows.length, lang) }) : null,
     use?.mentions.length ? t(use.mentions.length === 1 ? 'shell.ws.people.mention' : 'shell.ws.people.mentions', { n: fmtNumber(use.mentions.length, lang) }) : null,
+    tasks ? t(tasks === 1 ? 'shell.ws.people.item' : 'shell.ws.people.items', { n: fmtNumber(tasks, lang) }) : null,
     team && use?.authored ? t('shell.ws.people.authored', { n: fmtNumber(use.authored, lang) }) : null,
   ].filter((x): x is string => !!x)
 }
@@ -336,7 +338,11 @@ function UsedIn({ id, use }: { id: string; use: PersonUse }) {
   const t = useT()
   const pages = useWorkspace((s) => s.pages)
   const title = (pid: ID) => pages[pid]?.title.trim() || t('common.untitled')
-  const refs: Array<UseRef & { kind: 'row' | 'mention' }> = [...use.rows.map((r) => ({ ...r, kind: 'row' as const })), ...use.mentions.map((r) => ({ ...r, kind: 'mention' as const }))]
+  const refs: Array<UseRef & { kind: 'row' | 'mention' | 'item' }> = [
+    ...use.rows.map((r) => ({ ...r, kind: 'row' as const })),
+    ...use.mentions.map((r) => ({ ...r, kind: 'mention' as const })),
+    ...use.items.map((r) => ({ ...r, kind: 'item' as const })),
+  ]
   const shown = refs.slice(0, LIST_MAX)
   return (
     <ul className="wsp-usedin" id={id} data-testid="ws-used-in">
@@ -351,7 +357,7 @@ function UsedIn({ id, use }: { id: string; use: PersonUse }) {
               goToPage(r.pageId)
             }}
           >
-            <span className="wsp-usedin__kind">{r.kind === 'row' ? t('shell.ws.people.kindRow') : t('shell.ws.people.kindMention')}</span>
+            <span className="wsp-usedin__kind">{t(r.kind === 'row' ? 'shell.ws.people.kindRow' : r.kind === 'item' ? 'shell.ws.people.kindItem' : 'shell.ws.people.kindMention')}</span>
             {r.dbId && <span className="wsp-usedin__db">{title(r.dbId)} ›</span>}
             <span className="wsp-usedin__title">{title(r.pageId)}</span>
             {r.hidden && <span className="wsp-usedin__tag">{t(`shell.ws.people.in.${r.hidden}`)}</span>}

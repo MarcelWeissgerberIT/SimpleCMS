@@ -896,6 +896,117 @@ test.describe('task reminders (in the app)', () => {
 })
 
 /* ------------------------------------------------------------------ */
+/* B16: the agenda and the people section                              */
+/* ------------------------------------------------------------------ */
+
+test.describe('agenda + people (in the app)', () => {
+  test('agenda: tasks with a due date — title, done faded, overdue, drag-move with Undo, opens at the block', async ({ page, errors }) => {
+    await page.clock.setFixedTime(new Date('2026-10-14T10:00:00'))
+    await openApp(page)
+    const plan = await createPage(page, {
+      title: 'Pricing launch',
+      content: doc(
+        item({ id: 'ba', itemId: A, due: '2026-10-16' }, 'Run the checkout'),
+        item({ id: 'bb', itemId: B, status: 'done', doneAt: NOW, due: '2026-10-16T14:30' }, 'Approve the copy'),
+        item({ id: 'bc', itemId: C, due: '2026-10-12' }, 'Move the invoice template'),
+        item({ id: 'bd', itemId: OUT }, 'No date, not on the agenda'),
+      ),
+    })
+    await flush(page)
+    await page.evaluate(() => (window.location.hash = '#/agenda'))
+    await expect(page.locator('.ag')).toBeVisible()
+    // the source "Tasks" (sources: databases + Tasks); the demo projects hidden for room
+    await expect(page.locator('.ag-sources').getByRole('button', { name: /Tasks/ })).toBeVisible()
+    const projects = page.locator('.ag-sources').getByRole('button', { name: /Projects/ })
+    await projects.click()
+    await expect(projects).toHaveAttribute('aria-pressed', 'false')
+
+    // month: the task sits on its day, by its title
+    const bar = page.locator('.ag-month .ag-bar', { hasText: 'Run the checkout' })
+    await expect(bar).toHaveAttribute('data-start', '2026-10-16')
+    await expect(bar).toHaveAttribute('aria-label', /Tasks/)
+    await expect(page.locator('.ag-month .ag-bar', { hasText: 'No date' })).toHaveCount(0)
+
+    // drag it to Tue 20: the due date moves (writeItems), Undo puts it back
+    const from = (await bar.boundingBox())!
+    const to = (await page.locator('.ag-day[data-iso="2026-10-20"]').boundingBox())!
+    await page.mouse.move(from.x + 12, from.y + from.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(from.x + 40, from.y + from.height / 2 + 10, { steps: 4 })
+    await page.mouse.move(to.x + to.width / 2, to.y + to.height - 12, { steps: 12 })
+    await page.mouse.up()
+    await expect.poll(async () => (await storedTask(page, plan, A))?.due).toBe('2026-10-20')
+    expect(await wsEval(page, (s, id) => s.pages[id].contentOrigin, plan)).toBe('items')
+    await page.locator('.toast', { hasText: 'moved to' }).getByRole('button', { name: 'Undo' }).click()
+    await expect.poll(async () => (await storedTask(page, plan, A))?.due).toBe('2026-10-16')
+    // a done task does not move
+    await expect(page.locator('.ag-month .ag-bar', { hasText: 'Approve the copy' })).not.toHaveAttribute('data-movable', 'true')
+
+    // list: done faded, the late one in the overdue group
+    await page.keyboard.press('l')
+    await expect(page.locator('.ag')).toHaveAttribute('data-view', 'list')
+    const done = page.locator('.ag-row', { hasText: 'Approve the copy' })
+    await expect(done).toHaveAttribute('data-done', 'true')
+    await expect(done.locator('.ag-row__excerpt')).toHaveText('Pricing launch')
+    const overdue = page.locator('.ag-group[data-overdue]')
+    await expect(overdue).toContainText('Move the invoice template')
+    await expect(overdue).not.toContainText('Approve the copy')
+
+    // a click opens the page at the task's block
+    await page.locator('.ag-row', { hasText: 'Run the checkout' }).click()
+    await expect(page).toHaveURL(new RegExp(`#/p/${plan}\\?b=ba`))
+    await flush(page)
+    expect(errors.list).toEqual([])
+  })
+
+  test('people: tasks count as uses; merge rewrites their people (one Undo); someone only assigned cannot be removed', async ({ page }) => {
+    await openApp(page)
+    const ids = await wsEval(page, (s) => Object.fromEntries((s.people as Array<{ id: string; name: string }>).map((p) => [p.name, p.id])))
+    const grace = await wsEval(page, (s) => s.addPerson('Grace'))
+    const plan = await createPage(page, {
+      title: 'Pricing launch',
+      content: doc(
+        item({ id: 'ba', itemId: A, people: [ids.Sam, ids.Alex], blockedBy: [B] }, 'Run the checkout'),
+        item({ id: 'bb', itemId: B, people: [ids.Sam] }, 'Approve the copy'),
+        item({ id: 'bc', itemId: C, people: [grace] }, 'Book the room'),
+      ),
+    })
+    await flush(page)
+    const before = await wsEval(page, (s, id) => JSON.stringify(s.pages[id].content), plan)
+    await page.evaluate(() => (window.location.hash = '#/workspace/people'))
+    await expect(page.getByTestId('workspace-page')).toHaveAttribute('data-section', 'people')
+
+    // Grace is assigned only: in use, no Remove
+    const g = page.getByTestId('ws-person').filter({ hasText: 'Grace' })
+    await expect(g.getByTestId('ws-use')).toHaveText(/1 task/)
+    await g.getByRole('button', { name: 'Actions for Grace' }).click()
+    await expect(page.getByRole('menuitem', { name: /Remove/ })).toBeDisabled()
+    await page.keyboard.press('Escape')
+    await g.getByTestId('ws-use').click()
+    await expect(page.getByTestId('ws-used-in')).toContainText('Task')
+    await expect(page.getByTestId('ws-used-in')).toContainText('Pricing launch')
+
+    // Sam: "… 2 tasks" (+ the seed's own uses); merged into Alex: deduped, the other attrs as they were
+    const sam = page.getByTestId('ws-person').filter({ hasText: 'Sam' })
+    await expect(sam.getByTestId('ws-use')).toContainText(/\d+ tasks/)
+    await sam.getByRole('button', { name: 'Actions for Sam' }).click()
+    await page.getByRole('menuitem', { name: 'Merge into' }).click()
+    await page.getByRole('menuitem', { name: 'Alex' }).click()
+    await sam.getByRole('button', { name: 'Merge', exact: true }).click()
+    await expect(page.locator('.toasts')).toContainText('Sam merged into Alex')
+    await expect.poll(async () => (await storedTask(page, plan, A))?.people).toEqual([ids.Alex])
+    expect((await storedTask(page, plan, B))?.people).toEqual([ids.Alex])
+    expect((await storedTask(page, plan, A))?.blockedBy).toEqual([B])
+    expect(await wsEval(page, (s, id) => s.pages[id].contentOrigin, plan)).toBe('people')
+
+    // one Undo: the person and every task's people back
+    await page.locator('.toasts').getByRole('button', { name: 'Undo' }).click()
+    await expect(page.getByTestId('ws-person').filter({ hasText: 'Sam' })).toHaveCount(1)
+    await expect.poll(() => wsEval(page, (s, id) => JSON.stringify(s.pages[id].content), plan)).toBe(before)
+  })
+})
+
+/* ------------------------------------------------------------------ */
 /* B6: schema pins — P1 adds no node and no attribute                  */
 /* ------------------------------------------------------------------ */
 
