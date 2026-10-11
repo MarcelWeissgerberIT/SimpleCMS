@@ -18,6 +18,10 @@ export interface CanonDeps {
   iconKey(icon: PageIcon | null | undefined): string
   /** one block without volatile ids */
   blockKey(block: JSONContent): string
+  /** blockKey(a) === blockKey(b), compared in place (no key built) — absent: through blockKey */
+  sameBlock?(a: JSONContent, b: JSONContent): boolean
+  /** contentKey(a) === contentKey(b), keying only the blocks that differ — absent: through contentKey */
+  contentSame?(a: JSONContent | null | undefined, b: JSONContent | null | undefined): boolean
   /** the doc as the editor's schema reads it (default attrs filled in) — absent: as stored */
   normalize?(content: JSONContent | null | undefined): JSONContent | null
 }

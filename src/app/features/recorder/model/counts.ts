@@ -103,14 +103,28 @@ export interface ContentDelta {
 }
 
 /**
- * Words added / removed by a content change, from the changed top-level blocks only: blocks pair by id
- * (a changed pair counts its word multiset difference), id-less blocks match by content.
+ * Words added / removed by a content change, from the changed top-level blocks only: the unchanged blocks at the
+ * start and the end are left out first (same id, same content — compared in place, no key built: typing in a long
+ * page touches one block), then the rest pair by id (a changed pair counts its word multiset difference) and id-less
+ * blocks match by content.
  */
-export function contentDelta(prev: JSONContent | null | undefined, next: JSONContent | null | undefined, deps: Pick<CanonDeps, 'blockKey'>): ContentDelta {
-  const a = prev?.content ?? []
-  const b = next?.content ?? []
+export function contentDelta(prev: JSONContent | null | undefined, next: JSONContent | null | undefined, deps: Pick<CanonDeps, 'blockKey' | 'sameBlock'>): ContentDelta {
+  const a0 = prev?.content ?? []
+  const b0 = next?.content ?? []
   const out: ContentDelta = { wa: 0, wd: 0, bc: [0, 0, 0] }
   const idOf = (x: JSONContent) => (typeof x.attrs?.id === 'string' && x.attrs.id ? (x.attrs.id as string) : null)
+  const sameBlock = deps.sameBlock ?? ((o: JSONContent, x: JSONContent) => deps.blockKey(o) === deps.blockKey(x))
+  const same = (o: JSONContent, x: JSONContent) => o === x || (idOf(o) === idOf(x) && sameBlock(o, x))
+  let lo = 0
+  while (lo < a0.length && lo < b0.length && same(a0[lo], b0[lo])) lo++
+  let ea = a0.length
+  let eb = b0.length
+  while (ea > lo && eb > lo && same(a0[ea - 1], b0[eb - 1])) {
+    ea--
+    eb--
+  }
+  const a = lo || ea < a0.length ? a0.slice(lo, ea) : a0
+  const b = lo || eb < b0.length ? b0.slice(lo, eb) : b0
   const before = new Map<string, JSONContent>()
   for (const x of a) {
     const id = idOf(x)
@@ -141,7 +155,7 @@ export function contentDelta(prev: JSONContent | null | undefined, next: JSONCon
     if (id && before.has(id)) {
       seen.add(id)
       const o = before.get(id)!
-      if (o === x || deps.blockKey(o) === deps.blockKey(x)) continue
+      if (o === x || sameBlock(o, x)) continue
       out.bc[0]++
       const [wa, wd] = wordDelta(blockText(o), blockText(x))
       out.wa += wa

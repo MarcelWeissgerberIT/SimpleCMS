@@ -68,7 +68,8 @@ export function classifyPage(prev: Page | undefined, next: Page | undefined, dep
   if (prev === next) return { kinds: 0, f: 0, ignoredOnly: true, pc: 0 }
   let kinds = 0
   if (prev.title !== next.title) kinds |= K.TITLE
-  if (prev.content !== next.content && deps.contentKey(prev.content) !== deps.contentKey(next.content)) kinds |= K.CONTENT
+  // the text changed (typing): a content change without building the whole doc's key; else the blocks that differ decide
+  if (prev.content !== next.content && (prev.plain !== next.plain || !(deps.contentSame ? deps.contentSame(prev.content, next.content) : deps.contentKey(prev.content) === deps.contentKey(next.content)))) kinds |= K.CONTENT
   const pc = propsDiffCount(prev, next, deps, db)
   if (pc) kinds |= K.PROPS
   if (deps.iconKey(prev.icon) !== deps.iconKey(next.icon)) kinds |= K.ICON

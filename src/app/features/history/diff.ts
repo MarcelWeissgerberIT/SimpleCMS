@@ -50,6 +50,47 @@ export function blockKey(block: JSONContent): string {
   return JSON.stringify(normalize(block))
 }
 
+/** An attribute value as normalize() keeps it, compared (objects and arrays as their JSON, like the key does). */
+const sameAttrValue = (a: unknown, b: unknown): boolean => a === b || (typeof a === 'object' && typeof b === 'object' && JSON.stringify(a) === JSON.stringify(b))
+
+function sameAttrs(type: string | undefined, x: Record<string, unknown> | undefined, y: Record<string, unknown> | undefined): boolean {
+  if (x === y) return true
+  for (const [from, to] of [
+    [x, y],
+    [y, x],
+  ] as const) {
+    if (!from) continue
+    for (const k in from) {
+      if (VOLATILE.has(k) && type !== 'mention') continue
+      const v = from[k]
+      const w = to?.[k]
+      const mv = meaningfulAttr(type, k, v)
+      if (mv !== meaningfulAttr(type, k, w)) return false
+      if (mv && !sameAttrValue(v, w)) return false
+    }
+  }
+  return true
+}
+
+/**
+ * blockKey(a) === blockKey(b) without building either key: the same rules (volatile ids and attributes that say
+ * nothing left out), compared in place with an early exit — the flight recorder pairs a long page's blocks with it.
+ */
+export function sameBlock(a: JSONContent, b: JSONContent): boolean {
+  if (a === b) return true
+  if (a.type !== b.type || a.text !== b.text) return false
+  if (!sameAttrs(a.type, a.attrs, b.attrs)) return false
+  const ma = a.marks ?? []
+  const mb = b.marks ?? []
+  if (ma.length !== mb.length) return false
+  for (let i = 0; i < ma.length; i++) if (!sameBlock(ma[i] as JSONContent, mb[i] as JSONContent)) return false
+  const ca = a.content ?? []
+  const cb = b.content ?? []
+  if (ca.length !== cb.length) return false
+  for (let i = 0; i < ca.length; i++) if (!sameBlock(ca[i], cb[i])) return false
+  return true
+}
+
 /** Stable JSON of a whole doc without volatile attributes (for change detection). */
 export function docKey(doc: JSONContent | null | undefined): string {
   return doc ? JSON.stringify(normalize(doc)) : 'null'
