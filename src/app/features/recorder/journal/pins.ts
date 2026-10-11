@@ -65,10 +65,13 @@ function keepInMemory(scope: Scope, pins: PinInput[]): string[] {
   return ids
 }
 
-/** Keep pins (IndexedDB, or this tab's memory in memory mode): their ids, and the bytes each added to the store. */
-export async function storePins(scope: Scope, pins: PinInput[], memory: boolean): Promise<{ ids: Array<string | null>; bytes: number[] }> {
+/**
+ * Keep pins (IndexedDB, or this tab's memory in memory mode): their ids, and the bytes each added to the store. A
+ * write that failed for lack of room rejects (QuotaExceededError). `onWork`: the write's synchronous part (ms).
+ */
+export async function storePins(scope: Scope, pins: PinInput[], memory: boolean, onWork?: (ms: number) => void): Promise<{ ids: Array<string | null>; bytes: number[] }> {
   if (memory) return { ids: keepInMemory(scope, pins), bytes: pins.map(() => 0) }
-  return keepPinsSized(scope, pins)
+  return keepPinsSized(scope, pins, onWork)
 }
 
 /** Memory mode: the person deleted a place for good — its pins leave this tab (a page's bodies with them). */

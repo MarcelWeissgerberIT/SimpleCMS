@@ -221,6 +221,14 @@ export class Budget implements FlushGate {
     return n > 0
   }
 
+  /** A write failed for lack of room again after a day was freed: recording pauses (checked again after the back-off). */
+  quotaFailed(): void {
+    this.paused = 'quota'
+    this.pausedAt = Date.now()
+    this.estimate = null
+    this.bytes = null
+  }
+
   /** The next check reads the storage estimate and the journal's size afresh. */
   forgetEstimate(): void {
     this.estimate = null

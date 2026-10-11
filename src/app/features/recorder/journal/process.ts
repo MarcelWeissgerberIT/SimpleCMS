@@ -26,7 +26,7 @@ import { dayKey, HI, journalIfOpen, pad13, pad8, type Batch, type Bump, type Jou
 import { dropMemoryPins, pagePin, pinDefsDb, schemaPin, storePins } from './pins'
 import { stable } from '../model/schema'
 import { RunBook } from './runs'
-import type { PinInput } from '../../history/pins'
+import { isQuotaError, type PinInput } from '../../history/pins'
 
 export const SEG_IDLE = 2 * 60_000
 export const FOLD_MS = 30_000
@@ -167,6 +167,8 @@ export interface FlushGate {
   allowed(): Promise<boolean>
   /** a write failed for lack of room: free some (one day) — true when something was freed */
   onQuota(): Promise<boolean>
+  /** the write failed for lack of room again after room was freed: pause */
+  quotaFailed(): void
   /** bytes written by this flush (counters) */
   wrote(bytes: number): void
   /** the scope's copy is going away (team device wipe): drop its items */
@@ -944,6 +946,7 @@ export class Processor {
     const sized: Array<[object, number]> = []
     let clean = false
     const runSized: Array<[string, number]> = []
+    const pinsLeft = new Set<PinJob>()
 
     try {
       // 1. pins first (their bodies addressed by the exact content's digest), so a segment never names a pin that is
@@ -951,6 +954,8 @@ export class Processor {
       // complete). Never a pin of a place the person deleted for good meanwhile.
       const byScope = new Map<Scope, PinJob[]>()
       for (const p of pins) if (!this.isPurged(p.input.place)) byScope.set(p.seg.s, [...(byScope.get(p.seg.s) ?? []), p])
+      // pins not stored yet: a failed flush puts them back (never a segment silently without its pin)
+      for (const list of byScope.values()) for (const p of list) pinsLeft.add(p)
       for (const [scope, list] of byScope) {
         let from = 0
         while (from < list.length) {
@@ -970,8 +975,9 @@ export class Processor {
               }),
             ),
           )
-          const kept = await lap(storePins(scope, piece.map((p) => p.input), memory))
+          const kept = await lap(this.keepPins(scope, piece.map((p) => p.input), memory))
           piece.forEach((p, i) => {
+            pinsLeft.delete(p)
             // a segment purged while its pin was on its way keeps none (the pin goes with the place's purge)
             p.seg.before = p.seg.f & F.PURGED ? null : (kept.ids[i] ?? null)
             segs.set(p.seg.id, p.seg)
@@ -1121,6 +1127,10 @@ export class Processor {
       for (const [s, n] of counted) this.counted.set(s, (this.counted.get(s) ?? 0) + n)
       for (const r of runs) this.runs.dirty.add(r.id)
       this.purge.push(...purge)
+      // the pins not stored and the digests go again first (an event's job may take a fold again)
+      this.pins = [...pins.filter((p) => pinsLeft.has(p)), ...this.pins]
+      for (const job of jobs) if (job.t === 'ev') delete job.taken
+      this.jobs = [...jobs, ...this.jobs]
       throw e
     } finally {
       this.inFlight = null
@@ -1202,13 +1212,30 @@ export class Processor {
   }
 
   private async write(j: Journal, batch: Batch): Promise<void> {
+    await this.roomFor(() => j.write(batch))
+  }
+
+  /** Pins into the version store — for lack of room like a journal write: a day freed, once more, then a pause. */
+  private keepPins(scope: Scope, inputs: PinInput[], memory: boolean): Promise<{ ids: Array<string | null>; bytes: number[] }> {
+    return this.roomFor(() => storePins(scope, inputs, memory, (ms) => noteTask(this.stats, 'pins', performance.now() - ms)))
+  }
+
+  /**
+   * A write that fails for lack of room (§3.9): the workspace always wins — a day is freed and the write tried once
+   * more; nothing to free, or a second failure, pauses recording (records wait in memory).
+   */
+  private async roomFor<T>(write: () => Promise<T>): Promise<T> {
     try {
-      await j.write(batch)
+      return await write()
     } catch (e) {
-      if ((e as DOMException)?.name !== 'QuotaExceededError') throw e
-      // the workspace always wins: free a day, try once more
+      if (!isQuotaError(e)) throw e
       if (!(await this.gate.onQuota())) throw e
-      await j.write(batch)
+      try {
+        return await write()
+      } catch (e2) {
+        if (isQuotaError(e2)) this.gate.quotaFailed()
+        throw e2
+      }
     }
   }
 

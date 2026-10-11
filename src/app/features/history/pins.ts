@@ -1,15 +1,17 @@
 /**
  * Flight recorder pins — exact before-images of a place, kept in the version store next to the versions
  * (features/recorder writes them; nothing else reads them):
- *   pin:<scope>|m|<placeKey>|<pinId>   PinMeta — everything of the page but its content (a row's property
- *                                      definitions from the database as it was then), or a database's schema
+ *   pin:<scope>|m|<placeKey>|<seg>.<wt> PinMeta — everything of the page but its content (a row's property
+ *                                      definitions from the database as it was then), or a database's schema;
+ *                                      <seg> = its segment's own id, <wt> = when it was written (base 36): the
+ *                                      orphan sweep reads keys only
  *   pin:<scope>|b|<pageId>|<cdig>      PinBody — the content, addressed by its digest per page (pins of the
  *                                      same page with unchanged content share one body)
  * Pins are never listed with the versions (listSnapshots reads `idx:` only), never thinned, never synced,
  * never in a backup; prune and the device wipe remove them by key range.
  */
 import type { JSONContent } from '@tiptap/core'
-import { getMany, setMany, promisifyRequest } from 'idb-keyval'
+import { getMany, promisifyRequest } from 'idb-keyval'
 import { newId } from '../../lib/ids'
 import type { ID, PropertyValue } from '../../store/types'
 import type { PinBody, PinMeta, PlaceKey, Scope } from '../recorder/model/types'
@@ -23,8 +25,23 @@ const metaRange = (scope: Scope, place?: PlaceKey) => (place ? [`pin:${scope}|m|
 const bodyRange = (scope: Scope, pageId: ID) => [`pin:${scope}|b|${pageId}|`, `pin:${scope}|b|${pageId}|${HI}`]
 const pageOfPlace = (place: string): ID | null => (place.startsWith('p:') ? place.slice(2) : null)
 
-/** A pin's place (its id is `<placeKey>|<pinId>`). */
+/** A pin's place (its id is `<placeKey>|<seg>.<wt>`). */
 export const placeOfPin = (pinId: string): PlaceKey => pinId.slice(0, pinId.lastIndexOf('|')) as PlaceKey
+
+/** A pin's id: its place, its segment's own id (the part after the scope) and when it was written. */
+export const pinIdFor = (place: PlaceKey, seg: string, wt: number): string => `${place}|${seg.slice(seg.lastIndexOf('|') + 1)}.${wt.toString(36)}`
+
+/** What a pin's id says (null: an id of another form — read its meta). `seg` is the segment's own id part. */
+export function parsePinId(pinId: string): { seg: string; wt: number } | null {
+  const last = pinId.slice(pinId.lastIndexOf('|') + 1)
+  const dot = last.lastIndexOf('.')
+  if (dot <= 0) return null
+  const wt = parseInt(last.slice(dot + 1), 36)
+  return Number.isFinite(wt) ? { seg: last.slice(0, dot), wt } : null
+}
+
+/** A write that failed for lack of room: the recorder frees a day and tries once more (never swallowed). */
+export const isQuotaError = (e: unknown): boolean => !!e && typeof e === 'object' && (e as { name?: unknown }).name === 'QuotaExceededError'
 
 export interface PinInput {
   place: PlaceKey
@@ -48,14 +65,18 @@ export function pinSize(v: unknown): number {
 /**
  * Keep pins: one read of the body keys, then ONE write of the metas and the bodies not stored yet (a body stored
  * long ago is written again with a fresh time, so no other tab's sweep takes it while these metas refer to it).
- * Resolves with each pin's id (`<placeKey>|<pinId>`), or null for all when the write failed.
+ * Resolves with each pin's id (`<placeKey>|<seg>.<wt>`), or null for all when the write failed — a write that
+ * failed for lack of room rejects (QuotaExceededError: the recorder frees room and tries again, or pauses).
  */
 export async function keepPins(scope: Scope, pins: PinInput[]): Promise<Array<string | null>> {
   return (await keepPinsSized(scope, pins)).ids
 }
 
-/** keepPins, with the bytes each pin added to the store (its meta, and its body when this pin wrote it). */
-export async function keepPinsSized(scope: Scope, pins: PinInput[]): Promise<{ ids: Array<string | null>; bytes: number[] }> {
+/**
+ * keepPins, with the bytes each pin added to the store (its meta, and its body when this pin wrote it). `onWork`:
+ * how long the write's synchronous part took (the puts clone every value — the recorder counts it as its work).
+ */
+export async function keepPinsSized(scope: Scope, pins: PinInput[], onWork?: (ms: number) => void): Promise<{ ids: Array<string | null>; bytes: number[] }> {
   const s = historyStore()
   if (!s || !pins.length) return { ids: pins.map(() => null), bytes: pins.map(() => 0) }
   try {
@@ -77,15 +98,22 @@ export async function keepPinsSized(scope: Scope, pins: PinInput[]): Promise<{ i
       entries.push([k, body])
       if (!old) bytes[b.pin] += pinSize(body.content)
     })
-    const ids = pins.map((p) => `${p.place}|${newId()}`)
+    const ids = pins.map((p) => (p.meta.seg ? pinIdFor(p.place, p.meta.seg, now) : `${p.place}|${newId()}`))
     pins.forEach((p, i) => {
       const meta = { ...p.meta, wt: now } as PinMeta
       entries.push([pinMetaKey(scope, ids[i]), meta])
       bytes[i] += pinSize(meta)
     })
-    await setMany(entries, s)
+    await s('readwrite', (st) => {
+      const t0 = performance.now()
+      for (const [k, v] of entries) st.put(v, k)
+      onWork?.(performance.now() - t0)
+      return promisifyRequest(st.transaction)
+    })
     return { ids, bytes }
   } catch (e) {
+    // no room: the caller frees some and tries again (a pin is never silently partial for lack of room)
+    if (isQuotaError(e)) throw e
     console.warn('[one] flight recorder: pins not kept', e)
     return { ids: pins.map(() => null), bytes: pins.map(() => 0) }
   }
@@ -118,6 +146,16 @@ export async function loadPinBodies(scope: Scope, refs: Array<[ID, string]>): Pr
     if (vals[i]) out.set(`${page}|${d}`, vals[i]!.content)
   })
   return out
+}
+
+/** Every pin id of a scope — keys only, never a value (the orphan sweep). */
+export async function listPinIds(scope: Scope): Promise<string[]> {
+  const s = historyStore()
+  if (!s) return []
+  const [lo, hi] = metaRange(scope)
+  const prefix = `pin:${scope}|m|`
+  const keys = await s('readonly', (st) => promisifyRequest(st.getAllKeys(IDBKeyRange.bound(lo, hi))))
+  return keys.map((k) => String(k).slice(prefix.length))
 }
 
 /** Every pin meta of a scope (or of one place), by pin id. */

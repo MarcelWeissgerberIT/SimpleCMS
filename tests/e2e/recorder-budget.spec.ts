@@ -289,12 +289,64 @@ test.describe('flight recorder — room and before-images', () => {
       })
       db.close()
     }, seg.id)
+    // the sweep reads keys only: no read of every pin meta of the scope (a value cursor or getAll over its range)
+    await page.evaluate(() => {
+      const w = window as unknown as { __pinReads: string[] }
+      w.__pinReads = []
+      const wrap = (name: 'openCursor' | 'getAll') => {
+        const orig = IDBObjectStore.prototype[name] as (...a: unknown[]) => IDBRequest
+        ;(IDBObjectStore.prototype as unknown as Record<string, unknown>)[name] = function (this: IDBObjectStore, ...a: unknown[]) {
+          const q = a[0]
+          if (q instanceof IDBKeyRange && typeof q.lower === 'string' && /^pin:[^|]+\|m\|$/.test(q.lower)) w.__pinReads.push(`${name} ${q.lower}`)
+          return orig.apply(this, a)
+        }
+      }
+      wrap('openCursor')
+      wrap('getAll')
+    })
     await at(page, T0 + 5 * MIN)
     await rec(page, 'prune', T0 + 5 * MIN)
     expect((await recPins(page)).metas.map((m) => m.id)).toContain(seg.before)
     await at(page, T0 + 11 * MIN)
+    await page.evaluate(() => ((window as unknown as { __pinReads: string[] }).__pinReads = []))
     await rec(page, 'prune', T0 + 11 * MIN)
+    expect(await page.evaluate(() => (window as unknown as { __pinReads: string[] }).__pinReads), 'pin metas read as values by the sweep').toEqual([])
     expect((await recPins(page)).metas.map((m) => m.id)).not.toContain(seg.before)
+  })
+
+  test('no room for a pin: a day is freed and the write tried once more — a second failure pauses; the pin waits, never dropped', async ({ page }) => {
+    const id = await boot(page, () => wsEval(page, (s) => s.createPage({ title: 'Tessera Raum', content: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Nordlicht Raumplan' }] }] } }) as string), T0 - 2 * DAY)
+    // a day older than today: what the budget can give back
+    await step(page, agent('alt'), [['updatePage', id, { title: 'Tessera Raum alt' }]], { end: true })
+    await rec(page, 'settle')
+    expect((await recOps(page)).length).toBeGreaterThan(0)
+    // the version store refuses pins from here (its origin's quota is full)
+    await page.evaluate(() => {
+      const w = window as unknown as { __noRoom: boolean }
+      w.__noRoom = true
+      const put = IDBObjectStore.prototype.put
+      IDBObjectStore.prototype.put = function (this: IDBObjectStore, value: unknown, key?: IDBValidKey) {
+        if (w.__noRoom && typeof key === 'string' && key.startsWith('pin:')) throw new DOMException('no room', 'QuotaExceededError')
+        return put.call(this, value, key)
+      }
+    })
+    await at(page, T0)
+    await step(page, agent('raum'), [['updatePage', id, { title: 'Tessera Raum 2' }]], { end: true })
+    await rec(page, 'flush').catch(() => undefined)
+    // the workspace always wins: the older day went, the write was tried again, failed again — recording pauses
+    await expect.poll(() => rec(page, 'paused')).toBe('quota')
+    expect((await recOps(page)).filter((o) => o.at < T0 - DAY)).toEqual([])
+    // nothing of the new write is in the journal: it waits in memory with its pin (never written partial)
+    expect((await segmentsOf(page, `p:${id}`)).filter((g) => g.r === `agent:${AGENT}:raum`)).toEqual([])
+    // room again, the back-off over: the segment lands with its pin
+    await page.evaluate(() => ((window as unknown as { __noRoom: boolean }).__noRoom = false))
+    await at(page, T0 + 11 * MIN)
+    await rec(page, 'flush')
+    const seg = (await segmentsOf(page, `p:${id}`)).find((g) => g.r === `agent:${AGENT}:raum`)
+    expect(seg?.before, 'the segment’s pin').toBeTruthy()
+    expect(await rec(page, 'paused')).toBeNull()
+    const body = await rec<AnyRec | null>(page, 'pinBody', seg!.before)
+    expect(body?.title).toBe('Tessera Raum alt')
   })
 
   test('memory mode: a page deleted for good loses the before-images this tab kept of it', async ({ page }) => {

@@ -4,7 +4,7 @@
  * the scope's day sizes (`kv <scope>|d|<day>`) by what it removed — a day that goes takes its size along —
  * so the budget's figure is what the stores hold. `floor` = where the tape begins for a scope.
  */
-import { dropPins, listPinMetas, PIN_GRACE, type Freed } from '../../history/pins'
+import { dropPins, listPinIds, loadPinMetas, parsePinId, PIN_GRACE, type Freed } from '../../history/pins'
 import type { JSegment, Scope } from '../model/types'
 import { dayKey, HI, openJournal, pad13, pad8, scopeRange, startOfDay, type Bump, type Journal } from './db'
 
@@ -47,6 +47,8 @@ export interface PruneOpts {
   memory?: boolean
   /** segment ids still on their way to the journal (waiting, or in a flush right now) */
   keep?: ReadonlySet<string>
+  /** sweep orphan pins too (once per prune pass: retention; the budget's day-by-day loop leaves it out) */
+  sweep?: boolean
 }
 
 /** Lower the day sizes by what a drop freed — only days that are still there (`from`: the first one kept). */
@@ -91,13 +93,8 @@ export async function pruneScope(scope: Scope, cutoff: number, opts: PruneOpts =
     const pinIds = gone.map((s) => s.before).filter((x): x is string => !!x)
     if (pinIds.length) freed.push(...(await dropPins(scope, pinIds)))
     res.pins += pinIds.length
-    // orphans: a pin whose segment is not in the journal (its transaction never landed) — never one written in the
-    // last minutes (another tab may be between its pins and its segments) nor one of this tab's segments on their way
-    const metas = await listPinMetas(scope)
-    if (metas.size) {
-      const segIds = new Set(await j.keys({ store: 'segs', lo, hi: `${scope}|${HI}` }))
-      const young = Date.now() - PIN_GRACE
-      const orphans = [...metas].filter(([, m]) => !segIds.has(m.seg) && !opts.keep?.has(m.seg) && (m.wt ?? m.at) < young).map(([id]) => id)
+    if (opts.sweep !== false) {
+      const orphans = await orphanPins(j, scope, opts.keep)
       if (orphans.length) freed.push(...(await dropPins(scope, orphans)))
       res.pins += orphans.length
     }
@@ -106,6 +103,29 @@ export async function pruneScope(scope: Scope, cutoff: number, opts: PruneOpts =
   // the tape begins at the floor
   await j.write({ bump: [{ store: 'kv', key: `${scope}|floor`, fn: (cur) => ({ k: `${scope}|floor`, at: Math.max(Number(cur?.at ?? 0), cutoff) }) }] })
   return res
+}
+
+/**
+ * Orphans: pins whose segment is not in the journal (its transaction never landed) — never one written in the last
+ * minutes (another tab may be between its pins and its segments) nor one of this tab's segments on their way. Keys
+ * only: a pin's id names its segment and when it was written (a meta is read only for an id of another form).
+ */
+async function orphanPins(j: Journal, scope: Scope, keep?: ReadonlySet<string>): Promise<string[]> {
+  const ids = await listPinIds(scope)
+  if (!ids.length) return []
+  const [lo] = scopeRange(scope)
+  const segIds = new Set(await j.keys({ store: 'segs', lo, hi: `${scope}|${HI}` }))
+  const young = Date.now() - PIN_GRACE
+  const orphan = (seg: string, wt: number) => !segIds.has(seg) && !keep?.has(seg) && wt < young
+  const out: string[] = []
+  const other: string[] = []
+  for (const id of ids) {
+    const p = parsePinId(id)
+    if (!p) other.push(id)
+    else if (orphan(`${scope}|${p.seg}`, p.wt)) out.push(id)
+  }
+  if (other.length) for (const [id, m] of await loadPinMetas(scope, other)) if (orphan(m.seg, m.wt ?? m.at)) out.push(id)
+  return out
 }
 
 /** Retention: everything older than 30 days, in every scope on this device. */
@@ -142,7 +162,8 @@ export async function pruneOldestDays(days: number, opts: PruneOpts = {}): Promi
   if (first >= today) return 0
   // the budget gives back days, not the present: the cut-off stops at today's midnight
   const cutoff = Math.min(first + days * DAY, today)
-  for (const s of scopes) await pruneScope(s, cutoff, opts)
+  // (orphans are swept by the retention pass — not once per day the budget gives back)
+  for (const s of scopes) await pruneScope(s, cutoff, { ...opts, sweep: false })
   return Math.max(1, Math.round((cutoff - first) / DAY))
 }
 
