@@ -100,7 +100,7 @@ export function installSeam(rec: Recorder): void {
     },
     unknowns: () => fallbackReports(),
     clearUnknowns: () => clearFallbackReports(),
-    stats: () => ({ hot: rec.hotStats(), idleDiffScans: rec.stats.idleDiffScans, queue: rec.queue.length, sliceMax: rec.stats.sliceMax, taskMax: rec.stats.taskMax, long: rec.stats.long.slice(), waiting: rec.processor.waiting }),
+    stats: () => ({ hot: rec.hotStats(), items: rec.itemStats(), idleDiffScans: rec.stats.idleDiffScans, queue: rec.queue.length, sliceMax: rec.stats.sliceMax, itemMax: rec.stats.itemMax, taskMax: rec.stats.taskMax, long: rec.stats.long.slice(), waiting: rec.processor.waiting }),
     resetStats: () => rec.resetStats(),
     /** real store actions under the step's writer (one update per action); the calls' results */
     step: async (s: StoryStep) => {
@@ -146,18 +146,41 @@ export function installSeam(rec: Recorder): void {
     copyFailed: (name = 'QuotaExceededError') => rec.budget.copyFailed(Object.assign(new Error('copy'), { name })),
     /** the journal's size as the budget counts it (Σ of the day sizes), and what the stores hold (recomputed) */
     bytes: async () => ({ counted: await journalBytes(), held: await heldBytes() }),
-    /** the budget's next check with a storage estimate of the test's (quota / usage in bytes) */
-    budgetCheck: async (est?: { quota: number; usage: number }) => {
+    /** the budget's next check with a storage estimate of the test's (quota / usage in bytes) — and limits of its own */
+    budgetCheck: async (est?: { quota: number; usage: number }, limits?: { cap: number; headroom: number }) => {
       const nav = navigator.storage as unknown as { estimate: () => Promise<StorageEstimate> }
       const real = nav.estimate
+      const realLimits = rec.budget.limitsFor
       if (est) nav.estimate = async () => ({ quota: est.quota, usage: est.usage })
+      if (limits) rec.budget.limitsFor = () => limits
       try {
         rec.budget.forgetEstimate()
         return { allowed: await rec.budget.allowed(), paused: rec.budget.paused }
       } finally {
         nav.estimate = real
+        rec.budget.limitsFor = realLimits
         rec.budget.forgetEstimate()
       }
+    },
+    /** the journal's next `n` record writes fail for lack of room (QuotaExceededError), before they touch IndexedDB */
+    failJournalWrites: async (n: number) => {
+      const j = await openJournal()
+      const w = j as unknown as { write: (...a: unknown[]) => Promise<void>; __failing?: { n: number } }
+      if (!w.__failing) {
+        const orig = w.write.bind(j)
+        const failing = { n: 0 }
+        w.__failing = failing
+        w.write = async (...a: unknown[]) => {
+          // the flush's record writes only (a prune's deletes and counters go through)
+          const b = a[0] as Batch | undefined
+          if (failing.n > 0 && (b?.put?.ops?.length || b?.put?.events?.length || b?.put?.segs?.length)) {
+            failing.n--
+            throw new DOMException('no room', 'QuotaExceededError')
+          }
+          return orig(...a)
+        }
+      }
+      w.__failing.n = n
     },
     /** what waits in memory (records, digest jobs) */
     waitingDetail: () => ({ waiting: rec.processor.waiting, jobs: rec.processor.jobCount }),

@@ -71,6 +71,8 @@ export class Budget implements FlushGate {
   /** another failure came meanwhile */
   private again = false
   private offs: Array<() => void> = []
+  /** the limits for a quota (the test seam may set its own, to test the cap with a small tape) */
+  limitsFor: (quota: number) => { cap: number; headroom: number } = Budget.limits
 
   constructor(private hooks: BudgetHooks) {}
 
@@ -177,7 +179,7 @@ export class Budget implements FlushGate {
     if ((this.paused === 'room' || this.paused === 'quota') && Date.now() - this.pausedAt < ROOM_BACKOFF) return false
     const est = await this.storage()
     if (!est) return this.resume()
-    const { cap, headroom } = Budget.limits(est.quota)
+    const { cap, headroom } = this.limitsFor(est.quota)
     const mine = await this.recorderBytes()
     const short = headroom - (est.quota - est.usage)
     if (mine <= cap && short <= 0) return this.resume()

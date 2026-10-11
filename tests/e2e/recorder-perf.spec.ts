@@ -7,10 +7,16 @@
  *  - it never walks the page map: the idle processor takes the shared diff (no idle scan), and a store write walks
  *    the page map no more often with the recorder than without it (perf-budget's WRITE_SCANS hold);
  *  - while a script writes 1,000 rows, no stretch of the recorder's own work (a slice, a timer, a part of a flush)
- *    becomes a long task (> 50 ms).
+ *    becomes a long task (> 50 ms);
+ *  - typing in a 2,500-paragraph page (every update a new JSON, as the editor's getJSON makes it): one update is
+ *    recorded in a few ms (its words from the changed block), no slice longer than a frame;
+ *  - one store update changing every page and row (a restore) with the retention prune right after: the prune waits for the
+ *    queue through the slices (its synchronous start is one slice), no stretch over 50 ms;
+ *  - system writes (stamps) while ~2,700 segments are open: the hot path stays O(1) (under 0.5 ms p95 — walking them
+ *    cost ~1 ms).
  */
 import type { Page } from '@playwright/test'
-import { test, expect } from './fixtures'
+import { test, expect, openApp, wsEval } from './fixtures'
 import { loadBigWorkspace, type BigInfo, type BigOptions } from './helpers/bigWorkspace'
 import { rec, startRecorder } from './helpers/recorder'
 
@@ -23,9 +29,11 @@ type AnyRec = Record<string, any> // eslint-disable-line @typescript-eslint/no-e
 
 interface Stats {
   hot: { p50: number; p95: number; max: number; n: number }
+  items: { p50: number; p95: number; max: number; n: number }
   idleDiffScans: number
   queue: number
   sliceMax: number
+  itemMax: number
   taskMax: number
   long: Array<{ at: number; ms: number; what: string }>
   waiting: number
@@ -225,6 +233,95 @@ test.describe('flight recorder: performance', () => {
     // (the store writes themselves, React and the workspace's save are the app's, not the recorder's)
     const ops = await rec<AnyRec[]>(page, 'ops')
     expect(ops.filter((o) => o.r === 'script:tagesplan:perf-1000')).toHaveLength(1000)
+    expect(await rec(page, 'unknowns')).toEqual([])
+  })
+  test('typing in a 2,500-paragraph page: each update recorded in a few ms, its words from the changed block', async ({ page }) => {
+    test.setTimeout(240_000)
+    await openApp(page)
+    await startRecorder(page)
+    const id = await wsEval(page, (s) => {
+      const content = { type: 'doc', content: Array.from({ length: 2500 }, (_, i) => ({ type: 'paragraph', attrs: { id: `b${i}` }, content: [{ type: 'text', text: `Nordlicht Absatz ${i}: ${'Tessera Wort '.repeat(12)}` }] })) }
+      return s.createPage({ title: 'Nordlicht Handbuch', content }) as string
+    })
+    await settled(page)
+    await rec(page, 'resetStats')
+    const since = await page.evaluate(() => Date.now())
+    await page.evaluate(async (id) => {
+      const r = (window as unknown as { __oneRecorder: { step: (s: unknown) => Promise<unknown> } }).__oneRecorder
+      const s = (window as unknown as { __one: { workspace: { getState: () => AnyRec } } }).__one.workspace.getState()
+      let content = s.pages[id].content
+      for (let i = 0; i < 100; i++) {
+        // the editor's getJSON: every block a new object, one paragraph changed
+        const next = JSON.parse(JSON.stringify(content))
+        next.content[1200].content[0].text += ` w${i}`
+        content = next
+        await r.step({ writer: { kind: 'editor', id: 'perf' }, calls: [['setContent', id, next, 'editor:perf']] })
+        await new Promise((res) => setTimeout(res, 100))
+      }
+    }, id)
+    await settled(page)
+    // the person's segment closes (its touched parts summed up): no long task either
+    await rec(page, 'settle')
+    const st = await stats(page)
+    note('typing on a 2,500-paragraph page', { items: st.items, sliceMax: Math.round(st.sliceMax * 10) / 10, taskMax: Math.round(st.taskMax), long: st.long })
+    // one typing update is one place: it fits the visible slice (8 ms) — p95, a busy machine's stray pause aside
+    expect(st.items.n).toBeGreaterThanOrEqual(100)
+    expect(st.items.p95, `recording one typing update (ms): ${JSON.stringify(st.items)}`).toBeLessThan(8)
+    expect(st.long, 'stretches of the recorder over 50 ms').toEqual([])
+    const events = (await rec<AnyRec[]>(page, 'events', { from: since })).filter((e) => e.p === `p:${id}`)
+    expect(events.reduce((n, e) => n + (e.wa ?? 0), 0), 'words typed').toBe(100)
+    expect(await rec(page, 'unknowns')).toEqual([])
+  })
+
+  test('one update changing every page and the prune right after: the prune waits for the slices; stamps with every segment open stay O(1)', async ({ page }) => {
+    test.setTimeout(480_000)
+    await loadBigWorkspace(page, SHAPES[0].opts)
+    await startRecorder(page)
+    await page.waitForTimeout(3000)
+    await settled(page)
+    await rec(page, 'resetStats')
+    // a restore: one store update changing every page and row — then the retention prune at once
+    const r = await page.evaluate(async () => {
+      const rr = (window as unknown as { __oneRecorder: { step: (s: unknown) => Promise<unknown>; prune: () => Promise<unknown> } }).__oneRecorder
+      const s = (window as unknown as { __one: { workspace: { getState: () => AnyRec } } }).__one.workspace.getState()
+      const pages: Record<string, AnyRec> = { ...s.pages }
+      const ids: string[] = []
+      for (const [id, p] of Object.entries(pages))
+        if (!p.trashed) {
+          pages[id] = { ...p, title: `${p.title} ·` }
+          ids.push(id)
+        }
+      const ws = { version: s.version, pages, databases: s.databases, people: s.people, settings: s.settings, recent: s.recent, functions: s.functions, agents: s.agents, scripts: s.scripts, kit: s.kit, look: s.look, integrations: s.integrations }
+      await rr.step({ writer: { kind: 'import', run: 'perf-restore', source: 'backup' }, calls: [['replaceAll', ws]] })
+      const t0 = performance.now()
+      const pruned = rr.prune()
+      const sync = performance.now() - t0
+      await pruned
+      return { n: ids.length, sync, ids: ids.slice(0, 50) }
+    })
+    await settled(page)
+    const st = await stats(page)
+    note('restore + prune', { pages: r.n, pruneSync: Math.round(r.sync * 10) / 10, taskMax: Math.round(st.taskMax), sliceMax: Math.round(st.sliceMax), long: st.long })
+    expect(r.n).toBeGreaterThan(2500)
+    expect(r.sync, 'the prune’s synchronous start (one slice, not the queue)').toBeLessThan(30)
+    expect(st.long, 'stretches of the recorder over 50 ms').toEqual([])
+    expect(st.taskMax).toBeLessThan(LONG_TASK_MS)
+    // the restore's segments stay open (its run did not end): system writes must not walk them
+    const open = await rec<AnyRec[]>(page, 'open')
+    expect(open.length).toBeGreaterThan(2500)
+    await rec(page, 'resetStats')
+    await page.evaluate(async (ids) => {
+      const rr = (window as unknown as { __oneRecorder: { step: (s: unknown) => Promise<unknown> } }).__oneRecorder
+      for (const id of ids) {
+        await rr.step({ writer: { kind: 'system', why: 'stamp' }, calls: [['updatePage', id, { updatedBy: 'acc-nordlicht' }]] })
+        await new Promise((res) => setTimeout(res, 4))
+      }
+    }, r.ids)
+    const hot = (await stats(page)).hot
+    note('hot path, stamps with segments open', hot)
+    expect(hot.n).toBeGreaterThanOrEqual(50)
+    // (walking the open segments inside set() cost ~1 ms p95 here; the queue push costs ~0.1 ms)
+    expect(hot.p95, `hot path p95 (system writes): ${JSON.stringify(hot)}`).toBeLessThan(HOT_P95_MS / 2)
     expect(await rec(page, 'unknowns')).toEqual([])
   })
 })

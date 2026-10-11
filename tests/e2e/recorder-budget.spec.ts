@@ -6,8 +6,10 @@
  * like a failed save, paused typing keeps one digest job per event, a database deleted for good loses its schema and
  * view pins, a pin's body is the exact content (block ids included), a row's pin reads with the database before the
  * write, a run that writes after its end stays one stretch, bookkeeping never breaks a segment, the orphan sweep
- * spares a pin written in the last minutes, and a tab left normally is marked clean. Fictional data (Nordlicht,
- * Tessera, Mara Lind).
+ * spares a pin written in the last minutes and reads pin keys only, no room for a pin or a journal write frees a day
+ * and tries once more (a second failure pauses, the records wait), over its own cap the tape gives back old days down
+ * to 90 % of the cap (never today), a tab going to the background closes and writes its segments, and a tab left
+ * normally is marked clean. Fictional data (Nordlicht, Tessera, Mara Lind).
  */
 import type { Page } from '@playwright/test'
 import { test, expect, openApp, wsEval, flush } from './fixtures'
@@ -347,6 +349,70 @@ test.describe('flight recorder — room and before-images', () => {
     expect(await rec(page, 'paused')).toBeNull()
     const body = await rec<AnyRec | null>(page, 'pinBody', seg!.before)
     expect(body?.title).toBe('Tessera Raum alt')
+  })
+
+  test('over its own cap the tape gives back whole old days, down to 90 % of the cap — never today', async ({ page }) => {
+    const id = await boot(page, () => wsEval(page, (s) => s.createPage({ title: 'Tessera Kappe' }) as string), T0 - 3 * DAY)
+    for (let d = 3; d >= 1; d--) {
+      await at(page, T0 - d * DAY)
+      for (let i = 0; i < 5; i++) await step(page, agent(`k${d}${i}`), [['updatePage', id, { title: `Tessera Kappe ${d}.${i}` }]], { end: true })
+      await rec(page, 'settle')
+    }
+    await at(page, T0)
+    await step(page, agent('heute'), [['updatePage', id, { title: 'Tessera Kappe heute' }]], { end: true })
+    await rec(page, 'settle')
+    const before = (await bytes(page)).counted
+    // plenty of free room, a cap below what the tape holds (a small tape: the test's own limits)
+    const cap = Math.floor(before * 0.7)
+    expect(await rec(page, 'budgetCheck', { quota: 100 * 1024 ** 3, usage: 0 }, { cap, headroom: 0 })).toEqual({ allowed: true, paused: null })
+    expect((await bytes(page)).counted, 'down to 90 % of the cap').toBeLessThanOrEqual(cap * 0.9)
+    const ops = await recOps(page)
+    expect(ops.filter((o) => o.r === `agent:${AGENT}:heute`), 'today stays').toHaveLength(1)
+    expect(ops.filter((o) => o.at < T0 - 2.5 * DAY), 'the oldest day went first').toEqual([])
+    // a cap the tape cannot reach without today: paused for room, today kept
+    const small = Math.floor((await bytes(page)).counted * 0.01)
+    expect(await rec(page, 'budgetCheck', { quota: 100 * 1024 ** 3, usage: 0 }, { cap: small, headroom: 0 })).toEqual({ allowed: false, paused: 'room' })
+    expect((await recOps(page)).filter((o) => o.r === `agent:${AGENT}:heute`)).toHaveLength(1)
+  })
+
+  test('no room for the journal’s own write: a day is freed and the write tried once more — a second failure pauses; the records wait', async ({ page }) => {
+    const id = await boot(page, () => wsEval(page, (s) => s.createPage({ title: 'Tessera Platz' }) as string), T0 - 2 * DAY)
+    await step(page, agent('alt2'), [['updatePage', id, { title: 'Tessera Platz alt' }]], { end: true })
+    await rec(page, 'settle')
+    await at(page, T0)
+    await rec(page, 'failJournalWrites', 2)
+    await step(page, agent('platz'), [['updatePage', id, { title: 'Tessera Platz 2' }]], { end: true })
+    await rec(page, 'flush').catch(() => undefined)
+    await expect.poll(() => rec(page, 'paused')).toBe('quota')
+    expect((await recOps(page)).filter((o) => o.at < T0 - DAY), 'the older day went to make room').toEqual([])
+    expect((await recOps(page)).filter((o) => o.r === `agent:${AGENT}:platz`), 'nothing written yet').toEqual([])
+    // the back-off over (and room again): the records that waited are written
+    await at(page, T0 + 11 * MIN)
+    await rec(page, 'flush')
+    expect((await recOps(page)).filter((o) => o.r === `agent:${AGENT}:platz`)).toHaveLength(1)
+    const seg = (await segmentsOf(page, `p:${id}`)).find((g) => g.r === `agent:${AGENT}:platz`)
+    expect(seg?.before, 'with its pin').toBeTruthy()
+    expect(await rec(page, 'paused')).toBeNull()
+  })
+
+  test('a tab going to the background closes its open segments and writes them right away', async ({ page }) => {
+    const id = await boot(page, () => wsEval(page, (s) => s.createPage({ title: 'Tessera Hintergrund' }) as string))
+    // the run did not end: its segment stays open
+    await step(page, agent('hinten'), [['updatePage', id, { title: 'Tessera Hintergrund 2' }]])
+    await rec(page, 'flush')
+    expect((await rec<AnyRec[]>(page, 'open')).map((o) => o.p)).toContain(`p:${id}`)
+    await page.evaluate(() => {
+      Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' })
+      document.dispatchEvent(new Event('visibilitychange'))
+    })
+    // closed, summed up and written without anyone asking for a flush
+    await expect
+      .poll(async () => {
+        const seg = (await segmentsOf(page, `p:${id}`)).find((g) => g.r === `agent:${AGENT}:hinten`)
+        return seg ? { open: seg.o ?? 0, left: !!seg.left?.h } : null
+      }, { timeout: 3000 })
+      .toEqual({ open: 0, left: true })
+    expect(await rec(page, 'open')).toEqual([])
   })
 
   test('memory mode: a page deleted for good loses the before-images this tab kept of it', async ({ page }) => {
