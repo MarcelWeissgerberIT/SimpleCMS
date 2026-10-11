@@ -269,12 +269,16 @@ export function useNowMinute(): number {
 
 /* ------------------------------------------------------------------ the creation gate + lookup */
 
-/** May new tasks be made in the active workspace? (local: yes; team: the server's schema gate — B7.) */
+/**
+ * May new tasks be made in the active workspace? Local: yes. Team: only when the server's schema gate is on
+ * (`schema_min` ≥ 1 — an older server, or one never heard of, would let an older tab delete them) and this tab may
+ * write (not a viewer, not outdated).
+ */
 export function canCreateItems(): boolean {
   if (forced !== null) return forced
   const c = useCloud.getState()
   if (c.active.kind !== 'cloud') return true
-  return false
+  return c.schemaMin !== null && c.schemaMin >= 1 && !c.readOnly && !c.outdated
 }
 
 /**

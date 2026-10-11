@@ -7,7 +7,7 @@ import { after, before, describe, test } from 'node:test'
 import { Client as McpClient } from '@modelcontextprotocol/sdk/client/index.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import * as Y from 'yjs'
-import { type Client, type DocClient, flushed, openDoc, signIn, startServer, type TestServer, waitFor } from './helpers.ts'
+import { type Client, type DocClient, flushed, openDoc, signIn, sleep, startServer, type TestServer, waitFor } from './helpers.ts'
 
 /* ------------------------------------------------------------------ fixtures */
 
@@ -529,6 +529,24 @@ describe('remote MCP', () => {
     await fails(writer, 'one_update_page', { id: 'db-tasks', markdown: 'x' }, /database/)
     await fails(writer, 'one_update_page', { id: 'nope', title: 'x' }, /No page/)
     await fails(writer, 'one_update_page', { id: created.id, icon: 'not an icon at all' }, /icon/)
+  })
+
+  test('one_update_page: a replace of a page holding a task is refused (page_holds_tasks) and changes nothing; append still works', async () => {
+    const created = await call(writer, 'one_create_page', { title: 'Launch plan', markdown: 'Intro line.' })
+    const content = await doc(owner, `ws:${wsId}:p:${created.id}`)
+    write(content.doc, [{ type: 'workItem', attrs: { itemId: 'wi_7f3a9c2d01', status: 'todo' }, content: ['Ship the pricing page'] }])
+    await flushed(content)
+    const before = content.doc.getXmlFragment('default').toString()
+    const msg = await fails(writer, 'one_update_page', { id: created.id, markdown: 'Only this.', mode: 'replace' }, /holds tasks/)
+    assert.match(msg, /Append instead/)
+    await sleep(200)
+    assert.equal(content.doc.getXmlFragment('default').toString(), before)
+    // a title change with a replace is refused as a whole
+    await fails(writer, 'one_update_page', { id: created.id, title: 'Renamed', markdown: 'x', mode: 'replace' }, /holds tasks/)
+    assert.equal((await call(reader, 'one_get_page', { id: created.id })).title, 'Launch plan')
+    await call(writer, 'one_update_page', { id: created.id, markdown: 'One more line.' })
+    await waitFor(() => content.doc.getXmlFragment('default').toString().includes('One more line.'), 5000, 'appended')
+    assert.ok(content.doc.getXmlFragment('default').toString().includes('<workitem'))
   })
 
   test('one_create_property: options, two-way relations, unique ids; duplicates and locked databases refused', async () => {

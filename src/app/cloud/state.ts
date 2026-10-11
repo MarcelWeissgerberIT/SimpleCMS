@@ -79,6 +79,12 @@ export interface CloudState {
    * registration links (Settings → Server). False when signed out or unknown.
    */
   serverAdmin?: boolean
+  /**
+   * The server's document schema minimum (GET api/config `schema_min`, docs/CLOUD.md § Schema gate) — the app creates
+   * task blocks in a team workspace only when it is ≥ 1. The last answer is kept per device (schemaGate.ts); null:
+   * never heard (no creation).
+   */
+  schemaMin: number | null
 }
 
 export class CloudError extends Error {
@@ -107,6 +113,7 @@ export const useCloud = create<CloudState>(() => ({
   signup: null,
   signupDomains: [],
   serverAdmin: false,
+  schemaMin: null,
 }))
 
 /**

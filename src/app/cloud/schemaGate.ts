@@ -44,3 +44,34 @@ export function watchSchema(provider: HocuspocusProvider): void {
 
 /** Read-only for a role — and always once this tab is outdated. */
 export const readOnlyFor = (role: string | null | undefined): boolean => role === 'viewer' || !!useCloud.getState().outdated
+
+/* ------------------------------------------------------------------ the server's minimum (GET api/config) */
+
+const MIN_KEY = 'one.cloud.schemaMin'
+
+/**
+ * The server's `schema_min` as this device last heard it (localStorage `one.cloud.schemaMin`) — read at boot before
+ * the config answers, so an offline boot can still create tasks. null: never heard.
+ */
+export function storedSchemaMin(): number | null {
+  try {
+    const raw = localStorage.getItem(MIN_KEY)
+    if (raw === null) return null
+    const n = Number(raw)
+    return Number.isInteger(n) && n >= 0 ? n : null
+  } catch {
+    return null
+  }
+}
+
+/** The server's answer (a server without the gate answers nothing: 0). */
+export function rememberSchemaMin(value: unknown): number {
+  const n = typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : 0
+  try {
+    localStorage.setItem(MIN_KEY, String(n))
+  } catch {
+    /* this tab only */
+  }
+  useCloud.setState({ schemaMin: n })
+  return n
+}

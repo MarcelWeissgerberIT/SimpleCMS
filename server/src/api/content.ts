@@ -314,6 +314,24 @@ function transcriptText(transcript: unknown): string {
   return out
 }
 
+/**
+ * Does a content document hold a task block (`workItem`, the app's task) anywhere? Iterative. The server cannot read
+ * or write a task before server parity (P4): its Markdown prints one as plain blocks, so a replace written from that
+ * would turn every task into paragraphs — a replace of such a page is refused (`page_holds_tasks`).
+ */
+export function holdsWorkItem(doc: Y.Doc): boolean {
+  const stack: Array<Y.XmlFragment | Y.XmlElement> = [doc.getXmlFragment('default')]
+  while (stack.length) {
+    const n = stack.pop()!
+    for (const c of n.toArray()) {
+      if (!(c instanceof Y.XmlElement)) continue
+      if (c.nodeName === 'workItem') return true
+      stack.push(c)
+    }
+  }
+  return false
+}
+
 /** Plain text of a content document's fragment (GET /api/v1/pages/:id), by the same rules. */
 export function fragmentText(doc: Y.Doc, max = 100_000): string {
   let out = ''

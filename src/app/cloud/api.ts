@@ -26,6 +26,9 @@ export interface ServerConfig {
   max_upload_mb: number
   dev_mode: boolean
   source_url: string
+  /** the schema gate's minimum generation (absent on a server without the gate) */
+  schema_min?: number
+  coding_relay?: boolean
 }
 
 /** Set once a server answered (or definitely didn't). REST helpers throw 'unavailable' without one. */

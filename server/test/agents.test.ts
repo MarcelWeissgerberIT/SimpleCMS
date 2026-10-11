@@ -570,6 +570,37 @@ describe('custom agents on the server', () => {
     await finished('ag-hook', 10, 30_000)
   })
 
+  test('report in replace mode on a page holding a task: refused (the page unchanged), the run notes it', async () => {
+    fake.script('Reporter', () => say('All tickets triaged.'))
+    meta.doc.transact(() => {
+      pages().set('report-tasks', pageEntry({ title: 'Task report', order: 8 }))
+      agentsMap().set('ag-report', agentDef('ag-report', 'Reporter', { output: { pageId: 'report-tasks', mode: 'replace' } }))
+    })
+    await flushed(meta)
+    const content = await doc(owner, `ws:${wsId}:p:report-tasks`)
+    content.doc.transact(() => {
+      const item = new Y.XmlElement('workItem')
+      item.setAttribute('itemId', 'wi_7f3a9c2d01')
+      const title = new Y.XmlElement('paragraph')
+      const text = new Y.XmlText()
+      text.insert(0, 'Ship the pricing page')
+      title.insert(0, [text])
+      item.insert(0, [title])
+      content.doc.getXmlFragment('default').insert(0, [item])
+    })
+    await flushed(content)
+    const before = fragmentText(content.doc)
+    await member.post(`/api/workspaces/${wsId}/agents/ag-report/run`)
+    const [run] = await finished('ag-report')
+    assert.equal(run.status, 'ok', JSON.stringify(run))
+    const note = run.steps.find((s: any) => s.kind === 'note' && /holds tasks/.test(s.label))
+    assert.ok(note, JSON.stringify(run.steps))
+    assert.equal(note.state, 'err')
+    assert.match(note.label, /append/)
+    await sleep(300)
+    assert.equal(fragmentText(content.doc), before)
+  })
+
   test('runs API: newest first, limit, permissions; broken definitions are ignored', async () => {
     const list = await viewer.get(`/api/workspaces/${wsId}/agent-runs?agentId=ag-hook&limit=3`)
     assert.equal(list.status, 200)
