@@ -42,3 +42,20 @@ export function itemLookup(): ItemLookup {
  * renders, ids re-minted by a paste / drop, relinks after a cut. Plain numbers, never read by the app itself.
  */
 export const itemCounters = { renders: 0, remints: 0, relinks: 0 }
+
+/** What the editor reports about tasks to features/workitems (registered by `startItems()`; no-ops before). */
+export interface ItemHooks {
+  /** the person finished these tasks in an editor (key, Mod+Enter, menu, picker) — the unblock toast */
+  finished(itemIds: readonly string[], pageId: string | null): void
+}
+
+const NO_HOOKS: ItemHooks = { finished: () => {} }
+let hooks: ItemHooks = NO_HOOKS
+
+export function setItemHooks(h: ItemHooks | null): void {
+  hooks = h ?? NO_HOOKS
+}
+
+export function itemHooks(): ItemHooks {
+  return hooks
+}

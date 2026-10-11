@@ -463,7 +463,8 @@ export {
  * editor mounts: the editor's lookup + the ONE creation gate), getItemIndex() (lazy, incremental workspace index),
  * useItemView(attrs, pageId, blockId?) (blockers, dependents, related, duplicate — cached per component),
  * useItemIndexVersion(), useNowMinute(), canCreateItems(), wouldLoop(), memberIds() / useMemberIds(),
- * ringsHere() / audienceText() (who a task's reminder rings for).
+ * ringsHere() / audienceText() (who a task's reminder rings for), writeItems() (THE write to tasks outside their
+ * editor: live editor first, else setContent(…, 'items'); refusals; undo), unblockedBy() / toastUnblocked().
  */
 export {
   startItems,
@@ -482,6 +483,13 @@ export {
   ringsHere,
   audienceText,
   joinNames,
+  writeItems,
+  unblockedBy,
+  toastUnblocked,
+  type ItemEdit,
+  type WriteResult,
+  type WriteRefusal,
+  type WriteOptions,
   type ItemView,
   type ItemRef,
   type RefState,

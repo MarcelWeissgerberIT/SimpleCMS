@@ -19,6 +19,11 @@ import { buildIndex, updateIndex, type PageItems } from '../../src/app/features/
 import { loopEdgesOf, wouldLoop, graphOf } from '../../src/app/features/workitems/graph'
 import { itemView, DUP_DELAY } from '../../src/app/features/workitems/view'
 import { ringsHere, audienceText } from '../../src/app/features/workitems/audience'
+import { unblockedBy } from '../../src/app/features/workitems/unblock'
+import { keepYRefs } from '../../src/app/cloud/yrefs'
+import * as Y from 'yjs'
+import { Schema } from '@tiptap/pm/model'
+import { prosemirrorJSONToYXmlFragment, yXmlFragmentToProsemirrorJSON } from '@tiptap/y-tiptap'
 
 /* ------------------------------------------------------------------ */
 /* Fixtures                                                            */
@@ -602,5 +607,208 @@ test.describe('live index (in the app)', () => {
     expect(timing.bumped).toBe(true)
     await flush(page)
     expect(errors.list).toEqual([])
+  })
+})
+
+/* ------------------------------------------------------------------ */
+/* B3: unblock (pure), keepYRefs (pure + y-tiptap), writeItems (app)   */
+/* ------------------------------------------------------------------ */
+
+test.describe('unblock + bridge refs (pure)', () => {
+  test('unblockedBy: dependents with no other open blocker; loops and done ones left out', () => {
+    const idx = buildIndex(
+      [
+        pageOf(
+          'p',
+          doc(
+            item({ itemId: A }, 'Draft copy'),
+            item({ itemId: B, blockedBy: [A] }, 'Ship pricing'),
+            item({ itemId: C, blockedBy: [A, OUT] }, 'Two blockers'),
+            item({ itemId: OUT }, 'Other open'),
+            item({ itemId: 'wi_donealrdy0', status: 'done', doneAt: NOW, blockedBy: [A] }, 'Done already'),
+          ),
+        ),
+      ],
+      0,
+      deps,
+    )
+    expect(unblockedBy(idx, A).map((e) => e.itemId)).toEqual([B])
+    expect(unblockedBy(idx, [A, OUT]).map((e) => e.itemId).sort()).toEqual([B, C].sort())
+    const loop = buildIndex([pageOf('p', doc(item({ itemId: A, blockedBy: [B] }, 'a'), item({ itemId: B, blockedBy: [A] }, 'b')))], 0, deps)
+    expect(unblockedBy(loop, A)).toEqual([])
+  })
+
+  const schema = new Schema({
+    nodes: {
+      doc: { content: 'block+' },
+      paragraph: { group: 'block', content: 'text*', attrs: { id: { default: null } } },
+      workItem: {
+        group: 'block',
+        content: 'paragraph block*',
+        attrs: { id: { default: null }, itemId: { default: null }, status: { default: 'todo' }, people: { default: [] }, blockedBy: { default: [] }, related: { default: [] }, doneAt: { default: null } },
+      },
+      text: {},
+    },
+  })
+  const yItem = (id: string, itemId: string, people: string[]) => ({
+    type: 'workItem',
+    attrs: { id, itemId, status: 'todo', people, blockedBy: [B], related: [], doneAt: null },
+    content: [{ type: 'paragraph', attrs: { id: `${id}-t` }, content: [{ type: 'text', text: `Task ${itemId}` }] }],
+  })
+
+  test('keepYRefs: deep-equal arrays come back as Y\'s objects, input untouched', () => {
+    const ydoc = new Y.Doc()
+    const frag = ydoc.getXmlFragment('default')
+    prosemirrorJSONToYXmlFragment(schema, { type: 'doc', content: [yItem('b1', A, ['p1']), yItem('b2', C, ['p2'])] }, frag)
+    const cloned = deepFreeze(structuredClone(yXmlFragmentToProsemirrorJSON(frag)) as JSONContent)
+    const out = keepYRefs(cloned, frag)
+    const yAttrs = (frag.get(0) as Y.XmlElement).getAttributes() as Record<string, unknown>
+    expect(out.content![0].attrs!.people).toBe(yAttrs.people)
+    expect(out.content![0].attrs!.blockedBy).toBe(yAttrs.blockedBy)
+    expect(cloned.content![0].attrs!.people).not.toBe(yAttrs.people)
+    // a changed array stays the caller's
+    const changed = structuredClone(cloned) as JSONContent
+    changed.content![1].attrs!.people = ['p2', 'p3']
+    const out2 = keepYRefs(changed, frag)
+    expect(out2.content![1].attrs!.people).toEqual(['p2', 'p3'])
+    expect(out2.content![1].attrs!.blockedBy).toBe(((frag.get(1) as Y.XmlElement).getAttributes() as Record<string, unknown>).blockedBy)
+    // nothing to keep → the same object
+    const none = { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'x' }] }] }
+    expect(keepYRefs(none, frag)).toBe(none)
+  })
+
+  test('a bridge-style status write sets only status (+ doneAt) with keepYRefs — people and links too without it', () => {
+    const run = (keep: boolean) => {
+      const ydoc = new Y.Doc()
+      const frag = ydoc.getXmlFragment('default')
+      prosemirrorJSONToYXmlFragment(schema, { type: 'doc', content: [yItem('b1', A, ['p1']), yItem('b2', C, ['p2'])] }, frag)
+      const set: string[] = []
+      frag.observeDeep((evs) => {
+        for (const e of evs) if ((e as Y.YXmlEvent).attributesChanged?.size) set.push(...(e as Y.YXmlEvent).attributesChanged)
+      })
+      const json = structuredClone(yXmlFragmentToProsemirrorJSON(frag)) as JSONContent
+      json.content![0].attrs = { ...json.content![0].attrs, status: 'done', doneAt: NOW }
+      prosemirrorJSONToYXmlFragment(schema, keep ? keepYRefs(json, frag) : json, frag)
+      return set.sort()
+    }
+    expect(run(true)).toEqual(['doneAt', 'status'])
+    // the negative control: the same write without keepYRefs rewrites the untouched arrays
+    expect(run(false)).toEqual(expect.arrayContaining(['people', 'blockedBy']))
+  })
+})
+
+type Writer = {
+  write: (edits: Array<{ itemId: string; patch: Record<string, unknown> }>, opts?: Record<string, unknown>) => { results: Array<{ itemId: string; ok: boolean; refused?: string; pageId?: string }>; unblocked: string[] }
+  undoLast: () => void
+}
+const write = (page: Page, edits: Array<{ itemId: string; patch: Record<string, unknown> }>, opts: Record<string, unknown> = {}) =>
+  page.evaluate(({ edits, opts }) => ((window as any).__oneItems as Writer).write(edits, opts), { edits, opts })
+
+/** A task's attrs in the store (first occurrence), or null. */
+const storedTask = (page: Page, pageId: string, itemId: string) =>
+  wsEval(
+    page,
+    (s, { pageId, itemId }) => {
+      let hit: any = null
+      const walk = (n: any) => {
+        if (hit) return
+        if (n.type === 'workItem' && n.attrs?.itemId === itemId) hit = n.attrs
+        for (const c of n.content ?? []) walk(c)
+      }
+      if (s.pages[pageId]?.content) walk(s.pages[pageId].content)
+      return hit
+    },
+    { pageId, itemId },
+  )
+
+test.describe('writeItems (in the app)', () => {
+  test('store path: only the changed keys, origin items, unblocked, undo; refusals', async ({ page }) => {
+    await openApp(page)
+    const plan = await createPage(page, {
+      title: 'Launch plan',
+      content: doc(item({ id: 'ba', itemId: A, people: ['p_alex'] }, 'Draft copy'), item({ id: 'bb', itemId: B, blockedBy: [A], people: ['p_sam'] }, 'Ship pricing')),
+    })
+    const before = await storedTask(page, plan, A)
+    const r = await write(page, [{ itemId: A, patch: { status: 'done' } }], { by: 'person' })
+    expect(r.results[0]).toMatchObject({ ok: true, pageId: plan })
+    expect(r.unblocked).toEqual([B])
+    await expect(page.getByText('Unblocked: Ship pricing')).toBeVisible()
+    const after = await storedTask(page, plan, A)
+    expect(after.status).toBe('done')
+    expect(typeof after.doneAt).toBe('number')
+    expect(after.people).toEqual(before.people)
+    expect(await wsEval(page, (s, id) => s.pages[id].contentOrigin, plan)).toBe('items')
+    await page.evaluate(() => ((window as any).__oneItems as Writer).undoLast())
+    expect((await storedTask(page, plan, A)).status).toBe('todo')
+
+    // loop
+    const loop = await write(page, [{ itemId: A, patch: { blockedBy: { add: [B] } } }], { toasts: false })
+    expect(loop.results[0].refused).toBe('loop')
+    // locked
+    await wsEval(page, (s, id) => s.updatePageSettings(id, { locked: true }), plan)
+    expect((await write(page, [{ itemId: A, patch: { status: 'in_progress' } }], { toasts: false })).results[0].refused).toBe('locked')
+    await wsEval(page, (s, id) => s.updatePageSettings(id, { locked: false }), plan)
+    // trashed
+    await wsEval(page, (s, id) => s.trashPage(id), plan)
+    await expect.poll(async () => (await write(page, [{ itemId: A, patch: { status: 'in_progress' } }], { toasts: false })).results[0].refused).toBe('trash')
+    await wsEval(page, (s, id) => s.restorePage(id), plan)
+    // unknown id
+    expect((await write(page, [{ itemId: 'wi_nowhere000', patch: { status: 'done' } }], { toasts: false })).results[0].refused).toBe('gone')
+
+    // a template's tasks: refused without / with a foreign `from`, written for a caller inside the template
+    const tpl = await createPage(page, { title: 'Kit', content: doc(item({ itemId: C }, 'Template task')) })
+    await wsEval(page, (s, id) => s.updatePage(id, { template: { name: 'Kit' }, hidden: true }), tpl)
+    await expect.poll(async () => (await write(page, [{ itemId: C, patch: { status: 'done' } }], { toasts: false })).results[0].refused).toBe('template')
+    expect((await write(page, [{ itemId: C, patch: { status: 'done' } }], { toasts: false, from: plan })).results[0].refused).toBe('template')
+    expect((await write(page, [{ itemId: C, patch: { status: 'done' } }], { toasts: false, from: tpl })).results[0].ok).toBe(true)
+    // a template caller never writes a live task
+    expect((await write(page, [{ itemId: A, patch: { status: 'done' } }], { toasts: false, from: tpl })).results[0].refused).toBe('template')
+  })
+
+  test('live editor first (one transaction, undo reads the editor); a task the editor no longer holds is refused, never brought back', async ({ page }) => {
+    await openApp(page)
+    const plan = await createPage(page, { title: 'Launch plan', content: doc(p('Intro'), item({ id: 'ba', itemId: A, people: ['p_alex'] }, 'Draft copy'), item({ id: 'bb', itemId: B }, 'Ship pricing')) })
+    await page.evaluate((id) => (window.location.hash = `#/p/${id}`), plan)
+    const editor = page.locator(`.ProseMirror[data-page-id="${plan}"]`)
+    await expect(editor.locator('[data-type="work-item"]')).toHaveCount(2)
+    const r = await write(page, [{ itemId: A, patch: { status: 'in_progress', people: { add: ['p_sam'] } } }])
+    expect(r.results[0].ok).toBe(true)
+    const inEditor = () =>
+      page.evaluate(
+        ({ plan, A }) => {
+          const el = document.querySelector(`.ProseMirror[data-page-id="${plan}"]`) as any
+          let attrs: any = null
+          el.editor.state.doc.descendants((n: any) => {
+            if (!attrs && n.type.name === 'workItem' && n.attrs.itemId === A) attrs = n.attrs
+          })
+          return attrs && { status: attrs.status, people: attrs.people }
+        },
+        { plan, A },
+      )
+    expect(await inEditor()).toEqual({ status: 'in_progress', people: ['p_alex', 'p_sam'] })
+    // undo right away: the store has not caught up yet — undo reads the live editor
+    await page.evaluate(() => ((window as any).__oneItems as Writer).undoLast())
+    expect(await inEditor()).toEqual({ status: 'todo', people: ['p_alex'] })
+
+    // the editor deletes task B; the store still holds it (the editor's save is debounced)
+    await page.evaluate(
+      ({ plan, B }) => {
+        const el = document.querySelector(`.ProseMirror[data-page-id="${plan}"]`) as any
+        let at = -1
+        let size = 0
+        el.editor.state.doc.descendants((n: any, pos: number) => {
+          if (at < 0 && n.type.name === 'workItem' && n.attrs.itemId === B) {
+            at = pos
+            size = n.nodeSize
+          }
+        })
+        el.editor.view.dispatch(el.editor.state.tr.delete(at, at + size))
+      },
+      { plan, B },
+    )
+    const gone = await write(page, [{ itemId: B, patch: { status: 'done' } }], { toasts: false })
+    expect(gone.results[0].refused).toBe('gone')
+    await flush(page)
+    expect(await storedTask(page, plan, B)).toBeNull()
   })
 })

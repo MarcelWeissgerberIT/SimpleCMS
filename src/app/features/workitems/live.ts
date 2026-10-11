@@ -19,9 +19,11 @@ import { useWorkspace, pageChanges } from '../../store/store'
 import { isEffectivelyTrashed, templateRootOf } from '../../store/selectors'
 import type { ID, Page } from '../../store/types'
 import { activeWorkspace, useCloud } from '../../cloud'
-import { compareOccurrence, itemCounters, itemsOfContent, setItemLookup, type WorkItemAttrs } from '../../editor'
+import { compareOccurrence, itemCounters, itemsOfContent, setItemHooks, setItemLookup, type WorkItemAttrs } from '../../editor'
 import { buildIndex, EMPTY_INDEX, updateIndex, type IndexDeps, type ItemIndex, type PageItems } from './itemIndex'
 import { DUP_DELAY, itemView, type ItemView } from './view'
+import { unblockedBy } from './unblock'
+import { toastUnblocked } from './unblockToast'
 
 const deps: IndexDeps = { compare: compareOccurrence }
 
@@ -288,6 +290,8 @@ export function startItems(): () => void {
     isPrivate: (itemId) => !!getItemIndex().byId.get(itemId)?.private,
     canCreate: canCreateItems,
   })
+  // a person finished tasks in an editor: who can start now
+  setItemHooks({ finished: (itemIds) => toastUnblocked(unblockedBy(getItemIndex(), itemIds)) })
   unsub = useWorkspace.subscribe(onStore)
   return stopItems
 }
@@ -300,6 +304,7 @@ export function stopItems(): void {
   unsub?.()
   unsub = null
   setItemLookup(null)
+  setItemHooks(null)
   cancelAnimationFrame(frame)
   window.clearTimeout(timer)
   frame = 0

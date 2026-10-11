@@ -98,13 +98,20 @@ export { dueText as workItemDueText, reminderShort as workItemReminderShort } fr
  *      not there, same doc = no change); findItemPos(pmDoc, itemId).
  *  - itemBlocks(task json): the task as plain blocks (title paragraph + notes, fields dropped).
  *  - setItemLookup(lookup) / itemLookup(): the registry the editor asks (taken / gone / isPrivate / canCreate —
- *      the ONE creation gate); fail-closed until features/workitems registers.
+ *      the ONE creation gate); fail-closed until features/workitems registers. itemCounters: e2e counters.
  */
 export { itemsOfContent, compareOccurrence, type ScannedItem, type Occurrence } from './workitem/scan'
 export { itemTitleText, todoProgress } from './workitem/text'
 export { patchItemAttrs, patchItemInDoc, findItemPos, type ItemPatch } from './workitem/patch'
 export { itemBlocks } from './workitem/turn'
-export { setItemLookup, itemLookup, itemCounters, type ItemLookup } from './workitem/lookup'
+export { setItemLookup, itemLookup, itemCounters, setItemHooks, type ItemLookup, type ItemHooks } from './workitem/lookup'
+/**
+ * commitItem(editor, target, patch, opts?) / commitItems(editor, edits, opts?): THE editor-side field write — delta-only
+ * setNodeMarkup, one transaction, one undo step in every editor; target = { pos, itemId, blockId } (the block acted on:
+ * mapped pos → block id → nothing) or { itemId } (the doc's first occurrence outside synced copies). opts.by 'person' →
+ * the unblock toast for tasks it finished (setItemHooks).
+ */
+export { commitItem, commitItems, resolveItemTarget, type ItemTarget, type CommitOptions } from './workitem/keys'
 /** itemChanges(before attrs, after attrs): the fields that changed (status, due, reminder, people, blockedBy, related) — history diff. */
 export { itemChanges, type ItemChange, type ItemField } from './workitem/diff'
 /**
