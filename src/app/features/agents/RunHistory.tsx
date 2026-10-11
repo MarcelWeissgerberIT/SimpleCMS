@@ -266,10 +266,15 @@ function Review({ run }: { run: AgentRun }) {
     const li = (e.target as HTMLElement).closest<HTMLElement>('li.agent-change[data-keys]')
     const key = runKeyOf(e, lang, !!li && e.target === li)
     if (!key) return
+    // a key the review takes is its own: prevented, and nothing behind it sees it
+    const take = () => {
+      e.preventDefault()
+      e.stopPropagation()
+    }
     if (key.kind === 'next' || key.kind === 'prev') {
       const rows = [...(root.current?.querySelectorAll<HTMLElement>('li.agent-change[data-keys]') ?? [])]
       if (!rows.length) return
-      e.preventDefault()
+      take()
       const at = li ? rows.indexOf(li) : -1
       const to = at < 0 ? (key.kind === 'next' ? 0 : rows.length - 1) : Math.max(0, Math.min(rows.length - 1, at + (key.kind === 'next' ? 1 : -1)))
       rows[to].focus()
@@ -279,13 +284,13 @@ function Review({ run }: { run: AgentRun }) {
     if (!c) return
     if (key.kind === 'undo') {
       if (!undoOf(c)) return
-      e.preventDefault()
+      take()
       if (disabled) inertSay(c, false)
       else undo(c)
       return
     }
     if (!isOpen(c)) return
-    e.preventDefault()
+    take()
     if (key.kind === 'apply') {
       if (disabled || blockedBy(c)) inertSay(c, true)
       else apply(c)

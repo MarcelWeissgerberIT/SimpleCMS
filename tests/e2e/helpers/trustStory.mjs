@@ -66,9 +66,10 @@ export const keyOf = (m, role) => `prop:${m.dbId}:${m.props[role]}`
 
 /**
  * This morning's run (07:30, waiting): Klarheit "Offene Fragen → Klar" on NL-209 … NL-212 (c1–c4), Warum on NL-213 …
- * NL-215 (c5–c7), three "→ Blockiert" discarded as wrong (c8–c10). Returns the run.
+ * NL-215 (c5–c7), three "→ Blockiert" discarded as wrong (c8–c10). `id` / `startedAt` / `status` for further runs. Returns
+ * the run.
  */
-export async function seedTrustRun(page, m, { now = Date.now(), status = 'staged' } = {}) {
+export async function seedTrustRun(page, m, { now = Date.now(), status = 'staged', id = TRUST_STORY.runId, startedAt: at = null } = {}) {
   const keys = Object.keys(m.rows)
   const row = (n) => m.rows[keys[n]]
   const clarity = (n, i, after, extra = {}) => ({
@@ -106,14 +107,14 @@ export async function seedTrustRun(page, m, { now = Date.now(), status = 'staged
   ]
   const start = new Date(now)
   start.setHours(7, 30, 0, 0)
-  const startedAt = start.getTime() > now ? now - 22 * MIN : start.getTime()
+  const startedAt = at ?? (start.getTime() > now ? now - 22 * MIN : start.getTime())
   const run = {
-    id: TRUST_STORY.runId,
+    id,
     agentId: m.mirrorId,
     runner: 'browser',
     trigger: { type: 'schedule', detail: 'schedule 07:30' },
     startedAt,
-    endedAt: startedAt + 134_000,
+    ...(status === 'running' ? {} : { endedAt: startedAt + 134_000 }),
     status,
     summary: '10 Einträge geprüft: 4 × Klarheit, 3 × Warum vorgeschlagen.',
     steps: [{ kind: 'tool', label: 'relay · list_items', state: 'ok' }],

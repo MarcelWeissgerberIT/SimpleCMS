@@ -855,3 +855,130 @@ test.describe('touch (T-P2-8)', () => {
     expect(small).toEqual([])
   })
 })
+
+test.describe('per-field trust: one card shown in full records a verdict (S1)', () => {
+  type V = { key: string; v: string; reason?: string; single?: boolean; change: string; run: string }
+  const verdicts = async (page: Page, agent = 'ag-spiegel'): Promise<V[]> =>
+    Object.values(((await page.evaluate((id) => (window as unknown as { __oneAgentTrust: AnyState }).__oneAgentTrust.book(id), agent)) as AnyState).entries as Record<string, V[]>).flat()
+  const kinds = async (page: Page) => (await verdicts(page)).map((v) => `${v.change}:${v.v}${v.reason ? `:${v.reason}` : v.single ? ':single' : ''}`)
+  const readinessOf = (page: Page, key: string) =>
+    page.evaluate(async (key) => {
+      const t = (window as unknown as { __oneAgentTrust: AnyState }).__oneAgentTrust
+      const b = await t.book('ag-spiegel')
+      const r = t.rules.readiness(b.entries[key] ?? [], undefined, Date.now())
+      return { segs: r.segs.join(''), unexplained: r.unexplained }
+    }, key)
+
+  async function morning(page: Page, lang: 'en' | 'de' = 'en') {
+    await start(page)
+    const m = await seedMirror(page)
+    await seedRuns(page, m)
+    if (lang === 'de') await wsEval(page, (s) => s.updateSettings({ language: 'de' }))
+    await page.evaluate(() => (window.location.hash = '#/'))
+    await flushLamps(page)
+    await openLamp(page, 'proposals')
+    return m
+  }
+
+  test('A on a card shown in full → accept; D → reasonless; 1 → wrong, Z takes it back; 2 → not now (no segment, unexplained unchanged); X and ⇧A write nothing', async ({ page }) => {
+    const m = await morning(page)
+    const key = `prop:${m.dbId}:${m.props.comments}`
+    await shown(page, 'run:r-now#c1')
+    await expect(card(page).getByTestId('pf-reasons')).toContainText('Discard with a reason')
+    await expect(card(page).getByTestId('pf-reasons').locator('[aria-keyshortcuts="1 W"]')).toBeVisible()
+    await page.keyboard.press('a')
+    await expect.poll(() => kinds(page)).toEqual(['c1:accept'])
+    expect((await verdicts(page))[0].key).toBe(key)
+    await shown(page, 'run:r-now#c2')
+    await page.keyboard.press('d')
+    await expect.poll(() => kinds(page)).toEqual(['c1:accept', 'c2:discard:single'])
+    await shown(page, 'run:r-now#c3')
+    await page.keyboard.press('1')
+    await expect.poll(() => kinds(page)).toEqual(['c1:accept', 'c2:discard:single', 'c3:discard:wrong'])
+    await expect.poll(() => runStatus(page, m.mirrorId, 'r-now', 'c3')).toBe('discarded')
+    await page.keyboard.press('z')
+    await expect.poll(() => runStatus(page, m.mirrorId, 'r-now', 'c3')).toBe('pending')
+    await expect.poll(() => kinds(page)).toEqual(['c1:accept', 'c2:discard:single'])
+    // not now: no segment, the guard's count unchanged
+    const before = await readinessOf(page, key)
+    await shown(page, 'run:r-now#c3')
+    await page.keyboard.press('2')
+    await expect.poll(() => kinds(page)).toEqual(['c1:accept', 'c2:discard:single', 'c3:discard:notNow'])
+    expect(await readinessOf(page, key)).toEqual(before)
+    // X (the stale ones) and ⇧A (the rest): bulk, nothing recorded
+    const n = (await verdicts(page)).length
+    await page.keyboard.press('x')
+    await expect.poll(() => runStatus(page, m.mirrorId, 'r-d8', 'c1')).toBe('discarded')
+    await page.keyboard.press('Shift+A')
+    await page.waitForTimeout(500)
+    if (await page.getByTestId('pf-bulk').isVisible()) await page.keyboard.press('Escape')
+    expect(await verdicts(page)).toHaveLength(n)
+  })
+
+  test('German F and English W discard as wrong; three reasonless discards put the guard’s note on the agent’s plate', async ({ page }) => {
+    const m = await morning(page, 'de')
+    await shown(page, 'run:r-now#c1')
+    await expect(card(page).getByTestId('pf-reasons').locator('[aria-keyshortcuts="1 F"]')).toBeVisible()
+    await page.keyboard.press('f')
+    await expect.poll(() => kinds(page)).toEqual(['c1:discard:wrong'])
+    await wsEval(page, (s) => s.updateSettings({ language: 'en' }))
+    // three D without a reason on the same field
+    for (const c of ['c2', 'c3', 'c4']) {
+      await shown(page, `run:r-now#${c}`)
+      await page.keyboard.press('d')
+      await expect.poll(() => runStatus(page, m.mirrorId, 'r-now', c)).toBe('discarded')
+    }
+    await expect.poll(async () => (await verdicts(page)).filter((v) => v.single).length).toBe(3)
+    // English W: the report agent's proposal, into its own book
+    await shown(page, 'run:r-rep#c1')
+    await expect(card(page).getByTestId('pf-reasons').locator('[aria-keyshortcuts="1 W"]')).toBeVisible()
+    await page.keyboard.press('w')
+    await expect.poll(async () => (await verdicts(page, 'ag-bericht')).map((v) => `${v.v}:${v.reason}`)).toEqual(['discard:wrong'])
+    // the plate says what 1 (or W) is for
+    await page.evaluate(() => (window.location.hash = '#/agents/ag-spiegel'))
+    await expect(page.getByTestId('agt-plate').locator(`[data-key="prop:${m.dbId}:${m.props.comments}"] .agt-row__note`)).toHaveText('3 × discarded without a reason — 1 (or W) says it was wrong')
+  })
+
+  test('A on a card whose body is still loading applies it but records no verdict', async ({ page }) => {
+    await start(page)
+    const m = await seedMirror(page)
+    await seedRuns(page, m)
+    let release: () => void = () => {}
+    const held = new Promise<void>((r) => (release = r))
+    await page.route(/\/RunHistory-[^/]*\.js$/, async (route) => {
+      await held
+      await route.continue()
+    })
+    await page.evaluate(() => (window.location.hash = '#/'))
+    await flushLamps(page)
+    await openLamp(page, 'proposals')
+    await expect(card(page)).toHaveAttribute('data-id', 'run:r-now#c1')
+    await expect(card(page).locator('.pf-card__wait')).toBeVisible()
+    await page.keyboard.press('a')
+    await expect.poll(() => runStatus(page, m.mirrorId, 'r-now', 'c1')).toBe('applied')
+    await page.waitForTimeout(300)
+    expect(await verdicts(page)).toEqual([])
+    release()
+  })
+})
+
+test.describe('per-field trust on touch (S1)', () => {
+  test.use({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true })
+
+  test('the reasons sit under “More” with the digits, every key ≥ 40 px; no reasons row', async ({ page }) => {
+    await start(page)
+    const m = await seedMirror(page)
+    await seedRuns(page, m)
+    await page.evaluate(() => (window.location.hash = '#/'))
+    await flushLamps(page)
+    await openLamp(page, 'proposals')
+    await ready(page, 'run:r-now#c1')
+    await expect(card(page).getByTestId('pf-reasons')).toHaveCount(0)
+    const more = card(page).locator('.pf-card__more')
+    await more.locator('summary').tap()
+    await page.waitForTimeout(500)
+    const keys = more.locator('[data-key]')
+    await expect(keys.filter({ hasText: 'Wrong' })).toBeVisible()
+    for (const h of await keys.evaluateAll((els) => els.filter((e) => (e as HTMLElement).offsetParent).map((e) => e.getBoundingClientRect().height))) expect(h).toBeGreaterThanOrEqual(40)
+  })
+})

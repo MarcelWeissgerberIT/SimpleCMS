@@ -23,6 +23,6 @@ export interface TrustMirror extends SeededMirror {
 export function waitTrust(page: Page): Promise<void>
 export function seedTrustMirror(page: Page, opts?: { rows?: number }): Promise<TrustMirror>
 export function keyOf(m: SeededMirror, role: string): string
-export function seedTrustRun(page: Page, m: TrustMirror, opts?: { now?: number; status?: string }): Promise<Record<string, any>> // eslint-disable-line @typescript-eslint/no-explicit-any
+export function seedTrustRun(page: Page, m: TrustMirror, opts?: { now?: number; status?: string; id?: string; startedAt?: number | null }): Promise<Record<string, any>> // eslint-disable-line @typescript-eslint/no-explicit-any
 export function seedTrustBook(page: Page, m: TrustMirror, opts?: { now?: number }): Promise<unknown>
 export function seedTrust(page: Page, opts?: { lang?: 'de' | 'en'; now?: number; book?: boolean; run?: boolean }): Promise<{ m: TrustMirror; run: Record<string, any> | null }> // eslint-disable-line @typescript-eslint/no-explicit-any

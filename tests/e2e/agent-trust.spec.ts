@@ -1,0 +1,521 @@
+/**
+ * Per-field trust S1 (features/agents/trust): the run review's keys and what they write into this device's verdict
+ * book — (a) the keys (caps on the focused proposal only, J / K, ↵ / A, 1 / F, 2–4, D / Del / ⌫, Enter on a key is its
+ * own click) · (b) letters without a meaning · (c) bulk keys write nothing · (d) an Undo takes its verdict back ·
+ * (e) "edited" only by the person and only within 10 minutes · (f) keys are inert where the buttons are · (g) focus
+ * after a decision · (h) the aside plate · (i) touch · (j) the book: reload, other tabs, the local reset, orphans ·
+ * (k) 390 / 1440, Paper / Carbon, XL · (l) no console errors (fixtures), no write without a writer.
+ * The story is fictional (tests/e2e/helpers/trustStory.mjs); nothing leaves the machine.
+ */
+import type { Page } from '@playwright/test'
+import { test, expect, openApp, wsEval, waitForApp } from './fixtures'
+import { keyOf, seedTrust, seedTrustRun, TRUST_STORY, type TrustMirror } from './helpers/trustStory.mjs'
+
+type AnyRec = Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
+
+const AGENT = TRUST_STORY.agentId
+const RUN = TRUST_STORY.runId
+const DAY = 86_400_000
+
+const runEl = (page: Page, id = RUN) => page.locator('li.agx-run').filter({ has: page.locator(`[aria-controls="agx-run-${id}"]`) })
+const review = (page: Page, id = RUN) => runEl(page, id).locator('.agx-review')
+const row = (page: Page, n: number, id = RUN) => review(page, id).locator(`li.agent-change[data-n="${n}"]`)
+const liveText = (page: Page, id = RUN) => review(page, id).locator('p[aria-live="polite"]')
+const heading = (page: Page, id = RUN) => review(page, id).locator('.agx-review__title')
+const plate = (page: Page) => page.getByTestId('agt-plate')
+
+/** This device's book of the story's agent (IndexedDB, read again). */
+const bookOf = (page: Page, id = AGENT): Promise<AnyRec> => page.evaluate((id) => (window as any).__oneAgentTrust.book(id), id) // eslint-disable-line @typescript-eslint/no-explicit-any
+const verdictsOf = async (page: Page, key?: string): Promise<AnyRec[]> => {
+  const b = await bookOf(page)
+  return key ? (b.entries[key] ?? []) : Object.values(b.entries as Record<string, AnyRec[]>).flat()
+}
+const kinds = async (page: Page, key: string) => (await verdictsOf(page, key)).map((v) => (v.reason ? `${v.v}:${v.reason}` : v.single ? `${v.v}:single` : v.v))
+const segsOf = async (page: Page, key: string): Promise<string[]> =>
+  page.evaluate(async ({ id, key }) => {
+    const t = (window as any).__oneAgentTrust // eslint-disable-line @typescript-eslint/no-explicit-any
+    const b = await t.book(id)
+    return t.rules.readiness(b.entries[key] ?? [], b.head.lastRevoke[key], Date.now()).segs
+  }, { id: AGENT, key })
+/** A staged change as stored (the run read again). */
+const stored = (page: Page, change: string, run = RUN): Promise<AnyRec | null> =>
+  page.evaluate(async ({ a, r, c }) => ((await (window as any).__oneAgents.loadRuns(a)) as AnyRec[]).find((x) => x.id === r)?.staged?.find((x: AnyRec) => x.id === c) ?? null, { a: AGENT, r: run, c: change }) // eslint-disable-line @typescript-eslint/no-explicit-any
+const statusOf = async (page: Page, change: string, run = RUN) => (await stored(page, change, run))?.status ?? null
+const unknowns = (page: Page) => page.evaluate(() => (window as any).__oneRecorder?.unknowns() ?? []) // eslint-disable-line @typescript-eslint/no-explicit-any
+const flushWatch = (page: Page) => page.evaluate(() => (window as any).__oneAgentTrust.flushWatch()) // eslint-disable-line @typescript-eslint/no-explicit-any
+
+/** The story's morning on the agent's own page: a run waiting with c1–c7 open; the book empty unless asked. */
+async function morning(page: Page, opts: { lang?: 'de' | 'en'; book?: boolean } = {}): Promise<TrustMirror> {
+  await page.addInitScript(() => localStorage.setItem('one.tour', '{"off":true}'))
+  await page.context().route(/^https?:\/\/(?!127\.0\.0\.1|localhost)/, (r) => r.abort())
+  await openApp(page)
+  const { m } = await seedTrust(page, { lang: opts.lang ?? 'de', book: opts.book ?? false })
+  await expect(row(page, 1)).toBeVisible()
+  await expect(plate(page)).toBeVisible()
+  return m
+}
+
+/** Leave the agent's page and come back (runs seeded meanwhile are read again). */
+async function revisit(page: Page) {
+  await page.evaluate(() => (window.location.hash = '#/agents'))
+  await expect(page.locator('.agx-dhead')).toHaveCount(0)
+  await page.evaluate((id) => (window.location.hash = `#/agents/${id}`), AGENT)
+  await expect(page.locator('.agx-dhead')).toBeVisible()
+}
+
+test.describe('per-field trust — the run review (S1)', () => {
+  test('(a) keys: caps only on the focused proposal; J N ↓ K ↑ move; ↵ / A apply, 1 / F wrong, 2–4 reasons without a segment, D / Entf / ⌫ reasonless; Enter on Verwerfen discards', async ({ page }) => {
+    const m = await morning(page)
+    const clarity = keyOf(m, 'clarity')
+    const why = keyOf(m, 'why')
+    // no row holds the focus: no caps, no reasons row, no orange key
+    await expect(review(page).locator('.agt-cap:visible')).toHaveCount(0)
+    await expect(review(page).locator('[data-testid="agt-reasons"]:visible')).toHaveCount(0)
+    await row(page, 1).focus()
+    await expect(row(page, 1).locator('.agt-cap:visible')).toHaveCount(2)
+    await expect(row(page, 1).getByTestId('agt-reasons')).toBeVisible()
+    await expect(row(page, 1).getByTestId('agt-reasons')).toContainText('Verwerfen mit Grund')
+    await expect(row(page, 1).getByRole('button', { name: 'Falsch #1' })).toHaveAttribute('aria-keyshortcuts', '1 F')
+    await expect(row(page, 2).locator('.agt-cap:visible')).toHaveCount(0)
+    const bg = (n: number) => row(page, n).locator('.agt-apply').evaluate((el) => getComputedStyle(el).backgroundColor)
+    const signal = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--signal').trim())
+    expect(await bg(1)).not.toBe(await bg(2))
+    expect(signal).not.toBe('')
+    // the head: open by field and the J K hint
+    await expect(review(page).getByTestId('agx-review-fields')).toHaveText('Klarheit 4 · Warum 3')
+    await expect(review(page).getByTestId('agx-review-counts')).toContainText('7×')
+    await expect(row(page, 1)).toHaveAttribute('aria-keyshortcuts', /Enter A Delete D 1 F 2 3 4 J K/)
+
+    // J / N / ↓ forward, K / ↑ back
+    for (const [key, n] of [['j', 2], ['n', 3], ['ArrowDown', 4], ['k', 3], ['ArrowUp', 2]] as const) {
+      await page.keyboard.press(key)
+      await expect(row(page, n)).toBeFocused()
+    }
+    // ↵ on the row and A apply: one accept per field, focus on the next open proposal
+    await page.keyboard.press('Enter')
+    await expect.poll(() => statusOf(page, 'c2')).toBe('applied')
+    await expect(row(page, 3)).toBeFocused()
+    await expect(liveText(page)).toHaveText('Übernommen · #2')
+    await page.keyboard.press('a')
+    await expect.poll(() => statusOf(page, 'c3')).toBe('applied')
+    await expect.poll(() => kinds(page, clarity)).toEqual(['accept', 'accept'])
+    expect((await verdictsOf(page, clarity)).map((v) => v.change)).toEqual(['c2', 'c3'])
+    // 1 → wrong (the row keeps its Undo, one line); F (German) → wrong
+    await expect(row(page, 4)).toBeFocused()
+    await page.keyboard.press('1')
+    await expect.poll(() => statusOf(page, 'c4')).toBe('discarded')
+    expect((await stored(page, 'c4'))?.reason).toBe('wrong')
+    await expect(row(page, 4).getByTestId('agx-discarded')).toHaveText('Verworfen · falsch')
+    await expect(row(page, 4).getByRole('button', { name: 'Rückgängig #4' })).toBeVisible()
+    await expect(row(page, 4).locator('[data-part]')).toHaveCount(0)
+    await expect(liveText(page)).toHaveText('Verworfen · falsch · #4')
+    await expect(row(page, 5)).toBeFocused()
+    await page.keyboard.press('f')
+    await expect.poll(() => kinds(page, why)).toEqual(['discard:wrong'])
+    // 2 / 3 / 4: a reason, no segment, the run unchanged
+    const whySegs = await segsOf(page, why)
+    await expect(row(page, 6)).toBeFocused()
+    await page.keyboard.press('2')
+    await expect(row(page, 7)).toBeFocused()
+    await page.keyboard.press('3')
+    await expect.poll(() => kinds(page, why)).toEqual(['discard:wrong', 'discard:notNow', 'discard:duplicate'])
+    expect(await segsOf(page, why)).toEqual(whySegs)
+    const claritySegs = await segsOf(page, clarity)
+    // wrapped to the first open one
+    await expect(row(page, 1)).toBeFocused()
+    await page.keyboard.press('4')
+    await expect.poll(() => kinds(page, clarity)).toEqual(['accept', 'accept', 'discard:wrong', 'discard:done'])
+    expect(await segsOf(page, clarity)).toEqual(claritySegs)
+    // none open: the heading
+    await expect(heading(page)).toBeFocused()
+
+    // D / Entf / ⌫: reasonless (single); Z takes each back
+    await row(page, 7).focus()
+    await page.keyboard.press('z')
+    await expect.poll(() => statusOf(page, 'c7')).toBe('pending')
+    await expect(row(page, 7)).toBeFocused()
+    await expect.poll(() => kinds(page, why)).toEqual(['discard:wrong', 'discard:notNow'])
+    for (const key of ['d', 'Delete', 'Backspace']) {
+      // the row shows what is stored before the next key (a key acts on what the row shows)
+      await expect(row(page, 7)).toHaveAttribute('data-status', 'pending')
+      await page.keyboard.press(key)
+      await expect.poll(() => statusOf(page, 'c7')).toBe('discarded')
+      await expect.poll(() => kinds(page, why)).toEqual(['discard:wrong', 'discard:notNow', 'discard:single'])
+      expect((await stored(page, 'c7'))?.reason).toBeUndefined()
+      await expect(row(page, 7)).toHaveAttribute('data-status', 'discarded')
+      // focus moved on by itself (none open: the heading) before the row is focused again
+      await expect(heading(page)).toBeFocused()
+      await row(page, 7).focus()
+      await page.keyboard.press('z')
+      await expect.poll(() => statusOf(page, 'c7')).toBe('pending')
+      await expect.poll(() => kinds(page, why)).toEqual(['discard:wrong', 'discard:notNow'])
+    }
+    await expect(row(page, 7)).toHaveAttribute('data-status', 'pending')
+    // Enter on the Verwerfen key is that key's own click: a discard, never an apply
+    await row(page, 7).getByRole('button', { name: 'Verwerfen #7' }).focus()
+    await page.keyboard.press('Enter')
+    await expect.poll(() => statusOf(page, 'c7')).toBe('discarded')
+    await expect.poll(() => kinds(page, why)).toEqual(['discard:wrong', 'discard:notNow', 'discard:single'])
+    // (l) every write had its writer
+    expect(await unknowns(page)).toEqual([])
+  })
+
+  test('(b) English: H and E on a focused proposal change nothing; F means nothing in English; W discards as wrong', async ({ page }) => {
+    const m = await morning(page, { lang: 'en' })
+    await expect(row(page, 1).getByRole('button', { name: 'Apply #1' })).toBeVisible()
+    await row(page, 1).focus()
+    await expect(row(page, 1).getByRole('button', { name: 'Wrong #1' })).toHaveAttribute('aria-keyshortcuts', '1 W')
+    for (const key of ['h', 'e', 'f']) await page.keyboard.press(key)
+    await page.waitForTimeout(400)
+    expect(await statusOf(page, 'c1')).toBe('pending')
+    expect(await verdictsOf(page)).toEqual([])
+    await expect(row(page, 1)).toBeFocused()
+    await page.keyboard.press('w')
+    await expect.poll(() => kinds(page, keyOf(m, 'clarity'))).toEqual(['discard:wrong'])
+    await expect(row(page, 1).getByTestId('agx-discarded')).toHaveText('Discarded · wrong')
+  })
+
+  test('(c) bulk keys write nothing: one row applied → 1 verdict; Alle übernehmen, then Alle verwerfen of a newer run → still 1', async ({ page }) => {
+    const m = await morning(page)
+    await row(page, 1).focus()
+    await page.keyboard.press('Enter')
+    await expect.poll(() => verdictsOf(page)).toHaveLength(1)
+    await review(page).getByRole('button', { name: 'Alle übernehmen' }).click()
+    await expect.poll(() => statusOf(page, 'c7')).toBe('applied')
+    await seedTrustRun(page, m, { id: 'r-trust-2', startedAt: Date.now() - 60_000 })
+    await revisit(page)
+    await expect(row(page, 1, 'r-trust-2')).toBeVisible()
+    await review(page, 'r-trust-2').getByRole('button', { name: 'Alle verwerfen' }).click()
+    await expect.poll(() => statusOf(page, 'c1', 'r-trust-2')).toBe('discarded')
+    await page.waitForTimeout(300)
+    expect(await verdictsOf(page)).toHaveLength(1)
+  })
+
+  test('(d) an Undo takes its verdict back: Z and the row’s Rückgängig on an applied row; F → “Verworfen · falsch · Rückgängig” → Z: open again, no verdict, no reason', async ({ page }) => {
+    const m = await morning(page)
+    const clarity = keyOf(m, 'clarity')
+    await row(page, 2).focus()
+    await page.keyboard.press('Enter')
+    await expect.poll(() => kinds(page, clarity)).toEqual(['accept'])
+    await expect(row(page, 3)).toBeFocused()
+    await row(page, 2).focus()
+    await expect(row(page, 2).locator('.agent-change__undo .agt-cap')).toBeVisible()
+    await page.keyboard.press('z')
+    await expect.poll(() => statusOf(page, 'c2')).toBe('pending')
+    await expect.poll(() => verdictsOf(page)).toEqual([])
+    await expect(row(page, 2)).toBeFocused()
+    await expect(liveText(page)).toHaveText('Rückgängig · #2')
+    // the row's own key
+    await row(page, 2).getByRole('button', { name: 'Übernehmen #2' }).click()
+    await expect.poll(() => kinds(page, clarity)).toEqual(['accept'])
+    await row(page, 2).getByRole('button', { name: 'Rückgängig #2' }).click()
+    await expect.poll(() => statusOf(page, 'c2')).toBe('pending')
+    await expect.poll(() => verdictsOf(page)).toEqual([])
+    // a discard with a reason, undone in its row
+    await row(page, 3).focus()
+    await page.keyboard.press('f')
+    await expect(row(page, 3).getByTestId('agx-discarded')).toHaveText('Verworfen · falsch')
+    await expect.poll(() => kinds(page, clarity)).toEqual(['discard:wrong'])
+    await expect(row(page, 4)).toBeFocused()
+    await row(page, 3).focus()
+    await page.keyboard.press('z')
+    await expect.poll(() => statusOf(page, 'c3')).toBe('pending')
+    await expect.poll(() => verdictsOf(page)).toEqual([])
+    expect((await stored(page, 'c3'))?.reason).toBeUndefined()
+    expect(await unknowns(page)).toEqual([])
+  })
+
+  test('(e) edited: only the person’s own change within 10 minutes — an automation’s write keeps the accept, the person’s turns it to edited, after 10 minutes it stays', async ({ page }) => {
+    await page.clock.install({ time: new Date('2026-10-13T07:52:00+02:00') })
+    const m = await morning(page)
+    const clarity = keyOf(m, 'clarity')
+    const why = keyOf(m, 'why')
+    const keys = Object.keys(m.rows)
+    const rowA = m.rows[keys[8]]
+    const rowB = m.rows[keys[12]]
+    await row(page, 1).focus()
+    await page.keyboard.press('Enter')
+    await expect(row(page, 2)).toBeFocused()
+    await row(page, 5).focus()
+    await page.keyboard.press('a')
+    await expect.poll(() => kinds(page, clarity)).toEqual(['accept'])
+    await expect.poll(() => kinds(page, why)).toEqual(['accept'])
+    // an automation changes A: not the person
+    await page.evaluate(
+      (a) => (window as any).__oneRecorder.step({ writer: { kind: 'automation', db: a.db, id: 'auto-nl', run: 'a1' }, calls: [['setRowProperty', a.row, a.prop, a.opt]] }), // eslint-disable-line @typescript-eslint/no-explicit-any
+      { db: m.dbId, row: rowA, prop: m.props.clarity, opt: m.options['Blockiert'] },
+    )
+    expect(await flushWatch(page)).toBe(2)
+    expect(await kinds(page, clarity)).toEqual(['accept'])
+    // the person rewords B (the test hook writes as the person)
+    await wsEval(page, (s, a) => s.setRowProperty(a.row, a.prop, 'Anders gesagt: alles freigegeben.'), { row: rowB, prop: m.props.why })
+    expect(await flushWatch(page)).toBe(1)
+    expect(await kinds(page, why)).toEqual(['edited'])
+    // ten minutes later the person's change of A is just a change
+    await page.clock.fastForward('10:30')
+    expect(await flushWatch(page)).toBe(0)
+    await wsEval(page, (s, a) => s.setRowProperty(a.row, a.prop, a.opt), { row: rowA, prop: m.props.clarity, opt: m.options['Woanders in Arbeit'] })
+    await flushWatch(page)
+    expect(await kinds(page, clarity)).toEqual(['accept'])
+    expect(await unknowns(page)).toEqual([])
+  })
+
+  test('(f) keys act only where the buttons would: read only, a run still going, “needs #1” — inert, said why, nothing written', async ({ page }) => {
+    const m = await morning(page)
+    // read only (the cloud's flag)
+    await page.evaluate(() => (window as any).__one.cloud.useCloud.setState({ readOnly: true })) // eslint-disable-line @typescript-eslint/no-explicit-any
+    await expect(row(page, 1).getByRole('button', { name: 'Übernehmen #1' })).toBeDisabled()
+    await row(page, 1).focus()
+    for (const key of ['a', 'Enter', 'd', '1']) {
+      await page.keyboard.press(key)
+      await expect(liveText(page)).toHaveText('Nur lesen')
+    }
+    await page.waitForTimeout(300)
+    expect(await statusOf(page, 'c1')).toBe('pending')
+    expect(await verdictsOf(page)).toEqual([])
+    await page.evaluate(() => (window as any).__one.cloud.useCloud.setState({ readOnly: false })) // eslint-disable-line @typescript-eslint/no-explicit-any
+
+    // a run still going
+    await seedTrustRun(page, m, { id: 'r-going', status: 'running', startedAt: Date.now() - 30_000 })
+    await revisit(page)
+    await expect(row(page, 1, 'r-going')).toBeVisible()
+    await row(page, 1, 'r-going').focus()
+    for (const key of ['a', 'Enter', 'd', '1']) {
+      await page.keyboard.press(key)
+      await expect(liveText(page, 'r-going')).toHaveText('Der Lauf läuft noch')
+    }
+    expect(await statusOf(page, 'c1', 'r-going')).toBe('pending')
+
+    // a proposal that needs another one first: A / ↵ inert
+    await page.evaluate(
+      (a) =>
+        (window as any).__onePreflight.seedRuns([ // eslint-disable-line @typescript-eslint/no-explicit-any
+          {
+            id: 'r-needs',
+            agentId: a.agent,
+            runner: 'browser',
+            trigger: { type: 'manual' },
+            startedAt: Date.now() - 10_000,
+            endedAt: Date.now() - 5_000,
+            status: 'staged',
+            summary: '',
+            steps: [],
+            staged: [
+              { id: 'n1', n: 1, kind: 'create_row', status: 'pending', pageId: 'staged-row-1', databaseId: a.db, title: 'NL-240' },
+              { id: 'n2', n: 2, kind: 'update_row', status: 'pending', pageId: 'staged-row-1', databaseId: a.db, dependsOn: 'n1', title: 'NL-240', props: [{ propId: a.why, name: 'Warum', type: 'text', before: '', after: 'Neu angelegt.', intent: { kind: 'value', value: 'Neu angelegt.' } }] },
+            ],
+          },
+        ]),
+      { agent: AGENT, db: m.dbId, why: m.props.why },
+    )
+    await revisit(page)
+    await expect(row(page, 2, 'r-needs')).toBeVisible()
+    await row(page, 2, 'r-needs').focus()
+    for (const key of ['a', 'Enter']) {
+      await page.keyboard.press(key)
+      await expect(liveText(page, 'r-needs')).toHaveText('Braucht erst #1')
+    }
+    await page.waitForTimeout(300)
+    expect(await statusOf(page, 'n2', 'r-needs')).toBe('pending')
+    expect(await verdictsOf(page)).toEqual([])
+  })
+
+  test('(g) focus: after ↵ the next open proposal’s row (wrapping), the heading after the last; after Z that row', async ({ page }) => {
+    await morning(page)
+    await row(page, 6).focus()
+    const order = [7, 1, 2, 3, 4, 5]
+    for (const n of order) {
+      await page.keyboard.press('Enter')
+      await expect(row(page, n)).toBeFocused()
+    }
+    await page.keyboard.press('Enter')
+    await expect(heading(page)).toBeFocused()
+    await row(page, 3).focus()
+    await page.keyboard.press('z')
+    await expect.poll(() => statusOf(page, 'c3')).toBe('pending')
+    await expect(row(page, 3)).toBeFocused()
+    expect(await page.evaluate(() => document.activeElement === document.body)).toBe(false)
+  })
+})
+
+test.describe('per-field trust — the aside plate (S1)', () => {
+  test('(h) meters with their labels and counts, the notes, every lamp PRÜFUNG, ≤ 4 databases then “+1 Datenbank”, ≤ 12 rows then “+ n weitere”, NIE DIREKT names the hand-only and key properties', async ({ page }) => {
+    const m = await morning(page, { book: true })
+    // four more databases the agent worked on yesterday: the mirror (newest) and 3 of them make the plate
+    await page.evaluate(
+      async (a) => {
+        const w = window as any // eslint-disable-line @typescript-eslint/no-explicit-any
+        const s = w.__one.workspace.getState()
+        const staged = []
+        for (const [i, name] of ['Tessera Werk', 'Lieferliste', 'Prüfplan', 'Messreihe'].entries()) {
+          const db = s.createDatabase({ title: name })
+          const prop = s.addProperty(db, { type: 'text', name: `Notiz ${i + 1}` })
+          const rowId = s.createRow(db, { title: `${name} 1` })
+          staged.push({ id: `d${i + 1}`, n: i + 1, kind: 'update_row', status: 'pending', pageId: rowId, databaseId: db, title: name, props: [{ propId: prop, name: `Notiz ${i + 1}`, type: 'text', before: '', after: 'x', intent: { kind: 'value', value: 'x' } }] })
+        }
+        await w.__onePreflight.seedRuns([{ id: 'r-dbs', agentId: a.agent, runner: 'browser', trigger: { type: 'manual' }, startedAt: Date.now() - a.day, endedAt: Date.now() - a.day + 60_000, status: 'staged', summary: '', steps: [], staged }])
+      },
+      { agent: AGENT, day: DAY },
+    )
+    await revisit(page)
+    const r = (role: string) => plate(page).locator(`[data-key="${keyOf(m, role)}"]`)
+    await expect(r('clarity').getByRole('img')).toHaveAttribute('aria-label', 'Letzte 20 Urteile: 13 übernommen, 3 bearbeitet, 4 falsch')
+    await expect(r('clarity').locator('.agt-row__cnt')).toHaveText('13/20')
+    await expect(r('clarity').locator('.agt-row__note')).toHaveText('4 × falsch · 3 × bearbeitet')
+    await expect(r('clarity').locator('.m-w')).toHaveCount(4)
+    await expect(r('clarity').locator('.m-e')).toHaveCount(3)
+    await expect(r('newComment').locator('.agt-row__cnt')).toHaveText('20/20')
+    await expect(r('newComment').locator('.agt-row__note')).toHaveText('20 in Folge · der Schalter kippt nie von selbst')
+    await expect(r('newComment')).toHaveAttribute('data-lamp', 'ready')
+    await expect(r('newComment').locator('.agt-lamp')).toHaveText('Prüfung')
+    await expect(r('comments').getByRole('img')).toHaveAttribute('aria-label', 'Letzte 20 Urteile: 14 übernommen, 1 bearbeitet, 5 noch ohne Urteil')
+    await expect(r('comments').locator('.m-x')).toHaveCount(5)
+    await expect(r('comments').locator('.agt-row__note')).toHaveText('3 × ohne Grund verworfen — mit 1 (oder F) sagst du, dass es falsch war')
+    await expect(r('why').locator('.agt-row__note')).toHaveText('Oft von dir umformuliert')
+    await expect(r('due').locator('.agt-row__note')).toHaveText('2 Urteile · zu selten')
+    // every lamp reads PRÜFUNG in S1 (nothing can be granted yet)
+    expect(new Set(await plate(page).locator('.agt-lamp').allTextContents())).toEqual(new Set(['Prüfung']))
+    // DIREKT → FREIGEBBAR → most green first
+    const first = await plate(page).locator('.agt-row').first().getAttribute('data-key')
+    expect([keyOf(m, 'newComment'), keyOf(m, 'srcStatus')]).toContain(first)
+    // ≤ 12 rows, then "+ 2 weitere"; 4 of the 5 databases, "+1 Datenbank"
+    await expect(plate(page).locator('.agt-row')).toHaveCount(12)
+    const more = plate(page).getByRole('button', { name: /^\+ \d+ weitere$/ })
+    await expect(more).toHaveAttribute('aria-expanded', 'false')
+    const hidden = Number(/\d+/.exec((await more.textContent()) ?? '')?.[0])
+    expect(hidden).toBeGreaterThan(1)
+    await more.click()
+    await expect(plate(page).locator('.agt-row')).toHaveCount(12 + hidden)
+    await expect(plate(page).getByRole('button', { name: 'Weniger' })).toHaveAttribute('aria-expanded', 'true')
+    await expect(plate(page).locator('.agt-group__title')).toHaveText(['Nordlicht Übergabe', 'Tessera Werk', 'Lieferliste', 'Prüfplan'])
+    await expect(plate(page)).toContainText('+1 Datenbank')
+    // never direct: only by hand (the profile says so) and the key
+    await expect(plate(page).getByTestId('agt-never')).toContainText('Mein Status: nur von Hand, so steht es im Integrationsprofil · Schlüssel: Schlüssel')
+    await expect(plate(page).getByTestId('agt-always')).toContainText('Seitentext, neue Seiten')
+    await expect(plate(page).locator('.agt-legend li')).toHaveCount(6)
+    await expect(plate(page)).toContainText('Freigebbar nach 20 unveränderten Übernahmen in Folge')
+  })
+
+  test('the plate without a verdict on this device says how verdicts come', async ({ page }) => {
+    await morning(page)
+    await expect(plate(page).getByTestId('agt-plate-empty')).toHaveText('Noch keine Urteile auf diesem Gerät — sie entstehen, wenn du Vorschläge einzeln übernimmst oder verwirfst.')
+    await row(page, 1).focus()
+    await page.keyboard.press('Enter')
+    await expect(plate(page).getByTestId('agt-plate-empty')).toHaveCount(0)
+    await expect(plate(page).locator('.agt-row').first()).toBeVisible()
+  })
+})
+
+test.describe('per-field trust — touch (S1)', () => {
+  test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true })
+
+  test('(i) “Verwerfen ▾” opens four 44 px reasons and “Ohne Grund”; no key caps, no reasons row', async ({ page }) => {
+    const m = await morning(page)
+    await expect(review(page).locator('.agt-cap')).toHaveCount(0)
+    await expect(review(page).getByTestId('agt-reasons')).toHaveCount(0)
+    await expect(review(page).locator('.agx-review__hint')).toHaveCount(0)
+    const open = row(page, 1).getByRole('button', { name: '#1 verwerfen …' })
+    await expect(open).toHaveAttribute('aria-expanded', 'false')
+    // the reader touches the column first: until then the page undoes scrolls nobody asked for (useColumnScroll)
+    await page.locator('.agx-title').tap()
+    await open.tap()
+    await expect(open).toHaveAttribute('aria-expanded', 'true')
+    const group = row(page, 1).getByTestId('agt-touch')
+    await expect(group).toBeVisible()
+    await expect(group).toContainText('Verwerfen, weil …')
+    await expect(group).toContainText('Nur „Falsch“ zählt gegen ihn.')
+    const keys = group.locator('.agt-touch__key')
+    await expect(keys).toHaveText(['Falsch', 'Nicht jetzt', 'Doppelt', 'Schon erledigt'])
+    for (const box of await keys.evaluateAll((els) => els.map((e) => e.getBoundingClientRect().height))) expect(box).toBeGreaterThanOrEqual(44)
+    expect((await group.getByRole('button', { name: 'Ohne Grund' }).boundingBox())!.height).toBeGreaterThanOrEqual(44)
+    // a tap that just opened something: wait before tapping into it
+    await page.waitForTimeout(500)
+    await group.getByRole('button', { name: 'Falsch #1' }).tap()
+    await expect.poll(() => kinds(page, keyOf(m, 'clarity'))).toEqual(['discard:wrong'])
+    await expect(row(page, 1).getByTestId('agx-discarded')).toHaveText('Verworfen · falsch')
+    // nothing wider than the phone
+    expect(await page.evaluate(() => (document.querySelector('#main') as HTMLElement).scrollWidth - (document.querySelector('#main') as HTMLElement).clientWidth)).toBeLessThanOrEqual(0)
+  })
+})
+
+test.describe('per-field trust — the book (S1)', () => {
+  test('(j) a reload keeps it; another tab sees a verdict; orphans: an old one goes at the next start, a young one stays; the local reset removes every trust key', async ({ page, context, errors }) => {
+    const m = await morning(page)
+    // another tab on the same agent page
+    const other = await context.newPage()
+    errors.watch(other)
+    await other.goto(`app/?e2e#/agents/${AGENT}`)
+    await waitForApp(other)
+    await expect(other.getByTestId('agt-plate-empty')).toBeVisible()
+    await row(page, 1).focus()
+    await page.keyboard.press('Enter')
+    await expect.poll(() => kinds(page, keyOf(m, 'clarity'))).toEqual(['accept'])
+    await expect(other.getByTestId('agt-plate-empty')).toHaveCount(0)
+    await expect(other.getByTestId('agt-plate').locator(`[data-key="${keyOf(m, 'clarity')}"] .agt-row__cnt`)).toHaveText('1/20')
+    await other.close()
+
+    // orphans of this scope: one untouched for 40 days, one written yesterday (their agents are gone)
+    await page.evaluate(async (day) => {
+      const db = await new Promise<IDBDatabase>((res, rej) => {
+        const r = indexedDB.open('one-agents')
+        r.onsuccess = () => res(r.result)
+        r.onerror = () => rej(r.error)
+      })
+      const tx = db.transaction('runs', 'readwrite')
+      const head = (at: number) => ({ v: 1, keys: { 'row:nl-db': at }, lastRevoke: {}, revoked: {}, granted: {}, direct: {}, at })
+      const os = tx.objectStore('runs')
+      os.put(head(Date.now() - 40 * day), 'trust|local:local|ag-gone')
+      os.put([{ id: 'v1', key: 'row:nl-db', v: 'accept', at: Date.now() - 40 * day, run: 'r', change: 'c' }], 'trust|local:local|ag-gone|e|row:nl-db')
+      os.put(head(Date.now() - day), 'trust|local:local|ag-young')
+      await new Promise((res) => (tx.oncomplete = res))
+      db.close()
+    }, DAY)
+    await page.reload()
+    await waitForApp(page)
+    await expect(row(page, 1)).toBeVisible()
+    await expect.poll(() => kinds(page, keyOf(m, 'clarity'))).toEqual(['accept'])
+    await expect.poll(async () => ((await page.evaluate(() => (window as any).__oneAgentTrust.keys())) as string[]).filter((k) => k.includes('ag-gone'))).toEqual([]) // eslint-disable-line @typescript-eslint/no-explicit-any
+    const keys = (await page.evaluate(() => (window as any).__oneAgentTrust.keys())) as string[] // eslint-disable-line @typescript-eslint/no-explicit-any
+    expect(keys).toContain('trust|local:local|ag-young')
+    expect(keys.some((k) => k.startsWith(`trust|local:local|${AGENT}`))).toBe(true)
+
+    // the local reset (Workspace settings → Danger: erase) takes the agents' store and every book with it
+    await page.evaluate(() => localStorage.setItem('one.resetPending', '1'))
+    await page.reload()
+    await waitForApp(page)
+    await page.waitForFunction(() => !!(window as any).__oneAgentTrust) // eslint-disable-line @typescript-eslint/no-explicit-any
+    expect(await page.evaluate(() => (window as any).__oneAgentTrust.keys())).toEqual([]) // eslint-disable-line @typescript-eslint/no-explicit-any
+  })
+
+  test('(k) 390 and 1440, Paper and Carbon, XL: no sideways scroll; the plate beside the runs when wide, after them on a phone', async ({ page }) => {
+    await morning(page, { book: true })
+    const geometry = () =>
+      page.evaluate(() => {
+        const main = document.querySelector('#main') as HTMLElement
+        const runs = document.querySelector('.agx-runsec')!.getBoundingClientRect()
+        const p = document.querySelector('.agt-plate')!.getBoundingClientRect()
+        return { over: main.scrollWidth - main.clientWidth, doc: document.documentElement.scrollWidth - window.innerWidth, beside: p.left >= runs.right - 1, below: p.top >= runs.bottom - 1 }
+      })
+    for (const xl of [false, true]) {
+      if (xl) {
+        await page.evaluate(() => localStorage.setItem('one.textScale', '4'))
+        await page.reload()
+        await waitForApp(page)
+      }
+      for (const theme of ['light', 'dark'] as const) {
+        await wsEval(page, (s, theme) => s.updateSettings({ theme }), theme)
+        for (const [w, h] of [[1440, 900], [390, 844]]) {
+          await page.setViewportSize({ width: w, height: h })
+          await expect(plate(page)).toBeVisible()
+          await page.waitForTimeout(150)
+          const g = await geometry()
+          expect(g.over, `${w} ${theme} xl=${xl}`).toBeLessThanOrEqual(0)
+          expect(g.doc, `${w} ${theme} xl=${xl}`).toBeLessThanOrEqual(0)
+          if (w === 390) expect(g.below, `${w} ${theme} xl=${xl}`).toBe(true)
+          else if (!xl) expect(g.beside, `${w} ${theme}`).toBe(true)
+        }
+      }
+    }
+    expect(await unknowns(page)).toEqual([])
+  })
+})
