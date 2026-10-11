@@ -3,11 +3,13 @@
  *
  *  - transformRange(doc, from, to): the selection as whole blocks of one container — like "Turn into
  *    database" (a list or a table goes as a whole) — or, for a selection of one whole line, that line's
- *    block. null: nothing to transform (inside a table cell, a quote, a code block, a few words of a line).
+ *    block. null: nothing to transform (inside a table cell, a quote, a code block, a few words of a line, a range
+ *    holding a task).
  *  - fitsAt(doc, range): the forms that may replace those blocks (no columns inside a column, no tabs inside
  *    a tab, a database only where a database block may go).
  */
 import type { Node as PMNode } from '@tiptap/pm/model'
+import { holdsItem } from '../../../editor'
 import { findBlockRange, type BlockRange } from '../todb/plan'
 import { TRANSFORM_TYPES, type TransformType } from './types'
 
@@ -16,6 +18,9 @@ const CONTAINERS = new Set(['doc', 'column', 'callout', 'detailsContent', 'tab']
 
 export function transformRange(doc: PMNode, from: number, to: number): BlockRange | null {
   if (from >= to || from < 0 || to > doc.content.size) return null
+  // a range holding (or cutting into) a task is never transformed: nothing short of P2's settle gate could tell which
+  // part of an answer "is" the task — Transform (and the free board) are not offered there
+  if (holdsItem(doc, from, to)) return null
   const paragraph = doc.type.schema.nodes.paragraph
   const blocks = findBlockRange(doc, from, to, paragraph)
   if (blocks) return blocks

@@ -13,6 +13,7 @@
  */
 import type { BetaUsage } from '@anthropic-ai/sdk/resources/beta/messages/messages'
 import type { JSONContent } from '@tiptap/core'
+import { outermostItems } from '../../lib/itemIds'
 import { format } from 'date-fns'
 import { useWorkspace } from '../../store/store'
 import { isEffectivelyTrashed } from '../../store/selectors'
@@ -208,7 +209,8 @@ async function writeReport(agent: CustomAgent, run: AgentRun): Promise<boolean> 
   const body = claudeBlocks(run.summary)
   const prev = page.content?.content ?? []
   const empty = prev.every((b) => b.type === 'paragraph' && !(b.content ?? []).length)
-  const content: JSONContent = { type: 'doc', content: out.mode === 'replace' || empty ? [heading, ...body] : [...prev, heading, ...body] }
+  // 'replace' never removes a task: the report page's tasks follow the new report, unchanged and in order
+  const content: JSONContent = { type: 'doc', content: out.mode === 'replace' || empty ? [heading, ...body, ...outermostItems(prev)] : [...prev, heading, ...body] }
   await asAgent(agent.id, () => useWorkspace.getState().setContent(pageId, content, 'ai'))
   stampLocal(agent.id, [pageId])
   return true

@@ -100,3 +100,24 @@ export function liftMisplaced(tr: Transaction): number | null {
   }
   return last
 }
+
+/**
+ * Does the range [from, to) hold a task or cut into one? (AI-menu Replace, Transform.) A selection inside ONE
+ * textblock (a few words of a title or a note) holds none: replacing it cannot change a task's structure.
+ */
+export function holdsItem(doc: PMNode, from: number, to: number): boolean {
+  const a = Math.max(0, Math.min(from, doc.content.size))
+  const b = Math.max(a, Math.min(to, doc.content.size))
+  const $a = doc.resolve(a)
+  const $b = doc.resolve(b)
+  if ($a.sameParent($b) && $a.parent.isTextblock) return false
+  for (let d = $a.depth; d > 0; d--) if ($a.node(d).type.name === WORK_ITEM) return true
+  for (let d = $b.depth; d > 0; d--) if ($b.node(d).type.name === WORK_ITEM) return true
+  let hit = false
+  doc.nodesBetween(a, b, (n) => {
+    if (hit) return false
+    if (n.type.name === WORK_ITEM) hit = true
+    return !hit && !n.isTextblock
+  })
+  return hit
+}

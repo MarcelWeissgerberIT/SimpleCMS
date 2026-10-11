@@ -1020,3 +1020,19 @@ li[data-checked='true'] > span:not(.md-check) {
   border-color: var(--rule-strong);
   color: var(--ink-2);
 }
+
+/* a result key that is off for a reason (Replace over a task): the reason in words beside it */
+.ai-row[aria-disabled='true'] {
+  cursor: default;
+  color: var(--ink-3);
+}
+
+.ai-row__why {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-xs);
+  color: var(--ink-3);
+}

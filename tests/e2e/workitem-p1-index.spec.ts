@@ -7,7 +7,7 @@
  */
 import type { JSONContent } from '@tiptap/core'
 import type { Page } from '@playwright/test'
-import { test, expect, openApp, wsEval, createPage, flush } from './fixtures'
+import { test, expect, openApp, wsEval, createPage, flush, gotoPage, editorOf, mockClaude, MOD } from './fixtures'
 import { collectItemIds, ITEM_ID, newItemId, outermostItems, remapItemLinks, remintItems, resetItems } from '../../src/app/lib/itemIds'
 import { itemsOfContent, compareOccurrence } from '../../src/app/editor/workitem/scan'
 import { itemTitleText, todoProgress } from '../../src/app/editor/workitem/text'
@@ -848,5 +848,203 @@ test.describe('schema pins (pure + the live schema)', () => {
     expect(keys).toEqual(['blockedBy', 'doneAt', 'due', 'frozen', 'id', 'itemId', 'people', 'related', 'reminder', 'status'])
     const types = await ed.evaluate((el) => Object.keys((el as any).editor.schema.nodes))
     expect(types.filter((t: string) => /item|task/i.test(t)).sort()).toEqual(['listItem', 'taskItem', 'taskList', 'workItem'].sort())
+  })
+})
+
+/* ------------------------------------------------------------------ */
+/* B13: no AI path removes a task                                      */
+/* ------------------------------------------------------------------ */
+
+test.describe('the AI never removes a task (B13)', () => {
+  const setKey = (page: Page) => wsEval(page, (s) => s.updateSettings({ aiApiKey: 'sk-ant-e2e-test-key' }))
+  const panel = (page: Page) => page.locator('.ai-panel')
+
+  /** Select from the start of `startText` to the end of `endText` (first occurrences) in the page's editor. */
+  async function selectBetween(page: Page, id: string, startText: string, endText: string): Promise<void> {
+    await page.evaluate(
+      ({ id, startText, endText }) => {
+        const el = document.querySelector(`.ProseMirror[data-page-id="${id}"]`) as unknown as { editor: any }
+        const ed = el.editor
+        let from = -1
+        let to = -1
+        ed.state.doc.descendants((n: any, pos: number) => {
+          if (!n.isText) return true
+          const a = n.text.indexOf(startText)
+          if (from < 0 && a >= 0) from = pos + a
+          const b = n.text.indexOf(endText)
+          if (to < 0 && b >= 0 && (from >= 0 || a >= 0)) to = pos + b + endText.length
+          return true
+        })
+        ed.chain().focus().setTextSelection({ from, to }).run()
+      },
+      { id, startText, endText },
+    )
+  }
+
+  async function askImprove(page: Page): Promise<void> {
+    await page.locator('[aria-label="Formatting"]').first().getByRole('button', { name: /^Ask AI$/ }).click()
+    await expect(panel(page)).toBeVisible()
+    await panel(page).getByRole('option', { name: /Improve writing/ }).click()
+    await expect(panel(page).locator('#ai-row-insert')).toBeVisible()
+  }
+
+  const ids = async (page: Page, id: string) =>
+    page.evaluate((id) => {
+      const el = document.querySelector(`.ProseMirror[data-page-id="${id}"]`) as unknown as { editor: any }
+      const out: Array<{ itemId: string; title: string }> = []
+      el.editor.state.doc.descendants((n: any) => {
+        if (n.type.name === 'workItem') out.push({ itemId: n.attrs.itemId, title: n.firstChild.textContent })
+        return true
+      })
+      return out
+    }, id)
+
+  for (const [name, answer] of [
+    ['an answer without the quote', 'A sharper intro.\n\nA sharper closing.'],
+    ['an answer with a translated marker', 'A sharper intro.\n\n> [!AUFGABE] Entwurf {#wi_7f3a9c2d01}\n\nA sharper closing.'],
+  ] as const) {
+    test(`Replace is off over a selection holding a task (${name}); Insert below goes first and takes Enter; the task stays`, async ({ page, context }) => {
+      await mockClaude(context, () => answer)
+      await openApp(page)
+      await setKey(page)
+      const id = await createPage(page, { title: 'AI page', content: doc(p('Intro line.'), item({ itemId: A, status: 'in_progress' }, 'Draft copy', p('a note')), p('Closing line.')) })
+      await gotoPage(page, id)
+      await selectBetween(page, id, 'Intro', 'Closing line.')
+      await askImprove(page)
+      const rows = panel(page).getByRole('option')
+      await expect(rows.first()).toHaveAttribute('id', 'ai-row-insert')
+      const replace = panel(page).locator('#ai-row-replace')
+      await expect(replace).toHaveAttribute('aria-disabled', 'true')
+      await expect(replace).toContainText('Holds a task — insert below instead')
+      // Enter takes the first row: Insert below
+      await page.keyboard.press('Enter')
+      await expect(panel(page)).toHaveCount(0)
+      expect(await ids(page, id)).toEqual([{ itemId: A, title: 'Draft copy' }])
+      await expect(editorOf(page, id)).toContainText('A sharper closing.')
+      await expect(editorOf(page, id).locator('p').first()).toHaveText('Intro line.')
+    })
+  }
+
+  test('a selection starting inside a title (cutting into the task): Replace off; a few words inside one title stay replaceable', async ({ page, context }) => {
+    await mockClaude(context, () => 'Final')
+    await openApp(page)
+    await setKey(page)
+    const id = await createPage(page, { title: 'AI page', content: doc(item({ itemId: A }, 'Draft copy'), p('Closing line.')) })
+    await gotoPage(page, id)
+    await selectBetween(page, id, 'copy', 'Closing')
+    await askImprove(page)
+    await expect(panel(page).locator('#ai-row-replace')).toHaveAttribute('aria-disabled', 'true')
+    await page.keyboard.press('Escape')
+    await page.keyboard.press('Escape')
+    // inside one title: Replace on, first; the task keeps its id
+    await selectBetween(page, id, 'Draft', 'Draft')
+    await askImprove(page)
+    await expect(panel(page).getByRole('option').first()).toHaveAttribute('id', 'ai-row-replace')
+    await page.keyboard.press('Enter')
+    await expect(panel(page)).toHaveCount(0)
+    expect(await ids(page, id)).toEqual([{ itemId: A, title: 'Final copy' }])
+  })
+
+  test('"fill" on an empty task title goes after the task; Transform is not offered over a task', async ({ page, context }) => {
+    await mockClaude(context, () => 'A line Claude wrote.')
+    await openApp(page)
+    await setKey(page)
+    const id = await createPage(page, { title: 'AI page', content: doc(p('One line.'), p('Two line.'), item({ itemId: A }, ''), p('After.')) })
+    await gotoPage(page, id)
+    const ed = editorOf(page, id)
+    await ed.locator('.workitem p').first().click()
+    await page.keyboard.press('Alt+Enter')
+    await page.locator('[data-popover][role="menu"]').first().locator('#block-ask-ai, [data-id="block-ask-ai"]').or(page.getByRole('menuitem', { name: /^Ask AI/ })).first().click()
+    await expect(panel(page)).toBeVisible()
+    await panel(page).getByRole('option', { name: /Continue writing/ }).click()
+    await expect(panel(page).locator('#ai-row-insert')).toBeVisible()
+    await expect(panel(page).locator('#ai-row-insert')).toContainText('Insert below')
+    await page.keyboard.press('Enter')
+    await expect(panel(page)).toHaveCount(0)
+    const list = await ids(page, id)
+    expect(list).toEqual([{ itemId: A, title: '' }])
+    await expect(ed.locator(':scope > p').filter({ hasText: 'A line Claude wrote.' })).toHaveCount(1)
+    // Transform: offered over plain lines, not over a range holding the task
+    await selectBetween(page, id, 'One', 'Two line.')
+    await page.locator('[aria-label="Formatting"]').first().getByRole('button', { name: /^Ask AI$/ }).click()
+    await expect(panel(page).getByRole('option', { name: /Transform into/ })).toHaveCount(1)
+    await page.keyboard.press('Escape')
+    await selectBetween(page, id, 'Two', 'After.')
+    await page.locator('[aria-label="Formatting"]').first().getByRole('button', { name: /^Ask AI$/ }).click()
+    await expect(panel(page)).toBeVisible()
+    await page.keyboard.type('transform')
+    await expect(panel(page).getByRole('option', { name: /Transform into/ })).toHaveCount(0)
+  })
+
+  test('meeting notes "write the notes again" keeps the block\'s task (fields + itemId) after the new notes', async ({ page, context }) => {
+    const summary = { title: 'Sync', summary: ['We ship in two steps.'], decisions: [], actionItems: [] }
+    await context.route('https://api.anthropic.com/**', async (route) => {
+      const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': 'POST, GET' }
+      if (route.request().method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors })
+      const body = JSON.parse(route.request().postData() ?? '{}')
+      return route.fulfill({ status: 200, headers: { ...cors, 'content-type': 'application/json' }, body: JSON.stringify({ id: 'msg_e2e', type: 'message', role: 'assistant', model: body.model, content: [{ type: 'text', text: JSON.stringify(summary) }], stop_reason: 'end_turn', stop_sequence: null, usage: { input_tokens: 10, output_tokens: 10 } }) })
+    })
+    await openApp(page)
+    await setKey(page)
+    const meeting = {
+      type: 'meetingNotes',
+      attrs: { title: 'Sync', status: 'done', language: 'en-US', startedAt: 1_790_000_000_000, endedAt: 1_790_000_600_000, duration: 600_000, transcript: [{ t: 0, text: 'Ada: We ship in two steps.' }] },
+      content: [p('Old summary line.'), item({ itemId: A, status: 'in_progress', due: '2031-10-17', people: ['p_alex_0001'] }, 'Send the deck to legal')],
+    }
+    const id = await createPage(page, { title: 'Meeting page', content: doc(meeting) })
+    await gotoPage(page, id)
+    const deck = page.locator('#main .mtg').first()
+    await deck.getByRole('button', { name: 'Meeting notes options' }).click()
+    await page.getByRole('menuitem', { name: 'Write the notes again' }).click()
+    await page.getByRole('button', { name: 'Replace notes' }).click()
+    await expect(editorOf(page, id)).toContainText('We ship in two steps.')
+    await expect(editorOf(page, id)).not.toContainText('Old summary line.')
+    const list = await ids(page, id)
+    expect(list).toEqual([{ itemId: A, title: 'Send the deck to legal' }])
+    const attrs = await page.evaluate((id) => {
+      const el = document.querySelector(`.ProseMirror[data-page-id="${id}"]`) as unknown as { editor: any }
+      let a: any = null
+      el.editor.state.doc.descendants((n: any) => {
+        if (n.type.name === 'workItem') a = n.attrs
+        return true
+      })
+      return a
+    }, id)
+    expect(attrs).toMatchObject({ status: 'in_progress', due: '2031-10-17', people: ['p_alex_0001'] })
+    // after the new notes: the task is the last block of the meeting
+    const last = await page.evaluate((id) => {
+      const el = document.querySelector(`.ProseMirror[data-page-id="${id}"]`) as unknown as { editor: any }
+      let name = ''
+      el.editor.state.doc.descendants((n: any) => {
+        if (n.type.name === 'meetingNotes') name = n.lastChild?.type.name ?? ''
+        return true
+      })
+      return name
+    }, id)
+    expect(last).toBe('workItem')
+  })
+
+  test('a browser agent\'s report in "replace" mode keeps the report page\'s task after the report', async ({ page, context }) => {
+    await mockClaude(context, () => 'Checked everything. Nothing to change.')
+    await openApp(page)
+    await setKey(page)
+    const report = await createPage(page, { title: 'Agent log', content: doc(p('Old report.'), item({ itemId: A, status: 'todo', due: '2031-10-17' }, 'Follow up with legal')) })
+    await wsEval(page, (s) => {
+      const now = Date.now()
+      s.upsertAgent({ id: 'ag-rep', name: 'Reporter', instructions: 'Look at the workspace and report.', trigger: { type: 'manual' }, scope: { everything: true, pages: [], databases: [] }, write: 'none', output: null, mcpServers: [], runner: 'browser', model: null, effort: null, maxRunUsd: 0.5, enabled: true, createdAt: now, updatedAt: now })
+    })
+    await wsEval(page, (s, report) => s.upsertAgent({ ...s.agents['ag-rep'], output: { pageId: report, mode: 'replace' } }), report)
+    await flush(page)
+    await page.evaluate(() => (window.location.hash = '#/agents/ag-rep'))
+    await expect(page.locator('.agx-dhead')).toBeVisible()
+    await page.getByRole('button', { name: 'Run now' }).click()
+    await expect(page.locator('.agx-run').first()).toHaveAttribute('data-status', 'ok', { timeout: 20_000 })
+    await expect.poll(() => wsEval(page, (s, id) => (s.pages[id].plain as string) ?? '', report)).toContain('Checked everything')
+    const content = await wsEval(page, (s, id) => s.pages[id].content, report)
+    const types = (content.content as JSONContent[]).map((n) => n.type)
+    expect(types[0]).toBe('heading')
+    expect(types[types.length - 1]).toBe('workItem')
+    expect(JSON.stringify(content)).not.toContain('Old report.')
+    expect(tasksOf(content)).toEqual([expect.objectContaining({ itemId: A, due: '2031-10-17' })])
   })
 })

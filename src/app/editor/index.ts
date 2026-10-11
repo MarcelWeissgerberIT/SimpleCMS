@@ -125,7 +125,7 @@ export { itemChanges, type ItemChange, type ItemField } from './workitem/diff'
  */
 export { keepItems } from './convert'
 /** liftMisplacedItems(json): tasks inside a task / a table moved out whole, after it (sanitize() does it too). */
-export { liftMisplacedItems } from './workitem/place'
+export { liftMisplacedItems, holdsItem } from './workitem/place'
 export { DOC_SCHEMA_VERSION, NODE_GENERATIONS } from './schema/base'
 export { contextMarksOf, pageContextMarks, readableContent, readableBlocks, isContextLimited, useContextMarks, useContextPicking, type ContextMarks, type ReadableContent } from './context/read'
 export { setContextMode, openContextPicker, closeContextPicker, contextPickingPage, topBlockKeys } from './context/api'

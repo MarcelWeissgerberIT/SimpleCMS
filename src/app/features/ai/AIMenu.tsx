@@ -80,7 +80,7 @@ import { Kbd } from '../../ui/controls'
 import { useLang, useT } from '../../i18n'
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
-import { endUndoStep, openContextPicker, pageContextMarks, setContextMode, startUndoStep, topBlockKeys, useContextMarks, type ContextMode } from '../../editor'
+import { endUndoStep, holdsItem, openContextPicker, pageContextMarks, setContextMode, startUndoStep, topBlockKeys, useContextMarks, type ContextMode } from '../../editor'
 import { closeHistory } from '@tiptap/pm/history'
 import { toMarkdown } from '../share/markdown'
 import { turnIntoPage } from '../../editor'
@@ -632,6 +632,15 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
     return !!block && block.isTextblock && block.content.size === 0 && tg.blockTo - tg.blockFrom === block.nodeSize
   }
 
+  /** The target's own line sits in a task (its title or a note): an answer never fills it — it goes below the task. */
+  const inTask = (pos: number) => {
+    if (editor.isDestroyed) return false
+    const { doc } = editor.state
+    const $p = doc.resolve(Math.max(0, Math.min(pos + 1, doc.content.size)))
+    for (let d = $p.depth; d > 0; d--) if ($p.node(d).type.name === 'workItem') return true
+    return false
+  }
+
   /** Where "Insert below" lands now: after the target block, in the container it sits in (lost: the end of the page). */
   const insertionPoint = (tg: RunTarget) => {
     const { doc } = editor.state
@@ -645,7 +654,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
    * replace: the selection · fill: the empty cursor line (else below it) · below: after the block.
    * The run is done with once its result is in the page.
    */
-  const apply = async (how: 'replace' | 'fill' | 'below') => {
+  const apply = async (asked: 'replace' | 'fill' | 'below') => {
     if (editor.isDestroyed || !run || !output.trim()) return
     const blocks = resultBlocks()
     if (!blocks.length) return
@@ -654,6 +663,11 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
     const tg = useAIRuns.getState().runs[run.id]?.target ?? targetRef.current
     const size = editor.state.doc.content.size
     const clamp = (n: number) => Math.max(0, Math.min(n, size))
+    // a task is never replaced by Claude's text (it could drop or reword it): over one — or on a task's empty title
+    // line — the result goes below instead
+    let how = asked
+    if (how === 'replace' && !tg.lost && holdsItem(editor.state.doc, clamp(tg.from), clamp(tg.to))) how = 'below'
+    if (how === 'fill' && !tg.lost && inTask(tg.blockFrom)) how = 'below'
     // Claude's result is its own undo step (also in a shared page, where Y undo merges by time)
     startUndoStep(editor.view)
     const chain = editor
@@ -1430,17 +1444,23 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
       } else if (phase === 'done') {
         const ws = run?.req.kind === 'workspace'
         const sel = target.mode === 'selection'
+        // over a task (or cutting into one): Replace is off with its reason, Insert below goes first and takes Enter
+        const holds = sel && !ws && !target.lost && !editor.isDestroyed && holdsItem(editor.state.doc, Math.min(target.from, editor.state.doc.content.size), Math.min(target.to, editor.state.doc.content.size))
+        const off = !!target.lost || holds
         const replace: Row | null =
-          sel && !ws ? { id: 'replace', label: t('features.ai.res.replace'), icon: Check, run: () => void apply('replace'), hint: target.lost ? undefined : <Kbd>↵</Kbd>, disabled: !!target.lost } : null
+          sel && !ws
+            ? { id: 'replace', label: t('features.ai.res.replace'), icon: Check, run: () => void apply('replace'), hint: holds ? <span className="ai-row__why">{t('features.ai.res.replaceTask')}</span> : off ? undefined : <Kbd>↵</Kbd>, disabled: off }
+            : null
+        const fillsLine = !sel && targetBlockEmpty() && !inTask(target.blockFrom)
         const insert: Row = {
           id: 'insert',
-          label: sel || !targetBlockEmpty() ? t('features.ai.res.below') : t('features.ai.res.insert'),
+          label: fillsLine ? t('features.ai.res.insert') : t('features.ai.res.below'),
           icon: ArrowDownToLine,
           run: () => void apply(sel ? 'below' : 'fill'),
-          hint: (sel && !ws && !target.lost) ? undefined : <Kbd>↵</Kbd>,
+          hint: sel && !ws && !off ? undefined : <Kbd>↵</Kbd>,
         }
-        // the selected text is gone: Insert goes first (to the end of the page), Replace stays visible but off
-        if (replace && !target.lost) out.push(replace, insert)
+        // the selected text is gone (or holds a task): Insert goes first, Replace stays visible but off
+        if (replace && !off) out.push(replace, insert)
         else if (replace) out.push(insert, replace)
         else out.push(insert)
         out.push({ id: 'copy', label: t('features.ai.res.copy'), icon: Copy, run: () => void copy() })

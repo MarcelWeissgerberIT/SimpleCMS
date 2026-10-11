@@ -8,6 +8,7 @@ import { Fragment } from '@tiptap/pm/model'
 import { closeHistory } from '@tiptap/pm/history'
 import { findMeeting, meetingAttrs, MEETING, type MeetingAttrs } from '../../../editor'
 import { useWorkspace } from '../../../store/store'
+import { outermostItems } from '../../../lib/itemIds'
 
 export interface MeetingTarget {
   blockId: string
@@ -114,6 +115,11 @@ export function writeNotes(target: MeetingTarget, blocks: JSONContent[], patch: 
       }
       const start = hit.pos + 1
       const tr = editor.state.tr
+      // regenerate never removes a task: the old notes' tasks follow the new notes, unchanged and in order
+      if (mode === 'replace') {
+        const kept = outermostItems((hit.node.toJSON() as JSONContent).content).map((j) => editor.schema.nodeFromJSON(j))
+        frag = frag.append(Fragment.fromArray(kept))
+      }
       if (mode === 'replace') tr.replaceWith(start, hit.pos + hit.node.nodeSize - 1, frag)
       else tr.insert(start, frag)
       for (const [k, v] of Object.entries(patch)) tr.setNodeAttribute(hit.pos, k, v)
@@ -128,7 +134,7 @@ export function writeNotes(target: MeetingTarget, blocks: JSONContent[], patch: 
   const next = mapJson(page.content, target.blockId, (n) => ({
     ...n,
     attrs: { ...n.attrs, ...patch },
-    content: mode === 'replace' ? blocks : [...blocks, ...(n.content ?? [])],
+    content: mode === 'replace' ? [...blocks, ...outermostItems(n.content)] : [...blocks, ...(n.content ?? [])],
   }))
   if (!next) return false
   ws.setContent(page.id, next, 'ai')
