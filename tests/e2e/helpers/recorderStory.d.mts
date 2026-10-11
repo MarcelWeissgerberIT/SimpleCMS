@@ -37,5 +37,6 @@ export function storyTime(story: Pick<StoryJson, 'day' | 'tz'>, hms: string): nu
 export function resolveRefs(v: unknown, ids: Record<string, string>): unknown
 export function setupStory(page: Page, story: StoryJson): Promise<Record<string, string>>
 export function playSteps(page: Page, story: StoryJson, ids: Record<string, string>): Promise<void>
-export function playStoryPage(page: Page, story: StoryJson, opts?: { wipeSetup?: boolean }): Promise<Record<string, string>>
+export function putStoryRun(page: Page, story: StoryJson, ids: Record<string, string>): Promise<unknown>
+export function playStoryPage(page: Page, story: StoryJson, opts?: { wipeSetup?: boolean; agentRun?: boolean }): Promise<Record<string, string>>
 export function seedPrivacyRun(page: Page, story: StoryJson): Promise<{ note: string; page: string; row: string; run: string }>

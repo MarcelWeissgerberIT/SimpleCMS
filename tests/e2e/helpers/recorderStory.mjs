@@ -47,9 +47,38 @@ export async function playSteps(page, story, ids) {
 }
 
 /**
+ * The AgentRun review keeps for run 212 (through the agents' seam `__oneAgents.putRun`): status ok, browser runner,
+ * every staged change but c34 applied, page ids resolved (the three rows it created by title, with their staged ids in
+ * `rowIds`). Never touches the store or the tape.
+ */
+export async function putStoryRun(page, story, ids) {
+  await page.waitForFunction(() => !!window.__oneAgents && typeof window.__oneAgents.putRun === 'function')
+  const at = (hms) => storyTime(story, hms)
+  return page.evaluate(
+    ({ story, ids, startedAt, endedAt }) => {
+      const s = window.__one.workspace.getState()
+      const byTitle = (t) => Object.values(s.pages).find((p) => p.title === t && p.databaseId === story.database.id)?.id
+      const resolve = (ref) => (ref.startsWith('$') ? ids[ref.slice(1)] ?? byTitle(ref.slice(1)) : ref)
+      const rowIds = {}
+      const staged = Object.entries(story.agentRun.changes).map(([id, c], i) => {
+        const real = resolve(c.page)
+        const created = c.kind === 'create_row'
+        const pageId = created ? `staged-${id}` : real
+        if (created) rowIds[pageId] = real
+        const isRow = c.page.startsWith('$')
+        return { id, n: i + 1, kind: c.kind, status: 'applied', pageId, ...(isRow ? { databaseId: story.database.id } : {}), ...(created ? { title: c.page.slice(1) } : {}) }
+      })
+      return window.__oneAgents.putRun({ id: story.agentRun.id, agentId: story.agent.id, runner: 'browser', seq: story.agentRun.seq, trigger: { type: 'manual' }, startedAt, endedAt, status: 'ok', summary: '', steps: [], applied: staged.length, staged, rowIds })
+    },
+    { story, ids, startedAt: at('07:31:00'), endedAt: at('07:34:45') },
+  )
+}
+
+/**
  * Play the story: the setup (as the person at setup time), then every step under its writer at its time, then the
- * clock at `now` and the tape settled. `opts.wipeSetup`: the setup's writes leave the tape (the changelog shots).
- * Returns the row ids by ref ('NL-1408').
+ * clock at `now` and the tape settled; the AgentRun of run 212 is written as review keeps it (`opts.agentRun: false`
+ * leaves it out). `opts.wipeSetup`: the setup's writes leave the tape (the changelog shots). Returns the row ids by ref
+ * ('NL-1408').
  */
 export async function playStoryPage(page, story, opts = {}) {
   await page.waitForFunction(() => !!window.__oneRecorder && !!window.__one)
@@ -61,6 +90,7 @@ export async function playStoryPage(page, story, opts = {}) {
   await playSteps(page, story, ids)
   await page.clock.setFixedTime(storyTime(story, story.now))
   await page.evaluate(() => window.__oneRecorder.settle())
+  if (opts.agentRun !== false) await putStoryRun(page, story, ids)
   return ids
 }
 

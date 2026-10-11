@@ -397,10 +397,15 @@ export class Recorder {
 
   async recover(scope = scopeNow()): Promise<Awaited<ReturnType<typeof recoverScope>>> {
     await openJournal()
-    return recoverScope(scope, this.tab, this.memory).catch((e) => {
+    const res = await recoverScope(scope, this.tab, this.memory).catch((e) => {
       console.warn('[recorder] recovery failed', e)
       return { closed: 0, exact: 0, partial: 0, tails: 0 }
     })
+    // an eject a gone tab left half done is finished from its record (its own lazy chunk)
+    void import('../eject/boot')
+      .then((m) => m.finishEjects(scope))
+      .catch((e) => console.warn('[recorder] finishing ejects failed', e))
+    return res
   }
 
   /** The start-up recovery of a scope (started on the first slice). */

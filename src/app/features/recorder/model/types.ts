@@ -448,8 +448,13 @@ export interface EjectRecord {
   segs: string[]
   /** places that go back: HMAC digests of the DECIDED parts of the target (+ `blocks`: restored hunks, `<id|#>=<digest>`) */
   targets: Record<PlaceKey, { parts: Record<string, string>; blocks?: string[][] }>
-  /** per place: the staged change ids whose events touched it in the window */
+  /** per place: the units of W's events on it in the window — `<runKey>#<change>` (agent / terminal), a run key (an MCP
+   * call, a script run: the whole run) (Δ29) */
   changes: Record<PlaceKey, string[]>
+  /** W's run keys in the window (the sources a boot settles without a plan) */
+  runs?: string[]
+  /** the dialog's switch "discard the run's open proposals" */
+  pending?: boolean
   counts: PlanCounts
   versionAt: number
   /** the agent runs it settled; `discarded`: the open proposals it discarded (`<runKey>#<change>` — its Undo opens them

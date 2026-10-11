@@ -223,15 +223,21 @@ export interface Settled {
   states: Map<string, unknown>
 }
 
+/** The kind and source ref of a run key (`agent:<agent>:<run>` → the AgentRun id …). */
+const refOf = (runKey: string): string => {
+  const [, a = '-', b = '-'] = runKey.split(':')
+  return runKindOf(runKey) === 'terminal' ? a : b
+}
+
 /**
- * Settle the sources of a written eject. The caller holds the agent's run lock (agent W) and calls this after the
- * store update: every settled change is marked first (the Undo closures in this tab and the others leave it alone),
- * then the reviews follow — agent runs (ejected → discarded + ejected, held stay applied + held, open proposals as the
- * switch says, their Outbox slips withdrawn), the terminal's batches, MCP calls, script runs.
+ * Settle the sources of a written eject — from its record alone (a boot finishes a crashed commit with it): every
+ * settled change is marked first (the Undo closures in this tab and the others leave it alone), then the reviews
+ * follow — agent runs (ejected → discarded + ejected, held stay applied + held, open proposals as the switch said,
+ * their Outbox slips withdrawn), the terminal's batches, MCP calls, script runs. `byOf`: who changed a held place since
+ * (the plan knows; a boot does not). The caller holds the agent's run lock (agent W).
  */
-export async function settle(record: Pick<EjectRecord, 'id' | 'at' | 'changes' | 'outcomes'>, plan: Plan, data: WindowData, opts: { discardPending: boolean }): Promise<Settled> {
-  const by = new Map(plan.places.map((x) => [x.p, x.by[0]]))
-  const fates = unitFates(record.changes, record.outcomes, (p) => by.get(p))
+export async function settle(record: Pick<EjectRecord, 'id' | 'at' | 'lane' | 'writer' | 'changes' | 'outcomes' | 'runs' | 'pending'>, byOf: (p: PlaceKey) => { lane: LaneKey | null; at: number } | undefined = () => undefined): Promise<Settled> {
+  const fates = unitFates(record.changes, record.outcomes, byOf)
   const ejected = byRun(fates.ejected)
   const held = new Map<string, Array<{ id: string; by: string; at: number }>>()
   for (const h of fates.held) {
@@ -241,22 +247,22 @@ export async function settle(record: Pick<EjectRecord, 'id' | 'at' | 'changes' |
   const out: Settled = { slips: 0, states: new Map() }
   // 1. the marks: every in-memory Undo of these changes leaves them alone from now on
   for (const [runKey, ids] of ejected) markSettled(runKey, ids, record.id)
-  const runs = Object.values(data.runs)
+  const runs = [...new Set([...(record.runs ?? []), ...ejected.keys()])]
   // 2. agent runs (the caller holds the run lock)
-  const agentId = agentOf(data.sel)
-  if (agentId && runs.some((r) => r.kind === 'agent')) {
+  const agentId = agentOf({ lane: record.lane, run: record.writer })
+  const agentRuns = runs.filter((k) => runKindOf(k) === 'agent' && k.split(':')[1] === agentId)
+  if (agentId && agentRuns.length) {
     const { loadAgentRuns, settleEjected } = await import('../../agents')
     const opened = await openedFn()
     const stored = await loadAgentRuns(agentId)
     const agent: NonNullable<EjectRecord['agent']> = { agentId, runIds: [], discarded: [] }
     const slips: string[] = []
-    for (const r of runs) {
-      if (r.kind !== 'agent') continue
-      const cur = stored.find((x) => x.id === r.ref)
+    for (const key of agentRuns) {
+      const cur = stored.find((x) => x.id === refOf(key))
       if (!cur) continue
-      const res = await settleEjected(cur, { ejected: ejected.get(r.key) ?? [], held: held.get(r.key) ?? [], ejectId: record.id, at: record.at, discardPending: opts.discardPending, opened })
+      const res = await settleEjected(cur, { ejected: ejected.get(key) ?? [], held: held.get(key) ?? [], ejectId: record.id, at: record.at, discardPending: !!record.pending, opened })
       agent.runIds.push(cur.id)
-      agent.discarded.push(...res.discarded.map((c) => `${r.key}#${c}`))
+      agent.discarded.push(...res.discarded.map((c) => `${key}#${c}`))
       slips.push(...res.slips)
       if (res.state) {
         out.states.set(cur.id, res.state)
@@ -272,9 +278,10 @@ export async function settle(record: Pick<EjectRecord, 'id' | 'at' | 'changes' |
     }
   }
   // 3. the terminal's batches (this tab's; another tab's follow the mark)
-  if (runs.some((r) => r.kind === 'terminal')) {
+  const terminal = runs.filter((k) => runKindOf(k) === 'terminal')
+  if (terminal.length) {
     const { ejectBatch } = await import('../../ai/agent/session')
-    for (const r of runs) if (r.kind === 'terminal') ejectBatch(r.ref, ejected.get(r.key) ?? [], (held.get(r.key) ?? []).map((h) => h.id), { id: record.id, at: record.at })
+    for (const key of terminal) ejectBatch(refOf(key), ejected.get(key) ?? [], (held.get(key) ?? []).map((h) => h.id), { id: record.id, at: record.at })
   }
   // 4. MCP calls and script runs: the whole run
   for (const [runKey] of ejected) {

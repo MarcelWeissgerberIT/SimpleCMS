@@ -5,7 +5,7 @@
  */
 import { readFileSync } from 'node:fs'
 import type { Page } from '@playwright/test'
-import { test, expect, openApp, flush, wsEval, MOD } from './fixtures'
+import { test, expect, openApp, flush, wsEval, reloadApp, MOD } from './fixtures'
 import { playStory, rec, startRecorder, storyTime, type Story } from './helpers/recorder'
 import { setKey } from './helpers/terminal'
 
@@ -20,6 +20,24 @@ async function bootStory(page: Page): Promise<Record<string, string>> {
   await flush(page)
   await rec(page, 'wipe')
   return playStory(page, story)
+}
+
+/** A page's version reasons, oldest first (one-history: `idx:<pageId>`). */
+async function versionsOf(page: Page, id: string): Promise<string[]> {
+  return page.evaluate(async (id) => {
+    const db = await new Promise<IDBDatabase>((res, rej) => {
+      const r = indexedDB.open('one-history')
+      r.onsuccess = () => res(r.result)
+      r.onerror = () => rej(r.error)
+    })
+    const idx = await new Promise<Array<{ reason?: string }> | undefined>((res) => {
+      const t = db.transaction('snapshots').objectStore('snapshots').get(`idx:${id}`)
+      t.onsuccess = () => res(t.result as never)
+      t.onerror = () => res(undefined)
+    })
+    db.close()
+    return (idx ?? []).map((m) => m.reason ?? '')
+  }, id)
 }
 
 const window212 = () => ({ lane: AGENT, run: RUN, a: storyTime(story, story.bracket[0]), b: storyTime(story, story.bracket[1]) })
@@ -56,6 +74,102 @@ test.describe('flight recorder — the eject', () => {
     expect(report.back).toEqual(expect.arrayContaining(['t', 'c']))
     // planning wrote nothing a writer frame did not name
     expect(await rec(page, 'unknowns')).toEqual([])
+  })
+
+  test('commit + Undo (seam): ONE eject update, versions, board 7 · 7 · 5 · 3 · 12, Ready back at index 1, new rows in the trash, AgentRun settled; the Undo in ONE update', async ({ page }) => {
+    test.setTimeout(150_000)
+    const ids = await bootStory(page)
+    const e = story.expect.eject
+    const DB = story.database.id
+    const board = () => wsEval(page, (s, db) => {
+      const stage = s.databases[db].properties.find((p: { id: string }) => p.id === 'story-stage')
+      const rows = Object.values(s.pages).filter((p: { databaseId?: string; trashed?: boolean }) => p.databaseId === db && !p.trashed) as Array<{ properties: Record<string, unknown> }>
+      return { options: stage.options.map((o: { id: string }) => o.id), counts: stage.options.map((o: { id: string }) => rows.filter((r) => r.properties['story-stage'] === o.id).length) }
+    }, DB)
+    const reportBefore = await wsEval(page, (s) => ({ title: s.pages['story-report'].title, blocks: s.pages['story-report'].content.content.length }))
+    expect(reportBefore.blocks).toBe(5)
+    await rec(page, 'spy', true)
+    const r = await rec<{ id: string; state: string; counts: Record<string, number>; agent: { runIds: string[] } | null }>(page, 'eject', window212())
+    const updates = await rec<Array<{ w: string | null; kind: string | null }>>(page, 'spy', false)
+    expect(r.state).toBe('done')
+    expect(r.counts).toMatchObject({ back: e.back, all: e.all, held: e.held.length })
+    // exactly ONE store update under the eject's writer; every update of the flow is the eject's or an editor's / a follow-up's
+    expect(updates.filter((u) => u.kind === 'eject')).toHaveLength(1)
+    for (const u of updates) expect(['eject', 'editor', 'synced', 'kit', 'system'], JSON.stringify(u)).toContain(u.kind)
+    // the board as mock-3 shows it, "Ready" back at its index
+    const b = await board()
+    expect(b.options.indexOf(e.optionBack.id)).toBe(e.optionBack.index)
+    expect(b.counts).toEqual(e.board)
+    // the new rows in the trash (not deleted), the report page's title and appended blocks gone, `rh` kept
+    for (const t of e.trash) expect(await wsEval(page, (s, t) => (Object.values(s.pages).find((p: { title: string }) => p.title === t) as { trashed?: boolean } | undefined)?.trashed, t), t).toBe(true)
+    const report = await wsEval(page, (s) => ({ title: s.pages['story-report'].title, ids: s.pages['story-report'].content.content.map((b: { attrs?: { id?: string } }) => b.attrs?.id ?? null) }))
+    expect(report.title).toBe('Nordlicht-Spiegel · Bericht')
+    expect(report.ids).toEqual(['rh'])
+    // held rows keep the person's values
+    for (const ref of e.held) expect(await wsEval(page, (s, id) => s.pages[id].updatedAt > 0, ids[ref])).toBe(true)
+    // every written page has a "Vor dem Auswurf" version
+    for (const id of ['story-report', ids['NL-1402']]) expect((await versionsOf(page, id)).filter((v) => v === 'eject'), id).toHaveLength(1)
+    // the AgentRun: 49 ejected, c11 / c18 held
+    const run = await page.evaluate(async (a) => ((await (window as unknown as { __oneAgents: { loadRuns: (id: string) => Promise<Array<{ id: string; staged: Array<Record<string, unknown>>; applied: number }>> } }).__oneAgents.loadRuns(a)) ?? []).find((x) => x.id === 'r212'), story.agent.id)
+    expect(run!.staged.filter((c) => c.status === 'discarded' && c.ejected).length).toBe(e.agent.ejected)
+    for (const id of e.agent.held) expect(run!.staged.find((c) => c.id === id), id).toMatchObject({ status: 'applied', held: expect.objectContaining({ id: r.id }) })
+    // the Undo: ONE update under you~undo:<eject>, the board as before, the run's statuses back
+    await rec(page, 'spy', true)
+    const u = await rec<{ ok: boolean; back: number; kept: number }>(page, 'undoEject', r.id)
+    const undoUpdates = await rec<Array<{ w: string | null; kind: string | null }>>(page, 'spy', false)
+    expect(u).toMatchObject({ ok: true, back: e.back, kept: 0 })
+    expect(undoUpdates.filter((x) => x.w === `you~undo:${r.id}`)).toHaveLength(1)
+    expect((await board()).counts).not.toEqual(e.board)
+    expect(await wsEval(page, (s) => s.pages['story-report'].content.content.length)).toBe(5)
+    const after = await page.evaluate(async (a) => ((await (window as unknown as { __oneAgents: { loadRuns: (id: string) => Promise<Array<{ id: string; staged: Array<Record<string, unknown>>; applied: number }>> } }).__oneAgents.loadRuns(a)) ?? []).find((x) => x.id === 'r212'), story.agent.id)
+    expect(after!.staged.filter((c) => c.status === 'applied').length).toBe(51)
+    expect(after!.staged.some((c) => c.ejected || c.held)).toBe(false)
+    expect(await rec(page, 'unknowns')).toEqual([])
+  })
+
+  test('after a reload the Undo goes through the planner (you~undo:<eject>); ejecting again is refused as already done', async ({ page }) => {
+    test.setTimeout(150_000)
+    await bootStory(page)
+    const r = await rec<{ id: string; state: string }>(page, 'eject', window212())
+    expect(r.state).toBe('done')
+    const boardOf = () => wsEval(page, (s) => Object.values(s.pages).filter((p: { databaseId?: string; trashed?: boolean }) => p.databaseId === 'story-nordlicht' && !p.trashed).length)
+    const ejected = await boardOf()
+    // the same window again: every place already ejected → nothing goes back
+    const again = await rec<{ counts: Record<string, number> }>(page, 'planEject', window212())
+    expect(again.counts).toMatchObject({ back: 0, already: story.expect.eject.back })
+    await reloadApp(page)
+    await startRecorder(page)
+    await rec(page, 'spy', true)
+    const u = await rec<{ ok?: boolean; back?: number; refused?: unknown }>(page, 'undoEject', r.id)
+    const updates = await rec<Array<{ w: string | null; kind: string | null }>>(page, 'spy', false)
+    expect(u).toMatchObject({ ok: true, back: story.expect.eject.back })
+    expect(updates.filter((x) => x.w === `you~undo:${r.id}`)).toHaveLength(1)
+    expect(await boardOf()).toBe(ejected + story.expect.eject.trash.length)
+    expect(await wsEval(page, (s) => s.pages['story-report'].content.content.length)).toBe(5)
+    const recs = await rec<Array<{ id: string; undone?: number }>>(page, 'ejects')
+    expect(recs.find((x) => x.id === r.id)?.undone).toBeGreaterThan(0)
+    // the run's review is back too
+    const run = await page.evaluate(async (a) => ((await (window as unknown as { __oneAgents: { loadRuns: (id: string) => Promise<Array<{ id: string; staged: Array<Record<string, unknown>> }>> } }).__oneAgents.loadRuns(a)) ?? []).find((x) => x.id === 'r212'), story.agent.id)
+    expect(run!.staged.filter((c) => c.status === 'applied').length).toBe(51)
+    expect(await rec(page, 'unknowns')).toEqual([])
+  })
+
+  test('write-ahead: a commit that dies after its store update is finished by the next boot from its targets', async ({ page, context }) => {
+    test.setTimeout(150_000)
+    await bootStory(page)
+    await page.evaluate(() => ((window as unknown as { __oneRecorder: { ejectHook: string } }).__oneRecorder.ejectHook = 'afterWrite'))
+    const r = await rec<{ id: string; state: string }>(page, 'eject', window212())
+    expect(r.state).toBe('committing')
+    await flush(page)
+    await page.close()
+    const b = await context.newPage()
+    await b.clock.install({ time: storyTime(story, story.now) })
+    await openApp(b)
+    await startRecorder(b)
+    await rec(b, 'recovered')
+    await expect.poll(async () => (await rec<Array<{ id: string; state: string }>>(b, 'ejects')).find((x) => x.id === r.id)?.state, { timeout: 20_000 }).toBe('done')
+    const run = await b.evaluate(async (a) => ((await (window as unknown as { __oneAgents: { loadRuns: (id: string) => Promise<Array<{ id: string; staged: Array<Record<string, unknown>> }>> } }).__oneAgents.loadRuns(a)) ?? []).find((x) => x.id === 'r212'), story.agent.id)
+    expect(run!.staged.filter((c) => c.status === 'discarded' && c.ejected).length).toBe(story.expect.eject.agent.ejected)
   })
 
   test('agents (E9): settleEjected under the run lock — ejected → discarded + ejected, held stay applied + held, dependents and pending (never one opened in Preflight) discarded, superseded untouched; unsettle gives them back', async ({ page }) => {
