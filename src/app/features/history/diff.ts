@@ -72,24 +72,48 @@ function sameAttrs(type: string | undefined, x: Record<string, unknown> | undefi
   return true
 }
 
+/** Attributes as stored, the volatile ones aside: every other key and value the same (null and absent differ). */
+function sameAttrsStrict(type: string | undefined, x: Record<string, unknown> | undefined, y: Record<string, unknown> | undefined): boolean {
+  if (x === y) return true
+  for (const [from, to] of [
+    [x, y],
+    [y, x],
+  ] as const) {
+    if (!from) continue
+    for (const k in from) {
+      if (VOLATILE.has(k) && type !== 'mention') continue
+      if (!to || !(k in to) || !sameAttrValue(from[k], to[k])) return false
+    }
+  }
+  return true
+}
+
+function sameNode(a: JSONContent, b: JSONContent, attrs: typeof sameAttrs): boolean {
+  if (a === b) return true
+  if (a.type !== b.type || a.text !== b.text) return false
+  if (!attrs(a.type, a.attrs, b.attrs)) return false
+  const ma = a.marks ?? []
+  const mb = b.marks ?? []
+  if (ma.length !== mb.length) return false
+  for (let i = 0; i < ma.length; i++) if (!sameNode(ma[i] as JSONContent, mb[i] as JSONContent, attrs)) return false
+  const ca = a.content ?? []
+  const cb = b.content ?? []
+  if (ca.length !== cb.length) return false
+  for (let i = 0; i < ca.length; i++) if (!sameNode(ca[i], cb[i], attrs)) return false
+  return true
+}
+
 /**
  * blockKey(a) === blockKey(b) without building either key: the same rules (volatile ids and attributes that say
  * nothing left out), compared in place with an early exit — the flight recorder pairs a long page's blocks with it.
  */
-export function sameBlock(a: JSONContent, b: JSONContent): boolean {
-  if (a === b) return true
-  if (a.type !== b.type || a.text !== b.text) return false
-  if (!sameAttrs(a.type, a.attrs, b.attrs)) return false
-  const ma = a.marks ?? []
-  const mb = b.marks ?? []
-  if (ma.length !== mb.length) return false
-  for (let i = 0; i < ma.length; i++) if (!sameBlock(ma[i] as JSONContent, mb[i] as JSONContent)) return false
-  const ca = a.content ?? []
-  const cb = b.content ?? []
-  if (ca.length !== cb.length) return false
-  for (let i = 0; i < ca.length; i++) if (!sameBlock(ca[i], cb[i])) return false
-  return true
-}
+export const sameBlock = (a: JSONContent, b: JSONContent): boolean => sameNode(a, b, sameAttrs)
+
+/**
+ * The same block as stored, its volatile ids aside (an attribute null or absent differs: the schema may fill the
+ * absent one in) — two such blocks read the same through the schema, so whatever is derived from one holds for both.
+ */
+export const sameStoredBlock = (a: JSONContent, b: JSONContent): boolean => sameNode(a, b, sameAttrsStrict)
 
 /** Stable JSON of a whole doc without volatile attributes (for change detection). */
 export function docKey(doc: JSONContent | null | undefined): string {

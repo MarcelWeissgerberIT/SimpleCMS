@@ -24,7 +24,6 @@ import { deps } from './deps'
 import { digestLeft, digestPart, digestWhole } from './key'
 import { dayKey, HI, journalIfOpen, pad13, pad8, type Batch, type Bump, type Journal, type StoreName } from './db'
 import { dropMemoryPins, pagePin, pinDefsDb, schemaPin, storePins } from './pins'
-import { stable } from '../model/schema'
 import { RunBook } from './runs'
 import { isQuotaError, type PinInput } from '../../history/pins'
 
@@ -986,15 +985,19 @@ export class Processor {
         while (from < list.length) {
           let size = 0
           let to = from
+          // a page's content as text, once: its size here, its body's address below
+          const texts = new Map<PinJob, string>()
           while (to < list.length && (to === from || (to - from < PIN_CHUNK && size < PIN_CHUNK_BYTES))) {
             if (performance.now() - t > YIELD_MS) await lap(idleTask())
             const p = list[to++]
-            size += approxSize(p.input.meta) + (p.input.content ? approxSize(p.input.content) : 0)
+            const text = p.input.content ? JSON.stringify(p.input.content) : ''
+            if (text) texts.set(p, text)
+            size += approxSize(p.input.meta) + text.length * 2
           }
           const piece = list.slice(from, to)
           from = to
           // the bodies' addresses: the exact content, block ids and task ids included (contentKey would ignore them) —
-          // one stable text at a time, the page idle in between (a piece holds up to 2 MB of pages)
+          // one at a time, the page idle in between
           const signing: Array<Promise<unknown>> = []
           for (const p of piece) {
             if (p.input.meta.kind !== 'page') continue
@@ -1004,7 +1007,8 @@ export class Processor {
               continue
             }
             if (performance.now() - t > YIELD_MS) await lap(idleTask())
-            signing.push(digestPart(scope, 'cx', stable(p.input.content)).then((d) => (meta.body = d)))
+            // the exact content as stored (block ids included — contentKey would ignore them; never re-ordered)
+            signing.push(digestPart(scope, 'cx', texts.get(p) ?? JSON.stringify(p.input.content)).then((d) => (meta.body = d)))
           }
           await lap(Promise.all(signing))
           const kept = await lap(this.keepPins(scope, piece.map((p) => p.input), memory))

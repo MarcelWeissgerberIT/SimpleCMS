@@ -22,6 +22,8 @@ export interface CanonDeps {
   sameBlock?(a: JSONContent, b: JSONContent): boolean
   /** contentKey(a) === contentKey(b), keying only the blocks that differ — absent: through contentKey */
   contentSame?(a: JSONContent | null | undefined, b: JSONContent | null | undefined): boolean
+  /** blockList's result, keyed by what changed since the page's (`key`) last list — absent: the whole doc each time */
+  blocks?(content: JSONContent | null | undefined, key?: string): BlockCanon[]
   /** the doc as the editor's schema reads it (default attrs filled in) — absent: as stored */
   normalize?(content: JSONContent | null | undefined): JSONContent | null
 }
@@ -36,8 +38,9 @@ export interface BlockCanon {
   canon: string
 }
 
-/** The top-level blocks of a doc (normalised; the trailing empty paragraph dropped). */
-export function blockList(content: JSONContent | null | undefined, deps: CanonDeps): BlockCanon[] {
+/** The top-level blocks of a doc (normalised; the trailing empty paragraph dropped). `key`: the page (a cache key). */
+export function blockList(content: JSONContent | null | undefined, deps: CanonDeps, key?: string): BlockCanon[] {
+  if (deps.blocks) return deps.blocks(content, key)
   const doc = deps.normalize ? deps.normalize(content) : (content ?? null)
   const blocks = [...(doc?.content ?? [])]
   while (blocks.length > 1 && blocks[blocks.length - 1].type === 'paragraph' && !blocks[blocks.length - 1].content?.length) blocks.pop()
@@ -120,7 +123,7 @@ export function placeCanon(o: PlaceObject, deps: CanonDeps): { parts: Record<str
     case 'row':
       return { parts: rowParts(o.page, o.db, deps) }
     case 'page':
-      return { parts: pageParts(o.page, deps), blocks: blockList(o.page.content, deps) }
+      return { parts: pageParts(o.page, deps), blocks: blockList(o.page.content, deps, o.page.id) }
     case 'schema':
       return { parts: schemaParts(o.db) }
     case 'view':
