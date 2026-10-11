@@ -157,8 +157,9 @@ export async function inputOf(data: WindowData): Promise<CoreInput> {
     const m = metas.get(pin)
     if (m?.kind === 'page' && m.body) bodyRefs.push([m.page.id, m.body])
   }
-  // the body of every row pin too (overlay reads the pin page with its content; values-only rows need none)
-  for (const [, m] of metas) if (m.kind === 'page' && m.body && m.page.databaseId) bodyRefs.push([m.page.id, m.body])
+  // the body of every page pin too: the pin reads as a page only with its body (a row whose values changed, a page
+  // W only trashed or moved — pinPage refuses a pin whose body is missing)
+  for (const [, m] of metas) if (m.kind === 'page' && m.body) bodyRefs.push([m.page.id, m.body])
   const bodies = await readPinBodies(scope, dedupe(bodyRefs), memory)
   const blocks = new Map<string, BlockList>()
   await Promise.all(

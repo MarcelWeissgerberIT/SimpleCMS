@@ -141,6 +141,33 @@ test.describe('flight recorder — the eject, hard cases', () => {
     expect(await rec(page, 'unknowns')).toEqual([])
   })
 
+  test('MCP tidy: the story\'s three one_trash calls and the one_move_page are ejected — the pages come out of the trash, the moved page goes back', async ({ page }) => {
+    test.setTimeout(150_000)
+    await bootStory(page)
+    const runs = (await rec<Array<{ key: string; l: string; from: number; to: number }>>(page, 'runs')).filter((r) => r.key.startsWith('mcp:tessera-s1:'))
+    expect(runs.length).toBe(4)
+    const lane = runs[0].l
+    const parentBefore = await wsEval(page, (s) => s.pages['story-term-2'].parentId)
+    expect(await wsEval(page, (s) => ['story-old-1', 'story-old-2', 'story-old-3'].map((id) => !!s.pages[id].trashed))).toEqual([true, true, true])
+    const sel = { lane, a: Math.min(...runs.map((r) => r.from)) - 1000, b: Math.max(...runs.map((r) => r.to)) + 1000 }
+    const e = await rec<{ state: string; counts: { back: number } }>(page, 'eject', sel)
+    expect(e).toMatchObject({ state: 'done', counts: { back: 4 } })
+    expect(await wsEval(page, (s) => ['story-old-1', 'story-old-2', 'story-old-3'].map((id) => !!s.pages[id].trashed))).toEqual([false, false, false])
+    expect(await wsEval(page, (s) => s.pages['story-term-2'].parentId)).not.toBe(parentBefore)
+    expect(await rec(page, 'unknowns')).toEqual([])
+  })
+
+  test('F7: a follow-up stamp (the attribution keeper) on an ejected row between the eject and its Undo does not block the Undo', async ({ page }) => {
+    test.setTimeout(150_000)
+    const ids = await bootStory(page)
+    const r = await rec<{ id: string; state: string }>(page, 'eject', window212())
+    expect(r.state).toBe('done')
+    await rec(page, 'step', { writer: { kind: 'system', why: 'stamp' }, calls: [['updatePage', ids['NL-1402'], { updatedBy: 'agent:nordlicht-spiegel' }]] })
+    await rec(page, 'settle')
+    expect(await rec(page, 'undoEject', r.id)).toMatchObject({ ok: true, back: story.expect.eject.back, kept: 0 })
+    expect(await rec(page, 'unknowns')).toEqual([])
+  })
+
   test('crash race (C3): a commit held before its settle — a second tab booting leaves it committing; released → done; with the first tab closed, the second tab\'s next boot finishes it', async ({ page, context }) => {
     test.setTimeout(240_000)
     await bootStory(page)
