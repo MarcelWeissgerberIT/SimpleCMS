@@ -2,7 +2,7 @@
 id: flight-recorder
 title: Flight recorder
 section: writing
-order: 13
+order: 14
 keywords: flight recorder, rewind, tape, deck, track, tracks, writer, writers, who changed, who did that, what happened, timeline, audit, run, flag, window, loupe, agent, mcp, script, sync, undo, writes, places, Flugschreiber, Zurückspulen, Rückspulen, Band, Spur, Spuren, Schreiber, wer war das, Vorgänge, Stellen, Lauf, Fenster, Lupe
 related: history, custom-agents, mcp-bridge, privacy, lock
 summary: Every write in the workspace on one tape, one track per writer — you, the AI terminal, each agent, MCP clients, scripts, sync. See what happened between 07:00 and 08:00, and who it was.

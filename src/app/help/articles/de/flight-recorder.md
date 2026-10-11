@@ -2,7 +2,7 @@
 id: flight-recorder
 title: Flugschreiber
 section: writing
-order: 13
+order: 14
 keywords: flugschreiber, zurückspulen, rückspulen, band, deck, spur, spuren, schreiber, wer war das, wer hat das geändert, was ist passiert, zeitleiste, protokoll, lauf, fähnchen, fenster, lupe, agent, mcp, skript, sync, rückgängig, vorgänge, stellen, flight recorder, rewind, tape, writers, who changed
 related: history, custom-agents, mcp-bridge, privacy, lock
 summary: Jeder Schreibvorgang im Arbeitsbereich auf einem Band, je Schreiber eine Spur — du, das KI-Terminal, jeder Agent, MCP-Clients, Skripte, Sync. Sieh, was zwischen 07:00 und 08:00 passiert ist, und wer es war.
