@@ -121,12 +121,16 @@ test.describe('workspace settings', () => {
     await expect(page.getByRole('menuitem', { name: 'Merge into' })).toBeEnabled()
     await page.keyboard.press('Escape')
 
-    // where Sam is used: the rows, each a link
+    // where Sam is used: the rows and the pages that assign Sam a task (the demo's "Launch plan"), each a link
     await sam.getByTestId('ws-use').click()
     const list = page.getByTestId('ws-used-in')
     await expect(list.getByRole('link')).toHaveCount(await wsEval(page, (s) => {
+      type N = { type?: string; attrs?: { people?: string[] }; content?: N[] }
       const id = (s.people as Array<{ id: string; name: string }>).find((p) => p.name === 'Sam')!.id
-      return (Object.values(s.pages) as Array<{ databaseId?: string; properties: Record<string, unknown> }>).filter((p) => p.databaseId && Object.values(p.properties).some((v) => Array.isArray(v) && v.includes(id))).length
+      const pages = Object.values(s.pages) as Array<{ databaseId?: string; trashed?: boolean; properties: Record<string, unknown>; content?: N }>
+      const assigns = (n: N | undefined): boolean => !!n && ((n.type === 'workItem' && !!n.attrs?.people?.includes(id)) || (n.content ?? []).some(assigns))
+      const rows = pages.filter((p) => p.databaseId && Object.values(p.properties).some((v) => Array.isArray(v) && v.includes(id))).length
+      return rows + pages.filter((p) => !p.trashed && !p.databaseId && assigns(p.content)).length
     }))
   })
 

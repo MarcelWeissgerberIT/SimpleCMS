@@ -353,7 +353,8 @@ test.describe('task block (P0): Markdown, share link, HTML export', () => {
     await expect(dialog.getByText(/Import complete/)).toBeVisible()
     await dialog.getByRole('button', { name: 'View import' }).click()
     const imported = await wsEval(page, (s, id) => {
-      const page = (Object.values(s.pages) as AnyState[]).find((x) => x.id !== id && !x.trashed && /Run the checkout with test cards/.test(x.plain ?? ''))
+      // the quote's own text (the demo's "Launch plan" holds a task of that title too)
+      const page = (Object.values(s.pages) as AnyState[]).find((x) => x.id !== id && !x.trashed && /\[!TODO\] Run the checkout with test cards/.test(x.plain ?? ''))
       return page ? { json: JSON.stringify(page.content), types: (page.content?.content ?? []).map((n: AnyState) => n.type) } : null
     }, id)
     expect(imported).not.toBeNull()

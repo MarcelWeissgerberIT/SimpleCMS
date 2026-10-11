@@ -304,7 +304,7 @@ test.describe('copies re-mint task ids (store + features)', () => {
     await dialog.getByRole('button', { name: 'Done' }).click()
     await expect(dialog).toBeHidden()
     await flush(page)
-    const stored = await wsEval(page, (s, id) => JSON.stringify((s.pages[id].content.content as AnyState[]).find((n) => n.type === 'button').attrs.actions), id)
+    const stored = await wsEval(page, (s, id) => JSON.stringify((s.pages[id].content.content as AnyState[]).find((n) => n.type === 'button')?.attrs.actions ?? null), id)
     expect(stored).not.toContain('workItem')
     expect(stored).toContain('Review the copy')
   })
@@ -355,7 +355,7 @@ type Counters = { remints: number; relinks: number }
 const counters = (page: Page): Promise<Counters> => page.evaluate(() => ({ remints: (window as any).__oneItems.remints, relinks: (window as any).__oneItems.relinks }))
 
 /** The tasks of a page's LIVE editor (document order). */
-const editorTasks = (page: Page, id: string): Promise<Task[]> =>
+const editorTasks = (page: Page, id: string): Promise<Array<Task & { pos: number; parent: string }>> =>
   page.evaluate((id) => {
     const el = document.querySelector(`.ProseMirror[data-page-id="${id}"]`) as any
     const out: any[] = []
