@@ -1,7 +1,7 @@
 /**
  * THE count of the Outbox (pure): the sidebar, a database's tree row and readout, the dock, #/outbox and the status
- * bar all read `outboxCounts` — so they always agree. Open = missing · ready · held · sending · unclear · failed ·
- * unconfirmed. Of the open ones, a held slip counts as held (whatever it read), the rest as foreign when foreign text
+ * bar (and the Preflight lamp) all read `outboxCounts` — so they always agree. Open = missing · ready · held · sending ·
+ * unclear · failed · unconfirmed. Of the open ones, a held slip counts as held (whatever it read), the rest as foreign when foreign text
  * shaped it (or an address came only from foreign text), else as clean when its seal is clean and nothing changed.
  */
 import type { ID } from '../../store/types'
@@ -27,13 +27,14 @@ export function dayStart(now = Date.now()): number {
 export const sentToday = (s: Pick<Slip, 'state' | 'receipt'>, now = Date.now()) => SENT_STATES.includes(s.state) && !!s.receipt && s.receipt.at >= dayStart(now)
 
 export function outboxCounts(slips: Iterable<Slip>, dbId?: ID | null, now = Date.now()): OutboxCounts {
-  const c: OutboxCounts = { open: 0, clean: 0, foreign: 0, held: 0, changed: 0, unclear: 0, missing: 0, sentToday: 0 }
+  const c: OutboxCounts = { open: 0, clean: 0, foreign: 0, held: 0, changed: 0, unclear: 0, failed: 0, missing: 0, sentToday: 0 }
   for (const s of slips) {
     if (dbId && s.target.dbId !== dbId) continue
     if (sentToday(s, now)) c.sentToday++
     if (!isOpen(s)) continue
     c.open++
     if (s.state === 'unclear') c.unclear++
+    if (s.state === 'failed') c.failed++
     if (s.state === 'missing') c.missing++
     if (isChanged(s)) c.changed++
     if (s.state === 'held') c.held++

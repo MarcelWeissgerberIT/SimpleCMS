@@ -580,7 +580,7 @@ test.describe('Outbox 1b: templates, fields, states, the seal, counts (pure)', (
     expect(issues(profile({ outTools: ['not a name'] })).map((i) => i.code)).toContain('tool')
   })
 
-  test('outboxCounts: open / clean / foreign / held / changed / unclear / missing / sent today — held wins over foreign', () => {
+  test('outboxCounts: open / clean / foreign / held / changed / unclear / failed / missing / sent today — held wins over foreign', () => {
     const now = new Date(2026, 9, 10, 12, 0).getTime()
     const seal = (o: Partial<Slip['seal']> = {}) => ({ complete: true, foreign: 0, addresses: [], hidden: [], cross: false, clean: true, ...o })
     const mk = (state: SlipState, o: Partial<Slip> = {}): Slip => ({ state, seal: seal(), target: { dbId: 'db1' }, ...o }) as Slip
@@ -593,6 +593,7 @@ test.describe('Outbox 1b: templates, fields, states, the seal, counts (pure)', (
       mk('held', { seal: foreignSeal }),
       mk('ready', { lastCheck: { at: 1, from: 'row', changed: [{ field: 'comments', before: '7', now: '8' }] } }),
       mk('unclear'),
+      mk('failed'),
       mk('missing', { seal: seal({ complete: false, clean: false }) }),
       mk('sent', { receipt: { at: now - 1000 } as Slip['receipt'] }),
       mk('confirmed', { receipt: { at: now - 3600_000 } as Slip['receipt'] }),
@@ -600,8 +601,8 @@ test.describe('Outbox 1b: templates, fields, states, the seal, counts (pure)', (
       mk('withdrawn'),
       mk('ready', { target: { dbId: 'db2' } as Slip['target'] }),
     ]
-    expect(outboxCounts(slips, 'db1', now)).toEqual({ open: 8, clean: 2, foreign: 2, held: 1, changed: 1, unclear: 1, missing: 1, sentToday: 2 })
-    expect(outboxCounts(slips, null, now).open).toBe(9)
+    expect(outboxCounts(slips, 'db1', now)).toEqual({ open: 9, clean: 2, foreign: 2, held: 1, changed: 1, unclear: 1, failed: 1, missing: 1, sentToday: 2 })
+    expect(outboxCounts(slips, null, now).open).toBe(10)
     // "send anyway" read the change: no longer CHANGED
     expect(outboxCounts([mk('ready', { lastCheck: { at: 1, from: 'row', changed: [{ field: 'n', before: '1', now: '2' }], ack: 2 } })], null, now)).toMatchObject({ changed: 0, clean: 1 })
   })
