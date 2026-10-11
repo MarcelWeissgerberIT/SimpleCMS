@@ -309,9 +309,19 @@ export function useDeckData(): void {
     void loadGaps(scopeNow())
   }, [cloudKey])
 
-  // the span's eject records (R3 draws them)
+  // the span's eject records (R3 draws them) — read after the tape's own read: the open budget is the tape's
   useEffect(() => {
-    void loadEjects(scopeNow(), span.t0, span.t1)
+    const load = () => void loadEjects(scopeNow(), span.t0, span.t1)
+    if (useRecorderUI.getState().ops.status === 'ready') {
+      load()
+      return
+    }
+    const off = useRecorderUI.subscribe((s) => {
+      if (s.ops.status !== 'ready') return
+      off()
+      load()
+    })
+    return off
   }, [span.t0, span.t1, cloudKey])
 
   // this tab's flushes: merged; other tabs and wipes: re-read (debounced)
