@@ -1,10 +1,11 @@
 import { useEffect, useLayoutEffect, useRef, type MouseEvent as ReactMouseEvent } from 'react'
-import { X } from 'lucide-react'
+import { Eject, X } from 'lucide-react'
 import { useUI, type Toast, type ToastKey } from '../../store/ui'
 import { withWriter, type Writer } from '../../store/writer'
 import { useT } from '../../i18n'
 import { canFocus, dropFocusHandoff, focusLost, focusMainRegion, focusNear, handFocusOver } from '../../ui/focus'
 import { armClosingGesture, pressOf, type Press } from '../../ui/gesture'
+import { shortcutLabel } from '../../ui/controls'
 
 /*
  * A toast's keys remove the toast. The rest of a double-click or double tap on one never acts on what then lies under
@@ -103,17 +104,27 @@ function ToastItem({ toast }: { toast: Toast }) {
   }
 
   return (
-    <div ref={ref} className="toast" data-toast-id={toast.id} data-kind={toast.kind ?? 'info'} data-more={toast.more?.length ? '' : undefined} role={toast.kind === 'error' ? 'alert' : 'status'}>
-      <span className="toast__led" aria-hidden />
-      <span className="toast__msg">{toast.message}</span>
+    <div ref={ref} className="toast" data-toast-id={toast.id} data-kind={toast.kind ?? 'info'} data-more={toast.more?.length ? '' : undefined} data-glyph={toast.glyph} role={toast.kind === 'error' ? 'alert' : 'status'}>
+      {toast.glyph === 'eject' ? <Eject className="toast__glyph" size={15} strokeWidth={2.1} aria-hidden /> : <span className="toast__led" aria-hidden />}
+      <span className="toast__msg">
+        {toast.message}
+        {toast.detail && (
+          <span className="toast__s">
+            <span className="toast__sep"> · </span>
+            {toast.detail}
+          </span>
+        )}
+      </span>
       {toast.action && (
         <button type="button" className="toast__action" onClick={key(runOf(toast.action))}>
           {toast.action.label}
+          {toast.action.kbd && <kbd className="kbd toast__kbd">{shortcutLabel(toast.action.kbd)}</kbd>}
         </button>
       )}
       {toast.more?.map((m, i) => (
         <button key={i} type="button" className="toast__action" onClick={key(runOf(m))}>
           {m.label}
+          {m.kbd && <kbd className="kbd toast__kbd">{shortcutLabel(m.kbd)}</kbd>}
         </button>
       ))}
       <button type="button" className="toast__close" aria-label={t('common.close')} onClick={key()}>
