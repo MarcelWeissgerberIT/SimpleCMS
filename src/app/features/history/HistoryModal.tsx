@@ -244,7 +244,12 @@ export function HistoryModal({ pageId, onClose }: { pageId: ID; onClose: () => v
   )
 
   const sinceLabel = (ts: number) => relTime(ts, lang)
-  const reasonLabel = (m: SnapshotMeta) => (m.reason === 'script' && m.by ? t('features.history.reason.scriptBy', { name: m.by }) : t(`features.history.reason.${m.reason}`))
+  const reasonLabel = (m: SnapshotMeta) =>
+    m.reason === 'script' && m.by
+      ? t('features.history.reason.scriptBy', { name: m.by })
+      : m.reason === 'outbox' && m.by
+        ? t('features.history.reason.outboxBy', { name: m.by })
+        : t(`features.history.reason.${m.reason}`)
 
   return (
     <Modal open onClose={onClose} bare width={1120} className="hist">

@@ -19,7 +19,7 @@ import { applyTextStep } from './lib/textScale'
 import { startSwitchLed } from './lib/switchLed'
 import { applyCachedLook } from './lib/look'
 import { ALL_MESSAGES, t } from './i18n'
-import { startHistory, startAutomations, startRecurringTemplates, startInbox, startSync, startMcp, startCustomFunctions, startMail, startAgents, startCoding, startKit, seedDemoHistory, demoFunctions } from './features'
+import { startHistory, startAutomations, startRecurringTemplates, startInbox, startSync, startMcp, startCustomFunctions, startMail, startAgents, startCoding, startKit, startOutbox, seedDemoHistory, demoFunctions } from './features'
 import { consumeMcpOAuthReturn, oneScriptGrammar } from './features'
 import { registerCodeLanguage, startSyncedBlocks } from './editor'
 import { detectLang, makeTranslator } from '@/shared/i18n'
@@ -107,6 +107,8 @@ async function boot() {
     // coding pipeline (Settings → Coding worker): idle until switched on for this device
     startService('coding', startCoding)
     startService('building blocks', startKit)
+    // the Outbox: this device's slips (IndexedDB one-outbox) and the rows they watch
+    startService('outbox', startOutbox)
   }
 
   // PWA share target (/app/?title=…&text=…&url=…) → the #/clip route, before the first render

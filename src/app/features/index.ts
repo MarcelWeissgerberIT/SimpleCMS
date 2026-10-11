@@ -436,3 +436,25 @@ export {
   type KitTab,
   type OwnPropertyDef,
 } from './kit'
+/*
+ * The Outbox (features/outbox — reviewed write-backs to MCP servers; see outbox/index.ts, docs/OUTBOX.md):
+ *  - startOutbox(): background service (main.tsx, once after the workspace loads) — this device's slips
+ *  - OutboxDockSlot { pageId } (a database page's dock) · OutboxDbFoot { dbId } (send routes + logbook under its table)
+ *  - OutboxRoute { slip? } (#/outbox) · OutboxHost (mount once: the draft popover) · openOutbox()
+ *  - OutboxNavBadge + useOutboxVisible() (sidebar) · OutboxTreeCount { dbId } · OutboxReadout { dbId } ·
+ *    OutboxStatusCell · RowSlips { pageId } (a row page)
+ */
+export {
+  startOutbox,
+  OutboxDockSlot,
+  OutboxDbFoot,
+  OutboxRoute,
+  OutboxHost,
+  OutboxNavBadge,
+  useOutboxVisible,
+  OutboxStatusCell,
+  OutboxTreeCount,
+  OutboxReadout,
+  RowSlips,
+  openOutbox,
+} from './outbox'

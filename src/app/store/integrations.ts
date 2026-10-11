@@ -11,6 +11,11 @@
  *
  * References inside recipes (a view's `groupBy` names a property …) are checked by the features layer against the
  * recipe as it will be built (its defaults filled in): features/agents/integrations/recipe.ts.
+ *
+ * Send routes (`sends`, the Outbox): templates with placeholders, paths on a fixed grammar, the tools they use. Their
+ * tools are OUT (outToolsOf): switched off in every Claude request on every server the profile matches by name / host,
+ * independent of unlocks and tested tool lists. A profile with `sends` must match by name or host (the team server
+ * matches only by these and locks the same tools).
  */
 import {
   COLOR_NAMES,
@@ -30,6 +35,12 @@ import {
   type RecipePropertyConfig,
   type RecipeViewConfig,
   type RecipeViewType,
+  type RouteAfter,
+  type RouteCheck,
+  type RouteConfirm,
+  type RouteParam,
+  type SendRoute,
+  type SendVia,
   type StatusGroup,
 } from './types'
 
@@ -114,6 +125,21 @@ export type IssueCode =
   | 'keyType'
   | 'handTitle'
   | 'filterValue'
+  // send routes
+  | 'sendsNeedsName'
+  | 'placeholder'
+  | 'checkIsSend'
+  | 'notInReads'
+  | 'param'
+  | 'path'
+  | 'via'
+  | 'afterValue'
+  | 'argKey'
+  | 'argsSize'
+  | 'argsDepth'
+  | 'matchToolIsSend'
+  | 'noConfirm'
+  | 'sendsNeeds'
 
 export type IssuePath = Array<string | number>
 
@@ -254,7 +280,7 @@ function localText(c: Ctx, v: unknown, max: number, opts: { line?: boolean } = {
 
 /* ------------------------------------------------------------------ the profile */
 
-const PROFILE_KEYS = ['schema', 'id', 'name', 'description', 'match', 'unlocks', 'recipes'] as const
+const PROFILE_KEYS = ['schema', 'id', 'name', 'description', 'match', 'unlocks', 'recipes', 'sends', 'reads', 'outTools'] as const
 /** stored fields that may come along (never reported, never exported) */
 const STORED_KEYS = ['updatedAt', 'updatedBy'] as const
 
@@ -347,11 +373,15 @@ export function checkIntegration(raw: unknown, report: Report | null = null): In
       recipes.push({ ...r, id: rid })
     })
   }
-  if (!unlocks.length && !recipes.length && has(o, 'unlocks') && Array.isArray(o.unlocks)) c.at('unlocks').warn('unlocksNothing')
+  if (!unlocks.length && !recipes.length && !has(o, 'sends') && has(o, 'unlocks') && Array.isArray(o.unlocks)) c.at('unlocks').warn('unlocksNothing')
+  const routes = checkSends(c, o, match, unlocks)
   if (!ok || !id || !name || !match) return null
   const out: IntegrationProfile = { schema: INTEGRATION_SCHEMA, id, name, match, unlocks }
   if (description) out.description = description
   if (recipes.length) out.recipes = recipes
+  if (routes.sends?.length) out.sends = routes.sends
+  if (routes.reads) out.reads = routes.reads
+  if (routes.outTools?.length) out.outTools = routes.outTools
   const updatedAt = own(o, 'updatedAt')
   if (typeof updatedAt === 'number' && Number.isFinite(updatedAt)) out.updatedAt = updatedAt
   const updatedBy = own(o, 'updatedBy')
@@ -648,6 +678,532 @@ function dropUndefined<T extends object>(o: T): T {
   return o
 }
 
+/* ------------------------------------------------------------------ send routes */
+
+export const SEND_LIMITS = {
+  routes: 20,
+  reads: 50,
+  params: 8,
+  after: 8,
+  fields: 12,
+  match: 6,
+  capture: 4,
+  values: 30,
+  /** a template as JSON, in bytes */
+  argsBytes: 4096,
+  /** nesting levels of a template (the template object itself is the first) */
+  argsDepth: 4,
+  /** a text param's characters: default and ceiling */
+  draft: 4000,
+  draftMax: 20_000,
+  /** a number / minutes param's upper bound at most */
+  numberMax: 1_000_000,
+} as const
+
+export const SEND_VIA: SendVia[] = ['worker', 'hand', 'tab', 'connector']
+/** a route without `via` */
+export const DEFAULT_VIA: SendVia[] = ['worker', 'hand']
+/** A path into a tool's result (a fixed grammar, never built from input): "status", "comments.-1.body", "items.length". */
+export const ROUTE_PATH = /^[A-Za-z_][A-Za-z0-9_]*(\.([A-Za-z_][A-Za-z0-9_]*|-?\d{1,4}|length)){0,7}$/
+/** A row's key as `{key}` takes it (otherwise the row cannot be staged). */
+export const ROUTE_KEY = /^[A-Za-z0-9][A-Za-z0-9._:#-]{0,63}$/
+const PARAM_NAME = /^[a-z][a-z0-9_]{0,23}$/
+const PARAM_TYPES = ['text', 'number', 'minutes', 'option'] as const
+/** names a param cannot have (they are placeholders of their own) */
+const RESERVED_PARAMS = ['key', 'result', 'check', 'sentat']
+const CAPTURE_NAME = /^[A-Za-z][A-Za-z0-9_]{0,31}$/
+/** an argument name of a tool (a template's keys, `idem`) */
+const ARG_KEY = /^[^\u0000-\u001f\u007f]{1,128}$/
+const BAD_KEYS = ['__proto__', 'constructor', 'prototype']
+/** "{key}", "{key|number}", "{draft}", "{result.items.0.id}" (a fresh copy per use: matchAll) */
+const PLACEHOLDER = /\{([A-Za-z_][A-Za-z0-9_]*(?:\.-?[A-Za-z0-9_]+)*(?:\|[a-z]+)?)\}/g
+
+/** Where a template sits: the send's arguments, the pre-read's, the read-back's, a read-back condition. */
+export type TemplateSlot = 'args' | 'check' | 'confirm' | 'match'
+
+export type PlaceholderKind = 'key' | 'keyNumber' | 'sentAt' | 'param' | 'result' | 'check' | 'unknown'
+
+export interface Placeholder {
+  /** as written, braces included */
+  token: string
+  kind: PlaceholderKind
+  /** the param's name / the result path */
+  name: string
+  /** the placeholder is the whole string value */
+  whole: boolean
+}
+
+/** What a placeholder token ("key|number", "result.id", "draft") is. */
+function placeholderKind(inner: string): { kind: PlaceholderKind; name: string } {
+  if (inner === 'key') return { kind: 'key', name: 'key' }
+  if (inner === 'key|number') return { kind: 'keyNumber', name: 'key' }
+  if (inner === 'sentAt') return { kind: 'sentAt', name: 'sentAt' }
+  if (inner.startsWith('result.')) return { kind: 'result', name: inner.slice(7) }
+  if (inner === 'check' || inner.startsWith('check.')) return { kind: 'check', name: inner }
+  if (PARAM_NAME.test(inner) && !RESERVED_PARAMS.includes(inner)) return { kind: 'param', name: inner }
+  return { kind: 'unknown', name: inner }
+}
+
+/** The placeholders of one template string, in order. */
+export function placeholdersIn(text: string): Placeholder[] {
+  const out: Placeholder[] = []
+  for (const m of text.matchAll(PLACEHOLDER)) out.push({ token: m[0], ...placeholderKind(m[1]!), whole: m[0] === text })
+  return out
+}
+
+/**
+ * Why a placeholder may not stand where it does ('' = it may). `params`: the route's param names. Rules: {key} anywhere
+ * (also inside a text); {key|number}, {sentAt} and a param only as the whole value; {sentAt} and params only in the
+ * send's arguments (params also in a read-back condition); {result.<path>} only in the read-back; {check.…} never —
+ * a value filled in after the review would break "what you saw is what goes out".
+ */
+export function placeholderProblem(p: Placeholder, slot: TemplateSlot, params: readonly string[]): '' | 'unknown' | 'whole' | 'result' | 'check' | 'here' | 'path' | 'undeclared' {
+  switch (p.kind) {
+    case 'key':
+      return ''
+    case 'keyNumber':
+      return !p.whole ? 'whole' : slot === 'match' ? 'here' : ''
+    case 'sentAt':
+      return slot !== 'args' ? 'here' : !p.whole ? 'whole' : ''
+    case 'param':
+      if (!params.includes(p.name)) return 'undeclared'
+      return slot !== 'args' && slot !== 'match' ? 'here' : !p.whole ? 'whole' : ''
+    case 'result':
+      return slot !== 'confirm' && slot !== 'match' ? 'result' : ROUTE_PATH.test(p.name) ? '' : 'path'
+    case 'check':
+      return 'check'
+    default:
+      return 'unknown'
+  }
+}
+
+/** UTF-8 bytes of a text (without TextEncoder: the same in every runtime). */
+function utf8Bytes(s: string): number {
+  let n = 0
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i)
+    if (c < 0x80) n += 1
+    else if (c < 0x800) n += 2
+    else if (c >= 0xd800 && c <= 0xdbff && i + 1 < s.length) {
+      n += 4
+      i++
+    } else n += 3
+  }
+  return n
+}
+
+/**
+ * A template (`args`): a JSON object of plain values, ≤ 4 KB, nested ≤ 4 levels, its placeholders checked for `slot`.
+ * A fresh copy; strings are kept exactly as written (they are what goes out). Undefined: not usable at all.
+ */
+function checkTemplate(c: Ctx, v: unknown, slot: TemplateSlot, params: readonly string[]): Record<string, unknown> | undefined {
+  if (!isObj(v)) {
+    c.issue('object')
+    return undefined
+  }
+  let json: string
+  try {
+    json = JSON.stringify(v)
+  } catch {
+    c.issue('object')
+    return undefined
+  }
+  if (utf8Bytes(json) > SEND_LIMITS.argsBytes) {
+    c.issue('argsSize', { max: SEND_LIMITS.argsBytes })
+    return undefined
+  }
+  let deep = false
+  const walk = (cc: Ctx, x: unknown, level: number): unknown => {
+    if (typeof x === 'string') {
+      for (const p of placeholdersIn(x)) {
+        const why = placeholderProblem(p, slot, params)
+        if (why === 'undeclared') cc.issue('param', { value: p.token, why: 'undeclared' })
+        else if (why) cc.issue('placeholder', { value: p.token, why })
+      }
+      return x
+    }
+    if (typeof x === 'number' || typeof x === 'boolean' || x === null) return x
+    if (level > SEND_LIMITS.argsDepth) {
+      if (!deep) cc.issue('argsDepth', { max: SEND_LIMITS.argsDepth })
+      deep = true
+      return undefined
+    }
+    if (Array.isArray(x)) return x.map((y, i) => walk(cc.at(i), y, level + 1)).filter((y) => y !== undefined)
+    if (isObj(x)) {
+      const out: Record<string, unknown> = {}
+      for (const k of Object.keys(x)) {
+        if (BAD_KEYS.includes(k) || !ARG_KEY.test(k)) {
+          cc.at(k).issue('argKey', { key: show(k) }, { at: 'key' })
+          continue
+        }
+        const y = walk(cc.at(k), x[k], level + 1)
+        if (y !== undefined) out[k] = y
+      }
+      return out
+    }
+    cc.issue('object')
+    return undefined
+  }
+  const out = walk(c, v, 1) as Record<string, unknown>
+  return deep ? undefined : out
+}
+
+/** A path of a result (ROUTE_PATH). */
+function path(c: Ctx, v: unknown): string | undefined {
+  if (typeof v === 'string' && ROUTE_PATH.test(v)) return v
+  c.issue('path', { value: show(v), why: 'grammar' })
+  return undefined
+}
+
+function toolName(c: Ctx, v: unknown): string | undefined {
+  if (typeof v === 'string' && TOOL_NAME.test(v)) return v
+  c.issue('tool', { value: show(v) })
+  return undefined
+}
+
+function checkParams(c: Ctx, v: unknown): RouteParam[] {
+  const list = arr(c, v, SEND_LIMITS.params)
+  if (!list) return []
+  const out: RouteParam[] = []
+  let texts = 0
+  list.forEach((x, i) => {
+    const pc = c.at(i)
+    const o = obj(pc, x)
+    if (!o) return
+    pc.unknownKeys(o, ['name', 'type', 'label', 'max', 'values', 'style', 'round'])
+    let name: string | undefined
+    if (pc.required(o, 'name')) {
+      if (typeof o.name !== 'string' || !PARAM_NAME.test(o.name)) pc.at('name').issue('param', { value: show(o.name), why: 'name' })
+      else if (RESERVED_PARAMS.includes(o.name)) pc.at('name').issue('param', { value: o.name, why: 'reserved' })
+      else if (out.some((p) => p.name === o.name)) pc.at('name').issue('duplicate', { value: o.name })
+      else name = o.name
+    }
+    const type = pc.required(o, 'type') ? enumOf(pc.at('type'), o.type, PARAM_TYPES) : undefined
+    if (!name || !type) return
+    if ((name === 'draft' && type !== 'text') || (name === 'minutes' && type !== 'minutes')) return pc.at('type').issue('param', { value: name, why: 'type' })
+    if (type === 'text' && ++texts > 1) return pc.at('type').issue('param', { value: name, why: 'texts' })
+    const p: RouteParam = { name, type }
+    if (has(o, 'label')) p.label = localText(pc.at('label'), o.label, INTEGRATION_LIMITS.text)
+    if (has(o, 'max')) {
+      const m = o.max
+      const top = type === 'text' ? SEND_LIMITS.draftMax : SEND_LIMITS.numberMax
+      if (type === 'option') pc.at('max').issue('param', { value: name, why: 'max' })
+      else if (typeof m === 'number' && Number.isFinite(m) && m >= 1 && m <= top && (type !== 'text' || Number.isInteger(m))) p.max = m
+      else pc.at('max').issue('range', { min: 1, max: top })
+    }
+    if (has(o, 'values')) {
+      const vc = pc.at('values')
+      if (type !== 'option') vc.issue('param', { value: name, why: 'values' })
+      else {
+        const vals = arr(vc, o.values, SEND_LIMITS.values)
+        if (vals) {
+          const kept: string[] = []
+          vals.forEach((y, j) => {
+            const s = str(vc.at(j), y, INTEGRATION_LIMITS.text)
+            if (s && !kept.includes(s)) kept.push(s)
+          })
+          if (kept.length) p.values = kept
+        }
+      }
+    }
+    if (type === 'option' && !p.values) pc.issue('param', { value: name, why: 'values' })
+    if (has(o, 'style')) {
+      if (type !== 'text') pc.at('style').issue('param', { value: name, why: 'style' })
+      else p.style = localText(pc.at('style'), o.style, INTEGRATION_LIMITS.description)
+    }
+    if (has(o, 'round')) {
+      const r = o.round
+      if (type !== 'minutes') pc.at('round').issue('param', { value: name, why: 'round' })
+      else if (typeof r === 'number' && Number.isInteger(r) && r >= 1 && r <= 1440) p.round = r
+      else pc.at('round').issue('range', { min: 1, max: 1440 })
+    }
+    if (type === 'option' && !p.values) return
+    out.push(dropUndefined(p))
+  })
+  return out
+}
+
+function checkRouteCheck(c: Ctx, v: unknown, params: readonly string[]): RouteCheck | undefined {
+  const o = obj(c, v)
+  if (!o) return undefined
+  c.unknownKeys(o, ['tool', 'args', 'fields', 'latest', 'identity'])
+  const tool = c.required(o, 'tool') ? toolName(c.at('tool'), o.tool) : undefined
+  const args = c.required(o, 'args') ? checkTemplate(c.at('args'), o.args, 'check', params) : undefined
+  let fields: string[] | undefined
+  if (c.required(o, 'fields')) {
+    const fc = c.at('fields')
+    const list = arr(fc, o.fields, SEND_LIMITS.fields)
+    if (list) {
+      fields = []
+      list.forEach((x, i) => {
+        const p = path(fc.at(i), x)
+        if (p && !fields!.includes(p)) fields!.push(p)
+      })
+      if (!list.length) fc.issue('empty')
+    }
+  }
+  if (!tool || !args || !fields?.length) return undefined
+  const out: RouteCheck = { tool, args, fields }
+  if (has(o, 'latest')) out.latest = path(c.at('latest'), o.latest)
+  if (has(o, 'identity')) out.identity = path(c.at('identity'), o.identity)
+  return dropUndefined(out)
+}
+
+function checkRouteConfirm(c: Ctx, v: unknown, params: readonly string[]): RouteConfirm | undefined {
+  const o = obj(c, v)
+  if (!o) return undefined
+  c.unknownKeys(o, ['tool', 'args', 'find', 'match', 'capture'])
+  const tool = c.required(o, 'tool') ? toolName(c.at('tool'), o.tool) : undefined
+  const args = c.required(o, 'args') ? checkTemplate(c.at('args'), o.args, 'confirm', params) : undefined
+  const match: RouteConfirm['match'] = []
+  if (c.required(o, 'match')) {
+    const mc = c.at('match')
+    const list = arr(mc, o.match, SEND_LIMITS.match)
+    if (list && !list.length) mc.issue('empty')
+    list?.forEach((x, i) => {
+      const ic = mc.at(i)
+      const m = obj(ic, x)
+      if (!m) return
+      ic.unknownKeys(m, ['path', 'equals', 'contains'])
+      const p = ic.required(m, 'path') ? path(ic.at('path'), m.path) : undefined
+      const cond: RouteConfirm['match'][number] = { path: p ?? '' }
+      let bad = !p
+      for (const k of ['equals', 'contains'] as const) {
+        if (!has(m, k)) continue
+        const val = m[k]
+        if (typeof val !== 'string') {
+          ic.at(k).issue('string')
+          bad = true
+          continue
+        }
+        for (const ph of placeholdersIn(val)) {
+          const why = placeholderProblem(ph, 'match', params)
+          if (why === 'undeclared') ic.at(k).issue('param', { value: ph.token, why })
+          else if (why) ic.at(k).issue('placeholder', { value: ph.token, why })
+        }
+        cond[k] = val
+      }
+      if (!has(m, 'equals') && !has(m, 'contains')) {
+        ic.issue('required', { key: 'equals' })
+        bad = true
+      }
+      if (!bad) match.push(cond)
+    })
+  }
+  if (!tool || !args || !match.length) return undefined
+  const out: RouteConfirm = { tool, args, match }
+  if (has(o, 'find')) out.find = path(c.at('find'), o.find)
+  if (has(o, 'capture')) {
+    const cc = c.at('capture')
+    const cap = obj(cc, o.capture)
+    if (cap) {
+      const keys = Object.keys(cap)
+      if (keys.length > SEND_LIMITS.capture) cc.issue('tooMany', { max: SEND_LIMITS.capture })
+      const kept: Record<string, string> = {}
+      for (const k of keys.slice(0, SEND_LIMITS.capture)) {
+        if (!CAPTURE_NAME.test(k)) cc.at(k).issue('argKey', { key: show(k) }, { at: 'key' })
+        else {
+          const p = path(cc.at(k), cap[k])
+          if (p) kept[k] = p
+        }
+      }
+      if (Object.keys(kept).length) out.capture = kept
+    }
+  }
+  return dropUndefined(out)
+}
+
+function checkAfter(c: Ctx, v: unknown): RouteAfter[] {
+  const list = arr(c, v, SEND_LIMITS.after)
+  const out: RouteAfter[] = []
+  list?.forEach((x, i) => {
+    const ac = c.at(i)
+    const o = obj(ac, x)
+    if (!o) return
+    ac.unknownKeys(o, ['property', 'value'])
+    const property = ac.required(o, 'property') ? ref(ac.at('property'), o.property) : undefined
+    if (!Object.prototype.hasOwnProperty.call(o, 'value')) return void ac.issue('required', { key: 'value' })
+    const val = o.value
+    const ok = val === null || typeof val === 'boolean' || typeof val === 'string' || (typeof val === 'number' && Number.isFinite(val))
+    if (!ok) return void ac.at('value').issue('afterValue')
+    if (typeof val === 'string' && val.length > INTEGRATION_LIMITS.text) return void ac.at('value').issue('tooLong', { max: INTEGRATION_LIMITS.text })
+    if (property) out.push({ property, value: val as RouteAfter['value'] })
+  })
+  return out
+}
+
+/**
+ * One route. Undefined: no route (no usable id, label, tool or arguments). Other broken parts are left out of the copy
+ * (the editor reports them; a profile with errors is never saved). `sendTools`: every route's tool in this profile —
+ * a pre-read or read-back may never use one of them; `reads`: the profile's reading tools when it lists them.
+ */
+function checkRoute(c: Ctx, v: unknown, sendTools: readonly string[], reads: readonly string[] | undefined): SendRoute | undefined {
+  const o = obj(c, v)
+  if (!o) return undefined
+  c.unknownKeys(o, ['id', 'role', 'label', 'tool', 'args', 'params', 'check', 'confirm', 'idem', 'overwrites', 'after', 'via'])
+  let id: string | undefined
+  if (c.required(o, 'id')) {
+    if (typeof o.id === 'string' && RECIPE_ID.test(o.id)) id = o.id
+    else c.at('id').issue('id', { value: show(o.id) })
+  }
+  const label = c.required(o, 'label') ? localText(c.at('label'), o.label, INTEGRATION_LIMITS.name) : undefined
+  const tool = c.required(o, 'tool') ? toolName(c.at('tool'), o.tool) : undefined
+  if (tool && reads?.includes(tool)) c.at('tool').issue('notInReads', { value: tool, why: 'send' })
+  const params = has(o, 'params') ? checkParams(c.at('params'), o.params) : []
+  const names = params.map((p) => p.name)
+  const args = c.required(o, 'args') ? checkTemplate(c.at('args'), o.args, 'args', names) : undefined
+  const reader = (key: 'check' | 'confirm', t: string | undefined): boolean => {
+    if (!t) return false
+    if (sendTools.includes(t)) {
+      c.at(key, 'tool').issue('checkIsSend', { value: t })
+      return false
+    }
+    if (reads && !reads.includes(t)) {
+      c.at(key, 'tool').issue('notInReads', { value: t, why: 'read' })
+      return false
+    }
+    return true
+  }
+  let check: RouteCheck | undefined
+  if (has(o, 'check')) {
+    check = checkRouteCheck(c.at('check'), o.check, names)
+    if (check && !reader('check', check.tool)) check = undefined
+  }
+  let confirm: RouteConfirm | undefined
+  if (has(o, 'confirm')) {
+    confirm = checkRouteConfirm(c.at('confirm'), o.confirm, names)
+    if (confirm && !reader('confirm', confirm.tool)) confirm = undefined
+  }
+  if (!id || !label || !tool || !args) return undefined
+  const out: SendRoute = { id, label, tool, args }
+  if (has(o, 'role')) {
+    if (typeof o.role === 'string' && ROLE.test(o.role)) out.role = o.role
+    else c.at('role').issue('role', { value: show(o.role) })
+  }
+  if (params.length) out.params = params
+  if (check) out.check = check
+  if (confirm) out.confirm = confirm
+  if (has(o, 'idem')) {
+    if (typeof o.idem === 'string' && ARG_KEY.test(o.idem) && !BAD_KEYS.includes(o.idem)) out.idem = o.idem
+    else c.at('idem').issue('argKey', { key: show(o.idem) })
+  }
+  if (has(o, 'overwrites')) {
+    const p = path(c.at('overwrites'), o.overwrites)
+    if (p && !check?.fields.includes(p)) c.at('overwrites').issue('path', { value: p, why: 'overwrites' })
+    else if (p) out.overwrites = p
+  }
+  if (has(o, 'after')) {
+    const after = checkAfter(c.at('after'), o.after)
+    if (after.length) out.after = after
+  }
+  if (has(o, 'via')) {
+    const vc = c.at('via')
+    const list = arr(vc, o.via, SEND_VIA.length)
+    if (list) {
+      const via: SendVia[] = []
+      list.forEach((x, i) => {
+        if (typeof x === 'string' && (SEND_VIA as string[]).includes(x)) {
+          if (!via.includes(x as SendVia)) via.push(x as SendVia)
+        } else vc.at(i).issue('via', { value: show(x), allowed: SEND_VIA.join(', ') })
+      })
+      if (via.length) out.via = via
+      else if (!list.length) vc.issue('empty')
+    }
+  }
+  // a route through the worker without a read-back is never CONFIRMED, and a resend after UNCLEAR stays a risk
+  if (!out.confirm && !has(o, 'confirm') && (out.via ?? DEFAULT_VIA).includes('worker')) c.warn('noConfirm')
+  return out
+}
+
+/**
+ * `sends` and `reads` of a profile (empty when it has none). A profile with routes matches by name or host — without,
+ * its routes are an error (the sanitizer leaves them out: the team server could not lock what the browser does).
+ */
+/** The tool names of raw routes (the first SEND_LIMITS.routes; also of a route that is broken otherwise). */
+const rawSendTools = (v: unknown): string[] =>
+  Array.isArray(v) ? [...new Set(v.slice(0, SEND_LIMITS.routes).flatMap((x) => (isObj(x) && typeof x.tool === 'string' && TOOL_NAME.test(x.tool) ? [x.tool] : [])))] : []
+
+/**
+ * `outTools`: what the lock must hold beyond the routes this copy keeps — the tool of every route given (a route left
+ * out for any reason still locks its tool: the team server reads every `sends[].tool`, and the browser must never lock
+ * less) plus a stored `outTools`. Only a profile that matches by name / host locks anything.
+ */
+function checkOutTools(c: Ctx, o: Obj, match: IntegrationMatch | undefined, kept: SendRoute[]): string[] {
+  const given: string[] = []
+  if (has(o, 'outTools')) {
+    const oc = c.at('outTools')
+    arr(oc, o.outTools, SEND_LIMITS.routes)?.forEach((x, i) => {
+      if (typeof x !== 'string' || !TOOL_NAME.test(x)) return oc.at(i).issue('tool', { value: show(x) })
+      if (!given.includes(x)) given.push(x)
+    })
+  }
+  if (!match?.name && !match?.host) return []
+  const sent = new Set(kept.map((r) => r.tool))
+  return [...new Set([...rawSendTools(o.sends), ...given])].filter((t) => !sent.has(t)).slice(0, SEND_LIMITS.routes)
+}
+
+function checkSends(c: Ctx, o: Obj, match: IntegrationMatch | undefined, unlocks: IntegrationFeature[]): { sends?: SendRoute[]; reads?: string[]; outTools?: string[] } {
+  const out: { sends?: SendRoute[]; reads?: string[]; outTools?: string[] } = {}
+  const lockRest = () => {
+    const rest = checkOutTools(c, o, match, out.sends ?? [])
+    if (rest.length) out.outTools = rest
+    return out
+  }
+  if (has(o, 'reads')) {
+    const rc = c.at('reads')
+    const list = arr(rc, o.reads, SEND_LIMITS.reads)
+    if (list) {
+      const reads: string[] = []
+      list.forEach((x, i) => {
+        if (typeof x !== 'string' || !TOOL_NAME.test(x)) return rc.at(i).issue('tool', { value: show(x) })
+        if (reads.includes(x)) return rc.at(i).warn('duplicate', { value: x })
+        reads.push(x)
+      })
+      out.reads = reads
+    }
+  }
+  if (!has(o, 'sends')) return lockRest()
+  const sc = c.at('sends')
+  const list = arr(sc, o.sends, SEND_LIMITS.routes)
+  if (!list) return lockRest()
+  if (!list.length) {
+    sc.issue('empty')
+    return lockRest()
+  }
+  if (!match?.name && !match?.host) {
+    sc.issue('sendsNeedsName')
+    return lockRest()
+  }
+  // every route's tool (also of a route that is broken otherwise): no pre-read or read-back may use one
+  const sendTools = list.flatMap((x) => (isObj(x) && typeof x.tool === 'string' && TOOL_NAME.test(x.tool) ? [x.tool] : []))
+  const sends: SendRoute[] = []
+  const roles = new Set<string>()
+  list.forEach((x, i) => {
+    const r = checkRoute(sc.at(i), x, sendTools, out.reads)
+    if (!r) return
+    // a repeated id is an error; the copy renames it (the route — and the lock on its tool — stays)
+    if (sends.some((y) => y.id === r.id)) {
+      sc.at(i, 'id').issue('duplicate', { value: r.id })
+      let n = 2
+      while (sends.some((y) => y.id === `${r.id}-${n}`)) n++
+      r.id = `${r.id}-${n}`
+    }
+    if (r.role && roles.has(r.role)) {
+      sc.at(i, 'role').issue('duplicate', { value: r.role })
+      delete r.role
+    }
+    if (r.role) roles.add(r.role)
+    sends.push(r)
+  })
+  match.tools?.forEach((t, i) => {
+    if (sendTools.includes(t)) c.at('match', 'tools', i).warn('matchToolIsSend', { value: t })
+  })
+  const missing = (['sends', 'keys'] as IntegrationFeature[]).filter((f) => !unlocks.includes(f))
+  if (missing.length) c.at('unlocks').warn('sendsNeeds', { features: missing.join(',') })
+  if (sends.length) out.sends = sends
+  return lockRest()
+}
+
 /* ------------------------------------------------------------------ store helpers */
 
 /** A clean copy of a profile, or null when it is not one. */
@@ -704,6 +1260,9 @@ export function exportIntegration(p: IntegrationProfile): Omit<IntegrationProfil
     match: p.match,
     unlocks: p.unlocks,
     ...(p.recipes?.length ? { recipes: p.recipes } : {}),
+    ...(p.sends?.length ? { sends: p.sends } : {}),
+    ...(p.reads ? { reads: p.reads } : {}),
+    ...(p.outTools?.length ? { outTools: p.outTools } : {}),
   }
 }
 
@@ -849,5 +1408,20 @@ export function serverMatch(p: Pick<IntegrationProfile, 'match'>, servers: Array
 export function serverUnlockedBy(profiles: IntegrationProfile[] | undefined, servers: Array<{ name: string; url: string }>): Set<IntegrationFeature> {
   const out = new Set<IntegrationFeature>()
   for (const p of profiles ?? []) if (serverMatch(p, servers)) for (const f of p.unlocks) out.add(f)
+  return out
+}
+
+/**
+ * The OUT tools of one MCP server: the send tools (`sends[].tool`) of every profile that matches it by name / host
+ * (serverMatch's rules). Neither `match.tools`, the server's switch, its tested tool list nor the profile's unlocks
+ * count — the lock cannot flip with a re-test, and the team server (name / host only) locks the same tools.
+ */
+export function outToolsOf(profiles: IntegrationProfile[] | undefined, server: { name: string; url: string }): string[] {
+  const out: string[] = []
+  for (const p of profiles ?? []) {
+    const tools = [...(p.sends ?? []).map((r) => r.tool), ...(p.outTools ?? [])]
+    if (!tools.length || !serverMatch(p, [server])) continue
+    for (const t of tools) if (!out.includes(t)) out.push(t)
+  }
   return out
 }

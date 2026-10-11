@@ -504,11 +504,12 @@ Y.Map 'recordTypes'  typeId → JSON RecordType   ({ …, color?, properties: Re
                      — all three: last writer wins per entry; every reader sanitizes them (src/app/store/kit.ts)
 Y.Map 'integrations' profileId → JSON IntegrationProfile   (integration profiles, schema "one.integration/1" — { schema,
                      id, name, description?, match: { tools?, name?, host? }, unlocks: Array<'keys' | 'onlyByHand' |
-                     'upsert' | 'toolAllowList' | 'agentState' | 'notify'>, recipes?: RecipeConfig[], updatedAt?,
-                     updatedBy? }; OWNERS / ADMINS write it (server/src/collab/admin-map.ts puts other members'
-                     changes back and stamps updatedBy); last writer wins per profile; every reader sanitizes it —
-                     the app src/app/store/integrations.ts, the server agents/integrations.ts (id / match.name /
-                     match.host / unlocks only; a profile needs a non-empty name on both). At most 50 profiles count:
+                     'upsert' | 'toolAllowList' | 'agentState' | 'notify' | 'sends'>, recipes?: RecipeConfig[],
+                     sends?: SendRoute[], reads?: string[], updatedAt?, updatedBy? }; OWNERS / ADMINS write it
+                     (server/src/collab/admin-map.ts puts other members' changes back and stamps updatedBy); last
+                     writer wins per profile; every reader sanitizes it — the app src/app/store/integrations.ts, the
+                     server agents/integrations.ts (id / match.name / match.host / unlocks / sends[].tool only; a
+                     profile needs a non-empty name on both). At most 50 profiles count:
                      the first valid ones by id (plain string order) — the app's binding and the server pick the same
                      ones, whatever order the map holds; the app refuses a 51st; see Agents → Integration profiles)
 ```
@@ -983,12 +984,16 @@ So the server, not the client, says who changed an entry of the shared meta docu
   is **no `notify_me`** on the server: the inbox is per device (the app makes its items), so a server agent says
   what is new in its report.
 - **Integration profiles** (`agents/integrations.ts`): before a run the service reads the shared meta document's
-  `integrations` map (its own sanitizer: `id`, `match.name`, `match.host`, `unlocks`) and matches each profile against
+  `integrations` map (its own sanitizer: `id`, `match.name`, `match.host`, `unlocks`, `sends[].tool`) and matches each profile against
   the runtime's MCP servers by **name / host only** (globs `*` / `?`, case-insensitive; the runtime has no tested tool
   lists, so a profile with neither condition never matches here). A matching profile's `upsert` offers `upsert_rows`,
   its `agentState` the state tools — to every server agent of the workspace; without one they are not offered and the
   system prompt does not name them. Nothing is loosened by a profile's absence: keys and `agentReadOnly` are enforced
-  by every writer, and an agent's `mcpTools` allow-list always narrows its toolsets. `notify` has no server side.
+  by every writer, and an agent's `mcpTools` allow-list always narrows its toolsets. `notify` and `sends` have no server
+  side. Whatever a profile unlocks, its send tools (`sends[].tool`) are OUT on every runtime server it matches
+  (`outOf` → `RunInput.out`): switched off in that server's toolset (an allow-list loses them; left empty, the server is
+  left out with a note), named as switched off in the system prompt — the app's lock has the same rules
+  (src/app/features/ai/mcp-servers/lock.ts). Profiles that cannot be read skip a run that names MCP servers.
 - **Mirroring** (the recipe an integration profile brings in the app — `RecipeConfig` kind `mirror`,
   `features/agents/mirror.ts` + `integrations/recipe.ts` — sets up a **browser** agent; the same setup works as a
   server agent once a profile unlocks `upsert` / `agentState` on the server): a database with a key, the person's fields marked `agentReadOnly`,

@@ -1,7 +1,7 @@
 /**
  * Settings → Claude AI → MCP servers: the overview table — per server its codeword and where it may be used: One's
- * own Claude (scope / switched off), the custom agents that attach it, the integration profiles it activates and
- * Claude Code in the coding worker (a server of the same name or codeword there; per repo and for tasks without a
+ * own Claude (scope / switched off), the custom agents that attach it, the integration profiles it activates, its OUT
+ * tools (once a profile has send routes) and Claude Code in the coding worker (a server of the same name or codeword there; per repo and for tasks without a
  * repo). Rows come from overview.ts; a server name opens its details below. At phone width each row is a card.
  */
 import { useId, useMemo } from 'react'
@@ -26,6 +26,7 @@ export function McpOverview({ servers, onShow }: { servers: McpServerConfig[]; o
   )
   if (!rows.length) return null
   const withProfiles = (profiles?.length ?? 0) > 0
+  const withOut = rows.some((r) => r.out.length > 0)
   return (
     <section className="mcpo" aria-labelledby={headId} data-testid="mcp-overview">
       <span className="label mcpo__code" id={headId}>
@@ -40,22 +41,24 @@ export function McpOverview({ servers, onShow }: { servers: McpServerConfig[]; o
               <th scope="col">{t('features.ai.mcp.ov.one')}</th>
               <th scope="col">{t('features.ai.mcp.ov.agents')}</th>
               {withProfiles && <th scope="col">{t('features.ai.mcp.ov.integrations')}</th>}
+              {withOut && <th scope="col">{t('features.ai.mcp.ov.out')}</th>}
               <th scope="col">{t('features.ai.mcp.ov.code')}</th>
             </tr>
           </thead>
           <tbody>
             {rows.map((r) => (
-              <Row key={r.key} row={r} withProfiles={withProfiles} onShow={onShow} />
+              <Row key={r.key} row={r} withProfiles={withProfiles} withOut={withOut} onShow={onShow} />
             ))}
           </tbody>
         </table>
       </div>
       <p className="mcpo__note">{t('features.ai.mcp.ov.note')}</p>
+      {withOut && <p className="mcpo__note">{t('features.ai.mcp.ov.outNote')}</p>}
     </section>
   )
 }
 
-function Row({ row: r, withProfiles, onShow }: { row: OverviewRow; withProfiles: boolean; onShow: (id: string) => void }) {
+function Row({ row: r, withProfiles, withOut, onShow }: { row: OverviewRow; withProfiles: boolean; withOut: boolean; onShow: (id: string) => void }) {
   const t = useT()
   const dash = <span className="mcpo__none">—</span>
   return (
@@ -109,6 +112,18 @@ function Row({ row: r, withProfiles, onShow }: { row: OverviewRow; withProfiles:
                 </li>
               ))}
             </ul>
+          ) : (
+            dash
+          )}
+        </td>
+      )}
+      {withOut && (
+        <td data-label={t('features.ai.mcp.ov.out')} data-testid="mcp-overview-out">
+          {r.out.length ? (
+            <span className="mcpo__out" title={r.out.join(', ')}>
+              <span aria-hidden>{t('features.ai.mcp.ov.outCount', { n: r.out.length })}</span>
+              <span className="visually-hidden">{t('features.ai.mcp.ov.outTools', { n: r.out.length, tools: r.out.join(', ') })}</span>
+            </span>
           ) : (
             dash
           )}

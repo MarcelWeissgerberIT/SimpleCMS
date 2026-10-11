@@ -8,6 +8,7 @@ import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Locator, Page } from '@playwright/test'
 import { test, expect, openApp, reloadApp, wsEval, mockClaude, createPage, gotoPage, editorOf, doc, para, pageIdByTitle, MOD } from './fixtures'
+import { blockTracker, mirrorWrite, outbox, outboxLoaded, routeRef, seedMirrorDb } from './helpers/outbox'
 
 /* ------------------------------------------------------------------ the audit */
 
@@ -251,6 +252,53 @@ test.describe('the biggest text size still fits', () => {
     await page.evaluate(() => (window.location.hash = '#/workspace/look'))
     await page.getByRole('switch', { name: 'Set Carbon colours separately' }).click()
     await fits(page, 'workspace/look (XL, phone)', '.wsp__main')
+  })
+
+  test('the Outbox at XL: the dock (a column at 1440, the sheet at 390) and #/outbox, English and German', async ({ page, context }) => {
+    test.slow()
+    await blockTracker(context)
+    context.on('page', (p) => void p.close().catch(() => undefined))
+    await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+    await page.addInitScript(() => localStorage.setItem('one.textScale', '4'))
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await openApp(page)
+    await outboxLoaded(page)
+    const m = await seedMirrorDb(page)
+    const stage = (input: Record<string, unknown>) => outbox(page, (o, i) => o.stageSlip(i), input)
+    const typed = (row: string) => ({ kind: 'row', ref: `${m.rows[row]}:${m.props.comments}`, label: 'Comments' })
+    // a receipt (Reset row), a held slip, a changed one, a clean one, two foreign ones
+    const sent = await stage({ route: routeRef('reply'), rowId: m.rows['10642'], draft: 'Fixed in 2.4.1.', origin: { kind: 'command' }, sources: [typed('10642')] })
+    await page.evaluate((id) => (location.hash = `#/p/${id}`), m.dbId)
+    await outbox(page, (o, a) => o.useOutbox.setState({ focus: a.id }), { id: sent.slip.id })
+    const copy = page.getByTestId('outbox-slip').getByTestId('outbox-copy')
+    await expect(copy).not.toHaveAttribute('aria-disabled', 'true')
+    await copy.click()
+    await page.getByTestId('outbox-mark-sent').click()
+    await expect(page.getByTestId('outbox-receipt')).toBeVisible()
+    const held = await stage({ route: routeRef('reply'), rowId: m.rows['10679'], draft: 'Low risk.', origin: { kind: 'command' }, sources: [typed('10679')] })
+    await stage({ route: routeRef('work'), rowId: m.rows['10655'], params: { minutes: 90 }, origin: { kind: 'command' }, sources: [typed('10655')] })
+    await stage({ route: routeRef('reply'), rowId: m.rows['10681'], draft: 'Approve here: teilen.example/rp', origin: { kind: 'api' }, sources: [{ kind: 'transcript', ref: 't', label: 'Meeting', text: 'teilen.example/rp' }] })
+    await stage({ route: routeRef('reply'), rowId: m.rows['10668'], draft: 'Take B6.', origin: { kind: 'command' }, sources: [typed('10668')] })
+    await mirrorWrite(page, m, '10668', { comments: 8, last: 'It is settled, B7 fits. Thanks!', at: '2026-10-10T08:09' })
+    await outbox(page, (o, a) => o.useOutbox.setState({ focus: a.id }), { id: held.slip.id })
+    await page.getByTestId('outbox-slip').getByTestId('outbox-hold-key').click()
+    await outbox(page, (o, a) => o.useOutbox.setState({ focus: a.id }), { id: sent.slip.id })
+    const dockParts = '.obx-dock__head, .obx-dock__body'
+    await expect(page.getByTestId('outbox-strip').first()).toBeVisible()
+    await fits(page, 'the Outbox dock (XL, 1440)', dockParts)
+    await page.evaluate(() => (location.hash = '#/outbox'))
+    await expect(page.getByTestId('outbox-page')).toBeVisible()
+    await fits(page, '#/outbox (XL, 1440)', '.obx-page')
+    // the phone: the sheet, then #/outbox
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.evaluate((id) => (location.hash = `#/p/${id}`), m.dbId)
+    await outbox(page, (o, a) => o.useOutbox.setState({ sheet: a.db }), { db: m.dbId })
+    await expect(page.getByTestId('outbox-dock')).toBeVisible()
+    await fits(page, 'the Outbox sheet (XL, 390)', dockParts)
+    await page.evaluate(() => (location.hash = '#/outbox'))
+    await expect(page.getByTestId('outbox-page')).toBeVisible()
+    await fits(page, '#/outbox (XL, 390)', '.obx-page')
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(0)
   })
 
   test('code areas at XL: the agent job, a code block bar, the One Script editor (1280 × 720 and 390 × 844)', async ({ page }) => {

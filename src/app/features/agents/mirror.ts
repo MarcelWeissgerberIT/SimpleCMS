@@ -578,3 +578,20 @@ export function reuseMirror(input: { recipe: ResolvedRecipe; server: string; dbI
   const draft = draftFor(input.recipe, input.server, name, db.id, reportId, titles)
   return { dbId: db.id, reportId, name, reportTitle: titles.reportTitle, views: ws().databases[db.id]?.views.length ?? 0, placeholders: placeholdersIn(draft.instructions).length, draft, created, reused: true }
 }
+
+/**
+ * The source of a mirrored database (the Outbox: features/outbox/routes.ts): its mirror agent (mirrorAgentOf — in a
+ * team the member's own) and the MCP servers that agent reads. Null: no agent mirrors into it.
+ */
+export function mirrorSourceOf(dbId: ID): { agentId: ID; servers: string[] } | null {
+  const s = useWorkspace.getState()
+  const team = inTeam()
+  const agent = mirrorAgentOf(
+    s.agents,
+    dbId,
+    readServers(s.settings).map((x) => x.name),
+    ownerHere(team),
+    team,
+  )
+  return agent ? { agentId: agent.id, servers: [...agent.mcpServers] } : null
+}

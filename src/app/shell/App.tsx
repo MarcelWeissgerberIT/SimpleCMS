@@ -4,7 +4,7 @@ import { useUI } from '../store/ui'
 import { usePage } from '../store/selectors'
 import { useThemeAndLanguage } from '../lib/theme'
 import { useWorkspaceLook } from '../lib/look'
-import { GraphView, SharedPageView, Presentation, AgentsRoute, ScriptsRoute, ScriptDialogHost, CodingRoute, KitRoute, KitHost } from '../features'
+import { GraphView, SharedPageView, Presentation, AgentsRoute, ScriptsRoute, ScriptDialogHost, CodingRoute, KitRoute, KitHost, OutboxRoute, OutboxHost } from '../features'
 import { McpOAuthScreen } from '../features'
 import { SharedFormView } from '../database'
 import { PageIcon } from '../ui/PageIcon'
@@ -155,6 +155,7 @@ function Workspace({ route }: { route: Route }) {
         <CloudDialogs />
         <ScriptDialogHost />
         <KitHost />
+        <OutboxHost />
       </ErrorBoundary>
       <ErrorBoundary inline>
         <CaptureHost />
@@ -185,6 +186,8 @@ function RouteView({ route }: { route: Route }) {
       return <ScriptsRoute scriptId={route.id} />
     case 'coding':
       return <CodingRoute kind={route.kind} />
+    case 'outbox':
+      return <OutboxRoute slip={route.slip} />
     case 'kit':
       return <KitRoute tab={route.tab} id={route.id} />
     case 'discover':
@@ -210,5 +213,5 @@ function RouteTitle({ route }: { route: Route }) {
         <span>{page.title.trim() || t('common.untitled')}</span>
       </>
     )
-  return <span>{route.name === 'graph' ? t('shell.nav.graph') : route.name === 'agenda' ? t('shell.nav.agenda') : route.name === 'inbox' ? t('shell.nav.inbox') : route.name === 'agents' ? t('features.agents.title') : route.name === 'scripts' ? t('features.script.title') : route.name === 'coding' ? t('features.coding.title') : route.name === 'kit' ? t('features.kit.title') : route.name === 'workspace' ? t('shell.ws.title') : route.name === 'discover' ? t('shell.discover.title') : t('shell.nav.home')}</span>
+  return <span>{route.name === 'graph' ? t('shell.nav.graph') : route.name === 'agenda' ? t('shell.nav.agenda') : route.name === 'inbox' ? t('shell.nav.inbox') : route.name === 'agents' ? t('features.agents.title') : route.name === 'scripts' ? t('features.script.title') : route.name === 'coding' ? t('features.coding.title') : route.name === 'outbox' ? t('features.outbox.title') : route.name === 'kit' ? t('features.kit.title') : route.name === 'workspace' ? t('shell.ws.title') : route.name === 'discover' ? t('shell.discover.title') : t('shell.nav.home')}</span>
 }

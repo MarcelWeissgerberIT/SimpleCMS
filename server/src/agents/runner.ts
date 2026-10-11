@@ -15,6 +15,10 @@
  * - Errors are reported without secrets: the Claude key and MCP tokens are scrubbed from every message.
  * - An agent's MCP tool allow-list (`mcpTools`) switches every other tool of that server off in its toolset
  *   (`default_config: { enabled: false }` + `configs`); a server whose list is empty is left out.
+ * - The OUT lock (`RunInput.out`, integrations.ts outOf): a matching integration profile's send tools are switched off
+ *   in the server's toolset — an allow-list loses them (left empty: the server is left out, with a note), a server
+ *   without one gets them disabled by name — and the system prompt says so. Nothing lifts it (the app's twin:
+ *   src/app/features/ai/mcp-servers/lock.ts).
  * - agent_state_set only collects the new state (`RunOutcome.state`): the service saves it when the run ends
  *   ok / staged, never after an error or a budget stop.
  * - upsert_rows and the state tools exist only while the workspace's integration profiles unlock them for the
@@ -81,7 +85,7 @@ function howChangesWork(write: CustomAgent['write'], upsert: boolean): string {
 }
 
 /** The system prompt: One's agent prompt, the write mode, the agent's own instructions, the MCP template. */
-export function systemPrompt(agent: CustomAgent, mcp: string[], unlocks: ToolUnlocks = NO_UNLOCKS): string {
+export function systemPrompt(agent: CustomAgent, mcp: string[], unlocks: ToolUnlocks = NO_UNLOCKS, out: Record<string, string[]> = {}): string {
   const allow = agent.mcpTools ?? {}
   const parts = [
     `You are a custom agent in One, a workspace of pages and databases (like Notion). You run on the team's server, started by a schedule, a trigger or a person — nobody watches while you work and nobody can answer questions, so decide sensibly on your own. Your job is described in <agent_instructions>; you carry it out by reading the workspace with tools${agent.write === 'none' ? '' : ' and changing it'}.`,
@@ -114,9 +118,11 @@ export function systemPrompt(agent: CustomAgent, mcp: string[], unlocks: ToolUnl
   if (mcp.length) {
     parts.push(`<mcp_instructions>\n${MCP_TEMPLATE}\n</mcp_instructions>`)
     for (const name of mcp) {
-      const only = Object.prototype.hasOwnProperty.call(allow, name) ? allow[name] : undefined
+      const off = Object.prototype.hasOwnProperty.call(out, name) ? out[name]! : []
+      const only = Object.prototype.hasOwnProperty.call(allow, name) ? lockedOnly(allow[name], off) : undefined
       const onlyLine = only ? `\nOnly these of its tools are switched on for you: ${only.join(', ')}. Its other tools are not available — never try to call them.` : ''
-      parts.push(`<mcp_server name="${name}">\nNo usage guide: read the tool descriptions carefully before you use them.${onlyLine}\n</mcp_server>`)
+      const lockLine = off.length ? `\n${outLine(off)}` : ''
+      parts.push(`<mcp_server name="${name}">\nNo usage guide: read the tool descriptions carefully before you use them.${onlyLine}${lockLine}\n</mcp_server>`)
     }
   }
   return parts.join('\n\n')
@@ -136,6 +142,8 @@ export interface RunInput {
   state?: AgentStateRow | null
   /** what the workspace's integration profiles unlock (absent: nothing) */
   unlocks?: ToolUnlocks
+  /** per runtime server name: its OUT tools (integrations.ts outOf) — switched off in its toolset, whatever else */
+  out?: Record<string, string[]>
   signal: AbortSignal
   /** after every response: the run so far (persisted, so GET agent-runs shows progress) */
   progress?(snapshot: RunOutcome): void
@@ -175,10 +183,25 @@ function errorMessage(err: unknown): string {
   return 'Internal error.'
 }
 
-/** The `mcp_toolset` of a server: all its tools, or only the allowed ones (every other tool switched off). */
-export function toolsetOf(name: string, only?: string[]): BetaToolUnion {
-  if (!only) return { type: 'mcp_toolset', mcp_server_name: name }
-  return { type: 'mcp_toolset', mcp_server_name: name, default_config: { enabled: false }, configs: Object.fromEntries(only.map((tool) => [tool, { enabled: true }])) }
+/** An allow-list without the OUT tools (undefined: no list). */
+export function lockedOnly(only: readonly string[] | undefined, out: readonly string[]): string[] | undefined {
+  return only ? only.filter((t) => !out.includes(t)) : undefined
+}
+
+/** What Claude is told about a server's OUT tools. */
+export function outLine(out: readonly string[]): string {
+  return `These tools of it send data out and are switched off for you: ${out.join(', ')}. If your job needs something sent there, put the text in your report: a person sends it.`
+}
+
+/**
+ * The `mcp_toolset` of a server: all its tools, or only the allowed ones (every other tool switched off) — its OUT tools
+ * off in both cases (the app's toolsetFor).
+ */
+export function toolsetOf(name: string, only?: readonly string[], out: readonly string[] = []): BetaToolUnion {
+  const allowed = lockedOnly(only, out)
+  if (allowed) return { type: 'mcp_toolset', mcp_server_name: name, default_config: { enabled: false }, configs: Object.fromEntries(allowed.map((tool) => [tool, { enabled: true }])) }
+  if (!out.length) return { type: 'mcp_toolset', mcp_server_name: name }
+  return { type: 'mcp_toolset', mcp_server_name: name, configs: Object.fromEntries(out.map((tool) => [tool, { enabled: false }])) }
 }
 
 /** The request settings a model takes (thinking, effort, fallbacks, betas). */
@@ -223,6 +246,8 @@ export async function runAgent(input: RunInput): Promise<RunOutcome> {
   // MCP servers the agent names and the runtime has (the rest is noted, not fatal); only the tools its allow-list names
   const allow = agent.mcpTools ?? {}
   const onlyOf = (name: string) => (Object.prototype.hasOwnProperty.call(allow, name) ? allow[name] : undefined)
+  const outs = input.out ?? {}
+  const offOf = (name: string) => (Object.prototype.hasOwnProperty.call(outs, name) ? outs[name]! : [])
   const servers: BetaRequestMCPServerURLDefinition[] = []
   for (const name of agent.mcpServers) {
     const m = runtime.mcpServers.find((x) => x.name === name)
@@ -230,7 +255,10 @@ export async function runAgent(input: RunInput): Promise<RunOutcome> {
       step({ kind: 'note', label: `MCP server "${name}" is not set up on the server: left out.`, state: 'err' })
       continue
     }
-    if (onlyOf(name)?.length === 0) {
+    // the lock: allowed tools that send data out stay off (only a person sends with them, from the Outbox)
+    const locked = (onlyOf(name) ?? []).filter((t) => offOf(name).includes(t))
+    if (locked.length) step({ kind: 'note', label: `MCP server "${name}": ${locked.join(', ')} switched off — send tools only a person uses.`, state: 'ok' })
+    if (lockedOnly(onlyOf(name), offOf(name))?.length === 0) {
       step({ kind: 'note', label: `MCP server "${name}": no tool is allowed for this agent — left out.`, state: 'err' })
       continue
     }
@@ -241,7 +269,7 @@ export async function runAgent(input: RunInput): Promise<RunOutcome> {
   const tools = toolsFor(agent.write, unlocks)
   const toolDefs: BetaToolUnion[] = [
     ...tools.map((t) => ({ name: t.name, description: t.description(agent.write), input_schema: t.input_schema, eager_input_streaming: true })),
-    ...servers.map((m) => toolsetOf(m.name, onlyOf(m.name))),
+    ...servers.map((m) => toolsetOf(m.name, onlyOf(m.name), offOf(m.name))),
   ]
   const settings = modelSettings(model, agent.effort)
   const betas = [...settings.betas, ...(servers.length ? [MCP_BETA] : [])]
@@ -249,6 +277,7 @@ export async function runAgent(input: RunInput): Promise<RunOutcome> {
     agent,
     servers.map((m) => m.name),
     unlocks,
+    Object.fromEntries(servers.map((m) => [m.name, offOf(m.name)])),
   )
   const client = new Anthropic({ apiKey: runtime.claudeKey, authToken: null, baseURL: s.config.agents.apiUrl, maxRetries: 2, timeout: 10 * 60_000 })
   const messages: BetaMessageParam[] = [{ role: 'user', content: input.task }]

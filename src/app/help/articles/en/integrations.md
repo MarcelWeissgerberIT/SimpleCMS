@@ -4,7 +4,7 @@ title: Integrations
 section: ai
 order: 14
 keywords: integrations, integration profile, profile, unlock, unlocks, MCP server, match, tools, recipe, mirror, import, export, JSON, schema, one.integration, key, only by hand, upsert, tool list, agent state, inbox notes, Integrationen, Profil, freischalten, Rezept
-related: custom-agents, mcp-servers, properties, members-roles
+related: custom-agents, mcp-servers, outbox, properties, members-roles
 summary: Profiles that unlock agent features — keys, “Only by hand”, upsert_rows, tool lists, the agent state, inbox notes — and bring recipes while one of your MCP servers matches.
 ---
 Some agent features only make sense together with another tool: mirroring its items into a database by a key, keeping your own fields out of reach, limiting an agent to that tool's reading tools. One does not build them in for any particular tool. An **integration profile** says which MCP server they are for and switches them on while that server is there. You set profiles up under **Workspace → Integrations**.
@@ -24,6 +24,7 @@ At least one condition is needed. The list shows an LED per profile and why: **A
 - `toolAllowList` — the tool list per MCP server in the agent editor.
 - `agentState` — `agent_state_get` / `agent_state_set` between runs.
 - `notify` — `notify_me`: an agent's notes in your inbox.
+- `sends` — the profile's send routes for the [Outbox](help:outbox): ⌘ → “Reply in the ticket tool” on a mirrored row, drafted without tools, sent by you.
 
 Without an active profile these switches, tools and sections are not offered. What is already set **stays in force**: a property that is the key stays unique, “Only by hand” fields stay closed to every agent (they show as a mark in the property menu), and an agent that already has a tool list keeps it.
 
@@ -33,6 +34,9 @@ A profile can bring **recipes**. While it is active, **Agents → New agent** li
 A recipe without agent `instructions` gets instructions composed from **its own** properties — never one it does not have. A step tied to a role is there only when a property has that role (`link`, `srcStatus`, `srcPriority`, `owner`, `tags`, `changedAt`, `comments`, `lastComment`, `lastCommentAt`, `newComment`, `waiting`, `clarity` with its options, `why`, `gone`); the key property is the `key_property`; every property marked `onlyByHand` is named in “never write”; every other property is written as in the source. With the built-in properties that is the built-in recipe's text.
 
 Texts can be one string or one per language: `{ "en": "Ready", "de": "Bereit" }`. Views name properties by name (either language) or by `role`, filter values name options. In the agent's name, instructions and report title, `{db}`, `{server}` and `{report}` are filled in; parts in **[SQUARE BRACKETS]** are left for the person to replace before the agent can be switched on.
+
+## Send routes
+A profile can also say how to write **back** into its tool: `sends` lists send routes (the tool, its inputs as a template, the row patch afterwards) and `reads` the tools that only read. Every send tool is **OUT** — switched off in every Claude request One makes for a server the profile matches by name or host, even while the profile is not active. Only the [Outbox](help:outbox) uses them, and only when you press the key; the article there has the format.
 
 ## The schema
 A profile is one JSON object, schema `one.integration/1`:
@@ -70,7 +74,7 @@ A profile is one JSON object, schema `one.integration/1`:
 
 This recipe brings no `instructions`: its agent is told to list and read the items, to write *Item* (the key) and *State* with `upsert_rows`, and never to write *My note* — nothing else.
 
-`id`: lower-case letters, digits, `-` and `_`. `unlocks`: any of the six features. Unknown keys are refused, so a typo shows at once. A workspace holds up to **50** profiles.
+`id`: lower-case letters, digits, `-` and `_`. `unlocks`: any of the seven features. Unknown keys are refused, so a typo shows at once. A workspace holds up to **50** profiles.
 
 ## New, import, export, edit
 - **New integration → From the template** — the built-in mirror written out in full, with an empty `match` to fill in. **For one of your MCP servers** fills `match` with that server's tested reading tools and its name.

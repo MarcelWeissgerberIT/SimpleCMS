@@ -1,5 +1,6 @@
 /**
- * "New integration": the generic template the person completes — every feature unlocked, the built-in mirror recipe
+ * "New integration": the generic template the person completes — every feature unlocked (but `sends`: it brings no
+ * send route), the built-in mirror recipe
  * written out in full (the database's properties and views, the agent's instructions with their [PLACEHOLDERS]) and
  * an EMPTY match (the profile stays inactive until the person says which server it is for). From a picked server:
  * match = that server's tested read tools + its name. Nothing here names a service.
@@ -41,7 +42,7 @@ export function integrationTemplate(lang: Lang, taken: string[], server?: Pick<M
     name: server ? tr('features.integrations.template.nameFor', { server: server.name }) : tr('features.integrations.template.name'),
     description: tr('features.integrations.template.description'),
     match,
-    unlocks: [...INTEGRATION_FEATURES],
+    unlocks: INTEGRATION_FEATURES.filter((f) => f !== 'sends'),
     recipes: [recipe],
   }
 }

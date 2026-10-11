@@ -3,11 +3,11 @@
  * and the global keyboard handler.
  */
 import type { LucideIcon } from 'lucide-react'
-import { Bell, CalendarDays, CalendarRange, Copy, Download, FilePlus2, FolderInput, Focus, Keyboard, Languages, LayoutTemplate, Link2, Lock, MessageSquareText, MoveHorizontal, PanelLeft, Presentation, Settings, Share2, SunMoon, Table2, SquareKanban, Trash2, Upload, Waypoints, History, Star, Home, Inbox, Users, Building2, Palette, CloudUpload, Workflow, SquareFunction, CircleHelp, Newspaper, SquareCode, GitBranch, Blocks, Compass, Route, ClipboardCopy, Plug } from 'lucide-react'
+import { Bell, CalendarDays, CalendarRange, Copy, Download, FilePlus2, FolderInput, Focus, Keyboard, Languages, LayoutTemplate, Link2, Lock, MessageSquareText, MoveHorizontal, PanelLeft, Presentation, Settings, Share2, SunMoon, Table2, SquareKanban, Trash2, Upload, Waypoints, History, Star, Home, Inbox, Users, Building2, Palette, CloudUpload, Workflow, SquareFunction, CircleHelp, Newspaper, SquareCode, GitBranch, Blocks, Compass, Route, ClipboardCopy, Plug, Send } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
 import { navigate } from '../../lib/router'
-import { openTodayJournal, openAgent, AGENT_SHORTCUT, openFunctionBuilder, paletteDbCommands, createScript, openScripts, paletteScripts } from '../../features'
+import { openTodayJournal, openAgent, AGENT_SHORTCUT, openFunctionBuilder, paletteDbCommands, createScript, openScripts, paletteScripts, openOutbox } from '../../features'
 import type { ID } from '../../store/types'
 import type { Translate } from '@/shared/i18n'
 import { quickNoteToInbox } from '../capture/inbox'
@@ -68,6 +68,7 @@ export function buildCommands(t: Translate, pageId: ID | null): Command[] {
     { id: 'graph', group: 'navigate', label: t('shell.cmd.graph'), icon: Waypoints, keywords: 'map network links karte', run: () => navigate({ name: 'graph' }) },
     { id: 'scripts', group: 'navigate', label: t('features.script.cmd.open'), icon: SquareCode, keywords: 'scripts queries code one script skripte abfragen', run: () => { closeMobileSidebar(); openScripts() } },
     { id: 'kit', group: 'navigate', label: t('features.kit.cmd.open'), icon: Blocks, keywords: 'building blocks kit lists own property types record types shared list bausteine listen eigene typen datensatz', run: () => { closeMobileSidebar(); navigate({ name: 'kit' }) } },
+    { id: 'outbox', group: 'navigate', label: t('features.outbox.cmd.open'), icon: Send, keywords: 'outbox send slips receipts reply ticket ausgang senden zettel quittungen antworten', run: () => openOutbox() },
     { id: 'coding', group: 'navigate', label: t('features.coding.cmd.open'), icon: GitBranch, keywords: 'coding pipeline claude code worker branch worktree tasks repo programmieren aufgaben', run: () => { closeMobileSidebar(); navigate({ name: 'coding' }) } },
     { id: 'import', group: 'workspace', label: t('shell.cmd.import'), icon: Upload, keywords: 'notion markdown csv zip importieren', run: () => ui.openModal({ type: 'import' }) },
     { id: 'export', group: 'workspace', label: t('shell.cmd.export'), icon: Download, keywords: 'markdown html pdf backup exportieren', run: () => ui.openModal({ type: 'export', pageId: live ? page.id : null }) },

@@ -762,6 +762,22 @@
   font-family: var(--font-mono);
   font-size: calc(10px * var(--text-scale));
 }
+/* OUT n: the send tools of the profiles that match the server (names on hover) */
+.mcpo__out {
+  display: inline-block;
+  justify-self: start;
+  padding: 2px 4px;
+  border-radius: var(--radius-1);
+  background: var(--ink);
+  color: var(--ink-inverse);
+  font-family: var(--font-mono);
+  font-size: calc(9.5px * var(--text-scale));
+  font-weight: 600;
+  letter-spacing: var(--tracking-label);
+  line-height: 1;
+  white-space: nowrap;
+  cursor: help;
+}
 .mcpo__none,
 .mcpo__muted {
   color: var(--ink-3);

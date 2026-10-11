@@ -76,9 +76,9 @@ export interface SubItem {
 
 /** A computed default command of a database (never stored; only its place and `hidden`). */
 export interface DefaultSpec {
-  /** the stored id: 'new-entry', 'templates', 'views', 'import-csv', 'export-csv', 'copy-link', 'mail-sync', 'mail-organise', 'mail-settings', 'agent:<id>', 'memory-log' */
+  /** the stored id: 'new-entry', 'templates', 'views', 'import-csv', 'export-csv', 'copy-link', 'mail-sync', 'mail-organise', 'mail-settings', 'agent:<id>', 'memory-log', 'send:<profileId>:<routeId>' (the Outbox) */
   key: string
-  group: 'db' | 'mail' | 'agent' | 'memory'
+  group: 'db' | 'mail' | 'agent' | 'memory' | 'outbox'
   label: string
   icon: LucideIcon
   writes: boolean
@@ -91,6 +91,8 @@ export interface DefaultSpec {
   run?: Runner
   /** shown, but can't run now (the hint says why) */
   disabled?: string
+  /** acts on rows: on the toolbar without a selection it is shown disabled ("Pick a row") */
+  needsRow?: boolean
 }
 
 /** A command of the menu: a default or an own command, in the database's order. */

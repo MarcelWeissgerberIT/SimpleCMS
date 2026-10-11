@@ -659,7 +659,7 @@ function AskPanel({ question, pageId, onDone }: { question: string; pageId: ID |
   }
 
   const toNewPage = () => {
-    const id = useWorkspace.getState().createPage({ title: question.slice(0, 80), content: claudeDoc(answer) })
+    const id = useWorkspace.getState().createPage({ title: question.slice(0, 80), content: claudeDoc(answer), contentOrigin: 'ai' })
     onDone()
     goToPage(id)
   }

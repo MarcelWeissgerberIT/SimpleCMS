@@ -1110,6 +1110,23 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* an OUT tool (a profile's send route): off for every agent, whatever is ticked */
+.agx-check--tool[data-out] .agx-tools__tool {
+  color: var(--ink-3);
+  text-decoration: line-through;
+}
+.agx-check__out {
+  flex: none;
+  padding: 2px 4px;
+  border-radius: var(--radius-1);
+  background: var(--ink);
+  color: var(--ink-inverse);
+  font-family: var(--font-mono);
+  font-size: calc(9.5px * var(--text-scale));
+  font-weight: 600;
+  letter-spacing: var(--tracking-label);
+  line-height: 1;
+}
 .agx-link {
   padding: 0;
   border: 0;

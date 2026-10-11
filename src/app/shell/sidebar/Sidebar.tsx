@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
-import { ArrowRight, Bell, Bot, Building2, CalendarDays, CalendarRange, ChevronsLeft, ChevronDown, Compass, Home, LayoutTemplate, Lock, PenLine, Plus, Search, Trash2, Upload, Waypoints, Settings, Table2, FilePlus2, Users, SquareCode, Blocks, SquareKanban } from 'lucide-react'
+import { ArrowRight, Bell, Bot, Building2, CalendarDays, CalendarRange, ChevronsLeft, ChevronDown, Compass, Home, LayoutTemplate, Lock, PenLine, Plus, Search, Trash2, Upload, Waypoints, Settings, Table2, FilePlus2, Users, SquareCode, Blocks, SquareKanban, Send } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
 import { useFavorites, useTrash, useTreeCount, useHasFavorites } from '../../store/selectors'
 import { navigate, useRoute } from '../../lib/router'
-import { openTodayJournal, AgentsNavBadge } from '../../features'
+import { openTodayJournal, AgentsNavBadge, OutboxNavBadge, useOutboxVisible } from '../../features'
 import { Menu, useMenu, type MenuEntry } from '../../ui/Menu'
 import { toggleMenu } from '../lib/menu'
 import { Tooltip } from '../../ui/Tooltip'
@@ -91,6 +91,7 @@ export function Sidebar() {
           <NavRow icon={<Search size={16} />} label={t('shell.nav.search')} kbd={kbd('Mod+K')} onClick={() => (closeMobileSidebar(), useUI.getState().openPalette())} />
           <NavRow icon={<Home size={16} />} label={t('shell.nav.home')} active={route.name === 'home'} onClick={goHome} />
           <InboxNavRow active={route.name === 'inbox'} />
+          <OutboxNavRow active={route.name === 'outbox'} />
           {!readOnly && (
             <NavRow
               icon={<CalendarDays size={16} />}
@@ -286,6 +287,14 @@ function NavRow({ icon, label, kbd, active, badge, ariaLabel, onClick }: { icon:
       {kbd && <span className="kbd sb-navrow__kbd">{kbd}</span>}
     </button>
   )
+}
+
+/** The Outbox (features/outbox): shown once a send route is active here or a slip exists; "5 OPEN" (red "UNCLEAR 1"). */
+function OutboxNavRow({ active }: { active: boolean }) {
+  const t = useT()
+  const visible = useOutboxVisible()
+  if (!visible) return null
+  return <NavRow icon={<Send size={16} />} label={t('features.outbox.title')} active={active} badge={<OutboxNavBadge />} onClick={() => (closeMobileSidebar(), navigate({ name: 'outbox' }))} />
 }
 
 /** Inbox: unread count as an LED + mono read-out; "G I" jumps here. */

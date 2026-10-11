@@ -11,7 +11,7 @@ import { toggleTheme } from '../lib/actions'
 import { useStageView } from '../lib/stage'
 import { plural } from '../lib/format'
 import { CloudStatusCells, useCloudReadout } from '../cloud/Sync'
-import { SyncStatusCell, McpStatusCell, AgentStatusCell, CodingStatusCell } from '../../features'
+import { SyncStatusCell, McpStatusCell, AgentStatusCell, CodingStatusCell, OutboxStatusCell } from '../../features'
 import { toggleHelp, useHelp, HelpNewsLed } from '../../help'
 
 /** 24px instrument read-out along the bottom edge. */
@@ -50,6 +50,7 @@ export function StatusBar({ route }: { route: Route }) {
       <McpStatusCell />
       <AgentStatusCell />
       <CodingStatusCell />
+      <OutboxStatusCell />
       {pageId && kind === 'page' && (
         <span className="status__cell">
           {t(plural('shell.stats.words', words), { n: fmtNumber(words, lang) })} · {t('shell.stats.read', { n: readingTime(words) })}

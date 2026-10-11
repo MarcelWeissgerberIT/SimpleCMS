@@ -1,7 +1,9 @@
 /**
  * "Generate" / "Test connection" for one MCP server: a single request with only that server
  * attached. Claude reads the tool definitions it was given (it is told not to call any) and lists
- * the tools — and, for Generate, writes the usage guide that goes into the system prompt.
+ * the tools — and, for Generate, writes the usage guide that goes into the system prompt. The tool names
+ * come from the API's raw `mcp_tool_listing` when one arrived (Claude's TOOLS line only without it). The
+ * OUT lock applies here too (attachMcp): the test never needs to call a tool.
  */
 import type { BetaContentBlock, MessageCreateParamsNonStreaming } from '@anthropic-ai/sdk/resources/beta/messages/messages'
 import { useWorkspace } from '../../../store/store'
@@ -14,6 +16,8 @@ export interface InspectResult {
   tools: string[]
   /** the usage guide ('' for a test) */
   guide: string
+  /** the names came from the API's own tool listing (not from Claude's answer) */
+  listed?: boolean
 }
 
 const SYSTEM = (name: string) => `You help set up an external MCP server for One, a local-first workspace app (pages and databases) with a built-in Claude assistant. The tools of the MCP server "${name}" are attached to this request.
@@ -80,7 +84,10 @@ export async function inspectServer(server: McpServerConfig, mode: 'test' | 'gui
     const out = parseInspect(text)
     // a tool listing the API sent along is exact: it wins over Claude's reading
     const listed = msg.content.flatMap((b: BetaContentBlock) => (b.type === 'mcp_tool_listing' && b.mcp_server_name === server.name ? b.tools.map((x) => x.name) : []))
-    if (listed.length) out.tools = [...new Set(listed)]
+    if (listed.length) {
+      out.tools = [...new Set(listed)]
+      out.listed = true
+    }
     if (mode === 'guide' && !out.guide && out.tools.length) throw new AIError('empty')
     clearRefused(server.name)
     return out
