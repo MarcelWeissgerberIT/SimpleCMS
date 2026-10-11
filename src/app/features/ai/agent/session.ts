@@ -858,22 +858,32 @@ export const goesToWorker = (c: StagedChange): boolean => c.kind === 'append' &&
  */
 export const appliesAlone = (c: StagedChange): boolean => c.kind === 'send' || startsWorker(c) || goesToWorker(c)
 
+/** What applyStaged did: the apply result (null: nothing was applied), `busy`: another apply was going on (nothing done). */
+export interface StagedApply {
+  res: ApplyResult | null
+  busy?: true
+}
+
 /**
  * Apply the given changes (`ids`: Enter on an item, marked items) — or every pending one that is not applied alone
  * ("apply all": a, /apply, ⌘↵; appliesAlone: it starts the coding worker or its text goes to Claude Code — those wait
  * for their own ↵). One Undo toast reverts the batch. One apply at a time: the changes are marked 'applying' before the
- * first await, so a second key press finds nothing to apply.
+ * first await, so a second key press finds nothing to apply (`busy`).
+ *  - `quiet`: no toasts (Preflight's queue says what happened itself), and the batch is not the review list's `u`.
+ *  - `bulk`: the named changes are a bulk apply — the ones applied alone are left out NOW (checked at apply time, not
+ *    when they were picked: a change that came to start the worker meanwhile stays open).
  */
-export async function applyStaged(ids?: string[]): Promise<void> {
-  if (get().applying) return
+export async function applyStaged(ids?: string[], opts: { quiet?: boolean; bulk?: boolean } = {}): Promise<StagedApply> {
+  if (get().applying) return { res: null, busy: true }
   const all = get().changes
   const open = (c: StagedChange) => c.status === 'pending' || c.status === 'failed'
-  const targets = ids ? all.filter((c) => ids.includes(c.id) && open(c)) : all.filter((c) => c.status === 'pending' && !appliesAlone(c))
+  const picked = ids ? all.filter((c) => ids.includes(c.id) && open(c)) : all.filter((c) => c.status === 'pending' && !appliesAlone(c))
+  const targets = ids && opts.bulk ? picked.filter((c) => !appliesAlone(c)) : picked
   const held = ids ? 0 : all.filter((c) => c.status === 'pending' && c.kind !== 'send' && appliesAlone(c)).length
   const ui = useUI.getState()
   if (!targets.length) {
-    if (held) ui.toast({ message: tn('features.agent.toast.startsHeld', held), kind: 'info' })
-    return
+    if (held && !opts.quiet) ui.toast({ message: tn('features.agent.toast.startsHeld', held), kind: 'info' })
+    return { res: null }
   }
   const writing = new Map(targets.map((c) => [c.id, c.status]))
   set((s) => ({ applying: true, changes: s.changes.map((c) => (writing.has(c.id) ? { ...c, status: 'applying' } : c)) }))
@@ -883,7 +893,7 @@ export async function applyStaged(ids?: string[]): Promise<void> {
   } catch (e) {
     const error = e instanceof Error ? e.message : String(e)
     set((s) => ({ applying: false, changes: s.changes.map((c) => (writing.has(c.id) && c.status === 'applying' ? { ...c, status: 'failed', error } : c)) }))
-    return
+    return { res: null }
   }
   Object.assign(rowIds, res.rowIds)
   set((s) => ({
@@ -896,17 +906,19 @@ export async function applyStaged(ids?: string[]): Promise<void> {
       return c.status === 'applying' ? { ...c, status: writing.get(c.id) ?? 'pending' } : c
     }),
   }))
+  if (opts.quiet) return { res }
   const undoable = res.applied.some((id) => !res.final.includes(id))
   if (res.applied.length) lastBatch = res
   if (res.applied.length)
     ui.toast({
       message: tn('features.agent.toast.applied', res.applied.length),
       kind: 'success',
-      ...(undoable ? { action: { label: t('common.undo'), run: () => undoBatch(res) } } : {}),
+      ...(undoable ? { action: { label: t('common.undo'), run: () => void undoStagedBatch(res) } } : {}),
       timeout: 10_000,
     })
   if (res.failed.length) ui.toast({ message: tn('features.agent.toast.failed', res.failed.length), kind: 'error' })
   if (held) ui.toast({ message: tn('features.agent.toast.startsHeld', held), kind: 'info' })
+  return { res }
 }
 
 /** The batch the last apply wrote (for `u` in the review list). */
@@ -917,27 +929,29 @@ export function undoLastBatch(): boolean {
   const res = lastBatch
   // nothing to undo: every change of the batch is undone already, or cannot be undone (a task action)
   if (!res || get().applying || !get().changes.some((c) => res.applied.includes(c.id) && !res.final.includes(c.id) && c.status === 'applied')) return false
-  undoBatch(res)
+  undoStagedBatch(res)
   return true
 }
 
 /**
  * Undo a batch. What was kept (edited since, or a task the worker took meanwhile) and what cannot be undone (a task
- * action: the worker may have started) stays applied — never back to pending, so it is never applied twice.
+ * action: the worker may have started) stays applied — never back to pending, so it is never applied twice. Returns
+ * `kept` (edited since) and `final` (cannot be undone); `quiet`: no toast.
  */
-function undoBatch(res: ApplyResult) {
+export function undoStagedBatch(res: ApplyResult, opts: { quiet?: boolean } = {}): { kept: string[]; final: string[] } {
   if (lastBatch === res) lastBatch = null
   const { kept } = res.undo()
   const stays = new Set([...kept, ...res.final])
   const stayPages = new Set(get().changes.filter((c) => stays.has(c.id)).map((c) => c.pageId))
   for (const staged of Object.keys(res.rowIds)) if (!stayPages.has(staged)) delete rowIds[staged]
   set((s) => ({ changes: s.changes.map((c) => (res.applied.includes(c.id) && !stays.has(c.id) && c.status === 'applied' ? { ...c, status: 'pending' } : c)) }))
-  const final = res.final.length
-  useUI.getState().toast(final ? tn('features.agent.toast.undoneFinal', final) : kept.length ? tn('features.agent.toast.undoneKept', kept.length) : t('features.agent.toast.undone'))
+  const final = res.final.filter((id) => res.applied.includes(id))
+  if (!opts.quiet) useUI.getState().toast(final.length ? tn('features.agent.toast.undoneFinal', final.length) : kept.length ? tn('features.agent.toast.undoneKept', kept.length) : t('features.agent.toast.undone'))
+  return { kept, final }
 }
 
-/** Discard proposals (and the proposals that build on them). */
-export function discardStaged(id: string | string[]) {
+/** Discard proposals (and the open proposals that build on them). Returns the ids it discarded now (the cascade). */
+export function discardStaged(id: string | string[]): string[] {
   const drop = new Set(Array.isArray(id) ? id : [id])
   let grew = true
   while (grew) {
@@ -948,11 +962,27 @@ export function discardStaged(id: string | string[]) {
       grew = true
     }
   }
-  set((s) => ({ changes: s.changes.map((c) => (drop.has(c.id) && c.status !== 'applied' ? { ...c, status: 'discarded' } : c)) }))
+  const dropped = get()
+    .changes.filter((c) => drop.has(c.id) && c.status !== 'applied' && c.status !== 'discarded')
+    .map((c) => c.id)
+  if (dropped.length) set((s) => ({ changes: s.changes.map((c) => (dropped.includes(c.id) ? { ...c, status: 'discarded' } : c)) }))
+  return dropped
 }
 
 export function discardAllStaged() {
   set((s) => ({ changes: s.changes.map((c) => (c.status === 'pending' || c.status === 'failed' ? { ...c, status: 'discarded' } : c)) }))
+}
+
+/**
+ * Bring exactly these discarded proposals back (the Undo of a discardStaged: its cascade) — each only while it is still
+ * discarded. Returns the ids brought back.
+ */
+export function undiscardStaged(ids: string[]): string[] {
+  const back = get()
+    .changes.filter((c) => ids.includes(c.id) && c.status === 'discarded')
+    .map((c) => c.id)
+  if (back.length) set((s) => ({ changes: s.changes.map((c) => (back.includes(c.id) && c.status === 'discarded' ? { ...c, status: 'pending' } : c)) }))
+  return back
 }
 
 /** Bring a discarded proposal back (and the ones it builds on). */
@@ -1033,5 +1063,5 @@ export function rerunAfterSignIn(entryId: string): void {
 
 // e2e seam (dev, or ?e2e): the terminal's state and the apply step — a test can stage what no tool stages yet (a send)
 if (typeof window !== 'undefined' && (import.meta.env.DEV || new URLSearchParams(window.location.search).has('e2e'))) {
-  ;(window as unknown as { __oneTerm?: unknown }).__oneTerm = { state: useAgent, applyChanges }
+  ;(window as unknown as { __oneTerm?: unknown }).__oneTerm = { state: useAgent, applyChanges, applyStaged, undoStagedBatch, discardStaged, undiscardStaged }
 }
