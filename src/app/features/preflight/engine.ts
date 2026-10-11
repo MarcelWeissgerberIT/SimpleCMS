@@ -22,6 +22,7 @@ import { whenIdle, type IdleDeadline } from './idle'
 import { usePreflight } from './state'
 import { resetQueue, useQueue } from './queue/state'
 import { reducedMotion } from './touch'
+import { appendLog, enterLog } from './log'
 import type { AckRecord, LastCache, Level, LampView, TodayRecord } from './types'
 
 /** a lamp is read this long after its source said "changed" (default) */
@@ -67,6 +68,9 @@ let dayTimer: ReturnType<typeof setTimeout> | null = null
 let hiddenSince: number | null = null
 let services: (() => () => void) | null = null
 let lastWritten: string | null = null
+/** lamps lit at the last rebuild (null: not counted yet in this scope) · every lamp went dark in this scope once */
+let litBefore: number | null = null
+let cleared = false
 
 const S = () => usePreflight.getState()
 
@@ -294,6 +298,13 @@ export function rebuild(): void {
   if (litChanged && s.ready) patch.lastChange = now
   if (ready && !s.ready && !s.lastChange) patch.lastChange = now
   if (Object.keys(patch).length) usePreflight.setState(patch)
+  // the Bordbuch: every lamp went dark (all clear) / a lamp lit again after that
+  if (ready) {
+    if (litBefore !== null && litBefore > 0 && lit === 0) appendLog({ at: now, k: 'clear' })
+    else if (litBefore === 0 && lit > 0 && cleared) appendLog({ at: now, k: 'relit' })
+    if (litBefore !== null && litBefore > 0 && lit === 0) cleared = true
+    litBefore = lit
+  }
   // the last count (for the next boot's hold and the caps before `ready`): only when the lamps or a level changed
   if (ready) {
     const last = lastOf(views, now)
@@ -309,25 +320,34 @@ export function rebuild(): void {
 
 /* ---------------- acknowledging */
 
-/** Acknowledge lamps (↵ / click on a lit cap, MASTER CAUTION): their current ids stop being new on this device. */
-export function ackLamps(ids: readonly LampId[]): number {
+/**
+ * Acknowledge lamps (↵ / click on a lit cap, MASTER CAUTION, arrivals while the lamp's queue holds focus): their
+ * current ids stop being new on this device. `how` goes into the Bordbuch (only when something new was acknowledged).
+ */
+export function ackLamps(ids: readonly LampId[], how: 'enter' | 'mc' | 'open' = 'enter'): number {
   if (!scope) return 0
   const now = Date.now()
   const entries: AckRecord['lamps'] = {}
+  const fresh: LampId[] = []
   for (const id of ids) {
     const r = cache.get(id)?.reading
     if (!r || r.state !== 'ok') continue
     entries[id] = makeAck(r.ids, r.count, now)
+    if (S().views.find((v) => v.id === id)?.isNew) fresh.push(id)
   }
   if (!Object.keys(entries).length) return 0
   acks = putAcks(scope, entries)
+  for (const id of fresh) appendLog({ at: now, k: 'ack', lamp: id, n: cache.get(id)?.reading?.count ?? 0, how })
   rebuild()
   return Object.keys(entries).length
 }
 
 /** MASTER CAUTION: acknowledge every new lamp. */
 export function ackAll(): number {
-  return ackLamps(S().views.filter((v) => v.isNew).map((v) => v.id))
+  return ackLamps(
+    S().views.filter((v) => v.isNew).map((v) => v.id),
+    'mc',
+  )
 }
 
 /* ---------------- the Preflight day */
@@ -360,9 +380,11 @@ export function applyModeEffect(e: ModeEffect): void {
 export function fold(): void {
   useQueue.setState({ unfolded: false, lamp: null })
   updateToday({ base: [...S().newIds] })
+  appendLog({ at: Date.now(), k: 'fold' })
 }
 
 export function unfold(): void {
+  if (!useQueue.getState().unfolded) appendLog({ at: Date.now(), k: 'unfold' })
   useQueue.setState({ unfolded: true })
 }
 
@@ -383,6 +405,7 @@ function newDayIfDue(): void {
   }
   usePreflight.setState({ today: readToday(scope, day) })
   resetQueue()
+  void enterLog(scope, day)
   markAll()
   armDay()
 }
@@ -401,10 +424,12 @@ export function runLampTest(grid: HTMLElement | null): number {
   if (!s.ready || s.today.test || s.testing !== 'off') return 0
   if (!readPrefs().test) {
     updateToday({ test: 'off' })
+    appendLog({ at: Date.now(), k: 'test', skipped: 'off' })
     return 0
   }
   if (reducedMotion()) {
     updateToday({ test: 'skipped' })
+    appendLog({ at: Date.now(), k: 'test', skipped: 'motion' })
     return 0
   }
   for (const t of testTimers) clearTimeout(t)
@@ -413,6 +438,7 @@ export function runLampTest(grid: HTMLElement | null): number {
   const plan = testSchedule(lit.length)
   usePreflight.setState({ testing: 'phase1', lastChange: Date.now() })
   updateToday({ test: 'ran' })
+  appendLog({ at: Date.now(), k: 'test', ok: s.views.length, of: s.views.length, flash: s.views.filter((v) => v.isNew && v.flash).length })
   testTimers.push(
     setTimeout(() => {
       usePreflight.setState({ testing: 'phase2' })
@@ -478,6 +504,9 @@ function enterScope(next: string | null): void {
   firstPass = false
   lastWritten = null
   resetQueue()
+  litBefore = null
+  cleared = false
+  void enterLog(next, next ? dayNow() : '')
   if (!next) {
     usePreflight.setState({ scope: null, ready: false, views: [], overflow: [], lit: 0, mc: 0, open: 0, newIds: [], today: { day: '', base: [] }, last: null, ackedAt: null, hidden: 0, lastChange: 0 })
     return
@@ -600,6 +629,7 @@ function deactivate(): void {
   dirty.clear()
   firstPass = false
   resetQueue()
+  void enterLog(null, '')
   usePreflight.setState({ on: false, scope: null, ready: false, views: [], overflow: [], lit: 0, mc: 0, open: 0, newIds: [], testing: 'off' })
 }
 

@@ -90,7 +90,8 @@ export async function runPendingReset(onBlocked?: () => void): Promise<boolean> 
     /* "1" or junk: start over */
   }
   if (!names) {
-    const all = new Set<string>(['keyval-store', 'one-files', 'one-vault'])
+    // databases() is missing in some browsers: the ones a reset must reach anyway (Preflight's Bordbuch too)
+    const all = new Set<string>(['keyval-store', 'one-files', 'one-vault', 'one-preflight'])
     try {
       const dbs = (await indexedDB.databases?.()) ?? []
       for (const d of dbs) if (d.name) all.add(d.name)

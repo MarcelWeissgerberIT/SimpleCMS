@@ -3,10 +3,14 @@
  * from their boot modules (the Outbox: features/outbox/lamp.ts).
  *  - registerBuiltIns(): idempotent
  *  - startSourceServices(): the lamps' background reads while Preflight is on (the own server agents' open runs,
- *    polled only while the tab is visible) — returns the stop
+ *    polled only while the tab is visible) and what Preflight tells the agents area (a card the person opened is never
+ *    superseded — unknown until the opened set loaded, then no pass runs; an agent's "has N proposals" toast stays away
+ *    while the proposals queue is on screen) — returns the stop
  */
-import { startOpenServerPoll } from '../../agents'
+import { catchUpSupersede, setProposalsShown, setSupersedeGuard, startOpenServerPoll } from '../../agents'
 import { ensureRunsLoaded } from '../../ai/runs'
+import { onOpened, openedLoads, openedReady, wasOpened } from '../log'
+import { proposalsOnScreen } from '../queue/state'
 import { registerLampSource } from '../registry'
 import { proposalsLamp } from './proposals'
 import { failedLamp, gateLamp, questionLamp } from './coding'
@@ -31,5 +35,22 @@ export function registerBuiltIns(): void {
 export function startSourceServices(): () => void {
   // AI-menu results of this device (the sidebar's LED loads them too; once per tab)
   void ensureRunsLoaded().catch(() => {})
-  return startOpenServerPoll()
+  setSupersedeGuard((runId, changeId) => wasOpened(`run:${runId}#${changeId}`))
+  setProposalsShown(proposalsOnScreen)
+  // the leader's pass was skipped while the opened set was unknown: once it is known, it looks again
+  let caught = 0
+  const catchUp = () => {
+    if (!openedReady() || caught === openedLoads()) return
+    caught = openedLoads()
+    void catchUpSupersede().catch((e) => console.warn('[one] preflight: superseding could not catch up', e))
+  }
+  const offOpened = onOpened(catchUp)
+  catchUp()
+  const stopPoll = startOpenServerPoll()
+  return () => {
+    offOpened()
+    stopPoll()
+    setSupersedeGuard(null)
+    setProposalsShown(null)
+  }
 }

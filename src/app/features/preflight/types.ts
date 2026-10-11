@@ -2,7 +2,7 @@
  * Preflight's own types (internal): what the plate shows of a lamp, the device preferences and the small per-member
  * records in localStorage (§9 of the design). Pure — no imports beyond types.
  */
-import type { LampId } from './registry'
+import type { LampId, Outcome, QueueItem } from './registry'
 
 export type Level = 'dark' | 'amber' | 'red' | 'grey'
 
@@ -89,3 +89,38 @@ export interface AckRecord {
 }
 
 export type PlateMode = 'off' | 'full' | 'strip'
+
+/** One event of the Bordbuch (IndexedDB one-preflight, `<scope>|log|<day>`): ids, kinds, times, outcomes — never text. */
+export type PreflightLog =
+  | { at: number; k: 'test'; ok?: number; of?: number; flash?: number; skipped?: 'motion' | 'off' }
+  | { at: number; k: 'ack'; lamp: LampId; n: number; how: 'enter' | 'mc' | 'open' }
+  | { at: number; k: 'card'; lamp: LampId; item: string; outcome: Outcome; kind: string; batch?: string; refs: QueueItem['refs'] }
+  | { at: number; k: 'undo'; item: string; lamp?: LampId; batch?: string }
+  | { at: number; k: 'source'; lamp: LampId; ref: string; n: number; sup?: number }
+  | { at: number; k: 'fold' | 'unfold' | 'clear' | 'relit' }
+
+export type PreflightLogKind = PreflightLog['k']
+
+/** A day of the Bordbuch as stored. */
+export interface LogDay {
+  v: 1
+  day: string
+  events: PreflightLog[]
+}
+
+/** One card done in this tab today (Z undoes the newest; a batch goes back together). */
+export interface DoneEntry {
+  id: string
+  lamp: LampId
+  outcome: Outcome
+  at: number
+  batch?: string
+  undo?: () => Promise<'undone' | 'kept' | 'final'>
+  /** why it has no Undo (a message key) */
+  final?: string
+  /** a note the source handed back ("+2 dependants") */
+  note?: string
+  /** marked once its Undo ran ('undone') */
+  undone?: boolean
+  label: { kind: string; refs: QueueItem['refs'] }
+}

@@ -23,6 +23,7 @@ import type { PreflightPrefs } from './types'
 import { usePreflight } from './state'
 import { resetQueue, useQueue } from './queue/state'
 import { noBlink } from './blink'
+import { logSettled, openedIds, readDay, useLog } from './log'
 
 const fakes: Array<() => void> = []
 
@@ -46,6 +47,16 @@ export function installSeam(): void {
     acks: () => JSON.parse(JSON.stringify(acksNow())),
     ack: (lampId: string) => ackLamps([lampId]),
     lamps: () => lampSources().map((s) => s.id),
+    /** the Bordbuch of a day (default: today) as stored, after pending writes */
+    log: async (day?: string) => {
+      await logSettled()
+      return readDay(day ?? useLog.getState().day)
+    },
+    /** the opened cards (ids), after pending writes */
+    opened: async () => {
+      await logSettled()
+      return openedIds()
+    },
     renders: () => ({ ...renderCounts }),
     noBlink,
     /** the plate folded to its strip / unfolded (as the ⋯ menu and the strip's chevron do) */
@@ -99,6 +110,7 @@ export function installSeam(): void {
       agentRuns: useAgentRuns,
       serverAgents: useServerAgents,
       autofill: useAutofill,
+      log: useLog,
     },
   }
 }

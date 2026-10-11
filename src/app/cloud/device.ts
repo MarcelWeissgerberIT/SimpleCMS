@@ -16,6 +16,8 @@
  *   localStorage one.preflight.{ack,today,last,hidden}:cloud:<id>:u:<user>  Preflight's acknowledgements, day, last
  *                                       count and hidden lamps of each member here (+ the workspace's
  *                                       one.preflight.lastScope entry); the device-wide one.preflight.prefs stays
+ *   one-preflight / kv                  Preflight's Bordbuch and opened cards of each member here
+ *                                       (cloud:<id>:u:<user>|log|<day>, cloud:<id>:u:<user>|opened)
  * The team workspace on the server is never touched, nor is the local workspace or anything it uses
  * (a local workspace copied into a team keeps its page and file ids, so those are checked).
  *
@@ -324,6 +326,15 @@ async function forget(flag: string[]): Promise<void> {
       return !!m && targets.has(m[1])
     })
     if (outboxKeys.length) await delMany(outboxKeys, store).catch(() => {})
+  }
+  // Preflight's Bordbuch and opened cards of each member (features/preflight/log.ts): keys "cloud:<ws>[:u:<account>]|…"
+  if (!dbNames || dbNames.includes('one-preflight')) {
+    const store = createStore('one-preflight', 'kv')
+    const pfKeys = (await keys(store).catch(() => [] as IDBValidKey[])).filter((k) => {
+      const m = /^cloud:([^|:]+)(?::u:[^|]+)?\|/.exec(String(k))
+      return !!m && targets.has(m[1])
+    })
+    if (pfKeys.length) await delMany(pfKeys, store).catch(() => {})
   }
   // coding pipeline of this device (features/coding/local.ts): logs, run states, trusted task versions — keys "cloud:<ws>|…"
   if (!dbNames || dbNames.includes('one-coding')) {
