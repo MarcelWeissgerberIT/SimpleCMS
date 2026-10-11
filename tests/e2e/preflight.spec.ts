@@ -210,18 +210,23 @@ test.describe('Preflight — MASTER CAUTION and keys (T-P1-3)', () => {
     await expect(page.locator('.pf-cap:focus')).toHaveCount(1)
   })
 
-  test('↵ on a lit cap acknowledges it and opens its screen; a new id makes it new again', async ({ page }) => {
+  test('↵ on a lit cap acknowledges it and opens its queue; a new id makes it new again', async ({ page }) => {
     await start(page)
     const seeded = await seedMorning(page)
     await expect(cap(page, 'gate').locator('.pf-cap__new')).toBeVisible()
     await cap(page, 'gate').focus()
     await page.keyboard.press('Enter')
-    // the gate's first task opens (P1: the source's own screen)
-    await expect(page).toHaveURL(new RegExp(`#/p/${seeded.pipeline!.tasks[0]}`))
-    await home(page)
+    // P2: the lamp's queue opens below the plate, its first card takes the keyboard (P1 opened the source's screen)
+    await expect(page.getByTestId('pf-queue').locator('.pf-tab[data-lamp="gate"]')).toHaveAttribute('aria-selected', 'true')
+    await expect(page.locator('.pf-q article.pf-card[data-current]')).toBeFocused()
+    expect(new URL(page.url()).hash).toBe('#/')
     await expect(cap(page, 'gate').locator('.pf-cap__new')).toHaveCount(0)
-    await expect(cap(page, 'gate')).toHaveAttribute('aria-label', 'Gate · Plan: 2 open, acknowledged.')
-    // the same count with another id: new again ("new"), the chip back
+    await expect(cap(page, 'gate')).toHaveAttribute('aria-label', /^Gate · Plan: 2 open, acknowledged\./)
+    // the same count with another id: new again ("new"), the chip back — while another lamp's queue is open (an open
+    // queue acknowledges what arrives in it: the person sees it)
+    await cap(page, 'token').focus()
+    await page.keyboard.press('Enter')
+    await expect(page.getByTestId('pf-queue').locator('.pf-tab[data-lamp="token"]')).toHaveAttribute('aria-selected', 'true')
     await wsEval(page, (s, a) => {
       const db = s.databases[a.db]
       const stage = db.properties.find((p: AnyState) => (p.options ?? []).some((o: AnyState) => o.id === a.gate))

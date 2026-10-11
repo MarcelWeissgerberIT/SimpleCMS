@@ -170,13 +170,18 @@ function settleReading(lamp: LampId, out: QueueItem[]): void {
     if (done.has(cur) || inWork[cur] || finished.some((f) => f.id === cur) || s.leaving[cur] || s.busy === cur) continue
     tombstones[cur] = 'elsewhere'
   }
-  const keep = (list: QueueState['pending'], present: boolean) => list.filter((p) => p.lamp !== lamp || (ids.has(p.id) === present && now - p.at < OVERLAY_MS))
+  // the same reference when nothing changed: the plate re-renders on the overlay lists (PB5 — one render per reading)
+  const keep = (list: QueueState['pending'], present: boolean) => {
+    const next = list.filter((p) => p.lamp !== lamp || (ids.has(p.id) === present && now - p.at < OVERLAY_MS))
+    return next.length === list.length ? list : next
+  }
+  const same = <T extends object>(a: T, b: T) => Object.keys(a).length === Object.keys(b).length && Object.keys(a).every((k) => (a as Record<string, unknown>)[k] === (b as Record<string, unknown>)[k])
   useQueue.setState({
     items: { ...s.items, [lamp]: out },
-    inWork,
-    tombstones,
-    seen,
-    done: [...s.done, ...finished],
+    inWork: same(inWork, s.inWork) ? s.inWork : inWork,
+    tombstones: same(tombstones, s.tombstones) ? s.tombstones : tombstones,
+    seen: same(seen, s.seen) ? s.seen : seen,
+    done: finished.length ? [...s.done, ...finished] : s.done,
     // pending: kept while the reading still has the id; undone: while it does not have it yet
     pending: keep(s.pending, true),
     undone: keep(s.undone, false),

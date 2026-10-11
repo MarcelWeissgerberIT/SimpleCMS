@@ -226,9 +226,11 @@ export function Card({ item, index, total, level }: CardProps) {
     if (takeCardFocus()) frame.current?.focus({ preventScroll: true })
   }, [item.id])
 
-  // a current card with its body shown is opened and (once prepared) viewed — ⇧A may take it
+  // a current card with its body shown is viewed once prepared (⇧A may take it); it is OPENED (never stale, never
+  // superseded) once the person is in the queue — a lamp's tab opened in this tab, or the keyboard in the queue —
+  // not merely because Start showed its default tab
   useEffect(() => {
-    markOpened(item.id)
+    if (useQueue.getState().lamp !== null || document.activeElement?.closest('.pf-q')) markOpened(item.id)
     if (ready && !tomb) useQueue.setState((s) => (s.viewed[item.id] ? s : { viewed: { ...s.viewed, [item.id]: true } }))
   }, [item.id, ready, tomb])
 
@@ -269,6 +271,7 @@ export function Card({ item, index, total, level }: CardProps) {
       data-leaving={leaving}
       data-testid="pf-card"
       tabIndex={-1}
+      onFocus={() => markOpened(item.id)}
       aria-label={kindLabel}
       aria-busy={prep === 'loading' || busyHere || undefined}
     >
