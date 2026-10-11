@@ -490,7 +490,9 @@
     grid-template-columns: minmax(0, 1fr) calc(360px * var(--text-scale));
     gap: 26px;
   }
-  .agx-detail__cols > .agt-plate {
+  /* it stays in view while the runs scroll only while all of it fits the window (TrustPlate measures: data-fits) —
+     a taller plate scrolls with the page, its legend reachable */
+  .agx-detail__cols > .agt-plate[data-fits] {
     position: sticky;
     top: 16px;
   }
@@ -785,6 +787,11 @@
 }
 .agx-review .agent-change[data-keys]:focus-visible {
   box-shadow: inset 3px 0 0 var(--ink), var(--focus-ring);
+}
+/* a cut body's "Show n more lines" key */
+.agx-review .btn.agent-preview__more {
+  display: inline-flex;
+  margin-top: 4px;
 }
 /* proposals of one field and value discarded as wrong, their Undo gone: one quiet line */
 .agx-quiet {

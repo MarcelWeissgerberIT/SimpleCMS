@@ -97,7 +97,9 @@
   height: 6px;
 }
 
-/* ---------- the plate ---------- */
+/* ---------- the plate ----------
+ * Text on the plate itself (not on its rows' surface) is ink: the only text colour the look engine keeps ≥ 4.5 : 1 on
+ * the anodised plate for every look (look-engine.spec "the trust plate"); hierarchy comes from weight and size. */
 .screw-plate.agt-plate {
   --screw-inset: 5px;
   --screw-d: 6px;
@@ -112,20 +114,22 @@
   padding: 0 6px;
 }
 .label.agt-plate__n {
-  color: var(--signal-ink);
+  color: var(--ink);
   font-weight: 600;
 }
 .label.agt-plate__title {
   margin: 0;
-  color: var(--ink-2);
+  color: var(--ink);
   font-weight: 600;
 }
 .label.agt-plate__r {
   margin-left: auto;
+  color: var(--ink);
+  font-weight: 400;
 }
 .agt-plate__lede {
   margin: 4px 6px 8px;
-  color: var(--ink-2);
+  color: var(--ink);
   font-size: calc(12px * var(--text-scale));
   line-height: 1.45;
 }
@@ -241,7 +245,7 @@
   align-items: baseline;
   gap: 8px;
   margin-top: 4px;
-  color: var(--ink-2);
+  color: var(--ink);
   font-size: calc(12px * var(--text-scale));
   line-height: 1.4;
 }
@@ -250,9 +254,14 @@
   align-items: center;
   gap: 6px;
 }
+/* on the plate itself, not on a row: ink (ink-3 there is under 4.5 : 1) */
+.agt-never__row dt.label {
+  color: var(--ink);
+  font-weight: 600;
+}
 .agt-never__row dt svg {
   flex: none;
-  color: var(--ink-3);
+  color: var(--ink);
 }
 .agt-never__row dd {
   margin: 0;
@@ -276,19 +285,19 @@
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  color: var(--ink-2);
+  color: var(--ink);
   font-size: calc(11.5px * var(--text-scale));
   white-space: nowrap;
 }
 .agt-plate__rule {
   margin: 6px 0 0;
-  color: var(--ink-2);
+  color: var(--ink);
   font-size: calc(11.5px * var(--text-scale));
   line-height: 1.45;
 }
 .agt-plate__rule b {
   color: var(--ink);
-  font-weight: 600;
+  font-weight: 650;
 }
 
 /* ---------- the run review's keys (RunHistory, trust/ui/Reasons.tsx) ----------
@@ -319,6 +328,10 @@
 .agx-review .agent-change:focus-within .btn.agt-apply:not(:disabled):hover {
   border-color: var(--signal-hover);
   background: var(--signal-hover);
+}
+/* the orange key holding the keyboard focus keeps the focus ring (the rule above would drop it) */
+.agx-review .agent-change:focus-within .btn.agt-apply:not(:disabled):focus-visible {
+  box-shadow: var(--focus-ring), inset 0 -2px 0 rgba(0, 0, 0, 0.18);
 }
 .btn.agt-discard .agt-discard__chev {
   margin-left: 4px;
@@ -415,5 +428,13 @@
     background: var(--ink);
     color: var(--ink-inverse);
     box-shadow: none;
+  }
+  .agx-review .agent-change:focus-within .btn.agt-apply:not(:disabled):focus-visible {
+    box-shadow: var(--focus-ring);
+  }
+  /* a decided row's keys: its Undo (the only way back from a reason tapped by mistake) and Open, 44 px too */
+  .agx-review .agent-change__actions .btn.agent-change__undo,
+  .agx-review .agent-change__actions .btn.agent-change__open {
+    min-height: 44px;
   }
 }

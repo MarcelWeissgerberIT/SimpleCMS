@@ -2,12 +2,15 @@
  * Per-field trust — the screwed plate "§ 03 TRUST PER FIELD · LAST 20 VERDICTS" (the agent page's aside): this
  * device's verdicts per key as meters with their notes, then what is never direct (only by hand, the key property)
  * and what always waits for review, the legend and the rule. Read only in S1 (no switches, every lamp PRÜFUNG — the
- * notes say how far each key is). The book is loaded on mount and follows other tabs' writes.
+ * notes say how far each key is). The book is loaded on mount and follows other tabs' writes. Beside the runs it stays in
+ * view while they scroll — only while all of it fits the scrolling region (`data-fits`, measured): a taller plate
+ * scrolls with the page, so its lower rows, the legend and the rule are never out of reach.
  */
-import { useEffect, useId, useMemo, useState } from 'react'
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import { Hand, Lock } from 'lucide-react'
 import { useWorkspace } from '../../../../store/store'
 import { useT } from '../../../../i18n'
+import { titleIfClipped } from '../../../../ui/clip'
 import { Screws } from '../../../../ui/controls'
 import type { CustomAgent } from '../../../../store/types'
 import type { AgentRun } from '../../types'
@@ -20,6 +23,35 @@ import '../trust.css'
 
 /** The lesson states that put "just now 3 × wrong → lesson" on a row. */
 const LESSON_OPEN = new Set(['waiting', 'offer', 'drafting', 'ready'])
+
+/** The nearest ancestor that scrolls (the page's main region), else the window's. */
+function scroller(el: HTMLElement): HTMLElement {
+  for (let p = el.parentElement; p; p = p.parentElement) {
+    const y = getComputedStyle(p).overflowY
+    if (y === 'auto' || y === 'scroll') return p
+  }
+  return document.documentElement
+}
+
+/** The room a sticky plate keeps above and below it (its `top` is 16 px). */
+const STICK_ROOM = 32
+
+/** `data-fits` on the plate while all of it fits its scrolling region (then it may stick beside the runs). */
+function useFits(ref: RefObject<HTMLElement | null>): boolean {
+  const [fits, setFits] = useState(false)
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el || typeof ResizeObserver === 'undefined') return
+    const port = scroller(el)
+    const check = () => setFits(el.offsetHeight + STICK_ROOM <= port.clientHeight)
+    check()
+    const ro = new ResizeObserver(check)
+    ro.observe(el)
+    ro.observe(port)
+    return () => ro.disconnect()
+  }, [ref])
+  return fits
+}
 const LEGEND: Array<[Seg, string]> = [
   ['g', 'accept'],
   ['s', 'spot'],
@@ -36,6 +68,8 @@ export function TrustPlate({ agent, runs, variant = 'aside' }: { agent: CustomAg
   const pages = useWorkspace((s) => s.pages)
   const databases = useWorkspace((s) => s.databases)
   const [all, setAll] = useState(false)
+  const ref = useRef<HTMLElement>(null)
+  const fits = useFits(ref)
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
     void loadBook(agent.id)
@@ -63,7 +97,7 @@ export function TrustPlate({ agent, runs, variant = 'aside' }: { agent: CustomAg
   const row = (r: PlateRow, i: number) => <TrustRow key={r.key} row={r} lesson={lessons.get(r.key) ?? null} now={now} noteId={`${id}-n${i}`} />
 
   return (
-    <aside className="screw-plate agt-plate" data-variant={variant} aria-labelledby={`${id}-h`} data-testid="agt-plate">
+    <aside ref={ref} className="screw-plate agt-plate" data-variant={variant} data-fits={fits || undefined} aria-labelledby={`${id}-h`} data-testid="agt-plate">
       <Screws seed={`trust:${agent.id}`} />
       <div className="agt-plate__head">
         <span className="label agt-plate__n" aria-hidden="true">
@@ -83,7 +117,11 @@ export function TrustPlate({ agent, runs, variant = 'aside' }: { agent: CustomAg
         <div className="agt-plate__rows">
           {groups.map((g, gi) => (
             <section key={g.id ?? '-'} className="agt-group" aria-label={sub ? g.title : undefined}>
-              {sub && <h3 className="label agt-group__title">{g.title}</h3>}
+              {sub && (
+                <h3 className="label agt-group__title" onMouseEnter={titleIfClipped}>
+                  {g.title}
+                </h3>
+              )}
               <ul className="agt-rows">{g.rows.map((r, i) => row(r, gi * 100 + i))}</ul>
             </section>
           ))}

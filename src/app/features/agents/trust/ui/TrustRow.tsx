@@ -3,6 +3,7 @@
  * (§3.4 of the design: the first rule that applies). S1 is read only: no switch yet.
  */
 import { useT, useLang } from '../../../../i18n'
+import { titleIfClipped } from '../../../../ui/clip'
 import type { Lang } from '@/shared/i18n'
 import { meterLabel, noteOf } from '../rules'
 import { GRANTS, type PlateRow } from '../plate'
@@ -33,7 +34,7 @@ export function TrustRow({ row, lesson, now, noteId }: { row: PlateRow; lesson?:
   return (
     <li className="agt-row" data-lamp={row.lamp} data-key={row.key} data-testid="agt-row">
       <span className="agt-row__name">
-        <b>{row.label.name}</b>
+        <b onMouseEnter={titleIfClipped}>{row.label.name}</b>
         {row.label.kind && <span className="label agt-row__kind">{row.label.kind}</span>}
       </span>
       <TrustLamp lamp={GRANTS ? row.lamp : 'review'} />

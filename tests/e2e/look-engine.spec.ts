@@ -260,6 +260,38 @@ test('the trust meter: trust.css mixes what the engine checks; every fill ≥ 3 
   expect(checked).toBe(2 + looks.length * 2)
 })
 
+test('the trust plate: its own text (labels, lede, legend, rule) ≥ 4.5 : 1 on the anodised plate — trust.css draws it in ink — standard look, presets, swatches, 640 random looks, Paper and Carbon', () => {
+  // the plate's own text (§ 03, the head, labels, lede, never / always, legend, rule) is ink — ink-2, ink-3 and the
+  // signal ink drop under 4.5 : 1 on the plate for some looks; ink is held ≥ 4.5 there for every look
+  const body = (sel: string) => {
+    const at = TRUST.indexOf(sel + ' {')
+    return at < 0 ? '' : TRUST.slice(at, TRUST.indexOf('}', at))
+  }
+  for (const sel of ['.label.agt-plate__n', '.label.agt-plate__title', '.label.agt-plate__r', '.agt-plate__lede', '.agt-never__row', '.agt-never__row dt.label', '.agt-legend li', '.agt-plate__rule', '.agt-plate__rule b']) {
+    expect(body(sel), sel).toMatch(/color: var\(--ink\);/)
+  }
+  const failures: string[] = []
+  let checked = 0
+  const check = (name: string, f: Record<string, string>, mode: 'light' | 'dark') => {
+    const plate = mixSrgb(f.ink, f.surface, mode === 'light' ? 0.13 : 0.14)
+    const r = contrast(f.ink, plate)
+    if (!(r >= 4.5)) failures.push(`${name} ${mode} ink ${f.ink} on ${plate}: ${r.toFixed(2)}`)
+    checked++
+  }
+  for (const mode of ['light', 'dark'] as const) check('standard', STOCK_TOKENS[mode], mode)
+  const looks: Array<[string, Pick<WorkspaceLook, 'colors'>]> = [
+    ...Object.entries(LOOK_PRESETS).map(([id, p]) => [id, p] as [string, Pick<WorkspaceLook, 'colors'>]),
+    ...SWATCHES.signal.map((s) => [`swatch ${s.id}`, { colors: { ...STOCK_COLORS.light, signal: s.hex } }] as [string, Pick<WorkspaceLook, 'colors'>]),
+    ...[...EDGE, ...triples(640)].map((colors) => [`${colors.paper} ${colors.ink} ${colors.signal}`, { colors }] as [string, Pick<WorkspaceLook, 'colors'>]),
+  ]
+  for (const [name, l] of looks) {
+    const d = deriveLook(l)
+    for (const mode of ['light', 'dark'] as const) check(name, d[mode].full, mode)
+  }
+  expect(failures.slice(0, 20)).toEqual([])
+  expect(checked).toBe(2 + looks.length * 2)
+})
+
 test('a green signal keeps the "fine" LED apart from the "working" one', () => {
   const d = deriveMode({ ...STOCK_COLORS.light, signal: '#00704a' }, 'light')
   expect(d.tokens['led-ok']).toMatch(/^#[0-9a-f]{6}$/)
