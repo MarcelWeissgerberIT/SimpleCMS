@@ -247,6 +247,14 @@
   line-height: 1.2;
   text-transform: uppercase;
 }
+/* the open queue's chip: "↵ 3/10" — only "↵" where the cap is narrow or the text big (the queue bar says the place) */
+.pf-cap__pos {
+  margin-left: 4px;
+}
+html[data-text-size='3'] .pf-cap__pos,
+html[data-text-size='4'] .pf-cap__pos {
+  display: none;
+}
 .pf-cap__legend > span {
   min-width: 0;
   white-space: pre-line;
@@ -600,13 +608,17 @@
   color: var(--ink);
   font-weight: 650;
 }
+/* one label column for every row (its widest label, at most 42 %): words are never broken inside a label */
 .pf-spec__rows {
+  display: grid;
+  grid-template-columns: fit-content(42%) minmax(0, 1fr);
+  column-gap: 10px;
   margin: 0;
 }
 .pf-spec__row {
   display: grid;
-  grid-template-columns: 82px minmax(0, 1fr);
-  gap: 10px;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
   padding: 7px 12px;
   border-bottom: 1px solid var(--rule);
   font-size: calc(12.5px * var(--text-scale));
@@ -616,8 +628,9 @@
   border-bottom: 0;
 }
 .pf-spec__row dt {
+  min-width: 0;
   padding-top: 2px;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 .pf-spec__row dd {
   min-width: 0;
@@ -919,15 +932,17 @@ html[data-pf-noblink] .pf-pip[data-flash] {
   box-shadow: inset 0 0 0 1px var(--rule-strong);
 }
 .pf-qbar__done {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
+  display: block;
   min-width: 0;
   overflow: hidden;
   color: var(--ink-2);
   font-size: var(--text-sm);
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+/* one line, cut with "…" (the whole list is its title) */
+.pf-qbar__done > .label {
+  margin-right: 6px;
 }
 .pf-qbar__done s {
   color: var(--ink-3);
@@ -1098,6 +1113,11 @@ html[data-pf-noblink] .pf-pip[data-flash] {
   min-width: 0;
   padding: 8px 14px 0 18px;
   overflow-wrap: anywhere;
+}
+/* the agents' review frame without its own dashed rule: the card is the frame (the diff keeps its hairline) */
+.pf-card__review.agx-review {
+  padding-top: 0;
+  border-top: 0;
 }
 .pf-card__review .agent-change__title {
   font-size: calc(16px * var(--text-scale));
@@ -1533,6 +1553,9 @@ html[data-pf-noblink] .pf-pip[data-flash] {
   }
 }
 @container (max-width: 639px) {
+  .pf-cap__pos {
+    display: none;
+  }
   /* the tab strip scrolls: its right edge fades out while there is more */
   .pf-tabs {
     margin-right: -16px;

@@ -71,8 +71,9 @@ function DoneList({ entries }: { entries: DoneEntry[] }) {
   const t = useT()
   const shown = entries.filter((e) => !e.undone).slice(-3)
   if (!shown.length) return null
+  const full = shown.map((e) => `${entryLabel(e, t)} ${t(`features.preflight.queue.outcome.${e.outcome}`)}`).join(' · ')
   return (
-    <span className="pf-qbar__done">
+    <span className="pf-qbar__done" title={`${t('features.preflight.queue.done')} ${full}`}>
       <span className="label">{t('features.preflight.queue.done')}</span>
       {shown.map((e, i) => {
         const label = entryLabel(e, t)

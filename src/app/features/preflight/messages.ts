@@ -80,7 +80,6 @@ export const messages: Messages = {
 
     'features.preflight.cap.new': 'new',
     'features.preflight.cap.plus': '+{n}',
-    'features.preflight.cap.open': '↵ {pos}',
     'features.preflight.cap.aria.warn': 'Warning: ',
     'features.preflight.cap.aria.acked': '{lamp}: {n} open, acknowledged.',
     'features.preflight.cap.aria.someNew': '{lamp}, {n}, {k} of them new',
@@ -532,7 +531,6 @@ export const messages: Messages = {
 
     'features.preflight.cap.new': 'neu',
     'features.preflight.cap.plus': '+{n}',
-    'features.preflight.cap.open': '↵ {pos}',
     'features.preflight.cap.aria.warn': 'Warnung: ',
     'features.preflight.cap.aria.acked': '{lamp}: {n} offen, quittiert.',
     'features.preflight.cap.aria.someNew': '{lamp}, {n}, davon {k} neu',

@@ -84,7 +84,7 @@ export const Cap = memo(function Cap({ view, tabStop, cursor, busy, flashDelay, 
       </span>
       {open && !busy ? (
         <span className="pf-cap__open" aria-hidden>
-          {t('features.preflight.cap.open', { pos: open })}
+          ↵<span className="pf-cap__pos">{open}</span>
         </span>
       ) : null}
       {view.chip && !busy && !open && (

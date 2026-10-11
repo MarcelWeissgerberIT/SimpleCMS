@@ -107,7 +107,7 @@ test.describe('the queue — the morning at card 3 (T-P2-1)', () => {
     await expect(page.getByTestId('pf-rule')).toContainText('8 cards')
     await expect(page.getByTestId('pf-rule')).toContainText('3 of them stale')
     // the cap of the open lamp shows the card's place
-    await expect(cap(page, 'proposals').locator('.pf-cap__open')).toHaveText('↵ 3/10')
+    await expect(cap(page, 'proposals').locator('.pf-cap__open')).toHaveText(/^↵\s*3\/10$/)
   })
 })
 
