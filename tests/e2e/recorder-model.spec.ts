@@ -36,6 +36,7 @@ import { overlay, overlayDb } from '../../src/app/features/recorder/model/overla
 import { blockHunks, locateUnique } from '../../src/app/features/recorder/model/blocks'
 import { core, targetsFor, type CoreInput } from '../../src/app/features/recorder/model/plan'
 import { optionRefs, propertyRefs, withoutProperty } from '../../src/app/database/model/withoutProperty'
+import { isEjectWriter, isSettled, markSettled, noteEject, onSettled, unmarkSettled, type SettledNote } from '../../src/app/features/recorder/settled'
 
 /* ------------------------------------------------------------------ */
 /* stub deps (the browser spec covers the real helpers)                */
@@ -1550,6 +1551,58 @@ test.describe('the planner core (E6)', () => {
     const w = win([ro])
     w.ownEvents = [{ ...w.ownEvents[0], kinds: K.DBMETA, x: [{ part: 'dbmeta' }] }]
     expect(coreOf({ ...fx, places: [w], now: { [S1]: nowD({}) } }).by(S1)).toMatchObject({ outcome: 'held', reason: 'notEjectable', why: 'viewOrder' })
+  })
+})
+
+test.describe('settled.ts (E7): what an eject settled, and its own writers', () => {
+  test('marks per change and per run, taken back; other tabs hear them on the channel; the eject\'s writers', async () => {
+    const heard: unknown[] = []
+    const other = new BroadcastChannel('one-recorder')
+    other.onmessage = (e) => heard.push(e.data)
+    const notes: SettledNote[] = []
+    const off = onSettled((n) => notes.push(n))
+    try {
+      markSettled('agent:a1:r212', ['c5', 'c6'])
+      expect(isSettled('agent:a1:r212', 'c5')).toBe(true)
+      expect(isSettled('agent:a1:r212', 'c11')).toBe(false)
+      // no id asks for the whole run: a run with single changes marked is not settled whole
+      expect(isSettled('agent:a1:r212')).toBe(false)
+      markSettled('script:s1:run9')
+      expect(isSettled('script:s1:run9')).toBe(true)
+      expect(isSettled('script:s1:run9', 'any')).toBe(true)
+      unmarkSettled('agent:a1:r212', ['c5'])
+      expect(isSettled('agent:a1:r212', 'c5')).toBe(false)
+      expect(isSettled('agent:a1:r212', 'c6')).toBe(true)
+      unmarkSettled('script:s1:run9')
+      expect(isSettled('script:s1:run9')).toBe(false)
+      expect(notes.map((x) => [x.runKey, x.ids.join(','), x.on, x.local])).toEqual([
+        ['agent:a1:r212', 'c5,c6', true, true],
+        ['script:s1:run9', '', true, true],
+        ['agent:a1:r212', 'c5', false, true],
+        ['script:s1:run9', '', false, true],
+      ])
+      // an eject id; the writers that are the eject's own
+      expect(isEjectWriter({ kind: 'you', via: 'undo', ref: 'ej1' })).toBe(false)
+      noteEject('ej1')
+      expect(isEjectWriter({ kind: 'eject', id: 'ej1', of: 'agent:a1:r212' })).toBe(true)
+      expect(isEjectWriter({ kind: 'rewind', id: 'rw1' })).toBe(true)
+      expect(isEjectWriter({ kind: 'you', via: 'undo', ref: 'ej1' })).toBe(true)
+      expect(isEjectWriter({ kind: 'you', via: 'undo', ref: 'slip-7' })).toBe(false)
+      expect(isEjectWriter({ kind: 'you', via: 'ui' })).toBe(false)
+      expect(isEjectWriter(null)).toBe(false)
+      // a mark from another tab applies here (its note is not local)
+      other.postMessage({ kind: 'settled', runKey: 'terminal:b7', ids: ['c1'], on: true })
+      other.postMessage({ kind: 'ejectRef', id: 'ej2' })
+      await expect.poll(() => isSettled('terminal:b7', 'c1')).toBe(true)
+      await expect.poll(() => isEjectWriter({ kind: 'you', via: 'undo', ref: 'ej2' })).toBe(true)
+      expect(notes.at(-1)).toMatchObject({ runKey: 'terminal:b7', local: false })
+      await expect.poll(() => heard.length).toBeGreaterThanOrEqual(5)
+      expect(heard[0]).toEqual({ kind: 'settled', runKey: 'agent:a1:r212', ids: ['c5', 'c6'], on: true })
+      expect(heard).toContainEqual({ kind: 'ejectRef', id: 'ej1' })
+    } finally {
+      off()
+      other.close()
+    }
   })
 })
 
