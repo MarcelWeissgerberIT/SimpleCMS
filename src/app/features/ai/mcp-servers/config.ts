@@ -361,13 +361,61 @@ export function liveOf(pinned: McpServerConfig, list: McpServerConfig[] = readSe
 /** An API error said this server rejected its token. */
 export function noteRefused(name: string): void {
   const s = readServers().find((x) => x.name === name)
-  if (s) refused.set(s.id, s.token ?? '')
+  if (!s || refused.get(s.id) === (s.token ?? '')) return
+  refused.set(s.id, s.token ?? '')
+  emitRefused()
 }
 
 /** The server works again (a connection test passed). */
 export function clearRefused(name: string): void {
   const s = readServers().find((x) => x.name === name)
-  if (s) refused.delete(s.id)
+  if (s && refused.delete(s.id)) emitRefused()
+}
+
+/* Who listens to the refused set (the Preflight token lamp): told when a server is noted, cleared, or forgotten because
+   its token marker changed or it was removed. The store is watched only while someone listens. */
+const refusedListeners = new Set<() => void>()
+let refusedWatch: (() => void) | null = null
+
+function emitRefused(): void {
+  for (const fn of [...refusedListeners]) {
+    try {
+      fn()
+    } catch (e) {
+      console.warn('[mcp] refused listener failed', e)
+    }
+  }
+}
+
+/** Forget refusals whose server is gone or holds another token now (a new token or sign-in = a new vault marker). */
+function forgetStale(): void {
+  if (!refused.size) return
+  const list = readServers()
+  let changed = false
+  for (const [id, token] of [...refused]) {
+    const s = list.find((x) => x.id === id)
+    if (s && (s.token ?? '') === token) continue
+    refused.delete(id)
+    changed = true
+  }
+  if (changed) emitRefused()
+}
+
+/** Listen for changes of the servers refused in this tab (noted · cleared · forgotten). */
+export function onRefusedChanged(fn: () => void): () => void {
+  refusedListeners.add(fn)
+  if (!refusedWatch) {
+    refusedWatch = useWorkspace.subscribe((s, prev) => {
+      if (s.settings.mcpServers !== prev.settings.mcpServers) forgetStale()
+    })
+  }
+  return () => {
+    refusedListeners.delete(fn)
+    if (!refusedListeners.size && refusedWatch) {
+      refusedWatch()
+      refusedWatch = null
+    }
+  }
 }
 
 /** Servers a request of this kind would take but leaves out because they rejected their token here. */
