@@ -46,3 +46,19 @@ export { mirrorSourceOf } from './mirror'
 export { recipeRoleNames } from './integrations/recipe'
 /** recipeOptionNames(profile) → property name → the option names the profile declares (both languages, lower case) */
 export { recipeOptionNames } from './integrations/recipe'
+/**
+ * Preflight's proposals queue (P2) — the review entry points, with their own safety rules (review.ts: the run lock, the
+ * stored run read again, open proposals only, a patch of what changed):
+ *  - applyRun(run, ids?, { row }) → ApplyResult | null · discardRun(run, ids | null, { undo }) → { dropped, undo } ·
+ *    undoChange(run, changeId) → kept | null
+ *  - AgentChangeBody { run, change }: the run history's own body of a proposal, loaded with the agents page's code on
+ *    first use (AGENT_BODY_KINDS: the kinds it shows)
+ *  - setSupersedeGuard(fn): which proposals were opened as cards (never replaced; null = not known yet → no pass) ·
+ *    catchUpSupersede(): the leader looks again (call it once that is known) · setProposalsShown(fn): while it says
+ *    true, an agent's "has N proposals" toast stays away
+ */
+export { applyRun, discardRun, undoChange, type Discarded } from './review'
+export { AgentChangeBody, AGENT_BODY_KINDS } from './body'
+export { setSupersedeGuard, type SupersedeGuard } from './supersede'
+export { catchUpSupersede } from './runner'
+export { setProposalsShown } from './hold'

@@ -7,6 +7,7 @@
  */
 import type { Page } from '@playwright/test'
 import { test, expect, openApp, waitForApp, wsEval, flush, createPage } from './fixtures'
+import { call, mockAgent, say, setKey } from './helpers/terminal'
 
 type AnyState = Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -317,3 +318,268 @@ test.describe('discard: what it dropped, and its Undo', () => {
     expect(await getState()).toMatchObject(later)
   })
 })
+
+/* ------------------------------------------------------------------ superseding (T-P2-9) */
+
+/** A database "Ledger rows" with Comments (number) and Status (text), and n rows. */
+async function seedRows(page: Page, n = 3): Promise<{ dbId: string; rows: string[]; comments: string; status: string }> {
+  return wsEval(
+    page,
+    (s, n) => {
+      const id = () => Math.random().toString(36).slice(2, 12)
+      const comments = { id: id(), name: 'Comments', type: 'number', numberFormat: 'number' }
+      const status = { id: id(), name: 'Status', type: 'text' }
+      const dbId = s.createDatabase({ title: 'Ledger rows', properties: [{ id: id(), name: 'Name', type: 'title' }, comments, status] })
+      const rows = Array.from({ length: n }, (_, i) => s.createRow(dbId, { title: `LR-${101 + i}`, properties: { [comments.id]: i } }))
+      return { dbId, rows, comments: comments.id, status: status.id }
+    },
+    n,
+  )
+}
+
+type Db = Awaited<ReturnType<typeof seedRows>>
+/** An update_row proposal: `fields` = which of Comments / Status it sets. */
+const upd = (db: Db, id: string, n: number, row: number, fields: Array<'comments' | 'status'>, x: AnyState = {}): AnyState => ({
+  id,
+  n,
+  kind: 'update_row',
+  status: 'pending',
+  pageId: db.rows[row],
+  databaseId: db.dbId,
+  title: `LR-${101 + row}`,
+  props: fields.map((f) => (f === 'comments' ? { propId: db.comments, name: 'Comments', type: 'number', before: '0', after: String(n + 3), intent: { kind: 'value', value: n + 3 } } : { propId: db.status, name: 'Status', type: 'text', before: '', after: 'open', intent: { kind: 'value', value: 'open' } })),
+  ...x,
+})
+
+const supersede = (page: Page) => ag(page, (a) => a.supersedeOlder('ag-ledger'))
+const readings = async (page: Page) => {
+  await page.evaluate(() => (window as AnyState).__onePreflight.flush())
+  return page.evaluate(() => JSON.parse(JSON.stringify((window as AnyState).__onePreflight.readings())))
+}
+
+test.describe('superseding (T-P2-9)', () => {
+  test('a newer proposal for the same row replaces older ones — never counted, struck in the run history, the newer one lists them', async ({ page }) => {
+    await start(page)
+    await addAgent(page)
+    const db = await seedRows(page)
+    const now = Date.now()
+    await seedRuns(page, [
+      run('r-new', now - 10 * 60_000, [upd(db, 'c1', 1, 0, ['comments', 'status'])]),
+      run('r-mid', now - 1 * DAY, [upd(db, 'c1', 1, 0, ['comments']), upd(db, 'c2', 2, 1, ['comments'])]),
+      run('r-old', now - 2 * DAY, [upd(db, 'c1', 1, 0, ['comments'])]),
+    ])
+    await openAgent(page)
+    expect(await ag(page, (a) => a.isLeader())).toBe(true)
+    expect((await readings(page)).proposals.count).toBe(4)
+
+    expect(await supersede(page)).toBe(2)
+    expect(await statuses(page, 'r-old')).toEqual({ c1: 'superseded' })
+    expect(await statuses(page, 'r-mid')).toEqual({ c1: 'superseded', c2: 'pending' })
+    expect(await statuses(page, 'r-new')).toEqual({ c1: 'pending' })
+    const newest = await stored(page, 'r-new')
+    expect(newest?.staged[0].supersedes.map((x: AnyState) => `${x.runId}#${x.changeId}`).sort()).toEqual(['r-mid#c1', 'r-old#c1'])
+    expect(newest?.steps.map((s: AnyState) => s.label)).toEqual(['Replaced 2 older proposals for the same rows'])
+    expect((await stored(page, 'r-old'))?.staged[0].supersededBy).toMatchObject({ runId: 'r-new', changeId: 'c1', at: now - 10 * 60_000 })
+    // not counted by the lamp
+    expect((await readings(page)).proposals.count).toBe(2)
+    // a second pass finds nothing more
+    expect(await supersede(page)).toBe(0)
+
+    // the run history: the replaced one struck, no keys, the newer run named
+    const old = page.locator('.agx-run').filter({ hasText: '#01' })
+    // open it (a run that waited for review is open already)
+    const head = old.locator('.agx-run__head')
+    if ((await head.getAttribute('aria-expanded')) !== 'true') await head.click()
+    const change = old.locator('li.agent-change[data-change="c1"]')
+    await expect(change).toHaveAttribute('data-status', 'superseded')
+    await expect(change.getByTestId('agx-superseded')).toContainText('Replaced by run')
+    await expect(change.getByRole('button')).toHaveCount(0)
+    await expect(change.locator('[data-part="props"]')).toBeVisible()
+  })
+
+  test('the Agents badge leaves replaced proposals out (Preflight off)', async ({ page }) => {
+    await page.addInitScript(() => localStorage.setItem('one.preflight.prefs', JSON.stringify({ on: false })))
+    await start(page)
+    await addAgent(page)
+    const db = await seedRows(page)
+    const now = Date.now()
+    await seedRuns(page, [run('r-new', now - 60_000, [upd(db, 'c1', 1, 0, ['comments'])]), run('r-old', now - DAY, [upd(db, 'c1', 1, 0, ['comments'])])])
+    await openAgent(page)
+    await expect(page.getByTestId('agents-review')).toContainText('02')
+    expect(await supersede(page)).toBe(1)
+    await expect(page.getByTestId('agents-review')).toContainText('01')
+  })
+
+  test('nothing is swallowed: an extra field, a proposal built on, an opened card, proposals of one run, another row', async ({ page }) => {
+    await start(page)
+    await addAgent(page)
+    const db = await seedRows(page)
+    const now = Date.now()
+    await seedRuns(page, [
+      // the newest: Comments on rows 0 and 1, and two proposals of its own for row 2
+      run('r-new', now - 60_000, [upd(db, 'c1', 1, 0, ['comments']), upd(db, 'c2', 2, 1, ['comments']), upd(db, 'c3', 3, 2, ['comments']), upd(db, 'c4', 4, 2, ['comments'])]),
+      run('r-old', now - DAY, [
+        // row 0 with a field the newer one does not set: kept
+        upd(db, 'c1', 1, 0, ['comments', 'status']),
+        // row 1, but a proposal builds on it: kept
+        upd(db, 'c2', 2, 1, ['comments']),
+        { id: 'c3', n: 3, kind: 'append', status: 'pending', pageId: db.rows[1], title: 'LR-102', markdown: 'Note.', dependsOn: 'c2' },
+        // a row the newer run does not touch: kept
+        upd(db, 'c4', 4, 2, ['status']),
+      ]),
+    ])
+    await openAgent(page)
+    expect(await supersede(page)).toBe(0)
+    expect(await statuses(page, 'r-new')).toEqual({ c1: 'pending', c2: 'pending', c3: 'pending', c4: 'pending' })
+    expect(await statuses(page, 'r-old')).toEqual({ c1: 'pending', c2: 'pending', c3: 'pending', c4: 'pending' })
+  })
+
+  test('an opened card is never replaced; while Preflight cannot tell yet, nothing is', async ({ page }) => {
+    await start(page)
+    await addAgent(page)
+    const db = await seedRows(page)
+    const now = Date.now()
+    await seedRuns(page, [
+      run('r-new', now - 60_000, [upd(db, 'c1', 1, 0, ['comments']), upd(db, 'c2', 2, 1, ['comments'])]),
+      run('r-old', now - DAY, [upd(db, 'c1', 1, 0, ['comments']), upd(db, 'c2', 2, 1, ['comments'])]),
+    ])
+    await openAgent(page)
+    // the opened set is not loaded: no pass
+    await ag(page, (a) => a.setSupersedeGuard(() => null))
+    expect(await supersede(page)).toBe(0)
+    expect(await statuses(page, 'r-old')).toEqual({ c1: 'pending', c2: 'pending' })
+    // loaded: r-old#c2 was opened as a card — it stays; c1 goes
+    await ag(page, (a) => a.setSupersedeGuard((r: string, c: string) => `${r}#${c}` === 'r-old#c2'))
+    expect(await supersede(page)).toBe(1)
+    expect(await statuses(page, 'r-old')).toEqual({ c1: 'superseded', c2: 'pending' })
+    await ag(page, (a) => a.setSupersedeGuard(null))
+  })
+
+  test('the agent-state walk back stops at a run holding a replaced proposal; discard Undo restores the state', async ({ page }) => {
+    await start(page)
+    await addAgent(page)
+    const db = await seedRows(page)
+    const now = Date.now()
+    const s0 = { json: '{"seen":1}', at: now - 3 * DAY, runId: 'r-0' }
+    const s1 = { json: '{"seen":2}', at: now - 2 * DAY, runId: 'r-old' }
+    const s2 = { json: '{"seen":3}', at: now - 60_000, runId: 'r-new' }
+    await seedRuns(page, [
+      run('r-new', now - 120_000, [upd(db, 'c1', 1, 0, ['comments'])], { stateBefore: s1 }),
+      run('r-old', now - 2 * DAY - 60_000, [upd(db, 'c1', 1, 0, ['comments'])], { stateBefore: s0 }),
+    ])
+    await page.evaluate(async (s) => {
+      const db = await new Promise<IDBDatabase>((res, rej) => {
+        const r = indexedDB.open('one-agents')
+        r.onsuccess = () => res(r.result)
+        r.onerror = () => rej(r.error)
+      })
+      await new Promise<void>((res, rej) => {
+        const tx = db.transaction('runs', 'readwrite')
+        tx.objectStore('runs').put(s, 'state:local:local:ag-ledger')
+        tx.oncomplete = () => res()
+        tx.onerror = () => rej(tx.error)
+      })
+      db.close()
+    }, s2)
+    await openAgent(page)
+    expect(await supersede(page)).toBe(1)
+    expect(await statuses(page, 'r-old')).toEqual({ c1: 'superseded' })
+    // every proposal of the newest run discarded: its state goes back to r-old's — and stops there (r-old is not all discarded)
+    const dropped = await ag(page, async (a) => {
+      const r = (await a.loadRuns('ag-ledger')).find((x: AnyState) => x.id === 'r-new')
+      const d = await a.discardRun(r, null, { undo: true })
+      ;(window as AnyState).__undo = d.undo
+      return d.dropped
+    })
+    expect(dropped).toEqual(['c1'])
+    const stateNow = () =>
+      page.evaluate(async () => {
+        const db = await new Promise<IDBDatabase>((res, rej) => {
+          const r = indexedDB.open('one-agents')
+          r.onsuccess = () => res(r.result)
+          r.onerror = () => rej(r.error)
+        })
+        const v = await new Promise<AnyState | null>((res, rej) => {
+          const q = db.transaction('runs').objectStore('runs').get('state:local:local:ag-ledger')
+          q.onsuccess = () => res(q.result ?? null)
+          q.onerror = () => rej(q.error)
+        })
+        db.close()
+        return v
+      })
+    expect(await stateNow()).toMatchObject(s1)
+    // Undo: the newest run's proposal is back, and so is its state (still the one put back)
+    expect(await page.evaluate(() => (window as AnyState).__undo())).toBe(true)
+    expect(await statuses(page, 'r-new')).toEqual({ c1: 'pending' })
+    expect(await stateNow()).toMatchObject(s2)
+  })
+
+  test('two tabs: one applies while the leader replaces — no status lost', async ({ page }) => {
+    await start(page)
+    await addAgent(page)
+    const db = await seedRows(page)
+    const now = Date.now()
+    await seedRuns(page, [run('r2', now - 60_000, [upd(db, 'c1', 1, 1, ['comments'])]), run('r1', now - DAY, [upd(db, 'c1', 1, 0, ['comments']), upd(db, 'c2', 2, 1, ['comments'])])])
+    await openAgent(page)
+    expect(await ag(page, (a) => a.isLeader())).toBe(true)
+    const second = await secondTab(page)
+    expect(await ag(second, (a) => a.isLeader())).toBe(false)
+    // the second tab holds R1 as it was; it applies R1#c1 while the leader replaces R1#c2 (by R2#c1)
+    const stale = await ag(second, async (a) => (await a.loadRuns('ag-ledger')).find((r: AnyState) => r.id === 'r1'))
+    const [applied, replaced] = await Promise.all([ag(second, (a, r) => a.applyRun(r, ['c1'], { row: true }).then((x: AnyState | null) => x?.applied ?? null), stale), supersede(page)])
+    expect(applied).toEqual(['c1'])
+    expect(replaced).toBe(1)
+    expect(await statuses(page, 'r1')).toEqual({ c1: 'applied', c2: 'superseded' })
+    expect(await statuses(page, 'r2')).toEqual({ c1: 'pending' })
+    // a non-leader tab never replaces
+    expect(await ag(second, (a) => a.supersedeOlder('ag-ledger'))).toBe(0)
+    await second.close()
+  })
+
+  test('a run staged in another tab: the leader replaces the older proposals by itself', async ({ page }) => {
+    await start(page)
+    await addAgent(page)
+    const db = await seedRows(page)
+    await seedRuns(page, [run('r1', Date.now() - DAY, [upd(db, 'c1', 1, 0, ['comments'])])])
+    await openAgent(page)
+    const second = await secondTab(page)
+    // the other tab stores a newer staged run (as a "Run now" there would)
+    await seedRuns(second, [run('r2', Date.now() - 1000, [upd(db, 'c1', 1, 0, ['comments'])])])
+    await expect.poll(() => statuses(page, 'r1'), { timeout: 10_000 }).toEqual({ c1: 'superseded' })
+    await second.close()
+  })
+
+  test('a run that stages replaces older proposals when it ends; its toast stays away while the proposals queue shows them', async ({ page, context }) => {
+    await start(page)
+    await setKey(page)
+    await addAgent(page)
+    const db = await seedRows(page)
+    await seedRuns(page, [run('r-old', Date.now() - DAY, [upd(db, 'c1', 1, 0, ['comments'])])])
+    // each run: update_row on LR-101's Comments, then (a moment later, so the run can be left) the report
+    const later = (ms: number) => () => new Promise<string>((r) => setTimeout(() => r(say('Done.')()), ms))
+    const mocked = await mockAgent(context, [call('tu1', 'update_row', { id: db.rows[0], properties: { Comments: 9 } }), later(1500), call('tu2', 'update_row', { id: db.rows[0], properties: { Comments: 11 } }), later(1500)])
+    await openAgent(page)
+    await ag(page, (a) => a.setProposalsShown(() => true))
+    await page.getByRole('button', { name: 'Run now' }).click()
+    await expect.poll(() => mocked.bodies.length).toBeGreaterThanOrEqual(2)
+    // off the agent's page before the run ends (its own page never toasts): the queue "shows" them — no toast
+    await page.evaluate(() => (window.location.hash = '#/'))
+    await expect.poll(() => statuses(page, 'r-old'), { timeout: 15_000 }).toEqual({ c1: 'superseded' })
+    const runs = await ag(page, (a) => a.loadRuns('ag-ledger'))
+    const newest = runs.find((r: AnyState) => r.id !== 'r-old')
+    expect(newest.status).toBe('staged')
+    expect(newest.staged[0].supersedes.map((x: AnyState) => x.runId)).toEqual(['r-old'])
+    await page.waitForTimeout(400)
+    await expect(page.locator('.toast').filter({ hasText: 'Ledger keeper has 1 proposal' })).toHaveCount(0)
+
+    // without the queue on screen the toast comes — and this run replaces the one before
+    await ag(page, (a) => a.setProposalsShown(null))
+    await openAgent(page)
+    await page.getByRole('button', { name: 'Run now' }).click()
+    await expect.poll(() => mocked.bodies.length).toBeGreaterThanOrEqual(4)
+    await page.evaluate(() => (window.location.hash = '#/'))
+    await expect(page.locator('.toast').filter({ hasText: 'Ledger keeper has 1 proposal' })).toBeVisible({ timeout: 15_000 })
+    await expect.poll(() => statuses(page, newest.id)).toEqual({ c1: 'superseded' })
+  })
+})
+

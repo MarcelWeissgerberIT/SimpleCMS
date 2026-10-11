@@ -906,8 +906,15 @@
   background: transparent;
 }
 
-.term-change[data-status='discarded'] > :not(.term-change__head) {
+.term-change[data-status='discarded'] > :not(.term-change__head),
+.term-change[data-status='discarded'] > .chg-part > * {
   opacity: 0.5;
+}
+
+/* a part of a change's body (TerminalChangeBody / AgentChangeBody: data-part for the parity check): its children lay
+   out as if it were not there */
+.chg-part {
+  display: contents;
 }
 
 .term-change[data-status='discarded'] .term-change__title {
@@ -1014,6 +1021,8 @@
 
 .term-change > .agent-diff,
 .term-change > .agent-preview,
+.term-change > .chg-part > .agent-diff,
+.term-change > .chg-part > .agent-preview,
 .term-change__error,
 .term-change__hint {
   margin-left: 26px;
@@ -1562,7 +1571,9 @@
 }
 
 .agent-change[data-status='discarded'] > :not(.agent-change__head),
-.agent-change[data-status='superseded'] > :not(.agent-change__head) {
+.agent-change[data-status='superseded'] > :not(.agent-change__head),
+.agent-change[data-status='discarded'] > .chg-part > *,
+.agent-change[data-status='superseded'] > .chg-part > * {
   opacity: 0.5;
 }
 
@@ -1722,7 +1733,8 @@
   min-width: 0;
 }
 
-.term-change > .agent-edit {
+.term-change > .agent-edit,
+.term-change > .chg-part > .agent-edit {
   margin-left: 26px;
 }
 
@@ -1894,7 +1906,9 @@
 }
 
 .term-change > .term-full,
-.term-change > .term-change__line {
+.term-change > .term-change__line,
+.term-change > .chg-part > .term-full,
+.term-change > .chg-part > .term-change__line {
   margin-left: 26px;
 }
 

@@ -24,6 +24,9 @@ import { buildView, chipOf, fmtCount, idsHash, levelOf, makeAck, mcCount, newOf,
 import { nextOpenAt, preflightDay, workingDaysBetween } from '../../src/app/features/preflight/day'
 import { sanitizeLast, sanitizePrefs, sanitizeToday } from '../../src/app/features/preflight/prefs'
 import type { LampView } from '../../src/app/features/preflight/types'
+import { supersedePlan } from '../../src/app/features/agents/supersede'
+import type { AgentRun } from '../../src/app/features/agents/types'
+import type { StagedChange } from '../../src/app/features/ai/agent/types'
 
 const page = (over: Partial<Page> = {}): Page => ({
   id: 'r1',
@@ -476,6 +479,52 @@ function namesFrom(file: string, re: RegExp): string[] {
 
 /** The other areas' action functions only queue/calls.ts may import (§4 of the design). */
 const ACTIONS = ['applyRun', 'discardRun', 'undoChange', 'applyStaged', 'undoStagedBatch', 'discardStaged', 'undiscardStaged', 'saveProposal', 'undoProposal', 'dismissProposal', 'saveRunMemory', 'restoreRun', 'removeRun', 'applyTaskAction', 'confirmTaskVersion', 'markRead', 'archiveItems', 'openInboxItem', 'resolveMissing', 'resumeFolder', 'signIn', 'syncNow', 'runAgentNow', 'openAutofillPanel']
+
+test.describe('agents — supersedePlan (pure, T-P2-9)', () => {
+  const upd = (id: string, row: string, props: string[], x: Partial<StagedChange> = {}): StagedChange => ({ id, n: Number(id.slice(1)), kind: 'update_row', status: 'pending', pageId: row, databaseId: 'db', props: props.map((p) => ({ propId: p, name: p, type: 'text', before: '', after: 'x' })), ...x }) as StagedChange
+  const run = (id: string, at: number, staged: StagedChange[], x: Partial<AgentRun> = {}): AgentRun => ({ id, agentId: 'ag', runner: 'browser', trigger: { type: 'manual' }, startedAt: at, status: 'staged', summary: '', steps: [], staged, ...x })
+  const rowOf = (r: AgentRun, id: string) => r.rowIds?.[id] ?? id
+  const none = () => false
+  const ids = (plan: ReturnType<typeof supersedePlan>) => plan.map((s) => `${s.runId}#${s.changeId}>${s.by.runId}#${s.by.changeId}`).sort()
+
+  test('the newest wins: A ⊂ B ⊂ C marks A and B by C; order of the list does not matter', () => {
+    const runs = [run('A', 1, [upd('c1', 'p', ['x'])]), run('C', 3, [upd('c1', 'p', ['x', 'y', 'z'])]), run('B', 2, [upd('c1', 'p', ['x', 'y'])])]
+    expect(ids(supersedePlan(runs, rowOf, none))).toEqual(['A#c1>C#c1', 'B#c1>C#c1'])
+    expect(supersedePlan(runs, rowOf, none).find((s) => s.runId === 'A')).toMatchObject({ at: 1, by: { at: 3 } })
+  })
+
+  test('nothing is swallowed: more fields, other rows, proposals of one run, decided ones', () => {
+    expect(supersedePlan([run('N', 2, [upd('c1', 'p', ['x'])]), run('O', 1, [upd('c1', 'p', ['x', 'y'])])], rowOf, none)).toEqual([])
+    expect(supersedePlan([run('N', 2, [upd('c1', 'q', ['x'])]), run('O', 1, [upd('c1', 'p', ['x'])])], rowOf, none)).toEqual([])
+    expect(supersedePlan([run('N', 2, [upd('c1', 'p', ['x']), upd('c2', 'p', ['x'])])], rowOf, none)).toEqual([])
+    for (const status of ['applied', 'discarded', 'superseded', 'applying'] as const) {
+      expect(supersedePlan([run('N', 2, [upd('c1', 'p', ['x'])]), run('O', 1, [upd('c1', 'p', ['x'], { status })])], rowOf, none), status).toEqual([])
+      expect(supersedePlan([run('N', 2, [upd('c1', 'p', ['x'], { status })]), run('O', 1, [upd('c1', 'p', ['x'])])], rowOf, none), `newer ${status}`).toEqual([])
+    }
+    // a failed proposal is still open
+    expect(ids(supersedePlan([run('N', 2, [upd('c1', 'p', ['x'], { status: 'failed' })]), run('O', 1, [upd('c1', 'p', ['x'], { status: 'failed' })])], rowOf, none))).toEqual(['O#c1>N#c1'])
+  })
+
+  test('only update_row of browser runs waiting for review, of the same agent; not opened, not built on', () => {
+    const newer = run('N', 2, [upd('c1', 'p', ['x'])])
+    expect(supersedePlan([newer, run('O', 1, [upd('c1', 'p', ['x'])], { runner: 'server' })], rowOf, none)).toEqual([])
+    expect(supersedePlan([newer, run('O', 1, [upd('c1', 'p', ['x'])], { status: 'ok' })], rowOf, none)).toEqual([])
+    expect(supersedePlan([newer, run('O', 1, [upd('c1', 'p', ['x'])], { agentId: 'other' })], rowOf, none)).toEqual([])
+    expect(supersedePlan([newer, run('O', 1, [{ ...upd('c1', 'p', ['x']), kind: 'append' }])], rowOf, none)).toEqual([])
+    expect(supersedePlan([newer, run('O', 1, [upd('c1', 'p', ['x'])])], rowOf, (r, c) => r === 'O' && c === 'c1')).toEqual([])
+    const built = run('O', 1, [upd('c1', 'p', ['x']), { id: 'c2', n: 2, kind: 'append', status: 'pending', pageId: 'p', dependsOn: 'c1' } as StagedChange])
+    expect(supersedePlan([newer, built], rowOf, none)).toEqual([])
+    // a discarded proposal building on it does not count
+    const gone = run('O', 1, [upd('c1', 'p', ['x']), { id: 'c2', n: 2, kind: 'append', status: 'discarded', pageId: 'p', dependsOn: 'c1' } as StagedChange])
+    expect(ids(supersedePlan([newer, gone], rowOf, none))).toEqual(['O#c1>N#c1'])
+  })
+
+  test('the same row through the run’s row ids (a staged row that was created)', () => {
+    const newer = run('N', 2, [upd('c1', 'real', ['x'])])
+    const older = run('O', 1, [upd('c1', 'staged-1', ['x'])], { rowIds: { 'staged-1': 'real' } })
+    expect(ids(supersedePlan([newer, older], rowOf, none))).toEqual(['O#c1>N#c1'])
+  })
+})
 
 test.describe('static guards (T-P1-6)', () => {
   const pf = filesUnder(PF)

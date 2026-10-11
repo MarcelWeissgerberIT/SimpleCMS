@@ -279,6 +279,8 @@ export const messages: Messages = {
     'features.agents.review.undo': 'Undo changes',
     'features.agents.review.superseded': 'Replaced by run · {when}',
     'features.agents.review.supersededPlain': 'Replaced by a newer run',
+    'features.agents.supersede.step.one': 'Replaced 1 older proposal for the same row',
+    'features.agents.supersede.step.other': 'Replaced {count} older proposals for the same rows',
     'features.agents.review.serverFailed': 'Applied here, but the server could not be told. It may show the run as open.',
 
     'features.agents.run.mcpMissing': '{name} is not set up in this browser — left out.',
@@ -689,6 +691,8 @@ export const messages: Messages = {
     'features.agents.review.undo': 'Änderungen zurücknehmen',
     'features.agents.review.superseded': 'Ersetzt durch Lauf · {when}',
     'features.agents.review.supersededPlain': 'Ersetzt durch einen neueren Lauf',
+    'features.agents.supersede.step.one': '1 älteren Vorschlag für dieselbe Zeile ersetzt',
+    'features.agents.supersede.step.other': '{count} ältere Vorschläge für dieselben Zeilen ersetzt',
     'features.agents.review.serverFailed': 'Hier übernommen, aber der Server konnte nicht benachrichtigt werden. Er zeigt den Lauf eventuell noch als offen.',
 
     'features.agents.run.mcpMissing': '{name} ist in diesem Browser nicht eingerichtet — weggelassen.',

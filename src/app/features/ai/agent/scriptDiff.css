@@ -4,7 +4,8 @@
   gap: 6px;
   margin-top: 8px;
 }
-.term-change > .agent-script {
+.term-change > .agent-script,
+.term-change > .chg-part > .agent-script {
   margin-left: 26px;
 }
 .agent-script__meta {

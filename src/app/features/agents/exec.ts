@@ -36,6 +36,8 @@ import { getAgentState, lastSuccess, loadRuns, putAgentState, putRun, type Agent
 import { agentLabel } from './label'
 import { deliverNotes, lastRunLine, runTools, type RunExtras } from './runTools'
 import { exclusive } from './locks'
+import { supersedeOlder } from './review'
+import { proposalsShown } from './hold'
 import { awaitsConfirm } from './confirm'
 import { withoutWebImages } from './images'
 import { claudeBlocks } from '../ai/claudeDoc'
@@ -440,6 +442,8 @@ async function runOnce(agent: CustomAgent, req: RunRequest): Promise<AgentRun> {
   run.usage = { input: usage.input, output: usage.output, cacheRead: usage.cacheRead, usd: Math.round(usage.usd * 10_000) / 10_000 }
   run.endedAt = Date.now()
   await putRun({ ...run, steps: [...run.steps] })
+  // its proposals replace older ones of the same rows (the leader tab only; supersede.ts)
+  if (run.status === 'staged') await supersedeOlder(agent.id).catch((e) => console.warn('[one] agents: could not replace older proposals', e))
   notify(agent, run, req)
   return run
 }
@@ -510,7 +514,8 @@ function notify(agent: CustomAgent, run: AgentRun, req: RunRequest) {
   const ui = useUI.getState()
   const open = { label: t('features.agents.toast.review'), run: () => navigate(`#/agents/${agent.id}`) }
   if (pending) {
-    if (!onAgentPage(agent.id))
+    // Preflight's proposals queue on screen shows them already
+    if (!onAgentPage(agent.id) && !proposalsShown())
       ui.toast({ message: t(pending === 1 ? 'features.agents.toast.staged.one' : 'features.agents.toast.staged.other', { name: agent.name, count: pending }), kind: 'info', action: open, timeout: 10_000, background: true })
   } else if (run.status === 'error' || run.status === 'budget') ui.toast({ message: t('features.agents.toast.failed', { name: agent.name }), kind: 'error', action: { ...open, label: t('common.open') }, timeout: 8000, background: true })
   else if (req.manual) ui.toast({ message: t('features.agents.toast.done', { name: agent.name }), kind: 'success', action: { ...open, label: t('common.open') }, background: true })

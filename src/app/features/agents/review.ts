@@ -22,7 +22,11 @@ import { asAgent, stampLocal, touchedBy } from './attribution'
 import { withoutWebImages } from './images'
 import { getAgentState, loadRuns, patchRun, putAgentState, withRunLock, type AgentState } from './runs'
 import { patchServerRun, resolveServerRun, serverErrorText, serverRunCopy } from './server'
+import { isLeader } from './runner'
+import { setSupersedeGuard, supersedeGuard, supersedePlan } from './supersede'
+import { setProposalsShown } from './hold'
 import type { AgentRun, AgentRunStep } from './types'
+import type { ChangeRef } from '../ai/agent/types'
 
 const tn = (key: string, count: number) => t(`${key}.${count === 1 ? 'one' : 'other'}`, { count })
 
@@ -244,7 +248,63 @@ async function stateBack(run: AgentRun): Promise<StateBack | null> {
   return { wrote: back, replaced: cur, note: { kind: 'note', label: t('features.agents.state.restored'), state: 'ok' } }
 }
 
+/**
+ * A newer proposal replaces older ones (supersede.ts): the leader tab only, under the agent's run lock, on the stored
+ * runs; ONE patch per run touched — the older proposals become 'superseded' (with the one that replaces them), the newer
+ * ones list what they replace (with what those replaced before), and each newer run says so in one step. A proposal
+ * Preflight showed as a card is never replaced; while Preflight cannot tell yet (its record not loaded), nothing is.
+ * Resolves with how many proposals were replaced.
+ */
+export async function supersedeOlder(agentId: ID): Promise<number> {
+  if (!isLeader()) return 0
+  return withRunLock(agentId, async () => {
+    const runs = await loadRuns(agentId)
+    const guard = supersedeGuard()
+    let unknown = false
+    const opened = (runId: string, changeId: string) => {
+      const v = guard ? guard(runId, changeId) : false
+      if (v === null) unknown = true
+      return v === true
+    }
+    const plan = supersedePlan(runs, (run, pageId) => run.rowIds?.[pageId] ?? pageId, opened)
+    if (unknown || !plan.length) return 0
+    const byId = new Map(runs.map((r) => [r.id, r]))
+    const older = new Map<string, Map<string, ChangeRef>>()
+    const newer = new Map<string, Map<string, ChangeRef[]>>()
+    for (const st of plan) {
+      const run = older.get(st.runId) ?? new Map<string, ChangeRef>()
+      older.set(st.runId, run.set(st.changeId, st.by))
+      // what the replaced proposal replaced before goes along: the newest one lists every proposal it stands for
+      const before = byId.get(st.runId)?.staged?.find((c) => c.id === st.changeId)?.supersedes ?? []
+      const refs = newer.get(st.by.runId) ?? new Map<string, ChangeRef[]>()
+      newer.set(st.by.runId, refs.set(st.by.changeId, [...(refs.get(st.by.changeId) ?? []), { runId: st.runId, changeId: st.changeId, at: st.at }, ...before]))
+    }
+    let n = 0
+    for (const runId of new Set([...older.keys(), ...newer.keys()])) {
+      const drop = older.get(runId)
+      const gain = newer.get(runId)
+      // the step counts what this pass replaced (not what the replaced ones had replaced before)
+      const gained = plan.filter((st) => st.by.runId === runId).length
+      const written = await patchRun(agentId, runId, (r) => {
+        const staged = (r.staged ?? []).map((c): StagedChange => {
+          const by = drop?.get(c.id)
+          if (by && isOpen(c)) return { ...c, status: 'superseded', supersededBy: by }
+          const refs = gain?.get(c.id)
+          if (!refs) return c
+          const have = new Set((c.supersedes ?? []).map((x) => `${x.runId}#${x.changeId}`))
+          const add = refs.filter((x) => !have.has(`${x.runId}#${x.changeId}`))
+          return add.length ? { ...c, supersedes: [...(c.supersedes ?? []), ...add] } : c
+        })
+        const step: AgentRunStep[] = gained ? [{ kind: 'note', label: tn('features.agents.supersede.step', gained), state: 'ok' }] : []
+        return { ...r, staged, steps: [...r.steps, ...step] }
+      })
+      if (written && drop) n += written.staged?.filter((c) => c.status === 'superseded' && drop.has(c.id)).length ?? 0
+    }
+    return n
+  })
+}
+
 // e2e seam (dev, or ?e2e): the review entry points as the agents page and Preflight call them
 if (typeof window !== 'undefined' && (import.meta.env.DEV || new URLSearchParams(window.location.search).has('e2e'))) {
-  ;(window as unknown as { __oneAgents?: unknown }).__oneAgents = { applyRun, discardRun, undoChange, canUndoChange, loadRuns }
+  ;(window as unknown as { __oneAgents?: unknown }).__oneAgents = { applyRun, discardRun, undoChange, canUndoChange, supersedeOlder, loadRuns, isLeader, setSupersedeGuard, setProposalsShown }
 }
