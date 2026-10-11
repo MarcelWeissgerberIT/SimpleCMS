@@ -34,7 +34,7 @@ function moveTask(it: AgendaItem, days: number, undo: boolean): boolean {
   if (!it.itemId) return false
   const due = dayToIso(it.start + days) + (it.time ? `T${it.time}` : '')
   // the entry's own page: a duplicate shown twice moves only the entry that was dragged
-  const res = writeItems([{ itemId: it.itemId, patch: { due }, pageId: it.pageId }], { by: 'person', from: it.pageId })
+  const res = writeItems([{ itemId: it.itemId, patch: { due }, pageId: it.pageId }], { by: 'person', from: it.pageId, writer: AGENDA })
   if (!res.results[0]?.ok) return false
   if (undo) {
     const lang = ws().settings.language

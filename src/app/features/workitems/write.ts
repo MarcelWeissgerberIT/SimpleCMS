@@ -16,7 +16,10 @@
  *     leaves both to the caller, which gets `unblocked` back).
  *  5. undo(): the inverse patches through writeItems again, only for the fields whose CURRENT value (the live editor
  *     when there is one — the store lags behind it) is still what was written.
- * Store write path: setContent(pageId, …, 'items') (no editor open).
+ * Store write path: setContent(pageId, …, 'items') (no editor open). Every write names its writer (store/writer.ts):
+ * `opts.writer`, else the frame open around the call (a derived write keeps its cause), else the person in the UI
+ * (`you~ui`); through a live editor as `editAs` (the editor's store write happens at once, inside that frame); the
+ * undo as an Undo (`you~undo`).
  */
 import type { JSONContent } from '@tiptap/core'
 import { useWorkspace } from '../../store/store'
@@ -25,7 +28,8 @@ import type { ID } from '../../store/types'
 import { useUI } from '../../store/ui'
 import { t } from '../../i18n'
 import { flushPageContent, useCloud } from '../../cloud'
-import { commitItems, findItemPos, itemAttrs, itemsOfContent, liveEditorOf, patchItemAttrs, patchItemInDoc, type ItemPatch, type WorkItemAttrs } from '../../editor'
+import { commitItems, editAs, findItemPos, itemAttrs, itemsOfContent, liveEditorOf, patchItemAttrs, patchItemInDoc, type ItemPatch, type WorkItemAttrs } from '../../editor'
+import { currentWriter, withWriter, type Writer } from '../../store/writer'
 import { getItemIndex } from './live'
 import { wouldLoop } from './graph'
 import type { ItemEntry, ItemIndex } from './itemIndex'
@@ -55,7 +59,13 @@ export interface WriteOptions {
   toasts?: boolean
   /** the page the caller acts for (the task whose card / list / picker it is) — decides 'template' */
   from?: ID
+  /** who writes (store/writer.ts) — default: the frame open around the call, else the person in the UI (`you~ui`) */
+  writer?: Writer
 }
+
+/** The person in the UI (a card, a list, a picker), and an Undo of theirs. */
+const PERSON: Writer = { kind: 'you', via: 'ui' }
+const UNDO: Writer = { kind: 'you', via: 'undo' }
 
 interface Written {
   itemId: string
@@ -122,6 +132,7 @@ export function writeItems(edits: readonly ItemEdit[], opts: WriteOptions = {}):
   const team = cloud.active.kind === 'cloud'
   const fromTpl = opts.from ? templateRootOf(pages, opts.from) : null
   const results: WriteResult[] = edits.map((e) => ({ itemId: e.itemId, ok: false }))
+  const writer = opts.writer ?? currentWriter() ?? PERSON
   const byPage = new Map<ID, number[]>()
 
   // 1 + 2: place and gate
@@ -159,11 +170,15 @@ export function writeItems(edits: readonly ItemEdit[], opts: WriteOptions = {}):
         const pos = findItemPos(editor.state.doc, edits[i].itemId)
         return pos === null ? null : itemAttrs(editor.state.doc.nodeAt(pos))
       })
-      const oks = commitItems(
-        editor,
-        idxs.map((i) => ({ target: { itemId: edits[i].itemId }, patch: edits[i].patch })),
-        { by: 'system' },
-      )
+      // the writer's transaction, and the editor's store write at once inside its frame
+      let oks: boolean[] = []
+      editAs(editor, writer, () => {
+        oks = commitItems(
+          editor,
+          idxs.map((i) => ({ target: { itemId: edits[i].itemId }, patch: edits[i].patch })),
+          { by: 'system' },
+        )
+      })
       idxs.forEach((i, k) => {
         const b = before[k]
         if (!oks[k] || !b) {
@@ -203,7 +218,7 @@ export function writeItems(edits: readonly ItemEdit[], opts: WriteOptions = {}):
       written.push({ itemId: after.itemId ?? edit.itemId, pageId, patch: edit.patch, before: hit.attrs, after })
       if (hit.attrs.status !== 'done' && after.status === 'done') finished.push(after.itemId ?? edit.itemId)
     }
-    if (doc !== page.content) useWorkspace.getState().setContent(pageId, doc, opts.origin ?? 'items')
+    if (doc !== page.content) withWriter(writer, () => useWorkspace.getState().setContent(pageId, doc, opts.origin ?? 'items'))
   }
 
   // 4: what it freed, toasts
@@ -237,7 +252,7 @@ export function writeItems(edits: readonly ItemEdit[], opts: WriteOptions = {}):
       // back on the very page it was written (a duplicate on another page stays as it is)
       if (Object.keys(p).length) inverse.push({ itemId: w.itemId, patch: p, pageId: w.pageId })
     }
-    if (inverse.length) writeItems(inverse, { by: 'system', toasts: false, from: opts.from, origin: opts.origin })
+    if (inverse.length) writeItems(inverse, { by: 'system', toasts: false, from: opts.from, origin: opts.origin, writer: UNDO })
   }
 
   return { results, unblocked, undo }

@@ -26,6 +26,7 @@ import { liveEditorOf } from '../context/store'
 import { bridgeOf } from '../context/redo'
 import type { ItemPickerKind, ItemPickerState } from '../lib/bridge'
 import { flushContentOf } from '../lib/contentFlush'
+import { PERSON_META } from '../lib/editAs'
 import { itemAttrs, WORK_ITEM, type WorkItemStatus } from './attrs'
 import { itemHooks, itemLookup } from './lookup'
 import { findItemPos, patchItemAttrs, type ItemPatch } from './patch'
@@ -96,6 +97,9 @@ export function commitItems(editor: Editor, edits: ReadonlyArray<{ target: ItemT
   if (tr.docChanged) {
     closeHistory(tr)
     tr.setMeta('workItemWrite', true)
+    // a person's write from the task's own controls (key, picker, chip — a picker may write after its event): the
+    // editor's flush names it (store/writer.ts); writeItems' 'system' commits run inside its writer's editAs
+    if (opts.by === 'person') tr.setMeta(PERSON_META, true)
     const step = opts.undoStep !== false
     if (step) startUndoStep(view)
     view.dispatch(tr)

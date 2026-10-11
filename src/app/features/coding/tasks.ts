@@ -1088,9 +1088,10 @@ export async function setTaskModel(taskId: ID, model: string | null): Promise<vo
 if (typeof window !== 'undefined' && (import.meta.env.DEV || new URLSearchParams(window.location.search).has('e2e'))) {
   ;(window as unknown as { __oneCodingWrites?: unknown }).__oneCodingWrites = {
     create: (title: string, kind: PipelineKind = 'coding') => createTask({ title, repo: null, goal: 'A goal.', criteria: [], priority: 'medium', branch: '', start: false, kind }),
-    writePlan: (pageId: ID, md: string, title?: string) => writePlan(pageId, md, title),
+    // as a stage's outcome would land (store/writer.ts): the coding run's write
+    writePlan: (pageId: ID, md: string, title?: string) => withWriter(codingWriter(pageId, 'e2e'), () => writePlan(pageId, md, title)),
     docPages: (taskId: ID, stageName: string, intro: string, sections: DocSection[], known: ID | null = null) =>
-      writeDocPages(taskId, { id: 'e2e-doc', name: stageName, kind: 'doc' } as unknown as ResolvedStage, ws().pages[taskId]?.title ?? '', { intro, sections }, known),
+      withWriter(codingWriter(taskId, 'e2e'), () => writeDocPages(taskId, { id: 'e2e-doc', name: stageName, kind: 'doc' } as unknown as ResolvedStage, ws().pages[taskId]?.title ?? '', { intro, sections }, known)),
     followUp: (taskId: ID, kind: PipelineKind) => spawnFollowUp(taskId, kind),
   }
 }

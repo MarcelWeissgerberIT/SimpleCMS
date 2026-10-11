@@ -16,6 +16,7 @@ import { Popover } from '../../ui/Popover'
 import { useT } from '../../i18n'
 import { useWorkspace } from '../../store/store'
 import type { ID, Person } from '../../store/types'
+import { withWriter } from '../../store/writer'
 import { useCloud } from '../../cloud'
 import { localPerson } from '../../database'
 import type { PickerCtx } from '../../editor'
@@ -115,7 +116,8 @@ export function PeoplePicker({ ctx }: { ctx: PickerCtx }) {
     for (const p of pendingRef.current) {
       if (togglesRef.current.get(p.id) !== true) continue
       const ws = useWorkspace.getState()
-      made.set(p.id, ws.people.find((x) => fold(x.name) === fold(p.name))?.id ?? ws.addPerson(p.name))
+      // the person's own pick (Done, or a press outside with a change): their write, whatever event closed it
+      made.set(p.id, ws.people.find((x) => fold(x.name) === fold(p.name))?.id ?? withWriter({ kind: 'you', via: 'ui' }, () => ws.addPerson(p.name)))
     }
     const ticks = new Map<string, boolean>()
     for (const [id, on] of togglesRef.current) if (!id.startsWith('new:') || made.has(id)) ticks.set(made.get(id) ?? id, on)

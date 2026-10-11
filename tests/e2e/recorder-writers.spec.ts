@@ -942,6 +942,86 @@ test.describe('flight recorder — every writer has a lane', () => {
 })
 
 /* ------------------------------------------------------------------ */
+/* Tasks: writes from outside a task's editor (features/workitems)     */
+/* ------------------------------------------------------------------ */
+
+test.describe('flight recorder — tasks', () => {
+  const PRINT = 'wi_7a1b2c3d4e'
+  const POSTER = 'wi_5f6e7d8c9b'
+  const LIVE = 'wi_0a9b8c7d6e'
+  const task = (attrs: AnyRec, title: string): AnyRec => ({ type: 'workItem', attrs: { status: 'todo', ...attrs }, content: [para(title)] })
+  const attrsOf = (page: Page, id: string, itemId: string) =>
+    wsEval(page, (s, a) => (s.pages[a.id].content.content as AnyRec[]).find((n) => n.attrs?.itemId === a.itemId)?.attrs ?? null, { id, itemId })
+  /** The op of the row on the other page (its first place). */
+  const opOn = (ops: AnyRec[], id: string) => ops.find((o) => o.p1 === `p:${id}`)
+
+  test('a picker write, the card\'s Mark done (it frees a task) and an agenda move: the person\'s (you~ui · you~agenda) on the other page; their Undo on lane undo', async ({ page }) => {
+    // Wed 14 Oct 2026: the agenda's days are fixed
+    await page.clock.setFixedTime(new Date('2026-10-14T10:00:00'))
+    const { other, start } = await boot(page, async () => {
+      const other = await createPage(page, { title: 'Nordlicht Druck', content: doc(task({ itemId: PRINT, due: '2026-10-21' }, 'Flyer drucken'), task({ itemId: POSTER }, 'Plakate kleben')) })
+      const start = await createPage(page, { title: 'Nordlicht Start', content: doc(task({ itemId: LIVE, blockedBy: [POSTER] }, 'Preisseite live schalten')) })
+      return { other, start }
+    })
+    await gotoPage(page, start)
+    const live = editorOf(page, start).locator('.workitem').first()
+
+    // the Blocks picker: the other page's task now waits for this one — written there by writeItems (no editor open)
+    await live.locator('.workitem__body p').first().click()
+    await page.keyboard.press('End')
+    let m = await markRec(page)
+    await page.keyboard.press('Alt+Enter')
+    await page.locator('[data-popover][role="menu"]').first().getByRole('menuitem', { name: 'Blocks…' }).click()
+    const picker = page.getByRole('dialog', { name: 'Blocks' })
+    await picker.getByRole('option', { name: /Flyer drucken/ }).click()
+    await picker.getByRole('button', { name: 'Done' }).click()
+    await expect.poll(async () => (await attrsOf(page, other, PRINT))?.blockedBy).toEqual([LIVE])
+    let ops = await expectLane(page, m, 'you', undefined, 'you~ui')
+    expect(opOn(ops, other)?.w, 'the picker\'s write on the other page').toBe('you~ui')
+
+    // the blocker's card: Mark done — the person's; it frees "Preisseite live schalten" (the unblock toast, Undo)
+    m = await markRec(page)
+    await live.locator('.workitem__dep').first().locator('.workitem__chip--dep').click()
+    const card = page.getByRole('dialog', { name: 'Plakate kleben' })
+    await card.getByRole('button', { name: 'Mark done' }).click()
+    const freed = page.locator('.toast').filter({ hasText: /Unblocked: Preisseite live schalten/ })
+    await expect(freed).toBeVisible()
+    await expect.poll(async () => (await attrsOf(page, other, POSTER))?.status).toBe('done')
+    ops = await expectLane(page, m, 'you', undefined, 'you~ui')
+    expect(opOn(ops, other)?.w, 'Mark done on the other page').toBe('you~ui')
+    m = await markRec(page)
+    await freed.getByRole('button', { name: 'Undo' }).click()
+    await expect.poll(async () => (await attrsOf(page, other, POSTER))?.status).toBe('todo')
+    ops = await expectLane(page, m, 'undo', undefined, 'you~undo')
+    expect(ops.filter((o) => o.l === 'you' && o.p1 === `p:${other}`).map((o) => o.w), 'the Undo on the person\'s own lane').toEqual([])
+
+    // the agenda: Alt+→ moves the task a day (writeItems, the agenda's writer); its toast's Undo is an Undo
+    await page.evaluate(() => (window.location.hash = '#/agenda'))
+    await expect(page.locator('.ag')).toBeVisible()
+    // room on its day: the demo's other sources off (a view setting, no store write)
+    for (const name of [/Projects/, /Content calendar/, /Meetings/, /Mentions/]) {
+      const key = page.locator('.ag-sources').getByRole('button', { name })
+      if (await key.count()) {
+        await key.click()
+        await expect(key).toHaveAttribute('aria-pressed', 'false')
+      }
+    }
+    const bar = page.locator('.ag-month .ag-bar', { hasText: 'Flyer drucken' })
+    await expect(bar).toHaveAttribute('data-start', '2026-10-21')
+    m = await markRec(page)
+    await bar.focus()
+    await page.keyboard.press('Alt+ArrowRight')
+    await expect.poll(async () => (await attrsOf(page, other, PRINT))?.due).toBe('2026-10-22')
+    ops = await expectLane(page, m, 'you', undefined, 'you~agenda')
+    expect(opOn(ops, other)?.w, 'the move on the task\'s page').toBe('you~agenda')
+    m = await markRec(page)
+    await page.locator('.toast', { hasText: 'moved to' }).getByRole('button', { name: 'Undo' }).click()
+    await expect.poll(async () => (await attrsOf(page, other, PRINT))?.due).toBe('2026-10-21')
+    await expectLane(page, m, 'undo', undefined, 'you~undo')
+  })
+})
+
+/* ------------------------------------------------------------------ */
 /* The Outbox: the person's send by hand and its Undo                  */
 /* ------------------------------------------------------------------ */
 
