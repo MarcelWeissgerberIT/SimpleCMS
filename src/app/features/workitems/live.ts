@@ -18,7 +18,7 @@ import { useRef, useSyncExternalStore } from 'react'
 import { useWorkspace, pageChanges } from '../../store/store'
 import { isEffectivelyTrashed, templateRootOf } from '../../store/selectors'
 import type { ID, Page } from '../../store/types'
-import { activeWorkspace, flushPageContent, useCloud } from '../../cloud'
+import { activeWorkspace, useCloud } from '../../cloud'
 import { compareOccurrence, docToMarkdown, forgetScans, itemCounters, itemsOfContent, setItemHooks, setItemLookup, setItemTitleLookup, withItemLabels, type WorkItemAttrs } from '../../editor'
 import { buildIndex, EMPTY_INDEX, updateIndex, type IndexDeps, type ItemIndex, type PageItems } from './itemIndex'
 import { graphOf } from './graph'
@@ -315,13 +315,10 @@ export function startItems(): () => void {
     openBlockers: (attrs, pageId) => itemView(getItemIndex(), attrs, { pageId, blockId: attrs.id, now: Date.now(), dupSince }).openBlockers,
     dependents: (itemId) => getItemIndex().dependents.get(itemId)?.length ?? 0,
   })
-  // a person finished tasks in an editor: who can start now
-  // (team: the page's shared document into the store first — the editor saved its change there, the store follows later)
+  // a person finished tasks in an editor: who can start now (the editor's content is in the store already — commitItems
+  // flushed it, team editors through their shared document)
   setItemHooks({
-    finished: (itemIds, pageId) => {
-      if (pageId && isTeam()) flushPageContent(pageId)
-      toastUnblocked(unblockedBy(getItemIndex(), itemIds))
-    },
+    finished: (itemIds) => toastUnblocked(unblockedBy(getItemIndex(), itemIds)),
   })
   // the Markdown export's link labels (withItemLabels only): a live task's title — never a private one's
   setItemTitleLookup((itemId) => {

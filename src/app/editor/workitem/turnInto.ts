@@ -18,6 +18,7 @@ import { currentLang, t } from '../../i18n'
 import { useWorkspace } from '../../store/store'
 import { toast } from '../../store/ui'
 import { mentionDateLabel } from '../lib/dates'
+import { editAs } from '../lib/editAs'
 import { itemAttrs, WORK_ITEM } from './attrs'
 import { itemLookup } from './lookup'
 import { blocksFromItem, itemFromBlock, itemFromTodo, splitListAround, type ItemTurnTarget } from './turn'
@@ -217,10 +218,18 @@ export function linksOf(node: PMNode): number {
   return a.blockedBy.length + a.related.length + (a.itemId ? itemLookup().dependents(a.itemId) : 0)
 }
 
-/** The toast after tasks stopped being tasks while they had links (Undo = the editor's undo). */
+/** The toast after tasks stopped being tasks while they had links (Undo = the editor's undo, written as an Undo). */
 export function toastLinksGone(editor: Editor, n: number): void {
   if (!n) return
-  toast({ message: n === 1 ? t('editor.workItem.linksGone.one') : t('editor.workItem.linksGone', { n }), action: { label: t('features.workItems.undo'), run: () => editor.commands.undo() } })
+  toast({
+    message: n === 1 ? t('editor.workItem.linksGone.one') : t('editor.workItem.linksGone', { n }),
+    action: {
+      label: t('features.workItems.undo'),
+      run: () => {
+        if (!editor.isDestroyed) editAs(editor, { kind: 'you', via: 'undo' }, () => editor.commands.undo())
+      },
+    },
+  })
 }
 
 /** Turn into ▸ <target> of the task at `pos`: one transaction; the caret at the end of the old title. */

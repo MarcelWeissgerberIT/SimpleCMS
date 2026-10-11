@@ -25,8 +25,7 @@ import { endUndoStep, startUndoStep } from '../collab'
 import { liveEditorOf } from '../context/store'
 import { bridgeOf } from '../context/redo'
 import type { ItemPickerKind, ItemPickerState } from '../lib/bridge'
-import { flushContentOf } from '../lib/contentFlush'
-import { PERSON_META } from '../lib/editAs'
+import { flushEditor, PERSON_META } from '../lib/editAs'
 import { itemAttrs, WORK_ITEM, type WorkItemStatus } from './attrs'
 import { itemHooks, itemLookup } from './lookup'
 import { findItemPos, patchItemAttrs, type ItemPatch } from './patch'
@@ -109,7 +108,8 @@ export function commitItems(editor: Editor, edits: ReadonlyArray<{ target: ItemT
   if (opts.by === 'person' && said.length) announceStatus(said)
   if (opts.by === 'person' && finished.length) {
     // the index reads the store: what this editor did a moment ago (a link to the task just finished) goes there first
-    flushContentOf(editor)
+    // (team: the page's shared document into the store — the editor saved its change there, the store follows later)
+    flushEditor(editor)
     itemHooks().finished(finished, view.dom.getAttribute('data-page-id'))
   }
   return results

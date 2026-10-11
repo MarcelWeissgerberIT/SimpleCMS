@@ -26,6 +26,15 @@ export function registerEditorFlush(editor: Editor, flush: EditorFlush): () => v
   }
 }
 
+/**
+ * The editor's pending content into the store now, as its own write (the person typing; a team editor: the content
+ * document's refresh). For a reader of the store that must see what the editor just did — the unblock toast reads the
+ * task index, built from the store. Nothing pending, or no page editor: nothing.
+ */
+export function flushEditor(editor: Editor): void {
+  if (!editor.isDestroyed) flushers.get(editor)?.()
+}
+
 /** A writer's transactions are being applied through `editAs` right now (the editor net skips them). */
 export const inEditAs = (): boolean => depth > 0
 

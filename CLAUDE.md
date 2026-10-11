@@ -118,7 +118,8 @@ the public APIs stable — other areas are built against them in parallel.
   OFF). The workspace index (features/workitems: `getItemIndex()`, `useItemView()`) is lazy and incremental
   (`pageChanges`, no page-map scan per write); blocked / overdue / loops / duplicates are computed, never stored. Editor
   field writes go through `commitItem` (only the changed attr keys — y-tiptap compares attrs by reference); writes from
-  outside an editor only through features/workitems `writeItems()` (live editor first, else `setContent(…, 'items')`;
+  outside an editor only through features/workitems `writeItems()` (writer: opts.writer, else the frame open, else
+  you~ui; a live editor via editAs; its undo you~undo; live editor first, else `setContent(…, 'items')`;
   refuses locked / read-only / trashed / blind pages, loops and shared → private links). Copy = new itemId
   (`lib/itemIds.ts` `remintItems`: paste / drop via the `workItemIds` plugin, duplicate, duplicatePage, copyTree, row /
   type / recurring templates, unsync of a synced reference; "Use" resets to open without a date), move = same itemId;
@@ -131,8 +132,9 @@ the public APIs stable — other areas are built against them in parallel.
   export); every other `docToMarkdown` writes ids. Item reminders: key `w:<itemId>:<due>:<code>` (one per itemId, at the
   index's winner); team: rings only for its people (`ringsHere`), unassigned for every member. The agenda shows tasks with
   a due date (moves write `due` through `writeItems`); people usage / merge count and rewrite task people (origin
-  'people'). A person's finish in an editor writes that editor's pending content first (`flushContentOf`,
-  editor/lib/contentFlush.ts; team: `flushPageContent`) — the unblock toast reads the index, which reads the store.
+  'people'). A person's finish in an editor writes that editor's pending content first (`flushEditor`,
+  editor/lib/editAs.ts — the editor's registered flush; team: the content document's refresh) — the unblock toast
+  reads the index, which reads the store. The relink after a cut + paste writes through `editAs` as system:repair.
   HTML becomes a task ONLY as the editor's own clipboard copy
   (workitem/clip.ts: the clipboard serializer stamps a per-device key, localStorage `one.clip.key`; raw HTML in Markdown,
   Claude's answers, imports and other sites never make one; `withoutWebLoads` unwraps one). Markdown that REPLACES content

@@ -120,7 +120,8 @@ export { setItemTitleLookup, withItemLabels } from './workitem/labels'
  * commitItem(editor, target, patch, opts?) / commitItems(editor, edits, opts?): THE editor-side field write — delta-only
  * setNodeMarkup, one transaction, one undo step in every editor; target = { pos, itemId, blockId } (the block acted on:
  * mapped pos → block id → nothing) or { itemId } (the doc's first occurrence outside synced copies). opts.by 'person' →
- * the unblock toast for tasks it finished (setItemHooks).
+ * the unblock toast for tasks it finished (setItemHooks); by 'person' also marks the transaction PERSON_META (the
+ * editor's save names it).
  */
 export { commitItem, commitItems, resolveItemTarget, type ItemTarget, type CommitOptions } from './workitem/keys'
 /** PickerCtx: what a task picker / card gets from the editor's picker host (features/workitems renders them). */

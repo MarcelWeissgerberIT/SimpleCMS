@@ -12,7 +12,8 @@
  *    keys that change are written; the appended transaction joins the paste's undo step.
  *  - Relink: a paste that re-minted remembers [new, old]; at 2 s, 5 s and 10 s, a pair whose old id is gone from
  *    this device (the source page's store copy caught up with a cut) and whose new id this doc holds exactly once is
- *    renamed back (`addToHistory: false`) — a cut + paste across pages stays the same task.
+ *    renamed back (`addToHistory: false`; through `editAs` as One's own repair, system:repair — its store write at
+ *    once) — a cut + paste across pages stays the same task.
  *  - Duplicate (Mod+D, grip, multi-select): `copyBlocks` — a JSON round trip through `remintItems` (one map per
  *    command), or the tasks' plain blocks when the gate is shut.
  * The extension carries the editor's bridge in its storage (`bridgeOf`, context/redo.ts).
@@ -26,7 +27,9 @@ import { holdsItemNode, ITEM_ID, newItemId, remintItems } from '../../lib/itemId
 import { t } from '../../i18n'
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
+import { SYSTEM } from '../../store/writer'
 import type { Bridge } from '../lib/bridge'
+import { editAs } from '../lib/editAs'
 import { WORK_ITEM } from './attrs'
 import { itemCounters, itemLookup } from './lookup'
 import { itemBlocks, unwrapItemsIn } from './turn'
@@ -247,6 +250,7 @@ export const WorkItemIds = Extension.create<WorkItemIdsOptions, { bridge: Bridge
     return { bridge: this.options.bridge }
   },
   addProseMirrorPlugins() {
+    const editor = this.editor
     let pending: Array<{ pairs: Array<[string, string]>; timers: number[] }> = []
     let viewRef: EditorView | null = null
     const relink = (job: { pairs: Array<[string, string]>; timers: number[] }) => {
@@ -262,7 +266,8 @@ export const WorkItemIds = Extension.create<WorkItemIdsOptions, { bridge: Bridge
         }
         const tr = renameTr(view.state, next, old)
         if (!tr) continue
-        view.dispatch(tr)
+        // One's own repair of the person's paste (store/writer.ts): its store write at once, as system:repair
+        editAs(editor, SYSTEM('repair'), () => view.dispatch(tr))
         itemCounters.relinks++
         done = true
       }
