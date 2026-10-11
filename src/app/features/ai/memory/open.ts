@@ -8,6 +8,7 @@ import { t } from '../../../i18n'
 import { logDbId, memoryDbId } from './schema'
 import { findDuplicate, saveMemory, updateMemory } from './save'
 import type { MemoryProposal } from './types'
+import { removeRun, restoreRun, useAIRuns } from '../runs'
 
 /** A memory entry or a log row: in the side peek. */
 export const openEntry = (id: ID) => useUI.getState().openPeek(id)
@@ -55,5 +56,33 @@ export function confirmProposal(p: MemoryProposal, update: ID | null, opts: { to
   return out
 }
 
+/**
+ * Save the proposal of an AI-menu memory run ("Remember this" / "remember …") and take the run away — what the panel's
+ * Save does, and Preflight's A on such a card. `asNew`: a new memory even when a near-identical one exists (else it
+ * updates that one); `proposal`: the proposal as edited in the panel (default: the run's own); `toast`: the saved toast
+ * (Preflight passes false — its queue says so). Returns what was saved and an Undo that takes the memory back and puts
+ * the run back (null: nothing saved — no such run, no proposal, or it could not be written).
+ */
+export function saveRunMemory(runId: string, opts: { asNew?: boolean; proposal?: MemoryProposal; toast?: boolean } = {}): (Confirmed & { undo: () => void }) | null {
+  const run = useAIRuns.getState().runs[runId]
+  const p = opts.proposal ?? run?.proposals?.[0]
+  if (!run || run.req.kind !== 'memory' || !p) return null
+  const saved = confirmProposal(p, opts.asNew ? null : duplicateOf(p), { toast: opts.toast })
+  if (!saved) return null
+  removeRun(runId)
+  return {
+    ...saved,
+    undo: () => {
+      saved.undo()
+      restoreRun(run)
+    },
+  }
+}
+
 /** The near-identical active memory a proposal would repeat (its id), or null. */
 export const duplicateOf = (p: MemoryProposal): ID | null => findDuplicate(p.text)?.id ?? null
+
+// e2e seam (dev, or ?e2e): saving an AI-menu memory run as the panel and Preflight do, and its Undo
+if (typeof window !== 'undefined' && (import.meta.env.DEV || new URLSearchParams(window.location.search).has('e2e'))) {
+  ;(window as unknown as { __oneMemory?: unknown }).__oneMemory = { saveRunMemory, restoreRun, removeRun }
+}
