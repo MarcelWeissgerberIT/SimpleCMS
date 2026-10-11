@@ -233,7 +233,7 @@ test.describe('keyboard only', () => {
     expect(await taskTitles(page, id)).toEqual([])
   })
 
-  test('agent: a held change applied by Enter, undone by Enter on its Undo; another discarded by Enter', async ({ page, context }) => {
+  test('agent: a held change applied by Enter, undone by Enter on its Undo (K, Tab); another discarded by Enter', async ({ page, context }) => {
     await openApp(page)
     await setKey(page)
     const id = await createPage(page, { title: 'Keys agent', content: doc(p('Trip notes.')) })
@@ -253,6 +253,11 @@ test.describe('keyboard only', () => {
     await apply1.focus()
     await page.keyboard.press('Enter')
     await expect.poll(() => taskTitles(page, id)).toEqual(['Order shirts'])
+    // the review's focus rule: on to the next open proposal; K comes back to #1, Tab reaches its Undo
+    await expect(runRow.locator('.agent-change[data-n="2"]')).toBeFocused()
+    await page.keyboard.press('k')
+    await expect(runRow.locator('.agent-change[data-n="1"]')).toBeFocused()
+    await page.keyboard.press('Tab')
     const undo1 = runRow.getByRole('button', { name: 'Undo #1' })
     await expect(undo1).toBeFocused()
     await page.keyboard.press('Enter')
@@ -350,7 +355,7 @@ test.describe('touch only', () => {
     await expect.poll(() => taskTitles(page, id)).toEqual([])
   })
 
-  test('agent: tap Apply on a held change, tap its Undo; tap Discard on another', async ({ page, context }) => {
+  test('agent: tap Apply on a held change, tap its Undo; tap Discard ▾ → No reason on another', async ({ page, context }) => {
     await openApp(page)
     await setKey(page)
     const id = await createPage(page, { title: 'Touch agent', content: doc(p('Trip notes.')) })
@@ -364,7 +369,9 @@ test.describe('touch only', () => {
     await expect.poll(() => taskTitles(page, id)).toEqual(['Order shirts'])
     await runRow.getByRole('button', { name: 'Undo #1' }).tap()
     await expect.poll(() => taskTitles(page, id)).toEqual([])
+    // touch screens: "Discard ▾" opens the reasons; "No reason" discards without one
     await runRow.getByRole('button', { name: 'Discard #2' }).tap()
+    await runRow.getByRole('group', { name: 'Discard #2 with a reason' }).getByRole('button', { name: 'No reason' }).tap()
     await expect(runRow.locator('.agent-change[data-n="2"]')).toHaveAttribute('data-status', 'discarded')
     expect(await taskTitles(page, id)).toEqual([])
     expect(await taskTitles(page, other)).toEqual([])
