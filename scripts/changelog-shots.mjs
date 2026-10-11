@@ -8,7 +8,7 @@
  *
  * (CHANGELOG_DRAFT=1 lets the build pass while a new entry's picture does not exist yet.)
  *
- * Shots: outbox, mirror-again, glass-switches, history-compare, mcp-overview, mirror, task-mcp, models, search, terminal-pipelines, cloud-worker, one-picker, pipelines, legacy-modernise, coding-live, text-size, mcp-media, coding-setup, free-board, building-blocks, workspace-settings, diagram-viewer, coding-pipeline, pages-per-item, design-import, tour, quick-capture, script-templates, one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
+ * Shots: preflight, outbox, mirror-again, glass-switches, history-compare, mcp-overview, mirror, task-mcp, models, search, terminal-pipelines, cloud-worker, one-picker, pipelines, legacy-modernise, coding-live, text-size, mcp-media, coding-setup, free-board, building-blocks, workspace-settings, diagram-viewer, coding-pipeline, pages-per-item, design-import, tour, quick-capture, script-templates, one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
  * custom-agents, gmail, help-centre, mcp-servers, feed-blocks — each named like its image. Every shot starts from a fresh, seeded
  * workspace in English, light theme, 1440 × 900 at device scale 2; the crop of the relevant area is scaled
  * to 1440 px wide and saved as public/assets/shots/changelog/<shot>.webp (≤ 150 KB: the quality steps down
@@ -32,6 +32,7 @@ import { createRequire } from 'node:module'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { strToU8, zipSync } from 'fflate'
+import { seedMorning, waitPreflight } from '../tests/e2e/helpers/preflightStory.mjs'
 
 const LOCAL = (process.argv[2] || 'http://127.0.0.1:5315').replace(/\/$/, '')
 const ONLY = process.argv.slice(3)
@@ -823,6 +824,46 @@ function drawVolumeTable(t) {
 const toolResult = (body, id) => (body.messages ?? []).flatMap((m) => (Array.isArray(m.content) ? m.content : [])).find((c) => c.type === 'tool_result' && c.tool_use_id === id)
 
 const shots = {
+  /**
+   * Preflight: the fictional morning of tests/e2e/helpers/preflightStory.mjs (the mirror "Nordlicht Übergabe" with its
+   * runs, the AI terminal's task, the pipeline "Werkzeug", the refused server "relay", one slip) — the panel lit, the
+   * Outbox acknowledged earlier, ↵ on Proposals, one card applied and one discarded: the queue at card 3 / 10. Every
+   * request to another host is refused; Claude is never asked (counting and the cards cost no tokens).
+   */
+  async preflight(browser) {
+    const { ctx, page } = await freshPage(browser, { setup: (ctx) => ctx.route(/^https?:\/\/(?!127\.0\.0\.1|localhost)/, (route) => route.abort()) })
+    await waitPreflight(page)
+    await seedMorning(page)
+    await page.evaluate(() => {
+      window.__onePreflight.noBlink()
+      const ui = window.__one.ui.getState()
+      for (const t of ui.toasts) ui.dismissToast(t.id)
+    })
+    await page.evaluate(() => window.__onePreflight.ack('outbox'))
+    await page.locator('.pf-cap[data-lamp="proposals"]').focus()
+    await page.keyboard.press('Enter')
+    const ready = () =>
+      page.waitForFunction(() => {
+        const el = document.querySelector('.pf-q article.pf-card[data-current]')
+        return !!el && el.getAttribute('aria-busy') !== 'true' && document.activeElement === el
+      })
+    const done = (n) => page.waitForFunction((n) => {
+      const q = window.__onePreflight.stores.queue.getState()
+      return q.done.length === n && !Object.keys(q.leaving).length
+    }, n)
+    await ready()
+    await page.keyboard.press('a')
+    await done(1)
+    await ready()
+    await page.keyboard.press('d')
+    await done(2)
+    await ready()
+    await page.mouse.move(W + 40, H + 40)
+    await page.waitForTimeout(600)
+    await save(page, 'preflight', await boxOf(page.locator('#main')))
+    await ctx.close()
+  },
+
   /**
    * The Outbox by hand: a fictional mirror ("CNSX Handoff" of the server "tracker") with three send routes; five
    * open slips (two clean, two with foreign text, one held), three sent by hand; the mirror moved on for #10668 after
