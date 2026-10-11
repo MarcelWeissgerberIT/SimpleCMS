@@ -10,7 +10,7 @@ import { dragHandlePluginDefaultKey, type NestedOptions } from '@tiptap/extensio
 import { DragHandle } from '@tiptap/extension-drag-handle-react'
 import { useEditorState } from '@tiptap/react'
 import { useStore } from 'zustand'
-import { ArrowRightLeft, Copy, GripVertical, Link, MessageSquareText, Paintbrush, Plus, Repeat2, Trash2 } from 'lucide-react'
+import { ArrowRightFromLine, ArrowRightLeft, CalendarDays, CircleDot, Copy, GripVertical, Hourglass, Link, Link2, MessageSquareText, Paintbrush, Plus, Repeat2, Trash2, UserRound } from 'lucide-react'
 import { Menu, MenuList, type MenuEntry } from '../../ui/Menu'
 import { Popover, type PopoverAnchor } from '../../ui/Popover'
 import { PageIcon } from '../../ui/PageIcon'
@@ -42,6 +42,10 @@ import { blockSelectionAt, extendSelection, isBlockSelection, menuSelection, rea
 import { chromeBoxAt, columnLeftAt, contentLeft, gutterAt, gutterLeftAt, ownBox, pageColumn } from '../select/gutter'
 import { selectionMenuEntries } from '../select/menu'
 import { moveBlocks } from '../select/actions'
+import { handFocusOver } from '../../ui/focus'
+import { itemAttrs, WORK_ITEM_STATUSES } from '../workitem/attrs'
+import { openItemPickerAt, setItemStatus } from '../workitem/keys'
+import type { ItemPickerKind } from '../lib/bridge'
 
 const TEXTUAL = new Set(['paragraph', 'heading', 'bulletList', 'orderedList', 'taskList', 'listItem', 'taskItem', 'blockquote', 'callout', 'details', 'codeBlock'])
 const EXCLUDED = new Set(['column', 'detailsSummary', 'detailsContent', 'tab'])
@@ -426,6 +430,29 @@ export function BlockHandle({ editor, bridge, pageId }: { editor: Editor; bridge
     const currentTurn = turnTargetOf(editor, ref)
     const colors = blockColors(node)
     const items: MenuEntry[] = [{ kind: 'section', label: t(blockLabelKey(node)) }]
+    // a task: its fields first (Status ▸ · Due date… · Assign… · Blocked by… · Related… · Blocks…) — each "…" opens
+    // the task's picker at its placard (the menu hands the keyboard over to it)
+    if (node.type.name === 'workItem' && editor.isEditable) {
+      const status = itemAttrs(node).status
+      const pick = (kind: ItemPickerKind) => () => {
+        handFocusOver(editor.view.dom)
+        openItemPickerAt(editor, ref.pos, kind, 'menu')
+      }
+      items.push(
+        {
+          id: 'item-status',
+          label: t('editor.blockMenu.item.status'),
+          icon: <CircleDot size={15} />,
+          submenu: WORK_ITEM_STATUSES.map((s) => ({ id: `item-status-${s}`, label: t(`editor.workItem.status.${s}`), checked: s === status, onSelect: () => void setItemStatus(editor, ref.pos, s, 'menu') })),
+        },
+        { id: 'item-due', label: t('editor.blockMenu.item.due'), icon: <CalendarDays size={15} />, onSelect: pick('due') },
+        { id: 'item-assign', label: t('editor.blockMenu.item.assign'), icon: <UserRound size={15} />, onSelect: pick('people') },
+        { id: 'item-blockedBy', label: t('editor.blockMenu.item.blockedBy'), icon: <Hourglass size={15} />, onSelect: pick('blockedBy') },
+        { id: 'item-related', label: t('editor.blockMenu.item.related'), icon: <Link2 size={15} />, onSelect: pick('related') },
+        { id: 'item-blocks', label: t('editor.blockMenu.item.blocks'), icon: <ArrowRightFromLine size={15} />, onSelect: pick('blocks') },
+        { kind: 'separator' },
+      )
+    }
     if (textual)
       items.push({
         label: t('editor.blockMenu.turnInto'),

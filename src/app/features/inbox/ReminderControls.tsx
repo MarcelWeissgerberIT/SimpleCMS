@@ -4,7 +4,7 @@
  *    of when it fires (LED on) or that the moment is past.
  *  - DateReminderEditor: date (+ optional time) and reminder of a date mention.
  */
-import { useId } from 'react'
+import { useId, type ReactNode } from 'react'
 import { addDays, format } from 'date-fns'
 import { BellRing } from 'lucide-react'
 import { useLang, useT } from '../../i18n'
@@ -54,7 +54,8 @@ export interface DateReminderValue {
   reminder: string | null
 }
 
-export function DateReminderEditor({ value, onChange, onDone }: { value: DateReminderValue; onChange: (v: DateReminderValue) => void; onDone: () => void }) {
+/** `footer`: extra keys in the foot row, before Done (a task's due picker: Clear). */
+export function DateReminderEditor({ value, onChange, onDone, footer }: { value: DateReminderValue; onChange: (v: DateReminderValue) => void; onDone: () => void; footer?: ReactNode }) {
   const t = useT()
   const ids = useId()
   const day = value.iso.slice(0, 10)
@@ -90,6 +91,7 @@ export function DateReminderEditor({ value, onChange, onDone }: { value: DateRem
           {t('inbox.date.tomorrow')}
         </button>
         <span className="dme__spacer" />
+        {footer}
         <button type="button" className="btn btn--ink btn--sm" onClick={onDone}>
           {t('inbox.date.done')}
         </button>

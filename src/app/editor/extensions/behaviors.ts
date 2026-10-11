@@ -14,6 +14,7 @@ import { toggleHeadingLevel } from '../schema/toggle'
 import { allBlocks, extendSelection, isBlockSelection, readBlockSel, stepSelection } from '../select/model'
 import { duplicateBlocks, moveBlocksBy } from '../select/actions'
 import { openBlockMenu } from '../select/registry'
+import { toggleItemDone } from '../workitem/keys'
 import {
   caretAfterNode,
   caretIntoBlock,
@@ -295,10 +296,12 @@ export function shortcutsExtension(bridge: Bridge) {
           bridge.setState({ linkEdit: true })
           return true
         },
+        // the deepest of to-do / toggle / task around the caret: a to-do in a task's notes toggles itself
         'Mod-Enter': () => {
           const { $from } = editor.state.selection
           for (let d = $from.depth; d > 0; d--) {
             const node = $from.node(d)
+            if (node.type.name === 'workItem') return toggleItemDone(editor, $from.before(d))
             if (node.type.name === 'taskItem' || node.type.name === 'details') {
               const attr = node.type.name === 'taskItem' ? 'checked' : 'open'
               editor.view.dispatch(editor.state.tr.setNodeMarkup($from.before(d), undefined, { ...node.attrs, [attr]: !node.attrs[attr] }))

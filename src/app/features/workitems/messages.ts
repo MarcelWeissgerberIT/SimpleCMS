@@ -3,6 +3,7 @@ import type { Messages } from '@/shared/i18n'
 /** Tasks outside the editor (features/workitems): pickers, the hover card, writes from outside, toasts, reminders. Keys: "features.workItems.*". */
 export const messages: Messages = {
   en: {
+    'features.workItems.people.title': 'Assign',
     'features.workItems.people.search': 'Assign people…',
     'features.workItems.people.me': 'Me',
     'features.workItems.people.add': 'Add “{name}”',
@@ -25,6 +26,12 @@ export const messages: Messages = {
     'features.workItems.card.open': 'Open',
     'features.workItems.card.done': 'Mark done',
     'features.workItems.card.remove': 'Remove link',
+    'features.workItems.card.page': 'Page',
+    'features.workItems.card.status': 'Status',
+    'features.workItems.card.due': 'Due',
+    'features.workItems.card.people': 'People',
+    'features.workItems.list.blocks': 'Waiting for this task',
+    'features.workItems.list.freed': 'Freed by this task',
     'features.workItems.unblocked.one': 'Unblocked: {title}',
     'features.workItems.unblocked.oneWho': 'Unblocked: {title} ({name})',
     'features.workItems.unblocked.many': 'Unblocked {n} tasks: {titles}',
@@ -52,6 +59,7 @@ export const messages: Messages = {
     'features.workItems.audience.noMember': 'Rings for every member — no member is assigned.',
   },
   de: {
+    'features.workItems.people.title': 'Zuweisen',
     'features.workItems.people.search': 'Personen zuweisen …',
     'features.workItems.people.me': 'Ich',
     'features.workItems.people.add': '„{name}“ hinzufügen',
@@ -74,6 +82,12 @@ export const messages: Messages = {
     'features.workItems.card.open': 'Öffnen',
     'features.workItems.card.done': 'Erledigen',
     'features.workItems.card.remove': 'Verknüpfung entfernen',
+    'features.workItems.card.page': 'Seite',
+    'features.workItems.card.status': 'Status',
+    'features.workItems.card.due': 'Fällig',
+    'features.workItems.card.people': 'Personen',
+    'features.workItems.list.blocks': 'Warten auf diese Aufgabe',
+    'features.workItems.list.freed': 'Von dieser Aufgabe freigegeben',
     'features.workItems.unblocked.one': 'Freigegeben: {title}',
     'features.workItems.unblocked.oneWho': 'Freigegeben: {title} ({name})',
     'features.workItems.unblocked.many': '{n} Aufgaben freigegeben: {titles}',

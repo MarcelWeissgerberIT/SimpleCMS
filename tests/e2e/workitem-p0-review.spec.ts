@@ -14,7 +14,7 @@
  *  - the record type editor keeps a task in its content (renaming the type);
  *  - the AI terminal's edit_page replacing a task with the Markdown it read keeps the task;
  *  - the Markdown form is lossless (a hard break in the title, the time a task was done);
- *  - the placard: the state in words, the overdue day count, "Depends on" (no computed "blocked"), chips that
+ *  - the placard: the state in words, the overdue day count, a chip per blocker (P1), chips that
  *    say what they are to a screen reader, a done task's icons dimmed, chips scaled on slides, consecutive
  *    tasks one plate in an HTML export too;
  *  - history "Changes": the 'at' reminder in words (no emoji), a rewritten title stays in the title cell;
@@ -903,7 +903,8 @@ test.describe('task block (P0 review): the placard', () => {
     const snap = await all.nth(0).locator('.workitem__chips').ariaSnapshot()
     expect(snap).toContain('group "Task fields"')
     expect(snap).toMatch(/Due: Fri 17 Oct\s*, reminder −1 d/)
-    expect(snap).toMatch(/Assigned to:\s*Alex Kern\s*Mara Sommer/)
+    // P1: the chips are keys (each opens its picker) — named by what they say
+    expect(snap).toMatch(/Assigned to:[\s\S]*button "Alex Kern"[\s\S]*button "Mara Sommer"/)
     expect(snap).not.toContain('AK')
     await expect(all.nth(1).locator('.workitem__chips')).toContainText('Reminder at the time')
     await expect(all.nth(0).locator('.workitem__label')).toContainText('Task:')
@@ -920,12 +921,14 @@ test.describe('task block (P0 review): the placard', () => {
     expect(await color('.workitem__chip--due svg')).not.toBe(signal)
     expect(await color('.workitem__chip--due svg')).toBe(await color('.workitem__chip--person'))
     await expect(all.nth(2).locator('.workitem__state')).toHaveText('Done Thu 09 Oct')
-    await expect(all.nth(2).locator('.workitem__chip--blocked')).toHaveText('Depends on 1')
+    // P1: a chip per blocker, the state in words for a screen reader
+    await expect(all.nth(2).locator('.workitem__dep')).toHaveCount(1)
+    await expect(all.nth(2).locator('.workitem__chip--dep')).toHaveAttribute('aria-label', 'Waiting for: With a reminder — open')
 
     await wsEval(page, (s) => s.updateSettings({ language: 'de' }))
     await expect(all.nth(0).locator('.workitem__state')).toHaveText('Offen')
     await expect(all.nth(2).locator('.workitem__state')).toHaveText('Erledigt Do 09 Okt')
-    await expect(all.nth(2).locator('.workitem__chip--blocked')).toHaveText('Abhängig von 1')
+    await expect(all.nth(2).locator('.workitem__chip--dep')).toHaveAttribute('aria-label', 'Wartet auf: With a reminder — offen')
     await expect(all.nth(0).locator('.workitem__chips')).toContainText('Fällig:')
     await expect(all.nth(0).locator('.workitem__chips')).toContainText('Zugewiesen an:')
   })

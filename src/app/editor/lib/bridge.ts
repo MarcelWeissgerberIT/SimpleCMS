@@ -51,6 +51,32 @@ export interface OverlayState {
   comments: CommentsUI
   /** Emoji / icon picker at the caret (`pos`), or the change popover of the inline icon at `pos` (`edit`) */
   inlinePicker: InlinePicker | null
+  /** a task's picker / card (editor/workitem/ItemPickers.tsx) */
+  itemPicker: ItemPickerState | null
+}
+
+/**
+ * A task's picker (editor/workitem/ItemPickers.tsx — one host per editable editor). `pos` is the task's position when
+ * the person acted (getPos()); the host maps it through every transaction while the picker is open (the task gone →
+ * the picker closes, nothing written). Writes go to that very block (`commitItem`: pos → block id → nothing).
+ *  - status: the status radiogroup (the key's ⌄) · confirm: "still waiting for … — mark done anyway?" (`status` = asked)
+ *  - due · people · blockedBy · related · blocks: the field pickers (drafts: Esc discards, Done commits)
+ *  - dependents · relatedList: the BLOCKS / FREED and RELATED lists · ref: the card of one linked task (`ref`)
+ */
+export type ItemPickerKind = 'status' | 'confirm' | 'due' | 'people' | 'blockedBy' | 'related' | 'blocks' | 'dependents' | 'relatedList' | 'ref'
+
+export interface ItemPickerState {
+  pos: number
+  itemId: string | null
+  blockId: string | null
+  kind: ItemPickerKind
+  from: 'chip' | 'key' | 'menu' | 'ghost'
+  /** confirm: the status the person asked for */
+  status?: 'todo' | 'in_progress' | 'done'
+  /** ref: the linked task the card is about */
+  ref?: string
+  /** ref: opened by the pointer resting on a chip (takes no focus, closes when the pointer leaves) */
+  hover?: boolean
 }
 
 export interface InlinePicker {
@@ -75,6 +101,7 @@ export function createBridge(): Bridge {
     blockMenu: null,
     comments: { active: null, via: null, draft: null, panel: false, showResolved: false },
     inlinePicker: null,
+    itemPicker: null,
   })) as Bridge
   store.keyHandlers = {}
   return store

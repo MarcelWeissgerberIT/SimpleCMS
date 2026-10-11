@@ -6,6 +6,7 @@
  * The default is FAIL-CLOSED: nothing taken, nothing gone, nothing private and NO creation — a path that runs
  * before the index registered (or in a build without it) never makes a new task the server could refuse.
  */
+import type { WorkItemAttrs } from './attrs'
 
 export interface ItemLookup {
   /** another block of this device holds it (any page but `pageId`, trash and templates included, synced copies not) */
@@ -16,6 +17,10 @@ export interface ItemLookup {
   isPrivate(itemId: string): boolean
   /** new tasks may be created in the active workspace (team: the server's schema gate is on, the tab may write) */
   canCreate(): boolean
+  /** how many of the task's blockers are still open (advisory "blocked": marking it done asks once) */
+  openBlockers(attrs: WorkItemAttrs, pageId: string | null): number
+  /** how many live tasks wait for this one (a task turned into text loses those links) */
+  dependents(itemId: string): number
 }
 
 const FAIL_CLOSED: ItemLookup = {
@@ -23,6 +28,8 @@ const FAIL_CLOSED: ItemLookup = {
   gone: () => false,
   isPrivate: () => false,
   canCreate: () => false,
+  openBlockers: () => 0,
+  dependents: () => 0,
 }
 
 let current: ItemLookup = FAIL_CLOSED

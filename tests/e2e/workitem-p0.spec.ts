@@ -130,10 +130,12 @@ test.describe('task block (P0): the read-only placard', () => {
       await expect(page.locator('html')).toHaveAttribute('data-theme', scheme)
       const first = all.nth(0)
       await first.scrollIntoViewIfNeeded()
-      // the key: a keycap with the LED — not a control in this release
+      // the key: a keycap with the LED — a control since P1 (its label says what a press does), ⌄ and ⋯ beside it
       const key = first.locator('.workitem__key')
-      await expect(key).toHaveAttribute('aria-label', 'Status: Open')
-      await expect(first.locator('button')).toHaveCount(0)
+      await expect(key).toHaveAttribute('aria-label', 'Status: Open. Mark done')
+      await expect(first.locator('button.workitem__key')).toHaveCount(1)
+      await expect(first.locator('button.workitem__caret')).toHaveCount(1)
+      await expect(first.locator('button.workitem__more')).toHaveCount(1)
       await expect(all.nth(1).locator('.workitem__key .led--on')).toHaveCount(1)
       await expect(all.nth(4).locator('.workitem__key .led--ok')).toHaveCount(1)
       // the spec label: the state in words + the last four of the itemId ("OPEN · 2D01"); on a phone only the
@@ -158,7 +160,10 @@ test.describe('task block (P0): the read-only placard', () => {
       await expect(first.locator('.workitem__chip--person')).toHaveText([/Alex Kern/, /Mara Sommer/])
       await expect(all.nth(1).locator('.workitem__chip--related')).toHaveText('1 related')
       await expect(all.nth(2).locator('.workitem__chip--due')).toContainText('Fri 17 Oct · 9:00 AM')
-      await expect(all.nth(2).locator('.workitem__chip--blocked')).toHaveText('Depends on 2')
+      // P1: a chip per blocker (its LED + title), the task BLOCKED (A open, B in progress) + the lock line
+      await expect(all.nth(2).locator('.workitem__dep')).toHaveCount(2)
+      await expect(all.nth(2)).toHaveAttribute('data-state', 'blocked')
+      await expect(all.nth(2).locator('.workitem__lock')).toHaveText('Waiting for 2 of 2')
       await expect(all.nth(3).locator('.workitem__chip--due')).toHaveAttribute('data-late', '')
       await expect(all.nth(3).locator('.workitem__chip--due')).toContainText(/Overdue · \d+ d\s*·\s*Mon 06 Jan/)
       // done: dimmed, the title struck

@@ -112,6 +112,8 @@ export { setItemLookup, itemLookup, itemCounters, setItemHooks, type ItemLookup,
  * the unblock toast for tasks it finished (setItemHooks).
  */
 export { commitItem, commitItems, resolveItemTarget, type ItemTarget, type CommitOptions } from './workitem/keys'
+/** PickerCtx: what a task picker / card gets from the editor's picker host (features/workitems renders them). */
+export type { PickerCtx } from './workitem/ItemPickers'
 /** itemChanges(before attrs, after attrs): the fields that changed (status, due, reminder, people, blockedBy, related) — history diff. */
 export { itemChanges, type ItemChange, type ItemField } from './workitem/diff'
 /**

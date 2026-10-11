@@ -41,6 +41,8 @@ export interface PopoverProps {
   resizable?: string
   role?: string
   'aria-label'?: string
+  /** a dialog named by an element inside it (its title) */
+  'aria-labelledby'?: string
 }
 
 const UNPLACED: CSSProperties = { opacity: 0, pointerEvents: 'none' }
@@ -372,6 +374,7 @@ export function Popover({
         data-popover=""
         role={role}
         aria-label={rest['aria-label']}
+        aria-labelledby={rest['aria-labelledby']}
         className={bare ? className : `popover ${className ?? ''}`}
         // until floating-ui has placed it, the panel sits at (0, 0): not seen, not under the pointer
         style={{ ...floatingStyles, ...style, ...place, ...(isPositioned ? null : UNPLACED) }}

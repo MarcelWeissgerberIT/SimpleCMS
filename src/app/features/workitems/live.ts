@@ -220,17 +220,29 @@ const dupSince = (itemId: string) => firstSeen.get(itemId) ?? null
 /**
  * What a task's placard shows beyond its own attrs (blockers, dependents, related, duplicate …). Cached PER
  * COMPONENT INSTANCE: computed again when the attrs object or the index version changes, and an equal view
- * comes back as the same object — a keystroke in one task re-renders no other placard. Pass the same attrs
- * object while the node's attrs are unchanged (memoise `itemAttrs(node)` on `node.attrs`).
+ * comes back as the same object. The store snapshot IS the view: a new index version re-renders only the placards
+ * whose view changed — a keystroke in one task re-renders no other placard. Pass the same attrs object while the
+ * node's attrs are unchanged (memoise `itemAttrs(node)` on `node.attrs`). The first read may build the index (in a
+ * render: listeners hear of it in a microtask); later snapshots read the index as it is (never flushing inside
+ * getSnapshot — a pending queue arrives with its own notification).
  */
 export function useItemView(attrs: WorkItemAttrs, pageId: ID | null, blockId: string | null = attrs.id): ItemView {
-  const v = useItemIndexVersion()
   const cache = useRef<{ attrs: WorkItemAttrs; version: number; pageId: ID | null; blockId: string | null; view: ItemView } | null>(null)
-  const c = cache.current
-  if (c && c.attrs === attrs && c.version === v && c.pageId === pageId && c.blockId === blockId) return c.view
-  const view = itemView(getItemIndex(), attrs, { pageId, blockId, now: Date.now(), dupSince }, c?.view ?? null)
-  cache.current = { attrs, version: v, pageId, blockId, view }
-  return view
+  const args = useRef({ attrs, pageId, blockId })
+  args.current = { attrs, pageId, blockId }
+  const get = useRef<(() => ItemView) | null>(null)
+  if (!get.current)
+    get.current = () => {
+      const c = cache.current
+      const a = args.current
+      if (c && c.attrs === a.attrs && c.version === version && c.pageId === a.pageId && c.blockId === a.blockId) return c.view
+      const view = itemView(index ?? getItemIndex(), a.attrs, { pageId: a.pageId, blockId: a.blockId, now: Date.now(), dupSince }, c?.view ?? null)
+      cache.current = { attrs: a.attrs, version, pageId: a.pageId, blockId: a.blockId, view }
+      return view
+    }
+  // a queue of changes not applied yet: this first read applies it (no notification now)
+  if (!cache.current && index && (queued.size || flagsDirty)) getItemIndex()
+  return useSyncExternalStore(subscribeItems, get.current, get.current)
 }
 
 /* ------------------------------------------------------------------ the minute ticker */
@@ -293,6 +305,8 @@ export function startItems(): () => void {
     gone: (itemId, pageId) => !(getItemIndex().pagesOf.get(itemId) ?? []).some((p) => p !== pageId),
     isPrivate: (itemId) => !!getItemIndex().byId.get(itemId)?.private,
     canCreate: canCreateItems,
+    openBlockers: (attrs, pageId) => itemView(getItemIndex(), attrs, { pageId, blockId: attrs.id, now: Date.now(), dupSince }).openBlockers,
+    dependents: (itemId) => getItemIndex().dependents.get(itemId)?.length ?? 0,
   })
   // a person finished tasks in an editor: who can start now
   setItemHooks({ finished: (itemIds) => toastUnblocked(unblockedBy(getItemIndex(), itemIds)) })

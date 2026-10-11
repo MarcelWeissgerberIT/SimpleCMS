@@ -1,13 +1,15 @@
 /*
- * Task block (`workItem`) — the read-only placard ("INSTRUMENT"): the callout's plate with a 3 px status
- * rail, a keycap holding the status LED, the mono spec label and a strip of keycap chips.
+ * Task block (`workItem`) — the placard ("INSTRUMENT"): the callout's plate with a 3 px status rail, a keycap
+ * holding the status LED (+ the ⌄ key), the mono spec label, ⋯ and a strip of keycap chips.
  *
  * One grid for the editor's node view and the static StaticWorkItem: the head, the content holder and
  * (in the editor) TipTap's content element are `display: contents`, so the status key, the title line, the
- * spec label, the chips and the notes are all cells of the placard's grid:
- *     [key] [title ……………………] [label]
- *           [chips …………………………………]
- *           [notes …………………………………]
+ * spec label, ⋯, the chips, the lock line and the notes are all cells of the placard's grid:
+ *     [key ⌄] [title ……………………] [label] [⋯]
+ *             [chips …………………………………………]
+ *             [🔒 waiting for 2 of 3]            (blocked only)
+ *             [notes …………………………………………]
+ * Compact (a task in a list item, `data-compact`): one line — [key] [title] [chips] [⋯].
  * Content items are `.workitem__body > *` (static) or `.workitem__body > [data-node-view-content-react] > *`
  * (editor). Exported HTML styles itself (workitem/exportCss.ts).
  */
@@ -20,7 +22,7 @@
   --wi-pad: var(--block-pad, 3px);
   position: relative;
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
   column-gap: 10px;
   align-items: start;
   padding: 6px 12px 8px 15px;
@@ -56,10 +58,19 @@
   display: contents;
 }
 
-/* ---------- head: status key + spec label ---------- */
-.workitem__key {
+/* ---------- head: status key (+ ⌄) + spec label + ⋯ ---------- */
+.workitem__keys,
+.workitem__head > .workitem__key {
   grid-column: 1;
   grid-row: 1;
+}
+
+.workitem__keys {
+  display: flex;
+  align-self: start;
+}
+
+.workitem__key {
   display: grid;
   place-items: center;
   box-sizing: border-box;
@@ -78,6 +89,92 @@
   height: 7px;
 }
 
+/* the key as a key: pressed 1 px, the global orange focus ring */
+button.workitem__key {
+  padding: 0;
+  color: var(--ink-3);
+  cursor: pointer;
+  transition:
+    transform var(--dur-1) var(--ease-out),
+    background var(--dur-1) var(--ease-out);
+}
+
+button.workitem__key:hover {
+  background: var(--surface-2);
+}
+
+button.workitem__key:active {
+  transform: translateY(1px);
+}
+
+/* ⌄: a narrow key joined to the status key — on hover, with the caret in the task, on touch with the caret */
+.workitem__caret {
+  display: none;
+  place-items: center;
+  box-sizing: border-box;
+  width: calc(14px * var(--text-scale));
+  height: var(--wi-key);
+  margin: calc(var(--wi-pad) + (var(--wi-line) - var(--wi-key)) / 2) 0 0 -1px;
+  padding: 0;
+  border: 1px solid var(--rule-strong);
+  border-bottom-width: 2.5px;
+  border-radius: 0 3px 3px 0;
+  background: var(--surface);
+  color: var(--ink-3);
+}
+
+.workitem__caret:hover {
+  color: var(--ink);
+  background: var(--surface-2);
+}
+
+.workitem__caret:active {
+  transform: translateY(1px);
+}
+
+@media (hover: hover) {
+  .workitem[data-interactive]:hover .workitem__caret {
+    display: grid;
+  }
+}
+
+.node-workItem[data-caret] > .workitem[data-interactive] .workitem__caret,
+.workitem[data-interactive]:focus-within .workitem__caret {
+  display: grid;
+}
+
+@media (hover: hover) {
+  .workitem[data-interactive]:hover .workitem__keys .workitem__key {
+    border-radius: 3px 0 0 3px;
+  }
+}
+
+.node-workItem[data-caret] > .workitem[data-interactive] .workitem__keys .workitem__key,
+.workitem[data-interactive]:focus-within .workitem__keys .workitem__key {
+  border-radius: 3px 0 0 3px;
+}
+
+/* ⋯ — the task's menu (column 4) */
+.workitem__more {
+  grid-column: 4;
+  grid-row: 1;
+  display: grid;
+  place-items: center;
+  width: calc(24px * var(--text-scale));
+  height: calc(24px * var(--text-scale));
+  margin: calc(var(--wi-pad) + (var(--wi-line) - 24px * var(--text-scale)) / 2) -4px 0 -4px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-1);
+  background: transparent;
+  color: var(--ink-3);
+}
+
+.workitem__more:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+
 .workitem__label {
   grid-column: 3;
   grid-row: 1;
@@ -93,9 +190,46 @@
   user-select: none;
 }
 
-/* the state in words: in progress / overdue in the signal colour (text: --signal-ink) */
+/* the state in words: in progress / overdue / blocked in the signal colour (text: --signal-ink) */
 .workitem__state[data-signal] {
   color: var(--signal-ink);
+}
+
+/* the label as a key (copies the task's link) */
+.workitem__labelkey {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  cursor: pointer;
+}
+
+.workitem__labelkey:hover {
+  color: var(--ink);
+  text-decoration: underline;
+  text-decoration-color: var(--rule-strong);
+  text-underline-offset: 3px;
+}
+
+/* DUPLICATE · NEW ID */
+.workitem__newid {
+  margin-left: 8px;
+  padding: 2px 5px;
+  border: 1px solid var(--signal);
+  border-bottom-width: 2px;
+  border-radius: var(--radius-1);
+  background: var(--surface);
+  color: var(--signal-ink);
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+}
+
+.workitem__newid:active {
+  transform: translateY(1px);
 }
 
 /* ---------- content: the title line + the notes ---------- */
@@ -139,6 +273,7 @@
 }
 
 .workitem__chip {
+  font: inherit;
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -222,10 +357,248 @@
   letter-spacing: 0.02em;
 }
 
+/* chips as keys (editing): a press moves them 1 px */
+button.workitem__chip {
+  cursor: pointer;
+  transition: background var(--dur-1) var(--ease-out);
+}
+
+button.workitem__chip:hover {
+  background: var(--surface-2);
+}
+
+button.workitem__chip:active {
+  transform: translateY(1px);
+}
+
+/* progress: "2/4" + a gauge of segments */
+.workitem__gauge {
+  display: inline-flex;
+  gap: 2px;
+}
+
+.workitem__gauge i {
+  display: block;
+  width: 4px;
+  height: 9px;
+  border-radius: 1px;
+  background: var(--rule-strong);
+}
+
+.workitem__gauge i[data-on] {
+  background: var(--ink);
+}
+
+.workitem__chip--blocks svg,
+.workitem__chip--related svg {
+  color: var(--ink-2);
+}
+
+/* ⧗ WAITING FOR — the label before the blocker chips (a key: change the blockers) */
+.workitem__sep {
+  width: 1px;
+  height: 14px;
+  margin: 0 2px;
+  background: var(--rule-strong);
+}
+
+.workitem__lbl {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 23px;
+  padding: 0 2px;
+  border: 0;
+  border-radius: var(--radius-1);
+  background: none;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: 500;
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+button.workitem__lbl:hover {
+  color: var(--ink);
+}
+
+.workitem__lbl svg {
+  color: var(--ink-3);
+}
+
+/* a blocker chip: its LED + the title (sans), or a state in words for one that does not resolve */
+.workitem__dep {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.workitem__chip--dep {
+  gap: 6px;
+  padding: 0 8px 0 7px;
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  font-weight: 550;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.workitem__chip--dep .led {
+  width: 6px;
+  height: 6px;
+}
+
+.workitem__deptitle {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.workitem__dep[data-done] .workitem__chip--dep {
+  background: transparent;
+  color: var(--ink-3);
+}
+
+.workitem__dep[data-done] .workitem__deptitle {
+  text-decoration: line-through;
+  text-decoration-color: var(--rule-strong);
+}
+
+.workitem__dep:is([data-state='gone'], [data-state='trash'], [data-state='loading']) .workitem__chip--dep {
+  border-style: dashed;
+  background: transparent;
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.workitem__tag {
+  padding: 1px 4px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+  font-family: var(--font-mono);
+  font-size: calc(9.5px * var(--text-scale));
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+
+/* × on a blocker that is gone / in the trash / a loop */
+.workitem__unlink {
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  width: 20px;
+  height: 23px;
+  margin-left: -1px;
+  padding: 0;
+  border: 1px solid var(--rule-strong);
+  border-bottom-width: 2px;
+  border-radius: 0 3px 3px 0;
+  background: var(--surface);
+  color: var(--ink-3);
+}
+
+.workitem__unlink:hover {
+  color: var(--ink);
+}
+
+.workitem__dep:has(.workitem__unlink) .workitem__chip--dep {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+/* ghost keys: + DATE · + PERSON · + DEPENDS ON · + NOTE — dashed, on hover, with the caret in the task */
+.workitem__chip--ghost {
+  height: 22px;
+  border-style: dashed;
+  border-bottom-width: 1px;
+  background: transparent;
+  color: var(--ink-3);
+}
+
+.workitem__chip--ghost svg {
+  color: var(--ink-3);
+}
+
+.workitem__chip--ghost:hover {
+  color: var(--ink);
+  border-color: var(--ink-3);
+}
+
+.workitem__ghosts {
+  display: none;
+}
+
+/* a strip of ghosts only shows with the caret in the task (never a row that comes and goes under the pointer) */
+.workitem__chips[data-ghosts-only] {
+  display: none;
+}
+
+@media (hover: hover) {
+  .workitem:hover > .workitem__chips:not([data-ghosts-only]) .workitem__ghosts {
+    display: contents;
+  }
+}
+
+.node-workItem[data-caret] > .workitem .workitem__ghosts,
+.workitem:focus-within .workitem__ghosts {
+  display: contents;
+}
+
+.node-workItem[data-caret] > .workitem > .workitem__chips[data-ghosts-only],
+.workitem:focus-within > .workitem__chips[data-ghosts-only] {
+  display: flex;
+}
+
+/* ---------- the lock line (blocked): row 3 ---------- */
+.workitem__lock {
+  grid-column: 2 / -1;
+  grid-row: 3;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 4px 0 2px;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: 500;
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--signal-ink);
+  user-select: none;
+}
+
 /* ---------- states ---------- */
 .workitem[data-status='in_progress'],
 .workitem[data-late] {
   --wi-rail: var(--signal);
+}
+
+
+/* blocked (computed): a hatched rail, a hatched key holding a lock */
+.workitem[data-state='blocked']::before {
+  width: 4px;
+  background: repeating-linear-gradient(-45deg, var(--signal) 0 2px, transparent 2px 5px), var(--signal-wash-strong);
+}
+
+.workitem[data-state='blocked'] .workitem__key {
+  color: var(--ink-3);
+  background: repeating-linear-gradient(-45deg, var(--surface) 0 3px, var(--surface-3) 3px 4.5px);
+}
+
+:root[data-theme='dark'] .workitem[data-state='blocked'] .workitem__key {
+  background: repeating-linear-gradient(-45deg, var(--surface-2) 0 3px, var(--surface) 3px 4.5px);
+}
+
+/* a template's task: a dashed outline instead of the inset rule (it is created when the template is used) */
+.workitem[data-state='template'] {
+  box-shadow: none;
+  outline: 1px dashed var(--rule-strong);
+  outline-offset: -1px;
 }
 
 .workitem[data-status='done'] {
@@ -295,26 +668,103 @@
   margin-top: 2px;
 }
 
+/* ---------- compact: a task in a list item — one line: [key] [title] [chips] [⋯] ---------- */
+.workitem[data-compact] {
+  --wi-key: calc(18px * var(--text-scale));
+  padding: 3px 8px 3px 13px;
+  column-gap: 9px;
+}
+
+.workitem[data-compact] .workitem__key {
+  border-bottom-width: 2px;
+}
+
+.workitem[data-compact] .workitem__key .led {
+  width: 6px;
+  height: 6px;
+}
+
+.workitem[data-compact] .workitem__label,
+.workitem[data-compact] .workitem__caret {
+  display: none !important;
+}
+
+.workitem[data-compact] .workitem__body > [data-node-view-content-react] > :first-child {
+  font-weight: 550;
+}
+
+.workitem[data-compact] > .workitem__chips {
+  grid-column: 3;
+  grid-row: 1;
+  flex-wrap: nowrap;
+  gap: 5px;
+  margin: calc(var(--wi-pad) + (var(--wi-line) - 20px) / 2) 0 0;
+  align-self: start;
+}
+
+.workitem[data-compact] .workitem__chip {
+  height: 20px;
+  padding: 0 6px;
+}
+
+.workitem[data-compact] .workitem__chip--person {
+  padding: 0 2px;
+  gap: 0;
+}
+
+.workitem[data-compact] .workitem__keys .workitem__key {
+  border-radius: 3px;
+}
+
+/* list items: consecutive compact tasks stack like the full ones (2 px) */
+.doc-content li > .node-workItem {
+  margin: 4px 0;
+}
+
 /*
  * ---------- narrow: the id goes; the state word stays only where nothing else says it ----------
  * (in progress: its rail and LED are colour — overdue says it in its due chip, done strikes its title,
- * open is the default). Without the label, the title, chips + notes take the full width.
+ * open is the default, blocked has its lock line). A template's and a duplicate's label stay: only the label says
+ * them (and DUPLICATE's NEW ID key must stay reachable). Without the label, the title runs to ⋯ (column 4), the
+ * chips + notes take the full width.
  */
 @container (max-width: 420px) {
   .workitem__id {
     display: none;
   }
 
-  .workitem:is(:not([data-status='in_progress']), [data-late]) .workitem__label {
+  .workitem:is(:not([data-status='in_progress']), [data-late]):not([data-state='template'], [data-state='duplicate']) .workitem__label {
     display: none;
   }
 
-  .workitem:is(:not([data-status='in_progress']), [data-late]) .workitem__body > :first-child:not([data-node-view-content-react]),
-  .workitem:is(:not([data-status='in_progress']), [data-late]) .workitem__body > [data-node-view-content-react] > :first-child {
-    grid-column: 2 / -1;
+  .workitem:is(:not([data-status='in_progress']), [data-late]):not([data-state='template'], [data-state='duplicate']) .workitem__body > :first-child:not([data-node-view-content-react]),
+  .workitem:is(:not([data-status='in_progress']), [data-late]):not([data-state='template'], [data-state='duplicate']) .workitem__body > [data-node-view-content-react] > :first-child {
+    grid-column: 2 / -2;
+  }
+
+  /* a label that stays goes below the title, beside nothing */
+  .workitem:is([data-state='template'], [data-state='duplicate']) .workitem__label {
+    grid-column: 2 / -2;
+    grid-row: 2;
+    margin-top: 2px;
+    white-space: normal;
+  }
+
+  .workitem:is([data-state='template'], [data-state='duplicate']) .workitem__body > [data-node-view-content-react] > :first-child,
+  .workitem:is([data-state='template'], [data-state='duplicate']) .workitem__body > :first-child:not([data-node-view-content-react]) {
+    grid-column: 2 / -2;
+  }
+
+  .workitem:is([data-state='template'], [data-state='duplicate']) > .workitem__chips {
+    grid-row: 3;
+  }
+
+  .workitem:is([data-state='template'], [data-state='duplicate']) > .workitem__lock {
+    grid-row: 4;
   }
 
   .workitem__chips,
+  .workitem__lock,
   .workitem__body > :not(:first-child):not([data-node-view-content-react]),
   .workitem__body > [data-node-view-content-react] > :not(:first-child) {
     grid-column: 1 / -1;
@@ -345,5 +795,162 @@
 
   .workitem__chip--person {
     padding: 0 9px 0 5px;
+  }
+
+  /* the separator before WAITING FOR becomes a line break */
+  .workitem__sep {
+    flex-basis: 100%;
+    height: 0;
+    margin: 0;
+    background: none;
+  }
+
+  .workitem__more {
+    width: calc(32px * var(--text-scale));
+    height: calc(32px * var(--text-scale));
+    margin-top: calc(var(--wi-pad) + (var(--wi-line) - 32px * var(--text-scale)) / 2);
+  }
+
+  /* compact: the chips go onto their own row */
+  .workitem[data-compact] {
+    --wi-key: calc(26px * var(--text-scale));
+    padding: 5px 6px 5px 12px;
+  }
+
+  .workitem[data-compact] > .workitem__chips {
+    grid-column: 2 / -1;
+    grid-row: 2;
+    flex-wrap: wrap;
+    margin-top: 2px;
+  }
+
+  .workitem[data-compact] .workitem__chip {
+    height: 26px;
+  }
+}
+
+/* touch: every key at least 32 px tall; ghosts only on the task with the caret */
+@media (pointer: coarse) {
+  .workitem__keys .workitem__key,
+  .workitem__caret,
+  .workitem__more,
+  .workitem__newid,
+  .workitem__chips button,
+  .workitem__chips .workitem__chip,
+  .workitem__unlink {
+    min-height: 32px;
+  }
+
+  .workitem__chips .workitem__chip,
+  .workitem__lbl {
+    height: auto;
+  }
+
+  .workitem__keys .workitem__key {
+    min-width: 32px;
+  }
+
+  .workitem__caret {
+    min-width: 24px;
+  }
+
+  .workitem__more {
+    min-width: 32px;
+  }
+
+  .workitem__chips {
+    gap: 6px;
+  }
+}
+
+@media (hover: none) {
+  .workitem:focus-within:not(:has(.workitem__ghosts :focus)) .workitem__ghosts {
+    display: none;
+  }
+
+  .node-workItem[data-caret] > .workitem .workitem__ghosts {
+    display: contents;
+  }
+
+  .workitem[data-status='done'] .workitem__ghosts {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  button.workitem__key,
+  button.workitem__chip,
+  .workitem__chip {
+    transition: none;
+  }
+}
+
+/* ---------- the status popover (⌄) and the blocked confirm ---------- */
+.wi-pop {
+  max-width: calc(100vw - 32px);
+}
+
+.wi-status {
+  min-width: calc(180px * var(--text-scale));
+  padding: 4px;
+}
+
+.wi-status__list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.wi-status__opt {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 30px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--radius-1);
+  background: transparent;
+  text-align: start;
+  font-size: var(--text-sm);
+}
+
+.wi-status__opt:hover {
+  background: var(--hover);
+}
+
+.wi-status__opt[aria-checked='true'] {
+  background: var(--surface-2);
+  font-weight: 600;
+}
+
+.wi-confirm {
+  width: calc(280px * var(--text-scale));
+  padding: 12px;
+}
+
+.wi-confirm__text {
+  margin: 0 0 10px;
+  font-size: var(--text-sm);
+  line-height: 1.45;
+  color: var(--ink);
+}
+
+.wi-confirm__keys {
+  display: flex;
+  gap: 6px;
+}
+
+.wi-due__audience {
+  margin: 0;
+  padding: 8px 12px 10px;
+  border-top: 1px solid var(--rule);
+  font-size: var(--text-xs);
+  line-height: 1.4;
+  color: var(--ink-2);
+}
+
+@media (pointer: coarse) {
+  .wi-status__opt {
+    min-height: 40px;
   }
 }

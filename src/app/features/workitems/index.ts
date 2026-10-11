@@ -26,3 +26,7 @@ export { ringsHere, audienceText, joinNames, type AudienceCtx } from './audience
 export { writeItems, type ItemEdit, type WriteResult, type WriteRefusal, type WriteOptions } from './write'
 export { unblockedBy } from './unblock'
 export { toastUnblocked } from './unblockToast'
+// the editor's task pickers and cards (mounted by editor/workitem/ItemPickers.tsx)
+export { PeoplePicker } from './PeoplePicker'
+export { ItemLinkPicker, pagePath } from './ItemPicker'
+export { RefCard, RefList } from './RefCard'

@@ -365,7 +365,7 @@ test.describe('scan, text, patch (pure)', () => {
     expect(l.taken(A, null)).toBe(false)
     expect(l.gone(A, null)).toBe(false)
     expect(l.isPrivate(A)).toBe(false)
-    setItemLookup({ taken: () => true, gone: () => true, isPrivate: () => true, canCreate: () => true })
+    setItemLookup({ taken: () => true, gone: () => true, isPrivate: () => true, canCreate: () => true, openBlockers: () => 0, dependents: () => 0 })
     expect(itemLookup().canCreate()).toBe(true)
     setItemLookup(null)
     expect(itemLookup().canCreate()).toBe(false)
