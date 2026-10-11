@@ -3,13 +3,13 @@ id: blocks
 title: Blocks & the slash menu
 section: writing
 order: 1
-keywords: slash, block, insert, heading, list, to-do, callout, quote, code, divider, markdown, image, embed, Block, Slash-Menü, einfügen
-related: block-handle, layout-blocks, media-embeds, mentions-dates
+keywords: slash, block, insert, heading, list, to-do, task, callout, quote, code, divider, markdown, image, embed, Block, Slash-Menü, einfügen
+related: block-handle, layout-blocks, media-embeds, mentions-dates, tasks
 summary: Everything on a page is a block. Type / to insert one — or use Markdown shortcuts.
 ---
-Type `/` on an empty line (or after a space) and keep typing to filter: `/todo`, `/table`, `/board`, `/chart`. <kbd>↑</kbd> <kbd>↓</kbd> pick, <kbd>Enter</kbd> inserts, <kbd>Esc</kbd> cancels. German names work too: `/aufgabe`, `/tabelle`.
+Type `/` on an empty line (or after a space) and keep typing to filter: `/todo`, `/task`, `/table`, `/board`, `/chart`. <kbd>↑</kbd> <kbd>↓</kbd> pick, <kbd>Enter</kbd> inserts, <kbd>Esc</kbd> cancels. German names work too: `/aufgabe` (a task), `/checkliste` (a to-do list), `/tabelle`.
 
-The menu is grouped: **Basic** (text, headings, page, link to page, callout, quote, divider, table, spreadsheet, chart), **Lists** (bulleted, numbered, to-do, toggles), **Media** (image, bookmark, embed, PDF, file, video, audio), **Database** (table, board, list, gallery, calendar, timeline and chart views, form, linked database), **Advanced** (code, equations, Mermaid diagrams, table of contents, breadcrumb, 2 to 5 columns, tabs, synced block, button), **Inline** (mention, date, emoji, icon, inline equation) and **AI** (Ask AI, meeting notes).
+The menu is grouped: **Basic** (text, headings, page, link to page, callout, quote, divider, table, spreadsheet, chart), **Lists** (bulleted, numbered, to-do, [task](help:tasks), toggles), **Media** (image, bookmark, embed, PDF, file, video, audio), **Database** (table, board, list, gallery, calendar, timeline and chart views, form, linked database), **Advanced** (code, equations, Mermaid diagrams, table of contents, breadcrumb, 2 to 5 columns, tabs, synced block, button), **Inline** (mention, date, emoji, icon, inline equation) and **AI** (Ask AI, meeting notes).
 
 A Mermaid diagram doesn't have to be typed: select a list of steps → **Ask AI** → **Transform into…** → **Diagram** ([The AI menu](help:ai-menu)).
 
@@ -18,7 +18,7 @@ Too wide for the page? **Open large** — the ↗ key on the diagram, its block 
 ## Markdown shortcuts
 Type these at the start of a line:
 - `# `, `## `, `### ` — headings
-- `- ` or `* ` — bulleted list, `1. ` — numbered list, `[] ` — to-do
+- `- ` or `* ` — bulleted list, `1. ` — numbered list, `[] ` — to-do, `[!] ` — a [task](help:tasks)
 - `> ` — quote, `>> ` — toggle, `!> ` — callout
 - ```` ``` ```` — code block, `$$ ` — equation, `---` — divider
 

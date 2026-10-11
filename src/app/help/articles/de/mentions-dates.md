@@ -4,7 +4,7 @@ title: Erwähnungen, Daten & Erinnerungen
 section: writing
 order: 5
 keywords: erwähnung, @, seite verlinken, datum, heute, morgen, erinnerung, erinnern, benachrichtigung, posteingang, agenda, mention, reminder
-related: blocks, properties, comments
+related: blocks, properties, comments, tasks
 summary: Tippe @, um eine Seite, ein Datum oder eine Person zu verlinken — Daten können dich erinnern.
 ---
 Tippe `@` und schreib weiter:
@@ -19,8 +19,10 @@ Tippe `@` und schreib weiter:
 ## Erinnerungen
 Klick auf ein Datum: Tag ändern, **Mit Uhrzeit**, und **Erinnern** wählen — zum Zeitpunkt, Minuten, Stunden, Tage oder eine Woche vorher. Datumseigenschaften in Datenbanken haben dieselbe Option **Erinnern**.
 
+Eine [Aufgabe](help:tasks) erinnert genauso: **Erinnern** in ihrer Terminauswahl. Eine erledigte Aufgabe erinnert niemanden; in einem Team-Arbeitsbereich erinnert eine Aufgabe mit Personen nur diese, eine ohne Zuweisung jedes Mitglied.
+
 Ist eine Erinnerung fällig, erscheint sie im **Posteingang** (Seitenleiste) und als Hinweis in der App. Schalte in den Posteingang-Einstellungen **Browser-Benachrichtigungen** ein, um sie auch zu bekommen, wenn One im Hintergrund ist.
 
 > Erinnerungen lösen aus, solange One in einem Tab auf diesem Gerät offen ist. Posteingang und Erinnerungen gelten pro Gerät und werden nie synchronisiert.
 
-Die **Agenda** in der Seitenleiste zeigt alles mit Datum — Erwähnungen, Datumsfelder, Journaltage — als Monat, Woche oder Liste.
+Die **Agenda** in der Seitenleiste zeigt alles mit Datum — Erwähnungen, Datumsfelder, Aufgaben, Journaltage — als Monat, Woche oder Liste. Zieh eine Aufgabe auf einen anderen Tag, um ihren Termin zu verschieben; ein Klick öffnet sie auf ihrer Seite.

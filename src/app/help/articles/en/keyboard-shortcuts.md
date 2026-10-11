@@ -4,7 +4,7 @@ title: Keyboard shortcuts
 section: start
 order: 4
 keywords: keys, keyboard, shortcut, hotkey, Tastenkürzel, Tastatur
-related: command-palette, blocks, block-handle
+related: command-palette, blocks, block-handle, tasks
 summary: The keys worth learning first. The full list is on the Keys tab of the Help panel.
 ---
 Keys are shown for your system — ⌘ on a Mac, Ctrl elsewhere. The complete list: the **Keys** tab of the Help panel, or <kbd>Mod+/</kbd>.
@@ -35,3 +35,13 @@ Keys are shown for your system — ⌘ on a Mac, Ctrl elsewhere. The complete li
 - <kbd>Alt+Enter</kbd> — block menu (turn into, colour, move, delete)
 - <kbd>Mod+Alt+M</kbd> — comment on the selection
 - <kbd>Mod+Z</kbd> — undo
+
+## Tasks
+With the caret in a [task](help:tasks):
+- <kbd>Mod+Enter</kbd> — done / reopen (a to-do in its notes first)
+- <kbd>Mod+Alt+Enter</kbd> — in progress / open again
+- <kbd>Alt+Enter</kbd> — the task's menu: status, due date, people, blocked by, related, blocks
+- <kbd>Enter</kbd> at the end of a title — the next task; at its start — a new task before it
+- <kbd>Shift+Enter</kbd> in the title — to the notes
+- <kbd>Backspace</kbd> at the start of an empty title — unwrap the task
+- `[!]` and a space at the start of a line — a new task

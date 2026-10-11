@@ -2,7 +2,7 @@
 id: synced-blocks
 title: Synced blocks
 section: writing
-order: 8
+order: 9
 keywords: synced block, sync, mirror, reuse, same content, copy and sync, unsync, synchronisierter Block, spiegeln
 related: block-handle, templates, layout-blocks
 summary: The same content on several pages — edit it anywhere, it changes everywhere.

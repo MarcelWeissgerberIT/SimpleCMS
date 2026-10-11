@@ -18,5 +18,7 @@ Click the workspace name at the top of the sidebar: **This browser (local)**, yo
 ## Working together
 - Everyone edits live: presence and cursors show who is where.
 - Offline? Your changes stay on the device and sync when the connection is back.
-- Comments, mentions and assignments reach people's **Inbox**.
+- Comments, mentions and assignments reach people's **Inbox**. A [task](help:tasks)'s reminder rings for its people (for every member when nobody is assigned).
+- Two people changing the same field at once (a task's people, its status): the last change wins for that field.
+- A tab running an older version of One can only read in a shared workspace until it reloads (**Reload to keep editing**) — it never removes what a newer version wrote.
 - Your Claude key, MCP servers and sync settings stay per person and device — they are never shared with the team.

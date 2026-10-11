@@ -2,7 +2,7 @@
 id: history
 title: Version history
 section: writing
-order: 11
+order: 12
 keywords: history, versions, restore, undo, snapshot, backup, previous version, compare, what's new, new since, diff, changes, properties, database entry, Verlauf, Versionen, Vorversion, vergleichen, wiederherstellen, Eigenschaften
 related: lock, export, ai-menu
 summary: One keeps earlier versions of every page. Scrub back in time, see what each version added, and restore.

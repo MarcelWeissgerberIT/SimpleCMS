@@ -345,6 +345,11 @@ export const messages: Messages = {
     'shell.keys.undo': 'Undo',
     'shell.keys.switchTab': 'Switch tabs (inside a tabs block)',
     'shell.keys.comment': 'Comment on the selection',
+    'shell.keys.tasks': 'Tasks',
+    'shell.keys.taskDone': 'Mark the task done / reopen it',
+    'shell.keys.taskProgress': 'Task in progress / open again',
+    'shell.keys.taskMenu': 'Task menu: due date, people, blockers',
+    'shell.keys.taskNext': 'Next task (at the end of a title)',
     'shell.keys.agent': 'Ask the agent (Claude, your key)',
 
     // settings
@@ -810,6 +815,11 @@ export const messages: Messages = {
     'shell.keys.undo': 'Rückgängig',
     'shell.keys.switchTab': 'Tab wechseln (im Tabs-Block)',
     'shell.keys.comment': 'Auswahl kommentieren',
+    'shell.keys.tasks': 'Aufgaben',
+    'shell.keys.taskDone': 'Aufgabe erledigen / wieder öffnen',
+    'shell.keys.taskProgress': 'Aufgabe in Arbeit / wieder offen',
+    'shell.keys.taskMenu': 'Aufgabenmenü: Termin, Personen, Blocker',
+    'shell.keys.taskNext': 'Nächste Aufgabe (am Ende eines Titels)',
     'shell.keys.agent': 'Agent beauftragen (Claude, eigener Key)',
 
     'shell.settings.tab.general': 'Allgemein',

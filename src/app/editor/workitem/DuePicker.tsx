@@ -11,6 +11,7 @@ import { useShallow } from 'zustand/react/shallow'
 import { DateReminderEditor, type DateReminderValue } from '../../features'
 import { audienceText, useMemberIds } from '../../features/workitems'
 import { Popover } from '../../ui/Popover'
+import { HelpLink } from '../../help'
 import { useLang, useT } from '../../i18n'
 import { useWorkspace } from '../../store/store'
 import { useCloud } from '../../cloud'
@@ -47,11 +48,14 @@ export function DuePicker({ ctx }: { ctx: PickerCtx }) {
         }}
         onDone={write}
         footer={
-          a.due ? (
-            <button type="button" className="btn btn--ghost btn--sm" onClick={() => ctx.commit({ due: null })}>
-              {t('editor.workItem.clear')}
-            </button>
-          ) : null
+          <>
+            <HelpLink id="tasks" topic={t('features.workItems.help')} />
+            {a.due && (
+              <button type="button" className="btn btn--ghost btn--sm" onClick={() => ctx.commit({ due: null })}>
+                {t('editor.workItem.clear')}
+              </button>
+            )}
+          </>
         }
       />
       {audience && <p className="wi-due__audience">{audience}</p>}

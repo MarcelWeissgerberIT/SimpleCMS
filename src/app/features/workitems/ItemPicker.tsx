@@ -20,6 +20,7 @@ import { pageTitle, templateRootOf } from '../../store/selectors'
 import type { ID, Page } from '../../store/types'
 import { useUI } from '../../store/ui'
 import { useCloud } from '../../cloud'
+import { HelpLink } from '../../help'
 import type { PickerCtx } from '../../editor'
 import { getItemIndex, useItemIndexVersion } from './live'
 import { wouldLoop } from './graph'
@@ -206,6 +207,7 @@ export function ItemLinkPicker({ ctx, mode }: { ctx: PickerCtx; mode: Mode }) {
         {!rows.length && <div className="label wi-pop__empty">{t('features.workItems.items.none')}</div>}
       </div>
       <div className="wi-pop__foot">
+        <HelpLink id="tasks" topic={t('features.workItems.help')} />
         <span className="wi-pop__note" role="status">
           {mode !== 'blocks' && draft.length >= MAX_LINKS ? t('features.workItems.items.cap') : ''}
         </span>

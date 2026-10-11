@@ -2,9 +2,9 @@
 id: templates
 title: Vorlagen
 section: writing
-order: 10
+order: 11
 keywords: vorlage, galerie, wiederverwenden, als vorlage speichern, wiederholen, wiederkehrend, wöchentlich, täglich, template, recurring
-related: databases, buttons, synced-blocks
+related: databases, buttons, synced-blocks, tasks
 summary: Starte mit einer mitgelieferten Vorlage, speichere eigene, oder lass eine Datenbankvorlage nach Plan wiederkehren.
 ---
 ## Mitgelieferte Vorlagen
@@ -16,6 +16,8 @@ summary: Starte mit einer mitgelieferten Vorlage, speichere eigene, oder lass ei
 3. Name, Beschreibung und Kategorie vergeben, dann **Vorlage speichern**.
 
 Deine Vorlagen stehen unter **Eigene** in der Galerie. Variablen wie `{{date}}` oder `{{user}}` werden bei jeder Verwendung ausgefüllt. **Anpassen** macht aus einer mitgelieferten Vorlage deine eigene Version.
+
+**Vorlage verwenden** startet ihre [Aufgaben](help:tasks) frisch: offen, ohne Termin und Erinnerung — Personen und die Verknüpfungen untereinander bleiben. Dasselbe gilt für einen neuen Eintrag aus einer Zeilenvorlage.
 
 ## Zeilenvorlagen und wiederkehrende Einträge
 In einer Datenbank zeigt der Pfeil neben **Neu** ihre Vorlagen: vorausgefüllte Eigenschaften und Inhalt für einen neuen Eintrag. **Neue Vorlage** legt eine an.
