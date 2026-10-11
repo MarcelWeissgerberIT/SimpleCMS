@@ -14,6 +14,17 @@ import type { AgentRun, AgentStateRow, Runtime } from './types.ts'
 
 /** Runs kept per agent (older ones are deleted when a new one starts). */
 export const RUNS_KEPT = 200
+/** At most this many open (staged) runs per agent-runs/open answer. */
+export const OPEN_RUNS_MAX = 200
+
+/** A run's plain columns (agent-runs/open `latest`). */
+export interface RunHead {
+  id: string
+  agentId: string
+  status: string
+  startedAt: number
+  endedAt: number | null
+}
 
 const runtimeContext = (wsId: string) => `agent-runtime\n${wsId}`
 const runContext = (wsId: string, runId: string) => `agent-run\n${wsId}\n${runId}`
@@ -154,6 +165,37 @@ export class AgentStore {
       ? this.db.all<{ id: string; data: string }>('SELECT id, data FROM agent_runs WHERE workspace_id = ? AND agent_id = ? ORDER BY started_at DESC, id DESC LIMIT ?', wsId, opts.agentId, opts.limit)
       : this.db.all<{ id: string; data: string }>('SELECT id, data FROM agent_runs WHERE workspace_id = ? ORDER BY started_at DESC, id DESC LIMIT ?', wsId, opts.limit)
     return rows.map((r) => JSON.parse(openText(key, r.data, runContext(wsId, r.id))) as AgentRun)
+  }
+
+  /**
+   * The runs of these agents whose proposals wait (status 'staged'), newest first, at most `limit` — WITHOUT summary and
+   * steps (the app's Preflight lamp shows the proposals, not the reports; less to decrypt and to send).
+   */
+  openRuns(wsId: string, agentIds: readonly string[], limit = OPEN_RUNS_MAX): Array<Omit<AgentRun, 'summary' | 'steps'>> {
+    const key = this.aead(wsId)
+    if (!key || !agentIds.length) return []
+    const marks = agentIds.map(() => '?').join(', ')
+    const rows = this.db.all<{ id: string; data: string }>(
+      `SELECT id, data FROM agent_runs WHERE workspace_id = ? AND status = 'staged' AND agent_id IN (${marks}) ORDER BY started_at DESC, id DESC LIMIT ?`,
+      wsId, ...agentIds, Math.max(1, Math.min(limit, OPEN_RUNS_MAX)),
+    )
+    return rows.map((r) => {
+      const { summary: _summary, steps: _steps, ...rest } = JSON.parse(openText(key, r.data, runContext(wsId, r.id))) as AgentRun
+      return rest
+    })
+  }
+
+  /** Each agent's newest run that is not a skip — plain columns only (nothing decrypted): what the app's health lamp reads. */
+  latestRuns(wsId: string, agentIds: readonly string[]): RunHead[] {
+    const out: RunHead[] = []
+    for (const agentId of agentIds) {
+      const row = this.db.get<{ id: string; status: string; started_at: number; ended_at: number | null }>(
+        "SELECT id, status, started_at, ended_at FROM agent_runs WHERE workspace_id = ? AND agent_id = ? AND status <> 'skipped' ORDER BY started_at DESC, id DESC LIMIT 1",
+        wsId, agentId,
+      )
+      if (row) out.push({ id: row.id, agentId, status: row.status, startedAt: row.started_at, endedAt: row.ended_at })
+    }
+    return out
   }
 
   /** When the agent's newest successful run (ok / staged) started — `exceptRunId` (the run going on) left out. */
