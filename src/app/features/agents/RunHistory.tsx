@@ -20,7 +20,7 @@ import { EditDiff } from '../ai/agent/EditDiff'
 import type { StagedChange } from '../ai/agent/types'
 import { canUndoRun, undoRun } from './exec'
 import { applyRun, canUndoChange, discardRun, undoChange } from './review'
-import { awaitsReview, putRun } from './runs'
+import { awaitsReview, patchRun, withRunLock } from './runs'
 import { fmtDuration, fmtUsd, fmtWhen, statusLed } from './format'
 import type { AgentRun } from './types'
 
@@ -178,7 +178,10 @@ function Review({ run }: { run: AgentRun }) {
             onClick={() => {
               const kept = undoRun(run.id)
               if (kept === null) return
-              void putRun({ ...run, staged: changes.map((c) => (c.status === 'applied' ? { ...c, status: 'pending' } : c)), applied: 0, status: run.status === 'ok' ? 'staged' : run.status })
+              // the stored run, under its lock: a status another tab wrote meanwhile stays
+              void withRunLock(run.agentId, () =>
+                patchRun(run.agentId, run.id, (r) => ({ ...r, staged: (r.staged ?? []).map((c) => (c.status === 'applied' ? { ...c, status: 'pending' as const } : c)), applied: 0, status: r.status === 'ok' ? 'staged' : r.status })),
+              )
               useUI.getState().toast(kept ? t(kept === 1 ? 'features.agent.toast.undoneKept.one' : 'features.agent.toast.undoneKept.other', { count: kept }) : t('features.agent.toast.undone'))
               focusIn(root, 'head')
             }}

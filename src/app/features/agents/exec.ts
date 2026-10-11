@@ -31,7 +31,7 @@ import { applyChanges, type ApplyResult } from '../ai/agent/apply'
 import type { StagedChange } from '../ai/agent/types'
 import { snapshotNow } from '../history/snapshots'
 import { agentTools, scopeFilter, scopeText } from './scope'
-import { asAgent, stampLocal } from './attribution'
+import { asAgent, stampLocal, touchedBy } from './attribution'
 import { getAgentState, lastSuccess, loadRuns, putAgentState, putRun, type AgentState } from './runs'
 import { agentLabel } from './label'
 import { deliverNotes, lastRunLine, runTools, type RunExtras } from './runTools'
@@ -181,19 +181,6 @@ const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…`
 const alive = (id: ID | null | undefined): id is ID => {
   const pages = useWorkspace.getState().pages
   return !!id && !!pages[id] && !pages[id].trashed && !isEffectivelyTrashed(pages, id)
-}
-
-/** The pages an applied batch touched: [changed, created]. */
-export function touchedBy(changes: StagedChange[], applied: string[], rowIds: Record<string, ID>): [ID[], ID[]] {
-  const changed: ID[] = []
-  const created: ID[] = []
-  for (const c of changes) {
-    if (!applied.includes(c.id)) continue
-    const id = rowIds[c.pageId] ?? c.pageId
-    if (c.kind === 'create_page' || c.kind === 'create_row') created.push(id)
-    else changed.push(id)
-  }
-  return [changed, created]
 }
 
 /** Write the run's report into the agent's report page (a version is kept first). */

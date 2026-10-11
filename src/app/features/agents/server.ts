@@ -208,9 +208,21 @@ export async function resolveServerRun(runId: string, applied: string[], discard
   await cloudRequest('POST', path(wsId, `agent-runs/${encodeURIComponent(runId)}/resolve`), { applied, discarded })
 }
 
-/** Update one server run in the cache (after a review here). */
+/**
+ * Update one server run in the cache (after a review here) — also its lean copy among the open runs (agent-runs/open:
+ * only its proposals change there, it keeps no summary / steps), so what was reviewed stops counting at once.
+ */
 export function patchServerRun(run: AgentRun): void {
-  useServerAgents.setState((s) => ({ runs: { ...s.runs, [run.agentId]: (s.runs[run.agentId] ?? []).map((r) => (r.id === run.id ? run : r)) } }))
+  useServerAgents.setState((s) => ({
+    runs: s.runs[run.agentId] ? { ...s.runs, [run.agentId]: s.runs[run.agentId].map((r) => (r.id === run.id ? run : r)) } : s.runs,
+    open: s.open?.some((r) => r.id === run.id) ? s.open.map((r) => (r.id === run.id ? { ...r, staged: run.staged, rowIds: run.rowIds, applied: run.applied } : r)) : s.open,
+  }))
+}
+
+/** The newest copy of a server run this tab holds (AgentsView's list, else the open runs), or null. */
+export function serverRunCopy(agentId: ID, runId: string): AgentRun | null {
+  const s = useServerAgents.getState()
+  return s.runs[agentId]?.find((r) => r.id === runId) ?? s.open?.find((r) => r.id === runId) ?? null
 }
 
 /* ------------------------------------------------------------------ the member's own open server runs (Preflight) */
