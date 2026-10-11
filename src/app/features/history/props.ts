@@ -5,50 +5,12 @@
  * by) are never kept; unique_id is kept but never restored.
  */
 import { useWorkspace } from '../../store/store'
-import type { Database, ID, NumberFormat, Page, PageIcon, PropertyDef, PropertyType, PropertyValue, SelectOption } from '../../store/types'
+import type { Database, ID, Page, PageIcon, PropertyDef, PropertyValue, SelectOption } from '../../store/types'
 import { writePropertyValue } from '../../database'
+import { compatible, isEmptyValue, isKept, NO_RESTORE, planRestoreProps, skipOf, valueKey, type NotRestored, type PropSkip, type SnapshotPropDef, type SnapshotProps } from './propsCore'
 
-/** A property as it was when the snapshot was taken. */
-export interface SnapshotPropDef {
-  id: ID
-  name: string
-  type: PropertyType
-  options?: SelectOption[]
-  numberFormat?: NumberFormat
-  relationDatabaseId?: ID
-  idPrefix?: string
-  ratingMax?: number
-}
-
-export interface SnapshotProps {
-  databaseId: ID
-  /** stored values by property id (empty values left out) */
-  values: Record<ID, PropertyValue>
-  defs: SnapshotPropDef[]
-}
-
-/** Never in a snapshot: computed from other data. */
-const COMPUTED = new Set<PropertyType>(['title', 'formula', 'rollup', 'created_time', 'last_edited_time', 'created_by', 'last_edited_by'])
-/** Kept for the record, never written back. */
-const NO_RESTORE = new Set<PropertyType>(['unique_id'])
-
-export const isKept = (p: Pick<PropertyDef, 'type'>) => !COMPUTED.has(p.type)
-
-/** null, '', [], false and absent all mean "empty". */
-export function isEmptyValue(v: PropertyValue | undefined): boolean {
-  return v === undefined || v === null || v === '' || v === false || (Array.isArray(v) && !v.length)
-}
-
-/** Stable text of a value (empty = ''; arrays of ids compare as sets). */
-export function valueKey(v: PropertyValue | undefined, type?: PropertyType): string {
-  if (isEmptyValue(v)) return ''
-  if (Array.isArray(v) && (type === 'multi_select' || type === 'relation' || type === 'person')) return JSON.stringify([...v].sort())
-  if (v && typeof v === 'object' && !Array.isArray(v)) {
-    const d = v as unknown as Record<string, unknown>
-    return JSON.stringify(Object.keys(d).sort().filter((k) => d[k] !== null && d[k] !== undefined && d[k] !== false).map((k) => [k, d[k]]))
-  }
-  return JSON.stringify(v)
-}
+export { isKept, isEmptyValue, valueKey, planRestoreProps, emptyOf } from './propsCore'
+export type { SnapshotPropDef, SnapshotProps, PropSkip, NotRestored, RestorePlan } from './propsCore'
 
 function defOf(p: PropertyDef): SnapshotPropDef {
   const d: SnapshotPropDef = { id: p.id, name: p.name, type: p.type }
@@ -111,8 +73,6 @@ export function propsChanged(before: Page, after: Page): boolean {
 /* Changes view                                                        */
 /* ------------------------------------------------------------------ */
 
-export type PropSkip = 'deleted' | 'type' | 'option'
-
 export interface PropChangeRow {
   id: ID
   /** the name now (or then, when the property is gone) */
@@ -125,17 +85,6 @@ export interface PropChangeRow {
   after: PropertyValue | null
   /** restoring leaves it alone (and why) */
   skip?: PropSkip
-}
-
-const TEXTISH = new Set<PropertyType>(['text', 'url', 'email', 'phone'])
-const compatible = (a: PropertyType, b: PropertyType) => a === b || (TEXTISH.has(a) && TEXTISH.has(b))
-
-/** Why a value can't go back (null: it can). */
-function skipOf(then: SnapshotPropDef, live: PropertyDef | undefined, value: PropertyValue | undefined): PropSkip | null {
-  if (!live) return 'deleted'
-  if (!compatible(then.type, live.type)) return 'type'
-  if ((live.type === 'select' || live.type === 'status') && typeof value === 'string' && !live.options?.some((o) => o.id === value)) return 'option'
-  return null
 }
 
 /** The properties that differ between a snapshot and the row now (computed ones never). */
@@ -199,13 +148,6 @@ function mergeOptions(live: SelectOption[] | undefined, then: SelectOption[] | u
 /* Restore                                                             */
 /* ------------------------------------------------------------------ */
 
-const emptyOf = (type: PropertyType): PropertyValue => (type === 'checkbox' ? false : type === 'multi_select' || type === 'relation' || type === 'person' || type === 'files' ? [] : null)
-
-export interface NotRestored {
-  name: string
-  reason: PropSkip
-}
-
 /**
  * Write a snapshot's property values back into the row: only properties that still exist with a
  * compatible type (two-way relations stay in step); returns the ones left alone.
@@ -214,30 +156,13 @@ export function restoreProps(pageId: ID, props: SnapshotProps): NotRestored[] {
   const s = useWorkspace.getState()
   const page = s.pages[pageId]
   const db = s.databases[props.databaseId]
-  if (!page || !db || page.databaseId !== props.databaseId) return props.defs.filter((d) => isKept(d) && !NO_RESTORE.has(d.type) && !isEmptyValue(props.values[d.id])).map((d) => ({ name: d.name, reason: 'deleted' as const }))
-  const skipped: NotRestored[] = []
-  for (const then of props.defs) {
-    if (!isKept(then) || NO_RESTORE.has(then.type)) continue
-    const live = db.properties.find((p) => p.id === then.id)
-    const old = props.values[then.id]
-    const cur = useWorkspace.getState().pages[pageId]?.properties[then.id]
-    if (live && valueKey(old, live.type) === valueKey(cur, live.type)) continue
-    // a property deleted since that was empty then: nothing is lost, nothing to report
-    if (!live && isEmptyValue(old)) continue
-    const skip = skipOf(then, live, old)
-    if (skip === 'deleted' || skip === 'type' || skip === 'option') {
-      skipped.push({ name: live?.name ?? then.name, reason: skip })
-      continue
-    }
-    // an empty value goes back the way a cleared cell reads (unticked, no options, nothing)
-    let value: PropertyValue = old === undefined ? emptyOf(live!.type) : (structuredClone(old) as PropertyValue)
-    // multi-select: options deleted since are left out
-    if (live!.type === 'multi_select' && Array.isArray(value)) {
-      const known = value.filter((id) => live!.options?.some((o) => o.id === id))
-      if (known.length !== value.length) skipped.push({ name: live!.name, reason: 'option' })
-      value = known
-    }
-    writePropertyValue(db.id, live!, pageId, value)
+  if (!page || !db) return props.defs.filter((d) => isKept(d) && !NO_RESTORE.has(d.type) && !isEmptyValue(props.values[d.id])).map((d) => ({ name: d.name, reason: 'deleted' as const }))
+  const plan = planRestoreProps(page, props, db)
+  for (const [id, value] of Object.entries(plan.values)) {
+    const live = db.properties.find((p) => p.id === id)!
+    // a two-way write before may have changed it already
+    if (valueKey(value, live.type) === valueKey(useWorkspace.getState().pages[pageId]?.properties[id], live.type)) continue
+    writePropertyValue(db.id, live, pageId, value)
   }
-  return skipped
+  return plan.notRestored
 }

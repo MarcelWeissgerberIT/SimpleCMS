@@ -24,6 +24,7 @@ import { getSchema } from '@tiptap/core'
 import type { Schema } from '@tiptap/pm/model'
 import { getExtensions } from '../../editor'
 import { docKey } from './diff'
+import { thinSnapshots } from './thin'
 import { t } from '../../i18n'
 import { blankRow, iconKey, propsChanged, propsKey, propsOf, restoreProps, type NotRestored, type SnapshotProps } from './props'
 
@@ -66,7 +67,7 @@ export function bodyOfPage(p: Page, db: Database | undefined): SnapshotBody {
   return { content: p.content, title: p.title, icon: p.icon, ...(props ? { props } : {}) }
 }
 
-export const MAX_SNAPSHOTS = 100
+export { MAX_SNAPSHOTS } from './thin'
 
 let store: UseStore | undefined
 function db(): UseStore | undefined {
@@ -170,43 +171,7 @@ function enqueue<T>(pageId: ID, job: () => Promise<T>): Promise<T> {
   return next
 }
 
-/**
- * Thin a snapshot list (oldest → newest) down to `max`: everything from the last hour stays,
- * then one per 10 min (24 h), one per hour (7 d), one per day (30 d), one per week after that.
- * Within a bucket the newest snapshot survives. Pure; exported for testing.
- */
-export function thinSnapshots(list: SnapshotMeta[], max = MAX_SNAPSHOTS, now = Date.now()): { keep: SnapshotMeta[]; drop: SnapshotMeta[] } {
-  if (list.length <= max) return { keep: list, drop: [] }
-  const MIN = 60_000
-  const H = 60 * MIN
-  const D = 24 * H
-  const bucketOf = (m: SnapshotMeta): string => {
-    const age = now - m.at
-    if (age < H) return `x${m.id}`
-    if (age < D) return `m${Math.floor(m.at / (10 * MIN))}`
-    if (age < 7 * D) return `h${Math.floor(m.at / H)}`
-    if (age < 30 * D) return `d${Math.floor(m.at / D)}`
-    return `w${Math.floor(m.at / (7 * D))}`
-  }
-  const seen = new Set<string>()
-  const keepRev: SnapshotMeta[] = []
-  const drop: SnapshotMeta[] = []
-  for (let i = list.length - 1; i >= 0; i--) {
-    const m = list[i]
-    const b = bucketOf(m)
-    if (seen.has(b)) drop.push(m)
-    else {
-      seen.add(b)
-      keepRev.push(m)
-    }
-  }
-  let keep = keepRev.reverse()
-  if (keep.length > max) {
-    drop.push(...keep.slice(0, keep.length - max))
-    keep = keep.slice(keep.length - max)
-  }
-  return { keep, drop }
-}
+export { thinSnapshots } from './thin'
 
 /* ---------------- public storage API ---------------- */
 
@@ -226,14 +191,14 @@ export async function loadSnapshot(id: ID): Promise<SnapshotBody | undefined> {
   return get<SnapshotBody>(bodyKey(id), s)
 }
 
-async function writeSnapshot(pageId: ID, body: SnapshotBody, reason: SnapshotReason, at = Date.now(), by?: string): Promise<SnapshotMeta | null> {
+async function writeSnapshot(pageId: ID, body: SnapshotBody, reason: SnapshotReason, at = Date.now(), by?: string, force = false): Promise<SnapshotMeta | null> {
   const s = db()
   if (!s) return null
   return enqueue(pageId, async () => {
     const idx = (await get<SnapshotMeta[]>(idxKey(pageId), s)) ?? []
     const hash = hashBody(body)
     const latest = idx[idx.length - 1]
-    if (latest && latest.hash === hash) return null // identical to the newest version
+    if (latest && latest.hash === hash && !force) return null // identical to the newest version
     const meta: SnapshotMeta = {
       id: newId(),
       pageId,
@@ -265,9 +230,11 @@ async function writeSnapshot(pageId: ID, body: SnapshotBody, reason: SnapshotRea
 /**
  * Save the page's current state as a version right now (e.g. before an AI replace or a
  * restore). Resolves with the new snapshot, or null when nothing changed since the last one.
- * `by` names the writer that follows (a script's name for 'script').
+ * `by` names the writer that follows (a script's name for 'script'). `force`: written even when
+ * it equals the newest version (the flight recorder's "Before the eject" — an empty page is still
+ * not kept).
  */
-export async function snapshotNow(pageId: ID, reason: SnapshotReason = 'manual', by?: string): Promise<SnapshotMeta | null> {
+export async function snapshotNow(pageId: ID, reason: SnapshotReason = 'manual', by?: string, opts?: { force?: boolean }): Promise<SnapshotMeta | null> {
   const p = useWorkspace.getState().pages[pageId]
   if (!p || nothingToKeep(p)) return null
   const s = session.get(pageId)
@@ -275,7 +242,7 @@ export async function snapshotNow(pageId: ID, reason: SnapshotReason = 'manual',
     s.last = Date.now()
     s.dirty = false
   }
-  return writeSnapshot(pageId, bodyOf(p), reason, Date.now(), by)
+  return writeSnapshot(pageId, bodyOf(p), reason, Date.now(), by, !!opts?.force)
 }
 
 export interface RestoreResult {
@@ -322,6 +289,19 @@ export async function restoreSnapshot(pageId: ID, snapId: ID): Promise<RestoreRe
 
 /** A restore is writing: its own title / icon / property writes start no session and no AI version. */
 let restoring = 0
+
+/**
+ * Run a synchronous write that puts a kept state back (the flight recorder's eject and its Undo): like a restore, it
+ * starts no session and no AI version — its own version was written first.
+ */
+export function withRestoring<T>(fn: () => T): T {
+  restoring++
+  try {
+    return fn()
+  } finally {
+    restoring--
+  }
+}
 
 /* ---------------- writes by Claude, agents, automations, the MCP bridge ---------------- */
 

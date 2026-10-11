@@ -7,12 +7,13 @@
  * and icon as two lines above the content diff.
  */
 import type { ReactNode } from 'react'
+import { Undo2 } from 'lucide-react'
 import { useT } from '../../i18n'
 import { useWorkspace } from '../../store/store'
 import type { Database, Page, PageIcon as PageIconT, PropertyDef, PropertyValue, SelectOption } from '../../store/types'
 import { propertyValueToText } from '../../database'
 import { PageIcon } from '../../ui/PageIcon'
-import { diffProps, diffPropsBetween, iconKey, isEmptyValue, type PropChangeRow, type SnapshotPropDef } from './props'
+import { diffProps, diffPropsBetween, iconKey, isEmptyValue, type PropChangeRow, type PropSkip, type SnapshotPropDef } from './props'
 import type { SnapshotBody } from './snapshots'
 
 /**
@@ -84,7 +85,81 @@ export function PropsDiff({ body, page, after, tagOf }: { body: SnapshotBody; pa
   )
 }
 
-function Row({ name, note, tag, children }: { name: string; note?: string; tag?: string; children: ReactNode }) {
+/** What the eject does with one value: it goes back, stays as it is (held), or cannot go back (and why). */
+export type PropFate = 'back' | 'held' | PropSkip | 'relation'
+
+/**
+ * The flight recorder's eject: what a writer changed in a row (`before` → `after`, as PropsDiff draws it) and, in a
+ * third column, what the row holds after the eject — the old value back (↶), or the value it has now, with why.
+ * `outcome` per property id, plus '#title' and '#icon' (absent: held). `head`: the middle column's label.
+ */
+export function PropsTriple({ before, after, outcome, page, head, tagOf }: { before: SnapshotBody; after: SnapshotBody; outcome: Record<string, PropFate>; page: Page; head?: string; tagOf?: (propId: string) => string | undefined }) {
+  const t = useT()
+  const db = useWorkspace((s) => (before.props ? s.databases[before.props.databaseId] : undefined))
+  const rows = diffPropsBetween(before.props, after.props)
+  const title = before.title !== after.title
+  const icon = iconKey(before.icon) !== iconKey(after.icon)
+  if (!rows.length && !title && !icon) return null
+  const fate = (key: string, back: ReactNode, emptyBack?: boolean) => <Fate fate={outcome[key] ?? 'held'} back={back} empty={emptyBack} />
+  return (
+    <section className="hprops hprops--triple" aria-label={t('features.history.props.title')} data-testid="hist-props-triple">
+      <div className="hprops__row hprops__row--h" aria-hidden>
+        <span />
+        <span className="label">{head ?? ''}</span>
+        <span className="label hprops__after">{t('features.history.props.afterEject')}</span>
+      </div>
+      <dl className="hprops__list">
+        {title && (
+          <Row name={t('features.history.titleLabel')} after={fate('#title', <span>{before.title || t('common.untitled')}</span>)}>
+            <Pair before={<span>{before.title || t('common.untitled')}</span>} after={<span>{after.title || t('common.untitled')}</span>} />
+          </Row>
+        )}
+        {icon && (
+          <Row name={t('features.history.props.icon')} after={fate('#icon', <IconOf icon={before.icon} />, !before.icon)}>
+            <Pair before={<IconOf icon={before.icon} />} after={<IconOf icon={after.icon} />} emptyBefore={!before.icon} emptyAfter={!after.icon} />
+          </Row>
+        )}
+        {rows.map((r) => (
+          <PropRow key={r.id} row={r} db={db} page={page} tag={tagOf?.(r.id)} after={fate(r.id, <BackValue row={r} db={db} page={page} />, isEmptyValue(r.before ?? undefined) && r.def.type !== 'checkbox')} />
+        ))}
+      </dl>
+    </section>
+  )
+}
+
+/** The third column: ↶ and the value that comes back, or what keeps the value it has now. */
+function Fate({ fate, back, empty }: { fate: PropFate; back: ReactNode; empty?: boolean }) {
+  const t = useT()
+  if (fate === 'back')
+    return (
+      <span className="hprops__fate" data-fate="back">
+        <Undo2 aria-label={t('features.history.props.fate.back')} />
+        {empty ? <span className="hprops__empty">—</span> : <span className="hprops__back">{back}</span>}
+      </span>
+    )
+  const text = fate === 'held' ? t('features.history.props.fate.held') : fate === 'relation' ? t('features.history.props.fate.relation') : t(`features.history.props.skip.${fate}`)
+  return (
+    <span className="hprops__fate" data-fate={fate}>
+      <span className="hprops__kept">{text}</span>
+    </span>
+  )
+}
+
+/** The value a row gets back (the older side), drawn as the cells draw it. */
+function BackValue({ row: r, db, page }: { row: PropChangeRow; db: Database | undefined; page: Page }) {
+  if (r.def.type === 'multi_select')
+    return (
+      <span className="hprops__chips">
+        {ids(r.before).map((id) => (
+          <Chip key={id} id={id} option={r.def.options?.find((o) => o.id === id)} />
+        ))}
+      </span>
+    )
+  if (r.def.type === 'checkbox' && r.then.type === 'checkbox') return <Box on={r.before === true} />
+  return <Value def={r.then.type === r.def.type ? r.def : r.then} value={r.before} db={db} page={page} />
+}
+
+function Row({ name, note, tag, after, children }: { name: string; note?: string; tag?: string; after?: ReactNode; children: ReactNode }) {
   return (
     <div className="hprops__row">
       <dt className="hprops__name">{name}</dt>
@@ -93,6 +168,7 @@ function Row({ name, note, tag, children }: { name: string; note?: string; tag?:
         {note && <span className="hprops__note label">{note}</span>}
         {tag && <span className="hprops__tag label">{tag}</span>}
       </dd>
+      {after !== undefined && <dd className="hprops__after">{after}</dd>}
     </div>
   )
 }
@@ -120,26 +196,26 @@ function IconOf({ icon }: { icon: PageIconT | null }) {
   )
 }
 
-function PropRow({ row: r, db, page, tag }: { row: PropChangeRow; db: Database | undefined; page: Page; tag?: string }) {
+function PropRow({ row: r, db, page, tag, after }: { row: PropChangeRow; db: Database | undefined; page: Page; tag?: string; after?: ReactNode }) {
   const t = useT()
   const deleted = r.skip === 'deleted'
   const name = deleted ? `${r.name} ${t('features.history.props.deletedProp')}` : r.name
   const note = r.skip ? t(`features.history.props.skip.${r.skip}`) : undefined
   if (r.def.type === 'multi_select' && !deleted)
     return (
-      <Row name={name} note={note} tag={tag}>
+      <Row name={name} note={note} tag={tag} after={after}>
         <ChipDiff before={ids(r.before)} after={ids(r.after)} options={r.def.options} />
       </Row>
     )
   // a checkbox reads ☐ / ☑ on both sides (unticked is a value, not "empty")
   if (r.def.type === 'checkbox' && r.then.type === 'checkbox' && !deleted)
     return (
-      <Row name={name} note={note} tag={tag}>
+      <Row name={name} note={note} tag={tag} after={after}>
         <Pair before={<Box on={r.before === true} />} after={<Box on={r.after === true} />} />
       </Row>
     )
   return (
-    <Row name={name} note={note} tag={tag}>
+    <Row name={name} note={note} tag={tag} after={after}>
       <Pair
         before={<Value def={r.then.type === r.def.type ? r.def : r.then} value={r.before} db={db} page={page} />}
         after={<Value def={r.def} value={r.after} db={db} page={page} />}

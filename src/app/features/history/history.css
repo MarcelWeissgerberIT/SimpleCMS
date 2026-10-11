@@ -557,6 +557,13 @@
   color: var(--ink);
 }
 
+/* the flight recorder's versions before an eject / a bring-back: ink, like the deck */
+.hist__tag--eject,
+.hist__tag--rewind {
+  border-color: var(--ink);
+  color: var(--ink);
+}
+
 .hist__tag--now {
   border-color: var(--ink);
   background: var(--ink);
@@ -782,6 +789,77 @@
   display: inline-grid;
   place-items: center;
   vertical-align: -3px;
+}
+
+/* the flight recorder's eject: a third column — what the row holds after the eject */
+.hprops--triple .hprops__row {
+  grid-template-columns: minmax(80px, 22%) minmax(0, 1fr) minmax(112px, 30%);
+}
+
+.hprops__row--h {
+  padding: 5px 0 4px;
+  background: color-mix(in srgb, var(--surface-2) 50%, transparent);
+}
+
+.hprops__row--h .label {
+  color: var(--ink-3);
+}
+
+.hprops__after {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  min-height: 22px;
+  margin: 0;
+  padding-left: 12px;
+  border-left: 1px solid var(--rule);
+}
+
+.hprops__fate {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: var(--text-md);
+}
+
+.hprops__fate svg {
+  flex: none;
+  width: calc(13px * var(--text-scale));
+  height: calc(13px * var(--text-scale));
+  color: var(--ink-3);
+  stroke-width: 2;
+}
+
+.hprops__back {
+  padding: 0 4px;
+  border-radius: var(--radius-1);
+  background: var(--surface-3);
+  color: var(--ink);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.hprops__kept {
+  color: var(--ink-3);
+  font-size: var(--text-sm);
+}
+
+@media (max-width: 600px) {
+  .hprops--triple .hprops__row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+  }
+
+  .hprops--triple .hprops__row--h {
+    display: none;
+  }
+
+  .hprops--triple .hprops__after {
+    padding-left: 0;
+    border-left: 0;
+  }
 }
 
 .hist__title-diff :is(del, ins):has(.hprops__icon) {

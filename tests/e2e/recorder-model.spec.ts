@@ -28,6 +28,9 @@ import { hiddenRulerLabels, settleHead, settleLabels, underHeads } from '../../s
 import { F, K, type EjectRecord, type Foreign, type JEvent, type JOp, type JSegment, type NowDigest, type PlaceWindow } from '../../src/app/features/recorder/model/types'
 import type { Database, Page, PropertyDef, View } from '../../src/app/store/types'
 import { rewindAllowed, rewindState, setRewindGuard } from '../../src/app/store/rewind'
+import { thinSnapshots } from '../../src/app/features/history/thin'
+import type { SnapshotMeta } from '../../src/app/features/history/snapshots'
+import { planRestoreProps, type SnapshotProps } from '../../src/app/features/history/propsCore'
 
 /* ------------------------------------------------------------------ */
 /* stub deps (the browser spec covers the real helpers)                */
@@ -1090,6 +1093,60 @@ test.describe('applyRewind (E1): the one write of an eject', () => {
     expect(dbs.databases['db-nordlicht'].views).toEqual([])
     expect(dbs.pages).toBe(cur.pages)
     expect(dbs.changed).toEqual([])
+  })
+})
+
+test.describe('history for the eject (E2): forced versions, thinning, the restore plan', () => {
+  const MIN = 60_000
+  const D = 24 * 60 * MIN
+  const NOW = 100 * D
+  const meta = (id: string, at: number, reason: SnapshotMeta['reason'] = 'auto'): SnapshotMeta => ({ id, pageId: 'nl1402', at, reason, title: 'NL-1402', words: 3, blocks: 1, hash: id })
+
+  test('thinning: "before the eject" versions younger than 30 days keep their own bucket; the cap drops other versions first', () => {
+    // two versions in the same hour, 3 days ago: one bucket — unless one is an eject's
+    const auto = [meta('a1', NOW - 3 * D), meta('a2', NOW - 3 * D + MIN)]
+    const filler = Array.from({ length: 99 }, (_, i) => meta(`f${i}`, NOW - 50 * MIN + i * 10_000))
+    expect(thinSnapshots([...auto, ...filler], 100, NOW).drop.map((m) => m.id)).toEqual(['a1'])
+    const withEject = [meta('a1', NOW - 3 * D, 'eject'), meta('a2', NOW - 3 * D + MIN), ...filler]
+    const kept = thinSnapshots(withEject, 100, NOW)
+    expect(kept.keep.map((m) => m.id)).toContain('a1')
+    // over the cap: the oldest non-eject version goes, the older eject version stays
+    expect(kept.drop.map((m) => m.id)).toEqual(['a2'])
+    // older than 30 days an eject version is thinned like any other
+    const old = [meta('e1', NOW - 40 * D, 'eject'), meta('e2', NOW - 40 * D + MIN), ...filler]
+    expect(thinSnapshots(old, 100, NOW).drop.map((m) => m.id)).toEqual(['e1'])
+  })
+
+  test('planRestoreProps: the values that differ and may go back; deleted / type / option left alone and named; multi-select drops deleted options', () => {
+    const db = database({ properties: [{ id: 'title', name: 'Name', type: 'title' }, statusProp, { id: 'est', name: 'Schätzung', type: 'number' }, { id: 'labels', name: 'Labels', type: 'multi_select', options: [{ id: 'l-export', name: 'Export', color: 'red' }] }, { id: 'uid', name: 'ID', type: 'unique_id' }, { id: 'note', name: 'Notiz', type: 'text' }] })
+    const row = page({ id: 'nl1402', databaseId: 'db-nordlicht', parentId: 'db-nordlicht', properties: { stage: 'o-backlog', est: 5, labels: [], uid: 7, note: 'heute' } })
+    const props: SnapshotProps = {
+      databaseId: 'db-nordlicht',
+      values: { stage: 'o-ready', est: 5, labels: ['l-export', 'l-gone'], uid: 3, gone: 'x' },
+      defs: [
+        { id: 'stage', name: 'Stage', type: 'select', options: statusProp.options },
+        { id: 'est', name: 'Schätzung', type: 'number' },
+        { id: 'labels', name: 'Labels', type: 'multi_select' },
+        { id: 'uid', name: 'ID', type: 'unique_id' },
+        { id: 'gone', name: 'Alt', type: 'text' },
+        { id: 'note', name: 'Notiz', type: 'text' },
+      ],
+    }
+    const plan = planRestoreProps(row, props, db)
+    // est is equal; uid never goes back; note was empty then (a snapshot leaves empty values out): it goes back empty
+    expect(plan.values).toEqual({ stage: 'o-ready', labels: ['l-export'], note: null })
+    expect(plan.notRestored).toEqual([
+      { name: 'Labels', reason: 'option' },
+      { name: 'Alt', reason: 'deleted' },
+    ])
+    expect(plan.skipped).toEqual(['labels', 'gone'])
+    // a select whose option is gone now; a type changed to an incompatible one
+    const noReady = database({ properties: [{ ...statusProp, options: statusProp.options!.filter((o) => o.id !== 'o-ready') }, { id: 'est', name: 'Schätzung', type: 'checkbox' }] })
+    const p2 = planRestoreProps(row, { databaseId: 'db-nordlicht', values: { stage: 'o-ready', est: 3 }, defs: [props.defs[0], props.defs[1]] }, noReady)
+    expect(p2.values).toEqual({})
+    expect(p2.notRestored.map((n) => n.reason)).toEqual(['option', 'type'])
+    // another database (the row moved): every kept value is "deleted"
+    expect(planRestoreProps({ ...row, databaseId: 'db-other' }, props, db).notRestored.map((n) => n.name)).toEqual(['Stage', 'Schätzung', 'Labels', 'Alt'])
   })
 })
 

@@ -249,7 +249,9 @@ export function HistoryModal({ pageId, onClose }: { pageId: ID; onClose: () => v
       ? t('features.history.reason.scriptBy', { name: m.by })
       : m.reason === 'outbox' && m.by
         ? t('features.history.reason.outboxBy', { name: m.by })
-        : t(`features.history.reason.${m.reason}`)
+        : m.reason === 'eject' && m.by
+          ? t('features.history.reason.ejectBy', { name: m.by })
+          : t(`features.history.reason.${m.reason}`)
 
   return (
     <Modal open onClose={onClose} bare width={1120} className="hist">
