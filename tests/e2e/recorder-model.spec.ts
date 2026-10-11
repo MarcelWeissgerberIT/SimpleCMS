@@ -16,10 +16,13 @@ import { databaseChangesDetail } from '../../src/app/features/recorder/model/sch
 import { blockList, pageParts, partsKey, rowParts, schemaParts, viewPart, wholeCanon, type CanonDeps } from '../../src/app/features/recorder/model/canon'
 import { touchedParts } from '../../src/app/features/recorder/model/touched'
 import { keySet, partsDiffer, propKeysAt, propKeysOf, restrictRowParts } from '../../src/app/features/recorder/model/rowkeys'
+import { verdicts, type VerdictInput } from '../../src/app/features/recorder/model/hold'
+import { foreignOf, placeChain } from '../../src/app/features/recorder/model/chain'
+import type { WindowData } from '../../src/app/features/recorder/window/load'
 import { contentDelta, countOps, countPlaces, countWords, windowMeters, wordDelta } from '../../src/app/features/recorder/model/counts'
 import { barHeights, followSpan, fracOf, loupeK, loupeLabel, makeAxis, pct, phoneFit, quarterHot, rulerLabels, rulerTicks, runBracket, snapTime, spanAround, stripBars, stripRange, stripTicks, tAtX, tOfU, uOf, xOf } from '../../src/app/features/recorder/model/axis'
 import { hiddenRulerLabels, settleHead, settleLabels, underHeads } from '../../src/app/features/recorder/model/labels'
-import { F, K, type JEvent, type JOp, type JSegment } from '../../src/app/features/recorder/model/types'
+import { F, K, type EjectRecord, type Foreign, type JEvent, type JOp, type JSegment, type NowDigest, type PlaceWindow } from '../../src/app/features/recorder/model/types'
 import type { Database, Page, PropertyDef, View } from '../../src/app/store/types'
 
 /* ------------------------------------------------------------------ */
@@ -539,6 +542,142 @@ test.describe('row keys across schema changes (Δ12)', () => {
     const d = databaseChangesDetail(db, next).schema!
     expect(d.find((x) => x.prop?.id === 'est')).toMatchObject({ part: 'prop~', was: 'number', prop: { type: 'formula' } })
     expect(d.find((x) => x.prop?.id === 'stage')!.was).toBeUndefined()
+  })
+})
+
+/* ------------------------------------------------------------------ */
+/* model/hold.ts + model/chain.ts (F6)                                 */
+/* ------------------------------------------------------------------ */
+
+test.describe('the held check (F6): verdicts per place, chains and foreign segments', () => {
+  const S = 'local:local' as const
+  const LANE = 'agent:nordlicht-spiegel'
+  const RUN = `${LANE}:r212`
+  const SEL = { scope: S, lane: LANE, run: RUN, a: 1000, b: 9000 }
+  const LEFT = { h: 'L1', parts: { t: 'T', c: 'C', i: '', tr: '0', pa: 'PA', r: '', o: 'O1', 'p:stage': 'S1', 'p:est': 'E2', 'p:kit': 'K1' } }
+  const seg = (over: Partial<JSegment> = {}): JSegment => ({ id: `${S}|s1`, s: S, p: 'p:r1', pk: 'row', db: 'db-nordlicht', w: `${RUN}#c5`, sk: RUN, l: LANE, r: RUN, from: 2000, to: 3000, n: 1, before: 'p:r1|pin1', bh: 'B0', left: LEFT, lastLh: 'L1', touched: ['p:stage'], tab: 't1', f: 0, ...over })
+  const ev = (over: Partial<JEvent> = {}): JEvent => ({ k: `${S}|2000|v1|0`, s: S, at: 2000, v: 'v1', w: `${RUN}#c5`, l: LANE, r: RUN, c: 'c5', p: 'p:r1', pk: 'row', db: 'db-nordlicht', kinds: K.PROPS, ops: 1, g: `${S}|s1`, lh: 'L1', ...over })
+  const foreign = (over: Partial<Foreign> = {}): Foreign => ({ from: 5000, lane: 'you', w: 'you~ui', touched: ['p:stage'], seg: `${S}|f1`, open: false, ...over })
+  const place = (over: Partial<PlaceWindow> = {}): PlaceWindow => ({ p: 'p:r1', pk: 'row', db: 'db-nordlicht', own: [seg()], foreign: [], ownEvents: [ev()], cut: false, ...over })
+  const now = (parts: Record<string, string> = LEFT.parts, over: Partial<NowDigest> = {}): NowDigest => ({ exists: true, h: 'L1', parts, key: 'k', ...over })
+  const data = (places: PlaceWindow[], over: Partial<WindowData> = {}): WindowData => ({ sel: SEL, places: new Map(places.map((w) => [w.p, w])), runs: {}, lostTails: [], ejects: [], schemaEvents: new Map(), ...over })
+  const input = (d: WindowData, nows: Record<string, NowDigest>, over: Partial<Omit<VerdictInput, 'db'>> & { db?: Partial<VerdictInput['db']> } = {}): VerdictInput => ({
+    data: d,
+    now: new Map(Object.entries(nows) as Array<[`p:${string}`, NowDigest]>),
+    empty: (k) => `E(${k})`,
+    kitComputed: (_db, prop) => prop === 'kit',
+    readOnly: { pageLocked: () => false, dbLocked: () => false, ...over.readOnly },
+    db: {
+      system: () => undefined,
+      pipelineRole: () => undefined,
+      props: () => [{ id: 'title', type: 'title' }, { id: 'stage', type: 'select' }, { id: 'est', type: 'number' }, { id: 'kit', type: 'number' }, { id: 'uid', type: 'unique_id' }],
+      ...over.db,
+    },
+  })
+  const one = (w: PlaceWindow, n: NowDigest | null = now(), over: Parameters<typeof input>[2] = {}, d: Partial<WindowData> = {}) => verdicts(input(data([w], d), n ? { [w.p]: n } : {}, over)).get(w.p)!
+
+  test('rows: back when nothing changed since; held whole when changed since or interleaved — with who and when', () => {
+    expect(one(place())).toMatchObject({ outcome: 'back', ops: 1, span: [2000, 2000], changes: ['c5'], by: [] })
+    expect(one(place(), now({ ...LEFT.parts, 'p:stage': 'S2' }))).toMatchObject({ outcome: 'held', reason: 'changed' })
+    const after = one(place({ foreign: [foreign({ from: 5000 })] }))
+    expect(after).toMatchObject({ outcome: 'held', reason: 'changed', by: [{ lane: 'you', at: 5000 }], firstForeignAt: 5000 })
+    const within = one(place({ foreign: [foreign({ from: 2500, touched: ['p:est'] })] }))
+    expect(within).toMatchObject({ outcome: 'held', reason: 'interleaved', firstForeignAt: 2500 })
+    // the order, a kit-computed value, a back-filled unique_id (added after W's end), a property deleted since: no one's change of the row
+    const uidEvent: JEvent = { k: `${S}|4000|v9|0`, s: S, at: 4000, v: 'v9', w: 'you', l: 'you', p: 's:db-nordlicht', pk: 'schema', kinds: K.SCHEMA, ops: 1, g: 'g9', lh: '-', x: [{ part: 'prop+', prop: { id: 'uid', name: 'ID', type: 'unique_id' } }] }
+    const uidAdded = new Map<string, JEvent[]>([['db-nordlicht', [uidEvent]]])
+    for (const touched of [['o'], ['p:kit'], ['p:uid'], ['p:gone']]) expect(one(place({ foreign: [foreign({ touched })] }), now(), {}, { schemaEvents: uidAdded }).outcome, touched.join()).toBe('back')
+    // an open foreign segment (Δ11: '*') and a virtual one (lane null) never are
+    expect(one(place({ foreign: [foreign({ touched: '*', open: true })] })).outcome).toBe('held')
+    expect(one(place({ foreign: [foreign({ lane: null, w: null, touched: ['o'] })] })).outcome).toBe('held')
+    // a kit-computed value that changed since, or the order: still back; a value property absent now and empty then: equal
+    expect(one(place(), now({ ...LEFT.parts, 'p:kit': 'K9', o: 'O7' })).outcome).toBe('back')
+    expect(one(place({ own: [seg({ left: { h: 'L1', parts: { ...LEFT.parts, 'p:note': 'E(p:note)' } } })] })).outcome).toBe('back')
+  })
+
+  test('rows: NEW unchanged → trash, changed → held; an old NEW record without parts compares its whole digest', () => {
+    const fresh = place({ own: [seg({ f: F.NEW, before: null, touched: '*' })], ownEvents: [ev({ kinds: K.CREATE, f: F.NEW })] })
+    expect(one(fresh)).toMatchObject({ outcome: 'trash' })
+    expect(one(fresh, now({ ...LEFT.parts, t: 'T2' }))).toMatchObject({ outcome: 'held', reason: 'changed' })
+    const old = place({ own: [seg({ f: F.NEW, before: null, touched: '*', left: { h: 'L1', parts: {} } })] })
+    expect(one(old, now({}, { h: 'L1' })).outcome).toBe('trash')
+    expect(one(old, now({}, { h: 'L9' })).outcome).toBe('held')
+    // W trashed it: going back restores it
+    expect(one(place({ ownEvents: [ev({ kinds: K.TRASH })] })).outcome).toBe('restore')
+    // gone for good now: held; W deleted it: recreate (planned for later slices)
+    expect(one(place(), null)).toMatchObject({ outcome: 'held', reason: 'changed' })
+    expect(one(place({ own: [seg({ f: F.GONE })] }), null).outcome).toBe('recreate')
+  })
+
+  test('rows: sent, memory, pipeline (Δ25), moved, page lock', () => {
+    expect(one(place({ ownEvents: [ev({ w: 'you~outbox:slip-1' })] }))).toMatchObject({ outcome: 'held', reason: 'sent' })
+    expect(one(place(), now(), { db: { system: () => 'memory' } })).toMatchObject({ outcome: 'held', reason: 'memory' })
+    expect(one(place(), now(), { db: { system: () => 'memory-log' } }).reason).toBe('memory')
+    const roles: Record<string, string | null> = { stage: 'stage', est: 'priority', kit: null }
+    const pipeline = { db: { pipelineRole: (_db: string, prop: string) => roles[prop] ?? null } }
+    expect(one(place(), now(), pipeline)).toMatchObject({ outcome: 'held', reason: 'pipeline' })
+    expect(one(place({ own: [seg({ touched: ['p:est', 't', 'c'] })] }), now(), pipeline).outcome).toBe('back')
+    expect(one(place({ own: [seg({ touched: ['tr'] })] }), now(), pipeline).reason).toBe('pipeline')
+    expect(one(place({ own: [seg({ touched: ['p:kit'] })] }), now(), pipeline).reason).toBe('pipeline')
+    expect(one(place({ own: [seg({ f: F.NEW, before: null, touched: '*' })] }), now(), pipeline).outcome).toBe('trash')
+    expect(one(place({ ownEvents: [ev({ kinds: K.MOVE, mv: ['db-nordlicht', 'db-tessera'] })] }))).toMatchObject({ outcome: 'held', reason: 'moved' })
+    expect(one(place({ ownEvents: [ev({ pk: 'page' }), ev({ k: `${S}|2500|v2|0`, at: 2500, v: 'v2' })] })).reason).toBe('moved')
+    expect(one(place(), now(), { readOnly: { pageLocked: () => true, dbLocked: () => false } }).reason).toBe('pageLocked')
+  })
+
+  test('order: unavailable → open → cut → already → partial (no before, no left, batch)', () => {
+    expect(one(place({ unavailable: true })).outcome).toBe('skip')
+    expect(one(place({ own: [seg({ o: 1, left: null })] }))).toMatchObject({ outcome: 'partial', reason: 'open' })
+    expect(one(place({ cut: true }))).toMatchObject({ outcome: 'partial', reason: 'cut' })
+    const rec = (over: Partial<EjectRecord> = {}): EjectRecord => ({ id: 'e1', s: S, at: 9500, tab: 't1', writer: RUN, lane: LANE, a: 1000, b: 9000, state: 'done', outcomes: {}, segs: [`${S}|s1`], targets: {}, changes: {}, counts: { ops: 0, all: 0, back: 0, held: 0, partial: 0, already: 0, rows: 0, newRows: 0, pages: 0, schema: 0, views: 0 }, versionAt: 9500, ...over })
+    expect(one(place(), now(), {}, { ejects: [rec()] })).toMatchObject({ outcome: 'already', reason: 'alreadyEjected' })
+    // an undone eject, or one that missed a segment of the place, is no "already"
+    expect(one(place(), now(), {}, { ejects: [rec({ undone: 9600 })] }).outcome).toBe('back')
+    expect(one(place({ own: [seg(), seg({ id: `${S}|s2`, from: 3500, to: 3600 })] }), now(), {}, { ejects: [rec()] }).outcome).toBe('back')
+    expect(one(place({ own: [seg({ before: null })] }))).toMatchObject({ outcome: 'partial', reason: 'noBefore' })
+    expect(one(place({ own: [seg({ left: null })] }))).toMatchObject({ outcome: 'partial', reason: 'noLeft' })
+    expect(one(place({ own: [seg({ f: F.BATCH })] }))).toMatchObject({ outcome: 'partial', reason: 'batch' })
+  })
+
+  test('pages part by part: held only when every block W touched is held; schema of a locked database held', () => {
+    const left = { h: 'P1', parts: { t: 'T', i: '', tr: '0', pa: 'PA', o: 'O', cv: 'null' }, blocks: ['rh=d0', 'r1=d1', 'r2=d2'] }
+    const pg = (touched: string[]) => place({ p: 'p:report', pk: 'page', db: undefined, own: [seg({ p: 'p:report', pk: 'page', db: undefined, left, touched })], ownEvents: [ev({ p: 'p:report', pk: 'page', kinds: K.CONTENT })] })
+    const n = (blocks: string[], parts = left.parts) => ({ exists: true, h: 'P2', parts, blocks, key: 'k' })
+    expect(one(pg(['b:r1', 'b:r2', 'bo']), n(['rh=d0', 'r1=d1', 'r2=d2'])).outcome).toBe('back')
+    expect(one(pg(['b:r1', 'b:r2']), n(['rh=d0', 'r1=x1', 'r2=d2'])).outcome).toBe('back')
+    expect(one(pg(['b:r1', 'b:r2']), n(['rh=d0', 'r1=x1', 'r2=x2']))).toMatchObject({ outcome: 'held', reason: 'changed' })
+    expect(one(pg(['t']), n(left.blocks, { ...left.parts, t: 'T2' })).outcome).toBe('held')
+    const sch = place({ p: 's:db-nordlicht', pk: 'schema', own: [seg({ p: 's:db-nordlicht', pk: 'schema', left: { h: 'D1', parts: { 'o:stage/o-ready': 'X', 'oo:stage': 'Y' } }, touched: ['o:stage/o-ready', 'oo:stage'] })] })
+    expect(one(sch, { exists: true, h: 'D1', parts: { 'oo:stage': 'Y' }, key: 'k' }).outcome).toBe('back')
+    expect(one(sch, now(), { readOnly: { pageLocked: () => false, dbLocked: () => true } })).toMatchObject({ outcome: 'held', reason: 'locked' })
+  })
+
+  test('chains: synced copies of W and an undone eject of W are transparent; a break the loader cannot explain is a virtual foreign', () => {
+    const own = new Set([`${S}|s1`, `${S}|s3`])
+    const s1 = seg()
+    const copyOfW = seg({ id: `${S}|c1`, w: `synced<${RUN}#c5`, cause: `${RUN}#c5`, sk: `synced<${RUN}#c5`, l: LANE, f: F.COPY, from: 3100, to: 3100, bh: 'L1', left: { h: 'L1', parts: {} } })
+    const copyOther = seg({ id: `${S}|c2`, w: 'synced<you~ui', cause: 'you~ui', sk: 'synced<you~ui', l: 'you', f: F.COPY, from: 3200, to: 3200, bh: 'L1', left: { h: 'L1', parts: {} } })
+    const eject = seg({ id: `${S}|e1`, w: `eject:e7>${RUN}`, sk: `eject:e7>${RUN}`, l: 'undo', r: 'eject:e7', from: 3300, to: 3300, bh: 'L1', left: { h: 'L0', parts: {} } })
+    const undo = seg({ id: `${S}|u1`, w: 'you~undo:e7', sk: 'you~undo:e7', l: 'undo', r: undefined, from: 3400, to: 3400, bh: 'L0', left: { h: 'L1', parts: {} } })
+    const s3 = seg({ id: `${S}|s3`, from: 3500, to: 3600, bh: 'L1' })
+    const sel = { lane: LANE, run: RUN }
+    const { chain, breaks } = placeChain(sel, [s3, undo, eject, copyOther, copyOfW, s1], own, new Set(['e7']))
+    expect(chain.map((g) => g.id)).toEqual([`${S}|s1`, `${S}|c2`, `${S}|s3`])
+    expect(breaks).toEqual([])
+    expect(foreignOf(chain, own, new Set())).toEqual([{ from: 3200, lane: 'you', w: 'synced<you~ui', touched: ['p:stage'], seg: `${S}|c2`, open: false }])
+    // the eject is live (not undone): its segments are someone else's — and the chain breaks where nothing explains it
+    const live = placeChain(sel, [s1, eject, s3], own, new Set())
+    expect(live.chain.map((g) => g.id)).toEqual([`${S}|s1`, `${S}|e1`, `${S}|s3`])
+    expect(live.breaks.map(([, n]) => n.id)).toEqual([`${S}|s3`])
+    expect(foreignOf(live.chain, own, new Set([`${S}|s3`])).map((f) => [f.lane, f.from])).toEqual([['undo', 3300], [null, 3500]])
+    // bhr explains a property added in between; an open foreign segment touched anything; a GAP after W's first is virtual
+    expect(placeChain(sel, [s1, seg({ id: `${S}|s3`, from: 3500, bh: 'Lx', bhr: 'L1' })], own, new Set()).breaks).toEqual([])
+    const open = seg({ id: `${S}|o1`, w: 'you~ui', sk: 'you', l: 'you', r: undefined, from: 3300, to: 3300, bh: 'L1', left: null, o: 1, touched: [], lastLh: 'L1' })
+    const f = foreignOf(placeChain(sel, [s1, open, seg({ id: `${S}|s3`, from: 3500, bh: 'L1', f: F.GAP })], own, new Set()).chain, own, new Set())
+    expect(f).toEqual([
+      { from: 3300, lane: 'you', w: 'you~ui', touched: '*', seg: `${S}|o1`, open: true },
+      { from: 3500, lane: null, w: null, touched: '*', seg: `${S}|s3`, open: false },
+    ])
   })
 })
 

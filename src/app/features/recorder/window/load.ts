@@ -9,8 +9,9 @@
 import type { ID } from '../../../store/types'
 import { placeCanon, wholeCanon } from '../model/canon'
 import { keySet, propKeysAt, propKeysOf, restrictRowParts } from '../model/rowkeys'
-import { causeChain, laneOf, parseWriterKey, runKeyOf } from '../model/writerKeys'
-import { F, type EjectRecord, type Foreign, type JEvent, type JRun, type JSegment, type LostTail, type PlaceKey, type PlaceWindow, type Scope, type WindowSel } from '../model/types'
+import { causedByW, foreignOf, placeChain } from '../model/chain'
+import { parseWriterKey } from '../model/writerKeys'
+import { F, type EjectRecord, type JEvent, type JRun, type JSegment, type LostTail, type PlaceKey, type PlaceWindow, type Scope, type WindowSel } from '../model/types'
 import { currentPlaces } from '../journal/current'
 import { deps } from '../journal/deps'
 import { openJournal, type Journal } from '../journal/db'
@@ -55,26 +56,6 @@ async function pool<T, R>(items: readonly T[], n: number, fn: (x: T) => Promise<
   }
   await Promise.all(Array.from({ length: Math.min(n, items.length) }, worker))
   return out
-}
-
-/** Does a writer key name W (its run, or any writer on its lane)? */
-export function namesW(sel: Pick<WindowSel, 'lane' | 'run'>, key: string): boolean {
-  return sel.run ? runKeyOf(key) === sel.run : laneOf(key) === sel.lane
-}
-
-/** A writer's cause chain names W. */
-const causedByW = (sel: WindowSel, cause: string | undefined): boolean => !!cause && causeChain(cause).some((k) => namesW(sel, k))
-
-/** The digest W's segment left on the place (an open one: its last event's). */
-const leftOf = (s: JSegment): string => s.left?.h ?? s.lastLh
-
-/** A segment that is no one's change for W: a synced copy of W's change, or an undone eject of W and its Undo (Δ14). */
-function transparent(sel: WindowSel, s: JSegment, undone: ReadonlySet<string>): boolean {
-  if (s.f & F.COPY) return causedByW(sel, s.cause ?? parseWriterKey(s.w).cause)
-  const p = parseWriterKey(s.w)
-  if (p.kind === 'eject') return undone.has(p.parts[0] ?? '')
-  if (p.kind === 'you' && p.via === 'undo' && p.ref) return undone.has(p.ref)
-  return false
 }
 
 /** Segments on one place from `from` on (index `place`). */
@@ -151,31 +132,20 @@ export async function loadWindow(sel: WindowSel, opts?: { settle?: boolean }): P
   const breaks: Break[] = []
   const chains = new Map<PlaceKey, JSegment[]>()
   for (const p of placeKeys) {
-    const list = byPlace.get(p)!.filter((g) => ownIds.has(g.id) || !transparent(sel, g, undone)).sort((x, y) => x.from - y.from || (x.id < y.id ? -1 : 1))
-    const start = list.findIndex((g) => ownIds.has(g.id))
-    const chain = start < 0 ? [] : list.slice(start)
+    const { chain, breaks: br } = placeChain(sel, byPlace.get(p)!, ownIds, undone)
     chains.set(p, chain)
-    for (let i = 1; i < chain.length; i++) {
-      const prev = chain[i - 1]
-      const next = chain[i]
-      const left = leftOf(prev)
-      if (!left || next.bh === left || (next.bhr && next.bhr === left)) continue
-      // a NEW place (made again after it was gone) starts from nothing: '-' left by a deletion
-      if (next.f & F.NEW && left === '-') continue
-      breaks.push({ p, prev, next })
-    }
+    for (const [prev, next] of br) breaks.push({ p, prev, next })
   }
-  const unexplained = new Set<Break>()
-  await pool(breaks, IN_FLIGHT, async (br) => {
-    const { prev, next } = br
-    if (next.bhr || !next.before || next.pk !== 'row' || !prev.left) return void unexplained.add(br)
-    const obj = await pinObjectOf(s, next.before, br.p, memory).catch(() => null)
-    if (!obj || obj.kind !== 'row') return void unexplained.add(br)
+  const unexplained = new Set<string>()
+  await pool(breaks, IN_FLIGHT, async ({ p, prev, next }) => {
+    if (next.bhr || !next.before || next.pk !== 'row' || !prev.left) return void unexplained.add(next.id)
+    const obj = await pinObjectOf(s, next.before, p, memory).catch(() => null)
+    if (!obj || obj.kind !== 'row') return void unexplained.add(next.id)
     const prevKeys = propKeysOf(prev.left.parts)
     const keys = prevKeys ? keySet(prevKeys) : propKeysAt(propsNow(prev.db), schemaEvents.get(prev.db ?? '') ?? [], prev.to)
-    if (!keys) return void unexplained.add(br)
+    if (!keys) return void unexplained.add(next.id)
     const d = await digestWhole(s, wholeCanon(restrictRowParts(placeCanon(obj, deps).parts, keys)))
-    if (d !== prev.left.h) unexplained.add(br)
+    if (d !== prev.left.h) unexplained.add(next.id)
   })
 
   // 4. W's events, per own segment
@@ -189,19 +159,7 @@ export async function loadWindow(sel: WindowSel, opts?: { settle?: boolean }): P
     const mine = ownList.filter((g) => g.p === p).sort((x, y) => x.from - y.from)
     const first = mine[0]
     const ownEvents = mine.flatMap((g) => eventsBySeg.get(g.id) ?? []).sort((x, y) => x.at - y.at || (x.k < y.k ? -1 : 1))
-    const foreign: Foreign[] = []
-    const chain = chains.get(p) ?? []
-    for (const g of chain) {
-      if (ownIds.has(g.id)) {
-        if (g !== chain[0] && g.f & F.GAP) foreign.push({ from: g.from, lane: null, w: null, touched: '*', seg: g.id, open: false })
-        continue
-      }
-      const open = g.o === 1 || g.left === null
-      foreign.push({ from: g.from, lane: g.l, w: g.w, touched: open ? '*' : g.touched, seg: g.id, open })
-      if (g.f & F.GAP) foreign.push({ from: g.from, lane: null, w: null, touched: '*', seg: g.id, open: false })
-    }
-    for (const br of breaks) if (br.p === p && unexplained.has(br)) foreign.push({ from: br.next.from, lane: null, w: null, touched: '*', seg: br.next.id, open: false })
-    foreign.sort((x, y) => x.from - y.from)
+    const foreign = foreignOf(chains.get(p) ?? [], ownIds, unexplained)
     // cut: one of W's own (not derived) segments has events outside [a, b)
     const cut = ownEvents.some((e) => !derivedIds.has(e.g) && (e.at < sel.a || (e.t2 ?? e.at) >= sel.b))
     const unavailable = cloud && !objs.get(p)
