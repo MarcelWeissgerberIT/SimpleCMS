@@ -21,6 +21,9 @@ import { itemView, DUP_DELAY } from '../../src/app/features/workitems/view'
 import { ringsHere, audienceText } from '../../src/app/features/workitems/audience'
 import { unblockedBy } from '../../src/app/features/workitems/unblock'
 import { keepYRefs } from '../../src/app/cloud/yrefs'
+import { DOC_SCHEMA_VERSION, NODE_GENERATIONS } from '../../src/app/store/generations'
+import { WORK_ITEMS_FROM_MARKDOWN } from '../../src/app/editor/workitem/markdown'
+import { plainText } from '../../src/app/store/plain'
 import * as Y from 'yjs'
 import { Schema } from '@tiptap/pm/model'
 import { prosemirrorJSONToYXmlFragment, yXmlFragmentToProsemirrorJSON } from '@tiptap/y-tiptap'
@@ -810,5 +813,40 @@ test.describe('writeItems (in the app)', () => {
     expect(gone.results[0].refused).toBe('gone')
     await flush(page)
     expect(await storedTask(page, plan, B)).toBeNull()
+  })
+})
+
+/* ------------------------------------------------------------------ */
+/* B6: schema pins — P1 adds no node and no attribute                  */
+/* ------------------------------------------------------------------ */
+
+test.describe('schema pins (pure + the live schema)', () => {
+  test('generation 1, workItem the only newer node, the Markdown reader off', () => {
+    expect(DOC_SCHEMA_VERSION).toBe(1)
+    expect(NODE_GENERATIONS).toEqual({ workItem: 1 })
+    expect(WORK_ITEMS_FROM_MARKDOWN).toBe(false)
+  })
+
+  test('plainText: a task gives its title and notes — never an id, a person id or a date from its attrs', () => {
+    const text = plainText(
+      doc(
+        item({ id: 'blk-1', itemId: A, status: 'done', due: '2031-10-17T09:00', reminder: '-1d', people: ['p_alex01', 'u_member9'], blockedBy: [B], related: [C], doneAt: NOW }, 'Ship the pricing page', p('Notes stay text.')),
+      ),
+    )
+    expect(text).toContain('Ship the pricing page')
+    expect(text).toContain('Notes stay text.')
+    for (const leak of ['wi_', 'p_alex01', 'u_member9', '2031', 'done', '-1d', 'blk-1', String(NOW)]) expect(text).not.toContain(leak)
+  })
+
+  test('the live schema: WorkItem attrs are exactly the P0 list (+ the block id)', async ({ page }) => {
+    await openApp(page)
+    const id = await createPage(page, { title: 'Schema pin', content: doc(p('x')) })
+    await page.evaluate((id) => (window.location.hash = `#/p/${id}`), id)
+    const ed = page.locator(`.ProseMirror[data-page-id="${id}"]`)
+    await expect(ed).toBeVisible()
+    const keys = await ed.evaluate((el) => Object.keys((el as any).editor.schema.nodes.workItem.spec.attrs ?? {}).sort())
+    expect(keys).toEqual(['blockedBy', 'doneAt', 'due', 'frozen', 'id', 'itemId', 'people', 'related', 'reminder', 'status'])
+    const types = await ed.evaluate((el) => Object.keys((el as any).editor.schema.nodes))
+    expect(types.filter((t: string) => /item|task/i.test(t)).sort()).toEqual(['listItem', 'taskItem', 'taskList', 'workItem'].sort())
   })
 })
