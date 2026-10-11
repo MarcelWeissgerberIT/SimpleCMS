@@ -12,7 +12,7 @@ import { useEffect } from 'react'
 import { useCloud } from '../../../cloud'
 import { scopeNow } from '../journal/scope'
 import { onFlushed, onJournalChange, type Flushed } from '../journal/bus'
-import { laneList, minutesInSpan, opsInSpan, quarterCounts, runsInSpan } from '../journal/query'
+import { ejectsInSpan, laneList, minutesInSpan, opsInSpan, quarterCounts, runsInSpan } from '../journal/query'
 import { lostTails } from '../journal/recover'
 import { stripRange } from '../model/axis'
 import { isCopy } from '../model/marks'
@@ -245,6 +245,22 @@ async function loadGaps(scope: Scope): Promise<void> {
   }
 }
 
+/**
+ * The eject records that touch the span: made after its start (an eject of a window in it comes later), their window
+ * reaching into it — read with the span and again whenever any tab writes one (bus kind 'eject').
+ */
+async function loadEjects(scope: Scope, t0: number, t1: number): Promise<void> {
+  try {
+    const list = (await ejectsInSpan(scope, t0, Date.now() + 1)).filter((e) => e.b > t0 && e.a < t1)
+    if (!useRecorderUI.getState().open) return
+    const cur = useRecorderUI.getState().ejects
+    if (cur.length === list.length && cur.every((e, i) => e.id === list[i].id && e.state === list[i].state && e.undone === list[i].undone)) return
+    useRecorderUI.setState({ ejects: list })
+  } catch {
+    /* nothing drawn */
+  }
+}
+
 async function loadKnown(scope: Scope): Promise<void> {
   try {
     const lanes = await laneList(scope)
@@ -293,6 +309,11 @@ export function useDeckData(): void {
     void loadGaps(scopeNow())
   }, [cloudKey])
 
+  // the span's eject records (R3 draws them)
+  useEffect(() => {
+    void loadEjects(scopeNow(), span.t0, span.t1)
+  }, [span.t0, span.t1, cloudKey])
+
   // this tab's flushes: merged; other tabs and wipes: re-read (debounced)
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | null = null
@@ -308,6 +329,7 @@ export function useDeckData(): void {
         void loadStrip(scope, cur.t1)
         void loadKnown(scope)
         void loadGaps(scope)
+        void loadEjects(scope, cur.t0, cur.t1)
         if (s.span.zoom === '24h') void loadHist(scope, cur.t0 - 6 * 3600_000, cur.t1 + 6 * 3600_000)
       }, REREAD_MS)
     }
@@ -336,6 +358,12 @@ export function useDeckData(): void {
       if (Object.keys(patch).length) useRecorderUI.setState(patch)
     })
     const offChange = onJournalChange((c, local) => {
+      if (c.kind === 'eject') {
+        if (c.scope !== scopeNow()) return
+        const cur = spanOfState(useRecorderUI.getState())
+        if (useRecorderUI.getState().open) void loadEjects(c.scope, cur.t0, cur.t1)
+        return
+      }
       if (local && c.kind === 'flushed') return
       if (c.kind === 'flushed' && !c.scopes.includes(scopeNow())) return
       if (c.kind === 'reset' && c.scope && c.scope !== scopeNow()) return

@@ -13,7 +13,7 @@ export interface Flushed {
   fresh?: string[]
 }
 
-export type JournalChange = { kind: 'flushed'; scopes: Scope[] } | { kind: 'reset'; scope: Scope | null }
+export type JournalChange = { kind: 'flushed'; scopes: Scope[] } | { kind: 'reset'; scope: Scope | null } | { kind: 'eject'; scope: Scope }
 
 const flushListeners = new Set<(f: Flushed) => void>()
 const changeListeners = new Set<(c: JournalChange, local: boolean) => void>()
@@ -28,7 +28,8 @@ function chan(): BroadcastChannel | null {
     channel = new BroadcastChannel('one-recorder')
     channel.onmessage = (e) => {
       const c = e.data as JournalChange | null
-      if (!c || (c.kind !== 'flushed' && c.kind !== 'reset')) return
+      // other kinds on this channel (settled marks, eject refs — features/recorder/settled.ts) are not the journal's
+      if (!c || (c.kind !== 'flushed' && c.kind !== 'reset' && c.kind !== 'eject')) return
       for (const l of changeListeners) l(c, false)
     }
   } catch {
@@ -70,6 +71,11 @@ export function emitFlushed(f: Flushed): void {
     }
   }
   tell({ kind: 'flushed', scopes: [...new Set([...f.ops.map((o) => o.s), ...f.runs.map((r) => r.s)])] })
+}
+
+/** An eject record of a scope was written or changed (the deck re-reads the span's eject records). */
+export function emitEject(scope: Scope): void {
+  tell({ kind: 'eject', scope })
 }
 
 /** A scope's records went (a wipe; null = a prune of any scope). */

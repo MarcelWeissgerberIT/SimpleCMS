@@ -9,7 +9,8 @@ import { closeAgent, useAgent } from '../../ai/agent/state'
 import { closeOutboxSheet, onOutboxSheetOpen } from '../../outbox'
 import { canFocus, focusIsNowhere, takeFocusHandoff } from '../../../ui/focus'
 import { ZOOM, ZOOMS, type Zoom } from '../model/axis'
-import type { JOp, JRun, LaneKey, Scope } from '../model/types'
+import type { EjectRecord, JOp, JRun, LaneKey, PlaceKey, Scope } from '../model/types'
+import type { HeldMark } from '../window/read'
 
 /** Opens / closes the deck (shell/lib/global.ts, the status key, ⌘K). */
 export const REWIND_SHORTCUT = 'Mod+Alt+Z'
@@ -74,6 +75,12 @@ export interface RecorderUI {
   closedAt: number
   /** the deck asks to take focus (bumped on every open) */
   focusTick: number
+  /** the read dialog ("Fenster lesen"): open, and the place picked in its list */
+  read: { open: boolean; pick: PlaceKey | null } | null
+  /** the selected window's held places (the plate's note, the tape's diamonds) for the window `key` */
+  held: { key: string; marks: HeldMark[]; count: number; who: Array<LaneKey | null> } | null
+  /** live eject records of the loaded span (R3 draws them; "ejected" is never read from JRun.state) */
+  ejects: EjectRecord[]
 }
 
 interface Prefs {
@@ -132,6 +139,9 @@ export const useRecorderUI = create<RecorderUI>()(() => ({
   height: prefs.height,
   closedAt: 0,
   focusTick: 0,
+  read: null,
+  held: null,
+  ejects: [],
 }))
 
 /** Is the deck open (the shell's slots: the status key, quick capture's cover check …)? */
@@ -170,7 +180,31 @@ export function openRecorder(): void {
 /** Close the deck: the playhead goes back to now; the window is kept for 10 minutes. */
 export function closeRecorder(): void {
   if (!useRecorderUI.getState().open) return
-  useRecorderUI.setState({ open: false, playhead: null, axisFrozen: null, closedAt: Date.now(), ops: emptyOps(), strip: null, hist: null, gaps: [] })
+  useRecorderUI.setState({ open: false, playhead: null, axisFrozen: null, closedAt: Date.now(), ops: emptyOps(), strip: null, hist: null, gaps: [], read: null, held: null, ejects: [] })
+}
+
+/* ---------- reading a window (R2) ---------- */
+
+/** Open "Fenster lesen" on the selected window (never ejects; without a window nothing). */
+export function openRead(): void {
+  const s = useRecorderUI.getState()
+  if (!s.open || !s.bracket) return
+  useRecorderUI.setState({ read: { open: true, pick: s.read?.pick ?? null } })
+}
+
+export function closeRead(): void {
+  if (useRecorderUI.getState().read) useRecorderUI.setState({ read: null })
+}
+
+/** The place picked in the read dialog's list (its preview follows). */
+export function pickPlace(p: PlaceKey | null): void {
+  const r = useRecorderUI.getState().read
+  if (r && r.pick !== p) useRecorderUI.setState({ read: { ...r, pick: p } })
+}
+
+/** The held check of the window `key` (or null: none yet / no window). */
+export function setHeld(held: RecorderUI['held']): void {
+  useRecorderUI.setState({ held })
 }
 
 export function toggleRecorder(): void {
@@ -211,7 +245,11 @@ export function setSpanEnd(t1: number | 'now'): void {
 }
 
 export function setBracket(b: Bracket | null): void {
-  useRecorderUI.setState({ bracket: b && b.b > b.a ? b : null })
+  const next = b && b.b > b.a ? b : null
+  const s = useRecorderUI.getState()
+  // another window: the read dialog's pick and the held marks belonged to the old one
+  const same = !!next && !!s.bracket && next.lane === s.bracket.lane && next.run === s.bracket.run && next.a === s.bracket.a && next.b === s.bracket.b
+  useRecorderUI.setState(same ? { bracket: next } : { bracket: next, held: null, read: next && s.read ? { open: s.read.open, pick: null } : null })
 }
 
 export function setFocusLane(lane: LaneKey | null): void {
