@@ -8,7 +8,7 @@
  * <scope> = "local:local" / "cloud:<workspace id>". Without IndexedDB everything stays in memory.
  */
 import { create } from 'zustand'
-import { createStore, get, set as idbSet, type UseStore } from 'idb-keyval'
+import { createStore, get, getMany, set as idbSet, type UseStore } from 'idb-keyval'
 import { activeWorkspace } from '../../cloud'
 import type { ID } from '../../store/types'
 import { LOG_MAX, type GitInfo, type LogLine, type TestResult } from './protocol'
@@ -113,6 +113,45 @@ export async function loadTask(taskId: ID): Promise<void> {
     tasks: { ...st.tasks, [key]: { ...(task && typeof task === 'object' ? task : { state: 'idle' }), ...st.tasks[key] } },
     logs: { ...st.logs, [key]: [...(Array.isArray(log) ? log : []), ...(st.logs[key] ?? [])].slice(-LOG_MAX) },
   }))
+}
+
+/** Task states loaded by loadTasks (their logs are not: loadTask still loads those). */
+const statesLoaded = new Set<string>()
+
+/**
+ * Load the run state of many tasks at once — ONE IndexedDB read (getMany) for every task not loaded yet. For readers
+ * that list tasks (the Preflight lamps, coding/waiting.ts); the logs stay unloaded until a task is opened (loadTask).
+ */
+export async function loadTasks(ids: Iterable<ID>): Promise<void> {
+  const s = scope()
+  const todo: ID[] = []
+  for (const id of ids) {
+    const key = memKey(id, s)
+    if (loaded.has(key) || statesLoaded.has(key)) continue
+    statesLoaded.add(key)
+    todo.push(id)
+  }
+  const store = kv()
+  if (!todo.length || !store) return
+  let values: unknown[] = []
+  try {
+    values = await getMany(todo.map((id) => `${s}|task|${id}`), store)
+  } catch {
+    noDb = true
+    return
+  }
+  const found: Record<string, TaskLocal> = {}
+  todo.forEach((id, i) => {
+    const v = values[i]
+    if (v && typeof v === 'object') found[memKey(id, s)] = v as TaskLocal
+  })
+  if (!Object.keys(found).length) return
+  // what this tab holds already wins (as in loadTask)
+  useCodingLocal.setState((st) => {
+    const tasks = { ...st.tasks }
+    for (const [key, task] of Object.entries(found)) tasks[key] = { ...task, ...st.tasks[key] }
+    return { tasks }
+  })
 }
 
 export function taskLocal(taskId: ID): TaskLocal {

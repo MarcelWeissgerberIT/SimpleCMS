@@ -70,6 +70,12 @@ export const hasPipelines = (): boolean => pipelineDbIds().length > 0
 export { lineText as codingLogText } from './lines'
 export { gitSummary as codingGitSummary } from './tasks'
 export { useTaskLocal as useCodingTaskLocal } from './local'
+/**
+ * The Preflight lamps (Gate · Coding question · Task failed): the tasks that wait on the person, without a page-map walk
+ * (waiting.ts) — waitingTasks() (sync) · onWaitingChanged(fn) · loadTasks(ids): many tasks' run states in one read
+ */
+export { waitingTasks, onWaitingChanged, type WaitingTask } from './waiting'
+export { loadTasks } from './local'
 /** bumped whenever this device trusts another task version (Confirm …): a trust readout re-checks with it */
 export const useCodingTrustRev = (): number => useCodingLocal((s) => s.trustRev)
 /** admins: every member's cloud worker with Revoke (the workspace page's Automation section; renders nothing otherwise) */

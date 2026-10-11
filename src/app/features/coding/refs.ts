@@ -48,7 +48,7 @@ function refIds(taskId: ID, blocks: JSONContent[] = readableBlocks(taskId)): ID[
 }
 
 /** The page ids blocks point to (mentions, page links, One addresses), in order — `selfId` left out. */
-export const refIdsOf = (blocks: JSONContent[], selfId: ID = ''): ID[] => refIds(selfId, blocks)
+export const refIdsIn = (blocks: JSONContent[], selfId: ID = ''): ID[] => refIds(selfId, blocks)
 
 /** A page that goes along to the worker; `staged`: proposed in the AI terminal, not created yet — it goes along once it is. */
 export interface RefPage {
@@ -64,7 +64,7 @@ export interface RefPage {
  */
 export function refPagesOf(blocks: JSONContent[], extra: string[] = [], selfId: ID = '', staged?: ReadonlyMap<ID, string>): RefPage[] {
   const s = useWorkspace.getState()
-  const ids = refIdsOf(blocks, selfId)
+  const ids = refIdsIn(blocks, selfId)
   for (const text of extra) for (const id of idsInText(text)) if (id !== selfId && !ids.includes(id)) ids.push(id)
   return ids
     .filter((id) => usable(id) || (!s.pages[id] && !!staged?.has(id)))
@@ -135,11 +135,23 @@ export function taskText(taskId: ID, extra: string[] = []): string {
  */
 export function refsKey(page: Page): string {
   const s = useWorkspace.getState()
-  const ids = refIds(page.id, page.content?.content ?? []).filter(usable).slice(0, MAX_REFS)
-  return ids
+  return refIdsOf(page)
     .map((id) => {
       const p = s.pages[id]!
       return `${id}\n${p.title}\n${JSON.stringify(p.properties ?? {})}\n${docToMarkdown(p.content)}`
     })
     .join('\u0001')
+}
+
+/** The ids a task's content points to, per page object (its content never changes: pages are frozen). */
+const pointed = new WeakMap<Page, ID[]>()
+
+/**
+ * The pages a task version hashes (refsKey): every page the task's content points to that is live and not in a
+ * template, at most 8 — the pages whose change makes a team task wait for Confirm again (coding/waiting.ts watches them).
+ */
+export function refIdsOf(page: Page): ID[] {
+  let ids = pointed.get(page)
+  if (!ids) pointed.set(page, (ids = refIds(page.id, page.content?.content ?? [])))
+  return ids.filter(usable).slice(0, MAX_REFS)
 }
