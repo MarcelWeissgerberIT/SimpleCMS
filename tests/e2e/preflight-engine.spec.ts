@@ -4,7 +4,10 @@
  *    row index — membership · values · content · nothing;
  *  - `gridNext` (ui/roving.ts): the plate's 2-D arrow keys at 4 and 2 columns;
  *  - `checkLamps` (store/integrations.ts, the read release of profile lamps): shapes, thresholds, the `read` rule (M3),
- *    a bad lamp left out and the profile kept, export / same.
+ *    a bad lamp left out and the profile kept, export / same;
+ *  - the lamps' pure core (features/preflight/lamps.ts, day.ts, prefs.ts — T-P1-1): levels, the "new" rule and its chip,
+ *    the ids hash, the Preflight day around 07:00 and over a daylight-saving switch, working days, the panel's order and
+ *    cap, the lamp test's budget, the prefs sanitizer, the plate mode table, the optimistic overlay.
  * Every page and value is fictional.
  */
 import { test, expect } from '@playwright/test'
@@ -12,6 +15,10 @@ import { classifyChange } from '../../src/app/store/rowChange'
 import { gridNext } from '../../src/app/ui/roving'
 import { checkIntegration, checkProfileLamps, exportIntegration, sameIntegration, type IntegrationIssue } from '../../src/app/store/integrations'
 import type { Page } from '../../src/app/store/types'
+import { buildView, chipOf, fmtCount, idsHash, levelOf, makeAck, mcCount, newOf, overlay, panelLamps, planMode, testSchedule, type LampMeta, type ModeInput } from '../../src/app/features/preflight/lamps'
+import { nextOpenAt, preflightDay, workingDaysBetween } from '../../src/app/features/preflight/day'
+import { sanitizeLast, sanitizePrefs, sanitizeToday } from '../../src/app/features/preflight/prefs'
+import type { LampView } from '../../src/app/features/preflight/types'
 
 const page = (over: Partial<Page> = {}): Page => ({
   id: 'r1',
@@ -206,5 +213,218 @@ test.describe('profile lamps — checkLamps (read release)', () => {
     expect(issues.filter((i) => i.code === 'unknownKey')).toEqual([])
     // no lamps: no key in the copy
     expect('lamps' in checkIntegration({ ...raw, lamps: [] })!).toBe(false)
+  })
+})
+
+/* ------------------------------------------------------------------ */
+/* Preflight's pure core (T-P1-1)                                      */
+/* ------------------------------------------------------------------ */
+
+const ids = (n: number, prefix = 'run:r1#c') => Array.from({ length: n }, (_, i) => `${prefix}${i + 1}`)
+
+test.describe('lamps — levels, new, chip, hash', () => {
+  test('levelOf: off → grey, nothing → dark, forced level wins, thresholds, below the threshold → dark', () => {
+    const t = { amber: 1, red: 15 }
+    expect(levelOf({ state: 'off', count: 5 }, t)).toBe('grey')
+    expect(levelOf({ state: 'ok', count: 0 }, t)).toBe('dark')
+    expect(levelOf({ state: 'ok', count: 0, level: 'red' }, t)).toBe('dark')
+    expect(levelOf({ state: 'ok', count: 1 }, t)).toBe('amber')
+    expect(levelOf({ state: 'ok', count: 14 }, t)).toBe('amber')
+    expect(levelOf({ state: 'ok', count: 15 }, t)).toBe('red')
+    expect(levelOf({ state: 'ok', count: 1, level: 'red' }, t)).toBe('red')
+    // a forced amber wins over the red threshold (a token whose check failed for another reason)
+    expect(levelOf({ state: 'ok', count: 1, level: 'amber' }, { amber: null, red: 1 })).toBe('amber')
+    expect(levelOf({ state: 'ok', count: 2 }, { amber: 3, red: null })).toBe('dark')
+    expect(levelOf(null, t)).toBe('dark')
+  })
+
+  test('new: no ack → all new ("new"); the same count with another id is new; fewer ids are never new', () => {
+    const a = makeAck(ids(3), 3, 1000)
+    expect(newOf(ids(3), 3, undefined)).toEqual({ k: 3, none: true })
+    expect(chipOf('amber', 3, true)).toBe('new')
+    expect(newOf(ids(3), 3, a)).toEqual({ k: 0, none: false })
+    // c3 went, c4 came: the count is the same, one id is new
+    expect(newOf(['run:r1#c1', 'run:r1#c2', 'run:r1#c4'], 3, a)).toEqual({ k: 1, none: false })
+    expect(chipOf('amber', 1, false)).toBe('new')
+    expect(newOf(ids(5), 5, a).k).toBe(2)
+    expect(chipOf('red', 2, false)).toBe('plus')
+    // 10 → 8: nothing new
+    expect(newOf(ids(2), 2, a).k).toBe(0)
+    expect(chipOf('amber', 0, false)).toBeNull()
+    // dark and grey lamps carry no chip
+    expect(chipOf('dark', 3, false)).toBeNull()
+    expect(chipOf('grey', 3, true)).toBeNull()
+  })
+
+  test('past 300 ids the count stands in', () => {
+    const many = ids(400)
+    const a = makeAck(many, 400, 1)
+    expect(a.set.length).toBe(300)
+    expect(newOf(many, 400, a).k).toBe(0)
+    expect(newOf(many, 410, a).k).toBe(10)
+    const shifted = [...ids(5, 'run:r2#c'), ...many]
+    expect(newOf(shifted, 405, a).k).toBe(5 + 5)
+  })
+
+  test('idsHash is stable whatever the order, and changes with the set', () => {
+    expect(idsHash(['a', 'b', 'c'])).toBe(idsHash(['c', 'a', 'b']))
+    expect(idsHash(['a', 'b'])).not.toBe(idsHash(['a', 'c']))
+    expect(idsHash([])).toMatch(/^[0-9a-f]{8}$/)
+    expect(makeAck(['a', 'b'], 2, 1).h).toBe(idsHash(['b', 'a']))
+  })
+
+  test('fmtCount: two digits, 99+', () => {
+    expect(fmtCount(0)).toBe('00')
+    expect(fmtCount(8)).toBe('08')
+    expect(fmtCount(99)).toBe('99')
+    expect(fmtCount(100)).toBe('99+')
+  })
+})
+
+const meta = (id: string, over: Partial<LampMeta> = {}): LampMeta => ({ id, order: 10, legend: id, short: id, rule: '', thresholds: { amber: 1, red: null }, flash: true, master: true, hasQueue: false, hasOpen: true, hasFix: false, ...over })
+
+test.describe('lamps — views, MASTER CAUTION, the panel', () => {
+  test('buildView + mcCount: new lamps that count for Master Caution', () => {
+    const a = buildView(meta('proposals', { thresholds: { amber: 1, red: 15 } }), { state: 'ok', count: 3, ids: ids(3) }, undefined, 2, 5)
+    expect(a).toMatchObject({ level: 'amber', isNew: true, chip: 'new', newCount: 3, count: 3 })
+    const b = buildView(meta('gate'), { state: 'ok', count: 2, ids: ids(2) }, makeAck(ids(2), 2, 1), 1, 5)
+    expect(b).toMatchObject({ level: 'amber', isNew: false, chip: null })
+    const c = buildView(meta('c:x', { master: false }), { state: 'ok', count: 1, ids: ['x'] }, undefined, 1, 5)
+    const g = buildView(meta('sync'), { state: 'off', count: 0, ids: [], why: 'features.preflight.grey.off' }, undefined, 1, 5)
+    expect(g).toMatchObject({ level: 'grey', isNew: false, why: 'features.preflight.grey.off' })
+    expect(mcCount([a, b, c, g])).toBe(1)
+  })
+
+  test('panelLamps: order, `after`, hidden, the cap of 16 and the overflow', () => {
+    const lamps = [
+      { id: 'inbox', order: 80 },
+      { id: 'proposals', order: 10 },
+      { id: 'gate', order: 30 },
+      { id: 'p:tessera:waiting', order: 900, after: 'proposals' },
+      { id: 'p:tessera:comments', order: 901, after: 'proposals' },
+      { id: 'c:late', order: 5, after: 'nowhere' },
+    ]
+    expect(panelLamps(lamps).shown).toEqual(['proposals', 'p:tessera:waiting', 'p:tessera:comments', 'gate', 'inbox', 'c:late'])
+    expect(panelLamps(lamps, { hidden: new Set(['gate']) }).shown).toEqual(['proposals', 'p:tessera:waiting', 'p:tessera:comments', 'inbox', 'c:late'])
+    const twenty = Array.from({ length: 20 }, (_, i) => ({ id: `l${String(i).padStart(2, '0')}`, order: i }))
+    const p = panelLamps(twenty)
+    expect(p.shown.length).toBe(16)
+    expect(p.overflow).toEqual(['l16', 'l17', 'l18', 'l19'])
+  })
+
+  test('the lamp test stays inside 260 ms for 1 … 16 lit caps', () => {
+    for (let n = 0; n <= 16; n++) {
+      const s = testSchedule(n)
+      expect(s.end, `n = ${n}`).toBeLessThanOrEqual(260)
+      expect(s.on).toBe(120)
+      if (n > 1) expect(s.relitAt(n - 1) + s.fade).toBeCloseTo(s.end, 6)
+    }
+    expect(testSchedule(5).stagger).toBeCloseTo(12.5, 6)
+    expect(testSchedule(2).stagger).toBe(20)
+  })
+
+  test('overlay: a card acted on leaves its lamp at once; an Undo brings it back; dark below the threshold', () => {
+    const v = buildView(meta('inbox', { thresholds: { amber: 1, red: 3 } }), { state: 'ok', count: 3, ids: ['i1', 'i2', 'i3'] }, undefined, 1, 1)
+    const has = (_l: string, id: string) => ['i1', 'i2', 'i3'].includes(id)
+    expect(v.level).toBe('red')
+    const down = overlay([v], [{ lamp: 'inbox', id: 'i1' }], [], has)[0]
+    expect(down).toMatchObject({ count: 2, level: 'amber' })
+    const gone = overlay([v], ['i1', 'i2', 'i3'].map((id) => ({ lamp: 'inbox', id })), [], has)[0]
+    expect(gone).toMatchObject({ count: 0, level: 'dark', isNew: false, chip: null })
+    const back = overlay([v], [], [{ lamp: 'inbox', id: 'i9' }], has)[0]
+    expect(back.count).toBe(4)
+    expect(overlay([v], [], [], has)[0]).toBe(v)
+  })
+})
+
+test.describe('the Preflight day', () => {
+  const at = (y: number, m: number, d: number, h: number, min = 0) => new Date(y, m - 1, d, h, min).getTime()
+
+  test('before the set time the day is still yesterday', () => {
+    expect(preflightDay(at(2026, 10, 9, 6, 30), '07:00')).toBe('2026-10-08')
+    expect(preflightDay(at(2026, 10, 9, 7, 0), '07:00')).toBe('2026-10-09')
+    expect(preflightDay(at(2026, 10, 9, 23, 59), '07:00')).toBe('2026-10-09')
+    expect(preflightDay(at(2026, 10, 1, 0, 30), '07:00')).toBe('2026-09-30')
+    expect(preflightDay(at(2026, 10, 9, 0, 0), '00:00')).toBe('2026-10-09')
+    // a bad time falls back to 07:00
+    expect(preflightDay(at(2026, 10, 9, 6, 59), 'soon')).toBe('2026-10-08')
+    expect(nextOpenAt(at(2026, 10, 9, 6, 0), '07:00')).toBe(at(2026, 10, 9, 7, 0))
+    expect(nextOpenAt(at(2026, 10, 9, 8, 0), '07:00')).toBe(at(2026, 10, 10, 7, 0))
+  })
+
+  test('a daylight-saving switch moves nothing (Europe/Berlin)', () => {
+    const tz = process.env.TZ
+    process.env.TZ = 'Europe/Berlin'
+    try {
+      // the night the clocks go back (25 Oct 2026, 03:00 → 02:00) and forward (29 Mar 2026, 02:00 → 03:00)
+      expect(preflightDay(new Date('2026-10-25T05:30:00Z').getTime(), '07:00')).toBe('2026-10-24') // 06:30 CET
+      expect(preflightDay(new Date('2026-10-25T06:00:00Z').getTime(), '07:00')).toBe('2026-10-25') // 07:00 CET
+      expect(preflightDay(new Date('2026-03-29T04:59:00Z').getTime(), '07:00')).toBe('2026-03-28') // 06:59 CEST
+      expect(preflightDay(new Date('2026-03-29T05:00:00Z').getTime(), '07:00')).toBe('2026-03-29') // 07:00 CEST
+      expect(nextOpenAt(new Date('2026-10-24T20:00:00Z').getTime(), '07:00')).toBe(new Date('2026-10-25T06:00:00Z').getTime())
+    } finally {
+      if (tz === undefined) delete process.env.TZ
+      else process.env.TZ = tz
+    }
+  })
+
+  test('working days between two moments', () => {
+    // Fri 9 Oct 2026 → Mon 12 Oct: one working day (Monday)
+    expect(workingDaysBetween(at(2026, 10, 9, 8), at(2026, 10, 12, 8))).toBe(1)
+    expect(workingDaysBetween(at(2026, 10, 5, 8), at(2026, 10, 9, 8))).toBe(4)
+    expect(workingDaysBetween(at(2026, 10, 10, 8), at(2026, 10, 11, 8))).toBe(0)
+    expect(workingDaysBetween(at(2026, 10, 9, 8), at(2026, 10, 9, 20))).toBe(0)
+    expect(workingDaysBetween(at(2026, 10, 9, 8), at(2026, 10, 1, 8))).toBe(0)
+  })
+})
+
+test.describe('records — the sanitizers', () => {
+  test('prefs: defaults, bad fields fall back', () => {
+    expect(sanitizePrefs(null)).toEqual({ on: true, at: '07:00', hold: true, test: true })
+    expect(sanitizePrefs({ on: false, at: '06:15', hold: false, test: false, extra: 1 })).toEqual({ on: false, at: '06:15', hold: false, test: false })
+    expect(sanitizePrefs({ on: 'no', at: '25:00', hold: 1, test: null })).toEqual({ on: true, at: '07:00', hold: true, test: true })
+    expect(sanitizePrefs([])).toEqual({ on: true, at: '07:00', hold: true, test: true })
+  })
+
+  test('today: another day reads as a fresh one; last: ids and levels only', () => {
+    expect(sanitizeToday({ day: '2026-10-08', held: true, shown: true, base: ['gate'] }, '2026-10-09')).toEqual({ day: '2026-10-09', base: [] })
+    expect(sanitizeToday({ day: '2026-10-09', held: true, shown: true, test: 'ran', base: ['gate', 3] }, '2026-10-09')).toEqual({ day: '2026-10-09', held: true, shown: true, test: 'ran', base: ['gate'] })
+    expect(sanitizeToday({ day: '2026-10-09', test: 'maybe' }, '2026-10-09')).toEqual({ day: '2026-10-09', base: [] })
+    expect(sanitizeLast({ at: 5, lamps: [['gate', 'amber'], ['sync', 'grey'], ['x', 'blue'], ['y']] })).toEqual({ at: 5, lamps: [['gate', 'amber'], ['sync', 'grey']] })
+    expect(sanitizeLast({ lamps: [] })).toBeNull()
+  })
+})
+
+test.describe('the plate mode (§5.6)', () => {
+  const today = { day: '2026-10-09', base: [] as string[] }
+  const base: ModeInput = { on: true, ready: true, lit: 2, newIds: ['gate'], queueOpen: false, unfolded: false, today, last: null }
+
+  test('off; before the first count from the last count', () => {
+    expect(planMode({ ...base, on: false }).mode).toBe('off')
+    expect(planMode({ ...base, ready: false, last: { at: 1, lamps: [['gate', 'amber']] } })).toEqual({ mode: 'full', effect: null })
+    expect(planMode({ ...base, ready: false, last: { at: 1, lamps: [['gate', 'dark']] } }).mode).toBe('strip')
+    expect(planMode({ ...base, ready: false, last: null }).mode).toBe('strip')
+    expect(planMode({ ...base, ready: false, last: { at: 1, lamps: [['gate', 'red']] }, today: { ...today, shown: true } }).mode).toBe('strip')
+  })
+
+  test('nothing lit → strip; the day’s first render with lamps lit → full, remembered', () => {
+    expect(planMode({ ...base, lit: 0, newIds: [] }).mode).toBe('strip')
+    expect(planMode({ ...base, lit: 0, unfolded: true }).mode).toBe('strip')
+    expect(planMode(base)).toEqual({ mode: 'full', effect: { shown: true, base: ['gate'], unfold: true } })
+  })
+
+  test('folded: an acknowledgement never unfolds; a lamp new outside the base does; a queue / unfold → full', () => {
+    const shown = { ...today, shown: true as const, base: ['gate', 'token'] }
+    expect(planMode({ ...base, today: shown, newIds: ['gate', 'token'] })).toEqual({ mode: 'strip', effect: null })
+    expect(planMode({ ...base, today: shown, newIds: ['gate'] })).toEqual({ mode: 'strip', effect: null })
+    expect(planMode({ ...base, today: shown, newIds: [] })).toEqual({ mode: 'strip', effect: null })
+    expect(planMode({ ...base, today: shown, newIds: ['gate', 'inbox'] })).toEqual({ mode: 'full', effect: { unfold: true, base: ['gate', 'token', 'inbox'] } })
+    expect(planMode({ ...base, today: shown, queueOpen: true }).mode).toBe('full')
+    expect(planMode({ ...base, today: shown, unfolded: true, newIds: [] })).toEqual({ mode: 'full', effect: null })
+  })
+
+  test('views survive JSON (the seam hands them to tests)', () => {
+    const v: LampView = buildView(meta('gate'), { state: 'ok', count: 1, ids: ['t'] }, undefined, 0, 0)
+    expect(JSON.parse(JSON.stringify(v))).toEqual(v)
   })
 })
