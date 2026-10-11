@@ -4,6 +4,7 @@
  * is a click). Nothing new: the off window — with the number of lit lamps in ink-3, or a green LED when all is dark —
  * and a click opens the panel. On a phone the topbar key shows the triangle and the count; the name is its label.
  */
+import { memo } from 'react'
 import { TriangleAlert } from 'lucide-react'
 import { useT } from '../../../i18n'
 import { ackAll, noteRender } from '../engine'
@@ -25,7 +26,8 @@ export function pressMasterCaution(): void {
   else openPreflight()
 }
 
-export function MasterCautionKey() {
+/** memo: the topbar re-renders with its page (typing, saving); the key only with `mc` / `lit` (PB5) */
+export const MasterCautionKey = memo(function MasterCautionKey() {
   noteRender('mc')
   const t = useT()
   const on = usePreflight((s) => s.on)
@@ -43,7 +45,7 @@ export function MasterCautionKey() {
       {state === 'dark' ? <span className="led led--ok" aria-hidden /> : <span className="pf-mc__n">{state === 'lit' ? mc : lit}</span>}
     </button>
   )
-}
+})
 
 /** The plate's key (the master column) — `small` for the strip. */
 export function MasterKey({ small }: { small?: boolean }) {
