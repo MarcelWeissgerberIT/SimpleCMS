@@ -1,15 +1,17 @@
 /**
  * Inbox engine — a background service (started once from main.tsx, like recurring templates).
  *
- * Reminders (every workspace): the reminders of date mentions and date properties (scan.ts) are
- * indexed after every change; each one fires once per device at its due time: an inbox item, a
+ * Reminders (every workspace): the reminders of date mentions, date properties and tasks (scan.ts)
+ * are indexed after every change; each one fires once per device at its due time: an inbox item, a
  * toast ("Open"), and — only if switched on in the inbox settings — a browser notification. A
  * reminder this device first sees when it is already past (set on a past date, or while this device
  * was away from a team workspace) is noted, not fired. Reminders that came due while the app was
  * closed fire at the next start, with ONE summary toast. Changing a reminder's date or code makes
  * it a new reminder; trashing the page or removing the reminder cancels it — one that comes due
  * while its page is in the trash is noted (restoring the page brings no "missed" news), later ones
- * fire as usual once the page is back.
+ * fire as usual once the page is back. Team workspaces: a task's reminder rings only for its people
+ * (on their devices), a task with nobody assigned (or no member among them) for every member —
+ * `ringsHere` (features/workitems); one that starts ringing for me after its time is noted, not fired.
  *
  * Team workspaces: "me" is the signed-in account (members are mirrored as people with the account
  * id). Per page a snapshot of what concerns me (my @mentions per block — those in synced blocks
@@ -34,6 +36,7 @@ import { collectReminders, commentBlock, groupMention, mentionLine, takesPart, t
 import { formatDue, hasTime, parseIsoLocal, parseReminder, reminderDueAt, reminderLabel, reminderOptions } from './reminders'
 import { loadInbox, loadSnapshot, markRead, mutateInbox, onInboxMessage, postInbox, saveSnapshot, useInbox, wsKey, type InboxData, type InboxItem, type Snapshot } from './state'
 import { showNotification } from './notify'
+import { memberIds, ringsHere, type AudienceCtx } from '../workitems'
 
 const TICK_MS = 60_000
 /** First pass after start: lets the UI (and a team workspace's sync) settle. */
@@ -86,6 +89,22 @@ function teamMe(): { id: ID; name: string } | null {
   return { id: c.user.id, name }
 }
 
+/**
+ * Who reminders ring for on this device: locally everyone; in a team workspace the signed-in member — a
+ * task's reminder only when its people include them (or name no member). `members`: the workspace's member
+ * account ids (null: not known yet — every assigned person then counts as a member).
+ */
+export function audienceHere(members: ReadonlySet<string> | null = memberIds()): AudienceCtx {
+  const me = teamMe()
+  return { team: !!me, me: me?.id ?? null, members: me ? members : null }
+}
+
+/** The reminders that ring on this device (task reminders filtered by their audience; others all ring). */
+export function ringingHere(list: ReminderEntry[], ctx: AudienceCtx = audienceHere()): ReminderEntry[] {
+  if (!ctx.team || !list.some((r) => r.source === 'item')) return list
+  return list.filter((r) => r.source !== 'item' || ringsHere(r.people, ctx))
+}
+
 /** Open what an item is about (and mark it read). */
 export function openInboxItem(item: InboxItem): void {
   void markRead([item.id])
@@ -132,8 +151,10 @@ function announce(items: InboxItem[], now: number, notify: boolean): void {
   if (items.length === 1 && !missed) {
     const it = items[0]
     const when = eventLabel(it.iso, lang)
-    ui.toast({ message: t('inbox.toast.one', { title: titleOf(it.pageId), when }), kind: 'info', timeout: 12_000, action: { label: t('common.open'), run: () => openInboxItem(it) } })
-    if (notify) showNotification(titleOf(it.pageId), t('inbox.notify.body', { when }), it.id, () => openInboxItem(it))
+    // a task's reminder names the task (its title is the excerpt), others their page
+    const title = it.id.startsWith('r:w:') && it.excerpt ? it.excerpt : titleOf(it.pageId)
+    ui.toast({ message: t('inbox.toast.one', { title, when }), kind: 'info', timeout: 12_000, action: { label: t('common.open'), run: () => openInboxItem(it) } })
+    if (notify) showNotification(title, t('inbox.notify.body', { when }), it.id, () => openInboxItem(it))
     return
   }
   const n = items.length
@@ -324,9 +345,11 @@ async function pass(now = Date.now()): Promise<void> {
   const boot = !booted
   booted = true
 
-  // reminders
-  const trashed: ReminderEntry[] = []
-  const index = collectReminders(s.pages, s.databases, trashed)
+  // reminders (a task's only where it rings: team workspaces ring for its people)
+  const inTrash: ReminderEntry[] = []
+  const ctx = audienceHere()
+  const index = ringingHere(collectReminders(s.pages, s.databases, inTrash), ctx)
+  const trashed = ringingHere(inTrash, ctx)
   const work = reminderWork(index, trashed, st.data, now)
 
   // team items
@@ -545,6 +568,8 @@ if (typeof window !== 'undefined' && (import.meta.env.DEV || new URLSearchParams
     /** add items as if they had arrived (screenshots, UI tests) */
     inject: (items: InboxItem[]) => mutateInbox((d) => void d.items.push(...items)),
     reminders: () => collectReminders(useWorkspace.getState().pages, useWorkspace.getState().databases),
+    /** the reminders that ring on this device (a team task's only for its people) */
+    ringing: () => ringingHere(collectReminders(useWorkspace.getState().pages, useWorkspace.getState().databases)),
     codes: {
       parse: parseReminder,
       dueAt: reminderDueAt,

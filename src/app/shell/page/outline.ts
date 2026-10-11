@@ -234,6 +234,22 @@ export function jumpToDate(editor: Editor | null, iso: string, code: string): bo
   return jumpTo(editor, block instanceof HTMLElement ? block : null)
 }
 
+/** Scroll the page column to the block with this block id (a task's reminder) and mark it. */
+export function jumpToBlockId(editor: Editor | null, blockId: string): boolean {
+  if (!editor || editor.isDestroyed) return false
+  let pos = -1
+  editor.state.doc.descendants((node, p) => {
+    if (pos >= 0) return false
+    if (node.attrs?.id === blockId) {
+      pos = p
+      return false
+    }
+  })
+  if (pos < 0) return false
+  const el = editor.view.nodeDOM(pos)
+  return jumpTo(editor, el instanceof HTMLElement ? el : null)
+}
+
 function jumpTo(editor: Editor, el: HTMLElement | null | undefined): boolean {
   if (!el || el === editor.view.dom) return false
   return scrollToBlock(el, editor.view.dom as HTMLElement)

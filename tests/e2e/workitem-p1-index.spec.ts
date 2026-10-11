@@ -817,6 +817,85 @@ test.describe('writeItems (in the app)', () => {
 })
 
 /* ------------------------------------------------------------------ */
+/* B15: task reminders (inbox) — clock-driven                          */
+/* ------------------------------------------------------------------ */
+
+type Rem = { key: string; source: string; pageId: string; blockId: string | null; excerpt: string; itemId?: string; people?: string[] }
+type InboxData = { items: Array<{ id: string; kind: string; pageId: string; blockId?: string | null }>; rem: Record<string, { seen: number; fired?: number }> }
+const inboxData = (page: Page): Promise<InboxData> => page.evaluate(() => JSON.parse(JSON.stringify((window as any).__oneInbox.data())))
+/** Task reminders of the ids this test made (the demo seed has one of its own). */
+const taskRems = (page: Page, ids: string[]): Promise<Rem[]> =>
+  page.evaluate((ids) => JSON.parse(JSON.stringify((window as any).__oneInbox.reminders().filter((r: Rem) => r.itemId && ids.includes(r.itemId)))), ids)
+
+test.describe('task reminders (in the app)', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.clock.install({ time: new Date('2026-10-05T09:00:00+02:00') })
+  })
+
+  test('fires once, named by the task; done → none; template → none; trash → noted; one entry per itemId at the winner', async ({ page, errors }) => {
+    const D = 'wi_dup0000000'
+    const E = 'wi_trash00000'
+    await openApp(page)
+    const plan = await createPage(page, {
+      title: 'Launch plan',
+      content: doc(
+        item({ id: 'ba', itemId: A, due: '2026-10-05T10:30', reminder: '-15m', people: ['p_alex'] }, 'Run the checkout'),
+        item({ id: 'bb', itemId: B, status: 'done', doneAt: NOW, due: '2026-10-05T10:30', reminder: 'at' }, 'Approve the copy'),
+        item({ id: 'bc', itemId: C, due: '2026-10-05T10:30' }, 'No reminder on this one'),
+      ),
+    })
+    // A rings; B is done; C has no reminder
+    await expect.poll(() => taskRems(page, [A, B, C]).then((l) => l.map((r) => [r.key, r.source, r.pageId, r.blockId, r.excerpt, r.people]))).toEqual([
+      [`w:${A}:2026-10-05T10:30:-15m`, 'item', plan, 'ba', 'Run the checkout', ['p_alex']],
+    ])
+    await expect.poll(() => inboxData(page).then((d) => Object.keys(d.rem))).toContain(`w:${A}:2026-10-05T10:30:-15m`)
+
+    // two pages, one itemId (a duplicate): one entry, at the winner (earliest page) — its deep link opens that block
+    const first = await createPage(page, { title: 'First', content: doc(item({ id: 'd1', itemId: D, due: '2026-10-07', reminder: '-1d' }, 'Book the room')) })
+    await page.clock.runFor(5)
+    const second = await createPage(page, { title: 'Second', content: doc(p('x'), item({ id: 'd2', itemId: D, due: '2026-10-07', reminder: '-1d' }, 'Book the room'), item({ id: 'd3', itemId: D, due: '2026-10-07', reminder: '-1d' }, 'Book the room')) })
+    const winner = await wsEval(page, (s, ids) => {
+      const [a, b] = ids.map((id: string) => s.pages[id])
+      return a.createdAt !== b.createdAt ? (a.createdAt < b.createdAt ? a.id : b.id) : a.id < b.id ? a.id : b.id
+    }, [first, second])
+    await expect.poll(() => taskRems(page, [D]).then((l) => l.map((r) => [r.pageId, r.blockId]))).toEqual([[winner, winner === first ? 'd1' : 'd2']])
+    expect(second).not.toBe(first)
+
+    // a template's task never rings
+    const tpl = await createPage(page, { title: 'Kit', content: doc(item({ itemId: 'wi_tpl0000000', due: '2026-10-05T10:00', reminder: 'at' }, 'Template task')) })
+    await wsEval(page, (s, id) => s.updatePage(id, { template: { name: 'Kit' }, hidden: true }), tpl)
+    await expect.poll(() => taskRems(page, ['wi_tpl0000000'])).toEqual([])
+
+    // a page in the trash: seen first, then trashed → noted when its time comes, never fired
+    const trashed = await createPage(page, { title: 'Old plan', content: doc(item({ id: 'be', itemId: E, due: '2026-10-05T10:20', reminder: 'at' }, 'Call the printer')) })
+    await expect.poll(() => inboxData(page).then((d) => Object.keys(d.rem))).toContain(`w:${E}:2026-10-05T10:20:at`)
+    await wsEval(page, (s, id) => s.trashPage(id), trashed)
+
+    // 10:15 → A fires: the toast names the task, the item links its block
+    await page.clock.fastForward('01:15:20')
+    await expect(page.locator('.toast', { hasText: 'Reminder · Run the checkout — Mon 5 Oct, 10:30' })).toBeVisible()
+    await expect.poll(() => inboxData(page).then((d) => d.items.map((i) => [i.id, i.kind, i.pageId, i.blockId]))).toEqual([[`r:w:${A}:2026-10-05T10:30:-15m`, 'reminder', plan, 'ba']])
+    // 10:21: the trashed task's time — noted, not fired
+    await page.clock.fastForward('00:06:00')
+    await expect.poll(() => inboxData(page).then((d) => d.rem[`w:${E}:2026-10-05T10:20:at`]?.fired ?? 0)).toBeGreaterThan(0)
+    expect((await inboxData(page)).items.length).toBe(1)
+
+    // done → the reminder is gone (nothing left to fire), and a fired one never fires twice
+    await write(page, [{ itemId: A, patch: { status: 'done' } }], { toasts: false })
+    await expect.poll(() => taskRems(page, [A])).toEqual([])
+    await page.clock.fastForward('02:00:00')
+    expect((await inboxData(page)).items.length).toBe(1)
+
+    // the deep link opens the task's block
+    await page.evaluate(() => (window.location.hash = '#/inbox'))
+    await page.locator('#main .ibx-item .ibx-item__open').first().click()
+    await expect(page).toHaveURL(new RegExp(`#/p/${plan}\\?b=ba`))
+    await flush(page)
+    expect(errors.list).toEqual([])
+  })
+})
+
+/* ------------------------------------------------------------------ */
 /* B6: schema pins — P1 adds no node and no attribute                  */
 /* ------------------------------------------------------------------ */
 

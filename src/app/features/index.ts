@@ -194,9 +194,11 @@ export {
  *    openInboxItem, openInbox, eventLabel; notification permission helpers
  *  - reminder codes ('at', '-15m', '-1d' …): parse / label / due time / options (the one definition)
  *  - ReminderSelect, DateReminderEditor: reminder UI for database dates and editor date mentions
- *  - collectReminders(pages, dbs): every scheduled reminder (for lists / agenda)
+ *  - collectReminders(pages, dbs): every scheduled reminder (for lists / agenda) — date mentions, date properties
+ *    and tasks; ringingHere(list, audienceHere(members?)): those that ring on this device (a team task's only
+ *    for its people)
  */
-export { startInbox, stopInbox, openInboxItem, openInbox, eventLabel } from './inbox/engine'
+export { startInbox, stopInbox, openInboxItem, openInbox, eventLabel, audienceHere, ringingHere } from './inbox/engine'
 export { useInbox, markRead, archiveItems, setNotify, INBOX_KINDS, type InboxItem, type InboxKind, type InboxData } from './inbox/state'
 export { notifyPermission, requestNotifyPermission, type NotifyPermission } from './inbox/notify'
 export { collectReminders, type ReminderEntry } from './inbox/scan'
