@@ -777,6 +777,15 @@ test.describe('1440 light', () => {
     expect(box.height).toBeLessThan(48)
     await expect(all.nth(4).locator('.workitem__chip--wait')).toContainText('Waiting for 1')
     await expect(all.nth(4).locator('.workitem__lock')).toHaveCount(0)
+    // one line: date · waiting · faces (the avatars last)
+    const last = await compact.locator('.workitem__chips > *:not(.visually-hidden)').last().getAttribute('class')
+    expect(last).toContain('workitem__chip--person')
+    // ⋯ on a compact row: with the pointer (or the caret / focus) only
+    await page.mouse.move(5, 5)
+    await expect(compact.locator('.workitem__more')).toHaveCSS('opacity', '0')
+    await compact.hover()
+    await expect(compact.locator('.workitem__more')).toHaveCSS('opacity', '1')
+    await expect(all.nth(0).locator('.workitem__more')).toHaveCSS('opacity', '1')
   })
 
   test('a card preview (gallery) shows a task line like a to-do: ■ done / □ not done + its title, then its notes', async ({ page }) => {
@@ -891,6 +900,35 @@ test.describe('390 dark', () => {
       const b = (await all.nth(i).boundingBox())!
       expect(b.x + b.width).toBeLessThanOrEqual(390)
     }
+  })
+
+  test('XL text: IN PROGRESS goes below the title (the title keeps the row); at the standard size it stays beside it', async ({ page }) => {
+    await page.addInitScript(() => {
+      try {
+        if (!sessionStorage.getItem('xl-set')) {
+          localStorage.setItem('one.textScale', '4')
+          sessionStorage.setItem('xl-set', '1')
+        }
+      } catch {
+        /* storage refused */
+      }
+    })
+    await openApp(page)
+    const id = await taskPage(page, 'XL page', item({ itemId: A, status: 'in_progress' }, 'Approve the final pricing copy'))
+    const task = tasks(page, id).first()
+    const label = task.locator('.workitem__label')
+    await expect(label).toBeVisible()
+    const tb = (await titleOf(task).boundingBox())!
+    const lb = (await label.boundingBox())!
+    expect(lb.y).toBeGreaterThanOrEqual(tb.y + tb.height - 2)
+    expect(lb.x).toBeLessThan(tb.x + 4)
+    // the standard size: beside the title
+    await page.evaluate(() => localStorage.setItem('one.textScale', '1'))
+    await page.reload()
+    await expect(editorOf(page, id)).toBeVisible()
+    const tb2 = (await titleOf(tasks(page, id).first()).boundingBox())!
+    const lb2 = (await tasks(page, id).first().locator('.workitem__label').boundingBox())!
+    expect(lb2.x).toBeGreaterThan(tb2.x + 40)
   })
 
   test('NEW ID re-mints the duplicate block only; a template page shows TEMPLATE · CREATED WHEN USED', async ({ page }) => {

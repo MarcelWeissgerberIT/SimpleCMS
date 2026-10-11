@@ -259,6 +259,34 @@ button.workitem__key:active {
   margin-top: 2px;
 }
 
+/* the notes: a step smaller than the title line (15 px at the standard text size) */
+.workitem__body > :not(:first-child):not([data-node-view-content-react]),
+.workitem__body > [data-node-view-content-react] > :not(:first-child) {
+  --doc-lh: 1.6;
+  font-size: 0.94em;
+  line-height: var(--doc-lh);
+}
+
+/* a note's own lines are quieter than the title; its to-dos and lists keep the ink */
+.workitem__body > p:not(:first-child),
+.workitem__body > [data-node-view-content-react] > p:not(:first-child) {
+  color: var(--ink-2);
+}
+
+/* list items and to-dos in the notes sit a little closer (a to-do's line is li > div > p) */
+.workitem__body > :not(:first-child):not([data-node-view-content-react]) li > p,
+.workitem__body > :not(:first-child):not([data-node-view-content-react]) li > div > p,
+.workitem__body > [data-node-view-content-react] > :not(:first-child) li > p,
+.workitem__body > [data-node-view-content-react] > :not(:first-child) li > div > p {
+  min-height: 0;
+  padding: 1px 0;
+}
+
+.workitem__body > :not(:first-child):not([data-node-view-content-react]) ul[data-type='taskList'] li > label,
+.workitem__body > [data-node-view-content-react] > :not(:first-child) ul[data-type='taskList'] li > label {
+  height: calc(var(--doc-lh) * 1em + 2px);
+}
+
 /* ---------- chips ---------- */
 .workitem__chips {
   grid-column: 2 / -1;
@@ -716,6 +744,19 @@ button.workitem__lbl:hover {
   border-radius: 3px;
 }
 
+/* compact: ⋯ shows with the pointer, the caret or focus on the row (a mouse finds it there; touch always shows it) */
+@media (hover: hover) {
+  .workitem[data-compact] .workitem__more {
+    opacity: 0;
+  }
+
+  .workitem[data-compact]:hover .workitem__more,
+  .workitem[data-compact]:focus-within .workitem__more,
+  .node-workItem[data-caret] > .workitem[data-compact] .workitem__more {
+    opacity: 1;
+  }
+}
+
 /* list items: consecutive compact tasks stack like the full ones (2 px) */
 .doc-content li > .node-workItem {
   margin: 4px 0;
@@ -760,6 +801,27 @@ button.workitem__lbl:hover {
   }
 
   .workitem:is([data-state='template'], [data-state='duplicate']) > .workitem__lock {
+    grid-row: 4;
+  }
+
+  /* large text (L / XL): IN PROGRESS goes below the title too — beside it the title would wrap word by word */
+  :root:is([data-text-size='3'], [data-text-size='4']) .workitem[data-status='in_progress']:not([data-late], [data-compact], [data-state='template'], [data-state='duplicate']) .workitem__label {
+    grid-column: 2 / -2;
+    grid-row: 2;
+    margin-top: 2px;
+    white-space: normal;
+  }
+
+  :root:is([data-text-size='3'], [data-text-size='4']) .workitem[data-status='in_progress']:not([data-late], [data-compact], [data-state='template'], [data-state='duplicate']) .workitem__body > [data-node-view-content-react] > :first-child,
+  :root:is([data-text-size='3'], [data-text-size='4']) .workitem[data-status='in_progress']:not([data-late], [data-compact], [data-state='template'], [data-state='duplicate']) .workitem__body > :first-child:not([data-node-view-content-react]) {
+    grid-column: 2 / -2;
+  }
+
+  :root:is([data-text-size='3'], [data-text-size='4']) .workitem[data-status='in_progress']:not([data-late], [data-compact], [data-state='template'], [data-state='duplicate']) > .workitem__chips {
+    grid-row: 3;
+  }
+
+  :root:is([data-text-size='3'], [data-text-size='4']) .workitem[data-status='in_progress']:not([data-late], [data-compact], [data-state='template'], [data-state='duplicate']) > .workitem__lock {
     grid-row: 4;
   }
 

@@ -135,9 +135,11 @@ export function ItemChips({ model, attrs, view, progress, hasNotes, interactive,
       </Chip>,
     )
   }
-  if (model.people.length) chips.push(<span key="sr-people" className="visually-hidden">{t('editor.workItem.sr.people')}</span>)
+  // people: after the due date — on a compact task last, as avatars (the mock's one-line row: date · waiting · faces)
+  const faces: ReactNode[] = []
+  if (model.people.length) faces.push(<span key="sr-people" className="visually-hidden">{t('editor.workItem.sr.people')}</span>)
   for (const p of model.people)
-    chips.push(
+    faces.push(
       <Chip key={`p-${p.key}`} interactive={interactive} className="workitem__chip workitem__chip--person" anchor="people" onClick={go('people')} title={compact ? p.name : undefined}>
         <span className="workitem__avatar" style={{ background: `var(--c-${p.color}-bg)`, color: `var(--c-${p.color}-text)` }} aria-hidden>
           {p.initials}
@@ -145,6 +147,7 @@ export function ItemChips({ model, attrs, view, progress, hasNotes, interactive,
         {compact ? <span className="visually-hidden">{p.name}</span> : p.name}
       </Chip>,
     )
+  if (!compact) chips.push(...faces)
   if (progress && !compact) {
     const segs = Math.min(progress.total, 8)
     const lit = Math.round((progress.done / progress.total) * segs)
@@ -243,6 +246,8 @@ export function ItemChips({ model, attrs, view, progress, hasNotes, interactive,
       }
     }
   }
+
+  if (compact) chips.push(...faces)
 
   const ghosts: ReactNode[] = []
   if (interactive && !compact && !done) {
