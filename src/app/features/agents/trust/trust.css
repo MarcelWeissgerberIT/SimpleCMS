@@ -394,3 +394,26 @@
     transition: none;
   }
 }
+/* touch screens: an open proposal's two keys get a line of their own, each half of it and 44 px tall; no orange key
+   and no row mark from a tap (a tap is not keyboard focus) */
+@media (hover: none) and (pointer: coarse) {
+  .agx-review .agent-change[data-status='pending'] .agent-change__actions,
+  .agx-review .agent-change[data-status='failed'] .agent-change__actions {
+    display: flex;
+    flex: 1 1 100%;
+    gap: 8px;
+    margin-left: 0;
+  }
+  .agx-review .agent-change__actions .btn.agt-apply,
+  .agx-review .agent-change__actions .btn.agt-discard {
+    flex: 1 1 0;
+    justify-content: center;
+    height: 44px;
+  }
+  .agx-review .agent-change:focus-within .btn.agt-apply:not(:disabled) {
+    border-color: var(--ink);
+    background: var(--ink);
+    color: var(--ink-inverse);
+    box-shadow: none;
+  }
+}

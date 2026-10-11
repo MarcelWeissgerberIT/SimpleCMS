@@ -777,9 +777,11 @@
 .agx-review .agent-change[data-keys] {
   outline: none;
 }
-.agx-review .agent-change[data-keys]:focus-within {
-  border-color: var(--ink);
-  box-shadow: inset 3px 0 0 var(--ink);
+@media (hover: hover), (pointer: fine), (pointer: none) {
+  .agx-review .agent-change[data-keys]:focus-within {
+    border-color: var(--ink);
+    box-shadow: inset 3px 0 0 var(--ink);
+  }
 }
 .agx-review .agent-change[data-keys]:focus-visible {
   box-shadow: inset 3px 0 0 var(--ink), var(--focus-ring);
