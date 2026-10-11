@@ -225,7 +225,7 @@ test.describe('Custom agents', () => {
     expect(rec.usage.usd).toBeGreaterThan(0)
     expect(bodies).toHaveLength(3)
     // no integration profile here: neither the state tools nor notify_me (integrations.spec.ts)
-    expect(bodies[0].tools.map((t: AnyState) => t.name)).toEqual(['search_pages', 'read_page', 'list_databases', 'query_database', 'run_query'])
+    expect(bodies[0].tools.map((t: AnyState) => t.name)).toEqual(['search_pages', 'read_page', 'list_databases', 'query_database', 'run_query', 'list_work_items'])
     expect(bodies[0].system).toContain('You are a custom agent in One')
     expect(bodies[0].system).toContain('You can only read')
     expect(JSON.stringify(bodies[0].messages[0].content)).toContain('Summarise the status of all projects.')

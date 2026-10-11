@@ -88,6 +88,19 @@ function Line({ line }: { line: PlanLine }) {
       )
     case 'note':
       return <p className="mcp-line__note">{line.value}</p>
+    case 'item':
+      return (
+        <div className="mcp-line mcp-line--item" data-tag={line.tag}>
+          <dt>
+            {t('features.workItems.facts.task')} · {t(`features.workItems.facts.${line.tag}`)}
+          </dt>
+          <dd>
+            <span className="mcp-line__title">{line.title}</span>
+            {line.facts && <span className="mcp-line__facts">{line.facts}</span>}
+            {line.warn && <span className="mcp-line__warn">{line.warn}</span>}
+          </dd>
+        </div>
+      )
   }
 }
 

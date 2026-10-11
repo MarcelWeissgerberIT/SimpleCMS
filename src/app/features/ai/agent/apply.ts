@@ -13,7 +13,7 @@ import { defaultView } from '../../../store/store'
 import { claudeSettled } from '../claudeDoc'
 import { webImagesOf } from '../../agents/images'
 import { newId } from '../../../lib/ids'
-import { aiWrite, snapshotNow } from '../../history/snapshots'
+import { aiWrite, contentKey, snapshotNow } from '../../history/snapshots'
 import { t } from '../../../i18n'
 import { depsOf, type ColumnSpec, type PropChange, type StagedChange } from './types'
 import { saveMemory, updateMemory } from '../memory/save'
@@ -257,6 +257,11 @@ export async function applyChanges(changes: StagedChange[], all: StagedChange[],
       if (itemPages.has(pageId)) continue
       itemPages.add(pageId)
       const group = ordered.filter((x) => x.kind === 'workItem' && itemPageOf(x, resolveRow) === pageId)
+      // a task on a page in the trash (or gone) is not changed
+      if (!alive(pageId)) {
+        failed.push(...group.map((x) => ({ id: x.id, error: t('features.workItems.refused.gone') })))
+        continue
+      }
       try {
         await guardTask(pageId, opts)
       } catch (e) {
@@ -344,12 +349,14 @@ export async function applyChanges(changes: StagedChange[], all: StagedChange[],
  */
 function removeCreated(id: ID): () => boolean {
   const rev = ws().pages[id]?.contentRev
+  const key = contentKey(ws().pages[id]?.content)
   const title = ws().pages[id]?.title
   return () => {
     const { pages } = ws()
     const now = pages[id]
     if (!now || now.trashed) return true
-    const touched = now.contentRev !== rev || now.title !== title || isEffectivelyTrashed(pages, id) || Object.values(pages).some((p) => p.parentId === id)
+    // content as written (a later change of the same batch undone first writes it back: the same content counts)
+    const touched = (now.contentRev !== rev && contentKey(now.content) !== key) || now.title !== title || isEffectivelyTrashed(pages, id) || Object.values(pages).some((p) => p.parentId === id)
     if (touched) ws().trashPage(id)
     else ws().deletePagePermanently(id)
     return true
@@ -507,9 +514,11 @@ async function applyOne(c: StagedChange, resolveRow: (id: ID) => ID, rowIds: Rec
       const next: JSONContent = { type: 'doc', content: isEmptyDoc(prev) ? add : [...(prev?.content ?? []), ...add] }
       as(() => ws().setContent(id, next, ORIGIN))
       const rev = ws().pages[id]?.contentRev
+      const key = contentKey(ws().pages[id]?.content)
       return () => {
         const now = ws().pages[id]
-        if (!now || now.contentRev !== rev) return false
+        // edited since — unless a later change of the batch (a task's fields) was undone first and wrote it back
+        if (!now || (now.contentRev !== rev && contentKey(now.content) !== key)) return false
         ws().setContent(id, prev, ORIGIN)
         return true
       }

@@ -15,6 +15,7 @@ import { MCP_FILTER_OPS, type McpAgentMode, type McpToolName } from './contract'
 import { workspaceInfo } from './identity'
 import { scriptList } from '../script'
 import { queryTarget, runQuery } from './script'
+import { listWorkItemsMcp } from './workItems'
 import { comparable, databaseOrThrow, friendlyValue, iconText, iso, kindOf, live, McpToolError, pageUrl, pathOf, propertyJson, q, rowJson, rowProperties, rowsOf, titleOf, ws } from './values'
 
 /** Characters of page Markdown in one answer. */
@@ -441,6 +442,7 @@ export const READ_TOOLS: Partial<Record<McpToolName, (args: Record<string, unkno
   one_get_database: getDatabase,
   one_query_database: queryDatabase,
   one_run_query: runQuery,
+  one_list_work_items: listWorkItemsMcp,
 }
 
 /** Short label of what a read call is about (activity log). */
@@ -458,6 +460,8 @@ export function readTarget(tool: McpToolName, args: Record<string, unknown>): st
       return title(args.id)
     case 'one_run_query':
       return queryTarget(args)
+    case 'one_list_work_items':
+      return [str(args.status) || 'open', str(args.person), str(args.query) ? `“${str(args.query)}”` : ''].filter(Boolean).join(' · ')
     case 'one_query_database': {
       const n = Array.isArray(args.filter) ? args.filter.length : 0
       return `${title(args.databaseId)}${n ? ` · ${t(n === 1 ? 'features.mcp.log.filters.one' : 'features.mcp.log.filters.other', { n })}` : ''}`

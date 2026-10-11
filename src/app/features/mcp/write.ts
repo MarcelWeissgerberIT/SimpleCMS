@@ -10,18 +10,18 @@
  * tidy.ts (trash, restore, moves) and structure.ts (database, property and view changes).
  */
 import type { JSONContent } from '@tiptap/core'
-import { keepItems } from '../../editor'
-import { claudeDoc } from '../ai/claudeDoc'
+import { claudeSettled } from '../ai/claudeDoc'
 import { webImagesOf } from '../agents/images'
 import { newId } from '../../lib/ids'
 import { t } from '../../i18n'
 import type { Database, ID, PropertyDef, PropertyType } from '../../store/types'
 import { isEffectivelyTrashed } from '../../store/selectors'
 import { aiWrite, snapshotNow } from '../history/snapshots'
-import { AGENT_TOOLS, ToolInputError, type StageApi } from '../ai/agent/tools'
-import { applyChanges } from '../ai/agent/apply'
-import { newItemSession } from '../ai/agent/workItems'
-import type { PropChange, StagedChange, ToolName } from '../ai/agent/types'
+import { pagePrivate, registerItems, stageBlocks, type ItemStaging } from '../ai/agent/workItems'
+import type { PropChange } from '../ai/agent/types'
+import { getItemIndex, SettleRefusal, type SettleReport } from '../workitems'
+import { holdsOfReport } from '../workitems/holds'
+import { applyStaged, callStage, itemLine, itemPlan, mcpMessage, stageWith } from './stage'
 import { MCP_PROPERTY_TYPES, type McpToolName } from './contract'
 import { databaseOrThrow, iconText, kindOf, live, McpToolError, pageUrl, pathOf, propertyJson, q, rowProperties, titleOf, TWO_WAY_SUFFIX, ws } from './values'
 import { chars, optionsOf, pageOrThrow, parseIcon, preview, str, type PlanLine, type WritePlan } from './plan'
@@ -30,81 +30,15 @@ import { STRUCTURE_PLANNERS } from './structure'
 import { withWriter, type Writer } from '../../store/writer'
 
 export type { Applied, PlanLine, WritePlan } from './plan'
+export { mcpMessage } from './stage'
+import { planUpdateWorkItems } from './workItems'
 
 /* ------------------------------------------------------------------ */
 /* Helpers                                                             */
 /* ------------------------------------------------------------------ */
 
-const AGENT_NAMES: Record<string, string> = {
-  search_pages: 'one_search',
-  read_page: 'one_get_page',
-  list_databases: 'one_get_database',
-  query_database: 'one_query_database',
-  get_current_page: 'one_overview',
-  create_page: 'one_create_page',
-  append_to_page: 'one_update_page',
-  create_row: 'one_create_row',
-  update_row: 'one_update_row',
-  set_page_title: 'one_update_page (title)',
-}
-
-/** The agent's messages name its own tools and "staging": speak MCP instead. */
-export function mcpMessage(msg: string): string {
-  return msg
-    .replace(/\b(search_pages|read_page|list_databases|query_database|get_current_page|create_page|append_to_page|create_row|update_row|set_page_title)\b/g, (m) => AGENT_NAMES[m] ?? m)
-    .replace(/, or upsert_rows by "[^"]*"/g, '')
-    .replace(/Nothing was staged\./g, 'Nothing was changed.')
-    .replace(/staged change #\d+ \(([^)]*)\)/g, '$1')
-}
-
-/** A private stage per call: the agent's tools put their change here. */
-function callStage(): StageApi & { changes: StagedChange[] } {
-  const changes: StagedChange[] = []
-  return {
-    changes,
-    list: () => changes,
-    add(change) {
-      const c: StagedChange = { ...change, id: `m${changes.length + 1}`, n: changes.length + 1, status: 'pending' }
-      changes.push(c)
-      return c
-    },
-    update(id, patch) {
-      const i = changes.findIndex((c) => c.id === id)
-      if (i < 0) throw new Error(`no staged change ${id}`)
-      changes[i] = { ...changes[i], ...patch }
-      return changes[i]
-    },
-    resolve: (id) => id,
-    // the call's task handles and staged task ids
-    items: newItemSession('mcp'),
-  }
-}
-
-/** Run one agent tool on the stage; its input errors become MCP errors. */
-function stageWith(stage: StageApi, name: ToolName, input: Record<string, unknown>) {
-  const tool = AGENT_TOOLS.find((x) => x.name === name)
-  if (!tool) throw new Error(`agent tool ${name} missing`)
-  try {
-    const out = tool.run(input, stage)
-    // the staging tools answer at once (only run_query / write_script load the script engine)
-    if (out instanceof Promise) throw new Error(`agent tool ${name} is not a staging tool`)
-    return out
-  } catch (e) {
-    if (e instanceof ToolInputError) throw new McpToolError(mcpMessage(e.message))
-    throw e
-  }
-}
-
-async function applyStaged(changes: StagedChange[], writer: Writer): Promise<{ rowIds: Record<string, ID>; undo: () => boolean }> {
-  if (!changes.length) return { rowIds: {}, undo: () => true }
-  const res = await applyChanges(changes, changes, (id) => id, { writer })
-  if (res.failed.length) {
-    // the call takes back what it wrote (its own rollback)
-    withWriter(writer, () => res.undo())
-    throw new McpToolError(`Nothing was changed: ${res.failed.map((f) => f.error).join('; ')}.`)
-  }
-  return { rowIds: res.rowIds, undo: () => res.undo().kept.length === 0 }
-}
+/** The new tasks of a write, for its result (Claude uses these ids in later calls). */
+const tasksOf = (created: Array<{ id: string; title: string; handle?: string }>) => (created.length ? { tasks: created } : {})
 
 function propLines(props: PropChange[] | undefined, withBefore: boolean): PlanLine[] {
   return (props ?? []).map((p) => ({ k: 'prop', name: p.name, ...(withBefore ? { before: p.before } : {}), after: p.after, ...(p.newOptions?.length ? { fresh: p.newOptions } : {}) }))
@@ -146,16 +80,20 @@ function planCreatePage(args: Record<string, unknown>): WritePlan {
   const lines: PlanLine[] = [{ k: 'fact', label: t('features.mcp.plan.in'), value: parent ? [pathOf(parent.id), titleOf(parent)].filter(Boolean).join(' / ') : where }]
   if (icon) lines.push({ k: 'fact', label: t('features.mcp.plan.icon'), value: iconText(icon) ?? '' })
   if (markdown.trim()) lines.push({ k: 'md', label: t('features.mcp.plan.content', { n: chars(markdown.trim().length) }), value: preview(markdown) })
+  // the tasks its text makes (and a folded Blocks: onto existing ones) — a change that holds waits for approval
+  const items = itemPlan(stage.changes)
+  lines.push(...items.lines)
   return {
     tool: 'one_create_page',
     verb: t('features.mcp.verb.createPage'),
     summary: t('features.mcp.sum.createPage', { title, where }),
     target: title,
     lines,
+    ...(items.holds.length ? { alwaysAsk: true } : {}),
     async apply(writer) {
       const { undo } = await applyStaged(stage.changes, writer)
       if (icon) withWriter(writer, () => ws().updatePage(c.pageId, { icon }))
-      return { result: { id: c.pageId, title, url: pageUrl(c.pageId), parentId: c.parentId ?? null, path: pathOf(c.pageId) }, undo }
+      return { result: { id: c.pageId, title, url: pageUrl(c.pageId), parentId: c.parentId ?? null, path: pathOf(c.pageId), ...tasksOf(items.created) }, undo }
     },
   }
 }
@@ -187,44 +125,83 @@ function planUpdatePage(args: Record<string, unknown>): WritePlan {
     changed.push('icon')
   }
   let replaceWith: JSONContent | null = null
+  let replaced: SettleReport | null = null
+  const rev = page.contentRev
+  const name = titleOf(page)
   if (markdown !== null && mode === 'append') {
     stageWith(stage, 'append_to_page', { id: page.id, markdown })
     lines.push({ k: 'md', label: t('features.mcp.plan.append', { n: chars(markdown.trim().length) }), value: preview(markdown) })
     changed.push('content')
   } else if (markdown !== null) {
-    // the page's tasks written back as `> [!TODO] … {#wi_…}` stay those tasks (fields as they are)
-    // Claude's Markdown: web images become links, raw-HTML mentions text (features/ai/claudeDoc.ts)
-    replaceWith = keepItems(claudeDoc(markdown, webImagesOf(page.content)), page.content)
+    // Claude's Markdown through the settle gate (features/ai/claudeDoc.ts): web images become links, raw-HTML mentions
+    // text; the page's tasks written back as `> [!TODO] … {#wi_…}` stay those tasks (fields as they are), new quotes
+    // become tasks with ids minted now — what the card shows is what is written
+    const priv = pagePrivate(page.id)
+    try {
+      const settled = claudeSettled(markdown, webImagesOf(page.content), { source: 'mcp', creates: true, strict: true, known: page.content, pageId: page.id, private: priv, me: true, existing: 'copy', handles: stage.items.handles, staged: stage.items.staged })
+      replaceWith = settled.doc
+      replaced = settled.report
+    } catch (e) {
+      if (e instanceof SettleRefusal) throw new McpToolError(mcpMessage(`${e.message} Nothing was changed.`))
+      throw e
+    }
+    // the replace is no staged change: its new tasks are the call's own (a folded update may link them)
+    const staging: ItemStaging = { items: undefined, lines: [], blocks: replaced.blocks, needs: [], report: replaced, target: { pageId: page.id, private: priv } }
+    registerItems(stage.items, '', staging)
+    for (const id of replaced.ids) stage.items.staged.set(id, { change: null, private: priv, pageId: page.id })
     const before = (page.plain ?? '').length
     lines.push({ k: 'md', label: t('features.mcp.plan.replace', { before: chars(before), after: chars(markdown.trim().length) }), value: preview(markdown) || '—' })
+    const ignored = new Set(replaced.fieldsIgnored)
+    for (const f of [...replaced.created, ...replaced.kept, ...replaced.removed]) lines.push(itemLine(f, f.tag === 'kept' && ignored.has(f.title) ? t('features.workItems.settle.fields', { task: f.title, value: '' }) : undefined))
+    for (const w of replaced.warnings) if (w.code !== 'fields') lines.push({ k: 'note', value: t(`features.workItems.settle.${w.code}`, { value: w.value ?? '', task: w.task }) })
+    // Blocks: onto existing tasks — folded into this call (same card, same approval), applied after the replace
+    stageBlocks(stage, { id: '', n: 0, kind: 'append', status: 'pending', pageId: page.id }, staging)
     lines.push({ k: 'note', value: t('features.mcp.plan.historyNote') })
     changed.push('content')
   }
-  const name = titleOf(page)
-  const result = () => ({ id: page.id, title: ws().pages[page.id]?.title ?? page.title, url: pageUrl(page.id), changed, ...(markdown !== null ? { content: mode } : {}) })
+  // the replace's holds with the staged changes' (one "Always asked" line)
+  const items = itemPlan(stage.changes, replaced ? holdsOfReport(replaced) : [])
+  lines.push(...items.lines)
+  const holds = items.holds
+  const created = [...(replaced?.created.map((f) => ({ id: f.itemId, title: f.title, ...(f.handle ? { handle: f.handle } : {}) })) ?? []), ...items.created]
+  const result = () => ({ id: page.id, title: ws().pages[page.id]?.title ?? page.title, url: pageUrl(page.id), changed, ...(markdown !== null ? { content: mode } : {}), ...tasksOf(created) })
   return {
     tool: 'one_update_page',
     verb: t('features.mcp.verb.updatePage'),
     summary: replaceWith ? t('features.mcp.sum.replacePage', { title: name }) : t('features.mcp.sum.updatePage', { title: name }),
     target: name,
     lines,
+    ...(holds.length ? { alwaysAsk: true } : {}),
     noop: changed.length ? undefined : { id: page.id, title: page.title, url: pageUrl(page.id), changed: [], note: 'No change: the page already looks like that.' },
     async apply(writer) {
       if (!live(page.id)) throw new McpToolError(`${q(name)} is gone (deleted or in the trash). Nothing was changed.`)
       const undos: Array<() => boolean> = []
-      const staged = await applyStaged(stage.changes, writer)
-      undos.push(staged.undo)
       if (replaceWith) {
+        // the page changed while the call waited for approval (typed into, synced), or one of its new ids is taken by
+        // now: nothing is replaced — the client reads it again and calls again
+        const taken = replaced?.ids.some((id) => getItemIndex().everywhere.has(id))
+        if (ws().pages[page.id]?.contentRev !== rev || taken) throw new McpToolError(`${q(name)} changed while this call waited. Nothing was changed. Read it again with one_get_page and call again.`)
+        // the replace FIRST (its new tasks exist before a folded change links them), then the rest; one rollback
         await snapshotNow(page.id, 'ai')
         const prev = ws().pages[page.id]?.content ?? null
         withWriter(writer, () => ws().setContent(page.id, replaceWith!, 'ai'))
-        const rev = ws().pages[page.id]?.contentRev
+        const after = ws().pages[page.id]?.contentRev
         undos.push(() => {
           const now = ws().pages[page.id]
-          if (!now || now.contentRev !== rev) return false
+          if (!now || now.contentRev !== after) return false
           ws().setContent(page.id, prev, 'ai')
           return true
         })
+        try {
+          const staged = await applyStaged(stage.changes, writer)
+          undos.push(staged.undo)
+        } catch (e) {
+          withWriter(writer, () => ws().setContent(page.id, prev, 'ai'))
+          throw e
+        }
+      } else {
+        const staged = await applyStaged(stage.changes, writer)
+        undos.push(staged.undo)
       }
       if (iconChanged) {
         const prev = ws().pages[page.id]?.icon ?? null
@@ -259,18 +236,21 @@ function planCreateRow(args: Record<string, unknown>): WritePlan {
   const lines = propLines(c.props, false)
   if (markdown.trim()) lines.push({ k: 'md', label: t('features.mcp.plan.content', { n: chars(markdown.trim().length) }), value: preview(markdown) })
   const first = c.props?.[0]
+  const items = itemPlan(stage.changes)
+  lines.push(...items.lines)
   return {
     tool: 'one_create_row',
     verb: t('features.mcp.verb.createRow'),
     summary: `${t('features.mcp.sum.createRow', { title, db: dbName })}${first ? ` · ${first.name}: ${first.after}` : ''}`,
     target: dbName,
     lines,
+    ...(items.holds.length ? { alwaysAsk: true } : {}),
     async apply(writer) {
       const { rowIds, undo } = await applyStaged(stage.changes, writer)
       const id = rowIds[c.pageId] ?? c.pageId
       const row = ws().pages[id]
       const live = ws().databases[db.id]
-      return { result: { id, databaseId: db.id, title, url: pageUrl(id), properties: row && live ? rowProperties(live, row) : {} }, undo }
+      return { result: { id, databaseId: db.id, title, url: pageUrl(id), properties: row && live ? rowProperties(live, row) : {}, ...tasksOf(items.created) }, undo }
     },
   }
 }
@@ -475,6 +455,7 @@ function planCreateDatabase(args: Record<string, unknown>): WritePlan {
 /* ------------------------------------------------------------------ */
 
 const PLANNERS: Partial<Record<McpToolName, (args: Record<string, unknown>) => WritePlan>> = {
+  one_update_work_item: planUpdateWorkItems,
   one_create_page: planCreatePage,
   one_update_page: planUpdatePage,
   one_create_row: planCreateRow,

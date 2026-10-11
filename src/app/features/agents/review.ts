@@ -26,7 +26,7 @@ import { scopeFilter } from './scope'
 import { useWorkspace } from '../../store/store'
 import { withoutWebImages } from './images'
 import { undoRunResult } from './undos'
-import { getAgentState, loadRuns, patchRun, putAgentState, withRunLock, type AgentState } from './runs'
+import { getAgentState, loadRuns, patchRun, putAgentState, putRun, withRunLock, type AgentState } from './runs'
 import { freshServerRun, patchServerRun, resolveServerRun, serverErrorText, serverRunCopy } from './server'
 import { isLeader } from './runner'
 import { setSupersedeGuard, supersedeGuard, supersedePlan } from './supersede'
@@ -373,5 +373,5 @@ export async function supersedeOlder(agentId: ID): Promise<number> {
 
 // e2e seam (dev, or ?e2e): the review entry points as the agents page and Preflight call them
 if (typeof window !== 'undefined' && (import.meta.env.DEV || new URLSearchParams(window.location.search).has('e2e'))) {
-  ;(window as unknown as { __oneAgents?: unknown }).__oneAgents = { applyRun, discardRun, undoChange, canUndoChange, supersedeOlder, loadRuns, isLeader, setSupersedeGuard, setProposalsShown }
+  ;(window as unknown as { __oneAgents?: unknown }).__oneAgents = { applyRun, discardRun, undoChange, canUndoChange, supersedeOlder, loadRuns, putRun, isLeader, setSupersedeGuard, setProposalsShown }
 }

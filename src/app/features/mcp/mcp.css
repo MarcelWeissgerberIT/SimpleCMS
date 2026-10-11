@@ -636,6 +636,27 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+/* a task block the change makes / keeps / changes / removes: TASK · NEW, then the title and its fields */
+.mcp-line__title {
+  display: block;
+  font-weight: 600;
+}
+.mcp-line__facts {
+  display: block;
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  letter-spacing: 0.03em;
+}
+.mcp-line__warn {
+  display: block;
+  color: var(--signal-ink);
+  font-size: var(--text-xs);
+}
+.mcp-line--item[data-tag='removed'] .mcp-line__title {
+  text-decoration: line-through;
+  text-decoration-color: var(--signal-ink);
+}
 .mcp-line__note {
   margin: 0;
   padding: 6px 0;
