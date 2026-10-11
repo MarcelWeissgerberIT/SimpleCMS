@@ -142,7 +142,7 @@ export async function seedTerminal(page) {
   await page.evaluate(() =>
     window.__onePreflight.terminal({
       changes: [{ id: 'c1', n: 1, kind: 'coding', status: 'pending', pageId: 'staged-task-1', title: 'Aufgabe anlegen und starten', coding: { op: 'create', kind: 'coding', projectId: null, project: 'Werkzeug', starts: true } }],
-      memCards: [{ id: 'mc1', after: 0, origin: 'task', state: 'ready', items: [{ id: 'mi1', status: 'pending', dup: null, p: { title: 'Prüfplan', text: 'Prüfplan P3 gilt bis zur Abnahme am 14.10.', type: 'fact' } }] }],
+      memCards: [{ id: 'mc1', after: 0, origin: 'task', state: 'ready', items: [{ id: 'mi1', status: 'pending', dup: null, p: { type: 'fact', text: 'Prüfplan P3 gilt bis zur Abnahme am 14.10.', topics: ['werk'], body: '', source: 'AI terminal · Schichtnotizen' } }] }],
     }),
   )
 }

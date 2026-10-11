@@ -11,7 +11,9 @@
  *  - PB4  typing in a page re-reads no lamp — in a pipeline task page too (its lamps at most once, after a pause);
  *  - PB5  MASTER CAUTION renders only when `mc` / `lit` change; one changed reading = ≤ 1 cap render, ≤ 1 plate render;
  *  - PB9  idle 10 s windows on the plate: no store change, no keyval-store / one-preflight put, no Preflight record
- *         written, script share < 2 %.
+ *         written, script share < 2 %;
+ *  - T-P2-12  PB3 and PB4 again with a lamp's queue open in the tab (a pass on Start with the queue on screen; typing
+ *         in a page and in a task page while the queue waits).
  * PB10 (perf-budget.spec green with the hold off and a flush before its write step) is that spec itself.
  */
 import type { CDPSession, Page } from '@playwright/test'
@@ -292,6 +294,68 @@ for (const size of SIZES) {
           }
         })
       }
+
+      await test.step('T-P2-12 — the queue open: a full pass (PB3), typing in a page and in a task page (PB4)', async () => {
+        await page.evaluate(() => (window.location.hash = '#/'))
+        await pf(page, 'p.unfold()')
+        await pf(page, 'p.flush()')
+        // the refused relay's lamp: its queue open, its card current
+        await page.locator('.pf-cap[data-lamp="token"]').focus()
+        await page.keyboard.press('Enter')
+        await expect(page.locator('.pf-q article.pf-card[data-current]')).toBeVisible()
+        const passes: number[] = []
+        for (let i = 0; i < 20; i++) {
+          await page.evaluate(
+            ({ rowId, propId, i }) => (window as unknown as { __one: { workspace: { getState: () => AnyState } } }).__one.workspace.getState().setRowProperty(rowId, propId, 600 + i),
+            { rowId: big.bigTableRowId, propId: big.bigTableNumberProp, i },
+          )
+          passes.push(await pf<number>(page, 'p.pass()'))
+        }
+        note('passes, queue open', { p95: Number(p95(passes).toFixed(2)), max: Number(Math.max(...passes).toFixed(2)) })
+        expect(p95(passes), `a full pass with the queue open, p95 (ms) on ${size.name}`).toBeLessThan(size.passP95)
+        expect(await pf<string | null>(page, 'p.stores.queue.getState().lamp')).toBe('token')
+
+        // typing in a page with the queue open in this tab
+        await page.evaluate((id) => (window.location.hash = `#/p/${id}`), big.bigPageId)
+        const editor = page.locator('#main .ProseMirror').first()
+        await expect(editor).toBeVisible()
+        await editor.click()
+        await page.keyboard.press(`${process.platform === 'darwin' ? 'Meta' : 'Control'}+End`)
+        await page.waitForTimeout(800)
+        const r0 = await readCounts(page)
+        await page.keyboard.type(' the queue waits on Start', { delay: 40 })
+        await page.waitForTimeout(1500)
+        await pf(page, 'p.flush()')
+        expect(delta(r0, await readCounts(page)), 'lamps re-read by typing in a page (queue open)').toEqual({})
+
+        if (size.taskPage) {
+          const task = await page.evaluate(() => {
+            const s = (window as unknown as { __one: { workspace: { getState: () => AnyState } } }).__one.workspace.getState()
+            const db = Object.values(s.databases as Record<string, AnyState>).find((d) => d.system === 'coding')
+            return (Object.values(s.pages as Record<string, AnyState>).find((p) => p.databaseId === db?.id && !p.trashed)?.id as string) ?? null
+          })
+          expect(task).not.toBeNull()
+          await page.evaluate((id) => (window.location.hash = `#/p/${id}`), task)
+          const ed = page.locator('#main .ProseMirror').first()
+          await expect(ed).toBeVisible()
+          await ed.click()
+          await page.keyboard.press(`${process.platform === 'darwin' ? 'Meta' : 'Control'}+End`)
+          await page.waitForTimeout(2500)
+          await pf(page, 'p.flush()')
+          const t0 = await readCounts(page)
+          await page.keyboard.type(' — with the queue open', { delay: 40 })
+          const during = delta(t0, await readCounts(page))
+          await page.waitForTimeout(3000)
+          await pf(page, 'p.flush()')
+          const after = delta(t0, await readCounts(page))
+          note('typing in a task page, queue open', { during, after })
+          expect(during, 'lamps read while typing in a task page (queue open)').toEqual({})
+          for (const [id, n] of Object.entries(after)) {
+            expect(['gate', 'question', 'failed'], `lamp ${id} re-read by typing in a task page (queue open)`).toContain(id)
+            expect(n, `lamp ${id} reads after the pause (queue open)`).toBeLessThanOrEqual(1)
+          }
+        }
+      })
     })
   })
 }

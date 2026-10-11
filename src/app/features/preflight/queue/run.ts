@@ -243,8 +243,11 @@ const focusInQueue = () => !!document.activeElement?.closest('.pf-q')
 /** A card leaves (120 ms of motion, 0 under reduced motion); the current card moves on and takes focus. */
 function leave(id: string, dir: 'right' | 'left'): void {
   useQueue.setState((s) => ({ leaving: { ...s.leaving, [id]: dir } }))
+  const lampAt = Q().lamp
   const done = () => {
     const s = Q()
+    // brought back meanwhile (Z within the exit motion): it stays where Undo put it
+    if (!s.leaving[id]) return
     const leaving = { ...s.leaving }
     delete leaving[id]
     const isOpen = openTest({ ...s, leaving })
@@ -256,7 +259,8 @@ function leave(id: string, dir: 'right' | 'left'): void {
     const wasCurrent = Object.values(s.card).includes(id)
     if (wasCurrent && focusInQueue()) cardFocus = true
     useQueue.setState({ leaving, card })
-    if (wasCurrent) {
+    // the person opened another tab meanwhile (a cap, a tab): their place stands, focus stays where they put it
+    if (wasCurrent && Q().lamp === lampAt) {
       const tab = tabNow()
       if (tab && !card[tab]) {
         // the lamp's queue is empty: the next lit lamp's tab
@@ -597,7 +601,13 @@ export async function undoLast(): Promise<void> {
   }
   for (const e of entries) appendLog({ at: now, k: 'undo', item: e.id, lamp: e.lamp, ...(e.batch ? { batch: e.batch } : {}) })
   announce(out.includes('kept') ? t('features.preflight.queue.kept') : t('features.preflight.queue.undone', { n: entries.length }))
-  // the cards come back at their old places, the first focused
+  // the cards come back at their old places, the first focused (an exit motion still running ends here)
+  useQueue.setState((q) => {
+    if (!entries.some((e) => q.leaving[e.id])) return q
+    const leaving = { ...q.leaving }
+    for (const e of entries) delete leaving[e.id]
+    return { leaving }
+  })
   const tab = tabNow()
   if (tab) setCurrent(tab, entries[0].id)
   for (const lamp of new Set(entries.map((e) => e.lamp))) await readNow(lamp)

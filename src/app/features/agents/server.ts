@@ -248,6 +248,8 @@ function readHead(v: unknown): ServerRunHead | null {
 const headOf = (r: AgentRun): ServerRunHead => ({ id: r.id, agentId: r.agentId, status: r.status, startedAt: r.startedAt, endedAt: r.endedAt ?? null })
 
 let openBusy: Promise<void> | null = null
+/** asked again while a request was out (an own agent added meanwhile): one more request right after it */
+let openAgain = false
 
 /**
  * Load the staged runs of this member's own server agents into `useServerAgents.open` (and each agent's newest run into
@@ -256,7 +258,21 @@ let openBusy: Promise<void> | null = null
  * agent: nothing is asked, `open` is [] in a team, null locally.
  */
 export function loadOpenServerRuns(): Promise<void> {
-  return (openBusy ??= loadOpen().finally(() => (openBusy = null)))
+  if (openBusy) {
+    openAgain = true
+    return openBusy
+  }
+  openBusy = (async () => {
+    try {
+      do {
+        openAgain = false
+        await loadOpen()
+      } while (openAgain)
+    } finally {
+      openBusy = null
+    }
+  })()
+  return openBusy
 }
 
 async function loadOpen(): Promise<void> {

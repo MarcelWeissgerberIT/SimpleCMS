@@ -3,7 +3,7 @@
  * notch, grey hatched; a new one blinks like its cap), the small MASTER CAUTION key and the unfold chevron. Home's own
  * sections follow below it. Never lamp-tested.
  */
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef, type KeyboardEvent } from 'react'
 import { ChevronDown, Undo2 } from 'lucide-react'
 import { useT } from '../../../i18n'
 import { Screws } from '../../../ui/controls'
@@ -21,7 +21,15 @@ import { undoLast } from '../queue/run'
 import { undoTarget } from '../queue/model'
 import { tn } from '../sources/util'
 
-/** Today's cards under the strip (C7): "Today 12 cards · Undo Z" — Z works with focus here too. */
+/** Z with focus anywhere on the strip (its done line, MASTER CAUTION — where focus lands when the last card went). */
+function onStripKey(e: KeyboardEvent<HTMLElement>): void {
+  if (e.key.toLowerCase() !== 'z' || e.altKey || e.metaKey || e.ctrlKey || e.shiftKey || e.repeat || e.defaultPrevented) return
+  if ((e.target as HTMLElement).closest('input, textarea, [contenteditable="true"], [role="menu"]')) return
+  e.preventDefault()
+  void undoLast()
+}
+
+/** Today's cards under the strip (C7): "Today 12 cards · Undo Z" — Z works with focus on the strip too. */
 function DoneLine() {
   const t = useT()
   const events = useLog((s) => s.events)
@@ -31,15 +39,7 @@ function DoneLine() {
   const target = undoTarget(done)
   const can = target.some((e) => e.undo)
   return (
-    <div
-      className="pf-doneline"
-      data-testid="pf-doneline"
-      onKeyDown={(e) => {
-        if (e.key.toLowerCase() !== 'z' || e.altKey || e.metaKey || e.ctrlKey || e.shiftKey || e.repeat || e.defaultPrevented) return
-        e.preventDefault()
-        void undoLast()
-      }}
-    >
+    <div className="pf-doneline" data-testid="pf-doneline">
       <span className="label">{tn('features.preflight.strip.done', today.n)}</span>
       <button type="button" className="pf-undo" aria-disabled={!can || undefined} title={can ? undefined : t('features.preflight.queue.nothingToUndo')} aria-keyshortcuts="Z" onClick={() => void undoLast()}>
         <Undo2 size={14} aria-hidden />
@@ -49,6 +49,16 @@ function DoneLine() {
         </span>
       </button>
     </div>
+  )
+}
+
+/** What Z did, said while the strip shows (the queue has its own region when it is open). */
+function StripLive() {
+  const live = useQueue((s) => s.live)
+  return (
+    <span className="visually-hidden" role="status" aria-live="polite" data-testid="pf-live">
+      {live}
+    </span>
   )
 }
 
@@ -98,7 +108,7 @@ export function Strip({ views, busy }: { views: LampView[]; busy: boolean }) {
     ...views.filter((v) => v.level === 'grey').map((v) => t('features.preflight.strip.partGrey', { lamp: lampName(v.legend), why: t(v.why ?? 'features.preflight.grey.off') })),
   ]
   return (
-    <section className="pf pf--strip screw-plate" aria-label={t('features.preflight.title')} data-mode="strip" data-testid="pf-strip">
+    <section className="pf pf--strip screw-plate" aria-label={t('features.preflight.title')} data-mode="strip" data-testid="pf-strip" onKeyDown={onStripKey}>
       <Screws seed="preflight" />
       <PlateHead strip />
       <div className="pf-strip">
@@ -119,6 +129,7 @@ export function Strip({ views, busy }: { views: LampView[]; busy: boolean }) {
         </div>
       </div>
       <DoneLine />
+      <StripLive />
     </section>
   )
 }
