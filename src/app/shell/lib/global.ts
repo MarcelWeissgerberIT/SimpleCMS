@@ -42,10 +42,14 @@ function isAltGraph(e: KeyboardEvent): boolean {
   return !isMac && e.ctrlKey && e.altKey && !e.metaKey
 }
 
-/** Mod+Alt+Z (no Shift): mac ⌘⌥ + the Z key (⌥ turns it into "Ω": keyOf reads the key's code then); pc Ctrl+Alt + "z". */
+/**
+ * Mod+Alt+Z (no Shift). macOS: ⌘⌥ + the key that types "z" — `e.key` is "z", or "Ω" (what ⌥ turns Z into on the US,
+ * German and French layouts); never the physical key (`e.code`): a German Mac's Z key is KeyY, its Y key (⌥ = "¥")
+ * is KeyZ. Elsewhere: Ctrl+Alt + "z" (never AltGr — it would have typed a character).
+ */
 function isRewindKey(e: KeyboardEvent): boolean {
   if (e.shiftKey || !e.altKey) return false
-  if (isMac) return e.metaKey && !e.ctrlKey && keyOf(e) === 'z'
+  if (isMac) return e.metaKey && !e.ctrlKey && (e.key.toLowerCase() === 'z' || e.key === 'Ω')
   return e.ctrlKey && !e.metaKey && !e.getModifierState?.('AltGraph') && e.key.toLowerCase() === 'z'
 }
 
