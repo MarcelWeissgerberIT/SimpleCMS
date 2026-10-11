@@ -58,6 +58,16 @@ export { recipeOptionNames } from './integrations/recipe'
  *    true, an agent's "has N proposals" toast stays away
  */
 export { applyRun, discardRun, undoChange, undoChangeEach, type Discarded } from './review'
+/**
+ * The flight recorder's eject (features/recorder, imported lazily) — call settle / unsettle ONLY inside withRunLock(agentId):
+ *  - ejectBusy(run): the agent runs (any tab), the run is running or a change applies → no eject now
+ *  - settleEjected(cur, o) → { run, discarded, slips, state } · unsettleEjected(cur, ejectId, back, pending, state)
+ *  - forgetUndos(runId, ids) · forgetRunUndo(runId): the Undo closures of ejected changes go
+ *  - withRunLock(agentId, fn): the agent's run lock (one review at a time, across this browser's tabs)
+ */
+export { ejectBusy, settleEjected, unsettleEjected, forgetUndos, type EjectState } from './review'
+export { forgetRunUndo } from './undos'
+export { withRunLock } from './runs'
 export { AgentChangeBody, AGENT_BODY_KINDS } from './body'
 export { setSupersedeGuard, type SupersedeGuard } from './supersede'
 export { catchUpSupersede } from './runner'

@@ -204,6 +204,10 @@ export interface StagedChange {
   coding?: StagedCoding
   /** send: the Outbox slip it stands for (pageId = the row it answers); discarding the change withdraws an unsent slip */
   send?: { slipId: string }
+  /** the flight recorder ejected what this change wrote (`id`: the eject) — it is discarded since, never open again */
+  ejected?: { id: string; at: number }
+  /** an eject held this applied change (`id`: the eject; another writer — `by`, a lane — changed its place since) */
+  held?: { id: string; by: string; at: number }
   /**
    * append / edit of a pipeline task's page (the terminal): the pages its text links — they go along to the worker as
    * read-only text (`staged`: proposed here, created on apply). Listed on the card; applying refuses a page not listed.

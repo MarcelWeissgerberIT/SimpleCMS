@@ -270,6 +270,11 @@ function Change({ run, change: c, disabled, focus }: { run: AgentRun; change: St
             <span className="agent-change__state label">
               <span className="led led--ok" aria-hidden /> {t('features.agent.review.applied')}
             </span>
+            {c.held && (
+              <span className="agent-change__state agent-change__state--held label" data-testid="agx-held">
+                {t('features.agents.review.held')}
+              </span>
+            )}
             {rowUndo && (
               <button type="button" className="btn btn--ghost btn--sm agent-change__undo" onClick={undo} disabled={disabled} aria-label={`${t('common.undo')} ${label}`}>
                 <Undo2 size={12} strokeWidth={1.75} aria-hidden /> {t('common.undo')}
@@ -291,6 +296,13 @@ function Change({ run, change: c, disabled, focus }: { run: AgentRun; change: St
           <span className="agent-change__actions">
             <span className="agent-change__state label" data-testid="agx-superseded">
               {c.supersededBy ? t('features.agents.review.superseded', { when: fmtWhen(t, c.supersededBy.at, lang) }) : t('features.agents.review.supersededPlain')}
+            </span>
+          </span>
+        ) : c.ejected ? (
+          // the flight recorder took its writes back: no keys, never open again (the eject's own Undo gives it back)
+          <span className="agent-change__actions">
+            <span className="agent-change__state label" data-testid="agx-ejected">
+              {t('features.agents.review.ejected', { when: fmtWhen(t, c.ejected.at, lang) })}
             </span>
           </span>
         ) : (

@@ -57,6 +57,36 @@ test.describe('flight recorder — the eject', () => {
     expect(await rec(page, 'unknowns')).toEqual([])
   })
 
+  test('agents (E9): settleEjected under the run lock — ejected → discarded + ejected, held stay applied + held, dependents and pending (never one opened in Preflight) discarded, superseded untouched; unsettle gives them back', async ({ page }) => {
+    await openApp(page)
+    const A = story.agent.id
+    await wsEval(page, (s, a) => s.upsertAgent({ id: a.id, name: a.name, instructions: 'Spiegelt den Nordlicht-Abgleich.', trigger: { type: 'manual' }, scope: { everything: false, pages: [], databases: [] }, write: 'apply', mcpServers: [], runner: 'browser', maxRunUsd: 1, enabled: false, createdBy: null, updatedBy: null, createdAt: 1, updatedAt: 1 }), story.agent)
+    await page.evaluate((id) => (window.location.hash = `#/agents/${id}`), A)
+    await page.waitForFunction(() => !!(window as unknown as { __oneAgents?: unknown }).__oneAgents)
+    const ch = (id: string, n: number, status: string, x: Record<string, unknown> = {}) => ({ id, n, kind: 'update_row', status, pageId: `p-${id}`, databaseId: 'story-nordlicht', ...x })
+    type Agents = Record<string, (...a: unknown[]) => Promise<{ run?: { staged: Array<Record<string, unknown>>; applied: number }; discarded?: string[] } & Record<string, unknown>>>
+    const call = (fn: string, ...args: unknown[]) => page.evaluate(({ fn, args }) => (window as unknown as { __oneAgents: Agents }).__oneAgents[fn](...args), { fn, args })
+    const seed = (runId: string) =>
+      call('putRun', { id: runId, agentId: A, runner: 'browser', seq: 212, trigger: { type: 'manual' }, startedAt: 1000, endedAt: 2000, status: 'ok', summary: '', steps: [], applied: 3, staged: [ch('c1', 1, 'applied'), ch('c2', 2, 'applied'), ch('c3', 3, 'pending', { dependsOn: 'c1' }), ch('c4', 4, 'pending'), ch('c5', 5, 'pending'), ch('c6', 6, 'superseded'), ch('c7', 7, 'applied')] })
+    const statusOf = (run: { staged: Array<Record<string, unknown>> }) => Object.fromEntries(run.staged.map((c) => [c.id as string, [c.status, c.ejected ? 'E' : '', c.held ? 'H' : ''].join('')]))
+    await seed('r-e9')
+    const r = await call('settleEjected', A, 'r-e9', { ejected: ['c1', 'c7'], held: [{ id: 'c2', by: 'you', at: 5 }], ejectId: 'ej1', at: 9, discardPending: true, openedIds: ['c5'] })
+    expect(statusOf(r.run!)).toEqual({ c1: 'discardedE', c2: 'appliedH', c3: 'discarded', c4: 'discarded', c5: 'pending', c6: 'superseded', c7: 'discardedE' })
+    expect(r.run!.applied).toBe(1)
+    expect([...r.discarded!].sort()).toEqual(['c3', 'c4'])
+    expect(r.run!.staged.find((c) => c.id === 'c1')!.ejected).toEqual({ id: 'ej1', at: 9 })
+    // the Undo: the ejected changes applied again, the discarded ones open again, the held marker gone
+    const u = (await call('unsettleEjected', A, 'r-e9', 'ej1', ['c1', 'c7'], ['c3', 'c4'])) as unknown as { staged: Array<Record<string, unknown>>; applied: number }
+    expect(statusOf(u)).toEqual({ c1: 'applied', c2: 'applied', c3: 'pending', c4: 'pending', c5: 'pending', c6: 'superseded', c7: 'applied' })
+    expect(u.applied).toBe(3)
+    // Preflight cannot tell yet which cards were opened: no pending proposal is discarded
+    await seed('r-e9b')
+    const unknown = await call('settleEjected', A, 'r-e9b', { ejected: ['c1'], held: [], ejectId: 'ej2', at: 9, discardPending: true, openedIds: null })
+    expect(statusOf(unknown.run!)).toMatchObject({ c3: 'discarded', c4: 'pending', c5: 'pending' })
+    // the run's tags in its history
+    await expect(page.locator('[data-testid="agx-ejected"]').first()).toBeVisible()
+  })
+
   test('the plan of 37 places < 300 ms (performance mark; the story at real time: a page clock hides marks)', async ({ page }) => {
     test.setTimeout(150_000)
     const realTime = new Proxy(page, { get: (p, k) => (k === 'clock' ? { setFixedTime: async () => undefined } : typeof (p as never)[k] === 'function' ? ((p as never)[k] as (...a: unknown[]) => unknown).bind(p) : (p as never)[k]) })

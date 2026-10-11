@@ -23,9 +23,10 @@ import { applyChanges, type ApplyResult } from '../ai/agent/apply'
 import { depsOf, type StagedChange } from '../ai/agent/types'
 import { asAgent, stampLocal, touchedBy } from './attribution'
 import { withoutWebImages } from './images'
-import { undoRunResult } from './undos'
-import { getAgentState, loadRuns, patchRun, putAgentState, withRunLock, type AgentState } from './runs'
+import { forgetRunUndo, undoRunResult } from './undos'
+import { getAgentState, loadRuns, patchRun, putAgentState, putRun, withRunLock, type AgentState } from './runs'
 import { freshServerRun, patchServerRun, resolveServerRun, serverErrorText, serverRunCopy } from './server'
+import { isRunningAnywhere } from './locks'
 import { isLeader } from './runner'
 import { setSupersedeGuard, supersedeGuard, supersedePlan } from './supersede'
 import { setProposalsShown } from './hold'
@@ -251,7 +252,8 @@ export async function discardRun(run: AgentRun, ids: string | string[] | null, o
   const undo = () =>
     withRunLock(cur.agentId, async () => {
       const now = await current(cur)
-      const again = new Set((now?.staged ?? []).filter((c) => before.has(c.id) && c.status === 'discarded').map((c) => c.id))
+      // an ejected change never comes back as a proposal (the eject's own Undo gives it back)
+      const again = new Set((now?.staged ?? []).filter((c) => before.has(c.id) && c.status === 'discarded' && !c.ejected).map((c) => c.id))
       if (!now || !again.size) return false
       // the agent state goes back only while it is still the one discarding put back (no run, no Clear since)
       const restore = back && sameState(await getAgentState(cur.agentId), back.wrote)
@@ -301,6 +303,106 @@ async function stateBack(run: AgentRun): Promise<StateBack | null> {
   }
   await putAgentState(run.agentId, back)
   return { wrote: back, replaced: cur, note: { kind: 'note', label: t('features.agents.state.restored'), state: 'ok' } }
+}
+
+/* ------------------------------------------------------------------ */
+/* the flight recorder's eject (features/recorder eject/sources.ts)     */
+/* ------------------------------------------------------------------ */
+
+/** The agent state an eject put back (stateBack): what it wrote, what it replaced — its Undo puts it forward. */
+export interface EjectState {
+  wrote: AgentState | null
+  replaced: AgentState
+}
+
+/** May an eject settle this agent's run now? Not while the agent runs (any tab), the run is running, or a change applies. */
+export async function ejectBusy(run: AgentRun): Promise<boolean> {
+  return run.status === 'running' || (run.staged ?? []).some((c) => c.status === 'applying') || (await isRunningAnywhere(run.agentId))
+}
+
+/** A batch's row Undo of these changes goes (an eject settled them: "nothing to undo here any more"). */
+export function forgetUndos(runId: string, changeIds: readonly string[]): void {
+  for (const id of changeIds) rowUndos.delete(rowKey(runId, id))
+}
+
+/**
+ * An eject settles the run's review (call ONLY inside withRunLock(run.agentId), never nested; `cur` read in it):
+ * `ejected` applied changes → discarded + `ejected` (never pending: Apply must not offer them again); `held` ones stay
+ * applied + `held`; open proposals that build on an ejected one → discarded; with `discardPending` the run's other
+ * open proposals too — except those Preflight's supersede guard calls opened (true) or cannot tell yet (null): they
+ * stay. Superseded proposals are never touched. `applied` counts down; row ids stay. Their Undo closures go
+ * (forgetUndos, forgetRunUndo). Then, every change discarded, the agent state goes back (stateBack). Resolves with the
+ * run as stored, the ids it discarded (not the ejected ones), the slips of `send` proposals among them, the state put back.
+ */
+export async function settleEjected(
+  cur: AgentRun,
+  o: { ejected: string[]; held: Array<{ id: string; by: string; at: number }>; ejectId: string; at: number; discardPending: boolean; opened: (runId: string, changeId: string) => boolean | null },
+): Promise<{ run: AgentRun; discarded: string[]; slips: string[]; state: EjectState | null }> {
+  if (cur.runner !== 'browser') return { run: cur, discarded: [], slips: [], state: null }
+  const all = cur.staged ?? []
+  const out = new Set(all.filter((c) => o.ejected.includes(c.id) && c.status === 'applied').map((c) => c.id))
+  const held = new Map(o.held.map((h) => [h.id, h]))
+  const drop = new Set<string>()
+  let grew = true
+  while (grew) {
+    grew = false
+    for (const c of all) {
+      if (drop.has(c.id) || !isOpen(c) || !depsOf(c).some((d) => out.has(d) || drop.has(d))) continue
+      drop.add(c.id)
+      grew = true
+    }
+  }
+  if (o.discardPending) for (const c of all) if (isOpen(c) && !drop.has(c.id) && o.opened(cur.id, c.id) === false) drop.add(c.id)
+  const mark = (list: StagedChange[]) =>
+    list.map((c): StagedChange => {
+      if (out.has(c.id) && c.status === 'applied') {
+        const { held: _h, ...rest } = c
+        return { ...rest, status: 'discarded', ejected: { id: o.ejectId, at: o.at } }
+      }
+      const h = held.get(c.id)
+      if (h && c.status === 'applied') return { ...c, held: { id: o.ejectId, by: h.by, at: h.at } }
+      if (drop.has(c.id) && isOpen(c)) return { ...c, status: 'discarded' }
+      return c
+    })
+  const count = (list: StagedChange[]) => list.filter((c) => out.has(c.id) && c.status === 'applied').length
+  const back = await stateBack({ ...cur, staged: mark(all) })
+  const patch = (r: AgentRun): AgentRun => ({ ...r, staged: mark(r.staged ?? []), applied: Math.max(0, (r.applied ?? 0) - count(r.staged ?? [])), ...(back ? { steps: [...r.steps, back.note] } : {}) })
+  const run = (await patchRun(cur.agentId, cur.id, patch)) ?? patch(cur)
+  forgetUndos(cur.id, [...out])
+  forgetRunUndo(cur.id)
+  const slips = all.filter((c) => drop.has(c.id) && c.send?.slipId).map((c) => c.send!.slipId)
+  return { run, discarded: [...drop], slips, state: back ? { wrote: back.wrote, replaced: back.replaced } : null }
+}
+
+/**
+ * The eject's Undo (inside withRunLock as above): the `back` changes this eject ejected are applied again (their marker
+ * gone); the ones it discarded (`pending`) are open again unless something else decided them since; its held markers
+ * go; the agent state goes forward only while it is still the one the eject put back.
+ */
+export async function unsettleEjected(cur: AgentRun, ejectId: string, back: string[], pending: string[], state?: EjectState | null): Promise<AgentRun> {
+  if (cur.runner !== 'browser') return cur
+  const restore = !!state && sameState(await getAgentState(cur.agentId), state.wrote)
+  const note = { kind: 'note', label: t('features.agents.state.restored'), state: 'ok' } as AgentRunStep
+  const patch = (r: AgentRun): AgentRun => {
+    let n = 0
+    const staged = (r.staged ?? []).map((c): StagedChange => {
+      if (back.includes(c.id) && c.ejected?.id === ejectId && c.status === 'discarded') {
+        n++
+        const { ejected: _e, ...rest } = c
+        return { ...rest, status: 'applied' }
+      }
+      if (pending.includes(c.id) && c.status === 'discarded' && !c.ejected) return { ...c, status: 'pending' }
+      if (c.held?.id === ejectId) {
+        const { held: _h, ...rest } = c
+        return rest
+      }
+      return c
+    })
+    return { ...r, staged, applied: (r.applied ?? 0) + n, ...(restore ? { steps: withoutLast(r.steps, note) } : {}) }
+  }
+  const run = (await patchRun(cur.agentId, cur.id, patch)) ?? patch(cur)
+  if (restore && state) await putAgentState(cur.agentId, state.replaced)
+  return run
 }
 
 /**
@@ -361,5 +463,15 @@ export async function supersedeOlder(agentId: ID): Promise<number> {
 
 // e2e seam (dev, or ?e2e): the review entry points as the agents page and Preflight call them
 if (typeof window !== 'undefined' && (import.meta.env.DEV || new URLSearchParams(window.location.search).has('e2e'))) {
-  ;(window as unknown as { __oneAgents?: unknown }).__oneAgents = { applyRun, discardRun, undoChange, canUndoChange, supersedeOlder, loadRuns, isLeader, setSupersedeGuard, setProposalsShown }
+  // the eject's settle as the recorder calls it: under the run lock, on the run read again there
+  const underLock =
+    <A extends unknown[], R>(fn: (cur: AgentRun, ...a: A) => Promise<R>) =>
+    (agentId: ID, runId: string, ...a: A) =>
+      withRunLock(agentId, async () => {
+        const cur = (await loadRuns(agentId)).find((r) => r.id === runId)
+        return cur ? fn(cur, ...a) : null
+      })
+  const settle = underLock((cur, o: Parameters<typeof settleEjected>[1] & { openedIds?: string[] | null }) => settleEjected(cur, { ...o, opened: (_r, id) => (o.openedIds === null ? null : !!o.openedIds?.includes(id)) }))
+  const unsettle = underLock((cur, ejectId: string, back: string[], pending: string[], state?: EjectState | null) => unsettleEjected(cur, ejectId, back, pending, state))
+  ;(window as unknown as { __oneAgents?: unknown }).__oneAgents = { applyRun, discardRun, undoChange, canUndoChange, supersedeOlder, loadRuns, isLeader, setSupersedeGuard, setProposalsShown, putRun, settleEjected: settle, unsettleEjected: unsettle, getAgentState, putAgentState }
 }

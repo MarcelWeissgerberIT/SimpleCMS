@@ -24,6 +24,7 @@ import { digestBlock } from '../journal/key'
 import { readPinBodies, readPinMetas } from '../journal/pins'
 import { emptyLookup, nowDigests } from '../window/digest'
 import { LIST_PLACES, loadWindow, type WindowData } from '../window/load'
+import { agentRunsOf, busyRefusal } from './guards'
 
 /** Why an eject cannot be planned (eject.<key>). */
 export type EjectRefusal =
@@ -56,25 +57,12 @@ export const PLAN_FNS: PlanFns = {
   liftMisplacedItems,
 }
 
-/** A guard of a source (E9–E11): may it be ejected now (null) — else why not. */
-export type SourceGuard = (data: WindowData) => Promise<EjectRefusal | null> | EjectRefusal | null
-const guards: SourceGuard[] = []
-/** The sources register their busy checks (an agent running, the terminal applying, a script or an MCP call in flight). */
-export function registerEjectGuard(g: SourceGuard): void {
-  if (!guards.includes(g)) guards.push(g)
-}
-
 /** What the sources know about the window's change ids (review statuses) — agent runs for now; E14 adds the others. */
 async function sourceFacts(data: WindowData): Promise<SourceFacts> {
-  const agentRuns = Object.values(data.runs).filter((r) => r.kind === 'agent')
-  if (!agentRuns.length) return {}
+  const byAgent = agentRunsOf(data)
+  if (!byAgent.size) return {}
   const { loadAgentRuns } = await import('../../agents')
   const status = new Map<string, string>()
-  const byAgent = new Map<ID, Set<string>>()
-  for (const r of agentRuns) {
-    const agentId = r.key.split(':')[1]
-    if (agentId) (byAgent.get(agentId) ?? byAgent.set(agentId, new Set()).get(agentId)!).add(r.ref)
-  }
   for (const [agentId, refs] of byAgent) {
     for (const run of await loadAgentRuns(agentId)) {
       if (!refs.has(run.id)) continue
@@ -115,10 +103,8 @@ export async function planEject(sel: WindowSel, opts?: { undoOf?: string }): Pro
   const data = await loadWindow(sel, { settle: true })
   if (data.tooMany || data.places.size > EJECT_MAX) return { refused: { key: 'tooMany', n: data.tooMany ?? data.places.size } }
   if (!data.places.size) return { refused: { key: 'empty' } }
-  for (const g of guards) {
-    const r = await g(data)
-    if (r) return { refused: r }
-  }
+  const busy = await busyRefusal(data)
+  if (busy) return { refused: busy }
   const t0 = performance.now()
   const input = await inputOf(data)
   const plan = core(input)
