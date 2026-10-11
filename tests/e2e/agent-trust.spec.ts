@@ -4,12 +4,16 @@
  * own click) · (b) letters without a meaning · (c) bulk keys write nothing · (d) an Undo takes its verdict back ·
  * (e) "edited" only by the person and only within 10 minutes · (f) keys are inert where the buttons are · (g) focus
  * after a decision · (h) the aside plate · (i) touch · (j) the book: reload, other tabs, the local reset, orphans ·
- * (k) 390 / 1440, Paper / Carbon, XL · (l) no console errors (fixtures), no write without a writer.
+ * (k) 390 / 1440, Paper / Carbon, XL · (l) no console errors (fixtures), no write without a writer · review follow-ups:
+ * an Undo that keeps an edited field takes back the verdicts of the fields it put back; a cut body counts only once shown
+ * whole; the Outbox's row patch and a button are not the person's edit; a bulk discard keeps no row Undo; rows name and
+ * describe themselves, the live region stays put, the quiet row reads in words; the orange Apply keeps its focus ring;
+ * the plate sticks only while it fits; clipped plate names get a title.
  * The story is fictional (tests/e2e/helpers/trustStory.mjs); nothing leaves the machine.
  */
 import type { Page } from '@playwright/test'
 import { test, expect, openApp, wsEval, waitForApp } from './fixtures'
-import { keyOf, seedTrust, seedTrustRun, TRUST_STORY, type TrustMirror } from './helpers/trustStory.mjs'
+import { keyOf, seedTrust, seedTrustBook, seedTrustRun, TRUST_STORY, type TrustMirror } from './helpers/trustStory.mjs'
 
 type AnyRec = Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -433,6 +437,10 @@ test.describe('per-field trust — touch (S1)', () => {
     await group.getByRole('button', { name: 'Falsch #1' }).tap()
     await expect.poll(() => kinds(page, keyOf(m, 'clarity'))).toEqual(['discard:wrong'])
     await expect(row(page, 1).getByTestId('agx-discarded')).toHaveText('Verworfen · falsch')
+    // the only way back from a reason tapped by mistake is 44 px tall too
+    const undoKey = row(page, 1).getByRole('button', { name: 'Rückgängig #1' })
+    await expect(undoKey).toBeVisible()
+    expect((await undoKey.boundingBox())!.height).toBeGreaterThanOrEqual(44)
     // nothing wider than the phone
     expect(await page.evaluate(() => (document.querySelector('#main') as HTMLElement).scrollWidth - (document.querySelector('#main') as HTMLElement).clientWidth)).toBeLessThanOrEqual(0)
   })
@@ -517,5 +525,193 @@ test.describe('per-field trust — the book (S1)', () => {
       }
     }
     expect(await unknowns(page)).toEqual([])
+  })
+})
+
+/** Seed one more run of the story's agent with these proposals, then come back to the agent's page. */
+async function extraRun(page: Page, id: string, staged: AnyRec[]) {
+  await page.evaluate(
+    (a) => (window as any).__onePreflight.seedRuns([{ id: a.id, agentId: a.agent, runner: 'browser', trigger: { type: 'manual' }, startedAt: Date.now() - 5_000, endedAt: Date.now() - 2_000, status: 'staged', summary: '', steps: [], staged: a.staged }]), // eslint-disable-line @typescript-eslint/no-explicit-any
+    { id, agent: AGENT, staged },
+  )
+  await revisit(page)
+  await expect(row(page, 1, id)).toBeVisible()
+}
+
+/** A body of `n` lines (the preview shows 10). */
+const lines = (n: number) => Array.from({ length: n }, (_, i) => `Zeile ${i + 1} der Übergabe an Tessera.`).join('\n')
+
+test.describe('per-field trust — review follow-ups (S1)', () => {
+  test('an Undo that keeps a field you edited takes back the verdicts of the fields it put back; the edited one stays', async ({ page }) => {
+    const m = await morning(page)
+    const clarity = keyOf(m, 'clarity')
+    const why = keyOf(m, 'why')
+    const target = m.rows[Object.keys(m.rows)[3]]
+    await extraRun(page, 'r-two', [
+      {
+        id: 'u1',
+        n: 1,
+        kind: 'update_row',
+        status: 'pending',
+        pageId: target,
+        databaseId: m.dbId,
+        title: 'Zwei Felder',
+        props: [
+          { propId: m.props.clarity, name: 'Klarheit', type: 'select', before: 'Offene Fragen', after: 'Klar', intent: { kind: 'options', names: ['Klar'] } },
+          { propId: m.props.why, name: 'Warum', type: 'text', before: '', after: 'Alles geklärt.', intent: { kind: 'value', value: 'Alles geklärt.' } },
+        ],
+      },
+    ])
+    await row(page, 1, 'r-two').focus()
+    await page.keyboard.press('a')
+    await expect.poll(() => statusOf(page, 'u1', 'r-two')).toBe('applied')
+    await expect.poll(async () => [...(await kinds(page, clarity)), ...(await kinds(page, why))]).toEqual(['accept', 'accept'])
+    // the person rewords Warum: edited
+    await wsEval(page, (s, a) => s.setRowProperty(a.row, a.prop, 'Anders gesagt.'), { row: target, prop: m.props.why })
+    await flushWatch(page)
+    expect(await kinds(page, why)).toEqual(['edited'])
+    // Z: Klarheit goes back, Warum stays (the change is kept) — Klarheit's verdict goes with it, Warum's stays
+    await row(page, 1, 'r-two').focus()
+    await page.keyboard.press('z')
+    await expect.poll(() => wsEval(page, (s, a) => s.pages[a.row].properties[a.prop], { row: target, prop: m.props.clarity })).toBe(m.options['Offene Fragen'])
+    expect(await statusOf(page, 'u1', 'r-two')).toBe('applied')
+    await expect.poll(() => kinds(page, clarity)).toEqual([])
+    expect(await kinds(page, why)).toEqual(['edited'])
+    expect(await wsEval(page, (s, a) => s.pages[a.row].properties[a.prop], { row: target, prop: m.props.why })).toBe('Anders gesagt.')
+    expect(await unknowns(page)).toEqual([])
+  })
+
+  test('a body the preview cuts counts only once shown whole: A on it writes no verdict; “5 weitere Zeilen zeigen”, then A writes one; the review’s own call without it writes none', async ({ page }) => {
+    const m = await morning(page)
+    const rowKey = `row:${m.dbId}`
+    const body = (i: number) => ({ id: `w${i}`, n: i, kind: 'create_row', status: 'pending', pageId: `staged-wide-${i}`, databaseId: m.dbId, title: `NL-26${i}`, markdown: lines(15) })
+    await extraRun(page, 'r-wide', [body(1), body(2), body(3)])
+    const r1 = row(page, 1, 'r-wide')
+    await expect(r1.locator('.agent-preview__more')).toHaveText('5 weitere Zeilen zeigen')
+    await r1.focus()
+    await page.keyboard.press('a')
+    await expect.poll(() => statusOf(page, 'w1', 'r-wide')).toBe('applied')
+    await page.waitForTimeout(300)
+    expect(await verdictsOf(page, rowKey)).toEqual([])
+    // shown whole first: a verdict
+    const r2 = row(page, 2, 'r-wide')
+    await r2.locator('.agent-preview__more').click()
+    await expect(r2.locator('.agent-preview__more')).toHaveText('Weniger zeigen')
+    await expect(r2.locator('.agent-preview')).toContainText('Zeile 15 der Übergabe')
+    await r2.focus()
+    await page.keyboard.press('a')
+    await expect.poll(() => kinds(page, rowKey)).toEqual(['accept'])
+    // Preflight's path (judged, never shown whole): none
+    await page.evaluate(async (a) => {
+      const w = window as any // eslint-disable-line @typescript-eslint/no-explicit-any
+      const run = ((await w.__oneAgents.loadRuns(a.agent)) as AnyRec[]).find((r) => r.id === 'r-wide')
+      await w.__oneAgents.applyRun(run, ['w3'], { row: true, judged: true })
+    }, { agent: AGENT })
+    await expect.poll(() => statusOf(page, 'w3', 'r-wide')).toBe('applied')
+    expect(await kinds(page, rowKey)).toEqual(['accept'])
+  })
+
+  test('edited is the person’s own edit only: the Outbox’s row patch after “Mark as sent” and a button keep the accept', async ({ page }) => {
+    const m = await morning(page)
+    const clarity = keyOf(m, 'clarity')
+    const rowA = m.rows[Object.keys(m.rows)[8]]
+    await row(page, 1).focus()
+    await page.keyboard.press('Enter')
+    await expect.poll(() => kinds(page, clarity)).toEqual(['accept'])
+    for (const via of ['outbox', 'button', 'command'] as const) {
+      const value = via === 'outbox' ? m.options['Blockiert'] : via === 'button' ? m.options['Woanders in Arbeit'] : m.options['Offene Fragen']
+      await page.evaluate((a) => (window as any).__oneRecorder.step({ writer: { kind: 'you', via: a.via }, calls: [['setRowProperty', a.row, a.prop, a.value]] }), { via, row: rowA, prop: m.props.clarity, value }) // eslint-disable-line @typescript-eslint/no-explicit-any
+      expect(await flushWatch(page), via).toBe(1)
+      expect(await kinds(page, clarity), via).toEqual(['accept'])
+    }
+    // the person's own edit still counts (a value other than the one applied)
+    await wsEval(page, (s, a) => s.setRowProperty(a.row, a.prop, a.opt), { row: rowA, prop: m.props.clarity, opt: m.options['Blockiert'] })
+    expect(await flushWatch(page)).toBe(0)
+    expect(await kinds(page, clarity)).toEqual(['edited'])
+    expect(await unknowns(page)).toEqual([])
+  })
+
+  test('a bulk discard (Preflight’s X) keeps no Undo in the rows: they show what was discarded; its own Undo still puts them back; a row’s discard keeps its Undo', async ({ page }) => {
+    await morning(page)
+    await page.evaluate(async (a) => {
+      const w = window as any // eslint-disable-line @typescript-eslint/no-explicit-any
+      const run = ((await w.__oneAgents.loadRuns(a.agent)) as AnyRec[]).find((r) => r.id === a.run)
+      const out = await w.__oneAgents.discardRun(run, ['c1', 'c2', 'c3'], { undo: true })
+      w.__bulkUndo = out.undo
+    }, { agent: AGENT, run: RUN })
+    await expect.poll(() => statusOf(page, 'c3')).toBe('discarded')
+    for (const n of [1, 2, 3]) {
+      await expect(row(page, n)).toHaveAttribute('data-status', 'discarded')
+      await expect(row(page, n).getByRole('button', { name: `Rückgängig #${n}` })).toHaveCount(0)
+      await expect(row(page, n).locator('[data-part="props"]')).toBeVisible()
+    }
+    expect(await page.evaluate(() => (window as any).__bulkUndo())).toBe(true) // eslint-disable-line @typescript-eslint/no-explicit-any
+    await expect.poll(() => statusOf(page, 'c2')).toBe('pending')
+    // one row's discard (the run review, a Preflight card): its Undo in its row
+    await page.evaluate(async (a) => {
+      const w = window as any // eslint-disable-line @typescript-eslint/no-explicit-any
+      const run = ((await w.__oneAgents.loadRuns(a.agent)) as AnyRec[]).find((r) => r.id === a.run)
+      await w.__oneAgents.discardRun(run, ['c4'], { undo: true, row: true })
+    }, { agent: AGENT, run: RUN })
+    await expect(row(page, 4).getByRole('button', { name: 'Rückgängig #4' })).toBeVisible()
+  })
+
+  test('a focused row is named by number, kind and title and described by its change and keys; the live region stays one node; the quiet row reads in words', async ({ page }) => {
+    const m = await morning(page)
+    const keys = Object.keys(m.rows)
+    const title = await wsEval(page, (s, id) => s.pages[id].title as string, m.rows[keys[9]])
+    await expect(row(page, 2)).toHaveAccessibleName(new RegExp(`^#2 Zeile ändern ${title}$`, 'i'))
+    await expect(row(page, 2)).toHaveAccessibleDescription(/^Klarheit\s*Offene Fragen\s*Klar\s*Tasten auf einem Vorschlag/)
+    // decided: its state comes first
+    await row(page, 2).focus()
+    await page.keyboard.press('1')
+    await expect(row(page, 2).getByTestId('agx-discarded')).toHaveText('Verworfen · falsch')
+    await expect(row(page, 2)).toHaveAccessibleName(new RegExp(`^#2 Zeile ändern ${title}$`, 'i'))
+    await expect(row(page, 2)).toHaveAccessibleDescription(/^Verworfen · falsch\s*Tasten auf einem Vorschlag/)
+    // the live region is the same node across announcements
+    await liveText(page).evaluate((el) => ((el as any).__kept = true)) // eslint-disable-line @typescript-eslint/no-explicit-any
+    await row(page, 3).focus()
+    await page.keyboard.press('a')
+    await expect(liveText(page)).toHaveText('Übernommen · #3')
+    await expect(row(page, 4)).toBeFocused()
+    await page.keyboard.press('a')
+    await expect(liveText(page)).toHaveText('Übernommen · #4')
+    expect(await liveText(page).evaluate((el) => (el as any).__kept === true)).toBe(true) // eslint-disable-line @typescript-eslint/no-explicit-any
+    await expect(liveText(page)).toHaveAttribute('aria-atomic', 'true')
+    // the quiet row: no label on a static item — its words are in it
+    const quiet = review(page).getByTestId('agx-quiet')
+    await expect(quiet).not.toHaveAttribute('aria-label', /.*/)
+    await expect(quiet.locator('.visually-hidden')).toHaveText(`3 als falsch verworfen (${keys[15]}, ${keys[16]}, ${keys[17]}): Klarheit auf Blockiert`)
+  })
+
+  test('the orange Apply holding the keyboard focus keeps its focus ring', async ({ page }) => {
+    await morning(page)
+    await row(page, 1).focus()
+    await page.keyboard.press('Tab')
+    const apply = row(page, 1).locator('.agt-apply')
+    await expect(apply).toBeFocused()
+    const shadow = await apply.evaluate((el) => getComputedStyle(el).boxShadow)
+    // the ring (surface + signal) and the key's own inset lip
+    expect(shadow).toMatch(/0px 0px 0px 4px/)
+    expect(shadow).toContain('inset')
+  })
+
+  test('the plate beside the runs sticks only while all of it fits the window; a clipped field name tells itself on hover', async ({ page }) => {
+    const m = await morning(page)
+    // empty book: a short plate sticks
+    await expect(plate(page)).toHaveAttribute('data-fits', 'true')
+    expect(await plate(page).evaluate((el) => getComputedStyle(el).position)).toBe('sticky')
+    // the story's book: taller than the window at 1440 × 900 — it scrolls with the page, its legend reachable
+    await page.setViewportSize({ width: 1440, height: 640 })
+    await seedTrustBook(page, m)
+    await expect(plate(page).locator('.agt-row').first()).toBeVisible()
+    await expect(plate(page)).not.toHaveAttribute('data-fits', /.*/)
+    expect(await plate(page).evaluate((el) => getComputedStyle(el).position)).not.toBe('sticky')
+    // a long field name is cut: hovering it shows the whole name
+    await wsEval(page, (s, a) => s.updateProperty(a.db, a.prop, { name: 'Neuer Kommentar seit dem letzten Abgleich mit Tessera' }), { db: m.dbId, prop: m.props.newComment })
+    const name = plate(page).locator(`[data-key="${keyOf(m, 'newComment')}"] .agt-row__name b`)
+    await expect(name).toHaveText('Neuer Kommentar seit dem letzten Abgleich mit Tessera')
+    await name.hover()
+    await expect(name).toHaveAttribute('title', 'Neuer Kommentar seit dem letzten Abgleich mit Tessera')
   })
 })

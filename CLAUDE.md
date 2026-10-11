@@ -746,8 +746,13 @@ the public APIs stable — other areas are built against them in parallel.
   browser agent's "everything" scope is the shared pages; private pages only when named in its scope. Anything an
   agent writes turns web images into links (features/agents/images.ts) — no auto-loading pixels from injected text.
 - Per-field trust (features/agents/trust): verdicts only from the person's decision on ONE proposal seen in full
-  (run review row keys, Preflight A / D / 1–4 on one card shown at its current revision) — never from Apply all /
-  Discard all / ⇧A / X / 'apply' runs; ONE key map on both surfaces (`reasonKeys`: 1 = wrong (+ F de / W en),
+  (run review row keys, Preflight A / D / 1–4 on one card shown at its current revision; a body the preview cuts
+  (`previewCut`, ai/agent/previewCut.ts) only once opened whole — `whole`) and only once it holds (a server run's
+  server refused it → none, the discard did not happen) — never from Apply all / Discard all / ⇧A / X / 'apply' runs;
+  "edited" = the person's own value edit (`you` via none / 'ui' / 'agenda', `editor`, a person event) — never the
+  Outbox's row patch, buttons, commands, templates …; an Undo kept for an edited field voids the verdicts of the fields
+  it reverted (ApplyResult.undo → `reverted`); a row's discard Undo (`discardRun({ row: true })`) holds ids only, never
+  the run, and a bulk discard keeps no row Undo; ONE key map on both surfaces (`reasonKeys`: 1 = wrong (+ F de / W en),
   2 not now, 3 duplicate, 4 handled; A apply, D discard, Z undo; trust/runKeys.ts on the agent page); book per device +
   member in IndexedDB `one-agents` (`trust|<scope>|<agentId>` head + one shard per key, `local:local` |
   `cloud:<ws>:u:<account>`), never synced / exported / backed up / sent to Claude (a lesson sends only its 3 items),

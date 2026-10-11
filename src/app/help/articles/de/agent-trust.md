@@ -10,27 +10,32 @@ summary: Jeder Vorschlag, über den du einzeln entscheidest, ist ein Urteil übe
 Ein Agent, der Änderungen zur Prüfung vorschlägt, lernt aus einem bloßen „Verwerfen“ nichts. **Vertrauen pro Feld** hält auf diesem Gerät fest, wie du über jede Art von Änderung eines Agenten entschieden hast — pro Feld einer Datenbank (*Klarheit*, *Warum* …), pro neuer Zeile, pro Seite, in die er schreibt — und zeigt es auf der Seite des Agenten als Messleiste der letzten 20 Urteile.
 
 ## Verwerfen mit Grund
-In der Prüfung eines Laufs (Seite des Agenten, **Läufe**) und in der Warteschlange von [Preflight](help:preflight) wirken dieselben Tasten auf den Vorschlag mit dem Fokus:
+In der Prüfung eines Laufs (Seite des Agenten, **Läufe**) und in der Warteschlange von [Preflight](help:preflight) wirken diese Tasten auf den Vorschlag mit dem Fokus:
 
-- **↵** (auf der Zeile selbst) oder **A** — übernehmen. **Entf** (⌫ am Mac) oder **D** — ohne Grund verwerfen.
+- **A** — übernehmen. **D** — ohne Grund verwerfen.
 - **1** — als **falsch** verwerfen; auf Deutsch auch **F**, auf Englisch auch **W**. Nur das zählt gegen den Agenten.
 - **2** nicht jetzt · **3** doppelt · **4** schon erledigt — verworfen, aber am Vorschlag war nichts falsch: kein Minus für den Agenten.
-- **J** / **N** / **↓** nächster · **K** / **↑** voriger · **Z** die Entscheidung in ihrer Zeile zurücknehmen.
 
-Nur der Vorschlag mit dem Fokus zeigt seine Tastenkappen, das orange **Übernehmen** und die Zeile **Verwerfen mit Grund**. Eine Entscheidung behält ihr **Rückgängig** in ihrer Zeile („Verworfen · falsch · Rückgängig“); der Fokus geht zum nächsten offenen Vorschlag, nie auf das Rückgängig. Tasten wirken nie, während du tippst, und nie dort, wo die Knöpfe es nicht täten: ein Workspace nur zum Lesen, ein Lauf, der noch läuft, ein Vorschlag, der erst einen anderen braucht — eine kurze Meldung sagt warum. Andere Buchstaben (E, H …) tun nichts.
+In der Prüfung eines Laufs außerdem:
+- **↵** (auf der Zeile selbst) — übernehmen. **Entf** (⌫ am Mac) — ohne Grund verwerfen.
+- **J** / **N** / **↓** nächster · **K** / **↑** voriger · **Z** die Entscheidung in ihrer Zeile zurücknehmen. Andere Buchstaben (E, H …) tun dort nichts.
+
+Preflight behält für die übrigen Tasten seine eigene Bedeutung — **E** zeigt mehr (den Bericht des Laufs), **Z** nimmt das zuletzt in der Warteschlange Erledigte zurück (siehe [Preflight](help:preflight)).
+
+Nur der Vorschlag mit dem Fokus zeigt seine Tastenkappen, das orange **Übernehmen** und die Zeile **Verwerfen mit Grund**. Eine Entscheidung behält ihr **Rückgängig** in ihrer Zeile („Verworfen · falsch · Rückgängig“); der Fokus geht zum nächsten offenen Vorschlag, nie auf das Rückgängig. Tasten wirken nie, während du tippst, und nie dort, wo die Knöpfe es nicht täten: ein Workspace nur zum Lesen, ein Lauf, der noch läuft, ein Vorschlag, der erst einen anderen braucht — eine kurze Meldung sagt warum.
 
 Auf einem Touchscreen gibt es keine Tastenkappen: **Verwerfen ▾** öffnet die Gründe — **Falsch**, **Nicht jetzt**, **Doppelt**, **Schon erledigt** — und **Ohne Grund**.
 
 Vorschläge eines Felds mit demselben Wert, die du früher als falsch verworfen hast, stehen zusammen in einer ruhigen Zeile, etwa „Falsch × 3 · NL-216 NL-217 NL-218 · Klarheit → Blockiert“.
 
 ## Was zählt
-Ein Urteil entsteht nur, wenn **du** über **einen** Vorschlag entscheidest, den du ganz gesehen hast:
-- **Übernommen** — das Feld zählt als richtig. Änderst du diesen Wert innerhalb von 10 Minuten selbst, zählt er stattdessen als **bearbeitet** (ändert ihn eine Automation, ein Abgleich oder ein anderer Agent, nicht).
+Ein Urteil entsteht nur, wenn **du** über **einen** Vorschlag entscheidest, den du ganz gesehen hast — ein Text, der länger ist als seine Vorschau, zählt, sobald du ihn in der Prüfung des Laufs mit **… weitere Zeilen zeigen** geöffnet hast:
+- **Übernommen** — das Feld zählt als richtig. Änderst du diesen Wert innerhalb von 10 Minuten selbst, zählt er stattdessen als **bearbeitet** (ändert ihn eine Automation, ein Abgleich, ein anderer Agent, ein Knopf oder „Als gesendet markieren“ im Ausgang, nicht).
 - **Als falsch verworfen** — ein Minus für den Agenten.
 - **Nicht jetzt**, **doppelt**, **schon erledigt** — kein Minus, und die Folge guter Urteile läuft weiter.
 - **Ohne Grund verworfen** — auch kein Minus; aber mehr als zwei davon in Folge lassen das Feld warten: sag mit **1**, ob es falsch war.
 
-**Alle übernehmen**, **Alle verwerfen**, **⇧A** und **X** in Preflight, Agenten, die direkt anwenden, das KI-Terminal und eine Preflight-Karte, deren Inhalt noch lud, schreiben **nichts**. **Rückgängig** deiner Entscheidung nimmt ihr Urteil zurück.
+**Alle übernehmen**, **Alle verwerfen**, **⇧A** und **X** in Preflight, Agenten, die direkt anwenden, das KI-Terminal, eine Preflight-Karte, deren Inhalt noch lud, und eine Entscheidung, die der Team-Server nicht angenommen hat, schreiben **nichts**. **Rückgängig** deiner Entscheidung nimmt ihr Urteil zurück — ein Rückgängig, das ein inzwischen von dir bearbeitetes Feld stehen lässt, nimmt die Urteile der Felder zurück, die es zurückgesetzt hat.
 
 ## Die Messleiste
 Die Platte **Vertrauen pro Feld** neben den Läufen (auf dem Telefon darunter) zeigt pro Feld die letzten 20 Urteile, das älteste links — jedes Detail ist eine Form, nicht nur eine Farbe:
