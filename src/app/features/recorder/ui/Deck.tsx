@@ -89,7 +89,7 @@ export default function Deck() {
   const loupeK = bracket && ZOOM[zoom].loupe && bracket.b > span.t0 && bracket.a < span.t1 ? kOf(spanLen, bracket.b - bracket.a) : null
 
   // the tracks shown, in the tape's order, with their counts in the span
-  const histLanes = zoom === '24h' && hist ? hist.lanes : null
+  const histLanes = (zoom === '24h' || ops.interim) && hist ? hist.lanes : null
   // a lane's meta keeps its identity while its names stay (a push must not re-render the other lanes)
   const metaCache = useRef(new Map<LaneKey, LaneMeta>())
   const lanes = useMemo(() => {
@@ -158,20 +158,31 @@ export default function Deck() {
     return () => cancelAnimationFrame(id)
   }, [focusTick])
 
-  // open → first paint of the data
+  // open → first paint of the data (a dense span: its minutes); `rec-ops` when the span's ops are drawn
   const marked = useRef(false)
+  const markedOps = useRef(false)
   useEffect(() => {
-    if (marked.current || ops.status !== 'ready') return
+    if (ops.status !== 'ready') return
+    const first = !marked.current
+    const exact = !markedOps.current && !ops.interim
+    if (!first && !exact) return
     marked.current = true
+    if (exact) markedOps.current = true
     requestAnimationFrame(() => {
       try {
-        performance.mark('rec-ready')
-        performance.measure('rec-open', 'rec-open', 'rec-ready')
+        if (first) {
+          performance.mark('rec-ready')
+          performance.measure('rec-open', 'rec-open', 'rec-ready')
+        }
+        if (exact) {
+          performance.mark('rec-ops-ready')
+          performance.measure('rec-ops', 'rec-open', 'rec-ops-ready')
+        }
       } catch {
         /* no marks */
       }
     })
-  }, [ops.status])
+  }, [ops.status, ops.interim])
 
   const onKeyDown = (e: React.KeyboardEvent) => {
     if (e.key !== 'Escape' || e.defaultPrevented || e.nativeEvent.isComposing) return

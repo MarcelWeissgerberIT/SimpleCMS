@@ -17,7 +17,7 @@ import { blockList, pageParts, partsKey, rowParts, schemaParts, viewPart, wholeC
 import { touchedParts } from '../../src/app/features/recorder/model/touched'
 import { contentDelta, countOps, countPlaces, countWords, windowMeters, wordDelta } from '../../src/app/features/recorder/model/counts'
 import { barHeights, followSpan, fracOf, loupeK, loupeLabel, makeAxis, pct, phoneFit, quarterHot, rulerLabels, rulerTicks, runBracket, snapTime, spanAround, stripBars, stripRange, stripTicks, tAtX, tOfU, uOf, xOf } from '../../src/app/features/recorder/model/axis'
-import { settleHead, settleLabels, underHeads } from '../../src/app/features/recorder/model/labels'
+import { hiddenRulerLabels, settleHead, settleLabels, underHeads } from '../../src/app/features/recorder/model/labels'
 import { F, K, type JEvent, type JOp, type JSegment } from '../../src/app/features/recorder/model/types'
 import type { Database, Page, PropertyDef, View } from '../../src/app/store/types'
 
@@ -706,6 +706,13 @@ test.describe('the tape: label pass (tape.js settle)', () => {
     expect(settleHead(560, 50, view, 'now')).toEqual({ place: 'edge-l', left: 506, right: 556 })
     expect(settleHead(300, 50, view, 'now')).toEqual({ place: 'center', left: 304, right: 354 })
     expect(underHeads([{ left: 250, right: 280 }, { left: 333, right: 360 }, { left: 335, right: 360 }, { left: 100, right: 130 }, { left: 240, right: 266 }], [{ left: 270, right: 330 }])).toEqual([true, true, false, false, true])
+  })
+
+  test('a ruler label cut at either visible edge is hidden, never shown half (the 1024 px XL case: "09:40" at the right edge)', () => {
+    const labels = [{ left: -10, right: 20 }, { left: 0, right: 30 }, { left: 250, right: 280 }, { left: 560, right: 600 }, { left: 575, right: 615 }]
+    expect(hiddenRulerLabels(labels, [], view)).toEqual([true, false, false, false, true])
+    // under a head too
+    expect(hiddenRulerLabels(labels, [{ left: 270, right: 330 }], view)).toEqual([true, false, true, false, true])
   })
 })
 

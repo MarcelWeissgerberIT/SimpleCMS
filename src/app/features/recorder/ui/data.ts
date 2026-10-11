@@ -1,8 +1,10 @@
 /**
  * The deck's data while it is open: the visible span's ops and runs (one range read, with half a span to spare on
  * either side so a pan rarely reads), the 24 h strip's quarters (re-read when the strip moves on), the minute
- * histogram at 24 STD, the known lanes. This tab's flushes are merged straight in (no read; only the lanes that got
- * ops change); another tab's ping or a wipe / prune re-reads, debounced.
+ * histogram at 24 STD, the known lanes. A dense span (more than DENSE Vorgänge — reading thousands of ops takes longer
+ * than the open budget) paints first from its minute histogram (one small read) and swaps in its ops when they are
+ * read. This tab's flushes are merged straight in (no read; only the lanes that got ops change); another tab's ping
+ * or a wipe / prune re-reads, debounced.
  */
 import { useEffect } from 'react'
 import { useCloud } from '../../../cloud'
@@ -15,6 +17,8 @@ import { emptyOps, useRecorderUI, type OpsWindow } from './state'
 import { spanOfState, useSpan } from './clock'
 
 const REREAD_MS = 500
+/** More Vorgänge than this in the span to read: the first paint comes from the minute histogram. */
+const DENSE = 1500
 
 /** Group ops by lane, each lane sorted by time. */
 export function byLane(ops: JOp[]): Record<LaneKey, JOp[]> {
@@ -67,6 +71,13 @@ function stripAdd(strip: { q0: number; counts: Record<number, number> } | null, 
 
 let loadSeq = 0
 
+/** The minute histogram as lanes: lane → [minute, Vorgänge][]. */
+function histLanes(rows: Awaited<ReturnType<typeof minutesInSpan>>): Record<LaneKey, Array<[number, number]>> {
+  const lanes: Record<LaneKey, Array<[number, number]>> = {}
+  for (const h of rows) for (const [l, n] of Object.entries(h.lanes)) (lanes[l] ??= []).push([h.m, n])
+  return lanes
+}
+
 /** Read the span (with room on either side) into the store. */
 async function loadSpan(scope: Scope, t0: number, t1: number, runsOnly = false): Promise<void> {
   const seq = ++loadSeq
@@ -75,7 +86,19 @@ async function loadSpan(scope: Scope, t0: number, t1: number, runsOnly = false):
   const to = t1 + pad
   useRecorderUI.setState((s) => ({ ops: { ...s.ops, status: 'loading' } }))
   try {
-    const [ops, runs] = await Promise.all([runsOnly ? Promise.resolve([]) : opsInSpan(scope, from, to), runsInSpan(scope, from, to)])
+    const runsRead = runsInSpan(scope, from, to)
+    if (!runsOnly) {
+      // a dense span: its minutes first (a few hundred records at most), the ops after
+      const minutes = await minutesInSpan(scope, from, to)
+      let total = 0
+      for (const h of minutes) for (const n of Object.values(h.lanes)) total += n
+      if (total > DENSE) {
+        const runs = await runsRead
+        if (seq !== loadSeq || !useRecorderUI.getState().open) return
+        useRecorderUI.setState((s) => ({ hist: { from, to, lanes: histLanes(minutes) }, ops: { scope, from, to, lanes: {}, runs, rev: s.ops.rev + 1, status: 'ready', interim: true } }))
+      }
+    }
+    const [ops, runs] = await Promise.all([runsOnly ? Promise.resolve([]) : opsInSpan(scope, from, to), runsRead])
     if (seq !== loadSeq || !useRecorderUI.getState().open) return
     useRecorderUI.setState((s) => ({ ops: { scope, from, to, lanes: byLane(ops), runs, rev: s.ops.rev + 1, status: 'ready', runsOnly } }))
   } catch (e) {
@@ -99,9 +122,7 @@ async function loadHist(scope: Scope, t0: number, t1: number): Promise<void> {
   try {
     const rows = await minutesInSpan(scope, t0, t1)
     if (!useRecorderUI.getState().open) return
-    const lanes: Record<LaneKey, Array<[number, number]>> = {}
-    for (const h of rows) for (const [l, n] of Object.entries(h.lanes)) (lanes[l] ??= []).push([h.m, n])
-    useRecorderUI.setState({ hist: { from: t0, to: t1, lanes } })
+    useRecorderUI.setState({ hist: { from: t0, to: t1, lanes: histLanes(rows) } })
   } catch {
     /* ops stay the source */
   }
@@ -146,7 +167,7 @@ export function useDeckData(): void {
       return
     }
     const h = useRecorderUI.getState().hist
-    if (h && span.t0 >= h.from && span.t1 <= h.to) return
+    if (h && span.t0 >= h.from && span.t1 <= h.to && !useRecorderUI.getState().ops.interim) return
     void loadHist(scopeNow(), span.t0 - 6 * 3600_000, span.t1 + 6 * 3600_000)
   }, [zoom, span.t0, span.t1, cloudKey])
 

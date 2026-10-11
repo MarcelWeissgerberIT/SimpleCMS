@@ -3,7 +3,7 @@
  * left of their mark when they would run into the now line or off the visible edge (a range's label flips to the
  * range's start, never over it); a label still cut at either edge is left out, never shown half; labels on one
  * lane never overlap (the later one goes); the playhead head and the now label align inward at the edges ("Jetzt →"
- * pinned when now is off to the right); ruler labels under either head (± 4 px) are hidden.
+ * pinned when now is off to the right); ruler labels under either head (± 4 px) or cut at a visible edge are hidden.
  * Port of the mock's tape.js settle(). All positions are px in the tape's inner coordinates.
  */
 
@@ -114,4 +114,10 @@ export function settleHead(line: number, w: number, view: View, kind: 'head' | '
 /** Ruler labels that a head covers or comes within 4 px of: true = hide. */
 export function underHeads(labels: Array<{ left: number; right: number }>, heads: Array<{ left: number; right: number }>): boolean[] {
   return labels.map((r) => heads.some((h) => r.left <= h.right + 4 && r.right >= h.left - 4))
+}
+
+/** Ruler labels to hide: under a head (± 4 px) or cut at a visible edge of the tape — never shown half. */
+export function hiddenRulerLabels(labels: Array<{ left: number; right: number }>, heads: Array<{ left: number; right: number }>, view: View): boolean[] {
+  const under = underHeads(labels, heads)
+  return labels.map((r, i) => under[i] || r.left < view.left - 1 || r.right > view.right + 1)
 }

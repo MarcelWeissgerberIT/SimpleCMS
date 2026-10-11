@@ -9,6 +9,7 @@ import { join } from 'node:path'
 import type { Locator, Page } from '@playwright/test'
 import { test, expect, openApp, reloadApp, wsEval, mockClaude, createPage, gotoPage, editorOf, doc, para, pageIdByTitle, MOD } from './fixtures'
 import { blockTracker, mirrorWrite, outbox, outboxLoaded, routeRef, seedMirrorDb } from './helpers/outbox'
+import { rec, startRecorder } from './helpers/recorder'
 
 /* ------------------------------------------------------------------ the audit */
 
@@ -252,6 +253,28 @@ test.describe('the biggest text size still fits', () => {
     await page.evaluate(() => (window.location.hash = '#/workspace/look'))
     await page.getByRole('switch', { name: 'Set Carbon colours separately' }).click()
     await fits(page, 'workspace/look (XL, phone)', '.wsp__main')
+  })
+
+  test('the flight recorder deck at XL: 1024, 1280, 1440 and 390, a window chosen, English and German', async ({ page }) => {
+    test.slow()
+    await page.addInitScript(() => localStorage.setItem('one.textScale', '4'))
+    await openApp(page)
+    await startRecorder(page)
+    // a few writers on the tape: an agent's run, a terminal task, the person
+    await rec(page, 'step', { writer: { kind: 'agent', id: 'nordlicht-spiegel', run: 'r7', change: 'c1' }, calls: [['createPage', { title: 'Nordlicht Bericht' }], ['createPage', { title: 'Nordlicht Notiz' }]] })
+    await rec(page, 'step', { writer: { kind: 'terminal', run: 'tb-1', change: 'c1' }, calls: [['createPage', { title: 'Tessera Plan' }]] })
+    await rec(page, 'step', { writer: { kind: 'you', via: 'ui' }, calls: [['createPage', { title: 'Tessera Notiz' }]] })
+    await rec(page, 'settle')
+    for (const [w, h] of [[1024, 768], [1280, 720], [1440, 900], [390, 844]]) {
+      await page.setViewportSize({ width: w, height: h })
+      await page.keyboard.press(`${MOD === 'Meta' ? 'Meta' : 'Control'}+Alt+z`)
+      await expect(page.locator('section.deck')).toBeVisible()
+      await page.waitForTimeout(400)
+      await page.locator('section.deck .lane .flag').first().click()
+      await expect(page.locator('section.deck .win__t')).toBeVisible()
+      await fits(page, `the deck at ${w} (XL)`, 'section.deck')
+      await expect(page.locator('section.deck')).toHaveCount(0)
+    }
   })
 
   test('the Outbox at XL: the dock (a column at 1440, the sheet at 390) and #/outbox, English and German', async ({ page, context }) => {

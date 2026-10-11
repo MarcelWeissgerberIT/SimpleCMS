@@ -1,9 +1,9 @@
 /**
  * The last 24 hours (ending at the tape's right edge): 96 quarter-hour bars, hot where they overlap the window, the
- * visible span as a box, a mark every 3 hours (the first and each midnight with the weekday). A click moves the tape
- * there.
+ * visible span as a box, a mark every 3 hours (the first and each midnight with the weekday; a mark whose label the
+ * strip's right edge would cut is left out). A click moves the tape there.
  */
-import { memo, useMemo } from 'react'
+import { memo, useLayoutEffect, useMemo, useRef } from 'react'
 import { useLang, useT } from '../../../i18n'
 import { barHeights, DAY, quarterHot, stripRange, stripTicks, type Span } from '../model/axis'
 import { spanTo } from './actions'
@@ -23,8 +23,23 @@ export const Strip = memo(function Strip({ span, counts, q0, bracket }: { span: 
   const pos = (time: number) => ((time - r.from) / DAY) * 100
   const winL = Math.max(0, pos(span.t0))
   const winR = Math.min(100, pos(span.t1))
+  // a label the right edge would cut goes (measured: label widths follow the language and the text size)
+  const ref = useRef<HTMLDivElement>(null)
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const fit = () => {
+      const right = el.clientWidth - 2
+      for (const k of el.querySelectorAll<HTMLElement>('.ov__tick')) k.style.visibility = k.offsetLeft + 3 + k.offsetWidth > right ? 'hidden' : ''
+    }
+    fit()
+    const ro = new ResizeObserver(fit)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [ticks, lang])
   return (
     <div
+      ref={ref}
       className="ov"
       role="button"
       tabIndex={-1}

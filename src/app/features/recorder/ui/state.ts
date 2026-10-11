@@ -38,6 +38,8 @@ export interface OpsWindow {
   status: 'idle' | 'loading' | 'ready'
   /** 24 STD: only the runs were read (the lanes draw from the minute histogram) */
   runsOnly?: boolean
+  /** a dense span's first paint: the lanes draw from the minute histogram until its ops are read */
+  interim?: boolean
 }
 
 export interface RecorderUI {

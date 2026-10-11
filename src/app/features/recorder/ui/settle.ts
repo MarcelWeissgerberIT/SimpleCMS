@@ -3,7 +3,7 @@
  * Labels carry their geometry as data: data-anchor (px), data-shift (px, or "lead" = −24 − width), data-gap,
  * data-start (a range's start px), data-flips ("1").
  */
-import { settleHead, settleLabels, underHeads, type View } from '../model/labels'
+import { hiddenRulerLabels, settleHead, settleLabels, type View } from '../model/labels'
 
 /** Event and held labels of one lane (they flip, hide, never overlap on the lane). */
 export function settleLaneLabels(lane: HTMLElement, view: View, nowX: number | null): void {
@@ -38,7 +38,7 @@ export function settleLaneLabels(lane: HTMLElement, view: View, nowX: number | n
 
 /**
  * The playhead's head and the now label: inward at the edges, pinned (with " →") when the line is off to the right;
- * then every ruler label under either is hidden.
+ * then every ruler label under either, or cut at a visible edge, is hidden.
  */
 export function settleHeads(inner: HTMLElement, view: View): void {
   const heads: Array<{ left: number; right: number }> = []
@@ -75,7 +75,7 @@ export function settleHeads(inner: HTMLElement, view: View): void {
     const left = centred ? x - w / 2 : x + 4
     return { left, right: left + w }
   })
-  underHeads(boxes, heads).forEach((hide, i) => {
+  hiddenRulerLabels(boxes, heads, view).forEach((hide, i) => {
     if (hide) labels[i].style.visibility = 'hidden'
   })
 }
