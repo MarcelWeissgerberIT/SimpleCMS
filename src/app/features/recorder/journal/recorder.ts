@@ -13,7 +13,7 @@ import { currentWriter, onRunNote, type Writer } from '../../../store/writer'
 import { isDeviceCopyGoing } from '../../../cloud'
 import { scopeNow, workspaceOfScope } from './scope'
 import { newId } from '../../../lib/ids'
-import type { PlaceKey, Scope } from '../model/types'
+import type { JSegment, PlaceKey, Scope } from '../model/types'
 import { resolveHot } from './attribute'
 import { Budget } from './budget'
 import { openJournal, journalIfOpen, wipeScope } from './db'
@@ -296,6 +296,12 @@ export class Recorder {
     while (this.queue.length) if (!this.take(deadline) || performance.now() > deadline) return !this.queue.length && this.processor.finishCloses(deadline)
     this.processor.endLate(Date.now())
     return this.processor.finishCloses(deadline)
+  }
+
+  /** Tests: the queue recorded (closed segments not summed up), then the segment records held in memory. */
+  heldSegments(place?: PlaceKey): JSegment[] {
+    while (this.queue.length) if (!this.take()) break
+    return this.processor.heldSegs(place).map((r) => ({ ...r }))
   }
 
   /** Segments due to close (2 min without an event) close on one timer to the next due time. */

@@ -140,6 +140,8 @@ const PAUSED_PINS = 2_000
 const PAUSED_PIN_BYTES = 64 * 1024 * 1024
 /** places deleted for good that this tab remembers (their pins never come back) */
 const PURGED_MAX = 5_000
+/** an event with these flags is its own: typing never folds into it, and it never folds into typing */
+const NO_FOLD = F.BATCH | F.ORDER
 
 export interface Stats {
   hot: number[]
@@ -238,7 +240,8 @@ export class Processor {
   private lanes = new Map<string, Record<LaneKey, { last: number; n: number }>>()
   /** Vorgänge per day size record (`<scope>|d|<day>`) */
   private counted = new Map<string, number>()
-  private purge: Array<{ s: Scope; p: PlaceKey }> = []
+  /** places deleted for good, to purge after the next write (`at`: when — a segment that began later is not theirs) */
+  private purge: Array<{ s: Scope; p: PlaceKey; at: number }> = []
   private lostTail: { s: Scope; from: number; to: number } | null = null
   /** the size each record had when it was last written (a re-put counts only what it grew by) */
   private sizes = new WeakMap<object, number>()
@@ -286,6 +289,19 @@ export class Processor {
     for (const o of this.closing.values()) out.add(o.rec.id)
     for (const p of this.pins) out.add(p.seg.id)
     return out
+  }
+
+  /** The segment records this tab holds in memory (open, being summed up, waiting, in a flush) — of a place, or all. */
+  heldSegs(place?: PlaceKey): JSegment[] {
+    const out = new Map<string, JSegment>()
+    const add = (r: JSegment) => {
+      if (!place || r.p === place) out.set(r.id, r)
+    }
+    for (const r of this.segs.values()) add(r)
+    for (const r of this.inFlight?.values() ?? []) add(r)
+    for (const o of this.open.values()) add(o.rec)
+    for (const o of this.closing.values()) add(o.rec)
+    return [...out.values()]
   }
 
   /** Run `fn` between two flushes (prunes: never while a flush stores pins or segments). */
@@ -551,9 +567,11 @@ export class Processor {
         seg = undefined
       }
       this.follow(seg, pl)
-      // typing: fold into the open event
+      // typing: fold into the open event — never a refresh that carried someone else's change too (BATCH: it stays its
+      // own, flagged event) or a pair out of order, and nothing folds into such an event either
       const textOnly = (pl.kinds & ~(K.CONTENT | K.TITLE)) === 0
-      if (seg?.ev && folds && textOnly && (seg.ev.rec.kinds & ~(K.CONTENT | K.TITLE)) === 0 && at - seg.ev.rec.at < FOLD_MS && !pl.f) {
+      const plain = !(baseF & NO_FOLD) && !((seg?.ev?.rec.f ?? 0) & NO_FOLD)
+      if (seg?.ev && folds && plain && textOnly && (seg.ev.rec.kinds & ~(K.CONTENT | K.TITLE)) === 0 && at - seg.ev.rec.at < FOLD_MS && !pl.f) {
         this.fold(seg, pl, at)
         continue
       }
@@ -661,9 +679,16 @@ export class Processor {
    * none is taken for it any more, and a database's view segments still open close (their pins go with the schema's).
    */
   private purgePlace(scope: Scope, p: PlaceKey, at: number): void {
-    this.purge.push({ s: scope, p })
+    this.purge.push({ s: scope, p, at })
     this.purged.add(p)
     if (this.purged.size > PURGED_MAX) this.purged.delete(this.purged.values().next().value as PlaceKey)
+    // the place's segments this tab still holds (open, or closed and not summed up yet) read purged from now on —
+    // whichever flush writes them, also after this tab forgot the place (PURGED_MAX) or it was made again
+    for (const o of [this.open.get(p), this.closing.get(p)])
+      if (o) {
+        o.rec.f |= F.PURGED
+        o.rec.before = null
+      }
     if (!p.startsWith('s:')) return
     const views = `v:${p.slice(2)}/`
     for (const o of [...this.open.values()])
@@ -947,7 +972,8 @@ export class Processor {
           )
           const kept = await lap(storePins(scope, piece.map((p) => p.input), memory))
           piece.forEach((p, i) => {
-            p.seg.before = kept.ids[i] ?? null
+            // a segment purged while its pin was on its way keeps none (the pin goes with the place's purge)
+            p.seg.before = p.seg.f & F.PURGED ? null : (kept.ids[i] ?? null)
             segs.set(p.seg.id, p.seg)
             addBytes(scope, p.input.meta.at, kept.bytes[i] ?? 0)
           })
@@ -1004,7 +1030,7 @@ export class Processor {
       }
       // a segment of a place deleted for good meanwhile reads purged
       for (const g of segs.values())
-        if (this.isPurged(g.p) && !(g.f & F.PURGED)) {
+        if (this.isPurged(g.p) && (!(g.f & F.PURGED) || g.before)) {
           g.f |= F.PURGED
           g.before = null
         }
@@ -1186,10 +1212,10 @@ export class Processor {
     }
   }
 
-  private async applyPurge(j: Journal, list: Array<{ s: Scope; p: PlaceKey }>, memory: boolean): Promise<void> {
+  private async applyPurge(j: Journal, list: Array<{ s: Scope; p: PlaceKey; at: number }>, memory: boolean): Promise<void> {
     const { dropPinsOfPlace, dropPinsOfDatabase } = await import('../../history/pins')
     const { giveBack } = await import('./prune')
-    for (const { s, p } of list) {
+    for (const { s, p, at } of list) {
       const db = p.startsWith('s:') ? p.slice(2) : null
       if (memory) dropMemoryPins(s, p)
       else {
@@ -1199,7 +1225,8 @@ export class Processor {
       // its segments (a database: its schema's and every view's) read purged
       const ranges: Array<[string, string]> = db ? [[p, p], [`v:${db}/`, `v:${db}/${HI}`]] : [[p, p]]
       for (const [lo, hi] of ranges) {
-        const segs = await j.range<JSegment>({ store: 'segs', index: 'place', lo: [s, lo, 0], hi: [s, hi, Number.MAX_SAFE_INTEGER] })
+        // only segments that began before the delete (the same id made again later has segments of its own)
+        const segs = await j.range<JSegment>({ store: 'segs', index: 'place', lo: [s, lo, 0], hi: [s, hi, at] })
         const put = segs.filter((g) => !(g.f & F.PURGED) || g.before).map((g) => ({ ...g, f: g.f | F.PURGED, before: null }))
         if (put.length) await j.write({ put: { segs: put } })
       }

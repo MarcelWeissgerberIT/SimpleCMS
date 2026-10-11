@@ -7,7 +7,7 @@ import { useWorkspace } from '../../../store/store'
 import { endRun, fallbackReports, clearFallbackReports, noteRun, withWriter, type RunMeta, type Writer } from '../../../store/writer'
 import { dropPins, listPinBodies, listPinMetas, pinToBody } from '../../history/pins'
 import { readPinBodies, readPinMetas } from './pins'
-import type { JOp, JSegment, LaneKey, Scope } from '../model/types'
+import type { JOp, JSegment, LaneKey, PlaceKey, Scope } from '../model/types'
 import { dayKey, HI, openJournal, pad13, pad8, scopeRange, STORES, type Batch } from './db'
 import { journalBytes } from './prune'
 import { digestWhole, scopeKey } from './key'
@@ -138,6 +138,8 @@ export function installSeam(rec: Recorder): void {
     tab: () => rec.tab,
     mode: async () => (await openJournal()).mode,
     open: () => [...rec.processor.open.values()].map((o) => ({ ...o.rec })),
+    /** the queue recorded, then the segment records this tab holds in memory (of a place, or all) */
+    held: (place?: string) => rec.heldSegments(place as PlaceKey | undefined),
     lostTails: (scope?: Scope) => lostTails(scope ?? scopeOf()),
     saveStatus: (s: 'idle' | 'saving' | 'saved' | 'error', error?: { name: string; message?: string }) => rec.budget.saveStatus(s, error ? Object.assign(new Error(error.message ?? ''), { name: error.name }) : undefined),
     /** a team copy's write failed (store/storageHealth.ts) */

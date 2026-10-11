@@ -298,6 +298,34 @@ test.describe('flight recorder journal', () => {
     expect(after[1].touched).toEqual(['i'])
   })
 
+  test('a collab refresh that carried a colleague’s change too never folds into the person’s typing (nor typing into it): its own event, BATCH', async ({ page }) => {
+    const id = await boot(page, () => wsEval(page, (s) => s.createPage({ title: 'Nordlicht Notizen' }) as string))
+    const doc = (text: string) => ({ type: 'doc', content: [{ type: 'paragraph', attrs: { id: 'b1' }, content: [{ type: 'text', text }] }] })
+    const collab = { kind: 'editor', id: 'collab' }
+    // typing, then within 30 s a refresh that carried a colleague's words too, then typing again
+    await at(page, T0)
+    await step(page, collab, [['setContent', id, doc('Nordlicht eins'), 'cloud']])
+    await at(page, T0 + S)
+    await step(page, { ...collab, mixed: true }, [['setContent', id, doc('Nordlicht eins zwei drei'), 'cloud']])
+    await at(page, T0 + 2 * S)
+    await step(page, collab, [['setContent', id, doc('Nordlicht eins zwei drei vier'), 'cloud']])
+    await rec(page, 'settle')
+    const evs = await eventsOf(page, `p:${id}`)
+    expect(evs.map((e) => [e.w, (e.f ?? 0) & F.BATCH, e.ops, e.wa ?? 0])).toEqual([
+      ['editor:collab', 0, 1, 2],
+      ['editor:collab+m', F.BATCH, 1, 2],
+      ['editor:collab', 0, 1, 1],
+    ])
+    const ops = (await recOps(page)).filter((o) => o.p1 === `p:${id}`).sort((a, b) => a.at - b.at)
+    expect(ops.map((o) => [o.w, (o.f ?? 0) & F.BATCH])).toEqual([
+      ['editor:collab', 0],
+      ['editor:collab+m', F.BATCH],
+      ['editor:collab', 0],
+    ])
+    // still one stretch of the person on the page
+    expect(await segmentsOf(page, `p:${id}`)).toHaveLength(1)
+  })
+
   test('identity chain: another tab writing between two agent writes closes the segment, the next one has GAP', async ({ page, context, errors }) => {
     const n = await boot(page, () => nordlichtDb(page))
     const row = n.rows[1]
@@ -421,6 +449,32 @@ test.describe('flight recorder journal', () => {
     const gone = (await eventsOf(page, `p:${id}`)).at(-1)!
     expect(gone.kinds & K.DELETE).toBeTruthy()
     expect(gone.f & F.GONE).toBeTruthy()
+  })
+
+  test('delete forever inside the person’s stretch: the segment reads PURGED at once, whichever flush writes it; the page made again is not', async ({ page }) => {
+    const id = await boot(page, () => wsEval(page, (s) => s.createPage({ title: 'Tessera Ablage' }) as string))
+    await step(page, agent('r12'), [['updatePage', id, { title: 'Tessera Ablage 2' }]], { note: { seq: 12 }, end: true })
+    await flushRec(page)
+    // the person's stretch: to the trash, then deleted for good (within 2 min — one segment, opened by the trash)
+    await at(page, T0 + MIN)
+    await step(page, you, [['trashPage', id]])
+    await at(page, T0 + MIN + 30 * S)
+    await step(page, you, [['deletePagePermanently', id]])
+    const held = (await rec<Array<Record<string, any>>>(page, 'held', `p:${id}`)).filter((g) => g.l === 'you') // eslint-disable-line @typescript-eslint/no-explicit-any
+    expect(held).toHaveLength(1)
+    expect(held[0].f & F.PURGED, 'the person’s segment in memory, before any flush').toBe(F.PURGED)
+    expect(held[0].before).toBeNull()
+    // the same id made again right away (an Undo would): its own segment, not purged
+    await at(page, T0 + MIN + 31 * S)
+    await step(page, { kind: 'you', via: 'undo' }, [['createPage', { id, title: 'Tessera Ablage 3' }]])
+    await rec(page, 'settle')
+    const segs = await segmentsOf(page, `p:${id}`)
+    const mine = segs.find((g) => g.l === 'you')!
+    expect(mine.f & F.PURGED).toBe(F.PURGED)
+    expect(mine.before).toBeNull()
+    const again = segs.find((g) => g.l === 'undo')!
+    expect(again.f & F.NEW).toBe(F.NEW)
+    expect(again.f & F.PURGED, 'the page made again is not purged').toBe(0)
   })
 
   test('the story: every lane counts as in the mock; run 212 = 52 Vorgänge at 37 places, +212 −40 words', async ({ page }) => {
