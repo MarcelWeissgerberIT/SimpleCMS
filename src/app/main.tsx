@@ -19,7 +19,7 @@ import { applyTextStep } from './lib/textScale'
 import { startSwitchLed } from './lib/switchLed'
 import { applyCachedLook } from './lib/look'
 import { ALL_MESSAGES, t } from './i18n'
-import { startHistory, startAutomations, startRecurringTemplates, startInbox, startSync, startMcp, startCustomFunctions, startMail, startAgents, startCoding, startKit, startOutbox, seedDemoHistory, demoFunctions } from './features'
+import { startHistory, startAutomations, startRecurringTemplates, startInbox, startSync, startMcp, startCustomFunctions, startMail, startAgents, startCoding, startKit, startOutbox, startItems, seedDemoHistory, demoFunctions } from './features'
 import { consumeMcpOAuthReturn, oneScriptGrammar } from './features'
 import { registerCodeLanguage, startSyncedBlocks } from './editor'
 import { detectLang, makeTranslator } from '@/shared/i18n'
@@ -93,6 +93,8 @@ async function boot() {
     startService('history', startHistory)
     startService('automations', startAutomations)
     startService('recurring templates', startRecurringTemplates)
+    // tasks: the editor's lookup + the creation gate (the index itself is built when something first asks)
+    startService('tasks', startItems)
     startService('inbox', startInbox)
     startService('synced blocks', startSyncedBlocks)
     startService('sync', startSync)

@@ -6,14 +6,19 @@
  * `window.__oneItems`). Test data is fictional.
  */
 import type { JSONContent } from '@tiptap/core'
-import { test, expect } from './fixtures'
+import type { Page } from '@playwright/test'
+import { test, expect, openApp, wsEval, createPage, flush } from './fixtures'
 import { collectItemIds, ITEM_ID, newItemId, outermostItems, remapItemLinks, remintItems, resetItems } from '../../src/app/lib/itemIds'
 import { itemsOfContent, compareOccurrence } from '../../src/app/editor/workitem/scan'
 import { itemTitleText, todoProgress } from '../../src/app/editor/workitem/text'
 import { patchItemAttrs, patchItemInDoc } from '../../src/app/editor/workitem/patch'
 import { itemBlocks, unwrapItemsIn } from '../../src/app/editor/workitem/turn'
 import { itemLookup, setItemLookup } from '../../src/app/editor/workitem/lookup'
-import { MAX_LINKS, MAX_PEOPLE } from '../../src/app/editor/workitem/attrs'
+import { MAX_LINKS, MAX_PEOPLE, itemAttrs } from '../../src/app/editor/workitem/attrs'
+import { buildIndex, updateIndex, type PageItems } from '../../src/app/features/workitems/itemIndex'
+import { loopEdgesOf, wouldLoop, graphOf } from '../../src/app/features/workitems/graph'
+import { itemView, DUP_DELAY } from '../../src/app/features/workitems/view'
+import { ringsHere, audienceText } from '../../src/app/features/workitems/audience'
 
 /* ------------------------------------------------------------------ */
 /* Fixtures                                                            */
@@ -356,5 +361,246 @@ test.describe('scan, text, patch (pure)', () => {
     expect(itemLookup().canCreate()).toBe(true)
     setItemLookup(null)
     expect(itemLookup().canCreate()).toBe(false)
+  })
+})
+
+/* ------------------------------------------------------------------ */
+/* features/workitems: the index, the graph, views, audience (pure)    */
+/* ------------------------------------------------------------------ */
+
+const deps = { compare: compareOccurrence }
+
+function pageOf(pageId: string, content: JSONContent, flags: Partial<PageItems> = {}): PageItems {
+  const trashed = flags.trashed ?? false
+  const template = flags.template ?? null
+  return { pageId, items: itemsOfContent(content), createdAt: flags.createdAt ?? 1000, private: flags.private ?? false, trashed, template, live: !trashed && !template }
+}
+
+const attrsOf = (a: Record<string, unknown>) => itemAttrs(a)
+
+test.describe('index + graph (pure)', () => {
+  test('build: winners among live originals, trash and templates apart, synced copies left out', () => {
+    const idx = buildIndex(
+      [
+        pageOf('p1', doc(item({ id: 'b1', itemId: A, status: 'todo', blockedBy: [B] }, 'Ship it'), item({ id: 'b2', itemId: B, status: 'in_progress' }, 'Approve'))),
+        pageOf('p2', doc(item({ itemId: C, status: 'done' }, 'Trashed one')), { trashed: true }),
+        pageOf('p3', doc(item({ itemId: OUT }, 'In a template'), item({ itemId: 'wi_tplself000', blockedBy: [OUT] }, 'Waits in the template')), { template: 'tpl' }),
+        pageOf('p4', doc({ type: 'syncedBlock', attrs: { syncId: 's', sourcePageId: 'p1' }, content: [item({ itemId: A }, 'Ship it (copy)')] })),
+        pageOf('p5', doc(p('no tasks'))),
+      ],
+      0,
+      deps,
+    )
+    expect([...idx.byPage.keys()].sort()).toEqual(['p1', 'p2', 'p3', 'p4'])
+    expect([...idx.byId.keys()].sort()).toEqual([A, B].sort())
+    expect(idx.byId.get(A)!.pageId).toBe('p1')
+    expect(idx.everywhere.get(A)).toBe(1)
+    expect(idx.trashed.has(C)).toBe(true)
+    expect(idx.templated.get(OUT)![0].template).toBe('tpl')
+    expect(idx.dependents.get(B)).toEqual([A])
+    const v = itemView(idx, attrsOf({ itemId: A, status: 'todo', blockedBy: [B, C, OUT, 'wi_gone000000'] }), { pageId: 'p1', blockId: 'b1', now: NOW })
+    expect(v.indexed).toBe(true)
+    expect(v.blockers.map((b) => [b.state, b.title])).toEqual([
+      ['in_progress', 'Approve'],
+      ['trash', null],
+      ['gone', null],
+      ['gone', null],
+    ])
+    expect(v.openBlockers).toBe(1)
+    expect(v.blocked).toBe(true)
+    // the blocker sees its dependent
+    const vb = itemView(idx, attrsOf({ itemId: B, status: 'in_progress' }), { pageId: 'p1', blockId: 'b2', now: NOW })
+    expect(vb.dependents.map((d) => d.title)).toEqual(['Ship it'])
+    // a template's task resolves its own template's tasks only
+    const vt = itemView(idx, attrsOf({ itemId: 'wi_tplself000', blockedBy: [OUT] }), { pageId: 'p3', blockId: null, now: NOW })
+    expect(vt.blockers[0].state).toBe('open')
+    // loading while team pages are still missing their content
+    const loading = buildIndex([pageOf('p1', doc(item({ itemId: A, blockedBy: ['wi_elsewhere0'] }, 'x')))], 2, deps)
+    expect(itemView(loading, attrsOf({ itemId: A, blockedBy: ['wi_elsewhere0'] }), { pageId: 'p1', blockId: null, now: NOW }).blockers[0].state).toBe('loading')
+  })
+
+  test('after all, done, not indexed yet', () => {
+    const idx = buildIndex([pageOf('p1', doc(item({ itemId: A, blockedBy: [B] }, 'Waits'), item({ itemId: B, status: 'done', doneAt: NOW }, 'Finished')))], 0, deps)
+    const v = itemView(idx, attrsOf({ itemId: A, blockedBy: [B] }), { pageId: 'p1', blockId: null, now: NOW })
+    expect(v.blocked).toBe(false)
+    expect(v.afterAll).toBe(true)
+    expect(itemView(idx, attrsOf({ itemId: A, status: 'done', doneAt: NOW, blockedBy: [B] }), { pageId: 'p1', blockId: null, now: NOW }).afterAll).toBe(false)
+    const fresh = itemView(idx, attrsOf({ itemId: 'wi_brandnew00', blockedBy: [B] }), { pageId: 'p1', blockId: null, now: NOW })
+    expect(fresh.indexed).toBe(false)
+    expect(fresh.blockers[0].title).toBeNull()
+  })
+
+  test('related: own ∪ back, deduped; structural sharing returns the previous view', () => {
+    const idx = buildIndex([pageOf('p1', doc(item({ itemId: A, related: [B] }, 'One'), item({ itemId: B, related: [A] }, 'Two'), item({ itemId: C, related: [A] }, 'Three')))], 0, deps)
+    const v = itemView(idx, attrsOf({ itemId: A, related: [B] }), { pageId: 'p1', blockId: null, now: NOW })
+    expect(v.related.map((r) => [r.itemId, r.own])).toEqual([
+      [B, true],
+      [C, false],
+    ])
+    const again = itemView(idx, attrsOf({ itemId: A, related: [B] }), { pageId: 'p1', blockId: null, now: NOW }, v)
+    expect(again).toBe(v)
+  })
+
+  test('duplicates: winner = earliest page, DUPLICATE only after the delay', () => {
+    const idx = buildIndex(
+      [pageOf('late', doc(item({ id: 'x2', itemId: A }, 'Copy')), { createdAt: 2000 }), pageOf('early', doc(item({ id: 'x1', itemId: A }, 'Original')), { createdAt: 1000 })],
+      0,
+      deps,
+    )
+    expect(idx.dups.get(A)!.map((e) => e.pageId)).toEqual(['early', 'late'])
+    expect(idx.byId.get(A)!.pageId).toBe('early')
+    const since = () => NOW
+    const attrs = attrsOf({ id: 'x2', itemId: A })
+    expect(itemView(idx, attrs, { pageId: 'late', blockId: 'x2', now: NOW + DUP_DELAY - 1, dupSince: since }).duplicate).toBeNull()
+    expect(itemView(idx, attrs, { pageId: 'late', blockId: 'x2', now: NOW + DUP_DELAY, dupSince: since }).duplicate).toBe('loser')
+    expect(itemView(idx, attrsOf({ id: 'x1', itemId: A }), { pageId: 'early', blockId: 'x1', now: NOW + DUP_DELAY, dupSince: since }).duplicate).toBe('winner')
+  })
+
+  test('update: a title edit swaps that page\'s entries only; a link change rebuilds the graph', () => {
+    const p1 = pageOf('p1', doc(item({ itemId: A, blockedBy: [B] }, 'Ship it')))
+    const p2 = pageOf('p2', doc(item({ itemId: B }, 'Approve')))
+    const idx = buildIndex([p1, p2], 0, deps)
+    const renamed = updateIndex(idx, [pageOf('p2', doc(item({ itemId: B }, 'Approve the copy')))], [], 0, deps)
+    expect(renamed.version).toBe(idx.version + 1)
+    expect(renamed.byId.get(B)!.title).toBe('Approve the copy')
+    expect(renamed.dependents).toBe(idx.dependents)
+    expect(renamed.loopEdges).toBe(idx.loopEdges)
+    expect(renamed.byId.get(A)).toBe(idx.byId.get(A))
+    // the same page state again: the same index object
+    expect(updateIndex(renamed, [renamed.byPage.get('p2')!], [], 0, deps)).toBe(renamed)
+    // a link removed: graph rebuilt
+    const unlinked = updateIndex(renamed, [pageOf('p1', doc(item({ itemId: A }, 'Ship it')))], [], 0, deps)
+    expect(unlinked.dependents.get(B)).toBeUndefined()
+    // a page leaves (deleted / no tasks): its ids go
+    const gone = updateIndex(unlinked, [], ['p2'], 0, deps)
+    expect(gone.byId.has(B)).toBe(false)
+    // only the unloaded count changed
+    const waiting = updateIndex(gone, [], [], 3, deps)
+    expect(waiting.unloaded).toBe(3)
+    expect(waiting.byId).toBe(gone.byId)
+  })
+
+  test('loops: Tarjan on a 3-cycle with a tail; wouldLoop', () => {
+    const edges = new Map<string, string[]>([
+      ['a', ['b']],
+      ['b', ['c']],
+      ['c', ['a']],
+      ['d', ['a']],
+      ['e', ['d']],
+    ])
+    expect([...loopEdgesOf(edges)].sort()).toEqual(['a>b', 'b>c', 'c>a'])
+    // a long chain stays iterative
+    const chain = new Map<string, string[]>()
+    for (let i = 0; i < 20_000; i++) chain.set(`n${i}`, [`n${i + 1}`])
+    chain.set('n20000', ['n0'])
+    expect(loopEdgesOf(chain).size).toBe(20_001)
+    const idx = buildIndex([pageOf('p', doc(item({ itemId: A, blockedBy: [B] }, 'a'), item({ itemId: B, blockedBy: [C] }, 'b'), item({ itemId: C }, 'c')))], 0, deps)
+    expect(wouldLoop(idx, C, A)).toBe(true)
+    expect(wouldLoop(idx, A, C)).toBe(false)
+    expect(wouldLoop(idx, A, A)).toBe(true)
+    const looped = buildIndex([pageOf('p', doc(item({ itemId: A, blockedBy: [B] }, 'a'), item({ itemId: B, blockedBy: [A] }, 'b'), item({ itemId: C, blockedBy: [A] }, 'c')))], 0, deps)
+    expect([...looped.loopEdges].sort()).toEqual([`${A}>${B}`, `${B}>${A}`].sort())
+    const v = itemView(looped, attrsOf({ itemId: A, blockedBy: [B] }), { pageId: 'p', blockId: null, now: NOW })
+    expect(v.blockers[0].state).toBe('loop')
+    expect(v.blocked).toBe(false)
+    expect(graphOf(looped.byId).dependents.get(A)!.sort()).toEqual([B, C].sort())
+  })
+
+  test('ringsHere / audienceText', () => {
+    const team = { team: true, me: 'u_me', members: new Set(['u_me', 'u_alex']) }
+    expect(ringsHere(['u_alex'], { team: false, me: null, members: null })).toBe(true)
+    expect(ringsHere([], team)).toBe(true)
+    expect(ringsHere(['u_me', 'u_alex'], team)).toBe(true)
+    expect(ringsHere(['u_alex'], team)).toBe(false)
+    expect(ringsHere(['p_local'], team)).toBe(true)
+    expect(ringsHere(['p_local'], { ...team, members: null })).toBe(false)
+    const t = (k: string, v?: Record<string, string | number>) => `${k}${v ? JSON.stringify(v) : ''}`
+    const name = (id: string) => ({ u_me: 'You', u_alex: 'Alex', u_mira: 'Mira' })[id] ?? null
+    expect(audienceText(['u_alex'], { team: false, me: null, members: null }, name, t, 'en')).toBeNull()
+    expect(audienceText([], team, name, t, 'en')).toBe('features.workItems.audience.everyone')
+    expect(audienceText(['p_local'], team, name, t, 'en')).toBe('features.workItems.audience.noMember')
+    expect(audienceText(['u_alex', 'u_me'], team, name, t, 'en')).toBe('features.workItems.audience.people{"names":"Alex and You"}')
+    expect(audienceText(['u_alex', 'u_me'], team, name, t, 'de')).toBe('features.workItems.audience.people{"names":"Alex und You"}')
+  })
+})
+
+/* ------------------------------------------------------------------ */
+/* The live index in the app (window.__oneItems)                       */
+/* ------------------------------------------------------------------ */
+
+type Items = {
+  notifies: () => number
+  index: () => any
+  view: (attrs: unknown, pageId: string | null, blockId?: string | null) => any
+  isBuilt: () => boolean
+  pending: () => number
+  rebuild: () => number
+  canCreate: () => boolean
+}
+const items = <R>(page: Page, fn: (i: Items) => R): Promise<R> =>
+  page.evaluate(`(${fn.toString()})(window.__oneItems)`) as Promise<R>
+
+test.describe('live index (in the app)', () => {
+  test('lazy, incremental, never notifies synchronously; DUPLICATE after the delay without any other change', async ({ page, errors }) => {
+    await openApp(page)
+    expect(await items(page, (i) => i.isBuilt())).toBe(false)
+    expect(await items(page, (i) => i.canCreate())).toBe(true)
+    const one = await createPage(page, { title: 'Launch plan', content: doc(item({ id: 'blk-a', itemId: A, blockedBy: [B] }, 'Run the checkout'), item({ id: 'blk-b', itemId: B, status: 'in_progress' }, 'Approve the copy')) })
+    const idx = await items(page, (i) => i.index())
+    expect(idx.pages).toContain(one)
+    expect(idx.byId[A].title).toBe('Run the checkout')
+    expect(idx.dependents[B]).toEqual([A])
+
+    // a write: queued, applied a frame later; a read in between applies it at once but notifies only in a microtask
+    const sync = await page.evaluate(
+      async ({ one, B }) => {
+        const w = window as any
+        const s = w.__one.workspace.getState()
+        const content = JSON.parse(JSON.stringify(s.pages[one].content))
+        content.content[1].content[0].content[0].text = 'Approve the final copy'
+        s.setContent(one, content, 'e2e')
+        const pending = w.__oneItems.pending()
+        const n0 = w.__oneItems.notifies()
+        const title = w.__oneItems.index().byId[B].title
+        const n1 = w.__oneItems.notifies()
+        await Promise.resolve()
+        await new Promise((r) => setTimeout(r, 0))
+        return { pending, title, syncNotified: n1 - n0, later: w.__oneItems.notifies() - n0 }
+      },
+      { one, B },
+    )
+    expect(sync.pending).toBeGreaterThan(0)
+    expect(sync.title).toBe('Approve the final copy')
+    expect(sync.syncNotified).toBe(0)
+    expect(sync.later).toBe(1)
+
+    // trash the page: its tasks become "in trash" for a ref from elsewhere
+    const other = await createPage(page, { title: 'Elsewhere', content: doc(item({ itemId: C, blockedBy: [A] }, 'Waits for the checkout')) })
+    await wsEval(page, (s, id) => s.trashPage(id), one)
+    await expect.poll(() => items(page, (i) => i.index().trashed)).toContain(A)
+    const v = await page.evaluate(({ C, A, other }) => (window as any).__oneItems.view({ itemId: C, status: 'todo', blockedBy: [A], related: [], people: [], due: null, reminder: null, doneAt: null, frozen: null, id: null }, other), { C, A, other })
+    expect(v.blockers[0].state).toBe('trash')
+    await wsEval(page, (s, id) => s.restorePage(id), one)
+    await expect.poll(() => items(page, (i) => Object.keys(i.index().byId))).toContain(A)
+
+    // the same id on a second page: a duplicate, DUPLICATE shows at 1.5 s without any other change
+    const dupPage = await createPage(page, { title: 'Pasted twice', content: doc(item({ id: 'blk-dup', itemId: B }, 'Approve the final copy')) })
+    await expect.poll(() => items(page, (i) => Object.keys(i.index().dups))).toContain(B)
+    const timing = await page.evaluate(
+      async ({ B, dupPage }) => {
+        const w = window as any
+        const attrs = { itemId: B, status: 'todo', blockedBy: [], related: [], people: [], due: null, reminder: null, doneAt: null, frozen: null, id: 'blk-dup' }
+        const v0 = w.__oneItems.index().version
+        const early = w.__oneItems.view(attrs, dupPage, 'blk-dup').duplicate
+        await new Promise((r) => setTimeout(r, 1700))
+        return { early, late: w.__oneItems.view(attrs, dupPage, 'blk-dup').duplicate, bumped: w.__oneItems.index().version > v0 }
+      },
+      { B, dupPage },
+    )
+    expect(timing.early).toBeNull()
+    expect(timing.late).toBe('loser')
+    expect(timing.bumped).toBe(true)
+    await flush(page)
+    expect(errors.list).toEqual([])
   })
 })

@@ -36,3 +36,9 @@ export function setItemLookup(lookup: ItemLookup | null): void {
 export function itemLookup(): ItemLookup {
   return current
 }
+
+/**
+ * Counters for the end-to-end seam (`window.__oneItems`, features/workitems/live.ts — `?e2e` only): placard
+ * renders, ids re-minted by a paste / drop, relinks after a cut. Plain numbers, never read by the app itself.
+ */
+export const itemCounters = { renders: 0, remints: 0, relinks: 0 }

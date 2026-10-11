@@ -458,3 +458,35 @@ export {
   RowSlips,
   openOutbox,
 } from './outbox'
+/**
+ * Tasks outside the editor (features/workitems — see workitems/index.ts): startItems() (main.tsx, before the first
+ * editor mounts: the editor's lookup + the ONE creation gate), getItemIndex() (lazy, incremental workspace index),
+ * useItemView(attrs, pageId, blockId?) (blockers, dependents, related, duplicate — cached per component),
+ * useItemIndexVersion(), useNowMinute(), canCreateItems(), wouldLoop(), memberIds() / useMemberIds(),
+ * ringsHere() / audienceText() (who a task's reminder rings for).
+ */
+export {
+  startItems,
+  getItemIndex,
+  peekItemIndex,
+  subscribeItems,
+  useItemIndexVersion,
+  useItemView,
+  useNowMinute,
+  canCreateItems,
+  wouldLoop,
+  refOf as itemRefOf,
+  DUP_DELAY,
+  memberIds,
+  useMemberIds,
+  ringsHere,
+  audienceText,
+  joinNames,
+  type ItemView,
+  type ItemRef,
+  type RefState,
+  type ItemIndex,
+  type ItemEntry,
+  type PageItems,
+  type AudienceCtx,
+} from './workitems'

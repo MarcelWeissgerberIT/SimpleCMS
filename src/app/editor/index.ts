@@ -104,7 +104,7 @@ export { itemsOfContent, compareOccurrence, type ScannedItem, type Occurrence } 
 export { itemTitleText, todoProgress } from './workitem/text'
 export { patchItemAttrs, patchItemInDoc, findItemPos, type ItemPatch } from './workitem/patch'
 export { itemBlocks } from './workitem/turn'
-export { setItemLookup, itemLookup, type ItemLookup } from './workitem/lookup'
+export { setItemLookup, itemLookup, itemCounters, type ItemLookup } from './workitem/lookup'
 /** itemChanges(before attrs, after attrs): the fields that changed (status, due, reminder, people, blockedBy, related) — history diff. */
 export { itemChanges, type ItemChange, type ItemField } from './workitem/diff'
 /**
