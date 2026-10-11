@@ -7,6 +7,8 @@
  */
 import type { JSONContent } from '@tiptap/core'
 import type { Page } from '@playwright/test'
+import { strFromU8, unzipSync } from 'fflate'
+import { readFileSync } from 'node:fs'
 import { test, expect, openApp, wsEval, createPage, flush, gotoPage, editorOf, mockClaude, MOD } from './fixtures'
 import { collectItemIds, ITEM_ID, newItemId, outermostItems, remapItemLinks, remintItems, resetItems } from '../../src/app/lib/itemIds'
 import { itemsOfContent, compareOccurrence } from '../../src/app/editor/workitem/scan'
@@ -1003,6 +1005,64 @@ test.describe('agenda + people (in the app)', () => {
     await page.locator('.toasts').getByRole('button', { name: 'Undo' }).click()
     await expect(page.getByTestId('ws-person').filter({ hasText: 'Sam' })).toHaveCount(1)
     await expect.poll(() => wsEval(page, (s, id) => JSON.stringify(s.pages[id].content), plan)).toBe(before)
+  })
+})
+
+/* ------------------------------------------------------------------ */
+/* B17: task titles in Markdown — only inside withItemLabels (export)  */
+/* ------------------------------------------------------------------ */
+
+test.describe('Markdown labels (in the app)', () => {
+  test('ids everywhere but the export; the export names linked tasks (a private one keeps its id); the trust version ignores a rename elsewhere', async ({ page, errors }, testInfo) => {
+    await openApp(page)
+    const other = await createPage(page, { title: 'Elsewhere', content: doc(item({ id: 'bo', itemId: A }, 'Draft copy')) })
+    const secret = await createPage(page, { title: 'Secret', content: doc(item({ id: 'bs', itemId: C }, 'Hidden plan')) })
+    await wsEval(page, (s, id) => s.updatePage(id, { private: true }), secret)
+    const plan = await createPage(page, { title: 'Pricing launch', content: doc(item({ id: 'bb', itemId: B, blockedBy: [A], related: [C] }, 'Ship pricing')) })
+    const entry = (id: string) => page.evaluate((id) => (window as any).__oneItems.index().byId[id] as { title: string; private: boolean } | undefined, id)
+    await expect.poll(async () => (await entry(C))?.private).toBe(true)
+    const md = (labels: boolean) => page.evaluate(({ plan, labels }) => (window as any).__oneItems.markdown(plan, labels) as string, { plan, labels })
+    const version = () => page.evaluate((id) => (window as any).__oneTrust.version(id) as Promise<string>, plan)
+
+    // plain docToMarkdown (AI reads, sync, coding hashes): ids; the export's scope: titles — never a private one's
+    expect(await md(false)).toContain(`Blocked by: [${A}](one:item/${A}) · Related: [${C}](one:item/${C})`)
+    expect(await md(true)).toContain(`Blocked by: [Draft copy](one:item/${A}) · Related: [${C}](one:item/${C})`)
+    expect(await md(true)).not.toContain('Hidden plan')
+
+    // renaming the linked task on its own page changes neither this page's Markdown nor its coding trust version
+    const v0 = await version()
+    const plain0 = await md(false)
+    await wsEval(
+      page,
+      (s, id) => {
+        const content = JSON.parse(JSON.stringify(s.pages[id].content))
+        content.content[0].content[0].content[0].text = 'Draft the final copy'
+        s.setContent(id, content, 'e2e')
+      },
+      other,
+    )
+    await expect.poll(async () => (await entry(A))?.title).toBe('Draft the final copy')
+    expect(await md(false)).toBe(plain0)
+    expect(await version()).toBe(v0)
+    expect(await md(true)).toContain(`[Draft the final copy](one:item/${A})`)
+
+    // the Markdown export (ZIP) writes the title
+    await gotoPage(page, plan)
+    await page.keyboard.press(`${MOD}+k`)
+    await page.keyboard.type('>export')
+    await page.keyboard.press('Enter')
+    const dialog = page.getByRole('dialog')
+    await dialog.getByRole('radio', { name: /Markdown folder/ }).click()
+    const download = page.waitForEvent('download')
+    await dialog.locator('[data-export-run]').click()
+    const out = testInfo.outputPath('plan.zip')
+    await (await download).saveAs(out)
+    await page.keyboard.press('Escape')
+    const zip = unzipSync(new Uint8Array(readFileSync(out)))
+    const file = strFromU8(zip[Object.keys(zip).find((n) => n.endsWith('.md'))!]!)
+    expect(file).toContain(`> [!TODO] Ship pricing {#${B}}\n> Blocked by: [Draft the final copy](one:item/${A}) · Related: [${C}](one:item/${C})`)
+    await flush(page)
+    expect(errors.list).toEqual([])
   })
 })
 

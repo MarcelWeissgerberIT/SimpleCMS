@@ -3,10 +3,12 @@
  * content `paragraph block*`: the first paragraph is the title (rich text), the rest are notes.
  * The attrs contract and its one sanitizer live in ../workitem/attrs.ts (`itemAttrs`).
  *
- * Schema release (P0): every client understands, shows, stores, exports and diffs a task — nothing
- * creates one yet (no slash item, no input rule, no Turn into, no AI path; the Markdown reader is off,
- * ../workitem/markdown.ts). Team workspaces: an older tab would DELETE this node from a shared document,
- * so the collab server only lets clients of DOC_SCHEMA_VERSION ≥ its minimum write (docs/CLOUD.md § Schema gate).
+ * P0 (schema release) made every client understand, show, store, export and diff a task. P1 creates them —
+ * ONLY in the editor (slash /task, "[!] ", Turn into, Enter after a title) and as copies of existing tasks, each
+ * through the one creation gate `itemLookup().canCreate()`; no Claude path creates or edits one (the Markdown
+ * reader is off, ../workitem/markdown.ts). Team workspaces: an older tab would DELETE this node from a shared
+ * document, so the collab server only lets clients of DOC_SCHEMA_VERSION ≥ its minimum write (docs/CLOUD.md
+ * § Schema gate), and this app creates tasks there only when the server says it has that gate (`schema_min`).
  *
  * Placement (../workitem/place.ts): never inside another task, never in a table — a task that lands there
  * (paste, drop) is moved out whole, after the outermost task / table, fields and all. Local transactions
@@ -29,6 +31,7 @@ import { itemAttrs, readDoneAt, readDue, readFrozen, readItemId, readLinks, read
 import { CLIP_ATTR, clipKey, isOwnCopy } from '../workitem/clip'
 import { chipWords, placardModel } from '../workitem/format'
 import { workItemMarkdown } from '../workitem/markdown'
+import { itemLabel } from '../workitem/labels'
 import { liftMisplaced } from '../workitem/place'
 
 export { WORK_ITEM }
@@ -150,7 +153,8 @@ export const WorkItem = Node.create({
     const title = first ? h.renderChildren([first]).trim() : ''
     const notes = rest.length ? h.renderChildren(rest, '\n\n') : ''
     const people = useWorkspace.getState().people
-    return workItemMarkdown(a, title, notes, { person: (id) => people.find((p) => p.id === id)?.name ?? null })
+    // linked tasks: their ids, titles only inside withItemLabels (the Markdown export — ../workitem/labels.ts)
+    return workItemMarkdown(a, title, notes, { person: (id) => people.find((p) => p.id === id)?.name ?? null, item: itemLabel })
   },
 
   addProseMirrorPlugins() {

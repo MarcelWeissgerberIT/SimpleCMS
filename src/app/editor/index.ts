@@ -99,12 +99,15 @@ export { dueText as workItemDueText, reminderShort as workItemReminderShort } fr
  *  - itemBlocks(task json): the task as plain blocks (title paragraph + notes, fields dropped).
  *  - setItemLookup(lookup) / itemLookup(): the registry the editor asks (taken / gone / isPrivate / canCreate —
  *      the ONE creation gate); fail-closed until features/workitems registers. itemCounters: e2e counters.
+ *  - setItemTitleLookup(fn) / withItemLabels(fn): linked tasks' titles in the Markdown field line ONLY inside
+ *      withItemLabels (the Markdown export); every other docToMarkdown writes ids (labels.ts).
  */
 export { itemsOfContent, compareOccurrence, type ScannedItem, type Occurrence } from './workitem/scan'
 export { itemTitleText, todoProgress } from './workitem/text'
 export { patchItemAttrs, patchItemInDoc, findItemPos, type ItemPatch } from './workitem/patch'
 export { itemBlocks } from './workitem/turn'
 export { setItemLookup, itemLookup, itemCounters, setItemHooks, type ItemLookup, type ItemHooks } from './workitem/lookup'
+export { setItemTitleLookup, withItemLabels } from './workitem/labels'
 /**
  * commitItem(editor, target, patch, opts?) / commitItems(editor, edits, opts?): THE editor-side field write — delta-only
  * setNodeMarkup, one transaction, one undo step in every editor; target = { pos, itemId, blockId } (the block acted on:

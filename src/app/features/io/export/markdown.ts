@@ -80,7 +80,7 @@ export function rewriteExportLinks(md: string, from: string, pageTarget: (id: ID
 }
 
 export async function buildMarkdownZip(tree: ExportTree, opts: { untitled: string; onProgress?: (done: number, total: number) => void }): Promise<Blob> {
-  const [{ docToMarkdown }, { propertyValueToText, withTypeColumn }] = await Promise.all([import('../../../editor'), import('../../../database')])
+  const [{ docToMarkdown, withItemLabels }, { propertyValueToText, withTypeColumn }] = await Promise.all([import('../../../editor'), import('../../../database')])
   const out: Record<string, Uint8Array> = {}
   const pathOf = new Map<ID, string>()
 
@@ -167,8 +167,10 @@ export async function buildMarkdownZip(tree: ExportTree, opts: { untitled: strin
         }
         if (props.length) parts.push(props.join('\n'), '')
       }
-      // date / person mentions as one: links (they come back as mentions on import)
-      const body = p.content ? toFileMarkdown(docToMarkdown, p.content) : ''
+      // date / person mentions as one: links (they come back as mentions on import); a task's links name the
+      // linked task (its title — a private one keeps its id): only this export writes titles (editor/workitem/labels.ts)
+      const content = p.content
+      const body = content ? withItemLabels(() => toFileMarkdown(docToMarkdown, content)) : ''
       if (body.trim()) parts.push(rewrite(body, path))
       out[path] = strToU8(parts.join('\n').trimEnd() + '\n')
     }

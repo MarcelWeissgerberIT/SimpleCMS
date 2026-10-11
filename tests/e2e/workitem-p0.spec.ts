@@ -337,10 +337,10 @@ test.describe('task block (P0): Markdown, share link, HTML export', () => {
     const md = strFromU8(zip[name]!)
     expect(md).toContain(`> [!TODO] Run the checkout with test cards {#${A}}\n> Due: [@Fri 17 Oct](one:date/2031-10-17?r=-1d) · Owner: [@Alex Kern](one:person/${alex}), [@Mara Sommer](one:person/${mara})`)
     expect(md).toContain(
-      `> [!TODO] Approve the final pricing copy {#${B}}\n> Status: in progress · Due: [@Fri 17 Oct](one:date/2031-10-17) · Owner: [@Mara Sommer](one:person/${mara}) · Related: [${A}](one:item/${A})\n>\n> The last draft is in the team wiki.`,
+      `> [!TODO] Approve the final pricing copy {#${B}}\n> Status: in progress · Due: [@Fri 17 Oct](one:date/2031-10-17) · Owner: [@Mara Sommer](one:person/${mara}) · Related: [Run the checkout with test cards](one:item/${A})\n>\n> The last draft is in the team wiki.`,
     )
     expect(md).toMatch(/> - \[x\] Name the plans\n> - \[ \] Shorten the small print/)
-    expect(md).toContain(`> Due: [@Fri 17 Oct 09:00](one:date/2031-10-17T09:00) · Owner: [@Alex Kern](one:person/${alex}) · Blocked by: [${A}](one:item/${A}), [${B}](one:item/${B})`)
+    expect(md).toContain(`> Due: [@Fri 17 Oct 09:00](one:date/2031-10-17T09:00) · Owner: [@Alex Kern](one:person/${alex}) · Blocked by: [Run the checkout with test cards](one:item/${A}), [Approve the final pricing copy](one:item/${B})`)
     // the time it was done rides in the id braces (lossless)
     expect(md).toContain(`> [!TODO] Legal review of the terms {#${E} done=2025-10-09T08:53:20.000Z}\n> Status: done · Owner: [@Mara Sommer](one:person/${mara})`)
     // a todo status and empty fields are left out

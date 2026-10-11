@@ -19,7 +19,7 @@ import { useWorkspace, pageChanges } from '../../store/store'
 import { isEffectivelyTrashed, templateRootOf } from '../../store/selectors'
 import type { ID, Page } from '../../store/types'
 import { activeWorkspace, useCloud } from '../../cloud'
-import { compareOccurrence, itemCounters, itemsOfContent, setItemHooks, setItemLookup, type WorkItemAttrs } from '../../editor'
+import { compareOccurrence, docToMarkdown, itemCounters, itemsOfContent, setItemHooks, setItemLookup, setItemTitleLookup, withItemLabels, type WorkItemAttrs } from '../../editor'
 import { buildIndex, EMPTY_INDEX, updateIndex, type IndexDeps, type ItemIndex, type PageItems } from './itemIndex'
 import { DUP_DELAY, itemView, type ItemView } from './view'
 import { unblockedBy } from './unblock'
@@ -310,6 +310,11 @@ export function startItems(): () => void {
   })
   // a person finished tasks in an editor: who can start now
   setItemHooks({ finished: (itemIds) => toastUnblocked(unblockedBy(getItemIndex(), itemIds)) })
+  // the Markdown export's link labels (withItemLabels only): a live task's title — never a private one's
+  setItemTitleLookup((itemId) => {
+    const e = getItemIndex().byId.get(itemId)
+    return e && !e.private ? e.title || null : null
+  })
   unsub = useWorkspace.subscribe(onStore)
   return stopItems
 }
@@ -323,6 +328,7 @@ export function stopItems(): void {
   unsub = null
   setItemLookup(null)
   setItemHooks(null)
+  setItemTitleLookup(null)
   cancelAnimationFrame(frame)
   window.clearTimeout(timer)
   frame = 0
@@ -382,5 +388,10 @@ if (typeof window !== 'undefined' && (import.meta.env.DEV || new URLSearchParams
       forced = v
     },
     canCreate: () => canCreateItems(),
+    /** a page's Markdown as docToMarkdown writes it — `labels`: inside withItemLabels (the Markdown export) */
+    markdown: (pageId: ID, labels = false) => {
+      const content = useWorkspace.getState().pages[pageId]?.content ?? null
+      return labels ? withItemLabels(() => docToMarkdown(content)) : docToMarkdown(content)
+    },
   }
 }

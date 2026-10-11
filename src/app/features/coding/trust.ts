@@ -176,3 +176,15 @@ function watchDb(dbId: ID, next: WorkspaceState, prev: WorkspaceState): void {
     for (const [before, now] of pairs) if (set.has(await versionOf(before, dbBefore))) await addTrusted(await versionOf(now, dbNow))
   }).catch(() => {})
 }
+
+// Test hook (dev, or ?e2e): a task page's version as the worker checks it (P1: a linked task renamed on another
+// page must not change it — editor/workitem/labels.ts)
+if (typeof window !== 'undefined' && (import.meta.env.DEV || new URLSearchParams(window.location.search).has('e2e'))) {
+  ;(window as unknown as { __oneTrust?: unknown }).__oneTrust = {
+    version: (pageId: ID) => {
+      const s = useWorkspace.getState()
+      const page = s.pages[pageId]
+      return page ? versionOf(page, page.databaseId ? s.databases[page.databaseId] : undefined) : null
+    },
+  }
+}
