@@ -26,7 +26,8 @@ export const messages: Messages = {
     'features.recorder.fmt.stripDay': 'EEE HH',
 
     // status bar, ⌘K, menus
-    'features.recorder.status.rec': 'Rec · {days} · {ops}',
+    'features.recorder.status.recLabel': 'Rec',
+    'features.recorder.status.recMore': ' · {days} · {ops}',
     'features.recorder.status.recTitle': 'Flight recorder: every write on this device, {days} back',
     'features.recorder.status.rewind': 'Rewind',
     'features.recorder.status.open': 'Open the flight recorder ({key})',
@@ -65,11 +66,14 @@ export const messages: Messages = {
     'features.recorder.deck.lanesAria': 'Tracks',
     'features.recorder.deck.slider': 'Playhead',
     'features.recorder.deck.sliderText': '{date}, {time} · since then {ops}',
+    'features.recorder.deck.sliderNow': 'Now — follows the clock',
+    'features.recorder.live.run': '{run} · starts {time}',
     'features.recorder.deck.empty': 'Nothing written in this span.',
     'features.recorder.deck.memoryOnly': 'This browser keeps no tape — recorded in this tab only.',
     'features.recorder.deck.floor': 'Tape from {date}',
     'features.recorder.deck.paused': 'Recording paused: this device is short of room.',
     'features.recorder.deck.lostTail': 'Recording interrupted',
+    'features.recorder.deck.lostTailTitle': 'Recording interrupted {from} – {to}: a tab closed before it had written what it recorded',
     'features.recorder.deck.teamOnlySeen': 'This device knows only what it saw.',
 
     // tracks
@@ -137,6 +141,11 @@ export const messages: Messages = {
     'features.recorder.win.meter.views.one': '+{n} view',
     'features.recorder.win.none': 'Click a flag or drag along a track to bracket a window.',
     'features.recorder.win.keys': 'Keys: [ and ] set its edges at the playhead.',
+    'features.recorder.win.noneTouch': 'Tap a flag — or tap a track, move the playhead and set the window’s start and end there.',
+    'features.recorder.win.start': 'Start here',
+    'features.recorder.win.end': 'End here',
+    'features.recorder.win.startTitle': 'The window starts at the playhead, on {lane}',
+    'features.recorder.win.endTitle': 'The window ends at the playhead, on {lane}',
     'features.recorder.win.clear': 'Clear the window',
 
     // the lane filter
@@ -176,7 +185,8 @@ export const messages: Messages = {
     'features.recorder.fmt.dayLong': 'EEEE, d. MMMM',
     'features.recorder.fmt.stripDay': 'EEEEEE HH',
 
-    'features.recorder.status.rec': 'Rec · {days} · {ops}',
+    'features.recorder.status.recLabel': 'Rec',
+    'features.recorder.status.recMore': ' · {days} · {ops}',
     'features.recorder.status.recTitle': 'Flugschreiber: jeder Vorgang auf diesem Gerät, {days} zurück',
     'features.recorder.status.rewind': 'Rückspulen',
     'features.recorder.status.open': 'Flugschreiber öffnen ({key})',
@@ -214,11 +224,14 @@ export const messages: Messages = {
     'features.recorder.deck.lanesAria': 'Spuren',
     'features.recorder.deck.slider': 'Abspielkopf',
     'features.recorder.deck.sliderText': '{date}, {time} · seitdem {ops}',
+    'features.recorder.deck.sliderNow': 'Jetzt — folgt der Uhr',
+    'features.recorder.live.run': '{run} · beginnt {time}',
     'features.recorder.deck.empty': 'In diesem Ausschnitt wurde nichts geschrieben.',
     'features.recorder.deck.memoryOnly': 'Dieser Browser behält kein Band — nur in diesem Tab aufgezeichnet.',
     'features.recorder.deck.floor': 'Band ab {date}',
     'features.recorder.deck.paused': 'Aufnahme pausiert: auf diesem Gerät ist kein Platz.',
     'features.recorder.deck.lostTail': 'Aufnahme unterbrochen',
+    'features.recorder.deck.lostTailTitle': 'Aufnahme unterbrochen {from} – {to}: ein Tab wurde geschlossen, bevor er schrieb, was er aufgezeichnet hatte',
     'features.recorder.deck.teamOnlySeen': 'Dieses Gerät kennt nur, was es gesehen hat.',
 
     'features.recorder.lane.you': 'Du',
@@ -283,6 +296,11 @@ export const messages: Messages = {
     'features.recorder.win.meter.views.one': '+{n} Ansicht',
     'features.recorder.win.none': 'Fähnchen anklicken oder auf einer Spur ziehen, um ein Fenster zu klammern.',
     'features.recorder.win.keys': 'Tasten: [ und ] setzen seine Kanten am Abspielkopf.',
+    'features.recorder.win.noneTouch': 'Fähnchen antippen — oder eine Spur antippen, den Abspielkopf bewegen und dort Beginn und Ende des Fensters setzen.',
+    'features.recorder.win.start': 'Beginn hier',
+    'features.recorder.win.end': 'Ende hier',
+    'features.recorder.win.startTitle': 'Das Fenster beginnt am Abspielkopf, auf {lane}',
+    'features.recorder.win.endTitle': 'Das Fenster endet am Abspielkopf, auf {lane}',
     'features.recorder.win.clear': 'Fenster aufheben',
 
     'features.recorder.filter.title': 'Spuren',

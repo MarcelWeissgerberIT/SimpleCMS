@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useLayoutEffect, useMemo, useRef } from 'react'
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
 import { useRowCount } from '../../store/selectors'
@@ -14,7 +14,41 @@ import { CloudStatusCells, useCloudReadout } from '../cloud/Sync'
 import { SyncStatusCell, McpStatusCell, AgentStatusCell, CodingStatusCell, OutboxStatusCell, RecorderStatusCell, RewindKey } from '../../features'
 import { toggleHelp, useHelp, HelpNewsLed } from '../../help'
 
-/** 24px instrument read-out along the bottom edge. */
+/**
+ * How many levels of low-priority parts the status bar sheds when its cells do not fit (measured: its width, its
+ * cells' text, the text size): level n sets `data-shed-1` … `data-shed-n` on the bar. 1 the REC cell's days and
+ * Vorgänge · 2 the Rewind key's shortcut · 3 its word (the icon stays, the name stays for screen readers) · 4 the
+ * theme's name · 5 the commands key's word · 6 the page's word count.
+ */
+const SHED_LEVELS = 6
+
+function useShed(): React.RefObject<HTMLElement | null> {
+  const ref = useRef<HTMLElement>(null)
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const fit = () => {
+      for (let i = 1; i <= SHED_LEVELS; i++) el.removeAttribute(`data-shed-${i}`)
+      for (let i = 1; i <= SHED_LEVELS && el.scrollWidth > el.clientWidth + 1; i++) el.setAttribute(`data-shed-${i}`, '')
+    }
+    fit()
+    const ro = new ResizeObserver(fit)
+    ro.observe(el)
+    // a cell's text changed (a count, the language) or the text size: fit again (the bar's own attributes are not watched)
+    const mo = new MutationObserver(fit)
+    mo.observe(el, { childList: true, subtree: true, characterData: true })
+    const size = new MutationObserver(fit)
+    size.observe(document.documentElement, { attributes: true, attributeFilter: ['data-text-size'] })
+    return () => {
+      ro.disconnect()
+      mo.disconnect()
+      size.disconnect()
+    }
+  }, [])
+  return ref
+}
+
+/** 24px instrument read-out along the bottom edge (it sheds low-priority parts when they do not fit). */
 export function StatusBar({ route }: { route: Route }) {
   const t = useT()
   const lang = useLang()
@@ -32,12 +66,13 @@ export function StatusBar({ route }: { route: Route }) {
   // a team workspace reports sync with the server instead of the local save
   const cloud = useCloudReadout()
   const helpOpen = useHelp((s) => s.open)
+  const shed = useShed()
 
   const saveText =
     status === 'saving' ? t('shell.status.writing') : status === 'error' ? t('shell.status.error') : t('shell.status.saved')
 
   return (
-    <footer className="status" aria-label={t('shell.status.label')}>
+    <footer className="status" ref={shed} aria-label={t('shell.status.label')}>
       {cloud ? (
         <CloudStatusCells readout={cloud} />
       ) : (
@@ -53,7 +88,7 @@ export function StatusBar({ route }: { route: Route }) {
       <CodingStatusCell />
       <OutboxStatusCell />
       {pageId && kind === 'page' && (
-        <span className="status__cell">
+        <span className="status__cell status__words">
           {t(plural('shell.stats.words', words), { n: fmtNumber(words, lang) })} · {t('shell.stats.read', { n: readingTime(words) })}
         </span>
       )}
@@ -67,7 +102,7 @@ export function StatusBar({ route }: { route: Route }) {
       <RewindKey />
       <button type="button" className="status__cell status__btn" onClick={toggleTheme} title={t('shell.status.theme')}>
         <span className="status__half" aria-hidden />
-        {dark ? 'Carbon' : 'Paper'}
+        <span className="status__shed4">{dark ? 'Carbon' : 'Paper'}</span>
       </button>
       <button
         type="button"
@@ -79,7 +114,7 @@ export function StatusBar({ route }: { route: Route }) {
         <span data-on={lang === 'de' || undefined} className="status__opt">DE</span>
       </button>
       <button type="button" className="status__cell status__btn" onClick={() => useUI.getState().openPalette()}>
-        {shortcutLabel('Mod+K')} {t('shell.status.commands')}
+        {shortcutLabel('Mod+K')} <span className="status__shed5">{t('shell.status.commands')}</span>
       </button>
       <button type="button" className="status__cell status__btn" onClick={toggleHelp} aria-expanded={helpOpen}>
         ? {t('shell.status.help')}

@@ -277,6 +277,39 @@ test.describe('the biggest text size still fits', () => {
     }
   })
 
+  test('the status bar sheds what does not fit — 1024 and 1280 at standard size and XL, English and German: Help and the commands key stay', async ({ page }) => {
+    test.slow()
+    await openApp(page)
+    await startRecorder(page)
+    // a page open: the words cell joins the bar
+    const id = await createPage(page, { title: 'Nordlicht Notiz' })
+    await gotoPage(page, id)
+    for (const [w, scale] of [[1024, 1], [1280, 1], [1024, 4], [1280, 4]] as const) {
+      await page.evaluate((scale) => localStorage.setItem('one.textScale', String(scale)), scale)
+      await page.setViewportSize({ width: w, height: 768 })
+      await reloadApp(page)
+      for (const lang of ['en', 'de'] as const) {
+        await wsEval(page, (s, lang) => s.updateSettings({ language: lang }), lang)
+        await page.waitForTimeout(150)
+        const out = await page.locator('footer.status').evaluate((bar) => {
+          const bad: string[] = []
+          if (bar.scrollWidth > bar.clientWidth + 1) bad.push(`bar ${bar.scrollWidth} > ${bar.clientWidth}`)
+          const br = bar.getBoundingClientRect()
+          for (const el of bar.querySelectorAll<HTMLElement>('.status__cell')) {
+            if (getComputedStyle(el).display === 'none') continue
+            const r = el.getBoundingClientRect()
+            if (r.right > br.right + 1) bad.push(`${(el.textContent ?? '').trim().slice(0, 20)} past the bar (${Math.round(r.right)} > ${Math.round(br.right)})`)
+          }
+          return bad
+        })
+        expect(out, `status bar at ${w}, text size ${scale}, ${lang}`).toEqual([])
+        await expect(page.locator('footer.status').getByRole('button', { name: lang === 'de' ? /Hilfe/ : /Help/ })).toBeInViewport({ ratio: 1 })
+        await expect(page.locator('footer.status .status__key')).toBeInViewport({ ratio: 1 })
+      }
+      await wsEval(page, (s) => s.updateSettings({ language: 'en' }))
+    }
+  })
+
   test('the Outbox at XL: the dock (a column at 1440, the sheet at 390) and #/outbox, English and German', async ({ page, context }) => {
     test.slow()
     await blockTracker(context)

@@ -46,3 +46,18 @@
   font-weight: 500;
   opacity: 0.8;
 }
+
+/* a status bar too narrow for every cell sheds (shell StatusBar measures): 1 the REC cell's days and Vorgänge, 2 the
+   key's shortcut, 3 its word (the icon stays; the word stays readable by screen readers) */
+.status[data-shed-1] .rec-cell__more,
+.status[data-shed-2] .status__k {
+  display: none;
+}
+.status[data-shed-3] .status__kl {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

@@ -20,7 +20,10 @@ export function RecorderStatusCell() {
   return (
     <span className="status__cell rec-cell" data-testid="rec-cell" title={t('features.recorder.status.recTitle', { days })}>
       <Led state="on" />
-      {t('features.recorder.status.rec', { days, ops: unit(t, lang, 'ops', info?.ops ?? 0) })}
+      <span>
+        {t('features.recorder.status.recLabel')}
+        <span className="rec-cell__more">{t('features.recorder.status.recMore', { days, ops: unit(t, lang, 'ops', info?.ops ?? 0) })}</span>
+      </span>
     </span>
   )
 }
@@ -43,7 +46,7 @@ export function RewindKey() {
       onClick={toggleRecorder}
     >
       <Rewind aria-hidden />
-      {t('features.recorder.status.rewind')}
+      <span className="status__kl">{t('features.recorder.status.rewind')}</span>
       <span className="status__k">{key}</span>
     </button>
   )
