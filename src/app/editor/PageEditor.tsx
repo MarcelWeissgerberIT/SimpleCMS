@@ -114,6 +114,15 @@ function onModKCapture(e: KeyboardEvent) {
 const unloadFlushers = new Set<() => void>()
 const flushAllEditors = () => unloadFlushers.forEach((f) => f())
 
+/**
+ * Every mounted page editor's pending typing into the store now — each flush its own write, under its editor's frame
+ * (the flight recorder's eject runs it before it plans and again right before it writes: unsaved typing must reach
+ * the store first, never be overwritten by an external apply). Nothing pending: nothing.
+ */
+export function flushOpenEditors(): void {
+  flushAllEditors()
+}
+
 if (typeof window !== 'undefined') {
   const w = window as Window & { __oneEditorModK?: (e: KeyboardEvent) => void; __oneEditorUnload?: () => void }
   if (w.__oneEditorModK) window.removeEventListener('keydown', w.__oneEditorModK, true)
