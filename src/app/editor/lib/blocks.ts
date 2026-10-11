@@ -5,6 +5,7 @@ import type { Editor, JSONContent, Range } from '@tiptap/core'
 import { Fragment, type Node as PMNode, type ResolvedPos } from '@tiptap/pm/model'
 import { NodeSelection, Selection, TextSelection, type Transaction } from '@tiptap/pm/state'
 import { toggleHeadingLevel, type ToggleHeadingLevel } from '../schema/toggle'
+import { copyBlocks } from '../workitem/ids'
 
 /** Parents whose children are "blocks" in the Notion sense. */
 const CONTAINERS = new Set(['doc', 'column', 'callout', 'detailsContent', 'blockquote', 'tab', 'syncedBlock', 'meetingNotes'])
@@ -20,6 +21,10 @@ export function blockAtResolved($pos: ResolvedPos): BlockRef | null {
   for (let d = $pos.depth; d > 0; d--) {
     const node = $pos.node(d)
     const parent = $pos.node(d - 1)
+    // a task: a note line is a block of its own; the title line is the task (also a compact task in a list item —
+    // without this the loop would pass the title and the task and return the list item)
+    if (parent.type.name === 'workItem' && $pos.index(d - 1) >= 1) return { node, pos: $pos.before(d) }
+    if (node.type.name === 'workItem') return { node, pos: $pos.before(d) }
     if (LIST_ITEMS.has(node.type.name) || CONTAINERS.has(parent.type.name)) return { node, pos: $pos.before(d) }
   }
   return null
@@ -65,7 +70,8 @@ export function duplicateBlock(editor: Editor, ref?: BlockRef | null): boolean {
   const b = ref ?? currentBlock(state)
   if (!b) return false
   const at = b.pos + b.node.nodeSize
-  const tr = state.tr.insert(at, b.node.type.create({ ...b.node.attrs, id: null }, b.node.content, b.node.marks))
+  // a fresh block id; tasks in the copy are new tasks (or plain blocks while the creation gate is shut)
+  const tr = state.tr.insert(at, copyBlocks(state.schema, [b.node]))
   restoreSelection(tr, state.selection, b.pos, at)
   view.dispatch(tr.scrollIntoView())
   return true

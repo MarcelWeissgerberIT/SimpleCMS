@@ -28,6 +28,9 @@ export const workItemMessages: Messages = {
     'editor.workItem.unit.h': 'h',
     'editor.workItem.unit.d': 'd',
     'editor.workItem.unit.w': 'wk',
+    // the creation gate (team: a server without the schema gate): nothing makes a new task
+    'editor.workItem.createOff': 'This server is older — update it to create tasks.',
+    'editor.workItem.createOffText': 'This server is older — the copied task was kept as text.',
   },
   de: {
     'editor.block.workItem': 'Aufgabe',
@@ -52,5 +55,7 @@ export const workItemMessages: Messages = {
     'editor.workItem.unit.h': 'Std',
     'editor.workItem.unit.d': 'T',
     'editor.workItem.unit.w': 'Wo',
+    'editor.workItem.createOff': 'Dieser Server ist älter — aktualisiere ihn, um Aufgaben anzulegen.',
+    'editor.workItem.createOffText': 'Dieser Server ist älter — die kopierte Aufgabe bleibt als Text.',
   },
 }

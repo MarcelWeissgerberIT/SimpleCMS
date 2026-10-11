@@ -4,7 +4,8 @@
  *
  *  - Target: where the person acted — `{ pos, itemId, blockId }` from getPos() when the action started (a picker
  *    maps `pos` through every transaction while it is open). At commit: the node at `pos` when it is a task with that
- *    itemId; else the task whose block id is `blockId`; else NOTHING is written (toast "no longer here"). Never "the
+ *    itemId (and its block id agrees); else the task whose block id is `blockId` (else the pos match, when only the
+ *    block id changed); else NOTHING is written (toast "no longer here"). Never "the
  *    first block with this itemId": duplicates are shown on purpose and a synced reference can sit next to its
  *    original — a click on one block changes that block. `{ itemId }` (writeItems): the doc's first occurrence
  *    outside synced copies (the index winner on that page).
@@ -20,6 +21,7 @@ import { closeHistory } from '@tiptap/pm/history'
 import { t } from '../../i18n'
 import { useUI } from '../../store/ui'
 import { endUndoStep, startUndoStep } from '../collab'
+import { liveEditorOf } from '../context/store'
 import { WORK_ITEM } from './attrs'
 import { itemHooks } from './lookup'
 import { findItemPos, patchItemAttrs, type ItemPatch } from './patch'
@@ -32,21 +34,29 @@ const isItem = (n: PMNode | null | undefined): n is PMNode => !!n && n.type.name
 /** The position of the task a target means in `doc`, or null (nothing is written then). */
 export function resolveItemTarget(doc: PMNode, target: ItemTarget): number | null {
   if (!('pos' in target)) return findItemPos(doc, target.itemId)
+  let atPos: number | null = null
   if (target.pos >= 0 && target.pos < doc.content.size) {
     const node = doc.nodeAt(target.pos)
-    if (isItem(node) && (node.attrs.itemId ?? null) === target.itemId) return target.pos
-  }
-  if (!target.blockId) return null
-  let at: number | null = null
-  doc.descendants((node, pos) => {
-    if (at !== null) return false
-    if (isItem(node) && node.attrs.id === target.blockId) {
-      at = pos
-      return false
+    if (isItem(node) && (node.attrs.itemId ?? null) === target.itemId) {
+      // the very block: its block id agrees (or one of them has none)
+      if (!target.blockId || !node.attrs.id || node.attrs.id === target.blockId) return target.pos
+      atPos = target.pos
     }
-    return !node.isTextblock && !node.isAtom
-  })
-  return at
+  }
+  if (target.blockId) {
+    let at: number | null = null
+    doc.descendants((node, pos) => {
+      if (at !== null) return false
+      if (isItem(node) && node.attrs.id === target.blockId) {
+        at = pos
+        return false
+      }
+      return !node.isTextblock && !node.isAtom
+    })
+    if (at !== null) return at
+  }
+  // the block id changed meanwhile (a concurrent edit gave the block a new one): the mapped pos still holds it
+  return atPos
 }
 
 export interface CommitOptions {
@@ -90,4 +100,18 @@ export function commitItem(editor: Editor, target: ItemTarget, patch: ItemPatch,
   const [ok] = commitItems(editor, [{ target, patch }], opts)
   if (!ok && 'pos' in target) useUI.getState().toast({ message: t('features.workItems.refused.gone') })
   return ok
+}
+
+// Test hook (dev, or ?e2e): commit a person's write to a block of a page's live editor (targeting tests)
+if (typeof window !== 'undefined' && (import.meta.env.DEV || new URLSearchParams(window.location.search).has('e2e'))) {
+  ;(window as unknown as { __oneItemsEditor?: unknown }).__oneItemsEditor = {
+    commit: (pageId: string, target: ItemTarget, patch: ItemPatch) => {
+      const editor = liveEditorOf(pageId)
+      return editor ? commitItem(editor, target, patch, { by: 'person' }) : false
+    },
+    resolve: (pageId: string, target: ItemTarget) => {
+      const editor = liveEditorOf(pageId)
+      return editor ? resolveItemTarget(editor.state.doc, target) : null
+    },
+  }
 }

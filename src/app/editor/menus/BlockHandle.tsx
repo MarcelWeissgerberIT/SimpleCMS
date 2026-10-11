@@ -68,6 +68,8 @@ function nestedOptions(pointer: { current: { x: number; y: number } }, hovered: 
     rules: [
       { id: 'noWrappers', evaluate: ({ node }) => (EXCLUDED.has(node.type.name) ? 1000 : 0) },
       { id: 'noCellContent', evaluate: ({ parent }) => (parent && (parent.type.name === 'tableCell' || parent.type.name === 'tableHeader') ? 1000 : 0) },
+      // a task's title line is never the grip's target — the task is (its notes stay their own targets)
+      { id: 'itemTitle', evaluate: ({ node, parent }) => (parent?.type.name === 'workItem' && parent.firstChild === node ? 1000 : 0) },
       {
         id: 'columns',
         evaluate: ({ pos, view }) => {

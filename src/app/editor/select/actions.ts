@@ -5,6 +5,7 @@ import type { Editor } from '@tiptap/core'
 import { Fragment, type Node as PMNode } from '@tiptap/pm/model'
 import { Selection, TextSelection } from '@tiptap/pm/state'
 import { trackMove } from '../lib/moves'
+import { copyBlocks } from '../workitem/ids'
 import { turnInto, type TurnTarget } from '../lib/blocks'
 import { blockSelectionAt, siblingsAt, type BlockSel } from './model'
 
@@ -34,7 +35,8 @@ export function duplicateBlocks(editor: Editor, b: BlockSel): boolean {
   const at = fresh(editor, b)
   if (!at) return false
   const { state, view } = editor
-  const copies = at.nodes.map((n) => n.type.create({ ...n.attrs, id: null }, n.content, n.marks))
+  // fresh block ids; tasks in the copies are new tasks, one map for all (or plain blocks while the gate is shut)
+  const copies = copyBlocks(state.schema, at.nodes)
   const tr = state.tr.insert(at.to, copies)
   const size = copies.reduce((s, n) => s + n.nodeSize, 0)
   const sel = blockSelectionAt(tr.doc, at.to, at.to + size)

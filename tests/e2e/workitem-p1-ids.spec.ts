@@ -6,7 +6,7 @@
  */
 import type { Page } from '@playwright/test'
 import type { JSONContent } from '@tiptap/core'
-import { test, expect, openApp, gotoPage, editorOf, createPage, wsEval, flush, pageById, pageIdByTitle, doc, para } from './fixtures'
+import { test, expect, openApp, gotoPage, editorOf, createPage, wsEval, uiEval, flush, pageById, pageIdByTitle, doc, para, MOD } from './fixtures'
 import { ITEM_ALPHABET, ITEM_ID, newItemId } from '../../src/app/lib/itemIds'
 
 test.describe('newItemId (pure)', () => {
@@ -344,5 +344,419 @@ test.describe('copies re-mint task ids (store + features)', () => {
     expect(ct.some((t) => t.ref)).toBe(false)
     expect(byTitle(ct, 'Shared draft').blockedBy).toEqual([byTitle(ct, 'Shared review').itemId])
     expect(new Set([...bt, ...ct].map((t) => t.itemId)).size).toBe(4)
+  })
+})
+
+/* ------------------------------------------------------------------ */
+/* Paste / drop / duplicate in the editor (B5)                         */
+/* ------------------------------------------------------------------ */
+
+type Counters = { remints: number; relinks: number }
+const counters = (page: Page): Promise<Counters> => page.evaluate(() => ({ remints: (window as any).__oneItems.remints, relinks: (window as any).__oneItems.relinks }))
+
+/** The tasks of a page's LIVE editor (document order). */
+const editorTasks = (page: Page, id: string): Promise<Task[]> =>
+  page.evaluate((id) => {
+    const el = document.querySelector(`.ProseMirror[data-page-id="${id}"]`) as any
+    const out: any[] = []
+    el.editor.state.doc.descendants((n: any, pos: number, parent: any) => {
+      if (n.type.name === 'workItem') out.push({ itemId: n.attrs.itemId, title: n.firstChild?.textContent ?? '', status: n.attrs.status, blockedBy: n.attrs.blockedBy, related: n.attrs.related, people: n.attrs.people, due: n.attrs.due, reminder: n.attrs.reminder, doneAt: n.attrs.doneAt, ref: false, pos, parent: parent.type.name })
+      return !n.isTextblock
+    })
+    return out
+  }, id)
+
+/** NodeSelection on the first task with this title. */
+async function selectTaskNode(page: Page, id: string, title: string): Promise<void> {
+  await page.evaluate(
+    ({ id, title }) => {
+      const el = document.querySelector(`.ProseMirror[data-page-id="${id}"]`) as any
+      let at = -1
+      el.editor.state.doc.descendants((n: any, pos: number) => {
+        if (at < 0 && n.type.name === 'workItem' && n.firstChild?.textContent === title) at = pos
+        return at < 0
+      })
+      el.editor.commands.focus()
+      el.editor.commands.setNodeSelection(at)
+    },
+    { id, title },
+  )
+}
+
+/** The caret at the end of the first paragraph whose text is `text`. */
+async function caretAtEndOf(page: Page, id: string, text: string): Promise<void> {
+  await page.evaluate(
+    ({ id, text }) => {
+      const el = document.querySelector(`.ProseMirror[data-page-id="${id}"]`) as any
+      let at = -1
+      el.editor.state.doc.descendants((n: any, pos: number) => {
+        if (at < 0 && n.isTextblock && n.textContent === text) at = pos + n.nodeSize - 1
+        return at < 0
+      })
+      el.editor.commands.focus(at)
+    },
+    { id, text },
+  )
+}
+
+/** A synthetic clipboard event on a page's editor (copy / cut write the editor's HTML, paste reads `html`). */
+const clip = (page: Page, id: string, type: 'copy' | 'cut' | 'paste', html = '') =>
+  page.evaluate(
+    ({ id, type, html }) => {
+      const dom = document.querySelector(`.ProseMirror[data-page-id="${id}"]`)!
+      const dt = new DataTransfer()
+      if (html) {
+        dt.setData('text/html', html)
+        dt.setData('text/plain', 'task')
+      }
+      dom.dispatchEvent(new ClipboardEvent(type, { clipboardData: dt, bubbles: true, cancelable: true }))
+      return dt.getData('text/html')
+    },
+    { id, type, html },
+  )
+
+test.describe('paste, drop, duplicate: copy = new id, move = same id', () => {
+  test('copy + paste on the same page: new ids, links among the pasted pair follow, links out stay', async ({ page, errors }) => {
+    await openApp(page)
+    const id = await createPage(page, { title: 'Launch plan', content: doc(item({ itemId: A, blockedBy: [B, OUT] }, 'Draft copy'), item({ itemId: B, related: [A] }, 'Ship pricing'), p('Paste here')) })
+    await gotoPage(page, id)
+    const ed = editorOf(page, id)
+    await expect(ed.locator('[data-type="work-item"]')).toHaveCount(2)
+    const c0 = await counters(page)
+    // the two tasks as a block selection: Esc on the title selects the task (not its title line), Shift+↓ the next
+    await ed.locator('[data-type="work-item"] p', { hasText: 'Draft copy' }).click()
+    await page.keyboard.press('Escape')
+    await page.keyboard.press('Shift+ArrowDown')
+    await expect(ed.locator('.is-block-selected')).toHaveCount(2)
+    const html = await clip(page, id, 'copy')
+    expect(html).toContain('data-one-clip')
+    await caretAtEndOf(page, id, 'Paste here')
+    await page.keyboard.press('Enter')
+    await clip(page, id, 'paste', html)
+    await expect(ed.locator('[data-type="work-item"]')).toHaveCount(4)
+    const tasks = await editorTasks(page, id)
+    const [a, b, a2, b2] = tasks
+    expect([a.itemId, b.itemId]).toEqual([A, B])
+    expect([a2.itemId, b2.itemId]).not.toContain(A)
+    expect(b2.itemId).not.toBe(B)
+    expect(a2.itemId).toMatch(ITEM_ID)
+    expect(a2.blockedBy).toEqual([b2.itemId, OUT])
+    expect(b2.related).toEqual([a2.itemId])
+    expect((await counters(page)).remints - c0.remints).toBe(2)
+    // one undo takes the paste (and its new ids) back
+    await page.keyboard.press(`${MOD}+z`)
+    await expect(ed.locator('[data-type="work-item"]')).toHaveCount(2)
+    expect(errors.list).toEqual([])
+  })
+
+  test('cut + paste on the same page, and to another page after the store caught up: the same id; a dependent still resolves', async ({ page }) => {
+    await openApp(page)
+    const one = await createPage(page, { title: 'Launch plan', content: doc(item({ itemId: A }, 'Draft copy'), p('Bottom line')) })
+    const two = await createPage(page, { title: 'Pricing page', content: doc(p('Top of pricing')) })
+    await createPage(page, { title: 'Support', content: doc(item({ itemId: C, blockedBy: [A] }, 'Brief support')) })
+    await gotoPage(page, one)
+    const c0 = await counters(page)
+    await selectTaskNode(page, one, 'Draft copy')
+    const html = await clip(page, one, 'cut')
+    await caretAtEndOf(page, one, 'Bottom line')
+    await page.keyboard.press('Enter')
+    await clip(page, one, 'paste', html)
+    expect((await editorTasks(page, one)).map((t) => t.itemId)).toEqual([A])
+    // to another page once this page's store copy no longer holds it
+    await selectTaskNode(page, one, 'Draft copy')
+    const html2 = await clip(page, one, 'cut')
+    await flush(page)
+    await gotoPage(page, two)
+    await caretAtEndOf(page, two, 'Top of pricing')
+    await page.keyboard.press('Enter')
+    await clip(page, two, 'paste', html2)
+    expect((await editorTasks(page, two)).map((t) => t.itemId)).toEqual([A])
+    expect((await counters(page)).remints).toBe(c0.remints)
+    await flush(page)
+    await expect.poll(() => page.evaluate((A) => (window as any).__oneItems.index().byId[A]?.pageId ?? null, A)).toBe(two)
+  })
+
+  test('copy to another page: a new id; a cut pasted while the source page\'s store copy is stale is re-minted, then linked back', async ({ page }) => {
+    await openApp(page)
+    const one = await createPage(page, { title: 'Launch plan', content: doc(item({ itemId: A }, 'Draft copy'), item({ itemId: B, blockedBy: [A] }, 'Ship pricing'), p('Bottom line')) })
+    const two = await createPage(page, { title: 'Pricing page', content: doc(p('Top of pricing')) })
+    await gotoPage(page, one)
+    await uiEval(page, (s, id) => s.openPane(id), two)
+    await expect(editorOf(page, two)).toBeVisible()
+    // copy (the source keeps it): a new id there
+    await selectTaskNode(page, one, 'Draft copy')
+    const copied = await clip(page, one, 'copy')
+    await caretAtEndOf(page, two, 'Top of pricing')
+    await clip(page, two, 'paste', copied)
+    const pasted = await editorTasks(page, two)
+    expect(pasted).toHaveLength(1)
+    expect(pasted[0].itemId).not.toBe(A)
+    // a cut, pasted at once into the pane (the source keeps focus: its store copy still holds the task — no blur
+    // flush): re-minted first, linked back within seconds once the source's store copy no longer holds it
+    await flush(page)
+    const c0 = await counters(page)
+    await selectTaskNode(page, one, 'Ship pricing')
+    await page.evaluate(
+      ({ one, two }) => {
+        const src = document.querySelector(`.ProseMirror[data-page-id="${one}"]`) as any
+        const dst = document.querySelector(`.ProseMirror[data-page-id="${two}"]`) as any
+        const dt = new DataTransfer()
+        src.dispatchEvent(new ClipboardEvent('cut', { clipboardData: dt, bubbles: true, cancelable: true }))
+        let at = -1
+        dst.editor.state.doc.descendants((n: any, pos: number) => {
+          if (at < 0 && n.isTextblock && n.textContent === 'Top of pricing') at = pos + n.nodeSize - 1
+          return at < 0
+        })
+        dst.editor.commands.setTextSelection(at)
+        const paste = new DataTransfer()
+        paste.setData('text/html', dt.getData('text/html'))
+        paste.setData('text/plain', 'task')
+        dst.dispatchEvent(new ClipboardEvent('paste', { clipboardData: paste, bubbles: true, cancelable: true }))
+      },
+      { one, two },
+    )
+    expect((await counters(page)).remints).toBe(c0.remints + 1)
+    expect((await editorTasks(page, two)).map((t) => t.itemId)).not.toContain(B)
+    await expect.poll(async () => (await counters(page)).relinks, { timeout: 6000 }).toBe(c0.relinks + 1)
+    expect((await editorTasks(page, two)).map((t) => t.itemId)).toContain(B)
+    expect((await editorTasks(page, two)).find((t) => t.itemId === B)!.blockedBy).toEqual([A])
+  })
+
+  test('drop: a copy (Ctrl) gets a new id and the original stays; a drag by the grip moves the task with its id', async ({ page }) => {
+    await openApp(page)
+    const id = await createPage(page, { title: 'Launch plan', content: doc(item({ itemId: A }, 'Draft copy'), p('Middle line'), p('Bottom line')) })
+    await gotoPage(page, id)
+    const ed = editorOf(page, id)
+    await selectTaskNode(page, id, 'Draft copy')
+    const html = await clip(page, id, 'copy')
+    const box = (await ed.locator('p', { hasText: 'Bottom line' }).boundingBox())!
+    await page.evaluate(
+      ({ id, html, x, y }) => {
+        const dom = document.querySelector(`.ProseMirror[data-page-id="${id}"]`)!
+        const dt = new DataTransfer()
+        dt.setData('text/html', html)
+        dt.setData('text/plain', 'task')
+        dom.dispatchEvent(new DragEvent('drop', { dataTransfer: dt, clientX: x, clientY: y, ctrlKey: true, bubbles: true, cancelable: true }))
+      },
+      { id, html, x: box.x + box.width - 4, y: box.y + box.height / 2 },
+    )
+    await expect(ed.locator('[data-type="work-item"]')).toHaveCount(2)
+    const ids = (await editorTasks(page, id)).map((t) => t.itemId)
+    expect(ids[0]).toBe(A)
+    expect(ids[1]).not.toBe(A)
+    // drag the first task by its grip below the bottom line: a move
+    const title = ed.locator('[data-type="work-item"] p', { hasText: 'Draft copy' }).first()
+    await title.hover()
+    const grip = page.locator('.block-handle__grip')
+    await expect(grip).toBeVisible()
+    const g = (await grip.boundingBox())!
+    const target = (await ed.locator('p', { hasText: 'Bottom line' }).boundingBox())!
+    await page.mouse.move(g.x + g.width / 2, g.y + g.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(g.x + g.width / 2, g.y + 14, { steps: 4 })
+    await page.mouse.move(target.x + 40, target.y + target.height - 2, { steps: 15 })
+    await page.mouse.up()
+    // moved: no longer the first block, still the one task with its id (and the copy keeps its own)
+    await expect(ed.locator(':scope > *').first()).toHaveText('Middle line')
+    const after = await editorTasks(page, id)
+    expect(after.map((t) => t.itemId).sort()).toEqual([A, ids[1]].sort())
+  })
+
+  test('Mod+D, the grip\'s Duplicate and a block selection\'s Duplicate re-mint (links among the copies follow); with the gate shut the copy is plain text', async ({ page }) => {
+    await openApp(page)
+    const id = await createPage(page, { title: 'Launch plan', content: doc(item({ itemId: A, blockedBy: [B] }, 'Draft copy'), item({ itemId: B }, 'Ship pricing'), p('Bottom line')) })
+    await gotoPage(page, id)
+    const ed = editorOf(page, id)
+    // Mod+D with the caret in a title: the task (not its title line) is duplicated
+    await ed.locator('[data-type="work-item"] p', { hasText: 'Ship pricing' }).click()
+    await page.keyboard.press(`${MOD}+d`)
+    await expect(ed.locator('[data-type="work-item"]')).toHaveCount(3)
+    let tasks = await editorTasks(page, id)
+    expect(tasks.map((t) => t.title)).toEqual(['Draft copy', 'Ship pricing', 'Ship pricing'])
+    expect(tasks[2].itemId).not.toBe(B)
+    expect(tasks[2].itemId).toMatch(ITEM_ID)
+    // a block selection of both originals → Duplicate: one map — the copy of A waits for the copy of B
+    await ed.locator('[data-type="work-item"] p', { hasText: 'Draft copy' }).click()
+    await page.keyboard.press('Escape')
+    await page.keyboard.press('Shift+ArrowDown')
+    await expect(ed.locator('.is-block-selected')).toHaveCount(2)
+    await page.keyboard.press(`${MOD}+d`)
+    await expect(ed.locator('[data-type="work-item"]')).toHaveCount(5)
+    tasks = await editorTasks(page, id)
+    const copyA = tasks[2]
+    const copyB = tasks[3]
+    expect(copyA.title).toBe('Draft copy')
+    expect(copyA.itemId).not.toBe(A)
+    expect(copyA.blockedBy).toEqual([copyB.itemId])
+    // the gate shut: Mod+D copies the task's title + notes as plain blocks (toast)
+    await page.evaluate(() => (window as any).__oneItems.forceCanCreate(false))
+    await ed.locator('[data-type="work-item"] p', { hasText: 'Draft copy' }).first().click()
+    await page.keyboard.press(`${MOD}+d`)
+    await expect(page.getByText('This server is older — the copied task was kept as text.')).toBeVisible()
+    await expect(ed.locator('[data-type="work-item"]')).toHaveCount(5)
+    await expect(ed.locator(':scope > p', { hasText: 'Draft copy' })).toHaveCount(1)
+    await page.evaluate(() => (window as any).__oneItems.forceCanCreate(null))
+  })
+
+  test('a pasted copy is unwrapped while the gate is shut; a cut + paste still moves the task', async ({ page }) => {
+    await openApp(page)
+    const id = await createPage(page, { title: 'Launch plan', content: doc(item({ itemId: A, status: 'in_progress' }, 'Draft copy', p('A note')), p('Bottom line')) })
+    await gotoPage(page, id)
+    const ed = editorOf(page, id)
+    await page.evaluate(() => (window as any).__oneItems.forceCanCreate(false))
+    await selectTaskNode(page, id, 'Draft copy')
+    const html = await clip(page, id, 'copy')
+    await caretAtEndOf(page, id, 'Bottom line')
+    await page.keyboard.press('Enter')
+    await clip(page, id, 'paste', html)
+    await expect(page.getByText('This server is older — the copied task was kept as text.')).toBeVisible()
+    expect((await editorTasks(page, id)).map((t) => t.itemId)).toEqual([A])
+    await expect(ed.locator(':scope > p', { hasText: 'Draft copy' })).toHaveCount(1)
+    await expect(ed.locator(':scope > p', { hasText: 'A note' })).toHaveCount(1)
+    // a move is never refused
+    await selectTaskNode(page, id, 'Draft copy')
+    const cut = await clip(page, id, 'cut')
+    await caretAtEndOf(page, id, 'A note')
+    await clip(page, id, 'paste', cut)
+    expect((await editorTasks(page, id)).map((t) => [t.itemId, t.status])).toEqual([[A, 'in_progress']])
+    await page.evaluate(() => (window as any).__oneItems.forceCanCreate(null))
+  })
+
+  test('two blocks with one itemId on a page: a write targets the block acted on (pos → block id → nothing), never the first by id; external content is never re-minted', async ({ page }) => {
+    await openApp(page)
+    const id = await createPage(page, { title: 'Launch plan', content: doc(p('Intro'), item({ id: 'blk-1', itemId: A }, 'First copy'), item({ id: 'blk-2', itemId: A }, 'Second copy')) })
+    await gotoPage(page, id)
+    const ed = editorOf(page, id)
+    await expect(ed.locator('[data-type="work-item"]')).toHaveCount(2)
+    const c0 = await counters(page)
+    const second = (await editorTasks(page, id))[1]
+    const commit = (target: unknown, patch: unknown) => page.evaluate(({ id, target, patch }) => (window as any).__oneItemsEditor.commit(id, target, patch), { id, target, patch })
+    expect(await commit({ pos: second.pos, itemId: A, blockId: 'blk-2' }, { status: 'done' })).toBe(true)
+    let tasks = await editorTasks(page, id)
+    expect(tasks.map((t) => t.status)).toEqual(['todo', 'done'])
+    // the pos went stale (a line typed above): the block id finds it
+    await caretAtEndOf(page, id, 'Intro')
+    await page.keyboard.press('Enter')
+    await page.keyboard.type('Another line')
+    expect(await commit({ pos: second.pos, itemId: A, blockId: 'blk-2' }, { status: 'in_progress' })).toBe(true)
+    tasks = await editorTasks(page, id)
+    expect(tasks.map((t) => t.status)).toEqual(['todo', 'in_progress'])
+    // neither the pos nor the block id: nothing written (never "the first block with this id")
+    expect(await commit({ pos: 1, itemId: A, blockId: 'blk-gone' }, { status: 'done' })).toBe(false)
+    await expect(page.getByText('That task is no longer here.')).toBeVisible()
+    expect((await editorTasks(page, id)).map((t) => t.status)).toEqual(['todo', 'in_progress'])
+    // external content (the store written while the editor is open) with two blocks of one id: shown as is
+    await wsEval(page, (s, { id, doc }) => s.setContent(id, doc, 'e2e'), { id, doc: doc(item({ itemId: B }, 'One'), item({ itemId: B }, 'Two')) })
+    await expect.poll(async () => (await editorTasks(page, id)).map((t) => t.itemId)).toEqual([B, B])
+    expect((await counters(page)).remints).toBe(c0.remints)
+  })
+
+  test('grip over a title: the task is the target (Delete removes it whole); compact tasks: Alt+Enter and Mod+D act on the task, not the list item', async ({ page }) => {
+    await openApp(page)
+    const list = { type: 'bulletList', content: [{ type: 'listItem', content: [p('Prepare images:'), item({ itemId: C }, 'Screenshots of the new prices')] }] }
+    const id = await createPage(page, { title: 'Launch plan', content: doc(item({ itemId: A }, 'Draft copy', p('A note line')), list, p('Bottom line')) })
+    await gotoPage(page, id)
+    const ed = editorOf(page, id)
+    // grip over the title text → the block menu acts on the whole task
+    await ed.locator('[data-type="work-item"] p', { hasText: 'Draft copy' }).hover()
+    const grip = page.getByRole('button', { name: /^Block menu$/ })
+    await expect(grip).toBeVisible()
+    await grip.click()
+    const menu = page.locator('[data-popover][role="menu"]').first()
+    await menu.getByRole('menuitem', { name: 'Delete' }).click()
+    await expect.poll(async () => (await editorTasks(page, id)).map((t) => t.itemId)).toEqual([C])
+    await expect(ed.locator('p', { hasText: 'A note line' })).toHaveCount(0)
+    await page.keyboard.press(`${MOD}+z`)
+    await expect.poll(async () => (await editorTasks(page, id)).map((t) => t.itemId)).toEqual([A, C])
+    // (a plain caret again: the menu of a selected block acts on the selection)
+    await ed.locator('p', { hasText: 'Bottom line' }).click()
+    // a grip over a note line: that note
+    await ed.locator('p', { hasText: 'A note line' }).hover()
+    await expect(grip).toBeVisible()
+    await grip.click()
+    await menu.getByRole('menuitem', { name: 'Delete' }).click()
+    await expect(ed.locator('p', { hasText: 'A note line' })).toHaveCount(0)
+    expect((await editorTasks(page, id)).map((t) => t.itemId)).toEqual([A, C])
+
+    // compact task (in a list item): Mod+D duplicates the task inside the list item
+    await ed.locator('li [data-type="work-item"] p', { hasText: 'Screenshots' }).click()
+    await page.keyboard.press(`${MOD}+d`)
+    await expect(ed.locator('li')).toHaveCount(1)
+    await expect(ed.locator('li [data-type="work-item"]')).toHaveCount(2)
+    const compact = (await editorTasks(page, id)).filter((t) => (t as any).parent === 'listItem')
+    expect(compact).toHaveLength(2)
+    expect(compact[1].itemId).not.toBe(C)
+    // Alt+Enter → the TASK's menu: Delete removes that task, the list item stays
+    await ed.locator('li [data-type="work-item"] p', { hasText: 'Screenshots' }).last().click()
+    await page.keyboard.press('Alt+Enter')
+    await expect(menu).toBeVisible()
+    await menu.getByRole('menuitem', { name: 'Delete' }).click()
+    await expect(ed.locator('li [data-type="work-item"]')).toHaveCount(1)
+    await expect(ed.locator('li')).toHaveCount(1)
+    await expect(ed.locator('li p', { hasText: 'Prepare images:' })).toHaveCount(1)
+  })
+})
+
+test.describe('moves keep the id', () => {
+  /** NodeSelection on the first top-level node of a type. */
+  const selectFirst = (page: Page, id: string, type: string) =>
+    page.evaluate(
+      ({ id, type }) => {
+        const el = document.querySelector(`.ProseMirror[data-page-id="${id}"]`) as any
+        let at = -1
+        el.editor.state.doc.forEach((n: any, pos: number) => {
+          if (at < 0 && n.type.name === type) at = pos
+        })
+        el.editor.commands.setNodeSelection(at)
+        el.editor.view.focus()
+      },
+      { id, type },
+    )
+
+  test('Move to page, Turn into page and Sub-page per item move tasks with their ids', async ({ page }) => {
+    await openApp(page)
+    const c0 = await counters(page)
+    const home = await createPage(page, { title: 'New home', content: doc(p('Arrivals')) })
+    const list = {
+      type: 'bulletList',
+      content: [
+        { type: 'listItem', content: [p('Pricing tickets'), item({ itemId: C }, 'Fix the coupon field')] },
+        { type: 'listItem', content: [p('Checkout tickets'), item({ itemId: D }, 'Retry failed cards')] },
+      ],
+    }
+    const id = await createPage(page, { title: 'Launch plan', content: doc(item({ itemId: A }, 'Draft copy'), item({ itemId: B }, 'Ship pricing'), list, p('Bottom line')) })
+    await gotoPage(page, id)
+    const ed = editorOf(page, id)
+    await expect(ed.locator('[data-type="work-item"]')).toHaveCount(4)
+
+    // Move to (block menu): A goes to "New home" with its id
+    await selectTaskNode(page, id, 'Draft copy')
+    await page.keyboard.press('Alt+Enter')
+    await page.getByRole('menuitem', { name: 'Move to' }).click()
+    await page.keyboard.type('New home')
+    await page.keyboard.press('Enter')
+    await expect.poll(async () => (await tasksOf(page, home)).map((t) => t.itemId), { timeout: 5000 }).toEqual([A])
+
+    // Turn into page (Mod+Alt+9): B moves into a new sub-page with its id
+    await selectTaskNode(page, id, 'Ship pricing')
+    await page.keyboard.press(`${MOD}+Alt+9`)
+    await expect(ed.locator('[data-type="work-item"]', { hasText: 'Ship pricing' })).toHaveCount(0)
+    await flush(page)
+    const sub = await wsEval(page, (s, id) => (Object.values(s.pages) as AnyState[]).filter((x) => x.parentId === id && !x.trashed).map((x) => x.id as string), id)
+    const subTasks = (await Promise.all(sub.map((x) => tasksOf(page, x)))).flat()
+    expect(subTasks.map((t) => t.itemId)).toContain(B)
+
+    // Sub-page per item: each list item becomes a sub-page, its compact task inside it, ids kept
+    await selectFirst(page, id, 'bulletList')
+    await page.keyboard.press('Alt+Enter')
+    const menu = page.locator('[data-popover][role="menu"]').first()
+    await menu.getByRole('menuitem', { name: 'Turn into', exact: true }).click()
+    await page.getByRole('menuitem', { name: /^Sub-page per item · 2 items/ }).click()
+    await expect.poll(async () => (await wsEval(page, (s, id) => (Object.values(s.pages) as AnyState[]).filter((x) => x.parentId === id && !x.trashed).length, id))).toBe(3)
+    await flush(page)
+    const kids = await wsEval(page, (s, id) => (Object.values(s.pages) as AnyState[]).filter((x) => x.parentId === id && !x.trashed).map((x) => x.id as string), id)
+    const all = (await Promise.all(kids.map((x) => tasksOf(page, x)))).flat().map((t) => t.itemId)
+    expect(all.sort()).toEqual([B, C, D].sort())
+    expect((await counters(page)).remints).toBe(c0.remints)
   })
 })
