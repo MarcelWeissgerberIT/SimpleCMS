@@ -99,6 +99,48 @@ test.describe('flight recorder — the eject, hard cases', () => {
     expect(await wsEval(page, (s, id) => s.pages[id].properties['story-stage'], ids['NL-1402'])).not.toBe(story.expect.eject.optionBack.id)
   })
 
+  test('schema through MCP: an option removed (one_update_property) and a view deleted (one_delete_view) come back when their calls are ejected', async ({ page }) => {
+    test.setTimeout(120_000)
+    await page.clock.install({ time: storyTime(story, '07:00:00') })
+    await openApp(page)
+    await startRecorder(page)
+    const you = { kind: 'you', via: 'ui' }
+    const f = await wsEval(page, () => {
+      const s = (window as unknown as { __one: { workspace: { getState: () => Record<string, (...a: unknown[]) => unknown> & { databases: Record<string, { views: Array<{ id: string; name: string }> }> } } } }).__one.workspace.getState()
+      const db = s.createDatabase({ title: 'Tessera Abgleich' }) as string
+      const stage = s.addProperty(db, { type: 'select', name: 'Stufe', options: [{ id: 'o-offen', name: 'Offen', color: 'gray' }, { id: 'o-ready', name: 'Ready', color: 'blue' }, { id: 'o-fertig', name: 'Fertig', color: 'green' }] }) as string
+      s.addView(db, { type: 'board', name: 'Tafel', groupBy: stage })
+      const views = (window as unknown as { __one: { workspace: { getState: () => { databases: Record<string, { views: Array<{ id: string; name: string }> }> } } } }).__one.workspace.getState().databases[db].views
+      return { db, stage, view: views.find((v) => v.name === 'Tafel')!.id, views: views.map((v) => v.id) }
+    })
+    expect(f.view).toBeTruthy()
+    void you
+    await rec(page, 'settle')
+    const mcp = (call: string, tool: string) => ({ kind: 'mcp', session: 'tessera-s9', call, tool })
+    await page.clock.setFixedTime(storyTime(story, '07:31:00'))
+    const opts = await wsEval(page, (s, a) => s.databases[a.db].properties.find((p: { id: string }) => p.id === a.stage).options.filter((o: { id: string }) => o.id !== 'o-ready'), f)
+    await rec(page, 'step', { writer: mcp('m1', 'one_update_property'), calls: [['updateProperty', f.db, f.stage, { options: opts }]], note: { tool: 'one_update_property', client: 'tessera-desk' }, end: true })
+    await page.clock.setFixedTime(storyTime(story, '07:32:00'))
+    await rec(page, 'step', { writer: mcp('m2', 'one_delete_view'), calls: [['deleteView', f.db, f.view]], note: { tool: 'one_delete_view', client: 'tessera-desk' }, end: true })
+    await page.clock.setFixedTime(storyTime(story, '07:40:00'))
+    await rec(page, 'settle')
+    const optionIds = () => wsEval(page, (s, a) => s.databases[a.db].properties.find((p: { id: string }) => p.id === a.stage).options.map((o: { id: string }) => o.id), f)
+    const viewIds = () => wsEval(page, (s, db) => s.databases[db].views.map((v: { id: string }) => v.id), f.db)
+    expect(await optionIds()).toEqual(['o-offen', 'o-fertig'])
+    expect(await viewIds()).not.toContain(f.view)
+    const runs = (await rec<Array<{ key: string; l: string; from: number; to: number }>>(page, 'runs')).filter((r) => r.key.startsWith('mcp:'))
+    expect(runs).toHaveLength(2)
+    // eject the view's deletion first, then the option's removal: each comes back at its place
+    for (const r of [...runs].sort((a, b) => b.from - a.from)) {
+      const e = await rec<{ state: string; counts: { back: number } }>(page, 'eject', { lane: r.l, run: r.key, a: r.from - 1000, b: r.to + 1000 })
+      expect(e, r.key).toMatchObject({ state: 'done' })
+      expect(e.counts.back).toBeGreaterThan(0)
+    }
+    expect(await viewIds()).toEqual(f.views)
+    expect(await optionIds()).toEqual(['o-offen', 'o-ready', 'o-fertig'])
+    expect(await rec(page, 'unknowns')).toEqual([])
+  })
+
   test('crash race (C3): a commit held before its settle — a second tab booting leaves it committing; released → done; with the first tab closed, the second tab\'s next boot finishes it', async ({ page, context }) => {
     test.setTimeout(240_000)
     await bootStory(page)

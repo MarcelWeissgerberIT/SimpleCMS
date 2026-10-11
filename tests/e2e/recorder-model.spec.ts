@@ -621,6 +621,9 @@ test.describe('the held check (F6): verdicts per place, chains and foreign segme
     // gone for good now: held; W deleted it: recreate (planned for later slices)
     expect(one(place(), null)).toMatchObject({ outcome: 'held', reason: 'changed' })
     expect(one(place({ own: [seg({ f: F.GONE })] }), null).outcome).toBe('recreate')
+    // a view W deleted goes back from its pin (the journal marks the segment GONE)
+    const view = place({ p: 'v:db-nordlicht/v2', pk: 'view', own: [seg({ p: 'v:db-nordlicht/v2', pk: 'view', f: F.GONE, touched: '*' })], ownEvents: [ev({ p: 'v:db-nordlicht/v2', pk: 'view', kinds: K.VIEW, f: F.GONE })] })
+    expect(one(view, null).outcome).toBe('back')
   })
 
   test('rows: sent, memory, pipeline (Δ25), moved, page lock', () => {

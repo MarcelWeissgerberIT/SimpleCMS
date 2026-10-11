@@ -641,8 +641,9 @@ export class Processor {
       this.segs.set(seg.rec.id, seg.rec)
       this.jobs.push(job)
       if (run && !copy) this.runs.noteEvent(scope, run, ev, delta ? [delta.wa, delta.wd] : [0, 0])
-      // the place is gone: nothing more can happen to it
+      // the place is gone: nothing more can happen to it (the segment says so — the eject puts a deleted view back)
       if (pl.f & F.GONE) {
+        seg.rec.f |= F.GONE
         if (purges(pl, lane)) this.purgePlace(scope, pl.p, at)
         this.close(seg, at)
       } else if (pl.f & F.NEW) this.purged.delete(pl.p)

@@ -139,7 +139,11 @@ function verdictOf(input: VerdictInput, p: PlaceKey, w: PlaceWindow, live: Windo
   const left = last.left!
   const isNew = !!(first.f & F.NEW)
   const gone = w.own.some((g) => g.f & F.GONE)
-  if (!now || !now.exists) return gone ? verdict('recreate') : verdict('held', 'changed')
+  if (!now || !now.exists) {
+    // a view W deleted goes back from its pin (the planner checks the lock and later writers); a page or row is recreated
+    if (gone && w.pk === 'view') return verdict('back')
+    return gone ? verdict('recreate') : verdict('held', 'changed')
+  }
   // the net trash state W left: its last trash / restore
   const trashEvents = w.ownEvents.filter((e) => e.kinds & (K.TRASH | K.RESTORE))
   const trashed = !!trashEvents.length && !!(trashEvents[trashEvents.length - 1].kinds & K.TRASH)
@@ -156,7 +160,6 @@ function verdictOf(input: VerdictInput, p: PlaceKey, w: PlaceWindow, live: Windo
   const db = w.db ?? p.slice(2)
   if (input.readOnly.dbLocked(db)) return verdict('held', 'locked')
   if (w.pk === 'view') {
-    if (gone) return verdict('back')
     if (isNew) return now.h === left.h && !w.foreign.length ? verdict('trash') : verdict('held', 'changed')
   }
   if (w.pk === 'schema' && isNew) return now.h === left.h && !w.foreign.length ? verdict('trash') : verdict('held', 'changed')
