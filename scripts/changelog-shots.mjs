@@ -8,7 +8,7 @@
  *
  * (CHANGELOG_DRAFT=1 lets the build pass while a new entry's picture does not exist yet.)
  *
- * Shots: preflight, flight-recorder, tasks, outbox, mirror-again, glass-switches, history-compare, mcp-overview, mirror, task-mcp, models, search, terminal-pipelines, cloud-worker, one-picker, pipelines, legacy-modernise, coding-live, text-size, mcp-media, coding-setup, free-board, building-blocks, workspace-settings, diagram-viewer, coding-pipeline, pages-per-item, design-import, tour, quick-capture, script-templates, one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
+ * Shots: claude-tasks, preflight, flight-recorder, tasks, outbox, mirror-again, glass-switches, history-compare, mcp-overview, mirror, task-mcp, models, search, terminal-pipelines, cloud-worker, one-picker, pipelines, legacy-modernise, coding-live, text-size, mcp-media, coding-setup, free-board, building-blocks, workspace-settings, diagram-viewer, coding-pipeline, pages-per-item, design-import, tour, quick-capture, script-templates, one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
  * custom-agents, gmail, help-centre, mcp-servers, feed-blocks — each named like its image. Every shot starts from a fresh, seeded
  * workspace in English, light theme, 1440 × 900 at device scale 2; the crop of the relevant area is scaled
  * to 1440 px wide and saved as public/assets/shots/changelog/<shot>.webp (≤ 150 KB: the quality steps down
@@ -913,6 +913,47 @@ const shots = {
     await save(page, 'flight-recorder')
     await ctx.close()
   },
+  /**
+   * Claude writes tasks (P2): the demo seed's "Launch plan" open, the AI terminal docked; Claude (mocked) appends two
+   * tasks — "Draft the comparison table copy" with an owner and a due date, "Publish the pricing page" blocked by it —
+   * and the review card shows them as TASK · NEW rows with their chips (owner, due, blocked by … · new) and the hold
+   * line "Waits for your review · Names a person" before anything is written.
+   */
+  async 'claude-tasks'(browser) {
+    let launchId = ''
+    const md = `> [!TODO] Draft the comparison table copy {#copy}\n> Owner: Alex · Due: ${isoDay(4)}\n> Three plans side by side; keep each line under ten words.\n\n> [!TODO] Publish the pricing page\n> Blocked by: #copy`
+    const turns = [
+      () => sseTurn([{ type: 'thinking', text: 'Two tasks on the launch plan: the copy first (Alex, this week), the release waits for it.' }, { type: 'tool_use', id: 'toolu_ap', name: 'append_to_page', input: { id: launchId, markdown: md } }]),
+      () => sseTurn([{ type: 'text', text: 'Staged two tasks on **Launch plan: new pricing page** — the copy with Alex, due in four days; publishing waits for it. Nothing is written until you apply.' }]),
+    ]
+    const { ctx, page } = await freshPage(browser, { claude: { turns }, viewport: { width: W, height: 1100 } })
+    try {
+      launchId = await openPage(page, 'Launch plan: new pricing page')
+      await page.evaluate(() => (document.activeElement instanceof HTMLElement ? document.activeElement.blur() : undefined))
+      await page.keyboard.press('Control+j')
+      const term = page.getByRole('region', { name: 'AI terminal' })
+      await term.waitFor()
+      const prompt = term.getByRole('textbox', { name: 'Task for the agent' })
+      await prompt.fill('Plan the pricing copy and the release as tasks — Alex writes the copy this week')
+      await prompt.press('Enter')
+      await term.locator('.term-head__status').filter({ hasText: 'Done' }).waitFor({ timeout: 30_000 })
+      await term.getByTestId('item-facts').first().waitFor()
+      await page.waitForTimeout(800)
+      // the dock tall enough for the request, the answer and the whole staged card
+      await prompt.focus()
+      const scroll = term.locator('.term-scroll')
+      for (let i = 0; i < 12 && (await scroll.evaluate((el) => el.scrollHeight > el.clientHeight + 2)); i++) {
+        await page.keyboard.press('Alt+ArrowUp')
+        await page.waitForTimeout(150)
+      }
+      await page.waitForTimeout(400)
+      await rest(page)
+      await save(page, 'claude-tasks', await boxOf(term))
+    } finally {
+      await ctx.close()
+    }
+  },
+
   /**
    * Tasks (P1): the demo seed's "Launch plan" — the "This week" stack on one plate: open with a date and two people
    * (the caret in its title: the ghost keys show), in progress with 2/4 steps, blocked with a chip per blocker and

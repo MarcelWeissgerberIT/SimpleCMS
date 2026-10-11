@@ -51,7 +51,8 @@ src/app/features/recorder/**         flight recorder: writer journal (IndexedDB 
                                      features/index.ts); store/writer.ts = the writer context every store write runs under
 src/app/features/workitems/**        tasks outside the editor: the workspace index (lazy, incremental), graph (blocked / loops),
                                      views, writeItems (origin 'items'), the unblock toast, members + reminder audience, the
-                                     people / link pickers and cards (public API workitems/index.ts, via features/index.ts)
+                                     people / link pickers and cards, settle gate, facts, holds, query (public API
+                                     workitems/index.ts, via features/index.ts)
 src/app/help/**                      help centre: panel (?, status bar, ⌘K, workspace menu), 73 articles EN+DE twins
                                      (help/articles/{en,de}/<id>.md, `help:<id>` links), Ask (Claude over the articles);
                                      link UI to an article with `<HelpLink id="…" />` (public API: help/index.ts)
@@ -117,8 +118,28 @@ the public APIs stable — other areas are built against them in parallel.
 - Task blocks (`workItem`, editor/workitem): every reader goes through `itemAttrs()` (one sanitizer; limits + formats);
   no titles or names are ever cached in attrs; `itemId` / `doneAt` are VOLATILE in the history diff (DiffDoc shows the
   fields before → after). P1 (the block): tasks are created ONLY by the editor (slash `/task`, `[!] `, Turn into, Enter
-  after a title) and by copies of existing tasks; no Claude path creates or edits one before P2 (Markdown reader still
-  OFF). The workspace index (features/workitems: `getItemIndex()`, `useItemView()`) is lazy and incremental
+  after a title) and by copies of existing tasks. P2 (Claude writes): Claude makes tasks only through the settle gate
+  (features/workitems/settle.ts `settleDoc`, pure over a `SettleWorld`, called by `claudeSettled` / `claudeDoc(md, keep,
+  ctx)` with a `SettleContext`; no context = no new task and no person mention): people only existing ones (never created;
+  names to Claude only with Make tasks or in refusals, never emails), ids minted by One at staging and reused 1:1 at apply
+  (a taken id fails the change — never re-minted; a change without `items` — older proposals, server runs — creates none;
+  an id is kept only for the task a replace replaces), links in scope only (agent scope, context marks, never shared →
+  private in either direction, no loops, titles of out-of-scope tasks never to Claude), never inside a task or a table.
+  Text never changes an existing task's fields — `update_work_item` / `one_update_work_item` (ChangeKind 'workItem',
+  fingerprint, `guardTask` + `onTask`, one `writeItems(…, { origin: 'ai' })` per page after `snapshotNow`). Task links
+  between staged changes are `needs`. `list_work_items` / `one_list_work_items` read the index in scope. Holds
+  (features/workitems/holds.ts): names a person · sets a reminder · changes an assigned task (any field or its text) · adds
+  a blocker to an existing task · removes tasks — custom agents in apply mode and MCP Apply directly never write such a
+  change, or anything depending on it (`heldClosure`), without review; reminders are never stripped silently. Only `one:`
+  links become mentions (date reminders only when the replaced content had them); raw-HTML mention nodes are text. AI reads
+  Claude writes back use the file form (`docToFileMarkdown`, `readableContent(id, { form: 'file' })` — opt-in; coding /
+  Outbox inputs keep `docToMarkdown`). The MCP replace re-checks the page's `contentRev` at apply. The global reader
+  `WORK_ITEMS_FROM_MARKDOWN` stays OFF (imports, sync, paste, capture, scripts, templates keep quotes). ItemSession
+  (features/ai/agent/workItems.ts): handles + staged ids per terminal conversation (reset by `/new`), agent run, MCP
+  call. AI menu: "Make tasks" (`ai-row-workItems`) = Transform → Tasks on selected blocks (form 'items', its own <people>,
+  ids minted in the result, re-checked at Transform) or the page-level action `make_tasks` at the cursor; every answer is
+  settled with a menu context (`existing: 'skip'`) and inserted at `itemSafePoint`; meeting notes "Make tasks"
+  (features/ai/meeting/toItems.ts, local, one transaction, toast Undo). The workspace index (features/workitems: `getItemIndex()`, `useItemView()`) is lazy and incremental
   (`pageChanges`, no page-map scan per write); blocked / overdue / loops / duplicates are computed, never stored. Editor
   field writes go through `commitItem` (only the changed attr keys — y-tiptap compares attrs by reference); writes from
   outside an editor only through features/workitems `writeItems()` (writer: opts.writer, else the frame open, else
@@ -129,7 +150,8 @@ the public APIs stable — other areas are built against them in parallel.
   never re-minted on remote or external transactions; duplicates are shown (DUPLICATE · NEW ID), never auto-fixed. ONE
   creation gate: every path that makes a new itemId asks `itemLookup().canCreate()` and degrades to plain blocks when
   refused (team: only when `/api/config` `schema_min` ≥ 1). Button templates never hold a task (`cleanTemplate`). AI-menu
-  Replace is off over a range holding a task; meeting-notes regenerate and a browser agent's 'replace' report keep the
+  Replace is off over a range holding a task unless every task lies wholly in the range and Claude's answer — settled
+  again at Replace — brings each back by id; meeting-notes regenerate and a browser agent's 'replace' report keep the
   tasks; the team server refuses a Markdown replace of a page holding a task (`page_holds_tasks`). Bridge writes keep Y's
   attribute objects (`keepYRefs`, cloud/content.ts). Task titles in Markdown only inside `withItemLabels` (Markdown
   export); every other `docToMarkdown` writes ids. Item reminders: key `w:<itemId>:<due>:<code>` (one per itemId, at the
@@ -211,12 +233,13 @@ the public APIs stable — other areas are built against them in parallel.
   tool picked (terminal `codewordTask`, free-form requests via `Codewords.picked` → attachMcp).
 - AI terminal `create_pages`: one page per item in ONE call (≤ 50, each its own staged `create_page`, ids back in order;
   a pending page with the same parent + title is updated). `TERMINAL_TOOLS` = `AGENT_TOOLS` + create_database / add_property /
-  write_script / create_pages. `MAX_TOOL_CALLS` = 40 per task (MCP calls don't count; backstop +12); hitting it ends as
+  write_script / create_pages (`AGENT_TOOLS` includes `list_work_items` / `update_work_item`). `MAX_TOOL_CALLS` = 40 per task (MCP calls don't count; backstop +12); hitting it ends as
   'limit' with Continue (key, ↵ on the empty prompt, `/continue` = `/weiter`, `continueTask()`: same conversation + staged
   changes, fresh budget). Applied content (agent/links.ts `withPageNodes`): `[Title](#/p/<id>)` whose text is the page
   title → a page `mention`; a paragraph holding only one → `pageLink`.
 - AI-menu intent routing (features/ai/intent.ts `requestIntent`, EN + DE, no Claude call): 'topage' → Turn into page,
-  'pagesPerItem' → Sub-page per item, 'todb' → Turn into database first, 'terminal' → "This needs the AI terminal — run
+  'pagesPerItem' → Sub-page per item, 'todb' → Turn into database first, 'items' → Make tasks (selection: Transform →
+  Tasks; cursor: the page-level action `make_tasks`), 'terminal' → "This needs the AI terminal — run
   it there" (`runInTerminal`, agent/refs.ts). Sub-page per item (editor/split/items.ts `pagesPerItem` / `itemCount`): list
   items / heading sections / table rows → sub-pages (origin 'split', private when the page is) + ONE table of page
   mentions with ≤ 3 fields, one transaction; grip Turn into, AI menu 'pagesPerItem', Transform into → "Pages + table".
@@ -228,7 +251,7 @@ the public APIs stable — other areas are built against them in parallel.
 - Transform into … (features/ai/transform; run kind 'transform'): selected blocks → Auto (classification call, then the
   form) · Board / Table / Timeline (todb machinery) · Diagram (`mermaid`, checked with `mermaid.parse`, one repair round) ·
   Chart (`chart`, manual ChartSpec via `normalizeSpec`; only numbers the text states) · Columns / Tabs / Toggles / Cards
-  (TipTap JSON built by code, never HTML). Preview first (cached per form in `AIRun.transform`); applied in ONE
+  (TipTap JSON built by code, never HTML) · Tasks (form 'items', transform/items.ts; never picked by Auto). Preview first (cached per form in `AIRun.transform`); applied in ONE
   transaction after `snapshotNow`, origin 'ai'; "Keep the original" = a closed `details` below. Only the selection goes
   out (no memory; MCP `scope: 'all'` only).
 - Context marks (editor/context; per tab, in memory, never saved or synced): an AI request reads a page's text only
@@ -433,7 +456,9 @@ the public APIs stable — other areas are built against them in parallel.
   context" (shell/lib/aiContext.ts `pageForAI`, page menu / sidebar row menu / ⌘K) = a page as Markdown on the clipboard. The task tools are read-only for Claude Code (plan mode may ask);
   without ExitPlanMode the plan file (`~/.claude/plans`) is the plan.
 - Claude's Markdown goes into or is shown in a page only through `claudeDoc` / `claudeBlocks` (features/ai/claudeDoc.ts):
-  web images become links, frames / media / web files never load. In shared pages Claude's change is its own undo step
+  web images become links, frames / media / web files never load. With a `SettleContext` (`claudeSettled`) its `> [!TODO]`
+  quotes go through the settle gate and `one:person` / `one:date` links become mentions; without one, no task and a
+  person link stays "@Name" text. In shared pages Claude's change is its own undo step
   (`startUndoStep(view)` / `endUndoStep(view)`, editor/index.ts). History `SnapshotReason 'script'` ('Script · <name>').
   UI: Popover is hidden until placed and focuses at once; Menu activates only on real pointer movement
   (ui/pointer.ts `usePointerIntent`); use ui/focus.ts `restoreFocus` / `useFocusWhenShown`.
@@ -752,6 +777,11 @@ the public APIs stable — other areas are built against them in parallel.
   `VIEW_TYPES`. The codeword `one:` (instructions line) and the prompt `one` are served by the bridge and by `/mcp`.
 - MCP addresses workspaces by id (`local:<hash>` / `team:<id>`, features/mcp/identity.ts; per-browser localStorage
   `one.mcp.device`); every bridge call is bound to that id and refused on a mismatch — never act in another workspace.
+- MCP task tools (local bridge only until server parity, bridge ≥ 1.8.0): `one_list_work_items` (read, JSON) and
+  `one_update_work_item` (features/mcp/workItems.ts, built on the agent tool through `callStage`); a task change that
+  holds (names a person, a reminder, an assigned task, a blocker, a removal) sets `WritePlan.alwaysAsk` — asked even in
+  Apply directly; the `one_update_page` replace settles at plan time and refuses at apply when `contentRev` moved.
+  Neither the team server's MCP nor its agents learn the `[!TODO]` form before P4 (source guard).
 
 ## TipTap node names (shared contract — seed, export, share, history all rely on these)
 

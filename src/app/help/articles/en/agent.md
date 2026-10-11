@@ -3,7 +3,7 @@ id: agent
 title: The AI terminal
 section: ai
 order: 3
-keywords: agent, ai terminal, terminal, claude, automate, bulk, tasks, rows, pages, databases, board, workspace agent, apply, review, keyboard, commands, references, context, what claude reads, redo, edit, replace, rewrite, diff, sub-page per item, page per ticket, table of links, limit, continue, pipelines, coding task, approve, connect, sign in, mcp, KI-Terminal, Agent, Aufgaben, automatisieren, Kontext, ändern, ersetzen, Unterseite pro Ticket, weiter, verbinden, anmelden
+keywords: agent, ai terminal, terminal, claude, automate, bulk, tasks, task blocks, list_work_items, update_work_item, owner, due, rows, pages, databases, board, workspace agent, apply, review, keyboard, commands, references, context, what claude reads, redo, edit, replace, rewrite, diff, sub-page per item, page per ticket, table of links, limit, continue, pipelines, coding task, approve, connect, sign in, mcp, KI-Terminal, Agent, Aufgaben, automatisieren, Kontext, ändern, ersetzen, Unterseite pro Ticket, weiter, verbinden, anmelden
 related: custom-agents, ai-menu, mcp-servers, mcp-bridge, coding-pipeline, pipelines
 summary: Give Claude tasks by keyboard — it reads your workspace, proposes changes, and you apply them. Keeps working while hidden.
 ---
@@ -23,6 +23,14 @@ Claude adds to a page with *append*. When a task asks to **fix, rewrite, update 
 - A block you changed after Claude proposed the edit is **skipped**, never overwritten — the review says so.
 - Blocks you left out of what Claude reads (see below) can't be changed either, and a full rewrite of such a page is refused.
 - [Custom agents](help:custom-agents) can propose edits too; even an agent that writes directly waits for your OK before it replaces text.
+
+## Task blocks
+Claude writes [tasks](help:tasks) into pages as `> [!TODO] Title` with a line of fields (*Owner: Alex · Due: 2026-10-17 · Blocked by: …*) — One turns them into task blocks with ids of its own; the tool answer tells Claude the id each new task got. It finds tasks across the workspace (**list_work_items**: open, mine, blocked, overdue, by person, page or title) and changes a task's status, due date, reminder, owners or links (**update_work_item**). It is not the coding pipeline: those tasks have their own tools (below).
+
+- The review shows each task as a row: **TASK · NEW** with its chips (status, due, owners, blocked by), **KEPT**, **CHANGED** with every field before → after, **REMOVED** when a rewrite leaves one out. A line **Waits for your review · Names a person** (or *Sets a reminder*, *Changes an assigned task*, *Adds a blocker*, *Removes tasks*) says what to look at.
+- Owners are only people of your workspace: an unknown name is refused with the list of names, and Claude asks again — One never creates a person, and never tells Claude an email.
+- Links reach only tasks Claude may read (what **What Claude reads** allows; a task elsewhere is named by its id only). A task that waits for a task another proposal makes needs that proposal first — applying it alone says so.
+- Editing a task's field line in text changes nothing; the review says so. Text that keeps a task's quote with its `{#wi_…}` keeps the task — leaving it out removes it (shown as **REMOVED**).
 
 ## Coding pipelines from the terminal
 When you use the [coding pipelines](help:coding-pipeline), Claude can read them — what waits for you, a task's stage, its plan, test result and log — and **propose** what you ask for: a new task (Coding, Business analysis or QA), or an action on one: approve, send back with a note, answer its question, run it once, stop it, set *Then* or hand it on.
