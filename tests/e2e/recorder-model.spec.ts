@@ -31,6 +31,7 @@ import { rewindAllowed, rewindState, setRewindGuard } from '../../src/app/store/
 import { thinSnapshots } from '../../src/app/features/history/thin'
 import type { SnapshotMeta } from '../../src/app/features/history/snapshots'
 import { planRestoreProps, type SnapshotProps } from '../../src/app/features/history/propsCore'
+import { invalidTargetsIn, pairedRelationIn, relationRestoreOk } from '../../src/app/database/model/hierarchyCore'
 
 /* ------------------------------------------------------------------ */
 /* stub deps (the browser spec covers the real helpers)                */
@@ -1147,6 +1148,55 @@ test.describe('history for the eject (E2): forced versions, thinning, the restor
     expect(p2.notRestored.map((n) => n.reason)).toEqual(['option', 'type'])
     // another database (the row moved): every kept value is "deleted"
     expect(planRestoreProps({ ...row, databaseId: 'db-other' }, props, db).notRestored.map((n) => n.name)).toEqual(['Stage', 'Schätzung', 'Labels', 'Alt'])
+  })
+})
+
+test.describe('relation checks for the eject (E3): over a planned state, no write to a row outside the plan', () => {
+  const row = (id: string, dbId: string, properties: Page['properties'] = {}) => page({ id, parentId: dbId, databaseId: dbId, title: id, properties })
+  // Tasks ⇄ Teams: a paired two-way relation; Tasks also has sub-items (parent ⇄ children, a self pair) and a one-way link
+  const tasks = database({
+    id: 'db-tasks',
+    properties: [
+      { id: 'title', name: 'Name', type: 'title' },
+      { id: 'team', name: 'Team', type: 'relation', relationDatabaseId: 'db-teams' },
+      { id: 'parent', name: 'Übergeordnet', type: 'relation', relationDatabaseId: 'db-tasks' },
+      { id: 'parent.2way', name: 'Unteraufgaben', type: 'relation', relationDatabaseId: 'db-tasks' },
+      { id: 'see', name: 'Siehe', type: 'relation', relationDatabaseId: 'db-teams' },
+    ],
+    subItems: { enabled: true, parentPropertyId: 'parent', childPropertyId: 'parent.2way' },
+  })
+  const teams = database({ id: 'db-teams', properties: [{ id: 'title', name: 'Name', type: 'title' }, { id: 'team.2way', name: 'Aufgaben', type: 'relation', relationDatabaseId: 'db-tasks' }] })
+  const prop = (id: string) => tasks.properties.find((p) => p.id === id)!
+  const state = (pages: Page[]) => ({ pages: Object.fromEntries(pages.map((p) => [p.id, p])), databases: { 'db-tasks': tasks, 'db-teams': teams } })
+
+  test('pairedRelationIn finds the explicit partner in the given databases', () => {
+    expect(pairedRelationIn(state([]).databases, 'db-tasks', prop('team'))?.prop.id).toBe('team.2way')
+    expect(pairedRelationIn(state([]).databases, 'db-tasks', prop('see'))).toBeNull()
+  })
+
+  test('a two-way value goes back only with every partner whose back-link it adds or drops', () => {
+    const s = state([row('t1', 'db-tasks', { team: ['tm-b'] }), row('tm-a', 'db-teams', {}), row('tm-b', 'db-teams', { 'team.2way': ['t1'] })])
+    // back to Team A: drops B, adds A — both partners must go back
+    expect(relationRestoreOk(s, 'db-tasks', prop('team'), 't1', ['tm-a'], new Set(['t1', 'tm-a', 'tm-b']))).toBe(true)
+    expect(relationRestoreOk(s, 'db-tasks', prop('team'), 't1', ['tm-a'], new Set(['t1', 'tm-a']))).toBe(false)
+    // a one-way link: always
+    expect(relationRestoreOk(s, 'db-tasks', prop('see'), 't1', ['tm-a'], new Set(['t1']))).toBe(true)
+  })
+
+  test('sub-items: a loop in the planned state, a second parent, a sub-item that has another parent → not restored', () => {
+    // t2 is t1's sub-item now; t1 under t2 would loop
+    const s = state([row('t1', 'db-tasks', { 'parent.2way': ['t2'] }), row('t2', 'db-tasks', { parent: ['t1'] }), row('t3', 'db-tasks', {}), row('t4', 'db-tasks', { parent: ['t3'] })])
+    const all = new Set(['t1', 't2', 't3', 't4'])
+    expect(invalidTargetsIn(s, 'db-tasks', prop('parent'), 't1')).toEqual(new Set(['t2', 't1']))
+    expect(relationRestoreOk(s, 'db-tasks', prop('parent'), 't1', ['t2'], all)).toBe(false)
+    expect(relationRestoreOk(s, 'db-tasks', prop('parent'), 't1', ['t3'], all)).toBe(true)
+    expect(relationRestoreOk(s, 'db-tasks', prop('parent'), 't1', ['t3', 't4'], all)).toBe(false)
+    // t4 has t3 as its parent: giving t1 the sub-item t4 would take it from t3
+    expect(relationRestoreOk(s, 'db-tasks', prop('parent.2way'), 't1', ['t2', 't4'], all)).toBe(false)
+    expect(relationRestoreOk(s, 'db-tasks', prop('parent.2way'), 't1', [], all)).toBe(true)
+    // the same loop is fine once t2's link is gone in the planned state
+    const planned = state([row('t1', 'db-tasks', {}), row('t2', 'db-tasks', {}), row('t3', 'db-tasks', {})])
+    expect(relationRestoreOk(planned, 'db-tasks', prop('parent'), 't1', ['t2'], all)).toBe(true)
   })
 })
 

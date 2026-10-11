@@ -12,6 +12,7 @@ import { COLOR_NAMES } from '../../store/types'
 import { isComputed } from './schema'
 import type { Resolver } from './resolve'
 import { constrainRelationWrite, dependenciesOf, subItemsOf } from './hierarchy'
+import { pairedRelationIn, TWO_WAY_SUFFIX } from './hierarchyCore'
 import { dateValueText, isDateValue, isoWithTime, parseDateText, parseNumberText } from './format'
 import { isDbReadOnly } from '../readonly'
 import { isDbLocked } from './lock'
@@ -24,26 +25,11 @@ const schemaEditable = (dbId: ID | undefined) => !isDbReadOnly() && !isDbLocked(
 
 const ws = () => useWorkspace.getState()
 
-/**
- * Two-way relations are paired explicitly: turning two-way on creates the reverse property on the
- * target database with the id `<forward id>.2way`. Only such a pair syncs — two relations that
- * merely point at each other (created separately) stay independent, and switching two-way off can
- * only ever remove the property that two-way created or its explicit partner.
- */
-export const TWO_WAY_SUFFIX = '.2way'
+export { TWO_WAY_SUFFIX } from './hierarchyCore'
 
+/** The explicit two-way partner of a relation property (the workspace now). */
 export function pairedRelation(dbId: ID, prop: PropertyDef): { db: Database; prop: PropertyDef } | null {
-  if (prop.type !== 'relation' || !prop.relationDatabaseId) return null
-  const target = ws().databases[prop.relationDatabaseId]
-  if (!target) return null
-  const partner = (p: PropertyDef | undefined): p is PropertyDef => !!p && p.id !== prop.id && p.type === 'relation' && p.relationDatabaseId === dbId
-  const back = target.properties.find((p) => p.id === prop.id + TWO_WAY_SUFFIX)
-  if (partner(back)) return { db: target, prop: back }
-  if (prop.id.endsWith(TWO_WAY_SUFFIX)) {
-    const fwd = target.properties.find((p) => p.id === prop.id.slice(0, -TWO_WAY_SUFFIX.length))
-    if (partner(fwd)) return { db: target, prop: fwd }
-  }
-  return null
+  return pairedRelationIn(ws().databases, dbId, prop)
 }
 
 /** A property already holds the reverse id on the target (e.g. the old synced property, retyped). */
