@@ -16,6 +16,7 @@ import { useWorkspace } from '../store/store'
 import { navigate, pageHref, useRoute } from '../lib/router'
 import { newId } from '../lib/ids'
 import { createBridge, type Bridge } from './lib/bridge'
+import { registerContentFlush } from './lib/contentFlush'
 import { editorExtensions } from './extensions/kit'
 import { findBlockById, flashBlock } from './extensions/behaviors'
 import { sanitize, withBlockIds } from './convert'
@@ -372,6 +373,8 @@ function EditorInstance({ pageId, readOnly, autoFocus, onReady, className, colla
 
   // "Redo with instructions" from outside the page (block menu, AI terminal) opens this editor's AI panel
   useEffect(() => (editor ? registerBridge(editor, bridge) : undefined), [editor, bridge])
+  // a reader of the store that must see this editor's last change now (the unblock toast): its save, on call
+  useEffect(() => (editor ? registerContentFlush(editor, flush) : undefined), [editor, flush])
 
   // editable / spellcheck follow page + settings
   useEffect(() => {

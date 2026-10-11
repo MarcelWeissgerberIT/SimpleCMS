@@ -25,6 +25,7 @@ import { endUndoStep, startUndoStep } from '../collab'
 import { liveEditorOf } from '../context/store'
 import { bridgeOf } from '../context/redo'
 import type { ItemPickerKind, ItemPickerState } from '../lib/bridge'
+import { flushContentOf } from '../lib/contentFlush'
 import { itemAttrs, WORK_ITEM, type WorkItemStatus } from './attrs'
 import { itemHooks, itemLookup } from './lookup'
 import { findItemPos, patchItemAttrs, type ItemPatch } from './patch'
@@ -95,7 +96,11 @@ export function commitItems(editor: Editor, edits: ReadonlyArray<{ target: ItemT
     view.dispatch(tr)
     if (step) endUndoStep(view)
   }
-  if (opts.by === 'person' && finished.length) itemHooks().finished(finished, view.dom.getAttribute('data-page-id'))
+  if (opts.by === 'person' && finished.length) {
+    // the index reads the store: what this editor did a moment ago (a link to the task just finished) goes there first
+    flushContentOf(editor)
+    itemHooks().finished(finished, view.dom.getAttribute('data-page-id'))
+  }
   return results
 }
 

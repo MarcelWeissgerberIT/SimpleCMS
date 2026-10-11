@@ -18,7 +18,7 @@ import { useRef, useSyncExternalStore } from 'react'
 import { useWorkspace, pageChanges } from '../../store/store'
 import { isEffectivelyTrashed, templateRootOf } from '../../store/selectors'
 import type { ID, Page } from '../../store/types'
-import { activeWorkspace, useCloud } from '../../cloud'
+import { activeWorkspace, flushPageContent, useCloud } from '../../cloud'
 import { compareOccurrence, docToMarkdown, itemCounters, itemsOfContent, setItemHooks, setItemLookup, setItemTitleLookup, withItemLabels, type WorkItemAttrs } from '../../editor'
 import { buildIndex, EMPTY_INDEX, updateIndex, type IndexDeps, type ItemIndex, type PageItems } from './itemIndex'
 import { graphOf } from './graph'
@@ -315,7 +315,13 @@ export function startItems(): () => void {
     dependents: (itemId) => getItemIndex().dependents.get(itemId)?.length ?? 0,
   })
   // a person finished tasks in an editor: who can start now
-  setItemHooks({ finished: (itemIds) => toastUnblocked(unblockedBy(getItemIndex(), itemIds)) })
+  // (team: the page's shared document into the store first — the editor saved its change there, the store follows later)
+  setItemHooks({
+    finished: (itemIds, pageId) => {
+      if (pageId && isTeam()) flushPageContent(pageId)
+      toastUnblocked(unblockedBy(getItemIndex(), itemIds))
+    },
+  })
   // the Markdown export's link labels (withItemLabels only): a live task's title — never a private one's
   setItemTitleLookup((itemId) => {
     const e = getItemIndex().byId.get(itemId)

@@ -128,7 +128,9 @@ the public APIs stable — other areas are built against them in parallel.
   export); every other `docToMarkdown` writes ids. Item reminders: key `w:<itemId>:<due>:<code>` (one per itemId, at the
   index's winner); team: rings only for its people (`ringsHere`), unassigned for every member. The agenda shows tasks with
   a due date (moves write `due` through `writeItems`); people usage / merge count and rewrite task people (origin
-  'people'). HTML becomes a task ONLY as the editor's own clipboard copy
+  'people'). A person's finish in an editor writes that editor's pending content first (`flushContentOf`,
+  editor/lib/contentFlush.ts; team: `flushPageContent`) — the unblock toast reads the index, which reads the store.
+  HTML becomes a task ONLY as the editor's own clipboard copy
   (workitem/clip.ts: the clipboard serializer stamps a per-device key, localStorage `one.clip.key`; raw HTML in Markdown,
   Claude's answers, imports and other sites never make one; `withoutWebLoads` unwraps one). Markdown that REPLACES content
   holding tasks (sync pickup, MCP replace, edit_page replace, record type / template text, script replace) goes through
