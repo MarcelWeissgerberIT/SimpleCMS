@@ -411,7 +411,7 @@ test.describe('AI menu: a short top level', () => {
 
     // several blocks
     ai = await askOn(page, 'heading-list')
-    expect(await rowIds(ai)).toEqual(['improve', 'fix', 'translate', 'transform', 'summarize', 'more'])
+    expect(await rowIds(ai)).toEqual(['improve', 'fix', 'translate', 'transform', 'workItems', 'summarize', 'more'])
     await expect(ai.locator('#ai-row-transform .ai-row__sub')).toBeVisible()
     await expect(ai.locator('#ai-row-more')).toContainText('+13')
     await page.keyboard.press('Escape')
@@ -421,7 +421,7 @@ test.describe('AI menu: a short top level', () => {
     await page.keyboard.press('Space')
     ai = panel(page)
     await expect(ai).toBeVisible()
-    expect(await rowIds(ai)).toEqual(['continue', 'outline', 'brainstorm', 'summarize', 'action_items', 'workspace', 'more'])
+    expect(await rowIds(ai)).toEqual(['continue', 'outline', 'brainstorm', 'summarize', 'action_items', 'workItems', 'workspace', 'more'])
     await page.keyboard.press('Escape')
 
     // an image in the selection: its actions first, then the most used for the text
@@ -447,19 +447,19 @@ test.describe('AI menu: a short top level', () => {
 
     // several blocks: every action of the old flat list
     let ai = await askOn(page, 'heading-list')
-    expect(await walk(ai)).toEqual(['action_items', 'agent', 'explain', 'fix', 'freeboard', 'improve', 'longer', 'reads', 'redo', 'remember', 'remember-example', 'shorter', 'summarize', 'todb', 'tolist', 'topage', 'transform', 'translate'].sort())
+    expect(await walk(ai)).toEqual(['action_items', 'agent', 'explain', 'fix', 'freeboard', 'improve', 'longer', 'reads', 'redo', 'remember', 'remember-example', 'shorter', 'summarize', 'todb', 'tolist', 'topage', 'transform', 'translate', 'workItems'].sort())
     await ai.locator('#ai-row-translate').click()
     await expect(ai.getByRole('option')).toHaveCount(13)
     await page.keyboard.press('Backspace')
     await ai.locator('#ai-row-transform').click()
-    await expect(ai.getByRole('option')).toHaveText([/^Auto/, /^Board/, /^Free board/, /^Table/, /^Timeline/, /^Diagram/, /^Chart/, /^Columns/, /^Tabs/, /^Toggles/, /^Cards/])
+    await expect(ai.getByRole('option')).toHaveText([/^Auto/, /^Board/, /^Free board/, /^Table/, /^Timeline/, /^Tasks/, /^Diagram/, /^Chart/, /^Columns/, /^Tabs/, /^Toggles/, /^Cards/])
     await page.keyboard.press('Escape')
 
     // the cursor
     await editorOf(page).locator('p').last().click()
     await page.keyboard.press('Space')
     ai = panel(page)
-    expect(await walk(ai)).toEqual(['action_items', 'agent', 'brainstorm', 'continue', 'outline', 'reads', 'redo', 'summarize', 'workspace'].sort())
+    expect(await walk(ai)).toEqual(['action_items', 'agent', 'brainstorm', 'continue', 'outline', 'reads', 'redo', 'summarize', 'workItems', 'workspace'].sort())
     await page.keyboard.press('Escape')
 
     // text with an image: the image's actions and every text action

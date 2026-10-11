@@ -553,6 +553,15 @@
   margin-left: auto;
 }
 
+/* "Make tasks" sits first: it takes the push to the right, "Send to database" follows it */
+.btn.mtg__items {
+  margin-left: auto;
+}
+
+.btn.mtg__items + .btn.mtg__send {
+  margin-left: 0;
+}
+
 /* ---------- small screens ---------- */
 @media (max-width: 520px) {
   .mtg__title {
@@ -574,7 +583,8 @@
     padding: 8px 12px 8px 10px;
   }
 
-  .mtg__send {
+  .mtg__send,
+  .btn.mtg__items {
     margin-left: 0;
   }
 }

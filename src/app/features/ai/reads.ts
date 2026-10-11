@@ -91,9 +91,10 @@ export interface PageRead {
 
 /**
  * The page context of a request by the page's mode: the whole page (title + text, as before), the
- * title + the marked blocks as Markdown, or nothing at all.
+ * title + the marked blocks as Markdown, or nothing at all. `markdown`: the whole page as Markdown in the file form
+ * too ("Make tasks": Claude must see the tasks already there — `> [!TODO] … {#wi_…}` — to leave them out).
  */
-export function pageRead(pageId: ID, selection: string | null): PageRead {
+export function pageRead(pageId: ID, selection: string | null, opts: { markdown?: boolean } = {}): PageRead {
   const p = useWorkspace.getState().pages[pageId]
   const title = p?.title.trim() ? `# ${p.title.trim()}\n\n` : ''
   // the file form: dates and people as `one:` links (an answer that copies them keeps them as mentions)
@@ -102,5 +103,6 @@ export function pageRead(pageId: ID, selection: string | null): PageRead {
   const sel = selection ? countWords(selection) : 0
   if (mode === 'none') return { context: '', marked: '', reads: { mode, selection: !!selection, blocks: 0, words: sel } }
   if (mode === 'marked') return { context: `${title}${r.markdown}`, marked: r.markdown, reads: { mode, selection: !!selection, blocks: r.blocks, words: sel + r.words } }
-  return { context: p ? `${title}${p.plain ?? ''}` : '', marked: '', reads: { mode, selection: !!selection, blocks: 0, words: sel + r.words } }
+  const body = opts.markdown ? r.markdown : (p?.plain ?? '')
+  return { context: p ? `${title}${body}` : '', marked: '', reads: { mode, selection: !!selection, blocks: 0, words: sel + r.words } }
 }

@@ -29,6 +29,7 @@ import {
   type TransformType,
 } from './types'
 import { FreeBoardPreview } from '../freeboard/Preview'
+import { ItemFacts } from '../../workitems'
 import './transform.css'
 
 export interface TransformPreviewProps {
@@ -141,7 +142,7 @@ function BlockPreview({ res, state, onOpts }: { res: BlockResult; state: Transfo
   const t = useT()
   const ids = useId()
   const opts = state.opts
-  const doc = useMemo(() => ({ type: 'doc', content: resultBlocks(res, opts) }), [res, opts])
+  const doc = useMemo(() => (res.type === 'items' ? null : { type: 'doc', content: resultBlocks(res, opts) }), [res, opts])
   const stays = res.keep.length + res.left.length
   const staysText = stays === 0 ? t('features.ai.transform.spec.staysNone') : stays === 1 ? t('features.ai.transform.spec.staysOne') : t('features.ai.transform.spec.stays', { n: stays })
 
@@ -182,6 +183,9 @@ function BlockPreview({ res, state, onOpts }: { res: BlockResult; state: Transfo
     options = (
       <Seg label={t('features.ai.transform.opt.kind')} value={kind} items={TRANSFORM_CHART_KINDS.map((k) => ({ value: k, label: t(`charts.kind.${k}`) }))} onChange={(k) => onOpts({ chart: k })} testId="transform-chart-kind" />
     )
+  } else if (res.type === 'items') {
+    const n = res.facts.length
+    spec = [n === 1 ? t('features.ai.transform.spec.itemsOne') : t('features.ai.transform.spec.items', { n }), staysText]
   } else {
     const n = res.sections.length
     const count =
@@ -213,8 +217,14 @@ function BlockPreview({ res, state, onOpts }: { res: BlockResult; state: Transfo
         {spec.join(' · ')}
       </div>
       <div className="trf__plate" data-testid="transform-plate" data-form={res.type === 'sections' ? res.of : res.type}>
-        <ReadOnlyDoc content={doc} className="trf__doc" />
+        {res.type === 'items' ? <ItemFacts facts={res.facts} warnings={res.warnings} /> : doc && <ReadOnlyDoc content={doc} className="trf__doc" />}
       </div>
+      {res.type === 'items' && (
+        // people's names went to Claude with this request (only with Make tasks): said here
+        <p className="trf__people label" data-testid="transform-people">
+          {res.people === 1 ? t('features.ai.transform.items.peopleOne') : t('features.ai.transform.items.people', { n: res.people })}
+        </p>
+      )}
       {options && <div className="trf__opts">{options}</div>}
       <div className="trf__left">
         <span className="trf__label label">{t('features.ai.transform.left.title')}</span>

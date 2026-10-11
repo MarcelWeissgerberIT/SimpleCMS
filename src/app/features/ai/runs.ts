@@ -124,6 +124,8 @@ export interface AIRun {
   fileIssue?: FileProblem | null
   /** media the MCP results returned (an own request, a generation): cards, nothing loaded until "Save to One" */
   media?: MediaItem[] | null
+  /** "Make tasks": how many people's names went along (`<people>`) — the result strip says so */
+  peopleSent?: number | null
 }
 
 interface RunsState {
@@ -300,7 +302,7 @@ export function startRun({ editor, pageId, req, target, replaces }: StartRunOpti
 function actionRead(run: AIRun, req: Extract<RunRequest, { kind: 'action' }>): { input: string; context: string; reads: RunReads } {
   const { target } = run
   const selection = target.mode === 'selection' ? target.selected : null
-  const pr = pageRead(run.pageId, selection)
+  const pr = pageRead(run.pageId, selection, { markdown: req.action === 'make_tasks' })
   if (req.action !== 'continue') return { input: req.input ?? target.selected, context: pr.context, reads: pr.reads }
   const p = useWorkspace.getState().pages[run.pageId]
   const title = p?.title.trim() ? `# ${p.title.trim()}` : ''
@@ -418,7 +420,8 @@ async function execute(id: string, editor: Editor) {
         // an own request takes the One memory along (unless switched off for it)
         const mem = req.action === 'custom' ? memoryFor(req.instruction ?? '', { off: req.memoryOff }) : null
         if (mem?.use) memLog = { use: mem.use, task: req.instruction ?? '' }
-        patch(id, { reads: read.reads, ...(mem?.use ? { memory: mem.use } : {}) })
+        const people = req.action === 'make_tasks' ? peopleNames() : null
+        patch(id, { reads: read.reads, ...(mem?.use ? { memory: mem.use } : {}), ...(people ? { peopleSent: people.length } : {}) })
         text = await runAI({
           action: req.action,
           input: read.input,
@@ -429,6 +432,8 @@ async function execute(id: string, editor: Editor) {
           onMcp: (calls) => !ac.signal.aborted && patch(id, { mcpCalls: calls }, false),
           onMedia: (media) => !ac.signal.aborted && patch(id, { media }, false),
           memory: mem?.block,
+          // "Make tasks": the names owners may come from — only with this action (never an email)
+          ...(people ? { people } : {}),
         })
         outcome = text
       }
@@ -456,6 +461,15 @@ async function execute(id: string, editor: Editor) {
       noteUse(outcome || S().runs[id]?.output || '', memLog.use, { task: memLog.task, where: { kind: 'menu' }, pageId: run.pageId, result })
     }
   }
+}
+
+/** The workspace's people as "Make tasks" sends them (team: members are mirrored there): ≤ 200 names, never an email. */
+function peopleNames(): string[] {
+  return useWorkspace
+    .getState()
+    .people.map((p) => p.name.replace(/\s+/g, ' ').trim())
+    .filter((n) => n && !n.includes('@'))
+    .slice(0, 200)
 }
 
 /** A result ready while its page is not open: a toast with "Open". */

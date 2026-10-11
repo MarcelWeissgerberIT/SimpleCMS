@@ -327,3 +327,16 @@
     transition: none;
   }
 }
+
+/* Tasks: the names that went along with the request (only with Make tasks) */
+.label.trf__people {
+  margin: 6px 0 0;
+  color: var(--ink-3);
+  white-space: normal;
+  line-height: 1.5;
+}
+
+/* Tasks: the facts rows sit in the plate as they do in a review card */
+.trf__plate[data-form='items'] {
+  padding: 4px 10px;
+}

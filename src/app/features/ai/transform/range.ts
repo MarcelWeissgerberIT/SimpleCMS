@@ -6,10 +6,13 @@
  *    block. null: nothing to transform (inside a table cell, a quote, a code block, a few words of a line, a range
  *    holding a task).
  *  - fitsAt(doc, range): the forms that may replace those blocks (no columns inside a column, no tabs inside
- *    a tab, a database only where a database block may go).
+ *    a tab, a database only where a database block may go, tasks only where a task may stand — never inside a task or
+ *    a table — and only while this tab may make tasks: the creation gate).
+ *  - itemsFitAt(doc, range): tasks could stand there (the gate aside — the AI menu shows "Make tasks" off with its reason).
  */
 import type { Node as PMNode } from '@tiptap/pm/model'
 import { holdsItem } from '../../../editor'
+import { canCreateItems } from '../../workitems/live'
 import { findBlockRange, type BlockRange } from '../todb/plan'
 import { TRANSFORM_TYPES, type TransformType } from './types'
 
@@ -59,6 +62,7 @@ export function fitsAt(doc: PMNode, range: BlockRange | null): Record<TransformT
     freeboard: db,
     table: db,
     timeline: db,
+    items: canCreateItems() && can('workItem') && !inside('workItem') && !inside('tableCell') && !inside('tableHeader'),
     diagram: can('mermaid'),
     chart: can('chart'),
     columns: cols,
@@ -66,6 +70,18 @@ export function fitsAt(doc: PMNode, range: BlockRange | null): Record<TransformT
     tabs: can('tabs') && !inside('tab'),
     toggles: can('details'),
   }
+}
+
+/** Could tasks stand in place of the blocks at `range` (the creation gate aside)? */
+export function itemsFitAt(doc: PMNode, range: BlockRange | null): boolean {
+  if (!range || range.from < 0 || range.to > doc.content.size || range.from >= range.to) return false
+  const $a = doc.resolve(range.from)
+  const $b = doc.resolve(range.to)
+  if (!$a.sameParent($b) || $a.parent.inlineContent) return false
+  const node = doc.type.schema.nodes.workItem
+  if (!node || !$a.parent.canReplaceWith($a.index(), $b.index(), node)) return false
+  for (let d = $a.depth; d >= 0; d--) if (/^(workItem|tableCell|tableHeader)$/.test($a.node(d).type.name)) return false
+  return true
 }
 
 /** The forms that fit, in menu order. */

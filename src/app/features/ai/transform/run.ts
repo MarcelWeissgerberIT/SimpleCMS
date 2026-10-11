@@ -11,6 +11,8 @@
  *    then TransformError('diagram')
  *  - Chart: every value checked against the numbers of the text; none left → TransformError('nonumbers')
  *  - Columns / Tabs / Toggles / Cards: titles + lines; too few parts → TransformError('few')
+ *  - Tasks (`items`): tasks as JSON (owners from `<people>` — sent only with this form), built into task blocks with
+ *    their ids (items.ts); none → TransformError('few'). Auto never picks Tasks: only an explicit pick makes tasks.
  * Throws AIError (client.ts), TodbError ('changed' …) or TransformError.
  */
 import type { JSONContent } from '@tiptap/core'
@@ -23,6 +25,9 @@ import { fitsAt, fittingTypes } from './range'
 import { mermaidError, kindOfCode } from './mermaid'
 import { numbersIn } from './numbers'
 import { chartPrompt, chartValues, classifyPrompt, diagramPrompt, parseChart, parseClassification, parseDiagram, parseSections, sectionsPrompt } from './prompt'
+import { buildItems, itemsPrompt, parseItems, peopleNamesOf } from './items'
+import { settleWorld } from '../../workitems'
+import { useWorkspace } from '../../../store/store'
 import { emptyState, resultKey, TransformError, type DiagramPick, type ResultSource, type SectionsOf, type TransformPick, type TransformResult, type TransformState, type TransformType } from './types'
 
 /** The request of a transform run (runs.ts RunRequest). */
@@ -63,7 +68,8 @@ export async function runTransform(doc: PMNode, range: BlockRange, req: Transfor
     if (!state.auto || req.fresh) {
       state.shown = null
       opts.onState?.(clone(state))
-      const allowed = fittingTypes(fits)
+      // Auto never picks Tasks (people's names, owners): only an explicit pick makes tasks
+      const allowed = fittingTypes(fits).filter((x) => x !== 'items')
       if (!allowed.length) throw new TransformError('fit')
       const p = classifyPrompt(source.blocks, allowed, ask)
       const raw = await completeStructured({ system: p.system, prompt: p.prompt, schema: p.schema, maxTokens: 600, signal: opts.signal })
@@ -101,6 +107,17 @@ async function requestResult(doc: PMNode, range: BlockRange, source: ResolvedBlo
   }
   const base = { blocks: source.blocks.map((b) => b.node.toJSON() as JSONContent), gists: source.blocks.map((b) => blockGist(b.node)) }
   if (type === 'diagram') return diagram(source.blocks, state, ask, base)
+  if (type === 'items') {
+    // the people's names go along with this form only (≤ 200, never an email)
+    const names = peopleNamesOf(useWorkspace.getState().people)
+    const p = itemsPrompt(source.blocks, names, ask)
+    const raw = await completeStructured({ system: p.system, prompt: p.prompt, schema: p.schema, maxTokens: 12000, signal: ask.signal })
+    const got = parseItems(raw, source.blocks)
+    if (!got) throw new TransformError('bad')
+    if (!got.items.length) throw new TransformError('few')
+    const built = buildItems(got.items, settleWorld(), { tooMany: got.tooMany })
+    return { type: 'items', ...base, items: got.items, ...built, people: names.length, keep: got.keep, left: got.left }
+  }
   if (type === 'chart') {
     const p = chartPrompt(source.blocks, ask)
     const raw = await completeStructured({ system: p.system, prompt: p.prompt, schema: p.schema, maxTokens: 6000, signal: ask.signal })

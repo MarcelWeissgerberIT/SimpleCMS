@@ -332,6 +332,21 @@
   }
 }
 
+/* the tasks an answer makes (what Insert / Replace writes) — the review's facts rows, scrolling inside the panel */
+.ai-items {
+  max-height: min(calc(220px * var(--text-scale)), 30vh);
+  overflow: auto;
+  padding: 8px 14px 10px;
+  border-top: 1px dashed var(--rule-strong);
+  overscroll-behavior: contain;
+}
+
+.label.ai-items__people {
+  margin: 6px 0 0;
+  color: var(--ink-3);
+  white-space: normal;
+}
+
 .ai-sources {
   display: flex;
   flex-wrap: wrap;

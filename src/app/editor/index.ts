@@ -158,6 +158,13 @@ export { liftMisplacedItems, holdsItem } from './workitem/place'
  */
 export { readClaudeQuote, type ClaudeItemDraft, type RefDraft, type PersonDraft } from './workitem/markdown'
 export { itemSafePoint } from './workitem/turnInto'
+/**
+ * storedItemAttrs(attrs): a task's attrs as stored (Transform → Tasks builds its nodes). itemFromTodo(todo, now, id?) /
+ * splitListAround(list, index, blocks): a to-do as a NEW task (ticked → done, first date → due + reminder, people) and
+ * its list split around it — meeting notes "Make tasks" (features/ai/meeting/toItems.ts).
+ */
+export { storedItemAttrs } from './workitem/attrs'
+export { itemFromTodo, splitListAround } from './workitem/turn'
 export { DOC_SCHEMA_VERSION, NODE_GENERATIONS } from './schema/base'
 export { contextMarksOf, pageContextMarks, readableContent, readableBlocks, isContextLimited, useContextMarks, useContextPicking, type ContextMarks, type ReadableContent } from './context/read'
 export { setContextMode, openContextPicker, closeContextPicker, contextPickingPage, topBlockKeys } from './context/api'

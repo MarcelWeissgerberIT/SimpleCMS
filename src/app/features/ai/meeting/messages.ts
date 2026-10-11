@@ -105,6 +105,9 @@ export const messages: Messages = {
     'features.meeting.notesHint': 'Type your own notes…',
 
     // database
+    'features.meeting.items.action': 'Make tasks ({n})',
+    'features.meeting.items.made': '{n} tasks made',
+    'features.meeting.items.madeOne': '1 task made',
     'features.meeting.db.send': 'Send {n} action items to a database',
     'features.meeting.db.sendOne': 'Send 1 action item to a database',
     'features.meeting.db.pick': 'Send to database',
@@ -225,6 +228,9 @@ export const messages: Messages = {
     'features.meeting.notes.empty': 'Noch nichts festzuhalten — das Transkript ist sehr kurz.',
     'features.meeting.notesHint': 'Eigene Notizen tippen …',
 
+    'features.meeting.items.action': 'Aufgaben machen ({n})',
+    'features.meeting.items.made': '{n} Aufgaben angelegt',
+    'features.meeting.items.madeOne': '1 Aufgabe angelegt',
     'features.meeting.db.send': '{n} Aufgaben an eine Datenbank senden',
     'features.meeting.db.sendOne': '1 Aufgabe an eine Datenbank senden',
     'features.meeting.db.pick': 'An Datenbank senden',

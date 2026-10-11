@@ -25,6 +25,8 @@ import { typeLabel } from './forms'
 import { shownResult, type TransformState } from './types'
 import { type Writer } from '../../../store/writer'
 import { newId } from '../../../lib/ids'
+import { canCreateItems, settleWorld } from '../../workitems'
+import { recheckItems } from './items'
 
 /** Put the shown result in place of `range` (null: at the end of the page). Throws TodbError. */
 export async function applyTransform(editor: Editor, pageId: ID, range: BlockRange | null, state: TransformState, writer: Writer = { kind: 'ai', run: newId(), action: 'transform' }): Promise<void> {
@@ -53,9 +55,15 @@ export async function applyTransform(editor: Editor, pageId: ID, range: BlockRan
   const ws = useWorkspace.getState()
   if (!ws.pages[pageId] || ws.pages[pageId].trashed) throw new TodbError('gone')
 
+  // Tasks: the gate again (a viewer now, an older server), people gone since dropped, a minted id taken by now re-minted
+  let blocks = resultBlocks(res, state.opts)
+  if (res.type === 'items') {
+    if (!canCreateItems()) throw new TodbError('gate')
+    blocks = recheckItems(blocks, settleWorld()).nodes
+  }
   let made: PMNode[]
   try {
-    made = [...resultBlocks(res, state.opts), ...leftBlocks(res)].map((json: JSONContent) => editor.schema.nodeFromJSON(json))
+    made = [...blocks, ...leftBlocks(res)].map((json: JSONContent) => editor.schema.nodeFromJSON(json))
     made.forEach((n) => n.check())
   } catch {
     throw new TodbError('bad')

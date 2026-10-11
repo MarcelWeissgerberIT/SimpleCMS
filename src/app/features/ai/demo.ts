@@ -154,6 +154,11 @@ export function demoAnswer(req: DemoRequest, lang: Lang): string {
       return fill(c.summarize, { title })
     case 'action_items':
       return fill(c.action_items, { title: title === 'This page' || title === 'Diese Seite' ? (lang === 'de' ? 'die Seite' : 'the page') : `“${title}”` })
+    case 'make_tasks':
+      // tracked tasks as One reads them back (the settle gate makes them tasks): no owners, no dates — the text names none
+      return lang === 'de'
+        ? '> [!TODO] Ziel der Seite in einem Satz festhalten\n\n> [!TODO] Nächsten Schritt mit Termin vereinbaren\n> Blockiert durch: Ziel der Seite in einem Satz festhalten'
+        : '> [!TODO] Write down the goal of the page in one sentence\n\n> [!TODO] Agree on the next step and a date\n> Blocked by: Write down the goal of the page in one sentence'
     case 'explain':
       return c.explain
     case 'translate':

@@ -1,12 +1,13 @@
 /**
- * Below the notes: where the data goes (honest privacy line) and "Send action items to a
- * database" — a searchable list of databases; one row per open to-do, linked back in the notes.
+ * Below the notes: where the data goes (honest privacy line), "Make tasks" — the top-level to-dos of the notes become
+ * task blocks in one step (toItems.ts; a toast with Undo) — and "Send action items to a database" — a searchable list
+ * of databases; one row per open to-do, linked back in the notes.
  */
 import { useMemo, useState } from 'react'
 import type { Editor } from '@tiptap/core'
 import type { Node as PMNode } from '@tiptap/pm/model'
-import { ArrowRight, ShieldCheck } from 'lucide-react'
-import { meetingAttrs } from '../../../editor'
+import { ArrowRight, ShieldCheck, SquareCheckBig } from 'lucide-react'
+import { editAs, meetingAttrs } from '../../../editor'
 import { useT } from '../../../i18n'
 import { useWorkspace } from '../../../store/store'
 import { isEffectivelyTrashed, pageTitle, sortPages } from '../../../store/selectors'
@@ -18,6 +19,8 @@ import { PageIcon } from '../../../ui/PageIcon'
 import { speechSupported, speechVendor } from './recognition'
 import { actionItemsIn } from './notes'
 import { missingFields, sendActionItems } from './toDatabase'
+import { makeItems, topTodos } from './toItems'
+import { canCreateItems } from '../../workitems'
 import { editorPageId } from './write'
 import { CreatePropertiesDialog, canCreateProperties, type PropertySuggestion } from '../../../database'
 
@@ -25,6 +28,8 @@ export function MeetingFoot({ editor, node, editable }: { editor: Editor; node: 
   const t = useT()
   const attrs = useMemo(() => meetingAttrs(node), [node])
   const pending = useMemo(() => actionItemsIn(node).filter((a) => a.text && !a.linked).length, [node])
+  /** "Make tasks": the to-dos directly in the notes (the count is exactly what the key makes) */
+  const todos = useMemo(() => topTodos(node).length, [node])
   const [anchor, setAnchor] = useState<HTMLElement | null>(null)
   // the picked database lacks a person / date property for what the items carry: offer to create it
   const [ask, setAsk] = useState<{ dbId: string; suggestions: PropertySuggestion[] } | null>(null)
@@ -42,7 +47,20 @@ export function MeetingFoot({ editor, node, editable }: { editor: Editor; node: 
     })
   }
   const vendor = speechSupported() ? speechVendor() : null
-  const showSend = !!attrs.id && pending > 0 && (attrs.status === 'done' || attrs.status === 'idle')
+  const settled = attrs.status === 'done' || attrs.status === 'idle'
+  const showSend = !!attrs.id && pending > 0 && settled
+  const showItems = !!attrs.id && todos > 0 && settled && canCreateItems()
+  const make = () => {
+    if (!attrs.id) return
+    const n = makeItems(editor, attrs.id, { kind: 'you', via: 'ui' })
+    if (!n) return
+    toast({
+      message: n === 1 ? t('features.meeting.items.madeOne') : t('features.meeting.items.made', { n }),
+      kind: 'success',
+      // touch has no ⌘Z: the toast's key undoes it, written as the person's Undo
+      action: { label: t('features.workItems.undo'), run: () => !editor.isDestroyed && editAs(editor, { kind: 'you', via: 'undo' }, () => editor.commands.undo()) },
+    })
+  }
   return (
     <div className="mtg__foot" contentEditable={false} suppressContentEditableWarning>
       <p className="mtg__privacy">
@@ -52,6 +70,12 @@ export function MeetingFoot({ editor, node, editable }: { editor: Editor; node: 
           {t('features.meeting.privacy.claude')}
         </span>
       </p>
+      {showItems && (
+        <button type="button" className="btn btn--sm mtg__items" data-meeting-key="items" onMouseDown={(e) => e.preventDefault()} onClick={make}>
+          <SquareCheckBig size={13} strokeWidth={1.9} aria-hidden />
+          {t('features.meeting.items.action', { n: todos })}
+        </button>
+      )}
       {showSend && (
         <button
           type="button"
