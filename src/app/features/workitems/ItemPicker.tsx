@@ -3,7 +3,8 @@
  * "Blocks…" (the OTHER tasks wait for this one: `writeItems` on each, with Undo).
  *
  *  - Candidates: the live tasks (index winners) — and, for a task in a template, the tasks of that same template —
- *    minus itself. Groups THIS PAGE (document order) and OTHER PAGES (recently visited pages first, ≤ 50 rows).
+ *    minus itself. Groups THIS PAGE (document order) and OTHER PAGES (recently visited pages first), ≤ 50 rows each —
+ *    a linked row always shows; what is left out is counted in one line ("240 more — type to narrow").
  *  - Search: a folded substring (lower case, no accents) over titles folded once per opening — no RegExp from input.
  *  - Rows: LED + title + page path + the state in words; linked = ticked (toggling removes). Disabled with the reason
  *    in words: would make a loop · private (a shared task can't wait for a private one) · the page is locked
@@ -29,8 +30,18 @@ import type { ItemEntry } from './itemIndex'
 import './items.css'
 
 const MAX_LINKS = 20
-const OTHER_MAX = 50
+/** rows per group (a page with hundreds of tasks would make the opening slow; the search reaches every one) */
+const GROUP_MAX = 50
 const fold = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+/** Folded titles per index entry (an entry is a new object whenever its page's tasks change): folded once. */
+const FOLDED = new WeakMap<ItemEntry, string>()
+function foldedTitle(e: ItemEntry): string {
+  let f = FOLDED.get(e)
+  if (f === undefined) FOLDED.set(e, (f = fold(e.title)))
+  return f
+}
+/** One collator for the page paths (String#localeCompare builds one per call: thousands per opening). */
+const collator = new Intl.Collator()
 
 /** "Projects / Launch plan" — a page and up to two ancestors. */
 export function pagePath(pages: Record<ID, Page>, id: ID | null, untitled: string): string {
@@ -50,6 +61,7 @@ interface Cand {
   folded: string
   path: string
   here: boolean
+  rank: number
 }
 
 export function ItemLinkPicker({ ctx, mode }: { ctx: PickerCtx; mode: Mode }) {
@@ -81,23 +93,34 @@ export function ItemLinkPicker({ ctx, mode }: { ctx: PickerCtx; mode: Mode }) {
     const list: ItemEntry[] = []
     for (const e of index.byId.values()) if (e.itemId !== self) list.push(e)
     if (template) for (const occ of index.templated.values()) for (const e of occ) if (e.template === template && e.itemId !== self && !list.some((x) => x.itemId === e.itemId)) list.push(e)
+    // per page once: its place among the recently visited and its path (a page holds several tasks)
     const recent = useWorkspace.getState().recent
-    const rank = (pageId: ID) => {
-      const i = recent.indexOf(pageId)
-      return i < 0 ? Number.MAX_SAFE_INTEGER : i
+    const rankOf = new Map<ID, number>()
+    recent.forEach((id, i) => rankOf.has(id) || rankOf.set(id, i))
+    const paths = new Map<ID, string>()
+    const pathOf = (pageId: ID) => {
+      let p = paths.get(pageId)
+      if (p === undefined) paths.set(pageId, (p = pagePath(pages, pageId, untitled)))
+      return p
     }
-    return list
-      .map((e) => ({ e, folded: fold(e.title), path: pagePath(pages, e.pageId, untitled), here: e.pageId === ctx.pageId }))
-      .sort((a, b) => (a.here !== b.here ? (a.here ? -1 : 1) : a.here ? a.e.order - b.e.order : rank(a.e.pageId) - rank(b.e.pageId) || a.path.localeCompare(b.path) || a.e.order - b.e.order))
+    const here: Cand[] = []
+    const other: Cand[] = []
+    for (const e of list) {
+      const c = { e, folded: foldedTitle(e), path: pathOf(e.pageId), here: e.pageId === ctx.pageId, rank: rankOf.get(e.pageId) ?? Number.MAX_SAFE_INTEGER }
+      ;(c.here ? here : other).push(c)
+    }
+    here.sort((a, b) => a.e.order - b.e.order)
+    other.sort((a, b) => a.rank - b.rank || collator.compare(a.path, b.path) || a.e.order - b.e.order)
+    return [...here, ...other]
   }, [version, self, template, pages, ctx.pageId, untitled])
 
   const q = fold(query.trim())
-  const rows = useMemo(() => {
+  const { rows, more } = useMemo(() => {
     const hits = q ? cands.filter((c) => c.folded.includes(q)) : cands
-    const here = hits.filter((c) => c.here)
-    const other = hits.filter((c) => !c.here).slice(0, OTHER_MAX)
-    return [...here, ...other]
-  }, [cands, q])
+    const cap = (list: Cand[]) => (list.length <= GROUP_MAX ? list : list.filter((c, i) => i < GROUP_MAX || linkedNow.includes(c.e.itemId)))
+    const shown = [...cap(hits.filter((c) => c.here)), ...cap(hits.filter((c) => !c.here))]
+    return { rows: shown, more: hits.length - shown.length }
+  }, [cands, q, linkedNow])
 
   const index = getItemIndex()
   /** why a row cannot be ticked (null: it can) */
@@ -205,6 +228,7 @@ export function ItemLinkPicker({ ctx, mode }: { ctx: PickerCtx; mode: Mode }) {
           )
         })}
         {!rows.length && <div className="label wi-pop__empty">{t('features.workItems.items.none')}</div>}
+        {more > 0 && <div className="label wi-pop__empty">{t('features.workItems.items.more', { n: more })}</div>}
       </div>
       <div className="wi-pop__foot">
         <HelpLink id="tasks" topic={t('features.workItems.help')} />

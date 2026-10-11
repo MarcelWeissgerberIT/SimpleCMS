@@ -11,7 +11,7 @@
  * instance: a keystroke in one task re-renders no other placard). Compact inside a list item (its parent is a
  * listItem / taskItem): one line, avatars only.
  */
-import { useEffect, useMemo, useReducer } from 'react'
+import { useEffect, useMemo, useReducer, useRef } from 'react'
 import { NodeViewContent, NodeViewWrapper, type ReactNodeViewProps } from '@tiptap/react'
 import type { Editor } from '@tiptap/core'
 import { useT } from '../../i18n'
@@ -48,9 +48,13 @@ function Placard({ node, editor, getPos, allowKeys }: Pick<ReactNodeViewProps, '
   const locked = useWorkspace((s) => !!pageId && !!s.pages[pageId]?.settings.locked)
   const template = useWorkspace((s) => !!pageId && !!s.pages[pageId] && templateRootOf(s.pages, pageId) !== null)
   const viewer = useCloud((s) => s.readOnly)
-  // locking the page (or a viewer role) flips the editor's editable flag without a transaction
+  // locking the page (or a viewer role) flips the editor's editable flag without a transaction: render once more
+  // after such a CHANGE (never on mount — opening a page of 300 tasks would render each placard twice for nothing)
   const [, bump] = useReducer((n: number) => n + 1, 0)
+  const flags = useRef({ locked, viewer })
   useEffect(() => {
+    if (flags.current.locked === locked && flags.current.viewer === viewer) return
+    flags.current = { locked, viewer }
     const id = window.setTimeout(bump, 0)
     return () => window.clearTimeout(id)
   }, [locked, viewer])

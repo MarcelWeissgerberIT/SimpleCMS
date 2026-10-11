@@ -9,6 +9,11 @@
  * to the next database + a rollup over it, a formula, sub-items). One page has exactly 200 blocks
  * ("Perf · Big page") and one database is the 400-row "Perf · Big table".
  *
+ * `{ tasks: true }` adds tasks (workItem) AFTER everything else (the rest of the workspace stays exactly as without
+ * them): 6 per rich page (3,000), about 1,000 blockedBy / related links across pages, a template page with 20, and
+ * "Perf · Task page" with 300 (task 0 blocks tasks 1–3; every task with a block id). Private pages are a team flag
+ * (ignored locally): none here.
+ *
  * Everything is generated inside the page (deterministic PRNG), handed to the store in ONE
  * replaceAll() (the persistence layer then writes it like any other change), saved, and the app
  * is reloaded so the measurements start from a cold boot of the stored workspace.
@@ -26,6 +31,8 @@ export interface BigOptions {
   /** pages with comment threads */
   commentedPages: number
   seed: number
+  /** add tasks (see the header) */
+  tasks?: boolean
 }
 
 export interface BigInfo {
@@ -44,6 +51,10 @@ export interface BigInfo {
   rows: number
   /** JSON size of the generated pages + databases (characters) */
   jsonChars: number
+  /** `{ tasks: true }`: the 300-task page, all task ids (document order of generation), links */
+  taskPageId?: string
+  taskCount?: number
+  taskLinks?: number
 }
 
 export const BIG_DEFAULTS: BigOptions = { pages: 3000, richPages: 500, databases: 25, rowsPerDb: 400, syncedGroups: 40, commentedPages: 100, seed: 7 }
@@ -359,6 +370,70 @@ export function generateBigWorkspace(o: BigOptions): { pages: Record<string, unk
     for (const [parent, kids] of children) (pages[parent].properties as Record<string, unknown>)[`${P('parent')}.2way`] = kids
   }
 
+  /* ---------- tasks (opts.tasks): generated last, so the rest stays as without them ---------- */
+  let taskPageId: string | undefined
+  let taskCount = 0
+  let taskLinks = 0
+  if (o.tasks) {
+    const ALPHA = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_-'
+    const itemId = () => {
+      let out = 'wi_'
+      for (let i = 0; i < 10; i++) out += ALPHA[int(0, 63)]
+      return out
+    }
+    const STATUS = ['todo', 'todo', 'todo', 'in_progress', 'done']
+    const live: string[] = []
+    const task = (iid: string, links: { blockedBy?: string[]; related?: string[] } = {}): J => {
+      const status = pick(STATUS)
+      const dueIn = rnd() < 0.6 ? int(-20, 40) : null
+      const attrs: Record<string, unknown> = {
+        id: bid(),
+        itemId: iid,
+        status,
+        due: dueIn === null ? null : isoDay(dueIn),
+        reminder: dueIn !== null && rnd() < 0.2 ? '-1d' : null,
+        people: rnd() < 0.7 ? [pick(people).id] : [],
+        blockedBy: links.blockedBy ?? [],
+        related: links.related ?? [],
+        doneAt: status === 'done' ? now - int(1, 20) * DAY : null,
+      }
+      const notes: J[] = rnd() < 0.3 ? [para(txt(sentence()))] : []
+      if (rnd() < 0.15) notes.push(tasks())
+      taskCount++
+      return { type: 'workItem', attrs, content: [para(txt(sentence(int(3, 9)).replace(/\.$/, ''))), ...notes] }
+    }
+    // the ids first: links may point anywhere
+    const holders = richIds.map((pid) => ({ pid, ids: Array.from({ length: 6 }, itemId) }))
+    for (const h of holders) live.push(...h.ids)
+    for (const h of holders) {
+      const p = pages[h.pid]
+      const blocks = p.content?.content ?? []
+      for (const iid of h.ids) {
+        const links: { blockedBy?: string[]; related?: string[] } = {}
+        const r = rnd()
+        if (r < 0.22) links.blockedBy = [pick(live)].filter((x) => x !== iid)
+        else if (r < 0.33) links.related = [pick(live)].filter((x) => x !== iid)
+        taskLinks += (links.blockedBy?.length ?? 0) + (links.related?.length ?? 0)
+        blocks.splice(int(0, blocks.length), 0, task(iid, links))
+      }
+      p.content = { type: 'doc', content: blocks }
+    }
+    // a template with 20 (never live: no reminders, not linkable from outside)
+    const tpl = makePage({ title: 'Perf · Task template', parentId: null })
+    tpl.template = { name: 'Perf tasks' }
+    tpl.hidden = true
+    tpl.content = { type: 'doc', content: Array.from({ length: 20 }, () => task(itemId())) }
+    // the 300-task page: task 0 blocks tasks 1–3
+    const tp = makePage({ title: 'Perf · Task page', parentId: null })
+    taskPageId = tp.id
+    const ids = Array.from({ length: 300 }, itemId)
+    const list = ids.map((iid, i) => task(iid, i >= 1 && i <= 3 ? { blockedBy: [ids[0]] } : {}))
+    // all open here: task 0 is a live blocker of tasks 1–3
+    for (const b of list) Object.assign(b.attrs!, { status: 'todo', doneAt: null })
+    tp.content = { type: 'doc', content: list }
+    taskLinks += 3
+  }
+
   /* ---------- plain text cache (store.plainText's rules) ---------- */
   const plainOf = (node: J | null): string => {
     if (!node) return ''
@@ -383,7 +458,7 @@ export function generateBigWorkspace(o: BigOptions): { pages: Record<string, unk
     pages,
     databases,
     people,
-    info: { bigPageId, bigPageBlocks, bigTableId, bigTableRows: o.rowsPerDb, bigTableRowId: rowsOf.get(bigTableId)![0], bigTableNumberProp: `${bigTableId}-est`, bodyWord: BODY_WORD, titleWord: TITLE_WORD, pages: Object.keys(pages).length, rows, jsonChars },
+    info: { bigPageId, bigPageBlocks, bigTableId, bigTableRows: o.rowsPerDb, bigTableRowId: rowsOf.get(bigTableId)![0], bigTableNumberProp: `${bigTableId}-est`, bodyWord: BODY_WORD, titleWord: TITLE_WORD, pages: Object.keys(pages).length, rows, jsonChars, taskPageId, taskCount, taskLinks },
   }
 }
 

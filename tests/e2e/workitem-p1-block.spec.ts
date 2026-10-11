@@ -437,6 +437,29 @@ test.describe('1440 light', () => {
     await expect.poll(async () => (await liveTasks(page, id))[1].attrs.blockedBy).toEqual([])
   })
 
+  test('blocked-by picker on a long page: ≤ 50 rows per group, the rest counted; a linked task past them still shows; search reaches all', async ({ page }) => {
+    await openApp(page)
+    const capId = (i: number) => `wi_cap${String(i).padStart(7, '0')}`
+    const list = Array.from({ length: 60 }, (_, i) => item(i === 0 ? { itemId: capId(0), blockedBy: [capId(55)] } : { itemId: capId(i) }, `Cap task ${i}`))
+    const id = await taskPage(page, 'Long task page', ...list)
+    await caretInTitle(page, tasks(page, id).first())
+    await page.keyboard.press('Alt+Enter')
+    await page.locator('[data-popover][role="menu"]').first().getByRole('menuitem', { name: 'Blocked by…' }).click()
+    const dialog = page.getByRole('dialog', { name: 'Waits for' })
+    await expect(dialog).toBeVisible()
+    // 59 others here: the first 50 + the linked one (task 55) shown, 8 counted
+    const here = dialog.getByRole('option', { name: /^Cap task/ })
+    await expect(here).toHaveCount(51)
+    await expect(dialog.getByRole('option', { name: /Cap task 55/ })).toHaveAttribute('aria-selected', 'true')
+    await expect(dialog.getByRole('option', { name: /Cap task 57/ })).toHaveCount(0)
+    await expect(dialog.getByText('8 more — type to narrow the list')).toBeVisible()
+    await dialog.getByRole('combobox').fill('task 57')
+    await expect(dialog.getByRole('option')).toHaveCount(1)
+    await expect(dialog.getByText(/more — type to narrow/)).toHaveCount(0)
+    await page.keyboard.press('Escape')
+    await expect(dialog).toBeHidden()
+  })
+
   test('Blocks…: the other task waits (writeItems), Undo; the BLOCKS list removes a link with Undo; related both sides', async ({ page }) => {
     await openApp(page)
     const other = await createPage(page, { title: 'Other page', content: doc(item({ itemId: D }, 'Draft the FAQ'), item({ itemId: E, related: [A] }, 'Update the help center')) })

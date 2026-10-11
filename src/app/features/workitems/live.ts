@@ -21,6 +21,7 @@ import type { ID, Page } from '../../store/types'
 import { activeWorkspace, useCloud } from '../../cloud'
 import { compareOccurrence, docToMarkdown, itemCounters, itemsOfContent, setItemHooks, setItemLookup, setItemTitleLookup, withItemLabels, type WorkItemAttrs } from '../../editor'
 import { buildIndex, EMPTY_INDEX, updateIndex, type IndexDeps, type ItemIndex, type PageItems } from './itemIndex'
+import { graphOf } from './graph'
 import { DUP_DELAY, itemView, type ItemView } from './view'
 import { unblockedBy } from './unblock'
 import { toastUnblocked } from './unblockToast'
@@ -257,11 +258,16 @@ function tickMinute(): void {
   minuteTimer = window.setTimeout(tickMinute, 60_000 - (Date.now() % 60_000) + 50)
 }
 
+const minuteOf = (t: number) => Math.floor(t / 60_000)
+
 function subscribeMinute(fn: () => void): () => void {
   minuteListeners.add(fn)
   if (minuteTimer === undefined) {
-    minuteNow = Date.now()
-    minuteTimer = window.setTimeout(tickMinute, 60_000 - (Date.now() % 60_000) + 50)
+    // a new minute since the last tick only: the same value within the minute — the first placard to subscribe
+    // must not make the ones rendered with it render again (300 placards on a page = 300 renders for nothing)
+    const t = Date.now()
+    if (minuteOf(t) !== minuteOf(minuteNow)) minuteNow = t
+    minuteTimer = window.setTimeout(tickMinute, 60_000 - (t % 60_000) + 50)
   }
   return () => {
     minuteListeners.delete(fn)
@@ -388,6 +394,22 @@ if (typeof window !== 'undefined' && (import.meta.env.DEV || new URLSearchParams
       forced = v
     },
     canCreate: () => canCreateItems(),
+    /** apply the pending queue now (an incremental update after a store write): the ms it took */
+    flushMs: () => {
+      const t0 = performance.now()
+      if (flush()) notifySoon()
+      return performance.now() - t0
+    },
+    /** the graph pass over the live tasks (dependents, related, loops — iterative Tarjan): ms, tasks, blockedBy edges */
+    graphMs: () => {
+      const i = getItemIndex()
+      const t0 = performance.now()
+      graphOf(i.byId)
+      const ms = performance.now() - t0
+      let edges = 0
+      for (const e of i.byId.values()) edges += e.attrs.blockedBy.length
+      return { ms, items: i.byId.size, edges }
+    },
     /** a page's Markdown as docToMarkdown writes it — `labels`: inside withItemLabels (the Markdown export) */
     markdown: (pageId: ID, labels = false) => {
       const content = useWorkspace.getState().pages[pageId]?.content ?? null
