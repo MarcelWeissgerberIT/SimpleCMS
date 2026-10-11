@@ -19,6 +19,9 @@ import { keySet, partsDiffer, propKeysAt, propKeysOf, restrictRowParts } from '.
 import { verdicts, type VerdictInput } from '../../src/app/features/recorder/model/hold'
 import { foreignOf, placeChain } from '../../src/app/features/recorder/model/chain'
 import type { WindowData } from '../../src/app/features/recorder/window/load'
+import type { ReadModel } from '../../src/app/features/recorder/window/read'
+import { incidentReport, reportFile, type ReportFacts } from '../../src/app/features/recorder/window/report'
+import { messages as recorderMessages } from '../../src/app/features/recorder/messages'
 import { contentDelta, countOps, countPlaces, countWords, windowMeters, wordDelta } from '../../src/app/features/recorder/model/counts'
 import { barHeights, followSpan, fracOf, loupeK, loupeLabel, makeAxis, pct, phoneFit, quarterHot, rulerLabels, rulerTicks, runBracket, snapTime, spanAround, stripBars, stripRange, stripTicks, tAtX, tOfU, uOf, xOf } from '../../src/app/features/recorder/model/axis'
 import { hiddenRulerLabels, settleHead, settleLabels, underHeads } from '../../src/app/features/recorder/model/labels'
@@ -679,6 +682,96 @@ test.describe('the held check (F6): verdicts per place, chains and foreign segme
       { from: 3500, lane: null, w: null, touched: '*', seg: `${S}|s3`, open: false },
     ])
   })
+})
+
+/* ------------------------------------------------------------------ */
+/* window/report.ts (the incident report)                              */
+/* ------------------------------------------------------------------ */
+
+test.describe('the incident report', () => {
+  const S = 'local:local' as const
+  const tOf = (lang: 'en' | 'de') => (key: string, vars?: Record<string, string | number>) => {
+    let out = (recorderMessages[lang] as Record<string, string>)[key] ?? key
+    for (const [k, v] of Object.entries(vars ?? {})) out = out.split(`{${k}}`).join(String(v))
+    return out
+  }
+  const T = (hms: string) => new Date(`2026-10-09T${hms}+02:00`).getTime()
+  // the parts carry the canonical value strings here (they are digests on the tape): the report must never print them
+  const secretParts = { t: '"NL-1408"', 'p:stage': '"o-doing"', 'p:note': '"Lindenweg 12"', 'p:est': '98765.4321', c: 'Nordlicht-Geheimwert-7' }
+  const seg = (p: string, touched: string[] | '*', f = 0): JSegment => ({ id: `${S}|${p}`, s: S, p: p as `p:${string}`, pk: 'row', db: 'db-n', w: 'agent:x:r1', sk: 'agent:x:r1', l: 'agent:x', r: 'agent:x:r1', from: T('07:31:04'), to: T('07:34:00'), n: 1, before: 'pin', bh: 'b', left: { h: 'h', parts: secretParts }, lastLh: 'h', touched, tab: 't', f })
+  const ev = (p: string, at: string, x?: JEvent['x']): JEvent => ({ k: `${S}|${p}|${at}`, s: S, at: T(at), v: at, w: 'agent:x:r1', l: 'agent:x', r: 'agent:x:r1', p: p as `p:${string}`, pk: x ? 'schema' : 'row', db: 'db-n', kinds: x ? K.SCHEMA : K.PROPS, ops: 1, g: `${S}|${p}`, lh: 'h', ...(x ? { x } : {}) })
+  const verdict = (p: string, pk: 'row' | 'page' | 'schema', outcome: 'back' | 'held' | 'trash') => ({ p: p as `p:${string}`, pk, outcome, by: [], ops: 1, span: [0, 0] as [number, number], changes: [] })
+  const model = (): ReadModel => {
+    const places = new Map<string, PlaceWindow>([
+      ['p:r1', { p: 'p:r1', pk: 'row', db: 'db-n', own: [seg('p:r1', ['p:stage', 'p:note', 't'])], foreign: [], ownEvents: [ev('p:r1', '07:31:12')], cut: false }],
+      ['p:r2', { p: 'p:r2', pk: 'row', db: 'db-n', own: [seg('p:r2', '*', F.NEW)], foreign: [], ownEvents: [ev('p:r2', '07:33:00')], cut: false }],
+      ['s:db-n', { p: 's:db-n', pk: 'schema', db: 'db-n', own: [{ ...seg('s:db-n', ['o:stage/o-ready']), pk: 'schema' }], foreign: [], ownEvents: [ev('s:db-n', '07:32:16', [{ part: 'opt-', prop: { id: 'stage', name: 'Stage', type: 'select' }, opt: { id: 'o-ready', name: 'Ready' } }])], cut: false }],
+      ['p:rep', { p: 'p:rep', pk: 'page', own: [{ ...seg('p:rep', ['b:r1']), pk: 'page' }], foreign: [], ownEvents: [ev('p:rep', '07:34:41')], cut: false }],
+    ] as Array<[string, PlaceWindow]>)
+    const item = (p: string, pk: 'row' | 'page' | 'schema', act: 'changed' | 'new', at: string, text: boolean, words: [number, number] = [0, 0]) => ({ p: p as `p:${string}`, pk, db: pk === 'page' ? undefined : 'db-n', act, verdict: verdict(p, pk, 'back'), at: T(at), words, values: 2, text })
+    return {
+      sel: { scope: S, lane: 'agent:x', run: 'agent:x:r1', a: T('07:30:00'), b: T('07:35:00') },
+      data: { sel: { scope: S, lane: 'agent:x', run: 'agent:x:r1', a: T('07:30:00'), b: T('07:35:00') }, places: places as WindowData['places'], runs: {}, lostTails: [], ejects: [], schemaEvents: new Map() },
+      now: new Map(),
+      meters: { ops: 52, places: { all: 37, rows: 35, newRows: 3, pages: 1, schema: 1, views: 0 }, words: [212, 40] },
+      verdicts: new Map(),
+      groups: [
+        { kind: 'schema', items: [item('s:db-n', 'schema', 'changed', '07:32:16', false)] },
+        { kind: 'pages', items: [item('p:rep', 'page', 'changed', '07:34:41', true, [212, 0])] },
+        { kind: 'rows', items: [item('p:r1', 'row', 'changed', '07:31:12', true)] },
+        { kind: 'newRows', items: [item('p:r2', 'row', 'new', '07:33:00', false)] },
+      ],
+      held: [verdict('p:r1', 'row', 'held') as never],
+      partial: [],
+      incomplete: true,
+      unavailable: 0,
+    }
+  }
+  const facts: ReportFacts = {
+    workspace: 'Nordlicht Werk',
+    writer: 'Agent · Nordlicht-Spiegel',
+    seq: 212,
+    writers: [{ label: 'Agent · Nordlicht-Spiegel', ops: 52, places: 37, first: T('07:31:04'), last: T('07:34:41') }, { label: 'You · Mara Lind', ops: 3, places: null, first: T('07:31:30'), last: T('07:33:10') }],
+    title: (p) => ({ 'p:r1': 'NL-1408 | Export', 'p:r2': 'NL-1432', 'p:rep': 'Nordlicht-Spiegel · Bericht', 's:db-n': 'Nordlicht Handoff' })[p] ?? '',
+    rowKey: () => null,
+    dbTitle: () => 'Nordlicht Handoff',
+    propName: (_db, prop) => ({ stage: 'Stage', note: 'Notiz' })[prop] ?? null,
+  }
+
+  test('headings, the window, every writer, schema names, pages, rows (property NAMES), notes — EN and DE; never a value or content', () => {
+    // times are local (the report reads them as the person's clock does)
+    const tz = process.env.TZ
+    process.env.TZ = 'Europe/Berlin'
+    test.info().annotations.push({ type: 'tz', description: 'Europe/Berlin' })
+    try {
+      run()
+    } finally {
+      if (tz === undefined) delete process.env.TZ
+      else process.env.TZ = tz
+    }
+  })
+  function run() {
+    for (const lang of ['en', 'de'] as const) {
+      const { md, file } = incidentReport(model(), facts, { t: tOf(lang), lang, tz: 'Europe/Berlin', now: T('08:06:00') })
+      expect(file).toBe('incident-2026-10-09-0730-agent-x.md')
+      const h = lang === 'de'
+        ? ['# Vorfallbericht · Nordlicht Werk · Fr 09.10. 07:30–07:34', '## Fenster', '## Alle Schreiber in diesem Zeitraum', '## Was sich geändert hat', '### Schema', '### Seiten', '### Zeilen', '## Hinweise']
+        : ['# Incident report · Nordlicht Werk · Fri 9 Oct 07:30–07:34', '## Window', '## All writers in this span', '## What changed', '### Schema', '### Pages', '### Rows', '## Notes']
+      for (const x of h) expect(md, `${lang}: ${x}`).toContain(x)
+      expect(md).toContain(lang === 'de' ? 'Schreiber: Agent · Nordlicht-Spiegel (Lauf 212)' : 'Writer: Agent · Nordlicht-Spiegel (run 212)')
+      expect(md).toContain(lang === 'de' ? '52 Vorgänge an 37 Stellen: 35 Zeilen (3 neu) · 1 Seite · 1 Schema · +212 −40 Wörter' : '52 writes at 37 places: 35 rows (3 new) · 1 page · 1 schema · +212 −40 words')
+      expect(md).toContain('| Agent · Nordlicht-Spiegel | 52 | 37 | 07:31 | 07:34 |')
+      expect(md).toContain('| You · Mara Lind | 3 | … | 07:31 | 07:33 |')
+      expect(md).toContain(lang === 'de' ? '- Nordlicht Handoff · Stage · Option „Ready“ entfernt · 07:32:16' : '- Nordlicht Handoff · Stage · option “Ready” removed · 07:32:16')
+      expect(md).toContain(lang === 'de' ? '- Nordlicht-Spiegel · Bericht · Text +212 −0 Wörter · 07:34' : '- Nordlicht-Spiegel · Bericht · text +212 −0 words · 07:34')
+      // a title with a pipe stays one cell; the changed properties by name
+      expect(md).toMatch(/\| NL-1408 \\\| Export \| Nordlicht Handoff \| (Stage, Notiz, (Titel|title)|Notiz, Stage, (Titel|title)|.*Stage.*Notiz.*) \| (ja|yes) \| 07:31 \|/)
+      expect(md).toContain(lang === 'de' ? '| NL-1432 | Nordlicht Handoff | neu | — | 07:33 |' : '| NL-1432 | Nordlicht Handoff | new | — | 07:33 |')
+      expect(md).toContain(lang === 'de' ? 'Möglicherweise unvollständig' : 'Possibly incomplete')
+      for (const secret of ['Lindenweg 12', '98765.4321', 'Nordlicht-Geheimwert-7', 'o-doing', '"NL-1408"']) expect(md, secret).not.toContain(secret)
+    }
+    expect(reportFile({ sel: { scope: S, lane: 'mcp:tessera-desk', a: T('07:48:00'), b: T('07:50:00') } })).toBe('incident-2026-10-09-0748-mcp-tessera-desk.md')
+  }
 })
 
 /* ------------------------------------------------------------------ */
