@@ -469,6 +469,32 @@
 .agx-runsec {
   margin-top: 28px;
 }
+/* the agent page: runs left, trust per field right once the page is wide enough; below, the plate after the runs */
+.agx.agx--detail {
+  max-width: 1180px;
+  container: agx-detail / inline-size;
+}
+.agx-detail__cols {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  gap: 18px;
+  margin-top: 28px;
+}
+.agx-detail__cols > .agx-runsec {
+  min-width: 0;
+  margin-top: 0;
+}
+@container agx-detail (min-width: 900px) {
+  .agx-detail__cols {
+    grid-template-columns: minmax(0, 1fr) calc(360px * var(--text-scale));
+    gap: 26px;
+  }
+  .agx-detail__cols > .agt-plate {
+    position: sticky;
+    top: 16px;
+  }
+}
 .agx-runsec__title {
   display: flex;
   align-items: baseline;

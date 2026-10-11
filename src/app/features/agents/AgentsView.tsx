@@ -24,6 +24,7 @@ import { localized } from '../../store/integrations'
 import { resolveModel } from '../ai/client'
 import { AgentEditor } from './AgentEditor'
 import { RunHistory } from './RunHistory'
+import { TrustPlate } from './trust/ui/TrustPlate'
 import { RECIPES, blankAgent, recipeDraft, type RecipeId } from './recipes'
 import { MirrorSetup, type RecipeSource } from './MirrorSetup'
 import { useRecipeSources } from './integrations/status'
@@ -768,14 +769,18 @@ function AgentDetail({ id }: { id: ID }) {
         <p>{agent.instructions}</p>
       </details>
 
-      <section className="agx-runsec" aria-labelledby="agx-runs-title">
-        <h2 id="agx-runs-title" className="agx-runsec__title label">
-          {t('features.agents.runs.title')} <span className="mono faint">· {pad(runs.length)}</span>
-          {agent.runner === 'browser' && <span className="agx-runsec__where faint">{t('features.agents.runs.device')}</span>}
-        </h2>
-        {agent.runner === 'browser' && <SavedState agent={agent} runs={runs} />}
-        <RunHistory runs={runs} empty={state === 'loading' ? t('features.agents.runs.loading') : t('features.agents.runs.none')} />
-      </section>
+      {/* runs left, this device's trust per field right (wide); on a phone the plate comes after the runs */}
+      <div className="agx-detail__cols">
+        <section className="agx-runsec" aria-labelledby="agx-runs-title">
+          <h2 id="agx-runs-title" className="agx-runsec__title label">
+            {t('features.agents.runs.title')} <span className="mono faint">· {pad(runs.length)}</span>
+            {agent.runner === 'browser' && <span className="agx-runsec__where faint">{t('features.agents.runs.device')}</span>}
+          </h2>
+          {agent.runner === 'browser' && <SavedState agent={agent} runs={runs} />}
+          <RunHistory runs={runs} empty={state === 'loading' ? t('features.agents.runs.loading') : t('features.agents.runs.none')} />
+        </section>
+        <TrustPlate agent={agent} runs={runs} />
+      </div>
 
       {editing && <AgentEditor initial={agent} isNew={false} onClose={() => setEditing(false)} onSaved={() => setEditing(false)} />}
     </div>
