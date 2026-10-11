@@ -18,7 +18,7 @@ import { readWindow, type ReadModel } from '../window/read'
 import { DiffSheet } from './DiffSheet'
 import { PlacePreview } from './PlacePreview'
 import { PlanList, writerName } from './PlanList'
-import { fmtDayShort, fmtNum, hm, pl, unit } from './format'
+import { fmtDayShort, fmtNum, hm, pl, unit, windowEnd } from './format'
 import { say } from './live'
 import { usePhone } from './phone'
 import { downloadReport } from './report'
@@ -65,7 +65,7 @@ export function ReadWindow() {
   if (!bracket) return null
   const no = t('features.recorder.no')
   const title = t('features.recorder.title')
-  const range = `${hm(bracket.a)}–${hm(bracket.b - 1000)}`
+  const range = `${hm(bracket.a)}–${hm(windowEnd(bracket))}`
   const names = model ? writerName(model, t, ws) : null
   const places = model ? unit(t, lang, 'places', model.meters.places.all) : ''
   const heldWho = model ? [...new Set(model.held.flatMap((v) => v.by.map((b) => b.lane)))].map((l) => whoName(l, t, ws)) : []

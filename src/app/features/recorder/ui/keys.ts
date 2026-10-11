@@ -5,13 +5,14 @@
  *   [ / ]  the window's start / end at the playhead on the focused track (else the selected one, else "Du") —
  *          also with Ctrl / Alt / AltGr / Option (German Windows: AltGr+8 / 9, macOS: ⌥5 / ⌥6)
  *   ↑ / ↓  previous / next track (roving)          PageUp / PageDown  previous / next flag on the track
- *   ↵      reads the window (R2) — never ejects
+ *   ↵      reads the window — on the playhead or a track while one is chosen; on a flag: its run bracketed, then read
+ *          (never ejects; handled here, so the flag's own click does not run as well)
  */
 import type { KeyboardEvent } from 'react'
-import { bracketEdge, movePlayhead, playheadAt, runStarts, stepPlayhead } from './actions'
+import { bracketEdge, bracketRuns, movePlayhead, playheadAt, runStarts, stepPlayhead } from './actions'
 import { spanOfState } from './clock'
 import { sayRun } from './live'
-import { setFocusLane, useRecorderUI } from './state'
+import { openRead, setFocusLane, useRecorderUI } from './state'
 
 const MIN = 60_000
 
@@ -45,6 +46,22 @@ export function onTapeKey(e: KeyboardEvent<HTMLElement>, lanes: string[]): void 
   }
   if (e.metaKey || e.ctrlKey || e.altKey) return
   switch (key) {
+    case 'Enter': {
+      if (e.shiftKey || e.repeat) return
+      if (target.matches('.flag')) {
+        e.preventDefault()
+        const lane = target.closest<HTMLElement>('.lane')?.dataset.lane
+        const runs = (target.dataset.runs ?? '').split(' ').filter(Boolean)
+        if (!lane || !runs.length) return
+        bracketRuns(lane, runs)
+        openRead()
+        return
+      }
+      if (!useRecorderUI.getState().bracket) return
+      e.preventDefault()
+      openRead()
+      return
+    }
     case 'ArrowLeft':
     case 'ArrowRight': {
       e.preventDefault()

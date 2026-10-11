@@ -18,7 +18,7 @@ import { windowMeters, type Meters } from '../model/counts'
 import type { JRun, LaneKey } from '../model/types'
 import type { ReadModel } from '../window/read'
 import { laneMeta, type LaneMeta } from './lanes'
-import { fmtNum, hm, hms, pl, unit } from './format'
+import { fmtNum, hm, hms, pl, unit, windowEnd } from './format'
 import { bracketEdge } from './actions'
 import { say } from './live'
 import { openRead, setBracket, setHeld, useRecorderUI, type Bracket } from './state'
@@ -169,7 +169,7 @@ export function WindowPlate({ bracket, meta, run, notes, touch, edgeLane }: { br
     <aside className="win" aria-label={t('features.recorder.win.aria')}>
       <div className="win__h">
         <span className="label">{t('features.recorder.win.title')}</span>
-        <span className="win__t">{t('features.recorder.win.range', { from: hms(bracket.a), to: hms(bracket.b - 1000) })}</span>
+        <span className="win__t">{t('features.recorder.win.range', { from: hms(bracket.a), to: hms(windowEnd(bracket)) })}</span>
         <button type="button" className="win__x" aria-label={t('features.recorder.win.clear')} title={t('features.recorder.win.clear')} onClick={clearWindow}>
           <X aria-hidden />
         </button>
