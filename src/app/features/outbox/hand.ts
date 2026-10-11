@@ -8,6 +8,7 @@
  * server, its link base, or a host the person ticked for this slip.
  */
 import { useWorkspace } from '../../store/store'
+import { withWriter } from '../../store/writer'
 import { useCloud } from '../../cloud'
 import { hostOf, localized } from '../../store/integrations'
 import { readServers } from '../ai/mcp-servers/config'
@@ -130,7 +131,8 @@ export async function markSent(id: SlipId): Promise<Slip | null> {
   useOutbox.setState((st) => (st.asking?.id === id ? { asking: null } : {}))
   if (!ok || !sent) return null
   const label = localized(sent.route.label, currentLang()) || sent.route.routeId
-  const rowPatch = applyAfter(sent.target.rowId, sent.after, label)
+  // the person's press (store/writer.ts): the patch lands after the slip's await, outside their click
+  const rowPatch = withWriter({ kind: 'you', via: 'outbox', ref: id }, () => applyAfter(sent.target.rowId, sent.after, label))
   const archived = sent.answers.length ? sent.answers : []
   if (archived.length) await archiveItems(archived).catch(() => undefined)
   const receipt: Receipt = {
@@ -174,7 +176,9 @@ export async function acceptLink(id: SlipId, link: string | null): Promise<void>
 export async function resetRow(id: SlipId): Promise<{ reset: number; kept: string[] } | null> {
   const s = getSlip(id)
   if (!s?.receipt || s.receipt.rowPatch.resetAt) return null
-  const res = resetPatch(s.target.rowId, s.receipt.rowPatch)
+  const patch = s.receipt.rowPatch
+  // the patch's Undo (lane undo, like every Undo — store/writer.ts)
+  const res = withWriter({ kind: 'you', via: 'undo', ref: id }, () => resetPatch(s.target.rowId, patch))
   await mutateSlip(id, (cur) => (cur.receipt ? withLog({ ...cur, receipt: { ...cur.receipt, rowPatch: { ...cur.receipt.rowPatch, resetAt: Date.now(), resetSkipped: res.kept } } }, 'reset', { reset: res.reset, kept: res.kept.length }) : cur))
   return res
 }

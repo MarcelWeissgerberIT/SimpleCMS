@@ -15,6 +15,7 @@ import { mockAgent, openTerminal, run as runTask, sseMessage, terminal } from '.
 import { addProfile, trackerProfile } from './helpers/integrations'
 import { makeCodingRepo, startCodingWorker, type CodingRepo, type RunningWorker } from './helpers/coding'
 import { expectLane, expectNoPerson, markRec, nordlichtDb, rec, startRecorder } from './helpers/recorder'
+import { blockTracker, outbox, outboxLoaded, routeRef, rowValue, seedMirrorDb } from './helpers/outbox'
 
 type AnyRec = Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -937,6 +938,47 @@ test.describe('flight recorder — every writer has a lane', () => {
     await expect(dialog.getByText(/Workspace restored/)).toBeVisible()
     await expect.poll(() => wsEval(page, (s, id) => !s.pages[id] || !!s.pages[id].trashed, later)).toBe(true)
     await expectLane(page, m, 'import', /^import:/, /^import:.+:backup$/)
+  })
+})
+
+/* ------------------------------------------------------------------ */
+/* The Outbox: the person's send by hand and its Undo                  */
+/* ------------------------------------------------------------------ */
+
+test.describe('flight recorder — the Outbox', () => {
+  test('"Mark as sent": the row patch is the person\'s (you~outbox, after the slip\'s await); "Reset row" is its Undo (lane undo)', async ({ page, context }) => {
+    await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+    await blockTracker(context)
+    context.on('page', (p) => void p.close().catch(() => undefined))
+    const m = await boot(page, async () => {
+      await outboxLoaded(page)
+      return seedMirrorDb(page)
+    })
+    const row = m.rows['10642']
+    const staged = await outbox(page, (o, i) => o.stageSlip(i), { route: routeRef('reply'), rowId: row, draft: 'Nordlicht ships Friday.', origin: { kind: 'api' }, sources: [] })
+    const id = staged.slip.id as string
+    await page.evaluate((db) => (location.hash = `#/p/${db}`), m.dbId)
+    await outbox(page, (o, a) => o.useOutbox.setState({ focus: a.id }), { id })
+    const slip = page.getByTestId('outbox-dock').getByTestId('outbox-slip')
+    await expect(slip).toHaveAttribute('data-slip', id)
+    await expect(slip.getByTestId('outbox-copy')).not.toHaveAttribute('aria-disabled', 'true')
+    await slip.getByTestId('outbox-copy').click()
+    await expect(slip.getByTestId('outbox-ask')).toBeVisible()
+
+    // "Mark as sent": the slip turns 'sent' (an await), then the route's row patch — the person's press
+    let mk = await markRec(page)
+    await slip.getByTestId('outbox-mark-sent').click()
+    await expect.poll(() => rowValue(page, row, m.props.waiting)).toBe(false)
+    await expectLane(page, mk, 'you', undefined, `you~outbox:${id}`)
+
+    // "Reset row" on the receipt: the patch's Undo — on lane undo, never the person's own lane
+    const receipt = page.getByTestId('outbox-dock').getByTestId('outbox-receipt')
+    mk = await markRec(page)
+    await receipt.getByTestId('outbox-reset').click()
+    await expect(receipt.getByTestId('outbox-reset-note')).toHaveText('Row reset — only in One; what went out stays out.')
+    expect(await rowValue(page, row, m.props.waiting)).toBe(true)
+    const undone = await expectLane(page, mk, 'undo', undefined, `you~undo:${id}`)
+    expect(undone.filter((o) => o.l === 'you').map((o) => o.w), 'the Reset on the person\'s own lane').toEqual([])
   })
 })
 

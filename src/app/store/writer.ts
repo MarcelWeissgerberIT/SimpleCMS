@@ -27,6 +27,8 @@ export type YouVia =
   | 'tour'
   | 'agenda'
   | 'undo'
+  /** the Outbox's row patch after "Mark as sent" (features/outbox; its "Reset row" is an Undo) */
+  | 'outbox'
 
 /** A writer's canonical id (grammar: features/recorder/model/writerKeys.ts). */
 export type WriterKey = string
