@@ -4,7 +4,7 @@
  * it, focus on it) — opening then reads only data.
  */
 import { lazy, Suspense } from 'react'
-import { useRecorderOpen } from './state'
+import { useRecorderOpen, useRecorderUI } from './state'
 
 const load = () => import('./Deck')
 const Deck = lazy(load)
@@ -17,6 +17,17 @@ export function preloadDeck(): Promise<unknown> {
     throw e
   })
   return preloading
+}
+
+/* the deck's test seam (DEV or ?e2e): fetch its chunk, read and set its store */
+if (typeof window !== 'undefined') {
+  let on = false
+  try {
+    on = !!(import.meta as unknown as { env?: { DEV?: boolean } }).env?.DEV || new URLSearchParams(window.location.search).has('e2e')
+  } catch {
+    on = false
+  }
+  if (on) (window as unknown as { __oneDeck?: unknown }).__oneDeck = { preload: preloadDeck, state: () => useRecorderUI.getState(), set: (patch: Record<string, unknown>) => useRecorderUI.setState(patch) }
 }
 
 export function RecorderHost() {

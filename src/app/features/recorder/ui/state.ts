@@ -36,6 +36,8 @@ export interface OpsWindow {
   /** bumped with every change */
   rev: number
   status: 'idle' | 'loading' | 'ready'
+  /** 24 STD: only the runs were read (the lanes draw from the minute histogram) */
+  runsOnly?: boolean
 }
 
 export interface RecorderUI {

@@ -705,7 +705,7 @@ test.describe('the tape: label pass (tape.js settle)', () => {
     expect(settleHead(700, 70, view, 'now')).toEqual({ place: 'pinned', left: 528, right: 598 })
     expect(settleHead(560, 50, view, 'now')).toEqual({ place: 'edge-l', left: 506, right: 556 })
     expect(settleHead(300, 50, view, 'now')).toEqual({ place: 'center', left: 304, right: 354 })
-    expect(underHeads([{ left: 250, right: 280 }, { left: 333, right: 360 }, { left: 335, right: 360 }, { left: 100, right: 130 }], [{ left: 270, right: 330 }])).toEqual([true, true, false, false])
+    expect(underHeads([{ left: 250, right: 280 }, { left: 333, right: 360 }, { left: 335, right: 360 }, { left: 100, right: 130 }, { left: 240, right: 266 }], [{ left: 270, right: 330 }])).toEqual([true, true, false, false, true])
   })
 })
 

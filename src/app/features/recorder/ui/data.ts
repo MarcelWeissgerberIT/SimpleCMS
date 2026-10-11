@@ -68,16 +68,16 @@ function stripAdd(strip: { q0: number; counts: Record<number, number> } | null, 
 let loadSeq = 0
 
 /** Read the span (with room on either side) into the store. */
-async function loadSpan(scope: Scope, t0: number, t1: number): Promise<void> {
+async function loadSpan(scope: Scope, t0: number, t1: number, runsOnly = false): Promise<void> {
   const seq = ++loadSeq
   const pad = (t1 - t0) / 2
   const from = t0 - pad
   const to = t1 + pad
   useRecorderUI.setState((s) => ({ ops: { ...s.ops, status: 'loading' } }))
   try {
-    const [ops, runs] = await Promise.all([opsInSpan(scope, from, to), runsInSpan(scope, from, to)])
+    const [ops, runs] = await Promise.all([runsOnly ? Promise.resolve([]) : opsInSpan(scope, from, to), runsInSpan(scope, from, to)])
     if (seq !== loadSeq || !useRecorderUI.getState().open) return
-    useRecorderUI.setState((s) => ({ ops: { scope, from, to, lanes: byLane(ops), runs, rev: s.ops.rev + 1, status: 'ready' } }))
+    useRecorderUI.setState((s) => ({ ops: { scope, from, to, lanes: byLane(ops), runs, rev: s.ops.rev + 1, status: 'ready', runsOnly } }))
   } catch (e) {
     console.warn('[recorder] the tape could not be read', e)
     if (seq === loadSeq) useRecorderUI.setState((s) => ({ ops: { ...s.ops, status: 'ready' } }))
@@ -123,13 +123,14 @@ export function useDeckData(): void {
   const zoom = useRecorderUI((s) => s.span.zoom)
   const cloudKey = useCloud((s) => `${s.active.kind}:${s.active.kind === 'cloud' ? s.active.id : ''}:${s.user?.id ?? ''}`)
 
-  // the span: read when it leaves what is loaded (or the scope changed)
+  // the span: read when it leaves what is loaded (or the scope changed); 24 STD draws from the minute histogram and
+  // reads only the runs
   useEffect(() => {
     const scope = scopeNow()
     const w = useRecorderUI.getState().ops
-    if (w.scope === scope && w.status !== 'idle' && span.t0 >= w.from && span.t1 <= w.to) return
-    void loadSpan(scope, span.t0, span.t1)
-  }, [span.t0, span.t1, cloudKey])
+    if (w.scope === scope && w.status !== 'idle' && span.t0 >= w.from && span.t1 <= w.to && (zoom === '24h') === w.runsOnly) return
+    void loadSpan(scope, span.t0, span.t1, zoom === '24h')
+  }, [span.t0, span.t1, cloudKey, zoom])
 
   // the strip moves on with the tape's right edge (a new quarter)
   const q0 = stripRange(span.t1).q0
@@ -165,7 +166,7 @@ export function useDeckData(): void {
         const scope = scopeNow()
         const w = s.ops.scope === scope && s.ops.status !== 'idle' ? s.ops : null
         const cur = spanOfState(s)
-        void loadSpan(scope, w ? w.from + (w.to - w.from) / 4 : cur.t0, w ? w.to - (w.to - w.from) / 4 : cur.t1)
+        void loadSpan(scope, w ? w.from + (w.to - w.from) / 4 : cur.t0, w ? w.to - (w.to - w.from) / 4 : cur.t1, s.span.zoom === '24h')
         void loadStrip(scope, cur.t1)
         void loadKnown(scope)
         if (s.span.zoom === '24h') void loadHist(scope, cur.t0 - 6 * 3600_000, cur.t1 + 6 * 3600_000)

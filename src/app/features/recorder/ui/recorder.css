@@ -127,7 +127,7 @@
 .deck__grip:hover::after,
 .deck__grip[data-drag]::after,
 .deck__grip:focus-visible::after {
-  background: var(--signal);
+  background: var(--tp-ink);
 }
 .deck__grip:focus-visible {
   outline: 0;

@@ -159,6 +159,7 @@ export function Tape(p: TapeProps) {
     panBy(dx * (p.ax.total / Math.max(1, width)))
   }
 
+  const onOp = useCallback((op: JOp, x: number, el: HTMLElement) => setTick({ op, x, y: el.getBoundingClientRect().top, lane: el.dataset.lane ?? op.l }), [])
   const lanesKeys = p.lanes.map((l) => l.lane)
   const focusLane = p.focusLane && lanesKeys.includes(p.focusLane) ? p.focusLane : (p.bracket?.lane && lanesKeys.includes(p.bracket.lane) ? p.bracket.lane : lanesKeys[0])
 
@@ -196,7 +197,7 @@ export function Tape(p: TapeProps) {
                 view={view}
                 nowX={nowX}
                 phone={p.phone}
-                onOp={(op, x, el) => setTick({ op, x, y: el.getBoundingClientRect().top, lane: m.lane })}
+                onOp={onOp}
               />
             ))}
           </div>

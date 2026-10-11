@@ -18,7 +18,7 @@ export const LaneLabels = memo(function LaneLabels({ lanes, counts, day, selecte
       {lanes.map((m) => {
         const Icon = m.icon
         return (
-          <div key={m.lane} className="trk" data-sel={selected === m.lane ? '' : undefined} title={m.title}>
+          <div key={m.lane} className="trk" data-lane={m.lane} data-sel={selected === m.lane ? '' : undefined} title={m.title}>
             {Icon ? <Icon aria-hidden /> : <span className="trk__av">{m.initials}</span>}
             <span className="trk__n">
               <span className="trk__long">

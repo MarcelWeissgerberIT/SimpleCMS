@@ -37,8 +37,9 @@ async function read(): Promise<void> {
   }
 }
 
-/** Read again soon (debounced). */
+/** Read again soon: at most one read per `delay` while writes go on (a read now replaces a pending one). */
 export function refreshTapeInfo(delay = REREAD_MS): void {
+  if (timer && delay > 0) return
   if (timer) clearTimeout(timer)
   timer = setTimeout(() => {
     timer = null

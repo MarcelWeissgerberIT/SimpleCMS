@@ -111,7 +111,7 @@ export function settleHead(line: number, w: number, view: View, kind: 'head' | '
   return { place: 'center', left, right: left + w }
 }
 
-/** Ruler labels that a head covers (± 4 px): true = hide. */
+/** Ruler labels that a head covers or comes within 4 px of: true = hide. */
 export function underHeads(labels: Array<{ left: number; right: number }>, heads: Array<{ left: number; right: number }>): boolean[] {
-  return labels.map((r) => heads.some((h) => r.left < h.right + 4 && r.right > h.left - 4))
+  return labels.map((r) => heads.some((h) => r.left <= h.right + 4 && r.right >= h.left - 4))
 }

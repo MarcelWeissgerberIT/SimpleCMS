@@ -17,7 +17,7 @@ import { useDeckData } from './data'
 import { DeckHead } from './DeckHead'
 import { fmtDayShort } from './format'
 import { daysRecorded, recorderMode, useTapeInfoLive } from './info'
-import { laneMeta, sortLanes, visibleLanes } from './lanes'
+import { laneMeta, sortLanes, visibleLanes, type LaneMeta } from './lanes'
 import { laneCount } from './Lane'
 import { LaneLabels } from './LaneLabels'
 import { Strip } from './Strip'
@@ -90,12 +90,21 @@ export default function Deck() {
 
   // the tracks shown, in the tape's order, with their counts in the span
   const histLanes = zoom === '24h' && hist ? hist.lanes : null
+  // a lane's meta keeps its identity while its names stay (a push must not re-render the other lanes)
+  const metaCache = useRef(new Map<LaneKey, LaneMeta>())
   const lanes = useMemo(() => {
     const withOps: LaneKey[] = []
     const src = histLanes ?? ops.lanes
     for (const [l, list] of Object.entries(src)) if (laneCount(histLanes ? undefined : (list as never), histLanes ? (list as never) : undefined, span.t0, span.t1) > 0) withOps.push(l)
     const ws = { agents, scripts, databases, settings }
-    return sortLanes(visibleLanes(withOps, bracket?.lane ?? null, filter).map((l) => laneMeta(l, t, ws)))
+    const metas = visibleLanes(withOps, bracket?.lane ?? null, filter).map((l) => {
+      const m = laneMeta(l, t, ws)
+      const old = metaCache.current.get(l)
+      if (old && old.title === m.title && old.short === m.short && old.icon === m.icon) return old
+      metaCache.current.set(l, m)
+      return m
+    })
+    return sortLanes(metas)
   }, [histLanes, ops.lanes, span.t0, span.t1, bracket?.lane, filter, agents, scripts, databases, settings, t])
   const counts = useMemo(() => {
     const out: Record<string, number> = {}
@@ -205,7 +214,7 @@ export default function Deck() {
             playhead={playhead}
             focusLane={focusLane}
             phone={phone}
-            now={Math.min(Date.now(), span.t1)}
+            now={Math.min(Math.floor(Date.now() / 60_000) * 60_000, span.t1)}
             empty={empty}
           />
         </div>
