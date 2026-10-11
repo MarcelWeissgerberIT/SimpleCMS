@@ -10,7 +10,9 @@
  * tidy.ts (trash, restore, moves) and structure.ts (database, property and view changes).
  */
 import type { JSONContent } from '@tiptap/core'
-import { keepItems, markdownToDoc } from '../../editor'
+import { keepItems } from '../../editor'
+import { claudeDoc } from '../ai/claudeDoc'
+import { webImagesOf } from '../agents/images'
 import { newId } from '../../lib/ids'
 import { t } from '../../i18n'
 import type { Database, ID, PropertyDef, PropertyType } from '../../store/types'
@@ -188,7 +190,8 @@ function planUpdatePage(args: Record<string, unknown>): WritePlan {
     changed.push('content')
   } else if (markdown !== null) {
     // the page's tasks written back as `> [!TODO] … {#wi_…}` stay those tasks (fields as they are)
-    replaceWith = keepItems(markdownToDoc(markdown), page.content)
+    // Claude's Markdown: web images become links, raw-HTML mentions text (features/ai/claudeDoc.ts)
+    replaceWith = keepItems(claudeDoc(markdown, webImagesOf(page.content)), page.content)
     const before = (page.plain ?? '').length
     lines.push({ k: 'md', label: t('features.mcp.plan.replace', { before: chars(before), after: chars(markdown.trim().length) }), value: preview(markdown) || '—' })
     lines.push({ k: 'note', value: t('features.mcp.plan.historyNote') })

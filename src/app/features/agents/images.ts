@@ -145,6 +145,12 @@ export function withoutWebLoads<T extends DocNode>(doc: T, keep?: ReadonlySet<st
       const url = str(a.url).trim()
       return url && /^https?:\/\//i.test(url) ? [linkLine(str(a.title) || url, url)] : []
     }
+    // a person / date mention: Markdown never makes one, only raw HTML could — and it would ping that person or ring
+    // its reminder for every member. Its label as text (page mentions neither ping nor ring)
+    if (n.type === 'mention' && (a.kind === 'person' || a.kind === 'date')) {
+      const text = '@' + (str(a.label).trim() || str(a.id).trim())
+      return text.length > 1 ? [{ type: 'text', text, ...(n.marks ? { marks: n.marks } : {}) } as DocNode] : []
+    }
     // blocks Markdown never makes (raw HTML could): their plain blocks — a task too (Claude never writes one
     // this way: a task it read and writes back stays that task only through keepItems, editor/workitem)
     if (n.type === 'syncedBlock' || n.type === 'meetingNotes' || n.type === 'workItem') return (n.content ?? []).flatMap(fix)

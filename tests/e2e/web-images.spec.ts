@@ -146,6 +146,8 @@ test.describe('web images in Claude answers become links', () => {
       '<div data-type="embed" data-url="https://attacker.example/frame"></div>',
       '<div data-type="file" data-src="https://attacker.example/x.pdf" data-name="x.pdf" data-display="viewer"></div>',
       '<div data-type="bookmark" data-url="https://example.com" data-image="https://attacker.example/i.png"></div>',
+      // a person mention would ping, a date mention with a reminder ring for every member: text instead
+      'Ask <span data-type="mention" data-kind="person" data-id="p_smuggled" data-label="Mara Lind">@Mara Lind</span> by <span data-type="mention" data-kind="date" data-id="2031-10-17" data-label="Oct 17" data-reminder="at">Oct 17</span>, see <span data-type="mention" data-kind="page" data-id="pg_x" data-label="Launch plan">Launch plan</span>.',
       'The end.',
     ].join('\n\n')
     await mockClaude(context, () => answer)
@@ -188,6 +190,21 @@ test.describe('web images in Claude answers become links', () => {
       id,
     )
     expect(types).toEqual([])
+    const mentions = await wsEval(
+      page,
+      (s, id) => {
+        const out: string[] = []
+        const walk = (n: AnyState) => {
+          if (n.type === 'mention') out.push(`${n.attrs?.kind}:${n.attrs?.id}`)
+          for (const c of n.content ?? []) walk(c)
+        }
+        walk(s.pages[id]?.content ?? {})
+        return out
+      },
+      id,
+    )
+    expect(mentions).toEqual(['page:pg_x'])
+    await expect(ed).toContainText('Ask @Mara Lind by @Oct 17, see')
     const { links } = await media(page, id)
     for (const url of ['https://attacker.example/raw.png', 'https://attacker.example/v.mp4', 'https://attacker.example/a.mp3', 'https://attacker.example/frame', 'https://attacker.example/x.pdf', 'https://example.com']) expect(links).toContain(url)
     // reload: the page as stored loads nothing either

