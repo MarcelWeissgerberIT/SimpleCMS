@@ -301,6 +301,60 @@ test.describe('the biggest text size still fits', () => {
     expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(0)
   })
 
+  test('Preflight at XL: the plate with 16 lamps and its strip at 1440 / 1000 / 999 / 640 / 390, English and German, Paper and Carbon; MASTER CAUTION beside a long page title', async ({ page }) => {
+    test.slow()
+    await page.addInitScript(() => {
+      localStorage.setItem('one.textScale', '4')
+      localStorage.setItem('one.tour', '{"off":true}')
+    })
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await openApp(page)
+    type Seam = { fakeLamps: (l: unknown[]) => void; flush: () => Promise<void>; fold: () => void; unfold: () => void; noBlink: () => void }
+    const pf = <R,>(fn: string): Promise<R> => page.evaluate((src) => new Function('p', `return (${src})`)((window as unknown as { __onePreflight: Seam }).__onePreflight), fn) as Promise<R>
+    await page.waitForFunction(() => !!(window as unknown as { __onePreflight?: unknown }).__onePreflight)
+    // 18 test lamps with long two-line legends next to the built-ins: the panel shows 16, the rest "do not fit"
+    const words = ['Rückmeldungen\nüberfällig', 'Prüfprotokolle\nunvollständig', 'Abnahmen\nohne Termin', 'Zeiterfassung\nnicht gebucht', 'Übergaben\nunbestätigt', 'Wartungsfenster\nverpasst']
+    await page.evaluate((words) => {
+      const list = Array.from({ length: 18 }, (_, i) => ({ id: `fit-${i}`, legend: words[i % words.length], second: i % 3 ? `${i * 7} seit Montag, 07:30` : '', count: i % 4 === 0 ? 0 : i * 11, red: i % 5 === 1 }))
+      ;(window as unknown as { __onePreflight: Seam }).__onePreflight.fakeLamps(list)
+    }, words)
+    await pf('p.noBlink()')
+    const home = async () => {
+      await page.evaluate(() => (window.location.hash = '#/'))
+      await pf('p.flush()')
+    }
+    for (const theme of ['light', 'dark'] as const) {
+      await wsEval(page, (s, theme) => s.updateSettings({ theme }), theme)
+      await expect(page.locator('html')).toHaveAttribute('data-theme', theme)
+      for (const width of [1440, 1000, 999, 640, 390]) {
+        await page.setViewportSize({ width, height: width > 640 ? 900 : 844 })
+        await home()
+        await pf('p.unfold()')
+        await expect(page.getByTestId('pf-plate')).toBeVisible()
+        await expect(page.locator('.pf-cap')).toHaveCount(16)
+        await fits(page, `the Preflight plate (XL, ${width}, ${theme})`, '.pf, .pf-aside')
+        expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth), `no sideways page scroll (${width}, ${theme})`).toBeLessThanOrEqual(0)
+        await pf('p.fold()')
+        await expect(page.getByTestId('pf-strip')).toBeVisible()
+        await fits(page, `the Preflight strip (XL, ${width}, ${theme})`, '.pf')
+        expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth), `no sideways page scroll, strip (${width}, ${theme})`).toBeLessThanOrEqual(0)
+      }
+    }
+    // MASTER CAUTION in the topbar beside a long page title, on the phone at XL
+    await wsEval(page, (s) => s.updateSettings({ theme: 'light' }))
+    const id = await createPage(page, { title: 'Übergabeprotokoll der Wartungsschicht Nord mit offenen Prüfpunkten und Rückfragen' })
+    await gotoPage(page, id)
+    await expect(page.getByTestId('pf-mc')).toBeVisible()
+    for (const width of [390, 1440]) {
+      await page.setViewportSize({ width, height: width > 640 ? 900 : 844 })
+      await page.waitForTimeout(200)
+      const box = await page.getByTestId('pf-mc').boundingBox()
+      expect(box && box.x >= 0 && box.x + box.width <= width + 0.5, `MASTER CAUTION on screen (${width})`).toBe(true)
+      await fits(page, `the topbar with MASTER CAUTION (XL, ${width})`, '.tb')
+      expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(0)
+    }
+  })
+
   test('code areas at XL: the agent job, a code block bar, the One Script editor (1280 × 720 and 390 × 844)', async ({ page }) => {
     await page.addInitScript(() => localStorage.setItem('one.textScale', '4'))
     await openApp(page)

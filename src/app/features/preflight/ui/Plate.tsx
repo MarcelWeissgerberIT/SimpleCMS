@@ -65,16 +65,25 @@ export function PlateHead({ strip }: { strip?: boolean }) {
   if (hidden) parts.push(t('features.preflight.head.hidden', { n: hidden }))
   return (
     <div className="pf__head">
-      <span className="label pf__cut">
+      {/* the name never cuts; the day gives way first, the time last (each its own text, cut with "…") */}
+      <span className="label pf__name">
         <span className="pf__no">§ 00</span> — <span className="pf__title">{t('features.preflight.title')}</span>
-        <span className="pf-hide-s"> · {fmtDay(now, lang)}</span>
-        {lastChange ? ` · ${fmtTime(lastChange)}` : ''}
       </span>
+      <span className="label pf__cut pf__day pf-hide-s">· {fmtDay(now, lang)}</span>
+      {lastChange ? <span className="label pf__time">· {fmtTime(lastChange)}</span> : null}
       <span className="pf__rule" aria-hidden />
       <span className="label pf-hide-s pf__cut">{parts.join(' · ')}</span>
       {overflow.length > 0 && (
-        <button type="button" className="label pf__over" title={t('features.preflight.head.overflowTitle')} onClick={() => useQueue.setState({ overflow: true, aside: null })}>
-          {t('features.preflight.head.overflow', { n: overflow.length })}
+        <button
+          type="button"
+          className="label pf__over"
+          title={t('features.preflight.head.overflowTitle')}
+          aria-label={t('features.preflight.head.overflow', { n: overflow.length })}
+          onClick={() => useQueue.setState({ overflow: true, aside: null })}
+        >
+          {/* narrow: only "+n" (the rule card names them) */}
+          <span className="pf__over-long">{t('features.preflight.head.overflow', { n: overflow.length })}</span>
+          <span className="pf__over-short">+{overflow.length}</span>
         </button>
       )}
       <span className="label pf__cost">

@@ -83,6 +83,11 @@
 .tb-crumbs__item:last-child {
   flex-shrink: 0.4;
 }
+/* alone, a shrink factor under 1 would give back only that share of the overflow (flexbox): the title then ran
+   past the crumbs at phone width with a wider right side (MASTER CAUTION, XL text) */
+.tb-crumbs__item:only-child {
+  flex-shrink: 1;
+}
 .tb-sep {
   margin: 0 2px;
   color: var(--ink-3);

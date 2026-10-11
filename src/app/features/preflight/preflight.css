@@ -88,9 +88,10 @@
   }
 }
 @media (pointer: coarse) {
+  /* a finger's target that still fits the 44 px topbar at every text size */
   .pf-mc {
     min-width: 44px;
-    min-height: calc(40px * var(--text-scale));
+    min-height: 40px;
   }
 }
 
@@ -112,6 +113,34 @@
   color: var(--ink-2);
 }
 .pf__head .pf__cut {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pf__name {
+  flex: none;
+}
+.pf__over-short {
+  display: none;
+}
+/* the day and the time follow the name closer than the head's gap; the day gives way first, then the head's lamp
+   count line, the time last (all cut with "…"); the name never */
+.pf__head > .pf__day,
+.pf__head > .pf__time {
+  margin-left: -6px;
+}
+.pf__head > .pf__day {
+  flex: 0 100 auto;
+}
+.pf__head > .pf__cut:not(.pf__day) {
+  flex: 0 60 auto;
+}
+.pf__time,
+.pf__cost,
+.pf__over {
+  flex: none;
+}
+.pf__time {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -170,7 +199,8 @@
 /* the housing */
 .pf__grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  /* four caps a row at most; fewer when a cap would get narrower than its legend + chip need (narrow panes, big text) */
+  grid-template-columns: repeat(auto-fill, minmax(max(calc(140px * var(--text-scale)), calc((100% - 15px) / 4)), 1fr));
   /* rows grow a little to fill the housing beside the master column, never into tall slabs (few lamps) */
   grid-auto-rows: minmax(calc(58px * var(--text-scale)), calc(72px * var(--text-scale)));
   align-content: start;
@@ -415,7 +445,7 @@
   margin: 0;
   color: var(--ink);
   font-family: var(--font-mono);
-  font-size: var(--text-xs);
+  font-size: var(--text-sm);
   font-weight: 600;
   text-align: right;
   white-space: nowrap;
@@ -508,6 +538,13 @@
 }
 .pf-below__q {
   min-width: 0;
+}
+/* no queue in the slot (P1): the rule card sits under the plate's left edge, at its own width */
+.pf-below:has(> .pf-below__q:empty) {
+  grid-template-columns: minmax(0, 360px);
+}
+.pf-below__q:empty {
+  display: none;
 }
 .pf-aside {
   display: flex;
@@ -776,16 +813,23 @@ html[data-pf-noblink] .pf-pip[data-flash] {
   .pf__body {
     grid-template-columns: minmax(0, 1fr);
   }
+  /* one row above the housing: the key, the read-out at its own width, the key hints at the right */
   .pf__master {
     order: -1;
     display: grid;
-    grid-template-columns: minmax(180px, 236px) minmax(0, 1fr);
-    gap: 8px 14px;
+    grid-template-columns: minmax(180px, 236px) minmax(0, 260px) minmax(0, 1fr);
+    gap: 8px 22px;
     align-items: center;
   }
   .pf__keys {
-    grid-column: 1 / -1;
+    align-self: center;
+    justify-content: flex-end;
     margin-top: 0;
+    padding: 0 2px;
+    border-top: 0;
+  }
+  .pf__keys > .label {
+    text-align: right;
   }
   .pf-below {
     grid-template-columns: minmax(0, 1fr);
@@ -803,6 +847,28 @@ html[data-pf-noblink] .pf-pip[data-flash] {
   }
 }
 
+/* ---------- 640–759: the key hints under the key ---------- */
+@container (max-width: 759px) {
+  .pf__over-long {
+    display: none;
+  }
+  .pf__over-short {
+    display: inline;
+  }
+  .pf__master {
+    grid-template-columns: minmax(170px, 236px) minmax(0, 1fr);
+  }
+  .pf__keys {
+    grid-column: 1 / -1;
+    justify-content: flex-start;
+    padding-top: 6px;
+    border-top: 1px solid color-mix(in srgb, var(--ink) 18%, transparent);
+  }
+  .pf__keys > .label {
+    text-align: left;
+  }
+}
+
 /* ---------- < 640: the phone ---------- */
 @container (max-width: 639px) {
   .pf {
@@ -813,9 +879,15 @@ html[data-pf-noblink] .pf-pip[data-flash] {
     gap: 8px;
     padding: 0 6px 8px;
   }
+  /* a phone at the biggest text size: the time is the last thing to give way */
+  .pf__head > .pf__time {
+    flex: 0 1 auto;
+    margin-left: -3px;
+  }
   .pf-hide-s {
     display: none;
   }
+
   .pf__body {
     gap: 10px;
   }
@@ -888,7 +960,8 @@ html[data-pf-noblink] .pf-pip[data-flash] {
 
 /* touch: generous targets */
 @media (pointer: coarse) {
-  .pf-cap,
+  /* a lit cap keeps its own height (chip over count); flat dark / grey caps grow to a finger's target */
+  .pf-cap:not([data-lit]),
   .pf-strip__fold,
   .pf__icon-btn,
   .pf__over {

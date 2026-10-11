@@ -42,7 +42,7 @@ export function Home() {
   const greeting = `${greet}${userName.trim() ? `, ${userName.trim()}` : ''}`
 
   return (
-    <div className="home">
+    <div className={preflight ? 'home home--preflight' : 'home'}>
       <div className="home__inner">
         {!preflight && (
           <div className="home__meta label">

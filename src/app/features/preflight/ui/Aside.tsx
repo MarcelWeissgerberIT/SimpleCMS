@@ -97,7 +97,7 @@ function RuleCard({ view, index }: { view: LampView; index: number }) {
         <div className="pf-spec__row">
           <dt className="label">{t('features.preflight.spec.cost')}</dt>
           <dd className="pf-mono">
-            {t('features.preflight.spec.costLine', { ms: Math.max(0, Math.round(read?.ms ?? 0)) })}
+            {t('features.preflight.spec.costLine', { ms: read && read.ms < 1 ? '<1' : Math.round(read?.ms ?? 0) })}
             {read && <span className="pf-spec__note">{t('features.preflight.spec.counted', { time: fmtTime(read.at) })}</span>}
           </dd>
         </div>
