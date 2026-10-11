@@ -10,7 +10,11 @@
  */
 import type { ID } from './types'
 
-export type SystemWhy = 'hydrate' | 'tab' | 'stamp' | 'repair' | 'revert' | 'refused' | 'members' | 'bookkeeping' | 'maintenance'
+/**
+ * 'resume': a write this browser held for a page's first server sync, written by another tab or a later boot (its own
+ * tab journaled it when it was made — cloud/content.ts)
+ */
+export type SystemWhy = 'hydrate' | 'tab' | 'stamp' | 'repair' | 'revert' | 'refused' | 'members' | 'bookkeeping' | 'maintenance' | 'resume'
 
 export type YouVia =
   | 'ui'
@@ -128,7 +132,7 @@ const MAX_CAUSES = 2
 const ID_RE = /^[A-Za-z0-9_-]{1,64}$/
 const NAME_RE = /^[a-z0-9_]{1,40}$/
 const VIA_RE = /^[a-z]{1,16}$/
-const SYSTEM_WHY = new Set<SystemWhy>(['hydrate', 'tab', 'stamp', 'repair', 'revert', 'refused', 'members', 'bookkeeping', 'maintenance'])
+const SYSTEM_WHY = new Set<SystemWhy>(['hydrate', 'tab', 'stamp', 'repair', 'revert', 'refused', 'members', 'bookkeeping', 'maintenance', 'resume'])
 
 /** An id part of a key: valid as it is, else '-'. */
 const id = (v: unknown): string => (typeof v === 'string' && ID_RE.test(v) ? v : '-')

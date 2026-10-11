@@ -13,13 +13,15 @@
  *  - a write into a page this device has no copy of waits for the server (held, one record per hold): one tab's
  *    record is never written by another tab while the first lives — with Web Locks and without them (a server on
  *    plain http: the tabs ask each other) — two tabs' records never overwrite each other, and a record cut short by
- *    a role change stays until a boot that may write writes it (a later write never takes it along).
+ *    a role change stays until a boot that may write writes it (a later write never takes it along); the flight
+ *    recorder takes a held write the next boot writes for no one's new change (system:resume), never the team's.
  */
 import type { BrowserContext, Page } from '@playwright/test'
 import { HocuspocusProvider, HocuspocusProviderWebsocket } from '@hocuspocus/provider'
 import * as Y from 'yjs'
 import * as encoding from 'lib0/encoding'
 import { test, expect, api, email, signIn, openApp, waitForApp, waitOnline, wsEval, cloudEval, createWorkspace, gotoPage, editorOf, newPerson, join } from './fixtures'
+import { rec, startRecorder } from '../e2e/helpers/recorder'
 
 const bearer = (token: string) => ({ authorization: `Bearer ${token}` })
 
@@ -700,12 +702,14 @@ test.describe('schema gate + task block (team cloud)', () => {
       server.open()
       await waitOnline(second)
       const check = await rawClient(second, docName, 1)
+      let rebooted = 0
       try {
         await check.synced
         const xml = () => check.doc.getXmlFragment('default').toString()
         await expect.poll(() => occurrences(xml(), 'Written in tab two.'), { timeout: 15_000 }).toBe(1)
         await expect.poll(async () => (await heldFor(second, wsId, pageId)).length).toBe(1)
         // the next boot writes the closed tab's record
+        rebooted = Date.now()
         await second.reload()
         await waitForApp(second)
         await waitOnline(second)
@@ -716,6 +720,14 @@ test.describe('schema gate + task block (team cloud)', () => {
         check.destroy()
       }
       await expect.poll(() => heldKeys(second)).toEqual([])
+      await expect.poll(() => wsEval(second, (s, id) => s.pages[id]?.plain as string, pageId)).toContain('Written in tab one.')
+      // the flight recorder: tab one's write coming back with this boot is no one's new change (system:resume — tab one
+      // journaled it when it was made), never a colleague's (lane team); nothing fell back to a guess
+      await startRecorder(second)
+      await rec(second, 'flush')
+      const events = (await rec<Array<Record<string, unknown>>>(second, 'events')).filter((e) => e.p === `p:${pageId}` && (e.at as number) >= rebooted)
+      expect(events.filter((e) => e.l === 'team').map((e) => e.w), 'the resumed write on lane team').toEqual([])
+      expect(await rec(second, 'unknowns')).toEqual([])
       await second.close()
     })
   }

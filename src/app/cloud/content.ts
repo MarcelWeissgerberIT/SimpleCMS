@@ -39,7 +39,7 @@ import type { JSONContent } from '@tiptap/core'
 import { useWorkspace, plainText } from '../store/store'
 import { deepEqual, mergeContent } from '../store/merge'
 import type { ID, Page } from '../store/types'
-import { SYSTEM, withWriter, type Writer } from '../store/writer'
+import { currentWriter, formatWriterKey, inPersonEvent, SYSTEM, withWriter, type Writer } from '../store/writer'
 import { docSchema, prepareCollabContent } from '../editor'
 import { DOC_SCHEMA_VERSION, lostNewer, restoreNewer } from '../store/generations'
 import { applyFromCloud, markFromCloud } from './binding'
@@ -115,6 +115,11 @@ interface Entry {
   writerHint: { w: Writer; at: number; until: number } | null
   /** This tab's typing waited in the document while a takeover ran (its refresh could not write): a hint's refresh is mixed. */
   typingHeld: boolean
+  /**
+   * A held write just went into the document (queueWrite): who the refresh carrying it is when the store no longer
+   * shows its text `ours` (another tab's record, an earlier boot's, or a refresh took it out meanwhile) — until `until`.
+   */
+  landed: Landed | null
   refreshTimer?: number
   lingerTimer?: number
   handle: ContentDocHandle | null
@@ -197,6 +202,7 @@ function ensure(pageId: ID): Entry {
     lastLocal: 0,
     writerHint: null,
     typingHeld: false,
+    landed: null,
     handle: null,
   }
   resetSync(entry)
@@ -363,6 +369,7 @@ function adoptAll(e: Entry): Promise<void> {
     if (entries.get(e.pageId) !== e) return
     // a writer's hint left while the takeover ran: the refresh coming now carries it
     if (e.writerHint) e.writerHint = { ...e.writerHint, until: Date.now() + HINT_MS }
+    if (e.landed) e.landed = { ...e.landed, until: Date.now() + HINT_MS }
     scheduleRefresh(e, 0)
     checkConfirmed(e)
   })
@@ -599,6 +606,8 @@ function refresh(e: Entry, writer?: Writer) {
   }
   const remote = e.remoteSince
   e.remoteSince = 0
+  const landed = e.landed && Date.now() < e.landed.until ? e.landed : null
+  e.landed = null
   const s = useWorkspace.getState()
   const page = s.pages[e.pageId]
   if (!page) return
@@ -617,15 +626,22 @@ function refresh(e: Entry, writer?: Writer) {
     return
   }
   markFromCloud(json)
+  // a held write coming in: what the store shows already is no one's change — its text coming back is its writer's
+  const back = landed && !deepEqual(page.content ?? null, landed.ours) ? landed : null
   if (local && c.writable()) {
-    withWriter(refreshWriter(e, writer, remote), () => s.setContent(e.pageId, json, CLOUD_EDIT_ORIGIN))
+    // this tab's typing and a held write's text at once: mixed
+    withWriter(back ? editorCollab(true) : refreshWriter(e, writer, remote), () => s.setContent(e.pageId, json, CLOUD_EDIT_ORIGIN))
   } else {
-    applyFromCloud(() => {
-      const cur = useWorkspace.getState().pages[e.pageId]
-      if (!cur) return
-      const next: Page = { ...cur, content: json, plain: plainText(json), contentRev: cur.contentRev + 1, contentOrigin: 'sync' }
-      useWorkspace.getState().cloudPatch({ pages: { [e.pageId]: next } })
-    })
+    const patch = () =>
+      applyFromCloud(() => {
+        const cur = useWorkspace.getState().pages[e.pageId]
+        if (!cur) return
+        const next: Page = { ...cur, content: json, plain: plainText(json), contentRev: cur.contentRev + 1, contentOrigin: 'sync' }
+        useWorkspace.getState().cloudPatch({ pages: { [e.pageId]: next } })
+      })
+    // the server's updates came along: the refresh cannot be split — SYSTEM resume (no writer's stretch goes on)
+    if (back) withWriter(remote ? SYSTEM('resume') : back.w, patch)
+    else patch()
   }
   const after = useWorkspace.getState().pages[e.pageId]
   if (after) remember(e, json, after)
@@ -767,11 +783,26 @@ const writeQueues = new Map<ID, Promise<void>>()
 const heldWrites = new Map<ID, Held>()
 interface Held extends HeldWrite {
   rid: string
+  /** Who wrote the held text (flight recorder): null = several writers, or none this tab knew. Never stored. */
+  w: Writer | null
 }
 /** Pages with records taken over from a tab that went, queued to be written (a write of this tab behind them is held too). */
 const resuming = new Map<ID, number>()
 /** The newest text queued for a page: a write that starts waiting holds that (later ones queued behind it are in it). */
 const queuedText = new Map<ID, JSONContent | null>()
+/** Who wrote the queued text (null: several writers, or one not known here) — a hold takes it along with the text. */
+const queuedBy = new Map<ID, Writer | null>()
+
+/** A held write in the document, for the refresh that carries it (Entry.landed). */
+interface Landed {
+  w: Writer
+  ours: JSONContent | null
+  until: number
+}
+
+/** The writer of a store write now (bridgeContent runs in the binding's store listener): its frame, else the person's event. */
+const writerNow = (): Writer | null => currentWriter() ?? (inPersonEvent() ? { kind: 'you', via: 'ui' } : null)
+const sameWriter = (a: Writer | null, b: Writer | null): Writer | null => (a && b && formatWriterKey(a) === formatWriterKey(b) ? a : null)
 
 /* ------------------------------------------------------------------ held records: one tab's at a time */
 
@@ -928,11 +959,11 @@ async function askFor(c: ContentContext, pageId: ID, rid: string, wait: boolean)
 
 /* ------------------------------------------------------------------ held writes */
 
-function holdWrite(pageId: ID, base: JSONContent | null, ours: JSONContent | null) {
+function holdWrite(pageId: ID, base: JSONContent | null, ours: JSONContent | null, w: Writer | null) {
   const c = ctx
   if (!c) return
   const prev = heldWrites.get(pageId)
-  const v: Held = prev ? { ...prev, ours } : { rid: newId(), base, ours, at: Date.now() }
+  const v: Held = prev ? { ...prev, ours, w: sameWriter(prev.w, w) } : { rid: newId(), base, ours, at: Date.now(), w }
   heldWrites.set(pageId, v)
   // owned before it is stored: a tab that reads it finds it taken
   if (!prev) own(c.wsId, pageId, v.rid)
@@ -988,10 +1019,21 @@ function canonical(json: JSONContent | null): JSONContent | null {
   }
 }
 
-/** A write's part in its page's queue: `hold` keeps it on this device while it waits for the server, `done` after. */
+/**
+ * A write's part in its page's queue: `hold` keeps it on this device while it waits for the server, `done` after;
+ * `landed` (once it is in the document): who the refresh carrying it is, when it waited (null: it never did).
+ */
 interface WriteHold {
   hold(): void
   done(written: boolean): void
+  landed(): Omit<Landed, 'until'> | null
+}
+
+/** A held write went into the document: the refresh carrying it names its writer (several landing at once: resume). */
+function noteLanded(e: Entry, l: Omit<Landed, 'until'>): void {
+  const prev = e.landed && Date.now() < e.landed.until ? e.landed : null
+  const w = prev ? (sameWriter(prev.w, l.w) ?? SYSTEM('resume')) : l.w
+  e.landed = { w, ours: l.ours, until: e.adoption ? Infinity : Date.now() + HINT_MS }
 }
 
 /** Merge `base` → `ours` into the page's Y document in its turn (with what Y has by then). */
@@ -1022,6 +1064,9 @@ function queueWrite(pageId: ID, base: JSONContent | null, ours: JSONContent | nu
       // a workspace page never gets the title of a private page through a mention's label
       if (!e.priv) target = stripHiddenMentions(target, isPrivate) ?? target
       if (!deepEqual(target, theirs)) {
+        // before the transaction: its update schedules the refresh that carries it
+        const l = h.landed()
+        if (l) noteLanded(e, l)
         e.doc.transact(() => {
           if (!target) frag.delete(0, frag.length)
           else prosemirrorJSONToYXmlFragment(docSchema(), prepareCollabContent(target, true), frag)
@@ -1040,6 +1085,7 @@ function queueWrite(pageId: ID, base: JSONContent | null, ours: JSONContent | nu
     if (writeQueues.get(pageId) !== tail) return
     writeQueues.delete(pageId)
     queuedText.delete(pageId)
+    queuedBy.delete(pageId)
   })
   writeQueues.set(pageId, tail)
 }
@@ -1048,12 +1094,27 @@ function queueWrite(pageId: ID, base: JSONContent | null, ours: JSONContent | nu
 export function bridgeContent(pageId: ID, base: JSONContent | null, ours: JSONContent | null): void {
   if (!ctx || !ctx.writable() || !PAGE_ID.test(pageId)) return
   if (deepEqual(base, ours)) return
+  const by = writerNow()
+  let held = false
   // a write before this one waits for the server: this one is the text to keep now
-  if (heldWrites.has(pageId) || resuming.has(pageId)) holdWrite(pageId, base, ours)
+  if (heldWrites.has(pageId) || resuming.has(pageId)) {
+    held = true
+    holdWrite(pageId, base, ours, by)
+  }
+  queuedBy.set(pageId, queuedBy.has(pageId) ? sameWriter(queuedBy.get(pageId) ?? null, by) : by)
   queuedText.set(pageId, ours)
   queueWrite(pageId, base, ours, {
-    hold: () => holdWrite(pageId, base, queuedText.has(pageId) ? (queuedText.get(pageId) ?? null) : ours),
+    hold: () => {
+      held = true
+      holdWrite(pageId, base, queuedText.has(pageId) ? (queuedText.get(pageId) ?? null) : ours, queuedBy.has(pageId) ? (queuedBy.get(pageId) ?? null) : by)
+    },
     done: (written) => letGo(pageId, ours, written),
+    // it waited: its text comes back as its writer's — several writers', or one not known here, as SYSTEM resume
+    landed: () => {
+      if (!held) return null
+      const v = heldWrites.get(pageId)
+      return { w: v?.w ?? SYSTEM('resume'), ours: v?.ours ?? ours }
+    },
   })
 }
 
@@ -1062,6 +1123,8 @@ function writeResumed(c: ContentContext, r: HeldRecord): void {
   resuming.set(r.pageId, (resuming.get(r.pageId) ?? 0) + 1)
   queueWrite(r.pageId, r.base, r.ours, {
     hold: () => {},
+    // another tab's write (or an earlier boot's) — that tab journaled it when it was made
+    landed: () => ({ w: SYSTEM('resume'), ours: r.ours }),
     done: (written) => {
       const left = (resuming.get(r.pageId) ?? 1) - 1
       if (left > 0) resuming.set(r.pageId, left)

@@ -406,7 +406,10 @@ may write:
     before 15.4) the tabs ask each other on a BroadcastChannel (`one-held`: taken only when nobody answered within
     300 ms, asked again when the owner lets go or every 5 s). A record goes only once its own text is written, or
     with its page (deleted for good): a write cut short (a role change, an outdated tab, an error) leaves it as it
-    is, and later writes of the session never fold into it.
+    is, and later writes of the session never fold into it. For the flight recorder, the refresh that carries a held
+    write is a colleague's change (lane team) only while the store already shows its text; text coming back is its
+    writer's (this tab held it, one writer) or `system:resume` (another tab's or an earlier boot's record — that tab
+    journaled it — several writers, or the server's updates in the same refresh).
   Wiping a workspace copy (`cloud/device.ts`) removes every generation's copies.
 - The server's own writes (public API, webhooks, agents — direct connections) are not affected.
 - Releasing a node type an older client would lose: ship it in the app with `DOC_SCHEMA_VERSION` + 1, the
