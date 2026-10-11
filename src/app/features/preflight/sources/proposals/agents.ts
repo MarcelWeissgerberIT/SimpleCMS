@@ -5,12 +5,14 @@
  * discardRun with its cascade and Undo; O = the agent's page. Server runs have no Undo (said on the card). A `send`
  * proposal is the Outbox's: A opens its slip (VON HAND), the card ends when the slip leaves the reading.
  * ⇧A / X: one applyRun / discardRun per run (children never before their parents: applyChanges ranks inside one call).
+ * 1–4 (and F in German, W in English for 1) discard with a reason — 1 = wrong counts against the agent's per-field
+ * trust. A single A / D / 1–4 on a card shown in full at its revision is a verdict (`judged`); ⇧A / X never are.
  */
 import { navigate } from '../../../../lib/router'
-import { t } from '../../../../i18n'
-import { AGENT_BODY_KINDS } from '../../../agents'
+import { currentLang, t } from '../../../../i18n'
+import { AGENT_BODY_KINDS, reasonKeys, wrongLetter } from '../../../agents'
 import type { AgentRun } from '../../../agents/types'
-import { depsOf, type StagedChange } from '../../../ai/agent/types'
+import { depsOf, type DiscardReason, type StagedChange } from '../../../ai/agent/types'
 import type { CustomAgent } from '../../../../store/types'
 import { slipProbe, type CardAction, type Done, type QueueItem, type UndoOutcome } from '../../registry'
 import { applyAgent, discardAgent, undoAgent } from '../../queue/calls'
@@ -82,8 +84,8 @@ const undoOf = (run: AgentRun, changeId: string) => async (): Promise<UndoOutcom
   return each?.[changeId] ?? 'final'
 }
 
-async function applyOne(run: AgentRun, c: StagedChange): Promise<Done> {
-  const res = await applyAgent(run, [c.id])
+async function applyOne(run: AgentRun, c: StagedChange, judged: boolean): Promise<Done> {
+  const res = await applyAgent(run, [c.id], judged)
   if (!res) return { ok: false, error: 'features.preflight.err.elsewhere', elsewhere: true }
   const failed = res.failed.find((f) => f.id === c.id)
   if (failed) return { ok: false, error: failed.error }
@@ -91,8 +93,8 @@ async function applyOne(run: AgentRun, c: StagedChange): Promise<Done> {
   return run.runner === 'browser' ? { ok: true, undo: undoOf(run, c.id) } : { ok: true, final: 'features.preflight.card.final.server' }
 }
 
-async function discardOne(run: AgentRun, c: StagedChange): Promise<Done> {
-  const out = await discardAgent(run, [c.id])
+async function discardOne(run: AgentRun, c: StagedChange, opts: { reason?: DiscardReason; judged: boolean }): Promise<Done> {
+  const out = await discardAgent(run, [c.id], opts)
   if (!out.dropped.length) return { ok: false, error: 'features.preflight.err.elsewhere', elsewhere: true }
   const more = out.dropped.length - 1
   const undo = out.undo
@@ -137,9 +139,25 @@ export function agentActions(item: QueueItem): CardAction[] {
   if (!AGENT_BODY_KINDS.includes(c.kind)) return [open]
   const needs = needsOf(run, c)
   const blocked = running ? { key: 'features.preflight.why.running' } : needs.length ? { key: 'features.preflight.why.needs', vars: { n: needs.map((n) => `#${n}`).join(', ') } } : null
+  const stop = running ? { key: 'features.preflight.why.running' } : null
+  const browser = run.runner === 'browser'
+  // the reason keys: digits from the ONE key map (features/agents/trust), the language's letter also means "wrong"
+  const lang = currentLang()
+  const keys = reasonKeys(lang)
+  const reasons: CardAction[] = (Object.keys(keys) as DiscardReason[]).map((r) => ({
+    key: keys[r][0] as CardAction['key'],
+    group: 'reasons' as const,
+    label: t(`features.preflight.card.reason.${r}`),
+    outcome: 'discarded' as const,
+    undoable: browser,
+    blocked: stop,
+    ...(r === 'wrong' ? { also: [wrongLetter(lang)] } : {}),
+    run: (_it: QueueItem, _input?: string, ctx?: { seen: boolean }) => discardOne(run, c, { reason: r, judged: ctx?.seen === true }),
+  }))
   return [
-    { key: 'a', label: t('features.preflight.card.apply'), outcome: 'applied', writes: true, undoable: run.runner === 'browser', blocked, run: () => applyOne(run, c) },
-    { key: 'd', label: t('features.preflight.card.discard'), outcome: 'discarded', undoable: run.runner === 'browser', blocked: running ? { key: 'features.preflight.why.running' } : null, run: () => discardOne(run, c) },
+    { key: 'a', label: t('features.preflight.card.apply'), outcome: 'applied', writes: true, undoable: browser, blocked, run: (_it, _input, ctx) => applyOne(run, c, ctx?.seen === true) },
+    { key: 'd', label: t('features.preflight.card.discard'), outcome: 'discarded', undoable: browser, blocked: stop, run: (_it, _input, ctx) => discardOne(run, c, { judged: ctx?.seen === true }) },
+    ...reasons,
     open,
   ]
 }

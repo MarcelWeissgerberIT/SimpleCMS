@@ -3,8 +3,9 @@
  * focus it), the head (number · kind · source · "replaces n older" · VON HAND), the key and title, the body (the
  * source's own), and the keys of the card recomputed at every render. States: preparing (aria-busy, keys inert), a
  * prepare error ("Read again"), done elsewhere (a tombstone), in work (O and D only), busy, the VON HAND confirm row
- * (only ↵ / Space / a click on its confirm key confirms), the text field of an answer or rework note. On touch: swipe →
- * apply / ← discard, the keys in two rows (A · D · E, then O · Next), digits and R under "More".
+ * (only ↵ / Space / a click on its confirm key confirms), the text field of an answer or rework note. An agent
+ * proposal's reasons (1–4, discard with a reason) get their own labelled row. On touch: swipe → apply / ← discard, the
+ * keys in two rows (A · D · E, then O · Next), digits, the reasons and R under "More".
  */
 import { Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { ArrowRight, Bot, ChevronDown, Hand, Layers, TerminalSquare } from 'lucide-react'
@@ -81,7 +82,7 @@ function KeyButton({ action, item, primary, busy, ghost }: { action: CardAction;
       data-key={action.key}
       // never disabled: the focused key keeps focus; a blocked key says why (D3)
       aria-disabled={blocked || busy || undefined}
-      aria-keyshortcuts={action.key.toUpperCase()}
+      aria-keyshortcuts={[action.key, ...(action.also ?? [])].map((k) => k.toUpperCase()).join(' ')}
       title={reason ?? (action.hand?.length ? `${t('features.preflight.risk.hand')}: ${action.hand.map((w) => t(`features.preflight.risk.why.${w}`)).join(' · ')}` : undefined)}
       onClick={() => {
         if (busy) return
@@ -91,6 +92,11 @@ function KeyButton({ action, item, primary, busy, ghost }: { action: CardAction;
     >
       {kbd(action.key)}
       {action.label}
+      {action.also?.length ? (
+        <span className="pf-key__also" aria-hidden>
+          ({action.also.map((k) => k.toUpperCase()).join(' · ')})
+        </span>
+      ) : null}
       {action.hand?.length ? <Hand size={12} aria-hidden className="pf-key__hand" /> : null}
       {ghost && <ArrowRight size={14} aria-hidden />}
     </button>
@@ -275,7 +281,10 @@ export function Card({ item, index, total, level }: CardProps) {
   const d = actions.find((x) => x.key === 'd')
   const o = actions.find((x) => x.key === 'o')
   const r = actions.find((x) => x.key === 'r')
-  const digits = actions.filter((x) => /^[1-9]$/.test(x.key))
+  // digits of the source's own (answers …) — the reasons of an agent proposal have their own row
+  const digits = actions.filter((x) => /^[1-9]$/.test(x.key) && x.group !== 'reasons')
+  const reasons = actions.filter((x) => x.group === 'reasons')
+  const reasonsLabel = `pf-reasons-${item.id.replace(/[^a-zA-Z0-9_-]/g, '_')}`
   const inputAction = inputKey ? actions.find((x) => x.key === inputKey) : undefined
   const keysBusy = busy || !ready || readOnly
   const sup = item.supersedes ?? []
@@ -416,16 +425,29 @@ export function Card({ item, index, total, level }: CardProps) {
                   {t('features.preflight.card.jk')}
                 </span>
               )}
-              {coarse && (digits.length > 0 || r) && (
+              {coarse && (digits.length > 0 || reasons.length > 0 || r) && (
                 <details className="pf-card__more">
                   <summary className="btn pf-key">{t('features.preflight.card.more')}</summary>
                   <div className="pf-card__row">
                     {digits.map((x) => (
                       <KeyButton key={x.key} action={x} item={item} busy={keysBusy} />
                     ))}
+                    {reasons.map((x) => (
+                      <KeyButton key={x.key} action={x} item={item} busy={keysBusy} />
+                    ))}
                     {r && <KeyButton action={r} item={item} busy={keysBusy} />}
                   </div>
                 </details>
+              )}
+              {!coarse && reasons.length > 0 && (
+                <div className="pf-card__reasons" role="group" aria-labelledby={reasonsLabel} data-testid="pf-reasons">
+                  <span className="label pf-card__reasons-label" id={reasonsLabel}>
+                    {t('features.preflight.card.reasons')}
+                  </span>
+                  {reasons.map((x) => (
+                    <KeyButton key={x.key} action={x} item={item} busy={keysBusy} />
+                  ))}
+                </div>
               )}
             </>
           )}

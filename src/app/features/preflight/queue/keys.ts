@@ -35,11 +35,12 @@ export function onPlateKey(e: KeyboardEvent<HTMLElement>, next: (from: number) =
 
 /* ---------------- the queue (§7.4) */
 
-const LETTERS = new Set(['j', 'k', 'a', 'd', 'e', 'o', 'r', 'n', 'x', 'z', '1', '2', '3', '4', '5', '6', '7', '8', '9'])
+/** f / w: the "wrong" reason of an agent proposal (German F, English W — its action's `also`); nothing else here */
+const LETTERS = new Set(['j', 'k', 'a', 'd', 'e', 'o', 'r', 'n', 'x', 'z', 'f', 'w', '1', '2', '3', '4', '5', '6', '7', '8', '9'])
 
 export interface QueueKeyHandlers {
   move(dir: 1 | -1): void
-  /** a card key ('a' · 'd' · 'o' · 'r' · '1'…'9') on the current card */
+  /** a card key ('a' · 'd' · 'o' · 'r' · '1'…'9', or a letter an action takes `also`: 'f' · 'w') on the current card */
   key(k: string): void
   toggleDiff(): void
   bulkApply(): void

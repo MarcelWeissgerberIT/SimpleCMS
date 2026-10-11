@@ -124,7 +124,12 @@ export interface CardAction {
   writes?: boolean
   /** its Done will carry an Undo */
   undoable?: boolean
-  run(item: QueueItem, input?: string): Promise<Done> | Done
+  /** letters that run the same action (only letters Preflight gives no other meaning: the "wrong" reason's F / W) */
+  also?: ReadonlyArray<'f' | 'w'>
+  /** the card draws it in its own row: 'reasons' = discard with a reason (agent proposals) */
+  group?: 'reasons'
+  /** `ctx.seen`: the card was shown in full at the revision it has now (a single decision may count as a verdict) */
+  run(item: QueueItem, input?: string, ctx?: { seen: boolean }): Promise<Done> | Done
 }
 
 /** What an Undo did: 'undone' (back as before) · 'kept' (changed since: it stays done — fields nobody touched went back) ·

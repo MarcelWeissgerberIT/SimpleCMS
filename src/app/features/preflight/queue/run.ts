@@ -358,17 +358,23 @@ function openConfirm(item: QueueItem, key: string, why: HandWhy[], input?: strin
   announce(`${t('features.preflight.risk.hand')}: ${why.map((w) => t(`features.preflight.risk.why.${w}`)).join(' · ')}`)
 }
 
+/** The action a key runs: its own key, or a letter it takes `also` (F / W for "wrong"). */
+const byKey = (key: string) => (a: CardAction) => a.key === key || !!a.also?.some((l) => l === key)
+
 /**
  * Press a card's key. `input`: the text of its field (an answer, a rework note). `armed`: from the confirm key of the
- * VON HAND row. Calls the source ONCE, before any await.
+ * VON HAND row. Calls the source ONCE, before any await — telling it whether the card was shown in full at the revision
+ * it has now (`seen`: only then does a single decision count as a verdict).
  */
-export function runAction(item: QueueItem, key: string, input?: string, armed = false): void {
+export function runAction(item: QueueItem, pressed: string, input?: string, armed = false): void {
   const s = Q()
   if (s.busy) return
   // a tombstone has no keys; a card in work only O and D
-  if (s.tombstones[item.id] || (s.inWork[item.id] && key !== 'o' && key !== 'd')) return
-  const action = actionsOf(item).find((a) => a.key === key)
+  if (s.tombstones[item.id] || (s.inWork[item.id] && pressed !== 'o' && pressed !== 'd')) return
+  const action = actionsOf(item).find(byKey(pressed))
   if (!action) return
+  // the action's own key from here on (the confirm row, the input row)
+  const key = action.key
   if (action.blocked) {
     announce(say(action.blocked.key, action.blocked.vars))
     return
@@ -394,9 +400,10 @@ export function runAction(item: QueueItem, key: string, input?: string, armed = 
     delete error[item.id]
     return { busy: item.id, confirm: null, input: null, error, pending: [...q.pending, { lamp: item.lamp, id: item.id, at: now }] }
   })
+  const seen = seenAsIs(Q().viewed, item)
   let p: Promise<Done> | Done
   try {
-    p = action.run(item, input)
+    p = action.run(item, input, { seen })
   } catch (e) {
     p = { ok: false, error: e instanceof Error ? e.message : String(e) }
   }

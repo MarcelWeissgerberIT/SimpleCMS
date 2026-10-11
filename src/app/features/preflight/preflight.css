@@ -1242,6 +1242,26 @@ html[data-pf-noblink] .pf-pip[data-flash] {
   color: var(--ink-3);
   font-size: calc(12px * var(--text-scale));
 }
+/* an agent proposal's reasons (1–4): their own labelled row below the keys (fine pointers; on touch under "More") */
+.pf-card__reasons {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  flex-basis: 100%;
+  gap: 6px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--rule);
+}
+.label.pf-card__reasons-label {
+  margin-right: 4px;
+  color: var(--ink-3);
+}
+.btn.pf-key .pf-key__also {
+  margin-left: 4px;
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: calc(10.5px * var(--text-scale));
+}
 .pf-card__more summary {
   list-style: none;
 }

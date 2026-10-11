@@ -58,6 +58,15 @@ export { recipeOptionNames } from './integrations/recipe'
  *    true, an agent's "has N proposals" toast stays away
  */
 export { applyRun, discardRun, undoChange, undoChangeEach, type Discarded } from './review'
+/**
+ * Per-field trust (trust/): the ONE discard-reason key map of the run review and Preflight — reasonKeys(lang) (1 = wrong
+ * + F de / W en, 2 not now, 3 duplicate, 4 handled already), wrongLetter(lang) · useTrust: this device's verdict books
+ * (read only; written only by the review entry points above, given `judged` / `reason`)
+ */
+export { reasonKeys, reasonOfKey, wrongLetter, REASONS } from './trust/reasons'
+export { useTrust } from './trust/book'
+export type { DiscardReason } from '../ai/agent/types'
+export type { TrustBook, Verdict } from './trust/types'
 export { AgentChangeBody, AGENT_BODY_KINDS } from './body'
 export { setSupersedeGuard, type SupersedeGuard } from './supersede'
 export { catchUpSupersede } from './runner'
