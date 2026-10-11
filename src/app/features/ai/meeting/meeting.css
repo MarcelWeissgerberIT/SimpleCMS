@@ -587,6 +587,12 @@
   .btn.mtg__items {
     margin-left: 0;
   }
+
+  /* thumb-sized keys on a phone */
+  .btn.mtg__send,
+  .btn.mtg__items {
+    height: 32px;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
