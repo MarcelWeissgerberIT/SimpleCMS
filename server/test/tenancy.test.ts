@@ -240,6 +240,7 @@ const ROUTES: Record<string, Entry> = {
   'GET /api/workspaces/:id/agent-runtime': { scope: 'workspace', req: (ws) => ({ method: 'GET', path: `${W(ws)}/agent-runtime` }) },
   'PUT /api/workspaces/:id/agent-runtime': { scope: 'workspace', req: (ws) => ({ method: 'PUT', path: `${W(ws)}/agent-runtime`, json: { enabled: false, claudeKey: null } }) },
   'GET /api/workspaces/:id/agent-runs': { scope: 'workspace', req: (ws, x) => ({ method: 'GET', path: `${W(ws)}/agent-runs?agentId=${x.agent}` }) },
+  'GET /api/workspaces/:id/agent-runs/open': { scope: 'workspace', req: (ws, x) => ({ method: 'GET', path: `${W(ws)}/agent-runs/open?agentIds=${x.agent}` }) },
   'POST /api/workspaces/:id/agents/:agentId/run': { scope: 'workspace', req: (ws, x) => ({ method: 'POST', path: `${W(ws)}/agents/${x.agent}/run` }), own: 404 },
   'POST /api/workspaces/:id/agent-runs/:runId/apply': { scope: 'workspace', req: (ws, x) => ({ method: 'POST', path: `${W(ws)}/agent-runs/${x.run}/apply` }), own: 404 },
   'POST /api/workspaces/:id/agent-runs/:runId/resolve': { scope: 'workspace', req: (ws, x) => ({ method: 'POST', path: `${W(ws)}/agent-runs/${x.run}/resolve`, json: { applied: [], discarded: [] } }), own: 404 },
