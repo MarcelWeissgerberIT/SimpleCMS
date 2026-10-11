@@ -290,3 +290,107 @@
   color: var(--ink);
   font-weight: 600;
 }
+
+/* ---------- the run review's keys (RunHistory, trust/ui/Reasons.tsx) ----------
+ * Key caps, the orange Apply and the reasons row only on the row that holds the focus; on touch screens a
+ * "Discard ▾" group instead (no caps, no reasons row). */
+.kbd.agt-cap {
+  min-width: calc(16px * var(--text-scale));
+  height: calc(16px * var(--text-scale));
+  margin-right: 6px;
+  padding: 0 3px;
+  border-color: color-mix(in srgb, currentColor 40%, transparent);
+  background: transparent;
+  color: inherit;
+  font-size: calc(9.5px * var(--text-scale));
+}
+.agent-change__undo .kbd.agt-cap {
+  margin: 0 0 0 6px;
+}
+.agx-review .agent-change:not(:focus-within) .kbd.agt-cap {
+  display: none;
+}
+.agx-review .agent-change:focus-within .btn.agt-apply:not(:disabled) {
+  border-color: var(--signal);
+  background: var(--signal);
+  color: var(--on-signal);
+  box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.18);
+}
+.agx-review .agent-change:focus-within .btn.agt-apply:not(:disabled):hover {
+  border-color: var(--signal-hover);
+  background: var(--signal-hover);
+}
+.btn.agt-discard .agt-discard__chev {
+  margin-left: 4px;
+  transition: transform var(--dur-1) var(--ease-out);
+}
+.btn.agt-discard[aria-expanded='true'] .agt-discard__chev {
+  transform: rotate(180deg);
+}
+
+.agt-reasons {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+  margin-top: 8px;
+  padding-top: 7px;
+  border-top: 1px dashed var(--rule-strong);
+}
+.agx-review .agent-change:not(:focus-within) .agt-reasons {
+  display: none;
+}
+.label.agt-reasons__head {
+  margin-right: 4px;
+  color: var(--ink-3);
+}
+.btn.agt-reason {
+  gap: 5px;
+  height: calc(24px * var(--text-scale));
+  padding: 0 6px;
+  color: var(--ink-2);
+  font-size: calc(12px * var(--text-scale));
+}
+.kbd.agt-reason__kbd {
+  min-width: calc(16px * var(--text-scale));
+  height: calc(16px * var(--text-scale));
+  font-size: calc(10px * var(--text-scale));
+}
+.agt-reason__also {
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: calc(10.5px * var(--text-scale));
+}
+
+.agt-touch {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 10px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-2);
+  background: var(--surface-2);
+}
+.label.agt-touch__head {
+  color: var(--ink-3);
+}
+.agt-touch__grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px;
+}
+.btn.agt-touch__key,
+.btn.agt-touch__none {
+  justify-content: center;
+  min-height: 44px;
+}
+.agt-touch__note {
+  margin: 0;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+}
+@media (prefers-reduced-motion: reduce) {
+  .btn.agt-discard .agt-discard__chev {
+    transition: none;
+  }
+}

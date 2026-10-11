@@ -432,7 +432,7 @@ test.describe('Custom agents: discarding runs, the review, toasts on the agent�
     await expect(run.locator('.agx-step').last()).toHaveText('Every proposal discarded: the state from before this run applies again.')
   })
 
-  test('C12 the review at 390 px in German: nothing runs off the edge; one proposal applied shows its result and Rückgängig in its row (no toast); focus moves on, never to the page; numbers and the restore note in German', async ({ page, context }) => {
+  test('C12 the review at 390 px in German: nothing runs off the edge; one proposal applied or discarded shows its result and Rückgängig in its row (no toast); focus moves to the next open proposal’s row, never to the page; numbers and the restore note in German', async ({ page, context }) => {
     await page.setViewportSize({ width: 390, height: 844 })
     await openApp(page)
     await setKey(page)
@@ -461,26 +461,29 @@ test.describe('Custom agents: discarding runs, the review, toasts on the agent�
     // numbers in German
     await expect(run.getByTestId('agx-run-usage')).toContainText('IN 2.400')
 
-    // one proposal: its result in its row, with Rückgängig there — no toast that could cover the next key
+    // one proposal: its result in its row, with Rückgängig there — no toast that could cover the next key; focus on
+    // the next open proposal's row (D15: never the Undo, so ↵ ↵ cannot undo what ↵ applied)
+    const row = (n: number) => run.locator(`li.agent-change[data-n="${n}"]`)
     await run.getByRole('button', { name: 'Übernehmen #1' }).click()
-    await expect(run.locator('.agent-change').nth(0)).toHaveAttribute('data-status', 'applied')
+    await expect(row(1)).toHaveAttribute('data-status', 'applied')
     await expect.poll(() => rowsOf(page, db)).toBe(1)
     const undo1 = run.getByRole('button', { name: 'Rückgängig #1' })
     await expect(undo1).toBeVisible()
-    await expect(undo1).toBeFocused()
+    await expect(row(2)).toBeFocused()
     await page.waitForTimeout(300)
     await expect(page.locator('.toast')).toHaveCount(0)
     await undo1.click()
-    await expect(run.locator('.agent-change').nth(0)).toHaveAttribute('data-status', 'pending')
+    await expect(row(1)).toHaveAttribute('data-status', 'pending')
     await expect.poll(() => rowsOf(page, db)).toBe(0)
-    await expect(run.getByRole('button', { name: 'Verwerfen #1' })).toBeFocused()
+    await expect(row(1)).toBeFocused()
     await expect(page.locator('.toast')).toHaveCount(0)
 
-    // discarding one: focus on the next proposal's first key, the heading once none is left
+    // discarding one: focus on the next open proposal's row (the discarded one keeps its Undo), the heading once none is left
     await run.getByRole('button', { name: 'Verwerfen #1' }).click()
-    await expect(run.getByRole('button', { name: 'Verwerfen #2' })).toBeFocused()
+    await expect(row(2)).toBeFocused()
+    await expect(run.getByRole('button', { name: 'Rückgängig #1' })).toBeVisible()
     await run.getByRole('button', { name: 'Verwerfen #2' }).click()
-    await expect(run.getByRole('button', { name: 'Verwerfen #3' })).toBeFocused()
+    await expect(row(3)).toBeFocused()
     await run.getByRole('button', { name: 'Verwerfen #3' }).click()
     await expect(run.locator('.agx-review__title')).toBeFocused()
     // the note that the state is back: whole, wrapped — never cut

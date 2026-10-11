@@ -753,6 +753,74 @@
 .agx-changes {
   margin: 0;
 }
+/* open by field ("KLARHEIT 4 · WARUM 3") · the J K hint */
+.agx-review__sub {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  min-width: 0;
+}
+.label.agx-review__fields {
+  min-width: 0;
+  color: var(--ink-2);
+}
+.agx-review__hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+}
+/* a row with keys: the row itself takes the focus (J / K); the row holding it is marked with an ink rule */
+.agx-review .agent-change[data-keys] {
+  outline: none;
+}
+.agx-review .agent-change[data-keys]:focus-within {
+  border-color: var(--ink);
+  box-shadow: inset 3px 0 0 var(--ink);
+}
+.agx-review .agent-change[data-keys]:focus-visible {
+  box-shadow: inset 3px 0 0 var(--ink), var(--focus-ring);
+}
+/* proposals of one field and value discarded as wrong, their Undo gone: one quiet line */
+.agx-quiet {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  padding: 6px 12px;
+  border: 1px dashed var(--rule-strong);
+  border-radius: var(--radius-2);
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+}
+.agx-quiet__stamp {
+  display: inline-flex;
+  align-items: center;
+  height: calc(19px * var(--text-scale));
+  padding: 0 6px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+  color: var(--ink-2);
+  font: 600 calc(9.5px * var(--text-scale)) / 1 var(--font-mono);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.agx-quiet__keys {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 2px 8px;
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+}
+.agx-quiet__after {
+  color: var(--ink);
+  font-weight: 600;
+}
 
 /* ---------- editor ---------- */
 .agx-editor .modal__body {
