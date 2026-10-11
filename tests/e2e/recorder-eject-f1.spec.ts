@@ -168,6 +168,64 @@ test.describe('flight recorder — the eject, hard cases', () => {
     expect(await rec(page, 'unknowns')).toEqual([])
   })
 
+  test('partial: a window that cuts the person\'s typing stretch plans "cut" with the bracket to extend to; extended, the stretch goes back whole', async ({ page }) => {
+    test.setTimeout(120_000)
+    await page.clock.install({ time: storyTime(story, '07:30:00') })
+    await openApp(page)
+    await startRecorder(page)
+    const you = { kind: 'you', via: 'ui' }
+    const at = async (time: number, calls: unknown[][]) => {
+      await page.clock.setFixedTime(time)
+      return rec<unknown[]>(page, 'step', { writer: you, calls })
+    }
+    const [notes] = (await at(storyTime(story, '07:30:00'), [['createPage', { title: 'Nordlicht Notizen', content: { type: 'doc', content: [para('n1', 'Nordlicht')] } }]])) as string[]
+    await page.clock.setFixedTime(storyTime(story, '07:35:00'))
+    await rec(page, 'settle')
+    const words = ['Abgleich', 'Zeile', 'Stand', 'geprüft', 'verschoben', 'offen']
+    for (let i = 0; i < words.length; i++) await at(storyTime(story, '07:40:00') + i * 30_000, [['setContent', notes, { type: 'doc', content: [para('n1', ['Nordlicht', ...words.slice(0, i + 1)].join(' '))] }, 'ui']])
+    await page.clock.setFixedTime(storyTime(story, '07:50:00'))
+    await rec(page, 'settle')
+    const seg = (await rec<Array<{ p: string; from: number; to: number }>>(page, 'segments')).filter((g) => g.p === `p:${notes}` && g.from >= storyTime(story, '07:39:00')).sort((a, b) => a.from - b.from)[0]
+    expect(seg).toBeTruthy()
+    const cut = await rec<{ counts: Record<string, number>; extendTo: { a: number; b: number } | null; places: Array<{ p: string; outcome: string; reason: string | null }> }>(page, 'planEject', { lane: 'you', a: seg.from + 10_000, b: storyTime(story, '07:50:00') })
+    expect(cut.places.find((x) => x.p === `p:${notes}`)).toMatchObject({ outcome: 'partial', reason: 'cut' })
+    expect(cut.extendTo).not.toBeNull()
+    const whole = await rec<{ counts: Record<string, number> }>(page, 'planEject', { lane: 'you', ...cut.extendTo! })
+    expect(whole.counts).toMatchObject({ back: 1, partial: 0 })
+    const e = await rec<{ state: string }>(page, 'eject', { lane: 'you', ...cut.extendTo! })
+    expect(e.state).toBe('done')
+    expect(await wsEval(page, (s, id) => s.pages[id].content.content[0].content[0].text, notes)).toBe('Nordlicht')
+  })
+
+  test('F18 parents: a move back under the page\'s own descendant holds the parent part ("parent"); the page stays where it is', async ({ page }) => {
+    test.setTimeout(120_000)
+    await page.clock.install({ time: storyTime(story, '07:00:00') })
+    await openApp(page)
+    await startRecorder(page)
+    const you = { kind: 'you', via: 'ui' }
+    const step = async (time: string, writer: Record<string, unknown>, calls: unknown[][], extra: Record<string, unknown> = {}) => {
+      await page.clock.setFixedTime(storyTime(story, time))
+      return rec<unknown[]>(page, 'step', { writer, calls, ...extra })
+    }
+    const [p, q] = (await step('07:00:00', you, [['createPage', { title: 'Nordlicht Projekte' }], ['createPage', { title: 'Tessera Archiv' }]])) as string[]
+    const [b] = (await step('07:01:00', you, [['createPage', { title: 'Launch plan', parentId: p }]])) as string[]
+    await page.clock.setFixedTime(storyTime(story, '07:10:00'))
+    await rec(page, 'settle')
+    await step('07:31:00', { kind: 'agent', id: 'tessera-ordner', run: 'r3', change: 'c1' }, [['movePage', b, q]], { note: { seq: 3 }, end: true })
+    // the person puts the old parent below the moved page
+    await step('07:33:00', you, [['movePage', p, b]])
+    await page.clock.setFixedTime(storyTime(story, '07:40:00'))
+    await rec(page, 'settle')
+    const sel = { lane: 'agent:tessera-ordner', run: 'agent:tessera-ordner:r3', a: storyTime(story, '07:30:00'), b: storyTime(story, '07:35:00') }
+    const r = await rec<{ counts: Record<string, number>; places: Array<{ p: string; outcome: string; reason: string | null; held: Array<{ part: string; reason: string }> }> }>(page, 'planEject', sel)
+    const place = r.places.find((x) => x.p === `p:${b}`)!
+    // the parent part is held; whatever else W changed on the page may still go back
+    expect(place.held).toContainEqual({ part: 'pa', reason: 'parent' })
+    expect(place.back).not.toContain('pa')
+    if (r.counts.back) expect(await rec<{ state: string }>(page, 'eject', sel)).toMatchObject({ state: 'done' })
+    expect(await wsEval(page, (s, ids) => [s.pages[ids.b].parentId, s.pages[ids.p].parentId], { b, p })).toEqual([q, b])
+  })
+
   test('crash race (C3): a commit held before its settle — a second tab booting leaves it committing; released → done; with the first tab closed, the second tab\'s next boot finishes it', async ({ page, context }) => {
     test.setTimeout(240_000)
     await bootStory(page)
