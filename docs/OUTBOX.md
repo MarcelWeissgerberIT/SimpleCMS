@@ -160,6 +160,17 @@ is `unclear`, never `failed`. CHANGED is a lamp, not a state. A sent slip cannot
 Callers never pass trust: `SourceInput` has no `trusted` field; `typed` is only honoured for row fields the Outbox
 can check.
 
+### The flight recorder's eject
+
+The eject (features/recorder, R3) never undoes a send: a row whose writes include `you~outbox:<slip>` (Mark as sent's
+row patch) is held (`sent`), and Reset row (`you~undo:<slip>`) runs on lane `undo`, which is never ejected. When an
+ejected agent / terminal run's pending `send` proposals are discarded, their slips are withdrawn through
+`withdrawSlip(slipId, 'origin')` — sent and ready-and-copied slips answer `too-late` and their proposal stays; the
+dialog counts them (`eject.slipsWithdraw`). Withdrawn is terminal: the eject's Undo brings the proposal back to pending,
+not its slip (`toast.slipsStay`). Other slips on rows the eject reverts are never touched — their CHANGED marker
+appears by itself, the dialog counts them (`getSlips({ rowId })`, `eject.slipsChanged`). The recorder never reads a
+slip's text or sends it anywhere; its report names no slip.
+
 ## 7. Tests
 
 - `tests/e2e/outbox-engine.spec.ts` — the contract and lock (1a); templates, typed params, `canonicalJson` + SHA-256

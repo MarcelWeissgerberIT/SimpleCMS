@@ -8,7 +8,7 @@
  *
  * (CHANGELOG_DRAFT=1 lets the build pass while a new entry's picture does not exist yet.)
  *
- * Shots: flight-recorder-window, preflight, flight-recorder, tasks, outbox, mirror-again, glass-switches, history-compare, mcp-overview, mirror, task-mcp, models, search, terminal-pipelines, cloud-worker, one-picker, pipelines, legacy-modernise, coding-live, text-size, mcp-media, coding-setup, free-board, building-blocks, workspace-settings, diagram-viewer, coding-pipeline, pages-per-item, design-import, tour, quick-capture, script-templates, one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
+ * Shots: flight-recorder-eject, flight-recorder-window, preflight, flight-recorder, tasks, outbox, mirror-again, glass-switches, history-compare, mcp-overview, mirror, task-mcp, models, search, terminal-pipelines, cloud-worker, one-picker, pipelines, legacy-modernise, coding-live, text-size, mcp-media, coding-setup, free-board, building-blocks, workspace-settings, diagram-viewer, coding-pipeline, pages-per-item, design-import, tour, quick-capture, script-templates, one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
  * custom-agents, gmail, help-centre, mcp-servers, feed-blocks — each named like its image. Every shot starts from a fresh, seeded
  * workspace in English, light theme, 1440 × 900 at device scale 2; the crop of the relevant area is scaled
  * to 1440 px wide and saved as public/assets/shots/changelog/<shot>.webp (≤ 150 KB: the quality steps down
@@ -862,6 +862,39 @@ const shots = {
     await page.mouse.move(W + 40, H + 40)
     await page.waitForTimeout(600)
     await save(page, 'preflight', await boxOf(page.locator('#main')))
+    await ctx.close()
+  },
+  /**
+   * Ejecting run 212 (mock-3): the same morning, the agent's flag bracketed, the cover lifted, Eject, the dialog's
+   * "Revert 35 places" — the board after it ("Ready" back as a column, NL-1408 / NL-1415 tagged Held), the eject's
+   * message with Undo, the deck's plate "Ejected 08:05". English UI, Paper, 1440.
+   */
+  async 'flight-recorder-eject'(browser) {
+    const story = JSON.parse(readFileSync('tests/e2e/fixtures/recorder-story.json', 'utf8'))
+    const { ctx, page } = await freshPage(browser, { setup: (ctx) => ctx.clock.install({ time: storyTime(story, story.setupAt) }) })
+    await playStoryPage(page, story, { wipeSetup: true })
+    await page.evaluate((id) => (window.location.hash = `#/p/${id}`), story.database.id)
+    await page.locator('#main .db-tabs [role="tab"]', { hasText: 'Board' }).click()
+    await page.locator('#main .dbb').first().waitFor()
+    await page.waitForTimeout(600)
+    await rest(page)
+    await page.keyboard.press('Control+Alt+z')
+    await page.locator('.deck .lane').first().waitFor()
+    await page.waitForTimeout(600)
+    await page.locator('.lane[data-lane^="agent:"] .flag').first().click()
+    await page.locator('.deck .eject__key:not([disabled])').waitFor()
+    await page.locator('.deck .eject__cover').click()
+    await page.waitForTimeout(400)
+    await page.locator('.deck .eject__key').click()
+    const dialog = page.locator('.modal.rec-eject')
+    await dialog.locator('.plan .pi').first().waitFor({ timeout: 30_000 })
+    await page.waitForTimeout(500)
+    await dialog.locator('.btn--eject').click()
+    await page.locator('.deck .win--out').waitFor({ timeout: 30_000 })
+    await page.locator('.toast[data-glyph]').waitFor()
+    await page.mouse.move(W + 40, H + 40)
+    await page.waitForTimeout(900)
+    await save(page, 'flight-recorder-eject')
     await ctx.close()
   },
   /**

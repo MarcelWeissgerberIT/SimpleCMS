@@ -3,7 +3,7 @@ id: history
 title: Versionsverlauf
 section: writing
 order: 12
-keywords: verlauf, versionen, wiederherstellen, rückgängig, snapshot, sicherung, frühere version, vorversion, vergleich, vergleichen, was ist neu, diff, änderungen, eigenschaften, datenbank-eintrag, history, restore, compare, properties
+keywords: vor dem auswurf, before the eject, verlauf, versionen, wiederherstellen, rückgängig, snapshot, sicherung, frühere version, vorversion, vergleich, vergleichen, was ist neu, diff, änderungen, eigenschaften, datenbank-eintrag, history, restore, compare, properties
 related: lock, export, ai-menu
 summary: One bewahrt frühere Versionen jeder Seite auf. Zurückspulen, sehen, was jede Version neu brachte, und wiederherstellen.
 ---
@@ -33,6 +33,7 @@ Eine Version eines Datenbank-Eintrags bewahrt auch seinen **Titel, sein Symbol u
 - **Start** — der Stand, bevor du in einer Sitzung zu bearbeiten beginnst,
 - **Auto** — beim Bearbeiten, höchstens alle paar Minuten (**Einstellungen → Daten → Versions-Snapshots**),
 - **KI** — direkt bevor Claude, ein Agent, eine Automation oder ein MCP-Client die Seite oder die Werte des Eintrags ändert,
+- **Vor dem Auswurf** — direkt bevor der [Flugschreiber](help:flight-recorder) ein Fenster auswirft, das die Seite ändert (sein Rückgängig nimmt den Auswurf in einem Schritt zurück; diese Version bleibt),
 - **Manuell** — wenn du **Version sichern** klickst.
 
 > Versionen liegen mit der Seite auf diesem Gerät. Für eine Kopie anderswo exportiere ein Backup.

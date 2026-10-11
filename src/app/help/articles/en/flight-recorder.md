@@ -3,8 +3,8 @@ id: flight-recorder
 title: Flight recorder
 section: writing
 order: 14
-keywords: flight recorder, rewind, tape, deck, track, tracks, writer, writers, who changed, who did that, what happened, timeline, audit, run, flag, window, loupe, agent, mcp, script, sync, undo, writes, places, read window, incident report, held, changed since, word by word, Flugschreiber, Fenster lesen, Vorfallbericht, gehalten, Zurückspulen, Rückspulen, Band, Spur, Spuren, Schreiber, wer war das, Vorgänge, Stellen, Lauf, Fenster, Lupe
-related: history, custom-agents, mcp-bridge, privacy, lock
+keywords: flight recorder, eject, ejecting, take back, revert a run, undo an agent run, before the eject, rewind, tape, deck, track, tracks, writer, writers, who changed, who did that, what happened, timeline, audit, run, flag, window, loupe, agent, mcp, script, sync, undo, writes, places, read window, incident report, held, changed since, word by word, Flugschreiber, Fenster lesen, Vorfallbericht, gehalten, Zurückspulen, Rückspulen, Band, Spur, Spuren, Schreiber, wer war das, Vorgänge, Stellen, Lauf, Fenster, Lupe
+related: history, custom-agents, mcp-bridge, privacy, lock, preflight, outbox
 summary: Every write in the workspace on one tape, one track per writer — you, the AI terminal, each agent, MCP clients, scripts, sync. See what happened between 07:00 and 08:00, and who it was.
 ---
 Many hands write in a workspace: you, the [AI terminal](help:agent), [agents](help:custom-agents), an MCP client through the [bridge](help:mcp-bridge), scripts, the folder or GitHub sync, automations. The [version history](help:history) answers for one page; the flight recorder answers for the whole workspace: **what changed between 07:00 and 08:00, and who did it?**
@@ -26,7 +26,7 @@ The deck docks under the page; the page stays usable, and a tick you click opens
 - **Span.** **15 min · 75 min · 6 h · 24 h**. The strip on top shows the last 24 hours in quarter hours — click it to move the tape there. With a window on the tape, **Loupe** gives it up to six times the room (not at 15 min, which is wide enough).
 - **Playhead.** The orange line; the counter shows its time. The keys beside the counter move it to the previous run, a minute back, a minute forward, and **Now** back to the present.
 
-Orange marks the playhead, the selected window and the places held (changed since) — the rest of the deck is ink, apart from the REC lamp.
+Orange marks the playhead, the selected window, the places held (changed since) and **Eject** — the rest of the deck is ink, apart from the REC lamp.
 
 ## Reading a window
 With a window on the tape, press <kbd>↵</kbd> — on the playhead, a track or a run's flag (a flag brackets its run first) — or **Read window** on the plate. A tick with several places has **Read window** too: that one write, bracketed.
@@ -42,6 +42,31 @@ On a phone the dialog is a sheet; tap a place for its values and text on a secon
 
 ## Incident report
 **Report** — on the plate or in the dialog's footer — downloads a Markdown file (`incident-<date>-<time>-<writer>.md`): the window, every writer with writes in it, what changed (schema changes by name, pages with their word counts, rows with the names of the properties that changed) and notes (held, partly, incomplete). It holds titles, property and option names, writer labels, counts and times — **never a value, never a line of text**. It is made when you press the key and stored nowhere; what you do with the file is up to you.
+
+## Ejecting a window
+**Eject** on the plate takes a window's writes back — a whole agent run, a terminal task, an MCP session, a script run, or a stretch you bracketed — and leaves everything else as it is. On a computer the key lies under a hatched cover: lift it first (click or <kbd>↵</kbd> on the cover); another window closes it again. The key counts what would go back: **Eject · 35 / 37**.
+
+The key never writes. It opens the dialog — *Eject 52 writes by Nordlicht mirror?* — with the plan:
+- **What goes back**, grouped like the reading: the schema (*Option "Ready" comes back — Board gets its column back*), views, pages, rows. A row goes back **whole** — all of its values and its text, or nothing; a page goes back **block by block**, only the blocks the window wrote.
+- **New things go to the trash** — rows and pages the window created are moved to the trash, never deleted.
+- **Held: changed since.** A place someone changed after the window (you, a colleague, another agent, a sync) stays as it is, with the reason in words: *Status is no longer what Nordlicht mirror left: You set "In progress". Stays as it is.* Its card on a board and its row in a table carry a **Held** tag afterwards.
+- **No exact earlier state.** A place whose state before the window this device does not know exactly stays — never a guess.
+- **Never ejected:** the order of the views, database commands, templates, automations, the coding pipeline, record types, a property of a record type, an option of a shared list — and **memories**, which you edit in their database.
+
+**Revert 35 places** (or <kbd>↵</kbd>, a moment after the dialog opened) writes it: first One saves every page it will change as a version, **Before the eject** ([version history](help:history)); then it checks the plan once more — if anything changed since the dialog opened, nothing is written and the dialog shows the new plan, to confirm again; then everything goes back in **one step**.
+
+### Undo
+The message after an eject — *35 places by Nordlicht mirror reverted · 2 held* — has **Undo** (<kbd>Ctrl+Z</kbd> / <kbd>⌘Z</kbd> while it shows, unless you are typing in a field or a page) and **Show held**. The plate keeps what happened — places, what went back, the trash, held, the version — with **Undo the eject**, also after the deck was closed and after a reload. The Undo puts back exactly what the eject changed, in one step; a place changed again since stays (*kept*). An eject is never ejected itself — its own writes are on the **Undo** track, and **Undo the eject** takes it back.
+
+### What else the eject settles
+- **[Agent runs](help:custom-agents).** The run's proposals that went back read **Ejected** in its review, the held ones **Held · changed since** (still applied); proposals still waiting are discarded — except ones you opened in [Preflight](help:preflight). The Undo brings them back.
+- **AI terminal, MCP, scripts.** An ejected terminal change is discarded and its Undo writes nothing more; an MCP call or a script run reads as undone. The Undo gives them back.
+- **[Outbox](help:outbox).** A row marked as sent is held — a send is never undone. Unsent slips of discarded proposals are withdrawn and stay withdrawn after an Undo; other slips on rows that go back show **CHANGED**.
+- **Coding tasks.** Fields that move a task (Stage, Then, Repo, Branch) are never ejected. A task that gets an agent's text back waits for **Confirm** before the worker takes it.
+- **Triggers.** Automations, row-triggered agents and autofill do not react to an eject or its Undo.
+- **Interrupted.** A tab closed in the middle of an eject is finished the next time One opens.
+
+Ejecting works in local workspaces; team workspaces get it later — reading works there.
 
 ## Keys
 With the playhead, a track or a flag focused:
@@ -65,4 +90,4 @@ The grip on the deck's top edge sets its height (drag, or <kbd>↑</kbd> / <kbd>
 ## Team workspaces
 A device knows only what it saw: your own writes, the agents and terminal tasks that ran in this browser, and a **Team** track for changes that arrived from your colleagues through the server. Another device has its own tape.
 
-> The deck only reads. It never changes the workspace — to go back, use [version history](help:history) or the review of an agent's run.
+> Reading never changes the workspace; only **Eject** does — after its dialog, with a version first and one Undo.
