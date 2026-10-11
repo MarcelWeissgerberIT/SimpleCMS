@@ -636,6 +636,27 @@
      }
     ]
    }
+  },
+  {
+   "id": "story-report",
+   "title": "Nordlicht-Spiegel · Bericht",
+   "content": {
+    "type": "doc",
+    "content": [
+     {
+      "type": "paragraph",
+      "attrs": {
+       "id": "rh"
+      },
+      "content": [
+       {
+        "type": "text",
+        "text": "Bericht"
+       }
+      ]
+     }
+    ]
+   }
   }
  ],
  "agent": {
@@ -1365,10 +1386,10 @@
    },
    "calls": [
     [
-     "createPage",
+     "updatePage",
+     "story-report",
      {
-      "id": "story-report",
-      "title": "Nordlicht-Spiegel · Bericht"
+      "title": "Nordlicht-Spiegel · Bericht 09.10."
      }
     ]
    ],
@@ -2346,6 +2367,18 @@
        {
         "type": "paragraph",
         "attrs": {
+         "id": "rh"
+        },
+        "content": [
+         {
+          "type": "text",
+          "text": "Bericht"
+         }
+        ]
+       },
+       {
+        "type": "paragraph",
+        "attrs": {
          "id": "r1"
         },
         "content": [
@@ -3311,6 +3344,258 @@
    "end": true
   }
  ],
+ "agentRun": {
+  "id": "r212",
+  "seq": 212,
+  "changes": {
+   "c1": {
+    "kind": "rename",
+    "page": "story-report"
+   },
+   "c2": {
+    "kind": "update_row",
+    "page": "$NL-1398",
+    "prop": "story-stage"
+   },
+   "c3": {
+    "kind": "update_row",
+    "page": "$NL-1400",
+    "prop": "story-stage"
+   },
+   "c4": {
+    "kind": "update_row",
+    "page": "$NL-1401",
+    "prop": "story-stage"
+   },
+   "c5": {
+    "kind": "update_row",
+    "page": "$NL-1402",
+    "prop": "story-stage"
+   },
+   "c6": {
+    "kind": "update_row",
+    "page": "$NL-1403",
+    "prop": "story-stage"
+   },
+   "c7": {
+    "kind": "update_row",
+    "page": "$NL-1404",
+    "prop": "story-stage"
+   },
+   "c8": {
+    "kind": "update_row",
+    "page": "$NL-1405",
+    "prop": "story-stage"
+   },
+   "c9": {
+    "kind": "update_row",
+    "page": "$NL-1406",
+    "prop": "story-stage"
+   },
+   "c10": {
+    "kind": "update_row",
+    "page": "$NL-1407",
+    "prop": "story-stage"
+   },
+   "c11": {
+    "kind": "update_row",
+    "page": "$NL-1408",
+    "prop": "story-stage"
+   },
+   "c12": {
+    "kind": "update_row",
+    "page": "$NL-1409",
+    "prop": "story-stage"
+   },
+   "c13": {
+    "kind": "update_row",
+    "page": "$NL-1410",
+    "prop": "story-stage"
+   },
+   "c14": {
+    "kind": "update_row",
+    "page": "$NL-1411",
+    "prop": "story-stage"
+   },
+   "c15": {
+    "kind": "update_row",
+    "page": "$NL-1412",
+    "prop": "story-stage"
+   },
+   "c16": {
+    "kind": "update_row",
+    "page": "$NL-1413",
+    "prop": "story-stage"
+   },
+   "c17": {
+    "kind": "update_row",
+    "page": "$NL-1414",
+    "prop": "story-stage"
+   },
+   "c18": {
+    "kind": "update_row",
+    "page": "$NL-1415",
+    "prop": "story-stage"
+   },
+   "c19": {
+    "kind": "update_row",
+    "page": "$NL-1416",
+    "prop": "story-stage"
+   },
+   "c20": {
+    "kind": "update_row",
+    "page": "$NL-1417",
+    "prop": "story-stage"
+   },
+   "c21": {
+    "kind": "update_row",
+    "page": "$NL-1418",
+    "prop": "story-stage"
+   },
+   "c22": {
+    "kind": "update_row",
+    "page": "$NL-1419",
+    "prop": "story-stage"
+   },
+   "c23": {
+    "kind": "update_row",
+    "page": "$NL-1420",
+    "prop": "story-stage"
+   },
+   "c24": {
+    "kind": "update_row",
+    "page": "$NL-1421",
+    "prop": "story-stage"
+   },
+   "c25": {
+    "kind": "update_row",
+    "page": "$NL-1422",
+    "prop": "story-stage"
+   },
+   "c26": {
+    "kind": "update_row",
+    "page": "$NL-1423",
+    "prop": "story-stage"
+   },
+   "c27": {
+    "kind": "update_row",
+    "page": "$NL-1424",
+    "prop": "story-stage"
+   },
+   "c28": {
+    "kind": "update_row",
+    "page": "$NL-1425",
+    "prop": "story-stage"
+   },
+   "c29": {
+    "kind": "update_row",
+    "page": "$NL-1426",
+    "prop": "story-stage"
+   },
+   "c30": {
+    "kind": "update_row",
+    "page": "$NL-1428",
+    "prop": "story-stage"
+   },
+   "c31": {
+    "kind": "update_row",
+    "page": "$NL-1429",
+    "prop": "story-stage"
+   },
+   "c32": {
+    "kind": "update_row",
+    "page": "$NL-1430",
+    "prop": "story-stage"
+   },
+   "c33": {
+    "kind": "update_row",
+    "page": "$NL-1431",
+    "prop": "story-stage"
+   },
+   "c35": {
+    "kind": "create_row",
+    "page": "$NL-1432"
+   },
+   "c36": {
+    "kind": "create_row",
+    "page": "$NL-1433"
+   },
+   "c37": {
+    "kind": "create_row",
+    "page": "$NL-1434"
+   },
+   "c38": {
+    "kind": "append",
+    "page": "$NL-1401"
+   },
+   "c39": {
+    "kind": "append",
+    "page": "$NL-1405"
+   },
+   "c40": {
+    "kind": "append",
+    "page": "$NL-1410"
+   },
+   "c41": {
+    "kind": "append",
+    "page": "$NL-1420"
+   },
+   "c42": {
+    "kind": "update_row",
+    "page": "$NL-1398",
+    "prop": "story-est"
+   },
+   "c43": {
+    "kind": "update_row",
+    "page": "$NL-1400",
+    "prop": "story-est"
+   },
+   "c44": {
+    "kind": "update_row",
+    "page": "$NL-1403",
+    "prop": "story-est"
+   },
+   "c45": {
+    "kind": "update_row",
+    "page": "$NL-1406",
+    "prop": "story-est"
+   },
+   "c46": {
+    "kind": "update_row",
+    "page": "$NL-1409",
+    "prop": "story-est"
+   },
+   "c47": {
+    "kind": "update_row",
+    "page": "$NL-1412",
+    "prop": "story-est"
+   },
+   "c48": {
+    "kind": "update_row",
+    "page": "$NL-1416",
+    "prop": "story-est"
+   },
+   "c49": {
+    "kind": "update_row",
+    "page": "$NL-1419",
+    "prop": "story-est"
+   },
+   "c50": {
+    "kind": "update_row",
+    "page": "$NL-1422",
+    "prop": "story-est"
+   },
+   "c51": {
+    "kind": "update_row",
+    "page": "$NL-1425",
+    "prop": "story-est"
+   },
+   "c52": {
+    "kind": "append",
+    "page": "story-report"
+   }
+  }
+ },
  "expect": {
   "lanes": {
    "you": 33,
@@ -3329,6 +3614,7 @@
     "rows": 35,
     "newRows": 3,
     "pages": 1,
+    "newPages": 0,
     "schema": 1,
     "views": 0
    },
@@ -3336,6 +3622,38 @@
     212,
     40
    ]
+  },
+  "eject": {
+   "back": 35,
+   "all": 37,
+   "held": [
+    "NL-1408",
+    "NL-1415"
+   ],
+   "trash": [
+    "NL-1432",
+    "NL-1433",
+    "NL-1434"
+   ],
+   "board": [
+    7,
+    7,
+    5,
+    3,
+    12
+   ],
+   "optionBack": {
+    "prop": "story-stage",
+    "id": "o-ready",
+    "index": 1
+   },
+   "agent": {
+    "ejected": 49,
+    "held": [
+     "c11",
+     "c18"
+    ]
+   }
   }
  }
 }

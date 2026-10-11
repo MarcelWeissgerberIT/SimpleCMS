@@ -36,8 +36,9 @@ function recorderFiles(): string[] {
     ...inDir('tests/e2e', /^recorder-.*\.ts$/),
     ...inDir('tests/e2e-cloud', /^recorder-.*\.ts$/),
     ...inDir('tests/e2e/fixtures', /^recorder-/),
-    join(ROOT, 'tests/e2e/helpers/recorder.ts'),
+    ...inDir('tests/e2e/helpers', /^recorder/),
     join(ROOT, 'scripts/recorder-story.mjs'),
+    join(ROOT, 'scripts/recorder-shots.mjs'),
     ...['en', 'de'].map((l) => join(ROOT, `src/app/help/articles/${l}/flight-recorder.md`)),
     ...['en', 'de'].flatMap((l) => inDir(`src/app/help/changelog/${l}`, /flight-recorder/)),
   ].filter((p) => existsSync(p))

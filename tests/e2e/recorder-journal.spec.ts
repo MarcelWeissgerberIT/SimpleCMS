@@ -11,7 +11,7 @@
 import { readFileSync } from 'node:fs'
 import type { Page } from '@playwright/test'
 import { test, expect, openApp, waitForApp, wsEval, uiEval, flush, gotoPage, editorOf } from './fixtures'
-import { F, K, eventsOf, flushRec, nordlichtDb, playStory, rec, recEvents, recOps, recPins, recRuns, recSegments, segmentsOf, startRecorder, step, storyTime, type Story } from './helpers/recorder'
+import { F, K, eventsOf, flushRec, nordlichtDb, playStory, seedPrivacyRun, rec, recEvents, recOps, recPins, recRuns, recSegments, segmentsOf, startRecorder, step, storyTime, type Story } from './helpers/recorder'
 
 const story = JSON.parse(readFileSync(new URL('./fixtures/recorder-story.json', import.meta.url), 'utf8')) as Story
 
@@ -535,24 +535,10 @@ test.describe('flight recorder journal', () => {
   test('privacy: the journal holds no page text and no values; option / view names only in schema deltas', async ({ page }) => {
     test.setTimeout(120_000)
     await boot(page, undefined, storyTime(story, story.setupAt))
-    const ids = await playStory(page, story)
-    // extra writes put known strings everywhere: content, a title, a number, a text cell, an option, a view
-    await at(page, storyTime(story, '08:06:00'))
-    const db = story.database.id
-    const note = await wsEval(page, (s, db) => s.addProperty(db, { name: 'Notiz', type: 'text' }) as string, db)
-    const page2 = await step<string[]>(page, you, [['createPage', { title: 'Platzhalter' }]])
-    await step(page, agent('r213'), [
-      ['setContent', page2[0], { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Nordlicht-Geheimwert-7' }] }] }, 'ai'],
-      ['updatePage', page2[0], { title: 'Tessera Quartalsplan' }],
-      ['setRowProperty', ids['NL-1398'], 'story-est', 98765.4321],
-      ['setRowProperty', ids['NL-1398'], note, 'Lindenweg 12'],
-    ], { note: { seq: 213 } })
-    const stage = await wsEval(page, (s, db) => JSON.parse(JSON.stringify(s.databases[db].properties.find((p: { id: string }) => p.id === 'story-stage'))), db)
-    await step(page, agent('r213'), [
-      ['updateProperty', db, 'story-stage', { options: [...stage.options, { id: 'o-tessera', name: 'Tessera-Option', color: 'red' }] }],
-      ['addView', db, { type: 'table', name: 'Tessera-Ansicht' }],
-    ], { end: true })
-    await rec(page, 'settle')
+    await playStory(page, story)
+    // extra writes put known strings everywhere (helpers/recorderStory.mjs): content, a title, a number, a text cell,
+    // an option, a view
+    await seedPrivacyRun(page, story)
     const dump = await rec<Record<string, Array<Record<string, unknown>>>>(page, 'rawDump')
     expect(dump.events.length).toBeGreaterThan(100)
     const all = JSON.stringify(dump)
