@@ -111,6 +111,25 @@ export function installSeam(rec: Recorder): void {
       return out
     },
     seedBulk: (o: { events: number; inSpan: number; bigVorgang: number; spanEnd: number }) => seedBulk(rec, scopeOf(), o),
+    /** a window read as the plate and the read dialog read it: meters, the held set, groups (counts, place keys) */
+    readWindow: async (sel: { lane: LaneKey; run?: string; a: number; b: number; scope?: Scope }) => {
+      const { readWindow, heldMarks } = await import('../window/read')
+      const m = await readWindow({ ...sel, scope: sel.scope ?? scopeOf() }, Date.now())
+      const outcomes: Record<string, number> = {}
+      for (const v of m.verdicts.values()) outcomes[v.outcome] = (outcomes[v.outcome] ?? 0) + 1
+      return {
+        meters: m.meters,
+        held: m.held.map((v) => ({ p: v.p, reason: v.reason ?? null, by: v.by, at: v.firstForeignAt ?? null })),
+        marks: heldMarks(m),
+        partial: m.partial.map((v) => ({ p: v.p, reason: v.reason ?? null })),
+        groups: m.groups.map((g) => ({ kind: g.kind, n: g.items.length })),
+        outcomes,
+        incomplete: m.incomplete,
+        extendTo: m.extendTo ?? null,
+        unavailable: m.unavailable,
+        tooMany: m.tooMany ?? null,
+      }
+    },
     /** a window loaded as the reading and the eject load it — counts only (places, own, foreign per place, breaks) */
     loadWindow: async (sel: { lane: LaneKey; run?: string; a: number; b: number; scope?: Scope }) => {
       const { loadWindow, windowCounts } = await import('../window/load')
