@@ -2,7 +2,7 @@
 id: free-board
 title: Free board and record types
 section: databases
-order: 12
+order: 13
 keywords: free board, record type, record types, type, lanes, lane, cards, mixed, lead, bug, idea, Freies Board, Datensatz-Typ, Spalte
 related: views, properties, databases, ai-menu
 summary: A board whose cards can be different kinds of things — each record type brings its own fields.

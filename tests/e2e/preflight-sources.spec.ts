@@ -225,7 +225,8 @@ test.describe('coding: the version a card shows, confirmed exactly; did an actio
       async (c, id) => {
         const plan = await c.planTaskAction(id, 'approve')
         const before = c.actionTook(plan)
-        await c.applyTaskAction(plan)
+        // as Preflight's queue calls it (queue/calls.ts applyTask): the person's writer in Preflight
+        await c.applyTaskAction(plan, { writer: { kind: 'you', via: 'preflight', ref: id } })
         return { before, after: c.actionTook(plan), stage: plan.stage, to: plan.to }
       },
       task,

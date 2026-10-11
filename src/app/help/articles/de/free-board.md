@@ -2,7 +2,7 @@
 id: free-board
 title: Freies Board und Datensatz-Typen
 section: databases
-order: 12
+order: 13
 keywords: freies board, datensatz-typ, datensatz-typen, typ, spalten, spalte, karten, gemischt, lead, fehler, idee, free board, record type, lane
 related: views, properties, databases, ai-menu
 summary: Ein Board, dessen Karten verschiedene Dinge sein dürfen — jeder Datensatz-Typ bringt seine eigenen Felder mit.
