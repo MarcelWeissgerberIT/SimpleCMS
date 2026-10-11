@@ -34,6 +34,7 @@ import { planRestoreProps, type SnapshotProps } from '../../src/app/features/his
 import { invalidTargetsIn, pairedRelationIn, relationRestoreOk } from '../../src/app/database/model/hierarchyCore'
 import { withoutProperty } from '../../src/app/database/model/withoutProperty'
 import { overlay, overlayDb } from '../../src/app/features/recorder/model/overlay'
+import { blockHunks, locateUnique } from '../../src/app/features/recorder/model/blocks'
 
 /* ------------------------------------------------------------------ */
 /* stub deps (the browser spec covers the real helpers)                */
@@ -1280,6 +1281,46 @@ test.describe('targets are overlays (E4)', () => {
     const gone = overlayDb(database({ properties: [{ id: 'title', name: 'Name', type: 'title' }, { id: 'est', name: 'Schätzung', type: 'number' }] }), pin, [{ part: 'p:stage', op: 'back' }], { withoutProperty })
     expect(gone.properties.map((p) => p.id)).toEqual(['title', 'stage', 'est'])
     expect(gone.properties[1].options).toHaveLength(3)
+  })
+})
+
+test.describe('blocks for the eject (E5): hunks and where they sit now', () => {
+  test('blockHunks: by id where blocks have one, else by digest; a changed block with its id is a hunk of its own; last in doc order first', () => {
+    // b2 changed, n1 inserted after b3, b5 removed
+    const before = ['b1=a', 'b2=b', 'b3=c', 'b5=e']
+    const after = ['b1=a', 'b2=B', 'b3=c', 'n1=x']
+    const h = blockHunks(before, after)
+    expect(h.map((x) => [x.B, x.L])).toEqual([
+      [['b5=e'], ['n1=x']],
+      [['b2=b'], ['b2=B']],
+    ])
+    expect(h[0].anchors).toEqual(['b3=c', null])
+    expect(h[1].anchors).toEqual(['b1=a', 'b3=c'])
+    // id-less blocks pair by digest: an appended paragraph, a removed one
+    const loose = blockHunks(['#=p', '#=q', '#=r'], ['#=p', '#=r', '#=s'])
+    expect(loose.map((x) => [x.B, x.L, x.anchors])).toEqual([
+      [[], ['#=s'], ['#=r', null]],
+      [['#=q'], [], ['#=p', '#=r']],
+    ])
+    expect(blockHunks(['a=1'], ['a=1'])).toEqual([])
+  })
+
+  test('locateUnique: ids where present; id-less ranges by digests with both neighbours; none or several → null', () => {
+    expect(locateUnique(['b1=a', 'b2=B', 'b3=c'], ['b2=B'], ['b1=a', 'b3=c'])).toEqual([1, 2])
+    // the id is there, but not with the text the writer left: not this hunk any more
+    expect(locateUnique(['b1=a', 'b2=Z', 'b3=c'], ['b2=B'], ['b1=a', 'b3=c'])).toBeNull()
+    expect(locateUnique(['b1=a'], ['b2=B'], ['b1=a', null])).toBeNull()
+    // id-less: "#=s" twice, only one between "#=r" and the end
+    expect(locateUnique(['#=s', '#=r', '#=s'], ['#=s'], ['#=r', null])).toEqual([2, 3])
+    expect(locateUnique(['#=r', '#=s', '#=r', '#=s'], ['#=s'], ['#=r', null])).toEqual([3, 4])
+    // ambiguous: the same paragraph with the same neighbours twice
+    expect(locateUnique(['#=r', '#=s', '#=t', '#=r', '#=s', '#=t'], ['#=s'], ['#=r', '#=t'])).toBeNull()
+    // an empty range (blocks taken out): the gap between both neighbours; an id neighbour matches by id even if edited
+    expect(locateUnique(['#=p', '#=r'], [], ['#=p', '#=r'])).toEqual([1, 1])
+    expect(locateUnique(['h1=ZZ', '#=r'], [], ['h1=old', '#=r'])).toEqual([1, 1])
+    expect(locateUnique(['#=p', '#=x', '#=r'], [], ['#=p', '#=r'])).toBeNull()
+    // the doc's start and end are neighbours too
+    expect(locateUnique(['#=s', '#=p'], ['#=s'], [null, '#=p'])).toEqual([0, 1])
   })
 })
 
