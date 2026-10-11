@@ -9,7 +9,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { test, expect } from '@playwright/test'
 import { contrast, mixSrgb, toOklch } from '../../src/app/lib/look/color'
-import { darkInputsFrom, deriveLook, deriveMode, inkPanel, inkWell, lampGlass, LOOK_TOKENS, PAPER_LIMITS, signalFamily, STOCK_TOKENS } from '../../src/app/lib/look/derive'
+import { darkInputsFrom, deckPlate, deckText, DECK_MIX, deriveLook, deriveMode, inkPanel, inkWell, lampGlass, LOOK_TOKENS, PAPER_LIMITS, signalFamily, STOCK_TOKENS } from '../../src/app/lib/look/derive'
 import { lookCss } from '../../src/app/lib/look/css'
 import { LOOK_PRESETS, SWATCHES } from '../../src/app/lib/look/presets'
 import { lookMessages } from '../../src/app/shell/workspace/look-messages'
@@ -26,6 +26,15 @@ function block(selector: RegExp): Record<string, string> {
 }
 const LIGHT = block(/:root\s*\{([^}]*)\}/)
 const DARK = { ...LIGHT, ...block(/:root\[data-theme='dark'\]\s*\{([^}]*)\}/) }
+const RECORDER = readFileSync(fileURLToPath(new URL('../../src/app/features/recorder/ui/recorder.css', import.meta.url)), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '')
+function rule(css: string, selector: string): Record<string, string> {
+  const at = css.indexOf(selector + ' {')
+  const out: Record<string, string> = {}
+  if (at < 0) return out
+  const body = css.slice(at + selector.length + 2, css.indexOf('}', at))
+  for (const d of body.matchAll(/(--[\w-]+|background)\s*:\s*([^;]+);/g)) out[d[1]] = d[2].trim()
+  return out
+}
 const contentText = (t: Record<string, string>) => Object.entries(t).filter(([k, v]) => /^--c-\w+-text$/.test(k) && v.startsWith('#')).map(([, v]) => v)
 
 const look = (colors: LookColors, extra: Partial<WorkspaceLook> = {}): WorkspaceLook => ({ preset: 'paper', colors, fonts: { ui: 'archivo', text: 'ui', headings: 'expanded' }, corners: 'standard', updatedAt: 1, ...extra })
@@ -156,6 +165,57 @@ test('signal text on the AI terminal, toasts and the bubble menu: ≥ 4.5 : 1 fo
   // the standard look's own value is tokens.css (no look emits nothing)
   expect(STOCK_TOKENS.light['signal-on-ink']).toBe(LIGHT['--signal-on-ink'])
   expect(STOCK_TOKENS.dark['signal-on-ink']).toBe(DARK['--signal-on-ink'])
+})
+
+test('the flight recorder deck: recorder.css mixes what the engine checks', () => {
+  const pct = (p: number) => `${Math.round(p * 100)}%`
+  const paper = rule(RECORDER, '.deck')
+  const carbon = rule(RECORDER, ":root[data-theme='dark'] .deck")
+  expect(paper['--tp-bg']).toBe(`color-mix(in srgb, var(--ink) ${pct(DECK_MIX.ink)}, var(--toggle-black))`)
+  expect(LIGHT['--toggle-black']).toBe('#000000')
+  expect(paper['--tp-ink']).toBe('var(--surface)')
+  expect(paper['--tp-ink-2']).toBe(`color-mix(in srgb, var(--surface) ${pct(DECK_MIX.light2)}, var(--tp-bg))`)
+  expect(paper['--tp-ink-3']).toBe(`color-mix(in srgb, var(--surface) ${pct(DECK_MIX.light3)}, var(--tp-bg))`)
+  expect(paper['--tp-sig']).toBe('var(--signal-on-ink)')
+  expect(carbon['--tp-bg']).toBe(`color-mix(in srgb, var(--ink) ${pct(DECK_MIX.lift)}, var(--surface))`)
+  expect(carbon['--tp-ink']).toBe('var(--ink)')
+  expect(carbon['--tp-ink-2']).toBe('var(--ink-2)')
+  expect(carbon['--tp-ink-3']).toBe(`color-mix(in srgb, var(--ink-3) ${pct(DECK_MIX.dark3)}, var(--ink-2))`)
+  expect(carbon['--tp-sig']).toBe('var(--signal-ink)')
+  expect(rule(RECORDER, '.win').background).toBe(`color-mix(in srgb, var(--tp-ink) ${pct(DECK_MIX.plate)}, var(--tp-bg))`)
+})
+
+test('the flight recorder deck: its text ≥ 4.5 : 1 on the deck and the window plate — standard look, three sample looks, presets, swatches, 640 random looks', () => {
+  const failures: string[] = []
+  const check = (name: string, f: Record<string, string>, mode: 'light' | 'dark') => {
+    const plates = deckPlate(mode, f.ink, f.surface)
+    const d = deckText(mode, f)
+    const ink = mode === 'light' ? f.surface : f.ink
+    for (const [k, c] of [['--tp-ink', ink], ['--tp-ink-2', d.ink2], ['--tp-ink-3', d.ink3], ['--tp-sig', d.sig]] as const) {
+      for (const p of plates) if (!(contrast(c, p) >= 4.5)) failures.push(`${name} ${mode} ${k} ${c} on ${p}: ${contrast(c, p).toFixed(2)}`)
+    }
+  }
+  for (const mode of ['light', 'dark'] as const) check('standard', STOCK_TOKENS[mode], mode)
+  const samples: Array<[string, LookColors]> = [
+    ['cool ink, cobalt', { paper: '#edf0f2', ink: '#2b3440', signal: '#2759db' }],
+    ['grey ink at the 7 : 1 edge, teal', { paper: '#f4f4f2', ink: '#5a5a5a', signal: '#00838f' }],
+    ['sand, brown ink, amber', { paper: '#f3eee2', ink: '#3b2f22', signal: '#e0a000' }],
+  ]
+  const looks: Array<[string, Pick<WorkspaceLook, 'colors'>]> = [
+    ...samples.map(([n, colors]) => [n, { colors }] as [string, Pick<WorkspaceLook, 'colors'>]),
+    ...Object.entries(LOOK_PRESETS).map(([id, p]) => [id, p] as [string, Pick<WorkspaceLook, 'colors'>]),
+    ...SWATCHES.signal.map((s) => [`swatch ${s.id}`, { colors: { ...STOCK_COLORS.light, signal: s.hex } }] as [string, Pick<WorkspaceLook, 'colors'>]),
+    ...[...EDGE, ...triples(640)].map((colors) => [`${colors.paper} ${colors.ink} ${colors.signal}`, { colors }] as [string, Pick<WorkspaceLook, 'colors'>]),
+  ]
+  for (const [name, l] of looks) {
+    const d = deriveLook(l)
+    for (const mode of ['light', 'dark'] as const) check(name, d[mode].full, mode)
+  }
+  expect(failures.slice(0, 20)).toEqual([])
+  // the deck never costs a look its ink: dark and mid-grey inks are kept (the plate darkens, not the app's ink)
+  for (const ink of ['#2b3440', '#3b2f22', '#444444', '#4a4a4a', ...SWATCHES.ink.map((s) => s.hex)]) {
+    expect(deriveLook({ colors: { paper: '#f2f0ea', ink, signal: '#ff4f00' } }).light.report.used.ink, ink).toBe(ink)
+  }
 })
 
 test('a green signal keeps the "fine" LED apart from the "working" one', () => {

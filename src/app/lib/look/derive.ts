@@ -7,6 +7,9 @@
  *    (Carbon: also on the AI terminal's well — ink-inverse and its 5 / 8 % ink mixes)
  *  - signal used as text on an ink surface (signal-on-ink: toasts, the bubble menu, the Paper AI terminal) ≥ 4.5 : 1 on
  *    ink and its 5 / 8 % inverse-ink mixes — lightened on Paper's dark ink, darkened on Carbon's light ink
+ *  - the flight recorder's deck (recorder.css, `deckPlate` / `deckText`): its quiet text and its signal text ≥ 4.5 : 1 on
+ *    the deck and its window plate — Paper's plate is the ink with a third of black (an ink too light even then is darkened),
+ *    Carbon's lifted plate (surface + 6 % ink) lifts ink-2, ink-3 and signal-ink where needed
  *  - the paper stays light and calm (Paper L 0.948 – 0.985, Carbon L 0.13 – 0.26, chroma ≤ 0.025), so the fixed
  *    content colours (--c-*-text) keep ≥ 4.5 : 1 on every surface.
  * Only the groups whose inputs differ from tokens.css are emitted: a look that changes only the signal keeps
@@ -18,7 +21,7 @@
  */
 import type { ColorName, LookColors, WorkspaceLook } from '../../store/types'
 import { STOCK_COLORS } from '../../store/look'
-import { contrast, ensureContrast, fromOklch, hueDistance, mixOklab, mixSrgb, rgba, shiftL, toOklch, withL } from './color'
+import { contrast, ensureContrast, ensureThat, fromOklch, hueDistance, mixOklab, mixSrgb, rgba, shiftL, toOklch, withL } from './color'
 
 /** Every token a look may set (css.ts emits nothing else). */
 export const LOOK_TOKENS = [
@@ -66,6 +69,32 @@ export function inkPanel(ink: string, inkInverse: string): string[] {
 export function inkWell(ink: string, inkInverse: string): string[] {
   return [inkInverse, mixSrgb(ink, inkInverse, 0.05), mixSrgb(ink, inkInverse, 0.08)]
 }
+
+/**
+ * The flight recorder's deck (features/recorder/ui/recorder.css — look-engine.spec keeps the two in step). Paper: an ink
+ * plate (the ink with a third of black: a lighter ink keeps a readable quiet level), its text the surface mixed into the
+ * plate (72 % / 56 % for the quiet levels). Carbon: a lifted plate, surface + 6 % ink, its quiet text ink-3 with 40 %
+ * ink-2. The window plate mixes 4 % of the deck's text colour into the deck.
+ */
+export const DECK_MIX = { ink: 0.65, lift: 0.06, plate: 0.04, light2: 0.72, light3: 0.56, dark3: 0.6 } as const
+const BLACK = '#000000'
+
+/** The deck's two plates (the deck, its window plate) for a theme's ink and surface. */
+export function deckPlate(mode: Mode, ink: string, surface: string): string[] {
+  const deck = mode === 'light' ? mixSrgb(ink, BLACK, DECK_MIX.ink) : mixSrgb(ink, surface, DECK_MIX.lift)
+  return [deck, mixSrgb(mode === 'light' ? surface : ink, deck, DECK_MIX.plate)]
+}
+
+/** The deck's text colours (--tp-ink-2, --tp-ink-3, --tp-sig) from a theme's tokens. */
+export function deckText(mode: Mode, f: Record<string, string>): { ink2: string; ink3: string; sig: string } {
+  if (mode === 'light') {
+    const [deck] = deckPlate('light', f.ink, f.surface)
+    return { ink2: mixSrgb(f.surface, deck, DECK_MIX.light2), ink3: mixSrgb(f.surface, deck, DECK_MIX.light3), sig: f['signal-on-ink'] }
+  }
+  return { ink2: f['ink-2'], ink3: mixSrgb(f['ink-3'], f['ink-2'], DECK_MIX.dark3), sig: f['signal-ink'] }
+}
+
+const onAll = (c: string, plates: string[], min = 4.5) => plates.every((x) => contrast(c, x) >= min)
 
 /** Paper lightness / chroma limits (OKLCH) per theme. */
 export const PAPER_LIMITS: Record<Mode, { l: [number, number]; c: number }> = {
@@ -143,17 +172,24 @@ export function deriveMode(inputs: LookColors, mode: Mode, labels?: Labels): Der
     const s2 = light ? fromOklch(l - 0.027, c * 1.35, p.h) : fromOklch(l + 0.018, c, p.h)
     const s3 = light ? fromOklch(l - 0.063, c * 1.7, p.h) : fromOklch(l + 0.071, c * 1.4, p.h)
     const text = [bg, surface, s2]
-    const ink = ensureContrast(inputs.ink, text, 7, dir)
+    let ink = ensureContrast(inputs.ink, text, 7, dir)
+    // Paper's deck is an ink plate: an ink too light for its quiet level even with a third of black is darkened
+    if (light) ink = ensureThat(ink, (h) => onAll(deckText('light', { ink: h, surface }).ink3, deckPlate('light', h, surface)), -1)
     adjustedInk = ink !== inputs.ink
     const f = light ? [0.333, 0.413, 0.581, 0.757] : [0.279, 0.391, 0.531, 0.707]
+    // Carbon's deck is a lifted plate: ink-2 and the deck's quiet mix of ink-3 stay ≥ 4.5 : 1 on it too
+    const deck = light ? [] : deckPlate('dark', ink, surface)
+    const ink2 = ensureContrast(mixOklab(ink, bg, f[0]), [...text, ...deck], 4.5, dir)
+    let ink3 = ensureContrast(mixOklab(ink, bg, f[1]), text, 4.5, dir)
+    if (!light) ink3 = ensureThat(ink3, (h) => onAll(deckText('dark', { 'ink-2': ink2, 'ink-3': h }).ink3, deck), 1)
     Object.assign(t, {
       bg,
       surface,
       'surface-2': s2,
       'surface-3': s3,
       ink,
-      'ink-2': ensureContrast(mixOklab(ink, bg, f[0]), text, 4.5, dir),
-      'ink-3': ensureContrast(mixOklab(ink, bg, f[1]), text, 4.5, dir),
+      'ink-2': ink2,
+      'ink-3': ink3,
       'ink-faint': ensureContrast(mixOklab(ink, bg, f[2]), [surface], 3, dir),
       'led-off': mixOklab(ink, bg, f[3]),
       'ink-inverse': light ? surface : bg,
@@ -188,8 +224,12 @@ export function deriveMode(inputs: LookColors, mode: Mode, labels?: Labels): Der
     const hover = shiftL(s, away > 0 ? 0.035 : -0.045)
     const press = shiftL(s, away > 0 ? 0.07 : -0.09)
     const text = [full.bg, surface, full['surface-2']]
-    const signalInk = light ? ensureContrast(shiftL(s, -0.1), text, 4.5, -1) : ensureContrast(shiftL(s, 0.04), [...text, ...inkWell(full.ink, full['ink-inverse'])], 4.5, 1)
-    const signalOnInk = ensureContrast(s, inkPanel(full.ink, full['ink-inverse']), 4.5, light ? 1 : -1)
+    const signalInk = light
+      ? ensureContrast(shiftL(s, -0.1), text, 4.5, -1)
+      : ensureContrast(shiftL(s, 0.04), [...text, ...inkWell(full.ink, full['ink-inverse']), ...deckPlate('dark', full.ink, surface)], 4.5, 1)
+    // (Paper: the flight recorder's ink deck and its window plate too)
+    const onInk = light ? [...inkPanel(full.ink, full['ink-inverse']), ...deckPlate('light', full.ink, surface)] : inkPanel(full.ink, full['ink-inverse'])
+    const signalOnInk = ensureContrast(s, onInk, 4.5, light ? 1 : -1)
     const sig: Partial<Record<LookToken, string>> = {
       signal: s,
       'signal-hover': hover,

@@ -131,7 +131,11 @@ export function hueDistance(a: string, b: string): number {
  * contrast against every colour of `against`. Returns the closest step that does (or the end of the range).
  */
 export function ensureContrast(hex: string, against: string[], min: number, dir: 1 | -1): string {
-  const ok = (h: string) => against.every((x) => contrast(h, x) >= min)
+  return ensureThat(hex, (h) => against.every((x) => contrast(h, x) >= min), dir)
+}
+
+/** `hex` moved along OKLCH lightness like ensureContrast, until `ok` holds (for contrasts of colours mixed from it). */
+export function ensureThat(hex: string, ok: (hex: string) => boolean, dir: 1 | -1): string {
   if (ok(hex)) return hex
   const c = toOklch(hex)
   let out = hex

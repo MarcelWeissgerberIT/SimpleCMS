@@ -7,18 +7,20 @@
    ================================================================ */
 
 .deck {
-  --tp-bg: var(--ink);
+  /* the ink with a third of black: a workspace look's lighter ink keeps a readable quiet level on the plate
+     (lib/look/derive.ts DECK_MIX + deckPlate keep looks in step; look-engine.spec reads these mixes) */
+  --tp-bg: color-mix(in srgb, var(--ink) 65%, var(--toggle-black));
   --tp-ink: var(--surface);
-  --tp-ink-2: color-mix(in srgb, var(--surface) 72%, var(--ink));
-  --tp-ink-3: color-mix(in srgb, var(--surface) 56%, var(--ink));
+  --tp-ink-2: color-mix(in srgb, var(--surface) 72%, var(--tp-bg));
+  --tp-ink-3: color-mix(in srgb, var(--surface) 56%, var(--tp-bg));
   --tp-rule: color-mix(in srgb, var(--surface) 12%, transparent);
   --tp-rule-strong: color-mix(in srgb, var(--surface) 24%, transparent);
   --tp-sig: var(--signal-on-ink);
-  --tp-well: color-mix(in srgb, var(--toggle-black) 55%, var(--ink));
-  --tp-ev: color-mix(in srgb, var(--surface) 62%, var(--ink));
-  --tp-ev-2: color-mix(in srgb, var(--surface) 34%, var(--ink));
-  --tp-key: color-mix(in srgb, var(--surface) 10%, var(--ink));
-  --tp-key-edge: color-mix(in srgb, var(--surface) 26%, var(--ink));
+  --tp-well: color-mix(in srgb, var(--toggle-black) 55%, var(--tp-bg));
+  --tp-ev: color-mix(in srgb, var(--surface) 62%, var(--tp-bg));
+  --tp-ev-2: color-mix(in srgb, var(--surface) 34%, var(--tp-bg));
+  --tp-key: color-mix(in srgb, var(--surface) 10%, var(--tp-bg));
+  --tp-key-edge: color-mix(in srgb, var(--surface) 26%, var(--tp-bg));
   --lane-h: calc(30px * var(--text-scale));
   --ruler-h: calc(24px * var(--text-scale));
   --deck-key-h: calc(30px * var(--text-scale));
@@ -46,8 +48,8 @@
   --tp-bg: color-mix(in srgb, var(--ink) 6%, var(--surface));
   --tp-ink: var(--ink);
   --tp-ink-2: var(--ink-2);
-  /* AA on the window plate too (the plain --ink-3 is 4.1 : 1 there) */
-  --tp-ink-3: color-mix(in srgb, var(--ink-3) 75%, var(--ink-2));
+  /* AA on the window plate too (the plain --ink-3 is 4.1 : 1 there; lib/look/derive.ts DECK_MIX keeps looks in step) */
+  --tp-ink-3: color-mix(in srgb, var(--ink-3) 60%, var(--ink-2));
   --tp-rule: var(--rule);
   --tp-rule-strong: var(--rule-strong);
   --tp-sig: var(--signal-ink);
