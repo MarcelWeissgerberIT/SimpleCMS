@@ -16,6 +16,7 @@ import { subItemsOf } from '../model/hierarchy'
 import { subItemCount } from './tree'
 import { plural } from '../parts'
 import { rowProps } from '../model/recordTypes'
+import { itemTitleText } from '../../editor'
 
 function firstImage(node: JSONContent | null | undefined): string | null {
   if (!node) return null
@@ -42,6 +43,13 @@ function firstLines(node: JSONContent | null | undefined, max = 4): string[] {
     if (n.type === 'paragraph' || n.type === 'heading') {
       const txt = inlineText(n)
       if (txt) out.push(txt)
+      return
+    }
+    // a task: its title line like a to-do's (■ done / □ not done), then its notes
+    if (n.type === 'workItem') {
+      const txt = itemTitleText(n)
+      if (txt) out.push(`${n.attrs?.status === 'done' ? '■' : '□'} ${txt}`)
+      ;(n.content ?? []).slice(1).forEach(walk)
       return
     }
     if (n.type === 'listItem' || n.type === 'taskItem') {

@@ -779,6 +779,25 @@ test.describe('1440 light', () => {
     await expect(all.nth(4).locator('.workitem__lock')).toHaveCount(0)
   })
 
+  test('a card preview (gallery) shows a task line like a to-do: ■ done / □ not done + its title, then its notes', async ({ page }) => {
+    await openApp(page)
+    const dbId = await wsEval(
+      page,
+      (s, rows) => {
+        const id = s.createDatabase({ title: 'Launch tasks' })
+        s.createRow(id, { title: 'Venue', content: rows })
+        s.addView(id, { type: 'gallery', name: 'Gallery' })
+        return id
+      },
+      doc(item({ itemId: A, status: 'done' }, 'Book the venue'), item({ itemId: B }, 'Send invites', p('Ask Mira for the list'))),
+    )
+    await gotoPage(page, dbId)
+    const db = page.locator('#main section.db').first()
+    await db.getByRole('tab').filter({ hasText: 'Gallery' }).click()
+    const lines = db.locator('.dbc', { hasText: 'Venue' }).locator('.dbc-cover--text p')
+    await expect(lines).toHaveText(['■ Book the venue', '□ Send invites', 'Ask Mira for the list'])
+  })
+
   test('the creation gate shut: the slash item disabled with its reason, "[!] " stays text, Enter makes a note line, Mod+D copies plain blocks', async ({ page }) => {
     await openApp(page)
     const id = await taskPage(page, 'Gate page', item({ itemId: A }, 'Existing task'), p(''))
