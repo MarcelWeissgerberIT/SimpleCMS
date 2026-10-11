@@ -22,7 +22,7 @@ import { MarkdownLite } from '../ai/MarkdownLite'
 import { MediaToPage } from '../ai/media/MediaToPage'
 import { PropDiff, Preview } from '../ai/agent/AgentSheet'
 import { EditDiff } from '../ai/agent/EditDiff'
-import { depsOf, type DiscardReason, type StagedChange } from '../ai/agent/types'
+import { depsOf, makesTasks, type DiscardReason, type StagedChange } from '../ai/agent/types'
 import { ItemFacts } from '../workitems/ItemFacts'
 import type { Database, Page } from '../../store/types'
 import { keyPropOf } from '../../store/keys'
@@ -524,9 +524,11 @@ const Change = memo(function Change({ run, change: c, disabled, blocked, undo, n
   // folded (a discard keeping its Undo here): the title is not drawn — the row's name still says it
   const folded = undo === 'discard'
   const hiddenTitle = useWorkspace((s) => (folded ? titleText(s.pages, run, c, untitled) : ''))
-  // described by: its state (decided), its field changes, why it waits or failed, then the keys
+  // described by: its state (decided), its field changes, its tasks (a task's fields, the tasks a text makes, why it
+  // waits for review), why it waits or failed, then the keys
   const hint = (c.status === 'failed' && !!c.error) || (c.status === 'pending' && !!blocked)
-  const describedBy = keys ? [open ? '' : `${id}-s`, !folded && c.props?.length ? `${id}-d` : '', !folded && hint ? `${id}-x` : '', keysId].filter(Boolean).join(' ') : undefined
+  const items = !!c.workItem || !!c.items || !!c.notes?.length
+  const describedBy = keys ? [open ? '' : `${id}-s`, !folded && c.props?.length ? `${id}-d` : '', !folded && items ? `${id}-i` : '', !folded && hint ? `${id}-x` : '', keysId].filter(Boolean).join(' ') : undefined
   const undoKey = (
     <button type="button" className="btn btn--ghost btn--sm agent-change__undo" onMouseDown={keepFocus} onClick={() => h.undo(c.id)} disabled={disabled} aria-label={`${t('common.undo')} ${label}`}>
       <Undo2 size={12} strokeWidth={1.75} aria-hidden /> {t('common.undo')}
@@ -711,7 +713,7 @@ function titleText(pages: Record<string, Page>, run: AgentRun, c: StagedChange, 
 interface BodyProps {
   run: AgentRun
   change: StagedChange
-  /** the row's id prefix: the title gets `<ids>-t`, the field changes `<ids>-d`, "needs #n" / the error `<ids>-x` */
+  /** the row's id prefix: the title gets `<ids>-t`, the field changes `<ids>-d`, the tasks `<ids>-i`, "needs #n" / the error `<ids>-x` */
   ids?: string
   /** the cut content preview: shown whole, and the key that opens it (the run review; Preflight shows the cut one) */
   full?: boolean
@@ -761,13 +763,13 @@ export function AgentChangeBody({ run, change: c, ids, full, more }: BodyProps) 
         </div>
       )}
       {(c.items || c.workItem || !!c.notes?.length) && (
-        <div className="chg-part" data-part="items">
+        <div className="chg-part" data-part="items" id={id('i')}>
           <ItemFacts facts={c.workItem ? [c.workItem.facts] : (c.items?.facts ?? [])} warnings={c.items?.warnings} holds={c.workItem?.holds ?? c.items?.holds} notes={c.notes} />
         </div>
       )}
       {c.markdown?.trim() && c.kind !== 'rename' && c.kind !== 'edit' && (
         <div className="chg-part" data-part="preview">
-          <Preview markdown={c.markdown} append={c.kind === 'append'} full={full} more={more} tasks />
+          <Preview markdown={c.markdown} append={c.kind === 'append'} full={full} more={more} tasks={makesTasks(c, run.runner === 'server')} />
         </div>
       )}
       {c.status === 'failed' && c.error && (

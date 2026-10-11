@@ -279,6 +279,13 @@ export interface StagedChange {
 /** Every staged change `c` needs applied first. */
 export const depsOf = (c: Pick<StagedChange, 'dependsOn' | 'needs'>): string[] => [...(c.dependsOn ? [c.dependsOn] : []), ...(c.needs ?? [])]
 
+/**
+ * Whether applying `c` can make task blocks — the rule of apply's settle gate (workItems.ts itemCtx): only the tasks its
+ * staging minted, never from a server run (`server`). A review draws `[!TODO]` quotes as tasks only then: an older
+ * proposal, a server run's or a text whose staging made none writes them as plain quotes.
+ */
+export const makesTasks = (c: Pick<StagedChange, 'items'>, server = false): boolean => !server && !!c.items?.ids.length
+
 export interface AgentUsage {
   requests: number
   input: number

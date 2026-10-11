@@ -36,7 +36,7 @@ import { CodingDiff, FullText, RefsLine, useCodingFlags } from './CodingDiff'
 import { PipelinesOut } from './PipelinesOut'
 import { ConnectLine, ServersOut, SignInKey, SignInOffer, retryOf } from './ConnectOut'
 import { signInFromTerminal } from './connect'
-import { depsOf, type AgentStep, type AgentTurn, type StagedChange } from './types'
+import { depsOf, makesTasks, type AgentStep, type AgentTurn, type StagedChange } from './types'
 import { ImageRefChip } from '../image/ImageRefChip'
 import { FileRefChip } from '../file/FileRefChip'
 import { MemoryProposals } from './MemoryProposals'
@@ -1277,7 +1277,7 @@ export function TerminalChangeBody({ change: c, all, head = false, compact = fal
       )}
       {!compact && c.markdown?.trim() && !toWorker && c.kind !== 'rename' && c.kind !== 'edit' && c.kind !== 'coding' && (
         <Part name="preview">
-          <Preview markdown={c.markdown} append={c.kind === 'append'} tasks />
+          <Preview markdown={c.markdown} append={c.kind === 'append'} tasks={makesTasks(c)} />
         </Part>
       )}
       {/* text written into a pipeline task's page: the pages it links go to Claude Code with the task */}

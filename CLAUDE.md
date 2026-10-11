@@ -785,7 +785,9 @@ the public APIs stable — other areas are built against them in parallel.
   server refused it → none, the discard did not happen) — never from Apply all / Discard all / ⇧A / X / 'apply' runs;
   "edited" = the person's own value edit (`you` via none / 'ui' / 'agenda', `editor`, a person event) — never the
   Outbox's row patch, buttons, commands, templates …; an Undo kept for an edited field voids the verdicts of the fields
-  it reverted (ApplyResult.undo → `reverted`; a task-field change ('workItem') writes no trust key, so records none);
+  it reverted (ApplyResult.undo → `reverted`; a task-field change ('workItem') writes no trust key, so records none —
+  the help says so); review bodies draw `[!TODO]` quotes as tasks only where apply makes them (types.ts `makesTasks`:
+  staged ids, never a server run) — a verdict is about what was written;
   "needs #n" = the first of `depsOf` (dependsOn, then needs) not applied; a row's discard Undo (`discardRun({ row: true })`) holds ids only, never
   the run, and a bulk discard keeps no row Undo; ONE key map on both surfaces (`reasonKeys`: 1 = wrong (+ F de / W en),
   2 not now, 3 duplicate, 4 handled; A apply, D discard, Z undo; trust/runKeys.ts on the agent page); book per device +

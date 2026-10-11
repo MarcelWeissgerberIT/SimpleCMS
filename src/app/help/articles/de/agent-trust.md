@@ -13,7 +13,7 @@ Ein Agent, der Änderungen zur Prüfung vorschlägt, lernt aus einem bloßen „
 In der Prüfung eines Laufs (Seite des Agenten, **Läufe**) und in der Warteschlange von [Preflight](help:preflight) wirken diese Tasten auf den Vorschlag mit dem Fokus:
 
 - **A** — übernehmen. **D** — ohne Grund verwerfen.
-- **1** — als **falsch** verwerfen; auf Deutsch auch **F**, auf Englisch auch **W**. Nur das zählt gegen den Agenten.
+- **1** — als **falsch** verwerfen; auf Deutsch auch **F**, auf Englisch auch **W**. Nur das zählt gegen den Agenten (nicht bei einer Änderung an den Feldern einer Aufgabe — siehe *Was zählt*).
 - **2** nicht jetzt · **3** doppelt · **4** schon erledigt — verworfen, aber am Vorschlag war nichts falsch: kein Minus für den Agenten.
 
 In der Prüfung eines Laufs außerdem:
@@ -34,6 +34,8 @@ Ein Urteil entsteht nur, wenn **du** über **einen** Vorschlag entscheidest, den
 - **Als falsch verworfen** — ein Minus für den Agenten.
 - **Nicht jetzt**, **doppelt**, **schon erledigt** — kein Minus, und die Folge guter Urteile läuft weiter.
 - **Ohne Grund verworfen** — auch kein Minus; aber mehr als zwei davon in Folge lassen das Feld warten: sag mit **1**, ob es falsch war.
+
+Eine Änderung an den Feldern einer [Aufgabe](help:tasks) — Status, Termin, Verantwortliche oder worauf sie wartet — ergibt in dieser Version **kein Urteil**, wie auch immer du entscheidest: Die Tasten wirken darauf wie auf jeden Vorschlag, die Messleiste bleibt, wie sie ist. Text, der Aufgaben anlegt (an eine Seite angehängt, eine neue Seite oder Zeile), zählt wie jeder andere Text.
 
 **Alle übernehmen**, **Alle verwerfen**, **⇧A** und **X** in Preflight, Agenten, die direkt anwenden, das KI-Terminal, eine Preflight-Karte, deren Inhalt noch lud, und eine Entscheidung, die der Team-Server nicht angenommen hat, schreiben **nichts**. **Rückgängig** deiner Entscheidung nimmt ihr Urteil zurück — ein Rückgängig, das ein inzwischen von dir bearbeitetes Feld stehen lässt, nimmt die Urteile der Felder zurück, die es zurückgesetzt hat.
 

@@ -162,7 +162,8 @@ test.describe('keys of a staged change', () => {
     expect(keysOfChange(change({ kind: 'edit', pageId: 'report' }), same, pages)).toEqual(['edit:report'])
     expect(keysOfChange(change({ kind: 'create_page', pageId: 'p-new', parentId: 'report', title: 'Tessera' }), same, pages)).toEqual(['page:report'])
     expect(keysOfChange(change({ kind: 'create_page', pageId: 'p-new', parentId: null, title: 'Tessera' }), same, pages)).toEqual(['page:-'])
-    for (const kind of ['create_database', 'add_property', 'memory', 'script', 'media', 'coding', 'send'] as const) expect(keysOfChange(change({ kind }), same, pages), kind).toEqual([])
+    // a task's fields ('workItem', task block P2) write no key in S1: deciding on one records no verdict (help: agent-trust)
+    for (const kind of ['create_database', 'add_property', 'memory', 'script', 'media', 'coding', 'send', 'workItem'] as const) expect(keysOfChange(change({ kind }), same, pages), kind).toEqual([])
     // an update without its database falls back to the row's
     expect(keysOfChange(change({ props: [prop('warum')] }), same, pages)).toEqual(['prop:db-nl:warum'])
     // no database anywhere: none

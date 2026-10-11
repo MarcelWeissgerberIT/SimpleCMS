@@ -529,10 +529,10 @@ test.describe('per-field trust — the book (S1)', () => {
 })
 
 /** Seed one more run of the story's agent with these proposals, then come back to the agent's page. */
-async function extraRun(page: Page, id: string, staged: AnyRec[]) {
+async function extraRun(page: Page, id: string, staged: AnyRec[], runner: 'browser' | 'server' = 'browser') {
   await page.evaluate(
-    (a) => (window as any).__onePreflight.seedRuns([{ id: a.id, agentId: a.agent, runner: 'browser', trigger: { type: 'manual' }, startedAt: Date.now() - 5_000, endedAt: Date.now() - 2_000, status: 'staged', summary: '', steps: [], staged: a.staged }]), // eslint-disable-line @typescript-eslint/no-explicit-any
-    { id, agent: AGENT, staged },
+    (a) => (window as any).__onePreflight.seedRuns([{ id: a.id, agentId: a.agent, runner: a.runner, trigger: { type: 'manual' }, startedAt: Date.now() - 5_000, endedAt: Date.now() - 2_000, status: 'staged', summary: '', steps: [], staged: a.staged }]), // eslint-disable-line @typescript-eslint/no-explicit-any
+    { id, agent: AGENT, staged, runner },
   )
   await revisit(page)
   await expect(row(page, 1, id)).toBeVisible()
@@ -713,5 +713,106 @@ test.describe('per-field trust — review follow-ups (S1)', () => {
     await expect(name).toHaveText('Neuer Kommentar seit dem letzten Abgleich mit Tessera')
     await name.hover()
     await expect(name).toHaveAttribute('title', 'Neuer Kommentar seit dem letzten Abgleich mit Tessera')
+  })
+})
+
+/* ------------------------------------------------------------------ task blocks (train 3: P2 × per-field trust) */
+
+/** The task blocks of a page's stored content: [itemId, title]. */
+const tasksOn = (page: Page, id: string): Promise<Array<[string, string]>> =>
+  wsEval(page, (s, id) => {
+    const out: Array<[string, string]> = []
+    const text = (n: AnyRec): string => n.text ?? (n.content ?? []).map(text).join('')
+    const walk = (n: AnyRec) => {
+      if (n.type === 'workItem') out.push([n.attrs?.itemId, text(n.content?.[0] ?? {})])
+      for (const c of n.content ?? []) walk(c)
+    }
+    if (s.pages[id]?.content) walk(s.pages[id].content)
+    return out
+  }, id)
+const blockTypes = (page: Page, id: string): Promise<string[]> =>
+  wsEval(page, (s, id) => ((s.pages[id]?.content?.content ?? []) as AnyRec[]).map((n) => n.type as string), id)
+
+const NEW_TASK = 'wi_trusttsk01'
+const leaseFact = (itemId: string) => ({ itemId, handle: null, tag: 'new', title: 'Renew the lease', status: 'todo', due: null, reminder: null, people: [], blockedBy: [], related: [] })
+/** An append holding one `[!TODO]` quote; `items`: staged here (it makes the task) — without: a proposal stored before P2. */
+const leaseAppend = (id: string, pageId: string, items: boolean) => ({
+  id,
+  n: 1,
+  kind: 'append',
+  status: 'pending',
+  pageId,
+  markdown: '> [!TODO] Renew the lease',
+  ...(items ? { items: { ids: [NEW_TASK], handles: {}, facts: [leaseFact(NEW_TASK)], warnings: [], holds: [] } } : {}),
+})
+
+test.describe('per-field trust — task blocks (P2)', () => {
+  test('text that makes a task counts like any text: A writes the task and one append verdict; Z takes the task and the verdict back', async ({ page }) => {
+    const m = await morning(page, { lang: 'en' })
+    const host = m.rows[Object.keys(m.rows)[3]]
+    const key = `append:${m.dbId}`
+    await extraRun(page, 'r-task', [leaseAppend('t1', host, true)])
+    const r1 = row(page, 1, 'r-task')
+    // drawn as the task apply writes
+    await expect(r1.locator('[data-md-task]')).toHaveCount(1)
+    await expect(r1).toHaveAccessibleDescription(/^Task · New\b.*Renew the lease/)
+    await r1.focus()
+    await page.keyboard.press('a')
+    await expect.poll(() => statusOf(page, 't1', 'r-task')).toBe('applied')
+    await expect.poll(() => kinds(page, key)).toEqual(['accept'])
+    expect((await verdictsOf(page, key)).map((v) => v.change)).toEqual(['t1'])
+    await expect.poll(() => tasksOn(page, host)).toEqual([[NEW_TASK, 'Renew the lease']])
+    // Z in its row: the task goes, the verdict with it
+    await r1.focus()
+    await page.keyboard.press('z')
+    await expect.poll(() => statusOf(page, 't1', 'r-task')).toBe('pending')
+    await expect.poll(() => verdictsOf(page)).toEqual([])
+    await expect.poll(() => tasksOn(page, host)).toEqual([])
+    expect(await unknowns(page)).toEqual([])
+  })
+
+  test('a quote that apply writes as a quote reads as one: a proposal stored before P2 and a server run’s show no task rows; A on the older one writes a quote and its verdict', async ({ page }) => {
+    const m = await morning(page, { lang: 'en' })
+    const host = m.rows[Object.keys(m.rows)[5]]
+    const key = `append:${m.dbId}`
+    // a server run's proposal: staged ids or not, it creates no task here
+    await extraRun(page, 'r-srv', [leaseAppend('s1', host, true)], 'server')
+    const s1 = row(page, 1, 'r-srv')
+    await expect(s1.locator('.agent-preview blockquote')).toContainText('[!TODO] Renew the lease')
+    await expect(s1.locator('[data-md-task]')).toHaveCount(0)
+    // a browser proposal stored before P2 (no staged ids)
+    await extraRun(page, 'r-old', [leaseAppend('o1', host, false)])
+    const o1 = row(page, 1, 'r-old')
+    await expect(o1.locator('.agent-preview blockquote')).toContainText('[!TODO] Renew the lease')
+    await expect(o1.locator('[data-md-task]')).toHaveCount(0)
+    await o1.focus()
+    await page.keyboard.press('a')
+    await expect.poll(() => statusOf(page, 'o1', 'r-old')).toBe('applied')
+    await expect.poll(() => blockTypes(page, host)).toContain('blockquote')
+    expect(await tasksOn(page, host)).toEqual([])
+    // the verdict is about what was shown and written: a quote
+    await expect.poll(() => kinds(page, key)).toEqual(['accept'])
+  })
+
+  test('a change to a task’s fields: its row is described by the change and why it waits; 1 discards it as wrong and writes no verdict', async ({ page }) => {
+    const m = await morning(page, { lang: 'en' })
+    const host = m.rows[Object.keys(m.rows)[4]]
+    const W = 'wi_trusttsk02'
+    const none = { status: 'todo', due: null, reminder: null, people: [], blockedBy: [], related: [] }
+    const facts = { itemId: W, handle: null, tag: 'changed', title: 'Rotate keys', status: 'done', due: null, reminder: null, people: [{ id: 'person-alex', name: 'Alex' }], blockedBy: [], related: [], before: none }
+    await extraRun(page, 'r-item', [{ id: 'w1', n: 1, kind: 'workItem', status: 'pending', pageId: host, title: 'Rotate keys', workItem: { itemId: W, patch: { status: 'done' }, before: null, facts, holds: ['names'] } }])
+    const r1 = row(page, 1, 'r-item')
+    await expect(r1).toHaveAccessibleName(/^#1 Task\b.*Rotate keys/)
+    // what it changes and why it waits come before the keys
+    await expect(r1).toHaveAccessibleDescription(/^Waits for your review · Names a person.*Rotate keys.*Open\s*Done.*Alex.*Keys on a proposal/)
+    await r1.focus()
+    await page.keyboard.press('1')
+    await expect.poll(() => statusOf(page, 'w1', 'r-item')).toBe('discarded')
+    expect((await stored(page, 'w1', 'r-item'))?.reason).toBe('wrong')
+    await expect(r1.getByTestId('agx-discarded')).toHaveText('Discarded · wrong')
+    await page.waitForTimeout(300)
+    // a task's fields write no trust key in S1 (keysOfChange): no verdict
+    expect(await verdictsOf(page)).toEqual([])
+    expect(await unknowns(page)).toEqual([])
   })
 })

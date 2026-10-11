@@ -13,7 +13,7 @@ An agent that proposes changes for review learns nothing from a plain “discard
 In a run's review (the agent's page, **Runs**) and in [Preflight](help:preflight)'s queue these keys work on the proposal that has the focus:
 
 - **A** — apply. **D** — discard without a reason.
-- **1** — discard as **wrong**; in German also **F**, in English also **W**. Only this one counts against the agent.
+- **1** — discard as **wrong**; in German also **F**, in English also **W**. Only this one counts against the agent (not on a change to a task's fields — see *What counts*).
 - **2** not now · **3** duplicate · **4** handled already — discarded, but nothing was wrong with the proposal: no mark against the agent.
 
 In a run's review also:
@@ -34,6 +34,8 @@ A verdict is written only when **you** decide on **one** proposal you saw in ful
 - **Discarded as wrong** — a mark against the agent.
 - **Not now**, **duplicate**, **handled already** — no mark, and the run of good verdicts goes on.
 - **Discarded without a reason** — no mark either; but more than two of them in a row make the field wait: say with **1** whether it was wrong.
+
+A change to a [task](help:tasks)'s own fields — its status, due date, owners or blockers — records **no verdict** in this release, whatever you decide: the keys work on it as on any proposal, the meter stays as it is. Text that makes tasks (appended to a page, a new page or row) counts like any other text.
 
 **Apply all**, **Discard all**, Preflight's **⇧A** and **X**, agents that apply directly, the AI terminal, a Preflight card whose body was still loading and a decision the team server did not take write **nothing**. **Undo** of your decision takes its verdict back — an Undo that keeps a field you edited since takes back the verdicts of the fields it did put back.
 
