@@ -107,8 +107,13 @@ interface Entry {
   remoteSince: number
   /** When this tab last changed the document (typed, undone — not a bridge write). */
   lastLocal: number
-  /** A writer whose change the next refresh carries (its own refresh could not write: a takeover ran, nothing was pending). */
-  writerHint: { w: Writer; at: number } | null
+  /**
+   * A writer whose change the next refresh carries (its own refresh could not write: a takeover ran, nothing was
+   * pending), until `until` (2 s; a hint left during a takeover lasts until 2 s after it is done).
+   */
+  writerHint: { w: Writer; at: number; until: number } | null
+  /** This tab's typing waited in the document while a takeover ran (its refresh could not write): a hint's refresh is mixed. */
+  typingHeld: boolean
   refreshTimer?: number
   lingerTimer?: number
   handle: ContentDocHandle | null
@@ -190,6 +195,7 @@ function ensure(pageId: ID): Entry {
     remoteSince: 0,
     lastLocal: 0,
     writerHint: null,
+    typingHeld: false,
     handle: null,
   }
   resetSync(entry)
@@ -354,6 +360,8 @@ function adoptAll(e: Entry): Promise<void> {
   e.adoption = run.finally(() => {
     e.adoption = null
     if (entries.get(e.pageId) !== e) return
+    // a writer's hint left while the takeover ran: the refresh coming now carries it
+    if (e.writerHint) e.writerHint = { ...e.writerHint, until: Date.now() + HINT_MS }
     scheduleRefresh(e, 0)
     checkConfirmed(e)
   })
@@ -566,10 +574,14 @@ const editorCollab = (mixed: boolean): Writer => (mixed ? { kind: 'editor', id: 
  * after it — else the person typing here (mixed when the server's updates came along).
  */
 function refreshWriter(e: Entry, writer: Writer | undefined, remote: number): Writer {
+  const held = e.typingHeld
+  e.typingHeld = false
   if (writer) return writer
   const hint = e.writerHint
   e.writerHint = null
-  if (hint && Date.now() - hint.at < HINT_MS) return (remote && remote > hint.at) || e.lastLocal > hint.at ? editorCollab(true) : hint.w
+  // a hint carries only its writer's change: typing held back by a takeover, the server's updates or this tab's typing
+  // after it come along — mixed
+  if (hint && Date.now() < hint.until) return held || (remote && remote > hint.at) || e.lastLocal > hint.at ? editorCollab(true) : hint.w
   return editorCollab(remote > 0)
 }
 
@@ -579,7 +591,9 @@ function refresh(e: Entry, writer?: Writer) {
   if (!c || entries.get(e.pageId) !== e) return
   // older copies are being taken over: the server's state without them would hide their text for a moment
   if (e.adoption) {
-    if (writer) e.writerHint = { w: writer, at: Date.now() }
+    if (writer) e.writerHint = { w: writer, at: Date.now(), until: Infinity }
+    // this tab's typing stays in the document until the takeover is done: the refresh then carries it too
+    else if (e.localEdit && !e.writerHint) e.typingHeld = true
     return
   }
   const remote = e.remoteSince
@@ -592,9 +606,12 @@ function refresh(e: Entry, writer?: Writer) {
   e.localEdit = false
   if (!json) {
     // an empty document: the store keeps what it has until the document has content
+    e.typingHeld = false
     return
   }
   if (deepEqual(json, page.content)) {
+    // nothing to write: no typing waits any more
+    e.typingHeld = false
     remember(e, page.content!, page)
     return
   }
@@ -718,7 +735,10 @@ export function flushRefresh(pageId: ID, writer?: Writer): void {
   const e = entries.get(pageId)
   if (!e) return
   if (e.refreshTimer === undefined) {
-    if (writer) e.writerHint = { w: writer, at: Date.now() }
+    if (writer) {
+      const at = Date.now()
+      e.writerHint = { w: writer, at, until: e.adoption ? Infinity : at + HINT_MS }
+    }
     return
   }
   window.clearTimeout(e.refreshTimer)

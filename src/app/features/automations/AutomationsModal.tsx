@@ -80,6 +80,7 @@ export function AutomationsModal({ databaseId, onClose }: { databaseId: ID; onCl
       message: t('features.auto.deleted', { name: removed.name.trim() || t('features.auto.untitled') }),
       action: {
         label: t('features.auto.undo'),
+        undo: true,
         run: () => {
           const now = useWorkspace.getState().databases[databaseId]?.automations ?? []
           if (now.some((x) => x.id === removed.id)) return

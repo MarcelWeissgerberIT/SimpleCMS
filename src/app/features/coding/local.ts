@@ -18,6 +18,8 @@ export interface TaskLocal {
   /** idle · running (the worker has it) · question (waits for an answer) · failed · stopped */
   state: 'idle' | 'running' | 'question' | 'failed' | 'stopped'
   stageId?: ID | null
+  /** the worker's run of that stage (store/writer.ts coding:<task>:<run>): one id per stage execution, minted at the claim */
+  run?: string | null
   error?: string | null
   question?: string | null
   /** answers given in the current stage */

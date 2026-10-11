@@ -101,7 +101,7 @@ export function LookSection({ team }: { team: TeamData }) {
     setDraft(asDraft(saved))
     setRemote(false)
     setLookPreview(undefined)
-    useUI.getState().toast({ message, action: { label: t('shell.ws.look.undo'), run: () => void useWorkspace.getState().setLook(prev) } })
+    useUI.getState().toast({ message, action: { label: t('shell.ws.look.undo'), undo: true, run: () => void useWorkspace.getState().setLook(prev) } })
   }
   const save = () => commit(isDefaultLook(draft) ? null : draft, t(inCloud ? 'shell.ws.look.savedTeam' : 'shell.ws.look.saved'))
   const reset = () => commit(null, t('shell.ws.look.resetDone'))

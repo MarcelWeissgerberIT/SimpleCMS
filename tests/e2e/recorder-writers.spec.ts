@@ -14,7 +14,7 @@ import { docxBytes } from './helpers/files'
 import { mockAgent, openTerminal, run as runTask, sseMessage, terminal } from './helpers/terminal'
 import { addProfile, trackerProfile } from './helpers/integrations'
 import { makeCodingRepo, startCodingWorker, type CodingRepo, type RunningWorker } from './helpers/coding'
-import { expectLane, markRec, nordlichtDb, rec, startRecorder } from './helpers/recorder'
+import { expectLane, expectNoPerson, markRec, nordlichtDb, rec, startRecorder } from './helpers/recorder'
 
 type AnyRec = Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -164,6 +164,25 @@ test.describe('flight recorder — every writer has a lane', () => {
     await expect(title).toHaveValue('Tessera Notizen 2026')
     await expectLane(page, m, 'you', undefined, 'you~ui')
 
+    // a cover: a random one (written when the cover list arrived), then an uploaded image (written after the file is
+    // stored) — the person's both
+    m = await markRec(page)
+    await page.locator('#main .pv-head').hover()
+    await page.locator('#main').getByRole('button', { name: 'Add cover' }).click()
+    await expect(page.locator('#main article.pv')).toHaveAttribute('data-has-cover', 'true')
+    await expectLane(page, m, 'you', undefined, 'you~ui')
+    m = await markRec(page)
+    await page.locator('#main .pv-cover').hover()
+    await page.locator('#main .pv-cover').getByRole('button', { name: 'Change cover' }).click()
+    const coverPicker = page.getByRole('dialog', { name: 'Change cover' })
+    await coverPicker.getByRole('tab', { name: 'Upload' }).click()
+    const coverFile = page.waitForEvent('filechooser')
+    await coverPicker.getByRole('button', { name: 'Choose an image' }).click()
+    await (await coverFile).setFiles({ name: 'tessera.png', mimeType: 'image/png', buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64') })
+    await expect.poll(async () => String((await pageById(page, id)).cover?.value ?? '')).toMatch(/^onefile:/)
+    await expectLane(page, m, 'you', undefined, 'you~ui')
+    await page.keyboard.press('Escape')
+
     // comment: select → Comment → write
     m = await markRec(page)
     await selectText(page, editorOf(page), 'Montag')
@@ -271,6 +290,17 @@ test.describe('flight recorder — every writer has a lane', () => {
     await expect.poll(async () => (await pageById(page, n.db)).trashed).toBe(false)
     await expectLane(page, m, 'you', undefined, 'you~ui')
     await page.keyboard.press('Escape')
+
+    // a toast's Undo: the person's Undo — the undo lane (F6: a bracket of the person's lane never replays it)
+    const binned = await createPage(page, { title: 'Tessera Papierkorb' })
+    await rowMenu('Tessera Papierkorb', 'Delete')
+    await expect.poll(async () => (await pageById(page, binned)).trashed).toBe(true)
+    m = await markRec(page)
+    await page.locator('.toast', { hasText: 'Tessera Papierkorb' }).getByRole('button', { name: 'Undo' }).click()
+    await expect.poll(async () => (await pageById(page, binned)).trashed).toBe(false)
+    const undone = await expectLane(page, m, 'undo', undefined, /^you~undo/)
+    expect(undone.filter((o) => o.l === 'you').map((o) => o.w), 'the Undo on the person\'s own lane').toEqual([])
+    expect(undone.find((o) => o.l === 'undo')!.f & 512).toBe(512)
 
     // ⌘K, Enter on "Create page": cmdk runs the row inside its own select event, relayed from the person's key
     m = await markRec(page)
@@ -499,6 +529,7 @@ test.describe('flight recorder — every writer has a lane', () => {
     await ai.getByRole('option', { name: /Replace selection/ }).click()
     await expect(ed.locator('p').nth(1)).toHaveText(IMPROVED)
     await expectLane(page, m, 'ai', /^ai:/, /^ai:.+:accept$/)
+    await expectNoPerson(page, m, [`p:${ids.text}`])
 
     // redo with instructions: one passage, review y, apply
     await selectText(page, ed, 'Einleitung bleibt.')
@@ -516,6 +547,7 @@ test.describe('flight recorder — every writer has a lane', () => {
     await page.keyboard.press('Enter')
     await expect(ed.locator('p').first()).toHaveText('Einleitung bleibt. (neu)')
     await expectLane(page, m, 'ai', /^ai:/, /^ai:.+:redo$/)
+    await expectNoPerson(page, m, [`p:${ids.text}`])
 
     // Turn into database (AI menu → More → preview → Convert)
     await gotoPage(page, ids.list)
@@ -530,6 +562,8 @@ test.describe('flight recorder — every writer has a lane', () => {
     await ai.getByRole('option', { name: /Convert/ }).click()
     await expect(ed.locator('section.db')).toBeVisible()
     await expectLane(page, m, 'ai', /^ai:/, /^ai:.+:todb$/)
+    // the replaced blocks reach the store through the editor: the AI's write too (editAs), never the person's
+    await expectNoPerson(page, m, [`p:${ids.list}`])
 
     // Transform into → Toggles
     await gotoPage(page, ids.faq)
@@ -544,6 +578,7 @@ test.describe('flight recorder — every writer has a lane', () => {
     await ai.getByRole('option', { name: /^Transform/ }).click()
     await expect(ed.locator('[data-type="details"], details').first()).toBeVisible()
     await expectLane(page, m, 'ai', /^ai:/, /^ai:.+:transform$/)
+    await expectNoPerson(page, m, [`p:${ids.faq}`])
 
     // Turn into page (Mod+Alt+9): the person's split
     await gotoPage(page, ids.split)
@@ -596,6 +631,7 @@ test.describe('flight recorder — every writer has a lane', () => {
     await page.getByRole('dialog', { name: /Ask Claude/ }).getByRole('option', { name: /^Insert as table/ }).click()
     await expect(editorOf(page, img).locator('table')).toBeVisible()
     await expectLane(page, m, 'ai', /^ai:/, /^ai:.+:image$/)
+    await expectNoPerson(page, m, [`p:${img}`])
     void chooser
   })
 
@@ -636,15 +672,20 @@ test.describe('flight recorder — every writer has a lane', () => {
     })
     const db = n!
 
-    // the AI terminal: two staged changes, Apply all → the terminal's batch
+    // the AI terminal: two staged changes, Apply all → the terminal's batch — with the edited page open, so the edit
+    // goes through its live editor (editAs)
+    await gotoPage(page, target)
+    await expect(editorOf(page, target)).toContainText('Alter Stand.')
     let m = await markRec(page)
     await openTerminal(page)
     await runTask(page, 'Neue Zeile und den Bericht neu schreiben')
     await expect(terminal(page).locator('.term-turn').last()).toHaveAttribute('data-status', 'done', { timeout: 20_000 })
     await terminal(page).locator('.term-bar').getByRole('button', { name: 'Apply all' }).click()
     await expect.poll(() => wsEval(page, (s, id) => s.pages[id].plain, target)).toContain('alles neu von Claude')
+    await expect(editorOf(page, target)).toContainText('alles neu von Claude')
     const term = await expectLane(page, m, 'terminal', /^terminal:/)
     expect(term.filter((o) => o.l === 'terminal').map((o) => o.p1)).toEqual(expect.arrayContaining([`p:${target}`]))
+    await expectNoPerson(page, m, [`p:${target}`])
 
     // /remember: the person's own words, saved on y
     m = await markRec(page)

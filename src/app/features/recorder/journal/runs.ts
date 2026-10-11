@@ -61,6 +61,16 @@ export class RunBook {
     return this.ended.has(runKey)
   }
 
+  /** The run goes on after its end (noteRun again, a review applying its proposals): ended again by the next end. */
+  reopen(runKey: string): void {
+    if (!this.ended.delete(runKey)) return
+    for (const st of this.runs.values())
+      if (st.rec.key === runKey && st.rec.ended) {
+        delete st.rec.ended
+        this.dirty.add(st.rec.id)
+      }
+  }
+
   /** The record of a run in a scope (made on its first event). */
   ensure(scope: Scope, runKey: string, lane: LaneKey, at: number): JRun | null {
     const id = `${scope}|${runKey}`

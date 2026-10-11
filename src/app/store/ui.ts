@@ -29,13 +29,24 @@ export type ModalState =
   /** "Save as example in memory" (features/ai/memory): a page — or `blocks` of it (a selection) — with an optional tag */
   | { type: 'memoryExample'; pageId: ID; tag?: string; blocks?: JSONContent[] | null }
 
+export interface ToastKey {
+  label: string
+  run: () => void
+  undo?: boolean
+}
+
 export interface Toast {
   id: ID
   message: string
   kind?: 'info' | 'success' | 'error'
-  action?: { label: string; run: () => void }
+  /**
+   * The toast's key. `undo`: it takes back what the person (or a writer) just did — the toast host runs it as the
+   * person's Undo (store/writer.ts `you~undo`, the flight recorder's undo lane); a key labelled with the common Undo
+   * string counts as one without the flag.
+   */
+  action?: ToastKey
   /** further keys after `action` (e.g. "Describe" · "Read out text") */
-  more?: Array<{ label: string; run: () => void }>
+  more?: ToastKey[]
   timeout?: number
   /**
    * Raised by work going on in the background (an agent run), not by what the person just did: it never sits over a

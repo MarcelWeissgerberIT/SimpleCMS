@@ -19,7 +19,7 @@ import { withoutWebImages } from './images'
 import { getAgentState, loadRuns, putAgentState, putRun, type AgentState } from './runs'
 import { patchServerRun, resolveServerRun, serverErrorText } from './server'
 import type { AgentRun } from './types'
-import { endRun, withWriter, type Writer } from '../../store/writer'
+import { endRun, noteRun, withWriter, type Writer } from '../../store/writer'
 
 const tn = (key: string, count: number) => t(`${key}.${count === 1 ? 'one' : 'other'}`, { count })
 
@@ -53,6 +53,8 @@ export async function applyRun(run: AgentRun, ids?: string[], opts: { row?: bool
   const safe = (c: StagedChange): StagedChange => (typeof c.markdown === 'string' ? { ...c, markdown: withoutWebImages(c.markdown) } : c)
   // the run's proposals, applied by the person's review, are still the agent run's writes (store/writer.ts)
   const writer: Writer = { kind: 'agent', id: run.agentId, run: run.id }
+  // the run goes on (it had ended): its writes from here are one stretch, ended again below
+  noteRun(writer)
   const res = await asAgent(run.agentId, () => applyChanges(targets.map(safe), all.map(safe), (id) => rowIds[id] ?? id, { writer }))
   endRun(writer)
   Object.assign(rowIds, res.rowIds)

@@ -233,14 +233,25 @@ export function inPersonEvent(): boolean {
 /** Events a component dispatches inside the person's own key or click: cmdk runs a row's onSelect in one (⌘K, Enter). */
 const RELAYED_EVENTS: ReadonlySet<string> = new Set(['cmdk-item-select'])
 
+/** Who wrote when no frame is open and it is not the person (the recorder's fallback steps 1–2: a team change, a tab replay). */
+let causeWithoutFrame: (() => WriterKey | null) | null = null
+
+/** The recorder names the writes without a frame it can tell (journal/attribute.ts) — the same steps for every cause. */
+export function setCauseResolver(fn: (() => WriterKey | null) | null): void {
+  causeWithoutFrame = fn
+}
+
 /**
  * The key of the writer of the write happening now — for a service that reacts to it later (an automation, autofill,
  * the kit, synced blocks: their `cause`). Read inside a store listener: the triggering write's frame is still open.
- * Without a frame: the person inside a user event, else 'unknown'.
+ * Without a frame: the recorder's fallback — a team change ('team'), another tab's save replayed ('system:tab'), the
+ * person inside a user event ('you~ui') — else 'unknown'.
  */
 export function causeKey(): WriterKey {
   const w = currentWriter()
   if (w) return formatWriterKey(w)
+  const k = causeWithoutFrame?.()
+  if (k) return k
   return inPersonEvent() ? 'you~ui' : 'unknown'
 }
 

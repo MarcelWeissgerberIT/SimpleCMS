@@ -140,9 +140,10 @@ function flushWrites() {
     if (!page?.content || !live.has(pageId)) continue
     const next = refreshDoc(pageId, page.content, ids)
     if (next === page.content) continue
-    // a copy following its writer's change is that writer's (synced<cause>); the boot's upkeep is nobody's
+    // a copy following its writer's change is that writer's (synced<cause>); the boot's upkeep is nobody's, and so is a
+    // copy following a system write (another tab's save replayed here: that tab journals its own copy)
     const c = causes.get(pageId)
-    withWriter(c ? { kind: 'synced', cause: c } : SYSTEM('maintenance'), () => useWorkspace.getState().setContent(pageId, next, SYNCED_ORIGIN))
+    withWriter(c && !c.startsWith('system:') ? { kind: 'synced', cause: c } : SYSTEM('maintenance'), () => useWorkspace.getState().setContent(pageId, next, SYNCED_ORIGIN))
   }
   convert.clear()
 }

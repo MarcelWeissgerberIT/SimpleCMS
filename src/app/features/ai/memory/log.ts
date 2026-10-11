@@ -17,9 +17,11 @@ import { t } from '../../../i18n'
 import { ensureLog, logDbId, logProps, memoryDbId, memoryProps, memoryReadOnly, optionIds } from './schema'
 import { memorySettings } from './settings'
 import type { MemoryUse, PickedMemory } from './types'
-import { SYSTEM, withWriter } from '../../../store/writer'
+import { SYSTEM, withWriter, type Writer } from '../../../store/writer'
 
 export const LOG_KEEP = 500
+/** the memory feature's own structure, set up on the person's behalf (store/writer.ts) */
+const MEMORY: Writer = { kind: 'you', via: 'memory' }
 const ORIGIN = 'ai'
 const ws = () => useWorkspace.getState()
 
@@ -57,7 +59,9 @@ function logNow(opts: { task: string; where: LogWhere; pageId?: ID | null; use: 
   if (!memId) return null
   let logId: ID
   try {
-    logId = ensureLog(memId)
+    // the log database and the memory database's "Used in" / "Cited in" / Uses properties are the memory feature's
+    // structure, made for the person (journaled — a schema change is never bookkeeping); the log rows below are not
+    logId = withWriter(MEMORY, () => ensureLog(memId))
   } catch (e) {
     console.warn('[one] memory: no log', e)
     return null

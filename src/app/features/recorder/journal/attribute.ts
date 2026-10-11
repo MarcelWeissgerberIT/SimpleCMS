@@ -10,7 +10,7 @@
  */
 import type { Page } from '../../../store/types'
 import { isApplyingRemote } from '../../../store/persistence'
-import { inPersonEvent, reportFallback, SYSTEM, type Writer } from '../../../store/writer'
+import { formatWriterKey, inPersonEvent, reportFallback, setCauseResolver, SYSTEM, type Writer } from '../../../store/writer'
 import { isApplyingCloudChange } from '../../../cloud'
 import { isAgentWriting } from '../../agents/attribution'
 import { isAIWriting } from '../../history/snapshots'
@@ -43,13 +43,27 @@ export function deepStack(): string {
   }
 }
 
+/** Steps 1–2: a team change through the binding, another tab's save replayed here (null: neither). */
+function remoteWriter(): Writer | null {
+  if (isApplyingCloudChange()) return { kind: 'team' }
+  if (isApplyingRemote()) return SYSTEM('tab')
+  return null
+}
+
 /** Steps 1–3 on the hot path; null = a missing frame (`pending` carries what is known now). */
 export function resolveHot(): { w: Writer } | { pending: Pending } {
-  if (isApplyingCloudChange()) return { w: { kind: 'team' } }
-  if (isApplyingRemote()) return { w: SYSTEM('tab') }
+  const remote = remoteWriter()
+  if (remote) return { w: remote }
   if (inPersonEvent()) return { w: { kind: 'you', via: 'ui' } }
   return { pending: { agent: isAgentWriting(), ai: isAIWriting(), stack: traces ? deepStack() : '' } }
 }
+
+// a derived writer's cause (store/writer.ts causeKey) without a frame follows the same steps: a change a colleague
+// made is the team's, a replay of another tab's save is that tab's (system:tab) — never the person's or unknown
+setCauseResolver(() => {
+  const w = remoteWriter()
+  return w ? formatWriterKey(w) : null
+})
 
 const CONTENT_ONLY_FIELDS = new Set(['content', 'contentRev', 'contentOrigin', 'plain', 'updatedAt'])
 

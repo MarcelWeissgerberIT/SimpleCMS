@@ -120,6 +120,23 @@ export async function expectLane(page: Page, since: RecMark, lane: string | RegE
   return ops
 }
 
+/**
+ * A machine's row: nothing written after `since` touched one of `places` on the person's lane — the half of a path
+ * that reaches the store later (an editor's flush of what the writer changed) is the writer's too, never the person's.
+ * Waits for the editors' pending flushes first.
+ */
+export async function expectNoPerson(page: Page, since: RecMark, places: string[]): Promise<void> {
+  await page.waitForTimeout(450)
+  await page.evaluate(() => (window as unknown as { __oneEditorUnload?: () => void }).__oneEditorUnload?.())
+  const ops = await recorderOps(page, since)
+  const vs = new Set(ops.map((o) => o.v as string))
+  const events = (await recEvents(page)).filter((e) => vs.has(e.v) && e.l === 'you' && places.includes(e.p))
+  expect(
+    events.map((e) => [e.p, e.w]),
+    'the person\'s lane on a place the writer changed',
+  ).toEqual([])
+}
+
 /* ------------------------------------------------------------------ */
 /* The story (tests/e2e/fixtures/recorder-story.json)                  */
 /* ------------------------------------------------------------------ */

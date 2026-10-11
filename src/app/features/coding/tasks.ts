@@ -30,6 +30,7 @@ import { taskText } from './refs'
 import { useCoding } from './state'
 import { notifyAway } from './notify'
 import { endRun, noteRun, SYSTEM, withWriter, type Writer } from '../../store/writer'
+import { newId } from '../../lib/ids'
 
 const ws = () => useWorkspace.getState()
 
@@ -215,6 +216,8 @@ export async function pickNext(repos: string[], workerName: string, docs = false
     if ((local.state === 'failed' || local.state === 'stopped' || local.state === 'question') && !local.runNow) continue
     // nothing is written for a task this device may not run (not even the queue hop below)
     if (!(await isTrusted(row.id))) continue
+    // this stage execution's run (store/writer.ts): the queue hop, the claim and the outcome are its writes
+    const run = newId()
     // queue stages the worker takes: on to the next stage (a move of this device: the trust stays)
     let target = stage
     for (let hops = 0; target.kind === 'queue' && go(target) && hops < pipeline.length; hops++) {
@@ -222,32 +225,45 @@ export async function pickNext(repos: string[], workerName: string, docs = false
       if (!n) break
       target = n
     }
+    let hopped = false
     if (target !== stage) {
       const to = target.id
-      await keepTrust([row.id], () => moveRow(row.id, props, to), codingWriter(row.id, to))
+      await keepTrust([row.id], () => moveRow(row.id, props, to), codingWriter(row.id, run))
       stage = target
+      hopped = true
     }
-    if (stage.kind === 'queue' || stage.kind === 'gate' || stage.kind === 'done' || stage.kind === 'import' || !go(stage)) continue
+    // a hop that does not lead to a claim: the run ends with it
+    const skip = () => void (hopped && endRun(codingWriter(row.id, run)))
+    if (stage.kind === 'queue' || stage.kind === 'gate' || stage.kind === 'done' || stage.kind === 'import' || !go(stage)) {
+      skip()
+      continue
+    }
     // a stage an older worker would misread (it ran unknown kinds as git stages, it would ignore the model): not for
     // this worker — the task says why
     const model = modelFor(stage, local)
     if (stageNeeds({ ...stage, model }).some((need) => !caps.has(need))) {
+      skip()
       if (local.error !== OLD_WORKER()) await patchTask(row.id, { state: 'failed', error: OLD_WORKER(), runNow: false })
       continue
     }
-    if (!optionName(db, props.repo, row.properties[props.repo!]) && stage.kind !== 'doc') continue
+    if (!optionName(db, props.repo, row.properties[props.repo!]) && stage.kind !== 'doc') {
+      skip()
+      continue
+    }
     // the worker gets exactly the version that was checked (row and pipeline): anything that changed
     // meanwhile waits a round
     const fresh = ws().pages[row.id]
-    if (!fresh || fresh.trashed || ws().databases[dbId] !== db || !(await isTrusted(row.id)) || ws().pages[row.id] !== fresh || ws().databases[dbId] !== db) continue
-    // claim it
-    // bookkeeping, not content: no "AI" version for a claim (and nobody's change for the flight recorder)
-    withWriter(SYSTEM('bookkeeping'), () => {
+    if (!fresh || fresh.trashed || ws().databases[dbId] !== db || !(await isTrusted(row.id)) || ws().pages[row.id] !== fresh || ws().databases[dbId] !== db) {
+      skip()
+      continue
+    }
+    // claim it: the stage run's first write (no "AI" version for a claim)
+    withWriter(codingWriter(row.id, run), () => {
       set(row.id, props.worker, workerName)
       set(row.id, props.claimed, nowValue())
     })
     const repo = optionName(db, props.repo, fresh.properties[props.repo!]) ?? ''
-    await patchTask(row.id, { state: 'running', stageId: stage.id, error: null, runNow: false })
+    await patchTask(row.id, { state: 'running', stageId: stage.id, run, error: null, runNow: false })
     return {
       id: row.id,
       title: fresh.title.trim() || t('common.untitled'),
@@ -288,10 +304,11 @@ export async function finishStage(taskId: ID, stageId: ID, outcome: StageOutcome
   await loadTask(taskId)
   const { props, pipeline, row } = ctx
   const stage = pipeline.find((s) => s.id === stageId) ?? null
-  // the worker's stage run (store/writer.ts): everything it writes, the follow-ups it starts included
-  const w = codingWriter(taskId, stageId)
-  noteRun(w)
+  // the worker's stage run (store/writer.ts): everything it writes, the follow-ups it starts included — the run the
+  // claim minted (an outcome without one, e.g. claimed by an older build: a run of its own)
   const local = taskLocal(taskId)
+  const w = codingWriter(taskId, local.stageId === stageId && local.run ? local.run : newId())
+  noteRun(w)
   const stillThere = !!stage && ctx.stage?.id === stage.id
   const patch: Partial<TaskLocal> = { state: 'idle', error: null, question: null, stageId }
   let moveTo: ResolvedStage | null = null
@@ -701,8 +718,8 @@ export interface ActOpts {
 /** The person acting on the task panel (store/writer.ts). */
 const PANEL: Writer = { kind: 'you', via: 'ui' }
 
-/** The worker's run of a stage on a task (store/writer.ts): coding:<task>:<stage>. */
-const codingWriter = (task: ID, stage: ID): Writer => ({ kind: 'coding', task, run: stage })
+/** The worker's run of a stage on a task (store/writer.ts): coding:<task>:<run> — one run id per stage execution. */
+const codingWriter = (task: ID, run: string): Writer => ({ kind: 'coding', task, run })
 
 /** Approve at a gate: on to the next stage. */
 export async function approveTask(taskId: ID, opts: ActOpts = {}): Promise<void> {
@@ -933,7 +950,7 @@ export async function intakeDone(taskId: ID, repo: string, label?: string): Prom
   await keepTrust([taskId], () => {
     setTaskRepo(taskId, repo)
     if (n) moveRow(taskId, ctx.props, n.id)
-  }, codingWriter(taskId, ctx.stage.id))
+  }, codingWriter(taskId, newId()))
   appendLog(taskId, [{ t: Date.now(), k: 'info', s: label ? t('features.coding.intake.logged', { label, repo }) : t('features.coding.intake.taken', { repo }) }])
   useUI.getState().toast({ message: t('features.coding.intake.done', { repo }), kind: 'success' })
   nudge()

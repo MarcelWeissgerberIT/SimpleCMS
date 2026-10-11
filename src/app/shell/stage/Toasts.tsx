@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, type MouseEvent as ReactMouseEvent } from 'react'
 import { X } from 'lucide-react'
-import { useUI, type Toast } from '../../store/ui'
+import { useUI, type Toast, type ToastKey } from '../../store/ui'
+import { withWriter, type Writer } from '../../store/writer'
 import { useT } from '../../i18n'
 import { canFocus, dropFocusHandoff, focusLost, focusMainRegion, focusNear, handFocusOver } from '../../ui/focus'
 import { armClosingGesture, pressOf, type Press } from '../../ui/gesture'
@@ -11,6 +12,9 @@ import { armClosingGesture, pressOf, type Press } from '../../ui/gesture'
  * double-click's second unless the click sequence began on that very toast). Focus never ends on the page body: it
  * goes back to where it was before the press (or before the keyboard came into the toasts), else to the main region.
  */
+
+/** An Undo key's closure is the person's Undo (store/writer.ts): the flight recorder's undo lane, never their own lane. */
+const UNDO: Writer = { kind: 'you', via: 'undo' }
 
 /** The toast whose key began the current mouse click sequence (null: it began elsewhere). */
 let sequenceOn: string | null = null
@@ -74,6 +78,8 @@ export function Toasts() {
 function ToastItem({ toast }: { toast: Toast }) {
   const t = useT()
   const dismiss = useUI((s) => s.dismissToast)
+  /** A key's closure: an Undo runs as the person's Undo (its synchronous part — a nested writer's frame still wins). */
+  const runOf = (k: ToastKey) => (k.undo || k.label === t('common.undo') ? () => withWriter(UNDO, () => void k.run()) : k.run)
   const ref = useRef<HTMLDivElement>(null)
 
   // removed while it holds the focus (a key pressed, its time ran out): focus goes back
@@ -101,12 +107,12 @@ function ToastItem({ toast }: { toast: Toast }) {
       <span className="toast__led" aria-hidden />
       <span className="toast__msg">{toast.message}</span>
       {toast.action && (
-        <button type="button" className="toast__action" onClick={key(toast.action.run)}>
+        <button type="button" className="toast__action" onClick={key(runOf(toast.action))}>
           {toast.action.label}
         </button>
       )}
       {toast.more?.map((m, i) => (
-        <button key={i} type="button" className="toast__action" onClick={key(m.run)}>
+        <button key={i} type="button" className="toast__action" onClick={key(runOf(m))}>
           {m.label}
         </button>
       ))}

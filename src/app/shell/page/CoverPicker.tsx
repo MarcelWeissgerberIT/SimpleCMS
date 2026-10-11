@@ -6,6 +6,7 @@ import { resolveAssetUrl, saveFile } from '../../lib/files'
 import { colorBg } from '../../lib/colors'
 import { useT } from '../../i18n'
 import { useInCloud } from '../cloud/state'
+import { withWriter } from '../../store/writer'
 import { GRADIENTS, coverAssetPath, loadCoverManifest, type CoverManifestEntry } from './covers'
 
 type Tab = 'gallery' | 'upload' | 'link'
@@ -29,7 +30,8 @@ export function CoverPicker({ anchor, onClose, onPick, onRemove, hasCover }: { a
     setBusy(true)
     try {
       const ref = await saveFile(file, file.name)
-      onPick({ type: 'image', value: ref, positionY: 50 })
+      // after the file is stored the person's event is over: the cover is still their write (store/writer.ts)
+      withWriter({ kind: 'you', via: 'ui' }, () => onPick({ type: 'image', value: ref, positionY: 50 }))
     } finally {
       setBusy(false)
     }

@@ -49,16 +49,20 @@ function valueProps(db: Database): PropertyDef[] {
 
 /* ------------------------------------------------------------------ queue */
 
-/** `${dbId}|${propId}` → rows to compute, each with the writer whose change queued it (store/writer.ts: the cause) */
-const queue = new Map<string, Map<ID, WriterKey>>()
+/**
+ * `${dbId}|${propId}` → rows to compute, each with the writer whose change queued it (store/writer.ts: the cause;
+ * undefined: none — a cell showing a stale value)
+ */
+const queue = new Map<string, Map<ID, WriterKey | undefined>>()
 let timer: number | null = null
 let busy = false
 const waiters: Array<() => void> = []
 
-function enqueue(dbId: ID, propId: ID, rowIds: Iterable<ID>, cause: WriterKey): void {
+/** Queue rows; `keep`: a row already queued keeps the cause it has (a cell showing names no writer). */
+function enqueue(dbId: ID, propId: ID, rowIds: Iterable<ID>, cause: WriterKey | undefined, keep = false): void {
   const key = `${dbId}|${propId}`
-  const set = queue.get(key) ?? new Map<ID, WriterKey>()
-  for (const id of rowIds) set.set(id, cause)
+  const set = queue.get(key) ?? new Map<ID, WriterKey | undefined>()
+  for (const id of rowIds) if (!keep || !set.has(id)) set.set(id, cause)
   if (set.size) queue.set(key, set)
   if (timer !== null) window.clearTimeout(timer)
   timer = window.setTimeout(() => {
@@ -81,7 +85,9 @@ export function scheduleValue(dbId: ID, propId: ID, rowId: ID): void {
   const key = `${rowId}|${propId}`
   if (seen.get(key) === code) return
   seen.set(key, code)
-  enqueue(dbId, propId, [rowId], 'you~ui')
+  // a cell showing a value computed with older code: the kit's own upkeep (no cause) — a row already queued keeps the
+  // writer whose change queued it
+  enqueue(dbId, propId, [rowId], undefined, true)
 }
 
 /** "Recompute values": every row of the database for one property (≤ 500 per pass). Resolves with the number of changed values. */
@@ -127,7 +133,7 @@ function enqueueLater(): void {
   }, DEBOUNCE)
 }
 
-async function computeRows(dbId: ID, propId: ID, rowIds: Array<[ID, WriterKey]>): Promise<void> {
+async function computeRows(dbId: ID, propId: ID, rowIds: Array<[ID, WriterKey | undefined]>): Promise<void> {
   if (useCloud.getState().readOnly) return
   for (const [rowId, cause] of rowIds) {
     const s = ws()
@@ -156,7 +162,7 @@ async function computeRows(dbId: ID, propId: ID, rowIds: Array<[ID, WriterKey]>)
       writing++
       try {
         // the computed value as the kit's write, caused by the change that queued the row (store/writer.ts)
-        withWriter({ kind: 'kit', type: type.id, cause }, () => {
+        withWriter(cause ? { kind: 'kit', type: type.id, cause } : { kind: 'kit', type: type.id }, () => {
           if (added.length) now.updateProperty(dbId, propId, { options: [...(prop2.options ?? []), ...added] })
           now.setRowProperty(rowId, propId, value)
         })
