@@ -612,11 +612,14 @@ the public APIs stable — other areas are built against them in parallel.
   `one-preflight` (log + opened set: ids, kinds, times, outcomes — labels resolved live, never text), 30 days, never
   synced / exported / backed up, wiped with the device copy and the local reset. Keys only with focus in the plate or
   the queue; Esc is preventDefault-ed; Enter on a button is left to its click.
-- Agent runs are written per change under a lock: applyRun / discardRun / undoChange / supersedeOlder run inside
-  `withRunLock(agentId)` (agents/runs.ts; a Web Lock), re-read the stored run, act only on `pending | failed` changes and
-  write with `patchRun` (never `putRun` of a stale copy). Superseded proposals (features/agents/supersede.ts, leader tab,
-  browser runs, `update_row` whose props the newer change covers, never a card the person opened — the guard Preflight
-  registers): status 'superseded' (never 'discarded'), no card, counted nowhere; `stateBack` stops at a run holding one.
+- Agent runs are written per change under a lock: applyRun / discardRun / undoChange / undoRunAll / supersedeOlder run
+  inside `withRunLock(agentId)` (agents/runs.ts; a Web Lock), re-read the stored run, act only on `pending | failed`
+  changes and write with `patchRun` (never `putRun` of a stale copy); both Undos settle through review.ts `settleUndo`
+  (what went back is pending again, a kept change stays applied; an undone browser 'apply' run is 'staged' again, a
+  server run keeps its status). The run-level Undo's batch lives in agents/undos.ts (exec.ts and review.ts never import
+  each other). Superseded proposals (features/agents/supersede.ts, leader tab, browser runs, `update_row` whose props
+  the newer change covers, never a card the person opened — the guard Preflight registers): status 'superseded' (never
+  'discarded'), no card, counted nowhere; `stateBack` stops at a run holding one.
 - Server proposals for Preflight come from `GET /:id/agent-runs/open` (own server agents, staged runs, no summaries /
   steps), polled only while the document is visible. applyRun / discardRun of a server run read it again from the server
   inside the run lock (`freshServerRun`) — never a tab-local copy; no answer → nothing done.

@@ -22,8 +22,8 @@ import { t } from '../../i18n'
 import { applyChanges, type ApplyResult } from '../ai/agent/apply'
 import { depsOf, type StagedChange } from '../ai/agent/types'
 import { asAgent, stampLocal, touchedBy } from './attribution'
-import { undoRunResult } from './exec'
 import { withoutWebImages } from './images'
+import { undoRunResult } from './undos'
 import { getAgentState, loadRuns, patchRun, putAgentState, withRunLock, type AgentState } from './runs'
 import { freshServerRun, patchServerRun, resolveServerRun, serverErrorText, serverRunCopy } from './server'
 import { isLeader } from './runner'
@@ -188,7 +188,9 @@ async function settleUndo(run: AgentRun, undo: () => { batch: ApplyResult; kept:
         for (const staged of Object.keys(res.rowIds)) if (!keptPages.has(staged)) delete rowIds[staged]
         const back = (r.staged ?? []).filter((c) => undone.includes(c.id) && c.status === 'applied').length
         const staged = (r.staged ?? []).map((c) => (undone.includes(c.id) && c.status === 'applied' ? { ...c, status: 'pending' as const } : c))
-        const status = back && r.status === 'ok' ? 'staged' : r.status
+        // an 'apply' run whose writes went back has proposals to review again — a browser run only: the server settled
+        // its run to 'ok' and applies none of it again (freshServerRun), so a server run keeps its status here
+        const status = back && r.status === 'ok' && r.runner === 'browser' ? 'staged' : r.status
         return { ...r, status, staged, rowIds, applied: Math.max(0, (r.applied ?? 0) - back) }
       }
       // a server run stays resolved on the server: only this device's copy goes back to pending

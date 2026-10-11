@@ -28,7 +28,7 @@ import { allowFor, allowedTools, attachMcp, instructionsText, outToolsFor, readS
 import { callLabel } from '../ai/mcp-servers/activity'
 import { MAX_TOOL_CALLS, type StageApi } from '../ai/agent/tools'
 import { runAgent, taskMessage, type RunHooks } from '../ai/agent/run'
-import { applyChanges, changeWriter, type ApplyResult } from '../ai/agent/apply'
+import { applyChanges, changeWriter } from '../ai/agent/apply'
 import type { StagedChange } from '../ai/agent/types'
 import { snapshotNow } from '../history/snapshots'
 import { agentTools, scopeFilter, scopeText } from './scope'
@@ -38,6 +38,7 @@ import { agentLabel } from './label'
 import { deliverNotes, lastRunLine, runTools, type RunExtras } from './runTools'
 import { exclusive } from './locks'
 import { supersedeOlder } from './review'
+import { rememberUndo } from './undos'
 import { proposalsShown } from './hold'
 import { awaitsConfirm } from './confirm'
 import { withoutWebImages } from './images'
@@ -164,30 +165,6 @@ export interface RunRequest {
   rows?: ID[]
   /** a person asked (toasts for busy / problems) */
   manual?: boolean
-}
-
-/** Undo of the changes an 'apply' run wrote (this tab, this session). */
-const undos = new Map<string, ApplyResult>()
-export const canUndoRun = (runId: string) => undos.has(runId)
-
-/**
- * Revert what an 'apply' run wrote: the ids of its changes kept because they were edited since, and the batch it
- * reverted (null: nothing to undo in this tab). The review settles the run's proposals with it (review.ts undoRunAll).
- */
-export function undoRunResult(runId: string): { kept: string[]; batch: ApplyResult } | null {
-  const batch = undos.get(runId)
-  if (!batch) return null
-  undos.delete(runId)
-  // the person's Undo of the run (store/writer.ts)
-  return { kept: withWriter({ kind: 'you', via: 'undo', ref: runId }, () => batch.undo()).kept, batch }
-}
-
-/** Revert what an 'apply' run wrote; returns how many changes were kept because they were edited since. */
-export function undoRun(runId: string): number | null {
-  return undoRunResult(runId)?.kept.length ?? null
-}
-export function rememberUndo(runId: string, res: ApplyResult): void {
-  undos.set(runId, res)
 }
 
 const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s)

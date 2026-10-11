@@ -345,6 +345,50 @@ test.describe('team cloud — custom agents', () => {
     expect(await wsEval(a, (s) => s.agents['ag-srv'].trigger)).toEqual({ type: 'webhook' })
   })
 
+  test('a server proposal applied here and undone in its row: the change is a proposal again in this tab, the run keeps the "ok" the server settled it to (mocked)', async ({ page: a }) => {
+    watch(a, 'ada')
+    await a.addInitScript(() => localStorage.setItem('one.preflight.prefs', JSON.stringify({ on: false })))
+    await signIn(a, email('ada'))
+    const wsId = await createWorkspace(a, 'Acme Server Undo')
+    await openApp(a, wsId)
+    await waitOnline(a)
+    const ids = await wsEval(a, (s) => {
+      const db = s.createDatabase({ title: 'Deals', properties: [{ id: 'dName', name: 'Name', type: 'title' }, { id: 'dStage', name: 'Stage', type: 'text' }] })
+      return { db, row: s.createRow(db, { title: 'Big deal', properties: { dStage: 'lead' } }) as string }
+    })
+    await wsEval(a, (s, x) => s.upsertAgent(x), agent({ id: 'ag-srv', name: 'Deal desk', runner: 'server', createdBy: await cloudEval(a, (c) => c.user.id as string) }))
+    const now = Date.now()
+    const change = (status: string) => ({ id: 'c1', n: 1, kind: 'update_row', status, pageId: ids.row, databaseId: ids.db, title: 'Big deal', props: [{ propId: 'dStage', name: 'Stage', type: 'text', before: 'lead', after: 'won', intent: { kind: 'value', value: 'won' } }] })
+    const run = (status: string, c: string, applied: number) => ({ id: 'run-1', agentId: 'ag-srv', runner: 'server', trigger: { type: 'schedule', detail: 'schedule 09:00' }, startedAt: now - 60_000, endedAt: now - 30_000, status, summary: 'Moved **Big deal** forward.', steps: [], staged: [change(c)], applied })
+    // what the server holds: the run open, then — once resolved — settled to 'ok' with the change applied
+    let server = run('staged', 'pending', 0)
+    await a.route('**/api/workspaces/*/agent-runs?*', (route: Route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([server]) }))
+    await a.route('**/api/workspaces/*/agent-runs/open?*', (route: Route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ runs: server.status === 'staged' ? [server] : [], latest: [{ id: server.id, agentId: 'ag-srv', status: server.status, startedAt: server.startedAt, endedAt: server.endedAt }] }) }),
+    )
+    await a.route('**/api/workspaces/*/agent-runs/run-1/resolve', (route: Route) => {
+      server = run('ok', 'applied', 1)
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(server) })
+    })
+
+    await a.evaluate(() => (window.location.hash = '#/agents/ag-srv'))
+    const item = a.locator('.agx-run').first()
+    const row = item.locator('li.agent-change[data-change="c1"]')
+    await expect(item).toHaveAttribute('data-status', 'staged')
+    await row.getByRole('button', { name: /^Apply/ }).click()
+    await expect.poll(() => wsEval(a, (s, id) => s.pages[id].properties.dStage, ids.row)).toBe('won')
+    await expect(row).toHaveAttribute('data-status', 'applied')
+    // the runs list is read again (every 15 s): the server settled the run
+    await expect(item).toHaveAttribute('data-status', 'ok', { timeout: 25_000 })
+
+    // the row's Undo: the write goes back, the change is a proposal again in this tab's copy — and the run stays 'ok'
+    // (the server applies none of it again: a 'staged' copy would offer proposals nothing can apply)
+    await row.getByRole('button', { name: /^Undo/ }).click()
+    await expect.poll(() => wsEval(a, (s, id) => s.pages[id].properties.dStage, ids.row)).toBe('lead')
+    await expect(row).toHaveAttribute('data-status', 'pending')
+    expect(await item.getAttribute('data-status')).toBe('ok')
+  })
+
   test('the recipe "Mirror a list into a database": database and report page go into the creator’s Private section, the agent mirrors into it, another member never sees them', async ({ page: a, context }) => {
     watch(a, 'ada')
     await signIn(a, email('ada'))
