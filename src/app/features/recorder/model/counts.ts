@@ -71,6 +71,42 @@ export function runMeters(run: JRun): { ops: number; places: PlaceCounts; words:
   }
 }
 
+export interface Meters {
+  ops: number
+  places: PlaceCounts
+  words: [number, number]
+}
+
+/**
+ * The window plate's meters from the events of [a, b): Vorgänge = distinct Vorgang ids of W, Stellen = distinct
+ * places among them split by kind ("neu" = rows W created in the window), Wörter = Σ added / removed.
+ */
+export function windowMeters(events: JEvent[], who: WhoSel, a: number, b: number): Meters {
+  const vs = new Set<string>()
+  const kinds = new Map<string, JEvent['pk']>()
+  const created = new Set<string>()
+  let wa = 0
+  let wd = 0
+  for (const e of events) {
+    if (e.at < a || e.at >= b || !mine(who, e)) continue
+    vs.add(e.v)
+    kinds.set(e.p, e.pk)
+    if ((e.f ?? 0) & F.NEW) created.add(e.p)
+    wa += e.wa ?? 0
+    wd += e.wd ?? 0
+  }
+  const places: PlaceCounts = { all: kinds.size, rows: 0, newRows: 0, pages: 0, schema: 0, views: 0 }
+  for (const [p, pk] of kinds) {
+    if (pk === 'row') {
+      places.rows++
+      if (created.has(p)) places.newRows++
+    } else if (pk === 'page' || pk === 'db') places.pages++
+    else if (pk === 'schema') places.schema++
+    else places.views++
+  }
+  return { ops: vs.size, places, words: [wa, wd] }
+}
+
 /** Words of a text (whitespace-separated). */
 export const wordsOf = (text: string): string[] => text.split(/\s+/).filter(Boolean)
 

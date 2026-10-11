@@ -15,7 +15,9 @@ import { classifyPage, placeKey, placeKindOf, parsePlace } from '../../src/app/f
 import { databaseChangesDetail } from '../../src/app/features/recorder/model/schema'
 import { blockList, pageParts, partsKey, rowParts, schemaParts, viewPart, wholeCanon, type CanonDeps } from '../../src/app/features/recorder/model/canon'
 import { touchedParts } from '../../src/app/features/recorder/model/touched'
-import { contentDelta, countOps, countPlaces, countWords, wordDelta } from '../../src/app/features/recorder/model/counts'
+import { contentDelta, countOps, countPlaces, countWords, windowMeters, wordDelta } from '../../src/app/features/recorder/model/counts'
+import { barHeights, followSpan, fracOf, loupeK, loupeLabel, makeAxis, pct, phoneFit, quarterHot, rulerLabels, rulerTicks, runBracket, snapTime, spanAround, stripBars, stripRange, stripTicks, tAtX, tOfU, uOf, xOf } from '../../src/app/features/recorder/model/axis'
+import { settleHead, settleLabels, underHeads } from '../../src/app/features/recorder/model/labels'
 import { F, K, type JEvent, type JOp, type JSegment } from '../../src/app/features/recorder/model/types'
 import type { Database, Page, PropertyDef, View } from '../../src/app/store/types'
 
@@ -493,6 +495,21 @@ test.describe('counts', () => {
     expect(countWords([ev(1, 5, 2), ev(2, 3, 0), ev(200, 9, 9)], { lane: 'you' }, 0, 100)).toEqual([8, 2])
   })
 
+  test('the window plate\'s meters from the events of [a, b) (half-open, copies left out)', () => {
+    const ev = (at: number, v: string, p: string, pk: JEvent['pk'], extra: Partial<JEvent> = {}): JEvent => ({ k: `${at}|${p}`, s: 'local:local', at, v, w: 'agent:n:r1', l: 'agent:n', r: 'agent:n:r1', p: p as JEvent['p'], pk, kinds: 4, ops: 1, g: 'g', lh: 'h', ...extra })
+    const events = [
+      ev(10, 'a', 'p:r1', 'row'),
+      ev(10, 'a', 'p:r2', 'row', { f: F.NEW }),
+      ev(20, 'b', 'p:r1', 'row'),
+      ev(30, 'c', 'p:pg', 'page', { wa: 12, wd: 3 }),
+      ev(40, 'd', 's:db', 'schema'),
+      ev(50, 'e', 'p:r3', 'row', { f: F.COPY }),
+      ev(100, 'f', 'p:r4', 'row'),
+    ]
+    expect(windowMeters(events, { run: 'agent:n:r1' }, 0, 100)).toEqual({ ops: 4, places: { all: 4, rows: 2, newRows: 1, pages: 1, schema: 1, views: 0 }, words: [12, 3] })
+    expect(windowMeters(events, { lane: 'agent:n' }, 15, 101).ops).toBe(4)
+  })
+
   test('word deltas from changed blocks only', () => {
     expect(wordDelta('Nordlicht startet heute', 'Nordlicht startet morgen früh')).toEqual([2, 1])
     const a = docOf(para('Nordlicht startet heute', 'b1'), para('Unverändert bleibt das', 'b2'))
@@ -503,6 +520,189 @@ test.describe('counts', () => {
     expect(contentDelta(docOf(para('Eins zwei')), docOf(para('Eins zwei', 'b1')), deps)).toEqual({ wa: 0, wd: 0, bc: [0, 0, 0] })
     // an empty trailing paragraph is no block of words
     expect(contentDelta(docOf(para('x', 'b1')), docOf(para('x', 'b1'), para('', 'b2')), deps)).toEqual({ wa: 0, wd: 0, bc: [0, 0, 0] })
+  })
+})
+
+/* ------------------------------------------------------------------ */
+/* model/axis.ts, model/labels.ts — the deck's tape                    */
+/* ------------------------------------------------------------------ */
+
+test.describe('the tape: axis, loupe, ruler, strip', () => {
+  // the story's day, its clock two hours east of UTC (pinned: Node's own zone never matters)
+  const off = () => 2 * 3_600_000
+  const at = (hms: string) => new Date(`2026-10-09T${hms}+02:00`).getTime()
+  const MIN = 60_000
+  const T0 = at('06:55:00')
+  const T1 = at('08:10:00')
+  const zone = { a: at('07:30:00'), b: at('07:35:00'), k: 6 }
+
+  test('the loupe: the mock numbers, forward ∘ inverse = identity', () => {
+    const ax = makeAxis(T0, T1, zone)
+    // 35 min + 5 min · 6 + 35 min = 100 minutes of units; the window takes 30 %, a minute outside 1 %
+    expect(ax.total).toBe(100 * MIN)
+    expect(fracOf(ax, zone.b) - fracOf(ax, zone.a)).toBeCloseTo(0.3, 10)
+    expect(fracOf(ax, at('07:00:00')) - fracOf(ax, at('06:59:00'))).toBeCloseTo(0.01, 10)
+    expect(pct(ax, at('07:30:00'))).toBe('35.000%')
+    expect(xOf(ax, T1, 950)).toBeCloseTo(950, 6)
+    // every moment comes back from its units — with the window inside, partly outside, and none
+    let seed = 7
+    const rnd = () => ((seed = (seed * 9301 + 49297) % 233280), seed / 233280)
+    for (const z of [zone, { a: at('06:40:00'), b: at('07:05:00'), k: 2.5 }, { a: at('08:00:00'), b: at('08:30:00'), k: 3 }, null]) {
+      const a = makeAxis(T0, T1, z)
+      for (let i = 0; i < 1000; i++) {
+        const t = T0 + rnd() * (T1 - T0)
+        expect(Math.abs(tOfU(a, uOf(a, t)) - t)).toBeLessThan(1e-3)
+        expect(Math.abs(tAtX(a, xOf(a, t, 1176), 1176) - t)).toBeLessThan(1e-3)
+      }
+      // monotone, from 0 to 1
+      expect(fracOf(a, T0)).toBeCloseTo(0, 10)
+      expect(fracOf(a, T1)).toBeCloseTo(1, 10)
+    }
+    // a window wholly outside the span leaves the axis plain
+    expect(makeAxis(T0, T1, { a: at('09:00:00'), b: at('09:05:00'), k: 6 }).zone).toBeNull()
+  })
+
+  test('k: 6 for 5 minutes at 75 MIN, never more than 60 % of the width', () => {
+    expect(loupeK(75 * MIN, 5 * MIN)).toBe(6)
+    expect(loupeLabel(loupeK(75 * MIN, 5 * MIN))).toBe(6)
+    for (const len of [10, 15, 20, 30, 40, 60, 70]) {
+      const k = loupeK(75 * MIN, len * MIN)
+      expect(k).toBeGreaterThanOrEqual(1)
+      expect(k).toBeLessThanOrEqual(6)
+      const ax = makeAxis(T0, T1, { a: T0 + 5 * MIN, b: T0 + 5 * MIN + len * MIN, k })
+      // the loupe never pushes a window past 60 % (one that is wider by itself stays as it is: k = 1)
+      expect(fracOf(ax, T0 + 5 * MIN + len * MIN) - fracOf(ax, T0 + 5 * MIN)).toBeLessThanOrEqual(Math.max(0.6, len / 75) + 1e-9)
+    }
+    expect(loupeK(75 * MIN, 75 * MIN)).toBe(1)
+  })
+
+  test('the span follows now (rounded up to the zoom\'s edge); a rewound playhead keeps a 10 % margin', () => {
+    expect(followSpan(at('08:05:40'), '75m', off)).toEqual({ t0: T0, t1: T1 })
+    expect(followSpan(at('08:05:40'), '15m', off)).toEqual({ t0: at('07:51:00'), t1: at('08:06:00') })
+    // a sliver of future stays: 08:05:55 is too close to 08:06
+    expect(followSpan(at('08:05:55'), '15m', off).t1).toBe(at('08:07:00'))
+    expect(followSpan(at('08:05:40'), '24h', off).t1).toBe(at('09:00:00'))
+    const cur = { t0: T0, t1: T1 }
+    expect(spanAround(at('07:30:00'), '75m', cur, at('08:05:40'), off)).toBe(cur)
+    const moved = spanAround(at('06:50:00'), '75m', cur, at('08:05:40'), off)
+    expect(moved.t1 - moved.t0).toBe(75 * MIN)
+    expect(at('06:50:00') - moved.t0).toBeGreaterThanOrEqual(7.5 * MIN - 1)
+  })
+
+  test('a flag brackets its run, rounded outward to the 5-minute tick (half-open)', () => {
+    expect(runBracket(at('07:31:04'), at('07:34:41'), 5 * MIN, off)).toEqual({ a: at('07:30:00'), b: at('07:35:00') })
+    expect(runBracket(at('07:31:04'), at('07:35:00'), 5 * MIN, off)).toEqual({ a: at('07:30:00'), b: at('07:40:00') })
+    expect(runBracket(at('07:30:00'), at('07:30:00'), 5 * MIN, off)).toEqual({ a: at('07:30:00'), b: at('07:35:00') })
+    // a dragged edge snaps to the zoom's step or to an edge close by
+    expect(snapTime(at('07:31:20'), MIN, [], 30_000, off)).toBe(at('07:31:00'))
+    expect(snapTime(at('07:31:40'), MIN, [], 30_000, off)).toBe(at('07:32:00'))
+    expect(snapTime(at('07:31:20'), MIN, [at('07:31:04')], 30_000, off)).toBe(at('07:31:04'))
+  })
+
+  test('phone fit: the mock\'s 503 px tape scrolled to 171 px', () => {
+    const ax = makeAxis(T0, T1, zone)
+    const fit = phoneFit(ax, 284, at('07:29:00'), at('08:00:30'))
+    expect(Math.round(fit.width)).toBe(503)
+    expect(Math.round(fit.scrollLeft)).toBe(171)
+  })
+
+  test('ruler ticks ≥ 4 px apart (10-second ticks only inside the window), labels ≥ 28 px apart', () => {
+    const ax = makeAxis(T0, T1, zone)
+    const width = 950
+    const ticks = rulerTicks(ax, '75m', width, off)
+    const secs = ticks.filter((t) => t.cls === 's')
+    expect(secs.length).toBe(25)
+    expect(secs.every((t) => t.t > zone.a && t.t < zone.b)).toBe(true)
+    expect(ticks.filter((t) => t.cls === 'h').map((t) => t.t)).toEqual([at('07:00:00'), at('07:15:00'), at('07:30:00'), at('07:45:00'), at('08:00:00')])
+    const xs = ticks.map((t) => xOf(ax, t.t, width))
+    for (let i = 1; i < xs.length; i++) expect(xs[i] - xs[i - 1]).toBeGreaterThanOrEqual(4 - 1e-9)
+    const labels = rulerLabels(ax, '75m', width, off)
+    expect(labels.filter((l) => l.kind === 'base').map((l) => l.t)).toEqual([at('07:00:00'), at('07:15:00'), at('07:30:00'), at('07:45:00'), at('08:00:00')])
+    expect(labels.filter((l) => l.kind === 'zone').map((l) => l.t)).toEqual([at('07:31:00'), at('07:32:00'), at('07:33:00'), at('07:34:00')])
+    expect(labels.filter((l) => l.kind === 'end').map((l) => l.t)).toEqual([at('07:35:00')])
+    const lx = labels.map((l) => xOf(ax, l.t, width))
+    for (let i = 1; i < lx.length; i++) expect(lx[i] - lx[i - 1]).toBeGreaterThanOrEqual(28 - 1e-9)
+    // 6 STD: the 5-minute window gets minute ticks, no 10-second level at all
+    const six = makeAxis(at('02:10:00'), at('08:10:00'), { a: zone.a, b: zone.b, k: loupeK(360 * MIN, 5 * MIN) })
+    const t6 = rulerTicks(six, '6h', width, off)
+    expect(t6.some((t) => (t.t - zone.a) % MIN === 0 && t.t > zone.a && t.t < zone.b && t.cls === 's')).toBe(true)
+    expect(t6.every((t) => (t.t - T0) % MIN === 0)).toBe(true)
+    // 15 MIN: no loupe; a short label every minute, HH:MM every 5 minutes
+    const fifteen = makeAxis(at('07:52:00'), at('08:07:00'))
+    const l15 = rulerLabels(fifteen, '15m', width, off)
+    expect(l15.filter((l) => l.fmt === 'hm').map((l) => l.t)).toEqual([at('07:55:00'), at('08:00:00'), at('08:05:00')])
+    expect(l15.filter((l) => l.kind === 'minor').length).toBeGreaterThan(8)
+  })
+
+  test('the 24 h strip: 96 quarters ending at the tape\'s edge, hot where they overlap the window', () => {
+    // whole quarters: the last one holds the tape's right edge
+    const r = stripRange(T1)
+    expect(r.to).toBe(at('08:15:00'))
+    expect(r.to - r.from).toBe(24 * 3_600_000)
+    const counts = new Map([[Math.floor(at('07:31:00') / (15 * MIN)), 52], [Math.floor(at('07:58:00') / (15 * MIN)), 13]])
+    const s = stripBars(T1, counts)
+    expect(s.bars.length).toBe(96)
+    expect(s.bars.reduce((a, b) => a + b, 0)).toBe(65)
+    const hot = s.bars.map((_, i) => quarterHot(s.q0 + i, { a: zone.a, b: zone.b })).flatMap((h, i) => (h ? [i] : []))
+    expect(hot.map((i) => (s.q0 + i) * 15 * MIN)).toEqual([at('07:30:00')])
+    expect(barHeights([0, 1, 4])).toEqual([0, 25, 100])
+    expect(barHeights([0, 1, 100])[1]).toBe(8)
+    const ticks = stripTicks(r.from, r.to, off)
+    expect(ticks[0].day).toBe(true)
+    expect(ticks.filter((t) => t.day).length).toBe(2)
+  })
+})
+
+test.describe('the tape: label pass (tape.js settle)', () => {
+  const view = { left: 0, right: 600 }
+
+  test('labels flip left of their mark before the now line or the edge; a range label flips to its start', () => {
+    const [free, beforeNow, edge, range, lead] = settleLabels(
+      [
+        { anchor: 100, w: 80, shift: 14, flipGap: 6, flips: true },
+        { anchor: 400, w: 80, shift: 14, flipGap: 6, flips: true },
+        { anchor: 560, w: 80, shift: 8, flipGap: 8, flips: true },
+        { anchor: 300, w: 120, shift: 8, flipGap: 8, start: 200, flips: true },
+        { anchor: 250, w: 120, shift: -24 - 120, flipGap: 0, flips: false },
+      ],
+      view,
+      420,
+    )
+    expect(free).toEqual({ flip: false, hidden: false, left: 114 })
+    // 400 + 14 + 80 > 420 − 6: flips to 400 − 6 − 80
+    expect(beforeNow).toEqual({ flip: true, hidden: false, left: 314 })
+    // right of now: the edge is the limit
+    expect(edge).toEqual({ flip: true, hidden: false, left: 472 })
+    // 300 + 8 + 120 > 414: the range label sits left of the range's start
+    expect(range).toEqual({ flip: true, hidden: false, left: 72 })
+    expect(lead).toEqual({ flip: false, hidden: false, left: 106 })
+  })
+
+  test('a label still cut at either edge is hidden; on one lane the later of two overlapping goes', () => {
+    const out = settleLabels(
+      [
+        { anchor: 10, w: 90, shift: 14, flipGap: 6, flips: true, start: -40 },
+        { anchor: 20, w: 120, shift: -144, flipGap: 0, flips: false },
+        { anchor: 200, w: 80, shift: 14, flipGap: 6, flips: true, lane: 'mcp' },
+        { anchor: 230, w: 80, shift: 14, flipGap: 6, flips: true, lane: 'mcp' },
+        { anchor: 230, w: 80, shift: 14, flipGap: 6, flips: true, lane: 'sync' },
+      ],
+      view,
+      null,
+    )
+    expect(out.map((o) => o.hidden)).toEqual([false, true, false, true, false])
+    // flipped past the left edge: hidden
+    expect(settleLabels([{ anchor: 595, w: 60, shift: 8, flipGap: 8, start: 20, flips: true }], view, null)[0]).toEqual({ flip: true, hidden: true, left: -48 })
+  })
+
+  test('heads align inward at the edges, "Jetzt →" pinned off to the right; ruler labels under a head are hidden', () => {
+    expect(settleHead(300, 60, view)).toEqual({ place: 'center', left: 270, right: 330 })
+    expect(settleHead(10, 60, view)).toEqual({ place: 'edge-r', left: 10, right: 70 })
+    expect(settleHead(590, 60, view)).toEqual({ place: 'edge-l', left: 530, right: 590 })
+    expect(settleHead(700, 70, view, 'now')).toEqual({ place: 'pinned', left: 528, right: 598 })
+    expect(settleHead(560, 50, view, 'now')).toEqual({ place: 'edge-l', left: 506, right: 556 })
+    expect(settleHead(300, 50, view, 'now')).toEqual({ place: 'center', left: 304, right: 354 })
+    expect(underHeads([{ left: 250, right: 280 }, { left: 333, right: 360 }, { left: 335, right: 360 }, { left: 100, right: 130 }], [{ left: 270, right: 330 }])).toEqual([true, true, false, false])
   })
 })
 
