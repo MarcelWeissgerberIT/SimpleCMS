@@ -3,7 +3,7 @@
  * the plate mode (§5.6). Before this tab has counted, the caps are drawn from the last count (ids and levels only) as
  * "…" — a held morning boot builds the plate, not Home's page walk.
  */
-import { useMemo } from 'react'
+import { lazy, Suspense, useMemo } from 'react'
 import { lampSource } from '../registry'
 import { usePlateMode } from '../hooks'
 import { noteRender } from '../engine'
@@ -12,6 +12,9 @@ import type { LastCache, LampView } from '../types'
 import { Plate } from './Plate'
 import { Strip } from './Strip'
 import { Aside } from './Aside'
+
+/** the queue: its own chunk, loaded with the full plate (never for the strip or at boot) */
+const Queue = lazy(() => import('./Queue'))
 
 /** Placeholder views from the last count: the lamps and their levels, no counts. */
 function fromLast(last: LastCache | null): LampView[] {
@@ -43,7 +46,13 @@ export function PreflightHome() {
     <>
       <Plate views={shown} busy={!ready} />
       <div className="pf-below" data-testid="pf-below">
-        <div className="pf-below__q" />
+        <div className="pf-below__q">
+          {ready && (
+            <Suspense fallback={null}>
+              <Queue />
+            </Suspense>
+          )}
+        </div>
         <Aside />
       </div>
     </>

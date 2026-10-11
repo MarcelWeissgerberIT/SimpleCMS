@@ -7,7 +7,7 @@
 import { useT } from '../../../i18n'
 import type { Translate } from '@/shared/i18n'
 import { lampSource, type LampId } from '../registry'
-import { ackOf, lastRead } from '../engine'
+import { ackOf, lastRead, setHidden } from '../engine'
 import { isLit } from '../lamps'
 import { fmtTime } from '../format'
 import { usePreflight } from '../state'
@@ -15,13 +15,19 @@ import { useQueue } from '../queue/state'
 import { tn } from '../sources/util'
 import type { LampView } from '../types'
 import { lampName, miniClass } from './Cap'
+import { Logbook } from './Logbook'
+import { EyeOff, MoreHorizontal } from 'lucide-react'
+import { Menu, useMenu } from '../../../ui/Menu'
+import { readHidden, writeHidden } from '../prefs'
+import { staleOf } from '../queue/model'
+import { wasOpened } from '../log'
 
 const SOURCE_ORDER = ['mirror', 'agent', 'terminal', 'memory', 'aimenu', 'autofill']
 
-/** Which lamp the aside shows now. */
-export function asideLamp(views: readonly LampView[], q: { cursor: LampId | null; aside: LampId | null }): LampView | null {
-  const by = (id: LampId | null) => (id ? (views.find((v) => v.id === id) ?? null) : null)
-  return by(q.cursor) ?? by(q.aside) ?? views.find((v) => v.isNew) ?? views.find((v) => isLit(v.level)) ?? views[0] ?? null
+/** Which lamp the aside shows now: the plate's cursor, the lamp picked, the open queue tab, the first new, the first lit. */
+export function asideLamp(views: readonly LampView[], q: { cursor: LampId | null; aside: LampId | null; tab?: LampId | null }): LampView | null {
+  const by = (id: LampId | null | undefined) => (id ? (views.find((v) => v.id === id) ?? null) : null)
+  return by(q.cursor) ?? by(q.aside) ?? by(q.tab) ?? views.find((v) => v.isNew) ?? views.find((v) => isLit(v.level)) ?? views[0] ?? null
 }
 
 function thresholdText(t: Translate, v: LampView) {
@@ -36,8 +42,32 @@ function thresholdText(t: Translate, v: LampView) {
   ))
 }
 
+/** "10 cards · 3 of them stale · 2 older ones replaced, not cards" — from the queue's list when it is loaded. */
+function SourcesNote({ view }: { view: LampView }) {
+  const t = useT()
+  const items = useQueue((s) => s.items[view.id])
+  if (!items && !view.notCards) return null
+  const now = Date.now()
+  const stale = (items ?? []).filter((i) => staleOf(i, now, (id) => wasOpened(id) === true)).length
+  const parts = [tn('features.preflight.spec.cards', items?.length ?? view.count)]
+  if (stale) parts.push(t('features.preflight.spec.staleOf', { n: stale }))
+  if (view.notCards) parts.push(tn('features.preflight.spec.replaced', view.notCards))
+  return <span className="pf-spec__note">{parts.join(' · ')}</span>
+}
+
+/** Hide a lamp on this device (the plate's ⋯ shows them again). */
+function hideLamp(id: LampId): void {
+  const scope = usePreflight.getState().scope
+  if (!scope) return
+  const next = new Set([...readHidden(scope), id])
+  writeHidden(scope, [...next])
+  setHidden(next)
+  useQueue.setState((q) => ({ aside: q.aside === id ? null : q.aside, lamp: q.lamp === id ? null : q.lamp }))
+}
+
 function RuleCard({ view, index }: { view: LampView; index: number }) {
   const t = useT()
+  const menu = useMenu()
   const src = lampSource(view.id)
   const ack = ackOf(view.id)
   const read = lastRead(view.id)
@@ -57,6 +87,11 @@ function RuleCard({ view, index }: { view: LampView; index: number }) {
       <div className="pf-spec__h">
         <span className={miniClass(view.level)} aria-hidden />
         <span className="label">{t('features.preflight.spec.head', { nn: String(index + 1).padStart(2, '0'), lamp })}</span>
+        <span className="pf-sp" />
+        <button type="button" className="pf__icon-btn" aria-label={t('features.preflight.spec.menu', { lamp })} aria-haspopup="menu" aria-expanded={menu.open} onClick={menu.toggle}>
+          <MoreHorizontal size={14} aria-hidden />
+        </button>
+        <Menu {...menu.props} placement="bottom-end" entries={[{ label: t('features.preflight.spec.hide'), icon: <EyeOff size={14} />, onSelect: () => hideLamp(view.id) }]} />
       </div>
       <dl className="pf-spec__rows">
         <div className="pf-spec__row">
@@ -87,6 +122,7 @@ function RuleCard({ view, index }: { view: LampView; index: number }) {
                   </span>
                 ))}
               </span>
+              <SourcesNote view={view} />
             </dd>
           </div>
         )}
@@ -147,10 +183,12 @@ export function Aside() {
   const cursor = useQueue((s) => s.cursor)
   const picked = useQueue((s) => s.aside)
   const overflow = useQueue((s) => s.overflow)
-  const view = asideLamp(views, { cursor, aside: picked })
+  const tab = useQueue((s) => s.lamp)
+  const view = asideLamp(views, { cursor, aside: picked, tab: tab === 'all' ? null : tab })
   return (
-    <aside className="pf-aside" aria-label={t('features.preflight.spec.aria')}>
+    <aside className="pf-aside" aria-label={t('features.preflight.aside.aria')}>
       {overflow ? <OverflowCard /> : view ? <RuleCard view={view} index={views.indexOf(view)} /> : null}
+      <Logbook />
     </aside>
   )
 }

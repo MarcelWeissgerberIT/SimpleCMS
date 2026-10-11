@@ -7,43 +7,28 @@
  * An agent's `send` proposal counts only while its Outbox slip is open (the Outbox's probe). `superseded` never counts.
  */
 import { useWorkspace } from '../../../store/store'
-import type { CustomAgent } from '../../../store/types'
 import { navigate, openPage } from '../../../lib/router'
 import { useCloud } from '../../../cloud'
 import { useAutofill } from '../../../database'
 import { t } from '../../../i18n'
 import { onRunsChanged, useAgentRuns, useServerAgents } from '../../agents'
-import type { AgentRun } from '../../agents/types'
 import { openAgent, useAgent } from '../../ai/agent/state'
 import { currentScope, useAIRuns } from '../../ai/runs'
-import { onSlips, slipProbe, type LampReading, type LampSourceDef } from '../registry'
+import { onSlips, type CardAction, type Done, type LampReading, type LampSourceDef, type QueueItem } from '../registry'
 import { all, tn, watch } from './util'
-
-/** this tab's load: terminal and memory ids never repeat across reloads (their change ids restart at c1) */
-const TAB_NONCE = Math.random().toString(36).slice(2, 8)
+import { AGENT_PREFIX, agentActions, agentBulkApply, agentBulkDiscard, agentItems, combine } from './proposals/agents'
+import { TERM_PREFIX, terminalActions, terminalBulkApply, terminalItems } from './proposals/terminal'
+import { AIRUN_PREFIX, MEM_PREFIX, memoryActions, memoryItems, prepareMemory } from './proposals/memory'
+import { openActions, openItems } from './proposals/open'
 
 type Part = 'mirror' | 'agent' | 'terminal' | 'memory' | 'aimenu' | 'autofill'
 
-const waits = (status: string) => status === 'pending' || status === 'failed'
+/** sub-source order (QueueItem.sub) → its part of the rule card */
+const PART_OF: Part[] = ['mirror', 'agent', 'terminal', 'memory', 'memory', 'aimenu', 'autofill']
 
-/** Agents whose proposals count here: own browser agents (this device's runs), own server agents (agent-runs/open). */
-function countsHere(a: CustomAgent, me: string | null, team: boolean): 'browser' | 'server' | null {
-  if (a.runner === 'server') return team && !!me && a.createdBy === me ? 'server' : null
-  if (!team) return 'browser'
-  return !!me && a.createdBy === me ? 'browser' : null
-}
-
-/** The open changes of one run (none while it is still running). */
-function openChanges(run: AgentRun): string[] {
-  if (run.status === 'running') return []
-  const probe = slipProbe()
-  const out: string[] = []
-  for (const c of run.staged ?? []) {
-    if (!waits(c.status)) continue
-    if (c.kind === 'send' && c.send?.slipId && probe && probe.isOpen(c.send.slipId) === false) continue
-    out.push(`run:${run.id}#${c.id}`)
-  }
-  return out
+/** Every proposal that counts here, as cards — the reading's ids are exactly these (one builder for both). */
+export function proposalItems(): QueueItem[] {
+  return [...agentItems(), ...terminalItems(), ...memoryItems(), ...openItems()]
 }
 
 interface Tally {
@@ -54,61 +39,45 @@ interface Tally {
 }
 
 function tally(): Tally {
-  const ws = useWorkspace.getState()
-  const cloud = useCloud.getState()
-  const team = cloud.active.kind === 'cloud'
-  const me = cloud.user?.id ?? null
-  const ids: string[] = []
+  const items = proposalItems()
   const parts: Record<Part, number> = { mirror: 0, agent: 0, terminal: 0, memory: 0, aimenu: 0, autofill: 0 }
+  const byAgent = new Map<string, number>()
+  for (const it of items) {
+    parts[PART_OF[it.sub ?? 0] ?? 'agent']++
+    if (it.refs.agentId) byAgent.set(it.refs.agentId, (byAgent.get(it.refs.agentId) ?? 0) + 1)
+  }
   let top: Tally['top'] = null
-  const byAgent = useAgentRuns.getState().byAgent
-  const server = useServerAgents.getState().open ?? []
-  for (const a of Object.values(ws.agents ?? {})) {
-    const where = countsHere(a, me, team)
-    if (!where) continue
-    const runs = where === 'browser' ? (byAgent[a.id] ?? []) : server.filter((r) => r.agentId === a.id)
-    let n = 0
-    for (const r of runs) {
-      const open = openChanges(r)
-      n += open.length
-      ids.push(...open)
-    }
-    if (!n) continue
-    parts[a.mirrorOf ? 'mirror' : 'agent'] += n
-    if (!top || n > top.n) top = { agentId: a.id, n }
+  for (const [agentId, n] of byAgent) if (!top || n > top.n) top = { agentId, n }
+  return { ids: items.map((i) => i.id), parts, top }
+}
+
+/** The proposals' keys, by the card's source. */
+function actionsOf(item: QueueItem): CardAction[] {
+  if (item.id.startsWith(AGENT_PREFIX)) return agentActions(item)
+  if (item.id.startsWith(TERM_PREFIX)) return terminalActions(item)
+  if (item.id.startsWith(MEM_PREFIX) || (item.id.startsWith(AIRUN_PREFIX) && item.kind === 'memory')) return memoryActions(item)
+  return openActions(item)
+}
+
+/** One batch over several sub-sources: agents one call per run, the terminal one call, the rest one by one. */
+async function bulk(items: QueueItem[], key: 'a' | 'd'): Promise<Done> {
+  const agents = items.filter((i) => i.id.startsWith(AGENT_PREFIX))
+  const term = items.filter((i) => i.id.startsWith(TERM_PREFIX))
+  const rest = items.filter((i) => !agents.includes(i) && !term.includes(i))
+  const results: Done[] = []
+  if (agents.length) results.push(await (key === 'a' ? agentBulkApply(agents) : agentBulkDiscard(agents)))
+  if (term.length && key === 'a') results.push(await terminalBulkApply(term))
+  const singles = key === 'd' ? [...term, ...rest] : rest
+  for (const it of singles) {
+    const a = actionsOf(it).find((x) => x.key === key)
+    if (!a || a.blocked || a.hand?.length) continue
+    const r = await a.run(it)
+    results.push(r.ok ? { ...r, items: r.items ?? [it.id] } : r)
   }
-  const term = useAgent.getState()
-  for (const c of term.changes) {
-    if (!waits(c.status)) continue
-    ids.push(`term:${TAB_NONCE}:${c.id}`)
-    parts.terminal++
-  }
-  for (const card of term.memCards) {
-    if (card.state !== 'ready') continue
-    for (const it of card.items) {
-      if (it.status !== 'pending') continue
-      ids.push(`mem:${TAB_NONCE}:${card.id}:${it.id}`)
-      parts.memory++
-    }
-  }
-  const scope = currentScope()
-  for (const r of Object.values(useAIRuns.getState().runs)) {
-    if (r.scope !== scope || r.status !== 'done') continue
-    if (r.req.kind === 'memory') {
-      if (!r.proposals?.length || r.memSaved) continue
-      parts.memory++
-    } else parts.aimenu++
-    ids.push(`airun:${r.id}`)
-  }
-  for (const job of Object.values(useAutofill.getState().jobs)) {
-    if (job.phase !== 'review' || job.cancelled) continue
-    for (const [rowId, p] of Object.entries(job.results)) {
-      if (p.status !== 'pending') continue
-      ids.push(`fill:${job.dbId}:${job.propId}:${rowId}`)
-      parts.autofill++
-    }
-  }
-  return { ids, parts, top }
+  const ok = results.filter((r): r is Extract<Done, { ok: true }> => r.ok)
+  if (!ok.length) return results.find((r) => !r.ok) ?? { ok: false, error: 'features.preflight.err.notApplied' }
+  const undos = ok.map((r) => r.undo).filter((u): u is NonNullable<typeof u> => !!u)
+  return { ok: true, items: ok.flatMap((r) => r.items ?? []), ...(undos.length ? { undo: combine(undos) } : { final: ok[0].final }) }
 }
 
 let lastTop: Tally['top'] = null
@@ -135,12 +104,13 @@ export const proposalsLamp: LampSourceDef = {
     ),
   read(): LampReading {
     const { ids, parts, top } = tally()
+    const notCards = supersededToday()
     lastTop = top
     lastParts = parts
     const sources = Object.values(parts).filter((n) => n > 0).length
     const kept: Record<string, number> = {}
     for (const [k, n] of Object.entries(parts)) if (n) kept[k] = n
-    return { state: 'ok', count: ids.length, ids, parts: kept, second: tn('features.preflight.lamp.proposals.second', sources) }
+    return { state: 'ok', count: ids.length, ids, parts: kept, second: tn('features.preflight.lamp.proposals.second', sources), ...(notCards ? { notCards } : {}) }
   },
   open() {
     const parts = lastParts
@@ -157,4 +127,20 @@ export const proposalsLamp: LampSourceDef = {
     }
     navigate({ name: 'agents' })
   },
+  queue: {
+    items: () => proposalItems(),
+    prepare: async (item) => {
+      if (item.id.startsWith(AIRUN_PREFIX) && item.kind === 'memory') await prepareMemory(item)
+    },
+    actions: actionsOf,
+    bulk: { apply: (items) => bulk(items, 'a'), discard: (items) => bulk(items, 'd') },
+  },
+}
+
+/** Proposals superseded since the start of today (a note on the rule card: replaced, never cards, never counted). */
+function supersededToday(): number {
+  const since = new Date().setHours(0, 0, 0, 0)
+  let n = 0
+  for (const runs of Object.values(useAgentRuns.getState().byAgent)) for (const r of runs ?? []) for (const c of r.staged ?? []) if (c.status === 'superseded' && (c.supersededBy?.at ?? 0) >= since) n++
+  return n
 }

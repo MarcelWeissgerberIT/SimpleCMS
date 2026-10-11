@@ -45,11 +45,13 @@ export interface CapProps {
   busy?: boolean
   /** the blink may start this many ms from now (the lamp test's end when it runs in this render) */
   flashDelay: number
+  /** this lamp's queue is open: "↵ 3/10" (the card's place) instead of the new chip */
+  open?: string | null
   onActivate: (view: LampView, el: HTMLButtonElement) => void
   onFocus?: (view: LampView) => void
 }
 
-export const Cap = memo(function Cap({ view, tabStop, cursor, busy, flashDelay, onActivate, onFocus }: CapProps) {
+export const Cap = memo(function Cap({ view, tabStop, cursor, busy, flashDelay, open, onActivate, onFocus }: CapProps) {
   noteRender('cap')
   const t = useT()
   const lit = view.level === 'amber' || view.level === 'red'
@@ -69,7 +71,7 @@ export const Cap = memo(function Cap({ view, tabStop, cursor, busy, flashDelay, 
       data-flash={blink.on || undefined}
       data-cursor={cursor || undefined}
       aria-busy={busy || undefined}
-      aria-label={busy ? t('features.preflight.cap.aria.busy', { lamp: lampName(view.legend) }) : capLabel(t, view)}
+      aria-label={busy ? t('features.preflight.cap.aria.busy', { lamp: lampName(view.legend) }) : `${capLabel(t, view)}${open ? ` ${t('features.preflight.cap.aria.open', { pos: open })}` : ''}`}
       tabIndex={tabStop ? 0 : -1}
       title={legendCut(view.legend) ? lampName(view.legend) : undefined}
       style={style}
@@ -80,7 +82,12 @@ export const Cap = memo(function Cap({ view, tabStop, cursor, busy, flashDelay, 
         {view.level === 'red' && <TriangleAlert className="pf-cap__warn" size={13} strokeWidth={2.2} aria-hidden />}
         <span>{view.legend}</span>
       </span>
-      {view.chip && !busy && (
+      {open && !busy ? (
+        <span className="pf-cap__open" aria-hidden>
+          {t('features.preflight.cap.open', { pos: open })}
+        </span>
+      ) : null}
+      {view.chip && !busy && !open && (
         <span className="pf-cap__new" aria-hidden>
           <i />
           {view.chip === 'plus' ? t('features.preflight.cap.plus', { n: view.newCount }) : t('features.preflight.cap.new')}

@@ -6,7 +6,9 @@
  */
 import { t } from '../../../i18n'
 import { openSyncSettings, useSync } from '../../sync'
-import { grantFolder } from '../queue/calls'
+import { grantFolder, settleMissing } from '../queue/calls'
+import { fixItems, openKey } from './fix'
+import type { CardAction } from '../registry'
 import { fnv1a, hex8 } from '../lamps'
 import { fmtTime } from '../format'
 import type { LampReading, LampSourceDef } from '../registry'
@@ -59,4 +61,24 @@ export const syncLamp: LampSourceDef = {
   },
   open: () => openSyncSettings(),
   fix: { label: () => t('features.preflight.lamp.sync.grant'), run: () => grantFolder() },
+  queue: {
+    items: (ctx) => {
+      const r = syncLamp.read(ctx) as LampReading
+      const s = useSync.getState()
+      return fixItems('sync', r.state === 'ok' ? r.ids : [], (id) => {
+        if (id.startsWith('sync:missing:')) return { tag: t('features.preflight.lamp.sync.short'), title: t('features.preflight.fix.sync.missing', { n: s.missing?.items.length ?? 0 }), detail: t('features.preflight.fix.sync.missingWhat'), hand: ['noBulk'] }
+        const target = id.startsWith('sync:github') ? 'github' : 'folder'
+        return { tag: t('features.preflight.lamp.sync.short'), title: t(`features.preflight.fix.sync.error.${target}`), detail: s[target].error ?? '' }
+      })
+    },
+    actions: (item): CardAction[] => {
+      const open = openKey(t('features.preflight.fix.sync.open'), () => openSyncSettings())
+      if (!item.id.startsWith('sync:missing:')) return [open]
+      return [
+        { key: '1', label: t('features.preflight.fix.sync.rewrite'), outcome: 'hand', hand: ['noBulk'], writes: true, run: async () => (await settleMissing(false), { ok: true, resolve: 'reading' }) },
+        { key: '2', label: t('features.preflight.fix.sync.trash'), outcome: 'hand', hand: ['noBulk'], writes: true, run: async () => (await settleMissing(true), { ok: true, resolve: 'reading' }) },
+        open,
+      ]
+    },
+  },
 }

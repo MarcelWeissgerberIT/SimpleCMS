@@ -6,14 +6,20 @@
  *
  * It also hands Preflight a probe: whether a slip is still open (an agent's `send` proposal counts only while it is).
  */
-import { registerLampSource, setSlipProbe, type LampReading } from '../preflight/registry'
+import { lazy } from 'react'
+import { registerLampSource, setSlipProbe, type LampReading, type QueueItem } from '../preflight/registry'
 import { useWorkspace } from '../../store/store'
-import { t } from '../../i18n'
+import { currentLang, t } from '../../i18n'
 import { outboxCounts } from './counts'
-import { openOutbox } from './hooks'
+import { openOutbox, openSlip } from './hooks'
 import { listRoutes } from './routes'
 import { getSlip, getSlips, onSlipsChanged, useOutbox } from './store'
-import { OPEN_STATES } from './types'
+import { withdrawSlip } from './actions'
+import { localized } from '../../store/integrations'
+import { OPEN_STATES, SENT_STATES } from './types'
+
+/** the card's body: the Outbox's own seal and text (loaded with the queue, never at boot) */
+const SlipCardBody = lazy(() => import('./ui/LampCard'))
 
 function openSlips() {
   return getSlips().filter((s) => OPEN_STATES.includes(s.state))
@@ -49,6 +55,49 @@ registerLampSource({
     return { state: 'ok', count: c.open, ids: open.map((s) => `slip:${s.id}`), second, ...(red ? { level: 'red' as const } : {}) }
   },
   open: () => openOutbox(),
+  // the queue (§6.6): every card VON HAND "sends"; A opens the slip in the Outbox (its own cover and press — Preflight
+  // never sends) and the card ends when the slip leaves the reading: sent / confirmed → by hand, withdrawn → discarded
+  queue: {
+    items: (): QueueItem[] =>
+      openSlips().map((s) => ({
+        id: `slip:${s.id}`,
+        lamp: 'outbox',
+        kind: 'slip',
+        tag: t('features.outbox.lamp.short'),
+        refs: { slipId: s.id, pageId: s.target.rowId, dbId: s.target.dbId },
+        at: s.createdAt,
+        hand: ['sends'],
+        bulk: false,
+        resolveBy: 'reading',
+        title: s.title,
+        keyText: s.target.key,
+        detail: localized(s.route.label, currentLang()),
+      })),
+    actions: (item) => {
+      const id = item.refs.slipId ?? ''
+      return [
+        { key: 'a', label: t('features.outbox.lamp.openSlip'), outcome: 'hand', hand: ['sends'], run: () => (openSlip(id), { ok: true, resolve: 'reading' }) },
+        {
+          key: 'd',
+          label: t('features.outbox.act.withdraw'),
+          outcome: 'discarded',
+          run: async () => {
+            const res = await withdrawSlip(id, 'person')
+            if (res === 'gone') return { ok: false, error: t('features.outbox.lamp.gone'), elsewhere: true }
+            if (res === 'too-late') return { ok: false, error: t('features.outbox.lamp.tooLate') }
+            return { ok: true, final: 'features.outbox.lamp.final' }
+          },
+        },
+        { key: 'o', label: t('features.outbox.lamp.openOutbox'), outcome: 'hand', run: () => (openOutbox(), { ok: true, stay: true }) },
+      ]
+    },
+    resolved: (itemId) => {
+      const s = getSlip(itemId.replace(/^slip:/, ''))
+      if (!s) return null
+      return SENT_STATES.includes(s.state) ? 'hand' : s.state === 'withdrawn' ? 'discarded' : null
+    },
+    Body: SlipCardBody,
+  },
 })
 
 setSlipProbe({
@@ -57,4 +106,5 @@ setSlipProbe({
     return s ? OPEN_STATES.includes(s.state) : null
   },
   subscribe: (changed) => onSlipsChanged(changed),
+  open: (id) => openSlip(id),
 })

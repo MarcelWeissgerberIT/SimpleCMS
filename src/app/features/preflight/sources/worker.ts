@@ -9,6 +9,7 @@ import { workerOutdated } from '../../coding/protocol'
 import type { LampReading, LampSourceDef } from '../registry'
 import { fmtTime } from '../format'
 import { watch } from './util'
+import { fixItems, openKey } from './fix'
 
 /** connecting / waiting / off count only after this long */
 const GRACE_MS = 60_000
@@ -54,4 +55,15 @@ export const workerLamp: LampSourceDef = {
     return { state: 'ok', count: 1, ids: [`worker:${s.conn}`], level: 'red', second: downSince ? t('features.preflight.lamp.worker.second.since', { time: fmtTime(downSince) }) : t('features.preflight.lamp.worker.second.off') }
   },
   open: () => openCodingSettings(),
+  queue: {
+    items: (ctx) => {
+      const r = workerLamp.read(ctx) as LampReading
+      return fixItems('worker', r.ids, (id) => ({
+        tag: t('features.preflight.lamp.worker.short'),
+        title: t(id.startsWith('worker:outdated') ? 'features.preflight.fix.worker.outdated' : 'features.preflight.fix.worker.down'),
+        detail: r.second ?? '',
+      }))
+    },
+    actions: () => [openKey(t('features.preflight.fix.worker.open'), () => openCodingSettings())],
+  },
 }

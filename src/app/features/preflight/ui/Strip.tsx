@@ -4,7 +4,7 @@
  * sections follow below it. Never lamp-tested.
  */
 import { useEffect, useMemo, useRef } from 'react'
-import { ChevronDown } from 'lucide-react'
+import { ChevronDown, Undo2 } from 'lucide-react'
 import { useT } from '../../../i18n'
 import { Screws } from '../../../ui/controls'
 import { noteRender, unfold } from '../engine'
@@ -15,7 +15,42 @@ import { useQueue } from '../queue/state'
 import type { LampView } from '../types'
 import { lampName } from './Cap'
 import { MasterKey } from './MasterCaution'
-import { PlateHead } from './Plate'
+import { PlateHead, doneToday } from './Plate'
+import { useLog } from '../log'
+import { undoLast } from '../queue/run'
+import { undoTarget } from '../queue/model'
+import { tn } from '../sources/util'
+
+/** Today's cards under the strip (C7): "Today 12 cards · Undo Z" — Z works with focus here too. */
+function DoneLine() {
+  const t = useT()
+  const events = useLog((s) => s.events)
+  const done = useQueue((s) => s.done)
+  const today = doneToday(events)
+  if (!today.n) return null
+  const target = undoTarget(done)
+  const can = target.some((e) => e.undo)
+  return (
+    <div
+      className="pf-doneline"
+      data-testid="pf-doneline"
+      onKeyDown={(e) => {
+        if (e.key.toLowerCase() !== 'z' || e.altKey || e.metaKey || e.ctrlKey || e.shiftKey || e.repeat || e.defaultPrevented) return
+        e.preventDefault()
+        void undoLast()
+      }}
+    >
+      <span className="label">{tn('features.preflight.strip.done', today.n)}</span>
+      <button type="button" className="pf-undo" aria-disabled={!can || undefined} title={can ? undefined : t('features.preflight.queue.nothingToUndo')} aria-keyshortcuts="Z" onClick={() => void undoLast()}>
+        <Undo2 size={14} aria-hidden />
+        {t('features.preflight.queue.undo')}
+        <span className="kbd" aria-hidden>
+          Z
+        </span>
+      </button>
+    </div>
+  )
+}
 
 function Pip({ view, busy }: { view: LampView; busy: boolean }) {
   const t = useT()
@@ -83,6 +118,7 @@ export function Strip({ views, busy }: { views: LampView[]; busy: boolean }) {
           )}
         </div>
       </div>
+      <DoneLine />
     </section>
   )
 }

@@ -9,7 +9,8 @@ import { useUI } from '../../../store/ui'
 import { t } from '../../../i18n'
 import { onRefusedChanged, readServers, refusedHere } from '../../ai/mcp-servers/config'
 import { useMcpSignIn } from '../../ai/mcp-servers/oauth'
-import type { LampReading, LampSourceDef } from '../registry'
+import type { CardAction, LampReading, LampSourceDef, QueueItem } from '../registry'
+import { checkConnection, signInServer } from '../queue/calls'
 import { all, watch } from './util'
 
 function stateOf(s: McpServerConfig, now: number): 'red' | 'amber' | null {
@@ -46,4 +47,39 @@ export const tokenLamp: LampSourceDef = {
     return { state: 'ok', count: ids.length, ids, second, ...(ids.length ? { level: red ? ('red' as const) : ('amber' as const) } : {}) }
   },
   open: () => useUI.getState().openModal({ type: 'settings', tab: 'ai' }),
+  queue: {
+    items: ({ now }) => {
+      const out: QueueItem[] = []
+      for (const s of enabled()) {
+        const st = stateOf(s, now)
+        if (!st) continue
+        out.push({
+          id: `mcp:${s.id}@${(s.token ?? '').slice(-8)}`,
+          lamp: 'token',
+          kind: 'fix',
+          tag: 'MCP',
+          refs: {},
+          at: s.checkedAt ?? 0,
+          hand: s.oauth ? ['signIn'] : ['editor'],
+          bulk: false,
+          resolveBy: 'reading',
+          title: s.name,
+          detail: t(st === 'red' ? 'features.preflight.fix.token.refused' : 'features.preflight.fix.token.failed'),
+        })
+      }
+      return out
+    },
+    actions: (item) => {
+      const sid = /^mcp:([^@]+)@/.exec(item.id)?.[1]
+      const s = enabled().find((x) => x.id === sid)
+      const settings: CardAction = { key: s?.oauth ? '2' : 'a', label: t('features.preflight.fix.token.enter'), outcome: 'hand', run: () => (useUI.getState().openModal({ type: 'settings', tab: 'ai' }), { ok: true, stay: true }) }
+      if (!s) return [settings]
+      const out: CardAction[] = []
+      // the sign-in window opens inside the key press (sync)
+      if (s.oauth) out.push({ key: 'a', label: t('features.preflight.fix.token.signIn'), outcome: 'hand', hand: ['signIn'], sync: true, run: () => (void signInServer(s.id).catch((e) => console.warn('[one] preflight: sign-in failed', e)), { ok: true, resolve: 'reading' }) })
+      out.push(settings)
+      out.push({ key: '3', label: t('features.preflight.fix.token.check'), outcome: 'hand', hand: ['tokens'], run: async () => (await checkConnection(s.id), { ok: true, resolve: 'reading' }) })
+      return out
+    },
+  },
 }

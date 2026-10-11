@@ -6,6 +6,7 @@ import { t } from '../../../i18n'
 import { useCloud, useCloudSync } from '../../../cloud'
 import type { LampReading, LampSourceDef } from '../registry'
 import { all, watch } from './util'
+import { fixItems } from './fix'
 
 export const cloudLamp: LampSourceDef = {
   id: 'cloud',
@@ -29,5 +30,15 @@ export const cloudLamp: LampSourceDef = {
       if (!second) second = t('features.preflight.lamp.cloud.second.uploads', { n })
     }
     return { state: 'ok', count: ids.length, ids, second }
+  },
+  queue: {
+    items: (ctx) => {
+      const r = cloudLamp.read(ctx) as LampReading
+      return fixItems('cloud', r.ids, (id) => ({ tag: t('features.preflight.lamp.cloud.short'), title: t(id === 'cloud:outdated' ? 'features.preflight.fix.cloud.outdated' : 'features.preflight.fix.cloud.uploads', { n: useCloudSync.getState().failedUploads.length }), detail: '', hand: ['noBulk'] }))
+    },
+    actions: () => [
+      // the confirm row names what a reload drops (this tab's terminal and autofill proposals)
+      { key: 'a', label: t('features.preflight.fix.cloud.reload'), outcome: 'hand', hand: ['noBulk'], run: () => (window.location.reload(), { ok: true, resolve: 'reading' }) },
+    ],
   },
 }

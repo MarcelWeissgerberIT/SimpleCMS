@@ -4,19 +4,23 @@
  * (MASTER CAUTION, the read-out, the key hints) and the foot legend of the states.
  */
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
-import { ChevronUp, MoreHorizontal, Settings2 } from 'lucide-react'
+import { ChevronUp, CircleHelp, Eye, MoreHorizontal, Settings2 } from 'lucide-react'
 import { useLang, useT } from '../../../i18n'
 import { useUI } from '../../../store/ui'
 import { Screws } from '../../../ui/controls'
 import { Menu, useMenu } from '../../../ui/Menu'
+import { openHelp } from '../../../help'
 import { lampSource } from '../registry'
-import { ackLamps, fold, noteRender, runLampTest } from '../engine'
+import { ackLamps, fold, noteRender, runLampTest, setHidden } from '../engine'
+import { writeHidden } from '../prefs'
 import { isLit } from '../lamps'
 import { fmtDay, fmtTime } from '../format'
 import { usePreflight } from '../state'
 import { useQueue } from '../queue/state'
 import { CAP_SELECTOR, onPlateKey } from '../queue/keys'
 import { useCoarsePointer } from '../touch'
+import { useLog } from '../log'
+import type { PreflightLog } from '../types'
 import { tn } from '../sources/util'
 import type { LampView } from '../types'
 import { Cap } from './Cap'
@@ -30,13 +34,19 @@ export function firstStop(views: readonly LampView[]): number {
   return l >= 0 ? l : 0
 }
 
-/** What ↵ / a click on a cap does (P1): lit → acknowledge + its screen; grey → its fix, else the rule; dark → the rule. */
+/**
+ * What ↵ / a click on a cap does: lit → acknowledge + its queue tab (the card takes the keyboard; a lamp without a queue:
+ * its screen); grey → its fix, else the rule; dark → the rule.
+ */
 export function activateLamp(v: LampView): void {
   const src = lampSource(v.id)
   if (isLit(v.level)) {
     ackLamps([v.id])
-    useQueue.setState({ aside: v.id })
-    src?.open?.()
+    if (src?.queue) useQueue.setState({ lamp: v.id, aside: v.id, overflow: false, pendingFocus: 'card', confirm: null, input: null, bulk: null })
+    else {
+      useQueue.setState({ aside: v.id })
+      src?.open?.()
+    }
     return
   }
   if (v.level === 'grey' && src?.fix) {
@@ -44,6 +54,14 @@ export function activateLamp(v: LampView): void {
     void Promise.resolve(src.fix.run()).catch((e) => console.warn('[one] preflight: a fix failed', e))
   }
   useQueue.setState({ aside: v.id, overflow: false })
+}
+
+/** Show every lamp hidden on this device again. */
+function showHiddenLamps(): void {
+  const scope = usePreflight.getState().scope
+  if (!scope) return
+  writeHidden(scope, [])
+  setHidden(new Set())
 }
 
 export function PlateHead({ strip }: { strip?: boolean }) {
@@ -100,7 +118,9 @@ export function PlateHead({ strip }: { strip?: boolean }) {
             placement="bottom-end"
             entries={[
               { label: t('features.preflight.head.fold'), icon: <ChevronUp size={14} />, onSelect: () => fold() },
+              ...(hidden ? [{ label: t('features.preflight.head.showHidden', { n: hidden }), icon: <Eye size={14} />, onSelect: () => showHiddenLamps() }] : []),
               { label: t('features.preflight.head.settings'), icon: <Settings2 size={14} />, onSelect: () => useUI.getState().openModal({ type: 'settings', tab: 'appearance' }) },
+              { label: t('features.preflight.head.help'), icon: <CircleHelp size={14} />, onSelect: () => openHelp('preflight') },
             ]}
           />
         </>
@@ -113,8 +133,11 @@ function ReadOut() {
   const t = useT()
   const open = usePreflight((s) => s.open)
   const ackedAt = usePreflight((s) => s.ackedAt)
-  // ≈ 45 s a card until the Bordbuch knows this device's pace (P2)
-  const minutes = Math.max(1, Math.round((open * 45) / 60))
+  const events = useLog((s) => s.events)
+  const pace = useLog((s) => s.pace)
+  // this device's pace from the Bordbuch (median seconds per card, 30 days), else ≈ 45 s a card
+  const minutes = Math.max(1, Math.round((open * (pace ?? 45)) / 60))
+  const today = doneToday(events)
   return (
     <dl className="pf__read" aria-label={t('features.preflight.read.aria')}>
       <dt className="label">{t('features.preflight.read.open')}</dt>
@@ -123,11 +146,18 @@ function ReadOut() {
         {open > 0 ? ` · ${t('features.preflight.unit.minApprox', { n: minutes })}` : ''}
       </dd>
       <dt className="label">{t('features.preflight.read.done')}</dt>
-      <dd>{t('features.preflight.read.none')}</dd>
+      <dd>{today.n ? t('features.preflight.read.doneSince', { n: today.n, time: fmtTime(today.since!) }) : t('features.preflight.read.none')}</dd>
       <dt className="label pf-hide-s">{t('features.preflight.read.acked')}</dt>
       <dd className="pf-hide-s">{ackedAt ? t('features.preflight.read.ackedAt', { time: fmtTime(ackedAt) }) : t('features.preflight.read.none')}</dd>
     </dl>
   )
+}
+
+/** Cards done today (this member, this device): card events less the ones taken back; since the first. */
+export function doneToday(events: readonly PreflightLog[]): { n: number; since: number | null } {
+  const undone = new Set(events.filter((e) => e.k === 'undo').map((e) => (e as { item: string }).item))
+  const cards = events.filter((e): e is Extract<PreflightLog, { k: 'card' }> => e.k === 'card' && !undone.has(e.item))
+  return { n: cards.length, since: cards.length ? Math.min(...cards.map((c) => c.at)) : null }
 }
 
 export function StateLegend() {
@@ -174,6 +204,14 @@ export function Plate({ views, busy }: { views: LampView[]; busy: boolean }) {
   const ready = usePreflight((s) => s.ready)
   const aside = useQueue((s) => s.aside)
   const pendingFocus = useQueue((s) => s.pendingFocus)
+  const openLamp = useQueue((s) => s.lamp)
+  const openPos = useQueue((s) => {
+    const tab = s.lamp
+    if (!tab || tab === 'all') return null
+    const order = s.order[tab] ?? []
+    const cur = s.card[tab]
+    return order.length ? `${cur ? order.indexOf(cur) + 1 : 0}/${order.length}` : null
+  })
   const grid = useRef<HTMLDivElement>(null)
   const [stop, setStop] = useState(() => firstStop(views))
   const [flashDelay, setFlashDelay] = useState(0)
@@ -245,6 +283,7 @@ export function Plate({ views, busy }: { views: LampView[]; busy: boolean }) {
               busy={busy}
               tabStop={i === at}
               cursor={aside === v.id}
+              open={openLamp === v.id && openPos ? openPos : null}
               flashDelay={flashDelay}
               onActivate={activateLamp}
               onFocus={onCapFocus}
@@ -265,7 +304,7 @@ export function Plate({ views, busy }: { views: LampView[]; busy: boolean }) {
               </span>
               <span>
                 <span className="kbd">↵</span>
-                {t('features.preflight.keys.open')}
+                {t('features.preflight.keys.queue')}
               </span>
               <span className="label">{t('features.preflight.keys.focusOnly')}</span>
             </div>

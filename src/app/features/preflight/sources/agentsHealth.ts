@@ -9,9 +9,11 @@ import { useCloud } from '../../../cloud'
 import { t } from '../../../i18n'
 import { creatorConfirms, healthFitted, missedAgents, onRunsChanged, primeSlots, scheduledHere, staleMirrors, useAgentRuns, useServerAgents, type HealthItem } from '../../agents'
 import { runsHere } from '../../agents/runner'
-import type { LampReading, LampSourceDef } from '../registry'
+import type { CardAction, LampReading, LampSourceDef, QueueItem } from '../registry'
 import { fmtWhen } from '../format'
 import { all, tn, watch } from './util'
+import { fixItems, openKey } from './fix'
+import { runAgent } from '../queue/calls'
 
 const me = () => useCloud.getState().user?.id ?? null
 
@@ -72,7 +74,19 @@ export const mirrorLamp: LampSourceDef = {
     return { state: 'ok', count: items.length, ids: items.map((i) => i.id), second: at ? t('features.preflight.lamp.mirror.second', { time: fmtWhen(at, now) }) : '' }
   },
   open: () => navigate(staleFirst ? { name: 'agents', id: staleFirst } : { name: 'agents' }),
+  queue: {
+    items: ({ now }) => {
+      const items = staleMirrors(now)
+      return fixItems('mirror', items.map((i) => i.id), (id) => {
+        const it = items.find((x) => x.id === id)!
+        return { tag: t('features.preflight.lamp.mirror.short'), title: agentName(it.agentId), detail: t('features.preflight.fix.mirror.since', { time: fmtWhen(it.at, now) }), refs: { agentId: it.agentId }, at: it.at }
+      })
+    },
+    actions: (item) => [openKey(t('features.preflight.card.openAgent'), () => navigate({ name: 'agents', id: item.refs.agentId! }))],
+  },
 }
+
+const agentName = (id: string) => useWorkspace.getState().agents?.[id]?.name ?? '—'
 
 /** Agents this member runs (the dark cap's second line: what the lamp watches). */
 function watched(): number {
@@ -104,4 +118,21 @@ export const missedLamp: LampSourceDef = {
     }
   },
   open: () => navigate(missedFirst ? { name: 'agents', id: missedFirst } : { name: 'agents' }),
+  queue: {
+    items: ({ now }) => {
+      const items = [...missedAgents(now, me()), ...creatorConfirms(me())]
+      return fixItems('missed', items.map((i) => i.id), (id) => {
+        const it = items.find((x) => x.id === id)!
+        const kind = id.startsWith('slot:') ? 'slot' : id.startsWith('cfm:') ? 'confirm' : 'failed'
+        return { tag: t('features.preflight.lamp.missed.short'), title: agentName(it.agentId), detail: t(`features.preflight.fix.missed.${kind}`, { time: fmtWhen(it.at, now) }), refs: { agentId: it.agentId }, at: it.at, hand: kind === 'slot' ? ['tokens'] : kind === 'confirm' ? ['confirm'] : [] }
+      })
+    },
+    actions: (item: QueueItem): CardAction[] => {
+      const agentId = item.refs.agentId!
+      const open = openKey(t('features.preflight.card.openAgent'), () => navigate({ name: 'agents', id: agentId }))
+      const agent = useWorkspace.getState().agents?.[agentId]
+      if (!item.id.startsWith('slot:') || !agent) return [open]
+      return [{ key: 'a', label: t('features.preflight.fix.missed.run'), outcome: 'hand', hand: ['tokens'], run: async () => (await runAgent(agent), { ok: true, resolve: 'reading' }) }, open]
+    },
+  },
 }
