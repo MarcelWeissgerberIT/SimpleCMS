@@ -4,7 +4,7 @@ title: Preflight
 section: start
 order: 2
 keywords: preflight, vorflug, lamps, lampen, lamp panel, master caution, queue, warteschlange, quittieren, acknowledge, von hand, by hand, angestaubt, stale, superseded, logbook, Bordbuch, start, morning
-related: custom-agents, coding-pipeline, outbox, integrations, mcp-servers, sync
+related: custom-agents, agent-trust, coding-pipeline, outbox, integrations, mcp-servers, sync
 summary: A lamp panel on Start shows what waits on you — proposals, gates, questions, refused tokens, slips — counted for 0 tokens; its queue works through it by keyboard.
 ---
 Before a pilot takes off, every warning lamp is checked once. **Preflight** does that for your workspace: on **Start** a panel of lamps shows what waits on you — and only that. Each lamp counts one kind of thing, in your browser, without asking Claude: **counting costs 0 tokens**.
@@ -36,6 +36,7 @@ In the morning, the first time you open One on a new day, One stays on Start whe
 - **J / K** next · previous · **Z** undo the last thing done here · **Esc** back to the panel
 - **⇧A** applies every clean card of the lamp — but only cards **shown in full** in this tab, as they are now. Cards you have not seen yet (or that changed since) are listed in a sheet first; ↵ there applies what it showed — anything that arrives meanwhile waits for the next ⇧A. Never on **All**.
 - **X** discards the stale ones (see below).
+- On an agent's proposal, **1–4** discard with a reason — **1** (or **W**) means wrong and counts against its [trust per field](help:agent-trust); **2** not now, **3** duplicate, **4** handled already do not count. A single **A**, **D** or reason is a verdict only for a card shown in full: one whose body was still loading, ⇧A and X record none.
 - On a phone: swipe a card → to apply, ← to discard.
 
 **BY HAND** marks a card that starts the coding worker, hands text to Claude Code, sends something out, confirms a version, needs a sign-in, text of yours or a look in the editor, or costs tokens. **A** then opens a confirm row; only **↵** or a click on its key confirms — a second A never does, and such a card is never part of ⇧A or a swipe.

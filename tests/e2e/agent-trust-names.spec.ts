@@ -51,6 +51,8 @@ const GROUPS: Record<string, () => string[]> = {
   'tests/e2e/agent-trust*.spec.ts': () => inDir('tests/e2e', /^agent-trust.*\.spec\.ts$/),
   'tests/e2e/helpers/trustStory.*': () => inDir('tests/e2e/helpers', /^trustStory\./),
   'scripts/trust-shots.mjs': () => one('scripts/trust-shots.mjs'),
+  'help/articles/{en,de}/agent-trust.md': () => [...one('src/app/help/articles/en/agent-trust.md'), ...one('src/app/help/articles/de/agent-trust.md')],
+  'help/changelog/{en,de}/*agent-trust*.md': () => [...inDir('src/app/help/changelog/en', /agent-trust/), ...inDir('src/app/help/changelog/de', /agent-trust/)],
 }
 
 const words = (text: string): string[] => text.toLowerCase().match(/[\p{L}\p{N}]+(?:-[\p{L}\p{N}]+)*/gu) ?? []

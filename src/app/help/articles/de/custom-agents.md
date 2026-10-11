@@ -4,7 +4,7 @@ title: Eigene Agenten
 section: ai
 order: 4
 keywords: eigene agenten, agenten, zeitplan, wiederkehrend, automatisieren, auslöser, rezept, bericht, server-agent, webhook, budget, mcp-werkzeuge, nur lesende werkzeuge, zustand, posteingang, notiz, spiegeln, abgleichen, schlüssel, nur von hand, integration, custom agents, mirror
-related: agent, integrations, automations, mcp-servers, properties, mentions-dates, gmail-sync
+related: agent, agent-trust, integrations, automations, mcp-servers, properties, mentions-dates, gmail-sync
 summary: Gespeicherte KI-Helfer für wiederkehrende Arbeit — jeder mit Auftrag, Auslöser und Grenzen. Sie laufen selbstständig und berichten.
 ---
 **Agenten** in der Seitenleiste listet deine eigenen Agenten. **Neuer Agent** startet mit einem Rezept — *Tägliche Mail-Sortierung*, *Wochenbericht aus Projekten*, *Neue Formularantworten zusammenfassen*, *Seiten mit der Wissensdatenbank abgleichen* — oder **Leer**. Eine aktive [Integration](help:integrations) bringt eigene Rezepte mit, benannt nach der Integration, etwa einen Spiegel der Liste eines anderen Werkzeugs. Nichts läuft, bevor du speicherst.
@@ -25,7 +25,7 @@ Diese gibt es mit einer aktiven [Integration](help:integrations), die sie freisc
 - Ein geplanter Agent, der Änderungen **direkt anwendet**, meldet sich kurz („Agent · Name: 3 Änderungen“) mit **Öffnen**.
 
 ## Läufe
-**Jetzt ausführen** startet sofort einen Lauf. Jeder Lauf steht unter **Läufe** mit Bericht, Schritten und Kosten; Vorschläge warten dort auf **Prüfen**, und die Seitenleiste zeigt, wie viele warten. **Übernehmen** bei einem Vorschlag zeigt das Ergebnis in seiner eigenen Zeile, mit **Rückgängig** gleich daneben; **Alle übernehmen** meldet es. Hat ein Agent neue Vorschläge oder ist ein Lauf fertig oder fehlgeschlagen, sagt es eine Meldung — außer seine eigene Seite ist offen, die zeigt den Lauf ja schon.
+**Jetzt ausführen** startet sofort einen Lauf. Jeder Lauf steht unter **Läufe** mit Bericht, Schritten und Kosten; Vorschläge warten dort auf **Prüfen**, und die Seitenleiste zeigt, wie viele warten. **Übernehmen** bei einem Vorschlag zeigt das Ergebnis in seiner eigenen Zeile, mit **Rückgängig** gleich daneben; **Alle übernehmen** meldet es. Tasten wirken auf den Vorschlag mit dem Fokus — ↵ oder A übernehmen, D verwerfen, 1–4 verwerfen mit Grund — und jeder Vorschlag, über den du einzeln entscheidest, zählt für das [Vertrauen pro Feld](help:agent-trust) des Agenten, das neben den Läufen steht. Hat ein Agent neue Vorschläge oder ist ein Lauf fertig oder fehlgeschlagen, sagt es eine Meldung — außer seine eigene Seite ist offen, die zeigt den Lauf ja schon.
 
 Liegt eine Seite, mit der der Agent arbeitet, im Papierkorb oder ist sie endgültig gelöscht — eine Seite oder Datenbank unter **Darf nutzen**, die Datenbank, deren Zeilen ihn starten, seine Berichtsseite —, nennt seine Seite jede davon, mit **Wiederherstellen** für eine im Papierkorb (danach springt der Fokus zum nächsten **Wiederherstellen**). Ein Browser-Lauf startet nicht, solange nichts unter **Darf nutzen** nutzbar ist oder seine Berichtsseite fehlt: Er steht dann als Fehler mit dem Grund in der Liste.
 

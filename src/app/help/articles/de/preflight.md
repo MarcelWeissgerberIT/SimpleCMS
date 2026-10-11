@@ -4,7 +4,7 @@ title: Vorflug-Check
 section: start
 order: 2
 keywords: Vorflug, Vorflug-Check, Lampen, Lampentafel, Master Caution, Warteschlange, quittieren, von Hand, angestaubt, ersetzt, Bordbuch, Start, morgens, preflight, lamps, queue, acknowledge, by hand, stale
-related: custom-agents, coding-pipeline, outbox, integrations, mcp-servers, sync
+related: custom-agents, agent-trust, coding-pipeline, outbox, integrations, mcp-servers, sync
 summary: Eine Lampentafel auf Start zeigt, was auf dich wartet — Vorschläge, Gates, Rückfragen, abgelehnte Token, Zettel — gezählt für 0 Token; ihre Warteschlange arbeitet es per Tastatur ab.
 ---
 Bevor ein Pilot startet, wird jede Warnlampe einmal geprüft. Der **Vorflug-Check** (Preflight) macht das für deinen Workspace: Auf **Start** zeigt eine Lampentafel, was auf dich wartet — und nur das. Jede Lampe zählt eine Art von Dingen, in deinem Browser, ohne Claude zu fragen: **Zählen kostet 0 Token**.
@@ -36,6 +36,7 @@ Morgens, beim ersten Öffnen an einem neuen Tag, bleibt One auf Start, wenn zule
 - **J / K** nächste · vorige · **Z** das Letzte hier Erledigte rückgängig · **Esc** zurück zur Tafel
 - **⇧A** übernimmt alle sauberen Karten der Lampe — aber nur Karten, die in diesem Tab **ganz gezeigt** wurden, so wie sie jetzt sind. Noch nicht gesehene (oder seitdem geänderte) listet zuerst ein Blatt; ↵ dort übernimmt, was es zeigte — was inzwischen dazukommt, wartet auf das nächste ⇧A. Nie auf **Alle**.
 - **X** verwirft die angestaubten (siehe unten).
+- Auf dem Vorschlag eines Agenten verwerfen **1–4** mit Grund — **1** (oder **F**) heißt falsch und zählt gegen sein [Vertrauen pro Feld](help:agent-trust); **2** nicht jetzt, **3** doppelt, **4** schon erledigt zählen nicht. Ein einzelnes **A**, **D** oder ein Grund ist nur bei einer ganz gezeigten Karte ein Urteil: eine, deren Inhalt noch lud, ⇧A und X zählen nie.
 - Auf dem Telefon: Karte wischen → übernehmen, ← verwerfen.
 
 **VON HAND** markiert eine Karte, die den Coding-Worker startet, Text an Claude Code gibt, etwas hinausschickt, eine Version bestätigt, eine Anmeldung, Text von dir oder einen Blick in den Editor braucht oder Token kostet. **A** öffnet dann eine Bestätigungszeile; nur **↵** oder ein Klick auf ihre Taste bestätigt — ein zweites A nie, und solche Karten sind nie Teil von ⇧A oder einem Wischen.

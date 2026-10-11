@@ -29,7 +29,8 @@ src/app/store/**                     data model (types.ts = CONTRACT), zustand s
 src/app/lib/**                       router (hash), ids, files (IndexedDB blobs), colors, theme
 src/app/ui/**                        shared primitives: Popover, Menu/MenuList/useMenu, Modal, Tooltip, Switch/SwitchFace/
                                      Kbd/Led, Screws (ui/screws.ts), roving.ts (radiogroup keys), PageIcon, IconPicker,
-                                     gesture.ts (closing-gesture guard), focus.ts (focus back after a close);
+                                     gesture.ts (closing-gesture guard), focus.ts (focus back after a close), keys.ts
+                                     (`typing()`: single-letter keys belong to a field / menu / dialog);
                                      ui/code = the shared highlighted code area (CodeArea / CodeView, tokenizers, placeholders,
                                      brackets; public API ui/code/index.ts); ui.css = base + primitive classes
 src/app/i18n/**                      t()/useT(); per-area strings in src/app/<area>/messages.ts
@@ -52,11 +53,13 @@ src/app/features/recorder/**         flight recorder: writer journal (IndexedDB 
 src/app/features/workitems/**        tasks outside the editor: the workspace index (lazy, incremental), graph (blocked / loops),
                                      views, writeItems (origin 'items'), the unblock toast, members + reminder audience, the
                                      people / link pickers and cards (public API workitems/index.ts, via features/index.ts)
-src/app/help/**                      help centre: panel (?, status bar, ⌘K, workspace menu), 73 articles EN+DE twins
+src/app/help/**                      help centre: panel (?, status bar, ⌘K, workspace menu), 74 articles EN+DE twins
                                      (help/articles/{en,de}/<id>.md, `help:<id>` links), Ask (Claude over the articles);
                                      link UI to an article with `<HelpLink id="…" />` (public API: help/index.ts)
 src/help-site/**                     build-time public /help pages (prerendered from the same articles, hreflang)
 src/app/features/agents/**           custom agents (#/agents, editor, browser runner, review, server-agent settings)
+src/app/features/agents/trust/**     per-field trust: verdict book, meters, grants, direct runs, spot checks, lessons, cell
+                                     provenance (public via features/agents/index.ts); S1 = reasons, book, read-only plate
 src/app/features/script/**           One Script: lang/ (lexer, Pratt parser, AST, async interpreter — no eval / new Function),
                                      runtime/ (One objects, effects, run / dry / query, trust, run log), editor/, builder/
                                      (visual query builder), #/scripts (public API: script/index.ts; engine lazy via
@@ -742,6 +745,19 @@ the public APIs stable — other areas are built against them in parallel.
   render `agent:` ids with `agentLabel()` ("Agent · <name>"). Routes `#/agents`, `#/agents/<id>`. Team workspaces: a
   browser agent's "everything" scope is the shared pages; private pages only when named in its scope. Anything an
   agent writes turns web images into links (features/agents/images.ts) — no auto-loading pixels from injected text.
+- Per-field trust (features/agents/trust): verdicts only from the person's decision on ONE proposal seen in full
+  (run review row keys, Preflight A / D / 1–4 on one card shown at its current revision) — never from Apply all /
+  Discard all / ⇧A / X / 'apply' runs; ONE key map on both surfaces (`reasonKeys`: 1 = wrong (+ F de / W en),
+  2 not now, 3 duplicate, 4 handled; A apply, D discard, Z undo; trust/runKeys.ts on the agent page); book per device +
+  member in IndexedDB `one-agents` (`trust|<scope>|<agentId>` head + one shard per key, `local:local` |
+  `cloud:<ws>:u:<account>`), never synced / exported / backed up / sent to Claude (a lesson sends only its 3 items),
+  wiped with the device copy and the local reset; written only through trust/book.ts (seam `window.__oneAgentTrust`,
+  DEV / `?e2e`). Rules are pure in trust/rules.ts (20 in a row, 14 days, ≤ 2 reasonless, 10-min edited by the person
+  only). Run-review keys act only where the buttons would (read-only, running, needs #n — said in a live region),
+  never while typing (`ui/keys.ts typing()`); focus after a decision goes to the next open proposal's row (D15), a
+  discard keeps its Undo in its row. The plate (trust/ui/TrustPlate.tsx) is read only in S1 (`GRANTS = false`: every
+  lamp PRÜFUNG, no switch); meter fills are its LED mixed with ink (trust/meter.ts `METER_MIX` = trust.css, checked
+  for every look by look-engine.spec), every detail a cut-out.
 - Team-cloud agents (server/src/agents): agents with `runner: 'server'` run on the server (scheduler, row triggers,
   webhooks) with a per-workspace Claude key + MCP tokens encrypted at rest; their writes carry `agent:<agentId>` as
   createdBy / updatedBy; `AGENTS=off` disables them; the server needs outbound HTTPS to api.anthropic.com.

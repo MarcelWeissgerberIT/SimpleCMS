@@ -4,7 +4,7 @@ title: Custom agents
 section: ai
 order: 4
 keywords: custom agents, agents, schedule, recurring, automate, trigger, recipe, report, server agent, webhook, budget, MCP tools, read-only tools, state, inbox note, mirror, sync, key, upsert, only by hand, integration, Eigene Agenten, Agenten, Zeitplan, spiegeln
-related: agent, integrations, automations, mcp-servers, properties, mentions-dates, gmail-sync
+related: agent, agent-trust, integrations, automations, mcp-servers, properties, mentions-dates, gmail-sync
 summary: Saved AI helpers for recurring work — each with a job, a trigger and limits. They run on their own and report back.
 ---
 **Agents** in the sidebar lists your custom agents. **New agent** starts from a recipe — *Daily mail triage*, *Weekly report from projects*, *Summarise new form answers*, *Check pages against your knowledge base* — or **Blank**. An active [integration](help:integrations) adds its own recipes, named by the integration, such as a mirror of another tool's list. Nothing runs until you save.
@@ -25,7 +25,7 @@ These come with an active [integration](help:integrations) that unlocks them —
 - A scheduled agent that **applies** changes shows a short message (“Agent · name: 3 changes”) with **Open**.
 
 ## Runs
-**Run now** starts one at once. Every run is listed under **Runs** with its report, its steps and its cost; proposals wait there for **Review**, and the sidebar shows how many are waiting. **Apply** on one proposal shows the result in its own row, with **Undo** right there; **Apply all** says so in a message. A message says when an agent has new proposals, finished or failed — except while its own page is open, which shows the run already.
+**Run now** starts one at once. Every run is listed under **Runs** with its report, its steps and its cost; proposals wait there for **Review**, and the sidebar shows how many are waiting. **Apply** on one proposal shows the result in its own row, with **Undo** right there; **Apply all** says so in a message. Keys work on the proposal with the focus — ↵ or A apply, D discard, 1–4 discard with a reason — and every proposal you decide on its own counts towards the agent's [trust per field](help:agent-trust), shown beside the runs. A message says when an agent has new proposals, finished or failed — except while its own page is open, which shows the run already.
 
 When a page the agent works with is in the trash or deleted for good — a page or database under **May use**, the database its rows start it from, its report page — its page names each one, with **Restore** for one in the trash (focus then moves to the next **Restore**). A browser run does not start while nothing under **May use** can be used or its report page is gone: it is listed as an error that says why.
 
