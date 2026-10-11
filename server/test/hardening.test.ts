@@ -234,6 +234,7 @@ describe('DELETE /api/workspaces/:id/documents/:pageId', () => {
     await flushed(back)
     await waitFor(() => storedDocs().includes(name), 15_000, 'stored again')
     assert.ok(!tombstones().some((t) => t.name === name), 'tombstone lifted')
-    assert.ok(server.logs().includes('page document revived'))
+    // the log line comes through the server's stdout pipe — it can trail the stored row under load
+    await waitFor(() => server.logs().includes('page document revived'), 5000, 'revival logged')
   })
 })
