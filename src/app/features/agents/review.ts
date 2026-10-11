@@ -22,6 +22,8 @@ import { t } from '../../i18n'
 import { applyChanges, type ApplyResult } from '../ai/agent/apply'
 import { depsOf, type StagedChange } from '../ai/agent/types'
 import { asAgent, stampLocal, touchedBy } from './attribution'
+import { scopeFilter } from './scope'
+import { useWorkspace } from '../../store/store'
 import { withoutWebImages } from './images'
 import { undoRunResult } from './undos'
 import { getAgentState, loadRuns, patchRun, putAgentState, withRunLock, type AgentState } from './runs'
@@ -87,15 +89,25 @@ export async function applyRun(run: AgentRun, ids?: string[], opts: { row?: bool
     const targets = all.filter((c) => isOpen(c) && (!ids || ids.includes(c.id)))
     if (!targets.length) return null
     const rowIds: Record<string, ID> = { ...(cur.rowIds ?? {}) }
-    // proposals from a server run (or stored before images.ts) load no web image either
-    const safe = (c: StagedChange): StagedChange => (typeof c.markdown === 'string' ? { ...c, markdown: withoutWebImages(c.markdown) } : c)
+    // proposals from a server run (or stored before images.ts) load no web image either; a server run's create no task
+    // (nobody saw them settled here — its 'workItem' changes fail at apply)
+    const server = cur.runner === 'server'
+    const safe = (c: StagedChange): StagedChange => {
+      const md = typeof c.markdown === 'string' ? { ...c, markdown: withoutWebImages(c.markdown) } : c
+      if (!server || !md.items) return md
+      const { items: _items, ...rest } = md
+      return rest
+    }
+    const agent = useWorkspace.getState().agents?.[cur.agentId]
     // the run's proposals, applied by the person's review, are still the agent run's writes (store/writer.ts)
     const writer: Writer = { kind: 'agent', id: cur.agentId, run: cur.id }
     // the run goes on (it had ended): its writes from here are one stretch, ended again below
     noteRun(writer)
     let res: ApplyResult
     try {
-      res = await asAgent(cur.agentId, () => applyChanges(targets.map(safe), all.map(safe), (id) => rowIds[id] ?? id, { writer }))
+      res = await asAgent(cur.agentId, () =>
+        applyChanges(targets.map(safe), all.map(safe), (id) => rowIds[id] ?? id, { writer, items: server ? { creates: false } : { visible: agent ? scopeFilter(agent) : null } }),
+      )
     } finally {
       endRun(writer)
     }
@@ -106,7 +118,7 @@ export async function applyRun(run: AgentRun, ids?: string[], opts: { row?: bool
         const f = res.failed.find((x) => x.id === c.id)
         return f ? { ...c, status: 'failed', error: f.error } : c
       })
-    const [changed, created] = touchedBy(mark(all), res.applied, rowIds)
+    const [changed, created] = touchedBy(mark(all), res.applied, rowIds, res.pages)
     stampLocal(cur.agentId, changed, created)
     // the row's Undo before the run is stored: the row draws it as soon as it shows the change applied
     if (opts.row) for (const id of res.applied) rowUndos.set(rowKey(cur.id, id), res)

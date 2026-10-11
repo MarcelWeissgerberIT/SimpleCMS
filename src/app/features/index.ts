@@ -481,7 +481,7 @@ export {
  * editor: live editor first, else setContent(…, 'items' | 'ai'); refusals; undo → { kept }), unblockedBy() /
  * toastUnblocked(). Claude writes tasks (P2): settleDoc() (the ONE gate a `> [!TODO]` quote becomes a task through —
  * claudeSettled calls it with a SettleContext), settleWorld(), factLine() / factLineEn(), queryItems(), holdText() /
- * heldClosure(), memberEmails() / warmMembers().
+ * heldClosure(), memberEmails() / warmMembers(), ItemFacts (the review rows of a change's tasks).
  */
 export {
   startItems,
@@ -513,6 +513,7 @@ export {
   queryItems,
   holdText,
   heldClosure,
+  ItemFacts,
   type SettleContext,
   type SettleReport,
   type SettleWarning,

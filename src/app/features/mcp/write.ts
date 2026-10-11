@@ -20,6 +20,7 @@ import { isEffectivelyTrashed } from '../../store/selectors'
 import { aiWrite, snapshotNow } from '../history/snapshots'
 import { AGENT_TOOLS, ToolInputError, type StageApi } from '../ai/agent/tools'
 import { applyChanges } from '../ai/agent/apply'
+import { newItemSession } from '../ai/agent/workItems'
 import type { PropChange, StagedChange, ToolName } from '../ai/agent/types'
 import { MCP_PROPERTY_TYPES, type McpToolName } from './contract'
 import { databaseOrThrow, iconText, kindOf, live, McpToolError, pageUrl, pathOf, propertyJson, q, rowProperties, titleOf, TWO_WAY_SUFFIX, ws } from './values'
@@ -74,6 +75,8 @@ function callStage(): StageApi & { changes: StagedChange[] } {
       return changes[i]
     },
     resolve: (id) => id,
+    // the call's task handles and staged task ids
+    items: newItemSession('mcp'),
   }
 }
 

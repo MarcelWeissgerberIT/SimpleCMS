@@ -52,13 +52,16 @@ export function stampLocal(agentId: ID, changed: ID[], created: ID[] = []): void
   }
 }
 
-/** The pages an applied batch touched: [changed, created] (rowIds: staged row id → the id the row got). */
-export function touchedBy(changes: StagedChange[], applied: string[], rowIds: Record<string, ID>): [ID[], ID[]] {
+/**
+ * The pages an applied batch touched: [changed, created] (rowIds: staged row id → the id the row got; `pages`: the page
+ * a change really wrote — ApplyResult.pages: a task change writes the task's page as it is now).
+ */
+export function touchedBy(changes: StagedChange[], applied: string[], rowIds: Record<string, ID>, pages: Record<string, ID> = {}): [ID[], ID[]] {
   const changed: ID[] = []
   const created: ID[] = []
   for (const c of changes) {
     if (!applied.includes(c.id)) continue
-    const id = rowIds[c.pageId] ?? c.pageId
+    const id = (c.kind === 'workItem' ? pages[c.id] : undefined) ?? rowIds[c.pageId] ?? c.pageId
     if (c.kind === 'create_page' || c.kind === 'create_row') created.push(id)
     else changed.push(id)
   }

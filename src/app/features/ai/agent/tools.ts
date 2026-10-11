@@ -17,9 +17,11 @@ import { retrieve, workspaceDocs } from '../workspace'
 import { coerceProperties, coerceProperty, findProp, isSettable, mergeProps } from './props'
 import { canBeKey, isHandOnly, keyPropOf, keyText } from '../../../store/keys'
 import { holderText, intentValue, keyConflict, keyHolders, type KeyHolder } from './keys'
-import { planEdits, readWithRefs, stripRefs, type RawEdit } from './edit'
+import { keepsSingle, knownOf, planEdits, readWithRefs, settlesItems, stripRefs, type RawEdit } from './edit'
 import type { ChangeKind, ColumnSpec, ColumnType, PropChange, StagedChange, ToolName } from './types'
 import { SCRIPT_REFERENCE } from '../../script/reference'
+import { currentReadLimit, currentToolScope, LIMITED_NOTE, ToolInputError } from './toolScope'
+import { commitItems, listWorkItems, pagePrivate, registerItems, scratchSession, stageBlocks, stageItems, stagedPrivacy, updateWorkItem, withNeeds, type ItemSession, type ItemStaging } from './workItems'
 
 /* ------------------------------------------------------------------ */
 /* Contracts                                                           */
@@ -43,6 +45,8 @@ export interface StageApi {
   update(id: string, patch: Partial<StagedChange>): StagedChange
   /** id of a row created from a staged create_row (rows get their id on apply), else the id itself */
   resolve(id: ID): ID
+  /** the task blocks this conversation / run / call staged (handles, new ids → their change) — workItems.ts */
+  items: ItemSession
 }
 
 export interface AgentTool {
@@ -55,13 +59,7 @@ export interface AgentTool {
   run(input: Record<string, unknown>, stage: StageApi): ToolOutcome | Promise<ToolOutcome>
 }
 
-/** A call Claude has to fix: the message goes back to Claude as an error result. */
-export class ToolInputError extends Error {
-  constructor(message: string) {
-    super(message)
-    this.name = 'ToolInputError'
-  }
-}
+export { ToolInputError, currentReadLimit, currentToolScope, withReadLimit, withToolScope, LIMITED_NOTE, type ReadLimit } from './toolScope'
 
 /* ------------------------------------------------------------------ */
 /* Limits                                                              */
@@ -120,61 +118,10 @@ const day = (ms: number) => new Date(ms).toISOString().slice(0, 10)
 const titleOf = (p: Page | undefined) => p?.title.trim() || 'Untitled'
 const q = (s: string) => JSON.stringify(s)
 
-/**
- * Custom agents (features/agents): the pages a scoped run may see (null = everything). Set only for
- * the duration of one tool call (withToolScope) — tool runs are synchronous.
- */
-let visible: ((id: ID) => boolean) | null = null
-
-/**
- * The AI terminal: what the person lets Claude read of a page (its context marks, editor area) —
- * null = everything. Set only for the duration of one tool call (withReadLimit).
- */
-export interface ReadLimit {
-  mode: 'marked' | 'none'
-  /** the marked blocks as Markdown / plain text ('' for 'none') */
-  markdown: string
-  plain: string
-  blocks: number
-  /** the marked top-level blocks (their ids) — read_page with refs and edit_page only see these */
-  ids?: string[]
-}
-
-let readLimit: ((id: ID) => ReadLimit | null) | null = null
-
-/**
- * The read limit of the tool call running now. It holds for the call's synchronous part only (withReadLimit resets
- * it when run() returns its Promise): an async tool takes it along as its FIRST statement, before any await.
- */
-export const currentReadLimit = (): ((id: ID) => ReadLimit | null) | null => readLimit
-
-/** Run `fn` (a tool call) reading pages only as `limit` allows. */
-export function withReadLimit<T>(limit: ((id: ID) => ReadLimit | null) | null, fn: () => T): T {
-  const prev = readLimit
-  readLimit = limit
-  try {
-    return fn()
-  } finally {
-    readLimit = prev
-  }
-}
-
-export const LIMITED_NOTE = 'The person limited what you may read on this page'
-
-/** Run `fn` (a tool call) seeing only the pages `filter` lets through. */
-export function withToolScope<T>(filter: ((id: ID) => boolean) | null, fn: () => T): T {
-  const prev = visible
-  visible = filter
-  try {
-    return fn()
-  } finally {
-    visible = prev
-  }
-}
-
 function live(id: ID): Page | null {
   const { pages } = ws()
   const p = pages[id]
+  const visible = currentToolScope()
   if (visible && !visible(id)) return null
   return p && !p.trashed && !isEffectivelyTrashed(pages, id) ? p : null
 }
@@ -308,6 +255,9 @@ function needsOf(schema: Schema, props: PropChange[], prev: string[] = []): stri
 
 const dbTitle = (schema: Schema) => (schema.staged ? (schema.staged.title ?? '') : titleOf(ws().pages[schema.db.id]))
 
+/** The privacy a new row of this database gets (team: a private database's rows are private). */
+const schemaPrivate = (stage: StageApi, schema: Schema) => (schema.staged ? stagedPrivacy(stage, schema.staged.parentId) : pagePrivate(schema.db.id))
+
 /** An existing page, or throws a message Claude can act on. Staged pages are handled by the callers. */
 function pageOrThrow(stage: StageApi, rawId: ID): Page {
   const staged = stagedCreate(stage, rawId)
@@ -330,6 +280,16 @@ function markdownOf(doc: JSONContent | null): string {
 
 const stagedNote = (c: StagedChange) => `Staged as change #${c.n}. Nothing is written until the user applies it.`
 
+/** What a text's tasks add to a tool result ('' when nothing). */
+const itemsNote = (lines: readonly string[]) => (lines.length ? `\n${lines.join('\n')}` : '')
+
+/** A staged change's fields for what settling its Markdown made (the items, its needs on other changes). */
+const itemFields = (staging: ItemStaging | null, c: Pick<StagedChange, 'id' | 'dependsOn' | 'needs'> | null = null): Partial<StagedChange> => {
+  if (!staging) return {}
+  const needs = withNeeds(c, staging.needs)
+  return { items: staging.items, ...(needs.length ? { needs } : {}) }
+}
+
 /* ------------------------------------------------------------------ */
 /* Tools                                                               */
 /* ------------------------------------------------------------------ */
@@ -351,8 +311,8 @@ const searchPages: AgentTool = {
   run(input) {
     const query = str(input, 'query', { required: true, max: 300 }).trim()
     const limit = int(input, 'limit', 8, 1, 20)
-    const scope = visible
-    const lim = readLimit
+    const scope = currentToolScope()
+    const lim = currentReadLimit()
     let docs = scope ? workspaceDocs().filter((d) => scope(d.id)) : workspaceDocs()
     // a page whose reading is limited is searched (and quoted) only by what may be read of it
     if (lim) docs = docs.map((d) => {
@@ -378,7 +338,7 @@ const readPage: AgentTool = {
   name: 'read_page',
   write: false,
   description:
-    'Read one page as Markdown, with its title, location, last-edit date, sub-pages and — for database rows — its property values. Call this before you summarise, quote or change a page. Long pages come in parts: pass the offset given at the end of a part to continue. For a database this returns its schema; use query_database for its rows. Pass refs: true before you change existing text with edit_page: every block (and list item) then carries a ref like ⟦b3⟧ to cite.',
+    'Read one page as Markdown, with its title, location, last-edit date, sub-pages and — for database rows — its property values. Call this before you summarise, quote or change a page. Long pages come in parts: pass the offset given at the end of a part to continue. For a database this returns its schema; use query_database for its rows. Pass refs: true before you change existing text with edit_page: every block (and list item, and task) then carries a ref like ⟦b3⟧ to cite. Dates and people come as [@label](one:date/…) / [@Name](one:person/<id>) links, task blocks as "> [!TODO] Title {#wi_…}" with their field line — keep both exactly when you write text back.',
   input_schema: {
     type: 'object',
     properties: {
@@ -423,7 +383,7 @@ const readPage: AgentTool = {
       .filter((c) => c.parentId === p.id && !c.databaseId && !c.trashed)
       .sort((a, b) => a.order - b.order)
     if (children.length) head.push(`sub-pages: ${children.slice(0, 40).map((c) => `${q(titleOf(c))} (id: ${c.id})`).join(', ')}${children.length > 40 ? ` and ${children.length - 40} more` : ''}`)
-    const lim = readLimit?.(p.id) ?? null
+    const lim = currentReadLimit()?.(p.id) ?? null
     if (lim?.mode === 'none')
       return {
         content: `${head.join('\n')}\n\n[Content withheld. ${LIMITED_NOTE}: you may not read its content (context: nothing from this page). Don't try to get it another way. You can still stage changes to it; if you need its text, say so — the person can change the context in the terminal.]`,
@@ -580,7 +540,7 @@ const currentPage: AgentTool = {
     const peek = peekId ? live(peekId) : null
     if (!main && !peek) return { content: `No page is open (the user is on the ${route.name} screen).`, summary: t('features.agent.res.noPage'), state: 'ok' }
     const note = (p: Page) => {
-      const l = readLimit?.(p.id)
+      const l = currentReadLimit()?.(p.id)
       return !l ? '' : l.mode === 'none' ? ` · ${LIMITED_NOTE}: nothing of its content may be read` : ` · ${LIMITED_NOTE}: only ${l.blocks} marked block${l.blocks === 1 ? '' : 's'}`
     }
     const line = (p: Page) => `id: ${p.id} · ${kindOf(p)} · ${q(titleOf(p))}${pathOf(p.id) ? ` · in ${q(pathOf(p.id))}` : ''}${note(p)}`
@@ -629,9 +589,12 @@ const createPage: AgentTool = {
       dependsOn = parent.dependsOn
       parentTitle = parent.title
     }
-    const change = stage.add({ kind: 'create_page', pageId: newId(), parentId, title, markdown, ...(dependsOn ? { dependsOn } : {}) })
+    const pageId = newId()
+    const staging = markdown.trim() ? stageItems(markdown, stage, { pageId, private: stagedPrivacy(stage, parentId) }) : null
+    const change = stage.add({ kind: 'create_page', pageId, parentId, title, markdown, ...(dependsOn ? { dependsOn } : {}), ...itemFields(staging, { id: '', dependsOn }) })
+    const more = staging ? [...staging.lines, ...commitItems(stage, change, staging)] : []
     return {
-      content: `${stagedNote(change)} New page id: ${change.pageId}${parentId ? ` (under ${q(parentTitle)})` : ' (top level)'}.`,
+      content: `${stagedNote(change)} New page id: ${change.pageId}${parentId ? ` (under ${q(parentTitle)})` : ' (top level)'}.${itemsNote(more)}`,
       summary: t('features.agent.res.staged', { n: change.n }),
       state: 'staged',
       changeId: change.id,
@@ -709,23 +672,56 @@ const createPages: AgentTool = {
     const ns: number[] = []
     let first: StagedChange | null = null
     let updated = 0
-    const now = new Set<string>()
-    plans.forEach((p, i) => {
+    // the pages' tasks, settled in order on a scratch session (page 3 may use page 1's handle): one refusal stages none
+    const scratch: StageApi = { list: stage.list, add: stage.add, update: stage.update, resolve: stage.resolve, items: scratchSession(stage.items) }
+    const temp = (i: number) => `__page${i}`
+    const claimed = new Set<string>()
+    const settled = plans.map((p, i) => {
       const parentId = p.parent?.id ?? null
-      const again = samePage(stage, parentId, p.title, now)
+      const again = samePage(stage, parentId, p.title, claimed)
+      if (again) claimed.add(again.id)
+      const pageId = again?.pageId ?? newId()
+      if (!p.markdown.trim()) return { again, pageId, staging: null }
+      try {
+        const staging = stageItems(p.markdown, scratch, { pageId, private: stagedPrivacy(stage, parentId), change: again?.id ?? temp(i) }, again?.items)
+        registerItems(scratch.items, again?.id ?? temp(i), staging)
+        return { again, pageId, staging }
+      } catch (e) {
+        throw new ToolInputError(`pages[${i}]: ${e instanceof Error ? e.message : String(e)}`)
+      }
+    })
+    const real = new Map<string, string>()
+    const changes = plans.map((p, i) => {
+      const parentId = p.parent?.id ?? null
+      const { staging, pageId, again } = settled[i]
+      const items = staging ? { items: staging.items } : {}
       const c = again
-        ? stage.update(again.id, { markdown: p.markdown })
-        : stage.add({ kind: 'create_page', pageId: newId(), parentId, title: p.title, markdown: p.markdown, ...(p.parent?.dependsOn ? { dependsOn: p.parent.dependsOn } : {}) })
-      now.add(c.id)
+        ? stage.update(again.id, { markdown: p.markdown, ...items })
+        : stage.add({ kind: 'create_page', pageId, parentId, title: p.title, markdown: p.markdown, ...(p.parent?.dependsOn ? { dependsOn: p.parent.dependsOn } : {}), ...items })
+      real.set(temp(i), c.id)
       if (again) updated += 1
       first ??= c
       ns.push(c.n)
       lines.push(`${i + 1}. ${q(p.title)} → id: ${c.pageId} · change #${c.n}${again ? ' (staged before: updated)' : ''} · ${p.parent ? `under ${q(p.parent.title)}` : 'top level'}`)
+      return c
+    })
+    // every page staged: the session learns their tasks; links between them are needs; Blocks: onto existing tasks
+    const extra: string[] = []
+    changes.forEach((c, i) => {
+      const staging = settled[i].staging
+      if (staging) registerItems(stage.items, c.id, staging)
+    })
+    changes.forEach((c, i) => {
+      const staging = settled[i].staging
+      if (!staging) return
+      const needs = withNeeds(c, staging.needs.map((n) => real.get(n) ?? n))
+      const cur = needs.length ? stage.update(c.id, { needs }) : c
+      extra.push(...staging.lines.map((l) => `${i + 1}. ${l}`), ...stageBlocks(stage, cur, staging))
     })
     const sorted = [...ns].sort((a, b) => a - b)
     const range = sorted.length > 1 && sorted[sorted.length - 1] - sorted[0] === sorted.length - 1 ? `${sorted[0]}–${sorted[sorted.length - 1]}` : sorted.join(' #')
     return {
-      content: `Staged ${plans.length} page${plans.length === 1 ? '' : 's'}${updated ? ` (${updated} of them were staged before and are updated)` : ''}. Nothing is written until the user applies them. The new ids, in order — link a page with [Title](#/p/<id>):\n${lines.join('\n')}`,
+      content: `Staged ${plans.length} page${plans.length === 1 ? '' : 's'}${updated ? ` (${updated} of them were staged before and are updated)` : ''}. Nothing is written until the user applies them. The new ids, in order — link a page with [Title](#/p/<id>):\n${lines.join('\n')}${itemsNote(extra)}`,
       summary: t('features.agent.res.staged', { n: range }),
       state: 'staged',
       changeId: first!.id,
@@ -754,16 +750,24 @@ const appendToPage: AgentTool = {
     const staged = stagedCreate(stage, rawId)
     if (staged?.kind === 'create_database') throw new ToolInputError(`${q(staged.title ?? '')} is a staged database. Use create_row to add rows to it.`)
     if (staged && staged.status === 'pending') {
-      const c = stage.update(staged.id, { markdown: [staged.markdown?.trim(), markdown].filter(Boolean).join('\n\n') })
-      return { content: `Added to staged change #${c.n} (the new page ${q(c.title ?? '')}).`, summary: t('features.agent.res.staged', { n: c.n }), state: 'staged', changeId: c.id }
+      // the staged page's text again, joined: its earlier tasks keep their ids (by position)
+      const joined = [staged.markdown?.trim(), markdown].filter(Boolean).join('\n\n')
+      const priv = staged.kind === 'create_row' ? stagedPrivacy(stage, staged.databaseId) : stagedPrivacy(stage, staged.parentId)
+      const staging = stageItems(joined, stage, { pageId: staged.pageId, private: priv, change: staged.id }, staged.items)
+      const c = stage.update(staged.id, { markdown: joined, ...itemFields(staging, staged) })
+      const more = [...staging.lines, ...commitItems(stage, c, staging)]
+      return { content: `Added to staged change #${c.n} (the new page ${q(c.title ?? '')}).${itemsNote(more)}`, summary: t('features.agent.res.staged', { n: c.n }), state: 'staged', changeId: c.id }
     }
     const p = pageOrThrow(stage, rawId)
     if (p.kind === 'database') throw new ToolInputError(`${q(titleOf(p))} is a database. Use create_row to add rows.`)
     const pending = pendingFor(stage, 'append', p.id)
+    const text = pending ? `${pending.markdown}\n\n${markdown}` : markdown
+    const staging = stageItems(text, stage, { pageId: p.id, private: pagePrivate(p.id), change: pending?.id ?? null }, pending?.items)
     const c = pending
-      ? stage.update(pending.id, { markdown: `${pending.markdown}\n\n${markdown}` })
-      : stage.add({ kind: 'append', pageId: p.id, title: titleOf(p), markdown })
-    return { content: `${stagedNote(c)} It adds ${markdown.length} characters at the end of ${q(titleOf(p))}.`, summary: t('features.agent.res.staged', { n: c.n }), state: 'staged', changeId: c.id }
+      ? stage.update(pending.id, { markdown: text, ...itemFields(staging, pending) })
+      : stage.add({ kind: 'append', pageId: p.id, title: titleOf(p), markdown, ...itemFields(staging) })
+    const more = [...staging.lines, ...commitItems(stage, c, staging)]
+    return { content: `${stagedNote(c)} It adds ${markdown.length} characters at the end of ${q(titleOf(p))}.${itemsNote(more)}`, summary: t('features.agent.res.staged', { n: c.n }), state: 'staged', changeId: c.id }
   },
 }
 
@@ -805,25 +809,64 @@ const editPage: AgentTool = {
     if (staged && staged.status !== 'applied') throw new ToolInputError(`${q(staged.title ?? '')} is staged (change #${staged.n}) and not applied yet: there is nothing to edit. Use append_to_page to add to it.`)
     const p = pageOrThrow(stage, rawId)
     if (p.kind === 'database') throw new ToolInputError(`${q(titleOf(p))} is a database. Use update_row for its rows' properties, edit_page for a row's page content.`)
-    const lim = readLimit?.(p.id) ?? null
+    const lim = currentReadLimit()?.(p.id) ?? null
     if (lim?.mode === 'none') throw new ToolInputError(`${q(titleOf(p))}: ${LIMITED_NOTE} — nothing of its content is readable, so you may not change it: refused. Use append_to_page to add to it.`)
     const pending = stage.list().filter((c) => c.kind === 'edit' && c.pageId === p.id && c.status === 'pending')
     const res = planEdits(p.id, raw as RawEdit[], lim ? new Set(lim.ids ?? []) : null, pending, 200_000)
     if ('error' in res) throw new ToolInputError(res.error)
     const title = titleOf(p)
-    const out = res.plans.map((plan) => {
+    // every edit's text through the settle gate first (a scratch session: a later edit may use an earlier one's handle) —
+    // one refusal stages none
+    const scratch: StageApi = { list: stage.list, add: stage.add, update: stage.update, resolve: stage.resolve, items: scratchSession(stage.items) }
+    const priv = pagePrivate(p.id)
+    const temp = (k: number) => `__edit${k}`
+    const texts = res.plans.map((plan, k) => {
+      const prev = plan.revises
+      // insert_after the same block again: both go in, in order
+      const markdown = plan.edit.op === 'insert_after' && prev?.markdown ? `${prev.markdown}\n\n${plan.markdown ?? ''}` : plan.markdown
+      if (!settlesItems(plan.edit, markdown)) return { markdown, staging: null }
+      let staging: ItemStaging
+      try {
+        staging = stageItems(markdown ?? '', scratch, { pageId: p.id, private: priv, known: knownOf(plan.edit), keepSingle: keepsSingle(plan.edit), change: prev?.id ?? temp(k) }, prev?.items)
+      } catch (e) {
+        throw new ToolInputError(`edits[${k}]: ${e instanceof Error ? e.message : String(e)}`)
+      }
+      // a task never lands inside a task's notes or a table cell (decided from what settling made, not the text)
+      if (plan.inside && staging.report.created.length)
+        throw new ToolInputError(`edits[${k}]: ${plan.edit.refs} is inside a task (or a table): a task can't go there. Insert after the task (${plan.inside}) instead. Nothing was staged.`)
+      registerItems(scratch.items, prev?.id ?? temp(k), staging)
+      return { markdown, staging }
+    })
+    const real = new Map<string, string>()
+    const out = res.plans.map((plan, k) => {
+      const { markdown, staging } = texts[k]
+      const items = staging ? { items: staging.items } : {}
       if (plan.revises) {
         const prev = plan.revises
-        // insert_after the same block again: both go in, in order
-        const markdown = plan.edit.op === 'insert_after' && prev.markdown ? `${prev.markdown}\n\n${plan.markdown ?? ''}` : plan.markdown
-        return { c: stage.update(prev.id, { edit: plan.edit, title, ...(markdown !== undefined ? { markdown } : {}) }), revised: true }
+        const c = stage.update(prev.id, { edit: plan.edit, title, ...(markdown !== undefined ? { markdown } : {}), ...items })
+        real.set(temp(k), c.id)
+        return { c, revised: true }
       }
-      return { c: stage.add({ kind: 'edit', pageId: p.id, title, edit: plan.edit, ...(plan.markdown !== undefined ? { markdown: plan.markdown } : {}) }), revised: false }
+      const c = stage.add({ kind: 'edit', pageId: p.id, title, edit: plan.edit, ...(plan.markdown !== undefined ? { markdown: plan.markdown } : {}), ...items })
+      real.set(temp(k), c.id)
+      return { c, revised: false }
+    })
+    const more: string[] = []
+    out.forEach(({ c }, k) => {
+      const staging = texts[k].staging
+      if (staging) registerItems(stage.items, c.id, staging)
+    })
+    out.forEach((o, k) => {
+      const staging = texts[k].staging
+      if (!staging) return
+      const needs = withNeeds(o.c, staging.needs.map((n) => real.get(n) ?? n))
+      if (needs.length) o.c = stage.update(o.c.id, { needs })
+      more.push(...staging.lines.map((l) => `#${o.c.n}: ${l}`), ...stageBlocks(stage, o.c, staging))
     })
     const lines = out.map(({ c, revised }) => `#${c.n} ${c.edit!.op} ${c.edit!.refs}${revised ? ' (revised)' : ''}`)
     const ns = out.map(({ c }) => c.n)
     return {
-      content: `Staged ${out.length === 1 ? 'as change' : 'as changes'} ${lines.join('; ')} on ${q(title)}. Each is reviewed and applied on its own; nothing is written until the user applies it.`,
+      content: `Staged ${out.length === 1 ? 'as change' : 'as changes'} ${lines.join('; ')} on ${q(title)}. Each is reviewed and applied on its own; nothing is written until the user applies it.${itemsNote(more)}`,
       summary: t('features.agent.res.staged', { n: ns.length > 1 && ns[ns.length - 1] - ns[0] === ns.length - 1 ? `${ns[0]}–${ns[ns.length - 1]}` : ns.join(' #') }),
       state: 'staged',
       changeId: out[0].c.id,
@@ -856,19 +899,23 @@ const createRow: AgentTool = {
     if (!res.ok) throw new ToolInputError(res.error)
     const clash = keyConflict(stage.list(), schema.db, res.changes, null, ws().pages)
     if (clash) throw new ToolInputError(clash)
-    const needs = needsOf(schema, res.changes)
+    const pageId = newId()
+    const staging = markdown.trim() ? stageItems(markdown, stage, { pageId, private: schemaPrivate(stage, schema) }) : null
+    const needs = withNeeds({ id: '', dependsOn: schema.staged?.id }, [...needsOf(schema, res.changes), ...(staging?.needs ?? [])])
     const change = stage.add({
       kind: 'create_row',
-      pageId: newId(),
+      pageId,
       databaseId: schema.db.id,
       title,
       props: res.changes,
       ...(markdown.trim() ? { markdown } : {}),
       ...(schema.staged ? { dependsOn: schema.staged.id } : {}),
       ...(needs.length ? { needs } : {}),
+      ...(staging?.items ? { items: staging.items } : {}),
     })
+    const more = staging ? [...staging.lines, ...commitItems(stage, change, staging)] : []
     return {
-      content: `${stagedNote(change)} New row id: ${change.pageId} in ${q(dbTitle(schema))}${res.changes.length ? ` with ${res.changes.map((c) => `${c.name} = ${q(c.after)}`).join(', ')}` : ''}.${newOptionsNote(res.changes)}`,
+      content: `${stagedNote(change)} New row id: ${change.pageId} in ${q(dbTitle(schema))}${res.changes.length ? ` with ${res.changes.map((c) => `${c.name} = ${q(c.after)}`).join(', ')}` : ''}.${newOptionsNote(res.changes)}${itemsNote(more)}`,
       summary: t('features.agent.res.staged', { n: change.n }),
       state: 'staged',
       changeId: change.id,
@@ -1022,6 +1069,8 @@ const upsertRows: AgentTool = {
     if (raw.length > MAX_UPSERT_ROWS) throw new ToolInputError(`Too many rows (${raw.length}, at most ${MAX_UPSERT_ROWS} per call). Send the first ${MAX_UPSERT_ROWS}, then the rest with a second upsert_rows call.`)
     const items = raw.map((item, i) => upsertItem(item, `rows[${i}]`))
     const holders = keyHolders(stage.list(), db.id, keyProp, ws().pages)
+    // what the rows' bodies made of tasks (by key)
+    const itemLines: string[] = []
     let first: StagedChange | null = null
     const touched = (c: StagedChange) => {
       first ??= c
@@ -1052,19 +1101,29 @@ const upsertRows: AgentTool = {
         const clash = keyConflict(stage.list(), db, changes, null, ws().pages)
         if (clash) return refused(clash)
         const title = item.title ?? k
-        const needs = needsOf(schema, changes)
+        const pageId = newId()
+        let staging: ItemStaging | null = null
+        try {
+          staging = item.body ? stageItems(item.body, stage, { pageId, private: schemaPrivate(stage, schema) }) : null
+        } catch (e) {
+          if (e instanceof ToolInputError) return refused(e.message)
+          throw e
+        }
+        const needs = withNeeds({ id: '', dependsOn: schema.staged?.id }, [...needsOf(schema, changes), ...(staging?.needs ?? [])])
         const c = touched(
           stage.add({
             kind: 'create_row',
-            pageId: newId(),
+            pageId,
             databaseId: db.id,
             title,
             props: changes,
             ...(item.body ? { markdown: item.body } : {}),
             ...(schema.staged ? { dependsOn: schema.staged.id } : {}),
             ...(needs.length ? { needs } : {}),
+            ...(staging?.items ? { items: staging.items } : {}),
           }),
         )
+        if (staging) itemLines.push(...staging.lines.map((l) => `${k}: ${l}`), ...commitItems(stage, c, staging))
         holders.set(k, [{ id: c.pageId, title, change: c }])
         return { key: k, id: c.pageId, action: 'created', change: c.n }
       }
@@ -1083,8 +1142,16 @@ const upsertRows: AgentTool = {
         if (!fresh.length && !title && !body) return { key: k, id: prev.pageId, action: 'unchanged', change: prev.n }
         const clash = keyConflict(stage.list(), db, fresh, prev.pageId, ws().pages)
         if (clash) return refused(clash, prev.pageId)
-        const needs = needsOf(schema, fresh, prev.needs)
-        const c = touched(stage.update(prev.id, { props: mergeProps(prev.props, fresh), ...(title ? { title } : {}), ...(body ? { markdown: body } : {}), ...(needs.length ? { needs } : {}), status: 'pending', error: undefined }))
+        let staging: ItemStaging | null = null
+        try {
+          staging = body ? stageItems(body, stage, { pageId: prev.pageId, private: schemaPrivate(stage, schema), change: prev.id }, prev.items) : null
+        } catch (e) {
+          if (e instanceof ToolInputError) return refused(e.message, prev.pageId)
+          throw e
+        }
+        const needs = withNeeds(prev, [...needsOf(schema, fresh, prev.needs), ...(staging?.needs ?? [])])
+        const c = touched(stage.update(prev.id, { props: mergeProps(prev.props, fresh), ...(title ? { title } : {}), ...(body ? { markdown: body } : {}), ...(needs.length ? { needs } : {}), ...(staging ? { items: staging.items } : {}), status: 'pending', error: undefined }))
+        if (staging) itemLines.push(...staging.lines.map((l) => `${k}: ${l}`), ...commitItems(stage, c, staging))
         h.change = c
         return { key: k, id: c.pageId, action: 'updated', change: c.n }
       }
@@ -1120,8 +1187,18 @@ const upsertRows: AgentTool = {
       let kept = false
       if (item.body) {
         // the person's page is never written over: a body goes only into an empty page
-        if (emptyDoc(row.content) && !pendingFor(stage, 'append', row.id)) c ??= touched(stage.add({ kind: 'append', pageId: row.id, title: titleOf(row), markdown: item.body }))
-        else kept = true
+        if (emptyDoc(row.content) && !pendingFor(stage, 'append', row.id)) {
+          let staging: ItemStaging
+          try {
+            staging = stageItems(item.body, stage, { pageId: row.id, private: pagePrivate(row.id) })
+          } catch (e) {
+            if (e instanceof ToolInputError) return refused(e.message, row.id)
+            throw e
+          }
+          const a = touched(stage.add({ kind: 'append', pageId: row.id, title: titleOf(row), markdown: item.body, ...itemFields(staging) }))
+          itemLines.push(...staging.lines.map((l) => `${k}: ${l}`), ...commitItems(stage, a, staging))
+          c ??= a
+        } else kept = true
       }
       if (!c) return { key: k, id: row.id, action: 'unchanged', ...(kept ? { body: 'kept' as const } : {}) }
       return { key: k, id: row.id, action: 'updated', change: c.n, ...(kept ? { body: 'kept' as const } : {}) }
@@ -1133,7 +1210,7 @@ const upsertRows: AgentTool = {
     const staged = first as StagedChange | null
     const head = `upsert_rows into ${q(dbTitle(schema))} by ${q(keyProp.name)}: ${n.created} created, ${n.updated} updated, ${n.same} unchanged, ${n.refused} refused.${staged ? ' Nothing is written until the user applies the staged changes (every row is its own proposed change).' : ''}${n.refused ? ' Fix the refused rows and send them again.' : ''}`
     return {
-      content: clipResult(`${head}\n${results.map((r) => JSON.stringify(r)).join('\n')}`),
+      content: clipResult(`${head}\n${results.map((r) => JSON.stringify(r)).join('\n')}${itemsNote(itemLines)}`),
       summary: [t('features.agent.res.upsert', { created: n.created, updated: n.updated, same: n.same }), n.refused ? t('features.agent.res.upsertRefused', { count: n.refused }) : ''].filter(Boolean).join(' · '),
       state: staged ? 'staged' : 'ok',
       ...(staged ? { changeId: staged.id } : {}),
@@ -1347,8 +1424,8 @@ const runQuery: AgentTool = {
   async run(input) {
     const code = str(input, 'code', { required: true, max: 20_000 })
     // the call's scope and read limit hold for its synchronous part only: taken along now
-    const scope = visible
-    const limit = readLimit
+    const scope = currentToolScope()
+    const limit = currentReadLimit()
     if (limit && READS_TEXT.test(code) && Object.keys(ws().pages).some((id) => limit(id) !== null))
       throw new ToolInputError(`${LIMITED_NOTE} on some pages, so run_query cannot read page text (.markdown / .text) now. Query properties only, or read pages with read_page.`)
     const { runQueryForTool } = await import('../../script')
@@ -1417,7 +1494,7 @@ const writeScript: AgentTool = {
 }
 
 /** Stable order: the tool list is part of the cached prompt prefix. */
-export const AGENT_TOOLS: AgentTool[] = [searchPages, readPage, listDatabases, queryDatabase, currentPage, createPage, appendToPage, editPage, createRow, updateRow, upsertRows, setPageTitle, runQuery]
+export const AGENT_TOOLS: AgentTool[] = [searchPages, readPage, listDatabases, queryDatabase, currentPage, createPage, appendToPage, editPage, createRow, updateRow, upsertRows, setPageTitle, runQuery, listWorkItems, updateWorkItem]
 
 /**
  * The workspace agent's (the AI terminal's) tools: AGENT_TOOLS plus the database tools, write_script
@@ -1489,6 +1566,12 @@ export function argLabel(name: ToolName, input: Record<string, unknown>, stage: 
       return s('title')
     case 'task_action':
       return `${s('action')} · ${title(s('id'))}`
+    case 'list_work_items':
+      return [s('status'), s('person'), s('page_id') ? title(s('page_id')) : '', s('query') ? `“${s('query')}”` : ''].filter(Boolean).join(' · ')
+    case 'update_work_item': {
+      const n = Array.isArray(input.updates) ? input.updates.length : 0
+      return t(n === 1 ? 'features.agent.res.itemsOne' : 'features.agent.res.items', { count: n })
+    }
     case 'notify_me': {
       const text = s('text')
       return text.length > 80 ? `${text.slice(0, 79)}…` : text

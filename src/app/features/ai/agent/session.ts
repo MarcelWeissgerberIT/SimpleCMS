@@ -14,7 +14,8 @@ import { AIError, resolveModel } from '../client'
 import { useCloud } from '../../../cloud'
 import { attachMcp, codewordTask, codewordsIn, currentSetup, readServers, refusedNames, setupKey, type McpSetup } from '../mcp-servers/config'
 import { applyChanges, type ApplyResult } from './apply'
-import { agentSystemText, runAgent, taskMessage, type RunHooks } from './run'
+import { agentSystemText, runAgent, taskMessage, TASK_RULES, type RunHooks } from './run'
+import { canCreateItems, warmMembers } from '../../workitems'
 import { unlocked } from '../../agents/integrations/status'
 import { initialAgentState, openAgent, patchConnect, pushEcho, setStopHandler, useAgent, type EchoAsk, type EchoEntry, type MemCard, type MemItem } from './state'
 import { clearHistory, loadHistory, pushHistory } from './history'
@@ -34,6 +35,7 @@ import { withRefImages } from '../image/terminal'
 import { withRefFiles } from '../file/terminal'
 import { webImagesOf, withoutWebImages } from '../../agents/images'
 import { appliesAlone, forgetStagedIds, noteStagedIds, resolveStaged } from './staged'
+import { newItemSession } from './workItems'
 import { depsOf, type AgentStatus, type AgentStep, type AgentTurn, type StagedChange, type StagedMedia, type TermMention, type TermRef, type TurnContext } from './types'
 import { newId } from '../../../lib/ids'
 import { isEffectivelyTrashed } from '../../../store/selectors'
@@ -60,6 +62,8 @@ let memTools: boolean | null = null
 let codingTools: boolean | null = null
 /** upsert_rows joins a conversation started while an active integration profile unlocks it (pinned) */
 let upsertTool: boolean | null = null
+/** the task-block rules join a conversation started while tasks can be made here (canCreateItems — pinned; settle still gates) */
+let taskRules: boolean | null = null
 /**
  * This conversation's number (bumped by /new): "Run the task again" after a sign-in names a task by epoch + number,
  * so a sign-in that ends after /new never runs another conversation's task.
@@ -96,6 +100,9 @@ function safeMarkdown<T extends { markdown?: string }>(c: T, kind: StagedChange[
   return { ...c, markdown: withoutWebImages(c.markdown, keep) }
 }
 
+/** The task blocks this conversation staged (handles, new ids → their change): reset by /new. */
+let itemSession = newItemSession('terminal')
+
 export const stage: StageApi = {
   list: () => get().changes,
   add(change) {
@@ -111,6 +118,10 @@ export const stage: StageApi = {
     return out
   },
   resolve: (id) => resolveStaged(id),
+  // the conversation's task handles and staged task ids (workItems.ts) — /new starts a fresh one
+  get items() {
+    return itemSession
+  },
 }
 
 /* ------------------------------------------------------------------ */
@@ -209,7 +220,7 @@ function patchTurn(n: number, patch: Partial<AgentTurn>) {
  * setup is pinned per conversation (system prompt and tool list stay the same for every later
  * request: prompt cache, thinking) and the text goes as typed.
  */
-function prepareTask(task: string): { setup: McpSetup; prompt: string; memTools: boolean; codingTools: boolean; upsert: boolean } {
+function prepareTask(task: string): { setup: McpSetup; prompt: string; memTools: boolean; codingTools: boolean; upsert: boolean; taskRules: boolean } {
   if (!history.length || !mcpSetup) {
     mcpSetup = currentSetup()
     set({ mcp: { key: setupKey(mcpSetup), names: mcpSetup.servers.map((x) => x.name) } })
@@ -217,18 +228,19 @@ function prepareTask(task: string): { setup: McpSetup; prompt: string; memTools:
   if (!history.length || memTools === null) memTools = memoryInUse()
   if (!history.length || codingTools === null) codingTools = hasPipelines() || useCoding.getState().enabled
   if (!history.length || upsertTool === null) upsertTool = unlocked('upsert')
-  return { setup: mcpSetup, prompt: codewordTask(task), memTools, codingTools, upsert: upsertTool }
+  if (!history.length || taskRules === null) taskRules = canCreateItems()
+  return { setup: mcpSetup, prompt: codewordTask(task), memTools, codingTools, upsert: upsertTool, taskRules }
 }
 
 /**
  * The terminal's tools and system prompt (a stable order: the cached prompt prefix): its own tools — the row tools
  * guarded for pipeline databases —, the coding pipelines' and the One memory's when they are pinned to this conversation.
  */
-function terminalSetup(coding: boolean, mem: boolean, upsert: boolean): { tools: AgentTool[]; system: string } {
+function terminalSetup(coding: boolean, mem: boolean, upsert: boolean, tasks: boolean): { tools: AgentTool[]; system: string } {
   const own = upsert ? TERMINAL_TOOLS : TERMINAL_TOOLS.filter((x) => x.name !== 'upsert_rows')
   return {
     tools: [...own.map(guardPipelineRows), ...(coding ? CODING_TOOLS : []), ...(mem ? [recallTool, rememberTool] : [])],
-    system: [agentSystemText(upsert), ...(coding ? [CODING_RULES] : []), ...(mem ? [MEMORY_RULES] : [])].join('\n\n'),
+    system: [agentSystemText(upsert), ...(tasks ? [TASK_RULES] : []), ...(coding ? [CODING_RULES] : []), ...(mem ? [MEMORY_RULES] : [])].join('\n\n'),
   }
 }
 
@@ -415,7 +427,9 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
   const before = history
   // every task, a Continue too: "Run the task again" after a sign-in sends it once more from here
   turnSnap.set(n, { before, refs, mentions })
-  const tooling = terminalSetup(withCoding, withMemTools, withUpsert)
+  const tooling = terminalSetup(withCoding, withMemTools, withUpsert, prepared.taskRules)
+  // team: the member list (owners by email) before the first request — the staging tools never wait for it
+  await warmMembers()
   const attempt = async () => {
     const mcp = setup.servers.length ? await attachMcp(setup, 'free', { forced }) : null
     const left = refusedNames(setup, 'free', forced)
@@ -702,12 +716,14 @@ export function newTask() {
   setStopHandler(null)
   history = []
   forgetStagedIds()
+  itemSession = newItemSession('terminal')
   reported = {}
   lastBatch = null
   mcpSetup = null
   memTools = null
   codingTools = null
   upsertTool = null
+  taskRules = null
   epoch += 1
   turnSnap.clear()
   sigSteps.clear()
@@ -894,7 +910,7 @@ export async function applyStaged(ids?: string[], opts: { quiet?: boolean; bulk?
   set((s) => ({
     applying: false,
     changes: s.changes.map((c) => {
-      if (res.applied.includes(c.id)) return { ...c, status: 'applied', error: undefined }
+      if (res.applied.includes(c.id)) return { ...c, status: 'applied', error: undefined, notes: res.notes?.[c.id] }
       const f = res.failed.find((x) => x.id === c.id)
       if (f) return { ...c, status: 'failed', error: f.error }
       // not written (a change of the batch that was skipped): back to how it was

@@ -26,6 +26,7 @@
  *  - facts: ItemFact / factsOfNode / factLine (UI language) / factLineEn (for Claude: out-of-scope links by id).
  *  - holds: holdsOfReport / holdsOfEdit / heldClosure (what an unattended apply leaves pending) / holdText.
  *  - queryItems(index, filter, scope): the list tools' filter + sort.
+ *  - ItemFacts { facts, warnings?, holds?, notes? }: the review rows (terminal, agents, Preflight, MCP card, previews).
  */
 export { startItems, stopItems, getItemIndex, peekItemIndex, subscribeItems, useItemIndexVersion, useItemView, useNowMinute, canCreateItems } from './live'
 export { wouldLoop } from './graph'
@@ -39,6 +40,8 @@ export {
   settleDoc,
   warningText,
   foldTitle,
+  peopleResolver,
+  personDraftOf,
   SettleRefusal,
   MAX_NEW_ITEMS,
   type SettleSource,
@@ -54,6 +57,7 @@ export { settleWorld } from './world'
 export { factsOfNode, factLine, factLineEn, type ItemFact, type ItemRefFact, type FactWorld } from './facts'
 export { holdsOfReport, holdsOfEdit, heldClosure, holdText, HOLD_REASONS, type HoldReason } from './holds'
 export { queryItems, isBlocked, isOverdue, type ItemQuery, type ItemStatusFilter } from './query'
+export { ItemFacts, type ItemFactsProps } from './ItemFacts'
 export { toastUnblocked } from './unblockToast'
 // the editor's task pickers and cards (mounted by editor/workitem/ItemPickers.tsx)
 export { PeoplePicker } from './PeoplePicker'

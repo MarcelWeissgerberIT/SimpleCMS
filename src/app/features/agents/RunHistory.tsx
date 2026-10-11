@@ -17,7 +17,8 @@ import { MarkdownLite } from '../ai/MarkdownLite'
 import { MediaToPage } from '../ai/media/MediaToPage'
 import { PropDiff, Preview } from '../ai/agent/AgentSheet'
 import { EditDiff } from '../ai/agent/EditDiff'
-import type { StagedChange } from '../ai/agent/types'
+import { depsOf, type StagedChange } from '../ai/agent/types'
+import { ItemFacts } from '../workitems/ItemFacts'
 import type { Page } from '../../store/types'
 import { canUndoRun } from './undos'
 import { applyRun, canUndoChange, discardRun, undoChange, undoRunAll } from './review'
@@ -220,8 +221,11 @@ function Change({ run, change: c, disabled, focus }: { run: AgentRun; change: St
   // what the row's own Undo did (undone; some of it kept because it was edited since) — shown while it is open again
   const [note, setNote] = useState('')
   const all = run.staged ?? []
-  const parent = c.dependsOn ? all.find((x) => x.id === c.dependsOn) : undefined
-  const blocked = !!parent && parent.status !== 'applied'
+  // the first change it builds on that is not applied yet (dependsOn, then needs)
+  const parent = depsOf(c)
+    .map((id) => all.find((x) => x.id === id))
+    .find((x) => x && x.status !== 'applied')
+  const blocked = !!parent
   let where = ''
   if (c.kind === 'create_page') where = c.parentId ? t('features.agent.review.under', { title: titleIn(pages, all, c.parentId, t('common.untitled')) }) : t('features.agent.review.topLevel')
   else if (c.kind === 'create_row' || c.kind === 'update_row') where = t('features.agent.review.in', { title: titleIn(pages, all, c.databaseId, t('common.untitled')) })
@@ -326,8 +330,11 @@ export function AgentChangeBody({ run, change: c }: { run: AgentRun; change: Sta
   const t = useT()
   const pages = useWorkspace((s) => s.pages)
   const all = run.staged ?? []
-  const parent = c.dependsOn ? all.find((x) => x.id === c.dependsOn) : undefined
-  const blocked = !!parent && parent.status !== 'applied'
+  // the first change it builds on that is not applied yet (dependsOn, then needs)
+  const parent = depsOf(c)
+    .map((id) => all.find((x) => x.id === id))
+    .find((x) => x && x.status !== 'applied')
+  const blocked = !!parent
   const targetId = run.rowIds?.[c.pageId] ?? c.pageId
   let title: ReactNode = c.title
   if (c.kind === 'rename')
@@ -337,6 +344,8 @@ export function AgentChangeBody({ run, change: c }: { run: AgentRun; change: Sta
       </>
     )
   else if (c.kind === 'append' || c.kind === 'update_row' || c.kind === 'edit') title = titleIn(pages, all, targetId, t('common.untitled')) || c.title
+  // a task's fields: its title, on its page
+  else if (c.kind === 'workItem') title = `${c.title ?? ''} · ${titleIn(pages, all, targetId, t('common.untitled'))}`
   return (
     <>
       {title && (
@@ -354,9 +363,14 @@ export function AgentChangeBody({ run, change: c }: { run: AgentRun; change: Sta
           <EditDiff change={c} />
         </div>
       )}
+      {(c.items || c.workItem || !!c.notes?.length) && (
+        <div className="chg-part" data-part="items">
+          <ItemFacts facts={c.workItem ? [c.workItem.facts] : (c.items?.facts ?? [])} warnings={c.items?.warnings} holds={c.workItem?.holds ?? c.items?.holds} notes={c.notes} />
+        </div>
+      )}
       {c.markdown?.trim() && c.kind !== 'rename' && c.kind !== 'edit' && (
         <div className="chg-part" data-part="preview">
-          <Preview markdown={c.markdown} append={c.kind === 'append'} />
+          <Preview markdown={c.markdown} append={c.kind === 'append'} tasks />
         </div>
       )}
       {c.status === 'failed' && c.error && (

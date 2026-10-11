@@ -35,7 +35,7 @@ export function PropDiff({ props }: { props: PropChange[] }) {
 const PREVIEW_LINES = 10
 
 /** Content preview of a staged change (also the custom agents' review, features/agents). */
-export function Preview({ markdown, append }: { markdown: string; append: boolean }) {
+export function Preview({ markdown, append, tasks = false }: { markdown: string; append: boolean; tasks?: boolean }) {
   const t = useT()
   const lines = markdown.trim().split('\n')
   // never cut inside a code fence or a table: show whole blocks up to the limit
@@ -49,7 +49,7 @@ export function Preview({ markdown, append }: { markdown: string; append: boolea
   return (
     <div className="agent-preview" data-append={append || undefined}>
       {append && <span className="agent-preview__plus mono" aria-hidden>+</span>}
-      <MarkdownLite source={lines.slice(0, end).join('\n')} />
+      <MarkdownLite source={lines.slice(0, end).join('\n')} tasks={tasks} />
       {rest > 0 && <span className="agent-preview__more label">{t('features.agent.review.more', { count: rest })}</span>}
     </div>
   )

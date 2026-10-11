@@ -64,6 +64,13 @@ export interface SettleContext {
    * (fresh ids) or a one-shot path.
    */
   ids?: readonly string[]
+  /**
+   * STAGING of a change that extends its own earlier write (an append to a pending append, a staged page written again):
+   * its n-th new task keeps firstIds[n] (other changes may point at it already), the rest get fresh ids.
+   */
+  firstIds?: readonly string[]
+  /** a review render of a staged change (`ids` given): its ids are used as they are — the change itself may hold them by now */
+  preview?: boolean
   /** handles known before this write (earlier calls of the conversation / run, or the staged change's own map) */
   handles?: ReadonlyMap<string, string>
   /** new tasks staged in this conversation / run / call → the change creating them + its page's privacy */
@@ -311,6 +318,60 @@ function textChanged(now: JSONContent, old: JSONContent, same: (a: JSONContent, 
   return a.length !== b.length || a.some((x, i) => x !== b[i] && !same(x, b[i]))
 }
 
+/* ------------------------------------------------------------------ people */
+
+/** A person as Claude names one in a tool input (update_work_item, list_work_items): an id, "me", an email or a name. */
+export function personDraftOf(text: string, world: Pick<SettleWorld, 'people'>): PersonDraft {
+  const s = text.replace(/\s+/g, ' ').trim()
+  if (/^(me|ich)$/i.test(s)) return { me: true }
+  if (world.people().some((p) => p.id === s)) return { id: s }
+  if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s)) return { email: s }
+  return { raw: s }
+}
+
+export type PersonHit = { id: string } | { message: string; code: SettleWarningCode; value: string }
+
+/**
+ * People as the gate resolves them — existing ones only (never created): by id, folded exact unique name, a member's
+ * email (never named back to Claude), "me" (`me` false: custom agents — they name the person). One per write: its
+ * name map is built once.
+ */
+export function peopleResolver(world: SettleWorld, me: boolean): { name: (id: string) => string | null; resolve: (p: PersonDraft, task: string) => PersonHit } {
+  let byId: Map<string, string> | null = null
+  let byName: Map<string, string[]> | null = null
+  const name = (id: string): string | null => (byId ??= new Map(world.people().map((p) => [p.id, p.name]))).get(id) ?? null
+  const where = (task: string) => (task ? ` in task "${task}"` : '')
+  const resolve = (p: PersonDraft, task: string): PersonHit => {
+    if ('id' in p) return name(p.id) !== null ? { id: p.id } : { message: `Unknown person id "${p.id}"${where(task)}. People in this workspace: ${namesList(world)}. One never creates people.`, code: 'person', value: p.id }
+    if ('me' in p) {
+      if (!me) return { message: `"me" means nobody for an agent — name the person${where(task)}.`, code: 'meAgent', value: 'me' }
+      const id = world.me()
+      return id && name(id) !== null ? { id } : { message: `"me" is nobody in this workspace${task ? ` (task "${task}")` : ''}. People in this workspace: ${namesList(world)}.`, code: 'person', value: 'me' }
+    }
+    if ('email' in p) {
+      const emails = world.memberEmails()
+      if (emails === null) return { message: 'The member list is still loading — name the person instead.', code: 'members', value: 'email' }
+      const id = emails.get(p.email.trim().toLowerCase())
+      // never an email back to Claude: it may come from text nobody vouches for
+      return id && name(id) !== null
+        ? { id }
+        : { message: `An email${where(task)} is no member's. People in this workspace: ${namesList(world)}. One never creates people: use one of these names, or leave Owner out.`, code: 'person', value: 'email' }
+    }
+    if (!byName) {
+      byName = new Map()
+      for (const x of world.people()) {
+        const k = foldTitle(x.name)
+        byName.set(k, [...(byName.get(k) ?? []), x.id])
+      }
+    }
+    const hits = byName.get(foldTitle(p.raw)) ?? []
+    if (hits.length === 1) return { id: hits[0] }
+    if (hits.length > 1) return { message: `"${p.raw}" fits more than one person${where(task)}. Copy a person link from text you read ([@Name](one:person/<id>)), or leave Owner out.`, code: 'personAmbiguous', value: p.raw }
+    return { message: `Unknown person "${p.raw}"${where(task)}. People in this workspace: ${namesList(world)}. One never creates people: use one of these names, or leave Owner out.`, code: 'person', value: p.raw }
+  }
+  return { name, resolve }
+}
+
 /* ------------------------------------------------------------------ the gate */
 
 export function settleDoc(input: JSONContent, ctx: SettleContext, world: SettleWorld): { doc: JSONContent; report: SettleReport } {
@@ -327,40 +388,14 @@ export function settleDoc(input: JSONContent, ctx: SettleContext, world: SettleW
   }
 
   /* ---------- people ---------- */
-  let byName: Map<string, string[]> | null = null
-  const peopleById = () => new Map(world.people().map((p) => [p.id, p.name]))
-  let idsOfPeople: Map<string, string> | null = null
-  const personName = (id: string): string | null => (idsOfPeople ??= peopleById()).get(id) ?? null
+  const people = peopleResolver(world, ctx.me)
+  const personName = people.name
   /** a person draft → an existing person's id, or null (refused / warned); `quiet`: no refusal (field compare) */
   const resolvePerson = (p: PersonDraft, task: string, quiet = false): string | null => {
-    const no = (message: string, code: SettleWarningCode, value?: string) => {
-      if (!quiet) fail(message, code, task, value)
-      return null
-    }
-    if ('id' in p) return personName(p.id) !== null ? p.id : no(`Unknown person id "${p.id}" in task "${task}". People in this workspace: ${namesList(world)}. One never creates people.`, 'person', p.id)
-    if ('me' in p) {
-      if (!ctx.me) return no(`"me" means nobody for an agent — name the person in task "${task}".`, 'meAgent', 'me')
-      const me = world.me()
-      return me && personName(me) !== null ? me : no(`"me" is nobody in this workspace (task "${task}"). People in this workspace: ${namesList(world)}.`, 'person', 'me')
-    }
-    if ('email' in p) {
-      const emails = world.memberEmails()
-      if (emails === null) return no('The member list is still loading — name the person instead.', 'members', 'email')
-      const id = emails.get(p.email.trim().toLowerCase())
-      // never an email back to Claude: it may come from text nobody vouches for
-      return id && personName(id) !== null ? id : no(`An email in task "${task}" is no member's. People in this workspace: ${namesList(world)}. One never creates people: use one of these names, or leave Owner out.`, 'person', 'email')
-    }
-    if (!byName) {
-      byName = new Map()
-      for (const x of world.people()) {
-        const k = foldTitle(x.name)
-        byName.set(k, [...(byName.get(k) ?? []), x.id])
-      }
-    }
-    const hits = byName.get(foldTitle(p.raw)) ?? []
-    if (hits.length === 1) return hits[0]
-    if (hits.length > 1) return no(`"${p.raw}" fits more than one person in task "${task}". Copy a person link from text you read ([@Name](one:person/<id>)), or leave Owner out.`, 'personAmbiguous', p.raw)
-    return no(`Unknown person "${p.raw}" in task "${task}". People in this workspace: ${namesList(world)}. One never creates people: use one of these names, or leave Owner out.`, 'person', p.raw)
+    const r = people.resolve(p, task)
+    if ('id' in r) return r.id
+    if (!quiet) fail(r.message, r.code, task, r.value)
+    return null
   }
 
   /* ---------- scope ---------- */
@@ -465,11 +500,14 @@ export function settleDoc(input: JSONContent, ctx: SettleContext, world: SettleW
         continue
       }
       itemId = ctx.ids[n]
-      if (world.taken(itemId)) {
+      if (!ctx.preview && world.taken(itemId)) {
         report.idTaken.push(itemId)
         continue
       }
-    } else itemId = world.newItemId()
+    } else {
+      const first = ctx.firstIds?.[n]
+      itemId = first && !world.taken(first) && !newById.has(first) ? first : world.newItemId()
+    }
     if (copy) warn('copy', d.title)
     d.decision = { kind: 'new', itemId }
     newById.set(itemId, d)

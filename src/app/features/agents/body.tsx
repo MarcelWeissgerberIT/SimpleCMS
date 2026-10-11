@@ -22,4 +22,4 @@ export function AgentChangeBody({ bare = false, ...props }: { run: AgentRun; cha
 }
 
 /** The kinds a custom agent stages that AgentChangeBody shows in full (any other kind: open it on the agents page). */
-export const AGENT_BODY_KINDS: ReadonlyArray<StagedChange['kind']> = ['create_page', 'create_row', 'append', 'edit', 'update_row', 'rename', 'send']
+export const AGENT_BODY_KINDS: ReadonlyArray<StagedChange['kind']> = ['create_page', 'create_row', 'append', 'edit', 'update_row', 'rename', 'send', 'workItem']
