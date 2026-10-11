@@ -166,6 +166,23 @@
   --toggle-lit-floor: color-mix(in srgb, var(--switch-led) 22%, var(--toggle-black));
   --toggle-glow: color-mix(in srgb, var(--switch-led) 55%, transparent);
   /*
+   * Preflight lamps (features/preflight): annunciator caps in a black housing. Fixed lamp colours — never the person's
+   * switch LED (--switch-led) and never --on-signal (a workspace look may change it); the look engine never sets these.
+   * Amber is the yellow LED, red a deep red that carries white text; lamp text is a fixed near-black. ≥ 4.5 : 1 for
+   * every lamp text in Paper and Carbon, with and without relative colours (tests/e2e/preflight-look.spec.ts).
+   */
+  --lamp-amber: var(--switch-led-yellow);
+  --lamp-red: color-mix(in oklab, var(--c-red-text) 82%, var(--toggle-black));
+  --lamp-red-ink: var(--toggle-white);
+  --lamp-ink: color-mix(in srgb, var(--toggle-black) 93%, var(--toggle-white));
+  --lamp-housing: var(--toggle-window);
+  --lamp-off: color-mix(in srgb, var(--toggle-white) 7%, var(--lamp-housing));
+  --lamp-legend: color-mix(in srgb, var(--toggle-white) 70%, var(--lamp-housing));
+  --lamp-legend-2: color-mix(in srgb, var(--toggle-white) 60%, var(--lamp-housing));
+  /* the lamp cursor (Space jumped here): a double ring in ink, never the signal — the surface ring shows on the black
+     housing in Paper, the ink ring in Carbon */
+  --lamp-cursor: 0 0 0 2px var(--surface), 0 0 0 4px var(--ink);
+  /*
    * switch sizes (ui.css .switch / .switch--sm; the 120 : 64 rocker of the design, about the old 52 × 26 area), in
    * step with the text size; a column that lines up with switches takes the same width
    */
@@ -222,6 +239,16 @@
     --switch-led-yellow: oklch(from var(--c-yellow-text) 0.86 0.17 h);
     --switch-led-red: oklch(from var(--c-red-text) 0.63 0.21 h);
     --switch-led-purple: oklch(from var(--c-purple-text) 0.62 0.19 h);
+    /* the lamp red: the red's hue a step towards crimson, dark enough for white text */
+    --lamp-red: oklch(from var(--c-red-text) 0.54 0.2 calc(h - 10));
+  }
+}
+
+/* without relative colours Paper's yellow LED is the yellow TEXT colour (#7f5800, under 3 : 1 below lamp text): the
+   lamp takes a light mix of the yellow instead (Carbon's yellow text is light already) */
+@supports not (color: oklch(from red l c h)) {
+  :root:not([data-theme='dark']) {
+    --lamp-amber: color-mix(in srgb, var(--c-yellow-text) 25%, var(--c-yellow-bg));
   }
 }
 

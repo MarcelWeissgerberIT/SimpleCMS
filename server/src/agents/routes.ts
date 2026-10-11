@@ -5,6 +5,9 @@
  *   GET  agent-runtime                      members+: Claude key and MCP tokens as { set, last4 } only
  *   PUT  agent-runtime                      admins: key, MCP servers, on/off (secrets sealed, never returned)
  *   GET  agent-runs?agentId=&limit=         every member (viewers too): AgentRun[], newest first
+ *   GET  agent-runs/open?agentIds=a,b       every member (viewers too): { runs, latest } — the staged runs of those
+ *                                           agents (≤ 200, newest first, without summary / steps) and each one's newest
+ *                                           run's plain columns (the app's Preflight lamps; ≤ 50 ids)
  *   POST agents/:agentId/run                members+: start a run now → 202 { runId }
  *   POST agent-runs/:runId/apply            members+: apply staged changes on the server
  *   POST agent-runs/:runId/resolve          members+: the app applied / discarded them itself
@@ -27,7 +30,7 @@ import { MINUTE, iso, isTokenShape } from '../tokens.ts'
 import { MCP_NAME } from './sanitize.ts'
 import { type AgentService, QueueFullError } from './service.ts'
 import { applyStaged } from './stage.ts'
-import { EMPTY_RUNTIME, type RuntimeRow } from './store.ts'
+import { EMPTY_RUNTIME, OPEN_RUNS_MAX, type RuntimeRow } from './store.ts'
 import { type AgentRun, type Runtime, agentActor } from './types.ts'
 
 /** Webhook body limit (the body is passed to Claude). */
@@ -35,6 +38,8 @@ export const HOOK_BODY_LIMIT = 16 * 1024
 /** Webhook deliveries per agent per minute (every delivery is a Claude run). */
 export const HOOK_PER_MIN = 10
 export const MAX_MCP_SERVERS = 12
+/** agent-runs/open: at most this many agent ids per request. */
+export const OPEN_AGENTS_MAX = 50
 
 const agentsOff = () => new ApiError(503, 'agents_off', 'Custom agents are switched off on this server (AGENTS=off)')
 
@@ -146,6 +151,17 @@ export function agentRoutes(s: Services, model: WorkspaceModel, agents: AgentSer
     const limit = c.req.query('limit') === undefined ? 50 : Number(c.req.query('limit'))
     if (!Number.isInteger(limit) || limit < 1 || limit > 200) throw new ApiError(400, 'invalid_request', 'limit is a whole number from 1 to 200')
     return c.json(agents.store.runs(workspace.id, { agentId, limit }))
+  })
+
+  // registered before any agent-runs/:runId route: "open" is not a run id
+  app.get('/:id/agent-runs/open', (c) => {
+    const { workspace } = access(s, c, 'viewer')
+    const raw = c.req.query('agentIds') ?? ''
+    const ids = [...new Set(raw.split(',').map((x) => x.trim()).filter(Boolean))]
+    if (!ids.length || ids.length > OPEN_AGENTS_MAX || ids.some((id) => !idSchema.safeParse(id).success)) {
+      throw new ApiError(400, 'invalid_request', `agentIds is a comma-separated list of 1 to ${OPEN_AGENTS_MAX} agent ids`)
+    }
+    return c.json({ runs: agents.store.openRuns(workspace.id, ids, OPEN_RUNS_MAX), latest: agents.store.latestRuns(workspace.id, ids) })
   })
 
   app.post('/:id/agents/:agentId/run', async (c) => {

@@ -4,7 +4,7 @@
  * would be (recipe.ts buildMirror: property / option references, operators, values). Messages in the UI language.
  */
 import type { Translate } from '@/shared/i18n'
-import { INTEGRATION_LIMITS, checkIntegration, checkRecipeConfig, show, type IntegrationIssue } from '../../../store/integrations'
+import { INTEGRATION_LIMITS, checkIntegration, checkRecipeConfig, show, variants, type IntegrationIssue } from '../../../store/integrations'
 import type { IntegrationFeature, IntegrationProfile } from '../../../store/types'
 import { parseJson, pathText, spanAt, type JsonPath } from './json'
 import { MIRROR_NEEDS, NEAR_HINTS, buildMirror, resolveRecipe } from './recipe'
@@ -62,6 +62,40 @@ function checkAfterRefs(profile: IntegrationProfile, add: (issue: IntegrationIss
       if (!known.has(fold(a.property))) add({ path: ['sends', i, 'after', j, 'property'], code: 'afterUnknown', vars: { value: a.property }, severity: 'warning' })
     }),
   )
+}
+
+/**
+ * A profile's Preflight lamps against the recipe as it will be built (either language): the view they count must be
+ * one of its views, every role one of its properties' roles (a checkbox role takes true / false, a select / status one an
+ * option name — one of its declared options when it declares any), and "read" a role the recipe has (myStatus: one of
+ * its options). Errors: such a lamp could never be counted.
+ */
+function checkLampRefs(profile: IntegrationProfile, add: (issue: IntegrationIssue) => void): void {
+  profile.lamps?.forEach((lamp, i) => {
+    const recipe = profile.recipes?.find((r) => r.id === (lamp.recipe ?? profile.recipes?.[0]?.id)) ?? { kind: 'mirror' as const }
+    const both = (['en', 'de'] as const).map((l) => resolveRecipe(profile, recipe, l))
+    const props = both.flatMap((r) => r.properties)
+    const byRole = (role: string) => props.filter((p) => p.role === role)
+    const optionNames = (role: string) => byRole(role).flatMap((p) => (p.options ?? []).flatMap((o) => (o.names.length ? o.names : [o.name]))).map(fold)
+    if (lamp.view) {
+      const views = new Set(both.flatMap((r) => r.views.flatMap((v) => variants(v.name))).map(fold))
+      if (!variants(lamp.view).some((n) => views.has(fold(n)))) add({ path: ['lamps', i, 'view'], code: 'lampView', vars: { value: variants(lamp.view)[0] ?? '' } })
+    }
+    lamp.where?.forEach((w, j) => {
+      const found = byRole(w.role)
+      if (!found.length) return add({ path: ['lamps', i, 'where', j, 'role'], code: 'lampRole', vars: { value: w.role } })
+      const type = found[0]!.type
+      if (type === 'checkbox' ? typeof w.equals !== 'boolean' : type !== 'select' && type !== 'status' ? true : typeof w.equals !== 'string') {
+        return add({ path: ['lamps', i, 'where', j, 'equals'], code: 'lampRoleType', vars: { value: w.role, type } })
+      }
+      const opts = optionNames(w.role)
+      if (typeof w.equals === 'string' && opts.length && !opts.includes(fold(w.equals))) add({ path: ['lamps', i, 'where', j, 'equals'], code: 'lampOption', vars: { value: w.equals, property: w.role } })
+    })
+    if (lamp.read) {
+      if (!byRole(lamp.read.role).length) add({ path: ['lamps', i, 'read', 'role'], code: 'lampRole', vars: { value: lamp.read.role } })
+      else if (lamp.read.role === 'myStatus' && !optionNames('myStatus').includes(fold(lamp.read.value))) add({ path: ['lamps', i, 'read', 'value'], code: 'lampOption', vars: { value: lamp.read.value, property: 'myStatus' } })
+    }
+  })
 }
 
 export function validateProfileText(text: string, t: Translate, lang: 'en' | 'de'): Validation {
@@ -125,6 +159,7 @@ export function validateProfileText(text: string, t: Translate, lang: 'en' | 'de
   if (profile) {
     const p = profile
     guarded(['sends'], () => checkAfterRefs(p, add, lang))
+    guarded(['lamps'], () => checkLampRefs(p, add))
   }
   return done(profile)
 }

@@ -2,7 +2,7 @@ import { useEffect } from 'react'
 import { useUI } from '../../store/ui'
 import { useWorkspace } from '../../store/store'
 import { inTemplate, isEffectivelyTrashed } from '../../store/selectors'
-import { closeRecorder, isRecorderOpen, openTodayJournal, toggleRecorder } from '../../features'
+import { closeRecorder, isRecorderOpen, openTodayJournal, preflightHoldsStart, toggleRecorder } from '../../features'
 import { navigate, parseHash, type Route } from '../../lib/router'
 import { isMac } from '../../ui/controls'
 import { t } from '../../i18n'
@@ -357,6 +357,8 @@ export function bootRedirect(route: Route = parseHash(window.location.hash)) {
   if (bootRedirected || STANDALONE.has(route.name)) return
   bootRedirected = true
   if (route.name !== 'home') return
+  // Preflight: the first boot of a Preflight day stays on the plate when lamps were lit last time (consumed either way)
+  if (preflightHoldsStart()) return
   const { settings, pages } = useWorkspace.getState()
   const ok = (id: string | null) => !!id && !!pages[id] && !isEffectivelyTrashed(pages, id)
   const target = ok(settings.startPageId) ? settings.startPageId : ok(settings.lastPageId) ? settings.lastPageId : null

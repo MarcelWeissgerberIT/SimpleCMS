@@ -3,7 +3,7 @@ import { CalendarDays, FilePlus2, LayoutTemplate, Table2, Upload, ArrowRight } f
 import { useWorkspace } from '../../store/store'
 import { inTemplate, isEffectivelyTrashed } from '../../store/selectors'
 import { useUI } from '../../store/ui'
-import { openTodayJournal } from '../../features'
+import { openTodayJournal, PreflightHome, usePlateMode, usePreflightOn, usePreflightSections } from '../../features'
 import { PageIcon } from '../../ui/PageIcon'
 import { shortcutLabel } from '../../ui/controls'
 import { useFileUrl } from '../../lib/files'
@@ -33,6 +33,40 @@ export function Home() {
   const lang = useLang()
   const now = useNow(60_000)
   const userName = useWorkspace((s) => s.settings.userName)
+  // Preflight on Start: the plate (or its strip) takes Home's "§ 00" line; while the full plate shows, Home's own
+  // sections are not built at all (no page walk behind a held morning boot) and the greeting stays for screen readers
+  const preflight = usePreflightOn()
+  const mode = usePlateMode()
+  const hour = new Date(now).getHours()
+  const greet = hour < 5 ? t('shell.home.night') : hour < 12 ? t('shell.home.morning') : hour < 18 ? t('shell.home.afternoon') : t('shell.home.evening')
+  const greeting = `${greet}${userName.trim() ? `, ${userName.trim()}` : ''}`
+
+  return (
+    <div className={preflight ? 'home home--preflight' : 'home'}>
+      <div className="home__inner">
+        {!preflight && (
+          <div className="home__meta label">
+            <span>§ 00 — {t('shell.nav.home')}</span>
+            <span className="home__meta-rule" />
+            <span>
+              {fmtDay(now, lang)} · {t('shell.home.week', { n: isoWeek(now) })}
+            </span>
+          </div>
+        )}
+        <PreflightHome />
+        {mode === 'full' ? <h1 className="visually-hidden">{greeting}</h1> : <HomeSections greeting={greeting} />}
+      </div>
+    </div>
+  )
+}
+
+/** Home's own sections: the greeting, the read-out, §01 keys, §02 the next days, §03 recent, §04 tips. */
+function HomeSections({ greeting }: { greeting: string }) {
+  const t = useT()
+  const lang = useLang()
+  // numbered Preflight sections above these move Home's numbers along
+  const offset = usePreflightSections()
+  const no = (n: number) => String(n + offset).padStart(2, '0')
   // viewers: the keys that would create something are shown disabled
   const readOnly = useReadOnly()
   const inCloud = useInCloud()
@@ -64,76 +98,65 @@ export function Home() {
     return { docs, dbs, rows, words }
   }, [pages])
 
-  const hour = new Date(now).getHours()
-  const greet = hour < 5 ? t('shell.home.night') : hour < 12 ? t('shell.home.morning') : hour < 18 ? t('shell.home.afternoon') : t('shell.home.evening')
   const ui = useUI.getState()
   const kbd = useKbdHint()
   const touch = useIsTouch()
 
   return (
-    <div className="home">
-      <div className="home__inner">
-        <div className="home__meta label">
-          <span>§ 00 — {t('shell.nav.home')}</span>
-          <span className="home__meta-rule" />
-          <span>
-            {fmtDay(now, lang)} · {t('shell.home.week', { n: isoWeek(now) })}
-          </span>
-        </div>
-        <h1 className="display home__greet">
-          {greet}
-          {userName.trim() ? `, ${userName.trim()}` : ''}
-          <span className="home__dot">.</span>
-        </h1>
-        <div className="home__readout" aria-label={t('shell.home.stats')}>
-          <Readout n={stats.docs} label={t('shell.home.pages')} />
-          <Readout n={stats.dbs} label={t('shell.home.databases')} />
-          <Readout n={stats.rows} label={t('shell.home.rows')} />
-          <Readout n={stats.words} label={t('shell.home.words')} />
-        </div>
+    <div className="home-sections">
+      <h1 className="display home__greet">
+        {greeting}
+        <span className="home__dot">.</span>
+      </h1>
+      <div className="home__readout" aria-label={t('shell.home.stats')}>
+        <Readout n={stats.docs} label={t('shell.home.pages')} />
+        <Readout n={stats.dbs} label={t('shell.home.databases')} />
+        <Readout n={stats.rows} label={t('shell.home.rows')} />
+        <Readout n={stats.words} label={t('shell.home.words')} />
+      </div>
 
-        <section className="home__section">
-          <SectionLabel n="01" label={t('shell.home.actions')} />
-          <div className="keys">
-            <Key icon={<FilePlus2 size={18} />} label={t('common.newPage')} code="A1" kbd={kbd('Mod+Alt+N')} onClick={() => createPageAndOpen(null)} primary disabled={readOnly} />
-            <Key icon={<Table2 size={18} />} label={t('shell.cmd.newDatabase')} code="A2" onClick={() => createDatabaseAndOpen(null)} disabled={readOnly} />
-            <Key icon={<Upload size={18} />} label={t('shell.home.importNotion')} code="A3" onClick={() => ui.openModal({ type: 'import' })} disabled={readOnly} />
-            <Key icon={<LayoutTemplate size={18} />} label={t('shell.nav.templates')} code="A4" onClick={() => ui.openModal({ type: 'templates', parentId: null })} disabled={readOnly} />
-            <Key icon={<CalendarDays size={18} />} label={t('shell.nav.today')} code="A5" onClick={() => openTodayJournal()} disabled={readOnly} />
+      <section className="home__section">
+        <SectionLabel n={no(1)} label={t('shell.home.actions')} />
+        <div className="keys">
+          <Key icon={<FilePlus2 size={18} />} label={t('common.newPage')} code="A1" kbd={kbd('Mod+Alt+N')} onClick={() => createPageAndOpen(null)} primary disabled={readOnly} />
+          <Key icon={<Table2 size={18} />} label={t('shell.cmd.newDatabase')} code="A2" onClick={() => createDatabaseAndOpen(null)} disabled={readOnly} />
+          <Key icon={<Upload size={18} />} label={t('shell.home.importNotion')} code="A3" onClick={() => ui.openModal({ type: 'import' })} disabled={readOnly} />
+          <Key icon={<LayoutTemplate size={18} />} label={t('shell.nav.templates')} code="A4" onClick={() => ui.openModal({ type: 'templates', parentId: null })} disabled={readOnly} />
+          <Key icon={<CalendarDays size={18} />} label={t('shell.nav.today')} code="A5" onClick={() => openTodayJournal()} disabled={readOnly} />
+        </div>
+      </section>
+
+      <section className="home__section" aria-label={t('shell.agenda.next7')}>
+        <SectionLabel n={no(2)} label={t('shell.agenda.next7')}>
+          <NextDaysActions />
+        </SectionLabel>
+        <NextDays />
+      </section>
+
+      <section className="home__section">
+        <SectionLabel n={no(3)} label={t('shell.home.recent')} />
+        {recent.length === 0 ? (
+          <div className="home__empty">
+            <p>{t(inCloud ? 'shell.home.noRecentCloud' : 'shell.home.noRecent')}</p>
+            {!readOnly && (
+              <button type="button" className="btn btn--primary" onClick={() => createPageAndOpen(null)}>
+                <FilePlus2 size={15} />
+                {t('common.newPage')}
+              </button>
+            )}
           </div>
-        </section>
+        ) : (
+          <div className="cards">
+            {recent.map((p) => (
+              <RecentCard key={p.id} page={p} lang={lang} />
+            ))}
+          </div>
+        )}
+      </section>
 
-        <section className="home__section" aria-label={t('shell.agenda.next7')}>
-          <SectionLabel n="02" label={t('shell.agenda.next7')}>
-            <NextDaysActions />
-          </SectionLabel>
-          <NextDays />
-        </section>
-
+      {!touch && (
         <section className="home__section">
-          <SectionLabel n="03" label={t('shell.home.recent')} />
-          {recent.length === 0 ? (
-            <div className="home__empty">
-              <p>{t(inCloud ? 'shell.home.noRecentCloud' : 'shell.home.noRecent')}</p>
-              {!readOnly && (
-                <button type="button" className="btn btn--primary" onClick={() => createPageAndOpen(null)}>
-                  <FilePlus2 size={15} />
-                  {t('common.newPage')}
-                </button>
-              )}
-            </div>
-          ) : (
-            <div className="cards">
-              {recent.map((p) => (
-                <RecentCard key={p.id} page={p} lang={lang} />
-              ))}
-            </div>
-          )}
-        </section>
-
-        {!touch && (
-        <section className="home__section">
-          <SectionLabel n="04" label={t('shell.home.tips')} />
+          <SectionLabel n={no(4)} label={t('shell.home.tips')} />
           <ul className="tips">
             <Tip keys={['Mod+K']} text={t('shell.tips.palette')} />
             <Tip keys={['/']} text={t('shell.tips.slash')} />
@@ -143,8 +166,7 @@ export function Home() {
             <Tip keys={['?']} text={t('shell.tips.help')} />
           </ul>
         </section>
-        )}
-      </div>
+      )}
     </div>
   )
 }

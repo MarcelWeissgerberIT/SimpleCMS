@@ -115,6 +115,20 @@ export async function mockClaude(ctx: BrowserContext | Page, answer: (body: stri
 /* App navigation                                                      */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Preflight off on this device (init script: one.preflight.prefs = { on: false }) — for a spec that tests what Preflight
+ * replaces while it is on (Home's own § 00 line, the Agents badge). Call before the first openApp.
+ */
+export async function preflightOff(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    try {
+      localStorage.setItem('one.preflight.prefs', JSON.stringify({ on: false }))
+    } catch {
+      /* storage refused */
+    }
+  })
+}
+
 /** Open the workspace app (seeds on the first visit of a fresh context) and wait for boot. */
 export async function openApp(page: Page, hash = ''): Promise<void> {
   const h = hash ? `#${hash.replace(/^#/, '')}` : ''

@@ -534,6 +534,25 @@ export function removeRun(id: string) {
   void del(diskKey(run), kv()).catch(() => {})
 }
 
+/**
+ * Put back a run removeRun took away (an Undo: a memory proposal saved from Preflight, then taken back) — as it was, in
+ * this workspace only, saved on this device again. A running run never comes back (its request was aborted). It finds
+ * its page's live editor again through another run bound to it, else when the page's editor next adopts its runs.
+ * False: nothing put back (still there, another workspace, or it was running).
+ */
+export function restoreRun(run: AIRun): boolean {
+  if (S().runs[run.id] || run.status === 'running' || run.scope !== scopeKey()) return false
+  useAIRuns.setState((s) => ({ runs: { ...s.runs, [run.id]: run } }))
+  for (const [id, e] of bound) {
+    if (S().runs[id]?.pageId === run.pageId && live(e)) {
+      bind(run.id, e)
+      break
+    }
+  }
+  persist(run.id)
+  return true
+}
+
 export function markSeen(id: string) {
   const run = S().runs[id]
   if (run && !run.seen && run.status !== 'running') patch(id, { seen: true })

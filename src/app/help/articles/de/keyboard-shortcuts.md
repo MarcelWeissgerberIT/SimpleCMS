@@ -2,7 +2,7 @@
 id: keyboard-shortcuts
 title: Tastenkürzel
 section: start
-order: 4
+order: 5
 keywords: tasten, tastatur, kürzel, tastenkürzel, shortcut, hotkey, keyboard
 related: command-palette, blocks, block-handle, tasks
 summary: Die Tasten, die sich zuerst lohnen. Die ganze Liste steht im Tab „Tasten“ der Hilfe.

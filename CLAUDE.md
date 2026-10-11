@@ -43,13 +43,16 @@ src/app/features/**                  AI (+ workspace agent), history, graph, sha
                                      (SVG renderer, chart builder, data sources) (public API: features/index.ts)
 src/app/features/outbox/**           the Outbox: slips for another tool's send routes, drafted without tools, sent by hand
                                      (dock, #/outbox, receipts; public API outbox/index.ts; docs/OUTBOX.md)
+src/app/features/preflight/**        Preflight ("Vorflug-Check"): the lamp panel on Start, MASTER CAUTION, the keyboard queue
+                                     (lamps register through preflight/registry.ts; public API preflight/index.ts; sources/ =
+                                     built-in lamps; queue/calls.ts = every call into another area)
 src/app/features/recorder/**         flight recorder: writer journal (IndexedDB one-recorder) + the deck (Mod+Alt+Z); window
                                      reading, eject and the ghost come later (public API recorder/index.ts via
                                      features/index.ts); store/writer.ts = the writer context every store write runs under
 src/app/features/workitems/**        tasks outside the editor: the workspace index (lazy, incremental), graph (blocked / loops),
                                      views, writeItems (origin 'items'), the unblock toast, members + reminder audience, the
                                      people / link pickers and cards (public API workitems/index.ts, via features/index.ts)
-src/app/help/**                      help centre: panel (?, status bar, ⌘K, workspace menu), 72 articles EN+DE twins
+src/app/help/**                      help centre: panel (?, status bar, ⌘K, workspace menu), 73 articles EN+DE twins
                                      (help/articles/{en,de}/<id>.md, `help:<id>` links), Ask (Claude over the articles);
                                      link UI to an article with `<HelpLink id="…" />` (public API: help/index.ts)
 src/help-site/**                     build-time public /help pages (prerendered from the same articles, hreflang)
@@ -587,6 +590,37 @@ the public APIs stable — other areas are built against them in parallel.
   are database commands (`send:<profileId>:<routeId>`, group 'outbox', `needsRow`). Dock: a 420 px column portalled into
   `.app .stage` at ≥ 1200 px (open state per device `one.outbox.dock`), else a sheet (full screen ≤ 600 px, above floating
   keys). e2e seam `window.__oneOutbox` under `?e2e` only; fixtures tests/fixtures/mock-mcp.mjs (+ fake-net.mjs).
+- Preflight (features/preflight): lamps count what waits on the person for 0 tokens — a source's `read()` is O(k), never a
+  Claude call, never a page-map walk (rows from store/rowIndex.ts, fed by pageChanges; content-only changes reported
+  apart); reads run in idle (shimmed where requestIdleCallback is missing) and the UI reads only `usePreflight`. Other
+  areas add lamps only with `registerLampSource` imported from `features/preflight/registry` (dependency-free; the
+  Outbox's is features/outbox/lamp.ts); queue item ids are exactly the reading's ids. Every card key calls the source's
+  own entry point from queue/calls.ts (applyRun / discardRun / undoChangeEach · applyStaged(…, { quiet }) / discardStaged /
+  undiscardStaged · saveProposal / saveRunMemory · planTaskAction → applyTaskAction (never `confirm: true`; only "Version
+  bestätigen" → confirmTaskVersion(id, hash) of the version its card rendered) · markRead / archiveItems · openSlip /
+  withdrawSlip) and reports what really happened (an action that changed nothing is not done). VON HAND (starts the
+  worker, goes to Claude Code, sends, version confirm / sign-in / text / editor, tokens) confirms only with ↵ / click on
+  its confirm key and is never in ⇧A or a swipe; ⇧A applies only clean cards shown in full in this tab — their body
+  rendered, at the content revision they have now (`QueueSourceDef.rev`; a change merged in place is unseen again) — a
+  bulk sheet shows the rest first and its key applies only what was seen (arrivals wait), never on "Alle". A batch's Undo
+  answers per card (`Done.undo` → { itemId: 'undone' | 'kept' | 'final' }, `Done.finals` for cards without one); only
+  'undone' cards come back, a 'kept' one stays done. Device state per member (`local:local` | `cloud:<ws>:u:<account>`):
+  localStorage `one.preflight.{ack,today,last,hidden}:<scope>`, prefs `one.preflight.prefs` (device-wide), IndexedDB
+  `one-preflight` (log + opened set: ids, kinds, times, outcomes — labels resolved live, never text), 30 days, never
+  synced / exported / backed up, wiped with the device copy and the local reset. Keys only with focus in the plate or
+  the queue; Esc is preventDefault-ed; Enter on a button is left to its click.
+- Agent runs are written per change under a lock: applyRun / discardRun / undoChange / supersedeOlder run inside
+  `withRunLock(agentId)` (agents/runs.ts; a Web Lock), re-read the stored run, act only on `pending | failed` changes and
+  write with `patchRun` (never `putRun` of a stale copy). Superseded proposals (features/agents/supersede.ts, leader tab,
+  browser runs, `update_row` whose props the newer change covers, never a card the person opened — the guard Preflight
+  registers): status 'superseded' (never 'discarded'), no card, counted nowhere; `stateBack` stops at a run holding one.
+- Server proposals for Preflight come from `GET /:id/agent-runs/open` (own server agents, staged runs, no summaries /
+  steps), polled only while the document is visible. applyRun / discardRun of a server run read it again from the server
+  inside the run lock (`freshServerRun`) — never a tab-local copy; no answer → nothing done.
+- The AI terminal's "applied alone" rules and its staged-id map live in ai/agent/staged.ts (startsWorker / goesToWorker /
+  appliesAlone / resolveStaged) — the session and Preflight read the same ones. Coding task states written in a tab are
+  announced on BroadcastChannel "one-coding-tasks"; a state held only from `loadTasks` (a snapshot) never wins over the
+  stored one (coding/local.ts `newerTask`).
 - Code areas (ui/code): use `CodeArea` for any code or instruction field, never a plain textarea (the integrations JSON
   editor keeps its own windowed `JsonCodeArea`, same palette). Syntax colours only from tokens.css `--syn-*` (≥ 4.5:1 on
   bg / surface / surface-2 / surface-3, Paper + Carbon) via `.syn-<class>` or `.hljs-*` inside `.hljs` / `.syn-hl`

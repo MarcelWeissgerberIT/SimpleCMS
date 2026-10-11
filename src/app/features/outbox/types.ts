@@ -263,6 +263,8 @@ export interface OutboxCounts {
   held: number
   changed: number
   unclear: number
+  /** open slips whose send failed (a red Outbox lamp, like unclear) */
+  failed: number
   missing: number
   sentToday: number
 }

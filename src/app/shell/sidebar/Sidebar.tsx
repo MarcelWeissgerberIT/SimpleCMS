@@ -4,7 +4,7 @@ import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
 import { useFavorites, useTrash, useTreeCount, useHasFavorites } from '../../store/selectors'
 import { navigate, useRoute } from '../../lib/router'
-import { openTodayJournal, AgentsNavBadge, OutboxNavBadge, useOutboxVisible, openRecorder, REWIND_SHORTCUT } from '../../features'
+import { openTodayJournal, AgentsNavBadge, OutboxNavBadge, useOutboxVisible, openRecorder, REWIND_SHORTCUT, usePreflightOn } from '../../features'
 import { Menu, useMenu, type MenuEntry } from '../../ui/Menu'
 import { toggleMenu } from '../lib/menu'
 import { Tooltip } from '../../ui/Tooltip'
@@ -60,6 +60,8 @@ export function Sidebar() {
 
   const visited = useVisited()
   const no = useSectionNumbers(visited.shown)
+  // Preflight's plate counts the agents' proposals: their own badge goes while it is on
+  const preflightOn = usePreflightOn()
 
   const w = Math.min(MAX_W, Math.max(MIN_W, dragW ?? width))
   const state = mobile ? (mobileOpen ? 'drawer-open' : 'drawer') : focus ? 'hidden' : collapsed ? (hoverReveal ? 'reveal' : 'collapsed') : 'docked'
@@ -105,7 +107,7 @@ export function Sidebar() {
           )}
           <NavRow icon={<CalendarRange size={16} />} label={t('shell.nav.agenda')} active={route.name === 'agenda'} onClick={() => (closeMobileSidebar(), navigate({ name: 'agenda' }))} />
           <NavRow icon={<Waypoints size={16} />} label={t('shell.nav.graph')} active={route.name === 'graph'} onClick={() => (closeMobileSidebar(), navigate({ name: 'graph' }))} />
-          <NavRow icon={<Bot size={16} />} label={t('features.agents.title')} active={route.name === 'agents'} badge={<AgentsNavBadge />} onClick={() => (closeMobileSidebar(), navigate({ name: 'agents' }))} />
+          <NavRow icon={<Bot size={16} />} label={t('features.agents.title')} active={route.name === 'agents'} badge={preflightOn ? undefined : <AgentsNavBadge />} onClick={() => (closeMobileSidebar(), navigate({ name: 'agents' }))} />
           <NavRow icon={<SquareCode size={16} />} label={t('features.script.title')} active={route.name === 'scripts'} onClick={() => (closeMobileSidebar(), navigate({ name: 'scripts' }))} />
           <NavRow icon={<Blocks size={16} />} label={t('features.kit.title')} active={route.name === 'kit'} onClick={() => (closeMobileSidebar(), navigate({ name: 'kit' }))} />
           {!readOnly && (

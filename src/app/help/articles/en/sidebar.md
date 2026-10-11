@@ -2,7 +2,7 @@
 id: sidebar
 title: Sidebar & page tree
 section: start
-order: 2
+order: 3
 keywords: sidebar, page tree, nest, subpage, favorites, recent, frequent, visited, trash, move, drag, database entries, show all, Seitenleiste, Papierkorb, zuletzt, häufig
 related: first-steps, command-palette, team-cloud
 summary: Every page has a place in the tree. Drag to reorder or nest, star what you need often.

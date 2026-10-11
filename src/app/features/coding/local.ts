@@ -6,9 +6,11 @@
  *                           newest diff / git state and test output, "Run now"
  *   <scope>|trust           hashes of task versions written or confirmed here (team workspaces)
  * <scope> = "local:local" / "cloud:<workspace id>". Without IndexedDB everything stays in memory.
+ * A task state written here is announced on BroadcastChannel "one-coding-tasks"; a tab holding that task reads it
+ * again (the newer by `at` wins; a state held only as loadTasks' snapshot always loses to what is stored).
  */
 import { create } from 'zustand'
-import { createStore, get, set as idbSet, type UseStore } from 'idb-keyval'
+import { createStore, get, getMany, set as idbSet, update, type UseStore } from 'idb-keyval'
 import { activeWorkspace } from '../../cloud'
 import type { ID } from '../../store/types'
 import { LOG_MAX, type GitInfo, type LogLine, type TestResult } from './protocol'
@@ -104,17 +106,113 @@ async function write(key: string, value: unknown): Promise<void> {
   }
 }
 
+/**
+ * Task states this tab holds only as loadTasks' snapshot (never patched here since): a later read lets the stored value
+ * win — another tab (the one connected to the worker) may have written a newer state meanwhile.
+ */
+const snapshot = new Set<string>()
+
+/**
+ * The state to hold after a read: the stored one when memory is only a snapshot of an older read, else the newer of
+ * the two by `at` (memory patched here after the stored one was written wins, as it always did).
+ */
+export function newerTask(stored: unknown, mem: TaskLocal | undefined, snapshotOnly: boolean): TaskLocal {
+  const st = stored && typeof stored === 'object' ? (stored as TaskLocal) : null
+  if (!st) return mem ?? { state: 'idle' }
+  if (!mem || snapshotOnly) return st
+  return (st.at ?? 0) > (mem.at ?? 0) ? st : { ...st, ...mem }
+}
+
 /** Load a task's state and log into memory (once per task and workspace). */
 export async function loadTask(taskId: ID): Promise<void> {
   const s = scope()
   const key = memKey(taskId, s)
   if (loaded.has(key)) return
   loaded.add(key)
+  // a tab that holds task states hears the other tabs' writes
+  taskChannel()
   const [task, log] = await Promise.all([read<TaskLocal>(`${s}|task|${taskId}`), read<LogLine[]>(`${s}|log|${taskId}`)])
-  useCodingLocal.setState((st) => ({
-    tasks: { ...st.tasks, [key]: { ...(task && typeof task === 'object' ? task : { state: 'idle' }), ...st.tasks[key] } },
-    logs: { ...st.logs, [key]: [...(Array.isArray(log) ? log : []), ...(st.logs[key] ?? [])].slice(-LOG_MAX) },
-  }))
+  useCodingLocal.setState((st) => {
+    const next = newerTask(task, st.tasks[key], snapshot.has(key))
+    snapshot.delete(key)
+    return {
+      tasks: { ...st.tasks, [key]: next },
+      logs: { ...st.logs, [key]: [...(Array.isArray(log) ? log : []), ...(st.logs[key] ?? [])].slice(-LOG_MAX) },
+    }
+  })
+}
+
+/** Task states loaded by loadTasks (their logs are not: loadTask still loads those). */
+const statesLoaded = new Set<string>()
+
+/**
+ * Load the run state of many tasks at once — ONE IndexedDB read (getMany) for every task not loaded yet. For readers
+ * that list tasks (the Preflight lamps, coding/waiting.ts); the logs stay unloaded until a task is opened (loadTask).
+ */
+export async function loadTasks(ids: Iterable<ID>): Promise<void> {
+  const s = scope()
+  taskChannel()
+  const todo: ID[] = []
+  for (const id of ids) {
+    const key = memKey(id, s)
+    if (loaded.has(key) || statesLoaded.has(key)) continue
+    statesLoaded.add(key)
+    todo.push(id)
+  }
+  const store = kv()
+  if (!todo.length || !store) return
+  let values: unknown[] = []
+  try {
+    values = await getMany(todo.map((id) => `${s}|task|${id}`), store)
+  } catch {
+    noDb = true
+    return
+  }
+  const found: Record<string, TaskLocal> = {}
+  todo.forEach((id, i) => {
+    const v = values[i]
+    if (v && typeof v === 'object') found[memKey(id, s)] = v as TaskLocal
+  })
+  if (!Object.keys(found).length) return
+  // what this tab holds already wins (as in loadTask); what it takes from here is a snapshot (a later read wins)
+  useCodingLocal.setState((st) => {
+    const tasks = { ...st.tasks }
+    for (const [key, task] of Object.entries(found)) {
+      if (!st.tasks[key]) snapshot.add(key)
+      tasks[key] = { ...task, ...st.tasks[key] }
+    }
+    return { tasks }
+  })
+}
+
+/* ------------------------------------------------------------------ other tabs (BroadcastChannel "one-coding-tasks") */
+
+let taskChan: BroadcastChannel | null | undefined
+function taskChannel(): BroadcastChannel | null {
+  if (taskChan !== undefined) return taskChan
+  try {
+    taskChan = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('one-coding-tasks') : null
+  } catch {
+    taskChan = null
+  }
+  if (taskChan) taskChan.onmessage = (e: MessageEvent) => void onTaskWritten(e.data)
+  return taskChan
+}
+
+/** Another tab wrote a task's state: a task held here is read again (the newer by `at` wins; a snapshot always loses). */
+async function onTaskWritten(msg: unknown): Promise<void> {
+  if (!msg || typeof msg !== 'object') return
+  const { scope: s, taskId } = msg as { scope?: unknown; taskId?: unknown }
+  if (typeof s !== 'string' || typeof taskId !== 'string' || s !== scope()) return
+  const key = memKey(taskId, s)
+  if (!useCodingLocal.getState().tasks[key]) return
+  const stored = await read<TaskLocal>(`${s}|task|${taskId}`)
+  useCodingLocal.setState((st) => {
+    if (!st.tasks[key]) return st
+    const next = newerTask(stored, st.tasks[key], snapshot.has(key))
+    snapshot.delete(key)
+    return next === st.tasks[key] ? st : { tasks: { ...st.tasks, [key]: next } }
+  })
 }
 
 export function taskLocal(taskId: ID): TaskLocal {
@@ -140,8 +238,14 @@ export async function patchTask(taskId: ID, patch: Partial<TaskLocal>): Promise<
   await loadTask(taskId)
   const key = memKey(taskId, s)
   const next: TaskLocal = { ...(useCodingLocal.getState().tasks[key] ?? { state: 'idle' }), ...patch, at: Date.now() }
+  snapshot.delete(key)
   useCodingLocal.setState((st) => ({ tasks: { ...st.tasks, [key]: next } }))
   await write(`${s}|task|${taskId}`, next)
+  try {
+    taskChannel()?.postMessage({ scope: s, taskId })
+  } catch {
+    /* closed */
+  }
   return next
 }
 
@@ -179,19 +283,67 @@ export async function clearLog(taskId: ID): Promise<void> {
 const MAX_TRUST = 2000
 let trustCache: { scope: string; set: Set<string> } | null = null
 
+/** Another tab of this browser trusted a version: every tab's trust readouts re-check (trustRev). */
+type TrustMessage = { scope: string; hash: string }
+let trustChan: BroadcastChannel | null | undefined
+
+function trustChannel(): BroadcastChannel | null {
+  if (trustChan !== undefined) return trustChan
+  trustChan = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('one-coding-trust') : null
+  trustChan?.addEventListener('message', (e: MessageEvent) => {
+    const m = e.data as TrustMessage | null
+    if (!m || typeof m.scope !== 'string' || typeof m.hash !== 'string' || m.scope !== scope()) return
+    if (trustCache?.scope === m.scope) trustCache.set.add(m.hash)
+    useCodingLocal.setState((st) => ({ trustRev: st.trustRev + 1 }))
+  })
+  return trustChan
+}
+
 export async function trustedHashes(): Promise<Set<string>> {
+  trustChannel()
   const s = scope()
   if (trustCache?.scope === s) return trustCache.set
   const list = await read<string[]>(`${s}|trust`)
-  trustCache = { scope: s, set: new Set(Array.isArray(list) ? list.filter((x) => typeof x === 'string') : []) }
-  return trustCache.set
+  // a hash another tab sent while this read went on stays
+  const set = new Set(Array.isArray(list) ? list.filter((x) => typeof x === 'string') : [])
+  if (trustCache?.scope === s) for (const h of trustCache.set) set.add(h)
+  trustCache = { scope: s, set }
+  return set
 }
 
+/**
+ * Trust a task version on this device: kept in this tab at once, then added to the stored list in ONE read-modify-write
+ * (idb-keyval update — two tabs confirming at the same moment both keep theirs; the newest MAX_TRUST stay), and the
+ * other tabs are told (BroadcastChannel "one-coding-trust": their trustRev goes up, their lamps and panels re-check).
+ */
 export async function addTrusted(hash: string): Promise<void> {
+  const s = scope()
   const set = await trustedHashes()
   if (set.has(hash)) return
   set.add(hash)
   useCodingLocal.setState((st) => ({ trustRev: st.trustRev + 1 }))
-  const list = [...set].slice(-MAX_TRUST)
-  await write(`${scope()}|trust`, list)
+  const store = kv()
+  if (store) {
+    try {
+      let stored: string[] = []
+      await update<unknown>(
+        `${s}|trust`,
+        (cur) => {
+          const list = Array.isArray(cur) ? cur.filter((x): x is string => typeof x === 'string') : []
+          stored = list.includes(hash) ? list : [...list, hash].slice(-MAX_TRUST)
+          return stored
+        },
+        store,
+      )
+      // what other tabs stored meanwhile joins this tab's set
+      if (trustCache?.scope === s) for (const h of stored) trustCache.set.add(h)
+    } catch {
+      noDb = true
+    }
+  }
+  try {
+    trustChannel()?.postMessage({ scope: s, hash } satisfies TrustMessage)
+  } catch {
+    /* closed */
+  }
 }

@@ -33,6 +33,8 @@ export type YouVia =
   | 'undo'
   /** the Outbox's row patch after "Mark as sent" (features/outbox; its "Reset row" is an Undo) */
   | 'outbox'
+  /** a key in Preflight's queue that writes through no source writer of its own (features/preflight/queue/calls.ts) */
+  | 'preflight'
 
 /** A writer's canonical id (grammar: features/recorder/model/writerKeys.ts). */
 export type WriterKey = string

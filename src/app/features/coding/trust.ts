@@ -26,7 +26,7 @@ import { docToMarkdown } from '../../editor'
 import { useCloud } from '../../cloud'
 import { agentIdOf, isAgentWriting } from '../agents/attribution'
 import { addTrusted, trustedHashes } from './local'
-import { refsKey } from './refs'
+import { refIdsOf, refsKey } from './refs'
 import { codingProps, optionName, pipelineDbIds, readPipeline } from './schema'
 import { withWriter, type Writer } from '../../store/writer'
 
@@ -111,6 +111,33 @@ export async function isTrusted(taskId: ID): Promise<boolean> {
   if (!page?.databaseId) return false
   if (!needsConfirm(page)) return true
   return (await trustedHashes()).has(await versionOf(page, s.databases[page.databaseId]))
+}
+
+/** What `trustState` hashed: the version, whether this device trusts it, and the objects it was made of. */
+export interface TrustState {
+  ok: boolean
+  version: string
+  page: Page
+  db: Database | undefined
+  /** the pages the version took along (refIdsOf), as they were */
+  refs: Page[]
+}
+
+/**
+ * A task's trust in one look — ONE versionOf, read from one store snapshot (null: not a task row). `ok`: the task
+ * needs no Confirm here, or this device trusts exactly this version. Readers that keep the answer (coding/waiting.ts)
+ * hold it only while the page, its database and every page in `refs` are still the same objects.
+ */
+export async function trustState(taskId: ID): Promise<TrustState | null> {
+  await settling
+  const s = useWorkspace.getState()
+  const page = s.pages[taskId]
+  if (!page?.databaseId) return null
+  const db = s.databases[page.databaseId]
+  // the same tick as versionOf's own reads (refsKey reads the store before its first await)
+  const refs = refIdsOf(page).map((id) => s.pages[id]).filter((p): p is Page => !!p)
+  const [version, set] = await Promise.all([versionOf(page, db), trustedHashes()])
+  return { ok: !needsConfirm(page) || set.has(version), version, page, db, refs }
 }
 
 /** The person saw this version here (an action on the task, "Confirm on this device"). */

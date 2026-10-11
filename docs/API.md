@@ -335,6 +335,7 @@ except the webhook trigger, whose URL carries its secret.
 | `GET /api/workspaces/:id/agent-runtime` | members, admins, owner | `{ claudeKey: { set, last4? }, mcpServers: [{ name, url, token: { set, last4? } }], enabled, available, updated_at }` |
 | `PUT /api/workspaces/:id/agent-runtime` | admins, owner | `{ claudeKey?: string \| null, mcpServers?: [{ name, url, token? }], enabled?: boolean }` → as `GET` |
 | `GET /api/workspaces/:id/agent-runs?agentId=&limit=` | every member | `AgentRun[]`, newest first (`limit` 1–200, default 50) |
+| `GET /api/workspaces/:id/agent-runs/open?agentIds=a,b` | every member | `{ runs, latest }`: the runs of those agents (1–50 ids) whose proposals wait (`status` staged), newest first, ≤ 200, **without** `summary` / `steps`; `latest` = each agent's newest run that is not a skip as `{ id, agentId, status, startedAt, endedAt }` (the app's Preflight lamps) |
 | `POST /api/workspaces/:id/agents/:agentId/run` | members, admins, owner | `202 { runId }` |
 | `POST /api/workspaces/:id/agent-runs/:runId/apply` | members, admins, owner | `{ changeIds?: string[] }` → the run (staged changes applied on the server) |
 | `POST /api/workspaces/:id/agent-runs/:runId/resolve` | members, admins, owner | `{ applied: string[], discarded: string[] }` → the run (the app applied them itself) |

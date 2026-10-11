@@ -32,11 +32,13 @@ import { applyChanges, changeWriter, type ApplyResult } from '../ai/agent/apply'
 import type { StagedChange } from '../ai/agent/types'
 import { snapshotNow } from '../history/snapshots'
 import { agentTools, scopeFilter, scopeText } from './scope'
-import { asAgent, stampLocal } from './attribution'
+import { asAgent, stampLocal, touchedBy } from './attribution'
 import { getAgentState, lastSuccess, loadRuns, nextSeq, putAgentState, putRun, type AgentState } from './runs'
 import { agentLabel } from './label'
 import { deliverNotes, lastRunLine, runTools, type RunExtras } from './runTools'
 import { exclusive } from './locks'
+import { supersedeOlder } from './review'
+import { proposalsShown } from './hold'
 import { awaitsConfirm } from './confirm'
 import { withoutWebImages } from './images'
 import { claudeBlocks } from '../ai/claudeDoc'
@@ -192,19 +194,6 @@ const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…`
 const alive = (id: ID | null | undefined): id is ID => {
   const pages = useWorkspace.getState().pages
   return !!id && !!pages[id] && !pages[id].trashed && !isEffectivelyTrashed(pages, id)
-}
-
-/** The pages an applied batch touched: [changed, created]. */
-export function touchedBy(changes: StagedChange[], applied: string[], rowIds: Record<string, ID>): [ID[], ID[]] {
-  const changed: ID[] = []
-  const created: ID[] = []
-  for (const c of changes) {
-    if (!applied.includes(c.id)) continue
-    const id = rowIds[c.pageId] ?? c.pageId
-    if (c.kind === 'create_page' || c.kind === 'create_row') created.push(id)
-    else changed.push(id)
-  }
-  return [changed, created]
 }
 
 /** Write the run's report into the agent's report page (a version is kept first). */
@@ -470,6 +459,8 @@ async function runOnce(agent: CustomAgent, req: RunRequest): Promise<AgentRun> {
   run.endedAt = Date.now()
   await putRun({ ...run, steps: [...run.steps] })
   endRun(writer)
+  // its proposals replace older ones of the same rows (the leader tab only; supersede.ts)
+  if (run.status === 'staged') await supersedeOlder(agent.id).catch((e) => console.warn('[one] agents: could not replace older proposals', e))
   notify(agent, run, req)
   return run
 }
@@ -541,7 +532,8 @@ function notify(agent: CustomAgent, run: AgentRun, req: RunRequest) {
   const ui = useUI.getState()
   const open = { label: t('features.agents.toast.review'), run: () => navigate(`#/agents/${agent.id}`) }
   if (pending) {
-    if (!onAgentPage(agent.id))
+    // Preflight's proposals queue on screen shows them already
+    if (!onAgentPage(agent.id) && !proposalsShown())
       ui.toast({ message: t(pending === 1 ? 'features.agents.toast.staged.one' : 'features.agents.toast.staged.other', { name: agent.name, count: pending }), kind: 'info', action: open, timeout: 10_000, background: true })
   } else if (run.status === 'error' || run.status === 'budget') ui.toast({ message: t('features.agents.toast.failed', { name: agent.name }), kind: 'error', action: { ...open, label: t('common.open') }, timeout: 8000, background: true })
   else if (req.manual) ui.toast({ message: t('features.agents.toast.done', { name: agent.name }), kind: 'success', action: { ...open, label: t('common.open') }, background: true })

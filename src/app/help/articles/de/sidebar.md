@@ -2,7 +2,7 @@
 id: sidebar
 title: Seitenleiste & Seitenbaum
 section: start
-order: 2
+order: 3
 keywords: seitenleiste, seitenbaum, verschachteln, unterseite, favoriten, zuletzt, häufig, besucht, papierkorb, verschieben, ziehen, datenbank-einträge, alle anzeigen, sidebar, page tree, trash, recent, frequent
 related: first-steps, command-palette, team-cloud
 summary: Jede Seite hat ihren Platz im Baum. Ziehen zum Ordnen oder Verschachteln, Stern für das, was du oft brauchst.

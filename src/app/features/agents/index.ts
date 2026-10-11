@@ -20,6 +20,17 @@ export { runNow as runAgentNow } from './actions'
 export { triggerText as agentTriggerText } from './format'
 export { loadRuns as loadAgentRuns, useAgentRuns } from './runs'
 /**
+ * The Preflight lamps (proposals, mirror stale, agent missed) — reads only:
+ *  - onRunsChanged(fn): another tab wrote an agent's runs · primeSlots(ids) / cachedSlot(id): the schedule slots this
+ *    device handled, read ahead so the lamps read them synchronously
+ *  - staleMirrors(now) · missedAgents(now, me) · creatorConfirms(me) · healthFitted(me) · scheduledHere() (health.ts)
+ *  - useServerAgents (read only) · loadOpenServerRuns() · startOpenServerPoll(): the staged runs of this member's own
+ *    server agents (agent-runs/open, polled only while the tab is visible) → useServerAgents.open / openLatest
+ */
+export { onRunsChanged, primeSlots, cachedSlot } from './runs'
+export { staleMirrors, missedAgents, creatorConfirms, healthFitted, scheduledHere, workingMsBetween, type HealthItem } from './health'
+export { useServerAgents, loadOpenServerRuns, startOpenServerPoll, ownServerAgentIds, type ServerRunHead } from './server'
+/**
  * Integration profiles (integrations/): useUnlocked(feature) / unlocked(feature) — is it unlocked on this device (an
  * active profile names it) · IntegrationsPanel — the body of Workspace → Integrations
  */
@@ -35,3 +46,19 @@ export { mirrorSourceOf } from './mirror'
 export { recipeRoleNames } from './integrations/recipe'
 /** recipeOptionNames(profile) → property name → the option names the profile declares (both languages, lower case) */
 export { recipeOptionNames } from './integrations/recipe'
+/**
+ * Preflight's proposals queue (P2) — the review entry points, with their own safety rules (review.ts: the run lock, the
+ * stored run read again, open proposals only, a patch of what changed):
+ *  - applyRun(run, ids?, { row }) → ApplyResult | null · discardRun(run, ids | null, { undo }) → { dropped, undo } ·
+ *    undoChange(run, changeId) → kept | null · undoChangeEach(run, changeId) → { changeId: 'undone' | 'kept' | 'final' } | null
+ *  - AgentChangeBody { run, change, bare? }: the run history's own body of a proposal, loaded with the agents page's code
+ *    on first use (AGENT_BODY_KINDS: the kinds it shows; `bare`: the caller's Suspense waits for it)
+ *  - setSupersedeGuard(fn): which proposals were opened as cards (never replaced; null = not known yet → no pass) ·
+ *    catchUpSupersede(): the leader looks again (call it once that is known) · setProposalsShown(fn): while it says
+ *    true, an agent's "has N proposals" toast stays away
+ */
+export { applyRun, discardRun, undoChange, undoChangeEach, type Discarded } from './review'
+export { AgentChangeBody, AGENT_BODY_KINDS } from './body'
+export { setSupersedeGuard, type SupersedeGuard } from './supersede'
+export { catchUpSupersede } from './runner'
+export { setProposalsShown } from './hold'

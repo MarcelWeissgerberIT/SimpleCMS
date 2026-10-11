@@ -91,7 +91,8 @@ export async function runPendingReset(onBlocked?: () => void): Promise<boolean> 
     /* "1" or junk: start over */
   }
   if (!names) {
-    const all = new Set<string>(['keyval-store', 'one-files', 'one-vault', RECORDER_DB])
+    // databases() is missing in some browsers: the ones a reset must reach anyway (the recorder's tape, Preflight's Bordbuch too)
+    const all = new Set<string>(['keyval-store', 'one-files', 'one-vault', RECORDER_DB, 'one-preflight'])
     try {
       const dbs = (await indexedDB.databases?.()) ?? []
       for (const d of dbs) if (d.name) all.add(d.name)
@@ -136,6 +137,16 @@ export async function runPendingReset(onBlocked?: () => void): Promise<boolean> 
     for (const k of Object.keys(localStorage)) if (k.startsWith('one.shell.') || k.startsWith('one.recorder.')) localStorage.removeItem(k)
     // the report pages the local workspace's mirror setups made (features/agents/mirrorMemory.ts)
     localStorage.removeItem('one.mirror.reports:local:local')
+    // Preflight's acknowledgements, day, last count and hidden lamps of the local workspace (the device-wide
+    // one.preflight.prefs stays, like the text size)
+    for (const k of Object.keys(localStorage)) if (/^one\.preflight\.(?:ack|today|last|hidden):local:local$/.test(k)) localStorage.removeItem(k)
+    const scopes = localStorage.getItem('one.preflight.lastScope')
+    if (scopes) {
+      const map = JSON.parse(scopes) as Record<string, unknown>
+      delete map['local:local']
+      if (Object.keys(map).length) localStorage.setItem('one.preflight.lastScope', JSON.stringify(map))
+      else localStorage.removeItem('one.preflight.lastScope')
+    }
     // the local workspace's look cache (team workspaces keep theirs, "standard look here" included)
     forgetLookCache('local')
   } catch {

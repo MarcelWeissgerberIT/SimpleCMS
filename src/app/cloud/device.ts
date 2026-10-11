@@ -15,6 +15,11 @@
  *   one-outbox / kv                     the Outbox's slips and receipts (cloud:<id>:u:<user>|slip|<slip>)
  *   localStorage one.shell.visits:cloud:<id>   which pages this device opened, how often (FREQUENT)
  *   localStorage one.mirror.reports:cloud:<id> the report pages this device's mirror setups made (features/agents)
+ *   localStorage one.preflight.{ack,today,last,hidden}:cloud:<id>:u:<user>  Preflight's acknowledgements, day, last
+ *                                       count and hidden lamps of each member here (+ the workspace's
+ *                                       one.preflight.lastScope entry); the device-wide one.preflight.prefs stays
+ *   one-preflight / kv                  Preflight's Bordbuch and opened cards of each member here
+ *                                       (cloud:<id>:u:<user>|log|<day>, cloud:<id>:u:<user>|opened)
  * The team workspace on the server is never touched, nor is the local workspace or anything it uses
  * (a local workspace copied into a team keeps its page and file ids, so those are checked).
  *
@@ -166,8 +171,19 @@ async function forget(flag: string[]): Promise<void> {
   // the early return below (nothing else may be left of a copy, these still are)
   try {
     for (const k of Object.keys(localStorage)) {
-      const m = /^one\.(?:shell\.visits|mirror\.reports):cloud:([A-Za-z0-9_-]{1,64})$/.exec(k)
+      const m = /^one\.(?:shell\.visits|mirror\.reports):cloud:([A-Za-z0-9_-]{1,64})$/.exec(k) ?? /^one\.preflight\.(?:ack|today|last|hidden):cloud:([A-Za-z0-9_-]{1,64})(?::u:.*)?$/.exec(k)
       if (m && (all || flag.includes(m[1]))) localStorage.removeItem(k)
+    }
+    // Preflight's "member scope last used" of those workspaces (features/preflight/prefs.ts)
+    const raw = localStorage.getItem('one.preflight.lastScope')
+    if (raw) {
+      const map = JSON.parse(raw) as Record<string, unknown>
+      for (const ref of Object.keys(map)) {
+        const m = /^cloud:([A-Za-z0-9_-]{1,64})$/.exec(ref)
+        if (m && (all || flag.includes(m[1]))) delete map[ref]
+      }
+      if (Object.keys(map).length) localStorage.setItem('one.preflight.lastScope', JSON.stringify(map))
+      else localStorage.removeItem('one.preflight.lastScope')
     }
   } catch {
     /* blocked storage */
@@ -323,6 +339,15 @@ async function forget(flag: string[]): Promise<void> {
       return !!m && targets.has(m[1])
     })
     if (outboxKeys.length) await delMany(outboxKeys, store).catch(() => {})
+  }
+  // Preflight's Bordbuch and opened cards of each member (features/preflight/log.ts): keys "cloud:<ws>[:u:<account>]|…"
+  if (!dbNames || dbNames.includes('one-preflight')) {
+    const store = createStore('one-preflight', 'kv')
+    const pfKeys = (await keys(store).catch(() => [] as IDBValidKey[])).filter((k) => {
+      const m = /^cloud:([^|:]+)(?::u:[^|]+)?\|/.exec(String(k))
+      return !!m && targets.has(m[1])
+    })
+    if (pfKeys.length) await delMany(pfKeys, store).catch(() => {})
   }
   // coding pipeline of this device (features/coding/local.ts): logs, run states, trusted task versions — keys "cloud:<ws>|…"
   if (!dbNames || dbNames.includes('one-coding')) {

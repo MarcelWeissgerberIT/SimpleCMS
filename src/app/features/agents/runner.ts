@@ -22,7 +22,8 @@ import { isAgentWriting, startAttributionKeeper } from './attribution'
 import { awaitsConfirm } from './confirm'
 import { isRunningAnywhere, wsKey } from './locks'
 import { latestSlot } from './schedule'
-import { forgetSlots, getSlot, loadRuns, nextSeq, putRun, setSlot, useAgentRuns } from './runs'
+import { forgetSlots, getSlot, loadRuns, nextSeq, onRunsChanged, putRun, setSlot, useAgentRuns } from './runs'
+import { supersedePlan } from './supersede'
 import { newId } from '../../lib/ids'
 
 /** The run code (the agent loop, its tools, apply) loads on the first run, not at boot. */
@@ -273,6 +274,46 @@ function diff(state: ReturnType<typeof useWorkspace.getState>, prev: ReturnType<
 }
 
 /* ------------------------------------------------------------------ */
+/* Superseding (the leader tab)                                         */
+/* ------------------------------------------------------------------ */
+
+/** quiet time after another tab stored an agent's runs before the leader looks for proposals to replace */
+const SUPERSEDE_QUIET_MS = 1000
+const supersedeTimers = new Map<ID, ReturnType<typeof setTimeout>>()
+let unsubRuns: (() => void) | null = null
+
+/**
+ * Leader: let newer proposals replace older ones (supersede.ts, written by review.ts supersedeOlder) — for one agent or
+ * every browser agent. The run code loads only when there is something to replace. Resolves with how many were.
+ * Called when this tab becomes the leader, when another tab stored an agent's runs (a run there, a review), and by
+ * Preflight once it knows which cards were opened.
+ */
+export async function catchUpSupersede(only?: ID): Promise<number> {
+  if (!leader) return 0
+  const ids = only ? [only] : Object.values(useWorkspace.getState().agents ?? {}).filter((a) => a.runner === 'browser').map((a) => a.id)
+  let n = 0
+  for (const id of ids) {
+    const runs = useAgentRuns.getState().byAgent[id] ?? (await loadRuns(id))
+    // nothing opened counts here: the real pass (under the lock, with Preflight's guard) decides
+    if (!supersedePlan(runs, (run, pageId) => run.rowIds?.[pageId] ?? pageId, () => false).length) continue
+    n += await (await import('./review')).supersedeOlder(id)
+  }
+  return n
+}
+
+function scheduleSupersede(agentId: ID) {
+  if (!leader) return
+  clearTimeout(supersedeTimers.get(agentId))
+  supersedeTimers.set(
+    agentId,
+    setTimeout(() => {
+      supersedeTimers.delete(agentId)
+      void catchUpSupersede(agentId).catch((e) => console.warn('[one] agents: could not replace older proposals', e))
+    }, SUPERSEDE_QUIET_MS),
+  )
+}
+
+/* ------------------------------------------------------------------ */
 /* Lifecycle                                                           */
 /* ------------------------------------------------------------------ */
 
@@ -305,6 +346,10 @@ function lead() {
     }
   })
   void sweepInterrupted()
+  // proposals another tab staged (a manual run there) or left open: the leader replaces the older ones
+  unsubRuns?.()
+  unsubRuns = onRunsChanged(scheduleSupersede)
+  void catchUpSupersede().catch((e) => console.warn('[one] agents: could not replace older proposals', e))
 }
 
 function stopLeading() {
@@ -312,6 +357,10 @@ function stopLeading() {
   tickTimer = 0
   unsubStore?.()
   unsubStore = null
+  unsubRuns?.()
+  unsubRuns = null
+  for (const timer of supersedeTimers.values()) clearTimeout(timer)
+  supersedeTimers.clear()
   for (const p of pending.values()) window.clearTimeout(p.timer)
   pending.clear()
 }

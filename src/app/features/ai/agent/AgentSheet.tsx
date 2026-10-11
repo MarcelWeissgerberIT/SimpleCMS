@@ -1119,6 +1119,180 @@ function useToWorker(c: StagedChange, all: StagedChange[]): 'task' | 'ref' | nul
   return linked ? 'ref' : null
 }
 
+/**
+ * What a staged change's head says: its title (a rename: the old title struck), where it goes, its kind, the live tags
+ * (STARTS WORKER · CONFIRM FIRST · GOES TO CLAUDE CODE) and the change it still needs. One hook for the review list's
+ * head and for TerminalChangeBody's own head (Preflight's card) — the same words in both places.
+ */
+/** The first change `c` builds on that is not applied yet ("needs #n"), if any. */
+const missingOf = (c: StagedChange, all: StagedChange[]) =>
+  depsOf(c)
+    .map((id) => all.find((x) => x.id === id))
+    .find((x) => x && x.status !== 'applied')
+
+function useChangeHead(c: StagedChange, all: StagedChange[]) {
+  const t = useT()
+  const titleOf = useTitleOf()
+  const missing = missingOf(c, all)
+  let where = ''
+  if (c.kind === 'create_page' || c.kind === 'create_database') where = c.parentId ? t('features.agent.review.under', { title: titleOf(c.parentId, all) }) : t('features.agent.review.topLevel')
+  else if (c.kind === 'create_row' || c.kind === 'update_row' || c.kind === 'add_property') where = t('features.agent.review.in', { title: titleOf(c.databaseId, all) })
+  else if (c.kind === 'memory' && c.memory) where = t(c.memory.updates ? 'features.memory.review.update' : 'features.memory.review.where', { type: t(`features.memory.type.${c.memory.type}`) })
+  else if (c.kind === 'script' && c.script) where = t(c.script.before ? 'features.script.int.review.change' : 'features.script.int.review.new')
+  else if (c.kind === 'media') where = t(`features.ai.media.review.where.${(c.media?.length ?? 0) === 1 ? 'one' : 'other'}`, { count: c.media?.length ?? 0 })
+  else if (c.kind === 'coding' && c.coding) where = t('features.agent.review.in', { title: c.coding.project })
+  // a pipeline task: "STARTS WORKER" / "CONFIRM FIRST" (both live) — in the head, and in the name a screen reader reads
+  const flags = useCodingFlags(c)
+  // text that goes to Claude Code: shown in full, tagged (an append to a task is applied on its own)
+  const toWorker = useToWorker(c, all)
+  const kindLabel = c.kind === 'coding' && c.coding ? t(`features.agent.kind.coding.${c.coding.op === 'run' && c.coding.action?.retry ? 'retry' : c.coding.op}`) : t(`features.agent.kind.${c.kind}`)
+  // Then starts nothing now: its task starts when this one is done
+  const startsTag = t(c.kind === 'coding' && c.coding?.op === 'then' ? 'features.agent.coding.startsLater' : 'features.agent.coding.starts')
+  const tags = {
+    starts: flags.starts && isOpen(c) ? startsTag : '',
+    confirm: flags.confirm ? t('features.agent.coding.confirm') : '',
+    toworker: toWorker && isOpen(c) ? t('features.agent.coding.toWorker') : '',
+  }
+  let title: ReactNode = c.title
+  if (c.kind === 'rename')
+    title = (
+      <>
+        <s className="agent-diff__before">{c.beforeTitle}</s> <span className="agent-diff__arrow">→</span> {c.title}
+      </>
+    )
+  else if (c.kind === 'append' || c.kind === 'update_row' || c.kind === 'edit' || c.kind === 'media') title = titleOf(c.pageId, all) || c.title
+  else if (c.kind === 'add_property') title = c.prop?.name
+  else if (c.kind === 'memory') title = c.memory?.text ?? c.title
+  else if (c.kind === 'script') title = c.script?.name ?? c.title
+  return { title, where, kindLabel, tags, toWorker, missing }
+}
+
+/** The live tags of a change (data-part "tags"): STARTS WORKER · CONFIRM FIRST · GOES TO CLAUDE CODE. */
+function ChangeTags({ tags }: { tags: ReturnType<typeof useChangeHead>['tags'] }) {
+  if (!tags.starts && !tags.confirm && !tags.toworker) return null
+  return (
+    <span className="term-change__tags" data-part="tags">
+      {tags.starts && (
+        <span className="term-tag" data-tag="starts" data-testid="term-tag-starts">
+          {tags.starts}
+        </span>
+      )}
+      {tags.confirm && (
+        <span className="term-tag" data-tag="confirm" data-testid="term-tag-confirm">
+          {tags.confirm}
+        </span>
+      )}
+      {tags.toworker && (
+        <span className="term-tag" data-tag="toworker" data-testid="term-tag-toworker">
+          {tags.toworker}
+        </span>
+      )}
+    </span>
+  )
+}
+
+/** TerminalChangeBody's own head (Preflight's card): the title, where it goes, the live tags — the review list's words. */
+function BodyHead({ change, all }: { change: StagedChange; all: StagedChange[] }) {
+  const h = useChangeHead(change, all)
+  return (
+    <>
+      {h.title && (
+        <p className="term-change__line term-change__title" data-part="title">
+          {h.title}
+        </p>
+      )}
+      {h.where && (
+        <p className="term-change__line term-change__where" data-part="where">
+          {h.where}
+        </p>
+      )}
+      <ChangeTags tags={h.tags} />
+    </>
+  )
+}
+
+/** One part of a change's body, marked for the parity check (laid out as its children: `.chg-part` is display: contents). */
+const Part = ({ name, children }: { name: string; children: ReactNode }) => (
+  <div className="chg-part" data-part={name}>
+    {children}
+  </div>
+)
+
+/**
+ * A staged change's review body — exactly what the review list shows of it: the schema of a new database, property
+ * diffs, the word diff of an edit, a script's diff, media, a pipeline task (with the text that goes to Claude Code in
+ * full), the content preview, the pages that go along, the error and "needs #n". Every part carries `data-part`.
+ * `head`: also its title, where it goes and its live tags (Preflight's card, which has no review-list head);
+ * `compact`: the error and "needs #n" only (the list while a task runs). The review list's ChangeItem renders it, so
+ * both places show the same parts. `card`: Preflight's card — the hints name its keys (A, then Confirm), not the list's.
+ */
+export function TerminalChangeBody({ change: c, all, head = false, compact = false, card = false }: { change: StagedChange; all: StagedChange[]; head?: boolean; compact?: boolean; card?: boolean }) {
+  const t = useT()
+  const toWorker = useToWorker(c, all)
+  const missing = missingOf(c, all)
+  return (
+    <>
+      {head && <BodyHead change={c} all={all} />}
+      {!compact && (c.kind === 'create_database' || c.kind === 'add_property') && (
+        <Part name="schema">
+          <SchemaDiff change={c} />
+        </Part>
+      )}
+      {!compact && c.props && c.props.length > 0 && (
+        <Part name="props">
+          <PropDiff props={c.props} />
+        </Part>
+      )}
+      {!compact && c.kind === 'edit' && (
+        <Part name="edit">
+          <EditDiff change={c} />
+        </Part>
+      )}
+      {!compact && c.kind === 'script' && (
+        <Part name="script">
+          <ScriptDiff change={c} />
+        </Part>
+      )}
+      {!compact && c.kind === 'media' && c.media && (
+        <Part name="media">
+          <MediaPreview media={c.media} />
+        </Part>
+      )}
+      {!compact && c.kind === 'coding' && (
+        <Part name="coding">
+          <CodingDiff change={c} card={card} />
+        </Part>
+      )}
+      {!compact && c.markdown?.trim() && toWorker && (
+        <Part name="full">
+          <FullText label={t(toWorker === 'task' ? 'features.agent.coding.appendFull' : 'features.agent.coding.pageFull')} hint={toWorker === 'task' ? t(card ? 'features.agent.coding.appendHintCard' : 'features.agent.coding.appendHint') : undefined} text={c.markdown.trim()} testId="term-full-text" />
+        </Part>
+      )}
+      {!compact && c.markdown?.trim() && !toWorker && c.kind !== 'rename' && c.kind !== 'edit' && c.kind !== 'coding' && (
+        <Part name="preview">
+          <Preview markdown={c.markdown} append={c.kind === 'append'} />
+        </Part>
+      )}
+      {/* text written into a pipeline task's page: the pages it links go to Claude Code with the task */}
+      {!compact && (c.kind === 'append' || c.kind === 'edit') && !!c.refs?.length && (
+        <Part name="refs">
+          <RefsLine refs={c.refs} />
+        </Part>
+      )}
+      {c.status === 'failed' && c.error && (
+        <p className="term-change__error" data-part="error">
+          {t(c.kind === 'edit' ? 'features.agent.review.skipped' : 'features.agent.review.failed', { error: c.error })}
+        </p>
+      )}
+      {missing && c.status === 'pending' && (
+        <p className="term-change__hint" data-part="needs">
+          {t('features.agent.review.needs', { n: missing.n })}
+        </p>
+      )}
+    </>
+  )
+}
+
 function ChangeItem({
   change: c,
   all,
@@ -1142,42 +1316,12 @@ function ChangeItem({
   onFocus: () => void
 }) {
   const t = useT()
-  const titleOf = useTitleOf()
-  const missing = depsOf(c)
-    .map((id) => all.find((x) => x.id === id))
-    .find((x) => x && x.status !== 'applied')
+  const { title, where, kindLabel, tags, missing } = useChangeHead(c, all)
   const blocked = !!missing
-  let where = ''
-  if (c.kind === 'create_page' || c.kind === 'create_database') where = c.parentId ? t('features.agent.review.under', { title: titleOf(c.parentId, all) }) : t('features.agent.review.topLevel')
-  else if (c.kind === 'create_row' || c.kind === 'update_row' || c.kind === 'add_property') where = t('features.agent.review.in', { title: titleOf(c.databaseId, all) })
-  else if (c.kind === 'memory' && c.memory) where = t(c.memory.updates ? 'features.memory.review.update' : 'features.memory.review.where', { type: t(`features.memory.type.${c.memory.type}`) })
-  else if (c.kind === 'script' && c.script) where = t(c.script.before ? 'features.script.int.review.change' : 'features.script.int.review.new')
-  else if (c.kind === 'media') where = t(`features.ai.media.review.where.${(c.media?.length ?? 0) === 1 ? 'one' : 'other'}`, { count: c.media?.length ?? 0 })
-  else if (c.kind === 'coding' && c.coding) where = t('features.agent.review.in', { title: c.coding.project })
   const label = `#${c.n}`
-  // a pipeline task: "STARTS WORKER" / "CONFIRM FIRST" (both live) — in the head, and in the name a screen reader reads
-  const flags = useCodingFlags(c)
-  // text that goes to Claude Code: shown in full, tagged (an append to a task is applied on its own)
-  const toWorker = useToWorker(c, all)
-  const kindLabel = c.kind === 'coding' && c.coding ? t(`features.agent.kind.coding.${c.coding.op === 'run' && c.coding.action?.retry ? 'retry' : c.coding.op}`) : t(`features.agent.kind.${c.kind}`)
-  // Then starts nothing now: its task starts when this one is done
-  const startsTag = t(c.kind === 'coding' && c.coding?.op === 'then' ? 'features.agent.coding.startsLater' : 'features.agent.coding.starts')
-  const tags = [flags.starts && isOpen(c) ? startsTag : '', flags.confirm ? t('features.agent.coding.confirm') : '', toWorker && isOpen(c) ? t('features.agent.coding.toWorker') : ''].filter(Boolean)
   const target = c.status === 'applied' ? (c.kind === 'script' ? savedScript(c) : changeTarget(c)) : null
-
-  let title: ReactNode = c.title
-  if (c.kind === 'rename')
-    title = (
-      <>
-        <s className="agent-diff__before">{c.beforeTitle}</s> <span className="agent-diff__arrow">→</span> {c.title}
-      </>
-    )
-  else if (c.kind === 'append' || c.kind === 'update_row' || c.kind === 'edit' || c.kind === 'media') title = titleOf(c.pageId, all) || c.title
-  else if (c.kind === 'add_property') title = c.prop?.name
-  else if (c.kind === 'memory') title = c.memory?.text ?? c.title
-  else if (c.kind === 'script') title = c.script?.name ?? c.title
-
-  const name = `${label} ${kindLabel}${tags.length ? `, ${tags.join(', ')}` : ''}${marked ? `, ${t('features.agent.review.marked')}` : ''}`
+  const tagList = [tags.starts, tags.confirm, tags.toworker].filter(Boolean)
+  const name = `${label} ${kindLabel}${tagList.length ? `, ${tagList.join(', ')}` : ''}${marked ? `, ${t('features.agent.review.marked')}` : ''}`
   return (
     <li
       className="term-change"
@@ -1196,27 +1340,17 @@ function ChangeItem({
         </button>
         <span className="term-change__n">{label}</span>
         <span className="term-change__kind">{kindLabel}</span>
-        {title && <span className="term-change__title">{title}</span>}
-        {where && <span className="term-change__where">{where}</span>}
-        {tags.length > 0 && (
-          <span className="term-change__tags">
-            {flags.starts && isOpen(c) && (
-              <span className="term-tag" data-tag="starts" data-testid="term-tag-starts">
-                {startsTag}
-              </span>
-            )}
-            {flags.confirm && (
-              <span className="term-tag" data-tag="confirm" data-testid="term-tag-confirm">
-                {t('features.agent.coding.confirm')}
-              </span>
-            )}
-            {toWorker && isOpen(c) && (
-              <span className="term-tag" data-tag="toworker" data-testid="term-tag-toworker">
-                {t('features.agent.coding.toWorker')}
-              </span>
-            )}
+        {title && (
+          <span className="term-change__title" data-part="title">
+            {title}
           </span>
         )}
+        {where && (
+          <span className="term-change__where" data-part="where">
+            {where}
+          </span>
+        )}
+        <ChangeTags tags={tags} />
         <span className="term-spacer" />
         {c.status === 'applying' ? (
           <span className="term-change__actions">
@@ -1260,20 +1394,7 @@ function ChangeItem({
           </span>
         )}
       </div>
-      {!compact && (c.kind === 'create_database' || c.kind === 'add_property') && <SchemaDiff change={c} />}
-      {!compact && c.props && c.props.length > 0 && <PropDiff props={c.props} />}
-      {!compact && c.kind === 'edit' && <EditDiff change={c} />}
-      {!compact && c.kind === 'script' && <ScriptDiff change={c} />}
-      {!compact && c.kind === 'media' && c.media && <MediaPreview media={c.media} />}
-      {!compact && c.kind === 'coding' && <CodingDiff change={c} />}
-      {!compact && c.markdown?.trim() && toWorker && (
-        <FullText label={t(toWorker === 'task' ? 'features.agent.coding.appendFull' : 'features.agent.coding.pageFull')} hint={toWorker === 'task' ? t('features.agent.coding.appendHint') : undefined} text={c.markdown.trim()} testId="term-full-text" />
-      )}
-      {!compact && c.markdown?.trim() && !toWorker && c.kind !== 'rename' && c.kind !== 'edit' && c.kind !== 'coding' && <Preview markdown={c.markdown} append={c.kind === 'append'} />}
-      {/* text written into a pipeline task's page: the pages it links go to Claude Code with the task */}
-      {!compact && (c.kind === 'append' || c.kind === 'edit') && <RefsLine refs={c.refs} />}
-      {c.status === 'failed' && c.error && <p className="term-change__error">{t(c.kind === 'edit' ? 'features.agent.review.skipped' : 'features.agent.review.failed', { error: c.error })}</p>}
-      {blocked && missing && c.status === 'pending' && <p className="term-change__hint">{t('features.agent.review.needs', { n: missing.n })}</p>}
+      <TerminalChangeBody change={c} all={all} compact={compact} />
     </li>
   )
 }

@@ -146,8 +146,20 @@ export interface StagedCoding {
   action?: TaskActionPlan
 }
 
-/** 'applying': being written right now (Apply waits for it — a second key press never applies it twice) */
-export type ChangeStatus = 'pending' | 'applying' | 'applied' | 'discarded' | 'failed'
+/**
+ * 'applying': being written right now (Apply waits for it — a second key press never applies it twice) ·
+ * 'superseded': a custom agent's older update_row proposal that a newer run's proposal for the same row (with at least
+ * its fields) replaces (features/agents/supersede.ts) — never counted, never applied; NOT discarded, so a run holding
+ * one stops the agent-state walk back (agents/review.ts stateBack). The AI terminal's own changes are never superseded.
+ */
+export type ChangeStatus = 'pending' | 'applying' | 'applied' | 'discarded' | 'failed' | 'superseded'
+
+/** One proposal of another run of the same agent (supersede): the run, the change, that run's start. */
+export interface ChangeRef {
+  runId: string
+  changeId: string
+  at: number
+}
 
 export interface StagedChange {
   id: string
@@ -198,6 +210,10 @@ export interface StagedChange {
    */
   refs?: RefPage[]
   error?: string
+  /** status 'superseded': the newer run's proposal that replaces this one (`at`: when that run started) */
+  supersededBy?: ChangeRef
+  /** the older proposals this one replaces (`at`: when each of their runs started), oldest last */
+  supersedes?: ChangeRef[]
 }
 
 /** Every staged change `c` needs applied first. */

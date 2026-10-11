@@ -27,6 +27,7 @@ import {
   type IntegrationProfile,
   type LocalText,
   type McpServerConfig,
+  type ProfileLamp,
   type RecipeAgentConfig,
   type RecipeConfig,
   type RecipeFilter,
@@ -65,6 +66,12 @@ export const INTEGRATION_LIMITS = {
   instructions: 8000,
   minBudget: 0.01,
   maxBudget: 50,
+  /** Preflight lamps per profile, and their texts (label / second · short) */
+  lamps: 4,
+  lampLabel: 16,
+  lampShort: 12,
+  lampWhere: 4,
+  lampMax: 9999,
 } as const
 
 export const RECIPE_KINDS = ['mirror'] as const
@@ -140,6 +147,12 @@ export type IssueCode =
   | 'matchToolIsSend'
   | 'noConfirm'
   | 'sendsNeeds'
+  // Preflight lamps
+  | 'lampSource'
+  | 'lampRecipe'
+  | 'lampThresholds'
+  | 'lampOrder'
+  | 'lampRead'
 
 export type IssuePath = Array<string | number>
 
@@ -280,7 +293,7 @@ function localText(c: Ctx, v: unknown, max: number, opts: { line?: boolean } = {
 
 /* ------------------------------------------------------------------ the profile */
 
-const PROFILE_KEYS = ['schema', 'id', 'name', 'description', 'match', 'unlocks', 'recipes', 'sends', 'reads', 'outTools'] as const
+const PROFILE_KEYS = ['schema', 'id', 'name', 'description', 'match', 'unlocks', 'recipes', 'sends', 'reads', 'outTools', 'lamps'] as const
 /** stored fields that may come along (never reported, never exported) */
 const STORED_KEYS = ['updatedAt', 'updatedBy'] as const
 
@@ -375,6 +388,7 @@ export function checkIntegration(raw: unknown, report: Report | null = null): In
   }
   if (!unlocks.length && !recipes.length && !has(o, 'sends') && has(o, 'unlocks') && Array.isArray(o.unlocks)) c.at('unlocks').warn('unlocksNothing')
   const routes = checkSends(c, o, match, unlocks)
+  const lamps = has(o, 'lamps') ? checkLamps(c.at('lamps'), o.lamps, recipes.length ? recipes.map((r) => r.id ?? 'mirror') : ['mirror']) : []
   if (!ok || !id || !name || !match) return null
   const out: IntegrationProfile = { schema: INTEGRATION_SCHEMA, id, name, match, unlocks }
   if (description) out.description = description
@@ -382,6 +396,7 @@ export function checkIntegration(raw: unknown, report: Report | null = null): In
   if (routes.sends?.length) out.sends = routes.sends
   if (routes.reads) out.reads = routes.reads
   if (routes.outTools?.length) out.outTools = routes.outTools
+  if (lamps.length) out.lamps = lamps
   const updatedAt = own(o, 'updatedAt')
   if (typeof updatedAt === 'number' && Number.isFinite(updatedAt)) out.updatedAt = updatedAt
   const updatedBy = own(o, 'updatedBy')
@@ -1204,6 +1219,157 @@ function checkSends(c: Ctx, o: Obj, match: IntegrationMatch | undefined, unlocks
   return lockRest()
 }
 
+/* ------------------------------------------------------------------ Preflight lamps */
+
+const LAMP_ID = /^[a-z][a-z0-9-]{0,23}$/
+/** a lamp id another lamp may sit after: a built-in, an area's or a profile lamp's id (Preflight's LampId grammar) */
+const LAMP_AFTER = /^[a-z][a-z0-9:_-]{0,63}$/
+const LAMP_KEYS = ['id', 'label', 'short', 'second', 'recipe', 'view', 'where', 'amber', 'red', 'flash', 'master', 'read', 'after'] as const
+/**
+ * The roles a lamp's "read" may set: the agent-marked checkboxes (to false) and the person's own status (to an option).
+ * Never a role the mirror reads from the source (comments, lastCommentAt, srcStatus, changedAt …): the Outbox's CHANGED
+ * baseline reads those, and the next mirror run would write them back.
+ */
+export const LAMP_READ_ROLES = ['newComment', 'waiting', 'myStatus'] as const
+
+/** A threshold: a whole number 1–9,999, or null (absent: undefined). */
+function threshold(c: Ctx, v: unknown): number | null | undefined {
+  if (v === null) return null
+  if (typeof v === 'number' && Number.isInteger(v) && v >= 1 && v <= INTEGRATION_LIMITS.lampMax) return v
+  c.issue('range', { min: 1, max: INTEGRATION_LIMITS.lampMax })
+  return undefined
+}
+
+/**
+ * A profile's Preflight lamps (≤ 4): ids unique, texts short, exactly one of `view` / `where`, a known recipe, sane
+ * thresholds, `read` only on the roles LAMP_READ_ROLES allows. A bad lamp is left out — the profile stays. References
+ * into the recipe as it will be built (the view's name, the roles, myStatus's options) are checked by the features layer
+ * (features/agents/integrations/validate.ts), like every other recipe reference.
+ */
+function checkLamps(c: Ctx, v: unknown, recipeIds: readonly string[]): ProfileLamp[] {
+  const list = arr(c, v, INTEGRATION_LIMITS.lamps)
+  if (!list) return []
+  const out: ProfileLamp[] = []
+  list.forEach((x, i) => {
+    const lamp = checkLamp(c.at(i), x, recipeIds)
+    if (!lamp) return
+    if (out.some((l) => l.id === lamp.id)) return c.at(i, 'id').issue('duplicate', { value: lamp.id })
+    out.push(lamp)
+  })
+  return out
+}
+
+function checkLamp(c: Ctx, v: unknown, recipeIds: readonly string[]): ProfileLamp | null {
+  const o = obj(c, v)
+  if (!o) return null
+  c.unknownKeys(o, LAMP_KEYS)
+  let ok = true
+  let id: string | undefined
+  if (c.required(o, 'id')) {
+    if (typeof o.id === 'string' && LAMP_ID.test(o.id)) id = o.id
+    else {
+      c.at('id').issue('id', { value: show(o.id) })
+      ok = false
+    }
+  } else ok = false
+  const label = c.required(o, 'label') ? localText(c.at('label'), o.label, INTEGRATION_LIMITS.lampLabel) : undefined
+  if (!label) ok = false
+  const out: ProfileLamp = { id: id ?? '', label: label ?? '' }
+  const text = (key: 'short' | 'second', max: number) => {
+    if (!has(o, key)) return
+    const t = localText(c.at(key), o[key], max)
+    if (t) out[key] = t
+    else ok = false
+  }
+  text('short', INTEGRATION_LIMITS.lampShort)
+  text('second', INTEGRATION_LIMITS.lampLabel)
+  if (has(o, 'recipe')) {
+    if (typeof o.recipe === 'string' && recipeIds.includes(o.recipe)) out.recipe = o.recipe
+    else {
+      c.at('recipe').issue('lampRecipe', { value: show(o.recipe), allowed: recipeIds.join(', ') })
+      ok = false
+    }
+  }
+  // what it counts: a view by name, or role conditions — exactly one
+  if (has(o, 'view') === has(o, 'where')) {
+    c.issue('lampSource')
+    ok = false
+  } else if (has(o, 'view')) {
+    const view = localText(c.at('view'), o.view, INTEGRATION_LIMITS.text)
+    if (view) out.view = view
+    else ok = false
+  } else {
+    const wc = c.at('where')
+    const conds = arr(wc, o.where, INTEGRATION_LIMITS.lampWhere)
+    // conditions are ANDed: leaving some out would count more rows — such a lamp is left out instead
+    if (Array.isArray(o.where) && o.where.length > INTEGRATION_LIMITS.lampWhere) ok = false
+    const where: NonNullable<ProfileLamp['where']> = []
+    conds?.forEach((x, i) => {
+      const cc = wc.at(i)
+      const w = obj(cc, x)
+      if (!w) return void (ok = false)
+      cc.unknownKeys(w, ['role', 'equals'])
+      const role = cc.required(w, 'role') ? (typeof w.role === 'string' && ROLE.test(w.role) ? w.role : void cc.at('role').issue('role', { value: show(w.role) })) : undefined
+      let equals: boolean | string | undefined
+      if (cc.required(w, 'equals')) {
+        if (typeof w.equals === 'boolean') equals = w.equals
+        else equals = str(cc.at('equals'), w.equals, INTEGRATION_LIMITS.text)
+      }
+      if (!role || equals === undefined) return void (ok = false)
+      where.push({ role, equals })
+    })
+    if (conds && !conds.length) wc.issue('empty')
+    if (where.length && where.length === (conds?.length ?? -1)) out.where = where
+    else ok = false
+  }
+  const amber = has(o, 'amber') ? threshold(c.at('amber'), o.amber) : 1
+  const red = has(o, 'red') ? threshold(c.at('red'), o.red) : null
+  if (amber === undefined || red === undefined) ok = false
+  else if (amber === null && red === null) {
+    c.issue('lampThresholds')
+    ok = false
+  } else if (amber !== null && red !== null && red <= amber) {
+    c.at('red').issue('lampOrder', { amber })
+    ok = false
+  } else {
+    if (has(o, 'amber')) out.amber = amber
+    if (has(o, 'red')) out.red = red
+  }
+  for (const key of ['flash', 'master'] as const) {
+    if (!has(o, key)) continue
+    const b = bool(c.at(key), o[key])
+    if (b === undefined) ok = false
+    else out[key] = b
+  }
+  if (has(o, 'read')) {
+    const rc = c.at('read')
+    const r = obj(rc, o.read)
+    if (!r) ok = false
+    else {
+      rc.unknownKeys(r, ['role', 'value'])
+      const role = own(r, 'role')
+      const value = own(r, 'value')
+      if ((role === 'newComment' || role === 'waiting') && value === false) out.read = { role, value: false }
+      else if (role === 'myStatus' && typeof value === 'string' && oneLine(value) && oneLine(value).length <= INTEGRATION_LIMITS.text) out.read = { role, value: oneLine(value) }
+      else {
+        rc.issue('lampRead', { value: show(role), allowed: LAMP_READ_ROLES.join(', ') })
+        ok = false
+      }
+    }
+  }
+  if (has(o, 'after')) {
+    if (typeof o.after === 'string' && LAMP_AFTER.test(o.after)) out.after = o.after
+    else {
+      c.at('after').issue('id', { value: show(o.after) })
+      ok = false
+    }
+  }
+  return ok && id && label ? out : null
+}
+
+/** A profile's lamps on their own (Node specs, the editor): the sanitizer's rules with a reporter. */
+export const checkProfileLamps = (raw: unknown, recipeIds: readonly string[] = ['mirror'], report: Report | null = null): ProfileLamp[] => checkLamps(new Ctx(report, ['lamps']), raw, recipeIds)
+
 /* ------------------------------------------------------------------ store helpers */
 
 /** A clean copy of a profile, or null when it is not one. */
@@ -1263,6 +1429,7 @@ export function exportIntegration(p: IntegrationProfile): Omit<IntegrationProfil
     ...(p.sends?.length ? { sends: p.sends } : {}),
     ...(p.reads ? { reads: p.reads } : {}),
     ...(p.outTools?.length ? { outTools: p.outTools } : {}),
+    ...(p.lamps?.length ? { lamps: p.lamps } : {}),
   }
 }
 

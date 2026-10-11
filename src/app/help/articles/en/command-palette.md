@@ -2,7 +2,7 @@
 id: command-palette
 title: Search, filters & commands (⌘K)
 section: start
-order: 3
+order: 4
 keywords: palette, search, find, command, cmd k, ctrl k, ask, quick, filter, status, property, recent, frequent, Suche, Befehle, Befehlspalette, eigenschaft, zuletzt, häufig
 related: keyboard-shortcuts, ai-menu, sidebar
 summary: One box for everything — find any page, filter by status or person, run any command, ask Claude.

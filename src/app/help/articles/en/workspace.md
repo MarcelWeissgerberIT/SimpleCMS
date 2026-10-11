@@ -2,7 +2,7 @@
 id: workspace
 title: Workspace settings & people
 section: start
-order: 6
+order: 7
 keywords: workspace settings, text size, font size, display, switch LED, switches, workspace, people, persons, members, merge people, rename person, remove person, overview, storage, backup, trash, automation, building blocks, danger zone, settings, this device, Workspace-Einstellungen, Personen, Mitglieder, zusammenführen
 related: workspace-look, members-roles, invites, export, sidebar
 summary: One page for everything that belongs to the workspace — its name, look, people, building blocks, automation and data. Settings is this device.

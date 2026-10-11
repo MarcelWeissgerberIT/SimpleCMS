@@ -12,17 +12,25 @@ import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
 import { openPage } from '../../lib/router'
 import { useCloud } from '../../cloud'
-import { useLang, useT } from '../../i18n'
+import { t, useLang, useT } from '../../i18n'
 import { MarkdownLite } from '../ai/MarkdownLite'
 import { MediaToPage } from '../ai/media/MediaToPage'
 import { PropDiff, Preview } from '../ai/agent/AgentSheet'
 import { EditDiff } from '../ai/agent/EditDiff'
 import type { StagedChange } from '../ai/agent/types'
+import type { Page } from '../../store/types'
 import { canUndoRun } from './exec'
 import { applyRun, canUndoChange, discardRun, undoChange, undoRunAll } from './review'
+import { serverErrorText } from './server'
 import { awaitsReview } from './runs'
 import { fmtDuration, fmtUsd, fmtWhen, statusLed } from './format'
 import type { AgentRun } from './types'
+
+/** A server run could not be read again before a review (nothing was done): said in a toast. */
+const notRead = (e: unknown) => {
+  console.warn('[one] agents: the server run could not be read', e)
+  useUI.getState().toast({ message: `${t('features.agents.review.serverRead')} ${serverErrorText(e)}`, kind: 'error' })
+}
 
 const pad = (n: number) => String(n).padStart(2, '0')
 
@@ -186,10 +194,10 @@ function Review({ run }: { run: AgentRun }) {
         )}
         {open > 0 && (
           <>
-            <button type="button" className="btn btn--ghost btn--sm" disabled={disabled} onClick={() => void discardRun(run, null).then(() => focusIn(root, 'head'))}>
+            <button type="button" className="btn btn--ghost btn--sm" disabled={disabled} onClick={() => void discardRun(run, null).then(() => focusIn(root, 'head'), notRead)}>
               {t('features.agent.review.discardAll')}
             </button>
-            <button type="button" className="btn btn--primary btn--sm" disabled={disabled} onClick={() => void applyRun(run).then(() => focusIn(root, 'head'))}>
+            <button type="button" className="btn btn--primary btn--sm" disabled={disabled} onClick={() => void applyRun(run).then(() => focusIn(root, 'head'), notRead)}>
               {t('features.agent.review.applyAll')}
             </button>
           </>
@@ -207,40 +215,27 @@ function Review({ run }: { run: AgentRun }) {
 
 function Change({ run, change: c, disabled, focus }: { run: AgentRun; change: StagedChange; disabled: boolean; focus: (to: FocusTo) => void }) {
   const t = useT()
+  const lang = useLang()
   const pages = useWorkspace((s) => s.pages)
   // what the row's own Undo did (undone; some of it kept because it was edited since) — shown while it is open again
   const [note, setNote] = useState('')
   const all = run.staged ?? []
-  const titleOf = (id: string | null | undefined) => {
-    if (!id) return ''
-    const staged = all.find((x) => (x.kind === 'create_page' || x.kind === 'create_row') && x.pageId === id)
-    if (staged && !pages[id]) return staged.title ?? ''
-    return pages[id]?.title.trim() || t('common.untitled')
-  }
   const parent = c.dependsOn ? all.find((x) => x.id === c.dependsOn) : undefined
   const blocked = !!parent && parent.status !== 'applied'
   let where = ''
-  if (c.kind === 'create_page') where = c.parentId ? t('features.agent.review.under', { title: titleOf(c.parentId) }) : t('features.agent.review.topLevel')
-  else if (c.kind === 'create_row' || c.kind === 'update_row') where = t('features.agent.review.in', { title: titleOf(c.databaseId) })
+  if (c.kind === 'create_page') where = c.parentId ? t('features.agent.review.under', { title: titleIn(pages, all, c.parentId, t('common.untitled')) }) : t('features.agent.review.topLevel')
+  else if (c.kind === 'create_row' || c.kind === 'update_row') where = t('features.agent.review.in', { title: titleIn(pages, all, c.databaseId, t('common.untitled')) })
   const label = `#${c.n}`
   const targetId = run.rowIds?.[c.pageId] ?? c.pageId
   const target = c.status === 'applied' && pages[targetId] && !pages[targetId].trashed ? targetId : null
-  let title: ReactNode = c.title
-  if (c.kind === 'rename')
-    title = (
-      <>
-        <s className="agent-diff__before">{c.beforeTitle}</s> <span className="agent-diff__arrow">→</span> {c.title}
-      </>
-    )
-  else if (c.kind === 'append' || c.kind === 'update_row' || c.kind === 'edit') title = titleOf(targetId) || c.title
   const rowUndo = c.status === 'applied' && canUndoChange(run.id, c.id)
   const apply = () => {
     setNote('')
-    void applyRun(run, [c.id], { row: true }).then(() => focus({ row: c.id, undo: true }))
+    void applyRun(run, [c.id], { row: true }).then(() => focus({ row: c.id, undo: true }), notRead)
   }
   const discard = () => {
     setNote('')
-    void discardRun(run, c.id).then(() => focus({ after: c.n }))
+    void discardRun(run, c.id).then(() => focus({ after: c.n }), notRead)
   }
   const undo = () =>
     void undoChange(run, c.id).then((kept) => {
@@ -291,6 +286,13 @@ function Change({ run, change: c, disabled, focus }: { run: AgentRun; change: St
               </button>
             )}
           </span>
+        ) : c.status === 'superseded' ? (
+          // a newer run's proposal for the same row (with at least these fields) replaces it: no keys, never counted
+          <span className="agent-change__actions">
+            <span className="agent-change__state label" data-testid="agx-superseded">
+              {c.supersededBy ? t('features.agents.review.superseded', { when: fmtWhen(t, c.supersededBy.at, lang) }) : t('features.agents.review.supersededPlain')}
+            </span>
+          </span>
         ) : (
           <span className="agent-change__actions">
             <span className="agent-change__state label">{t('features.agent.review.discarded')}</span>
@@ -302,12 +304,71 @@ function Change({ run, change: c, disabled, focus }: { run: AgentRun; change: St
           {note}
         </p>
       )}
-      {title && <div className="agent-change__title">{title}</div>}
-      {c.props && c.props.length > 0 && <PropDiff props={c.props} />}
-      {c.kind === 'edit' && <EditDiff change={c} />}
-      {c.markdown?.trim() && c.kind !== 'rename' && c.kind !== 'edit' && <Preview markdown={c.markdown} append={c.kind === 'append'} />}
-      {c.status === 'failed' && c.error && <p className="agent-change__error">{t(c.kind === 'edit' ? 'features.agent.review.skipped' : 'features.agent.review.failed', { error: c.error })}</p>}
-      {blocked && parent && c.status === 'pending' && <p className="agent-change__hint label">{t('features.agent.review.needs', { n: parent.n })}</p>}
+      <AgentChangeBody run={run} change={c} />
     </li>
+  )
+}
+
+/** A page's title for the review: a page the run proposed and that does not exist yet by its proposed title. */
+function titleIn(pages: Record<string, Page>, all: StagedChange[], id: string | null | undefined, untitled: string): string {
+  if (!id) return ''
+  const staged = all.find((x) => (x.kind === 'create_page' || x.kind === 'create_row') && x.pageId === id)
+  if (staged && !pages[id]) return staged.title ?? ''
+  return pages[id]?.title.trim() || untitled
+}
+
+/**
+ * A custom agent's proposal as the run history shows it: its title (a rename: the old title struck), property diffs,
+ * the word diff of an edit, the content preview, the error and "needs #n" — every part with `data-part`. The run
+ * history's rows render it, and so does Preflight's card: both show the same parts.
+ */
+export function AgentChangeBody({ run, change: c }: { run: AgentRun; change: StagedChange }) {
+  const t = useT()
+  const pages = useWorkspace((s) => s.pages)
+  const all = run.staged ?? []
+  const parent = c.dependsOn ? all.find((x) => x.id === c.dependsOn) : undefined
+  const blocked = !!parent && parent.status !== 'applied'
+  const targetId = run.rowIds?.[c.pageId] ?? c.pageId
+  let title: ReactNode = c.title
+  if (c.kind === 'rename')
+    title = (
+      <>
+        <s className="agent-diff__before">{c.beforeTitle}</s> <span className="agent-diff__arrow">→</span> {c.title}
+      </>
+    )
+  else if (c.kind === 'append' || c.kind === 'update_row' || c.kind === 'edit') title = titleIn(pages, all, targetId, t('common.untitled')) || c.title
+  return (
+    <>
+      {title && (
+        <div className="agent-change__title" data-part="title">
+          {title}
+        </div>
+      )}
+      {c.props && c.props.length > 0 && (
+        <div className="chg-part" data-part="props">
+          <PropDiff props={c.props} />
+        </div>
+      )}
+      {c.kind === 'edit' && (
+        <div className="chg-part" data-part="edit">
+          <EditDiff change={c} />
+        </div>
+      )}
+      {c.markdown?.trim() && c.kind !== 'rename' && c.kind !== 'edit' && (
+        <div className="chg-part" data-part="preview">
+          <Preview markdown={c.markdown} append={c.kind === 'append'} />
+        </div>
+      )}
+      {c.status === 'failed' && c.error && (
+        <p className="agent-change__error" data-part="error">
+          {t(c.kind === 'edit' ? 'features.agent.review.skipped' : 'features.agent.review.failed', { error: c.error })}
+        </p>
+      )}
+      {blocked && parent && c.status === 'pending' && (
+        <p className="agent-change__hint label" data-part="needs">
+          {t('features.agent.review.needs', { n: parent.n })}
+        </p>
+      )}
+    </>
   )
 }

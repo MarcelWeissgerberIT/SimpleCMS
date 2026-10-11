@@ -2,7 +2,7 @@
 id: welcome-tour
 title: The Welcome tour
 section: start
-order: 5
+order: 6
 keywords: welcome, tour, guided tour, demo, sample, seed, example pages, reset, practice page, do it for me, Willkommen, Tour, Beispiel
 related: first-steps, templates, export
 summary: A guided 3-minute tour on the real interface, sample pages that show what One can do — keep or delete them.

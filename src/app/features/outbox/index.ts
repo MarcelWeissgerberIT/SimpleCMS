@@ -33,6 +33,8 @@ import { getSlips, startOutbox as startStore, useOutbox } from './store'
 import { startWatch } from './watch'
 import { SENT_STATES, type OwnSend, type SlipId, type SlipView, type StageInput, type StageRefusal, type RouteRef, type TargetRead } from './types'
 import './outbox.css'
+// the Outbox's Preflight lamp (registered through features/preflight/registry, dependency-free)
+import './lamp'
 
 export type {
   SlipView,

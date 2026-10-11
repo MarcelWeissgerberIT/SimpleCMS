@@ -124,7 +124,7 @@ import type { TransformPick } from './transform/types'
 import { MemoryBodyView, MemoryEdit } from './memory/MemoryCard'
 import { isRememberRequest, stripRemember } from './memory/propose'
 import { memoryHistory } from './memory/log'
-import { confirmProposal, duplicateOf, openEntry, openMemoryDb, openMemoryLog } from './memory/open'
+import { duplicateOf, openEntry, openMemoryDb, openMemoryLog, saveRunMemory } from './memory/open'
 import { readMemories } from './memory/read'
 import { memoryInUse } from './memory/settings'
 import { examples } from './memory/example'
@@ -1236,8 +1236,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
   const memDupText = useMemo(() => (memDup ? (readMemories().find((m) => m.id === memDup)?.text ?? null) : null), [memDup])
   const saveMem = (asNew: boolean) => {
     if (!run || !memProposal) return
-    if (!confirmProposal(memProposal, asNew ? null : memDup)) return
-    removeRun(run.id)
+    if (!saveRunMemory(run.id, { asNew, proposal: memProposal })) return
     onClose()
   }
 

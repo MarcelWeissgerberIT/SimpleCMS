@@ -1449,9 +1449,47 @@ export interface IntegrationProfile {
    * label this version cannot read …) — the route is gone from this copy, its tool stays OUT, as on the team server
    */
   outTools?: string[]
+  /**
+   * Preflight lamps the profile brings (≤ 4; data only, never code): each counts the rows of a view of a recipe's
+   * mirror database (or rows matching role conditions) on a device where the profile is active. Read release: kept
+   * by every sanitizer, shown by Preflight from a later release (features/preflight sources/profile.ts).
+   */
+  lamps?: ProfileLamp[]
   /** stored only (never exported): the last save and its author (team: stamped by the server) */
   updatedAt?: number
   updatedBy?: string | null
+}
+
+/**
+ * A lamp an integration profile brings (data only, never code; store/integrations.ts checkLamps). Exactly one of
+ * `view` / `where` says what it counts. `read` ("Read") sets one role's property of the row — only the agent-marked
+ * checkboxes `newComment` / `waiting` (to false) or the person's own `myStatus` (to one of its options): never a field
+ * the mirror reads from the source (the Outbox's CHANGED baseline and the next mirror run read those).
+ */
+export interface ProfileLamp {
+  /** [a-z][a-z0-9-]{0,23}, unique in the profile */
+  id: string
+  /** ≤ 16 characters per language (CSS uppercases) */
+  label: LocalText
+  /** the queue tab's name, ≤ 12 */
+  short?: LocalText
+  /** the cap's second line, ≤ 16 (absent: the profile's name) */
+  second?: LocalText
+  /** a recipe id of the profile (absent: its first recipe) */
+  recipe?: string
+  /** a view of that recipe's database, by name (either language) … */
+  view?: LocalText
+  /** … or role conditions (AND, 1–4): a checkbox role equals true / false, a select / status role equals an option name */
+  where?: Array<{ role: string; equals: boolean | string }>
+  /** whole numbers 1–9,999; red above amber; not both null (defaults: amber 1, red none) */
+  amber?: number | null
+  red?: number | null
+  /** blink when new (default true) · counts for MASTER CAUTION (default true) */
+  flash?: boolean
+  master?: boolean
+  read?: { role: 'newComment' | 'waiting'; value: false } | { role: 'myStatus'; value: string }
+  /** the lamp it sits after (default 'proposals') */
+  after?: string
 }
 
 /* ------------------------------------------------------------------ */

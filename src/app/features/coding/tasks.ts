@@ -26,8 +26,8 @@ import { CLAIM_STALE_MS, MCP_SERVER_NAME, claudeRuns, cleanModel, stageNeeds, wo
 import { CASE_TYPES, FOLLOW_UPS, PIPELINE_KINDS, caseProps, codingProps, createProject, currentProjectId, ensureCaseDb, ensurePipelineDb, addRepoOptions, inTeam, kindOfDb, nextStage, optionByName, optionName, pipelineDbIds, priorityRank, readPipeline, stageNear, stageOfRow, type CodingProps, type PipelineKind, type ResolvedStage } from './schema'
 import { parseStories, splitSections, type DocSection, type Story } from './outputs'
 import { createPrivatePage } from '../../cloud'
-import { appendLog, loadTask, patchTask, taskLocal, type TaskLocal } from './local'
-import { isTrusted, keepTrust, trustTask } from './trust'
+import { addTrusted, appendLog, loadTask, patchTask, taskLocal, type TaskLocal } from './local'
+import { isTrusted, keepTrust, trustTask, versionOf } from './trust'
 import { taskText } from './refs'
 import { useCoding } from './state'
 import { notifyAway } from './notify'
@@ -787,6 +787,22 @@ export async function runTaskNow(taskId: ID, opts: ActOpts = {}): Promise<void> 
 export async function confirmTask(taskId: ID): Promise<void> {
   await trustTask(taskId)
   nudge()
+}
+
+/**
+ * Confirm exactly the version the person saw (Preflight's "Version bestätigen" card renders taskVersionView and hands
+ * back its hash): the task's version is computed again now and trusted only when it is still that one. 'changed': the
+ * task, a linked page or the pipeline changed since it was shown — nothing trusted, show it again · 'gone': no such
+ * task any more. The task panel's "Confirm on this device" keeps confirmTask (it confirms what the page shows now).
+ */
+export async function confirmTaskVersion(taskId: ID, hash: string): Promise<'ok' | 'changed' | 'gone'> {
+  const s = ws()
+  const page = s.pages[taskId]
+  if (!page?.databaseId || page.trashed || !kindOfDb(page.databaseId)) return 'gone'
+  if ((await versionOf(page, s.databases[page.databaseId])) !== hash) return 'changed'
+  await addTrusted(hash)
+  nudge()
+  return 'ok'
 }
 
 export function moveTask(taskId: ID, stageId: ID): void {

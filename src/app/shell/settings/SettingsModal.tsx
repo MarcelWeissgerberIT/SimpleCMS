@@ -11,7 +11,7 @@ import { logoMarkSvg } from '@/shared/logo'
 import { BRAND } from '@/shared/brand'
 import type { ThemePref } from '../../store/types'
 import { ShortcutList } from '../modals/ShortcutsModal'
-import { runAI, SyncTab, consumeSyncSettingsRequest, McpTab, consumeMcpSettingsRequest, McpServers, MailTab, consumeMailSettingsRequest, CodingWorkerTab, consumeCodingSettingsRequest } from '../../features'
+import { PreflightSettings, runAI, SyncTab, consumeSyncSettingsRequest, McpTab, consumeMcpSettingsRequest, McpServers, MailTab, consumeMailSettingsRequest, CodingWorkerTab, consumeCodingSettingsRequest } from '../../features'
 import { ServerAgentsSettings } from '../../features'
 import { MemorySettings } from '../../features'
 import { plural } from '../lib/format'
@@ -367,6 +367,8 @@ function AppearanceTab() {
         </button>
       </p>
       <StandardHereField scope={lookScope} />
+      {/* Preflight (this device): on Start, the morning hold, the day's start, the lamp test */}
+      <PreflightSettings />
     </>
   )
 }

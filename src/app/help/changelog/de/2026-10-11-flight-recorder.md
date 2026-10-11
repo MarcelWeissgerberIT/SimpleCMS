@@ -1,7 +1,7 @@
 ---
 id: 2026-10-11-flight-recorder
 date: 2026-10-11
-order: 1
+order: 2
 title: Der Flugschreiber — wer was geschrieben hat, auf einem Band
 summary: Jeder Schreibvorgang im Arbeitsbereich landet auf einem Band, je Schreiber eine Spur — du, das KI-Terminal, jeder Agent, MCP-Clients, Skripte, Sync. Mod+Alt+Z zeigt, was zwischen 07:00 und 08:00 passiert ist, und wer es war.
 image: assets/shots/changelog/flight-recorder.webp

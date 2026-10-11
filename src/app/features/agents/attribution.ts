@@ -9,6 +9,7 @@ import { pageChanges, useWorkspace } from '../../store/store'
 import { isApplyingRemote } from '../../store/persistence'
 import { SYSTEM, withWriter } from '../../store/writer'
 import type { ID } from '../../store/types'
+import type { StagedChange } from '../ai/agent/types'
 import { useCloud, writeAsAgent } from '../../cloud'
 import { contentKey } from '../history/snapshots'
 
@@ -49,6 +50,19 @@ export function stampLocal(agentId: ID, changed: ID[], created: ID[] = []): void
   } finally {
     writing--
   }
+}
+
+/** The pages an applied batch touched: [changed, created] (rowIds: staged row id → the id the row got). */
+export function touchedBy(changes: StagedChange[], applied: string[], rowIds: Record<string, ID>): [ID[], ID[]] {
+  const changed: ID[] = []
+  const created: ID[] = []
+  for (const c of changes) {
+    if (!applied.includes(c.id)) continue
+    const id = rowIds[c.pageId] ?? c.pageId
+    if (c.kind === 'create_page' || c.kind === 'create_row') created.push(id)
+    else changed.push(id)
+  }
+  return [changed, created]
 }
 
 let keeper: (() => void) | null = null

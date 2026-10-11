@@ -95,8 +95,8 @@ export function RefsLine({ refs }: { refs: RefPage[] | undefined }) {
   )
 }
 
-/** The review body of a pipeline task change. */
-export function CodingDiff({ change: c }: { change: StagedChange }) {
+/** The review body of a pipeline task change. `card`: shown in Preflight's card — its hints name the card's keys. */
+export function CodingDiff({ change: c, card = false }: { change: StagedChange; card?: boolean }) {
   const t = useT()
   const conn = useCoding((s) => s.conn)
   const { starts, confirm } = useCodingFlags(c)
@@ -255,7 +255,9 @@ export function CodingDiff({ change: c }: { change: StagedChange }) {
       {body}
       {pending && starts && (
         <p className="term-change__hint" data-tone="signal" data-testid="term-coding-starts">
-          {later ? t('features.agent.coding.thenHint', { kinds: kinds((cd.action?.then?.after ?? []).filter((k) => !(cd.action?.then?.before ?? []).includes(k))) }) : t('features.agent.coding.startsHint')}
+          {later
+            ? t(card ? 'features.agent.coding.thenHintCard' : 'features.agent.coding.thenHint', { kinds: kinds((cd.action?.then?.after ?? []).filter((k) => !(cd.action?.then?.before ?? []).includes(k))) })
+            : t(card ? 'features.agent.coding.startsHintCard' : 'features.agent.coding.startsHint')}
         </p>
       )}
       {pending && starts && !later && conn !== 'connected' && <p className="term-change__hint">{t('features.agent.coding.offline')}</p>}

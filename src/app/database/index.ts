@@ -43,6 +43,12 @@ export { TypeIcon } from './parts'
 export { rowsOfView } from './model/ics'
 export { SharedFormView } from './form/public'
 /**
+ * AI autofill, for readers outside the area (the Preflight lamp counts reviews waiting): useAutofill (read only — write
+ * through the panel's own actions) · openAutofillPanel(dbId, propId): open a property's autofill panel (its review).
+ */
+export { useAutofill } from './autofill/store'
+export { openAutofillPanel } from './autofill'
+/**
  * Properties created on the fly (also for the workspace agent / MCP tools):
  *  - createPropertyQuick(dbId, { name, type, relation?: { databaseId, twoWay?, reverseName? }, options?, numberFormat? },
  *      { toast? }) → the new PropertyDef (null: locked, view only, bad target). Default: an undo toast.

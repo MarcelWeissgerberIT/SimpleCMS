@@ -5,6 +5,10 @@
   min-height: 100%;
   padding: clamp(28px, 7vh, 72px) clamp(18px, 5cqi, 56px) 72px;
 }
+/* Preflight's plate takes the "§ 00" line's place, closer under the topbar */
+.home--preflight {
+  padding-top: clamp(14px, 2.5vh, 28px);
+}
 .home__inner {
   max-width: 1060px;
   margin: 0 auto;
