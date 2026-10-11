@@ -204,7 +204,12 @@ for (const theme of ['light', 'dark'])
     const s = await open({ width: 390, height: 844, dark: theme === 'dark', mobile: true })
     await ejectDialog(s, { mobile: true })
     await s.page.waitForTimeout(500)
-    await s.page.locator('.modal.rec-eject .pi', { hasText: 'NL-1402' }).first().tap()
+    const item = s.page.locator('.modal.rec-eject .pi', { hasText: 'NL-1402' }).first()
+    if (!(await item.count())) {
+      await s.page.locator('.modal.rec-eject .plan__g[data-group="rows"] .pi--more').tap()
+      await s.page.waitForTimeout(500)
+    }
+    await item.tap()
     await s.page.locator('.modal.rec-sheet2').waitFor()
     await s.page.waitForTimeout(600)
     await s.page.screenshot({ path: `${OUT}/${name}.png` })
