@@ -1,12 +1,13 @@
 /**
- * Flight recorder in team workspaces (R1a): removing a team workspace's copy from this browser takes its tape and
- * before-images (scope cloud:<id>) with it and keeps the local workspace's; the binding's own upkeep (follow-up
+ * Flight recorder in team workspaces (R1a): the tape is the signed-in member's (scope cloud:<id>:u:<account> —
+ * another account in the same browser starts its own); removing a team workspace's copy from this browser takes its
+ * tapes and before-images with it and keeps the local workspace's; the binding's own upkeep (follow-up
  * stamps, repairs, look put-backs) is never anyone's Vorgang; a collab refresh that carries this tab's typing and a
  * colleague's at once is flagged BATCH; a colleague's change that arrives through the binding is on lane team (R1–R4).
  * Fictional people and pages (Mara Lind, Nordlicht, Tessera).
  */
 import type { Page } from '@playwright/test'
-import { test, expect, email, signIn, newPerson, openApp, waitForApp, waitOnline, wsEval, cloudStatus, gotoPage, editorOf, createWorkspace, join } from './fixtures'
+import { test, expect, email, signIn, newPerson, openApp, waitForApp, waitOnline, wsEval, cloudEval, cloudStatus, gotoPage, editorOf, createWorkspace, join } from './fixtures'
 import { F, markRec, rec, recorderOps, startRecorder, step } from '../e2e/helpers/recorder'
 
 type AnyRec = Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -32,12 +33,13 @@ test.describe('flight recorder — team workspaces', () => {
     expect(localPins).toBeGreaterThan(0)
     await a.evaluate(() => (window as unknown as { __one: { flushSave: () => Promise<void> } }).__one.flushSave())
 
-    // the team workspace: the same, in scope cloud:<id>
+    // the team workspace: the same, in the member's scope cloud:<id>:u:<account>
     const wsId = await createWorkspace(a, 'Tessera Team')
     await openApp(a, wsId)
     await waitOnline(a)
     await startRecorder(a)
-    const scope = `cloud:${wsId}`
+    const uid = await cloudEval(a, (c) => c.user.id as string)
+    const scope = `cloud:${wsId}:u:${uid}`
     expect(await rec(a, 'scope')).toBe(scope)
     const team = await wsEval(a, (s) => s.createPage({ title: 'Tessera Plan' }) as string)
     await step(a, agent('t1'), [['updatePage', team, { title: 'Tessera Plan 2' }]], { note: { seq: 2 }, end: true })
@@ -65,6 +67,39 @@ test.describe('flight recorder — team workspaces', () => {
     // the local tape and its pins are untouched
     expect((await opsOf(a, 'local:local')).length).toBe(localOps)
     expect((await pinsOf(a, 'local:local')).metas.length).toBe(localPins)
+  })
+
+  test('another account signed in in this browser has a tape of its own: none of the first one’s records or pins', async ({ page: a, context }) => {
+    await signIn(a, email('mara'))
+    const wsId = await createWorkspace(a, 'Tessera Geteilt')
+    await openApp(a, wsId)
+    await waitOnline(a)
+    await startRecorder(a)
+    const first = (await rec<string>(a, 'scope')) as string
+    expect(first).toMatch(new RegExp(`^cloud:${wsId}:u:[A-Za-z0-9_-]+$`))
+    const page = await wsEval(a, (s) => s.createPage({ title: 'Tessera Entwurf (Mara)' }) as string)
+    await step(a, agent('m1'), [['updatePage', page, { title: 'Tessera Entwurf (Mara) 2' }]], { note: { seq: 1 }, end: true })
+    await rec(a, 'settle')
+    expect((await opsOf(a, first)).length).toBeGreaterThan(0)
+    expect((await pinsOf(a, first)).metas.length).toBeGreaterThan(0)
+    await expect.poll(() => a.evaluate(() => (window as any).__one.cloud.useCloudSync.getState().unsynced), { timeout: 15_000 }).toBe(false) // eslint-disable-line @typescript-eslint/no-explicit-any
+
+    // Lind joins, then signs in in Mara's browser (the copy stays): Lind's tape starts empty
+    const lindMail = email('lind')
+    const lind = await newPerson(context)
+    await signIn(lind, lindMail)
+    await join(a, lind, wsId, 'member')
+    await signIn(a, lindMail)
+    await openApp(a, wsId)
+    await waitOnline(a)
+    await startRecorder(a)
+    const second = (await rec<string>(a, 'scope')) as string
+    expect(second).toMatch(new RegExp(`^cloud:${wsId}:u:[A-Za-z0-9_-]+$`))
+    expect(second).not.toBe(first)
+    expect(await opsOf(a, second)).toEqual([])
+    expect((await pinsOf(a, second)).metas).toEqual([])
+    // Mara's tape is still hers (kept like her private documents), never read as Lind's
+    expect((await opsOf(a, first)).length).toBeGreaterThan(0)
   })
 
   test('follow-up stamps, repairs and look put-backs are nobody’s Vorgang', async ({ page: owner, context }) => {

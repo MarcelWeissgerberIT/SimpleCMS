@@ -22,8 +22,9 @@ import { F, K, type JEvent, type JOp, type JSegment, type LaneKey, type LeftHash
 import { resolvePending, type Pending } from './attribute'
 import { deps } from './deps'
 import { digestLeft, digestPart, digestWhole } from './key'
-import { pad13, pad8, type Batch, type Bump, type Journal, type StoreName } from './db'
-import { pagePin, schemaPin, storePins } from './pins'
+import { dayKey, HI, journalIfOpen, pad13, pad8, type Batch, type Bump, type Journal, type StoreName } from './db'
+import { dropMemoryPins, pagePin, pinDefsDb, schemaPin, storePins } from './pins'
+import { stable } from '../model/schema'
 import { RunBook } from './runs'
 import type { PinInput } from '../../history/pins'
 
@@ -74,6 +75,8 @@ export interface QItem {
   sys?: Array<[PlaceKey, unknown, unknown]>
   /** the databases of a system write (for row canon) */
   sysDbs?: { next: Record<ID, Database>; prev: Record<ID, Database> }
+  /** a system write while updates still waited: its places are picked when it is processed */
+  sysMaps?: SysMaps
   note?: RunNote
   /** a Vorgang being recorded across slices (a big one: an import, a restore) */
   prep?: Prep
@@ -101,6 +104,8 @@ interface OpenEv {
   /** the page before this event (content words since) */
   basePage?: Page
   words: [number, number]
+  /** its digest job while no flush took it (a fold replaces the object instead of adding a job) */
+  job?: Job
 }
 
 interface Open {
@@ -112,17 +117,29 @@ interface Open {
   ev: OpenEv | null
 }
 
+/**
+ * A digest to make at the flush: of the object a record names (the canonical string is built then — a job holds the
+ * frozen object, never a copy of the page's text).
+ */
 type Job =
-  | { t: 'ev'; rec: JEvent; seg: JSegment; canon: string | null }
-  | { t: 'open'; seg: JSegment; canon: string | null }
-  | { t: 'close'; seg: JSegment; parts: Record<string, string> | null; blocks?: BlockCanon[]; whole: string | null; isNew: boolean }
+  | { t: 'ev'; rec: JEvent; seg: JSegment; obj: PlaceObject | null; taken?: true }
+  | { t: 'open'; seg: JSegment; obj: PlaceObject | null }
+  | { t: 'close'; seg: JSegment; obj: PlaceObject | null; isNew: boolean }
 
 interface PinJob {
   seg: JSegment
   input: PinInput
-  /** content identity (pages with content) */
-  ckey: string | null
+  /** the content's rough size (counted once, while paused) */
+  size?: number
 }
+
+/** While recording is paused (records wait in memory): at most this many Vorgänge, events, pins (and bytes of pins). */
+const PAUSED_OPS = 20_000
+const PAUSED_EVENTS = 60_000
+const PAUSED_PINS = 2_000
+const PAUSED_PIN_BYTES = 64 * 1024 * 1024
+/** places deleted for good that this tab remembers (their pins never come back) */
+const PURGED_MAX = 5_000
 
 export interface Stats {
   hot: number[]
@@ -162,6 +179,19 @@ const placeObj = (pk: PlaceKind, raw: unknown, dbs: Record<ID, Database> | undef
   return page.databaseId ? { kind: 'row', page, db: dbs?.[page.databaseId] } : { kind: 'page', page }
 }
 
+/** The person (or an Undo) deleted a page, a row or a database for good: its before-images go (F13). */
+const purges = (pl: { p: PlaceKey }, lane: LaneKey): boolean => (lane === 'you' || lane === 'undo') && (pl.p.startsWith('p:') || pl.p.startsWith('s:'))
+
+/** The two states of a system write (the open places that moved are picked from them). */
+export interface SysMaps {
+  pagesNext: Record<ID, Page>
+  pagesPrev: Record<ID, Page>
+  dbsNext: Record<ID, Database>
+  dbsPrev: Record<ID, Database>
+  pagesMoved: boolean
+  dbsMoved: boolean
+}
+
 const pkOfPlace = (p: PlaceKey, raw: unknown): PlaceKind => (p.startsWith('s:') ? 'schema' : p.startsWith('v:') ? 'view' : placeKindOf(raw as Page))
 
 interface PlaceChange {
@@ -190,6 +220,8 @@ export class Processor {
   readonly runs = new RunBook(() => this.tab)
   /** places whose next segment starts after an unseen change */
   private gapNext = new Set<PlaceKey>()
+  /** runs that wrote after their end without saying they go on (no noteRun): they end again once the queue is drained */
+  private late = new Set<string>()
   /** this tab's last whole digest per place (LRU) */
   private lastLh = new Map<PlaceKey, string>()
   private mcpClients = new Map<string, string>()
@@ -204,16 +236,66 @@ export class Processor {
   private minutes = new Map<string, Record<LaneKey, number>>()
   private quarters = new Map<string, Record<LaneKey, number>>()
   private lanes = new Map<string, Record<LaneKey, { last: number; n: number }>>()
-  private counted = new Map<Scope, number>()
+  /** Vorgänge per day size record (`<scope>|d|<day>`) */
+  private counted = new Map<string, number>()
   private purge: Array<{ s: Scope; p: PlaceKey }> = []
   private lostTail: { s: Scope; from: number; to: number } | null = null
+  /** the size each record had when it was last written (a re-put counts only what it grew by) */
+  private sizes = new WeakMap<object, number>()
+  private runSizes = new Map<string, number>()
+  /** the segments of the flush under way (taken from `segs`, not in the journal yet) */
+  private inFlight: Map<string, JSegment> | null = null
+  /** places the person deleted for good (`p:` and `s:`): no pin of theirs is written any more */
+  private purged = new Set<PlaceKey>()
   /** an endRun was seen: flush right away */
   urgent = false
   lastFlush = 0
+  /** the scopes this tab keeps a tab record in (`<scope>|tab|<tab>`), with the record's start */
+  private tabScopes = new Map<Scope, number>()
+  /** the tab is being left (page hide) with everything recorded: every flush from here marks it clean */
+  private leaving = false
+  /** Vorgänge in the flush under way (not in the journal yet) */
+  private inFlightOps = 0
+  /**
+   * The tab records say "clean": everything this tab recorded is in the journal (a flush that left nothing waiting).
+   * The first store update after that marks them dirty again — one put, right after the update — so a tab that dies
+   * with records in memory always leaves a lost tail, and one that dies with none never does (a closing tab need not
+   * write anything).
+   */
+  recordClean = false
+  /** store updates the recorder queued (the flush compares: none came while it wrote) */
+  seen = 0
   private flushing: Promise<void> = Promise.resolve()
   /** records waiting for the flush */
   get waiting(): number {
     return this.ops.size + this.events.size + this.segs.size + this.pins.length
+  }
+  /** digests waiting for the flush */
+  get jobCount(): number {
+    return this.jobs.length
+  }
+
+  /**
+   * Segments not in the journal yet (open, being summed up, waiting, or in the flush under way): a prune leaves their
+   * pins alone — they are on their way, not orphans — and never marks them partial behind this tab's back.
+   */
+  liveSegIds(): Set<string> {
+    const out = new Set<string>(this.segs.keys())
+    for (const k of this.inFlight?.keys() ?? []) out.add(k)
+    for (const o of this.open.values()) out.add(o.rec.id)
+    for (const o of this.closing.values()) out.add(o.rec.id)
+    for (const p of this.pins) out.add(p.seg.id)
+    return out
+  }
+
+  /** Run `fn` between two flushes (prunes: never while a flush stores pins or segments). */
+  exclusive<T>(fn: () => Promise<T>): Promise<T> {
+    const run = this.flushing.then(fn)
+    this.flushing = run.then(
+      () => undefined,
+      () => undefined,
+    )
+    return run
   }
   /** segments still to be summed up (finishCloses) */
   get closingCount(): number {
@@ -225,6 +307,8 @@ export class Processor {
     private journal: () => Promise<Journal>,
     private gate: FlushGate,
     readonly stats: Stats,
+    /** store updates still in the recorder's queue (not processed yet) */
+    private queued: () => number = () => 0,
   ) {}
 
   /* ---------------------------------------------------------------- */
@@ -245,6 +329,12 @@ export class Processor {
       if (this.scope !== it.scope) {
         this.closeAll(it.at)
         this.scope = it.scope
+      }
+      if (it.sysMaps) {
+        const m = it.sysMaps
+        it.sysMaps = undefined
+        it.sys = this.sysPlaces(m)
+        it.sysDbs = { next: m.dbsNext, prev: m.dbsPrev }
       }
       if (it.sys) {
         this.system(it)
@@ -372,9 +462,40 @@ export class Processor {
     o.lastObj = pl.nextObj
   }
 
-  /** A system write: only the open places that moved, for the identity chain. */
+  /** The open places a system write moved: [place, prev, next] (pages: Page, schema: Database, views: View) — O(open). */
+  sysPlaces(m: SysMaps): Array<[PlaceKey, unknown, unknown]> {
+    const sys: Array<[PlaceKey, unknown, unknown]> = []
+    for (const p of this.open.keys()) {
+      if (p.startsWith('p:')) {
+        if (!m.pagesMoved) continue
+        const id = p.slice(2)
+        const a = m.pagesPrev[id]
+        const b = m.pagesNext[id]
+        if (a !== b) sys.push([p, a, b])
+      } else if (m.dbsMoved) {
+        const [db, view] = p.slice(2).split('/')
+        const a: Database | undefined = m.dbsPrev[db]
+        const b: Database | undefined = m.dbsNext[db]
+        if (a === b) continue
+        if (p.startsWith('s:')) sys.push([p, a, b])
+        else {
+          const va = a?.views.find((v) => v.id === view)
+          const vb = b?.views.find((v) => v.id === view)
+          if (va !== vb) sys.push([p, va, vb])
+        }
+      }
+    }
+    return sys
+  }
+
+  /**
+   * A system write: only the open places that moved, for the identity chain. Bookkeeping (a worker's heartbeat, a
+   * live git line, the memory log's back-links, a load request taken) is no unseen change: One made it on purpose next
+   * to the writer's work, so the open segment follows it (its writer left the place with it) — never a close, never GAP.
+   */
   private system(it: QItem): void {
     const dbs = it.sysDbs
+    const known = it.w?.kind === 'system' && it.w.why === 'bookkeeping'
     for (const [p, a, b] of it.sys ?? []) {
       const pk = pkOfPlace(p, b ?? a)
       let ignoredOnly = true
@@ -383,7 +504,7 @@ export class Processor {
       const pl: PlaceChange = { p, pk, prevRaw: a, nextRaw: b, prevObj: placeObj(pk, a, dbs?.prev), nextObj: placeObj(pk, b, dbs?.next), kinds: 0, f: 0, ignoredOnly }
       const o = this.chain(pl, it.at)
       if (!o) continue
-      if (ignoredOnly) this.follow(o, pl)
+      if (ignoredOnly || known) this.follow(o, pl)
       else {
         // a system write changed the place (another tab's save): the segment ends with what its writer left
         this.close(o, it.at)
@@ -407,6 +528,12 @@ export class Processor {
     let op: JOp | null = prep.op
     const baseF = (copy ? F.COPY : 0) | (undo ? F.UNDO : 0) | (it.order ? F.ORDER : 0) | (parsed.mixed ? F.BATCH : 0)
     const total = prep.pairs.length + prep.dbPlaces.length
+    // a write after its run's end (endRun closed the run's segments): the run goes on — its writes from here are one
+    // stretch per place again, and it ends again when the queue is drained (endLate)
+    if (run && this.runs.isEnded(run)) {
+      this.runs.reopen(run)
+      this.late.add(run)
+    }
 
     for (; prep.i < total; prep.i++) {
       if (prep.i % CLOCK_EVERY === CLOCK_EVERY - 1 && performance.now() > deadline) {
@@ -419,7 +546,7 @@ export class Processor {
         this.follow(seg, pl)
         continue
       }
-      if (seg && (seg.rec.sk !== sk || (isHumanSeg(sk) && at - seg.rec.to >= SEG_IDLE) || (seg.rec.r && this.runs.isEnded(seg.rec.r)))) {
+      if (seg && (seg.rec.sk !== sk || (isHumanSeg(sk) && at - seg.rec.to >= SEG_IDLE))) {
         this.close(seg, at)
         seg = undefined
       }
@@ -469,15 +596,16 @@ export class Processor {
       seg.rec.n++
       seg.rec.to = at
       seg.rec.lastLh = ''
-      seg.ev = { rec: ev, op, basePage: pl.prevRaw as Page | undefined, words: delta ? [delta.wa, delta.wd] : [0, 0] }
+      const job: Job = { t: 'ev', rec: ev, seg: seg.rec, obj: pl.nextObj }
+      seg.ev = { rec: ev, op, basePage: pl.prevRaw as Page | undefined, words: delta ? [delta.wa, delta.wd] : [0, 0], job }
       this.segs.set(seg.rec.id, seg.rec)
-      this.jobs.push({ t: 'ev', rec: ev, seg: seg.rec, canon: this.canonOf(pl.nextObj) })
+      this.jobs.push(job)
       if (run && !copy) this.runs.noteEvent(scope, run, ev, delta ? [delta.wa, delta.wd] : [0, 0])
       // the place is gone: nothing more can happen to it
       if (pl.f & F.GONE) {
-        if ((lane === 'you' || lane === 'undo') && pl.p.startsWith('p:')) this.purge.push({ s: scope, p: pl.p })
+        if (purges(pl, lane)) this.purgePlace(scope, pl.p, at)
         this.close(seg, at)
-      }
+      } else if (pl.f & F.NEW) this.purged.delete(pl.p)
     }
     prep.op = op
     if (!op) return true
@@ -520,13 +648,35 @@ export class Processor {
     this.events.set(e.rec.k, e.rec)
     this.ops.set(e.op.k, e.op)
     this.segs.set(seg.rec.id, seg.rec)
-    this.jobs.push({ t: 'ev', rec: e.rec, seg: seg.rec, canon: this.canonOf(pl.nextObj) })
+    // one digest job per event while no flush took it: the fold only moves it to the newest state
+    if (e.job?.t === 'ev' && !e.job.taken) e.job.obj = pl.nextObj
+    else {
+      e.job = { t: 'ev', rec: e.rec, seg: seg.rec, obj: pl.nextObj }
+      this.jobs.push(e.job)
+    }
   }
 
-  private canonOf(o: PlaceObject | null): string | null {
-    if (!o) return null
-    const { parts, blocks } = placeCanon(o, deps)
-    return wholeCanon(parts, blocks)
+  /**
+   * The person deleted a place for good (a page or row, or a database's schema): its pins go after the next write,
+   * none is taken for it any more, and a database's view segments still open close (their pins go with the schema's).
+   */
+  private purgePlace(scope: Scope, p: PlaceKey, at: number): void {
+    this.purge.push({ s: scope, p })
+    this.purged.add(p)
+    if (this.purged.size > PURGED_MAX) this.purged.delete(this.purged.values().next().value as PlaceKey)
+    if (!p.startsWith('s:')) return
+    const views = `v:${p.slice(2)}/`
+    for (const o of [...this.open.values()])
+      if (o.rec.p.startsWith(views)) {
+        o.rec.f |= F.PURGED
+        this.close(o, at)
+      }
+  }
+
+  /** A place deleted for good (a view: its database's schema): its pins are not written. */
+  private isPurged(p: PlaceKey): boolean {
+    if (this.purged.has(p)) return true
+    return p.startsWith('v:') && this.purged.has(`s:${p.slice(2, p.indexOf('/'))}`)
   }
 
   private openSeg(pl: PlaceChange, scope: Scope, at: number, wk: string, sk: string, lane: LaneKey, run: string | undefined, cause: string | undefined): Open {
@@ -542,7 +692,7 @@ export class Processor {
     if (!pl.prevRaw) f |= F.NEW
     if (this.gapNext.delete(pl.p)) f |= F.GAP
     if (isCopyKey(wk)) f |= F.COPY
-    const purged = pl.f & F.GONE && (lane === 'you' || lane === 'undo') && pl.p.startsWith('p:')
+    const purged = !!(pl.f & F.GONE) && purges(pl, lane)
     if (purged) f |= F.PURGED
     const rec: JSegment = {
       id,
@@ -571,22 +721,23 @@ export class Processor {
     if (pl.prevRaw && !purged) {
       if (pl.pk === 'schema' || pl.pk === 'view') {
         const db = pl.prevDbs?.[pl.db ?? '']
-        if (db) this.pins.push({ seg: rec, input: { place: pl.p, meta: schemaPin(db, at, id) }, ckey: null })
+        if (db) this.pins.push({ seg: rec, input: { place: pl.p, meta: schemaPin(db, at, id) } })
       } else {
         const page = pl.prevRaw as Page
-        // a row's definitions: its database before THIS writer changed the schema (an option removed, then the
-        // values cleared row by row, still reads with the option), else the database as it was then
+        // a row's definitions: its database as it was right before this update — plus what THIS writer took out of
+        // the schema earlier in its stretch (an option removed, then the values cleared row by row, still reads with
+        // the option); nothing the database had then is left out
         const own = page.databaseId ? this.open.get(`s:${page.databaseId}`) : undefined
         const ownDb = own && own.rec.sk === sk && own.first?.kind === 'schema' ? own.first.db : undefined
-        const { meta, content } = pagePin(page, ownDb ?? pl.prevDbs?.[page.databaseId ?? ''], at, id)
-        this.pins.push({ seg: rec, input: { place: pl.p, meta, content }, ckey: content ? deps.contentKey(content) : null })
+        const { meta, content } = pagePin(page, pinDefsDb(pl.prevDbs?.[page.databaseId ?? ''], ownDb), at, id)
+        this.pins.push({ seg: rec, input: { place: pl.p, meta, content } })
       }
     }
     if (run) this.runs.ensure(scope, run, lane, at)
     const o: Open = { rec, first: pl.prevObj, last: pl.nextRaw, lastObj: pl.nextObj, ev: null }
     this.open.set(pl.p, o)
     this.segs.set(id, rec)
-    this.jobs.push({ t: 'open', seg: rec, canon: this.canonOf(pl.prevObj) })
+    this.jobs.push({ t: 'open', seg: rec, obj: pl.prevObj })
     return o
   }
 
@@ -608,16 +759,7 @@ export class Processor {
     delete o.rec.o
     const isNew = !!(o.rec.f & F.NEW)
     o.rec.touched = isNew || !o.lastObj ? '*' : touchedParts(o.first, o.lastObj, deps)
-    let parts: Record<string, string> | null = null
-    let blocks: BlockCanon[] | undefined
-    let whole: string | null = null
-    if (o.lastObj) {
-      const c = placeCanon(o.lastObj, deps)
-      parts = c.parts
-      blocks = c.blocks
-      whole = wholeCanon(c.parts, c.blocks)
-    }
-    this.jobs.push({ t: 'close', seg: o.rec, parts, blocks, whole, isNew })
+    this.jobs.push({ t: 'close', seg: o.rec, obj: o.lastObj, isNew })
     this.segs.set(o.rec.id, o.rec)
   }
 
@@ -658,11 +800,28 @@ export class Processor {
     const run = runKeyOf(wk)
     if (n.meta?.client && n.w.kind === 'mcp') this.mcpClients.set(n.w.session, n.meta.client)
     if (!run) return
-    if (n.end) {
-      this.runs.end(run, at)
-      this.closeAll(at, (s) => s.r === run)
-      this.urgent = true
-    } else this.runs.meta(run, n.meta)
+    if (n.end) this.endRunNow(run, at)
+    else {
+      // a run that ended goes on (a review applies its proposals later): not ended until its next end
+      this.runs.reopen(run)
+      this.late.delete(run)
+      this.runs.meta(run, n.meta)
+    }
+  }
+
+  /** A run ends: its open segments close (left and touched summed up in slices). */
+  private endRunNow(run: string, at: number): void {
+    this.late.delete(run)
+    this.runs.end(run, at)
+    this.closeAll(at, (s) => s.r === run)
+    this.urgent = true
+  }
+
+  /** The queue is drained: runs that wrote after their end without going on end again (true: some did). */
+  endLate(at: number): boolean {
+    if (!this.late.size) return false
+    for (const run of [...this.late]) this.endRunNow(run, at)
+    return true
   }
 
   private count(scope: Scope, lane: LaneKey, at: number): void {
@@ -677,7 +836,8 @@ export class Processor {
     const cur = l[lane] ?? { last: 0, n: 0 }
     l[lane] = { last: Math.max(cur.last, at), n: cur.n + 1 }
     this.lanes.set(scope, l)
-    this.counted.set(scope, (this.counted.get(scope) ?? 0) + 1)
+    const day = dayKey(scope, at)
+    this.counted.set(day, (this.counted.get(day) ?? 0) + 1)
   }
 
   /** A run of the next Vorgang id. */
@@ -689,16 +849,22 @@ export class Processor {
   /* flush                                                             */
   /* ---------------------------------------------------------------- */
 
-  /** Write everything waiting (serialised: one flush at a time). */
-  flush(): Promise<void> {
-    const run = this.flushing.then(() => this.flushNow())
+  /**
+   * Write everything waiting (serialised: one flush at a time). `clean`: the tab is being left and everything is
+   * recorded — the flush's own transaction marks it ended cleanly (no second write the closing tab may not finish).
+   */
+  flush(opts: { clean?: boolean } = {}): Promise<void> {
+    const run = this.flushing.then(() => this.flushNow(opts))
     this.flushing = run.catch(() => undefined)
     return run
   }
 
-  private async flushNow(): Promise<void> {
+  private async flushNow(opts: { clean?: boolean } = {}): Promise<void> {
     this.urgent = false
-    if (!this.waiting && !this.jobs.length && !this.runs.dirty.size && !this.purge.length) return
+    if (!this.waiting && !this.jobs.length && !this.runs.dirty.size && !this.purge.length) {
+      if (opts.clean || this.leaving) this.markCleanNow()
+      return
+    }
     // every stretch between two awaits is one piece of the recorder's work (stats.taskMax)
     let t = performance.now()
     const lap = async <T>(p: Promise<T>): Promise<T> => {
@@ -736,16 +902,30 @@ export class Processor {
     this.counted = new Map()
     this.purge = []
     this.lostTail = null
+    this.inFlight = segs
+    this.inFlightOps = ops.length
+    for (const job of jobs) if (job.t === 'ev') job.taken = true
     const runs = this.runs.takeDirty()
     const j = await lap(this.journal())
     const memory = j.mode === 'memory'
+    /** bytes this flush adds per day size record (re-written records count only what they grew by) */
+    const grew = new Map<string, number>()
+    const addBytes = (scope: Scope, at: number, n: number) => {
+      if (!n) return
+      const k = dayKey(scope, at)
+      grew.set(k, (grew.get(k) ?? 0) + n)
+    }
+    /** sizes to remember once the write landed */
+    const sized: Array<[object, number]> = []
+    let clean = false
+    const runSized: Array<[string, number]> = []
 
     try {
-      // 1. pins first (their bodies addressed by the content's digest), so a segment never names a pin that is not there;
-      // in pieces of ≤ PIN_CHUNK pins / bytes — each piece its own write (pins are kept by id, a piece is complete)
+      // 1. pins first (their bodies addressed by the exact content's digest), so a segment never names a pin that is
+      // not there; in pieces of ≤ PIN_CHUNK pins / bytes — each piece its own write (pins are kept by id, a piece is
+      // complete). Never a pin of a place the person deleted for good meanwhile.
       const byScope = new Map<Scope, PinJob[]>()
-      for (const p of pins) byScope.set(p.seg.s, [...(byScope.get(p.seg.s) ?? []), p])
-      let pinBytes = 0
+      for (const p of pins) if (!this.isPurged(p.input.place)) byScope.set(p.seg.s, [...(byScope.get(p.seg.s) ?? []), p])
       for (const [scope, list] of byScope) {
         let from = 0
         while (from < list.length) {
@@ -755,35 +935,48 @@ export class Processor {
             const p = list[to++]
             size += approxSize(p.input.meta) + (p.input.content ? approxSize(p.input.content) : 0)
           }
-          pinBytes += size
           const piece = list.slice(from, to)
           from = to
           await lap(
             Promise.all(
               piece.map(async (p) => {
-                if (p.input.meta.kind === 'page') p.input.meta.body = p.ckey !== null ? await digestPart(scope, 'c', p.ckey) : null
+                // the body's address: the exact content, block ids and task ids included (contentKey would ignore them)
+                if (p.input.meta.kind === 'page') p.input.meta.body = p.input.content ? await digestPart(scope, 'cx', stable(p.input.content)) : null
               }),
             ),
           )
-          const ids = await lap(storePins(scope, piece.map((p) => p.input), memory))
+          const kept = await lap(storePins(scope, piece.map((p) => p.input), memory))
           piece.forEach((p, i) => {
-            p.seg.before = ids[i] ?? null
+            p.seg.before = kept.ids[i] ?? null
             segs.set(p.seg.id, p.seg)
+            addBytes(scope, p.input.meta.at, kept.bytes[i] ?? 0)
           })
         }
       }
 
-      // 2. digests, in the order the records were made (signed in pieces: each piece hands its strings over at once)
+      // 2. digests, in the order the records were made: each job's canonical string is built now (from the frozen
+      // object it holds), signed in pieces — the page idle in between
       const digests: Array<string | LeftHash> = []
       for (let i = 0; i < jobs.length; i += DIGEST_CHUNK) {
         if (i) await lap(idleTask())
+        const piece = jobs.slice(i, i + DIGEST_CHUNK)
+        const inputs: Array<{ whole: string | null; parts?: Record<string, string>; blocks?: BlockCanon[] }> = []
+        for (const job of piece) {
+          if (performance.now() - t > YIELD_MS) await lap(idleTask())
+          if (!job.obj) inputs.push({ whole: null })
+          else {
+            const c = placeCanon(job.obj, deps)
+            inputs.push({ whole: wholeCanon(c.parts, c.blocks), parts: c.parts, blocks: c.blocks })
+          }
+        }
         digests.push(
           ...(await lap(
             Promise.all(
-              jobs.slice(i, i + DIGEST_CHUNK).map(async (job) => {
-                if (job.t === 'ev' || job.t === 'open') return job.canon === null ? '-' : digestWhole(job.seg.s, job.canon)
-                if (!job.whole) return { h: '-', parts: {} }
-                return digestLeft(job.seg.s, { parts: job.parts ?? {}, blocks: job.blocks }, job.whole, job.isNew)
+              piece.map(async (job, k) => {
+                const c = inputs[k]
+                if (job.t === 'ev' || job.t === 'open') return c.whole === null ? '-' : digestWhole(job.seg.s, c.whole)
+                if (c.whole === null) return { h: '-', parts: {} }
+                return digestLeft(job.seg.s, { parts: c.parts ?? {}, blocks: c.blocks }, c.whole, job.isNew)
               }),
             ),
           )),
@@ -809,23 +1002,34 @@ export class Processor {
         }
         segs.set(job.seg.id, job.seg)
       }
+      // a segment of a place deleted for good meanwhile reads purged
+      for (const g of segs.values())
+        if (this.isPurged(g.p) && !(g.f & F.PURGED)) {
+          g.f |= F.PURGED
+          g.before = null
+        }
 
       // 3. ONE transaction (its puts go in in pieces, journal/db.ts)
       const put = { ops: [] as Array<Record<string, unknown>>, events: [] as Array<Record<string, unknown>>, segs: [] as Array<Record<string, unknown>> }
-      let bytes = pinBytes
       let n = 0
-      for (const [list, into] of [
-        [ops, put.ops],
-        [events.values(), put.events],
-        [segs.values(), put.segs],
-      ] as Array<[Iterable<object>, Array<Record<string, unknown>>]>)
+      for (const [list, into, when] of [
+        [ops, put.ops, (r: JOp) => r.at],
+        [events.values(), put.events, (r: JEvent) => r.at],
+        [segs.values(), put.segs, (r: JSegment) => r.from],
+      ] as Array<[Iterable<JOp & JEvent & JSegment>, Array<Record<string, unknown>>, (r: JOp & JEvent & JSegment) => number]>)
         for (const r of list) {
           if (n++ % 256 === 255 && performance.now() - t > YIELD_MS) await lap(idleTask())
           const copy = { ...r } as Record<string, unknown>
-          bytes += approxSize(copy)
+          const size = approxSize(copy)
+          addBytes(r.s, when(r), size - (this.sizes.get(r) ?? 0))
+          sized.push([r, size])
           into.push(copy)
         }
-      for (const r of runs) bytes += approxSize(r)
+      for (const r of runs) {
+        const size = approxSize(r)
+        addBytes(r.s, r.from, size - (this.runSizes.get(r.id) ?? 0))
+        runSized.push([r.id, size])
+      }
       const batch: Batch = { put: { ...put, runs: runs as unknown as Array<Record<string, unknown>> }, bump: [] }
       const bump = batch.bump as Bump[]
       for (const [key, add] of minutes) bump.push({ store: 'minutes', key, fn: (cur) => histAdd(key, cur, add) })
@@ -841,16 +1045,39 @@ export class Processor {
             return { k: `${scope}|lanes`, lanes: l }
           },
         })
-      const scopes = new Set<Scope>([...ops.map((o) => o.s), ...[...segs.values()].map((s) => s.s), ...counted.keys()])
+      // the days' sizes: Vorgänge and the bytes this flush added (read-modify-written in the transaction — tabs never
+      // lose each other's counts)
+      let bytes = 0
+      for (const k of new Set([...grew.keys(), ...counted.keys()])) {
+        const b = grew.get(k) ?? 0
+        const o = counted.get(k) ?? 0
+        bytes += b
+        bump.push({ store: 'kv', key: k, fn: (cur) => ({ k, ops: Number(cur?.ops ?? 0) + o, bytes: Math.max(0, Number(cur?.bytes ?? 0) + b) }) })
+      }
+      const scopes = new Set<Scope>([...ops.map((o) => o.s), ...[...segs.values()].map((s) => s.s)])
       if (this.scope) scopes.add(this.scope)
+      // the tab's record: clean when this flush lands everything recorded (nothing waits behind it in memory, no
+      // update waits in the queue) — or the tab is being left
+      const seen0 = this.seen
+      clean = !!opts.clean || this.leaving || (!this.ops.size && !this.events.size && !this.queued())
       for (const scope of scopes) {
-        const n = counted.get(scope) ?? 0
-        const share = scopes.size ? Math.ceil(bytes / scopes.size) : 0
-        bump.push({ store: 'kv', key: `${scope}|n|${this.tab}`, fn: (cur) => ({ k: `${scope}|n|${this.tab}`, ops: Number(cur?.ops ?? 0) + n, bytes: Number(cur?.bytes ?? 0) + share }) })
-        bump.push({ store: 'kv', key: `${scope}|tab|${this.tab}`, fn: (cur) => ({ k: `${scope}|tab|${this.tab}`, start: Number(cur?.start ?? now), lastFlush: now, clean: false }) })
+        const start = this.tabScopes.get(scope) ?? now
+        this.tabScopes.set(scope, start)
+        bump.push({ store: 'kv', key: `${scope}|tab|${this.tab}`, fn: (cur) => ({ k: `${scope}|tab|${this.tab}`, start: Number(cur?.start ?? start), lastFlush: now, clean }) })
       }
       if (lost) batch.put!.kv = [{ k: `${lost.s}|gap|${pad13(lost.from)}`, from: lost.from, to: lost.to, tab: this.tab }]
       await this.writeInParts(j, batch, lap)
+      if (clean) {
+        // an update that came while the write ran: the records must say dirty again
+        if (this.seen === seen0) this.recordClean = true
+        else this.markDirty()
+      }
+      for (const [r, size] of sized) this.sizes.set(r, size)
+      for (const [id, size] of runSized) {
+        this.runSizes.delete(id)
+        this.runSizes.set(id, size)
+      }
+      while (this.runSizes.size > 2000) this.runSizes.delete(this.runSizes.keys().next().value as string)
       this.gate.wrote(bytes)
       this.lastFlush = now
     } catch (e) {
@@ -869,11 +1096,64 @@ export class Processor {
       for (const r of runs) this.runs.dirty.add(r.id)
       this.purge.push(...purge)
       throw e
+    } finally {
+      this.inFlight = null
+      this.inFlightOps = 0
     }
 
     // 4. after the write: what the person deleted for good loses its pins
     if (purge.length) await lap(this.applyPurge(j, purge, memory))
     noteTask(this.stats, 'flush', t)
+  }
+
+  /**
+   * The tab is left (page hide) with its queue recorded: when no Vorgang waits (nothing new since the last flush, none
+   * in a flush under way), its records say "clean" right now — one put, issued in this task (a closing tab runs no
+   * later task to finish a read-modify-write); segments still closing are no loss, recovery closes them exactly.
+   * Every flush from here marks the tab clean in its own transaction. `drained`: the queue was recorded in time.
+   */
+  leave(drained: boolean): void {
+    if (drained) {
+      this.leaving = true
+      if (!this.ops.size && !this.events.size && !this.inFlightOps) this.markCleanNow()
+    }
+    void this.flush().catch(() => undefined)
+  }
+
+  /** The tab is shown again (back from the page cache): it is not being left any more. */
+  stay(): void {
+    this.leaving = false
+  }
+
+  /**
+   * A store update was queued: when the tab records said "clean", they say "dirty" from now (issued in a microtask
+   * right after the update — never on the hot path).
+   */
+  noteUpdate(scope: Scope): void {
+    this.seen++
+    if (!this.recordClean) return
+    this.recordClean = false
+    queueMicrotask(() => this.markDirty(scope))
+  }
+
+  /** Mark the tab records dirty (a tab without one yet gets one for this scope). */
+  private markDirty(scope?: Scope): void {
+    this.recordClean = false
+    const j = journalIfOpen()
+    if (!j) return
+    const now = Date.now()
+    if (scope && !this.tabScopes.has(scope)) this.tabScopes.set(scope, now)
+    const kv = [...this.tabScopes].map(([s, start]) => ({ k: `${s}|tab|${this.tab}`, start, lastFlush: this.lastFlush || now, clean: false }))
+    if (kv.length) void j.write({ put: { kv } }).catch(() => undefined)
+  }
+
+  /** Mark this tab's records clean, synchronously issued (no read first). */
+  private markCleanNow(): void {
+    const j = journalIfOpen()
+    if (!j || !this.tabScopes.size) return
+    const kv = [...this.tabScopes].map(([s, start]) => ({ k: `${s}|tab|${this.tab}`, start, lastFlush: this.lastFlush || Date.now(), clean: true }))
+    this.recordClean = true
+    void j.write({ put: { kv } }, { commit: true }).catch(() => undefined)
   }
 
   /**
@@ -907,26 +1187,68 @@ export class Processor {
   }
 
   private async applyPurge(j: Journal, list: Array<{ s: Scope; p: PlaceKey }>, memory: boolean): Promise<void> {
-    const { dropPinsOfPlace } = await import('../../history/pins')
+    const { dropPinsOfPlace, dropPinsOfDatabase } = await import('../../history/pins')
+    const { giveBack } = await import('./prune')
     for (const { s, p } of list) {
-      if (!memory) await dropPinsOfPlace(s, p).catch(() => undefined)
-      const segs = await j.range<JSegment>({ store: 'segs', index: 'place', lo: [s, p, 0], hi: [s, p, Number.MAX_SAFE_INTEGER] })
-      const put = segs.filter((g) => !(g.f & F.PURGED)).map((g) => ({ ...g, f: g.f | F.PURGED }))
-      if (put.length) await j.write({ put: { segs: put } })
+      const db = p.startsWith('s:') ? p.slice(2) : null
+      if (memory) dropMemoryPins(s, p)
+      else {
+        const freed = await (db ? dropPinsOfDatabase(s, db) : dropPinsOfPlace(s, p)).catch(() => [])
+        await giveBack(j, s, freed).catch(() => undefined)
+      }
+      // its segments (a database: its schema's and every view's) read purged
+      const ranges: Array<[string, string]> = db ? [[p, p], [`v:${db}/`, `v:${db}/${HI}`]] : [[p, p]]
+      for (const [lo, hi] of ranges) {
+        const segs = await j.range<JSegment>({ store: 'segs', index: 'place', lo: [s, lo, 0], hi: [s, hi, Number.MAX_SAFE_INTEGER] })
+        const put = segs.filter((g) => !(g.f & F.PURGED) || g.before).map((g) => ({ ...g, f: g.f | F.PURGED, before: null }))
+        if (put.length) await j.write({ put: { segs: put } })
+      }
     }
   }
 
-  /** Paused: records wait in memory (at most 20,000 Vorgänge — beyond, the oldest go and a lost tail is noted). */
+  /**
+   * Paused: records wait in memory — at most PAUSED_OPS Vorgänge / PAUSED_EVENTS events (beyond, the oldest go with
+   * their events, digest jobs and closed segments, and a lost tail is noted) and PAUSED_PINS pins / PAUSED_PIN_BYTES
+   * (beyond, the oldest pins go: their segments read partial).
+   */
   private capWhilePaused(): void {
-    if (this.ops.size <= 20_000) return
-    const list = [...this.ops.values()].sort((a, b) => a.at - b.at)
-    const drop = list.slice(0, list.length - 20_000)
-    for (const o of drop) this.ops.delete(o.k)
-    const drops = new Set(drop.map((o) => o.v))
-    for (const [k, e] of this.events) if (drops.has(e.v)) this.events.delete(k)
-    const from = drop[0].at
-    const to = drop[drop.length - 1].at
-    this.lostTail = { s: drop[0].s, from: Math.min(this.lostTail?.from ?? from, from), to: Math.max(this.lostTail?.to ?? to, to) }
+    if (this.ops.size > PAUSED_OPS || this.events.size > PAUSED_EVENTS) {
+      const list = [...this.ops.values()].sort((a, b) => a.at - b.at)
+      let events = this.events.size
+      const drop: JOp[] = []
+      for (const o of list) {
+        if (list.length - drop.length <= PAUSED_OPS && events <= PAUSED_EVENTS) break
+        drop.push(o)
+        events -= o.n
+      }
+      const drops = new Set(drop.map((o) => o.v))
+      for (const o of drop) this.ops.delete(o.k)
+      const segsOf = new Set<string>()
+      for (const [k, e] of this.events)
+        if (drops.has(e.v)) {
+          this.events.delete(k)
+          segsOf.add(e.g)
+        }
+      // their digest jobs go too (a job would put its event back), and closed segments nothing waits for any more
+      const live = new Set<string>([...this.open.values(), ...this.closing.values()].map((o) => o.rec.id))
+      for (const e of this.events.values()) live.add(e.g)
+      const gone = new Set([...segsOf].filter((g) => !live.has(g)))
+      for (const g of gone) this.segs.delete(g)
+      this.jobs = this.jobs.filter((job) => !(job.t === 'ev' ? drops.has(job.rec.v) : gone.has(job.seg.id)))
+      this.pins = this.pins.filter((p) => !gone.has(p.seg.id))
+      if (drop.length) {
+        const from = drop[0].at
+        const to = drop[drop.length - 1].at
+        this.lostTail = { s: drop[0].s, from: Math.min(this.lostTail?.from ?? from, from), to: Math.max(this.lostTail?.to ?? to, to) }
+      }
+    }
+    let bytes = 0
+    for (const p of this.pins) bytes += (p.size ??= p.input.content ? approxSize(p.input.content) : 0)
+    if (this.pins.length > PAUSED_PINS || bytes > PAUSED_PIN_BYTES) {
+      // the oldest pins go (their segments keep `before: null` — partial, never guessed)
+      this.pins.sort((a, b) => a.seg.from - b.seg.from)
+      while (this.pins.length && (this.pins.length > PAUSED_PINS || bytes > PAUSED_PIN_BYTES)) bytes -= this.pins.shift()!.size ?? 0
+    }
   }
 
   private noteLh(p: PlaceKey, h: string): void {
@@ -940,6 +1262,7 @@ export class Processor {
     this.open.clear()
     this.closing.clear()
     this.gapNext.clear()
+    this.late.clear()
     this.lastLh.clear()
     this.ops.clear()
     this.events.clear()
@@ -951,6 +1274,8 @@ export class Processor {
     this.lanes.clear()
     this.counted.clear()
     this.purge = []
+    this.purged.clear()
+    if (this.scope) this.tabScopes.delete(this.scope)
     this.runs.clear()
   }
 }

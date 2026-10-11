@@ -1,24 +1,23 @@
 /**
  * Retention (30 days) and the budget's pruning: records older than the cut-off leave every store, then
- * the pins of the segments that went, pins whose segment never landed (orphans), and the counters of
- * tabs that are gone fold into the scope's base. `floor` = where the tape begins for a scope.
+ * the pins of the segments that went and pins whose segment never landed (orphans). Every prune lowers
+ * the scope's day sizes (`kv <scope>|d|<day>`) by what it removed — a day that goes takes its size along —
+ * so the budget's figure is what the stores hold. `floor` = where the tape begins for a scope.
  */
-import { dropPins, listPinMetas } from '../../history/pins'
+import { dropPins, listPinMetas, PIN_GRACE, type Freed } from '../../history/pins'
 import type { JSegment, Scope } from '../model/types'
-import { HI, openJournal, pad13, pad8, scopeRange, type Journal } from './db'
+import { dayKey, HI, openJournal, pad13, pad8, scopeRange, startOfDay, type Bump, type Journal } from './db'
 
 export const RETENTION_MS = 30 * 24 * 3600_000
 const DAY = 24 * 3600_000
-/** a pin younger than this may still wait for its segment's transaction */
-const ORPHAN_GRACE = 10 * 60_000
 
-/** Every scope with a journal on this device (each has a digest key, a lanes record or counters). */
+/** Every scope with a journal on this device (each has a digest key, a lanes record or day sizes). */
 export async function scopesOnDevice(j?: Journal): Promise<Scope[]> {
   const jj = j ?? (await openJournal())
   const keys = await jj.keys({ store: 'kv', lo: '', hi: HI })
   const out = new Set<Scope>()
   for (const k of keys) {
-    const m = /^(local:local|cloud:[A-Za-z0-9_-]{1,64})\|/.exec(k)
+    const m = /^(local:local|cloud:[A-Za-z0-9_-]{1,64}(?::u:[A-Za-z0-9_-]{1,64})?)\|/.exec(k)
     if (m) out.add(m[1] as Scope)
   }
   return [...out]
@@ -37,20 +36,34 @@ export async function liveTabs(): Promise<Set<string> | null> {
   }
 }
 
-const startOfDay = (t: number) => {
-  const d = new Date(t)
-  d.setHours(0, 0, 0, 0)
-  return d.getTime()
-}
-
 export interface PruneResult {
   ops: number
   segs: number
   pins: number
 }
 
-/** Remove a scope's records older than `cutoff`, the pins of its segments that went, orphan pins; fold dead tabs' counters. */
-export async function pruneScope(scope: Scope, cutoff: number, ownTab: string, memory = false): Promise<PruneResult> {
+/** What a prune must leave alone: segments this tab has not written yet (their pins may already be stored). */
+export interface PruneOpts {
+  memory?: boolean
+  /** segment ids still on their way to the journal (waiting, or in a flush right now) */
+  keep?: ReadonlySet<string>
+}
+
+/** Lower the day sizes by what a drop freed — only days that are still there (`from`: the first one kept). */
+export async function giveBack(j: Journal, scope: Scope, freed: Freed, from = 0): Promise<void> {
+  const by = new Map<string, number>()
+  for (const f of freed) {
+    if (f.at < from || !f.bytes) continue
+    const k = dayKey(scope, f.at)
+    by.set(k, (by.get(k) ?? 0) + f.bytes)
+  }
+  if (!by.size) return
+  const bump: Bump[] = [...by].map(([key, bytes]) => ({ store: 'kv', key, fn: (cur) => (cur ? { ...cur, k: key, bytes: Math.max(0, Number(cur.bytes ?? 0) - bytes) } : null) }))
+  await j.write({ bump })
+}
+
+/** Remove a scope's records older than `cutoff`, the pins of its segments that went, orphan pins, and the days' sizes. */
+export async function pruneScope(scope: Scope, cutoff: number, opts: PruneOpts = {}): Promise<PruneResult> {
   const j = await openJournal()
   const [lo] = scopeRange(scope)
   const res: PruneResult = { ops: 0, segs: 0, pins: 0 }
@@ -68,55 +81,27 @@ export async function pruneScope(scope: Scope, cutoff: number, ownTab: string, m
   await j.deleteRange({ store: 'checkpoints', lo, hi: `${scope}|${pad13(cutoff)}` })
   await j.deleteRange({ store: 'ejects', index: 'at', lo: [scope, 0], hi: [scope, cutoff - 1] })
   await j.deleteRange({ store: 'kv', lo: `${scope}|gap|`, hi: `${scope}|gap|${pad13(cutoff)}` })
+  // the sizes of the days that went entirely (the cut-off's own day keeps its size until it goes too)
+  const firstKept = startOfDay(cutoff)
+  await j.deleteRange({ store: 'kv', lo: `${scope}|d|`, hi: `${scope}|d|${pad13(firstKept - 1)}` })
 
-  if (!memory) {
+  if (!opts.memory) {
+    const freed: Freed = []
     // pins of the segments that went
     const pinIds = gone.map((s) => s.before).filter((x): x is string => !!x)
-    if (pinIds.length) await dropPins(scope, pinIds)
+    if (pinIds.length) freed.push(...(await dropPins(scope, pinIds)))
     res.pins += pinIds.length
-    // orphans: a pin whose segment is not in the journal (its transaction never landed)
+    // orphans: a pin whose segment is not in the journal (its transaction never landed) — never one written in the
+    // last minutes (another tab may be between its pins and its segments) nor one of this tab's segments on their way
     const metas = await listPinMetas(scope)
     if (metas.size) {
       const segIds = new Set(await j.keys({ store: 'segs', lo, hi: `${scope}|${HI}` }))
-      const orphans = [...metas].filter(([, m]) => !segIds.has(m.seg) && m.at < Date.now() - ORPHAN_GRACE).map(([id]) => id)
-      if (orphans.length) await dropPins(scope, orphans)
+      const young = Date.now() - PIN_GRACE
+      const orphans = [...metas].filter(([, m]) => !segIds.has(m.seg) && !opts.keep?.has(m.seg) && (m.wt ?? m.at) < young).map(([id]) => id)
+      if (orphans.length) freed.push(...(await dropPins(scope, orphans)))
       res.pins += orphans.length
     }
-  }
-
-  // counters of tabs that are gone → the base
-  const live = await liveTabs()
-  if (live) {
-    const counters = await j.range<{ k: string; ops?: number; bytes?: number }>({ store: 'kv', lo: `${scope}|n|`, hi: `${scope}|n|${HI}` })
-    const dead = counters.filter((c) => {
-      const tab = c.k.slice(`${scope}|n|`.length)
-      return tab !== 'base' && tab !== ownTab && !live.has(tab)
-    })
-    if (dead.length) {
-      const ops = dead.reduce((n, c) => n + Number(c.ops ?? 0), 0)
-      const bytes = dead.reduce((n, c) => n + Number(c.bytes ?? 0), 0)
-      await j.write({
-        bump: [{ store: 'kv', key: `${scope}|n|base`, fn: (cur) => ({ k: `${scope}|n|base`, ops: Number(cur?.ops ?? 0) + ops, bytes: Number(cur?.bytes ?? 0) + bytes }) }],
-        del: dead.map((c) => ({ store: 'kv', key: c.k })),
-      })
-    }
-  }
-  // what pruning removed shrinks the base's byte count (approximately: by share of Vorgänge)
-  if (res.ops) {
-    await j.write({
-      bump: [
-        {
-          store: 'kv',
-          key: `${scope}|n|base`,
-          fn: (cur) => {
-            const bytes = Number(cur?.bytes ?? 0)
-            const ops = Number(cur?.ops ?? 0)
-            const per = ops > 0 ? bytes / ops : 0
-            return { k: `${scope}|n|base`, ops: Math.max(0, ops - res.ops), bytes: Math.max(0, Math.round(bytes - per * res.ops)) }
-          },
-        },
-      ],
-    })
+    await giveBack(j, scope, freed, firstKept)
   }
   // the tape begins at the floor
   await j.write({ bump: [{ store: 'kv', key: `${scope}|floor`, fn: (cur) => ({ k: `${scope}|floor`, at: Math.max(Number(cur?.at ?? 0), cutoff) }) }] })
@@ -124,10 +109,10 @@ export async function pruneScope(scope: Scope, cutoff: number, ownTab: string, m
 }
 
 /** Retention: everything older than 30 days, in every scope on this device. */
-export async function pruneRetention(now: number, ownTab: string, memory = false): Promise<PruneResult> {
+export async function pruneRetention(now: number, opts: PruneOpts = {}): Promise<PruneResult> {
   const total: PruneResult = { ops: 0, segs: 0, pins: 0 }
   for (const s of await scopesOnDevice()) {
-    const r = await pruneScope(s, now - RETENTION_MS, ownTab, memory)
+    const r = await pruneScope(s, now - RETENTION_MS, opts)
     total.ops += r.ops
     total.segs += r.segs
     total.pins += r.pins
@@ -135,8 +120,11 @@ export async function pruneRetention(now: number, ownTab: string, memory = false
   return total
 }
 
-/** The budget: whole oldest days across every scope. Resolves with the days removed (0: nothing left to prune). */
-export async function pruneOldestDays(days: number, ownTab: string, memory = false): Promise<number> {
+/**
+ * The budget: whole oldest days across every scope — at most `days`, never today's. Resolves with the days removed
+ * (0: nothing older than today is left).
+ */
+export async function pruneOldestDays(days: number, opts: PruneOpts = {}): Promise<number> {
   const j = await openJournal()
   let oldest = Infinity
   const scopes = await scopesOnDevice(j)
@@ -144,29 +132,66 @@ export async function pruneOldestDays(days: number, ownTab: string, memory = fal
     const [lo, hi] = scopeRange(s)
     const first = await j.range<{ at: number }>({ store: 'ops', lo, hi, limit: 1 })
     if (first[0]) oldest = Math.min(oldest, first[0].at)
+    // a segment can be older than every op left of its scope (a stretch across days)
+    const seg = await j.range<{ from: number }>({ store: 'segs', index: 'from', lo: [s, 0], hi: [s, Number.MAX_SAFE_INTEGER], limit: 1 })
+    if (seg[0]) oldest = Math.min(oldest, seg[0].from)
   }
   if (!Number.isFinite(oldest)) return 0
-  const cutoff = startOfDay(oldest) + days * DAY
-  // never today's records: the budget gives back days, not the present
-  if (cutoff > startOfDay(Date.now())) return 0
-  for (const s of scopes) await pruneScope(s, cutoff, ownTab, memory)
-  return days
+  const today = startOfDay(Date.now())
+  const first = startOfDay(oldest)
+  if (first >= today) return 0
+  // the budget gives back days, not the present: the cut-off stops at today's midnight
+  const cutoff = Math.min(first + days * DAY, today)
+  for (const s of scopes) await pruneScope(s, cutoff, opts)
+  return Math.max(1, Math.round((cutoff - first) / DAY))
+}
+
+/** Drop the pins of some segments (never one of this tab's on their way): they read partial from now on. */
+async function dropSegmentPins(j: Journal, scope: Scope, segs: JSegment[], keep?: ReadonlySet<string>): Promise<number> {
+  const withPins = segs.filter((g) => g.before && !keep?.has(g.id))
+  if (!withPins.length) return 0
+  const freed = await dropPins(
+    scope,
+    withPins.map((g) => g.before!),
+  )
+  await j.write({ put: { segs: withPins.map((g) => ({ ...g, before: null })) } })
+  await giveBack(j, scope, freed)
+  return withPins.length
 }
 
 /** The budget's first step: the pins of the person's segments older than 7 days (their segments read partial). */
-export async function pruneHumanPins(now: number): Promise<number> {
+export async function pruneHumanPins(now: number, opts: PruneOpts = {}): Promise<number> {
+  if (opts.memory) return 0
   const j = await openJournal()
   let n = 0
-  for (const s of await scopesOnDevice(j)) {
-    const segs = await j.range<JSegment>({ store: 'segs', index: 'lane', lo: [s, 'you', 0], hi: [s, 'you', now - 7 * DAY] })
-    const withPins = segs.filter((g) => g.before)
-    if (!withPins.length) continue
-    await dropPins(
-      s,
-      withPins.map((g) => g.before!),
-    )
-    await j.write({ put: { segs: withPins.map((g) => ({ ...g, before: null })) } })
-    n += withPins.length
-  }
+  for (const s of await scopesOnDevice(j)) n += await dropSegmentPins(j, s, await j.range<JSegment>({ store: 'segs', index: 'lane', lo: [s, 'you', 0], hi: [s, 'you', now - 7 * DAY] }), opts.keep)
+  return n
+}
+
+/**
+ * The workspace could not save and no older day is left to give back: today's pins go, oldest first — `share` of
+ * them (their segments read partial; the records stay). Resolves with the pins dropped.
+ */
+export async function pruneTodayPins(now: number, opts: PruneOpts = {}, share = 0.5): Promise<number> {
+  if (opts.memory) return 0
+  const j = await openJournal()
+  const segs: JSegment[] = []
+  for (const s of await scopesOnDevice(j)) segs.push(...(await j.range<JSegment>({ store: 'segs', index: 'from', lo: [s, startOfDay(now)], hi: [s, now] })).filter((g) => g.before && !opts.keep?.has(g.id)))
+  if (!segs.length) return 0
+  segs.sort((a, b) => a.from - b.from)
+  const take = segs.slice(0, Math.max(1, Math.ceil(segs.length * share)))
+  const by = new Map<Scope, JSegment[]>()
+  for (const g of take) by.set(g.s, [...(by.get(g.s) ?? []), g])
+  let n = 0
+  for (const [s, list] of by) n += await dropSegmentPins(j, s, list)
+  return n
+}
+
+/** The device's journal size: Σ of every scope's day sizes (the records and pins they hold). */
+export async function journalBytes(j?: Journal): Promise<number> {
+  const jj = j ?? (await openJournal())
+  const recs = await jj.range<{ k: string; bytes?: number }>({ store: 'kv', lo: '', hi: HI })
+  let n = 0
+  for (const r of recs) if (r.k.includes('|d|')) n += Number(r.bytes ?? 0)
   return n
 }

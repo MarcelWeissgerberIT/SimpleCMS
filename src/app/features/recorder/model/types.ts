@@ -288,6 +288,8 @@ export type PinMeta =
       body: string | null
       /** onefile ids in the page and its content */
       files: string[]
+      /** when the pin was written (the orphan sweep's grace — `at` is the segment's start) */
+      wt?: number
     }
   | {
       v: 1
@@ -298,9 +300,12 @@ export type PinMeta =
       /** the whole database as it was (every canonical part of its schema and views — digests and recovery read them) */
       db: Database
       files: string[]
+      wt?: number
     }
 
-/** key `pin:<scope>|b|<pageId>|<cdig>` */
+/** key `pin:<scope>|b|<pageId>|<cdig>` — `cdig` = the digest of the exact content (ids included) */
 export interface PinBody {
   content: JSONContent | null
+  /** when it was written or last referred to by a new pin (the orphan sweep's grace) */
+  at?: number
 }

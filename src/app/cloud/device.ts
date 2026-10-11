@@ -8,8 +8,8 @@
  *                                       content:<id>:<page>, held:<id>:<page>, uploads:<id>, purge:<id>, privfiles:<id>
  *   one-files / files                   cached files — only those nothing else in this browser uses
  *   one-history / snapshots             version history of the workspace's pages (idx:<page>, snap:<id>) and the
- *                                       flight recorder's before-images of scope cloud:<id> (pin:cloud:<id>|…)
- *   one-recorder                        the flight recorder's journal of scope cloud:<id> (features/recorder)
+ *                                       flight recorder's before-images of scope cloud:<id>[:u:<user>] (pin:cloud:<id>…|…)
+ *   one-recorder                        the flight recorder's journal of scope cloud:<id>[:u:<user>] (features/recorder)
  *   one-vault / kv                      sealed secrets of scope cloud:<id> (the AI key, the GitHub token)
  *   localStorage one.shell.visits:cloud:<id>   which pages this device opened, how often (FREQUENT)
  *   localStorage one.mirror.reports:cloud:<id> the report pages this device's mirror setups made (features/agents)
@@ -265,7 +265,8 @@ async function forget(flag: string[]): Promise<void> {
   try {
     recorder = await import('../features')
     for (const [scope, files] of await recorder.recorderFileRefs()) {
-      const target = scope.startsWith('cloud:') && targets.has(scope.slice(6))
+      // scopes cloud:<ws> and cloud:<ws>:u:<account> (each member signed in here has a tape of their own)
+      const target = scope.startsWith('cloud:') && targets.has(scope.slice(6).split(':u:')[0])
       for (const id of files) (target ? refs : keep).add(id)
     }
   } catch {
@@ -346,6 +347,7 @@ async function forget(flag: string[]): Promise<void> {
     await delMany(syncKeys, createStore('one-sync', 'kv')).catch(() => {})
   }
   // the flight recorder of this device (features/recorder): the journal's records and the pins of scope cloud:<ws>
+  // (and of every member's scope of it, cloud:<ws>:u:<account>)
   if (recorder) for (const ws of targets) await recorder.wipeRecorderScope(`cloud:${ws}`).catch(() => {})
   // this device's sealed secrets for them (lib/vault.ts): the AI key, the GitHub token
   await clearSecrets((scope) => scope.startsWith('cloud:') && (all || targets.has(scope.slice(6)))).catch(() => {})

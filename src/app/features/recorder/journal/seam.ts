@@ -8,7 +8,8 @@ import { endRun, fallbackReports, clearFallbackReports, noteRun, withWriter, typ
 import { dropPins, listPinBodies, listPinMetas, pinToBody } from '../../history/pins'
 import { readPinBodies, readPinMetas } from './pins'
 import type { JOp, JSegment, LaneKey, Scope } from '../model/types'
-import { HI, openJournal, pad13, pad8, scopeRange, STORES, type Batch } from './db'
+import { dayKey, HI, openJournal, pad13, pad8, scopeRange, STORES, type Batch } from './db'
+import { journalBytes } from './prune'
 import { digestWhole, scopeKey } from './key'
 import { lostTails } from './recover'
 import { scopeNow } from './scope'
@@ -138,7 +139,26 @@ export function installSeam(rec: Recorder): void {
     mode: async () => (await openJournal()).mode,
     open: () => [...rec.processor.open.values()].map((o) => ({ ...o.rec })),
     lostTails: (scope?: Scope) => lostTails(scope ?? scopeOf()),
-    saveStatus: (s: 'idle' | 'saving' | 'saved' | 'error') => rec.budget.saveStatus(s),
+    saveStatus: (s: 'idle' | 'saving' | 'saved' | 'error', error?: { name: string; message?: string }) => rec.budget.saveStatus(s, error ? Object.assign(new Error(error.message ?? ''), { name: error.name }) : undefined),
+    /** a team copy's write failed (store/storageHealth.ts) */
+    copyFailed: (name = 'QuotaExceededError') => rec.budget.copyFailed(Object.assign(new Error('copy'), { name })),
+    /** the journal's size as the budget counts it (Σ of the day sizes), and what the stores hold (recomputed) */
+    bytes: async () => ({ counted: await journalBytes(), held: await heldBytes() }),
+    /** the budget's next check with a storage estimate of the test's (quota / usage in bytes) */
+    budgetCheck: async (est?: { quota: number; usage: number }) => {
+      const nav = navigator.storage as unknown as { estimate: () => Promise<StorageEstimate> }
+      const real = nav.estimate
+      if (est) nav.estimate = async () => ({ quota: est.quota, usage: est.usage })
+      try {
+        rec.budget.forgetEstimate()
+        return { allowed: await rec.budget.allowed(), paused: rec.budget.paused }
+      } finally {
+        nav.estimate = real
+        rec.budget.forgetEstimate()
+      }
+    },
+    /** what waits in memory (records, digest jobs) */
+    waitingDetail: () => ({ waiting: rec.processor.waiting, jobs: rec.processor.jobCount }),
     paused: () => rec.budget.paused,
     prune: (now?: number) => rec.prune(now),
     recover: (scope?: Scope) => rec.recover(scope ?? scopeOf()),
@@ -148,6 +168,26 @@ export function installSeam(rec: Recorder): void {
     stop: () => rec.stop(),
   }
   ;(window as unknown as { __oneRecorder?: unknown }).__oneRecorder = api
+}
+
+/** What the journal's stores and its pins hold, measured record by record (the budget spec compares it with the count). */
+async function heldBytes(): Promise<number> {
+  const j = await openJournal()
+  const size = (v: unknown) => JSON.stringify(scrub(v) ?? null).length * 2
+  let n = 0
+  // the records the budget counts (histograms and the kv bookkeeping are small and not counted)
+  for (const store of ['ops', 'events', 'segs', 'runs'] as const) for (const r of await j.range<Record<string, unknown>>({ store, lo: '', hi: HI })) n += size(r)
+  for (const scope of await scopesOf(j)) {
+    for (const [, m] of await listPinMetas(scope)) n += size(m)
+    for (const [, b] of await listPinBodies(scope)) n += size(b)
+  }
+  return n
+}
+
+async function scopesOf(j: Awaited<ReturnType<typeof openJournal>>): Promise<Scope[]> {
+  const out = new Set<Scope>()
+  for (const k of await j.keys({ store: 'kv', lo: '', hi: HI })) out.add(k.slice(0, k.indexOf('|')) as Scope)
+  return [...out]
 }
 
 /** Straight to IndexedDB (deck performance only): ops, events, segments and histograms written consistently. */
@@ -161,6 +201,7 @@ async function seedBulk(rec: Recorder, scope: Scope, o: { events: number; inSpan
   const minutes = new Map<string, Record<LaneKey, number>>()
   const quarters = new Map<string, Record<LaneKey, number>>()
   const laneTotals: Record<LaneKey, { last: number; total: number }> = {}
+  const days = new Map<string, number>()
   const flushBatch = async () => {
     await j.write(batch)
     batch = { put: { ops: [], events: [], segs: [] }, bump: [] }
@@ -188,6 +229,7 @@ async function seedBulk(rec: Recorder, scope: Scope, o: { events: number; inSpan
     add(minutes, `${scope}|${pad8(Math.floor(at / 60_000))}`)
     add(quarters, `${scope}|${pad8(Math.floor(at / 900_000))}`)
     laneTotals[l] = { last: Math.max(laneTotals[l]?.last ?? 0, at), total: (laneTotals[l]?.total ?? 0) + 1 }
+    days.set(dayKey(scope, at), (days.get(dayKey(scope, at)) ?? 0) + 1)
     if (batch.put!.ops!.length >= 2000 || batch.put!.events!.length >= 5000) await flushBatch()
   }
   const hist = (store: 'minutes' | 'quarters', m: Map<string, Record<LaneKey, number>>) =>
@@ -212,7 +254,7 @@ async function seedBulk(rec: Recorder, scope: Scope, o: { events: number; inSpan
         return { k: `${scope}|lanes`, lanes: l }
       },
     },
-    { store: 'kv', key: `${scope}|n|bulk`, fn: (cur) => ({ k: `${scope}|n|bulk`, ops: Number(cur?.ops ?? 0) + total, bytes: Number(cur?.bytes ?? 0) + total * 400 }) },
+    ...[...days].map(([k, n]) => ({ store: 'kv' as const, key: k, fn: (cur: Record<string, unknown> | undefined) => ({ k, ops: Number(cur?.ops ?? 0) + n, bytes: Number(cur?.bytes ?? 0) + n * 400 }) })),
   ]
   await flushBatch()
 }

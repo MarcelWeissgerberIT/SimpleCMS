@@ -8,7 +8,7 @@
 import type { JSONContent } from '@tiptap/core'
 import type { Database, ID, Page } from '../../../store/types'
 import { propsOf } from '../../history/props'
-import { keepPins, loadPinBodies, loadPinMetas, type PinInput } from '../../history/pins'
+import { keepPinsSized, loadPinBodies, loadPinMetas, pinSize, type PinInput } from '../../history/pins'
 import type { PinMeta, PlaceKey, Scope } from '../model/types'
 
 /** onefile ids anywhere in a JSON value (the device wipe keeps / drops files by them). */
@@ -44,6 +44,7 @@ const memBodies = new Map<string, JSONContent | null>()
 let seq = 0
 
 function keepInMemory(scope: Scope, pins: PinInput[]): string[] {
+  // (memory mode keeps no budget: the 500-pin cap is its limit)
   const ids: string[] = []
   for (const p of pins) {
     const id = `${p.place}|m${(++seq).toString(36)}`
@@ -64,11 +65,37 @@ function keepInMemory(scope: Scope, pins: PinInput[]): string[] {
   return ids
 }
 
-/** Keep pins (IndexedDB, or this tab's memory in memory mode). */
-export async function storePins(scope: Scope, pins: PinInput[], memory: boolean): Promise<Array<string | null>> {
-  if (memory) return keepInMemory(scope, pins)
-  return keepPins(scope, pins)
+/** Keep pins (IndexedDB, or this tab's memory in memory mode): their ids, and the bytes each added to the store. */
+export async function storePins(scope: Scope, pins: PinInput[], memory: boolean): Promise<{ ids: Array<string | null>; bytes: number[] }> {
+  if (memory) return { ids: keepInMemory(scope, pins), bytes: pins.map(() => 0) }
+  return keepPinsSized(scope, pins)
 }
+
+/** Memory mode: the person deleted a place for good — its pins leave this tab (a page's bodies with them). */
+export function dropMemoryPins(scope: Scope, place: PlaceKey): void {
+  const prefix = `${scope}|${place}|`
+  const dbViews = place.startsWith('s:') ? `${scope}|v:${place.slice(2)}/` : null
+  for (const k of [...memMetas.keys()]) if (k.startsWith(prefix) || (dbViews && k.startsWith(dbViews))) memMetas.delete(k)
+  if (place.startsWith('p:')) for (const k of [...memBodies.keys()]) if (k.startsWith(`${scope}|${place.slice(2)}|`)) memBodies.delete(k)
+}
+
+/**
+ * The definitions a row's pin reads its values with: the database before this update (`prev`) — plus what the same
+ * writer took out of it earlier in its stretch (`earlier`: an option removed, then the values cleared row by row,
+ * still reads with the option). Nothing the database had before is ever left out.
+ */
+export function pinDefsDb(prev: Database | undefined, earlier: Database | undefined): Database | undefined {
+  if (!earlier || !prev || earlier === prev) return prev ?? earlier
+  const props = prev.properties.map((p) => {
+    const was = earlier.properties.find((x) => x.id === p.id)
+    const gone = (was?.options ?? []).filter((o) => !(p.options ?? []).some((x) => x.id === o.id))
+    return gone.length ? { ...p, options: [...(p.options ?? []), ...gone] } : p
+  })
+  for (const p of earlier.properties) if (!prev.properties.some((x) => x.id === p.id)) props.push(p)
+  return { ...prev, properties: props }
+}
+
+export { pinSize }
 
 /** Read pin metas (either store). */
 export async function readPinMetas(scope: Scope, ids: string[], memory: boolean): Promise<Map<string, PinMeta>> {

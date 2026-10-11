@@ -14,6 +14,7 @@
 import { createStore, del, delMany, entries, get, promisifyRequest, set, type UseStore } from 'idb-keyval'
 import type { JSONContent } from '@tiptap/core'
 import type { ID, Settings } from '../store/types'
+import { noteCopyWrite } from '../store/storageHealth'
 
 let kv: UseStore | null = null
 function db(): UseStore | null {
@@ -75,7 +76,12 @@ export async function loadContentCache(wsId: string): Promise<Map<ID, CachedCont
 
 export function saveContentCache(wsId: string, pageId: ID, v: CachedContent): void {
   const s = db()
-  if (s) set(`content:${wsId}:${pageId}`, v, s).catch(() => {})
+  // the copy's writes report how they went (store/storageHealth.ts: the flight recorder gives room back when they fail)
+  if (s)
+    set(`content:${wsId}:${pageId}`, v, s).then(
+      () => noteCopyWrite(true),
+      (e) => noteCopyWrite(false, e),
+    )
 }
 
 export function dropContentCache(wsId: string, pageId: ID): void {
@@ -117,7 +123,7 @@ export function saveHeldWrite(wsId: string, pageId: ID, v: HeldWrite | null): Pr
   const s = db()
   if (!s) return Promise.resolve()
   const key = `held:${wsId}:${pageId}`
-  return (v ? set(key, v, s) : del(key, s)).catch(() => {})
+  return (v ? set(key, v, s) : del(key, s)).catch((e) => noteCopyWrite(false, e))
 }
 
 export interface QueuedUpload {

@@ -11,7 +11,7 @@ import { useWorkspace, peekPageChanges, type PageChanges } from '../../../store/
 import type { Database, ID, Page } from '../../../store/types'
 import { currentWriter, onRunNote, type Writer } from '../../../store/writer'
 import { isDeviceCopyGoing } from '../../../cloud'
-import { scopeNow } from './scope'
+import { scopeNow, workspaceOfScope } from './scope'
 import { newId } from '../../../lib/ids'
 import type { PlaceKey, Scope } from '../model/types'
 import { resolveHot } from './attribute'
@@ -19,7 +19,7 @@ import { Budget } from './budget'
 import { openJournal, journalIfOpen, wipeScope } from './db'
 import { forgetScopeKey } from './key'
 import { noteTask, Processor, type QItem, type Stats } from './process'
-import { pruneHumanPins, pruneOldestDays, pruneRetention } from './prune'
+import { pruneHumanPins, pruneOldestDays, pruneRetention, pruneTodayPins, type PruneOpts } from './prune'
 import { recoverScope } from './recover'
 import { installSeam } from './seam'
 
@@ -67,15 +67,25 @@ export class Recorder {
 
   constructor() {
     this.budget = new Budget({
-      pruneDays: (days) => pruneOldestDays(days, this.tab, this.memory).then((n) => (n && this.budget.freed(), n)),
-      pruneHumanPins: () => pruneHumanPins(Date.now()),
-      forgetting: (s) => s.startsWith('cloud:') && isDeviceCopyGoing(s.slice(6)),
+      pruneDays: (days) => pruneOldestDays(days, this.pruneOpts()).then((n) => (n && this.budget.freed(), n)),
+      pruneHumanPins: () => pruneHumanPins(Date.now(), this.pruneOpts()),
+      pruneTodayPins: () => pruneTodayPins(Date.now(), this.pruneOpts()),
+      serial: (fn) => this.processor.exclusive(fn),
+      forgetting: (s) => {
+        const ws = workspaceOfScope(s)
+        return !!ws && isDeviceCopyGoing(ws)
+      },
     })
-    this.processor = new Processor(this.tab, openJournal, this.budget, this.stats)
+    this.processor = new Processor(this.tab, openJournal, this.budget, this.stats, () => this.queue.length)
   }
 
   get memory(): boolean {
     return journalIfOpen()?.mode === 'memory'
+  }
+
+  /** What a prune must leave alone: this tab's segments on their way to the journal. */
+  private pruneOpts(): PruneOpts {
+    return { memory: this.memory, keep: this.processor.liveSegIds() }
   }
 
   start(): void {
@@ -106,17 +116,20 @@ export class Recorder {
       const deadline = performance.now() + PAGEHIDE_MS
       const drained = this.drain(deadline)
       this.processor.closeAll(Date.now())
-      const closed = this.processor.finishCloses(deadline)
-      void this.processor
-        .flush()
-        .then(() => (drained && closed ? this.markClean() : undefined))
-        .catch(() => undefined)
+      // segments still closing are no loss (recovery closes them exactly); the clean mark goes out at once
+      this.processor.finishCloses(deadline)
+      this.processor.leave(drained)
+    }
+    const onPageShow = (e: PageTransitionEvent) => {
+      if (e.persisted) this.processor.stay()
     }
     document.addEventListener('visibilitychange', onHide)
     window.addEventListener('pagehide', onPageHide)
+    window.addEventListener('pageshow', onPageShow)
     this.offs.push(() => {
       document.removeEventListener('visibilitychange', onHide)
       window.removeEventListener('pagehide', onPageHide)
+      window.removeEventListener('pageshow', onPageShow)
     })
     this.pruneTimer = setTimeout(() => void this.prune(), PRUNE_FIRST)
     // the first slice recovers what gone tabs left open
@@ -133,8 +146,7 @@ export class Recorder {
     this.drain()
     this.processor.closeAll(Date.now())
     this.drain()
-    await this.processor.flush().catch(() => undefined)
-    await this.markClean().catch(() => undefined)
+    await this.processor.flush({ clean: true }).catch(() => undefined)
     this.releaseLock?.()
     this.releaseLock = null
   }
@@ -162,8 +174,10 @@ export class Recorder {
     const at = Date.now()
     const scope = scopeNow()
     if (w?.kind === 'system') {
-      // only places with an open segment can be harmed by an unseen change: O(open)
-      if (this.processor.open.size) this.queueSys(w, at, scope, state, prev, pagesMoved, dbsMoved)
+      // only places with an open segment can be harmed by an unseen change: O(open) — or, while updates still wait in
+      // the queue (their segments are not open yet), the two maps for the processor to look at when it gets there
+      if (this.queue.length) this.queue.push({ v: '', at, scope, w, sysMaps: { pagesNext: state.pages, pagesPrev: prev.pages, dbsNext: state.databases, dbsPrev: prev.databases, pagesMoved, dbsMoved } })
+      else if (this.processor.open.size) this.queueSys(w, at, scope, state, prev, pagesMoved, dbsMoved)
     } else {
       const c = pagesMoved ? peekPageChanges(state.pages, prev.pages) : null
       const item: QItem = { v: this.processor.nextV(), at, scope, dbsNext: state.databases, dbsPrev: prev.databases }
@@ -176,33 +190,15 @@ export class Recorder {
         this.rawPending++
       }
       this.queue.push(item)
+      // the tab's records say "dirty" now when they said "clean" (a microtask, not this listener)
+      this.processor.noteUpdate(scope)
     }
     this.schedule()
     this.hot(performance.now() - t0)
   }
 
   private queueSys(w: Writer, at: number, scope: Scope, state: ReturnType<typeof useWorkspace.getState>, prev: ReturnType<typeof useWorkspace.getState>, pagesMoved: boolean, dbsMoved: boolean): void {
-    const sys: Array<[PlaceKey, unknown, unknown]> = []
-    for (const p of this.processor.open.keys()) {
-      if (p.startsWith('p:')) {
-        if (!pagesMoved) continue
-        const id = p.slice(2)
-        const a = prev.pages[id]
-        const b = state.pages[id]
-        if (a !== b) sys.push([p, a, b])
-      } else if (dbsMoved) {
-        const [db, view] = p.slice(2).split('/')
-        const a: Database | undefined = prev.databases[db]
-        const b: Database | undefined = state.databases[db]
-        if (a === b) continue
-        if (p.startsWith('s:')) sys.push([p, a, b])
-        else {
-          const va = a?.views.find((v) => v.id === view)
-          const vb = b?.views.find((v) => v.id === view)
-          if (va !== vb) sys.push([p, va, vb])
-        }
-      }
-    }
+    const sys = this.processor.sysPlaces({ pagesNext: state.pages, pagesPrev: prev.pages, dbsNext: state.databases, dbsPrev: prev.databases, pagesMoved, dbsMoved })
     if (sys.length) this.queue.push({ v: '', at, scope, w, sys, sysDbs: { next: state.databases, prev: prev.databases } })
   }
 
@@ -259,6 +255,8 @@ export class Recorder {
     const deadline = t0 + budget
     let done = true
     while (this.queue.length && performance.now() < deadline) if (!(done = this.take(deadline))) break
+    // runs that wrote after their end end again once their writes are recorded
+    if (!this.queue.length) this.processor.endLate(Date.now())
     // segments closed meanwhile are summed up in the time left
     if (done && performance.now() < deadline) done = this.processor.finishCloses(deadline)
     this.stats.sliceMax = Math.max(this.stats.sliceMax, performance.now() - t0)
@@ -296,6 +294,7 @@ export class Recorder {
   /** Record everything queued and sum up the closed segments (until `deadline`); true = all done. */
   drain(deadline = Infinity): boolean {
     while (this.queue.length) if (!this.take(deadline) || performance.now() > deadline) return !this.queue.length && this.processor.finishCloses(deadline)
+    this.processor.endLate(Date.now())
     return this.processor.finishCloses(deadline)
   }
 
@@ -354,14 +353,6 @@ export class Recorder {
     this.armDue()
   }
 
-  private async markClean(): Promise<void> {
-    const j = journalIfOpen()
-    if (!j) return
-    const s = this.processor.scope ?? scopeNow()
-    const key = `${s}|tab|${this.tab}`
-    await j.write({ bump: [{ store: 'kv', key, fn: (cur) => ({ k: key, start: Number(cur?.start ?? Date.now()), lastFlush: Number(cur?.lastFlush ?? Date.now()), clean: true }) }] })
-  }
-
   async recover(scope = scopeNow()): Promise<Awaited<ReturnType<typeof recoverScope>>> {
     await openJournal()
     return recoverScope(scope, this.tab, this.memory).catch((e) => {
@@ -392,10 +383,13 @@ export class Recorder {
     if (this.pruneTimer) clearTimeout(this.pruneTimer)
     this.pruneTimer = this.on ? setTimeout(() => void this.prune(), PRUNE_EVERY) : null
     await this.flush().catch(() => undefined)
-    const res = await pruneRetention(now, this.tab, this.memory).catch((e) => {
-      console.warn('[recorder] prune failed', e)
-      return { ops: 0, segs: 0, pins: 0 }
-    })
+    // between two flushes: never while one stores pins whose segments are not written yet
+    const res = await this.processor
+      .exclusive(() => pruneRetention(now, this.pruneOpts()))
+      .catch((e) => {
+        console.warn('[recorder] prune failed', e)
+        return { ops: 0, segs: 0, pins: 0 }
+      })
     this.budget.freed()
     return res
   }

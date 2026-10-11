@@ -46,6 +46,19 @@ export const HI = '￿'
 /** Every key of a scope. */
 export const scopeRange = (s: Scope): [string, string] => [`${s}|`, `${s}|${HI}`]
 
+/** Local midnight of a moment (the budget counts per day). */
+export const startOfDay = (t: number): number => {
+  const d = new Date(t)
+  d.setHours(0, 0, 0, 0)
+  return d.getTime()
+}
+/**
+ * A scope's size of one day, `kv <scope>|d|<day>` = { ops, bytes }: the Vorgänge recorded that day and the bytes the
+ * journal and its pins hold for it — bumped in the flush's transaction (by what each write added), lowered by every
+ * prune that removes something, gone with the day.
+ */
+export const dayKey = (s: Scope, day: number): string => `${s}|d|${pad13(startOfDay(day))}`
+
 /* ------------------------------------------------------------------ */
 /* Keys (IndexedDB order) — the memory backend compares the same way   */
 /* ------------------------------------------------------------------ */
@@ -86,11 +99,11 @@ function keyOn(rec: Record<string, unknown>, path: IndexPath): JKey | undefined 
 /* The backend                                                         */
 /* ------------------------------------------------------------------ */
 
-/** A record read-modify-written in the batch's transaction (histograms, counters). */
+/** A record read-modify-written in the batch's transaction (histograms, counters); `fn` → null: leave it as it is. */
 export interface Bump {
   store: StoreName
   key: string
-  fn: (cur: Record<string, unknown> | undefined) => Record<string, unknown>
+  fn: (cur: Record<string, unknown> | undefined) => Record<string, unknown> | null
 }
 
 export interface Batch {
@@ -110,8 +123,11 @@ export interface RangeQuery {
 
 export interface Journal {
   mode: 'idb' | 'memory'
-  /** One transaction: puts, read-modify-writes, deletes. */
-  write(b: Batch): Promise<void>
+  /**
+   * One transaction: puts, read-modify-writes, deletes. `commit`: a few puts only, committed at once (a tab being
+   * closed runs no later task — the commit request must be on its way before the handler returns).
+   */
+  write(b: Batch, opts?: { commit?: boolean }): Promise<void>
   get<T>(store: StoreName, key: string): Promise<T | undefined>
   range<T>(q: RangeQuery): Promise<T[]>
   /** Primary keys in a range (no values). */
@@ -142,10 +158,10 @@ function idbJournal(db: IDBDatabase): Journal {
   const source = (st: IDBObjectStore, index?: string) => (index ? st.index(index) : st)
   return {
     mode: 'idb',
-    async write(b) {
+    async write(b, opts) {
       const names = new Set<StoreName>([...(Object.keys(b.put ?? {}) as StoreName[]), ...(b.bump ?? []).map((x) => x.store), ...(b.del ?? []).map((x) => x.store)])
       if (!names.size) return
-      const t = db.transaction([...names], 'readwrite')
+      const t = db.transaction([...names], 'readwrite', { durability: opts?.commit ? 'strict' : 'default' })
       const done = tx2p(t)
       // the puts go in in pieces: a piece's last request carries on in its callback (the transaction stays active)
       // — a put clones its record right away, and thousands of them at once would block the page
@@ -169,9 +185,14 @@ function idbJournal(db: IDBDatabase): Journal {
       for (const x of b.bump ?? []) {
         const st = t.objectStore(x.store)
         const r = st.get(x.key)
-        r.onsuccess = () => st.put(x.fn(r.result as Record<string, unknown> | undefined))
+        r.onsuccess = () => {
+          const v = x.fn(r.result as Record<string, unknown> | undefined)
+          if (v) st.put(v)
+        }
       }
       for (const x of b.del ?? []) t.objectStore(x.store).delete(x.key)
+      // every request is issued (no read-modify-write waits for a callback): commit now
+      if (opts?.commit && i >= puts.length && !b.bump?.length) (t as IDBTransaction & { commit?: () => void }).commit?.()
       await done
     },
     async get<T>(store: StoreName, key: string) {
@@ -255,7 +276,8 @@ export function memoryJournal(): Journal {
       for (const [name, recs] of Object.entries(b.put ?? {}) as Array<[StoreName, Array<Record<string, unknown>>]>) for (const r of recs) stores.get(name)!.set(String(r[KEY_PATH[name]]), clone(r))
       for (const x of b.bump ?? []) {
         const m = stores.get(x.store)!
-        m.set(x.key, x.fn(m.get(x.key)))
+        const v = x.fn(m.get(x.key))
+        if (v) m.set(x.key, v)
       }
       for (const x of b.del ?? []) stores.get(x.store)!.delete(x.key)
     },
@@ -377,11 +399,15 @@ export function closeJournal(): void {
   forget()
 }
 
-/** Delete every record of a scope in every store (its HMAC key included), then its pins. */
+/**
+ * Delete every record of a scope in every store (its HMAC key included), then its pins. A team workspace's scope
+ * `cloud:<ws>` takes every member's scope of it on this device along (`cloud:<ws>:u:<account>`).
+ */
 export async function wipeScope(scope: Scope): Promise<void> {
   const j = await openJournal()
-  const [lo, hi] = scopeRange(scope)
-  for (const store of STORES) await j.deleteRange({ store, lo, hi })
+  const ranges = [scopeRange(scope)]
+  if (scope.startsWith('cloud:') && !scope.includes(':u:')) ranges.push([`${scope}:u:`, `${scope}:u:${HI}`])
+  for (const [lo, hi] of ranges) for (const store of STORES) await j.deleteRange({ store, lo, hi })
   await dropPinsOfScope(scope)
 }
 

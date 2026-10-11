@@ -377,7 +377,9 @@ test.describe('flight recorder journal', () => {
     await flushRec(page)
     const deadTab = await rec<string>(page, 'tab')
     expect((await rec(page, 'open')).length).toBe(2)
-    // the tab dies (no page hide); then a write nobody records changes one of the rows
+    // one more write, recorded but not written yet when the tab dies (no page hide): the lost tail; then a write
+    // nobody records changes one of the rows
+    await step(page, agent('r10'), [['setRowProperty', n.rows[2], n.est, 53]])
     await rec(page, 'crash')
     await wsEval(page, (s, a) => s.setRowProperty(a.row, a.est, 99), { row: changed, est: n.est })
     await flush(page)

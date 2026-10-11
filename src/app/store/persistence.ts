@@ -76,15 +76,16 @@ const channel: BroadcastChannel | null = typeof BroadcastChannel !== 'undefined'
 
 type SyncStatus = 'idle' | 'saving' | 'saved' | 'error'
 let status: SyncStatus = 'idle'
-const statusListeners = new Set<(s: SyncStatus) => void>()
-function setStatus(s: SyncStatus) {
+const statusListeners = new Set<(s: SyncStatus, error?: unknown) => void>()
+function setStatus(s: SyncStatus, error?: unknown) {
   status = s
-  statusListeners.forEach((l) => l(s))
+  statusListeners.forEach((l) => l(s, error))
 }
 export function getSaveStatus(): SyncStatus {
   return status
 }
-export function onSaveStatus(fn: (s: SyncStatus) => void): () => void {
+/** The save status as it changes; with 'error', the error the save failed with (the flight recorder frees room for a quota error). */
+export function onSaveStatus(fn: (s: SyncStatus, error?: unknown) => void): () => void {
   statusListeners.add(fn)
   return () => statusListeners.delete(fn)
 }
@@ -1120,7 +1121,7 @@ async function writeChanges(): Promise<void> {
     dirtyIntegrations ||= integrations
     dirtyOrder ||= order
     fullWriteNext ||= full
-    setStatus('error')
+    setStatus('error', e)
     // try again on our own (1 s, 2 s, 4 s … 30 s) instead of waiting for the next edit
     retryDelay = Math.min(retryDelay ? retryDelay * 2 : 1000, RETRY_MAX)
     scheduleSave(retryDelay)
