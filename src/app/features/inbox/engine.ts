@@ -32,11 +32,12 @@ import type { ID, Page } from '../../store/types'
 import { activeWorkspace, useCloud } from '../../cloud'
 import { navigate, openPage } from '../../lib/router'
 import { t } from '../../i18n'
-import { collectReminders, commentBlock, groupMention, mentionLine, takesPart, teamFacts, type ReminderEntry, type TeamFacts } from './scan'
+import { collectReminders, commentBlock, forgetReminderScans, groupMention, mentionLine, takesPart, teamFacts, type ReminderEntry, type TeamFacts } from './scan'
 import { formatDue, hasTime, parseIsoLocal, parseReminder, reminderDueAt, reminderLabel, reminderOptions } from './reminders'
 import { loadInbox, loadSnapshot, markRead, mutateInbox, onInboxMessage, postInbox, saveSnapshot, useInbox, wsKey, type InboxData, type InboxItem, type Snapshot } from './state'
 import { showNotification } from './notify'
 import { memberIds, ringsHere, type AudienceCtx } from '../workitems'
+import { forgetScans, itemCounters } from '../../editor'
 
 const TICK_MS = 60_000
 /** First pass after start: lets the UI (and a team workspace's sync) settle. */
@@ -99,10 +100,24 @@ export function audienceHere(members: ReadonlySet<string> | null = memberIds()):
   return { team: !!me, me: me?.id ?? null, members: me ? members : null }
 }
 
+/**
+ * The audience for `list`: like audienceHere, but the member list (a server request, kept 60 s) is asked for only
+ * when one of its task reminders needs it — assigned, and not to me. A team without such a reminder (most of the
+ * time: no tasks, nobody assigned, or assigned to me) never asks.
+ */
+export function audienceOf(list: readonly ReminderEntry[]): AudienceCtx {
+  const me = teamMe()
+  if (!me) return { team: false, me: null, members: null }
+  const needs = list.some((r) => r.source === 'item' && !!r.people?.length && !r.people.includes(me.id))
+  return { team: true, me: me.id, members: needs ? memberIds() : null }
+}
+
 /** The reminders that ring on this device (task reminders filtered by their audience; others all ring). */
-export function ringingHere(list: ReminderEntry[], ctx: AudienceCtx = audienceHere()): ReminderEntry[] {
-  if (!ctx.team || !list.some((r) => r.source === 'item')) return list
-  return list.filter((r) => r.source !== 'item' || ringsHere(r.people, ctx))
+export function ringingHere(list: ReminderEntry[], ctx?: AudienceCtx): ReminderEntry[] {
+  if (!list.some((r) => r.source === 'item')) return list
+  const c = ctx ?? audienceOf(list)
+  if (!c.team) return list
+  return list.filter((r) => r.source !== 'item' || ringsHere(r.people, c))
 }
 
 /** Open what an item is about (and mark it read). */
@@ -347,8 +362,10 @@ async function pass(now = Date.now()): Promise<void> {
 
   // reminders (a task's only where it rings: team workspaces ring for its people)
   const inTrash: ReminderEntry[] = []
-  const ctx = audienceHere()
-  const index = ringingHere(collectReminders(s.pages, s.databases, inTrash), ctx)
+  const all = collectReminders(s.pages, s.databases, inTrash)
+  // the member list only when a task reminder needs it (never once a minute for a team without one)
+  const ctx = audienceOf(all.concat(inTrash))
+  const index = ringingHere(all, ctx)
   const trashed = ringingHere(inTrash, ctx)
   const work = reminderWork(index, trashed, st.data, now)
 
@@ -568,6 +585,18 @@ if (typeof window !== 'undefined' && (import.meta.env.DEV || new URLSearchParams
     /** add items as if they had arrived (screenshots, UI tests) */
     inject: (items: InboxItem[]) => mutateInbox((d) => void d.items.push(...items)),
     reminders: () => collectReminders(useWorkspace.getState().pages, useWorkspace.getState().databases),
+    /**
+     * the reminder collection of a first pass, every cache forgotten (the inbox's own walks and the task walks): its
+     * ms, and how many contents the task walk read (only those that hold a task — never the whole workspace)
+     */
+    collectCold: () => {
+      forgetReminderScans()
+      forgetScans()
+      const walks = itemCounters.walks
+      const t0 = performance.now()
+      const n = collectReminders(useWorkspace.getState().pages, useWorkspace.getState().databases).length
+      return { ms: performance.now() - t0, taskWalks: itemCounters.walks - walks, reminders: n }
+    },
     /** the reminders that ring on this device (a team task's only for its people) */
     ringing: () => ringingHere(collectReminders(useWorkspace.getState().pages, useWorkspace.getState().databases)),
     codes: {

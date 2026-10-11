@@ -331,7 +331,7 @@ test.describe('performance budget (big workspace)', () => {
  * Measured budgets (TASKS) — measured first on this box, medians of repeated runs inside the test (see the commit
  * message of P1 B21); the brief's ceilings are the limits.
  */
-const TASKS = { coldMs: 60, incrementalMs: 5, graphMs: 15, pickerOpenMs: 50, pickerKeyMs: 8, longTaskMs: 50 }
+const TASKS = { coldMs: 60, incrementalMs: 5, graphMs: 15, pickerOpenMs: 50, pickerKeyMs: 8, longTaskMs: 50, inboxColdMs: 400 }
 
 test.describe('performance budget: tasks (big workspace + 3,300 tasks)', () => {
   test('the index stays incremental and cheap, placards re-render only where they change, the link picker stays quick', async ({ page, errors }) => {
@@ -345,7 +345,7 @@ test.describe('performance budget: tasks (big workspace + 3,300 tasks)', () => {
     await wsEval(page, (s, id) => s.updateSettings({ startPageId: id }), taskPage)
     await flush(page)
     const placards = `#main .ProseMirror[data-page-id="${taskPage}"] [data-type="work-item"]`
-    type Seam = { renders: number; rebuild: () => number; flushMs: () => number; graphMs: () => { ms: number; items: number; edges: number } }
+    type Seam = { renders: number; rebuild: (fromScratch?: boolean) => number; flushMs: () => number; graphMs: () => { ms: number; items: number; edges: number } }
     const renders = () => page.evaluate(() => (window as unknown as { __oneItems: Seam }).__oneItems.renders)
 
     await test.step('cold boot onto the 300-task page', async () => {
@@ -363,9 +363,14 @@ test.describe('performance budget: tasks (big workspace + 3,300 tasks)', () => {
       const m = await page.evaluate(async (id) => {
         const w = window as unknown as { __oneItems: Seam; __one: { workspace: { getState: () => Record<string, any> } } } // eslint-disable-line @typescript-eslint/no-explicit-any
         const frame = () => new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)))
+        // a REAL cold build: every page's content walked again (the cached walks forgotten first) — the first build
+        // of a session; `warm` reuses the walks the inbox / placards already cached
         const cold: number[] = []
+        const warm: number[] = []
         for (let i = 0; i < 5; i++) {
-          cold.push(w.__oneItems.rebuild())
+          cold.push(w.__oneItems.rebuild(true))
+          await frame()
+          warm.push(w.__oneItems.rebuild())
           await frame()
         }
         // a typing pause on task #150's title: the store gets the page's new content, the index rescans that page
@@ -380,14 +385,26 @@ test.describe('performance budget: tasks (big workspace + 3,300 tasks)', () => {
         }
         const graph: Array<{ ms: number; items: number; edges: number }> = []
         for (let i = 0; i < 5; i++) graph.push(w.__oneItems.graphMs())
-        return { cold, inc, graph }
+        return { cold, warm, inc, graph }
       }, taskPage)
-      const med = { cold: median(m.cold), inc: median(m.inc), graph: median(m.graph.map((g) => g.ms)) }
-      note('tasks index ms', { ...med, items: m.graph[0].items, edges: m.graph[0].edges, cold: m.cold.map(Math.round), inc: m.inc.map((x) => +x.toFixed(2)) })
+      const med = { cold: median(m.cold), warm: median(m.warm), inc: median(m.inc), graph: median(m.graph.map((g) => g.ms)) }
+      note('tasks index ms', { ...med, items: m.graph[0].items, edges: m.graph[0].edges, cold: m.cold.map(Math.round), warm: m.warm.map(Math.round), inc: m.inc.map((x) => +x.toFixed(2)) })
       expect(m.graph[0].items, 'live tasks in the index').toBeGreaterThanOrEqual(3000)
-      expect(med.cold, 'a cold build of the index (median of 5)').toBeLessThanOrEqual(TASKS.coldMs)
+      expect(med.cold, 'a cold build of the index, every content walked again (median of 5)').toBeLessThanOrEqual(TASKS.coldMs)
+      expect(med.warm, 'a build over the cached walks (median of 5)').toBeLessThanOrEqual(TASKS.coldMs)
       expect(med.inc, 'an incremental update after a typing pause (median of 10)').toBeLessThanOrEqual(TASKS.incrementalMs)
       expect(med.graph, 'the graph pass (dependents, related, loops) over ~3,000 tasks (median of 5)').toBeLessThanOrEqual(TASKS.graphMs)
+    })
+
+    await test.step("the inbox's first pass walks only the contents that hold a task for its task reminders", async () => {
+      type Inbox = { collectCold: () => { ms: number; taskWalks: number; reminders: number } }
+      const runs: Array<{ ms: number; taskWalks: number; reminders: number }> = []
+      for (let i = 0; i < 3; i++) runs.push(await page.evaluate(() => (window as unknown as { __oneInbox: Inbox }).__oneInbox.collectCold()))
+      const holding = await wsEval(page, (s) => Object.values(s.pages as Record<string, { content?: unknown }>).filter((p) => JSON.stringify(p.content ?? null).includes('"workItem"')).length)
+      note('inbox first pass', { ms: runs.map((r) => Math.round(r.ms)), taskWalks: runs[0].taskWalks, holding, reminders: runs[0].reminders })
+      // counted, not timed: the task walk reads the pages holding a task (~550), never every page's content (3,300+)
+      expect(runs[0].taskWalks, 'contents the task walk read in the inbox pass').toBeLessThanOrEqual(holding)
+      expect(median(runs.map((r) => r.ms)), "the inbox's whole reminder collection, every cache cold (median of 3)").toBeLessThanOrEqual(TASKS.inboxColdMs)
     })
 
     await test.step('store writes on the task page walk the page map as often as before', async () => {

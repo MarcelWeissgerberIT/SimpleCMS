@@ -262,7 +262,16 @@ test.describe('scan, text, patch (pure)', () => {
         return [{ type: 'text', text: 'Heading' }]
       },
     })
-    const d = doc(spy('Intro'), h, item({ itemId: A }, 'Title is read', spy('A note line')), { type: 'blockquote', content: [spy('quoted')] })
+    // a table is never entered: a task never sits in one (place.ts), and cells are a third of a big workspace's blocks
+    const table: JSONContent = { type: 'table' }
+    Object.defineProperty(table, 'content', {
+      enumerable: true,
+      get() {
+        reads++
+        return [{ type: 'tableRow', content: [{ type: 'tableCell', content: [p('cell')] }] }]
+      },
+    })
+    const d = doc(spy('Intro'), h, item({ itemId: A }, 'Title is read', spy('A note line')), { type: 'blockquote', content: [spy('quoted')] }, table)
     expect(itemsOfContent(d)).toHaveLength(1)
     expect(reads).toBe(0)
   })

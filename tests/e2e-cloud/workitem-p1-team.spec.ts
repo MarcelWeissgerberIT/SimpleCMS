@@ -417,3 +417,31 @@ test.describe('tasks in a team workspace: people, reminders, concurrent writes',
     expect(await canCreate(a)).toBe(false)
   })
 })
+
+test.describe('tasks in a team workspace: who the inbox asks', () => {
+  test('the inbox asks the server for the member list only when a task reminder needs it (assigned, not to me)', async ({ page: a }) => {
+    await signIn(a, email('quinn'))
+    const wsId = await createWorkspace(a, 'Quiet crew')
+    await openApp(a, wsId)
+    await waitOnline(a)
+    const me = await meId(a)
+    // no reminder that needs it: nobody assigned, or assigned to me
+    await taskPage(a, 'Quiet plan', item({ id: 'bq', itemId: X, due: '2031-10-17T09:00', reminder: 'at' }, 'Nobody assigned'), item({ id: 'br', itemId: Y, due: '2031-10-17T09:00', reminder: 'at', people: [me] }, 'Mine'))
+    await synced(a)
+    let asked = 0
+    a.on('request', (r) => {
+      if (r.method() === 'GET' && /\/api\/workspaces\/[^/]+\/members(\?|$)/.test(r.url())) asked++
+    })
+    const run = async () => {
+      await a.evaluate(() => (window as any).__oneItems.forgetMembers()) // eslint-disable-line @typescript-eslint/no-explicit-any
+      await a.evaluate(() => (window as any).__oneInbox.run()) // eslint-disable-line @typescript-eslint/no-explicit-any
+    }
+    for (let i = 0; i < 3; i++) await run()
+    await a.waitForTimeout(500)
+    expect(asked, 'member-list requests while no task reminder needs one').toBe(0)
+    // a reminder assigned to someone else: now it asks
+    await taskPage(a, 'Other plan', item({ id: 'bz', itemId: 'wi_teamtask03', due: '2031-10-17T09:00', reminder: 'at', people: ['p_noor_00001'] }, 'Someone else'))
+    await run()
+    await expect.poll(() => asked).toBeGreaterThanOrEqual(1)
+  })
+})

@@ -1,7 +1,7 @@
 /**
  * Task block — the tasks of a page's content, for the workspace index, reminders and the agenda. Pure.
  *
- * `itemsOfContent(doc)` walks BLOCKS only: it never descends into a line's inline content or into an atom (the
+ * `itemsOfContent(doc)` walks BLOCKS only: it never descends into a line's inline content, an atom or a table (the
  * title line of each task is read once, through `itemTitleText`; a task's steps through `todoProgress`) — the
  * cold build of the index walks every page of a large workspace. Cached per content object (WeakMap): the same
  * content object gives the same array, so a keystroke rescans one page only. Iterative (deep pages).
@@ -12,6 +12,7 @@
 import type { JSONContent } from '@tiptap/core'
 import { itemAttrs, WORK_ITEM, type WorkItemAttrs } from './attrs'
 import { itemTitleText, todoProgress } from './text'
+import { itemCounters } from './lookup'
 
 export interface ScannedItem {
   attrs: WorkItemAttrs
@@ -34,40 +35,61 @@ const INLINE = new Set(['text', 'hardBreak', 'mention', 'inlineMath', 'icon'])
 const LIST_ITEMS = new Set(['listItem', 'taskItem'])
 const NONE: readonly ScannedItem[] = Object.freeze([])
 
-const cache = new WeakMap<object, readonly ScannedItem[]>()
+let cache = new WeakMap<object, readonly ScannedItem[]>()
+
+/** Measuring only (the e2e perf budget's cold build): forget every cached walk — the next calls walk the contents again. */
+export function forgetScans(): void {
+  cache = new WeakMap()
+}
 
 /** The tasks of a page's content in document order (cached per content object). */
 export function itemsOfContent(doc: JSONContent | null | undefined): readonly ScannedItem[] {
   if (!doc || typeof doc !== 'object') return NONE
   const hit = cache.get(doc)
   if (hit) return hit
+  itemCounters.walks++
   const out = scan(doc)
   const result = out.length ? Object.freeze(out) : NONE
   cache.set(doc, result)
   return result
 }
 
-type Frame = { n: JSONContent; synced: 'original' | 'copy' | null; parent: string }
+type Synced = 'original' | 'copy' | null
 
+/**
+ * The walk: only blocks that can HOLD blocks are visited (a textblock, an atom or any other leaf is looked at once,
+ * as its parent's child, and never pushed) — most of a page is lines, so most nodes cost one type check. The stack
+ * is three parallel arrays (no object per node): the cold build walks every page of a large workspace.
+ */
 function scan(doc: JSONContent): ScannedItem[] {
   const out: ScannedItem[] = []
-  const stack: Frame[] = [{ n: doc, synced: null, parent: '' }]
-  while (stack.length) {
-    const { n, synced, parent } = stack.pop()!
+  const nodes: JSONContent[] = [doc]
+  const syncs: Synced[] = [null]
+  const parents: string[] = ['']
+  while (nodes.length) {
+    const n = nodes.pop()!
+    const synced = syncs.pop()!
+    const parent = parents.pop()!
     const type = n.type ?? ''
     if (type === WORK_ITEM) {
       const attrs = itemAttrs(n)
       out.push({ attrs, blockId: attrs.id, title: itemTitleText(n), progress: todoProgress(n), synced, inList: LIST_ITEMS.has(parent), order: out.length })
     }
-    if (TEXTBLOCKS.has(type) || INLINE.has(type)) continue
     const kids = n.content
     if (!Array.isArray(kids)) continue
-    const inner = type === 'syncedBlock' ? (typeof n.attrs?.sourcePageId === 'string' && n.attrs.sourcePageId ? 'copy' : 'original') : synced
+    const inner: Synced = synced === 'copy' ? 'copy' : type === 'syncedBlock' ? (typeof n.attrs?.sourcePageId === 'string' && n.attrs.sourcePageId ? 'copy' : 'original') : synced
     // a task's title line is read above; its notes are walked like any blocks (a misplaced task inside shows too)
-    const from = type === WORK_ITEM ? 1 : 0
-    for (let i = kids.length - 1; i >= from; i--) {
-      const c = kids[i]
-      if (c && typeof c === 'object' && !INLINE.has(c.type ?? '')) stack.push({ n: c, synced: synced === 'copy' ? 'copy' : inner, parent: type })
+    for (let i = kids.length - 1, from = type === WORK_ITEM ? 1 : 0; i >= from; i--) {
+      const c = kids[i] as JSONContent | null
+      if (!c || typeof c !== 'object') continue
+      const t = c.type ?? ''
+      // the type first: a line's inline content is never read (not even to see that it is there); a table is never
+      // entered — a task never sits in one (place.ts moves it out on every load and local change), and its cells are
+      // a third of a large workspace's blocks
+      if (t !== WORK_ITEM && (TEXTBLOCKS.has(t) || INLINE.has(t) || t === 'table' || !Array.isArray(c.content))) continue
+      nodes.push(c)
+      syncs.push(inner)
+      parents.push(type)
     }
   }
   return out

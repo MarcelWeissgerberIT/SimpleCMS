@@ -196,9 +196,9 @@ export {
  *  - ReminderSelect, DateReminderEditor: reminder UI for database dates and editor date mentions
  *  - collectReminders(pages, dbs): every scheduled reminder (for lists / agenda) — date mentions, date properties
  *    and tasks; ringingHere(list, audienceHere(members?)): those that ring on this device (a team task's only
- *    for its people)
+ *    for its people); without a ctx, audienceOf(list) asks for the member list only when a reminder needs it
  */
-export { startInbox, stopInbox, openInboxItem, openInbox, eventLabel, audienceHere, ringingHere } from './inbox/engine'
+export { startInbox, stopInbox, openInboxItem, openInbox, eventLabel, audienceHere, audienceOf, ringingHere } from './inbox/engine'
 export { useInbox, markRead, archiveItems, setNotify, INBOX_KINDS, type InboxItem, type InboxKind, type InboxData } from './inbox/state'
 export { notifyPermission, requestNotifyPermission, type NotifyPermission } from './inbox/notify'
 export { collectReminders, type ReminderEntry } from './inbox/scan'

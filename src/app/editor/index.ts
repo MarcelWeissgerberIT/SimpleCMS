@@ -103,7 +103,7 @@ export { dueText as workItemDueText, reminderShort as workItemReminderShort } fr
  *  - setItemTitleLookup(fn) / withItemLabels(fn): linked tasks' titles in the Markdown field line ONLY inside
  *      withItemLabels (the Markdown export); every other docToMarkdown writes ids (labels.ts).
  */
-export { itemsOfContent, compareOccurrence, type ScannedItem, type Occurrence } from './workitem/scan'
+export { itemsOfContent, compareOccurrence, forgetScans, type ScannedItem, type Occurrence } from './workitem/scan'
 export { itemTitleText, todoProgress } from './workitem/text'
 export { patchItemAttrs, patchItemInDoc, findItemPos, type ItemPatch } from './workitem/patch'
 export { itemBlocks, unwrapItemsIn } from './workitem/turn'

@@ -19,12 +19,13 @@ import { useWorkspace, pageChanges } from '../../store/store'
 import { isEffectivelyTrashed, templateRootOf } from '../../store/selectors'
 import type { ID, Page } from '../../store/types'
 import { activeWorkspace, flushPageContent, useCloud } from '../../cloud'
-import { compareOccurrence, docToMarkdown, itemCounters, itemsOfContent, setItemHooks, setItemLookup, setItemTitleLookup, withItemLabels, type WorkItemAttrs } from '../../editor'
+import { compareOccurrence, docToMarkdown, forgetScans, itemCounters, itemsOfContent, setItemHooks, setItemLookup, setItemTitleLookup, withItemLabels, type WorkItemAttrs } from '../../editor'
 import { buildIndex, EMPTY_INDEX, updateIndex, type IndexDeps, type ItemIndex, type PageItems } from './itemIndex'
 import { graphOf } from './graph'
 import { DUP_DELAY, itemView, type ItemView } from './view'
 import { unblockedBy } from './unblock'
 import { toastUnblocked } from './unblockToast'
+import { forgetMembers } from './members'
 
 const deps: IndexDeps = { compare: compareOccurrence }
 
@@ -355,8 +356,12 @@ export function stopItems(): void {
 // Test hook (dev, or ?e2e)
 if (typeof window !== 'undefined' && (import.meta.env.DEV || new URLSearchParams(window.location.search).has('e2e'))) {
   ;(window as unknown as { __oneItems?: unknown }).__oneItems = {
-    /** a cold build now (returns ms) */
-    rebuild: () => {
+    /**
+     * a cold build now (returns ms). `fromScratch`: the walks cached per content object are forgotten first, so every
+     * page's content is walked again — the real first build of a session (else the cached walks are reused)
+     */
+    rebuild: (fromScratch = false) => {
+      if (fromScratch) forgetScans()
       const t0 = performance.now()
       index = cold()
       trackDups()
@@ -396,6 +401,8 @@ if (typeof window !== 'undefined' && (import.meta.env.DEV || new URLSearchParams
     get relinks() {
       return itemCounters.relinks
     },
+    /** forget the team's member list (the next reader asks the server) */
+    forgetMembers: () => forgetMembers(),
     forceCanCreate: (v: boolean | null) => {
       forced = v
     },

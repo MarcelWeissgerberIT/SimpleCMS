@@ -64,6 +64,8 @@ interface ContentFacts {
   persons: Map<ID, Array<Spot & { synced: SyncedSpot | null }>>
   /** comment thread id → the block its mark sits in */
   comments: Map<ID, string | null>
+  /** the content holds a task (a block of type workItem): only then does remindersOf ask for its tasks */
+  items: boolean
 }
 
 const LINE_MAX = 140
@@ -81,12 +83,12 @@ function inlineText(nodes: JSONContent[]): string {
   return s.replace(/\s+/g, ' ').trim()
 }
 
-const contentCache = new WeakMap<JSONContent, ContentFacts>()
+let contentCache = new WeakMap<JSONContent, ContentFacts>()
 
 function scanContent(doc: JSONContent): ContentFacts {
   const hit = contentCache.get(doc)
   if (hit) return hit
-  const facts: ContentFacts = { dates: [], persons: new Map(), comments: new Map() }
+  const facts: ContentFacts = { dates: [], persons: new Map(), comments: new Map(), items: false }
   const walk = (n: JSONContent, block: string | null, synced: SyncedSpot | null) => {
     const kids = n.content
     if (!kids) return
@@ -114,7 +116,10 @@ function scanContent(doc: JSONContent): ContentFacts {
           const id = m.type === 'comment' ? m.attrs?.id : null
           if (typeof id === 'string' && !facts.comments.has(id)) facts.comments.set(id, here)
         }
-      } else walk(c, here, synced)
+      } else {
+        if (c.type === 'workItem') facts.items = true
+        walk(c, here, synced)
+      }
     }
   }
   walk(doc, null, null)
@@ -130,7 +135,14 @@ function isDateValue(v: unknown): v is DateValue {
 
 /** Reminders of synced blocks: from the copy that is the original (the others show the same). */
 const fromOriginal = new WeakSet<ReminderEntry>()
-const pageReminders = new WeakMap<Page, { db: Database | undefined; list: ReminderEntry[] }>()
+let pageReminders = new WeakMap<Page, { db: Database | undefined; list: ReminderEntry[] }>()
+
+/** Measuring only (the e2e perf budget): forget the cached walks — the next collectReminders reads every page again. */
+export function forgetReminderScans(): void {
+  contentCache = new WeakMap()
+  pageReminders = new WeakMap()
+  last = null
+}
 
 function remindersOf(page: Page, db: Database | undefined): ReminderEntry[] {
   const hit = pageReminders.get(page)
@@ -147,8 +159,9 @@ function remindersOf(page: Page, db: Database | undefined): ReminderEntry[] {
       if (d.synced?.original) fromOriginal.add(entry)
       list.push(entry)
     }
-    // tasks: a due date with a reminder, not done; a synced reference's copy is the original's task
-    for (const it of itemsOfContent(page.content)) {
+    // tasks: a due date with a reminder, not done; a synced reference's copy is the original's task. Only for a
+    // content the walk above saw a task in: the task walk is never paid for the many pages without one
+    for (const it of scanContent(page.content).items ? itemsOfContent(page.content) : []) {
       const a = it.attrs
       if (!a.itemId || !a.due || !a.reminder || a.status === 'done' || it.synced === 'copy') continue
       const code = normalizeReminder(a.reminder)
