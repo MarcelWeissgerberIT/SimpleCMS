@@ -18,6 +18,7 @@ import { actionsOf, bulkApply, bulkDiscardStale, cancelConfirm, closeBulk, confi
 import { fmtCount } from '../lamps'
 import { fmtWhen } from '../format'
 import { tn } from '../sources/util'
+import { rowKey, titleOf } from '../sources/proposals/common'
 import { useCoarsePointer } from '../touch'
 import type { QueueItem } from '../registry'
 import type { DoneEntry, LampView } from '../types'
@@ -56,6 +57,16 @@ function Tabs({ tab, views }: { tab: QueueTab; views: LampView[] }) {
   )
 }
 
+/** A done card's label now: its item while listed, else its row's key or page title, else the kind word. */
+export function entryLabel(e: Pick<DoneEntry, 'id' | 'label'>, t: (k: string) => string): string {
+  const it = itemOf(e.id)
+  if (it && (it.keyText || it.title)) return labelOf(it, t)
+  const page = e.label.refs.taskId ?? e.label.refs.pageId
+  const key = rowKey(page)
+  if (key) return `#${key}`
+  return titleOf(page) || t(`features.preflight.kind.${e.label.kind}`)
+}
+
 function DoneList({ entries }: { entries: DoneEntry[] }) {
   const t = useT()
   const shown = entries.filter((e) => !e.undone).slice(-3)
@@ -64,8 +75,7 @@ function DoneList({ entries }: { entries: DoneEntry[] }) {
     <span className="pf-qbar__done">
       <span className="label">{t('features.preflight.queue.done')}</span>
       {shown.map((e, i) => {
-        const it = itemOf(e.id)
-        const label = labelOf(it, t, e.label.kind)
+        const label = entryLabel(e, t)
         return (
           <span key={`${e.id}-${e.at}`}>
             {i > 0 ? ' · ' : ''}
@@ -252,6 +262,7 @@ export default function Queue() {
   const tombstones = useQueue((s) => s.tombstones)
   const leaving = useQueue((s) => s.leaving)
   const bulk = useQueue((s) => s.bulk)
+  const busy = useQueue((s) => s.busy)
   const live = useQueue((s) => s.live)
   const pendingFocus = useQueue((s) => s.pendingFocus)
   const section = useRef<HTMLElement>(null)
@@ -300,7 +311,8 @@ export default function Queue() {
   const isOpen = openTest(s)
   const ord = order[tab] ?? list.map((i) => i.id)
   const current = card[tab] ?? null
-  const cur = current ? (list.find((i) => i.id === current) ?? (tombstones[current] || leaving[current] ? itemOf(current) : null)) : null
+  // a card stays drawn while it leaves, while a key runs on it and as a tombstone
+  const cur = current ? (list.find((i) => i.id === current) ?? (tombstones[current] || leaving[current] || busy === current ? itemOf(current) : null)) : null
   const pos = position(ord, current)
   const staleIds = new Set(list.filter((i) => i.stale).map((i) => i.id))
   const cells = gauge(ord, current, isOpen, (id) => staleIds.has(id))

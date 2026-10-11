@@ -6,7 +6,9 @@
 import { lazy, Suspense, useMemo } from 'react'
 import { lampSource } from '../registry'
 import { usePlateMode } from '../hooks'
-import { noteRender } from '../engine'
+import { noteRender, readings } from '../engine'
+import { overlay } from '../lamps'
+import { useQueue } from '../queue/state'
 import { usePreflight } from '../state'
 import type { LastCache, LampView } from '../types'
 import { Plate } from './Plate'
@@ -39,7 +41,15 @@ export function PreflightHome() {
   const ready = usePreflight((s) => s.ready)
   const views = usePreflight((s) => s.views)
   const last = usePreflight((s) => s.last)
-  const shown = useMemo(() => (ready ? views : fromLast(last)), [ready, views, last])
+  // the optimistic overlay (C8): a card acted on clicks its lamp down in the same frame, until the reading agrees
+  const pending = useQueue((s) => s.pending)
+  const undone = useQueue((s) => s.undone)
+  const shown = useMemo(() => {
+    if (!ready) return fromLast(last)
+    if (!pending.length && !undone.length) return views
+    const r = readings()
+    return overlay(views, pending, undone, (lamp, id) => !!r[lamp]?.ids.includes(id))
+  }, [ready, views, last, pending, undone])
   if (mode === 'off') return null
   if (mode === 'strip') return <Strip views={shown} busy={!ready} />
   return (

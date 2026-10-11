@@ -44,7 +44,7 @@ export function terminalItems(now = Date.now()): QueueItem[] {
       id: `${TERM_PREFIX}${c.id}`,
       lamp: 'proposals',
       kind: 'terminal',
-      tag: t('features.preflight.src.terminal'),
+      tag: t(`features.preflight.verb.${c.kind}`),
       refs: { changeId: c.id, pageId: c.pageId },
       at: firstSeen.get(c.id) ?? now,
       hand,

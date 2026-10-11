@@ -47,6 +47,24 @@ export function installSeam(): void {
     acks: () => JSON.parse(JSON.stringify(acksNow())),
     ack: (lampId: string) => ackLamps([lampId]),
     lamps: () => lampSources().map((s) => s.id),
+    /**
+     * The queue's contract (T-P2-15): for every lamp with a queue and a count > 0 — its cards are exactly its reading's
+     * ids (the first 2,000), and every card has a key that ends it (A / D / a digit) or ends by its reading.
+     */
+    contract: async () => {
+      const r = readings()
+      const out: Record<string, { count: number; same: boolean; ending: boolean; n: number }> = {}
+      for (const src of lampSources()) {
+        const reading = r[src.id]
+        if (!src.queue || !reading || reading.state !== 'ok' || !(reading.count > 0)) continue
+        const items = await src.queue.items({ now: Date.now(), signal: new AbortController().signal })
+        const a = reading.ids.slice(0, 2000).sort()
+        const b = items.map((i) => i.id).slice(0, 2000).sort()
+        const ending = items.every((it) => it.resolveBy === 'reading' || src.queue!.actions(it).some((k) => k.key === 'a' || k.key === 'd' || /^[1-9]$/.test(k.key)))
+        out[src.id] = { count: reading.count, same: JSON.stringify(a) === JSON.stringify(b), ending, n: items.length }
+      }
+      return out
+    },
     /** the Bordbuch of a day (default: today) as stored, after pending writes */
     log: async (day?: string) => {
       await logSettled()

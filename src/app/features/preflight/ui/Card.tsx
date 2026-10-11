@@ -12,13 +12,13 @@ import { useLang, useT } from '../../../i18n'
 import { useCloud } from '../../../cloud'
 import { lampSource, type CardAction, type QueueItem } from '../registry'
 import { useQueue } from '../queue/state'
-import { actionsOf, announce, cancelConfirm, confirmHand, move, runAction, say } from '../queue/run'
+import { actionsOf, announce, cancelConfirm, confirmHand, move, runAction, say, takeCardFocus } from '../queue/run'
 import { useSwipe } from '../queue/swipe'
 import { markOpened } from '../log'
 import { useCoarsePointer } from '../touch'
 import { fmtWhen } from '../format'
 import { tn } from '../sources/util'
-import { builtInBody } from './bodies'
+import { builtInBody, EXPANDS } from './bodies'
 import type { Level } from '../types'
 
 const pad = (n: number) => String(n).padStart(2, '0')
@@ -221,6 +221,11 @@ export function Card({ item, index, total, level }: CardProps) {
   const actions = tomb ? [] : actionsOf(item)
   const ready = prep === 'ready'
 
+  // the keyboard was in the queue when this card became current: it takes it in the same commit (never the body)
+  useLayoutEffect(() => {
+    if (takeCardFocus()) frame.current?.focus({ preventScroll: true })
+  }, [item.id])
+
   // a current card with its body shown is opened and (once prepared) viewed — ⇧A may take it
   useEffect(() => {
     markOpened(item.id)
@@ -345,7 +350,7 @@ export function Card({ item, index, total, level }: CardProps) {
               <div className="pf-card__row">
                 {a && <KeyButton action={a} item={item} primary busy={keysBusy} />}
                 {d && <KeyButton action={d} item={item} busy={keysBusy} />}
-                {Body && (
+                {Body && (EXPANDS.has(item.kind) || !builtInBody(item.kind)) && (
                   <button type="button" className="btn pf-key" aria-expanded={expanded} aria-keyshortcuts="E" onClick={() => useQueue.setState((s) => ({ expanded: expanded ? omit(s.expanded, item.id) : { ...s.expanded, [item.id]: true } }))}>
                     {kbd('e')}
                     {t('features.preflight.card.diff')}

@@ -38,7 +38,7 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
   )
 }
 
-function ProposalBody({ item }: { item: QueueItem }) {
+function ProposalBody({ item, expanded }: { item: QueueItem; expanded: boolean }) {
   const t = useT()
   // re-render with the stored run (another tab's patch, this tab's apply)
   useAgentRuns((s) => s.byAgent)
@@ -50,6 +50,8 @@ function ProposalBody({ item }: { item: QueueItem }) {
     <div className="pf-card__review agx-review" data-change={ctx.change.kind}>
       <AgentChangeBody run={ctx.run} change={ctx.change} />
       {ctx.run.runner === 'server' && <p className="pf-card__note">{t('features.preflight.card.final.server')}</p>}
+      {/* E: the run's own report (plain text, as the agent wrote it) */}
+      {expanded && ctx.run.summary?.trim() && <FullText label={t('features.preflight.card.report')} text={ctx.run.summary.trim()} testId="pf-run-report" />}
     </div>
   )
 }
@@ -210,6 +212,9 @@ function OpenBody({ item }: { item: QueueItem }) {
     </div>
   )
 }
+
+/** Kinds whose body shows more with E (a run's report, the worker's log). */
+export const EXPANDS = new Set(['proposal', 'gate', 'question', 'failed'])
 
 /** The body of a built-in kind (null: the source brings its own). */
 export function builtInBody(kind: string): ((p: { item: QueueItem; expanded: boolean }) => ReactNode) | null {

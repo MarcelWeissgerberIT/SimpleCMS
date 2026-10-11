@@ -104,8 +104,10 @@ export function Logbook() {
   const tab = useQueue((s) => shownTab(s.lamp))
   const cur = useQueue((s) => (tab ? (s.card[tab] ?? null) : null))
   const expanded = useQueue((s) => (cur ? !!s.expanded[cur] : false))
-  const shown = events.slice(-SHOWN)
-  const earlier = events.length - shown.length
+  // by time (an agent run is noted with its own end, which may be earlier than what was noted before it)
+  const sorted = [...events].sort((a, b) => a.at - b.at)
+  const shown = sorted.slice(-SHOWN)
+  const earlier = sorted.length - shown.length
   const curItem = cur ? itemOf(cur) : null
   return (
     <section className="pf-log" aria-label={t('features.preflight.log.title')} data-testid="pf-log">

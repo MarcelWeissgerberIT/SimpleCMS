@@ -93,7 +93,8 @@ export function syncTab(tab: QueueTab): void {
   const order = mergeOrder(s.order[tab], sorted)
   const isOpen = openTest(s)
   let card = s.card[tab]
-  if (!card || !order.includes(card) || (!isOpen(card) && !s.tombstones[card] && !s.leaving[card])) card = order.find(isOpen) ?? undefined
+  // the current card stays while it leaves, while a key runs on it, as a tombstone and while it is in work
+  if (!card || !order.includes(card) || (!isOpen(card) && !s.tombstones[card] && !s.leaving[card] && s.busy !== card && !s.inWork[card])) card = order.find(isOpen) ?? undefined
   const same = order.length === (s.order[tab]?.length ?? -1) && order.every((id, i) => id === s.order[tab]![i])
   if (same && card === s.card[tab]) return
   useQueue.setState((q) => ({ order: same ? q.order : { ...q.order, [tab]: order }, card: { ...q.card, [tab]: card } }))
@@ -161,11 +162,13 @@ function settleReading(lamp: LampId, out: QueueItem[]): void {
   const tombstones = { ...s.tombstones }
   const seen = { ...s.seen }
   for (const cur of Object.values(s.card)) {
-    if (!cur || ids.has(cur) || done.has(cur) || inWork[cur] || finished.some((f) => f.id === cur) || s.leaving[cur]) continue
+    if (!cur || ids.has(cur)) continue
     const was = prev.find((p) => p.id === cur)
     if (!was) continue
-    tombstones[cur] = 'elsewhere'
+    // the current card stays drawn from its last copy (while it leaves, while a key runs on it, as a tombstone)
     seen[cur] = was
+    if (done.has(cur) || inWork[cur] || finished.some((f) => f.id === cur) || s.leaving[cur] || s.busy === cur) continue
+    tombstones[cur] = 'elsewhere'
   }
   const keep = (list: QueueState['pending'], present: boolean) => list.filter((p) => p.lamp !== lamp || (ids.has(p.id) === present && now - p.at < OVERLAY_MS))
   useQueue.setState({
@@ -225,6 +228,18 @@ function focusFrame(id: string): void {
   if (el && document.activeElement !== el) restoreFocus(el)
 }
 
+/**
+ * The next card to mount takes focus at once (its layout effect) when the keyboard was in the queue — the card it
+ * replaces unmounts in the same commit, so focus never rests on the body in between (D3, D4).
+ */
+let cardFocus = false
+export function takeCardFocus(): boolean {
+  const v = cardFocus
+  cardFocus = false
+  return v
+}
+const focusInQueue = () => !!document.activeElement?.closest('.pf-q')
+
 /** A card leaves (120 ms of motion, 0 under reduced motion); the current card moves on and takes focus. */
 function leave(id: string, dir: 'right' | 'left'): void {
   useQueue.setState((s) => ({ leaving: { ...s.leaving, [id]: dir } }))
@@ -239,6 +254,7 @@ function leave(id: string, dir: 'right' | 'left'): void {
       card[tab] = focusAfterLeave(s.order[tab] ?? [], id, isOpen) ?? undefined
     }
     const wasCurrent = Object.values(s.card).includes(id)
+    if (wasCurrent && focusInQueue()) cardFocus = true
     useQueue.setState({ leaving, card })
     if (wasCurrent) {
       const tab = tabNow()
@@ -398,6 +414,7 @@ export function cancelConfirm(): void {
 
 /** Make a card current (a row clicked, J / K). It is opened; viewed once its body is shown. */
 export function setCurrent(tab: QueueTab, id: string | null): void {
+  if (focusInQueue()) cardFocus = true
   useQueue.setState((s) => {
     const tombstones = { ...s.tombstones }
     // moving on clears a tombstone
