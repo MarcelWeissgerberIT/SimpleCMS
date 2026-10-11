@@ -1,5 +1,5 @@
 /**
- * The deck's head row: "§ 02.13 Flugschreiber", the REC chip, the counter, the transport (previous run, a minute
+ * The deck's head row: "§ 02.14 Flugschreiber", the REC chip, the counter, the transport (previous run, a minute
  * back, a minute forward, now), the zoom (a radio group; one key with a menu on a narrower deck), the loupe (only
  * while a window is on the tape), the lane filter and Close (Esc). Its keys never shrink: the head sheds whole parts
  * until it fits — measured, never guessed from the width (a German head needs more room than an English one):
