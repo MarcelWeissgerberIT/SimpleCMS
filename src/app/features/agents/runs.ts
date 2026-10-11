@@ -149,6 +149,7 @@ export async function dropRuns(agentId: ID): Promise<void> {
     await del(`slot:${agentId}`, store)
     await del(stateKey(agentId), store)
     slots.delete(agentId)
+    primed.delete(agentId)
     post(agentId)
   } catch {
     /* nothing stored */
@@ -156,25 +157,47 @@ export async function dropRuns(agentId: ID): Promise<void> {
 }
 
 const slots = new Map<ID, number>()
+/** agents whose slot was read from IndexedDB in this tab (or set here) — `cachedSlot` knows them */
+const primed = new Set<ID>()
 
 /** The newest schedule slot this device handled for an agent (null: none yet). */
 export async function getSlot(agentId: ID): Promise<number | null> {
   if (slots.has(agentId)) return slots.get(agentId)!
   const store = kv()
-  if (!store) return null
+  if (!store) {
+    primed.add(agentId)
+    return null
+  }
   try {
     const v = await get<unknown>(`slot:${agentId}`, store)
+    primed.add(agentId)
     if (typeof v === 'number') {
       slots.set(agentId, Math.max(v, slots.get(agentId) ?? 0))
       return slots.get(agentId)!
     }
   } catch {
     /* in memory only */
+    primed.add(agentId)
   }
   return slots.get(agentId) ?? null
 }
 
+/**
+ * The slot `getSlot` would answer, without waiting (the Preflight "missed" lamp reads it synchronously): a number,
+ * null = none handled yet, undefined = not read in this tab yet (`primeSlots` reads it).
+ */
+export function cachedSlot(agentId: ID): number | null | undefined {
+  if (slots.has(agentId)) return slots.get(agentId)!
+  return primed.has(agentId) ? null : undefined
+}
+
+/** Read the slots of these agents into the tab's cache (the ones not read yet). */
+export async function primeSlots(ids: Iterable<ID>): Promise<void> {
+  await Promise.all([...ids].filter((id) => !primed.has(id) && !slots.has(id)).map((id) => getSlot(id)))
+}
+
 export async function setSlot(agentId: ID, slot: number): Promise<void> {
+  primed.add(agentId)
   slots.set(agentId, Math.max(slot, slots.get(agentId) ?? 0))
   const store = kv()
   if (!store) return
@@ -188,6 +211,7 @@ export async function setSlot(agentId: ID, slot: number): Promise<void> {
 /** Forget cached slots (another tab may have advanced them). */
 export function forgetSlots(): void {
   slots.clear()
+  primed.clear()
 }
 
 /** A run with staged changes nobody has reviewed yet. */

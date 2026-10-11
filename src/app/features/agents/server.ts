@@ -6,6 +6,7 @@
  */
 import { create } from 'zustand'
 import { CloudError, cloudRequest, useCloud } from '../../cloud'
+import { useWorkspace } from '../../store/store'
 import type { ID } from '../../store/types'
 import type { StagedChange } from '../ai/agent/types'
 import { t } from '../../i18n'
@@ -33,6 +34,15 @@ export interface RuntimePatch {
 /** 'forbidden': viewers may not read the runtime (MCP URLs can hold secrets) */
 export type ServerState = 'idle' | 'loading' | 'ready' | 'unsupported' | 'forbidden' | 'error'
 
+/** A server run's head (plain columns only: what the Preflight "missed" lamp needs of an agent's newest run). */
+export interface ServerRunHead {
+  id: string
+  agentId: ID
+  status: AgentRunStatus
+  startedAt: number
+  endedAt: number | null
+}
+
 interface ServerAgentsState {
   /** the workspace the state belongs to */
   ws: string | null
@@ -42,9 +52,21 @@ interface ServerAgentsState {
   /** server runs per agent, newest first */
   runs: Record<ID, AgentRun[]>
   runsState: Record<ID, ServerState>
+  /**
+   * The staged runs of this member's OWN server agents (agent-runs/open, newest first, without summary / steps) — the
+   * Preflight proposals lamp's slice, apart from `runs` (AgentsView's). null: not loaded (local workspace, no own
+   * server agent, or not asked yet).
+   */
+  open: AgentRun[] | null
+  /** each own server agent's newest run (its head) — null: not loaded */
+  openLatest: ServerRunHead[] | null
+  /** 'lean': the agent-runs/open endpoint · 'fallback': an older server — the last 50 runs per own agent, every 5 min */
+  openMode: 'lean' | 'fallback'
+  /** the workspace `open` belongs to */
+  openWs: string | null
 }
 
-export const useServerAgents = create<ServerAgentsState>()(() => ({ ws: null, state: 'idle', runtime: null, error: null, runs: {}, runsState: {} }))
+export const useServerAgents = create<ServerAgentsState>()(() => ({ ws: null, state: 'idle', runtime: null, error: null, runs: {}, runsState: {}, open: null, openLatest: null, openMode: 'lean', openWs: null }))
 
 /** The open team workspace's id (null: the local workspace). */
 export function teamId(): string | null {
@@ -189,6 +211,147 @@ export async function resolveServerRun(runId: string, applied: string[], discard
 /** Update one server run in the cache (after a review here). */
 export function patchServerRun(run: AgentRun): void {
   useServerAgents.setState((s) => ({ runs: { ...s.runs, [run.agentId]: (s.runs[run.agentId] ?? []).map((r) => (r.id === run.id ? run : r)) } }))
+}
+
+/* ------------------------------------------------------------------ the member's own open server runs (Preflight) */
+
+/** This member's own server agents in the open team workspace (enabled or not — their proposals still wait). */
+export function ownServerAgentIds(): ID[] {
+  const me = useCloud.getState().user?.id
+  if (!teamId() || !me) return []
+  return Object.values(useWorkspace.getState().agents ?? {})
+    .filter((a) => a.runner === 'server' && a.createdBy === me)
+    .map((a) => a.id)
+    .sort()
+    .slice(0, 50)
+}
+
+const STATUS_SET = new Set<string>(STATUSES)
+
+function readHead(v: unknown): ServerRunHead | null {
+  if (!isObj(v) || typeof v.id !== 'string' || typeof v.agentId !== 'string' || !STATUS_SET.has(v.status as string)) return null
+  return { id: v.id, agentId: v.agentId, status: v.status as AgentRunStatus, startedAt: typeof v.startedAt === 'number' ? v.startedAt : 0, endedAt: typeof v.endedAt === 'number' ? v.endedAt : null }
+}
+
+const headOf = (r: AgentRun): ServerRunHead => ({ id: r.id, agentId: r.agentId, status: r.status, startedAt: r.startedAt, endedAt: r.endedAt ?? null })
+
+let openBusy: Promise<void> | null = null
+
+/**
+ * Load the staged runs of this member's own server agents into `useServerAgents.open` (and each agent's newest run into
+ * `openLatest`): ONE `GET agent-runs/open?agentIds=…` (staged only, without summaries / steps). An older server
+ * without it (404): the last 50 runs of each own agent (`openMode: 'fallback'`). Local workspace / no own server
+ * agent: nothing is asked, `open` is [] in a team, null locally.
+ */
+export function loadOpenServerRuns(): Promise<void> {
+  return (openBusy ??= loadOpen().finally(() => (openBusy = null)))
+}
+
+async function loadOpen(): Promise<void> {
+  const wsId = teamId()
+  if (!wsId) {
+    if (useServerAgents.getState().open !== null) useServerAgents.setState({ open: null, openLatest: null, openWs: null })
+    return
+  }
+  const ids = ownServerAgentIds()
+  if (!ids.length) {
+    useServerAgents.setState({ open: [], openLatest: [], openWs: wsId })
+    return
+  }
+  if (useServerAgents.getState().openWs !== wsId) useServerAgents.setState({ open: null, openLatest: null, openMode: 'lean', openWs: wsId })
+  if (useServerAgents.getState().openMode === 'lean') {
+    try {
+      const raw = await cloudRequest<unknown>('GET', path(wsId, `agent-runs/open?agentIds=${ids.map(encodeURIComponent).join(',')}`))
+      if (teamId() !== wsId) return
+      const own = new Set(ids)
+      const list = (Array.isArray(raw) ? raw : isObj(raw) && Array.isArray(raw.runs) ? raw.runs : []).map(readRun).filter((r): r is AgentRun => !!r && own.has(r.agentId) && r.status === 'staged')
+      list.sort((a, b) => b.startedAt - a.startedAt)
+      const heads = (isObj(raw) && Array.isArray(raw.latest) ? raw.latest : []).map(readHead).filter((h): h is ServerRunHead => !!h && own.has(h.agentId))
+      useServerAgents.setState({ open: list, openLatest: heads, openMode: 'lean', openWs: wsId })
+      return
+    } catch (e) {
+      if (teamId() !== wsId) return
+      if (!unsupported(e)) return
+      useServerAgents.setState({ openMode: 'fallback' })
+    }
+  }
+  // an older server: the last 50 runs of each own agent (AgentsView's own request)
+  await Promise.all(ids.map((id) => loadServerRuns(id, 50)))
+  if (teamId() !== wsId) return
+  const runs = useServerAgents.getState().runs
+  const open = ids.flatMap((id) => (runs[id] ?? []).filter((r) => r.status === 'staged')).sort((a, b) => b.startedAt - a.startedAt)
+  const heads = ids.map((id) => runs[id]?.[0]).filter((r): r is AgentRun => !!r).map(headOf)
+  useServerAgents.setState({ open, openLatest: heads, openWs: wsId })
+}
+
+/** How often the open runs are asked for while the tab is visible. */
+export const OPEN_POLL_MS = 60_000
+/** … from an older server (the last 50 runs per own agent). */
+export const OPEN_FALLBACK_MS = 5 * 60_000
+
+/**
+ * Keep `useServerAgents.open` fresh while this tab is VISIBLE (hidden tabs never ask): at start, when the tab becomes
+ * visible (at most once per interval), every 60 s (5 min from an older server), and when this member's own server
+ * agents or the workspace change. Team workspaces with own server agents only. Returns a stop function.
+ */
+export function startOpenServerPoll(): () => void {
+  if (typeof document === 'undefined') return () => {}
+  let timer: ReturnType<typeof setTimeout> | undefined
+  let last = 0
+  let key = ''
+  const every = () => (useServerAgents.getState().openMode === 'fallback' ? OPEN_FALLBACK_MS : OPEN_POLL_MS)
+  const visible = () => document.visibilityState === 'visible'
+  const arm = (ms: number) => {
+    if (timer !== undefined) clearTimeout(timer)
+    timer = setTimeout(tick, ms)
+  }
+  const poll = () => {
+    last = Date.now()
+    void loadOpenServerRuns()
+  }
+  function tick() {
+    timer = undefined
+    if (!visible()) return
+    if (ownServerAgentIds().length) poll()
+    arm(every())
+  }
+  const onVisible = () => {
+    if (!visible()) {
+      if (timer !== undefined) clearTimeout(timer)
+      timer = undefined
+      return
+    }
+    const wait = last + every() - Date.now()
+    if (wait <= 0) tick()
+    else arm(wait)
+  }
+  // the member's own server agents (or the workspace / account) changed: ask at once
+  const check = () => {
+    const next = `${teamId() ?? ''}|${ownServerAgentIds().join(',')}`
+    if (next === key) return
+    key = next
+    // nothing to ask (local workspace, no own server agent): `open` says so without a request
+    if (!teamId() || !ownServerAgentIds().length) {
+      void loadOpenServerRuns()
+      return
+    }
+    if (visible()) tick()
+  }
+  const offWs = useWorkspace.subscribe((s, p) => {
+    if (s.agents !== p.agents) check()
+  })
+  const offCloud = useCloud.subscribe((s, p) => {
+    if (s.active !== p.active || s.user !== p.user) check()
+  })
+  document.addEventListener('visibilitychange', onVisible)
+  check()
+  return () => {
+    offWs()
+    offCloud()
+    document.removeEventListener('visibilitychange', onVisible)
+    if (timer !== undefined) clearTimeout(timer)
+    timer = undefined
+  }
 }
 
 /* ------------------------------------------------------------------ webhook URLs */

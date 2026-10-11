@@ -20,6 +20,17 @@ export { runNow as runAgentNow } from './actions'
 export { triggerText as agentTriggerText } from './format'
 export { loadRuns as loadAgentRuns, useAgentRuns } from './runs'
 /**
+ * The Preflight lamps (proposals, mirror stale, agent missed) — reads only:
+ *  - onRunsChanged(fn): another tab wrote an agent's runs · primeSlots(ids) / cachedSlot(id): the schedule slots this
+ *    device handled, read ahead so the lamps read them synchronously
+ *  - staleMirrors(now) · missedAgents(now, me) · creatorConfirms(me) · healthFitted(me) · scheduledHere() (health.ts)
+ *  - useServerAgents (read only) · loadOpenServerRuns() · startOpenServerPoll(): the staged runs of this member's own
+ *    server agents (agent-runs/open, polled only while the tab is visible) → useServerAgents.open / openLatest
+ */
+export { onRunsChanged, primeSlots, cachedSlot } from './runs'
+export { staleMirrors, missedAgents, creatorConfirms, healthFitted, scheduledHere, workingMsBetween, type HealthItem } from './health'
+export { useServerAgents, loadOpenServerRuns, startOpenServerPoll, ownServerAgentIds, type ServerRunHead } from './server'
+/**
  * Integration profiles (integrations/): useUnlocked(feature) / unlocked(feature) — is it unlocked on this device (an
  * active profile names it) · IntegrationsPanel — the body of Workspace → Integrations
  */
