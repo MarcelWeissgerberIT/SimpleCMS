@@ -693,6 +693,9 @@ test.describe('the tape: label pass (tape.js settle)', () => {
     expect(out.map((o) => o.hidden)).toEqual([false, true, false, true, false])
     // flipped past the left edge: hidden
     expect(settleLabels([{ anchor: 595, w: 60, shift: 8, flipGap: 8, start: 20, flips: true }], view, null)[0]).toEqual({ flip: true, hidden: true, left: -48 })
+    // the lead label cut on the left goes right of the window when it fits there, else it is left out
+    expect(settleLabels([{ anchor: 100, w: 120, shift: -144, flipGap: 0, flips: false, alt: 320 }], view, null)[0]).toEqual({ flip: false, hidden: false, left: 320 })
+    expect(settleLabels([{ anchor: 100, w: 120, shift: -144, flipGap: 0, flips: false, alt: 520 }], view, null)[0].hidden).toBe(true)
   })
 
   test('heads align inward at the edges, "Jetzt →" pinned off to the right; ruler labels under a head are hidden', () => {

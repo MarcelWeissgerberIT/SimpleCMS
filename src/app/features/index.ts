@@ -26,8 +26,12 @@ export { HistoryModal } from './history/HistoryModal'
  * device in IndexedDB `one-recorder`, before-images ("pins") in the version store.
  *  - startRecorder(): background service (main.tsx, right after startHistory) · RECORDER_DB (shell/lib/reset.ts)
  *  - wipeRecorderScope(scope) · recorderFileRefs(): the device-copy wipe (cloud/device.ts)
+ *  - RecorderHost: the deck (in .app-main under the page; mount once, renders nothing while closed)
+ *  - RecorderStatusCell (status bar: "Rec · 30 days · n writes") · RewindKey (status bar: opens / closes the deck)
+ *  - RecorderDataLine: Workspace → Data (this workspace's tape on this device, open, erase)
+ *  - openRecorder() / closeRecorder() / toggleRecorder() / useRecorderOpen() / isRecorderOpen(); REWIND_SHORTCUT = 'Mod+Alt+Z'
  */
-export { startRecorder, wipeRecorderScope, recorderFileRefs, RECORDER_DB } from './recorder'
+export { startRecorder, wipeRecorderScope, recorderFileRefs, RECORDER_DB, RecorderHost, RecorderStatusCell, RewindKey, RecorderDataLine, openRecorder, closeRecorder, toggleRecorder, useRecorderOpen, isRecorderOpen, REWIND_SHORTCUT } from './recorder'
 export { startAutomations } from './automations/engine'
 export { AutomationsModal } from './automations/AutomationsModal'
 export { isAIConfigured, runAI, type AIAction, type RunAIOptions } from './ai/client'

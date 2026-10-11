@@ -55,6 +55,13 @@ export async function laneList(scope: Scope): Promise<Record<LaneKey, { last: nu
   return rec?.lanes ?? {}
 }
 
+/** The events of one Vorgang (its places). */
+export async function opEvents(op: Pick<JOp, 's' | 'at' | 'v'>): Promise<JEvent[]> {
+  const j = await openJournal()
+  const base = `${op.s}|${pad13(op.at)}|${op.v}|`
+  return j.range<JEvent>({ store: 'events', lo: base, hi: `${base}${HI}` })
+}
+
 /** Whose events: a lane, or one run. */
 export type WhoRead = { lane: LaneKey } | { run: string }
 

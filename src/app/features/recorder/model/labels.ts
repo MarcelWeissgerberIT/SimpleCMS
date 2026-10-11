@@ -22,6 +22,8 @@ export interface LabelIn {
   flips: boolean
   /** labels of one lane never overlap */
   lane?: string
+  /** where the label goes when it is cut at its own place (the lead label: right of the window's end) */
+  alt?: number
 }
 
 export interface LabelOut {
@@ -50,9 +52,17 @@ export function settleLabels(labels: LabelIn[], view: View, nowX: number | null)
     }
     return { flip: false, hidden: false, left }
   })
-  // still cut at an edge: left out
+  // still cut at an edge: its other place, else left out
+  const cut = (left: number, w: number) => left < view.left - 1 || left + w > view.right + 1
   out.forEach((o, i) => {
-    if (o.left < view.left - 1 || o.left + labels[i].w > view.right + 1) o.hidden = true
+    const l = labels[i]
+    if (!cut(o.left, l.w)) return
+    if (l.alt !== undefined && !cut(l.alt, l.w)) {
+      o.left = l.alt
+      o.flip = false
+      return
+    }
+    o.hidden = true
   })
   // one lane: the later label of two overlapping goes
   const lanes = new Map<string, number[]>()

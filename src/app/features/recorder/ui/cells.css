@@ -1,0 +1,48 @@
+/* The status bar's REC cell and RÜCKSPULEN key (in the main bundle; the deck's own styles load with the deck). */
+.rec-cell {
+  color: var(--ink-3);
+}
+
+.status__key {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 12px;
+  border: 0;
+  border-left: 1px solid var(--rule);
+  border-right: 0;
+  background: transparent;
+  color: var(--ink-2);
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  cursor: pointer;
+}
+.status__key svg {
+  width: 12px;
+  height: 12px;
+  flex: none;
+  stroke-width: 2;
+}
+.status__key:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+.status__key[aria-pressed='true'] {
+  color: var(--ink);
+}
+/* latched while the playhead is back in time: inverted ink, never orange */
+.status__key[data-on] {
+  background: var(--ink);
+  color: var(--ink-inverse);
+  font-weight: 700;
+}
+.status__key:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: -2px;
+  box-shadow: none;
+}
+.status__k {
+  font-weight: 500;
+  opacity: 0.8;
+}

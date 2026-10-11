@@ -127,6 +127,8 @@ export const useRecorderUI = create<RecorderUI>()(() => ({
 
 /** Is the deck open (the shell's slots: the status key, quick capture's cover check …)? */
 export const useRecorderOpen = (): boolean => useRecorderUI((s) => s.open)
+/** The same, outside React (the global keys). */
+export const isRecorderOpen = (): boolean => useRecorderUI.getState().open
 
 /** Open the deck at now (the AI terminal steps aside — its task goes on). */
 export function openRecorder(): void {

@@ -215,8 +215,17 @@ export interface RulerLabel {
 
 const LABEL_STEPS = [M, 5 * M, 15 * M, H, 3 * H]
 
-/** The ruler's labels: the zoom's own, the window's finer ones and its end — ≥ 28 px apart (the more important first). */
-export function rulerLabels(ax: Axis, zoom: Zoom, width: number, off: Offset = localOffset): RulerLabel[] {
+/** Where a ruler label sits: base / end labels start 4 px right of their tick, zone / minor ones are centred on it. */
+export function labelExtent(l: Pick<RulerLabel, 'fmt' | 'kind'>, x: number, charW: number): [number, number] {
+  const w = (l.fmt === 'hm' ? 5 : 3) * charW
+  return l.kind === 'zone' || l.kind === 'minor' ? [x - w / 2, x + w / 2] : [x + 4, x + 4 + w]
+}
+
+/**
+ * The ruler's labels: the zoom's own, the window's finer ones and its end — ticks ≥ 28 px apart and never touching
+ * (6 px between their extents, `charW` = the mono digit's width), the more important first.
+ */
+export function rulerLabels(ax: Axis, zoom: Zoom, width: number, off: Offset = localOffset, charW = 6.5): RulerLabel[] {
   const z = ZOOM[zoom]
   const ppm = width / ax.total
   const cand: Array<RulerLabel & { pri: number }> = []
@@ -233,10 +242,11 @@ export function rulerLabels(ax: Axis, zoom: Zoom, width: number, off: Offset = l
         if (t > zone.a) cand.push({ t, fmt: step < H ? 'm' : 'hm', kind: 'zone', pri: 1 })
     if (zone.b <= ax.t1) cand.push({ t: zone.b, fmt: 'hm', kind: 'end', pri: 3 })
   }
-  const kept: Array<RulerLabel & { pri: number; x: number }> = []
+  const kept: Array<RulerLabel & { pri: number; x: number; ext: [number, number] }> = []
   for (const c of cand.map((c) => ({ ...c, x: xOf(ax, c.t, width) })).sort((a, b) => b.pri - a.pri || a.t - b.t)) {
-    if (kept.some((k) => Math.abs(k.x - c.x) < LABEL_MIN_PX)) continue
-    kept.push(c)
+    const ext = labelExtent(c, c.x, charW)
+    if (kept.some((k) => Math.abs(k.x - c.x) < LABEL_MIN_PX || (ext[0] < k.ext[1] + 6 && ext[1] > k.ext[0] - 6))) continue
+    kept.push({ ...c, ext })
   }
   return kept.sort((a, b) => a.t - b.t).map(({ t, fmt, kind }) => ({ t, fmt, kind }))
 }
