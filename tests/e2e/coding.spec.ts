@@ -11,7 +11,7 @@
 import { readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Page } from '@playwright/test'
-import { test, expect, openApp, reloadApp, wsEval } from './fixtures'
+import { test, expect, openApp, reloadApp, waitForApp, wsEval } from './fixtures'
 import { WORKER, fakeOpener, makeCodingHome, makeCodingRepo, startCodingWorker, startDownloadedWorker, type CodingRepo, type RunningWorker } from './helpers/coding'
 
 /** CODING_E2E_PORT: one port for both when suites run side by side (each test runs one worker at a time) */
@@ -251,6 +251,71 @@ test('a task a custom agent wrote waits for "Confirm on this device": the worker
   await expect.poll(() => worker!.log(), { timeout: 30_000 }).toContain(`task ${agentTask} `)
   await expect(page.getByTestId('coding-approve')).toBeVisible({ timeout: 30_000 })
   expect(await stageOf(agentTask)).toBe('Approve plan')
+})
+
+test('two tabs confirm different tasks at once: both versions are kept; the other tab’s lamp follows without a reload (T-P2-11)', async ({ page }) => {
+  type AnyState = Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
+  const gateConfirms = (p: Page) =>
+    p.evaluate(async () => {
+      const pf = (window as unknown as { __onePreflight: AnyState }).__onePreflight
+      await pf.flush()
+      return ((pf.readings().gate?.ids ?? []) as string[]).filter((id) => id.includes(':confirm@')).sort()
+    })
+  const codingOn = (p: Page) => p.evaluate(() => (window as unknown as { __onePreflight: AnyState }).__onePreflight.stores.coding.setState({ enabled: true }))
+  await openApp(page)
+  await page.evaluate(() => (window.location.hash = '#/coding'))
+  await page.getByTestId('coding-setup').click()
+  // two tasks at the plan gate, both written by a custom agent: each waits for "Confirm on this device"
+  /* eslint-disable @typescript-eslint/no-explicit-any */
+  const [a, b] = await wsEval(page, (s) => {
+    const db = Object.values(s.databases).find((x: any) => x.system === 'coding') as any
+    const stage = db.properties.find((p: any) => p.name === 'Stage')
+    const gate = db.pipeline.find((x: any) => x.kind === 'gate').id
+    return ['Agent task one', 'Agent task two'].map((title) => {
+      const id = s.createRow(db.id, { title, properties: { [stage.id]: gate } })
+      s.setContent(id, { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: `${title}: the plan.` }] }] }, 'ai')
+      s.updatePage(id, { createdBy: 'agent:a1', updatedBy: 'agent:a1' })
+      return id as string
+    })
+  })
+  /* eslint-enable @typescript-eslint/no-explicit-any */
+  await page.waitForFunction(() => !!(window as unknown as { __oneCoding?: unknown }).__oneCoding)
+  await codingOn(page)
+  await page.evaluate(() => (window as unknown as { __one: AnyState }).__one.flushSave())
+  const second = await page.context().newPage()
+  await second.goto('app/?e2e')
+  await waitForApp(second)
+  await second.waitForFunction(() => !!(window as unknown as { __oneCoding?: unknown; __onePreflight?: unknown }).__oneCoding && !!(window as unknown as { __onePreflight?: unknown }).__onePreflight)
+  await expect.poll(() => wsEval(second, (s, id) => !!s.pages[id], b)).toBe(true)
+  await codingOn(second)
+  for (const p of [page, second]) await expect.poll(() => gateConfirms(p).then((ids) => ids.length)).toBe(2)
+
+  // the versions as each card would show them, then Confirm in both tabs at the same moment (one task each)
+  const view = (p: Page, id: string) => p.evaluate((id) => (window as unknown as { __oneCoding: AnyState }).__oneCoding.taskVersionView(id), id)
+  const [va, vb] = [await view(page, a), await view(second, b)]
+  const confirm = (p: Page, id: string, hash: string) => p.evaluate(({ id, hash }) => (window as unknown as { __oneCoding: AnyState }).__oneCoding.confirmTaskVersion(id, hash), { id, hash })
+  expect(await Promise.all([confirm(page, a, va.hash), confirm(second, b, vb.hash)])).toEqual(['ok', 'ok'])
+
+  // both versions are stored …
+  const stored = await page.evaluate(async () => {
+    const db = await new Promise<IDBDatabase>((res, rej) => {
+      const r = indexedDB.open('one-coding')
+      r.onsuccess = () => res(r.result)
+      r.onerror = () => rej(r.error)
+    })
+    const v = await new Promise<string[]>((res, rej) => {
+      const q = db.transaction('kv').objectStore('kv').get('local:local|trust')
+      q.onsuccess = () => res(q.result ?? [])
+      q.onerror = () => rej(q.error)
+    })
+    db.close()
+    return v
+  })
+  expect(stored).toEqual(expect.arrayContaining([va.hash, vb.hash]))
+  // … and each tab's lamp lost both confirm cards without a reload (the other tab's Confirm came over the channel)
+  for (const p of [page, second]) await expect.poll(() => gateConfirms(p), { timeout: 10_000 }).toEqual([])
+  for (const p of [page, second]) for (const id of [a, b]) expect(await p.evaluate((id) => (window as unknown as { __oneCoding: AnyState }).__oneCoding.taskNeedsConfirm(id), id)).toBe(false)
+  await second.close()
 })
 
 test('Where the worker runs: a local workspace offers Local only — Cloud is off with its reason as text; the keys stay in the group', async ({ page }) => {

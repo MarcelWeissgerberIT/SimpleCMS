@@ -8,7 +8,7 @@
  * <scope> = "local:local" / "cloud:<workspace id>". Without IndexedDB everything stays in memory.
  */
 import { create } from 'zustand'
-import { createStore, get, getMany, set as idbSet, type UseStore } from 'idb-keyval'
+import { createStore, get, getMany, set as idbSet, update, type UseStore } from 'idb-keyval'
 import { activeWorkspace } from '../../cloud'
 import type { ID } from '../../store/types'
 import { LOG_MAX, type GitInfo, type LogLine, type TestResult } from './protocol'
@@ -216,19 +216,67 @@ export async function clearLog(taskId: ID): Promise<void> {
 const MAX_TRUST = 2000
 let trustCache: { scope: string; set: Set<string> } | null = null
 
+/** Another tab of this browser trusted a version: every tab's trust readouts re-check (trustRev). */
+type TrustMessage = { scope: string; hash: string }
+let trustChan: BroadcastChannel | null | undefined
+
+function trustChannel(): BroadcastChannel | null {
+  if (trustChan !== undefined) return trustChan
+  trustChan = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('one-coding-trust') : null
+  trustChan?.addEventListener('message', (e: MessageEvent) => {
+    const m = e.data as TrustMessage | null
+    if (!m || typeof m.scope !== 'string' || typeof m.hash !== 'string' || m.scope !== scope()) return
+    if (trustCache?.scope === m.scope) trustCache.set.add(m.hash)
+    useCodingLocal.setState((st) => ({ trustRev: st.trustRev + 1 }))
+  })
+  return trustChan
+}
+
 export async function trustedHashes(): Promise<Set<string>> {
+  trustChannel()
   const s = scope()
   if (trustCache?.scope === s) return trustCache.set
   const list = await read<string[]>(`${s}|trust`)
-  trustCache = { scope: s, set: new Set(Array.isArray(list) ? list.filter((x) => typeof x === 'string') : []) }
-  return trustCache.set
+  // a hash another tab sent while this read went on stays
+  const set = new Set(Array.isArray(list) ? list.filter((x) => typeof x === 'string') : [])
+  if (trustCache?.scope === s) for (const h of trustCache.set) set.add(h)
+  trustCache = { scope: s, set }
+  return set
 }
 
+/**
+ * Trust a task version on this device: kept in this tab at once, then added to the stored list in ONE read-modify-write
+ * (idb-keyval update — two tabs confirming at the same moment both keep theirs; the newest MAX_TRUST stay), and the
+ * other tabs are told (BroadcastChannel "one-coding-trust": their trustRev goes up, their lamps and panels re-check).
+ */
 export async function addTrusted(hash: string): Promise<void> {
+  const s = scope()
   const set = await trustedHashes()
   if (set.has(hash)) return
   set.add(hash)
   useCodingLocal.setState((st) => ({ trustRev: st.trustRev + 1 }))
-  const list = [...set].slice(-MAX_TRUST)
-  await write(`${scope()}|trust`, list)
+  const store = kv()
+  if (store) {
+    try {
+      let stored: string[] = []
+      await update<unknown>(
+        `${s}|trust`,
+        (cur) => {
+          const list = Array.isArray(cur) ? cur.filter((x): x is string => typeof x === 'string') : []
+          stored = list.includes(hash) ? list : [...list, hash].slice(-MAX_TRUST)
+          return stored
+        },
+        store,
+      )
+      // what other tabs stored meanwhile joins this tab's set
+      if (trustCache?.scope === s) for (const h of stored) trustCache.set.add(h)
+    } catch {
+      noDb = true
+    }
+  }
+  try {
+    trustChannel()?.postMessage({ scope: s, hash } satisfies TrustMessage)
+  } catch {
+    /* closed */
+  }
 }

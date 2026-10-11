@@ -36,10 +36,10 @@ import { REPO_NAME, type GitAction, type LogLine, type StageKind } from './proto
 import { FOLLOW_UPS, KIND_TEMPLATES, codingProps, codingReadOnly, currentProjectId, isPipelineKind, kindOfDb, nextStage, optionByName, optionName, pipelineDbIds, pipelineDbIdsOf, priorityRank, readPipeline, stageNear, templatePipeline, type CodingRole, type PipelineKind, type ResolvedStage } from './schema'
 import { BRANCH_NAME, allTasks, answerTask, approvalsOf, approveTask, createTask, defaultApprovals, followUpsOf, knownRepos, planSection, reworkTask, runTaskNow, sectionTitleOf, setFollowUps, skipsGate, spawnFollowUp, startStageOf, taskBody, taskContext, textHash, workerBranches, type Approvals } from './tasks'
 import { loadTask, scope, taskLocal, useCodingLocal, type TaskLocal } from './local'
-import { isTrusted, needsConfirm, writeEndsConfirm } from './trust'
+import { isTrusted, needsConfirm, versionOf, writeEndsConfirm } from './trust'
 import { isRunning, stopTask } from './service'
 import { useCoding, type CodingConn } from './state'
-import { refPagesOf, type RefPage } from './refs'
+import { refPagesOf, taskRefs, type RefPage } from './refs'
 
 export { REPO_NAME }
 
@@ -971,6 +971,77 @@ export async function applyTaskAction(plan: TaskActionPlan, opts: { steps?: SigS
   throw new Error(t('features.coding.term.err.handOn'))
 }
 
+/**
+ * Did an applied action move the task (applyTaskAction returns without a word when a task action's own guard stops
+ * it)? approve: the task left the gate's stage · rework: it is at the stage it was sent back to · answer: the question
+ * is answered · run: this device runs it now (or will) · stop: it no longer runs here · then: its "Then" says what was
+ * applied · hand_on: the follow-up task exists.
+ */
+export function actionTook(plan: TaskActionPlan): boolean {
+  const ctx = taskContext(plan.taskId)
+  const local = taskLocal(plan.taskId)
+  switch (plan.op) {
+    case 'approve':
+      return !!ctx && (ctx.stage?.id ?? null) !== plan.stageId
+    case 'rework':
+      return !!ctx && !!plan.toId && ctx.stage?.id === plan.toId
+    case 'answer':
+      return !!ctx && local.question !== plan.question
+    case 'run':
+      return !!ctx && (!!local.runNow || isRunning(plan.taskId))
+    case 'stop':
+      return !isRunning(plan.taskId)
+    case 'then':
+      return !!ctx && JSON.stringify(followUpsOf(plan.taskId)) === JSON.stringify(plan.then?.after ?? [])
+    case 'hand_on': {
+      const made = plan.handOn ? local.spawned?.[plan.handOn as 'coding' | 'qa'] : undefined
+      return !!made && !!ws().pages[made] && !ws().pages[made]!.trashed
+    }
+  }
+  return false
+}
+
+/** A task version exactly as it is hashed (trust.ts versionOf) — what "Version bestätigen" shows in full. */
+export interface TaskVersionView {
+  /** the version (SHA-256 of all of the below, as versionOf makes it) — confirmTaskVersion(id, hash) trusts it */
+  hash: string
+  title: string
+  /** the task's page as Markdown, in full (what the worker reads of it, before context marks) */
+  markdown: string
+  fields: { repo: string | null; branch: string; stage: string | null }
+  stages: Array<{ name: string; kind: StageKind; auto: boolean; instructions: string; model?: string }>
+  /** the pages it links that go along to the worker: title + the text the worker reads */
+  refs: Array<{ id: ID; title: string; markdown: string }>
+}
+
+/**
+ * The version of a task as one store snapshot shows it, with its hash computed from the same snapshot (versionOf reads
+ * everything before its first await) — null: not a live pipeline task.
+ */
+export async function taskVersionView(taskId: ID): Promise<TaskVersionView | null> {
+  const s = ws()
+  const page = s.pages[taskId]
+  const db = page?.databaseId ? s.databases[page.databaseId] : undefined
+  if (!page || page.trashed || !db || !kindOfDb(db.id)) return null
+  const hash = versionOf(page, db)
+  const props = codingProps(db)
+  const pipeline = readPipeline(db)
+  const stageId = props.stage ? page.properties[props.stage] : null
+  const branch = props.branch ? page.properties[props.branch] : null
+  const view: Omit<TaskVersionView, 'hash'> = {
+    title: page.title,
+    markdown: docToMarkdown(page.content),
+    fields: {
+      repo: optionName(db, props.repo, props.repo ? page.properties[props.repo] : null) ?? null,
+      branch: typeof branch === 'string' ? branch.trim() : '',
+      stage: pipeline.find((st) => st.id === stageId)?.name ?? null,
+    },
+    stages: pipeline.map((st) => ({ name: st.name, kind: st.kind, auto: !!st.auto, instructions: st.instructions ?? '', ...(st.model ? { model: st.model } : {}) })),
+    refs: taskRefs(taskId).map((r) => ({ id: r.id, title: r.title, markdown: r.markdown })),
+  }
+  return { ...view, hash: await hash }
+}
+
 /** Does the task wait for "Confirm on this device" (team: a version changed elsewhere; local: one an agent wrote)? */
 export async function taskNeedsConfirm(taskId: ID): Promise<boolean> {
   const p = ws().pages[taskId]
@@ -1007,4 +1078,11 @@ export function codingRoleOf(dbId: ID, propId: ID): CodingRole | 'title' | null 
   const props = codingProps(db)
   for (const [role, id] of Object.entries(props)) if (id === propId) return role as CodingRole | 'title'
   return null
+}
+
+// e2e seam (dev, or ?e2e): what Preflight's coding cards call (taskVersionView → confirmTaskVersion, actionTook)
+if (typeof window !== 'undefined' && (import.meta.env.DEV || new URLSearchParams(window.location.search).has('e2e'))) {
+  void import('./tasks').then((m) => {
+    ;(window as unknown as { __oneCoding?: unknown }).__oneCoding = { taskVersionView, confirmTaskVersion: m.confirmTaskVersion, actionTook, planTaskAction, applyTaskAction, taskNeedsConfirm }
+  })
 }

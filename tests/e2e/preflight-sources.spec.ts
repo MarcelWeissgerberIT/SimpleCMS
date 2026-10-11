@@ -7,6 +7,7 @@
  */
 import type { Page } from '@playwright/test'
 import { test, expect, openApp, wsEval, createPage, MOD } from './fixtures'
+import { seedPipeline } from './helpers/preflightStory.mjs'
 
 type AnyState = Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -168,3 +169,69 @@ test.describe('the One memory: saveRunMemory for Preflight (step 27)', () => {
     expect(await seam(page, '__oneMemory', (m) => m.saveRunMemory('gone', { toast: false }))).toBeNull()
   })
 })
+
+test.describe('coding: the version a card shows, confirmed exactly; did an action move the task (step 28)', () => {
+  const coding = <R, A = null>(page: Page, fn: (s: AnyState, arg: A) => R | Promise<R>, arg?: A) => seam(page, '__oneCoding', fn, arg)
+
+  test('taskVersionView shows what is hashed; confirmTaskVersion trusts only that version ("changed" after a linked page changed)', async ({ page }) => {
+    await start(page)
+    await page.waitForFunction(() => !!(window as AnyState).__oneCoding)
+    const pipe = await seedPipeline(page)
+    const ref = await createPage(page, { title: 'Spec sheet', content: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Tolerance 0.2 mm.' }] }] } })
+    const [task, other] = pipe.tasks
+    // an agent wrote the task (locally it waits for Confirm) and it links the spec sheet
+    await wsEval(
+      page,
+      (s, a) => {
+        s.setContent(a.task, { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: `Keep the export filter. See #/p/${a.ref}` }] }] }, 'e2e')
+        s.updatePage(a.task, { updatedBy: 'agent:ag-fictional' })
+      },
+      { task, ref },
+    )
+    const view = await coding(page, (c, id) => c.taskVersionView(id), task)
+    expect(view.hash).toMatch(/^[0-9a-f]{64}$/)
+    expect(view.title).toBe('Exportfilter: Sonderzeichen')
+    expect(view.markdown).toContain('Keep the export filter.')
+    expect(view.fields).toMatchObject({ repo: null, branch: '' })
+    expect(view.fields.stage).toBe(view.stages.find((x: AnyState) => x.kind === 'gate').name)
+    expect(view.stages.length).toBeGreaterThan(3)
+    expect(view.refs).toEqual([{ id: ref, title: 'Spec sheet', markdown: expect.stringContaining('Tolerance 0.2 mm.') }])
+    expect(await coding(page, (c, id) => c.taskNeedsConfirm(id), task)).toBe(true)
+
+    // the linked page changes after the card was rendered: the shown version is no longer the task's — nothing trusted
+    await wsEval(page, (s, id) => s.setContent(id, { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Tolerance 0.5 mm.' }] }] }, 'e2e'), ref)
+    expect(await coding(page, (c, a) => c.confirmTaskVersion(a.task, a.hash), { task, hash: view.hash })).toBe('changed')
+    expect(await coding(page, (c, id) => c.taskNeedsConfirm(id), task)).toBe(true)
+    // shown again: confirmed
+    const again = await coding(page, (c, id) => c.taskVersionView(id), task)
+    expect(again.hash).not.toBe(view.hash)
+    expect(again.refs[0].markdown).toContain('Tolerance 0.5 mm.')
+    expect(await coding(page, (c, a) => c.confirmTaskVersion(a.task, a.hash), { task, hash: again.hash })).toBe('ok')
+    expect(await coding(page, (c, id) => c.taskNeedsConfirm(id), task)).toBe(false)
+    // a task that is gone
+    expect(await coding(page, (c) => c.confirmTaskVersion('no-such-task', 'f'.repeat(64)))).toBe('gone')
+    await wsEval(page, (s, id) => s.trashPage(id), other)
+    expect(await coding(page, (c, id) => c.confirmTaskVersion(id, 'f'.repeat(64)), other)).toBe('gone')
+    expect(await coding(page, (c, id) => c.taskVersionView(id), other)).toBeNull()
+  })
+
+  test('actionTook: false before the action, true once it moved the task', async ({ page }) => {
+    await start(page)
+    await page.waitForFunction(() => !!(window as AnyState).__oneCoding)
+    const pipe = await seedPipeline(page)
+    const task = pipe.tasks[1]
+    const out = await coding(
+      page,
+      async (c, id) => {
+        const plan = await c.planTaskAction(id, 'approve')
+        const before = c.actionTook(plan)
+        await c.applyTaskAction(plan)
+        return { before, after: c.actionTook(plan), stage: plan.stage, to: plan.to }
+      },
+      task,
+    )
+    expect(out).toMatchObject({ before: false, after: true })
+    expect(out.to).not.toBe(out.stage)
+  })
+})
+
