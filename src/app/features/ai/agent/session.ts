@@ -39,6 +39,7 @@ import { newId } from '../../../lib/ids'
 import { isEffectivelyTrashed } from '../../../store/selectors'
 import type { SavedMedia } from '../media/types'
 import { endRun, noteRun, withWriter, type Writer } from '../../../store/writer'
+import { isSettled, onSettled } from '../../recorder/settled'
 
 const set = useAgent.setState
 const get = useAgent.getState
@@ -703,6 +704,7 @@ export function newTask() {
   forgetStagedIds()
   reported = {}
   lastBatch = null
+  batchById.clear()
   mcpSetup = null
   memTools = null
   codingTools = null
@@ -889,6 +891,7 @@ export async function applyStaged(ids?: string[], opts: { quiet?: boolean; bulk?
     endRun(writer)
   }
   batchOf.set(res, writer.run)
+  batchById.set(writer.run, res)
   noteStagedIds(res.rowIds)
   set((s) => ({
     applying: false,
@@ -919,6 +922,8 @@ export async function applyStaged(ids?: string[], opts: { quiet?: boolean; bulk?
 let lastBatch: ApplyResult | null = null
 /** Each applied batch's run id (its Undo is you~undo:<batch>). */
 const batchOf = new WeakMap<ApplyResult, string>()
+/** Each applied batch by its run id (the flight recorder's run key `terminal:<id>` names it). */
+const batchById = new Map<string, ApplyResult>()
 
 /** Undo the last applied batch (`u` in the review list); false when there is nothing to undo. */
 export function undoLastBatch(): boolean {
@@ -936,6 +941,9 @@ export function undoLastBatch(): boolean {
  */
 export function undoStagedBatch(res: ApplyResult, opts: { quiet?: boolean } = {}): { kept: string[]; final: string[] } {
   if (lastBatch === res) lastBatch = null
+  // an eject settled every change of the batch: its writes are not the batch's to revert — nothing is written
+  const runKey = `terminal:${batchOf.get(res) ?? ''}`
+  if (res.applied.length && res.applied.every((id) => isSettled(runKey, id))) return { kept: [...res.applied], final: [] }
   const { kept } = withWriter({ kind: 'you', via: 'undo', ...(batchOf.has(res) ? { ref: batchOf.get(res) } : {}) }, () => res.undo())
   const stays = new Set([...kept, ...res.final])
   const stayPages = new Set(get().changes.filter((c) => stays.has(c.id)).map((c) => c.pageId))
@@ -945,6 +953,52 @@ export function undoStagedBatch(res: ApplyResult, opts: { quiet?: boolean } = {}
   if (!opts.quiet) useUI.getState().toast(final.length ? tn('features.agent.toast.undoneFinal', final.length) : kept.length ? tn('features.agent.toast.undoneKept', kept.length) : t('features.agent.toast.undone'))
   return { kept, final }
 }
+
+/* ------------------------------------------------------------------ */
+/* the flight recorder's eject (features/recorder eject/sources.ts)     */
+/* ------------------------------------------------------------------ */
+
+/** May an eject settle the terminal's batches now? Not while an apply is running. */
+export const terminalBusy = (): boolean => get().applying
+
+/**
+ * An eject (`eject`: its id and time) took back these applied changes of a batch (`runId`: the batch's run): they are
+ * discarded + ejected (never open again: restoreStaged / undiscardStaged refuse them), the batch is no longer the
+ * review list's `u`, the staged ids of the rows they made are forgotten. Held ones stay applied. Idempotent.
+ */
+export function ejectBatch(runId: string, ejectedIds: readonly string[], heldIds: readonly string[], eject: { id: string; at: number }): void {
+  const res = batchById.get(runId)
+  if (res && lastBatch === res) lastBatch = null
+  const out = new Set(ejectedIds.filter((id) => !heldIds.includes(id)))
+  const gone = get().changes.filter((c) => out.has(c.id) && c.status === 'applied')
+  if (!gone.length) return
+  if (res) forgetStagedIds(Object.keys(res.rowIds).filter((staged) => gone.some((c) => c.pageId === staged)))
+  set((s) => ({ changes: s.changes.map((c) => (out.has(c.id) && c.status === 'applied' ? { ...c, status: 'discarded', ejected: { ...eject } } : c)) }))
+}
+
+/** The eject's Undo: the changes it took back (`back`) are applied again (their staged ids noted again). */
+export function unejectBatch(runId: string, ejectId: string, back: readonly string[]): void {
+  const mine = (c: StagedChange) => back.includes(c.id) && c.status === 'discarded' && !!c.ejected && (c.ejected.id === ejectId || !c.ejected.id)
+  const again = get().changes.filter(mine)
+  if (!again.length) return
+  const res = batchById.get(runId)
+  if (res) noteStagedIds(Object.fromEntries(Object.entries(res.rowIds).filter(([staged]) => again.some((c) => c.pageId === staged))))
+  set((s) => ({
+    changes: s.changes.map((c): StagedChange => {
+      if (!mine(c)) return c
+      const { ejected: _e, ...rest } = c
+      return { ...rest, status: 'applied' }
+    }),
+  }))
+}
+
+/* a mark from another tab's eject reaches this tab's terminal the same way */
+onSettled((n) => {
+  if (n.local || !n.runKey.startsWith('terminal:')) return
+  const runId = n.runKey.slice('terminal:'.length)
+  if (n.on) ejectBatch(runId, n.ids, [], { id: n.ref ?? '', at: Date.now() })
+  else unejectBatch(runId, n.ref ?? '', n.ids)
+})
 
 /** Discard proposals (and the open proposals that build on them). Returns the ids it discarded now (the cascade). */
 export function discardStaged(id: string | string[]): string[] {
@@ -974,8 +1028,9 @@ export function discardAllStaged() {
  * discarded. Returns the ids brought back.
  */
 export function undiscardStaged(ids: string[]): string[] {
+  // an ejected change never comes back as a proposal (the eject's own Undo gives it back)
   const back = get()
-    .changes.filter((c) => ids.includes(c.id) && c.status === 'discarded')
+    .changes.filter((c) => ids.includes(c.id) && c.status === 'discarded' && !c.ejected)
     .map((c) => c.id)
   if (back.length) set((s) => ({ changes: s.changes.map((c) => (back.includes(c.id) && c.status === 'discarded' ? { ...c, status: 'pending' } : c)) }))
   return back
@@ -988,7 +1043,7 @@ export function restoreStaged(id: string) {
   while (todo.length) {
     const id = todo.pop()
     const cur = get().changes.find((c) => c.id === id)
-    if (!cur || cur.status !== 'discarded' || back.has(cur.id)) continue
+    if (!cur || cur.status !== 'discarded' || cur.ejected || back.has(cur.id)) continue
     back.add(cur.id)
     todo.push(...depsOf(cur))
   }
@@ -1059,5 +1114,5 @@ export function rerunAfterSignIn(entryId: string): void {
 
 // e2e seam (dev, or ?e2e): the terminal's state and the apply step — a test can stage what no tool stages yet (a send)
 if (typeof window !== 'undefined' && (import.meta.env.DEV || new URLSearchParams(window.location.search).has('e2e'))) {
-  ;(window as unknown as { __oneTerm?: unknown }).__oneTerm = { state: useAgent, applyChanges, applyStaged, undoStagedBatch, discardStaged, undiscardStaged }
+  ;(window as unknown as { __oneTerm?: unknown }).__oneTerm = { state: useAgent, applyChanges, applyStaged, undoStagedBatch, discardStaged, undiscardStaged, restoreStaged, ejectBatch, unejectBatch, terminalBusy, batchIds: () => [...batchById.keys()], batch: (id: string) => batchById.get(id) }
 }

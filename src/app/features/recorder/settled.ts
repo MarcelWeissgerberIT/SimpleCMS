@@ -10,7 +10,7 @@
  */
 import type { Writer } from '../../store/writer'
 
-type Msg = { kind: 'settled'; runKey: string; ids: string[]; on: boolean } | { kind: 'ejectRef'; id: string }
+type Msg = { kind: 'settled'; runKey: string; ids: string[]; on: boolean; ref?: string } | { kind: 'ejectRef'; id: string }
 
 export interface SettledNote {
   runKey: string
@@ -20,6 +20,8 @@ export interface SettledNote {
   on: boolean
   /** this tab's own mark */
   local: boolean
+  /** the eject that settled them (its id), when the mark names it */
+  ref?: string
 }
 
 /** run key → settled change ids ('*': the whole run) */
@@ -38,7 +40,7 @@ function chan(): BroadcastChannel | null {
     channel.onmessage = (e) => {
       const m = e.data as Msg | null
       // the journal's own kinds (flushed, reset, eject) are the bus's
-      if (m?.kind === 'settled' && typeof m.runKey === 'string' && Array.isArray(m.ids)) apply(m.runKey, m.ids.filter((x) => typeof x === 'string'), !!m.on, false)
+      if (m?.kind === 'settled' && typeof m.runKey === 'string' && Array.isArray(m.ids)) apply(m.runKey, m.ids.filter((x) => typeof x === 'string'), !!m.on, false, typeof m.ref === 'string' ? m.ref : undefined)
       else if (m?.kind === 'ejectRef' && typeof m.id === 'string') ejects.add(m.id)
     }
   } catch {
@@ -55,7 +57,7 @@ function post(m: Msg): void {
   }
 }
 
-function apply(runKey: string, ids: string[], on: boolean, local: boolean): void {
+function apply(runKey: string, ids: string[], on: boolean, local: boolean, ref?: string): void {
   const cur = settled.get(runKey)
   if (on) {
     if (!ids.length) settled.set(runKey, '*')
@@ -67,25 +69,25 @@ function apply(runKey: string, ids: string[], on: boolean, local: boolean): void
   }
   for (const l of listeners) {
     try {
-      l({ runKey, ids, on, local })
+      l({ runKey, ids, on, local, ...(ref ? { ref } : {}) })
     } catch (e) {
       console.warn('[recorder] a settled listener failed', e)
     }
   }
 }
 
-/** An eject settled these changes of a run (none: the whole run) — in this tab and the others. */
-export function markSettled(runKey: string, changeIds: readonly string[] = []): void {
+/** An eject (`ref`: its id) settled these changes of a run (none: the whole run) — in this tab and the others. */
+export function markSettled(runKey: string, changeIds: readonly string[] = [], ref?: string): void {
   chan()
-  apply(runKey, [...changeIds], true, true)
-  post({ kind: 'settled', runKey, ids: [...changeIds], on: true })
+  apply(runKey, [...changeIds], true, true, ref)
+  post({ kind: 'settled', runKey, ids: [...changeIds], on: true, ...(ref ? { ref } : {}) })
 }
 
 /** The eject's Undo gave them back. */
-export function unmarkSettled(runKey: string, changeIds: readonly string[] = []): void {
+export function unmarkSettled(runKey: string, changeIds: readonly string[] = [], ref?: string): void {
   chan()
-  apply(runKey, [...changeIds], false, true)
-  post({ kind: 'settled', runKey, ids: [...changeIds], on: false })
+  apply(runKey, [...changeIds], false, true, ref)
+  post({ kind: 'settled', runKey, ids: [...changeIds], on: false, ...(ref ? { ref } : {}) })
 }
 
 /** Did an eject settle this change of the run (no id: the whole run)? */

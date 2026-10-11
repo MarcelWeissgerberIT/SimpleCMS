@@ -5,8 +5,9 @@
  */
 import { readFileSync } from 'node:fs'
 import type { Page } from '@playwright/test'
-import { test, expect, openApp, flush, wsEval } from './fixtures'
+import { test, expect, openApp, flush, wsEval, MOD } from './fixtures'
 import { playStory, rec, startRecorder, storyTime, type Story } from './helpers/recorder'
+import { setKey } from './helpers/terminal'
 
 const story = JSON.parse(readFileSync(new URL('./fixtures/recorder-story.json', import.meta.url), 'utf8')) as Story
 const AGENT = `agent:${story.agent.id}`
@@ -85,6 +86,38 @@ test.describe('flight recorder — the eject', () => {
     expect(statusOf(unknown.run!)).toMatchObject({ c3: 'discarded', c4: 'pending', c5: 'pending' })
     // the run's tags in its history
     await expect(page.locator('[data-testid="agx-ejected"]').first()).toBeVisible()
+  })
+
+  test('terminal (E10): an ejected batch change is discarded + ejected, never restored; a settled batch\'s Undo writes nothing; unejectBatch gives it back', async ({ page }) => {
+    await openApp(page)
+    await setKey(page)
+    const pageId = await wsEval(page, (s) => s.createPage({ title: 'Tessera Plan', content: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Erste Zeile.' }] }] } }))
+    await page.keyboard.press(`${MOD}+j`)
+    await page.waitForFunction(() => !!(window as unknown as { __oneTerm?: unknown }).__oneTerm)
+    type Term = Record<string, (...a: unknown[]) => unknown> & { state: { getState: () => { changes: Array<Record<string, unknown>> }; setState: (fn: (s: { changes: unknown[] }) => unknown) => void } }
+    const term = <R>(fn: (t: Term, arg: string) => R, arg = '') => page.evaluate(({ src, arg }) => new Function('t', 'arg', `return (${src})(t, arg)`)((window as unknown as { __oneTerm: Term }).__oneTerm, arg), { src: fn.toString(), arg }) as Promise<Awaited<R>>
+    const statuses = () => term((t) => t.state.getState().changes.map((c) => `${c.id}:${c.status}${c.ejected ? '+E' : ''}`))
+    await term((t, id) => t.state.setState((s) => ({ changes: [...s.changes, { id: 'chg-1', n: 1, kind: 'append', status: 'pending', pageId: id, markdown: 'Zweite Zeile.' }] })), pageId)
+    await term((t) => t.applyStaged(undefined, { quiet: true }))
+    expect(await statuses()).toEqual(['chg-1:applied'])
+    const runId = (await term((t) => (t.batchIds() as string[])[0]))!
+    expect(await term((t) => t.terminalBusy())).toBe(false)
+    // the eject marks the batch's change settled and takes it out of the review
+    await rec(page, 'markSettled', `terminal:${runId}`, ['chg-1'], 'ej1')
+    await term((t, id) => t.ejectBatch(id, ['chg-1'], [], { id: 'ej1', at: 9 }), runId)
+    expect(await statuses()).toEqual(['chg-1:discarded+E'])
+    await term((t) => t.restoreStaged('chg-1'))
+    expect(await term((t) => t.undiscardStaged(['chg-1']))).toEqual([])
+    expect(await statuses()).toEqual(['chg-1:discarded+E'])
+    // the batch's old Undo (a toast, Preflight's card) writes nothing: every change of it is settled
+    const before = await wsEval(page, (s, id) => s.pages[id].contentRev, pageId)
+    const undone = await term((t, id) => t.undoStagedBatch(t.batch(id), { quiet: true }), runId)
+    expect(undone).toEqual({ kept: ['chg-1'], final: [] })
+    expect(await wsEval(page, (s, id) => s.pages[id].contentRev, pageId)).toBe(before)
+    // the eject's Undo: applied again
+    await rec(page, 'unmarkSettled', `terminal:${runId}`, ['chg-1'], 'ej1')
+    await term((t, id) => t.unejectBatch(id, 'ej1', ['chg-1']), runId)
+    expect(await statuses()).toEqual(['chg-1:applied'])
   })
 
   test('the plan of 37 places < 300 ms (performance mark; the story at real time: a page clock hides marks)', async ({ page }) => {

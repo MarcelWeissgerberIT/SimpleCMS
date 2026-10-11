@@ -14,6 +14,7 @@ import { digestWhole, scopeKey } from './key'
 import { lostTails } from './recover'
 import { scopeNow } from './scope'
 import type { Recorder } from './recorder'
+import { isSettled, markSettled, unmarkSettled } from '../settled'
 
 export interface StoryStep {
   writer: Writer
@@ -151,6 +152,10 @@ export function installSeam(rec: Recorder): void {
       const { loadWindow, windowCounts } = await import('../window/load')
       return windowCounts(await loadWindow({ ...sel, scope: sel.scope ?? scopeOf() }))
     },
+    /** what an eject settled (features/recorder/settled.ts) — marks as the eject's sources set them */
+    markSettled: (runKey: string, ids: string[], ref?: string) => markSettled(runKey, ids, ref),
+    unmarkSettled: (runKey: string, ids: string[], ref?: string) => unmarkSettled(runKey, ids, ref),
+    isSettled: (runKey: string, id?: string) => isSettled(runKey, id),
     dropPin: async (segmentId: string) => {
       const j = await openJournal()
       const seg = await j.get<JSegment>('segs', segmentId)
