@@ -27,6 +27,7 @@ import { barHeights, followSpan, fracOf, loupeK, loupeLabel, makeAxis, pct, phon
 import { hiddenRulerLabels, settleHead, settleLabels, underHeads } from '../../src/app/features/recorder/model/labels'
 import { F, K, type EjectRecord, type Foreign, type JEvent, type JOp, type JSegment, type NowDigest, type PlaceWindow } from '../../src/app/features/recorder/model/types'
 import type { Database, Page, PropertyDef, View } from '../../src/app/store/types'
+import { rewindAllowed, rewindState, setRewindGuard } from '../../src/app/store/rewind'
 
 /* ------------------------------------------------------------------ */
 /* stub deps (the browser spec covers the real helpers)                */
@@ -1012,6 +1013,83 @@ test.describe('the tape: label pass (tape.js settle)', () => {
     expect(hiddenRulerLabels(labels, [], view)).toEqual([true, false, false, false, true])
     // under a head too
     expect(hiddenRulerLabels(labels, [{ left: 270, right: 330 }], view)).toEqual([true, false, true, false, true])
+  })
+})
+
+/* ------------------------------------------------------------------ */
+/* R3 — the eject                                                      */
+/* ------------------------------------------------------------------ */
+
+test.describe('applyRewind (E1): the one write of an eject', () => {
+  const T = 5_000_000
+  const rowP = (over: Partial<Page> = {}) => page({ id: 'nl1402', parentId: 'db-nordlicht', databaseId: 'db-nordlicht', title: 'NL-1402', ...over })
+  const state = (pages: Page[], dbs: Database[] = [database()], recent: string[] = []) => ({ pages: Object.fromEntries(pages.map((p) => [p.id, p])), databases: Object.fromEntries(dbs.map((d) => [d.id, d])), recent })
+
+  test('refusals: the guard, an id that does not exist now, a locked database whose schema would change, a page locked now', () => {
+    try {
+      setRewindGuard(() => false)
+      expect(rewindAllowed()).toBe(false)
+    } finally {
+      setRewindGuard(() => true)
+    }
+    expect(rewindAllowed()).toBe(true)
+    const cur = state([page(), rowP()])
+    expect(rewindState(cur, { pages: { gone: page({ id: 'gone' }) } }, 'eject', T)).toBeNull()
+    expect(rewindState(cur, { databases: { 'db-other': database({ id: 'db-other' }) } }, 'eject', T)).toBeNull()
+    // an id that does not match its key
+    expect(rewindState(cur, { pages: { nl1398: page({ id: 'nl1402' }) } }, 'eject', T)).toBeNull()
+    const locked = state([page()], [database({ locked: true })])
+    expect(rewindState(locked, { databases: { 'db-nordlicht': database({ locked: true, views: [] }) } }, 'eject', T)).toBeNull()
+    expect(rewindState(locked, { databases: { 'db-nordlicht': database({ locked: false }) } }, 'eject', T)).toBeNull()
+    // the same schema: a locked database may still be patched (nothing of its schema changes)
+    expect(rewindState(locked, { databases: { 'db-nordlicht': database({ locked: true, nextUniqueId: 7 }) } }, 'eject', T)).not.toBeNull()
+    const lockedPage = state([page({ settings: { fullWidth: false, smallText: false, font: 'sans', locked: true } })])
+    expect(rewindState(lockedPage, { pages: { nl1398: page({ title: 'Nordlicht' }) } }, 'eject', T)).toBeNull()
+  })
+
+  test('a patched page keeps what is not a part from the page now; content by reference gets a revision, its origin and its text', () => {
+    const content = docOf(para('Bericht', 'rh'))
+    const now = page({ content, contentRev: 4, contentOrigin: 'ed1', plain: 'Bericht\n', comments: [{ id: 'cm1', quote: 'Bericht', body: 'Mara Lind fragt nach', createdAt: 9, resolved: false } as never], private: true, createdBy: 'acct-mara', hidden: true, favorite: true, settings: { fullWidth: true, smallText: false, font: 'serif', locked: false } })
+    const cur = state([now])
+    // a title only: the content's revision stays
+    const a = rewindState(cur, { pages: { nl1398: { ...now, title: 'Nordlicht-Spiegel · Bericht', comments: undefined, private: undefined, settings: page().settings, updatedBy: 'agent:x' } } }, 'eject', T)!
+    const pa = a.pages.nl1398
+    expect(pa).toMatchObject({ title: 'Nordlicht-Spiegel · Bericht', contentRev: 4, contentOrigin: 'ed1', plain: 'Bericht\n', private: true, createdBy: 'acct-mara', hidden: true, favorite: true, updatedAt: T, updatedBy: 'agent:x' })
+    expect(pa.comments).toHaveLength(1)
+    expect(pa.settings.font).toBe('serif')
+    expect(Object.isFrozen(pa) && Object.isFrozen(a.pages)).toBe(true)
+    expect(a.changed).toEqual(['nl1398'])
+    // content by reference: a new revision, the writer as its origin, the text from it; the stamp from the patch (none: null)
+    const back = docOf(para('Bericht', 'rh'), para('Absatz eins', 'p1'))
+    const b = rewindState(cur, { pages: { nl1398: { ...now, content: back, updatedBy: undefined } } }, 'eject', T)!.pages.nl1398
+    expect(b).toMatchObject({ contentRev: 5, contentOrigin: 'eject', updatedBy: null })
+    expect(b.plain).toContain('Absatz eins')
+    // untouched pages keep their objects
+    const two = state([now, rowP()])
+    expect(rewindState(two, { pages: { nl1398: { ...now, title: 'x' } } }, 'eject', T)!.pages.nl1402).toBe(two.pages.nl1402)
+  })
+
+  test('trash and restore as the store does them: favourite off, recent pruned; a restored page under a trashed parent goes to the root, a row stays in its database', () => {
+    const parent = page({ id: 'parent', trashed: true, trashedAt: 3 })
+    const child = page({ id: 'child', parentId: 'parent', trashed: true, trashedAt: 3 })
+    const row = rowP({ trashed: true, trashedAt: 3 })
+    const dbPage = page({ id: 'db-nordlicht', kind: 'database', trashed: true, trashedAt: 3 })
+    const fav = page({ id: 'fav', favorite: true })
+    const cur = state([parent, child, row, dbPage, fav], [database()], ['fav', 'child'])
+    const next = rewindState(cur, { pages: { child: { ...child, trashed: false }, nl1402: { ...row, trashed: false }, fav: { ...fav, trashed: true } } }, 'eject', T)!
+    expect(next.pages.child).toMatchObject({ trashed: false, trashedAt: null, parentId: null })
+    expect(next.pages.nl1402).toMatchObject({ trashed: false, trashedAt: null, parentId: 'db-nordlicht', databaseId: 'db-nordlicht' })
+    expect(next.pages.fav).toMatchObject({ trashed: true, trashedAt: T, favorite: false })
+    expect(next.recent).toEqual(['child'])
+    expect(next.changed.sort()).toEqual(['child', 'fav', 'nl1402'])
+    // a parent restored in the same update keeps its child under it
+    const both = rewindState(cur, { pages: { parent: { ...parent, trashed: false }, child: { ...child, trashed: false } } }, 'eject', T)!
+    expect(both.pages.child.parentId).toBe('parent')
+    // a database is replaced whole (its id kept); the map is new, the others are the same objects
+    const dbs = rewindState(cur, { databases: { 'db-nordlicht': database({ views: [] }) } }, 'eject', T)!
+    expect(dbs.databases['db-nordlicht'].views).toEqual([])
+    expect(dbs.pages).toBe(cur.pages)
+    expect(dbs.changed).toEqual([])
   })
 })
 

@@ -22,6 +22,8 @@ import { emptyKit, optionsOfList, sanitizeList, sanitizePropType, sanitizeRecord
 import { lookAllowed, sameLook, sanitizeLook } from './look'
 import { INTEGRATION_LIMITS, integrationsAllowed, sameIntegration, sanitizeIntegration, sanitizeIntegrations } from './integrations'
 import { SYSTEM, withWriter } from './writer'
+import { deepFreeze } from './freeze'
+import { rewindAllowed, rewindState, type RewindPatch } from './rewind'
 import type {
   CustomAgent,
   IntegrationProfile,
@@ -241,6 +243,13 @@ export interface WorkspaceState extends Workspace {
   deleteCommentReply: (pageId: ID, commentId: ID, replyId: ID) => void
 
   /**
+   * The flight recorder's eject and its Undo only (features/recorder eject/commit.ts, eject/undo.ts): planned pages
+   * and databases in ONE update (store/rewind.ts). False when refused: the guard (a team workspace), a patched id that
+   * does not exist now, a locked database whose schema would change, a page locked now.
+   */
+  applyRewind: (patch: RewindPatch, origin: 'eject' | 'rewind') => boolean
+
+  /**
    * Cloud binding only (src/app/cloud): apply a batch of changes that came from the server.
    * `null` removes a page / database. Other areas never call this.
    */
@@ -451,18 +460,6 @@ function freezePages(pages: Record<ID, Page>): Record<ID, Page> {
   return Object.freeze(pages)
 }
 
-/**
- * Deep-freeze data entering the store, down to the parts already frozen — what Immer's auto-freeze
- * does with a write (plain objects and arrays only, like Immer).
- */
-function deepFreeze<T>(v: T): T {
-  if (!v || typeof v !== 'object' || Object.isFrozen(v)) return v
-  const proto = Object.getPrototypeOf(v)
-  if (!Array.isArray(v) && proto !== Object.prototype && proto !== null) return v
-  Object.freeze(v)
-  for (const k of Object.keys(v)) deepFreeze((v as Record<string, unknown>)[k])
-  return v
-}
 
 /**
  * The page map with one page replaced — for the writes that run while someone types (the editor
@@ -698,6 +695,21 @@ export const useWorkspace = create<WorkspaceState>()(
         }
       })
       return idMap.get(id)!
+    },
+
+    applyRewind: (patch, origin) => {
+      if (!rewindAllowed()) return false
+      const s = get()
+      const next = rewindState(s, patch, origin, now())
+      if (!next) return false
+      if (next.pages === s.pages && next.databases === s.databases) return true
+      // every subscriber's pageChanges() gets the patched ids without a scan of the map
+      if (next.pages !== s.pages) {
+        const n = Object.keys(s.pages).length
+        rememberChanges(next.pages, s.pages, { changed: next.changed, added: [], removed: [] }, n, n)
+      }
+      set({ pages: next.pages, databases: next.databases, recent: next.recent })
+      return true
     },
 
     trashPage: (id) =>

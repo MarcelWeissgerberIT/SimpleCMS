@@ -10,6 +10,7 @@ import { IndexeddbPersistence } from 'y-indexeddb'
 import { useWorkspace, defaultSettings, WORKSPACE_VERSION } from '../store/store'
 import { setLookGuard } from '../store/look'
 import { setIntegrationGuard } from '../store/integrations'
+import { setRewindGuard } from '../store/rewind'
 import { migrate, readStoredWorkspace } from '../store/persistence'
 import type { ID, Person, Settings } from '../store/types'
 import { parseHash } from '../lib/router'
@@ -150,6 +151,8 @@ export async function openCloudWorkspace(ws: CloudWorkspace, user: CloudUser, on
   setLookGuard(canStyle)
   // integration profiles: owners and admins, like the look (the server puts other members' changes back)
   setIntegrationGuard(canStyle)
+  // the flight recorder's eject writes in the local workspace only (team ejects come later) — read-only or not
+  setRewindGuard(() => false)
 
   // From here on the store shows the cloud workspace: a failing service must not throw (the
   // caller would fall back to the local workspace while the binding is already live).
