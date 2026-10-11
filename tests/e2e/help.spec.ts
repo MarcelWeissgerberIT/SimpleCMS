@@ -208,6 +208,26 @@ test.describe('help panel', () => {
     const overflow = await panel(page).evaluate((el) => el.scrollWidth - el.clientWidth)
     expect(overflow).toBeLessThanOrEqual(0)
   })
+
+  test('the flight recorder\'s spec label is its article\'s number: § 02.<order> on the deck and in the help, in both languages\' strings', async ({ page }) => {
+    const md = readFileSync(new URL('../../src/app/help/articles/en/flight-recorder.md', import.meta.url), 'utf8')
+    const order = /^order: (\d+)$/m.exec(md)![1]
+    expect(/^section: writing$/m.test(md)).toBe(true)
+    const no = `§ 02.${order}`
+    await openApp(page)
+    await page.keyboard.press(`${MOD === 'Meta' ? 'Meta' : 'Control'}+Alt+z`)
+    await expect(page.locator('section.deck .deck__no')).toHaveAttribute('title', no)
+    await page.keyboard.press('Escape')
+    await expect(page.locator('section.deck')).toHaveCount(0)
+    await pressHelpKey(page)
+    await searchBox(page).fill('flight recorder')
+    const hit = panel(page).locator('.help-hit').first()
+    await expect(hit).toContainText('Flight recorder')
+    await expect(hit).toContainText(no)
+    // the strings of both languages
+    const strings = readFileSync(new URL('../../src/app/features/recorder/messages.ts', import.meta.url), 'utf8')
+    expect(strings.match(/'features\.recorder\.no': '([^']+)'/g)).toEqual([`'features.recorder.no': '${no}'`, `'features.recorder.no': '${no}'`])
+  })
 })
 
 test.describe('public help pages (/help/)', () => {

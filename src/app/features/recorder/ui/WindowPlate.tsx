@@ -121,8 +121,18 @@ export function WindowPlate({ bracket, meta, run, notes, touch, edgeLane }: { br
     let off = false
     const id = setTimeout(() => {
       const who = bracket.run ? { run: bracket.run } : { lane: bracket.lane }
+      const t0 = performance.now()
       void eventsOf(scopeNow(), who, bracket.a, bracket.b)
-        .then((evs) => !off && setM({ key, meters: windowMeters(evs, who, bracket.a, bracket.b) }))
+        .then((evs) => {
+          if (off) return
+          const meters = windowMeters(evs, who, bracket.a, bracket.b)
+          try {
+            performance.measure('rec-meters', { start: t0, end: performance.now() })
+          } catch {
+            /* no marks */
+          }
+          setM({ key, meters })
+        })
         .catch(() => undefined)
     }, 120)
     return () => {
