@@ -143,9 +143,15 @@ export interface ApplyResult {
   rowIds: Record<string, ID>
   /** changes that cannot be undone (a task action that may have started the worker): Undo leaves them applied */
   final: string[]
-  /** revert the batch; `kept`: the changes left as they are because they were edited (or taken by the worker) meanwhile */
-  undo: () => { kept: string[] }
+  /**
+   * revert the batch; `kept`: the changes left as they are because they were edited (or taken by the worker) meanwhile;
+   * `reverted`: of a kept update_row, the properties that did go back (nobody had changed them)
+   */
+  undo: () => { kept: string[]; reverted: Record<string, ID[]> }
 }
+
+/** The properties a row update's undo put back while it kept the rest (read after it ran; applyChanges' `reverted`). */
+const revertedBy = new WeakMap<() => boolean, () => ID[]>()
 
 /** Apply order: pages → databases → properties → rows and the rest → pipeline tasks (their pages may link the others). */
 const RANK: Partial<Record<StagedChange['kind'], number>> = { create_page: 0, create_database: 1, add_property: 2, coding: 4 }
@@ -265,8 +271,15 @@ export async function applyChanges(changes: StagedChange[], all: StagedChange[],
 
   const undo = () => {
     const kept: string[] = []
-    for (let i = undos.length - 1; i >= 0; i--) if (!undos[i]!.fn()) kept.push(...undos[i]!.ids)
-    return { kept }
+    const reverted: Record<string, ID[]> = {}
+    for (let i = undos.length - 1; i >= 0; i--) {
+      const u = undos[i]!
+      if (u.fn()) continue
+      kept.push(...u.ids)
+      const back = revertedBy.get(u.fn)?.() ?? []
+      if (back.length && u.ids.length === 1) reverted[u.ids[0]!] = back
+    }
+    return { kept, reverted }
   }
   return { applied, failed, rowIds, final, undo }
 }
@@ -402,10 +415,12 @@ async function applyOne(c: StagedChange, resolveRow: (id: ID) => ID, rowIds: Rec
           for (const [propId, v] of Object.entries(next)) ws().setRowProperty(id, propId, v)
         })
       })
-      return () => {
+      let back: ID[] = []
+      const undo = () => {
         const now = ws().pages[id]
         if (!now) return false
         let kept = false
+        back = []
         for (const [propId, v] of Object.entries(next)) {
           // only revert values nobody changed after the apply
           if (JSON.stringify(now.properties[propId] ?? null) !== JSON.stringify(v)) {
@@ -413,10 +428,13 @@ async function applyOne(c: StagedChange, resolveRow: (id: ID) => ID, rowIds: Rec
             continue
           }
           ws().setRowProperty(id, propId, (prev[propId] ?? null) as PropertyValue)
+          back.push(propId)
         }
         dropUnusedOptions(dbId, created)
         return !kept
       }
+      revertedBy.set(undo, () => back)
+      return undo
     }
     case 'edit':
       // applied per page, together (applyPageEdits in applyChanges)

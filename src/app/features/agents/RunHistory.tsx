@@ -11,7 +11,7 @@
  * reasons row show only on the row holding the focus; touch screens get "Discard ▾" with the reasons instead.
  * Numbers in the UI's language. Fits 390 px.
  */
-import { useReducer, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode, type RefObject } from 'react'
+import { memo, useEffect, useId, useMemo, useReducer, useRef, useState, type KeyboardEvent, type MouseEvent, type MutableRefObject, type ReactNode, type RefObject } from 'react'
 import { ChevronDown, ChevronRight, ExternalLink, Undo2 } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
@@ -177,19 +177,45 @@ function quietGroups(run: AgentRun, changes: StagedChange[]): Map<string, Staged
   return groups
 }
 
+/** What a row asks of its review — ONE stable object for every row (memoised rows; it acts on the run as shown now). */
+interface RowHandlers {
+  focus(id: string): void
+  touch(id: string): void
+  apply(id: string): void
+  discard(id: string, reason: DiscardReason | null): void
+  undo(id: string): void
+  /** the row's body was shown whole ("Show n more lines"): a decision on it counts as seen in full */
+  whole(id: string): void
+}
+
+/** The review's live region: one region that stays, each announcement a new node inside it (read even when repeated). */
+function Live({ say }: { say: MutableRefObject<(text: string) => void> }) {
+  const [live, setLive] = useState({ text: '', k: 0 })
+  useEffect(() => {
+    say.current = (text) => setLive((l) => ({ text, k: l.k + 1 }))
+  }, [say])
+  return (
+    <p className="visually-hidden" role="status" aria-live="polite" aria-atomic="true">
+      {live.text ? <span key={live.k}>{live.text}</span> : null}
+    </p>
+  )
+}
+
 function Review({ run }: { run: AgentRun }) {
   const t = useT()
   const lang = useLang()
   const coarse = useCoarse()
   const root = useRef<HTMLElement>(null)
+  const sayRef = useRef<(text: string) => void>(() => {})
+  // rows whose cut body the person opened whole (this mount)
+  const whole = useRef(new Set<string>())
   const readOnly = useCloud((s) => s.readOnly)
   const pages = useWorkspace((s) => s.pages)
   const databases = useWorkspace((s) => s.databases)
-  // the Undo kept for a discarded row is registered after the run is stored: draw again once it is there
+  // a row's Undo can go without the run changing (nothing left to put back): draw again then
   const [, redraw] = useReducer((x: number) => x + 1, 0)
   // what a row's own Undo did (undone; some of it kept because it was edited since) — shown while it is open again
   const [notes, setNotes] = useState<Record<string, string>>({})
-  const [live, setLive] = useState({ text: '', k: 0 })
   const [current, setCurrent] = useState<string | null>(null)
   const [touchOpen, setTouchOpen] = useState<string | null>(null)
   const changes = run.staged ?? []
@@ -209,8 +235,9 @@ function Review({ run }: { run: AgentRun }) {
   const long = changes.length > LONG_REVIEW
   const headId = `agx-review-${run.id}`
   const keysId = `agx-review-keys-${run.id}`
-  const say = (text: string) => setLive((l) => ({ text, k: l.k + 1 }))
-  const parentOf = (c: StagedChange) => (c.dependsOn ? changes.find((x) => x.id === c.dependsOn) : undefined)
+  const say = (text: string) => sayRef.current(text)
+  const byId = (id: string) => changes.find((x) => x.id === id)
+  const parentOf = (c: StagedChange) => (c.dependsOn ? byId(c.dependsOn) : undefined)
   const blockedBy = (c: StagedChange) => {
     const p = parentOf(c)
     return p && p.status !== 'applied' ? p : null
@@ -220,20 +247,28 @@ function Review({ run }: { run: AgentRun }) {
   const quiet = quietGroups(run, changes)
   const quietOf = new Map<string, StagedChange[]>()
   for (const list of quiet.values()) for (const c of list) quietOf.set(c.id, list)
+  const clearNote = (id: string) => setNotes((m) => (m[id] ? { ...m, [id]: '' } : m))
 
-  // the person's decision on ONE proposal (a verdict per field: judged)
+  // the person's decision on ONE proposal (a verdict per field: judged — a cut body only once shown whole)
   const apply = (c: StagedChange) => {
-    setNotes((m) => ({ ...m, [c.id]: '' }))
-    void applyRun(run, [c.id], { row: true, judged: true }).then((res) => {
+    clearNote(c.id)
+    void applyRun(run, [c.id], { row: true, judged: true, whole: whole.current.has(c.id) }).then((res) => {
       if (res?.applied.includes(c.id)) say(t('features.agents.trust.live.applied', { n: c.n }))
       focusIn(root, { after: c.n, not: c.id })
     }, notRead)
   }
   const discard = (c: StagedChange, reason: DiscardReason | null) => {
-    setNotes((m) => ({ ...m, [c.id]: '' }))
+    clearNote(c.id)
     setTouchOpen(null)
-    void discardRun(run, c.id, { undo: true, judged: true, ...(reason ? { reason } : {}) }).then((out) => {
-      redraw()
+    // its Undo is kept in its row (and the rows of its cascade) before the run is stored
+    void discardRun(run, c.id, { undo: true, row: true, judged: true, whole: whole.current.has(c.id), ...(reason ? { reason } : {}) }).then((out) => {
+      if (out.refused) {
+        // the server did not take it: nothing was discarded
+        useUI.getState().toast({ message: out.refused, kind: 'error' })
+        say(out.refused)
+        focusIn(root, { row: c.id })
+        return
+      }
       if (out.dropped.includes(c.id))
         say(reason ? t('features.agents.trust.live.discardedWhy', { reason: t(`features.agents.trust.why.${reason}`), n: c.n }) : t('features.agents.trust.live.discarded', { n: c.n }))
       focusIn(root, { after: c.n, not: c.id })
@@ -259,6 +294,30 @@ function Review({ run }: { run: AgentRun }) {
     if (inert) say(t(`features.agents.trust.live.inert.${inert}`))
     else if (p) say(t('features.agents.trust.live.inert.needs', { n: p.n }))
   }
+
+  // the rows' handlers: one object for the review's life, always acting on what this render shows
+  const act = useRef({ apply, discard, undo, byId })
+  act.current = { apply, discard, undo, byId }
+  const handlers = useMemo<RowHandlers>(
+    () => ({
+      focus: (id) => setCurrent(id),
+      touch: (id) => setTouchOpen((x) => (x === id ? null : id)),
+      apply: (id) => {
+        const c = act.current.byId(id)
+        if (c) act.current.apply(c)
+      },
+      discard: (id, reason) => {
+        const c = act.current.byId(id)
+        if (c) act.current.discard(c, reason)
+      },
+      undo: (id) => {
+        const c = act.current.byId(id)
+        if (c) act.current.undo(c)
+      },
+      whole: (id) => void whole.current.add(id),
+    }),
+    [],
+  )
 
   // the keys (trust/runKeys.ts): only where the buttons would act, never while typing
   const onKeyDown = (e: KeyboardEvent<HTMLElement>) => {
@@ -378,22 +437,17 @@ function Review({ run }: { run: AgentRun }) {
               blocked={blockedBy(c)}
               undo={undoOf(c)}
               note={notes[c.id] ?? ''}
-              tabRow={tabRow}
+              tab={tabRow === c.id}
+              active={current === c.id}
               keysId={keysId}
               coarse={coarse}
               touchOpen={touchOpen === c.id}
-              onTouch={() => setTouchOpen((x) => (x === c.id ? null : c.id))}
-              onFocus={() => setCurrent(c.id)}
-              onApply={() => apply(c)}
-              onDiscard={(r) => discard(c, r)}
-              onUndo={() => undo(c)}
+              h={handlers}
             />
           )
         })}
       </ol>
-      <p className="visually-hidden" role="status" aria-live="polite" key={live.k}>
-        {live.text}
-      </p>
+      <Live say={sayRef} />
     </section>
   )
 }
@@ -412,35 +466,70 @@ interface ChangeProps {
   blocked: StagedChange | null
   undo: 'apply' | 'discard' | null
   note: string
-  tabRow: string | null
+  /** the review's roving tab stop */
+  tab: boolean
+  /** the row last focused: its key caps and reasons row are drawn (trust.css shows them while it holds the focus) */
+  active: boolean
   keysId: string
   coarse: boolean
   touchOpen: boolean
-  onTouch: () => void
-  onFocus: () => void
-  onApply: () => void
-  onDiscard: (reason: DiscardReason | null) => void
-  onUndo: () => void
+  h: RowHandlers
 }
 
-function Change({ run, change: c, disabled, blocked, undo, note, tabRow, keysId, coarse, touchOpen, onTouch, onFocus, onApply, onDiscard, onUndo }: ChangeProps) {
+/**
+ * A memoised row: it draws again only when what it shows changed — its proposal, its state, its focus marks — never
+ * because another row took the focus or the review announced something. `run` itself counts by its id and row ids
+ * (a decision stores the run anew; the rows that did not change keep their proposal objects, runs.ts).
+ */
+const sameRow = (a: ChangeProps, b: ChangeProps) =>
+  a.change === b.change &&
+  a.run.id === b.run.id &&
+  a.run.rowIds === b.run.rowIds &&
+  a.disabled === b.disabled &&
+  a.blocked === b.blocked &&
+  a.undo === b.undo &&
+  a.note === b.note &&
+  a.tab === b.tab &&
+  a.active === b.active &&
+  a.keysId === b.keysId &&
+  a.coarse === b.coarse &&
+  a.touchOpen === b.touchOpen &&
+  a.h === b.h
+
+const Change = memo(function Change({ run, change: c, disabled, blocked, undo, note, tab, active, keysId, coarse, touchOpen, h }: ChangeProps) {
   const t = useT()
   const lang = useLang()
-  const pages = useWorkspace((s) => s.pages)
+  const id = useId()
+  const [full, setFull] = useState(false)
   const all = run.staged ?? []
-  let where = ''
-  if (c.kind === 'create_page') where = c.parentId ? t('features.agent.review.under', { title: titleIn(pages, all, c.parentId, t('common.untitled')) }) : t('features.agent.review.topLevel')
-  else if (c.kind === 'create_row' || c.kind === 'update_row') where = t('features.agent.review.in', { title: titleIn(pages, all, c.databaseId, t('common.untitled')) })
+  const untitled = t('common.untitled')
+  // only what this row shows of the workspace: a write elsewhere draws no row again
+  const where = useWorkspace((s) =>
+    c.kind === 'create_page'
+      ? c.parentId
+        ? t('features.agent.review.under', { title: titleIn(s.pages, all, c.parentId, untitled) })
+        : t('features.agent.review.topLevel')
+      : c.kind === 'create_row' || c.kind === 'update_row'
+        ? t('features.agent.review.in', { title: titleIn(s.pages, all, c.databaseId, untitled) })
+        : '',
+  )
   const label = `#${c.n}`
   const targetId = run.rowIds?.[c.pageId] ?? c.pageId
-  const target = c.status === 'applied' && pages[targetId] && !pages[targetId].trashed ? targetId : null
+  const target = useWorkspace((s) => (c.status === 'applied' && s.pages[targetId] && !s.pages[targetId].trashed ? targetId : null))
   const open = isOpen(c)
   const keys = open || !!undo
   const touchId = `agx-touch-${run.id}-${c.id}`
+  const caps = active && !coarse
+  // folded (a discard keeping its Undo here): the title is not drawn — the row's name still says it
+  const folded = undo === 'discard'
+  const hiddenTitle = useWorkspace((s) => (folded ? titleText(s.pages, run, c, untitled) : ''))
+  // described by: its state (decided), its field changes, why it waits or failed, then the keys
+  const hint = (c.status === 'failed' && !!c.error) || (c.status === 'pending' && !!blocked)
+  const describedBy = keys ? [open ? '' : `${id}-s`, !folded && c.props?.length ? `${id}-d` : '', !folded && hint ? `${id}-x` : '', keysId].filter(Boolean).join(' ') : undefined
   const undoKey = (
-    <button type="button" className="btn btn--ghost btn--sm agent-change__undo" onMouseDown={keepFocus} onClick={onUndo} disabled={disabled} aria-label={`${t('common.undo')} ${label}`}>
+    <button type="button" className="btn btn--ghost btn--sm agent-change__undo" onMouseDown={keepFocus} onClick={() => h.undo(c.id)} disabled={disabled} aria-label={`${t('common.undo')} ${label}`}>
       <Undo2 size={12} strokeWidth={1.75} aria-hidden /> {t('common.undo')}
-      {!coarse && (
+      {caps && (
         <kbd className="kbd agt-cap" aria-hidden="true">
           Z
         </kbd>
@@ -455,15 +544,21 @@ function Change({ run, change: c, disabled, blocked, undo, note, tabRow, keysId,
       data-change={c.id}
       data-n={c.n}
       data-keys={keys || undefined}
-      aria-label={`${label} ${t(`features.agent.kind.${c.kind}`)}`}
-      tabIndex={keys ? (tabRow === c.id ? 0 : -1) : undefined}
+      // a row with keys takes the focus: its name is its number, kind and title; its state, field change and keys describe it
+      aria-label={keys ? undefined : `${label} ${t(`features.agent.kind.${c.kind}`)}`}
+      aria-labelledby={keys ? `${id}-n ${id}-k ${id}-t` : undefined}
+      tabIndex={keys ? (tab ? 0 : -1) : undefined}
       aria-keyshortcuts={keys ? rowShortcuts(lang, open) : undefined}
-      aria-describedby={keys ? keysId : undefined}
-      onFocus={keys ? onFocus : undefined}
+      aria-describedby={describedBy}
+      onFocus={keys ? () => h.focus(c.id) : undefined}
     >
       <div className="agent-change__head">
-        <span className="agent-change__n mono">{label}</span>
-        <span className="agent-change__kind label">{t(`features.agent.kind.${c.kind}`)}</span>
+        <span className="agent-change__n mono" id={`${id}-n`}>
+          {label}
+        </span>
+        <span className="agent-change__kind label" id={`${id}-k`}>
+          {t(`features.agent.kind.${c.kind}`)}
+        </span>
         {where && <span className="agent-change__where">{where}</span>}
         <span className="agent-spacer" />
         {open ? (
@@ -472,13 +567,13 @@ function Change({ run, change: c, disabled, blocked, undo, note, tabRow, keysId,
               type="button"
               className="btn btn--sm btn--ink agt-apply"
               onMouseDown={keepFocus}
-              onClick={onApply}
+              onClick={() => h.apply(c.id)}
               disabled={disabled || !!blocked}
               aria-label={`${t('features.agent.review.apply')} ${label}`}
               aria-keyshortcuts={coarse ? undefined : 'Enter A'}
               title={blocked ? t('features.agent.review.needs', { n: blocked.n }) : undefined}
             >
-              {!coarse && (
+              {caps && (
                 <kbd className="kbd agt-cap" aria-hidden="true">
                   ↵
                 </kbd>
@@ -486,29 +581,31 @@ function Change({ run, change: c, disabled, blocked, undo, note, tabRow, keysId,
               {t('features.agent.review.apply')}
             </button>
             {coarse ? (
-              <button type="button" className="btn btn--sm agt-discard" onClick={onTouch} disabled={disabled} aria-expanded={touchOpen} aria-controls={touchId} aria-label={t('features.agents.trust.touch.open', { n: c.n })}>
+              <button type="button" className="btn btn--sm agt-discard" onClick={() => h.touch(c.id)} disabled={disabled} aria-expanded={touchOpen} aria-controls={touchId} aria-label={t('features.agents.trust.touch.open', { n: c.n })}>
                 {t('features.agent.review.discard')}
                 <ChevronDown size={13} strokeWidth={1.8} aria-hidden className="agt-discard__chev" />
               </button>
             ) : (
-              <button type="button" className="btn btn--ghost btn--sm agt-discard" onMouseDown={keepFocus} onClick={() => onDiscard(null)} disabled={disabled} aria-label={`${t('features.agent.review.discard')} ${label}`} aria-keyshortcuts="Delete D">
-                <kbd className="kbd agt-cap" aria-hidden="true">
-                  {isMac ? t('features.agents.trust.key.delMac') : t('features.agents.trust.key.del')}
-                </kbd>
+              <button type="button" className="btn btn--ghost btn--sm agt-discard" onMouseDown={keepFocus} onClick={() => h.discard(c.id, null)} disabled={disabled} aria-label={`${t('features.agent.review.discard')} ${label}`} aria-keyshortcuts="Delete D">
+                {caps && (
+                  <kbd className="kbd agt-cap" aria-hidden="true">
+                    {isMac ? t('features.agents.trust.key.delMac') : t('features.agents.trust.key.del')}
+                  </kbd>
+                )}
                 {t('features.agent.review.discard')}
               </button>
             )}
           </span>
         ) : c.status === 'applied' ? (
           <span className="agent-change__actions">
-            <span className="agent-change__state label">
+            <span className="agent-change__state label" id={`${id}-s`}>
               <span className="led led--ok" aria-hidden /> {t('features.agent.review.applied')}
             </span>
             {undo === 'apply' && undoKey}
             {target && (
               <button
                 type="button"
-                className="btn btn--ghost btn--sm"
+                className="btn btn--ghost btn--sm agent-change__open"
                 onClick={() => (c.kind === 'create_row' || c.kind === 'update_row' ? useUI.getState().openPeek(target) : openPage(target))}
                 aria-label={`${t('features.agent.review.open')} ${label}`}
               >
@@ -519,13 +616,13 @@ function Change({ run, change: c, disabled, blocked, undo, note, tabRow, keysId,
         ) : c.status === 'superseded' ? (
           // a newer run's proposal for the same row (with at least these fields) replaces it: no keys, never counted
           <span className="agent-change__actions">
-            <span className="agent-change__state label" data-testid="agx-superseded">
+            <span className="agent-change__state label" data-testid="agx-superseded" id={`${id}-s`}>
               {c.supersededBy ? t('features.agents.review.superseded', { when: fmtWhen(t, c.supersededBy.at, lang) }) : t('features.agents.review.supersededPlain')}
             </span>
           </span>
         ) : (
           <span className="agent-change__actions">
-            <span className="agent-change__state label" data-testid="agx-discarded">
+            <span className="agent-change__state label" data-testid="agx-discarded" id={`${id}-s`}>
               {c.reason ? t('features.agents.trust.row.discardedWhy', { reason: t(`features.agents.trust.why.${c.reason}`) }) : t('features.agent.review.discarded')}
             </span>
             {undo === 'discard' && undoKey}
@@ -537,13 +634,32 @@ function Change({ run, change: c, disabled, blocked, undo, note, tabRow, keysId,
           {note}
         </p>
       )}
-      {/* a discard that keeps its Undo here reads as one line: the body folds away */}
-      {undo !== 'discard' && <AgentChangeBody run={run} change={c} />}
-      {open && !coarse && <ReasonsRow n={c.n} disabled={disabled} onPick={(r) => onDiscard(r)} />}
-      {open && coarse && touchOpen && <ReasonsTouch id={touchId} n={c.n} disabled={disabled} onPick={onDiscard} />}
+      {/* a discard that keeps its Undo here reads as one line: the body folds away (its title stays the row's name) */}
+      {folded ? (
+        <span className="visually-hidden" id={`${id}-t`}>
+          {hiddenTitle}
+        </span>
+      ) : (
+        <AgentChangeBody
+          run={run}
+          change={c}
+          ids={id}
+          full={full}
+          more={{
+            label: (rest) => t(rest === 1 ? 'features.agents.trust.review.more.one' : 'features.agents.trust.review.more.other', { count: rest }),
+            less: t('features.agents.trust.review.less'),
+            run: () => {
+              setFull((f) => !f)
+              h.whole(c.id)
+            },
+          }}
+        />
+      )}
+      {open && caps && <ReasonsRow n={c.n} disabled={disabled} onPick={(r) => h.discard(c.id, r)} />}
+      {open && coarse && touchOpen && <ReasonsTouch id={touchId} n={c.n} disabled={disabled} onPick={(r) => h.discard(c.id, r)} />}
     </li>
   )
-}
+}, sameRow)
 
 /** "WRONG × 3 · ~~NL-216~~ ~~NL-217~~ ~~NL-218~~ · Klarheit → Blockiert": discarded as wrong, no Undo any more. */
 function QuietRow({ run, list, pages, databases }: { run: AgentRun; list: StagedChange[]; pages: Record<string, Page>; databases: Record<string, Database> }) {
@@ -555,8 +671,10 @@ function QuietRow({ run, list, pages, databases }: { run: AgentRun; list: Staged
     const v = key && row ? row.properties[key.id] : undefined
     return (typeof v === 'string' || typeof v === 'number' ? String(v) : '') || row?.title.trim() || c.title || `#${c.n}`
   })
+  // the drawn line is for the eye; the sentence beside it says the same in words (read in browse mode too)
   return (
-    <li className="agx-quiet" data-testid="agx-quiet" data-n={list[0].n} aria-label={t('features.agents.trust.quiet.aria', { n: list.length, keys: keys.join(', ') })}>
+    <li className="agx-quiet" data-testid="agx-quiet" data-n={list[0].n}>
+      <span className="visually-hidden">{t('features.agents.trust.quiet.aria', { n: list.length, keys: keys.join(', '), field: p.name, value: p.after || '—' })}</span>
       <span className="agx-quiet__stamp" aria-hidden="true">
         {t('features.agents.trust.quiet.wrong', { n: list.length })}
       </span>
@@ -580,35 +698,54 @@ function titleIn(pages: Record<string, Page>, all: StagedChange[], id: string | 
   return pages[id]?.title.trim() || untitled
 }
 
+/** The title a proposal's body shows, in words (a rename: "old → new"). */
+function titleText(pages: Record<string, Page>, run: AgentRun, c: StagedChange, untitled: string): string {
+  if (c.kind === 'rename') return `${c.beforeTitle ?? ''} → ${c.title ?? ''}`
+  if (c.kind === 'append' || c.kind === 'update_row' || c.kind === 'edit') return titleIn(pages, run.staged ?? [], run.rowIds?.[c.pageId] ?? c.pageId, untitled) || c.title || ''
+  return c.title ?? ''
+}
+
+interface BodyProps {
+  run: AgentRun
+  change: StagedChange
+  /** the row's id prefix: the title gets `<ids>-t`, the field changes `<ids>-d`, "needs #n" / the error `<ids>-x` */
+  ids?: string
+  /** the cut content preview: shown whole, and the key that opens it (the run review; Preflight shows the cut one) */
+  full?: boolean
+  more?: { label: (rest: number) => string; less: string; run: () => void }
+}
+
 /**
  * A custom agent's proposal as the run history shows it: its title (a rename: the old title struck), property diffs,
  * the word diff of an edit, the content preview, the error and "needs #n" — every part with `data-part`. The run
  * history's rows render it, and so does Preflight's card: both show the same parts.
  */
-export function AgentChangeBody({ run, change: c }: { run: AgentRun; change: StagedChange }) {
+export function AgentChangeBody({ run, change: c, ids, full, more }: BodyProps) {
   const t = useT()
-  const pages = useWorkspace((s) => s.pages)
   const all = run.staged ?? []
   const parent = c.dependsOn ? all.find((x) => x.id === c.dependsOn) : undefined
   const blocked = !!parent && parent.status !== 'applied'
-  const targetId = run.rowIds?.[c.pageId] ?? c.pageId
-  let title: ReactNode = c.title
-  if (c.kind === 'rename')
-    title = (
+  const untitled = t('common.untitled')
+  // only the title of what it is about: a write elsewhere draws it not again
+  const text = useWorkspace((s) => titleText(s.pages, run, c, untitled))
+  const id = (part: string) => (ids ? `${ids}-${part}` : undefined)
+  const title: ReactNode =
+    c.kind === 'rename' ? (
       <>
         <s className="agent-diff__before">{c.beforeTitle}</s> <span className="agent-diff__arrow">→</span> {c.title}
       </>
+    ) : (
+      text
     )
-  else if (c.kind === 'append' || c.kind === 'update_row' || c.kind === 'edit') title = titleIn(pages, all, targetId, t('common.untitled')) || c.title
   return (
     <>
       {title && (
-        <div className="agent-change__title" data-part="title">
+        <div className="agent-change__title" data-part="title" id={id('t')}>
           {title}
         </div>
       )}
       {c.props && c.props.length > 0 && (
-        <div className="chg-part" data-part="props">
+        <div className="chg-part" data-part="props" id={id('d')}>
           <PropDiff props={c.props} />
         </div>
       )}
@@ -619,16 +756,16 @@ export function AgentChangeBody({ run, change: c }: { run: AgentRun; change: Sta
       )}
       {c.markdown?.trim() && c.kind !== 'rename' && c.kind !== 'edit' && (
         <div className="chg-part" data-part="preview">
-          <Preview markdown={c.markdown} append={c.kind === 'append'} />
+          <Preview markdown={c.markdown} append={c.kind === 'append'} full={full} more={more} />
         </div>
       )}
       {c.status === 'failed' && c.error && (
-        <p className="agent-change__error" data-part="error">
+        <p className="agent-change__error" data-part="error" id={id('x')}>
           {t(c.kind === 'edit' ? 'features.agent.review.skipped' : 'features.agent.review.failed', { error: c.error })}
         </p>
       )}
       {blocked && parent && c.status === 'pending' && (
-        <p className="agent-change__hint label" data-part="needs">
+        <p className="agent-change__hint label" data-part="needs" id={id('x')}>
           {t('features.agent.review.needs', { n: parent.n })}
         </p>
       )}

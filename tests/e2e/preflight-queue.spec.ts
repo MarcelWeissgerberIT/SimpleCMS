@@ -939,6 +939,22 @@ test.describe('per-field trust: one card shown in full records a verdict (S1)', 
     await expect(page.getByTestId('agt-plate').locator(`[data-key="prop:${m.dbId}:${m.props.comments}"] .agt-row__note`)).toHaveText('3 × discarded without a reason — 1 (or W) says it was wrong')
   })
 
+  test('read only here: D, 1 and W on an agent card are inert like its buttons — said, nothing discarded, no verdict', async ({ page }) => {
+    const m = await morning(page)
+    await shown(page, 'run:r-now#c1')
+    await page.evaluate(() => (window as unknown as { __one: AnyState }).__one.cloud.useCloud.setState({ readOnly: true }))
+    for (const key of ['d', '1', 'w']) {
+      await page.keyboard.press(key)
+      await expect(live(page)).toContainText('read-only here')
+    }
+    await page.waitForTimeout(300)
+    expect(await runStatus(page, m.mirrorId, 'r-now', 'c1')).toBe('pending')
+    expect(await verdicts(page)).toEqual([])
+    await page.evaluate(() => (window as unknown as { __one: AnyState }).__one.cloud.useCloud.setState({ readOnly: false }))
+    await page.keyboard.press('d')
+    await expect.poll(() => runStatus(page, m.mirrorId, 'r-now', 'c1')).toBe('discarded')
+  })
+
   test('A on a card whose body is still loading applies it but records no verdict', async ({ page }) => {
     await start(page)
     const m = await seedMirror(page)

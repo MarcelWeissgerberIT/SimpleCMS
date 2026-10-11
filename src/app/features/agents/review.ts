@@ -17,10 +17,12 @@
  * happened (applyRun → ApplyResult | null, discardRun → the ids it dropped and, on request, its Undo).
  *
  * Per-field trust (trust/): a review of ONE proposal the person saw in full (`judged`: a row of the run review,
- * Preflight's single A / D / 1–4 on a card shown at its revision) writes a verdict per trust key of that change into
- * this device's book — `accept` (then watched 10 minutes for the person's own edits), `discard` with the reason, or a
- * reasonless one (`single`). Apply all / Discard all never pass `judged`. Undoing that decision takes its verdicts back.
- * Book writes happen inside the review's lock callback; the book never takes the run lock.
+ * Preflight's single A / D / 1–4 on a card shown at its revision; a body the preview cuts only once shown whole —
+ * `whole`) writes a verdict per trust key of that change into this device's book — `accept` (then watched 10 minutes
+ * for the person's own edits), `discard` with the reason, or a reasonless one (`single`) — and only once the decision
+ * holds (a server that refused it: none). Apply all / Discard all never pass `judged`. Undoing that decision takes its
+ * verdicts back (an Undo that keeps an edited field: the verdicts of the fields it put back). Book writes happen inside
+ * the review's lock callback; the book never takes the run lock.
  */
 import type { ID } from '../../store/types'
 import type { TrustKey } from '../../store/autonomy'
@@ -44,6 +46,7 @@ import { noteVerdicts, voidVerdicts } from './trust/book'
 import { keysOfChange } from './trust/keys'
 import { parseTrustKey } from '../../store/autonomy'
 import { unwatch, watchAccepted, type WatchItem } from './trust/watch'
+import { previewCut } from '../ai/agent/previewCut'
 
 const tn = (key: string, count: number) => t(`${key}.${count === 1 ? 'one' : 'other'}`, { count })
 
@@ -61,11 +64,20 @@ async function current(run: AgentRun, fresh = false): Promise<AgentRun | null> {
   return runs.find((r) => r.id === run.id) ?? null
 }
 
+/** A review's outcome as written: the run here now; `refused`: the server did not take it (why, in words). */
+interface Saved {
+  run: AgentRun
+  refused?: string
+}
+
 /**
  * Write a review's outcome: `patch` maps the run as it is stored to its next value (browser: patchRun — only what the
- * review changed). Server runs: this tab's copy, then the server is told which proposals were applied / discarded.
+ * review changed). Server runs: this tab's copy, then the server is told which proposals were applied / discarded. A
+ * server that refuses (a viewer, the run busy, no connection) still holds them as open: a discard did not happen
+ * (this tab's copy goes back); an apply was written here, so its copy stays applied (said in a toast). Either way the
+ * caller writes no verdict.
  */
-async function save(cur: AgentRun, patch: (r: AgentRun) => AgentRun, applied: string[], discarded: string[]): Promise<AgentRun> {
+async function save(cur: AgentRun, patch: (r: AgentRun) => AgentRun, applied: string[], discarded: string[]): Promise<Saved> {
   if (cur.runner === 'server') {
     const next = patch(cur)
     patchServerRun(next)
@@ -73,11 +85,17 @@ async function save(cur: AgentRun, patch: (r: AgentRun) => AgentRun, applied: st
       await resolveServerRun(cur.id, applied, discarded)
     } catch (e) {
       console.warn('[one] agents: could not mark the server run', e)
-      useUI.getState().toast({ message: `${t('features.agents.review.serverFailed')} ${serverErrorText(e)}`, kind: 'error' })
+      if (!applied.length) {
+        patchServerRun(cur)
+        return { run: cur, refused: `${t('features.agents.review.discardRefused')} ${serverErrorText(e)}` }
+      }
+      const refused = `${t('features.agents.review.serverFailed')} ${serverErrorText(e)}`
+      useUI.getState().toast({ message: refused, kind: 'error' })
+      return { run: next, refused }
     }
-    return next
+    return { run: next }
   }
-  return (await patchRun(cur.agentId, cur.id, patch)) ?? patch(cur)
+  return { run: (await patchRun(cur.agentId, cur.id, patch)) ?? patch(cur) }
 }
 
 /** ONE proposal applied from its row: its Undo (this tab, this session), by run and change. */
@@ -96,12 +114,18 @@ export function undoDiscard(runId: string, changeId: string): Promise<boolean> {
 }
 
 /** Verdicts this tab wrote for a judged decision, by run and change: what an Undo of that decision takes back. */
-const judged = new Map<string, { keys: TrustKey[]; ids: string[] }>()
+const judged = new Map<string, Array<{ id: string; key: TrustKey }>>()
 
 /** The keys a change of the run writes (staged rows resolved through `rowIds`). */
 function trustKeysOf(c: StagedChange, rowIds: Record<string, ID>): TrustKey[] {
   return keysOfChange(c, (id) => rowIds[id] ?? id, useWorkspace.getState().pages)
 }
+
+/** The change's body is cut in its review ("+ n more lines", ReviewParts Preview): not seen in full unless shown whole. */
+const bodyCut = (c: StagedChange) => c.kind !== 'rename' && c.kind !== 'edit' && !!c.markdown?.trim() && previewCut(c.markdown).rest > 0
+
+/** A decision counts as a verdict: the person judged ONE proposal and saw all of it. */
+const counts = (c: StagedChange, opts: { judged?: boolean; whole?: boolean }) => !!opts.judged && (!bodyCut(c) || !!opts.whole)
 
 /**
  * The person applied ONE proposal: an `accept` per key, then the fields / the new row are watched for their own edits
@@ -115,7 +139,7 @@ async function noteAccept(cur: AgentRun, c: StagedChange, rowIds: Record<string,
   const row = pages[real] ? real : undefined
   const made = await noteVerdicts(cur.agentId, keys.map((key) => ({ key, v: 'accept' as const, run: cur.id, change: c.id, ...(row ? { row } : {}) })))
   if (!made.length) return
-  judged.set(rowKey(cur.id, c.id), { keys, ids: made.map((v) => v.id) })
+  judged.set(rowKey(cur.id, c.id), made.map((v) => ({ id: v.id, key: v.key })))
   if (!row) return
   const now = useWorkspace.getState().pages[row]
   if (!now) return
@@ -136,22 +160,42 @@ async function noteDiscard(cur: AgentRun, c: StagedChange, rowIds: Record<string
   const real = rowIds[c.pageId] ?? c.pageId
   const row = pages[real] ? real : undefined
   const made = await noteVerdicts(cur.agentId, keys.map((key) => ({ key, v: 'discard' as const, run: cur.id, change: c.id, ...(reason ? { reason } : { single: true as const }), ...(row ? { row } : {}) })))
-  if (made.length) judged.set(rowKey(cur.id, c.id), { keys, ids: made.map((v) => v.id) })
+  if (made.length) judged.set(rowKey(cur.id, c.id), made.map((v) => ({ id: v.id, key: v.key })))
 }
 
-/** An Undo took these decisions back: their verdicts go (and their watches end). */
-async function voidJudged(agentId: ID, runId: string, changeIds: string[], kind: 'accept' | 'discard'): Promise<void> {
+/**
+ * An Undo took these decisions back: their verdicts go (and their watches end). `reverted`: an apply the Undo kept
+ * (a field edited since) but whose other fields it put back — the verdicts of those fields go, the rest stay.
+ */
+async function voidJudged(agentId: ID, runId: string, changeIds: string[], kind: 'accept' | 'discard', reverted: Record<string, ID[]> = {}): Promise<void> {
+  const v = kind === 'accept' ? (['accept', 'edited'] as const) : (['discard'] as const)
   const keys = new Set<TrustKey>()
   const changes: string[] = []
   for (const id of changeIds) {
     const j = judged.get(rowKey(runId, id))
     if (!j) continue
     judged.delete(rowKey(runId, id))
-    j.keys.forEach((k) => keys.add(k))
+    j.forEach((x) => keys.add(x.key))
     changes.push(id)
-    unwatch(j.ids)
+    unwatch(j.map((x) => x.id))
   }
-  if (changes.length) await voidVerdicts(agentId, runId, changes, kind === 'accept' ? ['accept', 'edited'] : ['discard'], [...keys])
+  if (changes.length) await voidVerdicts(agentId, runId, changes, [...v], [...keys])
+  if (kind !== 'accept') return
+  for (const [id, props] of Object.entries(reverted)) {
+    const j = judged.get(rowKey(runId, id))
+    if (!j || changeIds.includes(id)) continue
+    const back = new Set(props)
+    const gone = j.filter((x) => {
+      const k = parseTrustKey(x.key)
+      return k?.kind === 'prop' && back.has(k.prop)
+    })
+    if (!gone.length) continue
+    const left = j.filter((x) => !gone.includes(x))
+    if (left.length) judged.set(rowKey(runId, id), left)
+    else judged.delete(rowKey(runId, id))
+    unwatch(gone.map((x) => x.id))
+    await voidVerdicts(agentId, runId, [id], [...v], gone.map((x) => x.key))
+  }
 }
 
 /**
@@ -160,7 +204,7 @@ async function voidJudged(agentId: ID, runId: string, changeIds: string[], kind:
  * shows there (applied, or why not) with an Undo key (undoChange), no toast. Resolves with what applyChanges did, or
  * null when nothing was left to apply (applied / discarded / superseded elsewhere, the run gone or running).
  */
-export async function applyRun(run: AgentRun, ids?: string[], opts: { row?: boolean; judged?: boolean } = {}): Promise<ApplyResult | null> {
+export async function applyRun(run: AgentRun, ids?: string[], opts: { row?: boolean; judged?: boolean; whole?: boolean } = {}): Promise<ApplyResult | null> {
   const out = await withRunLock(run.agentId, async () => {
     const cur = await current(run, true)
     if (!cur || cur.status === 'running') return null
@@ -191,13 +235,14 @@ export async function applyRun(run: AgentRun, ids?: string[], opts: { row?: bool
     stampLocal(cur.agentId, changed, created)
     // the row's Undo before the run is stored: the row draws it as soon as it shows the change applied
     if (opts.row) for (const id of res.applied) rowUndos.set(rowKey(cur.id, id), res)
-    const next = await save(cur, (r) => ({ ...r, staged: mark(r.staged ?? []), rowIds: { ...(r.rowIds ?? {}), ...res.rowIds }, applied: (r.applied ?? 0) + res.applied.length }), res.applied, [])
-    // the person's decision on ONE proposal they saw in full: a verdict per trust key (never for Apply all)
-    if (opts.judged && ids?.length === 1 && res.applied.includes(ids[0])) {
+    const saved = await save(cur, (r) => ({ ...r, staged: mark(r.staged ?? []), rowIds: { ...(r.rowIds ?? {}), ...res.rowIds }, applied: (r.applied ?? 0) + res.applied.length }), res.applied, [])
+    // the person's decision on ONE proposal they saw in full: a verdict per trust key (never for Apply all; never when
+    // the server did not take it — it still shows the proposal as open)
+    if (ids?.length === 1 && res.applied.includes(ids[0]) && !saved.refused) {
       const c = all.find((x) => x.id === ids[0])
-      if (c) await noteAccept(cur, c, rowIds).catch((e) => console.warn('[one] agents: could not note a verdict', e))
+      if (c && counts(c, opts)) await noteAccept(cur, c, rowIds).catch((e) => console.warn('[one] agents: could not note a verdict', e))
     }
-    return { res, next }
+    return { res, next: saved.run }
   })
   if (!out) return null
   const { res, next } = out
@@ -233,8 +278,9 @@ export async function undoChangeEach(run: AgentRun, changeId: string): Promise<R
   if (!res) return null
   // every row of the same batch loses its Undo with it (one batch, one revert)
   for (const [key, r] of rowUndos) if (r === res) rowUndos.delete(key)
-  // the decisions that went back take their accept verdicts along (inside the run's lock)
-  const { kept } = await undoApply(run, res, true, (undone) => voidJudged(run.agentId, run.id, undone, 'accept'))
+  // the decisions that went back take their accept verdicts along (inside the run's lock); one kept because a field was
+  // edited since loses the verdicts of the fields that did go back
+  const { kept } = await undoApply(run, res, true, (undone, reverted) => voidJudged(run.agentId, run.id, undone, 'accept', reverted))
   const out: Record<string, 'undone' | 'kept' | 'final'> = {}
   for (const id of res.applied) out[id] = res.final.includes(id) ? 'final' : kept.includes(id) ? 'kept' : 'undone'
   return out
@@ -249,9 +295,11 @@ export async function undoRunAll(run: AgentRun): Promise<number | null> {
   return out ? out.kept.length : null
 }
 
-async function undoApply(run: AgentRun, res: ApplyResult, row = false, onUndone?: (undone: string[]) => Promise<void>): Promise<{ kept: string[] }> {
+type OnUndone = (undone: string[], reverted: Record<string, ID[]>) => Promise<void>
+
+async function undoApply(run: AgentRun, res: ApplyResult, row = false, onUndone?: OnUndone): Promise<{ kept: string[] }> {
   // the person's Undo (store/writer.ts)
-  const out = await settleUndo(run, () => ({ batch: res, kept: withWriter({ kind: 'you', via: 'undo', ref: run.id }, () => res.undo()).kept }), row, onUndone)
+  const out = await settleUndo(run, () => ({ batch: res, ...withWriter({ kind: 'you', via: 'undo', ref: run.id }, () => res.undo()) }), row, onUndone)
   return { kept: out?.kept ?? [] }
 }
 
@@ -260,11 +308,11 @@ async function undoApply(run: AgentRun, res: ApplyResult, row = false, onUndone?
  * then the run's changes as the review shows them — what went back is a proposal again (an 'apply' run then has
  * proposals to review), what was kept or cannot be undone stays applied, with its row id.
  */
-async function settleUndo(run: AgentRun, undo: () => { batch: ApplyResult; kept: string[] } | null, row = false, onUndone?: (undone: string[]) => Promise<void>): Promise<{ kept: string[] } | null> {
+async function settleUndo(run: AgentRun, undo: () => { batch: ApplyResult; kept: string[]; reverted?: Record<string, ID[]> } | null, row = false, onUndone?: OnUndone): Promise<{ kept: string[] } | null> {
   const kept = await withRunLock(run.agentId, async () => {
     const done = undo()
     if (!done) return null
-    const { batch: res, kept } = done
+    const { batch: res, kept, reverted = {} } = done
     const stays = new Set([...kept, ...res.final])
     const undone = res.applied.filter((id) => !stays.has(id))
     const cur = await current(run)
@@ -284,7 +332,7 @@ async function settleUndo(run: AgentRun, undo: () => { batch: ApplyResult; kept:
       if (cur.runner === 'server') patchServerRun(patch(cur))
       else await patchRun(cur.agentId, cur.id, patch)
     }
-    if (onUndone && undone.length) await onUndone(undone).catch((e) => console.warn('[one] agents: could not take a verdict back', e))
+    if (onUndone && (undone.length || Object.keys(reverted).length)) await onUndone(undone, reverted).catch((e) => console.warn('[one] agents: could not take a verdict back', e))
     return kept
   })
   if (kept === null) return null
@@ -304,16 +352,24 @@ export interface Discarded {
   dropped: string[]
   /** browser runs, when asked for: puts exactly those back (and the agent state, while it is still the one put back) */
   undo: (() => Promise<boolean>) | null
+  /** a server run's server did not take it (why, in words): nothing was discarded */
+  refused?: string
 }
 
 /**
  * Discard proposals of a run (`ids`; null = every open one) and the open proposals that build on them — only those
- * still open when the run is read again under its lock. `undo`: hand back an Undo (browser runs) — kept for the rows
- * too (canUndoDiscard / undoDiscard). `reason`: why (on the named proposals only, never their dependants). `judged`:
- * ONE proposal the person saw in full → a `discard` verdict per trust key (with the reason, else `single`).
+ * still open when the run is read again under its lock. `undo`: hand back an Undo (browser runs); `row`: ONE proposal
+ * discarded from its row (or a Preflight card) — its Undo is kept for the rows of its cascade too (canUndoDiscard /
+ * undoDiscard); a bulk discard keeps it only with the caller. `reason`: why (on the named proposals only, never their
+ * dependants). `judged` (+ `whole`): ONE proposal the person saw in full → a `discard` verdict per trust key (with the
+ * reason, else `single`) — once the discard holds.
  */
-export async function discardRun(run: AgentRun, ids: string | string[] | null, opts: { undo?: boolean; reason?: DiscardReason; judged?: boolean } = {}): Promise<Discarded> {
-  const out = await withRunLock(run.agentId, async () => {
+export async function discardRun(
+  run: AgentRun,
+  ids: string | string[] | null,
+  opts: { undo?: boolean; row?: boolean; reason?: DiscardReason; judged?: boolean; whole?: boolean } = {},
+): Promise<Discarded> {
+  const out = await withRunLock(run.agentId, async (): Promise<Discarded | null> => {
     const cur = await current(run, true)
     if (!cur || cur.status === 'running') return null
     const all = cur.staged ?? []
@@ -335,40 +391,48 @@ export async function discardRun(run: AgentRun, ids: string | string[] | null, o
     const mark = (list: StagedChange[]) =>
       list.map((c) => (drop.has(c.id) && isOpen(c) ? { ...c, status: 'discarded' as const, ...(reasonOn.has(c.id) ? { reason: opts.reason } : {}) } : c))
     const back = await stateBack({ ...cur, staged: mark(all) })
-    await save(cur, (r) => ({ ...r, staged: mark(r.staged ?? []), ...(back ? { steps: [...r.steps, back.note] } : {}) }), [], [...drop])
+    // ONE proposal the person named (its row, a card): the decision a verdict and a row's Undo are about
+    const one = ids !== null && named.length === 1 && drop.has(named[0]) ? all.find((c) => c.id === named[0]) : undefined
+    // the Undo before the run is stored: the row draws it as soon as it shows the change discarded
+    const undo = opts.undo && cur.runner === 'browser' ? discardUndo(cur.agentId, cur.id, [...drop], before, back, one?.id ?? null, !!opts.row && !!one) : null
+    const saved = await save(cur, (r) => ({ ...r, staged: mark(r.staged ?? []), ...(back ? { steps: [...r.steps, back.note] } : {}) }), [], [...drop])
+    if (saved.refused) return { dropped: [], undo: null, refused: saved.refused }
     // the person's decision on ONE proposal they saw in full: a verdict per trust key (never for Discard all)
-    const one = named.length === 1 && drop.has(named[0]) ? all.find((c) => c.id === named[0]) : undefined
-    if (opts.judged && ids !== null && one) await noteDiscard(cur, one, cur.rowIds ?? {}, opts.reason).catch((e) => console.warn('[one] agents: could not note a verdict', e))
-    return { dropped: [...drop], before, back, cur, one: opts.judged && ids !== null ? one?.id : undefined }
+    if (one && counts(one, opts)) await noteDiscard(cur, one, cur.rowIds ?? {}, opts.reason).catch((e) => console.warn('[one] agents: could not note a verdict', e))
+    return { dropped: [...drop], undo }
   })
-  if (!out) return { dropped: [], undo: null }
-  const { dropped, before, back, cur, one } = out
-  if (!opts.undo || cur.runner !== 'browser') return { dropped, undo: null }
-  const inner = () =>
-    withRunLock(cur.agentId, async () => {
-      const now = await current(cur)
+  return out ?? { dropped: [], undo: null }
+}
+
+/**
+ * The Undo of a discard: the proposals it dropped are open again (with their status before), the agent state it put
+ * back goes back too while it still is the one put back, the decision's verdicts go. Built from ids only (the run is read
+ * again under its lock): an Undo kept for the session never holds a copy of the run. `rows`: kept in the rows of the
+ * cascade (canUndoDiscard) — used here or by the caller, it is gone from all of them.
+ */
+function discardUndo(agentId: ID, runId: string, dropped: string[], before: Map<string, StagedChange['status']>, back: StateBack | null, one: string | null, rows: boolean): () => Promise<boolean> {
+  const keys = rows ? dropped.map((id) => rowKey(runId, id)) : []
+  const undo = (): Promise<boolean> => {
+    for (const k of keys) if (discardUndos.get(k) === undo) discardUndos.delete(k)
+    return withRunLock(agentId, async () => {
+      const now = (await loadRuns(agentId)).find((r) => r.id === runId)
       const again = new Set((now?.staged ?? []).filter((c) => before.has(c.id) && c.status === 'discarded').map((c) => c.id))
       if (!now || !again.size) return false
       // the agent state goes back only while it is still the one discarding put back (no run, no Clear since)
-      const restore = back && sameState(await getAgentState(cur.agentId), back.wrote)
-      await patchRun(cur.agentId, cur.id, (r) => ({
+      const restore = back && sameState(await getAgentState(agentId), back.wrote)
+      await patchRun(agentId, runId, (r) => ({
         ...r,
         staged: (r.staged ?? []).map((c) => (again.has(c.id) && c.status === 'discarded' ? { ...c, status: before.get(c.id) ?? 'pending', reason: undefined } : c)),
         ...(restore && back ? { steps: withoutLast(r.steps, back.note) } : {}),
       }))
-      if (restore && back) await putAgentState(cur.agentId, back.replaced)
+      if (restore && back) await putAgentState(agentId, back.replaced)
       // the decision is taken back: its discard verdicts go too
-      if (one && again.has(one)) await voidJudged(cur.agentId, cur.id, [one], 'discard').catch((e) => console.warn('[one] agents: could not take a verdict back', e))
+      if (one && again.has(one)) await voidJudged(agentId, runId, [one], 'discard').catch((e) => console.warn('[one] agents: could not take a verdict back', e))
       return true
     })
-  // ONE Undo for the whole cascade: kept in its rows (this tab), gone from all of them once used — here or by the caller
-  const keys = dropped.map((id) => rowKey(cur.id, id))
-  const undo = () => {
-    for (const k of keys) if (discardUndos.get(k) === undo) discardUndos.delete(k)
-    return inner()
   }
   for (const k of keys) discardUndos.set(k, undo)
-  return { dropped, undo }
+  return undo
 }
 
 const sameState = (a: AgentState | null, b: AgentState | null) => (a === null || b === null ? a === b : a.runId === b.runId && a.at === b.at && a.json === b.json)

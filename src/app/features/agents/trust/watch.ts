@@ -3,15 +3,17 @@
  * 10 minutes (this tab) was not right as it was: its `accept` verdict becomes `edited`.
  *  - a field (update_row): the person's write changes that property to a value other than the one stored right after
  *    the apply (stable JSON); a row (create_row): the person changes its title or any property;
- *  - the person = a write framed `you` (not an Undo) or `editor`, or no frame inside a person's input event — never an
- *    automation, an agent, a sync, another member;
+ *  - the person = their own edit of the value: a write framed `you` through the UI or the agenda (no via, 'ui',
+ *    'agenda'), `editor`, or no frame inside a person's input event — never an Undo, nor what works for them after a
+ *    press (the Outbox's row patch after "Mark as sent", a button's or a command's actions, a template, people merges,
+ *    memory, setup …), never an automation, an agent, a sync, another member;
  *  - in memory, this tab only (lost on reload); ONE store subscription while anything is watched, and per store update
  *    only the watched rows are looked at. It never writes the store — only the book (patchBook, async).
  */
 import type { ID, Page, PropertyValue } from '../../../store/types'
 import type { TrustKey } from '../../../store/autonomy'
 import { useWorkspace } from '../../../store/store'
-import { currentWriter, inPersonEvent } from '../../../store/writer'
+import { currentWriter, inPersonEvent, type YouVia } from '../../../store/writer'
 import { patchBook } from './book'
 import { TRUST } from './rules'
 import { stableJson } from './stable'
@@ -46,11 +48,14 @@ const pending = new Set<Promise<unknown>>()
 
 const MS = TRUST.EDIT_MIN * 60_000
 
-/** The person wrote this store update (not an Undo, not anything working for them). */
+/** The person's own value edits (`you` frames): typed or picked in a field, or a date moved in the agenda. */
+const OWN_EDIT: ReadonlySet<YouVia | undefined> = new Set<YouVia | undefined>([undefined, 'ui', 'agenda'])
+
+/** The person wrote this store update themselves (not an Undo, not anything working for them). */
 function byPerson(): boolean {
   const w = currentWriter()
   if (!w) return inPersonEvent()
-  return (w.kind === 'you' && w.via !== 'undo') || w.kind === 'editor'
+  return (w.kind === 'you' && OWN_EDIT.has(w.via)) || w.kind === 'editor'
 }
 
 function drop(id: string): void {

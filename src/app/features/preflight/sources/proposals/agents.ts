@@ -94,7 +94,9 @@ async function applyOne(run: AgentRun, c: StagedChange, judged: boolean): Promis
 }
 
 async function discardOne(run: AgentRun, c: StagedChange, opts: { reason?: DiscardReason; judged: boolean }): Promise<Done> {
-  const out = await discardAgent(run, [c.id], opts)
+  const out = await discardAgent(run, [c.id], { ...opts, row: true })
+  // the server did not take it: nothing was discarded, the card stays and says why
+  if (out.refused) return { ok: false, error: out.refused }
   if (!out.dropped.length) return { ok: false, error: 'features.preflight.err.elsewhere', elsewhere: true }
   const more = out.dropped.length - 1
   const undo = out.undo
@@ -149,6 +151,8 @@ export function agentActions(item: QueueItem): CardAction[] {
     group: 'reasons' as const,
     label: t(`features.preflight.card.reason.${r}`),
     outcome: 'discarded' as const,
+    // the server is told (a viewer's discard is refused there): inert while read only, like the card's own keys
+    writes: true,
     undoable: browser,
     blocked: stop,
     ...(r === 'wrong' ? { also: [wrongLetter(lang)] } : {}),
@@ -156,7 +160,7 @@ export function agentActions(item: QueueItem): CardAction[] {
   }))
   return [
     { key: 'a', label: t('features.preflight.card.apply'), outcome: 'applied', writes: true, undoable: browser, blocked, run: (_it, _input, ctx) => applyOne(run, c, ctx?.seen === true) },
-    { key: 'd', label: t('features.preflight.card.discard'), outcome: 'discarded', undoable: browser, blocked: stop, run: (_it, _input, ctx) => discardOne(run, c, { judged: ctx?.seen === true }) },
+    { key: 'd', label: t('features.preflight.card.discard'), outcome: 'discarded', writes: true, undoable: browser, blocked: stop, run: (_it, _input, ctx) => discardOne(run, c, { judged: ctx?.seen === true }) },
     ...reasons,
     open,
   ]
@@ -209,8 +213,10 @@ export async function agentBulkDiscard(items: QueueItem[]): Promise<Done> {
   const did: string[] = []
   const finals: Record<string, string> = {}
   const undos: Array<() => Promise<Record<string, UndoOutcome>>> = []
+  let refused: string | undefined
   for (const g of byRun(items)) {
     const out = await discardAgent(g.run, g.ids)
+    refused ??= out.refused
     const dropped = g.items.filter((it) => out.dropped.includes(it.refs.changeId ?? ''))
     did.push(...dropped.map((it) => it.id))
     const undo = out.undo
@@ -223,7 +229,7 @@ export async function agentBulkDiscard(items: QueueItem[]): Promise<Done> {
       return Object.fromEntries(dropped.map((it) => [it.id, r]))
     })
   }
-  if (!did.length) return { ok: false, error: 'features.preflight.err.elsewhere', elsewhere: true }
+  if (!did.length) return refused ? { ok: false, error: refused } : { ok: false, error: 'features.preflight.err.elsewhere', elsewhere: true }
   return { ok: true, items: did, finals, ...(undos.length ? { undo: merged(undos) } : {}) }
 }
 

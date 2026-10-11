@@ -173,10 +173,11 @@ export function patchRun(agentId: ID, runId: string, fn: (stored: AgentRun) => A
       ),
     )
     .then(() => {
-      // the stored result is the truth: this tab's copy follows it (a copy older than another tab's write included)
+      // the stored result is the truth: this tab's copy follows it (a copy older than another tab's write included) —
+      // the proposals it did not change keep this copy's objects (the review's rows draw only what changed)
       const now = useAgentRuns.getState().byAgent[agentId]
       const w = written
-      if (now && w) setRuns(agentId, now.map((r) => (r.id === runId ? w : r)))
+      if (now && w) setRuns(agentId, now.map((r) => (r.id === runId ? sharing(r, w) : r)))
       if (w) post(agentId)
     })
     .catch((e) => console.warn('[one] agents: could not save a run', e))
@@ -187,6 +188,18 @@ export function patchRun(agentId: ID, runId: string, fn: (stored: AgentRun) => A
     })
   queues.set(agentId, job)
   return job.then(() => written)
+}
+
+/** `next` (as stored) with the proposals and row ids that equal this tab's copy `was` taken from `was` (same objects). */
+function sharing(was: AgentRun, next: AgentRun): AgentRun {
+  if (was === next || !was.staged || !next.staged) return next
+  const old = new Map(was.staged.map((c) => [c.id, c]))
+  const staged = next.staged.map((c) => {
+    const o = old.get(c.id)
+    return o && o !== c && JSON.stringify(o) === JSON.stringify(c) ? o : c
+  })
+  const rowIds = was.rowIds && next.rowIds && JSON.stringify(was.rowIds) === JSON.stringify(next.rowIds) ? was.rowIds : next.rowIds
+  return { ...next, staged, ...(rowIds ? { rowIds } : {}) }
 }
 
 /** The agent's in-tab queue of locked work (without Web Locks: the only lock). */

@@ -5,6 +5,7 @@
 import { useT } from '../../../i18n'
 import { MarkdownLite } from '../MarkdownLite'
 import type { ColumnSpec, PropChange, StagedChange } from './types'
+import { previewCut } from './previewCut'
 
 /** Property changes of a staged change (also the custom agents' review, features/agents). */
 export function PropDiff({ props }: { props: PropChange[] }) {
@@ -32,25 +33,27 @@ export function PropDiff({ props }: { props: PropChange[] }) {
   )
 }
 
-const PREVIEW_LINES = 10
-
-/** Content preview of a staged change (also the custom agents' review, features/agents). */
-export function Preview({ markdown, append }: { markdown: string; append: boolean }) {
+/**
+ * Content preview of a staged change (also the custom agents' review, features/agents): whole blocks up to
+ * PREVIEW_LINES (previewCut.ts). `more`: the cut part can be shown (its key keeps the focus where it is — a press that
+ * moved it could reflow the row under the pointer); `full`: show every line.
+ */
+export function Preview({ markdown, append, full = false, more }: { markdown: string; append: boolean; full?: boolean; more?: { label: (rest: number) => string; less: string; run: () => void } }) {
   const t = useT()
-  const lines = markdown.trim().split('\n')
-  // never cut inside a code fence or a table: show whole blocks up to the limit
-  let end = Math.min(lines.length, PREVIEW_LINES)
-  const fences = lines.slice(0, end).filter((l) => /^\s*```/.test(l)).length
-  if (fences % 2) {
-    const close = lines.findIndex((l, i) => i >= end && /^\s*```/.test(l))
-    end = close >= 0 ? close + 1 : lines.length
-  }
-  const rest = lines.length - end
+  const cut = previewCut(markdown)
+  const end = full ? cut.lines.length : cut.end
+  const rest = cut.lines.length - end
   return (
     <div className="agent-preview" data-append={append || undefined}>
       {append && <span className="agent-preview__plus mono" aria-hidden>+</span>}
-      <MarkdownLite source={lines.slice(0, end).join('\n')} />
-      {rest > 0 && <span className="agent-preview__more label">{t('features.agent.review.more', { count: rest })}</span>}
+      <MarkdownLite source={cut.lines.slice(0, end).join('\n')} />
+      {more && cut.rest > 0 ? (
+        <button type="button" className="btn btn--ghost btn--sm agent-preview__more" aria-expanded={full} onMouseDown={(e) => e.preventDefault()} onClick={more.run}>
+          {full ? more.less : more.label(cut.rest)}
+        </button>
+      ) : (
+        rest > 0 && <span className="agent-preview__more label">{t('features.agent.review.more', { count: rest })}</span>
+      )}
     </div>
   )
 }

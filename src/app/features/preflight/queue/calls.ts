@@ -37,8 +37,8 @@ export const settleMissing = (trash: boolean): Promise<void> => resolveMissing(t
 export const applyAgent = (run: AgentRun, ids: string[], judged = false): Promise<ApplyResult | null> => applyRun(run, ids, { row: true, judged })
 /** The Undo of a batch applied from a card: what it did to each change (null: nothing to undo here any more). */
 export const undoAgent = (run: AgentRun, changeId: string): Promise<Record<string, 'undone' | 'kept' | 'final'> | null> => undoChangeEach(run, changeId)
-/** `reason`: why (1–4 / F / W); `judged`: as for applyAgent */
-export const discardAgent = (run: AgentRun, ids: string[], opts: { reason?: DiscardReason; judged?: boolean } = {}): Promise<Discarded> => discardRun(run, ids, { undo: true, ...opts })
+/** `row`: ONE card's discard (its Undo kept in the agent page's rows too, never a bulk X's); `reason`: why (1–4 / F / W); `judged`: as for applyAgent */
+export const discardAgent = (run: AgentRun, ids: string[], opts: { row?: boolean; reason?: DiscardReason; judged?: boolean } = {}): Promise<Discarded> => discardRun(run, ids, { undo: true, ...opts })
 /** "Run now" of a missed scheduled agent (it costs tokens: VON HAND). */
 export const runAgent = (agent: CustomAgent): Promise<void> => runAgentNow(agent)
 

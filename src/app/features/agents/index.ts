@@ -49,7 +49,8 @@ export { recipeOptionNames } from './integrations/recipe'
 /**
  * Preflight's proposals queue (P2) — the review entry points, with their own safety rules (review.ts: the run lock, the
  * stored run read again, open proposals only, a patch of what changed):
- *  - applyRun(run, ids?, { row }) → ApplyResult | null · discardRun(run, ids | null, { undo }) → { dropped, undo } ·
+ *  - applyRun(run, ids?, { row, judged, whole }) → ApplyResult | null · discardRun(run, ids | null, { undo, row, reason,
+ *    judged, whole }) → { dropped, undo, refused? } ·
  *    undoChange(run, changeId) → kept | null · undoChangeEach(run, changeId) → { changeId: 'undone' | 'kept' | 'final' } | null
  *  - AgentChangeBody { run, change, bare? }: the run history's own body of a proposal, loaded with the agents page's code
  *    on first use (AGENT_BODY_KINDS: the kinds it shows; `bare`: the caller's Suspense waits for it)
