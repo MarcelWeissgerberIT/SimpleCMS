@@ -9,7 +9,7 @@ import { dropPins, listPinBodies, listPinMetas, pinToBody } from '../../history/
 import { readPinBodies, readPinMetas } from './pins'
 import type { JOp, JSegment, LaneKey, PlaceKey, Scope } from '../model/types'
 import { dayKey, HI, openJournal, pad13, pad8, scopeRange, STORES, type Batch } from './db'
-import { journalBytes } from './prune'
+import { journalBytes, pruneHumanPins, pruneTodayPins } from './prune'
 import { digestWhole, scopeKey } from './key'
 import { lostTails } from './recover'
 import { scopeNow } from './scope'
@@ -289,6 +289,8 @@ export function installSeam(rec: Recorder): void {
     waitingDetail: () => ({ waiting: rec.processor.waiting, jobs: rec.processor.jobCount }),
     paused: () => rec.budget.paused,
     prune: (now?: number) => rec.prune(now),
+    /** the budget's pin steps: every pin of today ('today', share 1) or the person's older than 7 days ('human') */
+    prunePins: (kind: 'today' | 'human', now?: number) => (kind === 'today' ? pruneTodayPins(now ?? Date.now(), {}, 1) : pruneHumanPins(now ?? Date.now(), {})),
     recover: (scope?: Scope) => rec.recover(scope ?? scopeOf()),
     recovered: (scope?: Scope) => rec.recovered(scope ?? scopeOf()),
     crash: () => rec.crash(),

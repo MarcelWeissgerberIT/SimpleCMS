@@ -154,6 +154,37 @@ test.describe('flight recorder — the eject', () => {
     expect(await rec(page, 'unknowns')).toEqual([])
   })
 
+  test('prune (E19): the budget’s pin steps keep the pins a live eject needs — its own segments and the places it took back; the Undo after a reload still plans from them', async ({ page }) => {
+    test.setTimeout(150_000)
+    await bootStory(page)
+    const r = await rec<{ id: string; state: string }>(page, 'eject', window212())
+    expect(r.state).toBe('done')
+    await flush(page)
+    // pin ids end in `<seg>.<wt>`: the segments whose pins are on the device
+    const segsWithPins = async () => new Set((await rec<{ metas: Array<{ id: string }> }>(page, 'pins')).metas.map((m) => {
+      const last = m.id.slice(m.id.lastIndexOf('|') + 1)
+      return last.slice(0, last.lastIndexOf('.'))
+    }))
+    const recs = await rec<Array<{ id: string; segs: string[] }>>(page, 'ejects')
+    const needed = new Set(recs.find((x) => x.id === r.id)!.segs)
+    const own = (await rec<Array<{ id: string; r?: string }>>(page, 'segments')).filter((g) => g.r?.startsWith('eject:')).map((g) => g.id)
+    expect(needed.size).toBeGreaterThan(0)
+    expect(own.length).toBeGreaterThan(0)
+    const before = await segsWithPins()
+    // every pin of today, as when the workspace could not save — but none an eject needs
+    await rec(page, 'prunePins', 'today')
+    const after = await segsWithPins()
+    for (const id of [...needed, ...own]) if (before.has(id)) expect(after.has(id), id).toBe(true)
+    // the others went
+    expect([...before].filter((id) => !needed.has(id) && !own.includes(id)).some((id) => !after.has(id))).toBe(true)
+    await reloadApp(page)
+    await startRecorder(page)
+    const u = await rec<{ ok?: boolean; back?: number; kept?: number }>(page, 'undoEject', r.id)
+    expect(u).toMatchObject({ ok: true, back: story.expect.eject.back, kept: 0 })
+    expect(await wsEval(page, (s) => s.pages['story-report'].content.content.length)).toBe(5)
+    expect(await rec(page, 'unknowns')).toEqual([])
+  })
+
   test('write-ahead: a commit that dies after its store update is finished by the next boot from its targets', async ({ page, context }) => {
     test.setTimeout(150_000)
     await bootStory(page)
