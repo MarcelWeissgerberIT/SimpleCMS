@@ -25,6 +25,7 @@ import { digestLeft, digestPart, digestWhole } from './key'
 import { dayKey, HI, journalIfOpen, pad13, pad8, type Batch, type Bump, type Journal, type StoreName } from './db'
 import { dropMemoryPins, pagePin, pinDefsDb, schemaPin, storePins } from './pins'
 import { RunBook } from './runs'
+import { emitFlushed } from './bus'
 import { isQuotaError, type PinInput } from '../../history/pins'
 
 export const SEG_IDLE = 2 * 60_000
@@ -1144,6 +1145,8 @@ export class Processor {
       if (lost) batch.put!.kv = [{ k: `${lost.s}|gap|${pad13(lost.from)}`, from: lost.from, to: lost.to, tab: this.tab }]
       part = 'flush:write'
       await this.writeInParts(j, batch, lap)
+      // the deck merges what landed without a read; other tabs are pinged
+      emitFlushed({ ops: put.ops as unknown as JOp[], runs })
       if (clean) {
         // an update that came while the write ran: the records must say dirty again
         if (this.seen === seen0) this.recordClean = true

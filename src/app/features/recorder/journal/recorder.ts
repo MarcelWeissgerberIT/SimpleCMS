@@ -22,6 +22,7 @@ import { idleTask, noteTask, Processor, type QItem, type Stats } from './process
 import { pruneHumanPins, pruneOldestDays, pruneRetention, pruneTodayPins, type PruneOpts } from './prune'
 import { recoverScope } from './recover'
 import { installSeam } from './seam'
+import { emitReset } from './bus'
 
 export { scopeNow }
 
@@ -373,6 +374,7 @@ export class Recorder {
     await wipeScope(scope)
     forgetScopeKey(scope)
     if (scope === scopeNow()) this.processor.reset()
+    emitReset(scope)
   }
 
   /** Flush and close segments (all, or a writer's: its segmentation key, run key, writer key or lane). */
@@ -421,6 +423,7 @@ export class Recorder {
         return { ops: 0, segs: 0, pins: 0 }
       })
     this.budget.freed()
+    if (res.ops || res.segs || res.pins) emitReset(null)
     return res
   }
 }
