@@ -908,9 +908,9 @@ test.describe('agenda + people (in the app)', () => {
     const plan = await createPage(page, {
       title: 'Pricing launch',
       content: doc(
-        item({ id: 'ba', itemId: A, due: '2026-10-16' }, 'Run the checkout'),
-        item({ id: 'bb', itemId: B, status: 'done', doneAt: NOW, due: '2026-10-16T14:30' }, 'Approve the copy'),
-        item({ id: 'bc', itemId: C, due: '2026-10-12' }, 'Move the invoice template'),
+        item({ id: 'ba', itemId: A, due: '2026-10-16' }, 'Print the flyers'),
+        item({ id: 'bb', itemId: B, status: 'done', doneAt: NOW, due: '2026-10-16T14:30' }, 'Sign the venue contract'),
+        item({ id: 'bc', itemId: C, due: '2026-10-12' }, 'Send the invoices'),
         item({ id: 'bd', itemId: OUT }, 'No date, not on the agenda'),
       ),
     })
@@ -924,7 +924,7 @@ test.describe('agenda + people (in the app)', () => {
     await expect(projects).toHaveAttribute('aria-pressed', 'false')
 
     // month: the task sits on its day, by its title
-    const bar = page.locator('.ag-month .ag-bar', { hasText: 'Run the checkout' })
+    const bar = page.locator('.ag-month .ag-bar', { hasText: 'Print the flyers' })
     await expect(bar).toHaveAttribute('data-start', '2026-10-16')
     await expect(bar).toHaveAttribute('aria-label', /Tasks/)
     await expect(page.locator('.ag-month .ag-bar', { hasText: 'No date' })).toHaveCount(0)
@@ -942,20 +942,20 @@ test.describe('agenda + people (in the app)', () => {
     await page.locator('.toast', { hasText: 'moved to' }).getByRole('button', { name: 'Undo' }).click()
     await expect.poll(async () => (await storedTask(page, plan, A))?.due).toBe('2026-10-16')
     // a done task does not move
-    await expect(page.locator('.ag-month .ag-bar', { hasText: 'Approve the copy' })).not.toHaveAttribute('data-movable', 'true')
+    await expect(page.locator('.ag-month .ag-bar', { hasText: 'Sign the venue contract' })).not.toHaveAttribute('data-movable', 'true')
 
     // list: done faded, the late one in the overdue group
     await page.keyboard.press('l')
     await expect(page.locator('.ag')).toHaveAttribute('data-view', 'list')
-    const done = page.locator('.ag-row', { hasText: 'Approve the copy' })
+    const done = page.locator('.ag-row', { hasText: 'Sign the venue contract' })
     await expect(done).toHaveAttribute('data-done', 'true')
     await expect(done.locator('.ag-row__excerpt')).toHaveText('Pricing launch')
     const overdue = page.locator('.ag-group[data-overdue]')
-    await expect(overdue).toContainText('Move the invoice template')
-    await expect(overdue).not.toContainText('Approve the copy')
+    await expect(overdue).toContainText('Send the invoices')
+    await expect(overdue).not.toContainText('Sign the venue contract')
 
     // a click opens the page at the task's block
-    await page.locator('.ag-row', { hasText: 'Run the checkout' }).click()
+    await page.locator('.ag-row', { hasText: 'Print the flyers' }).click()
     await expect(page).toHaveURL(new RegExp(`#/p/${plan}\\?b=ba`))
     await flush(page)
     expect(errors.list).toEqual([])
@@ -1065,6 +1065,70 @@ test.describe('Markdown labels (in the app)', () => {
     expect(errors.list).toEqual([])
   })
 })
+
+/* ------------------------------------------------------------------ */
+/* B18: the demo seed's "Launch plan" (EN + DE)                        */
+/* ------------------------------------------------------------------ */
+
+const SEED = {
+  en: { title: 'Launch plan: new pricing page', c: 'Switch the pricing page live', d: 'Move the invoice template to the new plans', e: 'Legal review of the terms', lock: 'Waiting for 2 of 3', overdue: /Overdue/, freed: 'Freed 1', blocked: /Blocked/ },
+  de: { title: 'Launch-Plan: neue Preisseite', c: 'Preisseite live schalten', d: 'Rechnungsvorlage auf die neuen Tarife umstellen', e: 'Rechtliche Prüfung der AGB', lock: 'Wartet auf 2 von 3', overdue: /Überfällig/, freed: '1 freigegeben', blocked: /Blockiert/ },
+} as const
+
+for (const lang of ['en', 'de'] as const) {
+  test.describe(`seed "Launch plan" (${lang})`, () => {
+    test.use({ locale: lang === 'de' ? 'de-DE' : 'en-US' })
+    test('7 tasks (2 compact), every task and title with a block id; C blocked 2 of 3, D overdue, E done FREED 1', async ({ page, errors }) => {
+      const S = SEED[lang]
+      await openApp(page)
+      const id = await wsEval(page, (s, title) => (Object.values(s.pages) as Array<{ id: string; title: string; parentId: string | null }>).find((p) => p.title === title && !p.parentId)?.id ?? null, S.title)
+      expect(id).toBeTruthy()
+      const facts = await wsEval(
+        page,
+        (s, id) => {
+          const out: Array<{ id: unknown; titleId: unknown; itemId: unknown; inList: boolean; reminder: unknown }> = []
+          const walk = (n: any, parent: string) => {
+            if (n.type === 'workItem') out.push({ id: n.attrs?.id, titleId: n.content?.[0]?.attrs?.id, itemId: n.attrs?.itemId, inList: parent === 'listItem', reminder: n.attrs?.reminder ?? null })
+            for (const c of n.content ?? []) walk(c, n.type)
+          }
+          walk(s.pages[id].content, '')
+          return out
+        },
+        id!,
+      )
+      expect(facts).toHaveLength(7)
+      expect(facts.filter((f) => f.inList)).toHaveLength(2)
+      for (const f of facts) {
+        expect(typeof f.id === 'string' && f.id.length > 8).toBe(true)
+        expect(typeof f.titleId === 'string' && f.titleId.length > 8).toBe(true)
+        expect(String(f.itemId)).toMatch(/^wi_[0-9A-Za-z_-]{10}$/)
+      }
+      expect(new Set(facts.map((f) => f.itemId)).size).toBe(7)
+      // the seed's one task reminder
+      expect(facts.filter((f) => f.reminder).map((f) => f.reminder)).toEqual(['-1d'])
+
+      await gotoPage(page, id!)
+      const ed = editorOf(page, id!)
+      const tasks = ed.locator('[data-type="work-item"]')
+      await expect(tasks).toHaveCount(7)
+      await expect(ed.locator('[data-type="work-item"][data-compact]')).toHaveCount(2)
+      // by the title line (a blocker chip shows another task's title too)
+      const byTitle = (title: string) => tasks.filter({ has: page.locator('p', { hasText: new RegExp(`^${title.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')}$`) }) }).first()
+      const c = byTitle(S.c)
+      await expect(c).toHaveAttribute('data-state', 'blocked')
+      await expect(c.locator('.workitem__state')).toHaveText(S.blocked)
+      await expect(c.locator('.workitem__lock')).toHaveText(S.lock)
+      const d = byTitle(S.d)
+      await expect(d).toHaveAttribute('data-late', '')
+      await expect(d.locator('.workitem__state')).toHaveText(S.overdue)
+      const e = byTitle(S.e)
+      await expect(e).toHaveAttribute('data-status', 'done')
+      await expect(e.locator('.workitem__chip--blocks')).toHaveText(S.freed)
+      await flush(page)
+      expect(errors.list).toEqual([])
+    })
+  })
+}
 
 /* ------------------------------------------------------------------ */
 /* B6: schema pins — P1 adds no node and no attribute                  */
