@@ -144,6 +144,14 @@ SHOTS['r2-read-1440-xl'] = async (name) => {
   await s.page.screenshot({ path: `${OUT}/${name}.png` })
   await done(s, name)
 }
+for (const lang of ['de', 'en'])
+  SHOTS[`r2-report-${lang}`] = async (name) => {
+    const s = await open({ lang })
+    const download = s.page.waitForEvent('download')
+    await s.page.locator('.deck .dbtn--report').click()
+    await (await download).saveAs(`${OUT}/${name}.md`)
+    await done(s, name)
+  }
 
 for (const [name, fn] of Object.entries(SHOTS)) if (want(name)) await fn(name).catch((e) => {
   failed = true

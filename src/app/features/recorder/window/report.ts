@@ -33,6 +33,8 @@ export interface ReportFacts {
   dbTitle(db: string): string
   /** a property's name (now, else from the delta that named it) */
   propName(db: string, prop: string): string | null
+  /** where a property stands in its database (names are listed in that order; unknown ones last) */
+  propIndex?(db: string, prop: string): number
 }
 
 export interface ReportOpts {
@@ -160,11 +162,14 @@ export function incidentReport(model: ReadModel, facts: ReportFacts, opts: Repor
       else for (const x of g.touched) touched.add(x)
     }
     const db = it.db ?? ''
+    // the title first, then the properties as the database lists them
+    const order = (x: string) => (x === 't' ? -1 : x.startsWith('p:') ? ((i) => (i < 0 ? 1e6 : i))(facts.propIndex?.(db, x.slice(2)) ?? -1) : 2e6)
     const names = all
       ? it.act === 'new'
         ? k('read.act.new')
         : '—'
       : [...touched]
+          .sort((x, y) => order(x) - order(y) || (x < y ? -1 : 1))
           .map((x) => (x.startsWith('p:') ? facts.propName(db, x.slice(2)) : x === 't' ? k('report.title.row') : null))
           .filter((x): x is string => !!x)
           .join(', ') || '—'

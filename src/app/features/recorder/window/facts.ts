@@ -73,5 +73,6 @@ export async function reportFacts(model: ReadModel, t: Translate): Promise<Repor
     },
     dbTitle: (db: string) => s.pages[db]?.title || t('features.recorder.report.untitled'),
     propName: (db: string, prop: string) => s.databases[db]?.properties.find((x) => x.id === prop)?.name ?? deltaNames.get(prop) ?? null,
+    propIndex: (db: string, prop: string) => s.databases[db]?.properties.findIndex((x) => x.id === prop) ?? -1,
   }
 }

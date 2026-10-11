@@ -736,6 +736,7 @@ test.describe('the incident report', () => {
     rowKey: () => null,
     dbTitle: () => 'Nordlicht Handoff',
     propName: (_db, prop) => ({ stage: 'Stage', note: 'Notiz' })[prop] ?? null,
+    propIndex: (_db, prop) => ({ stage: 0, note: 1 })[prop] ?? -1,
   }
 
   test('headings, the window, every writer, schema names, pages, rows (property NAMES), notes — EN and DE; never a value or content', () => {
@@ -765,7 +766,7 @@ test.describe('the incident report', () => {
       expect(md).toContain(lang === 'de' ? '- Nordlicht Handoff · Stage · Option „Ready“ entfernt · 07:32:16' : '- Nordlicht Handoff · Stage · option “Ready” removed · 07:32:16')
       expect(md).toContain(lang === 'de' ? '- Nordlicht-Spiegel · Bericht · Text +212 −0 Wörter · 07:34' : '- Nordlicht-Spiegel · Bericht · text +212 −0 words · 07:34')
       // a title with a pipe stays one cell; the changed properties by name
-      expect(md).toMatch(/\| NL-1408 \\\| Export \| Nordlicht Handoff \| (Stage, Notiz, (Titel|title)|Notiz, Stage, (Titel|title)|.*Stage.*Notiz.*) \| (ja|yes) \| 07:31 \|/)
+      expect(md).toMatch(/\| NL-1408 \\\| Export \| Nordlicht Handoff \| (Titel|title|Title), Stage, Notiz \| (ja|yes) \| 07:31 \|/)
       expect(md).toContain(lang === 'de' ? '| NL-1432 | Nordlicht Handoff | neu | — | 07:33 |' : '| NL-1432 | Nordlicht Handoff | new | — | 07:33 |')
       expect(md).toContain(lang === 'de' ? 'Möglicherweise unvollständig' : 'Possibly incomplete')
       for (const secret of ['Lindenweg 12', '98765.4321', 'Nordlicht-Geheimwert-7', 'o-doing', '"NL-1408"']) expect(md, secret).not.toContain(secret)
