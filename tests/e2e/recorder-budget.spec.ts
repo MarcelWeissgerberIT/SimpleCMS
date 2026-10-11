@@ -294,6 +294,30 @@ test.describe('flight recorder — room and before-images', () => {
     expect((await recPins(page)).metas.map((m) => m.id)).not.toContain(seg.before)
   })
 
+  test('memory mode: a page deleted for good loses the before-images this tab kept of it', async ({ page }) => {
+    // no IndexedDB for the journal (a private window): the journal and its pins live in this tab
+    await page.addInitScript(() => {
+      const open = IDBFactory.prototype.open
+      IDBFactory.prototype.open = function (name: string, version?: number) {
+        if (name === 'one-recorder') throw new DOMException('no storage', 'InvalidStateError')
+        return open.call(this, name, version)
+      }
+    })
+    const id = await boot(page, () => wsEval(page, (s) => s.createPage({ title: 'Tessera Privat', content: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Mara Lind, Lindenweg 12' }] }] } }) as string))
+    expect(await rec(page, 'mode')).toBe('memory')
+    await step(page, agent('privat'), [['updatePage', id, { title: 'Tessera Privat 2' }]], { end: true })
+    await rec(page, 'settle')
+    const seg = (await segmentsOf(page, `p:${id}`)).find((s) => s.r === `agent:${AGENT}:privat`)!
+    expect(seg.before).toBeTruthy()
+    expect(JSON.stringify(await rec(page, 'pinBody', seg.before))).toContain('Lindenweg 12')
+    await at(page, T0 + MIN)
+    await step(page, you, [['trashPage', id]])
+    await at(page, T0 + 2 * MIN)
+    await step(page, you, [['deletePagePermanently', id]])
+    await rec(page, 'settle')
+    await expect.poll(() => rec(page, 'pinBody', seg.before)).toBeNull()
+  })
+
   test('a tab left normally after a write is marked clean: no lost tail at the next start', async ({ page, context, errors }) => {
     await page.clock.install({ time: T0 })
     await openApp(page)

@@ -185,5 +185,25 @@ test.describe('flight recorder — team workspaces', () => {
     await expect.poll(() => wsEval(a, (s, id) => s.pages[id].title as string, id), { timeout: 10_000 }).toBe('Nordlicht Protokoll (Lind)')
     await expect.poll(async () => (await recorderOps(a, before)).filter((o) => o.l === 'team' && o.w === 'team').length, { timeout: 10_000 }).toBeGreaterThan(0)
     expect(await rec(a, 'unknowns')).toEqual([])
+
+    // a colleague's change that sets off this tab's automation: its cause is the team's — never "unknown" (a
+    // derived writer reads its cause where no frame is open: store/writer.ts causeKey)
+    const n = await wsEval(a, (s) => {
+      const db = s.createDatabase({ title: 'Tessera Übergabe' }) as string
+      const stage = s.addProperty(db, { name: 'Stage', type: 'select', options: [{ id: 'o-offen', name: 'Offen', color: 'gray' }, { id: 'o-fertig', name: 'Fertig', color: 'green' }] }) as string
+      const note = s.addProperty(db, { name: 'Notiz', type: 'text' }) as string
+      const row = s.createRow(db, { title: 'NL-1402', properties: { [stage]: 'o-offen' } }) as string
+      s.updateDatabase(db, { automations: [{ id: 'au-tessera', name: 'Fertig notieren', enabled: true, trigger: { type: 'property_changed', propertyId: stage, toValue: 'o-fertig' }, actions: [{ type: 'set_property', propertyId: note, value: 'automatisch' }] }] })
+      return { db, stage, note, row }
+    })
+    await expect.poll(() => wsEval(b, (s, n) => !!s.pages[n.row] && !!s.databases[n.db]?.automations?.length, n), { timeout: 10_000 }).toBe(true)
+    const caused = await markRec(a)
+    await wsEval(b, (s, n) => s.setRowProperty(n.row, n.stage, 'o-fertig'), n)
+    await expect.poll(() => wsEval(a, (s, n) => s.pages[n.row].properties[n.note] ?? null, n), { timeout: 10_000 }).toBe('automatisch')
+    await a.waitForTimeout(800)
+    const after = await recorderOps(a, caused)
+    expect(after.filter((o) => /<unknown/.test(o.w)).map((o) => o.w), 'causes that fell back to unknown').toEqual([])
+    for (const o of after.filter((o) => o.w.startsWith('automation:'))) expect(o.w).toMatch(/<team$/)
+    expect(await rec(a, 'unknowns')).toEqual([])
   })
 })
