@@ -27,9 +27,20 @@ function useShed(): React.RefObject<HTMLElement | null> {
   useLayoutEffect(() => {
     const el = ref.current
     if (!el) return
+    let level = 0
+    const over = () => el.scrollWidth > el.clientWidth + 1
+    // from the level it is at: shed more while it overflows, else give parts back while they fit (one read when
+    // nothing changes — a save status flipping while the person types costs one layout read, no churn)
     const fit = () => {
-      for (let i = 1; i <= SHED_LEVELS; i++) el.removeAttribute(`data-shed-${i}`)
-      for (let i = 1; i <= SHED_LEVELS && el.scrollWidth > el.clientWidth + 1; i++) el.setAttribute(`data-shed-${i}`, '')
+      while (level < SHED_LEVELS && over()) el.setAttribute(`data-shed-${++level}`, '')
+      while (level > 0) {
+        el.removeAttribute(`data-shed-${level}`)
+        if (over()) {
+          el.setAttribute(`data-shed-${level}`, '')
+          break
+        }
+        level--
+      }
     }
     fit()
     const ro = new ResizeObserver(fit)
