@@ -27,7 +27,9 @@
  *    back; lines moved along with their own task's never join another one; nesting costs linear time and never throws
  *    (very deep pages: ids only); identical lines keep their place;
  *  - LOW: Enter inside a task's last line keeps both halves in the task; a title dragged above a line outside the task
- *    loses nothing (the line joins the task — documented: the diff cannot tell which block moved).
+ *    loses nothing (the line joins the task — documented: the diff cannot tell which block moved);
+ *  - cost: long changed stretches (every note of 500 tasks rewritten, every callout of 499 typed into) stay under 50 ms;
+ *    a page nested deeper than the block-by-block work finds a task without ids by value.
  */
 import type { Page } from '@playwright/test'
 import type { JSONContent } from '@tiptap/core'
@@ -466,11 +468,11 @@ function dropOk(before: JSONContent, after: JSONContent, out: JSONContent) {
   valid(out)
   expect(dropOf(before, out)).toEqual(out)
 }
-/** the least CPU time of five runs (warmed up once) */
+/** the least CPU time of seven runs (warmed up five times — on a busy machine the clock on the wall mostly waits) */
 function cpuBest(fn: () => unknown): number {
-  fn()
+  for (let k = 0; k < 5; k++) fn()
   let ms = Infinity
-  for (let k = 0; k < 5; k++) {
+  for (let k = 0; k < 7; k++) {
     const c0 = process.cpuUsage()
     fn()
     const c = process.cpuUsage(c0)
@@ -634,6 +636,38 @@ test.describe('task block (P0.1 review): the unwrap path', () => {
     const known = doc(n)
     const r = rewrap(known, unwrapped(known))
     expect(nodesOf(r.doc).filter((x) => x.type === 'workItem').length + r.dropped.length).toBe(1)
+  })
+})
+
+test.describe('task block (P0.1 review): long changed stretches and deep pages', () => {
+  test('500 id-less tasks with every note rewritten, 499 callouts with every note typed: under 50 ms, no task lost', () => {
+    const e3 = doc(...Array.from({ length: 500 }, (_, i) => W(`wi_${i}`, null, P(`Task ${i}`), P(`alpha ${i}`), P(`beta ${i}`))))
+    const a3 = clone(oldLoad(e3))
+    for (let i = 0; i < a3.content!.length; i++) if (i % 3) a3.content![i]!.content![0]!.text = `zz ${i} other`
+    const o3 = { wrote: memory(e3) }
+    expect(cpuBest(() => rewrap(e3, a3, o3))).toBeLessThan(50)
+    expect(rewrap(e3, a3, o3).dropped).toEqual([])
+    const e4 = doc(P('top'), ...Array.from({ length: 499 }, (_, i) => callout(null, W(`wi_${i}`, null, P(`Task ${i} title`), P(`note ${i}`)))), P('end'))
+    const a4 = clone(oldLoad(e4))
+    for (let i = 1; i <= 499; i++) a4.content![i]!.content![1]!.content![0]!.text += ' typed'
+    const o4 = { wrote: memory(e4) }
+    expect(cpuBest(() => rewrap(e4, a4, o4))).toBeLessThan(50)
+    const r4 = rewrap(e4, a4, o4)
+    expect(tasks(r4.doc)).toHaveLength(499)
+    expect(taskOf(r4.doc, 'note 7 typed')).toBe('wi_7')
+  })
+
+  test('a page nested deeper than the block-by-block work, without ids: the task found by value', () => {
+    let b = W('wi_deep', null, P('deep task'), P('deep note'))
+    for (let i = 200; i > 0; i--) b = callout(null, P(`line ${i}`), b)
+    const before = doc(b)
+    const after = clone(unwrapped(before))
+    let m = after.content![0]!
+    while (m.content!.at(-1)?.type === 'callout') m = m.content!.at(-1)!
+    m.content![1]!.content![0]!.text += ' typed'
+    const r = rewrap(before, after)
+    expect(nodesOf(r.doc).filter((n) => n.type === 'workItem')).toHaveLength(1)
+    expect(r.dropped).toEqual([])
   })
 })
 

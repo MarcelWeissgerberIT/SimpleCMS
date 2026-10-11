@@ -243,18 +243,26 @@ function bottomUp<T>(own: (n: JSONContent, kid: (c: unknown) => T | undefined) =
  * names (key order aside). Built bottom up (a node prints its own fields and its children's prints, never a subtree
  * stringified per level). Equal prints, equal values.
  */
-function printer(keepId: (id: string) => boolean, skip?: (n: JSONContent) => boolean): (n: JSONContent) => string {
+function printer(keepId: (id: string) => boolean, skip?: (n: JSONContent) => boolean, flatten?: (n: JSONContent) => boolean): (n: JSONContent) => string {
   const idSkip = (k: string, v: unknown) => k === 'id' && typeof v === 'string' && !keepId(v)
   return bottomUp<string>((n, kid) => {
     // its own fields as JSON, then (content) `|` and each child's print — a short one as it is (JSON: it starts with
-    // `[`), a longer one as its hash (16 hex digits): every print reads back one way
+    // `[`), a longer one as its hash (16 hex digits): every print reads back one way. A child `skip` names is left out,
+    // one `flatten` names is its children (as an older build holds a node it unwraps).
+    // (the common shapes without an array or an object built for them: same JSON as the general case)
+    const attrs = n.attrs && Object.keys(n.attrs).some((k) => n.attrs![k] !== null && n.attrs![k] !== undefined && !idSkip(k, n.attrs![k])) ? cleanAttrs(n.attrs, idSkip) : undefined
     let out =
-      n.type === 'text' && !n.attrs && !n.marks?.length
-        ? `["text",null,${JSON.stringify(n.text ?? null)},null]`
-        : JSON.stringify([n.type ?? null, cleanAttrs(n.attrs, idSkip) ?? null, n.text ?? null, n.marks?.map((m) => [m.type, cleanAttrs(m.attrs, () => false) ?? null]) ?? null])
+      !attrs && !n.marks?.length && typeof n.type === 'string'
+        ? `[${JSON.stringify(n.type)},null,${n.text === undefined ? 'null' : JSON.stringify(n.text)},null]`
+        : JSON.stringify([n.type ?? null, attrs ?? null, n.text ?? null, n.marks?.map((m) => [m.type, cleanAttrs(m.attrs, () => false) ?? null]) ?? null])
     if (Array.isArray(n.content)) {
       out += '|'
-      for (const c of n.content) if (!(skip && c && typeof c === 'object' && skip(c))) out += `${kid(c) ?? 'x'},`
+      for (const c of n.content) {
+        if (!c || typeof c !== 'object') out += 'x,'
+        else if (skip?.(c)) continue
+        else if (flatten?.(c)) for (const g of c.content ?? []) out += `${kid(g) ?? 'x'},`
+        else out += `${kid(c) ?? 'x'},`
+      }
     }
     return out.length > 160 ? hash64(out) : out
   })
@@ -458,14 +466,88 @@ const common = (a: JSONContent[], b: JSONContent[]): JSONContent[] => {
   return a.slice(0, i)
 }
 
+/** `diff`, without its search when the two lists share no key (one changed stretch, found at once). */
+function diffShared(a: string[], b: string[]): Hunk[] {
+  if (a.length * b.length > PAIR_CELLS) {
+    const there = new Set(b)
+    if (!a.some((k) => there.has(k))) return a.length || b.length ? [{ a0: 0, a1: a.length, b0: 0, b1: b.length }] : []
+  }
+  return diff(a, b)
+}
+
+/**
+ * A changed stretch too long to pair block by block (the diff gives up past its budget, or the page changed in many
+ * places): the keys found once on each side, in the same order (the longest such run), are kept as they are, and the
+ * stretches between them are diffed on their own.
+ */
+function anchored(a: Array<string | null>, b: Array<string | null>, h: Hunk, keys?: [string[], string[]]): Hunk[] {
+  if ((h.a1 - h.a0) * (h.b1 - h.b0) <= PAIR_CELLS) return [h]
+  const inA = new Map<string, number>()
+  const inB = new Map<string, number>()
+  const at = new Map<string, number>()
+  for (let i = h.a0; i < h.a1; i++) if (a[i] !== null) inA.set(a[i]!, (inA.get(a[i]!) ?? 0) + 1)
+  for (let j = h.b0; j < h.b1; j++) {
+    if (b[j] === null) continue
+    inB.set(b[j]!, (inB.get(b[j]!) ?? 0) + 1)
+    at.set(b[j]!, j)
+  }
+  const cand: Array<[number, number]> = []
+  for (let i = h.a0; i < h.a1; i++) if (a[i] !== null && inA.get(a[i]!) === 1 && inB.get(a[i]!) === 1) cand.push([i, at.get(a[i]!)!])
+  if (!cand.length) return [h]
+  // the longest run of them in order on both sides (patience: tails by length, a link back per candidate)
+  const tails: number[] = []
+  const back: number[] = new Array(cand.length)
+  for (let c = 0; c < cand.length; c++) {
+    let lo = 0
+    let hi = tails.length
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1
+      if (cand[tails[mid]][1] < cand[c][1]) lo = mid + 1
+      else hi = mid
+    }
+    back[c] = lo > 0 ? tails[lo - 1] : -1
+    tails[lo] = c
+  }
+  const keep: Array<[number, number]> = []
+  for (let c = tails[tails.length - 1]; c >= 0; c = back[c]) keep.push(cand[c])
+  keep.reverse()
+  const out: Hunk[] = []
+  // (between them: the diff, when the keys are the stretch's own — else as it is, to be paired)
+  const between = (a0: number, a1: number, b0: number, b1: number) => {
+    if (a0 === a1 && b0 === b1) return
+    // (no key on both sides: nothing for the diff to keep)
+    const there = keys && new Set(keys[1].slice(b0, b1))
+    if (!keys || !keys[0].slice(a0, a1).some((k) => there!.has(k))) return void out.push({ a0, a1, b0, b1 })
+    for (const x of diff(keys[0].slice(a0, a1), keys[1].slice(b0, b1))) out.push({ a0: x.a0 + a0, a1: x.a1 + a0, b0: x.b0 + b0, b1: x.b1 + b0 })
+  }
+  let pa = h.a0
+  let pb = h.b0
+  for (const [i, j] of keep) {
+    between(pa, i, pb, j)
+    pa = i + 1
+    pb = j + 1
+  }
+  between(pa, h.a1, pb, h.b1)
+  return out
+}
+
 /**
  * The changed stretches between two key lists (`diff`), each block kept as it is matched to the copy of it nearest its
  * place: where several blocks share a key (identical lines without ids) the diff may keep any of them — the one in the
  * same place relative to its nearest neighbour with another key is taken (typing into the 1st and 3rd of three
  * identical lines keeps the 2nd as it is, never the 3rd).
  */
-function keptStretches(a: string[], b: string[]): Hunk[] {
-  const hunks = diff(a, b)
+function keptStretches(a: string[], b: string[], alt?: (side: 0 | 1, i: number) => string | null): Hunk[] {
+  // (long lists: anchored first — the diff of two long lists that differ in many places spends its whole budget)
+  const all = { a0: 0, a1: a.length, b0: 0, b1: b.length }
+  const first = a.length * b.length > PAIR_CELLS ? anchored(a, b, all, [a, b]) : [all]
+  let hunks = first.length === 1 && first[0] === all ? diffShared(a, b).flatMap((h) => anchored(a, b, h, [a, b])) : first
+  // (still too long: blocks that are alike by `alt` — a container by its first line — found once on each side)
+  if (alt && hunks.some((h) => (h.a1 - h.a0) * (h.b1 - h.b0) > PAIR_CELLS)) {
+    const altA = a.map((_, i) => alt(0, i))
+    const altB = b.map((_, j) => alt(1, j))
+    hunks = hunks.flatMap((h) => anchored(altA, altB, h))
+  }
   if (!hunks.length) return hunks
   const pairs: Array<[number, number]> = []
   let i = 0
@@ -656,34 +738,23 @@ function rebuilt(root: JSONContent, at: Layout, edit: Map<JSONContent, (content:
   return copies.get(root) ?? root
 }
 
-/* ------------------------------------------------------------------ 'drop': put back where the neighbours are */
-
 /**
- * `after` with every newer node of `before` it lacks put back, as it is, where its neighbours are now: after the block
- * that was before it, else before the block that was after it, else into its container, else where that container
- * was (the older copy deleted it — the node never was its to delete). Never into a newer node or a table, never first
- * in a list item. `after` stays the truth for every other block, so nothing of it goes.
- *  - which block of `after` a block of `before` is: the same id; else, in the container it is now, the same value —
- *    without the lost nodes, and without the ids the older editor gave blocks that had none — else, inside a changed
- *    stretch, a block of the same type in the same order;
- *  - the older tab never saw inside a lost node: a block of it that `after` holds elsewhere too (by id) was restructured
- *    on both sides at once (a concurrent move: delete + insert there, the node built around it here) — both stay, as two
- *    concurrent moves do in the shared document (the twin gets a new id when written).
+ * Which block of a copy (`after`, laid out as `A`) a block of `before` is — found top down, without recursion: the same
+ * id (held once on both sides); else, in the container it is found as, the same value — without the lost nodes (or, as
+ * an older build that `unwraps` holds them, with their blocks in their place) and without the ids the older editor
+ * gave blocks that had none — else, inside a changed stretch, a block of the same type in the same order. Null: none.
  */
-function putBack(before: JSONContent, after: JSONContent, gen: number): JSONContent {
-  const B = readBefore(before, gen)
-  const lost = lostIn(B, after)
-  if (!lost.size) return after
-  const A = layout(after, gen)
-  const parentA = A.parent
-  const placeA = A.place
-  const idsA = A.ids
-  const closed = A.closed
-
-  /** prints without the lost nodes and without the ids `before` does not know (the older editor made them up) */
-  const print = printer((id) => B.ids.has(id), (n) => lost.has(n))
-  const unique = (id: string | null) => !!id && !!B.ids.get(id) && !!idsA.get(id)
+function finder(B: Before, A: Layout, after: JSONContent, lost: Set<JSONContent>, unwraps: boolean): (b: JSONContent) => JSONContent | null {
+  const print = unwraps ? printer((id) => B.ids.has(id), undefined, (n) => lost.has(n)) : printer((id) => B.ids.has(id), (n) => lost.has(n))
+  const unique = (id: string | null) => !!id && !!B.ids.get(id) && !!A.ids.get(id)
   const keyOf = (n: JSONContent) => (unique(idOf(n)) ? `#${idOf(n)}` : `=${print(n)}`)
+  /** the container a block of `before` sits in (a lost node it sits in counts as unwrapped there) */
+  const up = (b: JSONContent) => {
+    let p = B.parent.get(b)
+    while (unwraps && p && lost.has(p)) p = B.parent.get(p)
+    return p
+  }
+  const childrenOf = (p: JSONContent) => blocksOf(p).flatMap((c) => (!lost.has(c) ? [c] : unwraps ? blocksOf(c) : []))
   const text = (n: JSONContent): string => {
     let out = ''
     each(n, (c) => {
@@ -707,7 +778,7 @@ function putBack(before: JSONContent, after: JSONContent, gen: number): JSONCont
     if (out) return out
     out = new Map()
     aligned.set(p, out)
-    const bs = blocksOf(p).filter((c) => !lost.has(c))
+    const bs = childrenOf(p)
     const as = blocksOf(pa)
     let i = 0
     let j = 0
@@ -723,25 +794,47 @@ function putBack(before: JSONContent, after: JSONContent, gen: number): JSONCont
     same(bs.length)
     return out
   }
-  /** the block of `after` a block of `before` is (null: none) — found top down, without recursion */
-  const found = new Map<JSONContent, JSONContent | null>([[before, after]])
-  const mapTo = (b: JSONContent): JSONContent | null => {
+  const found = new Map<JSONContent, JSONContent | null>([[B.root, after]])
+  return (b) => {
     if (found.has(b)) return found.get(b)!
     const chain: JSONContent[] = []
-    for (let x: JSONContent | undefined = b; x && !found.has(x); x = B.parent.get(x)) chain.push(x)
+    for (let x: JSONContent | undefined = b; x && !found.has(x); x = up(x)) chain.push(x)
     for (let k = chain.length - 1; k >= 0; k--) {
       const c = chain[k]
       const id = idOf(c)
       if (unique(id)) {
-        found.set(c, idsA.get(id!)!)
+        found.set(c, A.ids.get(id!)!)
         continue
       }
-      const p = B.parent.get(c)
+      const p = up(c)
       const pa = p ? found.get(p) : null
       found.set(c, p && pa ? (align(p, pa).get(c) ?? null) : null)
     }
     return found.get(b)!
   }
+}
+
+/* ------------------------------------------------------------------ 'drop': put back where the neighbours are */
+
+/**
+ * `after` with every newer node of `before` it lacks put back, as it is, where its neighbours are now: after the block
+ * that was before it, else before the block that was after it, else into its container, else where that container
+ * was (the older copy deleted it — the node never was its to delete). Never into a newer node or a table, never first
+ * in a list item. `after` stays the truth for every other block, so nothing of it goes.
+ *  - which block of `after` a block of `before` is: `finder`;
+ *  - the older tab never saw inside a lost node: a block of it that `after` holds elsewhere too (by id) was restructured
+ *    on both sides at once (a concurrent move: delete + insert there, the node built around it here) — both stay, as two
+ *    concurrent moves do in the shared document (the twin gets a new id when written).
+ */
+function putBack(before: JSONContent, after: JSONContent, gen: number): JSONContent {
+  const B = readBefore(before, gen)
+  const lost = lostIn(B, after)
+  if (!lost.size) return after
+  const A = layout(after, gen)
+  const parentA = A.parent
+  const placeA = A.place
+  const closed = A.closed
+  const mapTo = finder(B, A, after, lost, false)
   const open = (into: JSONContent, at: number) =>
     (into === after || (BLOCK_LISTS.has(into.type ?? '') && !closed.has(into))) && !(PARA_FIRST.has(into.type ?? '') && at === 0)
   interface Put {
@@ -1198,14 +1291,16 @@ export function rewrapNewer(before: JSONContent | null, after: JSONContent | nul
 
 /**
  * The rewrap of a page nested deeper than MAX_DEPTH (the block-by-block work goes as deep as the page): a lost node goes
- * back around its blocks only where all of them are still there by id, side by side and in its order, in a container
- * that takes it; every other one stays gone (`dropped`: the caller keeps the version that had it). No recursion.
+ * back around its blocks only where all of them are found (`finder`: by id, else by value or in order where its
+ * container is now) side by side and in its order, in a container that takes it; every other one stays gone
+ * (`dropped`: the caller keeps the version that had it). No recursion.
  */
 function rewrapById(B: Before, after: JSONContent): Rewrapped {
   const own = unshared(after, B.root)
   const lost = lostIn(B, own)
   if (!lost.size) return { doc: after, dropped: [], missed: 0 }
   const A = layout(own, B.gen)
+  const mapTo = finder(B, A, own, lost, true)
   const inLost = (n: JSONContent) => {
     for (let p = B.parent.get(n); p; p = B.parent.get(p)) if (lost.has(p)) return true
     return false
@@ -1214,10 +1309,7 @@ function rewrapById(B: Before, after: JSONContent): Rewrapped {
   const wraps = new Map<JSONContent, Array<{ from: number; to: number; node: JSONContent }>>()
   for (const L of lost) {
     if (inLost(L)) continue
-    const found = blocksOf(L).map((k) => {
-      const id = idOf(k)
-      return id && B.ids.get(id) ? (A.ids.get(id) ?? null) : null
-    })
+    const found = blocksOf(L).map(mapTo)
     const p = found[0] ? A.parent.get(found[0]) : undefined
     const from = found[0] ? A.place.get(found[0])! : -1
     const fits =
@@ -1610,7 +1702,8 @@ function rewrapLost(B: Before, doc: JSONContent, skip: Set<JSONContent>, opts: R
       const same = (to: number) => {
         for (; i < to; i++, j++) match[j] = i
       }
-      for (const h of keptStretches(slots.map((s) => keyOf(s.node)), aList.map(keyOf))) {
+      const firstLine = (n: JSONContent) => (blocky(n) ? `${n.type}\u0001${linesOf(n).list[0] ?? ''}` : null)
+      for (const h of keptStretches(slots.map((s) => keyOf(s.node)), aList.map(keyOf), (side, i) => firstLine(side ? aList[i] : slots[i].node))) {
         same(h.a0)
         // (an exact copy of a block of a maybe-stale copy's node is that block, never an edit of another one)
         const exact = (a: JSONContent) => byValue.size > 0 && !(idOf(a) && known(idOf(a)!)) && byValue.has(keyOf(a))
@@ -1691,16 +1784,27 @@ function rewrapLost(B: Before, doc: JSONContent, skip: Set<JSONContent>, opts: R
       for (const it of lv.items) if (it.slot?.owners.length) here.add(it.slot.owners[it.slot.owners.length - 1])
       // (or of a node none of whose blocks is found: its line moved and typed into is all that is left of it)
       const none = memo((L) => !slotsOf(L.content ?? []).some((x) => mapped.has(x.orig)))
+      // the free lines of ours, by their first and their last character (a line typed into keeps one of them)
+      const byEnd = new Map<string, Slot[]>()
+      for (const s of slots) {
+        const owner = s.owners[s.owners.length - 1]
+        if (mapped.has(s.orig) || !TEXTBLOCKS.has(s.orig.type ?? '') || !owner || !(here.has(owner) || none(owner))) continue
+        const t = text(s.node)
+        if (!t) continue
+        push(byEnd, `<${t[0]}`, s)
+        push(byEnd, `>${t[t.length - 1]}`, s)
+      }
       for (const it of lv.items) {
         const id = idOf(it.a)
-        if (it.how !== 'new' || !TEXTBLOCKS.has(it.a.type ?? '') || blank(it.a) || (id && known(id))) continue
+        if (!byEnd.size || it.how !== 'new' || !TEXTBLOCKS.has(it.a.type ?? '') || blank(it.a) || (id && known(id))) continue
+        const q = text(it.a)
+        if (!q) continue
         let best: Slot | null = null
         let top = 0.5
-        for (const s of slots) {
-          const owner = s.owners[s.owners.length - 1]
-          if (mapped.has(s.orig) || s.orig.type !== it.a.type || blank(s.orig) || !owner || !(here.has(owner) || none(owner))) continue
+        for (const s of new Set([...(byEnd.get(`<${q[0]}`) ?? []), ...(byEnd.get(`>${q[q.length - 1]}`) ?? [])])) {
+          if (mapped.has(s.orig) || s.orig.type !== it.a.type) continue
           // (only text typed into it or taken out of it: the one line holds the whole other one)
-          if (!typedInto(text(s.node), text(it.a))) continue
+          if (!typedInto(text(s.node), q)) continue
           const l = likeness(s, it.a)
           if (l >= top) [top, best] = [l, s]
         }
@@ -2024,10 +2128,18 @@ function rewrapLost(B: Before, doc: JSONContent, skip: Set<JSONContent>, opts: R
           holds = holds || inner || holdsNewer(n)
         }
         const items = lv.items
-        const near = (k: number, step: number, ok: (x: Item) => boolean) => {
-          for (let x = k + step; x >= 0 && x < items.length; x += step) if (ok(items[x])) return items[x]
-          return undefined
+        // (the nearest item at its place before / after each one, found in one pass each)
+        const placeBefore: Array<Item | undefined> = []
+        const placeAfter: Array<Item | undefined> = []
+        for (let k = 0, last: Item | undefined; k < items.length; k++) {
+          placeBefore.push(last)
+          if (items[k].how === 'place') last = items[k]
         }
+        for (let k = items.length - 1, last: Item | undefined; k >= 0; k--) {
+          placeAfter[k] = last
+          if (items[k].how === 'place') last = items[k]
+        }
+        const near = (k: number, step: number) => (step < 0 ? placeBefore[k] : placeAfter[k])
         for (const it of items) if (!it.blocked && it.how === 'place') it.owners = it.slot!.owners
         items.forEach((it, k) => {
           if (it.blocked || (it.how !== 'moved' && it.how !== 'back')) return
@@ -2035,8 +2147,8 @@ function rewrapLost(B: Before, doc: JSONContent, skip: Set<JSONContent>, opts: R
           // (a container unwrapped, a stretch moved) — it stays its own node's
           const own = it.slot!.owners
           const along = !!own.length && [items[k - 1], items[k + 1]].some((x) => x?.how === 'moved' && x.slot?.owners[0] === own[0])
-          const prev = it.how === 'moved' && !along ? near(k, -1, (x) => x.how === 'place') : undefined
-          const next = it.how === 'moved' && !along ? near(k, 1, (x) => x.how === 'place') : undefined
+          const prev = it.how === 'moved' && !along ? near(k, -1) : undefined
+          const next = it.how === 'moved' && !along ? near(k, 1) : undefined
           const into = prev?.owners.length && next && prev.owners[0] === next.owners[0] ? common(prev.owners, next.owners) : null
           it.owners = into ?? own
         })
@@ -2050,11 +2162,17 @@ function rewrapLost(B: Before, doc: JSONContent, skip: Set<JSONContent>, opts: R
           // in the place of blocks that were all its own, or between two of its blocks: inside the node (never at its edge)
           let owners: JSONContent[] = []
           if (!lv.whole) {
-            const pp = near(k, -1, (x) => x.how === 'place')
-            const np = near(e - 1, 1, (x) => x.how === 'place')
+            const pp = near(k, -1)
+            const np = near(e - 1, 1)
             // (an emptied line gone there tells nothing: a node is never put back around new blocks for it alone)
-            const gone = lv.slots.slice(pp ? pp.at + 1 : 0, np ? np.at : lv.slots.length).filter((s) => !mapped.has(s.orig) && !blank(s.orig))
-            if (gone.length) owners = gone.slice(1).reduce((o, s) => common(o, s.owners), gone[0].owners)
+            let gone: JSONContent[] | null = null
+            for (let x = pp ? pp.at + 1 : 0, end = np ? np.at : lv.slots.length; x < end; x++) {
+              const s = lv.slots[x]
+              if (mapped.has(s.orig) || blank(s.orig)) continue
+              gone = gone ? common(gone, s.owners) : s.owners
+              if (!gone.length) break
+            }
+            if (gone) owners = gone
             else if (k > 0 && e < items.length) owners = common(items[k - 1].owners, items[e].owners)
           }
           // (the second half of a line of a node split there — Enter inside it — stays with that line, at the edge too)
