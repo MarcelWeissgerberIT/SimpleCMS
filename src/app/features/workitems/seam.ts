@@ -1,7 +1,8 @@
 /**
  * window.__oneSettle — the e2e seam of Claude's writing path (DEV, or ?e2e like the app's own __one): the `one:` link
- * reader, the file form and claudeDoc over the live workspace, for workitem-p2-settle.spec's in-page cases. Pure
- * functions and reads only — nothing here writes.
+ * reader, the file form and claudeDoc over the live workspace, for workitem-p2-settle.spec's in-page cases, and
+ * `perf` — the P2 paths timed for perf-budget.spec. Pure functions and reads only — nothing here writes (a staged
+ * append goes to a throw-away stage of its own).
  */
 import type { JSONContent } from '@tiptap/core'
 import { docSchema, docToFileMarkdown, itemSafePoint, markdownToDoc, readClaudeQuote, readableContent } from '../../editor'
@@ -10,6 +11,8 @@ import { mentionFromLink, mentionsFromLinks } from '../io/import/mentions'
 import { claudeSettled } from '../ai/claudeDoc'
 import { toAIMarkdown } from '../share/markdown'
 import { SettleRefusal, type SettleContext } from './settle'
+import { getItemIndex } from './live'
+import { queryItems } from './query'
 
 /** A settle context as data: the scope as page lists, the maps as records. */
 type ContextData = Omit<SettleContext, 'visible' | 'readLimit' | 'handles' | 'staged'> & {
@@ -60,6 +63,42 @@ if (typeof window !== 'undefined' && (import.meta.env.DEV || new URLSearchParams
         if (err instanceof SettleRefusal) return { refused: err.message }
         throw err
       }
+    },
+    /**
+     * perf-budget: ms per run (`runs` each) of queryItems over every task, claudeSettled of `markdown` (a staging
+     * context), staging it as an append (the agent tool on a throw-away stage) and list_work_items with a 'marked' read
+     * limit on `limitPages` — nothing is written.
+     */
+    perf: async (o: { pageId: ID; markdown: string; limitPages: ID[]; runs: number }) => {
+      const [{ callStage, stageWith }, { withReadLimit }] = await Promise.all([import('../mcp/stage'), import('../ai/agent/toolScope')])
+      const time = (fn: () => unknown) => {
+        const out: number[] = []
+        for (let i = 0; i < o.runs; i++) {
+          const t0 = performance.now()
+          fn()
+          out.push(performance.now() - t0)
+        }
+        return out
+      }
+      let count = 0
+      const query = time(() => {
+        count = queryItems(getItemIndex(), { status: 'any', limit: 100, now: Date.now() }, () => true).total
+      })
+      let created = 0
+      const settle = time(() => {
+        created = claudeSettled(o.markdown, undefined, { source: 'terminal', creates: true, strict: false, pageId: o.pageId, private: false, existing: 'copy', me: true }).report.created.length
+      })
+      let staged = ''
+      const stage = time(() => {
+        staged = stageWith(callStage(), 'append_to_page', { id: o.pageId, markdown: o.markdown }).content
+      })
+      const marked = new Set(o.limitPages)
+      const limit = (id: ID) => (marked.has(id) ? { mode: 'marked' as const, markdown: '', plain: '', blocks: 0, ids: [] } : null)
+      let listed = ''
+      const list = time(() => {
+        listed = withReadLimit(limit, () => stageWith(callStage(), 'list_work_items', { status: 'any', limit: 100 }).content)
+      })
+      return { query, settle, stage, list, count, created, staged: staged.slice(0, 200), listed: listed.split('\n')[0] }
     },
     /** Claude's form of the first quote of a Markdown text (the real parse: link marks, soft breaks) */
     readQuoteMd: (markdown: string) => {
