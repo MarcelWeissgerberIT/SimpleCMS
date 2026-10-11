@@ -104,6 +104,8 @@ export { StaticWorkItem } from './workitem/Placard'
 export { freezeWorkItems, hasWorkItems } from './workitem/freeze'
 export { workItemExportCss } from './workitem/exportCss'
 export { dueText as workItemDueText, reminderShort as workItemReminderShort } from './workitem/format'
+/** dueText(due, lang) ("Fri 17 Oct"), reminderShort(code, t) ("−1 d"), initialsOf(name) — the placard's words, for task facts (features/workitems). */
+export { dueText, reminderShort, initialsOf } from './workitem/format'
 /**
  * Tasks outside the editor (features/workitems — the workspace index, write.ts, reminders, the agenda):
  *  - itemsOfContent(doc): the tasks of a page's content (ScannedItem: attrs, blockId, title, progress, synced
@@ -148,6 +150,14 @@ export { itemChanges, type ItemChange, type ItemField } from './workitem/diff'
 export { keepItems } from './convert'
 /** liftMisplacedItems(json): tasks inside a task / a table moved out whole, after it (sanitize() does it too). */
 export { liftMisplacedItems, holdsItem } from './workitem/place'
+/**
+ * Claude writes tasks (P2): readClaudeQuote(quote) — Claude's `> [!TODO]` quote read leniently into a ClaudeItemDraft
+ * (names, emails, "me", plain dates, `#handle` / title refs as RefDraft, Reminder / Blocks keys, `{#handle}`), never
+ * resolved here (features/workitems/settle.ts is the one gate). itemSafePoint(doc, pos): `pos`, or right after the
+ * outermost task / table holding it — where blocks that may hold a task can go.
+ */
+export { readClaudeQuote, type ClaudeItemDraft, type RefDraft, type PersonDraft } from './workitem/markdown'
+export { itemSafePoint } from './workitem/turnInto'
 export { DOC_SCHEMA_VERSION, NODE_GENERATIONS } from './schema/base'
 export { contextMarksOf, pageContextMarks, readableContent, readableBlocks, isContextLimited, useContextMarks, useContextPicking, type ContextMarks, type ReadableContent } from './context/read'
 export { setContextMode, openContextPicker, closeContextPicker, contextPickingPage, topBlockKeys } from './context/api'

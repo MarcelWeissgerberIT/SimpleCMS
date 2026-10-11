@@ -4,7 +4,7 @@
  * functions and reads only — nothing here writes.
  */
 import type { JSONContent } from '@tiptap/core'
-import { docToFileMarkdown, readableContent } from '../../editor'
+import { docSchema, docToFileMarkdown, itemSafePoint, markdownToDoc, readClaudeQuote, readableContent } from '../../editor'
 import type { ID } from '../../store/types'
 import { mentionFromLink, mentionsFromLinks } from '../io/import/mentions'
 import { claudeSettled } from '../ai/claudeDoc'
@@ -35,5 +35,28 @@ if (typeof window !== 'undefined' && (import.meta.env.DEV || new URLSearchParams
     toAIMarkdown,
     readable: (pageId: ID, form?: 'markdown' | 'file') => readableContent(pageId, form ? { form } : undefined).markdown,
     claudeDoc: (markdown: string, keep?: string[]) => claudeSettled(markdown, keep ? new Set(keep) : undefined).doc,
+    /** Claude's form of the first quote of a Markdown text (the real parse: link marks, soft breaks) */
+    readQuoteMd: (markdown: string) => {
+      const quote = (markdownToDoc(markdown).content ?? []).find((n) => n.type === 'blockquote')
+      return quote ? readClaudeQuote(quote) : null
+    },
+    /**
+     * itemSafePoint for the position right before the first occurrence of `text` in `json`: the position, the safe
+     * point, and what stands right before the safe point (a top-level block's type and text when it moved)
+     */
+    safePointAt: (json: JSONContent, text: string) => {
+      const doc = docSchema().nodeFromJSON(json)
+      let pos = -1
+      doc.descendants((n, at) => {
+        if (pos >= 0) return false
+        const i = n.isText ? (n.text ?? '').indexOf(text) : -1
+        if (i >= 0) pos = at + i
+        return pos < 0
+      })
+      const safe = itemSafePoint(doc, pos)
+      const $safe = doc.resolve(safe)
+      const before = $safe.nodeBefore
+      return { pos, safe, depth: $safe.depth, before: before ? { type: before.type.name, text: before.textContent } : null }
+    },
   }
 }

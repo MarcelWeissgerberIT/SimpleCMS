@@ -8,6 +8,7 @@
 import type { JSONContent } from '@tiptap/core'
 import type { Page } from '@playwright/test'
 import { test, expect, openApp, wsEval, createPage, flush } from './fixtures'
+import { readClaudeQuote, WORK_ITEMS_FROM_MARKDOWN } from '../../src/app/editor/workitem/markdown'
 
 /* ------------------------------------------------------------------ */
 /* Fixtures                                                            */
@@ -128,5 +129,133 @@ test.describe('one: links back + the file form (in the app)', () => {
     expect(mentionsIn(back)).toEqual([{ id: '2026-11-02', label: 'Nov 2', kind: 'date' }])
     expect(textOf(back)).toBe('@Mira on [date:2026-11-02]')
     await flush(page)
+  })
+})
+
+/* ------------------------------------------------------------------ */
+/* B2 — Claude's task form + the safe insert point                     */
+/* ------------------------------------------------------------------ */
+
+const A = 'wi_7f3a9c2d01'
+const B = 'wi_1b2c3d4e5f'
+
+/** A parsed quote as markdownToDoc gives it: the first paragraph's lines joined by soft breaks ("\n"). */
+const quote = (first: JSONContent[], ...rest: JSONContent[]): JSONContent => ({ type: 'blockquote', content: [{ type: 'paragraph', content: first }, ...rest] })
+const tx = (text: string): JSONContent => ({ type: 'text', text })
+const titleText = (inline: JSONContent[]) => inline.map((n) => (n.type === 'text' ? n.text : n.type === 'hardBreak' ? '\\n' : `[${n.type}]`)).join('')
+
+test.describe("Claude's task form: readClaudeQuote (pure)", () => {
+  test('the marker, a handle or an id after the title, a hard break in the title; anything else is no task', () => {
+    const h = readClaudeQuote(quote([tx('[!TODO] Draft copy {#Copy}')]))!
+    expect(h).toMatchObject({ itemId: null, handle: 'copy', doneAt: null, fieldLine: null })
+    expect(titleText(h.title)).toBe('Draft copy')
+    const id = readClaudeQuote(quote([tx(`[!todo] Ship pricing {#${A} done=2026-10-09T08:53:20.000Z}`)]))!
+    expect(id).toMatchObject({ itemId: A, handle: null, doneAt: Date.parse('2026-10-09T08:53:20.000Z') })
+    // a `wi_` handle is no handle (ids are One's); it stays in the title
+    const fake = readClaudeQuote(quote([tx('[!TODO] Plan {#wi_short}')]))!
+    expect(fake.handle).toBeNull()
+    expect(titleText(fake.title)).toBe('Plan {#wi_short}')
+    const broken = readClaudeQuote(quote([tx('[!TODO] First line'), { type: 'hardBreak' }, tx('second line {#two}\nOwner: Alex')]))!
+    expect(titleText(broken.title)).toBe('First line\\nsecond line')
+    expect(broken.handle).toBe('two')
+    expect(broken.people).toEqual([{ raw: 'Alex' }])
+    expect(readClaudeQuote(quote([tx('[!AUFGABE] Übersetzt')]))).toBeNull()
+    expect(readClaudeQuote(quote([tx('[!TASK] Translated')]))).toBeNull()
+    expect(readClaudeQuote(quote([tx('Just a quote')]))).toBeNull()
+    expect(readClaudeQuote({ type: 'paragraph', content: [tx('[!TODO] Not a quote')] })).toBeNull()
+  })
+
+  test('EN keys incl. Reminder and Blocks; owners as names, "me" and emails; refs as handles, ids and titles', () => {
+    const d = readClaudeQuote(quote([tx(`[!TODO] Ship pricing\nStatus: in progress · Due: 2026-10-17 · Reminder: -1D · Owner: Alex, me, Sam@Example.test · Blocked by: #Copy · Related: ${B} · Blocks: Launch review`)], p('A note.')))!
+    expect(d).toMatchObject({
+      status: 'in_progress',
+      due: '2026-10-17',
+      reminder: '-1d',
+      people: [{ raw: 'Alex' }, { me: true }, { email: 'Sam@Example.test' }],
+      blockedBy: [{ handle: 'copy' }],
+      related: [{ id: B }],
+      blocks: [{ title: 'Launch review' }],
+    })
+    expect(d.fieldLine).not.toBeNull()
+    expect(d.fieldKey).toBeUndefined()
+    expect(d.notes).toEqual([p('A note.')])
+  })
+
+  test('DE keys and values; a datetime due; a due link with its ?r= code; owners as links', () => {
+    const de = readClaudeQuote(quote([tx('[!TODO] Preise prüfen\nStatus: erledigt · Fällig: 2026-10-17 09:30 · Erinnerung: at · Verantwortlich: ich · Blockiert durch: #entwurf · Verknüpft: #a · Hält auf: #b')]))!
+    expect(de).toMatchObject({ status: 'done', due: '2026-10-17T09:30', reminder: 'at', people: [{ me: true }], blockedBy: [{ handle: 'entwurf' }], related: [{ handle: 'a' }], blocks: [{ handle: 'b' }] })
+    expect(readClaudeQuote(quote([tx('[!TODO] x\nFaellig: 2026-10-17T08:00 · Haelt auf: #c · Verknuepft: #d')]))).toMatchObject({ due: '2026-10-17T08:00', blocks: [{ handle: 'c' }], related: [{ handle: 'd' }] })
+    const links = readClaudeQuote(
+      quote([
+        tx('[!TODO] Ship pricing\nDue: '),
+        linked('@Fri 17 Oct', 'one:date/2026-10-17?r=-1d'),
+        tx(' · Owner: '),
+        linked('@Alex', 'one:person/p_alex'),
+        tx(', '),
+        linked('@Sam', 'one:person/p_sam'),
+        tx(' · Blocked by: '),
+        linked('Draft copy', `one:item/${B}`),
+      ]),
+    )!
+    expect(links).toMatchObject({ due: '2026-10-17', reminder: '-1d', people: [{ id: 'p_alex' }, { id: 'p_sam' }], blockedBy: [{ id: B }] })
+  })
+
+  test('values that are no valid ones are kept raw (for the warnings); a title ref with commas comes whole first, then its parts', () => {
+    const d = readClaudeQuote(quote([tx('[!TODO] x\nStatus: someday · Due: next week · Reminder: soon · Blocked by: Plan, review the copy')]))!
+    expect(d.status).toEqual({ raw: 'someday' })
+    expect(d.due).toEqual({ raw: 'next week' })
+    expect(d.reminder).toEqual({ raw: 'soon' })
+    expect(d.blockedBy).toEqual([{ title: 'Plan, review the copy', whole: true }, { title: 'Plan' }, { title: 'review the copy' }])
+    expect(readClaudeQuote(quote([tx('[!TODO] x\nDue: 2026-02-30')]))!.due).toEqual({ raw: '2026-02-30' })
+    // an id among handles: no whole value (only title refs make one)
+    expect(readClaudeQuote(quote([tx(`[!TODO] x\nRelated: #a, ${A}`)]))!.related).toEqual([{ handle: 'a' }, { id: A }])
+  })
+
+  test('an unknown key keeps the line as body text; next to a known key it leaves fieldKey (L6)', () => {
+    const unknown = readClaudeQuote(quote([tx('[!TODO] x\nPriority: high')]))!
+    expect(unknown.fieldLine).toBeNull()
+    expect(unknown.fieldKey).toBeUndefined()
+    expect(unknown.notes).toEqual([{ type: 'paragraph', content: [tx('Priority: high')] }])
+    const mixed = readClaudeQuote(quote([tx('[!TODO] x\nOwner: Alex · Priority: high')]))!
+    expect(mixed.fieldLine).toBeNull()
+    expect(mixed.fieldKey).toBe('Priority')
+    expect(mixed.people).toBeUndefined()
+    expect(mixed.notes).toEqual([{ type: 'paragraph', content: [tx('Owner: Alex · Priority: high')] }])
+    // the global reader stays off
+    expect(WORK_ITEMS_FROM_MARKDOWN).toBe(false)
+  })
+})
+
+test.describe("Claude's task form + the safe insert point (in the app)", () => {
+  test('readClaudeQuote over the real Markdown parse: links stay link marks until settle', async ({ page }) => {
+    await openApp(page)
+    const d = await settle<Record<string, unknown>>(page, 'readQuoteMd', `Intro.\n\n> [!TODO] Draft copy {#copy}\n> Owner: [@Alex](one:person/p_alex), Mira · Due: [@Fri 17 Oct](one:date/2026-10-17?r=-1d) · Blocked by: [Brief](one:item/${B})\n>\n> - [ ] outline\n`)
+    expect(d).toMatchObject({ handle: 'copy', itemId: null, due: '2026-10-17', reminder: '-1d', people: [{ id: 'p_alex' }, { raw: 'Mira' }], blockedBy: [{ id: B }] })
+    expect((d.notes as JSONContent[]).map((n) => n.type)).toEqual(['taskList'])
+    expect(await settle(page, 'readQuoteMd', '> [!NOTE] a callout')).toBeNull()
+  })
+
+  test('itemSafePoint: a paragraph keeps its place; inside a task, a nested task, a list in a task or a table cell → after the outermost', async ({ page }) => {
+    await openApp(page)
+    const task = (title: string, ...notes: JSONContent[]): JSONContent => ({ type: 'workItem', attrs: { itemId: null }, content: [p(title), ...notes] })
+    const cell = (text: string): JSONContent => ({ type: 'tableCell', content: [p(text)] })
+    const content = doc(
+      p('Plain line'),
+      task('Outer task', p('Outer note'), task('Inner task', p('Inner note')), { type: 'bulletList', content: [{ type: 'listItem', content: [p('Listed step')] }] }),
+      { type: 'table', content: [{ type: 'tableRow', content: [cell('Cell one'), cell('Cell two')] }] },
+      p('After all'),
+    )
+    const plain = await settle<{ pos: number; safe: number; depth: number }>(page, 'safePointAt', content, 'Plain line')
+    expect(plain.safe).toBe(plain.pos)
+    for (const text of ['Outer task', 'Outer note', 'Inner task', 'Inner note', 'Listed step']) {
+      const r = await settle<{ pos: number; safe: number; depth: number; before: { type: string; text: string } }>(page, 'safePointAt', content, text)
+      expect(r.safe, text).toBeGreaterThan(r.pos)
+      expect(r.depth, text).toBe(0)
+      expect(r.before.type, text).toBe('workItem')
+      expect(r.before.text, text).toContain('Outer task')
+    }
+    const inCell = await settle<{ pos: number; safe: number; depth: number; before: { type: string } }>(page, 'safePointAt', content, 'Cell two')
+    expect(inCell.depth).toBe(0)
+    expect(inCell.before.type).toBe('table')
   })
 })
