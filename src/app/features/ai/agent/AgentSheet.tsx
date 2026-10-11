@@ -29,6 +29,7 @@ import { AGENT_REF_SHORTCUT, AGENT_SHORTCUT, AGENT_STOP_SHORTCUT } from './Agent
 import { COMMANDS, completionAt, helpNames, type Completion } from './commands'
 import { loadHistory } from './history'
 import { PropDiff, Preview, SchemaDiff } from './ReviewParts'
+import { ItemFacts } from '../../workitems/ItemFacts'
 import { EditDiff } from './EditDiff'
 import { ScriptDiff } from './ScriptDiff'
 import { CodingDiff, FullText, RefsLine, useCodingFlags } from './CodingDiff'
@@ -1141,6 +1142,7 @@ function useChangeHead(c: StagedChange, all: StagedChange[]) {
   else if (c.kind === 'script' && c.script) where = t(c.script.before ? 'features.script.int.review.change' : 'features.script.int.review.new')
   else if (c.kind === 'media') where = t(`features.ai.media.review.where.${(c.media?.length ?? 0) === 1 ? 'one' : 'other'}`, { count: c.media?.length ?? 0 })
   else if (c.kind === 'coding' && c.coding) where = t('features.agent.review.in', { title: c.coding.project })
+  else if (c.kind === 'workItem') where = t('features.agent.review.in', { title: titleOf(c.pageId, all) })
   // a pipeline task: "STARTS WORKER" / "CONFIRM FIRST" (both live) — in the head, and in the name a screen reader reads
   const flags = useCodingFlags(c)
   // text that goes to Claude Code: shown in full, tagged (an append to a task is applied on its own)
@@ -1268,9 +1270,14 @@ export function TerminalChangeBody({ change: c, all, head = false, compact = fal
           <FullText label={t(toWorker === 'task' ? 'features.agent.coding.appendFull' : 'features.agent.coding.pageFull')} hint={toWorker === 'task' ? t(card ? 'features.agent.coding.appendHintCard' : 'features.agent.coding.appendHint') : undefined} text={c.markdown.trim()} testId="term-full-text" />
         </Part>
       )}
+      {!compact && (c.items || c.workItem || !!c.notes?.length) && (
+        <Part name="items">
+          <ItemFacts facts={c.workItem ? [c.workItem.facts] : (c.items?.facts ?? [])} warnings={c.items?.warnings} holds={c.workItem?.holds ?? c.items?.holds} notes={c.notes} />
+        </Part>
+      )}
       {!compact && c.markdown?.trim() && !toWorker && c.kind !== 'rename' && c.kind !== 'edit' && c.kind !== 'coding' && (
         <Part name="preview">
-          <Preview markdown={c.markdown} append={c.kind === 'append'} />
+          <Preview markdown={c.markdown} append={c.kind === 'append'} tasks />
         </Part>
       )}
       {/* text written into a pipeline task's page: the pages it links go to Claude Code with the task */}

@@ -22,6 +22,8 @@ export type PlanLine =
   /** Markdown that gets written (first lines shown) */
   | { k: 'md'; label: string; value: string }
   | { k: 'note'; value: string }
+  /** a task block the change makes, keeps, changes or removes: the title and its fields (UI language) */
+  | { k: 'item'; tag: 'new' | 'kept' | 'changed' | 'removed'; title: string; facts: string; warn?: string }
 
 export interface Applied {
   result: unknown

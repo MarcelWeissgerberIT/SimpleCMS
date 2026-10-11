@@ -48,6 +48,7 @@ describe('tool list', () => {
       'one_get_database',
       'one_get_page',
       'one_list_databases',
+      'one_list_work_items',
       'one_list_workspaces',
       'one_move_page',
       'one_move_row',
@@ -63,6 +64,7 @@ describe('tool list', () => {
       'one_update_property',
       'one_update_row',
       'one_update_view',
+      'one_update_work_item',
     ])
     // what removes something says so (clients ask before running these)
     const destructive = ['one_delete_property', 'one_delete_view', 'one_run_script', 'one_trash_page', 'one_update_property']
@@ -88,6 +90,7 @@ describe('tool list', () => {
     assert.match(client.getInstructions() ?? '', /one_restore_page/)
     assert.match(client.getInstructions() ?? '', /one_run_query/)
     assert.match(client.getInstructions() ?? '', /one_run_script/)
+    assert.match(client.getInstructions() ?? '', /one_list_work_items/)
   })
 
   test('One Script: one_run_query reads (with the language reference), one_run_script writes and is asked first', async () => {

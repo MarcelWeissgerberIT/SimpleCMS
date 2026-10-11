@@ -3,7 +3,7 @@
  *  - diagram → one `mermaid` block (the direction applied)
  *  - chart → one `chart` block with a manual-source ChartSpec (labels × series, unit), checked by normalizeSpec
  *  - columns → `columns` of `column`s (an H3 + the lines) · tabs → `tabs` of `tab`s · toggles → `details`
- *    blocks · cards → `callout`s in rows of `columns` (2–3 per row)
+ *    blocks · cards → `callout`s in rows of `columns` (2–3 per row) · tasks → the task blocks items.ts built
  * Lines are inline Markdown (bold, italic, code, links) read by the editor's own converter.
  */
 import type { JSONContent } from '@tiptap/core'
@@ -128,6 +128,8 @@ export function chartSpecOf(plan: ChartPlan, kind: TransformChartKind = plan.kin
 
 /** The new block(s) of a result, with the local options (direction, chart kind) applied. */
 export function resultBlocks(res: BlockResult, opts: Pick<TransformOpts, 'direction' | 'chart'>): JSONContent[] {
+  // Tasks: built (and their ids minted) when the answer came — what the preview showed (items.ts)
+  if (res.type === 'items') return res.nodes
   if (res.type === 'diagram') return [{ type: 'mermaid', attrs: { code: withDirection(res.code, opts.direction) } }]
   if (res.type === 'chart') {
     const spec = chartSpecOf(res.chart, opts.chart ?? res.chart.kind)

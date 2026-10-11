@@ -8,6 +8,7 @@ import { useMemo, useSyncExternalStore } from 'react'
 import { useWorkspace } from '../../store/store'
 import type { ID } from '../../store/types'
 import { docSchema, docToMarkdown } from '../convert'
+import { docToFileMarkdown } from '../lib/fileMarkdown'
 import { contextStore, liveEditorOf, pageContext, type ContextMode, type PageContext } from './store'
 
 export interface ContextMarks {
@@ -93,8 +94,10 @@ export function pageContextMarks(pageId: ID): ContextMarks {
 /**
  * What Claude may read of a page: the whole page ('page'), only the marked blocks as Markdown —
  * links and mentions stay readable — ('marked'), or nothing ('none').
+ * `form: 'file'`: dates and people as `one:` links (lib/fileMarkdown.ts) — for the AI reads whose text Claude writes
+ * back; the default ('markdown', "@label" text) stays byte for byte what coding trust hashes and Outbox seals compare.
  */
-export function readableContent(pageId: ID): ReadableContent {
+export function readableContent(pageId: ID, opts?: { form?: 'markdown' | 'file' }): ReadableContent {
   const doc = docOf(pageId)
   const ctx = pageContext(pageId)
   if (!doc) return { mode: ctx.mode, blocks: 0, words: 0, marked: 0, total: 0, markdown: '', plain: '' }
@@ -104,7 +107,7 @@ export function readableContent(pageId: ID): ReadableContent {
   if (ctx.mode === 'marked') nodes.push(...markedBlocks(doc, ctx))
   else doc.forEach((b) => nodes.push(b))
   const json: JSONContent = { type: 'doc', content: nodes.map((n) => n.toJSON() as JSONContent) }
-  const markdown = nodes.length ? docToMarkdown(json).trim() : ''
+  const markdown = nodes.length ? (opts?.form === 'file' ? docToFileMarkdown(json) : docToMarkdown(json)).trim() : ''
   return { ...marks, markdown, plain: nodes.map(blockText).join('\n') }
 }
 

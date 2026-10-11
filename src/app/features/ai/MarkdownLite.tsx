@@ -5,6 +5,7 @@
  * Tolerates half-written input (the stream may stop mid-token).
  */
 import { Fragment, memo, type ReactNode } from 'react'
+import { t } from '../../i18n'
 
 export interface Citation {
   title: string
@@ -16,6 +17,31 @@ interface Props {
   /** Resolve a [[Page title]] citation to a link (or undefined → plain text). */
   resolveCitation?: (title: string) => Citation | undefined
   className?: string
+  /**
+   * A quote starting `[!TODO]` renders as a task row (mono TASK label, the title without its `{#…}`, the field line in
+   * mono, dim) — opt-in: only where Claude's text becomes page content through the settle gate (the AI menu's result,
+   * the terminal's and agents' content previews), never for answers that stay text.
+   */
+  tasks?: boolean
+}
+
+const TODO = /^\s*\[!todo\]\s*/i
+const FIELD_LINE = /^\s*(status|due|f(ä|ae)llig|reminder|erinnerung|owners?|assignees?|verantwortlich|blocked by|blockiert durch|related|verkn(ü|ue)pft|blocks|h(ä|ae)lt auf)\s*:/i
+
+/** A `[!TODO]` quote as a task row. */
+function TaskQuote({ text, resolve, k }: { text: string; resolve: Props['resolveCitation']; k: string }) {
+  const lines = text.replace(TODO, '').split('\n')
+  const title = (lines[0] ?? '').replace(/\s*\{#[^}]*\}\s*$/, '').replace(/\\$/, '')
+  const fields = lines.length > 1 && FIELD_LINE.test(lines[1]) ? lines[1] : null
+  const rest = lines.slice(fields ? 2 : 1).join('\n').trim()
+  return (
+    <div className="md-task" data-md-task>
+      <span className="label md-task__label">{t('features.workItems.facts.task')}</span>
+      <span className="md-task__title">{inline(title, resolve, `${k}-t`)}</span>
+      {fields && <span className="md-task__fields">{fields}</span>}
+      {rest && <span className="md-task__notes">{withBreaks(rest, resolve, `${k}-n`)}</span>}
+    </div>
+  )
 }
 
 type Block =
@@ -213,7 +239,7 @@ function renderList(items: ListItem[], resolve: Props['resolveCitation'], key: s
   )
 }
 
-export const MarkdownLite = memo(function MarkdownLite({ source, resolveCitation, className }: Props) {
+export const MarkdownLite = memo(function MarkdownLite({ source, resolveCitation, className, tasks = false }: Props) {
   const blocks = parse(source)
   return (
     <div className={`md-lite ${className ?? ''}`}>
@@ -227,6 +253,7 @@ export const MarkdownLite = memo(function MarkdownLite({ source, resolveCitation
           case 'p':
             return <p key={key}>{withBreaks(b.text, resolveCitation, key)}</p>
           case 'quote':
+            if (tasks && TODO.test(b.text)) return <TaskQuote key={key} k={key} text={b.text} resolve={resolveCitation} />
             return <blockquote key={key}>{withBreaks(b.text, resolveCitation, key)}</blockquote>
           case 'code':
             return (

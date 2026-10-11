@@ -3,7 +3,7 @@ id: custom-agents
 title: Custom agents
 section: ai
 order: 4
-keywords: custom agents, agents, schedule, recurring, automate, trigger, recipe, report, server agent, webhook, budget, MCP tools, read-only tools, state, inbox note, mirror, sync, key, upsert, only by hand, integration, Eigene Agenten, Agenten, Zeitplan, spiegeln
+keywords: custom agents, agents, schedule, recurring, automate, trigger, recipe, report, server agent, webhook, budget, tasks, waits for review, reminder, assign, MCP tools, read-only tools, state, inbox note, mirror, sync, key, upsert, only by hand, integration, Eigene Agenten, Agenten, Zeitplan, spiegeln
 related: agent, agent-trust, integrations, automations, mcp-servers, properties, mentions-dates, gmail-sync
 summary: Saved AI helpers for recurring work — each with a job, a trigger and limits. They run on their own and report back.
 ---
@@ -30,6 +30,9 @@ These come with an active [integration](help:integrations) that unlocks them —
 When a page the agent works with is in the trash or deleted for good — a page or database under **May use**, the database its rows start it from, its report page — its page names each one, with **Restore** for one in the trash (focus then moves to the next **Restore**). A browser run does not start while nothing under **May use** can be used or its report page is gone: it is listed as an error that says why.
 
 Messages about runs never cover a dialog: one that comes while a dialog is open (an agent's editor, the settings) waits and shows when the last dialog closes — one older than two minutes by then is dropped (the run lists everything anyway). One already on screen steps back while a dialog is open and comes back only for the rest of its time. They never push your own message (such as **Undo**) off the screen: yours stays the newest, at the bottom.
+
+### Tasks wait for you
+An agent that may **Apply directly** writes most changes at once — but a change to [tasks](help:tasks) waits for your review when it names a person (an owner or an @-mention), sets a reminder, changes a task someone is assigned to (any field, or its text), adds a blocker to an existing task or removes tasks. A change that depends on such a change waits with it. The run is listed with **Proposals** and the note *1 change waits for your review …*; apply or discard it under **Runs** like any proposal, by keyboard or touch. An agent names people — “me” means nobody for an agent. A server agent's proposals never make tasks: its `[!TODO]` lines stay quotes.
 
 ## Browser or server
 - **Browser** agents run in One while a tab is open — with your Claude key and your MCP servers. A scheduled run missed while One was closed happens once, the next time it opens.

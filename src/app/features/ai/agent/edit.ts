@@ -19,8 +19,10 @@ import { useWorkspace } from '../../../store/store'
 import { useCloud } from '../../../cloud'
 import { withWriter, type Writer } from '../../../store/writer'
 import type { ID } from '../../../store/types'
-import { docSchema, docToMarkdown, editAs, endUndoStep, keepItems, liveEditorOf, startUndoStep } from '../../../editor'
-import { claudeBlocks, claudeDoc } from '../claudeDoc'
+import { docSchema, docToFileMarkdown, editAs, endUndoStep, liveEditorOf, startUndoStep } from '../../../editor'
+import { claudeSettled } from '../claudeDoc'
+import type { SettleContext, SettleReport } from '../../workitems/settle'
+import { applyNotes, itemCtx, pagePrivate, type ItemApplyOpts } from './workItems'
 import { webImagesOf } from '../../agents/images'
 import { t } from '../../../i18n'
 import { blockKey } from '../../history/diff'
@@ -57,6 +59,8 @@ export interface BlockEdit {
 }
 
 const ITEMS = new Set(['listItem', 'taskItem'])
+/** Blocks below the top level that carry a ref of their own: list / to-do items and tasks (at any depth). */
+const REFABLE = new Set(['listItem', 'taskItem', 'workItem'])
 const LISTS: Record<string, string> = { bulletList: 'listItem', orderedList: 'listItem', taskList: 'taskItem' }
 const EMPTY: JSONContent = { type: 'doc', content: [{ type: 'paragraph' }] }
 
@@ -164,7 +168,7 @@ function locate(doc: PMNode, e: Pick<RefEntry, 'id' | 'path'>): Located | null {
   let hit: Located | null = null
   doc.descendants((node, pos, parent, index) => {
     if (hit) return false
-    if (node.attrs.id === e.id && parent && (parent === doc || ITEMS.has(node.type.name))) {
+    if (node.attrs.id === e.id && parent && (parent === doc || REFABLE.has(node.type.name))) {
       hit = { node, pos, parent, index, top: doc.resolve(pos).index(0) }
       return false
     }
@@ -177,13 +181,19 @@ function locate(doc: PMNode, e: Pick<RefEntry, 'id' | 'path'>): Located | null {
 /* read_page with refs                                                 */
 /* ------------------------------------------------------------------ */
 
-/** List / to-do items carry their ref at the start of their first paragraph. */
-function withItemRefs(pageId: ID, node: PMNode, json: JSONContent, path: number[]): JSONContent {
+/**
+ * List / to-do items carry their ref at the start of their first paragraph; so does a task below the top level, in
+ * front of its title (`> [!TODO] ⟦b5⟧ Title {#wi_…}`) — never one inside a synced REFERENCE (its tasks are the
+ * original's, written on the original's page).
+ */
+function withItemRefs(pageId: ID, node: PMNode, json: JSONContent, path: number[], inRef = false): JSONContent {
   if (node.isTextblock || !json.content?.length || json.content.length !== node.childCount) return json
-  const content = json.content.map((c, i) => withItemRefs(pageId, node.child(i), c, [...path, i]))
-  if (ITEMS.has(node.type.name) && content[0]?.type === 'paragraph') {
-    const ref = refFor(pageId, node, path)
-    content[0] = { ...content[0], content: [{ type: 'text', text: `⟦${ref}⟧ ` }, ...(content[0].content ?? [])] }
+  const ref = inRef || (node.type.name === 'syncedBlock' && !!node.attrs.sourcePageId)
+  const content = json.content.map((c, i) => withItemRefs(pageId, node.child(i), c, [...path, i], ref))
+  const labelled = ITEMS.has(node.type.name) || (node.type.name === 'workItem' && path.length > 1 && !ref)
+  if (labelled && content[0]?.type === 'paragraph') {
+    const label = refFor(pageId, node, path)
+    content[0] = { ...content[0], content: [{ type: 'text', text: `⟦${label}⟧ ` }, ...(content[0].content ?? [])] }
   }
   return { ...json, content }
 }
@@ -201,7 +211,7 @@ export function readWithRefs(pageId: ID, readable: ReadonlySet<string> | null): 
     if (node.type.name === 'paragraph' && !node.content.size) return
     const ref = refFor(pageId, node, [i])
     const json = withItemRefs(pageId, node, node.toJSON() as JSONContent, [i])
-    const md = docToMarkdown({ type: 'doc', content: [json] }).trim()
+    const md = docToFileMarkdown({ type: 'doc', content: [json] }).trim()
     parts.push(`⟦${ref}⟧\n${md || `(${node.type.name})`}`)
   })
   return { markdown: parts.join('\n\n'), blocks: parts.length }
@@ -224,7 +234,22 @@ export interface EditPlan {
   markdown?: string
   /** a pending change of the same blocks that this one revises */
   revises?: StagedChange
+  /** the place is inside a task's notes or a table: the ref of its top-level block (a new task can't go there) */
+  inside?: string
 }
+
+/** What an edit replaces (settle's `known`): its blocks — replace_all: the page (`page`); insert_after: nothing. */
+export function knownOf(e: BlockEdit, page?: JSONContent | null): JSONContent | null {
+  if (e.op === 'replace_all') return page ?? e.pageBefore ?? null
+  if (e.op === 'insert_after') return null
+  return { type: 'doc', content: e.targets.map((x) => x.block) }
+}
+
+/** The edit replaces exactly one task (a single quote without its id is that task). */
+export const keepsSingle = (e: BlockEdit): boolean => (e.op === 'replace' || e.op === 'delete') && e.targets.length === 1 && e.targets[0].block.type === 'workItem'
+
+/** Does an edit's text need the settle gate (it writes Markdown, or removes blocks holding a task)? */
+export const settlesItems = (e: BlockEdit, markdown: string | undefined): boolean => markdown !== undefined || JSON.stringify(knownOf(e) ?? null).includes('"workItem"')
 
 type Span = { from: number; to: number; all?: boolean }
 
@@ -249,6 +274,16 @@ function spanOf(doc: PMNode, e: BlockEdit): Span | null {
 
 const sameTargets = (a: BlockEdit, b: BlockEdit) =>
   a.op === b.op && a.targets.length === b.targets.length && a.targets.every((x, i) => (x.id ?? x.path.join('.')) === (b.targets[i].id ?? b.targets[i].path.join('.')))
+
+/** Inside a task's notes or a table (a new task can't go there): the ref of the top-level block it is in, else null. */
+function insideOf(pageId: ID, doc: PMNode, loc: Located): string | null {
+  const $p = doc.resolve(loc.pos)
+  for (let d = 1; d <= $p.depth; d++) {
+    const n = $p.node(d).type.name
+    if (n === 'workItem' || n === 'table') return refFor(pageId, doc.child(loc.top), [loc.top])
+  }
+  return null
+}
 
 /**
  * Validate Claude's edits against the page as it is now: refs it was given for this page, blocks that
@@ -304,7 +339,8 @@ export function planEdits(pageId: ID, raw: RawEdit[], readable: ReadonlySet<stri
       const m = markdownOf(where, r.markdown)
       if ('error' in m) return m
       const p = at.loc.pos + at.loc.node.nodeSize
-      plan = { edit: { op, targets: [target(at.loc, at.entry)], refs: at.ref }, markdown: m.md, span: { from: p, to: p } }
+      const inside = insideOf(pageId, doc, at.loc)
+      plan = { edit: { op, targets: [target(at.loc, at.entry)], refs: at.ref }, markdown: m.md, span: { from: p, to: p }, ...(inside ? { inside } : {}) }
     } else {
       const a = resolve(where, r.from ?? r.ref)
       if ('error' in a) return a
@@ -333,7 +369,8 @@ export function planEdits(pageId: ID, raw: RawEdit[], readable: ReadonlySet<stri
         if ('error' in m) return m
         md = m.md
       }
-      plan = { edit: { op, targets, refs: a.ref === b.ref ? a.ref : `${a.ref}–${b.ref}` }, ...(md !== undefined ? { markdown: md } : {}), span: { from: a.loc.pos, to: b.loc.pos + b.loc.node.nodeSize } }
+      const inside = insideOf(pageId, doc, a.loc)
+      plan = { edit: { op, targets, refs: a.ref === b.ref ? a.ref : `${a.ref}–${b.ref}` }, ...(md !== undefined ? { markdown: md } : {}), span: { from: a.loc.pos, to: b.loc.pos + b.loc.node.nodeSize }, ...(inside ? { inside } : {}) }
     }
 
     for (const other of plans) if (overlaps(plan.span, other.span)) return { error: `${where} (${plan.edit.refs}) overlaps another edit in this call (${other.edit.refs}). Put changes to the same blocks into one edit.` }
@@ -392,20 +429,21 @@ function shownMedia(doc: PMNode): Set<string> {
 }
 
 /**
- * New blocks for a place: list / to-do items inside a list, blocks elsewhere; the first keeps `keepId`.
- * `replaced`: the blocks being replaced — a task among them that Claude wrote back as `> [!TODO] … {#wi_…}`
- * stays that task (its fields as they are; keepItems). Nothing else ever becomes a task here.
+ * New blocks for a place: list / to-do items inside a list, blocks elsewhere; the first keeps `keepId`. Through the
+ * settle gate (`ctx`, workItems.ts itemCtx): a task among the replaced blocks that Claude wrote back as
+ * `> [!TODO] … {#wi_…}` stays that task (its fields as they are); new tasks are exactly the ones staging minted.
  */
-function fitted(schema: Schema, markdown: string, parent: PMNode, keepId: string | null, shown?: ReadonlySet<string>, replaced?: JSONContent): PMNode[] {
+function fitted(schema: Schema, markdown: string, parent: PMNode, keepId: string | null, shown: ReadonlySet<string> | undefined, ctx: SettleContext): { nodes: PMNode[]; report: SettleReport } {
   // Claude's Markdown: nothing in it loads by itself — only what the page shows already may stay;
   // `[Title](#/p/<id>)` links to pages become page mentions (page link blocks outside lists) — links.ts
-  let blocks = (withPageNodes(keepItems(claudeDoc(markdown, shown), replaced), livePage, { blocks: !(parent.type.name in LISTS) }).content ?? []).filter(Boolean)
+  const settled = claudeSettled(markdown, shown, ctx)
+  let blocks = (withPageNodes(settled.doc, livePage, { blocks: !(parent.type.name in LISTS) }).content ?? []).filter(Boolean)
   if (parent.type.name in LISTS) blocks = asItems(blocks, parent.type.name)
   if (keepId && blocks[0]) blocks[0] = { ...blocks[0], attrs: { ...(blocks[0].attrs ?? {}), id: keepId } }
   const nodes = blocks.map((b) => schema.nodeFromJSON(b))
   nodes.forEach((n) => n.check())
   if (!nodes.length) throw new Error('empty')
-  return nodes
+  return { nodes, report: settled.report }
 }
 
 interface Spot {
@@ -414,24 +452,43 @@ interface Spot {
   from: number
   to: number
   nodes: PMNode[]
+  /** apply-time warnings of the settle gate (the notes under the applied change) */
+  notes?: string[]
+}
+
+/** How the edits of a batch settle (workItems.ts): who writes, the scope, whether tasks may be made, the batch's staged tasks. */
+export type EditItems = ItemApplyOpts & { preview?: boolean }
+
+const DEFAULT_ITEMS: EditItems = { source: 'terminal' }
+
+/** The settled new blocks of an edit — or why it is skipped (an id it staged is taken by now: never re-minted). */
+function settledFit(schema: Schema, c: StagedChange, parent: PMNode, keepId: string | null, doc: PMNode, known: JSONContent | null, items: EditItems): { nodes: PMNode[]; notes: string[] } | { error: string } {
+  const ctx = itemCtx(c, { pageId: c.pageId, private: pagePrivate(c.pageId), known, keepSingle: keepsSingle(c.edit!) }, items, !!items.preview)
+  const out = fitted(schema, c.markdown ?? '', parent, keepId, shownMedia(doc), ctx)
+  if (out.report.idTaken.length) return { error: t('features.agent.item.idTaken') }
+  return { nodes: out.nodes, notes: applyNotes(c, out.report) }
 }
 
 /** Where a staged edit applies in `doc` now and what goes there — or why it is skipped. */
-function spotOf(doc: PMNode, c: StagedChange): Spot | { error: string } {
+function spotOf(doc: PMNode, c: StagedChange, items: EditItems = DEFAULT_ITEMS): Spot | { error: string } {
   const e = c.edit
   if (!e) return { error: goneNote() }
   const schema = doc.type.schema
   try {
     if (e.op === 'replace_all') {
       if (contentKey(doc.toJSON() as JSONContent) !== e.pageKey) return { error: changedNote() }
-      return { id: c.id, n: c.n, from: 0, to: doc.content.size, nodes: fitted(schema, c.markdown ?? '', doc, null, shownMedia(doc), doc.toJSON() as JSONContent) }
+      const fit = settledFit(schema, c, doc, null, doc, doc.toJSON() as JSONContent, items)
+      if ('error' in fit) return fit
+      return { id: c.id, n: c.n, from: 0, to: doc.content.size, nodes: fit.nodes, notes: fit.notes }
     }
     const locs = e.targets.map((x) => locate(doc, x))
     if (!locs.length || locs.some((l) => !l)) return { error: goneNote() }
     const first = locs[0]!
     if (e.op === 'insert_after') {
       const p = first.pos + first.node.nodeSize
-      return { id: c.id, n: c.n, from: p, to: p, nodes: fitted(schema, c.markdown ?? '', first.parent, null, shownMedia(doc)) }
+      const fit = settledFit(schema, c, first.parent, null, doc, null, items)
+      if ('error' in fit) return fit
+      return { id: c.id, n: c.n, from: p, to: p, nodes: fit.nodes, notes: fit.notes }
     }
     // the range: still side by side, in order, and reading as when it was staged
     for (let i = 0; i < locs.length; i++) {
@@ -451,7 +508,9 @@ function spotOf(doc: PMNode, c: StagedChange): Spot | { error: string } {
       return { id: c.id, n: c.n, from, to, nodes: [] }
     }
     const replaced: JSONContent = { type: 'doc', content: locs.map((l) => l!.node.toJSON() as JSONContent) }
-    return { id: c.id, n: c.n, from, to, nodes: fitted(schema, c.markdown ?? '', first.parent, idOf(first.node), shownMedia(doc), replaced) }
+    const fit = settledFit(schema, c, first.parent, idOf(first.node), doc, replaced, items)
+    if ('error' in fit) return fit
+    return { id: c.id, n: c.n, from, to, nodes: fit.nodes, notes: fit.notes }
   } catch {
     return { error: t('features.agent.edit.invalid') }
   }
@@ -470,11 +529,11 @@ function applySpots(tr: Transform, spots: Spot[]) {
 }
 
 /** Spots for changes in `doc`; edits overlapping one placed before (a restored discarded one …) are skipped. */
-function spotsFor(doc: PMNode, changes: StagedChange[]): { spots: Spot[]; failed: Array<{ id: string; error: string }> } {
+function spotsFor(doc: PMNode, changes: StagedChange[], items: EditItems): { spots: Spot[]; failed: Array<{ id: string; error: string }> } {
   const spots: Spot[] = []
   const failed: Array<{ id: string; error: string }> = []
   for (const c of [...changes].sort((a, b) => a.n - b.n)) {
-    const s = spotOf(doc, c)
+    const s = spotOf(doc, c, items)
     if ('error' in s) failed.push({ id: c.id, error: s.error })
     else if (spots.some((o) => overlaps(o, s) || (o.from === 0 && o.to === doc.content.size) || (s.from === 0 && s.to === doc.content.size))) failed.push({ id: c.id, error: changedNote() })
     else spots.push(s)
@@ -487,18 +546,22 @@ export interface PageEditResult {
   failed: Array<{ id: string; error: string }>
   /** back to the page before (false: edited since — left alone) */
   undo: () => boolean
+  /** what the settle gate left out at apply, by change */
+  notes?: Record<string, string[]>
 }
 
 /** Apply edits of one page: a version first, then ONE transaction (one ⌘Z in the open editor), origin 'ai'. */
-export async function applyPageEdits(pageId: ID, changes: StagedChange[], writer: Writer): Promise<PageEditResult> {
+export async function applyPageEdits(pageId: ID, changes: StagedChange[], writer: Writer, items: EditItems = DEFAULT_ITEMS): Promise<PageEditResult> {
   const none: PageEditResult = { applied: [], failed: [], undo: () => true }
   if (!useWorkspace.getState().pages[pageId]) return { ...none, failed: changes.map((c) => ({ id: c.id, error: goneNote() })) }
   await snapshotNow(pageId, 'ai')
   const editor = liveEditorOf(pageId)
   const doc = pageDoc(pageId)
   if (!doc) return { ...none, failed: changes.map((c) => ({ id: c.id, error: goneNote() })) }
-  const { spots, failed } = spotsFor(doc, changes)
+  const { spots, failed } = spotsFor(doc, changes, items)
   if (!spots.length) return { ...none, failed }
+  const notes: Record<string, string[]> = {}
+  for (const sp of spots) if (sp.notes?.length) notes[sp.id] = sp.notes
   const prev = doc.toJSON() as JSONContent
   const invalid = () => ({ ...none, failed: [...failed, ...spots.map((s) => ({ id: s.id, error: t('features.agent.edit.invalid') }))] })
   let next: JSONContent
@@ -534,6 +597,7 @@ export async function applyPageEdits(pageId: ID, changes: StagedChange[], writer
   return {
     applied: spots.map((s) => s.id),
     failed,
+    notes,
     undo: () => {
       const now = useWorkspace.getState().pages[pageId]
       if (!now || contentKey(now.content) !== nextKey) return false
@@ -553,13 +617,13 @@ export type EditPreview = { state: 'ready'; items: DocItem[] } | { state: 'chang
  * What the edit's blocks become, without the rest of the page (an applied / discarded edit, a skipped
  * one). List items show inside their list, the new content as items of it.
  */
-export function stagedItems(c: StagedChange): DocItem[] {
+export function stagedItems(c: StagedChange, items: EditItems = DEFAULT_ITEMS): DocItem[] {
   const e = c.edit
   if (!e) return []
   const targets = e.targets.map((x) => x.block)
-  // the review shows what Apply writes: tasks written back stay tasks (see fitted)
-  const replaced: JSONContent | null = e.op === 'replace_all' ? (e.pageBefore ?? null) : e.op === 'replace' ? { type: 'doc', content: targets } : null
-  const after = c.markdown ? (keepItems({ type: 'doc', content: claudeBlocks(c.markdown, webImagesOf(useWorkspace.getState().pages[c.pageId]?.content)) }, replaced).content ?? []) : []
+  // the review shows what Apply writes: tasks written back stay tasks, new ones get the ids staging minted (see fitted)
+  const ctx = itemCtx(c, { pageId: c.pageId, private: pagePrivate(c.pageId), known: knownOf(e), keepSingle: keepsSingle(e) }, items, true)
+  const after = c.markdown ? (claudeSettled(c.markdown, webImagesOf(useWorkspace.getState().pages[c.pageId]?.content), ctx).doc.content ?? []).filter(Boolean) : []
   if (e.op === 'replace_all') return diffDocs(e.pageBefore ?? null, { type: 'doc', content: after })
   const first = targets[0]?.type ?? ''
   const list = ITEMS.has(first) ? (e.targets[0].list ?? (first === 'taskItem' ? 'taskList' : 'bulletList')) : null
@@ -570,16 +634,16 @@ export function stagedItems(c: StagedChange): DocItem[] {
 }
 
 /** The page with this edit applied, diffed against the page now (pending edits). */
-export function previewEdit(c: StagedChange): EditPreview {
+export function previewEdit(c: StagedChange, items: EditItems = DEFAULT_ITEMS): EditPreview {
   const doc = pageDoc(c.pageId)
-  if (!doc) return { state: 'gone', items: stagedItems(c) }
-  const s = spotOf(doc, c)
-  if ('error' in s) return { state: s.error === goneNote() ? 'gone' : 'changed', items: stagedItems(c) }
+  if (!doc) return { state: 'gone', items: stagedItems(c, items) }
+  const s = spotOf(doc, c, { ...items, preview: true })
+  if ('error' in s) return { state: s.error === goneNote() ? 'gone' : 'changed', items: stagedItems(c, items) }
   const tr = new Transform(doc)
   try {
     applySpots(tr, [s])
   } catch {
-    return { state: 'changed', items: stagedItems(c) }
+    return { state: 'changed', items: stagedItems(c, items) }
   }
   return { state: 'ready', items: diffDocs(doc.toJSON() as JSONContent, tr.doc.toJSON() as JSONContent) }
 }

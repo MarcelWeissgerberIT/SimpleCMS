@@ -15,9 +15,16 @@
  * (presets, a rules page — redo/RedoSetup.tsx), the run rewrites them in the background, and the review
  * goes through them one by one (redo/RedoReview.tsx). Opened on passages from elsewhere: `redo`.
  *
- * "Transform into …" (transform/**): a submenu of forms (Auto, Board, Table, Timeline, Diagram, Chart, Columns,
+ * "Transform into …" (transform/**): a submenu of forms (Auto, Board, Table, Timeline, Tasks, Diagram, Chart, Columns,
  * Tabs, Toggles, Cards) on a selection of blocks; the run's preview and keys come from transform/panel.tsx.
  * Opened on a form from elsewhere (the grip menu of selected blocks): `transform`.
+ *
+ * Task blocks (P2): "Make tasks" — on selected blocks Transform → Tasks, at the cursor the page-level action
+ * `make_tasks` (its `<people>` go along). Every answer goes into the page through the settle gate (claudeSettled with a
+ * menu context: owners only existing people, ids One's, an echo of a task that exists left out); a facts strip under
+ * the answer shows the tasks it makes. Replace over tasks only when they lie wholly in the range and the answer — settled
+ * AGAIN against the doc at Replace — brings each back by id; an answer holding a task never lands inside a task or a
+ * table (itemSafePoint).
  *
  * Claude for files (file/**): a file block (node-selected, or the one file of a selection) lists its actions
  * (summarise, extract, tables, ask — or the local conversions: open as page, import as database, open as
@@ -68,6 +75,7 @@ import {
   SpellCheck,
   Square,
   SquareCheck,
+  SquareCheckBig,
   Shapes,
   SquareKanban,
   SquareDashed,
@@ -80,10 +88,10 @@ import { Kbd } from '../../ui/controls'
 import { useLang, useT } from '../../i18n'
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
-import { editAs, endUndoStep, holdsItem, openContextPicker, pageContextMarks, setContextMode, startUndoStep, topBlockKeys, useContextMarks, type ContextMode } from '../../editor'
+import { editAs, endUndoStep, itemSafePoint, openContextPicker, pageContextMarks, setContextMode, startUndoStep, topBlockKeys, useContextMarks, type ContextMode } from '../../editor'
 import { newId } from '../../lib/ids'
 import { closeHistory } from '@tiptap/pm/history'
-import { toMarkdown } from '../share/markdown'
+import { toAIMarkdown } from '../share/markdown'
 import { turnIntoPage } from '../../editor'
 // own requests that are really structure actions or terminal tasks (intent.ts) · Sub-page per item (editor/split/items.ts)
 import { FileStack, ListPlus } from 'lucide-react'
@@ -98,7 +106,13 @@ import { citationsToLinks, findSource, type WorkspaceSource } from './workspace'
 import { MarkdownLite } from './MarkdownLite'
 import { snapshotNow } from '../history/snapshots'
 import { webImagesOf } from '../agents/images'
-import { claudeBlocks } from './claudeDoc'
+import { claudeSettled } from './claudeDoc'
+// task blocks in Claude's answers (P2): the settle gate, the facts strip, Replace over whole tasks, the safe insert point
+import { canCreateItems, ItemFacts, useItemIndexVersion, type SettleContext, type SettleReport } from '../workitems'
+import { holdsItemNode } from '../../lib/itemIds'
+import { echoedIds, insideTaskOrTable, rangeDoc, replaceRange } from './menuItems'
+import { itemsFitAt } from './transform/range'
+import { ITEM_KEYWORDS } from './transform/forms'
 import { openAgent } from './agent/state'
 import { afterBlock, captureTarget, mapTarget, type RunTarget } from './runsTarget'
 import { markSeen, removeRun, setTodbDraft, startRun, stopRun, useAIRuns, viewRun, type RunRequest } from './runs'
@@ -170,7 +184,7 @@ function sliceToMarkdown(state: EditorState, from: number, to: number): string {
     if (!json?.length) return ''
     const first = slice.content.firstChild
     const doc: JSONContent = first?.isInline ? { type: 'doc', content: [{ type: 'paragraph', content: json }] } : { type: 'doc', content: json }
-    const md = toMarkdown(doc).trim()
+    const md = toAIMarkdown(doc).trim()
     if (md) return md
   } catch {
     /* fall through */
@@ -247,6 +261,8 @@ interface ActionDef {
   hidden?: boolean
   /** opens a submenu (Translate, Transform into, More) */
   sub?: boolean
+  /** shown but off, with this reason (aria-disabled; Enter does nothing) — "Make tasks" while tasks can't be made */
+  disabled?: string | null
 }
 
 /** What the panel is opened on — its top level offers the most used actions for that. */
@@ -257,9 +273,9 @@ type MenuKind = 'block' | 'text' | 'blocks' | 'image' | 'file'
  * sits under "More …"; typing finds every action.
  */
 const TOP_ACTIONS: Record<MenuKind, readonly string[]> = {
-  block: ['continue', 'outline', 'brainstorm', 'summarize', 'action_items', 'workspace'],
+  block: ['continue', 'outline', 'brainstorm', 'summarize', 'action_items', 'workItems', 'workspace'],
   text: ['improve', 'fix', 'shorter', 'translate', 'explain'],
-  blocks: ['improve', 'fix', 'translate', 'transform', 'summarize'],
+  blocks: ['improve', 'fix', 'translate', 'transform', 'workItems', 'summarize'],
   image: ['improve'],
   file: ['improve'],
 }
@@ -619,10 +635,22 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
 
   const resultMarkdown = () => (run?.req.kind === 'workspace' ? citationsToLinks(output, sources) : output)
 
-  const resultBlocks = (): JSONContent[] => {
+  /**
+   * The settle context of an answer: tasks from its `> [!TODO]` quotes (owners only existing people, ids One's), an echo
+   * of a task that exists is left out; `known` = what a Replace replaces, read from the doc NOW (its tasks come back by id
+   * with the fields they have now; a date's reminder stays only when the range had it).
+   */
+  const menuCtx = useCallback(
+    (known: JSONContent | null): SettleContext => ({ source: 'menu', creates: true, strict: false, pageId, private: !!useWorkspace.getState().pages[pageId]?.private, known, existing: 'skip', me: true }),
+    [pageId],
+  )
+
+  /** The answer through the settle gate (`known`: a Replace's range now) — what Insert / Replace writes. */
+  const settleAnswer = (known: JSONContent | null): { blocks: JSONContent[]; report: SettleReport } => {
     // the answer may follow text nobody vouches for (a mail, a file, an MCP result): a web image in it
     // becomes a link — only the images this page shows already stay images
-    return claudeBlocks(resultMarkdown(), webImagesOf(useWorkspace.getState().pages[pageId]?.content))
+    const { doc, report } = claudeSettled(resultMarkdown(), webImagesOf(useWorkspace.getState().pages[pageId]?.content), menuCtx(known))
+    return { blocks: (doc.content ?? []).filter(Boolean), report }
   }
 
   /** The cursor block may have been typed into meanwhile: it is only filled while still empty. */
@@ -657,18 +685,41 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
    */
   const apply = async (asked: 'replace' | 'fill' | 'below') => {
     if (editor.isDestroyed || !run || !output.trim()) return
-    const blocks = resultBlocks()
-    if (!blocks.length) return
     await snapshotNow(pageId, 'ai')
     if (editor.isDestroyed) return
     const tg = useAIRuns.getState().runs[run.id]?.target ?? targetRef.current
-    const size = editor.state.doc.content.size
+    const { doc } = editor.state
+    const size = doc.content.size
     const clamp = (n: number) => Math.max(0, Math.min(n, size))
-    // a task is never replaced by Claude's text (it could drop or reword it): over one — or on a task's empty title
-    // line — the result goes below instead
+    // Replace: settled AGAIN against the range as it is NOW — tasks in it must lie wholly in the range and every one come
+    // back by id (fields as they are now, even when a member changed one while the run waited); else the answer goes below
     let how = asked
-    if (how === 'replace' && !tg.lost && holdsItem(editor.state.doc, clamp(tg.from), clamp(tg.to))) how = 'below'
+    let range: { from: number; to: number } | null = null
+    let settled: { blocks: JSONContent[]; report: SettleReport } | null = null
+    if (how === 'replace' && !tg.lost && tg.mode === 'selection' && tg.to > tg.from) {
+      const r = replaceRange(doc, clamp(tg.from), clamp(tg.to))
+      if (r) {
+        const known = rangeDoc(doc, r.from, r.to)
+        settled = settleAnswer(known)
+        const kept = new Set(settled.report.kept.map((f) => f.itemId))
+        const whole = !r.holds || (settled.report.removed.length === 0 && echoedIds(resultMarkdown()).every((id) => kept.has(id)))
+        // an answer holding a task never lands inside a task or a table
+        const nests = holdsItemNode(settled.blocks) && insideTaskOrTable(doc, r.from)
+        if (whole && !nests) range = r.holds ? { from: r.from, to: r.to } : { from: clamp(tg.from), to: clamp(tg.to) }
+      }
+      if (!range) {
+        how = 'below'
+        settled = null
+      }
+    } else if (how === 'replace') how = 'below'
+    // a task's empty title line (or a note) is never filled: the result goes below the task
     if (how === 'fill' && !tg.lost && inTask(tg.blockFrom)) how = 'below'
+    const { blocks, report } = settled ?? settleAnswer(null)
+    if (!blocks.length) return
+    // tasks never land inside a task or a table: after the outermost one (a list item may hold a compact task)
+    const tasks = report.created.length > 0 || holdsItemNode(blocks)
+    if (how === 'fill' && tasks && targetBlockEmpty(tg) && insideTaskOrTable(doc, tg.blockFrom)) how = 'below'
+    const below = () => (tasks ? itemSafePoint(editor.state.doc, insertionPoint(tg)) : insertionPoint(tg))
     // Claude's result is its own undo step (also in a shared page, where Y undo merges by time) — and the AI run's
     // write, handed to the store at once (store/writer.ts: editAs)
     editAs(editor, { kind: 'ai', run: run.id, action: 'accept' }, () => {
@@ -677,19 +728,34 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
         .chain()
         .focus()
         .command(({ tr }) => (closeHistory(tr), true))
-      if (how === 'replace' && tg.mode === 'selection' && !tg.lost && tg.to > tg.from) {
-        const range = { from: clamp(tg.from), to: clamp(tg.to) }
+      if (how === 'replace' && range) {
         const single = blocks.length === 1 && blocks[0].type === 'paragraph'
-        chain.insertContentAt(range, single && tg.inlineOnly ? (blocks[0].content ?? []) : blocks).run()
+        chain.insertContentAt(range, single && tg.inlineOnly && !tasks ? (blocks[0].content ?? []) : blocks).run()
       } else if (how === 'fill' && targetBlockEmpty(tg)) {
         chain.insertContentAt({ from: clamp(tg.blockFrom), to: clamp(tg.blockTo) }, blocks).run()
       } else {
-        chain.insertContentAt(insertionPoint(tg), blocks).run()
+        chain.insertContentAt(below(), blocks).run()
       }
       endUndoStep(editor.view)
     })
     removeRun(run.id)
     onClose()
+    // new tasks: a toast with Undo (touch has no ⌘Z), written as the person's Undo — only while the page is as it left it
+    const made = report.created.length
+    if (!made) return
+    const after = editor.state.doc
+    useUI.getState().toast({
+      message: made === 1 ? t('features.ai.items.madeOne') : t('features.ai.items.made', { n: made }),
+      kind: 'success',
+      action: {
+        label: t('common.undo'),
+        run: () => {
+          if (editor.isDestroyed) return
+          if (editor.state.doc.eq(after)) editAs(editor, { kind: 'you', via: 'undo' }, () => editor.commands.undo())
+          else useUI.getState().toast({ message: t('features.ai.transform.undoLate'), kind: 'info' })
+        },
+      },
+    })
   }
 
   /**
@@ -1085,7 +1151,8 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
                 } satisfies ActionDef,
               ]
             : []),
-          ...transformPicks.map(
+          // typed for a form ("chart" …): that form directly — Tasks has its own row ("Make tasks")
+          ...transformPicks.filter((p) => p !== 'items').map(
             (p): ActionDef => ({
               id: `transform-${p}`,
               label: t('features.ai.transform.direct', { type: typeLabel(p) }),
@@ -1099,6 +1166,29 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
           ),
         ]
       : []
+    // "Make tasks": selected blocks → Transform → Tasks; at the cursor → the page-level action `make_tasks` (its
+    // <people> go along). Off with its reason while this tab may not make tasks (a viewer, an older server).
+    const gateOff = canCreateItems() ? null : t('features.workItems.gateOff')
+    const makeTasks: ActionDef[] =
+      own.t.mode === 'selection'
+        ? transformPicks.length && !editor.isDestroyed && itemsFitAt(editor.state.doc, own.t.range ?? null)
+          ? [{ id: 'workItems', label: t('features.ai.act.workItems'), code: TRANSFORM_CODES.items, icon: SquareCheckBig, group: gStructure, keywords: ITEM_KEYWORDS, disabled: gateOff, run: () => transformRun('items') }]
+          : []
+        : [
+            {
+              id: 'workItems',
+              label: t('features.ai.act.workItemsPage'),
+              code: TRANSFORM_CODES.items,
+              icon: SquareCheckBig,
+              group: gPage,
+              keywords: ITEM_KEYWORDS,
+              disabled: gateOff,
+              run: () => {
+                const label = t('features.ai.act.workItemsPage')
+                startPageLevel({ kind: 'action', action: 'make_tasks', label, code: TRANSFORM_CODES.items }, label)
+              },
+            },
+          ]
     if (own.t.mode === 'selection')
       return [
         ...imageGroup,
@@ -1111,6 +1201,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
         redoAction,
         ...todb,
         ...transform,
+        ...makeTasks,
         // "Turn into page" (editor/split): no Claude — the selected blocks move into a new sub-page at once
         {
           id: 'topage',
@@ -1155,7 +1246,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
         },
         A('explain', t('features.ai.act.explain'), 'EXP', MessageCircleQuestion, gRead, 'explain erklären'),
         A('summarize', t('features.ai.act.summarize'), 'SUM', AlignLeft, gRead, 'summary zusammenfassen tldr'),
-        A('action_items', t('features.ai.act.actionItems'), 'ACT', ListChecks, gRead, 'todo tasks aufgaben'),
+        A('action_items', t('features.ai.act.actionItems'), 'ACT', ListChecks, gRead, 'todo to-do checklist liste'),
         // One memory: Claude condenses the selection into one proposal (saved only on OK)
         {
           id: 'remember',
@@ -1188,7 +1279,8 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
       prefill('outline', t('features.ai.act.outline'), 'OUT', ListTree, gWrite, t('features.ai.prefill.outline')),
       prefill('brainstorm', t('features.ai.act.brainstorm'), 'IDEA', Lightbulb, gWrite, t('features.ai.prefill.brainstorm')),
       A('summarize', t('features.ai.act.summarizePage'), 'SUM', AlignLeft, gPage, 'summary zusammenfassen tldr'),
-      A('action_items', t('features.ai.act.actionItemsPage'), 'ACT', ListChecks, gPage, 'todo tasks aufgaben'),
+      A('action_items', t('features.ai.act.actionItemsPage'), 'ACT', ListChecks, gPage, 'todo to-do checklist liste'),
+      ...makeTasks,
       redoAction,
       {
         id: 'workspace',
@@ -1219,6 +1311,9 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
   const moreActions = useMemo(() => actions.filter((a) => !isTop(a) && (!a.hidden || a.id === 'reads')), [actions, isTop])
 
   type Row = { id: string; label: ReactNode; code?: string; icon?: LucideIcon; group?: string; run: () => void; hint?: ReactNode; danger?: boolean; disabled?: boolean; current?: boolean; sub?: boolean }
+
+  /** An action as a list row (an action that is off shows its reason, like a result row's). */
+  const toRow = ({ hidden: _hidden, keywords: _keywords, disabled, ...a }: ActionDef): Row => (disabled ? { ...a, disabled: true, hint: <span className="ai-row__why">{disabled}</span> } : a)
 
   /* ---------------- One memory ---------------- */
 
@@ -1322,6 +1417,44 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
     }
     return out
   }
+
+  /* ---------------- task blocks in the answer ---------------- */
+
+  const itemsVersion = useItemIndexVersion()
+  /**
+   * Tasks in a finished answer, settled the way its default key writes them (Replace over the range as it is now when
+   * it may, else Insert): the facts strip shows what that makes; `replace` says whether Replace may go over the tasks
+   * of the range ('cut': the range cuts into one · 'drops': the answer leaves one out or brings back one the range no
+   * longer holds · 'nests': the answer holds a task and the range sits in a task or a table — apply() would put it
+   * below). Memoised per answer, doc and task index.
+   */
+  const answerItems = useMemo(() => {
+    const textResult = run?.req.kind === 'action' || run?.req.kind === 'workspace'
+    if (phase !== 'done' || !run || !textResult || !output.trim() || editor.isDestroyed) return null
+    const { doc } = editor.state
+    const sel = target.mode === 'selection' && !target.lost && run.req.kind !== 'workspace'
+    const r = sel ? replaceRange(doc, Math.min(target.from, doc.content.size), Math.min(target.to, doc.content.size)) : null
+    const holds = sel && (!r || r.holds)
+    const quotes = /\[!TODO\]/i.test(output)
+    if (!holds && !quotes) return null
+    let report: SettleReport | null = null
+    let replace: 'ok' | 'cut' | 'drops' | 'nests' = 'ok'
+    if (sel) {
+      if (!r) replace = 'cut'
+      else {
+        const s = settleAnswer(rangeDoc(doc, r.from, r.to))
+        const kept = new Set(s.report.kept.map((f) => f.itemId))
+        if (r.holds && (s.report.removed.length > 0 || !echoedIds(output).every((id) => kept.has(id)))) replace = 'drops'
+        else {
+          report = s.report
+          // as apply() decides it: a task never lands inside a task or a table
+          if (holdsItemNode(s.blocks) && insideTaskOrTable(doc, r.from)) replace = 'nests'
+        }
+      }
+    }
+    if (!report && quotes) report = settleAnswer(null).report
+    return { report, replace }
+  }, [phase, run, output, target, editor, editor.state.doc, itemsVersion]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const rows: Row[] = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -1450,12 +1583,16 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
       } else if (phase === 'done') {
         const ws = run?.req.kind === 'workspace'
         const sel = target.mode === 'selection'
-        // over a task (or cutting into one): Replace is off with its reason, Insert below goes first and takes Enter
-        const holds = sel && !ws && !target.lost && !editor.isDestroyed && holdsItem(editor.state.doc, Math.min(target.from, editor.state.doc.content.size), Math.min(target.to, editor.state.doc.content.size))
-        const off = !!target.lost || holds
+        // over tasks: Replace only when they lie wholly in the range and the answer brings each back by id — else off with
+        // its reason (cuts into a task · drops one), Insert below goes first and takes Enter
+        const cut = sel && !ws && answerItems?.replace === 'cut'
+        const drops = sel && !ws && answerItems?.replace === 'drops'
+        const nests = sel && !ws && answerItems?.replace === 'nests'
+        const why = cut ? t('features.ai.res.replaceTask') : drops ? t('features.ai.res.replaceTaskDrop') : nests ? t('features.ai.res.replaceNest') : null
+        const off = !!target.lost || !!why
         const replace: Row | null =
           sel && !ws
-            ? { id: 'replace', label: t('features.ai.res.replace'), icon: Check, run: () => void apply('replace'), hint: holds ? <span className="ai-row__why">{t('features.ai.res.replaceTask')}</span> : off ? undefined : <Kbd>↵</Kbd>, disabled: off }
+            ? { id: 'replace', label: t('features.ai.res.replace'), icon: Check, run: () => void apply('replace'), hint: why ? <span className="ai-row__why">{why}</span> : off ? undefined : <Kbd>↵</Kbd>, disabled: off }
             : null
         const fillsLine = !sel && targetBlockEmpty() && !inTask(target.blockFrom)
         const insert: Row = {
@@ -1568,7 +1705,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
         }))
     }
     // "More …": the rest, in their groups (typing searches everything again, as on the top level)
-    if (view === 'more' && !q) return moreActions.map(({ hidden: _hidden, keywords: _keywords, ...a }) => ({ ...a }))
+    if (view === 'more' && !q) return moreActions.map(toRow)
     const matched = q
       ? actions.filter((a) => a.label.toLowerCase().includes(q) || a.code.toLowerCase().startsWith(q) || a.keywords?.toLowerCase().includes(q))
       : actions.filter((a) => !a.hidden && isTop(a))
@@ -1620,7 +1757,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
           ) : undefined,
         }
       : null
-    const list: Row[] = matched.map(({ hidden: _hidden, keywords: _keywords, ...a }) => ({ ...a }))
+    const list: Row[] = matched.map(toRow)
     if (!q && moreActions.length)
       list.push({
         id: 'more',
@@ -1652,14 +1789,24 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
     }
     // an own request that is really a structure action, or work for the AI terminal (intent.ts): that key first, Enter runs it
     const intent = q && !img?.only && !file?.only && !remembering ? requestIntent(query, { selection: own.t.mode === 'selection', servers: mcpNames ? mcpNames.split(' · ') : [] }) : null
-    const routed = intent && intent !== 'terminal' ? actions.find((a) => a.id === (intent === 'todb' ? 'todb' : intent)) : null
+    const routed = intent && intent !== 'terminal' ? actions.find((a) => a.id === (intent === 'items' ? 'workItems' : intent)) : null
+    // the typed request goes along (who owns what, when): Turn into database, Make tasks (selection: Transform → Tasks;
+    // at the cursor: make_tasks)
+    const routedRun = (a: ActionDef): (() => void) => {
+      const instruction = query.trim()
+      if (a.id === 'todb') return () => start({ kind: 'todb', label: a.label, code: 'DB', instruction })
+      if (a.id !== 'workItems' || a.disabled) return a.run
+      if (target.mode === 'selection') return () => start(transformRequest('items', { instruction }))
+      const label = t('features.ai.act.workItemsPage')
+      return () => startPageLevel({ kind: 'action', action: 'make_tasks', label, code: TRANSFORM_CODES.items, instruction }, label)
+    }
     if (routed || intent === 'terminal') {
       const at = list.findIndex((r) => r.id === routed?.id)
       if (at >= 0) list.splice(at, 1)
       const quote = <span className="ai-quote">“{query.trim()}”</span>
       list.unshift(
         routed
-          ? { id: `intent-${routed.id}`, label: <>{routed.label} {quote}</>, code: routed.code, icon: routed.icon, run: routed.id === 'todb' ? () => start({ kind: 'todb', label: routed.label, code: 'DB', instruction: query.trim() }) : routed.run }
+          ? { ...toRow(routed), id: `intent-${routed.id}`, label: <>{routed.label} {quote}</>, group: undefined, run: routedRun(routed) }
           : { id: 'intent-terminal', label: <>{t('features.agent.intent.terminal')} {quote}</>, code: 'AGT', icon: Workflow, run: () => handToTerminal(query.trim()) },
       )
     }
@@ -1679,7 +1826,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
         run: () => start({ kind: 'memory', label: t('features.memory.menu.label'), code: 'MEM', text: query.trim(), from: 'request' }),
       })
     return list
-  }, [query, setup, phase, wsMode, view, actions, t, start, output, target, run, error, discard, sources, handToAgent, handToTerminal, mcpNames, onClose, table, todbInPlace, ask, marks, lang, chooseMode, pickBlocks, redoCard, genCard, generatePanel.rows, isRedo, imagePanel.rows, img, filePanel.rows, file, lineUse, memOff, previewing, histOf, memEdit, memDup, remembering, tagQuery, transformPicks, transformRun, transformPanel.apply, isTop, moreActions]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [query, setup, phase, wsMode, view, actions, t, start, output, target, run, error, discard, sources, handToAgent, handToTerminal, mcpNames, onClose, table, todbInPlace, ask, marks, lang, chooseMode, pickBlocks, redoCard, genCard, generatePanel.rows, isRedo, imagePanel.rows, img, filePanel.rows, file, lineUse, memOff, previewing, histOf, memEdit, memDup, remembering, tagQuery, transformPicks, transformRun, transformPanel.apply, isTop, moreActions, answerItems]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     setActive((a) => Math.min(a, Math.max(0, rows.length - 1)))
@@ -2116,6 +2263,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
                     {output ? (
                       <MarkdownLite
                         source={output}
+                        tasks
                         resolveCitation={
                           run?.req.kind === 'workspace'
                             ? (title) => {
@@ -2130,6 +2278,17 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
                         {run?.req.kind === 'workspace' ? t('features.ai.searching', { count: sources.length }) : t('features.ai.thinking')}
                         <span className="ai-wait__dots" aria-hidden />
                       </div>
+                    )}
+                  </div>
+                )}
+                {/* the tasks the answer makes (what Insert / Replace writes) + what was left out; "Make tasks": the names that went along */}
+                {phase === 'done' && (!!answerItems?.report?.created.length || !!answerItems?.report?.warnings.length || (run?.req.kind === 'action' && run.req.action === 'make_tasks')) && (
+                  <div className="ai-items" data-testid="ai-items">
+                    {answerItems?.report && <ItemFacts facts={answerItems.report.created.map((f) => ({ ...f, itemId: '' }))} warnings={answerItems.report.warnings} />}
+                    {run?.req.kind === 'action' && run.req.action === 'make_tasks' && typeof run.peopleSent === 'number' && (
+                      <p className="ai-items__people label" data-testid="ai-items-people">
+                        {run.peopleSent === 1 ? t('features.ai.transform.items.peopleOne') : t('features.ai.transform.items.people', { n: run.peopleSent })}
+                      </p>
                     )}
                   </div>
                 )}
@@ -2265,7 +2424,7 @@ function useNarrow(): boolean {
   return narrow
 }
 
-const ISSUE_CODES: Record<TodbIssue, string> = { none: 'NO_ENTRIES', bad: 'BAD_ANSWER', changed: 'CHANGED', gone: 'GONE' }
+const ISSUE_CODES: Record<TodbIssue, string> = { none: 'NO_ENTRIES', bad: 'BAD_ANSWER', changed: 'CHANGED', gone: 'GONE', gate: 'TASKS_OFF' }
 
 /** A selection that is "several blocks" for the menu: two or more whole blocks, or a whole list / table. */
 function severalBlocks(editor: Editor, range: BlockRange | null | undefined): boolean {

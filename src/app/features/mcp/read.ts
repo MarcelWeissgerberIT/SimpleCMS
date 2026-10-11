@@ -7,7 +7,7 @@ import { format } from 'date-fns'
 import { useUI } from '../../store/ui'
 import { inTemplate, selectBacklinks } from '../../store/selectors'
 import type { Database, ID, Page, PropertyDef } from '../../store/types'
-import { docToMarkdown } from '../../editor'
+import { docToFileMarkdown } from '../../editor'
 import { parseHash } from '../../lib/router'
 import { t } from '../../i18n'
 import { retrieve, workspaceDocs } from '../ai/workspace'
@@ -15,6 +15,7 @@ import { MCP_FILTER_OPS, type McpAgentMode, type McpToolName } from './contract'
 import { workspaceInfo } from './identity'
 import { scriptList } from '../script'
 import { queryTarget, runQuery } from './script'
+import { listWorkItemsMcp } from './workItems'
 import { comparable, databaseOrThrow, friendlyValue, iconText, iso, kindOf, live, McpToolError, pageUrl, pathOf, propertyJson, q, rowJson, rowProperties, rowsOf, titleOf, ws } from './values'
 
 /** Characters of page Markdown in one answer. */
@@ -189,7 +190,8 @@ function getPage(args: Record<string, unknown>) {
     .sort((a, b) => a.order - b.order)
   if (children.length) out.children = children.slice(0, 100).map(ref)
   if (others.length) out.alsoTitled = others.slice(0, 10).map((o) => ({ id: o.id, path: pathOf(o.id) }))
-  const md = docToMarkdown(p.content).trim()
+  // the file form: dates and people as `one:` links — a replace that copies them keeps them as mentions
+  const md = docToFileMarkdown(p.content).trim()
   out.markdown = md.length > MARKDOWN_MAX ? `${md.slice(0, MARKDOWN_MAX)}\n[Truncated: ${MARKDOWN_MAX.toLocaleString('en')} of ${md.length.toLocaleString('en')} characters]` : md
   if (md.length > MARKDOWN_MAX) out.truncated = true
   out.backlinks = selectBacklinks(pages, p.id)
@@ -440,6 +442,7 @@ export const READ_TOOLS: Partial<Record<McpToolName, (args: Record<string, unkno
   one_get_database: getDatabase,
   one_query_database: queryDatabase,
   one_run_query: runQuery,
+  one_list_work_items: listWorkItemsMcp,
 }
 
 /** Short label of what a read call is about (activity log). */
@@ -457,6 +460,8 @@ export function readTarget(tool: McpToolName, args: Record<string, unknown>): st
       return title(args.id)
     case 'one_run_query':
       return queryTarget(args)
+    case 'one_list_work_items':
+      return [str(args.status) || 'open', str(args.person), str(args.query) ? `“${str(args.query)}”` : ''].filter(Boolean).join(' · ')
     case 'one_query_database': {
       const n = Array.isArray(args.filter) ? args.filter.length : 0
       return `${title(args.databaseId)}${n ? ` · ${t(n === 1 ? 'features.mcp.log.filters.one' : 'features.mcp.log.filters.other', { n })}` : ''}`

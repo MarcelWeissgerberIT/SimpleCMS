@@ -3,7 +3,7 @@ id: ai-menu
 title: The AI menu & asking
 section: ai
 order: 2
-keywords: ai, claude, space, ask ai, improve, summarize, translate, explain, continue writing, action items, ask workspace, turn into database, board, table, transform into, diagram, flowchart, mind map, mermaid, chart, timeline, columns, tabs, toggles, cards, visualize, background, context, what claude reads, mark blocks, redo, rewrite, instructions, presets, style guide, sub-page per item, pages + table, make a subpage, one page per item, image, picture, alt text, caption, ocr, read text, image to table, screenshot, photo, file, pdf, attachment, summarize pdf, word, docx, excel, xlsx, csv, html, open as page, import as database, KI, Leertaste, verbessern, zusammenfassen, übersetzen, Datenbank, verwandeln, Schaubild, Diagramm, Spalten, Karten, Kontext, neu machen, Vorgaben, Bild, Alternativtext
+keywords: ai, claude, space, ask ai, improve, summarize, translate, explain, continue writing, action items, make tasks, tasks, owner, due, ask workspace, turn into database, board, table, transform into, diagram, flowchart, mind map, mermaid, chart, timeline, columns, tabs, toggles, cards, visualize, background, context, what claude reads, mark blocks, redo, rewrite, instructions, presets, style guide, sub-page per item, pages + table, make a subpage, one page per item, image, picture, alt text, caption, ocr, read text, image to table, screenshot, photo, file, pdf, attachment, summarize pdf, word, docx, excel, xlsx, csv, html, open as page, import as database, KI, Leertaste, verbessern, zusammenfassen, übersetzen, Datenbank, verwandeln, Schaubild, Diagramm, Spalten, Karten, Kontext, neu machen, Vorgaben, Bild, Alternativtext
 related: claude-key, agent, command-palette, history
 summary: Space on an empty line, or Ask AI on a selection — Claude writes, edits and answers right in the page.
 ---
@@ -12,12 +12,12 @@ The menu starts with the prompt: ask in your own words and press <kbd>Enter</kbd
 ## On an empty line: Space
 Press <kbd>Space</kbd> on an empty line (or `/ai`). Type any request, or pick:
 - **Write** — **Continue writing**, **Draft an outline…**, **Brainstorm ideas…**
-- **This page** — **Summarize this page**, **Find action items on this page**
+- **This page** — **Summarize this page**, **Find action items on this page** (a to-do checklist), **Make tasks from this page** (see **Make tasks** below)
 - **Workspace** — **Ask your workspace**: Claude reads the most relevant pages of this workspace and cites them; only those excerpts are sent.
 - **More…** — **Redo with instructions…**, **Hand to the agent…**, **What Claude reads…**
 
 ## On a selection: Ask AI
-Select text → **Ask AI** in the toolbar (or **Ask AI** in the block menu ⋮⋮ of a text block). Within a line: **Improve writing**, **Fix spelling & grammar**, **Make shorter**, **Translate**, **Explain this**. Several blocks: **Improve writing**, **Fix spelling & grammar**, **Translate**, **Transform into…**, **Summarize**. **More…** has the rest: **Make longer**, **Find action items**, **Redo with instructions…**, **Turn into database**, **Turn into page**, **Remember this**, **Hand to the agent…**
+Select text → **Ask AI** in the toolbar (or **Ask AI** in the block menu ⋮⋮ of a text block). Within a line: **Improve writing**, **Fix spelling & grammar**, **Make shorter**, **Translate**, **Explain this**. Several blocks: **Improve writing**, **Fix spelling & grammar**, **Translate**, **Transform into…**, **Make tasks**, **Summarize**. **More…** has the rest: **Make longer**, **Find action items**, **Redo with instructions…**, **Turn into database**, **Turn into page**, **Remember this**, **Hand to the agent…**
 
 The answer streams in. Then **Replace selection** (or **Insert below**), **Revise** with a follow-up instruction, **Try again**, **Copy** or **Discard**. Before Claude changes a page, a version is saved — see [Version history](help:history).
 
@@ -36,6 +36,7 @@ Select a list, a table or a report of several blocks → **Ask AI** → **More�
 Select a few blocks — steps, numbers, a comparison, questions and answers — → **Ask AI** → **Transform into…** (also in the block menu ⋮⋮ of several selected blocks). Pick the form:
 - **Auto** — Claude picks the form that fits and says why in one line.
 - **Board**, **Table** — the database of **Turn into database**, with its preview and **Place** choice. **Timeline** — the same with the dates of the text, opened on a timeline view.
+- **Tasks** — [task blocks](help:tasks) with owners, due dates and what waits for what (**Make tasks**, below). Auto never picks it.
 - **Diagram** — a Mermaid flowchart, mind map, sequence, timeline, Gantt or org chart. Labels are short: Claude shortens your own words.
 - **Chart** — bar, line, area or donut from the numbers in the text, as entered data of a [chart](help:charts).
 - **Columns** (2–5), **Tabs**, **Toggles**, **Cards** — the same text side by side, behind tabs, folded away or as callouts ([Toggles, columns & tabs](help:layout-blocks)).
@@ -43,6 +44,15 @@ Select a few blocks — steps, numbers, a comparison, questions and answers — 
 The preview shows the real result — the diagram drawn, the chart rendered, columns as columns. The strip on top switches the form (<kbd>←</kbd> / <kbd>→</kbd> in the empty prompt); a form asked before comes back without a new request. Small options: the diagram kind and direction, the chart kind, the number of columns. **Not carried over** lists what stays as text and any number Claude named that the text doesn't state — it is left out. **Transform** (<kbd>Enter</kbd>) puts the result in place of the blocks in one step: <kbd>Mod+Z</kbd> brings the text back, and a version is saved first. **Keep the original below (collapsed)** adds the source blocks in a closed toggle under the new block.
 
 Nothing is invented: names, numbers, dates and steps come only from the text. A diagram Mermaid can't read gets one automatic repair, then an error — nothing changes. Only the selected blocks go to Claude, never the One memory; the request keeps running in the background like any other.
+
+## Make tasks
+**Make tasks** turns what the text asks people to do into [task blocks](help:tasks) — with status, owners, due dates and what waits for what. It is not **Find action items**: that one writes a plain to-do checklist.
+- **On selected blocks**: **Ask AI** → **Make tasks** (also **Transform into → Tasks**). The preview lists every task — **TASK · NEW**, its owner, due date and **Blocked by** — and what was left out (*“Bob” is no person in this workspace*). **Transform** (<kbd>Enter</kbd>) puts them in place of the blocks in one step; **Keep the original below** works as for every form; <kbd>Mod+Z</kbd> brings the text back.
+- **At the cursor**: <kbd>Space</kbd> on an empty line → **Make tasks from this page**. Claude reads the page as **What Claude reads** allows (with nothing to read it asks first) and writes the tasks; a strip under the answer shows what goes in. Tasks already on the page are left out — never doubled. The message after **Insert** has an **Undo** (on a phone too).
+- **Owners only from your people.** One never creates a person: a name that is no person of your workspace is left out and said so. For this action — and only this one — the names of your people go to Claude along with the text (**Owners only from your people: 12 names go along**); never their emails. Dates come only from the text. On selected blocks Claude sets no reminders; at the cursor a reminder comes only when the page asks for one (*remind me the day before*), and the strip shows it before **Insert**.
+- In a team workspace a viewer or a tab on an older server can't make tasks: the row stays off with its reason.
+
+Any answer that holds tasks — your own request included — goes into the page the same way. A task never lands inside a task or a table cell: it goes after it. **Replace selection** over tasks works only when the selection holds them whole and Claude's answer brings each one back (with its id): their status, owners and dates stay as they are now, only the words change. Otherwise **Replace** is off — *Holds a task* or *Claude's answer drops a task* — and **Insert below** goes first.
 
 ## Turn into page
 **Ask AI** → **More…** → **Turn into page** moves the selected blocks into a new sub-page at once — no Claude involved — and leaves a link in their place. The same in the block menu ⋮⋮ (**Turn into → Page**) and with <kbd>Mod+Alt+9</kbd>; see [Drag, turn into, colour](help:block-handle).
@@ -54,6 +64,7 @@ Some requests are really actions, and the AI menu runs them instead of sending t
 - *“make a sub-page out of this”*, *“mach daraus eine Unterseite”*, *“auslagern”* → **Turn into page**;
 - *“one page per item”*, *“für jeden Punkt eine Unterseite”*, *“pro Ticket eine Seite”* → **Sub-page per item**;
 - *“as a board”*, *“als Tabelle”* → **Turn into database** with your words as its instruction;
+- *“make tasks from this”*, *“turn these into tasks”*, *“mach Aufgaben daraus”* → **Make tasks** (selected blocks: Transform → Tasks; at the cursor: the page) — never for the coding pipeline, a database or new pages;
 - anything that works beyond the selection — *“create pages for every ticket in the tracker”*, *“update the database …”* → **This needs the AI terminal — run it there**: the [AI terminal](help:agent) opens with your request and the selection as a reference, and starts.
 
 Writing requests (*shorter*, *translate*, *explain …*) go to Claude as before; **Ask Claude** stays in the list for any request.

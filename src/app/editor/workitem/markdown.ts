@@ -14,14 +14,20 @@
  *   text, so nothing is lost. The parser works on the parsed quote (TipTap JSON) BEFORE anything drops
  *   `one:` links (convert.ts postProcess) — and is switched off in this release (WORK_ITEMS_FROM_MARKDOWN):
  *   `> [!TODO]` still reads back as a plain quote.
+ * - Claude's form (`readClaudeQuote`): the same quote read leniently into a DRAFT — names, emails, "me", plain
+ *   dates, `#handle` / title refs, Reminder / Blocks keys, a `{#handle}` after a new task's title — resolved by
+ *   the settle gate (features/workitems/settle.ts), never here.
  * - Frozen tasks (documents that left the workspace) carry no ids: their people are plain names.
  */
 import type { JSONContent } from '@tiptap/core'
 import { ITEM_ID, PERSON_ID, dueHasTime, itemAttrs, readDue, readReminder, storedItemAttrs, WORK_ITEM, type WorkItemAttrs, type WorkItemStatus } from './attrs'
 
 /**
- * Markdown `> [!TODO]` → a task block. OFF in the schema release (P0): every client must understand the
- * block before anything can create one (docs/CLOUD.md § Schema gate). Flip it in the release that creates tasks.
+ * The GLOBAL Markdown reader: `> [!TODO]` → a task block in every `markdownToDoc`. OFF (P0, P1 and P2): imports,
+ * folder / GitHub sync, Markdown paste, quick capture, One Script, template / record-type text and mail keep reading
+ * `> [!TODO]` as a quote. Claude's paths read it explicitly — `readClaudeQuote` below, settled by
+ * features/workitems/settle.ts (the one gate: people, dates, ids, links, scope, review). Turning this on needs, per
+ * source, its own identity and review rules (the P2 brief § 14) — a per-source table then, never this one constant.
  */
 export const WORK_ITEMS_FROM_MARKDOWN: boolean = false
 
@@ -343,6 +349,248 @@ function splitQuote(quote: JSONContent, isFields: (line: JSONContent[]) => boole
   }
   notes.push(...(quote.content ?? []).slice(1))
   return { itemId, doneAt, title, fieldLine, notes }
+}
+
+/* ------------------------------------------------------------------ */
+/* Claude's form (lenient, unresolved — features/workitems/settle.ts)  */
+/* ------------------------------------------------------------------ */
+
+/** A link to another task as Claude wrote it: a task id, a `#handle` of its writing, or a title. */
+export type RefDraft =
+  | { id: string }
+  | { handle: string }
+  /**
+   * A title. `whole`: the whole value of a comma-holding field ("Plan, review") — its comma parts follow it as their
+   * own title refs; settle takes the whole one when it resolves, else the parts.
+   */
+  | { title: string; whole?: boolean }
+
+/** A person as Claude wrote it: an id (a `one:person` link), a name, a member's email, or "me". */
+export type PersonDraft = { id: string } | { raw: string } | { email: string } | { me: true }
+
+/** One `> [!TODO]` quote of Claude's, read but not resolved: `{ raw }` keeps a value that is no valid one (warnings). */
+export interface ClaudeItemDraft {
+  itemId: string | null
+  doneAt: number | null
+  /** `{#copy}` after a new task's title (folded to lower case) */
+  handle: string | null
+  title: JSONContent[]
+  notes: JSONContent[]
+  fieldLine: JSONContent[] | null
+  /** the 2nd line had a known key next to an unknown one: it stayed body text (L6) */
+  fieldKey?: string
+  status?: WorkItemStatus | { raw: string }
+  due?: string | { raw: string }
+  reminder?: string | { raw: string }
+  people?: PersonDraft[]
+  blockedBy?: RefDraft[]
+  related?: RefDraft[]
+  blocks?: RefDraft[]
+}
+
+type ClaudeKey = Key | 'reminder' | 'blocks'
+
+/** Keys only Claude's form reads (workItemFromQuote never sees them: a file's field line keeps its P0 meaning). */
+const CLAUDE_KEYS: Record<string, ClaudeKey> = {
+  reminder: 'reminder',
+  erinnerung: 'reminder',
+  blocks: 'blocks',
+  'hält auf': 'blocks',
+  'haelt auf': 'blocks',
+}
+
+const claudeKey = (word: string): ClaudeKey | null => {
+  const k = word.toLowerCase().replace(/\s+/g, ' ')
+  return KEYS[k] ?? CLAUDE_KEYS[k] ?? null
+}
+
+/** `{#copy}` at the end of the title line: a handle (letters, digits, _ -; never a `wi_` id). */
+const HANDLE_SUFFIX = /\s*\{#([A-Za-z][A-Za-z0-9_-]{0,23})\}\s*$/
+const HANDLE_REF = /^#([A-Za-z][A-Za-z0-9_-]{0,23})$/
+const EMAIL = /^[^\s@,]+@[^\s@,]+\.[^\s@,]+$/
+const ME = new Set(['me', 'ich'])
+const HUMAN_DUE = /^(\d{4}-\d{2}-\d{2})(?:[ T](\d{2}:\d{2}))?$/
+
+const handleOf = (raw: string): string | null => {
+  const h = raw.toLowerCase()
+  return h.startsWith('wi_') ? null : h
+}
+
+/** A segment's key as written (the text before the colon, else its first words), and whether Claude's form knows it. */
+function segmentKey(seg: Piece[]): { key: string; known: ClaudeKey | null } {
+  const first = seg[0]
+  const m = first && !first.href ? KEY_HEAD.exec(first.text) : null
+  if (m) return { key: m[1].trim(), known: claudeKey(m[1]) }
+  const text = seg.map((x) => x.text).join('').trim()
+  return { key: text.slice(0, 24), known: null }
+}
+
+/** Split the plain runs of a value at commas; links stay whole entries. */
+function entries(rest: Piece[]): Array<{ text: string; href: string | null }> {
+  const out: Array<{ text: string; href: string | null }> = []
+  let buf = ''
+  const flush = () => {
+    for (const part of buf.split(',')) if (part.trim()) out.push({ text: part.trim(), href: null })
+    buf = ''
+  }
+  for (const piece of rest) {
+    if (piece.href) {
+      flush()
+      out.push({ text: piece.text.trim(), href: piece.href })
+    } else buf += piece.text
+  }
+  flush()
+  return out
+}
+
+function readDueText(text: string): string | null {
+  const m = HUMAN_DUE.exec(text.trim())
+  return m ? readDue(m[2] ? `${m[1]}T${m[2]}` : m[1]) : null
+}
+
+function personDraft(e: { text: string; href: string | null }): PersonDraft | null {
+  if (e.href) {
+    const link = ONE_LINK.exec(e.href)
+    if (link?.[1] === 'person') {
+      const id = decode(link[2])
+      if (id) return { id }
+    }
+    if (/^mailto:/i.test(e.href)) {
+      const mail = e.href.replace(/^mailto:/i, '').trim()
+      if (EMAIL.test(mail)) return { email: mail }
+    }
+  }
+  const name = e.text.replace(/^@/, '').trim()
+  if (!name) return null
+  if (ME.has(name.toLowerCase())) return { me: true }
+  if (EMAIL.test(name)) return { email: name }
+  return { raw: name }
+}
+
+function refDrafts(rest: Piece[]): RefDraft[] {
+  const list = entries(rest)
+  const out: RefDraft[] = []
+  const plain = rest.every((x) => !x.href) ? rest.map((x) => x.text).join('').trim() : ''
+  const one = (e: { text: string; href: string | null }): RefDraft | null => {
+    if (e.href) {
+      const link = ONE_LINK.exec(e.href)
+      const id = link?.[1] === 'item' ? decode(link[2]) : null
+      if (id && ITEM_ID.test(id)) return { id }
+    }
+    const text = e.text.trim()
+    if (!text) return null
+    if (ITEM_ID.test(text)) return { id: text }
+    const h = HANDLE_REF.exec(text)
+    const handle = h ? handleOf(h[1]) : null
+    if (handle) return { handle }
+    return { title: text }
+  }
+  const refs = list.map(one).filter((r): r is RefDraft => !!r)
+  // "Plan, review": the whole value first (a title may hold a comma), then its parts
+  if (plain && refs.length > 1 && refs.some((r) => 'title' in r)) out.push({ title: plain, whole: true })
+  out.push(...refs)
+  return out
+}
+
+/** One segment of Claude's field line into the draft (a key seen twice: lists merge, the first single value wins). */
+function readClaudeSegment(seg: Piece[], key: ClaudeKey, d: ClaudeItemDraft): void {
+  const first = seg[0]
+  const m = KEY_HEAD.exec(first.text)
+  const rest: Piece[] = [{ text: m ? first.text.slice(m[0].length) : first.text, href: null }, ...seg.slice(1)]
+  const plain = rest
+    .filter((x) => !x.href)
+    .map((x) => x.text)
+    .join('')
+    .trim()
+  const links = rest.filter((x) => x.href)
+  const raw = rest
+    .map((x) => x.text)
+    .join('')
+    .replace(/\s+/g, ' ')
+    .trim()
+  switch (key) {
+    case 'status': {
+      if (d.status !== undefined) return
+      const s = links.length ? undefined : STATUSES[plain.toLowerCase().replace(/\s+/g, ' ')]
+      d.status = s ?? { raw }
+      return
+    }
+    case 'due': {
+      if (d.due !== undefined) return
+      const link = links.map((x) => ONE_LINK.exec(x.href!)).find((l) => l?.[1] === 'date')
+      if (link) {
+        const due = readDue(decode(link[2]))
+        d.due = due ?? { raw }
+        if (due && link[3] && d.reminder === undefined) {
+          const code = decode(link[3])
+          d.reminder = readReminder(code) ?? { raw: code ?? link[3] }
+        }
+        return
+      }
+      d.due = readDueText(plain) ?? { raw }
+      return
+    }
+    case 'reminder': {
+      if (d.reminder !== undefined) return
+      d.reminder = readReminder(plain.toLowerCase()) ?? { raw }
+      return
+    }
+    case 'people': {
+      const found = entries(rest)
+        .map(personDraft)
+        .filter((x): x is PersonDraft => !!x)
+      d.people = [...(d.people ?? []), ...found]
+      return
+    }
+    case 'blockedBy':
+    case 'related':
+    case 'blocks': {
+      d[key] = [...(d[key] ?? []), ...refDrafts(rest)]
+      return
+    }
+  }
+}
+
+/**
+ * Claude's `> [!TODO] …` quote (TipTap JSON, links still link marks) → a DRAFT, or null for any other node.
+ * Lenient: `Owner: Alex, me, sam@example.test` · `Due: 2026-10-17` / `2026-10-17 09:30` / a `one:date` link (its
+ * `?r=` = the reminder) · `Reminder: -1d` · `Blocked by / Related / Blocks: #copy, wi_…, an exact title` (EN + DE
+ * keys); `{#copy}` after the title declares a handle. Every segment's key must be known or the line stays body
+ * text (P0 rule) — a known key next to an unknown one also leaves `fieldKey` (the unknown one) for a warning.
+ * Nothing is resolved here (people, links, ids: features/workitems/settle.ts).
+ */
+export function readClaudeQuote(quote: JSONContent): ClaudeItemDraft | null {
+  let fieldKey: string | undefined
+  const q = splitQuote(quote, (line) => {
+    const segs = segments(line)
+    if (!segs.length) return false
+    const keys = segs.map(segmentKey)
+    if (keys.every((k) => k.known)) return true
+    if (keys.some((k) => k.known)) fieldKey = keys.find((k) => !k.known)?.key
+    return false
+  })
+  if (!q) return null
+  let title = q.title
+  let handle: string | null = null
+  if (!q.itemId) {
+    const last = title[title.length - 1]
+    const hm = last?.type === 'text' && !hrefOf(last) ? HANDLE_SUFFIX.exec(last.text ?? '') : null
+    const h = hm ? handleOf(hm[1]) : null
+    if (hm && h && last) {
+      handle = h
+      const text = (last.text ?? '').slice(0, hm.index)
+      title = trimLine(text ? [...title.slice(0, -1), { ...last, text }] : title.slice(0, -1))
+    }
+  }
+  const d: ClaudeItemDraft = { itemId: q.itemId, doneAt: q.doneAt, handle, title, notes: q.notes, fieldLine: q.fieldLine }
+  if (fieldKey) d.fieldKey = fieldKey
+  if (q.fieldLine) {
+    for (const seg of segments(q.fieldLine)) {
+      const key = segmentKey(seg).known
+      if (key) readClaudeSegment(seg, key, d)
+    }
+  }
+  return d
 }
 
 /**

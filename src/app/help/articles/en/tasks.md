@@ -3,8 +3,8 @@ id: tasks
 title: Tasks
 section: writing
 order: 6
-keywords: task, tasks, aufgabe, to-do, todo, action item, due, due date, deadline, assign, assignee, owner, blocked, blocker, depends, waiting, related, [!], Mod+Enter, Aufgabe, Aufgaben, fällig, zuweisen, blockiert, abhängig, wartet
-related: mentions-dates, blocks, templates, keyboard-shortcuts, team-cloud
+keywords: task, tasks, aufgabe, to-do, todo, action item, due, due date, deadline, assign, assignee, owner, blocked, blocker, depends, waiting, related, [!], Mod+Enter, claude, ai, make tasks, agent, terminal, mcp, Aufgabe, Aufgaben, aufgaben machen, fällig, zuweisen, blockiert, abhängig, wartet
+related: mentions-dates, blocks, templates, keyboard-shortcuts, team-cloud, ai-menu, agent, custom-agents, mcp-bridge
 summary: A task is a block with a status, a due date, people and what it waits for — right in the text.
 ---
 **A task, not a checkbox.** Type `/task` (or `/aufgabe`) — or `[!]` and a space at the start of a line. The first line is the title; notes go below it, <kbd>Shift+Enter</kbd> jumps there. A to-do list in the notes counts as steps (**2/4**).
@@ -32,6 +32,14 @@ A due date can remind you like a [date mention](help:mentions-dates): choose **R
 - **Use template** starts its tasks fresh: open, without a date or reminder (people and links stay).
 - The same task twice (an old copy) shows **DUPLICATE** with a **NEW ID** key — one click and it is its own task.
 - Button templates hold no tasks: a task pasted into one is kept as its text.
+
+## Claude and tasks
+- **Make tasks** in the [AI menu](help:ai-menu): on selected blocks (also **Transform into → Tasks**) and at the cursor for the whole page. You see every task — owner, due date, what it waits for — before it goes in. [Meeting notes](help:meeting-notes) have their own **Make tasks** key for their to-dos.
+- The [AI terminal](help:agent) and [custom agents](help:custom-agents) write tasks into pages, find tasks across the workspace and change a task's status, due date, owners or links. Every change shows its tasks first: **NEW**, **KEPT**, **CHANGED** before → after, **REMOVED**. Editing a task's field line in text changes nothing — fields change only through such a change.
+- **What waits for you.** A custom agent that applies its own changes — and a client over the local [MCP bridge](help:mcp-bridge) with **Apply directly** — waits for your review when a change assigns someone, sets a reminder, changes a task someone is assigned to, adds a blocker to a task or removes tasks; so does every change that depends on such a change.
+- **People.** One never creates a person: an owner must be one of your people. Claude sees your people's names only when it needs them — with **Make tasks**, or to tell it which names exist when it named an unknown one — never their emails.
+- **Ids are One's.** Every new task gets its id from One; a task Claude copies from elsewhere becomes a new task with its own id. A task written back into text with its id stays the same task.
+- The local MCP bridge has the same task tools; the team server gets them later.
 
 ## Task or database?
 Tasks live in the text where the work is discussed — a launch plan, meeting notes, a brief. A [database](help:databases) is for lists you sort, filter and view as a board or a calendar. To-do lists stay the light checklist — and the steps inside a task.

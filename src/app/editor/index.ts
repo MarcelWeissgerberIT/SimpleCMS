@@ -60,6 +60,15 @@ export { startUndoStep, endUndoStep } from './collab'
  */
 export { editAs, dispatchAs, NORMALISE_META as EDITOR_NORMALISE_META } from './lib/editAs'
 export { getExtensions, markdownToDoc, docToMarkdown, docToHTML, stripPrivate, stripPrivate as stripButtonActions, docSchema, prepareCollabContent } from './convert'
+/**
+ * docToFileMarkdown(doc): docToMarkdown with date / person mentions as `one:` links (`[@Oct 17](one:date/2026-10-17?r=-1d)`,
+ * `[@Alex](one:person/<id>)`) — the form of Markdown files One reads back and of the AI reads Claude writes back (opt-in:
+ * coding trust hashes, Outbox seals and the clipboard keep docToMarkdown). linkMentions(doc) + unhost(md): its two
+ * halves, for a caller with its own serializer (the Markdown export). sanitize(json): schema repair + tasks lifted out
+ * of tasks / tables (markdownToDoc ends with it; claudeDoc runs it again after its own steps).
+ */
+export { docToFileMarkdown, linkMentions, unhost } from './lib/fileMarkdown'
+export { sanitize } from './convert'
 export { stripComments, commentIdsIn } from './schema/comment'
 export { startSyncedBlocks, stopSyncedBlocks } from './synced/service'
 export { registerCodeLanguage, codeLanguages, languageLabel as codeLanguageLabel, type CodeLanguage } from './lib/codeLanguages'
@@ -88,12 +97,15 @@ export {
  * StaticWorkItem { attrs, children }: the read-only placard outside an editor (history diff).
  * workItemExportCss(scope): the placard's CSS for exported / shared HTML. DOC_SCHEMA_VERSION: the document
  * schema generation this build reads (sent with every collab connection — docs/CLOUD.md § Schema gate).
+ * readDue(v) / readReminder(v): a valid due ('yyyy-MM-dd[THH:mm]', a real day) / reminder code, else null.
  */
-export { WORK_ITEM, WORK_ITEM_STATUSES, MAX_PEOPLE, MAX_LINKS, itemAttrs, shortItemId, type WorkItemAttrs, type WorkItemStatus, type FrozenWorkItem } from './workitem/attrs'
+export { WORK_ITEM, WORK_ITEM_STATUSES, MAX_PEOPLE, MAX_LINKS, itemAttrs, shortItemId, readDue, readReminder, type WorkItemAttrs, type WorkItemStatus, type FrozenWorkItem } from './workitem/attrs'
 export { StaticWorkItem } from './workitem/Placard'
 export { freezeWorkItems, hasWorkItems } from './workitem/freeze'
 export { workItemExportCss } from './workitem/exportCss'
 export { dueText as workItemDueText, reminderShort as workItemReminderShort } from './workitem/format'
+/** dueText(due, lang) ("Fri 17 Oct"), reminderShort(code, t) ("−1 d"), initialsOf(name) — the placard's words, for task facts (features/workitems). */
+export { dueText, reminderShort, initialsOf } from './workitem/format'
 /**
  * Tasks outside the editor (features/workitems — the workspace index, write.ts, reminders, the agenda):
  *  - itemsOfContent(doc): the tasks of a page's content (ScannedItem: attrs, blockId, title, progress, synced
@@ -138,9 +150,24 @@ export { itemChanges, type ItemChange, type ItemField } from './workitem/diff'
 export { keepItems } from './convert'
 /** liftMisplacedItems(json): tasks inside a task / a table moved out whole, after it (sanitize() does it too). */
 export { liftMisplacedItems, holdsItem } from './workitem/place'
+/**
+ * Claude writes tasks (P2): readClaudeQuote(quote) — Claude's `> [!TODO]` quote read leniently into a ClaudeItemDraft
+ * (names, emails, "me", plain dates, `#handle` / title refs as RefDraft, Reminder / Blocks keys, `{#handle}`), never
+ * resolved here (features/workitems/settle.ts is the one gate). itemSafePoint(doc, pos): `pos`, or right after the
+ * outermost task / table holding it — where blocks that may hold a task can go.
+ */
+export { readClaudeQuote, type ClaudeItemDraft, type RefDraft, type PersonDraft } from './workitem/markdown'
+export { itemSafePoint } from './workitem/turnInto'
+/**
+ * storedItemAttrs(attrs): a task's attrs as stored (Transform → Tasks builds its nodes). itemFromTodo(todo, now, id?) /
+ * splitListAround(list, index, blocks): a to-do as a NEW task (ticked → done, first date → due + reminder, people) and
+ * its list split around it — meeting notes "Make tasks" (features/ai/meeting/toItems.ts).
+ */
+export { storedItemAttrs } from './workitem/attrs'
+export { itemFromTodo, splitListAround } from './workitem/turn'
 export { DOC_SCHEMA_VERSION, NODE_GENERATIONS } from './schema/base'
 export { contextMarksOf, pageContextMarks, readableContent, readableBlocks, isContextLimited, useContextMarks, useContextPicking, type ContextMarks, type ReadableContent } from './context/read'
-export { setContextMode, openContextPicker, closeContextPicker, contextPickingPage, topBlockKeys } from './context/api'
+export { setContextMode, setContextMarks, openContextPicker, closeContextPicker, contextPickingPage, topBlockKeys } from './context/api'
 export { startRedo } from './context/redo'
 /** bridgeOf(editor): the editor's overlay bridge (null for read-only / template editors) — the task placard and pickers use it. */
 export { bridgeOf } from './context/redo'

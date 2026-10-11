@@ -332,6 +332,21 @@
   }
 }
 
+/* the tasks an answer makes (what Insert / Replace writes) — the review's facts rows, scrolling inside the panel */
+.ai-items {
+  max-height: min(calc(220px * var(--text-scale)), 30vh);
+  overflow: auto;
+  padding: 8px 14px 10px;
+  border-top: 1px dashed var(--rule-strong);
+  overscroll-behavior: contain;
+}
+
+.label.ai-items__people {
+  margin: 6px 0 0;
+  color: var(--ink-3);
+  white-space: normal;
+}
+
 .ai-sources {
   display: flex;
   flex-wrap: wrap;
@@ -949,6 +964,39 @@ li[data-checked='true'] > span:not(.md-check) {
   margin: 0 0 0.65em;
   padding-left: 12px;
   border-left: 2px solid var(--ink);
+  color: var(--ink-2);
+}
+
+/* a `[!TODO]` quote in Claude's content (MarkdownLite `tasks`): a task row, not a quote */
+.md-lite .md-task {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 8px;
+  margin: 0 0 0.65em;
+  padding: 5px 0 6px 10px;
+  border-left: 2px solid var(--rule-strong);
+}
+
+.label.md-task__label {
+  color: var(--ink-3);
+}
+
+.md-task__title {
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.md-task__fields {
+  flex: 1 0 100%;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  color: var(--ink-3);
+  overflow-wrap: anywhere;
+}
+
+.md-task__notes {
+  flex: 1 0 100%;
   color: var(--ink-2);
 }
 

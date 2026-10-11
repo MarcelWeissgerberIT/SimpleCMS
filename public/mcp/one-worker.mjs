@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// SimpleCMS One — coding worker 1.7.1 (MIT). Source: https://github.com/MarcelWeissgerberIT/SimpleCMS/tree/main/mcp/src/worker
+// SimpleCMS One — coding worker 1.8.0 (MIT). Source: https://github.com/MarcelWeissgerberIT/SimpleCMS/tree/main/mcp/src/worker
 // Runs coding tasks from One with Claude Code on this computer. Setup: node one-worker.mjs --help
 // Docs and security model: https://github.com/MarcelWeissgerberIT/SimpleCMS/blob/main/docs/CODING.md
 import { createRequire as __createRequire } from 'node:module'; const require = __createRequire(import.meta.url);
@@ -32124,7 +32124,7 @@ var TOOLS = [
     name: "one_get_page",
     title: "Read a page",
     write: false,
-    description: "Read one page, database row or database page by id (or by exact title): title, icon, path, property values (rows, by property name), content as Markdown, sub-pages and backlinks. For a database it also lists the schema; use one_query_database for its rows.",
+    description: "Read one page, database row or database page by id (or by exact title): title, icon, path, property values (rows, by property name), content as Markdown, sub-pages and backlinks. For a database it also lists the schema; use one_query_database for its rows. Mentions come as [@Name](one:person/<id>) and [@date](one:date/YYYY-MM-DD); task blocks as > [!TODO] Title {#wi_\u2026} with a field line \u2014 keep both when you write the text back.",
     inputSchema: {
       type: "object",
       properties: {
@@ -32191,7 +32191,7 @@ var TOOLS = [
     name: "one_create_page",
     title: "Create a page",
     write: true,
-    description: 'Create a page with a title and optional Markdown content (headings, lists, "- [ ]" to-dos, tables, quotes, code; link pages with [Title](#/p/<id>)), at the top level or under a parent page. Not for database rows (use one_create_row). Returns the new page id.',
+    description: 'Create a page with a title and optional Markdown content (headings, lists, "- [ ]" to-dos, tables, quotes, code; link pages with [Title](#/p/<id>)), at the top level or under a parent page. Not for database rows (use one_create_row). Returns the new page id. Task blocks: "> [!TODO] Title" with a field line (Owner: names \xB7 Due: YYYY-MM-DD \xB7 Blocked by: #handle / wi_\u2026 / exact title) \u2014 One gives the ids; existing tasks change only through one_update_work_item.',
     inputSchema: {
       type: "object",
       properties: {
@@ -32208,7 +32208,7 @@ var TOOLS = [
     name: "one_update_page",
     title: "Update a page",
     write: true,
-    description: 'Change a page or row: its title, its icon and/or its content. mode "append" (default) adds the Markdown at the end; "replace" replaces the whole content (the old version stays in the page history).',
+    description: `Change a page or row: its title, its icon and/or its content. mode "append" (default) adds the Markdown at the end; "replace" replaces the whole content (the old version stays in the page history): keep every task block's quote with its {#wi_\u2026} id \u2014 leaving one out removes the task (always asked); a page that changed while the call waited for approval is not replaced (read it again and call again). Task blocks: "> [!TODO] Title" with a field line (Owner: names \xB7 Due: YYYY-MM-DD \xB7 Blocked by: #handle / wi_\u2026 / exact title) \u2014 One gives the ids; existing tasks change only through one_update_work_item.`,
     inputSchema: {
       type: "object",
       properties: {
@@ -32226,7 +32226,7 @@ var TOOLS = [
     name: "one_create_row",
     title: "Create a database row",
     write: true,
-    description: `Add a row to a database: its title, property values and optional Markdown content for the row's page. ${VALUES} An unknown select or multi_select option is created; anything else that does not fit fails the whole call with every problem listed.`,
+    description: `Add a row to a database: its title, property values and optional Markdown content for the row's page. ${VALUES} An unknown select or multi_select option is created; anything else that does not fit fails the whole call with every problem listed. Task blocks: "> [!TODO] Title" with a field line (Owner: names \xB7 Due: YYYY-MM-DD \xB7 Blocked by: #handle / wi_\u2026 / exact title) \u2014 One gives the ids; existing tasks change only through one_update_work_item.`,
     inputSchema: {
       type: "object",
       properties: {
@@ -32458,6 +32458,58 @@ ${SCRIPT_REFERENCE}`,
         dryRun: { type: "boolean", description: "Only report what the script would do (default false)." }
       },
       required: ["script"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "one_list_work_items",
+    title: "List tasks",
+    write: false,
+    description: 'Find task blocks across the workspace \u2014 the "> [!TODO]" quotes with a status, owners, a due date and what they wait for. Filters, all optional: status (open = todo + in progress, the default; todo, in_progress, done, any), person (a name, "me" or "none"), pageId (that page and the pages below it), blocked (waiting for an open task), overdue, dueBefore ("YYYY-MM-DD"), query (part of the title), limit (1\u2013100, default 50). Sorted overdue first, then by due date. Returns JSON: count and per task its id (wi_\u2026), title, status, due, reminder, people, blocked, overdue, blockedBy, related, its page and a url. Local bridge only.',
+    inputSchema: {
+      type: "object",
+      properties: {
+        status: { type: "string", enum: ["open", "todo", "in_progress", "done", "any"] },
+        person: { type: "string", description: `A person's name, "me" or "none" (tasks without an owner).` },
+        pageId: { type: "string", description: "Only tasks on this page and the pages below it." },
+        blocked: { type: "boolean" },
+        overdue: { type: "boolean" },
+        dueBefore: { type: "string", description: '"YYYY-MM-DD".' },
+        query: { type: "string", description: "Part of the task title." },
+        limit: { type: "integer", minimum: 1, maximum: 100 }
+      },
+      additionalProperties: false
+    }
+  },
+  {
+    name: "one_update_work_item",
+    title: "Change tasks",
+    write: true,
+    description: `Change the fields of task blocks (ids from one_list_work_items, one_get_page or a write's "tasks"): status, due date, reminder, owners, Blocked by and Related \u2014 up to 50 tasks in one call; editing a task's field line in text changes nothing. Owners are people of this workspace by name ("me" = the person; One never creates people); links are task ids or exact titles. Every entry is checked first: one bad entry changes nothing. Changes that assign someone, set a reminder, change a task someone is assigned to or add a blocker always wait for the person's approval, also when changes are applied directly. Returns the tasks after the change (JSON, like one_list_work_items). Local bridge only.`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        updates: {
+          type: "array",
+          minItems: 1,
+          maxItems: 50,
+          items: {
+            type: "object",
+            properties: {
+              item: { type: "string", description: "Task id (wi_\u2026)." },
+              status: { type: "string", enum: ["todo", "in progress", "done"] },
+              due: { type: ["string", "null"], description: '"YYYY-MM-DD" or "YYYY-MM-DDTHH:mm"; null clears the due date and its reminder.' },
+              reminder: { type: ["string", "null"], description: '"at", "-15m", "-1h", "-1d", "-1w" (needs a due date); null removes it.' },
+              people: { type: "object", properties: { add: { type: "array", items: { type: "string" } }, remove: { type: "array", items: { type: "string" } } }, additionalProperties: false },
+              blocked_by: { type: "object", properties: { add: { type: "array", items: { type: "string" } }, remove: { type: "array", items: { type: "string" } } }, additionalProperties: false },
+              related: { type: "object", properties: { add: { type: "array", items: { type: "string" } }, remove: { type: "array", items: { type: "string" } } }, additionalProperties: false }
+            },
+            required: ["item"],
+            additionalProperties: false
+          }
+        }
+      },
+      required: ["updates"],
       additionalProperties: false
     }
   }
@@ -33938,7 +33990,7 @@ ${prompt}`);
 }
 
 // src/worker/index.ts
-var VERSION = true ? "1.7.1" : "dev";
+var VERSION = true ? "1.8.0" : "dev";
 var quiet = process.env.ONE_WORKER_QUIET === "1";
 var recent = [];
 var log = (msg) => {

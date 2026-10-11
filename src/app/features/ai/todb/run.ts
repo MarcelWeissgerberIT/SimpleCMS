@@ -28,7 +28,8 @@ import { withWriter, type Writer } from '../../../store/writer'
 import { newId } from '../../../lib/ids'
 
 /** Why a request or a conversion did not happen (an i18n key under features.ai.todb.err). */
-export type TodbIssue = 'none' | 'bad' | 'changed' | 'gone'
+/** gate: tasks can't be made here right now (Transform → Tasks) */
+export type TodbIssue = 'none' | 'bad' | 'changed' | 'gone' | 'gate'
 
 export class TodbError extends Error {
   issue: TodbIssue

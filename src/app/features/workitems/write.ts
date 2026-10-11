@@ -14,12 +14,16 @@
  *     keys); ONE setContent(…, 'items') per page.
  *  4. by 'person' + a task became done → the unblock toast; refusals → one toast with the first reason (`toasts: false`
  *     leaves both to the caller, which gets `unblocked` back).
- *  5. undo(): the inverse patches through writeItems again, only for the fields whose CURRENT value (the live editor
- *     when there is one — the store lags behind it) is still what was written.
- * Store write path: setContent(pageId, …, 'items') (no editor open). Every write names its writer (store/writer.ts):
- * `opts.writer`, else the frame open around the call (a derived write keeps its cause), else the person in the UI
- * (`you~ui`); through a live editor as `editAs` (the editor's store write happens at once, inside that frame); the
- * undo as an Undo (`you~undo`).
+ *  5. undo(writer?): the inverse patches through writeItems again, only for the fields whose CURRENT value (the live
+ *     editor when there is one — the store lags behind it) is still what was written; returns `kept` — the itemIds
+ *     left (partly) alone because a value changed since (or the task is gone).
+ * Store write path: setContent(pageId, …, opts.origin ?? 'items') (no editor open). Origin 'ai' (Claude's task changes,
+ * after a version was kept): through a live editor in a LOCAL workspace the content is also written with origin 'ai'
+ * right after the editor's commit (as edit_page's apply does; a team page's document carries it). Every write names
+ * its writer (store/writer.ts): `opts.writer`, else the frame open around the call (a derived write keeps its cause),
+ * else the person in the UI (`you~ui`); through a live editor as `editAs` (the editor's store write happens at once,
+ * inside that frame); the undo as an Undo: its `writer`, else the Undo frame open around it (`you~undo:<batch>` — the
+ * terminal's undoStagedBatch keeps its batch ref), else `you~undo`.
  */
 import type { JSONContent } from '@tiptap/core'
 import { useWorkspace } from '../../store/store'
@@ -53,7 +57,8 @@ export interface WriteResult {
   pageId?: string
 }
 export interface WriteOptions {
-  origin?: 'items'
+  /** the content origin of the store write: 'items' (default) · 'ai' (Claude's task changes) */
+  origin?: 'items' | 'ai'
   by?: 'person' | 'system'
   /** default true: the unblock toast (by 'person') and the refusal toast */
   toasts?: boolean
@@ -113,9 +118,9 @@ function placeOf(index: ItemIndex, itemId: string, fromTpl: ID | null, pageId?: 
 }
 
 /** A refusal for one edit's links (loop, shared → private, live ⇄ template), or null. */
-function linkRefusal(index: ItemIndex, entry: ItemEntry, patch: ItemPatch, team: boolean, pagePrivate: boolean): WriteRefusal | null {
+function linkRefusal(index: ItemIndex, graph: Parameters<typeof wouldLoop>[0], entry: ItemEntry, patch: ItemPatch, team: boolean, pagePrivate: boolean): WriteRefusal | null {
   const added = [...(patch.blockedBy?.add ?? []), ...(patch.related?.add ?? [])]
-  for (const to of patch.blockedBy?.add ?? []) if (wouldLoop(index, entry.itemId, to)) return 'loop'
+  for (const to of patch.blockedBy?.add ?? []) if (wouldLoop(graph, entry.itemId, to)) return 'loop'
   for (const to of added) {
     const target = index.byId.get(to)
     if (team && !pagePrivate && target?.private) return 'scope'
@@ -124,7 +129,7 @@ function linkRefusal(index: ItemIndex, entry: ItemEntry, patch: ItemPatch, team:
   return null
 }
 
-export function writeItems(edits: readonly ItemEdit[], opts: WriteOptions = {}): { results: WriteResult[]; unblocked: ItemEntry[]; undo: () => void } {
+export function writeItems(edits: readonly ItemEdit[], opts: WriteOptions = {}): { results: WriteResult[]; unblocked: ItemEntry[]; undo: (writer?: Writer) => { kept: string[] } } {
   const index = getItemIndex()
   const state = useWorkspace.getState()
   const pages = state.pages
@@ -134,6 +139,18 @@ export function writeItems(edits: readonly ItemEdit[], opts: WriteOptions = {}):
   const results: WriteResult[] = edits.map((e) => ({ itemId: e.itemId, ok: false }))
   const writer = opts.writer ?? currentWriter() ?? PERSON
   const byPage = new Map<ID, number[]>()
+  // the graph as this batch leaves it: an edit is checked against the blockers the edits before it add (two edits that
+  // each look fine alone may close a loop together)
+  const batchEdges = new Map<string, string[]>()
+  const graph = {
+    byId: {
+      get: (id: string) => {
+        const e = index.byId.get(id)
+        const more = batchEdges.get(id)
+        return more ? { attrs: { blockedBy: [...(e?.attrs.blockedBy ?? []), ...more] } } : e
+      },
+    },
+  } as unknown as Parameters<typeof wouldLoop>[0]
 
   // 1 + 2: place and gate
   edits.forEach((edit, i) => {
@@ -152,8 +169,10 @@ export function writeItems(edits: readonly ItemEdit[], opts: WriteOptions = {}):
     else if (team && cloud.outdated) r.refused = 'outdated'
     else if (team && cloud.readOnly) r.refused = 'readonly'
     else if (page.content == null) r.refused = 'blind'
-    else r.refused = linkRefusal(index, placed.entry, edit.patch, team, !!page.private) ?? undefined
+    else r.refused = linkRefusal(index, graph, placed.entry, edit.patch, team, !!page.private) ?? undefined
     if (r.refused) return
+    const adds = edit.patch.blockedBy?.add ?? []
+    if (adds.length) batchEdges.set(placed.entry.itemId, [...(batchEdges.get(placed.entry.itemId) ?? []), ...adds])
     const list = byPage.get(pageId)
     if (list) list.push(i)
     else byPage.set(pageId, [i])
@@ -179,6 +198,11 @@ export function writeItems(edits: readonly ItemEdit[], opts: WriteOptions = {}):
           { by: 'system' },
         )
       })
+      // Claude's change in a local workspace: the content as written, with its origin (a team page's document carries it)
+      if (opts.origin === 'ai' && !team && oks.some(Boolean)) {
+        const json = editor.getJSON()
+        withWriter(writer, () => useWorkspace.getState().setContent(pageId, json, 'ai'))
+      }
       idxs.forEach((i, k) => {
         const b = before[k]
         if (!oks[k] || !b) {
@@ -232,27 +256,49 @@ export function writeItems(edits: readonly ItemEdit[], opts: WriteOptions = {}):
     }
   }
 
-  // 5: undo — the fields that still hold what was written go back
-  const undo = () => {
+  // 5: undo — the fields that still hold what was written go back; the rest is kept (and named)
+  const undo = (undoWriter?: Writer): { kept: string[] } => {
     const inverse: ItemEdit[] = []
+    const kept: string[] = []
     for (const w of written) {
       const cur = currentAttrs(w.pageId, w.itemId)
-      if (!cur) continue
+      if (!cur) {
+        kept.push(w.itemId)
+        continue
+      }
       const p: ItemPatch = {}
-      if (w.patch.status !== undefined && w.before.status !== w.after.status && cur.status === w.after.status) p.status = w.before.status
-      if ((w.patch.due !== undefined || w.patch.reminder !== undefined) && (w.before.due !== w.after.due || w.before.reminder !== w.after.reminder) && cur.due === w.after.due && cur.reminder === w.after.reminder) {
-        p.due = w.before.due
-        if (w.before.due) p.reminder = w.before.reminder
+      let left = false
+      if (w.patch.status !== undefined && w.before.status !== w.after.status) {
+        if (cur.status === w.after.status) p.status = w.before.status
+        else left = true
+      }
+      if ((w.patch.due !== undefined || w.patch.reminder !== undefined) && (w.before.due !== w.after.due || w.before.reminder !== w.after.reminder)) {
+        if (cur.due === w.after.due && cur.reminder === w.after.reminder) {
+          p.due = w.before.due
+          if (w.before.due) p.reminder = w.before.reminder
+        } else left = true
       }
       for (const key of ['people', 'blockedBy', 'related'] as const) {
-        if (!w.patch[key] || sameList(w.before[key], w.after[key]) || !sameList(cur[key], w.after[key])) continue
+        if (!w.patch[key] || sameList(w.before[key], w.after[key])) continue
+        if (!sameList(cur[key], w.after[key])) {
+          left = true
+          continue
+        }
         p[key] = { add: w.before[key].filter((x) => !w.after[key].includes(x)), remove: w.after[key].filter((x) => !w.before[key].includes(x)) }
       }
-      if (w.patch.itemId && w.before.itemId && w.before.itemId !== w.after.itemId && cur.itemId === w.after.itemId) p.itemId = w.before.itemId
+      if (w.patch.itemId && w.before.itemId && w.before.itemId !== w.after.itemId) {
+        if (cur.itemId === w.after.itemId) p.itemId = w.before.itemId
+        else left = true
+      }
+      if (left && !kept.includes(w.itemId)) kept.push(w.itemId)
       // back on the very page it was written (a duplicate on another page stays as it is)
       if (Object.keys(p).length) inverse.push({ itemId: w.itemId, patch: p, pageId: w.pageId })
     }
-    if (inverse.length) writeItems(inverse, { by: 'system', toasts: false, from: opts.from, origin: opts.origin, writer: UNDO })
+    // an Undo's writer: the one given, else the Undo frame open around this call (its batch ref kept), else `you~undo`
+    const open = currentWriter()
+    const by = undoWriter ?? (open?.kind === 'you' && open.via === 'undo' ? open : UNDO)
+    if (inverse.length) writeItems(inverse, { by: 'system', toasts: false, from: opts.from, origin: opts.origin, writer: by })
+    return { kept }
   }
 
   return { results, unblocked, undo }
@@ -261,13 +307,14 @@ export function writeItems(edits: readonly ItemEdit[], opts: WriteOptions = {}):
 // Test hook (dev, or ?e2e): writeItems from a test; the last write's undo
 if (typeof window !== 'undefined' && (import.meta.env.DEV || new URLSearchParams(window.location.search).has('e2e'))) {
   const seam = (window as unknown as { __oneItems?: Record<string, unknown> }).__oneItems
-  let lastUndo: (() => void) | null = null
+  let lastUndo: ((writer?: Writer) => { kept: string[] }) | null = null
   if (seam) {
     seam.write = (edits: ItemEdit[], opts?: WriteOptions) => {
       const r = writeItems(edits, opts)
       lastUndo = r.undo
       return { results: r.results, unblocked: r.unblocked.map((e) => e.itemId) }
     }
-    seam.undoLast = () => lastUndo?.()
+    /** the last write's undo — `ref`: as the Undo of a terminal batch (`you~undo:<ref>`, opened around it) */
+    seam.undoLast = (ref?: string) => (ref ? withWriter({ kind: 'you', via: 'undo', ref }, () => lastUndo?.()) : lastUndo?.()) ?? null
   }
 }

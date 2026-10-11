@@ -516,6 +516,6 @@ test.describe('AI meeting notes', () => {
     await expect(notes.getByRole('heading', { name: 'Entscheidungen' })).toBeVisible()
     await expect(notes.getByRole('heading', { name: 'Aufgaben' })).toBeVisible()
     await expect(deck(page).locator('.mtg__tx-toggle')).toContainText('Transkript · 6 Wörter')
-    await expect(deck(page).locator('[data-meeting-key="send"]')).toHaveText('2 Aufgaben an eine Datenbank senden')
+    await expect(deck(page).locator('[data-meeting-key="send"]')).toHaveText('2 To-dos an eine Datenbank senden')
   })
 })

@@ -2,15 +2,18 @@
  * "Transform into …" — the shared shapes (plain JSON: a run keeps them in the background and across a reload).
  *
  *  - TransformType: the forms a selection can become. Board / Table / Timeline are databases (the "Turn into
- *    database" machinery, features/ai/todb); the others are blocks built by code from a small structured answer.
+ *    database" machinery, features/ai/todb); the others are blocks built by code from a small structured answer —
+ *    Tasks (`items`) are task blocks (owners only from the workspace's people, ids minted in the result: preview = apply).
  *  - TransformState: what a run holds — the form shown, Auto's choice, the finished results per request key (a
  *    switch back to a form asked before needs no new request) and the options.
  */
 import type { JSONContent } from '@tiptap/core'
 import type { TableAnswer } from '../todb/run'
 import type { FreeBoardResult } from '../freeboard/apply'
+import type { ItemFact, SettleWarning } from '../../workitems'
+import type { WorkItemStatus } from '../../../editor'
 
-export const TRANSFORM_TYPES = ['board', 'freeboard', 'table', 'timeline', 'diagram', 'chart', 'columns', 'tabs', 'toggles', 'cards'] as const
+export const TRANSFORM_TYPES = ['board', 'freeboard', 'table', 'timeline', 'items', 'diagram', 'chart', 'columns', 'tabs', 'toggles', 'cards'] as const
 export type TransformType = (typeof TRANSFORM_TYPES)[number]
 /** what the person picked: a form, or Auto (Claude picks the form and says why) */
 export type TransformPick = TransformType | 'auto'
@@ -57,6 +60,22 @@ export interface ChartPlan {
   series: { name: string; values: (number | null)[] }[]
 }
 
+/** One task of "Transform → Tasks" as Claude answered it (validated: owners / dates / links resolved by buildItems). */
+export interface ItemPlan {
+  title: string
+  /** inline Markdown lines ("- [ ] …" a to-do) */
+  notes: string[]
+  status: WorkItemStatus
+  /** names exactly from <people> (unknown ones are dropped, never created) */
+  owners: string[]
+  /** only a stated date: YYYY-MM-DD or YYYY-MM-DDTHH:mm */
+  due: string | null
+  /** 1-based indexes of the tasks of this answer it waits for */
+  blockedBy: number[]
+  /** the block numbers it comes from */
+  from: number[]
+}
+
 /** What every block result carries: the blocks it was read from and what stays as text. */
 export interface ResultSource {
   /** the blocks Claude read, as they were (apply checks they are still the same) */
@@ -73,6 +92,8 @@ export type BlockResult =
   | (ResultSource & { type: 'diagram'; diagram: DiagramKind; code: string; repaired: boolean })
   | (ResultSource & { type: 'chart'; chart: ChartPlan; dropped: string[] })
   | (ResultSource & { type: 'sections'; of: SectionsOf; sections: Section[] })
+  /** Tasks: the plan, the built task nodes (ids minted here — what Transform writes), their facts and what was left out */
+  | (ResultSource & { type: 'items'; items: ItemPlan[]; nodes: JSONContent[]; facts: ItemFact[]; warnings: SettleWarning[]; people: number })
 
 /** freeboard: record types, lanes and cards (features/ai/freeboard) */
 export type TransformResult = { type: 'db'; table: TableAnswer } | BlockResult | FreeBoardResult

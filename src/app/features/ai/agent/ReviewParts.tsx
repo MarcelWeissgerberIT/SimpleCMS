@@ -36,9 +36,9 @@ export function PropDiff({ props }: { props: PropChange[] }) {
 /**
  * Content preview of a staged change (also the custom agents' review, features/agents): whole blocks up to
  * PREVIEW_LINES (previewCut.ts). `more`: the cut part can be shown (its key keeps the focus where it is — a press that
- * moved it could reflow the row under the pointer); `full`: show every line.
+ * moved it could reflow the row under the pointer); `full`: show every line; `tasks`: task quotes read as tasks.
  */
-export function Preview({ markdown, append, full = false, more }: { markdown: string; append: boolean; full?: boolean; more?: { label: (rest: number) => string; less: string; run: () => void } }) {
+export function Preview({ markdown, append, full = false, more, tasks = false }: { markdown: string; append: boolean; full?: boolean; more?: { label: (rest: number) => string; less: string; run: () => void }; tasks?: boolean }) {
   const t = useT()
   const cut = previewCut(markdown)
   const end = full ? cut.lines.length : cut.end
@@ -46,7 +46,7 @@ export function Preview({ markdown, append, full = false, more }: { markdown: st
   return (
     <div className="agent-preview" data-append={append || undefined}>
       {append && <span className="agent-preview__plus mono" aria-hidden>+</span>}
-      <MarkdownLite source={cut.lines.slice(0, end).join('\n')} />
+      <MarkdownLite source={cut.lines.slice(0, end).join('\n')} tasks={tasks} />
       {more && cut.rest > 0 ? (
         <button type="button" className="btn btn--ghost btn--sm agent-preview__more" aria-expanded={full} onMouseDown={(e) => e.preventDefault()} onClick={more.run}>
           {full ? more.less : more.label(cut.rest)}

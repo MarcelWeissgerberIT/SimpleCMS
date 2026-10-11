@@ -16,8 +16,8 @@ import { useCloud } from '../../cloud'
 import { AGENT_TOOLS, ToolInputError, withToolScope, type AgentTool, type StageApi } from '../ai/agent/tools'
 import { unlocked } from './integrations/status'
 
-/** The ids a tool input can point at. */
-const ID_KEYS = ['id', 'database_id', 'parent_id'] as const
+/** The ids a tool input can point at (page_id: list_work_items' page filter). */
+const ID_KEYS = ['id', 'database_id', 'parent_id', 'page_id'] as const
 
 /** Is `id` (or one of its ancestors) one of `roots`? Cycle-safe. */
 function under(pages: Record<ID, Page>, id: ID, roots: Set<ID>): boolean {

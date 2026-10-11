@@ -29,6 +29,7 @@ import { READ_TOOLS, readTarget } from './read'
 import { McpToolError } from './values'
 import { mcpMessage, planWrite, type WritePlan } from './write'
 import { planRunScript } from './script'
+import { warmMembers } from '../workitems'
 import { DEFAULT_SETTINGS, loadSettings, MCP_STORAGE_KEY, saveSettings, useMcp, validPort, type ActivityState, type McpActivity, type McpSettings, type Verdict } from './state'
 import { endRun, noteRun, withWriter, type Writer } from '../../store/writer'
 
@@ -397,6 +398,7 @@ async function handleCall(id: string, tool: McpToolName, args: Record<string, un
     const at = boundWorkspace(expected)
     if (!at.ok) return fail(at.error, 'rejected')
     if (!def.write) {
+      if (tool === 'one_list_work_items') await warmMembers()
       const result = await READ_TOOLS[tool]!(args, get().mode)
       send({ type: 'result', id, result: stamped(result, at.ws) })
       logPatch(key, { state: 'ok', ms: ms() })
@@ -404,6 +406,8 @@ async function handleCall(id: string, tool: McpToolName, args: Record<string, un
     }
     if (get().mode === 'read') return fail(ERR.readOnly, 'rejected')
     if (useCloud.getState().readOnly) return fail(ERR.viewer, 'rejected')
+    // team: the member list (owners by email) before the planner runs — staging never waits for it
+    await warmMembers()
     const plan = tool === 'one_run_script' ? await planRunScript(args) : planWrite(tool, args)
     logPatch(key, { target: plan.target })
     if (plan.noop) {

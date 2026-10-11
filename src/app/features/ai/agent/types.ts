@@ -7,6 +7,10 @@ import type { AIErrorCode } from '../client'
 import type { MemoryProposal, MemoryUse } from '../memory/types'
 import type { BlockEdit } from './edit'
 import type { NewTaskPlan, PipelineKind, RefPage, TaskActionPlan, TaskOp } from '../../coding'
+import type { ItemPatch } from '../../../editor/workitem/patch'
+import type { ItemFact } from '../../workitems/facts'
+import type { HoldReason } from '../../workitems/holds'
+import type { ItemPin, SettleWarning } from '../../workitems/settle'
 
 export type ToolName =
   | 'search_pages'
@@ -43,6 +47,9 @@ export type ToolName =
   | 'agent_state_get'
   | 'agent_state_set'
   | 'notify_me'
+  /** task blocks (features/workitems): find them across the workspace (read) · change their fields (staged, kind 'workItem') */
+  | 'list_work_items'
+  | 'update_work_item'
 
 export type StepState = 'run' | 'ok' | 'err' | 'staged'
 
@@ -100,8 +107,44 @@ export interface ColumnSpec {
   options?: string[]
 }
 
-/** 'send': a slip in the Outbox (features/outbox) — never applied here, not even in write mode "apply": the Outbox sends after a person's press */
-export type ChangeKind = 'create_page' | 'append' | 'edit' | 'create_row' | 'update_row' | 'rename' | 'create_database' | 'add_property' | 'memory' | 'script' | 'media' | 'coding' | 'send'
+/**
+ * 'send': a slip in the Outbox (features/outbox) — never applied here, not even in write mode "apply": the Outbox sends
+ * after a person's press · 'workItem': a task block's fields (update_work_item, or a `Blocks:` of a text write)
+ */
+export type ChangeKind = 'create_page' | 'append' | 'edit' | 'create_row' | 'update_row' | 'rename' | 'create_database' | 'add_property' | 'memory' | 'script' | 'media' | 'coding' | 'send' | 'workItem'
+
+/**
+ * What the settle gate made of a text change's Markdown at staging (create_page / append / create_row / edit): the ids
+ * its new tasks got (reused 1:1 at apply — never re-minted), the handles it declared or used, the facts the review shows
+ * (= what apply writes), the warnings and the holds. Absent: the text holds no task, no person mention, nothing left
+ * out — and a change without it (an older proposal, a server run) creates no task at apply.
+ */
+export interface StagedItems {
+  ids: string[]
+  handles: Record<string, string>
+  /** created + kept + removed, as staged */
+  facts: ItemFact[]
+  warnings: SettleWarning[]
+  holds: HoldReason[]
+  /** per new task (↔ ids): the people and links staging resolved — apply writes these ids (an older change: none) */
+  pins?: ItemPin[]
+  /** the changes whose new tasks this text links (part of StagedChange.needs — a text written again replaces them) */
+  needs?: string[]
+}
+
+/** A task's fields changed (ChangeKind 'workItem'; StagedChange.pageId = the task's page, .title = its title). */
+export interface StagedItemEdit {
+  itemId: string
+  /** ids resolved (editor/workitem/patch.ts) */
+  patch: ItemPatch
+  /** JSON of the touched fields at staging (itemAttrs subset); null: a task staged in this conversation (dependsOn) */
+  before: string | null
+  /** tag 'changed', before → after */
+  facts: ItemFact
+  holds: HoldReason[]
+  /** the text change whose `Blocks:` produced it (also its dependsOn) */
+  from?: string
+}
 
 /**
  * Media saved from an MCP result (features/ai/media: the person clicked "Save to One" on a card — the file is in
@@ -210,6 +253,12 @@ export interface StagedChange {
   coding?: StagedCoding
   /** send: the Outbox slip it stands for (pageId = the row it answers); discarding the change withdraws an unsent slip */
   send?: { slipId: string }
+  /** create_page / append / create_row / edit whose Markdown holds tasks (or names people): what settling it made */
+  items?: StagedItems
+  /** workItem: the task and its field change */
+  workItem?: StagedItemEdit
+  /** applied: what applying it left out or changed (the settle gate's apply-time warnings, in the UI's language) */
+  notes?: string[]
   /**
    * append / edit of a pipeline task's page (the terminal): the pages its text links — they go along to the worker as
    * read-only text (`staged`: proposed here, created on apply). Listed on the card; applying refuses a page not listed.

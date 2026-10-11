@@ -10,14 +10,15 @@ import { useWorkspace } from '../../../store/store'
 import { isEffectivelyTrashed } from '../../../store/selectors'
 import { COLOR_NAMES, type DateValue, type ID, type PropertyDef, type PropertyValue, type SelectOption, type View } from '../../../store/types'
 import { defaultView } from '../../../store/store'
-import { claudeDoc } from '../claudeDoc'
+import { claudeSettled } from '../claudeDoc'
 import { webImagesOf } from '../../agents/images'
 import { newId } from '../../../lib/ids'
-import { aiWrite, snapshotNow } from '../../history/snapshots'
+import { aiWrite, contentKey, snapshotNow } from '../../history/snapshots'
 import { t } from '../../../i18n'
 import { depsOf, type ColumnSpec, type PropChange, type StagedChange } from './types'
 import { saveMemory, updateMemory } from '../memory/save'
 import { applyPageEdits } from './edit'
+import { applyItemChanges, applyNotes, itemCtx, itemPageOf, pagePrivate, sourceOfWriter, stagedTasksOf, type ItemApply, type ItemApplyOpts } from './workItems'
 import { livePage, withPageNodes, type LinkTarget } from './links'
 import { mediaNode } from '../media/blocks'
 import { applyNewTask, applyTaskAction, isPipelineTask, taskNeedsConfirm, taskSig, taskWriteEndsConfirm, textRefsGained } from '../../coding'
@@ -39,14 +40,15 @@ function isEmptyDoc(doc: JSONContent | null | undefined): boolean {
 }
 
 /**
- * Markdown Claude wrote → a doc: nothing in it loads by itself (claudeDoc; addresses in `keep` stay), its
- * `[Title](#/p/<id>)` links as page mentions / page link blocks (links.ts).
+ * Markdown Claude wrote (the change `c`'s) → a doc: nothing in it loads by itself (claudeDoc; addresses in `keep` stay),
+ * its tasks exactly the ones staging minted (the settle gate, workItems.ts itemCtx — an id taken by now fails the change),
+ * its `[Title](#/p/<id>)` links as page mentions / page link blocks (links.ts).
  */
-type ToDoc = (markdown: string, keep?: ReadonlySet<string>) => JSONContent
+type ToDoc = (markdown: string, c: StagedChange, at: { pageId: ID; private: boolean }, keep?: ReadonlySet<string>) => JSONContent
 
 /** Claude's Markdown as blocks; `page`'s own images may stay. */
-function blocksOf(markdown: string, toDoc: ToDoc, page?: JSONContent | null): JSONContent[] {
-  return (toDoc(markdown, page ? webImagesOf(page) : undefined).content ?? []).filter(Boolean)
+function blocksOf(markdown: string, toDoc: ToDoc, c: StagedChange, at: { pageId: ID; private: boolean }, page?: JSONContent | null): JSONContent[] {
+  return (toDoc(markdown, c, at, page ? webImagesOf(page) : undefined).content ?? []).filter(Boolean)
 }
 
 /** The pages links may point at while a batch is applied: live pages, pages and databases staged in it, rows created from staged rows. */
@@ -148,14 +150,43 @@ export interface ApplyResult {
    * `reverted`: of a kept update_row, the properties that did go back (nobody had changed them)
    */
   undo: () => { kept: string[]; reverted: Record<string, ID[]> }
+  /** what applying left out of a change (the settle gate's apply-time warnings, UI language), by change id */
+  notes?: Record<string, string[]>
+  /** the page a change really wrote, by change id ('workItem': the task's page now — attribution stamps it) */
+  pages?: Record<string, ID>
 }
 
 /** The properties a row update's undo put back while it kept the rest (read after it ran; applyChanges' `reverted`). */
-const revertedBy = new WeakMap<() => boolean, () => ID[]>()
+const revertedBy = new WeakMap<() => boolean | string[], () => ID[]>()
 
-/** Apply order: pages → databases → properties → rows and the rest → pipeline tasks (their pages may link the others). */
-const RANK: Partial<Record<StagedChange['kind'], number>> = { create_page: 0, create_database: 1, add_property: 2, coding: 4 }
+/**
+ * Apply order: pages → databases → properties → rows and the rest → task fields ('workItem': after every content write
+ * — a task a text change of the batch makes exists by then) → pipeline tasks (their pages may link the others).
+ */
+const RANK: Partial<Record<StagedChange['kind'], number>> = { create_page: 0, create_database: 1, add_property: 2, workItem: 3.5, coding: 4 }
 const rank = (c: StagedChange) => RANK[c.kind] ?? 3
+
+/**
+ * The batch in apply order: by RANK, then review order — but never before a change of the batch it needs (depsOf: a new
+ * page may link a task an append makes, a later rank). A loop (nothing stages one) keeps rank order; its changes fail.
+ */
+function applyOrder(changes: StagedChange[]): StagedChange[] {
+  let left = [...changes].sort((a, b) => rank(a) - rank(b) || a.n - b.n)
+  const inBatch = new Set(left.map((c) => c.id))
+  const placed = new Set<string>()
+  const out: StagedChange[] = []
+  while (left.length) {
+    const next = left.find((c) => depsOf(c).every((d) => !inBatch.has(d) || placed.has(d)))
+    if (!next) {
+      out.push(...left)
+      break
+    }
+    out.push(next)
+    placed.add(next.id)
+    left = left.filter((c) => c !== next)
+  }
+  return out
+}
 
 /** The undo of a change that cannot be undone (applyChanges lists it in `final`). */
 const FINAL = () => true
@@ -177,6 +208,11 @@ export interface ApplyOpts {
    * action staged before them still applies (coding/terminal.ts SigSteps) — an edit made elsewhere breaks the chain.
    */
   sigSteps?: Map<ID, Array<[string, string]>>
+  /**
+   * Task blocks: `visible` — the custom agent's scope (links resolve only inside it); `creates: false` — no change of
+   * this batch creates a task and no 'workItem' change is applied (a server run's proposals: nobody saw them staged here).
+   */
+  items?: { visible?: ((id: ID) => boolean) | null; creates?: boolean }
 }
 
 /** The terminal's writes on a pipeline task wait for the person's Confirm on its page (a version this device trusts). */
@@ -197,75 +233,164 @@ const WRITES_PAGE = new Set<StagedChange['kind']>(['update_row', 'append', 'rena
  * Run a terminal write of a page; when it is a pipeline task, record how its fingerprint moved (opts.sigSteps), and
  * guard its Undo: a task an agent changed since is left as it is (the Undo's write would end its wait for Confirm).
  */
-async function onTask<T extends () => boolean>(id: ID, opts: ApplyOpts, write: () => Promise<T>): Promise<T> {
+async function onTask<T extends () => boolean | string[]>(id: ID, opts: ApplyOpts, write: () => Promise<T>): Promise<T> {
   const task = opts.terminal && isPipelineTask(id)
   const before = task ? taskSig(id) : null
   const undo = await write()
   if (!task) return undo
   const after = taskSig(id)
   if (opts.sigSteps && before && after && before !== after) opts.sigSteps.set(id, [...(opts.sigSteps.get(id) ?? []), [before, after]])
-  return ((() => (taskWriteEndsConfirm(id) ? false : undo())) as T)
+  const guarded = (() => (taskWriteEndsConfirm(id) ? false : undo())) as T
+  // a row update's undo keeps telling which properties it put back (applyChanges' `reverted`)
+  const back = revertedBy.get(undo)
+  if (back) revertedBy.set(guarded, back)
+  return guarded
 }
 
 /**
- * Apply pending changes: pages, then databases, then properties, then rows and the rest, each in
- * review order. A change whose staged parent (or database, or property) is not applied — in this
- * batch or before — fails instead of landing somewhere unexpected.
+ * Apply pending changes: pages, then databases, then properties, then rows and the rest, each in review order — and a
+ * change after every change of the batch it needs (applyOrder). A change whose staged parent (or database, or
+ * property, or a change whose new task it links) is not applied — in this batch or before — fails instead of landing
+ * somewhere unexpected.
  */
 export async function applyChanges(changes: StagedChange[], all: StagedChange[], resolveRow: (id: ID) => ID, opts: ApplyOpts): Promise<ApplyResult> {
   const applied: string[] = []
   const failed: ApplyResult['failed'] = []
   const rowIds: Record<string, ID> = {}
   const final: string[] = []
-  const undos: Array<{ ids: string[]; fn: () => boolean }> = []
+  const notes: Record<string, string[]> = {}
+  const pages: Record<string, ID> = {}
+  /** a batch part's undo: true = undone, false = every change of it kept, a list = the changes kept */
+  const undos: Array<{ ids: string[]; fn: () => boolean | string[] }> = []
   const done = new Set(all.filter((c) => c.status === 'applied').map((c) => c.id))
   // a send is never applied here (the Outbox sends it, after a person's press): it stays as it is
-  const ordered = [...changes].filter((c) => (c.status === 'pending' || c.status === 'failed') && c.kind !== 'send').sort((a, b) => rank(a) - rank(b) || a.n - b.n)
+  const ordered = applyOrder(changes.filter((c) => (c.status === 'pending' || c.status === 'failed') && c.kind !== 'send'))
+  const inBatch = new Set(ordered.map((c) => c.id))
+  /** the batch's changes already written or failed */
+  const handled = new Set<string>()
+  const failedNow = new Set<string>()
+  const fail = (id: string, error: string) => {
+    failed.push({ id, error })
+    failedNow.add(id)
+    handled.add(id)
+  }
+  /** why a change can't be applied: a change it needs is not applied — before or in this batch (null: none) */
+  const missingNeed = (c: StagedChange): string | null => {
+    const missing = depsOf(c).find((id) => !done.has(id))
+    return missing ? `needs change #${all.find((x) => x.id === missing)?.n ?? '?'} first` : null
+  }
+  /** a change it needs comes later in this batch: it waits for its own turn (never in the group of an earlier one) */
+  const waits = (c: StagedChange) => depsOf(c).some((id) => inBatch.has(id) && !handled.has(id))
   const targets = linkTargets(all, resolveRow, rowIds)
-  const toDoc: ToDoc = (markdown, keep) => withPageNodes(claudeDoc(markdown, keep), targets)
+  // the settle gate at apply: the batch's tasks not applied yet — never those of a change that failed here (a link to
+  // one is kept), who writes, the scope
+  const itemOpts = (): ItemApplyOpts => ({ source: sourceOfWriter(opts.writer), visible: opts.items?.visible ?? null, creates: opts.items?.creates !== false, staged: stagedTasksOf(all.filter((x) => !done.has(x.id) && !failedNow.has(x.id)), resolveRow) })
+  const toDoc: ToDoc = (markdown, c, at, keep) => {
+    const { doc, report } = claudeSettled(markdown, keep, itemCtx(c, at, itemOpts()))
+    // a task id this change staged is in use by now: the change fails (never a new id — other changes point at it)
+    if (report.idTaken.length) throw new Error(t('features.agent.item.idTaken'))
+    const left = applyNotes(c, report)
+    if (left.length) notes[c.id] = left
+    return withPageNodes(doc, targets)
+  }
+  /**
+   * The changes of one page written together ('edit', 'workItem'): `c` and the batch's other changes of that kind and
+   * page that are ready — one that needs a change still to come waits for its own turn; one whose need is not applied
+   * fails ("needs change #n first") before anything else is looked at.
+   */
+  const groupOf = (c: StagedChange, pageOf: (x: StagedChange) => ID, pageId: ID): StagedChange[] => {
+    const group: StagedChange[] = []
+    for (const x of ordered) {
+      if (handled.has(x.id) || x.kind !== c.kind || pageOf(x) !== pageId || (x !== c && waits(x))) continue
+      const why = missingNeed(x)
+      if (why) fail(x.id, why)
+      else group.push(x)
+    }
+    for (const x of group) handled.add(x.id)
+    return group
+  }
 
-  const editedPages = new Set<ID>()
   for (const c of ordered) {
-    // edits of existing content: every edit of this page in the batch, in one transaction
-    if (c.kind === 'edit') {
-      const pageId = resolveRow(c.pageId)
-      if (editedPages.has(pageId)) continue
-      editedPages.add(pageId)
-      const group = ordered.filter((x) => x.kind === 'edit' && resolveRow(x.pageId) === pageId)
+    if (handled.has(c.id)) continue
+    // task fields: every 'workItem' change of the task's page in the batch, in ONE write (after a version was kept)
+    if (c.kind === 'workItem') {
+      if (opts.items?.creates === false) {
+        fail(c.id, t('features.agent.item.server'))
+        continue
+      }
+      const pageOf = (x: StagedChange) => itemPageOf(x, resolveRow)
+      const pageId = pageOf(c)
+      const group = groupOf(c, pageOf, pageId)
+      if (!group.length) continue
+      // a task on a page in the trash (or gone) is not changed
+      if (!alive(pageId)) {
+        for (const x of group) fail(x.id, t('features.workItems.refused.gone'))
+        continue
+      }
       try {
         await guardTask(pageId, opts)
       } catch (e) {
-        failed.push(...group.map((x) => ({ id: x.id, error: e instanceof Error ? e.message : String(e) })))
+        for (const x of group) fail(x.id, e instanceof Error ? e.message : String(e))
+        continue
+      }
+      let res!: ItemApply
+      const undoItems = await onTask(pageId, opts, async () => {
+        res = await applyItemChanges(pageId, group, { writer: opts.writer, all, done })
+        return res.undo
+      })
+      if (res.applied.length) undos.push({ ids: res.applied, fn: undoItems })
+      applied.push(...res.applied)
+      for (const id of res.applied) {
+        done.add(id)
+        pages[id] = pageId
+      }
+      for (const f of res.failed) fail(f.id, f.error)
+      continue
+    }
+    // edits of existing content: every edit of this page in the batch, in one transaction
+    if (c.kind === 'edit') {
+      const pageOf = (x: StagedChange) => resolveRow(x.pageId)
+      const pageId = pageOf(c)
+      const group = groupOf(c, pageOf, pageId)
+      if (!group.length) continue
+      try {
+        await guardTask(pageId, opts)
+      } catch (e) {
+        for (const x of group) fail(x.id, e instanceof Error ? e.message : String(e))
         continue
       }
       const gained = group.filter((x) => refsGained(pageId, x, opts))
-      failed.push(...gained.map((x) => ({ id: x.id, error: t('features.coding.term.err.refs') })))
+      for (const x of gained) fail(x.id, t('features.coding.term.err.refs'))
       const edits = group.filter((x) => !gained.includes(x))
       if (!edits.length) continue
       let res!: Awaited<ReturnType<typeof applyPageEdits>>
       const undoEdits = await onTask(pageId, opts, async () => {
-        res = await applyPageEdits(pageId, edits, opts.writer)
+        res = await applyPageEdits(pageId, edits, opts.writer, itemOpts())
         return res.undo
       })
       if (res.applied.length) undos.push({ ids: res.applied, fn: undoEdits })
       applied.push(...res.applied)
-      res.applied.forEach((id) => done.add(id))
-      failed.push(...res.failed)
+      res.applied.forEach((id) => {
+        done.add(id)
+        pages[id] = pageId
+      })
+      for (const f of res.failed) fail(f.id, f.error)
+      Object.assign(notes, res.notes ?? {})
       continue
     }
+    handled.add(c.id)
     try {
-      const missing = depsOf(c).find((id) => !done.has(id))
-      if (missing) {
-        const parent = all.find((x) => x.id === missing)
-        throw new Error(`needs change #${parent?.n ?? '?'} first`)
-      }
+      const why = missingNeed(c)
+      if (why) throw new Error(why)
       const undo = WRITES_PAGE.has(c.kind) ? await onTask(resolveRow(c.pageId), opts, () => applyOne(c, resolveRow, rowIds, toDoc, opts)) : await applyOne(c, resolveRow, rowIds, toDoc, opts)
       if (undo === FINAL) final.push(c.id)
       else undos.push({ ids: [c.id], fn: undo })
       applied.push(c.id)
       done.add(c.id)
+      pages[c.id] = rowIds[c.pageId] ?? resolveRow(c.pageId)
     } catch (e) {
-      failed.push({ id: c.id, error: e instanceof Error ? e.message : String(e) })
+      delete notes[c.id]
+      fail(c.id, e instanceof Error ? e.message : String(e))
     }
   }
 
@@ -274,14 +399,17 @@ export async function applyChanges(changes: StagedChange[], all: StagedChange[],
     const reverted: Record<string, ID[]> = {}
     for (let i = undos.length - 1; i >= 0; i--) {
       const u = undos[i]!
-      if (u.fn()) continue
-      kept.push(...u.ids)
-      const back = revertedBy.get(u.fn)?.() ?? []
+      // true = undone; false = every change of this part kept; a list = the changes of a page group kept
+      const r = u.fn()
+      if (r === true) continue
+      kept.push(...(r === false ? u.ids : r))
+      // a kept update_row: the properties its undo did put back (their verdicts go)
+      const back = r === false ? revertedBy.get(u.fn)?.() ?? [] : []
       if (back.length && u.ids.length === 1) reverted[u.ids[0]!] = back
     }
     return { kept, reverted }
   }
-  return { applied, failed, rowIds, final, undo }
+  return { applied, failed, rowIds, final, undo, ...(Object.keys(notes).length ? { notes } : {}), pages }
 }
 
 /**
@@ -290,12 +418,14 @@ export async function applyChanges(changes: StagedChange[], all: StagedChange[],
  */
 function removeCreated(id: ID): () => boolean {
   const rev = ws().pages[id]?.contentRev
+  const key = contentKey(ws().pages[id]?.content)
   const title = ws().pages[id]?.title
   return () => {
     const { pages } = ws()
     const now = pages[id]
     if (!now || now.trashed) return true
-    const touched = now.contentRev !== rev || now.title !== title || isEffectivelyTrashed(pages, id) || Object.values(pages).some((p) => p.parentId === id)
+    // content as written (a later change of the same batch undone first writes it back: the same content counts)
+    const touched = (now.contentRev !== rev && contentKey(now.content) !== key) || now.title !== title || isEffectivelyTrashed(pages, id) || Object.values(pages).some((p) => p.parentId === id)
     if (touched) ws().trashPage(id)
     else ws().deletePagePermanently(id)
     return true
@@ -357,9 +487,11 @@ async function applyOne(c: StagedChange, resolveRow: (id: ID) => ID, rowIds: Rec
     case 'create_page': {
       if (c.parentId && !alive(c.parentId)) throw new Error('the parent page is gone')
       if (s.pages[c.pageId]) throw new Error('already exists')
+      // its tasks are settled before anything is written (an id taken by now fails the change, nothing created)
+      const doc = c.markdown?.trim() ? toDoc(c.markdown, c, { pageId: c.pageId, private: pagePrivate(c.parentId) }) : null
       const id = as(() => {
         const made = s.createPage({ id: c.pageId, parentId: c.parentId ?? null, title: c.title ?? '' })
-        if (c.markdown?.trim()) ws().setContent(made, toDoc(c.markdown), ORIGIN)
+        if (doc) ws().setContent(made, doc, ORIGIN)
         return made
       })
       return removeCreated(id)
@@ -368,6 +500,7 @@ async function applyOne(c: StagedChange, resolveRow: (id: ID) => ID, rowIds: Rec
       const dbId = c.databaseId!
       if (!alive(dbId) || !s.databases[dbId]) throw new Error('the database is gone')
       const created = new Map<ID, ID[]>()
+      const doc = c.markdown?.trim() ? toDoc(c.markdown, c, { pageId: c.pageId, private: pagePrivate(dbId) }) : null
       const id = as(() => {
         const properties: Record<ID, PropertyValue> = {}
         for (const pc of c.props ?? []) properties[pc.propId] = resolveValue(dbId, pc, created)
@@ -378,7 +511,7 @@ async function applyOne(c: StagedChange, resolveRow: (id: ID) => ID, rowIds: Rec
           throw e
         }
         const row = ws().createRow(dbId, { title: c.title ?? '', properties })
-        if (c.markdown?.trim()) ws().setContent(row, toDoc(c.markdown), ORIGIN)
+        if (doc) ws().setContent(row, doc, ORIGIN)
         return row
       })
       rowIds[c.pageId] = id
@@ -439,6 +572,9 @@ async function applyOne(c: StagedChange, resolveRow: (id: ID) => ID, rowIds: Rec
     case 'edit':
       // applied per page, together (applyPageEdits in applyChanges)
       throw new Error('an edit is applied with its page')
+    case 'workItem':
+      // applied per page, together (applyItemChanges in applyChanges)
+      throw new Error('a task change is applied with its page')
     case 'append': {
       const id = resolveRow(c.pageId)
       if (!alive(id)) throw new Error('the page is gone')
@@ -448,13 +584,15 @@ async function applyOne(c: StagedChange, resolveRow: (id: ID) => ID, rowIds: Rec
       const page = ws().pages[id]
       if (!page) throw new Error('the page is gone')
       const prev = page.content
-      const add = blocksOf(c.markdown ?? '', toDoc, prev)
+      const add = blocksOf(c.markdown ?? '', toDoc, c, { pageId: id, private: pagePrivate(id) }, prev)
       const next: JSONContent = { type: 'doc', content: isEmptyDoc(prev) ? add : [...(prev?.content ?? []), ...add] }
       as(() => ws().setContent(id, next, ORIGIN))
       const rev = ws().pages[id]?.contentRev
+      const key = contentKey(ws().pages[id]?.content)
       return () => {
         const now = ws().pages[id]
-        if (!now || now.contentRev !== rev) return false
+        // edited since — unless a later change of the batch (a task's fields) was undone first and wrote it back
+        if (!now || (now.contentRev !== rev && contentKey(now.content) !== key)) return false
         ws().setContent(id, prev, ORIGIN)
         return true
       }

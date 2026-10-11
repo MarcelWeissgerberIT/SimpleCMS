@@ -50,6 +50,21 @@ export function itemInsertPos($pos: ResolvedPos): { inPlace: boolean; after: num
 }
 
 /**
+ * Where blocks that may hold a task can be inserted for a position `pos` of `doc`: `pos` itself — or, when `pos` lies
+ * inside a task (its title, its notes, a list item in them) or a table, right after the OUTERMOST of those holding it
+ * (a task never lands inside a task or a table — the AI menu's insert, a Claude answer holding tasks).
+ */
+export function itemSafePoint(doc: PMNode, pos: number): number {
+  const at = Math.max(0, Math.min(pos, doc.content.size))
+  const $pos = doc.resolve(at)
+  for (let d = 1; d <= $pos.depth; d++) {
+    const name = $pos.node(d).type.name
+    if (name === WORK_ITEM || name === 'table') return $pos.after(d)
+  }
+  return at
+}
+
+/**
  * Turn the line at `pos` (a position inside a textblock) into a NEW task, in `tr`. A list item's first line takes its
  * item along (the list split around it); inside a task's notes the line leaves the notes and the task goes after
  * the outermost task. Returns the caret position (inside the new title), 'table' (refused) or null (nothing to do).

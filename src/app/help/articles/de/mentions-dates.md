@@ -19,6 +19,8 @@ Tippe `@` und schreib weiter:
 ## Erinnerungen
 Klick auf ein Datum: Tag ändern, **Mit Uhrzeit**, und **Erinnern** wählen — zum Zeitpunkt, Minuten, Stunden, Tage oder eine Woche vorher. Datumseigenschaften in Datenbanken haben dieselbe Option **Erinnern**.
 
+Schreibt Claude Text um — das [KI-Menü](help:ai-menu), das [KI-Terminal](help:agent), ein Agent —, kommen Erwähnungen von Personen und Daten als Erwähnungen zurück. Ein Datum behält seine Erinnerung nur, wenn es schon eine hatte: Claude setzt an einem Datum nie von sich aus eine Erinnerung.
+
 Eine [Aufgabe](help:tasks) erinnert genauso: **Erinnern** in ihrer Terminauswahl. Eine erledigte Aufgabe erinnert niemanden; in einem Team-Arbeitsbereich erinnert eine Aufgabe mit Personen nur diese, eine ohne Zuweisung jedes Mitglied.
 
 Ist eine Erinnerung fällig, erscheint sie im **Posteingang** (Seitenleiste) und als Hinweis in der App. Schalte in den Posteingang-Einstellungen **Browser-Benachrichtigungen** ein, um sie auch zu bekommen, wenn One im Hintergrund ist.

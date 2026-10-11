@@ -3,7 +3,7 @@ id: agent
 title: Das KI-Terminal
 section: ai
 order: 3
-keywords: agent, ki-terminal, terminal, claude, automatisieren, massenänderung, aufgaben, einträge, seiten, datenbanken, board, übernehmen, prüfen, tastatur, befehle, referenzen, kontext, was claude liest, neu machen, ändern, ersetzen, umschreiben, diff, unterseite pro eintrag, seite pro ticket, tabelle mit links, limit, weitermachen, weiter, pipelines, coding-aufgabe, freigeben, verbinden, anmelden, mcp, workspace agent, AI terminal, context, edit, continue, connect
+keywords: agent, ki-terminal, terminal, claude, automatisieren, massenänderung, aufgaben, aufgaben-blöcke, list_work_items, update_work_item, verantwortlich, fällig, einträge, seiten, datenbanken, board, übernehmen, prüfen, tastatur, befehle, referenzen, kontext, was claude liest, neu machen, ändern, ersetzen, umschreiben, diff, unterseite pro eintrag, seite pro ticket, tabelle mit links, limit, weitermachen, weiter, pipelines, coding-aufgabe, freigeben, verbinden, anmelden, mcp, workspace agent, AI terminal, context, edit, continue, connect
 related: custom-agents, ai-menu, mcp-servers, mcp-bridge, coding-pipeline, pipelines
 summary: Gib Claude Aufgaben per Tastatur — es liest deinen Workspace, schlägt Änderungen vor, und du übernimmst sie. Arbeitet auch ausgeblendet weiter.
 ---
@@ -23,6 +23,14 @@ Claude ergänzt eine Seite per *Anhängen*. Verlangt eine Aufgabe, Vorhandenes z
 - Einen Block, den du geändert hast, nachdem Claude den Vorschlag gemacht hat, **überspringt** One — er wird nie überschrieben, die Prüfung sagt es dir.
 - Blöcke, die du vom Lesen ausgenommen hast (siehe unten), kann Claude auch nicht ändern; die ganze Seite neu schreiben wird dann abgelehnt.
 - [Eigene Agenten](help:custom-agents) können auch Änderungen vorschlagen; selbst ein Agent, der direkt schreibt, wartet auf dein OK, bevor er Text ersetzt.
+
+## Aufgaben-Blöcke
+Claude schreibt [Aufgaben](help:tasks) als `> [!TODO] Titel` mit einer Feldzeile (*Owner: Alex · Due: 2026-10-17 · Blocked by: …*) in Seiten — One macht daraus Aufgaben-Blöcke mit eigenen IDs; die Antwort des Werkzeugs nennt Claude die ID jeder neuen Aufgabe. Es findet Aufgaben im ganzen Arbeitsbereich (**list_work_items**: offen, meine, blockiert, überfällig, nach Person, Seite oder Titel) und ändert Status, Termin, Erinnerung, Verantwortliche oder Verknüpfungen einer Aufgabe (**update_work_item**). Das ist nicht die Coding-Pipeline: Deren Aufgaben haben eigene Werkzeuge (unten).
+
+- Die Prüfung zeigt jede Aufgabe als Zeile: **AUFGABE · NEU** mit ihren Chips (Status, Termin, Verantwortliche, blockiert durch), **BEIBEHALTEN**, **GEÄNDERT** mit jedem Feld vorher → nachher, **ENTFERNT**, wenn ein Umschreiben eine weglässt. Eine Zeile **Wartet auf deine Prüfung · Nennt eine Person** (oder *Setzt eine Erinnerung*, *Ändert eine zugewiesene Aufgabe*, *Fügt einen Blocker hinzu*, *Entfernt Aufgaben*) sagt, worauf du schauen solltest.
+- Verantwortliche sind nur Personen deines Arbeitsbereichs: Ein unbekannter Name wird mit der Liste der Namen abgelehnt, und Claude fragt neu — One legt nie eine Person an und nennt Claude nie eine E-Mail-Adresse.
+- Verknüpfungen erreichen nur Aufgaben, die Claude lesen darf (was **Was Claude liest** erlaubt; eine Aufgabe außerhalb wird nur mit ihrer ID genannt). Wartet eine Aufgabe auf eine, die ein anderer Vorschlag anlegt, braucht sie diesen Vorschlag zuerst — allein übernommen, sagt One das.
+- Die Feldzeile einer Aufgabe im Text zu bearbeiten ändert nichts; die Prüfung sagt es. Text, der das Zitat einer Aufgabe mit ihrem `{#wi_…}` behält, behält die Aufgabe — lässt er es weg, wird sie entfernt (als **ENTFERNT** gezeigt).
 
 ## Coding-Pipelines aus dem Terminal
 Nutzt du die [Coding-Pipelines](help:coding-pipeline), kann Claude sie lesen — was auf dich wartet, die Stufe einer Aufgabe, ihren Plan, das Testergebnis und das Protokoll — und **vorschlagen**, worum du bittest: eine neue Aufgabe (Coding, Business-Analyse oder QA) oder eine Aktion an einer: freigeben, mit Anweisungen zurückschicken, ihre Frage beantworten, einmal ausführen, stoppen, *Danach* setzen oder übergeben.

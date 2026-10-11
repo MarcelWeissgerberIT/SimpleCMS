@@ -336,6 +336,8 @@ test.describe('performance budget (big workspace)', () => {
  * message of P1 B21); the brief's ceilings are the limits.
  */
 const TASKS = { coldMs: 60, incrementalMs: 5, graphMs: 15, pickerOpenMs: 50, pickerKeyMs: 8, longTaskMs: 50, inboxColdMs: 400 }
+/** Claude writes tasks (P2): queryItems over every task, settling 50 new tasks with 50 title links, staging that as an append, list_work_items with 5 pages under 'marked' read limits */
+const P2 = { queryMs: 25, settleMs: 30, stageMs: 60, listMs: 40 }
 
 test.describe('performance budget: tasks (big workspace + 3,300 tasks)', () => {
   test('the index stays incremental and cheap, placards re-render only where they change, the link picker stays quick', async ({ page, errors }) => {
@@ -520,6 +522,41 @@ test.describe('performance budget: tasks (big workspace + 3,300 tasks)', () => {
       expect(median(m.open), 'opening the blocked-by picker (median of 3)').toBeLessThanOrEqual(TASKS.pickerOpenMs)
       expect(median(m.keys), 'a keystroke in its search (median)').toBeLessThanOrEqual(TASKS.pickerKeyMs)
     })
+  })
+
+  test('Claude writes tasks (P2): queryItems, settling 50 tasks with 50 title links, staging them, list_work_items under read limits — no page-map scan', async ({ page, errors }) => {
+    test.setTimeout(480_000)
+    void errors
+    await page.addInitScript(installCounters)
+    const big: BigInfo = await loadBigWorkspace(page, { tasks: true })
+    const taskPage = big.taskPageId!
+    expect(big.taskCount).toBeGreaterThanOrEqual(3300)
+    await page.waitForTimeout(1500)
+
+    // 50 new tasks, each "Blocked by" the exact title of a live task that no other task shares (the title map is built)
+    const index = await page.evaluate(() => (window as unknown as { __oneItems: { index(): { byId: Record<string, { title: string; pageId: string }>; pages: string[] } } }).__oneItems.index())
+    const seen = new Map<string, number>()
+    for (const e of Object.values(index.byId)) seen.set(e.title.trim().toLowerCase(), (seen.get(e.title.trim().toLowerCase()) ?? 0) + 1)
+    const titles = [...new Set(Object.values(index.byId).map((e) => e.title.trim()))].filter((t) => seen.get(t.toLowerCase()) === 1 && /^[\p{L}\p{N} '-]{3,60}$/u.test(t)).slice(0, 50)
+    expect(titles.length, 'unique task titles to link').toBe(50)
+    const markdown = titles.map((t, i) => `> [!TODO] Follow up ${i + 1} on the launch\n> Blocked by: ${t}`).join('\n\n')
+    const limitPages = [taskPage, ...index.pages.filter((id) => id !== taskPage).slice(0, 4)]
+    const scans0 = (await counters(page)).scans
+    const m = await page.evaluate(
+      (o) => (window as unknown as { __oneSettle: { perf(o: unknown): Promise<{ query: number[]; settle: number[]; stage: number[]; list: number[]; count: number; created: number; staged: string; listed: string }> } }).__oneSettle.perf(o),
+      { pageId: taskPage, markdown, limitPages, runs: 5 },
+    )
+    const scans = (await counters(page)).scans - scans0
+    const med = { query: median(m.query), settle: median(m.settle), stage: median(m.stage), list: median(m.list) }
+    note('tasks P2 ms', { ...med, query5: m.query.map((x) => +x.toFixed(1)), settle5: m.settle.map((x) => +x.toFixed(1)), stage5: m.stage.map((x) => +x.toFixed(1)), list5: m.list.map((x) => +x.toFixed(1)), count: m.count, created: m.created, scans, listed: m.listed })
+    expect(m.count, 'tasks the query walked').toBeGreaterThanOrEqual(3000)
+    expect(m.created, 'new tasks the settle made').toBe(50)
+    expect(m.staged, 'the staged append lists the new tasks').toContain('New tasks:')
+    expect(med.query, 'queryItems over every task (median of 5)').toBeLessThanOrEqual(P2.queryMs)
+    expect(med.settle, 'settling 50 new tasks with 50 title links (median of 5)').toBeLessThanOrEqual(P2.settleMs)
+    expect(med.stage, 'staging that as an append — the tool run (median of 5)').toBeLessThanOrEqual(P2.stageMs)
+    expect(med.list, "list_work_items with 5 pages under 'marked' read limits (median of 5)").toBeLessThanOrEqual(P2.listMs)
+    expect(scans, 'page-map scans by the settle gate and the task tools').toBe(0)
   })
 })
 

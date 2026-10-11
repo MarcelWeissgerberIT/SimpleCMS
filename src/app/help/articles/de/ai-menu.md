@@ -3,7 +3,7 @@ id: ai-menu
 title: KI-Menü & Fragen
 section: ai
 order: 2
-keywords: ki, claude, leertaste, ki fragen, verbessern, zusammenfassen, übersetzen, erklären, weiterschreiben, aufgaben, workspace fragen, in datenbank umwandeln, board, tabelle, verwandeln in, schaubild, flussdiagramm, mindmap, mermaid, diagramm, zeitleiste, spalten, tabs, aufklappliste, karten, visualisieren, hintergrund, kontext, was claude liest, blöcke markieren, neu machen, umschreiben, vorgaben, styleguide, unterseite pro eintrag, seiten + tabelle, unterseite daraus, eine seite pro ticket, bild, foto, alternativtext, bildunterschrift, text auslesen, ocr, bild in tabelle, screenshot, datei, pdf, anhang, pdf zusammenfassen, word, docx, excel, xlsx, csv, html, als seite öffnen, als datenbank importieren, ai, ask, database, transform, diagram, chart, context, redo, image
+keywords: ki, claude, leertaste, ki fragen, verbessern, zusammenfassen, übersetzen, erklären, weiterschreiben, aufgaben, aufgaben machen, to-dos, verantwortlich, fällig, workspace fragen, in datenbank umwandeln, board, tabelle, verwandeln in, schaubild, flussdiagramm, mindmap, mermaid, diagramm, zeitleiste, spalten, tabs, aufklappliste, karten, visualisieren, hintergrund, kontext, was claude liest, blöcke markieren, neu machen, umschreiben, vorgaben, styleguide, unterseite pro eintrag, seiten + tabelle, unterseite daraus, eine seite pro ticket, bild, foto, alternativtext, bildunterschrift, text auslesen, ocr, bild in tabelle, screenshot, datei, pdf, anhang, pdf zusammenfassen, word, docx, excel, xlsx, csv, html, als seite öffnen, als datenbank importieren, ai, ask, database, transform, diagram, chart, context, redo, image
 related: claude-key, agent, command-palette, history
 summary: Leertaste in einer leeren Zeile, oder „KI fragen“ an einer Auswahl — Claude schreibt, bearbeitet und antwortet direkt in der Seite.
 ---
@@ -12,12 +12,12 @@ Das Menü beginnt mit dem Eingabefeld: frag in eigenen Worten und drück <kbd>En
 ## In einer leeren Zeile: Leertaste
 Drück <kbd>Leertaste</kbd> in einer leeren Zeile (oder `/ki`). Tippe eine beliebige Bitte, oder wähle:
 - **Schreiben** — **Weiterschreiben**, **Gliederung entwerfen…**, **Ideen sammeln…**
-- **Diese Seite** — **Diese Seite zusammenfassen**, **Aufgaben auf dieser Seite finden**
+- **Diese Seite** — **Diese Seite zusammenfassen**, **To-dos auf dieser Seite finden** (eine To-do-Checkliste), **Aufgaben aus dieser Seite machen** (siehe **Aufgaben machen** unten)
 - **Workspace** — **Workspace fragen**: Claude liest die passendsten Seiten dieses Workspace und zitiert sie; nur diese Auszüge werden gesendet.
 - **Mehr…** — **Neu machen mit Vorgaben…**, **An den Agenten übergeben…**, **Was Claude liest…**
 
 ## An einer Auswahl: KI fragen
-Text markieren → **KI fragen** in der Werkzeugleiste (oder **KI fragen** im Blockmenü ⋮⋮ eines Textblocks). Innerhalb einer Zeile: **Text verbessern**, **Rechtschreibung & Grammatik**, **Kürzer machen**, **Übersetzen**, **Erklären**. Mehrere Blöcke: **Text verbessern**, **Rechtschreibung & Grammatik**, **Übersetzen**, **Verwandeln in …**, **Zusammenfassen**. **Mehr…** hat den Rest: **Länger machen**, **Aufgaben finden**, **Neu machen mit Vorgaben…**, **In Datenbank umwandeln**, **In Seite umwandeln**, **Ins Gedächtnis …**, **An den Agenten übergeben…**
+Text markieren → **KI fragen** in der Werkzeugleiste (oder **KI fragen** im Blockmenü ⋮⋮ eines Textblocks). Innerhalb einer Zeile: **Text verbessern**, **Rechtschreibung & Grammatik**, **Kürzer machen**, **Übersetzen**, **Erklären**. Mehrere Blöcke: **Text verbessern**, **Rechtschreibung & Grammatik**, **Übersetzen**, **Verwandeln in …**, **Aufgaben machen**, **Zusammenfassen**. **Mehr…** hat den Rest: **Länger machen**, **To-dos finden**, **Neu machen mit Vorgaben…**, **In Datenbank umwandeln**, **In Seite umwandeln**, **Ins Gedächtnis …**, **An den Agenten übergeben…**
 
 Die Antwort erscheint fortlaufend. Dann **Auswahl ersetzen** (oder **Darunter einfügen**), **Überarbeiten** mit einer weiteren Anweisung, **Nochmal versuchen**, **Kopieren** oder **Verwerfen**. Bevor Claude eine Seite ändert, wird eine Version gesichert — siehe [Versionsverlauf](help:history).
 
@@ -36,6 +36,7 @@ Markiere eine Liste, eine Tabelle oder einen Bericht aus mehreren Blöcken → *
 Markiere ein paar Blöcke — Schritte, Zahlen, einen Vergleich, Fragen und Antworten — → **KI fragen** → **Verwandeln in …** (auch im Blockmenü ⋮⋮ mehrerer markierter Blöcke). Wähle die Form:
 - **Automatisch** — Claude wählt die passende Form und sagt in einer Zeile, warum.
 - **Board**, **Tabelle** — die Datenbank von **In Datenbank umwandeln**, mit ihrer Vorschau und der **Platzierung**. **Zeitleiste** — dasselbe mit den Daten aus dem Text, geöffnet in einer Zeitleisten-Ansicht.
+- **Aufgaben** — [Aufgaben-Blöcke](help:tasks) mit Verantwortlichen, Terminen und Abhängigkeiten (**Aufgaben machen**, unten). Automatisch wählt diese Form nie.
 - **Schaubild** — ein Mermaid-Flussdiagramm, eine Mindmap, ein Ablauf, Zeitstrahl, Gantt oder Organigramm. Die Beschriftungen sind kurz: Claude kürzt deine eigenen Worte.
 - **Diagramm** — Säulen, Linie, Fläche oder Ring aus den Zahlen im Text, als eingegebene Daten eines [Diagramms](help:charts).
 - **Spalten** (2–5), **Tabs**, **Aufklappliste**, **Karten** — derselbe Text nebeneinander, hinter Reitern, eingeklappt oder als Hinweisboxen ([Aufklapper, Spalten & Tabs](help:layout-blocks)).
@@ -43,6 +44,15 @@ Markiere ein paar Blöcke — Schritte, Zahlen, einen Vergleich, Fragen und Antw
 Die Vorschau zeigt das echte Ergebnis — das Schaubild gezeichnet, das Diagramm gerendert, Spalten als Spalten. Die Leiste oben wechselt die Form (<kbd>←</kbd> / <kbd>→</kbd> in der leeren Eingabe); eine schon angefragte Form kommt ohne neue Anfrage zurück. Kleine Optionen: Art und Richtung des Schaubilds, Art des Diagramms, Zahl der Spalten. **Nicht übernommen** zeigt, was als Text bleibt, und jede Zahl, die Claude nennt, die aber nicht im Text steht — sie wird weggelassen. **Verwandeln** (<kbd>Enter</kbd>) setzt das Ergebnis in einem Schritt an die Stelle der Blöcke: <kbd>Mod+Z</kbd> holt den Text zurück, vorher wird eine Version gesichert. **Original darunter behalten (zugeklappt)** legt die Ausgangsblöcke in eine geschlossene Aufklappliste unter den neuen Block.
 
 Nichts wird erfunden: Namen, Zahlen, Daten und Schritte kommen nur aus dem Text. Ein Schaubild, das Mermaid nicht lesen kann, wird einmal automatisch korrigiert, sonst kommt ein Fehler — es ändert sich nichts. Nur die markierten Blöcke gehen an Claude, nie das One-Gedächtnis; die Anfrage läuft wie jede andere im Hintergrund weiter.
+
+## Aufgaben machen
+**Aufgaben machen** macht aus dem, was der Text von Leuten verlangt, [Aufgaben-Blöcke](help:tasks) — mit Status, Verantwortlichen, Terminen und dem, worauf sie warten. Das ist nicht **To-dos finden**: Das schreibt eine schlichte To-do-Checkliste.
+- **Auf markierten Blöcken**: **KI fragen** → **Aufgaben machen** (auch **Verwandeln in → Aufgaben**). Die Vorschau zeigt jede Aufgabe — **AUFGABE · NEU**, Verantwortliche, Termin und **Blockiert durch** — und was weggelassen wurde (*„Bob“ ist keine Person in diesem Arbeitsbereich*). **Verwandeln** (<kbd>Enter</kbd>) setzt sie in einem Schritt an die Stelle der Blöcke; **Original darunter behalten** wirkt wie bei jeder Form; <kbd>Mod+Z</kbd> holt den Text zurück.
+- **Am Cursor**: <kbd>Leertaste</kbd> in einer leeren Zeile → **Aufgaben aus dieser Seite machen**. Claude liest die Seite so, wie **Was Claude liest** es erlaubt (ist nichts lesbar, fragt One zuerst) und schreibt die Aufgaben; eine Leiste unter der Antwort zeigt, was eingefügt wird. Aufgaben, die schon auf der Seite stehen, bleiben weg — nie doppelt. Die Meldung nach **Einfügen** hat ein **Rückgängig** (auch am Handy).
+- **Verantwortliche nur aus deinen Personen.** One legt nie eine Person an: Ein Name, der keine Person deines Arbeitsbereichs ist, wird weggelassen, und One sagt es. Für diese Aktion — und nur für sie — gehen die Namen deiner Personen mit dem Text an Claude (**Verantwortliche nur aus deinen Personen: 12 Namen gehen mit**); nie ihre E-Mail-Adressen. Termine kommen nur aus dem Text. Auf ausgewählten Blöcken setzt Claude keine Erinnerungen; am Cursor kommt eine nur, wenn die Seite darum bittet (*erinnere mich am Tag davor*), und der Streifen zeigt sie vor **Einfügen**.
+- In einem Team-Arbeitsbereich können Lesende oder ein Tab an einem älteren Server keine Aufgaben machen: Die Zeile bleibt aus und nennt den Grund.
+
+Jede Antwort mit Aufgaben — auch auf deine eigene Bitte — kommt so in die Seite. Eine Aufgabe landet nie in einer Aufgabe oder einer Tabellenzelle: Sie kommt dahinter. **Auswahl ersetzen** über Aufgaben geht nur, wenn die Auswahl sie ganz enthält und Claudes Antwort jede zurückbringt (mit ihrer ID): Status, Verantwortliche und Termine bleiben, wie sie jetzt sind, nur die Worte ändern sich. Sonst ist **Ersetzen** aus — *Enthält eine Aufgabe* oder *Claudes Antwort lässt eine Aufgabe weg* — und **Darunter einfügen** steht oben.
 
 ## In Seite umwandeln
 **KI fragen** → **Mehr…** → **In Seite umwandeln** verschiebt die markierten Blöcke sofort in eine neue Unterseite — ohne Claude — und lässt an ihrer Stelle einen Link. Dasselbe im Blockmenü ⋮⋮ (**Umwandeln in → Seite**) und mit <kbd>Mod+Alt+9</kbd>; siehe [Ziehen, umwandeln, färben](help:block-handle).
@@ -54,6 +64,7 @@ Manche Wünsche sind eigentlich Aktionen — das KI-Menü führt sie aus, statt 
 - *„mach daraus eine Unterseite“*, *„auslagern“*, *„make a sub-page out of this“* → **In Seite umwandeln**;
 - *„für jeden Punkt eine Unterseite“*, *„pro Ticket eine Seite“*, *„one page per item“* → **Unterseite pro Eintrag**;
 - *„als Tabelle“*, *„als Board“* → **In Datenbank umwandeln**, mit deinen Worten als Anweisung;
+- *„mach Aufgaben daraus“*, *„als Aufgaben“*, *„make tasks from this“* → **Aufgaben machen** (markierte Blöcke: Verwandeln → Aufgaben; am Cursor: die Seite) — nie für die Coding-Pipeline, eine Datenbank oder neue Seiten;
 - alles, was über die Auswahl hinausgeht — *„lege für jedes Ticket im Tracker eine Unterseite an“*, *„aktualisiere die Datenbank …“* → **Das braucht das KI-Terminal — dort ausführen**: Das [KI-Terminal](help:agent) öffnet sich mit deinem Wunsch und der Auswahl als Referenz und legt los.
 
 Schreibwünsche (*kürzer*, *übersetzen*, *erklär …*) gehen wie bisher an Claude; **Claude fragen** bleibt für jeden Wunsch in der Liste.

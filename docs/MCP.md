@@ -23,12 +23,12 @@ Contents: [Tools](#tools) · [Tidying up](#tidying-up) · [One Script](#one-scri
 | `one_overview` | read | workspace name and id, today's date, the page tree, every database with its row count, the people (local bridge: also the saved `scripts`) |
 | `one_list_workspaces` | read | the connected workspaces: id, name, kind (`local` / `team`), access, change mode, which tab connected last — no content ([Workspaces](#workspaces)) |
 | `one_search` | read | `{ query, limit? }` — titles, text and row values; ids, paths and a snippet per hit |
-| `one_get_page` | read | `{ id }` or `{ title }` — title, icon, path, row properties, the content as **Markdown**, sub-pages, backlinks |
+| `one_get_page` | read | `{ id }` or `{ title }` — title, icon, path, row properties, the content as **Markdown**, sub-pages, backlinks. Local bridge: mentions come as `[@Name](one:person/<id>)` / `[@date](one:date/YYYY-MM-DD)` and task blocks as `> [!TODO] Title {#wi_…}` with their field line — keep both when you write the text back |
 | `one_list_databases` | read | every database: id, title, path, row count, property names and types |
 | `one_get_database` | read | `{ id }` — the schema (types, options, relations, read-only flags — `onlyByHand` properties are read-only for MCP clients, `key` marks the database's key) and the views |
 | `one_query_database` | read | `{ databaseId, filter?, sort?, limit?, cursor? }` — rows with friendly values, filtered and sorted, paginated |
 | `one_create_page` | write | `{ title, parentId?, markdown?, icon? }` |
-| `one_update_page` | write | `{ id, title?, icon?, markdown?, mode: 'append' \| 'replace' }` — a task block of the page written back as it was read (`> [!TODO] … {#wi_…}`) stays that task: its title and notes from the Markdown, its fields as the app has them; the team server refuses a `replace` of a page holding a task (`page_holds_tasks`, below) |
+| `one_update_page` | write | `{ id, title?, icon?, markdown?, mode: 'append' \| 'replace' }` — a task block of the page written back as it was read (`> [!TODO] … {#wi_…}`) stays that task: its title and notes from the Markdown, its fields as the app has them. Local bridge: new `> [!TODO]` quotes become tasks through the same gate as the app ([Tasks](#tasks)); a replace that removes tasks is always asked; a page that changed while the call waited for approval is not replaced (call again). The team server refuses a `replace` of a page holding a task (`page_holds_tasks`, below) |
 | `one_create_row` | write | `{ databaseId, title, properties?, markdown? }` — a key another row holds and an `onlyByHand` property are refused |
 | `one_update_row` | write | `{ id, properties }` — only what you pass changes, `null` clears; the same refusals |
 | `one_create_property` | write | `{ databaseId, name, type, options?, relation?: { databaseId, twoWay?, reverseName? } }` |
@@ -45,6 +45,8 @@ Contents: [Tools](#tools) · [Tidying up](#tidying-up) · [One Script](#one-scri
 | `one_restore_page` | write | `{ id }` or `{ ids: [≤ 50] }` — back from the trash |
 | `one_run_query` | read | `{ code, limit? }` — a read-only [One Script](#one-script) query: `{ count, columns, rows: [{ id?, <column>: text }] (≤ 100), truncated? }` or `{ value }` — local bridge only |
 | `one_run_script` | write · destructive | `{ script (id or name), pageId?, dryRun? }` — a saved script, [always approved first](#one-script) — local bridge only |
+| `one_list_work_items` | read | `{ status?, person?, pageId?, blocked?, overdue?, dueBefore?, query?, limit? }` — task blocks as JSON ([Tasks](#tasks)) — local bridge only (team server: later) |
+| `one_update_work_item` | write | `{ updates: [{ item, status?, due?, reminder?, people?, blocked_by?, related? }] }` — a task's fields ([Tasks](#tasks)) — local bridge only (team server: later) |
 
 Every tool but `one_list_workspaces` also takes **`workspace`** (optional): the id (`"local:…"`, `"team:…"`) or the
 exact name of the workspace the call is meant for. Every result names the workspace it came from:
@@ -102,6 +104,39 @@ The tools that delete, adjust, create and reorganise follow the same rules on bo
   **Undo** (a trashed database comes back with its rows, a moved page goes back, a deleted property comes back with
   its values and view settings, view changes are reverted — parts edited since are kept); *Read only* refuses them.
   Team server: a **write** token is needed; changes carry `api:<tokenId>` as `updatedBy`.
+
+## Tasks
+
+Task blocks (`workItem`, UI "Task") through the **local bridge** — the team server learns them later (server parity).
+
+- **The form.** A task is a quote: `> [!TODO] Title {#handle}` — the title line, an optional `{#handle}` (`[A-Za-z][A-Za-z0-9_-]{0,23}`,
+  for links within the same call) — then a field line, fields separated by ` · `, all optional: `Status: todo | in
+  progress | done` · `Due: YYYY-MM-DD` or `YYYY-MM-DDTHH:mm` · `Reminder: at | -15m | -1h | -1d` (needs a due date) ·
+  `Owner: names, comma-separated` · `Blocked by: …` · `Related: …` · `Blocks: …` (a link is a `#handle` of this
+  write, a task id `wi_…` or an exact task title). Notes follow as lines and blocks of the quote. `one_get_page` reads
+  existing tasks as `> [!TODO] Title {#wi_…}` with their field line.
+- **Ids are One's.** Every new task gets its id from One, minted per call — the result lists the id each new task got;
+  use those ids later. A `{#wi_…}` is kept only for the task the replaced content holds (a replace of a page that
+  keeps a task's quote with its id keeps the task); an id of a task elsewhere makes a new task.
+- **Existing tasks change only through `one_update_work_item`.** Editing a task's field line in text changes nothing
+  (the result says so); its title and notes follow the text.
+- **People are never created.** An owner must be a person of the workspace — by name (exact, any case), a member's
+  email or `me`; an unknown name refuses the call with the list of names (never emails).
+- **Links** reach only live tasks of the workspace (never a template's, never one in the trash), never so that a
+  shared task waits for a private one; a link that would close a loop — also through changes still waiting for approval
+  — is refused (in Markdown: left out, and said so). ≤ 100 new tasks per write, ≤ 50 updates per call (and ≤ 50 existing tasks a write's `Blocks:` reaches),
+  ≤ 12 people and ≤ 20 links per task (`Blocks:` included).
+- **Reminders and assignments are always asked** — see *Apply directly* below.
+- `one_list_work_items` — filters: `status` (`open` = todo + in progress, the default · `todo` · `in_progress` ·
+  `done` · `any`), `person` (a name, a member's email, `me`, `none`), `pageId` (that page and below), `blocked`,
+  `overdue`, `dueBefore`, `query` (part of the title), `limit` (1–100, 50). Answer: `{ count, items: [{ id, title,
+  status, due, reminder, people: [{ id, name }], blocked, overdue, blockedBy: [{ id, title, status }], related: [{ id,
+  title }], page: { id, title, path }, url }], truncated?, loading? }` — overdue first, then by due date.
+- `one_update_work_item` — `updates: [{ item: "wi_…", status?, due? (null clears), reminder? (null clears), people?:
+  { add?, remove? }, blocked_by?: { add?, remove? }, related?: { add?, remove? } }]`; everything is checked before
+  anything is written (one bad entry changes nothing). The card shows each task's fields before → after; the answer
+  lists the tasks as they are afterwards (the list's shape). A call that would change nothing is answered without a
+  card.
 
 ## One Script
 
@@ -247,7 +282,7 @@ MCP." (a call waits up to 10 s for the tab first). The switch is **per browser**
 | Mode | Reads | Writes |
 |---|---|---|
 | **Ask first** (default) | answered at once | each one waits for a card in the tab (bottom right): the tool, the target and a diff-like summary — *Create row “Q4 launch” in Projects · Status: In progress*, property values *before → after*, new options, the Markdown that will be written. **Approve** (↵) or **Reject** (Esc). No answer within **2 minutes** = rejected. The agent sees the wait as progress (`notifications/progress`, *Waiting for approval in One…*) |
-| **Apply directly** | answered at once | written right away |
+| **Apply directly** | answered at once | written right away — except a change that assigns someone, sets a reminder, changes a task someone is assigned to, adds a blocker to an existing task or removes tasks: that one is **always asked** (the card says why: *Always asked: Names a person*) |
 | **Read only** | answered at once | refused: *One is set to "Agents can only read"* |
 
 - Every call — read or write, and how it ended (OK, error, refused, expired, cancelled) — is listed in the
@@ -276,7 +311,8 @@ MCP." (a call waits up to 10 s for the tab first). The switch is **per browser**
 - **Updates.** Extension: download `one.mcpb` again (same button) and open it — Claude Desktop updates the installed
   extension in place when the new version is higher. File: download `one-mcp.mjs` again and restart the client.
   `--version` (or the extension's page in Claude Desktop) shows the version you run. The tidy-up tools and the `one`
-  prompt need bridge **1.2.0** or newer — an older bridge lists only the tools it was built with.
+  prompt need bridge **1.2.0** or newer, the task tools (`one_list_work_items`, `one_update_work_item`) **1.8.0** — an
+  older bridge lists only the tools it was built with.
 - **Two MCP clients** (say Claude Desktop *and* Claude Code) each start a bridge; only the first gets the port. The
   second answers every call with *Another One MCP bridge is already using port 47321 …* and takes the port over when
   the first one quits. Use one client at a time, or give the second one another port (and switch the tab to it).
@@ -425,6 +461,7 @@ curl -s https://team.example.com/mcp \
   Mermaid, images, files, bookmarks, embeds, page links (`[Title](#/p/<id>)`), @-mentions, database blocks, tabs,
   synced blocks and meeting notes (with transcript); a task block (`workItem`) as its title line and notes (its fields
   stay the app's for now — the team MCP never writes the `> [!TODO]` form). Comments never leave; buttons show their label only.
+  The task tools (`one_list_work_items`, `one_update_work_item`) are local-bridge only until server parity.
 - **Content in** is the API's [markdown-lite](API.md#content-markdown-lite) (headings, paragraphs, lists, to-dos,
   quotes, code, dividers, marks, links); other Markdown stays text. `one_update_page` appends after the last block or,
   with `mode: "replace"`, replaces everything — editors open on that page follow along live. A page that holds a

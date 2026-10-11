@@ -3,7 +3,7 @@
  * a mono code and an icon per pick, the picks a selection allows, and the run request of a pick.
  */
 import type { Node as PMNode } from '@tiptap/pm/model'
-import { ChartColumn, LayoutDashboard, ChartGantt, Columns2, LayoutGrid, ListCollapse, Network, PanelsTopLeft, Shapes, SquareKanban, Table2, type LucideIcon } from 'lucide-react'
+import { ChartColumn, LayoutDashboard, ChartGantt, Columns2, LayoutGrid, ListCollapse, Network, PanelsTopLeft, Shapes, SquareCheckBig, SquareKanban, Table2, type LucideIcon } from 'lucide-react'
 import { t } from '../../../i18n'
 import { fitsAt, fittingTypes, transformRange } from './range'
 import type { BlockRange } from '../todb/plan'
@@ -16,6 +16,7 @@ export const TRANSFORM_CODES: Record<TransformPick, string> = {
   freeboard: 'FRB',
   table: 'TBL',
   timeline: 'TML',
+  items: 'TSK',
   diagram: 'DGM',
   chart: 'CHT',
   columns: 'COL',
@@ -30,6 +31,7 @@ export const TRANSFORM_ICONS: Record<TransformPick, LucideIcon> = {
   freeboard: LayoutDashboard,
   table: Table2,
   timeline: ChartGantt,
+  items: SquareCheckBig,
   diagram: Network,
   chart: ChartColumn,
   columns: Columns2,
@@ -38,6 +40,9 @@ export const TRANSFORM_ICONS: Record<TransformPick, LucideIcon> = {
   cards: LayoutGrid,
 }
 
+/** What typing finds "Make tasks" / Transform → Tasks by (EN + DE). */
+export const ITEM_KEYWORDS = 'tasks task make tasks action items owner due aufgaben aufgabe verantwortlich fällig'
+
 /** What typing finds a pick by (EN + DE). */
 export const TRANSFORM_KEYWORDS: Record<TransformPick, string> = {
   auto: 'transform auto verwandeln automatisch',
@@ -45,6 +50,7 @@ export const TRANSFORM_KEYWORDS: Record<TransformPick, string> = {
   freeboard: 'free board record types mixed ideas bugs people lanes freies board datensatz typen gemischt ideen fehler personen spalten',
   table: 'table database tabelle datenbank',
   timeline: 'timeline dates milestones schedule zeitleiste termine meilensteine zeitplan',
+  items: ITEM_KEYWORDS,
   diagram: 'diagram flowchart mermaid mindmap mind map sequence org chart process schaubild flussdiagramm ablauf organigramm prozess',
   chart: 'chart graph bar line pie donut numbers diagramm grafik säulen linie kuchen ring zahlen',
   columns: 'columns compare comparison pros cons side by side spalten vergleich vorteile nachteile nebeneinander',

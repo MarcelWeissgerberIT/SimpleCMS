@@ -220,3 +220,113 @@
     height: 36px;
   }
 }
+
+/* ---------- ItemFacts: what a change of Claude's does to task blocks (review cards, approval, previews) ---------- */
+.item-facts {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.item-facts__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--rule);
+  /* long lists scroll inside their card — never clipped */
+  max-height: calc(420px * var(--text-scale));
+  overflow: auto;
+}
+
+.item-facts__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  padding: 7px 2px 8px;
+  border-bottom: 1px solid var(--rule);
+  min-width: 0;
+}
+
+.label.item-facts__tag {
+  flex: none;
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+
+.item-facts__row[data-tag='removed'] .label.item-facts__tag {
+  color: var(--signal-ink);
+}
+
+.item-facts__id {
+  color: var(--ink-faint);
+}
+
+.item-facts__title {
+  flex: 1 1 12em;
+  min-width: 0;
+  font-weight: 600;
+  font-size: var(--text-sm);
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.item-facts__row[data-tag='removed'] .item-facts__title {
+  text-decoration: line-through;
+  text-decoration-color: var(--signal-ink);
+}
+
+.item-facts__chips {
+  flex: 1 0 100%;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px 6px;
+  min-width: 0;
+}
+
+/* read-only keycaps (the placard's chips) that wrap instead of clipping */
+.workitem__chip.item-facts__chip {
+  height: auto;
+  min-height: calc(23px * var(--text-scale));
+  padding-block: 3px;
+  white-space: normal;
+  overflow: visible;
+  overflow-wrap: anywhere;
+  text-align: start;
+}
+
+.item-facts__k {
+  color: var(--ink-3);
+}
+
+.item-facts__ini {
+  display: inline-grid;
+  place-items: center;
+  min-width: 1.7em;
+  height: 1.7em;
+  border-radius: 2px;
+  background: var(--surface-3);
+  color: var(--ink-2);
+  font-size: calc(9px * var(--text-scale));
+}
+
+.agent-diff.item-facts__diff {
+  flex: 1 0 100%;
+  margin: 0;
+}
+
+.item-facts__warns {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.label.item-facts__warn,
+.label.item-facts__holds {
+  margin: 0;
+  color: var(--signal-ink);
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.45;
+}
