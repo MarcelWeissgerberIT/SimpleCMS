@@ -134,6 +134,81 @@ export function putRun(run: AgentRun): Promise<void> {
   return job
 }
 
+/**
+ * Change ONE stored run of an agent: `fn` gets the run as it is STORED (inside the read-modify-write, after this tab's
+ * queued writes) and returns its new value — null leaves it as it is. Applied to this tab's copy right away too, and
+ * the stored result replaces it once written. `fn` must be pure (it may run twice: on the copy here, on the stored
+ * run). Reviews write their outcome this way (review.ts, inside withRunLock): only the changes they acted on change, so
+ * what another tab wrote meanwhile is never put back. Resolves with the stored run as written (null: not stored / not
+ * changed). New runs and the run going on are written with putRun.
+ */
+export function patchRun(agentId: ID, runId: string, fn: (stored: AgentRun) => AgentRun | null): Promise<AgentRun | null> {
+  const mem = useAgentRuns.getState().byAgent[agentId]
+  const at = mem ? mem.findIndex((r) => r.id === runId) : -1
+  let local: AgentRun | null = null
+  if (mem && at >= 0) {
+    local = fn(mem[at])
+    if (local) setRuns(agentId, [...mem.slice(0, at), local, ...mem.slice(at + 1)])
+  }
+  const store = kv()
+  if (!store) return Promise.resolve(local)
+  const fly = inflight.get(agentId) ?? new Map<string, number>()
+  inflight.set(agentId, fly)
+  fly.set(runId, (fly.get(runId) ?? 0) + 1)
+  let written: AgentRun | null = null
+  const prev = queues.get(agentId) ?? Promise.resolve()
+  const job = prev
+    .then(() =>
+      update<unknown>(
+        `runs:${agentId}`,
+        (cur) => {
+          const list = Array.isArray(cur) ? cur.filter(isRun) : []
+          const i = list.findIndex((r) => r.id === runId)
+          written = i >= 0 ? fn(list[i]) : null
+          return written ? [...list.slice(0, i), written, ...list.slice(i + 1)] : list
+        },
+        store,
+      ),
+    )
+    .then(() => {
+      // the stored result is the truth: this tab's copy follows it (a copy older than another tab's write included)
+      const now = useAgentRuns.getState().byAgent[agentId]
+      const w = written
+      if (now && w) setRuns(agentId, now.map((r) => (r.id === runId ? w : r)))
+      if (w) post(agentId)
+    })
+    .catch((e) => console.warn('[one] agents: could not save a run', e))
+    .finally(() => {
+      const left = (fly.get(runId) ?? 1) - 1
+      if (left > 0) fly.set(runId, left)
+      else fly.delete(runId)
+    })
+  queues.set(agentId, job)
+  return job.then(() => written)
+}
+
+/** The agent's in-tab queue of locked work (without Web Locks: the only lock). */
+const lockQueues = new Map<string, Promise<unknown>>()
+
+/**
+ * Run `fn` holding the agent's run lock: reviews (apply · discard · undo) and superseding of one agent's runs happen one
+ * after another — across the tabs of this browser (a Web Lock `one-agents-run:<ws>:<agentId>`), else within this tab.
+ * Not the lock that keeps two runs of an agent apart (locks.ts `exclusive`): a run going on never waits for a review.
+ * Never nest it (Web Locks are not re-entrant).
+ */
+export function withRunLock<T>(agentId: ID, fn: () => Promise<T>): Promise<T> {
+  const name = `one-agents-run:${wsKey()}:${agentId}`
+  const locks = typeof navigator !== 'undefined' ? navigator.locks : undefined
+  const prev = lockQueues.get(name) ?? Promise.resolve()
+  const run: Promise<T> = prev.catch(() => {}).then((): Promise<T> => (locks?.request ? (locks.request(name, () => fn()) as Promise<T>) : fn()))
+  const tail = run.catch(() => {})
+  lockQueues.set(name, tail)
+  void tail.then(() => {
+    if (lockQueues.get(name) === tail) lockQueues.delete(name)
+  })
+  return run
+}
+
 /** Forget every run of an agent (it was deleted) — and its saved state. */
 export async function dropRuns(agentId: ID): Promise<void> {
   useAgentRuns.setState((s) => {
