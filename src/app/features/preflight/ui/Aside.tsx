@@ -46,6 +46,8 @@ function thresholdText(t: Translate, v: LampView) {
 function SourcesNote({ view }: { view: LampView }) {
   const t = useT()
   const items = useQueue((s) => s.items[view.id])
+  // a card opened is never stale: counted again when the opened set changes
+  useQueue((s) => s.openedRev)
   if (!items && !view.notCards) return null
   const now = Date.now()
   const stale = (items ?? []).filter((i) => staleOf(i, now, (id) => wasOpened(id) === true)).length
@@ -116,9 +118,10 @@ function RuleCard({ view, index }: { view: LampView; index: number }) {
                 ))}
               </span>
               <span className="pf-srcs pf-mono">
+                {/* a name and its count stay together (never broken inside a word) */}
                 {parts.map((p) => (
-                  <span key={p.k}>
-                    {t(`features.preflight.src.${p.k}`)} <b>{p.n}</b>
+                  <span key={p.k} className="pf-srcs__i">
+                    {t(`features.preflight.src.${p.k}`)}&nbsp;<b>{p.n}</b>
                   </span>
                 ))}
               </span>

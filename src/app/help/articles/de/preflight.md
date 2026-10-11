@@ -32,9 +32,9 @@ Morgens, beim ersten Öffnen an einem neuen Tag, bleibt One auf Start, wenn zule
 ## Die Warteschlange
 ↵ auf einer leuchtenden Lampe öffnet ihre **Warteschlange** unter der Tafel: eine Karte nach der anderen, die dringendste zuerst, mit genau dem, worauf die Taste wirkt — die Zeilenänderung, der Plan, die Version einer Aufgabe, der Zettel. Tasten (Fokus in der Schlange, nie in einem Textfeld):
 
-- **A** übernehmen · **D** verwerfen · **E** mehr (der Diff, der Bericht des Laufs, das Protokoll des Workers) · **O** dort öffnen, wo es liegt
+- **A** übernehmen · **D** verwerfen · **E** mehr, wo eine Karte mehr hat (der Bericht des Laufs, das Protokoll des Workers) · **O** dort öffnen, wo es liegt
 - **J / K** nächste · vorige · **Z** das Letzte hier Erledigte rückgängig · **Esc** zurück zur Tafel
-- **⇧A** übernimmt alle sauberen Karten der Lampe — aber nur Karten, die in diesem Tab **ganz gezeigt** wurden. Noch nicht gesehene listet zuerst ein Blatt; ↵ dort übernimmt. Nie auf **Alle**.
+- **⇧A** übernimmt alle sauberen Karten der Lampe — aber nur Karten, die in diesem Tab **ganz gezeigt** wurden, so wie sie jetzt sind. Noch nicht gesehene (oder seitdem geänderte) listet zuerst ein Blatt; ↵ dort übernimmt, was es zeigte — was inzwischen dazukommt, wartet auf das nächste ⇧A. Nie auf **Alle**.
 - **X** verwirft die angestaubten (siehe unten).
 - Auf dem Telefon: Karte wischen → übernehmen, ← verwerfen.
 
@@ -46,7 +46,7 @@ Ein Vorschlag, den 7 Tage niemand geöffnet hat, ist **ANGESTAUBT**: Die Schlang
 Läuft ein Spiegel-Agent erneut, **ersetzt** sein neuerer Vorschlag für dieselbe Zeile und dieselben Felder die älteren, die du nie geöffnet hast: Die Karte sagt „ersetzt 2 ältere“, die alten zählen nirgends mehr. Eine Karte, die du geöffnet hast, wird nie ersetzt.
 
 ## Rückgängig
-Z nimmt das Neueste zurück, das heute in diesem Tab erledigt wurde, einen ⇧A-Stapel auf einmal — über das eigene Rückgängig der Quelle (der Zeilenwert zurück, die Terminal-Änderung wieder offen, die Erinnerung entfernt, der Eingangseintrag wieder ungelesen). Manche Schritte haben keins, und Z sagt das, statt sie zu überspringen: ein freigegebenes Gate oder ein gestarteter Task (der Worker übernimmt), eine bestätigte Version, ein von Hand gesendeter Zettel, eine Anmeldung.
+Z nimmt das Neueste zurück, das heute in diesem Tab erledigt wurde, einen ⇧A-Stapel auf einmal — über das eigene Rückgängig der Quelle (der Zeilenwert zurück, die Terminal-Änderung wieder offen, die Erinnerung entfernt, der Eingangseintrag wieder ungelesen). Manche Schritte haben keins, und Z sagt das, statt sie zu überspringen: ein freigegebenes Gate oder ein gestarteter Task (der Worker übernimmt), eine bestätigte Version, ein von Hand gesendeter Zettel, eine Anmeldung. Eine Änderung, die seitdem jemand bearbeitet hat, bleibt, wie sie jetzt ist (nur Unberührtes geht zurück), und auch das sagt Z.
 
 ## Das Bordbuch
 Unter der Regelkarte listet das **Bordbuch** den heutigen Tag: Lampentest, Quittierungen, erledigte Karten, Rückgängig. Es bleibt 30 Tage auf diesem Gerät — nur Kennungen und Ergebnisse, nie Text — und geht mit der Gerätekopie oder einem Zurücksetzen. Die Anzeige nimmt daraus das Tempo („≈ 2 min“).

@@ -404,6 +404,10 @@ test.describe('Preflight — the morning hold, off, ⌘K, the Agents badge (T-P1
     await start(page)
     const startPage = await pageIdByTitle(page, 'Team wiki')
     await wsEval(page, (s, id) => s.updateSettings({ startPageId: id }), startPage)
+    // the count that write starts settles first: a pass after the plant would write the last count over it
+    await page.evaluate(() => (window as unknown as { __onePreflight: { flush: () => Promise<void> } }).__onePreflight.flush())
+    await page.waitForTimeout(400)
+    await page.evaluate(() => (window as unknown as { __onePreflight: { flush: () => Promise<void> } }).__onePreflight.flush())
     await page.evaluate((l) => {
       localStorage.setItem(l.key, l.value)
       localStorage.removeItem('one.preflight.today:local:local')

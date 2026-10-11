@@ -2,7 +2,7 @@
  * The queue's pure core (§7.2, §7.5): the risk order, ANGESTAUBT, the gauge, where focus goes when a card leaves, what
  * ⇧A may take, what Z takes back. No imports beyond types — preflight-engine.spec tests every function here.
  */
-import type { HandWhy, LampId, QueueItem } from '../registry'
+import type { HandWhy, LampId, QueueItem, UndoOutcome } from '../registry'
 import type { DoneEntry } from '../types'
 
 /** a card untouched (never opened) this long is ANGESTAUBT */
@@ -117,6 +117,20 @@ export function undoTarget(done: readonly DoneEntry[]): DoneEntry[] {
     return e.batch ? done.filter((x) => x.batch === e.batch && !x.undone) : [e]
   }
   return []
+}
+
+/**
+ * What one Z did to each entry it took (by id): every distinct Undo of them ran once (`results`); an answer for the whole
+ * call goes to every entry holding that Undo, a per-item answer to its ids (an id it leaves out: 'final'); an entry
+ * without Undo, or whose Undo failed, is 'final'. Only 'undone' entries are taken back — 'kept' ones stay done.
+ */
+export function undoOutcomes<F>(entries: ReadonlyArray<{ id: string; undo?: F }>, results: ReadonlyMap<F, UndoOutcome | Record<string, UndoOutcome>>): Record<string, UndoOutcome> {
+  const out: Record<string, UndoOutcome> = {}
+  for (const e of entries) {
+    const r = e.undo === undefined ? undefined : results.get(e.undo)
+    out[e.id] = r === undefined ? 'final' : typeof r === 'string' ? r : (r[e.id] ?? 'final')
+  }
+  return out
 }
 
 /** ANGESTAUBT: how many, for how many days (min–max), between which runs (oldest – newest `at`). */

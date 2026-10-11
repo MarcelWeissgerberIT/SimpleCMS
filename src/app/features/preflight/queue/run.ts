@@ -11,15 +11,15 @@ import { nanoid } from 'nanoid'
 import { useCloud } from '../../../cloud'
 import { t } from '../../../i18n'
 import { focusIsNowhere, mainRegion, restoreFocus } from '../../../ui/focus'
-import { lampSource, lampSources, type CardAction, type Done, type HandWhy, type LampId, type QueueItem } from '../registry'
+import { lampSource, lampSources, type CardAction, type Done, type HandWhy, type LampId, type QueueItem, type UndoOutcome } from '../registry'
 import { flush, markDirty } from '../engine'
 import { appendLog, markOpened, wasOpened } from '../log'
 import { isLit } from '../lamps'
 import { usePreflight } from '../state'
 import { reducedMotion } from '../touch'
 import type { DoneEntry } from '../types'
-import { bulkPlan, focusAfterLeave, mergeOrder, sortItems, staleOf, step, undoTarget } from './model'
-import { useQueue, type QueueTab } from './state'
+import { bulkPlan, focusAfterLeave, mergeOrder, sortItems, staleOf, step, undoOutcomes, undoTarget } from './model'
+import { notedTab, useQueue, type QueueTab } from './state'
 
 const Q = () => useQueue.getState()
 /** a card's exit (ms; 0 under reduced motion) */
@@ -51,11 +51,25 @@ export function queueLamps(): LampId[] {
     .map((v) => v.id)
 }
 
+/**
+ * The tab on screen while its current card leaves or a key runs on it: it stays shown until the card is done, even when
+ * its lamp went dark meanwhile — the card never unmounts under the keyboard (D3, D4); leave() then hands over.
+ */
+function heldTab(): QueueTab | null {
+  const tab = notedTab()
+  if (!tab) return null
+  const s = Q()
+  const cur = s.card[tab]
+  return cur && (s.leaving[cur] || s.busy === cur) ? tab : null
+}
+
 /** The tab shown: the one opened in this tab, else the first new lamp's, else the first lit one's. */
 export function shownTab(lamp: QueueTab | null = Q().lamp): QueueTab | null {
   const lamps = queueLamps()
   if (lamp === 'all' && lamps.length) return 'all'
   if (lamp && lamps.includes(lamp)) return lamp
+  const held = heldTab()
+  if (held && (lamp === null || lamp === held)) return held
   const views = usePreflight.getState().views
   return views.find((v) => v.isNew && lamps.includes(v.id))?.id ?? lamps[0] ?? null
 }
@@ -208,6 +222,34 @@ export function actionsOf(item: QueueItem | null): CardAction[] {
   }
 }
 
+/** A card's content revision now (its source's; '' when it has none; null when the source failed — never seen). */
+export function revNow(item: QueueItem): string | null {
+  try {
+    return lampSource(item.lamp)?.queue?.rev?.(item) ?? ''
+  } catch (e) {
+    console.warn('[one] preflight: a card’s revision could not be read', e)
+    return null
+  }
+}
+
+/** These cards were shown in full: at the revision each has now. */
+export function markViewed(items: readonly QueueItem[]): void {
+  const add: Record<string, string> = {}
+  for (const it of items) {
+    const r = revNow(it)
+    if (r !== null) add[it.id] = r
+  }
+  const s = Q()
+  if (Object.entries(add).every(([id, r]) => s.viewed[id] === r)) return
+  useQueue.setState((q) => ({ viewed: { ...q.viewed, ...add } }))
+}
+
+/** Shown in full at the revision it has now (a change merged in place since is unseen again)? */
+const seenAsIs = (viewed: Record<string, string>, item: QueueItem): boolean => {
+  if (viewed[item.id] === undefined) return false
+  return viewed[item.id] === revNow(item)
+}
+
 /** The tab a card belongs to now (for focus after it leaves). */
 const tabNow = (): QueueTab | null => shownTab()
 
@@ -245,6 +287,32 @@ export function takeCardFocus(): boolean {
 }
 const focusInQueue = () => !!document.activeElement?.closest('.pf-q')
 
+/**
+ * The lamp to go on with when a tab's queue is empty: the first new lamp with open cards, else the first lit one (its
+ * cards not read yet count as open) — never `from`.
+ */
+function nextLamp(from: QueueTab, isOpen: (id: string) => boolean): LampId | null {
+  const views = usePreflight.getState().views
+  const lamps = queueLamps().filter((l) => l !== from)
+  const has = (l: LampId) => {
+    const list = Q().items[l]
+    return list === undefined || list.some((i) => isOpen(i.id))
+  }
+  return lamps.find((l) => views.find((v) => v.id === l)?.isNew && has(l)) ?? lamps.find(has) ?? null
+}
+
+/**
+ * The keyboard leaves with a card and no card follows on its tab: it goes NOW to a key that stays (D3, D4 — never the
+ * body in between): the next lamp's tab (its card takes it once it is there), else MASTER CAUTION on the plate (when the
+ * plate folds, the strip's takes it in that commit — PreflightHome / Strip), else the main region.
+ */
+function handOff(next: LampId | null): void {
+  const tab = next ? document.querySelector<HTMLElement>(`.pf-q .pf-tab[data-lamp="${CSS.escape(next)}"]`) : null
+  if (tab) return restoreFocus(tab)
+  const mc = document.querySelector<HTMLElement>('[data-testid="pf-mkey"], [data-testid="pf-mkey-strip"]')
+  restoreFocus(mc ?? mainRegion())
+}
+
 /** A card leaves (120 ms of motion, 0 under reduced motion); the current card moves on and takes focus. */
 function leave(id: string, dir: 'right' | 'left'): void {
   useQueue.setState((s) => ({ leaving: { ...s.leaving, [id]: dir } }))
@@ -253,27 +321,32 @@ function leave(id: string, dir: 'right' | 'left'): void {
     const s = Q()
     // brought back meanwhile (Z within the exit motion): it stays where Undo put it
     if (!s.leaving[id]) return
+    // the tab on screen (it was held while the card left — its lamp may be dark by now)
+    const onScreen = shownTab()
     const leaving = { ...s.leaving }
     delete leaving[id]
     const isOpen = openTest({ ...s, leaving })
     const card = { ...s.card }
+    let from: QueueTab | null = null
     for (const [tab, cur] of Object.entries(s.card)) {
       if (cur !== id) continue
       card[tab] = focusAfterLeave(s.order[tab] ?? [], id, isOpen) ?? undefined
+      if (tab === onScreen || !from) from = tab
     }
-    const wasCurrent = Object.values(s.card).includes(id)
-    if (wasCurrent && focusInQueue()) cardFocus = true
-    useQueue.setState({ leaving, card })
+    const wasCurrent = from !== null
+    const keyboard = wasCurrent && focusInQueue()
     // the person opened another tab meanwhile (a cap, a tab): their place stands, focus stays where they put it
-    if (wasCurrent && Q().lamp === lampAt) {
-      const tab = tabNow()
-      if (tab && !card[tab]) {
-        // the lamp's queue is empty: the next lit lamp's tab
-        const next = queueLamps().find((l) => l !== tab && (Q().items[l] ?? []).some((i) => isOpen(i.id)))
-        if (next) useQueue.setState({ lamp: next })
-      }
-      focusCard()
+    const here = wasCurrent && Q().lamp === lampAt
+    const patch: Partial<QueueState> = { leaving, card }
+    if (here && from && !card[from]) {
+      // the tab's queue is empty: the next lamp (an opened queue moves on with its badge, cursor and aside), else none
+      const next = nextLamp(from, isOpen)
+      if (s.lamp !== null) Object.assign(patch, next ? { lamp: next, aside: next } : { lamp: null, aside: null })
+      if (keyboard) handOff(next)
     }
+    if (keyboard) cardFocus = true
+    useQueue.setState(patch)
+    if (here) focusCard()
   }
   if (reducedMotion()) done()
   else setTimeout(done, EXIT_MS)
@@ -384,15 +457,15 @@ async function readNow(lamp: LampId): Promise<void> {
   await loadItems(lamp)
 }
 
-/** "#NL-201 applied · 8 left" (labels live; the kind word when none). */
-function announceDone(entries: DoneEntry[]): void {
+/** "#NL-201 applied · 8 left" (labels live; the kind word when none) — and what else to say (`more`). */
+function announceDone(entries: DoneEntry[], more = ''): void {
   const tab = tabNow()
   const left = tab ? tabItems(tab).filter((i) => openTest()(i.id)).length : 0
   const first = entries[0]
   const it = itemOf(first.id)
   const label = it?.keyText ? `#${it.keyText}` : it?.title || t(`features.preflight.kind.${first.label.kind}`)
   const what = entries.length > 1 ? t('features.preflight.queue.batch', { n: entries.length }) : `${label} ${t(`features.preflight.queue.outcome.${first.outcome}`)}`
-  announce(`${what} · ${t('features.preflight.queue.left', { n: left })}`)
+  announce(`${what} · ${t('features.preflight.queue.left', { n: left })}${more ? ` · ${more}` : ''}`)
 }
 
 /** The confirm key of the VON HAND row (↵ / Space / click on it — never a second A). Reasons new since → the row again. */
@@ -451,8 +524,12 @@ export function move(dir: 1 | -1): void {
 
 /* ---------------- ⇧A, X */
 
-/** ⇧A: apply the clean cards of the tab that were shown in full; unseen ones go to the bulk sheet first. */
-export function bulkApply(tab: QueueTab | null = tabNow(), confirmed = false): void {
+/**
+ * ⇧A: apply the clean cards of the tab that were shown in full — at the revision they have now; unseen ones (never
+ * shown, or changed since) go to the bulk sheet first. `fromSheet` (the sheet's key): only what was seen goes — the
+ * sheet's cards and those shown before it opened; what arrived or changed while it was open stays, said so.
+ */
+export function bulkApply(tab: QueueTab | null = tabNow(), fromSheet = false): void {
   if (!tab) return
   if (tab === 'all') {
     announce(t('features.preflight.queue.bulkAllTab'))
@@ -462,21 +539,24 @@ export function bulkApply(tab: QueueTab | null = tabNow(), confirmed = false): v
   if (s.busy) return
   const isOpen = openTest(s)
   const items = tabItems(tab).filter((i) => isOpen(i.id) && !s.inWork[i.id])
+  const byId = new Map(items.map((i) => [i.id, i]))
   const plan = bulkPlan(
     items,
-    (id) => !!s.viewed[id],
+    (id) => seenAsIs(s.viewed, byId.get(id)!),
     (it) => {
       const a = actionsOf(it).find((k) => k.key === 'a')
       return a ? { hand: a.hand ?? [], blocked: !!a.blocked } : null
     },
   )
-  if (!plan.clean.length) {
-    announce(t('features.preflight.queue.noClean'))
-    return
-  }
-  if (plan.unseen.length && !confirmed) {
+  const unseen = new Set(plan.unseen)
+  const take = plan.clean.filter((id) => !unseen.has(id))
+  if (plan.unseen.length && !fromSheet) {
     useQueue.setState({ bulk: { tab, ids: plan.unseen }, confirm: null, input: null })
     announce(t('features.preflight.queue.bulkSheet', { n: plan.unseen.length }))
+    return
+  }
+  if (!take.length) {
+    announce(t(plan.unseen.length ? 'features.preflight.queue.bulkNewer' : 'features.preflight.queue.noClean', { n: plan.unseen.length }))
     return
   }
   const cloud = useCloud.getState()
@@ -484,14 +564,19 @@ export function bulkApply(tab: QueueTab | null = tabNow(), confirmed = false): v
     announce(t('features.preflight.why.readOnly'))
     return
   }
-  void runBatch(tab, plan.clean.map((id) => itemOf(id)!).filter(Boolean), 'a')
+  void runBatch(tab, take.map((id) => byId.get(id)!), 'a', plan.unseen.length)
 }
 
-/** The bulk sheet's key: the unseen cards were shown in full there — now ⇧A applies. */
+/**
+ * The bulk sheet's key (its bodies rendered): the cards it showed are shown in full — at the revision each has now (the
+ * sheet draws them live) — and ⇧A applies what was seen: those and the cards shown before. Anything that arrived or
+ * changed while the sheet was open is left for the next ⇧A (its own sheet first).
+ */
 export function confirmBulk(): void {
   const b = Q().bulk
   if (!b) return
-  useQueue.setState((s) => ({ viewed: { ...s.viewed, ...Object.fromEntries(b.ids.map((id) => [id, true as const])) }, bulk: null }))
+  markViewed(b.ids.map((id) => itemOf(id)).filter((x): x is QueueItem => !!x))
+  useQueue.setState({ bulk: null })
   bulkApply(b.tab, true)
 }
 
@@ -514,8 +599,11 @@ export function bulkDiscardStale(tab: QueueTab | null = tabNow()): void {
   void runBatch(tab, take, 'd')
 }
 
-/** One batch over several cards: one source call per lamp (its `bulk`), else one by one in order. One Z takes it back. */
-async function runBatch(tab: QueueTab, items: QueueItem[], key: 'a' | 'd'): Promise<void> {
+/**
+ * One batch over several cards: one source call per lamp (its `bulk`), else one by one in order. One Z takes it back —
+ * each card only with the Undo that covers it (a card the source says has none never takes the batch's).
+ */
+async function runBatch(tab: QueueTab, items: QueueItem[], key: 'a' | 'd', leftUnseen = 0): Promise<void> {
   const batch = nanoid(8)
   const now = Date.now()
   focusCard()
@@ -527,8 +615,18 @@ async function runBatch(tab: QueueTab, items: QueueItem[], key: 'a' | 'd'): Prom
   for (const [lamp, list] of byLamp) {
     const src = lampSource(lamp)?.queue
     const bulk = key === 'a' ? src?.bulk?.apply : src?.bulk?.discard
-    const add = (it: QueueItem, res: Extract<Done, { ok: true }>, outcome: DoneEntry['outcome']) =>
-      entries.push({ id: it.id, lamp, outcome: res.outcome ?? outcome, at: Date.now(), batch, ...(res.undo ? { undo: res.undo } : {}), ...(res.final ? { final: res.final } : {}), label: { kind: it.kind, refs: it.refs } })
+    const add = (it: QueueItem, res: Extract<Done, { ok: true }>, outcome: DoneEntry['outcome']) => {
+      const none = res.finals?.[it.id]
+      entries.push({
+        id: it.id,
+        lamp,
+        outcome: res.outcome ?? outcome,
+        at: Date.now(),
+        batch,
+        ...(none ? { final: none } : { ...(res.undo ? { undo: res.undo } : {}), ...(res.final ? { final: res.final } : {}) }),
+        label: { kind: it.kind, refs: it.refs },
+      })
+    }
     if (bulk) {
       try {
         const res = await bulk(list)
@@ -560,7 +658,10 @@ async function runBatch(tab: QueueTab, items: QueueItem[], key: 'a' | 'd'): Prom
     appendLog({ at: e.at, k: 'card', lamp: e.lamp, item: e.id, outcome: e.outcome, kind: e.label.kind, refs: e.label.refs, batch })
     leave(e.id, key === 'a' ? 'right' : 'left')
   }
-  if (entries.length) announceDone(entries)
+  // cards that arrived or changed while the sheet was open: not applied (the next ⇧A shows them first)
+  const newer = leftUnseen ? t('features.preflight.queue.bulkNewer', { n: leftUnseen }) : ''
+  if (entries.length) announceDone(entries, newer)
+  else if (newer) announce(newer)
   if (failed.length) announce(t('features.preflight.queue.batchFailed', { n: failed.length }))
   for (const lamp of byLamp.keys()) void readNow(lamp)
   void tab
@@ -568,7 +669,11 @@ async function runBatch(tab: QueueTab, items: QueueItem[], key: 'a' | 'd'): Prom
 
 /* ---------------- Z */
 
-/** Undo the newest done entry (a batch together). One without Undo says why and stops — never an older one. */
+/**
+ * Undo the newest done entry (a batch together). One without Undo says why and stops — never an older one. Each Undo
+ * runs once; only what it really took back counts as undone (its card comes back, the Bordbuch notes it). What was
+ * changed since stays done ('kept': fields nobody touched went back) and loses its Undo, like what could not be undone.
+ */
 export async function undoLast(): Promise<void> {
   const s = Q()
   if (s.busy) return
@@ -583,38 +688,48 @@ export async function undoLast(): Promise<void> {
     return
   }
   useQueue.setState({ busy: 'undo' })
-  const out: Array<'undone' | 'kept' | 'final'> = []
+  const results = new Map<NonNullable<DoneEntry['undo']>, UndoOutcome | Record<string, UndoOutcome>>()
   for (const fn of fns) {
     try {
-      out.push(await fn())
+      results.set(fn, await fn())
     } catch (e) {
       console.warn('[one] preflight: an Undo failed', e)
-      out.push('final')
+      results.set(fn, 'final')
     }
   }
+  const per = undoOutcomes(entries, results)
+  const back = entries.filter((e) => per[e.id] === 'undone')
+  const kept = entries.filter((e) => per[e.id] === 'kept')
   const taken = new Set(entries)
-  const back = out.some((r) => r === 'undone' || r === 'kept')
   const now = Date.now()
   useQueue.setState((q) => ({
     busy: null,
-    done: q.done.map((e) => (back && taken.has(e) ? { ...e, undone: true } : e)),
-    undone: back ? [...q.undone, ...entries.map((e) => ({ lamp: e.lamp, id: e.id, at: now }))] : q.undone,
+    done: q.done.map((e) => {
+      if (!taken.has(e)) return e
+      if (per[e.id] === 'undone') return { ...e, undone: true }
+      // its Undo ran: it is spent (never run twice) — Z now says why this card stays done
+      if (!e.undo) return e
+      const { undo: _spent, ...rest } = e
+      return { ...rest, final: per[e.id] === 'kept' ? 'features.preflight.card.final.kept' : 'features.preflight.card.final.failed' }
+    }),
+    undone: back.length ? [...q.undone, ...back.map((e) => ({ lamp: e.lamp, id: e.id, at: now }))] : q.undone,
   }))
-  if (!back) {
-    announce(t('features.preflight.queue.final'))
+  if (!back.length) {
+    announce(kept.length ? t('features.preflight.queue.kept') : t('features.preflight.queue.final'))
+    for (const lamp of new Set(entries.map((e) => e.lamp))) void readNow(lamp)
     return
   }
-  for (const e of entries) appendLog({ at: now, k: 'undo', item: e.id, lamp: e.lamp, ...(e.batch ? { batch: e.batch } : {}) })
-  announce(out.includes('kept') ? t('features.preflight.queue.kept') : t('features.preflight.queue.undone', { n: entries.length }))
+  for (const e of back) appendLog({ at: now, k: 'undo', item: e.id, lamp: e.lamp, ...(e.batch ? { batch: e.batch } : {}) })
+  announce(kept.length ? t('features.preflight.queue.undoneKept', { n: back.length, k: kept.length }) : t('features.preflight.queue.undone', { n: back.length }))
   // the cards come back at their old places, the first focused (an exit motion still running ends here)
   useQueue.setState((q) => {
-    if (!entries.some((e) => q.leaving[e.id])) return q
+    if (!back.some((e) => q.leaving[e.id])) return q
     const leaving = { ...q.leaving }
-    for (const e of entries) delete leaving[e.id]
+    for (const e of back) delete leaving[e.id]
     return { leaving }
   })
   const tab = tabNow()
-  if (tab) setCurrent(tab, entries[0].id)
+  if (tab) setCurrent(tab, back[0].id)
   for (const lamp of new Set(entries.map((e) => e.lamp))) await readNow(lamp)
   if (tab) syncTab(tab)
   focusCard()

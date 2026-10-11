@@ -23,7 +23,7 @@ import type { PreflightPrefs } from './types'
 import { usePreflight } from './state'
 import { resetQueue, useQueue } from './queue/state'
 import { noBlink } from './blink'
-import { logSettled, openedIds, readDay, useLog } from './log'
+import { logSettled, markOpened, openedIds, readDay, useLog, wasOpened } from './log'
 
 const fakes: Array<() => void> = []
 
@@ -75,6 +75,9 @@ export function installSeam(): void {
       await logSettled()
       return openedIds()
     },
+    /** a card opened in this tab (as making it the current card does) · whether this tab knows it opened, now (no flush) */
+    markOpened: (id: string) => markOpened(id),
+    openedNow: (id: string) => wasOpened(id),
     renders: () => ({ ...renderCounts }),
     noBlink,
     /** the plate folded to its strip / unfolded (as the ⋯ menu and the strip's chevron do) */

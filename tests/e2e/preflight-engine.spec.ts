@@ -29,7 +29,7 @@ import type { LampView } from '../../src/app/features/preflight/types'
 import { supersedePlan } from '../../src/app/features/agents/supersede'
 import type { AgentRun } from '../../src/app/features/agents/types'
 import type { StagedChange } from '../../src/app/features/ai/agent/types'
-import { bulkPlan, focusAfterLeave, gauge, mergeOrder, position, sortItems, staleOf, staleSpan, step, undoTarget } from '../../src/app/features/preflight/queue/model'
+import { bulkPlan, focusAfterLeave, gauge, mergeOrder, position, sortItems, staleOf, staleSpan, step, undoOutcomes, undoTarget } from '../../src/app/features/preflight/queue/model'
 import { paceOf, pruneOpenedMap, sanitizeDay, trimOpened } from '../../src/app/features/preflight/log'
 import { swipeOf } from '../../src/app/features/preflight/queue/swipe'
 import type { QueueItem } from '../../src/app/features/preflight/registry'
@@ -488,7 +488,7 @@ function namesFrom(file: string, re: RegExp, withLazy = false): string[] {
 }
 
 /** The other areas' action functions only queue/calls.ts may import (§4 of the design). */
-const ACTIONS = ['applyRun', 'discardRun', 'undoChange', 'applyStaged', 'undoStagedBatch', 'discardStaged', 'undiscardStaged', 'saveProposal', 'undoProposal', 'dismissProposal', 'saveRunMemory', 'restoreRun', 'removeRun', 'applyTaskAction', 'confirmTaskVersion', 'markRead', 'archiveItems', 'openInboxItem', 'resolveMissing', 'resumeFolder', 'signIn', 'syncNow', 'runAgentNow', 'openAutofillPanel', 'checkServer']
+const ACTIONS = ['applyRun', 'discardRun', 'undoChange', 'undoChangeEach', 'applyStaged', 'undoStagedBatch', 'discardStaged', 'undiscardStaged', 'saveProposal', 'undoProposal', 'dismissProposal', 'saveRunMemory', 'restoreRun', 'removeRun', 'applyTaskAction', 'confirmTaskVersion', 'markRead', 'archiveItems', 'openInboxItem', 'resolveMissing', 'resumeFolder', 'signIn', 'syncNow', 'runAgentNow', 'openAutofillPanel', 'checkServer']
 
 test.describe('agents — supersedePlan (pure, T-P2-9)', () => {
   const upd = (id: string, row: string, props: string[], x: Partial<StagedChange> = {}): StagedChange => ({ id, n: Number(id.slice(1)), kind: 'update_row', status: 'pending', pageId: row, databaseId: 'db', props: props.map((p) => ({ propId: p, name: p, type: 'text', before: '', after: 'x' })), ...x }) as StagedChange
@@ -605,6 +605,28 @@ test.describe('the queue — pure core (P2)', () => {
     expect(undoTarget([e('a', { undo: async () => 'undone' }), e('b')]).map((x) => x.id)).toEqual(['b'])
   })
 
+  test('what one Z did to each entry: per item, never the batch’s answer for a card it does not cover (review S3/S4)', () => {
+    type U = 'undone' | 'kept' | 'final'
+    const whole = async (): Promise<U> => 'undone'
+    const each = async (): Promise<Record<string, U>> => ({ a: 'undone', b: 'kept' })
+    const entries = [
+      { id: 'a', undo: each },
+      { id: 'b', undo: each },
+      // the batch's per-item Undo leaves c out: it cannot be undone (a coding action, say)
+      { id: 'c', undo: each },
+      // a server run's card: no Undo at all
+      { id: 's' },
+      { id: 'w', undo: whole },
+    ]
+    const results = new Map<unknown, U | Record<string, U>>([
+      [each, { a: 'undone', b: 'kept' }],
+      [whole, 'undone'],
+    ])
+    expect(undoOutcomes(entries, results)).toEqual({ a: 'undone', b: 'kept', c: 'final', s: 'final', w: 'undone' })
+    // an Undo that failed (no result) is final for every card it holds
+    expect(undoOutcomes([{ id: 'x', undo: whole }], new Map())).toEqual({ x: 'final' })
+  })
+
   test('ANGESTAUBT span', () => {
     expect(staleSpan([], NOW)).toBe(null)
     expect(staleSpan([{ at: NOW - 8 * DAY }, { at: NOW - 11 * DAY }], NOW)).toMatchObject({ n: 2, minDays: 8, maxDays: 11 })
@@ -676,7 +698,7 @@ test.describe('static guards (T-P1-6)', () => {
     }
     // every entry point the queue's keys use, each from calls.ts (static or lazy)
     expect(namesFrom(calls, /./, true).filter((n) => ACTIONS.includes(n)).sort()).toEqual(
-      ['resumeFolder', 'resolveMissing', 'applyRun', 'discardRun', 'runAgentNow', 'undoChange', 'applyTaskAction', 'confirmTaskVersion', 'archiveItems', 'markRead', 'openInboxItem', 'signIn', 'syncNow', 'openAutofillPanel', 'applyStaged', 'undoStagedBatch', 'discardStaged', 'undiscardStaged', 'saveProposal', 'undoProposal', 'dismissProposal', 'saveRunMemory', 'removeRun', 'restoreRun', 'checkServer'].sort(),
+      ['resumeFolder', 'resolveMissing', 'applyRun', 'discardRun', 'runAgentNow', 'undoChangeEach', 'applyTaskAction', 'confirmTaskVersion', 'archiveItems', 'markRead', 'openInboxItem', 'signIn', 'syncNow', 'openAutofillPanel', 'applyStaged', 'undoStagedBatch', 'discardStaged', 'undiscardStaged', 'saveProposal', 'undoProposal', 'dismissProposal', 'saveRunMemory', 'removeRun', 'restoreRun', 'checkServer'].sort(),
     )
   })
 })

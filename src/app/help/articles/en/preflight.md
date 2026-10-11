@@ -32,9 +32,9 @@ In the morning, the first time you open One on a new day, One stays on Start whe
 ## The queue
 ↵ on a lit lamp opens its **queue** below the panel: one card at a time, the most urgent first, with exactly what the key acts on — the row change, the plan, the version of a task, the slip. Keys (focus in the queue, never in a text field):
 
-- **A** apply · **D** discard · **E** more (the diff, the run's report, the worker's log) · **O** open where it lives
+- **A** apply · **D** discard · **E** more, where a card has more (the run's report, the worker's log) · **O** open where it lives
 - **J / K** next · previous · **Z** undo the last thing done here · **Esc** back to the panel
-- **⇧A** applies every clean card of the lamp — but only cards **shown in full** in this tab. Cards you have not seen yet are listed in a sheet first; ↵ there applies. Never on **All**.
+- **⇧A** applies every clean card of the lamp — but only cards **shown in full** in this tab, as they are now. Cards you have not seen yet (or that changed since) are listed in a sheet first; ↵ there applies what it showed — anything that arrives meanwhile waits for the next ⇧A. Never on **All**.
 - **X** discards the stale ones (see below).
 - On a phone: swipe a card → to apply, ← to discard.
 
@@ -46,7 +46,7 @@ A proposal nobody opened for 7 days is **STALE**: the queue groups them at the e
 When a mirror agent runs again, its newer proposal for the same row and fields **supersedes** the older ones you never opened: the card says "replaces 2 older", the old ones count nowhere. A card you opened is never superseded.
 
 ## Undo
-Z takes back the newest thing done in this tab today, a ⇧A batch at once — through the source's own Undo (the row value back, the terminal change pending again, the memory removed, the inbox item unread again). Some steps have none, and Z says so instead of skipping them: a gate approved or a task run (the worker takes over), a version confirmed, a slip sent by hand, a sign-in.
+Z takes back the newest thing done in this tab today, a ⇧A batch at once — through the source's own Undo (the row value back, the terminal change pending again, the memory removed, the inbox item unread again). Some steps have none, and Z says so instead of skipping them: a gate approved or a task run (the worker takes over), a version confirmed, a slip sent by hand, a sign-in. A change someone edited since stays as it is now (only what nobody touched goes back), and Z says that too.
 
 ## The logbook
 Below the rule card the **logbook** lists today: lamp test, acknowledgements, cards done, Undo. It is kept on this device for 30 days — ids and outcomes only, never text — and goes with the device copy or a reset. The read-out uses it for the pace ("≈ 2 min").

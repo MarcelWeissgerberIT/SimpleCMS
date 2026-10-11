@@ -57,10 +57,18 @@ async function openLamp(page: Page, id: string): Promise<void> {
 /** Make a card current by its id (a compact row click). */
 async function pick(page: Page, id: string): Promise<void> {
   const row = queue(page).locator(`.pf-qr[data-id="${id}"]`)
-  await expect.poll(async () => (await card(page).getAttribute('data-id')) === id || (await row.count()) > 0).toBe(true)
-  if ((await card(page).getAttribute('data-id')) !== id) await row.click()
-  await expect(card(page)).toHaveAttribute('data-id', id)
+  // the row may turn into the current card meanwhile (a card before it leaves): click it only while it is a row
+  await expect(async () => {
+    if ((await card(page).getAttribute('data-id')) !== id) await row.click({ timeout: 1000 })
+    await expect(card(page)).toHaveAttribute('data-id', id, { timeout: 1000 })
+  }).toPass({ timeout: 15_000 })
   await card(page).focus()
+}
+
+/** The current card's body rendered: shown in full (⇧A may take it). */
+async function shown(page: Page, id: string): Promise<void> {
+  await ready(page, id)
+  await expect.poll(async () => (await q(page)).viewed).toContain(id)
 }
 
 /** Wait until the card is the current one and prepared (its keys usable). */
@@ -288,16 +296,18 @@ test.describe('⇧A, X, Z, focus and the keys (T-P2-7)', () => {
     await page.evaluate(() => (window.location.hash = '#/'))
     await flushLamps(page)
     await openLamp(page, 'proposals')
-    await ready(page, 'run:r-now#c1')
+    await shown(page, 'run:r-now#c1')
     // shown in full: c1, then c2 (J)
     await page.keyboard.press('j')
-    await ready(page, 'run:r-now#c2')
+    await shown(page, 'run:r-now#c2')
     await page.keyboard.press('Shift+A')
     // c3, c4 (the run's other clean cards) and the report were not shown: the sheet shows them first
     const sheet = page.getByTestId('pf-bulk')
     await expect(sheet).toBeVisible()
     await expect(sheet.locator('.pf-bulk__item')).toHaveCount(3)
     await expect(page.getByTestId('pf-bulk-apply')).toBeFocused()
+    // its key waits until every body there rendered
+    await expect(page.getByTestId('pf-bulk-apply')).not.toHaveAttribute('aria-disabled', 'true')
     expect(await runStatus(page, m.mirrorId, 'r-now', 'c1')).toBe('pending')
     // Esc closes it: nothing applied
     await page.keyboard.press('Escape')
@@ -307,6 +317,7 @@ test.describe('⇧A, X, Z, focus and the keys (T-P2-7)', () => {
     await card(page).focus()
     await page.keyboard.press('Shift+A')
     await expect(page.getByTestId('pf-bulk-apply')).toBeFocused()
+    await expect(page.getByTestId('pf-bulk-apply')).not.toHaveAttribute('aria-disabled', 'true')
     await page.keyboard.press('Enter')
     for (const c of ['c1', 'c2', 'c3', 'c4']) await expect.poll(() => runStatus(page, m.mirrorId, 'r-now', c)).toBe('applied')
     expect(await runStatus(page, m.mirrorId, 'r-d8', 'c1')).toBe('pending')

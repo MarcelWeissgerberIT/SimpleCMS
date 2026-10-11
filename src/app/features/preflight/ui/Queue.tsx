@@ -4,7 +4,7 @@
  * first, VON HAND next), ANGESTAUBT at the end, the bulk sheet ⇧A shows first, the key legend and a polite live region.
  * Keys only with focus inside this section (never while typing); Esc goes back to the lamp's cap.
  */
-import { useEffect, useMemo, useRef } from 'react'
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Hand, Undo2 } from 'lucide-react'
 import { useLang, useT } from '../../../i18n'
 import { restoreFocus } from '../../../ui/focus'
@@ -14,7 +14,8 @@ import { usePreflight } from '../state'
 import { noteShownTab, useQueue, type QueueTab } from '../queue/state'
 import { gauge, position, ROWS_MAX, staleSpan, undoTarget } from '../queue/model'
 import { onQueueKey } from '../queue/keys'
-import { actionsOf, bulkApply, bulkDiscardStale, cancelConfirm, closeBulk, confirmBulk, focusCard, loadAll, move, openTest, runAction, setCurrent, shownTab, syncTab, tabItems, undoLast, itemOf } from '../queue/run'
+import { actionsOf, announce, bulkApply, bulkDiscardStale, cancelConfirm, closeBulk, confirmBulk, focusCard, loadAll, move, openTest, runAction, setCurrent, shownTab, syncTab, tabItems, undoLast, itemOf } from '../queue/run'
+import { onOpened } from '../log'
 import { fmtCount } from '../lamps'
 import { fmtWhen } from '../format'
 import { tn } from '../sources/util'
@@ -22,8 +23,8 @@ import { rowKey, titleOf } from '../sources/proposals/common'
 import { useCoarsePointer } from '../touch'
 import type { QueueItem } from '../registry'
 import type { DoneEntry, LampView } from '../types'
-import { Card } from './Card'
-import { builtInBody } from './bodies'
+import { Card, Shown } from './Card'
+import { builtInBody, expandsOf } from './bodies'
 import { miniClass } from './Cap'
 
 const pad = (n: number) => String(n).padStart(2, '0')
@@ -37,7 +38,8 @@ export function labelOf(item: Pick<QueueItem, 'keyText' | 'title' | 'kind'> | nu
 
 function Tabs({ tab, views }: { tab: QueueTab; views: LampView[] }) {
   const t = useT()
-  const lamps = views.filter((v) => v.hasQueue && isLit(v.level))
+  // the tab on screen stays while its last card leaves (its lamp may be dark already)
+  const lamps = views.filter((v) => v.hasQueue && (isLit(v.level) || v.id === tab))
   const total = lamps.reduce((n, v) => n + v.count, 0)
   const pick = (id: QueueTab) => useQueue.setState({ lamp: id, aside: id === 'all' ? null : id, confirm: null, input: null, bulk: null })
   return (
@@ -139,6 +141,15 @@ function Row({ item, n, onPick }: { item: QueueItem; n: number; onPick: () => vo
   )
 }
 
+/** "8–11 days" / "8 days"; "29.09.–02.10." / "03.10." — a range only when it is one. */
+function staleLine(t: (k: string, v?: Record<string, string | number>) => string, tab: QueueTab, span: NonNullable<ReturnType<typeof staleSpan>>, lang: Parameters<typeof fmtWhen>[2]): string {
+  const days = span.minDays === span.maxDays ? t('features.preflight.stale.days', { n: span.minDays }) : t('features.preflight.stale.daysRange', { a: span.minDays, b: span.maxDays })
+  const from = fmtWhen(span.from, Date.now(), lang)
+  const to = fmtWhen(span.to, Date.now(), lang)
+  const range = from === to ? from : `${from}–${to}`
+  return tn(tab === 'proposals' ? 'features.preflight.stale.proposals' : 'features.preflight.stale.cards', span.n, { days, range })
+}
+
 function Stale({ items, first, tab }: { items: QueueItem[]; first: number; tab: QueueTab }) {
   const t = useT()
   const lang = useLang()
@@ -151,14 +162,14 @@ function Stale({ items, first, tab }: { items: QueueItem[]; first: number; tab: 
       <span className="pf-qr__no">{range}</span>
       <span className="pf-tag">{t('features.preflight.stale.tag')}</span>
       <button type="button" className="pf-stale__t" onClick={() => setCurrent(tab, items[0].id)}>
-        {t('features.preflight.stale.text', { n: span.n, a: span.minDays, b: span.maxDays, from: fmtWhen(span.from, Date.now(), lang), to: fmtWhen(span.to, Date.now(), lang) })}
+        {staleLine(t, tab, span, lang)}
       </button>
       {undoable > 0 ? (
         <button type="button" className="btn pf-key" aria-keyshortcuts="X" onClick={() => bulkDiscardStale(tab)}>
           <span className="kbd" aria-hidden>
             X
           </span>
-          {t('features.preflight.stale.discardAll', { n: undoable })}
+          {undoable === 1 ? t('features.preflight.stale.discardOne') : t('features.preflight.stale.discardAll', { n: undoable })}
         </button>
       ) : (
         <span className="label">{t('features.preflight.stale.oneByOne')}</span>
@@ -167,35 +178,64 @@ function Stale({ items, first, tab }: { items: QueueItem[]; first: number; tab: 
   )
 }
 
-/** ⇧A found clean cards not yet shown in full: each in full here first; ↵ on the key applies them all. */
+/** One card of the bulk sheet: its body in full; `onShown` once that body itself rendered (not its loading fallback). */
+function BulkItem({ it, onShown }: { it: QueueItem; onShown: (id: string) => void }) {
+  const t = useT()
+  const Body = builtInBody(it.kind)
+  const shown = useCallback(() => onShown(it.id), [onShown, it.id])
+  useEffect(() => {
+    if (!Body) onShown(it.id)
+  }, [Body, onShown, it.id])
+  return (
+    <li className="pf-bulk__item" data-id={it.id}>
+      <p className="pf-bulk__t">
+        <span className="pf-tag">{it.tag}</span> {labelOf(it, t)} {it.keyText && it.title ? `· ${it.title}` : ''}
+      </p>
+      {Body && (
+        <Suspense fallback={<p className="pf-card__wait">…</p>}>
+          <Body item={it} expanded />
+          <Shown on={shown} />
+        </Suspense>
+      )}
+    </li>
+  )
+}
+
+/**
+ * ⇧A found clean cards not yet shown in full: each in full here first; ↵ on the key applies them all — inert until
+ * every body here has rendered (a body still loading is not shown).
+ */
 function BulkSheet({ ids }: { ids: string[] }) {
   const t = useT()
   const key = useRef<HTMLButtonElement>(null)
+  const [shown, setShown] = useState<ReadonlySet<string>>(() => new Set())
+  const onShown = useCallback((id: string) => setShown((s) => (s.has(id) ? s : new Set([...s, id]))), [])
   useEffect(() => {
     key.current?.focus()
   }, [])
   const items = ids.map((id) => itemOf(id)).filter((x): x is QueueItem => !!x)
+  const ready = items.every((it) => shown.has(it.id))
   return (
-    <section className="pf-bulk" aria-label={t('features.preflight.queue.bulkTitle')} data-testid="pf-bulk">
+    <section className="pf-bulk" aria-label={t('features.preflight.queue.bulkTitle')} data-testid="pf-bulk" aria-busy={!ready || undefined}>
       <p className="pf-bulk__head">
         <span className="label">{t('features.preflight.queue.bulkTitle')}</span>
         {tn('features.preflight.queue.bulkNote', items.length)}
       </p>
       <ol className="pf-bulk__list">
-        {items.map((it) => {
-          const Body = builtInBody(it.kind)
-          return (
-            <li key={it.id} className="pf-bulk__item" data-id={it.id}>
-              <p className="pf-bulk__t">
-                <span className="pf-tag">{it.tag}</span> {labelOf(it, t)} {it.keyText && it.title ? `· ${it.title}` : ''}
-              </p>
-              {Body && <Body item={it} expanded />}
-            </li>
-          )
-        })}
+        {items.map((it) => (
+          <BulkItem key={it.id} it={it} onShown={onShown} />
+        ))}
       </ol>
       <div className="pf-bulk__keys">
-        <button ref={key} type="button" className="btn btn--primary pf-key" data-testid="pf-bulk-apply" onClick={() => confirmBulk()}>
+        <button
+          ref={key}
+          type="button"
+          className="btn btn--primary pf-key"
+          data-testid="pf-bulk-apply"
+          // never disabled (the focused key keeps focus): until every body rendered it says so instead
+          aria-disabled={!ready || undefined}
+          onClick={() => (ready ? confirmBulk() : announce(t('features.preflight.why.loading')))}
+        >
           {tn('features.preflight.queue.bulkApply', items.length)}
           <span className="kbd" aria-hidden>
             ↵
@@ -266,8 +306,12 @@ export default function Queue() {
   const busy = useQueue((s) => s.busy)
   const live = useQueue((s) => s.live)
   const pendingFocus = useQueue((s) => s.pendingFocus)
+  const openedRev = useQueue((s) => s.openedRev)
   const section = useRef<HTMLElement>(null)
   const tab = shownTab(picked)
+
+  // a card opened (here or in another tab) is never stale: ANGESTAUBT is worked out again
+  useEffect(() => onOpened(() => useQueue.setState((s) => ({ openedRev: s.openedRev + 1 }))), [])
 
   // the cards of every lit lamp, read again whenever a reading changes
   const key = views
@@ -306,7 +350,8 @@ export default function Queue() {
     ackLamps([tab], 'open')
   }, [views, tab])
 
-  const list = useMemo(() => (tab ? tabItems(tab, items) : []), [tab, items])
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- openedRev: the opened set changed (staleOf reads it)
+  const list = useMemo(() => (tab ? tabItems(tab, items) : []), [tab, items, openedRev])
   if (!tab) return null
   const s = useQueue.getState()
   const isOpen = openTest(s)
@@ -339,6 +384,9 @@ export default function Queue() {
           },
           toggleDiff: () => {
             if (!current) return
+            // E only where the open body shows more (the run's report, the worker's log)
+            const it = cur && !tombstones[cur.id] ? cur : null
+            if (!it || !expandsOf(it)) return announce(t('features.preflight.card.e.none'))
             useQueue.setState((q) => {
               const expanded = { ...q.expanded }
               if (expanded[current]) delete expanded[current]

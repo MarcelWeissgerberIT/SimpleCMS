@@ -43,20 +43,20 @@ export interface CapProps {
   cursor?: boolean
   /** drawn from the last count before this tab counted (aria-busy, "…") */
   busy?: boolean
-  /** the blink may start this many ms from now (the lamp test's end when it runs in this render) */
-  flashDelay: number
+  /** when the blink may start (epoch ms; 0 = now): the lamp test's end when one is planned or running */
+  flashAt: number
   /** this lamp's queue is open: "↵ 3/10" (the card's place) instead of the new chip */
   open?: string | null
   onActivate: (view: LampView, el: HTMLButtonElement) => void
   onFocus?: (view: LampView) => void
 }
 
-export const Cap = memo(function Cap({ view, tabStop, cursor, busy, flashDelay, open, onActivate, onFocus }: CapProps) {
+export const Cap = memo(function Cap({ view, tabStop, cursor, busy, flashAt, open, onActivate, onFocus }: CapProps) {
   noteRender('cap')
   const t = useT()
   const lit = view.level === 'amber' || view.level === 'red'
   const blinks = lit && view.isNew && view.flash && !busy
-  const blink = useMemo(() => (blinks ? blinkOf(view.id, view.idsHash, flashDelay) : { on: false, delay: 0 }), [blinks, view.id, view.idsHash, flashDelay])
+  const blink = useMemo(() => (blinks ? blinkOf(view.id, view.idsHash, flashAt ? Math.max(0, flashAt - Date.now()) : 0) : { on: false, delay: 0 }), [blinks, view.id, view.idsHash, flashAt])
   const count = busy ? '…' : view.level === 'grey' ? '?' : lit ? fmtCount(view.count) : '—'
   const second = view.level === 'grey' ? view.second || t('features.preflight.grey.off') : view.second
   const style = blink.on ? ({ ['--pf-flash-delay' as string]: `${Math.round(blink.delay)}ms` } as CSSProperties) : undefined
@@ -70,6 +70,7 @@ export const Cap = memo(function Cap({ view, tabStop, cursor, busy, flashDelay, 
       data-new={view.isNew || undefined}
       data-flash={blink.on || undefined}
       data-cursor={cursor || undefined}
+      data-open={(open && !busy) || undefined}
       aria-busy={busy || undefined}
       aria-label={busy ? t('features.preflight.cap.aria.busy', { lamp: lampName(view.legend) }) : `${capLabel(t, view)}${open ? ` ${t('features.preflight.cap.aria.open', { pos: open })}` : ''}`}
       tabIndex={tabStop ? 0 : -1}

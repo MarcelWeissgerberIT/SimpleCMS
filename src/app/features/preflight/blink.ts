@@ -14,7 +14,7 @@ export function noBlink(): void {
 
 /**
  * Whether this lamp blinks now and the delay to give its animation (ms; negative = already running). `delay` is when
- * it may start (the end of the lamp test when it ran in this render).
+ * it may start, from now (the end of the lamp test planned or running — engine.ts blinkStartAt).
  */
 export function blinkOf(id: string, hash: string, delay: number, now = Date.now()): { on: boolean; delay: number } {
   if (off) return { on: false, delay: 0 }

@@ -11,7 +11,7 @@ import { Screws } from '../../../ui/controls'
 import { Menu, useMenu } from '../../../ui/Menu'
 import { openHelp } from '../../../help'
 import { lampSource } from '../registry'
-import { ackLamps, fold, noteRender, runLampTest, setHidden } from '../engine'
+import { ackLamps, blinkStartAt, fold, noteRender, runLampTest, setHidden } from '../engine'
 import { writeHidden } from '../prefs'
 import { isLit } from '../lamps'
 import { fmtDay, fmtTime } from '../format'
@@ -202,7 +202,9 @@ export function Plate({ views, busy }: { views: LampView[]; busy: boolean }) {
   const coarse = useCoarsePointer()
   const testing = usePreflight((s) => s.testing)
   const ready = usePreflight((s) => s.ready)
-  const aside = useQueue((s) => s.aside)
+  // the lamp cursor (one ink double ring): the cap the aside describes — the one holding focus in the plate, else the
+  // lamp picked (an open queue's lamp is marked by its "↵ i/n" badge besides)
+  const ringed = useQueue((s) => s.cursor ?? s.aside)
   const pendingFocus = useQueue((s) => s.pendingFocus)
   const openLamp = useQueue((s) => s.lamp)
   const openPos = useQueue((s) => {
@@ -214,14 +216,14 @@ export function Plate({ views, busy }: { views: LampView[]; busy: boolean }) {
   })
   const grid = useRef<HTMLDivElement>(null)
   const [stop, setStop] = useState(() => firstStop(views))
-  const [flashDelay, setFlashDelay] = useState(0)
   const at = Math.min(stop, Math.max(0, views.length - 1))
+  // new lamps blink in unison after the lamp test — planned before the caps render (the test runs in the layout effect)
+  const flashAt = busy || !ready ? 0 : blinkStartAt(views.filter((v) => isLit(v.level)).length)
 
   // the day's lamp test, on the first full render once counted (never on "…" placeholders)
   useLayoutEffect(() => {
     if (busy || !ready) return
-    const end = runLampTest(grid.current)
-    if (end) setFlashDelay(end)
+    runLampTest(grid.current)
   }, [busy, ready])
 
   // ⌘K "Preflight" / MASTER CAUTION with nothing new: focus the first tab stop
@@ -282,9 +284,10 @@ export function Plate({ views, busy }: { views: LampView[]; busy: boolean }) {
               view={v}
               busy={busy}
               tabStop={i === at}
-              cursor={aside === v.id}
-              open={openLamp === v.id && openPos ? openPos : null}
-              flashDelay={flashDelay}
+              cursor={ringed === v.id}
+              // the open badge only on a lamp still lit (the last card gone: it went dark)
+              open={openLamp === v.id && openPos && isLit(v.level) ? openPos : null}
+              flashAt={flashAt}
               onActivate={activateLamp}
               onFocus={onCapFocus}
             />

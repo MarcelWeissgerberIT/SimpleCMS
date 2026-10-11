@@ -12,7 +12,7 @@ import { AGENT_BODY_KINDS } from '../../../agents'
 import type { AgentRun } from '../../../agents/types'
 import { depsOf, type StagedChange } from '../../../ai/agent/types'
 import type { CustomAgent } from '../../../../store/types'
-import { slipProbe, type CardAction, type Done, type QueueItem } from '../../registry'
+import { slipProbe, type CardAction, type Done, type QueueItem, type UndoOutcome } from '../../registry'
 import { applyAgent, discardAgent, undoAgent } from '../../queue/calls'
 import { agentRunsHere, openChangesOf, rowKey, titleOf } from './common'
 
@@ -77,9 +77,9 @@ function needsOf(run: AgentRun, c: StagedChange): number[] {
     .map((x) => x.n)
 }
 
-const undoOf = (run: AgentRun, changeId: string) => async (): Promise<'undone' | 'kept' | 'final'> => {
-  const kept = await undoAgent(run, changeId)
-  return kept === null ? 'final' : kept > 0 ? 'kept' : 'undone'
+const undoOf = (run: AgentRun, changeId: string) => async (): Promise<UndoOutcome> => {
+  const each = await undoAgent(run, changeId)
+  return each?.[changeId] ?? 'final'
 }
 
 async function applyOne(run: AgentRun, c: StagedChange): Promise<Done> {
@@ -158,40 +158,62 @@ function byRun(items: QueueItem[]): Array<{ run: AgentRun; ids: string[]; items:
   return [...out.values()]
 }
 
-/** ⇧A over agent cards: ONE applyRun per run, in turn. The Undo takes every run's batch back. */
+/**
+ * ⇧A over agent cards: ONE applyRun per run, in turn. The Undo takes every browser run's batch back and answers per
+ * card; a server run's cards have none (`finals`: done on the server).
+ */
 export async function agentBulkApply(items: QueueItem[]): Promise<Done> {
   const did: string[] = []
-  const undos: Array<() => Promise<'undone' | 'kept' | 'final'>> = []
+  const finals: Record<string, string> = {}
+  const undos: Array<() => Promise<Record<string, UndoOutcome>>> = []
   for (const g of byRun(items)) {
     const res = await applyAgent(g.run, g.ids)
     if (!res) continue
     const applied = g.items.filter((it) => res.applied.includes(it.refs.changeId ?? ''))
     did.push(...applied.map((it) => it.id))
-    if (applied.length && g.run.runner === 'browser') undos.push(undoOf(g.run, res.applied[0]))
+    if (!applied.length) continue
+    if (g.run.runner !== 'browser') {
+      for (const it of applied) finals[it.id] = 'features.preflight.card.final.server'
+      continue
+    }
+    const run = g.run
+    undos.push(async () => {
+      const each = await undoAgent(run, res.applied[0])
+      return Object.fromEntries(applied.map((it) => [it.id, each?.[it.refs.changeId ?? ''] ?? 'final']))
+    })
   }
   if (!did.length) return { ok: false, error: 'features.preflight.err.notApplied' }
-  return { ok: true, items: did, ...(undos.length ? { undo: combine(undos) } : { final: 'features.preflight.card.final.server' }) }
+  return { ok: true, items: did, finals, ...(undos.length ? { undo: merged(undos) } : {}) }
 }
 
-/** X over agent cards: ONE discardRun per run (with its cascade); the Undo puts them all back. */
+/** X over agent cards: ONE discardRun per run (with its cascade); the Undo puts them all back (browser runs). */
 export async function agentBulkDiscard(items: QueueItem[]): Promise<Done> {
   const did: string[] = []
-  const undos: Array<() => Promise<'undone' | 'kept' | 'final'>> = []
+  const finals: Record<string, string> = {}
+  const undos: Array<() => Promise<Record<string, UndoOutcome>>> = []
   for (const g of byRun(items)) {
     const out = await discardAgent(g.run, g.ids)
-    did.push(...g.items.filter((it) => out.dropped.includes(it.refs.changeId ?? '')).map((it) => it.id))
+    const dropped = g.items.filter((it) => out.dropped.includes(it.refs.changeId ?? ''))
+    did.push(...dropped.map((it) => it.id))
     const undo = out.undo
-    if (undo) undos.push(async () => ((await undo()) ? 'undone' : 'final'))
+    if (!undo) {
+      for (const it of dropped) finals[it.id] = 'features.preflight.card.final.server'
+      continue
+    }
+    undos.push(async () => {
+      const r: UndoOutcome = (await undo()) ? 'undone' : 'final'
+      return Object.fromEntries(dropped.map((it) => [it.id, r]))
+    })
   }
   if (!did.length) return { ok: false, error: 'features.preflight.err.elsewhere', elsewhere: true }
-  return { ok: true, items: did, ...(undos.length ? { undo: combine(undos) } : {}) }
+  return { ok: true, items: did, finals, ...(undos.length ? { undo: merged(undos) } : {}) }
 }
 
-/** Several Undos as one: 'kept' wins over 'undone', 'final' only when none came back. */
-export function combine(fns: Array<() => Promise<'undone' | 'kept' | 'final'>>): () => Promise<'undone' | 'kept' | 'final'> {
+/** Several per-card Undos as one: each runs once, their answers merged by card id. */
+export function merged(fns: Array<() => Promise<Record<string, UndoOutcome>>>): () => Promise<Record<string, UndoOutcome>> {
   return async () => {
-    const out: Array<'undone' | 'kept' | 'final'> = []
-    for (const fn of fns) out.push(await fn())
-    return out.includes('kept') ? 'kept' : out.includes('undone') ? 'undone' : 'final'
+    const out: Record<string, UndoOutcome> = {}
+    for (const fn of fns) Object.assign(out, await fn())
+    return out
   }
 }

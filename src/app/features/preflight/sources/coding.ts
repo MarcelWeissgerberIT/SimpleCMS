@@ -224,7 +224,8 @@ function taskItems(lampId: 'gate' | 'question' | 'failed', ids: readonly string[
       id,
       lamp: lampId,
       kind: p.kind,
-      tag: t(`features.preflight.kind.${p.kind}`),
+      // the source: the task's project (its pipeline database) — the kind is the card's own tag already
+      tag: titleOf(useWorkspace.getState().pages[p.taskId]?.databaseId) || t('common.untitled'),
       refs: { taskId: p.taskId, pageId: p.taskId },
       at: w?.at ?? 0,
       hand,

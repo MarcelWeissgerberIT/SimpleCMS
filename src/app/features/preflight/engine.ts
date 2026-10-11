@@ -413,6 +413,25 @@ function newDayIfDue(): void {
 /* ---------------- the lamp test (§5.6) */
 
 let testTimers: Array<ReturnType<typeof setTimeout>> = []
+/** when the lamp test planned or running ends (epoch ms; 0: none) — new lamps blink in unison after it */
+let testEndsAt = 0
+
+/** Would the day's lamp test run on this render (the conditions runLampTest checks first)? */
+function testDue(): boolean {
+  const s = S()
+  return s.ready && !s.today.test && s.testing === 'off' && readPrefs().test && !reducedMotion()
+}
+
+/**
+ * When a new lamp's blink may start (epoch ms; 0 = now): the end of the lamp test running, or of the one this render
+ * will run (planned from the lit caps BEFORE they render, so every new cap registers the same start) — kept until it ends.
+ */
+export function blinkStartAt(litCaps: number, now = Date.now()): number {
+  if (testEndsAt > now) return testEndsAt
+  if (!testDue()) return 0
+  testEndsAt = now + testSchedule(litCaps).end
+  return testEndsAt
+}
 
 /**
  * The day's lamp test on the first full render once ready: off by preference → "off"; reduced motion → "skipped";
@@ -436,6 +455,10 @@ export function runLampTest(grid: HTMLElement | null): number {
   testTimers = []
   const lit = grid ? Array.from(grid.querySelectorAll<HTMLElement>('.pf-cap[data-lit]')) : []
   const plan = testSchedule(lit.length)
+  // the caps it relights in phase 2: a lamp lit after this moment is not one of them (it is never held dark)
+  for (const el of lit) el.setAttribute('data-tested', '')
+  // the blinks registered for this render start at its end (blinkStartAt planned it a moment ago)
+  testEndsAt = Math.max(testEndsAt, Date.now() + plan.end)
   usePreflight.setState({ testing: 'phase1', lastChange: Date.now() })
   updateToday({ test: 'ran' })
   appendLog({ at: Date.now(), k: 'test', ok: s.views.length, of: s.views.length, flash: s.views.filter((v) => v.isNew && v.flash).length })
@@ -449,7 +472,10 @@ export function runLampTest(grid: HTMLElement | null): number {
   )
   testTimers.push(
     setTimeout(() => {
-      for (const el of lit) el.removeAttribute('data-relit')
+      for (const el of lit) {
+        el.removeAttribute('data-relit')
+        el.removeAttribute('data-tested')
+      }
       usePreflight.setState({ testing: 'off' })
     }, plan.end),
   )

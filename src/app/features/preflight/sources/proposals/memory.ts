@@ -47,7 +47,8 @@ export function memoryItems(now = Date.now()): QueueItem[] {
         id,
         lamp: 'proposals',
         kind: 'memory',
-        tag: t('features.preflight.src.memory'),
+        // the source (the card's kind tag says "memory" already)
+        tag: t('features.preflight.src.terminal'),
         refs: {},
         at: firstSeen.get(id) ?? now,
         hand: it.dup ? ['noBulk'] : [],
@@ -113,7 +114,13 @@ function runActions(item: QueueItem): CardAction[] {
   if (!run) return []
   const dup = runDup.get(run.id)
   const save = (asNew: boolean) => async (): Promise<Done> => {
-    const saved = await saveMenuMemory(run.id, asNew)
+    // the memory it updates (or none) is the one the card showed — checked again when it saves
+    const saved = await saveMenuMemory(run.id, asNew, asNew ? undefined : (dup ?? null))
+    if (saved === 'changed') {
+      // read again: the card shows what it would update now (VON HAND when it updates one)
+      runDup.delete(run.id)
+      return { ok: false, error: 'features.preflight.err.changed' }
+    }
     if (!saved) return { ok: false, error: 'features.preflight.err.notApplied' }
     return { ok: true, undo: async () => (saved.undo(), 'undone') }
   }

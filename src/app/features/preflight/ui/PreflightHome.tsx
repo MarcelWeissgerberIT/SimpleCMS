@@ -3,12 +3,12 @@
  * the plate mode (§5.6). Before this tab has counted, the caps are drawn from the last count (ids and levels only) as
  * "…" — a held morning boot builds the plate, not Home's page walk.
  */
-import { lazy, Suspense, useMemo } from 'react'
+import { lazy, Suspense, useLayoutEffect, useMemo, useRef } from 'react'
 import { lampSource } from '../registry'
 import { usePlateMode } from '../hooks'
 import { noteRender, readings } from '../engine'
 import { overlay } from '../lamps'
-import { useQueue } from '../queue/state'
+import { noteFocusGone, useQueue } from '../queue/state'
 import { usePreflight } from '../state'
 import type { LastCache, LampView } from '../types'
 import { Plate } from './Plate'
@@ -52,10 +52,29 @@ export function PreflightHome() {
   }, [ready, views, last, pending, undone])
   if (mode === 'off') return null
   if (mode === 'strip') return <Strip views={shown} busy={!ready} />
+  return <Full shown={shown} ready={ready} />
+}
+
+/**
+ * The full plate with the queue and the aside. Unmounting with the keyboard inside (the last card went, the plate folds
+ * to the strip in the same commit): it says so before its nodes go, and the strip's MASTER CAUTION takes the keyboard in
+ * that commit — focus never rests on the body in between (D3, D4).
+ */
+function Full({ shown, ready }: { shown: LampView[]; ready: boolean }) {
+  const below = useRef<HTMLDivElement>(null)
+  useLayoutEffect(() => {
+    const b = below.current
+    // the plate's section is drawn right before the queue and the aside
+    const p = b?.previousElementSibling ?? null
+    return () => {
+      const a = document.activeElement
+      if (a && a !== document.body && (b?.contains(a) || p?.contains(a))) noteFocusGone()
+    }
+  }, [])
   return (
     <>
       <Plate views={shown} busy={!ready} />
-      <div className="pf-below" data-testid="pf-below">
+      <div ref={below} className="pf-below" data-testid="pf-below">
         <div className="pf-below__q">
           {ready && (
             <Suspense fallback={null}>

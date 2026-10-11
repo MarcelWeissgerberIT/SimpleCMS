@@ -2,7 +2,7 @@
  * Preflight's own types (internal): what the plate shows of a lamp, the device preferences and the small per-member
  * records in localStorage (§9 of the design). Pure — no imports beyond types.
  */
-import type { LampId, Outcome, QueueItem } from './registry'
+import type { Done, LampId, Outcome, QueueItem } from './registry'
 
 export type Level = 'dark' | 'amber' | 'red' | 'grey'
 
@@ -115,7 +115,7 @@ export interface DoneEntry {
   outcome: Outcome
   at: number
   batch?: string
-  undo?: () => Promise<'undone' | 'kept' | 'final'>
+  undo?: Extract<Done, { ok: true }>['undo']
   /** why it has no Undo (a message key) */
   final?: string
   /** a note the source handed back ("+2 dependants") */

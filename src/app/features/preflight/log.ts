@@ -4,7 +4,8 @@
  *  - `<scope>|log|<day>` = { v: 1, day, events ≤ 600 }: ids, kinds, times, outcomes — labels are resolved live at render
  *    ("—" when gone), never stored; days older than 30 are deleted at the start and at a new Preflight day
  *  - `<scope>|opened` = { [itemId]: at } ≤ 2,000: the cards that were the current card (never stale, never superseded);
- *    written 1 s after the last change (one record), an id gone from every reading for 30 days is dropped
+ *    told to the other tabs AT ONCE (the leader's supersede guard reads it), written 1 s after the last change (one
+ *    record; flushed on pagehide), an id gone from every reading for 30 days is dropped
  * Every write is one idb-keyval `update` (a read-modify-write in one transaction, so two tabs never lose each other's
  * events); the other tabs hear of it on BroadcastChannel `one-preflight`. Fail closed and quiet: a browser that refuses
  * IndexedDB keeps no Bordbuch ("no logbook in this browser") and the opened set in memory for the tab.
@@ -99,18 +100,22 @@ function emitOpened(): void {
   }
 }
 
-/** A card became the current card: opened (never stale, never superseded). Written 1 s after the last one. */
+/**
+ * A card became the current card: opened (never stale, never superseded). The other tabs hear of it at once (the
+ * leader tab's supersede guard must never take a card that is open here); the record is written 1 s after the last one.
+ */
 export function markOpened(id: string, now = Date.now()): void {
   if (!openedScope) return
   if (opened.has(id)) return
   opened.set(id, now)
   openedDirty.add(id)
+  post({ scope: openedScope, opened: [id] })
   emitOpened()
   if (openedTimer) clearTimeout(openedTimer)
   openedTimer = setTimeout(() => void flushOpened(), OPENED_WRITE_MS)
 }
 
-/** Write the pending opened ids now (one record). */
+/** Write the pending opened ids now (one record; the tabs were told when each was opened). */
 export async function flushOpened(): Promise<void> {
   if (openedTimer) clearTimeout(openedTimer)
   openedTimer = null
@@ -118,7 +123,6 @@ export async function flushOpened(): Promise<void> {
   const ids = [...openedDirty]
   openedDirty.clear()
   if (!scope || !ids.length) return
-  post({ scope, opened: ids })
   const st = store()
   if (!st) return
   const at = Object.fromEntries(ids.map((id) => [id, opened.get(id) ?? Date.now()]))
@@ -279,6 +283,7 @@ async function loadPace(scope: string): Promise<void> {
 /* ---------------- tabs */
 
 let channel: BroadcastChannel | null = null
+let pagehide: (() => void) | null = null
 type Msg = { scope: string; opened?: string[]; log?: string }
 
 function post(msg: Msg): void {
@@ -328,6 +333,11 @@ export async function enterLog(scope: string | null, day: string): Promise<void>
     } catch {
       channel = null
     }
+  }
+  // a tab closing (or reloading) within the second writes what it opened (the other tabs know it already)
+  if (!pagehide && typeof window !== 'undefined') {
+    pagehide = () => void flushOpened()
+    window.addEventListener('pagehide', pagehide)
   }
   const sameScope = scope === logScope
   if (sameScope && day === logDay) return

@@ -14,11 +14,12 @@ import { t } from '../../../i18n'
 import { onRunsChanged, useAgentRuns, useServerAgents } from '../../agents'
 import { openAgent, useAgent } from '../../ai/agent/state'
 import { currentScope, useAIRuns } from '../../ai/runs'
-import { onSlips, type CardAction, type Done, type LampReading, type LampSourceDef, type QueueItem } from '../registry'
-import { all, tn, watch } from './util'
-import { AGENT_PREFIX, agentActions, agentBulkApply, agentBulkDiscard, agentItems, combine } from './proposals/agents'
-import { TERM_PREFIX, terminalActions, terminalBulkApply, terminalItems } from './proposals/terminal'
-import { AIRUN_PREFIX, MEM_PREFIX, memoryActions, memoryItems, prepareMemory } from './proposals/memory'
+import { onSlips, type CardAction, type Done, type LampReading, type LampSourceDef, type QueueItem, type UndoOutcome } from '../registry'
+import type { StagedChange } from '../../ai/agent/types'
+import { all, revHash, tn, watch } from './util'
+import { AGENT_PREFIX, agentActions, agentBulkApply, agentBulkDiscard, agentChangeOf, agentItems, merged } from './proposals/agents'
+import { TERM_PREFIX, terminalActions, terminalBulkApply, terminalChangeOf, terminalItems } from './proposals/terminal'
+import { AIRUN_PREFIX, MEM_PREFIX, memoryActions, memoryItems, menuRunDuplicate, menuRunOf, prepareMemory, termMemoryOf } from './proposals/memory'
 import { openActions, openItems } from './proposals/open'
 
 type Part = 'mirror' | 'agent' | 'terminal' | 'memory' | 'aimenu' | 'autofill'
@@ -51,6 +52,31 @@ function tally(): Tally {
   return { ids: items.map((i) => i.id), parts, top }
 }
 
+/** A staged change's content (what its body shows), without what only its review changes. */
+const changeRev = (c: StagedChange) => revHash({ ...c, status: undefined, error: undefined, supersededBy: undefined })
+
+/**
+ * A card's content revision now: the staged change as it is (the terminal merges a second update_row into the pending
+ * one, an append grows in place), a memory proposal's text and the memory it would update. 'gone': nothing to show.
+ */
+export function proposalRev(item: QueueItem): string {
+  if (item.id.startsWith(AGENT_PREFIX)) {
+    const ctx = agentChangeOf(item)
+    return ctx ? changeRev(ctx.change) : 'gone'
+  }
+  if (item.id.startsWith(TERM_PREFIX)) {
+    const c = terminalChangeOf(item)
+    return c ? changeRev(c) : 'gone'
+  }
+  if (item.id.startsWith(MEM_PREFIX)) {
+    const m = termMemoryOf(item)
+    return m ? revHash({ p: m.item.p, dup: m.item.dup ?? null }) : 'gone'
+  }
+  const run = item.kind === 'memory' ? menuRunOf(item) : null
+  if (run) return revHash({ p: run.proposals?.[0] ?? null, dup: menuRunDuplicate(run.id) ?? null })
+  return ''
+}
+
 /** The proposals' keys, by the card's source. */
 function actionsOf(item: QueueItem): CardAction[] {
   if (item.id.startsWith(AGENT_PREFIX)) return agentActions(item)
@@ -59,7 +85,10 @@ function actionsOf(item: QueueItem): CardAction[] {
   return openActions(item)
 }
 
-/** One batch over several sub-sources: agents one call per run, the terminal one call, the rest one by one. */
+/**
+ * One batch over several sub-sources: agents one call per run, the terminal one call, the rest one by one. Its Undo
+ * answers per card (each sub-source's own), and a card without one is named in `finals` — never covered by another's.
+ */
 async function bulk(items: QueueItem[], key: 'a' | 'd'): Promise<Done> {
   const agents = items.filter((i) => i.id.startsWith(AGENT_PREFIX))
   const term = items.filter((i) => i.id.startsWith(TERM_PREFIX))
@@ -76,8 +105,23 @@ async function bulk(items: QueueItem[], key: 'a' | 'd'): Promise<Done> {
   }
   const ok = results.filter((r): r is Extract<Done, { ok: true }> => r.ok)
   if (!ok.length) return results.find((r) => !r.ok) ?? { ok: false, error: 'features.preflight.err.notApplied' }
-  const undos = ok.map((r) => r.undo).filter((u): u is NonNullable<typeof u> => !!u)
-  return { ok: true, items: ok.flatMap((r) => r.items ?? []), ...(undos.length ? { undo: combine(undos) } : { final: ok[0].final }) }
+  const finals: Record<string, string> = {}
+  const undos: Array<() => Promise<Record<string, UndoOutcome>>> = []
+  for (const r of ok) {
+    const ids = (r.items ?? []).filter((id) => !r.finals?.[id])
+    Object.assign(finals, r.finals ?? {})
+    const undo = r.undo
+    if (!undo) {
+      for (const id of ids) finals[id] = r.final ?? 'features.preflight.card.final.none'
+      continue
+    }
+    // one card's answer for the whole call → that answer for each of its cards
+    undos.push(async () => {
+      const out = await undo()
+      return typeof out === 'string' ? Object.fromEntries(ids.map((id) => [id, out])) : out
+    })
+  }
+  return { ok: true, items: ok.flatMap((r) => r.items ?? []), finals, ...(undos.length ? { undo: merged(undos) } : {}) }
 }
 
 let lastTop: Tally['top'] = null
@@ -133,6 +177,7 @@ export const proposalsLamp: LampSourceDef = {
       if (item.id.startsWith(AIRUN_PREFIX) && item.kind === 'memory') await prepareMemory(item)
     },
     actions: actionsOf,
+    rev: proposalRev,
     bulk: { apply: (items) => bulk(items, 'a'), discard: (items) => bulk(items, 'd') },
   },
 }

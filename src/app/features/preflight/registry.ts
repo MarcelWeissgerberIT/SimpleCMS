@@ -127,13 +127,20 @@ export interface CardAction {
   run(item: QueueItem, input?: string): Promise<Done> | Done
 }
 
+/** What an Undo did: 'undone' (back as before) · 'kept' (changed since: it stays done — fields nobody touched went back) ·
+ *  'final' (cannot be undone). */
+export type UndoOutcome = 'undone' | 'kept' | 'final'
+
 export type Done =
   | {
       ok: true
       outcome?: Outcome
-      undo?: () => Promise<'undone' | 'kept' | 'final'>
+      /** a bulk call's Undo answers per item id (an id it leaves out counts as 'final'); a single card's as one */
+      undo?: () => Promise<UndoOutcome | Record<string, UndoOutcome>>
       /** why there is no Undo (a message key) */
       final?: string
+      /** a bulk call: the items it acted on that have no Undo, with why (a message key) — they never take the batch's Undo */
+      finals?: Record<string, string>
       note?: string
       /** the key only went somewhere (opened a page): no done entry, the card stays */
       stay?: true
@@ -153,6 +160,11 @@ export interface QueueSourceDef {
   prepare?(item: QueueItem, signal: AbortSignal): Promise<void>
   /** called at render AND again at press time */
   actions(item: QueueItem): CardAction[]
+  /**
+   * The content revision of a card now (what its body shows: a change merged in place gets a new one) — ⇧A takes a card
+   * only while the revision it was shown in full at is still its revision. Absent / '' = the content never changes.
+   */
+  rev?(item: QueueItem): string
   /** several cards at once (⇧A, X): one call = one batch; without it the runner goes one by one */
   bulk?: { apply?(items: QueueItem[]): Promise<Done>; discard?(items: QueueItem[]): Promise<Done> }
   /** the body for this source's kinds (built-in kinds have bodies in preflight/ui/bodies) */

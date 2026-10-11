@@ -35,8 +35,9 @@ export interface QueueState {
   card: Partial<Record<QueueTab, string>>
   /** the last known item of a card that went elsewhere (the tombstone draws it) */
   seen: Record<string, QueueItem>
-  /** cards shown in full (current, body loaded) in this tab — ⇧A takes only these */
-  viewed: Record<string, true>
+  /** cards shown in full (current, body rendered) in this tab, with the content revision shown — ⇧A takes only these, and
+   *  only while that is still their revision */
+  viewed: Record<string, string>
   prepared: Record<string, 'loading' | 'ready' | 'error'>
   /** this tab, this Preflight day (Z undoes the newest; a batch together) */
   done: DoneEntry[]
@@ -56,6 +57,8 @@ export interface QueueState {
   tombstones: Record<string, 'elsewhere'>
   /** the bulk sheet: clean cards not yet shown in full, before ⇧A applies */
   bulk: { tab: QueueTab; ids: string[] } | null
+  /** bumped when the opened set changes (here or in another tab): ANGESTAUBT is worked out again */
+  openedRev: number
   /** a card leaving (its exit motion) */
   leaving: Record<string, 'right' | 'left'>
   /** the live region's text (polite) */
@@ -86,6 +89,7 @@ export const initialQueue = (): QueueState => ({
   error: {},
   tombstones: {},
   bulk: null,
+  openedRev: 0,
   leaving: {},
   live: '',
 })
@@ -97,6 +101,22 @@ export function resetQueue(): void {
   useQueue.setState(initialQueue())
 }
 
+/* ---------------- focus leaving with the plate (the strip takes it in the same commit) */
+
+let focusGoneAt = 0
+
+/** The full plate (or its queue) unmounts with focus inside: the strip mounting in its place takes the keyboard. */
+export function noteFocusGone(now = Date.now()): void {
+  focusGoneAt = now
+}
+
+/** Read once by the strip's mount: the plate it replaces had the keyboard a moment ago (the same commit; never later). */
+export function takeFocusGone(now = Date.now()): boolean {
+  const v = focusGoneAt > 0 && now - focusGoneAt < 1000
+  focusGoneAt = 0
+  return v
+}
+
 /* ---------------- the queue on screen (the agents area holds its "has N proposals" toast back meanwhile) */
 
 let shownTab: QueueTab | null = null
@@ -105,6 +125,9 @@ let shownTab: QueueTab | null = null
 export function noteShownTab(tab: QueueTab | null): void {
   shownTab = tab
 }
+
+/** The tab the queue shows now (null: none on screen). */
+export const notedTab = (): QueueTab | null => shownTab
 
 /** The proposals queue is on screen now (its tab or "All", the document visible). */
 export function proposalsOnScreen(): boolean {

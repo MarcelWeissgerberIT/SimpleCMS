@@ -4,11 +4,11 @@
  * its review list), the task as the planner pinned it (the plan in full, the version exactly as hashed, the question),
  * the inbox entry, what a STATUS lamp's card fixes. Text from Claude or a source is shown as plain text, never loaded.
  */
-import { lazy, Suspense, type ReactNode } from 'react'
+import { lazy, type ReactNode } from 'react'
 import { useLang, useT } from '../../../i18n'
 import { useWorkspace } from '../../../store/store'
 import { useCloudSync } from '../../../cloud'
-import { codingLogText } from '../../coding'
+import { codingLogText, type TaskVersionView } from '../../coding'
 import { AgentChangeBody, useAgentRuns, useServerAgents } from '../../agents'
 import { useAgent } from '../../ai/agent/state'
 import { FullText } from '../../ai/agent/CodingDiff'
@@ -48,7 +48,8 @@ function ProposalBody({ item, expanded }: { item: QueueItem; expanded: boolean }
   return (
     // the card's own title line names the row (key + title); a rename keeps the body's struck old title
     <div className="pf-card__review agx-review" data-change={ctx.change.kind}>
-      <AgentChangeBody run={ctx.run} change={ctx.change} />
+      {/* bare: the card's Suspense waits for its code — the card is shown in full only once this rendered */}
+      <AgentChangeBody run={ctx.run} change={ctx.change} bare />
       {ctx.run.runner === 'server' && <p className="pf-card__note">{t('features.preflight.card.final.server')}</p>}
       {/* E: the run's own report (plain text, as the agent wrote it) */}
       {expanded && ctx.run.summary?.trim() && <FullText label={t('features.preflight.card.report')} text={ctx.run.summary.trim()} testId="pf-run-report" />}
@@ -61,10 +62,9 @@ function TerminalBody({ item }: { item: QueueItem }) {
   const c = terminalChangeOf(item)
   if (!c) return <Gone />
   return (
+    // no Suspense here: the card's (or the bulk sheet's) waits for the code — shown in full only once this rendered
     <div className="pf-card__review term-changes" data-testid="pf-term-body">
-      <Suspense fallback={<p className="pf-card__wait">…</p>}>
-        <TerminalChangeBody change={c} all={all} head />
-      </Suspense>
+      <TerminalChangeBody change={c} all={all} head card />
     </div>
   )
 }
@@ -89,6 +89,19 @@ function MemoryBody({ item }: { item: QueueItem }) {
   )
 }
 
+/** One stage of a version as hashed: kind · auto · mode · turns · git action · next · output · model (what is set). */
+function stageLine(t: (k: string, v?: Record<string, string | number>) => string, s: TaskVersionView['stages'][number]): string {
+  const parts = [t(`features.coding.kind.${s.kind}`)]
+  if (s.auto) parts.push(t('features.coding.pipeline.autoShort'))
+  if (s.mode) parts.push(`${t('features.coding.pipeline.mode')}: ${t(`features.coding.mode.${s.mode}`)}`)
+  if (s.maxTurns != null) parts.push(`${t('features.coding.pipeline.turns')}: ${s.maxTurns}`)
+  if (s.gitAction) parts.push(`${t('features.coding.pipeline.gitAction')}: ${t(`features.coding.gitAction.${s.gitAction}`)}`)
+  if (s.next) parts.push(`${t('features.coding.pipeline.next')}: ${s.next}`)
+  if (s.output) parts.push(`${t('features.coding.pipeline.output')}: ${t(`features.coding.pipeline.output.${s.output}`)}`)
+  if (s.model) parts.push(s.model)
+  return parts.join(' · ')
+}
+
 function TaskBody({ item, expanded }: { item: QueueItem; expanded: boolean }) {
   const t = useT()
   const lang = useLang()
@@ -103,6 +116,9 @@ function TaskBody({ item, expanded }: { item: QueueItem; expanded: boolean }) {
     if (!v) return <Gone />
     return (
       <div className="pf-fields" data-testid="pf-version">
+        <Field label={t('features.preflight.task.title')}>
+          <span className="pf-quote">{v.title || t('common.untitled')}</span>
+        </Field>
         <Field label={t('features.preflight.task.fields')}>
           {[v.fields.repo ?? '—', v.fields.branch || '—', v.fields.stage ?? '—'].join(' · ')}
         </Field>
@@ -110,12 +126,13 @@ function TaskBody({ item, expanded }: { item: QueueItem; expanded: boolean }) {
         {v.refs.map((r) => (
           <FullText key={r.id} label={t('features.preflight.task.ref', { title: r.title })} text={r.markdown || '—'} testId="pf-version-ref" />
         ))}
-        <details className="pf-card__details">
+        {/* every stage field the version hashes — open: what "Confirm" trusts is shown in full */}
+        <details className="pf-card__details" open>
           <summary className="label">{tn('features.preflight.task.stages', v.stages.length)}</summary>
-          <ol className="pf-stages">
+          <ol className="pf-stages" data-testid="pf-version-stages">
             {v.stages.map((s, i) => (
               <li key={i}>
-                <b>{s.name}</b> <span className="label">{s.kind}{s.auto ? ' · auto' : ''}{s.model ? ` · ${s.model}` : ''}</span>
+                <b>{s.name}</b> <span className="label">{stageLine(t, s)}</span>
                 {s.instructions && <pre className="pf-pre">{s.instructions}</pre>}
               </li>
             ))}
@@ -213,8 +230,20 @@ function OpenBody({ item }: { item: QueueItem }) {
   )
 }
 
-/** Kinds whose body shows more with E (a run's report, the worker's log). */
-export const EXPANDS = new Set(['proposal', 'gate', 'question', 'failed'])
+/**
+ * What E opens on this card now (the key's label) — null when the open body would show nothing more: an agent's card
+ * with a report (the run's report), a coding card with more of the worker's log than it shows (the log), an area's own
+ * body (its details).
+ */
+export function expandsOf(item: QueueItem): string | null {
+  if (item.kind === 'proposal') return agentChangeOf(item)?.run.summary?.trim() ? 'features.preflight.card.e.report' : null
+  if (item.kind === 'gate' || item.kind === 'question' || item.kind === 'failed') {
+    const n = codingPrep(item.id)?.detail?.log?.length ?? 0
+    // gate / question show no log until E; a failed task shows its last 8 lines
+    return n > (item.kind === 'failed' ? 8 : 0) ? 'features.preflight.card.e.log' : null
+  }
+  return builtInBody(item.kind) ? null : 'features.preflight.card.e.more'
+}
 
 /** The body of a built-in kind (null: the source brings its own). */
 export function builtInBody(kind: string): ((p: { item: QueueItem; expanded: boolean }) => ReactNode) | null {

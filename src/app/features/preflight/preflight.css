@@ -247,7 +247,7 @@
   line-height: 1.2;
   text-transform: uppercase;
 }
-/* the open queue's chip: "↵ 3/10" — only "↵" where the cap is narrow or the text big (the queue bar says the place) */
+/* the open queue's chip: "↵ 3/10" — only "↵" where the text is big (the queue bar says the place) */
 .pf-cap__pos {
   margin-left: 4px;
 }
@@ -646,9 +646,14 @@ html[data-text-size='4'] .pf-cap__pos {
 }
 .pf-srcs {
   display: grid;
-  grid-template-columns: auto auto;
+  /* as many columns as fit whole "Name n" pairs (one column when narrow) — never a name broken inside a word */
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 12ch), max-content));
   justify-content: start;
   gap: 1px 14px;
+}
+.pf-srcs__i {
+  overflow-wrap: normal;
+  white-space: nowrap;
 }
 .pf-srcs b {
   font-weight: 700;
@@ -802,7 +807,7 @@ html[data-text-size='4'] .pf-cap__pos {
   .pf__grid[data-test='2'] .pf-cap[data-lit] {
     transition: background-color var(--dur-1) var(--ease-out), color var(--dur-1) var(--ease-out);
   }
-  .pf__grid[data-test='2'] .pf-cap[data-lit]:not([data-relit]) {
+  .pf__grid[data-test='2'] .pf-cap[data-lit][data-tested]:not([data-relit]) {
     background: var(--lamp-off);
     color: var(--lamp-legend);
   }
@@ -1220,6 +1225,10 @@ html[data-pf-noblink] .pf-pip[data-flash] {
   margin-left: 4px;
   color: var(--signal-ink);
 }
+/* on the primary key (signal fill) the hand takes the key's own ink — signal-ink on signal would vanish */
+.btn--primary.pf-key .pf-key__hand {
+  color: currentColor;
+}
 .pf-key[aria-expanded='true'] {
   background: var(--surface-2);
 }
@@ -1553,8 +1562,13 @@ html[data-pf-noblink] .pf-pip[data-flash] {
   }
 }
 @container (max-width: 639px) {
-  .pf-cap__pos {
-    display: none;
+  /* the open lamp keeps its "↵ 3/10" (standard and M text; L / XL show "↵" — the queue bar says the place): its legend
+     gives the badge room, a word too long for that breaks rather than hiding under it */
+  .pf-cap[data-open] .pf-cap__legend {
+    padding-right: 60px;
+  }
+  .pf-cap[data-open] .pf-cap__legend > span {
+    overflow-wrap: anywhere;
   }
   /* the tab strip scrolls: its right edge fades out while there is more */
   .pf-tabs {

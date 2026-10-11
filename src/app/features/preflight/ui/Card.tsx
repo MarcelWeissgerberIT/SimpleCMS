@@ -6,19 +6,19 @@
  * (only ↵ / Space / a click on its confirm key confirms), the text field of an answer or rework note. On touch: swipe →
  * apply / ← discard, the keys in two rows (A · D · E, then O · Next), digits and R under "More".
  */
-import { Suspense, useCallback, useEffect, useLayoutEffect, useRef, type ReactNode } from 'react'
+import { Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { ArrowRight, Bot, ChevronDown, Hand, Layers, TerminalSquare } from 'lucide-react'
 import { useLang, useT } from '../../../i18n'
 import { useCloud } from '../../../cloud'
 import { lampSource, type CardAction, type QueueItem } from '../registry'
 import { useQueue } from '../queue/state'
-import { actionsOf, announce, cancelConfirm, confirmHand, move, runAction, say, takeCardFocus } from '../queue/run'
+import { actionsOf, announce, cancelConfirm, confirmHand, markViewed, move, runAction, say, takeCardFocus } from '../queue/run'
 import { useSwipe } from '../queue/swipe'
 import { markOpened } from '../log'
 import { useCoarsePointer } from '../touch'
 import { fmtWhen } from '../format'
 import { tn } from '../sources/util'
-import { builtInBody, EXPANDS } from './bodies'
+import { builtInBody, expandsOf } from './bodies'
 import type { Level } from '../types'
 
 const pad = (n: number) => String(n).padStart(2, '0')
@@ -187,6 +187,23 @@ function InputRow({ item, action }: { item: QueueItem; action: CardAction }) {
   )
 }
 
+/** Placed after a body inside its Suspense boundary: its layout effect runs only once the body itself has rendered (not
+ *  the fallback) — the card counts as shown in full from then on. */
+export function Shown({ on }: { on: () => void }) {
+  useLayoutEffect(() => {
+    on()
+  }, [on])
+  return null
+}
+
+/** The phone's swipe hint: only the directions this card has a key for. */
+function swipeHintKey(a: boolean, d: boolean): string | null {
+  if (a && d) return 'features.preflight.touch.hint'
+  if (a) return 'features.preflight.touch.hintRight'
+  if (d) return 'features.preflight.touch.hintLeft'
+  return null
+}
+
 const KIND_ICON: Record<string, ReactNode> = {
   proposal: <Bot size={11} aria-hidden />,
   terminal: <TerminalSquare size={11} aria-hidden />,
@@ -220,6 +237,10 @@ export function Card({ item, index, total, level }: CardProps) {
   useQueue((s) => s.items[item.lamp])
   const actions = tomb ? [] : actionsOf(item)
   const ready = prep === 'ready'
+  const Body = builtInBody(item.kind) ?? lampSource(item.lamp)?.queue?.Body ?? null
+  // the body rendered (not its loading fallback): only then is the card shown in full (⇧A, the bulk sheet)
+  const [shown, setShown] = useState(!Body)
+  const onShown = useCallback(() => setShown(true), [])
 
   // the keyboard was in the queue when this card became current: it takes it in the same commit (never the body)
   useLayoutEffect(() => {
@@ -231,20 +252,24 @@ export function Card({ item, index, total, level }: CardProps) {
   // not merely because Start showed its default tab
   useEffect(() => {
     if (useQueue.getState().lamp !== null || document.activeElement?.closest('.pf-q')) markOpened(item.id)
-    if (ready && !tomb) useQueue.setState((s) => (s.viewed[item.id] ? s : { viewed: { ...s.viewed, [item.id]: true } }))
-  }, [item.id, ready, tomb])
+  }, [item.id])
+  // viewed at the content revision the body shows now (a change merged in place later is unseen again)
+  useEffect(() => {
+    if (ready && !tomb && shown) markViewed([item])
+  }, [item, ready, tomb, shown])
 
   const onSwipe = useCallback(
     (dir: 'right' | 'left') => {
-      if (dir === 'left') return runAction(item, 'd')
+      const key = dir === 'left' ? 'd' : 'a'
+      // a direction this card has no key for says so (the card snaps back)
+      if (!actionsOf(item).some((x) => x.key === key)) return announce(t(dir === 'left' ? 'features.preflight.touch.noLeft' : 'features.preflight.touch.noRight'))
       // → on a VON HAND card opens its confirm row (never applies)
-      runAction(item, 'a')
+      runAction(item, key)
     },
-    [item],
+    [item, t],
   )
   useSwipe(frame, { enabled: coarse && ready && !tomb && !busy, onSwipe })
 
-  const Body = builtInBody(item.kind) ?? lampSource(item.lamp)?.queue?.Body ?? null
   const reasonsId = `pf-why-${item.id.replace(/[^a-zA-Z0-9_-]/g, '_')}`
   const a = actions.find((x) => x.key === 'a')
   const d = actions.find((x) => x.key === 'd')
@@ -257,6 +282,15 @@ export function Card({ item, index, total, level }: CardProps) {
   // the terminal's body brings its own head (title, where, tags); an agent's rename its struck old title (no title here)
   const ownTitle = item.kind !== 'terminal' && !!item.title
   const kindLabel = t(`features.preflight.card.aria.${item.kind}`, { i: index, n: total })
+  // VON HAND as its A key says now (recomputed: a card read again may have become one), else as listed
+  const handNow = a ? (a.hand ?? []) : item.hand
+  const kindWord = t(`features.preflight.kind.${item.kind}`)
+  const runTime = item.refs.runId && item.kind === 'proposal' ? t('features.preflight.card.run', { time: fmtWhen(item.at, Date.now(), lang) }) : ''
+  const ownTag = item.tag && item.tag.trim().toLowerCase() !== kindWord.trim().toLowerCase() ? item.tag : ''
+  const sourceTag = [ownTag, runTime].filter(Boolean).join(' · ')
+  // E: only when the open body shows more — and named by what it opens (the run's report, the worker's log)
+  const eKey = Body && ready ? expandsOf(item) : null
+  const hint = swipeHintKey(!!a, !!d)
 
   return (
     <article
@@ -267,7 +301,7 @@ export function Card({ item, index, total, level }: CardProps) {
       data-lamp={item.lamp}
       data-level={level}
       data-kind={item.kind}
-      data-hand={item.hand.length ? '' : undefined}
+      data-hand={handNow.length ? '' : undefined}
       data-leaving={leaving}
       data-testid="pf-card"
       tabIndex={-1}
@@ -277,12 +311,14 @@ export function Card({ item, index, total, level }: CardProps) {
     >
       <div className="pf-card__head">
         <span className="pf-card__no">{pad(index)}</span>
-        <span className="pf-tag pf-tag--ink">{t(`features.preflight.kind.${item.kind}`)}</span>
-        <span className="pf-tag">
-          {KIND_ICON[item.kind] ?? null}
-          {item.tag}
-          {item.refs.runId && item.kind === 'proposal' ? ` · ${t('features.preflight.card.run', { time: fmtWhen(item.at, Date.now(), lang) })}` : ''}
-        </span>
+        <span className="pf-tag pf-tag--ink">{kindWord}</span>
+        {/* the source — never the kind word a second time */}
+        {sourceTag && (
+          <span className="pf-tag">
+            {KIND_ICON[item.kind] ?? null}
+            {sourceTag}
+          </span>
+        )}
         <span className="pf-sp" />
         {sup.length > 0 && (
           <span className="pf-sup">
@@ -292,8 +328,8 @@ export function Card({ item, index, total, level }: CardProps) {
             </span>
           </span>
         )}
-        {item.hand.length > 0 && (
-          <span className="pf-hand" title={item.hand.map((w) => t(`features.preflight.risk.why.${w}`)).join(' · ')}>
+        {handNow.length > 0 && (
+          <span className="pf-hand" title={handNow.map((w) => t(`features.preflight.risk.why.${w}`)).join(' · ')}>
             <Hand size={12} aria-hidden />
             {t('features.preflight.risk.hand')}
           </span>
@@ -318,6 +354,7 @@ export function Card({ item, index, total, level }: CardProps) {
         ) : Body ? (
           <Suspense fallback={<p className="pf-card__wait">…</p>}>
             <Body item={item} expanded={expanded} />
+            <Shown on={onShown} />
           </Suspense>
         ) : null}
         {inWork && !tomb && (
@@ -353,10 +390,10 @@ export function Card({ item, index, total, level }: CardProps) {
               <div className="pf-card__row">
                 {a && <KeyButton action={a} item={item} primary busy={keysBusy} />}
                 {d && <KeyButton action={d} item={item} busy={keysBusy} />}
-                {Body && (EXPANDS.has(item.kind) || !builtInBody(item.kind)) && (
-                  <button type="button" className="btn pf-key" aria-expanded={expanded} aria-keyshortcuts="E" onClick={() => useQueue.setState((s) => ({ expanded: expanded ? omit(s.expanded, item.id) : { ...s.expanded, [item.id]: true } }))}>
+                {eKey && (
+                  <button type="button" className="btn pf-key" aria-expanded={expanded} aria-keyshortcuts="E" data-key="e" onClick={() => useQueue.setState((s) => ({ expanded: expanded ? omit(s.expanded, item.id) : { ...s.expanded, [item.id]: true } }))}>
                     {kbd('e')}
-                    {t('features.preflight.card.diff')}
+                    {t(eKey)}
                     <ChevronDown size={14} aria-hidden className="pf-key__chev" />
                   </button>
                 )}
@@ -394,7 +431,7 @@ export function Card({ item, index, total, level }: CardProps) {
           )}
         </div>
       )}
-      {coarse && !tomb && <p className="pf-card__swipe label">{t('features.preflight.touch.hint')}</p>}
+      {coarse && !tomb && hint && <p className="pf-card__swipe label">{t(hint)}</p>}
       {readOnly && <p className="pf-card__note">{t('features.preflight.why.readOnly')}</p>}
     </article>
   )

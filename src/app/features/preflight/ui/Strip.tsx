@@ -3,15 +3,16 @@
  * notch, grey hatched; a new one blinks like its cap), the small MASTER CAUTION key and the unfold chevron. Home's own
  * sections follow below it. Never lamp-tested.
  */
-import { useEffect, useMemo, useRef, type KeyboardEvent } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, type KeyboardEvent } from 'react'
 import { ChevronDown, Undo2 } from 'lucide-react'
 import { useT } from '../../../i18n'
 import { Screws } from '../../../ui/controls'
+import { focusIsNowhere } from '../../../ui/focus'
 import { noteRender, unfold } from '../engine'
 import { isLit } from '../lamps'
 import { blinkOf } from '../blink'
 import { usePreflight } from '../state'
-import { useQueue } from '../queue/state'
+import { takeFocusGone, useQueue } from '../queue/state'
 import type { LampView } from '../types'
 import { lampName } from './Cap'
 import { MasterKey } from './MasterCaution'
@@ -93,6 +94,12 @@ export function Strip({ views, busy }: { views: LampView[]; busy: boolean }) {
   const pendingFocus = useQueue((s) => s.pendingFocus)
   const mcRef = useRef<HTMLDivElement>(null)
   const lit = usePreflight((s) => s.lit)
+
+  // the plate folded with the keyboard in it (the last card went: the reading goes dark, often before the card's exit
+  // ends): MASTER CAUTION takes it in this very commit — focus never rests on the body between the plate and the strip
+  useLayoutEffect(() => {
+    if (takeFocusGone() && focusIsNowhere()) mcRef.current?.querySelector<HTMLElement>('.pf-mkey')?.focus()
+  }, [])
 
   // ⌘K "Preflight" with everything dark: the strip's MASTER CAUTION key takes the keyboard
   useEffect(() => {

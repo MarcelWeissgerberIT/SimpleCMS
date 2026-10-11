@@ -8,7 +8,7 @@
  */
 import type { ID } from '../../../store/types'
 import { resolveMissing, resumeFolder } from '../../sync'
-import { applyRun, discardRun, runAgentNow, undoChange, type Discarded } from '../../agents'
+import { applyRun, discardRun, runAgentNow, undoChangeEach, type Discarded } from '../../agents'
 import type { AgentRun } from '../../agents/types'
 import type { CustomAgent } from '../../../store/types'
 import { applyTaskAction, confirmTaskVersion, type TaskActionPlan } from '../../coding'
@@ -33,7 +33,8 @@ export const settleMissing = (trash: boolean): Promise<void> => resolveMissing(t
 /* ---------------- agents (review.ts: the run lock, the stored run read again, open proposals only) */
 
 export const applyAgent = (run: AgentRun, ids: string[]): Promise<ApplyResult | null> => applyRun(run, ids, { row: true })
-export const undoAgent = (run: AgentRun, changeId: string): Promise<number | null> => undoChange(run, changeId)
+/** The Undo of a batch applied from a card: what it did to each change (null: nothing to undo here any more). */
+export const undoAgent = (run: AgentRun, changeId: string): Promise<Record<string, 'undone' | 'kept' | 'final'> | null> => undoChangeEach(run, changeId)
 export const discardAgent = (run: AgentRun, ids: string[]): Promise<Discarded> => discardRun(run, ids, { undo: true })
 /** "Run now" of a missed scheduled agent (it costs tokens: VON HAND). */
 export const runAgent = (agent: CustomAgent): Promise<void> => runAgentNow(agent)
@@ -82,9 +83,17 @@ export async function dismissTerminalMemory(cardId: string, itemId: string): Pro
 const memory = () => import('../../ai/memory/open')
 const runs = () => import('../../ai/runs')
 
-/** Save an AI-menu memory run's proposal (no toast: the queue says so); its Undo takes the memory back and the run too. */
-export async function saveMenuMemory(runId: string, asNew = false) {
-  const { saveRunMemory } = await memory()
+/**
+ * Save an AI-menu memory run's proposal (no toast: the queue says so); its Undo takes the memory back and the run too.
+ * `shown`: the near-identical memory the card showed it would update (null: none) — when that is not what it would
+ * update NOW (a memory saved meanwhile, one deleted), nothing is saved: 'changed' (the card reads it again).
+ */
+export async function saveMenuMemory(runId: string, asNew = false, shown?: ID | null) {
+  const { saveRunMemory, duplicateOf } = await memory()
+  const { useAIRuns } = await runs()
+  const p = useAIRuns.getState().runs[runId]?.proposals?.[0]
+  // checked and saved in one step (no await between): what is updated is exactly what the card showed
+  if (!asNew && shown !== undefined && p && duplicateOf(p) !== shown) return 'changed' as const
   return saveRunMemory(runId, { asNew, toast: false })
 }
 
