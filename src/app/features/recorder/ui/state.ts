@@ -9,7 +9,8 @@ import { closeAgent, useAgent } from '../../ai/agent/state'
 import { closeOutboxSheet, onOutboxSheetOpen } from '../../outbox'
 import { canFocus, focusIsNowhere, takeFocusHandoff } from '../../../ui/focus'
 import { ZOOM, ZOOMS, type Zoom } from '../model/axis'
-import type { EjectRecord, JOp, JRun, LaneKey, PlaceKey, Scope } from '../model/types'
+import type { ID } from '../../../store/types'
+import type { EjectRecord, JOp, JRun, LaneKey, Outcome, PlaceKey, PlanCounts, Scope } from '../model/types'
 import type { HeldMark } from '../window/read'
 
 /** Opens / closes the deck (shell/lib/global.ts, the status key, ⌘K). */
@@ -47,8 +48,8 @@ export interface OpsWindow {
 
 export interface RecorderUI {
   open: boolean
-  /** 'rewind' arrives with the ghost (R4), 'after' with the eject (R3) */
-  mode: 'live'
+  /** 'after': the bracket is a window the eject took back (its after-state); 'rewind' arrives with the ghost (R4) */
+  mode: 'live' | 'after'
   /** null = now (follows the clock) */
   playhead: number | null
   /** the zoom and the right edge ('now' = follows the clock) */
@@ -81,6 +82,43 @@ export interface RecorderUI {
   held: { key: string; marks: HeldMark[]; count: number; who: Array<LaneKey | null> } | null
   /** live eject records of the loaded span (R3 draws them; "ejected" is never read from JRun.state) */
   ejects: EjectRecord[]
+  /** the eject dialog: open, and the place picked in its plan */
+  plan: { open: boolean; pick: PlaceKey | null } | null
+  /** what the eject just made (the board's and the table's marks, the database's strip) — gone with the deck or the next eject */
+  lastEject: LastEject | null
+}
+
+/** A held row of the last eject: who changed it since, when, its label, the values of the writer it still carries. */
+export interface LastHeld {
+  p: PlaceKey
+  who: LaneKey | null
+  /** who, as the board's tag says it ("du", "J. Weber") */
+  whoLabel: string
+  at: number
+  label: string
+  /** names of the properties whose writer's value stayed (the card's note) */
+  props: string[]
+}
+
+/** The eject this deck just made (memory only). */
+export interface LastEject {
+  id: string
+  at: number
+  lane: LaneKey
+  run?: string
+  a: number
+  b: number
+  /** the writer's name ("Agent · Nordlicht-Spiegel") */
+  writer: string
+  outcomes: Record<PlaceKey, Outcome>
+  counts: PlanCounts
+  /** when the "Vor dem Auswurf" versions were written */
+  versionAt: number
+  held: LastHeld[]
+  /** databases the eject wrote into (their strip: "Zuletzt Du · 08:05 · Auswurf") */
+  dbIds: ID[]
+  /** options that came back: `o:<db>/<prop>/<opt>` (their board column: "Zurück · 08:05") */
+  options: string[]
 }
 
 interface Prefs {
@@ -142,6 +180,8 @@ export const useRecorderUI = create<RecorderUI>()(() => ({
   read: null,
   held: null,
   ejects: [],
+  plan: null,
+  lastEject: null,
 }))
 
 /** Is the deck open (the shell's slots: the status key, quick capture's cover check …)? */
@@ -180,7 +220,7 @@ export function openRecorder(): void {
 /** Close the deck: the playhead goes back to now; the window is kept for 10 minutes. */
 export function closeRecorder(): void {
   if (!useRecorderUI.getState().open) return
-  useRecorderUI.setState({ open: false, playhead: null, axisFrozen: null, closedAt: Date.now(), ops: emptyOps(), strip: null, hist: null, gaps: [], read: null, held: null, ejects: [] })
+  useRecorderUI.setState({ open: false, mode: 'live', playhead: null, axisFrozen: null, closedAt: Date.now(), ops: emptyOps(), strip: null, hist: null, gaps: [], read: null, held: null, ejects: [], plan: null, lastEject: null })
 }
 
 /* ---------- reading a window (R2) ---------- */
@@ -200,6 +240,41 @@ export function closeRead(): void {
 export function pickPlace(p: PlaceKey | null): void {
   const r = useRecorderUI.getState().read
   if (r && r.pick !== p) useRecorderUI.setState({ read: { ...r, pick: p } })
+}
+
+/* ---------- the eject (R3) ---------- */
+
+/** Open the eject dialog on the selected window (the cover was lifted; never ejects by itself). */
+export function openEject(): void {
+  const s = useRecorderUI.getState()
+  if (!s.open || !s.bracket) return
+  useRecorderUI.setState({ plan: { open: true, pick: s.plan?.pick ?? null }, read: null })
+}
+
+export function closeEject(): void {
+  if (useRecorderUI.getState().plan) useRecorderUI.setState({ plan: null })
+}
+
+/** The place picked in the eject dialog's plan (its preview follows). */
+export function pickEjectPlace(p: PlaceKey | null): void {
+  const r = useRecorderUI.getState().plan
+  if (r && r.pick !== p) useRecorderUI.setState({ plan: { ...r, pick: p } })
+}
+
+/** What the eject just made (null: forget it — its Undo, the deck closed). */
+export function setLastEject(e: LastEject | null): void {
+  useRecorderUI.setState({ lastEject: e })
+}
+
+/** The live eject record a window shows as ejected: the same run (any bracket of it), or the same lane window. */
+export function ejectOfBracket(b: Bracket | null, ejects: readonly EjectRecord[]): EjectRecord | null {
+  if (!b) return null
+  for (let i = ejects.length - 1; i >= 0; i--) {
+    const e = ejects[i]
+    if (e.state !== 'done' || e.undone || e.lane !== b.lane) continue
+    if (b.run ? e.writer === b.run : e.writer === b.lane && e.a === b.a && e.b === b.b) return e
+  }
+  return null
 }
 
 /** The held check of the window `key` (or null: none yet / no window). */
@@ -249,7 +324,7 @@ export function setBracket(b: Bracket | null): void {
   const s = useRecorderUI.getState()
   // another window: the read dialog's pick and the held marks belonged to the old one
   const same = !!next && !!s.bracket && next.lane === s.bracket.lane && next.run === s.bracket.run && next.a === s.bracket.a && next.b === s.bracket.b
-  useRecorderUI.setState(same ? { bracket: next } : { bracket: next, held: null, read: next && s.read ? { open: s.read.open, pick: null } : null })
+  useRecorderUI.setState(same ? { bracket: next } : { bracket: next, held: null, read: next && s.read ? { open: s.read.open, pick: null } : null, plan: null })
 }
 
 export function setFocusLane(lane: LaneKey | null): void {

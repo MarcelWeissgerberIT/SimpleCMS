@@ -813,7 +813,7 @@ test.describe('look', () => {
         sig.add(getComputedStyle(probe).color)
       }
       probe.remove()
-      const ALLOWED = ['.playhead', '.bracket', '.lane__marks .sel', '.ruler__zone', '.ov__bars [data-hot]', '.trk[data-sel]', '.flag[data-sel]', '.ev-l[data-sel]', '.win__t', '.counter__val[data-sig]', '.led', '.held', '.held__n', '.held-sw']
+      const ALLOWED = ['.playhead', '.bracket', '.lane__marks .sel', '.ruler__zone', '.ov__bars [data-hot]', '.trk[data-sel]', '.flag[data-sel]', '.ev-l[data-sel]', '.win__t', '.counter__val[data-sig]', '.led', '.held', '.held__n', '.held-sw', '.eject', '.outlist__held', '.pi--held', '.ej-icon', '.btn--eject']
       const allowed = (el: Element) => ALLOWED.some((a) => el.closest(a))
       const hits = (cs: CSSStyleDeclaration, el: Element): string[] => {
         const out: string[] = []
@@ -848,7 +848,7 @@ test.describe('look', () => {
   }
 
   for (const theme of ['light', 'dark'] as const)
-    test(`orange only for the playhead, the selected window and the REC lamp — ${theme === 'light' ? 'Paper' : 'Carbon'}`, async ({ page }) => {
+    test(`orange only for the playhead, the selected window, the held marks, EJECT and the REC lamp — ${theme === 'light' ? 'Paper' : 'Carbon'}`, async ({ page }) => {
       test.setTimeout(150_000)
       await page.emulateMedia({ colorScheme: theme })
       await bootStory(page)
@@ -898,6 +898,8 @@ test.describe('look', () => {
         return c
       })
       expect(await page.locator('.deck .held__n').first().evaluate((p) => getComputedStyle(p).color)).toBe(tpSig)
+      // the EJECT key's cover is orange, nothing else on the plate is
+      expect(await page.locator('.eject__cover').evaluate((p) => getComputedStyle(p).borderTopColor)).toBe(sig)
     })
 
   test('reduced motion: the deck appears without sliding in, nothing on it animates or eases', async ({ page }) => {

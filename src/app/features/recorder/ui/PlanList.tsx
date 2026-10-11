@@ -9,7 +9,8 @@ import { ChevronRight, Columns3, FileDiff, FileText, MoveRight, Rows3, SquareDas
 import { useShallow } from 'zustand/react/shallow'
 import { useLang, useT } from '../../../i18n'
 import { useWorkspace } from '../../../store/store'
-import type { PlaceKey } from '../model/types'
+import type { Database, Page } from '../../../store/types'
+import type { PlaceKey, PlaceKind } from '../model/types'
 import { rowLabel, type GroupKind, type ReadItem, type ReadModel } from '../window/read'
 import { fmtNum, hm, hms, pl } from './format'
 import { laneMeta } from './lanes'
@@ -21,32 +22,56 @@ const FIRST = 3
 const ICON: Record<GroupKind, LucideIcon> = { schema: Table2, views: Columns3, pages: FileText, rows: Rows3, newRows: Rows3, trashed: Trash2, moved: MoveRight, partial: SquareDashed }
 const ACT: Record<GroupKind, string> = { schema: 'changed', views: 'changed', pages: 'changed', rows: 'changed', newRows: 'new', trashed: 'trashed', moved: 'moved', partial: 'changed' }
 
-type Entry = { kind: 'item'; item: ReadItem; group: GroupKind } | { kind: 'more'; group: GroupKind; n: number }
+/** One place in a list: its icon, key (a row's id display) and title, the meta on the right, what changed below. */
+export interface ListItem {
+  p: PlaceKey
+  icon: LucideIcon
+  key: string | null
+  title: string
+  meta: string
+  metaTitle?: string
+  sub: string | null
+  held: boolean
+}
+
+/** A group of places: its label ("Zeilen · 30"), the action word on the right, its places. */
+export interface ListGroup {
+  kind: string
+  label: string
+  act: string
+  /** the held group (its head in the signal's ink) */
+  held?: boolean
+  items: ListItem[]
+}
+
+type Entry = { kind: 'item'; item: ListItem; group: string } | { kind: 'more'; group: string; n: number }
 
 export const optionId = (p: PlaceKey | string) => `rec-pi-${p.replace(/[^A-Za-z0-9_-]/g, '_')}`
 
-export function PlanList({ model, pick, onPick, onOpen, phone }: { model: ReadModel; pick: PlaceKey | null; onPick: (p: PlaceKey) => void; onOpen: (p: PlaceKey) => void; phone: boolean }) {
+/**
+ * The listbox of places, grouped: ↑ / ↓ pick (the preview follows), Home / End, a "+ n more" entry that expands in
+ * place (the first new place becomes the active one), ↵ on a place opens it on the phone's second sheet.
+ */
+export function PlaceList({ groups: all, pick, onPick, onOpen, phone, aria, hint, autoFocus = true }: { groups: ListGroup[]; pick: PlaceKey | null; onPick: (p: PlaceKey) => void; onOpen: (p: PlaceKey) => void; phone: boolean; aria: string; hint: string; autoFocus?: boolean }) {
   const t = useT()
   const lang = useLang()
-  const pages = useWorkspace((s) => s.pages)
-  const ws = useWorkspace(useShallow((s) => ({ agents: s.agents, scripts: s.scripts, databases: s.databases, settings: s.settings })))
-  const [open, setOpen] = useState<ReadonlySet<GroupKind>>(() => new Set())
+  const [open, setOpen] = useState<ReadonlySet<string>>(() => new Set())
   // the "+ n more" entry that is active (keyboard) — an item otherwise
-  const [moreActive, setMoreActive] = useState<GroupKind | null>(null)
+  const [moreActive, setMoreActive] = useState<string | null>(null)
   const ref = useRef<HTMLDivElement>(null)
 
   // per group: the first places (held ones always), then "+ n more" until it is opened
   const groups = useMemo(
     () =>
-      model.groups.map((g) => {
-        const shown = open.has(g.kind) ? g.items : g.items.filter((it, i) => i < FIRST || it.verdict.outcome === 'held' || it.p === pick)
+      all.map((g) => {
+        const shown = open.has(g.kind) ? g.items : g.items.filter((it, i) => i < FIRST || it.held || it.p === pick)
         const entries: Entry[] = shown.map((item) => ({ kind: 'item', item, group: g.kind }))
         if (shown.length < g.items.length) entries.push({ kind: 'more', group: g.kind, n: g.items.length - shown.length })
-        return { kind: g.kind, count: g.items.length, entries }
+        return { ...g, entries }
       }),
     // the picked place stays shown once picked (a hidden one picked by a test or a link)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [model, open],
+    [all, open],
   )
   const flat = useMemo(() => groups.flatMap((g) => g.entries), [groups])
   const activeIndex = moreActive ? flat.findIndex((e) => e.kind === 'more' && e.group === moreActive) : flat.findIndex((e) => e.kind === 'item' && e.item.p === pick)
@@ -67,8 +92,8 @@ export function PlanList({ model, pick, onPick, onOpen, phone }: { model: ReadMo
       onPick(e.item.p)
     }
   }
-  const expand = (group: GroupKind) => {
-    const g = model.groups.find((x) => x.kind === group)
+  const expand = (group: string) => {
+    const g = all.find((x) => x.kind === group)
     const before = new Set(groups.find((x) => x.kind === group)?.entries.flatMap((e) => (e.kind === 'item' ? [e.item.p] : [])))
     setOpen((o) => new Set(o).add(group))
     setMoreActive(null)
@@ -95,79 +120,37 @@ export function PlanList({ model, pick, onPick, onOpen, phone }: { model: ReadMo
     } else if (e.key === 'Enter' || e.key === ' ') {
       const cur = flat[activeIndex]
       if (!cur) return
-      e.preventDefault()
-      if (cur.kind === 'more') expand(cur.group)
-      else if (phone) onOpen(cur.item.p)
+      if (cur.kind === 'more') {
+        e.preventDefault()
+        expand(cur.group)
+      } else if (phone) {
+        e.preventDefault()
+        onOpen(cur.item.p)
+      }
     }
-  }
-
-  const titleOf = (it: ReadItem): { key: string | null; title: string } => {
-    const id = it.p.slice(2)
-    if (it.pk === 'schema' || it.pk === 'view') {
-      const db = pages[it.db ?? id]?.title || t('features.recorder.report.untitled')
-      const view = it.pk === 'view' ? model.data.places.get(it.p)?.ownEvents.flatMap((e) => e.x ?? []).find((d) => d.view)?.view?.name : undefined
-      return { key: null, title: it.pk === 'schema' ? t('features.recorder.read.schemaItem', { db }) : t('features.recorder.read.viewItem', { db, view: view ?? '' }) }
-    }
-    if (it.verdict.reason === 'unavailable') return { key: null, title: t('features.recorder.read.unavailable') }
-    const page = pages[id]
-    if (!page) return { key: null, title: t('features.recorder.read.gone') }
-    const title = page.title || t('features.recorder.report.untitled')
-    const key = it.pk === 'row' ? rowLabel(page) : null
-    return { key: key && key !== title && !title.startsWith(key) ? key : null, title }
-  }
-  const metaOf = (it: ReadItem): string => {
-    const by = it.verdict.outcome === 'held' ? it.verdict.by[0] : undefined
-    if (by) return `${whoName(by.lane, t, ws, true)} ${hm(by.at)}`
-    if (it.pk === 'row') {
-      const parts: string[] = []
-      if (it.values) parts.push(t(pl('features.recorder.read.values', it.values), { n: fmtNum(it.values, lang) }))
-      if (it.text) parts.push(t('features.recorder.read.textShort'))
-      return parts.join(' · ') || hm(it.at)
-    }
-    if (it.pk === 'page' || it.pk === 'db') return it.words[0] || it.words[1] ? `+${fmtNum(it.words[0], lang)} −${fmtNum(it.words[1], lang)}` : hm(it.at)
-    return hms(it.at)
-  }
-  /** What W changed on a row, in a stable order: title, the properties as the database lists them, text. */
-  const subOf = (it: ReadItem): string | null => {
-    if (it.pk !== 'row') return null
-    const keys = new Set<string>()
-    for (const g of model.data.places.get(it.p)?.own ?? []) {
-      if (g.touched === '*') return null
-      for (const k of g.touched) keys.add(k)
-    }
-    const names: string[] = []
-    if (keys.has('t')) names.push(t('features.recorder.read.titlePart'))
-    for (const prop of ws.databases[it.db ?? '']?.properties ?? []) if (keys.has(`p:${prop.id}`)) names.push(prop.name)
-    if (keys.has('c')) names.push(t('features.recorder.read.textShort'))
-    return names.length ? names.join(' · ') : null
-  }
-  const heldTitle = (it: ReadItem): string | undefined => {
-    const by = it.verdict.outcome === 'held' ? it.verdict.by[0] : undefined
-    return by ? t('features.recorder.read.heldBy', { who: whoName(by.lane, t, ws), time: hm(by.at) }) : undefined
   }
 
   let n = 0
   return (
-    <div className="plan" aria-label={t('features.recorder.read.planAria')}>
+    <div className="plan" aria-label={aria}>
       {phone && (
         <p className="plan__hint">
           <FileDiff aria-hidden />
-          <span>{t('features.recorder.read.hint')}</span>
+          <span>{hint}</span>
         </p>
       )}
-      <div ref={ref} className="plan__list" role="listbox" tabIndex={0} data-autofocus aria-label={t('features.recorder.read.planAria')} aria-activedescendant={activeId} onKeyDown={onKeyDown}>
+      <div ref={ref} className="plan__list" role="listbox" tabIndex={0} data-autofocus={autoFocus || undefined} aria-label={aria} aria-activedescendant={activeId} onKeyDown={onKeyDown}>
         {groups.map((g) => {
           n++
-          const Icon = ICON[g.kind]
           return (
             <div key={g.kind} role="group" aria-labelledby={`rec-g-${g.kind}`} className="plan__g" data-group={g.kind}>
-              <div className="plan__sec" id={`rec-g-${g.kind}`}>
+              <div className={`plan__sec${g.held ? ' plan__sec--held' : ''}`} id={`rec-g-${g.kind}`}>
                 <span className="plan__n">{String(n).padStart(2, '0')}</span>
                 <span className="label plan__label">
-                  {t(`features.recorder.read.group.${g.kind}`)} · {fmtNum(g.count, lang)}
+                  {g.label} · {fmtNum(g.items.length, lang)}
                 </span>
                 <span className="plan__dots" aria-hidden="true" />
-                <span className="plan__act">{t(`features.recorder.read.act.${ACT[g.kind]}`)}</span>
+                <span className="plan__act">{g.act}</span>
               </div>
               {g.entries.map((e) => {
                 if (e.kind === 'more')
@@ -177,9 +160,7 @@ export function PlanList({ model, pick, onPick, onOpen, phone }: { model: ReadMo
                     </div>
                   )
                 const it = e.item
-                const { key, title } = titleOf(it)
-                const sub = subOf(it)
-                const isHeld = it.verdict.outcome === 'held'
+                const Icon = it.icon
                 const on = it.p === pick && !moreActive
                 return (
                   <div
@@ -187,7 +168,7 @@ export function PlanList({ model, pick, onPick, onOpen, phone }: { model: ReadMo
                     id={optionId(it.p)}
                     role="option"
                     aria-selected={on}
-                    className={`pi${isHeld ? ' pi--held' : ''}`}
+                    className={`pi${it.held ? ' pi--held' : ''}`}
                     data-on={on || undefined}
                     data-place={it.p}
                     onMouseDown={keepScroll}
@@ -198,14 +179,14 @@ export function PlanList({ model, pick, onPick, onOpen, phone }: { model: ReadMo
                     }}
                   >
                     <Icon className="pi__i" aria-hidden />
-                    <span className="pi__t" title={key ? `${key} · ${title}` : title}>
-                      {key && <span className="pi__key">{key}</span>}
-                      {title}
+                    <span className="pi__t" title={it.key ? `${it.key} · ${it.title}` : it.title}>
+                      {it.key && <span className="pi__key">{it.key}</span>}
+                      {it.title}
                     </span>
-                    <span className="pi__r" title={heldTitle(it)}>
-                      {metaOf(it)}
+                    <span className="pi__r" title={it.metaTitle}>
+                      {it.meta}
                     </span>
-                    {sub && <span className="pi__s">{sub}</span>}
+                    {it.sub && <span className="pi__s">{it.sub}</span>}
                     {phone && <ChevronRight className="pi__go" aria-hidden />}
                   </div>
                 )
@@ -216,6 +197,75 @@ export function PlanList({ model, pick, onPick, onOpen, phone }: { model: ReadMo
       </div>
     </div>
   )
+}
+
+/** A place's key (a row's id display, unless the title starts with it) and title, read live. */
+export function placeTitle(t: ReturnType<typeof useT>, pages: Record<string, Page>, model: Pick<ReadModel, 'data'>, it: { p: PlaceKey; pk: PlaceKind; db?: string; unavailable?: boolean }): { key: string | null; title: string } {
+  const id = it.p.slice(2)
+  if (it.pk === 'schema' || it.pk === 'view') {
+    const db = pages[it.db ?? id]?.title || t('features.recorder.report.untitled')
+    const view = it.pk === 'view' ? model.data.places.get(it.p)?.ownEvents.flatMap((e) => e.x ?? []).find((d) => d.view)?.view?.name : undefined
+    return { key: null, title: it.pk === 'schema' ? t('features.recorder.read.schemaItem', { db }) : t('features.recorder.read.viewItem', { db, view: view ?? '' }) }
+  }
+  if (it.unavailable) return { key: null, title: t('features.recorder.read.unavailable') }
+  const page = pages[id]
+  if (!page) return { key: null, title: t('features.recorder.read.gone') }
+  const title = page.title || t('features.recorder.report.untitled')
+  const key = it.pk === 'row' ? rowLabel(page) : null
+  return { key: key && key !== title && !title.startsWith(key) ? key : null, title }
+}
+
+/** What W changed on a row, in a stable order: title, the properties as the database lists them, text. */
+export function rowParts(t: ReturnType<typeof useT>, model: Pick<ReadModel, 'data'>, databases: Record<string, Database>, it: { p: PlaceKey; pk: PlaceKind; db?: string }): string | null {
+  if (it.pk !== 'row') return null
+  const keys = new Set<string>()
+  for (const g of model.data.places.get(it.p)?.own ?? []) {
+    if (g.touched === '*') return null
+    for (const k of g.touched) keys.add(k)
+  }
+  const names: string[] = []
+  if (keys.has('t')) names.push(t('features.recorder.read.titlePart'))
+  for (const prop of databases[it.db ?? '']?.properties ?? []) if (keys.has(`p:${prop.id}`)) names.push(prop.name)
+  if (keys.has('c')) names.push(t('features.recorder.read.textShort'))
+  return names.length ? names.join(' · ') : null
+}
+
+/** The read window's places, grouped by what changed (numbered 01, 02 … over the groups present). */
+export function PlanList({ model, pick, onPick, onOpen, phone }: { model: ReadModel; pick: PlaceKey | null; onPick: (p: PlaceKey) => void; onOpen: (p: PlaceKey) => void; phone: boolean }) {
+  const t = useT()
+  const lang = useLang()
+  const pages = useWorkspace((s) => s.pages)
+  const ws = useWorkspace(useShallow((s) => ({ agents: s.agents, scripts: s.scripts, databases: s.databases, settings: s.settings })))
+
+  const groups: ListGroup[] = useMemo(() => {
+    const metaOf = (it: ReadItem): string => {
+      const by = it.verdict.outcome === 'held' ? it.verdict.by[0] : undefined
+      if (by) return `${whoName(by.lane, t, ws, true)} ${hm(by.at)}`
+      if (it.pk === 'row') {
+        const parts: string[] = []
+        if (it.values) parts.push(t(pl('features.recorder.read.values', it.values), { n: fmtNum(it.values, lang) }))
+        if (it.text) parts.push(t('features.recorder.read.textShort'))
+        return parts.join(' · ') || hm(it.at)
+      }
+      if (it.pk === 'page' || it.pk === 'db') return it.words[0] || it.words[1] ? `+${fmtNum(it.words[0], lang)} −${fmtNum(it.words[1], lang)}` : hm(it.at)
+      return hms(it.at)
+    }
+    const heldTitle = (it: ReadItem): string | undefined => {
+      const by = it.verdict.outcome === 'held' ? it.verdict.by[0] : undefined
+      return by ? t('features.recorder.read.heldBy', { who: whoName(by.lane, t, ws), time: hm(by.at) }) : undefined
+    }
+    return model.groups.map((g) => ({
+      kind: g.kind,
+      label: t(`features.recorder.read.group.${g.kind}`),
+      act: t(`features.recorder.read.act.${ACT[g.kind]}`),
+      items: g.items.map((it) => {
+        const { key, title } = placeTitle(t, pages, model, { p: it.p, pk: it.pk, db: it.db, unavailable: it.verdict.reason === 'unavailable' })
+        return { p: it.p, icon: ICON[g.kind], key, title, meta: metaOf(it), metaTitle: heldTitle(it), sub: rowParts(t, model, ws.databases, it), held: it.verdict.outcome === 'held' }
+      }),
+    }))
+  }, [model, pages, ws, t, lang])
+
+  return <PlaceList groups={groups} pick={pick} onPick={onPick} onOpen={onOpen} phone={phone} aria={t('features.recorder.read.planAria')} hint={t('features.recorder.read.hint')} />
 }
 
 /** The writer's name as the dialog says it ("Agent · Nordlicht-Spiegel", or "Lauf 212"). */

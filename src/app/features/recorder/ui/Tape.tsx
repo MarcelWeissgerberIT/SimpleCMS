@@ -10,7 +10,7 @@ import { phoneFit, rulerLabels, rulerTicks, tAtX, xOf, type Axis, type Zoom } fr
 import type { View } from '../model/labels'
 import { isCopy } from '../model/marks'
 import type { JOp, JRun, LaneKey } from '../model/types'
-import { Lane } from './Lane'
+import { Lane, type EjectedWindow } from './Lane'
 import type { LaneMeta } from './lanes'
 import { movePlayhead, panBy, tapeFloor } from './actions'
 import { useNow } from './clock'
@@ -38,6 +38,8 @@ export interface TapeProps {
   empty: boolean
   /** stretches whose recording was lost (hatched, labelled "Recording interrupted") */
   gaps: Array<{ from: number; to: number }>
+  /** the bracket is an ejected window (its after-state): no held marks, the window drawn as ejected */
+  ejected?: boolean
 }
 
 const RULER_H: Record<string, number> = { s: 3, m: 4, t: 9, h: 13 }
@@ -190,7 +192,7 @@ export function Tape(p: TapeProps) {
   const shownKey = lanesKeys.join('\u0000')
   const heldByLane = useMemo(() => {
     const out = new Map<LaneKey, HeldMark[]>()
-    if (!p.bracket || !heldState || heldState.key !== bracketKey) return out
+    if (!p.bracket || !heldState || heldState.key !== bracketKey || p.ejected) return out
     const shown = new Set(shownKey.split('\u0000'))
     for (const m of heldState.marks) {
       const lane = m.lane && shown.has(m.lane) ? m.lane : p.bracket.lane
@@ -198,7 +200,18 @@ export function Tape(p: TapeProps) {
     }
     return out
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [heldState, bracketKey, shownKey])
+  }, [heldState, bracketKey, shownKey, p.ejected])
+  // live ejects of the span: their windows hatched on their tracks, labelled "Ausgeworfen 08:05 · 35 / 37 Stellen"
+  const ejects = useRecorderUI((s) => s.ejects)
+  const outByLane = useMemo(() => {
+    const out = new Map<LaneKey, EjectedWindow[]>()
+    for (const e of ejects) {
+      if (e.state !== 'done' || e.undone) continue
+      const run = e.writer !== e.lane ? e.writer : undefined
+      out.set(e.lane, [...(out.get(e.lane) ?? []), { id: e.id, a: e.a, b: e.b, at: e.at, back: e.counts.back, all: e.counts.all, ...(run ? { run } : {}) }])
+    }
+    return out
+  }, [ejects])
   const focusLane = p.focusLane && lanesKeys.includes(p.focusLane) ? p.focusLane : (p.bracket?.lane && lanesKeys.includes(p.bracket.lane) ? p.bracket.lane : lanesKeys[0])
 
   return (
@@ -237,6 +250,8 @@ export function Tape(p: TapeProps) {
                 phone={p.phone}
                 onOp={onOp}
                 held={heldByLane.get(m.lane)}
+                out={outByLane.get(m.lane)}
+                ejected={p.ejected}
               />
             ))}
           </div>

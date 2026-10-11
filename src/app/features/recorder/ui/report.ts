@@ -8,12 +8,13 @@ import { downloadBlob } from '../../io/export/collect'
 import { reportFacts } from '../window/facts'
 import { incidentReport } from '../window/report'
 import type { ReadModel } from '../window/read'
+import type { EjectRecord } from '../model/types'
 
 /** The report of a read window ('rec-report' measure). */
-export async function makeReport(model: ReadModel): Promise<{ md: string; file: string }> {
+export async function makeReport(model: ReadModel, eject?: EjectRecord): Promise<{ md: string; file: string }> {
   const t0 = performance.now()
   const facts = await reportFacts(model, t)
-  const out = incidentReport(model, facts, { t, lang: currentLang(), tz: Intl.DateTimeFormat().resolvedOptions().timeZone, now: Date.now() })
+  const out = incidentReport(model, facts, { t, lang: currentLang(), tz: Intl.DateTimeFormat().resolvedOptions().timeZone, now: Date.now(), ...(eject ? { eject } : {}) })
   try {
     performance.measure('rec-report', { start: t0, end: performance.now() })
   } catch {
@@ -22,9 +23,9 @@ export async function makeReport(model: ReadModel): Promise<{ md: string; file: 
   return out
 }
 
-export async function downloadReport(model: ReadModel): Promise<void> {
+export async function downloadReport(model: ReadModel, eject?: EjectRecord): Promise<void> {
   try {
-    const { md, file } = await makeReport(model)
+    const { md, file } = await makeReport(model, eject)
     downloadBlob(new Blob([md], { type: 'text/markdown;charset=utf-8' }), file)
     toast(t('features.recorder.report.downloaded', { file }))
   } catch (e) {

@@ -6,18 +6,20 @@
  * device cannot show is said, nothing is loaded. `variant`: 'read' (R2); the eject's third column comes with R3.
  */
 import { useEffect, useMemo, useState } from 'react'
-import { Info } from 'lucide-react'
+import { Check, Hand, Info, Undo2 } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import { useLang, useT } from '../../../i18n'
 import { useWorkspace } from '../../../store/store'
 import { DocDiff, itemBlockId } from '../../history/DiffDoc'
-import { PropsDiff, metaChangeCount } from '../../history/PropsDiff'
+import { PropsDiff, PropsTriple, metaChangeCount, type PropFate } from '../../history/PropsDiff'
 import { diffDocs, itemsWordCounts, type DocItem } from '../../history/docDiff'
 import type { PlaceKey } from '../model/types'
+import type { PlacePlan } from '../model/plan'
 import { placeDiff, rowLabel, type ForeignNote, type PlaceDiff, type ReadModel } from '../window/read'
 import { deltaLine } from '../window/report'
 import { fmtNum, hm, hms, hmsSpan } from './format'
 import { writerName } from './PlanList'
+import { Bold, BOLD } from './bold'
 import { whoName } from './WindowPlate'
 
 /** Diffs read per window (a place picked again is drawn at once). */
@@ -34,7 +36,13 @@ function diffOf(model: ReadModel, p: PlaceKey): Promise<PlaceDiff> {
   return d
 }
 
-export function PlacePreview({ model, p, variant = 'read', stacked = false }: { model: ReadModel; p: PlaceKey; variant?: 'read' | 'eject'; stacked?: boolean }) {
+/** The eject's view of a place: its plan (the third column, the outcome) and why it stays (held / partial). */
+export interface EjectView {
+  x: PlacePlan
+  why?: string
+}
+
+export function PlacePreview({ model, p, variant = 'read', stacked = false, eject }: { model: ReadModel; p: PlaceKey; variant?: 'read' | 'eject'; stacked?: boolean; eject?: EjectView }) {
   const t = useT()
   const lang = useLang()
   const ws = useWorkspace(useShallow((s) => ({ agents: s.agents, scripts: s.scripts, databases: s.databases, settings: s.settings })))
@@ -71,9 +79,11 @@ export function PlacePreview({ model, p, variant = 'read', stacked = false }: { 
   const key = isRow && page ? rowLabel(page) : null
   const since = verdict.by.filter((b) => b.at > verdict.span[1])
   const who = (n: ForeignNote) => `${whoName(n.lane, t, ws, true)} ${hm(n.at)}`
-  // "Stand vor {writer} · {time}": the words before the writer are the cell's label
+  // "Stand vor {writer} · {time}": the words before the writer are the cell's label (the eject: "Zurück auf:")
   const before = t('features.recorder.read.before', { writer: '\u0001', time: hms(verdict.span[0]) })
   const cut = Math.max(0, before.indexOf('\u0001'))
+  const x = variant === 'eject' ? eject?.x : undefined
+  const goesBack = !!x && (x.outcome === 'back' || x.outcome === 'trash' || x.outcome === 'restore')
   const blockTag = (it: DocItem) => {
     const bid = itemBlockId(it)
     const notes = d?.interleaved.filter((n) => n.blocks !== '*' && !!bid && n.blocks.includes(bid)) ?? []
@@ -103,10 +113,17 @@ export function PlacePreview({ model, p, variant = 'read', stacked = false }: { 
               {fmtNum(verdict.ops, lang)} · {hmsSpan(verdict.span[0], verdict.span[1])}
             </b>
           </span>
-          <span>
-            {cut > 0 && <span className="label">{before.slice(0, cut).trim()}</span>}
-            <b>{before.slice(cut).replace('\u0001', run)}</b>
-          </span>
+          {x ? (
+            <span>
+              <span className="label">{t('features.recorder.eject.meta.backTo')}</span>
+              <b>{before.replace('\u0001', run)}</b>
+            </span>
+          ) : (
+            <span>
+              {cut > 0 && <span className="label">{before.slice(0, cut).trim()}</span>}
+              <b>{before.slice(cut).replace('\u0001', run)}</b>
+            </span>
+          )}
           <span>
             <span className="label">{t('features.recorder.read.meta.changedSince')}</span>
             <b>{since.length ? since.map((b) => `${whoName(b.lane, t, ws, true)} ${hm(b.at)}`).join(', ') : t('features.recorder.read.nobody')}</b>
@@ -157,7 +174,19 @@ export function PlacePreview({ model, p, variant = 'read', stacked = false }: { 
               </ul>
             </div>
           )}
-          {isRow && d.before && d.after && page && (
+          {isRow && d.before && d.after && page && x && (
+            <div className="box rec-diff">
+              <div className="box__h">
+                <span className="label">{t('features.recorder.eject.props', { n: fmtNum(metaChangeCount(d.before, page, d.after), lang) })}</span>
+                <span className="box__sp" />
+                <span className="label box__r">{t('features.recorder.eject.propsNote', { run })}</span>
+              </div>
+              <div className="box__b">
+                <PropsTriple before={d.before} after={d.after} page={page} outcome={(goesBack ? (x.fates ?? {}) : {}) as Record<string, PropFate>} head={t('features.recorder.eject.colChange', { run })} tagOf={propTag} />
+              </div>
+            </div>
+          )}
+          {isRow && d.before && d.after && page && !x && (
             <div className="box rec-diff">
               <div className="box__h">
                 <span className="label">{t('features.recorder.read.props', { n: fmtNum(metaChangeCount(d.before, page, d.after), lang) })}</span>
@@ -177,7 +206,21 @@ export function PlacePreview({ model, p, variant = 'read', stacked = false }: { 
                 <span className="label box__r">{t('features.recorder.read.wordByWord')}</span>
               </div>
               <div className="box__b wd">{changed ? <DocDiff items={items} variant="plain" context={2} note={blockTag} /> : <p className="prev__note">{t('features.recorder.read.noChange')}</p>}</div>
+              {x && goesBack && changed && (
+                <div className="wd__cap">
+                  <Undo2 aria-hidden />
+                  <span>
+                    <Bold text={t('features.recorder.eject.textCaption', { bold: BOLD })} bold={t('features.recorder.eject.textCaptionBold')} />
+                  </span>
+                </div>
+              )}
             </div>
+          )}
+          {x && (!goesBack || verdict.pk === 'row' || verdict.pk === 'page' || verdict.pk === 'db') && (
+            <p className="prev__foot" data-outcome={x.outcome}>
+              {goesBack ? <Check aria-hidden /> : <Hand aria-hidden />}
+              <span>{x.outcome === 'trash' ? t('features.recorder.eject.newRowSub', { writer }) : goesBack ? t(isRow ? 'features.recorder.eject.rowWhole' : 'features.recorder.eject.pageWhole', { run }) : (eject?.why ?? '')}</span>
+            </p>
           )}
         </>
       )}

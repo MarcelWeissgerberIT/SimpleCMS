@@ -760,6 +760,28 @@
   border-left: 0;
 }
 
+/* an ejected window (mock-3): hatched in ink, no corner marks; its label says when and how much went back */
+.bracket.bracket--out {
+  border: 1px solid var(--tp-ink-3);
+  background: repeating-linear-gradient(-45deg, color-mix(in srgb, var(--tp-ink) 32%, transparent) 0 1.5px, transparent 1.5px 5px);
+}
+.bracket.bracket--out::before,
+.bracket.bracket--out::after {
+  display: none;
+}
+.ev-l.ev-l--out {
+  top: 9px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--tp-ink);
+}
+.ev-l--out svg {
+  width: 12px;
+  height: 12px;
+  stroke-width: 2;
+}
+
 /* playhead, now, future */
 .playhead {
   position: absolute;
@@ -1155,6 +1177,159 @@
   font-size: calc(12px * var(--text-scale));
 }
 
+/* EJECT with its hinged cover (mock §1.6.6): the cover is the control until it is lifted; the key opens the dialog */
+.eject {
+  position: relative;
+  margin-top: 10px;
+}
+.eject__key {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  width: 100%;
+  height: calc(36px * var(--text-scale));
+  padding: 0 10px;
+  border: 1px solid var(--signal-press);
+  border-bottom-width: 4px;
+  border-radius: 3px;
+  background: var(--signal);
+  color: var(--on-signal);
+  font-family: var(--font-mono);
+  font-size: calc(12px * var(--text-scale));
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.eject__key svg {
+  width: 17px;
+  height: 17px;
+  flex: none;
+  stroke-width: 2.1;
+}
+.eject__key small {
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  opacity: 0.85;
+}
+.eject__key:active:not(:disabled) {
+  transform: translateY(1px);
+}
+.eject__key:focus-visible {
+  outline: 2px solid var(--tp-ink);
+  outline-offset: 2px;
+}
+/* off: an ink key with its reason under it (orange is for a key that can eject) */
+.eject__key:disabled {
+  border-color: var(--tp-key-edge);
+  background: var(--tp-key);
+  color: var(--tp-ink-3);
+  cursor: default;
+}
+.eject__off {
+  margin: 5px 0 0;
+  font-size: calc(11.5px * var(--text-scale));
+  line-height: 1.35;
+  color: var(--tp-ink-3);
+}
+/* the cover: lying flat over the key, hatched; lifted it stands open on its hinge */
+.eject__cover {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1;
+  height: calc(36px * var(--text-scale));
+  padding: 0;
+  border: 1.5px solid var(--signal);
+  border-radius: 3px;
+  background: repeating-linear-gradient(-45deg, color-mix(in srgb, var(--signal) 70%, transparent) 0 3px, transparent 3px 9px), var(--tp-bg);
+  transform-origin: 50% 0%;
+  transition: transform var(--dur-3) var(--ease-out), bottom var(--dur-3) var(--ease-out);
+  cursor: pointer;
+}
+.eject__cover:focus-visible {
+  outline: 2px solid var(--tp-ink);
+  outline-offset: 2px;
+}
+.eject__hinge {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  top: -1px;
+  height: 4px;
+  border-radius: 1px;
+  background: var(--tp-key-edge);
+}
+.eject[data-lifted] .eject__cover {
+  bottom: calc(100% - 6px);
+  height: 34px;
+  border-radius: 3px 3px 0 0;
+  transform-origin: 50% 100%;
+  transform: perspective(240px) rotateX(64deg);
+}
+.eject[data-lifted] .eject__hinge {
+  top: auto;
+  bottom: -1px;
+}
+
+/* the plate after an eject (mock-3): ink, the held line in the deck's signal text */
+.win__t.win__t--out {
+  color: var(--tp-ink);
+}
+.outlist {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: calc(12px * var(--text-scale));
+  color: var(--tp-ink-2);
+}
+.outlist li {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+.outlist li > span:last-child {
+  min-width: 0;
+}
+.outlist__k {
+  flex: none;
+  width: calc(82px * var(--text-scale));
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--tp-ink-3);
+}
+.outlist b {
+  font-weight: 600;
+  color: var(--tp-ink);
+}
+.outlist__held,
+.outlist__held .outlist__k {
+  color: var(--tp-sig);
+}
+.win__note.win__note--out svg {
+  color: var(--tp-ink-2);
+}
+.dbtn.dbtn--wide {
+  flex: none;
+  width: 100%;
+  height: calc(32px * var(--text-scale));
+}
+.dbtn:disabled {
+  color: var(--tp-ink-3);
+  cursor: default;
+}
+
 /* held rows on the tape: a diamond at the first change by someone else, its row key beside it (flips, hides) */
 .held {
   position: absolute;
@@ -1446,6 +1621,34 @@
   .deck[data-phone] .dbtn--extend {
     height: 34px;
   }
+  /* the last row: [Fenster lesen | AUSWERFEN · 35 / 37] — no cover (the dialog is the cover) */
+  .deck[data-phone] .win > .win__keys {
+    grid-column: 1;
+  }
+  .deck[data-phone] .win > .eject {
+    grid-column: 2;
+    align-self: end;
+    margin-top: 0;
+  }
+  .deck[data-phone] .eject__key {
+    height: 42px;
+    letter-spacing: 0.08em;
+  }
+  .deck[data-phone] .eject__off {
+    font-size: calc(11px * var(--text-scale));
+  }
+  .deck[data-phone] .win.win--out > .win__keys {
+    grid-column: 1 / -1;
+  }
+  .deck[data-phone] .win--out .dbtn--outreport {
+    display: inline-flex;
+  }
+  .deck[data-phone] .win--out .outlist__version {
+    display: none;
+  }
+  .deck[data-phone] .dbtn.dbtn--wide {
+    height: 42px;
+  }
   .deck__grip::after {
     top: 8px;
   }
@@ -1454,6 +1657,9 @@
 @media (prefers-reduced-motion: reduce) {
   .deck {
     animation: none;
+  }
+  .eject__cover {
+    transition: none;
   }
   .tkey[data-on] {
     transition: none;

@@ -10,6 +10,7 @@ import { currentLang, t } from '../../../i18n'
 import { openPage } from '../../../lib/router'
 import { isMac } from '../../../ui/controls'
 import { fmtNum, unit } from './format'
+import { setLastEject, useRecorderUI } from './state'
 
 const TIMEOUT = 15_000
 
@@ -46,6 +47,8 @@ export async function runEjectUndo(id: string): Promise<void> {
     toast({ message: t(`features.recorder.eject.${r.refused.key}`), kind: 'error' })
     return
   }
+  // the board's marks belonged to the eject
+  if (useRecorderUI.getState().lastEject?.id === id) setLastEject(null)
   const back = unit(t, lang, 'places', r.back)
   const message = r.kept ? t('features.recorder.toast.undoneKept', { back, kept: fmtNum(r.kept, lang) }) : t('features.recorder.toast.undone', { back })
   toast({ message, kind: 'success', ...(r.slips ? { detail: t('features.recorder.toast.slipsStay', { n: fmtNum(r.slips, lang) }) } : {}), timeout: r.slips ? 8000 : 5000 })

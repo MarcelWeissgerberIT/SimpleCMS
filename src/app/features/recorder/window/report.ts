@@ -183,6 +183,19 @@ export function incidentReport(model: ReadModel, facts: ReportFacts, opts: Repor
   }
   out.push('')
 
+  // the eject of this window (from its record: counts and times only)
+  if (opts.eject) {
+    const e = opts.eject
+    const trash = Object.values(e.outcomes).filter((o) => o === 'trash').length
+    out.push(`## ${k('report.eject')}`)
+    out.push(`- ${k('report.ejectAt', { time: hms(e.at), back: n(e.counts.back), all: n(e.counts.all) })}`)
+    if (trash) out.push(`- ${k('report.ejectTrash', { n: n(trash) })}`)
+    if (e.counts.held) out.push(`- ${k('report.ejectHeld', { n: n(e.counts.held) })}`)
+    out.push(`- ${k('report.ejectVersion', { time: hms(e.versionAt) })}`)
+    if (e.undone) out.push(`- ${k('report.ejectUndone', { time: hms(e.undone) })}`)
+    out.push('')
+  }
+
   // notes
   const notes: string[] = []
   if (model.incomplete) notes.push(k('report.note.incomplete'))

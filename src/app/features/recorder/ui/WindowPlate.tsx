@@ -4,7 +4,8 @@
  * counted from the window's events ("…" while they load). R2: the held check (debounced; the rows someone changed
  * since — a note here, diamonds on the tape), notes for a window that is possibly incomplete or cuts a writer's
  * stretch (with the key that extends it), and the keys "Fenster lesen" (↵) and "Bericht". Two keys set the window's
- * start / end at the playhead on the focused track ([ and ] — the way to bracket by touch). The eject comes with R3.
+ * start / end at the playhead on the focused track ([ and ] — the way to bracket by touch). R3: the EJECT key under its
+ * cover (the dialog plans and ejects) and, once a window is ejected, the after-state plate (AfterPlate).
  */
 import { useEffect, useRef, useState } from 'react'
 import { FileDiff, FileDown, Info, X } from 'lucide-react'
@@ -21,7 +22,9 @@ import { laneMeta, type LaneMeta } from './lanes'
 import { fmtNum, hm, hms, pl, unit, windowEnd } from './format'
 import { bracketEdge } from './actions'
 import { say } from './live'
-import { openRead, setBracket, setHeld, useRecorderUI, type Bracket } from './state'
+import { ejectOfBracket, openRead, setBracket, setHeld, useRecorderUI, type Bracket, type LastEject } from './state'
+import { EjectKey } from './EjectKey'
+import { AfterPlate, type AfterSource } from './AfterPlate'
 import { Kbd } from '../../../ui/controls'
 import { Bold, BOLD } from './bold'
 
@@ -107,9 +110,25 @@ function clearWindow(): void {
   requestAnimationFrame(() => document.querySelector<HTMLElement>('section.deck .playhead__h')?.focus({ preventScroll: true }))
 }
 
+/** Is the bracket the window the deck just ejected (its record not read back yet)? */
+const isLast = (b: Bracket, last: LastEject) => last.lane === b.lane && (b.run ? last.run === b.run : !last.run && last.a === b.a && last.b === b.b)
+
+/** The eject a window shows as ejected: a live record, else the one this deck just made (its record on its way). */
+export function useAfterSource(bracket: Bracket | null): AfterSource | null {
+  const ejects = useRecorderUI((s) => s.ejects)
+  const last = useRecorderUI((s) => s.lastEject)
+  if (!bracket) return null
+  const rec = ejectOfBracket(bracket, ejects)
+  if (rec) return { rec }
+  if (last && isLast(bracket, last) && !ejects.some((e) => e.id === last.id && (e.undone || e.state !== 'done'))) return { last }
+  return null
+}
+
 export function WindowPlate({ bracket, meta, run, notes, touch, edgeLane }: { bracket: Bracket | null; meta: LaneMeta | null; run: JRun | undefined; notes: string[]; touch: boolean; edgeLane: LaneMeta }) {
   const t = useT()
   const lang = useLang()
+  const after = useAfterSource(bracket)
+  const heldMarks = useRecorderUI((s) => (bracket && s.held && s.held.key === windowKey(bracket) ? s.held.marks : null))
   const laneOps = useRecorderUI((s) => (bracket ? s.ops.lanes[bracket.lane] : undefined))
   const rev = useRecorderUI((s) => s.ops.rev)
   const model = useReadModel(bracket)
@@ -169,6 +188,8 @@ export function WindowPlate({ bracket, meta, run, notes, touch, edgeLane }: { br
       </aside>
     )
   }
+
+  if (after) return <AfterPlate src={after} bracket={bracket} meta={meta} run={run} model={model} heldMarks={heldMarks ?? []} />
 
   const meters = m && m.key === key ? m.meters : null
   const n = (v: number | undefined) => (meters ? fmtNum(v ?? 0, lang) : '…')
@@ -233,6 +254,7 @@ export function WindowPlate({ bracket, meta, run, notes, touch, edgeLane }: { br
           <span>{t('features.recorder.win.report')}</span>
         </button>
       </div>
+      <EjectKey bracket={bracket} model={model} phone={touch} wkey={key} />
       <EdgeKeys lane={edgeLane} />
       <Note />
     </aside>

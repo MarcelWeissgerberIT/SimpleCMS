@@ -16,6 +16,12 @@
  *   r2-read2-390-light                  the phone's second sheet (the picked place's diff)
  *   r2-read-1440-xl / r2-window-1024-xl the biggest text size
  *   r2-report-{de,en}.md                the incident report of the window (written next to the shots)
+ * Shots (R3, mock-2 / mock-3):
+ *   r3-plate-1440-{light,dark}[-open]   the plate's EJECT under its cover (closed, then lifted)
+ *   r3-dialog-{1440,390}-{light,dark}   the eject dialog, NL-1402 picked (390: the sheet)
+ *   r3-sheet2-390-{light,dark}          the phone's second sheet (NL-1402: before → after → after the eject)
+ *   r3-after-{1440,390}-{light,dark}    after the eject: the board's marks, the toast, the deck's after-state
+ *   r3-dialog-1440-xl / r3-dialog-1024  the biggest text size, a narrower window
  * Every shot starts from a fresh context (the story, German UI unless named, no tour), the clock fixed at the story's
  * 08:05:40. Nothing leaves the machine: every request to another host is refused. Browser errors are printed; any makes
  * the exit code 1.
@@ -152,6 +158,85 @@ for (const lang of ['de', 'en'])
     await (await download).saveAs(`${OUT}/${name}.md`)
     await done(s, name)
   }
+
+/* ---------- R3: the eject ---------- */
+
+/** Lift the cover (desktop) and open the eject dialog; `pick` picked (desktop). */
+async function ejectDialog(s, { mobile = false, pick = 'NL-1402' } = {}) {
+  await s.page.locator('.deck .eject__key:not([disabled])').waitFor()
+  if (mobile) await s.page.locator('.deck .eject__key').tap()
+  else {
+    await s.page.locator('.deck .eject__cover').click()
+    await s.page.waitForTimeout(300)
+    await s.page.locator('.deck .eject__key').click()
+  }
+  await s.page.locator('.modal.rec-eject .plan .pi').first().waitFor({ timeout: 30_000 })
+  if (pick && !mobile) {
+    const item = () => s.page.locator('.modal.rec-eject .pi', { hasText: pick }).first()
+    const more = s.page.locator('.modal.rec-eject .plan__g[data-group="rows"] .pi--more')
+    if (!(await item().count()) && (await more.count())) await more.click()
+    await item().click()
+  }
+  await s.page.mouse.move(2, 2)
+  await s.page.waitForTimeout(700)
+}
+for (const theme of ['light', 'dark'])
+  SHOTS[`r3-plate-1440-${theme}`] = async (name) => {
+    const s = await open({ dark: theme === 'dark' })
+    await s.page.locator('.deck .eject__cover').waitFor()
+    await s.page.screenshot({ path: `${OUT}/${name}.png` })
+    await s.page.locator('.deck .eject__cover').click()
+    await s.page.waitForTimeout(400)
+    await s.page.screenshot({ path: `${OUT}/${name}-open.png` })
+    await done(s, name)
+  }
+for (const w of [1440, 390])
+  for (const theme of ['light', 'dark'])
+    SHOTS[`r3-dialog-${w}-${theme}`] = async (name) => {
+      const mobile = w === 390
+      const s = await open({ width: w, height: mobile ? 844 : 900, dark: theme === 'dark', mobile })
+      await ejectDialog(s, { mobile })
+      await s.page.screenshot({ path: `${OUT}/${name}.png` })
+      await done(s, name)
+    }
+for (const theme of ['light', 'dark'])
+  SHOTS[`r3-sheet2-390-${theme}`] = async (name) => {
+    const s = await open({ width: 390, height: 844, dark: theme === 'dark', mobile: true })
+    await ejectDialog(s, { mobile: true })
+    await s.page.waitForTimeout(500)
+    await s.page.locator('.modal.rec-eject .pi', { hasText: 'NL-1402' }).first().tap()
+    await s.page.locator('.modal.rec-sheet2').waitFor()
+    await s.page.waitForTimeout(600)
+    await s.page.screenshot({ path: `${OUT}/${name}.png` })
+    await done(s, name)
+  }
+for (const w of [1440, 390])
+  for (const theme of ['light', 'dark'])
+    SHOTS[`r3-after-${w}-${theme}`] = async (name) => {
+      const mobile = w === 390
+      const s = await open({ width: w, height: mobile ? 844 : 900, dark: theme === 'dark', mobile })
+      await ejectDialog(s, { mobile, pick: null })
+      if (mobile) await s.page.locator('.modal.rec-eject .btn--eject').tap()
+      else await s.page.locator('.modal.rec-eject .btn--eject').click()
+      await s.page.locator('.deck .win--out').waitFor({ timeout: 30_000 })
+      await s.page.locator('.toast[data-glyph]').waitFor()
+      await s.page.mouse.move(2, 2)
+      await s.page.waitForTimeout(800)
+      await s.page.screenshot({ path: `${OUT}/${name}.png` })
+      await done(s, name)
+    }
+SHOTS['r3-dialog-1440-xl'] = async (name) => {
+  const s = await open({ width: 1440, height: 900, xl: true })
+  await ejectDialog(s)
+  await s.page.screenshot({ path: `${OUT}/${name}.png` })
+  await done(s, name)
+}
+SHOTS['r3-dialog-1024'] = async (name) => {
+  const s = await open({ width: 1024, height: 768 })
+  await ejectDialog(s)
+  await s.page.screenshot({ path: `${OUT}/${name}.png` })
+  await done(s, name)
+}
 
 for (const [name, fn] of Object.entries(SHOTS)) if (want(name)) await fn(name).catch((e) => {
   failed = true

@@ -7,9 +7,9 @@ import { useT } from '../../../i18n'
 import { Modal } from '../../../ui/Modal'
 import type { PlaceKey } from '../model/types'
 import type { ReadModel } from '../window/read'
-import { PlacePreview } from './PlacePreview'
+import { PlacePreview, type EjectView } from './PlacePreview'
 
-export function DiffSheet({ model, p, onClose }: { model: ReadModel; p: PlaceKey; onClose: () => void }) {
+export function DiffSheet({ model, p, onClose, eject }: { model: ReadModel; p: PlaceKey; onClose: () => void; eject?: EjectView }) {
   const t = useT()
   return (
     <Modal open onClose={onClose} bare className="rec-read rec-sheet2" ariaLabel={t('features.recorder.win.read')}>
@@ -24,7 +24,7 @@ export function DiffSheet({ model, p, onClose }: { model: ReadModel; p: PlaceKey
         </button>
       </div>
       <div className="rec-body rec-body--sheet2">
-        <PlacePreview model={model} p={p} stacked />
+        <PlacePreview model={model} p={p} stacked {...(eject ? { variant: 'eject' as const, eject } : {})} />
       </div>
     </Modal>
   )
