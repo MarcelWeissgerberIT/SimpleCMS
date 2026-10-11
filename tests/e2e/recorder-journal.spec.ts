@@ -432,6 +432,34 @@ test.describe('flight recorder journal', () => {
     expect(tails[0].tab).toBe(deadTab)
   })
 
+  test('a run that goes on after a reload keeps its record: Vorgänge add up, places are the union, the meta stays', async ({ page }) => {
+    const n = await boot(page, () => nordlichtDb(page))
+    await at(page, T0 + 5 * MIN)
+    await step(page, agent('r212'), [['setRowProperty', n.rows[0], n.est, 21]], { note: { seq: 212 } })
+    await step(page, agent('r212'), [['setRowProperty', n.rows[1], n.est, 22]])
+    await step(page, agent('r212'), [['setRowProperty', n.rows[2], n.est, 23]], { end: true })
+    await rec(page, 'settle')
+    const key = `agent:${AGENT}:r212`
+    const first = (await recRuns(page)).find((r) => r.key === key)!
+    expect(first).toMatchObject({ ops: 3, meta: { seq: 212 }, places: { rows: 3 } })
+
+    // a new tab (a reload): the review applies two more proposals under the same run — one on a row the run wrote
+    // already, one on a row it never touched
+    await flush(page)
+    await page.reload()
+    await waitForApp(page)
+    await startRecorder(page)
+    await at(page, T0 + 20 * MIN)
+    await step(page, agent('r212'), [['setRowProperty', n.rows[0], n.est, 31]])
+    await step(page, agent('r212'), [['setRowProperty', n.rows[3], n.est, 34]])
+    await rec(page, 'settle')
+    const run = (await recRuns(page)).find((r) => r.key === key)!
+    expect(run).toMatchObject({ ops: 5, from: first.from, to: T0 + 20 * MIN, meta: { seq: 212 }, places: { rows: 4, pages: 0 } })
+    expect(run.ended).toBeTruthy()
+    // the journal agrees with the record
+    expect((await recOps(page)).filter((o) => o.r === key)).toHaveLength(5)
+  })
+
   test('delete forever by the person: the place loses its pins, its segments are PURGED', async ({ page }) => {
     const id = await boot(page, () => wsEval(page, (s) => s.createPage({ title: 'Tessera Entwurf' }) as string))
     await step(page, agent('r11'), [['updatePage', id, { title: 'Tessera Entwurf 2' }]], { note: { seq: 11 }, end: true })

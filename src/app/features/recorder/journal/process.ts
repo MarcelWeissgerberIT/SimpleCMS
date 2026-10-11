@@ -18,7 +18,7 @@ import { databaseChangesDetail } from '../model/schema'
 import { touchedParts } from '../model/touched'
 import { contentDelta } from '../model/counts'
 import { foldsTyping, isCopyKey, isHumanSeg, laneOf, parseWriterKey, runKeyOf, segKeyOf } from '../model/writerKeys'
-import { F, K, type JEvent, type JOp, type JSegment, type LaneKey, type LeftHash, type PlaceKey, type PlaceKind, type Scope } from '../model/types'
+import { F, K, type JEvent, type JOp, type JRun, type JSegment, type LaneKey, type LeftHash, type PlaceKey, type PlaceKind, type Scope } from '../model/types'
 import { resolvePending, type Pending } from './attribute'
 import { deps } from './deps'
 import { digestLeft, digestPart, digestWhole } from './key'
@@ -951,8 +951,17 @@ export class Processor {
     this.inFlight = segs
     this.inFlightOps = ops.length
     for (const job of jobs) if (job.t === 'ev') job.taken = true
-    const runs = this.runs.takeDirty()
     const j = await lap(this.journal())
+    // a run going on from another tab or an earlier boot: its stored record merged in before this tab first writes it
+    const adopted = await lap(
+      this.runs.adopt({
+        run: (id) => j.get<JRun>('runs', id),
+        events: (scope, key) => j.range<JEvent>({ store: 'events', index: 'run', lo: [scope, key], hi: [scope, key] }),
+      }),
+    )
+    for (const r of adopted.merged) if (!this.runSizes.has(r.id)) this.runSizes.set(r.id, approxSize(r))
+    for (const run of adopted.ended) this.endRunNow(run, Date.now())
+    const runs = this.runs.takeDirty()
     const memory = j.mode === 'memory'
     /** bytes this flush adds per day size record (re-written records count only what they grew by) */
     const grew = new Map<string, number>()
@@ -1088,6 +1097,8 @@ export class Processor {
       part = 'flush:copy'
       // 3. ONE transaction (its puts go in in pieces, journal/db.ts)
       const put = { ops: [] as Array<Record<string, unknown>>, events: [] as Array<Record<string, unknown>>, segs: [] as Array<Record<string, unknown>> }
+      /** ops written for the first time (a fold written again is no new Vorgang) */
+      const fresh: string[] = []
       let n = 0
       for (const [list, into, when] of [
         [ops, put.ops, (r: JOp) => r.at],
@@ -1098,6 +1109,7 @@ export class Processor {
           if (n++ % 32 === 31 && performance.now() - t > YIELD_MS) await lap(idleTask())
           const copy = { ...r } as Record<string, unknown>
           const size = approxSize(copy)
+          if (into === put.ops && !this.sizes.has(r)) fresh.push(r.k)
           addBytes(r.s, when(r), size - (this.sizes.get(r) ?? 0))
           sized.push([r, size])
           into.push(copy)
@@ -1146,7 +1158,7 @@ export class Processor {
       part = 'flush:write'
       await this.writeInParts(j, batch, lap)
       // the deck merges what landed without a read; other tabs are pinged
-      emitFlushed({ ops: put.ops as unknown as JOp[], runs })
+      emitFlushed({ ops: put.ops as unknown as JOp[], runs, fresh })
       if (clean) {
         // an update that came while the write ran: the records must say dirty again
         if (this.seen === seen0) this.recordClean = true

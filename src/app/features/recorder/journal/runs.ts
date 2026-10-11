@@ -2,10 +2,14 @@
  * Run records (store `runs`): made from the first event of a run key, told more by `noteRun` (seq, tool,
  * client, source, action — ids and fixed keys only) and closed by `endRun`; Vorgänge, places and words
  * add up as the processor records them. A flag on the tape reads its whole run from here in O(1).
+ *
+ * A run can go on in another tab or after a reload (a review applying a proposal days later): before a record made
+ * here is first written, the stored one is read and merged in (`adopt`) — its Vorgänge, words, meta and the places of
+ * its stored events — so a record is never overwritten by a fresh one that knows only this tab's part.
  */
 import type { RunMeta } from '../../../store/writer'
 import { runKindOf, runRefOf } from '../model/writerKeys'
-import { F, K, type JEvent, type JRun, type LaneKey, type PlaceKey, type Scope } from '../model/types'
+import { F, K, type JEvent, type JRun, type LaneKey, type PlaceKey, type PlaceKind, type RunPlaces, type Scope } from '../model/types'
 
 const META_KEYS = ['seq', 'tool', 'source', 'action', 'client'] as const
 const ID = /^[A-Za-z0-9 ._-]{1,40}$/
@@ -23,9 +27,52 @@ export function cleanMeta(meta: RunMeta | undefined): JRun['meta'] | undefined {
   return Object.keys(out).length ? out : undefined
 }
 
+/** A place's bits in a run: 1 written · 2 made by it · 4 trashed by it · 8 moved by it. */
+interface PlaceBits {
+  b: number
+  pk: PlaceKind
+}
+
 interface RunState {
   rec: JRun
-  places: Map<PlaceKey, number>
+  places: Map<PlaceKey, PlaceBits>
+  /** the stored record (if any) is merged in — only then may this one be written */
+  adopted: boolean
+}
+
+/** The bits one event gives its place. */
+function eventBits(e: Pick<JEvent, 'kinds' | 'f'>): number {
+  return 1 | ((e.f ?? 0) & F.NEW ? 2 : 0) | (e.kinds & K.TRASH ? 4 : 0) | (e.kinds & K.MOVE ? 8 : 0)
+}
+
+const emptyPlaces = (): RunPlaces => ({ rows: 0, newRows: 0, pages: 0, newPages: 0, schema: 0, views: 0, trashed: 0, moved: 0 })
+
+/** What a set of places adds up to. */
+export function countPlaces(places: Iterable<PlaceBits>): RunPlaces {
+  const r = emptyPlaces()
+  for (const { b, pk } of places) addBits(r, b, pk)
+  return r
+}
+
+function addBits(r: RunPlaces, bits: number, pk: PlaceKind): void {
+  if (bits & 1) {
+    if (pk === 'row') r.rows++
+    else if (pk === 'page' || pk === 'db') r.pages++
+    else if (pk === 'schema') r.schema++
+    else r.views++
+  }
+  if (bits & 2) {
+    if (pk === 'row') r.newRows++
+    else if (pk === 'page' || pk === 'db') r.newPages++
+  }
+  if (bits & 4) r.trashed++
+  if (bits & 8) r.moved++
+}
+
+/** How the book reads what is stored (the processor's journal). */
+export interface RunStoreRead {
+  run(id: string): Promise<JRun | undefined>
+  events(scope: Scope, runKey: string): Promise<JEvent[]>
 }
 
 export class RunBook {
@@ -90,11 +137,11 @@ export class RunBook {
         from: at,
         to: at,
         ops: 0,
-        places: { rows: 0, newRows: 0, pages: 0, newPages: 0, schema: 0, views: 0, trashed: 0, moved: 0 },
+        places: emptyPlaces(),
         words: [0, 0],
         state: 'live',
       }
-      st = { rec, places: new Map() }
+      st = { rec, places: new Map(), adopted: false }
       this.runs.set(id, st)
       // the runs map stays small: older finished runs leave memory (their records are stored)
       if (this.runs.size > 500) {
@@ -124,41 +171,66 @@ export class RunBook {
     const r = st.rec
     r.to = Math.max(r.to, e.at)
     r.words = [r.words[0] + words[0], r.words[1] + words[1]]
-    const seen = st.places.get(e.p) ?? 0
-    const isNew = (e.f ?? 0) & F.NEW
-    let bits = seen
-    if (!seen) {
-      if (e.pk === 'row') r.places.rows++
-      else if (e.pk === 'page' || e.pk === 'db') r.places.pages++
-      else if (e.pk === 'schema') r.places.schema++
-      else r.places.views++
-      bits |= 1
-    }
-    if (isNew && !(seen & 2)) {
-      if (e.pk === 'row') r.places.newRows++
-      else if (e.pk === 'page' || e.pk === 'db') r.places.newPages++
-      bits |= 2
-    }
-    if (e.kinds & K.TRASH && !(seen & 4)) {
-      r.places.trashed++
-      bits |= 4
-    }
-    if (e.kinds & K.MOVE && !(seen & 8)) {
-      r.places.moved++
-      bits |= 8
-    }
-    st.places.set(e.p, bits)
+    const seen = st.places.get(e.p)
+    const bits = eventBits(e)
+    const pk = seen?.pk ?? e.pk
+    addBits(r.places, bits & ~(seen?.b ?? 0), pk)
+    st.places.set(e.p, { b: (seen?.b ?? 0) | bits, pk })
     this.dirty.add(r.id)
+  }
+
+  /**
+   * Before a record made in this tab is first written: the stored one (another tab's, an earlier boot's, or this
+   * tab's before its state left memory) is merged in — Vorgänge and words add up, the meta joins, the places are the
+   * union of its stored events' and this tab's. Returns the stored records merged (their bytes are counted already)
+   * and the keys of runs that had ended there and go on here (the processor ends them again). A record whose read
+   * failed stays unadopted and is not written (`takeDirty` keeps it back).
+   */
+  async adopt(read: RunStoreRead): Promise<{ merged: JRun[]; ended: string[] }> {
+    const merged: JRun[] = []
+    const ended: string[] = []
+    for (const id of [...this.dirty]) {
+      const st = this.runs.get(id)
+      if (!st || st.adopted) continue
+      try {
+        const stored = await read.run(id)
+        const evs = stored ? await read.events(st.rec.s, st.rec.key) : []
+        // (this tab went on recording meanwhile: everything below is synchronous)
+        if (st.adopted) continue
+        st.adopted = true
+        if (!stored) continue
+        const r = st.rec
+        for (const e of evs) {
+          if ((e.f ?? 0) & F.COPY) continue
+          const cur = st.places.get(e.p)
+          st.places.set(e.p, { b: (cur?.b ?? 0) | eventBits(e), pk: cur?.pk ?? e.pk })
+        }
+        r.places = countPlaces(st.places.values())
+        r.ops += stored.ops
+        r.words = [r.words[0] + stored.words[0], r.words[1] + stored.words[1]]
+        r.from = Math.min(r.from, stored.from)
+        r.to = Math.max(r.to, stored.to)
+        if (stored.meta || r.meta) r.meta = { ...stored.meta, ...r.meta }
+        if (stored.state !== 'live') r.state = stored.state
+        if (stored.ended && !r.ended && !this.ended.has(r.key)) ended.push(r.key)
+        merged.push(stored)
+      } catch {
+        /* read again with the next flush */
+      }
+    }
+    return { merged, ended }
   }
 
   /** The records changed since the last call (copies — the flush stores them). */
   takeDirty(): JRun[] {
     const out: JRun[] = []
-    for (const id of this.dirty) {
+    for (const id of [...this.dirty]) {
       const st = this.runs.get(id)
+      // not merged with what is stored yet: stays dirty, written once it is
+      if (st && !st.adopted) continue
       if (st) out.push(structuredClone(st.rec))
+      this.dirty.delete(id)
     }
-    this.dirty.clear()
     return out
   }
 

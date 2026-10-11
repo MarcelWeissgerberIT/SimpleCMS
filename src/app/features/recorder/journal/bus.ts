@@ -9,6 +9,8 @@ export interface Flushed {
   /** copies of the ops written (a typing fold is written again with each flush that grew it) */
   ops: JOp[]
   runs: JRun[]
+  /** keys of the ops written for the first time — new Vorgänge (the strip and the minute bars count only these) */
+  fresh?: string[]
 }
 
 export type JournalChange = { kind: 'flushed'; scopes: Scope[] } | { kind: 'reset'; scope: Scope | null }
