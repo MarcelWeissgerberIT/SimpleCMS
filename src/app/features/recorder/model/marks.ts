@@ -5,7 +5,7 @@
  * row of count bars. 24 STD draws from the minute histogram instead of the ops.
  */
 import { type Axis, xOf } from './axis'
-import { K, type JOp, type LaneKey } from './types'
+import { F, K, type JOp, type LaneKey } from './types'
 
 export type TickSize = 's' | 'm' | 'l'
 
@@ -46,7 +46,9 @@ export interface LaneMarks {
   ticks: MarkTick[]
   points: MarkPoint[]
   flags: MarkFlag[]
-  /** Vorgänge in the span */
+  /** synced-block copies made for this lane's writes: drawn dimmed, never counted */
+  copies: MarkPoint[]
+  /** Vorgänge in the span (copies never count) */
   count: number
 }
 
@@ -78,6 +80,16 @@ const textOnly = (o: JOp) => (o.kinds & ~(K.CONTENT | K.TITLE)) === 0
 
 export const runFlagged = (runKey: string): boolean => FLAG_RUNS.has(runKey.slice(0, runKey.indexOf(':')))
 
+/** A synced-block copy (made by the sync service for a writer's change): drawn dimmed on its lane, never counted. */
+export const isCopy = (o: Pick<JOp, 'f'>): boolean => !!((o.f ?? 0) & F.COPY)
+
+/** Vorgänge of a lane in [t0, t1] (copies never count). */
+export function countOps(ops: JOp[] | undefined, t0: number, t1: number): number {
+  let n = 0
+  for (const o of ops ?? []) if (!isCopy(o) && (o.t2 ?? o.at) >= t0 && o.at <= t1) n++
+  return n
+}
+
 /**
  * The marks of a lane's ops (sorted by time) on an axis `width` px wide. `human`: the person's lane (typing bars).
  */
@@ -85,15 +97,22 @@ export function laneMarks(ops: JOp[], o: { ax: Axis; width: number; sel: Sel | n
   const { ax, width, sel } = o
   const msPerPx = ax.total / Math.max(1, width)
   const gap = Math.max(60_000, 10 * msPerPx)
-  const out: LaneMarks = { ranges: [], ticks: [], points: [], flags: [], count: 0 }
-  const inSpan = ops.filter((x) => (x.t2 ?? x.at) >= ax.t0 && x.at <= ax.t1)
+  const out: LaneMarks = { ranges: [], ticks: [], points: [], flags: [], copies: [], count: 0 }
+  const inSpan: JOp[] = []
+  for (const x of ops) {
+    if ((x.t2 ?? x.at) < ax.t0 || x.at > ax.t1) continue
+    if (isCopy(x)) out.copies.push({ x: xOf(ax, x.at, width), sel: false, op: x })
+    else inSpan.push(x)
+  }
   out.count = inSpan.length
+  out.copies = mergePoints(out.copies)
   // bursts
   let burst: JOp[] = []
+  let end = -Infinity
   const flush = () => {
     if (!burst.length) return
     const a = burst[0].at
-    const b = Math.max(...burst.map((x) => x.t2 ?? x.at))
+    const b = end
     const x0 = xOf(ax, a, width)
     const x1 = xOf(ax, b, width)
     const typing = o.human && burst.every(textOnly)
@@ -106,7 +125,6 @@ export function laneMarks(ops: JOp[], o: { ax: Axis; width: number; sel: Sel | n
     } else for (const op of burst) out.points.push({ x: xOf(ax, op.at, width), sel: isSelected(op, sel), op })
     burst = []
   }
-  let end = -Infinity
   for (const op of inSpan) {
     if (burst.length && op.at - end > gap) flush()
     burst.push(op)
@@ -182,7 +200,7 @@ function mergePoints(points: MarkPoint[]): MarkPoint[] {
 
 /** 24 STD: a lane from its minute histogram ([minute index, Vorgänge]), one count bar per merged column. */
 export function histMarks(minutes: Array<[number, number]>, o: { ax: Axis; width: number }): LaneMarks {
-  const out: LaneMarks = { ranges: [], ticks: [], points: [], flags: [], count: 0 }
+  const out: LaneMarks = { ranges: [], ticks: [], points: [], flags: [], copies: [], count: 0 }
   const ticks: MarkTick[] = []
   for (const [m, n] of minutes) {
     const t = m * 60_000 + 30_000
@@ -212,7 +230,24 @@ export function opAt(marks: LaneMarks, x: number, tol = 4): JOp | null {
       bestD = d
     }
   }
+  // a dimmed copy only where nothing of the lane's own is
+  if (!best)
+    for (const p of marks.copies) {
+      const d = Math.abs(p.x - x)
+      if (d <= bestD) {
+        best = p.op
+        bestD = d
+      }
+    }
   return best
+}
+
+/** The dimmed copies as one SVG path (short ticks). */
+export function copiesPath(points: MarkPoint[], laneH: number): string {
+  const base = laneH - 7
+  let d = ''
+  for (const p of points) d += `M${(p.x - 0.75).toFixed(2)} ${base}h1.5v-6h-1.5z`
+  return d
 }
 
 /** Tick and point shapes as one SVG path (1.5 px ticks from the lane's bottom − 7; points are a "T"). */

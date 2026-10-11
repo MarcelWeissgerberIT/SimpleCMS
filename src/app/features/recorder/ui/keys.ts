@@ -10,6 +10,7 @@
 import type { KeyboardEvent } from 'react'
 import { bracketEdge, movePlayhead, playheadAt, runStarts, stepPlayhead } from './actions'
 import { spanOfState } from './clock'
+import { sayRun } from './live'
 import { setFocusLane, useRecorderUI } from './state'
 
 const MIN = 60_000
@@ -64,8 +65,14 @@ export function onTapeKey(e: KeyboardEvent<HTMLElement>, lanes: string[]): void 
     case 'ArrowDown': {
       if (!lanes.length) return
       e.preventDefault()
-      const cur = laneFor(target)
-      const i = lanes.indexOf(cur)
+      const own = target.closest<HTMLElement>('.lane')?.dataset.lane
+      if (!own) {
+        // from the playhead (or a flag's head): into the tracks at the roving one — no step yet
+        const s = useRecorderUI.getState()
+        focusLane(root, [s.focusLane, s.bracket?.lane].find((l): l is string => !!l && lanes.includes(l)) ?? lanes[0])
+        return
+      }
+      const i = lanes.indexOf(own)
       const next = i < 0 ? 0 : Math.max(0, Math.min(lanes.length - 1, i + (key === 'ArrowUp' ? -1 : 1)))
       focusLane(root, lanes[next])
       return
@@ -79,6 +86,7 @@ export function onTapeKey(e: KeyboardEvent<HTMLElement>, lanes: string[]): void 
       const hit = key === 'PageUp' ? [...starts].reverse().find((r) => r.t < at - 999) : starts.find((r) => r.t > at + 999)
       if (!hit) return
       movePlayhead(hit.t)
+      sayRun(hit.run, lane, hit.t)
       // the flag takes focus once it is drawn at its new place
       requestAnimationFrame(() => root.querySelector<HTMLElement>(`.lane[data-lane="${CSS.escape(lane)}"] .flag[data-runs~="${CSS.escape(hit.run)}"]`)?.focus())
       return

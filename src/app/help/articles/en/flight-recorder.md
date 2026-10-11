@@ -21,6 +21,8 @@ The deck docks under the page; the page stays usable, and a tick you click opens
 - **Writes and places.** A *write* is one change by one writer — a value, a piece of text, a property. Typing counts as one write per page every 30 seconds. A *place* is what changed: a row, a page, a database's properties, a view. A run touches many places with many writes: *Run 212 · 52 writes in 37 places*.
 - **Flags** mark runs (an agent's run, a script run, an MCP session) at their start. Click a flag and its run becomes the **window**: its edges rounded out to five minutes, the plate on the right counts it — writes, places, words added and removed, rows (how many new), pages, schemas, views.
 - **Ticks** are single writes. A tick with one place opens that page (a database's properties or view open the database); a tick with several lists them.
+- **A window by hand.** Drag along a track — or set its edges at the playhead with **Start here** / **End here** on the plate (the keys <kbd>[</kbd> / <kbd>]</kbd>), on the focused track. On a phone, where a drag scrolls the tape, tap the track first, then move the playhead and set the edges.
+- **Hatched across the tracks, *Recording interrupted*:** a tab closed before it had written what it recorded — that stretch is unknown, not quiet.
 - **Span.** **15 min · 75 min · 6 h · 24 h**. The strip on top shows the last 24 hours in quarter hours — click it to move the tape there. With a window on the tape, **Loupe** gives it up to six times the room (not at 15 min, which is wide enough).
 - **Playhead.** The orange line; the counter shows its time. The keys beside the counter move it to the previous run, a minute back, a minute forward, and **Now** back to the present.
 

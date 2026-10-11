@@ -1,9 +1,13 @@
 /**
  * The deck's head row: "§ 02.13 Flugschreiber", the REC chip, the counter, the transport (previous run, a minute
  * back, a minute forward, now), the zoom (a radio group; one key with a menu on a narrower deck), the loupe (only
- * while a window is on the tape), the lane filter and Close (Esc). Close and the filter collapse last.
+ * while a window is on the tape), the lane filter and Close (Esc). Its keys never shrink: the head sheds whole parts
+ * until it fits — measured, never guessed from the width (a German head needs more room than an English one):
+ *   xl everything · l without the REC chip, the name and "?" · m one zoom key with a menu · s the counter's day and
+ *   the Esc keycap go · xs the "Now" word and the filter's count go (icons with their names). Close and the filter last.
  */
 import { ChevronDown, FastForward, Rewind, SkipBack, SkipForward, X } from 'lucide-react'
+import { useLayoutEffect, useRef, useState } from 'react'
 import { useLang, useT } from '../../../i18n'
 import { Kbd, Led } from '../../../ui/controls'
 import { HelpLink } from '../../../help'
@@ -16,18 +20,32 @@ import { unit } from './format'
 import { LaneFilter } from './LaneFilter'
 import { closeRecorder, setLoupe, setZoom, useRecorderUI } from './state'
 
-export function DeckHead({ tier, phone, loupeK, knownLanes, days }: { tier: string; phone: boolean; loupeK: number | null; knownLanes: string[]; days: number }) {
+const HEADS = ['xl', 'l', 'm', 's', 'xs'] as const
+type Head = (typeof HEADS)[number]
+
+export function DeckHead({ width, phone, loupeK, knownLanes, days }: { width: number; phone: boolean; loupeK: number | null; knownLanes: string[]; days: number }) {
   const t = useT()
   const lang = useLang()
   const zoom = useRecorderUI((s) => s.span.zoom)
   const loupe = useRecorderUI((s) => s.loupe)
   const atNow = useRecorderUI((s) => s.playhead === null)
   const menu = useMenu()
-  const collapsed = tier === 'm' || tier === 's'
+  const ref = useRef<HTMLDivElement>(null)
+  const [head, setHead] = useState<Head>('xl')
   const k = loupeK ? loupeLabel(loupeK) : null
+  // another width, language or loupe key: the widest head that fits is looked for again (before the frame is painted)
+  useLayoutEffect(() => setHead('xl'), [width, lang, !!k, phone])
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el || phone || el.scrollWidth <= el.clientWidth + 1) return
+    const i = HEADS.indexOf(head)
+    if (i < HEADS.length - 1) setHead(HEADS[i + 1])
+  })
+  const collapsed = head === 'm' || head === 's' || head === 'xs'
+  const terse = phone || head === 'xs'
 
   return (
-    <div className="deck__head">
+    <div className="deck__head" ref={ref} data-head={phone ? undefined : head}>
       <span className="deck__title">
         <span className="deck__no" title={t('features.recorder.no')}>
           §<span className="deck__num">{t('features.recorder.no').replace(/^§\s*/, ' ')}</span>
@@ -49,12 +67,13 @@ export function DeckHead({ tier, phone, loupeK, knownLanes, days }: { tier: stri
         <button type="button" className="tkey" aria-label={t('features.recorder.deck.minuteBack')} title={t('features.recorder.deck.minuteBack')} onClick={() => stepPlayhead(-60_000)}>
           <Rewind aria-hidden />
         </button>
-        <button type="button" className="tkey" aria-label={t('features.recorder.deck.minuteFwd')} title={t('features.recorder.deck.minuteFwd')} onClick={() => stepPlayhead(60_000)} disabled={atNow}>
+        {/* at now it cannot act — aria-disabled, not disabled: focus stays on it (a disabled key drops focus to the page) */}
+        <button type="button" className="tkey" aria-label={t('features.recorder.deck.minuteFwd')} title={t('features.recorder.deck.minuteFwd')} onClick={() => !atNow && stepPlayhead(60_000)} aria-disabled={atNow || undefined}>
           <FastForward aria-hidden />
         </button>
         <button type="button" className="tkey" aria-label={t('features.recorder.deck.toNow')} title={t('features.recorder.deck.toNow')} aria-pressed={atNow} data-on={atNow ? '' : undefined} onClick={() => movePlayhead(null)}>
           <SkipForward aria-hidden />
-          {!phone && t('features.recorder.deck.now')}
+          {!terse && t('features.recorder.deck.now')}
         </button>
       </span>
       {!phone &&
@@ -83,7 +102,7 @@ export function DeckHead({ tier, phone, loupeK, knownLanes, days }: { tier: stri
         </span>
       )}
       <span className="deck__sp" />
-      <LaneFilter all={knownLanes} compact={phone} />
+      <LaneFilter all={knownLanes} compact={terse} />
       <button type="button" className="tkey tkey--ghost" aria-label={t('features.recorder.deck.close')} title={t('features.recorder.deck.close')} onClick={closeRecorder}>
         <X aria-hidden />
         <Kbd>Esc</Kbd>

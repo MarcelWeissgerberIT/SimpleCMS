@@ -8,6 +8,7 @@ import { useCallback, useLayoutEffect, useMemo, useRef, useState, type PointerEv
 import { useLang, useT } from '../../../i18n'
 import { phoneFit, rulerLabels, rulerTicks, tAtX, xOf, type Axis, type Zoom } from '../model/axis'
 import type { View } from '../model/labels'
+import { isCopy } from '../model/marks'
 import type { JOp, JRun, LaneKey } from '../model/types'
 import { Lane } from './Lane'
 import type { LaneMeta } from './lanes'
@@ -16,7 +17,8 @@ import { useNow } from './clock'
 import { fmtDayLong, hm, hms, mm, unit } from './format'
 import { onTapeKey } from './keys'
 import { settleHeads } from './settle'
-import { freezeAxis, useRecorderUI, type Bracket } from './state'
+import { freezeAxis, setFocusLane, useRecorderUI, type Bracket } from './state'
+import { focusLost } from '../../../ui/focus'
 import { TickPopover, type TickAt } from './TickPopover'
 
 export interface TapeProps {
@@ -33,6 +35,8 @@ export interface TapeProps {
   /** the moment the span was computed (the tape re-renders when the span moves, not every second) */
   now: number
   empty: boolean
+  /** stretches whose recording was lost (hatched, labelled "Recording interrupted") */
+  gaps: Array<{ from: number; to: number }>
 }
 
 const RULER_H: Record<string, number> = { s: 3, m: 4, t: 9, h: 13 }
@@ -62,9 +66,13 @@ export function Tape(p: TapeProps) {
     return () => ro.disconnect()
   }, [])
 
-  // phone: drawn wider and scrolled so the story fits
+  // phone: drawn wider and scrolled so the story fits — held still while a drag runs (the playhead follows the finger;
+  // the tape is fitted again on release)
+  const dragging = useRecorderUI((s) => s.axisFrozen !== null)
+  const lastFit = useRef<ReturnType<typeof phoneFit> | null>(null)
   const fit = useMemo(() => {
     if (!p.phone || !clientW) return null
+    if (dragging && lastFit.current) return lastFit.current
     const ax = p.ax
     const at = p.playhead ?? p.now
     let from: number
@@ -79,7 +87,8 @@ export function Tape(p: TapeProps) {
     from = Math.max(ax.t0, from)
     to = Math.min(ax.t1, Math.max(to, from + 60_000))
     return phoneFit(ax, clientW, from, to)
-  }, [p.phone, clientW, p.ax, p.bracket, p.playhead, p.now])
+  }, [p.phone, clientW, p.ax, p.bracket, p.playhead, p.now, dragging])
+  lastFit.current = fit
   const width = fit ? fit.width : clientW
 
   useLayoutEffect(() => {
@@ -160,6 +169,18 @@ export function Tape(p: TapeProps) {
   }
 
   const onOp = useCallback((op: JOp, x: number, el: HTMLElement) => setTick({ op, x, y: el.getBoundingClientRect().top, lane: el.dataset.lane ?? op.l }), [])
+  // the places' popover closed: focus that went with it goes to the track that was clicked (its keys work again)
+  const closeTick = useCallback(() => {
+    const lane = tick?.lane
+    setTick(null)
+    requestAnimationFrame(() => {
+      if (!lane || !focusLost()) return
+      const el = scrollRef.current?.querySelector<HTMLElement>(`.lane[data-lane="${CSS.escape(lane)}"]`)
+      if (!el) return
+      setFocusLane(lane)
+      el.focus({ preventScroll: true })
+    })
+  }, [tick])
   const lanesKeys = p.lanes.map((l) => l.lane)
   const focusLane = p.focusLane && lanesKeys.includes(p.focusLane) ? p.focusLane : (p.bracket?.lane && lanesKeys.includes(p.bracket.lane) ? p.bracket.lane : lanesKeys[0])
 
@@ -201,11 +222,41 @@ export function Tape(p: TapeProps) {
               />
             ))}
           </div>
+          {p.gaps.map((g) => (
+            <Lost key={g.from} ax={p.ax} width={width} gap={g} />
+          ))}
           {p.empty && <span className="reel__empty">{t('features.recorder.deck.empty')}</span>}
           <Heads ax={p.ax} width={width} playhead={p.playhead} onMove={() => setHeadTick((n) => n + 1)} />
         </div>
       </div>
-      {tick && <TickPopover at={tick} onClose={() => setTick(null)} />}
+      {tick && <TickPopover at={tick} onClose={closeTick} />}
+    </div>
+  )
+}
+
+/**
+ * A stretch whose recording was lost (a tab closed before it had written what it recorded): hatched across the
+ * tracks, so it never reads as a quiet time; its label shows only where it fits whole (the plate names it too).
+ */
+function Lost({ ax, width, gap }: { ax: Axis; width: number; gap: { from: number; to: number } }) {
+  const t = useT()
+  const ref = useRef<HTMLDivElement>(null)
+  // never narrower than 3 px: a lost stretch of seconds still shows where it was
+  const x0 = xOf(ax, Math.max(ax.t0, gap.from), width)
+  const x1 = Math.max(xOf(ax, Math.min(ax.t1, gap.to), width), Math.min(width, x0 + 3))
+  useLayoutEffect(() => {
+    const el = ref.current
+    const l = el?.querySelector<HTMLElement>('.lost__l')
+    if (!el || !l) return
+    l.toggleAttribute('data-hidden', l.offsetWidth + 8 > el.clientWidth)
+  })
+  if (x1 - x0 < 1) return null
+  const title = t('features.recorder.deck.lostTailTitle', { from: hm(gap.from), to: hm(gap.to) })
+  return (
+    <div ref={ref} className="lost" style={{ left: x0, width: x1 - x0 }} data-from={gap.from} data-to={gap.to} aria-hidden="true">
+      <span className="lost__l" title={title}>
+        {t('features.recorder.deck.lostTail')}
+      </span>
     </div>
   )
 }
@@ -248,8 +299,12 @@ function Heads({ ax, width, playhead, onMove }: { ax: Axis; width: number; playh
     el.addEventListener('pointercancel', up)
   }
 
+  // what a screen reader hears changes only when the person moves the playhead: at now it says "Now" (the clock's
+  // seconds would be read out every second), its bounds are the moment it was last moved
+  const movedAt = useMemo(() => Date.now(), [playhead])
   const date = fmtDayLong(t, lang, at)
-  const valueText = playhead === null ? t('features.recorder.deck.counter.ariaNow', { date, time: hms(at) }) : t('features.recorder.deck.sliderText', { date, time: hms(at), ops: unit(t, lang, 'ops', since) })
+  const valueText = playhead === null ? t('features.recorder.deck.sliderNow') : t('features.recorder.deck.sliderText', { date, time: hms(at), ops: unit(t, lang, 'ops', since) })
+  const valueMax = Math.max(movedAt, playhead ?? 0)
   return (
     <>
       {now < ax.t1 && <div className="future" style={{ left: nx }} />}
@@ -268,9 +323,9 @@ function Heads({ ax, width, playhead, onMove }: { ax: Axis; width: number; playh
           tabIndex={0}
           data-line={px}
           aria-label={t('features.recorder.deck.slider')}
-          aria-valuemin={tapeFloor(now)}
-          aria-valuemax={now}
-          aria-valuenow={at}
+          aria-valuemin={tapeFloor(movedAt)}
+          aria-valuemax={valueMax}
+          aria-valuenow={playhead ?? valueMax}
           aria-valuetext={valueText}
           aria-orientation="horizontal"
           onPointerDown={onDown}
@@ -283,9 +338,9 @@ function Heads({ ax, width, playhead, onMove }: { ax: Axis; width: number; playh
   )
 }
 
-/** Vorgänge after the playhead on the loaded tape. */
+/** Vorgänge after the playhead on the loaded tape (synced-block copies never count). */
 function sinceCount(lanes: Record<LaneKey, JOp[]>, at: number): number {
   let n = 0
-  for (const ops of Object.values(lanes)) for (const o of ops) if (o.at > at) n++
+  for (const ops of Object.values(lanes)) for (const o of ops) if (o.at > at && !isCopy(o)) n++
   return n
 }

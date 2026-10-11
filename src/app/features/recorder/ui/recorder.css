@@ -188,9 +188,16 @@
 .deck-rec .label {
   color: var(--tp-ink-2);
 }
-.deck__sp {
+/* nothing in the head shrinks (a squeezed key cuts its own label); the spacer takes what is left */
+.deck__head > * {
+  flex: none;
+}
+.deck__head > .deck__sp {
   flex: 1;
   min-width: 0;
+}
+.deck__head .kbd {
+  flex: none;
 }
 
 /* the counter: a recessed window */
@@ -280,8 +287,15 @@
 .tkey:hover {
   background: color-mix(in srgb, var(--tp-ink) 16%, var(--tp-bg));
 }
-.tkey:active:not([data-on]) {
+.tkey:active:not([data-on]):not([aria-disabled='true']) {
   transform: translateY(1px);
+}
+.tkey[aria-disabled='true'] {
+  color: var(--tp-ink-3);
+  cursor: default;
+}
+.tkey[aria-disabled='true']:hover {
+  background: var(--tp-key);
 }
 .tkey[data-on] {
   position: relative;
@@ -613,6 +627,11 @@
 .lane__marks .ev {
   fill: var(--tp-ev);
 }
+/* synced-block copies made for this writer's change: dimmed, never counted */
+.lane__marks .copy {
+  fill: var(--tp-ev);
+  opacity: 0.45;
+}
 .lane__marks .sel {
   fill: var(--signal);
 }
@@ -852,6 +871,40 @@
   pointer-events: none;
 }
 
+/* a lost stretch (recording interrupted): hatched the other way than the future, edged, labelled where it fits */
+.lost {
+  position: absolute;
+  top: var(--ruler-h);
+  bottom: 0;
+  z-index: 1;
+  border-left: 1px dashed var(--tp-rule-strong);
+  border-right: 1px dashed var(--tp-rule-strong);
+  background: repeating-linear-gradient(45deg, var(--tp-rule-strong) 0 1px, transparent 1px 5px);
+  pointer-events: none;
+}
+.lost__l {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  padding: 0 3px;
+  background: var(--tp-bg);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--tp-ink-3);
+}
+.lost__l[data-hidden] {
+  visibility: hidden;
+}
+/* the band lets presses through to the tracks; its label names the stretch on hover */
+.lost__l:not([data-hidden]) {
+  pointer-events: auto;
+  cursor: default;
+}
+
 /* ---------- the window plate ---------- */
 .win {
   position: relative;
@@ -1009,6 +1062,30 @@
 .win__note .kbd {
   margin: 0 1px;
 }
+/* the window's edges at the playhead ([ / ] — and the way to bracket by touch) */
+.win__edges {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+}
+.win__edges .tkey {
+  flex: 1 1 0;
+  min-width: 0;
+  height: calc(26px * var(--text-scale));
+  border-radius: 3px;
+}
+.win__edges .tkey + .tkey {
+  margin-left: 0;
+}
+.win__edges .tkey > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.win__edges .kbd {
+  flex: none;
+}
 
 /* ---------- popovers from the deck: the tick's places, the filter ---------- */
 .rec-pop {
@@ -1094,18 +1171,27 @@
   white-space: nowrap;
 }
 
-/* ---------- width tiers (the deck measures its own width) ---------- */
-.deck[data-tier='l'] .deck-rec,
-.deck[data-tier='l'] .deck__nm,
-.deck[data-tier='l'] .deck__help,
-.deck[data-tier='m'] .deck-rec,
-.deck[data-tier='m'] .deck__nm,
-.deck[data-tier='m'] .deck__help,
-.deck[data-tier='s'] .deck-rec,
-.deck[data-tier='s'] .deck__nm,
-.deck[data-tier='s'] .deck__help {
+/* ---------- the head sheds whole parts until it fits (DeckHead measures; its keys never shrink) ---------- */
+.deck__head[data-head='l'] .deck-rec,
+.deck__head[data-head='l'] .deck__nm,
+.deck__head[data-head='l'] .deck__help,
+.deck__head[data-head='m'] .deck-rec,
+.deck__head[data-head='m'] .deck__nm,
+.deck__head[data-head='m'] .deck__help,
+.deck__head[data-head='s'] .deck-rec,
+.deck__head[data-head='s'] .deck__nm,
+.deck__head[data-head='s'] .deck__help,
+.deck__head[data-head='xs'] .deck-rec,
+.deck__head[data-head='xs'] .deck__nm,
+.deck__head[data-head='xs'] .deck__help,
+.deck__head[data-head='s'] .counter__cell--day,
+.deck__head[data-head='s'] .kbd,
+.deck__head[data-head='xs'] .counter__cell--day,
+.deck__head[data-head='xs'] .kbd {
   display: none;
 }
+
+/* ---------- the body by the deck's width (the deck measures its own width) ---------- */
 /* 768–959: narrow labels with short names, the plate under the tape; the deck as tall as it needs (≤ 60vh, scrolls) */
 .deck[data-tier='s'] {
   --label-col: calc(94px * var(--text-scale));
@@ -1114,11 +1200,9 @@
   overflow-y: auto;
   overscroll-behavior: contain;
 }
-.deck[data-tier='s'] .counter__cell--day,
-.deck[data-tier='s'] .deck__head .kbd {
-  display: none;
-}
 .deck[data-tier='s'] .deck__body {
+  /* its content's height: the deck scrolls (a body squeezed by the 60vh cap would shrink the tracks under the plate) */
+  flex: none;
   grid-template-columns: var(--label-col) minmax(0, 1fr);
   grid-template-rows: calc(30px * var(--text-scale)) auto auto;
 }

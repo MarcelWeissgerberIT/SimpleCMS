@@ -6,6 +6,8 @@
  */
 import { create } from 'zustand'
 import { closeAgent, useAgent } from '../../ai/agent/state'
+import { closeOutboxSheet, onOutboxSheetOpen } from '../../outbox'
+import { canFocus, focusIsNowhere, takeFocusHandoff } from '../../../ui/focus'
 import { ZOOM, ZOOMS, type Zoom } from '../model/axis'
 import type { JOp, JRun, LaneKey, Scope } from '../model/types'
 
@@ -64,6 +66,8 @@ export interface RecorderUI {
   hist: { from: number; to: number; lanes: Record<LaneKey, Array<[number, number]>> } | null
   /** every lane this scope ever recorded (the filter's list) */
   known: LaneKey[]
+  /** stretches whose recording was lost (a tab closed before it wrote what it had recorded) */
+  gaps: Array<{ from: number; to: number }>
   /** desktop deck height (px) */
   height: number
   /** when the deck was last closed (its window is kept for 10 minutes) */
@@ -124,6 +128,7 @@ export const useRecorderUI = create<RecorderUI>()(() => ({
   strip: null,
   hist: null,
   known: [],
+  gaps: [],
   height: prefs.height,
   closedAt: 0,
   focusTick: 0,
@@ -134,15 +139,30 @@ export const useRecorderOpen = (): boolean => useRecorderUI((s) => s.open)
 /** The same, outside React (the global keys). */
 export const isRecorderOpen = (): boolean => useRecorderUI.getState().open
 
-/** Open the deck at now (the AI terminal steps aside — its task goes on). */
+/** Who opened the deck (focus goes back there when it closes): what had focus — never a menu or the palette, which
+ * are gone by then and hand their own opener over. */
+let opener: HTMLElement | null = null
+
+/** The deck's opener, taken once (Deck, on mount): the key a menu / ⌘K handed over, else what had focus. */
+export function takeOpener(): HTMLElement | null {
+  const handed = takeFocusHandoff()
+  const own = opener
+  opener = null
+  return handed ?? own
+}
+
+/** Open the deck at now (the AI terminal and the Outbox sheet step aside — their work goes on). */
 export function openRecorder(): void {
   const s = useRecorderUI.getState()
+  const active = typeof document === 'undefined' ? null : document.activeElement
+  opener = canFocus(active) && !focusIsNowhere(active) && !active.closest('[data-popover], [role="menu"], .pal-scrim, [cmdk-root], section.deck') ? active : null
   try {
     performance.mark('rec-open')
   } catch {
     /* no performance marks */
   }
   if (useAgent.getState().open) closeAgent()
+  closeOutboxSheet()
   const keep = s.bracket && Date.now() - s.closedAt < BRACKET_KEEP_MS
   useRecorderUI.setState({ open: true, playhead: null, span: { ...s.span, t1: 'now' }, bracket: keep ? s.bracket : null, axisFrozen: null, focusTick: s.focusTick + 1 })
 }
@@ -150,7 +170,7 @@ export function openRecorder(): void {
 /** Close the deck: the playhead goes back to now; the window is kept for 10 minutes. */
 export function closeRecorder(): void {
   if (!useRecorderUI.getState().open) return
-  useRecorderUI.setState({ open: false, playhead: null, axisFrozen: null, closedAt: Date.now(), ops: emptyOps(), strip: null, hist: null })
+  useRecorderUI.setState({ open: false, playhead: null, axisFrozen: null, closedAt: Date.now(), ops: emptyOps(), strip: null, hist: null, gaps: [] })
 }
 
 export function toggleRecorder(): void {
@@ -207,7 +227,12 @@ export const spanOf = (zoom: Zoom): number => ZOOM[zoom].span
 
 /* ---------- one dock at a time ---------- */
 
-if (typeof window !== 'undefined')
+if (typeof window !== 'undefined') {
   useAgent.subscribe((s, p) => {
     if (s.open && !p.open && useRecorderUI.getState().open) closeRecorder()
   })
+  // below 1200 px the Outbox is a sheet over the page's right side: it and the deck never share the screen
+  onOutboxSheetOpen(() => {
+    if (useRecorderUI.getState().open) closeRecorder()
+  })
+}

@@ -3,9 +3,10 @@
  * bracket a window at the playhead or a run from its flag, pan the span. All in the deck's own store.
  */
 import { followSpan, panSpan, runBracket, spanAround, ZOOM } from '../model/axis'
-import { runFlagged } from '../model/marks'
+import { isCopy, runFlagged } from '../model/marks'
 import type { JOp, LaneKey } from '../model/types'
 import { spanOfState } from './clock'
+import { sayRun } from './live'
 import { setBracket, setPlayhead, setSpanEnd, useRecorderUI } from './state'
 
 const MIN = 60_000
@@ -45,16 +46,19 @@ export function runStarts(lane?: LaneKey): Array<{ t: number; run: string; lane:
   const firsts = new Map<string, { t: number; lane: LaneKey }>()
   for (const [l, ops] of Object.entries(lanes)) {
     if (lane && l !== lane) continue
-    for (const o of ops) if (o.r && runFlagged(o.r) && !firsts.has(o.r)) firsts.set(o.r, { t: o.at, lane: l })
+    for (const o of ops) if (o.r && runFlagged(o.r) && !isCopy(o) && !firsts.has(o.r)) firsts.set(o.r, { t: o.at, lane: l })
   }
   return [...firsts].map(([run, v]) => ({ run, ...v })).sort((a, b) => a.t - b.t)
 }
 
-/** The playhead to the previous run's start (before the playhead, any lane). */
+/** The playhead to the previous run's start (before the playhead, any lane) — said in the live region. */
 export function prevRun(): void {
   const at = playheadAt() - 1000
   const before = runStarts().filter((r) => r.t < at)
-  if (before.length) movePlayhead(before[before.length - 1].t)
+  const hit = before[before.length - 1]
+  if (!hit) return
+  movePlayhead(hit.t)
+  sayRun(hit.run, hit.lane, hit.t)
 }
 
 /** The first and last write of a run on the loaded tape (its record when known). */

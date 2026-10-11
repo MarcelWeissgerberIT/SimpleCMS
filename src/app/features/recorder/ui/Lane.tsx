@@ -7,7 +7,7 @@
 import { memo, useLayoutEffect, useMemo, useRef, type PointerEvent as RPointerEvent } from 'react'
 import { useLang, useT } from '../../../i18n'
 import { fracOf, snapTime, tAtX, xOf, ZOOM, type Axis, type Zoom } from '../model/axis'
-import { histMarks, laneMarks, marksPath, opAt, type LaneMarks } from '../model/marks'
+import { copiesPath, countOps, histMarks, isCopy, laneMarks, marksPath, opAt, type LaneMarks } from '../model/marks'
 import type { JOp, JRun, LaneKey } from '../model/types'
 import type { LaneMeta } from './lanes'
 import { bracketRuns } from './actions'
@@ -33,6 +33,8 @@ export interface LaneProps {
 }
 
 const DRAG_PX = 4
+/** a flag's pennant is this wide: runs that reach further put their label after their end */
+const PENNANT_PX = 12
 
 export const Lane = memo(function Lane(p: LaneProps) {
   const t = useT()
@@ -41,11 +43,18 @@ export const Lane = memo(function Lane(p: LaneProps) {
   const sel = p.bracket && p.bracket.lane === p.meta.lane ? p.bracket : null
   const human = p.meta.lane === 'you' || p.meta.lane.startsWith('member:')
   const marks: LaneMarks = useMemo(
-    () => (p.hist ? histMarks(p.hist, { ax: p.ax, width: p.width }) : laneMarks(p.ops ?? [], { ax: p.ax, width: p.width, sel, human })),
+    () =>
+      // not measured yet (the deck's first render): nothing to draw — the marks come with the tape's width
+      p.width <= 0
+        ? { ranges: [], ticks: [], points: [], flags: [], copies: [], count: 0 }
+        : p.hist
+          ? histMarks(p.hist, { ax: p.ax, width: p.width })
+          : laneMarks(p.ops ?? [], { ax: p.ax, width: p.width, sel, human }),
     [p.hist, p.ops, p.ax, p.width, sel, human],
   )
   const plain = useMemo(() => marksPath(marks.ticks, marks.points, 30, false), [marks])
   const hot = useMemo(() => marksPath(marks.ticks, marks.points, 30, true), [marks])
+  const dim = useMemo(() => copiesPath(marks.copies, 30), [marks])
 
   // labels flip / hide on this lane (its own pass: a data push never re-runs the whole tape)
   useLayoutEffect(() => {
@@ -54,7 +63,7 @@ export const Lane = memo(function Lane(p: LaneProps) {
 
   const flagLabel = (runs: string[]): string => {
     const recs = runs.map((r) => p.runs[r]).filter((r): r is JRun => !!r)
-    const ops = recs.reduce((n, r) => n + r.ops, 0) || (p.ops ?? []).filter((o) => o.r && runs.includes(o.r)).length
+    const ops = recs.reduce((n, r) => n + r.ops, 0) || (p.ops ?? []).filter((o) => o.r && runs.includes(o.r) && !isCopy(o)).length
     const kind = runs[0].slice(0, runs[0].indexOf(':'))
     const places = recs.reduce((n, r) => n + r.places.rows + r.places.pages + r.places.schema + r.places.views, 0)
     const trashed = recs.reduce((n, r) => n + r.places.trashed, 0)
@@ -147,6 +156,7 @@ export const Lane = memo(function Lane(p: LaneProps) {
         <i key={i} className={r.bar ? 'ev ev--bar' : 'ev'} style={{ left: r.x0, width: Math.max(1, r.x1 - r.x0) }} />
       ))}
       <svg className="lane__marks" width={W} height="100%" viewBox={`0 0 ${W} 30`} preserveAspectRatio="none" aria-hidden="true">
+        {dim && <path className="copy" d={dim} />}
         {plain && <path className="ev" d={plain} />}
         {hot && <path className="sel" d={hot} />}
       </svg>
@@ -189,8 +199,22 @@ export const Lane = memo(function Lane(p: LaneProps) {
             </span>
           )
         }
+        // a flag whose runs reach past its pennant (a burst of ticks): the label after the range's end, flipping to its
+        // start — never over its own ticks (tape.js `ev-l--after`)
+        const end = x(f.last)
+        const ranged = end - f.x > PENNANT_PX
         return (
-          <span key={`l${f.runs[0]}`} className="ev-l" data-sel={f.sel ? '' : undefined} data-anchor={f.x} data-shift={14} data-gap={6} data-flips="1" style={{ left: f.x + 14 }}>
+          <span
+            key={`l${f.runs[0]}`}
+            className="ev-l"
+            data-sel={f.sel ? '' : undefined}
+            data-anchor={ranged ? end : f.x}
+            data-shift={ranged ? 8 : 14}
+            data-gap={ranged ? 8 : 6}
+            data-start={ranged ? f.x : undefined}
+            data-flips="1"
+            style={{ left: ranged ? end + 8 : f.x + 14 }}
+          >
             {label}
           </span>
         )
@@ -200,7 +224,7 @@ export const Lane = memo(function Lane(p: LaneProps) {
   )
 })
 
-/** For the lane labels: Vorgänge of a lane in the span (ops or histogram). */
+/** For the lane labels: Vorgänge of a lane in the span (ops or histogram; synced-block copies never count). */
 export function laneCount(ops: JOp[] | undefined, hist: Array<[number, number]> | undefined, t0: number, t1: number): number {
   if (hist) {
     let n = 0
@@ -210,9 +234,7 @@ export function laneCount(ops: JOp[] | undefined, hist: Array<[number, number]> 
     }
     return n
   }
-  let n = 0
-  for (const o of ops ?? []) if ((o.t2 ?? o.at) >= t0 && o.at <= t1) n++
-  return n
+  return countOps(ops, t0, t1)
 }
 
 export type { LaneKey }

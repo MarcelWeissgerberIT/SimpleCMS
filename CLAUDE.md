@@ -601,15 +601,23 @@ the public APIs stable — other areas are built against them in parallel.
   the version store `one-history` (`pin:<scope>|m|…` meta + `pin:<scope>|b|<page>|<digest>` content,
   features/history/pins.ts) taken from the listener's frozen prev object at every segment start; a place without one is
   "partial" — never guessed. Delete forever by the person drops that page's pins. The recorder starts right after
-  startHistory and opens its database lazily (a reset / wipe is never blocked).
+  startHistory and opens its database lazily (a reset / wipe is never blocked). A run that goes on in another tab or after
+  a reload: its stored record (`runs`) is merged in before this tab first writes it (journal/runs.ts `RunBook.adopt`:
+  Vorgänge and words add up, places = the union of its stored events' and this tab's, the meta stays).
 - The deck (features/recorder/ui, lazy chunk; `RecorderHost` in ModalHost portals it into `.app-main`): UI state only in
   its own store `useRecorderUI` (never `useWorkspace`); prefs per device in localStorage `one.recorder.ui` = { zoom, loupe,
   filter, height }; open with `openRecorder()` / `toggleRecorder()` — Mod+Alt+Z (`REWIND_SHORTCUT`; shell/lib/global.ts
-  before the AltGr bail-out: pc tests `e.key === 'z'`, never `e.code` — German QWERTZ has Z on KeyY; AltGraph never), the
-  status bar's Rewind key, ⌘K `rewind`, the page / sidebar / phone menus, Workspace → Data. One dock at a time with the AI
-  terminal (opening one closes the other; work keeps running). The deck publishes its height as `--deck-dock` on <html>
-  (toasts and floating keys sit above it); other tabs ping on BroadcastChannel `one-recorder` (debounced re-read); the deck
-  reads only ops + histograms of the span (< 150 ms with 40k events). Orange on the deck = playhead + selected window only
+  before the AltGr bail-out: pc tests `e.key === 'z'`, mac `e.key` 'z' or 'Ω' — never `e.code`: German QWERTZ has Z on
+  KeyY, on a Mac too; AltGraph never), the status bar's Rewind key, ⌘K `rewind`, the page / sidebar / phone menus,
+  Workspace → Data. One dock at a time with the AI terminal and, below 1200 px, the Outbox sheet (`closeOutboxSheet` /
+  `onOutboxSheetOpen`, outbox/index.ts): opening one closes the other; work keeps running. Closing gives focus back to the
+  opener (the key a menu / ⌘K handed over, else what had focus — `takeOpener`), else near it, else the main region. The
+  deck publishes its height as `--deck-dock` on <html> (toasts and floating keys sit above it); other tabs ping on
+  BroadcastChannel `one-recorder` (debounced re-read); the first read is exactly the visible span's ops (the room on either
+  side follows the first paint; < 150 ms with 40k events). This tab's flushes merge in by key and never widen the loaded
+  window; only new Vorgänge (`Flushed.fresh`) count into the strip and the minute bars; synced-block copies (`F.COPY`) are
+  drawn dimmed, never counted. The head sheds whole parts until it fits (measured, `data-head`), its keys never shrink; the
+  status bar sheds low-priority parts the same way (StatusBar `data-shed-1…6`). Orange on the deck = playhead + selected window only
   (+ the shared REC `<Led>`); colours are the `--tp-*` mixes of recorder.css, kept AA under every look by lib/look/derive.ts
   `deckPlate` / `deckText` (look-engine.spec reads both). The deck only reads — it never writes the workspace.
 - Mirror recipe setup (features/agents/mirror.ts, MirrorSetup.tsx, MirrorDiscard.tsx): `createMirror` shows no toast — a step

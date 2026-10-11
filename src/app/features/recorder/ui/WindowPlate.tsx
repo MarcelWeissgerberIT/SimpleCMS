@@ -1,8 +1,9 @@
 /**
  * The window plate (R1): without a window, how to bracket one; with one, its writer, its range (the end shown
  * inclusive — the window is half-open) and its meters: Vorgänge · Stellen · Wörter, then Zeilen (neu) · Seiten ·
- * Schema (+ views). Counted from the window's events ("…" while they load). R2 adds reading and the report, R3 the
- * eject.
+ * Schema (+ views). Counted from the window's events ("…" while they load). Two keys set the window's start / end
+ * at the playhead on the focused track ([ and ] — the way to bracket by touch, where a drag scrolls the tape). R2 adds
+ * reading and the report, R3 the eject.
  */
 import { useEffect, useState } from 'react'
 import { Info, X } from 'lucide-react'
@@ -13,10 +14,34 @@ import { windowMeters, type Meters } from '../model/counts'
 import type { JRun } from '../model/types'
 import type { LaneMeta } from './lanes'
 import { fmtNum, hms, pl } from './format'
+import { bracketEdge } from './actions'
 import { setBracket, useRecorderUI, type Bracket } from './state'
 import { Kbd } from '../../../ui/controls'
 
-export function WindowPlate({ bracket, meta, run, notes }: { bracket: Bracket | null; meta: LaneMeta | null; run: JRun | undefined; notes: string[] }) {
+/** The window's start / end at the playhead, on the track the keys act on. */
+function EdgeKeys({ lane }: { lane: LaneMeta }) {
+  const t = useT()
+  return (
+    <div className="win__edges">
+      <button type="button" className="tkey" title={t('features.recorder.win.startTitle', { lane: lane.title })} onClick={() => bracketEdge('start', lane.lane)}>
+        <Kbd>[</Kbd>
+        <span>{t('features.recorder.win.start')}</span>
+      </button>
+      <button type="button" className="tkey" title={t('features.recorder.win.endTitle', { lane: lane.title })} onClick={() => bracketEdge('end', lane.lane)}>
+        <Kbd>]</Kbd>
+        <span>{t('features.recorder.win.end')}</span>
+      </button>
+    </div>
+  )
+}
+
+/** After the window is cleared (its key is gone): the playhead takes focus — the tape's keys go on working. */
+function clearWindow(): void {
+  setBracket(null)
+  requestAnimationFrame(() => document.querySelector<HTMLElement>('section.deck .playhead__h')?.focus({ preventScroll: true }))
+}
+
+export function WindowPlate({ bracket, meta, run, notes, touch, edgeLane }: { bracket: Bracket | null; meta: LaneMeta | null; run: JRun | undefined; notes: string[]; touch: boolean; edgeLane: LaneMeta }) {
   const t = useT()
   const lang = useLang()
   const laneOps = useRecorderUI((s) => (bracket ? s.ops.lanes[bracket.lane] : undefined))
@@ -59,13 +84,9 @@ export function WindowPlate({ bracket, meta, run, notes }: { bracket: Bracket | 
           <span className="label">{t('features.recorder.win.title')}</span>
         </div>
         <div className="win__note">
-          <span>{t('features.recorder.win.none')}</span>
+          <span>{t(touch ? 'features.recorder.win.noneTouch' : 'features.recorder.win.none')}</span>
         </div>
-        <div className="win__note">
-          <span>
-            <Kbd>[</Kbd> <Kbd>]</Kbd> {t('features.recorder.win.keys')}
-          </span>
-        </div>
+        <EdgeKeys lane={edgeLane} />
         <Note />
       </aside>
     )
@@ -81,7 +102,7 @@ export function WindowPlate({ bracket, meta, run, notes }: { bracket: Bracket | 
       <div className="win__h">
         <span className="label">{t('features.recorder.win.title')}</span>
         <span className="win__t">{t('features.recorder.win.range', { from: hms(bracket.a), to: hms(bracket.b - 1000) })}</span>
-        <button type="button" className="win__x" aria-label={t('features.recorder.win.clear')} title={t('features.recorder.win.clear')} onClick={() => setBracket(null)}>
+        <button type="button" className="win__x" aria-label={t('features.recorder.win.clear')} title={t('features.recorder.win.clear')} onClick={clearWindow}>
           <X aria-hidden />
         </button>
       </div>
@@ -122,6 +143,7 @@ export function WindowPlate({ bracket, meta, run, notes }: { bracket: Bracket | 
           <span>{t(pl('features.recorder.win.meter.schemas', p?.schema ?? 0))}</span>
         </div>
       </div>
+      <EdgeKeys lane={edgeLane} />
       <Note />
     </aside>
   )

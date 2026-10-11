@@ -57,6 +57,18 @@ export { routesFor, routeByRole, routeById, listRoutes } from './routes'
 export { draftSlip } from './draft'
 export { replaceDraft, setIncluded } from './actions'
 export { useSlip, useSlips, useOutboxCounts, groupState, useGroupState, openOutbox, openSlip } from './hooks'
+
+/** The narrow screen's Outbox sheet steps aside for another dock under the page (the flight recorder's deck). */
+export function closeOutboxSheet(): void {
+  if (useOutbox.getState().sheet) useOutbox.setState({ sheet: null })
+}
+
+/** The Outbox sheet opened (the flight recorder's deck closes: one dock at a time below 1200 px). */
+export function onOutboxSheetOpen(fn: () => void): () => void {
+  return useOutbox.subscribe((s, p) => {
+    if (s.sheet && !p.sheet) fn()
+  })
+}
 export { getSlips, onSlipsChanged, outboxReady } from './store'
 export { outboxCounts } from './counts'
 export { outboxCommands } from './commands'

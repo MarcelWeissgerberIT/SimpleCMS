@@ -142,11 +142,23 @@ test.describe('ways in and out', () => {
     await expect(editor).toHaveText('Tessera')
   })
 
-  test('macOS: ⌘⌥Z opens it (⌥ turns Z into "Ω")', async ({ page }) => {
+  test('macOS: ⌘⌥Z opens it (⌥ turns Z into "Ω") — on a German Mac too, where the Z key is KeyY; ⌘⌥Y never', async ({ page }) => {
     await page.addInitScript(() => Object.defineProperty(Navigator.prototype, 'platform', { get: () => 'MacIntel' }))
     await openApp(page)
+    // US layout
     await key(page, { key: 'Ω', code: 'KeyZ', metaKey: true, altKey: true })
     await expect(deck(page)).toBeVisible()
+    await key(page, { key: 'Ω', code: 'KeyZ', metaKey: true, altKey: true })
+    await expect(deck(page)).toHaveCount(0)
+    // German Mac: the Z key is KeyY and types "Ω" with ⌥ — opens; its Y key is KeyZ and types "¥" — never
+    await key(page, { key: '¥', code: 'KeyZ', metaKey: true, altKey: true })
+    await page.waitForTimeout(150)
+    await expect(deck(page)).toHaveCount(0)
+    await key(page, { key: 'Ω', code: 'KeyY', metaKey: true, altKey: true })
+    await expect(deck(page)).toBeVisible()
+    // a browser that reports the plain letter while ⌘ is held
+    await key(page, { key: 'z', code: 'KeyY', metaKey: true, altKey: true })
+    await expect(deck(page)).toHaveCount(0)
   })
 
   test('the page ⋯ menu and the sidebar’s workspace menu open it (with the shortcut beside the entry)', async ({ page }) => {
@@ -278,6 +290,273 @@ test.describe('the story on the tape', () => {
   })
 })
 
+test.describe('keys and focus', () => {
+  const active = (page: Page) => page.evaluate(() => {
+    const a = document.activeElement
+    return a === document.body || !a ? 'BODY' : `${a.tagName.toLowerCase()}${a.className && typeof a.className === 'string' ? '.' + a.className.split(/\s+/).join('.') : ''}${a.id ? '#' + a.id : ''}`
+  })
+
+  test('closing gives focus back — opened from ⌘K, from the sidebar’s workspace menu, or with nothing focused: never the page body', async ({ page }) => {
+    await openApp(page)
+    // ⌘K "Rewind"
+    await page.keyboard.press('Control+k')
+    await page.keyboard.type('Rewind')
+    await expect(page.locator('[cmdk-item][data-selected="true"]')).toContainText('Rewind')
+    await page.keyboard.press('Enter')
+    await expect(page.locator('.playhead__h')).toBeFocused()
+    await page.keyboard.press('Escape')
+    await expect(deck(page)).toHaveCount(0)
+    expect(await active(page)).not.toBe('BODY')
+    // the sidebar's workspace menu: back to its key
+    await page.locator('.sb-head__ws').click()
+    await page.getByRole('menuitem', { name: /Flight recorder/ }).click()
+    await expect(page.locator('.playhead__h')).toBeFocused()
+    await page.keyboard.press('Escape')
+    await expect(deck(page)).toHaveCount(0)
+    await expect(page.locator('.sb-head__ws')).toBeFocused()
+    // nothing focused: Ctrl+Alt+Z, Esc
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur?.())
+    await page.keyboard.press('Control+Alt+z')
+    await expect(page.locator('.playhead__h')).toBeFocused()
+    await page.keyboard.press('Escape')
+    await expect(deck(page)).toHaveCount(0)
+    expect(await active(page)).not.toBe('BODY')
+  })
+
+  test('keys that cannot act or go keep focus in the deck: +1 min at now, clearing the window, Esc in the track filter and the places popover', async ({ page }) => {
+    test.setTimeout(150_000)
+    await bootStory(page)
+    await page.keyboard.press('Control+Alt+z')
+    // a minute back, then forward again by the key: it cannot act at now — focus stays on it
+    await page.getByRole('button', { name: 'One minute back' }).click()
+    const fwd = page.getByRole('button', { name: 'One minute forward' })
+    await fwd.focus()
+    await page.keyboard.press('Enter')
+    await expect(fwd).toHaveAttribute('aria-disabled', 'true')
+    await expect(fwd).toBeFocused()
+    await page.keyboard.press('Enter')
+    await expect(page.locator('.playhead__h')).toHaveText(/Now/)
+    // clearing the window: the playhead takes focus
+    await page.locator('.lane[data-lane="agent:nordlicht-spiegel"] .flag').click()
+    const clear = page.getByRole('button', { name: 'Clear the window' })
+    await clear.focus()
+    await page.keyboard.press('Enter')
+    await expect(page.locator('.win__t')).toHaveCount(0)
+    await expect(page.locator('.playhead__h')).toBeFocused()
+    // Esc in the track filter: back on its key
+    const filter = page.getByRole('button', { name: /Filter tracks/ })
+    await filter.click()
+    await expect(page.getByRole('dialog', { name: 'Tracks' })).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(page.getByRole('dialog', { name: 'Tracks' })).toHaveCount(0)
+    await expect(filter).toBeFocused()
+    await expect(deck(page)).toBeVisible()
+  })
+
+  test('↓ from the playhead goes to the first track (or the one with the window); the playhead at now reads "Now" and stays still', async ({ page }) => {
+    await openApp(page)
+    await startRecorder(page)
+    await rec(page, 'step', { writer: { kind: 'terminal', run: 'tb-1', change: 'c1' }, calls: [['createPage', { title: 'Tessera Plan' }]] })
+    await rec(page, 'settle')
+    await page.keyboard.press('Control+Alt+z')
+    const head = page.locator('.playhead__h')
+    await expect(head).toBeFocused()
+    // what a screen reader hears at now does not tick with the clock
+    const text = await head.getAttribute('aria-valuetext')
+    const now = await head.getAttribute('aria-valuenow')
+    expect(text).toBe('Now — follows the clock')
+    await page.waitForTimeout(2200)
+    expect(await head.getAttribute('aria-valuetext')).toBe(text)
+    expect(await head.getAttribute('aria-valuenow')).toBe(now)
+    await page.keyboard.press('ArrowDown')
+    await expect(page.locator('.lane[data-lane="you"]')).toBeFocused()
+    await page.keyboard.press('ArrowDown')
+    await expect(page.locator('.lane[data-lane="terminal"]')).toBeFocused()
+  })
+
+  test('a run jump is said in the live region; Esc closes the Help opened from the deck first; the grip stops where the deck does', async ({ page }) => {
+    test.setTimeout(150_000)
+    await bootStory(page)
+    await page.keyboard.press('Control+Alt+z')
+    const live = deck(page).locator('.rec-live[aria-live="polite"]')
+    await page.getByRole('button', { name: 'To the previous run' }).click()
+    await expect(live).toHaveText('AI terminal · starts 07:52:40')
+    // back through the MCP calls to the agent's run
+    for (let i = 0; i < 8 && (await live.textContent()) !== 'Run 212 · starts 07:31:04'; i++) {
+      await page.getByRole('button', { name: 'To the previous run' }).click()
+      await expect(live).toHaveText(/ · starts /)
+    }
+    await expect(live).toHaveText('Run 212 · starts 07:31:04')
+    // PageUp on a track says it too
+    await page.locator('.lane[data-lane="terminal"]').focus()
+    await page.keyboard.press('PageDown')
+    await expect(live).toHaveText('AI terminal · starts 07:52:40')
+
+    // "?" in the head: Help opens; Esc closes Help, the deck stays (and keeps its playhead)
+    const before = await page.locator('.playhead__h').getAttribute('aria-valuenow')
+    await deck(page).locator('.deck__help').click()
+    await expect(page.getByRole('dialog', { name: 'Help' })).toBeVisible()
+    await deck(page).locator('.deck__help').focus()
+    await page.keyboard.press('Escape')
+    await expect(page.getByRole('dialog', { name: 'Help' })).toHaveCount(0)
+    await expect(deck(page)).toBeVisible()
+    await expect(page.locator('.playhead__h')).toHaveAttribute('aria-valuenow', before!)
+
+    // the grip: never past 55 % of the window — the height it reports is the one drawn, and ↓ shrinks at once
+    const grip = page.getByRole('separator', { name: 'Height of the flight recorder' })
+    await grip.focus()
+    for (let i = 0; i < 20; i++) await page.keyboard.press('Shift+ArrowUp')
+    const max = Math.round(900 * 0.55)
+    await expect(grip).toHaveAttribute('aria-valuenow', String(max))
+    expect(Math.round(await deck(page).evaluate((d) => d.getBoundingClientRect().height))).toBe(max)
+    await page.keyboard.press('ArrowDown')
+    await expect(grip).toHaveAttribute('aria-valuenow', String(max - 10))
+    expect(Math.round(await deck(page).evaluate((d) => d.getBoundingClientRect().height))).toBe(max - 10)
+  })
+
+  test('below 1200 px the Outbox sheet and the deck are one dock: each opening closes the other', async ({ page }) => {
+    await page.setViewportSize({ width: 1024, height: 768 })
+    await openApp(page)
+    const sheet = () => page.evaluate(() => (window as unknown as { __oneOutbox: { useOutbox: { getState: () => { sheet: string | null } } } }).__oneOutbox.useOutbox.getState().sheet)
+    const openSheet = () => page.evaluate(() => (window as unknown as { __oneOutbox: { useOutbox: { setState: (p: unknown) => void } } }).__oneOutbox.useOutbox.setState({ sheet: 'nordlicht-db' }))
+    await openSheet()
+    await page.keyboard.press('Control+Alt+z')
+    await expect(deck(page)).toBeVisible()
+    expect(await sheet()).toBeNull()
+    // the playhead the deck focused is what lies at its place
+    expect(await page.locator('.playhead__h').evaluate((h) => {
+      const r = h.getBoundingClientRect()
+      return document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)?.closest('.playhead__h') === h
+    })).toBe(true)
+    await openSheet()
+    await expect(deck(page)).toHaveCount(0)
+  })
+})
+
+test.describe('phone', () => {
+  test('the playhead follows the finger while it is dragged (the tape is fitted again on release); a window by its edge keys', async ({ browser }) => {
+    test.setTimeout(150_000)
+    const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true })
+    const page = await ctx.newPage()
+    await bootStory(page)
+    await page.keyboard.press('Control+Alt+z')
+    await expect(deck(page)).toBeVisible()
+    await page.waitForTimeout(400)
+    const head = page.locator('.playhead__h')
+    const b0 = (await head.boundingBox())!
+    const scroll0 = await page.locator('.reel__scroll').evaluate((s) => s.scrollLeft)
+    await page.mouse.move(b0.x + b0.width / 2, b0.y + b0.height / 2)
+    await page.mouse.down()
+    for (let i = 1; i <= 8; i++) await page.mouse.move(b0.x + b0.width / 2 - i * 10, b0.y + b0.height / 2)
+    const b1 = (await head.boundingBox())!
+    // the head's line moved with the finger (the head's box may turn at the edge: its line is data-line); the tape
+    // held still under it
+    const { line, inner } = await page.evaluate(() => ({ line: Number(document.querySelector<HTMLElement>('.playhead__h')!.dataset.line), inner: document.querySelector('.reel__inner')!.getBoundingClientRect().left }))
+    expect(await page.locator('.reel__scroll').evaluate((s) => s.scrollLeft)).toBe(scroll0)
+    expect(Math.abs(inner + line - (b0.x + b0.width / 2 - 80))).toBeLessThan(6)
+    expect(b1.x).toBeLessThan(b0.x - 40)
+    await page.mouse.up()
+
+    // the plate: touch words, no key hints; a window by tapping a track and the edge keys
+    await expect(page.locator('.win__note').first()).toContainText('Tap a flag')
+    await expect(deck(page).locator('.win .kbd').first()).toBeHidden()
+    await page.waitForTimeout(500)
+    await page.getByRole('button', { name: 'To now' }).tap()
+    await page.getByRole('button', { name: 'One minute back' }).tap()
+    await page.getByRole('button', { name: 'One minute back' }).tap()
+    await page.getByRole('button', { name: 'Start here' }).tap()
+    await page.getByRole('button', { name: 'One minute forward' }).tap()
+    await page.getByRole('button', { name: 'End here' }).tap()
+    const now = storyTime(story, story.now)
+    const hms = (t: number) => new Date(t).toLocaleTimeString('de-DE', { timeZone: 'Europe/Berlin', hour12: false })
+    await expect(page.locator('.win__t')).toHaveText(`${hms(now - 2 * MIN)} – ${hms(now - MIN - 1000)}`)
+    await expect(page.locator('.win__who')).toContainText('You')
+    await ctx.close()
+  })
+})
+
+test.describe('live pushes', () => {
+  const lanesCount = (page: Page, lane: string) => page.locator(`.trk[data-lane="${lane}"] .trk__c`)
+  const deckState = (page: Page) => page.evaluate(() => (window as unknown as { __oneDeck: { state: () => { ops: { from: number; to: number; status: string } } } }).__oneDeck.state().ops)
+  const agentWrites = (ids: Record<string, string>, run: string, refs: string[]) =>
+    refs.map((ref, i) => ({ writer: { kind: 'agent', id: story.agent.id, run }, calls: [['setRowProperty', ids[ref], 'story-est', 40 + i]] }))
+
+  test('a write while the span is rewound never widens what is loaded: back at now, the tape reads what is there', async ({ page }) => {
+    test.setTimeout(150_000)
+    const ids = await bootStory(page)
+    await page.keyboard.press('Control+Alt+z')
+    await expect(lanesCount(page, 'you')).toHaveText('33')
+    // the span three hours back (nothing of the story there), loaded with its room on either side
+    const now = storyTime(story, story.now)
+    const t1 = now - 3 * 3600_000
+    await page.evaluate((t1) => (window as unknown as { __oneDeck: { set: (p: unknown) => void } }).__oneDeck.set({ span: { zoom: '75m', t1 } }), t1)
+    await expect(lanesCount(page, 'you')).toHaveText('00')
+    await expect.poll(async () => (await deckState(page)).to).toBe(t1 + 75 * MIN / 2)
+    // an agent writes now: pushed, but outside what is loaded
+    for (const s of agentWrites(ids, 'r300', ['NL-1408'])) await rec(page, 'step', s)
+    await rec(page, 'flush')
+    expect((await deckState(page)).to).toBe(t1 + 75 * MIN / 2)
+    // a span ending five minutes before now (a click in the strip near now): it reads what is there
+    const t2 = now - 5 * MIN
+    await page.evaluate((t1) => (window as unknown as { __oneDeck: { set: (p: unknown) => void } }).__oneDeck.set({ span: { zoom: '75m', t1 } }), t2)
+    const ops = await rec<Array<{ l: string; at: number; t2?: number; f?: number }>>(page, 'ops')
+    const inSpan = (lane: string) => ops.filter((o) => o.l === lane && !((o.f ?? 0) & 4) && (o.t2 ?? o.at) >= t2 - 75 * MIN && o.at <= t2).length
+    expect(inSpan('you')).toBeGreaterThan(20)
+    await expect(lanesCount(page, 'you')).toHaveText(String(inSpan('you')).padStart(2, '0'))
+    await expect(lanesCount(page, 'agent:nordlicht-spiegel')).toHaveText(String(inSpan('agent:nordlicht-spiegel')).padStart(2, '0'))
+    // and at now the new write is on the tape
+    await page.evaluate(() => (window as unknown as { __oneDeck: { set: (p: unknown) => void } }).__oneDeck.set({ span: { zoom: '75m', t1: 'now' } }))
+    await expect(lanesCount(page, 'you')).toHaveText('33')
+    await expect(lanesCount(page, 'agent:nordlicht-spiegel')).toHaveText('53')
+  })
+
+  test('24 STD: a flushed write shows on its lane at once; the strip counts it once', async ({ page }) => {
+    test.setTimeout(150_000)
+    const ids = await bootStory(page)
+    await page.keyboard.press('Control+Alt+z')
+    await page.getByRole('radio', { name: '24 h' }).click()
+    await expect(lanesCount(page, 'agent:nordlicht-spiegel')).toHaveText('52')
+    const strip = () => page.evaluate(() => Object.values((window as unknown as { __oneDeck: { state: () => { strip: { counts: Record<number, number> } } } }).__oneDeck.state().strip.counts).reduce((a, b) => a + b, 0))
+    const before = await strip()
+    // (24 STD holds the story's setup too: read once the minute bars are there)
+    await expect(lanesCount(page, 'you')).not.toHaveText(/^(00|33)$/)
+    const you = Number(await lanesCount(page, 'you').textContent())
+    for (const s of agentWrites(ids, 'r301', ['NL-1408', 'NL-1415', 'NL-1398'])) await rec(page, 'step', s)
+    await rec(page, 'flush')
+    await expect(lanesCount(page, 'agent:nordlicht-spiegel')).toHaveText('55')
+    // a typing fold written again is no new Vorgang
+    await rec(page, 'step', { writer: { kind: 'editor', id: 'story' }, calls: [['setContent', 'story-notes', { type: 'doc', content: [{ type: 'paragraph', attrs: { id: 'n1' }, content: [{ type: 'text', text: 'Nordlicht Notizen' }] }] }, 'editor:story']] })
+    await rec(page, 'flush')
+    await rec(page, 'step', { writer: { kind: 'editor', id: 'story' }, calls: [['setContent', 'story-notes', { type: 'doc', content: [{ type: 'paragraph', attrs: { id: 'n1' }, content: [{ type: 'text', text: 'Nordlicht Notizen Tessera' }] }] }, 'editor:story']] })
+    await rec(page, 'flush')
+    await expect(lanesCount(page, 'you')).toHaveText(String(you + 1).padStart(2, '0'))
+    expect(await strip()).toBe(before + 4)
+  })
+
+  test('synced-block copies are drawn dimmed on their writer’s lane and never counted', async ({ page }) => {
+    test.setTimeout(150_000)
+    await bootStory(page)
+    // the day's count before (24 STD holds the story's setup too)
+    await page.keyboard.press('Control+Alt+z')
+    await page.getByRole('radio', { name: '24 h' }).click()
+    // (read once the minute bars are there: the setup's writes make it more than the story's 33)
+    await expect(lanesCount(page, 'you')).not.toHaveText(/^(00|33)$/)
+    const day = (await lanesCount(page, 'you').textContent())!
+    await page.getByRole('radio', { name: '75 min' }).click()
+    await page.keyboard.press('Escape')
+    for (let i = 0; i < 3; i++)
+      await rec(page, 'step', { writer: { kind: 'synced', cause: 'you' }, calls: [['setContent', 'story-notes', { type: 'doc', content: [{ type: 'paragraph', attrs: { id: 'n1' }, content: [{ type: 'text', text: `Nordlicht Kopie ${i}` }] }] }, 'synced']] })
+    await rec(page, 'settle')
+    expect((await rec<Array<{ l: string; f?: number }>>(page, 'ops')).filter((o) => (o.f ?? 0) & 4).map((o) => o.l)).toEqual(['you', 'you', 'you'])
+    await page.keyboard.press('Control+Alt+z')
+    await expect(lanesCount(page, 'you')).toHaveText('33')
+    await expect(page.locator('.lane[data-lane="you"] .lane__marks path.copy')).toHaveCount(1)
+    await expect(page.locator('.lane[data-lane="you"]')).toHaveAttribute('aria-label', /33 writes/)
+    await page.getByRole('radio', { name: '24 h' }).click()
+    await expect(lanesCount(page, 'you')).toHaveText(day)
+  })
+})
+
 test.describe('labels', () => {
   test('1440: at 75 MIN every label right of its mark; at 6 STD the ones near now flip left of their flags, a covered one goes', async ({ page }) => {
     test.setTimeout(150_000)
@@ -315,8 +594,10 @@ test.describe('labels', () => {
     await page.waitForTimeout(300)
     let t = await tapeLabels(page)
     expectSettled(t, '390 live')
-    // the tape shows the last quarter hour: the MCP label (07:48) would start left of the visible tape
-    expect(label(t, '3 → trash').hidden).toBe(true)
+    // the tape shows the last quarter hour: the MCP run (07:48:10–07:49:30) reaches the visible tape's left edge — its
+    // label sits after the run's end, never over its ticks, and inside the tape (expectSettled)
+    const mcp = label(t, '3 → trash')
+    expect(mcp.hidden || mcp.left >= mcp.anchor + 7).toBe(true)
     expect(label(t, '1 applied').hidden).toBe(false)
     expect(label(t, '1 applied').flipped).toBe(false)
 
@@ -332,6 +613,51 @@ test.describe('labels', () => {
       expect(label(t, text).hidden, `${text} shown`).toBe(false)
     }
     await ctx.close()
+  })
+})
+
+test.describe('labels and marks', () => {
+  test('a run’s label sits after its last tick, never over its own ticks; it flips to the run’s start', async ({ page }) => {
+    test.setTimeout(150_000)
+    await bootStory(page)
+    await page.keyboard.press('Control+Alt+z')
+    const lane = page.locator('.lane[data-lane="agent:nordlicht-spiegel"]')
+    await expect(lane.locator('.ev-l')).toBeVisible()
+    const geo = await lane.evaluate((l) => {
+      const label = l.querySelector<HTMLElement>('.ev-l')!
+      const flag = l.querySelector<HTMLElement>('.flag')!
+      const ticks = [...(l.querySelector('.lane__marks path.ev')?.getAttribute('d') ?? '').matchAll(/M([\d.]+) /g)].map((m) => Number(m[1]) + 0.75)
+      return { left: label.offsetLeft, right: label.offsetLeft + label.offsetWidth, anchor: Number(label.dataset.anchor), start: Number(label.dataset.start), flag: flag.offsetLeft + 6, ticks, text: label.textContent }
+    })
+    expect(geo.text).toBe('Run 212 · 52 writes in 37 places')
+    // the run reaches well past its pennant: the label is anchored at its end, flips to its start
+    expect(geo.anchor - geo.flag).toBeGreaterThan(20)
+    expect(Math.abs(geo.start - geo.flag)).toBeLessThan(1.5)
+    expect(geo.left).toBeGreaterThanOrEqual(geo.anchor + 7)
+    expect(geo.ticks.length).toBeGreaterThan(10)
+    expect(geo.ticks.filter((x) => x >= geo.left - 1 && x <= geo.right + 1)).toEqual([])
+  })
+
+  test('a tab that died with writes still in memory: the lost stretch is hatched on the tape and named on the plate', async ({ page, context }) => {
+    await openApp(page)
+    await startRecorder(page)
+    await rec(page, 'step', { writer: { kind: 'you', via: 'ui' }, calls: [['createPage', { title: 'Nordlicht Notiz' }]] })
+    await rec(page, 'flush')
+    // one more write, recorded but never written: the tab dies
+    await rec(page, 'step', { writer: { kind: 'you', via: 'ui' }, calls: [['createPage', { title: 'Tessera Notiz' }]] })
+    await rec(page, 'crash')
+    await flush(page)
+    await page.close()
+    const p2 = await context.newPage()
+    await openApp(p2)
+    await startRecorder(p2)
+    await expect.poll(async () => (await rec<unknown[]>(p2, 'lostTails')).length).toBe(1)
+    await p2.keyboard.press('Control+Alt+z')
+    await expect(p2.locator('section.deck .lost')).toHaveCount(1)
+    await expect(p2.locator('section.deck .win__note').filter({ hasText: /^Recording interrupted \d\d:\d\d – \d\d:\d\d: a tab closed/ })).toBeVisible()
+    // drawn where it was: between the dead tab's last flush and the recovery
+    const [gap] = await rec<Array<{ from: number; to: number }>>(p2, 'lostTails')
+    await expect(p2.locator('section.deck .lost')).toHaveAttribute('data-from', String(gap.from))
   })
 })
 
@@ -373,6 +699,13 @@ test.describe('ticks', () => {
     await expect(pop).toBeVisible()
     await expect(pop.locator('.rec-pop__item')).toHaveCount(8)
     await expect(pop.locator('.rec-pop__more')).toHaveText('+ 3 more')
+    // Esc: the popover goes, focus goes to the track that was clicked (its keys work again)
+    await page.keyboard.press('Escape')
+    await expect(pop).toHaveCount(0)
+    await expect(deck(page)).toBeVisible()
+    await expect(lane).toBeFocused()
+    await page.mouse.click(x, box.y + box.height / 2)
+    await expect(pop).toBeVisible()
     const first = (await pop.locator('.rec-pop__item').first().textContent())!.trim()
     expect(first).toMatch(/^Nordlicht Archiv/)
     await pop.locator('.rec-pop__item').first().click()
@@ -394,6 +727,42 @@ test.describe('fit', () => {
       const fit = await page.locator('.deck__head').evaluate((h) => h.scrollWidth - h.clientWidth)
       expect(fit).toBeLessThanOrEqual(0)
       await expect(page.getByRole('button', { name: 'Close' }).last()).toBeInViewport()
+    })
+
+  for (const [w, scale, lang] of [[1440, 1, 'de'], [1424, 1, 'de'], [1280, 4, 'de'], [1024, 4, 'en'], [1024, 4, 'de'], [1024, 1, 'de']] as const)
+    test(`no key in the head is squeezed at ${w} px, text size ${scale === 4 ? 'XL' : 'standard'}, ${lang === 'de' ? 'German' : 'English'} (with the loupe key)`, async ({ page }) => {
+      await page.addInitScript((scale) => localStorage.setItem('one.textScale', String(scale)), scale)
+      await page.setViewportSize({ width: w, height: 900 })
+      await openApp(page)
+      await wsEval(page, (s, lang) => s.updateSettings({ language: lang }), lang)
+      await page.keyboard.press('Control+Alt+z')
+      await expect(deck(page)).toBeVisible()
+      // a window on the tape: the loupe key joins the head (the widest it gets)
+      await page.evaluate(() => {
+        const now = Date.now()
+        ;(window as unknown as { __oneDeck: { set: (p: unknown) => void } }).__oneDeck.set({ bracket: { lane: 'you', a: now - 6 * 60_000, b: now - 60_000 } })
+      })
+      await expect(deck(page).locator('.deck__head .tkey[aria-pressed]').filter({ hasText: /×/ })).toBeVisible()
+      const bad = await page.locator('.deck__head').evaluate((h) => {
+        const out: string[] = []
+        if (h.scrollWidth > h.clientWidth + 1) out.push(`head ${h.scrollWidth} > ${h.clientWidth}`)
+        const hr = h.getBoundingClientRect()
+        for (const el of h.querySelectorAll<HTMLElement>('button, .kbd, .counter, .deck-rec')) {
+          const cs = getComputedStyle(el)
+          if (cs.display === 'none' || el.getClientRects().length === 0) continue
+          const r = el.getBoundingClientRect()
+          const name = (el.getAttribute('aria-label') || el.textContent || el.className).trim().slice(0, 20)
+          if (el.scrollWidth > el.clientWidth + 1) out.push(`${name}: its content runs over (${el.scrollWidth} > ${el.clientWidth})`)
+          if (r.right > hr.right + 1 || r.left < hr.left - 1) out.push(`${name}: outside the head`)
+          for (const c of el.querySelectorAll<HTMLElement>('.kbd, svg')) {
+            const cr = c.getBoundingClientRect()
+            if (cr.width > 0 && (cr.right > r.right + 1 || cr.left < r.left - 1)) out.push(`${name}: ${c.getAttribute('class') ?? c.tagName} past its key`)
+          }
+        }
+        return out
+      })
+      expect(bad).toEqual([])
+      await expect(page.getByRole('button', { name: lang === 'de' ? 'Schließen' : 'Close' }).last()).toBeInViewport()
     })
 
   test('phone: the page ⋯ menu opens it; an in-flow panel ≤ 60vh over the safe area, the capture key hidden, the head fits', async ({ browser }) => {
@@ -599,8 +968,8 @@ test.describe('the open budget', () => {
     expect(stats.segs).toBeGreaterThanOrEqual(49_000)
 
     /**
-     * One open by the key, measured from the key (`rec-open`) to the first frame with the span's data (`rec-ready`; a
-     * dense span: its minute histogram) and to the frame with the span's ops (`rec-ops`).
+     * One open by the key, measured from the key (`rec-open`) to the first frame with the span's data (`rec-ready`) and
+     * to the frame with the span's ops (`rec-ops`; the same frame unless the span is very dense).
      */
     const openMs = (zoom: string) =>
       page.evaluate(async (zoom) => {
@@ -625,15 +994,23 @@ test.describe('the open budget', () => {
     const result: Record<string, number> = {}
     const exact: Record<string, number> = {}
     for (const zoom of ['75m', '24h']) {
-      // the first open of a fresh page (the deck's code loaded, nothing of it rendered yet): best of two reloads
+      // the first open of a fresh page (the deck's code loaded, nothing of it rendered yet) once the app has booted
+      // (its own start-up work done — the recorder settled, an idle moment): best of three reloads. The machine is
+      // shared with other builds — one slow round is its noise, not the deck's
       const cold: Array<{ open: number; ops: number }> = []
-      for (let i = 0; i < 2; i++) {
+      for (let i = 0; i < 3; i++) {
         await reloadApp(page)
         await page.waitForFunction(() => !!(window as unknown as { __oneRecorder?: unknown }).__oneRecorder)
+        await rec(page, 'settle')
+        await page.evaluate(() => new Promise<void>((r) => {
+          let n = 0
+          const idle = () => requestIdleCallback((d) => (d.timeRemaining() > 40 || ++n > 40 ? r() : idle()), { timeout: 1000 })
+          idle()
+        }))
         cold.push(await openMs(zoom))
       }
       const warm: Array<{ open: number; ops: number }> = []
-      for (let i = 0; i < 3; i++) warm.push(await openMs(zoom))
+      for (let i = 0; i < 5; i++) warm.push(await openMs(zoom))
       result[`${zoom} first`] = Math.min(...cold.map((c) => c.open))
       result[`${zoom} again`] = median(warm.map((w) => w.open))
       exact[`${zoom} first`] = Math.min(...cold.map((c) => c.ops))
@@ -645,7 +1022,8 @@ test.describe('the open budget', () => {
     }
     console.log('[recorder] deck open ms (first paint)', JSON.stringify(result), '· with the ops drawn', JSON.stringify(exact))
     for (const [k, v] of Object.entries(result)) expect(v, k).toBeLessThan(150)
-    // the ops follow within a second even for the 5,000 of the span
-    for (const [k, v] of Object.entries(exact)) expect(v, `${k} (ops)`).toBeLessThan(1000)
+    // the real tape — the span's 5,000 ops drawn, flags and ticks that answer a click — within the same budget (the
+    // first read is exactly the visible span; the room on either side follows after the first paint)
+    for (const [k, v] of Object.entries(exact)) expect(v, `${k} (ops)`).toBeLessThan(150)
   })
 })
