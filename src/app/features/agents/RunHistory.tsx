@@ -209,6 +209,7 @@ function Review({ run }: { run: AgentRun }) {
 
 function Change({ run, change: c, disabled, focus }: { run: AgentRun; change: StagedChange; disabled: boolean; focus: (to: FocusTo) => void }) {
   const t = useT()
+  const lang = useLang()
   const pages = useWorkspace((s) => s.pages)
   // what the row's own Undo did (undone; some of it kept because it was edited since) — shown while it is open again
   const [note, setNote] = useState('')
@@ -292,6 +293,13 @@ function Change({ run, change: c, disabled, focus }: { run: AgentRun; change: St
                 <ExternalLink size={12} strokeWidth={1.75} aria-hidden /> {t('features.agent.review.open')}
               </button>
             )}
+          </span>
+        ) : c.status === 'superseded' ? (
+          // a newer run's proposal for the same row (with at least these fields) replaces it: no keys, never counted
+          <span className="agent-change__actions">
+            <span className="agent-change__state label" data-testid="agx-superseded">
+              {c.supersededBy ? t('features.agents.review.superseded', { when: fmtWhen(t, c.supersededBy.at, lang) }) : t('features.agents.review.supersededPlain')}
+            </span>
           </span>
         ) : (
           <span className="agent-change__actions">
