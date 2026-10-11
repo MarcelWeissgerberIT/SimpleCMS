@@ -1,0 +1,901 @@
+/* ================================================================
+   Preflight (Vorflug-Check) — the lamp panel on Start, MASTER CAUTION in the topbar.
+   Annunciator caps in a black housing (tokens.css --lamp-*): amber = caution, red = warning (always with a
+   triangle: state never hangs on colour alone), dark = all right, grey hatched = the check cannot run here.
+   The lamp cursor is an ink double ring, never the signal; orange only for focus, primary keys and section numbers.
+   Layout by container queries on the Home column (.stage-col): ≥ 1000 as drawn, 640–999 the master column on top,
+   < 640 the phone (2 columns, dark caps flat). Every font size and box height scales with --text-scale.
+   Motion (the lamp test, the blink) only inside prefers-reduced-motion: no-preference; JS never adds it otherwise.
+   ================================================================ */
+
+/* ---------- MASTER CAUTION (topbar) ---------- */
+.pf-mc {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  height: calc(30px * var(--text-scale));
+  padding: 0 9px 0 4px;
+  margin-right: 4px;
+  border: 1px solid var(--rule-strong);
+  border-bottom-width: 2px;
+  border-radius: 3px;
+  background: var(--surface);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  letter-spacing: var(--tracking-label);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.pf-mc:active {
+  transform: translateY(1px);
+}
+.pf-mc__win {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: calc(20px * var(--text-scale));
+  padding: 0 6px;
+  border-radius: 2px;
+  background: var(--lamp-amber);
+  color: var(--lamp-ink);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--toggle-black) 22%, transparent), 0 0 0 2px var(--lamp-housing);
+  font-size: var(--text-2xs);
+  font-weight: 750;
+  line-height: 1;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.pf-mc__icon {
+  display: none;
+  flex: none;
+}
+.pf-mc__n {
+  color: var(--ink);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+}
+.pf-mc[data-state='acked'] .pf-mc__win,
+.pf-mc[data-state='dark'] .pf-mc__win {
+  background: var(--lamp-off);
+  color: var(--lamp-legend);
+}
+.pf-mc[data-state='acked'] .pf-mc__n {
+  color: var(--ink-3);
+}
+@media (max-width: 767px) {
+  .pf-mc {
+    gap: 6px;
+    height: calc(36px * var(--text-scale));
+    padding: 0 8px 0 4px;
+  }
+  .pf-mc__name {
+    display: none;
+  }
+  .pf-mc__icon {
+    display: block;
+  }
+  .pf-mc__win {
+    height: calc(26px * var(--text-scale));
+    padding: 0 6px;
+  }
+  .pf-mc__n {
+    font-size: calc(13px * var(--text-scale));
+    font-weight: 700;
+  }
+}
+@media (pointer: coarse) {
+  .pf-mc {
+    min-width: 44px;
+    min-height: calc(40px * var(--text-scale));
+  }
+}
+
+/* ---------- the plate ---------- */
+.pf {
+  margin-top: 12px;
+  padding: 12px 18px;
+  --screw-d: 7px;
+}
+.pf__head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  padding: 0 8px 8px;
+  white-space: nowrap;
+}
+.pf__head .label {
+  color: var(--ink-2);
+}
+.pf__head .pf__cut {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pf__no {
+  color: var(--ink);
+  font-weight: 700;
+}
+.pf__title {
+  color: var(--ink);
+  font-weight: 650;
+}
+.pf__head .pf__cost b {
+  color: var(--ink);
+  font-weight: 700;
+}
+.pf__rule {
+  flex: 1 1 16px;
+  min-width: 16px;
+  height: 1px;
+  background: color-mix(in srgb, var(--ink) 22%, transparent);
+}
+.pf__over {
+  height: calc(20px * var(--text-scale));
+  padding: 0 6px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+}
+.pf__icon-btn {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: calc(24px * var(--text-scale));
+  height: calc(24px * var(--text-scale));
+  margin: -4px -4px -4px 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-1);
+  background: transparent;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+.pf__icon-btn:hover {
+  border-color: color-mix(in srgb, var(--ink) 30%, transparent);
+  color: var(--ink);
+}
+.pf__body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 236px;
+  gap: 14px;
+  align-items: stretch;
+}
+
+/* the housing */
+.pf__grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  /* rows grow a little to fill the housing beside the master column, never into tall slabs (few lamps) */
+  grid-auto-rows: minmax(calc(58px * var(--text-scale)), calc(72px * var(--text-scale)));
+  align-content: start;
+  gap: 5px;
+  padding: 5px;
+  border-radius: 3px;
+  background: var(--lamp-housing);
+  box-shadow: 0 0 0 1px var(--plate-edge), inset 0 1px 2px color-mix(in srgb, var(--toggle-black) 60%, transparent);
+}
+
+/* a cap */
+.pf-cap {
+  position: relative;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  min-width: 0;
+  min-height: calc(58px * var(--text-scale));
+  padding: 6px 9px 5px;
+  border: 0;
+  border-radius: 2px;
+  background: var(--lamp-off);
+  color: var(--lamp-legend);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--toggle-white) 6%, transparent);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.pf-cap:focus-visible,
+.pf-cap[data-cursor] {
+  outline: none;
+  box-shadow: var(--lamp-cursor);
+  z-index: 1;
+}
+.pf-cap__legend {
+  display: flex;
+  align-items: flex-start;
+  gap: 5px;
+  min-width: 0;
+  padding-right: 44px;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+.pf-cap__legend > span {
+  min-width: 0;
+  white-space: pre-line;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow-wrap: anywhere;
+}
+.pf-cap__warn {
+  flex: none;
+  margin-top: -1px;
+}
+.pf-cap__foot {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 6px;
+  min-width: 0;
+}
+.pf-cap__src {
+  min-width: 0;
+  padding-bottom: 2px;
+  color: var(--lamp-legend-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pf-cap__n {
+  flex: none;
+  font-size: calc(26px * var(--text-scale));
+  font-weight: 800;
+  font-stretch: 75%;
+  font-variation-settings: 'wdth' 75;
+  line-height: 0.9;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+}
+.pf-cap:not([data-lit]) .pf-cap__n {
+  padding-bottom: 2px;
+  color: var(--lamp-legend-2);
+  font-size: calc(15px * var(--text-scale));
+  font-weight: 600;
+}
+.pf-cap[data-lit] {
+  color: var(--lamp-ink);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--toggle-white) 45%, transparent), inset 0 -2px 0 color-mix(in srgb, var(--toggle-black) 18%, transparent);
+}
+.pf-cap[data-lit] .pf-cap__src {
+  color: inherit;
+}
+.pf-cap[data-lit='amber'] {
+  background: var(--lamp-amber);
+}
+.pf-cap[data-lit='red'] {
+  background: var(--lamp-red);
+  color: var(--lamp-red-ink);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--toggle-white) 28%, transparent), inset 0 -2px 0 color-mix(in srgb, var(--toggle-black) 25%, transparent);
+}
+.pf-cap[data-lit]:focus-visible,
+.pf-cap[data-lit][data-cursor] {
+  box-shadow: var(--lamp-cursor);
+}
+.pf-cap[data-grey] {
+  background: repeating-linear-gradient(-45deg, var(--lamp-off) 0 5px, color-mix(in srgb, var(--toggle-white) 13%, var(--lamp-housing)) 5px 7px);
+}
+.pf-cap[aria-busy='true'] .pf-cap__n {
+  color: var(--lamp-legend-2);
+}
+/* "new since acknowledged": a chip, never motion alone (the blink stops after 3 cycles, the chip stays) */
+.pf-cap__new,
+.pf-cap__open {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: calc(17px * var(--text-scale));
+  padding: 0 5px;
+  border-radius: 1px;
+  background: var(--lamp-ink);
+  color: var(--lamp-amber);
+  font: 700 var(--text-2xs) / 1 var(--font-mono);
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+.pf-cap__new i {
+  display: block;
+  width: 5px;
+  height: 5px;
+  border-radius: var(--radius-led);
+  background: currentColor;
+}
+.pf-cap[data-lit='red'] .pf-cap__new {
+  background: var(--lamp-red-ink);
+  color: var(--lamp-red);
+}
+.pf-cap__open {
+  z-index: 2;
+  height: calc(18px * var(--text-scale));
+  border-radius: 2px;
+  background: var(--toggle-black);
+  color: var(--toggle-white);
+}
+
+/* the master column */
+.pf__master {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.pf-mkey {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 10px 5px 5px;
+  border: 1px solid var(--plate-edge);
+  border-bottom-width: 3px;
+  border-radius: 3px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.pf-mkey:active {
+  transform: translateY(1px);
+}
+.pf-mkey__win {
+  display: grid;
+  place-items: center;
+  min-height: calc(46px * var(--text-scale));
+  margin: 3px;
+  padding: 0 6px;
+  border-radius: 2px;
+  background: var(--lamp-amber);
+  color: var(--lamp-ink);
+  box-shadow: 0 0 0 3px var(--lamp-housing), inset 0 1px 0 color-mix(in srgb, var(--toggle-white) 45%, transparent);
+  font: 800 var(--text-2xs) / 1.15 var(--font-mono);
+  letter-spacing: 0.1em;
+  text-align: center;
+  text-transform: uppercase;
+  white-space: pre-line;
+}
+.pf-mkey__side {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 1px;
+}
+.pf-mkey__side .label {
+  color: var(--ink-2);
+}
+.pf-mkey__n {
+  font-size: calc(28px * var(--text-scale));
+  font-weight: 800;
+  font-stretch: 75%;
+  font-variation-settings: 'wdth' 75;
+  line-height: 0.95;
+  font-variant-numeric: tabular-nums;
+}
+.pf-mkey[data-state='acked'] .pf-mkey__n {
+  color: var(--ink-3);
+}
+.pf-mkey[data-state='acked'] .pf-mkey__win,
+.pf-mkey[data-state='dark'] .pf-mkey__win {
+  background: var(--lamp-off);
+  color: var(--lamp-legend);
+  box-shadow: 0 0 0 3px var(--lamp-housing);
+}
+.pf-mkey__led {
+  width: 10px;
+  height: 10px;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--led-ok) 22%, transparent);
+}
+.pf__read {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 3px 10px;
+  margin: 0;
+  padding: 2px 2px 0;
+}
+.pf__read dt {
+  color: var(--ink-2);
+}
+.pf__read dd {
+  margin: 0;
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  text-align: right;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pf__read dd b {
+  font-weight: 800;
+}
+.pf__keys {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  margin-top: auto;
+  padding: 6px 2px 0;
+  border-top: 1px solid color-mix(in srgb, var(--ink) 18%, transparent);
+}
+.pf__keys > span:not(.label) {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--ink-2);
+  font-size: calc(12px * var(--text-scale));
+}
+.pf__keys > .label {
+  flex-basis: 100%;
+  color: var(--ink-2);
+}
+
+/* the foot: what the states mean */
+.pf__foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 16px;
+  margin: 0;
+  padding: 8px 8px 0;
+  list-style: none;
+}
+.pf__foot .label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink-2);
+}
+.pf-sw {
+  display: inline-block;
+  flex: none;
+  width: 14px;
+  height: 10px;
+  border-radius: 1px;
+  box-shadow: 0 0 0 1.5px var(--lamp-housing);
+}
+.pf-sw--amber {
+  background: var(--lamp-amber);
+}
+.pf-sw--dark {
+  background: var(--lamp-off);
+}
+.pf-sw--grey {
+  background: repeating-linear-gradient(-45deg, var(--lamp-off) 0 2px, color-mix(in srgb, var(--toggle-white) 22%, var(--lamp-housing)) 2px 3px);
+}
+.pf-sw--red {
+  display: inline-grid;
+  place-items: center;
+  background: var(--lamp-red);
+  color: var(--lamp-red-ink);
+}
+.pf-chip {
+  display: inline-flex;
+  align-items: center;
+  height: calc(15px * var(--text-scale));
+  padding: 0 4px;
+  border-radius: 1px;
+  background: var(--lamp-ink);
+  color: var(--lamp-amber);
+  font: 700 var(--text-2xs) / 1 var(--font-mono);
+  letter-spacing: 0.04em;
+}
+:root[data-theme='dark'] .pf-chip {
+  box-shadow: 0 0 0 1px var(--rule-strong);
+}
+
+/* ---------- below the plate: the queue (P2) and the aside ---------- */
+.pf-below {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 286px;
+  gap: 28px;
+  margin-top: 20px;
+}
+.pf-below__q {
+  min-width: 0;
+}
+.pf-aside {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-width: 0;
+}
+.pf-mini {
+  display: inline-block;
+  flex: none;
+  width: 10px;
+  height: 8px;
+  border-radius: 1px;
+  background: var(--lamp-off);
+  box-shadow: 0 0 0 1.5px var(--lamp-housing);
+}
+.pf-mini--amber {
+  background: var(--lamp-amber);
+}
+.pf-mini--grey {
+  background: repeating-linear-gradient(-45deg, var(--lamp-off) 0 2px, color-mix(in srgb, var(--toggle-white) 22%, var(--lamp-housing)) 2px 3px);
+}
+/* red = a triangle: the shape says "warning" without the colour */
+.pf-mini--red {
+  width: 12px;
+  height: 11px;
+  border-radius: 0;
+  background: var(--lamp-red);
+  box-shadow: none;
+  clip-path: polygon(50% 0, 100% 100%, 0 100%);
+}
+.pf-spec {
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-2);
+  background: var(--surface);
+}
+:root[data-theme='dark'] .pf-spec {
+  background: var(--surface-2);
+}
+.pf-spec__h {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--rule);
+}
+.pf-spec__h .label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink);
+  font-weight: 650;
+}
+.pf-spec__rows {
+  margin: 0;
+}
+.pf-spec__row {
+  display: grid;
+  grid-template-columns: 82px minmax(0, 1fr);
+  gap: 10px;
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--rule);
+  font-size: calc(12.5px * var(--text-scale));
+  line-height: 1.45;
+}
+.pf-spec__row:last-child {
+  border-bottom: 0;
+}
+.pf-spec__row dt {
+  padding-top: 2px;
+  overflow-wrap: anywhere;
+}
+.pf-spec__row dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.pf-spec__row b {
+  font-weight: 650;
+}
+.pf-mono {
+  font-family: var(--font-mono);
+  font-size: calc(11.5px * var(--text-scale));
+}
+.pf-srcs {
+  display: grid;
+  grid-template-columns: auto auto;
+  justify-content: start;
+  gap: 1px 14px;
+}
+.pf-srcs b {
+  font-weight: 700;
+}
+.pf-srcbar {
+  display: flex;
+  gap: 2px;
+  height: 6px;
+  margin: 4px 0;
+}
+.pf-srcbar i {
+  display: block;
+  height: 100%;
+  border-radius: 1px;
+  background: var(--ink-2);
+}
+.pf-srcbar i:first-child {
+  background: var(--ink);
+}
+.pf-spec__note {
+  display: block;
+  margin-top: 3px;
+  color: var(--ink-2);
+  font-size: calc(12px * var(--text-scale));
+}
+.pf-spec__pad {
+  margin: 0;
+  padding: 0 12px 10px;
+}
+.pf-spec__keys {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 12px 10px;
+  border-top: 1px solid var(--rule);
+}
+.pf-spec__list {
+  margin: 0;
+  padding: 6px 12px 10px 28px;
+  font-size: calc(12.5px * var(--text-scale));
+  line-height: 1.5;
+}
+
+/* ---------- the strip (the panel folded) ---------- */
+.pf--strip {
+  padding-bottom: 12px;
+}
+.pf-strip {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+  padding: 0 4px;
+}
+.pf-pips {
+  display: flex;
+  flex: 0 1 auto;
+  gap: 4px;
+  min-width: 0;
+  padding: 4px;
+  border-radius: 3px;
+  background: var(--lamp-housing);
+  box-shadow: 0 0 0 1px var(--plate-edge), inset 0 1px 2px color-mix(in srgb, var(--toggle-black) 60%, transparent);
+}
+.pf-pip {
+  position: relative;
+  display: block;
+  flex: 0 1 30px;
+  min-width: 6px;
+  width: 30px;
+  height: calc(18px * var(--text-scale));
+  border-radius: 1px;
+  background: var(--lamp-off);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--toggle-white) 6%, transparent);
+}
+.pf-pip--grey {
+  background: repeating-linear-gradient(-45deg, var(--lamp-off) 0 3px, color-mix(in srgb, var(--toggle-white) 22%, var(--lamp-housing)) 3px 5px);
+}
+.pf-pip--amber {
+  background: var(--lamp-amber);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--toggle-white) 45%, transparent);
+}
+/* red pips carry the triangle as a notch: warning is never told by colour alone */
+.pf-pip--red {
+  background: var(--lamp-red);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--toggle-white) 28%, transparent);
+}
+.pf-pip--red::after {
+  content: '';
+  position: absolute;
+  left: calc(50% - 4px);
+  top: calc(50% - 3.5px);
+  width: 8px;
+  height: 7px;
+  background: var(--lamp-red-ink);
+  clip-path: polygon(50% 0, 100% 100%, 0 100%);
+}
+.pf-mkey--s {
+  grid-template-columns: auto auto;
+  padding: 3px 10px 3px 3px;
+  border-bottom-width: 2px;
+}
+.pf-mkey--s .pf-mkey__win {
+  min-height: calc(26px * var(--text-scale));
+  margin: 2px;
+  padding: 0 9px;
+  line-height: 1;
+  white-space: nowrap;
+}
+.pf-mkey--s[data-state] .pf-mkey__win {
+  box-shadow: 0 0 0 2px var(--lamp-housing);
+}
+.pf-mkey--s .pf-mkey__side {
+  flex-direction: row;
+  align-items: center;
+  gap: 7px;
+}
+.pf-mkey--s .pf-mkey__n {
+  font-size: calc(20px * var(--text-scale));
+}
+.pf-strip__sp {
+  flex: 1;
+}
+.pf-strip__fold {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: calc(28px * var(--text-scale));
+  height: calc(28px * var(--text-scale));
+  border: 1px solid color-mix(in srgb, var(--ink) 30%, transparent);
+  border-radius: var(--radius-1);
+  background: transparent;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+.pf-strip__fold:hover {
+  color: var(--ink);
+  border-color: var(--ink);
+}
+.pf-strip__row {
+  display: contents;
+}
+
+/* ---------- the lamp test and the blink: motion only for those who want it ---------- */
+@media (prefers-reduced-motion: no-preference) {
+  .pf__grid[data-test='1'] .pf-cap {
+    background: var(--lamp-amber);
+    color: var(--lamp-ink);
+    transition: none;
+  }
+  .pf__grid[data-test='2'] .pf-cap[data-lit] {
+    transition: background-color var(--dur-1) var(--ease-out), color var(--dur-1) var(--ease-out);
+  }
+  .pf__grid[data-test='2'] .pf-cap[data-lit]:not([data-relit]) {
+    background: var(--lamp-off);
+    color: var(--lamp-legend);
+  }
+  .pf-cap[data-flash],
+  .pf-pip[data-flash] {
+    animation: pf-flash 0.9s steps(1) var(--pf-flash-delay, 0ms) 3;
+  }
+  @keyframes pf-flash {
+    50% {
+      filter: brightness(0.6);
+    }
+  }
+}
+html[data-pf-noblink] .pf-cap[data-flash],
+html[data-pf-noblink] .pf-pip[data-flash] {
+  animation: none;
+}
+
+/* ---------- 640–999: the master column on top, the aside under the queue ---------- */
+@container (max-width: 999px) {
+  .pf__body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .pf__master {
+    order: -1;
+    display: grid;
+    grid-template-columns: minmax(180px, 236px) minmax(0, 1fr);
+    gap: 8px 14px;
+    align-items: center;
+  }
+  .pf__keys {
+    grid-column: 1 / -1;
+    margin-top: 0;
+  }
+  .pf-below {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 18px;
+  }
+  .pf-strip {
+    flex-wrap: wrap;
+  }
+  .pf-pips {
+    flex: 1 1 100%;
+  }
+  .pf-pip {
+    flex: 1 1 0;
+    width: auto;
+  }
+}
+
+/* ---------- < 640: the phone ---------- */
+@container (max-width: 639px) {
+  .pf {
+    margin-top: 10px;
+    padding: 10px;
+  }
+  .pf__head {
+    gap: 8px;
+    padding: 0 6px 8px;
+  }
+  .pf-hide-s {
+    display: none;
+  }
+  .pf__body {
+    gap: 10px;
+  }
+  .pf__master {
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 8px 10px;
+  }
+  .pf-mkey {
+    gap: 8px;
+    padding: 4px 8px 4px 4px;
+  }
+  .pf-mkey__win {
+    min-height: calc(40px * var(--text-scale));
+    padding: 0 8px;
+  }
+  .pf-mkey__n {
+    font-size: calc(24px * var(--text-scale));
+  }
+  .pf__read {
+    gap: 1px 8px;
+  }
+  .pf__read dd {
+    font-size: calc(11px * var(--text-scale));
+  }
+  .pf__keys {
+    display: none;
+  }
+  .pf__grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-auto-rows: auto;
+    gap: 4px;
+    padding: 4px;
+  }
+  .pf-cap {
+    padding: 6px 8px 5px;
+  }
+  .pf-cap__n {
+    font-size: calc(23px * var(--text-scale));
+  }
+  /* dark and grey caps go flat: the legend only */
+  .pf-cap:not([data-lit]) {
+    min-height: 0;
+    padding: 7px 8px;
+  }
+  .pf-cap:not([data-lit]) .pf-cap__foot {
+    display: none;
+  }
+  .pf-cap:not([data-lit]) .pf-cap__legend {
+    padding-right: 0;
+  }
+  .pf__foot {
+    gap: 6px 12px;
+    padding: 10px 4px 0;
+  }
+  .pf-below {
+    margin-top: 22px;
+  }
+  .pf-strip {
+    gap: 8px;
+    padding: 0;
+  }
+  .pf-pips {
+    gap: 3px;
+    padding: 3px;
+  }
+  .pf-pip {
+    height: calc(16px * var(--text-scale));
+  }
+}
+
+/* touch: generous targets */
+@media (pointer: coarse) {
+  .pf-cap,
+  .pf-strip__fold,
+  .pf__icon-btn,
+  .pf__over {
+    min-height: calc(40px * var(--text-scale));
+  }
+  .pf-strip__fold,
+  .pf__icon-btn {
+    min-width: 40px;
+  }
+}

@@ -458,3 +458,21 @@ export {
   RowSlips,
   openOutbox,
 } from './outbox'
+/*
+ * Preflight ("Vorflug-Check", features/preflight — the lamp panel on Start, MASTER CAUTION; see preflight/index.ts):
+ *  - startPreflight(): background service (main.tsx, once, after the Outbox) · preflightHoldsStart(): bootRedirect
+ *  - MasterCautionKey (topbar) · PreflightHome (Home) · PreflightSettings (Settings → Appearance)
+ *  - usePreflightOn() · usePlateMode() · usePreflightSections() · openPreflight() (⌘K)
+ */
+export {
+  startPreflight,
+  preflightHoldsStart,
+  MasterCautionKey,
+  PreflightHome,
+  PreflightSettings,
+  usePreflightOn,
+  preflightIsOn,
+  usePlateMode,
+  usePreflightSections,
+  openPreflight,
+} from './preflight'

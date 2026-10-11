@@ -3,11 +3,11 @@
  * and the global keyboard handler.
  */
 import type { LucideIcon } from 'lucide-react'
-import { Bell, CalendarDays, CalendarRange, Copy, Download, FilePlus2, FolderInput, Focus, Keyboard, Languages, LayoutTemplate, Link2, Lock, MessageSquareText, MoveHorizontal, PanelLeft, Presentation, Settings, Share2, SunMoon, Table2, SquareKanban, Trash2, Upload, Waypoints, History, Star, Home, Inbox, Users, Building2, Palette, CloudUpload, Workflow, SquareFunction, CircleHelp, Newspaper, SquareCode, GitBranch, Blocks, Compass, Route, ClipboardCopy, Plug, Send } from 'lucide-react'
+import { Bell, CalendarDays, CalendarRange, Copy, Download, FilePlus2, FolderInput, Focus, Keyboard, Languages, LayoutTemplate, Link2, Lock, MessageSquareText, MoveHorizontal, PanelLeft, Presentation, Settings, Share2, SunMoon, Table2, SquareKanban, Trash2, Upload, Waypoints, History, Star, Home, Inbox, Users, Building2, Palette, CloudUpload, Workflow, SquareFunction, CircleHelp, Newspaper, SquareCode, GitBranch, Blocks, Compass, Route, ClipboardCopy, Plug, Send, Gauge } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
 import { navigate } from '../../lib/router'
-import { openTodayJournal, openAgent, AGENT_SHORTCUT, openFunctionBuilder, paletteDbCommands, createScript, openScripts, paletteScripts, openOutbox } from '../../features'
+import { openTodayJournal, openAgent, AGENT_SHORTCUT, openFunctionBuilder, paletteDbCommands, createScript, openScripts, paletteScripts, openOutbox, openPreflight, preflightIsOn } from '../../features'
 import type { ID } from '../../store/types'
 import type { Translate } from '@/shared/i18n'
 import { quickNoteToInbox } from '../capture/inbox'
@@ -65,6 +65,9 @@ export function buildCommands(t: Translate, pageId: ID | null): Command[] {
     { id: 'agenda', group: 'navigate', label: t('shell.cmd.agenda'), icon: CalendarRange, keywords: 'calendar kalender schedule termine week month woche monat upcoming due overdue fällig', run: () => { closeMobileSidebar(); navigate({ name: 'agenda' }) } },
     { id: 'inbox', group: 'navigate', label: t('shell.cmd.inbox'), icon: Bell, shortcut: 'G I', keywords: 'notifications reminders mentions benachrichtigungen erinnerungen erwähnungen posteingang', run: () => { closeMobileSidebar(); navigate({ name: 'inbox' }) } },
     { id: 'home', group: 'navigate', label: t('shell.cmd.home'), icon: Home, keywords: 'dashboard start', run: () => navigate({ name: 'home' }) },
+    ...(preflightIsOn()
+      ? [{ id: 'preflight', group: 'navigate' as const, label: t('features.preflight.palette.open'), icon: Gauge, keywords: 'preflight vorflug vorflug-check lamps lampen master caution panel tafel acknowledge quittieren queue warteschlange', run: () => { closeMobileSidebar(); openPreflight() } }]
+      : []),
     { id: 'graph', group: 'navigate', label: t('shell.cmd.graph'), icon: Waypoints, keywords: 'map network links karte', run: () => navigate({ name: 'graph' }) },
     { id: 'scripts', group: 'navigate', label: t('features.script.cmd.open'), icon: SquareCode, keywords: 'scripts queries code one script skripte abfragen', run: () => { closeMobileSidebar(); openScripts() } },
     { id: 'kit', group: 'navigate', label: t('features.kit.cmd.open'), icon: Blocks, keywords: 'building blocks kit lists own property types record types shared list bausteine listen eigene typen datensatz', run: () => { closeMobileSidebar(); navigate({ name: 'kit' }) } },

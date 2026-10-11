@@ -18,6 +18,7 @@ import { PageMenu } from './PageMenu'
 import { PresenceStack } from '../cloud/Presence'
 import { useCloudReadout, ViewOnlyTag } from '../cloud/Sync'
 import { useReadOnly } from '../cloud/state'
+import { MasterCautionKey } from '../../features'
 import './topbar.css'
 
 export function Topbar({ route }: { route: Route }) {
@@ -64,6 +65,8 @@ export function Topbar({ route }: { route: Route }) {
         {page ? <Crumbs page={page} compact={mobile} /> : <RouteCrumb route={route} />}
       </nav>
       <div className="tb-right">
+        {/* Preflight: MASTER CAUTION on every route (nothing while Preflight is off) */}
+        <MasterCautionKey />
         <PresenceStack pageId={route.name === 'page' ? route.id : null} max={mobile ? 2 : 4} />
         <ViewOnlyTag />
         <SaveLed />
