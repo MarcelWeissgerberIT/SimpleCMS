@@ -24,6 +24,8 @@ async function boot<T>(page: Page, setup?: () => Promise<T>, at = T0): Promise<T
   await page.clock.install({ time: at })
   await openApp(page)
   await startRecorder(page)
+  // the clock jumps days here: the seed's repeating templates would make their pages on the tape
+  await page.evaluate(() => (window as unknown as { __oneRecurring?: { stop: () => void } }).__oneRecurring?.stop())
   const out = setup ? await setup() : (undefined as T)
   await flush(page)
   await rec(page, 'wipe')
@@ -74,7 +76,8 @@ test.describe('flight recorder — room and before-images', () => {
     await at(page, T0)
     await step(page, agent('neu'), [['setRowProperty', n.rows[1], n.est, 102]], { end: true })
     await flushRec(page)
-    expect((await recOps(page)).length).toBe(2)
+    const opsNow = await recOps(page)
+    expect(opsNow.length, JSON.stringify(opsNow.map((o) => [o.w, o.at, o.p1]))).toBe(2)
     // 1 GB quota, 900 MB used by the workspace's own files: 200 MB headroom wanted, a few KB of tape can't make it
     const r = await rec(page, 'budgetCheck', { quota: 1e9, usage: 9e8 })
     expect(r).toEqual({ allowed: false, paused: 'room' })
