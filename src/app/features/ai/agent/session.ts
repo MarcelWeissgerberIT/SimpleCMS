@@ -22,7 +22,7 @@ import { parseCommand, parseCommandText } from './commands'
 import { MAX_TOOL_CALLS, TERMINAL_TOOLS, type AgentTool, type ReadLimit, type StageApi } from './tools'
 import { CODING_RULES, CODING_TOOLS, guardPipelineRows } from './coding'
 import { connectCommand } from './connect'
-import { hasPipelines, isPipelineKind, isPipelineTask, startsNow, useCoding, type PipelineKind } from '../../coding'
+import { hasPipelines, isPipelineKind, useCoding, type PipelineKind } from '../../coding'
 import { memoryFor, noteUse } from '../memory/use'
 import { memoryInUse, proposalsOn } from '../memory/settings'
 import { localProposal, proposeAfterTask, terminalSource, trivialTask } from '../memory/propose'
@@ -33,6 +33,7 @@ import { isContextLimited, openContextPicker, pageContextMarks, readableBlocks, 
 import { withRefImages } from '../image/terminal'
 import { withRefFiles } from '../file/terminal'
 import { webImagesOf, withoutWebImages } from '../../agents/images'
+import { appliesAlone, forgetStagedIds, noteStagedIds, resolveStaged } from './staged'
 import { depsOf, type AgentStatus, type AgentStep, type AgentTurn, type StagedChange, type StagedMedia, type TermMention, type TermRef, type TurnContext } from './types'
 import { newId } from '../../../lib/ids'
 import { isEffectivelyTrashed } from '../../../store/selectors'
@@ -43,8 +44,6 @@ const get = useAgent.getState
 
 /** The API conversation of this session (append-only). */
 let history: BetaMessageParam[] = []
-/** staged row id → real id of rows created by applying */
-let rowIds: Record<string, ID> = {}
 /** change statuses Claude has been told about (to report what the user did in between) */
 let reported: Record<string, StagedChange['status']> = {}
 let controller: AbortController | null = null
@@ -110,7 +109,7 @@ export const stage: StageApi = {
     if (!out) throw new Error(`no staged change ${id}`)
     return out
   },
-  resolve: (id) => rowIds[id] ?? id,
+  resolve: (id) => resolveStaged(id),
 }
 
 /* ------------------------------------------------------------------ */
@@ -700,7 +699,7 @@ export function newTask() {
   controller = null
   setStopHandler(null)
   history = []
-  rowIds = {}
+  forgetStagedIds()
   reported = {}
   lastBatch = null
   mcpSetup = null
@@ -843,20 +842,8 @@ export function undoProposal(cardId: string, itemId: string) {
 /* Review                                                              */
 /* ------------------------------------------------------------------ */
 
-/** A proposal that starts the coding worker when applied (checked live): never part of a bulk apply. */
-export const startsWorker = (c: StagedChange): boolean => c.kind === 'coding' && (!c.coding || startsNow(c.coding))
-
-/**
- * Text added to a pipeline task's page (append_to_page): Claude Code reads it at the task's next stage — shown in full,
- * never part of a bulk apply. (An edit_page shows every changed block in full: it stays in the bulk apply.)
- */
-export const goesToWorker = (c: StagedChange): boolean => c.kind === 'append' && isPipelineTask(stage.resolve(c.pageId))
-
-/**
- * A proposal "apply all" leaves for its own ↵: it starts the coding worker, or its text goes to Claude Code — or it is
- * a send (only the Outbox sends it; applyChanges never does).
- */
-export const appliesAlone = (c: StagedChange): boolean => c.kind === 'send' || startsWorker(c) || goesToWorker(c)
+// the "applied alone" rules live in staged.ts (Preflight's card reads the same ones)
+export { appliesAlone, goesToWorker, startsWorker } from './staged'
 
 /** What applyStaged did: the apply result (null: nothing was applied), `busy`: another apply was going on (nothing done). */
 export interface StagedApply {
@@ -895,7 +882,7 @@ export async function applyStaged(ids?: string[], opts: { quiet?: boolean; bulk?
     set((s) => ({ applying: false, changes: s.changes.map((c) => (writing.has(c.id) && c.status === 'applying' ? { ...c, status: 'failed', error } : c)) }))
     return { res: null }
   }
-  Object.assign(rowIds, res.rowIds)
+  noteStagedIds(res.rowIds)
   set((s) => ({
     applying: false,
     changes: s.changes.map((c) => {
@@ -943,7 +930,7 @@ export function undoStagedBatch(res: ApplyResult, opts: { quiet?: boolean } = {}
   const { kept } = res.undo()
   const stays = new Set([...kept, ...res.final])
   const stayPages = new Set(get().changes.filter((c) => stays.has(c.id)).map((c) => c.pageId))
-  for (const staged of Object.keys(res.rowIds)) if (!stayPages.has(staged)) delete rowIds[staged]
+  forgetStagedIds(Object.keys(res.rowIds).filter((staged) => !stayPages.has(staged)))
   set((s) => ({ changes: s.changes.map((c) => (res.applied.includes(c.id) && !stays.has(c.id) && c.status === 'applied' ? { ...c, status: 'pending' } : c)) }))
   const final = res.final.filter((id) => res.applied.includes(id))
   if (!opts.quiet) useUI.getState().toast(final.length ? tn('features.agent.toast.undoneFinal', final.length) : kept.length ? tn('features.agent.toast.undoneKept', kept.length) : t('features.agent.toast.undone'))

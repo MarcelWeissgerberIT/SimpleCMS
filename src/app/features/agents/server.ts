@@ -225,6 +225,40 @@ export function serverRunCopy(agentId: ID, runId: string): AgentRun | null {
   return s.runs[agentId]?.find((r) => r.id === runId) ?? s.open?.find((r) => r.id === runId) ?? null
 }
 
+/**
+ * A server run as the SERVER holds it now — read again before a review acts on it (another tab of this browser may have
+ * applied it a moment ago: the run lock orders them, and the copy here is only this tab's). The staged runs of its
+ * agent (agent-runs/open; an older server: its last 200 runs); a run no longer listed as staged has nothing open: null.
+ * Its proposals, row ids and status replace this tab's copies (kept with their summary / steps). Throws when the
+ * server cannot be asked (a review then does nothing).
+ */
+export async function freshServerRun(agentId: ID, runId: string): Promise<AgentRun | null> {
+  const wsId = teamId()
+  if (!wsId) return null
+  const full = () => cloudRequest<unknown>('GET', path(wsId, `agent-runs?agentId=${encodeURIComponent(agentId)}&limit=200`))
+  let raw: unknown
+  if (useServerAgents.getState().openMode === 'lean') {
+    try {
+      raw = await cloudRequest<unknown>('GET', path(wsId, `agent-runs/open?agentIds=${encodeURIComponent(agentId)}`))
+    } catch (e) {
+      if (!unsupported(e)) throw e
+      raw = await full()
+    }
+  } else raw = await full()
+  if (teamId() !== wsId) return null
+  const list = (Array.isArray(raw) ? raw : isObj(raw) && Array.isArray(raw.runs) ? raw.runs : []).map(readRun).filter((r): r is AgentRun => !!r && r.agentId === agentId)
+  const found = list.find((r) => r.id === runId && r.status === 'staged') ?? null
+  const local = serverRunCopy(agentId, runId)
+  if (!found) {
+    // decided (elsewhere): it leaves the open runs here too
+    useServerAgents.setState((s) => (s.open?.some((r) => r.id === runId) ? { open: s.open.filter((r) => r.id !== runId) } : {}))
+    return null
+  }
+  const next: AgentRun = { ...(local ?? found), staged: found.staged, rowIds: found.rowIds, applied: found.applied, status: found.status }
+  patchServerRun(next)
+  return next
+}
+
 /* ------------------------------------------------------------------ the member's own open server runs (Preflight) */
 
 /** This member's own server agents in the open team workspace (enabled or not — their proposals still wait). */
@@ -308,7 +342,8 @@ async function loadOpen(): Promise<void> {
   if (teamId() !== wsId) return
   const runs = useServerAgents.getState().runs
   const open = ids.flatMap((id) => (runs[id] ?? []).filter((r) => r.status === 'staged')).sort((a, b) => b.startedAt - a.startedAt)
-  const heads = ids.map((id) => runs[id]?.[0]).filter((r): r is AgentRun => !!r).map(headOf)
+  // each agent's newest run that is not a skip (as the lean answer's `latest` and health.ts read it)
+  const heads = ids.map((id) => (runs[id] ?? []).find((r) => r.status !== 'skipped')).filter((r): r is AgentRun => !!r).map(headOf)
   useServerAgents.setState({ open, openLatest: heads, openWs: wsId })
 }
 

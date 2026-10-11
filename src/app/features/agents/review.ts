@@ -9,9 +9,10 @@
  * Every review of a browser run happens under the agent's run lock (runs.ts withRunLock: one at a time, across the
  * tabs of this browser): it reads the stored run again, acts only on proposals that are still open (pending | failed)
  * and writes back only what it changed (patchRun) — a proposal applied, discarded or superseded in another tab
- * meanwhile is never applied twice, and no status another tab wrote is put back. Server runs: the newest copy this tab
- * holds, the same status filter. The results say what really happened (applyRun → ApplyResult | null, discardRun →
- * the ids it dropped and, on request, its Undo).
+ * meanwhile is never applied twice, and no status another tab wrote is put back. Server runs: under the same lock, read
+ * again from the server (freshServerRun — the tab that applied first has marked them there before it lets go), the same
+ * status filter; a server that cannot be asked → the review does nothing (it throws). The results say what really
+ * happened (applyRun → ApplyResult | null, discardRun → the ids it dropped and, on request, its Undo).
  */
 import type { ID } from '../../store/types'
 import { useUI } from '../../store/ui'
@@ -21,7 +22,7 @@ import { depsOf, type StagedChange } from '../ai/agent/types'
 import { asAgent, stampLocal, touchedBy } from './attribution'
 import { withoutWebImages } from './images'
 import { getAgentState, loadRuns, patchRun, putAgentState, withRunLock, type AgentState } from './runs'
-import { patchServerRun, resolveServerRun, serverErrorText, serverRunCopy } from './server'
+import { freshServerRun, patchServerRun, resolveServerRun, serverErrorText, serverRunCopy } from './server'
 import { isLeader } from './runner'
 import { setSupersedeGuard, supersedeGuard, supersedePlan } from './supersede'
 import { setProposalsShown } from './hold'
@@ -33,9 +34,13 @@ const tn = (key: string, count: number) => t(`${key}.${count === 1 ? 'one' : 'ot
 /** A proposal nobody has decided on yet (the only ones a review acts on). */
 const isOpen = (c: StagedChange) => c.status === 'pending' || c.status === 'failed'
 
-/** The run as it is now: browser runs read again from this device's store, server runs the newest copy here. */
-async function current(run: AgentRun): Promise<AgentRun | null> {
-  if (run.runner === 'server') return serverRunCopy(run.agentId, run.id) ?? run
+/**
+ * The run as it is now: browser runs read again from this device's store; server runs — before a review acts on them
+ * (`fresh`) — read again from the server (another tab may have applied them a moment ago; this tab's copy would not know),
+ * otherwise the newest copy here.
+ */
+async function current(run: AgentRun, fresh = false): Promise<AgentRun | null> {
+  if (run.runner === 'server') return fresh ? freshServerRun(run.agentId, run.id) : (serverRunCopy(run.agentId, run.id) ?? run)
   const runs = await loadRuns(run.agentId)
   return runs.find((r) => r.id === run.id) ?? null
 }
@@ -72,7 +77,7 @@ export const canUndoChange = (runId: string, changeId: string) => rowUndos.has(r
  */
 export async function applyRun(run: AgentRun, ids?: string[], opts: { row?: boolean } = {}): Promise<ApplyResult | null> {
   const out = await withRunLock(run.agentId, async () => {
-    const cur = await current(run)
+    const cur = await current(run, true)
     if (!cur || cur.status === 'running') return null
     const all = cur.staged ?? []
     const targets = all.filter((c) => isOpen(c) && (!ids || ids.includes(c.id)))
@@ -116,14 +121,26 @@ export async function applyRun(run: AgentRun, ids?: string[], opts: { row?: bool
  * nothing to undo here).
  */
 export async function undoChange(run: AgentRun, changeId: string): Promise<number | null> {
+  const out = await undoChangeEach(run, changeId)
+  return out ? Object.values(out).filter((r) => r === 'kept').length : null
+}
+
+/**
+ * The same Undo, with what it did to each change of the batch (by change id): 'undone' (pending again) · 'kept' (edited
+ * since: it stays applied — fields nobody touched went back) · 'final' (cannot be undone). null: nothing to undo here.
+ */
+export async function undoChangeEach(run: AgentRun, changeId: string): Promise<Record<string, 'undone' | 'kept' | 'final'> | null> {
   const res = rowUndos.get(rowKey(run.id, changeId))
   if (!res) return null
   // every row of the same batch loses its Undo with it (one batch, one revert)
   for (const [key, r] of rowUndos) if (r === res) rowUndos.delete(key)
-  return undoApply(run, res, true)
+  const { kept } = await undoApply(run, res, true)
+  const out: Record<string, 'undone' | 'kept' | 'final'> = {}
+  for (const id of res.applied) out[id] = res.final.includes(id) ? 'final' : kept.includes(id) ? 'kept' : 'undone'
+  return out
 }
 
-async function undoApply(run: AgentRun, res: ApplyResult, row = false): Promise<number> {
+async function undoApply(run: AgentRun, res: ApplyResult, row = false): Promise<{ kept: string[] }> {
   const kept = await withRunLock(run.agentId, async () => {
     const { kept } = res.undo()
     // what was kept (edited since) or cannot be undone stays applied, with its row id
@@ -146,7 +163,7 @@ async function undoApply(run: AgentRun, res: ApplyResult, row = false): Promise<
     return kept
   })
   if (!row) useUI.getState().toast(kept.length ? tn('features.agent.toast.undoneKept', kept.length) : t('features.agent.toast.undone'))
-  return kept.length
+  return { kept }
 }
 
 /** What discarding put back of the agent's state (stateBack): the state it wrote, the one it replaced, its note. */
@@ -169,7 +186,7 @@ export interface Discarded {
  */
 export async function discardRun(run: AgentRun, ids: string | string[] | null, opts: { undo?: boolean } = {}): Promise<Discarded> {
   const out = await withRunLock(run.agentId, async () => {
-    const cur = await current(run)
+    const cur = await current(run, true)
     if (!cur || cur.status === 'running') return null
     const all = cur.staged ?? []
     const named = ids === null ? all.filter(isOpen).map((c) => c.id) : Array.isArray(ids) ? ids : [ids]

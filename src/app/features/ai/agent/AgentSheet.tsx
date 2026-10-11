@@ -1224,9 +1224,9 @@ const Part = ({ name, children }: { name: string; children: ReactNode }) => (
  * full), the content preview, the pages that go along, the error and "needs #n". Every part carries `data-part`.
  * `head`: also its title, where it goes and its live tags (Preflight's card, which has no review-list head);
  * `compact`: the error and "needs #n" only (the list while a task runs). The review list's ChangeItem renders it, so
- * both places show the same parts.
+ * both places show the same parts. `card`: Preflight's card — the hints name its keys (A, then Confirm), not the list's.
  */
-export function TerminalChangeBody({ change: c, all, head = false, compact = false }: { change: StagedChange; all: StagedChange[]; head?: boolean; compact?: boolean }) {
+export function TerminalChangeBody({ change: c, all, head = false, compact = false, card = false }: { change: StagedChange; all: StagedChange[]; head?: boolean; compact?: boolean; card?: boolean }) {
   const t = useT()
   const toWorker = useToWorker(c, all)
   const missing = missingOf(c, all)
@@ -1260,12 +1260,12 @@ export function TerminalChangeBody({ change: c, all, head = false, compact = fal
       )}
       {!compact && c.kind === 'coding' && (
         <Part name="coding">
-          <CodingDiff change={c} />
+          <CodingDiff change={c} card={card} />
         </Part>
       )}
       {!compact && c.markdown?.trim() && toWorker && (
         <Part name="full">
-          <FullText label={t(toWorker === 'task' ? 'features.agent.coding.appendFull' : 'features.agent.coding.pageFull')} hint={toWorker === 'task' ? t('features.agent.coding.appendHint') : undefined} text={c.markdown.trim()} testId="term-full-text" />
+          <FullText label={t(toWorker === 'task' ? 'features.agent.coding.appendFull' : 'features.agent.coding.pageFull')} hint={toWorker === 'task' ? t(card ? 'features.agent.coding.appendHintCard' : 'features.agent.coding.appendHint') : undefined} text={c.markdown.trim()} testId="term-full-text" />
         </Part>
       )}
       {!compact && c.markdown?.trim() && !toWorker && c.kind !== 'rename' && c.kind !== 'edit' && c.kind !== 'coding' && (

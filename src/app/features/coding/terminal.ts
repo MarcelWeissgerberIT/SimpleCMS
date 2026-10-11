@@ -27,7 +27,7 @@ import type { JSONContent } from '@tiptap/core'
 import { useEffect, useMemo, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useWorkspace } from '../../store/store'
-import type { Database, ID, Page } from '../../store/types'
+import type { Database, ID, Page, PipelineStage } from '../../store/types'
 import { docToMarkdown } from '../../editor'
 import { claudeDoc } from '../ai/claudeDoc'
 import { isAgentWriting } from '../agents/attribution'
@@ -1009,7 +1009,19 @@ export interface TaskVersionView {
   /** the task's page as Markdown, in full (what the worker reads of it, before context marks) */
   markdown: string
   fields: { repo: string | null; branch: string; stage: string | null }
-  stages: Array<{ name: string; kind: StageKind; auto: boolean; instructions: string; model?: string }>
+  /** every field of each stage that versionOf hashes (pipelineKey): the next stage by name (null: the one below) */
+  stages: Array<{
+    name: string
+    kind: StageKind
+    auto: boolean
+    instructions: string
+    mode: NonNullable<PipelineStage['permissionMode']> | null
+    maxTurns: number | null
+    gitAction: NonNullable<PipelineStage['gitAction']> | null
+    next: string | null
+    output: NonNullable<PipelineStage['output']> | null
+    model?: string
+  }>
   /** the pages it links that go along to the worker: title + the text the worker reads */
   refs: Array<{ id: ID; title: string; markdown: string }>
 }
@@ -1036,7 +1048,19 @@ export async function taskVersionView(taskId: ID): Promise<TaskVersionView | nul
       branch: typeof branch === 'string' ? branch.trim() : '',
       stage: pipeline.find((st) => st.id === stageId)?.name ?? null,
     },
-    stages: pipeline.map((st) => ({ name: st.name, kind: st.kind, auto: !!st.auto, instructions: st.instructions ?? '', ...(st.model ? { model: st.model } : {}) })),
+    stages: pipeline.map((st) => ({
+      name: st.name,
+      kind: st.kind,
+      auto: !!st.auto,
+      instructions: st.instructions ?? '',
+      mode: st.permissionMode ?? null,
+      maxTurns: st.maxTurns ?? null,
+      gitAction: st.gitAction ?? null,
+      // an id that names no stage still changes the version: shown as it is
+      next: st.next ? (pipeline.find((x) => x.id === st.next)?.name ?? st.next) : null,
+      output: st.output ?? null,
+      ...(st.model ? { model: st.model } : {}),
+    })),
     refs: taskRefs(taskId).map((r) => ({ id: r.id, title: r.title, markdown: r.markdown })),
   }
   return { ...view, hash: await hash }

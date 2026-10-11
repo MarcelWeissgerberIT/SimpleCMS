@@ -6,6 +6,8 @@
  *                           newest diff / git state and test output, "Run now"
  *   <scope>|trust           hashes of task versions written or confirmed here (team workspaces)
  * <scope> = "local:local" / "cloud:<workspace id>". Without IndexedDB everything stays in memory.
+ * A task state written here is announced on BroadcastChannel "one-coding-tasks"; a tab holding that task reads it
+ * again (the newer by `at` wins; a state held only as loadTasks' snapshot always loses to what is stored).
  */
 import { create } from 'zustand'
 import { createStore, get, getMany, set as idbSet, update, type UseStore } from 'idb-keyval'
@@ -102,17 +104,40 @@ async function write(key: string, value: unknown): Promise<void> {
   }
 }
 
+/**
+ * Task states this tab holds only as loadTasks' snapshot (never patched here since): a later read lets the stored value
+ * win — another tab (the one connected to the worker) may have written a newer state meanwhile.
+ */
+const snapshot = new Set<string>()
+
+/**
+ * The state to hold after a read: the stored one when memory is only a snapshot of an older read, else the newer of
+ * the two by `at` (memory patched here after the stored one was written wins, as it always did).
+ */
+export function newerTask(stored: unknown, mem: TaskLocal | undefined, snapshotOnly: boolean): TaskLocal {
+  const st = stored && typeof stored === 'object' ? (stored as TaskLocal) : null
+  if (!st) return mem ?? { state: 'idle' }
+  if (!mem || snapshotOnly) return st
+  return (st.at ?? 0) > (mem.at ?? 0) ? st : { ...st, ...mem }
+}
+
 /** Load a task's state and log into memory (once per task and workspace). */
 export async function loadTask(taskId: ID): Promise<void> {
   const s = scope()
   const key = memKey(taskId, s)
   if (loaded.has(key)) return
   loaded.add(key)
+  // a tab that holds task states hears the other tabs' writes
+  taskChannel()
   const [task, log] = await Promise.all([read<TaskLocal>(`${s}|task|${taskId}`), read<LogLine[]>(`${s}|log|${taskId}`)])
-  useCodingLocal.setState((st) => ({
-    tasks: { ...st.tasks, [key]: { ...(task && typeof task === 'object' ? task : { state: 'idle' }), ...st.tasks[key] } },
-    logs: { ...st.logs, [key]: [...(Array.isArray(log) ? log : []), ...(st.logs[key] ?? [])].slice(-LOG_MAX) },
-  }))
+  useCodingLocal.setState((st) => {
+    const next = newerTask(task, st.tasks[key], snapshot.has(key))
+    snapshot.delete(key)
+    return {
+      tasks: { ...st.tasks, [key]: next },
+      logs: { ...st.logs, [key]: [...(Array.isArray(log) ? log : []), ...(st.logs[key] ?? [])].slice(-LOG_MAX) },
+    }
+  })
 }
 
 /** Task states loaded by loadTasks (their logs are not: loadTask still loads those). */
@@ -124,6 +149,7 @@ const statesLoaded = new Set<string>()
  */
 export async function loadTasks(ids: Iterable<ID>): Promise<void> {
   const s = scope()
+  taskChannel()
   const todo: ID[] = []
   for (const id of ids) {
     const key = memKey(id, s)
@@ -146,11 +172,44 @@ export async function loadTasks(ids: Iterable<ID>): Promise<void> {
     if (v && typeof v === 'object') found[memKey(id, s)] = v as TaskLocal
   })
   if (!Object.keys(found).length) return
-  // what this tab holds already wins (as in loadTask)
+  // what this tab holds already wins (as in loadTask); what it takes from here is a snapshot (a later read wins)
   useCodingLocal.setState((st) => {
     const tasks = { ...st.tasks }
-    for (const [key, task] of Object.entries(found)) tasks[key] = { ...task, ...st.tasks[key] }
+    for (const [key, task] of Object.entries(found)) {
+      if (!st.tasks[key]) snapshot.add(key)
+      tasks[key] = { ...task, ...st.tasks[key] }
+    }
     return { tasks }
+  })
+}
+
+/* ------------------------------------------------------------------ other tabs (BroadcastChannel "one-coding-tasks") */
+
+let taskChan: BroadcastChannel | null | undefined
+function taskChannel(): BroadcastChannel | null {
+  if (taskChan !== undefined) return taskChan
+  try {
+    taskChan = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('one-coding-tasks') : null
+  } catch {
+    taskChan = null
+  }
+  if (taskChan) taskChan.onmessage = (e: MessageEvent) => void onTaskWritten(e.data)
+  return taskChan
+}
+
+/** Another tab wrote a task's state: a task held here is read again (the newer by `at` wins; a snapshot always loses). */
+async function onTaskWritten(msg: unknown): Promise<void> {
+  if (!msg || typeof msg !== 'object') return
+  const { scope: s, taskId } = msg as { scope?: unknown; taskId?: unknown }
+  if (typeof s !== 'string' || typeof taskId !== 'string' || s !== scope()) return
+  const key = memKey(taskId, s)
+  if (!useCodingLocal.getState().tasks[key]) return
+  const stored = await read<TaskLocal>(`${s}|task|${taskId}`)
+  useCodingLocal.setState((st) => {
+    if (!st.tasks[key]) return st
+    const next = newerTask(stored, st.tasks[key], snapshot.has(key))
+    snapshot.delete(key)
+    return next === st.tasks[key] ? st : { tasks: { ...st.tasks, [key]: next } }
   })
 }
 
@@ -177,8 +236,14 @@ export async function patchTask(taskId: ID, patch: Partial<TaskLocal>): Promise<
   await loadTask(taskId)
   const key = memKey(taskId, s)
   const next: TaskLocal = { ...(useCodingLocal.getState().tasks[key] ?? { state: 'idle' }), ...patch, at: Date.now() }
+  snapshot.delete(key)
   useCodingLocal.setState((st) => ({ tasks: { ...st.tasks, [key]: next } }))
   await write(`${s}|task|${taskId}`, next)
+  try {
+    taskChannel()?.postMessage({ scope: s, taskId })
+  } catch {
+    /* closed */
+  }
   return next
 }
 

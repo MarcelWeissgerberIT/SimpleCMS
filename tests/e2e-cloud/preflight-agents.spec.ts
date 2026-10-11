@@ -154,3 +154,92 @@ test('two accounts in one browser share no acknowledgement, no day record and no
   const keys = await a.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith('one.preflight.today:')))
   expect(keys).toEqual(expect.arrayContaining([`one.preflight.today:${adaScope}`, `one.preflight.today:${boScope}`]))
 })
+
+/** A Preflight card of the proposals lamp, opened by ↵ on its cap (the card takes the keyboard). */
+async function openProposals(page: Page): Promise<void> {
+  await page.evaluate(() => (window.location.hash = '#/'))
+  const cap = page.locator('.pf-cap[data-lamp="proposals"]')
+  await cap.focus()
+  await page.keyboard.press('Enter')
+  await expect(page.locator('.pf-q article.pf-card[data-current]')).toBeFocused()
+}
+
+test('a server proposal applied in another tab is never applied again here: A reads the run from the server first (review S5)', async ({ page: a }) => {
+  test.setTimeout(150_000)
+  await signIn(a, email('ada'))
+  const wsId = await createWorkspace(a, 'Nordlicht Werk')
+  await openApp(a, wsId)
+  await waitOnline(a)
+  const adaId = (await cloudEval(a, (c) => c.user.id)) as string
+  const ids = await wsEval(a, (s) => {
+    const db = s.createDatabase({ title: 'Nordlicht Übergabe', properties: [{ id: 'nName', name: 'Name', type: 'title' }, { id: 'nStatus', name: 'Status', type: 'text' }] })
+    return { db, row: s.createRow(db, { title: 'Exportfilter verliert Sonderzeichen', properties: { nStatus: 'offen' } }) as string }
+  })
+  const now = Date.now()
+  const change = (status: string, after: string) => ({ id: 'c1', n: 1, kind: 'update_row', status, pageId: ids.row, databaseId: ids.db, title: 'Exportfilter verliert Sonderzeichen', props: [{ propId: 'nStatus', name: 'Status', type: 'text', before: 'offen', after, intent: { kind: 'value', value: after } }] })
+  const run = (id: string, at: number, status: string, staged: AnyState[]) => ({ id, agentId: 'ag-srv', runner: 'server', trigger: { type: 'schedule', detail: 'schedule 07:30' }, startedAt: at, endedAt: at + 30_000, status, summary: '', steps: [], staged })
+  // what the server holds: run-1 open
+  let server: AnyState[] = [run('run-1', now - 120_000, 'staged', [change('pending', 'erledigt')])]
+  const resolves: AnyState[] = []
+  await a.route('**/api/workspaces/*/agent-runs/open?*', (route: Route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ runs: server.filter((r) => r.status === 'staged'), latest: [] }) }),
+  )
+  await a.route('**/api/workspaces/*/agent-runs/*/resolve', async (route: Route) => {
+    resolves.push({ url: route.request().url(), body: route.request().postDataJSON() })
+    return route.fulfill({ status: 200, contentType: 'application/json', body: '{}' })
+  })
+  await wsEval(a, (s, x) => s.upsertAgent(x), agent({ id: 'ag-srv', name: 'Übergabe-Spiegel', createdBy: adaId }))
+  await expect.poll(() => count(a, 'proposals'), { timeout: 20_000 }).toBe(1)
+
+  // another tab of this browser applies it and tells the server — this tab's copy still says "open"
+  server = [run('run-1', now - 120_000, 'ok', [change('applied', 'erledigt')])]
+  await openProposals(a)
+  const card = a.locator('.pf-q article.pf-card[data-current]')
+  await expect(card).toHaveAttribute('data-id', 'run:run-1#c1')
+  await expect(card).not.toHaveAttribute('aria-busy', 'true')
+  await a.keyboard.press('a')
+  await expect(card.locator('.pf-card__tomb')).toBeVisible()
+  await a.waitForTimeout(500)
+  expect(await wsEval(a, (s, id) => s.pages[id].properties.nStatus, ids.row)).toBe('offen')
+  expect(resolves).toEqual([])
+
+  // positive control: a run the server still holds open is applied (and marked there)
+  server = [run('run-2', now - 60_000, 'staged', [change('pending', 'in Arbeit')])]
+  await wsEval(a, (s, x) => s.upsertAgent(x), agent({ id: 'ag-srv-b', name: 'Lieferliste', createdBy: adaId }))
+  await expect.poll(async () => (await reading(a, 'proposals'))?.ids ?? []).toEqual(['run:run-2#c1'])
+  await openProposals(a)
+  // the tombstone of run-1 stays the current card until the person moves on
+  if ((await card.getAttribute('data-id')) !== 'run:run-2#c1') await a.locator('.pf-qr[data-id="run:run-2#c1"]').click()
+  await expect(card).toHaveAttribute('data-id', 'run:run-2#c1')
+  await expect(card).not.toHaveAttribute('aria-busy', 'true')
+  await a.keyboard.press('a')
+  await expect.poll(() => wsEval(a, (s, id) => s.pages[id].properties.nStatus, ids.row)).toBe('in Arbeit')
+  await expect.poll(() => resolves.length).toBe(1)
+  expect(resolves[0].url).toContain('/agent-runs/run-2/resolve')
+  expect(resolves[0].body).toMatchObject({ applied: ['c1'] })
+})
+
+test('an older server without agent-runs/open: the last runs of each own agent — a skip never hides the error before it (review I2)', async ({ page: a }) => {
+  test.setTimeout(120_000)
+  await signIn(a, email('ada'))
+  const wsId = await createWorkspace(a, 'Nordlicht Werk')
+  await openApp(a, wsId)
+  await waitOnline(a)
+  const adaId = (await cloudEval(a, (c) => c.user.id)) as string
+  const now = Date.now()
+  const asked: string[] = []
+  await a.route('**/api/workspaces/*/agent-runs/open?*', (route: Route) => route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ error: { code: 'not_found', message: 'Not found' } }) }))
+  await a.route(/\/api\/workspaces\/[^/]+\/agent-runs\?agentId=/, (route: Route) => {
+    const agentId = new URL(route.request().url()).searchParams.get('agentId') ?? ''
+    asked.push(agentId)
+    const head = (id: string, status: string, at: number, x: AnyState = {}) => ({ id, agentId, runner: 'server', trigger: { type: 'schedule', detail: 'schedule 07:30' }, startedAt: at, endedAt: at + 20_000, status, summary: '', steps: [], ...x })
+    // newest first: the queue was full at 08:05 (a skip), the 08:00 run failed
+    const runs = agentId === 'ag-fail' ? [head('run-skip', 'skipped', now - 5 * 60_000), head('run-err', 'error', now - 10 * 60_000)] : []
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(runs) })
+  })
+  await wsEval(a, (s, x) => s.upsertAgent(x), agent({ id: 'ag-fail', name: 'Wochenbericht Nordlicht', createdBy: adaId }))
+  await expect.poll(() => pf(a, (p) => p.stores.serverAgents.getState().openMode), { timeout: 20_000 }).toBe('fallback')
+  await expect.poll(() => asked.includes('ag-fail'), { timeout: 20_000 }).toBe(true)
+  await expect.poll(() => count(a, 'missed'), { timeout: 20_000 }).toBe(1)
+  expect(await pf(a, (p) => p.stores.serverAgents.getState().openLatest.map((h: AnyState) => `${h.id}:${h.status}`))).toEqual(['run-err:error'])
+})

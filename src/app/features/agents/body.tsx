@@ -8,7 +8,12 @@ import type { AgentRun } from './types'
 
 const Body = lazy(() => import('./RunHistory').then((m) => ({ default: m.AgentChangeBody })))
 
-export function AgentChangeBody(props: { run: AgentRun; change: StagedChange }) {
+/**
+ * `bare`: no Suspense of its own — while the code loads, the caller's boundary shows its fallback (Preflight's card counts
+ * as shown in full only once the body itself rendered).
+ */
+export function AgentChangeBody({ bare = false, ...props }: { run: AgentRun; change: StagedChange; bare?: boolean }) {
+  if (bare) return <Body {...props} />
   return (
     <Suspense fallback={null}>
       <Body {...props} />

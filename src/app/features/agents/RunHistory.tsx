@@ -12,7 +12,7 @@ import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
 import { openPage } from '../../lib/router'
 import { useCloud } from '../../cloud'
-import { useLang, useT } from '../../i18n'
+import { t, useLang, useT } from '../../i18n'
 import { MarkdownLite } from '../ai/MarkdownLite'
 import { MediaToPage } from '../ai/media/MediaToPage'
 import { PropDiff, Preview } from '../ai/agent/AgentSheet'
@@ -21,9 +21,16 @@ import type { StagedChange } from '../ai/agent/types'
 import type { Page } from '../../store/types'
 import { canUndoRun, undoRun } from './exec'
 import { applyRun, canUndoChange, discardRun, undoChange } from './review'
+import { serverErrorText } from './server'
 import { awaitsReview, patchRun, withRunLock } from './runs'
 import { fmtDuration, fmtUsd, fmtWhen, statusLed } from './format'
 import type { AgentRun } from './types'
+
+/** A server run could not be read again before a review (nothing was done): said in a toast. */
+const notRead = (e: unknown) => {
+  console.warn('[one] agents: the server run could not be read', e)
+  useUI.getState().toast({ message: `${t('features.agents.review.serverRead')} ${serverErrorText(e)}`, kind: 'error' })
+}
 
 const pad = (n: number) => String(n).padStart(2, '0')
 
@@ -192,10 +199,10 @@ function Review({ run }: { run: AgentRun }) {
         )}
         {open > 0 && (
           <>
-            <button type="button" className="btn btn--ghost btn--sm" disabled={disabled} onClick={() => void discardRun(run, null).then(() => focusIn(root, 'head'))}>
+            <button type="button" className="btn btn--ghost btn--sm" disabled={disabled} onClick={() => void discardRun(run, null).then(() => focusIn(root, 'head'), notRead)}>
               {t('features.agent.review.discardAll')}
             </button>
-            <button type="button" className="btn btn--primary btn--sm" disabled={disabled} onClick={() => void applyRun(run).then(() => focusIn(root, 'head'))}>
+            <button type="button" className="btn btn--primary btn--sm" disabled={disabled} onClick={() => void applyRun(run).then(() => focusIn(root, 'head'), notRead)}>
               {t('features.agent.review.applyAll')}
             </button>
           </>
@@ -229,11 +236,11 @@ function Change({ run, change: c, disabled, focus }: { run: AgentRun; change: St
   const rowUndo = c.status === 'applied' && canUndoChange(run.id, c.id)
   const apply = () => {
     setNote('')
-    void applyRun(run, [c.id], { row: true }).then(() => focus({ row: c.id, undo: true }))
+    void applyRun(run, [c.id], { row: true }).then(() => focus({ row: c.id, undo: true }), notRead)
   }
   const discard = () => {
     setNote('')
-    void discardRun(run, c.id).then(() => focus({ after: c.n }))
+    void discardRun(run, c.id).then(() => focus({ after: c.n }), notRead)
   }
   const undo = () =>
     void undoChange(run, c.id).then((kept) => {

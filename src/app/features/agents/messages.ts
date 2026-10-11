@@ -282,6 +282,7 @@ export const messages: Messages = {
     'features.agents.supersede.step.one': 'Replaced 1 older proposal for the same row',
     'features.agents.supersede.step.other': 'Replaced {count} older proposals for the same rows',
     'features.agents.review.serverFailed': 'Applied here, but the server could not be told. It may show the run as open.',
+    'features.agents.review.serverRead': 'Nothing done: the server could not be asked whether these proposals are still open.',
 
     'features.agents.run.mcpMissing': '{name} is not set up in this browser — left out.',
     'features.agents.run.mcpOff': '{name} is switched off in this browser — left out.',
@@ -694,6 +695,7 @@ export const messages: Messages = {
     'features.agents.supersede.step.one': '1 älteren Vorschlag für dieselbe Zeile ersetzt',
     'features.agents.supersede.step.other': '{count} ältere Vorschläge für dieselben Zeilen ersetzt',
     'features.agents.review.serverFailed': 'Hier übernommen, aber der Server konnte nicht benachrichtigt werden. Er zeigt den Lauf eventuell noch als offen.',
+    'features.agents.review.serverRead': 'Nichts getan: Der Server ließ sich nicht fragen, ob diese Vorschläge noch offen sind.',
 
     'features.agents.run.mcpMissing': '{name} ist in diesem Browser nicht eingerichtet — weggelassen.',
     'features.agents.run.mcpOff': '{name} ist in diesem Browser ausgeschaltet — weggelassen.',

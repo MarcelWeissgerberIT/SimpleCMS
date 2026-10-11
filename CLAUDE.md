@@ -568,13 +568,16 @@ the public APIs stable — other areas are built against them in parallel.
   apart); reads run in idle (shimmed where requestIdleCallback is missing) and the UI reads only `usePreflight`. Other
   areas add lamps only with `registerLampSource` imported from `features/preflight/registry` (dependency-free; the
   Outbox's is features/outbox/lamp.ts); queue item ids are exactly the reading's ids. Every card key calls the source's
-  own entry point from queue/calls.ts (applyRun / discardRun / undoChange · applyStaged(…, { quiet }) / discardStaged /
+  own entry point from queue/calls.ts (applyRun / discardRun / undoChangeEach · applyStaged(…, { quiet }) / discardStaged /
   undiscardStaged · saveProposal / saveRunMemory · planTaskAction → applyTaskAction (never `confirm: true`; only "Version
   bestätigen" → confirmTaskVersion(id, hash) of the version its card rendered) · markRead / archiveItems · openSlip /
   withdrawSlip) and reports what really happened (an action that changed nothing is not done). VON HAND (starts the
   worker, goes to Claude Code, sends, version confirm / sign-in / text / editor, tokens) confirms only with ↵ / click on
-  its confirm key and is never in ⇧A or a swipe; ⇧A applies only clean cards shown in full in this tab (a bulk sheet
-  shows the rest first), never on "Alle". Device state per member (`local:local` | `cloud:<ws>:u:<account>`):
+  its confirm key and is never in ⇧A or a swipe; ⇧A applies only clean cards shown in full in this tab — their body
+  rendered, at the content revision they have now (`QueueSourceDef.rev`; a change merged in place is unseen again) — a
+  bulk sheet shows the rest first and its key applies only what was seen (arrivals wait), never on "Alle". A batch's Undo
+  answers per card (`Done.undo` → { itemId: 'undone' | 'kept' | 'final' }, `Done.finals` for cards without one); only
+  'undone' cards come back, a 'kept' one stays done. Device state per member (`local:local` | `cloud:<ws>:u:<account>`):
   localStorage `one.preflight.{ack,today,last,hidden}:<scope>`, prefs `one.preflight.prefs` (device-wide), IndexedDB
   `one-preflight` (log + opened set: ids, kinds, times, outcomes — labels resolved live, never text), 30 days, never
   synced / exported / backed up, wiped with the device copy and the local reset. Keys only with focus in the plate or
@@ -585,7 +588,12 @@ the public APIs stable — other areas are built against them in parallel.
   browser runs, `update_row` whose props the newer change covers, never a card the person opened — the guard Preflight
   registers): status 'superseded' (never 'discarded'), no card, counted nowhere; `stateBack` stops at a run holding one.
 - Server proposals for Preflight come from `GET /:id/agent-runs/open` (own server agents, staged runs, no summaries /
-  steps), polled only while the document is visible.
+  steps), polled only while the document is visible. applyRun / discardRun of a server run read it again from the server
+  inside the run lock (`freshServerRun`) — never a tab-local copy; no answer → nothing done.
+- The AI terminal's "applied alone" rules and its staged-id map live in ai/agent/staged.ts (startsWorker / goesToWorker /
+  appliesAlone / resolveStaged) — the session and Preflight read the same ones. Coding task states written in a tab are
+  announced on BroadcastChannel "one-coding-tasks"; a state held only from `loadTasks` (a snapshot) never wins over the
+  stored one (coding/local.ts `newerTask`).
 - Code areas (ui/code): use `CodeArea` for any code or instruction field, never a plain textarea (the integrations JSON
   editor keeps its own windowed `JsonCodeArea`, same palette). Syntax colours only from tokens.css `--syn-*` (≥ 4.5:1 on
   bg / surface / surface-2 / surface-3, Paper + Carbon) via `.syn-<class>` or `.hljs-*` inside `.hljs` / `.syn-hl`

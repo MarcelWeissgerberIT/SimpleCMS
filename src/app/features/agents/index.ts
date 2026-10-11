@@ -50,14 +50,14 @@ export { recipeOptionNames } from './integrations/recipe'
  * Preflight's proposals queue (P2) — the review entry points, with their own safety rules (review.ts: the run lock, the
  * stored run read again, open proposals only, a patch of what changed):
  *  - applyRun(run, ids?, { row }) → ApplyResult | null · discardRun(run, ids | null, { undo }) → { dropped, undo } ·
- *    undoChange(run, changeId) → kept | null
- *  - AgentChangeBody { run, change }: the run history's own body of a proposal, loaded with the agents page's code on
- *    first use (AGENT_BODY_KINDS: the kinds it shows)
+ *    undoChange(run, changeId) → kept | null · undoChangeEach(run, changeId) → { changeId: 'undone' | 'kept' | 'final' } | null
+ *  - AgentChangeBody { run, change, bare? }: the run history's own body of a proposal, loaded with the agents page's code
+ *    on first use (AGENT_BODY_KINDS: the kinds it shows; `bare`: the caller's Suspense waits for it)
  *  - setSupersedeGuard(fn): which proposals were opened as cards (never replaced; null = not known yet → no pass) ·
  *    catchUpSupersede(): the leader looks again (call it once that is known) · setProposalsShown(fn): while it says
  *    true, an agent's "has N proposals" toast stays away
  */
-export { applyRun, discardRun, undoChange, type Discarded } from './review'
+export { applyRun, discardRun, undoChange, undoChangeEach, type Discarded } from './review'
 export { AgentChangeBody, AGENT_BODY_KINDS } from './body'
 export { setSupersedeGuard, type SupersedeGuard } from './supersede'
 export { catchUpSupersede } from './runner'
