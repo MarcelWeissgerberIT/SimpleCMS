@@ -81,9 +81,9 @@ function handOf(plan: TaskActionPlan | undefined, extra: HandWhy[] = []): HandWh
 }
 
 /** Apply a plan and check it moved the task (an action whose own guard stopped it is not done). */
-async function apply(plan: TaskActionPlan, itemId: string): Promise<Done> {
+async function apply(plan: TaskActionPlan): Promise<Done> {
   try {
-    await applyTask(plan, itemId)
+    await applyTask(plan)
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) }
   }
@@ -167,7 +167,7 @@ function taskActions(item: QueueItem): CardAction[] {
             return { ok: false, error: e instanceof Error ? e.message : String(e) }
           }
           if (!pin || fresh.question !== pin.question || !samePin(fresh, pin)) return { ok: false, error: 'features.preflight.err.moved' }
-          return apply(fresh, item.id)
+          return apply(fresh)
         },
       },
       open,
@@ -175,7 +175,7 @@ function taskActions(item: QueueItem): CardAction[] {
   }
   const plan = prep?.plan
   if (p.kind === 'failed') {
-    return [{ key: 'a', label: t('features.preflight.card.retry'), outcome: 'hand', hand: handOf(plan), writes: true, blocked: loading ?? (plan ? null : { key: 'features.preflight.err.changed' }), run: () => apply(plan!, item.id) }, open]
+    return [{ key: 'a', label: t('features.preflight.card.retry'), outcome: 'hand', hand: handOf(plan), writes: true, blocked: loading ?? (plan ? null : { key: 'features.preflight.err.changed' }), run: () => apply(plan!) }, open]
   }
   // gate: approve (the plan shown), or send it back with a note
   const edited = !!plan && plan.outputFrom === 'page' && !!plan.edited
@@ -187,7 +187,7 @@ function taskActions(item: QueueItem): CardAction[] {
       hand: handOf(plan),
       writes: true,
       blocked: loading ?? (!plan ? { key: 'features.preflight.err.changed' } : edited ? { key: 'features.preflight.why.planEdited' } : null),
-      run: () => apply(plan!, item.id),
+      run: () => apply(plan!),
     },
     {
       key: 'r',
@@ -207,7 +207,7 @@ function taskActions(item: QueueItem): CardAction[] {
           return { ok: false, error: e instanceof Error ? e.message : String(e) }
         }
         if (!plan || !samePin(fresh, plan)) return { ok: false, error: 'features.preflight.err.moved' }
-        return apply(fresh, item.id)
+        return apply(fresh)
       },
     },
     open,

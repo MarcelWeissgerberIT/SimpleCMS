@@ -118,11 +118,12 @@ export async function bringBackMenuRun(run: AIRun): Promise<boolean> {
 /* ---------------- coding (the terminal's planner → apply; never `confirm: true`) */
 
 /**
- * Apply a planned task action: the person's key in Preflight's queue — its writes are `you~preflight:<item id>`
- * (store/writer.ts; design §14, brief step 39). Its Undo (a "Then" put back) is the source's own `you~undo`.
+ * Apply a planned task action: the person's key in Preflight's queue — its writes (the stage move, a note, a follow-up)
+ * are `you~preflight:<task id>` (store/writer.ts; design §14, brief step 39 — the task's id: a queue item's id holds
+ * characters a writer key's ref does not take). Its Undo (a "Then" put back) is the source's own `you~undo`.
  */
-export const applyTask = (plan: TaskActionPlan, itemId: string): Promise<{ undo: (() => boolean) | null }> =>
-  applyTaskAction(plan, { writer: { kind: 'you', via: 'preflight', ref: itemId } })
+export const applyTask = (plan: TaskActionPlan): Promise<{ undo: (() => boolean) | null }> =>
+  applyTaskAction(plan, { writer: { kind: 'you', via: 'preflight', ref: plan.taskId } })
 
 /** Trust exactly the version the card rendered ('changed': it is not that version any more; 'gone'). */
 export const confirmVersion = (taskId: ID, hash: string): Promise<'ok' | 'changed' | 'gone'> => confirmTaskVersion(taskId, hash)

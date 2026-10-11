@@ -16,6 +16,7 @@ import { addProfile, trackerProfile } from './helpers/integrations'
 import { makeCodingRepo, startCodingWorker, type CodingRepo, type RunningWorker } from './helpers/coding'
 import { expectLane, expectNoPerson, markRec, nordlichtDb, rec, startRecorder } from './helpers/recorder'
 import { blockTracker, outbox, outboxLoaded, routeRef, rowValue, seedMirrorDb } from './helpers/outbox'
+import { flushLamps, seedMirror, seedPipeline, seedRuns, waitPreflight } from './helpers/preflightStory.mjs'
 
 type AnyRec = Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -1059,6 +1060,117 @@ test.describe('flight recorder — the Outbox', () => {
     expect(await rowValue(page, row, m.props.waiting)).toBe(true)
     const undone = await expectLane(page, mk, 'undo', undefined, `you~undo:${id}`)
     expect(undone.filter((o) => o.l === 'you').map((o) => o.w), 'the Reset on the person\'s own lane').toEqual([])
+  })
+})
+
+/* ------------------------------------------------------------------ */
+/* Preflight: the queue's keys write as their sources                  */
+/* ------------------------------------------------------------------ */
+
+test.describe('flight recorder — Preflight', () => {
+  /** Preflight's seam: (seam, arg) → value. */
+  const pf = <R, A = null>(page: Page, fn: (p: AnyRec, arg: A) => R | Promise<R>, arg?: A): Promise<R> =>
+    page.evaluate(({ src, arg }) => new Function('p', 'arg', `return (${src})(p, arg)`)((window as unknown as { __onePreflight: AnyRec }).__onePreflight, arg), { src: fn.toString(), arg: (arg ?? null) as A }) as Promise<R>
+  const card = (page: Page) => page.locator('.pf-q article.pf-card[data-current]')
+  /** A lit cap: ↵ opens its queue, the current card takes the keyboard. */
+  async function openLamp(page: Page, id: string): Promise<void> {
+    await flushLamps(page)
+    await page.locator(`.pf-cap[data-lamp="${id}"]`).focus()
+    await page.keyboard.press('Enter')
+    await expect(page.getByTestId('pf-queue').locator(`.pf-tab[data-lamp="${id}"]`)).toHaveAttribute('aria-selected', 'true')
+    await expect(card(page)).toBeFocused()
+  }
+  /** The card is the current one, prepared (its keys usable) and focused. */
+  async function ready(page: Page, id: string): Promise<void> {
+    await expect(card(page)).toHaveAttribute('data-id', id)
+    await expect(card(page)).not.toHaveAttribute('aria-busy', 'true')
+    await card(page).focus()
+  }
+  const done = (page: Page, id: string) => pf(page, (p, id) => p.stores.queue.getState().done.find((d: AnyRec) => d.id === id)?.outcome ?? null, id)
+
+  test.beforeEach(async ({ page, context }) => {
+    await page.addInitScript(() => localStorage.setItem('one.tour', '{"off":true}'))
+    // nothing leaves the machine (the relay's links)
+    await context.route(/^https?:\/\/(?!127\.0\.0\.1|localhost)/, (r) => r.abort())
+  })
+
+  test('A on an agent proposal writes as the agent run (agent:<id>:<run>#<change>), its Z on lane undo; A on a terminal change is the terminal\'s batch', async ({ page }) => {
+    const m = await boot(page, async () => {
+      await waitPreflight(page)
+      const m = await seedMirror(page)
+      await seedRuns(page, m)
+      return m
+    })
+    await page.evaluate(() => (window.location.hash = '#/'))
+
+    // A: the agents' own review applies it — the run's writer, never the person's
+    await openLamp(page, 'proposals')
+    await ready(page, 'run:r-now#c1')
+    let mk = await markRec(page)
+    await page.keyboard.press('a')
+    await expect.poll(() => wsEval(page, (s, a) => s.pages[a.row]?.properties[a.prop], { row: m.rows['NL-201'], prop: m.props.comments })).toBe(4)
+    await expect.poll(() => done(page, 'run:r-now#c1')).toBe('applied')
+    let ops = await expectLane(page, mk, 'agent:ag-spiegel', /^agent:ag-spiegel:r-now$/, /^agent:ag-spiegel:r-now#c1$/)
+    expect(ops.filter((o) => o.l === 'you').map((o) => o.w), 'the apply on the person\'s own lane').toEqual([])
+
+    // Z: the person's Undo of that batch (you~undo:<run>)
+    mk = await markRec(page)
+    await card(page).focus()
+    await page.keyboard.press('z')
+    await expect.poll(() => wsEval(page, (s, a) => s.pages[a.row]?.properties[a.prop], { row: m.rows['NL-201'], prop: m.props.comments })).not.toBe(4)
+    ops = await expectLane(page, mk, 'undo', undefined, 'you~undo:r-now')
+    expect(ops.filter((o) => o.l === 'agent:ag-spiegel').map((o) => o.w), 'the Undo on the agent\'s lane').toEqual([])
+
+    // a terminal change staged in this tab: A applies it quietly — the terminal's batch (terminal:<batch>#<change>)
+    const notes = await createPage(page, { title: 'Schichtnotizen', content: doc(para('Linie 2.')) })
+    await pf(page, (p, a) => p.terminal({ changes: [{ id: 'tc1', n: 1, kind: 'append', status: 'pending', pageId: a.notes, title: 'Schichtnotizen', markdown: 'Linie 2 läuft im kurzen Takt.' }] }), { notes })
+    await flushLamps(page)
+    const term = await pf(page, (p) => p.stores.queue.getState().items.proposals?.find((i: AnyRec) => i.refs.changeId === 'tc1')?.id ?? null)
+    expect(term).not.toBeNull()
+    const row = page.getByTestId('pf-queue').locator(`.pf-qr[data-id="${term}"]`)
+    await expect(async () => {
+      if ((await card(page).getAttribute('data-id')) !== term) await row.click({ timeout: 1000 })
+      await expect(card(page)).toHaveAttribute('data-id', term!, { timeout: 1000 })
+    }).toPass({ timeout: 15_000 })
+    await ready(page, term!)
+    mk = await markRec(page)
+    await page.keyboard.press('a')
+    await expect.poll(() => wsEval(page, (s, id) => s.pages[id].plain, notes)).toContain('kurzen Takt')
+    ops = await expectLane(page, mk, 'terminal', /^terminal:/, /^terminal:[^#]+#tc1$/)
+    await expectNoPerson(page, mk, [`p:${notes}`])
+  })
+
+  test('A on a gate approves through the terminal\'s planner as the person in Preflight (you~preflight:<task>)', async ({ page }) => {
+    const pipe = await boot(page, async () => {
+      await waitPreflight(page)
+      return seedPipeline(page)
+    })
+    await page.evaluate(() => (window.location.hash = '#/'))
+    const task = pipe.tasks[0]
+    let gate: string | null = null
+    await expect.poll(async () => {
+      await flushLamps(page)
+      gate = await pf(page, (p, task) => (p.readings().gate?.ids ?? []).find((id: string) => id.startsWith(`task:${task}:`) && id.includes(':gate@')) ?? null, task)
+      return gate
+    }, { timeout: 15_000 }).not.toBeNull()
+    await openLamp(page, 'gate')
+    const row = page.getByTestId('pf-queue').locator(`.pf-qr[data-id="${gate}"]`)
+    await expect(async () => {
+      if ((await card(page).getAttribute('data-id')) !== gate) await row.click({ timeout: 1000 })
+      await expect(card(page)).toHaveAttribute('data-id', gate!, { timeout: 1000 })
+    }).toPass({ timeout: 15_000 })
+    await ready(page, gate!)
+    const stageOf = () => wsEval(page, (s, a) => s.pages[a.task]?.properties[Object.values(s.databases[a.db].properties as AnyRec[]).find((p) => p.type === 'select' && (p.options ?? []).some((o: AnyRec) => o.id === a.gate))!.id], { task, db: pipe.dbId, gate: pipe.gateId })
+    expect(await stageOf()).toBe(pipe.gateId)
+    // VON HAND: A opens the confirm row, ↵ on its key approves
+    await page.keyboard.press('a')
+    await expect(page.getByTestId('pf-confirm-key')).toBeFocused()
+    const mk = await markRec(page)
+    await page.keyboard.press('Enter')
+    await expect.poll(stageOf).not.toBe(pipe.gateId)
+    await expect.poll(() => done(page, gate!)).toBe('hand')
+    const ops = await expectLane(page, mk, 'you', undefined, `you~preflight:${task}`)
+    expect(ops.filter((o) => o.p1 === `p:${task}` && o.l === 'you').length).toBeGreaterThan(0)
   })
 })
 

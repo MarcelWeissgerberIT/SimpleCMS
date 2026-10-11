@@ -598,7 +598,10 @@ the public APIs stable — other areas are built against them in parallel.
   own entry point from queue/calls.ts (applyRun / discardRun / undoChangeEach · applyStaged(…, { quiet }) / discardStaged /
   undiscardStaged · saveProposal / saveRunMemory · planTaskAction → applyTaskAction (never `confirm: true`; only "Version
   bestätigen" → confirmTaskVersion(id, hash) of the version its card rendered) · markRead / archiveItems · openSlip /
-  withdrawSlip) and reports what really happened (an action that changed nothing is not done). VON HAND (starts the
+  withdrawSlip) and reports what really happened (an action that changed nothing is not done). Writers (store/writer.ts):
+  each key writes as its source does — applyRun = the agent run (`agent:<id>:<run>#<change>`), applyStaged = the
+  terminal's batch, memory saves `you~memory`, every Z `you~undo`, sync's own `you~ui` — and applyTaskAction gets
+  `you~preflight:<task id>` (calls.ts `applyTask`); Preflight's own state never touches the store. VON HAND (starts the
   worker, goes to Claude Code, sends, version confirm / sign-in / text / editor, tokens) confirms only with ↵ / click on
   its confirm key and is never in ⇧A or a swipe; ⇧A applies only clean cards shown in full in this tab — their body
   rendered, at the content revision they have now (`QueueSourceDef.rev`; a change merged in place is unseen again) — a
