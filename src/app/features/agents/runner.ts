@@ -15,7 +15,7 @@ import { pageChanges, useWorkspace } from '../../store/store'
 import { isApplyingRemote } from '../../store/persistence'
 import { inTemplate } from '../../store/selectors'
 import type { CustomAgent, Database, ID, Page, PropertyDef } from '../../store/types'
-import { useCloud } from '../../cloud'
+import { activeWorkspace, useCloud } from '../../cloud'
 import { sameValue } from '../automations/engine'
 import { t } from '../../i18n'
 import { isAgentWriting, startAttributionKeeper } from './attribution'
@@ -24,6 +24,7 @@ import { isRunningAnywhere, wsKey } from './locks'
 import { latestSlot } from './schedule'
 import { forgetSlots, getSlot, loadRuns, nextSeq, onRunsChanged, putRun, setSlot, useAgentRuns } from './runs'
 import { supersedePlan } from './supersede'
+import { sweepOrphanBooks, trustScope } from './trust/book'
 import { newId } from '../../lib/ids'
 
 /** The run code (the agent loop, its tools, apply) loads on the first run, not at boot. */
@@ -380,11 +381,30 @@ let started = false
 let stopElection: (() => void) | null = null
 
 /** Start the browser runner (main.tsx, once after hydrate). Returns a stop function. */
+/** scopes whose orphan trust books were swept in this session */
+const swept = new Set<string>()
+
+/**
+ * Once per session and scope: drop the trust books of agents that are gone (sweepOrphanBooks keeps any written in the
+ * last 30 days) — locally right away (the workspace is hydrated), in a team once the meta map is in sync ('online').
+ */
+function sweepBooks(): void {
+  const scope = trustScope()
+  if (!scope || swept.has(scope)) return
+  if (activeWorkspace().kind === 'cloud' && useCloud.getState().status !== 'online') return
+  swept.add(scope)
+  void sweepOrphanBooks(new Set(Object.keys(useWorkspace.getState().agents ?? {}))).catch(() => {})
+}
+
 export function startAgents(): () => void {
   if (started) return () => {}
   started = true
   const stopKeeper = startAttributionKeeper()
   stopElection = elect()
+  sweepBooks()
+  const unsubCloud = useCloud.subscribe((c, p) => {
+    if (c.status !== p.status || c.user !== p.user || c.active !== p.active) sweepBooks()
+  })
   // the runs of every agent: the sidebar badge counts what waits for review
   const loadAll = () => {
     for (const id of Object.keys(useWorkspace.getState().agents ?? {})) if (!(id in useAgentRuns.getState().byAgent)) void loadRuns(id)
@@ -401,6 +421,7 @@ export function startAgents(): () => void {
   return () => {
     started = false
     unsubAgents()
+    unsubCloud()
     stopKeeper()
     stopElection?.()
     stopElection = null

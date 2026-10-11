@@ -13,6 +13,8 @@
  *   one-recorder                        the flight recorder's journal of scope cloud:<id>[:u:<user>] (features/recorder)
  *   one-vault / kv                      sealed secrets of scope cloud:<id> (the AI key, the GitHub token)
  *   one-outbox / kv                     the Outbox's slips and receipts (cloud:<id>:u:<user>|slip|<slip>)
+ *   one-agents / runs                   custom agents' runs, slots, run numbers and state of the workspace's agents, and
+ *                                       the per-field trust books of each member here (trust|cloud:<id>:u:<user>|<agent>…)
  *   localStorage one.shell.visits:cloud:<id>   which pages this device opened, how often (FREQUENT)
  *   localStorage one.mirror.reports:cloud:<id> the report pages this device's mirror setups made (features/agents)
  *   localStorage one.preflight.{ack,today,last,hidden}:cloud:<id>:u:<user>  Preflight's acknowledgements, day, last
@@ -310,11 +312,14 @@ async function forget(flag: string[]): Promise<void> {
     if (runKeys.length) await delMany(runKeys, runs).catch(() => {})
   }
   // custom agents of this device (features/agents/runs.ts): runs, schedule slots and run numbers of the targets' agents
-  // ("runs:<agent>", "slot:<agent>", "seq:<agent>") and their saved state ("state:cloud:<ws>:<agent>")
+  // ("runs:<agent>", "slot:<agent>", "seq:<agent>"), their saved state ("state:cloud:<ws>:<agent>") and the per-field
+  // trust books of every member here (features/agents/trust/book.ts: "trust|cloud:<ws>:u:<account>|<agent>…")
   if (!dbNames || dbNames.includes('one-agents')) {
     const store = createStore('one-agents', 'runs')
     const agentKeys = (await keys(store).catch(() => [] as IDBValidKey[])).filter((k) => {
       const key = String(k)
+      const trust = /^trust\|cloud:([^|:]+)(?::u:[^|]+)?\|/.exec(key)
+      if (trust) return targets.has(trust[1])
       const st = /^state:cloud:([^:]+):/.exec(key)
       if (st) return targets.has(st[1])
       const run = /^(?:runs|slot|seq):(.+)$/.exec(key)

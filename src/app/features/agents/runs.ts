@@ -14,6 +14,7 @@ import { createStore, del, get, set, update, type UseStore } from 'idb-keyval'
 import type { ID } from '../../store/types'
 import type { AgentRun } from './types'
 import { wsKey } from './locks'
+import { dropBooks } from './trust/book'
 
 export const MAX_RUNS = 100
 
@@ -210,8 +211,9 @@ export function withRunLock<T>(agentId: ID, fn: () => Promise<T>): Promise<T> {
   return run
 }
 
-/** Forget every run of an agent (it was deleted) — and its saved state. */
+/** Forget every run of an agent (it was deleted) — and its saved state and its trust books (every scope of this browser). */
 export async function dropRuns(agentId: ID): Promise<void> {
+  await dropBooks(agentId)
   useAgentRuns.setState((s) => {
     const byAgent = { ...s.byAgent }
     delete byAgent[agentId]
