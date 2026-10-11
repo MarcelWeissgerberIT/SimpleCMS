@@ -226,6 +226,36 @@ test.describe('flight recorder — the eject, hard cases', () => {
     expect(await wsEval(page, (s, ids) => [s.pages[ids.b].parentId, s.pages[ids.p].parentId], { b, p })).toEqual([q, b])
   })
 
+  test('F4 overlay: a comment thread and a favourite made after the run survive the eject of its title change; a page locked since is held', async ({ page }) => {
+    test.setTimeout(120_000)
+    await page.clock.install({ time: storyTime(story, '07:00:00') })
+    await openApp(page)
+    await startRecorder(page)
+    const you = { kind: 'you', via: 'ui' }
+    const step = async (time: string, writer: Record<string, unknown>, calls: unknown[][], extra: Record<string, unknown> = {}) => {
+      await page.clock.setFixedTime(storyTime(story, time))
+      return rec<unknown[]>(page, 'step', { writer, calls, ...extra })
+    }
+    const [plan, memo] = (await step('07:00:00', you, [['createPage', { title: 'Launch plan', content: { type: 'doc', content: [para('l1', 'Nordlicht im Oktober')] } }], ['createPage', { title: 'Tessera Memo' }]])) as string[]
+    await page.clock.setFixedTime(storyTime(story, '07:10:00'))
+    await rec(page, 'settle')
+    const agent = (change: string) => ({ kind: 'agent', id: 'tessera-titel', run: 'r4', change })
+    await step('07:31:00', agent('c1'), [['updatePage', plan, { title: 'Launch plan (Entwurf)' }]], { note: { seq: 4 } })
+    await step('07:31:30', agent('c2'), [['updatePage', memo, { title: 'Tessera Memo (alt)' }]], { end: true })
+    // afterwards: the person comments on and pins the first page, and locks the second
+    await step('07:33:00', you, [['addComment', plan, { quote: 'Nordlicht', body: 'Mara Lind fragt nach dem Termin.' }], ['toggleFavorite', plan], ['updatePageSettings', memo, { locked: true }]])
+    await page.clock.setFixedTime(storyTime(story, '07:40:00'))
+    await rec(page, 'settle')
+    const sel = { lane: 'agent:tessera-titel', run: 'agent:tessera-titel:r4', a: storyTime(story, '07:30:00'), b: storyTime(story, '07:35:00') }
+    const r = await rec<{ places: Array<{ p: string; outcome: string; reason: string | null }> }>(page, 'planEject', sel)
+    expect(r.places.find((x) => x.p === `p:${plan}`)?.outcome).toBe('back')
+    expect(r.places.find((x) => x.p === `p:${memo}`)).toMatchObject({ outcome: 'held', reason: 'pageLocked' })
+    expect(await rec<{ state: string }>(page, 'eject', sel)).toMatchObject({ state: 'done' })
+    const after = await wsEval(page, (s, ids) => ({ title: s.pages[ids.plan].title, comments: (s.pages[ids.plan].comments ?? []).length, fav: !!s.pages[ids.plan].favorite, memo: s.pages[ids.memo].title }), { plan, memo })
+    expect(after).toEqual({ title: 'Launch plan', comments: 1, fav: true, memo: 'Tessera Memo (alt)' })
+    expect(await rec(page, 'unknowns')).toEqual([])
+  })
+
   test('crash race (C3): a commit held before its settle — a second tab booting leaves it committing; released → done; with the first tab closed, the second tab\'s next boot finishes it', async ({ page, context }) => {
     test.setTimeout(240_000)
     await bootStory(page)
