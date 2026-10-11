@@ -22,7 +22,9 @@ import { livePage, withPageNodes, type LinkTarget } from './links'
 import { mediaNode } from '../media/blocks'
 import { applyNewTask, applyTaskAction, isPipelineTask, taskNeedsConfirm, taskSig, taskWriteEndsConfirm, textRefsGained } from '../../coding'
 import { isHandOnly, keyOwner, keyPropOf, keyText } from '../../../store/keys'
-import { withWriter, type Writer } from '../../../store/writer'
+import { formatWriterKey, withWriter, type Writer } from '../../../store/writer'
+import { isSettled } from '../../recorder/settled'
+import { runKeyOf } from '../../recorder/model/writerKeys'
 
 const ws = () => useWorkspace.getState()
 const ORIGIN = 'ai'
@@ -263,9 +265,16 @@ export async function applyChanges(changes: StagedChange[], all: StagedChange[],
     }
   }
 
+  // a change an eject settled (features/recorder/settled.ts) is not the batch's to revert any more: its closure is kept
+  // — an edit group whole when any of its edits is settled — and reported kept (another tab's eject too: the mark comes over)
+  const runKey = runKeyOf(formatWriterKey(opts.writer))
   const undo = () => {
     const kept: string[] = []
-    for (let i = undos.length - 1; i >= 0; i--) if (!undos[i]!.fn()) kept.push(...undos[i]!.ids)
+    for (let i = undos.length - 1; i >= 0; i--) {
+      const u = undos[i]!
+      if (runKey && u.ids.some((id) => isSettled(runKey, id))) kept.push(...u.ids)
+      else if (!u.fn()) kept.push(...u.ids)
+    }
     return { kept }
   }
   return { applied, failed, rowIds, final, undo }

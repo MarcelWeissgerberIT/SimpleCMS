@@ -47,6 +47,9 @@
  */
 import type { RunOptions, RunResult } from './runtime/run'
 import type { ScriptRun } from './runtime/types'
+import type { ID } from '../../store/types'
+import { runScriptById } from './runtime/active'
+import { loadScriptRuns } from './runtime/runs'
 
 export { ScriptsRoute } from './ScriptsRoute'
 export { ScriptDialogHost } from './ui/DialogHost'
@@ -79,4 +82,27 @@ export async function runScript(o: RunOptions): Promise<RunResult> {
 /** Undo a run of this device's run log (pages it created go to the trash, everything else back). */
 export async function undoRun(run: ScriptRun): Promise<boolean> {
   return (await loadScriptEngine()).undoRun(run)
+}
+
+/** The flight recorder's eject settled a run (its Undo goes) · its Undo gave it back. Busy: the script runs in this tab. */
+export async function settleScriptRun(scriptId: ID, runId: string, scope?: string): Promise<boolean> {
+  return (await loadScriptEngine()).settleScriptRun(scriptId, runId, scope)
+}
+export async function unsettleScriptRun(scriptId: ID, runId: string, scope?: string): Promise<void> {
+  return (await loadScriptEngine()).unsettleScriptRun(scriptId, runId, scope)
+}
+
+/* DEV / ?e2e: runs of a saved script, their settle (the flight recorder's eject) and Undo */
+if (typeof window !== 'undefined' && (import.meta.env.DEV || new URLSearchParams(window.location.search).has('e2e'))) {
+  ;(window as unknown as { __oneScriptRuns?: unknown }).__oneScriptRuns = {
+    run: async (id: ID) => (await runScriptById(id, { notify: false }))?.run ?? null,
+    runs: (id: ID) => loadScriptRuns(id),
+    canUndo: async (id: ID, runId: string) => {
+      const run = (await loadScriptRuns(id)).find((r) => r.id === runId)
+      return !!run && (await loadScriptEngine()).canUndo(run)
+    },
+    undo: async (run: ScriptRun) => undoRun(run),
+    settle: settleScriptRun,
+    unsettle: unsettleScriptRun,
+  }
 }
