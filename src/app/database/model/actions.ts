@@ -13,6 +13,7 @@ import { isComputed } from './schema'
 import type { Resolver } from './resolve'
 import { constrainRelationWrite, dependenciesOf, subItemsOf } from './hierarchy'
 import { pairedRelationIn, TWO_WAY_SUFFIX } from './hierarchyCore'
+import { danglingViewPatch, sameJson as same } from './withoutProperty'
 import { dateValueText, isDateValue, isoWithTime, parseDateText, parseNumberText } from './format'
 import { isDbReadOnly } from '../readonly'
 import { isDbLocked } from './lock'
@@ -102,45 +103,6 @@ export function disableTwoWay(dbId: ID, prop: PropertyDef): void {
 }
 
 /* ---------------- delete property: undo + dangling references ---------------- */
-
-/** The filter without rules on a property (groups left empty go too). */
-function stripFilter(g: FilterGroup | null | undefined, propId: ID): FilterGroup | null {
-  if (!g) return null
-  const items = g.items.flatMap((it): FilterGroup['items'] => {
-    if ('items' in it) {
-      const sub = stripFilter(it, propId)
-      return sub ? [sub] : []
-    }
-    return it.propertyId === propId ? [] : [it]
-  })
-  return items.length ? { ...g, items } : null
-}
-
-/** View settings that would point at a deleted property (the store only clears placement, sorts, group, date). */
-function danglingViewPatch(v: View, propId: ID): Partial<View> | null {
-  const patch: Partial<View> = {}
-  const filter = stripFilter(v.filter, propId)
-  if (JSON.stringify(filter) !== JSON.stringify(v.filter ?? null)) patch.filter = filter
-  if (v.calculations && propId in v.calculations) {
-    const rest = { ...v.calculations }
-    delete rest[propId]
-    patch.calculations = rest
-  }
-  if (v.chart && (v.chart.xPropertyId === propId || v.chart.yPropertyId === propId)) {
-    patch.chart = { ...v.chart }
-    if (v.chart.xPropertyId === propId) patch.chart.xPropertyId = null
-    if (v.chart.yPropertyId === propId) Object.assign(patch.chart, { yPropertyId: null, aggregate: 'count' })
-  }
-  if (v.cardPreview === propId) patch.cardPreview = v.type === 'gallery' ? 'cover' : 'none'
-  if (v.colorRules?.length) {
-    // a condition on a missing property would match every row: drop it (the rule stays, inert)
-    const rules = v.colorRules.map((r) => ({ ...r, filter: stripFilter(r.filter, propId) ?? { ...r.filter, items: [] } }))
-    if (!same(rules, v.colorRules)) patch.colorRules = rules
-  }
-  return Object.keys(patch).length ? patch : null
-}
-
-const same = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null)
 
 /**
  * Delete a property; the toast offers undo (definition, values and every reference). Filter rules,

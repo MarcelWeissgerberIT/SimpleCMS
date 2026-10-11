@@ -99,6 +99,8 @@ export { subItemsOf, parentIdOf, type SubItemsPair } from './model/hierarchy'
  *      state — two-way partners only when they go back too, hierarchies without loops and with one parent per row.
  */
 export { pairedRelationIn, invalidTargetsIn, relationRestoreOk } from './model/hierarchyCore'
+/** withoutProperty(db, propId): the database without a property and every view setting that pointed at it (pure). */
+export { withoutProperty } from './model/withoutProperty'
 
 export function entryOrder(dbId: ID, rows: Page[]): Page[] {
   const base = [...rows].sort((a, b) => a.order - b.order || a.createdAt - b.createdAt)

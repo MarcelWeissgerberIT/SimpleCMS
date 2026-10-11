@@ -32,6 +32,8 @@ import { thinSnapshots } from '../../src/app/features/history/thin'
 import type { SnapshotMeta } from '../../src/app/features/history/snapshots'
 import { planRestoreProps, type SnapshotProps } from '../../src/app/features/history/propsCore'
 import { invalidTargetsIn, pairedRelationIn, relationRestoreOk } from '../../src/app/database/model/hierarchyCore'
+import { withoutProperty } from '../../src/app/database/model/withoutProperty'
+import { overlay, overlayDb } from '../../src/app/features/recorder/model/overlay'
 
 /* ------------------------------------------------------------------ */
 /* stub deps (the browser spec covers the real helpers)                */
@@ -1197,6 +1199,87 @@ test.describe('relation checks for the eject (E3): over a planned state, no writ
     // the same loop is fine once t2's link is gone in the planned state
     const planned = state([row('t1', 'db-tasks', {}), row('t2', 'db-tasks', {}), row('t3', 'db-tasks', {})])
     expect(relationRestoreOk(planned, 'db-tasks', prop('parent'), 't1', ['t2'], all)).toBe(true)
+  })
+})
+
+test.describe('targets are overlays (E4)', () => {
+  test('overlay: only the decided parts from before; a comment thread, a lock, a favourite and a privacy marker made since survive; the stamp', () => {
+    const before = page({ id: 'nl1402', databaseId: 'db-nordlicht', parentId: 'db-nordlicht', title: 'NL-1402 alt', icon: { type: 'emoji', value: '📦' }, content: docOf(para('vorher')), properties: { stage: 'o-ready', est: 3 }, order: 1, recordType: 'rt-bug' })
+    const cur = page({
+      ...before,
+      title: 'NL-1402 neu',
+      icon: null,
+      content: docOf(para('nachher')),
+      properties: { stage: 'o-backlog', est: 5, note: 'Mara Lind' },
+      order: 9,
+      recordType: null,
+      favorite: true,
+      private: true,
+      comments: [{ id: 'cm1' } as never],
+      settings: { fullWidth: false, smallText: false, font: 'sans', locked: true },
+      updatedBy: 'agent:x',
+    })
+    const out = overlay(cur, before, ['t', 'c', 'p:stage', 'p:note', 'r'], undefined, { stage: 'o-ready' })
+    expect(out).toMatchObject({ title: 'NL-1402 alt', icon: null, order: 9, favorite: true, private: true, updatedBy: null, recordType: 'rt-bug' })
+    expect(out.content).toBe(before.content)
+    // p:note has no planned value: it keeps the one it has
+    expect(out.properties).toEqual({ stage: 'o-ready', est: 5, note: 'Mara Lind' })
+    expect(out.comments).toHaveLength(1)
+    expect(out.settings.locked).toBe(true)
+    // the working content of a page wins over 'c'; a pipeline row keeps its agent's stamp; trash with the date
+    const working = docOf(para('gemischt'))
+    const trashed = overlay({ ...cur, trashed: true, trashedAt: 77 }, before, ['tr', 'o', 'p:est'], working, undefined, 'agent:nordlicht-spiegel')
+    expect(trashed).toMatchObject({ trashed: false, trashedAt: null, order: 1, updatedBy: 'agent:nordlicht-spiegel', properties: { stage: 'o-backlog', est: 3, note: 'Mara Lind' } })
+    expect(trashed.content).toBe(working)
+    const into = overlay(cur, { ...before, trashed: true, trashedAt: 12 }, ['tr', 'pa'])
+    expect(into).toMatchObject({ trashed: true, trashedAt: 12, parentId: 'db-nordlicht', databaseId: 'db-nordlicht' })
+  })
+
+  test('overlayDb: definitions, options, orders, the lock and views part by part; a property the writer added taken out with its view settings', () => {
+    const pin = database({
+      properties: [{ id: 'title', name: 'Name', type: 'title' }, statusProp, { id: 'est', name: 'Schätzung', type: 'number' }],
+      views: [view(), view({ id: 'v-table', name: 'Tabelle', type: 'table', groupBy: null })],
+    })
+    const cur = database({
+      locked: true,
+      properties: [
+        { id: 'title', name: 'Name', type: 'title' },
+        { id: 'est', name: 'Aufwand', type: 'number' },
+        { ...statusProp, options: [{ id: 'o-done', name: 'Fertig', color: 'green' }, { id: 'o-backlog', name: 'Backlog', color: 'gray' }, { id: 'o-new', name: 'Neu', color: 'red' }] },
+        { id: 'added', name: 'Notiz', type: 'text' },
+      ],
+      views: [view({ visibleProperties: ['stage', 'added'], sorts: [{ propertyId: 'added', direction: 'asc' }], filter: { op: 'and', items: [{ propertyId: 'added', operator: 'is_not_empty' }] } as never }), view({ id: 'v-new', name: 'Neu', type: 'list' })],
+    })
+    const out = overlayDb(
+      cur,
+      pin,
+      [
+        { part: 'p:added', op: 'remove' },
+        { part: 'p:est', op: 'back' },
+        { part: 'o:stage/o-ready', op: 'back' },
+        { part: 'o:stage/o-done', op: 'back' },
+        { part: 'o:stage/o-new', op: 'remove' },
+        { part: 'oo:stage', op: 'back' },
+        { part: 'po', op: 'back' },
+        { part: 'l', op: 'back' },
+        { part: 'v:v-new', op: 'remove' },
+        { part: 'v:v-table', op: 'back' },
+      ],
+      { withoutProperty },
+    )
+    expect(out.properties.map((p) => p.id)).toEqual(['title', 'stage', 'est'])
+    expect(out.properties.find((p) => p.id === 'est')!.name).toBe('Schätzung')
+    // "Ready" back at index 1, "Erledigt" renamed back, "Neu" gone
+    expect(out.properties.find((p) => p.id === 'stage')!.options!.map((o) => `${o.id}:${o.name}`)).toEqual(['o-backlog:Backlog', 'o-ready:Ready', 'o-done:Erledigt'])
+    expect(out.locked).toBeUndefined()
+    expect(out.views.map((v) => v.id)).toEqual(['v-board', 'v-table'])
+    // the removed property left no view setting behind
+    expect(out.views[0]).toMatchObject({ visibleProperties: ['stage'], sorts: [], filter: null })
+    expect(cur.properties).toHaveLength(4)
+    // a deleted property comes back at its pin index, with its options
+    const gone = overlayDb(database({ properties: [{ id: 'title', name: 'Name', type: 'title' }, { id: 'est', name: 'Schätzung', type: 'number' }] }), pin, [{ part: 'p:stage', op: 'back' }], { withoutProperty })
+    expect(gone.properties.map((p) => p.id)).toEqual(['title', 'stage', 'est'])
+    expect(gone.properties[1].options).toHaveLength(3)
   })
 })
 
