@@ -54,6 +54,8 @@ export function MeetingFoot({ editor, node, editable }: { editor: Editor; node: 
     if (!attrs.id) return
     const n = makeItems(editor, attrs.id, { kind: 'you', via: 'ui' })
     if (!n) return
+    // the key goes with the to-dos: the caret back in the text (⌘Z works there), never focus on the body
+    if (!editor.isDestroyed) editor.commands.focus()
     toast({
       message: n === 1 ? t('features.meeting.items.madeOne') : t('features.meeting.items.made', { n }),
       kind: 'success',
@@ -62,7 +64,21 @@ export function MeetingFoot({ editor, node, editable }: { editor: Editor; node: 
     })
   }
   return (
-    <div className="mtg__foot" contentEditable={false} suppressContentEditableWarning>
+    <div
+      className="mtg__foot"
+      contentEditable={false}
+      suppressContentEditableWarning
+      // Tab from the selected notes reaches these keys (editor/extensions/blockTools.ts); Escape goes back to the text
+      data-block-tools=""
+      onKeyDown={(e) => {
+        // only from the foot's own keys (a popover or dialog opened from here handles its own Escape)
+        const own = e.target instanceof HTMLElement && e.target.parentElement === e.currentTarget
+        if (e.key !== 'Escape' || !own || anchor || ask) return
+        e.preventDefault()
+        e.stopPropagation()
+        editor.commands.focus()
+      }}
+    >
       <p className="mtg__privacy">
         <ShieldCheck size={13} strokeWidth={1.75} aria-hidden />
         <span>

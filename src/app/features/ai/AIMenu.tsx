@@ -740,6 +740,22 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
     })
     removeRun(run.id)
     onClose()
+    // new tasks: a toast with Undo (touch has no ⌘Z), written as the person's Undo — only while the page is as it left it
+    const made = report.created.length
+    if (!made) return
+    const after = editor.state.doc
+    useUI.getState().toast({
+      message: made === 1 ? t('features.ai.items.madeOne') : t('features.ai.items.made', { n: made }),
+      kind: 'success',
+      action: {
+        label: t('common.undo'),
+        run: () => {
+          if (editor.isDestroyed) return
+          if (editor.state.doc.eq(after)) editAs(editor, { kind: 'you', via: 'undo' }, () => editor.commands.undo())
+          else useUI.getState().toast({ message: t('features.ai.transform.undoLate'), kind: 'info' })
+        },
+      },
+    })
   }
 
   /**
