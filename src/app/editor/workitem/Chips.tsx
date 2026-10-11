@@ -200,7 +200,7 @@ export function ItemChips({ model, attrs, view, progress, hasNotes, interactive,
     } else {
       chips.push(<span key="sep" className="workitem__sep" aria-hidden />)
       chips.push(
-        <Chip key="wait" interactive={interactive} className="workitem__lbl" anchor="blockedBy" onClick={go('blockedBy')} label={t('editor.workItem.chip.waitingEdit')}>
+        <Chip key="wait" interactive={interactive} className="workitem__lbl" anchor="blockedBy" onClick={go('blockedBy')} label={interactive ? t('editor.workItem.chip.waitingEdit') : t('editor.workItem.chip.waiting')}>
           <Hourglass {...ICON} />
           <span aria-hidden>{t('editor.workItem.chip.waiting')}</span>
         </Chip>,
@@ -290,9 +290,10 @@ export function ItemChips({ model, attrs, view, progress, hasNotes, interactive,
   )
 }
 
+/** A ghost key (+ DATE …): the ones with an anchor open a picker dialog (+ NOTE only moves the caret). */
 function Ghost({ label, anchor, onClick }: { label: string; anchor?: string; onClick: (el: HTMLElement) => void }) {
   return (
-    <button type="button" className="workitem__chip workitem__chip--ghost" data-wi-anchor={anchor} tabIndex={-1} onMouseDown={(e) => e.preventDefault()} onClick={(e) => onClick(e.currentTarget)}>
+    <button type="button" className="workitem__chip workitem__chip--ghost" data-wi-anchor={anchor} aria-haspopup={anchor ? 'dialog' : undefined} tabIndex={-1} onMouseDown={(e) => e.preventDefault()} onClick={(e) => onClick(e.currentTarget)}>
       <Plus {...ICON} />
       {label}
     </button>

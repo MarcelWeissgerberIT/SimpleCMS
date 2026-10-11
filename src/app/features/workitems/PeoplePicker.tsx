@@ -3,9 +3,11 @@
  * (↑ / ↓ move, Enter ticks, Backspace in the empty field unticks the last one):
  *  - Me first when it resolves (team: the signed-in member; local: the local user's own person), then people.
  *  - Team: members first, the others under NOT MEMBERS · NO REMINDERS (a reminder never rings for them); no "Add".
- *  - Local: Add “x” makes a person (1–60 characters, a name not taken).
+ *  - Local: Add “x” ticks a NEW person (1–60 characters, a name not taken) — made only when the picker writes.
  *  - Ids the task holds that resolve to nobody: one row "n people no longer here — Remove".
- * A draft until written: Esc discards the ticks, Done writes them (one undo step), a press outside writes a changed one.
+ * A draft until written: Esc discards the ticks (and the people it would have made), Done writes them (one undo step),
+ * a press outside writes a changed one. The draft holds only the person's own ticks: someone a member assigned
+ * meanwhile shows ticked and is never removed by a Done the person did not mean for them.
  */
 import { useId, useMemo, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
@@ -18,6 +20,7 @@ import { useCloud } from '../../cloud'
 import { localPerson } from '../../database'
 import type { PickerCtx } from '../../editor'
 import { useMemberIds } from './members'
+import { shownLinks, toggleDelta } from './draft'
 import './items.css'
 
 const MAX = 12
@@ -33,10 +36,20 @@ export function PeoplePicker({ ctx }: { ctx: PickerCtx }) {
   const userName = useWorkspace((s) => s.settings.userName)
   const { team, me: account, myName } = useCloud(useShallow((c) => ({ team: c.active.kind === 'cloud', me: c.user?.id ?? null, myName: c.user?.name ?? '' })))
   const members = useMemberIds()
-  const [draft, setDraft] = useState<string[]>(ctx.attrs.people)
+  // the person's own ticks against the task's people NOW (a member's change meanwhile shows and stays) …
+  const [toggles, setToggles] = useState<ReadonlyMap<string, boolean>>(() => new Map())
+  const togglesRef = useRef(toggles)
+  togglesRef.current = toggles
+  // … and the people "Add" would make (`new:<n>` until the picker writes — Esc makes none)
+  const [pending, setPending] = useState<readonly Person[]>([])
+  const pendingRef = useRef(pending)
+  pendingRef.current = pending
+  const assigned = ctx.attrs.people
+  const assignedRef = useRef(assigned)
+  assignedRef.current = assigned
+  const draft = useMemo(() => shownLinks(assigned, toggles), [assigned, toggles])
   const draftRef = useRef(draft)
   draftRef.current = draft
-  const touched = useRef(false)
   const [query, setQuery] = useState('')
   const [active, setActive] = useState(0)
   const [capHit, setCapHit] = useState(false)
@@ -51,56 +64,67 @@ export function PeoplePicker({ ctx }: { ctx: PickerCtx }) {
     const out: Row[] = []
     const match = (name: string) => !q || fold(name).includes(q)
     if (me && (match(me.name) || match(t('features.workItems.people.me')))) out.push({ kind: 'person', id: me.id, name: me.name, color: me.color, me: true, section: 'me' })
-    const rest = people.filter((p) => p.id !== me?.id && match(p.name))
+    const rest = [...people, ...pending].filter((p) => p.id !== me?.id && match(p.name))
     if (team) {
       const isMember = (p: Person) => members === null || members.has(p.id)
       for (const p of rest.filter(isMember)) out.push({ kind: 'person', id: p.id, name: p.name, color: p.color, section: 'members' })
       for (const p of rest.filter((p) => !isMember(p))) out.push({ kind: 'person', id: p.id, name: p.name, color: p.color, section: 'others' })
     } else for (const p of rest) out.push({ kind: 'person', id: p.id, name: p.name, color: p.color, section: 'people' })
     const name = query.trim()
-    if (!team && name && name.length <= NAME_MAX && !people.some((p) => fold(p.name) === fold(name))) out.push({ kind: 'add', name })
+    if (!team && name && name.length <= NAME_MAX && ![...people, ...pending].some((p) => fold(p.name) === fold(name))) out.push({ kind: 'add', name })
     return out
-  }, [me, people, team, members, q, query, t])
+  }, [me, people, pending, team, members, q, query, t])
 
-  const known = (id: string) => people.some((p) => p.id === id) || id === me?.id
+  const known = (id: string) => people.some((p) => p.id === id) || pending.some((p) => p.id === id) || id === me?.id
   const unknown = draft.filter((id) => !known(id))
 
-  const change = (next: string[]) => {
-    touched.current = true
-    draftRef.current = next
-    setDraft(next)
+  /** set the person's own ticks (id → assigned or not) */
+  const change = (ticks: ReadonlyArray<[string, boolean]>) => {
+    const next = new Map(togglesRef.current)
+    for (const [id, on] of ticks) next.set(id, on)
+    togglesRef.current = next
+    draftRef.current = shownLinks(assignedRef.current, next)
+    setToggles(next)
   }
   const toggle = (id: string) => {
     const cur = draftRef.current
     if (cur.includes(id)) {
       setCapHit(false)
-      return change(cur.filter((x) => x !== id))
+      return change([[id, false]])
     }
     if (cur.length >= MAX) return setCapHit(true)
-    change([...cur, id])
+    change([[id, true]])
   }
   const pick = (i: number) => {
     const row = rows[i]
     if (!row) return
     if (row.kind === 'add') {
       if (draftRef.current.length >= MAX) return setCapHit(true)
-      const id = useWorkspace.getState().addPerson(row.name)
-      change([...draftRef.current, id])
+      const person: Person = { id: `new:${pendingRef.current.length}`, name: row.name, color: 'gray' }
+      pendingRef.current = [...pendingRef.current, person]
+      setPending(pendingRef.current)
+      change([[person.id, true]])
     } else toggle(row.id)
     setQuery('')
     setActive(0)
   }
 
   const write = () => {
-    const before = ctx.attrs.people
-    const now = draftRef.current
-    const add = now.filter((x) => !before.includes(x))
-    const remove = before.filter((x) => !now.includes(x))
+    // a new person ticked at the end is made now (a name someone added meanwhile: that person)
+    const made = new Map<string, string>()
+    for (const p of pendingRef.current) {
+      if (togglesRef.current.get(p.id) !== true) continue
+      const ws = useWorkspace.getState()
+      made.set(p.id, ws.people.find((x) => fold(x.name) === fold(p.name))?.id ?? ws.addPerson(p.name))
+    }
+    const ticks = new Map<string, boolean>()
+    for (const [id, on] of togglesRef.current) if (!id.startsWith('new:') || made.has(id)) ticks.set(made.get(id) ?? id, on)
+    const { add, remove } = toggleDelta(assignedRef.current, ticks)
     if (!add.length && !remove.length) return ctx.close()
     ctx.commit({ people: { add, remove } })
   }
   const onClose = () => {
-    if (ctx.escaped() || !touched.current) return ctx.close()
+    if (ctx.escaped() || !togglesRef.current.size) return ctx.close()
     write()
   }
   const onKey = (e: React.KeyboardEvent) => {
@@ -114,7 +138,7 @@ export function PeoplePicker({ ctx }: { ctx: PickerCtx }) {
       pick(active)
     } else if (e.key === 'Backspace' && !query && draftRef.current.length) {
       e.preventDefault()
-      change(draftRef.current.slice(0, -1))
+      change([[draftRef.current[draftRef.current.length - 1], false]])
     }
   }
   const optId = (i: number) => `${ids}-o${i}`
@@ -162,7 +186,7 @@ export function PeoplePicker({ ctx }: { ctx: PickerCtx }) {
         {!rows.length && <div className="label wi-pop__empty">{t('database.person.empty')}</div>}
       </div>
       {unknown.length > 0 && (
-        <button type="button" className="btn btn--ghost btn--sm wi-pop__unknown" onClick={() => change(draftRef.current.filter((id) => known(id)))}>
+        <button type="button" className="btn btn--ghost btn--sm wi-pop__unknown" onClick={() => change(draftRef.current.filter((id) => !known(id)).map((id): [string, boolean] => [id, false]))}>
           {unknown.length === 1 ? t('features.workItems.people.unknownOne') : t('features.workItems.people.unknown', { n: unknown.length })}
         </button>
       )}

@@ -2,7 +2,8 @@
  * Writes to tasks from OUTSIDE their editor — the card's Mark done / Remove link, the Blocks picker, the
  * dependents / related lists, the agenda's move. The ONLY way to change a task that is not under the caret.
  *
- *  1. Each edit goes to the page of its index winner (unknown → 'gone', only in the trash → 'trash'). A template's
+ *  1. Each edit goes to the page of its index winner — or to the page it names (`pageId`: that page's own occurrence,
+ *     e.g. the agenda entry of a duplicate) — (unknown → 'gone', only in the trash → 'trash'). A template's
  *     tasks are written only for a caller acting inside that same template (`opts.from`), and a template caller only
  *     writes its own template's tasks ('template').
  *  2. Gates per page: not in the trash; not locked; team: not outdated / read-only; content loaded ('blind'). Per
@@ -35,6 +36,11 @@ export type WriteRefusal = 'gone' | 'trash' | 'locked' | 'readonly' | 'outdated'
 export interface ItemEdit {
   itemId: string
   patch: ItemPatch
+  /**
+   * The page whose occurrence is meant (an agenda entry of a duplicate shown on two pages): its first live occurrence
+   * there. Default: the index winner's page.
+   */
+  pageId?: ID
 }
 export interface WriteResult {
   itemId: string
@@ -74,7 +80,16 @@ function currentAttrs(pageId: ID, itemId: string): WorkItemAttrs | null {
 }
 
 /** Which page an edit goes to, or why not. */
-function placeOf(index: ItemIndex, itemId: string, fromTpl: ID | null): { entry: ItemEntry } | { refused: WriteRefusal } {
+function placeOf(index: ItemIndex, itemId: string, fromTpl: ID | null, pageId?: ID): { entry: ItemEntry } | { refused: WriteRefusal } {
+  if (pageId && !fromTpl) {
+    // a named page: that page's own occurrence — never the winner's on another page (a duplicate is never fixed by a write)
+    const e = index.byId.get(itemId)
+    if (e?.pageId === pageId) return { entry: e }
+    const own = index.dups.get(itemId)?.find((x) => x.pageId === pageId)
+    if (own) return { entry: own }
+    if (index.templated.get(itemId)?.some((x) => x.pageId === pageId)) return { refused: 'template' }
+    return { refused: index.trashed.get(itemId)?.pageId === pageId ? 'trash' : 'gone' }
+  }
   if (fromTpl) {
     const own = index.templated.get(itemId)?.find((e) => e.template === fromTpl)
     if (own) return { entry: own }
@@ -112,7 +127,7 @@ export function writeItems(edits: readonly ItemEdit[], opts: WriteOptions = {}):
   // 1 + 2: place and gate
   edits.forEach((edit, i) => {
     const r = results[i]
-    const placed = placeOf(index, edit.itemId, fromTpl)
+    const placed = placeOf(index, edit.itemId, fromTpl, edit.pageId)
     if ('refused' in placed) {
       r.refused = placed.refused
       return
@@ -219,7 +234,8 @@ export function writeItems(edits: readonly ItemEdit[], opts: WriteOptions = {}):
         p[key] = { add: w.before[key].filter((x) => !w.after[key].includes(x)), remove: w.after[key].filter((x) => !w.before[key].includes(x)) }
       }
       if (w.patch.itemId && w.before.itemId && w.before.itemId !== w.after.itemId && cur.itemId === w.after.itemId) p.itemId = w.before.itemId
-      if (Object.keys(p).length) inverse.push({ itemId: w.itemId, patch: p })
+      // back on the very page it was written (a duplicate on another page stays as it is)
+      if (Object.keys(p).length) inverse.push({ itemId: w.itemId, patch: p, pageId: w.pageId })
     }
     if (inverse.length) writeItems(inverse, { by: 'system', toasts: false, from: opts.from, origin: opts.origin })
   }

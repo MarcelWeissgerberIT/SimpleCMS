@@ -9,7 +9,9 @@
  *  - Rows: LED + title + page path + the state in words; linked = ticked (toggling removes). Disabled with the reason
  *    in words: would make a loop · private (a shared task can't wait for a private one) · the page is locked
  *    (Blocks: it writes the other task) · 20 links reached.
- *  - A draft until written: Esc discards, Done writes (one undo step here; Blocks: one write per task + Undo).
+ *  - A draft until written: Esc discards, Done writes (one undo step here; Blocks: one write per task + Undo). The
+ *    draft holds only the person's own ticks: what is linked meanwhile (a member's edit) shows ticked and is never
+ *    removed by a Done the person did not mean for it — add / remove are the person's toggles against the links now.
  */
 import { useId, useMemo, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
@@ -27,6 +29,7 @@ import { getItemIndex, useItemIndexVersion } from './live'
 import { wouldLoop } from './graph'
 import { writeItems, type ItemEdit } from './write'
 import type { ItemEntry } from './itemIndex'
+import { shownLinks, toggleDelta } from './draft'
 import './items.css'
 
 const MAX_LINKS = 20
@@ -80,10 +83,15 @@ export function ItemLinkPicker({ ctx, mode }: { ctx: PickerCtx; mode: Mode }) {
     if (mode === 'blocks') return self ? [...(getItemIndex().dependents.get(self) ?? [])] : []
     return mode === 'blockedBy' ? ctx.attrs.blockedBy : ctx.attrs.related
   }, [mode, self, ctx.attrs, version]) // eslint-disable-line react-hooks/exhaustive-deps
-  const [draft, setDraft] = useState<string[]>(linkedNow)
+  // the person's own ticks (id → linked or not), against the links NOW: a link that arrives meanwhile is shown and kept
+  const [toggles, setToggles] = useState<ReadonlyMap<string, boolean>>(() => new Map())
+  const togglesRef = useRef(toggles)
+  togglesRef.current = toggles
+  const draft = useMemo(() => shownLinks(linkedNow, toggles), [linkedNow, toggles])
   const draftRef = useRef(draft)
   draftRef.current = draft
-  const touched = useRef(false)
+  const linkedRef = useRef(linkedNow)
+  linkedRef.current = linkedNow
   const [query, setQuery] = useState('')
   const [active, setActive] = useState(0)
 
@@ -117,10 +125,10 @@ export function ItemLinkPicker({ ctx, mode }: { ctx: PickerCtx; mode: Mode }) {
   const q = fold(query.trim())
   const { rows, more } = useMemo(() => {
     const hits = q ? cands.filter((c) => c.folded.includes(q)) : cands
-    const cap = (list: Cand[]) => (list.length <= GROUP_MAX ? list : list.filter((c, i) => i < GROUP_MAX || linkedNow.includes(c.e.itemId)))
+    const cap = (list: Cand[]) => (list.length <= GROUP_MAX ? list : list.filter((c, i) => i < GROUP_MAX || linkedNow.includes(c.e.itemId) || draft.includes(c.e.itemId)))
     const shown = [...cap(hits.filter((c) => c.here)), ...cap(hits.filter((c) => !c.here))]
     return { rows: shown, more: hits.length - shown.length }
-  }, [cands, q, linkedNow])
+  }, [cands, q, linkedNow, draft])
 
   const index = getItemIndex()
   /** why a row cannot be ticked (null: it can) */
@@ -137,16 +145,16 @@ export function ItemLinkPicker({ ctx, mode }: { ctx: PickerCtx; mode: Mode }) {
   const toggle = (c: Cand) => {
     const on = draftRef.current.includes(c.e.itemId)
     if (reason(c, on)) return
-    const next = on ? draftRef.current.filter((x) => x !== c.e.itemId) : [...draftRef.current, c.e.itemId]
-    touched.current = true
-    draftRef.current = next
-    setDraft(next)
+    const next = new Map(togglesRef.current)
+    next.set(c.e.itemId, !on)
+    togglesRef.current = next
+    draftRef.current = shownLinks(linkedRef.current, next)
+    setToggles(next)
   }
 
   const write = () => {
-    const now = draftRef.current
-    const add = now.filter((x) => !linkedNow.includes(x))
-    const remove = linkedNow.filter((x) => !now.includes(x))
+    // only what the person ticked / unticked, against the links as they are now
+    const { add, remove } = toggleDelta(linkedRef.current, togglesRef.current)
     if (!add.length && !remove.length) return ctx.close()
     if (mode !== 'blocks') return void ctx.commit({ [mode]: { add, remove } })
     if (!self) return ctx.close()
@@ -163,7 +171,7 @@ export function ItemLinkPicker({ ctx, mode }: { ctx: PickerCtx; mode: Mode }) {
     else ui.toast({ message: t('features.workItems.edge.removed'), kind: 'success', action: { label: t('features.workItems.undo'), run: r.undo } })
   }
   const onClose = () => {
-    if (ctx.escaped() || !touched.current) return ctx.close()
+    if (ctx.escaped() || !togglesRef.current.size) return ctx.close()
     write()
   }
   const onKey = (e: React.KeyboardEvent) => {

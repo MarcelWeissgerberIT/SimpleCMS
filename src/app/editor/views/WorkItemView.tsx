@@ -112,7 +112,7 @@ function Placard({ node, editor, getPos, allowKeys }: Pick<ReactNodeViewProps, '
         model={model}
         keys={<StatusKeys editor={editor} getPos={() => at() ?? undefined} attrs={attrs} openBlockers={view.openBlockers} interactive={interactive} statusText={model.statusText} readonlyWhy={readonlyWhy} />}
         onCopyLink={interactive && attrs.id ? copyLink : undefined}
-        onMore={interactive ? () => bridge && at() !== null && bridge.setState({ blockMenu: { pos: at()! } }) : undefined}
+        onMore={interactive ? (el) => bridge && at() !== null && bridge.setState({ blockMenu: { pos: at()!, anchor: el } }) : undefined}
         onNewId={interactive && model.computed === 'duplicate' ? newId : undefined}
       />
       <NodeViewContent className="workitem__body" />

@@ -15,7 +15,9 @@ import { useWorkspace } from '../../store/store'
 import { selectRows } from '../../store/selectors'
 import { useUI } from '../../store/ui'
 import type { Database, DateValue, ID, Page, PropertyValue } from '../../store/types'
-import { docToMarkdown, readableContent } from '../../editor'
+import { docToMarkdown, readableContent, unwrapItemsIn } from '../../editor'
+import { outermostItems, remintItems } from '../../lib/itemIds'
+import { canCreateItems } from '../workitems'
 import { claudeDoc } from '../ai/claudeDoc'
 import { navigate, parseHash } from '../../lib/router'
 import { aiWrite } from '../history/snapshots'
@@ -109,6 +111,8 @@ function sectionRange(blocks: JSONContent[], title?: string): { at: number; end:
 /**
  * Replace the page's "Plan" section (its H2 up to the next H1 / H2 or note) — or add it at the end. With more
  * than one plan stage (e.g. Analysis · Design · Test design) each writes its own section, named like the stage.
+ * Tasks a person put in the section (a task below the plan) stay: unchanged, in order, after the new text — no
+ * Claude Code output ever removes a task (P1 invariant 5).
  */
 export function writePlan(pageId: ID, md: string, title?: string, extra: JSONContent[] = []) {
   const p = ws().pages[pageId]
@@ -119,8 +123,13 @@ export function writePlan(pageId: ID, md: string, title?: string, extra: JSONCon
   const body = [...blocksOf(md).map((b) => (b.type === 'heading' && (b.attrs?.level ?? 1) < 3 ? { ...b, attrs: { ...b.attrs, level: 3 } } : b)), ...extra]
   const section: JSONContent[] = [{ type: 'heading', attrs: { level: 2 }, content: [{ type: 'text', text: title ?? t('features.coding.page.plan') }] }, ...body]
   if (!range) blocks.push(...section)
-  else blocks.splice(range.at, range.end - range.at, ...section)
+  else blocks.splice(range.at, range.end - range.at, ...section, ...outermostItems(blocks.slice(range.at + 1, range.end)))
   ws().setContent(pageId, { type: 'doc', content: blocks }, 'coding')
+}
+
+/** A page's new content (Claude Code's text) with the tasks its old content held kept after it, unchanged. */
+function keepingTasks(prev: JSONContent | null | undefined, next: JSONContent[]): JSONContent {
+  return { type: 'doc', content: [...next, ...outermostItems((prev?.content as JSONContent[] | undefined) ?? [])] }
 }
 
 /** A stage's output section as it stands on the task page (Markdown, without its heading) — null: the page has none. */
@@ -546,21 +555,19 @@ function writeDocPages(taskId: ID, stage: ResolvedStage, taskTitle: string, tree
     })() }
     const same = existing.find((p) => p.title.trim().toLowerCase() === sec.title.toLowerCase())
     if (same) {
-      ws().setContent(same.id, content, 'coding')
+      // a re-run: someone may have added tasks there — they stay, after the new text
+      ws().setContent(same.id, keepingTasks(same.content, content.content), 'coding')
       children.push({ id: same.id, title: same.title })
     } else children.push({ id: make({ parentId: rootId, title: sec.title, content }), title: sec.title })
   }
   const intro = blocksOf(tree.intro)
   ws().setContent(
     rootId,
-    {
-      type: 'doc',
-      content: [
-        { type: 'paragraph', content: [{ type: 'text', text: `${t('features.coding.out.pagesFrom')} ` }, mentionOf(taskId, taskTitle)] },
-        ...intro,
-        ...children.map((c) => ({ type: 'pageLink', attrs: { pageId: c.id } })),
-      ],
-    },
+    keepingTasks(ws().pages[rootId]?.content, [
+      { type: 'paragraph', content: [{ type: 'text', text: `${t('features.coding.out.pagesFrom')} ` }, mentionOf(taskId, taskTitle)] },
+      ...intro,
+      ...children.map((c) => ({ type: 'pageLink', attrs: { pageId: c.id } })),
+    ]),
     'coding',
   )
   return { rootId, children }
@@ -648,7 +655,9 @@ export async function spawnFollowUp(taskId: ID, kind: PipelineKind): Promise<ID 
   const title = ctx.row.title.trim() || t('common.untitled')
   const prioName = optionName(ctx.db, ctx.props.priority, ctx.row.properties[ctx.props.priority ?? ''])
   const priority = (['high', 'medium', 'low'] as const).find((p) => t(`features.coding.priority.${p}`) === prioName) ?? 'medium'
-  const source = docOf(ctx.row)
+  // the source page's tasks are COPIES here: new task ids (links among them follow) — or, while new tasks can't be
+  // made (the creation gate), their text only; never a second task with the source's id
+  const source = canCreateItems() ? (remintItems({ type: 'doc', content: docOf(ctx.row) }).doc.content ?? []) : unwrapItemsIn(docOf(ctx.row))
   const extra: JSONContent[] = [
     { type: 'paragraph', content: [{ type: 'text', text: `${t(`features.coding.follow.from.${ctx.kind}`)} ` }, { type: 'mention', attrs: { id: taskId, label: title, kind: 'page' } }] },
     { type: 'heading', attrs: { level: 2 }, content: [{ type: 'text', text: title }] },
@@ -1034,4 +1043,16 @@ export function pipelineModels(pipeline: ResolvedStage[]): string[] {
 export async function setTaskModel(taskId: ID, model: string | null): Promise<void> {
   await loadTask(taskId)
   await patchTask(taskId, { model: cleanModel(model) ?? undefined })
+}
+
+// Test hook (dev, or ?e2e): the page writes of a stage's output and a follow-up, without a worker run (tasks a person
+// added stay — P1 invariant 5; a follow-up's copied tasks are new tasks)
+if (typeof window !== 'undefined' && (import.meta.env.DEV || new URLSearchParams(window.location.search).has('e2e'))) {
+  ;(window as unknown as { __oneCodingWrites?: unknown }).__oneCodingWrites = {
+    create: (title: string, kind: PipelineKind = 'coding') => createTask({ title, repo: null, goal: 'A goal.', criteria: [], priority: 'medium', branch: '', start: false, kind }),
+    writePlan: (pageId: ID, md: string, title?: string) => writePlan(pageId, md, title),
+    docPages: (taskId: ID, stageName: string, intro: string, sections: DocSection[], known: ID | null = null) =>
+      writeDocPages(taskId, { id: 'e2e-doc', name: stageName, kind: 'doc' } as unknown as ResolvedStage, ws().pages[taskId]?.title ?? '', { intro, sections }, known),
+    followUp: (taskId: ID, kind: PipelineKind) => spawnFollowUp(taskId, kind),
+  }
 }

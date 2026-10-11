@@ -29,6 +29,9 @@ import { flushContentOf } from '../lib/contentFlush'
 import { itemAttrs, WORK_ITEM, type WorkItemStatus } from './attrs'
 import { itemHooks, itemLookup } from './lookup'
 import { findItemPos, patchItemAttrs, type ItemPatch } from './patch'
+import { itemTitleText } from './text'
+import { itemRulePlugin, undoItemRule } from './turnInto'
+import { announceStatus } from './announce'
 import { newItemId } from '../../lib/itemIds'
 
 /** Where a write lands (see the header). */
@@ -78,6 +81,7 @@ export function commitItems(editor: Editor, edits: ReadonlyArray<{ target: ItemT
   const tr = view.state.tr
   const now = Date.now()
   const finished: string[] = []
+  const said: Array<{ status: WorkItemStatus; title: string }> = []
   const results = edits.map(({ target, patch }) => {
     const pos = resolveItemTarget(tr.doc, target)
     if (pos === null) return false
@@ -86,6 +90,7 @@ export function commitItems(editor: Editor, edits: ReadonlyArray<{ target: ItemT
     if (!delta) return true
     tr.setNodeMarkup(pos, undefined, { ...node.attrs, ...delta })
     if (delta.status === 'done' && typeof (delta.itemId ?? node.attrs.itemId) === 'string') finished.push((delta.itemId ?? node.attrs.itemId) as string)
+    if (typeof delta.status === 'string') said.push({ status: delta.status as WorkItemStatus, title: itemTitleText(node) })
     return true
   })
   if (tr.docChanged) {
@@ -96,6 +101,8 @@ export function commitItems(editor: Editor, edits: ReadonlyArray<{ target: ItemT
     view.dispatch(tr)
     if (step) endUndoStep(view)
   }
+  // a person's status change, in words for screen readers (the LED and the label alone say nothing to them)
+  if (opts.by === 'person' && said.length) announceStatus(said)
   if (opts.by === 'person' && finished.length) {
     // the index reads the store: what this editor did a moment ago (a link to the task just finished) goes there first
     flushContentOf(editor)
@@ -134,7 +141,7 @@ export function setItemStatus(editor: Editor, pos: number, status: WorkItemStatu
   const pageId = editor.view.dom.getAttribute('data-page-id')
   const bridge = bridgeOf(editor)
   if (status !== 'todo' && a.status !== 'done' && bridge && itemLookup().openBlockers(a, pageId) > 0) {
-    bridge.setState({ itemPicker: { ...target, kind: 'confirm', status, from } })
+    bridge.setState({ itemPicker: { ...target, kind: 'confirm', status, from, hadFocus: editor.view.hasFocus() } })
     return true
   }
   return commitItem(editor, target, { status }, { by: 'person' })
@@ -153,12 +160,15 @@ export function toggleItemDone(editor: Editor, pos: number, alt = false): boolea
   return setItemStatus(editor, pos, nextStatus(itemAttrs(node).status, alt), 'key')
 }
 
-/** Open a picker of the task at `pos` (key ⌄, a chip, a ghost, a menu item). */
+/**
+ * Open a picker of the task at `pos` (key ⌄, a chip, a ghost, a menu item). Whether the editor had the keyboard is
+ * read NOW, before any picker mounts and takes it (a menu that opened the picker says it in `extra.hadFocus`).
+ */
 export function openItemPickerAt(editor: Editor, pos: number, kind: ItemPickerKind, from: ItemPickerState['from'], extra: Partial<ItemPickerState> = {}): boolean {
   const target = itemTargetAt(editor, pos)
   const bridge = bridgeOf(editor)
   if (!target || !bridge) return false
-  bridge.setState({ itemPicker: { ...target, kind, from, ...extra } })
+  bridge.setState({ itemPicker: { ...target, kind, from, hadFocus: !editor.isDestroyed && editor.view.hasFocus(), ...extra } })
   return true
 }
 
@@ -344,6 +354,8 @@ function backspaceInItem(editor: Editor): boolean {
   if (!at || at.index !== 0) return false
   const $from = editor.state.selection.$from
   if ($from.parentOffset !== 0 || $from.parent.content.size) return false
+  // right after "[!] " made this task: Backspace undoes the rule (the typed "[!] " comes back), as everywhere else
+  if (editor.commands.undoInputRule() || undoItemRule(editor)) return true
   return unwrapItem(editor)
 }
 
@@ -355,6 +367,10 @@ function backspaceInItem(editor: Editor): boolean {
 export const WorkItemKeys = Extension.create({
   name: 'workItemKeys',
   priority: 1100,
+  addProseMirrorPlugins() {
+    // the last "[!] " rule, for Backspace right after it
+    return [itemRulePlugin()]
+  },
   addKeyboardShortcuts() {
     const editor = this.editor
     const free = () => !editor.view.composing && !bridgeOf(editor)?.getState().suggest

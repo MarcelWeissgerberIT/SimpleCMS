@@ -107,7 +107,8 @@ button.workitem__key:active {
   transform: translateY(1px);
 }
 
-/* ⌄: a narrow key joined to the status key — on hover, with the caret in the task, on touch with the caret */
+/* ⌄: a narrow key joined to the status key — with the caret in the task or focus inside it (never on hover: it widens
+   the key column, and the title, chips and notes would jump sideways under a moving pointer) */
 .workitem__caret {
   display: none;
   place-items: center;
@@ -132,21 +133,9 @@ button.workitem__key:active {
   transform: translateY(1px);
 }
 
-@media (hover: hover) {
-  .workitem[data-interactive]:hover .workitem__caret {
-    display: grid;
-  }
-}
-
 .node-workItem[data-caret] > .workitem[data-interactive] .workitem__caret,
 .workitem[data-interactive]:focus-within .workitem__caret {
   display: grid;
-}
-
-@media (hover: hover) {
-  .workitem[data-interactive]:hover .workitem__keys .workitem__key {
-    border-radius: 3px 0 0 3px;
-  }
 }
 
 .node-workItem[data-caret] > .workitem[data-interactive] .workitem__keys .workitem__key,
@@ -540,7 +529,7 @@ button.workitem__lbl:hover {
   border-bottom-right-radius: 0;
 }
 
-/* ghost keys: + DATE · + PERSON · + DEPENDS ON · + NOTE — dashed, on hover, with the caret in the task */
+/* ghost keys: + DATE · + PERSON · + DEPENDS ON · + NOTE — dashed, with the caret in the task (or focus inside it) */
 .workitem__chip--ghost {
   height: 22px;
   border-style: dashed;
@@ -562,15 +551,10 @@ button.workitem__lbl:hover {
   display: none;
 }
 
-/* a strip of ghosts only shows with the caret in the task (never a row that comes and goes under the pointer) */
+/* ghosts only show with the caret in the task, never on hover: a key that comes and goes under the pointer would
+   wrap the chips onto a new row and push the page down while the pointer crosses the task */
 .workitem__chips[data-ghosts-only] {
   display: none;
-}
-
-@media (hover: hover) {
-  .workitem:hover > .workitem__chips:not([data-ghosts-only]) .workitem__ghosts {
-    display: contents;
-  }
 }
 
 .node-workItem[data-caret] > .workitem .workitem__ghosts,
@@ -712,9 +696,18 @@ button.workitem__lbl:hover {
   height: 6px;
 }
 
-.workitem[data-compact] .workitem__label,
+.workitem[data-compact]:not([data-state='template'], [data-state='duplicate']) .workitem__label,
 .workitem[data-compact] .workitem__caret {
   display: none !important;
+}
+
+/* compact: a template's / a duplicate's label stays — only it says them, and DUPLICATE's NEW ID key must stay
+   reachable (touch included); it takes its own row under the title, the chips keep theirs */
+.workitem[data-compact]:is([data-state='template'], [data-state='duplicate']) .workitem__label {
+  grid-column: 2 / -1;
+  grid-row: 2;
+  margin-top: 2px;
+  white-space: normal;
 }
 
 .workitem[data-compact] .workitem__body > [data-node-view-content-react] > :first-child {
@@ -888,6 +881,10 @@ button.workitem__lbl:hover {
 
   .workitem[data-compact] .workitem__chip {
     height: 26px;
+  }
+
+  .workitem[data-compact]:is([data-state='template'], [data-state='duplicate']) .workitem__label {
+    grid-row: 3;
   }
 }
 

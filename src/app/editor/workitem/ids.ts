@@ -3,7 +3,8 @@
  *
  *  - Paste / drop (`workItemIds`, appendTransaction): only LOCAL transactions marked `uiEvent` paste / drop that
  *    insert a task — never a remote change (y-sync), external content (applyExternalContent / mergeExternal) or the
- *    synced-block service. Each inserted task outside synced references is a COPY when its itemId also sits in the
+ *    synced-block service. Each inserted task (a whole reference the paste brought is the service's; a task pasted
+ *    INTO a reference counts — it reaches the original) is a COPY when its itemId also sits in the
  *    final doc outside what was inserted, earlier in the same insert, or on another block of this device
  *    (`itemLookup().taken`); else a MOVE. Copies get `newItemId()` — or, when the creation gate is shut
  *    (`!itemLookup().canCreate()`), become their title + notes as plain blocks (toast). Then every inserted task's
@@ -83,12 +84,26 @@ interface Hit {
   inserted: boolean
 }
 
-/** Every task of the doc outside synced references, document order, marked when it lies in an inserted range. */
+/**
+ * Every task of the doc outside synced references, document order, marked when it lies in an inserted range — plus
+ * the tasks a paste / drop put INTO a reference that was already there (the person's own: the service writes the
+ * edited reference into its original, so they are judged like any other). A reference's own tasks are its original's
+ * and stay out, and so does a whole reference the paste brought along (the service's copy).
+ */
 function tasksIn(doc: PMNode, ranges: Array<[number, number]>): Hit[] {
   const out: Hit[] = []
+  const within = (from: number, to: number) => ranges.some(([a, b]) => from >= a && to <= b)
   doc.descendants((node, pos) => {
-    if (isRef(node)) return false
-    if (isItem(node)) out.push({ pos, node, inserted: ranges.some(([a, b]) => pos >= a && pos + node.nodeSize <= b) })
+    if (isRef(node)) {
+      if (within(pos, pos + node.nodeSize)) return false
+      node.descendants((inner, at) => {
+        const p = pos + 1 + at
+        if (isItem(inner) && within(p, p + inner.nodeSize)) out.push({ pos: p, node: inner, inserted: true })
+        return !inner.isTextblock && !inner.isAtom
+      })
+      return false
+    }
+    if (isItem(node)) out.push({ pos, node, inserted: within(pos, pos + node.nodeSize) })
     return !node.isTextblock && !node.isAtom
   })
   return out
@@ -185,22 +200,23 @@ function settlePaste(trs: readonly Transaction[], state: EditorState, pageId: st
   return tr.setMeta(KEY, 'settled')
 }
 
-/** How often a doc holds an itemId (outside synced references). */
+/**
+ * How often a doc holds an itemId — synced references included (a re-minted id is this paste's own, wherever it
+ * went; an old id a reference shows is its original's: no relink while the doc holds it).
+ */
 function occurrences(doc: PMNode, itemId: string): number {
   let n = 0
   doc.descendants((node) => {
-    if (isRef(node)) return false
     if (isItem(node) && node.attrs.itemId === itemId) n++
     return !node.isTextblock && !node.isAtom
   })
   return n
 }
 
-/** Rename `from` → `to` in a doc (the task and every link to it), outside synced references. */
+/** Rename `from` (an id this paste minted) → `to` in a doc: the task and every link to it, also inside a reference it was pasted into. */
 function renameTr(state: EditorState, from: string, to: string): Transaction | null {
   const tr = state.tr
   state.doc.descendants((node, pos) => {
-    if (isRef(node)) return false
     if (isItem(node)) {
       const a = node.attrs as Record<string, unknown>
       const delta: Record<string, unknown> = {}

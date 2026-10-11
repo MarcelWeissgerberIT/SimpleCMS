@@ -13,13 +13,15 @@
  *  - Esc vs. outside: `ctx.escaped()` tells a picker whether the Popover closes on Esc (drafts are discarded) or on a
  *    press outside / Tab out (a touched draft is written) — §6 of the build brief.
  *  - Focus afterwards: when nothing took it (focusIsNowhere), back to the editor — the caret where it was when it
- *    sat in this task, else at the end of the task's title (touch: only when the editor had the focus before).
+ *    sat in this task, else at the end of the task's title (touch: only when the editor had the keyboard when the
+ *    person asked for the picker — `ItemPickerState.hadFocus`, read before the picker mounted; else the main region:
+ *    never the body, and no phone keyboard pulled up).
  */
 import { useCallback, useEffect, useMemo, useReducer, useRef } from 'react'
 import type { Editor } from '@tiptap/core'
 import type { VirtualElement } from '@floating-ui/react'
 import { useStore } from 'zustand'
-import { focusIsNowhere, takeFocusHandoff } from '../../ui/focus'
+import { focusIsNowhere, focusMainRegion, takeFocusHandoff } from '../../ui/focus'
 import type { Bridge, ItemPickerKind, ItemPickerState } from '../lib/bridge'
 import { itemAttrs, WORK_ITEM, type WorkItemAttrs } from './attrs'
 import { commitItem, focusTitleEnd, openItemPickerAt, resolveItemTarget } from './keys'
@@ -86,13 +88,10 @@ export function ItemPickers({ editor, bridge, pageId }: { editor: Editor; bridge
   // the doc changed while open: the task's fields may have (a member's edit, the picker's own write)
   const [rev, bump] = useReducer((n: number) => n + 1, 0)
   const escaped = useRef(false)
-  /** the editor had the focus when the picker opened (touch: never pull a phone's keyboard up otherwise) */
-  const hadFocus = useRef(false)
 
   // keep `pos` on the task through every transaction; the task gone → closed
   useEffect(() => {
     if (!open) return
-    hadFocus.current = !editor.isDestroyed && editor.view.hasFocus()
     // a menu item handed its key over: the picker takes the keyboard now (nothing to give back to it)
     takeFocusHandoff()
     const onTr = ({ transaction }: { transaction: import('@tiptap/pm/state').Transaction }) => {
@@ -133,7 +132,8 @@ export function ItemPickers({ editor, bridge, pageId }: { editor: Editor; bridge
     // focus: back to writing in this task when nothing else took it
     requestAnimationFrame(() => {
       if (editor.isDestroyed || !focusIsNowhere()) return
-      if (isTouch() && !hadFocus.current) return
+      // touch, the person was not typing: no keyboard pulled up — the main region keeps the focus (never the body)
+      if (isTouch() && !cur.hadFocus) return void focusMainRegion()
       // the block menu selected the whole task (Alt+Enter → Due…): writing goes on at the end of its title
       focusTitleEnd(editor, { pos: cur.pos, itemId: cur.itemId, blockId: cur.blockId }, { force: cur.from === 'menu' })
     })

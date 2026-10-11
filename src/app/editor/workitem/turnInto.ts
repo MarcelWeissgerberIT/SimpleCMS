@@ -12,7 +12,8 @@
  */
 import type { Editor, JSONContent } from '@tiptap/core'
 import { Fragment, type Node as PMNode, type ResolvedPos } from '@tiptap/pm/model'
-import { TextSelection, type Transaction } from '@tiptap/pm/state'
+import { Plugin, PluginKey, TextSelection, type Transaction } from '@tiptap/pm/state'
+import { Mapping } from '@tiptap/pm/transform'
 import { currentLang, t } from '../../i18n'
 import { useWorkspace } from '../../store/store'
 import { toast } from '../../store/ui'
@@ -64,7 +65,8 @@ export function lineToItem(tr: Transaction, pos: number, now: number): number | 
   if (d >= 2 && $pos.node(d - 1).type.name === WORK_ITEM && $pos.index(d - 1) === 0) return null
   // the block that becomes the task: a list item's first line → the item (its list split around it), else the line
   const itemParent = d >= 2 && LIST_ITEMS.has($pos.node(d - 1).type.name) && $pos.index(d - 1) === 0 && d >= 3 && LISTS.has($pos.node(d - 2).type.name)
-  let task: JSONContent
+  // the new task first, then the tasks its notes would have held — moved out whole, unchanged (turn.ts)
+  let made: JSONContent[]
   let from: number
   let to: number
   let replacement: JSONContent[]
@@ -72,19 +74,21 @@ export function lineToItem(tr: Transaction, pos: number, now: number): number | 
     const item = $pos.node(d - 1)
     const list = $pos.node(d - 2)
     const json = item.toJSON() as JSONContent
-    task = item.type.name === 'taskItem' ? itemFromTodo(json, now) : itemFromBlock(json)
+    made = item.type.name === 'taskItem' ? itemFromTodo(json, now) : itemFromBlock(json)
     from = $pos.before(d - 2)
     to = $pos.after(d - 2)
-    replacement = place.inPlace ? splitListAround(list.toJSON() as JSONContent, $pos.index(d - 2), [task]) : splitListAround(list.toJSON() as JSONContent, $pos.index(d - 2), [])
+    replacement = place.inPlace ? splitListAround(list.toJSON() as JSONContent, $pos.index(d - 2), made) : splitListAround(list.toJSON() as JSONContent, $pos.index(d - 2), [])
   } else {
-    task = itemFromBlock($pos.parent.toJSON() as JSONContent)
+    made = itemFromBlock($pos.parent.toJSON() as JSONContent)
     from = $pos.before(d)
     to = $pos.after(d)
-    replacement = place.inPlace ? [task] : []
+    replacement = place.inPlace ? made : []
   }
+  const task = made[0]
   // the new task and its title carry block ids at once: nothing is appended after this transaction (an input rule
   // stays undoable by Backspace)
   stampIds(task)
+  if (made.length > 1) toastMovedOut(made.length - 1)
   const nodes = replacement.map((j) => schema.nodeFromJSON(j))
   let at: number
   if (place.inPlace) {
@@ -101,11 +105,71 @@ export function lineToItem(tr: Transaction, pos: number, now: number): number | 
     if (nodes.length) tr.replaceWith(from, to, nodes)
     else tr.deleteRange(from, to)
     at = tr.mapping.map(place.after)
-    tr.insert(at, schema.nodeFromJSON(task))
+    tr.insert(at, made.map((j) => schema.nodeFromJSON(j)))
   }
-  const made = tr.doc.nodeAt(at)
-  const titleSize = made?.firstChild?.content.size ?? 0
+  const placed = tr.doc.nodeAt(at)
+  const titleSize = placed?.firstChild?.content.size ?? 0
   return at + 2 + Math.min(offset, titleSize)
+}
+
+/* ------------------------------------------------------------------ "[!] " — Backspace right after takes it back */
+
+interface ItemRule {
+  /** the rule's transaction */
+  tr: Transaction
+  /** after the typed "[!] " (in the doc before the rule) */
+  caret: number
+  /** what was appended to it since (a trailing line, block ids) */
+  after: Mapping
+}
+
+/** The "[!] " rule's meta (behaviors.ts sets `{ caret }`) and the record of it until anything else changes the doc. */
+export const ITEM_RULE = new PluginKey<ItemRule | null>('workItemRule')
+
+/**
+ * Keeps the last "[!] " rule while nothing but appended transactions (a trailing line, block ids) and selection moves
+ * followed it — TipTap's own input-rule undo forgets it at the first of those (an empty title's caret, a new last line).
+ */
+export function itemRulePlugin(): Plugin<ItemRule | null> {
+  return new Plugin<ItemRule | null>({
+    key: ITEM_RULE,
+    state: {
+      init: () => null,
+      apply(tr, prev) {
+        const meta = tr.getMeta(ITEM_RULE) as { caret: number } | undefined
+        if (meta) return { tr, caret: meta.caret, after: new Mapping() }
+        if (!prev || !tr.docChanged) return prev
+        if (!tr.getMeta('appendedTransaction')) return null
+        const after = new Mapping(prev.after.maps.slice())
+        after.appendMapping(tr.mapping)
+        return { ...prev, after }
+      },
+    },
+  })
+}
+
+/** Backspace right after "[!] " made a task: the rule's steps inverted (over what was appended since) — the typed line is back. */
+export function undoItemRule(editor: Editor): boolean {
+  const rule = ITEM_RULE.getState(editor.state)
+  if (!rule || editor.isDestroyed) return false
+  const n = rule.tr.steps.length
+  const remap = new Mapping(rule.tr.mapping.maps.concat(rule.after.maps))
+  const tr = editor.state.tr
+  for (let j = n - 1; j >= 0; j--) {
+    const step = rule.tr.steps[j].invert(rule.tr.docs[j]).map(remap.slice(j + 1))
+    if (!step || tr.maybeStep(step).failed) return false
+    remap.appendMap(step.getMap(), j)
+  }
+  // the caret where it was after the typed "[!] " (the mirrored maps recover a position the rule deleted)
+  const caret = remap.map(rule.caret)
+  tr.setSelection(TextSelection.create(tr.doc, Math.max(0, Math.min(caret, tr.doc.content.size))))
+  editor.view.dispatch(tr.scrollIntoView())
+  return true
+}
+
+/** Tasks a line's notes held followed the new task (they never sit inside one). */
+export function toastMovedOut(n: number): void {
+  if (n > 0) toast({ message: n === 1 ? t('editor.workItem.moved') : t('editor.workItem.movedMany', { n }) })
 }
 
 const newBlockId = (): string => (typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `b${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`)

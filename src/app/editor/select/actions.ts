@@ -8,7 +8,7 @@ import { t } from '../../i18n'
 import { toast } from '../../store/ui'
 import { itemLookup } from '../workitem/lookup'
 import { itemFromBlock, itemFromTodo, splitListAround } from '../workitem/turn'
-import { inTableCell, outerItemDepth } from '../workitem/turnInto'
+import { inTableCell, outerItemDepth, toastMovedOut } from '../workitem/turnInto'
 import { trackMove } from '../lib/moves'
 import { copyBlocks } from '../workitem/ids'
 import { turnInto, type TurnTarget } from '../lib/blocks'
@@ -76,26 +76,34 @@ export function turnBlocksInto(editor: Editor, b: BlockSel, target: TurnTarget):
 
 const LISTS = new Set(['bulletList', 'orderedList', 'taskList'])
 
-/** One selected block as tasks: a line / quote / callout → one; a list → one per item; a task stays; others stay as they are. */
-function asTasks(n: PMNode, now: number): JSONContent[] {
+/**
+ * One selected block as tasks: a line / quote / callout → one; a list → one per item; a task stays; others stay as
+ * they are. A new task comes first, then the tasks its notes held — moved out whole, never taken apart (`moved`
+ * counts them).
+ */
+function asTasks(n: PMNode, now: number, moved: { n: number }): JSONContent[] {
   const j = n.toJSON() as JSONContent
+  const made = (list: JSONContent[]): JSONContent[] => {
+    moved.n += list.length - 1
+    return list
+  }
   switch (n.type.name) {
     case 'workItem':
       return [j]
     case 'taskItem':
-      return [itemFromTodo(j, now)]
+      return made(itemFromTodo(j, now))
     case 'listItem':
     case 'paragraph':
     case 'heading':
     case 'codeBlock':
     case 'blockquote':
     case 'callout':
-      return [itemFromBlock(j)]
+      return made(itemFromBlock(j))
     case 'bulletList':
     case 'orderedList':
     case 'taskList': {
       const out: JSONContent[] = []
-      n.forEach((item) => out.push(...asTasks(item, now)))
+      n.forEach((item) => out.push(...asTasks(item, now, moved)))
       return out
     }
   }
@@ -118,7 +126,8 @@ export function turnBlocksIntoItems(editor: Editor, b: BlockSel): boolean {
     return true
   }
   const now = Date.now()
-  const made = at.nodes.flatMap((n) => asTasks(n, now))
+  const moved = { n: 0 }
+  const made = at.nodes.flatMap((n) => asTasks(n, now, moved))
   const schema = state.schema
   const tasks = made.map((j) => schema.nodeFromJSON(j))
   const outer = outerItemDepth($from)
@@ -153,6 +162,7 @@ export function turnBlocksIntoItems(editor: Editor, b: BlockSel): boolean {
   if (task?.type.name === 'workItem') tr.setSelection(TextSelection.create(tr.doc, first + 1 + (task.firstChild?.nodeSize ?? 2) - 1))
   view.dispatch(tr.scrollIntoView())
   view.focus()
+  toastMovedOut(moved.n)
   return true
 }
 

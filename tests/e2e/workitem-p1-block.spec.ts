@@ -107,20 +107,39 @@ test.describe('turn helpers (pure)', () => {
         { type: 'taskList', content: [{ type: 'taskItem', attrs: { checked: false }, content: [p('step')] }] },
       ],
     }
-    const t = itemFromTodo(todo, 1234, 'wi_aaaaaaaaaa')
+    const [t, ...after] = itemFromTodo(todo, 1234, 'wi_aaaaaaaaaa')
+    expect(after).toEqual([])
     expect(t.attrs).toMatchObject({ itemId: 'wi_aaaaaaaaaa', status: 'done', doneAt: 1234, due: '2031-10-17', reminder: 'at', people: ['p_alex'] })
     // the second date mention stays in the title
     expect(JSON.stringify(t.content![0])).toContain('2031-10-20')
     expect(t.content![0].content![0]).toEqual({ type: 'text', text: 'Call the bank ' })
     expect(t.content!.length).toBe(2)
-    expect(itemFromTodo({ type: 'taskItem', attrs: { checked: false }, content: [p('x')] }, 1).attrs).toMatchObject({ status: 'todo', doneAt: null, due: null })
+    expect(itemFromTodo({ type: 'taskItem', attrs: { checked: false }, content: [p('x')] }, 1)[0].attrs).toMatchObject({ status: 'todo', doneAt: null, due: null })
+    // a task inside the to-do's nested blocks leaves them whole and follows the new task (never taken apart)
+    const inner: JSONContent = { type: 'workItem', attrs: { itemId: 'wi_eeeeeeeeee', due: FAR, people: ['p_alex'], blockedBy: [B] }, content: [p('inner')] }
+    const [made, moved, ...none] = itemFromTodo({ type: 'taskItem', attrs: { checked: false }, content: [p('outer'), { type: 'blockquote', content: [inner] }] }, 1, 'wi_ffffffffff')
+    expect(none).toEqual([])
+    expect(moved).toBe(inner)
+    expect(made.content).toEqual([p('outer'), { type: 'blockquote', content: [{ type: 'paragraph' }] }])
   })
 
-  test('itemFromBlock: a heading keeps its marks as the title; a list item: first line title, rest notes; a task inside → its plain blocks', () => {
-    const h = itemFromBlock({ type: 'heading', attrs: { level: 2 }, content: [{ type: 'text', text: 'Bold', marks: [{ type: 'bold' }] }] }, 'wi_bbbbbbbbbb')
+  test('itemFromBlock: a heading keeps its marks as the title; a list item: first line title, rest notes; a task inside follows it whole', () => {
+    const [h, ...rest] = itemFromBlock({ type: 'heading', attrs: { level: 2 }, content: [{ type: 'text', text: 'Bold', marks: [{ type: 'bold' }] }] }, 'wi_bbbbbbbbbb')
+    expect(rest).toEqual([])
     expect(h).toEqual({ type: 'workItem', attrs: { itemId: 'wi_bbbbbbbbbb', status: 'todo' }, content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Bold', marks: [{ type: 'bold' }] }] }] })
-    const li = itemFromBlock({ type: 'listItem', content: [p('first'), { type: 'workItem', attrs: { itemId: 'wi_cccccccccc' }, content: [p('inner')] }] }, 'wi_dddddddddd')
-    expect(li.content!.map((n) => n.type)).toEqual(['paragraph', 'paragraph'])
+    const f = { type: 'workItem', attrs: { itemId: 'wi_cccccccccc', due: FAR, people: ['p_mira'] }, content: [p('inner F')] }
+    const g = { type: 'workItem', attrs: { itemId: 'wi_eeeeeeeeee', blockedBy: [B] }, content: [p('inner G'), p('a note')] }
+    const [li, ...after] = itemFromBlock({ type: 'listItem', content: [p('first'), f, p('between'), g] }, 'wi_dddddddddd')
+    expect(li.content).toEqual([p('first'), p('between')])
+    // the same objects: fields, itemIds, links and notes unchanged, in document order
+    expect(after).toEqual([f, g])
+    expect(after[0]).toBe(f)
+    expect(after[1]).toBe(g)
+    // a synced block holding a task goes out whole (a reference's task taken out of it would be a second task)
+    const ref = { type: 'syncedBlock', attrs: { syncId: 'sync-review-1', sourcePageId: 'pg_other' }, content: [f] }
+    const [callout, moved] = itemFromBlock({ type: 'callout', attrs: { icon: '💡', color: 'gray' }, content: [p('lead'), ref] }, 'wi_aaaaaaaaab')
+    expect(callout.content).toEqual([p('lead')])
+    expect(moved).toBe(ref)
   })
 
   test('blocksFromItem: the fields as mentions after the title; to-do ticked when done, notes nested; toggle keeps notes', () => {

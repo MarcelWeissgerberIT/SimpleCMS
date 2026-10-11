@@ -6,7 +6,8 @@
  *    a task) and Backspace on an empty title.
  *  - `unwrapItemsIn(blocks)`: every task in a block list (at any depth) replaced by its `itemBlocks`.
  *  - `itemFromBlock` / `itemFromTodo`: a line, a list item, a to-do as a NEW task (Turn into, `[!] `); a to-do's
- *    tick, first date mention and person mentions become its fields.
+ *    tick, first date mention and person mentions become its fields. Tasks its notes would hold are never taken
+ *    apart: they leave the notes whole (`takeItemsOut`) and follow the new task.
  *  - `blocksFromItem`: a task as other blocks — its fields written out as mentions (Turn into ▸ paragraph …).
  *  - `splitListAround`: a list split around the items that became tasks.
  */
@@ -56,6 +57,53 @@ export function unwrapItemsIn(list: readonly JSONContent[]): JSONContent[] {
   return list as JSONContent[]
 }
 
+/** Does a block hold a task anywhere (synced references included)? */
+function holdsAnyItem(block: JSONContent): boolean {
+  const stack: JSONContent[] = [block]
+  while (stack.length) {
+    const n = stack.pop()!
+    if (n.type === WORK_ITEM) return true
+    if (TEXTBLOCKS.has(n.type ?? '') || INLINE.has(n.type ?? '') || !Array.isArray(n.content)) continue
+    for (const c of n.content) if (isNode(c)) stack.push(c)
+  }
+  return false
+}
+
+/**
+ * Every task in a block list taken out WHOLE — fields, itemId, links and notes unchanged — in document order, and
+ * the list without them (a container left empty keeps an empty paragraph). A synced block holding a task goes out
+ * whole too (a reference's tasks are its original's: taken out of it they would be a second task with that id).
+ * The same array and no items when it holds none; iterative.
+ */
+export function takeItemsOut(list: readonly JSONContent[]): { blocks: JSONContent[]; items: JSONContent[] } {
+  type Frame = { n: JSONContent; kids: unknown[]; i: number; out: unknown[] | null }
+  const items: JSONContent[] = []
+  const childrenOf = (n: JSONContent): unknown[] => (Array.isArray(n.content) && !TEXTBLOCKS.has(n.type ?? '') && !INLINE.has(n.type ?? '') ? (n.content as unknown[]) : [])
+  const stack: Frame[] = [{ n: { type: 'doc' }, kids: list as unknown[], i: 0, out: null }]
+  while (stack.length) {
+    const f = stack[stack.length - 1]
+    if (f.i < f.kids.length) {
+      const c = f.kids[f.i++]
+      if (isNode(c) && (c.type === WORK_ITEM || (c.type === 'syncedBlock' && holdsAnyItem(c)))) {
+        items.push(c)
+        if (!f.out) f.out = f.kids.slice(0, f.i - 1)
+        continue
+      }
+      const kids = isNode(c) && !INLINE.has(c.type ?? '') ? childrenOf(c) : []
+      if (kids.length) stack.push({ n: c as JSONContent, kids, i: 0, out: null })
+      else if (f.out) f.out.push(c)
+      continue
+    }
+    stack.pop()
+    const parent = stack[stack.length - 1]
+    if (!parent) return items.length ? { blocks: (f.out ?? f.kids) as JSONContent[], items } : { blocks: list as JSONContent[], items }
+    const made = f.out ? { ...f.n, content: f.out.length ? f.out : [{ type: 'paragraph' }] } : f.n
+    if (made !== f.n && !parent.out) parent.out = parent.kids.slice(0, parent.i - 1)
+    if (parent.out) parent.out.push(made)
+  }
+  return { blocks: list as JSONContent[], items }
+}
+
 /* ------------------------------------------------------------------ to a task and back (Turn into, [!] ) */
 
 type Inline = JSONContent
@@ -87,24 +135,34 @@ function titleOf(block: JSONContent | undefined): JSONContent {
 
 const TITLE_BLOCKS = new Set(['paragraph', 'heading', 'codeBlock', 'detailsSummary'])
 
+/** The new task, then the tasks its notes held — taken out whole, unchanged, in document order (never nested). */
+function withNotes(task: JSONContent, title: JSONContent, notes: readonly JSONContent[]): JSONContent[] {
+  const { blocks, items } = takeItemsOut(notes)
+  return [{ ...task, content: [title, ...blocks] }, ...items]
+}
+
 /**
  * A block as a NEW task (fresh itemId, nothing set): a paragraph / heading / code line → its text is the title; a list
- * item, quote or callout → its first line is the title, the rest its notes.
+ * item, quote or callout → its first line is the title, the rest its notes. Returns the new task FIRST, then every
+ * task those notes held (unchanged — a task never sits inside a task and is never taken apart): the caller puts
+ * them right after the new one.
  */
-export function itemFromBlock(block: JSONContent, itemId: string = newItemId()): JSONContent {
+export function itemFromBlock(block: JSONContent, itemId: string = newItemId()): JSONContent[] {
   const kids = Array.isArray(block.content) ? block.content.filter(isNode) : []
-  if (TITLE_BLOCKS.has(block.type ?? '')) return { type: WORK_ITEM, attrs: { itemId, status: 'todo' }, content: [titleOf(block)] }
+  const task: JSONContent = { type: WORK_ITEM, attrs: { itemId, status: 'todo' } }
+  if (TITLE_BLOCKS.has(block.type ?? '')) return [{ ...task, content: [titleOf(block)] }]
   const [first, ...rest] = kids
   const title = first && TITLE_BLOCKS.has(first.type ?? '') ? titleOf(first) : { type: 'paragraph' }
   const notes = first && TITLE_BLOCKS.has(first.type ?? '') ? rest : kids
-  return { type: WORK_ITEM, attrs: { itemId, status: 'todo' }, content: [title, ...unwrapItemsIn(notes)] }
+  return withNotes(task, title, notes)
 }
 
 /**
  * A to-do as a NEW task: ticked → done (doneAt now); the FIRST date mention of its line → due + reminder; person
- * mentions → people (≤ 12) — both taken out of the title; its nested blocks (nested to-dos …) → notes.
+ * mentions → people (≤ 12) — both taken out of the title; its nested blocks (nested to-dos …) → notes. Returns the
+ * new task first, then the tasks its nested blocks held, unchanged (as `itemFromBlock`).
  */
-export function itemFromTodo(todo: JSONContent, now: number, itemId: string = newItemId()): JSONContent {
+export function itemFromTodo(todo: JSONContent, now: number, itemId: string = newItemId()): JSONContent[] {
   const kids = Array.isArray(todo.content) ? todo.content.filter(isNode) : []
   const [first, ...rest] = kids
   let due: string | null = null
@@ -129,11 +187,11 @@ export function itemFromTodo(todo: JSONContent, now: number, itemId: string = ne
   const title: JSONContent = { type: 'paragraph', ...(line?.type === 'paragraph' && line.attrs ? { attrs: line.attrs } : {}) }
   const content = tidyInline(kept)
   if (content.length) title.content = content
-  return {
+  const task: JSONContent = {
     type: WORK_ITEM,
     attrs: { itemId, status: done ? 'done' : 'todo', doneAt: done ? now : null, due, reminder: due ? reminder : null, people, blockedBy: [], related: [] },
-    content: [title, ...unwrapItemsIn(line ? rest : kids)],
   }
+  return withNotes(task, title, line ? rest : kids)
 }
 
 /** What a task is turned into (the Turn into targets but the task itself). */

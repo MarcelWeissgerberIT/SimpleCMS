@@ -127,7 +127,8 @@ export function RefCard({ ctx }: { ctx: PickerCtx }) {
       role="dialog"
       aria-labelledby={id}
     >
-      <div onPointerEnter={(e) => e.pointerType === 'mouse' && ctx.hoverKeep()} onPointerLeave={(e) => e.pointerType === 'mouse' && ctx.hoverLeave()}>
+      {/* the whole panel is this element (the padding is its own): the pointer anywhere on the card keeps it */}
+      <div className="wi-card__inner" onPointerEnter={(e) => e.pointerType === 'mouse' && ctx.hoverKeep()} onPointerLeave={(e) => e.pointerType === 'mouse' && ctx.hoverLeave()}>
         <div className="wi-card__title" id={id}>
           {unresolved ? stateWord(r, t) : r.title || t('features.workItems.untitled')}
         </div>

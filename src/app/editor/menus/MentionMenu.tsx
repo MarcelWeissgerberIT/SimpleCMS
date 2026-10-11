@@ -4,6 +4,7 @@ import type { Editor, Range } from '@tiptap/core'
 import { useStore } from 'zustand'
 import Fuse from 'fuse.js'
 import { exitSuggestion } from '@tiptap/suggestion'
+import { closeHistory } from '@tiptap/pm/history'
 import { CalendarDays, FilePlus2, UserRound } from 'lucide-react'
 import { Popover } from '../../ui/Popover'
 import { PageIcon } from '../../ui/PageIcon'
@@ -16,6 +17,7 @@ import { dateMentionAttrs, dateMentionLabel, parseDateQuery } from '../lib/dates
 import { SUGGEST_KEYS, type SuggestRun } from '../extensions/suggest'
 import { liveIds } from '../lib/livePages'
 import { patchItemAttrs, type ItemPatch } from '../workitem/patch'
+import { endUndoStep, startUndoStep } from '../collab'
 import { dueText } from '../workitem/format'
 import { itemAttrs } from '../workitem/attrs'
 import { useScrollActive, useSuggestAnchor, useSuggestKeys } from './common'
@@ -55,7 +57,8 @@ export function MentionMenu({ editor, bridge, pageId }: { editor: Editor; bridge
   }
 
   // "@" in a task's title: the task's own fields first ("Assign: Alex", "Due: Fri 17 Oct") — one transaction that
-  // removes the "@query" and writes the field (people added, due set, a reminder kept)
+  // removes the "@query" and writes the field (people added, due set, a reminder kept), its OWN undo step in every
+  // editor (as commitItem): one undo gives the typed "@query" back, the next the title as it was
   const itemPos = useMemo(() => {
     if (!suggest || editor.isDestroyed) return null
     const $p = editor.state.doc.resolve(Math.min(suggest.range.from, editor.state.doc.content.size))
@@ -74,7 +77,11 @@ export function MentionMenu({ editor, bridge, pageId }: { editor: Editor; bridge
     const from = atEnd && range.from > $r.start() && state.doc.textBetween(range.from - 1, range.from) === ' ' ? range.from - 1 : range.from
     const tr = state.tr.delete(from, range.to)
     if (delta) tr.setNodeMarkup(itemPos, undefined, { ...node.attrs, ...delta })
+    closeHistory(tr)
+    tr.setMeta('workItemWrite', true)
+    startUndoStep(view)
     view.dispatch(tr)
+    endUndoStep(view)
     view.focus()
   }
 

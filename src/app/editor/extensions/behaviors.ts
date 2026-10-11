@@ -16,7 +16,7 @@ import { duplicateBlocks, moveBlocksBy } from '../select/actions'
 import { openBlockMenu } from '../select/registry'
 import { toggleItemDone } from '../workitem/keys'
 import { itemLookup } from '../workitem/lookup'
-import { inTableCell, lineToItem } from '../workitem/turnInto'
+import { inTableCell, ITEM_RULE, lineToItem } from '../workitem/turnInto'
 import {
   caretAfterNode,
   caretIntoBlock,
@@ -439,6 +439,8 @@ export const ExtraInputRules = Extension.create({
         const caret = lineToItem(tr, tr.mapping.map(range.from), Date.now())
         if (caret === null || caret === 'table') return null
         tr.setSelection(TextSelection.create(tr.doc, Math.min(caret, tr.doc.content.size)))
+        // Backspace right after gives "[!] " back (workitem/keys.ts)
+        tr.setMeta(ITEM_RULE, { caret: range.to })
         return undefined
       },
     })

@@ -47,7 +47,8 @@ export interface OverlayState {
   /** The "+" button created the line the slash menu lives in (Esc removes it again) */
   plusCreated: boolean
   /** Block menu requested from the keyboard / touch (position of the block) */
-  blockMenu: { pos: number } | null
+  /** the block menu of the block at `pos` (Alt+Enter, a touch grip) — at `anchor` when a key opened it (a task's ⋯) */
+  blockMenu: { pos: number; anchor?: Element | null } | null
   comments: CommentsUI
   /** Emoji / icon picker at the caret (`pos`), or the change popover of the inline icon at `pos` (`edit`) */
   inlinePicker: InlinePicker | null
@@ -77,6 +78,8 @@ export interface ItemPickerState {
   ref?: string
   /** ref: opened by the pointer resting on a chip (takes no focus, closes when the pointer leaves) */
   hover?: boolean
+  /** the editor had the keyboard when the person asked for it (touch: the caret comes back only then) */
+  hadFocus?: boolean
 }
 
 export interface InlinePicker {

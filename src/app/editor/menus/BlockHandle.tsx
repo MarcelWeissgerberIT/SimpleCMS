@@ -215,7 +215,7 @@ export function BlockHandle({ editor, bridge, pageId }: { editor: Editor; bridge
   const [kind, setKind] = useState<string>('paragraph')
   // `sel`: several selected blocks the menu acts on (editor/select), else the block at `ref`;
   // `fromHover`: opened from the hover grip with no blocks selected — the selection it makes is soft (below)
-  const [menu, setMenu] = useState<{ el: PopoverAnchor; ref: BlockRef; keyboard?: boolean; sel?: BlockSel | null; fromHover?: boolean } | null>(null)
+  const [menu, setMenu] = useState<{ el: PopoverAnchor; ref: BlockRef; keyboard?: boolean; sel?: BlockSel | null; fromHover?: boolean; atKey?: boolean; hadFocus?: boolean } | null>(null)
   const [moveFor, setMoveFor] = useState<{ el: PopoverAnchor; ref: BlockRef; sel?: BlockSel | null } | null>(null)
   const requested = useStore(bridge, (s) => s.blockMenu)
   /** "Turn into page": the selected blocks when the menu's block is one of them (read before the block gets selected) */
@@ -365,9 +365,11 @@ export function BlockHandle({ editor, bridge, pageId }: { editor: Editor; bridge
   }
 
   const openAt = useCallback(
-    (el: PopoverAnchor, pos: number, keyboard = false, fromHover = false) => {
+    (el: PopoverAnchor, pos: number, keyboard = false, fromHover = false, atKey = false) => {
       const node = editor.state.doc.nodeAt(pos)
       if (!node) return
+      // the editor had the keyboard before the menu took it (a task's picker opened from here gives the caret back)
+      const hadFocus = editor.view.hasFocus()
       splitFor.current = blockSplitRange(editor.state, pos)
       // the block is one of several selected blocks: the menu acts on all of them (they stay selected)
       const sel = menuSelection(editor.state, pos)
@@ -375,7 +377,7 @@ export function BlockHandle({ editor, bridge, pageId }: { editor: Editor; bridge
       editor.view.dispatch(editor.state.tr.setSelection(selection ?? NodeSelection.create(editor.state.doc, pos)))
       editor.view.dispatch(editor.state.tr.setMeta('lockDragHandle', true))
       locked.current = true
-      setMenu({ el, ref: { node, pos }, keyboard, sel: selection ? sel : null, fromHover })
+      setMenu({ el, ref: { node, pos }, keyboard, sel: selection ? sel : null, fromHover, atKey, hadFocus })
     },
     [editor],
   )
@@ -389,11 +391,13 @@ export function BlockHandle({ editor, bridge, pageId }: { editor: Editor; bridge
     openAt(e.currentTarget, ref.pos, false, !sel || sel.soft)
   }
 
-  // keyboard (Alt+Enter) / touch grip → block menu anchored at the block itself
+  // keyboard (Alt+Enter) / touch grip → block menu anchored at the block itself; a key that asked for it (a task's ⋯)
+  // → right below that key, where the press was
   useEffect(() => {
     if (!requested) return
     bridge.setState({ blockMenu: null })
-    openAt(blockAnchor(editor, requested.pos), requested.pos, true)
+    const key = requested.anchor && requested.anchor.isConnected ? requested.anchor : null
+    openAt(key ?? blockAnchor(editor, requested.pos), requested.pos, true, false, !!key)
   }, [requested, bridge, editor, openAt])
 
   /** Hand the keyboard back to the editor (the block stays selected — typing can't replace it). */
@@ -437,7 +441,7 @@ export function BlockHandle({ editor, bridge, pageId }: { editor: Editor; bridge
       const status = itemAttrs(node).status
       const pick = (kind: ItemPickerKind) => () => {
         handFocusOver(editor.view.dom)
-        openItemPickerAt(editor, ref.pos, kind, 'menu')
+        openItemPickerAt(editor, ref.pos, kind, 'menu', { hadFocus: !!menu.hadFocus })
       }
       items.push(
         {
@@ -652,7 +656,7 @@ export function BlockHandle({ editor, bridge, pageId }: { editor: Editor; bridge
           if (b) openAt(el, b.from, keyboard)
         }}
       />
-      <Menu open={!!menu} anchor={menu?.el ?? null} onClose={closeMenu} entries={entries} placement="left-start" width={240} searchable={!isTouch} searchPlaceholder={t('editor.blockMenu.search')} emptyLabel={t('editor.slash.empty')} />
+      <Menu open={!!menu} anchor={menu?.el ?? null} onClose={closeMenu} entries={entries} placement={menu?.atKey ? 'bottom-end' : 'left-start'} width={240} searchable={!isTouch} searchPlaceholder={t('editor.blockMenu.search')} emptyLabel={t('editor.slash.empty')} />
       <Popover open={!!moveFor} anchor={moveFor?.el ?? null} onClose={closeMove} placement="left-start" style={{ width: 280 }}>
         <MenuList entries={moveEntries} onClose={closeMove} searchable searchPlaceholder={t('editor.blockMenu.movePlaceholder')} emptyLabel={t('editor.slash.empty')} />
       </Popover>

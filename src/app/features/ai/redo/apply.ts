@@ -10,7 +10,7 @@ import { closeHistory } from '@tiptap/pm/history'
 import { endUndoStep, startUndoStep } from '../../../editor'
 import { snapshotNow } from '../../history/snapshots'
 import type { ID } from '../../../store/types'
-import { passageBlocks, type RedoPassage } from './passages'
+import { holdsTask, passageBlocks, type RedoPassage } from './passages'
 
 export interface RedoApplyItem {
   passage: RedoPassage
@@ -34,7 +34,8 @@ function locate(doc: PMNode, p: RedoPassage): { pos: number; node: PMNode } | 'c
   })
   if (!hit) return 'changed'
   const found = hit as { pos: number; node: PMNode }
-  return found.node.type.name === p.type && plainOf(found.node) === p.anchor ? found : 'changed'
+  // a task that arrived in it meanwhile: never rewritten (its Markdown form would come back as a quote)
+  return found.node.type.name === p.type && plainOf(found.node) === p.anchor && !holdsTask(found.node) ? found : 'changed'
 }
 
 export async function applyRedo(editor: Editor, pageId: ID, items: RedoApplyItem[]): Promise<RedoApplyResult> {

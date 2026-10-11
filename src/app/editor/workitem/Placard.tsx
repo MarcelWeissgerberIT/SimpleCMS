@@ -38,7 +38,7 @@ export interface PlacardHeadProps {
   /** editing: the label copies the task's link */
   onCopyLink?: () => void
   /** editing: ⋯ opens the task's menu */
-  onMore?: () => void
+  onMore?: (el: HTMLElement) => void
   /** editing a DUPLICATE: give this block its own id */
   onNewId?: () => void
 }
@@ -80,7 +80,7 @@ export function PlacardHead({ model, keys, onCopyLink, onMore, onNewId }: Placar
         )}
       </span>
       {onMore && (
-        <button type="button" className="workitem__more" aria-label={t('editor.workItem.more')} title={t('editor.workItem.more')} aria-haspopup="menu" tabIndex={-1} onMouseDown={(e) => e.preventDefault()} onClick={onMore}>
+        <button type="button" className="workitem__more" aria-label={t('editor.workItem.more')} title={t('editor.workItem.more')} aria-haspopup="menu" tabIndex={-1} onMouseDown={(e) => e.preventDefault()} onClick={(e) => onMore(e.currentTarget)}>
           <Ellipsis size={16} strokeWidth={1.75} aria-hidden />
         </button>
       )}

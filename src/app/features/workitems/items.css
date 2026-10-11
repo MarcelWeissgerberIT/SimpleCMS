@@ -122,9 +122,14 @@
   flex: none;
 }
 
-/* a linked task's card */
+/* a linked task's card — the padding sits on the inner element, so the pointer on the card's edge is ON the card
+   (a card the resting pointer opened closes only when the pointer leaves it) */
 .wi-card {
   width: calc(300px * var(--text-scale));
+  padding: 0;
+}
+
+.wi-card__inner {
   padding: 12px;
 }
 

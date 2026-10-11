@@ -96,7 +96,8 @@ export { dueText as workItemDueText, reminderShort as workItemReminderShort } fr
  *  - patchItemAttrs(attrs, patch, now): ONLY the attrs that change (write `{ ...attrs, ...delta }` — never a rebuilt
  *      attrs object: y-tiptap compares attrs by reference); patchItemInDoc(doc, itemId, patch, now) (JSON: null =
  *      not there, same doc = no change); findItemPos(pmDoc, itemId).
- *  - itemBlocks(task json): the task as plain blocks (title paragraph + notes, fields dropped).
+ *  - itemBlocks(task json): the task as plain blocks (title paragraph + notes, fields dropped); unwrapItemsIn(blocks):
+ *      every task in a block list as its plain blocks (a copy that may not become a task while the gate is shut).
  *  - setItemLookup(lookup) / itemLookup(): the registry the editor asks (taken / gone / isPrivate / canCreate —
  *      the ONE creation gate); fail-closed until features/workitems registers. itemCounters: e2e counters.
  *  - setItemTitleLookup(fn) / withItemLabels(fn): linked tasks' titles in the Markdown field line ONLY inside
@@ -105,7 +106,7 @@ export { dueText as workItemDueText, reminderShort as workItemReminderShort } fr
 export { itemsOfContent, compareOccurrence, type ScannedItem, type Occurrence } from './workitem/scan'
 export { itemTitleText, todoProgress } from './workitem/text'
 export { patchItemAttrs, patchItemInDoc, findItemPos, type ItemPatch } from './workitem/patch'
-export { itemBlocks } from './workitem/turn'
+export { itemBlocks, unwrapItemsIn } from './workitem/turn'
 export { setItemLookup, itemLookup, itemCounters, setItemHooks, type ItemLookup, type ItemHooks } from './workitem/lookup'
 export { setItemTitleLookup, withItemLabels } from './workitem/labels'
 /**
