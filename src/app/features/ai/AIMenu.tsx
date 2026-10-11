@@ -1425,7 +1425,8 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
    * Tasks in a finished answer, settled the way its default key writes them (Replace over the range as it is now when
    * it may, else Insert): the facts strip shows what that makes; `replace` says whether Replace may go over the tasks
    * of the range ('cut': the range cuts into one · 'drops': the answer leaves one out or brings back one the range no
-   * longer holds). Memoised per answer, doc and task index.
+   * longer holds · 'nests': the answer holds a task and the range sits in a task or a table — apply() would put it
+   * below). Memoised per answer, doc and task index.
    */
   const answerItems = useMemo(() => {
     const textResult = run?.req.kind === 'action' || run?.req.kind === 'workspace'
@@ -1437,14 +1438,18 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
     const quotes = /\[!TODO\]/i.test(output)
     if (!holds && !quotes) return null
     let report: SettleReport | null = null
-    let replace: 'ok' | 'cut' | 'drops' = 'ok'
+    let replace: 'ok' | 'cut' | 'drops' | 'nests' = 'ok'
     if (sel) {
       if (!r) replace = 'cut'
       else {
         const s = settleAnswer(rangeDoc(doc, r.from, r.to))
         const kept = new Set(s.report.kept.map((f) => f.itemId))
         if (r.holds && (s.report.removed.length > 0 || !echoedIds(output).every((id) => kept.has(id)))) replace = 'drops'
-        else report = s.report
+        else {
+          report = s.report
+          // as apply() decides it: a task never lands inside a task or a table
+          if (holdsItemNode(s.blocks) && insideTaskOrTable(doc, r.from)) replace = 'nests'
+        }
       }
     }
     if (!report && quotes) report = settleAnswer(null).report
@@ -1582,7 +1587,8 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
         // its reason (cuts into a task · drops one), Insert below goes first and takes Enter
         const cut = sel && !ws && answerItems?.replace === 'cut'
         const drops = sel && !ws && answerItems?.replace === 'drops'
-        const why = cut ? t('features.ai.res.replaceTask') : drops ? t('features.ai.res.replaceTaskDrop') : null
+        const nests = sel && !ws && answerItems?.replace === 'nests'
+        const why = cut ? t('features.ai.res.replaceTask') : drops ? t('features.ai.res.replaceTaskDrop') : nests ? t('features.ai.res.replaceNest') : null
         const off = !!target.lost || !!why
         const replace: Row | null =
           sel && !ws
@@ -1784,13 +1790,23 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
     // an own request that is really a structure action, or work for the AI terminal (intent.ts): that key first, Enter runs it
     const intent = q && !img?.only && !file?.only && !remembering ? requestIntent(query, { selection: own.t.mode === 'selection', servers: mcpNames ? mcpNames.split(' · ') : [] }) : null
     const routed = intent && intent !== 'terminal' ? actions.find((a) => a.id === (intent === 'items' ? 'workItems' : intent)) : null
+    // the typed request goes along (who owns what, when): Turn into database, Make tasks (selection: Transform → Tasks;
+    // at the cursor: make_tasks)
+    const routedRun = (a: ActionDef): (() => void) => {
+      const instruction = query.trim()
+      if (a.id === 'todb') return () => start({ kind: 'todb', label: a.label, code: 'DB', instruction })
+      if (a.id !== 'workItems' || a.disabled) return a.run
+      if (target.mode === 'selection') return () => start(transformRequest('items', { instruction }))
+      const label = t('features.ai.act.workItemsPage')
+      return () => startPageLevel({ kind: 'action', action: 'make_tasks', label, code: TRANSFORM_CODES.items, instruction }, label)
+    }
     if (routed || intent === 'terminal') {
       const at = list.findIndex((r) => r.id === routed?.id)
       if (at >= 0) list.splice(at, 1)
       const quote = <span className="ai-quote">“{query.trim()}”</span>
       list.unshift(
         routed
-          ? { ...toRow(routed), id: `intent-${routed.id}`, label: <>{routed.label} {quote}</>, group: undefined, run: routed.id === 'todb' ? () => start({ kind: 'todb', label: routed.label, code: 'DB', instruction: query.trim() }) : routed.run }
+          ? { ...toRow(routed), id: `intent-${routed.id}`, label: <>{routed.label} {quote}</>, group: undefined, run: routedRun(routed) }
           : { id: 'intent-terminal', label: <>{t('features.agent.intent.terminal')} {quote}</>, code: 'AGT', icon: Workflow, run: () => handToTerminal(query.trim()) },
       )
     }

@@ -41,6 +41,7 @@ import { condense } from './memory/propose'
 import { pageSource } from './memory/save'
 import type { MemoryProposal, MemoryUse } from './memory/types'
 import { runTransform, type TransformRunRequest } from './transform/run'
+import { peopleNamesOf } from './transform/items'
 import { FileLoadError, runFileRequest, type FileMeta, type FileProblem, type FileRunRequest } from './file/run'
 import { isLocalAction, isStructuredAction } from './file/kinds'
 import { shownResult, TransformError, type TransformIssue, type TransformState } from './transform/types'
@@ -463,14 +464,11 @@ async function execute(id: string, editor: Editor) {
   }
 }
 
-/** The workspace's people as "Make tasks" sends them (team: members are mirrored there): ≤ 200 names, never an email. */
-function peopleNames(): string[] {
-  return useWorkspace
-    .getState()
-    .people.map((p) => p.name.replace(/\s+/g, ' ').trim())
-    .filter((n) => n && !n.includes('@'))
-    .slice(0, 200)
-}
+/**
+ * The workspace's people as "Make tasks" sends them (team: members are mirrored there): ≤ 200 names, each once, never an
+ * email — exactly what goes into `<people>` (the strip's count says so), as Transform → Tasks sends them.
+ */
+const peopleNames = (): string[] => peopleNamesOf(useWorkspace.getState().people)
 
 /** A result ready while its page is not open: a toast with "Open". */
 function announce(id: string) {

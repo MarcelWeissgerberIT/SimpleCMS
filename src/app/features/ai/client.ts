@@ -695,6 +695,10 @@ export function buildPrompt({ action, input, instruction, context, memory, peopl
     case 'continue':
       task = text ? TASKS.continue : `${TASKS.continue}\nThe page is still empty apart from its title; start it.`
       break
+    case 'make_tasks':
+      // the person's own words when the request was routed here ("…, Sam owns the design ones") — material for the tasks
+      task = instruction?.trim() ? `${TASKS.make_tasks}\nThe user's request, for who does what and when: ${instruction.trim()}` : TASKS.make_tasks
+      break
     default:
       task = TASKS[action]
   }

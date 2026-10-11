@@ -56,11 +56,20 @@ export function MeetingFoot({ editor, node, editable }: { editor: Editor; node: 
     if (!n) return
     // the key goes with the to-dos: the caret back in the text (⌘Z works there), never focus on the body
     if (!editor.isDestroyed) editor.commands.focus()
+    const after = editor.state.doc
     toast({
       message: n === 1 ? t('features.meeting.items.madeOne') : t('features.meeting.items.made', { n }),
       kind: 'success',
-      // touch has no ⌘Z: the toast's key undoes it, written as the person's Undo
-      action: { label: t('features.workItems.undo'), run: () => !editor.isDestroyed && editAs(editor, { kind: 'you', via: 'undo' }, () => editor.commands.undo()) },
+      // touch has no ⌘Z: the toast's key undoes it, written as the person's Undo — only while the page is as Make tasks
+      // left it (typing since: ⌘Z would take that back first)
+      action: {
+        label: t('features.workItems.undo'),
+        run: () => {
+          if (editor.isDestroyed) return
+          if (editor.state.doc.eq(after)) editAs(editor, { kind: 'you', via: 'undo' }, () => editor.commands.undo())
+          else toast({ message: t('features.meeting.items.undoLate'), kind: 'info' })
+        },
+      },
     })
   }
   return (

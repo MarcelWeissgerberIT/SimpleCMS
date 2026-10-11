@@ -77,15 +77,34 @@ const TO_DB = [
   String.raw`\b(?:tabelle|datenbank|board)\s+(?:daraus|draus)\b`,
 ].map(W)
 
-/** Tracked tasks (task blocks) out of the text. */
+/**
+ * Tracked tasks (task blocks) out of the text: only when tasks are what the request MAKES — the verb right before
+ * them ("make tasks", "extract the action items"), the text turned INTO them ("turn these into tasks", "als
+ * Aufgaben") — never a request that writes ABOUT tasks ("make these tasks shorter", "a list of the open tasks").
+ */
+const ITEMS = String.raw`(?:tasks|action items|to-?dos)`
 const TO_ITEMS = [
-  String.raw`\b(?:make|turn|convert|extract|pull out|create)\b[^.?!]{0,30}\b(?:tasks|action items)\b`,
+  // "make tasks from this", "create tasks out of the notes", "extract the action items", "pull out 3 tasks"
+  String.raw`\b(?:make|create|extract|pull out|generate|add)\s+(?:(?:some|a few|the|new|tracked|open|clear|\d+)\s+)*${ITEMS}\b`,
+  // "turn these into tasks", "convert the notes to action items", "make it into tasks"
+  String.raw`\b(?:turn|convert|transform|change|make)\s+(?:this|it|that|these|them|the selection|the text|everything|all of (?:it|this)|(?:the|these|those|my|our)\s+\S+)\s+(?:in)?to\s+(?:tracked\s+)?${ITEMS}\b`,
   String.raw`\b(?:into|as)\s+(?:tracked\s+)?tasks\b`,
   String.raw`\btasks\s+(?:out\s+of|from)\s+(?:this|it|these|them|the selection|the text|the notes)\b`,
-  String.raw`\b(?:mach|mache|erstelle|erstell|wandle|wandel|leg|lege)\b[^.?!]{0,30}\baufgaben\b`,
+  // "mach Aufgaben daraus", "erstelle Aufgaben aus den Notizen", "lege 3 Aufgaben an"
+  String.raw`\b(?:mach|mache|erstelle|erstell|leg|lege|generiere)\s+(?:(?:ein\s+paar|einige|neue|\d+)\s+)?aufgaben\b`,
+  // "wandle das in Aufgaben um", "als Aufgaben", "mach daraus Aufgaben", "Aufgaben daraus"
   String.raw`\b(?:als|in|zu)\s+aufgaben\b`,
+  String.raw`\b(?:daraus|draus)\s+aufgaben\b`,
   String.raw`\baufgaben\s+(?:daraus|draus)\b`,
 ].map(W)
+
+/**
+ * Writing about tasks — a summary / list / overview of them, shorter, rewritten — goes to Claude as writing, never Make
+ * tasks ("make tasks from this list" still makes tasks: only "a list", "eine Liste" … is a writing request).
+ */
+const ABOUT_ITEMS = W(
+  String.raw`\b(?:(?:a|an)\s+(?:\S+\s+)?(?:summary|overview|list|timeline|outline|report|table)|(?:eine[nm]?|ein)\s+(?:\S+\s+)?(?:zusammenfassung|übersicht|liste|zeitleiste|bericht|tabelle)|summari[sz]e|shorter|longer|rewrite|bullets?|bullet points|kürzer|länger|umschreiben|stichpunkt\p{L}*)\b`,
+)
 
 /** The coding pipeline, a database / board / table, or new pages / rows: never task blocks. */
 const NOT_ITEMS = W(String.raw`\b(?:coding|pipeline|worker|repo|branch|merge request|pull request|programmier\p{L}*|database|datenbank|board|kanban|table|tabelle|tracker|sub-?pages|pages|rows|records|entries|unter-?seiten|seiten|zeilen|einträge|datensätze)\b`)
@@ -126,7 +145,7 @@ export function requestIntent(raw: string, opts: { selection: boolean; servers?:
   if (toPage) return 'topage'
   if (opts.selection && any(TO_DB)) return 'todb'
   // tracked tasks: before the workspace rule ("create tasks from these notes" is no work beyond the text)
-  if (!outside && any(TO_ITEMS) && !NOT_ITEMS.test(text) && !any(TO_DB)) return 'items'
+  if (!outside && any(TO_ITEMS) && !NOT_ITEMS.test(text) && !ABOUT_ITEMS.test(text) && !any(TO_DB)) return 'items'
   if (workspace) return 'terminal'
   return null
 }

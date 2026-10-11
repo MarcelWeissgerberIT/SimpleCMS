@@ -192,6 +192,10 @@ test.describe('intent: "make tasks"', () => {
       'erstelle Aufgaben aus den Notizen',
       'wandle das in Aufgaben um',
       'Aufgaben daraus bitte',
+      'make tasks from this list',
+      'turn the notes into tasks',
+      'mach daraus Aufgaben',
+      'lege 3 Aufgaben an',
     ]
     for (const s of items) {
       expect(requestIntent(s, { selection: true }), s).toBe('items')
@@ -211,6 +215,15 @@ test.describe('intent: "make tasks"', () => {
       ['create pages for these tasks', false, 'terminal'],
       ['a page for each task', true, 'pagesPerItem'],
       ['improve this', true, null],
+      // writing ABOUT tasks is no Make tasks (the request goes to Claude as writing)
+      ['make these tasks shorter', true, null],
+      ['make a short summary of the tasks on this page', false, null],
+      ['make a list of the open tasks', false, null],
+      ['create an overview of all tasks', false, null],
+      ['turn the tasks into a bullet list', true, null],
+      ['convert the tasks into a timeline', true, null],
+      ['erstelle eine Übersicht der offenen Aufgaben', false, null],
+      ['mach die Aufgaben kürzer', true, null],
     ]
     for (const [s, selection, want] of not) expect(requestIntent(s, { selection }), s).toBe(want)
   })
@@ -279,6 +292,8 @@ test.describe('1440 light', () => {
     const captured = await mockMenu(context, { stream: () => answer })
     const id = await setup(page, 'Nordlicht kick-off', doc(p('Alex drafts the copy, then the venue gets booked.'), item({ itemId: A }, 'Order the banners'), p('')))
     const ppl = await peopleIds(page)
+    // two people named Sam: one name in <people>, counted once
+    await wsEval(page, (s) => s.addPerson('Sam'))
     const before = await peopleCount(page)
     let ai = await askAtCursor(page, id)
     expect(await rowIds(ai)).toEqual(['continue', 'outline', 'brainstorm', 'summarize', 'action_items', 'workItems', 'workspace', 'more'])
@@ -298,7 +313,10 @@ test.describe('1440 light', () => {
     await expect(strip.locator('.item-facts__warn').filter({ hasText: 'is a task already' })).toHaveCount(1)
     // an owner who is no person of the workspace: left out and said so — nobody is created
     await expect(strip.locator('.item-facts__warn').filter({ hasText: '“Bob” is no person in this workspace' })).toHaveCount(1)
-    await expect(strip.getByTestId('ai-items-people')).toContainText(/names go along/)
+    const sent = req.prompt.split('<people>\n')[1].split('\n</people>')[0].split('\n')
+    expect(sent.filter((n) => n === 'Sam')).toEqual(['Sam'])
+    expect(new Set(sent).size).toBe(sent.length)
+    await expect(strip.getByTestId('ai-items-people')).toContainText(new RegExp(`\\b${sent.length} names go along`))
     await page.keyboard.press('Enter')
     await expect(panel(page)).toHaveCount(0)
     await flush(page)
@@ -332,8 +350,8 @@ test.describe('1440 light', () => {
     await gate(page, null)
   })
 
-  test('intent routing: "make tasks from this" → Make tasks (a selection: Transform → Tasks); "turn this into a board" → Turn into database; a coding task is no task block', async ({ page, context }) => {
-    await mockMenu(context, { json: () => ({ items: [{ title: 'Call the printer', notes: [], status: 'todo', owners: [], due: null, blockedBy: [], from: [1] }], keep: [], left: [] }) })
+  test('intent routing: "make tasks from this" → Make tasks (a selection: Transform → Tasks); "turn this into a board" → Turn into database; a coding task is no task block; the typed request goes along', async ({ page, context }) => {
+    const captured = await mockMenu(context, { json: () => ({ items: [{ title: 'Call the printer', notes: [], status: 'todo', owners: [], due: null, blockedBy: [], from: [1] }], keep: [], left: [] }) })
     const id = await setup(page, 'Nordlicht print', doc(p('Call the printer about the banners.'), p('Then confirm the delivery date.'), p('')))
     let ai = await askOnSelection(page, id, 'Call the printer', 'delivery date.')
     await ai.locator('.ai-cmd__input').fill('make tasks from this')
@@ -346,12 +364,19 @@ test.describe('1440 light', () => {
     expect((await rowIds(ai))[0]).toBe('intent-workItems')
     await page.keyboard.press('Enter')
     await expect(page.getByTestId('transform-preview').locator('.item-facts__row')).toHaveCount(1)
+    // the typed words went along with Transform → Tasks
+    expect(captured.filter((c) => !c.stream).pop()!.prompt).toContain('Request from the user: mach Aufgaben daraus')
     await page.keyboard.press('Escape')
-    // at the cursor: the page-level action
+    // at the cursor: the page-level action — with the owner hint the person typed
     ai = await askAtCursor(page, id)
-    await ai.locator('.ai-cmd__input').fill('turn these into tasks')
+    await ai.locator('.ai-cmd__input').fill('turn these into tasks, Sam owns the design ones')
     expect((await rowIds(ai))[0]).toBe('intent-workItems')
     await expect(row(page, 'intent-workItems')).toContainText('Make tasks from this page')
+    await page.keyboard.press('Enter')
+    await expect(panel(page).locator('.ai-out')).toHaveAttribute('data-phase', 'done')
+    const req = captured.filter((c) => c.stream).pop()!
+    expect(req.prompt).toMatch(/Task: Turn the text into tracked tasks/)
+    expect(req.prompt).toContain("The user's request, for who does what and when: turn these into tasks, Sam owns the design ones")
   })
 
   test('a free-form answer holding tasks: inserted as tasks (a reminder kept); the request of "improve" carries no <people>; a terminal answer shows a plain quote', async ({ page, context }) => {
@@ -471,6 +496,21 @@ test.describe('1440 light', () => {
     expect(tasks.some((t) => t.itemId === B)).toBe(false)
   })
 
+  test("Replace never covers a synced reference's task (the original page's): the range is off, as when it cuts into a task", async ({ page }) => {
+    await openApp(page)
+    const json = doc(
+      p('Before the reference.'),
+      { type: 'syncedBlock', attrs: { syncId: 's-ref', sourcePageId: 'pg-elsewhere' }, content: [item({ itemId: A }, 'Synced errand')] },
+      item({ itemId: B }, 'Own errand'),
+      p('After it.'),
+    )
+    const at = (from: string, to: string) => page.evaluate(({ json, from, to }) => (window as unknown as { __oneSettle: { replaceRangeAt(j: unknown, a: string, b: string): Promise<unknown> } }).__oneSettle.replaceRangeAt(json, from, to), { json, from, to })
+    expect(await at('Before', 'After it.')).toBeNull()
+    expect(await at('Synced', 'Own errand')).toBeNull()
+    // the page's own task alone: grown to the whole task, allowed
+    expect(await at('Own errand', 'After it.')).toMatchObject({ holds: true })
+  })
+
   test('Insert below from a task\'s note / a table cell: a task in the answer lands after the outermost task / after the table', async ({ page, context }) => {
     await mockMenu(context, { stream: () => '> [!TODO] Check the banner proofs' })
     const table: JSONContent = {
@@ -493,11 +533,14 @@ test.describe('1440 light', () => {
     expect((c.content as JSONContent[]).slice(0, 2).map((n) => n.type)).toEqual(['workItem', 'workItem'])
     expect(tasksIn(c).map((t) => t.title)).toEqual(['Order the banners', 'Check the banner proofs'])
     expect(tasksIn((c.content as JSONContent[])[0])).toHaveLength(1)
-    // the target is a table cell: after the table, never inside a cell
+    // the target is a table cell: after the table, never inside a cell — Replace says so and is off, Insert below first
     await askOnSelection(page, id, 'Sam handles', 'it')
     await panel(page).locator('.ai-cmd__input').fill('one more check')
     await page.keyboard.press('Enter')
     await expect(panel(page).locator('.ai-out')).toHaveAttribute('data-phase', 'done')
+    await expect(row(page, 'replace')).toHaveAttribute('aria-disabled', 'true')
+    await expect(row(page, 'replace')).toContainText('Tasks can’t go inside a task or a table')
+    expect((await rowIds(panel(page)))[0]).toBe('insert')
     await row(page, 'insert').click()
     await expect(panel(page)).toHaveCount(0)
     await flush(page)
@@ -557,6 +600,15 @@ test.describe('1440 light', () => {
     await page.keyboard.press(`${MOD}+z`)
     await flush(page)
     expect(tasksIn(await contentOf(page, id))).toEqual([])
+    // typed since: the toast's Undo never takes the typing back instead — it says so, the tasks stay
+    await key.click()
+    await flush(page)
+    await page.keyboard.type('Typed after')
+    await page.locator('.toast').filter({ hasText: '3 tasks made' }).last().getByRole('button', { name: 'Undo' }).click()
+    await expect(page.locator('.toast').filter({ hasText: 'The notes changed since' })).toBeVisible()
+    await flush(page)
+    expect(tasksIn(await contentOf(page, id))).toHaveLength(3)
+    await expect(editorOf(page, id)).toContainText('Typed after')
     // the gate shut: no key (the page shown again)
     await gate(page, false)
     await page.evaluate(() => (location.hash = '#/'))
