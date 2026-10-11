@@ -4,7 +4,7 @@
  * ops, the axis, the width or the window change. A press and drag along the track brackets a window there; a click
  * on a tick opens its place (more places: a popover); a click on a flag brackets its run.
  */
-import { memo, useLayoutEffect, useMemo, useRef, type PointerEvent as RPointerEvent } from 'react'
+import { Fragment, memo, useLayoutEffect, useMemo, useRef, type PointerEvent as RPointerEvent } from 'react'
 import { useLang, useT } from '../../../i18n'
 import { fracOf, snapTime, tAtX, xOf, ZOOM, type Axis, type Zoom } from '../model/axis'
 import { copiesPath, countOps, histMarks, isCopy, laneMarks, marksPath, opAt, type LaneMarks } from '../model/marks'
@@ -15,6 +15,7 @@ import { fmtNum, hm, unit } from './format'
 import { settleLaneLabels } from './settle'
 import { freezeAxis, setBracket, setFocusLane, type Bracket } from './state'
 import type { View } from '../model/labels'
+import type { HeldMark } from '../window/read'
 
 export interface LaneProps {
   meta: LaneMeta
@@ -30,6 +31,8 @@ export interface LaneProps {
   nowX: number | null
   phone: boolean
   onOp: (op: JOp, x: number, el: HTMLElement) => void
+  /** rows of the selected window that someone changed since: diamonds at that moment (the plate's note says it) */
+  held?: HeldMark[]
 }
 
 const DRAG_PX = 4
@@ -220,6 +223,14 @@ export const Lane = memo(function Lane(p: LaneProps) {
         )
       })}
       {sel && <div className="bracket" style={{ left: x(sel.a), width: Math.max(2, x(sel.b) - x(sel.a)) }} />}
+      {p.held?.map((h) => (
+        <Fragment key={h.p}>
+          <i className="held" style={{ left: x(h.at) }} data-held={h.p} aria-hidden="true" />
+          <span className="held__n" data-anchor={x(h.at)} data-shift={8} data-gap={8} data-flips="1" style={{ left: x(h.at) + 8 }} aria-hidden="true">
+            {h.label}
+          </span>
+        </Fragment>
+      ))}
     </div>
   )
 })

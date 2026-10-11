@@ -194,6 +194,8 @@ export interface HeldMark {
   p: PlaceKey
   at: number
   label: string
+  /** who changed it first since (its diamond sits on that track when it is shown; null: not recorded) */
+  lane: LaneKey | null
 }
 
 const CUT = 14
@@ -214,7 +216,13 @@ export function rowLabel(page: Page | undefined): string {
 /** The held rows as diamonds: at the first foreign change after W's first touch (else now). */
 export function heldMarks(model: ReadModel): HeldMark[] {
   const pages = useWorkspace.getState().pages
-  return model.held.filter((v) => v.pk === 'row').map((v) => ({ p: v.p, at: v.firstForeignAt ?? Date.now(), label: rowLabel(pages[v.p.slice(2)]) }))
+  return model.held
+    .filter((v) => v.pk === 'row')
+    .map((v) => {
+      const first = v.firstForeignAt === undefined ? undefined : v.by.find((b) => b.at === v.firstForeignAt)
+      return { p: v.p, at: v.firstForeignAt ?? Date.now(), label: rowLabel(pages[v.p.slice(2)]), lane: (first ?? v.by[0])?.lane ?? null }
+    })
+    .sort((x, y) => x.at - y.at)
 }
 
 /** Who changed the held places since (lanes, a null lane = not recorded), in order of first appearance. */

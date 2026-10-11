@@ -20,6 +20,7 @@ import { settleHeads } from './settle'
 import { freezeAxis, setFocusLane, useRecorderUI, type Bracket } from './state'
 import { focusLost } from '../../../ui/focus'
 import { TickPopover, type TickAt } from './TickPopover'
+import type { HeldMark } from '../window/read'
 
 export interface TapeProps {
   lanes: LaneMeta[]
@@ -182,6 +183,22 @@ export function Tape(p: TapeProps) {
     })
   }, [tick])
   const lanesKeys = p.lanes.map((l) => l.lane)
+  // held rows of the selected window: a diamond on the track of whoever changed it since (when shown), else on the
+  // window's own track
+  const heldState = useRecorderUI((s) => s.held)
+  const bracketKey = p.bracket ? `${p.bracket.lane}|${p.bracket.run ?? ''}|${p.bracket.a}|${p.bracket.b}` : ''
+  const shownKey = lanesKeys.join('\u0000')
+  const heldByLane = useMemo(() => {
+    const out = new Map<LaneKey, HeldMark[]>()
+    if (!p.bracket || !heldState || heldState.key !== bracketKey) return out
+    const shown = new Set(shownKey.split('\u0000'))
+    for (const m of heldState.marks) {
+      const lane = m.lane && shown.has(m.lane) ? m.lane : p.bracket.lane
+      out.set(lane, [...(out.get(lane) ?? []), m])
+    }
+    return out
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [heldState, bracketKey, shownKey])
   const focusLane = p.focusLane && lanesKeys.includes(p.focusLane) ? p.focusLane : (p.bracket?.lane && lanesKeys.includes(p.bracket.lane) ? p.bracket.lane : lanesKeys[0])
 
   return (
@@ -219,6 +236,7 @@ export function Tape(p: TapeProps) {
                 nowX={nowX}
                 phone={p.phone}
                 onOp={onOp}
+                held={heldByLane.get(m.lane)}
               />
             ))}
           </div>

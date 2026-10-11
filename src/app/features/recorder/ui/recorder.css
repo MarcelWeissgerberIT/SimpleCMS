@@ -1087,6 +1087,104 @@
   flex: none;
 }
 
+/* the held check (R2): the rows someone changed since — the note's swatch and the keys of the selected window */
+.win__note .held-sw {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  margin: 3px 1px 0;
+  border: 1.5px solid var(--signal);
+  transform: rotate(45deg);
+}
+.win__keys {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+}
+.dbtn {
+  display: inline-flex;
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-width: 0;
+  height: calc(30px * var(--text-scale));
+  padding: 0 10px;
+  border: 1px solid var(--tp-key-edge);
+  border-bottom-width: 3px;
+  border-radius: 3px;
+  background: var(--tp-key);
+  color: var(--tp-ink);
+  font-size: calc(12.5px * var(--text-scale));
+  font-weight: 650;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.dbtn > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dbtn svg {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  stroke-width: 1.8;
+}
+.dbtn:hover {
+  background: color-mix(in srgb, var(--tp-ink) 16%, var(--tp-bg));
+}
+.dbtn:active {
+  transform: translateY(1px);
+}
+.dbtn .kbd {
+  flex: none;
+  height: calc(16px * var(--text-scale));
+  min-width: calc(16px * var(--text-scale));
+}
+.dbtn--report {
+  flex: 0 0 auto;
+}
+/* the key that brackets a writer's whole stretch (a window cutting it reads partly) */
+.dbtn--extend {
+  flex: none;
+  justify-content: flex-start;
+  height: calc(26px * var(--text-scale));
+  border-bottom-width: 1px;
+  background: transparent;
+  font-size: calc(12px * var(--text-scale));
+}
+
+/* held rows on the tape: a diamond at the first change by someone else, its row key beside it (flips, hides) */
+.held {
+  position: absolute;
+  top: 2px;
+  z-index: 3;
+  width: 8px;
+  height: 8px;
+  margin-left: -4px;
+  border: 1.5px solid var(--signal);
+  background: var(--tp-bg);
+  transform: rotate(45deg);
+  pointer-events: none;
+}
+.held__n {
+  position: absolute;
+  top: 1px;
+  z-index: 3;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+  color: var(--tp-sig);
+  pointer-events: none;
+}
+.held__n[data-hidden] {
+  visibility: hidden;
+}
+
 /* ---------- popovers from the deck: the tick's places, the filter ---------- */
 .rec-pop {
   min-width: 220px;
@@ -1338,6 +1436,15 @@
   }
   .deck[data-phone] .mtr {
     border-bottom: 0;
+  }
+  .deck[data-phone] .dbtn {
+    height: 42px;
+  }
+  .deck[data-phone] .dbtn--report {
+    display: none;
+  }
+  .deck[data-phone] .dbtn--extend {
+    height: 34px;
   }
   .deck__grip::after {
     top: 8px;

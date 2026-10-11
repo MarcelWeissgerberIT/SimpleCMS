@@ -800,7 +800,7 @@ test.describe('look', () => {
         sig.add(getComputedStyle(probe).color)
       }
       probe.remove()
-      const ALLOWED = ['.playhead', '.bracket', '.lane__marks .sel', '.ruler__zone', '.ov__bars [data-hot]', '.trk[data-sel]', '.flag[data-sel]', '.ev-l[data-sel]', '.win__t', '.counter__val[data-sig]', '.led']
+      const ALLOWED = ['.playhead', '.bracket', '.lane__marks .sel', '.ruler__zone', '.ov__bars [data-hot]', '.trk[data-sel]', '.flag[data-sel]', '.ev-l[data-sel]', '.win__t', '.counter__val[data-sig]', '.led', '.held', '.held__n', '.held-sw']
       const allowed = (el: Element) => ALLOWED.some((a) => el.closest(a))
       const hits = (cs: CSSStyleDeclaration, el: Element): string[] => {
         const out: string[] = []
@@ -843,6 +843,9 @@ test.describe('look', () => {
       await page.keyboard.press('Control+Alt+z')
       await page.locator('.lane[data-lane="agent:nordlicht-spiegel"] .flag').click()
       await expect(page.locator('.mtr b').first()).toHaveText('52')
+      // the held check: two rows the person changed since — diamonds on the tape, the swatch in the plate's note
+      await expect(page.locator('.deck .held')).toHaveCount(2)
+      await expect(page.locator('.win__note .held-sw')).toHaveCount(1)
       // rewound a little: the counter shows the playhead's time
       await page.locator('.playhead__h').focus()
       await page.keyboard.press('ArrowLeft')
@@ -870,6 +873,18 @@ test.describe('look', () => {
       })
       expect(await page.locator('.lane__marks path.sel').evaluate((p) => getComputedStyle(p).fill)).toBe(sig)
       expect(await page.locator('.playhead').evaluate((p) => getComputedStyle(p).backgroundColor)).toBe(sig)
+      expect(await page.locator('.deck .held').first().evaluate((p) => getComputedStyle(p).borderTopColor)).toBe(sig)
+      expect(await page.locator('.win__note .held-sw').evaluate((p) => getComputedStyle(p).borderTopColor)).toBe(sig)
+      // the held row keys in the deck's signal text (--tp-sig), never --signal-ink
+      const tpSig = await page.locator('section.deck').evaluate((d) => {
+        const i = document.createElement('i')
+        i.style.color = 'var(--tp-sig)'
+        d.append(i)
+        const c = getComputedStyle(i).color
+        i.remove()
+        return c
+      })
+      expect(await page.locator('.deck .held__n').first().evaluate((p) => getComputedStyle(p).color)).toBe(tpSig)
     })
 
   test('reduced motion: the deck appears without sliding in, nothing on it animates or eases', async ({ page }) => {
