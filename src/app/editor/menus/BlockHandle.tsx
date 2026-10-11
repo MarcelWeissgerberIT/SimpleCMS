@@ -24,7 +24,7 @@ import type { Bridge } from '../lib/bridge'
 import { blockTextRange, currentBlock, deleteBlock, duplicateBlock, turnBlockInto, type BlockRef, type TurnTarget } from '../lib/blocks'
 import { trackMove } from '../lib/moves'
 import { livePages } from '../lib/livePages'
-import { TURN_INTO_ITEMS } from '../lib/catalog'
+import { turnIntoChoices } from '../lib/catalog'
 import { BlockGlyph } from './SlashMenu'
 import { toggleHeadingLevel } from '../schema/toggle'
 import { mediaMenuEntries } from './mediaMenu'
@@ -47,7 +47,7 @@ import { itemAttrs, WORK_ITEM_STATUSES } from '../workitem/attrs'
 import { openItemPickerAt, setItemStatus } from '../workitem/keys'
 import type { ItemPickerKind } from '../lib/bridge'
 
-const TEXTUAL = new Set(['paragraph', 'heading', 'bulletList', 'orderedList', 'taskList', 'listItem', 'taskItem', 'blockquote', 'callout', 'details', 'codeBlock'])
+const TEXTUAL = new Set(['paragraph', 'heading', 'bulletList', 'orderedList', 'taskList', 'listItem', 'taskItem', 'blockquote', 'callout', 'details', 'codeBlock', 'workItem'])
 const EXCLUDED = new Set(['column', 'detailsSummary', 'detailsContent', 'tab'])
 /** This many px past the hovered block's own lines still belong to it: the handle never flickers between levels. */
 const STICKY = 3
@@ -169,6 +169,7 @@ function turnTargetOf(editor: Editor, ref: BlockRef): TurnTarget | null {
     case 'blockquote':
     case 'callout':
     case 'codeBlock':
+    case 'workItem':
       return n.type.name as TurnTarget
   }
   return null
@@ -458,7 +459,7 @@ export function BlockHandle({ editor, bridge, pageId }: { editor: Editor; bridge
         label: t('editor.blockMenu.turnInto'),
         icon: <Repeat2 size={15} />,
         submenu: [
-          ...TURN_INTO_ITEMS.map((b) => ({
+          ...turnIntoChoices().map((b) => ({
             label: t(`editor.block.${b.id}`),
             icon: <BlockGlyph item={b} size={15} />,
             hint: b.md,

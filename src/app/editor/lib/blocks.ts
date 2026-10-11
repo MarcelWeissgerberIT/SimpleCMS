@@ -6,6 +6,7 @@ import { Fragment, type Node as PMNode, type ResolvedPos } from '@tiptap/pm/mode
 import { NodeSelection, Selection, TextSelection, type Transaction } from '@tiptap/pm/state'
 import { toggleHeadingLevel, type ToggleHeadingLevel } from '../schema/toggle'
 import { copyBlocks } from '../workitem/ids'
+import { turnItemInto, turnLineIntoItem } from '../workitem/turnInto'
 
 /** Parents whose children are "blocks" in the Notion sense. */
 const CONTAINERS = new Set(['doc', 'column', 'callout', 'detailsContent', 'blockquote', 'tab', 'syncedBlock', 'meetingNotes'])
@@ -116,6 +117,7 @@ export type TurnTarget =
   | 'blockquote'
   | 'callout'
   | 'codeBlock'
+  | 'workItem'
 
 const LIST_TYPES: Record<string, string> = { bulletList: 'bulletList', orderedList: 'orderedList', taskList: 'taskList' }
 
@@ -129,6 +131,8 @@ const TURN_STOPS = new Set(['detailsContent', 'column', 'tableCell', 'tableHeade
  */
 export function activeTurnTarget(editor: Editor): TurnTarget | null {
   const { $from } = editor.state.selection
+  // a task's title: the task (its notes are lines of their own)
+  if ($from.depth >= 2 && $from.node($from.depth - 1).type.name === 'workItem' && $from.index($from.depth - 1) === 0) return 'workItem'
   for (let d = $from.depth; d > 0; d--) {
     const node = $from.node(d)
     const n = node.type.name
@@ -244,8 +248,23 @@ export function liftEmptyListItem(editor: Editor) {
   }
 }
 
-/** Notion-style "Turn into" for the block at the selection (converted in place, inside its container). */
+/**
+ * Notion-style "Turn into" for the block at the selection (converted in place, inside its container). A task: the
+ * caret in its title acts on the WHOLE task (its fields written out as mentions — workitem/turnInto.ts); Task makes
+ * the line a new task (the creation gate decides; a list item leaves its list, a line in a task's notes goes after it).
+ */
 export function turnInto(editor: Editor, target: TurnTarget): boolean {
+  const $at = editor.state.selection.$from
+  if ($at.depth >= 2 && $at.node($at.depth - 1).type.name === 'workItem' && $at.index($at.depth - 1) === 0) {
+    return target === 'workItem' ? true : turnItemInto(editor, $at.before($at.depth - 1), target)
+  }
+  if (target === 'workItem') {
+    // a toggle's title: the toggle unwraps first (its title becomes the task)
+    if ($at.parent.type.name === 'detailsSummary') unwrapToggle(editor)
+    // the single block of a quote: unwrap the quote first
+    if (activeTurnTarget(editor) === 'blockquote') editor.commands.lift('blockquote')
+    return turnLineIntoItem(editor)
+  }
   // toggle ↔ toggle heading: only the title's level changes, the body stays inside
   const toggleLevel = toggleTargetLevel(target)
   const { $from: $sel } = editor.state.selection
@@ -310,6 +329,8 @@ export function turnBlockInto(editor: Editor, ref: BlockRef, target: TurnTarget)
   const node = state.doc.nodeAt(ref.pos)
   if (!node) return false
   const name = node.type.name
+  // a task picked whole: Task = nothing to do; anything else = the task as that block (fields as mentions)
+  if (name === 'workItem') return target === 'workItem' ? true : turnItemInto(editor, ref.pos, target)
   if (name === 'callout' || name === 'blockquote') {
     if (target === name) return true
     if (target === 'callout' || target === 'blockquote') {

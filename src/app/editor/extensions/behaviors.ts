@@ -15,6 +15,8 @@ import { allBlocks, extendSelection, isBlockSelection, readBlockSel, stepSelecti
 import { duplicateBlocks, moveBlocksBy } from '../select/actions'
 import { openBlockMenu } from '../select/registry'
 import { toggleItemDone } from '../workitem/keys'
+import { itemLookup } from '../workitem/lookup'
+import { inTableCell, lineToItem } from '../workitem/turnInto'
 import {
   caretAfterNode,
   caretIntoBlock,
@@ -422,8 +424,27 @@ export const ExtraInputRules = Extension.create({
         return undefined
       },
     })
+    // "[!] " — the line becomes a task (its text the title): only where new tasks may be made (the creation gate),
+    // never in a button's template editor (a template holds no task) or a table cell; in a task's notes the new task
+    // goes after the task. Backspace right after it undoes the rule.
+    const editor = this.editor
+    const itemRule = new InputRule({
+      find: /^\[!\]\s$/,
+      handler: ({ state, range }) => {
+        if (editor.view.dom.hasAttribute('data-template-editor') || !itemLookup().canCreate()) return null
+        const $from = state.doc.resolve(range.from)
+        if ($from.parent.type.name !== 'paragraph' || $from.parentOffset !== 0 || inTableCell($from)) return null
+        const { tr } = state
+        tr.delete(range.from, range.to)
+        const caret = lineToItem(tr, tr.mapping.map(range.from), Date.now())
+        if (caret === null || caret === 'table') return null
+        tr.setSelection(TextSelection.create(tr.doc, Math.min(caret, tr.doc.content.size)))
+        return undefined
+      },
+    })
     return [
       emojiRule,
+      itemRule,
       // ">> " — the line's text becomes the toggle title
       blockRule(/^>>\s$/, (rest, schema) =>
         schema.nodes.details.create({ open: true }, [schema.nodes.detailsSummary.create(null, rest), schema.nodes.detailsContent.create(null, schema.nodes.paragraph.create())]),

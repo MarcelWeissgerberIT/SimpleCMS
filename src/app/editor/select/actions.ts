@@ -1,9 +1,14 @@
 /**
  * The block menu's actions for several selected blocks — each one transaction (one ⌘Z).
  */
-import type { Editor } from '@tiptap/core'
+import type { Editor, JSONContent } from '@tiptap/core'
 import { Fragment, type Node as PMNode } from '@tiptap/pm/model'
 import { Selection, TextSelection } from '@tiptap/pm/state'
+import { t } from '../../i18n'
+import { toast } from '../../store/ui'
+import { itemLookup } from '../workitem/lookup'
+import { itemFromBlock, itemFromTodo, splitListAround } from '../workitem/turn'
+import { inTableCell, outerItemDepth } from '../workitem/turnInto'
 import { trackMove } from '../lib/moves'
 import { copyBlocks } from '../workitem/ids'
 import { turnInto, type TurnTarget } from '../lib/blocks'
@@ -67,6 +72,88 @@ export function turnBlocksInto(editor: Editor, b: BlockSel, target: TurnTarget):
   const { from, to } = textRange(editor.state.doc, at)
   editor.view.dispatch(editor.state.tr.setSelection(TextSelection.create(editor.state.doc, from, to)))
   return turnInto(editor, target)
+}
+
+const LISTS = new Set(['bulletList', 'orderedList', 'taskList'])
+
+/** One selected block as tasks: a line / quote / callout → one; a list → one per item; a task stays; others stay as they are. */
+function asTasks(n: PMNode, now: number): JSONContent[] {
+  const j = n.toJSON() as JSONContent
+  switch (n.type.name) {
+    case 'workItem':
+      return [j]
+    case 'taskItem':
+      return [itemFromTodo(j, now)]
+    case 'listItem':
+    case 'paragraph':
+    case 'heading':
+    case 'codeBlock':
+    case 'blockquote':
+    case 'callout':
+      return [itemFromBlock(j)]
+    case 'bulletList':
+    case 'orderedList':
+    case 'taskList': {
+      const out: JSONContent[] = []
+      n.forEach((item) => out.push(...asTasks(item, now)))
+      return out
+    }
+  }
+  return [j]
+}
+
+/**
+ * Turn into ▸ Task for several selected blocks: a task each (a list: one per item; to-dos keep their tick, first date
+ * and people as fields), built in ONE transaction (one undo step). Items of one list: the list is split around
+ * them. Inside a task's notes the new tasks go after the outermost task; in a table cell: refused.
+ */
+export function turnBlocksIntoItems(editor: Editor, b: BlockSel): boolean {
+  if (!itemLookup().canCreate()) return false
+  const at = fresh(editor, b)
+  if (!at) return false
+  const { state, view } = editor
+  const $from = state.doc.resolve(at.from)
+  if (inTableCell($from)) {
+    toast({ message: t('editor.workItem.notInTable') })
+    return true
+  }
+  const now = Date.now()
+  const made = at.nodes.flatMap((n) => asTasks(n, now))
+  const schema = state.schema
+  const tasks = made.map((j) => schema.nodeFromJSON(j))
+  const outer = outerItemDepth($from)
+  const tr = state.tr
+  const inList = LISTS.has(at.parent.type.name) && $from.depth > 0
+  let first: number
+  if (outer) {
+    // out of the notes: the blocks go, the tasks follow the outermost task
+    const after = $from.after(outer)
+    if (inList) {
+      const listPos = $from.before($from.depth)
+      const rest = splitListAround(at.parent.toJSON() as JSONContent, at.start, [], at.end - at.start).map((j) => schema.nodeFromJSON(j))
+      if (rest.length) tr.replaceWith(listPos, listPos + at.parent.nodeSize, rest)
+      else tr.deleteRange(listPos, listPos + at.parent.nodeSize)
+    } else tr.deleteRange(at.from, at.to)
+    first = tr.mapping.map(after)
+    tr.insert(first, tasks)
+  } else if (inList) {
+    const listPos = $from.before($from.depth)
+    const parts = splitListAround(at.parent.toJSON() as JSONContent, at.start, made, at.end - at.start).map((j) => schema.nodeFromJSON(j))
+    tr.replaceWith(listPos, listPos + at.parent.nodeSize, parts)
+    first = listPos
+    for (const n of parts) {
+      if (n.type.name === 'workItem') break
+      first += n.nodeSize
+    }
+  } else {
+    tr.replaceWith(at.from, at.to, tasks)
+    first = at.from
+  }
+  const task = tr.doc.nodeAt(first)
+  if (task?.type.name === 'workItem') tr.setSelection(TextSelection.create(tr.doc, first + 1 + (task.firstChild?.nodeSize ?? 2) - 1))
+  view.dispatch(tr.scrollIntoView())
+  view.focus()
+  return true
 }
 
 /** Text colour / background over all their text; the blocks stay selected. */

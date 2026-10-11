@@ -14,6 +14,7 @@
 import type { Locator, Page } from '@playwright/test'
 import type { JSONContent } from '@tiptap/core'
 import { test, expect, openApp, gotoPage, editorOf, createPage, wsEval, flush, doc, para, MOD } from './fixtures'
+import { blocksFromItem, itemFromBlock, itemFromTodo, splitListAround } from '../../src/app/editor/workitem/turn'
 
 type AnyState = Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -91,6 +92,65 @@ async function caretInTitle(page: Page, task: Locator, where: 'end' | 'start' = 
 }
 
 const undo = (page: Page) => page.keyboard.press(`${MOD}+z`)
+
+/* ------------------------------------------------------------------ */
+/* Turn into helpers (pure)                                            */
+/* ------------------------------------------------------------------ */
+
+test.describe('turn helpers (pure)', () => {
+  test('itemFromTodo: tick → done, the first date → due + reminder, people → people, nested blocks → notes; the text tidied', () => {
+    const todo: JSONContent = {
+      type: 'taskItem',
+      attrs: { checked: true },
+      content: [
+        { type: 'paragraph', content: [{ type: 'text', text: 'Call ' }, { type: 'mention', attrs: { id: '2031-10-17', label: 'Fri 17 Oct', kind: 'date', reminder: 'at' } }, { type: 'text', text: ' the bank ' }, { type: 'mention', attrs: { id: '2031-10-20', label: 'Mon', kind: 'date' } }, { type: 'text', text: ' with ' }, { type: 'mention', attrs: { id: 'p_alex', label: 'Alex', kind: 'person' } }] },
+        { type: 'taskList', content: [{ type: 'taskItem', attrs: { checked: false }, content: [p('step')] }] },
+      ],
+    }
+    const t = itemFromTodo(todo, 1234, 'wi_aaaaaaaaaa')
+    expect(t.attrs).toMatchObject({ itemId: 'wi_aaaaaaaaaa', status: 'done', doneAt: 1234, due: '2031-10-17', reminder: 'at', people: ['p_alex'] })
+    // the second date mention stays in the title
+    expect(JSON.stringify(t.content![0])).toContain('2031-10-20')
+    expect(t.content![0].content![0]).toEqual({ type: 'text', text: 'Call the bank ' })
+    expect(t.content!.length).toBe(2)
+    expect(itemFromTodo({ type: 'taskItem', attrs: { checked: false }, content: [p('x')] }, 1).attrs).toMatchObject({ status: 'todo', doneAt: null, due: null })
+  })
+
+  test('itemFromBlock: a heading keeps its marks as the title; a list item: first line title, rest notes; a task inside → its plain blocks', () => {
+    const h = itemFromBlock({ type: 'heading', attrs: { level: 2 }, content: [{ type: 'text', text: 'Bold', marks: [{ type: 'bold' }] }] }, 'wi_bbbbbbbbbb')
+    expect(h).toEqual({ type: 'workItem', attrs: { itemId: 'wi_bbbbbbbbbb', status: 'todo' }, content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Bold', marks: [{ type: 'bold' }] }] }] })
+    const li = itemFromBlock({ type: 'listItem', content: [p('first'), { type: 'workItem', attrs: { itemId: 'wi_cccccccccc' }, content: [p('inner')] }] }, 'wi_dddddddddd')
+    expect(li.content!.map((n) => n.type)).toEqual(['paragraph', 'paragraph'])
+  })
+
+  test('blocksFromItem: the fields as mentions after the title; to-do ticked when done, notes nested; toggle keeps notes', () => {
+    const task: JSONContent = { type: 'workItem', attrs: { itemId: A, status: 'done', due: '2031-10-17', reminder: '-1d', people: ['p_alex', 'p_gone'] }, content: [p('Ship it'), p('a note')] }
+    const labels = { date: () => 'Fri 17 Oct', person: (id: string) => (id === 'p_alex' ? 'Alex' : null) }
+    const [para0, note] = blocksFromItem(task, labels, 'paragraph')
+    expect(para0.content).toEqual([
+      { type: 'text', text: 'Ship it' },
+      { type: 'text', text: ' ' },
+      { type: 'mention', attrs: { id: '2031-10-17', label: 'Fri 17 Oct', kind: 'date', reminder: '-1d' } },
+      { type: 'text', text: ' ' },
+      { type: 'mention', attrs: { id: 'p_alex', label: 'Alex', kind: 'person' } },
+    ])
+    expect(note).toEqual(p('a note'))
+    const [list] = blocksFromItem(task, labels, 'taskList')
+    expect(list.content![0]).toMatchObject({ type: 'taskItem', attrs: { checked: true } })
+    expect(list.content![0].content!.length).toBe(2)
+    const [toggle] = blocksFromItem(task, labels, 'toggle')
+    expect(toggle.content!.map((n) => n.type)).toEqual(['detailsSummary', 'detailsContent'])
+  })
+
+  test('splitListAround: the items before stay, the replacement follows, the rest a second list (a numbered one keeps counting)', () => {
+    const list: JSONContent = { type: 'orderedList', attrs: { id: 'L1', start: 1 }, content: [1, 2, 3, 4].map((n) => ({ type: 'listItem', content: [p(String(n))] })) }
+    const out = splitListAround(list, 1, [p('X'), p('Y')], 2)
+    expect(out.map((n) => n.type)).toEqual(['orderedList', 'paragraph', 'paragraph', 'orderedList'])
+    expect(out[0].content!.length).toBe(1)
+    expect(out[3].attrs).toMatchObject({ id: null, start: 4 })
+    expect(splitListAround(list, 0, [p('X')], 4)).toEqual([p('X')])
+  })
+})
 
 /* ------------------------------------------------------------------ */
 /* The placard: key, ⌄, Mod+Enter                                      */
@@ -529,7 +589,122 @@ test.describe('1440 light', () => {
     await expect.poll(async () => (await liveTasks(page, id))[0].attrs.due ?? null).toBeNull()
   })
 
+  test('creating: /task and /aufgabe, "[!] " (Backspace undoes it; not in a table cell; in notes → after the task)', async ({ page }) => {
+    await openApp(page)
+    const table = { type: 'table', content: [{ type: 'tableRow', content: [{ type: 'tableCell', content: [p('')] }] }] }
+    const id = await taskPage(page, 'Create page', p('First line'), p(''), table, item({ itemId: A }, 'Outer task', p('note')))
+    const ed = editorOf(page, id)
+    // slash
+    await ed.locator('p').nth(1).click()
+    await page.keyboard.type('/task')
+    await expect(page.locator('.slash .slash__name').first()).toHaveText('Task')
+    await page.keyboard.press('Enter')
+    await page.keyboard.type('Made by slash')
+    let list = await liveTasks(page, id)
+    expect(list.map((x) => x.title)).toEqual(['Made by slash', 'Outer task'])
+    expect(list[0].attrs.status).toBe('todo')
+    // "[!] " turns the line into a task, its text the title; Backspace right after undoes it
+    await ed.locator('p').first().click()
+    await page.keyboard.press('Home')
+    await page.keyboard.type('[!] ')
+    list = await liveTasks(page, id)
+    expect(list.map((x) => x.title)).toEqual(['First line', 'Made by slash', 'Outer task'])
+    await page.keyboard.press('Backspace')
+    await expect(ed.locator('p').first()).toHaveText('[!] First line')
+    expect((await liveTasks(page, id)).length).toBe(2)
+    // in a table cell: the text stays
+    await ed.locator('td p').click()
+    await page.keyboard.type('[!] in a cell')
+    await expect(ed.locator('td')).toContainText('[!] in a cell')
+    expect((await liveTasks(page, id)).length).toBe(2)
+    // in a task's notes: the new task goes after the task, the line leaves the notes
+    await ed.getByText('note', { exact: true }).click()
+    await page.keyboard.press('End')
+    await page.keyboard.press('Enter')
+    await page.keyboard.type('[!] Follow-up')
+    list = await liveTasks(page, id)
+    expect(list.map((x) => x.title)).toEqual(['Made by slash', 'Outer task', 'Follow-up'])
+    expect(list[1].notes).toBe(1)
+    // German: /aufgabe
+    await wsEval(page, (s) => s.updateSettings({ language: 'de' }))
+    await page.keyboard.press('End')
+    await page.keyboard.press('Enter')
+    await page.keyboard.type('/aufgabe')
+    await expect(page.locator('.slash .slash__name').first()).toHaveText('Aufgabe')
+    await page.keyboard.press('Escape')
+  })
 
+  test('Turn into: a paragraph → task; a to-do → its tick, first date, people as fields; three to-dos → three tasks (one undo); task → to-do / text writes mentions; links gone toast', async ({ page }) => {
+    await openApp(page)
+    const { alex, sam } = await people(page)
+    const mention = (attrs: Record<string, unknown>) => ({ type: 'mention', attrs })
+    const todo = {
+      type: 'taskList',
+      content: [
+        {
+          type: 'taskItem',
+          attrs: { checked: true },
+          content: [
+            { type: 'paragraph', content: [{ type: 'text', text: 'Call the bank ' }, mention({ id: FAR, label: 'Fri 17 Oct', kind: 'date', reminder: '-1d' }), { type: 'text', text: ' with ' }, mention({ id: alex, label: 'Alex', kind: 'person' }), { type: 'text', text: ' ' }, mention({ id: sam, label: 'Sam', kind: 'person' })] },
+            todos([false, 'Nested step']),
+          ],
+        },
+        { type: 'taskItem', attrs: { checked: false }, content: [p('Second')] },
+        { type: 'taskItem', attrs: { checked: false }, content: [p('Third')] },
+      ],
+    }
+    const id = await taskPage(page, 'Turn page', p('Plain line'), todo, item({ itemId: B, blockedBy: [A] }, 'Linked task'), item({ itemId: A }, 'Blocker'))
+    const ed = editorOf(page, id)
+    // paragraph → task (block menu, Alt+Enter)
+    await ed.getByText('Plain line').click()
+    await page.keyboard.press('Alt+Enter')
+    const menu = page.locator('[data-popover][role="menu"]').first()
+    await menu.getByRole('menuitem', { name: 'Turn into', exact: true }).click()
+    await page.getByRole('menuitem', { name: /^Task/ }).click()
+    let list = await liveTasks(page, id)
+    expect(list[0].title).toBe('Plain line')
+    // the first to-do → a task: done, due + reminder, people, nested to-dos as notes, the list split around it
+    await ed.locator('li p').filter({ hasText: 'Call the bank' }).first().click()
+    await page.keyboard.press('Alt+Enter')
+    await page.locator('[data-popover][role="menu"]').first().getByRole('menuitem', { name: 'Turn into', exact: true }).click()
+    await page.getByRole('menuitem', { name: /^Task/ }).click()
+    list = await liveTasks(page, id)
+    const bank = list.find((x) => x.title.startsWith('Call the bank'))!
+    expect(bank.title).toBe('Call the bank with')
+    expect(bank.attrs).toMatchObject({ status: 'done', due: FAR, reminder: '-1d', people: [alex, sam] })
+    expect(typeof bank.attrs.doneAt).toBe('number')
+    expect(bank.notes).toBe(1)
+    // three selected to-dos at once (block selection): one undo step
+    const before = (await liveTasks(page, id)).length
+    await ed.getByText('Second', { exact: true }).click()
+    await page.keyboard.press('Escape')
+    await page.keyboard.press('Shift+ArrowDown')
+    await page.keyboard.press('Alt+Enter')
+    await page.locator('[data-popover][role="menu"]').first().getByRole('menuitem', { name: 'Turn into', exact: true }).click()
+    await page.getByRole('menuitem', { name: /^Task/ }).click()
+    expect((await liveTasks(page, id)).length).toBe(before + 2)
+    await undo(page)
+    expect((await liveTasks(page, id)).length).toBe(before)
+    // a task → to-do: the fields written out as mentions, ticked
+    const bankTask = tasks(page, id).filter({ hasText: 'Call the bank' })
+    await caretInTitle(page, bankTask)
+    await page.keyboard.press('Alt+Enter')
+    await page.locator('[data-popover][role="menu"]').first().getByRole('menuitem', { name: 'Turn into', exact: true }).click()
+    await page.getByRole('menuitem', { name: /^To-do list/ }).click()
+    const docNow = JSON.stringify(await live(page, id))
+    expect(docNow).toContain('"kind":"date"')
+    expect(docNow).toContain(`"id":"${alex}"`)
+    await expect(ed.locator('li[data-checked="true"]').filter({ hasText: 'Call the bank' })).toHaveCount(1)
+    // a task with links → text: the links-gone toast with Undo
+    await caretInTitle(page, tasks(page, id).filter({ hasText: 'Linked task' }))
+    await page.keyboard.press('Alt+Enter')
+    await page.locator('[data-popover][role="menu"]').first().getByRole('menuitem', { name: 'Turn into', exact: true }).click()
+    await page.getByRole('menuitem', { name: /^Text/ }).click()
+    const gone = page.locator('.toast').filter({ hasText: 'The task’s link is gone.' })
+    await expect(gone).toBeVisible()
+    await gone.getByRole('button', { name: 'Undo' }).click()
+    await expect(tasks(page, id).filter({ hasText: 'Linked task' })).toHaveCount(1)
+  })
 
   test('the block menu of a task: its section (Status ▸, Due date…, Assign…, Blocked by…, Related…, Blocks…); keyboard only: Alt+Enter → Due… → set → focus back at the caret', async ({ page }) => {
     await openApp(page)
@@ -538,7 +713,7 @@ test.describe('1440 light', () => {
     await caretInTitle(page, task)
     await page.keyboard.press('Alt+Enter')
     const menu = page.locator('[data-popover][role="menu"]').first()
-    for (const name of ['Status', 'Due date…', 'Assign…', 'Blocked by…', 'Related…', 'Blocks…', 'Copy link to block']) await expect(menu.getByRole('menuitem', { name, exact: true })).toBeVisible()
+    for (const name of ['Status', 'Due date…', 'Assign…', 'Blocked by…', 'Related…', 'Blocks…', 'Turn into', 'Copy link to block']) await expect(menu.getByRole('menuitem', { name, exact: true })).toBeVisible()
     // the menu's own Copy link stays the only one (the label key copies the task's link)
     await expect(menu.getByRole('menuitem', { name: /Copy link/ })).toHaveCount(1)
     // keyboard: the search filters, Enter picks Due date…
@@ -604,6 +779,42 @@ test.describe('1440 light', () => {
     await expect(all.nth(4).locator('.workitem__lock')).toHaveCount(0)
   })
 
+  test('the creation gate shut: the slash item disabled with its reason, "[!] " stays text, Enter makes a note line, Mod+D copies plain blocks', async ({ page }) => {
+    await openApp(page)
+    const id = await taskPage(page, 'Gate page', item({ itemId: A }, 'Existing task'), p(''))
+    await page.evaluate(() => (window as unknown as { __oneItems: { forceCanCreate: (v: boolean | null) => void } }).__oneItems.forceCanCreate(false))
+    const ed = editorOf(page, id)
+    await ed.locator('p').last().click()
+    await page.keyboard.type('/task')
+    const row = page.locator('.slash .slash__item').filter({ hasText: 'Task' }).first()
+    await expect(row).toHaveAttribute('aria-disabled', 'true')
+    await expect(row).toContainText('This server is older — update it to create tasks.')
+    await page.keyboard.press('Enter')
+    await expect(page.locator('.slash')).toBeVisible()
+    await page.keyboard.press('Escape')
+    for (let i = 0; i < 5; i++) await page.keyboard.press('Backspace')
+    await page.keyboard.type('[!] still text')
+    await expect(ed.locator('p').last()).toHaveText('[!] still text')
+    // Enter at the end of a title: a note line, no new task
+    await caretInTitle(page, tasks(page, id).first())
+    await page.keyboard.press('Enter')
+    await page.keyboard.type('a note line')
+    let list = await liveTasks(page, id)
+    expect(list.length).toBe(1)
+    expect(list[0].notes).toBe(1)
+    // Mod+D: plain blocks (title + notes), a toast
+    await caretInTitle(page, tasks(page, id).first())
+    await page.keyboard.press(`${MOD}+d`)
+    await expect(page.locator('.toast').filter({ hasText: 'This server is older — the copied task was kept as text.' })).toBeVisible()
+    list = await liveTasks(page, id)
+    expect(list.length).toBe(1)
+    await expect(ed.getByText('Existing task', { exact: true })).toHaveCount(2)
+    // Turn into no longer offers Task
+    await ed.locator('p').last().click()
+    await page.keyboard.press('Alt+Enter')
+    await page.locator('[data-popover][role="menu"]').first().getByRole('menuitem', { name: 'Turn into', exact: true }).click()
+    expect((await page.getByRole('menuitem').allTextContents()).some((x) => /^\s*Task\b/.test(x))).toBe(false)
+  })
 })
 
 /* ------------------------------------------------------------------ */

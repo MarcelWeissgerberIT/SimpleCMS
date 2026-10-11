@@ -10,7 +10,7 @@
  *  - a share link and the HTML export carry no ids, only frozen names;
  *  - history "Changes" lists the fields before → after;
  *  - a task inside a task (or a table cell) is moved out whole, after it;
- *  - no slash item, no Turn into, no ⌘K entry creates one.
+ *  - P1 (flipped): the slash menu and Turn into make tasks; still no ⌘K entry, and a pasted frozen placard stays text.
  * The pure parts (itemAttrs, the Markdown form and its reader, freezeWorkItems, itemChanges) run without a page.
  */
 import { strFromU8, unzipSync } from 'fflate'
@@ -246,27 +246,31 @@ test.describe('task block (P0): the read-only placard', () => {
     await expect(items(page, id)).toHaveCount(3)
   })
 
-  test('nothing creates a task: no slash item, no Turn into, no ⌘K entry', async ({ page }) => {
+  test('P1: the slash menu and Turn into offer Task (not the to-do: it is the plain checklist); still no ⌘K entry', async ({ page }) => {
     await openApp(page)
     const id = await createPage(page, { title: 'No creation', content: doc(p('A line of text.'), p('')) })
     await gotoPage(page, id)
     const ed = editorOf(page, id)
     await ed.locator('p').nth(1).click()
-    for (const q of ['task', 'aufgabe', 'workitem', 'todo']) {
+    for (const q of ['task', 'aufgabe', 'workitem']) {
       await page.keyboard.type(`/${q}`)
-      const names = await page.locator('.slash .slash__name').allTextContents()
-      expect(names, `/${q}`).not.toContain('Task')
-      expect(names, `/${q}`).not.toContain('Aufgabe')
+      await expect(page.locator('.slash .slash__name').first(), `/${q}`).toHaveText('Task')
       await page.keyboard.press('Escape')
       for (let i = 0; i <= q.length; i++) await page.keyboard.press('Backspace')
     }
-    // Turn into (block menu, Alt+Enter)
+    // "/todo" finds the to-do, not the task (the to-do lost its "task" keywords)
+    await page.keyboard.type('/todo')
+    await expect(page.locator('.slash .slash__name').first()).toHaveText('To-do list')
+    expect(await page.locator('.slash .slash__name').allTextContents()).not.toContain('Task')
+    await page.keyboard.press('Escape')
+    for (let i = 0; i <= 4; i++) await page.keyboard.press('Backspace')
+    // Turn into (block menu, Alt+Enter) lists Task
     await ed.locator('p').first().click()
     await page.keyboard.press('Alt+Enter')
     const menu = page.locator('[data-popover][role="menu"]').first()
     await menu.getByRole('menuitem', { name: 'Turn into', exact: true }).click()
     const turn = await page.getByRole('menuitem').allTextContents()
-    expect(turn.some((s) => /^\s*(Task|Aufgabe)\b/.test(s))).toBe(false)
+    expect(turn.some((s) => /^\s*Task\b/.test(s))).toBe(true)
     await page.keyboard.press('Escape')
     await page.keyboard.press('Escape')
     // ⌘K
@@ -287,11 +291,13 @@ test.describe('task block (P0): the read-only placard', () => {
     })
     await expect(ed).toContainText('Pasted placard title')
     await expect(ed.locator('.workitem')).toHaveCount(0)
-    // and German: the same
+    // and German: /aufgabe offers "Aufgabe"
     await wsEval(page, (s) => s.updateSettings({ language: 'de' }))
     await ed.locator('p').nth(1).click()
+    await page.keyboard.press('End')
+    await page.keyboard.press('Enter')
     await page.keyboard.type('/aufgabe')
-    expect(await page.locator('.slash .slash__name').allTextContents()).not.toContain('Aufgabe')
+    await expect(page.locator('.slash .slash__name').first()).toHaveText('Aufgabe')
     await page.keyboard.press('Escape')
     expect(await wsEval(page, (s, id) => JSON.stringify(s.pages[id]?.content ?? {}).includes('workItem'), id)).toBe(false)
   })
