@@ -149,6 +149,23 @@ test.describe('ways in and out', () => {
     await expect(deck(page)).toBeVisible()
   })
 
+  test('the page ⋯ menu and the sidebar’s workspace menu open it (with the shortcut beside the entry)', async ({ page }) => {
+    await openApp(page)
+    const id = await page.evaluate(() => (window as unknown as { __one: { workspace: { getState: () => { createPage: (p: unknown) => string } } } }).__one.workspace.getState().createPage({ title: 'Nordlicht Notiz' }))
+    await page.evaluate((id) => (location.hash = `#/p/${id}`), id)
+    await expect(page.locator('#main .pv-title')).toHaveValue('Nordlicht Notiz')
+    await page.getByRole('button', { name: 'Page options' }).click()
+    const pageItem = page.getByRole('menuitem', { name: /Flight recorder/ })
+    await expect(pageItem).toContainText(/Ctrl\s*\+?\s*Alt\s*\+?\s*Z/i)
+    await pageItem.click()
+    await expect(deck(page)).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(deck(page)).toHaveCount(0)
+    await page.locator('.sb-head__ws').click()
+    await page.getByRole('menuitem', { name: /Flight recorder/ }).click()
+    await expect(deck(page)).toBeVisible()
+  })
+
   test('the status key and ⌘K open it; the AI terminal and the deck are never open together', async ({ page }) => {
     await openApp(page)
     await rewindKey(page).click()
