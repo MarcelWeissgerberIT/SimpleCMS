@@ -154,6 +154,12 @@ export interface StagedCoding {
  */
 export type ChangeStatus = 'pending' | 'applying' | 'applied' | 'discarded' | 'failed' | 'superseded'
 
+/**
+ * Why the person discarded a custom agent's proposal (features/agents/trust): only 'wrong' counts against the agent's
+ * per-field trust; 'notNow' / 'duplicate' / 'done' (handled already) leave it as it is.
+ */
+export type DiscardReason = 'wrong' | 'notNow' | 'duplicate' | 'done'
+
 /** One proposal of another run of the same agent (supersede): the run, the change, that run's start. */
 export interface ChangeRef {
   runId: string
@@ -214,6 +220,11 @@ export interface StagedChange {
   supersededBy?: ChangeRef
   /** the older proposals this one replaces (`at`: when each of their runs started), oldest last */
   supersedes?: ChangeRef[]
+  /**
+   * the reason the person gave when discarding this proposal (agents/review.ts discardRun; cleared by its Undo) — the
+   * run's quiet "Wrong × 3" row reads it. Only on the change(s) the person named, never on cascaded dependants.
+   */
+  reason?: DiscardReason
 }
 
 /** Every staged change `c` needs applied first. */
