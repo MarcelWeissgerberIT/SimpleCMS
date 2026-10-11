@@ -20,6 +20,7 @@ import { BLOCK_ID_TYPES } from '../schema/base'
 import type { ButtonAction, PropertyPreset } from '../schema/button'
 import { isWebhookUrl, postWebhook } from '../../lib/webhook'
 import { safeHref } from './embeds'
+import { unwrapItemsIn } from '../workitem/turn'
 
 /* ------------------------------------------------------------------ */
 /* Fresh buttons (inserted from the slash menu → open their settings) */
@@ -58,10 +59,14 @@ export function fillVars(text: string, now = new Date()): string {
 
 const isEmptyPara = (n: JSONContent) => n.type === 'paragraph' && !(n.content ?? []).length
 
-/** Template blocks as stored: no nested buttons, no trailing empty lines. */
+/**
+ * Template blocks as stored: no nested buttons, no tasks (each task kept as its title + notes — a task inside
+ * `button.actions` would live in a JSON attribute, where an older build's generation guard never looks), no
+ * trailing empty lines. Applied when the button is saved AND when its template is inserted.
+ */
 export function cleanTemplate(content: JSONContent[]): JSONContent[] {
   const strip = (list: JSONContent[]): JSONContent[] => list.filter((n) => n.type !== 'button').map((n) => (n.content ? { ...n, content: strip(n.content) } : n))
-  const out = strip(content)
+  const out = strip(unwrapItemsIn(content))
   while (out.length && isEmptyPara(out[out.length - 1])) out.pop()
   return out
 }
