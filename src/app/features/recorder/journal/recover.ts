@@ -6,12 +6,12 @@
  * last event left), else null (partial); a tab that did not end cleanly leaves a lost-tail marker
  * `kv <scope>|gap|<lastFlush>` ("recording interrupted"). Nothing is ever guessed.
  */
-import { useWorkspace } from '../../../store/store'
-import type { Database, ID, Page, View } from '../../../store/types'
+import type { Database, Page } from '../../../store/types'
 import { placeCanon, wholeCanon, type PlaceObject } from '../model/canon'
 import { parsePlace } from '../model/places'
 import { touchedParts } from '../model/touched'
 import { F, type JSegment, type LostTail, type PinMeta, type Scope, type TabRecord } from '../model/types'
+import { currentPlace } from './current'
 import { HI, openJournal, pad13 } from './db'
 import { deps } from './deps'
 import { digestLeft, digestWhole } from './key'
@@ -36,22 +36,6 @@ async function pinPlace(scope: Scope, pinId: string, place: string, memory: bool
   const page = { ...meta.page, content } as Page
   if (meta.page.databaseId) return { kind: 'row', page, db: meta.defs ? { properties: meta.defs.map((d) => ({ ...d })) as Database['properties'] } : null }
   return { kind: 'page', page }
-}
-
-/** The place as it is in the store now (null: gone). */
-function currentPlace(place: string): PlaceObject | null {
-  const s = useWorkspace.getState()
-  const { kind, id, view } = parsePlace(place as JSegment['p'])
-  if (kind === 'page') {
-    const page = s.pages[id]
-    if (!page) return null
-    return page.databaseId ? { kind: 'row', page, db: s.databases[page.databaseId] } : { kind: 'page', page }
-  }
-  const db: Database | undefined = s.databases[id as ID]
-  if (!db) return null
-  if (kind === 'schema') return { kind: 'schema', db }
-  const v: View | undefined = db.views.find((x) => x.id === view)
-  return v ? { kind: 'view', view: v } : null
 }
 
 const canonOf = (o: PlaceObject) => {
