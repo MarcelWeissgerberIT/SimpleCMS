@@ -45,7 +45,7 @@ export interface QueueState {
   /** E: the diff open */
   expanded: Record<string, true>
   /** the VON HAND confirm row on a card */
-  confirm: { id: string; key: string; why: HandWhy[] } | null
+  confirm: { id: string; key: string; why: HandWhy[]; input?: string } | null
   /** the open text field of a card (an answer, a rework note) */
   input: { id: string; key: string } | null
   /** an action runs on this card */

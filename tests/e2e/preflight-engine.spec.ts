@@ -8,6 +8,8 @@
  *  - the lamps' pure core (features/preflight/lamps.ts, day.ts, prefs.ts — T-P1-1): levels, the "new" rule and its chip,
  *    the ids hash, the Preflight day around 07:00 and over a daylight-saving switch, working days, the panel's order and
  *    cap, the lamp test's budget, the prefs sanitizer, the plate mode table, the optimistic overlay;
+ *  - the queue's pure core (queue/model.ts, P2): the risk order, ANGESTAUBT, merging arrivals, the gauge, focus after a
+ *    card leaves, J / K, what ⇧A may take, what Z takes back; the Bordbuch's helpers (log.ts) and the swipe verdict;
  *  - the static guards (T-P1-6): no Claude client, no Outbox import, no store write action in Preflight; other areas'
  *    actions only from queue/calls.ts; the Outbox's lamp imports only Preflight's registry.
  * Every page and value is fictional.
@@ -27,6 +29,11 @@ import type { LampView } from '../../src/app/features/preflight/types'
 import { supersedePlan } from '../../src/app/features/agents/supersede'
 import type { AgentRun } from '../../src/app/features/agents/types'
 import type { StagedChange } from '../../src/app/features/ai/agent/types'
+import { bulkPlan, focusAfterLeave, gauge, mergeOrder, position, sortItems, staleOf, staleSpan, step, undoTarget } from '../../src/app/features/preflight/queue/model'
+import { paceOf, pruneOpenedMap, sanitizeDay, trimOpened } from '../../src/app/features/preflight/log'
+import { swipeOf } from '../../src/app/features/preflight/queue/swipe'
+import type { QueueItem } from '../../src/app/features/preflight/registry'
+import type { DoneEntry } from '../../src/app/features/preflight/types'
 
 const page = (over: Partial<Page> = {}): Page => ({
   id: 'r1',
@@ -464,11 +471,14 @@ function importsOf(file: string): string[] {
 }
 
 /** The names a file imports from a specifier matching `re`. */
-function namesFrom(file: string, re: RegExp): string[] {
+function namesFrom(file: string, re: RegExp, withLazy = false): string[] {
   const src = readFileSync(file, 'utf8')
   const out: string[] = []
-  for (const m of src.matchAll(/import\s*(?:type\s*)?\{([^}]*)\}\s*from\s*['"]([^'"]+)['"]/g)) {
-    if (!re.test(m[2])) continue
+  // static imports from a matching specifier, and names taken from an awaited module (`const { x } = await import(…)` or
+  // a lazy loader `await session()`) — those count whatever their specifier
+  const lazy = !withLazy ? [] : [...src.matchAll(/const\s*\{([^}]*)\}\s*=\s*await\s/g)].map((m) => [m[0], m[1], '(lazy)'] as const)
+  for (const m of [...src.matchAll(/import\s*(?:type\s*)?\{([^}]*)\}\s*from\s*['"]([^'"]+)['"]/g), ...lazy]) {
+    if (m[2] !== '(lazy)' && !re.test(m[2])) continue
     for (const part of m[1].split(',')) {
       const name = part.trim().replace(/^type\s+/, '').split(/\s+as\s+/)[0].trim()
       if (name) out.push(name)
@@ -478,7 +488,7 @@ function namesFrom(file: string, re: RegExp): string[] {
 }
 
 /** The other areas' action functions only queue/calls.ts may import (§4 of the design). */
-const ACTIONS = ['applyRun', 'discardRun', 'undoChange', 'applyStaged', 'undoStagedBatch', 'discardStaged', 'undiscardStaged', 'saveProposal', 'undoProposal', 'dismissProposal', 'saveRunMemory', 'restoreRun', 'removeRun', 'applyTaskAction', 'confirmTaskVersion', 'markRead', 'archiveItems', 'openInboxItem', 'resolveMissing', 'resumeFolder', 'signIn', 'syncNow', 'runAgentNow', 'openAutofillPanel']
+const ACTIONS = ['applyRun', 'discardRun', 'undoChange', 'applyStaged', 'undoStagedBatch', 'discardStaged', 'undiscardStaged', 'saveProposal', 'undoProposal', 'dismissProposal', 'saveRunMemory', 'restoreRun', 'removeRun', 'applyTaskAction', 'confirmTaskVersion', 'markRead', 'archiveItems', 'openInboxItem', 'resolveMissing', 'resumeFolder', 'signIn', 'syncNow', 'runAgentNow', 'openAutofillPanel', 'checkServer']
 
 test.describe('agents — supersedePlan (pure, T-P2-9)', () => {
   const upd = (id: string, row: string, props: string[], x: Partial<StagedChange> = {}): StagedChange => ({ id, n: Number(id.slice(1)), kind: 'update_row', status: 'pending', pageId: row, databaseId: 'db', props: props.map((p) => ({ propId: p, name: p, type: 'text', before: '', after: 'x' })), ...x }) as StagedChange
@@ -526,6 +536,109 @@ test.describe('agents — supersedePlan (pure, T-P2-9)', () => {
   })
 })
 
+test.describe('the queue — pure core (P2)', () => {
+  const DAY = 86_400_000
+  const NOW = Date.UTC(2026, 9, 10, 7, 30)
+  const it = (id: string, x: Partial<QueueItem> = {}): QueueItem => ({ id, lamp: 'proposals', kind: 'proposal', tag: 'Nordlicht-Spiegel', refs: {}, at: NOW - 60_000, hand: [], bulk: true, ...x })
+  const order = (lamp: string) => ({ proposals: 10, gate: 30, inbox: 80 })[lamp] ?? 999
+  const none = () => false
+
+  test('stale: older than 7 days and never opened', () => {
+    expect(staleOf(it('a', { at: NOW - 8 * DAY }), NOW, none)).toBe(true)
+    expect(staleOf(it('a', { at: NOW - 6 * DAY }), NOW, none)).toBe(false)
+    expect(staleOf(it('a', { at: NOW - 8 * DAY }), NOW, (id) => id === 'a')).toBe(false)
+    // a card without a time is never stale
+    expect(staleOf(it('a', { at: 0 }), NOW, none)).toBe(false)
+  })
+
+  test('risk order: clean · VON HAND · stale; then lamp, sub-source, time, batch order, id', () => {
+    const list = [
+      it('stale', { at: NOW - 9 * DAY }),
+      it('hand', { hand: ['startsNow'] }),
+      it('gate', { lamp: 'gate', at: NOW - 5 * DAY }),
+      it('child', { n: 2, at: NOW - 10_000 }),
+      it('parent', { n: 1, at: NOW - 10_000 }),
+      it('agent', { sub: 1, at: NOW - 999_999 }),
+      it('old', { at: NOW - 3 * DAY }),
+    ]
+    const sorted = sortItems(list, order, NOW, none)
+    expect(sorted.map((i) => i.id)).toEqual(['old', 'parent', 'child', 'agent', 'gate', 'hand', 'stale'])
+    expect(sorted.find((i) => i.id === 'stale')?.stale).toBe(true)
+    expect(sorted.find((i) => i.id === 'old')?.stale).toBe(false)
+  })
+
+  test('arrivals join at their risk place; done and gone ids stay for the gauge', () => {
+    expect(mergeOrder(undefined, ['a', 'b'])).toEqual(['a', 'b'])
+    expect(mergeOrder(['a', 'b', 'c'], ['b', 'x', 'c'])).toEqual(['a', 'b', 'x', 'c'])
+    expect(mergeOrder(['a', 'b'], ['y', 'a', 'b'])).toEqual(['y', 'a', 'b'])
+    expect(mergeOrder(['a', 'b'], ['b', 'z'])).toEqual(['a', 'b', 'z'])
+  })
+
+  test('gauge, position, focus after a card leaves, J / K', () => {
+    const ord = ['a', 'b', 'c', 'd', 'e']
+    const open = (id: string) => id !== 'a' && id !== 'b'
+    expect(gauge(ord, 'c', open, (id) => id === 'e')).toEqual(['d', 'd', 'c', '', 's'])
+    expect(position(ord, 'c')).toEqual({ i: 3, n: 5 })
+    expect(focusAfterLeave(ord, 'c', open)).toBe('d')
+    expect(focusAfterLeave(ord, 'e', open)).toBe('d')
+    expect(focusAfterLeave(ord, 'c', (id) => id === 'c')).toBe(null)
+    expect(step(ord, 'c', 1, open)).toBe('d')
+    expect(step(ord, 'c', -1, open)).toBe(null)
+    expect(step(ord, 'e', 1, open)).toBe(null)
+  })
+
+  test('⇧A: clean cards only (no VON HAND now, not stale, not blocked, bulk allowed); unseen ones apart', () => {
+    const list = [it('seen'), it('unseen'), it('hand', { hand: ['sends'] }), it('nobulk', { bulk: false }), it('stale', { stale: true }), it('blocked'), it('handNow')]
+    const now = (i: QueueItem) => (i.id === 'blocked' ? { hand: [], blocked: true } : i.id === 'handNow' ? { hand: ['startsNow' as const], blocked: false } : { hand: [], blocked: false })
+    expect(bulkPlan(list, (id) => id === 'seen', now)).toEqual({ clean: ['seen', 'unseen'], unseen: ['unseen'] })
+    // a card without an A key is not taken
+    expect(bulkPlan([it('x')], () => true, () => null)).toEqual({ clean: [], unseen: [] })
+  })
+
+  test('Z takes the newest entry not undone yet — a batch whole — and never skips one without Undo', () => {
+    const e = (id: string, x: Partial<DoneEntry> = {}): DoneEntry => ({ id, lamp: 'proposals', outcome: 'applied', at: 1, label: { kind: 'proposal', refs: {} }, ...x })
+    expect(undoTarget([])).toEqual([])
+    const done = [e('a'), e('b', { batch: 'B' }), e('c', { batch: 'B' })]
+    expect(undoTarget(done).map((x) => x.id)).toEqual(['b', 'c'])
+    expect(undoTarget([...done.slice(0, 1), e('b', { batch: 'B', undone: true }), e('c', { batch: 'B', undone: true })]).map((x) => x.id)).toEqual(['a'])
+    // the newest has no Undo: it is the target all the same (the caller says why)
+    expect(undoTarget([e('a', { undo: async () => 'undone' }), e('b')]).map((x) => x.id)).toEqual(['b'])
+  })
+
+  test('ANGESTAUBT span', () => {
+    expect(staleSpan([], NOW)).toBe(null)
+    expect(staleSpan([{ at: NOW - 8 * DAY }, { at: NOW - 11 * DAY }], NOW)).toMatchObject({ n: 2, minDays: 8, maxDays: 11 })
+  })
+
+  test('the Bordbuch: a damaged day reads empty; the opened set keeps 2,000 and drops ids gone 30 days', () => {
+    expect(sanitizeDay(null, '2026-10-10')).toEqual({ v: 1, day: '2026-10-10', events: [] })
+    expect(sanitizeDay({ v: 1, events: [{ at: 1, k: 'fold' }, { at: 'x', k: 'fold' }, { at: 2, k: 'nope' }] }, 'd').events).toEqual([{ at: 1, k: 'fold' }])
+    const big = Object.fromEntries(Array.from({ length: 2100 }, (_, i) => [`id${i}`, i]))
+    const kept = trimOpened(big)
+    expect(Object.keys(kept)).toHaveLength(2000)
+    expect(kept.id0).toBeUndefined()
+    expect(kept.id2099).toBe(2099)
+    const m = { live: NOW - 40 * DAY, gone: NOW - 31 * DAY, recent: NOW - 2 * DAY }
+    expect(pruneOpenedMap(m, new Set(['live']), NOW)).toEqual({ live: NOW, recent: NOW - 2 * DAY })
+    expect(pruneOpenedMap({ recent: NOW - DAY / 2 }, new Set(), NOW)).toBe(null)
+  })
+
+  test('pace: the median gap between cards of a sitting (≥ 5 gaps, ≤ 10 min apart)', () => {
+    const card = (at: number) => ({ at, k: 'card' as const, lamp: 'proposals', item: 'x', outcome: 'applied' as const, kind: 'proposal', refs: {} })
+    expect(paceOf([[card(0), card(30_000)]])).toBe(null)
+    const day = [0, 20, 50, 90, 120, 160, 4000].map((s) => card(s * 1000))
+    expect(paceOf([day])).toBe(30)
+  })
+
+  test('swipe: horizontal only, 72 px or a flick', () => {
+    expect(swipeOf(80, 10, 400)).toBe('right')
+    expect(swipeOf(-80, 10, 400)).toBe('left')
+    expect(swipeOf(40, 10, 400)).toBe(null)
+    expect(swipeOf(40, 5, 50)).toBe('right')
+    expect(swipeOf(60, 90, 100)).toBe(null)
+  })
+})
+
 test.describe('static guards (T-P1-6)', () => {
   const pf = filesUnder(PF)
   const rel = (f: string) => relative(ROOT, f)
@@ -558,9 +671,12 @@ test.describe('static guards (T-P1-6)', () => {
     const calls = join(PF, 'queue/calls.ts')
     for (const f of pf) {
       if (f === calls) continue
-      const names = namesFrom(f, /^\.\.?\//).filter((n) => ACTIONS.includes(n))
+      const names = namesFrom(f, /^\.\.?\//, true).filter((n) => ACTIONS.includes(n))
       expect(names, rel(f)).toEqual([])
     }
-    expect(namesFrom(calls, /./).filter((n) => ACTIONS.includes(n))).toEqual(['resumeFolder'])
+    // every entry point the queue's keys use, each from calls.ts (static or lazy)
+    expect(namesFrom(calls, /./, true).filter((n) => ACTIONS.includes(n)).sort()).toEqual(
+      ['resumeFolder', 'resolveMissing', 'applyRun', 'discardRun', 'runAgentNow', 'undoChange', 'applyTaskAction', 'confirmTaskVersion', 'archiveItems', 'markRead', 'openInboxItem', 'signIn', 'syncNow', 'openAutofillPanel', 'applyStaged', 'undoStagedBatch', 'discardStaged', 'undiscardStaged', 'saveProposal', 'undoProposal', 'dismissProposal', 'saveRunMemory', 'removeRun', 'restoreRun', 'checkServer'].sort(),
+    )
   })
 })

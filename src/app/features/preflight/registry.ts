@@ -97,6 +97,16 @@ export interface QueueItem {
   supersedes?: Array<{ at: number }>
   /** set by the queue model, not by sources */
   stale?: boolean
+  /** what the card is about, read live by the source (a row's title, a task, a server) — never stored */
+  title?: string
+  /** a short key before the title (a row's key "NL-201", "#3") */
+  keyText?: string
+  /** a second line for the compact row (where, what) */
+  detail?: string
+  /** the order of sub-sources inside one lamp (lower first) */
+  sub?: number
+  /** the order inside one batch (an agent run's change number: parents before children) */
+  n?: number
 }
 
 export interface CardAction {
@@ -118,9 +128,22 @@ export interface CardAction {
 }
 
 export type Done =
-  | { ok: true; outcome?: Outcome; undo?: () => Promise<'undone' | 'kept' | 'final'>; final?: string; note?: string }
-  /** a message key or text in the UI language; the card stays */
-  | { ok: false; error: string }
+  | {
+      ok: true
+      outcome?: Outcome
+      undo?: () => Promise<'undone' | 'kept' | 'final'>
+      /** why there is no Undo (a message key) */
+      final?: string
+      note?: string
+      /** the key only went somewhere (opened a page): no done entry, the card stays */
+      stay?: true
+      /** the source decides by its reading: the card shows "in work" until its id leaves */
+      resolve?: 'reading'
+      /** a bulk call: the ids it really acted on (default: all it was given) */
+      items?: string[]
+    }
+  /** a message key or text in the UI language; the card stays — `elsewhere`: decided elsewhere meanwhile (a tombstone) */
+  | { ok: false; error: string; elsewhere?: true }
 
 export interface QueueSourceDef {
   /** data every card of this lamp needs (IDB records, lazy chunks) — when the queue opens */
@@ -134,6 +157,8 @@ export interface QueueSourceDef {
   bulk?: { apply?(items: QueueItem[]): Promise<Done>; discard?(items: QueueItem[]): Promise<Done> }
   /** the body for this source's kinds (built-in kinds have bodies in preflight/ui/bodies) */
   Body?: ComponentType<{ item: QueueItem; expanded: boolean }>
+  /** an id in work left the reading: how it ended (a slip sent → 'hand', withdrawn → 'discarded'); default: the key's */
+  resolved?(id: string): Outcome | null
 }
 
 /* ---------------- the registry */
@@ -191,6 +216,8 @@ export function onSourcesChanged(fn: () => void): () => void {
 export interface SlipProbe {
   isOpen(slipId: string): boolean | null
   subscribe(changed: () => void): () => void
+  /** open the slip in the Outbox (an agent's `send` proposal's A: the Outbox's own cover and press) */
+  open?(slipId: string): void
 }
 
 let probe: SlipProbe | null = null
