@@ -5,7 +5,7 @@
  * (--deck-dock), takes focus on the playhead when opened and gives it back when closed. Esc closes it (after any
  * popover) and the playhead goes back to now.
  */
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useLang, useT } from '../../../i18n'
 import { useWorkspace } from '../../../store/store'
@@ -27,21 +27,11 @@ import { closeRecorder, HEIGHT_MIN, setDeckHeight, takeOpener, useRecorderUI } f
 import { canFocus, focusLost, focusMainRegion, focusNear, restoreFocus } from '../../../ui/focus'
 import { useLive } from './live'
 import { WindowPlate } from './WindowPlate'
+import { usePhone } from './phone'
 import './recorder.css'
 
-const PHONE = '(max-width: 767px)'
-
-function usePhone(): boolean {
-  const [on, setOn] = useState(() => !!window.matchMedia?.(PHONE).matches)
-  useEffect(() => {
-    const mq = window.matchMedia?.(PHONE)
-    if (!mq) return
-    const fn = () => setOn(mq.matches)
-    mq.addEventListener('change', fn)
-    return () => mq.removeEventListener('change', fn)
-  }, [])
-  return on
-}
+/** The deck's dialogs (read, R3's eject): one chunk, loaded the first time one opens. */
+const Dialogs = lazy(() => import('./dialogs'))
 
 /**
  * The deck's body by its width (§ 8.7), counted in standard-size pixels (a larger text size needs more room): below
@@ -76,6 +66,7 @@ export default function Deck() {
   const known = useRecorderUI((s) => s.known)
   const height = useRecorderUI((s) => s.height)
   const focusTick = useRecorderUI((s) => s.focusTick)
+  const dialog = useRecorderUI((s) => !!s.read?.open)
   const { info } = useTapeInfoLive()
   const agents = useWorkspace((s) => s.agents)
   const scripts = useWorkspace((s) => s.scripts)
@@ -259,6 +250,11 @@ export default function Deck() {
           />
         </div>
       </div>
+      {dialog && (
+        <Suspense fallback={null}>
+          <Dialogs />
+        </Suspense>
+      )}
     </section>
   )
   return createPortal(body, host ?? document.body)

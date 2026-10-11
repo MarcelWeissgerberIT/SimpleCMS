@@ -30,8 +30,11 @@ export function metaChangeCount(body: SnapshotBody, page: Page, after?: Snapshot
   return next.rows.length + (page.databaseId && body.title !== next.title ? 1 : 0) + (iconKey(body.icon) !== iconKey(next.icon) ? 1 : 0)
 }
 
-/** `body` = the older side; `after` = the newer version (none: the page as it is now). */
-export function PropsDiff({ body, page, after }: { body: SnapshotBody; page: Page; after?: SnapshotBody | null }) {
+/**
+ * `body` = the older side; `after` = the newer version (none: the page as it is now). `tagOf`: a line beside a
+ * property's values (the flight recorder marks values another writer changed inside the window it reads).
+ */
+export function PropsDiff({ body, page, after, tagOf }: { body: SnapshotBody; page: Page; after?: SnapshotBody | null; tagOf?: (propId: string) => string | undefined }) {
   const t = useT()
   // re-read when the schema or the row changes
   const db = useWorkspace((s) => (body.props ? s.databases[body.props.databaseId] : undefined))
@@ -74,20 +77,21 @@ export function PropsDiff({ body, page, after }: { body: SnapshotBody; page: Pag
           </Row>
         )}
         {rows.map((r) => (
-          <PropRow key={r.id} row={r} db={db} page={page} />
+          <PropRow key={r.id} row={r} db={db} page={page} tag={tagOf?.(r.id)} />
         ))}
       </dl>
     </section>
   )
 }
 
-function Row({ name, note, children }: { name: string; note?: string; children: ReactNode }) {
+function Row({ name, note, tag, children }: { name: string; note?: string; tag?: string; children: ReactNode }) {
   return (
     <div className="hprops__row">
       <dt className="hprops__name">{name}</dt>
       <dd className="hprops__vals">
         {children}
         {note && <span className="hprops__note label">{note}</span>}
+        {tag && <span className="hprops__tag label">{tag}</span>}
       </dd>
     </div>
   )
@@ -116,26 +120,26 @@ function IconOf({ icon }: { icon: PageIconT | null }) {
   )
 }
 
-function PropRow({ row: r, db, page }: { row: PropChangeRow; db: Database | undefined; page: Page }) {
+function PropRow({ row: r, db, page, tag }: { row: PropChangeRow; db: Database | undefined; page: Page; tag?: string }) {
   const t = useT()
   const deleted = r.skip === 'deleted'
   const name = deleted ? `${r.name} ${t('features.history.props.deletedProp')}` : r.name
   const note = r.skip ? t(`features.history.props.skip.${r.skip}`) : undefined
   if (r.def.type === 'multi_select' && !deleted)
     return (
-      <Row name={name} note={note}>
+      <Row name={name} note={note} tag={tag}>
         <ChipDiff before={ids(r.before)} after={ids(r.after)} options={r.def.options} />
       </Row>
     )
   // a checkbox reads ☐ / ☑ on both sides (unticked is a value, not "empty")
   if (r.def.type === 'checkbox' && r.then.type === 'checkbox' && !deleted)
     return (
-      <Row name={name} note={note}>
+      <Row name={name} note={note} tag={tag}>
         <Pair before={<Box on={r.before === true} />} after={<Box on={r.after === true} />} />
       </Row>
     )
   return (
-    <Row name={name} note={note}>
+    <Row name={name} note={note} tag={tag}>
       <Pair
         before={<Value def={r.then.type === r.def.type ? r.def : r.then} value={r.before} db={db} page={page} />}
         after={<Value def={r.def} value={r.after} db={db} page={page} />}

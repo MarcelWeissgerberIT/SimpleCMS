@@ -7,9 +7,9 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Locator, Page } from '@playwright/test'
-import { test, expect, openApp, reloadApp, wsEval, mockClaude, createPage, gotoPage, editorOf, doc, para, pageIdByTitle, MOD } from './fixtures'
+import { test, expect, openApp, reloadApp, wsEval, mockClaude, createPage, gotoPage, editorOf, doc, para, pageIdByTitle, flush, MOD } from './fixtures'
 import { blockTracker, mirrorWrite, outbox, outboxLoaded, routeRef, seedMirrorDb } from './helpers/outbox'
-import { rec, startRecorder } from './helpers/recorder'
+import { playStory, rec, startRecorder, storyTime, type Story } from './helpers/recorder'
 
 /* ------------------------------------------------------------------ the audit */
 
@@ -273,6 +273,34 @@ test.describe('the biggest text size still fits', () => {
       await page.locator('section.deck .lane .flag').first().click()
       await expect(page.locator('section.deck .win__t')).toBeVisible()
       await fits(page, `the deck at ${w} (XL)`, 'section.deck')
+      await expect(page.locator('section.deck')).toHaveCount(0)
+    }
+  })
+
+  test('the flight recorder read dialog at XL: 1440 and 1024 (a row with values and text picked), 390 (the sheet and the place sheet), English and German', async ({ page }) => {
+    test.slow()
+    const story = JSON.parse(readFileSync(new URL('./fixtures/recorder-story.json', import.meta.url), 'utf8')) as Story
+    await page.addInitScript(() => localStorage.setItem('one.textScale', '4'))
+    await page.clock.install({ time: storyTime(story, story.setupAt) })
+    await openApp(page)
+    await startRecorder(page)
+    await flush(page)
+    await rec(page, 'wipe')
+    await playStory(page, story)
+    for (const [w, h] of [[1440, 900], [1024, 768], [390, 844]]) {
+      await page.setViewportSize({ width: w, height: h })
+      await page.keyboard.press(`${MOD === 'Meta' ? 'Meta' : 'Control'}+Alt+z`)
+      await expect(page.locator('section.deck')).toBeVisible()
+      await page.waitForTimeout(400)
+      await page.locator(`section.deck .lane[data-lane="agent:${story.agent.id}"] .flag`).first().click()
+      await page.locator('section.deck .dbtn--read').click()
+      const item = page.locator('.modal.rec-read .pi', { hasText: 'NL-1401' })
+      await expect(item).toBeVisible()
+      await item.click()
+      if (w === 390) await expect(page.locator('.modal.rec-sheet2 .prev .rec-diff').first()).toBeVisible()
+      else await expect(page.locator('.modal.rec-read .prev .rec-diff')).toHaveCount(2)
+      await fits(page, `the read dialog at ${w} (XL)`)
+      await expect(page.locator('.modal.rec-read')).toHaveCount(0)
       await expect(page.locator('section.deck')).toHaveCount(0)
     }
   })

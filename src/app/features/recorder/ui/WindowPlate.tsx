@@ -23,6 +23,7 @@ import { bracketEdge } from './actions'
 import { say } from './live'
 import { openRead, setBracket, setHeld, useRecorderUI, type Bracket } from './state'
 import { Kbd } from '../../../ui/controls'
+import { Bold, BOLD } from './bold'
 
 const HELD_DEBOUNCE_MS = 150
 
@@ -72,26 +73,16 @@ function useReadModel(bracket: Bracket | null): ReadModel | null {
   return model && model.key === key ? model.m : null
 }
 
-/** Who changed something since, in a sentence ("du", "Agent · Nordlicht-Spiegel", "nicht aufgezeichnet"). */
-export function whoName(lane: LaneKey | null, t: Translate, ws: Parameters<typeof laneMeta>[2]): string {
-  if (lane === null) return t('features.recorder.who.unrecorded')
-  if (lane === 'you') return t('features.recorder.who.you')
+/** Who changed something since, in a sentence ("du", "Agent · Nordlicht-Spiegel", "nicht aufgezeichnet"); `cap`: as a name
+ * on its own ("Du 07:44"). */
+export function whoName(lane: LaneKey | null, t: Translate, ws: Parameters<typeof laneMeta>[2], cap = false): string {
+  const up = (s: string) => (cap ? s.charAt(0).toLocaleUpperCase() + s.slice(1) : s)
+  if (lane === null) return up(t('features.recorder.who.unrecorded'))
+  if (lane === 'you') return up(t('features.recorder.who.you'))
   const m = laneMeta(lane, t, ws)
   return lane.startsWith('member:') ? m.short : m.title
 }
 
-/** A sentence whose `{rows}` is bold (the mock's "<b>2 Zeilen</b> seitdem geändert …"). */
-function Bold({ text, bold }: { text: string; bold: string }) {
-  const i = text.indexOf('\u0001')
-  if (i < 0) return <>{text}</>
-  return (
-    <>
-      {text.slice(0, i)}
-      <b>{bold}</b>
-      {text.slice(i + 1)}
-    </>
-  )
-}
 
 /** The window's start / end at the playhead, on the track the keys act on. */
 function EdgeKeys({ lane }: { lane: LaneMeta }) {
@@ -263,7 +254,7 @@ function ReadNotes({ bracket, model }: { bracket: Bracket; model: ReadModel | nu
         <div className="win__note win__note--held">
           <span className="held-sw" aria-hidden="true" />
           <span>
-            <Bold text={t(pl('features.recorder.win.held', n), { rows: '\u0001', who })} bold={what} />
+            <Bold text={t(pl('features.recorder.win.held', n), { rows: BOLD, who })} bold={what} />
           </span>
         </div>
       )}

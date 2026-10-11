@@ -16,7 +16,17 @@ import './diff.css'
 
 type Variant = 'rich' | 'plain'
 
-export function DocDiff({ items, context = 2, variant = 'rich', label }: { items: DocItem[]; context?: number; variant?: Variant; label?: string }) {
+/** The id of an item's block (its newer side when changed), or null. */
+export function itemBlockId(item: DocItem): string | null {
+  const b = item.kind === 'changed' ? (item.after.attrs?.id ?? item.before.attrs?.id) : item.block.attrs?.id
+  return typeof b === 'string' && b ? b : null
+}
+
+/**
+ * `note`: plain variant only — a line drawn under an item's block (the flight recorder tags blocks another writer
+ * changed inside the window it reads).
+ */
+export function DocDiff({ items, context = 2, variant = 'rich', label, note }: { items: DocItem[]; context?: number; variant?: Variant; label?: string; note?: (item: DocItem) => ReactNode }) {
   const t = useT()
   const [open, setOpen] = useState<ReadonlySet<number>>(() => new Set())
   const rows = useMemo(() => foldRows(items, context, open), [items, context, open])
@@ -45,14 +55,16 @@ export function DocDiff({ items, context = 2, variant = 'rich', label }: { items
         // drawn here: a changed block, or (plain) any block — a whole removed / added one takes its look from the row
         const state = g.item.kind === 'changed' ? 'changed' : g.item.kind
         const node = g.item.kind === 'changed' ? g.item.merged : toDiffNode(g.item.block)
+        const extra = variant === 'plain' ? note?.(g.item) : null
         return (
-          <div key={`i${g.index}`} className="ddiff__seg" data-state={state}>
+          <div key={`i${g.index}`} className="ddiff__seg" data-state={state} data-block={itemBlockId(g.item) ?? undefined}>
             {state !== 'same' && <SegMark state={state} />}
             <div className={variant === 'rich' ? 'one-doc' : 'ddiff__plain'}>
               <div className={variant === 'rich' ? 'doc-content ddiff__doc' : 'ddiff__doc'}>
                 <DiffBlock node={node} />
               </div>
             </div>
+            {extra}
           </div>
         )
       })}

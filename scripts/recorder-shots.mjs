@@ -12,6 +12,7 @@
  *   r2-window-{1440,390}-{light,dark}   the deck under the board, run 212 bracketed by its flag: the plate with its
  *                                       held note, the two held diamonds on the tape
  *   r2-read-{1440,390}-{light,dark}     "Fenster lesen" on that window, NL-1402 picked (390: the sheet)
+ *   r2-read-text-1440-light             the same, NL-1401 picked (a value and its text word by word)
  *   r2-read2-390-light                  the phone's second sheet (the picked place's diff)
  *   r2-read-1440-xl / r2-window-1024-xl the biggest text size
  *   r2-report-{de,en}.md                the incident report of the window (written next to the shots)
@@ -97,6 +98,49 @@ for (const w of [1440, 390])
     }
 SHOTS['r2-window-1024-xl'] = async (name) => {
   const s = await open({ width: 1024, height: 900, xl: true })
+  await s.page.screenshot({ path: `${OUT}/${name}.png` })
+  await done(s, name)
+}
+
+/** "Fenster lesen" on the bracketed window, `pick` picked (by its key, e.g. NL-1402). */
+async function read(s, pick = 'NL-1402') {
+  await s.page.locator('.deck .dbtn--read').click()
+  await s.page.locator('.modal.rec-read .plan .pi').first().waitFor()
+  if (pick) {
+    const more = s.page.locator('.modal.rec-read .pi--more').first()
+    const item = () => s.page.locator('.modal.rec-read .pi', { hasText: pick }).first()
+    if (!(await item().count()) && (await more.count())) await more.click()
+    if (!s.mobile) await item().click()
+  }
+  await s.page.mouse.move(2, 2)
+  await s.page.waitForTimeout(600)
+}
+for (const w of [1440, 390])
+  for (const theme of ['light', 'dark'])
+    SHOTS[`r2-read-${w}-${theme}`] = async (name) => {
+      const s = await open({ width: w, height: w === 390 ? 844 : 900, dark: theme === 'dark', mobile: w === 390 })
+      await read({ ...s, mobile: w === 390 }, w === 390 ? null : 'NL-1402')
+      await s.page.screenshot({ path: `${OUT}/${name}.png` })
+      await done(s, name)
+    }
+SHOTS['r2-read-text-1440-light'] = async (name) => {
+  const s = await open()
+  await read(s, 'NL-1401')
+  await s.page.screenshot({ path: `${OUT}/${name}.png` })
+  await done(s, name)
+}
+SHOTS['r2-read2-390-light'] = async (name) => {
+  const s = await open({ width: 390, height: 844, mobile: true })
+  await read({ ...s, mobile: true })
+  await s.page.locator('.modal.rec-read .pi', { hasText: 'NL-1402' }).first().tap()
+  await s.page.locator('.modal.rec-sheet2').waitFor()
+  await s.page.waitForTimeout(600)
+  await s.page.screenshot({ path: `${OUT}/${name}.png` })
+  await done(s, name)
+}
+SHOTS['r2-read-1440-xl'] = async (name) => {
+  const s = await open({ width: 1440, height: 900, xl: true })
+  await read(s)
   await s.page.screenshot({ path: `${OUT}/${name}.png` })
   await done(s, name)
 }
