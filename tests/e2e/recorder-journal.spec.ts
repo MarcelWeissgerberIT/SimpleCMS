@@ -407,6 +407,45 @@ test.describe('flight recorder journal', () => {
     expect(pg.left.blocks[0]).toMatch(/^tb1=/)
   })
 
+  test('loadWindow (F5): the story’s run 212 = 37 places; NL-1408 and NL-1415 each with a foreign segment of the person, the other 35 none', async ({ page }) => {
+    test.setTimeout(120_000)
+    await boot(page, undefined, storyTime(story, story.setupAt))
+    const ids = await playStory(page, story)
+    const [a, b] = story.bracket.map((t) => storyTime(story, t))
+    const lane = `agent:${AGENT}`
+    const w = await rec<{ places: number; own: number; foreign: Record<string, Array<{ lane: string | null; at: number }>>; breaks: number; tooMany: number | null }>(page, 'loadWindow', { lane, run: story.expect.run212.key, a, b })
+    expect(w.places).toBe(37)
+    expect(w.breaks).toBe(0)
+    expect(w.tooMany).toBeNull()
+    expect(Object.keys(w.foreign).sort()).toEqual([`p:${ids['NL-1408']}`, `p:${ids['NL-1415']}`].sort())
+    expect(w.foreign[`p:${ids['NL-1408']}`]).toEqual([{ lane: 'you', at: storyTime(story, '07:44:12') }])
+    expect(w.foreign[`p:${ids['NL-1415']}`]).toEqual([{ lane: 'you', at: storyTime(story, '07:57:30') }])
+    // the lane reads the same window
+    expect((await rec<{ places: number }>(page, 'loadWindow', { lane, a, b })).places).toBe(37)
+  })
+
+  test('loadWindow (F5): a property added between two runs breaks no chain (bhr); an unseen change does (a virtual foreign)', async ({ page }) => {
+    const n = await boot(page, () => nordlichtDb(page))
+    const [row, other] = n.rows
+    await at(page, T0 + MIN)
+    await step(page, agent('r41'), [['setRowProperty', row, n.est, 31], ['setRowProperty', other, n.est, 41]], { note: { seq: 41 }, end: true })
+    await rec(page, 'settle')
+    await at(page, T0 + 2 * MIN)
+    await step(page, you, [['addProperty', n.db, { name: 'Hinweis', type: 'text' }]])
+    await rec(page, 'settle')
+    await step(page, { kind: 'system', why: 'bookkeeping' }, [['setRowProperty', other, n.est, 99]])
+    await at(page, T0 + 3 * MIN)
+    await step(page, agent('r42'), [['setRowProperty', row, n.est, 32], ['setRowProperty', other, n.est, 42]], { note: { seq: 42 }, end: true })
+    await rec(page, 'settle')
+    const w = await rec<{ places: number; own: number; foreign: Record<string, Array<{ lane: string | null; at: number }>>; breaks: number }>(page, 'loadWindow', { lane: `agent:${AGENT}`, a: T0, b: T0 + 4 * MIN })
+    expect(w.places).toBe(2)
+    expect(w.own).toBe(4)
+    expect(w.foreign[`p:${row}`], 'the row: no break — its bhr is what run 41 left').toBeUndefined()
+    expect(w.foreign[`p:${other}`]?.every((f) => f.lane === null && f.at === T0 + 3 * MIN)).toBe(true)
+    const segs = (await segmentsOf(page, `p:${row}`)).filter((g) => g.r === `agent:${AGENT}:r42`)
+    expect(segs[0].bhr).toBeTruthy()
+  })
+
   test('retention: 31 days later prune removes the old records and their pins and sets the floor', async ({ page }) => {
     const n = await boot(page, () => nordlichtDb(page))
     await step(page, agent('r5'), [['setRowProperty', n.rows[0], n.est, 31]], { note: { seq: 5 }, end: true })

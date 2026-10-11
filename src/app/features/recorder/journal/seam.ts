@@ -111,6 +111,11 @@ export function installSeam(rec: Recorder): void {
       return out
     },
     seedBulk: (o: { events: number; inSpan: number; bigVorgang: number; spanEnd: number }) => seedBulk(rec, scopeOf(), o),
+    /** a window loaded as the reading and the eject load it — counts only (places, own, foreign per place, breaks) */
+    loadWindow: async (sel: { lane: LaneKey; run?: string; a: number; b: number; scope?: Scope }) => {
+      const { loadWindow, windowCounts } = await import('../window/load')
+      return windowCounts(await loadWindow({ ...sel, scope: sel.scope ?? scopeOf() }))
+    },
     dropPin: async (segmentId: string) => {
       const j = await openJournal()
       const seg = await j.get<JSegment>('segs', segmentId)
