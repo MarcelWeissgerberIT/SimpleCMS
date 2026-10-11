@@ -130,6 +130,22 @@ export function installSeam(rec: Recorder): void {
         tooMany: m.tooMany ?? null,
       }
     },
+    /** an eject planned as its dialog plans it: counts and every place's outcome, why, parts (ids only, no content) */
+    planEject: async (sel: { lane: LaneKey; run?: string; a: number; b: number; scope?: Scope }, opts?: { undoOf?: string }) => {
+      const { planEject } = await import('../eject/plan')
+      const t0 = performance.now()
+      const r = await planEject({ ...sel, scope: sel.scope ?? scopeOf() }, opts)
+      const ms = performance.now() - t0
+      if ('refused' in r) return { refused: r.refused }
+      const { plan } = r
+      return {
+        ms,
+        counts: plan.counts,
+        heldBy: plan.heldBy,
+        extendTo: plan.extendTo ?? null,
+        places: plan.places.map((x) => ({ p: x.p, pk: x.pk, outcome: x.outcome, reason: x.reason ?? null, why: x.why ?? null, back: x.parts.back, held: x.parts.held, hunks: x.hunks ?? null, fates: x.fates ?? null, notRestored: x.notRestored, toRoot: !!x.toRoot, changes: x.changes })),
+      }
+    },
     /** a window loaded as the reading and the eject load it — counts only (places, own, foreign per place, breaks) */
     loadWindow: async (sel: { lane: LaneKey; run?: string; a: number; b: number; scope?: Scope }) => {
       const { loadWindow, windowCounts } = await import('../window/load')

@@ -64,7 +64,7 @@ const placeRange = (j: Journal, s: Scope, p: PlaceKey, from: number) => j.range<
 /** Read a window. `settle` (the planner, R3): W's open segments close first — the caller flushed the editors. */
 export async function loadWindow(sel: WindowSel, opts?: { settle?: boolean }): Promise<WindowData> {
   const rec = recorder()
-  if (opts?.settle) await rec?.settle(sel.run ?? sel.lane)
+  if (opts?.settle) await rec?.settle(sel.run ?? sel.lane, { causes: true })
   else await rec?.flush().catch(() => undefined)
   const j = await openJournal()
   const s = sel.scope
