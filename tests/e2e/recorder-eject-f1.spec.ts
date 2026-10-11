@@ -256,6 +256,34 @@ test.describe('flight recorder — the eject, hard cases', () => {
     expect(await rec(page, 'unknowns')).toEqual([])
   })
 
+  test('F1 schema: the writer renames an option twice, the person renames another option in between — the writer\'s renames go back, the person\'s stays', async ({ page }) => {
+    test.setTimeout(120_000)
+    await page.clock.install({ time: storyTime(story, '07:00:00') })
+    await openApp(page)
+    await startRecorder(page)
+    const you = { kind: 'you', via: 'ui' }
+    const step = async (time: string, writer: Record<string, unknown>, calls: unknown[][], extra: Record<string, unknown> = {}) => {
+      await page.clock.setFixedTime(storyTime(story, time))
+      return rec<unknown[]>(page, 'step', { writer, calls, ...extra })
+    }
+    const [db] = (await step('07:00:00', you, [['createDatabase', { title: 'Tessera Stufen' }]])) as string[]
+    const [stage] = (await step('07:00:10', you, [['addProperty', db, { type: 'select', name: 'Stufe', options: [{ id: 'o-offen', name: 'Offen', color: 'gray' }, { id: 'o-fertig', name: 'Fertig', color: 'green' }] }]])) as string[]
+    await page.clock.setFixedTime(storyTime(story, '07:10:00'))
+    await rec(page, 'settle')
+    const opts = (names: [string, string]) => [{ id: 'o-offen', name: names[0], color: 'gray' }, { id: 'o-fertig', name: names[1], color: 'green' }]
+    const agent = (change: string) => ({ kind: 'agent', id: 'tessera-stufen', run: 'r5', change })
+    await step('07:31:00', agent('c1'), [['updateProperty', db, stage, { options: opts(['Neu', 'Fertig']) }]], { note: { seq: 5 } })
+    await step('07:32:00', you, [['updateProperty', db, stage, { options: opts(['Neu', 'Erledigt']) }]])
+    await step('07:34:00', agent('c2'), [['updateProperty', db, stage, { options: opts(['Neu (Tessera)', 'Erledigt']) }]], { end: true })
+    await page.clock.setFixedTime(storyTime(story, '07:40:00'))
+    await rec(page, 'settle')
+    const e = await rec<{ state: string }>(page, 'eject', { lane: 'agent:tessera-stufen', run: 'agent:tessera-stufen:r5', a: storyTime(story, '07:30:00'), b: storyTime(story, '07:35:00') })
+    expect(e.state).toBe('done')
+    const names = await wsEval(page, (s, a) => s.databases[a.db].properties.find((p: { id: string }) => p.id === a.stage).options.map((o: { name: string }) => o.name), { db, stage })
+    expect(names).toEqual(['Offen', 'Erledigt'])
+    expect(await rec(page, 'unknowns')).toEqual([])
+  })
+
   test('crash race (C3): a commit held before its settle — a second tab booting leaves it committing; released → done; with the first tab closed, the second tab\'s next boot finishes it', async ({ page, context }) => {
     test.setTimeout(240_000)
     await bootStory(page)
