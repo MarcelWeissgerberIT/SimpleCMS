@@ -34,8 +34,11 @@ const MAX_OPEN = 5000
 const LAST_LH_MAX = 20_000
 /** a flush hands its work over in pieces: pins per write, strings per signing round, a yield after this long */
 const PIN_CHUNK = 200
-const PIN_CHUNK_BYTES = 2_000_000
+/** a pin write's values are cloned in one go: ≤ 512 KB of them per write */
+const PIN_CHUNK_BYTES = 512_000
 const DIGEST_CHUNK = 500
+/** canonical text signed in one round (encoding and signing happen in one task: kept short) */
+const DIGEST_ROUND_BYTES = 256_000
 const YIELD_MS = 12
 /** records per transaction of a big flush (writeInParts) */
 const TX_RECORDS = 1500
@@ -95,8 +98,6 @@ interface Prep {
   op: JOp | null
 }
 
-/** How many places a slice records between two looks at the clock. */
-const CLOCK_EVERY = 16
 
 interface OpenEv {
   rec: JEvent
@@ -147,6 +148,8 @@ export interface Stats {
   hot: number[]
   idleDiffScans: number
   sliceMax: number
+  /** the longest single queued item (one store update's places, or a big one's part in a slice) */
+  itemMax: number
   /** the longest stretch of the recorder's own work in one go: a slice, a timer, a part of a flush between awaits */
   taskMax: number
   /** stretches over 50 ms (≤ 20): when (performance.now), how long, what */
@@ -194,6 +197,8 @@ export interface SysMaps {
   dbsPrev: Record<ID, Database>
   pagesMoved: boolean
   dbsMoved: boolean
+  /** the shared diff of the page maps, when somebody computed it (the places looked at: changed ∩ open) */
+  changed?: { changed: ID[]; removed: ID[] }
 }
 
 const pkOfPlace = (p: PlaceKey, raw: unknown): PlaceKind => (p.startsWith('s:') ? 'schema' : p.startsWith('v:') ? 'view' : placeKindOf(raw as Page))
@@ -480,26 +485,36 @@ export class Processor {
     o.lastObj = pl.nextObj
   }
 
-  /** The open places a system write moved: [place, prev, next] (pages: Page, schema: Database, views: View) — O(open). */
+  /**
+   * The open places a system write moved: [place, prev, next] (pages: Page, schema: Database, views: View) — in idle;
+   * O(changed) with the shared diff (else O(open)), the databases that changed (a small map) for schema and views.
+   */
   sysPlaces(m: SysMaps): Array<[PlaceKey, unknown, unknown]> {
     const sys: Array<[PlaceKey, unknown, unknown]> = []
-    for (const p of this.open.keys()) {
-      if (p.startsWith('p:')) {
-        if (!m.pagesMoved) continue
-        const id = p.slice(2)
-        const a = m.pagesPrev[id]
-        const b = m.pagesNext[id]
-        if (a !== b) sys.push([p, a, b])
-      } else if (m.dbsMoved) {
-        const [db, view] = p.slice(2).split('/')
-        const a: Database | undefined = m.dbsPrev[db]
-        const b: Database | undefined = m.dbsNext[db]
-        if (a === b) continue
-        if (p.startsWith('s:')) sys.push([p, a, b])
-        else {
+    const page = (id: ID) => {
+      const a = m.pagesPrev[id]
+      const b = m.pagesNext[id]
+      if (a !== b) sys.push([`p:${id}`, a, b])
+    }
+    if (m.pagesMoved) {
+      const c = m.changed
+      if (c && c.changed.length + c.removed.length < this.open.size) {
+        for (const id of c.changed) if (this.open.has(`p:${id}`)) page(id)
+        for (const id of c.removed) if (this.open.has(`p:${id}`)) page(id)
+      } else for (const p of this.open.keys()) if (p.startsWith('p:')) page(p.slice(2))
+    }
+    if (m.dbsMoved) {
+      const d = databaseChanges(m.dbsNext, m.dbsPrev)
+      for (const id of [...d.changed, ...d.removed]) {
+        const a: Database | undefined = m.dbsPrev[id]
+        const b: Database | undefined = m.dbsNext[id]
+        if (this.open.has(`s:${id}`)) sys.push([`s:${id}`, a, b])
+        const views = new Set([...(a?.views ?? []), ...(b?.views ?? [])].map((v) => v.id))
+        for (const view of views) {
+          if (!this.open.has(`v:${id}/${view}`)) continue
           const va = a?.views.find((v) => v.id === view)
           const vb = b?.views.find((v) => v.id === view)
-          if (va !== vb) sys.push([p, va, vb])
+          if (va !== vb) sys.push([`v:${id}/${view}`, va, vb])
         }
       }
     }
@@ -553,8 +568,10 @@ export class Processor {
       this.late.add(run)
     }
 
+    // the clock after every place (a place can be a big page) — at least one place per call, so a slice always moves on
+    const first = prep.i
     for (; prep.i < total; prep.i++) {
-      if (prep.i % CLOCK_EVERY === CLOCK_EVERY - 1 && performance.now() > deadline) {
+      if (prep.i > first && performance.now() > deadline) {
         prep.op = op
         return false
       }
@@ -794,7 +811,7 @@ export class Processor {
   finishCloses(deadline = Infinity): boolean {
     let n = 0
     for (const o of this.closing.values()) {
-      if (n++ % CLOCK_EVERY === CLOCK_EVERY - 1 && performance.now() > deadline) return false
+      if (n++ && performance.now() > deadline) return false
       this.finishClose(o)
     }
     return true
@@ -894,8 +911,10 @@ export class Processor {
     }
     // every stretch between two awaits is one piece of the recorder's work (stats.taskMax)
     let t = performance.now()
+    // which part of the flush a stretch belongs to (stats.long names it)
+    let part = 'flush'
     const lap = async <T>(p: Promise<T>): Promise<T> => {
-      noteTask(this.stats, 'flush', t)
+      noteTask(this.stats, part, t)
       try {
         return await p
       } finally {
@@ -949,32 +968,45 @@ export class Processor {
     const pinsLeft = new Set<PinJob>()
 
     try {
+      part = 'flush:pins'
       // 1. pins first (their bodies addressed by the exact content's digest), so a segment never names a pin that is
       // not there; in pieces of ≤ PIN_CHUNK pins / bytes — each piece its own write (pins are kept by id, a piece is
       // complete). Never a pin of a place the person deleted for good meanwhile.
       const byScope = new Map<Scope, PinJob[]>()
-      for (const p of pins) if (!this.isPurged(p.input.place)) byScope.set(p.seg.s, [...(byScope.get(p.seg.s) ?? []), p])
-      // pins not stored yet: a failed flush puts them back (never a segment silently without its pin)
-      for (const list of byScope.values()) for (const p of list) pinsLeft.add(p)
+      for (const p of pins) {
+        if (this.isPurged(p.input.place)) continue
+        const list = byScope.get(p.seg.s)
+        if (list) list.push(p)
+        else byScope.set(p.seg.s, [p])
+        // pins not stored yet: a failed flush puts them back (never a segment silently without its pin)
+        pinsLeft.add(p)
+      }
       for (const [scope, list] of byScope) {
         let from = 0
         while (from < list.length) {
           let size = 0
           let to = from
           while (to < list.length && (to === from || (to - from < PIN_CHUNK && size < PIN_CHUNK_BYTES))) {
+            if (performance.now() - t > YIELD_MS) await lap(idleTask())
             const p = list[to++]
             size += approxSize(p.input.meta) + (p.input.content ? approxSize(p.input.content) : 0)
           }
           const piece = list.slice(from, to)
           from = to
-          await lap(
-            Promise.all(
-              piece.map(async (p) => {
-                // the body's address: the exact content, block ids and task ids included (contentKey would ignore them)
-                if (p.input.meta.kind === 'page') p.input.meta.body = p.input.content ? await digestPart(scope, 'cx', stable(p.input.content)) : null
-              }),
-            ),
-          )
+          // the bodies' addresses: the exact content, block ids and task ids included (contentKey would ignore them) —
+          // one stable text at a time, the page idle in between (a piece holds up to 2 MB of pages)
+          const signing: Array<Promise<unknown>> = []
+          for (const p of piece) {
+            if (p.input.meta.kind !== 'page') continue
+            const meta = p.input.meta
+            if (!p.input.content) {
+              meta.body = null
+              continue
+            }
+            if (performance.now() - t > YIELD_MS) await lap(idleTask())
+            signing.push(digestPart(scope, 'cx', stable(p.input.content)).then((d) => (meta.body = d)))
+          }
+          await lap(Promise.all(signing))
           const kept = await lap(this.keepPins(scope, piece.map((p) => p.input), memory))
           piece.forEach((p, i) => {
             pinsLeft.delete(p)
@@ -986,36 +1018,43 @@ export class Processor {
         }
       }
 
+      part = 'flush:digests'
       // 2. digests, in the order the records were made: each job's canonical string is built now (from the frozen
       // object it holds), signed in pieces — the page idle in between
       const digests: Array<string | LeftHash> = []
+      type Input = { whole: string | null; parts?: Record<string, string>; blocks?: BlockCanon[] }
+      const sign = (job: Job, c: Input): Promise<string | LeftHash> => {
+        if (job.t === 'ev' || job.t === 'open') return c.whole === null ? Promise.resolve('-') : digestWhole(job.seg.s, c.whole)
+        if (c.whole === null) return Promise.resolve({ h: '-', parts: {} })
+        return digestLeft(job.seg.s, { parts: c.parts ?? {}, blocks: c.blocks }, c.whole, job.isNew)
+      }
       for (let i = 0; i < jobs.length; i += DIGEST_CHUNK) {
         if (i) await lap(idleTask())
         const piece = jobs.slice(i, i + DIGEST_CHUNK)
-        const inputs: Array<{ whole: string | null; parts?: Record<string, string>; blocks?: BlockCanon[] }> = []
+        // canonical strings built one by one, signed in rounds of ≤ DIGEST_ROUND_BYTES (the text is encoded and the
+        // signatures asked for in one task — a round of big pages stays short)
+        let round: Array<Promise<string | LeftHash>> = []
+        let bytes = 0
         for (const job of piece) {
           if (performance.now() - t > YIELD_MS) await lap(idleTask())
-          if (!job.obj) inputs.push({ whole: null })
-          else {
-            const c = placeCanon(job.obj, deps)
-            inputs.push({ whole: wholeCanon(c.parts, c.blocks), parts: c.parts, blocks: c.blocks })
+          let c: Input = { whole: null }
+          if (job.obj) {
+            const pc = placeCanon(job.obj, deps)
+            c = { whole: wholeCanon(pc.parts, pc.blocks), parts: pc.parts, blocks: pc.blocks }
+            bytes += c.whole!.length * (job.t === 'close' ? 2 : 1)
+          }
+          round.push(sign(job, c))
+          if (bytes > DIGEST_ROUND_BYTES) {
+            digests.push(...(await lap(Promise.all(round))))
+            round = []
+            bytes = 0
           }
         }
-        digests.push(
-          ...(await lap(
-            Promise.all(
-              piece.map(async (job, k) => {
-                const c = inputs[k]
-                if (job.t === 'ev' || job.t === 'open') return c.whole === null ? '-' : digestWhole(job.seg.s, c.whole)
-                if (c.whole === null) return { h: '-', parts: {} }
-                return digestLeft(job.seg.s, { parts: c.parts ?? {}, blocks: c.blocks }, c.whole, job.isNew)
-              }),
-            ),
-          )),
-        )
+        if (round.length) digests.push(...(await lap(Promise.all(round))))
       }
+      part = 'flush:apply'
       for (let i = 0; i < jobs.length; i++) {
-        if (i % 256 === 255 && performance.now() - t > YIELD_MS) await lap(idleTask())
+        if (i % 32 === 31 && performance.now() - t > YIELD_MS) await lap(idleTask())
         const job = jobs[i]
         const d = digests[i]
         if (job.t === 'ev') {
@@ -1041,6 +1080,7 @@ export class Processor {
           g.before = null
         }
 
+      part = 'flush:copy'
       // 3. ONE transaction (its puts go in in pieces, journal/db.ts)
       const put = { ops: [] as Array<Record<string, unknown>>, events: [] as Array<Record<string, unknown>>, segs: [] as Array<Record<string, unknown>> }
       let n = 0
@@ -1050,7 +1090,7 @@ export class Processor {
         [segs.values(), put.segs, (r: JSegment) => r.from],
       ] as Array<[Iterable<JOp & JEvent & JSegment>, Array<Record<string, unknown>>, (r: JOp & JEvent & JSegment) => number]>)
         for (const r of list) {
-          if (n++ % 256 === 255 && performance.now() - t > YIELD_MS) await lap(idleTask())
+          if (n++ % 32 === 31 && performance.now() - t > YIELD_MS) await lap(idleTask())
           const copy = { ...r } as Record<string, unknown>
           const size = approxSize(copy)
           addBytes(r.s, when(r), size - (this.sizes.get(r) ?? 0))
@@ -1098,6 +1138,7 @@ export class Processor {
         bump.push({ store: 'kv', key: `${scope}|tab|${this.tab}`, fn: (cur) => ({ k: `${scope}|tab|${this.tab}`, start: Number(cur?.start ?? start), lastFlush: now, clean }) })
       }
       if (lost) batch.put!.kv = [{ k: `${lost.s}|gap|${pad13(lost.from)}`, from: lost.from, to: lost.to, tab: this.tab }]
+      part = 'flush:write'
       await this.writeInParts(j, batch, lap)
       if (clean) {
         // an update that came while the write ran: the records must say dirty again
@@ -1137,9 +1178,10 @@ export class Processor {
       this.inFlightOps = 0
     }
 
+    part = 'flush:purge'
     // 4. after the write: what the person deleted for good loses its pins
     if (purge.length) await lap(this.applyPurge(j, purge, memory))
-    noteTask(this.stats, 'flush', t)
+    noteTask(this.stats, part, t)
   }
 
   /**

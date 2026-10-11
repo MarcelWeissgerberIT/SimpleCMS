@@ -18,7 +18,7 @@ import { resolveHot } from './attribute'
 import { Budget } from './budget'
 import { openJournal, journalIfOpen, wipeScope } from './db'
 import { forgetScopeKey } from './key'
-import { noteTask, Processor, type QItem, type Stats } from './process'
+import { idleTask, noteTask, Processor, type QItem, type Stats } from './process'
 import { pruneHumanPins, pruneOldestDays, pruneRetention, pruneTodayPins, type PruneOpts } from './prune'
 import { recoverScope } from './recover'
 import { installSeam } from './seam'
@@ -47,9 +47,12 @@ const pairsOf = (c: PageChanges, next: Record<ID, Page>, prev: Record<ID, Page>)
 
 export class Recorder {
   readonly tab = newId().slice(0, 10)
-  readonly stats: Stats = { hot: [], idleDiffScans: 0, sliceMax: 0, taskMax: 0, long: [] }
+  readonly stats: Stats = { hot: [], idleDiffScans: 0, sliceMax: 0, itemMax: 0, taskMax: 0, long: [] }
   private hotRing = new Float64Array(HOT_RING)
   private hotN = 0
+  /** the time of each queued item recorded (one store update's places, or a big one's part) */
+  private itemRing = new Float64Array(HOT_RING)
+  private itemN = 0
   readonly queue: QItem[] = []
   readonly processor: Processor
   readonly budget: Budget
@@ -174,10 +177,13 @@ export class Recorder {
     const at = Date.now()
     const scope = scopeNow()
     if (w?.kind === 'system') {
-      // only places with an open segment can be harmed by an unseen change: O(open) — or, while updates still wait in
-      // the queue (their segments are not open yet), the two maps for the processor to look at when it gets there
-      if (this.queue.length) this.queue.push({ v: '', at, scope, w, sysMaps: { pagesNext: state.pages, pagesPrev: prev.pages, dbsNext: state.databases, dbsPrev: prev.databases, pagesMoved, dbsMoved } })
-      else if (this.processor.open.size) this.queueSys(w, at, scope, state, prev, pagesMoved, dbsMoved)
+      // only places with an open segment (or one about to open: updates still queued) can be harmed by an unseen
+      // change — the processor picks them when it gets there, from the two maps and the shared diff when somebody
+      // computed it: O(1) here, inside the store's set(), however many segments are open
+      if (this.queue.length || this.processor.open.size) {
+        const c = pagesMoved ? peekPageChanges(state.pages, prev.pages) : null
+        this.queue.push({ v: '', at, scope, w, sysMaps: { pagesNext: state.pages, pagesPrev: prev.pages, dbsNext: state.databases, dbsPrev: prev.databases, pagesMoved, dbsMoved, ...(c ? { changed: c } : {}) } })
+      }
     } else {
       const c = pagesMoved ? peekPageChanges(state.pages, prev.pages) : null
       const item: QItem = { v: this.processor.nextV(), at, scope, dbsNext: state.databases, dbsPrev: prev.databases }
@@ -197,11 +203,6 @@ export class Recorder {
     this.hot(performance.now() - t0)
   }
 
-  private queueSys(w: Writer, at: number, scope: Scope, state: ReturnType<typeof useWorkspace.getState>, prev: ReturnType<typeof useWorkspace.getState>, pagesMoved: boolean, dbsMoved: boolean): void {
-    const sys = this.processor.sysPlaces({ pagesNext: state.pages, pagesPrev: prev.pages, dbsNext: state.databases, dbsPrev: prev.databases, pagesMoved, dbsMoved })
-    if (sys.length) this.queue.push({ v: '', at, scope, w, sys, sysDbs: { next: state.databases, prev: prev.databases } })
-  }
-
   private hot(ms: number): void {
     this.hotRing[this.hotN % HOT_RING] = ms
     this.hotN++
@@ -210,18 +211,22 @@ export class Recorder {
   /** Start the measurements over (the perf spec reads one kind of write at a time). */
   resetStats(): void {
     this.hotN = 0
+    this.itemN = 0
     this.stats.idleDiffScans = 0
     this.stats.sliceMax = 0
+    this.stats.itemMax = 0
     this.stats.taskMax = 0
     this.stats.long = []
   }
 
   /** p50 / p95 / max of the hot path over the last 2,048 store updates. */
   hotStats(): { p50: number; p95: number; max: number; n: number } {
-    const n = Math.min(this.hotN, HOT_RING)
-    if (!n) return { p50: 0, p95: 0, max: 0, n: 0 }
-    const xs = Array.from(this.hotRing.subarray(0, n)).sort((a, b) => a - b)
-    return { p50: xs[Math.floor(n * 0.5)], p95: xs[Math.min(n - 1, Math.floor(n * 0.95))], max: xs[n - 1], n: this.hotN }
+    return ringStats(this.hotRing, this.hotN)
+  }
+
+  /** p50 / p95 / max of recording one queued item, over the last 2,048. */
+  itemStats(): { p50: number; p95: number; max: number; n: number } {
+    return ringStats(this.itemRing, this.itemN)
   }
 
   /* ---------------------------------------------------------------- */
@@ -280,11 +285,16 @@ export class Recorder {
   private take(deadline = Infinity): boolean {
     const it = this.queue[0]
     let done = true
+    const t0 = performance.now()
     try {
       done = this.processor.process(it, deadline)
     } catch (e) {
       console.warn('[recorder] an update could not be recorded', e)
     }
+    const ms = performance.now() - t0
+    if (ms > this.stats.itemMax) this.stats.itemMax = ms
+    this.itemRing[this.itemN % HOT_RING] = ms
+    this.itemN++
     if (!done) return false
     this.queue.shift()
     if (it.maps) this.rawPending = Math.max(0, this.rawPending - 1)
@@ -326,11 +336,25 @@ export class Recorder {
     )
   }
 
-  /** Write what waits (the queue first). */
+  /**
+   * Record what is queued in slices, the page idle in between (a prune, a settle or a wipe waits for the queue like
+   * the scheduler does — never one long task the size of the backlog); true once nothing is left.
+   */
+  async drainInSlices(): Promise<void> {
+    for (;;) {
+      const t0 = performance.now()
+      const done = this.drain(t0 + (this.hidden() ? HIDDEN_SLICE : VISIBLE_SLICE))
+      noteTask(this.stats, 'drain', t0)
+      if (done || !this.on) return
+      await idleTask()
+    }
+  }
+
+  /** Write what waits (the queue first, in slices). */
   async flush(): Promise<void> {
     if (this.flushTimer) clearTimeout(this.flushTimer)
     this.flushTimer = null
-    this.drain()
+    await this.drainInSlices()
     try {
       await this.processor.flush()
     } catch (e) {
@@ -353,7 +377,7 @@ export class Recorder {
 
   /** Flush and close segments (all, or a writer's: its segmentation key, run key, writer key or lane). */
   async settle(writer?: string): Promise<void> {
-    this.drain()
+    await this.drainInSlices()
     this.processor.closeAll(Date.now(), writer ? (s) => s.sk === writer || s.r === writer || s.w === writer || s.l === writer : undefined)
     await this.flush()
     this.armDue()
@@ -399,6 +423,13 @@ export class Recorder {
     this.budget.freed()
     return res
   }
+}
+
+function ringStats(ring: Float64Array, total: number): { p50: number; p95: number; max: number; n: number } {
+  const n = Math.min(total, ring.length)
+  if (!n) return { p50: 0, p95: 0, max: 0, n: 0 }
+  const xs = Array.from(ring.subarray(0, n)).sort((a, b) => a - b)
+  return { p50: xs[Math.floor(n * 0.5)], p95: xs[Math.min(n - 1, Math.floor(n * 0.95))], max: xs[n - 1], n: total }
 }
 
 let current: Recorder | null = null
