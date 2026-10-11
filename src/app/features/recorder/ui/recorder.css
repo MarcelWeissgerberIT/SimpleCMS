@@ -1352,3 +1352,12 @@
     transition: none;
   }
 }
+
+/* ---------- window reading (R2): the diffs are drawn in ink — orange on the deck means the playhead, the selected
+   window and held marks only (history.css re-declares the --dd-add* tokens on .hprops / .hist__title-diff themselves:
+   so two classes) ---------- */
+.rec-diff :is(.ddiff, .hprops, .hist__title-diff, .hist__doc-title) {
+  --dd-add: var(--ink);
+  --dd-add-bg: color-mix(in srgb, var(--ink) 10%, transparent);
+  --dd-mark: var(--ink-2);
+}
