@@ -2,6 +2,7 @@ import { useLayoutEffect } from 'react'
 import { useT } from '../../i18n'
 import { shortcutLabel, ALT } from '../../ui/controls'
 import { openHelp } from '../../help'
+import { REWIND_SHORTCUT } from '../../features'
 
 export interface ShortcutGroup {
   label: string
@@ -22,6 +23,7 @@ export function useShortcutGroups(): ShortcutGroup[] {
         [t('shell.rail.toggle'), ['Mod+.']],
         [t('shell.cmd.settings'), ['Mod+,']],
         [t('shell.cmd.shortcuts'), ['Mod+/']],
+        [t('features.recorder.shortcut'), [REWIND_SHORTCUT]],
         [t('help.title'), ['?']],
         [t('shell.keys.closePeek'), ['Esc']],
       ],

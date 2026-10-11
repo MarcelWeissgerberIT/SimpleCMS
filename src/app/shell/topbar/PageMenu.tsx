@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { BookMarked, BookmarkPlus, ClipboardCopy, Copy, Download, FolderInput, LayoutTemplate, Link2, Trash2, Upload, Share2, Clock3, Presentation, Zap } from 'lucide-react'
+import { BookMarked, BookmarkPlus, ClipboardCopy, Copy, Download, FolderInput, LayoutTemplate, Link2, Trash2, Upload, Share2, Clock3, Presentation, Zap, Rewind } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
 import { inTemplate } from '../../store/selectors'
@@ -12,6 +12,7 @@ import { fmtNumber, fmtRelative, plural, wordCount } from '../lib/format'
 import { useKbdHint } from '../lib/hooks'
 import { useReadOnly } from '../cloud/state'
 import { SwitchFace } from '../../ui/controls'
+import { openRecorder, REWIND_SHORTCUT } from '../../features'
 
 const FONTS: Array<{ id: PageFont; key: string }> = [
   { id: 'sans', key: 'shell.font.default' },
@@ -86,6 +87,8 @@ export function PageMenu({ page, anchor, onClose, mobile }: { page: Page; anchor
       { label: t('shell.topbar.history'), icon: <Clock3 size={15} />, onSelect: () => ui.openModal({ type: 'history', pageId: page.id }) },
       { label: t('shell.topbar.present'), icon: <Presentation size={15} />, onSelect: () => ui.present(page.id) },
     ]),
+    // the flight recorder (on a phone the only way in besides ⌘K: no status bar there)
+    { label: t('features.recorder.menu'), icon: <Rewind size={15} />, hint: kbd(REWIND_SHORTCUT), onSelect: openRecorder },
     { kind: 'separator' },
     ...only(edit && isDb, [{ label: t('shell.pageMenu.automations'), icon: <Zap size={15} />, onSelect: () => ui.openModal({ type: 'automations', databaseId: page.id }) }]),
     { label: t('shell.cmd.export'), icon: <Download size={15} />, onSelect: () => ui.openModal({ type: 'export', pageId: page.id }) },

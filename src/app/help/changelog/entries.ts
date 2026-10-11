@@ -29,7 +29,7 @@ export const CHANGELOG_LANGS: ChangelogLang[] = ['en', 'de']
  * "What can One do?" use the same list): terminal (⌘J), Settings → Claude AI / Agents · MCP / Mail / Sync / Coding worker,
  * the Agents page, "Ask the help", ⌘K, Scripts, Import, the Inbox, the open page's history / Share,
  * "What can One do?", the guided tour, and — on the tour's practice page — the slash menu, the AI menu,
- * Transform into; a database, its commands, a spreadsheet, a database's automations; the coding pipeline (#/coding); Building blocks (#/kit); the workspace's Look (#/workspace/look).
+ * Transform into; a database, its commands, a spreadsheet, a database's automations; the coding pipeline (#/coding); Building blocks (#/kit); the workspace's Look (#/workspace/look); the flight recorder's deck.
  */
 export const CHANGELOG_TRIES = [
   'terminal',
@@ -59,6 +59,7 @@ export const CHANGELOG_TRIES = [
   'kit',
   'look',
   'integrations',
+  'recorder',
 ] as const
 export type ChangelogTry = (typeof CHANGELOG_TRIES)[number]
 

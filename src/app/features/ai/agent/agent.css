@@ -1435,11 +1435,6 @@
   }
 }
 
-/* toasts (stage.css: centred at the bottom of the working area) clear the dock */
-.toasts {
-  bottom: max(40px, calc(var(--term-dock, 0px) + 36px));
-}
-
 /* ---------- phones: a full-screen sheet ---------- */
 @media (max-width: 640px) {
   .term {

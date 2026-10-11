@@ -3,11 +3,11 @@
  * and the global keyboard handler.
  */
 import type { LucideIcon } from 'lucide-react'
-import { Bell, CalendarDays, CalendarRange, Copy, Download, FilePlus2, FolderInput, Focus, Keyboard, Languages, LayoutTemplate, Link2, Lock, MessageSquareText, MoveHorizontal, PanelLeft, Presentation, Settings, Share2, SunMoon, Table2, SquareKanban, Trash2, Upload, Waypoints, History, Star, Home, Inbox, Users, Building2, Palette, CloudUpload, Workflow, SquareFunction, CircleHelp, Newspaper, SquareCode, GitBranch, Blocks, Compass, Route, ClipboardCopy, Plug, Send } from 'lucide-react'
+import { Bell, CalendarDays, CalendarRange, Copy, Download, FilePlus2, FolderInput, Focus, Keyboard, Languages, LayoutTemplate, Link2, Lock, MessageSquareText, MoveHorizontal, PanelLeft, Presentation, Settings, Share2, SunMoon, Table2, SquareKanban, Trash2, Upload, Waypoints, History, Star, Home, Inbox, Users, Building2, Palette, CloudUpload, Workflow, SquareFunction, CircleHelp, Newspaper, SquareCode, GitBranch, Blocks, Compass, Route, ClipboardCopy, Plug, Send, Rewind } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
 import { navigate } from '../../lib/router'
-import { openTodayJournal, openAgent, AGENT_SHORTCUT, openFunctionBuilder, paletteDbCommands, createScript, openScripts, paletteScripts, openOutbox } from '../../features'
+import { openTodayJournal, openAgent, AGENT_SHORTCUT, openFunctionBuilder, paletteDbCommands, createScript, openScripts, paletteScripts, openOutbox, openRecorder, REWIND_SHORTCUT } from '../../features'
 import type { ID } from '../../store/types'
 import type { Translate } from '@/shared/i18n'
 import { quickNoteToInbox } from '../capture/inbox'
@@ -102,6 +102,8 @@ export function buildCommands(t: Translate, pageId: ID | null): Command[] {
     { id: 'whats-new', group: 'workspace', label: t('help.news.cmd'), icon: Newspaper, keywords: "what's new whats new changelog updates release notes neuigkeiten neu in one änderungen versionshinweise", run: () => { closeMobileSidebar(); openChangelog() } },
     { id: 'ask-ai', group: 'claude', label: t('shell.cmd.askAI'), icon: MessageSquareText, keywords: 'claude ai assistant question ki frage', run: () => ui.openPalette('?') },
     { id: 'agent', group: 'claude', label: t('features.agent.cmd'), icon: Workflow, shortcut: AGENT_SHORTCUT, keywords: 'agent claude ai automate bulk tasks rows pages ki automatisieren aufgaben terminal console konsole', run: () => { closeMobileSidebar(); openAgent() } },
+    // the flight recorder: always there (viewers read the tape too)
+    { id: 'rewind', group: 'workspace', label: t('features.recorder.cmd'), icon: Rewind, shortcut: REWIND_SHORTCUT, keywords: t('features.recorder.cmdKeywords'), run: () => { closeMobileSidebar(); openRecorder() } },
     { id: 'discover', group: 'start', label: t('shell.discover.cmd'), icon: Compass, keywords: 'discover features overview what can one do capabilities getting started entdecken funktionen überblick was kann einstieg', run: () => { closeMobileSidebar(); navigate('#/discover') } },
     { id: 'tour', group: 'start', label: t('shell.tour.cmd'), icon: Route, keywords: 'tour guide guided onboarding getting started intro walkthrough first steps einführung rundgang erste schritte anleitung', run: () => { closeMobileSidebar(); startTour() } },
   ]

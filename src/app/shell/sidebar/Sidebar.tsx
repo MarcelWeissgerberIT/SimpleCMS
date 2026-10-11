@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
-import { ArrowRight, Bell, Bot, Building2, CalendarDays, CalendarRange, ChevronsLeft, ChevronDown, Compass, Home, LayoutTemplate, Lock, PenLine, Plus, Search, Trash2, Upload, Waypoints, Settings, Table2, FilePlus2, Users, SquareCode, Blocks, SquareKanban, Send } from 'lucide-react'
+import { ArrowRight, Bell, Bot, Building2, CalendarDays, CalendarRange, ChevronsLeft, ChevronDown, Compass, Home, LayoutTemplate, Lock, PenLine, Plus, Search, Trash2, Upload, Waypoints, Settings, Table2, FilePlus2, Users, SquareCode, Blocks, SquareKanban, Send, Rewind } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
 import { useFavorites, useTrash, useTreeCount, useHasFavorites } from '../../store/selectors'
 import { navigate, useRoute } from '../../lib/router'
-import { openTodayJournal, AgentsNavBadge, OutboxNavBadge, useOutboxVisible } from '../../features'
+import { openTodayJournal, AgentsNavBadge, OutboxNavBadge, useOutboxVisible, openRecorder, REWIND_SHORTCUT } from '../../features'
 import { Menu, useMenu, type MenuEntry } from '../../ui/Menu'
 import { toggleMenu } from '../lib/menu'
 import { Tooltip } from '../../ui/Tooltip'
@@ -228,6 +228,8 @@ function SidebarHeader() {
       ],
     },
     { label: t('shell.cmd.shortcuts'), hint: kbd('Mod+/'), onSelect: () => useUI.getState().openModal({ type: 'shortcuts' }) },
+    // the flight recorder: every writer on one tape (this device)
+    { id: 'ws-recorder', label: t('features.recorder.menu'), icon: <Rewind size={15} />, hint: kbd(REWIND_SHORTCUT), onSelect: () => (closeMobileSidebar(), openRecorder()) },
     { label: t('help.title'), hint: kbd('?'), onSelect: () => openHelp(), ...(newsUnseen ? { icon: <HelpNewsLed quiet /> } : {}) },
     ...installEntries,
     // getting started: "What can One do?" (#/discover) and the guided tour (shell/tour)

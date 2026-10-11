@@ -457,7 +457,7 @@ const wordStarts = (text: string, n: string) => text.split(/[\s()&,/…-]+/).som
 const labelStarts = (label: string, term: string) => label.toLowerCase().startsWith(term.toLowerCase())
 
 /** The commands of the list without a query, most used first within their groups. */
-const CORE = ['new-page', 'new-database', 'quick-note', 'templates', 'journal', 'agenda', 'graph', 'ask-ai', 'agent', 'present', 'history', 'import', 'settings', 'theme', 'focus', 'discover', 'tour']
+const CORE = ['new-page', 'new-database', 'quick-note', 'templates', 'journal', 'agenda', 'graph', 'ask-ai', 'agent', 'rewind', 'present', 'history', 'import', 'settings', 'theme', 'focus', 'discover', 'tour']
 const GROUP_ORDER: Cmd['group'][] = ['create', 'navigate', 'claude', 'page', 'workspace', 'start']
 
 /** The list without a query: CORE in its order (the tour only until it was finished once). */

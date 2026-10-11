@@ -11,7 +11,7 @@ import { toggleTheme } from '../lib/actions'
 import { useStageView } from '../lib/stage'
 import { plural } from '../lib/format'
 import { CloudStatusCells, useCloudReadout } from '../cloud/Sync'
-import { SyncStatusCell, McpStatusCell, AgentStatusCell, CodingStatusCell, OutboxStatusCell } from '../../features'
+import { SyncStatusCell, McpStatusCell, AgentStatusCell, CodingStatusCell, OutboxStatusCell, RecorderStatusCell, RewindKey } from '../../features'
 import { toggleHelp, useHelp, HelpNewsLed } from '../../help'
 
 /** 24px instrument read-out along the bottom edge. */
@@ -47,6 +47,7 @@ export function StatusBar({ route }: { route: Route }) {
         </span>
       )}
       <SyncStatusCell />
+      <RecorderStatusCell />
       <McpStatusCell />
       <AgentStatusCell />
       <CodingStatusCell />
@@ -63,6 +64,7 @@ export function StatusBar({ route }: { route: Route }) {
       )}
       {panes > 0 && <span className="status__cell">{t('shell.stats.panes', { n: panes })}</span>}
       <span className="status__spacer" />
+      <RewindKey />
       <button type="button" className="status__cell status__btn" onClick={toggleTheme} title={t('shell.status.theme')}>
         <span className="status__half" aria-hidden />
         {dark ? 'Carbon' : 'Paper'}

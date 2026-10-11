@@ -85,6 +85,7 @@ export function TrashPopover({ anchor, onClose, placement }: { anchor: HTMLEleme
                     useWorkspace.getState().deletePagePermanently(p.id)
                   }}
                   onBlur={() => setArmed(null)}
+                  title={`${t('shell.trash.deleteForeverBody')} ${t('features.recorder.confirm.deleteForeverPins')}`}
                   autoFocus
                 >
                   {t('shell.trash.confirmDelete')}
@@ -109,7 +110,7 @@ export function TrashPopover({ anchor, onClose, placement }: { anchor: HTMLEleme
             useUI.getState().openModal({
               type: 'confirm',
               title: t('shell.trash.emptyTitle'),
-              body: t('shell.trash.emptyBody', { count: trash.length }),
+              body: `${t('shell.trash.emptyBody', { count: trash.length })} ${t('features.recorder.confirm.deleteForeverPins')}`,
               danger: true,
               confirmLabel: t('shell.trash.emptyConfirm'),
               onConfirm: () => useWorkspace.getState().emptyTrash(),

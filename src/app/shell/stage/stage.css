@@ -446,7 +446,8 @@
 .toasts {
   position: fixed;
   left: calc(50% + var(--sb-docked, 0px) / 2);
-  bottom: 40px;
+  /* above the status bar, and above a dock under the page (the AI terminal --term-dock, the flight recorder --deck-dock) */
+  bottom: max(40px, calc(var(--term-dock, 0px) + var(--deck-dock, 0px) + 36px));
   z-index: var(--z-toast);
   display: flex;
   flex-direction: column;
@@ -534,7 +535,7 @@
 }
 @media (max-width: 767px) {
   .toasts {
-    bottom: calc(16px + env(safe-area-inset-bottom));
+    bottom: max(calc(16px + env(safe-area-inset-bottom)), calc(var(--term-dock, -100px) + 36px), calc(var(--deck-dock, -100px) + 16px));
   }
   /* several keys: the message on its own line, the keys below it */
   .toast[data-more] {

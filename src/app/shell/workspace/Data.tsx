@@ -7,7 +7,7 @@ import { useRef, useState, type ReactNode } from 'react'
 import { Trash2 } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import { useCloud, useCloudSync } from '../../cloud'
-import { openSyncSettings, useSync } from '../../features'
+import { openSyncSettings, useSync, RecorderDataLine } from '../../features'
 import { Led } from '../../ui/controls'
 import { useLang, useT } from '../../i18n'
 import type { Translate } from '@/shared/i18n'
@@ -33,6 +33,8 @@ export function DataSection() {
       <LastBackupLine />
       <SubHead label={t('shell.ws.data.trash')} />
       <TrashLine />
+      <SubHead label={t('features.recorder.data.title')} />
+      <RecorderDataLine />
       <SubHead label={t('shell.ws.data.copies')} />
       <ul className="wsp-copies" data-testid="ws-copies">
         {inCloud && <ServerCopy />}

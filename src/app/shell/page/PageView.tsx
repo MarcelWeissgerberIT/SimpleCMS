@@ -350,7 +350,8 @@ function TrashBanner({ page, canEdit }: { page: Page; canEdit: boolean }) {
               useUI.getState().openModal({
                 type: 'confirm',
                 title: t('shell.trash.deleteForeverTitle'),
-                body: t('shell.trash.deleteForeverBody'),
+                // the flight recorder's before-images of it go too (this device)
+                body: `${t('shell.trash.deleteForeverBody')} ${t('features.recorder.confirm.deleteForeverPins')}`,
                 danger: true,
                 confirmLabel: t('shell.trash.deleteForever'),
                 // the main column, panes and the peek all let go of the page (usePruneGoneViews)

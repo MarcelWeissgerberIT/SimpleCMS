@@ -2,7 +2,7 @@ import { useEffect } from 'react'
 import { useUI } from '../../store/ui'
 import { useWorkspace } from '../../store/store'
 import { inTemplate, isEffectivelyTrashed } from '../../store/selectors'
-import { openTodayJournal } from '../../features'
+import { closeRecorder, isRecorderOpen, openTodayJournal, toggleRecorder } from '../../features'
 import { navigate, parseHash, type Route } from '../../lib/router'
 import { isMac } from '../../ui/controls'
 import { t } from '../../i18n'
@@ -42,6 +42,22 @@ function isAltGraph(e: KeyboardEvent): boolean {
   return !isMac && e.ctrlKey && e.altKey && !e.metaKey
 }
 
+/** Mod+Alt+Z (no Shift): mac ⌘⌥ + the Z key (⌥ turns it into "Ω": keyOf reads the key's code then); pc Ctrl+Alt + "z". */
+function isRewindKey(e: KeyboardEvent): boolean {
+  if (e.shiftKey || !e.altKey) return false
+  if (isMac) return e.metaKey && !e.ctrlKey && keyOf(e) === 'z'
+  return e.ctrlKey && !e.metaKey && !e.getModifierState?.('AltGraph') && e.key.toLowerCase() === 'z'
+}
+
+/** Never in a form field (the page editor is fine), never under a dialog, the palette or a presentation. */
+function rewindBlocked(target: EventTarget | null): boolean {
+  const el = target as HTMLElement | null
+  if (el?.closest?.('input, textarea, select')) return true
+  const editable = el?.closest?.('[contenteditable="true"], [contenteditable=""]')
+  if (editable && !editable.closest('.ProseMirror')) return true
+  return !!document.querySelector('.modal-scrim, .pal-scrim, .pres')
+}
+
 /** Global keyboard shortcuts. Mount once. */
 export function useGlobalShortcuts() {
   useEffect(() => {
@@ -71,6 +87,18 @@ export function useGlobalShortcuts() {
           if (!isReadOnly()) createPageAndOpen(null)
           return
         }
+      }
+
+      // the flight recorder: ⌘⌥Z on macOS, Ctrl+Alt+Z elsewhere — before the AltGr bail-out below (on Windows
+      // Ctrl+Alt is AltGr). `e.key` is "z" only when no character was typed (AltGr+Z on a Polish layout gives "ż");
+      // never `e.code`: on a German keyboard the Z key is KeyY. Works in the page editor (it binds nothing there).
+      if (isRewindKey(e)) {
+        if (!rewindBlocked(e.target)) {
+          e.preventDefault()
+          e.stopPropagation()
+          toggleRecorder()
+        }
+        return
       }
 
       if (isAltGraph(e) || e.altKey) return
@@ -123,6 +151,11 @@ export function useGlobalShortcuts() {
       if (e.key === 'Escape' && !e.defaultPrevented && !overlayOpen()) {
         if (ui.peekPageId) {
           ui.closePeek()
+          return
+        }
+        // the flight recorder closes (and the playhead goes back to now)
+        if (isRecorderOpen()) {
+          closeRecorder()
           return
         }
         if (ui.focusMode) {

@@ -24,7 +24,7 @@ import { useWorkspace } from '../../store/store'
 import { flushSave } from '../../store/persistence'
 import { withWriter, type Writer } from '../../store/writer'
 import { safeLocalGet, safeLocalSet } from '@/shared/brand'
-import { SpeechRecognizer, openAgent, speechSupported, type SpeechErrorCode } from '../../features'
+import { SpeechRecognizer, openAgent, speechSupported, useRecorderOpen, type SpeechErrorCode } from '../../features'
 import { useIsMobile } from '../lib/hooks'
 import { createPageAndOpen, goToPage } from '../lib/actions'
 import { isReadOnly, useReadOnly } from '../cloud/state'
@@ -140,7 +140,9 @@ function CaptureFab() {
   const mobile = useIsMobile()
   const readOnly = useReadOnly()
   const typing = useTyping()
-  const covered = useUI((s) => s.mobileSidebarOpen || !!s.modal || s.paletteOpen || !!s.peekPageId || !!s.presentPageId || s.focusMode)
+  // the flight recorder's deck sits where the key would (the phone's bottom panel)
+  const deck = useRecorderOpen()
+  const covered = useUI((s) => s.mobileSidebarOpen || !!s.modal || s.paletteOpen || !!s.peekPageId || !!s.presentPageId || s.focusMode) || deck
   // one short toast: the key steps up above it; a stack of toasts: the key waits until they are gone
   const toasts = useUI((s) => (!s.toasts.length ? 'none' : s.toasts.length === 1 && !s.toasts[0].more?.length ? 'one' : 'many'))
   const hidden = typing || toasts === 'many'
