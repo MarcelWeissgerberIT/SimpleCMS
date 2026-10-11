@@ -65,14 +65,16 @@ if (typeof window !== 'undefined' && (import.meta.env.DEV || new URLSearchParams
       }
     },
     /**
-     * perf-budget: ms per run (`runs` each) of queryItems over every task, claudeSettled of `markdown` (a staging
-     * context), staging it as an append (the agent tool on a throw-away stage) and list_work_items with a 'marked' read
-     * limit on `limitPages` — nothing is written.
+     * perf-budget: ms per run (`runs` each, after one untimed run) of queryItems over every task, claudeSettled of
+     * `markdown` (a staging context), staging it as an append (the agent tool on a throw-away stage) and
+     * list_work_items with a 'marked' read limit on `limitPages` — nothing is written.
      */
     perf: async (o: { pageId: ID; markdown: string; limitPages: ID[]; runs: number }) => {
       const [{ callStage, stageWith }, { withReadLimit }] = await Promise.all([import('../mcp/stage'), import('../ai/agent/toolScope')])
       const time = (fn: () => unknown) => {
         const out: number[] = []
+        // one untimed run first: the steady cost per call, not the first call's lazy parser / schema set-up
+        fn()
         for (let i = 0; i < o.runs; i++) {
           const t0 = performance.now()
           fn()
