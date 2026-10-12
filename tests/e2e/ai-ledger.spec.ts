@@ -145,18 +145,23 @@ test.describe('contracts kept by every reader (written by nobody yet)', () => {
     await page.evaluate((rules) => (window as unknown as { __one: { workspace: { setState: (x: object) => void } } }).__one.workspace.setState({ ai: rules }), rules)
     await flush(page)
     await reloadApp(page)
-    expect(await wsEval(page, (s) => JSON.parse(JSON.stringify({ ai: s.ai, keys: s.settings.aiKeys ?? null, device: s.settings.ai ?? null })))).toEqual({
-      ai: rules,
-      // a plaintext "marker" never survives a reader
-      keys: { openai: 'vault:abcdef123456:WXYZ' },
-      device: { default: [{ p: 'anthropic', m: 'claude-opus-5-5' }], allow: { openrouter: ['memory'] } },
-    })
+    // S2: a plaintext key is sealed by updateSettings (its marker is kept); a marker this browser cannot open (no sealed
+    // secret behind it) is dropped at the boot check, so the UI asks for the key again — as the Claude key always was
+    await expect
+      .poll(() => wsEval(page, (s) => JSON.parse(JSON.stringify({ ai: s.ai, keys: s.settings.aiKeys ?? null, device: s.settings.ai ?? null }))))
+      .toEqual({
+        ai: rules,
+        keys: { openrouter: expect.stringMatching(/^vault:[a-z0-9]{12}:0001$/) },
+        device: { default: [{ p: 'anthropic', m: 'claude-opus-5-5' }], allow: { openrouter: ['memory'] } },
+      })
+    expect(await page.evaluate(() => JSON.stringify(Object.entries(localStorage)))).not.toContain('sk-or-v1-plaintext')
     const { json } = await exportBackup(page, testInfo, 'rules.json')
     expect(json.workspace.ai).toEqual(rules)
     expect(json.workspace.settings.aiApiKey).toBe('')
     expect(json.workspace.settings.aiKeys).toEqual({})
     expect(json.workspace.settings).not.toHaveProperty('ai')
     expect(JSON.stringify(json)).not.toContain('vault:abcdef123456')
+    expect(JSON.stringify(json)).not.toMatch(/sk-or-v1|vault:[a-z0-9]{12}:0001/)
   })
 
   for (const withKey of [false, true])

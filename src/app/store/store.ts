@@ -14,7 +14,7 @@ import type { JSONContent } from '@tiptap/core'
 import { newId } from '../lib/ids'
 import { collectItemIds, newItemId } from '../lib/itemIds'
 import { detectLang } from '@/shared/i18n'
-import { aiKeyValue, attachSecrets, checkAIKey, mcpServersValue, withSealedKey } from './secrets'
+import { aiKeyValue, aiKeysValue, attachSecrets, checkAIKey, mcpServersValue, withSealedKeys } from './secrets'
 import { isSafeFunctionId } from './functions'
 import { agentEditor, sanitizeAgent } from './agents'
 import { sanitizeScript } from './scripts'
@@ -492,7 +492,7 @@ export const useWorkspace = create<WorkspaceState>()(
 
     hydrate: (ws) => {
       // the Claude API key: a vault marker, never the key (secrets.ts)
-      const settings = withCleanAISettings(withSealedKey(ws.settings, get().settings.aiApiKey, ws.epoch))
+      const settings = withCleanAISettings(withSealedKeys(ws.settings, get().settings, ws.epoch))
       // boot / workspace switch: no writer's change (the recorder is not listening yet at boot; a re-hydrate is system)
       withWriter(SYSTEM('hydrate'), () =>
         set((s) => {
@@ -518,7 +518,7 @@ export const useWorkspace = create<WorkspaceState>()(
         s.pages = ws.pages
         s.databases = ws.databases
         s.people = ws.people
-        s.settings = withSealedKey(ws.settings, s.settings.aiApiKey, s.epoch)
+        s.settings = withSealedKeys(ws.settings, s.settings, s.epoch)
         s.recent = ws.recent
         s.functions = ws.functions ?? {}
         s.agents = ws.agents ?? {}
@@ -953,8 +953,12 @@ export const useWorkspace = create<WorkspaceState>()(
       let p = 'aiApiKey' in patch ? { ...patch, aiApiKey: aiKeyValue(patch.aiApiKey, get().settings.aiApiKey, get().epoch, true) } : patch
       // MCP server tokens likewise: markers only in the list (secrets.ts)
       if ('mcpServers' in p) p = { ...p, mcpServers: mcpServersValue(p.mcpServers, get().settings.mcpServers, get().epoch) }
+      // the other providers' keys likewise: markers only in settings.aiKeys (secrets.ts)
+      if ('aiKeys' in p) p = { ...p, aiKeys: aiKeysValue(p.aiKeys, get().settings.aiKeys, get().epoch) }
       set((s) => {
         Object.assign(s.settings, p)
+        // no slot left: the key goes, never an `aiKeys: undefined` in the record
+        if ('aiKeys' in p && !p.aiKeys) delete s.settings.aiKeys
       })
     },
 
@@ -1247,7 +1251,7 @@ export const useWorkspace = create<WorkspaceState>()(
         }
         if (patch.ai !== undefined) s.ai = patch.ai ?? undefined
         if (patch.integrations) s.integrations = patch.integrations
-        if (patch.settings) Object.assign(s.settings, withSealedKey({ ...s.settings, ...patch.settings }, s.settings.aiApiKey, s.epoch))
+        if (patch.settings) Object.assign(s.settings, withSealedKeys({ ...s.settings, ...patch.settings }, s.settings, s.epoch))
         if (removed && s.recent.some((r) => !s.pages[r])) s.recent = s.recent.filter((r) => !!s.pages[r])
       }),
   })),
