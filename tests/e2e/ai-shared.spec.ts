@@ -357,3 +357,26 @@ test.describe('sources → data classes (features/ai/core/sources.ts)', () => {
     for (const v of [null, 'launch', [{ page: 3 }], [{ file: 'disk' }], [{ all: 'yes' }], [null]]) expect(isSources(v), JSON.stringify(v)).toBe(false)
   })
 })
+
+test('every Claude request in the app is metered: the files that call the API are known, each call has its meter', () => {
+  const root = fileURLToPath(new URL('../../src/app/', import.meta.url))
+  const calls = /\.messages\.(?:stream|create)\(|\.toolRunner\(/g
+  const found: Record<string, number> = {}
+  for (const f of readdirSync(root, { recursive: true }) as string[]) {
+    if (!/\.tsx?$/.test(f)) continue
+    const src = readFileSync(`${root}${f}`, 'utf8').replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '')
+    const n = src.match(calls)?.length ?? 0
+    if (n) found[f.replace(/\\/g, '/')] = n
+    if (f.replace(/\\/g, '/') !== 'features/ai/client.ts') expect(/import\(\s*'@anthropic-ai\/sdk'/.test(src), `${f} loads the SDK itself`).toBe(false)
+  }
+  // The engines (§ 7.1): runAI / streamCompletion / completeStructured, the agent loop, files, images, MCP server tests.
+  expect(Object.keys(found).sort()).toEqual(['features/ai/agent/run.ts', 'features/ai/client.ts', 'features/ai/file/request.ts', 'features/ai/image/request.ts', 'features/ai/mcp-servers/generate.ts'])
+  for (const f of Object.keys(found)) {
+    const src = readFileSync(`${root}${f}`, 'utf8').replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '')
+    expect(/from '\.\.?\/(?:core\/)?meter'|from '\.\.\/core\/meter'|from '\.\/core\/meter'/.test(src), `${f} imports the meter`).toBe(true)
+    expect(/\bmeterCall\(/.test(src), `${f} opens a meter per request`).toBe(true)
+    // Every response is closed by finalOf() (streams) or metered() (one-shots); the agent loop meters each round.
+    const closes = f.endsWith('agent/run.ts') ? (src.match(/\bclaudeResponse\(/g)?.length ?? 0) : (src.match(/(?<!function )\b(?:finalOf|metered)\(/g)?.length ?? 0)
+    expect(closes, `${f}: ${found[f]} call(s), ${closes} meter close(s)`).toBeGreaterThanOrEqual(f.endsWith('agent/run.ts') ? 1 : found[f])
+  }
+})

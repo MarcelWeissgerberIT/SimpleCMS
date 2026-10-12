@@ -4,8 +4,8 @@
  * Every AI host is mocked or aborted — nothing reaches a real one. Test data is fictional.
  */
 import { readFileSync, writeFileSync } from 'node:fs'
-import type { Page, TestInfo } from '@playwright/test'
-import { test, expect, openApp, reloadApp, wsEval, flush, createPage, gotoPage, editorOf, doc, para, selectText, pageIdByTitle, MOD } from './fixtures'
+import type { Locator, Page, TestInfo } from '@playwright/test'
+import { test, expect, openApp, reloadApp, wsEval, uiEval, flush, createPage, gotoPage, editorOf, doc, para, selectText, pageIdByTitle, MOD } from './fixtures'
 import { mockClaudeScript, hostCounts, text, type CapturedRequest, type ClaudeStep } from './helpers/providers'
 import { openTerminal, run, terminal, prompt } from './helpers/terminal'
 import { ARCHIVE, SUMMARY, TRANSFORM_STEPS, addArchiveServer, aiPanel as panelOf, autofillPriority, imageAction, improve, ledger, noSpeech, ownRequest, paletteAsk, runAgentNow, summarisePdf, summarizeMeeting, transformAuto } from './helpers/aiFlows'
@@ -566,6 +566,31 @@ test.describe('the ledger: one entry per response, every engine', () => {
     await expectMetered(page, requests, 1, 'mcp-setup.inspect', ['mcp'])
   })
 
+  test('Ask the help (help.ask) and the key test (setup.test): one entry each, public text only', async ({ page }) => {
+    const requests = await keyed(page, [text('Open **Share** and switch on **Protect with password**.'), text('OK')])
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur?.())
+    await page.keyboard.press('?')
+    const help = page.getByRole('dialog', { name: /^(Help|Hilfe)$/ })
+    await help.getByRole('tab', { name: /Ask/ }).click()
+    const field = help.getByRole('textbox', { name: 'Your question' })
+    await field.fill('How do I protect a share link with a password?')
+    await field.press('Enter')
+    await expect(help.locator('.help-ask__out')).toContainText('Protect with password')
+    await page.keyboard.press('Escape')
+    await uiEval(page, (s) => s.openModal({ type: 'settings', tab: 'ai' }))
+    await page.getByRole('dialog').getByRole('button', { name: 'Test key' }).click()
+    await expect(page.getByRole('dialog').locator('.ai-status')).toContainText('Connected · key verified')
+    await expect.poll(() => requests.length).toBe(2)
+    await page.waitForTimeout(300)
+    const entries = await ledger(page)
+    expect(entries.map((e) => e.purpose)).toEqual(['help.ask', 'setup.test'])
+    for (const e of entries) {
+      expect(e.classes).toEqual(['public'])
+      expect(e.costSource).toBe('table')
+      expect(e.served.model).toBe('claude-opus-5-5')
+    }
+  })
+
   test('autofill: one entry, the database and field as the source', async ({ page }) => {
     const requests = await keyed(page, [text(JSON.stringify({ value: 'Low' }))])
     const { dbId, propId } = await autofillPriority(page)
@@ -714,6 +739,10 @@ test.describe('the ledger: cut short, refused, other models, reload, reset', () 
 /* Receipts on AI run cards (task 12)                                   */
 /* ------------------------------------------------------------------ */
 
+/** A receipt's line as read (spaces folded, as toHaveText does): label, model, cost, source — without its help key ("?"), checked apart. */
+const lineOf = (receipt: Locator) =>
+  receipt.locator('.ai-receipt__line').evaluate((el) => [...el.childNodes].filter((n) => !(n instanceof HTMLElement && n.classList.contains('help-link'))).map((n) => n.textContent).join('').replace(/\s+/g, ' '))
+
 test.describe('the receipt on an AI run card', () => {
   test('after Improve: the model, the cost and TABLE — equal to the ledger entry; kept with the run', async ({ page }) => {
     await keyed(page, [text('A tighter launch sentence.', { usage: { input: 1200, output: 300 } })])
@@ -723,7 +752,8 @@ test.describe('the receipt on an AI run card', () => {
     const [e] = await ledger(page)
     // Opus 5.5: 1,200 × $4 + 300 × $20 per million = $0.0108
     expect(e.usd).toBeCloseTo(0.0108, 10)
-    await expect(receipt.locator('.ai-receipt__line')).toHaveText('ReceiptClaude Opus 5.5 · $0.0108Table')
+    await expect.poll(() => lineOf(receipt)).toBe('ReceiptClaude Opus 5.5 · $0.0108Table')
+    await expect(receipt.getByRole('button', { name: 'Help: what AI requests cost' })).toBeVisible()
     await expect(receipt).toHaveAttribute('title', /Tokens in 1,200 · cache write 0 · cache read 0 · out 300/)
     await expect(receipt.getByTestId('ai-receipt-step')).toHaveCount(0)
     // the run keeps it: after a reload the card says the same
@@ -731,7 +761,7 @@ test.describe('the receipt on an AI run card', () => {
     await reloadApp(page)
     await gotoPage(page, id)
     await page.getByTestId('ai-runs').getByRole('button').click()
-    await expect(aiPanel(page).getByTestId('ai-receipt').locator('.ai-receipt__line')).toHaveText('ReceiptClaude Opus 5.5 · $0.0108Table')
+    await expect.poll(() => lineOf(aiPanel(page).getByTestId('ai-receipt'))).toBe('ReceiptClaude Opus 5.5 · $0.0108Table')
   })
 
   test('another model answered: the step "Anthropic passed this to …", priced at the model that answered (German)', async ({ page }) => {
@@ -746,7 +776,8 @@ test.describe('the receipt on an AI run card', () => {
     await expect(aiPanel(page)).toContainText('Ein knapperer Satz.')
     const receipt = aiPanel(page).getByTestId('ai-receipt')
     // Sonnet 5.5: 1,000 × $2 + 100 × $10 per million = $0.0030
-    await expect(receipt.locator('.ai-receipt__line')).toHaveText('BelegClaude Sonnet 5.5 · 0,0030 $Tabelle')
+    await expect.poll(() => lineOf(receipt)).toBe('BelegClaude Sonnet 5.5 · 0,0030 $Tabelle')
+    await expect(receipt.getByRole('button', { name: 'Hilfe: was KI-Anfragen kosten' })).toBeVisible()
     await expect(receipt.getByTestId('ai-receipt-step')).toHaveText('Anthropic hat an Claude Sonnet 5.5 weitergegeben')
   })
 
