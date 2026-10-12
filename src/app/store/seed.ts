@@ -8,6 +8,7 @@
  */
 import type { JSONContent } from '@tiptap/core'
 import type { Lang } from '@/shared/i18n'
+import { BRAND } from '@/shared/brand'
 import { useWorkspace, defaultView } from './store'
 import type { ColorName, ID, PropertyDef, SelectOption } from './types'
 import { newId } from '../lib/ids'
@@ -646,7 +647,7 @@ export function seedWorkspace(lang: Lang): void {
       toggleHeading(3, L('Where is my data?', 'Wo sind meine Daten?'), p(L('In your browser’s IndexedDB. Use Export for backups or to move to another device.', 'In der IndexedDB deines Browsers. Nutze den Export für Backups oder den Umzug auf ein anderes Gerät.'))),
       hr(),
       p(i(L('Explore: ', 'Entdecken: ')), mention(wiki, L('Team wiki', 'Team-Wiki')), ' · ', mention(meeting, L('Weekly sync — notes', 'Weekly Sync — Notizen')), ' · ', mention(reading, L('Reading list', 'Leseliste')), ' · ', mention(calendar, L('Content calendar', 'Content-Kalender')), ' · ', hl(L('have fun', 'viel Spaß'))),
-      p(L('Built for the ', 'Gebaut für die '), link('Ninja Armory', 'https://www.skool.com'), '.'),
+      p(L('Free and open source — the code is on ', 'Kostenlos und quelloffen — der Code liegt auf '), link('GitHub', BRAND.repoUrl), '.'),
     ),
     'seed',
   )

@@ -89,7 +89,7 @@ const endHtml = (state) => `<!doctype html><html><head><meta charset="utf-8"><st
     ${LOGO}
     <div><div class="name">SimpleCMS One</div><div class="url">getonecms.com</div></div>
   </div>
-  <div class="tags mono" style="opacity:${state >= 3 ? 1 : 0}">Free · Local-first · Open source · Team cloud on your own server · Built for the Ninja Armory</div>
+  <div class="tags mono" style="opacity:${state >= 3 ? 1 : 0}">Free · Local-first · Open source · Team cloud on your own server</div>
   <div class="hint" style="opacity:${state >= 3 ? 1 : 0}">Open it — and don't touch anything for 15 seconds.</div>
 </div>
 </body></html>`

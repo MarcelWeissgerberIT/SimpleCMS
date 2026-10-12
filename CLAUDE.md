@@ -2,8 +2,7 @@
 
 A local-first rebuild of Notion "on steroids", plus a landing page with a one-time
 "1997 spreadsheet gets smashed by a 3D hammer" intro. Static site on GitHub Pages
-(`/SimpleCMS/`), no backend. Submission for the "Ninja Armory" challenge (AI Automations
-by Jack, Skool) — judged on: effectiveness, how great it looks, creativity, simplicity, value.
+(`/SimpleCMS/`), no backend; teams use an optional, self-hostable server (`server/`). Prices: src/shared/pricing.ts.
 
 ## Commands
 
