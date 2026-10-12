@@ -49,6 +49,7 @@ import { keysOfChange } from './trust/keys'
 import { parseTrustKey } from '../../store/autonomy'
 import { unwatch, watchAccepted, type WatchItem } from './trust/watch'
 import { previewCut } from '../ai/agent/previewCut'
+import { onSettled } from '../recorder/settled'
 
 const tn = (key: string, count: number) => t(`${key}.${count === 1 ? 'one' : 'other'}`, { count })
 
@@ -514,6 +515,15 @@ function endWatches(runId: string, changeIds: readonly string[]): void {
   const ids = changeIds.flatMap((id) => judged.get(rowKey(runId, id))?.map((v) => v.id) ?? [])
   if (ids.length) unwatch(ids)
 }
+
+// the eject's mark comes first (and reaches every tab): the tab that applied a proposal may not be the one ejecting it
+onSettled((n) => {
+  if (!n.on || !n.runKey.startsWith('agent:')) return
+  const runId = n.runKey.split(':').slice(2).join(':').replace(/@r$/, '')
+  if (!runId) return
+  const ids = n.ids.length ? n.ids : [...judged.keys()].filter((k) => k.startsWith(`${runId}:`)).map((k) => k.slice(runId.length + 1))
+  endWatches(runId, ids)
+})
 
 /**
  * An eject settles the run's review (call ONLY inside withRunLock(run.agentId), never nested; `cur` read in it):
