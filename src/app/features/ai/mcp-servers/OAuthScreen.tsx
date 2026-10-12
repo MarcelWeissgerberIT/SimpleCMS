@@ -5,7 +5,7 @@
  */
 import { useEffect, useRef, useState } from 'react'
 import { useT } from '../../../i18n'
-import { useUI } from '../../../store/ui'
+import { openAISettings } from '../setup/openAISetup'
 import { navigate } from '../../../lib/router'
 import { finishSignIn, OAuthError, type OAuthIssue } from './oauth'
 import { oauthReturned } from './oauthReturn'
@@ -48,7 +48,7 @@ export function McpOAuthScreen() {
 
   const toSettings = () => {
     navigate({ name: 'home' })
-    useUI.getState().openModal({ type: 'settings', tab: 'ai' })
+    openAISettings({ section: 'mcp' })
   }
 
   return (

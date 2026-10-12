@@ -35,6 +35,7 @@ export const CHANGELOG_LANGS: ChangelogLang[] = ['en', 'de']
 export const CHANGELOG_TRIES = [
   'terminal',
   'settings-ai',
+  'ai-setup',
   'settings-mcp',
   'settings-mail',
   'settings-sync',

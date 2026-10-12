@@ -1,0 +1,90 @@
+/* The needs-setup card and a refused request's fix keys (features/ai/setup/AINeedsSetup.tsx) — on the boot path, kept small. */
+.ai-needs {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-2);
+  background: var(--surface);
+  box-shadow: inset 2px 0 0 var(--ink);
+}
+.ai-needs__head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--ink-2);
+}
+.ai-needs__title {
+  font-size: var(--text-md);
+  font-weight: 700;
+  line-height: 1.3;
+  color: var(--ink);
+}
+.ai-needs__body,
+.ai-needs__note {
+  margin: 0;
+  font-size: var(--text-sm);
+  line-height: 1.45;
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+.ai-needs__note {
+  font-size: var(--text-xs);
+  color: var(--ink-3);
+}
+.ai-needs__keys {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+.ai-needs__demo {
+  color: var(--ink-3);
+}
+.ai-needs-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--ink-2);
+  line-height: 1.4;
+}
+.ai-needs-line__text {
+  min-width: 0;
+}
+.ai-needs-line__key {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--signal-ink);
+  font: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-decoration-thickness: 1px;
+  cursor: pointer;
+}
+.ai-needs-line__key:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: 2px;
+  border-radius: var(--radius-1);
+}
+.ai-fix {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
+.ai-fix__note {
+  font-size: var(--text-xs);
+  color: var(--ink-3);
+}
+@media (max-width: 600px) {
+  .ai-needs__keys .btn {
+    min-height: 40px;
+  }
+}

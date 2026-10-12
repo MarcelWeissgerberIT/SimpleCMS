@@ -1,0 +1,111 @@
+/* Settings › AI on this device (features/ai/setup/ProvidersTab.tsx). Tokens only; two classes on ui.css primitives. */
+.aip {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+.aip__keys {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.aip__plates {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 230px), 1fr));
+  align-items: start;
+  gap: 10px;
+}
+.aip__h {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  margin: 6px 0 6px;
+  font-size: var(--text-md);
+  font-weight: 650;
+}
+.aip__h .label {
+  color: var(--ink-3);
+  font-weight: 500;
+}
+.aip__rows {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr));
+  gap: 0 18px;
+}
+.aip__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 40px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--rule);
+}
+.aip__row--default {
+  grid-column: 1 / -1;
+}
+.aip__work {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+.aip__later {
+  color: var(--ink-3);
+  font-weight: 500;
+}
+.input.aip__select {
+  flex: none;
+  width: min(220px, 52vw);
+  height: 30px;
+  font-size: var(--text-xs);
+}
+.aip__dline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  margin: 0;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--rule);
+  font-size: var(--text-sm);
+}
+.aip__dline b {
+  min-width: 90px;
+}
+.aip__dline span {
+  flex: 1;
+  min-width: 0;
+  color: var(--ink-2);
+}
+.aip__muted {
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--ink-3);
+}
+.aip__section {
+  outline: none;
+  scroll-margin-top: 12px;
+}
+.aip__section:focus-visible {
+  box-shadow: 0 0 0 2px var(--signal);
+}
+.aip__mcp {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 16px;
+  margin: 10px 0 6px;
+  font-size: var(--text-xs);
+  color: var(--ink-2);
+}
+.aip__mcp .label {
+  flex-basis: 100%;
+  color: var(--ink-3);
+}
+.aip__mcpcell b {
+  color: var(--ink);
+}

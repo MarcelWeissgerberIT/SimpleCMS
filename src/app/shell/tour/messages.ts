@@ -13,7 +13,7 @@ export const tourMessages: Messages = {
     'shell.tour.end': 'End the tour',
     'shell.tour.keys.step': 'step',
     'shell.tour.keys.end': 'end',
-    'shell.tour.keyLine': 'This needs AI: set it up in {settingsAI} — then it runs for real.',
+    'shell.tour.keyLine': 'This needs AI — set it up, then it runs for real.',
     'shell.tour.keyOpen': 'Set up AI',
 
     'shell.tour.step.slash.title': 'Type / for any block',
@@ -76,7 +76,7 @@ export const tourMessages: Messages = {
     'shell.tour.end': 'Tour beenden',
     'shell.tour.keys.step': 'Schritt',
     'shell.tour.keys.end': 'Ende',
-    'shell.tour.keyLine': 'Das braucht KI: Richte sie unter {settingsAI} ein — dann läuft es echt.',
+    'shell.tour.keyLine': 'Das braucht KI — richte sie ein, dann läuft es echt.',
     'shell.tour.keyOpen': 'KI einrichten',
 
     'shell.tour.step.slash.title': 'Tippe / für jeden Block',

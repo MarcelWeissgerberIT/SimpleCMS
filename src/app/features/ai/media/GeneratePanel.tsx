@@ -10,7 +10,7 @@ import { ArrowDownToLine, CircleAlert, PenLine, RotateCcw, Settings2, Trash2, ty
 import { Kbd } from '../../../ui/controls'
 import { useT } from '../../../i18n'
 import { useWorkspace } from '../../../store/store'
-import { useUI } from '../../../store/ui'
+import { openAISettings } from '../setup/openAISetup'
 import { readServers } from '../mcp-servers/config'
 import { MarkdownLite } from '../MarkdownLite'
 import { useAIRuns, type AIRun, type RunRequest } from '../runs'
@@ -67,7 +67,7 @@ export function GenerateSetup({ draft, onDraft, onRun, onCancel, hasKey }: Gener
 
   const openSettings = () => {
     onCancel()
-    useUI.getState().openModal({ type: 'settings', tab: 'ai' })
+    openAISettings({ section: 'mcp' })
   }
 
   return (

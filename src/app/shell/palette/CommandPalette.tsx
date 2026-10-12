@@ -1,10 +1,10 @@
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { Command } from 'cmdk'
-import { ArrowRight, AtSign, CalendarClock, CircleHelp, Copy, CornerDownLeft, FilePlus2, FileText, KeyRound, LayoutTemplate, ListPlus, Lock, Square, Table2, ToggleLeft, Filter as FilterIcon } from 'lucide-react'
+import { ArrowRight, AtSign, CalendarClock, CircleHelp, Copy, CornerDownLeft, FilePlus2, FileText, LayoutTemplate, ListPlus, Lock, Square, Table2, ToggleLeft, Filter as FilterIcon } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
 import { selectBreadcrumbs } from '../../store/selectors'
-import { CodewordChip, isAIConfigured, McpSkippedNote, runAI, templateName, templateRoots, type McpCall } from '../../features'
+import { AINeedsSetup, CodewordChip, FixKeys, McpSkippedNote, offersAI, useAIStatus, runAI, templateName, templateRoots, type McpCall } from '../../features'
 import { memoryFor, MemoryNote, noteUse, type MemoryUse } from '../../features'
 import { AIError, RouteChip, aiWriterOf, isRouteKey, precheck, routeFor, routed, shapeOf, withShape, type AIFix, type Receipt, type Route, type RouteChipHandle } from '../../features'
 import { legacyRule } from '@/shared/ai/route'
@@ -73,12 +73,14 @@ function Palette() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const commands = useMemo(() => buildCommands(t, pageId), [t, pageId, pages, lang, readOnly])
   const tourDone = useTour((s) => !!s.memory.done)
+  // "Set up AI" is among the first commands while no provider has a key here
+  const aiReady = useWorkspace((s) => !!s.settings.aiApiKey.trim() || Object.values(s.settings.aiKeys ?? {}).some(Boolean))
   const cmdHits = useMemo(() => {
     if (mode === 'ask' || filtering) return []
     // database commands ("Mails: Sync now") only by typing: the empty lists stay short
-    if (!raw) return mode === 'run' ? commands.filter((c) => c.group !== 'database') : rootCommands(commands, tourDone)
+    if (!raw) return mode === 'run' ? commands.filter((c) => c.group !== 'database') : rootCommands(commands, tourDone, aiReady)
     return rankCommands(commands, raw)
-  }, [commands, mode, raw, tourDone, filtering])
+  }, [commands, mode, raw, tourDone, filtering, aiReady])
   const titleHits = useMemo(() => hits.filter((h) => h.field === 'title'), [hits])
   const contentHits = useMemo(() => hits.filter((h) => h.field === 'content'), [hits])
   /*
@@ -473,13 +475,14 @@ const wordStarts = (text: string, n: string) => text.split(/[\s()&,/…-]+/).som
 const labelStarts = (label: string, term: string) => label.toLowerCase().startsWith(term.toLowerCase())
 
 /** The commands of the list without a query, most used first within their groups. */
-const CORE = ['new-page', 'new-database', 'quick-note', 'templates', 'journal', 'agenda', 'graph', 'ask-ai', 'agent', 'rewind', 'present', 'history', 'import', 'settings', 'theme', 'focus', 'discover', 'tour']
+const CORE = ['new-page', 'new-database', 'quick-note', 'templates', 'journal', 'agenda', 'graph', 'ai-setup', 'ask-ai', 'agent', 'rewind', 'present', 'history', 'import', 'settings', 'theme', 'focus', 'discover', 'tour']
 const GROUP_ORDER: Cmd['group'][] = ['create', 'navigate', 'claude', 'page', 'workspace', 'start']
 
-/** The list without a query: CORE in its order (the tour only until it was finished once). */
-function rootCommands(commands: Cmd[], tourDone: boolean): Cmd[] {
+/** The list without a query: CORE in its order (the tour only until it was finished once; "Set up AI" only while no
+ *  provider has a key here). */
+function rootCommands(commands: Cmd[], tourDone: boolean, aiReady: boolean): Cmd[] {
   const byId = new Map(commands.map((c) => [c.id, c]))
-  return CORE.filter((id) => !(id === 'tour' && tourDone))
+  return CORE.filter((id) => !(id === 'tour' && tourDone) && !(id === 'ai-setup' && aiReady))
     .map((id) => byId.get(id))
     .filter((c): c is Cmd => !!c)
 }
@@ -609,7 +612,9 @@ function AskPanel({ question, pageId, onDone, chipHandle, onChipClosed }: { ques
   const readOnly = useReadOnly()
   const model = useWorkspace((s) => s.settings.aiModel)
   const page = useWorkspace((s) => (pageId ? s.pages[pageId] : undefined))
-  const configured = useWorkspace((s) => !!s.settings.aiApiKey) && isAIConfigured()
+  // the gate's answer for ⌘K "?" (a key for a route the rules allow — Claude or OpenRouter)
+  const askStatus = useAIStatus('palette.ask')
+  const configured = offersAI(askStatus)
   const [answer, setAnswer] = useState('')
   const [state, setState] = useState<'idle' | 'running' | 'done' | 'error'>('idle')
   const [error, setError] = useState('')
@@ -725,22 +730,8 @@ function AskPanel({ question, pageId, onDone, chipHandle, onChipClosed }: { ques
   if (!configured)
     return (
       <div className="ask">
-        <div className="ask__locked">
-          <KeyRound size={18} strokeWidth={1.6} />
-          <div>
-            <strong>{t('shell.ask.noKeyTitle')}</strong>
-            <p>{t('shell.ask.noKeyBody')}</p>
-          </div>
-          <button
-            type="button"
-            className="btn btn--primary"
-            onClick={() => {
-              onDone()
-              useUI.getState().openModal({ type: 'settings', tab: 'ai' })
-            }}
-          >
-            {t('shell.ask.addKey')}
-          </button>
+        <div className="ask__locked ask__locked--needs">
+          <AINeedsSetup purpose="palette.ask" onOpen={onDone} testId="ask-needs" />
         </div>
       </div>
     )
@@ -790,6 +781,11 @@ function AskPanel({ question, pageId, onDone, chipHandle, onChipClosed }: { ques
             </p>
           )}
           {state === 'error' ? <p className="ask__error">{error}</p> : <AskAnswer markdown={answer} />}
+          {state === 'error' && fix && fix.kind !== 'askClaude' && (
+            <div className="ask__actions" data-testid="ask-fix">
+              <FixKeys fix={fix} feature="ask" onOpen={onDone} onPick={chipHandle && typeof chipHandle === 'object' && 'current' in chipHandle ? () => chipHandle.current?.open() : undefined} />
+            </div>
+          )}
           {state === 'error' && fix?.kind === 'askClaude' && (
             <div className="ask__actions">
               <button type="button" className="btn btn--sm" data-testid="ask-claude" onClick={() => void ask({ p: 'anthropic', m: claudeModel() })}>

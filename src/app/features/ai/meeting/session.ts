@@ -17,6 +17,7 @@ import { openPage } from '../../../lib/router'
 import { useCloud } from '../../../cloud'
 import { t } from '../../../i18n'
 import { AIError, isAIConfigured, type AIErrorCode } from '../client'
+import type { AIFix } from '../core/errors'
 import { Recognizer, type SpeechErrorCode } from './recognition'
 import { requestMeetingSummary } from './summarize'
 import { precheck } from '../core/gate'
@@ -37,7 +38,7 @@ export interface MeetingRuntime {
   /** recorded ms before `since` */
   base: number
   speechError: SpeechErrorCode | null
-  aiError: { code: AIErrorCode; message: string } | null
+  aiError: { code: AIErrorCode; message: string; fix?: AIFix } | null
 }
 
 const IDLE: MeetingRuntime = { phase: 'idle', interim: '', since: null, base: 0, speechError: null, aiError: null }
@@ -294,7 +295,7 @@ export async function summarizeMeeting(blockId: string): Promise<void> {
   } catch (e) {
     patchMeeting(l.target, (a) => (a.status === 'summarizing' ? { status: prev } : null), writer)
     const err = e instanceof AIError ? e : new AIError('unknown', e instanceof Error ? e.message : String(e))
-    if (err.code !== 'aborted') setRuntime(blockId, { aiError: { code: err.code, message: err.message } })
+    if (err.code !== 'aborted') setRuntime(blockId, { aiError: { code: err.code, message: err.message, ...(err.fix ? { fix: err.fix } : {}) } })
   } finally {
     if (l.abort === ac) l.abort = null
     if (runtimeOf(blockId).phase === 'summarizing') setRuntime(blockId, { phase: 'idle' })

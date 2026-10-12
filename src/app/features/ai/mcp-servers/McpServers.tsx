@@ -38,6 +38,7 @@ import { cancelSignIn, offersCode, signIn, signInWithCode, signOut, signedIn, us
 import { HelpLink } from '../../../help'
 import { CodeArea, markdownTokenizer } from '../../../ui/code'
 import { McpOverview } from './McpOverview'
+import { AINeedsSetup } from '../setup/AINeedsSetup'
 import './mcp-servers.css'
 
 type T = ReturnType<typeof useT>
@@ -757,6 +758,7 @@ function Prompt({ server, hasKey, blocked, running }: { server: McpServerConfig;
         describedBy={`${id}-hint`}
         inputProps={{ onBlur: () => commit(server, latest.current.draft) }}
       />
+      {!hasKey && <AINeedsSetup purpose="mcp-setup.inspect" variant="line" testId="mcp-needs" />}
       <p className="mcps-hint" id={`${id}-hint`}>
         {!hasKey ? t('features.ai.mcp.needsKey') : t('features.ai.mcp.promptHint')}
       </p>

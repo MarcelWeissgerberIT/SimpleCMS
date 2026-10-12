@@ -16,6 +16,8 @@ import { fmtUsd } from '../../../lib/money'
 import { useCloud } from '../../../cloud'
 import { shortcutLabel } from '../../../ui/controls'
 import { AI_MODELS, resolveModel } from '../client'
+import { AINeedsSetup } from '../setup/AINeedsSetup'
+import { openAISetup, openAISettings } from '../setup/openAISetup'
 import { MarkdownLite } from '../MarkdownLite'
 import { closeAgent, clampHeight, removeRef, setTermHeight, stopAgent, useAgent, HEIGHT_DEFAULT, type EchoEntry } from './state'
 import { answerAsk, applyStaged, appliesAlone, changeTarget, continueTask, contextPageId, discardAllStaged, discardStaged, emptyEnter, goesToWorker, newTask, pickContext, rerunAfterSignIn, restoreStaged, runTask, stage as stageApi, stageMedia, submitPrompt, tn, undoLastBatch } from './session'
@@ -453,17 +455,10 @@ function MemoryChip() {
 /* ------------------------------------------------------------------ */
 
 function NoKey() {
-  const t = useT()
+  // the terminal runs on Claude in this version: on a device with only another provider the card says so
   return (
-    <div className="term-nokey" role="note">
-      <span className="led" aria-hidden />
-      <div className="term-nokey__text">
-        <strong>{t('features.agent.nokey.title')}</strong>
-        <span>{t('features.agent.nokey.body')}</span>
-      </div>
-      <button type="button" className="btn btn--sm" onClick={() => useUI.getState().openModal({ type: 'settings', tab: 'ai' })}>
-        <KeyRound size={13} strokeWidth={1.75} aria-hidden /> {t('features.agent.nokey.open')}
-      </button>
+    <div className="term-nokey-card">
+      <AINeedsSetup purpose="terminal.task" testId="term-needs" />
     </div>
   )
 }
@@ -665,12 +660,12 @@ function TurnError({ error, n, last }: { error: NonNullable<AgentTurn['error']>;
       <p>{error.message}</p>
       {signIn && <SignInKey server={error.server!} retry={retryOf(n)} />}
       {keyIssue && (
-        <button type="button" className="btn btn--sm" onClick={() => useUI.getState().openModal({ type: 'settings', tab: 'ai' })}>
+        <button type="button" className="btn btn--sm" onClick={() => openAISetup({ reason: error.code === 'no_key' ? 'nokey' : error.code === 'key_in_text' ? 'add' : 'refused', step: error.code === 'no_key' ? undefined : 'key', provider: 'anthropic', feature: 'terminal' })}>
           <KeyRound size={13} strokeWidth={1.75} aria-hidden /> {t('features.agent.nokey.open')}
         </button>
       )}
       {(error.code === 'mcp' || error.code === 'mcp_auth') && (
-        <button type="button" className="btn btn--sm" onClick={() => useUI.getState().openModal({ type: 'settings', tab: 'ai' })}>
+        <button type="button" className="btn btn--sm" onClick={() => openAISettings({ section: 'mcp' })}>
           <Settings2 size={13} strokeWidth={1.75} aria-hidden /> {t('features.ai.mcp.openSettings')}
         </button>
       )}

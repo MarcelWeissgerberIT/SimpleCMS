@@ -153,11 +153,22 @@ function lookup(dbId: ID, propId: ID): { db: Database; prop: PropertyDef; cfg: A
   return db && prop && cfg ? { db, prop, cfg } : null
 }
 
-export const hasKey = () => !!useWorkspace.getState().settings.aiApiKey.trim()
+/** Can an autofill request go out on this device (a key for a route the rules allow — the gate's aiStatus; before the
+ *  features area is loaded: any key)? */
+export const hasKey = (): boolean => {
+  if (featuresApi) {
+    const st = featuresApi.aiStatus('bulk.autofill')
+    // refused for newer rules, the off switch, a data rule …: the run itself says so (with its keys), nothing sent
+    return !st.demo && (st.ready || (st.reason !== 'no_key' && st.reason !== 'route'))
+  }
+  const s = useWorkspace.getState().settings
+  return !!s.aiApiKey.trim() || Object.values(s.aiKeys ?? {}).some(Boolean)
+}
 
-export function openAISettings() {
+/** "Set up AI" from the autofill panel: the panel closes, the assistant opens (features/ai/setup). */
+export function openAutofillSetup() {
   closeAutofillPanel()
-  useUI.getState().openModal({ type: 'settings', tab: 'ai' })
+  void loadFeatures().then((m) => m.openAISetup({ reason: 'nokey', feature: 'bulk' }))
 }
 
 /* ------------------------------------------------------------------ */
@@ -276,7 +287,7 @@ export function recordFills(dbId: ID, propId: ID, entries: Record<ID, { at: numb
 const propName = (dbId: ID, propId: ID) => useWorkspace.getState().databases[dbId]?.properties.find((p) => p.id === propId)?.name ?? ''
 
 function toastNoKey() {
-  useUI.getState().toast({ message: t('database.autofill.toast.noKey'), kind: 'info', action: { label: t('database.autofill.toast.settings'), run: openAISettings } })
+  useUI.getState().toast({ message: t('database.autofill.toast.noKey'), kind: 'info', action: { label: t('database.autofill.toast.settings'), run: openAutofillSetup } })
 }
 
 /** Fill a property for all rows, the empty ones, or the given rows. */
@@ -366,7 +377,7 @@ function finishRun(key: string) {
   const name = propName(j.dbId, j.propId)
   const toast = useUI.getState().toast
   if (j.fatal && !panelOpen)
-    toast({ message: j.fatal, kind: 'error', action: j.fatalCode === 'reload' ? { label: t('features.ai.reload'), run: () => window.location.reload() } : { label: t('database.autofill.toast.settings'), run: openAISettings } })
+    toast({ message: j.fatal, kind: 'error', action: j.fatalCode === 'reload' ? { label: t('features.ai.reload'), run: () => window.location.reload() } : { label: t('database.autofill.toast.settings'), run: openAutofillSetup } })
   if (j.review && pending) {
     patchJob(key, () => ({ phase: 'review' }))
     if (panelOpen) return

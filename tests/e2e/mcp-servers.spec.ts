@@ -444,20 +444,22 @@ test.describe('MCP servers (mocked Claude API, made-up server)', () => {
     expect(last.body.tools).toEqual([{ type: 'mcp_toolset', mcp_server_name: 'archive' }])
     await page.keyboard.press('Escape')
 
-    // ⌘K "?" is a free-form request; the key test in Settings never attaches a server
+    // ⌘K "?" is a free-form request; the setup's test sentence never attaches a server
     await expect(await askPalette(page, 'When do we launch?')).toContainText('Archive could not be searched')
     last = sent[sent.length - 1]
     expect(last.body.mcp_servers.map((x: AnyState) => x.name)).toEqual(['archive'])
     await page.keyboard.press('Escape')
     const before = sent.length
-    const dialog = await openAISettings(page)
-    await page.getByRole('dialog').getByRole('button', { name: 'Test key' }).click()
-    await expect(page.getByRole('dialog').locator('.ai-status')).toContainText('Connected · key verified')
-    expect(sent.length).toBe(before + 1)
+    await uiEval(page, (s) => s.openModal({ type: 'aiSetup', reason: 'rotate', step: 'key', provider: 'anthropic' }))
+    await page.getByTestId('test-sentence').click()
+    await expect(page.getByTestId('test-anthropic')).toBeVisible()
+    await expect.poll(() => sent.length).toBe(before + 1)
     expect(sent[before].body.mcp_servers).toBeUndefined()
-    void dialog
+    await page.getByTestId('ai-setup-close').click()
+    await expect(page.getByTestId('ai-setup')).toHaveCount(0)
 
     // switching the server off: nothing is attached any more
+    await openAISettings(page)
     await row(page, 'archive').getByRole('switch', { name: 'Use archive' }).click()
     await page.keyboard.press('Escape')
     await askPalette(page, 'Anything new?')

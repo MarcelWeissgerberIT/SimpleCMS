@@ -258,10 +258,11 @@ test.describe('AI meeting notes', () => {
     await flush(page)
     expect((await meetingNode(page, id))?.attrs).toMatchObject({ status: 'idle', transcript: [{ text: 'A short meeting without a key.' }] })
 
+    // the key opens the assistant "Set up AI" (step 01)
     await notice.getByRole('button', { name: 'Set up AI' }).click()
-    const dialog = page.getByRole('dialog')
-    await expect(dialog.getByRole('tab', { name: /\bAI$/ })).toHaveAttribute('aria-selected', 'true')
+    await expect(page.getByTestId('ai-setup')).toHaveAttribute('data-step', 'provider')
     await page.keyboard.press('Escape')
+    await expect(page.getByTestId('ai-setup')).toHaveCount(0)
 
     // a title typed by hand is kept (Claude's suggestion only fills an empty title)
     const title = deck(page).getByRole('textbox', { name: 'Meeting title' })

@@ -1,6 +1,7 @@
 import { useUI, type ModalState } from '../../store/ui'
 import { HistoryModal, ShareModal, ImportModal, ExportModal, AutomationsModal, TemplatesModal, SaveTemplateModal, AgentPanel, FunctionsModal, RecorderHost } from '../../features'
-import { ExampleDialog, CommandsEditor } from '../../features'
+import { ExampleDialog, CommandsEditor, AISetupModal } from '../../features'
+import { Suspense } from 'react'
 import { SettingsModal } from '../settings/SettingsModal'
 import { ConfirmModal } from './ConfirmModal'
 import { MoveModal } from './MoveModal'
@@ -25,7 +26,13 @@ export function ModalHost() {
 function ModalSwitch({ modal, onClose }: { modal: ModalState; onClose: () => void }) {
   switch (modal.type) {
     case 'settings':
-      return <SettingsModal initialTab={modal.tab} onClose={onClose} />
+      return <SettingsModal initialTab={modal.tab} section={modal.section} onClose={onClose} />
+    case 'aiSetup':
+      return (
+        <Suspense fallback={null}>
+          <AISetupModal modal={modal} onClose={onClose} />
+        </Suspense>
+      )
     case 'shortcuts':
       return <ShortcutsModal onClose={onClose} />
     case 'move':

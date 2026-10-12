@@ -67,7 +67,6 @@ import {
   Minimize2,
   MoreHorizontal,
   PenLine,
-  Play,
   ReplaceAll,
   RotateCcw,
   Settings2,
@@ -102,7 +101,10 @@ import { RouteChip, isRouteKey, type RouteChipHandle } from './routing/RouteChip
 import type { PurposeId } from './core/purposes'
 import { aiWriterOf } from './core/runMeta'
 import { routeFor } from './core/status'
-import { AIError, DEFAULT_MODEL, aiErrorText, isAIDemo, onAIDemo, resolveModel, setAIDemo, verifyKey } from './client'
+import type { AIFix } from './core/errors'
+import { AINeedsSetup, FixKeys, offersAI, useAIStatus } from './setup/AINeedsSetup'
+import { openAISetup, openAISettings } from './setup/openAISetup'
+import { AIError, DEFAULT_MODEL, aiErrorText, isAIDemo, onAIDemo, resolveModel } from './client'
 import { legacyRule } from '@/shared/ai/route'
 import type { Route } from '@/shared/ai/types'
 import { codewordsIn, readServers } from './mcp-servers/config'
@@ -304,7 +306,9 @@ type Phase = 'idle' | 'streaming' | 'done' | 'error'
 
 export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, transform: transformPick, open: openOn, generate }: AIMenuProps) {
   const t = useT()
-  const hasKey = useWorkspace((s) => !!s.settings.aiApiKey.trim())
+  // the AI menu can answer here: a key for a route the rules allow (Claude or another provider — the gate's aiStatus)
+  const menuStatus = useAIStatus('menu.action')
+  const hasKey = offersAI(menuStatus)
   const model = resolveModel(useWorkspace((s) => s.settings.aiModel))
   // no key, demo switched on: canned answers, clearly labelled
   const demo = useSyncExternalStore(onAIDemo, isAIDemo) && !hasKey
@@ -1614,7 +1618,17 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
       }
       out.push({ id: 'retry', label: t('features.ai.res.retry'), icon: RotateCcw, run: retry })
       if (error && (error.code === 'invalid_key' || error.code === 'permission' || error.code === 'no_key'))
-        out.push({ id: 'key', label: t('features.ai.res.changeKey'), icon: KeyRound, run: () => setSetup(true) })
+        out.push({
+          id: 'key',
+          label: t('features.ai.res.changeKey'),
+          icon: KeyRound,
+          run: () => {
+            if (error.code === 'no_key') return setSetup(true)
+            onClose()
+            const p = runError?.fix?.kind === 'step' ? runError.fix.provider : 'anthropic'
+            openAISetup({ reason: 'refused', step: 'key', provider: p, feature: 'write' })
+          },
+        })
       if (error?.code === 'mcp' || error?.code === 'mcp_auth')
         out.push({
           id: 'mcp',
@@ -1622,7 +1636,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
           icon: Settings2,
           run: () => {
             onClose()
-            useUI.getState().openModal({ type: 'settings', tab: 'ai' })
+            openAISettings({ section: 'mcp' })
           },
         })
       out.push({ id: 'discard', label: todb ? t('common.cancel') : t('features.ai.res.discard'), icon: Trash2, run: discard, hint: <Kbd>esc</Kbd>, danger: true })
@@ -1986,16 +2000,12 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
       <Popover open={!picking} anchor={anchor} onClose={onPopoverClose} placement="bottom-start" offset={8} bare className="ai-panel" resizable="ai-menu" role="dialog" aria-label={t('features.ai.title')}>
         {setup ? (
           <KeySetup
-            reason={error?.code === 'invalid_key' ? 'invalid' : hasKey ? 'change' : 'missing'}
-            onDone={leaveSetup}
-            onDemo={
-              demo
-                ? undefined
-                : () => {
-                    setAIDemo(true)
-                    leaveSetup()
-                  }
-            }
+            purpose={chipPurpose}
+            onOpen={() => {
+              setSetup(false)
+              onClose()
+            }}
+            onDemo={demo ? undefined : leaveSetup}
             onCancel={hasKey || demo ? () => setSetup(false) : dismiss}
           />
         ) : (
@@ -2337,7 +2347,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
                     {t('features.ai.bg.lostTodb')}
                   </p>
                 )}
-                {error && <ErrorNote error={error} model={runError?.label ?? model.name} message={runError?.message} onAskClaude={runError?.fix?.kind === 'askClaude' ? askClaude : undefined} />}
+                {error && <ErrorNote error={error} model={runError?.label ?? model.name} message={runError?.message} onAskClaude={runError?.fix?.kind === 'askClaude' ? askClaude : undefined} fix={runError?.fix ?? null} onFixOpen={onClose} onPick={() => chipRef.current?.open()} />}
                 {!!run?.notes?.length && (
                   <p className="ai-lost ai-ask" role="note" data-testid="ai-run-notes">
                     {run.notes.map((n) => t(`features.ai.prov.note.${n}`)).join(' ')}
@@ -2540,7 +2550,7 @@ function McpChips({ calls }: { calls: McpCall[] }) {
   )
 }
 
-function ErrorNote({ error, model, message, onAskClaude }: { error: AIError; model: string; message?: string; onAskClaude?: () => void }) {
+function ErrorNote({ error, model, message, onAskClaude, fix, onFixOpen, onPick }: { error: AIError; model: string; message?: string; onAskClaude?: () => void; fix?: AIFix | null; onFixOpen?: () => void; onPick?: () => void }) {
   const t = useT()
   const detail = error.code === 'bad_request' || error.code === 'unknown' || error.code === 'mcp' ? (error.detail ?? '') : ''
   return (
@@ -2552,6 +2562,7 @@ function ErrorNote({ error, model, message, onAskClaude }: { error: AIError; mod
           {t('features.ai.prov.codeword.askClaude')}
         </button>
       )}
+      {fix && fix.kind !== 'askClaude' && <FixKeys fix={fix} onOpen={onFixOpen} onPick={fix.kind === 'pick' ? onPick : undefined} feature="write" />}
       {(error.code === 'outdated' || error.code === 'reload') && (
         <button type="button" className="btn btn--sm" onClick={() => window.location.reload()}>
           {t('features.ai.reload')}
@@ -2605,96 +2616,16 @@ function SelectionShade({ editor, from, to }: { editor: Editor; from: number; to
   )
 }
 
-/** First-run card: paste an Anthropic key (verified without spending tokens). */
-function KeySetup({ reason, onDone, onDemo, onCancel }: { reason: 'missing' | 'invalid' | 'change'; onDone: () => void; onDemo?: () => void; onCancel: () => void }) {
+/**
+ * The menu's card when no AI can answer here (UX § 3): the needs-setup card — "Set up AI" opens the assistant, "Try a
+ * demo answer (no key)" stays (canned, offline, nothing sent). No key is pasted here any more (the assistant checks it).
+ */
+function KeySetup({ purpose, onOpen, onDemo, onCancel }: { purpose: PurposeId; onOpen: () => void; onDemo?: () => void; onCancel: () => void }) {
   const t = useT()
-  const updateSettings = useWorkspace((s) => s.updateSettings)
-  const [key, setKey] = useState('')
-  const [state, setState] = useState<'idle' | 'checking' | 'error'>(reason === 'invalid' ? 'error' : 'idle')
-  const [msg, setMsg] = useState(reason === 'invalid' ? t('features.ai.setup.rejected') : '')
-  const acRef = useRef<AbortController | null>(null)
-  useEffect(() => () => acRef.current?.abort(), [])
-
-  const submit = async () => {
-    const k = key.trim()
-    if (!k) return
-    if (!/^sk-ant-/.test(k)) {
-      setState('error')
-      setMsg(t('features.ai.setup.format'))
-      return
-    }
-    setState('checking')
-    setMsg('')
-    acRef.current?.abort()
-    const ac = new AbortController()
-    acRef.current = ac
-    const res = await verifyKey(k, ac.signal)
-    if (ac.signal.aborted) return
-    if (res === 'invalid_key' || res === 'permission') {
-      setState('error')
-      setMsg(t('features.ai.setup.rejected'))
-      return
-    }
-    updateSettings({ aiApiKey: k })
-    setAIDemo(false)
-    if (res !== 'ok') useUI.getState().toast({ message: t('features.ai.setup.unverified'), kind: 'info' })
-    else useUI.getState().toast({ message: t('features.ai.setup.connected'), kind: 'success' })
-    onDone()
-  }
-
   return (
-    <div className="ai-setup">
-      <div className="ai-setup__bar label">
-        <span className={`led ${state === 'checking' ? 'led--on ai-led--live' : state === 'error' ? 'ai-led--err' : ''}`} aria-hidden />
-        <span>{state === 'checking' ? t('features.ai.setup.checking') : t('features.ai.setup.status')}</span>
-        <span className="ai-out__spacer" />
-        <span>BYOK · LOCAL</span>
-      </div>
+    <div className="ai-setup" data-testid="ai-key-card">
       <div className="ai-setup__body">
-        <h3 className="ai-setup__title">{reason === 'change' ? t('features.ai.setup.titleChange') : t('features.ai.setup.title')}</h3>
-        <p className="ai-setup__lead">{t('features.ai.setup.lead')}</p>
-        <form
-          className="ai-setup__form"
-          onSubmit={(e) => {
-            e.preventDefault()
-            void submit()
-          }}
-        >
-          <input
-            className="input ai-setup__input"
-            type="password"
-            data-autofocus=""
-            autoComplete="off"
-            spellCheck={false}
-            placeholder="sk-ant-api03-…"
-            value={key}
-            onChange={(e) => {
-              setKey(e.target.value)
-              if (state === 'error') setState('idle')
-            }}
-            aria-label={t('features.ai.setup.label')}
-            aria-invalid={state === 'error' || undefined}
-          />
-          <button className="btn btn--primary" type="submit" disabled={!key.trim() || state === 'checking'}>
-            {state === 'checking' ? t('features.ai.setup.checkingShort') : t('features.ai.setup.connect')}
-          </button>
-        </form>
-        {msg && (
-          <p className="ai-setup__msg" role="alert">
-            {msg}
-          </p>
-        )}
-        <a className="ai-setup__link" href="https://console.anthropic.com/settings/keys" target="_blank" rel="noreferrer">
-          {t('features.ai.setup.getKey')} <span className="mono">console.anthropic.com ↗</span>
-        </a>
-        {onDemo && reason === 'missing' && (
-          <div className="ai-setup__demo">
-            <button type="button" className="btn btn--sm" onClick={onDemo} data-ai-try-demo="">
-              <Play size={12} strokeWidth={1.8} aria-hidden /> {t('features.ai.demo.try')}
-            </button>
-            <span className="label">{t('features.ai.demo.tryNote')}</span>
-          </div>
-        )}
+        <AINeedsSetup purpose={purpose} onOpen={onOpen} onDemo={onDemo} />
       </div>
       <div className="ai-setup__note">
         <ShieldCheck size={14} strokeWidth={1.7} />

@@ -396,7 +396,7 @@ test.describe('keys in typed text, retries after an MCP call', () => {
     await run(page, `use my key ${KEY} for the launch plan`)
     const err = terminal(page).locator('.term-error')
     await expect(err).toContainText('That looks like an API key')
-    await expect(err.getByRole('button', { name: /Open Settings/ })).toBeVisible()
+    await expect(err.getByRole('button', { name: /Set up AI/ })).toBeVisible()
     // the key is shown nowhere in the transcript; the text is back in the prompt to be fixed
     await expect(terminal(page).locator('.term-scroll')).toContainText('use my key •••• for the launch plan')
     await expect(terminal(page).locator('.term-scroll')).not.toContainText(KEY)
@@ -659,19 +659,18 @@ test.describe('the ledger: one entry per response, every engine', () => {
     await field.press('Enter')
     await expect(help.locator('.help-ask__out')).toContainText('Protect with password')
     await page.keyboard.press('Escape')
-    await uiEval(page, (s) => s.openModal({ type: 'settings', tab: 'ai' }))
-    await page.getByRole('dialog').getByRole('button', { name: 'Test key' }).click()
-    await expect(page.getByRole('dialog').locator('.ai-status')).toContainText('Connected · key verified')
+    await uiEval(page, (s) => s.openModal({ type: 'aiSetup', reason: 'rotate', step: 'key', provider: 'anthropic' }))
+    await page.getByTestId('test-sentence').click()
+    await expect(page.getByTestId('test-anthropic')).toBeVisible()
     await expect.poll(() => requests.length).toBe(2)
     await page.waitForTimeout(300)
     const entries = await ledger(page)
     expect(entries.map((e) => e.purpose)).toEqual(['help.ask', 'setup.test'])
     // the help's text is public; the key test's fixed sentence is no workspace data at all (D-S2-6)
     expect(entries.map((e) => e.classes)).toEqual([['public'], []])
-    for (const e of entries) {
-      expect(e.costSource).toBe('table')
-      expect(e.served.model).toBe('claude-opus-5-5')
-    }
+    // the help on the device's model; the test sentence on Claude's fast role
+    expect(entries.map((e) => e.served.model)).toEqual(['claude-opus-5-5', 'claude-haiku-4-5'])
+    for (const e of entries) expect(e.costSource).toBe('table')
   })
 
   test('autofill: one entry, the database and field as the source', async ({ page }) => {
@@ -1025,7 +1024,7 @@ test.describe('receipts in the terminal and on agent runs', () => {
     // the footer meter shows the same sum — from the table, so without "≈"; IN is the input outside the cache, as in /cost
     await expect(terminal(page).getByTestId('agent-cost')).toHaveText('$0.11')
     await expect(terminal(page).locator('.term-meter__vals > div').first()).toHaveText(/3\.0K/)
-    await expect(terminal(page).locator('.term-meter')).toContainText("One's figures from list prices")
+    await expect(terminal(page).locator('.term-meter')).toContainText('One’s figures from list prices')
   })
 
   test("/cost counts the terminal's memory proposal request; /new while a task runs leaves the new conversation empty", async ({ page, errors }) => {

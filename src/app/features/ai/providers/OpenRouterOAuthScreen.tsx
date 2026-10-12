@@ -6,7 +6,7 @@
  */
 import { useEffect, useRef, useState } from 'react'
 import { useT } from '../../../i18n'
-import { useUI } from '../../../store/ui'
+import { openAISetup } from '../setup/openAISetup'
 import { navigate } from '../../../lib/router'
 import { oauthReturned } from '../mcp-servers/oauthReturn'
 import { finishOpenRouter, type ORConnectState } from './openrouterConnect'
@@ -43,7 +43,7 @@ export function OpenRouterOAuthScreen() {
       /* storage refused: the setup starts at its first step */
     }
     navigate({ name: 'home' })
-    useUI.getState().openModal({ type: 'settings', tab: 'ai' })
+    openAISetup({ reason: 'add', step: 'key', provider: 'openrouter' })
   }
 
   const ok = st.phase === 'done' && !st.discarded

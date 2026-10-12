@@ -179,6 +179,11 @@ test.describe('connecting OpenRouter (PKCE, mocked consent)', () => {
     expect(exchanges(or)[0]!.page).toBe(page)
     await screen.getByRole('button', { name: 'Continue the setup' }).click()
     expect(JSON.parse((await page.evaluate(() => sessionStorage.getItem('one.aiSetup.resume'))) ?? 'null')).toMatchObject({ step: '02', provider: 'openrouter' })
+    // the assistant opens at step 02 on OpenRouter's tab, the account connected
+    await expect(page.getByTestId('ai-setup')).toHaveAttribute('data-step', 'key')
+    await expect(page.getByTestId('or-disconnect')).toBeVisible()
+    // (this tab booted from the return address, without the ?e2e seam): wait until the marker is stored
+    await expect.poll(async () => /vault:[0-9a-z]+:M4Tx/.test(await storageDump(page)), { timeout: 15_000 }).toBe(true)
     await openApp(page)
     expect((await keysOf(page)).openrouter).toMatch(/:M4Tx$/)
   })

@@ -368,7 +368,8 @@ test.describe('Take over from Claude Design', () => {
     await expect(step.locator('.io-shots img')).toHaveCount(2)
     // no key: describing is off and says why; no style: memory is off and says why
     await expect(step.getByRole('switch', { name: 'Describe the screenshots with AI' })).toBeDisabled()
-    await expect(step).toContainText('Needs AI')
+    await expect(step.getByTestId('design-needs')).toContainText('AI isn’t set up yet')
+    await expect(step.getByTestId('design-needs').getByRole('button', { name: 'Set up AI' })).toBeVisible()
     await expect(step.getByRole('switch', { name: 'Save the style to One memory' })).toBeDisabled()
     await step.getByRole('textbox', { name: 'Name' }).fill('Settings redesign')
     await step.getByTestId('design-import-go').click()

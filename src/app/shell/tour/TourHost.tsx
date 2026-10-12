@@ -8,11 +8,11 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProp
 import { createPortal } from 'react-dom'
 import { ArrowLeft, ArrowRight, Check, Compass, KeyRound, Trash2, X } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
-import { useUI } from '../../store/ui'
 import { navigate } from '../../lib/router'
 import { shortcutLabel } from '../../ui/controls'
 import { focusIsNowhere } from '../../ui/focus'
 import { useT } from '../../i18n'
+import { offersAI, openAISetup, useAIStatus } from '../../features'
 import { useIsMobile } from '../lib/hooks'
 import { endTour, rememberTour, useTour, TOUR_STEP_COUNT } from './state'
 import { TOUR_STEPS, isShown, type TourStep } from './steps'
@@ -35,7 +35,9 @@ function Tour() {
   const step = useTour((s) => s.step)
   const finished = useTour((s) => s.finished)
   const def = TOUR_STEPS[step] ?? TOUR_STEPS[0]
-  const hasKey = useWorkspace((s) => !!s.settings.aiApiKey.trim())
+  // the AI menu's kind of work can run here (a key for a route the rules allow — the gate's aiStatus)
+  const ai = useAIStatus('menu.action')
+  const hasKey = offersAI(ai)
   const mobile = useIsMobile()
   const [target, setTarget] = useState<Box | null>(null)
   const [busy, setBusy] = useState(false)
@@ -324,7 +326,7 @@ function StepBody({ def, hasKey, note }: { def: TourStep; hasKey: boolean; note:
         <p className="tour-placard__keyline" data-testid="tour-keyline">
           <KeyRound size={13} strokeWidth={1.8} aria-hidden />
           <span>{t('shell.tour.keyLine')}</span>
-          <button type="button" className="tour-placard__link" onClick={() => useUI.getState().openModal({ type: 'settings', tab: 'ai' })}>
+          <button type="button" className="tour-placard__link" onClick={() => openAISetup({ reason: 'nokey', feature: 'write' })}>
             {t('shell.tour.keyOpen')}
           </button>
         </p>

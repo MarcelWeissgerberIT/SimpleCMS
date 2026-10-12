@@ -17,6 +17,8 @@ import { Menu, useMenu, type MenuEntry } from '../../../ui/Menu'
 import { Key, Notice, PastePanel, TitleField, TranscriptPanel, wordsLabel } from './parts'
 import { speechSupported } from './recognition'
 import { destinationOf } from '../core/status'
+import { FixKeys } from '../setup/AINeedsSetup'
+import { openAISetup } from '../setup/openAISetup'
 import {
   attachMeeting,
   cancelSummary,
@@ -429,9 +431,15 @@ function AINotice({ error, onRetry, onDismiss }: { error: NonNullable<MeetingRun
       actions={
         <>
           {keyIssue ? (
-            <button type="button" className="btn btn--sm btn--ink" onClick={() => useUI.getState().openModal({ type: 'settings', tab: 'ai' })}>
+            <button
+              type="button"
+              className="btn btn--sm btn--ink"
+              onClick={() => (error.code === 'no_key' ? openAISetup({ reason: 'nokey', feature: 'meeting' }) : openAISetup({ reason: 'refused', step: 'key', provider: error.fix?.kind === 'step' ? error.fix.provider : 'anthropic', feature: 'meeting' }))}
+            >
               <KeyRound size={13} strokeWidth={1.75} aria-hidden /> {t('features.meeting.openSettings')}
             </button>
+          ) : error.fix && error.fix.kind !== 'askClaude' ? (
+            <FixKeys fix={error.fix} feature="meeting" />
           ) : reload ? (
             <button type="button" className="btn btn--sm btn--ink" onClick={() => window.location.reload()}>
               {t('features.ai.reload')}

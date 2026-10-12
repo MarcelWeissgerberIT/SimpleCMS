@@ -458,7 +458,7 @@ test.describe('Mail (Gmail)', () => {
     expect((await mailCfg(page)).everyMin).toBe(30)
     // Claude organising needs a key
     await expect(dialog.getByRole('switch', { name: 'Organise new mails with AI' })).toBeDisabled()
-    await expect(dialog.getByText(/Needs AI/)).toBeVisible()
+    await expect(dialog.getByTestId('mail-needs')).toContainText('AI isn’t set up yet')
 
     // German
     await closeSettings(page)

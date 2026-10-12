@@ -116,6 +116,19 @@ export { McpOAuthScreen } from './ai/mcp-servers/OAuthScreen'
  */
 export const OpenRouterOAuthScreen = lazy(() => import('./ai/providers/OpenRouterOAuthScreen').then((m) => ({ default: m.OpenRouterOAuthScreen })))
 /*
+ * Setting up AI (multi-provider S2, stage C — features/ai/setup):
+ *  - openAISetup({ reason?, feature?, provider?, step?, data? }): the assistant "Set up AI" (modal 'aiSetup') — every
+ *    "no key" surface, ⌘K "Set up AI", the changelog try and a refused request's key fixes use it
+ *  - openAISettings({ section?: 'mcp' | 'memory' }): Settings › AI (this device), scrolled to its MCP servers / memory
+ *  - AISetupModal (lazy; ModalHost renders it) · ProvidersTab: Settings › AI
+ *  - <AINeedsSetup purpose …/>: the one card a surface shows when its kind of work cannot run (aiStatus) ·
+ *    useAIStatus(purpose) · <FixKeys fix …/>: a refused request's keys (AIError.fix)
+ */
+export { openAISetup, openAISettings, type AISetupOptions } from './ai/setup/openAISetup'
+export { AINeedsSetup, FixKeys, offersAI, useAIStatus, openFix, type AINeedsSetupProps } from './ai/setup/AINeedsSetup'
+export const AISetupModal = lazy(() => import('./ai/setup/AISetup').then((m) => ({ default: m.AISetupModal })))
+export { ProvidersTab } from './ai/setup/ProvidersTab'
+/*
  * One memory (features/ai/memory): Claude remembers what the person confirms (a database "One memory" +
  * its usage log) and takes the matching memories along with free-form requests:
  *  - memoryFor(task, { off? }) → { use, block } — pass `block` as runAI({ memory }); noteUse(answer, use,

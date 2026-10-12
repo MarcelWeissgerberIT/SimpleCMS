@@ -9,6 +9,7 @@ import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'rea
 import { ChevronDown, Copy, PenLine, Plus, Undo2, X } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
+import { openAISettings } from '../ai/setup/openAISetup'
 import { inTemplate, isEffectivelyTrashed } from '../../store/selectors'
 import { AGENT_LIMITS, localTimeZone, isTimeZone, sameAgent } from '../../store/agents'
 import type { AgentTrigger, CustomAgent, ID, Page } from '../../store/types'
@@ -909,7 +910,7 @@ function McpFields({ d, set }: { d: CustomAgent; set: (p: Partial<CustomAgent>) 
         <p className="agx-field__hint">
           {d.runner === 'server' ? t('features.agents.ed.mcpNoneServer') : t('features.agents.ed.mcpNone')}{' '}
           {d.runner !== 'server' && (
-            <button type="button" className="agx-link" onClick={() => useUI.getState().openModal({ type: 'settings', tab: 'ai' })}>
+            <button type="button" className="agx-link" onClick={() => openAISettings({ section: 'mcp' })}>
               {t('features.agents.ed.mcpSetup')}
             </button>
           )}
@@ -928,7 +929,7 @@ function McpFields({ d, set }: { d: CustomAgent; set: (p: Partial<CustomAgent>) 
       {notes.map((n) => (
         <p key={n.name} className="agx-mcp-note" role="note" data-testid="agx-mcp-note" data-kind={n.kind}>
           <span>{t(n.kind === 'off' ? 'features.agents.ed.mcpNoteOff' : 'features.agents.ed.mcpNoteMissing', { name: n.name })}</span>
-          <button type="button" className="agx-link" onClick={() => useUI.getState().openModal({ type: 'settings', tab: 'ai' })}>
+          <button type="button" className="agx-link" onClick={() => openAISettings({ section: 'mcp' })}>
             {t('features.agents.ed.mcpNoteOpen')}
           </button>
         </p>
@@ -1035,7 +1036,7 @@ function McpToolList({ server, tools, allow, out, onChange }: { server: string; 
       ) : (
         <p className="agx-field__hint">
           {t('features.agents.ed.toolsUntested')}{' '}
-          <button type="button" className="agx-link" onClick={() => useUI.getState().openModal({ type: 'settings', tab: 'ai' })}>
+          <button type="button" className="agx-link" onClick={() => openAISettings({ section: 'mcp' })}>
             {t('features.agents.ed.toolsTest')}
           </button>
         </p>

@@ -8,7 +8,7 @@
  * run does not start while nothing in its scope or its report page is usable).
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowLeft, Check, KeyRound, MoreHorizontal, Pencil, Play, Plus, Trash2 } from 'lucide-react'
+import { ArrowLeft, Check, MoreHorizontal, Pencil, Play, Plus, Trash2 } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
 import type { CustomAgent, ID, Person } from '../../store/types'
@@ -22,6 +22,7 @@ import { Switch } from '../../ui/controls'
 import { t as tr, useLang, useT } from '../../i18n'
 import { localized } from '../../store/integrations'
 import { resolveModel } from '../ai/client'
+import { AINeedsSetup } from '../ai/setup/AINeedsSetup'
 import { AgentEditor } from './AgentEditor'
 import { RunHistory } from './RunHistory'
 import { TrustPlate } from './trust/ui/TrustPlate'
@@ -736,15 +737,7 @@ function AgentDetail({ id }: { id: ID }) {
         </div>
       )}
       <LostNotice agent={agent} />
-      {!hasKey && agent.runner === 'browser' && !elsewhere && (
-        <div className="agx-notice" role="note">
-          <span className="led" aria-hidden />
-          <span>{t('features.agents.noKey')}</span>
-          <button type="button" className="btn btn--sm btn--ink" onClick={() => useUI.getState().openModal({ type: 'settings', tab: 'ai' })}>
-            <KeyRound size={13} strokeWidth={1.75} aria-hidden /> {t('features.agent.nokey.open')}
-          </button>
-        </div>
-      )}
+      {!hasKey && agent.runner === 'browser' && !elsewhere && <AINeedsSetup purpose="agents.run" testId="agx-needs" />}
       {elsewhere && (
         <div className="agx-notice" role="note">
           <span className="led" aria-hidden />

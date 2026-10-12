@@ -165,7 +165,7 @@ test.describe('help panel', () => {
     // from the search results: "Ask the help" sends the query to the Ask tab
     await panel(page).getByRole('button', { name: /Ask the help: “gmail labels”/ }).click()
     await expect(panel(page).getByRole('tab', { name: /Ask/ })).toHaveAttribute('aria-selected', 'true')
-    await expect(panel(page)).toContainText('Asking needs AI')
+    await expect(panel(page).getByTestId('help-ask-needs')).toContainText('AI isn’t set up yet')
     await expect(panel(page).locator('.help-related')).toContainText('Gmail sync')
     await panel(page).locator('.help-related').getByRole('link', { name: /Gmail sync/ }).click()
     await expect(articleTitle(page)).toHaveText('Gmail sync')

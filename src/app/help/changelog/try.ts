@@ -5,7 +5,7 @@
  * that area registers at boot (`registerTry`). The help sheet steps aside first (except for "Ask the help",
  * which is part of it), so the thing it opens is not covered.
  */
-import { openAgent, openCodingSettings, openMailSettings, openMcpSettings, openScripts, openSyncSettings } from '../../features'
+import { openAgent, openAISetup, openAISettings, openCodingSettings, openMailSettings, openMcpSettings, openScripts, openSyncSettings } from '../../features'
 import { navigate, parseHash } from '../../lib/router'
 import { useUI } from '../../store/ui'
 import { useWorkspace } from '../../store/store'
@@ -46,7 +46,9 @@ export function runTry(action: ChangelogTry): void {
     case 'terminal':
       return openAgent()
     case 'settings-ai':
-      return ui.openModal({ type: 'settings', tab: 'ai' })
+      return openAISettings({ section: 'mcp' })
+    case 'ai-setup':
+      return openAISetup({ reason: 'add' })
     case 'settings-mcp':
       return openMcpSettings()
     case 'settings-mail':

@@ -234,7 +234,7 @@ test.describe('AI autofill (mocked Claude API)', () => {
     await expect(page.locator('#main .af-cell[data-state="error"]')).toHaveCount(2)
   })
 
-  test('without an API key the panel explains it and points to Settings → Claude AI', async ({ page, context }) => {
+  test('without an API key the panel explains it and opens the assistant "Set up AI"', async ({ page, context }) => {
     const reqs = await mockAutofill(context, () => ({ value: 'High' }))
     await openApp(page)
     await openProjects(page)
@@ -243,8 +243,8 @@ test.describe('AI autofill (mocked Claude API)', () => {
     await expect(dlg.getByRole('button', { name: /Fill all rows/ })).toBeDisabled()
     await dlg.getByRole('button', { name: 'Set up AI' }).click()
     await expect(dlg).toBeHidden()
-    expect(await uiEval(page, (s) => s.modal)).toMatchObject({ type: 'settings', tab: 'ai' })
-    await expect(page.getByRole('dialog').getByRole('tab', { name: /\bAI$/ })).toHaveAttribute('aria-selected', 'true')
+    await expect.poll(() => uiEval(page, (s) => s.modal)).toMatchObject({ type: 'aiSetup', feature: 'bulk' })
+    await expect(page.getByTestId('ai-setup')).toBeVisible()
     expect(reqs).toHaveLength(0)
   })
 

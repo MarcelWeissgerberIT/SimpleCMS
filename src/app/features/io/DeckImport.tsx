@@ -25,6 +25,7 @@ import type { ImportResult } from './import/apply'
 import type { ReportItem } from './import/report'
 import { exampleByTag, savePatternExample, slugTag, TAG_RE } from '../ai/memory/example'
 import { destinationOf } from '../ai/core/status'
+import { AINeedsSetup, offersAI, useAIStatus } from '../ai/setup/AINeedsSetup'
 import { Readout } from './parts'
 import { onRovingKey } from './roving'
 import './deck.css'
@@ -199,7 +200,9 @@ export function DesignStep({ onCancel, onImport }: { onCancel: () => void; onImp
   const [reading, setReading] = useState<Slot | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [over, setOver] = useState<Slot | 'all' | null>(null)
-  const keyOk = useWorkspace((s) => !!s.settings.aiApiKey)
+  // describing screenshots needs a route that reads pictures (the gate's aiStatus)
+  const describeStatus = useAIStatus('vision.design')
+  const keyOk = offersAI(describeStatus)
   const inputs = useRef<Partial<Record<Slot, HTMLInputElement | null>>>({})
   const shotsRef = useRef(shots)
   shotsRef.current = shots
@@ -440,7 +443,7 @@ export function DesignStep({ onCancel, onImport }: { onCancel: () => void; onImp
         <div className="io-opt" data-disabled={!canDescribe || undefined}>
           <span className="io-opt__text">
             <span className="io-opt__title">{t('features.imp.design.describe')}</span>
-            <span className="io-opt__desc muted">{shots.length && !keyOk ? t('features.imp.design.describeNoKey') : t('features.imp.design.describeDesc', { company: destinationOf('vision.design').company })}</span>
+            <span className="io-opt__desc muted">{shots.length && !keyOk ? <AINeedsSetup purpose="vision.design" variant="line" testId="design-needs" /> : t('features.imp.design.describeDesc', { company: destinationOf('vision.design').company })}</span>
           </span>
           <Switch
             checked={describe && canDescribe}

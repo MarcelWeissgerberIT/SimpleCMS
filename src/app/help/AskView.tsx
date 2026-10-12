@@ -4,11 +4,10 @@
  */
 import { useEffect, useMemo, useRef, type KeyboardEvent } from 'react'
 import { create } from 'zustand'
-import { ArrowRight, KeyRound, Square } from 'lucide-react'
+import { ArrowRight, Square } from 'lucide-react'
 import { useLang, useT } from '../i18n'
 import { useWorkspace } from '../store/store'
-import { useUI } from '../store/ui'
-import { RouteChip, destinationOf, isAIConfigured, isRouteKey, type Route, type RouteChipHandle } from '../features'
+import { AINeedsSetup, RouteChip, aiStatus, offersAI, destinationOf, isAIConfigured, isRouteKey, type Route, type RouteChipHandle } from '../features'
 import { shortcutLabel } from '../ui/controls'
 import { askHelp, linkCitations } from './ask'
 import { LIBRARY } from './content'
@@ -54,7 +53,9 @@ async function ask(lang: HelpLang, q = useHelp.getState().question): Promise<voi
   abort?.abort()
   const sources = articlesForQuestion(LIBRARY, lang, text, 6, lastArticle())
   useAsk.setState({ asked: text, answer: '', error: '', sources })
-  if (!isAIConfigured()) return useAsk.setState({ phase: 'nokey' })
+  // the gate's answer for help questions (a key for a route the rules allow); demo answers stay out of the help
+  const st = aiStatus('help.ask')
+  if (!offersAI(st) || !isAIConfigured()) return useAsk.setState({ phase: 'nokey' })
   if (!sources.length) return useAsk.setState({ phase: 'nomatch' })
   const ctrl = new AbortController()
   abort = ctrl
@@ -185,15 +186,9 @@ export function AskView() {
       )}
 
       {phase === 'nokey' && (
-        <div className="help-ask__nokey" role="note">
-          <div className="help-ask__nokeyHead">
-            <KeyRound size={15} strokeWidth={1.7} aria-hidden />
-            <strong>{t('help.ask.noKey.title')}</strong>
-          </div>
+        <div className="help-ask__nokey help-ask__nokey--card">
+          <AINeedsSetup purpose="help.ask" testId="help-ask-needs" />
           <p>{t('help.ask.noKey.body')}</p>
-          <button type="button" className="btn btn--sm btn--ink" onClick={() => useUI.getState().openModal({ type: 'settings', tab: 'ai' })}>
-            {t('help.ask.noKey.open')}
-          </button>
         </div>
       )}
 

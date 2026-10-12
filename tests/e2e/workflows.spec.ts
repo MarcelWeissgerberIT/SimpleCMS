@@ -4,22 +4,34 @@
 import { test, expect, openApp, gotoPage, createPage, doc, para, wsEval, pageById, pageIdByTitle, editorOf, selectText, mockClaude, flush, MOD } from './fixtures'
 
 test.describe('AI', () => {
-  test('first use without a key: connect the key inline, then run an action', async ({ page, context }) => {
+  test('first use without a key: the AI menu opens the assistant, the key is checked and sealed, then an action runs', async ({ page, context }) => {
     await mockClaude(context, () => 'Tightened version.')
     await openApp(page)
     const id = await createPage(page, { title: 'No key yet', content: doc(para('loose wordy sentence here')) })
     await gotoPage(page, id)
     const ed = editorOf(page, id)
-    await ed.locator('p').first().click()
-    await selectText(page, ed, 'loose wordy sentence here')
-    await page.locator('[aria-label="Formatting"]').getByRole('button', { name: 'Ask AI' }).click()
-    const ai = page.getByRole('dialog', { name: 'Ask AI' })
-    await expect(ai.getByText('Connect your Claude key')).toBeVisible()
-    await ai.getByRole('textbox', { name: 'Anthropic API key' }).fill('sk-ant-e2e-0123456789')
-    await ai.getByRole('button', { name: 'Connect' }).click()
-    await expect(ai.getByRole('option', { name: /Improve writing/ })).toBeVisible()
+    const askAI = async () => {
+      await ed.locator('p').first().click()
+      await selectText(page, ed, 'loose wordy sentence here')
+      await page.locator('[aria-label="Formatting"]').getByRole('button', { name: 'Ask AI' }).click()
+      return page.getByRole('dialog', { name: 'Ask AI' })
+    }
+    let ai = await askAI()
+    await expect(ai.getByTestId('ai-key-card')).toContainText('AI isn’t set up yet')
+    await ai.getByRole('button', { name: 'Set up AI' }).click()
+    // the assistant: pick Claude, paste the key, the free check passes, the key is sealed
+    const setup = page.getByTestId('ai-setup')
+    await setup.getByTestId('plate-anthropic').getByRole('switch').click()
+    await setup.getByTestId('ai-setup-next').click()
+    await setup.getByTestId('key-field-anthropic').fill('sk-ant-e2e-0123456789')
+    await setup.getByTestId('key-check-anthropic').click()
+    await expect(setup.getByTestId('bench-anthropic')).toHaveAttribute('data-state', 'valid')
     // the store keeps a vault marker ("vault:<id>:<last 4>"), the key itself is sealed (lib/vault.ts)
     expect(await wsEval(page, (s) => s.settings.aiApiKey)).toMatch(/^vault:[0-9a-z]+:6789$/)
+    await page.keyboard.press('Escape')
+    await expect(setup).toHaveCount(0)
+    ai = await askAI()
+    await expect(ai.getByRole('option', { name: /Improve writing/ })).toBeVisible()
     await ai.getByRole('option', { name: /Make shorter/ }).click()
     await expect(ai).toContainText('Tightened version.')
     await ai.getByRole('option', { name: /Replace selection/ }).click()

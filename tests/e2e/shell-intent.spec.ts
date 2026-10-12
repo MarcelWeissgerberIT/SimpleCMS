@@ -107,8 +107,9 @@ test.describe('settings and headings', () => {
     await page.evaluate(() => (window as unknown as { __one: { ui: { getState: () => { openModal: (m: unknown) => void } } } }).__one.ui.getState().openModal({ type: 'settings', tab: 'ai' }))
     const dialog = page.getByRole('dialog')
     await expect(dialog.getByRole('tab', { name: /\bAI$/ })).toBeFocused()
-    await expect(dialog.getByLabel('Anthropic API key')).toBeVisible()
-    await expect(dialog.getByRole('combobox', { name: 'Model' })).toBeVisible()
+    // Settings › AI on this device: a plate per provider (no key: "Set up Claude") and the device's routing rows
+    await expect(dialog.getByTestId('settings-setup-anthropic')).toBeVisible()
+    await expect(dialog.getByRole('combobox', { name: /Default for everything/ })).toBeVisible()
     await expect(dialog.getByText('database autofill')).toHaveCount(0)
     await dialog.getByRole('tab', { name: /General/ }).click()
     // the workspace name lives in Workspace settings (#/workspace) — General is you and this device
