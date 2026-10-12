@@ -97,15 +97,19 @@ export async function buildBackup(rootId: ID | null, onProgress?: (done: number,
   const databases = rootId ? Object.fromEntries(Object.entries(scoped.databases).map(([id, db]) => [id, withoutCommandSecrets(withoutWebhookSecrets(db))])) : scoped.databases
   // the workspace look and the integration profiles belong to the whole workspace: full backups carry them, a page
   // backup never does
-  const { look, integrations, ...rest } = snap
+  const { look, integrations, ai, ...rest } = snap
+  // this device's AI rules and the other providers' key markers never go into a backup
+  const { ai: _deviceAI, aiKeys: _keys, ...settings } = snap.settings
   const workspace: Workspace = {
     ...rest,
     ...(look && !rootId ? { look } : {}),
     ...(integrations?.length && !rootId ? { integrations } : {}),
+    // the workspace's AI rules: full backups only (a restore keeps this workspace's — applyBackup)
+    ...(ai && !rootId ? { ai } : {}),
     pages: topId && pages[topId] ? { ...pages, [topId]: { ...pages[topId], parentId: null } } : pages,
     databases,
     // never export the API key, nor the MCP servers' token markers
-    settings: { ...snap.settings, aiApiKey: '', ...(snap.settings.mcpServers ? { mcpServers: snap.settings.mcpServers.map((s) => ({ ...s, token: '' })) } : {}) },
+    settings: { ...settings, aiApiKey: '', aiKeys: {}, ...(snap.settings.mcpServers ? { mcpServers: snap.settings.mcpServers.map((s) => ({ ...s, token: '' })) } : {}) },
     // which pages this device opened last is this device's (help: sidebar, privacy) — never in a backup
     recent: [],
   }
@@ -286,6 +290,8 @@ function sanitizeSettings(incoming: Settings, current: Settings): Settings {
   const src = incoming as unknown as Record<string, unknown>
   const dst = out as unknown as Record<string, unknown>
   for (const key of Object.keys(base)) {
+    // keys never come from a file: this device's key (marker) stays, also when it has none
+    if (key === 'aiApiKey') continue
     const v = src[key]
     const nullable = key === 'startPageId' || key === 'lastPageId'
     if (typeof v === typeof base[key] && (typeof v !== 'number' || Number.isFinite(v))) dst[key] = v
@@ -377,7 +383,10 @@ export async function applyBackup(b: Backup, mode: 'merge' | 'replace', onProgre
         ...source,
         pages,
         databases,
-        settings: { ...source.settings, aiApiKey: snap.settings.aiApiKey || source.settings.aiApiKey },
+        // the AI keys and this device's AI rules stay this device's — never the file's, also without a key here
+        settings: { ...source.settings, aiApiKey: snap.settings.aiApiKey, ...(snap.settings.aiKeys ? { aiKeys: snap.settings.aiKeys } : {}), ...(snap.settings.ai ? { ai: snap.settings.ai } : {}) },
+        // the workspace's AI rules stay this workspace's (a file never loosens them)
+        ai: snap.ai,
         // this device's recent pages stay (where they still exist) — an older backup's list is never taken over
         recent: snap.recent.filter((id) => !!pages[id]),
         // a page backup carries no integration profiles: this workspace's stay

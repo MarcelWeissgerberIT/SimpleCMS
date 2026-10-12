@@ -146,6 +146,8 @@ export async function openCloudWorkspace(ws: CloudWorkspace, user: CloudUser, on
     settings,
     recent: overlay.recent.filter((id) => !!data.pages[id]),
     ...(data.look ? { look: data.look } : {}),
+    // the AI rules: read (sanitized), never written by this build
+    ...(data.ai ? { ai: data.ai } : {}),
   })
   setLookGuard(canStyle)
   // integration profiles: owners and admins, like the look (the server puts other members' changes back)

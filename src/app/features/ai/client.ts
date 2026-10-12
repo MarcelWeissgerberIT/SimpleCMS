@@ -197,7 +197,7 @@ async function getClient(apiKey: string): Promise<{ client: AnthropicSDK; sdk: S
  * api.anthropic.com only. Throws AIError('no_key') without a key.
  */
 export async function claudeClient(): Promise<{ client: AnthropicSDK; sdk: SDKModule; model: AIModelId }> {
-  const apiKey = await getAIKey()
+  const apiKey = await getAIKey('anthropic')
   if (!apiKey) throw new AIError('no_key')
   const settings = useWorkspace.getState().settings
   const { client, sdk } = await getClient(apiKey)
@@ -335,7 +335,7 @@ const MAX_RESUMES = 3
  */
 export async function streamCompletion(opts: StreamOptions, again = false): Promise<string> {
   const { system, prompt, onToken, signal, mcp, codewords, onMcp: report, onMedia, setup, maxResumes } = opts
-  const apiKey = await getAIKey()
+  const apiKey = await getAIKey('anthropic')
   if (!apiKey) throw new AIError('no_key')
   const settings = useWorkspace.getState().settings
   if (signal?.aborted) throw new AIError('aborted')
@@ -539,7 +539,7 @@ export function usageOf(model: string, u: UsageLike): StructuredUsage {
  */
 export async function completeStructured(opts: StructuredOptions, again = false): Promise<string> {
   const { system, prompt, schema, maxTokens = 4096, signal, maxRetries = 4, mcp, onUsage } = opts
-  const apiKey = await getAIKey()
+  const apiKey = await getAIKey('anthropic')
   if (!apiKey) throw new AIError('no_key')
   const settings = useWorkspace.getState().settings
   if (signal?.aborted) throw new AIError('aborted')
