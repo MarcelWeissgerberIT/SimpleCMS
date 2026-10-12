@@ -696,12 +696,15 @@ test.describe('the flight recorder (train 4)', () => {
     const before = await meter()
     expect(before.requests).toBeGreaterThan(0)
     expect(before.entries.length).toBeGreaterThan(0)
+    expect((before.usage as { byModel?: unknown[] }).byModel?.length).toBeGreaterThan(0)
     const r = await rec<{ id: string; state: string }>('eject', { lane: 'terminal', run: batch.key, a: batch.from - 1000, b: batch.to + 1000 })
     expect(r.state).toBe('done')
     expect(tasksIn(await pageContent(page, id))[0]).toMatchObject({ itemId: T1, status: 'todo' })
     // settled like any change: discarded + ejected, never open again
     await expect.poll(async () => (await changes(page))[0]).toMatchObject({ status: 'discarded', ejected: { id: r.id } })
     await expect(card).toHaveAttribute('data-status', 'discarded')
+    // right after the eject (not only after its Undo, which could put a changed meter back): nothing went out
+    expect(await meter()).toEqual(before)
     // the batch's own Undo (a toast, Preflight's card) writes nothing: its task part is settled
     const rev = await wsEval(page, (s, id) => s.pages[id].contentRev, id)
     const undone = await page.evaluate((key) => {
