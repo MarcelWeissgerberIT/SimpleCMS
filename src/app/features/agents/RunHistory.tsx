@@ -243,8 +243,9 @@ function Review({ run }: { run: AgentRun }) {
     depsOf(c)
       .map(byId)
       .find((x) => x && x.status !== 'applied') ?? null
+  // an ejected change has no key here: the eject's own Undo gives it back (never a row's Undo, never Apply again)
   const undoOf = (c: StagedChange): 'apply' | 'discard' | null =>
-    c.status === 'applied' && canUndoChange(run.id, c.id) ? 'apply' : c.status === 'discarded' && canUndoDiscard(run.id, c.id) ? 'discard' : null
+    c.status === 'applied' && canUndoChange(run.id, c.id) ? 'apply' : c.status === 'discarded' && !c.ejected && canUndoDiscard(run.id, c.id) ? 'discard' : null
   const quiet = quietGroups(run, changes)
   const quietOf = new Map<string, StagedChange[]>()
   for (const list of quiet.values()) for (const c of list) quietOf.set(c.id, list)
@@ -528,7 +529,9 @@ const Change = memo(function Change({ run, change: c, disabled, blocked, undo, n
   // waits for review), why it waits or failed, then the keys
   const hint = (c.status === 'failed' && !!c.error) || (c.status === 'pending' && !!blocked)
   const items = !!c.workItem || !!c.items || !!c.notes?.length
-  const describedBy = keys ? [open ? '' : `${id}-s`, !folded && c.props?.length ? `${id}-d` : '', !folded && items ? `${id}-i` : '', !folded && hint ? `${id}-x` : '', keysId].filter(Boolean).join(' ') : undefined
+  const describedBy = keys
+    ? [open ? '' : `${id}-s`, c.held && c.status === 'applied' ? `${id}-h` : '', !folded && c.props?.length ? `${id}-d` : '', !folded && items ? `${id}-i` : '', !folded && hint ? `${id}-x` : '', keysId].filter(Boolean).join(' ')
+    : undefined
   const undoKey = (
     <button type="button" className="btn btn--ghost btn--sm agent-change__undo" onMouseDown={keepFocus} onClick={() => h.undo(c.id)} disabled={disabled} aria-label={`${t('common.undo')} ${label}`}>
       <Undo2 size={12} strokeWidth={1.75} aria-hidden /> {t('common.undo')}
@@ -604,6 +607,12 @@ const Change = memo(function Change({ run, change: c, disabled, blocked, undo, n
             <span className="agent-change__state label" id={`${id}-s`}>
               <span className="led led--ok" aria-hidden /> {t('features.agent.review.applied')}
             </span>
+            {c.held && (
+              // an eject held it: another writer changed its place since, so it stays applied (its Undo still here)
+              <span className="agent-change__state agent-change__state--held label" data-testid="agx-held" id={`${id}-h`}>
+                {t('features.agents.review.held')}
+              </span>
+            )}
             {undo === 'apply' && undoKey}
             {target && (
               <button
@@ -621,6 +630,13 @@ const Change = memo(function Change({ run, change: c, disabled, blocked, undo, n
           <span className="agent-change__actions">
             <span className="agent-change__state label" data-testid="agx-superseded" id={`${id}-s`}>
               {c.supersededBy ? t('features.agents.review.superseded', { when: fmtWhen(t, c.supersededBy.at, lang) }) : t('features.agents.review.supersededPlain')}
+            </span>
+          </span>
+        ) : c.ejected ? (
+          // the flight recorder took its writes back: no keys, never open again (the eject's own Undo gives it back)
+          <span className="agent-change__actions">
+            <span className="agent-change__state label" data-testid="agx-ejected" id={`${id}-s`}>
+              {t('features.agents.review.ejected', { when: fmtWhen(t, c.ejected.at, lang) })}
             </span>
           </span>
         ) : (

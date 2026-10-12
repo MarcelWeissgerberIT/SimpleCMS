@@ -18,7 +18,7 @@ Die Tasten erscheinen passend zu deinem System — ⌘ auf dem Mac, sonst Strg/C
 - <kbd>Mod+Shift+L</kbd> — hell / dunkel
 - <kbd>Mod+,</kbd> — Einstellungen
 - <kbd>Mod+J</kbd> — der Agent
-- <kbd>Mod+Alt+Z</kbd> — der [Flugschreiber](help:flight-recorder): wer was geschrieben hat, auf einem Band
+- <kbd>Mod+Alt+Z</kbd> — der [Flugschreiber](help:flight-recorder): wer was geschrieben hat, auf einem Band; auf dem Band liest <kbd>↵</kbd> das Fenster; solange die Meldung eines Auswurfs zu sehen ist, nimmt <kbd>Mod+Z</kbd> den Auswurf zurück
 - <kbd>?</kbd> — diese Hilfe
 
 ## Menüs und Dialoge

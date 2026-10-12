@@ -3,7 +3,7 @@
  * strip's quarters, the 24 STD lanes' minute histogram, the known lanes, a window's events (for its meters), the
  * tape's size and where it begins. Read-only; each read is one range (no cursor walks).
  */
-import type { JEvent, JHist, JOp, JRun, JSegment, LaneKey, Scope } from '../model/types'
+import type { EjectRecord, JEvent, JHist, JOp, JRun, JSegment, LaneKey, Scope } from '../model/types'
 import { HI, openJournal, pad13, pad8, scopeRange } from './db'
 
 /** A typing fold starts up to this much before the ops it represents. */
@@ -22,6 +22,12 @@ export async function runsInSpan(scope: Scope, from: number, to: number): Promis
   const out: Record<string, JRun> = {}
   for (const r of await j.range<JRun>({ store: 'runs', index: 'from', lo: [scope, from - DAY], hi: [scope, to] })) out[r.key] = r
   return out
+}
+
+/** Eject records made in [from, to] (aborted ones left out) — the deck draws them, never JRun.state (Δ8). */
+export async function ejectsInSpan(scope: Scope, from: number, to: number): Promise<EjectRecord[]> {
+  const j = await openJournal()
+  return (await j.range<EjectRecord>({ store: 'ejects', index: 'at', lo: [scope, from], hi: [scope, to] })).filter((e) => e.state !== 'aborted')
 }
 
 /** One run's record. */

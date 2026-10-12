@@ -697,8 +697,9 @@ test.describe('ticks', () => {
     await page.mouse.click(x, box.y + box.height / 2)
     const pop = page.getByRole('dialog', { name: /11 places · 07:20:00/ })
     await expect(pop).toBeVisible()
-    await expect(pop.locator('.rec-pop__item')).toHaveCount(8)
+    await expect(pop.locator('.rec-pop__item:not(.rec-pop__read)')).toHaveCount(8)
     await expect(pop.locator('.rec-pop__more')).toHaveText('+ 3 more')
+    await expect(pop.locator('.rec-pop__read')).toHaveText('Read window')
     // Esc: the popover goes, focus goes to the track that was clicked (its keys work again)
     await page.keyboard.press('Escape')
     await expect(pop).toHaveCount(0)
@@ -713,6 +714,18 @@ test.describe('ticks', () => {
     await expect(page.locator('#main .pv-title')).toHaveValue(first)
     // the deck stays open while the page changes
     await expect(deck(page)).toBeVisible()
+    // "Read window": that one Vorgang bracketed on its track, then read (11 pages); Esc goes back to the track
+    await page.mouse.click(x, box.y + box.height / 2)
+    await expect(pop).toBeVisible()
+    await pop.locator('.rec-pop__read').click()
+    const dialog = page.locator('.modal.rec-read')
+    await expect(dialog.locator('.plan__sec')).toHaveText([/Pages · 11/])
+    await expect(page.locator('section.deck .win__who')).toHaveText('You')
+    await expect(page.locator('section.deck .win__t')).toHaveText('07:20:00 – 07:20:00')
+    await page.keyboard.press('Escape')
+    await expect(dialog).toHaveCount(0)
+    await expect(deck(page)).toBeVisible()
+    await expect(lane).toBeFocused()
   })
 })
 
@@ -800,7 +813,7 @@ test.describe('look', () => {
         sig.add(getComputedStyle(probe).color)
       }
       probe.remove()
-      const ALLOWED = ['.playhead', '.bracket', '.lane__marks .sel', '.ruler__zone', '.ov__bars [data-hot]', '.trk[data-sel]', '.flag[data-sel]', '.ev-l[data-sel]', '.win__t', '.counter__val[data-sig]', '.led']
+      const ALLOWED = ['.playhead', '.bracket', '.lane__marks .sel', '.ruler__zone', '.ov__bars [data-hot]', '.trk[data-sel]', '.flag[data-sel]', '.ev-l[data-sel]', '.win__t', '.counter__val[data-sig]', '.led', '.held', '.held__n', '.held-sw', '.eject', '.outlist__held', '.pi--held', '.ej-icon', '.btn--eject']
       const allowed = (el: Element) => ALLOWED.some((a) => el.closest(a))
       const hits = (cs: CSSStyleDeclaration, el: Element): string[] => {
         const out: string[] = []
@@ -835,7 +848,7 @@ test.describe('look', () => {
   }
 
   for (const theme of ['light', 'dark'] as const)
-    test(`orange only for the playhead, the selected window and the REC lamp — ${theme === 'light' ? 'Paper' : 'Carbon'}`, async ({ page }) => {
+    test(`orange only for the playhead, the selected window, the held marks, EJECT and the REC lamp — ${theme === 'light' ? 'Paper' : 'Carbon'}`, async ({ page }) => {
       test.setTimeout(150_000)
       await page.emulateMedia({ colorScheme: theme })
       await bootStory(page)
@@ -843,6 +856,9 @@ test.describe('look', () => {
       await page.keyboard.press('Control+Alt+z')
       await page.locator('.lane[data-lane="agent:nordlicht-spiegel"] .flag').click()
       await expect(page.locator('.mtr b').first()).toHaveText('52')
+      // the held check: two rows the person changed since — diamonds on the tape, the swatch in the plate's note
+      await expect(page.locator('.deck .held')).toHaveCount(2)
+      await expect(page.locator('.win__note .held-sw')).toHaveCount(1)
       // rewound a little: the counter shows the playhead's time
       await page.locator('.playhead__h').focus()
       await page.keyboard.press('ArrowLeft')
@@ -870,6 +886,20 @@ test.describe('look', () => {
       })
       expect(await page.locator('.lane__marks path.sel').evaluate((p) => getComputedStyle(p).fill)).toBe(sig)
       expect(await page.locator('.playhead').evaluate((p) => getComputedStyle(p).backgroundColor)).toBe(sig)
+      expect(await page.locator('.deck .held').first().evaluate((p) => getComputedStyle(p).borderTopColor)).toBe(sig)
+      expect(await page.locator('.win__note .held-sw').evaluate((p) => getComputedStyle(p).borderTopColor)).toBe(sig)
+      // the held row keys in the deck's signal text (--tp-sig), never --signal-ink
+      const tpSig = await page.locator('section.deck').evaluate((d) => {
+        const i = document.createElement('i')
+        i.style.color = 'var(--tp-sig)'
+        d.append(i)
+        const c = getComputedStyle(i).color
+        i.remove()
+        return c
+      })
+      expect(await page.locator('.deck .held__n').first().evaluate((p) => getComputedStyle(p).color)).toBe(tpSig)
+      // the EJECT key's cover is orange, nothing else on the plate is
+      expect(await page.locator('.eject__cover').evaluate((p) => getComputedStyle(p).borderTopColor)).toBe(sig)
     })
 
   test('reduced motion: the deck appears without sliding in, nothing on it animates or eases', async ({ page }) => {

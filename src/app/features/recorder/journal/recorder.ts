@@ -23,6 +23,7 @@ import { pruneHumanPins, pruneOldestDays, pruneRetention, pruneTodayPins, type P
 import { recoverScope } from './recover'
 import { installSeam } from './seam'
 import { emitReset } from './bus'
+import { causeChain, laneOf, parseWriterKey, runKeyOf } from '../model/writerKeys'
 
 export { scopeNow }
 
@@ -377,20 +378,34 @@ export class Recorder {
     emitReset(scope)
   }
 
-  /** Flush and close segments (all, or a writer's: its segmentation key, run key, writer key or lane). */
-  async settle(writer?: string): Promise<void> {
+  /**
+   * Flush and close segments (all, or a writer's: its segmentation key, run key, writer key or lane). `causes`: also
+   * the derived ones (automation, autofill, kit, a synced copy) whose cause chain names that writer — the eject plans
+   * a writer with what its writes caused.
+   */
+  async settle(writer?: string, opts?: { causes?: boolean }): Promise<void> {
     await this.drainInSlices()
-    this.processor.closeAll(Date.now(), writer ? (s) => s.sk === writer || s.r === writer || s.w === writer || s.l === writer : undefined)
+    const own = (s: JSegment) => s.sk === writer || s.r === writer || s.w === writer || s.l === writer
+    const caused = (s: JSegment) => {
+      const cause = s.cause ?? parseWriterKey(s.w).cause
+      return !!cause && causeChain(cause).some((k) => k === writer || runKeyOf(k) === writer || laneOf(k) === writer)
+    }
+    this.processor.closeAll(Date.now(), writer ? (s) => own(s) || (!!opts?.causes && caused(s)) : undefined)
     await this.flush()
     this.armDue()
   }
 
   async recover(scope = scopeNow()): Promise<Awaited<ReturnType<typeof recoverScope>>> {
     await openJournal()
-    return recoverScope(scope, this.tab, this.memory).catch((e) => {
+    const res = await recoverScope(scope, this.tab, this.memory).catch((e) => {
       console.warn('[recorder] recovery failed', e)
       return { closed: 0, exact: 0, partial: 0, tails: 0 }
     })
+    // an eject a gone tab left half done is finished from its record (its own lazy chunk)
+    void import('../eject/boot')
+      .then((m) => m.finishEjects(scope))
+      .catch((e) => console.warn('[recorder] finishing ejects failed', e))
+    return res
   }
 
   /** The start-up recovery of a scope (started on the first slice). */

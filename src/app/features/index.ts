@@ -31,7 +31,7 @@ export { HistoryModal } from './history/HistoryModal'
  *  - RecorderDataLine: Workspace → Data (this workspace's tape on this device, open, erase)
  *  - openRecorder() / closeRecorder() / toggleRecorder() / useRecorderOpen() / isRecorderOpen(); REWIND_SHORTCUT = 'Mod+Alt+Z'
  */
-export { startRecorder, wipeRecorderScope, recorderFileRefs, RECORDER_DB, RecorderHost, RecorderStatusCell, RewindKey, RecorderDataLine, openRecorder, closeRecorder, toggleRecorder, useRecorderOpen, isRecorderOpen, REWIND_SHORTCUT } from './recorder'
+export { startRecorder, wipeRecorderScope, recorderFileRefs, RECORDER_DB, RecorderHost, RecorderStatusCell, RewindKey, RecorderDataLine, openRecorder, closeRecorder, toggleRecorder, useRecorderOpen, isRecorderOpen, REWIND_SHORTCUT, useRecorderMark, RecorderDbRead, type RecorderMark } from './recorder'
 export { startAutomations } from './automations/engine'
 export { AutomationsModal } from './automations/AutomationsModal'
 export { isAIConfigured, runAI, type AIAction, type RunAIOptions } from './ai/client'

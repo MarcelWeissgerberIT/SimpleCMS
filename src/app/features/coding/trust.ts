@@ -28,7 +28,8 @@ import { agentIdOf, isAgentWriting } from '../agents/attribution'
 import { addTrusted, trustedHashes } from './local'
 import { refIdsOf, refsKey } from './refs'
 import { codingProps, optionName, pipelineDbIds, readPipeline } from './schema'
-import { withWriter, type Writer } from '../../store/writer'
+import { currentWriter, withWriter, type Writer } from '../../store/writer'
+import { isEjectWriter } from '../recorder/settled'
 
 const inTeam = () => useCloud.getState().active.kind === 'cloud'
 
@@ -179,6 +180,8 @@ export function startTrustWatch(): void {
   useWorkspace.subscribe((next, prev) => {
     if (next.pages === prev.pages && next.databases === prev.databases) return
     if (isApplyingRemote() || isAgentWriting()) return
+    // an eject (or its Undo) never makes a task trusted: what it put back waits for Confirm where a task needs one
+    if (isEjectWriter(currentWriter())) return
     for (const dbId of pipelineDbIds()) watchDb(dbId, next, prev)
   })
 }

@@ -6,6 +6,8 @@
  *  - contract.ts: tool names + schemas + the bridge ⇄ tab protocol (also bundled into mcp/)
  */
 export { startMcp } from './service'
+/** The flight recorder's eject: mcpBusy(session) · settleMcpCall / unsettleMcpCall(session, call, ejectId) — the call's activity 'undone', its Undo gone */
+export { mcpBusy, settleMcpCall, unsettleMcpCall } from './service'
 export { McpTab } from './McpTab'
 export { McpStatusCell, openMcpSettings, consumeMcpSettingsRequest } from './McpStatus'
 export { useMcp } from './state'

@@ -11,7 +11,7 @@
 import { readFileSync } from 'node:fs'
 import type { Page } from '@playwright/test'
 import { test, expect, openApp, waitForApp, wsEval, uiEval, flush, gotoPage, editorOf } from './fixtures'
-import { F, K, eventsOf, flushRec, nordlichtDb, playStory, rec, recEvents, recOps, recPins, recRuns, recSegments, segmentsOf, startRecorder, step, storyTime, type Story } from './helpers/recorder'
+import { F, K, eventsOf, flushRec, nordlichtDb, playStory, seedPrivacyRun, rec, recEvents, recOps, recPins, recRuns, recSegments, segmentsOf, startRecorder, step, storyTime, type Story } from './helpers/recorder'
 
 const story = JSON.parse(readFileSync(new URL('./fixtures/recorder-story.json', import.meta.url), 'utf8')) as Story
 
@@ -363,6 +363,89 @@ test.describe('flight recorder journal', () => {
     expect(segs[1].bh).toBe(theirs[0].left.h)
   })
 
+  test('Δ12: a property added between two runs on a row is no unseen change — run 2 carries bhr = run 1’s left, no GAP; a real unseen change still is one', async ({ page }) => {
+    const n = await boot(page, () => nordlichtDb(page))
+    const [row, other] = n.rows
+    await at(page, T0 + MIN)
+    await step(page, agent('r31'), [['setRowProperty', row, n.est, 31], ['setRowProperty', other, n.est, 41]], { note: { seq: 31 }, end: true })
+    await rec(page, 'settle')
+    // the person adds a property: every row's canon gains a `p:` part, no value changes
+    await at(page, T0 + 2 * MIN)
+    await step(page, you, [['addProperty', n.db, { name: 'Hinweis', type: 'text' }]])
+    await rec(page, 'settle')
+    // … and, on the other row only, an unseen change (a write the journal never sees: bookkeeping on a place no segment holds open)
+    await step(page, { kind: 'system', why: 'bookkeeping' }, [['setRowProperty', other, n.est, 99]])
+    await at(page, T0 + 3 * MIN)
+    await step(page, agent('r32'), [['setRowProperty', row, n.est, 32], ['setRowProperty', other, n.est, 42]], { note: { seq: 32 }, end: true })
+    await rec(page, 'settle')
+    const run = (place: string, r: string) => segmentsOf(page, `p:${place}`).then((segs) => segs.find((g) => g.r === `agent:${AGENT}:${r}`)!)
+    const [r1, r2] = [await run(row, 'r31'), await run(row, 'r32')]
+    expect(r2.bh, 'the whole digest moved with the schema').not.toBe(r1.left.h)
+    expect(r2.f & F.GAP, 'no GAP for a property added').toBe(0)
+    expect(r2.bhr).toBe(r1.left.h)
+    const [o1, o2] = [await run(other, 'r31'), await run(other, 'r32')]
+    expect(o2.f & F.GAP, 'an unseen value change is one').toBe(F.GAP)
+    expect(o2.bhr).toBeTruthy()
+    expect(o2.bhr).not.toBe(o1.left.h)
+    expect(await rec(page, 'unknowns')).toEqual([])
+  })
+
+  test('Δ28: a NEW row’s and a NEW page’s closed segments carry part digests like any other', async ({ page }) => {
+    const n = await boot(page, () => nordlichtDb(page))
+    await at(page, T0 + MIN)
+    const [rowId] = await step<string[]>(page, agent('r33'), [['createRow', n.db, { title: 'NL-1432', properties: { [n.stage]: n.backlog } }]], { note: { seq: 33 } })
+    const [pageId] = await step<string[]>(page, agent('r33'), [['createPage', { title: 'Tessera Bericht', content: { type: 'doc', content: [{ type: 'paragraph', attrs: { id: 'tb1' }, content: [{ type: 'text', text: 'Nordlicht' }] }] } }]], { end: true })
+    await rec(page, 'settle')
+    const seg = (await segmentsOf(page, `p:${rowId}`)).at(-1)!
+    expect(seg.f & F.NEW).toBe(F.NEW)
+    expect(seg.touched).toBe('*')
+    expect(Object.keys(seg.left.parts)).toEqual(expect.arrayContaining(['t', 'c', `p:${n.stage}`, `p:${n.est}`]))
+    const pg = (await segmentsOf(page, `p:${pageId}`)).at(-1)!
+    expect(pg.f & F.NEW).toBe(F.NEW)
+    expect(Object.keys(pg.left.parts)).toEqual(expect.arrayContaining(['t', 'pa']))
+    expect(pg.left.blocks).toHaveLength(1)
+    expect(pg.left.blocks[0]).toMatch(/^tb1=/)
+  })
+
+  test('loadWindow (F5): the story’s run 212 = 37 places; NL-1408 and NL-1415 each with a foreign segment of the person, the other 35 none', async ({ page }) => {
+    test.setTimeout(120_000)
+    await boot(page, undefined, storyTime(story, story.setupAt))
+    const ids = await playStory(page, story)
+    const [a, b] = story.bracket.map((t) => storyTime(story, t))
+    const lane = `agent:${AGENT}`
+    const w = await rec<{ places: number; own: number; foreign: Record<string, Array<{ lane: string | null; at: number }>>; breaks: number; tooMany: number | null }>(page, 'loadWindow', { lane, run: story.expect.run212.key, a, b })
+    expect(w.places).toBe(37)
+    expect(w.breaks).toBe(0)
+    expect(w.tooMany).toBeNull()
+    expect(Object.keys(w.foreign).sort()).toEqual([`p:${ids['NL-1408']}`, `p:${ids['NL-1415']}`].sort())
+    expect(w.foreign[`p:${ids['NL-1408']}`]).toEqual([{ lane: 'you', at: storyTime(story, '07:44:12') }])
+    expect(w.foreign[`p:${ids['NL-1415']}`]).toEqual([{ lane: 'you', at: storyTime(story, '07:57:30') }])
+    // the lane reads the same window
+    expect((await rec<{ places: number }>(page, 'loadWindow', { lane, a, b })).places).toBe(37)
+  })
+
+  test('loadWindow (F5): a property added between two runs breaks no chain (bhr); an unseen change does (a virtual foreign)', async ({ page }) => {
+    const n = await boot(page, () => nordlichtDb(page))
+    const [row, other] = n.rows
+    await at(page, T0 + MIN)
+    await step(page, agent('r41'), [['setRowProperty', row, n.est, 31], ['setRowProperty', other, n.est, 41]], { note: { seq: 41 }, end: true })
+    await rec(page, 'settle')
+    await at(page, T0 + 2 * MIN)
+    await step(page, you, [['addProperty', n.db, { name: 'Hinweis', type: 'text' }]])
+    await rec(page, 'settle')
+    await step(page, { kind: 'system', why: 'bookkeeping' }, [['setRowProperty', other, n.est, 99]])
+    await at(page, T0 + 3 * MIN)
+    await step(page, agent('r42'), [['setRowProperty', row, n.est, 32], ['setRowProperty', other, n.est, 42]], { note: { seq: 42 }, end: true })
+    await rec(page, 'settle')
+    const w = await rec<{ places: number; own: number; foreign: Record<string, Array<{ lane: string | null; at: number }>>; breaks: number }>(page, 'loadWindow', { lane: `agent:${AGENT}`, a: T0, b: T0 + 4 * MIN })
+    expect(w.places).toBe(2)
+    expect(w.own).toBe(4)
+    expect(w.foreign[`p:${row}`], 'the row: no break — its bhr is what run 41 left').toBeUndefined()
+    expect(w.foreign[`p:${other}`]?.every((f) => f.lane === null && f.at === T0 + 3 * MIN)).toBe(true)
+    const segs = (await segmentsOf(page, `p:${row}`)).filter((g) => g.r === `agent:${AGENT}:r42`)
+    expect(segs[0].bhr).toBeTruthy()
+  })
+
   test('retention: 31 days later prune removes the old records and their pins and sets the floor', async ({ page }) => {
     const n = await boot(page, () => nordlichtDb(page))
     await step(page, agent('r5'), [['setRowProperty', n.rows[0], n.est, 31]], { note: { seq: 5 }, end: true })
@@ -535,24 +618,10 @@ test.describe('flight recorder journal', () => {
   test('privacy: the journal holds no page text and no values; option / view names only in schema deltas', async ({ page }) => {
     test.setTimeout(120_000)
     await boot(page, undefined, storyTime(story, story.setupAt))
-    const ids = await playStory(page, story)
-    // extra writes put known strings everywhere: content, a title, a number, a text cell, an option, a view
-    await at(page, storyTime(story, '08:06:00'))
-    const db = story.database.id
-    const note = await wsEval(page, (s, db) => s.addProperty(db, { name: 'Notiz', type: 'text' }) as string, db)
-    const page2 = await step<string[]>(page, you, [['createPage', { title: 'Platzhalter' }]])
-    await step(page, agent('r213'), [
-      ['setContent', page2[0], { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Nordlicht-Geheimwert-7' }] }] }, 'ai'],
-      ['updatePage', page2[0], { title: 'Tessera Quartalsplan' }],
-      ['setRowProperty', ids['NL-1398'], 'story-est', 98765.4321],
-      ['setRowProperty', ids['NL-1398'], note, 'Lindenweg 12'],
-    ], { note: { seq: 213 } })
-    const stage = await wsEval(page, (s, db) => JSON.parse(JSON.stringify(s.databases[db].properties.find((p: { id: string }) => p.id === 'story-stage'))), db)
-    await step(page, agent('r213'), [
-      ['updateProperty', db, 'story-stage', { options: [...stage.options, { id: 'o-tessera', name: 'Tessera-Option', color: 'red' }] }],
-      ['addView', db, { type: 'table', name: 'Tessera-Ansicht' }],
-    ], { end: true })
-    await rec(page, 'settle')
+    await playStory(page, story)
+    // extra writes put known strings everywhere (helpers/recorderStory.mjs): content, a title, a number, a text cell,
+    // an option, a view
+    await seedPrivacyRun(page, story)
     const dump = await rec<Record<string, Array<Record<string, unknown>>>>(page, 'rawDump')
     expect(dump.events.length).toBeGreaterThan(100)
     const all = JSON.stringify(dump)

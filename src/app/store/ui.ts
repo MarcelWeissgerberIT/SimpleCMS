@@ -33,12 +33,18 @@ export interface ToastKey {
   label: string
   run: () => void
   undo?: boolean
+  /** a keycap shown on the key (its shortcut, e.g. 'Mod+Z' — the owner of the toast handles the key itself) */
+  kbd?: string
 }
 
 export interface Toast {
   id: ID
   message: string
   kind?: 'info' | 'success' | 'error'
+  /** a glyph in place of the LED ('eject': the flight recorder's eject, in the signal colour on ink) */
+  glyph?: 'eject'
+  /** a second, quieter part of the message (its own line on a phone) */
+  detail?: string
   /**
    * The toast's key. `undo`: it takes back what the person (or a writer) just did — the toast host runs it as the
    * person's Undo (store/writer.ts `you~undo`, the flight recorder's undo lane); a key labelled with the common Undo

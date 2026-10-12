@@ -17,6 +17,7 @@ import { classifyPage, placeKindOf } from '../model/places'
 import { databaseChangesDetail } from '../model/schema'
 import { touchedParts } from '../model/touched'
 import { contentDelta } from '../model/counts'
+import { keySet, propKeysOf, restrictRowParts } from '../model/rowkeys'
 import { foldsTyping, isCopyKey, isHumanSeg, laneOf, parseWriterKey, runKeyOf, segKeyOf } from '../model/writerKeys'
 import { F, K, type JEvent, type JOp, type JRun, type JSegment, type LaneKey, type LeftHash, type PlaceKey, type PlaceKind, type Scope } from '../model/types'
 import { resolvePending, type Pending } from './attribute'
@@ -125,7 +126,7 @@ interface Open {
 type Job =
   | { t: 'ev'; rec: JEvent; seg: JSegment; obj: PlaceObject | null; taken?: true }
   | { t: 'open'; seg: JSegment; obj: PlaceObject | null }
-  | { t: 'close'; seg: JSegment; obj: PlaceObject | null; isNew: boolean }
+  | { t: 'close'; seg: JSegment; obj: PlaceObject | null }
 
 interface PinJob {
   seg: JSegment
@@ -231,8 +232,10 @@ export class Processor {
   private gapNext = new Set<PlaceKey>()
   /** runs that wrote after their end without saying they go on (no noteRun): they end again once the queue is drained */
   private late = new Set<string>()
-  /** this tab's last whole digest per place (LRU) */
-  private lastLh = new Map<PlaceKey, string>()
+  /** this tab's last whole digest per place (LRU), with a row's property keys then (`p:` keys sorted, interned) */
+  private lastLh = new Map<PlaceKey, { h: string; keys?: string }>()
+  /** interned key sets of rows (a database's rows share one string) */
+  private keyStrings = new Map<string, string>()
   private mcpClients = new Map<string, string>()
   private vCount = 0
 
@@ -638,8 +641,9 @@ export class Processor {
       this.segs.set(seg.rec.id, seg.rec)
       this.jobs.push(job)
       if (run && !copy) this.runs.noteEvent(scope, run, ev, delta ? [delta.wa, delta.wd] : [0, 0])
-      // the place is gone: nothing more can happen to it
+      // the place is gone: nothing more can happen to it (the segment says so — the eject puts a deleted view back)
       if (pl.f & F.GONE) {
+        seg.rec.f |= F.GONE
         if (purges(pl, lane)) this.purgePlace(scope, pl.p, at)
         this.close(seg, at)
       } else if (pl.f & F.NEW) this.purged.delete(pl.p)
@@ -803,7 +807,7 @@ export class Processor {
     delete o.rec.o
     const isNew = !!(o.rec.f & F.NEW)
     o.rec.touched = isNew || !o.lastObj ? '*' : touchedParts(o.first, o.lastObj, deps)
-    this.jobs.push({ t: 'close', seg: o.rec, obj: o.lastObj, isNew })
+    this.jobs.push({ t: 'close', seg: o.rec, obj: o.lastObj })
     this.segs.set(o.rec.id, o.rec)
   }
 
@@ -1036,11 +1040,13 @@ export class Processor {
       // 2. digests, in the order the records were made: each job's canonical string is built now (from the frozen
       // object it holds), signed in pieces — the page idle in between
       const digests: Array<string | LeftHash> = []
+      /** rows: the property key set of each job's object (Δ12: a row's next segment compares its before over these) */
+      const jobKeys: Array<string | undefined> = []
       type Input = { whole: string | null; parts?: Record<string, string>; blocks?: BlockCanon[] }
       const sign = (job: Job, c: Input): Promise<string | LeftHash> => {
         if (job.t === 'ev' || job.t === 'open') return c.whole === null ? Promise.resolve('-') : digestWhole(job.seg.s, c.whole)
         if (c.whole === null) return Promise.resolve({ h: '-', parts: {} })
-        return digestLeft(job.seg.s, { parts: c.parts ?? {}, blocks: c.blocks }, c.whole, job.isNew)
+        return digestLeft(job.seg.s, { parts: c.parts ?? {}, blocks: c.blocks }, c.whole)
       }
       for (let i = 0; i < jobs.length; i += DIGEST_CHUNK) {
         if (i) await lap(idleTask())
@@ -1049,12 +1055,13 @@ export class Processor {
         // signatures asked for in one task — a round of big pages stays short)
         let round: Array<Promise<string | LeftHash>> = []
         let bytes = 0
-        for (const job of piece) {
+        for (const [n, job] of piece.entries()) {
           if (performance.now() - t > YIELD_MS) await lap(idleTask())
           let c: Input = { whole: null }
           if (job.obj) {
             const pc = placeCanon(job.obj, deps)
             c = { whole: wholeCanon(pc.parts, pc.blocks), parts: pc.parts, blocks: pc.blocks }
+            if (job.obj.kind === 'row') jobKeys[i + n] = this.internKeys(propKeysOf(pc.parts))
             bytes += c.whole!.length * (job.t === 'close' ? 2 : 1)
           }
           round.push(sign(job, c))
@@ -1074,16 +1081,25 @@ export class Processor {
         if (job.t === 'ev') {
           job.rec.lh = d as string
           job.seg.lastLh = d as string
-          this.noteLh(job.seg.p, d as string)
+          this.noteLh(job.seg.p, d as string, jobKeys[i])
           events.set(job.rec.k, job.rec)
         } else if (job.t === 'open') {
           job.seg.bh = d as string
           const mine = this.lastLh.get(job.seg.p)
-          if (mine !== undefined && mine !== job.seg.bh && !(job.seg.f & F.NEW)) job.seg.f |= F.GAP
+          if (mine !== undefined && mine.h !== job.seg.bh && !(job.seg.f & F.NEW)) {
+            // a row whose database gained or lost a property since this tab's last digest: its before, restricted to
+            // the keys then, tells a schema change (no GAP) from an unseen change of the row (GAP) — Δ12
+            const keys = jobKeys[i]
+            if (job.obj?.kind === 'row' && mine.keys !== undefined && keys !== undefined && keys !== mine.keys) {
+              const pc = placeCanon(job.obj, deps)
+              job.seg.bhr = await lap(digestWhole(job.seg.s, wholeCanon(restrictRowParts(pc.parts, keySet(mine.keys)))))
+              if (job.seg.bhr !== mine.h) job.seg.f |= F.GAP
+            } else job.seg.f |= F.GAP
+          }
         } else {
           job.seg.left = d as LeftHash
           if (!job.seg.lastLh) job.seg.lastLh = (d as LeftHash).h
-          this.noteLh(job.seg.p, (d as LeftHash).h)
+          this.noteLh(job.seg.p, (d as LeftHash).h, jobKeys[i])
         }
         segs.set(job.seg.id, job.seg)
       }
@@ -1158,7 +1174,8 @@ export class Processor {
       part = 'flush:write'
       await this.writeInParts(j, batch, lap)
       // the deck merges what landed without a read; other tabs are pinged
-      emitFlushed({ ops: put.ops as unknown as JOp[], runs, fresh })
+      const written = put.segs as unknown as JSegment[]
+      emitFlushed({ ops: put.ops as unknown as JOp[], runs, fresh, places: [...new Set(written.map((g) => g.p))], scopes: [...new Set(written.map((g) => g.s))] })
       if (clean) {
         // an update that came while the write ran: the records must say dirty again
         if (this.seen === seen0) this.recordClean = true
@@ -1366,10 +1383,19 @@ export class Processor {
     }
   }
 
-  private noteLh(p: PlaceKey, h: string): void {
+  private noteLh(p: PlaceKey, h: string, keys?: string): void {
     this.lastLh.delete(p)
-    this.lastLh.set(p, h)
+    this.lastLh.set(p, keys === undefined ? { h } : { h, keys })
     if (this.lastLh.size > LAST_LH_MAX) this.lastLh.delete(this.lastLh.keys().next().value as PlaceKey)
+  }
+
+  /** One string per key set (thousands of rows of a database share it). */
+  private internKeys(keys: string): string {
+    const hit = this.keyStrings.get(keys)
+    if (hit !== undefined) return hit
+    if (this.keyStrings.size > 512) this.keyStrings.clear()
+    this.keyStrings.set(keys, keys)
+    return keys
   }
 
   /** Forget everything in memory (the journal was wiped / the recorder stops). */
@@ -1379,6 +1405,7 @@ export class Processor {
     this.gapNext.clear()
     this.late.clear()
     this.lastLh.clear()
+    this.keyStrings.clear()
     this.ops.clear()
     this.events.clear()
     this.segs.clear()

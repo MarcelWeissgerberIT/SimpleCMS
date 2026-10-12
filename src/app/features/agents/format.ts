@@ -51,6 +51,11 @@ export function fmtWhen(t: Translate, ms: number, lang: string, now = Date.now()
   return `${weekdayName(d.getDay(), lang, 'short')} ${pad(d.getDate())}.${pad(d.getMonth() + 1)}. · ${time}`
 }
 
+/** When a switched-on scheduled agent runs next (null: off, not scheduled, nothing within 40 days). */
+export function nextRunAt(agent: CustomAgent, now = Date.now()): number | null {
+  return agent.enabled && agent.trigger.type === 'schedule' ? nextSlot(agent.trigger, now) : null
+}
+
 /** The next run in words ('' when nothing is planned). */
 export function nextRunText(t: Translate, agent: CustomAgent, lang: string, now = Date.now()): string {
   if (!agent.enabled) return t('features.agents.off')

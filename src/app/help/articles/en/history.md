@@ -3,7 +3,7 @@ id: history
 title: Version history
 section: writing
 order: 12
-keywords: history, versions, restore, undo, snapshot, backup, previous version, compare, what's new, new since, diff, changes, properties, database entry, Verlauf, Versionen, Vorversion, vergleichen, wiederherstellen, Eigenschaften
+keywords: history, versions, before the eject, Vor dem Auswurf, restore, undo, snapshot, backup, previous version, compare, what's new, new since, diff, changes, properties, database entry, Verlauf, Versionen, Vorversion, vergleichen, wiederherstellen, Eigenschaften
 related: lock, export, ai-menu
 summary: One keeps earlier versions of every page. Scrub back in time, see what each version added, and restore.
 ---
@@ -33,6 +33,7 @@ A version of a database entry also keeps its **title, icon and property values**
 - **Start** — the state before you begin editing in a session,
 - **Auto** — while you edit, at most every few minutes (**Settings → Data → Version snapshots**),
 - **AI** — right before Claude, an agent, an automation or an MCP client changes the page or the entry's values,
+- **Before the eject** — right before the [flight recorder](help:flight-recorder) ejects a window that changes the page (its Undo takes the eject back in one step; this version stays),
 - **Manual** — when you click **Save version**.
 
 > Versions are stored on this device with the page. For a copy elsewhere, export a backup.

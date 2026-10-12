@@ -36,6 +36,7 @@ import { usePropertyCreate } from '../create/entry'
 import { TYPE_PROP_ID, foreignLabel, foreignTo, isTypeProp, setRowType } from '../model/recordTypes'
 import { TypeCell, TypeColumnMenu } from '../rtype/TypeColumn'
 import { typeEntries as rtypeEntries } from '../rtype/TypeTag'
+import { useRecorderMark } from '../../features'
 import './table/table.css'
 
 function useNarrow(): boolean {
@@ -1001,9 +1002,12 @@ function rowPropsEqual(a: RowProps, b: RowProps): boolean {
 
 const TableRow = memo(function TableRow({ m, row, idx, cols, gutter, height, selected, anySelected, activeCol, editingCol, dragging, openLabel, groupKey, handlers, nested, depth, kids, open, dimmed, last, rails, rc }: RowProps) {
   const t = useT()
+  // the flight recorder held this row in an eject just now
+  const held = useRecorderMark(`p:${row.id}`)?.held
   return (
     <div
       className={`dbt-row${rc ? ' db-rc' : ''}`}
+      data-held={held ? '' : undefined}
       role="row"
       aria-rowindex={idx + 1}
       aria-selected={selected}
@@ -1014,12 +1018,18 @@ const TableRow = memo(function TableRow({ m, row, idx, cols, gutter, height, sel
       data-dimmed={dimmed || undefined}
       data-rc={rc?.target}
       data-rc-color={rc?.color}
-      title={dimmed ? t('database.sub.context') : undefined}
+      title={dimmed ? t('database.sub.context') : held ? held.tag : undefined}
       style={{ ...(height ? { height } : null), ...(rc ? ruleStyle(rc.color) : null) }}
       onContextMenu={(e) => handlers.onContext(e, row)}
     >
       <div className="dbt-gutter dbt-sticky0" data-any={anySelected}>
         <span className="dbt-gutter__num">{String(idx + 1).padStart(2, '0')}</span>
+        {held && (
+          <span className="held-tag held-tag--row" title={held.tag}>
+            <Hand aria-hidden />
+            <span className="held-tag__t">{held.tag}</span>
+          </span>
+        )}
         {!m.readOnly && (
         <span className="dbt-gutter__tools">
           <button

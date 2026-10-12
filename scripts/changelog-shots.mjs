@@ -8,7 +8,7 @@
  *
  * (CHANGELOG_DRAFT=1 lets the build pass while a new entry's picture does not exist yet.)
  *
- * Shots: agent-trust, claude-tasks, preflight, flight-recorder, tasks, outbox, mirror-again, glass-switches, history-compare, mcp-overview, mirror, task-mcp, models, search, terminal-pipelines, cloud-worker, one-picker, pipelines, legacy-modernise, coding-live, text-size, mcp-media, coding-setup, free-board, building-blocks, workspace-settings, diagram-viewer, coding-pipeline, pages-per-item, design-import, tour, quick-capture, script-templates, one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
+ * Shots: agent-trust, claude-tasks, flight-recorder-eject, flight-recorder-window, preflight, flight-recorder, tasks, outbox, mirror-again, glass-switches, history-compare, mcp-overview, mirror, task-mcp, models, search, terminal-pipelines, cloud-worker, one-picker, pipelines, legacy-modernise, coding-live, text-size, mcp-media, coding-setup, free-board, building-blocks, workspace-settings, diagram-viewer, coding-pipeline, pages-per-item, design-import, tour, quick-capture, script-templates, one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
  * custom-agents, gmail, help-centre, mcp-servers, feed-blocks — each named like its image. Every shot starts from a fresh, seeded
  * workspace in English, light theme, 1440 × 900 at device scale 2; the crop of the relevant area is scaled
  * to 1440 px wide and saved as public/assets/shots/changelog/<shot>.webp (≤ 150 KB: the quality steps down
@@ -34,6 +34,7 @@ import { fileURLToPath } from 'node:url'
 import { strToU8, zipSync } from 'fflate'
 import { seedMorning, waitPreflight } from '../tests/e2e/helpers/preflightStory.mjs'
 import { seedTrust } from '../tests/e2e/helpers/trustStory.mjs'
+import { playStoryPage, storyTime } from '../tests/e2e/helpers/recorderStory.mjs'
 
 const LOCAL = (process.argv[2] || 'http://127.0.0.1:5315').replace(/\/$/, '')
 const ONLY = process.argv.slice(3)
@@ -897,6 +898,39 @@ const shots = {
     await ctx.close()
   },
   /**
+   * Ejecting run 212 (mock-3): the same morning, the agent's flag bracketed, the cover lifted, Eject, the dialog's
+   * "Revert 35 places" — the board after it ("Ready" back as a column, NL-1408 / NL-1415 tagged Held), the eject's
+   * message with Undo, the deck's plate "Ejected 08:05". English UI, Paper, 1440.
+   */
+  async 'flight-recorder-eject'(browser) {
+    const story = JSON.parse(readFileSync('tests/e2e/fixtures/recorder-story.json', 'utf8'))
+    const { ctx, page } = await freshPage(browser, { setup: (ctx) => ctx.clock.install({ time: storyTime(story, story.setupAt) }) })
+    await playStoryPage(page, story, { wipeSetup: true })
+    await page.evaluate((id) => (window.location.hash = `#/p/${id}`), story.database.id)
+    await page.locator('#main .db-tabs [role="tab"]', { hasText: 'Board' }).click()
+    await page.locator('#main .dbb').first().waitFor()
+    await page.waitForTimeout(600)
+    await rest(page)
+    await page.keyboard.press('Control+Alt+z')
+    await page.locator('.deck .lane').first().waitFor()
+    await page.waitForTimeout(600)
+    await page.locator('.lane[data-lane^="agent:"] .flag').first().click()
+    await page.locator('.deck .eject__key:not([disabled])').waitFor()
+    await page.locator('.deck .eject__cover').click()
+    await page.waitForTimeout(400)
+    await page.locator('.deck .eject__key').click()
+    const dialog = page.locator('.modal.rec-eject')
+    await dialog.locator('.plan .pi').first().waitFor({ timeout: 30_000 })
+    await page.waitForTimeout(500)
+    await dialog.locator('.btn--eject').click()
+    await page.locator('.deck .win--out').waitFor({ timeout: 30_000 })
+    await page.locator('.toast[data-glyph]').waitFor()
+    await page.mouse.move(W + 40, H + 40)
+    await page.waitForTimeout(900)
+    await save(page, 'flight-recorder-eject')
+    await ctx.close()
+  },
+  /**
    * The flight recorder: the deck docked under the board "Nordlicht Handoff" after the fictional morning of
    * tests/e2e/fixtures/recorder-story.json — the same story the specs play (every step real store actions under its
    * writer, at its time on the page clock): six tracks, the agent's run 212 bracketed by a click on its flag, the
@@ -904,34 +938,9 @@ const shots = {
    */
   async 'flight-recorder'(browser) {
     const story = JSON.parse(readFileSync('tests/e2e/fixtures/recorder-story.json', 'utf8'))
-    const at = (hms) => new Date(`${story.day}T${hms}${story.tz}`).getTime()
-    const { ctx, page } = await freshPage(browser, { setup: (ctx) => ctx.clock.install({ time: at(story.setupAt) }) })
-    await page.waitForFunction(() => !!window.__oneRecorder)
-    await page.clock.setFixedTime(at(story.setupAt))
-    const ids = await page.evaluate((story) => {
-      const g = () => window.__one.workspace.getState()
-      const d = story.database
-      g().createDatabase({ id: d.id, title: d.title })
-      for (const p of d.properties) g().addProperty(d.id, p)
-      g().addView(d.id, { id: d.board.id, type: 'board', name: d.board.name, groupBy: d.board.groupBy })
-      const ids = {}
-      for (const r of d.rows) ids[r.ref] = g().createRow(d.id, { title: r.title, properties: r.properties, content: r.content })
-      for (const p of story.pages) g().createPage({ id: p.id, title: p.title, parentId: p.parentId ?? null, content: p.content })
-      const now = Date.now()
-      g().upsertAgent({ id: story.agent.id, name: story.agent.name, instructions: 'Mirrors the Nordlicht hand-off.', trigger: { type: 'manual' }, scope: { everything: false, pages: [], databases: [d.id] }, write: 'apply', output: { pageId: 'story-report', mode: 'replace' }, mcpServers: [], runner: 'browser', maxRunUsd: 1, enabled: false, createdBy: null, updatedBy: null, createdAt: now, updatedAt: now })
-      g().upsertScript({ id: story.script.id, name: story.script.name, code: "page.create({ title: 'Tagesplan' })", kind: 'script', createdBy: null, updatedBy: null, createdAt: now, updatedAt: now })
-      return ids
-    }, story)
+    const { ctx, page } = await freshPage(browser, { setup: (ctx) => ctx.clock.install({ time: storyTime(story, story.setupAt) }) })
     // the setup is not part of the morning on the tape
-    await page.evaluate(() => window.__oneRecorder.settle())
-    await page.evaluate(() => window.__oneRecorder.wipe())
-    const resolve = (v) => (typeof v === 'string' ? (v.startsWith('$') && ids[v.slice(1)] ? ids[v.slice(1)] : v) : Array.isArray(v) ? v.map(resolve) : v && typeof v === 'object' ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, resolve(x)])) : v)
-    for (const s of story.steps) {
-      await page.clock.setFixedTime(at(s.at))
-      await page.evaluate((st) => window.__oneRecorder.step(st), { writer: s.writer, calls: resolve(s.calls), ...(s.note ? { note: s.note } : {}), ...(s.end ? { end: true } : {}) })
-    }
-    await page.clock.setFixedTime(at(story.now))
-    await page.evaluate(() => window.__oneRecorder.settle())
+    await playStoryPage(page, story, { wipeSetup: true })
     await page.evaluate((id) => (window.location.hash = `#/p/${id}`), story.database.id)
     await page.locator('#main .db-tabs [role="tab"]', { hasText: 'Board' }).click()
     await page.locator('#main .dbb').first().waitFor()
@@ -987,6 +996,40 @@ const shots = {
     }
   },
 
+  /**
+   * Reading a window: the same morning, run 212 bracketed by its flag, ↵ on the flag reads it — "Fenster lesen" over
+   * the board with the places grouped (schema, the report page, 32 rows with the two held ones, 3 new rows) and
+   * NL-1402 picked: Stage Ready → In Arbeit, in ink. English UI, Paper, 1440.
+   */
+  async 'flight-recorder-window'(browser) {
+    const story = JSON.parse(readFileSync('tests/e2e/fixtures/recorder-story.json', 'utf8'))
+    const { ctx, page } = await freshPage(browser, { setup: (ctx) => ctx.clock.install({ time: storyTime(story, story.setupAt) }) })
+    await playStoryPage(page, story, { wipeSetup: true })
+    await page.evaluate((id) => (window.location.hash = `#/p/${id}`), story.database.id)
+    await page.locator('#main .db-tabs [role="tab"]', { hasText: 'Board' }).click()
+    await page.locator('#main .dbb').first().waitFor()
+    await page.waitForTimeout(600)
+    await rest(page)
+    await page.keyboard.press('Control+Alt+z')
+    await page.locator('.deck .lane').first().waitFor()
+    await page.waitForTimeout(600)
+    const flag = page.locator('.lane[data-lane^="agent:"] .flag').first()
+    await flag.click()
+    await page.locator('.deck .held').first().waitFor()
+    await flag.focus()
+    await page.keyboard.press('Enter')
+    const dialog = page.locator('.modal.rec-read')
+    await dialog.locator('.pi').first().waitFor()
+    await dialog.locator('.pi--more').first().click()
+    await dialog.locator('.pi', { hasText: 'NL-1402' }).first().click()
+    await dialog.locator('.rec-prev .hprops__row').first().waitFor()
+    // a click on the preview's heading, as a reader would: the list's keyboard ring goes
+    await dialog.locator('.rec-prev .prev__h').click()
+    await page.mouse.move(W + 40, H + 40)
+    await page.waitForTimeout(600)
+    await save(page, 'flight-recorder-window')
+    await ctx.close()
+  },
   /**
    * Tasks (P1): the demo seed's "Launch plan" — the "This week" stack on one plate: open with a date and two people
    * (the caret in its title: the ghost keys show), in progress with 2/4 steps, blocked with a chip per blocker and

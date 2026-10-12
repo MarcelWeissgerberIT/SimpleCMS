@@ -49,6 +49,8 @@
  *      SPLIT_SHORTCUT = 'Mod+Alt+9'.
  */
 export { PageEditor, type PageEditorProps } from './PageEditor'
+/* flushOpenEditors(): every mounted page editor's pending typing into the store now, each under its editor's frame */
+export { flushOpenEditors } from './PageEditor'
 export { ReadOnlyDoc } from './ReadOnlyDoc'
 /* Claude's change as its own undo step, also in a shared page (Y undo): startUndoStep(view) before building the transaction, endUndoStep(view) after dispatching it */
 export { startUndoStep, endUndoStep } from './collab'

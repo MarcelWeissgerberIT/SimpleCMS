@@ -17,7 +17,7 @@ export { ServerAgentsSettings } from './ServerAgentsSettings'
 export { agentLabel } from './label'
 export { runNow as runAgentNow } from './actions'
 /** Read-outs for overviews (the workspace page's Automation section): a trigger in words · this device's runs of an agent */
-export { triggerText as agentTriggerText } from './format'
+export { triggerText as agentTriggerText, nextRunAt as agentNextRunAt } from './format'
 export { loadRuns as loadAgentRuns, useAgentRuns } from './runs'
 /**
  * The Preflight lamps (proposals, mirror stale, agent missed) — reads only:
@@ -68,7 +68,17 @@ export { reasonKeys, reasonOfKey, wrongLetter, REASONS } from './trust/reasons'
 export { useTrust } from './trust/book'
 export type { DiscardReason } from '../ai/agent/types'
 export type { TrustBook, Verdict } from './trust/types'
+/**
+ * The flight recorder's eject (features/recorder, imported lazily) — call settle / unsettle ONLY inside withRunLock(agentId):
+ *  - ejectBusy(run): the agent runs (any tab), the run is running or a change applies → no eject now
+ *  - settleEjected(cur, o) → { run, discarded, slips, state } · unsettleEjected(cur, ejectId, back, pending, state)
+ *  - forgetUndos(runId, ids) · forgetRunUndo(runId): the Undo closures of ejected changes go
+ *  - withRunLock(agentId, fn): the agent's run lock (one review at a time, across this browser's tabs)
+ */
+export { ejectBusy, settleEjected, unsettleEjected, forgetUndos, type EjectState } from './review'
+export { forgetRunUndo } from './undos'
+export { withRunLock } from './runs'
 export { AgentChangeBody, AGENT_BODY_KINDS } from './body'
-export { setSupersedeGuard, type SupersedeGuard } from './supersede'
+export { setSupersedeGuard, supersedeGuard, type SupersedeGuard } from './supersede'
 export { catchUpSupersede } from './runner'
 export { setProposalsShown } from './hold'

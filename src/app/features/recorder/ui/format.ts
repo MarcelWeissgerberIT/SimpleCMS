@@ -42,6 +42,15 @@ export function hm(at: number): string {
   const d = new Date(at)
   return `${two(d.getHours())}:${two(d.getMinutes())}`
 }
+/** The last second a window [a, b) shows (b is exclusive; a window under a second shows its start). */
+export const windowEnd = (w: { a: number; b: number }): number => Math.max(w.a, w.b - 1000)
+/** A time span to the second, shared parts once: "07:31:12–14", "07:31:12–07:33:02", "07:31:21". */
+export function hmsSpan(a: number, b: number): string {
+  const x = hms(a)
+  const y = hms(b)
+  if (x === y) return x
+  return x.slice(0, 6) === y.slice(0, 6) ? `${x}–${y.slice(6)}` : `${x}–${y}`
+}
 /** ":32" */
 export const mm = (at: number): string => `:${two(new Date(at).getMinutes())}`
 /** a lane count, two digits at least: "06" */

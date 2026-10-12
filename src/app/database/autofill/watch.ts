@@ -12,7 +12,8 @@
 import type { Database, ID, PropertyDef } from '../../store/types'
 import { pageChanges, useWorkspace } from '../../store/store'
 import { isApplyingRemote } from '../../store/persistence'
-import { causeKey, type Writer, type WriterKey } from '../../store/writer'
+import { causeKey, currentWriter, type Writer, type WriterKey } from '../../store/writer'
+import { isEjectWriter } from '../../features/recorder/settled'
 import { autofillOf, configIssue } from './config'
 import { rowHash } from './context'
 import { isDbReadOnly } from '../readonly'
@@ -42,6 +43,8 @@ export function startAutofillWatch(): void {
   started = true
   useWorkspace.subscribe((s, prev) => {
     if (s.pages === prev.pages || isApplyingRemote()) return
+    // a source an eject put back is not filled again (it would spend tokens and write over the reverted value)
+    if (isEjectWriter(currentWriter())) return
     const dbs = autoDatabases(s.databases)
     if (!dbs.size) return
     const changed: Array<{ dbId: ID; rowId: ID }> = []

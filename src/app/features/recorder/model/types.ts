@@ -133,7 +133,7 @@ export interface JEvent {
 export interface LeftHash {
   /** whole-place digest (12 chars) */
   h: string
-  /** part key → 8-char digest; NEW places: {} */
+  /** part key → 8-char digest (NEW places too; records from before R2: {} for NEW places) */
   parts: Record<string, string>
   /** pages: ordered top-level blocks `<blockId>=<digest>` or `#<digest>` */
   blocks?: string[]
@@ -166,6 +166,11 @@ export interface JSegment {
   left: LeftHash | null
   /** lh of its last event */
   lastLh: string
+  /**
+   * rows: the before digest restricted to the property keys this tab's last digest of the place had (a property added
+   * or deleted in between changes every row's whole digest, never a value) — set when `bh` differs from it only so
+   */
+  bhr?: string
   /** part keys this segment changed; > 400 → '*' */
   touched: string[] | '*'
   /** the tab that recorded it */
@@ -221,8 +226,10 @@ export interface JHist {
 
 export interface SchemaDelta {
   part: 'prop+' | 'prop-' | 'prop~' | 'order' | 'opt+' | 'opt-' | 'opt~' | 'view+' | 'view-' | 'view~' | 'lock' | 'commands' | 'dbmeta'
-  /** names allowed */
+  /** names allowed (`prop~`: the property after the change) */
   prop?: { id: ID; name: string; type: PropertyType }
+  /** `prop~` whose type changed: the type before (a record field, not canon — tapes from before it lack it) */
+  was?: PropertyType
   /** option names (renames: prev name) */
   opt?: { id: ID; name: string; prev?: string }
   view?: { id: ID; name: string; type: ViewType }
@@ -308,4 +315,154 @@ export interface PinBody {
   content: JSONContent | null
   /** when it was written or last referred to by a new pin (the orphan sweep's grace) */
   at?: number
+}
+
+/* ------------------------------------------------------------------ */
+/* Window reading (R2) and the eject (R3)                               */
+/* ------------------------------------------------------------------ */
+
+/** What the eject plan does with a place. */
+export type Outcome = 'back' | 'trash' | 'restore' | 'recreate' | 'held' | 'partial' | 'already' | 'skip'
+
+/** Why a place (or a part of it) is held / partial / left alone. */
+export type Reason =
+  | 'changed'
+  | 'interleaved'
+  | 'locked'
+  | 'pageLocked'
+  | 'dependsOnHeld'
+  | 'noBefore'
+  | 'noLeft'
+  | 'open'
+  | 'cut'
+  | 'gap'
+  | 'stale'
+  | 'batch'
+  | 'otherMember'
+  | 'notEjectable'
+  | 'reviewUndone'
+  | 'alreadyEjected'
+  | 'children'
+  | 'inUse'
+  | 'parent'
+  | 'ambiguous'
+  | 'sent'
+  | 'taskElsewhere'
+  | 'taskLoop'
+  | 'running'
+  | 'pipeline'
+  | 'memory'
+  | 'moved'
+  | 'recordType'
+  | 'valuesStay'
+  | 'unavailable'
+
+/** A selected window: a writer (its lane, or one run of it) in [a, b) of a scope. */
+export interface WindowSel {
+  scope: Scope
+  lane: LaneKey
+  run?: string
+  a: number
+  b: number
+}
+
+/** A segment of another writer after W's first touch (lane null = not recorded: a chain break, a GAP flag). */
+export interface Foreign {
+  from: number
+  lane: LaneKey | null
+  w: string | null
+  touched: string[] | '*'
+  seg: string | null
+  open: boolean
+}
+
+/** One place W touched in the window: W's segments on it, everyone else's after W's first touch, W's events. */
+export interface PlaceWindow {
+  p: PlaceKey
+  pk: PlaceKind
+  db?: ID
+  own: JSegment[]
+  foreign: Foreign[]
+  ownEvents: JEvent[]
+  /** an own segment reaches outside [a, b) */
+  cut: boolean
+  /** cloud scope: the object is not in this member's store now — no pin is read, no preview */
+  unavailable?: boolean
+}
+
+/** A place as it is now: its whole digest, part digests, block digests (pages) and a sync key of its parts. */
+export interface NowDigest {
+  exists: boolean
+  h: string
+  parts: Record<string, string>
+  blocks?: string[]
+  /** partsKey (unkeyed, memory only — never persisted) */
+  key: string
+}
+
+/** The place-level verdict of the held check (R2) and the planner core (R3). */
+export interface PlaceVerdict {
+  p: PlaceKey
+  pk: PlaceKind
+  db?: ID
+  outcome: Outcome
+  reason?: Reason
+  /** who changed it since (foreign segments after W's last segment first, then the ones within) */
+  by: Array<{ lane: LaneKey | null; at: number }>
+  /** the first foreign segment after W's first touch (the tape's held diamond) and whose it was (its track) */
+  firstForeignAt?: number
+  firstForeignLane?: LaneKey | null
+  /** W's Vorgänge on it in the window */
+  ops: number
+  span: [number, number]
+  /** staged change ids of W's events on it */
+  changes: string[]
+}
+
+/** The eject's counts (design §6.1): `back` counts back + trash + restore; `all` = back + held + partial (already-ejected places are listed, never counted). */
+export interface PlanCounts {
+  ops: number
+  all: number
+  back: number
+  held: number
+  partial: number
+  already: number
+  rows: number
+  newRows: number
+  pages: number
+  schema: number
+  views: number
+}
+
+/** store `ejects` — one per eject (ids, outcomes, digests, counts and times; never text). */
+export interface EjectRecord {
+  id: string
+  s: Scope
+  at: number
+  tab: string
+  writer: string
+  lane: LaneKey
+  a: number
+  b: number
+  state: 'committing' | 'done' | 'aborted'
+  outcomes: Record<PlaceKey, Outcome>
+  /** segments of the places that went back (back | trash | restore) — what `already` compares */
+  segs: string[]
+  /** places that go back: HMAC digests of the DECIDED parts of the target (+ `blocks`: restored hunks, `<id|#>=<digest>`) */
+  targets: Record<PlaceKey, { parts: Record<string, string>; blocks?: string[][] }>
+  /** per place: the units of W's events on it in the window — `<runKey>#<change>` (agent / terminal), a run key (an MCP
+   * call, a script run: the whole run) (Δ29) */
+  changes: Record<PlaceKey, string[]>
+  /** W's run keys in the window (the sources a boot settles without a plan) */
+  runs?: string[]
+  /** the dialog's switch "discard the run's open proposals" */
+  pending?: boolean
+  counts: PlanCounts
+  versionAt: number
+  /** the agent runs it settled; `discarded`: the open proposals it discarded (`<runKey>#<change>` — its Undo opens them
+   * again); `stateBefore` / `stateAfter`: which run's state the agent had after / before the eject (ids only, never the state) */
+  agent?: { agentId: string; runIds: string[]; discarded: string[]; stateBefore?: unknown; stateAfter?: unknown }
+  /** Outbox slips it withdrew (they stay withdrawn after its Undo) */
+  slips?: number
+  undone?: number
 }

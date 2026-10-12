@@ -7,7 +7,8 @@
  */
 import { pageChanges, useWorkspace } from '../../store/store'
 import { isApplyingRemote } from '../../store/persistence'
-import { SYSTEM, withWriter } from '../../store/writer'
+import { currentWriter, SYSTEM, withWriter } from '../../store/writer'
+import { isEjectWriter } from '../recorder/settled'
 import type { ID } from '../../store/types'
 import type { StagedChange } from '../ai/agent/types'
 import { useCloud, writeAsAgent } from '../../cloud'
@@ -75,6 +76,8 @@ export function startAttributionKeeper(): () => void {
   if (keeper) return keeper
   const unsub = useWorkspace.subscribe((state, prev) => {
     if (state.pages === prev.pages || writing || !state.ready || !prev.ready || isApplyingRemote() || inCloud()) return
+    // an eject carries an agent's stamp back with the text it restores (a pipeline task waits for Confirm, Δ25)
+    if (isEjectWriter(currentWriter())) return
     const clear: ID[] = []
     for (const id of pageChanges(state.pages, prev.pages).changed) {
       const p = state.pages[id]

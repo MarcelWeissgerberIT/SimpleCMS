@@ -4,7 +4,8 @@
  * ops, the axis, the width or the window change. A press and drag along the track brackets a window there; a click
  * on a tick opens its place (more places: a popover); a click on a flag brackets its run.
  */
-import { memo, useLayoutEffect, useMemo, useRef, type PointerEvent as RPointerEvent } from 'react'
+import { Fragment, memo, useLayoutEffect, useMemo, useRef, type PointerEvent as RPointerEvent } from 'react'
+import { Eject } from 'lucide-react'
 import { useLang, useT } from '../../../i18n'
 import { fracOf, snapTime, tAtX, xOf, ZOOM, type Axis, type Zoom } from '../model/axis'
 import { copiesPath, countOps, histMarks, isCopy, laneMarks, marksPath, opAt, type LaneMarks } from '../model/marks'
@@ -15,6 +16,7 @@ import { fmtNum, hm, unit } from './format'
 import { settleLaneLabels } from './settle'
 import { freezeAxis, setBracket, setFocusLane, type Bracket } from './state'
 import type { View } from '../model/labels'
+import type { HeldMark } from '../window/read'
 
 export interface LaneProps {
   meta: LaneMeta
@@ -30,6 +32,24 @@ export interface LaneProps {
   nowX: number | null
   phone: boolean
   onOp: (op: JOp, x: number, el: HTMLElement) => void
+  /** rows of the selected window that someone changed since: diamonds at that moment (the plate's note says it) */
+  held?: HeldMark[]
+  /** windows an eject took back on this track (hatched, labelled; their ticks are gone) */
+  out?: EjectedWindow[]
+  /** the bracket is an ejected window: drawn as ejected, not as selected */
+  ejected?: boolean
+}
+
+/** A window an eject took back, as its track draws it. */
+export interface EjectedWindow {
+  id: string
+  a: number
+  b: number
+  at: number
+  back: number
+  all: number
+  /** the run it ejected (none: the whole track in [a, b)) */
+  run?: string
 }
 
 const DRAG_PX = 4
@@ -40,8 +60,10 @@ export const Lane = memo(function Lane(p: LaneProps) {
   const t = useT()
   const lang = useLang()
   const ref = useRef<HTMLDivElement>(null)
-  const sel = p.bracket && p.bracket.lane === p.meta.lane ? p.bracket : null
+  const sel = p.bracket && p.bracket.lane === p.meta.lane && !p.ejected ? p.bracket : null
   const human = p.meta.lane === 'you' || p.meta.lane.startsWith('member:')
+  // an ejected window's writes are no longer drawn: the hatched block stands for them
+  const drawn = useMemo(() => (p.out?.length && p.ops ? p.ops.filter((o) => !p.out!.some((e) => o.at >= e.a && o.at < e.b && (!e.run || o.r === e.run))) : p.ops), [p.ops, p.out])
   const marks: LaneMarks = useMemo(
     () =>
       // not measured yet (the deck's first render): nothing to draw — the marks come with the tape's width
@@ -49,8 +71,8 @@ export const Lane = memo(function Lane(p: LaneProps) {
         ? { ranges: [], ticks: [], points: [], flags: [], copies: [], count: 0 }
         : p.hist
           ? histMarks(p.hist, { ax: p.ax, width: p.width })
-          : laneMarks(p.ops ?? [], { ax: p.ax, width: p.width, sel, human }),
-    [p.hist, p.ops, p.ax, p.width, sel, human],
+          : laneMarks(drawn ?? [], { ax: p.ax, width: p.width, sel, human }),
+    [p.hist, drawn, p.ax, p.width, sel, human],
   )
   const plain = useMemo(() => marksPath(marks.ticks, marks.points, 30, false), [marks])
   const hot = useMemo(() => marksPath(marks.ticks, marks.points, 30, true), [marks])
@@ -220,6 +242,28 @@ export const Lane = memo(function Lane(p: LaneProps) {
         )
       })}
       {sel && <div className="bracket" style={{ left: x(sel.a), width: Math.max(2, x(sel.b) - x(sel.a)) }} />}
+      {p.out?.map((e) => {
+        const x0 = x(e.a)
+        const x1 = x(e.b)
+        if (x1 < 0 || x0 > W) return null
+        return (
+          <Fragment key={e.id}>
+            <div className="bracket bracket--out" style={{ left: x0, width: Math.max(2, x1 - x0) }} data-eject={e.id} />
+            <span className="ev-l ev-l--out" data-anchor={x1} data-shift={8} data-gap={8} data-start={x0} data-flips="1" style={{ left: x1 + 8 }}>
+              <Eject aria-hidden />
+              {t('features.recorder.flag.out', { time: hm(e.at), back: fmtNum(e.back, lang), all: fmtNum(e.all, lang) })}
+            </span>
+          </Fragment>
+        )
+      })}
+      {p.held?.map((h) => (
+        <Fragment key={h.p}>
+          <i className="held" style={{ left: x(h.at) }} data-held={h.p} aria-hidden="true" />
+          <span className="held__n" data-anchor={x(h.at)} data-shift={8} data-gap={8} data-flips="1" style={{ left: x(h.at) + 8 }} aria-hidden="true">
+            {h.label}
+          </span>
+        </Fragment>
+      ))}
     </div>
   )
 })

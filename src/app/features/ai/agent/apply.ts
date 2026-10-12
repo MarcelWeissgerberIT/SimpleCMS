@@ -23,7 +23,9 @@ import { livePage, withPageNodes, type LinkTarget } from './links'
 import { mediaNode } from '../media/blocks'
 import { applyNewTask, applyTaskAction, isPipelineTask, taskNeedsConfirm, taskSig, taskWriteEndsConfirm, textRefsGained } from '../../coding'
 import { isHandOnly, keyOwner, keyPropOf, keyText } from '../../../store/keys'
-import { withWriter, type Writer } from '../../../store/writer'
+import { formatWriterKey, withWriter, type Writer } from '../../../store/writer'
+import { isSettled } from '../../recorder/settled'
+import { runKeyOf } from '../../recorder/model/writerKeys'
 
 const ws = () => useWorkspace.getState()
 const ORIGIN = 'ai'
@@ -394,11 +396,21 @@ export async function applyChanges(changes: StagedChange[], all: StagedChange[],
     }
   }
 
+  // a change an eject settled (features/recorder/settled.ts) is not the batch's to revert any more: its closure is kept
+  // — an edit group / a page's task changes whole when any of them is settled — and reported kept (another tab's eject
+  // too: the mark comes over)
+  // (no writer: a caller that applies nothing of a run — its Undo keeps nothing for an eject)
+  const runKey = opts.writer ? runKeyOf(formatWriterKey(opts.writer)) : null
   const undo = () => {
     const kept: string[] = []
     const reverted: Record<string, ID[]> = {}
     for (let i = undos.length - 1; i >= 0; i--) {
       const u = undos[i]!
+      // a part holding a settled change is not run at all: every change of it kept, nothing of it reverted
+      if (runKey && u.ids.some((id) => isSettled(runKey, id))) {
+        kept.push(...u.ids)
+        continue
+      }
       // true = undone; false = every change of this part kept; a list = the changes of a page group kept
       const r = u.fn()
       if (r === true) continue

@@ -322,6 +322,41 @@ export function undoMcpActivity(key: string) {
 }
 
 /* ------------------------------------------------------------------ */
+/* the flight recorder's eject (features/recorder eject/sources.ts)     */
+/* ------------------------------------------------------------------ */
+
+/** The states an eject's settle replaced, by activity key (its Undo puts them back). */
+const settledStates = new Map<string, ActivityState>()
+
+const callActivities = (session: string, call: string) => get().activity.filter((a) => a.id.startsWith(`${call}:`) && (a.session ?? '-') === session)
+
+/** May an eject settle this session's calls now? Not while one of its calls runs or waits for approval. */
+export const mcpBusy = (session: string): boolean => get().activity.some((a) => (a.session ?? '-') === session && (a.state === 'run' || a.state === 'wait'))
+
+/**
+ * An eject took back what a call wrote (`session`, `call`: its run key mcp:<session>:<call>): its activity reads 'undone'
+ * and its Undo closure goes (it would write the old values over the ejected state). Returns whether it found one.
+ */
+export function settleMcpCall(session: string, call: string, _ejectId: string): boolean {
+  const list = callActivities(session, call)
+  for (const a of list) {
+    if (!settledStates.has(a.id)) settledStates.set(a.id, a.state)
+    logPatch(a.id, { state: 'undone', undo: undefined })
+  }
+  return list.length > 0
+}
+
+/** The eject's Undo: the call's activity reads as it did (its Undo closure stays gone — the call can no longer be undone from the log). */
+export function unsettleMcpCall(session: string, call: string, _ejectId: string): void {
+  for (const a of callActivities(session, call)) {
+    const was = settledStates.get(a.id)
+    if (was === undefined) continue
+    settledStates.delete(a.id)
+    logPatch(a.id, { state: was })
+  }
+}
+
+/* ------------------------------------------------------------------ */
 /* Approvals                                                           */
 /* ------------------------------------------------------------------ */
 
@@ -530,5 +565,14 @@ if (typeof window !== 'undefined' && (import.meta.env.DEV || new URLSearchParams
       return { conn: s.conn, session: s.session, client: s.client?.name ?? null }
     },
     activity: () => get().activity.map(({ undo, ...a }) => ({ ...a, undoable: !!undo })),
+    /** the flight recorder's eject: an activity as a call leaves it (its Undo counts its presses in `undos`) */
+    seedActivity: (a: Omit<McpActivity, 'undo'>, undoable: boolean) => {
+      const w = window as unknown as { __oneMcpUndos?: number }
+      set((s) => ({ activity: [{ ...a, ...(undoable ? { undo: () => ((w.__oneMcpUndos = (w.__oneMcpUndos ?? 0) + 1), true) } : {}) }, ...s.activity] }))
+    },
+    undos: () => (window as unknown as { __oneMcpUndos?: number }).__oneMcpUndos ?? 0,
+    busy: mcpBusy,
+    settle: settleMcpCall,
+    unsettle: unsettleMcpCall,
   }
 }

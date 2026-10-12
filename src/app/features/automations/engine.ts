@@ -19,7 +19,8 @@ import { postWebhook, type WebhookOutcome } from '../../lib/webhook'
 import { t } from '../../i18n'
 import { aiWrite } from '../history/snapshots'
 import { errorMessage, runScriptById } from '../script'
-import { causeKey, endRun, formatWriterKey, noteRun, SYSTEM, withWriter, type Writer, type WriterKey } from '../../store/writer'
+import { causeKey, currentWriter, endRun, formatWriterKey, noteRun, SYSTEM, withWriter, type Writer, type WriterKey } from '../../store/writer'
+import { isEjectWriter } from '../recorder/settled'
 
 /* The database area is loaded lazily so this always-on service doesn't pull it in statically. */
 type DatabaseApi = typeof import('../../database')
@@ -488,6 +489,8 @@ export function startAutomations(): () => void {
   const unsub = useWorkspace.subscribe((state, prev) => {
     if (state.pages === prev.pages || !state.ready || !prev.ready) return
     if (paused || applyingAction || isApplyingRemote()) return
+    // an eject (or its Undo) puts rows back as they were: it fires nothing (flight recorder, Δ30)
+    if (isEjectWriter(currentWriter())) return
     try {
       diff(state, prev)
     } catch (err) {

@@ -20,7 +20,8 @@ import { makers, reachable } from './objects'
 import { readProp } from './props'
 import { isTabular, tabulate } from './table'
 import { appRunUI, silentRunUI } from './dialogs'
-import { putScriptRun, scriptScope } from './runs'
+import { loadScriptRuns, putScriptRun, scriptScope } from './runs'
+import { isSettled } from '../../recorder/settled'
 import { codeHash, isTrusted, trustCode } from './trust'
 import type { ChangeItem, EffectItem, ErrorInfo, LogLine, ResultTable, RunMode, RunUI, ScriptRun, UndoData } from './types'
 import { endRun, noteRun, withWriter, type Writer, type WriterKey } from '../../../store/writer'
@@ -315,6 +316,9 @@ export const canUndo = (run: ScriptRun): boolean => run.mode === 'run' && !run.u
  * content, properties, trash state) goes back to how it was before the run.
  */
 export async function undoRun(run: ScriptRun): Promise<boolean> {
+  // the stored copy decides (a toast's Undo closes over an older object): an eject may have settled the run since
+  const stored = (await loadScriptRuns(run.scriptId, run.scope)).find((r) => r.id === run.id)
+  if (stored?.undone || isSettled(`script:${run.scriptId}:${run.id}`)) return false
   const undo = undoMemory.get(run.id) ?? run.undo
   if (!undo || run.undone) return false
   // the person's Undo of the run (store/writer.ts) — one synchronous burst
@@ -322,6 +326,24 @@ export async function undoRun(run: ScriptRun): Promise<boolean> {
   undoMemory.delete(run.id)
   await putScriptRun({ ...run, undone: true, undo: null })
   return true
+}
+
+/**
+ * The flight recorder's eject took back what a run wrote: its Undo goes (never `undoRun`: it would write the old values
+ * blindly over the ejected state) — the stored run reads undone. Resolves whether the run was found.
+ */
+export async function settleScriptRun(scriptId: ID, runId: string, scope?: string): Promise<boolean> {
+  undoMemory.delete(runId)
+  const run = (await loadScriptRuns(scriptId, scope)).find((r) => r.id === runId)
+  if (!run) return false
+  await putScriptRun({ ...run, undone: true, undo: null })
+  return true
+}
+
+/** The eject's Undo: the run reads as not undone again (its Undo data stays gone — it can no longer be undone from the log). */
+export async function unsettleScriptRun(scriptId: ID, runId: string, scope?: string): Promise<void> {
+  const run = (await loadScriptRuns(scriptId, scope)).find((r) => r.id === runId)
+  if (run?.undone) await putScriptRun({ ...run, undone: false, undo: null })
 }
 
 function undoNow(undo: UndoData): void {

@@ -103,7 +103,7 @@ export function databaseChangesDetail(prev: Database | undefined, next: Database
     for (const p of next.properties) {
       const o = before.get(p.id)
       if (!o || o === p) continue
-      if (stable(defCore(o)) !== stable(defCore(p))) deltas.push({ part: 'prop~', prop: propRef(p) })
+      if (stable(defCore(o)) !== stable(defCore(p))) deltas.push({ part: 'prop~', prop: propRef(p), ...(o.type !== p.type ? { was: o.type } : {}) })
       const oo = new Map((o.options ?? []).map((x) => [x.id, x]))
       const no = new Map((p.options ?? []).map((x) => [x.id, x]))
       for (const x of p.options ?? []) {

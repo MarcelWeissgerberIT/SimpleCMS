@@ -4,6 +4,7 @@
  * moment and assert a lane. Test data is fictional (Nordlicht, Tessera).
  */
 import { expect, type Page } from '@playwright/test'
+import { playStoryPage, type StoryJson } from './recorderStory.mjs'
 
 type AnyRec = Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -141,68 +142,13 @@ export async function expectNoPerson(page: Page, since: RecMark, places: string[
 /* The story (tests/e2e/fixtures/recorder-story.json)                  */
 /* ------------------------------------------------------------------ */
 
-export interface StoryStep {
-  at: string
-  writer: AnyRec
-  calls: Array<[string, ...unknown[]]>
-  note?: AnyRec | true
-  end?: boolean
-}
-
-export interface Story {
-  day: string
-  tz: string
-  setupAt: string
-  span: [string, string]
-  now: string
-  playhead: string
-  bracket: [string, string]
-  database: { id: string; title: string; properties: AnyRec[]; board: { id: string; name: string; groupBy: string }; rows: Array<{ ref: string; title: string; properties: AnyRec; content: AnyRec | null }> }
-  pages: Array<{ id: string; title: string; parentId?: string; content: AnyRec | null }>
-  agent: { id: string; name: string }
-  script: { id: string; name: string }
-  mcpClient: string
-  steps: StoryStep[]
-  expect: { lanes: Record<string, number>; run212: { key: string; ops: number; from: string; to: string; places: AnyRec; words: [number, number] } }
-}
-
-/** A story time ('07:31:04') on the story's day, as epoch ms. */
-export const storyTime = (story: Story, hms: string): number => new Date(`${story.day}T${hms}${story.tz}`).getTime()
-
-/** `$NL-1408` → that row's id (any string argument, at any depth). */
-function resolveRefs(v: unknown, ids: Record<string, string>): unknown {
-  if (typeof v === 'string') return v.startsWith('$') && ids[v.slice(1)] ? ids[v.slice(1)] : v
-  if (Array.isArray(v)) return v.map((x) => resolveRefs(x, ids))
-  if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, resolveRefs(x, ids)]))
-  return v
-}
+export type { StoryJson as Story, StoryStepJson as StoryStep } from './recorderStory.mjs'
+export { storyTime, seedPrivacyRun } from './recorderStory.mjs'
 
 /**
  * Play the story in an app whose clock was installed at `storyTime(story, story.setupAt)` (before openApp): the setup
  * (database, rows, pages, the agent and the script) as the person at setup time, then every step's real store actions
- * under its writer at its time, then the clock at `now` and the tape settled. Returns the row ids by ref ('NL-1408').
+ * under its writer at its time, then the clock at `now` and the tape settled (helpers/recorderStory.mjs). Returns the
+ * row ids by ref ('NL-1408').
  */
-export async function playStory(page: Page, story: Story): Promise<Record<string, string>> {
-  await page.clock.setFixedTime(storyTime(story, story.setupAt))
-  const ids = await page.evaluate((story) => {
-    const g = () => (window as unknown as { __one: { workspace: { getState: () => AnyRec } } }).__one.workspace.getState()
-    const d = story.database
-    g().createDatabase({ id: d.id, title: d.title })
-    for (const p of d.properties) g().addProperty(d.id, p)
-    g().addView(d.id, { id: d.board.id, type: 'board', name: d.board.name, groupBy: d.board.groupBy })
-    const ids: Record<string, string> = {}
-    for (const r of d.rows) ids[r.ref] = g().createRow(d.id, { title: r.title, properties: r.properties, content: r.content }) as string
-    for (const p of story.pages) g().createPage({ id: p.id, title: p.title, parentId: p.parentId ?? null, content: p.content })
-    const now = Date.now()
-    g().upsertAgent({ id: story.agent.id, name: story.agent.name, instructions: 'Spiegelt den Nordlicht-Abgleich.', trigger: { type: 'manual' }, scope: { everything: false, pages: [], databases: [d.id] }, write: 'apply', output: { pageId: 'story-report', mode: 'replace' }, mcpServers: [], runner: 'browser', maxRunUsd: 1, enabled: false, createdBy: null, updatedBy: null, createdAt: now, updatedAt: now })
-    g().upsertScript({ id: story.script.id, name: story.script.name, code: "page.create({ title: 'Tagesplan' })", kind: 'script', createdBy: null, updatedBy: null, createdAt: now, updatedAt: now })
-    return ids
-  }, story)
-  for (const s of story.steps) {
-    await page.clock.setFixedTime(storyTime(story, s.at))
-    await rec(page, 'step', { writer: s.writer, calls: resolveRefs(s.calls, ids), ...(s.note ? { note: s.note } : {}), ...(s.end ? { end: true } : {}) })
-  }
-  await page.clock.setFixedTime(storyTime(story, story.now))
-  await rec(page, 'settle')
-  return ids
-}
+export const playStory = (page: Page, story: StoryJson): Promise<Record<string, string>> => playStoryPage(page, story)

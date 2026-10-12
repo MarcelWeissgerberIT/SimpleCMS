@@ -5,7 +5,7 @@
  * (--deck-dock), takes focus on the playhead when opened and gives it back when closed. Esc closes it (after any
  * popover) and the playhead goes back to now.
  */
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useLang, useT } from '../../../i18n'
 import { useWorkspace } from '../../../store/store'
@@ -26,22 +26,12 @@ import { Tape } from './Tape'
 import { closeRecorder, HEIGHT_MIN, setDeckHeight, takeOpener, useRecorderUI } from './state'
 import { canFocus, focusLost, focusMainRegion, focusNear, restoreFocus } from '../../../ui/focus'
 import { useLive } from './live'
-import { WindowPlate } from './WindowPlate'
+import { useAfterSource, WindowPlate } from './WindowPlate'
+import { usePhone } from './phone'
 import './recorder.css'
 
-const PHONE = '(max-width: 767px)'
-
-function usePhone(): boolean {
-  const [on, setOn] = useState(() => !!window.matchMedia?.(PHONE).matches)
-  useEffect(() => {
-    const mq = window.matchMedia?.(PHONE)
-    if (!mq) return
-    const fn = () => setOn(mq.matches)
-    mq.addEventListener('change', fn)
-    return () => mq.removeEventListener('change', fn)
-  }, [])
-  return on
-}
+/** The deck's dialogs (read, R3's eject): one chunk, loaded the first time one opens. */
+const Dialogs = lazy(() => import('./dialogs'))
 
 /**
  * The deck's body by its width (§ 8.7), counted in standard-size pixels (a larger text size needs more room): below
@@ -76,21 +66,29 @@ export default function Deck() {
   const known = useRecorderUI((s) => s.known)
   const height = useRecorderUI((s) => s.height)
   const focusTick = useRecorderUI((s) => s.focusTick)
+  const dialog = useRecorderUI((s) => !!s.read?.open || !!s.plan?.open)
   const { info } = useTapeInfoLive()
   const agents = useWorkspace((s) => s.agents)
   const scripts = useWorkspace((s) => s.scripts)
   const databases = useWorkspace((s) => s.databases)
   const settings = useWorkspace((s) => s.settings)
 
+  // an ejected window (its after-state): no loupe, no held marks, the hatched block on its track
+  const after = useAfterSource(bracket)
+  const ejected = !!after
+  useEffect(() => {
+    if (useRecorderUI.getState().mode !== (ejected ? 'after' : 'live')) useRecorderUI.setState({ mode: ejected ? 'after' : 'live' })
+  }, [ejected])
+
   // the loupe: the window gets up to 6× the room (frozen while a drag runs)
   const spanLen = ZOOM[zoom].span
   const zone: Zone | null = useMemo(() => {
     if (frozen) return frozen.k > 1 ? { a: frozen.zone[0], b: frozen.zone[1], k: frozen.k } : null
-    if (!bracket || !loupe || !ZOOM[zoom].loupe) return null
+    if (!bracket || !loupe || !ZOOM[zoom].loupe || ejected) return null
     return { a: bracket.a, b: bracket.b, k: kOf(spanLen, bracket.b - bracket.a) }
-  }, [frozen, bracket, loupe, zoom, spanLen])
+  }, [frozen, bracket, loupe, zoom, spanLen, ejected])
   const ax = useMemo(() => makeAxis(span.t0, span.t1, zone), [span.t0, span.t1, zone])
-  const loupeK = bracket && ZOOM[zoom].loupe && bracket.b > span.t0 && bracket.a < span.t1 ? kOf(spanLen, bracket.b - bracket.a) : null
+  const loupeK = bracket && !ejected && ZOOM[zoom].loupe && bracket.b > span.t0 && bracket.a < span.t1 ? kOf(spanLen, bracket.b - bracket.a) : null
 
   // the tracks shown, in the tape's order, with their counts in the span
   const histLanes = (zoom === '24h' || ops.interim) && hist ? hist.lanes : null
@@ -256,9 +254,15 @@ export default function Deck() {
             now={Math.min(Math.floor(Date.now() / 60_000) * 60_000, span.t1)}
             empty={empty}
             gaps={lost}
+            ejected={ejected}
           />
         </div>
       </div>
+      {dialog && (
+        <Suspense fallback={null}>
+          <Dialogs />
+        </Suspense>
+      )}
     </section>
   )
   return createPortal(body, host ?? document.body)

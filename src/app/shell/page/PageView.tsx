@@ -7,7 +7,7 @@ import { useUI } from '../../store/ui'
 import { isEffectivelyTrashed, usePage } from '../../store/selectors'
 import { PageEditor } from '../../editor'
 import { DatabaseView, RowProperties } from '../../database'
-import { TemplateBanner, CodingTaskSlot, OutboxDockSlot, OutboxDbFoot, OutboxReadout, RowSlips } from '../../features'
+import { TemplateBanner, CodingTaskSlot, OutboxDockSlot, OutboxDbFoot, OutboxReadout, RecorderDbRead, RowSlips } from '../../features'
 import { PageIcon } from '../../ui/PageIcon'
 import { IconPicker } from '../../ui/IconPicker'
 import { Popover } from '../../ui/Popover'
@@ -87,6 +87,8 @@ function PageViewInner({ page, variant }: { page: Page; variant: PageVariant }) 
           {variant === 'main' && !readOnly && <TourOffer pageId={page.id} />}
           {/* a database with send routes or slips: IN OUTBOX · SENT TODAY (features/outbox) */}
           {isDb && !trashed && <OutboxReadout dbId={page.id} />}
+          {/* right after an eject into this database: ENTRIES · LAST You · 08:05 · Eject (features/recorder) */}
+          {isDb && !trashed && <RecorderDbRead dbId={page.id} />}
           {isRow && (
             <div className="pv-props">
               <RowProperties pageId={page.id} />

@@ -1,18 +1,20 @@
 /**
  * A click on a tick: a Vorgang with one place opens it (a schema or view place opens its database); with more, a
- * popover lists up to 8 of them by their live title ("+ n more"). Titles come from the workspace now — the journal
- * holds none.
+ * popover lists up to 8 of them by their live title ("+ n more") and offers "Fenster lesen" — the Vorgang bracketed
+ * (its run's, on its writer's track), then read. Titles come from the workspace now — the journal holds none.
  */
 import { useEffect, useState } from 'react'
-import { Columns3, FileText, Rows3, Table2 } from 'lucide-react'
+import { Columns3, FileDiff, FileText, Rows3, Table2 } from 'lucide-react'
 import { useLang, useT } from '../../../i18n'
 import { useWorkspace } from '../../../store/store'
 import { openPage } from '../../../lib/router'
 import { Popover, pointAnchor } from '../../../ui/Popover'
+import { handFocusOver } from '../../../ui/focus'
 import { opEvents } from '../journal/query'
 import { parsePlace } from '../model/places'
 import type { JOp, LaneKey, PlaceKey } from '../model/types'
 import { hms, unit } from './format'
+import { openRead, setBracket } from './state'
 
 export interface TickAt {
   op: JOp
@@ -85,6 +87,22 @@ export function TickPopover({ at, onClose }: { at: TickAt; onClose: () => void }
         )
       })}
       {places.length > MAX && <div className="rec-pop__more">{t('features.recorder.tick.more', { n: places.length - MAX })}</div>}
+      <div className="rec-pop__sep" />
+      <button
+        type="button"
+        className="rec-pop__item rec-pop__read"
+        onClick={() => {
+          const op = at.op
+          setBracket({ lane: op.l, ...(op.r ? { run: op.r } : {}), a: op.at, b: (op.t2 ?? op.at) + 1 })
+          // the dialog's opener: the tick's track (the tick itself takes no focus)
+          handFocusOver(document.querySelector(`section.deck .lane[data-lane="${CSS.escape(op.l)}"]`))
+          onClose()
+          openRead()
+        }}
+      >
+        <FileDiff aria-hidden />
+        <span>{t('features.recorder.win.read')}</span>
+      </button>
     </Popover>
   )
 }

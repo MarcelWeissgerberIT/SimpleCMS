@@ -5,7 +5,7 @@
  * so the budget's figure is what the stores hold. `floor` = where the tape begins for a scope.
  */
 import { dropPins, listPinIds, loadPinMetas, parsePinId, PIN_GRACE, type Freed } from '../../history/pins'
-import type { JSegment, Scope } from '../model/types'
+import type { EjectRecord, JSegment, Scope } from '../model/types'
 import { dayKey, HI, openJournal, pad13, pad8, scopeRange, startOfDay, type Bump, type Journal } from './db'
 
 export const RETENTION_MS = 30 * 24 * 3600_000
@@ -64,6 +64,22 @@ export async function giveBack(j: Journal, scope: Scope, freed: Freed, from = 0)
   await j.write({ bump })
 }
 
+/**
+ * Segments whose pins an eject still needs (F29): the places a live (not undone, not aborted) eject took back — a
+ * later eject compares them, an Undo after a reload plans from them — and every eject's own segments (`r` eject:…,
+ * "eject the eject"). ONE range read of the scope's eject records. Whole days still go with the budget and retention:
+ * an eject record pruned with its day leaves the after-plate's Undo off ("no longer on the tape").
+ */
+export async function protectedSegs(j: Journal, scope: Scope): Promise<Set<string>> {
+  const out = new Set<string>()
+  const recs = await j.range<EjectRecord>({ store: 'ejects', index: 'at', lo: [scope, 0], hi: [scope, Number.MAX_SAFE_INTEGER] })
+  for (const r of recs) if (r.state !== 'aborted' && !r.undone) for (const id of r.segs ?? []) out.add(id)
+  return out
+}
+
+/** A segment an eject needs (its own, or one a live eject took back). */
+const isProtected = (g: JSegment, prot: ReadonlySet<string>) => prot.has(g.id) || !!g.r?.startsWith('eject:')
+
 /** Remove a scope's records older than `cutoff`, the pins of its segments that went, orphan pins, and the days' sizes. */
 export async function pruneScope(scope: Scope, cutoff: number, opts: PruneOpts = {}): Promise<PruneResult> {
   const j = await openJournal()
@@ -115,8 +131,9 @@ async function orphanPins(j: Journal, scope: Scope, keep?: ReadonlySet<string>):
   if (!ids.length) return []
   const [lo] = scopeRange(scope)
   const segIds = new Set(await j.keys({ store: 'segs', lo, hi: `${scope}|${HI}` }))
+  const prot = await protectedSegs(j, scope)
   const young = Date.now() - PIN_GRACE
-  const orphan = (seg: string, wt: number) => !segIds.has(seg) && !keep?.has(seg) && wt < young
+  const orphan = (seg: string, wt: number) => !segIds.has(seg) && !keep?.has(seg) && !prot.has(seg) && wt < young
   const out: string[] = []
   const other: string[] = []
   for (const id of ids) {
@@ -169,7 +186,8 @@ export async function pruneOldestDays(days: number, opts: PruneOpts = {}): Promi
 
 /** Drop the pins of some segments (never one of this tab's on their way): they read partial from now on. */
 async function dropSegmentPins(j: Journal, scope: Scope, segs: JSegment[], keep?: ReadonlySet<string>): Promise<number> {
-  const withPins = segs.filter((g) => g.before && !keep?.has(g.id))
+  const prot = await protectedSegs(j, scope)
+  const withPins = segs.filter((g) => g.before && !keep?.has(g.id) && !isProtected(g, prot))
   if (!withPins.length) return 0
   const freed = await dropPins(
     scope,
@@ -180,7 +198,7 @@ async function dropSegmentPins(j: Journal, scope: Scope, segs: JSegment[], keep?
   return withPins.length
 }
 
-/** The budget's first step: the pins of the person's segments older than 7 days (their segments read partial). */
+/** The budget's first step: the pins of the person's segments older than 7 days (their segments read partial) — never one an eject needs. */
 export async function pruneHumanPins(now: number, opts: PruneOpts = {}): Promise<number> {
   if (opts.memory) return 0
   const j = await openJournal()
@@ -191,13 +209,16 @@ export async function pruneHumanPins(now: number, opts: PruneOpts = {}): Promise
 
 /**
  * The workspace could not save and no older day is left to give back: today's pins go, oldest first — `share` of
- * them (their segments read partial; the records stay). Resolves with the pins dropped.
+ * them (their segments read partial; the records stay), never one an eject needs. Resolves with the pins dropped.
  */
 export async function pruneTodayPins(now: number, opts: PruneOpts = {}, share = 0.5): Promise<number> {
   if (opts.memory) return 0
   const j = await openJournal()
   const segs: JSegment[] = []
-  for (const s of await scopesOnDevice(j)) segs.push(...(await j.range<JSegment>({ store: 'segs', index: 'from', lo: [s, startOfDay(now)], hi: [s, now] })).filter((g) => g.before && !opts.keep?.has(g.id)))
+  for (const s of await scopesOnDevice(j)) {
+    const prot = await protectedSegs(j, s)
+    segs.push(...(await j.range<JSegment>({ store: 'segs', index: 'from', lo: [s, startOfDay(now)], hi: [s, now] })).filter((g) => g.before && !opts.keep?.has(g.id) && !isProtected(g, prot)))
+  }
   if (!segs.length) return 0
   segs.sort((a, b) => a.from - b.from)
   const take = segs.slice(0, Math.max(1, Math.ceil(segs.length * share)))

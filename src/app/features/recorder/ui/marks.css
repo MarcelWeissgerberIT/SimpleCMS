@@ -1,0 +1,144 @@
+/*
+ * The flight recorder's marks in the database views (R3, mock-3), right after an eject: a held card / row (signal
+ * border + inset bar, "GEHALTEN · DU 07:44"), a note when the writer's values stayed, the column whose option came
+ * back ("⏏ ZURÜCK · 08:05" on an ink tag), and the database's strip ("EINTRÄGE 34 · ZULETZT Du · 08:05 · Auswurf").
+ * Paper tokens; orange = held only. Loaded with the app (the views import the marks through the public API); rules
+ * that meet a ui.css primitive carry two classes.
+ */
+/* a card's frame is its box-shadow (views.css): the signal ring replaces it, the hover and focus rings stay */
+.dbc[data-held] {
+  box-shadow:
+    0 0 0 1px var(--signal),
+    inset 3px 0 0 var(--signal);
+}
+.dbc[data-held]:hover {
+  box-shadow:
+    0 0 0 1px var(--signal),
+    0 2px 0 1px var(--rule),
+    inset 3px 0 0 var(--signal);
+}
+.dbc[data-held]:focus-visible {
+  box-shadow:
+    0 0 0 1px var(--signal),
+    0 0 0 4px var(--signal-wash),
+    inset 3px 0 0 var(--signal);
+}
+.held-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: calc(18px * var(--text-scale));
+  max-width: 100%;
+  margin-top: 6px;
+  padding: 0 5px;
+  border: 1px solid var(--signal);
+  border-radius: var(--radius-1);
+  color: var(--signal-ink);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.held-tag svg {
+  width: 11px;
+  height: 11px;
+  flex: none;
+  stroke-width: 2;
+}
+.card__note {
+  margin: 5px 0 0;
+  font-size: calc(11.5px * var(--text-scale));
+  line-height: 1.35;
+  color: var(--ink-2);
+}
+/* a table row: the gutter carries the hand, the tag's words are for the title */
+.dbt-row[data-held] {
+  box-shadow: inset 3px 0 0 var(--signal);
+}
+.held-tag.held-tag--row {
+  margin: 0 0 0 4px;
+  padding: 0 3px;
+}
+.held-tag--row .held-tag__t {
+  display: none;
+}
+/* the column whose option came back */
+.dbb-col.col--back {
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-2);
+  background: var(--surface-2);
+}
+.back-tag {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  height: calc(18px * var(--text-scale));
+  padding: 0 5px;
+  border-radius: var(--radius-1);
+  background: var(--ink);
+  color: var(--surface);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.back-tag svg {
+  width: 11px;
+  height: 11px;
+  stroke-width: 2.2;
+}
+/* "Gehaltene zeigen": the held cards flash once */
+[data-held][data-flash] {
+  animation: rec-held-flash 1.2s var(--ease-out);
+}
+@keyframes rec-held-flash {
+  0%,
+  40% {
+    outline: 2px solid var(--signal);
+    outline-offset: 2px;
+  }
+  100% {
+    outline: 2px solid transparent;
+    outline-offset: 2px;
+  }
+}
+/* the database's strip */
+.db-read {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  min-height: 30px;
+  white-space: nowrap;
+}
+.db-read > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 18px;
+  padding: 0 10px;
+  border-left: 1px solid var(--rule);
+}
+.db-read .label {
+  color: var(--ink-3);
+}
+.db-read b {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--ink);
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-held][data-flash] {
+    animation: none;
+    outline: 2px solid var(--signal);
+    outline-offset: 2px;
+  }
+}

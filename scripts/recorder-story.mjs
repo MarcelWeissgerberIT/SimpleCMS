@@ -6,14 +6,15 @@
  *   Du (the person)          33 Vorgänge: 14 typing folds 06:58–07:09:30 · 11 in 07:38:20–07:47 (cell NL-1408 at
  *                            07:44:12) · 8 in 07:56–08:02:10 (cell NL-1415 at 07:57:30)
  *   AI terminal               6: a batch of 5 at 07:12:20, an edit_page at 07:52:40
- *   Agent "Nordlicht-Spiegel" 52 Vorgänge of run 212 at 37 places (35 rows incl. 3 new, the report page, the schema:
- *                            option "Ready" removed), 07:31:04–07:34:41, words +212 −40
+ *   Agent "Nordlicht-Spiegel" 52 Vorgänge of run 212 at 37 places (35 rows incl. 3 new, the report page — there since
+ *                            the setup: renamed first, its report appended last —, the schema: option "Ready"
+ *                            removed), 07:31:04–07:34:41, words +212 −40
  *   MCP "tessera-desk"        4: three pages to the trash 07:48:10–07:48:31, a move at 07:49:30
  *   Script "Tagesplan"        1: a page at 07:00:05
  *   Sync "Tessera" (folder)   7 pick-ups
  *
- * The specs play it through tests/e2e/helpers/recorder.ts `playStory` (real store actions under each step's writer,
- * page.clock at each step's time); scripts/changelog-shots.mjs reads the same file.
+ * The specs play it through tests/e2e/helpers/recorderStory.mjs `playStoryPage` (real store actions under each step's
+ * writer, page.clock at each step's time); scripts/changelog-shots.mjs and scripts/recorder-shots.mjs play the same.
  *
  *   node scripts/recorder-story.mjs
  */
@@ -89,6 +90,8 @@ const pages = [
   { id: 'story-sync-1', parentId: 'story-tessera', title: 'Tessera · Abgleich 1', content: doc(para('s1', 'Abgleich')) },
   { id: 'story-sync-2', parentId: 'story-tessera', title: 'Tessera · Abgleich 2', content: doc(para('s2', 'Abgleich')) },
   { id: 'story-sync-3', parentId: 'story-tessera', title: 'Tessera · Abgleich 3', content: doc(para('s3', 'Abgleich')) },
+  // the agent's report page: there before the run (the run renames it and appends its report under the heading)
+  { id: 'story-report', title: 'Nordlicht-Spiegel · Bericht', content: doc(para('rh', 'Bericht')) },
 ]
 
 /* ---------------- writers ---------------- */
@@ -138,15 +141,35 @@ const run = []
 const touched = NUMBERS.filter((n) => n !== 1399 && n !== 1427) // 32 existing rows
 const NEXT = { backlog: O.doing, doing: O.review, review: O.done, done: O.review }
 const READY_TO = { 1402: O.doing, 1404: O.backlog, 1408: O.backlog, 1411: O.doing, 1413: O.backlog, 1415: O.doing, 1418: O.backlog, 1421: O.doing, 1424: O.backlog }
-run.push(['createPage', { id: 'story-report', title: 'Nordlicht-Spiegel · Bericht' }])
+run.push(['updatePage', 'story-report', { title: 'Nordlicht-Spiegel · Bericht 09.10.' }])
 for (const n of touched) run.push(['setRowProperty', `$${ref(n)}`, STAGE, stageOf(n) === 'ready' ? READY_TO[n] : NEXT[stageOf(n)]])
 run.push(['updateProperty', DB, STAGE, { options: options.filter((o) => o.id !== O.ready) }])
 for (const n of [1432, 1433, 1434]) run.push(['createRow', DB, { title: ref(n), properties: { [STAGE]: O.backlog, [EST]: 2 } }])
 for (const n of BODIES) run.push(['setContent', `$${ref(n)}`, doc(para(`b-keep-${n}`, KEEP)), 'ai'])
 for (const n of [1398, 1400, 1403, 1406, 1409, 1412, 1416, 1419, 1422, 1425]) run.push(['setRowProperty', `$${ref(n)}`, EST, (n % 8) + 3])
 const report = [0, 1, 2, 3].map((i) => para(`r${i + 1}`, words(53, i * 53)))
-run.push(['setContent', 'story-report', doc(...report), 'ai'])
+run.push(['setContent', 'story-report', doc(para('rh', 'Bericht'), ...report), 'ai'])
 if (run.length !== 52) throw new Error(`run 212 has ${run.length} Vorgänge, not 52`)
+
+/**
+ * The AgentRun that review keeps for run 212 (R3 writes it through the agents' seam): every staged change but c34 —
+ * the option removal has no ChangeKind, it stays a journal-only change id. Kinds as RunHistory renders them; `page`
+ * = a page id or a `$NL-…` row ref (resolved when it is played).
+ */
+const KIND_OF = (call) => {
+  const [name, target, a] = call
+  if (name === 'updatePage') return { kind: 'rename', page: target }
+  if (name === 'setRowProperty') return { kind: 'update_row', page: target, prop: a }
+  if (name === 'createRow') return { kind: 'create_row', page: `$${call[2].title}` }
+  if (name === 'setContent') return { kind: 'append', page: target }
+  return null
+}
+const agentRun = {
+  id: 'r212',
+  seq: 212,
+  changes: Object.fromEntries(run.map((call, i) => [`c${i + 1}`, KIND_OF(call)]).filter(([, v]) => v)),
+}
+if (Object.keys(agentRun.changes).length !== 51 || agentRun.changes.c34) throw new Error('run 212 holds 51 staged changes (c34 is journal-only)')
 run.forEach((call, i) => {
   const at = hms(sec('07:31:04') + Math.round((i * (sec('07:34:41') - sec('07:31:04'))) / (run.length - 1)))
   step(at, { kind: 'agent', id: AGENT, run: 'r212', change: `c${i + 1}` }, [call], i === 0 ? { note: { seq: 212 } } : i === run.length - 1 ? { end: true } : {})
@@ -204,9 +227,20 @@ const story = {
   script: { id: 'tagesplan', name: 'Tagesplan' },
   mcpClient: 'tessera-desk',
   steps,
+  agentRun,
   expect: {
     lanes: { you: 33, terminal: 6, [`agent:${AGENT}`]: 52, 'mcp:tessera-desk': 4, 'script:tagesplan': 1, 'sync:folder': 7 },
-    run212: { key: `agent:${AGENT}:r212`, ops: 52, from: '07:31:04', to: '07:34:41', places: { rows: 35, newRows: 3, pages: 1, schema: 1, views: 0 }, words: [212, 40] },
+    run212: { key: `agent:${AGENT}:r212`, ops: 52, from: '07:31:04', to: '07:34:41', places: { rows: 35, newRows: 3, pages: 1, newPages: 0, schema: 1, views: 0 }, words: [212, 40] },
+    /** the eject of run 212 (R3): 35 of 37 back, the person's two rows held, the three new rows to the trash */
+    eject: {
+      back: 35,
+      all: 37,
+      held: ['NL-1408', 'NL-1415'],
+      trash: ['NL-1432', 'NL-1433', 'NL-1434'],
+      board: [7, 7, 5, 3, 12],
+      optionBack: { prop: STAGE, id: O.ready, index: 1 },
+      agent: { ejected: 49, held: ['c11', 'c18'] },
+    },
   },
 }
 

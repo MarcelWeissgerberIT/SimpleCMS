@@ -19,6 +19,8 @@ import { activeWorkspace, useCloud } from '../../cloud'
 import { sameValue } from '../automations/engine'
 import { t } from '../../i18n'
 import { isAgentWriting, startAttributionKeeper } from './attribution'
+import { currentWriter } from '../../store/writer'
+import { isEjectWriter } from '../recorder/settled'
 import { awaitsConfirm } from './confirm'
 import { isRunningAnywhere, wsKey } from './locks'
 import { latestSlot } from './schedule'
@@ -340,6 +342,8 @@ function lead() {
   unsubStore?.()
   unsubStore = useWorkspace.subscribe((state, prev) => {
     if (state.pages === prev.pages || !state.ready || !prev.ready || isAgentWriting()) return
+    // an eject (or its Undo) never triggers an agent — least of all the one it ejected (flight recorder, Δ30)
+    if (isEjectWriter(currentWriter())) return
     try {
       diff(state, prev)
     } catch (e) {

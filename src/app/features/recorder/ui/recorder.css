@@ -760,6 +760,28 @@
   border-left: 0;
 }
 
+/* an ejected window (mock-3): hatched in ink, no corner marks; its label says when and how much went back */
+.bracket.bracket--out {
+  border: 1px solid var(--tp-ink-3);
+  background: repeating-linear-gradient(-45deg, color-mix(in srgb, var(--tp-ink) 32%, transparent) 0 1.5px, transparent 1.5px 5px);
+}
+.bracket.bracket--out::before,
+.bracket.bracket--out::after {
+  display: none;
+}
+.ev-l.ev-l--out {
+  top: 9px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--tp-ink);
+}
+.ev-l--out svg {
+  width: 12px;
+  height: 12px;
+  stroke-width: 2;
+}
+
 /* playhead, now, future */
 .playhead {
   position: absolute;
@@ -1087,6 +1109,257 @@
   flex: none;
 }
 
+/* the held check (R2): the rows someone changed since — the note's swatch and the keys of the selected window */
+.win__note .held-sw {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  margin: 3px 1px 0;
+  border: 1.5px solid var(--signal);
+  transform: rotate(45deg);
+}
+.win__keys {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+}
+.dbtn {
+  display: inline-flex;
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-width: 0;
+  height: calc(30px * var(--text-scale));
+  padding: 0 10px;
+  border: 1px solid var(--tp-key-edge);
+  border-bottom-width: 3px;
+  border-radius: 3px;
+  background: var(--tp-key);
+  color: var(--tp-ink);
+  font-size: calc(12.5px * var(--text-scale));
+  font-weight: 650;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.dbtn > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dbtn svg {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  stroke-width: 1.8;
+}
+.dbtn:hover {
+  background: color-mix(in srgb, var(--tp-ink) 16%, var(--tp-bg));
+}
+.dbtn:active {
+  transform: translateY(1px);
+}
+.dbtn .kbd {
+  flex: none;
+  height: calc(16px * var(--text-scale));
+  min-width: calc(16px * var(--text-scale));
+}
+.dbtn--report {
+  flex: 0 0 auto;
+}
+/* the key that brackets a writer's whole stretch (a window cutting it reads partly) */
+.dbtn--extend {
+  flex: none;
+  justify-content: flex-start;
+  height: calc(26px * var(--text-scale));
+  border-bottom-width: 1px;
+  background: transparent;
+  font-size: calc(12px * var(--text-scale));
+}
+
+/* EJECT with its hinged cover (mock §1.6.6): the cover is the control until it is lifted; the key opens the dialog */
+.eject {
+  position: relative;
+  margin-top: 10px;
+}
+.eject__key {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  width: 100%;
+  height: calc(36px * var(--text-scale));
+  padding: 0 10px;
+  border: 1px solid var(--signal-press);
+  border-bottom-width: 4px;
+  border-radius: 3px;
+  background: var(--signal);
+  color: var(--on-signal);
+  font-family: var(--font-mono);
+  font-size: calc(12px * var(--text-scale));
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.eject__key svg {
+  width: 17px;
+  height: 17px;
+  flex: none;
+  stroke-width: 2.1;
+}
+.eject__key small {
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  opacity: 0.85;
+}
+.eject__key:active:not(:disabled) {
+  transform: translateY(1px);
+}
+.eject__key:focus-visible {
+  outline: 2px solid var(--tp-ink);
+  outline-offset: 2px;
+}
+/* off: an ink key with its reason under it (orange is for a key that can eject) */
+.eject__key:disabled {
+  border-color: var(--tp-key-edge);
+  background: var(--tp-key);
+  color: var(--tp-ink-3);
+  cursor: default;
+}
+.eject__off {
+  margin: 5px 0 0;
+  font-size: calc(11.5px * var(--text-scale));
+  line-height: 1.35;
+  color: var(--tp-ink-3);
+}
+/* the cover: lying flat over the key, hatched; lifted it stands open on its hinge */
+.eject__cover {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1;
+  height: calc(36px * var(--text-scale));
+  padding: 0;
+  border: 1.5px solid var(--signal);
+  border-radius: 3px;
+  background: repeating-linear-gradient(-45deg, color-mix(in srgb, var(--signal) 70%, transparent) 0 3px, transparent 3px 9px), var(--tp-bg);
+  transform-origin: 50% 0%;
+  transition: transform var(--dur-3) var(--ease-out), bottom var(--dur-3) var(--ease-out);
+  cursor: pointer;
+}
+.eject__cover:focus-visible {
+  outline: 2px solid var(--tp-ink);
+  outline-offset: 2px;
+}
+.eject__hinge {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  top: -1px;
+  height: 4px;
+  border-radius: 1px;
+  background: var(--tp-key-edge);
+}
+.eject[data-lifted] .eject__cover {
+  bottom: calc(100% - 6px);
+  height: 34px;
+  border-radius: 3px 3px 0 0;
+  transform-origin: 50% 100%;
+  transform: perspective(240px) rotateX(64deg);
+}
+.eject[data-lifted] .eject__hinge {
+  top: auto;
+  bottom: -1px;
+}
+
+/* the plate after an eject (mock-3): ink, the held line in the deck's signal text */
+.win__t.win__t--out {
+  color: var(--tp-ink);
+}
+.outlist {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: calc(12px * var(--text-scale));
+  color: var(--tp-ink-2);
+}
+.outlist li {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+.outlist li > span:last-child {
+  min-width: 0;
+}
+.outlist__k {
+  flex: none;
+  width: calc(82px * var(--text-scale));
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--tp-ink-3);
+}
+.outlist b {
+  font-weight: 600;
+  color: var(--tp-ink);
+}
+.outlist__held,
+.outlist__held .outlist__k {
+  color: var(--tp-sig);
+}
+.win__note.win__note--out svg {
+  color: var(--tp-ink-2);
+}
+.dbtn.dbtn--wide {
+  flex: none;
+  width: 100%;
+  height: calc(32px * var(--text-scale));
+}
+.dbtn:disabled {
+  color: var(--tp-ink-3);
+  cursor: default;
+}
+
+/* held rows on the tape: a diamond at the first change by someone else, its row key beside it (flips, hides) */
+.held {
+  position: absolute;
+  top: 2px;
+  z-index: 3;
+  width: 8px;
+  height: 8px;
+  margin-left: -4px;
+  border: 1.5px solid var(--signal);
+  background: var(--tp-bg);
+  transform: rotate(45deg);
+  pointer-events: none;
+}
+.held__n {
+  position: absolute;
+  top: 1px;
+  z-index: 3;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+  color: var(--tp-sig);
+  pointer-events: none;
+}
+.held__n[data-hidden] {
+  visibility: hidden;
+}
+
 /* ---------- popovers from the deck: the tick's places, the filter ---------- */
 .rec-pop {
   min-width: 220px;
@@ -1339,6 +1612,43 @@
   .deck[data-phone] .mtr {
     border-bottom: 0;
   }
+  .deck[data-phone] .dbtn {
+    height: 42px;
+  }
+  .deck[data-phone] .dbtn--report {
+    display: none;
+  }
+  .deck[data-phone] .dbtn--extend {
+    height: 34px;
+  }
+  /* the last row: [Fenster lesen | AUSWERFEN · 35 / 37] — no cover (the dialog is the cover) */
+  .deck[data-phone] .win > .win__keys {
+    grid-column: 1;
+  }
+  .deck[data-phone] .win > .eject {
+    grid-column: 2;
+    align-self: end;
+    margin-top: 0;
+  }
+  .deck[data-phone] .eject__key {
+    height: 42px;
+    letter-spacing: 0.08em;
+  }
+  .deck[data-phone] .eject__off {
+    font-size: calc(11px * var(--text-scale));
+  }
+  .deck[data-phone] .win.win--out > .win__keys {
+    grid-column: 1 / -1;
+  }
+  .deck[data-phone] .win--out .dbtn--outreport {
+    display: inline-flex;
+  }
+  .deck[data-phone] .win--out .outlist__version {
+    display: none;
+  }
+  .deck[data-phone] .dbtn.dbtn--wide {
+    height: 42px;
+  }
   .deck__grip::after {
     top: 8px;
   }
@@ -1348,7 +1658,19 @@
   .deck {
     animation: none;
   }
+  .eject__cover {
+    transition: none;
+  }
   .tkey[data-on] {
     transition: none;
   }
+}
+
+/* ---------- window reading (R2): the diffs are drawn in ink — orange on the deck means the playhead, the selected
+   window and held marks only (history.css re-declares the --dd-add* tokens on .hprops / .hist__title-diff themselves:
+   so two classes) ---------- */
+.rec-diff :is(.ddiff, .hprops, .hist__title-diff, .hist__doc-title) {
+  --dd-add: var(--ink);
+  --dd-add-bg: color-mix(in srgb, var(--ink) 10%, transparent);
+  --dd-mark: var(--ink-2);
 }

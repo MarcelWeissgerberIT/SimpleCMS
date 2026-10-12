@@ -531,6 +531,31 @@
 .toast__action:hover {
   border-color: var(--signal);
 }
+/* a glyph in place of the LED (the flight recorder's eject), a quieter second part, a keycap on a key */
+.toast__glyph {
+  flex: none;
+  color: var(--signal-on-ink);
+}
+.toast__s {
+  color: color-mix(in srgb, var(--ink-inverse) 70%, var(--ink));
+}
+.toast__action:has(.toast__kbd) {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+.kbd.toast__kbd {
+  height: 17px;
+  min-width: 0;
+  padding: 0 4px;
+  border-color: color-mix(in srgb, var(--ink-inverse) 30%, transparent);
+  background: transparent;
+  box-shadow: none;
+  color: var(--signal-on-ink);
+  font-size: calc(9.5px * var(--text-scale));
+  letter-spacing: 0.02em;
+  text-transform: none;
+}
 .toast__close {
   display: grid;
   place-items: center;
@@ -570,6 +595,20 @@
   }
   .toast[data-more] .toast__action:first-of-type {
     margin-left: 16px;
+  }
+  /* the eject's toast: the detail on its own line, only the first key, no keycaps */
+  .toast[data-glyph] .toast__s {
+    display: block;
+  }
+  .toast[data-glyph] .toast__sep {
+    display: none;
+  }
+  .toast[data-glyph] .toast__action ~ .toast__action,
+  .toast[data-glyph] .toast__kbd {
+    display: none;
+  }
+  .toast[data-glyph] .toast__action:first-of-type {
+    margin-left: 25px;
   }
 }
 

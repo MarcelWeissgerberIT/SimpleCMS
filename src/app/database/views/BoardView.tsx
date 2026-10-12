@@ -38,6 +38,8 @@ import type { ColorRule } from '../../store/types'
 import { laneOf } from './free/lanes'
 import { LaneHead } from './free/LaneHead'
 import { AddLane, FreeCardBody, cardColor } from './free/FreeCard'
+import { useRecorderMark } from '../../features'
+import { Eject, Hand } from 'lucide-react'
 import { typeEntries as rtypeEntries } from '../rtype/TypeTag'
 import { NewTypeDialog } from '../rtype/NewTypeDialog'
 import './views.css'
@@ -341,14 +343,22 @@ function Column({
   const { setNodeRef, isOver } = useDroppable({ id: group.key })
   const [limit, setLimit] = useState(PAGE)
   const shown = ids.length > limit ? ids.slice(0, limit) : ids
+  // the flight recorder brought this column's option back (an eject just now): "⏏ Zurück · 08:05"
+  const back = useRecorderMark(`o:${m.db.id}/${m.view.groupBy ?? ''}/${group.key}`)?.back
   return (
-    <section className="dbb-col" data-over={isOver} aria-label={group.label}>
+    <section className={`dbb-col${back ? ' col--back' : ''}`} data-over={isOver} aria-label={group.label}>
       {head ?? (
       <header className="dbb-col__head">
         <span className="dbb-col__idx">{String.fromCharCode(65 + (index % 26))}</span>
         <GroupLabel group={group} />
         <span className="dbb-count">{ids.length}</span>
         <span style={{ flex: 1 }} />
+        {back && (
+          <span className="back-tag">
+            <Eject aria-hidden />
+            {back.tag}
+          </span>
+        )}
         <button type="button" className="icon-btn icon-btn--sm" aria-label={t('common.more')} onClick={(e) => onMenu(e.currentTarget)}>
           <Ellipsis size={14} />
         </button>
@@ -385,10 +395,13 @@ function Column({
 function Card({ id, m, row, free, rc, props, editing, onEditDone, onOpen, onContext }: { id: string; m: DbModel; row: Page; free?: boolean; rc: ColorRule | null; props: PropertyDef[]; editing: boolean; onEditDone: (cancelled: boolean) => void; onOpen: () => void; onContext: (e: React.MouseEvent) => void }) {
   // view only: cards open, they don't move
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id, disabled: editing || m.readOnly })
+  // the flight recorder held this row in an eject just now: "Gehalten · du 07:44"
+  const held = useRecorderMark(`p:${row.id}`)?.held
   return (
     <article
       ref={setNodeRef}
       className={`dbc${rc ? ' db-rc' : ''}`}
+      data-held={held ? '' : undefined}
       data-dragging={isDragging}
       data-rc={rc?.target}
       data-rc-color={rc?.color}
@@ -408,6 +421,15 @@ function Card({ id, m, row, free, rc, props, editing, onEditDone, onOpen, onCont
     >
       <CardPreview m={m} row={row} preview={m.view.cardPreview} />
       {free ? <FreeCardBody m={m} row={row} props={props} editing={editing} onEditDone={onEditDone} /> : <CardBody m={m} row={row} props={props} editing={editing} onEditDone={onEditDone} />}
+      {held && (
+        <>
+          <span className="held-tag">
+            <Hand aria-hidden />
+            {held.tag}
+          </span>
+          {held.note && <p className="card__note">{held.note}</p>}
+        </>
+      )}
     </article>
   )
 }

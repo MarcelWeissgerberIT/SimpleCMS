@@ -48,7 +48,8 @@ src/app/features/preflight/**        Preflight ("Vorflug-Check"): the lamp panel
                                      (lamps register through preflight/registry.ts; public API preflight/index.ts; sources/ =
                                      built-in lamps; queue/calls.ts = every call into another area)
 src/app/features/recorder/**         flight recorder: writer journal (IndexedDB one-recorder) + the deck (Mod+Alt+Z); window
-                                     reading, eject and the ghost come later (public API recorder/index.ts via
+                                     reading + report (window/**); eject (eject/**: plan, commit, undo, boot, sources; the
+                                     planner core model/plan.ts); ghost comes later (public API recorder/index.ts via
                                      features/index.ts); store/writer.ts = the writer context every store write runs under
 src/app/features/workitems/**        tasks outside the editor: the workspace index (lazy, incremental), graph (blocked / loops),
                                      views, writeItems (origin 'items'), the unblock toast, members + reminder audience, the
@@ -718,9 +719,36 @@ the public APIs stable — other areas are built against them in parallel.
   side follows the first paint; < 150 ms with 40k events). This tab's flushes merge in by key and never widen the loaded
   window; only new Vorgänge (`Flushed.fresh`) count into the strip and the minute bars; synced-block copies (`F.COPY`) are
   drawn dimmed, never counted. The head sheds whole parts until it fits (measured, `data-head`), its keys never shrink; the
-  status bar sheds low-priority parts the same way (StatusBar `data-shed-1…6`). Orange on the deck = playhead + selected window only
-  (+ the shared REC `<Led>`); colours are the `--tp-*` mixes of recorder.css, kept AA under every look by lib/look/derive.ts
-  `deckPlate` / `deckText` (look-engine.spec reads both). The deck only reads — it never writes the workspace.
+  status bar sheds low-priority parts the same way (StatusBar `data-shed-1…6`). Orange on the deck = playhead + selected window + held
+  marks + EJECT only (+ the shared REC `<Led>`); colours are the `--tp-*` mixes of recorder.css, kept AA under every look by lib/look/derive.ts
+  `deckPlate` / `deckText` (look-engine.spec reads both). The deck only reads — only the eject writes the workspace.
+- Window reading (features/recorder/window): read-only — `loadWindow` flushes (never settles, never flushes editors),
+  `verdicts` (model/hold.ts) is the one held check for the plate, the read dialog and the eject; rows compare over the
+  property keys present at the writer's end and now (rowkeys.ts; absent `p:` = empty at flush; `bhr` explains chain
+  breaks after a property add); NEW lefts carry parts; the incident report holds titles, schema names, writer labels,
+  counts and times — never values or text, generated on demand, never stored.
+- Eject (features/recorder/eject; local workspaces only — `canEject()`: scope `local:local` + `rewindAllowed()`, the cloud
+  sets `setRewindGuard(() => false)`): the EJECT key opens the dialog, never writes; the plan (`planEject`, model/plan.ts
+  core) is ONE source for key counts, dialog and commit. Rows go back whole, pages per block, new things to the trash,
+  held = changed since (`verdicts`), partial = no exact pin, never guessed; never ejected: view order, commands,
+  templates, automations, the pipeline fields (FREE_ROLES only), record types / sub-items / dependencies, kit
+  properties, list options, memories, an eject (lane `undo`). `applyRewind` is called ONLY from eject/commit.ts and
+  eject/undo.ts: lock `one-recorder-eject:<scope>` → the agent's run lock → busy refusal → forced versions "Vor dem
+  Auswurf" (`SnapshotReason 'eject'`; one that cannot be written refuses: `versionFailed`) → write-ahead record
+  'committing' → sync re-check (flips / removals in use / `staleFacts`: a page joined below one going into the trash, a
+  new row linked, a parent going back that no longer fits → aborted, the dialog replans) → ONE store update under `{ kind: 'eject', id, of }` → settle (marks first) → 'done';
+  a crashed commit is finished by `finishEjects` at boot from its part-digest targets. Undo: ONE update as `you~undo:<id>`
+  (instant from memory, else through the planner), unsettle, record `undone`. settled.ts (`markSettled` / `isSettled`,
+  BroadcastChannel) + `isEjectWriter(currentWriter())`: automations, row-triggered agents, autofill, the coding trust watch
+  and the attribution keeper skip an eject and its Undo. Units `<runKey>#<change>` (agent / terminal), the run key (MCP,
+  script). Preflight: ejected proposals become `discarded` + `ejected`, held ones stay applied + `held`, pending ones are
+  discarded except those opened in Preflight; superseded never touched. Task block: writes only through applyRewind, never
+  mints an itemId; a task living elsewhere or looping is held. Outbox: a row marked as sent is held; slips of discarded
+  send proposals are withdrawn (`'origin'`) and stay withdrawn after an Undo; other slips are never touched. Coding: fields
+  that move a task are never ejected; an agent's text back → the task waits for Confirm. Prune keeps the pins of live
+  ejects (`protectedSegs`). Toast: glyph 'eject', Mod+Z only while it shows and nothing else owns the keys; an Undo from
+  the after-plate takes it away. Dialog: ↵ confirms only a fresh press (never a repeat) ≥ 300 ms after it opened and its
+  key became ready; the key is `aria-disabled`, never `disabled`; nothing closes it while the eject writes.
 - Mirror recipe setup (features/agents/mirror.ts, MirrorSetup.tsx, MirrorDiscard.tsx): `createMirror` shows no toast — a step
   that opens a dialog right away keeps its Undo inside the dialog (AgentEditor intro Undo = `undoMirror`, only what the setup
   created), never a toast over the dialog's footer. Closing an unsaved mirror draft asks (keep editing · keep both · both to

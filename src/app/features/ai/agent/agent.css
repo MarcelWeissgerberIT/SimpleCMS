@@ -1642,6 +1642,11 @@
   padding: 0 4px;
 }
 
+/* an applied change an eject held (another writer changed its place since) — two classes: it meets .label */
+.agent-change__state.agent-change__state--held {
+  color: var(--signal-ink);
+}
+
 .agent-change__title {
   margin-top: 2px;
   font-size: calc(14px * var(--text-scale));

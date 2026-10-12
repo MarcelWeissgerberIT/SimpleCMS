@@ -4,16 +4,18 @@
  * the deck's performance, provoking a missing pin, and a raw dump of every `one-recorder` store (privacy).
  */
 import { useWorkspace } from '../../../store/store'
-import { endRun, fallbackReports, clearFallbackReports, noteRun, withWriter, type RunMeta, type Writer } from '../../../store/writer'
+import { currentWriter, endRun, fallbackReports, clearFallbackReports, formatWriterKey, noteRun, withWriter, type RunMeta, type Writer } from '../../../store/writer'
 import { dropPins, listPinBodies, listPinMetas, pinToBody } from '../../history/pins'
 import { readPinBodies, readPinMetas } from './pins'
 import type { JOp, JSegment, LaneKey, PlaceKey, Scope } from '../model/types'
 import { dayKey, HI, openJournal, pad13, pad8, scopeRange, STORES, type Batch } from './db'
-import { journalBytes } from './prune'
+import { journalBytes, pruneHumanPins, pruneTodayPins } from './prune'
 import { digestWhole, scopeKey } from './key'
 import { lostTails } from './recover'
 import { scopeNow } from './scope'
 import type { Recorder } from './recorder'
+import { isSettled, markSettled, unmarkSettled } from '../settled'
+import { ejectHook } from '../eject/hook'
 
 export interface StoryStep {
   writer: Writer
@@ -50,6 +52,8 @@ const scrub = (v: unknown): unknown => {
   }
   return v
 }
+
+const spied: { list: Array<{ w: string | null; kind: string | null; pages: boolean; dbs: boolean }>; off: (() => void) | null } = { list: [], off: null }
 
 export function installSeam(rec: Recorder): void {
   if (!on()) return
@@ -111,6 +115,105 @@ export function installSeam(rec: Recorder): void {
       return out
     },
     seedBulk: (o: { events: number; inSpan: number; bigVorgang: number; spanEnd: number }) => seedBulk(rec, scopeOf(), o),
+    /** a window read as the plate and the read dialog read it: meters, the held set, groups (counts, place keys) */
+    readWindow: async (sel: { lane: LaneKey; run?: string; a: number; b: number; scope?: Scope }) => {
+      const { readWindow, heldMarks } = await import('../window/read')
+      const m = await readWindow({ ...sel, scope: sel.scope ?? scopeOf() }, Date.now())
+      const outcomes: Record<string, number> = {}
+      for (const v of m.verdicts.values()) outcomes[v.outcome] = (outcomes[v.outcome] ?? 0) + 1
+      return {
+        meters: m.meters,
+        held: m.held.map((v) => ({ p: v.p, reason: v.reason ?? null, by: v.by, at: v.firstForeignAt ?? null })),
+        marks: heldMarks(m),
+        partial: m.partial.map((v) => ({ p: v.p, reason: v.reason ?? null })),
+        groups: m.groups.map((g) => ({ kind: g.kind, n: g.items.length })),
+        outcomes,
+        incomplete: m.incomplete,
+        extendTo: m.extendTo ?? null,
+        unavailable: m.unavailable,
+        tooMany: m.tooMany ?? null,
+      }
+    },
+    /** an eject planned as its dialog plans it: counts and every place's outcome, why, parts (ids only, no content) */
+    planEject: async (sel: { lane: LaneKey; run?: string; a: number; b: number; scope?: Scope }, opts?: { undoOf?: string }) => {
+      const { planEject } = await import('../eject/plan')
+      const t0 = performance.now()
+      const r = await planEject({ ...sel, scope: sel.scope ?? scopeOf() }, opts)
+      const ms = performance.now() - t0
+      if ('refused' in r) return { refused: r.refused }
+      const { plan } = r
+      return {
+        ms,
+        counts: plan.counts,
+        heldBy: plan.heldBy,
+        extendTo: plan.extendTo ?? null,
+        places: plan.places.map((x) => ({ p: x.p, pk: x.pk, outcome: x.outcome, reason: x.reason ?? null, why: x.why ?? null, back: x.parts.back, held: x.parts.held, hunks: x.hunks ?? null, fates: x.fates ?? null, notRestored: x.notRestored, toRoot: !!x.toRoot, changes: x.changes })),
+      }
+    },
+    /** plan and eject a window as its dialog does (`discardPending` on by default) — the record's ids, outcomes, counts */
+    eject: async (sel: { lane: LaneKey; run?: string; a: number; b: number; scope?: Scope }, opts?: { discardPending?: boolean; label?: string; undoOf?: string }) => {
+      const [{ planEject }, { ejectNow }] = await Promise.all([import('../eject/plan'), import('../eject/commit')])
+      const full = { ...sel, scope: sel.scope ?? scopeOf() }
+      const planned = await planEject(full, opts?.undoOf ? { undoOf: opts.undoOf } : undefined)
+      if ('refused' in planned) return { refused: planned.refused }
+      const r = await ejectNow(full, planned, { discardPending: opts?.discardPending ?? true, ...(opts?.label ? { label: opts.label } : {}) })
+      if ('refused' in r) return { refused: r.refused }
+      if ('replan' in r) return { replan: true }
+      return { id: r.record.id, state: r.record.state, counts: r.record.counts, outcomes: r.record.outcomes, changes: r.record.changes, agent: r.record.agent ?? null, slips: r.record.slips ?? 0 }
+    },
+    /** a spy on the store's updates (pages / databases): each one's writer key (null: no frame) — on, then off → the list */
+    spy: (on: boolean) => {
+      if (on) {
+        spied.list = []
+        spied.off?.()
+        spied.off = useWorkspace.subscribe((s, p) => {
+          if (s.pages === p.pages && s.databases === p.databases) return
+          const w = currentWriter()
+          spied.list.push({ w: w ? formatWriterKey(w) : null, kind: w?.kind ?? null, pages: s.pages !== p.pages, dbs: s.databases !== p.databases })
+        })
+        return []
+      }
+      spied.off?.()
+      spied.off = null
+      return spied.list
+    },
+    /** ejectNow with an already planned window whose run is `run` (refusals: an eject: run, a team scope …) */
+    ejectRaw: async (sel: { lane: LaneKey; run?: string; a: number; b: number; scope?: Scope }) => {
+      const { ejectNow } = await import('../eject/commit')
+      const empty = { places: [], counts: { ops: 0, all: 0, back: 1, held: 0, partial: 0, already: 0, rows: 0, newRows: 0, pages: 0, schema: 0, views: 0 }, heldBy: [], incomplete: false, refs: new Map(), keys: new Map() }
+      const r = await ejectNow({ ...sel, scope: sel.scope ?? scopeOf() }, { plan: { sel: { ...sel, scope: sel.scope ?? scopeOf() }, ...empty }, input: {} } as never, { discardPending: false })
+      return 'refused' in r ? { refused: r.refused } : 'replan' in r ? { replan: true } : { id: r.record.id }
+    },
+    /** the eject's Undo (memory in this tab, else the planner's way back) */
+    undoEject: async (id: string) => (await import('../eject/undo')).undoEject(id),
+    /** the scope's eject records (ids, states, outcomes, counts — no text) */
+    ejects: async (scope?: Scope) => (await import('../eject/records')).ejectsOf(scope ?? scopeOf()),
+    /** finish the half-done ejects of gone tabs now (the boot does it after recovery) */
+    finishEjects: async (scope?: Scope) => (await import('../eject/boot')).finishEjects(scope ?? scopeOf()),
+    /** the dialog's facts about the sources of a planned window */
+    ejectFacts: async (sel: { lane: LaneKey; run?: string; a: number; b: number; scope?: Scope }) => {
+      const [{ planEject }, { facts }] = await Promise.all([import('../eject/plan'), import('../eject/sources')])
+      const planned = await planEject({ ...sel, scope: sel.scope ?? scopeOf() })
+      return 'refused' in planned ? { refused: planned.refused } : facts(planned)
+    },
+    /** the commit's test hook: 'afterWrite' stops after the store update, 'beforeSettle' / 'beforeCheck' wait (after the write / before the re-check) until releaseEject() */
+    get ejectHook() {
+      return ejectHook.at
+    },
+    set ejectHook(v: 'afterWrite' | 'beforeSettle' | 'beforeCheck' | null) {
+      ejectHook.at = v
+    },
+    ejectWaiting: () => ejectHook.waiting,
+    releaseEject: () => ejectHook.release?.(),
+    /** a window loaded as the reading and the eject load it — counts only (places, own, foreign per place, breaks) */
+    loadWindow: async (sel: { lane: LaneKey; run?: string; a: number; b: number; scope?: Scope }) => {
+      const { loadWindow, windowCounts } = await import('../window/load')
+      return windowCounts(await loadWindow({ ...sel, scope: sel.scope ?? scopeOf() }))
+    },
+    /** what an eject settled (features/recorder/settled.ts) — marks as the eject's sources set them */
+    markSettled: (runKey: string, ids: string[], ref?: string) => markSettled(runKey, ids, ref),
+    unmarkSettled: (runKey: string, ids: string[], ref?: string) => unmarkSettled(runKey, ids, ref),
+    isSettled: (runKey: string, id?: string) => isSettled(runKey, id),
     dropPin: async (segmentId: string) => {
       const j = await openJournal()
       const seg = await j.get<JSegment>('segs', segmentId)
@@ -186,6 +289,8 @@ export function installSeam(rec: Recorder): void {
     waitingDetail: () => ({ waiting: rec.processor.waiting, jobs: rec.processor.jobCount }),
     paused: () => rec.budget.paused,
     prune: (now?: number) => rec.prune(now),
+    /** the budget's pin steps: every pin of today ('today', share 1) or the person's older than 7 days ('human') */
+    prunePins: (kind: 'today' | 'human', now?: number) => (kind === 'today' ? pruneTodayPins(now ?? Date.now(), {}, 1) : pruneHumanPins(now ?? Date.now(), {})),
     recover: (scope?: Scope) => rec.recover(scope ?? scopeOf()),
     recovered: (scope?: Scope) => rec.recovered(scope ?? scopeOf()),
     crash: () => rec.crash(),

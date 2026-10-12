@@ -12,6 +12,8 @@ import { COLOR_NAMES } from '../../store/types'
 import { isComputed } from './schema'
 import type { Resolver } from './resolve'
 import { constrainRelationWrite, dependenciesOf, subItemsOf } from './hierarchy'
+import { pairedRelationIn, TWO_WAY_SUFFIX } from './hierarchyCore'
+import { danglingViewPatch, sameJson as same } from './withoutProperty'
 import { dateValueText, isDateValue, isoWithTime, parseDateText, parseNumberText } from './format'
 import { isDbReadOnly } from '../readonly'
 import { isDbLocked } from './lock'
@@ -24,26 +26,11 @@ const schemaEditable = (dbId: ID | undefined) => !isDbReadOnly() && !isDbLocked(
 
 const ws = () => useWorkspace.getState()
 
-/**
- * Two-way relations are paired explicitly: turning two-way on creates the reverse property on the
- * target database with the id `<forward id>.2way`. Only such a pair syncs — two relations that
- * merely point at each other (created separately) stay independent, and switching two-way off can
- * only ever remove the property that two-way created or its explicit partner.
- */
-export const TWO_WAY_SUFFIX = '.2way'
+export { TWO_WAY_SUFFIX } from './hierarchyCore'
 
+/** The explicit two-way partner of a relation property (the workspace now). */
 export function pairedRelation(dbId: ID, prop: PropertyDef): { db: Database; prop: PropertyDef } | null {
-  if (prop.type !== 'relation' || !prop.relationDatabaseId) return null
-  const target = ws().databases[prop.relationDatabaseId]
-  if (!target) return null
-  const partner = (p: PropertyDef | undefined): p is PropertyDef => !!p && p.id !== prop.id && p.type === 'relation' && p.relationDatabaseId === dbId
-  const back = target.properties.find((p) => p.id === prop.id + TWO_WAY_SUFFIX)
-  if (partner(back)) return { db: target, prop: back }
-  if (prop.id.endsWith(TWO_WAY_SUFFIX)) {
-    const fwd = target.properties.find((p) => p.id === prop.id.slice(0, -TWO_WAY_SUFFIX.length))
-    if (partner(fwd)) return { db: target, prop: fwd }
-  }
-  return null
+  return pairedRelationIn(ws().databases, dbId, prop)
 }
 
 /** A property already holds the reverse id on the target (e.g. the old synced property, retyped). */
@@ -116,45 +103,6 @@ export function disableTwoWay(dbId: ID, prop: PropertyDef): void {
 }
 
 /* ---------------- delete property: undo + dangling references ---------------- */
-
-/** The filter without rules on a property (groups left empty go too). */
-function stripFilter(g: FilterGroup | null | undefined, propId: ID): FilterGroup | null {
-  if (!g) return null
-  const items = g.items.flatMap((it): FilterGroup['items'] => {
-    if ('items' in it) {
-      const sub = stripFilter(it, propId)
-      return sub ? [sub] : []
-    }
-    return it.propertyId === propId ? [] : [it]
-  })
-  return items.length ? { ...g, items } : null
-}
-
-/** View settings that would point at a deleted property (the store only clears placement, sorts, group, date). */
-function danglingViewPatch(v: View, propId: ID): Partial<View> | null {
-  const patch: Partial<View> = {}
-  const filter = stripFilter(v.filter, propId)
-  if (JSON.stringify(filter) !== JSON.stringify(v.filter ?? null)) patch.filter = filter
-  if (v.calculations && propId in v.calculations) {
-    const rest = { ...v.calculations }
-    delete rest[propId]
-    patch.calculations = rest
-  }
-  if (v.chart && (v.chart.xPropertyId === propId || v.chart.yPropertyId === propId)) {
-    patch.chart = { ...v.chart }
-    if (v.chart.xPropertyId === propId) patch.chart.xPropertyId = null
-    if (v.chart.yPropertyId === propId) Object.assign(patch.chart, { yPropertyId: null, aggregate: 'count' })
-  }
-  if (v.cardPreview === propId) patch.cardPreview = v.type === 'gallery' ? 'cover' : 'none'
-  if (v.colorRules?.length) {
-    // a condition on a missing property would match every row: drop it (the rule stays, inert)
-    const rules = v.colorRules.map((r) => ({ ...r, filter: stripFilter(r.filter, propId) ?? { ...r.filter, items: [] } }))
-    if (!same(rules, v.colorRules)) patch.colorRules = rules
-  }
-  return Object.keys(patch).length ? patch : null
-}
-
-const same = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null)
 
 /**
  * Delete a property; the toast offers undo (definition, values and every reference). Filter rules,
