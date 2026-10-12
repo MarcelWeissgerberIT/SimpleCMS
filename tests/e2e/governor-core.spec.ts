@@ -20,7 +20,8 @@
  *    times, a stop that keeps the proposals, pruning that never drops a run with open proposals (≤ 50 more, then said),
  *    health's newest real run (a hold lights no fail lamp, an earlier failure stays lit);
  *  - the Preflight lamp VERBRAUCH's reading (lamp.ts): amber from 75 % (count 1, never MASTER CAUTION), red at the line
- *    with the day's held / paused / halt ids, acknowledged per band per day; the numbers as shown (format.ts).
+ *    with the day's held / paused / halt ids, acknowledged per band per day; the numbers as shown (format.ts);
+ *  - the drawn instruments' geometry (gauge.ts): the dial's scale, ticks and numerals, the mini bar, the month bar.
  * Every value is fictional.
  */
 import { existsSync, readFileSync } from 'node:fs'
@@ -78,7 +79,8 @@ import {
 import { HELD_TIMES, PRUNE_EXTRA, heldDay, heldId, heldNotStarted, heldStopped, mergeRun, newestReal, openProposals, pruneRuns } from '../../src/app/features/agents/held'
 import type { AgentRun } from '../../src/app/features/agents/types'
 import { AMBER_SHARE, readUsageLamp, usageLine } from '../../src/app/features/governor/lamp'
-import { fmtBand, fmtNum, fmtOf, fmtTok } from '../../src/app/features/governor/format'
+import { fmtBand, fmtLimit, fmtNum, fmtOf, fmtScale, fmtTok } from '../../src/app/features/governor/format'
+import { SWEEP, angleOf, arcPath, dialNumerals, dialScale, dialTicks, miniBar, monthBar } from '../../src/app/features/governor/gauge'
 import { blendedPerM, priceRow } from '../../src/shared/ai/prices'
 import { capsOf } from '../../src/shared/ai/models'
 import type { PriceRow, Route, Usage } from '../../src/shared/ai/types'
@@ -1041,5 +1043,64 @@ test.describe('the lamp VERBRAUCH (lamp.ts readUsageLamp)', () => {
     expect(fmtNum(6, 'de')).toBe('6,00')
     expect(fmtOf(5.71, 6, 'de')).toBe('5,71/6\u00a0$')
     expect(fmtOf(5.71, 6.5, 'en')).toBe('$5.71/6.50')
+  })
+})
+
+test.describe('the instruments’ geometry (gauge.ts) and amounts', () => {
+  test('the dial: about 1,25 × the budget, numerals 1 · 2 · 5 per decade, the mini dial leaves out the readout’s numerals', () => {
+    expect(dialScale(6, 4.12)).toEqual({ max: 7.5, step: 1 })
+    expect(dialScale(6, 5.71, 6.23)).toEqual({ max: 7.5, step: 1 })
+    // the value or the next step's end past the scale widens it
+    expect(dialScale(6, 9.4)).toEqual({ max: 10, step: 2 })
+    expect(dialScale(100, 12)).toEqual({ max: 130, step: 20 })
+    // no budget: the scale follows the value (at least 1)
+    expect(dialScale(null, 1.56)).toEqual({ max: 2, step: 0.5 })
+    expect(dialScale(null, 0)).toEqual({ max: 1, step: 0.2 })
+    expect(dialNumerals({ max: 7.5, step: 1 })).toEqual([0, 1, 2, 3, 4, 5, 6, 7])
+    expect(dialNumerals({ max: 7.5, step: 1 }, true)).toEqual([2, 3, 4, 5, 6])
+    const ticks = dialTicks({ max: 7.5, step: 1 })
+    expect(ticks.length).toBe(31)
+    expect(ticks.filter((t) => t.kind === 'major').length).toBe(8)
+    expect(ticks.filter((t) => t.kind === 'half').length).toBe(8)
+    expect(dialTicks({ max: 7.5, step: 1 }, true).every((t) => t.kind !== 'minor')).toBe(true)
+    expect([angleOf(0, 7.5), angleOf(7.5, 7.5), angleOf(99, 7.5), angleOf(-3, 7.5)]).toEqual([-SWEEP, SWEEP, SWEEP, -SWEEP])
+    expect(arcPath(127, 10, 10)).toBe('')
+    expect(arcPath(127, -125, 125)).toMatch(/^M\S+ \S+A127 127 0 1 1 /)
+  })
+
+  test('the mini bar: needle, this request’s segment, the red line with room past it', () => {
+    const g = miniBar(5.71, 0.52, 6)
+    expect(g.red).toBe(83.33)
+    expect(g.amber).toBe(62.5)
+    expect(g.needle).toBe(79.31)
+    expect(g.to).toBe(86.53)
+    expect(g.over).toBe(true)
+    expect(miniBar(1, 0.2, 6).over).toBe(false)
+    // a request past the line: its end stays on the bar, past the red line
+    expect(miniBar(5.71, 2.69, 8)).toMatchObject({ to: 87.5, red: 83.33, over: true })
+    // no limit: no red line, no amber
+    expect(miniBar(1.56, 0, null)).toMatchObject({ red: null, amber: null, over: false, needle: 80 })
+  })
+
+  test('the month bar: closed days, today, the forecast (Ø × days), the red line and soft limits', () => {
+    const g = monthBar({ spent: 33.4, today: 4.12, limit: 120, day: 9, days: 31, soft: [40, 200] })
+    expect(g.average).toBeCloseTo(3.711, 3)
+    expect(g.projection).toBeCloseTo(115.04, 2)
+    expect(g).toMatchObject({ closed: 24.4, today: 27.83, forecast: 95.87, red: 100, amber: 75, over: false, soft: [{ at: 33.33, i: 0 }] })
+    expect(monthBar({ spent: 60, today: 5, limit: 120, day: 10, days: 30 })).toMatchObject({ over: true, forecast: 100 })
+    const free = monthBar({ spent: 12.4, today: 1.56, limit: null, day: 9, days: 31 })
+    expect(free.red).toBeNull()
+    expect(free.forecast).toBe(90.91)
+  })
+
+  test('amounts as the instruments show them', () => {
+    expect(fmtLimit(6, 'de')).toBe('6\u00a0$')
+    expect(fmtLimit(6, 'en')).toBe('$6')
+    expect(fmtLimit(1, 'de')).toBe('1\u00a0$')
+    expect(fmtLimit(6.5, 'en')).toBe('$6.50')
+    expect(['de', 'en'].map((l) => [0.5, 2, 1.25, 120].map((v) => fmtScale(v, l as 'de' | 'en')))).toEqual([
+      ['0,5', '2', '1,25', '120'],
+      ['0.5', '2', '1.25', '120'],
+    ])
   })
 })

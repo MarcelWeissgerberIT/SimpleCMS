@@ -46,3 +46,13 @@ export function fmtOf(spent: number, limit: number, lang: Lang): string {
   const l = fmtNum(limit, lang, true)
   return lang === 'de' ? `${s}/${l}${NBSP}$` : `$${s}/${l}`
 }
+
+/** A limit as the status cell shows it: whole amounts without decimals ("6 $" · "$6"), others as fmtUsd. */
+export function fmtLimit(usd: number, lang: Lang): string {
+  if (!Number.isInteger(usd)) return fmtUsd(usd, lang)
+  const n = fmtNum(usd, lang, true)
+  return lang === 'de' ? `${n}${NBSP}$` : `$${n}`
+}
+
+/** A dial numeral: no trailing zeros ("0,5" · "2" · "1.25"). */
+export const fmtScale = (v: number, lang: Lang): string => num(lang, 0, 2).format(Number.isFinite(v) ? v : 0)
