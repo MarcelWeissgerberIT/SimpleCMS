@@ -1,0 +1,241 @@
+{
+  "source": "or-decisions.json (GET /api/v1/models?output_modalities=decisions, 2026-10-12, 19 rows) — trimmed: both Jev rows, Clef (a ~2 000-token text window), a :free variant, a context-0 row",
+  "verified": false,
+  "note": "Served by the mocks as { data } for GET /api/v1/models?output_modalities=decisions. `snapshot2` is DERIVED (not in the snapshot): the same Jev 1.13 row after a new dated release (canonical_slug typesafe/jev-1.13-20261101) — the DJ19 case 'Vorprüfer gewechselt'.",
+  "data": [
+    {
+      "id": "~typesafe/jev-latest",
+      "canonical_slug": "~typesafe/jev-latest",
+      "alias_target": {
+        "name": "TypeSafe: Jev 1.13",
+        "slug": "typesafe/jev-1.13"
+      },
+      "hugging_face_id": null,
+      "name": "TypeSafe: Jev Latest",
+      "created": 1789689685,
+      "description": "This model always redirects to the latest model in the Jev family.",
+      "context_length": 64000,
+      "architecture": {
+        "modality": "text->decisions",
+        "input_modalities": [
+          "text"
+        ],
+        "output_modalities": [
+          "decisions"
+        ],
+        "tokenizer": "Router",
+        "instruct_type": null
+      },
+      "pricing": {
+        "prompt": "0.000000042",
+        "completion": "0"
+      },
+      "top_provider": {
+        "context_length": 64000,
+        "max_completion_tokens": 57600,
+        "is_moderated": false
+      },
+      "per_request_limits": null,
+      "supported_parameters": [],
+      "default_parameters": {},
+      "supported_voices": null,
+      "knowledge_cutoff": null,
+      "expiration_date": null,
+      "links": {
+        "details": "/api/v1/models/~typesafe/jev-latest/endpoints"
+      }
+    },
+    {
+      "id": "typesafe/jev-1.13",
+      "canonical_slug": "typesafe/jev-1.13-20260917",
+      "hugging_face_id": null,
+      "name": "TypeSafe: Jev 1.13",
+      "created": 1789689684,
+      "description": "Jev is a structured decision model from TypeSafe, and the first of its System One models. System One models make fast, structured decisions for software, returning a typed choice rather...",
+      "context_length": 64000,
+      "architecture": {
+        "modality": "text->decisions",
+        "input_modalities": [
+          "text"
+        ],
+        "output_modalities": [
+          "decisions"
+        ],
+        "tokenizer": "Other",
+        "instruct_type": null
+      },
+      "pricing": {
+        "prompt": "0.000000042",
+        "completion": "0"
+      },
+      "top_provider": {
+        "context_length": 64000,
+        "max_completion_tokens": 57600,
+        "is_moderated": false
+      },
+      "per_request_limits": null,
+      "supported_parameters": [],
+      "default_parameters": {},
+      "supported_voices": null,
+      "knowledge_cutoff": null,
+      "expiration_date": null,
+      "links": {
+        "details": "/api/v1/models/typesafe/jev-1.13-20260917/endpoints"
+      }
+    },
+    {
+      "id": "cloudflare/clef",
+      "canonical_slug": "cloudflare/clef",
+      "hugging_face_id": "Cloudflare/clef",
+      "name": "Cloudflare: Clef",
+      "created": 1790870972,
+      "description": "Clef is Cloudflare's open-source 27B multimodal decision model, a fine-tune of Qwen3.8-27B served on Workers AI. It turns a state (text or structured JSON) plus a schema of typed questions...",
+      "context_length": 65536,
+      "architecture": {
+        "modality": "text+image->decisions",
+        "input_modalities": [
+          "text",
+          "image"
+        ],
+        "output_modalities": [
+          "decisions"
+        ],
+        "tokenizer": "Qwen",
+        "instruct_type": null
+      },
+      "pricing": {
+        "prompt": "0.00000024",
+        "completion": "0"
+      },
+      "top_provider": {
+        "context_length": 16384,
+        "max_completion_tokens": 14745,
+        "is_moderated": false
+      },
+      "per_request_limits": null,
+      "supported_parameters": [],
+      "default_parameters": {},
+      "supported_voices": null,
+      "knowledge_cutoff": null,
+      "expiration_date": null,
+      "links": {
+        "details": "/api/v1/models/cloudflare/clef/endpoints"
+      }
+    },
+    {
+      "id": "inception/mercury-decide:free",
+      "canonical_slug": "inception/mercury-decide-20260930",
+      "hugging_face_id": null,
+      "name": "Inception: Mercury Decide (free)",
+      "created": 1790789334,
+      "description": "Mercury Decide is Inception's structured decision model, served as a System One endpoint. Send a state along with typed questions, and it returns a choice, a score, or a yes/no...",
+      "context_length": 65536,
+      "architecture": {
+        "modality": "text->decisions",
+        "input_modalities": [
+          "text"
+        ],
+        "output_modalities": [
+          "decisions"
+        ],
+        "tokenizer": "Other",
+        "instruct_type": null
+      },
+      "pricing": {
+        "prompt": "0",
+        "completion": "0"
+      },
+      "top_provider": {
+        "context_length": 65536,
+        "max_completion_tokens": 58982,
+        "is_moderated": false
+      },
+      "per_request_limits": null,
+      "supported_parameters": [],
+      "default_parameters": {},
+      "supported_voices": null,
+      "knowledge_cutoff": null,
+      "expiration_date": null,
+      "links": {
+        "details": "/api/v1/models/inception/mercury-decide-20260930/endpoints"
+      }
+    },
+    {
+      "id": "respan/span-01",
+      "canonical_slug": "respan/span-01-20260925",
+      "hugging_face_id": null,
+      "name": "Respan: Span-01",
+      "created": 1790387550,
+      "description": "Span-01 is a behavior scoring model from Respan. It reads a conversation span and returns, for each plain-language behavior you define, the probability that the behavior is present. It is...",
+      "context_length": 0,
+      "architecture": {
+        "modality": "text->decisions",
+        "input_modalities": [
+          "text"
+        ],
+        "output_modalities": [
+          "decisions"
+        ],
+        "tokenizer": "Other",
+        "instruct_type": null
+      },
+      "pricing": {
+        "prompt": "0.00000002",
+        "completion": "0"
+      },
+      "top_provider": {
+        "context_length": 0,
+        "max_completion_tokens": 0,
+        "is_moderated": false
+      },
+      "per_request_limits": null,
+      "supported_parameters": [],
+      "default_parameters": {},
+      "supported_voices": null,
+      "knowledge_cutoff": null,
+      "expiration_date": null,
+      "links": {
+        "details": "/api/v1/models/respan/span-01-20260925/endpoints"
+      }
+    }
+  ],
+  "total_count": 5,
+  "snapshot2": {
+    "id": "typesafe/jev-1.13",
+    "canonical_slug": "typesafe/jev-1.13-20261101",
+    "hugging_face_id": null,
+    "name": "TypeSafe: Jev 1.13",
+    "created": 1789689684,
+    "description": "Jev is a structured decision model from TypeSafe, and the first of its System One models. System One models make fast, structured decisions for software, returning a typed choice rather...",
+    "context_length": 64000,
+    "architecture": {
+      "modality": "text->decisions",
+      "input_modalities": [
+        "text"
+      ],
+      "output_modalities": [
+        "decisions"
+      ],
+      "tokenizer": "Other",
+      "instruct_type": null
+    },
+    "pricing": {
+      "prompt": "0.000000042",
+      "completion": "0"
+    },
+    "top_provider": {
+      "context_length": 64000,
+      "max_completion_tokens": 57600,
+      "is_moderated": false
+    },
+    "per_request_limits": null,
+    "supported_parameters": [],
+    "default_parameters": {},
+    "supported_voices": null,
+    "knowledge_cutoff": null,
+    "expiration_date": null,
+    "links": {
+      "details": "/api/v1/models/typesafe/jev-1.13-20261101/endpoints"
+    }
+  }
+}

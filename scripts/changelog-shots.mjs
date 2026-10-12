@@ -14,7 +14,8 @@
  * to 1440 px wide and saved as public/assets/shots/changelog/<shot>.webp (≤ 150 KB: the quality steps down
  * until it fits), its pixel size goes into sizes.json next to it (the public /help/changelog/ page reads it).
  *
- * Nothing leaves the machine: openrouter.ai answers from its documented formats and api.openai.com is aborted
+ * Nothing leaves the machine: openrouter.ai answers from its documented formats (chat, decisions, both catalogues) and
+ * api.openai.com is aborted
  * (scripts/lib/aiHosts.mjs); api.anthropic.com is mocked (streamed answers, structured JSON, scripted
  * tool-use runs — never a real request), Gmail and Google's sign-in script are in-memory stand-ins, the MCP
  * bridge for the tidy-up shot is the repository's own public/mcp/one-mcp.mjs on a local port, the coding shot runs
