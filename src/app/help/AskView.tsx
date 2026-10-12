@@ -2,13 +2,13 @@
  * "Ask the help": a question → Claude (your key) answers from the best-matching help articles only and
  * links the ones it used. Without a key: a hint and the matching articles instead.
  */
-import { useEffect, useMemo, type KeyboardEvent } from 'react'
+import { useEffect, useMemo, useRef, type KeyboardEvent } from 'react'
 import { create } from 'zustand'
 import { ArrowRight, KeyRound, Square } from 'lucide-react'
 import { useLang, useT } from '../i18n'
 import { useWorkspace } from '../store/store'
 import { useUI } from '../store/ui'
-import { isAIConfigured } from '../features'
+import { RouteChip, isAIConfigured, isRouteKey, routeFor, type Route, type RouteChipHandle } from '../features'
 import { shortcutLabel } from '../ui/controls'
 import { askHelp, linkCitations } from './ask'
 import { LIBRARY } from './content'
@@ -30,10 +30,12 @@ interface AskState {
   sources: HelpArticle[]
   /** the last `askRun` request handled */
   handled: number
+  /** the route chip: the model for the next question only (null: the rules decide) */
+  chip: Route | null
 }
 
 /** The ask session outlives the view: open a cited article, come back, the answer is still there. */
-const useAsk = create<AskState>()(() => ({ phase: 'idle', asked: '', answer: '', error: '', sources: [], handled: 0 }))
+const useAsk = create<AskState>()(() => ({ phase: 'idle', asked: '', answer: '', error: '', sources: [], handled: 0, chip: null }))
 let abort: AbortController | null = null
 
 /** The article last open in the panel: a question asked from it is probably about it. */
@@ -58,7 +60,7 @@ async function ask(lang: HelpLang, q = useHelp.getState().question): Promise<voi
   abort = ctrl
   useAsk.setState({ phase: 'running' })
   try {
-    const final = await askHelp({ question: text, articles: sources, lang, signal: ctrl.signal, onToken: (d) => useAsk.setState((s) => ({ answer: s.answer + d })) })
+    const final = await askHelp({ question: text, articles: sources, lang, signal: ctrl.signal, route: useAsk.getState().chip, onToken: (d) => useAsk.setState((s) => ({ answer: s.answer + d })) })
     if (ctrl.signal.aborted) return
     useAsk.setState({ answer: final, phase: 'done' })
   } catch (e) {
@@ -80,7 +82,9 @@ export function AskView() {
   const question = useHelp((s) => s.question)
   const askRun = useHelp((s) => s.askRun)
   const model = useWorkspace((s) => s.settings.aiModel)
-  const { phase, asked, answer, error, sources } = useAsk()
+  const { phase, asked, answer, error, sources, chip } = useAsk()
+  const chipRef = useRef<RouteChipHandle | null>(null)
+  const fieldRef = useRef<HTMLTextAreaElement | null>(null)
 
   // "Ask the help: …" from the search results (or a link elsewhere) sends the question right away
   useEffect(() => {
@@ -90,6 +94,12 @@ export function AskView() {
   }, [askRun, lang])
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    // Alt+M: the route picker (the field keeps its text)
+    if (isRouteKey(e.nativeEvent)) {
+      e.preventDefault()
+      chipRef.current?.open()
+      return
+    }
     if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault()
       if (phase !== 'running') void ask(lang)
@@ -97,7 +107,8 @@ export function AskView() {
   }
 
   const blocks = useMemo(() => (answer.trim() ? parseBlocks(linkCitations(answer, sources)) : []), [answer, sources])
-  const modelLabel = model.replace('claude-', '').replace(/-(\d)-(\d)/, ' $1.$2').toUpperCase()
+  // the model the answer comes from (the chip, else the rules); re-read when this device's model changes
+  const modelLabel = useMemo(() => routeFor('help.ask', { route: chip }).label, [chip, model])
 
   return (
     <div className="help-ask">
@@ -116,6 +127,7 @@ export function AskView() {
           {t('help.ask.label')}
         </label>
         <textarea
+          ref={fieldRef}
           id="help-ask-q"
           className="input help-ask__field"
           data-help-autofocus=""
@@ -129,6 +141,17 @@ export function AskView() {
           <span className="label help-ask__hint">
             <span className="kbd">↵</span> {t('help.ask.go')} · <span className="kbd">{shortcutLabel('Shift')}↵</span> {t('help.ask.newLine')}
           </span>
+          <RouteChip
+            handle={chipRef}
+            purpose="help.ask"
+            chip={chip}
+            onChip={(r) => useAsk.setState({ chip: r })}
+            sources={[]}
+            reads={t('features.ai.prov.chip.reads.help')}
+            disabled={phase === 'running'}
+            onClosed={() => requestAnimationFrame(() => fieldRef.current?.focus({ preventScroll: true }))}
+            testId="help-route-chip"
+          />
           {phase === 'running' ? (
             <button type="button" className="btn btn--sm" onClick={stop}>
               <Square size={11} aria-hidden /> {t('help.ask.stop')}

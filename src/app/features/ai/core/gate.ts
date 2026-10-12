@@ -25,7 +25,11 @@
  * In DEV and `?e2e` a call without a known purpose or a source list — with no sources for a purpose that carries
  * page data, or carrying a class its purpose does not declare — throws (the recorder's strict() pattern).
  */
-import type { Caps, DataClass, FeatureClass, Reservation, Route, RuntimeProviderId, SourceRef, StepNote } from '@/shared/ai/types'
+import type { Caps, DataClass, FeatureClass, PriceRow, Reservation, Route, RuntimeProviderId, SourceRef, StepNote } from '@/shared/ai/types'
+import type { AIErrorCode } from '@/shared/ai/errors'
+import { MODELS } from '@/shared/ai/models'
+import { JEV_OPERATOR, JEV_ROUTER, JEV_TIERS, isJevRouter } from '@/shared/ai/jev'
+import { OWNER } from '@/shared/ai/owner'
 import { MEMBER_CLASSES, allowedFor, policyKnown, redactionFor, seesEverything } from '@/shared/ai/policy'
 import { legacyRule, routeKey, sanitizeRoute } from '@/shared/ai/route'
 import { looksLikeKey } from '@/shared/ai/keys'
@@ -38,8 +42,8 @@ import { AIError, type AIFix } from './errors'
 import { usesDemo } from './demoMode'
 import { classOfPage, classesOf, isSources, type SourceWorld } from './sources'
 import { PAGE_DERIVED, isPurposeId, purposeOf, type Need, type PurposeId } from './purposes'
-import { labelFor, modelInfo, priceFor, shortlist } from './registry'
-import { backstop, resolveRoute, type Level, type Resolved, type RouteWorld } from './resolve'
+import { labelFor, modelInfo, priceFor, shortFor, shortlist } from './registry'
+import { backstop, canDo, resolveRoute, type Level, type Resolved, type RouteWorld } from './resolve'
 import { routable } from './routable'
 
 /** What a call site did to its request text for the route (D-S2-5): redacted names / transcripts, left out pages. */
@@ -141,6 +145,15 @@ if (typeof window !== 'undefined' && new URLSearchParams(window.location.search)
       }),
     routeFor: (purpose: PurposeId, route?: Route | null) => routeFor(purpose, { route }),
     aiStatus: (purpose: PurposeId) => JSON.parse(JSON.stringify(aiStatus(purpose))) as unknown,
+    // what the gate decides for a request, nothing sent or reserved (the route and its shape, or the refusal + its fixes)
+    precheck: (input: Pick<PrepareInput, 'purpose' | 'sources' | 'route' | 'carries' | 'needs'>) => {
+      try {
+        const p = precheck(input)
+        return JSON.parse(JSON.stringify({ ok: true, route: p.route ? routeKey(p.route) : null, level: p.level, sees: p.sees, redact: p.redact, classes: p.classes, pool: p.pool ?? null, label: p.label })) as unknown
+      } catch (e) {
+        return e instanceof AIError ? (JSON.parse(JSON.stringify({ ok: false, code: e.code, detail: e.detail ?? null, fix: e.fix ?? null, fixes: e.fixes ?? [], label: e.label ?? null })) as unknown) : { ok: false, code: 'unknown', detail: String(e) }
+      }
+    },
     // can a build of generation `gen` enforce the stored rules? (an older tab, simulated)
     policyKnownAt: (gen: number) => {
       const st = useWorkspace.getState()
@@ -230,6 +243,20 @@ function resolveFor(cls: FeatureClass, o: { chip?: Route | null; model?: string 
   return resolveRoute({ cls, forced, chip: o.chip ? sanitizeRoute(o.chip) : null, model: o.model, caps: o.caps, classes: o.classes }, world())
 }
 
+/** What a request carries: the purpose's needs ∪ carries ∪ the sources' classes (one classOfPage memo per request). */
+function requestClasses(input: Pick<PrepareInput, 'purpose' | 'sources' | 'carries'>, w: SourceWorld): Set<DataClass> {
+  const purpose = purposeOf(input.purpose)
+  const classes = new Set<DataClass>([...purpose.needs, ...(input.carries ?? [])])
+  const sources = isSources(input.sources) ? input.sources : [{ all: true } as const]
+  for (const c of classesOf(sources, w)) classes.add(c)
+  return classes
+}
+
+const sourceWorld = (): SourceWorld => {
+  const s = useWorkspace.getState()
+  return { pages: s.pages, databases: s.databases, mailDb: s.settings.mail?.databaseId ?? null, memo: new Map() }
+}
+
 const DEMO_SHAPE = { redact: { people: false, transcript: false }, visible: () => true, sees: 'all' as const, allows: () => true }
 
 function gate(input: PrepareInput, held: boolean): Prepared {
@@ -243,11 +270,8 @@ function gate(input: PrepareInput, held: boolean): Prepared {
   if (offHook()) throw new AIError('off')
   // 3 · what the request carries: needs ∪ carries ∪ the sources' classes (one classOfPage memo per request)
   const purpose = purposeOf(input.purpose)
-  const memo = new Map<ID, Set<DataClass>>()
-  const w: SourceWorld = { pages: s.pages, databases: s.databases, mailDb: s.settings.mail?.databaseId ?? null, memo }
-  const classes = new Set<DataClass>([...purpose.needs, ...(input.carries ?? [])])
-  const sources = isSources(input.sources) ? input.sources : [{ all: true } as const]
-  for (const c of classesOf(sources, w)) classes.add(c)
+  const w = sourceWorld()
+  const classes = requestClasses(input, w)
   // 4 · the route
   const caps = [...new Set([...purpose.caps, ...(input.needs ?? [])])]
   const res = resolveFor(purpose.cls, { chip: input.route, model: input.model, caps, classes: [...classes] })
@@ -342,4 +366,104 @@ export function aiStatus(purposeId: PurposeId): AIStatus {
   }
   const reason = res.code === 'policy' || res.code === 'capability' || res.code === 'model_gone' || res.code === 'no_key' ? res.code : 'no_key'
   return { ready: false, route: res.route, demo: false, reason, ...(res.fixes[0] ? { fix: res.fixes[0] } : {}) }
+}
+
+/* ------------------------------------------------------------------ */
+/* routeChoices: the route picker's rows (B8 — the same filters)        */
+/* ------------------------------------------------------------------ */
+
+/** Why a route does not fit this request: an error code of the filters, 'later' (not routable for this kind of work
+ *  yet), 'typesafe' (the operator rule names the Jev Router's operator), 'needs2' (the router's pool holds < 2). */
+export type ChoiceWhy = { code: AIErrorCode | 'later' | 'typesafe' | 'needs2'; detail?: string }
+
+export interface RouteChoice {
+  /** routeKey + effort: unique per row */
+  key: string
+  route: Route
+  /** 'now': what the rules choose without a chip · 'rule': this kind of work's rule · 'models' · 'router' */
+  group: 'now' | 'rule' | 'models' | 'router'
+  ok: boolean
+  why?: ChoiceWhy
+  /** the Jev Router: the shortlist models it may choose from */
+  pool?: string[]
+  /** its price row (the router: the stated bound of its pool) */
+  price: PriceRow | null
+  label: string
+  short: string
+}
+
+export interface RouteChoices {
+  cls: FeatureClass
+  /** the route this request takes without a chip (null: none — no key, a refused rule) */
+  now: Route | null
+  rows: RouteChoice[]
+  /** the ROUTER group is shown (OpenRouter set up on this device, the router allowed by the owner) */
+  router: boolean
+}
+
+const choiceKey = (r: Route): string => `${routeKey(r)}${r.effort ? `#${r.effort}` : ''}`
+
+/**
+ * The route picker's rows for a request (§ 12.5): the route the rules choose now, the kind of work's rule, Claude's
+ * models (a key here), the OpenRouter shortlist (a key here), the Jev Router's tiers — each through the gate's own
+ * filters (key · known · capability · data rule) for this request's classes; the ones that do not fit carry one reason.
+ */
+export function routeChoices(purposeId: PurposeId, o: { sources?: readonly SourceRef[]; carries?: readonly DataClass[]; needs?: readonly Need[] } = {}): RouteChoices {
+  const s = useWorkspace.getState()
+  const purpose = purposeOf(purposeId)
+  const classes = [...requestClasses({ purpose: purposeId, sources: o.sources ?? [{ all: true }], carries: o.carries }, sourceWorld())]
+  const caps = [...new Set([...purpose.caps, ...(o.needs ?? [])])]
+  const w = world()
+  const check = (route: Route): Pick<RouteChoice, 'ok' | 'why' | 'pool'> => {
+    if (!routable(route.p, purpose.cls)) return { ok: false, why: { code: 'later' } }
+    const res = resolveRoute({ cls: purpose.cls, chip: route, caps, classes }, w)
+    if (res.ok) return res.level === 'chip' ? { ok: true, ...(res.pool ? { pool: res.pool } : {}) } : { ok: false, why: { code: 'later' } }
+    if (res.none) return { ok: false, why: { code: 'no_key' } }
+    return { ok: false, why: { code: res.code, ...(res.detail !== undefined ? { detail: res.detail } : {}) } }
+  }
+  const row = (route: Route, group: RouteChoice['group']): RouteChoice => {
+    const c = check(route)
+    const info = modelInfo(route, c.pool)
+    return { key: choiceKey(route), route, group, ...c, price: priceFor(route, c.pool), label: labelFor(route, c.pool), short: info?.short ?? shortFor(route) }
+  }
+  const rows: RouteChoice[] = []
+  const seen = new Set<string>()
+  const add = (r: RouteChoice) => {
+    if (seen.has(r.key)) return
+    seen.add(r.key)
+    rows.push(r)
+  }
+  // the route without a chip
+  const nowRes = resolveFor(purpose.cls, { caps, classes })
+  const now = nowRes.ok ? nowRes.route : null
+  if (now) add({ ...row(now, 'now'), ok: true, ...(nowRes.ok && nowRes.pool ? { pool: nowRes.pool } : {}) })
+  // this kind of work's rule (the device's, else the workspace's)
+  const rule = s.settings.ai?.routes?.[purpose.cls] ?? s.ai?.routes?.[purpose.cls] ?? []
+  for (const pin of rule) if (!isJevRouter(pin.m)) add(row(pin, 'rule'))
+  // Claude's models (a key here)
+  const claudeKey = !!s.settings.aiApiKey.trim()
+  if (claudeKey) for (const m of MODELS) if (m.route.p === 'anthropic' && m.selectable) add(row({ p: 'anthropic', m: m.route.m }, 'models'))
+  // the OpenRouter shortlist (a key here)
+  const orKey = hasAIKey('openrouter')
+  const list = shortlist()
+  if (orKey) for (const r of list) add(row({ p: 'openrouter', m: r.m }, 'models'))
+  // the Jev Router: three tiers over the pool (≥ 2 models), else one row saying why not
+  const router = orKey && OWNER.jevRouter && list.length > 0
+  // an empty pool: what none of the shortlist can do for this request (an MCP server, a picture …), else too few models
+  const poolWhy = (ids: readonly string[]): ChoiceWhy => {
+    const missing = caps.find((n) => ids.every((m) => !canDo(modelInfo({ p: 'openrouter', m })?.caps, n)))
+    return missing ? { code: 'capability', detail: missing } : { code: 'needs2' }
+  }
+  if (router) {
+    const deny = (s.ai?.policy?.providers?.openrouter?.upstream?.deny ?? []).map((x) => x.toLowerCase())
+    const denied = deny.some((x) => x === JEV_OPERATOR.toLowerCase() || x.startsWith(`${JEV_OPERATOR.toLowerCase()}/`))
+    for (const tier of JEV_TIERS) {
+      const r = row({ p: 'openrouter', m: JEV_ROUTER, effort: tier }, 'router')
+      if (denied) add({ ...r, ok: false, why: { code: 'typesafe' } })
+      else if (r.ok && (r.pool?.length ?? 0) < 2) add({ ...r, ok: false, why: { code: 'needs2' } })
+      else if (!r.ok && r.why?.code === 'capability' && r.why.detail === 'pool') add({ ...r, why: poolWhy(list.map((x) => x.m)) })
+      else add(r)
+    }
+  }
+  return { cls: purpose.cls, now, rows, router }
 }

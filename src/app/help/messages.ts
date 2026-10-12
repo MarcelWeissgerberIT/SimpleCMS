@@ -69,7 +69,7 @@ export const messages: Messages = {
     'help.ask.noKey.body': 'Add your Anthropic API key in Settings → Claude AI. Until then, these articles match your question:',
     'help.ask.noKey.open': 'Add key',
     'help.ask.noMatch': 'No article matches this question. Try other words, or browse the manual.',
-    'help.ask.model': 'Claude · {model}',
+    'help.ask.model': '{model}',
 
     'help.keys.title': 'Keyboard shortcuts',
     'help.keys.note': 'Also in Settings → Shortcuts. Open this list any time with {keys}.',
@@ -229,7 +229,7 @@ export const messages: Messages = {
     'help.ask.noKey.body': 'Hinterlege deinen Anthropic-API-Schlüssel unter Einstellungen → Claude KI. Bis dahin passen diese Artikel zu deiner Frage:',
     'help.ask.noKey.open': 'Schlüssel hinterlegen',
     'help.ask.noMatch': 'Kein Artikel passt zu dieser Frage. Versuch andere Wörter oder blättere im Handbuch.',
-    'help.ask.model': 'Claude · {model}',
+    'help.ask.model': '{model}',
 
     'help.keys.title': 'Tastenkürzel',
     'help.keys.note': 'Auch unter Einstellungen → Tastenkürzel. Diese Liste öffnest du jederzeit mit {keys}.',

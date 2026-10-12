@@ -20,6 +20,7 @@ import { backstop, resolveRoute, type ResolveInput, type RouteWorld } from '../.
 import { ROUTABLE } from '../../src/app/features/ai/core/routable'
 import { routerView, shortlistInfo } from '../../src/app/features/ai/core/pool'
 import type { Database, Page } from '../../src/app/store/types'
+import { cleanMeta } from '../../src/app/features/recorder/journal/runs'
 
 const OR = 'openrouter' as const
 const CL = 'anthropic' as const
@@ -464,5 +465,22 @@ test.describe('the registry rows the gate reads', () => {
       const res = resolveRoute(ask({ chip: r.route }), worldOf())
       expect(res.ok && res.info.label).toBe(r.label)
     }
+  })
+})
+
+test.describe('the recorder\'s run meta of AI runs (B7)', () => {
+  test('route keys are kept (a model id with "/" and ":"), text is refused, aiAlso ≤ 3, role / group / parent by their grammar', () => {
+    expect(cleanMeta({ ai: 'openrouter:openai/gpt-6-luna', aiAlso: ['openrouter:typesafe/jev-router'], role: 'main', group: 'grp_1', parent: 'run-2' })).toEqual({ ai: 'openrouter:openai/gpt-6-luna', aiAlso: ['openrouter:typesafe/jev-router'], role: 'main', group: 'grp_1', parent: 'run-2' })
+    expect(cleanMeta({ ai: 'openrouter:z-ai/glm-5.3:free' })).toEqual({ ai: 'openrouter:z-ai/glm-5.3:free' })
+    expect(cleanMeta({ ai: 'anthropic:claude-opus-5-5', seq: 3 })).toEqual({ ai: 'anthropic:claude-opus-5-5', seq: 3 })
+    // page text, a person's name, an unknown provider, spaces: never kept
+    expect(cleanMeta({ ai: 'Mira Kowalski says the budget is forty thousand' })).toBeUndefined()
+    expect(cleanMeta({ ai: 'openrouter:has a space' })).toBeUndefined()
+    expect(cleanMeta({ ai: 'mystery:model-x' })).toBeUndefined()
+    expect(cleanMeta({ aiAlso: ['openrouter:a/b', 'openrouter:c/d', 'anthropic:claude-haiku-4-5', 'openrouter:e/f'] })?.aiAlso).toHaveLength(3)
+    expect(cleanMeta({ aiAlso: ['not a route', 'openrouter:a/b'] })?.aiAlso).toEqual(['openrouter:a/b'])
+    expect(cleanMeta({ role: 'boss' as never })).toBeUndefined()
+    expect(cleanMeta({ role: 'decide' })).toEqual({ role: 'decide' })
+    expect(cleanMeta({ group: 'has space', parent: 'x'.repeat(41) })).toBeUndefined()
   })
 })

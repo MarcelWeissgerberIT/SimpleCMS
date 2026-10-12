@@ -550,6 +550,12 @@
 .ask__doc .doc-content > :last-child {
   margin-bottom: 0;
 }
+.ask__route {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0 12px 6px;
+}
+
 .ask__note {
   margin: 0 0 8px;
   color: var(--ink-3);

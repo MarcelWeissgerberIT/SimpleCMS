@@ -8,7 +8,7 @@ import type { Page } from '@playwright/test'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { test, expect, openApp, reloadApp, wsEval } from './fixtures'
-import { hostCounts, mockClaudeScript, mockOpenRouter, seedEndpoints, type ORMock, type ORStepFn } from './helpers/providers'
+import { hostCounts, mockClaudeScript, mockOpenRouter, seedEndpoints, text, type ORMock, type ORStepFn } from './helpers/providers'
 import { SUMMARY, TRANSFORM_STEPS, aiPanel, autofillPriority, imageAction, improve, ledger, noSpeech, summarisePdf, summarizeMeeting, transformAuto } from './helpers/aiFlows'
 import { capsOfRow, readCatalogRow } from '../../src/shared/ai/catalog'
 import type { Route, ShortlistRow } from '../../src/shared/ai/types'
@@ -266,5 +266,51 @@ test.describe('the Jev Router (a pool over the shortlist)', () => {
     await improve(page)
     expect(or.to('/api/v1/models')).toHaveLength(2)
     expect(or.posts()).toHaveLength(1)
+  })
+})
+
+test.describe('the flight recorder names the route (acceptance 2, recorder part)', () => {
+  /** Improve → Replace selection, then the recorder's run of it (`ai:<run>`). */
+  async function acceptAndRun(page: Page): Promise<AnyState> {
+    await improve(page)
+    await aiPanel(page).getByRole('option', { name: /Replace selection/ }).click()
+    await expect(aiPanel(page)).toHaveCount(0)
+    const rec = () => page.evaluate(async () => {
+      const r = (window as unknown as { __oneRecorder: { flush(): Promise<void>; runs(): Promise<AnyState[]> } }).__oneRecorder
+      await r.flush()
+      return (await r.runs()).filter((x) => String(x.key).startsWith('ai:'))
+    })
+    await expect.poll(async () => (await rec()).find((x) => x.meta?.ai)?.meta ?? null).not.toBeNull()
+    return (await rec()).find((x) => x.meta?.ai)!
+  }
+  async function viaOnDeck(page: Page): Promise<string> {
+    await page.keyboard.press('Control+Alt+z')
+    await page.locator('.lane[data-lane="ai"] .flag').first().click()
+    return (await page.getByTestId('rec-via').textContent()) ?? ''
+  }
+
+  test('OpenRouter: the run meta holds the served route; the window plate says "via OpenRouter · GPT-6 Luna"', async ({ page }) => {
+    await setup(page, [{ text: 'A tighter launch sentence.' }])
+    const run = await acceptAndRun(page)
+    expect(run.meta).toMatchObject({ ai: `openrouter:${LUNA}` })
+    expect(run.meta.aiAlso).toBeUndefined()
+    expect(await viaOnDeck(page)).toBe('via OpenRouter · GPT-6 Luna')
+  })
+
+  test('the Jev Router: ai = the model it chose, aiAlso = the router; "via OpenRouter · Jev Router → GPT-6 Luna"', async ({ page }) => {
+    await setup(page, [{ text: 'A tighter launch sentence.' }], { route: ROUTER, pool: POOL })
+    const run = await acceptAndRun(page)
+    expect(run.meta).toMatchObject({ ai: `openrouter:${LUNA}`, aiAlso: [`openrouter:${JEV}`] })
+    expect(await viaOnDeck(page)).toBe('via OpenRouter · Jev Router → GPT-6 Luna')
+  })
+
+  test('Claude: "via Claude Opus 5.5"', async ({ page }) => {
+    await setup(page, [])
+    await force(page, null)
+    // the newer route answers Claude's request (Playwright takes the last registered handler first)
+    await mockClaudeScript(page.context(), [text('A tighter launch sentence.')])
+    const run = await acceptAndRun(page)
+    expect(run.meta.ai).toMatch(/^anthropic:claude-opus-5-5/)
+    expect(await viaOnDeck(page)).toBe('via Claude Opus 5.5')
   })
 })

@@ -710,6 +710,10 @@
   gap: 8px;
 }
 
+.help-ask__bar .route-chip {
+  margin-left: auto;
+}
+
 .help-ask__hint {
   display: inline-flex;
   align-items: center;

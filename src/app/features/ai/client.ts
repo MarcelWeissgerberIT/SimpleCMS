@@ -16,7 +16,7 @@ import { meterCall, type MeterCall, type Receipt } from './core/meter'
 import { memoryRef } from './core/refs'
 import type { Need, PurposeId } from './core/purposes'
 import { demoAnswer, streamDemo } from './demo'
-import { codewordsIn, currentSetup, mcpNames, type Codewords, type McpRequestKind, type McpSetup } from './mcp-servers/config'
+import { codewordsIn, currentSetup, mcpNames, readServers, type Codewords, type McpRequestKind, type McpSetup } from './mcp-servers/config'
 import { skippedCall } from './mcp-servers/activity'
 import { routeFor } from './core/status'
 import { allowedFor } from '@/shared/ai/policy'
@@ -225,7 +225,10 @@ function codewordRefusal(e: unknown, opts: Pick<StreamOptions, 'purpose' | 'rout
   const provider = providerLabel(route.p)
   const claude = !!s.settings.aiApiKey && allowedFor('anthropic', 'mcp', s.ai, s.settings.ai)
   const err = new AIError(e.code, e.detail, cw.forced[0], undefined, claude ? [{ kind: 'askClaude' }] : [])
-  err.message = t(e.code === 'policy' ? 'features.ai.prov.codeword.policy' : 'features.ai.prov.codeword.refused', { cw: cw.forced.join(', '), provider })
+  // the codewords as typed ("kb"), not the servers' names
+  const servers = readServers()
+  const words = cw.forced.map((n) => servers.find((x) => x.name === n)?.codeword ?? n)
+  err.message = t(e.code === 'policy' ? 'features.ai.prov.codeword.policy' : 'features.ai.prov.codeword.refused', { cw: words.join(', '), provider })
   return err
 }
 

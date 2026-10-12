@@ -98,11 +98,13 @@ import { FileStack, ListPlus } from 'lucide-react'
 import { listItemsIn, openTurnIntoList } from '../kit'
 import { itemCount, pagesPerItem } from '../../editor'
 import { requestIntent } from './intent'
+import { RouteChip, isRouteKey, type RouteChipHandle } from './routing/RouteChip'
+import type { PurposeId } from './core/purposes'
 import { aiWriterOf } from './core/runMeta'
-import { AI_MODELS, AIError, DEFAULT_MODEL, aiErrorText, isAIDemo, onAIDemo, resolveModel, setAIDemo, verifyKey } from './client'
+import { AIError, DEFAULT_MODEL, aiErrorText, isAIDemo, onAIDemo, resolveModel, setAIDemo, verifyKey } from './client'
 import { legacyRule } from '@/shared/ai/route'
 import type { Route } from '@/shared/ai/types'
-import { readServers } from './mcp-servers/config'
+import { codewordsIn, readServers } from './mcp-servers/config'
 import { callLabel, type McpCall } from './mcp-servers/activity'
 import { CodewordChip, McpSkippedNote, skippedLabel } from './mcp-servers/Codeword'
 import { citationsToLinks, findSource, type WorkspaceSource } from './workspace'
@@ -303,7 +305,6 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
   const t = useT()
   const hasKey = useWorkspace((s) => !!s.settings.aiApiKey.trim())
   const model = resolveModel(useWorkspace((s) => s.settings.aiModel))
-  const updateSettings = useWorkspace((s) => s.updateSettings)
   // no key, demo switched on: canned answers, clearly labelled
   const demo = useSyncExternalStore(onAIDemo, isAIDemo) && !hasKey
 
@@ -330,6 +331,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
   const [runId, setRunId] = useState<string | null>(openRun ?? null)
   /** the route chip: the model for this request only (null: the rules of this device / workspace decide) */
   const [chip, setChip] = useState<Route | null>(() => (openRun ? (useAIRuns.getState().runs[openRun]?.chip ?? null) : null))
+  const chipRef = useRef<RouteChipHandle | null>(null)
   const run = useAIRuns((s) => (runId ? (s.runs[runId] ?? null) : null))
   const receipt = run ? receiptOf(run) : null
   // an image run: its image found again (the picture is the target, not text)
@@ -1885,6 +1887,12 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.nativeEvent.isComposing) return
+    // Alt+M: the route picker (the field keeps its text — no "µ" typed)
+    if (isRouteKey(e.nativeEvent)) {
+      e.preventDefault()
+      if (!demo) chipRef.current?.open()
+      return
+    }
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       if (!rows.length) return
       e.preventDefault()
@@ -1927,12 +1935,12 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
 
   /* ---------------- render ---------------- */
 
-  const cycleModel = () => {
-    const i = AI_MODELS.findIndex((m) => m.id === model.id)
-    updateSettings({ aiModel: AI_MODELS[(i + 1) % AI_MODELS.length].id })
-    // keep the keyboard flow in the prompt: Enter must run the action, not cycle again
-    requestAnimationFrame(() => inputRef.current?.focus({ preventScroll: true }))
-  }
+  /** The kind of request the route chip shows (and the picker checks): the menu's current view. */
+  const chipPurpose: PurposeId = wsMode ? 'workspace.ask' : view === 'transform' || run?.req.kind === 'transform' ? 'structure.transform' : img ? 'vision.image' : file ? 'documents.file' : 'menu.action'
+  /** What the request reads (a selection of this page; the workspace asks read the workspace) */
+  const chipSources = useMemo(() => (wsMode ? [{ all: true } as const] : [{ page: pageId, as: 'selection' as const }]), [wsMode, pageId])
+  /** a codeword in the query: the server must be connectable (never the router, never OpenRouter) */
+  const chipNeeds = useMemo(() => (/^\s*[a-z0-9_-]{1,24}\s*:/.test(query) && codewordsIn(query) ? (['mcp'] as const) : ([] as const)), [query])
 
   const phKey =
     phase === 'done' || phase === 'error' ? (fileLocal ? 'file' : 'refine') : wsMode ? 'workspace' : view === 'translate' ? 'language' : view === 'transform' ? 'transform' : img && view === 'actions' ? 'image' : file && view === 'actions' ? 'file' : target.mode === 'selection' ? 'selection' : 'block'
@@ -2059,14 +2067,20 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
               {!busy && !wsMode && !redoHead && view === 'actions' && run?.req.kind !== 'todb' && run?.req.kind !== 'transform' && <CodewordChip text={query} />}
               {demo ? (
                 <span className="ai-model ai-model--demo" title={t('features.ai.demo.title')}>
-                  <span className="ai-model__brand">CLAUDE · </span>
                   {t('features.ai.demo.tag').toUpperCase()}
                 </span>
               ) : (
-                <button className="ai-model" onClick={cycleModel} disabled={busy} title={t('features.ai.switchModel')}>
-                  <span className="ai-model__brand">CLAUDE · </span>
-                  {model.short}
-                </button>
+                <RouteChip
+                  handle={chipRef}
+                  purpose={chipPurpose}
+                  chip={chip}
+                  onChip={setChip}
+                  sources={chipSources}
+                  needs={chipNeeds}
+                  reads={t(wsMode ? 'features.ai.prov.chip.reads.question' : 'features.ai.prov.chip.reads.selection')}
+                  disabled={busy}
+                  onClosed={() => requestAnimationFrame(() => inputRef.current?.focus({ preventScroll: true }))}
+                />
               )}
             </div>
 

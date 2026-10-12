@@ -6,7 +6,7 @@ import { useUI } from '../../store/ui'
 import { selectBreadcrumbs } from '../../store/selectors'
 import { CodewordChip, isAIConfigured, McpSkippedNote, runAI, templateName, templateRoots, type McpCall } from '../../features'
 import { memoryFor, MemoryNote, noteUse, type MemoryUse } from '../../features'
-import { AIError, aiWriterOf, precheck, routed, shapeOf, withShape, type AIFix, type Receipt, type Route } from '../../features'
+import { AIError, RouteChip, aiWriterOf, isRouteKey, precheck, routeFor, routed, shapeOf, withShape, type AIFix, type Receipt, type Route, type RouteChipHandle } from '../../features'
 import { legacyRule } from '@/shared/ai/route'
 import { DEFAULT_CLAUDE_MODEL } from '@/shared/ai/models'
 
@@ -53,6 +53,8 @@ function Palette() {
   const { q, mode, chips, setQuery, parsed, filtering, text, hits, total, sugs, fx, env } = find
   const [value, setValue] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
+  /** the ⌘K "?" route chip (Alt+M opens its picker) */
+  const askChip = useRef<RouteChipHandle | null>(null)
   const listRef = useRef<HTMLDivElement>(null)
   const pages = useWorkspace((s) => s.pages)
   const recentIds = useWorkspace((s) => s.recent)
@@ -233,6 +235,13 @@ function Palette() {
         aria-label={t('shell.palette.label')}
         onKeyDownCapture={(e) => {
           if (e.nativeEvent.isComposing) return
+          // ⌘K "?": Alt+M opens the route picker (the field keeps its text)
+          if (mode === 'ask' && isRouteKey(e.nativeEvent) && document.activeElement === inputRef.current) {
+            e.preventDefault()
+            e.stopPropagation()
+            askChip.current?.open()
+            return
+          }
           const inField = document.activeElement === inputRef.current
           if (e.key === 'Enter' && e.altKey && inField && value.startsWith('page:')) {
             e.preventDefault()
@@ -308,7 +317,7 @@ function Palette() {
             </div>
           )}
           {mode === 'ask' ? (
-            <AskPanel question={raw} pageId={pageId} onDone={() => finish()} />
+            <AskPanel question={raw} pageId={pageId} onDone={() => finish()} chipHandle={askChip} onChipClosed={focusInput} />
           ) : (
             <Command.List className="pal-list" ref={listRef}>
               <Command.Empty className="pal-empty">
@@ -595,7 +604,7 @@ function highlight(text: string, ranges: Range[]): ReactNode {
 /* Ask AI (Claude, BYOK) — answers about the current page               */
 /* ------------------------------------------------------------------ */
 
-function AskPanel({ question, pageId, onDone }: { question: string; pageId: ID | null; onDone: () => void }) {
+function AskPanel({ question, pageId, onDone, chipHandle, onChipClosed }: { question: string; pageId: ID | null; onDone: () => void; chipHandle?: React.Ref<RouteChipHandle>; onChipClosed?: () => void }) {
   const t = useT()
   const readOnly = useReadOnly()
   const model = useWorkspace((s) => s.settings.aiModel)
@@ -613,7 +622,7 @@ function AskPanel({ question, pageId, onDone }: { question: string; pageId: ID |
   /** what the data rules left out of the question (the memory, the page) — said under the answer */
   const [notes, setNotes] = useState<Array<'memoryWithheld' | 'pageWithheld'>>([])
   /** the route chip: this question only (null: the rules decide) */
-  const [chip] = useState<Route | null>(null)
+  const [chip, setChip] = useState<Route | null>(null)
   /** what to do about a refused question ("Ask Claude" for a codeword the route cannot connect) */
   const [fix, setFix] = useState<AIFix | null>(null)
   const abort = useRef<AbortController | null>(null)
@@ -691,6 +700,9 @@ function AskPanel({ question, pageId, onDone }: { question: string; pageId: ID |
     }
   }
 
+  /** the model the answer comes from (the chip, else the rules) */
+  const headLabel = useMemo(() => routeFor('palette.ask', { route: chip }).label.toUpperCase(), [chip, model])
+
   const askWriter = (): Writer => aiWriterOf({ id: runId.current || newId(), route: receipt.current?.route, served: receipt.current?.served }, 'ask')
 
   const append = () => {
@@ -746,11 +758,24 @@ function AskPanel({ question, pageId, onDone }: { question: string; pageId: ID |
           </span>
         </Command.Item>
       </Command.List>
+      <div className="ask__route">
+        <RouteChip
+          handle={chipHandle}
+          purpose="palette.ask"
+          chip={chip}
+          onChip={setChip}
+          sources={page ? [{ page: page.id }] : []}
+          reads={t(page ? 'features.ai.prov.chip.reads.page' : 'features.ai.prov.chip.reads.question')}
+          disabled={state === 'running'}
+          onClosed={onChipClosed}
+          testId="ask-route-chip"
+        />
+      </div>
       {(state !== 'idle' || answer) && (
         <div className="ask__out" aria-live="polite">
           <div className="ask__head label">
             <span className={`led${state === 'running' ? ' led--on ask__blink' : state === 'error' ? '' : ' led--ok'}`} />
-            CLAUDE · {model.replace('claude-', '').replace(/-(\d)-(\d)/, ' $1.$2').toUpperCase()}
+            {headLabel}
             {memory && <MemoryNote use={memory} onOpen={onDone} />}
             {state === 'running' && (
               <button type="button" className="ask__stop" onClick={() => (abort.current?.abort(), setState('done'))}>

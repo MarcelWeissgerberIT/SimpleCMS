@@ -2,7 +2,7 @@
  * "Ask the help": Claude (the user's key) answers a question from the help articles only. The request
  * carries the best-matching articles (search.ts) and nothing of the workspace — and no MCP server.
  */
-import { streamCompletion } from '../features'
+import { streamCompletion, type Route } from '../features'
 import type { HelpArticle, HelpLang } from './library'
 
 export function helpSystemPrompt(lang: HelpLang): string {
@@ -33,11 +33,13 @@ export interface AskOptions {
   lang: HelpLang
   onToken: (delta: string) => void
   signal: AbortSignal
+  /** the route chip: this question only (null: the rules decide) */
+  route?: Route | null
 }
 
 /** Streams the answer (Markdown). Throws the AI client's friendly errors (no key, offline …). */
-export function askHelp({ question, articles, lang, onToken, signal }: AskOptions): Promise<string> {
-  return streamCompletion({ purpose: 'help.ask', sources: [], typed: question, system: helpSystemPrompt(lang), prompt: helpPrompt(question, articles), onToken, signal, mcp: false })
+export function askHelp({ question, articles, lang, onToken, signal, route }: AskOptions): Promise<string> {
+  return streamCompletion({ purpose: 'help.ask', sources: [], typed: question, system: helpSystemPrompt(lang), prompt: helpPrompt(question, articles), onToken, signal, mcp: false, ...(route ? { route } : {}) })
 }
 
 /**

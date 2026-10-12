@@ -44,6 +44,8 @@ export { AIError, aiStatus, routeFor, precheck, type AIStatus, type PurposeId, t
 export { shapeOf, withShape, routed, type Shape } from './ai/core/shape'
 /** The recorder's meta of an AI run (core/runMeta.ts): the route that served its writes. */
 export { aiRunMeta, aiWriterOf, type AIRunMeta } from './ai/core/runMeta'
+/** The route chip + picker (routing/RouteChip.tsx): which model one request goes to; Alt+M opens it. */
+export { RouteChip, isRouteKey, type RouteChipHandle } from './ai/routing/RouteChip'
 export type { Receipt } from './ai/core/meter'
 /** Claude's Markdown → a safe document: web images / media / frames as links (addresses a page shows already stay). */
 export { webImagesOf } from './agents/images'
