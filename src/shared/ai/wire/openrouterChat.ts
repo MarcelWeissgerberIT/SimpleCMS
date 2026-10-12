@@ -10,7 +10,7 @@
  * context-compression, response-healing). What it never carries: other models or fallbacks, MCP servers, OpenRouter's
  * server tools, web search options, transforms, a route, anything that identifies the person (user, trace, metadata).
  */
-import type { AIEvent, Annotation, Caps, ChatRequest, Message, ModelInfo, Part, StopReason, Turn, UpstreamRule, Usage, WireRequest } from '../types.ts'
+import type { AIEvent, Annotation, Caps, ChatRequest, Message, ModelInfo, Part, StepNote, StopReason, Turn, UpstreamRule, Usage, WireRequest } from '../types.ts'
 import type { AIErrorCode } from '../errors.ts'
 import { normalise } from '../usage.ts'
 import { scrubSecrets } from '../keys.ts'
@@ -510,4 +510,54 @@ function parseArgs(s: string): Record<string, unknown> | null {
   } catch {
     return null
   }
+}
+
+/* ------------------------------------------------------------------ */
+/* Before and after: what the model can take, who answered              */
+/* ------------------------------------------------------------------ */
+
+/** What a request needs that the model cannot do (null: nothing) — checked before anything is sent. */
+export function capabilityProblem(req: ChatRequest, caps: Caps): 'vision' | 'pdf' | 'structured' | 'tools' | null {
+  for (const m of req.messages)
+    for (const p of m.parts) {
+      if (p.type === 'image' && (!caps.vision || (p.data.length * 3) / 4 > caps.vision.maxBytes)) return 'vision'
+      if (p.type === 'document' && p.pdf && (!caps.pdf || p.pdf.pages > caps.pdf.maxPages || (p.pdf.data.length * 3) / 4 > caps.pdf.maxBytes)) return 'pdf'
+    }
+  if (req.output.kind === 'json' && !caps.structured) return 'structured'
+  if (req.tools?.length && !caps.tools) return 'tools'
+  return null
+}
+
+/** A model id without its variant suffix and snapshot date ('a/x:free', 'a/x-20260917' → 'a/x'). */
+export const slugBase = (id: string): string => id.replace(/:[a-z0-9-]+$/, '').replace(/-\d{8}$/, '')
+
+/** Did `served` come from `listed` (the slug itself, a dated revision of it, or a variant of it)? */
+export const servedAs = (served: string, listed: string): boolean => served === listed || slugBase(served) === slugBase(listed)
+
+const sameName = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase()
+
+export interface ServedCheck {
+  /** 'substituted' (another model of the request answered) or 'routed' (the router chose) — or none */
+  step: StepNote | null
+  /** set: the answer must not be used (D-S2-16) — 'upstream:<name>', 'model:<slug>' or 'web' */
+  problem: string | null
+}
+
+/**
+ * After the answer (D-S2-16): the served upstream must be one the pins name and not one the deny list names; a model
+ * the request did not ask for must not be one One refuses; a router answer must come from its pool; an answer that cites
+ * web sources came from a model that searched the web. `refused`: the caller's slug judge (models.ts refusedSlug).
+ */
+export function checkServed(
+  turn: Pick<Turn, 'served' | 'upstream' | 'annotations'>,
+  o: { requested: string; router: boolean; pool?: readonly string[]; upstreams?: readonly string[] | null; deny: readonly string[]; refused: (slug: string) => boolean },
+): ServedCheck {
+  const served = turn.served ?? null
+  const step: StepNote | null = served && o.router ? { k: 'routed', from: o.requested, to: served } : served && !servedAs(served, o.requested) ? { k: 'substituted', from: o.requested, to: served } : null
+  const up = turn.upstream
+  if (up && (o.deny.some((d) => sameName(d, up)) || (o.upstreams?.length && !o.upstreams.some((u) => sameName(u, up))))) return { step, problem: `upstream:${up}` }
+  if (served && o.router && !(o.pool ?? []).some((p) => servedAs(served, p))) return { step, problem: `model:${served}` }
+  if (served && !servedAs(served, o.requested) && o.refused(served)) return { step, problem: `model:${served}` }
+  if (turn.annotations?.length) return { step, problem: 'web' }
+  return { step, problem: null }
 }

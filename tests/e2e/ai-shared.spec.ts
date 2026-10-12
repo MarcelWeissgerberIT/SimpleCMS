@@ -5,6 +5,7 @@
  * shapes' sanitizers (old ⇄ new, 'demo' and unknown providers refused), the policy generation, keys in text. The
  * shared folder imports nothing outside itself. Test data is fictional.
  */
+import './helpers/noNet'
 import { readdirSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { test, expect } from '@playwright/test'
