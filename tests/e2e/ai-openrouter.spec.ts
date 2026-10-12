@@ -7,7 +7,7 @@
 import type { Page } from '@playwright/test'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { test, expect, openApp, reloadApp, wsEval } from './fixtures'
+import { test, expect, openApp, reloadApp, wsEval, flush, gotoPage, editorOf } from './fixtures'
 import { hostCounts, mockClaudeScript, mockOpenRouter, seedEndpoints, text, type ORMock, type ORStepFn } from './helpers/providers'
 import { SUMMARY, TRANSFORM_STEPS, aiPanel, autofillPriority, imageAction, improve, ledger, noSpeech, summarisePdf, summarizeMeeting, transformAuto } from './helpers/aiFlows'
 import { capsOfRow, readCatalogRow } from '../../src/shared/ai/catalog'
@@ -159,6 +159,42 @@ test.describe('one-shots on an OpenRouter model', () => {
     expect(entries.every((x) => x.costSource === 'reported' && x.served.upstream === 'Nordwind')).toBe(true)
   })
 
+  test('Claude for files on an anthropic/* model: the text document is a cache breakpoint; on another model it is not (review #12)', async ({ page }) => {
+    const SONNET = 'anthropic/claude-sonnet-5.5'
+    const { or } = await setup(page, [{ text: 'The notes list three launch steps.', model: SONNET, provider: 'Anthropic' }, { text: 'The notes list three launch steps.' }], { route: { p: 'openrouter', m: SONNET } })
+    await wsEval(page, (s, r) => s.updateSettings({ ai: { ...s.settings.ai, models: [...s.settings.ai.models, r] } }), row(SONNET))
+    await seedEndpoints(page, { ...ENDPOINTS, [SONNET]: [{ tag: 'anthropic', name: 'Anthropic' }] })
+    /** a page with a Markdown file → Summarise */
+    const summarise = async (title: string) => {
+      const id = await page.evaluate(async (t) => {
+        const one = (window as unknown as { __one: AnyState }).__one
+        const blob = new Blob(['# Launch notes\n\n1. Freeze\n2. Review\n3. Ship\n'], { type: 'text/markdown' })
+        const src = await one.files.saveFile(blob, 'launch-notes.md')
+        const s = one.workspace.getState()
+        const id = s.createPage({ title: t, parentId: null })
+        s.setContent(id, { type: 'doc', content: [{ type: 'fileBlock', attrs: { src, name: 'launch-notes.md', size: blob.size, display: 'file' } }] }, 'e2e')
+        return id
+      }, title)
+      await flush(page)
+      await gotoPage(page, id)
+      const card = editorOf(page, id).locator('.file-view', { hasText: 'launch-notes.md' }).first()
+      await card.hover()
+      await card.getByTestId('file-ai-key').click()
+      await page.getByRole('menuitem', { name: /^Summarise/ }).click()
+      await expect(aiPanel(page)).toContainText('three launch steps')
+    }
+    await summarise('Launch file')
+    expect(or.posts()).toHaveLength(1)
+    const marked = JSON.stringify(or.posts()[0]!.body!.messages)
+    expect(marked).toMatch(/<document title=\\"launch-notes\.md\\">[^"]*","cache_control":\{"type":"ephemeral"\}/)
+    await page.keyboard.press('Escape')
+    // positive control: the same request on a model that is not Anthropic's carries no breakpoint
+    await force(page, MODEL)
+    await summarise('Launch file 2')
+    expect(or.posts()).toHaveLength(2)
+    expect(JSON.stringify(or.posts()[1]!.body!.messages)).not.toContain('cache_control')
+  })
+
   test('autofill: one POST per row, one reported entry each', async ({ page }) => {
     const { or } = await setup(page, [], { fallback: { text: JSON.stringify({ value: 'Low' }), cost: 0.0001 } })
     await autofillPriority(page)
@@ -234,6 +270,18 @@ test.describe('the Jev Router (a pool over the shortlist)', () => {
     expect(cut.usd).toBeGreaterThan(0)
   })
 
+  test('a dated revision of a pool model without a reported cost: priced at that model\'s row (catalogue), labelled by it (review #13)', async ({ page }) => {
+    const { or } = await setup(page, [{ text: 'A tighter launch sentence.', model: 'z-ai/glm-5.3-20260917', provider: 'Birkenau', cost: null, usage: { prompt: 1000, completion: 100 } }], { route: ROUTER, pool: POOL })
+    await improve(page)
+    expect(or.posts()).toHaveLength(1)
+    await expect.poll(async () => (await ledger(page)).length).toBe(1)
+    const [e] = await ledger(page)
+    expect(e.costSource).toBe('catalogue')
+    expect(e.usd).toBeCloseTo((1000 * 0.07 + 100 * 4.8) / 1e6, 10)
+    await expect(receipt(page).locator('.ai-receipt__model')).toHaveText('OpenRouter · Jev Router → GLM 5.3')
+    await expect(receipt(page)).not.toContainText('≈')
+  })
+
   test('an answer from a model outside the pool: refused (policy), nothing to apply, one entry with the upstream step', async ({ page }) => {
     const { or } = await setup(page, [{ text: 'A tighter launch sentence.', model: 'openai/gpt-6-astra' }], { route: ROUTER, pool: POOL })
     await improve(page, null)
@@ -254,7 +302,50 @@ test.describe('the Jev Router (a pool over the shortlist)', () => {
     await page.waitForTimeout(500)
     expect(or.posts()).toHaveLength(1)
     await expect.poll(async () => (await ledger(page)).length).toBe(1)
-    expect((await ledger(page))[0]).toMatchObject({ outcome: 'no_endpoint', usd: 0 })
+    // nothing was billed: an exact zero, never an estimate (review #10)
+    expect((await ledger(page))[0]).toMatchObject({ outcome: 'no_endpoint', usd: 0, costSource: 'reported' })
+  })
+
+  test('a router attempt refused with 429, then answered: the zero is exact — the receipt is "reported", no "≈" (review #10)', async ({ page, errors }) => {
+    errors.allow(/Failed to load resource|429/)
+    const { or } = await setup(page, [{ status: 429, json: { error: { code: 429, message: 'Rate limited' } }, headers: { 'retry-after': '0' } }, { text: 'A tighter launch sentence.', model: LUNA, cost: 0.0004 }], { route: ROUTER, pool: POOL })
+    await improve(page)
+    expect(or.posts()).toHaveLength(2)
+    await expect.poll(async () => (await ledger(page)).length).toBe(2)
+    const [refused, ok] = await ledger(page)
+    expect(refused).toMatchObject({ usd: 0, costSource: 'reported' })
+    expect(ok).toMatchObject({ outcome: 'ok', usd: 0.0004, costSource: 'reported' })
+    await expect(receipt(page).locator('.ai-receipt__model')).toHaveText('OpenRouter · Jev Router → GPT-6 Luna')
+    await expect(receipt(page)).toContainText('Reported')
+    await expect(receipt(page)).not.toContainText('≈')
+  })
+
+  test('a model 404 "No endpoints found": the pins are read again once, exactly two POSTs, then the fix keys — operator rules and another model (review #11)', async ({ page, errors }) => {
+    errors.allow(/Failed to load resource|404/)
+    const none = { status: 404, json: { error: { code: 404, message: 'No endpoints found that support the requested parameters.' } } }
+    const { or } = await setup(page, [none, none])
+    await improve(page, null)
+    const err = aiPanel(page).locator('.ai-error')
+    await expect(err).toContainText('ERR · NO_ENDPOINT')
+    expect(or.posts()).toHaveLength(2)
+    expect(or.to(/\/endpoints$/)).toHaveLength(1)
+    const keys = err.getByTestId('ai-fix')
+    await expect(keys).toHaveCount(2)
+    await expect(keys.nth(0)).toHaveAttribute('data-fix', 'data')
+    await expect(keys.nth(1)).toHaveAttribute('data-fix', 'models')
+    await keys.nth(1).click()
+    await expect(page.getByTestId('ai-setup')).toHaveAttribute('data-step', 'models')
+  })
+
+  test('a model OpenRouter no longer lists (404): MODEL_GONE with the models key (review #11)', async ({ page, errors }) => {
+    errors.allow(/Failed to load resource|404/)
+    const { or } = await setup(page, [{ status: 404, json: { error: { code: 404, message: 'Model openai/gpt-6-luna is not a valid model ID' } } }])
+    await improve(page, null)
+    const err = aiPanel(page).locator('.ai-error')
+    await expect(err).toContainText('ERR · MODEL_GONE')
+    expect(or.posts()).toHaveLength(1)
+    await expect(err.getByTestId('ai-fix')).toHaveCount(1)
+    await expect(err.getByTestId('ai-fix')).toHaveAttribute('data-fix', 'models')
   })
 
   test('a stale catalogue is read again once before a router request (fresh exclusions)', async ({ page }) => {

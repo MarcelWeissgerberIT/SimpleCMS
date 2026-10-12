@@ -239,12 +239,14 @@ function codewordRefusal(e: unknown, opts: Pick<StreamOptions, 'purpose' | 'rout
 export async function viaNeutral(
   prepared: Prepared,
   call: MeterCall,
-  r: { system: string; parts: Part[]; output: ChatRequest['output']; maxTokens: number; promptChars?: number },
+  r: { system: string; parts: Part[]; output: ChatRequest['output']; maxTokens: number; promptChars?: number; cache?: ChatRequest['cache'] },
   o: { signal?: AbortSignal; onToken?: (delta: string) => void },
 ): Promise<string> {
   if (!prepared.route) throw new AIError('no_key')
   const { sendNeutral } = await import('./core/call')
-  const req: ChatRequest = { kind: 'chat', route: prepared.route, system: r.system, messages: [{ role: 'user', parts: r.parts }], output: r.output, maxTokens: r.maxTokens, cache: 'none' }
+  // 'auto' only where the caller marked a stable prefix (a file's document): the wire passes it on to an anthropic/*
+  // upstream only, never to the router (openrouterChat.ts)
+  const req: ChatRequest = { kind: 'chat', route: prepared.route, system: r.system, messages: [{ role: 'user', parts: r.parts }], output: r.output, maxTokens: r.maxTokens, cache: r.cache ?? 'none' }
   const promptChars = r.promptChars ?? r.system.length + r.parts.reduce((n, p) => n + (p.type === 'text' ? p.text.length : 0), 0)
   const turn = await sendNeutral(prepared, req, { signal: o.signal, onToken: o.onToken, call, promptChars })
   if (turn.stop === 'refusal' || turn.stop === 'content_filter') throw new AIError('refusal')

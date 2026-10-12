@@ -214,10 +214,13 @@ export async function consumeOAuthReturn(note: OAuthNote = () => ''): Promise<bo
   for (const k of ['code', 'state', 'error', 'error_description', 'error_uri', 'iss', 'session_state']) q.delete(k)
   const rest = q.toString()
   history.replaceState(null, '', `${window.location.pathname}${rest ? `?${rest}` : ''}${def.route}`)
-  // this tab started it (no sign-in window, or the tab itself went there): finish here
-  if (claimOf(kind, msg)) return false
+  // this tab started it (no sign-in window, or the tab itself went there): finish here. A 'refuse' (this page holds
+  // attempts, none of them this one) is no proof: a sign-in window's sessionStorage is a copy of its opener's — an older
+  // attempt copied along must never make the window finish the return itself. It is handed on first (below).
+  const claim = claimOf(kind, msg)
+  if (claim === 'take') return false
   if (typeof BroadcastChannel === 'undefined') {
-    if (kind === 'mcp') return false
+    if (kind === 'mcp' || claim === 'refuse') return false
     bootNote(note('orphan', kind), { href: './', text: note('openOne', kind) })
     return true
   }
@@ -236,6 +239,8 @@ export async function consumeOAuthReturn(note: OAuthNote = () => ''): Promise<bo
   bc.close()
   if (!ack) {
     if (kind === 'mcp') return false
+    // no other tab took it, and this page is connecting itself (it went to OpenRouter in this tab): refused here
+    if (claim === 'refuse') return false
     // no tab is connecting: nothing is exchanged here (this page holds no verifier) and no workspace boots
     bootNote(note('orphan', kind), { href: './', text: note('openOne', kind) })
     return true

@@ -184,7 +184,7 @@ export async function requestFile(req: FileRequest): Promise<string> {
       // document is a cache breakpoint (passed on only to an Anthropic upstream)
       const doc: Part = material.type === 'pdf' ? { type: 'document', title: material.name, pdf: { data: material.data, pages: material.pages ?? 1 }, cache: true } : { type: 'document', title: material.name, text: material.text, cache: true }
       const output = format ? { kind: 'json' as const, name: 'answer', schema: TABLE_SCHEMA } : { kind: 'text' as const }
-      return await viaNeutral(prepared, call, { system: SYSTEM, parts: [doc, { type: 'text', text: prompt }], output, maxTokens: Math.min(maxTokens, prepared.caps?.maxOutput ?? maxTokens), promptChars: promptChars() }, { signal, onToken })
+      return await viaNeutral(prepared, call, { system: SYSTEM, parts: [doc, { type: 'text', text: prompt }], output, maxTokens: Math.min(maxTokens, prepared.caps?.maxOutput ?? maxTokens), promptChars: promptChars(), cache: 'auto' }, { signal, onToken })
     }
     const got = await claudeClient()
     sdk = got.sdk

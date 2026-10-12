@@ -14,7 +14,7 @@ import type { AIEvent, Annotation, Caps, ChatRequest, Message, ModelInfo, Part, 
 import type { AIErrorCode } from '../errors.ts'
 import { normalise } from '../usage.ts'
 import { scrubSecrets } from '../keys.ts'
-import { JEV_PLUGIN, JEV_ROUTER, ROUTER_PINS, isJevRouter } from '../jev.ts'
+import { JEV_PLUGIN, JEV_ROUTER, ROUTER_PINS, isJevRouter, servedAs } from '../jev.ts'
 
 export const OR_API = 'https://openrouter.ai/api/v1'
 export const OR_CHAT_URL = `${OR_API}/chat/completions`
@@ -528,11 +528,9 @@ export function capabilityProblem(req: ChatRequest, caps: Caps): 'vision' | 'pdf
   return null
 }
 
-/** A model id without its variant suffix and snapshot date ('a/x:free', 'a/x-20260917' → 'a/x'). */
-export const slugBase = (id: string): string => id.replace(/:[a-z0-9-]+$/, '').replace(/-\d{8}$/, '')
-
-/** Did `served` come from `listed` (the slug itself, a dated revision of it, or a variant of it)? */
-export const servedAs = (served: string, listed: string): boolean => served === listed || slugBase(served) === slugBase(listed)
+// a model id's base and "served as" live with the router's constants (jev.ts — eager, no wire): the receipt and the
+// served price match a dated revision with the same rule as the pool check
+export { servedAs, slugBase } from '../jev.ts'
 
 const sameName = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase()
 

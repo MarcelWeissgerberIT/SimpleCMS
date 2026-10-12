@@ -149,6 +149,8 @@ function takeAttempt(state: string): Attempt | null {
  * Resolves once the window is on its way (or this tab is); the result arrives in useORConnect.
  */
 export function connectOpenRouter(o: { sameTab?: boolean } = {}): Promise<void> {
+  // 0 · older attempts go first (a new press supersedes them): the window's sessionStorage copy holds none of them
+  dropAttempts()
   // 1 · the window, synchronously and first: its sessionStorage copy is taken now, before the attempt exists
   let w: Window | null = null
   try {

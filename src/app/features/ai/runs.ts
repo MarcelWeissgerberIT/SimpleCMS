@@ -104,7 +104,7 @@ export interface AIRun {
   output: string
   sources: WorkspaceSource[]
   mcpCalls: McpCall[]
-  error: { code: AIErrorCode; detail?: string; server?: string; message?: string; fix?: AIFix; label?: string } | null
+  error: { code: AIErrorCode; detail?: string; server?: string; message?: string; fix?: AIFix; fixes?: AIFix[]; label?: string } | null
   issue: TodbIssue | null
   table: TodbResult | null
   target: RunTarget
@@ -570,7 +570,7 @@ async function execute(id: string, editor: Editor) {
     if (err.code === 'aborted') return
     // a refusal written for this request (a codeword the route cannot connect) keeps its sentence and its fix
     const own = err.fix?.kind === 'askClaude' ? { message: err.message } : {}
-    patch(id, { status: 'error', output: partial, error: { code: err.code, detail: err.detail, server: err.server, ...own, ...(err.fix ? { fix: err.fix } : {}), ...(err.label ? { label: err.label } : {}) }, finishedAt: Date.now() })
+    patch(id, { status: 'error', output: partial, error: { code: err.code, detail: err.detail, server: err.server, ...own, ...(err.fix ? { fix: err.fix } : {}), ...(err.fixes && err.fixes.length > 1 ? { fixes: err.fixes } : {}), ...(err.label ? { label: err.label } : {}) }, finishedAt: Date.now() })
   } finally {
     untap()
     if (controllers.get(id) === ac) controllers.delete(id)

@@ -2347,7 +2347,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
                     {t('features.ai.bg.lostTodb')}
                   </p>
                 )}
-                {error && <ErrorNote error={error} model={runError?.label ?? model.name} message={runError?.message} onAskClaude={runError?.fix?.kind === 'askClaude' ? askClaude : undefined} fix={runError?.fix ?? null} onFixOpen={onClose} onPick={() => chipRef.current?.open()} />}
+                {error && <ErrorNote error={error} model={runError?.label ?? model.name} message={runError?.message} onAskClaude={runError?.fix?.kind === 'askClaude' ? askClaude : undefined} fix={runError?.fix ?? null} fixes={runError?.fixes} onFixOpen={onClose} onPick={() => chipRef.current?.open()} />}
                 {!!run?.notes?.length && (
                   <p className="ai-lost ai-ask" role="note" data-testid="ai-run-notes">
                     {run.notes.map((n) => t(`features.ai.prov.note.${n}`)).join(' ')}
@@ -2550,9 +2550,11 @@ function McpChips({ calls }: { calls: McpCall[] }) {
   )
 }
 
-function ErrorNote({ error, model, message, onAskClaude, fix, onFixOpen, onPick }: { error: AIError; model: string; message?: string; onAskClaude?: () => void; fix?: AIFix | null; onFixOpen?: () => void; onPick?: () => void }) {
+function ErrorNote({ error, model, message, onAskClaude, fix, fixes, onFixOpen, onPick }: { error: AIError; model: string; message?: string; onAskClaude?: () => void; fix?: AIFix | null; fixes?: AIFix[]; onFixOpen?: () => void; onPick?: () => void }) {
   const t = useT()
   const detail = error.code === 'bad_request' || error.code === 'unknown' || error.code === 'mcp' ? (error.detail ?? '') : ''
+  // every distinct way out (no endpoint: the operator rules and another model), the first one first
+  const keys = (fixes?.length ? fixes : fix ? [fix] : []).filter((f, i, all) => f.kind !== 'askClaude' && all.findIndex((x) => JSON.stringify(x) === JSON.stringify(f)) === i)
   return (
     <div className="ai-error" role="alert">
       <span className="ai-error__code label">ERR · {error.code.toUpperCase()}</span>
@@ -2562,7 +2564,9 @@ function ErrorNote({ error, model, message, onAskClaude, fix, onFixOpen, onPick 
           {t('features.ai.prov.codeword.askClaude')}
         </button>
       )}
-      {fix && fix.kind !== 'askClaude' && <FixKeys fix={fix} onOpen={onFixOpen} onPick={fix.kind === 'pick' ? onPick : undefined} feature="write" />}
+      {keys.map((f) => (
+        <FixKeys key={JSON.stringify(f)} fix={f} onOpen={onFixOpen} onPick={f.kind === 'pick' ? onPick : undefined} feature="write" />
+      ))}
       {(error.code === 'outdated' || error.code === 'reload') && (
         <button type="button" className="btn btn--sm" onClick={() => window.location.reload()}>
           {t('features.ai.reload')}

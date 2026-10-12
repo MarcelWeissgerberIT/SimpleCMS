@@ -34,3 +34,9 @@ export const REFUSED_GLOBS: readonly string[] = ['openrouter/*', '*:online', '*:
 export const ROUTER_LIST_MAX = 1024
 export const ROUTER_LIST_PATTERN_MAX = 1024
 export const ROUTER_LIST_CHARS_MAX = 65_536
+
+/** A model id without its variant suffix and snapshot date ('a/x:free', 'a/x-20260917' → 'a/x'). */
+export const slugBase = (id: string): string => id.replace(/:[a-z0-9-]+$/, '').replace(/-\d{8}$/, '')
+
+/** Did `served` come from `listed` (the slug itself, a dated revision of it, or a variant of it)? */
+export const servedAs = (served: string, listed: string): boolean => served === listed || slugBase(served) === slugBase(listed)

@@ -290,6 +290,29 @@ test.describe('connecting OpenRouter (PKCE, mocked consent)', () => {
     expect((await keysOf(page)).openrouter).toMatch(/:M4Tx$/)
   })
 
+  for (const reload of [true, false])
+    test(`an attempt still stored, its window closed${reload ? ', the opener reloaded' : ''}: Connect again ends with one exchange from the opener (review #9)`, async ({ page }) => {
+      const or = await open(page, { consent: 'page' })
+      const first = await connectInWindow(page)
+      await expect(first.locator('#approve')).toBeVisible()
+      await first.close()
+      if (reload) {
+        await page.reload()
+        await waitForApp(page)
+      }
+      // the older attempt is still stored in the opener (by design: a late code reads "expired")
+      expect(await pending(page)).toHaveLength(1)
+      const second = await connectInWindow(page)
+      // the new window's copy of this tab's sessionStorage holds no attempt (dropped before it opened): it hands on
+      await expect(second.locator('#approve')).toBeVisible()
+      await second.locator('#approve').click()
+      await second.waitForEvent('close', { timeout: 20_000 })
+      await expect.poll(() => orState(page)).toMatchObject({ phase: 'done', check: { ok: true } })
+      expect(exchanges(or)).toHaveLength(1)
+      expect(exchanges(or)[0]!.page).toBe(page)
+      expect((await keysOf(page)).openrouter).toMatch(/:M4Tx$/)
+    })
+
   test('a return no tab takes: the window says where to go, boots no workspace and exchanges nothing', async ({ page, context }) => {
     const or = await mockOpenRouter(context)
     const stray = await context.newPage()

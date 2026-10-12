@@ -131,10 +131,11 @@ export function meterResponse(prepared: Prepared, opts: Pick<MeterOpts, 'source'
     usage = r.usage
     ;({ usd, source: costSource } = costOf(usage, row, at))
   } else if (r.refused) {
-    // every attempt answered with an error status: nothing was billed
+    // every attempt answered with an error status: nothing was billed — an exact zero, never an estimate (a router's
+    // stated bound or a missing row says nothing about a request that was refused)
     usage = ZERO_USAGE
     usd = row || !claude ? 0 : null
-    costSource = row ? costSourceOf(row) : claude ? 'none' : 'estimate'
+    costSource = row && row.source !== 'bound' ? costSourceOf(row) : claude ? 'none' : 'reported'
   } else {
     usage = estimateUsage(r.promptChars ?? 0, r.streamedChars ?? 0, r.known)
     usd = costOf(usage, row, at).usd

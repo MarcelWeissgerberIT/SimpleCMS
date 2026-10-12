@@ -14,7 +14,7 @@
  * Steps: 'substituted' (another model of the request answered), 'routed' (the router chose; 'over-bound' when the reported
  * cost passed the reserved bound), 'upstream' (refused after the answer).
  */
-import type { AIEvent, ChatRequest, PriceRow, StepNote, Turn, UpstreamRule } from '@/shared/ai/types'
+import type { AIEvent, ChatRequest, PriceRow, ProviderId, StepNote, Turn, UpstreamRule } from '@/shared/ai/types'
 import type { ProviderAdapter } from '@/shared/ai/adapter'
 import { ProviderError } from '@/shared/ai/errors'
 import { refusedSlug } from '@/shared/ai/models'
@@ -24,7 +24,7 @@ import { isJevRouter } from '@/shared/ai/jev'
 import { checkServed } from '@/shared/ai/wire/openrouterChat'
 import { useWorkspace } from '../../../store/store'
 import { getAIKey } from '../../../store/secrets'
-import { AIError } from './errors'
+import { AIError, type AIFix } from './errors'
 import type { Prepared } from './gate'
 import type { MeterCall } from './meter'
 import { neutralCut, neutralResponse } from './meter'
@@ -64,9 +64,23 @@ async function loadAdapter(p: string): Promise<ProviderAdapter> {
   }
 }
 
-/** A transport's failure → the app's AIError (the friendly text, naming the route's model). */
-const appError = (e: unknown, label?: string): AIError =>
-  e instanceof AIError ? e : e instanceof ProviderError ? new AIError(e.code, e.detail, undefined, label) : new AIError('unknown', e instanceof Error ? e.message : String(e), undefined, label)
+/**
+ * What the person can do about a refusal on the wire (acceptance 8, D-S2-13): no operator serves the model under the
+ * workspace's rules → the operator rules (step 04) or another model (step 03); a model OpenRouter no longer lists → another
+ * model.
+ */
+export function wireFixes(code: string, p: ProviderId): AIFix[] {
+  if (code === 'no_endpoint') return [{ kind: 'step', step: 'data', provider: p }, { kind: 'step', step: 'models', provider: p }]
+  if (code === 'model_gone') return [{ kind: 'step', step: 'models', provider: p }]
+  return []
+}
+
+/** A transport's failure → the app's AIError (the friendly text, naming the route's model; its fix keys). */
+const appError = (e: unknown, label?: string, p: ProviderId = 'openrouter'): AIError =>
+  e instanceof AIError ? e : e instanceof ProviderError ? new AIError(e.code, e.detail, undefined, label, wireFixes(e.code, p)) : new AIError('unknown', e instanceof Error ? e.message : String(e), undefined, label)
+
+/** An AIError for a refusal before sending, with its fix keys. */
+const refusal = (code: 'no_endpoint' | 'model_gone', detail: string, label: string, p: ProviderId): AIError => new AIError(code, detail, undefined, label, wireFixes(code, p))
 
 const sleep = (ms: number, signal?: AbortSignal) =>
   new Promise<void>((resolve, reject) => {
@@ -105,7 +119,7 @@ export async function sendNeutral(prepared: Prepared, req: ChatRequest, o: Neutr
   const upstream = upstreamRule()
   const info = modelInfo(route, prepared.pool)
   const label = labelFor(route, prepared.pool)
-  if (!info) throw new AIError('model_gone', route.m, undefined, label)
+  if (!info) throw refusal('model_gone', route.m, label, route.p)
 
   // 3 · where the request may go
   let pins: Pins | null
@@ -115,12 +129,12 @@ export async function sendNeutral(prepared: Prepared, req: ChatRequest, o: Neutr
   if (router) {
     let cat = await loadCatalog()
     if (!catalogFresh(cat)) cat = await loadCatalog({ force: true })
-    if (!catalogFresh(cat)) throw new AIError('no_endpoint', 'router: the model list could not be read', undefined, label)
+    if (!catalogFresh(cat)) throw refusal('no_endpoint', 'router: the model list could not be read', label, route.p)
     const r = await routerPinsFor(prepared.pool ?? [], upstream)
-    if (r === 'denied') throw new AIError('policy', 'router: the upstream rule excludes its operator', undefined, label)
-    if (!r) throw new AIError('no_endpoint', 'router: no model of the list can be served', undefined, label)
+    if (r === 'denied') throw new AIError('policy', 'router: the upstream rule excludes its operator', undefined, label, [{ kind: 'step', step: 'data', provider: route.p }])
+    if (!r) throw refusal('no_endpoint', 'router: no model of the list can be served', label, route.p)
     const l = routerLists(r.pool, cat.rows, upstream)
-    if (!l) throw new AIError('no_endpoint', 'router: no model of the list can be served', undefined, label)
+    if (!l) throw refusal('no_endpoint', 'router: no model of the list can be served', label, route.p)
     pins = r.pins
     lists = l
     model = modelInfo(route, l.pool) ?? info
@@ -130,7 +144,7 @@ export async function sendNeutral(prepared: Prepared, req: ChatRequest, o: Neutr
     if (row) model = { ...info, hints: hintsOfRow(row) }
     if (row?.pricing === 'dynamic') maxPrice = { prompt: DYNAMIC_BOUND.input, completion: DYNAMIC_BOUND.output }
     pins = await pinsFor(route.m, upstream)
-    if (!pins) throw new AIError('no_endpoint', route.m, undefined, label)
+    if (!pins) throw refusal('no_endpoint', route.m, label, route.p)
   }
 
   // 4 · send, metered per response; retries before any content
@@ -155,7 +169,7 @@ export async function sendNeutral(prepared: Prepared, req: ChatRequest, o: Neutr
       return finish(prepared, turn, { router, pool: lists?.pool, pins, upstream, call: o.call, promptChars: o.promptChars, label })
     } catch (e) {
       if (e instanceof AIError) throw e
-      if (!(e instanceof ProviderError)) throw appError(e, label)
+      if (!(e instanceof ProviderError)) throw appError(e, label, route.p)
       // the response is metered whatever happens next (never sent: no entry)
       if (e.reach !== 'none') {
         const partial = (e.partial as Turn | undefined) ?? null
@@ -180,7 +194,7 @@ export async function sendNeutral(prepared: Prepared, req: ChatRequest, o: Neutr
           continue
         }
       }
-      throw appError(e, label)
+      throw appError(e, label, route.p)
     }
   }
 }

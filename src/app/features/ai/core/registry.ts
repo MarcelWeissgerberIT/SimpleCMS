@@ -7,7 +7,7 @@
 import type { Caps, ModelInfo, PriceRow, Route, ShortlistRow } from '@/shared/ai/types'
 import { labelOf, modelRow, providerLabel } from '@/shared/ai/models'
 import { DYNAMIC_BOUND, boundRow } from '@/shared/ai/prices'
-import { isJevRouter } from '@/shared/ai/jev'
+import { isJevRouter, servedAs } from '@/shared/ai/jev'
 import { useWorkspace } from '../../../store/store'
 import { routerView, shortlistInfo } from './pool'
 
@@ -59,13 +59,17 @@ export function shortFor(route: Route, pool?: readonly string[]): string {
   return modelInfo(route, pool)?.short ?? (route.m.split('/').pop() ?? route.m).toUpperCase().slice(0, 16)
 }
 
+/** The shortlist row a served model came from: its own id, else (a dated revision, a variant) the row it is served as —
+ *  the same rule the router's pool check uses (servedAs). */
+const servedRow = (m: string): ShortlistRow | null => row(m) ?? shortlist().find((r) => servedAs(m, r.m)) ?? null
+
 /** A served model's label for a receipt: the shortlist's, else the slug's model part. */
 export function servedLabel(p: Route['p'], model: string): string {
   if (p !== 'openrouter') return labelOf({ p, m: model })
-  return row(model)?.label ?? model.split('/').pop() ?? model
+  return servedRow(model)?.label ?? model.split('/').pop() ?? model
 }
 
 /** A served model's price (the router's answer without a reported cost: priced at the model that served it). */
 export function servedPrice(model: string): PriceRow | null {
-  return row(model)?.price ?? null
+  return servedRow(model)?.price ?? null
 }
