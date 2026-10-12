@@ -13,7 +13,10 @@ import { markOf, type JevCheck } from '@/shared/ai/decide'
 import { t } from '../../i18n'
 import type { CustomAgent, ID } from '../../store/types'
 import type { StagedChange } from '../ai/agent/types'
-import { isCheckedKind, jevName, uncheckedOf, whyText } from '../ai/decide'
+// the light parts of the decide area only (its state builder, wire and core load with the checks — checkRun.ts, lazy)
+import { isCheckedKind } from '../ai/decide/kinds'
+import { uncheckedOf } from '../ai/decide/verdict'
+import { jevName, whyText } from '../ai/decide/text'
 import type { AgentRun, AgentRunJev, AgentRunStep } from './types'
 
 export type Review = Omit<AgentReviewV2, 'v'>
@@ -43,6 +46,8 @@ export interface PrecheckInput {
   budgetLeft: number
   /** every decision response's ledger entry (the run's receipt) */
   onEntry?: (e: LedgerEntry) => void
+  /** pages and rows an earlier open change of this agent that Jev marked, held or stopped is about (DJ20, direct.ts stickyOf) */
+  sticky?: ReadonlySet<ID>
 }
 
 /** Pre-check the run's proposals and attach the checks (the stored run is still 'running' — DJ16). */
@@ -78,7 +83,8 @@ export async function precheckRun(o: PrecheckInput): Promise<AgentRunJev | null>
     model = res.model
     changedTo = res.changedTo
   }
-  // attach: every checked change its check; "Zurückhalten" holds what Jev marked or could not check
+  // attach: every checked change its check; "Zurückhalten" holds what Jev marked or could not check, and a change to a
+  // page or row an earlier open change of this agent is still held / marked for (sticky) — "Nur markieren" marks it only
   let checked = 0
   let marked = 0
   let held = 0
@@ -87,11 +93,12 @@ export async function precheckRun(o: PrecheckInput): Promise<AgentRunJev | null>
     const check = checks[c.id]
     if (!check) continue
     const mark = markOf(check, review.pre.markBelow)
-    const jev: JevCheck = { ...check, ...(check.state === 'ok' ? { mark } : {}) }
+    const sticky = !!o.sticky?.has(o.rowIds[c.pageId] ?? c.pageId)
+    const jev: JevCheck = { ...check, ...(check.state === 'ok' ? { mark } : {}), ...(sticky ? { sticky: true } : {}) }
     if (check.state === 'ok') checked++
     if (mark) marked++
-    if (review.pre.hold && (mark || check.state !== 'ok')) {
-      changes[i] = { ...c, status: 'held', jev: { ...jev, held: mark ? 'mark' : 'unchecked' } }
+    if (review.pre.hold && (mark || check.state !== 'ok' || sticky)) {
+      changes[i] = { ...c, status: 'held', jev: { ...jev, held: mark ? 'mark' : check.state !== 'ok' ? 'unchecked' : 'sticky' } }
       held++
     } else changes[i] = { ...c, status: c.status === 'held' ? 'pending' : c.status, jev }
   }

@@ -434,11 +434,11 @@ if (typeof window !== 'undefined' && (import.meta.env.DEV || new URLSearchParams
   const w = window as unknown as { __oneAgents?: Record<string, unknown> }
   w.__oneAgents = {
     ...(w.__oneAgents ?? {}),
-    run: async (agentId: ID, o: { rows?: ID[] } = {}) => {
+    run: async (agentId: ID, o: { rows?: ID[]; schedule?: boolean } = {}) => {
       const agent = useWorkspace.getState().agents?.[agentId]
       if (!agent) return null
       const m = await exec()
-      const res = await m.executeRun(agent, o.rows?.length ? { trigger: { type: 'row_changed', detail: `${o.rows.length}` }, rows: o.rows } : { trigger: { type: 'manual' } })
+      const res = await m.executeRun(agent, o.rows?.length ? { trigger: { type: 'row_changed', detail: `${o.rows.length}` }, rows: o.rows } : o.schedule ? { trigger: { type: 'schedule', detail: 'schedule 08:00' } } : { trigger: { type: 'manual' } })
       return typeof res === 'string' ? res : res.id
     },
   }
