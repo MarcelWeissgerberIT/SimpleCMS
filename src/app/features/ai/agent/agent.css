@@ -794,6 +794,107 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* /cost: a row per model that answered, then the total; mono figures, the model's name gives way first */
+.term-cost {
+  width: 100%;
+  max-width: 760px;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+.term-cost th,
+.term-cost td {
+  padding: 2px 14px 2px 0;
+  text-align: right;
+  white-space: nowrap;
+  font-weight: inherit;
+}
+
+.term-cost thead th {
+  color: var(--ink-3);
+  font-size: calc(9.5px * var(--text-scale));
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+}
+
+.term-cost thead th:first-child {
+  text-align: left;
+}
+
+.term-cost .term-cost__model {
+  max-width: 240px;
+  overflow: hidden;
+  color: var(--ink);
+  text-align: left;
+  text-overflow: ellipsis;
+}
+
+.term-cost td {
+  color: var(--ink-2);
+}
+
+.term-cost .term-cost__usd {
+  color: var(--ink);
+}
+
+.term-cost .term-cost__src {
+  padding-right: 0;
+  color: var(--ink-3);
+  letter-spacing: var(--tracking-label);
+  text-align: left;
+  text-transform: uppercase;
+}
+
+.term-cost tfoot th,
+.term-cost tfoot td {
+  padding-top: 4px;
+  border-top: 1px solid var(--rule);
+}
+
+@media (max-width: 640px) {
+  .term-cost thead {
+    display: none;
+  }
+
+  .term-cost tr {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0 10px;
+    padding: 5px 0;
+    border-top: 1px dashed var(--rule);
+  }
+
+  .term-cost .term-cost__model {
+    grid-column: 1 / -1;
+    max-width: none;
+  }
+
+  .term-cost td {
+    display: flex;
+    flex-direction: column;
+    padding: 0;
+    text-align: left;
+  }
+
+  .term-cost td::before {
+    content: attr(data-label);
+    color: var(--ink-3);
+    letter-spacing: var(--tracking-label);
+    text-transform: uppercase;
+    font-size: calc(9.5px * var(--text-scale));
+  }
+
+  .term-cost td:empty {
+    display: none;
+  }
+
+  .term-cost tfoot th,
+  .term-cost tfoot td {
+    padding-top: 0;
+    border-top: 0;
+  }
+}
+
 .term-hist {
   margin: 0;
   padding: 0;

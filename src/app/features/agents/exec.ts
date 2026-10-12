@@ -44,7 +44,7 @@ import { proposalsShown } from './hold'
 import { awaitsConfirm } from './confirm'
 import { withoutWebImages } from './images'
 import { claudeBlocks } from '../ai/claudeDoc'
-import type { AgentRun, AgentRunStep } from './types'
+import type { AgentRun, AgentRunStep, AgentRunUsage } from './types'
 import { memoryFor, noteUse } from '../ai/memory/use'
 import { recallTool } from '../ai/memory/tools'
 import { unlocked } from './integrations/status'
@@ -54,6 +54,8 @@ import { endRun, noteRun, withWriter, type Writer } from '../../store/writer'
 import { memoryRef } from '../ai/core/refs'
 import type { SourceRef } from '@/shared/ai/types'
 import { labelOf } from '@/shared/ai/models'
+import { addToLines } from '../ai/core/meter'
+import { stepText } from '../ai/Receipt'
 
 /** What a run carries (the AI gate's sources): its scope, the trigger's rows, its report page, the memory database. */
 function agentSources(agent: CustomAgent, rows: readonly ID[], memoryBlock: string): SourceRef[] {
@@ -284,7 +286,7 @@ async function runOnce(agent: CustomAgent, req: RunRequest): Promise<AgentRun> {
     items: newItemSession('agent'),
   }
 
-  const usage = { input: 0, output: 0, cacheRead: 0, usd: 0 }
+  const usage: Required<AgentRunUsage> = { input: 0, output: 0, cacheRead: 0, usd: 0, byModel: [] }
   const ac = new AbortController()
   let overBudget = false
   /** a response without a price: the budget cannot be held (the model's label) */
@@ -324,6 +326,12 @@ async function runOnce(agent: CustomAgent, req: RunRequest): Promise<AgentRun> {
       usage.output += u.output
       usage.cacheRead += u.cacheRead
       usage.usd += entry?.usd ?? 0
+      if (entry) usage.byModel = addToLines(usage.byModel, entry)
+      // another model answered (a refusal fallback): a step of the run, once per model
+      for (const st of entry?.steps ?? []) {
+        const line = entry ? stepText(t, st, entry.served.p) : null
+        if (line && !run.steps.some((x) => x.label === line)) step({ kind: 'note', label: line, state: 'ok' })
+      }
       if (entry && entry.usd === null && !ac.signal.aborted) {
         noPrice = labelOf({ p: entry.served.p, m: entry.served.model })
         ac.abort()
@@ -471,7 +479,7 @@ async function runOnce(agent: CustomAgent, req: RunRequest): Promise<AgentRun> {
             : t('features.memory.result.report')
     noteUse(run.summary, memory.use, { task: agent.instructions, where: { kind: 'agent', name: agent.name }, result })
   }
-  run.usage = { input: usage.input, output: usage.output, cacheRead: usage.cacheRead, usd: Math.round(usage.usd * 10_000) / 10_000 }
+  run.usage = { input: usage.input, output: usage.output, cacheRead: usage.cacheRead, usd: Math.round(usage.usd * 10_000) / 10_000, ...(usage.byModel.length ? { byModel: usage.byModel } : {}) }
   run.endedAt = Date.now()
   await putRun({ ...run, steps: [...run.steps] })
   endRun(writer)

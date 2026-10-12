@@ -19,6 +19,9 @@ import { openPage } from '../../lib/router'
 import { useCloud } from '../../cloud'
 import { t, useLang, useT } from '../../i18n'
 import { MarkdownLite } from '../ai/MarkdownLite'
+import { costText, sourceText } from '../ai/Receipt'
+import { readLines } from '../ai/core/meter'
+import { labelOf } from '@/shared/ai/models'
 import { MediaToPage } from '../ai/media/MediaToPage'
 import { PropDiff, Preview } from '../ai/agent/AgentSheet'
 import { EditDiff } from '../ai/agent/EditDiff'
@@ -111,9 +114,31 @@ function RunItem({ run, n, first }: { run: AgentRun; n: number; first: boolean }
               IN {run.usage.input.toLocaleString(lang)} · CACHE {run.usage.cacheRead.toLocaleString(lang)} · OUT {run.usage.output.toLocaleString(lang)} · ≈ {fmtUsd(run.usage.usd, lang)}
             </p>
           )}
+          {!!run.usage?.byModel?.length && <ModelLines lines={run.usage.byModel} />}
         </div>
       )}
     </li>
+  )
+}
+
+/** The run's receipt per model: one line per provider × model that answered — requests, tokens, the price and its source. */
+function ModelLines({ lines }: { lines: unknown }) {
+  const t = useT()
+  const lang = useLang()
+  const list = readLines(lines)
+  if (!list.length) return null
+  const n = (x: number) => x.toLocaleString(lang)
+  return (
+    <ul className="agx-run__models" aria-label={t('features.agents.runs.byModel')}>
+      {list.map((l) => (
+        <li key={`${l.p}:${l.model}`} className="agx-run__model" data-testid="agx-run-model" data-model={`${l.p}:${l.model}`}>
+          <span className="agx-run__model-name">{labelOf({ p: l.p, m: l.model })}</span>
+          <span className="agx-run__model-tok">{t('features.agents.runs.modelLine', { requests: l.requests, input: n(l.input), write: n(l.cacheWrite), read: n(l.cacheRead), output: n(l.output) })}</span>
+          <span className="agx-run__model-usd">{costText(t, lang, l.usd, l.source)}</span>
+          {sourceText(t, l.usd, l.source) && <span className="agx-run__model-src">{sourceText(t, l.usd, l.source)}</span>}
+        </li>
+      ))}
+    </ul>
   )
 }
 

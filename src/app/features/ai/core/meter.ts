@@ -159,6 +159,59 @@ export function addToReceipt(r: Receipt | null | undefined, e: LedgerEntry): Rec
   }
 }
 
+/** One model's share of a conversation or a run — a line on its receipt (provider · model · requests · tokens · $). */
+export interface ModelLine {
+  p: ProviderId
+  /** the model that answered */
+  model: string
+  requests: number
+  input: number
+  output: number
+  cacheRead: number
+  /** 5-minute and 1-hour cache writes */
+  cacheWrite: number
+  /** null: a response had no price */
+  usd: number | null
+  /** 'estimate' when any response was estimated, 'none' without a price */
+  source: CostSource
+}
+
+/** The lines with one more response, one line per provider × model that answered (pure). */
+export function addToLines(lines: readonly ModelLine[] | null | undefined, e: LedgerEntry): ModelLine[] {
+  const out = [...(lines ?? [])]
+  const i = out.findIndex((l) => l.p === e.served.p && l.model === e.served.model)
+  const cur: ModelLine = i >= 0 ? out[i] : { p: e.served.p, model: e.served.model, requests: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, usd: 0, source: e.costSource }
+  const usd = cur.usd === null || e.usd === null ? null : cur.usd + e.usd
+  const next: ModelLine = {
+    ...cur,
+    requests: cur.requests + 1,
+    input: cur.input + e.usage.input,
+    output: cur.output + e.usage.output,
+    cacheRead: cur.cacheRead + e.usage.cacheRead,
+    cacheWrite: cur.cacheWrite + e.usage.cacheWrite + e.usage.cacheWrite1h,
+    usd,
+    source: usd === null ? 'none' : cur.source === 'estimate' || e.costSource === 'estimate' ? 'estimate' : e.costSource,
+  }
+  if (i >= 0) out[i] = next
+  else out.push(next)
+  return out
+}
+
+/** A stored list of model lines (run records, the terminal's state) — only lines that hold; [] for anything else. */
+export function readLines(v: unknown): ModelLine[] {
+  if (!Array.isArray(v)) return []
+  const num = (x: unknown) => (typeof x === 'number' && Number.isFinite(x) && x >= 0 ? x : 0)
+  const out: ModelLine[] = []
+  for (const x of v.slice(0, 24)) {
+    if (!x || typeof x !== 'object') continue
+    const l = x as Record<string, unknown>
+    if ((l.p !== 'anthropic' && l.p !== 'openai' && l.p !== 'openrouter') || typeof l.model !== 'string' || !l.model || l.model.length > 200) continue
+    const source = l.source === 'reported' || l.source === 'table' || l.source === 'catalogue' || l.source === 'estimate' || l.source === 'none' ? l.source : 'none'
+    out.push({ p: l.p, model: l.model, requests: num(l.requests), input: num(l.input), output: num(l.output), cacheRead: num(l.cacheRead), cacheWrite: num(l.cacheWrite), usd: l.usd === null ? null : num(l.usd), source })
+  }
+  return out
+}
+
 export interface MeterCall {
   /** meter one response (null: demo) */
   response(r: ResponseInput): LedgerEntry | null

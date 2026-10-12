@@ -773,3 +773,87 @@ test.describe('the receipt on an AI run card', () => {
     await expect(receipt.locator('.ai-receipt__src')).toHaveText('Estimate')
   })
 })
+
+/* ------------------------------------------------------------------ */
+/* Receipts in the terminal and on agent runs (task 13)                 */
+/* ------------------------------------------------------------------ */
+
+test.describe('receipts in the terminal and on agent runs', () => {
+  test('/cost after two tasks on two models lists both; the sums equal the ledger; Sonnet cache reads at $0.10', async ({ page }) => {
+    await keyed(page, [text('We launch in two weeks.', { usage: { input: 2000, output: 100 } }), text('Mara owns the launch.', { usage: { input: 1000, output: 50, cacheRead: 1_000_000 } })])
+    const id = await createPage(page, { title: 'Launch notes', content: doc(para('We launch in two weeks. Mara owns the launch.')) })
+    await gotoPage(page, id)
+    await openTerminal(page)
+    await run(page, 'When do we launch?')
+    await expect(terminal(page).locator('.term-answer').last()).toContainText('We launch in two weeks.')
+    // the model changes mid-session
+    await wsEval(page, (s) => s.updateSettings({ aiModel: 'claude-sonnet-5-5' }))
+    await run(page, 'Who owns the launch?')
+    await expect(terminal(page).locator('.term-answer').last()).toContainText('Mara owns the launch.')
+    await run(page, '/cost')
+    const table = terminal(page).getByTestId('term-cost').last()
+    await expect(table.locator('tbody tr')).toHaveCount(2)
+    const opus = table.locator('tr[data-model="anthropic:claude-opus-5-5"]')
+    const sonnet = table.locator('tr[data-model="anthropic:claude-sonnet-5-5"]')
+    await expect(opus.locator('th')).toHaveText('Claude Opus 5.5')
+    // Opus: 2,000 × $4 + 100 × $20 = $0.0100
+    await expect(opus.locator('.term-cost__usd')).toHaveText('$0.0100')
+    await expect(opus.locator('.term-cost__src')).toHaveText('Table')
+    // Sonnet: 1,000 × $2 + 1M cache reads × $0.10 + 50 × $10 = $0.1025
+    await expect(sonnet.locator('.term-cost__usd')).toHaveText('$0.1025')
+    await expect(sonnet.locator('td').nth(2)).toHaveText('0 / 1.00M')
+    await expect(table.getByTestId('term-cost-total')).toHaveText('$0.1125')
+    const entries = await ledger(page)
+    expect(entries.map((e) => e.served.model)).toEqual(['claude-opus-5-5', 'claude-sonnet-5-5'])
+    expect(entries.reduce((a, e) => a + e.usd, 0)).toBeCloseTo(0.1125, 10)
+    // the footer meter shows the same sum
+    await expect(terminal(page).getByTestId('agent-cost')).toHaveText('≈ $0.11')
+  })
+
+  test('a terminal answer another model gave: the step in the task, /cost prices it at that model', async ({ page }) => {
+    await keyed(page, [text('We launch in two weeks.', { model: 'claude-sonnet-5-5', usage: { input: 1000, output: 100 } })], { language: 'de' })
+    const id = await createPage(page, { title: 'Startnotizen', content: doc(para('Wir starten in zwei Wochen.')) })
+    await gotoPage(page, id)
+    const term = page.getByRole('region', { name: /AI terminal|KI-Terminal/ })
+    const ask = term.getByRole('textbox', { name: /Task for the agent|Aufgabe für den Agenten/ })
+    await page.keyboard.press(`${MOD}+j`)
+    await expect(ask).toBeFocused()
+    await ask.fill('Wann starten wir?')
+    await ask.press('Enter')
+    await expect(term.locator('.term-answer').last()).toContainText('We launch in two weeks.')
+    await expect(term.locator('.term-scroll')).toContainText('Anthropic hat an Claude Sonnet 5.5 weitergegeben')
+    await ask.fill('/kosten')
+    await ask.press('Enter')
+    const table = term.getByTestId('term-cost').last()
+    await expect(table.locator('tbody tr')).toHaveCount(1)
+    await expect(table.locator('tr[data-model="anthropic:claude-sonnet-5-5"] .term-cost__usd')).toHaveText('0,0030 $')
+  })
+
+  test('an agent run lists a line per model under its usage; the sum equals the ledger', async ({ page }) => {
+    await keyed(page, [{ blocks: [{ type: 'tool_use', id: 'toolu_r1', name: 'search_pages', input: { query: 'launch' } }], usage: { input: 3000, output: 120 } }, text('**Status report:** nothing blocks the launch.', { usage: { input: 3400, output: 200 } })])
+    await runAgentNow(page, { id: 'ag-receipt', name: 'Status reader', model: 'claude-sonnet-5-5' })
+    const row = page.locator('.agx-run').first()
+    const line = row.getByTestId('agx-run-model')
+    await expect(line).toHaveCount(1)
+    await expect(line).toHaveAttribute('data-model', 'anthropic:claude-sonnet-5-5')
+    await expect(line.locator('.agx-run__model-name')).toHaveText('Claude Sonnet 5.5')
+    await expect(line.locator('.agx-run__model-tok')).toHaveText('2 req · in 6,400 · cache w 0 / r 0 · out 320')
+    // 6,400 × $2 + 320 × $10 per million = $0.0160
+    await expect(line.locator('.agx-run__model-usd')).toHaveText('$0.0160')
+    await expect(line.locator('.agx-run__model-src')).toHaveText('Table')
+    const entries = (await ledger(page)).filter((e) => e.source.startsWith('agent:ag-receipt:'))
+    expect(entries).toHaveLength(2)
+    expect(entries.reduce((a, e) => a + e.usd, 0)).toBeCloseTo(0.016, 10)
+  })
+
+  test('an agent run whose second response another model gave: two lines and the step', async ({ page }) => {
+    await keyed(page, [{ blocks: [{ type: 'tool_use', id: 'toolu_r2', name: 'search_pages', input: { query: 'launch' } }], usage: { input: 3000, output: 120 } }, text('**Status report:** on track.', { model: 'claude-sonnet-5-5', usage: { input: 3400, output: 200 } })])
+    await runAgentNow(page, { id: 'ag-fallback', name: 'Status reader' })
+    const row = page.locator('.agx-run').first()
+    await expect(row.getByTestId('agx-run-model')).toHaveCount(2)
+    await expect(row.locator('.agx-step', { hasText: 'Anthropic passed this to Claude Sonnet 5.5' })).toHaveCount(1)
+    // Opus: 3,000 × $4 + 120 × $20 = $0.0144 · Sonnet: 3,400 × $2 + 200 × $10 = $0.0088
+    await expect(row.locator('[data-model="anthropic:claude-opus-5-5"] .agx-run__model-usd')).toHaveText('$0.0144')
+    await expect(row.locator('[data-model="anthropic:claude-sonnet-5-5"] .agx-run__model-usd')).toHaveText('$0.0088')
+  })
+})

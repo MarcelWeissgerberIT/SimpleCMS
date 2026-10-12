@@ -43,6 +43,8 @@ import { newId } from '../../../lib/ids'
 import { isEffectivelyTrashed } from '../../../store/selectors'
 import type { SavedMedia } from '../media/types'
 import { endRun, noteRun, withWriter, type Writer } from '../../../store/writer'
+import { addToLines } from '../core/meter'
+import { stepText } from '../Receipt'
 
 const set = useAgent.setState
 const get = useAgent.getState
@@ -349,6 +351,8 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
 
   // an MCP call of this task ran: the retry without a refusing server would run it again — never
   let sawMcp = false
+  /** steps on the way already said in this task ("Anthropic passed this to …") */
+  const said = new Set<string>()
   const hooks: RunHooks = {
     toolStart(tool, arg) {
       const id = nextId('s')
@@ -375,6 +379,14 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
       }
     },
     usage(u, entry) {
+      // another model answered (a refusal fallback): said once per task, priced at that model (the entry)
+      for (const st of entry?.steps ?? []) {
+        const line = entry ? stepText(t, st, entry.served.p) : null
+        if (line && !said.has(line)) {
+          said.add(line)
+          note(line)
+        }
+      }
       // priced per response by the one table (the ledger entry): the model that answered, its cache reads and writes
       const input = u.input
       const output = u.output
@@ -389,6 +401,8 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
           cacheRead: s.usage.cacheRead + cacheRead,
           cacheWrite: s.usage.cacheWrite + cacheWrite,
           usd: s.usage.usd + usd,
+          // a line per model that answered (a model change mid-session, a refusal fallback): the /cost table
+          byModel: entry ? addToLines(s.usage.byModel, entry) : s.usage.byModel,
         },
       }))
     },

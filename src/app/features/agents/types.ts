@@ -6,6 +6,7 @@ import type { MediaItem } from '../ai/media/types'
 import type { AgentTrigger, CustomAgent, ID } from '../../store/types'
 import type { StagedChange } from '../ai/agent/types'
 import type { AgentState } from './runs'
+import type { ModelLine } from '../ai/core/meter'
 
 export type { AgentTrigger, CustomAgent }
 
@@ -22,6 +23,8 @@ export interface AgentRunUsage {
   output: number
   cacheRead: number
   usd: number
+  /** browser runs: a line per provider × model that answered (the run's ledger entries summed) — the run's receipt */
+  byModel?: ModelLine[]
 }
 
 export interface AgentRun {

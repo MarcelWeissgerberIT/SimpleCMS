@@ -34,6 +34,7 @@ import { EditDiff } from './EditDiff'
 import { ScriptDiff } from './ScriptDiff'
 import { CodingDiff, FullText, RefsLine, useCodingFlags } from './CodingDiff'
 import { PipelinesOut } from './PipelinesOut'
+import { CostTable, fmtTokens } from './CostOut'
 import { ConnectLine, ServersOut, SignInKey, SignInOffer, retryOf } from './ConnectOut'
 import { signInFromTerminal } from './connect'
 import { depsOf, makesTasks, type AgentStep, type AgentTurn, type StagedChange } from './types'
@@ -55,11 +56,6 @@ export { PropDiff, Preview } from './ReviewParts'
 
 const pad = (n: number, w = 2) => String(n).padStart(w, '0')
 
-function fmtTokens(n: number): string {
-  if (n < 1000) return String(n)
-  if (n < 1_000_000) return `${(n / 1000).toFixed(n < 10_000 ? 1 : 0)}K`
-  return `${(n / 1_000_000).toFixed(2)}M`
-}
 
 
 function fmtMs(ms: number): string {
@@ -830,7 +826,13 @@ function Echo({ entry }: { entry: EchoEntry }) {
     case 'cost': {
       const u = entry.data?.usage
       if (!u) break
-      out = (
+      // a row per model that answered (its ledger entries), then the total; before any request the plain sums
+      out = u.byModel?.length ? (
+        <>
+          <CostTable lines={u.byModel} />
+          <p className="term-echo__note">{t('features.agent.meter.billed')}</p>
+        </>
+      ) : (
         <>
           <dl className="term-table term-table--cost">
             {(
