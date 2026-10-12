@@ -702,4 +702,114 @@ test.describe('the flight recorder (train 4)', () => {
     expect(tasksIn(await pageContent(page, id))[0]).toMatchObject({ itemId: T1, status: 'done' })
     await expect.poll(async () => (await changes(page))[0].status).toBe('applied')
   })
+
+  type Rec = Record<string, (...a: unknown[]) => Promise<any>> // eslint-disable-line @typescript-eslint/no-explicit-any
+  const recOf = (page: Page) => <T>(fn: string, ...args: unknown[]): Promise<T> => page.evaluate(({ fn, args }) => (window as unknown as { __oneRecorder: Rec }).__oneRecorder[fn](...args), { fn, args })
+  type Batch = { key: string; from: number; to: number }
+  const batches = async (page: Page): Promise<Batch[]> => {
+    await recOf(page)('settle')
+    return (await recOf(page)<Batch[]>('runs')).filter((r) => r.key.startsWith('terminal:')).sort((a, b) => a.from - b.from)
+  }
+  const term = <T>(page: Page, fn: string, ...args: unknown[]): Promise<T> => page.evaluate(({ fn, args }) => (window as unknown as { __oneTerm: Record<string, (...a: unknown[]) => unknown> }).__oneTerm[fn](...args) as T, { fn, args })
+
+  test('a page’s task changes applied together are ONE write naming both (terminal:<batch>#a+b): the eject settles both — discarded + ejected, the batch’s Undo writes nothing — and its Undo applies both again', async ({ page, context }) => {
+    test.setTimeout(120_000)
+    const T1 = 'wi_ejgrp1aaaa'
+    const T2 = 'wi_ejgrp2aaaa'
+    const id = await setup(page, doc(item({ itemId: T1, status: 'todo' }, 'Draft copy'), item({ itemId: T2, status: 'todo' }, 'Ship pricing')))
+    await startRecorder(page)
+    await mockAgent(context, [call('u1', 'update_work_item', { updates: [{ item: T1, status: 'done' }, { item: T2, status: 'done' }] }), say('Staged.')])
+    await openTerminal(page)
+    await run(page, 'Close both tasks')
+    await done(page)
+    const ids = (await changes(page)).map((c) => c.id as string)
+    expect(ids).toHaveLength(2)
+    const mark = await markRec(page)
+    // Apply all: one batch, the page's two task changes in ONE writeItems
+    expect((await applyAlone(page, ...ids)).applied.sort()).toEqual([...ids].sort())
+    await flush(page)
+    expect(tasksIn(await pageContent(page, id)).map((t) => t.status)).toEqual(['done', 'done'])
+    await expectLane(page, mark, 'terminal', undefined, new RegExp(`^terminal:[^#]+#(${ids[0]}\\+${ids[1]}|${ids[1]}\\+${ids[0]})$`))
+    const [batch] = await batches(page)
+    const r = await recOf(page)<{ id: string; state: string; changes: Record<string, string[]> }>('eject', { lane: 'terminal', run: batch.key, a: batch.from - 1000, b: batch.to + 1000 })
+    expect(r.state).toBe('done')
+    expect(r.changes[`p:${id}`]).toEqual(ids.map((c) => `${batch.key}#${c}`).sort())
+    expect(tasksIn(await pageContent(page, id)).map((t) => t.status)).toEqual(['todo', 'todo'])
+    // both settled: discarded + ejected, never open again
+    await expect.poll(async () => (await changes(page)).map((c) => [c.status, c.ejected?.id ?? null])).toEqual([['discarded', r.id], ['discarded', r.id]])
+    // the batch's own Undo writes nothing and says nothing was "edited since" (quiet): every change of it is settled
+    const rev = await wsEval(page, (s, id) => s.pages[id].contentRev, id)
+    const undone = await page.evaluate((key) => {
+      const t = (window as unknown as { __oneTerm: { batch(id: string): unknown; undoStagedBatch(res: unknown, o: { quiet: boolean }): { kept: string[]; final: string[] } } }).__oneTerm
+      return t.undoStagedBatch(t.batch(key.slice('terminal:'.length)), { quiet: true })
+    }, batch.key)
+    expect(undone.kept.sort()).toEqual([...ids].sort())
+    expect(await wsEval(page, (s, id) => s.pages[id].contentRev, id)).toBe(rev)
+    // the eject's Undo: both done again, both applied again
+    expect(await recOf(page)<{ ok?: boolean }>('undoEject', r.id)).toMatchObject({ ok: true })
+    expect(tasksIn(await pageContent(page, id)).map((t) => t.status)).toEqual(['done', 'done'])
+    await expect.poll(async () => (await changes(page)).map((c) => c.status)).toEqual(['applied', 'applied'])
+  })
+
+  /** Plan holds T1; Claude stages "Book venue" on Launch (#venue, a new task) and T1 waiting for it (needs the first). */
+  async function venue(page: Page, context: Parameters<typeof mockAgent>[0]) {
+    const T1 = 'wi_ejlnk1aaaa'
+    const plan = await setup(page, doc(item({ itemId: T1, status: 'todo' }, 'Draft copy')))
+    const launch = await createPage(page, { title: 'Launch', content: doc(p('Launch day in Tessera.')) })
+    await startRecorder(page)
+    await mockAgent(context, [
+      call('a1', 'append_to_page', { id: launch, markdown: '> [!TODO] Book venue {#venue}' }),
+      call('u1', 'update_work_item', { updates: [{ item: T1, blocked_by: { add: ['#venue'] } }] }),
+      say('Staged.'),
+    ])
+    await openTerminal(page)
+    await run(page, 'Book the venue first')
+    await done(page)
+    const [ca, cb] = (await changes(page)) as AnyState[]
+    expect(cb.needs).toEqual([ca.id])
+    return { T1, plan, launch, ca: ca.id as string, cb: cb.id as string }
+  }
+
+  test('ejecting the change that made a task holds its place while an applied change elsewhere still links it (Blocked by): never a link to a task that is gone', async ({ page, context }) => {
+    test.setTimeout(120_000)
+    const v = await venue(page, context)
+    // two batches: the new task, then T1 waiting for it
+    expect((await applyAlone(page, v.ca)).applied).toEqual([v.ca])
+    expect((await applyAlone(page, v.cb)).applied).toEqual([v.cb])
+    await flush(page)
+    const made = tasksIn(await pageContent(page, v.launch))[0].itemId as string
+    expect(tasksIn(await pageContent(page, v.plan))[0].blockedBy).toEqual([made])
+    const [b1] = await batches(page)
+    const sel = { lane: 'terminal', run: b1.key, a: b1.from - 1000, b: b1.to + 1 }
+    const planned = await recOf(page)<{ places: Array<{ p: string; outcome: string; reason: string | null }> }>('planEject', sel)
+    expect(planned.places.find((x) => x.p === `p:${v.launch}`)).toMatchObject({ outcome: 'held', reason: 'taskLinked' })
+    // the eject leaves it: the task stays, the change stays applied, T1's link stays whole
+    const r = await recOf(page)<{ state?: string; refused?: unknown }>('eject', sel)
+    if (r.state) expect(r.state).toBe('done')
+    expect(tasksIn(await pageContent(page, v.launch)).map((t) => t.itemId)).toEqual([made])
+    expect((await changes(page)).map((c) => c.status)).toEqual(['applied', 'applied'])
+  })
+
+  test('a discarded change that builds on an ejected one never comes back with its own Undo or Restore (the eject’s Undo gives them back)', async ({ page, context }) => {
+    test.setTimeout(120_000)
+    const v = await venue(page, context)
+    expect((await applyAlone(page, v.ca)).applied).toEqual([v.ca])
+    expect(await term<string[]>(page, 'discardStaged', v.cb)).toEqual([v.cb])
+    await flush(page)
+    const [b1] = await batches(page)
+    const r = await recOf(page)<{ id: string; state: string }>('eject', { lane: 'terminal', run: b1.key, a: b1.from - 1000, b: b1.to + 1000 })
+    expect(r.state).toBe('done')
+    expect(tasksIn(await pageContent(page, v.launch))).toEqual([])
+    await expect.poll(async () => (await changes(page)).map((c) => [c.status, !!c.ejected])).toEqual([['discarded', true], ['discarded', false]])
+    // Preflight's card Undo (undiscardStaged) and the row's Restore refuse it: it could never apply
+    expect(await term<string[]>(page, 'undiscardStaged', [v.cb])).toEqual([])
+    await term(page, 'restoreStaged', v.cb)
+    expect((await changes(page)).map((c) => c.status)).toEqual(['discarded', 'discarded'])
+    await expect(change(page, 2).getByRole('button', { name: /^Restore/ })).toHaveCount(0)
+    // the eject's Undo: the task back, its change applied; the dependant can be restored again now
+    expect(await recOf(page)<{ ok?: boolean }>('undoEject', r.id)).toMatchObject({ ok: true })
+    await expect.poll(async () => (await changes(page)).map((c) => c.status)).toEqual(['applied', 'discarded'])
+    await expect(change(page, 2).getByRole('button', { name: /^Restore/ })).toBeVisible()
+    expect(await term<string[]>(page, 'undiscardStaged', [v.cb])).toEqual([v.cb])
+  })
 })

@@ -9,8 +9,8 @@ import { readdirSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { test, expect } from '@playwright/test'
 import type { JSONContent } from '@tiptap/core'
-import { SYSTEM, currentWriter, endRun, fallbackReports, clearFallbackReports, formatWriterKey, noteRun, onRunNote, reportFallback, withWriter, type RunNote, type Writer } from '../../src/app/store/writer'
-import { causeChain, clientSlug, foldsTyping, laneOf, parseWriterKey, runKeyOf, runKindOf, runRefOf, segKeyOf } from '../../src/app/features/recorder/model/writerKeys'
+import { SYSTEM, currentWriter, endRun, fallbackReports, clearFallbackReports, formatWriterKey, noteRun, onRunNote, reportFallback, withWriter, writerOfChanges, type RunNote, type Writer } from '../../src/app/store/writer'
+import { causeChain, changeIds, clientSlug, foldsTyping, laneOf, parseWriterKey, runKeyOf, runKindOf, runRefOf, segKeyOf } from '../../src/app/features/recorder/model/writerKeys'
 import { classifyPage, placeKey, placeKindOf, parsePlace } from '../../src/app/features/recorder/model/places'
 import { databaseChangesDetail } from '../../src/app/features/recorder/model/schema'
 import { blockList, pageParts, partsKey, rowParts, schemaParts, viewPart, wholeCanon, type CanonDeps } from '../../src/app/features/recorder/model/canon'
@@ -207,6 +207,28 @@ test.describe('writer context', () => {
     const long = formatWriterKey({ kind: 'kit', type: 'k', cause: `agent:${'a'.repeat(64)}:${'b'.repeat(64)}<agent:${'c'.repeat(64)}:${'d'.repeat(64)}` })
     expect(long.length).toBeLessThanOrEqual(200)
     expect(long.startsWith('kit:k<agent:')).toBe(true)
+  })
+
+  test('a write of several staged changes names them all, never cut ("-": an invalid id, "*": more than a key holds)', () => {
+    const term: Writer = { kind: 'terminal', run: 'b1' }
+    const agent: Writer = { kind: 'agent', id: 'nordlicht', run: 'r212' }
+    expect(formatWriterKey(writerOfChanges(term, ['c2', 'c3']))).toBe('terminal:b1#c2+c3')
+    expect(formatWriterKey(writerOfChanges(agent, ['c1']))).toBe('agent:nordlicht:r212#c1')
+    expect(writerOfChanges(term, [])).toEqual(term)
+    expect(writerOfChanges({ kind: 'you' }, ['c1'])).toEqual({ kind: 'you' })
+    expect(formatWriterKey({ kind: 'terminal', run: 'b1', change: 'c2+bad id' })).toBe('terminal:b1#-')
+    // 60 changes of one page in one write: longer than 200, whole — every id comes back from the key
+    const many = Array.from({ length: 60 }, (_, i) => `c${(i + 100).toString(36)}`)
+    const key = formatWriterKey(writerOfChanges(agent, many))
+    expect(key.length).toBeGreaterThan(200)
+    expect(changeIds(parseWriterKey(key).change)).toEqual(many)
+    expect(runKeyOf(key)).toBe('agent:nordlicht:r212')
+    expect(segKeyOf(key)).toBe('agent:nordlicht:r212')
+    expect(changeIds(parseWriterKey('terminal:b1#c2').change)).toEqual(['c2'])
+    expect(changeIds(undefined)).toEqual([])
+    // more than a key's room: '*' (the eject holds its places — model/plan.ts)
+    const tooMany = Array.from({ length: 400 }, (_, i) => `c${i}`)
+    expect(formatWriterKey(writerOfChanges(term, tooMany))).toBe('terminal:b1#*')
   })
 
   test('run notes reach listeners; fallbacks are kept for the seam', () => {
@@ -1393,10 +1415,10 @@ test.describe('the planner core (E6)', () => {
     return { v: 1, kind: 'page', at: 1, seg: 'x', page: rest, defs, body, files: [] }
   }
   const schemaMeta = (db: Database): PinMeta => ({ v: 1, kind: 'schema', at: 1, seg: 'x', dbId: db.id, db, files: [] })
-  const itemsIn = (c: JSONContent | null | undefined): Array<{ itemId: string; blockedBy: string[] }> => {
-    const out: Array<{ itemId: string; blockedBy: string[] }> = []
+  const itemsIn = (c: JSONContent | null | undefined): Array<{ itemId: string; blockedBy: string[]; related: string[] }> => {
+    const out: Array<{ itemId: string; blockedBy: string[]; related: string[] }> = []
     const walk = (x: JSONContent) => {
-      if (x.type === 'workItem') out.push({ itemId: String(x.attrs?.itemId), blockedBy: (x.attrs?.blockedBy as string[]) ?? [] })
+      if (x.type === 'workItem') out.push({ itemId: String(x.attrs?.itemId), blockedBy: (x.attrs?.blockedBy as string[]) ?? [], related: (x.attrs?.related as string[]) ?? [] })
       x.content?.forEach(walk)
     }
     if (c) walk(c)
@@ -1412,7 +1434,7 @@ test.describe('the planner core (E6)', () => {
     nowBlocks?: Record<string, { strings: string[]; json: JSONContent[] }>
     pages: Page[]
     dbs?: Database[]
-    items?: { live?: Record<string, string[]>; loops?: string[] }
+    items?: { live?: Record<string, string[]>; linkers?: Record<string, string[]>; loops?: string[] }
     pipeline?: boolean
     status?: Record<string, string>
   }
@@ -1429,7 +1451,7 @@ test.describe('the planner core (E6)', () => {
       kitComputed: () => false,
       readOnly: { pageLocked: (id) => !!state.pages[id]?.settings.locked, dbLocked: (id) => !!state.databases[id]?.locked },
       db: { system: (id) => state.databases[id]?.system, pipelineRole: (id, prop) => (fx.pipeline && id === DB ? (prop === 'title' ? 'title' : prop === 'est' ? 'priority' : prop ? 'stage' : null) : undefined), props: (id) => state.databases[id]?.properties ?? [] },
-      items: { livePagesOf: (id) => fx.items?.live?.[id] ?? [], wouldLoop: (from, to) => !!fx.items?.loops?.includes(`${from}>${to}`) },
+      items: { livePagesOf: (id) => fx.items?.live?.[id] ?? [], linkersOf: (id) => fx.items?.linkers?.[id] ?? [], wouldLoop: (from, to) => !!fx.items?.loops?.includes(`${from}>${to}`) },
       sources: { changeStatus: fx.status ? (c) => fx.status![c] : undefined },
       fns,
     }
@@ -1644,6 +1666,79 @@ test.describe('the planner core (E6)', () => {
     expect(coreOf({ ...move, places: [win([c1])], items: { live: { [T]: ['elsewhere'] } } }).by('p:p1')).toMatchObject({ outcome: 'held', reason: 'taskElsewhere' })
   })
 
+  test('a write of several changes: each id counts (an undone review), "*" (more than its key named) is held as a batch', () => {
+    const g = seg('p:r1', 2000, { touched: ['t'], left: { h: 'L', parts: ROW } })
+    const group = (c: string, status?: Record<string, string>): Fx => {
+      const w = win([g])
+      return { places: [{ ...w, ownEvents: w.ownEvents.map((e) => ({ ...e, c })) }], now: { 'p:r1': nowD(ROW) }, metas: { [g.before!]: pageMeta(rowPage('r1', { title: 'Tessera' }), null, []) }, pages: [rowPage('r1', { title: 'Tessera (neu)' })], ...(status ? { status } : {}) }
+    }
+    expect(coreOf(group('c2+c3')).by('p:r1').outcome).toBe('back')
+    expect(coreOf(group('c2+c3', { c2: 'discarded', c3: 'discarded' })).by('p:r1')).toMatchObject({ outcome: 'skip', reason: 'reviewUndone' })
+    expect(coreOf(group('c2+c3', { c2: 'discarded', c3: 'applied' })).by('p:r1').outcome).toBe('back')
+    expect(coreOf(group('*')).by('p:r1')).toMatchObject({ outcome: 'held', reason: 'batch' })
+  })
+
+  test('a task the writer made stays while a live task the plan leaves links it (Blocked by / Related); with its linker it goes', () => {
+    const V = 'wi_vvvvvvvvvv'
+    const T1 = 'wi_tttttttttt'
+    const task = (id: string, itemId: string, links: { blockedBy?: string[]; related?: string[] } = {}): JSONContent => ({ type: 'workItem', attrs: { id, itemId, blockedBy: links.blockedBy ?? [], related: links.related ?? [] }, content: [para('Book venue')] })
+    // Launch: W appended the task "Book venue" (V)
+    const L = 'p:launch'
+    const gl = seg(L, 2000, { pk: 'page', db: undefined, touched: ['b:v', 'bo'], left: { h: 'L1', parts: { t: 'T' }, blocks: ['a=1', 'v=2'] } })
+    const launch = page({ id: 'launch', content: docOf(para('Launch', 'a'), task('v', V)) })
+    const launchWin = {
+      now: { [L]: nowD({ t: 'T' }, ['a=1', 'v=2'], { h: 'L1' }) },
+      metas: { [gl.before!]: pageMeta(launch, 'd1') },
+      bodies: { 'launch|d1': docOf(para('Launch', 'a')) } as Record<string, JSONContent | null>,
+      pinBlocks: { [gl.before!]: { strings: ['a=1'], json: [para('Launch', 'a')] } } as Record<string, { strings: string[]; json: JSONContent[] }>,
+      nowBlocks: { [L]: { strings: ['a=1', 'v=2'], json: launch.content!.content! } } as Record<string, { strings: string[]; json: JSONContent[] }>,
+    }
+    const plan = page({ id: 'plan', content: docOf(task('t', T1, { blockedBy: [V] })) })
+    const fx: Fx = { places: [win([gl])], ...launchWin, pages: [launch, plan], items: { live: { [V]: ['launch'], [T1]: ['plan'] } } }
+    // nobody links it: it goes
+    expect(coreOf(fx).by(L)).toMatchObject({ outcome: 'back', hunks: { back: 1, held: 0 } })
+    // T1 on Plan (outside the plan) waits for it: the append stays — never a Blocked by link to a task that is gone
+    const linked = coreOf({ ...fx, items: { ...fx.items, linkers: { [V]: ['plan'] } } })
+    expect(linked.by(L)).toMatchObject({ outcome: 'held', reason: 'taskLinked', hunks: { back: 0, held: 1 } })
+    expect(targetsFor(linked.plan, linked.state, linked.input.pins, fns).pages.launch).toBeUndefined()
+    // the link was W's too (Plan in the window, its block goes back without it): both go
+    const P = 'p:plan'
+    const gp = seg(P, 2100, { pk: 'page', db: undefined, touched: ['b:t'], left: { h: 'M1', parts: { t: 'T' }, blocks: ['t=2'] } })
+    const both: Fx = {
+      places: [win([gl]), win([gp])],
+      now: { ...launchWin.now, [P]: nowD({ t: 'T' }, ['t=2'], { h: 'M1' }) },
+      metas: { ...launchWin.metas, [gp.before!]: pageMeta(plan, 'e1') },
+      bodies: { ...launchWin.bodies, 'plan|e1': docOf(task('t', T1)) },
+      pinBlocks: { ...launchWin.pinBlocks, [gp.before!]: { strings: ['t=1'], json: [task('t', T1)] } },
+      nowBlocks: { ...launchWin.nowBlocks, [P]: { strings: ['t=2'], json: plan.content!.content! } },
+      pages: [launch, plan],
+      items: { live: { [V]: ['launch'], [T1]: ['plan'] }, linkers: { [V]: ['plan'] } },
+    }
+    const out = coreOf(both)
+    expect(out.by(L)).toMatchObject({ outcome: 'back', hunks: { back: 1, held: 0 } })
+    expect(out.by(P)).toMatchObject({ outcome: 'back', hunks: { back: 1, held: 0 } })
+    // Plan goes back elsewhere but keeps a Related link to it: Launch stays
+    const related = page({ id: 'plan', content: docOf(para('Notiz neu', 'x'), task('t', T1, { related: [V] })) })
+    const gx = seg(P, 2100, { pk: 'page', db: undefined, touched: ['b:x'], left: { h: 'M1', parts: { t: 'T' }, blocks: ['x=2', 't=3'] } })
+    const keeps = coreOf({
+      ...both,
+      places: [win([gl]), win([gx])],
+      now: { ...launchWin.now, [P]: nowD({ t: 'T' }, ['x=2', 't=3'], { h: 'M1' }) },
+      metas: { ...launchWin.metas, [gx.before!]: pageMeta(related, 'e1') },
+      bodies: { ...launchWin.bodies, 'plan|e1': docOf(para('Notiz', 'x'), task('t', T1, { related: [V] })) },
+      pinBlocks: { ...launchWin.pinBlocks, [gx.before!]: { strings: ['x=1', 't=3'], json: [para('Notiz', 'x'), task('t', T1, { related: [V] })] } },
+      nowBlocks: { ...launchWin.nowBlocks, [P]: { strings: ['x=2', 't=3'], json: related.content!.content! } },
+      pages: [launch, related],
+    })
+    expect(keeps.by(P)).toMatchObject({ outcome: 'back', hunks: { back: 1, held: 0 } })
+    expect(keeps.by(L)).toMatchObject({ outcome: 'held', reason: 'taskLinked' })
+    // a page W made holding the task: to the trash only while nobody links it
+    const nf = seg('p:fresh', 2200, { pk: 'page', db: undefined, touched: '*', before: null, f: F.NEW, left: { h: 'L', parts: { t: 'T' } } })
+    const fresh: Fx = { places: [win([nf])], now: { 'p:fresh': nowD({ t: 'T' }) }, pages: [page({ id: 'fresh', content: docOf(task('v', V)) }), plan], items: { live: { [V]: ['fresh'] } } }
+    expect(coreOf(fresh).by('p:fresh').outcome).toBe('trash')
+    expect(coreOf({ ...fresh, items: { live: { [V]: ['fresh'] }, linkers: { [V]: ['plan'] } } }).by('p:fresh')).toMatchObject({ outcome: 'held', reason: 'taskLinked' })
+  })
+
   test('back into the trash: never with a page below that is newer than the writer\'s restore; new rows and pages keep their sub-pages; the commit re-checks what joined and where parents go', () => {
     const P = 'p:hub'
     const g = seg(P, 2000, { pk: 'page', db: undefined, touched: ['tr'], left: { h: 'L', parts: { tr: '0', t: 'T' } } })
@@ -1795,14 +1890,19 @@ test.describe('sources (E14): units, their fates (Δ29)', () => {
         place('p:row2', [ev(A - 1, 'agent:a1:r212', 'c1'), ev(B, 'agent:a1:r212', 'c2'), ev(A + 5, undefined, 'c3')]),
         place('p:row3', [ev(A + 40, 'terminal:b7', 'c1')]),
         place('p:page', [ev(A + 50, 'mcp:desk:k9', 'x'), ev(A + 60, 'script:s1:run9')]),
+        // ONE write of several changes (a page's task changes): a unit each, on the same place; '*' names none
+        place('p:tasks', [ev(A + 70, 'terminal:b8', 'c2+c3'), ev(A + 80, 'agent:a1:r212', '*')]),
       ]),
     } as unknown as Parameters<typeof changeMap>[0]
-    const plan = { places: [{ p: 'p:row1' }, { p: 'p:row2' }, { p: 'p:row3' }, { p: 'p:page' }, { p: 'p:gone' }] } as unknown as Parameters<typeof changeMap>[1]
+    const plan = { places: [{ p: 'p:row1' }, { p: 'p:row2' }, { p: 'p:row3' }, { p: 'p:page' }, { p: 'p:tasks' }, { p: 'p:gone' }] } as unknown as Parameters<typeof changeMap>[1]
     expect(changeMap(data, plan)).toEqual({
       'p:row1': ['agent:a1:r212#c5', 'agent:a1:r212#c6'],
       'p:row3': ['terminal:b7#c1'],
       'p:page': ['mcp:desk:k9', 'script:s1:run9'],
+      'p:tasks': ['terminal:b8#c2', 'terminal:b8#c3'],
     })
+    // they share their places: one fate for both
+    expect(unitFates({ 'p:tasks': ['terminal:b8#c2', 'terminal:b8#c3'] } as Record<PlaceKey, string[]>, { 'p:tasks': 'back' } as Record<PlaceKey, EjectRecord['outcomes'][PlaceKey]>, () => undefined).ejected).toEqual(['terminal:b8#c2', 'terminal:b8#c3'])
     expect(splitUnit('agent:a1:r212#c5')).toEqual({ runKey: 'agent:a1:r212', change: 'c5' })
     expect(splitUnit('mcp:desk:k9')).toEqual({ runKey: 'mcp:desk:k9' })
     expect(agentOf({ lane: 'agent:a1', run: 'agent:a1:r212' })).toBe('a1')

@@ -859,4 +859,41 @@ test.describe('per-field trust — the flight recorder’s eject (train 4)', () 
     expect(await kinds(page, clarity)).toEqual(['accept'])
     expect(await unknowns(page)).toEqual([])
   })
+
+  test('a proposal discarded from its row that builds on one the eject took back loses its Undo: no Z on its row, its closure brings nothing back', async ({ page }) => {
+    await morning(page)
+    // c2 builds on c1 (its row needs #1 applied first)
+    await page.evaluate(async ({ a, r }) => {
+      const ag = (window as any).__oneAgents // eslint-disable-line @typescript-eslint/no-explicit-any
+      const run = (await ag.loadRuns(a)).find((x: AnyRec) => x.id === r)
+      await ag.putRun({ ...run, staged: run.staged.map((c: AnyRec) => (c.id === 'c2' ? { ...c, dependsOn: 'c1' } : c)) })
+    }, { a: AGENT, r: RUN })
+    await revisit(page)
+    await expect(row(page, 1)).toBeVisible()
+    // c1 applied from its row, c2 discarded from its row: its Undo is kept there
+    await row(page, 1).focus()
+    await page.keyboard.press('Enter')
+    await expect.poll(() => statusOf(page, 'c1')).toBe('applied')
+    await row(page, 2).focus()
+    await page.keyboard.press('d')
+    await expect.poll(() => statusOf(page, 'c2')).toBe('discarded')
+    await expect(row(page, 2).locator('.agent-change__undo')).toBeVisible()
+    expect(await page.evaluate(({ r }) => (window as any).__oneAgents.canUndoDiscard(r, 'c2'), { r: RUN })).toBe(true) // eslint-disable-line @typescript-eslint/no-explicit-any
+    // the eject of the run's window takes c1 back
+    await rec(page, 'settle')
+    const run = (await rec<Array<{ key: string; from: number; to: number }>>(page, 'runs')).find((x) => x.key === `agent:${AGENT}:${RUN}`)!
+    const r = await rec<{ id: string; state: string }>(page, 'eject', { lane: `agent:${AGENT}`, run: run.key, a: run.from - 1000, b: run.to + 1000 })
+    expect(r.state).toBe('done')
+    await expect.poll(async () => (await stored(page, 'c1'))?.ejected?.id ?? null).toBe(r.id)
+    // c2 could never apply now: its row has no Undo, and the closure (Preflight's card Undo too) brings nothing back
+    await expect(row(page, 2).locator('.agent-change__undo')).toHaveCount(0)
+    expect(await page.evaluate(({ r }) => (window as any).__oneAgents.canUndoDiscard(r, 'c2'), { r: RUN })).toBe(false) // eslint-disable-line @typescript-eslint/no-explicit-any
+    expect(await page.evaluate(({ r }) => (window as any).__oneAgents.undoDiscard(r, 'c2'), { r: RUN })).toBe(false) // eslint-disable-line @typescript-eslint/no-explicit-any
+    expect(await statusOf(page, 'c2')).toBe('discarded')
+    // the eject's Undo gives c1 back; c2 stays discarded as the person left it
+    expect(await rec<{ ok?: boolean }>(page, 'undoEject', r.id)).toMatchObject({ ok: true })
+    await expect.poll(() => statusOf(page, 'c1')).toBe('applied')
+    expect(await statusOf(page, 'c2')).toBe('discarded')
+    expect(await unknowns(page)).toEqual([])
+  })
 })

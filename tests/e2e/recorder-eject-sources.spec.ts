@@ -210,4 +210,83 @@ test.describe('flight recorder — the eject and its sources (§5)', () => {
     expect(back.some((c) => c.ejected || c.held)).toBe(false)
     expect(await rec(page, 'unknowns')).toEqual([])
   })
+
+  test('train 4 — the real path: an apply-mode agent run changes two tasks of one page in ONE write (…#c1+c2); the eject settles both (discarded + ejected) and puts the agent state back; its Undo applies both and the state goes forward', async ({ page, context }) => {
+    test.setTimeout(180_000)
+    await page.clock.install({ time: T0 })
+    const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': 'POST, GET' }
+    let calls = 0
+    let script: string[] = []
+    await context.route('https://api.anthropic.com/**', async (route) => {
+      const req = route.request()
+      if (req.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors })
+      if (req.method() === 'GET') return route.fulfill({ status: 200, headers: { ...cors, 'content-type': 'application/json' }, body: JSON.stringify({ data: [], has_more: false }) })
+      const body = script[calls++] ?? sseMessage([{ type: 'text', text: 'Fertig.' }])
+      await route.fulfill({ status: 200, headers: { ...cors, 'content-type': 'text/event-stream' }, body }).catch(() => undefined)
+    })
+    await openApp(page)
+    await startRecorder(page)
+    await wsEval(page, (s) => s.updateSettings({ aiApiKey: 'sk-ant-e2e-test-key' }))
+    const T1 = 'wi_tsgrp1aaaa'
+    const T2 = 'wi_tsgrp2aaaa'
+    const AG = 'ag-tessera-tasks'
+    const sprint = await wsEval(
+      page,
+      (s, a) => {
+        const task = (itemId: string, title: string) => ({ type: 'workItem', attrs: { itemId, status: 'todo' }, content: [{ type: 'paragraph', content: [{ type: 'text', text: title }] }] })
+        const id = s.createPage({ title: 'Tessera Sprint', content: { type: 'doc', content: [task(a.T1, 'Karte zeichnen'), task(a.T2, 'Abgleich prüfen')] } }) as string
+        const now = Date.now()
+        s.upsertAgent({ id: a.AG, name: 'Tessera Sprint', instructions: 'Schließe die Aufgaben des Sprints.', trigger: { type: 'manual' }, scope: { everything: false, pages: [id], databases: [] }, write: 'apply', output: null, mcpServers: [], runner: 'browser', model: null, effort: null, maxRunUsd: 0.5, enabled: true, createdAt: now, updatedAt: now })
+        return id
+      },
+      { T1, T2, AG },
+    )
+    type Agents = { getAgentState(id: string): Promise<{ json: string; runId: string } | null>; putAgentState(id: string, s: unknown): Promise<void>; putRun(r: unknown): Promise<unknown>; loadRuns(id: string): Promise<Array<{ id: string; staged: AnyState[]; stateBefore?: unknown }>> }
+    await flush(page)
+    script = [
+      sseMessage([
+        { type: 'tool_use', id: 'tu1', name: 'update_work_item', input: { updates: [{ item: T1, status: 'done' }, { item: T2, status: 'done' }] } },
+      ]),
+      sseMessage([{ type: 'text', text: 'Beide Aufgaben erledigt.' }]),
+    ]
+    await page.clock.setFixedTime(T0 + 60_000)
+    await page.evaluate((AG) => (window.location.hash = `#/agents/${AG}`), AG)
+    await page.getByRole('button', { name: 'Run now' }).click()
+    await expect(page.locator('.agx-run').first()).toHaveAttribute('data-status', 'ok', { timeout: 30_000 })
+    const statuses = () => wsEval(page, (s, id) => (s.pages[id].content.content as AnyState[]).map((b) => b.attrs.status), sprint)
+    expect(await statuses()).toEqual(['done', 'done'])
+    const runOf = async () => (await page.evaluate((AG) => (window as unknown as { __oneAgents: Agents }).__oneAgents.loadRuns(AG), AG))[0]
+    const first = await runOf()
+    expect(first.staged.map((c) => [c.kind, c.status])).toEqual([['workItem', 'applied'], ['workItem', 'applied']])
+    // the state this run saved (a cursor), and the one it replaced — as a run with the state tools keeps them (exec.ts)
+    await page.evaluate(async (AG) => {
+      const a = (window as unknown as { __oneAgents: Agents }).__oneAgents
+      const [r] = await a.loadRuns(AG)
+      await a.putRun({ ...r, stateBefore: { json: '{"cursor":1}', at: 1, runId: 'r-earlier' } })
+      await a.putAgentState(AG, { json: '{"cursor":2}', at: 2, runId: r.id })
+    }, AG)
+    const stateNow = () => page.evaluate((AG) => (window as unknown as { __oneAgents: Agents }).__oneAgents.getAgentState(AG), AG)
+    expect((await stateNow())?.json).toBe('{"cursor":2}')
+    await page.clock.setFixedTime(T0 + 400_000)
+    await rec(page, 'settle')
+    const run = (await rec<Array<{ key: string; from: number; to: number }>>(page, 'runs')).find((r) => r.key.startsWith(`agent:${AG}:`))!
+    expect(run).toBeTruthy()
+    // the page's ONE write names both changes
+    const evs = (await rec<AnyState[]>(page, 'events')).filter((e) => e.p === `p:${sprint}` && e.r === run.key)
+    expect(evs.map((e) => e.c)).toEqual(['c1+c2'])
+    const r = await rec<{ id: string; state: string; agent: AnyState | null }>(page, 'eject', { lane: `agent:${AG}`, run: run.key, a: run.from - 1000, b: run.to + 1000 })
+    expect(r.state).toBe('done')
+    expect(await statuses()).toEqual(['todo', 'todo'])
+    // both settled, the run has nothing applied left: the state it replaced is back
+    const after = await runOf()
+    expect(after.staged.map((c) => [c.status, c.ejected?.id ?? null])).toEqual([['discarded', r.id], ['discarded', r.id]])
+    expect((await stateNow())?.json).toBe('{"cursor":1}')
+    expect(r.agent).toMatchObject({ agentId: AG, runIds: [first.id] })
+    // the Undo: both applied again, the run's state forward again
+    expect(await rec(page, 'undoEject', r.id)).toMatchObject({ ok: true })
+    expect(await statuses()).toEqual(['done', 'done'])
+    expect((await runOf()).staged.map((c) => c.status)).toEqual(['applied', 'applied'])
+    expect((await stateNow())?.json).toBe('{"cursor":2}')
+    expect(await rec(page, 'unknowns')).toEqual([])
+  })
 })
