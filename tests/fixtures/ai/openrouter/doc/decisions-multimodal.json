@@ -1,0 +1,73 @@
+{
+  "source": "guides_community_multimodal-decisions.md#quickstart",
+  "verified": false,
+  "note": "A decisions response from another decision model (an image request: One never sends one, Jev reads text only). Parse level only: four-decimal probabilities, output_tokens 0, no dated model, a missing legend. One's requests to it would be refused (Jev family only, DJ11).",
+  "questions": {
+    "matches_title": {
+      "type": "noul",
+      "instructions": "The photo shows the item in the title."
+    },
+    "color": {
+      "type": "choice",
+      "instructions": "What color is the item?",
+      "criteria": {
+        "red": null,
+        "green": null,
+        "blue": null
+      }
+    }
+  },
+  "response": {
+    "model": "cloudflare/clef-flash",
+    "answers": {
+      "matches_title": {
+        "type": "noul",
+        "noul": 0.8607
+      },
+      "color": {
+        "type": "choice",
+        "choice": "red",
+        "probabilities": {
+          "red": 0.9844,
+          "green": 0.008,
+          "blue": 0.0076
+        },
+        "confidence": 0.9536
+      }
+    },
+    "usage": {
+      "input_tokens": 289,
+      "output_tokens": 0,
+      "cost": 2.601e-05
+    },
+    "id": "gen-dec-1791209504-cXRBLHSCBmsjQX93jkWe",
+    "provider": "Cloudflare"
+  },
+  "expect": {
+    "answers": {
+      "matches_title": {
+        "type": "noul",
+        "p": 0.8607
+      },
+      "color": {
+        "type": "choice",
+        "choice": "red",
+        "confidence": 0.9536,
+        "probs": {
+          "red": 0.9844,
+          "green": 0.008,
+          "blue": 0.0076
+        }
+      }
+    },
+    "served": {
+      "model": "cloudflare/clef-flash",
+      "upstream": "Cloudflare"
+    },
+    "usage": {
+      "input": 289,
+      "output": 0,
+      "reportedUsd": 2.601e-05
+    }
+  }
+}

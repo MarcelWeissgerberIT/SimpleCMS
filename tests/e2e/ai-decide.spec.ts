@@ -2,15 +2,20 @@
  * Jev as Vorprüfer (slice SJ) — the decision contracts in Node (no browser, never a real host): the Jev family and its
  * start values, the stored pre-check and its math (weakest, mark, the near band, the write gate, a compare suggestion
  * through its shuffle), review v2 read strictly (all or nothing) and kept byte for byte by an older build that refuses to
- * run the agent, Jev's device switches. Test data is fictional.
+ * run the agent, Jev's device switches; the decisions wire (body, safety, strict parsing, the error table) over the
+ * doc-derived fixtures, each naming its ordocs source. Test data is fictional.
  */
 import './helpers/noNet'
+import { readFileSync, readdirSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { test, expect } from '@playwright/test'
 import { DECISIONS_URL, JEV_CALIBRATED, JEV_CONTEXT, JEV_DEFAULTS, JEV_FAMILY, JEV_NEAR, JEV_STATE_TOKENS, canonicalOf, isJevModel, isJevSnapshot, jevLabel, jevSnapshotDay, jevVersion, newestJev } from '../../src/shared/ai/jev'
 import { JEV_CHECK_KEYS, QSET_VERSION, gateAllows, markOf, nearOf, readChecks, sanitizeJevCheck, suggestionOf, weakest, type JevCheck } from '../../src/shared/ai/decide'
 import { agentAIReadable, decisionChecks, isJevKey, readReview, runsOnClaude, sanitizeAgentAI } from '../../src/shared/ai/route'
 import { sanitizeDeviceAI } from '../../src/shared/ai/policy'
-import type { DecideTurn } from '../../src/shared/ai/types'
+import type { DecideQuestion, DecideRequest, DecideTurn } from '../../src/shared/ai/types'
+import { ProviderError } from '../../src/shared/ai/errors'
+import { DECIDE_FORBIDDEN, assertSafeDecideBody, buildDecide, classifyDecide, decideTokens, overCap, parseDecide } from '../../src/shared/ai/wire/decisions'
 import * as legacy from './helpers/legacyRouteS1'
 
 const JEV = 'typesafe/jev-1.13'
@@ -224,3 +229,150 @@ test.describe("Jev's switches on this device (settings.ai.jev)", () => {
   })
 })
 
+/* ------------------------------------------------------------------ */
+/* The wire (src/shared/ai/wire/decisions.ts)                           */
+/* ------------------------------------------------------------------ */
+
+type AnyJson = Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
+const DOC = fileURLToPath(new URL('../fixtures/ai/openrouter/doc/', import.meta.url))
+const fx = (name: string): AnyJson => JSON.parse(readFileSync(`${DOC}${name}.json`, 'utf8')) as AnyJson
+const UP = { deny: [], noCollect: true, zdr: false }
+const OPTS = { pins: ['typesafe'], upstream: UP, referer: 'https://one.example/app/' }
+const reqOf = (r: AnyJson): DecideRequest => ({ kind: 'decide', route: { p: 'openrouter', m: r.model as string }, state: r.state as Record<string, unknown>, questions: r.questions as Record<string, DecideQuestion> })
+
+test.describe('the decisions wire', () => {
+  test('every decisions fixture names its ordocs source and is unverified', () => {
+    const names = readdirSync(DOC).filter((f) => f.startsWith('decisions-'))
+    expect(names.length).toBeGreaterThanOrEqual(9)
+    for (const n of names) {
+      const f = JSON.parse(readFileSync(`${DOC}${n}`, 'utf8')) as AnyJson
+      expect(f.source, n).toMatch(/^[a-z0-9_-]+\.md(#|\b)/)
+      expect(f.verified, n).toBe(false)
+      for (const c of (f.cases ?? []) as AnyJson[]) if (c.source) expect(c.source, `${n}: ${c.name}`).toMatch(/\.md/)
+    }
+  })
+
+  test('the body: the pinned version, state, questions, the pins, fallbacks off, the upstream rule — and nothing else', () => {
+    const t = fx('decisions-tutorial')
+    const b = buildDecide(reqOf(t.request), OPTS)
+    expect(b.url).toBe(DECISIONS_URL)
+    expect(b.body).toEqual({ model: 'typesafe/jev-1.13', state: t.request.state, questions: t.request.questions, provider: { only: ['typesafe'], allow_fallbacks: false, data_collection: 'deny' } })
+    expect(b.headers).toEqual({ 'Content-Type': 'application/json', 'HTTP-Referer': 'https://one.example/app/', 'X-OpenRouter-Title': 'One', 'X-OpenRouter-App-Visibility': 'hidden' })
+    // zero data retention and data collection follow the workspace's upstream rule
+    expect((buildDecide(reqOf(t.request), { ...OPTS, upstream: { deny: [], noCollect: false, zdr: true } }).body as AnyJson).provider).toEqual({ only: ['typesafe'], allow_fallbacks: false, data_collection: 'allow', zdr: true })
+    // no body built from any fixture carries require_parameters or an identity field (SP-J1: One omits it)
+    for (const n of ['decisions-tutorial', 'decisions-api-example', 'decisions-gate-approve', 'decisions-gate-block', 'decisions-gate-review']) {
+      const json = JSON.stringify(buildDecide(reqOf(fx(n).request), OPTS).body)
+      for (const k of DECIDE_FORBIDDEN) expect(json, `${n}: ${k}`).not.toContain(`"${k}"`)
+    }
+    // a question's extra fields never ride along
+    const odd = buildDecide({ ...reqOf(t.request), questions: { done: { type: 'noul', instructions: 'Is it finished?', extra: 'x' } as unknown as DecideQuestion } }, OPTS)
+    expect((odd.body as AnyJson).questions).toEqual({ done: { type: 'noul', instructions: 'Is it finished?' } })
+  })
+
+  test('body safety: identity fields, other models, loose pins, odd keys and an oversized state never go out', () => {
+    const t = fx('decisions-tutorial')
+    const good = buildDecide(reqOf(t.request), OPTS).body as AnyJson
+    expect(() => assertSafeDecideBody(good)).not.toThrow()
+    const bad: Array<[string, AnyJson]> = [
+      ...DECIDE_FORBIDDEN.map((k) => [k, { ...good, [k]: k === 'models' ? ['x/y'] : 'x' }] as [string, AnyJson]),
+      ['provider.require_parameters', { ...good, provider: { ...good.provider, require_parameters: true } }],
+      ['provider.ignore', { ...good, provider: { ...good.provider, ignore: ['nordwind'] } }],
+      ['empty only', { ...good, provider: { ...good.provider, only: [] } }],
+      ['fallbacks on', { ...good, provider: { ...good.provider, allow_fallbacks: true } }],
+      ['no data rule', { ...good, provider: { only: ['typesafe'], allow_fallbacks: false } }],
+      ['zdr false', { ...good, provider: { ...good.provider, zdr: false } }],
+      ['the alias', { ...good, model: '~typesafe/jev-latest' }],
+      ['a dated snapshot', { ...good, model: 'typesafe/jev-1.13-20260917' }],
+      ['the router', { ...good, model: 'typesafe/jev-router' }],
+      ['another decision model', { ...good, model: 'vendor-k/kev-4b' }],
+      ['a question key with capitals', { ...good, questions: { Asked: { type: 'noul', instructions: 'x' } } }],
+      ['a question key too long', { ...good, questions: { [`a${'b'.repeat(32)}`]: { type: 'noul', instructions: 'x' } } }],
+      ['no questions', { ...good, questions: {} }],
+      ['a question without instructions', { ...good, questions: { a: { type: 'noul' } } }],
+      ['a state that is text', { ...good, state: 'ticket' }],
+      ['a state over the cap', { ...good, state: { text: 'x'.repeat(16_000 * 4) } }],
+    ]
+    for (const [why, body] of bad) expect(() => assertSafeDecideBody(body), why).toThrow(/unsafe decisions body/)
+    // the cap: chars ÷ 4 + 300 over 16 000 tokens
+    expect(decideTokens({ a: 'x'.repeat(100) }, {})).toBe(Math.ceil((JSON.stringify({ a: 'x'.repeat(100) }).length + 2) / 4) + 300)
+    expect(overCap({ state: { text: 'x'.repeat(62_000) }, questions: {} })).toBe(false)
+    expect(overCap({ state: { text: 'x'.repeat(64_000) }, questions: {} })).toBe(true)
+  })
+
+  test('parse: noul, choice, score from the tutorial (output_tokens kept), the API example, another model\'s image answer', () => {
+    for (const n of ['decisions-tutorial', 'decisions-api-example']) {
+      const f = fx(n)
+      const turn = parseDecide(f.response, f.request.questions)
+      expect(turn.kind).toBe('decide')
+      expect(turn.answers, n).toEqual(f.expect.answers)
+      expect(turn.served, n).toEqual(f.expect.served)
+      expect(turn.usage!.reportedUsd, n).toBe(0.000019992)
+    }
+    expect(parseDecide(fx('decisions-tutorial').response, fx('decisions-tutorial').request.questions).usage).toEqual(fx('decisions-tutorial').expect.usage)
+    const m = fx('decisions-multimodal')
+    const mt = parseDecide(m.response, m.questions)
+    expect(mt.answers).toEqual(m.expect.answers)
+    expect(mt.served).toEqual(m.expect.served)
+    expect({ input: mt.usage!.input, output: mt.usage!.output, reportedUsd: mt.usage!.reportedUsd }).toEqual(m.expect.usage)
+  })
+
+  test('parse: the gate cookbook (approve, block, review) and the verified cascade (supported, declined, unsupported)', () => {
+    for (const n of ['decisions-gate-approve', 'decisions-gate-block', 'decisions-gate-review']) {
+      const f = fx(n)
+      const turn = parseDecide(f.response, f.request.questions)
+      expect(Object.fromEntries(Object.entries(turn.answers).map(([k, a]) => [k, a.type === 'noul' ? a.p : null])), n).toEqual(f.expect.checks)
+      expect(turn.served.model).toBe('typesafe/jev-1.13-20260917')
+    }
+    const c = fx('decisions-cascade')
+    for (const k of c.cases as AnyJson[]) {
+      const turn = parseDecide(k.response, c.question)
+      const a = turn.answers.support!
+      expect(a.type === 'choice' && { choice: a.choice, confidence: a.confidence }, k.name).toEqual(k.expect)
+    }
+  })
+
+  test("parse is strict: a missing answer, noul 1.4, an unknown choice, a wrong type or no model → 'empty' (went out: metered from its usage)", () => {
+    const t = fx('decisions-tutorial')
+    const q = t.request.questions as Record<string, DecideQuestion>
+    const r = t.response as AnyJson
+    const cases: Array<[string, AnyJson]> = [
+      ['a missing answer', { ...r, answers: { is_bug: r.answers.is_bug, team: r.answers.team } }],
+      ['noul 1.4', { ...r, answers: { ...r.answers, is_bug: { type: 'noul', noul: 1.4 } } }],
+      ['noul as text', { ...r, answers: { ...r.answers, is_bug: { type: 'noul', noul: '0.9' } } }],
+      ['an unknown choice', { ...r, answers: { ...r.answers, team: { type: 'choice', choice: 'legal', confidence: 0.9 } } }],
+      ['a score off the scale', { ...r, answers: { ...r.answers, urgency: { type: 'score', score: 3.2 } } }],
+      ['a confidence of 2', { ...r, answers: { ...r.answers, team: { ...r.answers.team, confidence: 2 } } }],
+      ['another type', { ...r, answers: { ...r.answers, is_bug: { type: 'choice', choice: 'payments' } } }],
+      ['no answers', { ...r, answers: null }],
+      ['no model', { ...r, model: undefined }],
+    ]
+    for (const [why, json] of cases) {
+      let err: unknown = null
+      try {
+        parseDecide(json, q)
+      } catch (e) {
+        err = e
+      }
+      expect(err, why).toBeInstanceOf(ProviderError)
+      expect((err as ProviderError).code, why).toBe('empty')
+      expect((err as ProviderError).reach, why).toBe('sent')
+      // the reported usage rides along: the response is metered although it is not used
+      expect(((err as ProviderError).partial as DecideTurn).usage?.reportedUsd, why).toBe(0.000019992)
+    }
+    // a missing confidence is null (never certain); probabilities outside the options are left out
+    const loose = parseDecide({ ...r, answers: { ...r.answers, team: { type: 'choice', choice: 'payments', probabilities: { payments: 0.9, legal: 0.1, frontend: 'x' } } } }, q)
+    expect(loose.answers.team).toEqual({ type: 'choice', choice: 'payments', confidence: null, probs: { payments: 0.9 } })
+    // an answer to a question not asked is ignored
+    expect(Object.keys(parseDecide({ ...r, answers: { ...r.answers, extra: { type: 'noul', noul: 0.5 } } }, q).answers)).toEqual(['is_bug', 'team', 'urgency'])
+  })
+
+  test('the error table (doc-derived): every documented status → one code, Retry-After read, keys scrubbed', () => {
+    for (const c of fx('decisions-errors').cases as AnyJson[]) {
+      const out = classifyDecide(c.status, c.body, c.headers ?? null)
+      expect(out.code, c.name).toBe(c.expect)
+      if (c.retryAfter !== undefined) expect(out.retryAfter, c.name).toBe(c.retryAfter)
+      expect(out.detail, c.name).not.toMatch(/sk-or-v1-/)
+    }
+  })
+})
