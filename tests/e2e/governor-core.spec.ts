@@ -49,7 +49,7 @@ import {
   sanitizeGovernorWithReport,
   type WorkspaceGovernor,
 } from '../../src/shared/ai/governor'
-import { GEN, GEN_ENFORCED, type GenTable } from '../../src/shared/ai/generations'
+import { GEN, GEN_ENFORCED, GEN_UNNAMED_UPTO, type GenTable } from '../../src/shared/ai/generations'
 import { AI_POLICY_GEN } from '../../src/shared/ai/policy'
 import { closedDaysBefore, dayOf, monthOf, nextMidnight } from '../../src/app/features/governor/clock'
 import { applyDayRead, cacheOf, closedDaysOf, closedTally, deltaTally, meterTally, monthSpentOf, newTally, readTally, readTodayCache, rollTally, sumTallies, tallyKnown, todayOf, type DayRead } from '../../src/app/features/governor/tally'
@@ -300,7 +300,7 @@ test.describe('generations', () => {
   })
 
   /** What is wrong with a table at a build generation (the check the test runs on the real one). */
-  function problems(gen: GenTable, enforced: Record<string, string>, build: number): string[] {
+  function problems(gen: GenTable, enforced: Record<string, string>, build: number, unnamedUpto = 1): string[] {
     const out: string[] = []
     const nums = Object.values(gen).filter((n): n is number => typeof n === 'number').sort((a, b) => a - b)
     nums.forEach((n, i) => n !== i + 2 && out.push(`gap at ${n}`))
@@ -308,18 +308,24 @@ test.describe('generations', () => {
       if (n === undefined || n > build) continue
       const file = enforced[name]
       if (!file || !existsSync(`${ROOT}${file}`)) out.push(`${name}: no module`)
-      else if (!readFileSync(`${ROOT}${file}`, 'utf8').includes(`GEN.${name}`)) out.push(`${name}: ${file} does not name it`)
+      else if (n > unnamedUpto && !readFileSync(`${ROOT}${file}`, 'utf8').includes(`GEN.${name}`)) out.push(`${name}: ${file} does not name it`)
     }
     return out
   }
 
   test('numbered 2, 3 … without gaps; every enforced entry names an existing module that names it', () => {
-    expect(problems(GEN, GEN_ENFORCED, AI_POLICY_GEN)).toEqual([])
+    expect(problems(GEN, GEN_ENFORCED, AI_POLICY_GEN, GEN_UNNAMED_UPTO)).toEqual([])
     expect(Object.keys(GEN_ENFORCED).sort()).toEqual(Object.keys(GEN).sort())
     // positive controls: a gap, a missing module and a module that does not name its entry are found
     expect(problems({ a: 2, b: 4 }, { a: 'package.json', b: 'package.json' }, 1)).toEqual(['gap at 4'])
     expect(problems({ a: 2 }, { a: 'src/app/nowhere.ts' }, 2)).toEqual(['a: no module'])
     expect(problems({ a: 2 }, { a: 'package.json' }, 2)).toEqual(['a: package.json does not name it'])
+    // S2's generation (numbered before the table): its module has to exist, not to name it — the rebase onto S2
+    // (AI_POLICY_GEN = 2, resolve.ts without the text) stays green; a later entry still has to name it
+    expect(GEN_UNNAMED_UPTO).toBe(GEN.claudeLimits)
+    expect(problems({ claudeLimits: 2, budget: 3 }, { claudeLimits: 'package.json', budget: 'package.json' }, 2, GEN_UNNAMED_UPTO)).toEqual([])
+    expect(problems({ claudeLimits: 2, budget: 3 }, { claudeLimits: 'package.json', budget: 'package.json' }, 3, GEN_UNNAMED_UPTO)).toEqual(['budget: package.json does not name it'])
+    expect(problems({ claudeLimits: 2 }, { claudeLimits: 'src/app/nowhere.ts' }, 2, GEN_UNNAMED_UPTO)).toEqual(['claudeLimits: no module'])
   })
 })
 

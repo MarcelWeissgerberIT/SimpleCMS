@@ -207,6 +207,26 @@ test.describe('workspace settings', () => {
     await expect(page).toHaveURL(/#\/scripts\/scriptOverdue1/)
   })
 
+  test("automation: a run the governor held reads in the governor's words, never as a raw key", async ({ page }) => {
+    await openApp(page)
+    await wsEval(page, (s) => {
+      const now = Date.now()
+      s.upsertAgent({ id: 'agentNordlicht', name: 'Nordlicht digest', instructions: 'Summarise the week.', trigger: { type: 'manual' }, scope: { everything: true, pages: [], databases: [] }, write: 'none', output: null, mcpServers: [], runner: 'browser', maxRunUsd: 0.5, enabled: true, createdBy: null, updatedBy: null, createdAt: now, updatedAt: now })
+    })
+    await page.evaluate(() => {
+      const at = Date.now() - 60_000
+      // one not-started record of today (features/agents/held.ts) — fictional numbers
+      return (window as unknown as { __onePreflight: { seedRuns: (r: unknown[]) => Promise<void> } }).__onePreflight.seedRuns([
+        { id: 'held-launch', agentId: 'agentNordlicht', runner: 'browser', trigger: { type: 'schedule', detail: '07:30' }, startedAt: at, endedAt: at, status: 'held', summary: '', steps: [], held: { kind: 'notStarted', binding: 'day', spent: 6, limit: 6, count: 1, times: [at] } },
+      ])
+    })
+    await openSection(page, 'automation')
+    const agents = page.getByTestId('ws-auto-agents')
+    await expect(agents).toContainText('Nordlicht digest')
+    await expect(agents).toContainText('held by the governor')
+    await expect(agents).not.toContainText('shell.ws.auto')
+  })
+
   test('data: the full backup still downloads and the page remembers it; the trash opens', async ({ page }) => {
     await openApp(page)
     await openSection(page, 'data')

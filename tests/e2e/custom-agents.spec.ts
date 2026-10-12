@@ -617,4 +617,27 @@ test.describe('Custom agents', () => {
     await card.getByRole('link', { name: 'Keeper' }).click()
     await expect(page.locator('.agx-run')).toHaveCount(1)
   })
+
+  // Regler G1 review (finding 7): the card's LAST cell builds its label from the run's status and has no 'held' key yet —
+  // AgentsView.tsx and features/agents/messages.ts are AI S2's files, so the fix lands with B6 after S2 merges (build
+  // notes, "B6"). Expected to fail until then: when it passes, B6 removes `test.fail`.
+  test('a run the governor held: the agent card names it, never a raw key (B6)', async ({ page }) => {
+    test.fail()
+    await openApp(page)
+    await wsEval(page, (s) => {
+      const now = Date.now()
+      s.upsertAgent({ id: 'agentNordlicht', name: 'Nordlicht digest', instructions: 'Summarise the week.', trigger: { type: 'manual' }, scope: { everything: true, pages: [], databases: [] }, write: 'none', output: null, mcpServers: [], runner: 'browser', maxRunUsd: 0.5, enabled: true, createdBy: null, updatedBy: null, createdAt: now, updatedAt: now })
+    })
+    await page.evaluate(() => {
+      const at = Date.now() - 60_000
+      return (window as unknown as { __onePreflight: { seedRuns: (r: unknown[]) => Promise<void> } }).__onePreflight.seedRuns([
+        { id: 'held-launch', agentId: 'agentNordlicht', runner: 'browser', trigger: { type: 'schedule', detail: '07:30' }, startedAt: at, endedAt: at, status: 'held', summary: '', steps: [], held: { kind: 'notStarted', binding: 'day', spent: 6, limit: 6, count: 1, times: [at] } },
+      ])
+    })
+    await page.evaluate(() => (location.hash = '#/agents'))
+    const card = page.locator('.agx-card', { hasText: 'Nordlicht digest' })
+    await expect(card).toBeVisible()
+    await expect(card).toContainText('Held', { timeout: 3000 })
+    await expect(card).not.toContainText('features.agents.status', { timeout: 1000 })
+  })
 })

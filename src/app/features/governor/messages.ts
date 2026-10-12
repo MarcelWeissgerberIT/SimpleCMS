@@ -16,6 +16,7 @@ export const messages: Messages = {
 
     // agent runs the Regler held (status 'held')
     'features.governor.status.held': 'Held',
+    'features.governor.status.heldLower': 'held by the governor',
     'features.governor.run.held.title': 'Held by the governor',
     'features.governor.run.stopped.day': 'Stopped at the red line (day budget {budget}) — proposals so far wait for you',
     'features.governor.run.stopped.month': 'Stopped at the red line (month budget {budget}) — proposals so far wait for you',
@@ -193,6 +194,7 @@ export const messages: Messages = {
     'features.governor.binding.run': 'Budget pro Lauf',
 
     'features.governor.status.held': 'Angehalten',
+    'features.governor.status.heldLower': 'vom Regler angehalten',
     'features.governor.run.held.title': 'Vom Regler angehalten',
     'features.governor.run.stopped.day': 'An der Rotlinie angehalten (Tagesbudget {budget}) — bisherige Vorschläge warten auf dich',
     'features.governor.run.stopped.month': 'An der Rotlinie angehalten (Monatsbudget {budget}) — bisherige Vorschläge warten auf dich',
