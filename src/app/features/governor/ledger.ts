@@ -20,6 +20,8 @@ import type { CostSource, LedgerEntry, Reservation, Usage } from '@/shared/ai/ty
 import { addUsage, ZERO_USAGE } from '@/shared/ai/usage'
 import { newId } from '../../lib/ids'
 import { ledgerScope } from './scope'
+import { dayOf } from './clock'
+import { bookChanged, setBookSource, type ResItem } from './book'
 
 export const LEDGER_DB = 'one-ledger'
 /** entries are kept this many days */
@@ -63,13 +65,7 @@ function fail(e: unknown): void {
   broken = true
 }
 
-const pad = (n: number) => String(n).padStart(2, '0')
-
-/** The local day of a time, 'yyyy-MM-dd'. */
-export function dayOf(at: number): string {
-  const d = new Date(at)
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
-}
+export { dayOf }
 
 export const entryKey = (scope: string, e: Pick<LedgerEntry, 'at' | 'id'>): string => `${scope}|${dayOf(e.at)}|${e.id}`
 
@@ -384,13 +380,21 @@ export async function wipeLedgerScope(scope = ledgerScope()): Promise<void> {
 
 const MAX_OPEN = 200
 const open = new Map<string, Reservation>()
+/** the ledger scope each open reservation counts for (the scope when it was taken) */
+const scopeOfRes = new Map<string, string>()
 
 /** A request is about to be sent: what it may cost is held until it settles. */
 export function reserve(usd: number, source: string): Reservation {
   const r: Reservation = { id: newId(), usd: Number.isFinite(usd) ? Math.max(0, usd) : 0, at: Date.now(), source }
   open.set(r.id, r)
+  scopeOfRes.set(r.id, ledgerScope() ?? '')
   // a request that never settles (a crashed path) cannot grow the book without end
-  if (open.size > MAX_OPEN) open.delete(open.keys().next().value as string)
+  if (open.size > MAX_OPEN) {
+    const first = open.keys().next().value as string
+    open.delete(first)
+    scopeOfRes.delete(first)
+  }
+  bookChanged()
   return r
 }
 
@@ -399,12 +403,15 @@ export function adjust(id: string | null | undefined, usd: number): boolean {
   const r = id ? open.get(id) : undefined
   if (!r) return false
   open.set(r.id, { ...r, usd: Number.isFinite(usd) ? Math.max(0, usd) : 0 })
+  bookChanged()
   return true
 }
 
 /** The request ended (answered, failed or stopped): its reservation is released. */
 export function settle(id: string | null | undefined): void {
-  if (id) open.delete(id)
+  if (!id || !open.delete(id)) return
+  scopeOfRes.delete(id)
+  bookChanged()
 }
 
 /** What the open reservations of this tab add up to (USD). */
@@ -412,6 +419,9 @@ export const reservedUsd = (): number => [...open.values()].reduce((sum, r) => s
 
 /** Open reservations of this tab (the seam). */
 export const openReservations = (): Reservation[] => [...open.values()]
+
+// the Regler's book announces them to the other tabs (book.ts — once it is started)
+setBookSource(() => ({ scope: ledgerScope() ?? '', list: [...open.values()].map((r): ResItem => ({ id: r.id, usd: r.usd, scope: scopeOfRes.get(r.id) ?? '' })) }))
 
 /* ------------------------------------------------------------------ */
 /* e2e seam                                                             */
