@@ -4,6 +4,7 @@
  */
 import type { Route, RouteRule } from './types.ts'
 import { DEFAULT_CLAUDE_MODEL, EFFORTS, MODELS, isProviderId, modelIdProblem } from './models.ts'
+import { isJevModel, isJevSnapshot } from './jev.ts'
 
 export const MAX_PINS = 3
 
@@ -44,10 +45,27 @@ export function legacyRule(aiModel: string | null | undefined, hasKey: boolean):
   return [{ p: 'anthropic', m: aiModel && LEGACY_IDS.includes(aiModel) ? aiModel : DEFAULT_CLAUDE_MODEL }]
 }
 
-/** An agent's reviewer (advisory only): its pins and what a "block" does. */
+/** An agent's reviewer (advisory only): its pins and what a "block" does — review v1 (S7's chat reviewer). */
 export interface AgentReview {
   route: RouteRule
   mode: 'mark' | 'hold'
+}
+
+/**
+ * An agent's Vorprüfer (slice SJ) — review v2, a versioned envelope that NEVER has a top-level `route` (S1 / S2 readers
+ * would take it for a v1 reviewer and run the agent): Jev pre-checks the run's proposals (`pre`) and may make an
+ * apply-mode run wait as a whole (`gate`, the Schreibschranke). Older builds read it as Unreadable (kept, not run).
+ */
+export interface AgentReviewV2 {
+  v: 2
+  /** the agent's own Vorprüfer (absent: the class rule `gate`) — a Jev version */
+  decider?: Route
+  /** the snapshot the person confirmed ('openrouter:typesafe/jev-1.13-20260917') — another one holds until confirmed */
+  on: string
+  /** the Vorprüfung: mark below `markBelow` (0.30–0.95), hold what Jev marks or could not check (`hold`) */
+  pre: { markBelow: number; hold: boolean }
+  /** the Schreibschranke: an apply-mode run writes only when every check is at or above `allowAt` (0.80–0.99) */
+  gate?: { allowAt: number } | null
 }
 
 /** The saver rule (governor): above this run cost, scheduled runs use another route. */
@@ -67,7 +85,7 @@ export type Unreadable = { readonly [UNREAD]: true }
 export interface AgentAIFields {
   /** own pins (null = the workspace / device rule for agents) */
   route?: RouteRule | null | Unreadable
-  review?: AgentReview | null | Unreadable
+  review?: AgentReview | AgentReviewV2 | null | Unreadable
   saverRule?: SaverRule | null | Unreadable
   /** the 'p:m' the person confirmed apply-mode on */
   applyOn?: string | Unreadable
@@ -100,10 +118,71 @@ function opaque(v: unknown): Unreadable {
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
 
-function readReview(v: unknown): AgentReview | null {
+/** Exactly these keys (and only own, plain data). */
+const onlyKeys = (o: Record<string, unknown>, keys: readonly string[]): boolean => Object.keys(o).every((k) => keys.includes(k))
+
+/** A threshold as stored: a finite number in [min, max] with at most two decimals (null: not one). */
+function hundredths(v: unknown, min: number, max: number): number | null {
+  if (typeof v !== 'number' || !Number.isFinite(v) || v < min || v > max) return null
+  return Math.abs(Math.round(v * 100) - v * 100) < 1e-6 ? Math.round(v * 100) / 100 : null
+}
+
+/** A Vorprüfer route: OpenRouter + a pinned Jev version, nothing else (no effort, no other key). */
+function readDecider(v: unknown): Route | null {
+  if (!isObj(v) || !onlyKeys(v, ['p', 'm']) || v.p !== 'openrouter' || !isJevModel(v.m)) return null
+  return sanitizeRoute(v)
+}
+
+/** Is this a confirmed Jev snapshot ('openrouter:<a Jev version or its dated snapshot>')? */
+export const isJevKey = (v: unknown): v is string => isRouteKey(v) && v.startsWith('openrouter:') && isJevSnapshot(v.slice('openrouter:'.length))
+
+/**
+ * Review v2, all or nothing (DJ10 r2): keys ⊆ { v, decider, on, pre, gate }, `pre` ⊆ { markBelow, hold }, `gate` ⊆ {
+ * allowAt }, the numbers in range with ≤ 2 decimals, `decider` a Jev version, `on` a Jev snapshot — anything else is
+ * unreadable (kept, the agent does not run). S7 extends the key set with its own reader.
+ */
+function readReviewV2(v: Record<string, unknown>): AgentReviewV2 | null {
+  if (v.v !== 2 || !onlyKeys(v, ['v', 'decider', 'on', 'pre', 'gate'])) return null
+  const pre = v.pre
+  if (!isObj(pre) || !onlyKeys(pre, ['markBelow', 'hold']) || typeof pre.hold !== 'boolean') return null
+  const markBelow = hundredths(pre.markBelow, 0.3, 0.95)
+  if (markBelow === null) return null
+  let gate: AgentReviewV2['gate']
+  if (v.gate === null) gate = null
+  else if (v.gate !== undefined) {
+    if (!isObj(v.gate) || !onlyKeys(v.gate, ['allowAt'])) return null
+    const allowAt = hundredths(v.gate.allowAt, 0.8, 0.99)
+    if (allowAt === null) return null
+    gate = { allowAt }
+  }
+  let decider: Route | undefined
+  if (v.decider !== undefined) {
+    const d = readDecider(v.decider)
+    if (!d) return null
+    decider = d
+  }
+  if (!isJevKey(v.on)) return null
+  return { v: 2, ...(decider ? { decider } : {}), on: v.on, pre: { markBelow, hold: pre.hold }, ...(gate !== undefined ? { gate } : {}) }
+}
+
+/**
+ * A stored reviewer: v1 `{ route, mode }` read as it always was (S7's chat reviewer), a versioned envelope strictly
+ * (v2: the Vorprüfer; any other version: null). null = not readable here.
+ */
+export function readReview(v: unknown): AgentReview | AgentReviewV2 | null {
   if (!isObj(v)) return null
+  if ('v' in v) return readReviewV2(v)
   const r = sanitizeRule(v.route)
   return r ? { route: r, mode: v.mode === 'hold' ? 'hold' : 'mark' } : null
+}
+
+/** The agent's Vorprüfer settings (null: none — no review, or a v1 reviewer; 'unreadable': kept, the agent does not run). */
+export function decisionChecks(a: AgentAIFields): Omit<AgentReviewV2, 'v'> | null | 'unreadable' {
+  if (a.review === undefined || a.review === null) return null
+  const r = readReview(a.review)
+  if (!r) return 'unreadable'
+  if (!('v' in r)) return null
+  return { ...(r.decider ? { decider: r.decider } : {}), on: r.on, pre: { ...r.pre }, ...(r.gate !== undefined ? { gate: r.gate ? { ...r.gate } : null } : {}) }
 }
 
 function readSaver(v: unknown): SaverRule | null {
@@ -146,11 +225,13 @@ export function agentAIReadable(a: AgentAIFields): boolean {
 }
 
 /**
- * A browser / server build of this slice runs only agents whose first pin is Claude (null / absent = legacy) and whose
- * multi-provider fields it can all read — anything else waits for a newer version (fail closed).
+ * A server build of this slice runs only agents whose first pin is Claude (null / absent = legacy), whose multi-provider
+ * fields it can all read, and without a Vorprüfer (decision models reach the server with S9 — DJ14) — anything else waits
+ * for a newer version (fail closed).
  */
 export function runsOnClaude(a: AgentAIFields): boolean {
   const route = readAgentRoute(a.route)
   if (route === 'unreadable' || !agentAIReadable(a)) return false
+  if (decisionChecks(a) !== null) return false
   return !route || route[0]?.p === 'anthropic'
 }

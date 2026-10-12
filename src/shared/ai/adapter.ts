@@ -3,9 +3,9 @@
  * parse / classify, golden-tested), one transport (fetch + the shared SSE parser) implementing this interface, its
  * registry and price rows, fixtures — and the contract cases (contract.ts) run against it.
  *
- * Request kinds: 'chat' (text, documents, pictures, tools) and 'decide' (a decision model's typed answers — a later
- * slice). An adapter lists the kinds it serves; a request of another kind is refused with 'capability' before anything
- * is sent.
+ * Request kinds: 'chat' (text, documents, pictures, tools) and 'decide' (a decision model's typed answers — slice SJ,
+ * OpenRouter's decisions API). An adapter lists the kinds it serves; a request of another kind is refused with
+ * 'capability' before anything is sent.
  */
 import type { AIErrorCode } from './errors.ts'
 import type { AIEvent, Caps, ChatRequest, DecideRequest, DecideTurn, KeyCredit, McpPlan, ModelInfo, ProviderId, Turn, UpstreamRule, WireKind, WireRequest } from './types.ts'

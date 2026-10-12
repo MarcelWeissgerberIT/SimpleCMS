@@ -269,6 +269,8 @@ export interface DeviceAI {
   models?: ShortlistRow[]
   /** per provider: which model is its fast / standard / deep one (setup step 03; on OpenRouter the Jev Router may be one) */
   roles?: Partial<Record<ProviderId, { fast?: string; standard?: string; deep?: string }>>
+  /** Jev's switches on this device (slice SJ: `verify` = "Belegt?" under answers; S6: `compare`) — absent = off */
+  jev?: { verify?: boolean; compare?: boolean }
   gen?: number
 }
 
@@ -326,7 +328,7 @@ export interface ChatRequest {
   session?: string
 }
 
-/* Decision requests (a later slice): the shapes only — slice 2 refuses a 'decide' request before anything is sent. */
+/* Decision requests (slice SJ: OpenRouter's decisions API — src/shared/ai/wire/decisions.ts, decide.ts). */
 
 export type DecideQuestion =
   | { type: 'noul'; instructions: string; criteria?: { true: string; false: string } }
