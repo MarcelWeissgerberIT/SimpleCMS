@@ -51,6 +51,18 @@ import { recallTool } from '../ai/memory/tools'
 import { unlocked } from './integrations/status'
 import { blockText, lostText, runBlock } from './gone'
 import { endRun, noteRun, withWriter, type Writer } from '../../store/writer'
+import { memoryRef } from '../ai/core/refs'
+import type { SourceRef } from '@/shared/ai/types'
+
+/** What a run carries (the AI gate's sources): its scope, the trigger's rows, its report page, the memory database. */
+function agentSources(agent: CustomAgent, rows: readonly ID[], memoryBlock: string): SourceRef[] {
+  const out: SourceRef[] = agent.scope.everything ? [{ all: true }] : [...agent.scope.pages.map((page) => ({ page })), ...agent.scope.databases.map((db) => ({ db }))]
+  for (const row of rows) out.push({ row })
+  if (agent.output?.pageId) out.push({ page: agent.output.pageId })
+  out.push(...memoryRef(memoryBlock))
+  // a scope with nothing in it still reads the workspace's structure (list_databases)
+  return out.length ? out : [{ all: true }]
+}
 
 /* ------------------------------------------------------------------ */
 /* Prompt                                                              */
@@ -359,6 +371,10 @@ async function runOnce(agent: CustomAgent, req: RunRequest): Promise<AgentRun> {
     memory = memoryFor(agent.instructions)
     const ctx = context(agent, run, req.rows ?? [], last)
     const end = await runAgent({
+      // its scope: the pages and databases it names (scope "everything": the workspace as a whole), the trigger's
+      // rows, its report page, the One memory when it goes along
+      purpose: 'agents.run',
+      sources: agentSources(agent, req.rows ?? [], memory.block),
       history: [],
       user: taskMessage([], agent.instructions, memory.block ? `${ctx}\n\n${memory.block}` : ctx),
       stage,

@@ -8,7 +8,12 @@ import type AnthropicSDK from '@anthropic-ai/sdk'
 import type { BetaContentBlock, BetaMessage, BetaMessageParam, BetaMessageStreamParams } from '@anthropic-ai/sdk/resources/beta/messages/messages'
 import { useWorkspace } from '../../store/store'
 import { getAIKey } from '../../store/secrets'
-import { t } from '../../i18n'
+import type { SourceRef } from '@/shared/ai/types'
+import { AIError, type AIErrorCode } from './core/errors'
+import { usesDemo } from './core/demoMode'
+import { prepare, settle } from './core/gate'
+import { memoryRef } from './core/refs'
+import type { PurposeId } from './core/purposes'
 import { demoAnswer, streamDemo } from './demo'
 import { MCP_BETA, attachMcp, codewordsIn, currentSetup, noteRefused, refusedNames, type Codewords, type McpAttachment, type McpRequestKind, type McpSetup } from './mcp-servers/config'
 import { foldMcpBlock, skippedCall, type McpCall } from './mcp-servers/activity'
@@ -20,6 +25,12 @@ export type AIAction = 'continue' | 'improve' | 'shorter' | 'longer' | 'fix' | '
 
 export interface RunAIOptions {
   action: AIAction
+  /** what the request is for (features/ai/core/purposes.ts) — the gate's routing and data class */
+  purpose: PurposeId
+  /** what it carries: the page(s) the text comes from (core/sources.ts) */
+  sources: readonly SourceRef[]
+  /** the person's own words (a free-form request's instruction): refused when they look like an API key */
+  typed?: string | null
   /** Selected text or block text the action applies to */
   input: string
   /** Free-form instruction for 'custom' / target language for 'translate' */
@@ -79,91 +90,15 @@ export function isAIConfigured(): boolean {
 }
 
 /* ------------------------------------------------------------------ */
-/* Demo mode (no key)                                                  */
+/* Demo mode (no key) · errors — in the core (features/ai/core), re-exported here unchanged */
 /* ------------------------------------------------------------------ */
 
-/*
- * Without a key, people can try the panel with canned answers (see demo.ts). This session only,
- * never persisted, never sent anywhere — and only while no key is set: a key always wins.
- * isAIConfigured() stays false in demo mode.
- */
-let demo = false
-const demoListeners = new Set<() => void>()
-
-export function setAIDemo(on: boolean) {
-  if (demo === on) return
-  demo = on
-  demoListeners.forEach((l) => l())
-}
-
-export function isAIDemo(): boolean {
-  return demo
-}
-
-export function onAIDemo(listener: () => void): () => void {
-  demoListeners.add(listener)
-  return () => demoListeners.delete(listener)
-}
-
-/** True when a request would get a demo answer: demo on and no key. */
-export function usesDemo(): boolean {
-  return demo && !useWorkspace.getState().settings.aiApiKey.trim()
-}
+export { setAIDemo, isAIDemo, onAIDemo, usesDemo } from './core/demoMode'
+export { AIError, aiErrorText, type AIErrorCode } from './core/errors'
 
 /** Stream a canned answer like a real completion (honours the abort signal). */
 export function streamDemoText(text: string, onToken?: (delta: string) => void, signal?: AbortSignal): Promise<string> {
   return streamDemo(text, { onToken, signal, onAbort: () => new AIError('aborted') })
-}
-
-/* ------------------------------------------------------------------ */
-/* Errors                                                              */
-/* ------------------------------------------------------------------ */
-
-export type AIErrorCode =
-  | 'no_key'
-  | 'invalid_key'
-  | 'permission'
-  | 'rate_limit'
-  | 'overloaded'
-  | 'offline'
-  /** the tab runs an older build whose Claude SDK file is gone from the server: reload */
-  | 'outdated'
-  | 'bad_request'
-  /** an MCP server could not be used (unreachable, an error …): `server` names it */
-  | 'mcp'
-  /** an MCP server rejected its token (wrong, expired, revoked) */
-  | 'mcp_auth'
-  | 'refusal'
-  | 'empty'
-  | 'aborted'
-  | 'unknown'
-
-/** An AI failure. `message` is a friendly, localized sentence; `detail` keeps the raw API message. */
-export class AIError extends Error {
-  code: AIErrorCode
-  detail?: string
-  /** 'mcp': the server's name ('' = not known) */
-  server?: string
-  constructor(code: AIErrorCode, detail?: string, server?: string) {
-    let message: string = code
-    try {
-      message = aiErrorText(code, { model: resolveModel(useWorkspace.getState().settings.aiModel).name, detail, server })
-    } catch {
-      /* i18n unavailable — keep the code */
-    }
-    super(message)
-    this.name = 'AIError'
-    this.code = code
-    this.detail = detail
-    this.server = server
-  }
-}
-
-/** The friendly sentence for an error code (in the current UI language). */
-export function aiErrorText(code: AIErrorCode, v: { model: string; detail?: string; server?: string }): string {
-  if (code === 'mcp') return t(v.server ? 'features.ai.err.mcp' : 'features.ai.err.mcpAny', { server: v.server ?? '', detail: v.detail ?? '' })
-  if (code === 'mcp_auth') return t(v.server ? 'features.ai.err.mcp_auth' : 'features.ai.err.mcp_authAny', { server: v.server ?? '' })
-  return t(`features.ai.err.${code}`, { model: v.model, detail: v.detail ?? '' })
 }
 
 type SDKModule = typeof import('@anthropic-ai/sdk')
@@ -292,6 +227,12 @@ export async function verifyKey(apiKey: string, signal?: AbortSignal): Promise<'
 /* ------------------------------------------------------------------ */
 
 export interface StreamOptions {
+  /** what the request is for (features/ai/core/purposes.ts) */
+  purpose: PurposeId
+  /** what it carries (core/sources.ts): [] only for a purpose without page data */
+  sources: readonly SourceRef[]
+  /** the person's own words in the request (refused when they look like an API key) */
+  typed?: string | ReadonlyArray<string | null | undefined> | null
   system: string
   prompt: string
   onToken?: (delta: string) => void
@@ -333,7 +274,17 @@ const MAX_RESUMES = 3
  * Stream one completion with the configured model. Resolves with the full text — with MCP tools,
  * the answer after the last tool call (text Claude wrote before it was a progress note).
  */
-export async function streamCompletion(opts: StreamOptions, again = false): Promise<string> {
+export async function streamCompletion(opts: StreamOptions): Promise<string> {
+  // the gate: nothing is loaded or sent before it (features/ai/core/gate.ts)
+  const prepared = prepare({ purpose: opts.purpose, sources: opts.sources, typed: opts.typed })
+  try {
+    return await streamOnce(opts, false)
+  } finally {
+    settle(prepared)
+  }
+}
+
+async function streamOnce(opts: StreamOptions, again: boolean): Promise<string> {
   const { system, prompt, onToken, signal, mcp, codewords, onMcp: report, onMedia, setup, maxResumes } = opts
   const apiKey = await getAIKey('anthropic')
   if (!apiKey) throw new AIError('no_key')
@@ -404,7 +355,7 @@ export async function streamCompletion(opts: StreamOptions, again = false): Prom
   } catch (e) {
     if (signal?.aborted) throw new AIError('aborted')
     const err = toAIError(e, sdk, attached)
-    if (!again && retryWithout(err, codewords?.forced)) return streamCompletion(opts, true)
+    if (!again && retryWithout(err, codewords?.forced)) return streamOnce(opts, true)
     throw err
   }
 }
@@ -496,6 +447,12 @@ function answerText(content: BetaContentBlock[]): string {
 /* ------------------------------------------------------------------ */
 
 export interface StructuredOptions {
+  /** what the request is for (features/ai/core/purposes.ts) */
+  purpose: PurposeId
+  /** what it carries (core/sources.ts): [] only for a purpose without page data */
+  sources: readonly SourceRef[]
+  /** the person's own words in the request (refused when they look like an API key) */
+  typed?: string | ReadonlyArray<string | null | undefined> | null
   system: string
   prompt: string
   /** JSON schema of the answer (structured outputs: objects need additionalProperties: false). */
@@ -537,7 +494,17 @@ export function usageOf(model: string, u: UsageLike): StructuredUsage {
  * `output_config.format`). Resolves with the raw answer text; parsing and validation are the
  * caller's job, so a malformed answer can become a per-item error instead of an exception here.
  */
-export async function completeStructured(opts: StructuredOptions, again = false): Promise<string> {
+export async function completeStructured(opts: StructuredOptions): Promise<string> {
+  // the gate: nothing is loaded or sent before it (features/ai/core/gate.ts)
+  const prepared = prepare({ purpose: opts.purpose, sources: opts.sources, typed: opts.typed })
+  try {
+    return await structuredOnce(opts, false)
+  } finally {
+    settle(prepared)
+  }
+}
+
+async function structuredOnce(opts: StructuredOptions, again: boolean): Promise<string> {
   const { system, prompt, schema, maxTokens = 4096, signal, maxRetries = 4, mcp, onUsage } = opts
   const apiKey = await getAIKey('anthropic')
   if (!apiKey) throw new AIError('no_key')
@@ -606,7 +573,7 @@ export async function completeStructured(opts: StructuredOptions, again = false)
   } catch (e) {
     if (signal?.aborted) throw new AIError('aborted')
     const err = toAIError(e, sdk, attached)
-    if (!again && retryWithout(err, undefined)) return completeStructured(opts, true)
+    if (!again && retryWithout(err, undefined)) return structuredOnce(opts, true)
     throw err
   }
 }
@@ -709,6 +676,8 @@ export function buildPrompt({ action, input, instruction, context, memory, peopl
 /** Run an AI action (streams). Resolves with the complete Markdown result. */
 export async function runAI(opts: RunAIOptions): Promise<string> {
   if (opts.action !== 'autofill' && usesDemo()) {
+    // demo answers are canned, never sent — the gate still decides (newer rules, a key typed into the request)
+    settle(prepare({ purpose: opts.purpose, sources: [...opts.sources, ...memoryRef(opts.memory)], typed: opts.typed }))
     const lang = useWorkspace.getState().settings.language === 'de' ? 'de' : 'en'
     return stripFence(await streamDemoText(demoAnswer(opts, lang), opts.onToken, opts.signal))
   }
@@ -717,6 +686,10 @@ export async function runAI(opts: RunAIOptions): Promise<string> {
   // "kb: …": the servers addressed by codeword join, the prefix is not part of the request
   const codewords = free && opts.mcp !== false ? codewordsIn(opts.instruction ?? '') : null
   const text = await streamCompletion({
+    purpose: opts.purpose,
+    // the One memory database too, when its block goes along
+    sources: [...opts.sources, ...memoryRef(opts.memory)],
+    typed: opts.typed,
     // the task rule only while this tab may make tasks (an old server, a viewer: never)
     system: systemFor(canCreateItems()),
     prompt: buildPrompt(codewords ? { ...opts, instruction: codewords.text } : opts),

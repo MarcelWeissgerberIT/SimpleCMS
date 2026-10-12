@@ -5,8 +5,9 @@
  */
 import { readFileSync, writeFileSync } from 'node:fs'
 import type { Page, TestInfo } from '@playwright/test'
-import { test, expect, openApp, reloadApp, wsEval, flush } from './fixtures'
-import { mockClaudeScript, hostCounts, text } from './helpers/providers'
+import { test, expect, openApp, reloadApp, wsEval, flush, createPage, gotoPage, editorOf, doc, para, selectText, pageIdByTitle, MOD } from './fixtures'
+import { mockClaudeScript, hostCounts, text, type ClaudeStep } from './helpers/providers'
+import { openTerminal, run, terminal } from './helpers/terminal'
 
 type AnyState = Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -175,5 +176,122 @@ test.describe('contracts kept by every reader (written by nobody yet)', () => {
         expect(after.key).toEqual(withKey ? expect.stringMatching(/^vault:[0-9a-z]+:0001$/) : '')
         await reloadApp(page)
         expect(await wsEval(page, (s) => JSON.parse(JSON.stringify({ key: s.settings.aiApiKey, keys: s.settings.aiKeys ?? null, device: s.settings.ai ?? null, ai: s.ai ?? null })))).toEqual(before)
+      })
+})
+
+/* ------------------------------------------------------------------ */
+/* The gate (features/ai/core/gate.ts)                                  */
+/* ------------------------------------------------------------------ */
+
+const RELOAD = 'This workspace has AI rules this tab does not know yet'
+
+/** A key, Claude scripted, the workspace's AI rules at generation `gen` (this build knows 1). */
+async function gated(page: Page, gen: number, steps: ClaudeStep[]) {
+  const { requests } = await mockClaudeScript(page.context(), steps)
+  const counts = hostCounts(page)
+  await openApp(page)
+  await wsEval(page, (s) => s.updateSettings({ aiApiKey: 'sk-ant-e2e-test-key' }))
+  await page.evaluate((gen) => (window as unknown as { __one: { workspace: { setState: (x: object) => void } } }).__one.workspace.setState({ ai: { gen } }), gen)
+  return { requests, counts }
+}
+
+const aiPanel = (page: Page) => page.getByRole('dialog', { name: /Ask Claude|Claude fragen/ })
+
+const GATE_FLOWS: Array<{ name: string; steps: ClaudeStep[]; go: (page: Page, refused: boolean) => Promise<void> }> = [
+  {
+    name: 'Improve writing',
+    steps: [text('A tighter launch sentence.')],
+    go: async (page, refused) => {
+      const id = await createPage(page, { title: 'Launch notes', content: doc(para('our launch sentence is kinda loose')) })
+      await gotoPage(page, id)
+      const ed = editorOf(page, id)
+      await ed.locator('p', { hasText: 'our launch sentence is kinda loose' }).click()
+      await selectText(page, ed, 'our launch sentence is kinda loose')
+      await page.locator('[aria-label="Formatting"]').first().getByRole('button', { name: /^Ask AI$/ }).click()
+      await expect(aiPanel(page)).toBeVisible()
+      await aiPanel(page).getByRole('option', { name: /Improve writing/ }).click()
+      if (refused) await expect(aiPanel(page).locator('.ai-error')).toContainText(RELOAD)
+      else await expect(aiPanel(page)).toContainText('A tighter launch sentence.')
+    },
+  },
+  {
+    name: '⌘K "?"',
+    steps: [text('The launch is in two weeks.')],
+    go: async (page, refused) => {
+      const id = await createPage(page, { title: 'Launch plan', content: doc(para('We launch in two weeks.')) })
+      await gotoPage(page, id)
+      await page.keyboard.press(`${MOD}+k`)
+      await page.keyboard.type('?When do we launch?')
+      const pal = page.getByRole('dialog', { name: 'Command palette' })
+      await expect(pal.locator('.pal-mode')).toHaveText('ASK')
+      await page.keyboard.press('Enter')
+      await expect(pal).toContainText(refused ? RELOAD : 'The launch is in two weeks.')
+    },
+  },
+  {
+    name: 'the AI terminal',
+    steps: [text('We launch in two weeks.')],
+    go: async (page, refused) => {
+      const id = await createPage(page, { title: 'Launch notes', content: doc(para('We launch in two weeks.')) })
+      await gotoPage(page, id)
+      await openTerminal(page)
+      await run(page, 'When do we launch?')
+      if (refused) await expect(terminal(page).locator('.term-error')).toContainText(RELOAD)
+      else await expect(terminal(page).locator('.term-answer')).toContainText('We launch in two weeks.')
+    },
+  },
+  {
+    name: 'autofill',
+    steps: [text(JSON.stringify({ value: 'Low' }))],
+    go: async (page, refused) => {
+      const dbId = await pageIdByTitle(page, 'Projects')
+      await gotoPage(page, dbId)
+      await page.locator('#main section.db').first().getByRole('tab').filter({ hasText: 'All projects' }).click()
+      await wsEval(
+        page,
+        (s, dbId) => {
+          const p = s.databases[dbId].properties.find((x: AnyState) => x.name === 'Priority')
+          s.updateProperty(dbId, p.id, { autofill: { preset: 'categorize', skipReview: true } })
+        },
+        dbId,
+      )
+      const grid = page.locator('#main .dbt')
+      await grid.focus()
+      await page.keyboard.press('ArrowDown')
+      await page.keyboard.press('ArrowRight')
+      await page.keyboard.press('ArrowRight')
+      await expect(grid.locator('[data-cell="0:2"]')).toHaveAttribute('data-active', 'true')
+      await page.keyboard.press('Alt+Enter')
+      await expect(page.locator('.toast', { hasText: refused ? RELOAD : 'Priority filled for' })).toBeVisible()
+    },
+  },
+  {
+    name: 'a custom agent',
+    steps: [text('**Status report:** nothing blocks the launch.')],
+    go: async (page, refused) => {
+      await wsEval(page, (s) =>
+        s.upsertAgent({ id: 'ag-gate', name: 'Status reader', instructions: 'Summarise the status of all projects.', trigger: { type: 'manual' }, scope: { everything: true, pages: [], databases: [] }, write: 'none', output: null, mcpServers: [], runner: 'browser', model: null, effort: null, maxRunUsd: 0.5, enabled: true, createdAt: 1760252400000, updatedAt: 1760252400000 }),
+      )
+      await flush(page)
+      await page.evaluate(() => (window.location.hash = '#/agents/ag-gate'))
+      await expect(page.locator('.agx-dhead')).toBeVisible()
+      await page.getByRole('button', { name: 'Run now' }).click()
+      const row = page.locator('.agx-run').first()
+      await expect(row).toHaveAttribute('data-status', refused ? 'error' : 'ok', { timeout: 20_000 })
+      if (refused) await expect(row).toContainText(RELOAD)
+    },
+  },
+]
+
+test.describe('the gate in front of every AI request', () => {
+  for (const flow of GATE_FLOWS)
+    for (const gen of [2, 1])
+      test(`${flow.name}: AI rules of generation ${gen} → ${gen > 1 ? "'reload', nothing sent" : 'exactly one request'}`, async ({ page, aiNet }) => {
+        const { requests, counts } = await gated(page, gen, flow.steps)
+        await flow.go(page, gen > 1)
+        await page.waitForTimeout(400)
+        expect(requests).toHaveLength(gen > 1 ? 0 : 1)
+        expect(counts.anthropic).toBe(gen > 1 ? 0 : 1)
+        expect(aiNet.count('anthropic')).toBe(gen > 1 ? 0 : 1)
       })
 })

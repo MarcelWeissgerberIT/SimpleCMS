@@ -93,10 +93,10 @@ export function buildOrganisePrompt(mails: OrganiseMail[], o: MailOrganise, proj
 }
 
 /** Ask Claude about a batch. Throws AIError on API failures; entries that don't parse are left out. */
-export async function organiseBatch(mails: OrganiseMail[], o: MailOrganise, projects: string[], signal?: AbortSignal): Promise<Map<string, OrganiseAnswer>> {
+export async function organiseBatch(mails: OrganiseMail[], o: MailOrganise, projects: string[], signal: AbortSignal | undefined, dbId: string): Promise<Map<string, OrganiseAnswer>> {
   const { system, prompt, schema } = buildOrganisePrompt(mails, o, projects)
-  // mail goes to Anthropic only: no MCP server ever joins this request
-  const raw = await completeStructured({ system, prompt, schema, maxTokens: 4096, signal, mcp: false })
+  // mail goes to Anthropic only: no MCP server ever joins this request (its source: the Mails database)
+  const raw = await completeStructured({ purpose: 'bulk.mail', sources: [{ db: dbId }], system, prompt, schema, maxTokens: 4096, signal, mcp: false })
   const out = new Map<string, OrganiseAnswer>()
   let parsed: unknown
   try {

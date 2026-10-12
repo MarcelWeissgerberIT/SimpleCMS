@@ -22,8 +22,10 @@ export async function describeShot(file: Blob, lang: 'en' | 'de', signal?: Abort
   const url = URL.createObjectURL(file)
   try {
     const image = await loadImageForClaude(url, signal)
-    const d = parseDescription(await requestImage({ action: 'describe', image, lang, signal }))
-    const md = withoutWebImages(stripFence(await requestImage({ action: 'read', image, lang, signal }))).trim()
+    // an uploaded screenshot (the person ticked and confirmed it): no page goes along
+    const gate = { purpose: 'vision.design' as const, sources: [{ file: 'upload' as const }] }
+    const d = parseDescription(await requestImage({ ...gate, action: 'describe', image, lang, signal }))
+    const md = withoutWebImages(stripFence(await requestImage({ ...gate, action: 'read', image, lang, signal }))).trim()
     const { markdownToDoc } = await import('../../../editor')
     const text = md ? (markdownToDoc(md).content ?? []).filter((b) => !(b.type === 'paragraph' && !b.content?.length)) : []
     return { alt: d?.alt ?? '', caption: d?.caption ?? '', text }

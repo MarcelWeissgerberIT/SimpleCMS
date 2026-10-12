@@ -441,6 +441,10 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
     // referenced file blocks go along as documents (Claude for files); one that cannot be read is noted
     const user = await withRefFiles(withImages, refs, ac.signal, (title) => note(t('features.ai.file.refFailed', { title })))
     return runAgent({
+      // the workspace as a whole (tools read any page in scope), the open page and the pages the task points at
+      purpose: 'terminal.task',
+      sources: [{ all: true }, ...(pageId ? [{ page: pageId }] : []), ...refs.map((r) => ({ page: r.pageId })), ...mentions.map((m) => ({ page: m.id }))],
+      typed: task,
       history,
       user,
       stage,

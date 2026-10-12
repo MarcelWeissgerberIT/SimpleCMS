@@ -1,0 +1,11 @@
+/**
+ * The AI core (multi-provider): the gate in front of every request (prepare / settle), purposes and sources, status.
+ * Call sites use the facades in features/ai/client.ts; other areas reach the core through features/index.ts.
+ */
+export { prepare, settle, registerAIOff, registerBeforeSend, reservedUsd, type Prepared, type PrepareInput, type BeforeSend } from './gate'
+export { PURPOSES, purposeOf, isPurposeId, type PurposeId, type PurposeDecl, type Need } from './purposes'
+export { classOfPage, classesOf, type SourceWorld } from './sources'
+export { aiStatus, type AIStatus } from './status'
+export { AIError, aiErrorText, type AIErrorCode } from './errors'
+export { setAIDemo, isAIDemo, onAIDemo, usesDemo } from './demoMode'
+export type { SourceRef, DataClass, FeatureClass, Route, RouteRule, ProviderId } from '@/shared/ai/types'

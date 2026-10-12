@@ -9,6 +9,7 @@ import type { BetaContentBlock, MessageCreateParamsNonStreaming } from '@anthrop
 import { useWorkspace } from '../../../store/store'
 import type { McpServerConfig } from '../../../store/types'
 import { AIError, claudeClient, toAIError, type SDKModule } from '../client'
+import { prepare, settle } from '../core/gate'
 import { MCP_BETA, attachMcp, clearRefused } from './config'
 
 export interface InspectResult {
@@ -60,6 +61,16 @@ export function parseInspect(text: string): InspectResult {
 
 /** Run one check against `server`. Throws AIError ('mcp' when the server could not be used). */
 export async function inspectServer(server: McpServerConfig, mode: 'test' | 'guide', signal?: AbortSignal): Promise<InspectResult> {
+  // the gate: a check sends no page — only the server's tool definitions reach Claude
+  const prepared = prepare({ purpose: 'mcp-setup.inspect', sources: [] })
+  try {
+    return await inspectOnce(server, mode, signal)
+  } finally {
+    settle(prepared)
+  }
+}
+
+async function inspectOnce(server: McpServerConfig, mode: 'test' | 'guide', signal?: AbortSignal): Promise<InspectResult> {
   const mcp = await attachMcp({ servers: [{ ...server, enabled: true }], instructions: '' }, 'free', { forced: [server.name] })
   if (!mcp) throw new AIError('mcp', 'the token is not available in this browser', server.name)
   let sdk: SDKModule | null = null

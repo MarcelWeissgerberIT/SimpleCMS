@@ -16,6 +16,8 @@ import { legacyRule, routeKey, sanitizeRoute, sanitizeRule } from '../../src/sha
 import { AI_POLICY_GEN, policyKnown, requiredGen, sanitizeDeviceAI, sanitizeWorkspaceAI, storedGen } from '../../src/shared/ai/policy'
 import { looksLikeKey, scrubSecrets } from '../../src/shared/ai/keys'
 import type { PriceRow, Usage } from '../../src/shared/ai/types'
+import { classOfPage, classesOf, isSources, type SourceWorld } from '../../src/app/features/ai/core/sources'
+import type { Database, Page } from '../../src/app/store/types'
 
 const U = (x: Partial<Usage> = {}): Usage => ({ input: 0, cacheWrite: 0, cacheWrite1h: 0, cacheRead: 0, output: 0, reasoning: 0, ...x })
 const usd = (u: Usage, r: PriceRow | null, at?: Date) => costOf(u, r, at).usd
@@ -271,4 +273,61 @@ test('src/shared/ai imports nothing outside itself (type imports with .ts, no en
     expect(/\benum\s+\w+/.test(src), `${f} declares an enum`).toBe(false)
     expect(/\b(window|document|localStorage|indexedDB)\b|\bprocess\.|\brequire\(/.test(src.replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '')), `${f} reaches a runtime`).toBe(false)
   }
+})
+
+test.describe('sources → data classes (features/ai/core/sources.ts)', () => {
+  const page = (id: string, o: Partial<Page> = {}) => ({ id, title: id, parentId: null, content: { type: 'doc', content: [] }, ...o }) as unknown as Page
+  const db = (id: string, system?: Database['system']) => ({ id, system, properties: [], views: [] }) as unknown as Database
+  const synced = (sourcePageId: string) => ({ type: 'doc', content: [{ type: 'syncedBlock', attrs: { syncId: 's1', sourcePageId }, content: [{ type: 'paragraph' }] }] })
+  const world: SourceWorld = {
+    pages: Object.fromEntries(
+      [
+        page('launch'),
+        page('vault', { private: true }),
+        page('vault-notes', { parentId: 'vault' }),
+        page('mails'),
+        page('mail-1', { parentId: 'mails', databaseId: 'mails' }),
+        page('contacts'),
+        page('mara', { parentId: 'contacts', databaseId: 'contacts' }),
+        page('memory'),
+        page('mem-1', { parentId: 'memory', databaseId: 'memory' }),
+        page('tessera'),
+        page('row-1', { parentId: 'tessera', databaseId: 'tessera' }),
+        page('digest', { content: synced('vault-notes') as Page['content'] }),
+        page('loop-a', { parentId: 'loop-b' }),
+        page('loop-b', { parentId: 'loop-a' }),
+      ].map((p) => [p.id, p]),
+    ),
+    databases: { mails: db('mails'), contacts: db('contacts', 'mail-contacts'), memory: db('memory', 'memory'), tessera: db('tessera') },
+    mailDb: 'mails',
+  }
+  const of = (id: string) => [...classOfPage(id, world)].sort()
+
+  test('plain page, private root and below it, Mails row, mail directory, memory row, ordinary row', () => {
+    expect(of('launch')).toEqual(['page'])
+    expect(of('vault')).toEqual(['page', 'private'])
+    expect(of('vault-notes')).toEqual(['page', 'private'])
+    expect(of('mail-1')).toEqual(['mail', 'rows'])
+    expect(of('mara')).toEqual(['mail', 'rows'])
+    expect(of('mem-1')).toEqual(['memory', 'rows'])
+    expect(of('row-1')).toEqual(['rows'])
+    expect(of('gone')).toEqual([])
+  })
+
+  test('a synced-block copy counts as its source page; a broken parent chain ends', () => {
+    expect(of('digest')).toEqual(['page', 'private'])
+    expect(of('loop-a')).toEqual(['page'])
+  })
+
+  test('classesOf: pages, rows, databases, an upload, the workspace', () => {
+    const c = (...s: Parameters<typeof classesOf>[0]) => [...classesOf(s, world)].sort()
+    expect(c({ page: 'launch' }, { row: 'row-1' })).toEqual(['page', 'rows'])
+    expect(c({ db: 'memory' })).toEqual(['memory', 'rows', 'structure'])
+    expect(c({ db: 'mails' })).toEqual(['mail', 'rows', 'structure'])
+    expect(c({ file: 'upload' })).toEqual(['files'])
+    expect(c({ all: true })).toEqual(['workspace'])
+    expect(c()).toEqual([])
+    expect(isSources([{ page: 'launch' }, { all: true }, { file: 'upload' }])).toBe(true)
+    for (const v of [null, 'launch', [{ page: 3 }], [{ file: 'disk' }], [{ all: 'yes' }], [null]]) expect(isSources(v), JSON.stringify(v)).toBe(false)
+  })
 })

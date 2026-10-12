@@ -18,6 +18,9 @@ import type AnthropicSDK from '@anthropic-ai/sdk'
 import type { BetaContentBlock, BetaMessageParam, BetaToolResultBlockParam, BetaToolUnion, BetaUsage } from '@anthropic-ai/sdk/resources/beta/messages/messages'
 import type { BetaRunnableTool } from '@anthropic-ai/sdk/lib/tools/BetaRunnableTool'
 import { AIError, claudeClient, resolveModel, toAIError } from '../client'
+import { prepare, settle, type Prepared } from '../core/gate'
+import type { PurposeId } from '../core/purposes'
+import type { SourceRef } from '@/shared/ai/types'
 import { MCP_BETA, type McpAttachment } from '../mcp-servers/config'
 import { foldMcpBlock, type McpCall } from '../mcp-servers/activity'
 import { createMediaCollector } from '../media/collect'
@@ -124,6 +127,12 @@ const isOpus = (m: string) => m !== 'claude-haiku-4-5'
  * `history` is the conversation of earlier tasks in this session.
  */
 export async function runAgent(opts: {
+  /** what the run is for: 'terminal.task' (the AI terminal) or 'agents.run' (a custom agent) */
+  purpose: PurposeId
+  /** what it reads: the open page, references, the agent's scope — { all: true } for the workspace as a whole */
+  sources: readonly SourceRef[]
+  /** the person's own words (the terminal's task): refused when they look like an API key */
+  typed?: string | null
   history: BetaMessageParam[]
   user: BetaMessageParam
   stage: StageApi
@@ -151,7 +160,10 @@ export async function runAgent(opts: {
     throw new AIError('aborted')
   }
   let sdk: Awaited<ReturnType<typeof claudeClient>>['sdk'] | null = null
+  let prepared: Prepared | null = null
   try {
+    // the gate: nothing is sent before it (features/ai/core/gate.ts)
+    prepared = prepare({ purpose: opts.purpose, sources: opts.sources, typed: opts.typed })
     const got = await claudeClient()
     sdk = got.sdk
     const { client } = got
@@ -296,6 +308,8 @@ export async function runAgent(opts: {
   } catch (e) {
     if (signal.aborted) throw new AIError('aborted')
     throw toAIError(e, sdk, mcp)
+  } finally {
+    settle(prepared)
   }
 }
 

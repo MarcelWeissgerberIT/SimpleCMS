@@ -631,6 +631,10 @@ function AskPanel({ question, pageId, onDone }: { question: string; pageId: ID |
       const context = page ? (text ? `${page.title}\n\n${text}` : page.title) : undefined
       const final = await runAI({
         action: 'custom',
+        // ⌘K "?": the current page as its context marks allow (a route without a page: none)
+        purpose: 'palette.ask',
+        sources: page ? [{ page: page.id }] : [],
+        typed: question,
         input: text,
         instruction: question,
         context,

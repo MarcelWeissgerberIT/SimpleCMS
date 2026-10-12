@@ -26,6 +26,7 @@ import { openPage } from '../../lib/router'
 import { newId } from '../../lib/ids'
 import { t } from '../../i18n'
 import { AIError, runAI, stripFence, type AIAction, type AIErrorCode } from './client'
+import { pageRef } from './core/refs'
 import { askWorkspace, type WorkspaceSource } from './workspace'
 import type { McpCall } from './mcp-servers/activity'
 import { mapTarget, reanchor, type RunTarget } from './runsTarget'
@@ -349,7 +350,7 @@ async function execute(id: string, editor: Editor) {
       patch(id, { reads: { mode: 'none', selection: true, blocks: 0, words: countWords(target.selected) } })
       if (!target.todb || editor.isDestroyed) throw new TodbError('changed')
       const title = useWorkspace.getState().pages[run.pageId]?.title ?? ''
-      const res = await requestTable(editor.state.doc, target.todb, { pageTitle: title, instruction: req.instruction, signal: ac.signal })
+      const res = await requestTable(editor.state.doc, target.todb, { pageTitle: title, instruction: req.instruction, signal: ac.signal, sources: pageRef(run.pageId) })
       if (ac.signal.aborted) return
       patch(id, { status: 'done', table: res, finishedAt: Date.now() })
     } else if (req.kind === 'transform') {
@@ -358,6 +359,7 @@ async function execute(id: string, editor: Editor) {
       if (!target.range || editor.isDestroyed) throw new TodbError('changed')
       const title = useWorkspace.getState().pages[run.pageId]?.title ?? ''
       const state = await runTransform(editor.state.doc, target.range, req, run.transform, {
+        sources: pageRef(run.pageId),
         pageTitle: title,
         signal: ac.signal,
         onState: (transform) => !ac.signal.aborted && patch(id, { transform }),
@@ -369,7 +371,7 @@ async function execute(id: string, editor: Editor) {
       const sent = req.passages.filter((p) => !p.skip)
       const words = sent.reduce((n, p) => n + countWords(p.anchor), 0)
       patch(id, { reads: { ...pr.reads, passages: sent.length, words: pr.reads.words + (pr.reads.mode === 'page' ? 0 : words) } })
-      const answer = sent.length ? await requestRedo({ passages: req.passages, instructions: req.instructions, rules: rulesOf(req.rulesPageId), context: pr.context }, ac.signal) : new Map<number, string>()
+      const answer = sent.length ? await requestRedo({ passages: req.passages, instructions: req.instructions, rules: rulesOf(req.rulesPageId), context: pr.context }, ac.signal, [...pageRef(run.pageId), ...pageRef(req.rulesPageId)]) : new Map<number, string>()
       if (ac.signal.aborted) return
       const items: RedoItem[] = req.passages.map((p) => ({ n: p.n, after: p.skip ? null : (answer.get(p.n) ?? null), decision: null }))
       patch(id, { status: 'done', redo: { items }, finishedAt: Date.now() })
@@ -377,14 +379,14 @@ async function execute(id: string, editor: Editor) {
       // reads what it is given (the selection / the request) — the page only for its title and link
       patch(id, { reads: { mode: 'none', selection: req.from === 'selection', blocks: 0, words: countWords(req.text) } })
       const title = useWorkspace.getState().pages[run.pageId]?.title.trim() ?? ''
-      const proposals = await condense({ text: req.text, from: req.from, pageTitle: title, source: pageSource(run.pageId), signal: ac.signal })
+      const proposals = await condense({ text: req.text, from: req.from, pageTitle: title, source: pageSource(run.pageId), signal: ac.signal, sources: pageRef(run.pageId) })
       if (ac.signal.aborted) return
       patch(id, { status: 'done', proposals, finishedAt: Date.now() })
     } else if (req.kind === 'image') {
       // the picture + the page as its context marks allow
       const pr = pageRead(run.pageId, null)
       patch(id, { reads: pr.reads })
-      const text = await runImageRequest(req, pr.context, { onToken, signal: ac.signal, onImage: (image) => !ac.signal.aborted && patch(id, { image }) })
+      const text = await runImageRequest(req, pr.context, { sources: pageRef(run.pageId), onToken, signal: ac.signal, onImage: (image) => !ac.signal.aborted && patch(id, { image }) })
       if (ac.signal.aborted) return
       buffers.delete(id)
       patch(id, { status: 'done', output: text, finishedAt: Date.now() })
@@ -393,6 +395,7 @@ async function execute(id: string, editor: Editor) {
       const pr = req.context ? pageRead(run.pageId, null) : null
       patch(id, { reads: pr ? pr.reads : { mode: 'none', selection: false, blocks: 0, words: 0 } })
       const text = await runGenerate(req, pr?.context ?? '', {
+        sources: pageRef(run.pageId),
         onToken,
         signal: ac.signal,
         onMcp: (calls) => !ac.signal.aborted && patch(id, { mcpCalls: calls }, false),
@@ -405,7 +408,7 @@ async function execute(id: string, editor: Editor) {
       // the file + the page as its context marks allow — a local conversion reads (and sends) nothing
       const pr = isLocalAction(req.action) ? null : pageRead(run.pageId, null)
       if (pr) patch(id, { reads: pr.reads })
-      const text = await runFileRequest(req, pr?.context ?? '', { onToken, signal: ac.signal, onFile: (file) => !ac.signal.aborted && patch(id, { file }) })
+      const text = await runFileRequest(req, pr?.context ?? '', { sources: pageRef(run.pageId), onToken, signal: ac.signal, onFile: (file) => !ac.signal.aborted && patch(id, { file }) })
       if (ac.signal.aborted) return
       buffers.delete(id)
       patch(id, { status: 'done', output: text, finishedAt: Date.now() })
@@ -425,6 +428,9 @@ async function execute(id: string, editor: Editor) {
         patch(id, { reads: read.reads, ...(mem?.use ? { memory: mem.use } : {}), ...(people ? { peopleSent: people.length } : {}) })
         text = await runAI({
           action: req.action,
+          purpose: req.action === 'custom' ? 'menu.ask' : req.action === 'make_tasks' ? 'menu.tasks' : 'menu.action',
+          sources: pageRef(run.pageId),
+          typed: req.instruction,
           input: read.input,
           instruction: req.instruction,
           context: read.context,

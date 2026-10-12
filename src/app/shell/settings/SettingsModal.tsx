@@ -397,7 +397,7 @@ function AITab() {
     setTest({ state: 'running' })
     try {
       // the key alone: no MCP server is attached to this check
-      await runAI({ action: 'custom', input: '', instruction: 'Reply with the single word OK.', signal: ctrl.signal, mcp: false })
+      await runAI({ action: 'custom', purpose: 'setup.test', sources: [], input: '', instruction: 'Reply with the single word OK.', signal: ctrl.signal, mcp: false })
       if (!ctrl.signal.aborted) setTest({ state: 'ok' })
     } catch (e) {
       if (!ctrl.signal.aborted) setTest({ state: 'error', msg: e instanceof Error ? e.message : String(e) })

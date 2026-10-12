@@ -13,6 +13,9 @@
 import type AnthropicSDK from '@anthropic-ai/sdk'
 import type { BetaMessageParam } from '@anthropic-ai/sdk/resources/beta/messages/messages'
 import { AIError, claudeClient, toAIError, usesDemo } from '../client'
+import { prepare, settle, type Prepared } from '../core/gate'
+import type { PurposeId } from '../core/purposes'
+import type { SourceRef } from '@/shared/ai/types'
 import type { LoadedImage } from './load'
 
 export type ImageAction = 'describe' | 'read' | 'table' | 'ask'
@@ -117,6 +120,12 @@ export function buildImagePrompt({ action, question, instruction, context, alt, 
 }
 
 export interface ImageRequest extends ImagePromptInput {
+  /** 'vision.image' (an image block) · 'vision.design' (screenshots of a design import) */
+  purpose: PurposeId
+  /** the page holding the image, or { file: 'upload' } */
+  sources: readonly SourceRef[]
+  /** the person's question / instruction (refused when it looks like an API key) */
+  typed?: ReadonlyArray<string | null | undefined> | null
   image: LoadedImage
   onToken?: (delta: string) => void
   signal?: AbortSignal
@@ -131,7 +140,10 @@ export async function requestImage(req: ImageRequest): Promise<string> {
   const { image, onToken, signal, action } = req
   if (signal?.aborted) throw new AIError('aborted')
   let sdk: Awaited<ReturnType<typeof claudeClient>>['sdk'] | null = null
+  let prepared: Prepared | null = null
   try {
+    // the gate: nothing is sent before it (features/ai/core/gate.ts)
+    prepared = prepare({ purpose: req.purpose, sources: req.sources, typed: req.typed })
     const got = await claudeClient()
     sdk = got.sdk
     const { client, model } = got
@@ -186,5 +198,7 @@ export async function requestImage(req: ImageRequest): Promise<string> {
   } catch (e) {
     if (signal?.aborted) throw new AIError('aborted')
     throw toAIError(e, sdk)
+  } finally {
+    settle(prepared)
   }
 }

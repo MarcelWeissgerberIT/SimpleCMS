@@ -24,6 +24,7 @@ import { editAs } from '../../../editor'
 import { t } from '../../../i18n'
 import { snapshotNow } from '../../history/snapshots'
 import { completeStructured } from '../client'
+import type { SourceRef } from '@/shared/ai/types'
 import { blockGist, readBlocks, type BlockRange } from '../todb/plan'
 import { originalToggle, sameBlocks, TodbError } from '../todb/run'
 import { parseDateValue, parseNumber } from '../../io/import/csv'
@@ -39,12 +40,12 @@ export interface FreeBoardResult {
   left: string[]
 }
 
-export async function requestFreeBoard(doc: PMNode, range: BlockRange, opts: { pageTitle?: string; instruction?: string; signal?: AbortSignal }): Promise<FreeBoardResult | null> {
+export async function requestFreeBoard(doc: PMNode, range: BlockRange, opts: { pageTitle?: string; instruction?: string; signal?: AbortSignal; sources: readonly SourceRef[] }): Promise<FreeBoardResult | null> {
   const source = readBlocks(doc, range)
   if (!source) throw new TodbError('changed')
   const kit = useWorkspace.getState().kit
   const p = freeBoardPrompt(source.blocks, kit, opts)
-  const raw = await completeStructured({ system: p.system, prompt: p.prompt, schema: p.schema, maxTokens: 12000, signal: opts.signal })
+  const raw = await completeStructured({ purpose: 'structure.freeboard', sources: opts.sources, typed: opts.instruction, system: p.system, prompt: p.prompt, schema: p.schema, maxTokens: 12000, signal: opts.signal })
   const got = parseFreeBoard(raw, source.blocks, kit)
   if (!got) return null
   return {

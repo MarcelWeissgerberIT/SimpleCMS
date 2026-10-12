@@ -57,7 +57,7 @@ export async function proposeItems(o: { prompt: string; listName: string; existi
   const parts = [`List: ${o.listName || 'Untitled list'}`, `Request: ${o.prompt.trim()}`]
   if (o.existing.length) parts.push(`Already in the list (do not repeat): ${o.existing.slice(0, 200).join(' · ')}`)
   if (page) parts.push(`Page "${title}":\n<page>\n${page}\n</page>`)
-  const raw = await completeStructured({ system: SYSTEM, prompt: parts.join('\n\n'), schema: SCHEMA, maxTokens: 6000, signal: o.signal })
+  const raw = await completeStructured({ purpose: 'bulk.kit', sources: o.pageId ? [{ page: o.pageId }] : [], typed: o.prompt, system: SYSTEM, prompt: parts.join('\n\n'), schema: SCHEMA, maxTokens: 6000, signal: o.signal })
   let parsed: unknown
   try {
     parsed = JSON.parse(raw)

@@ -267,6 +267,8 @@ export async function summarizeMeeting(blockId: string): Promise<void> {
         notes: prev !== 'done' && !blank ? docToMarkdown({ type: 'doc', content: snap.notes }) : '',
       },
       ac.signal,
+      // the block's page holds the transcript
+      l.target.pageId ? [{ page: l.target.pageId }] : [{ all: true }],
     )
     // the status goes back first, so undoing the notes returns to "ready to summarise"
     patchMeeting(l.target, { status: prev }, writer)

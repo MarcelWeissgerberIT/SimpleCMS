@@ -323,7 +323,7 @@ export async function organiseRows(ids: string[], signal: AbortSignal, progress:
         })
       }
       if (batch.length) {
-        const answers = await organiseBatch(batch, o, [...projects.keys()], signal)
+        const answers = await organiseBatch(batch, o, [...projects.keys()], signal, dbId)
         const cats = props.category ? ensureOptions(dbId, props.category, o.categories) : new Map<string, ID>()
         const prios = props.priority ? priorityOptions(dbId, props.priority) : new Map<string, ID>()
         for (const m of batch) {

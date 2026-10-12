@@ -13,6 +13,9 @@
 import type AnthropicSDK from '@anthropic-ai/sdk'
 import type { BetaContentBlockParam, BetaMessageParam } from '@anthropic-ai/sdk/resources/beta/messages/messages'
 import { AIError, claudeClient, toAIError, usesDemo } from '../client'
+import { prepare, settle, type Prepared } from '../core/gate'
+import type { PurposeId } from '../core/purposes'
+import type { SourceRef } from '@/shared/ai/types'
 
 export type ClaudeFileAction = 'summarize' | 'extract' | 'tables' | 'ask'
 
@@ -120,6 +123,12 @@ export interface FileRequest extends Omit<FilePromptInput, 'name' | 'format' | '
   material: FileMaterial
   onToken?: (delta: string) => void
   signal?: AbortSignal
+  /** 'documents.file' */
+  purpose: PurposeId
+  /** the page (or Mails row) holding the file block */
+  sources: readonly SourceRef[]
+  /** the person's question / instruction (refused when it looks like an API key) */
+  typed?: ReadonlyArray<string | null | undefined> | null
 }
 
 const FALLBACK_BETA = 'server-side-fallback-2026-07-01'
@@ -143,7 +152,10 @@ export async function requestFile(req: FileRequest): Promise<string> {
   const { material, onToken, signal, action } = req
   if (signal?.aborted) throw new AIError('aborted')
   let sdk: Awaited<ReturnType<typeof claudeClient>>['sdk'] | null = null
+  let prepared: Prepared | null = null
   try {
+    // the gate: nothing is sent before it (features/ai/core/gate.ts)
+    prepared = prepare({ purpose: req.purpose, sources: req.sources, typed: req.typed })
     const got = await claudeClient()
     sdk = got.sdk
     const { client, model } = got
@@ -204,5 +216,7 @@ export async function requestFile(req: FileRequest): Promise<string> {
   } catch (e) {
     if (signal?.aborted) throw new AIError('aborted')
     throw toAIError(e, sdk)
+  } finally {
+    settle(prepared)
   }
 }
