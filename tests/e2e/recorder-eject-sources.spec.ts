@@ -102,7 +102,7 @@ test.describe('flight recorder — the eject and its sources (§5)', () => {
     expect(await rec(page, 'unknowns')).toEqual([])
   })
 
-  test('the real path: a custom agent run (5 updates, 1 new row, 1 report append), the person edits a row, eject → 4 back, 1 held, new row trashed, report block by block, ONE update; RunHistory shows it; the Undo in ONE update', async ({ page, context }) => {
+  test('the real path: a custom agent run (5 updates, 1 new row, 1 report append), the person edits a row, eject → 4 back, 1 held, new row trashed, report block by block, ONE update; RunHistory shows it; the Undo in ONE update', async ({ page, context, aiNet }) => {
     test.setTimeout(180_000)
     await page.clock.install({ time: T0 })
     const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': 'POST, GET' }
@@ -155,6 +155,18 @@ test.describe('flight recorder — the eject and its sources (§5)', () => {
     const run = (await rec<Array<{ key: string; from: number; to: number }>>(page, 'runs')).find((r) => r.key.startsWith('agent:ag-tessera-apply:'))!
     expect(run).toBeTruthy()
     const sel = { lane: 'agent:ag-tessera-apply', run: run.key, a: run.from - 1000, b: run.to + 1000 }
+    // train 4 + AI S1: the eject and its Undo are no AI request — nothing goes out, no ledger entry, the run's receipt
+    // (usage, its lines per model) stays as the run left it
+    const runOf = () => page.evaluate(async () => ((await (window as unknown as { __oneAgents: { loadRuns: (id: string) => Promise<Array<{ staged: AnyState[]; usage?: AnyState }>> } }).__oneAgents.loadRuns('ag-tessera-apply')) ?? [])[0])
+    const meter = async () => {
+      await page.evaluate(() => (window as unknown as { __oneLedger: { flush(): Promise<void> } }).__oneLedger.flush())
+      const entries = await page.evaluate(() => (window as unknown as { __oneLedger: { entries(): Promise<Array<{ id: string }>> } }).__oneLedger.entries())
+      return { requests: aiNet.count('anthropic'), entries: entries.map((e) => e.id), usage: (await runOf()).usage ?? null }
+    }
+    const receipt = await meter()
+    expect(receipt.requests).toBeGreaterThan(0)
+    expect(receipt.entries.length).toBeGreaterThan(0)
+    expect(receipt.usage?.byModel?.length).toBeGreaterThan(0)
 
     await rec(page, 'spy', true)
     const r = await rec<{ id: string; state: string; counts: { back: number; held: number } }>(page, 'eject', sel)
@@ -186,9 +198,9 @@ test.describe('flight recorder — the eject and its sources (§5)', () => {
       return (idx ?? []).filter((m) => m.reason === 'eject').length
     }, id)
     for (const id of [f.rows[0], f.rows[1], f.rows[3], f.rows[4], f.report]) expect(await versions(id), id).toBe(1)
-    // the run's review: 6 ejected, the third row's update held (still applied)
-    const runOf = () => page.evaluate(async () => ((await (window as unknown as { __oneAgents: { loadRuns: (id: string) => Promise<Array<{ staged: AnyState[] }>> } }).__oneAgents.loadRuns('ag-tessera-apply')) ?? [])[0])
+    // the run's review: 6 ejected, the third row's update held (still applied); its receipt as it was
     const staged = (await runOf()).staged
+    expect(await meter()).toEqual(receipt)
     expect(staged.filter((c) => c.status === 'discarded' && c.ejected).length).toBe(6)
     expect(staged.filter((c) => c.status === 'applied' && c.held).map((c) => c.pageId)).toEqual([f.rows[2]])
     const head = page.locator('.agx-run__head').first()
@@ -210,6 +222,7 @@ test.describe('flight recorder — the eject and its sources (§5)', () => {
     const back = (await runOf()).staged
     expect(back.filter((c) => c.status === 'applied').length).toBe(7)
     expect(back.some((c) => c.ejected || c.held)).toBe(false)
+    expect(await meter()).toEqual(receipt)
     expect(await rec(page, 'unknowns')).toEqual([])
   })
 

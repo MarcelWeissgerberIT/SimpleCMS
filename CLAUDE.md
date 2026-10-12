@@ -790,12 +790,14 @@ the public APIs stable — other areas are built against them in parallel.
   script); a page's edits / task changes written in ONE write carry every change written (`…#c2+c3`, `writerOfChanges`,
   store/writer.ts; writeItems `writerOf` names only the edits that changed the page; a group longer than a key holds is
   `#*` → its places held 'batch'): each is a unit on the same places — ejected, held or brought back together (apply.ts
-  keeps that part's Undo whole once any of it is settled). Trust: an eject writes, voids and re-grants no verdict;
-  `settleEjected` ends the "edited" watches of what it took back (review.ts `endWatches`); ejected rows have no keys
-  (RunHistory `undoOf`), held ones keep theirs. A discarded proposal that is or builds on an ejected change (`onEjected`,
-  ai/agent/types.ts) never opens again through a discard's Undo (review.ts `discardUndo`, its row key gone) or the
-  terminal's undiscardStaged / restoreStaged. Preflight: ejected proposals become `discarded` + `ejected`, held ones stay
-  applied + `held`, pending ones are discarded except those opened in Preflight; superseded never touched. Task block:
+  keeps that part's Undo whole once any of it is settled). AI: an eject and its Undo send no request and write no
+  ledger entry; the receipts of what they settle (an agent run's usage, the terminal's meter) stay as they were. Trust:
+  an eject writes, voids and re-grants no verdict; `settleEjected` ends the "edited" watches of what it took back
+  (review.ts `endWatches`); ejected rows have no keys (RunHistory `undoOf`), held ones keep theirs. A discarded
+  proposal that is or builds on an ejected change (`onEjected`, ai/agent/types.ts) never opens again through a
+  discard's Undo (review.ts `discardUndo`, its row key gone) or the terminal's undiscardStaged / restoreStaged.
+  Preflight: ejected proposals become `discarded` + `ejected`, held ones stay applied + `held`, pending ones
+  are discarded except those opened in Preflight; superseded never touched. Task block:
   writes only through applyRewind, never mints an itemId; a task living elsewhere or looping is held, and a task W made
   stays while a live task the plan leaves links it (Blocked by / Related → 'taskLinked', ItemLookup `linkersOf`). Outbox: a row marked as sent is held; slips of discarded
   send proposals are withdrawn (`'origin'`) and stay withdrawn after an Undo; other slips are never touched. Coding: fields

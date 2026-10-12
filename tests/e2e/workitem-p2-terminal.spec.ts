@@ -9,6 +9,7 @@ import type { JSONContent } from '@tiptap/core'
 import { test, expect, openApp, wsEval, createPage, gotoPage, editorOf, flush, pageIdByTitle } from './fixtures'
 import { call, mockAgent, openTerminal, prompt, resultText, run, say, setKey, terminal, type AnyState } from './helpers/terminal'
 import { expectLane, markRec, startRecorder } from './helpers/recorder'
+import { ledger } from './helpers/aiFlows'
 
 const p = (text: string): JSONContent => (text ? { type: 'paragraph', content: [{ type: 'text', text }] } : { type: 'paragraph' })
 const doc = (...content: JSONContent[]): JSONContent => ({ type: 'doc', content })
@@ -659,7 +660,7 @@ test.describe('390 dark', () => {
 })
 
 test.describe('the flight recorder (train 4)', () => {
-  test('a task change applied alone is the recorder’s unit (terminal:<batch>#<change>): an eject takes it back like any change — ejected in the review, the batch’s Undo keeps it, the eject’s Undo brings it back', async ({ page, context }) => {
+  test('a task change applied alone is the recorder’s unit (terminal:<batch>#<change>): an eject takes it back like any change — ejected in the review, the batch’s Undo keeps it, the eject’s Undo brings it back', async ({ page, context, aiNet }) => {
     test.setTimeout(120_000)
     const T1 = 'wi_ejct1aaaaa'
     const id = await setup(page, doc(item({ itemId: T1, status: 'todo' }, 'Draft copy')))
@@ -683,6 +684,18 @@ test.describe('the flight recorder (train 4)', () => {
     await rec('settle')
     const batch = (await rec<Array<{ key: string; from: number; to: number }>>('runs')).find((r) => r.key.startsWith('terminal:'))!
     expect(batch).toBeTruthy()
+    // train 4 + AI S1: an eject and its Undo are no AI request — nothing goes out, no ledger entry, the meter stays
+    const meter = async () => {
+      await page.evaluate(() => (window as unknown as { __oneLedger: { flush(): Promise<void> } }).__oneLedger.flush())
+      return {
+        requests: aiNet.count('anthropic'),
+        entries: (await ledger(page)).map((e) => e.id as string),
+        usage: await page.evaluate(() => (window as unknown as { __oneTerm: { state: { getState(): { usage: unknown } } } }).__oneTerm.state.getState().usage),
+      }
+    }
+    const before = await meter()
+    expect(before.requests).toBeGreaterThan(0)
+    expect(before.entries.length).toBeGreaterThan(0)
     const r = await rec<{ id: string; state: string }>('eject', { lane: 'terminal', run: batch.key, a: batch.from - 1000, b: batch.to + 1000 })
     expect(r.state).toBe('done')
     expect(tasksIn(await pageContent(page, id))[0]).toMatchObject({ itemId: T1, status: 'todo' })
@@ -701,6 +714,7 @@ test.describe('the flight recorder (train 4)', () => {
     expect(await rec<{ ok?: boolean }>('undoEject', r.id)).toMatchObject({ ok: true })
     expect(tasksIn(await pageContent(page, id))[0]).toMatchObject({ itemId: T1, status: 'done' })
     await expect.poll(async () => (await changes(page))[0].status).toBe('applied')
+    expect(await meter()).toEqual(before)
   })
 
   type Rec = Record<string, (...a: unknown[]) => Promise<any>> // eslint-disable-line @typescript-eslint/no-explicit-any
