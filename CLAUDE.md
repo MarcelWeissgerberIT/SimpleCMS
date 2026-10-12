@@ -46,7 +46,7 @@ src/app/features/ai/core/**          the AI core: purposes, sources, the gate (p
                                      entry per response, receipts), status (public: features/ai/core/index.ts, via features/index.ts)
 src/app/features/ai/providers/**     provider adapters (anthropic.ts = the only runtime SDK import, openrouter + Connect account)
 src/app/features/ai/setup/**         "Set up AI": openAISetup / openAISettings (the only ways in), <AINeedsSetup> + offersAI +
-                                     FixKeys, the assistant (AISetup.tsx + steps/ 01–06, lazy), Settings › AI (ProvidersTab)
+                                     FixKeys, the assistant (AISetup.tsx + steps/ 01–06, lazy), Settings › AI (ProvidersTab, lazy)
 src/app/features/ai/routing/**       route chip / picker, CatalogPicker (lazy), CapLamps, DataRules (the class matrix)
 src/app/features/governor/**         Regler P1: the ledger (IndexedDB one-ledger), reservations, estimate bands (public API
                                      governor/index.ts); src/shared/ai/** = the pure multi-provider contracts (app + server)
