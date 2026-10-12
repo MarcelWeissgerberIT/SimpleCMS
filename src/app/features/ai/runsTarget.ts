@@ -6,11 +6,32 @@
  *    checked at its old place, else looked for (a unique match is used), else the target is `lost` —
  *    no Replace, "Insert below" goes to the end of the page. Never a write into the wrong place.
  */
-import type { Editor } from '@tiptap/core'
+import type { Editor, JSONContent } from '@tiptap/core'
 import type { Mapping } from '@tiptap/pm/transform'
 import type { Node as PMNode, ResolvedPos } from '@tiptap/pm/model'
+import { redactionActive } from '@/shared/ai/redact'
 import { findBlockRange, type BlockRange } from './todb/plan'
 import { transformRange } from './transform/range'
+import { toAIMarkdown } from '../share/markdown'
+
+/**
+ * A selection as Markdown for Claude to read and write back (dates and people as `one:` links). Inside a request-text
+ * scope (core/shape.ts withShape) it is built for the route — and never falls back to the raw text there.
+ */
+export function selectionMarkdown(doc: PMNode, from: number, to: number): string {
+  try {
+    const slice = doc.slice(from, to)
+    const json = slice.content.toJSON() as JSONContent[] | null
+    if (!json?.length) return ''
+    const first = slice.content.firstChild
+    const wrapped: JSONContent = first?.isInline ? { type: 'doc', content: [{ type: 'paragraph', content: json }] } : { type: 'doc', content: json }
+    const md = toAIMarkdown(wrapped).trim()
+    if (md) return md
+  } catch {
+    /* fall through */
+  }
+  return redactionActive() ? '' : doc.textBetween(from, to, '\n\n', ' ')
+}
 
 export interface RunTarget {
   mode: 'selection' | 'block'

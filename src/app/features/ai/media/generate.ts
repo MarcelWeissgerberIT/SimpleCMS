@@ -7,7 +7,7 @@
  */
 import type { McpServerConfig } from '../../../store/types'
 import { t } from '../../../i18n'
-import { AIError, streamCompletion } from '../client'
+import { AIError, streamCompletion, type RouteOptions } from '../client'
 import type { SourceRef } from '@/shared/ai/types'
 import { instructionsText, readServers, tokenState } from '../mcp-servers/config'
 import type { McpCall } from '../mcp-servers/activity'
@@ -122,7 +122,7 @@ export function generatePrompt(req: Pick<GenerateRunRequest, 'media' | 'prompt' 
 export async function runGenerate(
   req: GenerateRunRequest,
   context: string,
-  opts: { sources: readonly SourceRef[]; onToken?: (delta: string) => void; signal?: AbortSignal; onMcp?: (calls: McpCall[]) => void; onMedia?: (items: MediaItem[]) => void },
+  opts: { sources: readonly SourceRef[]; onToken?: (delta: string) => void; signal?: AbortSignal; onMcp?: (calls: McpCall[]) => void; onMedia?: (items: MediaItem[]) => void } & Pick<RouteOptions, 'route' | 'applied' | 'carries'>,
 ): Promise<string> {
   const server = readServers().find((s) => s.id === req.serverId)
   if (!server || !server.enabled) throw new AIError('mcp', t('features.ai.gen.err.gone'), req.server)
@@ -145,10 +145,13 @@ function generateStream(
   server: McpServerConfig,
   req: GenerateRunRequest,
   context: string,
-  opts: { sources: readonly SourceRef[]; onToken?: (delta: string) => void; signal?: AbortSignal; onMcp?: (calls: McpCall[]) => void },
+  opts: { sources: readonly SourceRef[]; onToken?: (delta: string) => void; signal?: AbortSignal; onMcp?: (calls: McpCall[]) => void } & Pick<RouteOptions, 'route' | 'applied' | 'carries'>,
   onMedia: (items: MediaItem[]) => void,
 ): Promise<string> {
   return streamCompletion({
+    route: opts.route,
+    applied: opts.applied,
+    carries: opts.carries,
     purpose: 'generate.media',
     sources: opts.sources,
     typed: req.prompt,

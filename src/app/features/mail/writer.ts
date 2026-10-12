@@ -4,7 +4,7 @@
  * synchronous burst of its writes opens a frame with it — never a frame held across an await. Outside a job: the
  * person (setup, Load images, Load, merging rows); those paths name their writer themselves where a job may run.
  */
-import { endRun, noteRun, withWriter, type Writer } from '../../store/writer'
+import { endRun, noteRun, withWriter, type RunMeta, type Writer } from '../../store/writer'
 
 let current: Writer | null = null
 
@@ -19,6 +19,11 @@ export async function inMailJob<T>(w: Writer, fn: () => Promise<T>): Promise<T> 
     current = was
     endRun(w)
   }
+}
+
+/** The AI route that answered the job's request (route keys only): told to the recorder before its writes. */
+export function noteMailAI(meta: Pick<RunMeta, 'ai' | 'aiAlso'> | undefined): void {
+  if (current && meta) noteRun(current, meta)
 }
 
 /** The writer of the mail job running now (outside one: the person). */

@@ -10,7 +10,7 @@ import type { Editor } from '@tiptap/core'
 import { create } from 'zustand'
 import { docToMarkdown, type MeetingAttrs, type MeetingStatus } from '../../../editor'
 import { useWorkspace } from '../../../store/store'
-import type { Writer } from '../../../store/writer'
+import { noteRun, type Writer } from '../../../store/writer'
 import { newId } from '../../../lib/ids'
 import { toast } from '../../../store/ui'
 import { openPage } from '../../../lib/router'
@@ -19,6 +19,10 @@ import { t } from '../../../i18n'
 import { AIError, isAIConfigured, type AIErrorCode } from '../client'
 import { Recognizer, type SpeechErrorCode } from './recognition'
 import { requestMeetingSummary } from './summarize'
+import { precheck } from '../core/gate'
+import { routed, shapeOf, withShape } from '../core/shape'
+import { aiRunMeta, type AIRunMeta } from '../core/runMeta'
+import type { SourceRef } from '@/shared/ai/types'
 import { notesBlocks } from './notes'
 import { editorPageId, patchMeeting, readMeeting, writeNotes, type MeetingTarget } from './write'
 
@@ -255,21 +259,30 @@ export async function summarizeMeeting(blockId: string): Promise<void> {
   l.abort = ac
   setRuntime(blockId, { phase: 'summarizing', aiError: null })
   const writer: Writer = { kind: 'ai', run: newId(), action: 'meeting_summary' }
+  let meta: AIRunMeta | undefined
   patchMeeting(l.target, { status: 'summarizing' }, writer)
   try {
+    // the block's page holds the transcript
+    const sources: SourceRef[] = l.target.pageId ? [{ page: l.target.pageId }] : [{ all: true }]
+    // the route first: the transcript is needed (refused on a route without it); names and pages it may not see leave
+    // the notes, the people's names stay home where they may not go
+    const pre = precheck({ purpose: 'meeting.summary', sources })
+    const shape = shapeOf(pre)
     const summary = await requestMeetingSummary(
       {
         transcript: attrs.transcript,
         language: attrs.language,
         title: attrs.title,
         startedAt: attrs.startedAt,
-        people: ws.people.map((p) => p.name),
-        notes: prev !== 'done' && !blank ? docToMarkdown({ type: 'doc', content: snap.notes }) : '',
+        people: pre.redact.people ? [] : ws.people.map((p) => p.name),
+        notes: prev !== 'done' && !blank ? withShape(shape, () => docToMarkdown({ type: 'doc', content: snap.notes })) : '',
       },
       ac.signal,
-      // the block's page holds the transcript
-      l.target.pageId ? [{ page: l.target.pageId }] : [{ all: true }],
+      sources,
+      { ...routed(pre), onRun: (r) => meta = aiRunMeta(r) ?? meta },
     )
+    // the recorder learns the route that wrote the notes
+    if (meta) noteRun(writer, meta)
     // the status goes back first, so undoing the notes returns to "ready to summarise"
     patchMeeting(l.target, { status: prev }, writer)
     const now = useWorkspace.getState()

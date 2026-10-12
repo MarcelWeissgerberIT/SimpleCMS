@@ -3,7 +3,7 @@
  * are the data): the numbered passages, the instructions, optional rules (a page picked as a style
  * guide) and the page context as the page's context marks allow. The answer: one item per passage.
  */
-import { completeStructured } from '../client'
+import { completeStructured, type RouteOptions } from '../client'
 import type { SourceRef } from '@/shared/ai/types'
 import type { RedoPassage } from './passages'
 
@@ -58,10 +58,10 @@ export function buildRedoPrompt({ passages, instructions, rules, context }: Redo
 }
 
 /** Ask Claude; resolves with the rewritten Markdown per passage number (passages it left out are missing). */
-export async function requestRedo(p: RedoPrompt, signal: AbortSignal | undefined, sources: readonly SourceRef[]): Promise<Map<number, string>> {
+export async function requestRedo(p: RedoPrompt, signal: AbortSignal | undefined, sources: readonly SourceRef[], ro: Pick<RouteOptions, 'route' | 'applied' | 'carries'> = {}): Promise<Map<number, string>> {
   const sent = p.passages.filter((x) => !x.skip)
   const size = sent.reduce((n, x) => n + x.markdown.length, 0)
-  const raw = await completeStructured({ purpose: 'structure.redo', sources, typed: p.instructions, system: REDO_SYSTEM, prompt: buildRedoPrompt(p), schema: REDO_SCHEMA, maxTokens: Math.min(32000, 4000 + Math.ceil(size / 2)), signal, mcp: false })
+  const raw = await completeStructured({ purpose: 'structure.redo', sources, typed: p.instructions, system: REDO_SYSTEM, prompt: buildRedoPrompt(p), schema: REDO_SCHEMA, maxTokens: Math.min(32000, 4000 + Math.ceil(size / 2)), signal, mcp: false, ...ro })
   const out = new Map<number, string>()
   try {
     const items = (JSON.parse(raw) as { items?: unknown }).items

@@ -94,12 +94,22 @@ export const redactPersonValue = (key: string, r: Redactor): string => `@${r.per
 /* The scope serializers consult (sync only — the withItemLabels pattern) */
 /* ------------------------------------------------------------------ */
 
-let current: Redactor | null = null
+interface Scope {
+  r: Redactor
+  /** what the Markdown serializers apply to every doc they write inside the scope (absent: owners only) */
+  o?: RedactOptions
+}
 
-/** Runs `fn` (synchronously) with `r` as the redaction scope: serializers name people "@Person n" inside it. */
-export function withRedaction<T>(r: Redactor | null, fn: () => T): T {
+let current: Scope | null = null
+
+/**
+ * Runs `fn` (synchronously) as request text for a route that may not see everything: the task serializer names owners
+ * "@Person n" (people redacted), and with `o` the Markdown serializers run every doc through redactDoc first — so
+ * whatever builds request text inside the scope (a page, a selection, blocks to transform) is built for the route.
+ */
+export function withRedaction<T>(r: Redactor | null, fn: () => T, o?: RedactOptions): T {
   const before = current
-  current = r
+  current = r ? { r, ...(o ? { o } : {}) } : null
   try {
     return fn()
   } finally {
@@ -107,5 +117,14 @@ export function withRedaction<T>(r: Redactor | null, fn: () => T): T {
   }
 }
 
-/** The redaction scope a serializer runs in (null: none — names as they are). */
-export const currentRedactor = (): Redactor | null => current
+/** The people redactor a serializer runs under (null: none — names as they are). */
+export const currentRedactor = (): Redactor | null => (current && (!current.o || current.o.people) ? current.r : null)
+
+/** The request-text scope open now (its redactor and options; null: none). */
+export const currentRedaction = (): { r: Redactor; o?: RedactOptions } | null => current
+
+/** Is request text being built for a route that does not see everything right now? */
+export const redactionActive = (): boolean => current !== null
+
+/** A doc as the current scope lets it go (the doc itself outside a scope, or when the scope redacts nothing of it). */
+export const redactInScope = <T extends RedactNode>(doc: T): T => (current?.o ? redactDoc(doc, current.o, current.r) : doc)

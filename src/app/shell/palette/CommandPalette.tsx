@@ -6,6 +6,12 @@ import { useUI } from '../../store/ui'
 import { selectBreadcrumbs } from '../../store/selectors'
 import { CodewordChip, isAIConfigured, McpSkippedNote, runAI, templateName, templateRoots, type McpCall } from '../../features'
 import { memoryFor, MemoryNote, noteUse, type MemoryUse } from '../../features'
+import { AIError, aiWriterOf, precheck, routed, shapeOf, withShape, type AIFix, type Receipt, type Route } from '../../features'
+import { legacyRule } from '@/shared/ai/route'
+import { DEFAULT_CLAUDE_MODEL } from '@/shared/ai/models'
+
+/** This device's Claude model (the legacy level's): the route of "Ask Claude". */
+const claudeModel = (): string => legacyRule(useWorkspace.getState().settings.aiModel, true)[0]?.m ?? DEFAULT_CLAUDE_MODEL
 import { claudeDoc, webImagesOf } from '../../features'
 import { MediaToPage, type MediaItem } from '../../features'
 import { readableContent, ReadOnlyDoc } from '../../editor'
@@ -604,37 +610,57 @@ function AskPanel({ question, pageId, onDone }: { question: string; pageId: ID |
   const [media, setMedia] = useState<MediaItem[]>([])
   /** the One memory that went along with the question (null: not in use) */
   const [memory, setMemory] = useState<MemoryUse | null>(null)
+  /** what the data rules left out of the question (the memory, the page) — said under the answer */
+  const [notes, setNotes] = useState<Array<'memoryWithheld' | 'pageWithheld'>>([])
+  /** the route chip: this question only (null: the rules decide) */
+  const [chip] = useState<Route | null>(null)
+  /** what to do about a refused question ("Ask Claude" for a codeword the route cannot connect) */
+  const [fix, setFix] = useState<AIFix | null>(null)
   const abort = useRef<AbortController | null>(null)
   // the answer's run (store/writer.ts: `ai:<run>:ask` when it is appended or saved as a page)
   const runId = useRef('')
+  /** what the answer cost and which route served it (the recorder's run meta when the answer is written) */
+  const receipt = useRef<Receipt | null>(null)
 
   useEffect(() => () => abort.current?.abort(), [])
 
-  const ask = async () => {
+  const ask = async (pick: Route | null = chip) => {
     if (!question || state === 'running') return
+    setFix(null)
     abort.current?.abort()
     const ctrl = new AbortController()
     abort.current = ctrl
     runId.current = newId()
+    receipt.current = null
     setAnswer('')
     setMcpCalls([])
     setMedia([])
     setError('')
     setState('running')
-    // the One memory: the memories that fit the question go along
-    const mem = memoryFor(question)
-    setMemory(mem.use)
+    // the One memory: the memories that fit the question go along — only where the route may receive them (D-S2-29)
+    let mem: ReturnType<typeof memoryFor> = { block: '', use: null }
+    setNotes([])
     let answered = ''
     try {
-      // only what the page's context marks allow ("Reads: …" — whole page, marked blocks or nothing)
-      const read = page ? readableContent(page.id) : null
+      // the route first (the chip, else the rules): what it may receive decides what is built
+      const pre = precheck({ purpose: 'palette.ask', sources: [], typed: question, route: pick })
+      const found = memoryFor(question)
+      mem = pre.allows('memory') ? found : { block: '', use: null }
+      setMemory(mem.use)
+      const withheld: Array<'memoryWithheld' | 'pageWithheld'> = found.use && !mem.use ? ['memoryWithheld'] : []
+      // only what the page's context marks allow ("Reads: …" — whole page, marked blocks or nothing), built for the
+      // route; a route that may not receive page text (or this page) gets the question alone
+      const readable = !!page && pre.allows('page') && pre.visible(page.id)
+      if (page && !readable) withheld.push('pageWithheld')
+      setNotes(withheld)
+      const read = readable ? withShape(shapeOf(pre), () => readableContent(page.id)) : null
       const text = read && read.mode !== 'none' ? read.markdown.slice(0, 12000) : ''
-      const context = page ? (text ? `${page.title}\n\n${text}` : page.title) : undefined
+      const context = readable ? (text ? `${page.title}\n\n${text}` : page.title) : undefined
       const final = await runAI({
         action: 'custom',
         // ⌘K "?": the current page as its context marks allow (a route without a page: none)
         purpose: 'palette.ask',
-        sources: page ? [{ page: page.id }] : [],
+        sources: readable ? [{ page: page.id }] : [],
         typed: question,
         input: text,
         instruction: question,
@@ -644,7 +670,11 @@ function AskPanel({ question, pageId, onDone }: { question: string; pageId: ID |
         onToken: (delta) => setAnswer((prev) => prev + delta),
         onMcp: (calls) => !ctrl.signal.aborted && setMcpCalls(calls),
         onMedia: (items) => !ctrl.signal.aborted && setMedia(items),
+        onRun: (r) => (receipt.current = r),
         memory: mem.block,
+        ...routed(pre),
+        carries: readable ? ['page'] : [],
+        ...(pick ? { route: pick } : {}),
       })
       answered = final || ''
       if (ctrl.signal.aborted) return
@@ -653,6 +683,7 @@ function AskPanel({ question, pageId, onDone }: { question: string; pageId: ID |
     } catch (e) {
       if (ctrl.signal.aborted) return
       setError(e instanceof Error ? e.message : String(e))
+      setFix(e instanceof AIError ? (e.fix ?? null) : null)
       setState('error')
     } finally {
       // a question refused for a key in its text was never sent: no row in the memory log (the key would be its name)
@@ -660,7 +691,7 @@ function AskPanel({ question, pageId, onDone }: { question: string; pageId: ID |
     }
   }
 
-  const askWriter = (): Writer => ({ kind: 'ai', run: runId.current || newId(), action: 'ask' })
+  const askWriter = (): Writer => aiWriterOf({ id: runId.current || newId(), route: receipt.current?.route, served: receipt.current?.served }, 'ask')
 
   const append = () => {
     if (!page || !answer) return
@@ -705,7 +736,7 @@ function AskPanel({ question, pageId, onDone }: { question: string; pageId: ID |
   return (
     <div className="ask">
       <Command.List className="pal-list pal-list--ask">
-        <Command.Item value="ask:go" className="pal-item" onSelect={ask} disabled={!question}>
+        <Command.Item value="ask:go" className="pal-item" onSelect={() => void ask()} disabled={!question}>
           <span className="pal-item__icon">
             <ArrowRight size={16} />
           </span>
@@ -728,7 +759,19 @@ function AskPanel({ question, pageId, onDone }: { question: string; pageId: ID |
             )}
           </div>
           <McpSkippedNote calls={mcpCalls} />
+          {notes.length > 0 && (
+            <p className="ask__note" role="note" data-testid="ask-notes">
+              {notes.map((n) => t(`features.ai.prov.note.${n}`)).join(' ')}
+            </p>
+          )}
           {state === 'error' ? <p className="ask__error">{error}</p> : <AskAnswer markdown={answer} />}
+          {state === 'error' && fix?.kind === 'askClaude' && (
+            <div className="ask__actions">
+              <button type="button" className="btn btn--sm" data-testid="ask-claude" onClick={() => void ask({ p: 'anthropic', m: claudeModel() })}>
+                {t('features.ai.prov.codeword.askClaude')}
+              </button>
+            </div>
+          )}
           {media.length > 0 && <MediaToPage items={media} pageId={page && page.kind === 'page' && !page.settings.locked ? page.id : null} disabled={readOnly} />}
           {state === 'done' && answer && (
             <div className="ask__actions">

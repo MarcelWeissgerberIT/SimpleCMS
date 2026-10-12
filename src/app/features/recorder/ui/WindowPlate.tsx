@@ -17,6 +17,11 @@ import { fmtNum, hms, pl } from './format'
 import { bracketEdge } from './actions'
 import { setBracket, useRecorderUI, type Bracket } from './state'
 import { Kbd } from '../../../ui/controls'
+import type { ProviderId } from '@/shared/ai/types'
+import { isRouteKey } from '@/shared/ai/route'
+import { providerLabel } from '@/shared/ai/models'
+import { isJevRouter } from '@/shared/ai/jev'
+import { servedLabel } from '../../ai/core/registry'
 
 /** The window's start / end at the playhead, on the track the keys act on. */
 function EdgeKeys({ lane }: { lane: LaneMeta }) {
@@ -96,6 +101,7 @@ export function WindowPlate({ bracket, meta, run, notes, touch, edgeLane }: { br
   const n = (v: number | undefined) => (meters ? fmtNum(v ?? 0, lang) : '…')
   const Icon = meta.icon
   const seq = run?.meta?.seq
+  const via = viaLine(t, run?.meta)
   const p = meters?.places
   return (
     <aside className="win" aria-label={t('features.recorder.win.aria')}>
@@ -111,6 +117,11 @@ export function WindowPlate({ bracket, meta, run, notes, touch, edgeLane }: { br
         <span>{meta.title}</span>
         {seq ? <small>{t('features.recorder.win.run', { n: seq })}</small> : null}
       </div>
+      {via ? (
+        <p className="win__via" data-testid="rec-via" title={via}>
+          {via}
+        </p>
+      ) : null}
       <div className="mtrs" aria-live="polite">
         <div className="mtr">
           <b>{n(meters?.ops)}</b>
@@ -147,4 +158,23 @@ export function WindowPlate({ bracket, meta, run, notes, touch, edgeLane }: { br
       <Note />
     </aside>
   )
+}
+
+/**
+ * The AI route a run's writes came from (RunMeta.ai — route keys only): "via Claude Sonnet 5.5" (Claude's labels name
+ * it), "via OpenRouter · <model>", the Jev Router "via OpenRouter · Jev Router → <the model it chose>".
+ */
+function viaLine(t: (k: string, v?: Record<string, string | number>) => string, meta: JRun['meta'] | undefined): string | null {
+  const key = meta?.ai
+  if (!key || !isRouteKey(key)) return null
+  const route = keyRoute(key)
+  const label = servedLabel(route.p, route.m)
+  if (route.p === 'openrouter' && (meta.aiAlso ?? []).some((k) => isRouteKey(k) && isJevRouter(keyRoute(k).m))) return t('features.recorder.viaRouter', { model: label })
+  return t('features.recorder.via', { route: route.p === 'anthropic' ? label : `${providerLabel(route.p)} · ${label}` })
+}
+
+/** A checked route key → its provider and model (the provider is the part before the first ':'). */
+function keyRoute(key: string): { p: ProviderId; m: string } {
+  const i = key.indexOf(':')
+  return { p: key.slice(0, i) as ProviderId, m: key.slice(i + 1) }
 }

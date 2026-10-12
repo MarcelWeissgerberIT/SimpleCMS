@@ -53,7 +53,7 @@ export function fileRef(file: { src: string; name: string }, pageId: ID, title: 
 async function documentOf(ref: NonNullable<TermRef['file']>, signal: AbortSignal): Promise<BetaContentBlockParam> {
   const kind = fileKind(ref.name)
   if (kind === 'pdf') {
-    const pdf = await loadPdfForClaude(ref.src, maxPdfPages(), signal)
+    const pdf = await loadPdfForClaude(ref.src, maxPdfPages(undefined, 'terminal.task'), signal)
     return { type: 'document', title: ref.name, source: { type: 'base64', media_type: 'application/pdf', data: pdf.data } }
   }
   if (!kind) throw new AIError('bad_request', 'unknown file type')

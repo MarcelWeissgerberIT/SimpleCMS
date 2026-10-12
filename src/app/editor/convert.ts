@@ -7,6 +7,7 @@ import type { Schema } from '@tiptap/pm/model'
 import { MarkdownManager } from '@tiptap/markdown'
 import { BLOCK_ID_TYPES, baseExtensions } from './schema/base'
 import { stripButtonActions } from './schema/button'
+import { redactInScope } from '@/shared/ai/redact'
 import { stripComments } from './schema/comment'
 import { stripSynced } from './schema/synced'
 import { freezeCharts } from '../features/charts'
@@ -305,8 +306,11 @@ export function stripPrivate(doc: JSONContent): JSONContent {
 export function docToMarkdown(doc: JSONContent | null): string {
   if (!doc) return ''
   try {
+    // request text for a route that may not see everything (src/shared/ai/redact.ts withRedaction): names, transcripts
+    // and pages it may not see leave the doc first; outside such a scope the doc itself
+    const src = redactInScope(doc)
     // comments never leave the device (Markdown goes to the clipboard, files and Claude); breadcrumbs: the path as text
-    const out = md().serialize(stripComments(withoutUnsafeLinks(freezeBreadcrumbs(doc))))
+    const out = md().serialize(stripComments(withoutUnsafeLinks(freezeBreadcrumbs(src))))
     return out.replace(/\n{3,}/g, '\n\n').trim() + '\n'
   } catch (err) {
     console.warn('[editor] markdown serialize failed', err)

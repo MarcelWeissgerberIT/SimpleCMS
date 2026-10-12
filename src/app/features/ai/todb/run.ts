@@ -23,7 +23,9 @@ import type { ID } from '../../../store/types'
 import { t } from '../../../i18n'
 import { snapshotNow } from '../../history/snapshots'
 import { completeStructured } from '../client'
-import type { SourceRef } from '@/shared/ai/types'
+import type { Route, SourceRef } from '@/shared/ai/types'
+import { precheck } from '../core/gate'
+import { routed, shapeOf, withShape } from '../core/shape'
 import { blockGist, buildDatabase, buildTodbPrompt, initialDraft, parseTodbAnswer, placementOf, rangeNodes, readBlocks, type BlockRange, type RangeNodes, type TableDraft, type TablePlan, type TodbFocus } from './plan'
 import { withWriter, type Writer } from '../../../store/writer'
 import { newId } from '../../../lib/ids'
@@ -52,12 +54,15 @@ export interface TableAnswer {
 export async function requestTable(
   doc: PMNode,
   range: BlockRange,
-  opts: { pageTitle?: string; instruction?: string; signal?: AbortSignal; focus?: TodbFocus; sources: readonly SourceRef[]; purpose?: 'structure.todb' | 'structure.transform' },
+  opts: { pageTitle?: string; instruction?: string; signal?: AbortSignal; focus?: TodbFocus; sources: readonly SourceRef[]; purpose?: 'structure.todb' | 'structure.transform'; route?: Route | null },
 ): Promise<TableAnswer> {
-  const source = readBlocks(doc, range)
+  const purpose = opts.purpose ?? 'structure.todb'
+  // the route first: the blocks are read for it (names / pages it may not see left out — core/shape.ts)
+  const pre = precheck({ purpose, sources: opts.sources, typed: opts.instruction, route: opts.route ?? null })
+  const source = withShape(shapeOf(pre), () => readBlocks(doc, range))
   if (!source) throw new TodbError('changed')
   const { system, prompt, schema } = buildTodbPrompt(source.blocks, opts)
-  const raw = await completeStructured({ purpose: opts.purpose ?? 'structure.todb', sources: opts.sources, typed: opts.instruction, system, prompt, schema, maxTokens: 16000, signal: opts.signal, mcp: false })
+  const raw = await completeStructured({ purpose, sources: opts.sources, typed: opts.instruction, system, prompt, schema, maxTokens: 16000, signal: opts.signal, mcp: false, ...routed(pre) })
   const plan = parseTodbAnswer(raw, source.blocks)
   if (!plan) throw new TodbError('bad')
   if (!plan.entries.length) throw new TodbError('none')

@@ -427,6 +427,24 @@ export function refusedNames(setup: McpSetup = currentSetup(), kind: McpRequestK
     .map((s) => s.name)
 }
 
+/**
+ * The servers that would join a request — by name only, nothing opened (no token, no sign-in refresh): for a route that
+ * cannot connect them (another provider — D-S2-7) or may not receive MCP (a data rule), each is reported as skipped.
+ * Addressed servers (codewords) first; a switched-off one is reported by the codeword note already.
+ */
+export function mcpNames(setup: McpSetup = currentSetup(), kind: McpRequestKind = 'free', forced: string[] = []): string[] {
+  const list = readServers()
+  const out: string[] = []
+  for (const pinned of setup.servers) {
+    const s = liveOf(pinned, list)
+    if (!s) continue
+    if (kind === 'fixed' && s.scope !== 'all' && !forced.includes(s.name)) continue
+    if (isRefused(s) && !forced.includes(s.name)) continue
+    out.push(s.name)
+  }
+  return [...out.filter((n) => forced.includes(n)), ...out.filter((n) => !forced.includes(n))]
+}
+
 export async function attachMcp(
   setup: McpSetup = currentSetup(),
   kind: McpRequestKind = 'free',

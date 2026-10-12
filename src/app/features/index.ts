@@ -39,7 +39,12 @@ export { isAIConfigured, runAI, type AIAction, type RunAIOptions } from './ai/cl
 /* one streamed completion with your own system prompt (help/ask.ts: "Ask the help", mcp: false = no MCP server) */
 export { streamCompletion, type StreamOptions } from './ai/client'
 // the AI core (multi-provider): status before a request, purposes and the sources a call names
-export { aiStatus, type AIStatus, type PurposeId, type SourceRef, type DataClass, type FeatureClass, type Route, type RouteRule, type ProviderId } from './ai/core'
+export { AIError, aiStatus, routeFor, precheck, type AIStatus, type PurposeId, type SourceRef, type DataClass, type FeatureClass, type Route, type RouteRule, type ProviderId, type Prepared, type AIFix } from './ai/core'
+/** Request text built for the route (core/shape.ts): shapeOf(precheck(…)) → withShape(shape, build) → facade({ …routed(pre) }). */
+export { shapeOf, withShape, routed, type Shape } from './ai/core/shape'
+/** The recorder's meta of an AI run (core/runMeta.ts): the route that served its writes. */
+export { aiRunMeta, aiWriterOf, type AIRunMeta } from './ai/core/runMeta'
+export type { Receipt } from './ai/core/meter'
 /** Claude's Markdown → a safe document: web images / media / frames as links (addresses a page shows already stay). */
 export { webImagesOf } from './agents/images'
 export { claudeDoc } from './ai/claudeDoc'

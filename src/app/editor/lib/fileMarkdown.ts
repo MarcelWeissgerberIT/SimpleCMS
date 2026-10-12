@@ -13,6 +13,7 @@
 import type { JSONContent } from '@tiptap/core'
 import { docToMarkdown } from '../convert'
 import { readReminder } from '../workitem/attrs'
+import { redactInScope } from '@/shared/ai/redact'
 
 /** The serializer only keeps web links: mention links travel under this host and become `one:` after (`unhost`). */
 const HOST = 'https://one.invalid/'
@@ -43,7 +44,8 @@ export const unhost = (md: string): string => md.split(`](${HOST}`).join('](one:
 /** `docToMarkdown` with date and person mentions as `one:` links. */
 export function docToFileMarkdown(doc: JSONContent | null): string {
   if (!doc) return docToMarkdown(doc)
-  const linked = linkMentions(doc)
+  // a route that may not see everything: redacted before the mentions become links (src/shared/ai/redact.ts)
+  const linked = linkMentions(redactInScope(doc))
   const md = docToMarkdown(linked)
   return linked === doc ? md : unhost(md)
 }

@@ -6,17 +6,22 @@
  * each request (memory only, this tab, this session) and it is sent to api.anthropic.com and nowhere else.
  */
 import { useWorkspace } from '../../store/store'
-import type { Caps, ChatRequest, LedgerEntry, Part, ProviderId, SourceRef } from '@/shared/ai/types'
+import type { Caps, ChatRequest, DataClass, LedgerEntry, Part, ProviderId, Route, SourceRef } from '@/shared/ai/types'
 import { DEFAULT_CLAUDE_MODEL, MODELS } from '@/shared/ai/models'
 import { priceRow } from '@/shared/ai/prices'
 import { AIError } from './core/errors'
 import { usesDemo } from './core/demoMode'
-import { precheck, prepare, settle, type Prepared } from './core/gate'
+import { precheck, prepare, settle, type Applied, type Prepared } from './core/gate'
 import { meterCall, type MeterCall, type Receipt } from './core/meter'
 import { memoryRef } from './core/refs'
-import type { PurposeId } from './core/purposes'
+import type { Need, PurposeId } from './core/purposes'
 import { demoAnswer, streamDemo } from './demo'
-import { codewordsIn, type Codewords, type McpRequestKind, type McpSetup } from './mcp-servers/config'
+import { codewordsIn, currentSetup, mcpNames, type Codewords, type McpRequestKind, type McpSetup } from './mcp-servers/config'
+import { skippedCall } from './mcp-servers/activity'
+import { routeFor } from './core/status'
+import { allowedFor } from '@/shared/ai/policy'
+import { providerLabel } from '@/shared/ai/models'
+import { t } from '../../i18n'
 import type { McpCall } from './mcp-servers/activity'
 import { canCreateItems } from '../workitems/live'
 import type { MediaItem } from './media/types'
@@ -68,6 +73,31 @@ export interface RunAIOptions {
   ledgerSource?: string
   /** what the request cost so far (the receipt), after every response */
   onRun?: (receipt: Receipt) => void
+  /** the route chip: this request only (else the rules of this device / workspace — core/resolve.ts) */
+  route?: Route | null
+  /** the purpose's `may` classes this request built beyond the memory block ('page' when page text goes along) */
+  carries?: readonly DataClass[]
+  /** what its text went through for the route (precheck's redaction and page filter — core/gate.ts Applied) */
+  applied?: Applied | null
+}
+
+/** The routing part of a facade's options: the chip, what the request carries beyond its purpose, what its text went
+ *  through for the route, and what it needs of the model (core/gate.ts). */
+export interface RouteOptions {
+  /** the route chip: this request only */
+  route?: Route | null
+  /** the purpose's `may` classes this request built (page text, the memory block, people's names …) */
+  carries?: readonly DataClass[]
+  /** what its text went through for the route (precheck's redact / visible) */
+  applied?: Applied | null
+  /** what it needs of the model beyond its purpose (a PDF, an addressed MCP server …) */
+  needs?: readonly Need[]
+}
+
+/** An addressed MCP server is a hard requirement (D18): the route must connect MCP and may receive `mcp`. */
+function withCodewords(o: RouteOptions, codewords: Codewords | null | undefined): Pick<RouteOptions, 'needs' | 'carries'> {
+  const cw = !!codewords?.forced.length
+  return { needs: [...(o.needs ?? []), ...(cw ? (['mcp'] as const) : [])], carries: [...(o.carries ?? []), ...(cw ? (['mcp'] as const) : [])] }
 }
 
 /* ------------------------------------------------------------------ */
@@ -92,9 +122,11 @@ export function resolveModel(id: string | undefined | null): (typeof AI_MODELS)[
   return AI_MODELS.find((m) => m.id === id) ?? AI_MODELS[0]
 }
 
-/** A key is set (its marker is in settings — synchronous, nothing is decrypted). */
+/** Some provider's key is set on this device (its marker is in settings — synchronous, nothing is decrypted; D37).
+ *  Whether a request of a given purpose can go out: aiStatus(purpose). */
 export function isAIConfigured(): boolean {
-  return !!useWorkspace.getState().settings.aiApiKey
+  const s = useWorkspace.getState().settings
+  return !!s.aiApiKey || Object.values(s.aiKeys ?? {}).some(Boolean)
 }
 
 /* ------------------------------------------------------------------ */
@@ -113,7 +145,7 @@ export function streamDemoText(text: string, onToken?: (delta: string) => void, 
 /* Streaming core                                                      */
 /* ------------------------------------------------------------------ */
 
-export interface StreamOptions {
+export interface StreamOptions extends RouteOptions {
   /** what the request is for (features/ai/core/purposes.ts) */
   purpose: PurposeId
   /** what it carries (core/sources.ts): [] only for a purpose without page data */
@@ -156,15 +188,45 @@ export async function streamCompletion(opts: StreamOptions): Promise<string> {
   // the gate: nothing is loaded or sent before it (features/ai/core/gate.ts); every response is metered (core/meter.ts)
   // its size: the prompt; the answer budget as streamOnce sets it (16 000 for a model that thinks, else 8 000)
   const size = { promptChars: opts.system.length + opts.prompt.length, maxTokens: (caps: Caps | null) => (thinks(caps) ? 16000 : 8000) }
-  const prepared = prepare({ purpose: opts.purpose, sources: opts.sources, typed: opts.typed, size })
+  const cw = opts.mcp === false ? null : opts.codewords
+  let prepared: Prepared
+  try {
+    prepared = prepare({ purpose: opts.purpose, sources: opts.sources, typed: opts.typed, size, route: opts.route, applied: opts.applied, ...withCodewords(opts, cw) })
+  } catch (e) {
+    throw codewordRefusal(e, opts, cw)
+  }
   const call = meterCall(prepared, { source: opts.ledgerSource, signal: opts.signal, onRun: opts.onRun })
   try {
-    // another provider (OpenRouter): the neutral wire — no MCP server ever joins it (D-S2-7)
-    if (prepared.provider !== 'anthropic' && prepared.provider !== 'demo') return await viaNeutral(prepared, call, { system: opts.system, parts: [{ type: 'text', text: opts.prompt }], output: { kind: 'text' }, maxTokens: 8000 }, opts)
+    // another provider (OpenRouter): the neutral wire — no MCP server ever joins it (D-S2-7); the ones that would have
+    // are said, by name (nothing opened)
+    if (prepared.provider !== 'anthropic' && prepared.provider !== 'demo') {
+      const names = opts.mcp === false ? [] : mcpNames(opts.setup ?? currentSetup(), opts.mcp ?? 'fixed', cw?.forced)
+      if (names.length) opts.onMcp?.(names.map((n) => skippedCall(n, 'provider', providerLabel(prepared.provider as ProviderId))))
+      return await viaNeutral(prepared, call, { system: opts.system, parts: [{ type: 'text', text: opts.prompt }], output: { kind: 'text' }, maxTokens: 8000 }, opts)
+    }
     return await streamOnce(opts, false, prepared, call)
   } finally {
     settle(prepared)
   }
+}
+
+/**
+ * An addressed MCP server is a hard requirement (D18): a codeword request whose route cannot connect MCP (another
+ * provider, the Jev Router) or may not receive it (a data rule) is refused before sending — "kb: OpenRouter connects no
+ * MCP servers" — with the fix "Ask Claude" when Claude has a key here and may receive MCP (that key sends the request
+ * once more with Claude as its chip). Other errors pass unchanged.
+ */
+function codewordRefusal(e: unknown, opts: Pick<StreamOptions, 'purpose' | 'route'>, cw: Codewords | null | undefined): unknown {
+  if (!(e instanceof AIError) || !cw?.forced.length) return e
+  const mcp = (e.code === 'capability' && (e.detail === 'mcp' || e.detail === 'pool')) || (e.code === 'policy' && e.detail === 'mcp')
+  if (!mcp) return e
+  const s = useWorkspace.getState()
+  const { route } = routeFor(opts.purpose, { route: opts.route })
+  const provider = providerLabel(route.p)
+  const claude = !!s.settings.aiApiKey && allowedFor('anthropic', 'mcp', s.ai, s.settings.ai)
+  const err = new AIError(e.code, e.detail, cw.forced[0], undefined, claude ? [{ kind: 'askClaude' }] : [])
+  err.message = t(e.code === 'policy' ? 'features.ai.prov.codeword.policy' : 'features.ai.prov.codeword.refused', { cw: cw.forced.join(', '), provider })
+  return err
 }
 
 /**
@@ -192,7 +254,7 @@ export async function viaNeutral(
 /* Structured output (one JSON answer)                                 */
 /* ------------------------------------------------------------------ */
 
-export interface StructuredOptions {
+export interface StructuredOptions extends RouteOptions {
   /** what the request is for (features/ai/core/purposes.ts) */
   purpose: PurposeId
   /** what it carries (core/sources.ts): [] only for a purpose without page data */
@@ -237,7 +299,7 @@ export interface StructuredUsage {
  */
 export async function completeStructured(opts: StructuredOptions): Promise<string> {
   // the gate: nothing is loaded or sent before it (features/ai/core/gate.ts); every response is metered (core/meter.ts)
-  const prepared = prepare({ purpose: opts.purpose, sources: opts.sources, typed: opts.typed, size: { promptChars: opts.system.length + opts.prompt.length, maxTokens: opts.maxTokens ?? 4096 } })
+  const prepared = prepare({ purpose: opts.purpose, sources: opts.sources, typed: opts.typed, size: { promptChars: opts.system.length + opts.prompt.length, maxTokens: opts.maxTokens ?? 4096 }, route: opts.route, applied: opts.applied, needs: opts.needs, carries: opts.carries })
   const call = meterCall(prepared, { source: opts.ledgerSource, signal: opts.signal, onRun: opts.onRun })
   try {
     if (prepared.provider !== 'anthropic' && prepared.provider !== 'demo') {
@@ -357,7 +419,7 @@ export function buildPrompt({ action, input, instruction, context, memory, peopl
 export async function runAI(opts: RunAIOptions): Promise<string> {
   if (opts.action !== 'autofill' && usesDemo()) {
     // demo answers are canned, never sent — the gate still decides (newer rules, a key typed into the request)
-    precheck({ purpose: opts.purpose, sources: [...opts.sources, ...memoryRef(opts.memory)], typed: opts.typed })
+    precheck({ purpose: opts.purpose, sources: [...opts.sources, ...memoryRef(opts.memory)], typed: opts.typed, route: opts.route, carries: carriesOf(opts) })
     const lang = useWorkspace.getState().settings.language === 'de' ? 'de' : 'en'
     return stripFence(await streamDemoText(demoAnswer(opts, lang), opts.onToken, opts.signal))
   }
@@ -381,9 +443,15 @@ export async function runAI(opts: RunAIOptions): Promise<string> {
     onMedia: opts.onMedia,
     ledgerSource: opts.ledgerSource,
     onRun: opts.onRun,
+    route: opts.route,
+    carries: carriesOf(opts),
+    applied: opts.applied,
   })
   return opts.action === 'autofill' ? text.trim().replace(/^["'`]|["'`]$/g, '') : stripFence(text)
 }
+
+/** What a run carries beyond its purpose's needs: the caller's (page text …) and the memory block when it goes along. */
+const carriesOf = (opts: RunAIOptions): DataClass[] => [...new Set<DataClass>([...(opts.carries ?? []), ...(opts.action === 'custom' && opts.memory?.trim() ? (['memory'] as const) : [])])]
 
 /** Remove a code fence wrapped around the whole answer (models occasionally do it). */
 export function stripFence(md: string): string {

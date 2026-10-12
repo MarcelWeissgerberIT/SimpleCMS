@@ -18,7 +18,7 @@ import type AnthropicSDK from '@anthropic-ai/sdk'
 import type { BetaContentBlock, BetaMessageParam, BetaToolResultBlockParam, BetaToolUnion } from '@anthropic-ai/sdk/resources/beta/messages/messages'
 import type { BetaRunnableTool } from '@anthropic-ai/sdk/lib/tools/BetaRunnableTool'
 import { AIError, claudeClient, reachOf, thinks, toAIError } from '../client'
-import { prepare, settle, type Prepared } from '../core/gate'
+import { prepare, settle, type Applied, type Prepared } from '../core/gate'
 import { claudeCut, claudeResponse, deltaChars, meterCall } from '../core/meter'
 import type { PurposeId } from '../core/purposes'
 import type { LedgerEntry, SourceRef, Usage } from '@/shared/ai/types'
@@ -27,7 +27,8 @@ import { MCP_BETA, type McpAttachment } from '../mcp-servers/config'
 import { foldMcpBlock, type McpCall } from '../mcp-servers/activity'
 import { createMediaCollector } from '../media/collect'
 import type { MediaItem } from '../media/types'
-import { TERMINAL_TOOLS, MAX_TOOL_CALLS, RESULT_CHARS, ToolInputError, argLabel, clipResult, withReadLimit, type AgentTool, type ReadLimit, type StageApi, type ToolOutcome } from './tools'
+import { TERMINAL_TOOLS, MAX_TOOL_CALLS, RESULT_CHARS, ToolInputError, argLabel, clipResult, withReadLimit, withToolScope, type AgentTool, type ReadLimit, type StageApi, type ToolOutcome } from './tools'
+import { shapeOf, withShape } from '../core/shape'
 import type { ID } from '../../../store/types'
 import type { ToolName } from './types'
 
@@ -153,6 +154,12 @@ export async function runAgent(opts: {
   effort?: 'low' | 'medium' | 'high' | null
   /** the AI terminal: what the person lets Claude read of a page (context marks), null = everything */
   readLimit?: ((id: ID) => ReadLimit | null) | null
+  /**
+   * What the run's first message went through for its route (core/gate.ts Applied): the tool reads are built for the
+   * route here (names, transcripts, pages it may not see — core/shape.ts), the caller vouches for the rest. Absent: a
+   * route that does not see everything is refused (the gate's backstop).
+   */
+  applied?: Applied | null
   /** the ledger's source id ('terminal:<conversation>' · 'agent:<id>:<run>') */
   ledgerSource?: string
 }): Promise<RunEnd> {
@@ -173,7 +180,10 @@ export async function runAgent(opts: {
     // its size: the system prompt (+ the servers' part), the conversation and the tool definitions; the answer budget
     const defs = (opts.tools ?? TERMINAL_TOOLS).map((x) => ({ name: x.name, description: x.description, input_schema: x.input_schema }))
     const size = { promptChars: (opts.system ?? AGENT_SYSTEM).length + (mcp?.system.length ?? 0) + JSON.stringify(messages).length + JSON.stringify(defs).length, maxTokens: 64000 }
-    prepared = prepare({ purpose: opts.purpose, sources: opts.sources, typed: opts.typed, model: opts.model, size })
+    prepared = prepare({ purpose: opts.purpose, sources: opts.sources, typed: opts.typed, model: opts.model, size, applied: opts.applied })
+    // the tool reads of a route that does not see everything: built for it, pages it may not see out of scope (B6)
+    const shape = shapeOf(prepared)
+    const seen = shape ? prepared.visible : null
     const call = meterCall(prepared, { source: opts.ledgerSource, signal })
     const got = await claudeClient()
     sdk = got.sdk
@@ -215,7 +225,7 @@ export async function runAgent(opts: {
         const stepId = hooks.toolStart(tool.name, arg)
         let out: ToolOutcome
         try {
-          out = await withReadLimit(opts.readLimit ?? null, () => tool.run(input, stage))
+          out = await withShape(shape, () => withToolScope(seen, () => withReadLimit(opts.readLimit ?? null, () => tool.run(input, stage))))
         } catch (e) {
           const ms = performance.now() - started
           const msg = e instanceof ToolInputError ? e.message : `The tool failed: ${e instanceof Error ? e.message : String(e)}`

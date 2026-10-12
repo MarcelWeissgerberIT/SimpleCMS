@@ -53,6 +53,7 @@ import { routeBlock } from './routeBlock'
 import { endRun, noteRun, withWriter, type Writer } from '../../store/writer'
 import { memoryRef } from '../ai/core/refs'
 import { precheck } from '../ai/core/gate'
+import { appliedOf } from '../ai/core/shape'
 import type { SourceRef } from '@/shared/ai/types'
 import { labelOf } from '@/shared/ai/models'
 import { addToLines } from '../ai/core/meter'
@@ -362,7 +363,7 @@ async function runOnce(agent: CustomAgent, req: RunRequest): Promise<AgentRun> {
 
   try {
     // the gate first (newer AI rules, AI off, no key …): no MCP token is opened when it refuses (the run ends as an error)
-    precheck({ purpose: 'agents.run', sources: agentSources(agent, req.rows ?? [], ''), model: agent.model })
+    const pre = precheck({ purpose: 'agents.run', sources: agentSources(agent, req.rows ?? [], ''), model: agent.model })
     // the agent's MCP servers, by name, as set up and switched on in this browser (Settings → Claude AI); only the tools
     // its allow-list names (mcpTools) — a server whose list is empty is left out, a switched-off one too (the editor says so)
     const allow = agent.mcpTools ?? {}
@@ -377,13 +378,16 @@ async function runOnce(agent: CustomAgent, req: RunRequest): Promise<AgentRun> {
     }
     const usable = configured.filter((s) => allowFor(allow, s)?.length !== 0)
     for (const s of configured) if (!usable.includes(s)) step({ kind: 'note', label: t('features.agents.run.mcpNoTools', { name: s.name.toUpperCase() }), state: 'err' })
-    const mcp = usable.length ? await attachMcp({ servers: usable, instructions: instructionsText() }, 'free', { forced: agent.mcpServers, allow }) : null
+    // a route that may not receive MCP (a data rule): no server joins (said once per server)
+    if (!pre.allows('mcp')) for (const s of usable) step({ kind: 'note', label: t('features.ai.mcp.cw.note.policy', { server: s.name.toUpperCase() }), state: 'err' })
+    const mcp = usable.length && pre.allows('mcp') ? await attachMcp({ servers: usable, instructions: instructionsText() }, 'free', { forced: agent.mcpServers, allow }) : null
     for (const s of usable) if (!mcp?.names.includes(s.name)) step({ kind: 'note', label: t('features.agents.run.mcpNoToken', { name: s.name.toUpperCase() }), state: 'err' })
 
     // team: the member list (owners by email) before the first tool call — staging never waits for it
     await warmMembers()
     // the One memory (features/ai/memory): the memories that fit the job go along, plus `recall`
-    memory = memoryFor(agent.instructions)
+    // … only where the route may receive it (D-S2-29)
+    memory = pre.allows('memory') ? memoryFor(agent.instructions) : { block: '', use: null }
     const ctx = context(agent, run, req.rows ?? [], last)
     const end = await runAgent({
       // its scope: the pages and databases it names (scope "everything": the workspace as a whole), the trigger's
@@ -401,6 +405,9 @@ async function runOnce(agent: CustomAgent, req: RunRequest): Promise<AgentRun> {
       model: agent.model,
       effort: agent.effort,
       ledgerSource: `agent:${agent.id}:${run.id}`,
+      // the tool reads are built for the route (ai/agent/run.ts); the trigger's rows were read before it — with them a
+      // route that does not see everything is refused (the gate's backstop)
+      applied: req.rows?.length ? null : appliedOf(pre),
     })
     if (live.trim()) answer = answer ? `${answer}\n\n${live.trim()}` : live.trim()
     run.summary = withoutWebImages(answer)

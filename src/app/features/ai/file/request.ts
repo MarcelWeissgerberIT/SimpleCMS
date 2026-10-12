@@ -16,6 +16,7 @@ import { AIError, claudeClient, finalOf, thinks, toAIError, usesDemo, viaNeutral
 import { prepare, settle, type Prepared } from '../core/gate'
 import { meterCall, pdfChars, type Receipt } from '../core/meter'
 import type { PurposeId } from '../core/purposes'
+import type { RouteOptions } from '../client'
 import type { Part, SourceRef } from '@/shared/ai/types'
 
 export type ClaudeFileAction = 'summarize' | 'extract' | 'tables' | 'ask'
@@ -120,7 +121,7 @@ export function buildFilePrompt({ action, name, format, clipped, question, instr
   return parts.join('\n\n')
 }
 
-export interface FileRequest extends Omit<FilePromptInput, 'name' | 'format' | 'clipped'> {
+export interface FileRequest extends Omit<FilePromptInput, 'name' | 'format' | 'clipped'>, Omit<RouteOptions, 'needs'> {
   material: FileMaterial
   onToken?: (delta: string) => void
   signal?: AbortSignal
@@ -176,7 +177,7 @@ export async function requestFile(req: FileRequest): Promise<string> {
     // the request's size: the task, the system prompt and the file as it counts (a stopped request is estimated from it)
     const promptChars = () => SYSTEM.length + prompt.length + materialChars(material)
     // the gate: nothing is sent before it (features/ai/core/gate.ts); the response is metered (core/meter.ts)
-    prepared = prepare({ purpose: req.purpose, sources: req.sources, typed: req.typed, needs: material.type === 'pdf' ? ['pdf'] : [], size: { promptChars: promptChars(), maxTokens: (caps) => (thinks(caps) ? maxTokens : Math.min(maxTokens, 32000)) } })
+    prepared = prepare({ purpose: req.purpose, sources: req.sources, typed: req.typed, needs: material.type === 'pdf' ? ['pdf'] : [], size: { promptChars: promptChars(), maxTokens: (caps) => (thinks(caps) ? maxTokens : Math.min(maxTokens, 32000)) }, route: req.route, applied: req.applied, carries: req.carries })
     const call = meterCall(prepared, { signal, onRun: req.onRun })
     if (prepared.provider !== 'anthropic') {
       // another provider (OpenRouter): a PDF as a file the model reads natively, other files as a text document; the

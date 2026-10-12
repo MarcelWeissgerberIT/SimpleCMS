@@ -28,6 +28,7 @@ import { afterBlock } from '../runsTarget'
 import { findImage, imageAt, imageTarget, type ImageHit } from './locate'
 import type { ImageAction } from './request'
 import type { ImageRunRequest } from './run'
+import { aiWriterOf } from '../core/runMeta'
 
 /** The mono code each action shows in the panel. */
 export const IMAGE_CODES: Record<ImageAction, string> = { describe: 'ALT', read: 'OCR', table: 'TBL', ask: 'ASK' }
@@ -36,7 +37,7 @@ const pageOf = (editor: Editor): ID | null => (editor.isDestroyed ? null : edito
 
 /** The request of an action on this image (labels in the UI language). */
 /** The image run's write (store/writer.ts). */
-const imageWriter = (run: Pick<AIRun, 'id'>): Writer => ({ kind: 'ai', run: run.id, action: 'image' })
+const imageWriter = (run: Pick<AIRun, 'id' | 'route' | 'served'>): Writer => aiWriterOf(run, 'image')
 
 export function imageRequest(action: ImageAction, hit: ImageHit, extra: { question?: string; instruction?: string } = {}): ImageRunRequest {
   return {

@@ -80,6 +80,16 @@ export interface RunMeta {
   source?: string
   action?: string
   client?: string
+  /** the AI route that served the run's writes ('<provider>:<model id>' — an identifier, never text) */
+  ai?: string
+  /** routes that took part besides `ai` (≤ 3: the Jev Router that chose the model …) */
+  aiAlso?: string[]
+  /** the request's role (main · variant · merge · review · fallback · repair · decide) */
+  role?: 'main' | 'variant' | 'merge' | 'review' | 'fallback' | 'repair' | 'decide'
+  /** runs that belong together (variants of one request) */
+  group?: string
+  /** the run this one follows from */
+  parent?: string
 }
 
 /* ------------------------------------------------------------------ */

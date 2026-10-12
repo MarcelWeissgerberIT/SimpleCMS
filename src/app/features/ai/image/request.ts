@@ -16,6 +16,7 @@ import { AIError, claudeClient, finalOf, thinks, toAIError, usesDemo, viaNeutral
 import { prepare, settle, type Prepared } from '../core/gate'
 import { imageChars, meterCall, type Receipt } from '../core/meter'
 import type { PurposeId } from '../core/purposes'
+import type { RouteOptions } from '../client'
 import type { SourceRef } from '@/shared/ai/types'
 import type { LoadedImage } from './load'
 
@@ -120,7 +121,7 @@ export function buildImagePrompt({ action, question, instruction, context, alt, 
   return parts.join('\n\n')
 }
 
-export interface ImageRequest extends ImagePromptInput {
+export interface ImageRequest extends ImagePromptInput, Omit<RouteOptions, 'needs'> {
   /** 'vision.image' (an image block) · 'vision.design' (screenshots of a design import) */
   purpose: PurposeId
   /** the page holding the image, or { file: 'upload' } */
@@ -149,7 +150,7 @@ export async function requestImage(req: ImageRequest): Promise<string> {
     // the request's size: the task, the system prompt and the picture as it counts (a stopped request is estimated from it)
     const promptChars = () => SYSTEM.length + prompt.length + imageChars(image.width, image.height)
     // the gate: nothing is sent before it (features/ai/core/gate.ts); the response is metered (core/meter.ts)
-    prepared = prepare({ purpose: req.purpose, sources: req.sources, typed: req.typed, size: { promptChars: promptChars(), maxTokens: (caps) => (thinks(caps) ? 16000 : 8000) } })
+    prepared = prepare({ purpose: req.purpose, sources: req.sources, typed: req.typed, size: { promptChars: promptChars(), maxTokens: (caps) => (thinks(caps) ? 16000 : 8000) }, route: req.route, applied: req.applied, carries: req.carries })
     const call = meterCall(prepared, { signal, onRun: req.onRun })
     if (prepared.provider !== 'anthropic') {
       // another provider (OpenRouter): the picture as an image part, the task as text — the neutral wire

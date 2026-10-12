@@ -7,6 +7,7 @@
  * kind / column count) is a new run that takes the place of this one and keeps the cache (runs.ts startRun).
  */
 import { useRef, type ReactNode } from 'react'
+import { aiWriterOf } from '../core/runMeta'
 import type { Editor } from '@tiptap/core'
 import type { LucideIcon } from 'lucide-react'
 import { Kbd } from '../../../ui/controls'
@@ -99,7 +100,7 @@ export function useTransformPanel({ editor, pageId, run, phase, target, start, f
     const at = !tg.lost && tg.range && sameBlocks(editor.state.doc, tg.range, own) ? tg.range : null
     applying.current = true
     try {
-      await applyTransform(editor, pageId, at, st, { kind: 'ai', run: run.id, action: 'transform' })
+      await applyTransform(editor, pageId, at, st, aiWriterOf(useAIRuns.getState().runs[run.id] ?? run, 'transform'))
       finish()
     } catch (e) {
       applying.current = false

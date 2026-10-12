@@ -12,6 +12,7 @@
  *    copy picked by the user replaces the block's source
  */
 import type { Editor, JSONContent } from '@tiptap/core'
+import { aiWriterOf } from '../core/runMeta'
 import { NodeSelection, TextSelection } from '@tiptap/pm/state'
 import { closeHistory } from '@tiptap/pm/history'
 import { editAs, endUndoStep, startUndoStep } from '../../../editor'
@@ -36,8 +37,8 @@ const pageOf = (editor: Editor): ID | null => (editor.isDestroyed ? null : edito
 
 /** The request of an action on this file (labels in the UI language). */
 /** The file run's write (store/writer.ts): Claude's answer, or a local conversion (nothing sent) = an import. */
-const fileWriter = (run: Pick<AIRun, 'id'>, origin: 'ai' | 'import' = 'ai'): Writer =>
-  origin === 'import' ? { kind: 'import', run: run.id, source: 'file' } : { kind: 'ai', run: run.id, action: 'file' }
+const fileWriter = (run: Pick<AIRun, 'id' | 'route' | 'served'>, origin: 'ai' | 'import' = 'ai'): Writer =>
+  origin === 'import' ? { kind: 'import', run: run.id, source: 'file' } : aiWriterOf(run, 'file')
 const UNDO: Writer = { kind: 'you', via: 'undo' }
 
 export function fileRequest(action: FileAction, hit: FileHit, extra: { question?: string; instruction?: string } = {}): FileRunRequest {

@@ -13,8 +13,13 @@ import { F, K, type JEvent, type JRun, type LaneKey, type PlaceKey, type PlaceKi
 
 const META_KEYS = ['seq', 'tool', 'source', 'action', 'client'] as const
 const ID = /^[A-Za-z0-9 ._-]{1,40}$/
+/** an AI route key: the provider, then a model id (letters, digits and . _ : / - only — never text) */
+const AI = /^(anthropic|openai|openrouter):[A-Za-z0-9._:/-]{1,160}$/
+const ROLES = new Set(['main', 'variant', 'merge', 'review', 'fallback', 'repair', 'decide'])
+/** a run id (nanoid-like) */
+const RUN_ID = /^[A-Za-z0-9_-]{1,40}$/
 
-/** Run meta as the journal keeps it: fixed keys, numbers and identifiers only. */
+/** Run meta as the journal keeps it: fixed keys, numbers and identifiers only (each key by its own grammar). */
 export function cleanMeta(meta: RunMeta | undefined): JRun['meta'] | undefined {
   if (!meta) return undefined
   const out: NonNullable<JRun['meta']> = {}
@@ -24,6 +29,14 @@ export function cleanMeta(meta: RunMeta | undefined): JRun['meta'] | undefined {
       if (typeof v === 'number' && Number.isFinite(v)) out.seq = Math.floor(v)
     } else if (typeof v === 'string' && ID.test(v)) out[k] = v
   }
+  if (typeof meta.ai === 'string' && AI.test(meta.ai)) out.ai = meta.ai
+  if (Array.isArray(meta.aiAlso)) {
+    const also = [...new Set(meta.aiAlso.filter((x): x is string => typeof x === 'string' && AI.test(x)))].slice(0, 3)
+    if (also.length) out.aiAlso = also
+  }
+  if (typeof meta.role === 'string' && ROLES.has(meta.role)) out.role = meta.role
+  if (typeof meta.group === 'string' && RUN_ID.test(meta.group)) out.group = meta.group
+  if (typeof meta.parent === 'string' && RUN_ID.test(meta.parent)) out.parent = meta.parent
   return Object.keys(out).length ? out : undefined
 }
 

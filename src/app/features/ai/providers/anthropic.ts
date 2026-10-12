@@ -16,7 +16,7 @@ import { legacyRule } from '@/shared/ai/route'
 import { AIError, type AIErrorCode } from '../core/errors'
 import type { Prepared } from '../core/gate'
 import { claudeCut, claudeResponse, deltaChars, type MeterCall } from '../core/meter'
-import { MCP_BETA, attachMcp, currentSetup, noteRefused, refusedNames, type Codewords, type McpAttachment } from '../mcp-servers/config'
+import { MCP_BETA, attachMcp, currentSetup, mcpNames, noteRefused, refusedNames, type Codewords, type McpAttachment } from '../mcp-servers/config'
 import { foldMcpBlock, skippedCall, type McpCall } from '../mcp-servers/activity'
 import { createMediaCollector } from '../media/collect'
 import type { MediaItem } from '../media/types'
@@ -133,6 +133,9 @@ export function toAIError(e: unknown, sdk: SDKModule | null, mcp?: Pick<McpAttac
   return err
 }
 
+/** Anthropic's 400 for an account without credit or over its spend limit. */
+const NO_CREDIT_RE = /credit balance is too low|usage limits/i
+
 function mapError(e: unknown, sdk: SDKModule | null, mcp?: Pick<McpAttachment, 'names' | 'servers'> | null): AIError {
   if (e instanceof AIError) return e
   if (e instanceof DOMException && e.name === 'AbortError') return new AIError('aborted')
@@ -155,6 +158,8 @@ function mapError(e: unknown, sdk: SDKModule | null, mcp?: Pick<McpAttachment, '
     if (e instanceof A.PermissionDeniedError) return new AIError('permission', e.message)
     if (e instanceof A.RateLimitError) return new AIError('rate_limit', e.message)
     if (e instanceof A.APIConnectionError) return new AIError('offline', e.message)
+    // no credit left / a spend limit reached (Anthropic says so in a 400 — wording verify with a real key, SP-A1)
+    if (e instanceof A.BadRequestError && NO_CREDIT_RE.test(e.message)) return new AIError('no_credit', cleanMessage(e.message))
     if (e instanceof A.BadRequestError) return new AIError('bad_request', cleanMessage(e.message))
     if (e instanceof A.InternalServerError) return new AIError(e.status === 529 ? 'overloaded' : 'unknown', e.message)
     if (e instanceof A.APIError) return new AIError(e.status === 529 ? 'overloaded' : 'unknown', cleanMessage(e.message))
@@ -304,10 +309,15 @@ export async function streamOnce(opts: StreamOptions, again: boolean, prepared: 
     }
 
     const cw = mcp === false ? null : codewords
-    attached = mcp === false ? null : await attachMcp(setup, mcp ?? 'fixed', { forced: cw?.forced, picked: cw?.picked })
+    // a route that may not receive MCP (a data rule — a member class): no server joins, each is said (B6)
+    const mcpOk = prepared.allows('mcp')
+    attached = mcp === false || !mcpOk ? null : await attachMcp(setup, mcp ?? 'fixed', { forced: cw?.forced, picked: cw?.picked })
     if (signal?.aborted) throw new AIError('aborted')
+    // a server joined: the request carries MCP (the ledger's classes say so — D-S2-27)
+    if (attached && !prepared.classes.includes('mcp')) prepared.classes.push('mcp')
     // servers that stay out are listed first, before any call of the request
-    const skipped = skippedOf(cw, attached, mcp === false ? [] : refusedNames(setup ?? currentSetup(), mcp ?? 'fixed', cw?.forced))
+    const policyOut = mcp !== false && !mcpOk ? mcpNames(setup ?? currentSetup(), mcp ?? 'fixed', cw?.forced).map((n) => skippedCall(n, 'policy')) : []
+    const skipped = [...skippedOf(cw, attached, mcp === false || !mcpOk ? [] : refusedNames(setup ?? currentSetup(), mcp ?? 'fixed', cw?.forced)), ...policyOut]
     const onMcp = skipped.length && report ? (calls: McpCall[]) => report([...skipped, ...calls]) : report
     if (skipped.length) onMcp?.([])
     let stopReason: string | null
@@ -477,8 +487,10 @@ export async function structuredOnce(opts: StructuredOptions, again: boolean, pr
     const promptChars = () => system.length + prompt.length
     let stopReason: string | null
     let blocks: Array<{ type: string; text?: string }>
-    attached = mcp === false ? null : await attachMcp(undefined, mcp ?? 'fixed')
+    // a route that may not receive MCP (a data rule): no server joins
+    attached = mcp === false || !prepared.allows('mcp') ? null : await attachMcp(undefined, mcp ?? 'fixed')
     if (signal?.aborted) throw new AIError('aborted')
+    if (attached && !prepared.classes.includes('mcp')) prepared.classes.push('mcp')
     if (attached) {
       // with MCP servers ("All AI calls"): the beta request, a paused turn resumed; the answer is the text after the last tool call
       const turn: BetaMessageParam[] = [{ role: 'user', content: prompt }]

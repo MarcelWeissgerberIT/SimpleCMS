@@ -98,7 +98,10 @@ import { FileStack, ListPlus } from 'lucide-react'
 import { listItemsIn, openTurnIntoList } from '../kit'
 import { itemCount, pagesPerItem } from '../../editor'
 import { requestIntent } from './intent'
-import { AI_MODELS, AIError, aiErrorText, isAIDemo, onAIDemo, resolveModel, setAIDemo, verifyKey } from './client'
+import { aiWriterOf } from './core/runMeta'
+import { AI_MODELS, AIError, DEFAULT_MODEL, aiErrorText, isAIDemo, onAIDemo, resolveModel, setAIDemo, verifyKey } from './client'
+import { legacyRule } from '@/shared/ai/route'
+import type { Route } from '@/shared/ai/types'
 import { readServers } from './mcp-servers/config'
 import { callLabel, type McpCall } from './mcp-servers/activity'
 import { CodewordChip, McpSkippedNote, skippedLabel } from './mcp-servers/Codeword'
@@ -114,7 +117,7 @@ import { echoedIds, insideTaskOrTable, rangeDoc, replaceRange } from './menuItem
 import { itemsFitAt } from './transform/range'
 import { ITEM_KEYWORDS } from './transform/forms'
 import { openAgent } from './agent/state'
-import { afterBlock, captureTarget, mapTarget, type RunTarget } from './runsTarget'
+import { afterBlock, captureTarget, mapTarget, selectionMarkdown, type RunTarget } from './runsTarget'
 import { markSeen, receiptOf, removeRun, setTodbDraft, startRun, stopRun, useAIRuns, viewRun, type RunRequest } from './runs'
 import { countWords, effectiveMode, readsFor, readsShort, readsText, type RunReads } from './reads'
 import { RedoSetup, type RedoDraft } from './redo/RedoSetup'
@@ -178,20 +181,7 @@ export interface AIMenuProps {
 /* Target                                                              */
 /* ------------------------------------------------------------------ */
 
-function sliceToMarkdown(state: EditorState, from: number, to: number): string {
-  try {
-    const slice = state.doc.slice(from, to)
-    const json = slice.content.toJSON() as JSONContent[] | null
-    if (!json?.length) return ''
-    const first = slice.content.firstChild
-    const doc: JSONContent = first?.isInline ? { type: 'doc', content: [{ type: 'paragraph', content: json }] } : { type: 'doc', content: json }
-    const md = toAIMarkdown(doc).trim()
-    if (md) return md
-  } catch {
-    /* fall through */
-  }
-  return state.doc.textBetween(from, to, '\n\n', ' ')
-}
+const sliceToMarkdown = (state: EditorState, from: number, to: number): string => selectionMarkdown(state.doc, from, to)
 
 /** Scrollable ancestor of an element (or the document scroller). */
 function scrollParent(el: HTMLElement | null, short = false): HTMLElement {
@@ -338,6 +328,8 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
   }, [editor, own])
 
   const [runId, setRunId] = useState<string | null>(openRun ?? null)
+  /** the route chip: the model for this request only (null: the rules of this device / workspace decide) */
+  const [chip, setChip] = useState<Route | null>(() => (openRun ? (useAIRuns.getState().runs[openRun]?.chip ?? null) : null))
   const run = useAIRuns((s) => (runId ? (s.runs[runId] ?? null) : null))
   const receipt = run ? receiptOf(run) : null
   // an image run: its image found again (the picture is the target, not text)
@@ -534,11 +526,11 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
 
   /** A request becomes a background run (it replaces the panel's current run: Retry, Revise). */
   const start = useCallback(
-    (req: RunRequest, tg?: RunTarget) => {
+    (req: RunRequest, tg?: RunTarget, pick?: Route | null) => {
       stickRef.current = true
       setConvertIssue(null)
       convertingRef.current = false
-      const id = startRun({ editor, pageId, req, target: tg ?? targetRef.current, replaces: runId })
+      const id = startRun({ editor, pageId, req, target: tg ?? targetRef.current, replaces: runId, chip: pick === undefined ? chip : pick })
       setRunId(id)
       setQuery('')
       setActive(0)
@@ -548,8 +540,15 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
       if (view === 'memory' || view === 'memhist' || view === 'transform' || view === 'more') setView('actions')
       makeRoom(req.kind === 'transform' ? TRANSFORM_ROOM : req.kind === 'file' && isStructuredAction(req.action) ? FILE_ROOM : true)
     },
-    [editor, pageId, runId, makeRoom, view],
+    [editor, pageId, runId, makeRoom, view, chip],
   )
+
+  /** "Ask Claude": the refused request once more, with Claude as its route (this request only — a codeword's server). */
+  const askClaude = () => {
+    if (!run) return
+    const s = useWorkspace.getState().settings
+    start(run.req, undefined, { p: 'anthropic', m: legacyRule(s.aiModel, true)[0]?.m ?? DEFAULT_MODEL })
+  }
 
   /** Stop: the request ends; text that arrived stays as the result. */
   const stop = () => {
@@ -724,7 +723,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
     const below = () => (tasks ? itemSafePoint(editor.state.doc, insertionPoint(tg)) : insertionPoint(tg))
     // Claude's result is its own undo step (also in a shared page, where Y undo merges by time) — and the AI run's
     // write, handed to the store at once (store/writer.ts: editAs)
-    editAs(editor, { kind: 'ai', run: run.id, action: 'accept' }, () => {
+    editAs(editor, aiWriterOf(run, 'accept'), () => {
       startUndoStep(editor.view)
       const chain = editor
         .chain()
@@ -772,7 +771,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
     const { doc } = editor.state
     const at = !tg.lost && tg.from <= doc.content.size ? doc.nodeAt(tg.from) : null
     // media from the run's answer, saved by the person's click: the run's write (store/writer.ts)
-    editAs(editor, { kind: 'ai', run: runId ?? newId(), action: 'media' }, () => {
+    editAs(editor, aiWriterOf(runId ? useAIRuns.getState().runs[runId] : null, 'media', runId ?? newId()), () => {
       startUndoStep(editor.view)
       const chain = editor
         .chain()
@@ -793,7 +792,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
     const range: BlockRange | null = !tg.lost && tg.todb && sameBlocks(editor.state.doc, tg.todb, run.table.blocks) ? tg.todb : null
     convertingRef.current = true
     try {
-      await convertToDatabase(editor, pageId, range, run.table, run.table.draft, { writer: { kind: 'ai', run: run.id, action: 'todb' } })
+      await convertToDatabase(editor, pageId, range, run.table, run.table.draft, { writer: aiWriterOf(run, 'todb') })
       removeRun(run.id)
       onClose()
     } catch (e) {
@@ -2323,7 +2322,12 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
                     {t('features.ai.bg.lostTodb')}
                   </p>
                 )}
-                {error && <ErrorNote error={error} model={model.name} />}
+                {error && <ErrorNote error={error} model={runError?.label ?? model.name} message={runError?.message} onAskClaude={runError?.fix?.kind === 'askClaude' ? askClaude : undefined} />}
+                {!!run?.notes?.length && (
+                  <p className="ai-lost ai-ask" role="note" data-testid="ai-run-notes">
+                    {run.notes.map((n) => t(`features.ai.prov.note.${n}`)).join(' ')}
+                  </p>
+                )}
                 {interrupted && (
                   <div className="ai-error" role="alert">
                     <span className="ai-error__code label">ERR · INTERRUPTED</span>
@@ -2521,13 +2525,18 @@ function McpChips({ calls }: { calls: McpCall[] }) {
   )
 }
 
-function ErrorNote({ error, model }: { error: AIError; model: string }) {
+function ErrorNote({ error, model, message, onAskClaude }: { error: AIError; model: string; message?: string; onAskClaude?: () => void }) {
   const t = useT()
   const detail = error.code === 'bad_request' || error.code === 'unknown' || error.code === 'mcp' ? (error.detail ?? '') : ''
   return (
     <div className="ai-error" role="alert">
       <span className="ai-error__code label">ERR · {error.code.toUpperCase()}</span>
-      <p>{aiErrorText(error.code, { model, detail, server: error.server })}</p>
+      <p>{message ?? aiErrorText(error.code, { model, detail, server: error.server })}</p>
+      {onAskClaude && (
+        <button type="button" className="btn btn--sm" onClick={onAskClaude} data-testid="ai-ask-claude">
+          {t('features.ai.prov.codeword.askClaude')}
+        </button>
+      )}
       {(error.code === 'outdated' || error.code === 'reload') && (
         <button type="button" className="btn btn--sm" onClick={() => window.location.reload()}>
           {t('features.ai.reload')}

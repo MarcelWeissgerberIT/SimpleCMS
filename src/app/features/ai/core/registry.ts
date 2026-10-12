@@ -5,55 +5,24 @@
  * (caps they all share, the lowest context and answer cap, the most expensive row as its stated price bound).
  */
 import type { Caps, ModelInfo, PriceRow, Route, ShortlistRow } from '@/shared/ai/types'
-import { labelOf, modelRow, providerLabel, shortOfLabel, vendorOf } from '@/shared/ai/models'
-import { DYNAMIC_BOUND, boundOf, boundRow } from '@/shared/ai/prices'
-import { JEV_TIERS, isJevRouter } from '@/shared/ai/jev'
+import { labelOf, modelRow, providerLabel } from '@/shared/ai/models'
+import { DYNAMIC_BOUND, boundRow } from '@/shared/ai/prices'
+import { isJevRouter } from '@/shared/ai/jev'
 import { useWorkspace } from '../../../store/store'
+import { routerView, shortlistInfo } from './pool'
+
+export { poolCaps, routerView, shortlistInfo } from './pool'
 
 /** This device's OpenRouter shortlist (≤ 24 rows; the router is never one of them). */
 export const shortlist = (): ShortlistRow[] => (useWorkspace.getState().settings.ai?.models ?? []).filter((r) => !isJevRouter(r.m))
 
 const row = (m: string): ShortlistRow | null => shortlist().find((r) => r.m === m) ?? null
 
-/** A shortlist row as a model view. */
-function shortlistInfo(route: Route, r: ShortlistRow): ModelInfo {
-  return { route, label: r.label, short: shortOfLabel(r.label), vendor: vendorOf(route), caps: r.caps, price: r.price }
-}
-
-/** The caps every pool model shares (the router may send to any of them). */
-export function poolCaps(pool: readonly Caps[]): Caps {
-  const all = (f: (c: Caps) => boolean) => pool.length > 0 && pool.every(f)
-  const min = (f: (c: Caps) => number) => (pool.length ? Math.min(...pool.map(f)) : 0)
-  const vision = all((c) => !!c.vision) ? { maxEdge: min((c) => (c.vision ? c.vision.maxEdge : 0)), maxBytes: min((c) => (c.vision ? c.vision.maxBytes : 0)) } : false
-  const pdf = all((c) => !!c.pdf) ? { maxBytes: min((c) => (c.pdf ? c.pdf.maxBytes : 0)), maxPages: min((c) => (c.pdf ? c.pdf.maxPages : 0)) } : false
-  return {
-    structured: all((c) => c.structured),
-    tools: all((c) => c.tools),
-    vision,
-    pdf,
-    mcp: false,
-    mcpListing: false,
-    cache: 'auto',
-    // on a router route the effort IS the cost tier (never sent as reasoning effort)
-    effort: [...JEV_TIERS],
-    reasoning: false,
-    web: false,
-    notes: pool.some((c) => c.notes),
-    refusalFallback: false,
-    context: min((c) => c.context) || 1,
-    maxOutput: min((c) => c.maxOutput) || 1,
-  }
-}
-
 /**
  * The Jev Router's view for a pool (shortlist ids): caps they all share, the bound of the most expensive pool row
  * (D-S2-24). An empty pool: no caps worth sending to (structured / tools false) and the stated bound.
  */
-export function routerInfo(route: Route, pool: readonly string[]): ModelInfo {
-  const rows = pool.map(row).filter((r): r is ShortlistRow => !!r)
-  const price = rows.length ? boundOf(rows) : boundRow({ input: DYNAMIC_BOUND.input, output: DYNAMIC_BOUND.output, cacheRead: DYNAMIC_BOUND.input, cacheWrite: DYNAMIC_BOUND.input })
-  return { route, label: 'Jev Router', short: 'JEV ROUTER', vendor: '*', caps: poolCaps(rows.map((r) => r.caps)), price }
-}
+export const routerInfo = (route: Route, pool: readonly string[]): ModelInfo => routerView(route, pool.map(row).filter((r): r is ShortlistRow => !!r))
 
 /** The model view of a route (null: unknown here — a gone shortlist model, a wrong id: 'model_gone'). */
 export function modelInfo(route: Route, pool?: readonly string[]): ModelInfo | null {

@@ -39,7 +39,10 @@ async function setup(page: Page, chat: ORStepFn[], o: { route?: Route; pool?: st
   const claude = await mockClaudeScript(page.context(), [])
   const counts = hostCounts(page)
   await openApp(page)
-  await wsEval(page, (s, a) => s.updateSettings({ aiApiKey: 'sk-ant-e2e-test-key', aiKeys: { openrouter: a.key }, ai: { models: a.rows } }), { key: OR_KEY, rows: SHORTLIST })
+  // stage B: OpenRouter may receive everything here (the workspace's shared classes, this device's member classes) — the
+  // data rules themselves are proven in ai-policy.spec; these cases are about the wire
+  await wsEval(page, (s, a) => s.updateSettings({ aiApiKey: 'sk-ant-e2e-test-key', aiKeys: { openrouter: a.key }, ai: { models: a.rows, allow: { openrouter: ['private', 'mail', 'memory', 'mcp'] } } }), { key: OR_KEY, rows: SHORTLIST })
+  await wsEval(page, (s) => s.setWorkspaceAI({ policy: { providers: { openrouter: { allow: ['public', 'structure', 'selection', 'page', 'rows', 'files', 'workspace', 'people', 'transcript'] } }, restricted: [] } }))
   if (o.seed !== false) await seedEndpoints(page, ENDPOINTS)
   await force(page, o.route ?? MODEL, o.pool)
   return { or, claude, counts }

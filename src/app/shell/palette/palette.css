@@ -550,6 +550,12 @@
 .ask__doc .doc-content > :last-child {
   margin-bottom: 0;
 }
+.ask__note {
+  margin: 0 0 8px;
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: calc(11px * var(--text-scale));
+}
 .ask__error {
   margin: 0;
   color: var(--c-red-text);

@@ -13,7 +13,7 @@ import { docToFileMarkdown } from '../../../editor'
 import { parseHash } from '../../../lib/router'
 import { newId } from '../../../lib/ids'
 import { t } from '../../../i18n'
-import { retrieve, workspaceDocs } from '../workspace'
+import { docForRoute, retrieve, workspaceDocs } from '../workspace'
 import { coerceProperties, coerceProperty, findProp, isSettable, mergeProps } from './props'
 import { canBeKey, isHandOnly, keyPropOf, keyText } from '../../../store/keys'
 import { holderText, intentValue, keyConflict, keyHolders, type KeyHolder } from './keys'
@@ -21,6 +21,8 @@ import { keepsSingle, knownOf, planEdits, readWithRefs, settlesItems, stripRefs,
 import type { ChangeKind, ColumnSpec, ColumnType, PropChange, StagedChange, ToolName } from './types'
 import { SCRIPT_REFERENCE } from '../../script/reference'
 import { currentReadLimit, currentToolScope, LIMITED_NOTE, ToolInputError } from './toolScope'
+import { currentShape } from '../core/shape'
+import { rowFactsFor } from '../rowFacts'
 import { commitItems, itemsWithNeeds, listWorkItems, pagePrivate, registerChange, registerItems, scratchSession, stageBlocks, stageItems, stagedPrivacy, updateWorkItem, withNeeds, type ItemSession, type ItemStaging } from './workItems'
 
 /* ------------------------------------------------------------------ */
@@ -166,6 +168,12 @@ function rowFacts(db: Database, row: Page): Record<string, string> {
   // its record type (database/model/recordTypes) — just the name
   const rt = typeOfRow(row, useWorkspace.getState().kit)
   if (rt) out.recordType = rt.name
+  // a route that does not see everything (core/shape.ts): the fields as it may read them (people, unseen relations)
+  const shape = currentShape()
+  if (shape) {
+    for (const f of rowFactsFor(db, row, { shape, visible: shape.o.visible ?? (() => true) })) out[f.name] = f.value.length > 300 ? `${f.value.slice(0, 297)}…` : f.value
+    return out
+  }
   for (const prop of db.properties) {
     if (prop.type === 'title') continue
     let v = ''
@@ -319,7 +327,9 @@ const searchPages: AgentTool = {
       const l = lim(d.id)
       return l ? { ...d, text: l.plain } : d
     })
-    const hits = retrieve(query, docs, limit)
+    // a route that does not see everything: snippets from each hit as built for it (never the page's plain text)
+    const shape = currentShape()
+    const hits = shape ? retrieve(query, docs, limit).map((d) => docForRoute(d, { shape, visible: shape.o.visible ?? (() => true) })) : retrieve(query, docs, limit)
     if (!hits.length) return { content: `No pages match ${q(query)}. Try other keywords, or list_databases for databases.`, summary: t('features.agent.res.results', { count: 0 }), state: 'ok' }
     const { pages } = ws()
     const lines = hits.map((h) => {

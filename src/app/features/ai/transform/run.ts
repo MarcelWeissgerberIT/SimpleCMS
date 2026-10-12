@@ -18,7 +18,9 @@
 import type { JSONContent } from '@tiptap/core'
 import type { Node as PMNode } from '@tiptap/pm/model'
 import { completeStructured } from '../client'
-import type { SourceRef } from '@/shared/ai/types'
+import type { Route, SourceRef } from '@/shared/ai/types'
+import { precheck, type Prepared } from '../core/gate'
+import { routed, shapeOf, withShape } from '../core/shape'
 import { blockGist, readBlocks, type BlockRange, type ResolvedBlocks, type SourceBlock } from '../todb/plan'
 import { requestTable, TodbError } from '../todb/run'
 import { requestFreeBoard } from '../freeboard/apply'
@@ -49,6 +51,8 @@ export interface TransformRunRequest {
 export interface TransformRunOptions {
   /** the page the selected blocks are on (the request's sources) */
   sources: readonly SourceRef[]
+  /** the route chip (this request only) — else the rules decide */
+  route?: Route | null
   pageTitle?: string
   signal?: AbortSignal
   /** the state so far (Auto's choice, the form being asked) — the preview shows it while the request runs */
@@ -56,9 +60,9 @@ export interface TransformRunOptions {
 }
 
 /** What every request of a transform carries along (prompt options + the gate's purpose inputs). */
-type Ask = { pageTitle?: string; instruction?: string; signal?: AbortSignal; sources: readonly SourceRef[] }
-/** The gate's inputs of a transform request (features/ai/core). */
-const gate = (ask: Ask) => ({ purpose: 'structure.transform' as const, sources: ask.sources, typed: ask.instruction })
+type Ask = { pageTitle?: string; instruction?: string; signal?: AbortSignal; sources: readonly SourceRef[]; route?: Route | null; pre?: Prepared }
+/** The gate's inputs of a transform request (features/ai/core) — the route its blocks were read for. */
+const gate = (ask: Ask) => ({ purpose: 'structure.transform' as const, sources: ask.sources, typed: ask.instruction, ...(ask.pre ? routed(ask.pre) : {}) })
 
 const clone = (s: TransformState): TransformState => ({ ...s, results: { ...s.results }, opts: { ...s.opts } })
 
@@ -66,10 +70,12 @@ export async function runTransform(doc: PMNode, range: BlockRange, req: Transfor
   const state = prev ? clone(prev) : emptyState()
   if (req.diagram) state.opts.diagram = req.diagram
   if (req.columns !== undefined) state.opts.columns = req.columns
-  const source = readBlocks(doc, range)
+  // the route first: the selected blocks are read for it (names / pages it may not see left out — core/shape.ts)
+  const pre = precheck({ purpose: 'structure.transform', sources: opts.sources, typed: req.instruction, route: opts.route ?? null })
+  const source = withShape(shapeOf(pre), () => readBlocks(doc, range))
   if (!source) throw new TodbError('changed')
   const fits = fitsAt(doc, range)
-  const ask: Ask = { pageTitle: opts.pageTitle, instruction: req.instruction, signal: opts.signal, sources: opts.sources }
+  const ask: Ask = { pageTitle: opts.pageTitle, instruction: req.instruction, signal: opts.signal, sources: opts.sources, route: opts.route ?? null, pre }
 
   let type: TransformType
   if (req.pick === 'auto') {
@@ -116,10 +122,11 @@ async function requestResult(doc: PMNode, range: BlockRange, source: ResolvedBlo
   const base = { blocks: source.blocks.map((b) => b.node.toJSON() as JSONContent), gists: source.blocks.map((b) => blockGist(b.node)) }
   if (type === 'diagram') return diagram(source.blocks, state, ask, base)
   if (type === 'items') {
-    // the people's names go along with this form only (≤ 200, never an email)
+    // the people's names go along with this form only (≤ 200, never an email) — refused where names may not go
+    precheck({ ...gate(ask), carries: ['people'] })
     const names = peopleNamesOf(useWorkspace.getState().people)
     const p = itemsPrompt(source.blocks, names, ask)
-    const raw = await completeStructured({ ...gate(ask), system: p.system, prompt: p.prompt, schema: p.schema, maxTokens: 12000, signal: ask.signal })
+    const raw = await completeStructured({ ...gate(ask), carries: ['people'], system: p.system, prompt: p.prompt, schema: p.schema, maxTokens: 12000, signal: ask.signal })
     const got = parseItems(raw, source.blocks)
     if (!got) throw new TransformError('bad')
     if (!got.items.length) throw new TransformError('few')

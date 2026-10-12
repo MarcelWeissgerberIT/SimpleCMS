@@ -12,8 +12,9 @@ import { propertyValueToText } from '../../database'
 import { localized } from '../../store/integrations'
 import { readableContent } from '../../editor'
 import { completeStructured, AIError } from '../ai/client'
-import { chosenRoute, shortOf } from '../ai/core/status'
-import { estimate } from '../governor'
+import { estimateLabel, estimateOn, routeFor } from '../ai/core/status'
+import { precheck, type Prepared } from '../ai/core/gate'
+import { routed, shapeOf, withShape } from '../ai/core/shape'
 import type { SourceRef as AISourceRef } from '@/shared/ai/types'
 import { memoryRef } from '../ai/core/refs'
 import { memoryFor, noteUse } from '../ai/memory'
@@ -57,10 +58,23 @@ interface Built {
   max: number
   /** the row as this request reads it — the slip's baseline (a comment arriving while Claude drafts lights CHANGED) */
   baseline: NonNullable<Slip['baseline']>
+  /** the route the text was built for (precheck — absent: an estimate, nothing is sent) */
+  pre?: Prepared
 }
 
-/** The request for a row: system text, prompt, and the sources it holds (judged here). */
-export function buildDraft(route: SendRoute, rowId: ID, profile: Pick<IntegrationProfile, 'id' | 'name' | 'recipes'>, instruction: string, mentions: ID[], server: string): Built | null {
+/**
+ * The request for a row: system text, prompt, and the sources it holds (judged here). `pre`: the route it is built for —
+ * the pages' Markdown inside its request-text scope (core/shape.ts; the identity for Claude without rules).
+ */
+export function buildDraft(route: SendRoute, rowId: ID, profile: Pick<IntegrationProfile, 'id' | 'name' | 'recipes'>, instruction: string, mentions: ID[], server: string, pre?: Prepared): Built | null {
+  const built = withShape(pre ? shapeOf(pre) : null, () => buildDraftText(route, rowId, profile, instruction, mentions, server))
+  return built && pre ? { ...built, pre } : built
+}
+
+/** The route the draft of a row goes to (the gate's precheck: newer rules, a key typed, the data rule). */
+const draftRoute = (rowId: ID, instruction: string): Prepared => precheck({ purpose: 'outbox.draft', sources: [{ row: rowId }], typed: instruction })
+
+function buildDraftText(route: SendRoute, rowId: ID, profile: Pick<IntegrationProfile, 'id' | 'name' | 'recipes'>, instruction: string, mentions: ID[], server: string): Built | null {
   const roles = recipeRoleNames(profile)
   const s = useWorkspace.getState()
   const row = s.pages[rowId]
@@ -139,7 +153,9 @@ const SCHEMA = { type: 'object', properties: { text: { type: 'string' } }, requi
 
 /** One draft request (no MCP, no tools). Resolves with the text and its cost. */
 async function ask(built: Built, instruction: string, signal?: AbortSignal): Promise<{ text: string; usd: number; memory: string }> {
-  const memory = memoryFor(instruction || built.prompt.slice(0, 400))
+  // the One memory only where the route may receive it (D-S2-29)
+  const found = memoryFor(instruction || built.prompt.slice(0, 400))
+  const memory = !built.pre || built.pre.allows('memory') ? found : { block: '', use: null }
   let usd = 0
   const raw = await completeStructured({
     purpose: 'outbox.draft',
@@ -152,6 +168,8 @@ async function ask(built: Built, instruction: string, signal?: AbortSignal): Pro
     signal,
     mcp: false,
     onUsage: (u) => (usd += u.usd ?? 0),
+    ...(built.pre ? routed(built.pre) : {}),
+    carries: memory.block ? ['memory'] : [],
   })
   let text: string
   try {
@@ -187,7 +205,13 @@ export async function draftSlip(i: DraftInput): Promise<DraftResult> {
   if (!textParam(r.route)) return { refused: 'param', detail: 'draft' }
   const roles = recipeRoleNames(r.profile)
   const instruction = (i.instruction ?? '').trim()
-  const built = buildDraft(r.route, i.rowId, r.profile, instruction, i.mentions ?? [], r.server.name)
+  let pre: Prepared
+  try {
+    pre = draftRoute(i.rowId, instruction)
+  } catch (e) {
+    return { refused: 'ai', detail: (e as Error)?.message || String(e) }
+  }
+  const built = buildDraft(r.route, i.rowId, r.profile, instruction, i.mentions ?? [], r.server.name, pre)
   if (!built) return { refused: 'noKey' }
   const key = draftKey(i.route, i.rowId)
   setDrafting(key, { key, dbId: row.databaseId, rowId: i.rowId, rowKey: readRow(i.rowId, roles)?.key ?? '', label: localized(r.route.label, currentLang()) || r.route.id, startedAt: Date.now(), ...(i.step ? { step: i.step } : {}) })
@@ -215,7 +239,13 @@ export async function redraft(id: SlipId, signal?: AbortSignal): Promise<{ ok: t
   if ('refused' in r) return { ok: false, detail: r.refused }
   const mentions = slip.sources.filter((x) => x.kind === 'page').map((x) => x.ref)
   const instruction = slip.instruction ?? ''
-  const built = buildDraft(slip.route.snapshot, slip.target.rowId, r.profile, instruction, mentions, slip.target.serverName)
+  let pre: Prepared
+  try {
+    pre = draftRoute(slip.target.rowId, instruction)
+  } catch (e) {
+    return { ok: false, detail: (e as Error)?.message || String(e) }
+  }
+  const built = buildDraft(slip.route.snapshot, slip.target.rowId, r.profile, instruction, mentions, slip.target.serverName, pre)
   if (!built) return { ok: false, detail: 'noKey' }
   const key = draftKey({ profileId: slip.route.profileId, routeId: slip.route.routeId }, slip.target.rowId)
   setDrafting(key, { key, dbId: slip.target.dbId, rowId: slip.target.rowId, rowKey: slip.target.key, label: localized(slip.route.label, currentLang()), startedAt: Date.now() })
@@ -241,8 +271,8 @@ export function estimateDraft(route: RouteRef, rowId: ID, instruction: string, m
   if ('refused' in r) return null
   const built = buildDraft(r.route, rowId, r.profile, instruction, mentions, r.server.name)
   if (!built) return null
-  const ai = chosenRoute()
+  const ai = routeFor('outbox.draft')
   const output = Math.min(2000, Math.ceil(built.max / 8) + 200)
-  const band = estimate(ai, { promptChars: built.system.length + built.prompt.length, outTokens: output, maxTokens: output })
-  return { model: shortOf(ai), usd: band?.low ?? 0 }
+  const band = estimateOn(ai, { promptChars: built.system.length + built.prompt.length, outTokens: output, maxTokens: output })
+  return { model: estimateLabel(ai.route, ai.pool), usd: band?.low ?? 0 }
 }

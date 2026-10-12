@@ -12,9 +12,11 @@ import type { ID } from '../../../store/types'
 import { t } from '../../../i18n'
 import { AIError } from '../client'
 import { precheck } from '../core/gate'
+import { appliedOf } from '../core/shape'
+import { mayReceive } from '../core/status'
 import { looksLikeKey, scrubSecrets } from '@/shared/ai/keys'
 import { useCloud } from '../../../cloud'
-import { attachMcp, codewordTask, codewordsIn, currentSetup, readServers, refusedNames, setupKey, type McpSetup } from '../mcp-servers/config'
+import { attachMcp, codewordTask, codewordsIn, currentSetup, mcpNames, readServers, refusedNames, setupKey, type McpSetup } from '../mcp-servers/config'
 import { applyChanges, type ApplyResult } from './apply'
 import { agentSystemText, runAgent, taskMessage, TASK_RULES, type RunHooks } from './run'
 import { canCreateItems, warmMembers } from '../../workitems'
@@ -315,7 +317,8 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
     ...(pageId ? { page: `${useWorkspace.getState().pages[pageId]?.title.trim() || t('common.untitled')}${suffix ? ` · ${suffix}` : ''}` } : {}),
   }
   // the One memory: the memories that fit this task go along (/no-memory: none; a continuation: they went along already)
-  const mem = prevTurn ? { use: null, block: '' } : memoryFor(task, { off: opts.noMemory || get().memOffNext })
+  // the One memory goes along only where the route may receive it (D-S2-29; the terminal runs on Claude in S2)
+  const mem = prevTurn || !mayReceive('terminal.task', 'memory') ? { use: null, block: '' } : memoryFor(task, { off: opts.noMemory || get().memOffNext })
   const memShown = prevTurn ? prevTurn.memory : (mem.use ?? undefined)
   const text = mem.block ? `${context(refs, mentions)}\n\n${mem.block}` : context(refs, mentions)
   const prepared = prepareTask(task)
@@ -457,8 +460,11 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
   const sources = [{ all: true as const }, ...(pageId ? [{ page: pageId }] : []), ...refs.map((r) => ({ page: r.pageId })), ...mentions.map((m) => ({ page: m.id }))]
   const attempt = async () => {
     // the gate first (newer AI rules, a key in the task …): nothing is attached or loaded when it refuses
-    precheck({ purpose: 'terminal.task', sources, typed: task })
-    const mcp = setup.servers.length ? await attachMcp(setup, 'free', { forced }) : null
+    const pre = precheck({ purpose: 'terminal.task', sources, typed: task })
+    // a route that may not receive MCP (a data rule): no server joins, each is said
+    const mcpOk = pre.allows('mcp')
+    if (!mcpOk) for (const name of mcpNames(setup, 'free', forced)) note(t('features.ai.mcp.cw.note.policy', { server: name }))
+    const mcp = setup.servers.length && mcpOk ? await attachMcp(setup, 'free', { forced }) : null
     const left = refusedNames(setup, 'free', forced)
     for (const name of left) note(t('features.ai.mcp.cw.note.refused', { server: name }))
     // servers left out because they rejected their token: the terminal offers a sign-in under the task
@@ -478,6 +484,9 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
       hooks,
       mcp,
       readLimit: terminalReadLimit,
+      // the tool reads are built for the route (run.ts); references were read before the route was known — with them a
+      // route that does not see everything is refused (the gate's backstop)
+      applied: refs.length ? null : appliedOf(pre),
       // the coding pipelines' and the One memory's tools and rules (pinned per conversation: the prompt prefix stays the same)
       tools: tooling.tools,
       system: tooling.system,

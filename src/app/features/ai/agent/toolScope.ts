@@ -68,10 +68,13 @@ export function withReadLimit<T>(limit: ((id: ID) => ReadLimit | null) | null, f
 
 export const LIMITED_NOTE = 'The person limited what you may read on this page'
 
-/** Run `fn` (a tool call) seeing only the pages `filter` lets through. */
+/**
+ * Run `fn` (a tool call) seeing only the pages `filter` lets through — within any scope already open (an agent's scope
+ * inside the pages its route may see: both hold; null keeps the scope open around it).
+ */
 export function withToolScope<T>(filter: ((id: ID) => boolean) | null, fn: () => T): T {
   const prev = visible
-  visible = filter
+  visible = prev && filter ? (id) => prev(id) && filter(id) : (filter ?? prev)
   try {
     return fn()
   } finally {

@@ -665,8 +665,9 @@ test.describe('the ledger: one entry per response, every engine', () => {
     await page.waitForTimeout(300)
     const entries = await ledger(page)
     expect(entries.map((e) => e.purpose)).toEqual(['help.ask', 'setup.test'])
+    // the help's text is public; the key test's fixed sentence is no workspace data at all (D-S2-6)
+    expect(entries.map((e) => e.classes)).toEqual([['public'], []])
     for (const e of entries) {
-      expect(e.classes).toEqual(['public'])
       expect(e.costSource).toBe('table')
       expect(e.served.model).toBe('claude-opus-5-5')
     }

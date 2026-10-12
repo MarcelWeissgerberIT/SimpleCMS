@@ -992,6 +992,17 @@
   text-transform: uppercase;
   color: var(--tp-ink-3);
 }
+.win__via {
+  margin: -4px 0 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  letter-spacing: 0.02em;
+  color: var(--tp-ink-2);
+}
 .mtrs {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

@@ -13,7 +13,7 @@ import { useEffect, useId, useState } from 'react'
 import { create } from 'zustand'
 import type { AutofillConfig, Database, ID, Page, PropertyDef, PropertyValue } from '../../store/types'
 import { useWorkspace } from '../../store/store'
-import { endRun, noteRun, SYSTEM, withWriter, type Writer } from '../../store/writer'
+import { endRun, noteRun, SYSTEM, withWriter, type RunMeta, type Writer } from '../../store/writer'
 import { newId } from '../../lib/ids'
 import { useUI } from '../../store/ui'
 import { t } from '../../i18n'
@@ -71,6 +71,8 @@ export interface Proposal {
   hash: string
   /** applied: the value it replaced (for undo) */
   prev?: PropertyValue
+  /** the AI route that answered (route keys only — the recorder's run meta) */
+  ai?: Pick<RunMeta, 'ai' | 'aiAlso'>
 }
 
 export interface Job {
@@ -200,7 +202,7 @@ export async function fillRow(dbId: ID, propId: ID, rowId: ID, signal: AbortSign
     if (!answer.ok) return { ...base, status: 'error', error: t('database.autofill.err.json') }
     const c = coerceAnswer(prop, cfg, answer.value)
     if (!c.ok) return { ...base, status: 'error', error: c.error }
-    return { ...base, status: sameValue(prop, base.current, c) ? 'same' : 'pending', value: c.value, names: c.names, newNames: c.newNames }
+    return { ...base, status: sameValue(prop, base.current, c) ? 'same' : 'pending', value: c.value, names: c.names, newNames: c.newNames, ...(answer.ai ? { ai: answer.ai } : {}) }
   } catch (e) {
     const code = errCode(e)
     if (signal.aborted || code === 'aborted') throw e
@@ -214,7 +216,8 @@ export async function fillRow(dbId: ID, propId: ID, rowId: ID, signal: AbortSign
  * undefined when nothing was written (row or property gone).
  */
 export function writeProposal(dbId: ID, propId: ID, p: Proposal, writer: Writer): PropertyValue | undefined {
-  // Claude's value (and its new options) as the autofill's write (store/writer.ts)
+  // Claude's value (and its new options) as the autofill's write (store/writer.ts); the recorder learns its route
+  if (p.ai) noteRun(writer, p.ai)
   return withWriter(writer, () => writeNow(dbId, propId, p))
 }
 
