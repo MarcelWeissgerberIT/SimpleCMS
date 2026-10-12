@@ -39,6 +39,8 @@ A change to a [task](help:tasks)'s own fields — its status, due date, owners o
 
 **Apply all**, **Discard all**, Preflight's **⇧A** and **X**, agents that apply directly, the AI terminal, a Preflight card whose body was still loading and a decision the team server did not take write **nothing**. **Undo** of your decision takes its verdict back — an Undo that keeps a field you edited since takes back the verdicts of the fields it did put back.
 
+**Eject** in the [flight recorder](help:flight-recorder) is no decision on one proposal: it writes, removes and changes no verdict — what you decided before stays as it was, and a proposal it took back is no longer watched for your own edit. Its proposals read **Ejected** and have no keys any more; **Undo the eject** brings them back without a verdict either.
+
 ## The meter
 The plate **Trust per field** beside the runs (below them on a phone) shows, per field, the last 20 verdicts, oldest left — every detail is a shape, not only a colour:
 - a full green segment — applied unchanged · green with a cut foot — spot check right

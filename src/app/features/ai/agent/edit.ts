@@ -17,7 +17,7 @@ import { Transform } from '@tiptap/pm/transform'
 import { closeHistory } from '@tiptap/pm/history'
 import { useWorkspace } from '../../../store/store'
 import { useCloud } from '../../../cloud'
-import { withWriter, type Writer } from '../../../store/writer'
+import { withWriter, writerOfChanges, type Writer } from '../../../store/writer'
 import type { ID } from '../../../store/types'
 import { docSchema, docToFileMarkdown, editAs, endUndoStep, liveEditorOf, startUndoStep } from '../../../editor'
 import { claudeSettled } from '../claudeDoc'
@@ -551,7 +551,7 @@ export interface PageEditResult {
 }
 
 /** Apply edits of one page: a version first, then ONE transaction (one ⌘Z in the open editor), origin 'ai'. */
-export async function applyPageEdits(pageId: ID, changes: StagedChange[], writer: Writer, items: EditItems = DEFAULT_ITEMS): Promise<PageEditResult> {
+export async function applyPageEdits(pageId: ID, changes: StagedChange[], run: Writer, items: EditItems = DEFAULT_ITEMS): Promise<PageEditResult> {
   const none: PageEditResult = { applied: [], failed: [], undo: () => true }
   if (!useWorkspace.getState().pages[pageId]) return { ...none, failed: changes.map((c) => ({ id: c.id, error: goneNote() })) }
   await snapshotNow(pageId, 'ai')
@@ -562,6 +562,8 @@ export async function applyPageEdits(pageId: ID, changes: StagedChange[], writer
   if (!spots.length) return { ...none, failed }
   const notes: Record<string, string[]> = {}
   for (const sp of spots) if (sp.notes?.length) notes[sp.id] = sp.notes
+  // one edit written alone carries its id (an eject settles it like any other change of the run)
+  const writer = writerOfChanges(run, spots.map((sp) => sp.id))
   const prev = doc.toJSON() as JSONContent
   const invalid = () => ({ ...none, failed: [...failed, ...spots.map((s) => ({ id: s.id, error: t('features.agent.edit.invalid') }))] })
   let next: JSONContent

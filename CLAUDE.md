@@ -741,7 +741,10 @@ the public APIs stable — other areas are built against them in parallel.
   (instant from memory, else through the planner), unsettle, record `undone`. settled.ts (`markSettled` / `isSettled`,
   BroadcastChannel) + `isEjectWriter(currentWriter())`: automations, row-triggered agents, autofill, the coding trust watch
   and the attribution keeper skip an eject and its Undo. Units `<runKey>#<change>` (agent / terminal), the run key (MCP,
-  script). Preflight: ejected proposals become `discarded` + `ejected`, held ones stay applied + `held`, pending ones are
+  script); a page's edits / task changes written alone carry their change (`writerOfChanges`, store/writer.ts), several in
+  one write only the run (no unit — apply.ts keeps that part's Undo whole once any of it is settled, reported kept, nothing
+  reverted). Trust: an eject writes, voids and re-grants no verdict; `settleEjected` ends the "edited" watches of what it
+  took back (review.ts `endWatches`); ejected rows have no keys (RunHistory `undoOf`), held ones keep theirs. Preflight: ejected proposals become `discarded` + `ejected`, held ones stay applied + `held`, pending ones are
   discarded except those opened in Preflight; superseded never touched. Task block: writes only through applyRewind, never
   mints an itemId; a task living elsewhere or looping is held. Outbox: a row marked as sent is held; slips of discarded
   send proposals are withdrawn (`'origin'`) and stay withdrawn after an Undo; other slips are never touched. Coding: fields

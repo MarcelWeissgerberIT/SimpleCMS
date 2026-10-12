@@ -125,6 +125,15 @@ export function currentWriter(): Writer | null {
 
 export const SYSTEM = (why: SystemWhy): Writer => ({ kind: 'system', why })
 
+/**
+ * The writer of ONE write carrying these staged changes of a terminal batch or an agent run (a page's edits, a page's
+ * task changes): one change → that change's writer (`…#<change>`, the recorder's unit an eject settles, like any change
+ * written alone); several in one write → the run's own (no single change may claim the write). Other writers as they are.
+ */
+export function writerOfChanges(w: Writer, changes: readonly string[]): Writer {
+  return changes.length === 1 && (w.kind === 'terminal' || w.kind === 'agent') ? { ...w, change: changes[0] } : w
+}
+
 /* ------------------------------------------------------------------ */
 /* Writer keys                                                         */
 /* ------------------------------------------------------------------ */

@@ -37,7 +37,7 @@ import { getItemIndex } from '../../workitems/live'
 import { wouldLoop } from '../../workitems/graph'
 import { writeItems, type ItemEdit } from '../../workitems/write'
 import type { ItemEntry } from '../../workitems/itemIndex'
-import type { Writer } from '../../../store/writer'
+import { writerOfChanges, type Writer } from '../../../store/writer'
 import { currentReadLimit, currentToolScope, ToolInputError } from './toolScope'
 import { depsOf, type StagedChange, type StagedItemEdit, type StagedItems } from './types'
 import type { AgentTool, StageApi } from './tools'
@@ -1017,7 +1017,8 @@ export async function applyItemChanges(pageId: ID, changes: StagedChange[], ctx:
   if (!edits.length) return { applied: [], failed, undo: () => [] }
   const res = writeItems(
     edits.map((x) => x.edit),
-    { origin: 'ai', by: 'system', toasts: false, writer: ctx.writer },
+    // one change written alone carries its id (an eject settles it like any other change of the run)
+    { origin: 'ai', by: 'system', toasts: false, writer: writerOfChanges(ctx.writer, edits.map((x) => x.c.id)) },
   )
   const applied: string[] = []
   const byItem = new Map<string, string>()

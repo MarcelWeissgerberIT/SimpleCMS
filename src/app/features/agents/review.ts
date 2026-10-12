@@ -506,13 +506,25 @@ export function forgetUndos(runId: string, changeIds: readonly string[]): void {
 }
 
 /**
+ * Per-field trust and an eject: the `accept` verdicts of the changes it took back stay as the person gave them (an eject
+ * is no decision on ONE proposal — it writes, voids and re-grants nothing), but their "edited" watches end: the value
+ * they watch is no longer the agent's, so the person's next edit there says nothing about the proposal.
+ */
+function endWatches(runId: string, changeIds: readonly string[]): void {
+  const ids = changeIds.flatMap((id) => judged.get(rowKey(runId, id))?.map((v) => v.id) ?? [])
+  if (ids.length) unwatch(ids)
+}
+
+/**
  * An eject settles the run's review (call ONLY inside withRunLock(run.agentId), never nested; `cur` read in it):
  * `ejected` applied changes → discarded + `ejected` (never pending: Apply must not offer them again); `held` ones stay
  * applied + `held`; open proposals that build on an ejected one → discarded; with `discardPending` the run's other
  * open proposals too — except those Preflight's supersede guard calls opened (true) or cannot tell yet (null): they
  * stay. Superseded proposals are never touched. `applied` counts down; row ids stay. Their Undo closures go
- * (forgetUndos, forgetRunUndo). Then, every change discarded, the agent state goes back (stateBack). Resolves with the
- * run as stored, the ids it discarded (not the ejected ones), the slips of `send` proposals among them, the state put back.
+ * (forgetUndos, forgetRunUndo), their trust watches end (endWatches — no verdict is written, voided or changed: nothing
+ * it discards is a decision of the person). Then, every change discarded, the agent state goes back (stateBack).
+ * Resolves with the run as stored, the ids it discarded (not the ejected ones), the slips of `send` proposals among
+ * them, the state put back.
  */
 export async function settleEjected(
   cur: AgentRun,
@@ -550,6 +562,7 @@ export async function settleEjected(
   const run = (await patchRun(cur.agentId, cur.id, patch)) ?? patch(cur)
   forgetUndos(cur.id, [...out])
   forgetRunUndo(cur.id)
+  endWatches(cur.id, [...out])
   const slips = all.filter((c) => drop.has(c.id) && c.send?.slipId).map((c) => c.send!.slipId)
   return { run, discarded: [...drop], slips, state: back ? { wrote: back.wrote, replaced: back.replaced } : null }
 }

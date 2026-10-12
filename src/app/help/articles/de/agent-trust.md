@@ -39,6 +39,8 @@ Eine Änderung an den Feldern einer [Aufgabe](help:tasks) — Status, Termin, Ve
 
 **Alle übernehmen**, **Alle verwerfen**, **⇧A** und **X** in Preflight, Agenten, die direkt anwenden, das KI-Terminal, eine Preflight-Karte, deren Inhalt noch lud, und eine Entscheidung, die der Team-Server nicht angenommen hat, schreiben **nichts**. **Rückgängig** deiner Entscheidung nimmt ihr Urteil zurück — ein Rückgängig, das ein inzwischen von dir bearbeitetes Feld stehen lässt, nimmt die Urteile der Felder zurück, die es zurückgesetzt hat.
 
+**Auswerfen** im [Flugschreiber](help:flight-recorder) ist keine Entscheidung über einen Vorschlag: Es schreibt, löscht und ändert kein Urteil — was du vorher entschieden hast, bleibt, wie es war, und ein Vorschlag, den es zurückgenommen hat, wird nicht mehr auf deine eigene Änderung beobachtet. Seine Vorschläge heißen **Ausgeworfen** und haben keine Tasten mehr; **Auswurf zurücknehmen** bringt sie zurück, ebenfalls ohne Urteil.
+
 ## Die Messleiste
 Die Platte **Vertrauen pro Feld** neben den Läufen (auf dem Telefon darunter) zeigt pro Feld die letzten 20 Urteile, das älteste links — jedes Detail ist eine Form, nicht nur eine Farbe:
 - ein volles grünes Segment — unverändert übernommen · grün mit abgesetztem Fuß — Stichprobe stimmt
