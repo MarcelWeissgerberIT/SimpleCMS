@@ -54,8 +54,12 @@ import { endRun, noteRun, withWriter, type Writer } from '../../store/writer'
 import { memoryRef } from '../ai/core/refs'
 import { precheck } from '../ai/core/gate'
 import { appliedOf } from '../ai/core/shape'
-import type { SourceRef } from '@/shared/ai/types'
+import type { DataClass, SourceRef } from '@/shared/ai/types'
 import { labelOf } from '@/shared/ai/models'
+import { decisionChecks } from '@/shared/ai/route'
+import { DATA_CLASSES } from '@/shared/ai/policy'
+import { classOfPage, type SourceWorld } from '../ai/core/sources'
+import { idsIn } from '../ai/agent/toolScope'
 import { addToLines } from '../ai/core/meter'
 import { stepText } from '../ai/Receipt'
 
@@ -67,6 +71,20 @@ function agentSources(agent: CustomAgent, rows: readonly ID[], memoryBlock: stri
   out.push(...memoryRef(memoryBlock))
   // a scope with nothing in it still reads the workspace's structure (list_databases)
   return out.length ? out : [{ all: true }]
+}
+
+/**
+ * What a run's tools returned to Claude, as data classes (slice SJ: a pre-check of its proposals declares them): the
+ * pages the results named (and the trigger's rows), MCP results, the memory that went along.
+ */
+function touchedClasses(ids: Iterable<ID>, o: { mcp: boolean; memory: boolean }): DataClass[] {
+  const s = useWorkspace.getState()
+  const w: SourceWorld = { pages: s.pages, databases: s.databases, mailDb: s.settings.mail?.databaseId ?? null, memo: new Map() }
+  const out = new Set<DataClass>()
+  for (const id of ids) for (const c of classOfPage(id, w)) out.add(c)
+  if (o.mcp) out.add('mcp')
+  if (o.memory) out.add('memory')
+  return DATA_CLASSES.filter((c) => out.has(c))
 }
 
 /* ------------------------------------------------------------------ */
@@ -291,6 +309,7 @@ async function runOnce(agent: CustomAgent, req: RunRequest): Promise<AgentRun> {
   const usage: Required<AgentRunUsage> = { input: 0, output: 0, cacheRead: 0, usd: 0, byModel: [] }
   const ac = new AbortController()
   let overBudget = false
+  let mcpUsed = false
   /** a response without a price: the budget cannot be held (the model's label) */
   let noPrice: string | null = null
   let answer = ''
@@ -299,6 +318,11 @@ async function runOnce(agent: CustomAgent, req: RunRequest): Promise<AgentRun> {
   let toolSeq = 0
   const mcpSteps = new Map<string, number>()
   let memory: ReturnType<typeof memoryFor> | null = null
+  // a Vorprüfer (slice SJ): what the tools returned is recorded — the classes its checks declare (the run's `touched`)
+  const checks = decisionChecks(agent)
+  const reads = new Set<ID>()
+  const own = (id: string) => Object.prototype.hasOwnProperty.call(useWorkspace.getState().pages, id)
+  const read = checks && checks !== 'unreadable' ? (content: string) => idsIn(content, own, reads) : undefined
 
   const hooks: RunHooks = {
     toolStart(name, arg) {
@@ -354,6 +378,7 @@ async function runOnce(agent: CustomAgent, req: RunRequest): Promise<AgentRun> {
       void save()
     },
     mcp(call) {
+      mcpUsed = true
       const label = `${callLabel(call)}${call.arg ? ` · ${call.arg}` : ''}`
       const i = mcpSteps.get(call.id)
       if (i === undefined) mcpSteps.set(call.id, step({ kind: 'mcp', label, state: call.state === 'err' ? 'err' : 'ok' }))
@@ -400,7 +425,7 @@ async function runOnce(agent: CustomAgent, req: RunRequest): Promise<AgentRun> {
       signal: ac.signal,
       hooks,
       mcp,
-      tools: [...agentTools(agent, { upsert: unlocks.upsert }), ...(memory.use ? [recallTool] : []), ...runTools(agent, extras, { notes: unlocks.notes, state: unlocks.state })],
+      tools: [...agentTools(agent, { upsert: unlocks.upsert, read }), ...(memory.use ? [recallTool] : []), ...runTools(agent, extras, { notes: unlocks.notes, state: unlocks.state })],
       system: agentSystem(agent.write, unlocks, canCreateItems()),
       model: agent.model,
       effort: agent.effort,
@@ -431,6 +456,7 @@ async function runOnce(agent: CustomAgent, req: RunRequest): Promise<AgentRun> {
     }
   }
   window.clearTimeout(saveTimer)
+  if (read) run.touched = touchedClasses([...reads, ...(req.rows ?? [])], { mcp: mcpUsed, memory: !!memory?.block })
 
   // what the run wrote or proposed
   if (changes.length) {

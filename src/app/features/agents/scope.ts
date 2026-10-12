@@ -14,6 +14,7 @@ import { inTemplate } from '../../store/selectors'
 import type { CustomAgent, ID, Page } from '../../store/types'
 import { useCloud } from '../../cloud'
 import { AGENT_TOOLS, ToolInputError, withToolScope, type AgentTool, type StageApi } from '../ai/agent/tools'
+import { afterRead } from '../ai/agent/toolScope'
 import { unlocked } from './integrations/status'
 
 /** The ids a tool input can point at (page_id: list_work_items' page filter). */
@@ -64,13 +65,15 @@ const isStagedCreate = (stage: StageApi, id: string) => stage.list().some((c) =>
 /**
  * The tools of an agent: the workspace agent's, without get_current_page (nobody has a page open),
  * without the writing ones for read-only agents, without upsert_rows unless an active integration profile unlocks it
- * on this device, each call checked against the scope.
+ * on this device, each call checked against the scope. `read`: every result a call returned (the run's touched pages —
+ * a Vorprüfer's classes, slice SJ).
  */
-export function agentTools(agent: Pick<CustomAgent, 'scope' | 'write'>, opts: { upsert?: boolean } = {}): AgentTool[] {
+export function agentTools(agent: Pick<CustomAgent, 'scope' | 'write'>, opts: { upsert?: boolean; read?: (content: string) => void } = {}): AgentTool[] {
   const filter = scopeFilter(agent)
   const upsert = opts.upsert ?? unlocked('upsert')
+  const read = opts.read ?? null
   const base = AGENT_TOOLS.filter((t) => t.name !== 'get_current_page' && (agent.write !== 'none' || !t.write) && (upsert || t.name !== 'upsert_rows'))
-  if (!filter) return base
+  if (!filter) return read ? base.map((tool) => ({ ...tool, run: (input, stage) => afterRead(tool.run(input, stage), read) })) : base
   return base.map((tool) => ({
     ...tool,
     run(input, stage) {
@@ -89,7 +92,10 @@ export function agentTools(agent: Pick<CustomAgent, 'scope' | 'write'>, opts: { 
       if (!agent.scope.everything && tool.name === 'create_page' && !(typeof input.parent_id === 'string' && input.parent_id.trim())) {
         throw new ToolInputError(`This agent may not create top-level pages: refused. Create the page under a page in its scope (${scopeText(agent)}).`)
       }
-      return withToolScope(filter, () => tool.run(input, stage))
+      return afterRead(
+        withToolScope(filter, () => tool.run(input, stage)),
+        read,
+      )
     },
   }))
 }

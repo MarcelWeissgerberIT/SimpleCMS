@@ -17,6 +17,15 @@ import type { DecideQuestion, DecideRequest, DecideTurn } from '../../src/shared
 import { ProviderError } from '../../src/shared/ai/errors'
 import { DECIDE_FORBIDDEN, assertSafeDecideBody, buildDecide, classifyDecide, decideTokens, overCap, parseDecide } from '../../src/shared/ai/wire/decisions'
 import * as legacy from './helpers/legacyRouteS1'
+import { createHash } from 'node:crypto'
+import { createRedactor, redactDoc, redactPersonValue } from '../../src/shared/ai/redact'
+import { DATA_CLAUSE, QSET, precheckQuestions } from '../../src/app/features/ai/decide/questions'
+import { CHECKED_KINDS, isCheckedKind } from '../../src/app/features/ai/decide/kinds'
+import { STATE_LIMITS, dataText, proposalSources, proposalState, type ProposalInput, type StateWorld } from '../../src/app/features/ai/decide/state'
+import { checkOf, uncheckedOf } from '../../src/app/features/ai/decide/verdict'
+import { classOfPage, classesOf, type SourceWorld } from '../../src/app/features/ai/core/sources'
+import type { Database, Page } from '../../src/app/store/types'
+import type { StagedChange } from '../../src/app/features/ai/agent/types'
 
 const JEV = 'typesafe/jev-1.13'
 const SNAP = 'typesafe/jev-1.13-20260917'
@@ -375,5 +384,276 @@ test.describe('the decisions wire', () => {
       if (c.retryAfter !== undefined) expect(out.retryAfter, c.name).toBe(c.retryAfter)
       expect(out.detail, c.name).not.toMatch(/sk-or-v1-/)
     }
+  })
+})
+
+
+/* ------------------------------------------------------------------ */
+/* J6 — the question set and what Jev reads (features/ai/decide)        */
+/* ------------------------------------------------------------------ */
+
+/** The frozen wording of each question set version: change the wording → bump QSET_VERSION and add its hash here. */
+const QSET_HASHES: Record<number, string> = { 1: '93ad0d2a8eac64d5e90f16d5bdfea61e3990df82b9f992787745bb726aeaa7b4' }
+
+test.describe('QSET: the questions Jev answers (features/ai/decide/questions.ts)', () => {
+  test('the wording is frozen per version; every question carries the data clause; four named yes / no checks', () => {
+    const hash = createHash('sha256').update(JSON.stringify(QSET)).digest('hex')
+    expect(hash, 'the question wording changed: bump QSET_VERSION (src/shared/ai/decide.ts) and pin the new hash').toBe(QSET_HASHES[QSET_VERSION])
+    expect(Object.keys(QSET)).toEqual([...JEV_CHECK_KEYS])
+    for (const k of JEV_CHECK_KEYS) {
+      const q = QSET[k]
+      expect(q.type, k).toBe('noul')
+      expect(q.instructions.endsWith(DATA_CLAUSE), k).toBe(true)
+      expect(q.type === 'noul' && !!q.criteria?.true && !!q.criteria?.false, k).toBe(true)
+      // never "should this be approved"
+      expect(q.instructions.toLowerCase(), k).not.toMatch(/approve|should this/)
+    }
+    // a request gets its own copy (a caller cannot change the frozen set)
+    const copy = precheckQuestions()
+    expect(copy).toEqual(QSET)
+    ;(copy.asked as { instructions: string }).instructions = 'x'
+    expect(QSET.asked.instructions).not.toBe('x')
+  })
+})
+
+type P = Partial<Page> & { id: string; title: string }
+const page = (p: P): Page => ({ kind: 'page', icon: null, cover: null, parentId: null, databaseId: null, properties: {}, content: null, contentRev: 0, contentOrigin: null, favorite: false, trashed: false, trashedAt: null, createdAt: 0, updatedAt: 0, order: 0, settings: {}, ...p }) as unknown as Page
+const db = (id: string, properties: AnyJson[], o: AnyJson = {}): Database => ({ id, properties, views: [], ...o }) as unknown as Database
+const doc = (...content: AnyJson[]) => ({ type: 'doc', content })
+const para = (...content: AnyJson[]) => ({ type: 'paragraph', content })
+const txt = (text: string) => ({ type: 'text', text })
+
+/** A fictional workspace: Projects (a row "Launch plan" with an owner and a contact), Contacts (a mail directory), a private page and a private database. */
+function fixture() {
+  const pages: Record<string, Page> = {
+    dbproject001: page({ id: 'dbproject001', kind: 'database', title: 'Projects' }),
+    rowlaunch001: page({
+      id: 'rowlaunch001',
+      title: 'Launch plan',
+      parentId: 'dbproject001',
+      databaseId: 'dbproject001',
+      properties: { owner: ['pmaralind01'], contact: ['ctmaralind01'], status: 'Open', budget: 1200 },
+      content: doc(para(txt('Owned by '), { type: 'mention', attrs: { kind: 'person', id: 'pmaralind01', label: 'Mara Lind' } }, txt(' — see '), { type: 'mention', attrs: { kind: 'page', id: 'pvnotes00001', label: 'Board notes' } })),
+    }),
+    rowtessera01: page({ id: 'rowtessera01', title: 'Tessera review', parentId: 'dbproject001', databaseId: 'dbproject001' }),
+    dbcontacts01: page({ id: 'dbcontacts01', kind: 'database', title: 'Contacts' }),
+    ctmaralind01: page({ id: 'ctmaralind01', title: 'Mara Lind', parentId: 'dbcontacts01', databaseId: 'dbcontacts01', properties: { email: 'mara@nordlicht.example' } }),
+    pvnotes00001: page({ id: 'pvnotes00001', title: 'Board notes', private: true }),
+    dbprivate001: page({ id: 'dbprivate001', kind: 'database', title: 'Salaries', private: true }),
+    outside00001: page({ id: 'outside00001', title: 'Nordlicht secret plan' }),
+  }
+  const databases: Record<string, Database> = {
+    dbproject001: db('dbproject001', [
+      { id: 'title', name: 'Name', type: 'title' },
+      { id: 'owner', name: 'Owner', type: 'person' },
+      { id: 'contact', name: 'Contact', type: 'relation', relationDatabaseId: 'dbcontacts01' },
+      { id: 'status', name: 'Status', type: 'select' },
+      { id: 'budget', name: 'Budget', type: 'number' },
+    ]),
+    dbcontacts01: db('dbcontacts01', [{ id: 'title', name: 'Name', type: 'title' }, { id: 'email', name: 'Email', type: 'email' }], { system: 'mail-contacts' }),
+    dbprivate001: db('dbprivate001', [{ id: 'title', name: 'Name', type: 'title' }]),
+  }
+  const people = [{ id: 'pmaralind01', name: 'Mara Lind' }]
+  const ids = [...Object.keys(pages), 'pmaralind01']
+  return { pages, databases, people, ids }
+}
+
+/**
+ * The world a route that may not see private / mail pages (and, without `people`, no names) reads — what world.ts builds
+ * from the gate: the page filter from the classes, one redactor, row facts and page Markdown through the redaction.
+ */
+function worldOf(f: ReturnType<typeof fixture>, o: { people: boolean; members: boolean; scope?: ((id: string) => boolean) | null }): StateWorld {
+  const sw: SourceWorld = { pages: f.pages, databases: f.databases, memo: new Map() }
+  const visible = (id: string) => o.members || ![...classOfPage(id, sw)].some((c) => c === 'private' || c === 'mail')
+  const r = createRedactor()
+  const name = (id: string) => f.people.find((p) => p.id === id)?.name ?? id
+  const serialise = (n: AnyJson): string => {
+    if (n.type === 'text') return n.text
+    if (n.type === 'mention') return n.attrs.kind === 'page' ? `[@${f.pages[n.attrs.id]?.title ?? n.attrs.label}](#/p/${n.attrs.id})` : `@${n.attrs.label}`
+    const inner = (n.content ?? []).map(serialise).join('')
+    return n.type === 'doc' ? (n.content ?? []).map(serialise).join('\n\n') : inner
+  }
+  return {
+    pages: f.pages,
+    databases: f.databases,
+    isId: (tok) => Object.prototype.hasOwnProperty.call(f.pages, tok) || Object.prototype.hasOwnProperty.call(f.databases, tok) || f.people.some((p) => p.id === tok),
+    visible,
+    people: o.people,
+    redactor: r,
+    hidden: '[Seite]',
+    rowFacts: (d, row) =>
+      d.properties
+        .filter((p) => p.type !== 'title')
+        .map((p) => {
+          const v = row.properties[p.id]
+          const list = Array.isArray(v) ? (v as string[]) : []
+          if (p.type === 'person') return { name: p.name, value: list.map((id) => (o.people ? name(id) : redactPersonValue(id, r))).join(', ') }
+          if (p.type === 'relation') return { name: p.name, value: list.map((id) => (!visible(id) ? '—' : !o.people && f.databases[p.relationDatabaseId!]?.system === 'mail-contacts' ? redactPersonValue(id, r) : f.pages[id]!.title)).join(', ') }
+          return { name: p.name, value: v === undefined || v === null ? '' : String(v) }
+        })
+        .filter((x) => x.value),
+    markdown: (d) => serialise(o.people && o.members ? d : redactDoc(d as AnyJson, { people: !o.people, transcript: false, visible, hidden: '[Seite]' }, r)),
+    inScope: o.scope === undefined ? (id) => id !== 'outside00001' : o.scope,
+  }
+}
+
+const change = (c: Partial<StagedChange> & Pick<StagedChange, 'kind' | 'pageId'>): StagedChange => ({ id: 'c1', n: 1, status: 'pending', ...c }) as StagedChange
+const input = (c: StagedChange, trigger: ProposalInput['trigger'] = { type: 'manual' }, changes: StagedChange[] = [c]): ProposalInput => ({
+  agent: { instructions: 'Keep the Projects rows of the Nordlicht launch in step. Mark a project Done when its tasks are closed.', write: 'stage' },
+  trigger,
+  change: c,
+  changes,
+})
+
+/** The update the leak fixtures read: a person field, a contact relation, a select — and a text naming, linking and quoting. */
+const LEAKY = change({
+  kind: 'update_row',
+  pageId: 'rowlaunch001',
+  databaseId: 'dbproject001',
+  props: [
+    { propId: 'owner', name: 'Owner', type: 'person', before: 'Mara Lind', after: 'Mara Lind', intent: { kind: 'value', value: ['pmaralind01'] } },
+    { propId: 'contact', name: 'Contact', type: 'relation', before: 'Mara Lind', after: 'Mara Lind', intent: { kind: 'value', value: ['ctmaralind01'] } },
+    { propId: 'status', name: 'Status', type: 'select', before: 'Open', after: 'Done', intent: { kind: 'options', names: ['Done'] } },
+  ],
+  markdown:
+    'Closed by [@Mara Lind](one:person/pmaralind01) on [@Fri 17 Oct](one:date/2026-10-17). See [Board notes](#/p/pvnotes00001) and [the plan](#/p/rowlaunch001). Write to mara@nordlicht.example (row rowlaunch001), key sk-or-v1-abcdefghijklmnopqrstuvwxyz0123.\n\n> [!TODO] Ship the pricing page {#wi_7f3a9c2d01}\n> Owner: [@Mara Lind](one:person/pmaralind01) · Due: [@Fri 17 Oct](one:date/2026-10-17)',
+})
+
+test.describe('what Jev reads of a proposal (features/ai/decide/state.ts) — leak fixtures, each with its positive control', () => {
+  const f = fixture()
+  const qs = precheckQuestions()
+  const json = (st: unknown) => JSON.stringify(st)
+
+  test('no id, no name without `people`, "[Seite]" for a private link, no e-mail, no key, no task id or field line', () => {
+    const out = proposalState(input(LEAKY), worldOf(f, { people: false, members: false }), qs)
+    if (!out || 'refused' in out) throw new Error('no state')
+    const body = json(out.state)
+    for (const id of [...f.ids, 'wi_7f3a9c2d01']) expect(body, id).not.toContain(id)
+    expect(body).not.toMatch(/Mara|Lind/)
+    expect(body).toContain('[Seite]')
+    expect(body).not.toContain('Board notes')
+    expect(body).not.toContain('nordlicht.example')
+    expect(body).not.toMatch(/sk-or-v1-/)
+    expect(body).not.toMatch(/Owner:/)
+    // the task keeps its title; links read as the visible title; dates as their label
+    expect(body).toContain('Ship the pricing page')
+    expect(body).toContain('Launch plan')
+    expect(body).toContain('@Fri 17 Oct')
+    // the person field and the contact relation: "@Person n" / "—" (a mail directory the route may not see)
+    const st = out.state as AnyJson
+    expect(st.change.fields).toEqual([
+      { name: 'Owner', before: '@Person 1', after: '@Person 1' },
+      { name: 'Contact', before: '—', after: '—' },
+      { name: 'Status', before: 'Open', after: 'Done' },
+    ])
+    // the row's other values: the changed fields left out; people redacted the same way
+    expect(st.row).toEqual({ Budget: '1200' })
+    // key order: change first
+    expect(Object.keys(st)).toEqual(['change', 'row', 'trigger', 'agent'])
+    expect(st.change.target).toEqual({ kind: 'row', title: 'Launch plan', database: 'Projects' })
+  })
+
+  test('positive control: with `people` and the member classes allowed the names and the private title are there', () => {
+    const out = proposalState(input(LEAKY), worldOf(f, { people: true, members: true }), qs)
+    if (!out || 'refused' in out) throw new Error('no state')
+    const body = json(out.state)
+    expect(body).toContain('@Mara Lind')
+    expect(body).toContain('Board notes')
+    expect((out.state as AnyJson).change.fields[1]).toEqual({ name: 'Contact', before: 'Mara Lind', after: 'Mara Lind' })
+    // ids, e-mail addresses, keys and task ids never — whatever the route may see
+    for (const id of [...f.ids, 'wi_7f3a9c2d01']) expect(body, id).not.toContain(id)
+    expect(body).not.toContain('nordlicht.example')
+    expect(body).not.toMatch(/sk-or-v1-/)
+  })
+
+  test('a person mention in the page text before an append is redacted; a private page link inside it reads "[Seite]"', () => {
+    const c = change({ kind: 'append', pageId: 'rowlaunch001', markdown: 'Status: shipped.' })
+    const out = proposalState(input(c), worldOf(f, { people: false, members: false }), qs)
+    if (!out || 'refused' in out) throw new Error('no state')
+    const st = out.state as AnyJson
+    expect(st.change.before).toBe('Owned by @Person 1 — see [Seite]')
+    expect(st.change.after).toBe('Status: shipped.')
+    // control
+    const open = proposalState(input(c), worldOf(f, { people: true, members: true }), qs) as AnyJson
+    expect(open.state.change.before).toBe('Owned by @Mara Lind — see @Board notes')
+  })
+
+  test('a trigger row outside the scope (or one the route may not see) gives no title; inside the scope it does', () => {
+    const out = proposalState(input(LEAKY, { type: 'row_changed', rows: ['outside00001'] }), worldOf(f, { people: false, members: false }), qs) as AnyJson
+    expect(out.state.trigger).toEqual({ type: 'row_changed' })
+    expect(json(out.state)).not.toContain('Nordlicht secret plan')
+    expect(out.sources).toEqual([{ row: 'rowlaunch001' }])
+    // a private trigger row the route may not see: no title either
+    const priv = proposalState(input(LEAKY, { type: 'row_changed', rows: ['pvnotes00001'] }), worldOf(f, { people: false, members: false, scope: null }), qs) as AnyJson
+    expect(priv.state.trigger).toEqual({ type: 'row_changed' })
+    // control: in scope → its title, and the row joins the request's sources
+    const inside = proposalState(input(LEAKY, { type: 'row_changed', rows: ['outside00001'] }), worldOf(f, { people: false, members: false, scope: null }), qs) as AnyJson
+    expect(inside.state.trigger).toEqual({ type: 'row_changed', title: 'Nordlicht secret plan' })
+    expect(inside.sources).toEqual([{ row: 'rowlaunch001' }, { row: 'outside00001' }])
+    // the trigger row that IS the target is the one named
+    const self = proposalState(input(LEAKY, { type: 'row_changed', rows: ['rowtessera01', 'rowlaunch001'] }), worldOf(f, { people: false, members: false }), qs) as AnyJson
+    expect(self.state.trigger).toEqual({ type: 'row_changed', title: 'Launch plan' })
+  })
+
+  test('a create_row under a private database declares `private`; under a shared one it does not (control)', () => {
+    const sw: SourceWorld = { pages: f.pages, databases: f.databases, memo: new Map() }
+    const priv = change({ kind: 'create_row', pageId: 'newrow000001', databaseId: 'dbprivate001', title: 'Q4 budget', props: [] })
+    const out = proposalState(input(priv), worldOf(f, { people: false, members: false }), qs) as AnyJson
+    expect(out.sources).toEqual([{ db: 'dbprivate001' }])
+    expect([...classesOf(out.sources, sw)]).toContain('private')
+    // the database's name stays hidden for a route that may not see it; a new row has no values yet
+    expect(out.state.change.target).toEqual({ kind: 'row', title: 'Q4 budget', database: '[Seite]' })
+    expect(out.state.row).toEqual({})
+    const shared = change({ kind: 'create_row', pageId: 'newrow000002', databaseId: 'dbproject001', title: 'Tessera launch', props: [] })
+    const ok = proposalState(input(shared), worldOf(f, { people: false, members: false }), qs) as AnyJson
+    expect([...classesOf(ok.sources, sw)]).not.toContain('private')
+    expect(ok.state.change.target.database).toBe('Projects')
+    // a page created under a page staged in the same run: the staged parent's own parent counts
+    const parent = change({ kind: 'create_page', pageId: 'stagedpage01', parentId: 'pvnotes00001', title: 'Minutes' })
+    const kid = change({ id: 'c2', n: 2, kind: 'create_page', pageId: 'stagedkid001', parentId: 'stagedpage01', title: 'Agenda', dependsOn: 'c1' })
+    expect(proposalSources(input(kid, { type: 'manual' }, [parent, kid]), f)).toEqual([{ page: 'pvnotes00001' }])
+    expect(proposalSources(input(change({ kind: 'create_page', pageId: 'top000000001', parentId: null, title: 'Top' })), f)).toEqual([{ all: true }])
+  })
+
+  test('only checked kinds: a send, a memory, a coding task, a script, media, a database or property build no state', () => {
+    expect([...CHECKED_KINDS]).toEqual(['create_page', 'append', 'edit', 'create_row', 'update_row', 'rename', 'workItem'])
+    const w = worldOf(f, { people: false, members: false })
+    for (const kind of ['send', 'memory', 'coding', 'script', 'media', 'create_database', 'add_property'] as const) {
+      expect(isCheckedKind(kind), kind).toBe(false)
+      expect(proposalState(input(change({ kind, pageId: 'rowlaunch001' })), w, qs), kind).toBeNull()
+    }
+    // control: every checked kind builds one
+    for (const kind of CHECKED_KINDS) expect(proposalState(input(change({ kind, pageId: 'rowlaunch001', title: 'Launch plan', beforeTitle: 'Launch', databaseId: 'dbproject001' })), w, qs), kind).not.toBeNull()
+  })
+
+  test('limits: before / after ≤ 4 000, the instructions whole, ids out of the instructions too', () => {
+    const long = change({ kind: 'create_page', pageId: 'newpage00001', parentId: 'outside00001', title: 'Notes', markdown: 'Launch '.repeat(2000) })
+    const i = input(long)
+    i.agent.instructions = `Write the weekly notes under [Nordlicht](#/p/outside00001) (id outside00001). ${'Plan. '.repeat(1000)}`.slice(0, 8000)
+    const out = proposalState(i, worldOf(f, { people: false, members: false }), qs) as AnyJson
+    expect(out.state.change.after.length).toBe(STATE_LIMITS.md)
+    expect(out.state.change.after.endsWith('…')).toBe(true)
+    expect(out.state.agent.instructions).toMatch(/^Write the weekly notes under Nordlicht secret plan \(id \[id\]\)/)
+    expect(out.state.agent.instructions.length).toBeGreaterThan(5000)
+    expect(out.state.agent.write_mode).toBe('stage')
+    expect(out.chars).toBe(JSON.stringify({ state: out.state, questions: qs }).length)
+  })
+
+  test('dataText: links of other kinds keep their label; prototype words are never ids', () => {
+    const w = worldOf(f, { people: false, members: false })
+    expect(dataText('[Agents](#/agents/ag1) · [task](one:item/wi_0123456789) · [site](https://example.org/a)', w)).toBe('Agents · task · [site](https://example.org/a)')
+    expect(dataText('constructor toString hasOwnProperty', w)).toBe('constructor toString hasOwnProperty')
+  })
+})
+
+test.describe('a stored check from an answer (features/ai/decide/verdict.ts)', () => {
+  test('four probabilities → two decimals, the weakest, the mark; a missing answer → no check; unchecked says why', () => {
+    const turn = (answers: AnyJson) => ({ kind: 'decide', answers, served: { model: 'typesafe/jev-1.13-20260917' }, usage: null }) as unknown as DecideTurn
+    const ok = checkOf(turn({ asked: { type: 'noul', p: 0.951 }, target: { type: 'noul', p: 0.9 }, consistent: { type: 'noul', p: 0.414 }, clean: { type: 'noul', p: 0.99 } }), { at: 5, usd: 0.00004, markBelow: 0.7 })
+    expect(ok).toEqual({ v: 1, at: 5, model: 'typesafe/jev-1.13-20260917', state: 'ok', checks: { asked: 0.95, target: 0.9, consistent: 0.41, clean: 0.99 }, low: 'consistent', p: 0.41, usd: 0.00004, mark: true })
+    expect(sanitizeJevCheck(ok)).toEqual(ok)
+    expect(checkOf(turn({ asked: { type: 'noul', p: 0.9 } }), { at: 5, usd: 0, markBelow: 0.7 })).toBeNull()
+    expect(uncheckedOf('policy', { at: 6, sent: false, cls: 'mail' })).toEqual({ v: 1, at: 6, model: '', state: 'skipped', why: 'policy', cls: 'mail' })
+    expect(uncheckedOf('timeout', { at: 6, sent: true, usd: 0.00001 })).toMatchObject({ state: 'failed', why: 'timeout', usd: 0.00001 })
   })
 })

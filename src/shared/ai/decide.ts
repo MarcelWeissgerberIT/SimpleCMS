@@ -38,6 +38,8 @@ export interface JevCheck {
   mark?: boolean
   /** why the change is status 'held' (mark · unchecked · an earlier change here still waits) */
   held?: 'mark' | 'unchecked' | 'sticky'
+  /** an earlier change of the same agent to the same target still waits (DJ20) — "Nur markieren" marks it only */
+  sticky?: boolean
   /** what the request cost (null: no price) */
   usd?: number | null
 }
@@ -92,6 +94,7 @@ export function sanitizeJevCheck(v: unknown): JevCheck | null {
     if (typeof v.mark === 'boolean') out.mark = v.mark
   }
   if (v.held === 'mark' || v.held === 'unchecked' || v.held === 'sticky') out.held = v.held
+  if (v.sticky === true) out.sticky = true
   if (v.usd === null) out.usd = null
   else if (typeof v.usd === 'number' && Number.isFinite(v.usd) && v.usd >= 0) out.usd = v.usd
   return out

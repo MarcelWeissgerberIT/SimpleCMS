@@ -7,6 +7,7 @@ import type { AgentTrigger, CustomAgent, ID } from '../../store/types'
 import type { StagedChange } from '../ai/agent/types'
 import type { AgentState } from './runs'
 import type { ModelLine } from '../ai/core/meter'
+import type { DataClass } from '@/shared/ai/types'
 
 export type { AgentTrigger, CustomAgent }
 
@@ -58,4 +59,9 @@ export interface AgentRun {
   stateBefore?: AgentState | null
   /** media the agent's MCP servers returned (features/ai/media): cards in the run, saved only on a click */
   media?: MediaItem[]
+  /**
+   * browser runs with a Vorprüfer (slice SJ): the data classes of what the run's tools returned to Claude (the pages they
+   * named, MCP results, the memory) — a pre-check of its proposals declares them too
+   */
+  touched?: DataClass[]
 }
