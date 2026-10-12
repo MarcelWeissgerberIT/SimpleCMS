@@ -136,7 +136,7 @@ test.describe('guided tour', () => {
     await next()
 
     // 2 · no key: the key line and what Transform into would do; Do it selects the list (the toolbar's Ask AI shows)
-    await expect(placard(page).getByTestId('tour-keyline')).toContainText('add your key in Settings → Claude AI')
+    await expect(placard(page).getByTestId('tour-keyline')).toContainText('set it up in Settings → AI')
     await expect(placard(page).locator('.tour-would')).toBeVisible()
     await doIt.click()
     await expect(page.locator('[aria-label="Formatting"]').getByRole('button', { name: 'Ask AI' })).toBeVisible()
@@ -250,7 +250,7 @@ test.describe('guided tour', () => {
     await expect(placard(page).getByRole('button', { name: 'Mach’s für mich' })).toBeVisible()
     await expect(page.locator('#main .pv-title')).toHaveValue('Tour — hier ausprobieren')
     await page.keyboard.press('ArrowRight')
-    await expect(placard(page).getByTestId('tour-keyline')).toContainText('Einstellungen → Claude KI')
+    await expect(placard(page).getByTestId('tour-keyline')).toContainText('Einstellungen → KI')
     await page.keyboard.press('Escape')
     await expect(placard(page)).toHaveCount(0)
   })
@@ -470,7 +470,7 @@ test.describe('AI menu: a short top level', () => {
     // typing finds what sits under More (and still offers the own request)
     await ai.locator('.ai-cmd__input').fill('database')
     await expect(ai.getByRole('option', { name: /Turn into database/ })).toBeVisible()
-    await expect(ai.getByRole('option', { name: /Ask Claude “database”/ })).toBeVisible()
+    await expect(ai.getByRole('option', { name: /Ask AI “database”/ })).toBeVisible()
   })
 
   test('keys: → opens a submenu, ← and Backspace come back; German labels', async ({ page, context }) => {

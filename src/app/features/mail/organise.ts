@@ -11,6 +11,7 @@ import { estimateLabel, estimateOn, routeFor } from '../ai/core/status'
 import { precheck } from '../ai/core/gate'
 import { routed } from '../ai/core/shape'
 import type { SourceRef } from '@/shared/ai/types'
+import { providerInfo } from '@/shared/ai/providers'
 import type { MailOrganise } from '../../store/types'
 import { PRIORITIES, type Priority } from './schema'
 
@@ -146,6 +147,8 @@ export interface OrganiseEstimate {
   usd: number
   /** "OPUS 5.5" */
   model: string
+  /** the company that bills it */
+  company: string
 }
 
 /** Rough cost of organising `mails` mails, priced by the one table (the provider bills the real usage to the user's key). */
@@ -155,5 +158,5 @@ export function estimateOrganise(mails: number): OrganiseEstimate {
   const inputTokens = requests * OVERHEAD_TOKENS + mails * MAIL_TOKENS
   const outputTokens = mails * OUT_TOKENS
   const usd = estimateOn(r, { promptTokens: inputTokens, outTokens: outputTokens, maxTokens: outputTokens })?.low ?? 0
-  return { mails, inputTokens, outputTokens, usd, model: estimateLabel(r.route, r.pool) }
+  return { mails, inputTokens, outputTokens, usd, model: estimateLabel(r.route, r.pool), company: providerInfo(r.route.p).company }
 }

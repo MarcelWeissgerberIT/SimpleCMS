@@ -3,7 +3,7 @@
  *  - memoryFor(task, { off }) → { use, block }: the memories a free-form request takes along and its
  *    `<one_memory>` block (pass `block` to runAI({ memory })); noteUse(answer, use, ctx): after the request —
  *    the memory log row (+ the cited memories); MemoryNote { use }: the "MEMORY · 2" key for an answer
- *  - MemorySettings: the section of Settings → Claude AI
+ *  - MemorySettings: the section of Settings → AI
  */
 export { memoryFor, noteUse, type MemoryFor } from './use'
 export { MemoryNote } from './MemoryNote'

@@ -4,7 +4,9 @@
  * (core/gate.ts) without sending or reserving anything.
  */
 import type { DataClass, Route } from '@/shared/ai/types'
+import { isJevRouter } from '@/shared/ai/jev'
 import { allowedFor } from '@/shared/ai/policy'
+import { providerInfo } from '@/shared/ai/providers'
 import { useWorkspace } from '../../../store/store'
 import type { PurposeId } from './purposes'
 import { capsFor, labelFor, priceFor, shortFor } from './registry'
@@ -28,4 +30,15 @@ export function mayReceive(purpose: PurposeId, cls: DataClass): boolean {
   const { route } = routeFor(purpose)
   const s = useWorkspace.getState()
   return allowedFor(route.p, cls, s.ai, s.settings.ai)
+}
+
+/**
+ * Who receives a request of this purpose on this device now: the company, its API host, the route's label and whether
+ * the Jev Router chooses (it forwards — its privacy sentence goes with it). For the data-destination lines a person
+ * reads before a request (they name the routed company — a Claude-only person still reads "Anthropic").
+ */
+export function destinationOf(purpose: PurposeId, o: { route?: Route | null } = {}): { company: string; host: string; label: string; router: boolean } {
+  const r = routeFor(purpose, o)
+  const info = providerInfo(r.route.p)
+  return { company: info.company, host: info.host, label: r.label, router: isJevRouter(r.route.m) }
 }

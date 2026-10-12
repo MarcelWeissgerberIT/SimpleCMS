@@ -1,7 +1,7 @@
 /**
  * `#/oauth/mcp` — One's own page an MCP server's sign-in comes back to, when this tab finishes it itself
  * (the browser blocked the sign-in window, so this tab went there; or the tab that opened the window is gone).
- * The code is exchanged here (oauth.ts finishSignIn); then back to Settings → Claude AI.
+ * The code is exchanged here (oauth.ts finishSignIn); then back to Settings → AI.
  */
 import { useEffect, useRef, useState } from 'react'
 import { useT } from '../../../i18n'

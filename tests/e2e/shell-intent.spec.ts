@@ -106,7 +106,7 @@ test.describe('settings and headings', () => {
     await openApp(page)
     await page.evaluate(() => (window as unknown as { __one: { ui: { getState: () => { openModal: (m: unknown) => void } } } }).__one.ui.getState().openModal({ type: 'settings', tab: 'ai' }))
     const dialog = page.getByRole('dialog')
-    await expect(dialog.getByRole('tab', { name: /Claude AI/ })).toBeFocused()
+    await expect(dialog.getByRole('tab', { name: /\bAI$/ })).toBeFocused()
     await expect(dialog.getByLabel('Anthropic API key')).toBeVisible()
     await expect(dialog.getByRole('combobox', { name: 'Model' })).toBeVisible()
     await expect(dialog.getByText('database autofill')).toHaveCount(0)

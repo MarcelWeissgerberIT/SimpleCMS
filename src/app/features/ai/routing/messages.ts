@@ -90,7 +90,6 @@ export const messages: Messages = {
     'features.ai.jev.router.price': 'price per request, reported',
     'features.ai.jev.router.bound': 'up to {in} / {out} $ per M',
     'features.ai.jev.router.needs2': 'needs at least 2 models in your list',
-    'features.ai.jev.router.privacy': 'With the Jev Router, OpenRouter hands your request to Jev (TypeSafe), which picks one of the models in your list; that model’s operator answers. Both receive the request.',
   },
   de: {
     'features.ai.cls.public': 'Hilfe & Anweisungen',
@@ -172,6 +171,5 @@ export const messages: Messages = {
     'features.ai.jev.router.price': 'Preis je Anfrage, gemeldet',
     'features.ai.jev.router.bound': 'bis {in} / {out} $ je Mio.',
     'features.ai.jev.router.needs2': 'braucht mindestens 2 Modelle in deiner Liste',
-    'features.ai.jev.router.privacy': 'Mit dem Jev Router gibt OpenRouter deine Anfrage an Jev (TypeSafe), das eines der Modelle deiner Liste wählt; dessen Betreiber antwortet. Beide erhalten die Anfrage.',
   },
 }

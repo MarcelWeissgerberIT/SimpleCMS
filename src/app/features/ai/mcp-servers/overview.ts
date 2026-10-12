@@ -1,5 +1,5 @@
 /**
- * Settings → Claude AI → MCP servers, "Where each server may be used" — the rows of the overview table (pure).
+ * Settings → AI → MCP servers, "Where each server may be used" — the rows of the overview table (pure).
  *
  * One row per MCP server of this device: its codeword, which of One's Claude requests take it (scope, switched
  * off), the custom agents that attach it (browser runner; a tool list narrows it, [] leaves it out), the integration

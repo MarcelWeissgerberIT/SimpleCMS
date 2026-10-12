@@ -622,7 +622,7 @@ function OrganisePanel() {
         <>
           <div className="ml-warn" role="note">
             <Send size={14} aria-hidden className="ml-warn__icon" />
-            <p>{t('features.mail.claude.privacy')}</p>
+            <p>{t('features.mail.claude.privacy', { company: est.company })}</p>
           </div>
           <Categories />
           <div className="ml-checks">
@@ -641,7 +641,7 @@ function OrganisePanel() {
                 ))}
               </select>
             </MlField>
-            <MlField label={t('features.mail.claude.cost')} hint={t('features.mail.claude.costHint')}>
+            <MlField label={t('features.mail.claude.cost')} hint={t('features.mail.claude.costHint', { company: est.company })}>
               <div className="ml-cost" data-testid="mail-cost">
                 <span className="ml-cost__usd">{usd}</span>
                 <span className="label">{t('features.mail.claude.costPer', { n: cfg.maxPerRun, model: est.model })}</span>

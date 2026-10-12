@@ -1,5 +1,5 @@
 /**
- * Settings → Claude AI → "MCP servers": the remote MCP servers One's Claude may use.
+ * Settings → AI → "MCP servers": the remote MCP servers One's Claude may use.
  *
  * Adding one takes two fields — the URL and (optionally) a token. The name is derived from the URL,
  * the server is switched on, and a background check tests the connection and writes the usage

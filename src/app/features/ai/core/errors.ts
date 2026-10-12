@@ -4,7 +4,8 @@
  */
 import type { AIErrorCode } from '@/shared/ai/errors'
 import type { DataClass, ProviderId } from '@/shared/ai/types'
-import { labelOf } from '@/shared/ai/models'
+import { labelOf, providerLabel } from '@/shared/ai/models'
+import { providerInfo } from '@/shared/ai/providers'
 import { legacyRule } from '@/shared/ai/route'
 import { useWorkspace } from '../../../store/store'
 import { t } from '../../../i18n'
@@ -21,11 +22,21 @@ type FixNeed = 'structured' | 'tools' | 'vision' | 'pdf' | 'mcp' | 'listing'
  */
 export type AIFix = { kind: 'step'; step: 'key' | 'models' | 'data'; provider: ProviderId; data?: DataClass } | { kind: 'askClaude' } | { kind: 'pick'; need: FixNeed }
 
-/** The friendly sentence for an error code (in the current UI language). */
+/**
+ * The provider a route's label names: other providers' labels start with their name ("OpenRouter · …",
+ * registry.ts labelFor); Claude's are the registry's own ("Claude Opus 5.5").
+ */
+export function providerOfLabel(label: string): ProviderId {
+  for (const p of ['openrouter', 'openai'] as const) if (label === providerLabel(p) || label.startsWith(`${providerLabel(p)} ·`)) return p
+  return 'anthropic'
+}
+
+/** The friendly sentence for an error code (in the current UI language) — naming the company and host of the route. */
 export function aiErrorText(code: AIErrorCode, v: { model: string; detail?: string; server?: string }): string {
   if (code === 'mcp') return t(v.server ? 'features.ai.err.mcp' : 'features.ai.err.mcpAny', { server: v.server ?? '', detail: v.detail ?? '' })
   if (code === 'mcp_auth') return t(v.server ? 'features.ai.err.mcp_auth' : 'features.ai.err.mcp_authAny', { server: v.server ?? '' })
-  return t(`features.ai.err.${code}`, { model: v.model, detail: v.detail ?? '' })
+  const info = providerInfo(providerOfLabel(v.model))
+  return t(`features.ai.err.${code}`, { model: v.model, detail: v.detail ?? '', company: info.company, host: info.host })
 }
 
 /** The model a message names: this device's Claude model (an unknown setting reads as the default, as it is sent). */

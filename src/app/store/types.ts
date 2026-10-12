@@ -793,7 +793,7 @@ export interface Settings {
   memory?: MemorySettings
 }
 
-/** Settings → Claude AI → One memory (features/ai/memory/settings.ts reads it with its defaults). */
+/** Settings → AI → One memory (features/ai/memory/settings.ts reads it with its defaults). */
 export interface MemorySettings {
   /** false: no memory goes along with any request, no memory tools, no proposals (absent = on) */
   enabled?: boolean

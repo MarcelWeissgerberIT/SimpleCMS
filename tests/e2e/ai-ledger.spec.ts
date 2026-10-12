@@ -226,7 +226,7 @@ const GATE_FLOWS: Array<{ name: string; steps: ClaudeStep[]; go: (page: Page, re
       const id = await createPage(page, { title: 'Launch plan', content: doc(para('We launch in two weeks.'), para('')) })
       await gotoPage(page, id)
       const ed = editorOf(page, id)
-      const ask = page.getByPlaceholder('Ask Claude to write anything…')
+      const ask = page.getByPlaceholder('Ask AI to write anything…')
       await expect(async () => {
         await ed.locator('p').last().click()
         await page.keyboard.press('End')
@@ -489,7 +489,7 @@ test.describe('keys in typed text, retries after an MCP call', () => {
     const id = await createPage(page, { title: 'Launch plan', content: doc(para('We launch in two weeks.'), para('')) })
     await gotoPage(page, id)
     const ed = editorOf(page, id)
-    const ask = page.getByPlaceholder('Ask Claude to write anything…')
+    const ask = page.getByPlaceholder('Ask AI to write anything…')
     await expect(async () => {
       await ed.locator('p').last().click()
       await page.keyboard.press('End')

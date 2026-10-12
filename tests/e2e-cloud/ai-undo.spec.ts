@@ -56,7 +56,7 @@ test.describe('team cloud — Claude and undo', () => {
     const ed = editorOf(a, id)
     await expect(ed).toContainText('First line.')
 
-    const ask = a.getByPlaceholder('Ask Claude to write anything…')
+    const ask = a.getByPlaceholder('Ask AI to write anything…')
     await expect(async () => {
       await ed.locator('p').last().click()
       await a.keyboard.press('End')
@@ -70,7 +70,7 @@ test.describe('team cloud — Claude and undo', () => {
     }).toPass({ timeout: 15_000 })
     await ask.fill('Write one line')
     await ask.press('Enter')
-    const panel = a.getByRole('dialog', { name: 'Ask Claude' })
+    const panel = a.getByRole('dialog', { name: 'Ask AI' })
     await expect(panel.locator('.ai-out__body')).toContainText('Inserted by Claude.')
     await panel.getByRole('option', { name: /^Insert/ }).first().click()
     await expect(ed).toContainText('Inserted by Claude.')

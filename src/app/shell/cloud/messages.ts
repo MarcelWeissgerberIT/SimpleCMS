@@ -23,7 +23,7 @@ export const cloudMessages: Messages = {
     'shell.cloud.spec.passwordV': 'None — a link per sign-in',
     'shell.cloud.spec.offline': 'Offline',
     'shell.cloud.spec.offlineV': 'Keeps working, syncs later',
-    'shell.cloud.spec.ai': 'Claude key',
+    'shell.cloud.spec.ai': 'AI keys',
     'shell.cloud.spec.aiV': 'Yours, never synced',
 
     // sign-in
@@ -459,7 +459,7 @@ export const cloudMessages: Messages = {
     'shell.cloud.spec.passwordV': 'Keins — ein Link pro Anmeldung',
     'shell.cloud.spec.offline': 'Offline',
     'shell.cloud.spec.offlineV': 'Läuft weiter, synct später',
-    'shell.cloud.spec.ai': 'Claude-Key',
+    'shell.cloud.spec.ai': 'KI-Schlüssel',
     'shell.cloud.spec.aiV': 'Deiner, nie synchronisiert',
 
     'shell.cloud.signin.doc': 'Anmelden',

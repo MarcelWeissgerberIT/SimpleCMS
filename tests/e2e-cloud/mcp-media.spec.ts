@@ -132,7 +132,7 @@ test.describe('team cloud — media from MCP servers', () => {
     })
     await gotoPage(page, id)
     const ed = editorOf(page, id)
-    const ask = page.getByPlaceholder('Ask Claude to write anything…')
+    const ask = page.getByPlaceholder('Ask AI to write anything…')
     await expect(async () => {
       await ed.locator('p').last().click()
       await page.keyboard.press('End')
@@ -146,7 +146,7 @@ test.describe('team cloud — media from MCP servers', () => {
     }).toPass({ timeout: 15_000 })
     await ask.fill('studio: a paper lantern on a desk')
     await ask.press('Enter')
-    const panel = page.getByRole('dialog', { name: 'Ask Claude' })
+    const panel = page.getByRole('dialog', { name: 'Ask AI' })
     await expect(panel.locator('.ai-out__body')).toContainText('Here is the lantern')
     const lantern = panel.locator('[data-testid="media-card"][data-url$="lantern.png"]')
     const secret = panel.locator('[data-testid="media-card"][data-url$="secret.png"]')

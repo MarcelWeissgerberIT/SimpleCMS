@@ -50,7 +50,7 @@ export interface RunAIOptions {
   signal?: AbortSignal
   /**
    * false: no MCP server at all (e.g. a key test). Otherwise 'custom' (a free-form request) gets
-   * every enabled MCP server (Settings → Claude AI), the one-click actions only the servers set to
+   * every enabled MCP server (Settings → AI), the one-click actions only the servers set to
    * "All AI calls". A 'custom' instruction that starts with codewords ("kb: …") also forces those
    * servers in; the prefix is removed (codewordsIn).
    */

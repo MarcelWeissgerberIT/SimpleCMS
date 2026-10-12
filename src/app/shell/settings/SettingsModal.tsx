@@ -585,7 +585,7 @@ function AboutTab() {
         </div>
         <div>
           <dt>{t('shell.about.ai')}</dt>
-          <dd>Claude · BYOK</dd>
+          <dd>{t('shell.about.aiV')}</dd>
         </div>
         <div>
           <dt>{t('shell.about.built')}</dt>

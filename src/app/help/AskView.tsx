@@ -1,5 +1,5 @@
 /**
- * "Ask the help": a question → Claude (your key) answers from the best-matching help articles only and
+ * "Ask the help": a question → the AI (your key) answers from the best-matching help articles only and
  * links the ones it used. Without a key: a hint and the matching articles instead.
  */
 import { useEffect, useMemo, useRef, type KeyboardEvent } from 'react'
@@ -8,7 +8,7 @@ import { ArrowRight, KeyRound, Square } from 'lucide-react'
 import { useLang, useT } from '../i18n'
 import { useWorkspace } from '../store/store'
 import { useUI } from '../store/ui'
-import { RouteChip, isAIConfigured, isRouteKey, routeFor, type Route, type RouteChipHandle } from '../features'
+import { RouteChip, destinationOf, isAIConfigured, isRouteKey, type Route, type RouteChipHandle } from '../features'
 import { shortcutLabel } from '../ui/controls'
 import { askHelp, linkCitations } from './ask'
 import { LIBRARY } from './content'
@@ -108,7 +108,8 @@ export function AskView() {
 
   const blocks = useMemo(() => (answer.trim() ? parseBlocks(linkCitations(answer, sources)) : []), [answer, sources])
   // the model the answer comes from (the chip, else the rules); re-read when this device's model changes
-  const modelLabel = useMemo(() => routeFor('help.ask', { route: chip }).label, [chip, model])
+  const dest = useMemo(() => destinationOf('help.ask', { route: chip }), [chip, model])
+  const modelLabel = dest.label
 
   return (
     <div className="help-ask">
@@ -222,7 +223,7 @@ export function AskView() {
       {sources.length > 0 && phase !== 'idle' && phase !== 'nomatch' && (
         <section className="help-related" aria-labelledby="help-sources-h">
           <h4 className="label help-related__label" id="help-sources-h">
-            {phase === 'nokey' ? t('help.related') : t('help.ask.sources')}
+            {phase === 'nokey' ? t('help.related') : t('help.ask.sources', { company: dest.company })}
           </h4>
           <ul className="help-list">
             {sources.map((a) => (

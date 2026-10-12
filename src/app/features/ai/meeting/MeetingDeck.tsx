@@ -16,6 +16,7 @@ import { useCloud } from '../../../cloud'
 import { Menu, useMenu, type MenuEntry } from '../../../ui/Menu'
 import { Key, Notice, PastePanel, TitleField, TranscriptPanel, wordsLabel } from './parts'
 import { speechSupported } from './recognition'
+import { destinationOf } from '../core/status'
 import {
   attachMeeting,
   cancelSummary,
@@ -337,7 +338,7 @@ function Transport(p: TransportProps) {
     return (
       <div className="mtg__work" role="status">
         <span className="mtg__scan" aria-hidden />
-        <span className="label">{mode === 'summarizing' ? t('features.meeting.writingWords', { words: p.words }) : t('features.meeting.writingRemote')}</span>
+        <span className="label">{mode === 'summarizing' ? t('features.meeting.writingWords', { words: p.words, model: destinationOf('meeting.summary').label }) : t('features.meeting.writingRemote')}</span>
         {mode === 'summarizing' && (
           <button type="button" className="btn btn--sm btn--ghost" onClick={p.onCancelSummary}>
             {t('features.meeting.cancel')}

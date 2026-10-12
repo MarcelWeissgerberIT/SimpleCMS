@@ -39,7 +39,7 @@ export { isAIConfigured, runAI, type AIAction, type RunAIOptions } from './ai/cl
 /* one streamed completion with your own system prompt (help/ask.ts: "Ask the help", mcp: false = no MCP server) */
 export { streamCompletion, type StreamOptions } from './ai/client'
 // the AI core (multi-provider): status before a request, purposes and the sources a call names
-export { AIError, aiStatus, routeFor, precheck, type AIStatus, type PurposeId, type SourceRef, type DataClass, type FeatureClass, type Route, type RouteRule, type ProviderId, type Prepared, type AIFix } from './ai/core'
+export { AIError, aiStatus, routeFor, destinationOf, precheck, type AIStatus, type PurposeId, type SourceRef, type DataClass, type FeatureClass, type Route, type RouteRule, type ProviderId, type Prepared, type AIFix } from './ai/core'
 /** Request text built for the route (core/shape.ts): shapeOf(precheck(…)) → withShape(shape, build) → facade({ …routed(pre) }). */
 export { shapeOf, withShape, routed, type Shape } from './ai/core/shape'
 /** The recorder's meta of an AI run (core/runMeta.ts): the route that served its writes. */
@@ -86,7 +86,7 @@ export { transformChoicesAt, TRANSFORM_ICONS } from './ai/transform/forms'
 export type { TransformPick } from './ai/transform/types'
 /*
  * External MCP servers for Claude (Messages API MCP connector): McpServers = the section of
- * Settings → Claude AI (servers, sealed tokens, usage prompts, the MCP instructions template).
+ * Settings → AI (servers, sealed tokens, usage prompts, the MCP instructions template).
  */
 export { McpServers } from './ai/mcp-servers/McpServers'
 /*
@@ -120,7 +120,7 @@ export const OpenRouterOAuthScreen = lazy(() => import('./ai/providers/OpenRoute
  * its usage log) and takes the matching memories along with free-form requests:
  *  - memoryFor(task, { off? }) → { use, block } — pass `block` as runAI({ memory }); noteUse(answer, use,
  *    { task, where, pageId?, result? }) after the request (the memory log); MemoryNote { use }: "MEMORY · 2"
- *  - MemorySettings: the section of Settings → Claude AI
+ *  - MemorySettings: the section of Settings → AI
  *  - ExampleDialog { pageId, tag?, blocks?, onClose }: "Save as example in memory" (open it with
  *    useUI.openModal({ type: 'memoryExample', pageId }) — page ⋯ menu, /example in the AI terminal)
  */

@@ -68,7 +68,7 @@ async function mockClaude(ctx: BrowserContext, opts: { hold?: boolean } = {}): P
 }
 
 const setKey = (page: Page, extra: AnyState = {}) => wsEval(page, (s, extra) => s.updateSettings({ aiApiKey: 'sk-ant-e2e-test-key', ...extra }), extra)
-const panel = (page: Page) => page.getByRole('dialog', { name: /Ask Claude|Claude fragen/ })
+const panel = (page: Page) => page.getByRole('dialog', { name: /Ask AI|KI fragen/ })
 const option = (page: Page, name: RegExp) => panel(page).getByRole('option', { name })
 const b64 = (bytes: Uint8Array) => Buffer.from(bytes).toString('base64')
 const text = (s: string) => new TextEncoder().encode(s)
@@ -178,7 +178,7 @@ test.describe('Claude for files', () => {
     expect(content[0].cache_control).toEqual({ type: 'ephemeral' })
     expect(content[1].type).toBe('text')
     expect(content[1].cache_control).toBeUndefined()
-    // the page goes along as "What Claude reads" allows
+    // the page goes along as "What the AI reads" allows
     expect(taskText(claude.bodies[0])).toContain('Mail from Acme')
     expect(claude.bodies[0].model).toBe('claude-opus-5-5')
 
@@ -230,7 +230,7 @@ test.describe('Claude for files', () => {
     await card(page, id, PDF.name).hover()
     await page.locator('.block-handle__grip').click()
     const menu = page.getByRole('menu')
-    await expect(menu.getByText('Claude', { exact: true })).toBeVisible()
+    await expect(menu.getByText('AI', { exact: true })).toBeVisible()
     await menu.getByRole('menuitem', { name: /Extract the text as a page/ }).click()
 
     const ai = panel(page)
@@ -442,7 +442,7 @@ test.describe('Claude for files', () => {
     const ai = panel(page)
 
     await viaKey(page, id, 'scan-601.pdf', /^Summarise/)
-    await expect(ai.getByTestId('ai-file-error')).toContainText('This PDF has 601 pages — Claude reads at most 600 pages of one PDF.')
+    await expect(ai.getByTestId('ai-file-error')).toContainText('This PDF has 601 pages — the chosen model reads at most 600 pages of one PDF.')
     await expect(ai.getByTestId('ai-file-error')).toContainText('ERR · FILE_PAGES')
     await page.keyboard.press('Escape')
 
@@ -453,7 +453,7 @@ test.describe('Claude for files', () => {
     // 150 pages pass with Opus / Sonnet, not with Haiku (200k context: 100 pages)
     await setKey(page, { aiModel: 'claude-haiku-4-5' })
     await viaKey(page, id, 'manual-150.pdf', /^Summarise/)
-    await expect(ai.getByTestId('ai-file-error')).toContainText('with Claude Haiku 4.5, Claude reads at most 100 pages')
+    await expect(ai.getByTestId('ai-file-error')).toContainText('the chosen model reads at most 100 pages')
     expect(claude.bodies).toHaveLength(0)
     await option(page, /^Discard/).click()
     await setKey(page, { aiModel: 'claude-opus-5-5' })
@@ -626,7 +626,7 @@ test.describe('Claude for files', () => {
     const key = card(page, id, CSV.name).getByTestId('file-ai-key')
     await expect(key).toHaveText(/KI/)
     await key.click()
-    await expect(page.getByRole('menu').getByText('Claude', { exact: true })).toBeVisible()
+    await expect(page.getByRole('menu').getByText('AI', { exact: true })).toBeVisible()
     await expect(page.getByRole('menuitem', { name: /Als Datenbank importieren/ })).toContainText('LOKAL')
     await page.getByRole('menuitem', { name: /Als Tabellenkalkulation öffnen/ }).click()
     const ai = panel(page)

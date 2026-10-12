@@ -2,7 +2,7 @@
  * Links that belong to another site: Claude copies record links from an MCP server's results as
  * they come — often relative ("/r/11900"). Inside One such a link would open One's own site (a 404,
  * served as the landing page). They are resolved against the MCP server's link address instead:
- *  - the first enabled server with a `linkBase` (Settings → Claude AI → MCP servers), else
+ *  - the first enabled server with a `linkBase` (Settings → AI → MCP servers), else
  *  - the only enabled server's own origin.
  * One's own links (#/p/…, #…) and absolute URLs (https:, mailto: …) are never touched.
  */

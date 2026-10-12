@@ -68,7 +68,7 @@ async function golden(page: Page, id: string, requests: CapturedRequest[]) {
   expectGolden(id, requests, { ids: await workspaceIds(page) })
 }
 
-const panel = (page: Page) => page.getByRole('dialog', { name: /Ask Claude|Claude fragen/ })
+const panel = (page: Page) => page.getByRole('dialog', { name: /Ask AI|KI fragen/ })
 
 /** "Launch notes": select a line and run "Improve writing". */
 async function improve(page: Page) {
@@ -226,7 +226,7 @@ test.describe('golden Claude request bodies', () => {
     const id = await createPage(page, { title: 'Launch plan', content: doc(para('We launch in two weeks.'), para('')) })
     await gotoPage(page, id)
     const ed = editorOf(page, id)
-    const ask = page.getByPlaceholder('Ask Claude to write anything…')
+    const ask = page.getByPlaceholder('Ask AI to write anything…')
     await expect(async () => {
       await ed.locator('p').last().click()
       await page.keyboard.press('End')

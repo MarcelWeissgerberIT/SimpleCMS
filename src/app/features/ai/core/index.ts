@@ -6,7 +6,7 @@ export { prepare, precheck, settle, registerAIOff, registerBeforeSend, type Prep
 export { reservedUsd } from '../../governor'
 export { PURPOSES, PAGE_DERIVED, purposeOf, isPurposeId, type PurposeId, type PurposeDecl, type Need } from './purposes'
 export { classOfPage, classesOf, memberClassesOf, type SourceWorld } from './sources'
-export { aiStatus, routeFor, shortOf, type AIStatus } from './status'
+export { aiStatus, routeFor, shortOf, destinationOf, type AIStatus } from './status'
 export { ROUTABLE, routable } from './routable'
 export { AIError, aiErrorText, type AIErrorCode, type AIFix } from './errors'
 export { setAIDemo, isAIDemo, onAIDemo, usesDemo } from './demoMode'

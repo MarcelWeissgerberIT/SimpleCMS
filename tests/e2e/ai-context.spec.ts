@@ -1,5 +1,5 @@
 /**
- * What Claude reads ("Kontext-Auswahl"): context marks on a page (editor/context) — the picker (boxes in
+ * What the AI reads ("Kontext-Auswahl"): context marks on a page (editor/context) — the picker (boxes in
  * the gutter, a bar at the bottom), the AI menu's reads line, and the effect on what is sent: page-level
  * requests of the AI menu, the AI terminal's read_page / search. Claude is mocked; request bodies are
  * checked for text that must not go out. Never api.anthropic.com.

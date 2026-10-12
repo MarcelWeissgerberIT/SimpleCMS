@@ -171,7 +171,7 @@ test.describe('the Claude API key', () => {
     const sent = claudeKeysSent(page)
     const logs = consoleText(page)
     await openApp(page)
-    let dialog = await openSettings(page, /Claude AI$/)
+    let dialog = await openSettings(page, /\bAI$/)
     const input = dialog.getByPlaceholder('sk-ant-')
     await input.fill(KEY)
     await input.press('Enter')
@@ -215,7 +215,7 @@ test.describe('the Claude API key', () => {
     await page.keyboard.press('Escape')
     await reloadApp(page)
     sent.length = 0
-    dialog = await openSettings(page, /Claude AI$/)
+    dialog = await openSettings(page, /\bAI$/)
     await expect(dialog.getByRole('group', { name: 'Anthropic API key' })).toContainText(`•••• ${last4(KEY)}`)
     await dialog.getByRole('button', { name: 'Test key' }).click()
     await expect(dialog.locator('.ai-status')).toContainText('Connected · key verified')
@@ -276,7 +276,7 @@ test.describe('the Claude API key', () => {
     await expect.poll(() => storageDump(page)).toContain('s:local:local|claude-api-key')
     const testKey = async () => {
       sent.length = 0
-      const dialog = await openSettings(page, /Claude AI$/)
+      const dialog = await openSettings(page, /\bAI$/)
       await dialog.getByRole('button', { name: 'Test key' }).click()
       await expect(dialog.locator('.ai-status')).toContainText('Connected · key verified')
       await page.keyboard.press('Escape')
@@ -313,7 +313,7 @@ test.describe('the Claude API key', () => {
     })
     await hydrateAs(page, 'cloud:e2e-copied', 'vault:copiedrecord:0000')
     await expect.poll(() => wsEval(page, (s) => s.settings.aiApiKey)).toBe('')
-    const dialog = await openSettings(page, /Claude AI$/)
+    const dialog = await openSettings(page, /\bAI$/)
     await expect(dialog.getByPlaceholder('sk-ant-')).toBeVisible()
   })
 })
@@ -380,7 +380,7 @@ test('a plaintext key and GitHub token of an older version are sealed on the nex
     .toEqual({ key: false, token: false, sealedKey: true, sealedToken: true })
 
   // the key still works
-  const dialog = await openSettings(page, /Claude AI$/)
+  const dialog = await openSettings(page, /\bAI$/)
   await expect(dialog.getByRole('group', { name: 'Anthropic API key' })).toContainText(`•••• ${last4(OLD_KEY)}`)
   await dialog.getByRole('button', { name: 'Test key' }).click()
   await expect(dialog.locator('.ai-status')).toContainText('Connected · key verified')

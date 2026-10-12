@@ -215,7 +215,7 @@ test.describe('undo steps', () => {
     const id = await createPage(page, { title: 'Undo steps', content: doc(para('First line.'), para('')) })
     await gotoPage(page, id)
     const ed = editorOf(page, id)
-    const ask = page.getByPlaceholder('Ask Claude to write anything…')
+    const ask = page.getByPlaceholder('Ask AI to write anything…')
     await expect(async () => {
       await ed.locator('p').last().click()
       await page.keyboard.press('End')
@@ -229,7 +229,7 @@ test.describe('undo steps', () => {
     }).toPass({ timeout: 15_000 })
     await ask.fill('Write one line')
     await ask.press('Enter')
-    const panel = page.getByRole('dialog', { name: 'Ask Claude' })
+    const panel = page.getByRole('dialog', { name: 'Ask AI' })
     await expect(panel.locator('.ai-out__body')).toContainText('Inserted by Claude.')
     await panel.getByRole('option', { name: /^Insert/ }).first().click()
     await expect(ed).toContainText('Inserted by Claude.')

@@ -455,7 +455,7 @@ test.describe('1440 light', () => {
     await expect(panel(page).locator('.ai-out')).toHaveAttribute('data-phase', 'done')
     expect((await rowIds(ai))[0]).toBe('insert')
     await expect(row(page, 'replace')).toHaveAttribute('aria-disabled', 'true')
-    await expect(row(page, 'replace')).toContainText('Claude’s answer drops a task')
+    await expect(row(page, 'replace')).toContainText('The answer drops a task')
     await page.keyboard.press('Escape')
 
     // a selection starting inside a title: it cuts into the task — the P1 reason
@@ -485,7 +485,7 @@ test.describe('1440 light', () => {
     }, B)
     // the answer brings back a task the range no longer holds: Replace is off now — Insert below (Enter) writes it below
     await expect(row(page, 'replace')).toHaveAttribute('aria-disabled', 'true')
-    await expect(row(page, 'replace')).toContainText('Claude’s answer drops a task')
+    await expect(row(page, 'replace')).toContainText('The answer drops a task')
     await page.keyboard.press('Enter')
     await expect(panel(page)).toHaveCount(0)
     await flush(page)

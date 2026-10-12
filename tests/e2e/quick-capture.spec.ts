@@ -325,10 +325,10 @@ test.describe('share target (service worker)', () => {
     await expect.poll(() => storedShares(page)).toEqual([])
 
     // the next step: Claude for the image and the PDF
-    const images = toast(page, 'Images saved — Claude can describe them or read out their text')
+    const images = toast(page, 'Images saved — the AI can describe them or read out their text')
     await expect(images).toBeVisible()
     await expect(images.getByRole('button', { name: 'Read out text' })).toBeVisible()
-    await expect(toast(page, 'PDF saved — Claude can summarise it or extract its tables').getByRole('button', { name: 'Extract tables' })).toBeVisible()
+    await expect(toast(page, 'PDF saved — the AI can summarise it or extract its tables').getByRole('button', { name: 'Extract tables' })).toBeVisible()
     await images.getByRole('button', { name: 'Describe' }).click()
     await expect.poll(() => bodies.length, { timeout: 15_000 }).toBeGreaterThan(0)
     const content = bodies[0].messages[0].content as AnyState[]
@@ -375,7 +375,7 @@ test('app side: a share in IndexedDB → asked, saved; offline the next steps wa
   await expect(toast(page, 'Gespeichert. Claude kann es beschreiben oder zusammenfassen, sobald du online bist')).toBeVisible()
   await expect(toast(page, 'Bilder gespeichert')).toHaveCount(0)
   await context.setOffline(false)
-  await expect(toast(page, 'Bilder gespeichert — Claude kann sie beschreiben oder ihren Text auslesen').getByRole('button', { name: 'Beschreiben' })).toBeVisible()
+  await expect(toast(page, 'Bilder gespeichert — die KI kann sie beschreiben oder ihren Text auslesen').getByRole('button', { name: 'Beschreiben' })).toBeVisible()
   // the share is used up: the same link again finds nothing
   await page.evaluate(() => (window.location.hash = '#/clip?share=e2eshare01'))
   await expect(toast(page, 'Schon gespeichert oder verworfen')).toBeVisible()

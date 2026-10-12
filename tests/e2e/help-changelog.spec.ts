@@ -152,7 +152,7 @@ test.describe('What’s new in the Help panel', () => {
     await panel(page).locator('.cl-try__btn').click()
     const settings = page.getByRole('dialog', { name: 'Settings' })
     await expect(settings).toBeVisible()
-    await expect(settings.getByRole('tab', { name: /Claude AI/ })).toHaveAttribute('aria-selected', 'true')
+    await expect(settings.getByRole('tab', { name: /\bAI$/ })).toHaveAttribute('aria-selected', 'true')
     await expect(panel(page)).toHaveCount(0)
     await page.keyboard.press('Escape')
     await expect(settings).toHaveCount(0)

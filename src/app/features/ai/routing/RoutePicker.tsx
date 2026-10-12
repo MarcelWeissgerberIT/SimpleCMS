@@ -16,6 +16,7 @@ import { setDeviceDefault, setDeviceRule } from '../../../store/aiRules'
 import type { DataClass, FeatureClass, Route, SourceRef } from '@/shared/ai/types'
 import { routeKey } from '@/shared/ai/route'
 import { isJevRouter } from '@/shared/ai/jev'
+import { PROVIDERS } from '@/shared/ai/providers'
 import { routeChoices, type ChoiceWhy, type RouteChoice } from '../core/gate'
 import type { Need, PurposeId } from '../core/purposes'
 import { PLATE } from './keys'
@@ -165,7 +166,7 @@ export function RoutePicker({ anchor, purpose, chip, sources, carries, needs, re
       </p>
       {router && why && (
         <p className="route-picker__privacy" role="note">
-          {t('features.ai.jev.router.privacy')}
+          {PROVIDERS.openrouter.routerPrivacy[lang]}
         </p>
       )}
       <Command label={t('features.ai.prov.chip.title')} value={active} onValueChange={setActive} loop className="route-picker__cmd">

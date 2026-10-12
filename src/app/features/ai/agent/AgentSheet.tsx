@@ -50,8 +50,12 @@ import { memorySettings } from '../memory/settings'
 import { MediaCards } from '../media/MediaCards'
 import { MediaPreview } from '../media/MediaPreview'
 import { pagePrivate } from '../media/blocks'
+import { PROVIDERS } from '@/shared/ai/providers'
 import '../ai.css'
 import './agent.css'
+
+/** The terminal runs on Claude until slice 3: Anthropic bills its requests. */
+const TERMINAL_COMPANY = PROVIDERS.anthropic.company
 
 export { PropDiff, Preview } from './ReviewParts'
 
@@ -466,7 +470,7 @@ function NoKey() {
 
 function Standby({ disabled }: { disabled: boolean }) {
   const t = useT()
-  // external MCP servers the next conversation will use (Settings → Claude AI)
+  // external MCP servers the next conversation will use (Settings → AI)
   const mcp = useWorkspace((s) =>
     readServers(s.settings)
       .filter((x) => x.enabled)
@@ -833,7 +837,7 @@ function Echo({ entry }: { entry: EchoEntry }) {
         <>
           <CostTable lines={u.byModel} />
           <p className="term-echo__note">
-            {t('features.agent.meter.billed')} <HelpLink id="ai-costs" topic={t('features.ai.receipt.help')} />
+            {t('features.agent.meter.billed', { company: TERMINAL_COMPANY })} <HelpLink id="ai-costs" topic={t('features.ai.receipt.help')} />
           </p>
         </>
       ) : (
@@ -855,7 +859,7 @@ function Echo({ entry }: { entry: EchoEntry }) {
               </div>
             ))}
           </dl>
-          <p className="term-echo__note">{t('features.agent.meter.billed')}</p>
+          <p className="term-echo__note">{t('features.agent.meter.billed', { company: TERMINAL_COMPANY })}</p>
         </>
       )
       break
@@ -1807,7 +1811,7 @@ function Foot() {
         </span>
         <span>{t('features.agent.kbd.help')}</span>
       </p>
-      <div className="term-meter" title={t('features.agent.meter.billed')}>
+      <div className="term-meter" title={t('features.agent.meter.billed', { company: TERMINAL_COMPANY })}>
         <dl className="term-meter__vals">
           {/* IN as in /cost: the input outside the cache; cache writes and reads beside it */}
           <div>
@@ -1835,7 +1839,7 @@ function Foot() {
             <dd data-testid="agent-cost">{meterUsd(usage.usd, usage.byModel, lang)}</dd>
           </div>
         </dl>
-        <span className="term-meter__note">{t('features.agent.meter.billed')}</span>
+        <span className="term-meter__note">{t('features.agent.meter.billed', { company: TERMINAL_COMPANY })}</span>
       </div>
     </footer>
   )

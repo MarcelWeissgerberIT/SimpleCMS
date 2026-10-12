@@ -1,5 +1,5 @@
 /**
- * Settings → Claude AI → MCP servers: the overview table — per server its codeword and where it may be used: One's
+ * Settings → AI → MCP servers: the overview table — per server its codeword and where it may be used: One's
  * own Claude (scope / switched off), the custom agents that attach it, the integration profiles it activates, its OUT
  * tools (once a profile has send routes) and Claude Code in the coding worker (a server of the same name or codeword there; per repo and for tasks without a
  * repo). Rows come from overview.ts; a server name opens its details below. At phone width each row is a card.

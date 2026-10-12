@@ -132,7 +132,7 @@ test.describe('help panel', () => {
 
     const answer = panel(page).locator('.help-ask__out')
     await expect(answer).toContainText('Protect with password')
-    await expect(panel(page).locator('.help-related')).toContainText('Articles sent to Claude')
+    await expect(panel(page).locator('.help-related')).toContainText('Articles sent to Anthropic')
     await expect(panel(page).locator('.help-related')).toContainText('Share links')
 
     expect(bodies.length).toBe(1)
@@ -165,7 +165,7 @@ test.describe('help panel', () => {
     // from the search results: "Ask the help" sends the query to the Ask tab
     await panel(page).getByRole('button', { name: /Ask the help: “gmail labels”/ }).click()
     await expect(panel(page).getByRole('tab', { name: /Ask/ })).toHaveAttribute('aria-selected', 'true')
-    await expect(panel(page)).toContainText('Asking needs your Claude key')
+    await expect(panel(page)).toContainText('Asking needs AI')
     await expect(panel(page).locator('.help-related')).toContainText('Gmail sync')
     await panel(page).locator('.help-related').getByRole('link', { name: /Gmail sync/ }).click()
     await expect(articleTitle(page)).toHaveText('Gmail sync')

@@ -15,6 +15,7 @@ import { relatedRows, rowFactsFor, type FactsContext } from './rowFacts'
 import { useWorkspace } from '../../store/store'
 import type { SourceRef } from '@/shared/ai/types'
 import { estimateLabel, estimateOn, routeFor } from './core/status'
+import { providerInfo } from '@/shared/ai/providers'
 
 export type AutofillPreset = 'summary' | 'extract' | 'translate' | 'categorize' | 'custom'
 export type AutofillFieldType = 'text' | 'number' | 'select' | 'multi_select' | 'checkbox' | 'url'
@@ -246,6 +247,8 @@ export interface AutofillEstimate {
   usd: number
   /** short model label, e.g. "OPUS 5.5" */
   model: string
+  /** the company that bills it (the routed provider's — "Anthropic", "OpenRouter") */
+  company: string
 }
 
 /**
@@ -259,5 +262,5 @@ export function estimateAutofill({ rows, contextChars, preset }: { rows: number;
   const inputTokens = Math.round(rows * OVERHEAD_TOKENS + contextTokens)
   const outputTokens = Math.round(rows * OUTPUT_TOKENS[preset] + (preset === 'translate' ? contextTokens * 1.1 : 0))
   const usd = estimateOn(r, { promptTokens: inputTokens, outTokens: outputTokens, maxTokens: outputTokens })?.low ?? 0
-  return { rows, inputTokens, outputTokens, usd, model: estimateLabel(r.route, r.pool) }
+  return { rows, inputTokens, outputTokens, usd, model: estimateLabel(r.route, r.pool), company: providerInfo(r.route.p).company }
 }

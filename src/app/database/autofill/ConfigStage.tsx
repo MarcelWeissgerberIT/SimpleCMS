@@ -253,7 +253,7 @@ function RunControls({ db, prop, draft, canRun, issue, onRun }: { db: Database; 
           <dd>≈ {est ? formatUSD(est.usd, lang) : '—'}</dd>
         </div>
       </dl>
-      <p className="af-note">{t('database.autofill.est.note', { model: est?.model ?? '—' })}</p>
+      <p className="af-note">{t('database.autofill.est.note', { model: est?.model ?? '—', company: est?.company ?? '—' })}</p>
       {issue && (
         <p className="af-issue" role="status">
           {t(issue)}

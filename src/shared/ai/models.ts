@@ -8,6 +8,7 @@ import type { Caps, Effort, ModelInfo, ProviderId, Route } from './types.ts'
 import { priceRow } from './prices.ts'
 import { isJevRouter } from './jev.ts'
 import { OWNER } from './owner.ts'
+import { providerInfo } from './providers.ts'
 
 export const STORED_PROVIDERS: readonly ProviderId[] = ['anthropic', 'openai', 'openrouter']
 export const isProviderId = (v: unknown): v is ProviderId => typeof v === 'string' && (STORED_PROVIDERS as readonly string[]).includes(v)
@@ -172,13 +173,13 @@ export function vendorOf(route: Pick<Route, 'p' | 'm'>): string {
   return route.m.split('/')[0] ?? route.m
 }
 
-const PROVIDER_LABEL: Record<ProviderId, string> = { anthropic: 'Claude', openai: 'OpenAI', openrouter: 'OpenRouter' }
-export const providerLabel = (p: ProviderId): string => PROVIDER_LABEL[p]
+/** The provider's name (providers.ts — the one list of names). */
+export const providerLabel = (p: ProviderId): string => providerInfo(p).name
 
 /** A route as people read it: the registry's label, else "<provider> · <model id>". */
 export function labelOf(route: Pick<Route, 'p' | 'm'>): string {
   if (route.p === 'openrouter' && isJevRouter(route.m)) return 'OpenRouter · Jev Router'
-  return modelRow(route)?.label ?? `${PROVIDER_LABEL[route.p] ?? route.p} · ${route.m}`
+  return modelRow(route)?.label ?? `${providerLabel(route.p)} · ${route.m}`
 }
 
 /** A label → its short form: upper case, ≤ 16 (leading words dropped first, then cut). */

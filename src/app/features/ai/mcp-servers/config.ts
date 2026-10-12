@@ -163,7 +163,7 @@ export function patchServer(id: string, patch: Partial<McpServerConfig>): void {
 }
 
 /**
- * Add a server by its address (Settings → Claude AI "Add", the AI terminal's /connect https://…): its name from the
+ * Add a server by its address (Settings → AI "Add", the AI terminal's /connect https://…): its name from the
  * address, switched on. The caller starts the background check (checks.ts) — this module never imports it.
  */
 export function addServer(raw: string, token = ''): { server: McpServerConfig } | { problem: Exclude<ReturnType<typeof urlProblem>, ''> | 'full' } {

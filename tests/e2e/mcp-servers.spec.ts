@@ -178,7 +178,7 @@ async function openAIPanel(page: Page) {
   const id = await createPage(page, { title: 'Launch plan', content: doc(para('We launch in two weeks.'), para('')) })
   await gotoPage(page, id)
   const ed = editorOf(page, id)
-  const ask = page.getByPlaceholder('Ask Claude to write anything…')
+  const ask = page.getByPlaceholder('Ask AI to write anything…')
   // Space opens the AI menu only in an empty line: under load the first click can land before the
   // editor settles — then the space is typed; take it back and try again
   await expect(async () => {
@@ -192,7 +192,7 @@ async function openAIPanel(page: Page) {
       throw e
     }
   }).toPass({ timeout: 15_000 })
-  return { id, ask, panel: page.getByRole('dialog', { name: 'Ask Claude' }) }
+  return { id, ask, panel: page.getByRole('dialog', { name: 'Ask AI' }) }
 }
 
 /** Everything this origin stores: every IndexedDB database (binary values as latin1) + local/sessionStorage. */
@@ -397,9 +397,9 @@ test.describe('MCP servers (mocked Claude API, made-up server)', () => {
 
     // a free-form request: every enabled server (the disabled one stays home)
     const { ask, panel } = await openAIPanel(page)
-    await expect(panel.getByRole('option', { name: /Ask Claude/ })).toHaveCount(0)
+    await expect(panel.getByRole('option', { name: /Ask AI/ })).toHaveCount(0)
     await ask.fill('What does Archive say about the launch?')
-    await expect(panel.getByRole('option', { name: /Ask Claude/ })).toContainText('+ ARCHIVE')
+    await expect(panel.getByRole('option', { name: /Ask AI/ })).toContainText('+ ARCHIVE')
     await page.keyboard.press('Enter')
     await expect(panel.locator('.ai-out__body')).toContainText('Archive could not be searched right now')
     const chip = panel.locator('.ai-mcp__chip')
@@ -419,8 +419,8 @@ test.describe('MCP servers (mocked Claude API, made-up server)', () => {
     const editor = editorOf(page)
     await editor.locator('p').last().click()
     await page.keyboard.press('Space')
-    await page.getByRole('dialog', { name: 'Ask Claude' }).getByRole('option', { name: /Summarize this page/ }).click()
-    await expect(page.getByRole('dialog', { name: 'Ask Claude' }).locator('.ai-out__body')).toContainText('Short version.')
+    await page.getByRole('dialog', { name: 'Ask AI' }).getByRole('option', { name: /Summarize this page/ }).click()
+    await expect(page.getByRole('dialog', { name: 'Ask AI' }).locator('.ai-out__body')).toContainText('Short version.')
     last = sent[sent.length - 1]
     expect(last.body.mcp_servers).toBeUndefined()
     expect(last.body.tools).toBeUndefined()
@@ -437,8 +437,8 @@ test.describe('MCP servers (mocked Claude API, made-up server)', () => {
     await expect(page.getByTestId('mcp-servers')).toHaveCount(0)
     await editor.locator('p').last().click()
     await page.keyboard.press('Space')
-    await page.getByRole('dialog', { name: 'Ask Claude' }).getByRole('option', { name: /Summarize this page/ }).click()
-    await expect(page.getByRole('dialog', { name: 'Ask Claude' }).locator('.ai-mcp__chip')).toHaveText('ARCHIVE · archive_search')
+    await page.getByRole('dialog', { name: 'Ask AI' }).getByRole('option', { name: /Summarize this page/ }).click()
+    await expect(page.getByRole('dialog', { name: 'Ask AI' }).locator('.ai-mcp__chip')).toHaveText('ARCHIVE · archive_search')
     last = sent[sent.length - 1]
     expect(last.body.mcp_servers.map((x: AnyState) => x.name)).toEqual(['archive'])
     expect(last.body.tools).toEqual([{ type: 'mcp_toolset', mcp_server_name: 'archive' }])
@@ -638,7 +638,7 @@ test.describe('MCP servers (mocked Claude API, made-up server)', () => {
     await ask.fill('Ask about the launch')
     await page.keyboard.press('Enter')
     await expect(panel.locator('.ai-out__body')).toContainText('Done.')
-    await expect(panel.getByTestId('mcp-skipped')).toHaveText('archive rejected its token — Claude answers without it. Sign in again or replace the token in Settings → Claude AI → MCP servers.')
+    await expect(panel.getByTestId('mcp-skipped')).toHaveText('archive rejected its token — Claude answers without it. Sign in again or replace the token in Settings → AI → MCP servers.')
     expect(sent[sent.length - 1].body.mcp_servers).toBeUndefined()
     await expect(page.locator('body')).not.toContainText(TOKEN)
     await page.keyboard.press('Escape')
@@ -763,7 +763,7 @@ test.describe('MCP servers (mocked Claude API, made-up server)', () => {
     const editor = editorOf(page)
     await editor.locator('p').last().click()
     await page.keyboard.press('Space')
-    const menu = page.getByRole('dialog', { name: 'Ask Claude' })
+    const menu = page.getByRole('dialog', { name: 'Ask AI' })
     await menu.getByRole('option', { name: /Summarize this page/ }).click()
     await expect(menu.locator('.ai-out__body')).toContainText('Short version.')
     last = sent[sent.length - 1]
@@ -775,14 +775,14 @@ test.describe('MCP servers (mocked Claude API, made-up server)', () => {
     // a switched-off server stays off: "→ WIKI · OFF" while typing, a note in the result; both codewords work at once
     await editor.locator('p').last().click()
     await page.keyboard.press('Space')
-    await expect(page.getByPlaceholder('Ask Claude to write anything…')).toBeFocused()
+    await expect(page.getByPlaceholder('Ask AI to write anything…')).toBeFocused()
     await page.keyboard.type('KB: wiki: Anything new on the launch?')
     await expect(menu.getByTestId('mcp-codeword-chip').locator('.mcp-cw__chip')).toHaveText(['→ ARCHIVE', '→ WIKI · OFF'])
     await expect(menu.locator('.mcp-cw__chip[data-state="off"]')).toHaveText('→ WIKI · OFF')
     await page.keyboard.press('Enter')
     await expect(menu.locator('.ai-out__body')).toContainText('According to Archive')
     await expect(menu.locator('.ai-mcp__chip[data-state="skipped"]')).toHaveText('WIKI · OFF')
-    await expect(menu.getByTestId('mcp-skipped')).toHaveText('wiki is switched off — Claude answers without it. Switch it on in Settings → Claude AI.')
+    await expect(menu.getByTestId('mcp-skipped')).toHaveText('wiki is switched off — Claude answers without it. Switch it on in Settings → AI.')
     last = sent[sent.length - 1]
     expect(last.body.mcp_servers.map((x: AnyState) => x.name)).toEqual(['archive'])
     // automatic prompt caching for the server-side tool loop and paused turns
@@ -812,7 +812,7 @@ test.describe('MCP servers (mocked Claude API, made-up server)', () => {
     await input.fill('wiki: Anything new?')
     await expect(pal.locator('.mcp-cw__chip[data-state="off"]')).toHaveText('→ WIKI · OFF')
     await input.press('Enter')
-    await expect(pal.getByTestId('mcp-skipped')).toHaveText('wiki is switched off — Claude answers without it. Switch it on in Settings → Claude AI.')
+    await expect(pal.getByTestId('mcp-skipped')).toHaveText('wiki is switched off — Claude answers without it. Switch it on in Settings → AI.')
     await expect.poll(() => userText(sent[sent.length - 1])).toContain('Anything new?')
     expect(userText(sent[sent.length - 1])).not.toContain('wiki:')
     // Escape clears the question first, then closes

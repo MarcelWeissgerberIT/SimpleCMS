@@ -22,6 +22,7 @@ import { missingFields, sendActionItems } from './toDatabase'
 import { makeItems, topTodos } from './toItems'
 import { canCreateItems } from '../../workitems'
 import { editorPageId } from './write'
+import { destinationOf } from '../core/status'
 import { CreatePropertiesDialog, canCreateProperties, type PropertySuggestion } from '../../../database'
 
 export function MeetingFoot({ editor, node, editable }: { editor: Editor; node: PMNode; editable: boolean }) {
@@ -92,7 +93,7 @@ export function MeetingFoot({ editor, node, editable }: { editor: Editor; node: 
         <ShieldCheck size={13} strokeWidth={1.75} aria-hidden />
         <span>
           {vendor ? `${t(`features.meeting.privacy.${vendor}`)} · ` : ''}
-          {t('features.meeting.privacy.claude')}
+          {t('features.meeting.privacy.claude', { company: destinationOf('meeting.summary').company })}
         </span>
       </p>
       {showItems && (

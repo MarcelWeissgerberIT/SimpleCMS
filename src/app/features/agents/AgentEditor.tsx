@@ -874,7 +874,7 @@ function ScopeFields({ d, set, error, titles }: { d: CustomAgent; set: (p: Parti
 }
 
 /**
- * MCP servers by name: browser agents use Settings → Claude AI, server agents the server's list. The tool allow-list
+ * MCP servers by name: browser agents use Settings → AI, server agents the server's list. The tool allow-list
  * per server only while an active integration profile unlocks it (this device's servers; for a server agent also the
  * runtime's, by name / host) — without one, a list the agent already has stays applied and is shown read-only.
  */

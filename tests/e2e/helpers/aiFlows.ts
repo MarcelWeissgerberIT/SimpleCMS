@@ -11,7 +11,7 @@ import { pdfBytes } from './files'
 
 type AnyState = Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
 
-export const aiPanel = (page: Page) => page.getByRole('dialog', { name: /Ask Claude|Claude fragen/ })
+export const aiPanel = (page: Page) => page.getByRole('dialog', { name: /Ask AI|KI fragen/ })
 
 /** "Launch notes": select a line and run "Improve writing" (`answer`: wait for it; null: do not wait). */
 export async function improve(page: Page, answer: string | null = 'A tighter launch sentence.'): Promise<string> {
@@ -34,7 +34,7 @@ export async function ownRequest(page: Page, request: string): Promise<string> {
   const id = await createPage(page, { title: 'Launch plan', content: doc(para('We launch in two weeks.'), para('')) })
   await gotoPage(page, id)
   const ed = editorOf(page, id)
-  const ask = page.getByPlaceholder('Ask Claude to write anything…')
+  const ask = page.getByPlaceholder('Ask AI to write anything…')
   await expect(async () => {
     await ed.locator('p').last().click()
     await page.keyboard.press('End')

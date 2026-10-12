@@ -10,7 +10,7 @@
  *   calling tools), tool results clipped with a note (tools.ts), max_iterations as a backstop. A run
  *   that reached either ends as 'limit' (also when Claude wrapped up), so the terminal can offer
  *   Continue: the same conversation, a fresh budget (session.ts).
- * - External MCP servers (Settings → Claude AI): attached as `mcp_servers` + `mcp_toolset`s; their
+ * - External MCP servers (Settings → AI): attached as `mcp_servers` + `mcp_toolset`s; their
  *   calls run inside a response (mcp_tool_use / mcp_tool_result, kept in the history unchanged) and
  *   only reach the step log. The session pins the setup per conversation (system + tools stay put).
  */

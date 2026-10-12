@@ -101,6 +101,7 @@ import { requestIntent } from './intent'
 import { RouteChip, isRouteKey, type RouteChipHandle } from './routing/RouteChip'
 import type { PurposeId } from './core/purposes'
 import { aiWriterOf } from './core/runMeta'
+import { routeFor } from './core/status'
 import { AIError, DEFAULT_MODEL, aiErrorText, isAIDemo, onAIDemo, resolveModel, setAIDemo, verifyKey } from './client'
 import { legacyRule } from '@/shared/ai/route'
 import type { Route } from '@/shared/ai/types'
@@ -2053,7 +2054,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
                   data-autofocus=""
                   value={query}
                   disabled={busy}
-                  placeholder={busy ? t('features.ai.placeholder.busy') : placeholder}
+                  placeholder={busy ? t('features.ai.placeholder.busy', { model: routeFor(chipPurpose, { route: chip }).label }) : placeholder}
                   onChange={(e) => setQuery(e.target.value)}
                   onKeyDown={onKeyDown}
                   aria-label={placeholder}

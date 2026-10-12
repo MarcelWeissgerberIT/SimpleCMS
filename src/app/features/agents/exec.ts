@@ -364,7 +364,7 @@ async function runOnce(agent: CustomAgent, req: RunRequest): Promise<AgentRun> {
   try {
     // the gate first (newer AI rules, AI off, no key …): no MCP token is opened when it refuses (the run ends as an error)
     const pre = precheck({ purpose: 'agents.run', sources: agentSources(agent, req.rows ?? [], ''), model: agent.model })
-    // the agent's MCP servers, by name, as set up and switched on in this browser (Settings → Claude AI); only the tools
+    // the agent's MCP servers, by name, as set up and switched on in this browser (Settings → AI); only the tools
     // its allow-list names (mcpTools) — a server whose list is empty is left out, a switched-off one too (the editor says so)
     const allow = agent.mcpTools ?? {}
     const named = readServers().filter((s) => agent.mcpServers.includes(s.name))

@@ -5,6 +5,7 @@
  * see the state. An older server without the endpoints: "does not support agents yet".
  */
 import { useEffect, useId, useState } from 'react'
+import { PROVIDERS } from '@/shared/ai/providers'
 import { Plus, RotateCcw, Trash2 } from 'lucide-react'
 import { useCloud } from '../../cloud'
 import { useUI } from '../../store/ui'
@@ -135,7 +136,7 @@ export function ServerAgentsSettings() {
                 void put({ claudeKey: key.trim() }, t('features.agents.srv.keySaved')).then((ok) => ok && setKey(''))
               }}
             >
-              <input id={`${uid}-key`} className="input mono" type="password" autoComplete="off" spellCheck={false} placeholder="sk-ant-…" value={key} onChange={(e) => setKey(e.target.value)} />
+              <input id={`${uid}-key`} className="input mono" type="password" autoComplete="off" spellCheck={false} placeholder={`${PROVIDERS.anthropic.keyPrefix}…`} value={key} onChange={(e) => setKey(e.target.value)} />
               <button type="submit" className="btn btn--sm btn--ink" disabled={busy || !key.trim()}>
                 {t('features.agents.srv.saveKey')}
               </button>

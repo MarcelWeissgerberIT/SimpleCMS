@@ -876,7 +876,7 @@ const shots = {
     await page.locator('#main .ProseMirror').first().click()
     await selectRange(page, 'we launch on the 18th', 'mara does press')
     await page.locator('[aria-label="Formatting"]').first().getByRole('button', { name: /^Ask AI$/ }).click()
-    const panel = page.getByRole('dialog', { name: 'Ask Claude' })
+    const panel = page.getByRole('dialog', { name: 'Ask AI' })
     await panel.getByRole('option', { name: /Improve writing/ }).click()
     await panel.getByTestId('ai-receipt').waitFor()
     await rest(page)
@@ -1619,7 +1619,7 @@ const shots = {
     await page.evaluate((guide) => window.__one.workspace.getState().updateSettings({ mcpServers: [{ id: 'srvkb00001', name: 'kb', url: 'https://kb.example.com/mcp', token: '', enabled: true, prompt: guide, promptSource: 'auto', tools: ['kb_search', 'kb_get', 'kb_constraints'], checkedAt: Date.now() - 3 * 60_000, scope: 'own', codeword: 'kb' }] }), KB_GUIDE)
     const id = await createPage(page, 'Launch plan', doc(h(2, 'Relaunch'), para('Homepage and pricing ship first, the blog follows in a second step.'), para('Open: the final launch date and who signs off on the pricing copy.'), para('')), { icon: { type: 'asset', value: 'megaphone' } })
     await openPage(page, id)
-    const ask = page.getByPlaceholder('Ask Claude to write anything…')
+    const ask = page.getByPlaceholder('Ask AI to write anything…')
     for (let attempt = 0; attempt < 4 && !(await ask.count()); attempt++) {
       await page.locator('#main .ProseMirror p').last().click()
       await page.keyboard.press('End')
@@ -1941,7 +1941,7 @@ const shots = {
     await card.hover()
     await card.getByTestId('file-ai-key').click()
     await page.getByRole('menuitem', { name: /^Summarise/ }).click()
-    const ai = page.getByRole('dialog', { name: 'Ask Claude' })
+    const ai = page.getByRole('dialog', { name: 'Ask AI' })
     await ai.getByTestId('ai-file-meta').waitFor()
     await ai.getByText('To do:').waitFor({ timeout: 20_000 })
     await page.waitForTimeout(700)
@@ -2191,7 +2191,7 @@ const shots = {
       { name: 'home.webp', mimeType: 'image/webp', buffer: readFileSync('public/assets/shots/changelog/file-ai.webp') },
       { name: 'settings.webp', mimeType: 'image/webp', buffer: readFileSync('public/assets/shots/changelog/memory.webp') },
     ])
-    await step.getByRole('switch', { name: 'Describe the screenshots with Claude' }).click()
+    await step.getByRole('switch', { name: 'Describe the screenshots with AI' }).click()
     await step.getByRole('switch', { name: 'Save the style to One memory' }).click()
     await step.getByTestId('design-tokens').locator('.io-tokens__swatches li').first().waitFor()
     await rest(page)
@@ -2756,7 +2756,7 @@ const shots = {
     await setup.getByRole('radio', { name: '16:9' }).click()
     await setup.getByRole('radio', { name: '4', exact: true }).click()
     await setup.getByTestId('gen-run').click()
-    const panel = page.getByRole('dialog', { name: 'Ask Claude' })
+    const panel = page.getByRole('dialog', { name: 'Ask AI' })
     await panel.getByTestId('media-card').nth(3).waitFor({ timeout: 20_000 })
     await panel.getByTestId('media-preview-all').click()
     await panel.locator('[data-testid="media-card"][data-preview] img').nth(3).waitFor()
@@ -3312,7 +3312,7 @@ const shots = {
     await fig.hover()
     await fig.getByTestId('image-ai-key').click()
     await page.getByRole('menuitem', { name: /Image → table/ }).click()
-    const ai = page.getByRole('dialog', { name: 'Ask Claude' })
+    const ai = page.getByRole('dialog', { name: 'Ask AI' })
     await ai.getByTestId('ai-image-tables').waitFor({ timeout: 20_000 })
     await page.waitForTimeout(700)
     await page.mouse.move(W + 40, H + 40)
@@ -3324,7 +3324,7 @@ const shots = {
     await ctx.close()
   },
 
-  /** What Claude reads: the AI menu's reads line → "Mark blocks…" → boxes in the gutter, the bar counts. */
+  /** What the AI reads: the AI menu's reads line → "Mark blocks…" → boxes in the gutter, the bar counts. */
   async 'claude-reads'(browser) {
     const { ctx, page } = await freshPage(browser)
     const id = await createPage(page, 'Q4 planning', planDoc(), { icon: { type: 'asset', value: 'calendar' } })
@@ -3460,7 +3460,7 @@ const shots = {
     await dialog.getByRole('tab', { name: /Mail$/ }).click()
     await dialog.getByRole('button', { name: 'Connect Gmail' }).click()
     await dialog.getByTestId('mail-account').waitFor()
-    await dialog.getByRole('switch', { name: 'Organise new mails with Claude' }).click()
+    await dialog.getByRole('switch', { name: 'Organise new mails with AI' }).click()
     await dialog.getByRole('button', { name: 'Sync now' }).click()
     await page.waitForFunction(() => window.__oneMail?.state().phase === 'idle' && Object.values(window.__one.workspace.getState().pages).some((p) => p.title === 'Contract renewal — please sign by Friday'), null, { timeout: 30_000 })
     await page.waitForTimeout(500)

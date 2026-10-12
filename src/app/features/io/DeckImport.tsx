@@ -24,6 +24,7 @@ import { deckLabels, pptxErrorText, readDeck, styleLabels } from './import/label
 import type { ImportResult } from './import/apply'
 import type { ReportItem } from './import/report'
 import { exampleByTag, savePatternExample, slugTag, TAG_RE } from '../ai/memory/example'
+import { destinationOf } from '../ai/core/status'
 import { Readout } from './parts'
 import { onRovingKey } from './roving'
 import './deck.css'
@@ -439,7 +440,7 @@ export function DesignStep({ onCancel, onImport }: { onCancel: () => void; onImp
         <div className="io-opt" data-disabled={!canDescribe || undefined}>
           <span className="io-opt__text">
             <span className="io-opt__title">{t('features.imp.design.describe')}</span>
-            <span className="io-opt__desc muted">{shots.length && !keyOk ? t('features.imp.design.describeNoKey') : t('features.imp.design.describeDesc')}</span>
+            <span className="io-opt__desc muted">{shots.length && !keyOk ? t('features.imp.design.describeNoKey') : t('features.imp.design.describeDesc', { company: destinationOf('vision.design').company })}</span>
           </span>
           <Switch
             checked={describe && canDescribe}
@@ -474,7 +475,7 @@ export function DesignStep({ onCancel, onImport }: { onCancel: () => void; onImp
       {armed && describe && canDescribe && (
         <div className="io-warn" role="alert" data-testid="design-confirm">
           <div className="io-error__stripe" />
-          <p>{t(`features.imp.design.confirm.${plural(shots.length)}`, { n: shots.length })}</p>
+          <p>{t(`features.imp.design.confirm.${plural(shots.length)}`, { n: shots.length, company: destinationOf('vision.design').company })}</p>
         </div>
       )}
       {error && (

@@ -20,6 +20,7 @@ import { tagStyle } from '../../lib/colors'
 import { toast } from '../../store/ui'
 import { PageIcon } from '../../ui/PageIcon'
 import { isAIConfigured } from '../ai/client'
+import { destinationOf } from '../ai/core/status'
 import { blocksUsingList, itemsFromText, newItems, propsOfList, removeItem } from './model'
 import { proposeItems, type Proposal } from './claude'
 import { ColorKey, EntryHead, PickButton, Section, UsedList, pad2 } from './ui'
@@ -420,7 +421,7 @@ function FillWithClaude({ list }: { list: OptionList }) {
           </button>
         )}
       </div>
-      <p className="kt-fill__privacy label">{pageId === NO_PAGE ? t('features.kit.fill.sendsPrompt') : t('features.kit.fill.sendsPage')}</p>
+      <p className="kt-fill__privacy label">{t(pageId === NO_PAGE ? 'features.kit.fill.sendsPrompt' : 'features.kit.fill.sendsPage', { company: destinationOf('bulk.kit').company.toUpperCase() })}</p>
       {state.phase === 'asking' && (
         <p className="kt-fill__status label">
           <span className="led led--on kt-led--live" aria-hidden /> {t('features.kit.fill.asking')}
