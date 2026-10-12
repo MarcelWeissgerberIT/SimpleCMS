@@ -374,5 +374,12 @@ if (typeof window !== 'undefined' && (import.meta.env.DEV || new URLSearchParams
     adjust: (id: string, usd: number) => adjust(id, usd),
     settle: (id: string) => settle(id),
     view: () => useGovernorTotals.getState(),
+    /** the UI pieces in a test frame with fictional props (ui/harness.tsx — loaded only from here) */
+    ui: {
+      open: async (o?: Record<string, unknown>) => (await import('./ui/harness')).openFrame(o),
+      show: async (kind: 'note' | 'halt' | 'plate' | 'month', props: Record<string, unknown>) => (await import('./ui/harness')).showPiece(kind, props),
+      log: async () => (await import('./ui/harness')).frameLog(),
+      close: async () => (await import('./ui/harness')).closeFrame(),
+    },
   }
 }

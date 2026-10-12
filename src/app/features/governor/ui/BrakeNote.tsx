@@ -4,18 +4,21 @@
  * notes, /generate, setup test — wired in B8). Visuals and props only: the static mini bar (needle = spent, dashed =
  * this request, red line), the sentence, and the keys — E "+1 $ once" (only when that makes it fit), B "With <cheaper
  * model> ≈ band" (only when one fits), Esc / Cancel; "Needs ≈ +X $" and, for owners, "Adjust the budget ↗" when E would
- * not do. It takes focus when it appears; its letter keys act only while focus is inside it and not in a field.
+ * not do. It takes focus when it appears; its letter keys act only while focus is inside it and not in a field — also
+ * where the note sits in a dialog (the AI menu, ⌘K, a modal: ui/keys.ts typingWithin) — never a held key's repeats and
+ * not in its first moment (plate.ts).
  */
-import { useEffect, useRef, type KeyboardEvent } from 'react'
+import { useEffect, useId, useRef, type KeyboardEvent } from 'react'
 import { Gauge } from 'lucide-react'
 import { useLang, useT } from '../../../i18n'
 import { fmtUsd } from '../../../lib/money'
-import { typing } from '../../../ui/keys'
+import { typingWithin } from '../../../ui/keys'
 import { useFocusWhenShown } from '../../../ui/focus'
 import { fmtBand, fmtLimit } from '../format'
 import type { Band } from '../estimate'
 import type { RefuseDetail } from '../brake'
 import { MiniBar } from './MiniBar'
+import { useKeyGuard, useLateLive } from './plate'
 import './cells.css'
 
 export interface BrakeNoteProps {
@@ -46,7 +49,9 @@ export function BrakeNote(p: BrakeNoteProps) {
   const t = useT()
   const lang = useLang()
   const ref = useRef<HTMLDivElement>(null)
+  const msgId = useId()
   const focus = useFocusWhenShown(ref)
+  const armed = useKeyGuard()
   useEffect(() => {
     if (p.autoFocus !== false) focus()
   }, [focus, p.autoFocus])
@@ -60,14 +65,13 @@ export function BrakeNote(p: BrakeNoteProps) {
       p.onCancel()
       return
     }
-    if (e.altKey || e.ctrlKey || e.metaKey || typing(e.target as Element)) return
+    if (e.altKey || e.ctrlKey || e.metaKey || typingWithin(e.target as Element, ref.current)) return
     const k = e.key.toLowerCase()
-    if (k === 'e' && canAllow) {
+    if ((k === 'e' && canAllow) || (k === 'b' && canCheaper)) {
       e.preventDefault()
-      p.onAllow?.()
-    } else if (k === 'b' && canCheaper) {
-      e.preventDefault()
-      p.onCheaper?.()
+      if (!armed(e)) return
+      if (k === 'e') p.onAllow?.()
+      else p.onCheaper?.()
     }
   }
   const sentence =
@@ -76,17 +80,22 @@ export function BrakeNote(p: BrakeNoteProps) {
       : p.detail === 'noprice' || !p.band
         ? t('features.governor.note.noprice', { model: p.model })
         : t(month ? 'features.governor.note.overMonth' : 'features.governor.note.over', { band: fmtBand(p.band, lang), rest: fmtUsd(Math.max(0, p.rest), lang) })
+  // with focus the group's description speaks; without it, a live region a moment later
+  const live = useLateLive(sentence, p.autoFocus === false)
   return (
-    <div ref={ref} className="gv-note" role="group" aria-label={t('features.governor.note.aria')} tabIndex={-1} onKeyDown={onKey} data-detail={p.detail} data-testid="gv-brake-note">
+    <div ref={ref} className="gv-note" role="group" aria-label={t('features.governor.note.aria')} aria-describedby={msgId} tabIndex={-1} onKeyDown={onKey} data-detail={p.detail} data-testid="gv-brake-note">
       <div className="gv-note__head">
         <span className="gv-lamp">
           <Gauge size={12} strokeWidth={1.8} aria-hidden />
           {t('features.governor.halt.lamp')}
         </span>
-        <p className="gv-note__msg" role="status">
+        <p className="gv-note__msg" id={msgId}>
           {sentence}
         </p>
       </div>
+      <p className="visually-hidden" aria-live="polite">
+        {live}
+      </p>
       {p.line && p.band && <MiniBar spent={p.line.spent} add={p.band.high} limit={p.line.limit} />}
       {!!p.mcpRounds && <p className="gv-note__sub">{t('features.governor.note.mcp', { n: p.mcpRounds })}</p>}
       <div className="gv-note__keys">

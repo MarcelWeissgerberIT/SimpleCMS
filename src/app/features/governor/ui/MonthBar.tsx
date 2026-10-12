@@ -28,8 +28,10 @@ export function MonthBar({ month, spent, today, limit, day, days, soft = [] }: M
   const lang = useLang()
   const g = monthBar({ spent, today, limit, day, days, soft: soft.map((s) => s.usd) })
   const style = { '--gv-closed': `${g.closed}%`, '--gv-today': `${g.today}%`, '--gv-fc': `${g.forecast}%`, '--gv-amber': `${g.amber ?? 100}%` } as CSSProperties
-  const forecast = `≈ ${fmtLimit(Math.round(g.projection), lang)}`
-  const aria = t('features.governor.month.aria', { spent: fmtUsd(spent, lang), limit: limit !== null ? t('features.governor.month.ariaLimit', { limit: fmtUsd(limit, lang) }) : '', forecast })
+  // the "≈" belongs to the visible amount; the spoken sentence has its own
+  const projected = fmtLimit(Math.round(g.projection), lang)
+  const forecast = `≈\u00a0${projected}`
+  const aria = t('features.governor.month.aria', { spent: fmtUsd(spent, lang), limit: limit !== null ? t('features.governor.month.ariaLimit', { limit: fmtUsd(limit, lang) }) : '', forecast: projected })
   return (
     <div className="gv-month" data-over={g.over || undefined}>
       <div className="gv-month__row">

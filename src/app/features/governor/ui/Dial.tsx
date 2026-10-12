@@ -2,8 +2,10 @@
  * The consumption dial (Regler § 10.1, an SVG port of the mock's gauge.js): a tachometer that fills toward the red line —
  * the needle shows what is spent today, the amber arc starts at 75 % of the day budget, the red arc and line at the
  * budget; a dashed needle is yesterday's peak; on the halt card (`mini`) the next step runs as a dashed signal segment from
- * the needle to its end. Without a budget there is no red line. Text sizes come from the CSS; the needle moves with a
- * short mechanical ease (none with reduced motion). role="img" with a sentence for screen readers.
+ * the needle to its end. Without a budget there is no red line. Text sizes are the dial's own units (FONT), so the
+ * readout keeps its place between the arc's ends at every text size — the dial as a whole grows with the text size
+ * (its containers are sized × --text-scale). The needle moves with a short mechanical ease (none with reduced motion).
+ * role="img" with a sentence for screen readers.
  */
 import { memo } from 'react'
 import { AMBER, C, angleOf, arcPath, dialNumerals, dialScale, dialTicks, pointAt } from '../gauge'
@@ -39,6 +41,8 @@ export interface DialProps {
 const R = 127
 const W = 8
 const plain = (v: number) => String(v)
+/** text sizes in the 300-unit view box: [full dial, mini dial] */
+const FONT = { num: [13, 17], unit: [12, 12], big: [27, 34], of: [12.5, 16], lamp: [12, 16] } as const
 
 export const Dial = memo(function Dial({ value, budget, next, peak, big, of, unit, lampLabel, lamp, mini, label, approx, numeral = plain }: DialProps) {
   const lim = budget !== null && budget > 0 ? budget : null
@@ -51,6 +55,7 @@ export const Dial = memo(function Dial({ value, budget, next, peak, big, of, uni
   const tail = mini ? 18 : 26
   const lampY = by + (mini ? 46 : 40)
   const lampX = C - lampLabel.length * (mini ? 6.4 : 4.4) - 6
+  const fs = (k: keyof typeof FONT) => FONT[k][mini ? 1 : 0]
   return (
     <svg className="gv-dial" data-mini={mini || undefined} viewBox="0 0 300 300" role="img" aria-label={label}>
       <circle className="gv-g-bezel" cx={C} cy={C} r={143} strokeWidth={9} />
@@ -81,26 +86,26 @@ export const Dial = memo(function Dial({ value, budget, next, peak, big, of, uni
         // on the mini dial the budget's numeral sits a little before its line, so the needle never covers it
         const [x, y] = pointAt(mini ? (red ? 78 : 82) : 88, a(v) + (mini && red ? 8 : 0))
         return (
-          <text key={v} className={red ? 'gv-g-num gv-g-num--red' : 'gv-g-num'} x={x} y={y}>
+          <text key={v} className={red ? 'gv-g-num gv-g-num--red' : 'gv-g-num'} x={x} y={y} fontSize={fs('num')}>
             {numeral(v)}
           </text>
         )
       })}
       {unit && (
-        <text className="gv-g-unit" x={C} y={by - 30}>
+        <text className="gv-g-unit" x={C} y={by - 30} fontSize={fs('unit')}>
           {unit}
         </text>
       )}
-      <text className="gv-g-big" x={C} y={by}>
+      <text className="gv-g-big" x={C} y={by} fontSize={fs('big')}>
         {approx && <tspan className="gv-g-approx">≈ </tspan>}
         {big}
       </text>
-      <text className="gv-g-of" x={C} y={by + (mini ? 22 : 18)}>
+      <text className="gv-g-of" x={C} y={by + (mini ? 22 : 18)} fontSize={fs('of')}>
         {of}
       </text>
       {lamp && <circle className="gv-g-halo" cx={lampX} cy={lampY - 4} r={mini ? 10 : 7.5} strokeWidth={3} />}
       <circle className={lamp ? 'gv-g-lamp gv-g-lamp--on' : 'gv-g-lamp'} cx={lampX} cy={lampY - 4} r={mini ? 5.5 : 4} />
-      <text className={lamp ? 'gv-g-lamp-lbl gv-g-lamp-lbl--on' : 'gv-g-lamp-lbl'} x={C + 8} y={lampY}>
+      <text className={lamp ? 'gv-g-lamp-lbl gv-g-lamp-lbl--on' : 'gv-g-lamp-lbl'} x={C + 8} y={lampY} fontSize={fs('lamp')}>
         {lampLabel}
       </text>
       {peak != null && peak > 0 && (

@@ -2,6 +2,8 @@
    Regler (governor) — the lazy parts: the dial, the month bar, § 00's
    plate, the halt card. Ported from the mock's governor.css (tokens
    only); prefix gv-. Sizes --text-* or calc(n px * var(--text-scale));
+   the dial's text is sized in its own units (Dial.tsx) and the dial
+   grows as a whole: its boxes are × --text-scale.
    motion 90–260 ms, none with reduced motion.
    ================================================================ */
 
@@ -52,7 +54,6 @@
 .gv-g-num {
   fill: var(--ink);
   font-family: var(--font-mono);
-  font-size: calc(13px * var(--text-scale));
   font-weight: 600;
   text-anchor: middle;
   dominant-baseline: central;
@@ -63,7 +64,6 @@
 .gv-g-unit {
   fill: var(--ink-3);
   font-family: var(--font-mono);
-  font-size: calc(12px * var(--text-scale));
   font-weight: 500;
   letter-spacing: 0.1em;
   text-anchor: middle;
@@ -72,7 +72,6 @@
 .gv-g-big {
   fill: var(--ink);
   font-family: var(--font-mono);
-  font-size: calc(27px * var(--text-scale));
   font-weight: 700;
   letter-spacing: -0.02em;
   text-anchor: middle;
@@ -85,7 +84,6 @@
 .gv-g-of {
   fill: var(--ink-2);
   font-family: var(--font-mono);
-  font-size: calc(12.5px * var(--text-scale));
   font-weight: 500;
   text-anchor: middle;
 }
@@ -138,7 +136,6 @@
 .gv-g-lamp-lbl {
   fill: var(--ink-3);
   font-family: var(--font-mono);
-  font-size: calc(12px * var(--text-scale));
   font-weight: 600;
   letter-spacing: 0.1em;
   text-anchor: middle;
@@ -146,16 +143,6 @@
 }
 .gv-g-lamp-lbl--on {
   fill: var(--signal-ink);
-}
-.gv-dial[data-mini] .gv-g-num {
-  font-size: calc(17px * var(--text-scale));
-}
-.gv-dial[data-mini] .gv-g-big {
-  font-size: calc(34px * var(--text-scale));
-}
-.gv-dial[data-mini] .gv-g-of,
-.gv-dial[data-mini] .gv-g-lamp-lbl {
-  font-size: calc(16px * var(--text-scale));
 }
 @media (prefers-reduced-motion: no-preference) {
   .gv-g-needle-arm {
@@ -337,7 +324,7 @@
 }
 .gv-plate__dial {
   width: 100%;
-  max-width: 330px;
+  max-width: calc(330px * var(--text-scale));
 }
 .gv-plate__side {
   display: grid;
@@ -364,7 +351,7 @@
 }
 @container (min-width: 700px) {
   .gv-plate__body {
-    grid-template-columns: minmax(260px, 340px) minmax(0, 1fr);
+    grid-template-columns: minmax(calc(260px * var(--text-scale)), calc(340px * var(--text-scale))) minmax(0, 1fr);
     align-items: center;
     justify-items: stretch;
     gap: 28px;
@@ -492,13 +479,13 @@
 }
 .gv-halt__body {
   display: grid;
-  grid-template-columns: 210px minmax(0, 1fr);
+  grid-template-columns: calc(210px * var(--text-scale)) minmax(0, 1fr);
   align-items: center;
   gap: 20px;
   padding: 10px 14px 12px 10px;
 }
 .gv-halt__dial {
-  width: 210px;
+  width: calc(210px * var(--text-scale));
 }
 .gv-halt__right {
   display: flex;
@@ -565,7 +552,7 @@
     padding: 10px 12px 12px;
   }
   .gv-halt__dial {
-    width: 220px;
+    width: min(100%, calc(220px * var(--text-scale)));
     justify-self: center;
   }
   .gv-halt__msg {

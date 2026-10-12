@@ -38,9 +38,10 @@
 .gv-key .kbd {
   flex: none;
 }
+/* on the primary key the cap is cut out of the signal: on-signal on the signal itself (the pair every look keeps AA) */
 .gv-key.btn--primary .kbd {
-  border-color: color-mix(in srgb, var(--on-signal) 35%, transparent);
-  background: color-mix(in srgb, var(--toggle-white) 25%, var(--signal));
+  border-color: color-mix(in srgb, var(--on-signal) 45%, transparent);
+  background: transparent;
   color: var(--on-signal);
 }
 .gv-key__band {

@@ -65,8 +65,8 @@ export function dialTicks(s: DialScale, mini = false): DialTick[] {
   const n = Math.round(s.max / unit)
   const out: DialTick[] = []
   for (let i = 0; i <= n; i++) {
-    const v = r2(i * unit)
-    out.push({ v, a: angleOf(v, s.max), kind: i % per === 0 ? 'major' : i % 2 === 0 || mini ? 'half' : 'minor' })
+    // the angle from the exact value: rounded to cents, a quarter of a 0,1 step (0,025) would sit off its place
+    out.push({ v: r2(i * unit), a: angleOf(i * unit, s.max), kind: i % per === 0 ? 'major' : i % 2 === 0 || mini ? 'half' : 'minor' })
   }
   return out
 }

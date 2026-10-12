@@ -29,6 +29,7 @@ const LIGHT = block(/:root\s*\{([^}]*)\}/)
 const DARK = { ...LIGHT, ...block(/:root\[data-theme='dark'\]\s*\{([^}]*)\}/) }
 const TRUST = readFileSync(fileURLToPath(new URL('../../src/app/features/agents/trust/trust.css', import.meta.url)), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '')
 const RECORDER = readFileSync(fileURLToPath(new URL('../../src/app/features/recorder/ui/recorder.css', import.meta.url)), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '')
+const GOVERNOR_CELLS = readFileSync(fileURLToPath(new URL('../../src/app/features/governor/ui/cells.css', import.meta.url)), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '')
 function rule(css: string, selector: string): Record<string, string> {
   const at = css.indexOf(selector + ' {')
   const out: Record<string, string> = {}
@@ -290,6 +291,34 @@ test('the trust plate: its own text (labels, lede, legend, rule) ≥ 4.5 : 1 on 
   }
   expect(failures.slice(0, 20)).toEqual([])
   expect(checked).toBe(2 + looks.length * 2)
+})
+
+test('the governor’s keycap on its primary key (E): cut out of the signal — on-signal on the signal ≥ 4.5 : 1 for the standard look, presets, swatches, 640 random looks', () => {
+  // cells.css draws the cap transparent with on-signal text: the pair the engine already keeps for every look
+  const at = GOVERNOR_CELLS.indexOf('.gv-key.btn--primary .kbd {')
+  expect(at).toBeGreaterThan(-1)
+  const body = GOVERNOR_CELLS.slice(at, GOVERNOR_CELLS.indexOf('}', at))
+  expect(body).toMatch(/\bbackground:\s*transparent;/)
+  expect(body).toMatch(/\bcolor:\s*var\(--on-signal\);/)
+  const failures: string[] = []
+  const check = (name: string, f: Record<string, string>) => {
+    // (the stock table names the signal only; a look's full table its hover and press too)
+    for (const k of ['signal', 'signal-hover', 'signal-press']) if (f[k] && !(contrast(f['on-signal'], f[k]) >= 4.5)) failures.push(`${name} on ${k}: ${contrast(f['on-signal'], f[k]).toFixed(2)}`)
+  }
+  for (const mode of ['light', 'dark'] as const) check(`standard ${mode}`, STOCK_TOKENS[mode])
+  const looks: Array<[string, Pick<WorkspaceLook, 'colors'>]> = [
+    ...Object.entries(LOOK_PRESETS).map(([id, p]) => [id, p] as [string, Pick<WorkspaceLook, 'colors'>]),
+    ...SWATCHES.signal.map((s) => [`swatch ${s.id}`, { colors: { ...STOCK_COLORS.light, signal: s.hex } }] as [string, Pick<WorkspaceLook, 'colors'>]),
+    ...[...EDGE, ...triples(640)].map((colors) => [`${colors.paper} ${colors.ink} ${colors.signal}`, { colors }] as [string, Pick<WorkspaceLook, 'colors'>]),
+  ]
+  for (const [name, l] of looks) {
+    const d = deriveLook(l)
+    for (const mode of ['light', 'dark'] as const) check(`${name} ${mode}`, d[mode].full)
+  }
+  expect(failures.slice(0, 20)).toEqual([])
+  // the cap it replaced (white mixed into the signal) fell below AA under a pale on-signal: blueprint
+  const blue = deriveLook(LOOK_PRESETS.blueprint).light.full
+  expect(contrast(blue['on-signal'], mixSrgb(LIGHT['--toggle-white'], blue.signal, 0.25))).toBeLessThan(4.5)
 })
 
 test('a green signal keeps the "fine" LED apart from the "working" one', () => {

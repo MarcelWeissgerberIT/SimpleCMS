@@ -83,6 +83,7 @@ import type { AgentRun } from '../../src/app/features/agents/types'
 import { AMBER_SHARE, readUsageLamp, usageLine } from '../../src/app/features/governor/lamp'
 import { fmtBand, fmtLimit, fmtNum, fmtOf, fmtScale, fmtTok } from '../../src/app/features/governor/format'
 import { SWEEP, angleOf, arcPath, dialNumerals, dialScale, dialTicks, miniBar, monthBar } from '../../src/app/features/governor/gauge'
+import { messages as governorMessages } from '../../src/app/features/governor/messages'
 import { blendedPerM, priceRow } from '../../src/shared/ai/prices'
 import { capsOf } from '../../src/shared/ai/models'
 import type { PriceRow, Route, Usage } from '../../src/shared/ai/types'
@@ -1151,8 +1152,9 @@ test.describe('the lamp VERBRAUCH (lamp.ts readUsageLamp)', () => {
       ['950', '15,3k', '68k', '141k', '1,24 Mio.'],
       ['950', '15.3k', '68k', '141k', '1.24M'],
     ])
-    expect(fmtBand({ low: 0.3, high: 0.52 }, 'de')).toBe('0,30–0,52\u00a0$')
-    expect(fmtBand({ low: 0.3, high: 0.52 }, 'en')).toBe('$0.30–0.52')
+    // a word joiner after the dash: a narrow card never breaks a band into "0,30–" / "0,52 $"
+    expect(fmtBand({ low: 0.3, high: 0.52 }, 'de')).toBe('0,30–\u20600,52\u00a0$')
+    expect(fmtBand({ low: 0.3, high: 0.52 }, 'en')).toBe('$0.30–\u20600.52')
     expect(fmtBand({ low: 0.611, high: 0.614 }, 'de')).toBe('0,61\u00a0$')
     expect(fmtNum(6, 'de', true)).toBe('6')
     expect(fmtNum(6, 'de')).toBe('6,00')
@@ -1178,6 +1180,14 @@ test.describe('the instruments’ geometry (gauge.ts) and amounts', () => {
     expect(ticks.filter((t) => t.kind === 'major').length).toBe(8)
     expect(ticks.filter((t) => t.kind === 'half').length).toBe(8)
     expect(dialTicks({ max: 7.5, step: 1 }, true).every((t) => t.kind !== 'minor')).toBe(true)
+    // a day budget under 1 $ (step 0,1, quarters of 0,025): every tick sits evenly — never at a value rounded to cents
+    for (const sc of [dialScale(0.5, 0), dialScale(0.1, 0)]) {
+      expect(sc.step).toBe(0.1)
+      const tk = dialTicks(sc)
+      const gaps = tk.slice(1).map((x, i) => x.a - tk[i].a)
+      for (const gap of gaps) near(gap, (2 * SWEEP * (sc.step / 4)) / sc.max)
+      near(tk[1].a, angleOf(0.025, sc.max))
+    }
     expect([angleOf(0, 7.5), angleOf(7.5, 7.5), angleOf(99, 7.5), angleOf(-3, 7.5)]).toEqual([-SWEEP, SWEEP, SWEEP, -SWEEP])
     expect(arcPath(127, 10, 10)).toBe('')
     expect(arcPath(127, -125, 125)).toMatch(/^M\S+ \S+A127 127 0 1 1 /)
@@ -1217,5 +1227,27 @@ test.describe('the instruments’ geometry (gauge.ts) and amounts', () => {
       ['0,5', '2', '1,25', '120'],
       ['0.5', '2', '1.25', '120'],
     ])
+  })
+})
+
+test.describe('strings (features/governor/messages.ts)', () => {
+  test('EN and DE hold the same keys, none empty; § 16 is complete; counts have their plural forms', () => {
+    const en = governorMessages.en as Record<string, string>
+    const de = governorMessages.de as Record<string, string>
+    expect(Object.keys(de).sort()).toEqual(Object.keys(en).sort())
+    for (const [k, v] of [...Object.entries(en), ...Object.entries(de)]) expect(v.trim(), k).not.toBe('')
+    // § 16: the held run's toast and inbox note
+    for (const k of ['run.held.toast', 'run.held.inbox']) expect(en[`features.governor.${k}`], k).toContain('{name}')
+    // a count is never put into one fixed form: ".one" / ".other" pairs, the other with {count}
+    for (const k of ['queued.line', 'effects.title', 'halt.staged', 'run.pruned', 'browser.line']) {
+      for (const lang of [en, de]) {
+        expect(lang[`features.governor.${k}.one`], `${k}.one`).toBeTruthy()
+        expect(lang[`features.governor.${k}.other`], `${k}.other`).toBeTruthy()
+        expect(lang[`features.governor.${k}`], `${k} alone`).toBeUndefined()
+      }
+    }
+    expect(de['features.governor.queued.line.other']).toBe('{count} KI-Schritte warten · Jetzt ausführen')
+    expect(de['features.governor.effects.title.one']).toBe('Wirkung · 1 Stelle')
+    expect(en['features.governor.effects.title.other']).toBe('Effect · {count} places')
   })
 })

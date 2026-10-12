@@ -9,20 +9,24 @@
  *    same provider>" with its band (the cold cache included — the line under the keys says so), the stop key (Mod+.,
  *    which works anywhere in the dock);
  *  - the foot: allowing counts for this task and today only, the pre-brake sentence, the hard limit per provider.
- * It takes focus when it appears; E and H act only with focus inside it (never in a field); Esc hands focus back to the
- * prompt (still paused). A polite live region says what happened and which keys there are.
+ * It takes focus when it appears only where nobody has the keyboard or focus is in its own panel (the terminal's dock
+ * and prompt) — never out of the page editor or a field elsewhere; then Tab or a click enters it. E and H act only with
+ * focus inside it (never in a field, never a held key's repeats, not in its first moment — plate.ts); Esc hands focus
+ * back to the prompt (still paused). Focused, its description says what happened and which keys there are; unfocused,
+ * a polite live region says it a moment later.
  */
-import { useEffect, useRef, type KeyboardEvent } from 'react'
+import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react'
 import { Gauge, Snowflake } from 'lucide-react'
 import { useLang, useT } from '../../../i18n'
 import { fmtUsd } from '../../../lib/money'
-import { typing } from '../../../ui/keys'
-import { useFocusWhenShown } from '../../../ui/focus'
+import { typingWithin } from '../../../ui/keys'
+import { focusIsNowhere, useFocusWhenShown } from '../../../ui/focus'
 import { isMac, shortcutLabel } from '../../../ui/controls'
 import { fmtBand, fmtLimit, fmtScale, fmtTok } from '../format'
 import type { Band } from '../estimate'
 import type { Binding } from '../limits'
 import { Dial } from './Dial'
+import { useKeyGuard, useLateLive } from './plate'
 import './cells.css'
 import './governor.css'
 
@@ -50,7 +54,7 @@ export interface HaltCardProps {
   stale?: boolean
   /** the hard limit per provider in use, worded (PROVIDERS[p].hardLimit — B10) */
   hard: string
-  /** take focus when shown (default true) */
+  /** take focus when shown — only where nobody has the keyboard or focus is in the card's own panel (default true) */
   autoFocus?: boolean
   onAllow: () => void
   onCheaper: () => void
@@ -68,13 +72,25 @@ export function HaltCard(p: HaltCardProps) {
   const t = useT()
   const lang = useLang()
   const ref = useRef<HTMLDivElement>(null)
+  const hintId = useId()
   const focus = useFocusWhenShown(ref)
+  const armed = useKeyGuard()
+  const [took, setTook] = useState<boolean | null>(null)
+  // once, when the card appears: the keyboard is taken only from nobody or from the card's own panel (the dock, its
+  // prompt) — never mid-sentence in the page editor or a field elsewhere
   useEffect(() => {
-    if (p.autoFocus !== false) focus()
-  }, [focus, p.autoFocus])
+    if (p.autoFocus === false) return setTook(false)
+    const home = ref.current?.parentElement?.closest('[role="region"], [role="dialog"]')
+    const active = document.activeElement
+    const mine = focusIsNowhere(active) || (!!home && !!active && home.contains(active))
+    if (mine) focus()
+    setTook(mine)
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
   const usd = (n: number) => fmtUsd(Math.max(0, n), lang)
   const canAllow = p.allow !== null
   const need = p.next ? Math.max(0, p.next.high - p.rest) : 0
+  const hint = t(isMac ? 'features.governor.halt.live.mac' : 'features.governor.halt.live.pc')
+  const live = useLateLive(hint, took === false)
   const onKey = (e: KeyboardEvent<HTMLDivElement>) => {
     if (e.key === 'Escape') {
       if (!p.onEscape) return
@@ -83,25 +99,31 @@ export function HaltCard(p: HaltCardProps) {
       p.onEscape()
       return
     }
-    if (e.altKey || e.ctrlKey || e.metaKey || typing(e.target as Element)) return
+    if (e.altKey || e.ctrlKey || e.metaKey || typingWithin(e.target as Element, ref.current)) return
     const k = e.key.toLowerCase()
-    if (k === 'e' && canAllow) {
+    if ((k === 'e' && canAllow) || (k === 'h' && p.cheaper)) {
       e.preventDefault()
-      p.onAllow()
-    } else if (k === 'h' && p.cheaper) {
-      e.preventDefault()
-      p.onCheaper()
+      if (!armed(e)) return
+      if (k === 'e') p.onAllow()
+      else p.onCheaper()
     }
   }
   const staged = p.staged > 0 ? t(p.staged === 1 ? 'features.governor.halt.staged.one' : 'features.governor.halt.staged.other', { count: p.staged }) : t('features.governor.halt.staged.none')
   const lead = p.next
     ? t('features.governor.halt.lead', { spent: usd(p.spent), limit: usd(p.limit), rest: usd(p.rest), model: p.model, band: fmtBand(p.next, lang), to: usd(p.to) })
     : t('features.governor.halt.leadNoPrice', { spent: usd(p.spent), limit: usd(p.limit), rest: usd(p.rest), model: p.model })
-  const dialLabel = t('features.governor.dial.ariaNext', { spent: usd(p.spent), budget: usd(p.limit), next: usd(p.to) })
+  // no price: no step drawn, no "next ≤" — the dial says the price is missing
+  const dialLabel = p.next
+    ? t('features.governor.dial.ariaNext', { spent: usd(p.spent), budget: usd(p.limit), next: usd(p.to) })
+    : t('features.governor.dial.ariaNoPrice', { spent: usd(p.spent), budget: usd(p.limit) })
+  const dialOf = p.next ? t('features.governor.dial.next', { usd: usd(p.to) }) : t('features.governor.dial.nextNoPrice')
   return (
-    <div ref={ref} className="gv-halt" role="group" aria-label={t('features.governor.halt.aria')} tabIndex={-1} onKeyDown={onKey} data-testid="gv-halt">
-      <p className="visually-hidden" aria-live="polite">
-        {t(isMac ? 'features.governor.halt.live.mac' : 'features.governor.halt.live.pc')}
+    <div ref={ref} className="gv-halt" role="group" aria-label={t('features.governor.halt.aria')} aria-describedby={hintId} tabIndex={-1} onKeyDown={onKey} data-testid="gv-halt">
+      <span id={hintId} className="visually-hidden">
+        {hint}
+      </span>
+      <p className="visually-hidden" aria-live="polite" data-testid="gv-halt-live">
+        {live}
       </p>
       <div className="gv-halt__head">
         <span className="gv-lamp">
@@ -116,7 +138,7 @@ export function HaltCard(p: HaltCardProps) {
       </div>
       <div className="gv-halt__body">
         <div className="gv-halt__dial">
-          <Dial mini numeral={(v) => fmtScale(v, lang)} value={p.spent} budget={p.limit} next={p.to} big={usd(p.spent)} of={t('features.governor.dial.next', { usd: usd(p.to) })} lamp lampLabel={t('features.governor.dial.lamp')} label={dialLabel} />
+          <Dial mini numeral={(v) => fmtScale(v, lang)} value={p.spent} budget={p.limit} next={p.next ? p.to : null} big={usd(p.spent)} of={dialOf} lamp lampLabel={t('features.governor.dial.lamp')} label={dialLabel} />
         </div>
         <div className="gv-halt__right">
           <p className="gv-halt__msg">
@@ -129,14 +151,14 @@ export function HaltCard(p: HaltCardProps) {
                 <span className="kbd">E</span>
                 {t('features.governor.halt.allow', { usd: fmtLimit(p.allow ?? 0, lang) })}
               </button>
-            ) : (
+            ) : p.next && need > 0 ? (
               <span className="gv-halt__need label">{t('features.governor.halt.need', { usd: usd(need) })}</span>
-            )}
+            ) : null}
             {p.cheaper && (
               <button type="button" className="btn gv-key" onClick={p.onCheaper}>
                 <span className="kbd">H</span>
                 {t('features.governor.halt.cheaper', { model: p.cheaper.label })}
-                <span className="gv-key__band">≈ {fmtBand(p.cheaper.band, lang)}</span>
+                <span className="gv-key__band">≈{'\u00a0'}{fmtBand(p.cheaper.band, lang)}</span>
               </button>
             )}
             <button type="button" className="btn gv-key" onClick={p.onStop}>

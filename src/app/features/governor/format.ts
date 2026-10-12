@@ -9,6 +9,8 @@ import { fmtUsd } from '../../lib/money'
 
 /** the sign stays on its line (as lib/money.ts writes it) */
 const NBSP = '\u00a0'
+/** a band never breaks after its dash ("0,30–" / "0,52 $") */
+const WJ = '\u2060'
 
 const nums = new Map<string, Intl.NumberFormat>()
 function num(lang: Lang, min: number, max = min): Intl.NumberFormat {
@@ -32,12 +34,12 @@ export function fmtNum(usd: number, lang: Lang, whole = false): string {
   return whole && Number.isInteger(v) ? num(lang, 0).format(v) : num(lang, 2).format(v)
 }
 
-/** A band "0,30–0,52 $" / "$0.30–0.52" (one amount when both ends round alike). */
+/** A band "0,30–0,52 $" / "$0.30–0.52" (one amount when both ends round alike; no line break after the dash). */
 export function fmtBand(band: { low: number; high: number }, lang: Lang): string {
   const low = fmtNum(band.low, lang)
   const high = fmtNum(band.high, lang)
   if (low === high) return fmtUsd(band.high, lang)
-  return lang === 'de' ? `${low}–${high}${NBSP}$` : `$${low}–${high}`
+  return lang === 'de' ? `${low}–${WJ}${high}${NBSP}$` : `$${low}–${WJ}${high}`
 }
 
 /** Spend of a limit, short: "4,12/6 $" · "$4.12/6" — the lamp's second line and the phone's status cell. */

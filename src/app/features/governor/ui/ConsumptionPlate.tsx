@@ -47,10 +47,24 @@ export function ConsumptionPlate(p: ConsumptionPlateProps) {
   const lang = useLang()
   const usd = (n: number) => fmtUsd(n, lang)
   const spent = p.spent ?? 0
-  const big = p.spent === null ? '—' : usd(spent)
-  const of = p.budget !== null ? (spent > p.budget ? t('features.governor.dial.over', { budget: usd(p.budget), over: usd(spent - p.budget) }) : t('features.governor.dial.of', { budget: usd(p.budget), rest: usd(p.budget - spent) })) : t('features.governor.dial.ofNone')
-  const label =
-    p.budget !== null ? t('features.governor.dial.aria', { spent: usd(spent), budget: usd(p.budget), rest: usd(Math.max(0, p.budget - spent)) }) : t('features.governor.dial.ariaNone', { spent: usd(spent) })
+  const read = p.spent !== null
+  const big = read ? usd(spent) : '—'
+  // before the first read: no rest (the day may already be at the line) — the budget alone, "is being read"
+  const of =
+    p.budget === null
+      ? t('features.governor.dial.ofNone')
+      : !read
+        ? t('features.governor.dial.ofOnly', { budget: usd(p.budget) })
+        : spent > p.budget
+          ? t('features.governor.dial.over', { budget: usd(p.budget), over: usd(spent - p.budget) })
+          : t('features.governor.dial.of', { budget: usd(p.budget), rest: usd(p.budget - spent) })
+  const label = !read
+    ? p.budget !== null
+      ? t('features.governor.dial.ariaReading', { budget: usd(p.budget) })
+      : t('features.governor.dial.ariaReadingNone')
+    : p.budget !== null
+      ? t('features.governor.dial.aria', { spent: usd(spent), budget: usd(p.budget), rest: usd(Math.max(0, p.budget - spent)) })
+      : t('features.governor.dial.ariaNone', { spent: usd(spent) })
   const atLine = p.budget !== null && p.spent !== null && spent >= p.budget
   return (
     <section className="screw-plate gv-plate" aria-labelledby="gv-plate-title" data-budget={p.budget !== null || undefined}>
@@ -64,7 +78,7 @@ export function ConsumptionPlate(p: ConsumptionPlateProps) {
       </header>
       <div className="gv-plate__body">
         <div className="gv-plate__dial">
-          <Dial value={spent} budget={p.budget} peak={p.peak ?? null} big={big} of={of} approx={!p.known && p.spent !== null} numeral={(v) => fmtScale(v, lang)} unit={t('features.governor.dial.label')} lamp={atLine} lampLabel={t('features.governor.dial.lamp')} label={p.known ? label : `${label}. ${t('features.governor.dial.approx')}`} />
+          <Dial value={spent} budget={p.budget} peak={p.peak ?? null} big={big} of={of} approx={!p.known && p.spent !== null} numeral={(v) => fmtScale(v, lang)} unit={t('features.governor.dial.label')} lamp={atLine} lampLabel={t('features.governor.dial.lamp')} label={p.known || !read ? label : `${label}. ${t('features.governor.dial.approx')}`} />
           <div className="gv-legend">
             {p.budget !== null ? (
               <>
@@ -117,9 +131,11 @@ export function ConsumptionPlate(p: ConsumptionPlateProps) {
               <ul className="gv-hard__list">
                 {p.hard.map((h) => (
                   <li key={h.code} className="gv-hard__line">
-                    <span className="gv-code" title={h.name} aria-label={h.name}>
+                    {/* the plate is drawn; screen readers hear the provider's name (aria-label on a span is dropped) */}
+                    <span className="gv-code" title={h.name} aria-hidden>
                       {h.code}
                     </span>
+                    <span className="visually-hidden">{h.name}: </span>
                     {h.href ? (
                       <a href={h.href} target="_blank" rel="noopener noreferrer">
                         {h.text} ↗
