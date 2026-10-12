@@ -1,7 +1,7 @@
 ---
 id: 2026-10-11-flight-recorder-window
 date: 2026-10-11
-order: 1
+order: 3
 title: Ein Fenster lesen — was ein Lauf geändert hat, Stelle für Stelle
 summary: Einen Lauf auf dem Band des Flugschreibers klammern und ↵ drücken — jede Stelle, die er geändert hat, gruppiert, Werte und Text Wort für Wort, und die Zeilen, die seitdem jemand geändert hat, als gehalten markiert. Ein Vorfallbericht fasst es zusammen, ohne einen einzigen Wert.
 image: assets/shots/changelog/flight-recorder-window.webp

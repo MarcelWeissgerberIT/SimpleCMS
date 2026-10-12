@@ -1,7 +1,7 @@
 ---
 id: 2026-10-11-preflight
 date: 2026-10-11
-order: 1
+order: 4
 title: Vorflug-Check — was auf dich wartet, auf einen Blick
 summary: Eine Lampentafel auf Start zählt, was auf dich wartet — Vorschläge, Gates, Rückfragen, abgelehnte Token, Zettel — für 0 Token, und ihre Warteschlange arbeitet es per Tastatur ab, mit Rückgängig.
 image: assets/shots/changelog/preflight.webp

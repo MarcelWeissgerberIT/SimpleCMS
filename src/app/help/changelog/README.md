@@ -24,7 +24,8 @@ try: terminal
 2–6 short paragraphs or bullets: what it is, how to use it (keys as <kbd>Mod+J</kbd>), one tip.
 ```
 
-- `order`: the rank within its day, `1` = newest. The list is newest first.
+- `order`: the rank within its day, `1` = newest — each entry of a day its own (help-changelog.spec checks; a merge that
+  brings entries of one day from two branches ranks them again). The list is newest first.
 - `help`: related article ids (`src/app/help/articles/en/<id>.md`); `[text](help:<id>)` links work in the body.
 - `try` (optional): one of `CHANGELOG_TRIES` in `entries.ts` — `terminal`, `settings-ai`, `settings-mcp`,
   `settings-mail`, `settings-sync`, `settings-coding`, `agents`, `ask`, `palette`, `scripts`, `import`, `inbox`, `history`, `share`,

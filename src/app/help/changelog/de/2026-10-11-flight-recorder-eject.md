@@ -1,7 +1,7 @@
 ---
 id: 2026-10-11-flight-recorder-eject
 date: 2026-10-11
-order: 1
+order: 2
 title: Auswerfen — einen Lauf zurücknehmen, was seitdem geändert wurde, bleibt
 summary: Der Flugschreiber nimmt zurück, was in einem Fenster geschrieben wurde — einen Agentenlauf, eine Terminal-Aufgabe, eine MCP-Sitzung, ein Skript — in einem Schritt, nach einem Dialog, der zeigt, was zurückgeht und was gehalten wird. Vorher eine Version, ein Rückgängig.
 image: assets/shots/changelog/flight-recorder-eject.webp

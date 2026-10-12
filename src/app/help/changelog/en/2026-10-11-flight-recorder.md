@@ -1,7 +1,7 @@
 ---
 id: 2026-10-11-flight-recorder
 date: 2026-10-11
-order: 2
+order: 5
 title: The flight recorder — who wrote what, on one tape
 summary: Every write in the workspace lands on one tape, one track per writer — you, the AI terminal, each agent, MCP clients, scripts, sync. Mod+Alt+Z shows what happened between 07:00 and 08:00, and who it was.
 image: assets/shots/changelog/flight-recorder.webp

@@ -62,6 +62,21 @@ const naturalWidth = (page: Page, selector: string) =>
     return img.naturalWidth
   })
 
+test.describe('the entries on disk', () => {
+  // a merge that brings entries of the same day from two branches must rank them again (train 7: two entries ranked 2)
+  test('every entry of a day has its own rank, the same in its German twin', () => {
+    const seen = new Map<string, string>()
+    for (const e of ENTRIES) {
+      const key = `${e.date}#${e.order}`
+      expect(seen.get(key), `${e.id} shares date and order with ${seen.get(key)}`).toBeUndefined()
+      seen.set(key, e.id)
+      const de = readFileSync(`src/app/help/changelog/de/${e.id}.md`, 'utf8')
+      expect(new RegExp(`^date: ${e.date}$`, 'm').test(de), `${e.id}: German date`).toBe(true)
+      expect(Number(/^order: (.*)$/m.exec(de)?.[1]?.trim()) || 99, `${e.id}: German order`).toBe(e.order)
+    }
+  })
+})
+
 test.describe('What’s new in the Help panel', () => {
   test('the home strip, then the list: newest first, mono dates, thumbnails', async ({ page }) => {
     expect(ENTRIES.length).toBeGreaterThanOrEqual(10)

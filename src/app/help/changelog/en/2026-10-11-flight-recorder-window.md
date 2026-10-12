@@ -1,7 +1,7 @@
 ---
 id: 2026-10-11-flight-recorder-window
 date: 2026-10-11
-order: 1
+order: 3
 title: Reading a window — what a run changed, place by place
 summary: Bracket a run on the flight recorder's tape and press ↵ — every place it changed, grouped, its values and text word by word, and the rows someone changed since marked as held. An incident report sums it up without a single value.
 image: assets/shots/changelog/flight-recorder-window.webp

@@ -1,7 +1,7 @@
 ---
 id: 2026-10-11-preflight
 date: 2026-10-11
-order: 1
+order: 4
 title: Preflight — what waits on you, at a glance
 summary: A lamp panel on Start counts what waits on you — proposals, gates, questions, refused tokens, slips — for 0 tokens, and its queue works through it by keyboard, with Undo.
 image: assets/shots/changelog/preflight.webp

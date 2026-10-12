@@ -1,7 +1,7 @@
 ---
 id: 2026-10-11-flight-recorder-eject
 date: 2026-10-11
-order: 1
+order: 2
 title: Eject — take a run back, keep what changed since
 summary: The flight recorder takes a window's writes back — an agent run, a terminal task, an MCP session, a script — in one step, after a dialog that shows what goes back and what is held. A version first, one Undo.
 image: assets/shots/changelog/flight-recorder-eject.webp
