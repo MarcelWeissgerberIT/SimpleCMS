@@ -8,7 +8,7 @@
  *
  * (CHANGELOG_DRAFT=1 lets the build pass while a new entry's picture does not exist yet.)
  *
- * Shots: ai-receipts, agent-trust, claude-tasks, preflight, flight-recorder, tasks, outbox, mirror-again, glass-switches, history-compare, mcp-overview, mirror, task-mcp, models, search, terminal-pipelines, cloud-worker, one-picker, pipelines, legacy-modernise, coding-live, text-size, mcp-media, coding-setup, free-board, building-blocks, workspace-settings, diagram-viewer, coding-pipeline, pages-per-item, design-import, tour, quick-capture, script-templates, one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
+ * Shots: ai-setup, ai-receipts, agent-trust, claude-tasks, preflight, flight-recorder, tasks, outbox, mirror-again, glass-switches, history-compare, mcp-overview, mirror, task-mcp, models, search, terminal-pipelines, cloud-worker, one-picker, pipelines, legacy-modernise, coding-live, text-size, mcp-media, coding-setup, free-board, building-blocks, workspace-settings, diagram-viewer, coding-pipeline, pages-per-item, design-import, tour, quick-capture, script-templates, one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
  * custom-agents, gmail, help-centre, mcp-servers, feed-blocks — each named like its image. Every shot starts from a fresh, seeded
  * workspace in English, light theme, 1440 × 900 at device scale 2; the crop of the relevant area is scaled
  * to 1440 px wide and saved as public/assets/shots/changelog/<shot>.webp (≤ 150 KB: the quality steps down
@@ -831,6 +831,35 @@ const toolResult = (body, id) => (body.messages ?? []).flatMap((m) => (Array.isA
 
 const shots = {
   /**
+   * OpenRouter and the Jev Router beside Claude (multi-provider S2): left, step 01 of "Set up AI" with Claude ready and
+   * OpenRouter picked; right, step 03 with OpenRouter's suggested roles and the Jev Router line. Every AI host is mocked
+   * (scripts/lib/aiHosts.mjs: the catalogue fixture, synthesised endpoints, the key check) — no real request.
+   */
+  async 'ai-setup'(browser) {
+    const { ctx, page } = await freshPage(browser)
+    await page.evaluate(() => window.__one.workspace.getState().updateSettings({ aiApiKey: 'sk-ant-demo-key-000000000000000000007F3A' }))
+    await page.evaluate(() => window.__one.ui.getState().openModal({ type: 'aiSetup', reason: 'add' }))
+    const frame = page.getByTestId('ai-setup')
+    await frame.waitFor()
+    await frame.getByTestId('plate-openrouter').getByRole('switch').click()
+    await rest(page)
+    const left = `${TMP}/ai-setup-providers.png`
+    await page.screenshot({ path: left, clip: await boxOf(frame, 0) })
+    await frame.getByTestId('ai-setup-close').click()
+    // a key for OpenRouter (the mocked check passes), then step 03 with the suggestions
+    await page.evaluate(() => window.__one.workspace.getState().updateSettings({ aiKeys: { openrouter: 'sk-or-v1-demo-key-0000000000000000000000000000000000000000000000000000Q7Rz' } }))
+    await page.evaluate(() => window.__one.ui.getState().openModal({ type: 'aiSetup', reason: 'models', step: 'models', provider: 'openrouter' }))
+    await frame.waitFor()
+    for (const r of ['fast', 'standard', 'deep']) await page.waitForFunction((r) => { const el = document.querySelector(`[data-testid="role-${r}"]`); return !!el && !el.hasAttribute('data-none') }, r, { timeout: 20_000 })
+    await frame.getByTestId('jev-line').waitFor()
+    await rest(page)
+    const right = `${TMP}/ai-setup-models.png`
+    await page.screenshot({ path: right, clip: await boxOf(frame, 0) })
+    await saveSideBySide('ai-setup', [left, right])
+    await ctx.close()
+  },
+
+  /**
    * A receipt for every AI request (multi-provider S1): left, the AI menu after "Improve writing" with its receipt line
    * under the result; right, the AI terminal after two tasks — the second on Claude Sonnet 5.5 — and /cost with a row
    * per model and the total. Claude is mocked here with the requested model and fixed usage (no real request).
@@ -1239,7 +1268,7 @@ const shots = {
 
   /**
    * The glass rocker switches: Settings → Appearance → Switch LED with Green picked (the six LED keys, a switch off
-   * and on beside them), and below it Claude AI → One memory with its switches on and off, lit green — one above
+   * and on beside them), and below it AI → One memory with its switches on and off, lit green — one above
    * the other.
    */
   async 'glass-switches'(browser) {
@@ -3145,7 +3174,7 @@ const shots = {
   },
 
   /**
-   * Settings → Claude AI → MCP servers: the overview table — "tracker" (codeword kb, every AI call, two agents, an
+   * Settings → AI → MCP servers: the overview table — "tracker" (codeword kb, every AI call, two agents, an
    * integration, Claude Code's "kb" in the repo), "wiki" switched off, and "notes", a server only Claude Code has. The
    * repository's own worker with the fake Claude Code CLI; nothing runs.
    */
@@ -3593,7 +3622,7 @@ const shots = {
     await ctx.close()
   },
 
-  /** Settings → Claude AI → MCP servers: a knowledge base, connected (LED), with its tools. */
+  /** Settings → AI → MCP servers: a knowledge base, connected (LED), with its tools. */
   async 'mcp-servers'(browser) {
     const { ctx, page } = await freshPage(browser)
     await page.evaluate((guide) => window.__one.workspace.getState().updateSettings({ mcpServers: [{ id: 'srvkb00001', name: 'kb', url: 'https://kb.example.com/mcp', token: '', enabled: true, prompt: guide, promptSource: 'auto', tools: ['kb_search', 'kb_get', 'kb_constraints'], checkedAt: Date.now() - 3 * 60_000, scope: 'own' }] }), KB_GUIDE)

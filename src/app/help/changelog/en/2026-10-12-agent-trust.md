@@ -1,7 +1,7 @@
 ---
 id: 2026-10-12-agent-trust
 date: 2026-10-12
-order: 2
+order: 3
 title: Reasons when you discard
 summary: Say why you discard an agent's proposal — 1 wrong, 2 not now, 3 duplicate, 4 handled already — and see, per field, how often it was right.
 image: assets/shots/changelog/agent-trust.webp
