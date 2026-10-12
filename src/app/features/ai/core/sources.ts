@@ -1,6 +1,7 @@
 /**
  * What a request's sources are, as data classes (pure: a workspace snapshot in, classes out — the Node specs run it).
- * A page is `private` (team: a private page or below one), `mail` (below the Mails database or a mail directory),
+ * A page is `private` (team: a private page or below one), `mail` (below a Mails database — marked 'mails' or this
+ * device's sync target — or a mail directory),
  * `memory` (below a memory / memory-log database), `rows` (a database row) or plain `page`; a synced-block copy on the
  * page counts as content of its source page too. A selection (`{ page, as: 'selection' }`) brings only the page's member
  * classes. The gate enforces them against the route (slice 2).
@@ -37,7 +38,8 @@ function ownClasses(id: ID, w: SourceWorld): Set<DataClass> {
     const db = w.databases[cur.id]
     if (db) {
       if (db.system === 'memory' || db.system === 'memory-log') out.add('memory')
-      if (db.system?.startsWith('mail-') || (w.mailDb && cur.id === w.mailDb)) out.add('mail')
+      // a Mails database: marked durably ('mails', any device's sync) or this device's sync target
+      if (db.system === 'mails' || db.system?.startsWith('mail-') || (w.mailDb && cur.id === w.mailDb)) out.add('mail')
     }
     cur = cur.parentId ? w.pages[cur.parentId] : undefined
   }

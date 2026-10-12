@@ -621,8 +621,11 @@ export interface Database {
    * 'mail-contacts' / 'mail-companies' / 'mail-conversations' = the directories the Gmail sync fills
    * (features/mail/people.ts) — same rules.
    * 'coding' = the coding pipeline's tasks (features/coding: rows = tasks for one-worker) — same rules.
+   * 'mails' = a database the Gmail sync made (or wrote into): its rows are mail wherever it is — the AI data class
+   *   `mail` — also once this device's sync points elsewhere (settings.mail.databaseId). Only that marker: the sync
+   *   still writes only into settings.mail.databaseId, and every list that hides system databases keeps it.
    */
-  system?: 'memory' | 'memory-log' | 'mail-contacts' | 'mail-companies' | 'mail-conversations' | 'coding' | 'spec' | 'qa' | 'testcases'
+  system?: 'memory' | 'memory-log' | 'mail-contacts' | 'mail-companies' | 'mail-conversations' | 'mails' | 'coding' | 'spec' | 'qa' | 'testcases'
   /**
    * The coding pipeline (features/coding, only on the 'coding' database): one entry per option of its
    * Stage select, in the options' order. Absent = every stage is a plain queue. Write only with

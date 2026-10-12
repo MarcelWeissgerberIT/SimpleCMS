@@ -24,10 +24,36 @@ export interface Shape {
 /** How a page the route may not see reads in request text. */
 export const hiddenLabel = (): string => (useWorkspace.getState().settings.language === 'de' ? '[Seite]' : '[Page]')
 
+const PERSON_LIKE = new Set(['person', 'created_by', 'last_edited_by'])
+
+/**
+ * May a chart over database `dbId` label its data by field `propId` for this route? Not a person-like field when names
+ * are redacted, not a relation into a database the route may not see (or into a Contacts directory when names are
+ * redacted), not a formula / rollup (its value could spell either out). The computed Type column and fields of its own
+ * kind (select, date, number …) may.
+ */
+function chartAxisFor(pre: Pick<Prepared, 'redact' | 'visible'>) {
+  return (dbId: string, propId: string): boolean => {
+    const s = useWorkspace.getState()
+    const p = s.databases[dbId]?.properties.find((x) => x.id === propId)
+    if (!p) return propId === '__type__' // TYPE_PROP_ID: the computed Type column (record type names)
+    if (PERSON_LIKE.has(p.type)) return !pre.redact.people
+    if (p.type === 'relation') {
+      const target = p.relationDatabaseId
+      if (!target || !pre.visible(target)) return false
+      return !(pre.redact.people && s.databases[target]?.system === 'mail-contacts')
+    }
+    return p.type !== 'formula' && p.type !== 'rollup'
+  }
+}
+
 /** The route's shaping (null: it sees everything — the text stays as it is). One redactor per request. */
-export function shapeOf(pre: Pick<Prepared, 'sees' | 'redact' | 'visible'>): Shape | null {
+export function shapeOf(pre: Pick<Prepared, 'sees' | 'redact' | 'visible'> & Partial<Pick<Prepared, 'allows'>>): Shape | null {
   if (pre.sees === 'all') return null
-  return { r: createRedactor(), o: { people: pre.redact.people, transcript: pre.redact.transcript, visible: pre.visible, hidden: hiddenLabel() } }
+  return {
+    r: createRedactor(),
+    o: { people: pre.redact.people, transcript: pre.redact.transcript, visible: pre.visible, hidden: hiddenLabel(), rows: pre.allows ? pre.allows('rows') : false, chartAxis: chartAxisFor(pre) },
+  }
 }
 
 /** Run `fn` (synchronously) as request text for the route's shape (none: as it is). */

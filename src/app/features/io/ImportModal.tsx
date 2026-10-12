@@ -570,6 +570,11 @@ export function ImportModal({ onClose }: { onClose: () => void }) {
                 <Led state="on" /> {t(phase.result.integrationsLeft === 1 ? 'features.io.restored.integrationsLeftOne' : 'features.io.restored.integrationsLeft', { n: phase.result.integrationsLeft, max: INTEGRATION_LIMITS.profiles })}
               </p>
             )}
+            {phase.result.aiNewer && (
+              <p className="io-done__note" role="status" data-testid="io-ai-newer">
+                <Led state="on" /> {t('features.io.restored.aiNewer')}
+              </p>
+            )}
             <div className="io-readouts">
               <Readout value={phase.result.added} label={t('features.io.restored.added')} />
               <Readout value={phase.result.updated} label={t('features.io.restored.updated')} />

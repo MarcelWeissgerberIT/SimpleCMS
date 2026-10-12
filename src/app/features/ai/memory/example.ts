@@ -18,7 +18,8 @@ import { propertyValueToText } from '../../../database'
 import { t } from '../../../i18n'
 import { completeStructured, isAIConfigured, usesDemo, type RouteOptions } from '../client'
 import { precheck } from '../core/gate'
-import { routed, shapeOf, withShape } from '../core/shape'
+import { hiddenLabel, routed, shapeOf, withShape, type Shape } from '../core/shape'
+import { rowFieldsFor } from '../rowFacts'
 import { ensureExampleSchema, ensureMemoryDb, memoryDbId, memoryProps, optionIds, typeOption } from './schema'
 import type { SourceRef } from '@/shared/ai/types'
 import { readMemories } from './read'
@@ -92,26 +93,43 @@ const text = (s: string): JSONContent => ({ type: 'text', text: s })
 const para = (s: string): JSONContent => (s ? { type: 'paragraph', content: [text(s)] } : { type: 'paragraph' })
 const cell = (s: string, header = false): JSONContent => ({ type: header ? 'tableHeader' : 'tableCell', content: [para(s)] })
 
-/** An inline database as its schema + up to 5 rows (a table) — copied as data, never linked. */
-function databaseSummary(dbId: ID): JSONContent[] {
+/**
+ * How a request's route reads the example (core/shape.ts): its shape (names redacted …), the pages it may see, and
+ * whether it may receive rows. Absent: as it is (the stored copy, a route that sees everything).
+ */
+export interface ExampleView {
+  shape: Shape | null
+  visible: (id: ID) => boolean
+  rows: boolean
+}
+
+/** An inline database as its schema + up to 5 rows (a table) — copied as data, never linked. For a route that does not
+ *  see everything (`view`), a database it may not see reads as the hidden label, one whose rows it may not receive as
+ *  its title, and every value goes through rowFacts (people "@Person n", titles of pages it may not see "—"). */
+function databaseSummary(dbId: ID, view?: ExampleView): JSONContent[] {
   const { pages, databases } = ws()
   const db = databases[dbId]
   const page = pages[dbId]
   if (!db || !page) return [para(t('features.memory.example.dbGone'))]
+  if (view?.shape && !view.visible(dbId)) return [para(hiddenLabel())]
+  const name = t('features.memory.example.db', { title: page.title.trim() || t('common.untitled') })
+  if (view?.shape && !view.rows) return [{ type: 'paragraph', content: [{ type: 'text', text: name, marks: [{ type: 'bold' }] }] }]
   const schema = db.properties
     .map((p) => `${p.name} (${p.type}${p.options?.length ? `: ${p.options.map((o) => o.name).join(' | ')}` : ''})`)
     .join(' · ')
   const head: JSONContent = {
     type: 'paragraph',
-    content: [{ type: 'text', text: t('features.memory.example.db', { title: page.title.trim() || t('common.untitled') }), marks: [{ type: 'bold' }] }, text(` — ${schema}`)],
+    content: [{ type: 'text', text: name, marks: [{ type: 'bold' }] }, text(` — ${schema}`)],
   }
   const cols = db.properties.slice(0, 7)
   const rows = Object.values(pages)
     .filter((r) => r.databaseId === dbId && !r.trashed)
     .sort((a, b) => a.order - b.order)
     .slice(0, 5)
+  const shaped = view?.shape ? new Map(rows.map((r) => [r.id, rowFieldsFor(db, r, { shape: view.shape, visible: view.visible })])) : null
   const value = (r: (typeof rows)[number], p: (typeof cols)[number]) => {
     if (p.type === 'title') return r.title
+    if (shaped) return shaped.get(r.id)?.get(p.id) ?? ''
     try {
       return propertyValueToText(db, p, r)
     } catch {
@@ -126,15 +144,26 @@ function databaseSummary(dbId: ID): JSONContent[] {
 }
 
 /** Inline databases (anywhere in the blocks) become their summary. */
-function summariseDatabases(blocks: JSONContent[]): JSONContent[] {
+function summariseDatabases(blocks: JSONContent[], view?: ExampleView): JSONContent[] {
   const out: JSONContent[] = []
   for (const b of blocks) {
     if (b.type === 'databaseBlock') {
       const id = typeof b.attrs?.databaseId === 'string' ? b.attrs.databaseId : ''
-      out.push(...databaseSummary(id))
-    } else out.push(b.content ? { ...b, content: summariseDatabases(b.content) } : b)
+      out.push(...databaseSummary(id, view))
+    } else out.push(b.content ? { ...b, content: summariseDatabases(b.content, view) } : b)
   }
   return out
+}
+
+/** The inline databases in the blocks (their ids, once each). */
+function databasesIn(blocks: JSONContent[]): ID[] {
+  const out = new Set<ID>()
+  const walk = (n: JSONContent) => {
+    if (n.type === 'databaseBlock' && typeof n.attrs?.databaseId === 'string' && n.attrs.databaseId) out.add(n.attrs.databaseId)
+    n.content?.forEach(walk)
+  }
+  blocks.forEach(walk)
+  return [...out]
 }
 
 export type ExampleProblem = 'empty' | 'withheld' | 'locked' | 'readonly' | 'tag' | 'gone'
@@ -148,23 +177,36 @@ export class ExampleError extends Error {
   }
 }
 
+/** The blocks an example is made of, as read (before any summary / stripping). */
+function rawExample(pageId: ID, selection?: JSONContent[] | null): { raw: JSONContent[]; from: 'selection' | 'page' | 'marked' } {
+  if (selection) return { raw: selection.filter(Boolean), from: 'selection' }
+  const r = readableContent(pageId)
+  if (r.mode === 'none' || (r.mode === 'marked' && !r.blocks)) throw new ExampleError('withheld')
+  return { raw: readableBlocks(pageId).filter(Boolean), from: r.mode === 'marked' ? 'marked' : 'page' }
+}
+
 /**
  * What becomes the example: the selection's blocks, or what may be read of the page (its context marks:
  * everything, the marked blocks, nothing). Ready to copy.
  */
 export function exampleBlocks(pageId: ID, selection?: JSONContent[] | null): { blocks: JSONContent[]; from: 'selection' | 'page' | 'marked' } {
-  let from: 'selection' | 'page' | 'marked' = 'selection'
-  let raw = selection ?? null
-  if (!raw) {
-    const r = readableContent(pageId)
-    if (r.mode === 'none' || (r.mode === 'marked' && !r.blocks)) throw new ExampleError('withheld')
-    from = r.mode === 'marked' ? 'marked' : 'page'
-    raw = readableBlocks(pageId)
-  }
-  const doc = stripPrivate({ type: 'doc', content: summariseDatabases(raw.filter(Boolean)) })
+  const { raw, from } = rawExample(pageId, selection)
+  const doc = stripPrivate({ type: 'doc', content: summariseDatabases(raw) })
   const blocks = (doc.content ?? []).filter((b) => !(b.type === 'paragraph' && !b.content?.length))
   if (!blocks.length) throw new ExampleError('empty')
   return { blocks, from }
+}
+
+/**
+ * The example as request text for a route that does not see everything: built from the blocks as read — not from the
+ * stored copy, whose charts and synced blocks are already frozen into plain data — so the request-text scope reaches
+ * every name, chart and synced copy (core/shape.ts), and each inline database is summarised for the route. Run inside
+ * withShape. Also the databases whose rows go along (the request's sources).
+ */
+function exampleForRoute(pageId: ID, selection: JSONContent[] | null | undefined, view: ExampleView): { markdown: string; dbs: ID[] } {
+  const { raw } = rawExample(pageId, selection)
+  const dbs = databasesIn(raw).filter((id) => !!ws().databases[id] && view.visible(id) && view.rows)
+  return { markdown: docToMarkdown({ type: 'doc', content: summariseDatabases(raw, view) }), dbs }
 }
 
 /* ------------------------------------------------------------------ */
@@ -245,8 +287,14 @@ export async function saveExample(o: SaveExample): Promise<{ id: ID; how: 'new' 
   // the route first (memory is needed — refused on a route without it); the blocks are read for it (core/shape.ts)
   const live = !usesDemo() && isAIConfigured()
   const pre = live ? precheck({ purpose: 'memory.example', sources: [{ page: o.pageId }], typed: o.note }) : null
-  const markdown = withShape(pre ? shapeOf(pre) : null, () => docToMarkdown({ type: 'doc', content: ex.blocks }))
-  const described = await describeExample({ title, tag, note: o.note, markdown, blocks: ex.blocks, signal: o.signal, sources: [{ page: o.pageId }], ...(pre ? { routed: routed(pre) } : {}) })
+  const shape = pre ? shapeOf(pre) : null
+  // a route that does not see everything: the example built for it; the inline databases whose rows go along are
+  // sources of the request too (the gate checks their classes — mail, private, rows)
+  const forRoute = pre && shape ? withShape(shape, () => exampleForRoute(o.pageId, o.blocks, { shape, visible: pre.visible, rows: pre.allows('rows') })) : null
+  const markdown = forRoute ? forRoute.markdown : docToMarkdown({ type: 'doc', content: ex.blocks })
+  const dbs = forRoute ? forRoute.dbs : databasesIn(o.blocks ?? readableBlocks(o.pageId))
+  const sources: SourceRef[] = [{ page: o.pageId }, ...dbs.map((db) => ({ db }))]
+  const described = await describeExample({ title, tag, note: o.note, markdown, blocks: ex.blocks, signal: o.signal, sources, ...(pre ? { routed: routed(pre) } : {}) })
   if (o.signal?.aborted) throw new ExampleError('gone')
   return withWriter(MEMORY, () => {
     let dbId: ID

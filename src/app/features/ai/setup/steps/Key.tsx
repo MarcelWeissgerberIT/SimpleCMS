@@ -12,7 +12,7 @@ import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent as 
 import { ExternalLink, Eye, EyeOff, LockKeyhole, Loader2, Check as CheckIcon } from 'lucide-react'
 import type { ProviderId } from '@/shared/ai/types'
 import type { AIErrorCode } from '@/shared/ai/errors'
-import { providerInfo, PROVIDERS } from '@/shared/ai/providers'
+import { keyOfOther, providerInfo, PROVIDERS } from '@/shared/ai/providers'
 import { useWorkspace } from '../../../../store/store'
 import { withWriter, type Writer } from '../../../../store/writer'
 import { keyLimitUrl } from '../../../../store/secrets'
@@ -274,9 +274,11 @@ function PastePath({ p, quiet, fieldRef }: { p: ProviderId; quiet: boolean; fiel
   }, [p])
   const v = value.trim()
   const how1 = t('features.ai.prov.key.how1', { link: '\u0000' }).split('\u0000')
-  const soft = v.length > 6 && !v.startsWith(info.keyPrefix)
+  // another provider's key in this tab: refused before anything is sent (it would reach the wrong company)
+  const other = v ? keyOfOther(p, v) : null
+  const soft = !other && v.length > 6 && !v.startsWith(info.keyPrefix)
   const check = async () => {
-    if (!v || busy) return
+    if (!v || busy || other) return
     setBusy(true)
     const r = await runCheck(p, v)
     setBusy(false)
@@ -323,16 +325,22 @@ function PastePath({ p, quiet, fieldRef }: { p: ProviderId; quiet: boolean; fiel
             value={value}
             onChange={(e) => setValue(e.target.value)}
             data-testid={`key-field-${p}`}
-            aria-describedby={soft ? `${id}-soft` : undefined}
+            aria-describedby={other ? `${id}-other` : soft ? `${id}-soft` : undefined}
+            aria-invalid={other ? true : undefined}
           />
           <button type="button" className="icon-btn aik-secret__eye" onClick={() => setShow((s) => !s)} aria-label={show ? t('features.ai.prov.key.hide') : t('features.ai.prov.key.show')} aria-pressed={show}>
             {show ? <EyeOff size={14} aria-hidden /> : <Eye size={14} aria-hidden />}
           </button>
         </span>
-        <button type="submit" className="btn" disabled={!v || busy} data-testid={`key-check-${p}`}>
+        <button type="submit" className="btn" disabled={!v || busy || !!other} data-testid={`key-check-${p}`}>
           {busy ? t('features.ai.prov.key.checking') : t('features.ai.prov.key.check')}
         </button>
       </form>
+      {other && (
+        <p className="aik-soft aik-soft--wrong" id={`${id}-other`} role="alert" data-testid={`key-other-${p}`}>
+          {t('features.ai.prov.key.other', { company: providerInfo(other).company, prefix: providerInfo(other).keyPrefix, p: providerInfo(other).name, here: info.name })}
+        </p>
+      )}
       {soft && (
         <p className="aik-soft" id={`${id}-soft`}>
           {t('features.ai.prov.key.soft', { company: info.company, prefix: info.keyPrefix })}

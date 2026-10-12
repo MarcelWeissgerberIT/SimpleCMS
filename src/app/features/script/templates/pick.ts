@@ -31,7 +31,7 @@ function pickOf(db: Database): DbPick | null {
 /** The workspace's live databases, oldest first (the memory and the mail directories left out). */
 export function liveDbs(): DbPick[] {
   return Object.values(ws().databases)
-    .filter((db) => !db.system)
+    .filter((db) => !db.system || db.system === 'mails')
     .map(pickOf)
     .filter((x): x is DbPick => !!x)
     .sort((a, b) => a.page.createdAt - b.page.createdAt)

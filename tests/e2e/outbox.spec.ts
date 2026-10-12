@@ -145,6 +145,37 @@ test.describe('Outbox: routes, drafts and the seal', () => {
     await expect(slip(page).getByTestId('outbox-cost')).toHaveText(/^entwurf 0,02\s\$ · ohne werkzeuge$/i)
   })
 
+  test('a Claude narrow on people (S2 review #7): the row\'s person fields go as "@Person n" — the comment label too; positive control without it', async ({ page, context }) => {
+    const calls = await mockDrafts(context, () => 'Short reply.')
+    const m = await setup(page)
+    await wsEval(
+      page,
+      (s, a) => {
+        const p = s.addPerson('Jana Weberling') as string
+        s.updateProperty(a.db, a.owner, { type: 'person' })
+        for (const r of a.rows) s.setRowProperty(r, a.owner, [p])
+      },
+      { db: m.dbId, owner: m.props.owner, rows: Object.values(m.rows) },
+    )
+    const narrow = (on: boolean) =>
+      page.evaluate(async (on) => {
+        const r = (await (window as unknown as { __oneAI: { rules(): Promise<Record<string, (...a: unknown[]) => unknown>> } }).__oneAI.rules()) as Record<string, (...a: unknown[]) => unknown>
+        return r.setDeviceAI({ narrow: on ? { anthropic: ['people'] } : undefined })
+      }, on)
+    await narrow(true)
+    await draftReply(page, m, 0)
+    expect(calls).toHaveLength(1)
+    const shaped = JSON.stringify(calls[0].body.messages)
+    expect(shaped).not.toContain('Jana Weberling')
+    expect(shaped).toContain('@Person 1')
+    expect(shaped).toContain('For the comparison: B6 or B7?')
+    // positive control: no narrow — the name goes as it is
+    await narrow(false)
+    await draftReply(page, m, 1)
+    await expect.poll(() => calls.length).toBe(2)
+    expect(JSON.stringify(calls[1].body.messages)).toContain('Jana Weberling')
+  })
+
   test('an address only in foreign text is flagged with its source and needs a tick; the person typing it is not flagged', async ({ page, context }) => {
     const calls = await mockDrafts(context, (_b, n) => (n === 1 ? 'Looks good. Please approve here: teilen.example/rp' : 'Looks good, approved from my side.'))
     const m = await setup(page)

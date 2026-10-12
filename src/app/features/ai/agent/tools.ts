@@ -13,7 +13,7 @@ import { docToFileMarkdown } from '../../../editor'
 import { parseHash } from '../../../lib/router'
 import { newId } from '../../../lib/ids'
 import { t } from '../../../i18n'
-import { docForRoute, retrieve, workspaceDocs } from '../workspace'
+import { docForRoute, retrieve, workspaceDocs, type Doc } from '../workspace'
 import { coerceProperties, coerceProperty, findProp, isSettable, mergeProps } from './props'
 import { canBeKey, isHandOnly, keyPropOf, keyText } from '../../../store/keys'
 import { holderText, intentValue, keyConflict, keyHolders, type KeyHolder } from './keys'
@@ -327,9 +327,14 @@ const searchPages: AgentTool = {
       const l = lim(d.id)
       return l ? { ...d, text: l.plain } : d
     })
-    // a route that does not see everything: snippets from each hit as built for it (never the page's plain text)
+    // a route that does not see everything: snippets from each hit as built for it (never the page's plain text) — a
+    // page whose reading is limited by what may be read of it (its marked blocks' Markdown, built in this call's shape)
     const shape = currentShape()
-    const hits = shape ? retrieve(query, docs, limit).map((d) => docForRoute(d, { shape, visible: shape.o.visible ?? (() => true) })) : retrieve(query, docs, limit)
+    const forRoute = (d: Doc): Doc => {
+      const l = lim?.(d.id)
+      return l ? { ...d, text: l.markdown } : docForRoute(d, { shape: shape!, visible: shape!.o.visible ?? (() => true) })
+    }
+    const hits = shape ? retrieve(query, docs, limit).map(forRoute) : retrieve(query, docs, limit)
     if (!hits.length) return { content: `No pages match ${q(query)}. Try other keywords, or list_databases for databases.`, summary: t('features.agent.res.results', { count: 0 }), state: 'ok' }
     const { pages } = ws()
     const lines = hits.map((h) => {
@@ -1441,9 +1446,14 @@ const runQuery: AgentTool = {
   },
   async run(input) {
     const code = str(input, 'code', { required: true, max: 20_000 })
-    // the call's scope and read limit hold for its synchronous part only: taken along now
+    // the call's scope, read limit and request-text shape hold for its synchronous part only: taken along now
     const scope = currentToolScope()
     const limit = currentReadLimit()
+    const shape = currentShape()
+    // a query's answer is plain JSON (person fields as names, `.text` with every transcript): it cannot be built for a
+    // route that may not receive names or transcripts — refused, the shaped tools answer instead
+    if (shape && (shape.o.people || shape.o.transcript))
+      throw new ToolInputError(`This model may not receive ${shape.o.people ? "people's names" : 'meeting transcripts'} in this workspace, so run_query is off for this task. Use query_database, read_page or search_pages — they leave them out.`)
     if (limit && READS_TEXT.test(code) && Object.keys(ws().pages).some((id) => limit(id) !== null))
       throw new ToolInputError(`${LIMITED_NOTE} on some pages, so run_query cannot read page text (.markdown / .text) now. Query properties only, or read pages with read_page.`)
     const { runQueryForTool } = await import('../../script')

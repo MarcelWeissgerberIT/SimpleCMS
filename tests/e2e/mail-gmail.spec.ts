@@ -497,9 +497,11 @@ test.describe('Mail (Gmail)', () => {
     expect(listed[0]).toContain('includeSpamTrash=false')
 
     const cfg = await mailCfg(page)
-    const db = await wsEval(page, (s, id) => ({ title: s.pages[id].title, parentId: s.pages[id].parentId, private: !!s.pages[id].private, props: s.databases[id].properties.map((p: AnyState) => `${p.name}:${p.type}`), views: s.databases[id].views.map((v: AnyState) => v.name) }), cfg.databaseId)
+    const db = await wsEval(page, (s, id) => ({ title: s.pages[id].title, system: s.databases[id].system, parentId: s.pages[id].parentId, private: !!s.pages[id].private, props: s.databases[id].properties.map((p: AnyState) => `${p.name}:${p.type}`), views: s.databases[id].views.map((v: AnyState) => v.name) }), cfg.databaseId)
     expect(db).toEqual({
       title: 'Mails',
+      // marked as mail for good (the AI data class `mail` — also once the sync points elsewhere)
+      system: 'mails',
       parentId: parent,
       private: false,
       props: ['Subject:title', 'From:text', 'To:text', 'Date:date', 'Labels:multi_select', 'Unread:checkbox', 'Has attachments:checkbox', 'Gmail link:url', 'Thread:text', 'Message ID:text', 'Show images:checkbox', 'Load attachment:text', 'Contact:relation', 'Company:relation', 'Conversation:relation'],

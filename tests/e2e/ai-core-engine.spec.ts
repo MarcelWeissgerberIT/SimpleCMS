@@ -8,7 +8,7 @@ import './helpers/noNet'
 import { readFileSync } from 'node:fs'
 import { test, expect } from '@playwright/test'
 import { AI_POLICY_GEN, DATA_CLASSES, MEMBER_CLASSES, PRESETS, SHARED_CLASSES, allowedClasses, allowedFor, carryOver, loosens, policyKnown, presetOf, redactionFor, refusedClasses, requiredGen, sanitizeDeviceAI, seesEverything } from '../../src/shared/ai/policy'
-import { createRedactor, currentRedactor, redactDoc, redactPersonValue, withRedaction, type RedactNode } from '../../src/shared/ai/redact'
+import { chartFate, createRedactor, currentRedactor, redactDoc, redactPersonValue, withRedaction, type RedactNode } from '../../src/shared/ai/redact'
 import { JEV_ROUTER } from '../../src/shared/ai/jev'
 import { OWNER } from '../../src/shared/ai/owner'
 import type { Caps, DeviceAI, ModelInfo, Route, ShortlistRow, WorkspaceAI } from '../../src/shared/ai/types'
@@ -233,6 +233,33 @@ test.describe('redaction (src/shared/ai/redact.ts)', () => {
     expect(s).toContain('pg_open')
   })
 
+  test('charts (review #1): a live source the route may not read goes as its title or "[Page]"; a manual chart stays', () => {
+    const chart = (source: Record<string, unknown>, title = 'Load by owner'): RedactNode => ({ type: 'chart', attrs: { spec: { kind: 'bar', title, source } } })
+    const byOwner = chart({ kind: 'database', databaseId: 'db_tasks', x: 'p_owner', aggregate: 'count' })
+    const byStage = chart({ kind: 'database', databaseId: 'db_tasks', x: 'p_stage', aggregate: 'count' })
+    const mails = chart({ kind: 'database', databaseId: 'db_mails', x: 'p_label', aggregate: 'count' })
+    const sheet = chart({ kind: 'sheet', pageId: 'pg_secret', sheetBlockId: 'sh1', ref: 'A1:B3' })
+    const metric = chart({ kind: 'system', metric: 'activityByMember', range: '30d' })
+    const manual = chart({ kind: 'manual', rows: [['Name', 'n'], ['Nora Lindqvist', 2]] })
+    const base = { people: true, transcript: false, visible: (id: string) => id !== 'db_mails' && id !== 'pg_secret', hidden: '[Page]', rows: true, chartAxis: (_db: string, p: string) => p !== 'p_owner' }
+    expect(chartFate(byOwner.attrs!.spec, base)).toBe('title')
+    expect(chartFate(byStage.attrs!.spec, base)).toBe('keep')
+    expect(chartFate(mails.attrs!.spec, base)).toBe('hidden')
+    expect(chartFate(sheet.attrs!.spec, base)).toBe('hidden')
+    expect(chartFate(metric.attrs!.spec, base)).toBe('title')
+    expect(chartFate(manual.attrs!.spec, base)).toBe('keep')
+    // fail closed: no rows for the route, or no axis check → a chart over a database goes as its title
+    expect(chartFate(byStage.attrs!.spec, { ...base, rows: false })).toBe('title')
+    expect(chartFate(byStage.attrs!.spec, { ...base, chartAxis: undefined })).toBe('title')
+    const d: RedactNode = { type: 'doc', content: [byOwner, byStage, mails, sheet, metric, manual] }
+    const out = redactDoc(d, base, createRedactor())
+    const kinds = (out.content ?? []).map((n) => (n.type === 'chart' ? ((n.attrs!.spec as { source: { kind: string; rows?: unknown[] } }).source.kind + ((n.attrs!.spec as { source: { rows?: unknown[] } }).source.rows?.length ?? '')) : n.type))
+    expect(kinds).toEqual(['manual0', 'database', 'paragraph', 'paragraph', 'manual0', 'manual2'])
+    expect(json(out)).toContain('Load by owner')
+    expect(json(out)).toContain('[Page]')
+    expect(json(d)).toContain('p_owner')
+  })
+
   test('task owners: "@Person n" inside withRedaction, named outside (positive control)', () => {
     const a = { status: 'todo', due: null, reminder: null, people: ['pp_nora', 'pp_ivo'], blockedBy: [], related: [] } as unknown as Parameters<typeof fieldLine>[0]
     const names: Record<string, string> = { pp_nora: 'Nora Lindqvist', pp_ivo: 'Ivo Brandt' }
@@ -306,6 +333,22 @@ test.describe('purposes: needs vs may (D-S2-27)', () => {
     expect(c({ page: 'vault' })).toEqual(['page', 'private'])
     // memoised per request
     expect(w.memo!.has('mail-1')).toBe(true)
+  })
+
+  test('a Mails database is mail by its marker too — also once this device\'s sync points elsewhere (S2 review #8)', () => {
+    const page = (id: string, o: Partial<Page> = {}) => ({ id, title: id, parentId: null, content: { type: 'doc', content: [] }, ...o }) as unknown as Page
+    const db = (id: string, system?: Database['system']) => ({ id, system, properties: [], views: [] }) as unknown as Database
+    const world = (mailDb: string | null): SourceWorld => ({
+      pages: Object.fromEntries([page('old'), page('old-1', { parentId: 'old', databaseId: 'old' }), page('new'), page('new-1', { parentId: 'new', databaseId: 'new' }), page('tasks'), page('task-1', { parentId: 'tasks', databaseId: 'tasks' })].map((p) => [p.id, p])),
+      databases: { old: db('old', 'mails'), new: db('new', 'mails'), tasks: db('tasks') },
+      mailDb,
+      memo: new Map(),
+    })
+    // the restored old Mails database: no longer the sync target, still mail
+    expect([...classesOf([{ page: 'old-1' }], world('new'))].sort()).toEqual(['mail', 'rows'])
+    expect([...classesOf([{ db: 'old' }], world(null))].sort()).toEqual(['mail', 'rows', 'structure'])
+    // positive control: an ordinary database is rows only
+    expect([...classesOf([{ page: 'task-1' }], world('new'))].sort()).toEqual(['rows'])
   })
 })
 

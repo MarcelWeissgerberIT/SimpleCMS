@@ -353,3 +353,36 @@ test.describe('context marks in the AI terminal', () => {
     expect(JSON.stringify(bodies[3].messages.at(-1).content)).toContain("excluded the open page's content")
   })
 })
+
+test.describe('context marks on a narrowed Claude (S2 review #5)', () => {
+  test('Claude may not receive people: search_pages still quotes only what may be read of a page with marks; positive control on another page', async ({ page, context }) => {
+    await openApp(page)
+    await setKey(page)
+    const other = await createPage(page, { title: 'Other notes', content: doc(para('Other page stays readable.')) })
+    const id = await setup(page)
+    // this device: Claude may not receive people's names — every tool read is built for that shape
+    await page.evaluate(async () => {
+      const m = (await (window as unknown as { __oneAI: { rules(): Promise<Record<string, (...a: unknown[]) => unknown>> } }).__oneAI.rules()) as Record<string, (...a: unknown[]) => unknown>
+      return m.setDeviceAI({ narrow: { anthropic: ['people'] } })
+    })
+    const bodies = await mockAgent(context, [
+      () => sseMessage([{ type: 'tool_use', id: 'toolu_find', name: 'search_pages', input: { query: 'Context notes' } }]),
+      () => sseMessage([{ type: 'text', text: 'Searched.' }]),
+    ])
+    await page.keyboard.press(`${MOD}+j`)
+    await page.getByTestId('term-page-chip').click()
+    await page.getByRole('menuitem', { name: /Nothing from this page/ }).click()
+    await expect(page.getByTestId('term-page-chip')).toHaveText(/Context notes\s*· nothing/)
+    await prompt(page).fill('Find the salary notes')
+    await prompt(page).press('Enter')
+    await expect(terminal(page).locator('.term-answer').last()).toContainText('Searched.', { timeout: 20_000 })
+    // the page is found by its title — its excluded text is never quoted (the snippet of a shaped hit used to be built
+    // from the whole page)
+    const found = toolResult(bodies[1], 'toolu_find')
+    expect(found).toContain(id)
+    for (const s of ['SECRETBRAVO', 'SECRETECHO', 'Alpha line']) expect(found).not.toContain(s)
+    // positive control: a page without marks is quoted (as built for the route)
+    expect(found).toContain(other)
+    expect(found).toContain('Other page stays readable.')
+  })
+})

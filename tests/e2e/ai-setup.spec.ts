@@ -17,7 +17,7 @@ import type { Locator, Page } from '@playwright/test'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { test, expect, openApp, wsEval, uiEval, createPage, gotoPage, editorOf, selectText, doc, para, MOD } from './fixtures'
-import { mockClaudeScript, mockOpenRouter, orCallback, text } from './helpers/providers'
+import { hostCounts, mockClaudeScript, mockOpenRouter, orCallback, text } from './helpers/providers'
 import { openTerminal, terminal } from './helpers/terminal'
 import { capsOfRow, readCatalogRow } from '../../src/shared/ai/catalog'
 import type { ShortlistRow } from '../../src/shared/ai/types'
@@ -382,6 +382,35 @@ test.describe('the assistant "Set up AI"', () => {
     await field.press('Enter')
     await expect.poll(() => wsEval(page, (s) => s.settings.aiKeys?.openrouter ?? '')).toMatch(/:Or9k$/)
     await expect(setup(page).getByTestId('help-no_credit')).toBeVisible()
+  })
+
+  test('step 02 (review #6): a Claude key pasted into the OpenRouter tab is refused before anything is sent; the check never sends another provider\'s key; positive control', async ({ page }) => {
+    await mockOpenRouter(page.context(), { key: () => ({ status: 200, json: { data: { label: 'One', limit: null, usage: 0, limit_remaining: null, is_free_tier: false } } }) })
+    await mockClaudeScript(page.context(), [])
+    await openApp(page)
+    await openSetup(page, { reason: 'add', step: 'key', provider: 'openrouter' })
+    const field = setup(page).getByTestId('key-field-openrouter')
+    await expect(field).toBeVisible()
+    const counts = hostCounts(page)
+    await field.fill(CLAUDE_KEY)
+    const note = setup(page).getByTestId('key-other-openrouter')
+    await expect(note).toContainText('This key is from Anthropic (it starts with sk-ant-) — paste it in the Claude tab.')
+    await expect(field).toHaveAttribute('aria-invalid', 'true')
+    await expect(setup(page).getByTestId('key-check-openrouter')).toBeDisabled()
+    await field.press('Enter')
+    await page.waitForTimeout(400)
+    expect(counts).toEqual({ anthropic: 0, openai: 0, openrouter: 0 })
+    expect(await wsEval(page, (s) => s.settings.aiKeys?.openrouter ?? '')).toBe('')
+    // the check itself refuses another provider's key (the reverse: an OpenRouter key never reaches api.anthropic.com)
+    const said = await page.evaluate((k) => (window as unknown as { __oneAI: { verifyProvider(p: string, k: string): Promise<unknown> } }).__oneAI.verifyProvider('anthropic', k), OR_KEY)
+    expect(said).toEqual({ ok: false, code: 'invalid_key' })
+    expect(counts.anthropic).toBe(0)
+    // positive control: the right key is checked (one GET /key) and sealed
+    await field.fill(OR_KEY)
+    await expect(note).toHaveCount(0)
+    await field.press('Enter')
+    await expect.poll(() => wsEval(page, (s) => s.settings.aiKeys?.openrouter ?? '')).toMatch(/:Or9k$/)
+    expect(counts.openrouter).toBeGreaterThan(0)
   })
 
   test('step 03: the catalogue picker — Jev Router selectable with two models, other routers dimmed, ≤ 8 endpoint reads; the checker is not pickable', async ({ page }) => {

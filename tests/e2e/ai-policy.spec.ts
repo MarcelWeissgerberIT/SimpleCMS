@@ -14,7 +14,7 @@ import type { Page } from '@playwright/test'
 import type { JSONContent } from '@tiptap/core'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { test, expect, openApp, wsEval, uiEval, createPage, gotoPage, editorOf, selectText, doc, para, flush } from './fixtures'
+import { test, expect, openApp, wsEval, uiEval, createPage, gotoPage, editorOf, selectText, doc, para, flush, MOD } from './fixtures'
 import { hostCounts, mockClaudeScript, mockOpenRouter, seedEndpoints, text, type ClaudeStep, type ORStepFn } from './helpers/providers'
 import { aiPanel, autofillPriority, noSpeech } from './helpers/aiFlows'
 import { exportBackup } from './helpers/backup'
@@ -179,6 +179,49 @@ test.describe('generation 2 (acceptance 9, refusal part)', () => {
   })
 })
 
+test.describe('the terminal\'s tool reads on a narrowed Claude (review #4)', () => {
+  const resultOf = (body: AnyState, id: string): string =>
+    JSON.stringify((body.messages as AnyState[]).flatMap((m) => (Array.isArray(m.content) ? m.content : [])).find((c: AnyState) => c.type === 'tool_result' && c.tool_use_id === id)?.content ?? '')
+
+  test('Claude may not receive people: run_query is refused (no names in the tool result); positive control without the narrow', async ({ page }) => {
+    const code = 'db("Projects").select(Project, Owner)'
+    const claude = await mockClaudeScript(page.context(), [
+      { blocks: [{ type: 'tool_use', id: 'toolu_q1', name: 'run_query', input: { code } }] },
+      text('Listed.'),
+      { blocks: [{ type: 'tool_use', id: 'toolu_q2', name: 'run_query', input: { code } }] },
+      text('Listed again.'),
+    ])
+    await openApp(page)
+    await wsEval(page, (s) => s.updateSettings({ aiApiKey: 'sk-ant-e2e-test-key' }))
+    await wsEval(
+      page,
+      (s, name) => {
+        const mira = s.addPerson(name) as string
+        const db = (Object.values(s.databases) as AnyState[]).find((d) => s.pages[d.id]?.title === 'Projects')!
+        const owner = db.properties.find((p: AnyState) => p.type === 'person')
+        for (const r of Object.values(s.pages) as AnyState[]) if (r.databaseId === db.id && !r.trashed) s.setRowProperty(r.id, owner.id, [mira])
+      },
+      MIRA,
+    )
+    await rules(page, 'setDeviceAI', { narrow: { anthropic: ['people'] } })
+    await page.keyboard.press(`${MOD}+j`)
+    const term = page.getByRole('region', { name: 'AI terminal' })
+    const field = term.getByRole('textbox', { name: 'Task for the agent' })
+    await field.fill('Who owns the projects?')
+    await field.press('Enter')
+    await expect(term.locator('.term-answer').last()).toContainText('Listed.', { timeout: 20_000 })
+    const refused = resultOf(claude.requests[1].body, 'toolu_q1')
+    expect(refused).toContain('run_query is off')
+    expect(refused).not.toContain(MIRA)
+    // positive control: the narrow lifted, the same query answers with the names
+    await rules(page, 'setDeviceAI', { narrow: undefined })
+    await field.fill('And now?')
+    await field.press('Enter')
+    await expect(term.locator('.term-answer').last()).toContainText('Listed again.', { timeout: 20_000 })
+    expect(resultOf(claude.requests[3].body, 'toolu_q2')).toContain(MIRA)
+  })
+})
+
 test.describe('a class the route may not receive: nothing is sent', () => {
   /** A Mails database (this device's) with one row whose body holds the line. */
   async function mailRow(page: Page): Promise<string> {
@@ -324,6 +367,58 @@ test.describe('names and transcripts (acceptance 6)', () => {
   })
 })
 
+test.describe('charts on a page (review #1): their live data is request text too', () => {
+  /** A page with a chart by a person field, a chart over this device's Mails database and a workspace metric. */
+  async function chartsPage(page: Page): Promise<string> {
+    const ids = await wsEval(
+      page,
+      (s, n) => {
+        const mira = s.addPerson(n.mira) as string
+        const projects = (Object.values(s.databases) as AnyState[]).find((d) => s.pages[d.id]?.title === 'Projects')!
+        const owner = projects.properties.find((p: AnyState) => p.type === 'person')
+        for (const r of Object.values(s.pages) as AnyState[]) if (r.databaseId === projects.id && !r.trashed) s.setRowProperty(r.id, owner.id, [mira])
+        const mails = s.createDatabase({ title: 'Mails', properties: [{ id: 'p_subject', name: 'Subject', type: 'title' }, { id: 'p_label', name: 'Label', type: 'multi_select', options: [{ id: 'opt_halv', name: n.label, color: 'blue' }] }] }) as string
+        s.updateSettings({ mail: { ...(s.settings.mail ?? {}), databaseId: mails } })
+        s.createRow(mails, { title: 'Invoice 4471', properties: { p_label: ['opt_halv'] } })
+        return { projects: projects.id as string, owner: owner.id as string, mails, tags: 'p_label' }
+      },
+      { mira: MIRA, label: 'Halvorsen Freight' },
+    )
+    const chart = (title: string, source: AnyState): JSONContent => ({ type: 'chart', attrs: { spec: { kind: 'bar', title, source } } })
+    const content = doc(
+      para('Intro line stays.'),
+      chart('Load by owner', { kind: 'database', databaseId: ids.projects, x: ids.owner, aggregate: 'count' }),
+      chart('Mail labels', { kind: 'database', databaseId: ids.mails, x: ids.tags, aggregate: 'count' }),
+      chart('Busiest pages', { kind: 'system', metric: 'wordsTopPages', range: 'all' }),
+      para('our launch sentence is kinda loose'),
+    )
+    return createPage(page, { title: 'Chart notes', content })
+  }
+
+  test('a route without people or mail: the chart by Owner and the workspace metric go as their titles, the Mails chart as "[Page]"', async ({ page }) => {
+    const { or } = await setup(page, { allow: WORK })
+    const id = await chartsPage(page)
+    await improveOn(page, id, 'our launch sentence is kinda loose')
+    expect(or.posts()).toHaveLength(1)
+    const sent = bodyOf(or.posts()[0].body)
+    expect(sent).toContain('Intro line stays.')
+    expect(sent).toContain('Load by owner')
+    expect(sent).toContain('Busiest pages')
+    expect(sent).toMatch(/\\*\[Page\\*\]/)
+    for (const secret of [MIRA, 'Halvorsen Freight', 'Mail labels', 'Chart notes |']) expect(sent, secret).not.toContain(secret)
+  })
+
+  test('positive control: a route allowed people, rows and mail receives the charts\' data', async ({ page }) => {
+    const { or } = await setup(page, { allow: ALL, member: ['mail'] })
+    const id = await chartsPage(page)
+    await improveOn(page, id, 'our launch sentence is kinda loose')
+    const sent = bodyOf(or.posts()[0].body)
+    expect(sent).toContain(MIRA)
+    expect(sent).toContain('Halvorsen Freight')
+    expect(sent).toContain('Mail labels')
+  })
+})
+
 test.describe('the One memory (D-S2-29)', () => {
   async function withMemory(page: Page) {
     await uiEval(page, (u) => u.openModal({ type: 'settings', tab: 'ai' }))
@@ -354,6 +449,54 @@ test.describe('the One memory (D-S2-29)', () => {
     await expect(pal).toContainText(answer)
     return pal
   }
+
+  /** A page holding a view of Projects (Owner = Mira) and of this device's Mails database, saved as an example. */
+  async function saveExampleOf(page: Page) {
+    const ids = await wsEval(
+      page,
+      (s, n) => {
+        const mira = s.addPerson(n.mira) as string
+        const projects = (Object.values(s.databases) as AnyState[]).find((d) => s.pages[d.id]?.title === 'Projects')!
+        const owner = projects.properties.find((p: AnyState) => p.type === 'person')
+        for (const r of Object.values(s.pages) as AnyState[]) if (r.databaseId === projects.id && !r.trashed) s.setRowProperty(r.id, owner.id, [mira])
+        const mails = s.createDatabase({ title: 'Mails' }) as string
+        s.updateSettings({ mail: { ...(s.settings.mail ?? {}), databaseId: mails } })
+        s.createRow(mails, { title: 'Invoice from Halvorsen Freight' })
+        return { projects: projects.id as string, mails }
+      },
+      { mira: MIRA },
+    )
+    const id = await createPage(page, { title: 'Weekly report', content: doc(para('Shipped the login.'), { type: 'databaseBlock', attrs: { databaseId: ids.projects } }, { type: 'databaseBlock', attrs: { databaseId: ids.mails } }) })
+    await gotoPage(page, id)
+    await page.locator('.tb').getByRole('button', { name: 'Page options' }).click()
+    await page.getByRole('menuitem', { name: 'Save as example in memory' }).click()
+    const dialog = page.getByTestId('memory-example')
+    await dialog.getByRole('textbox').first().fill('weekly')
+    await dialog.getByRole('textbox').first().press('Enter')
+    await expect(page.locator('.toast', { hasText: 'Saved #weekly to One memory' })).toBeVisible({ timeout: 15_000 })
+  }
+
+  test('Save as example (review #2): inline databases are summarised for the route — names "@Person n", the Mails view hidden; positive control', async ({ page }) => {
+    const { or } = await setup(page, { allow: WORK, member: ['memory'] })
+    await withMemory(page)
+    await saveExampleOf(page)
+    expect(or.posts()).toHaveLength(1)
+    const sent = bodyOf(or.posts()[0].body)
+    expect(sent).toContain('Shipped the login.')
+    expect(sent).toContain('Database “Projects”')
+    expect(sent).toContain('@Person 1')
+    expect(sent).toMatch(/\\*\[Page\\*\]/)
+    for (const secret of [MIRA, 'Halvorsen Freight']) expect(sent, secret).not.toContain(secret)
+  })
+
+  test('Save as example, positive control: a route allowed people and mail receives the rows as they are', async ({ page }) => {
+    const { or } = await setup(page, { allow: ALL, member: ['memory', 'mail'] })
+    await withMemory(page)
+    await saveExampleOf(page)
+    const sent = bodyOf(or.posts()[0].body)
+    expect(sent).toContain(MIRA)
+    expect(sent).toContain('Halvorsen Freight')
+  })
 
   test('not allowed for the route: one request without <one_memory>, the note, no log row; allowed: the block goes and one row is logged', async ({ page }) => {
     const { or } = await setup(page, { allow: WORK, chat: [{ text: 'Short answers.' }, { text: 'Short answers again.' }] })
@@ -482,5 +625,29 @@ test.describe('a backup that would loosen the AI rules (acceptance 10)', () => {
     await expect(dialog.getByTestId('backup-ai-loosen')).toHaveCount(0)
     await page.keyboard.press('Escape')
     expect(await rulesNow(page)).toEqual({ allow: ['public'], forbid: ['mail', 'memory'] })
+  })
+
+  test('a newer build\'s rules (review #3): never taken, never restamped — the note says so; the setter refuses them too; positive control at this generation', async ({ page }, testInfo) => {
+    await openApp(page)
+    await rules(page, 'setWorkspaceAI', { policy: { providers: { openrouter: { allow: MARKED } }, restricted: [] } })
+    const { json } = await exportBackup(page, testInfo, 'mine-newer.json')
+    // rules a later build wrote: a restriction this build cannot read, stamped generation 3
+    const newer = JSON.parse(JSON.stringify(json))
+    newer.workspace.ai = { gen: 3, policy: { providers: { openrouter: { allow: ['public'] } }, restricted: [{ root: 'pg_newer_root', to: ['openrouter'] }] } }
+    const file = testInfo.outputPath('newer.json')
+    writeFileSync(file, JSON.stringify(newer))
+    const dialog = await mergeFile(page, file)
+    await expect(dialog.getByText(/Backup merged/).first()).toBeVisible()
+    await expect(dialog.getByTestId('backup-ai-loosen')).toHaveCount(0)
+    await expect(dialog.getByTestId('io-ai-newer')).toContainText('newer version of One')
+    await page.keyboard.press('Escape')
+    expect(await rulesNow(page)).toEqual({ allow: MARKED })
+    expect(await wsEval(page, (s) => s.ai?.gen ?? null)).toBeNull()
+    // the setter itself: rules stamped above this build are refused, the stored ones stay
+    expect(await rules(page, 'setWorkspaceAI', newer.workspace.ai)).toMatchObject({ ok: false })
+    expect(await rulesNow(page)).toEqual({ allow: MARKED })
+    // positive control: the same rules at this build's generation are taken
+    expect(await rules(page, 'setWorkspaceAI', { gen: 2, policy: { providers: { openrouter: { allow: ['public'] } }, restricted: [] } })).toMatchObject({ ok: true })
+    expect(await rulesNow(page)).toEqual({ allow: ['public'] })
   })
 })

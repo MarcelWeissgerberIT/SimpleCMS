@@ -14,7 +14,8 @@ import { readableContent } from '../../editor'
 import { completeStructured, AIError } from '../ai/client'
 import { estimateLabel, estimateOn, routeFor } from '../ai/core/status'
 import { precheck, type Prepared } from '../ai/core/gate'
-import { routed, shapeOf, withShape } from '../ai/core/shape'
+import { currentShape, routed, shapeOf, withShape } from '../ai/core/shape'
+import { rowFieldsFor } from '../ai/rowFacts'
 import type { SourceRef as AISourceRef } from '@/shared/ai/types'
 import { memoryRef } from '../ai/core/refs'
 import { memoryFor, noteUse } from '../ai/memory'
@@ -115,12 +116,14 @@ function buildDraftText(route: SendRoute, rowId: ID, profile: Pick<IntegrationPr
   })
   parts.push(`<record server="${attr(server)}" key="${attr(read.key)}">\n${typedLines.filter(Boolean).join('\n')}\n</record>`)
   sources.push(...typed)
+  // a route that may not receive names: a comment's label names the field, never its owner ("Comment <name>")
+  const shaped = !!currentShape()?.o.people
   for (const f of fields.filter((x) => !x.typed)) {
     const [, propId] = f.ref.split(':')
     const prop = db.properties.find((p) => p.id === propId)
     const value = prop?.type === 'title' ? row.title : readValue(db.id, propId, rowId)
     if (!value) continue
-    parts.push(`<untrusted source="${attr(f.label)}">\n${esc(value.slice(0, 4000))}\n</untrusted>`)
+    parts.push(`<untrusted source="${attr(shaped ? (prop?.name ?? f.label) : f.label)}">\n${esc(value.slice(0, 4000))}\n</untrusted>`)
     sources.push(f)
   }
   // pages the person named
@@ -144,6 +147,10 @@ function readValue(_dbId: ID, propId: string, rowId: ID): string {
   const db = row?.databaseId ? s.databases[row.databaseId] : undefined
   const prop = db?.properties.find((p) => p.id === propId)
   if (!row || !db || !prop) return ''
+  // request text for a route that does not see everything (a Claude narrow): the field as rowFacts builds it — people
+  // "@Person n", titles of pages it may not see "—", formulas / rollups reading them "—"
+  const shape = currentShape()
+  if (shape && prop.type !== 'title') return (rowFieldsFor(db, row, { shape, visible: shape.o.visible ?? (() => true) }).get(propId) ?? '').trim()
   return rowSourceText(db, prop, row)
 }
 

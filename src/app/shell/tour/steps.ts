@@ -75,7 +75,7 @@ export function showcaseDatabase(): { page: Page; db: Database } | null {
   const { pages, databases } = useWorkspace.getState()
   const list = Object.values(databases)
     .map((db) => ({ db, page: pages[db.id] }))
-    .filter((x): x is { db: Database; page: Page } => !!x.page && !x.db.system && !isEffectivelyTrashed(pages, x.page.id) && !inTemplate(pages, x.page.id))
+    .filter((x): x is { db: Database; page: Page } => !!x.page && (!x.db.system || x.db.system === 'mails') && !isEffectivelyTrashed(pages, x.page.id) && !inTemplate(pages, x.page.id))
     .sort((a, b) => b.db.views.length - a.db.views.length || a.page.createdAt - b.page.createdAt)
   return list[0] ?? null
 }

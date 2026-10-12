@@ -23,7 +23,7 @@ export interface WorkspaceSource {
   title: string
 }
 
-interface Doc {
+export interface Doc {
   id: ID
   title: string
   text: string

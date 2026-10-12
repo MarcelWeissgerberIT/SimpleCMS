@@ -115,6 +115,14 @@ export function rowFactsFor(db: Database, row: Page, ctx: FactsContext, skip?: I
   return out
 }
 
+/** Every field of the row (title and files left out) as the route may receive it, by property id. */
+export function rowFieldsFor(db: Database, row: Page, ctx: FactsContext): Map<ID, string> {
+  const tainted = taintedFields(db, row, ctx)
+  const out = new Map<ID, string>()
+  for (const p of db.properties) if (p.type !== 'title' && p.type !== 'files') out.set(p.id, fieldText(db, p, row, ctx, tainted))
+  return out
+}
+
 /** The related rows a row's request names (relations' targets the route may see) — the request's sources too. */
 export function relatedRows(db: Database, row: Page, ctx: FactsContext): ID[] {
   const ids = new Set<ID>()

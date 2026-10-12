@@ -8,6 +8,10 @@
  *  - transcript: a meeting block's transcript is left out (its notes are page text and stay).
  *  - visible: a mention / page link / inline database of a page the route may not see reads "[Page]"; a synced-block
  *    copy whose source it may not see is left out.
+ *  - charts (their Markdown is the data they read now): a chart over a database or a spreadsheet the route may not see
+ *    reads "[Page]"; a chart over a database the route may not read rows of, or grouped by a field whose labels the route
+ *    may not read (people, pages it may not see — `chartAxis`), and every workspace metric (it counts across pages the
+ *    route may not see, members' names) go as their title only. A chart whose numbers live in the doc (manual) stays.
  * Free text and titles are not redacted (redaction is structural — the help says so).
  */
 
@@ -51,6 +55,39 @@ export interface RedactOptions {
   visible?: (pageId: string) => boolean
   /** what a page the route may not see reads as ("[Page]" / "[Seite]") */
   hidden?: string
+  /** may the route receive database rows (a chart over a database reads them)? absent: no */
+  rows?: boolean
+  /** may a chart over this database label its data by this field (people's names, titles of pages the route may not
+   *  see → no)? absent: no chart over a database goes with its data */
+  chartAxis?: (databaseId: string, propId: string) => boolean
+}
+
+/** What a chart block becomes in request text: as it is, its title only, or the hidden label. */
+export type ChartFate = 'keep' | 'title' | 'hidden'
+
+const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
+
+/** A chart's fate for a route that does not see everything (pure: the spec as stored in the block's attrs). */
+export function chartFate(spec: unknown, o: RedactOptions): ChartFate {
+  if (!isObj(spec) || !isObj(spec.source)) return 'keep'
+  const src = spec.source
+  const unseen = (id: unknown) => !!o.visible && typeof id === 'string' && !!id && !o.visible(id)
+  switch (src.kind) {
+    case 'manual':
+    case 'inline':
+      return 'keep'
+    case 'sheet':
+      return unseen(src.pageId) ? 'hidden' : 'keep'
+    case 'database': {
+      if (unseen(src.databaseId)) return 'hidden'
+      if (!o.rows || !o.chartAxis || typeof src.databaseId !== 'string') return 'title'
+      const db = src.databaseId
+      return [src.x, src.series].every((p) => typeof p !== 'string' || !p || o.chartAxis!(db, p)) ? 'keep' : 'title'
+    }
+    // a workspace metric (system) counts across every page and member — and anything unknown: title only
+    default:
+      return 'title'
+  }
 }
 
 const str = (v: unknown): string => (typeof v === 'string' ? v : '')
@@ -72,6 +109,13 @@ export function redactDoc<T extends RedactNode>(doc: T, o: RedactOptions, r: Red
     if ((n.type === 'pageLink' && unseen(a.pageId)) || (n.type === 'databaseBlock' && unseen(a.databaseId))) return { type: 'paragraph', content: [{ type: 'text', text: hidden }] }
     // a synced copy is content of its source page: left out where the route may not see that page
     if (n.type === 'syncedBlock' && unseen(a.sourcePageId)) return null
+    if (n.type === 'chart') {
+      const fate = chartFate(a.spec, o)
+      if (fate === 'hidden') return { type: 'paragraph', content: [{ type: 'text', text: hidden }] }
+      // its title only: no data travels (the Markdown of a chart without rows is its title)
+      if (fate === 'title') return { ...n, attrs: { ...a, spec: { ...(a.spec as Record<string, unknown>), source: { kind: 'manual', rows: [] } } } }
+      return n
+    }
     let out: RedactNode = n
     if (n.type === 'meetingNotes' && o.transcript && Array.isArray(a.transcript) && a.transcript.length) out = { ...out, attrs: { ...a, transcript: [] } }
     if (n.type === 'workItem' && o.people) {

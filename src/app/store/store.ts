@@ -560,6 +560,9 @@ export const useWorkspace = create<WorkspaceState>()(
       // never over rules this build cannot enforce (a newer build's — 'reload'); never by someone who may not
       if (!aiRulesAllowed() || !policyKnown(prev, null)) return { ok: false }
       let clean = next ? readWorkspaceAI(JSON.parse(JSON.stringify(next))) : undefined
+      // never rules a newer build wrote (their own generation above this build's): restamped here they would pass for
+      // rules this build enforces whole — a backup or a caller handing them on is refused, the stored rules stay
+      if (clean && !policyKnown(clean, null)) return { ok: false }
       let claudeKept: true | undefined
       // Claude's rules wait for a server whose agents read them (D-S2-30): its entry stays as it was
       if (clean && !claudeRulesAllowed()) {

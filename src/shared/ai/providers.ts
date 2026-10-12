@@ -30,7 +30,7 @@ export interface ProviderInfo {
   keyUrl: string
   /** where the spending limit is set (OpenRouter: per key — store/secrets.ts keyLimitUrl() for one key) */
   limitUrl: string
-  /** how a key starts (a placeholder and a soft note — never a refusal) */
+  /** how a key starts (a placeholder and a soft note — refused only when it is ANOTHER provider's: keyOfOther) */
   keyPrefix: string
   /** requests can go here in this build */
   shipped: boolean
@@ -124,6 +124,15 @@ export const PROVIDERS: { readonly anthropic: ProviderInfo; readonly openai: Pro
 
 /** A provider's entry (an unknown id reads as Claude's — the default path). */
 export const providerInfo = (p: ProviderId | string | null | undefined): ProviderInfo => (p === 'openai' ? OPENAI : p === 'openrouter' ? OPENROUTER : ANTHROPIC)
+
+/**
+ * The provider a pasted key belongs to when it is ANOTHER one than `p` (its known prefix) — a key in the wrong tab is
+ * never sent to `p`'s check (it would reach a third party). null: `p`'s own, or an unknown format (a soft note only).
+ */
+export function keyOfOther(p: ProviderId, key: string): ProviderId | null {
+  const k = key.trim()
+  return PROVIDER_ORDER.find((q) => q !== p && k.startsWith(providerInfo(q).keyPrefix)) ?? null
+}
 
 /** The providers requests can go to in this build. */
 export const shippedProviders = (): ProviderId[] => PROVIDER_ORDER.filter((p) => providerInfo(p).shipped)
