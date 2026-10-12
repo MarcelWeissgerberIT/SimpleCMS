@@ -77,7 +77,8 @@ export function AutomationSection({ team }: { team: TeamData }) {
           where: agentTriggerText(t, a.trigger, { pages, databases, lang }),
           tag: t(`shell.ws.auto.runner.${a.runner}`),
           led: !a.enabled ? 'off' : run && (run.status === 'error' || run.status === 'budget') ? 'on' : 'ok',
-          last: run ? `${ago(run.startedAt)} · ${t(`shell.ws.auto.agentRun.${run.status}`)}` : null,
+          // a run the Regler held: its words are the governor's (this list's keys name the agents' own outcomes)
+          last: run ? `${ago(run.startedAt)} · ${run.status === 'held' ? t('features.governor.status.heldLower') : t(`shell.ws.auto.agentRun.${run.status}`)}` : null,
           open: () => navigate({ name: 'agents', id: a.id }),
           openLabel: t('shell.ws.auto.open'),
         }

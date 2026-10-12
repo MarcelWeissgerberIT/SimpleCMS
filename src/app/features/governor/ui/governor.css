@@ -1,0 +1,570 @@
+/* ================================================================
+   Regler (governor) — the lazy parts: the dial, the month bar, § 00's
+   plate, the halt card. Ported from the mock's governor.css (tokens
+   only); prefix gv-. Sizes --text-* or calc(n px * var(--text-scale));
+   the dial's text is sized in its own units (Dial.tsx) and the dial
+   grows as a whole: its boxes are × --text-scale.
+   motion 90–260 ms, none with reduced motion.
+   ================================================================ */
+
+/* ---------- the dial (SVG, Dial.tsx) ---------- */
+.gv-dial {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+.gv-g-face {
+  fill: var(--surface);
+}
+.gv-g-bezel {
+  fill: none;
+  stroke: var(--toggle-bezel-2);
+}
+.gv-g-edge {
+  fill: none;
+  stroke: var(--plate-edge);
+}
+.gv-g-track {
+  fill: none;
+  stroke: var(--rule);
+}
+.gv-g-fill {
+  fill: none;
+  stroke: var(--ink);
+}
+.gv-g-amber {
+  fill: none;
+  stroke: var(--lamp-amber);
+}
+.gv-g-red {
+  fill: none;
+  stroke: var(--c-red-text);
+}
+.gv-g-tick {
+  stroke: var(--ink);
+  stroke-linecap: butt;
+}
+.gv-g-tick--minor {
+  stroke: var(--ink-3);
+}
+.gv-g-tick--red {
+  stroke: var(--c-red-text);
+}
+.gv-g-num {
+  fill: var(--ink);
+  font-family: var(--font-mono);
+  font-weight: 600;
+  text-anchor: middle;
+  dominant-baseline: central;
+}
+.gv-g-num--red {
+  fill: var(--c-red-text);
+}
+.gv-g-unit {
+  fill: var(--ink-3);
+  font-family: var(--font-mono);
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-anchor: middle;
+  text-transform: uppercase;
+}
+.gv-g-big {
+  fill: var(--ink);
+  font-family: var(--font-mono);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  text-anchor: middle;
+}
+.gv-g-approx {
+  fill: var(--ink-3);
+  font-size: 0.6em;
+  font-weight: 600;
+}
+.gv-g-of {
+  fill: var(--ink-2);
+  font-family: var(--font-mono);
+  font-weight: 500;
+  text-anchor: middle;
+}
+.gv-g-hand {
+  transform-origin: 150px 150px;
+  transform-box: view-box;
+}
+.gv-g-needle {
+  fill: var(--signal);
+}
+.gv-g-hub {
+  fill: var(--ink);
+}
+.gv-g-hub-in {
+  fill: var(--toggle-bezel-1);
+}
+.gv-g-hub-slot {
+  stroke: var(--ink);
+  stroke-width: 1.4;
+}
+.gv-g-tell {
+  stroke: var(--ink-2);
+  stroke-width: 1.5;
+  stroke-dasharray: 3 2.5;
+}
+.gv-g-tell-tip {
+  fill: var(--surface);
+  stroke: var(--ink-2);
+  stroke-width: 1.4;
+}
+.gv-g-next {
+  fill: none;
+  stroke: var(--signal);
+  stroke-dasharray: 10 4;
+}
+.gv-g-next-cap {
+  stroke: var(--signal);
+  stroke-linecap: butt;
+}
+.gv-g-lamp {
+  fill: var(--led-off);
+}
+.gv-g-lamp--on {
+  fill: var(--signal);
+}
+.gv-g-halo {
+  fill: none;
+  stroke: color-mix(in srgb, var(--signal) 35%, transparent);
+}
+.gv-g-lamp-lbl {
+  fill: var(--ink-3);
+  font-family: var(--font-mono);
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-anchor: middle;
+  text-transform: uppercase;
+}
+.gv-g-lamp-lbl--on {
+  fill: var(--signal-ink);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .gv-g-needle-arm {
+    transition: transform var(--dur-3) var(--ease-out);
+  }
+}
+
+/* the dial's legend */
+.gv-legend {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 4px 12px;
+  margin-top: 4px;
+}
+.gv-legend .label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink-2);
+}
+.gv-sw {
+  width: 12px;
+  height: 5px;
+}
+.gv-sw--amber {
+  background: var(--lamp-amber);
+}
+.gv-sw--red {
+  background: var(--c-red-text);
+}
+.gv-sw--tell {
+  height: 0;
+  border-top: 1.5px dashed var(--ink-2);
+}
+
+/* ---------- the month bar ---------- */
+.gv-month {
+  width: 100%;
+  padding: 8px 10px 9px;
+  border-radius: var(--radius-1);
+  background: var(--surface);
+  box-shadow:
+    inset 0 0 0 1px var(--plate-edge),
+    inset 0 1px 2px var(--plate-lo);
+}
+.gv-month__row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.gv-month__val {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  white-space: nowrap;
+}
+.gv-dim {
+  color: var(--ink-3);
+  font-weight: 500;
+}
+.gv-month__bar {
+  position: relative;
+  height: 10px;
+  margin-top: 6px;
+  border-radius: 1px;
+  background: var(--surface-3);
+}
+.gv-month__amber {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: var(--gv-amber);
+  right: 0;
+  background: repeating-linear-gradient(-45deg, var(--lamp-amber) 0 2px, transparent 2px 4px);
+  opacity: 0.9;
+}
+.gv-month__closed {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: var(--gv-closed);
+  background: var(--ink);
+}
+/* today's part of the month: the ink, lighter */
+.gv-month__today {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: var(--gv-closed);
+  width: calc(var(--gv-today) - var(--gv-closed));
+  background: var(--ink-2);
+}
+/* the bar's engraved tenths */
+.gv-month__ticks {
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(90deg, transparent 0 calc(10% - 1px), color-mix(in srgb, var(--surface) 70%, transparent) calc(10% - 1px) 10%);
+}
+.gv-month__soft {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  width: 1px;
+  background: var(--ink-3);
+}
+.gv-month__fc {
+  position: absolute;
+  top: -4px;
+  bottom: -4px;
+  left: var(--gv-fc);
+  width: 2px;
+  margin-left: -1px;
+  background: var(--signal);
+}
+.gv-month__red {
+  position: absolute;
+  top: -4px;
+  bottom: -4px;
+  right: 0;
+  width: 2px;
+  background: var(--c-red-text);
+}
+.gv-month__foot {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 2px 12px;
+  margin-top: 5px;
+}
+.gv-month__foot .label b {
+  color: var(--signal-ink);
+  font-weight: 600;
+}
+.gv-month[data-over] .gv-month__foot .label b {
+  color: var(--c-red-text);
+}
+
+/* ---------- § 00: the screwed plate (G1: the VERBRAUCH part takes its width) ---------- */
+.gv-plate.screw-plate {
+  container-type: inline-size;
+  padding: 10px 16px 16px;
+}
+.gv-plate__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 2px 6px 0 10px;
+}
+.gv-plate__title.label {
+  margin: 0;
+  color: var(--ink-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.gv-plate__sec {
+  color: var(--signal-ink);
+  font-weight: 600;
+}
+.gv-plate__rule {
+  flex: 1;
+  min-width: 16px;
+  height: 1px;
+  background: var(--rule-strong);
+}
+.gv-plate__measured.label {
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+.gv-plate__body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  justify-items: center;
+  gap: 16px;
+  margin-top: 12px;
+}
+.gv-plate__dial {
+  width: 100%;
+  max-width: calc(330px * var(--text-scale));
+}
+.gv-plate__side {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  width: 100%;
+  max-width: 520px;
+}
+.gv-plate__set.btn {
+  justify-self: start;
+}
+/* a narrow plate: the head wraps instead of cutting the title */
+@container (max-width: 520px) {
+  .gv-plate__head {
+    flex-wrap: wrap;
+    row-gap: 2px;
+  }
+  .gv-plate__rule {
+    display: none;
+  }
+  .gv-plate__title.label {
+    white-space: normal;
+  }
+}
+@container (min-width: 700px) {
+  .gv-plate__body {
+    grid-template-columns: minmax(calc(260px * var(--text-scale)), calc(340px * var(--text-scale))) minmax(0, 1fr);
+    align-items: center;
+    justify-items: stretch;
+    gap: 28px;
+    padding: 0 8px;
+  }
+  .gv-plate__side {
+    max-width: none;
+  }
+}
+
+/* the person's line for this browser */
+.gv-browser {
+  display: grid;
+  grid-template-columns: 6px minmax(0, 1fr);
+  align-items: baseline;
+  gap: 8px;
+  margin: 0;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  line-height: 1.45;
+}
+.gv-browser__led {
+  transform: translateY(-1px);
+}
+.gv-browser[data-binds] .gv-browser__led {
+  background: var(--signal);
+}
+.gv-browser__binds.label {
+  color: var(--signal-ink);
+  font-weight: 600;
+}
+
+/* the hard limits: a dashed plate — the pre-brake sentence and one line per provider in use */
+.gv-hard {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr);
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px dashed var(--plate-edge);
+  border-radius: var(--radius-1);
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  line-height: 1.4;
+}
+.gv-hard > svg {
+  margin-top: 2px;
+}
+.gv-hard__soft {
+  margin: 0;
+}
+.gv-hard__list {
+  display: grid;
+  gap: 3px;
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.gv-hard__line {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: baseline;
+  gap: 6px;
+  color: var(--ink);
+  font-weight: 600;
+}
+.gv-hard__line a {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: var(--rule-strong);
+  text-underline-offset: 2px;
+}
+.gv-hard__line a:hover {
+  text-decoration-color: var(--signal);
+}
+.gv-hard__line--server {
+  display: block;
+  color: var(--ink-2);
+  font-weight: 500;
+}
+/* a provider's code plate: CL · OA · OR */
+.gv-code {
+  display: inline-flex;
+  align-items: center;
+  height: 16px;
+  padding: 0 4px;
+  border: 1px solid var(--rule-strong);
+  border-radius: 2px;
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+}
+
+/* ---------- the halt card (AI terminal, mock 3) ---------- */
+.gv-halt {
+  border: 1px solid var(--signal);
+  border-radius: var(--radius-1);
+  background: color-mix(in srgb, var(--signal) 9%, var(--surface));
+  color: var(--ink);
+}
+.gv-halt:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+.gv-halt__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 8px 12px;
+  border-bottom: 1px dashed color-mix(in srgb, var(--signal) 55%, transparent);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+.gv-halt__title {
+  min-width: 0;
+  color: var(--ink);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+.gv-halt__when {
+  flex: none;
+  color: var(--ink-3);
+}
+.gv-halt__body {
+  display: grid;
+  grid-template-columns: calc(210px * var(--text-scale)) minmax(0, 1fr);
+  align-items: center;
+  gap: 20px;
+  padding: 10px 14px 12px 10px;
+}
+.gv-halt__dial {
+  width: calc(210px * var(--text-scale));
+}
+.gv-halt__right {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+.gv-halt__msg {
+  margin: 0;
+  font-size: calc(15px * var(--text-scale));
+  line-height: 1.45;
+}
+.gv-halt__sub {
+  display: block;
+  margin-top: 4px;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+}
+.gv-halt__keys {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.gv-halt__need.label {
+  color: var(--signal-ink);
+  font-weight: 600;
+}
+.gv-halt__stale.label {
+  margin: 0;
+  color: var(--ink-2);
+}
+.gv-halt__cold {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr);
+  gap: 8px;
+  margin: 0;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  line-height: 1.45;
+}
+.gv-halt__cold > svg {
+  margin-top: 2px;
+}
+.gv-halt__cold b {
+  color: var(--ink);
+  font-weight: 650;
+}
+.gv-halt__foot {
+  margin: 0;
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  letter-spacing: 0.04em;
+  line-height: 1.5;
+}
+@media (max-width: 760px) {
+  .gv-halt__head .gv-halt__when {
+    display: none;
+  }
+  .gv-halt__body {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+    padding: 10px 12px 12px;
+  }
+  .gv-halt__dial {
+    width: min(100%, calc(220px * var(--text-scale)));
+    justify-self: center;
+  }
+  .gv-halt__msg {
+    font-size: calc(14.5px * var(--text-scale));
+  }
+  .gv-halt__keys .gv-key {
+    flex: 1 1 100%;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    column-gap: 6px;
+    row-gap: 2px;
+    text-align: left;
+    white-space: normal;
+  }
+}

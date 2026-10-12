@@ -24,6 +24,11 @@
  *                                       (cloud:<id>:u:<user>|log|<day>, cloud:<id>:u:<user>|opened)
  *   one-ledger / kv                     the AI ledger (one entry per response) of each member here
  *                                       (cloud:<id>:u:<user>|<day>|<entry>, features/governor)
+ *   one-governor / kv                   the Regler's derived data of each member here: closed days' totals
+ *                                       (cloud:<id>:u:<user>|day|<day>, features/governor/totals.ts)
+ *   localStorage one.governor.{today,paused}:cloud:<id>:u:<user>  the Regler's day cache and the autofill rows paused at
+ *                                       the red line (+ the workspace's entries in one.governor.scopes); the person's own
+ *                                       line one.governor.device stays (it is the browser's, not the workspace's)
  * The team workspace on the server is never touched, nor is the local workspace or anything it uses
  * (a local workspace copied into a team keeps its page and file ids, so those are checked).
  *
@@ -175,8 +180,26 @@ async function forget(flag: string[]): Promise<void> {
   // the early return below (nothing else may be left of a copy, these still are)
   try {
     for (const k of Object.keys(localStorage)) {
-      const m = /^one\.(?:shell\.visits|mirror\.reports):cloud:([A-Za-z0-9_-]{1,64})$/.exec(k) ?? /^one\.preflight\.(?:ack|today|last|hidden):cloud:([A-Za-z0-9_-]{1,64})(?::u:.*)?$/.exec(k)
+      const m =
+        /^one\.(?:shell\.visits|mirror\.reports):cloud:([A-Za-z0-9_-]{1,64})$/.exec(k) ??
+        /^one\.preflight\.(?:ack|today|last|hidden):cloud:([A-Za-z0-9_-]{1,64})(?::u:.*)?$/.exec(k) ??
+        /^one\.governor\.(?:today|paused):cloud:([A-Za-z0-9_-]{1,64})(?::u:.*)?$/.exec(k)
       if (m && (all || flag.includes(m[1]))) localStorage.removeItem(k)
+    }
+    // the scopes the Regler's device line reads (features/governor/device.ts): the workspaces' entries go
+    const scopes = localStorage.getItem('one.governor.scopes')
+    if (scopes) {
+      const list = JSON.parse(scopes) as unknown
+      if (Array.isArray(list)) {
+        const keep = list.filter((x) => {
+          const m = /^cloud:([A-Za-z0-9_-]{1,64})(?::u:.*)?$/.exec(String((x as { scope?: unknown } | null)?.scope ?? ''))
+          return !(m && (all || flag.includes(m[1])))
+        })
+        if (keep.length !== list.length) {
+          if (keep.length) localStorage.setItem('one.governor.scopes', JSON.stringify(keep))
+          else localStorage.removeItem('one.governor.scopes')
+        }
+      }
     }
     // Preflight's "member scope last used" of those workspaces (features/preflight/prefs.ts)
     const raw = localStorage.getItem('one.preflight.lastScope')
@@ -364,6 +387,15 @@ async function forget(flag: string[]): Promise<void> {
       return !!m && targets.has(m[1])
     })
     if (ledgerKeys.length) await delMany(ledgerKeys, store).catch(() => {})
+  }
+  // the Regler's derived data of each member here (features/governor/totals.ts): keys "cloud:<ws>:u:<account>|day|…"
+  if (!dbNames || dbNames.includes('one-governor')) {
+    const store = createStore('one-governor', 'kv')
+    const govKeys = (await keys(store).catch(() => [] as IDBValidKey[])).filter((k) => {
+      const m = /^cloud:([^|:]+)(?::u:[^|]+)?\|/.exec(String(k))
+      return !!m && targets.has(m[1])
+    })
+    if (govKeys.length) await delMany(govKeys, store).catch(() => {})
   }
   // coding pipeline of this device (features/coding/local.ts): logs, run states, trusted task versions — keys "cloud:<ws>|…"
   if (!dbNames || dbNames.includes('one-coding')) {

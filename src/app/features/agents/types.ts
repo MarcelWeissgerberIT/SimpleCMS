@@ -7,10 +7,45 @@ import type { AgentTrigger, CustomAgent, ID } from '../../store/types'
 import type { StagedChange } from '../ai/agent/types'
 import type { AgentState } from './runs'
 import type { ModelLine } from '../ai/core/meter'
+import type { Band, RefuseDetail } from '../governor'
 
 export type { AgentTrigger, CustomAgent }
 
-export type AgentRunStatus = 'running' | 'ok' | 'staged' | 'error' | 'budget' | 'skipped'
+/**
+ * 'budget' = the agent's own maxRunUsd was passed (a failure, red lamp) · 'held' = the Regler held the run at a red line
+ * (features/governor: not started, or stopped between two steps — never a failure, no red lamp; older builds read it as
+ * an unknown status that did not fail)
+ */
+export type AgentRunStatus = 'running' | 'ok' | 'staged' | 'error' | 'budget' | 'skipped' | 'held'
+
+/** Why the Regler held a run: the line that bound (day · month · device-day · device-month · run), no price, no account yet. */
+export type HeldBinding = RefuseDetail
+
+/**
+ * status 'held' (Regler § 5.8): 'notStarted' = one record per agent and local day (id `held-<yyyy-MM-dd>`, held.ts) that
+ * counts the starts held that day; 'stopped' = a run stopped between two steps, its proposals kept for review and the
+ * agent's old state kept (its notes dropped, no report).
+ */
+export interface AgentRunHeld {
+  kind: 'stopped' | 'notStarted'
+  binding: HeldBinding
+  /** the binding line's spend and limit then ("6,00 $ von 6,00 $"; absent: no line — no price, no account) */
+  spent?: number
+  limit?: number
+  /** notStarted: how many starts were held that day */
+  count?: number
+  /** notStarted: when (the newest HELD_TIMES kept) */
+  times?: number[]
+}
+
+/** A run the Regler stopped mid-run: the brake's numbers at the stop (the run row's Regler line). */
+export interface AgentRunBrake {
+  binding: HeldBinding
+  /** the lowest rest then (the run's own reservation excluded) */
+  rest: number
+  /** the next step's band (null: no price) */
+  next: Band | null
+}
 
 export interface AgentRunStep {
   kind: 'tool' | 'mcp' | 'note'
@@ -58,4 +93,10 @@ export interface AgentRun {
   stateBefore?: AgentState | null
   /** media the agent's MCP servers returned (features/ai/media): cards in the run, saved only on a click */
   media?: MediaItem[]
+  /** status 'held': what held it (features/governor) */
+  held?: AgentRunHeld
+  /** status 'held' kind 'stopped': the brake's numbers at the stop */
+  brake?: AgentRunBrake
+  /** proposals of older runs dropped over the keep limit (runs.ts pruning) — said on this run, never silently */
+  pruned?: number
 }

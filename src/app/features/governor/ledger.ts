@@ -4,18 +4,25 @@
  * and the local reset wipe it. Ids, numbers, data classes and outcomes only — never page text.
  *  - meter(entry): this tab's subscribers (registerMeter) hear of it at once; it is written batched (one setMany per
  *    frame) and the other tabs are pinged on BroadcastChannel `one-ledger` to read again (onLedgerPing). Every tab
- *    writes only its own entries under unique keys, so nothing is counted twice.
+ *    writes only its own entries under unique keys, so nothing is counted twice. A ping carries what was written —
+ *    `{ scope, day, usd, unpriced, batch }` per scope and day (onLedgerDelta; the Regler adds it by batch id); an older
+ *    tab's ping is `{ scope }` only (read again).
  *  - ledgerEntries({ from, to }) / ledgerTotals(by): this scope's entries (this tab's unwritten ones included)
- *  - reserve(usd, source) / settle(id): what the requests in flight in this tab may still cost (the brake reads it later)
+ *  - ledgerDay(scope, day) / ledgerDayRead(scope, day): one scope's entries of one local day — a key-range read, never the
+ *    whole store; the latter says whether the store answered (a memory-only read is no total of the day)
+ *  - reserve(usd, source) / adjust(id, usd) / settle(id): what the requests in flight in this tab may still cost; the
+ *    Regler's book (book.ts) tells the other tabs on its own channel
  *  - days older than 90 are deleted once a day; the store opens on the first meter or read — never on the boot path
  * A browser that refuses IndexedDB (or a team tab whose account is not known yet) keeps the entries in memory for the
  * tab: a request is never failed for its bookkeeping.
  */
-import { createStore, delMany, getMany, keys, setMany, type UseStore } from 'idb-keyval'
+import { createStore, delMany, getMany, keys, promisifyRequest, setMany, type UseStore } from 'idb-keyval'
 import type { CostSource, LedgerEntry, Reservation, Usage } from '@/shared/ai/types'
 import { addUsage, ZERO_USAGE } from '@/shared/ai/usage'
 import { newId } from '../../lib/ids'
 import { ledgerScope } from './scope'
+import { dayOf } from './clock'
+import { bookChanged, setBookSource, type ResItem } from './book'
 
 export const LEDGER_DB = 'one-ledger'
 /** entries are kept this many days */
@@ -28,29 +35,38 @@ const FLUSH_MS = 16
 
 let kv: UseStore | null = null
 let broken = false
+/** how often the store was opened in this tab (the Regler's first-paint check: none before it) */
+let opens = 0
 
 function store(): UseStore | null {
   if (broken || typeof indexedDB === 'undefined') return null
   try {
-    return (kv ??= createStore(LEDGER_DB, 'kv'))
+    if (!kv) {
+      const st = createStore(LEDGER_DB, 'kv')
+      let first = true
+      kv = (mode, cb) => {
+        // idb-keyval opens the database on the first transaction, not at createStore
+        if (first) opens += 1
+        first = false
+        return st(mode, cb)
+      }
+    }
+    return kv
   } catch {
     broken = true
     return null
   }
 }
 
+/** Was the ledger's database opened in this tab (0 / 1)? — the seam's first-paint check. */
+export const ledgerOpens = (): number => opens
+
 function fail(e: unknown): void {
   if (!broken) console.warn('[one] ledger: kept in memory in this browser', e)
   broken = true
 }
 
-const pad = (n: number) => String(n).padStart(2, '0')
-
-/** The local day of a time, 'yyyy-MM-dd'. */
-export function dayOf(at: number): string {
-  const d = new Date(at)
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
-}
+export { dayOf }
 
 export const entryKey = (scope: string, e: Pick<LedgerEntry, 'at' | 'id'>): string => `${scope}|${dayOf(e.at)}|${e.id}`
 
@@ -60,6 +76,30 @@ export const entryKey = (scope: string, e: Pick<LedgerEntry, 'at' | 'id'>): stri
 
 const meters = new Set<(e: LedgerEntry) => void>()
 const pings = new Set<(scope: string | null) => void>()
+const deltas = new Set<(d: LedgerDelta) => void>()
+
+/** What another tab wrote: per scope and local day, the priced sum and the unpriced count, under a batch id. */
+export interface LedgerDelta {
+  scope: string | null
+  /** null: an older tab's ping (`{ scope }` only) — read again */
+  day: string | null
+  usd: number
+  unpriced: number
+  /** unique per flushed group; null for an older tab's ping */
+  batch: string | null
+}
+
+const DAY_RE = /^\d{4}-\d{2}-\d{2}$/
+
+/** A ping as received: a delta, or an older tab's `{ scope }` (no batch). */
+export function readDelta(data: unknown): LedgerDelta {
+  const d = (data && typeof data === 'object' ? data : {}) as Record<string, unknown>
+  const scope = typeof d.scope === 'string' ? d.scope : null
+  const full = typeof d.batch === 'string' && d.batch.length <= 64 && typeof d.day === 'string' && DAY_RE.test(d.day) && typeof d.usd === 'number' && Number.isFinite(d.usd) && d.usd >= 0
+  if (!full) return { scope, day: null, usd: 0, unpriced: 0, batch: null }
+  const unpriced = typeof d.unpriced === 'number' && Number.isInteger(d.unpriced) && d.unpriced >= 0 ? d.unpriced : 0
+  return { scope, day: d.day as string, usd: d.usd as number, unpriced, batch: d.batch as string }
+}
 
 /** Every entry this tab meters, as it is metered. Returns the unsubscribe. */
 export function registerMeter(fn: (e: LedgerEntry) => void): () => void {
@@ -79,6 +119,9 @@ function channel(): BroadcastChannel | null {
       bc.onmessage = (ev: MessageEvent) => {
         const scope = typeof ev.data?.scope === 'string' ? (ev.data.scope as string) : null
         for (const fn of pings) fn(scope)
+        if (!deltas.size) return
+        const d = readDelta(ev.data)
+        for (const fn of deltas) fn(d)
       }
   } catch {
     bc = null
@@ -93,6 +136,29 @@ export function onLedgerPing(fn: (scope: string | null) => void): () => void {
   return () => {
     pings.delete(fn)
   }
+}
+
+/** What another tab wrote, as a delta (`batch: null` = an older tab's ping: read again). Returns the unsubscribe. */
+export function onLedgerDelta(fn: (d: LedgerDelta) => void): () => void {
+  channel()
+  deltas.add(fn)
+  return () => {
+    deltas.delete(fn)
+  }
+}
+
+/** The pings of a written batch: one per scope and local day (a superset of slice 1's `{ scope }`). */
+export function deltasOf(batch: readonly LedgerEntry[], id: () => string = newId): LedgerDelta[] {
+  const groups = new Map<string, LedgerDelta>()
+  for (const e of batch) {
+    const day = dayOf(e.at)
+    const k = `${e.scope}|${day}`
+    const g = groups.get(k) ?? { scope: e.scope, day, usd: 0, unpriced: 0, batch: id() }
+    if (e.usd === null) g.unpriced += 1
+    else g.usd += Math.max(0, e.usd)
+    groups.set(k, g)
+  }
+  return [...groups.values()]
 }
 
 /* ------------------------------------------------------------------ */
@@ -153,7 +219,8 @@ export function flushLedger(): Promise<void> {
         batch.map((e): [string, LedgerEntry] => [entryKey(e.scope, e), e]),
         st,
       )
-      channel()?.postMessage({ scope: batch[0].scope })
+      const ch = channel()
+      if (ch) for (const d of deltasOf(batch)) ch.postMessage(d)
     } catch (err) {
       fail(err)
       batch.forEach(remember)
@@ -269,6 +336,43 @@ export async function ledgerTotals(by: TotalsBy, range: LedgerRange = {}): Promi
   return totalsOf(await ledgerEntries(range), by)
 }
 
+/** A day's read: its entries, and whether the store answered (false: this tab's memory only — no total of the day). */
+export interface LedgerDayRead {
+  entries: LedgerEntry[]
+  complete: boolean
+}
+
+/**
+ * One scope's entries of one local day ('yyyy-MM-dd'), oldest first — one key-range read (`<scope>|<day>|…`), this tab's
+ * unwritten and memory-kept entries of that scope and day merged by id. Any scope: the device-wide line reads the other
+ * workspaces of this browser too. `complete` is false when no store answered (refused, broken earlier in this tab, or the
+ * read failed): the entries are then only what this tab kept in memory — never a total of the day.
+ */
+export async function ledgerDayRead(scope: string, day: string): Promise<LedgerDayRead> {
+  await flushLedger()
+  const out = new Map<string, LedgerEntry>()
+  const st = scope ? store() : null
+  let complete = false
+  if (st) {
+    try {
+      const range = IDBKeyRange.bound(`${scope}|${day}|`, `${scope}|${day}|\uffff`)
+      const values = await st('readonly', (os) => promisifyRequest(os.getAll(range)))
+      for (const v of values) {
+        const e = readEntry(v)
+        if (e) out.set(e.id, e)
+      }
+      complete = true
+    } catch (err) {
+      fail(err)
+    }
+  }
+  for (const e of memory) if (e.scope === scope && dayOf(e.at) === day) out.set(e.id, e)
+  return { entries: [...out.values()].sort((a, b) => a.at - b.at), complete }
+}
+
+/** One scope's entries of one local day (ledgerDayRead's entries — the Regler's totals read `complete` too). */
+export const ledgerDay = async (scope: string, day: string): Promise<LedgerEntry[]> => (await ledgerDayRead(scope, day)).entries
+
 /** Delete this member's entries on this device (the seam; the device copy and the reset delete the whole store). */
 export async function wipeLedgerScope(scope = ledgerScope()): Promise<void> {
   await flushLedger()
@@ -289,19 +393,38 @@ export async function wipeLedgerScope(scope = ledgerScope()): Promise<void> {
 
 const MAX_OPEN = 200
 const open = new Map<string, Reservation>()
+/** the ledger scope each open reservation counts for (the scope when it was taken) */
+const scopeOfRes = new Map<string, string>()
 
 /** A request is about to be sent: what it may cost is held until it settles. */
 export function reserve(usd: number, source: string): Reservation {
   const r: Reservation = { id: newId(), usd: Number.isFinite(usd) ? Math.max(0, usd) : 0, at: Date.now(), source }
   open.set(r.id, r)
+  scopeOfRes.set(r.id, ledgerScope() ?? '')
   // a request that never settles (a crashed path) cannot grow the book without end
-  if (open.size > MAX_OPEN) open.delete(open.keys().next().value as string)
+  if (open.size > MAX_OPEN) {
+    const first = open.keys().next().value as string
+    open.delete(first)
+    scopeOfRes.delete(first)
+  }
+  bookChanged()
   return r
+}
+
+/** A loop's next round may cost this much (its reservation follows the next step). False: not open (settled). */
+export function adjust(id: string | null | undefined, usd: number): boolean {
+  const r = id ? open.get(id) : undefined
+  if (!r) return false
+  open.set(r.id, { ...r, usd: Number.isFinite(usd) ? Math.max(0, usd) : 0 })
+  bookChanged()
+  return true
 }
 
 /** The request ended (answered, failed or stopped): its reservation is released. */
 export function settle(id: string | null | undefined): void {
-  if (id) open.delete(id)
+  if (!id || !open.delete(id)) return
+  scopeOfRes.delete(id)
+  bookChanged()
 }
 
 /** What the open reservations of this tab add up to (USD). */
@@ -310,9 +433,14 @@ export const reservedUsd = (): number => [...open.values()].reduce((sum, r) => s
 /** Open reservations of this tab (the seam). */
 export const openReservations = (): Reservation[] => [...open.values()]
 
+// the Regler's book announces them to the other tabs (book.ts — once it is started)
+setBookSource(() => ({ scope: ledgerScope() ?? '', list: [...open.values()].map((r): ResItem => ({ id: r.id, usd: r.usd, scope: scopeOfRes.get(r.id) ?? '' })) }))
+
 /* ------------------------------------------------------------------ */
 /* e2e seam                                                             */
 /* ------------------------------------------------------------------ */
+
+const heard: { pings: Array<string | null>; deltas: LedgerDelta[]; off?: () => void } = { pings: [], deltas: [] }
 
 if (typeof window !== 'undefined' && (import.meta.env.DEV || new URLSearchParams(window.location.search).has('e2e'))) {
   ;(window as unknown as { __oneLedger?: unknown }).__oneLedger = {
@@ -322,5 +450,25 @@ if (typeof window !== 'undefined' && (import.meta.env.DEV || new URLSearchParams
     wipe: () => wipeLedgerScope(),
     reserved: () => ({ usd: reservedUsd(), open: openReservations().length }),
     scope: ledgerScope,
+    day: (scope: string, day: string) => ledgerDay(scope, day),
+    dayRead: (scope: string, day: string) => ledgerDayRead(scope, day),
+    /** test entries written as they are, under their own scope (another workspace of this browser, another day) */
+    seed: async (list: LedgerEntry[]) => {
+      const st = store()
+      if (st) await setMany(list.map((e): [string, LedgerEntry] => [entryKey(e.scope, e), e]), st)
+    },
+    opens: ledgerOpens,
+    /** an entry as a response would meter it (this tab's scope) */
+    meter: (e: LedgerEntry) => meter(e),
+    /** record what this tab hears from the others: slice 1's pings and the deltas */
+    listen: () => {
+      heard.pings.length = 0
+      heard.deltas.length = 0
+      heard.off?.()
+      const a = onLedgerPing((scope) => heard.pings.push(scope))
+      const b = onLedgerDelta((d) => heard.deltas.push(d))
+      heard.off = () => (a(), b())
+    },
+    heard: () => ({ pings: [...heard.pings], deltas: [...heard.deltas] }),
   }
 }

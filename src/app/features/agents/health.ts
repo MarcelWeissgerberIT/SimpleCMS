@@ -14,6 +14,7 @@ import { useCloud } from '../../cloud'
 import { awaitsConfirm } from './confirm'
 import { runsHere } from './runner'
 import { cachedSlot, lastSuccess, useAgentRuns } from './runs'
+import { newestReal } from './held'
 import { latestSlot } from './schedule'
 import { useServerAgents, type ServerRunHead } from './server'
 import type { AgentRun } from './types'
@@ -59,15 +60,15 @@ const agentsNow = (): CustomAgent[] => Object.values(useWorkspace.getState().age
 
 const ownServer = (a: CustomAgent, me: string | null) => a.runner === 'server' && !!me && a.createdBy === me && useCloud.getState().active.kind === 'cloud'
 
-/** The newest finished-or-running run that is not a skip (a skip says nothing about the agent's health). */
-const newestReal = (runs: readonly AgentRun[]): AgentRun | undefined => runs.find((r) => r.status !== 'skipped')
+/** Did a run start (or a start the Regler held happen) at or after `at`? */
+const startedSince = (runs: readonly AgentRun[], at: number): boolean => runs.some((r) => r.startedAt >= at || (r.held?.times ?? []).some((x) => x >= at))
 
 /** A server agent's newest run head: from agent-runs/open, else from the runs AgentsView loaded. */
 function serverHead(agentId: ID): ServerRunHead | null {
   const s = useServerAgents.getState()
   const fromOpen = s.openLatest?.find((h) => h.agentId === agentId)
   if (fromOpen) return fromOpen
-  const r = (s.runs[agentId] ?? []).find((x) => x.status !== 'skipped')
+  const r = newestReal(s.runs[agentId] ?? [])
   return r ? { id: r.id, agentId: r.agentId, status: r.status, startedAt: r.startedAt, endedAt: r.endedAt ?? null } : null
 }
 
@@ -93,7 +94,7 @@ export function staleMirrors(now = Date.now()): HealthItem[] {
  * Agents this member runs that need a look: (a) a scheduled browser agent running here whose newest slot went by
  * (≥ 10 min ago, after the agent's last change and the newest slot this device handled) with no run started since;
  * (b) a browser agent running here, or an own server agent, whose newest run failed (error · budget — a run blocked
- * by trashed pages too) → red.
+ * by trashed pages too) → red. A run the Regler held is neither a failure nor a missed slot.
  */
 export function missedAgents(now = Date.now(), me: string | null = useCloud.getState().user?.id ?? null): HealthItem[] {
   const out: HealthItem[] = []
@@ -106,7 +107,7 @@ export function missedAgents(now = Date.now(), me: string | null = useCloud.getS
       if (a.trigger.type === 'schedule') {
         const slot = latestSlot(a.trigger, now)
         const handled = cachedSlot(a.id)
-        if (slot !== null && handled !== undefined && slot > Math.max(handled ?? 0, a.updatedAt) && now - slot >= MISSED_AFTER_MS && !runs.some((r) => r.startedAt >= slot)) {
+        if (slot !== null && handled !== undefined && slot > Math.max(handled ?? 0, a.updatedAt) && now - slot >= MISSED_AFTER_MS && !startedSince(runs, slot)) {
           out.push({ kind: 'slot', agentId: a.id, id: `slot:${a.id}@${slot}`, at: slot })
         }
       }

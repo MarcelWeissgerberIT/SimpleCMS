@@ -66,8 +66,9 @@ export function buildApp(s: Services, extra: { model?: WorkspaceModel; agents?: 
       // creates task blocks in a team workspace only when this is ≥ 1
       schema_min: MIN_CLIENT_SCHEMA,
       // what this server enforces for the app: 'ai' = it guards workspace.ai (owners / admins only) and keeps agents'
-      // multi-provider fields — the app writes workspace.ai only when this lists 'ai' ('providers' follows with S9)
-      supports: ['ai'],
+      // multi-provider fields — the app writes workspace.ai only when this lists 'ai' ('providers' follows with S9);
+      // 'governor' = it guards workspace.governor the same way (the Regler's budgets — the app writes it only then)
+      supports: ['ai', 'governor'],
     }),
   )
 
