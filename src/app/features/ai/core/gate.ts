@@ -8,7 +8,11 @@
  *  3. the request's data classes: the purpose's declaration ∪ the classes of its sources (recorded in slice 1);
  *  4. the route: the legacy level — Claude with this device's model, only with a Claude key ('no_key' as before);
  *     demo on and no key → the runtime 'demo' provider (canned answers, never a request);
- *  5. the brake hook (identity until the governor) and an in-tab reservation, settled by settle() when the request ends.
+ *  5. the brake hook (identity until the governor) and an in-tab reservation (features/governor), settled by settle()
+ *     when the request ends.
+ *
+ * precheck(): the same checks before anything is loaded or attached (a picture, a file, MCP servers), without a
+ * reservation — the request itself prepares again. Only responses are metered (core/meter.ts), never a check.
  *
  * In DEV and `?e2e` a call without a known purpose or a source list — or with no sources for a purpose that carries
  * page data — throws (the recorder's strict() pattern): every call site names what it sends.
@@ -19,7 +23,7 @@ import { legacyRule } from '@/shared/ai/route'
 import { capsOf } from '@/shared/ai/models'
 import { looksLikeKey } from '@/shared/ai/keys'
 import { useWorkspace } from '../../../store/store'
-import { newId } from '../../../lib/ids'
+import { reserve, settle as settleReservation } from '../../governor'
 import { AIError } from './errors'
 import { isAIDemo } from './demoMode'
 import { classesOf, isSources } from './sources'
@@ -33,6 +37,8 @@ export interface PrepareInput {
   typed?: string | ReadonlyArray<string | null | undefined> | null
   /** what this call needs beyond the purpose (vision, pdf, structured, tools, mcp) */
   needs?: readonly Need[]
+  /** a model the call picks itself (a custom agent's own model) — else this device's */
+  model?: string | null
 }
 
 export interface Prepared {
@@ -66,28 +72,10 @@ export function registerBeforeSend(fn: BeforeSend): void {
   beforeSendHook = fn
 }
 
-/* ------------------------------------------------------------------ */
-/* Reservations (in this tab)                                           */
-/* ------------------------------------------------------------------ */
-
-const MAX_OPEN = 200
-const open = new Map<string, Reservation>()
-
-function reserve(usd: number, source: string): Reservation {
-  const r: Reservation = { id: newId(), usd: Math.max(0, usd), at: Date.now(), source }
-  open.set(r.id, r)
-  // a request that never settles (a crashed tab path) cannot grow the book without end
-  if (open.size > MAX_OPEN) open.delete(open.keys().next().value as string)
-  return r
-}
-
-/** The request ended (answered, failed or stopped): its reservation is released. */
+/** The request ended (answered, failed or stopped): its reservation is released (features/governor). */
 export function settle(p: Prepared | null | undefined): void {
-  if (p?.reservation) open.delete(p.reservation.id)
+  settleReservation(p?.reservation?.id)
 }
-
-/** Open reservations of this tab (USD). */
-export const reservedUsd = (): number => [...open.values()].reduce((sum, r) => sum + r.usd, 0)
 
 /* ------------------------------------------------------------------ */
 /* prepare                                                              */
@@ -115,6 +103,15 @@ const typedTexts = (t: PrepareInput['typed']): string[] => (typeof t === 'string
 
 /** The gate — throws AIError ('reload' · 'key_in_text' · 'off' · 'no_key'). */
 export function prepare(input: PrepareInput): Prepared {
+  return gate(input, true)
+}
+
+/** The gate's checks before anything is loaded, without a reservation (the request prepares again). */
+export function precheck(input: PrepareInput): Prepared {
+  return gate(input, false)
+}
+
+function gate(input: PrepareInput, held: boolean): Prepared {
   checkContract(input)
   const s = useWorkspace.getState()
   // 0 · rules this build does not know
@@ -130,12 +127,12 @@ export function prepare(input: PrepareInput): Prepared {
   for (const c of classesOf(sources, { pages: s.pages, databases: s.databases, mailDb: s.settings.mail?.databaseId ?? null })) classes.add(c)
   // 4 · the route: the legacy level (Claude + this device's model), demo without a key
   const hasKey = !!s.settings.aiApiKey.trim()
-  const [route] = legacyRule(s.settings.aiModel, hasKey)
+  const [route] = legacyRule(input.model || s.settings.aiModel, hasKey)
   if (!route) {
     if (isAIDemo()) return { purpose: input.purpose, cls: purpose.cls, route: null, provider: 'demo', model: 'demo', caps: null, classes: [...classes], steps: [], reservation: null }
     throw new AIError('no_key')
   }
   // 5 · the brake (may throw) and the reservation
   const usd = beforeSendHook(input.purpose, route) ?? 0
-  return { purpose: input.purpose, cls: purpose.cls, route, provider: route.p, model: route.m, caps: capsOf(route), classes: [...classes], steps: [], reservation: reserve(usd, input.purpose) }
+  return { purpose: input.purpose, cls: purpose.cls, route, provider: route.p, model: route.m, caps: capsOf(route), classes: [...classes], steps: [], reservation: held ? reserve(usd, input.purpose) : null }
 }

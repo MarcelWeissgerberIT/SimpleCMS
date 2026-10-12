@@ -196,7 +196,7 @@ export async function fillRow(dbId: ID, propId: ID, rowId: ID, signal: AbortSign
   const base = { rowId, title: row.title, current: row.properties[prop.id] ?? null, hash }
   try {
     const api = await loadFeatures()
-    const answer = await api.requestAutofill(request, signal, rowId)
+    const answer = await api.requestAutofill(request, signal, rowId, { dbId, propId })
     if (!answer.ok) return { ...base, status: 'error', error: t('database.autofill.err.json') }
     const c = coerceAnswer(prop, cfg, answer.value)
     if (!c.ok) return { ...base, status: 'error', error: c.error }

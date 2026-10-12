@@ -39,9 +39,10 @@ export const PRICES: Readonly<Record<string, PriceRow>> = {
   'openai:gpt-6-astra': row(ASTRA, [openaiLong(ASTRA)]),
 }
 
-/** The table row of a direct route (null: not in the table — an OpenRouter model, an unknown id). */
+/** The table row of a direct route (null: not in the table — an OpenRouter model, an unknown id). A dated snapshot id
+ *  ('…-20261001', as a response may name the model) is priced as its model. */
 export function priceRow(route: Pick<Route, 'p' | 'm'>): PriceRow | null {
-  return PRICES[`${route.p}:${route.m}`] ?? null
+  return PRICES[`${route.p}:${route.m}`] ?? (route.p === 'openrouter' ? null : (PRICES[`${route.p}:${route.m.replace(/-\d{8}$/, '')}`] ?? null))
 }
 
 const DAYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat']

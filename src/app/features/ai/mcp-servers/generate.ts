@@ -8,8 +8,9 @@
 import type { BetaContentBlock, MessageCreateParamsNonStreaming } from '@anthropic-ai/sdk/resources/beta/messages/messages'
 import { useWorkspace } from '../../../store/store'
 import type { McpServerConfig } from '../../../store/types'
-import { AIError, claudeClient, toAIError, type SDKModule } from '../client'
+import { AIError, claudeClient, metered, toAIError, type SDKModule } from '../client'
 import { prepare, settle } from '../core/gate'
+import { meterCall, type MeterCall } from '../core/meter'
 import { MCP_BETA, attachMcp, clearRefused } from './config'
 
 export interface InspectResult {
@@ -64,13 +65,13 @@ export async function inspectServer(server: McpServerConfig, mode: 'test' | 'gui
   // the gate: a check sends no page — only the server's tool definitions reach Claude
   const prepared = prepare({ purpose: 'mcp-setup.inspect', sources: [] })
   try {
-    return await inspectOnce(server, mode, signal)
+    return await inspectOnce(server, mode, signal, meterCall(prepared, { signal }))
   } finally {
     settle(prepared)
   }
 }
 
-async function inspectOnce(server: McpServerConfig, mode: 'test' | 'guide', signal?: AbortSignal): Promise<InspectResult> {
+async function inspectOnce(server: McpServerConfig, mode: 'test' | 'guide', signal: AbortSignal | undefined, call: MeterCall): Promise<InspectResult> {
   const mcp = await attachMcp({ servers: [{ ...server, enabled: true }], instructions: '' }, 'free', { forced: [server.name] })
   if (!mcp) throw new AIError('mcp', 'the token is not available in this browser', server.name)
   let sdk: SDKModule | null = null
@@ -89,7 +90,8 @@ async function inspectOnce(server: McpServerConfig, mode: 'test' | 'guide', sign
       tools: mcp.toolsets,
       ...(opus ? { betas: ['server-side-fallback-2026-07-01', MCP_BETA], fallbacks: 'default' as const, output_config: { effort: 'low' as const } } : { betas: [MCP_BETA] }),
     }
-    const msg = await client.beta.messages.create(params, { signal })
+    // the response is metered (core/meter.ts)
+    const msg = await metered(call, () => client.beta.messages.create(params, { signal }), () => SYSTEM(server.name).length + 400, sdk, signal)
     if (msg.stop_reason === 'refusal') throw new AIError('refusal')
     const text = msg.content.map((b: BetaContentBlock) => (b.type === 'text' ? b.text : '')).join('')
     const out = parseInspect(text)

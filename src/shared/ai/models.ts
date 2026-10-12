@@ -91,9 +91,16 @@ export const MODELS: readonly ModelRow[] = [
 
 export const DEFAULT_CLAUDE_MODEL = 'claude-opus-5-5'
 
-/** The registry row of a route (null: not a known direct model). */
+/** A model id without its snapshot date: a response may name 'claude-x-5-5-20261001' for the requested 'claude-x-5-5'. */
+export const modelBase = (id: string): string => id.replace(/-\d{8}$/, '')
+
+/** Did the requested model answer (its own id or a dated snapshot of it)? */
+export const sameModel = (requested: string, served: string): boolean => served === requested || modelBase(served) === modelBase(requested)
+
+/** The registry row of a route (null: not a known direct model). A dated snapshot id reads as its model. */
 export function modelRow(route: Pick<Route, 'p' | 'm'>): ModelRow | null {
-  return MODELS.find((x) => x.route.p === route.p && x.route.m === route.m) ?? null
+  const m = modelBase(route.m)
+  return MODELS.find((x) => x.route.p === route.p && (x.route.m === route.m || x.route.m === m)) ?? null
 }
 
 /** What a model can do (null: unknown here — an OpenRouter model's caps come from the catalogue). */

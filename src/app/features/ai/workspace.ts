@@ -9,7 +9,7 @@ import { inTemplate, isEffectivelyTrashed } from '../../store/selectors'
 import type { Database, ID, Page } from '../../store/types'
 import { propertyValueToText } from '../../database'
 import { WORKSPACE_SYSTEM, streamCompletion, streamDemoText, usesDemo } from './client'
-import { prepare, settle } from './core/gate'
+import { precheck } from './core/gate'
 import type { SourceRef } from '@/shared/ai/types'
 import { demoWorkspaceAnswer } from './demo'
 
@@ -122,7 +122,7 @@ export async function askWorkspace(opts: {
   const refs: SourceRef[] = [{ all: true }, ...hits.map((d) => ({ page: d.id }))]
   if (usesDemo()) {
     // demo answers are local, never sent — the gate still decides (newer rules, a key typed into the question)
-    settle(prepare({ purpose: 'workspace.ask', sources: refs, typed: opts.question }))
+    precheck({ purpose: 'workspace.ask', sources: refs, typed: opts.question })
     // demo (no key): answer from the retrieved pages themselves, with real citations
     const lang = useWorkspace.getState().settings.language === 'de' ? 'de' : 'en'
     const text = await streamDemoText(demoWorkspaceAnswer(opts.question, hits, keywords(opts.question), lang), opts.onToken, opts.signal)

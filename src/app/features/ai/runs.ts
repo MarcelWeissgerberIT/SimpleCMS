@@ -27,6 +27,7 @@ import { newId } from '../../lib/ids'
 import { t } from '../../i18n'
 import { AIError, runAI, stripFence, type AIAction, type AIErrorCode } from './client'
 import { pageRef } from './core/refs'
+import { tapSignal } from './core/meter'
 import { askWorkspace, type WorkspaceSource } from './workspace'
 import type { McpCall } from './mcp-servers/activity'
 import { mapTarget, reanchor, type RunTarget } from './runsTarget'
@@ -336,6 +337,8 @@ async function execute(id: string, editor: Editor) {
   const ac = new AbortController()
   controllers.set(id, ac)
   buffers.set(id, '')
+  // every request of this run is named 'ai:<run>:<what>' in the ledger (features/governor)
+  const untap = tapSignal(ac.signal, { source: `ai:${id}:${runWhat(run.req)}` })
   const onToken = (delta: string) => {
     buffers.set(id, (buffers.get(id) ?? '') + delta)
     raf ||= requestAnimationFrame(flushTokens)
@@ -461,6 +464,7 @@ async function execute(id: string, editor: Editor) {
     if (err.code === 'aborted') return
     patch(id, { status: 'error', output: partial, error: { code: err.code, detail: err.detail, server: err.server }, finishedAt: Date.now() })
   } finally {
+    untap()
     if (controllers.get(id) === ac) controllers.delete(id)
     if (memLog) {
       const done = S().runs[id]?.status === 'done'
@@ -469,6 +473,9 @@ async function execute(id: string, editor: Editor) {
     }
   }
 }
+
+/** What a run does, for its ledger source: the action ('improve' …), 'image.describe', 'file.summarize', 'transform' … */
+const runWhat = (req: RunRequest): string => (req.kind === 'action' ? req.action : req.kind === 'image' || req.kind === 'file' ? `${req.kind}.${req.action}` : req.kind)
 
 /**
  * The workspace's people as "Make tasks" sends them (team: members are mirrored there): ≤ 200 names, each once, never an

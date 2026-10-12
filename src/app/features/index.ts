@@ -137,7 +137,7 @@ export { openAgent, closeAgent, toggleAgent } from './ai/agent/state'
 export { AgentStatusCell } from './ai/agent/StatusCell'
 /*
  * AI autofill for database properties (the database area loads this lazily and owns the UI):
- *  - requestAutofill(req, signal): one row → Claude (structured output) → raw `value`
+ *  - requestAutofill(req, signal, rowId?, { dbId, propId }?): one row → Claude (structured output) → raw `value`
  *  - estimateAutofill(): rough token/cost estimate for a run · buildAutofillPrompt(): prompt + schema
  */
 export {

@@ -189,6 +189,8 @@ export interface LedgerEntry {
   mcpCalls: number
   outcome: 'ok' | AIErrorCode
   reservation?: string
+  /** what happened on the way (a refusal fallback: another model of the provider answered) */
+  steps?: StepNote[]
 }
 
 /** OpenRouter upstream rules of the workspace. */

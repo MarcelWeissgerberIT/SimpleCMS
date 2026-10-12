@@ -10,8 +10,8 @@ import { useUI } from '../../../store/ui'
 import { parseHash } from '../../../lib/router'
 import type { ID } from '../../../store/types'
 import { t } from '../../../i18n'
-import { AIError, resolveModel } from '../client'
-import { prepare, settle } from '../core/gate'
+import { AIError } from '../client'
+import { precheck } from '../core/gate'
 import { looksLikeKey, scrubSecrets } from '@/shared/ai/keys'
 import { useCloud } from '../../../cloud'
 import { attachMcp, codewordTask, codewordsIn, currentSetup, readServers, refusedNames, setupKey, type McpSetup } from '../mcp-servers/config'
@@ -71,6 +71,8 @@ let taskRules: boolean | null = null
  * so a sign-in that ends after /new never runs another conversation's task.
  */
 let epoch = 0
+/** this conversation's ledger id ('terminal:<conv>', features/governor) — a new one after /new */
+let convId = newId()
 /** what a task went with (the conversation before it, its references and mentions) — "Run the task again" */
 const turnSnap = new Map<number, { before: BetaMessageParam[]; refs: TermRef[]; mentions: TermMention[] }>()
 /** this conversation's applied writes of pipeline tasks (fingerprint before → after): a task action staged before them still applies */
@@ -372,13 +374,13 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
         patchTurn(n, { answer })
       }
     },
-    usage(u) {
-      const price = resolveModel(useWorkspace.getState().settings.aiModel).price
-      const input = u.input_tokens ?? 0
-      const output = u.output_tokens ?? 0
-      const cacheRead = u.cache_read_input_tokens ?? 0
-      const cacheWrite = u.cache_creation_input_tokens ?? 0
-      const usd = (input * price.input + cacheWrite * price.input * 1.25 + cacheRead * price.cacheRead + output * price.output) / 1_000_000
+    usage(u, entry) {
+      // priced per response by the one table (the ledger entry): the model that answered, its cache reads and writes
+      const input = u.input
+      const output = u.output
+      const cacheRead = u.cacheRead
+      const cacheWrite = u.cacheWrite + u.cacheWrite1h
+      const usd = entry?.usd ?? 0
       set((s) => ({
         usage: {
           requests: s.usage.requests + 1,
@@ -440,7 +442,7 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
   const sources = [{ all: true as const }, ...(pageId ? [{ page: pageId }] : []), ...refs.map((r) => ({ page: r.pageId })), ...mentions.map((m) => ({ page: m.id }))]
   const attempt = async () => {
     // the gate first (newer AI rules, a key in the task …): nothing is attached or loaded when it refuses
-    settle(prepare({ purpose: 'terminal.task', sources, typed: task }))
+    precheck({ purpose: 'terminal.task', sources, typed: task })
     const mcp = setup.servers.length ? await attachMcp(setup, 'free', { forced }) : null
     const left = refusedNames(setup, 'free', forced)
     for (const name of left) note(t('features.ai.mcp.cw.note.refused', { server: name }))
@@ -464,6 +466,7 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
       // the coding pipelines' and the One memory's tools and rules (pinned per conversation: the prompt prefix stays the same)
       tools: tooling.tools,
       system: tooling.system,
+      ledgerSource: `terminal:${convId}`,
     })
   }
   try {
@@ -740,6 +743,7 @@ export function newTask() {
   upsertTool = null
   taskRules = null
   epoch += 1
+  convId = newId()
   turnSnap.clear()
   sigSteps.clear()
   proposing?.abort()

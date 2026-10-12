@@ -4,7 +4,7 @@
  */
 import { useWorkspace } from '../../../store/store'
 import { stripFence } from '../client'
-import { prepare, settle } from '../core/gate'
+import { precheck } from '../core/gate'
 import type { SourceRef } from '@/shared/ai/types'
 import { loadImageForClaude, type ImageMeta } from './load'
 import { isStructured, requestImage, type ImageAction } from './request'
@@ -34,7 +34,7 @@ export async function runImageRequest(
 ): Promise<string> {
   const gate = { purpose: 'vision.image' as const, sources: opts.sources, typed: [req.question, req.instruction] }
   // the gate first: a refused request never loads the picture
-  settle(prepare(gate))
+  precheck(gate)
   const image = await loadImageForClaude(req.src, opts.signal)
   const { data: _data, ...meta } = image
   opts.onImage?.(meta)

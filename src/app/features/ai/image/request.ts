@@ -12,8 +12,9 @@
  */
 import type AnthropicSDK from '@anthropic-ai/sdk'
 import type { BetaMessageParam } from '@anthropic-ai/sdk/resources/beta/messages/messages'
-import { AIError, claudeClient, toAIError, usesDemo } from '../client'
+import { AIError, claudeClient, finalOf, toAIError, usesDemo } from '../client'
 import { prepare, settle, type Prepared } from '../core/gate'
+import { meterCall, type Receipt } from '../core/meter'
 import type { PurposeId } from '../core/purposes'
 import type { SourceRef } from '@/shared/ai/types'
 import type { LoadedImage } from './load'
@@ -126,6 +127,8 @@ export interface ImageRequest extends ImagePromptInput {
   sources: readonly SourceRef[]
   /** the person's question / instruction (refused when it looks like an API key) */
   typed?: ReadonlyArray<string | null | undefined> | null
+  /** what the request cost (the receipt), after its response */
+  onRun?: (receipt: Receipt) => void
   image: LoadedImage
   onToken?: (delta: string) => void
   signal?: AbortSignal
@@ -142,8 +145,9 @@ export async function requestImage(req: ImageRequest): Promise<string> {
   let sdk: Awaited<ReturnType<typeof claudeClient>>['sdk'] | null = null
   let prepared: Prepared | null = null
   try {
-    // the gate: nothing is sent before it (features/ai/core/gate.ts)
+    // the gate: nothing is sent before it (features/ai/core/gate.ts); the response is metered (core/meter.ts)
     prepared = prepare({ purpose: req.purpose, sources: req.sources, typed: req.typed })
+    const call = meterCall(prepared, { signal, onRun: req.onRun })
     const got = await claudeClient()
     sdk = got.sdk
     const { client, model } = got
@@ -165,7 +169,7 @@ export async function requestImage(req: ImageRequest): Promise<string> {
       signal?.addEventListener('abort', abort, { once: true })
       stream.on('text', onText)
       try {
-        stopReason = (await stream.finalMessage()).stop_reason
+        stopReason = (await finalOf(stream, call, () => SYSTEM.length + prompt.length + 2000, sdk, signal)).stop_reason
       } finally {
         signal?.removeEventListener('abort', abort)
       }
@@ -187,7 +191,7 @@ export async function requestImage(req: ImageRequest): Promise<string> {
       signal?.addEventListener('abort', abort, { once: true })
       stream.on('text', onText)
       try {
-        stopReason = (await stream.finalMessage()).stop_reason
+        stopReason = (await finalOf(stream, call, () => SYSTEM.length + prompt.length + 2000, sdk, signal)).stop_reason
       } finally {
         signal?.removeEventListener('abort', abort)
       }

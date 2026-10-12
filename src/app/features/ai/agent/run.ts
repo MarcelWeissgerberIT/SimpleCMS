@@ -15,12 +15,14 @@
  *   only reach the step log. The session pins the setup per conversation (system + tools stay put).
  */
 import type AnthropicSDK from '@anthropic-ai/sdk'
-import type { BetaContentBlock, BetaMessageParam, BetaToolResultBlockParam, BetaToolUnion, BetaUsage } from '@anthropic-ai/sdk/resources/beta/messages/messages'
+import type { BetaContentBlock, BetaMessageParam, BetaToolResultBlockParam, BetaToolUnion } from '@anthropic-ai/sdk/resources/beta/messages/messages'
 import type { BetaRunnableTool } from '@anthropic-ai/sdk/lib/tools/BetaRunnableTool'
 import { AIError, claudeClient, resolveModel, toAIError } from '../client'
 import { prepare, settle, type Prepared } from '../core/gate'
+import { claudeCut, claudeResponse, deltaChars, meterCall } from '../core/meter'
 import type { PurposeId } from '../core/purposes'
-import type { SourceRef } from '@/shared/ai/types'
+import type { LedgerEntry, SourceRef, Usage } from '@/shared/ai/types'
+import { normalise } from '@/shared/ai/usage'
 import { MCP_BETA, type McpAttachment } from '../mcp-servers/config'
 import { foldMcpBlock, type McpCall } from '../mcp-servers/activity'
 import { createMediaCollector } from '../media/collect'
@@ -98,7 +100,9 @@ export interface RunHooks {
   text(delta: string): void
   /** the current response ended: its streamed text was a note (more tool calls follow) or the answer */
   textDone(kind: 'note' | 'answer'): void
-  usage(u: BetaUsage): void
+  /** a response was metered (core/meter.ts): its usage and its ledger entry (priced by the one table) — an estimate
+   *  for a response cut short (stopped, failed) */
+  usage(u: Usage, entry: LedgerEntry | null): void
   /** the conversation so far (called at the end of the run, whatever happened) */
   history(messages: BetaMessageParam[]): void
   /** Claude hit the tool-call limit and was asked to wrap up */
@@ -151,6 +155,8 @@ export async function runAgent(opts: {
   effort?: 'low' | 'medium' | 'high' | null
   /** the AI terminal: what the person lets Claude read of a page (context marks), null = everything */
   readLimit?: ((id: ID) => ReadLimit | null) | null
+  /** the ledger's source id ('terminal:<conversation>' · 'agent:<id>:<run>') */
+  ledgerSource?: string
 }): Promise<RunEnd> {
   const { stage, signal, hooks } = opts
   const mcp = opts.mcp ?? null
@@ -161,9 +167,13 @@ export async function runAgent(opts: {
   }
   let sdk: Awaited<ReturnType<typeof claudeClient>>['sdk'] | null = null
   let prepared: Prepared | null = null
+  /** the response streaming now: metered once — whole, or from what arrived when it was cut */
+  let current: { stream: { currentMessage: unknown }; chars: number; done: boolean } | null = null
+  let cut: (e: unknown) => void = () => {}
   try {
-    // the gate: nothing is sent before it (features/ai/core/gate.ts)
-    prepared = prepare({ purpose: opts.purpose, sources: opts.sources, typed: opts.typed })
+    // the gate: nothing is sent before it (features/ai/core/gate.ts); every response is metered (core/meter.ts)
+    prepared = prepare({ purpose: opts.purpose, sources: opts.sources, typed: opts.typed, model: opts.model })
+    const call = meterCall(prepared, { source: opts.ledgerSource, signal })
     const got = await claudeClient()
     sdk = got.sdk
     const { client } = got
@@ -245,10 +255,28 @@ export async function runAgent(opts: {
     // media in MCP results: cards for the person (features/ai/media), nothing is fetched
     const media = mcp && hooks.media ? createMediaCollector() : null
     let runner = client.beta.messages.toolRunner({ ...params, messages }, { signal })
+    cut = (e: unknown) => {
+      const cur = current
+      if (!cur || cur.done) return
+      cur.done = true
+      const A = got.sdk.default
+      const entry = call.response(
+        claudeCut(cur.stream.currentMessage as Parameters<typeof claudeCut>[0], {
+          promptChars: system.length + JSON.stringify(runner.params.messages).length,
+          streamedChars: cur.chars,
+          outcome: signal.aborted ? 'aborted' : toAIError(e, got.sdk).code,
+          httpStatus: e instanceof A.APIError && typeof e.status === 'number',
+        }),
+      )
+      if (entry) hooks.usage(entry.usage, entry)
+    }
     try {
       outer: for (;;) {
         try {
           for await (const stream of runner) {
+            const cur = { stream, chars: 0, done: false }
+            current = cur
+            stream.on('streamEvent', (event) => (cur.chars += deltaChars(event)))
             let mcpCalls: McpCall[] = []
             stream.on('text', (delta) => hooks.text(delta))
             stream.on('contentBlock', (block: BetaContentBlock) => {
@@ -261,9 +289,11 @@ export async function runAgent(opts: {
               if (changed) hooks.mcp(changed)
             })
             const msg = await stream.finalMessage()
+            cur.done = true
             jsonRetries = 0
             lastStop = msg.stop_reason
-            hooks.usage(msg.usage)
+            const entry = call.response(claudeResponse(msg, cur.chars))
+            hooks.usage(entry?.usage ?? normalise('anthropic', msg.usage as unknown as Record<string, unknown>), entry)
             const toolUse = msg.content.some((b) => b.type === 'tool_use')
             hooks.textDone(toolUse ? 'note' : 'answer')
             // links in the answer to a host an MCP result used count as media too
@@ -287,6 +317,8 @@ export async function runAgent(opts: {
           if (refused || lastStop === 'tool_use' || lastStop === 'pause_turn') end = 'limit'
           break
         } catch (e) {
+          // the response cut short is metered from what arrived (it was billed)
+          cut(e)
           if (signal.aborted) throw e
           // eager input streaming: an unparseable tool input rejects the stream. Only that case (a
           // plain SDK error, not an API error) is re-issued — the failed turn was never recorded.
@@ -306,6 +338,7 @@ export async function runAgent(opts: {
     }
     return end
   } catch (e) {
+    cut(e)
     if (signal.aborted) throw new AIError('aborted')
     throw toAIError(e, sdk, mcp)
   } finally {

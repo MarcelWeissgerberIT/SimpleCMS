@@ -11,7 +11,6 @@
  * upsert_rows, the state tools and notify_me are offered only while an active integration profile unlocks them on
  * this device (integrations/status.ts); the system prompt names only what is offered.
  */
-import type { BetaUsage } from '@anthropic-ai/sdk/resources/beta/messages/messages'
 import type { JSONContent } from '@tiptap/core'
 import { outermostItems } from '../../lib/itemIds'
 import { format } from 'date-fns'
@@ -23,7 +22,7 @@ import { newId } from '../../lib/ids'
 import { navigate, parseHash } from '../../lib/router'
 import { fmtUsd } from '../../lib/money'
 import { currentLang, t } from '../../i18n'
-import { AIError, resolveModel } from '../ai/client'
+import { AIError } from '../ai/client'
 import { allowFor, allowedTools, attachMcp, instructionsText, outToolsFor, readServers } from '../ai/mcp-servers/config'
 import { callLabel } from '../ai/mcp-servers/activity'
 import { MAX_TOOL_CALLS, type StageApi } from '../ai/agent/tools'
@@ -284,8 +283,6 @@ async function runOnce(agent: CustomAgent, req: RunRequest): Promise<AgentRun> {
     items: newItemSession('agent'),
   }
 
-  const settings = useWorkspace.getState().settings
-  const price = resolveModel(agent.model || settings.aiModel).price
   const usage = { input: 0, output: 0, cacheRead: 0, usd: 0 }
   const ac = new AbortController()
   let overBudget = false
@@ -318,15 +315,12 @@ async function runOnce(agent: CustomAgent, req: RunRequest): Promise<AgentRun> {
       if (!text) return
       if (kind === 'answer') answer = answer ? `${answer}\n\n${text}` : text
     },
-    usage(u: BetaUsage) {
-      const input = u.input_tokens ?? 0
-      const output = u.output_tokens ?? 0
-      const cacheRead = u.cache_read_input_tokens ?? 0
-      const cacheWrite = u.cache_creation_input_tokens ?? 0
-      usage.input += input + cacheWrite
-      usage.output += output
-      usage.cacheRead += cacheRead
-      usage.usd += (input * price.input + cacheWrite * price.input * 1.25 + cacheRead * price.cacheRead + output * price.output) / 1_000_000
+    usage(u, entry) {
+      // the run's cost = the sum of its ledger entries (every response, priced by the one table)
+      usage.input += u.input + u.cacheWrite + u.cacheWrite1h
+      usage.output += u.output
+      usage.cacheRead += u.cacheRead
+      usage.usd += entry?.usd ?? 0
       if (usage.usd > agent.maxRunUsd && !ac.signal.aborted) {
         overBudget = true
         ac.abort()
@@ -388,6 +382,7 @@ async function runOnce(agent: CustomAgent, req: RunRequest): Promise<AgentRun> {
       system: agentSystem(agent.write, unlocks, canCreateItems()),
       model: agent.model,
       effort: agent.effort,
+      ledgerSource: `agent:${agent.id}:${run.id}`,
     })
     if (live.trim()) answer = answer ? `${answer}\n\n${live.trim()}` : live.trim()
     run.summary = withoutWebImages(answer)

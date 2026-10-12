@@ -168,11 +168,20 @@ export function buildAutofillPrompt(req: AutofillRequest): { system: string; pro
  * Ask Claude for one field value. Throws AIError for API failures (no key, rate limit after
  * retries, offline, aborted …); a reply that is not `{ "value": … }` resolves as `{ ok: false }`.
  */
-export async function requestAutofill(req: AutofillRequest, signal?: AbortSignal, rowId?: string | null): Promise<AutofillAnswer> {
+export async function requestAutofill(req: AutofillRequest, signal?: AbortSignal, rowId?: string | null, field?: { dbId: string; propId: string } | null): Promise<AutofillAnswer> {
   const { system, prompt, schema } = buildAutofillPrompt(req)
   const long = req.task.preset === 'translate' || req.field.type === 'text'
   // the row's fields and page content go out (a caller without the row id: the database as a whole)
-  const raw = await completeStructured({ purpose: 'bulk.autofill', sources: rowId ? [{ row: rowId }] : [{ all: true }], system, prompt, schema, maxTokens: long ? 8000 : 4096, signal })
+  const raw = await completeStructured({
+    purpose: 'bulk.autofill',
+    sources: rowId ? [{ row: rowId }] : [{ all: true }],
+    system,
+    prompt,
+    schema,
+    maxTokens: long ? 8000 : 4096,
+    signal,
+    ...(field ? { ledgerSource: `autofill:${field.dbId}:${field.propId}` } : {}),
+  })
   try {
     const parsed: unknown = JSON.parse(raw.trim())
     if (parsed && typeof parsed === 'object' && !Array.isArray(parsed) && 'value' in parsed) return { ok: true, value: (parsed as { value: unknown }).value }

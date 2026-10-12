@@ -7,7 +7,7 @@
  */
 import { useWorkspace } from '../../../store/store'
 import { resolveModel, stripFence } from '../client'
-import { prepare, settle } from '../core/gate'
+import { precheck } from '../core/gate'
 import type { SourceRef } from '@/shared/ai/types'
 import { withoutWebImages } from '../../agents/images'
 import { clipText, fileData, FILE_READ_MAX, loadPdfForClaude, PDF_MAX_PAGES, PDF_MAX_PAGES_SMALL } from './load'
@@ -68,7 +68,7 @@ export async function runFileRequest(
     return JSON.stringify({ sheets: fileSheets(req.fileKind, bytes, req.name) })
   }
   // the gate first: a refused request never loads the file
-  settle(prepare(gate))
+  precheck(gate)
   let material: FileMaterial
   if (req.fileKind === 'pdf') {
     const pdf = await loadPdfForClaude(req.src, maxPdfPages(), signal)

@@ -6,8 +6,9 @@
 import { readFileSync, writeFileSync } from 'node:fs'
 import type { Page, TestInfo } from '@playwright/test'
 import { test, expect, openApp, reloadApp, wsEval, flush, createPage, gotoPage, editorOf, doc, para, selectText, pageIdByTitle, MOD } from './fixtures'
-import { mockClaudeScript, hostCounts, text, type ClaudeStep } from './helpers/providers'
+import { mockClaudeScript, hostCounts, text, type CapturedRequest, type ClaudeStep } from './helpers/providers'
 import { openTerminal, run, terminal, prompt } from './helpers/terminal'
+import { ARCHIVE, SUMMARY, TRANSFORM_STEPS, addArchiveServer, aiPanel as panelOf, autofillPriority, imageAction, improve, ledger, noSpeech, ownRequest, paletteAsk, runAgentNow, summarisePdf, summarizeMeeting, transformAuto } from './helpers/aiFlows'
 
 type AnyState = Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -195,7 +196,7 @@ async function gated(page: Page, gen: number, steps: ClaudeStep[]) {
   return { requests, counts }
 }
 
-const aiPanel = (page: Page) => page.getByRole('dialog', { name: /Ask Claude|Claude fragen/ })
+const aiPanel = panelOf
 
 const GATE_FLOWS: Array<{ name: string; steps: ClaudeStep[]; go: (page: Page, refused: boolean) => Promise<void> }> = [
   {
@@ -438,5 +439,273 @@ test.describe('keys in typed text, retries after an MCP call', () => {
     await expect(aiPanel(page)).toContainText('Answer without Archive.')
     expect(requests).toHaveLength(2)
     expect(requests[1].body.mcp_servers ?? []).toEqual([])
+  })
+})
+
+/* ------------------------------------------------------------------ */
+/* The ledger: one entry per response (task 10)                         */
+/* ------------------------------------------------------------------ */
+
+/** Claude scripted, a key, the clock: the requests as they went out. */
+async function keyed(page: Page, steps: ClaudeStep[], settings: AnyState = {}) {
+  const { requests } = await mockClaudeScript(page.context(), steps)
+  await openApp(page)
+  await wsEval(page, (s, extra) => s.updateSettings({ aiApiKey: 'sk-ant-e2e-test-key', ...extra }), settings)
+  return requests
+}
+
+/** Every response of a flow is exactly one entry: its model, a table price, the purpose, the data classes it carried. */
+async function expectMetered(page: Page, requests: CapturedRequest[], n: number, purpose: string, classes: string[]) {
+  await expect.poll(() => requests.length, { timeout: 20_000 }).toBe(n)
+  await page.waitForTimeout(300)
+  expect(requests).toHaveLength(n)
+  const entries = await ledger(page)
+  expect(entries, 'one entry per response').toHaveLength(n)
+  expect(new Set(entries.map((e) => e.id)).size).toBe(n)
+  entries.forEach((e, i) => {
+    expect(e.purpose).toBe(purpose)
+    expect(e.served).toEqual({ p: 'anthropic', model: requests[i].body.model })
+    expect(e.route).toBe(`anthropic:${requests[i].body.model}`)
+    expect(e.costSource).toBe('table')
+    expect(e.usd).toBeGreaterThan(0)
+    expect(e.scope).toBe('local:local')
+    expect(e.outcome).toBe('ok')
+    for (const c of classes) expect(e.classes).toContain(c)
+  })
+  return entries
+}
+
+const PAUSED = {
+  blocks: [
+    { type: 'mcp_tool_use' as const, id: 'mcptoolu_1', server: 'archive', name: 'archive_search', input: { query: 'launch date' } },
+    { type: 'mcp_tool_result' as const, id: 'mcptoolu_1', text: 'REC-12 Launch: 2026-10-18' },
+  ],
+  stop: 'pause_turn' as const,
+}
+
+test.describe('the ledger: one entry per response, every engine', () => {
+  test('Improve (runAI → streamCompletion): one entry, priced by the table — the stored usage, its cost', async ({ page }) => {
+    const requests = await keyed(page, [text('A tighter launch sentence.', { usage: { input: 1200, output: 300, cacheRead: 0, cacheWrite: 0 } })])
+    await improve(page)
+    const [e] = await expectMetered(page, requests, 1, 'menu.action', ['selection', 'page'])
+    expect(e.usage).toEqual({ input: 1200, cacheWrite: 0, cacheWrite1h: 0, cacheRead: 0, output: 300, reasoning: 0 })
+    // Opus 5.5: $4 in, $20 out per million
+    expect(e.usd).toBeCloseTo((1200 * 4 + 300 * 20) / 1e6, 10)
+    expect(e.source).toMatch(/^ai:[^:]+:improve$/)
+    expect(e.cls).toBe('write')
+  })
+
+  test('an own request with an MCP server: the paused turn and its resume are one entry each', async ({ page }) => {
+    const requests = await keyed(page, [PAUSED, text('According to Archive, the launch is on 2026-10-18 (REC-12).')], { mcpServers: [ARCHIVE] })
+    await ownRequest(page, 'What does Archive say about the launch?')
+    await expect(aiPanel(page).locator('.ai-out__body')).toContainText('According to Archive')
+    const entries = await expectMetered(page, requests, 2, 'menu.ask', ['page', 'mcp'])
+    expect(entries.map((e) => e.mcpCalls)).toEqual([1, 0])
+    expect(entries[0].source).toBe(entries[1].source)
+  })
+
+  test('⌘K "?" (palette.ask): one entry', async ({ page }) => {
+    const requests = await keyed(page, [text('The launch is in two weeks.')])
+    await paletteAsk(page, 'When do we launch?', 'The launch is in two weeks.')
+    await expectMetered(page, requests, 1, 'palette.ask', ['page'])
+  })
+
+  test('Transform → Auto (completeStructured ×2): two entries', async ({ page }) => {
+    const requests = await keyed(page, TRANSFORM_STEPS)
+    await transformAuto(page)
+    await expectMetered(page, requests, 2, 'structure.transform', ['selection'])
+  })
+
+  test('a meeting summary on Haiku 4.5: one entry at the Haiku price', async ({ page }) => {
+    await noSpeech(page)
+    const requests = await keyed(page, [text(JSON.stringify(SUMMARY))], { aiModel: 'claude-haiku-4-5' })
+    await summarizeMeeting(page)
+    const [e] = await expectMetered(page, requests, 1, 'meeting.summary', ['transcript'])
+    expect(e.served.model).toBe('claude-haiku-4-5')
+    // the JSON answer's usage: 400 in, 40 out at $1 / $5
+    expect(e.usd).toBeCloseTo((400 * 1 + 40 * 5) / 1e6, 10)
+  })
+
+  test('the AI terminal (runAgent): one entry per round, the conversation as the source', async ({ page }) => {
+    const requests = await keyed(page, [{ blocks: [{ type: 'tool_use', id: 'toolu_l1', name: 'search_pages', input: { query: 'launch' } }] }, text('We launch in two weeks.')])
+    const id = await createPage(page, { title: 'Launch notes', content: doc(para('We launch in two weeks.')) })
+    await gotoPage(page, id)
+    await openTerminal(page)
+    await run(page, 'When do we launch?')
+    await expect(terminal(page).locator('.term-answer')).toContainText('We launch in two weeks.')
+    const entries = await expectMetered(page, requests, 2, 'terminal.task', ['workspace'])
+    expect(entries[0].source).toMatch(/^terminal:/)
+    expect(entries[1].source).toBe(entries[0].source)
+  })
+
+  test('a custom agent with its own model: one entry per round at that model', async ({ page }) => {
+    const requests = await keyed(page, [{ blocks: [{ type: 'tool_use', id: 'toolu_a1', name: 'search_pages', input: { query: 'launch' } }] }, text('**Status report:** nothing blocks the launch.')])
+    await runAgentNow(page, { id: 'ag-ledger', name: 'Status reader', model: 'claude-sonnet-5-5', effort: 'high' })
+    const entries = await expectMetered(page, requests, 2, 'agents.run', ['workspace'])
+    expect(entries.map((e) => e.route)).toEqual(['anthropic:claude-sonnet-5-5', 'anthropic:claude-sonnet-5-5'])
+    expect(entries[0].source).toMatch(/^agent:ag-ledger:/)
+  })
+
+  test('a PDF summary (requestFile): one entry', async ({ page }) => {
+    const requests = await keyed(page, [text('Invoice **2025-117** from Acme GmbH.')])
+    await summarisePdf(page)
+    await expect(aiPanel(page)).toContainText('from Acme GmbH')
+    await expectMetered(page, requests, 1, 'documents.file', ['files', 'page'])
+  })
+
+  test('an image description (requestImage): one entry', async ({ page }) => {
+    const requests = await keyed(page, [text(JSON.stringify({ alt: 'A striped test pattern.', caption: 'Test pattern P1' }))])
+    await imageAction(page, /Describe the image/)
+    await expect(aiPanel(page).getByRole('textbox', { name: 'Alt text' })).toHaveValue('A striped test pattern.')
+    await expectMetered(page, requests, 1, 'vision.image', ['files'])
+  })
+
+  test('an MCP server test (inspectServer): one entry', async ({ page }) => {
+    const requests = await keyed(page, [text('TOOLS: archive_search, archive_get\n---\n**Archive** is the team knowledge base.')])
+    await addArchiveServer(page)
+    await expectMetered(page, requests, 1, 'mcp-setup.inspect', ['mcp'])
+  })
+
+  test('autofill: one entry, the database and field as the source', async ({ page }) => {
+    const requests = await keyed(page, [text(JSON.stringify({ value: 'Low' }))])
+    const { dbId, propId } = await autofillPriority(page)
+    const [e] = await expectMetered(page, requests, 1, 'bulk.autofill', ['rows'])
+    expect(e.source).toBe(`autofill:${dbId}:${propId}`)
+  })
+})
+
+test.describe('the ledger: cut short, refused, other models, reload, reset', () => {
+  test('a response another model answered (refusal fallback): the step, priced at the model that answered', async ({ page }) => {
+    const requests = await keyed(page, [text('A tighter launch sentence.', { model: 'claude-sonnet-5-5', usage: { input: 1000, output: 100 } })])
+    await improve(page)
+    await expect.poll(() => requests.length).toBe(1)
+    const [e] = await ledger(page)
+    expect(e.route).toBe('anthropic:claude-opus-5-5')
+    expect(e.served).toEqual({ p: 'anthropic', model: 'claude-sonnet-5-5' })
+    expect(e.steps).toEqual([{ k: 'refusal-fallback', from: 'claude-opus-5-5', to: 'claude-sonnet-5-5' }])
+    // Sonnet 5.5: $2 in, $10 out — not Opus
+    expect(e.usd).toBeCloseTo((1000 * 2 + 100 * 10) / 1e6, 10)
+  })
+
+  test('a dated snapshot id is the requested model (no fallback step, the same price)', async ({ page }) => {
+    await keyed(page, [text('A tighter launch sentence.', { model: 'claude-opus-5-5-20261001', usage: { input: 1000, output: 100 } })])
+    await improve(page)
+    await expect.poll(async () => (await ledger(page)).length).toBe(1)
+    const [e] = await ledger(page)
+    expect(e.steps).toBeUndefined()
+    expect(e.served.model).toBe('claude-opus-5-5')
+    expect(e.usd).toBeCloseTo((1000 * 4 + 100 * 20) / 1e6, 10)
+  })
+
+  test('Sonnet 5.5 cache reads are priced at $0.10 per million', async ({ page }) => {
+    await keyed(page, [text('A tighter launch sentence.', { usage: { input: 0, output: 0, cacheRead: 1_000_000, cacheWrite: 0 } })], { aiModel: 'claude-sonnet-5-5' })
+    await improve(page)
+    await expect.poll(async () => (await ledger(page)).length).toBe(1)
+    const [e] = await ledger(page)
+    expect(e.usage.cacheRead).toBe(1_000_000)
+    expect(e.usd).toBeCloseTo(0.1, 10)
+  })
+
+  test('a stream stopped before its answer: one ESTIMATE entry (the prompt, never $0)', async ({ page, errors }) => {
+    errors.allow(/Failed to load resource/)
+    let held = 0
+    await page.context().route('https://api.anthropic.com/**', async (route) => {
+      if (route.request().method() === 'OPTIONS') return route.fulfill({ status: 204, headers: { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*' } })
+      held += 1
+      // never answered: the person stops it
+    })
+    await openApp(page)
+    await wsEval(page, (s) => s.updateSettings({ aiApiKey: 'sk-ant-e2e-test-key' }))
+    await improve(page, null)
+    await expect.poll(() => held).toBe(1)
+    await aiPanel(page).locator('.ai-stop').click()
+    await expect.poll(async () => (await ledger(page)).length).toBe(1)
+    await page.waitForTimeout(300)
+    const entries = await ledger(page)
+    expect(entries).toHaveLength(1)
+    expect(entries[0].costSource).toBe('estimate')
+    expect(entries[0].outcome).toBe('aborted')
+    expect(entries[0].usage.input).toBeGreaterThan(50)
+    expect(entries[0].usd).toBeGreaterThan(0)
+  })
+
+  test('a stream that fails mid-answer: one ESTIMATE entry from its message_start and the streamed text', async ({ page, errors }) => {
+    errors.allow(/Failed to load resource|Overloaded|overloaded/)
+    const ev = (type: string, data: object) => `event: ${type}\ndata: ${JSON.stringify({ type, ...data })}\n\n`
+    const body =
+      ev('message_start', { message: { id: 'msg_cut_1', type: 'message', role: 'assistant', model: 'claude-opus-5-5', content: [], stop_reason: null, stop_sequence: null, usage: { input_tokens: 2400, output_tokens: 1, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } } }) +
+      ev('content_block_start', { index: 0, content_block: { type: 'text', text: '' } }) +
+      ev('content_block_delta', { index: 0, delta: { type: 'text_delta', text: 'A tighter launch sentence that goes on and on, and then' } }) +
+      ev('error', { error: { type: 'overloaded_error', message: 'Overloaded' } })
+    await page.context().route('https://api.anthropic.com/**', (route) =>
+      route.request().method() === 'OPTIONS'
+        ? route.fulfill({ status: 204, headers: { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*' } })
+        : route.fulfill({ status: 200, headers: { 'access-control-allow-origin': '*', 'content-type': 'text/event-stream' }, body }),
+    )
+    await openApp(page)
+    await wsEval(page, (s) => s.updateSettings({ aiApiKey: 'sk-ant-e2e-test-key' }))
+    await improve(page, null)
+    await expect.poll(async () => (await ledger(page)).length).toBe(1)
+    const [e] = await ledger(page)
+    expect(e.costSource).toBe('estimate')
+    expect(e.usage.input).toBe(2400)
+    // the streamed characters ÷ 4
+    expect(e.usage.output).toBe(Math.ceil('A tighter launch sentence that goes on and on, and then'.length / 4))
+    expect(e.outcome).not.toBe('ok')
+  })
+
+  test('a request refused with an HTTP status: listed, nothing billed', async ({ page, errors }) => {
+    errors.allow(/Failed to load resource|429|Too Many/)
+    await keyed(page, [{ status: 429, json: { type: 'error', error: { type: 'rate_limit_error', message: 'Slow down' } } }, { status: 429, json: { type: 'error', error: { type: 'rate_limit_error', message: 'Slow down' } } }, { status: 429, json: { type: 'error', error: { type: 'rate_limit_error', message: 'Slow down' } } }])
+    await improve(page, null)
+    await expect(aiPanel(page).locator('.ai-error')).toBeVisible({ timeout: 30_000 })
+    const entries = await ledger(page)
+    // the SDK's own retries are inside one request: one entry
+    expect(entries).toHaveLength(1)
+    expect(entries[0]).toMatchObject({ outcome: 'rate_limit', usd: 0, costSource: 'table' })
+    expect(entries[0].usage).toEqual({ input: 0, cacheWrite: 0, cacheWrite1h: 0, cacheRead: 0, output: 0, reasoning: 0 })
+  })
+
+  test('demo answers are never metered; entries survive a reload; the local reset wipes them', async ({ page, aiNet }) => {
+    const { requests } = await mockClaudeScript(page.context(), [text('A tighter launch sentence.')])
+    await openApp(page)
+    // no key: the demo answer — nothing sent, nothing metered
+    const id = await createPage(page, { title: 'Demo notes', content: doc(para('our launch sentence is kinda loose')) })
+    await gotoPage(page, id)
+    const ed = editorOf(page, id)
+    await ed.locator('p', { hasText: 'our launch sentence is kinda loose' }).click()
+    await selectText(page, ed, 'our launch sentence is kinda loose')
+    await page.locator('[aria-label="Formatting"]').first().getByRole('button', { name: /^Ask AI$/ }).click()
+    await aiPanel(page).getByRole('button', { name: /Try a demo answer/ }).click()
+    await aiPanel(page).getByRole('option', { name: /Improve writing/ }).click()
+    await expect(aiPanel(page).locator('.ai-out__body')).not.toBeEmpty()
+    await expect(aiPanel(page).locator('.ai-stop')).toHaveCount(0, { timeout: 15_000 })
+    await page.waitForTimeout(300)
+    expect(await ledger(page)).toEqual([])
+    expect(aiNet.count('anthropic')).toBe(0)
+    await page.keyboard.press('Escape')
+    await wsEval(page, (s) => s.updateSettings({ aiApiKey: 'sk-ant-e2e-test-key' }))
+    await improve(page)
+    expect(requests).toHaveLength(1)
+    await expect.poll(async () => (await ledger(page)).length).toBe(1)
+    const [e] = await ledger(page)
+    // nothing of the page in the stored entry: ids, numbers, classes
+    expect(JSON.stringify(e)).not.toContain('launch')
+    await page.evaluate(() => (window as unknown as { __oneLedger: { flush: () => Promise<void> } }).__oneLedger.flush())
+    await reloadApp(page)
+    expect((await ledger(page)).map((x) => x.id)).toEqual([e.id])
+    await page.evaluate(() => localStorage.setItem('one.resetPending', '1'))
+    await page.reload()
+    await page.waitForFunction(() => !!(window as unknown as { __oneLedger?: unknown }).__oneLedger)
+    await expect.poll(async () => (await ledger(page)).length).toBe(0)
+  })
+
+  test('no IndexedDB `one-ledger` on the boot path: it opens with the first entry', async ({ page }) => {
+    await keyed(page, [text('A tighter launch sentence.')])
+    await page.waitForTimeout(500)
+    const before = await page.evaluate(async () => (await indexedDB.databases()).map((d) => d.name))
+    expect(before).not.toContain('one-ledger')
+    await improve(page)
+    await expect.poll(async () => (await page.evaluate(async () => (await indexedDB.databases()).map((d) => d.name))).includes('one-ledger')).toBe(true)
   })
 })
