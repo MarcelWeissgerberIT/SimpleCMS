@@ -10,7 +10,12 @@
  *    over two scopes;
  *  - the book of reservations across tabs (book.ts): messages, expiry, the scope filter, the caller's own excluded;
  *  - allowances (allow.ts), the device line and its scopes (device.ts), paused autofill rows (paused.ts) — with a
- *    storage of the spec's own.
+ *    storage of the spec's own;
+ *  - the brake core (limits.ts, steps.ts, brake.ts): workspace and device lines, reservations here and elsewhere, the
+ *    caller's own reservation excluded, allowances, run budgets; oneShot (identity · pass · cap for text only · never with
+ *    MCP · refuse with E only when it then fits · cheaper · noprice · scope); round (go · halt for terminal tasks · stop for
+ *    every agent mode); the next step (C as read or input, Δ, MCP iterations, the first step on FIRST_STEP_OUT); H (the
+ *    68k cold-cache example, 250k context, a 300-page PDF, MCP, thinking); the start check.
  * Every value is fictional.
  */
 import { existsSync, readFileSync } from 'node:fs'
@@ -45,6 +50,29 @@ import { BOOK_STALE_MS, emptyBook, expireBook, hearBook, readBookMsg, reservedBy
 import { allowOnce, allowTask, allowanceOf, clearAllowances, consume } from '../../src/app/features/governor/allow'
 import { DEVICE_KEY, DEVICE_LINE_SPANS_BROWSER, MAX_SCOPES, SCOPES_KEY, deviceLimitOf, deviceLineScopes, forgetScopes, knownScopes, noteScope, readDeviceLimit, setDeviceLimit, type KV } from '../../src/app/features/governor/device'
 import { PAUSED_MAX, addPaused, readPaused, takePaused, wipePaused } from '../../src/app/features/governor/paused'
+import { NO_LIMITS, fits, hasLimit, hasMonthLimit, limitsOf, lineOf, restMin, restOf, type Limits, type Rest, type TotalsLike } from '../../src/app/features/governor/limits'
+import { FIRST_STEP_OUT, MCP_ROUNDS, coldCost, contextOf, mcpOneShotBand, nextStep, stepOutputs, switchBand } from '../../src/app/features/governor/steps'
+import {
+  AGENTS_WAIT_MID_RUN,
+  ALLOW_USD,
+  H_ACROSS_THINKING,
+  asksAtStart,
+  capFor,
+  capsHold,
+  cheaperForHalt,
+  cheaperRoute,
+  needsOfHistory,
+  oneShot,
+  round,
+  startCheckPure,
+  waitsAtLine,
+  type HCandidate,
+  type OneShotCtx,
+  type RunMode,
+} from '../../src/app/features/governor/brake'
+import { blendedPerM, priceRow } from '../../src/shared/ai/prices'
+import { capsOf } from '../../src/shared/ai/models'
+import type { PriceRow, Route, Usage } from '../../src/shared/ai/types'
 
 const ROOT = fileURLToPath(new URL('../../', import.meta.url))
 
@@ -556,5 +584,311 @@ test.describe('paused autofill rows (features/governor/paused.ts)', () => {
     // junk in storage reads as nothing
     kv.setItem('one.governor.paused:local:local', '[1,2')
     expect(readPaused('local:local', kv)).toEqual({ rows: [], dropped: 0 })
+  })
+})
+
+/* ------------------------------------------------------------------ */
+/* A4 — the brake core                                                  */
+/* ------------------------------------------------------------------ */
+
+const TEAM = 'cloud:ws-tessera-0001:u:acc-mara-lind'
+
+/** Totals as the brake reads them, with open reservations of this tab and others (id, usd, scope). */
+function totals(o: { today?: number; month?: number; devToday?: number; devMonth?: number; res?: Array<{ id: string; usd: number; scope: string }>; scopeId?: string | null } = {}): TotalsLike {
+  const res = o.res ?? []
+  return {
+    scopeId: o.scopeId === undefined ? 'local:local' : o.scopeId,
+    scope: { spentToday: o.today ?? 0, spentMonth: o.month ?? o.today ?? 0, unpricedToday: 0 },
+    device: { spentToday: o.devToday ?? o.today ?? 0, spentMonth: o.devMonth ?? o.month ?? o.today ?? 0, scopes: ['local:local', TEAM] },
+    reserved: (scope?: string, except?: string) => res.filter((r) => r.id !== except && (scope === undefined || r.scope === scope)).reduce((x, r) => x + r.usd, 0),
+  }
+}
+
+const L = (ws: Partial<Limits['ws']> = {}, device: Partial<Limits['device']> = {}): Limits => ({ ws: { day: null, month: null, ...ws }, device: { day: null, month: null, ...device } })
+const rest = (day: number, binding: Rest['binding'] = 'day'): Rest => ({ day, month: Infinity, run: Infinity, binding })
+const near = (a: number, b: number) => expect(Math.abs(a - b)).toBeLessThan(1e-9)
+const SONNET: Route = { p: 'anthropic', m: 'claude-sonnet-5-5' }
+const HAIKU: Route = { p: 'anthropic', m: 'claude-haiku-4-5' }
+const OPUS: Route = { p: 'anthropic', m: 'claude-opus-5-5' }
+const row = (r: Route) => priceRow(r) as PriceRow
+const UU = (x: Partial<Usage>): Usage => ({ input: 0, cacheWrite: 0, cacheWrite1h: 0, cacheRead: 0, output: 0, reasoning: 0, ...x })
+
+test.describe('limits and rests (features/governor/limits.ts)', () => {
+  test('the lines in force; a value this build cannot read limits nothing here', () => {
+    expect(limitsOf(g({ day: 6, month: 120 }), sanitizeDeviceGovernor({ v: 1, day: 8 }))).toEqual({ ws: { day: 6, month: 120 }, device: { day: 8, month: null } })
+    expect(limitsOf(sanitizeGovernor({ v: 2, day: 1 }), sanitizeDeviceGovernor({ v: 2, day: 1 }))).toEqual(NO_LIMITS)
+    expect(hasLimit(NO_LIMITS)).toBe(false)
+    expect(hasLimit(L({}, { month: 50 }))).toBe(true)
+    expect(hasMonthLimit(L({ day: 6 }))).toBe(false)
+    expect(hasMonthLimit(L({}, { month: 50 }))).toBe(true)
+  })
+
+  test("workspace and device lines; reservations here and in other tabs; the caller's own never counted; allowance; run budget", () => {
+    const res = [
+      { id: 'mine', usd: 0.3, scope: 'local:local' },
+      { id: 'tab-b', usd: 0.2, scope: 'local:local' },
+      { id: 'team', usd: 0.5, scope: TEAM },
+    ]
+    const t = totals({ today: 4.12, devToday: 5.32, res })
+    const l = L({ day: 6 }, { day: 8 })
+    // workspace: 6 − 4.12 − 0.5 = 1.38 · device: 8 − 5.32 − 1.0 = 1.68 → the workspace binds
+    const r = restOf(l, t)
+    near(r.day, 1.38)
+    expect(r.binding).toBe('day')
+    expect([r.month, r.run]).toEqual([Infinity, Infinity])
+    // the request's own reservation is what it may spend: never counted against it
+    near(restOf(l, t, { reservation: 'mine' }).day, 1.68)
+    near(restOf(l, t, {}, 1).day, 2.38)
+    // the device line binds when it is lower (other workspaces of this browser spent and reserved)
+    const d = restOf(L({ day: 6 }, { day: 6 }), t)
+    near(d.day, -0.32)
+    expect(d.binding).toBe('device-day')
+    // a run's own budget
+    const run = restOf(l, t, { run: { budget: 3, spent: 2.9 } })
+    near(run.run, 0.1)
+    expect(run.binding).toBe('run')
+    // the month lines
+    const m = restOf(L({ month: 120 }, { month: 150 }), totals({ month: 118, devMonth: 140, res }))
+    near(m.month, 1.5)
+    expect(m.binding).toBe('month')
+    expect(restOf(NO_LIMITS, t)).toEqual({ day: Infinity, month: Infinity, run: Infinity, binding: null })
+    // device sums over two scopes: this one's and the team's
+    expect(lineOf(l, totals({ today: 4.12, devToday: 5.32 }), 'device-day')).toEqual({ spent: 5.32, limit: 8 })
+    expect(lineOf(l, t, 'day')).toEqual({ spent: 4.12, limit: 6 })
+    expect(lineOf(l, t, 'run', { budget: 3, spent: 2.9 })).toEqual({ spent: 2.9, limit: 3 })
+  })
+
+  test('fits: no limit → yes (also without a price); no price with a limit → noprice', () => {
+    const none: Rest = { day: Infinity, month: Infinity, run: Infinity, binding: null }
+    expect(fits(null, none)).toBe('yes')
+    expect(fits(null, rest(1))).toBe('noprice')
+    expect(fits({ low: 0.1, high: 1 }, rest(1))).toBe('yes')
+    expect(fits({ low: 0.1, high: 1.01 }, rest(1))).toBe('no')
+    expect(restMin({ day: 3, month: 2, run: 5, binding: 'month' })).toBe(2)
+  })
+})
+
+test.describe('one-shots (brake.oneShot)', () => {
+  const base: OneShotCtx = { limited: true, scopeKnown: true, band: { low: 0.1, high: 0.5 }, answer: 'text', minOut: 1024, maxTokens: 4096, costAt: (cap) => 0.25 + cap / 8000 }
+
+  test('identity without a limit; scope unknown and no price are refused', () => {
+    expect(oneShot({ ...base, limited: false, band: null }, rest(0))).toEqual({ kind: 'identity' })
+    expect(oneShot({ ...base, scopeKnown: false }, rest(10))).toEqual({ kind: 'refuse', detail: 'scope' })
+    expect(oneShot({ ...base, band: null }, rest(10))).toEqual({ kind: 'refuse', detail: 'noprice' })
+  })
+
+  test('fits → pass (reserve the upper end); a text answer near the line is capped to what fits', () => {
+    expect(oneShot(base, rest(1))).toEqual({ kind: 'pass', reserve: 0.5, band: base.band })
+    expect(oneShot({ ...base, band: { low: 0.3, high: 0.76 } }, rest(0.45))).toEqual({
+      kind: 'cap',
+      reserve: 0.45,
+      maxTokens: 1600,
+      band: { low: 0.3, high: 0.76 },
+      step: { k: 'brake', code: 'cap', to: '1600' },
+    })
+    // below the smallest useful answer: no cap — refused
+    expect(oneShot({ ...base, band: { low: 0.3, high: 0.76 } }, rest(0.3)).kind).toBe('refuse')
+    expect(capFor((c) => c, 10, 100, 5)).toBeNull()
+    expect(capFor((c) => c, 10, 100, 1000)).toBe(99)
+    expect(capFor(() => null, 10, 100, 1000)).toBeNull()
+  })
+
+  test('structured answers and requests with MCP servers are never capped; the MCP band counts 5 more context reads + tool lists', () => {
+    expect(oneShot({ ...base, answer: 'structured', band: { low: 0.3, high: 0.76 } }, rest(0.45)).kind).toBe('refuse')
+    const mcpBand = mcpOneShotBand({ row: row(SONNET), promptTokens: 10_000, servers: 2, toolChars: [4000, null], maxTokens: 4096 })
+    // 10 000 + (4 000 + 8 000) ÷ 4 = 13 000 per read: (13 000 × 2 + 4 096 × 10) / 1e6 + 5 × 13 000 × 2 / 1e6
+    near(mcpBand?.high ?? NaN, 0.06696 + MCP_ROUNDS * 0.026)
+    near(mcpBand?.low ?? NaN, (13_000 * 2 + 400 * 10) / 1e6)
+    const v = oneShot({ ...base, band: { low: 0.01, high: 0.05 }, mcp: { servers: 2, band: mcpBand } }, rest(0.1))
+    expect(v.kind).toBe('refuse')
+    // positive control: the same request without its servers passes
+    expect(oneShot({ ...base, band: { low: 0.01, high: 0.05 } }, rest(0.1)).kind).toBe('pass')
+    expect(oneShot({ ...base, mcp: { servers: 2, band: mcpBand } }, rest(1)).kind).toBe('pass')
+  })
+
+  test('refused before sending: E only when +1 $ makes it fit (else the need), and a cheaper model whose band fits', () => {
+    const v = oneShot({ ...base, answer: 'structured', band: { low: 0.4, high: 1.2 }, cheaper: [{ route: SONNET, band: { low: 0.1, high: 0.4 } }, { route: HAIKU, band: { low: 0.05, high: 0.2 } }, { route: OPUS, band: null }] }, rest(0.45))
+    expect(v).toMatchObject({ kind: 'refuse', detail: 'day', fix: { kind: 'brake', allow: ALLOW_USD, cheaper: SONNET } })
+    if (v.kind === 'refuse') near(v.fix?.need ?? NaN, 0.75)
+    const far = oneShot({ ...base, answer: 'structured', band: { low: 0.4, high: 1.6 } }, rest(0.45, 'device-month'))
+    expect(far).toMatchObject({ kind: 'refuse', detail: 'device-month', fix: { allow: null } })
+    expect(far.kind === 'refuse' && far.fix && 'cheaper' in far.fix).toBe(false)
+    if (far.kind === 'refuse') near(far.fix?.need ?? NaN, 1.15)
+    // a cheaper band that does not fit either is never offered
+    expect(cheaperRoute({ low: 1, high: 2 }, [{ route: HAIKU, band: { low: 0.5, high: 0.9 } }], 0.8)).toBeUndefined()
+  })
+})
+
+test.describe('loop steps (steps.ts nextStep / switchBand)', () => {
+  const last = UU({ input: 1000, cacheRead: 60_000, cacheWrite: 2000, output: 1500 })
+
+  test('the first step of a loop is braked on FIRST_STEP_OUT, not on the 64 000 the wire keeps; later the run’s own outputs', () => {
+    expect(stepOutputs([])).toEqual({ low: 400, high: FIRST_STEP_OUT })
+    expect(stepOutputs([UU({ output: 900 })])).toEqual({ low: 400, high: FIRST_STEP_OUT })
+    expect(stepOutputs([UU({ output: 900 }), UU({ output: 300 }), UU({ output: 2000 })])).toEqual({ low: 900, high: 2000 })
+    expect(stepOutputs([UU({ output: 900 }), UU({ output: 300 })])).toEqual({ low: 600, high: 900 })
+  })
+
+  test('Anthropic caches explicitly: C as a cache read, Δ (the answer + the tool results) as a cache write', () => {
+    expect(contextOf(last)).toBe(63_000)
+    const b = nextStep({ row: row(SONNET), last, steps: [last], pendingChars: 8000, explicitCache: true })
+    // C 63 000 × 0.10 + Δ (1 500 + 2 000) × 2.50 + 400 / 4 096 × 10
+    near(b?.low ?? NaN, (63_000 * 0.1 + 3500 * 2.5 + 400 * 10) / 1e6)
+    near(b?.high ?? NaN, (63_000 * 0.1 + 3500 * 2.5 + 4096 * 10) / 1e6)
+    // a pause_turn: no tool results, the paused answer is read again
+    const p = nextStep({ row: row(SONNET), last, steps: [last], pendingChars: 0, explicitCache: true })
+    near(p?.high ?? NaN, (63_000 * 0.1 + 1500 * 2.5 + 4096 * 10) / 1e6)
+    // waited over 5 minutes: the context is written again
+    const cold = nextStep({ row: row(SONNET), last, steps: [last], pendingChars: 0, explicitCache: true, cold: true })
+    near(cold?.high ?? NaN, (63_000 * 2.5 + 1500 * 2.5 + 4096 * 10) / 1e6)
+    expect(nextStep({ row: null, last, steps: [last], pendingChars: 0, explicitCache: true })).toBeNull()
+  })
+
+  test('OpenAI / OpenRouter / the Jev Router: C at input unless ≥ 80 % was reported as read', () => {
+    const sol = row({ p: 'openai', m: 'gpt-6.1-sol' })
+    const plain = UU({ input: 63_000, output: 1500 })
+    const b = nextStep({ row: sol, last: plain, steps: [plain], pendingChars: 0, explicitCache: false })
+    near(b?.high ?? NaN, ((63_000 + 1500) * 2 + 4096 * 10) / 1e6)
+    // reported reads ≥ 80 %: read
+    const read = UU({ input: 3000, cacheRead: 60_000, output: 1500 })
+    const r = nextStep({ row: sol, last: read, steps: [read], pendingChars: 0, explicitCache: false })
+    near(r?.high ?? NaN, (63_000 * 0.1 + 1500 * 2 + 4096 * 10) / 1e6)
+    // the router's bound row: the context at its input
+    const bound: PriceRow = { input: 30, output: 180, cacheRead: 30, cacheWrite: 30, source: 'catalogue', at: '2026-10-12' }
+    const j = nextStep({ row: bound, last: plain, steps: [plain], pendingChars: 0, explicitCache: false })
+    near(j?.high ?? NaN, ((63_000 + 1500) * 30 + 4096 * 180) / 1e6)
+  })
+
+  test('MCP: k = 3 server-side iterations count 3 context reads; the wire’s reasoning room widens the upper end', () => {
+    const one = nextStep({ row: row(SONNET), last, steps: [last], pendingChars: 8000, explicitCache: true }) ?? { low: 0, high: 0 }
+    const three = nextStep({ row: row(SONNET), last, steps: [last], pendingChars: 8000, explicitCache: true, mcpIterations: 3 }) ?? { low: 0, high: 0 }
+    near(three.high - one.high, (2 * (63_000 + 3500) * 0.1) / 1e6)
+    near(three.low - one.low, (2 * (63_000 + 3500) * 0.1) / 1e6)
+    const wide = nextStep({ row: row(SONNET), last, steps: [last], pendingChars: 8000, explicitCache: true, wireOut: (v) => v * 5 }) ?? { low: 0, high: 0 }
+    near(wide.high - one.high, (4 * 4096 * 10) / 1e6)
+  })
+
+  test('a switch writes the context to the new model once (the 68k example)', () => {
+    const haiku = switchBand({ to: row(HAIKU), context: 68_000, outLow: 15_000, outHigh: 22_000 })
+    near(haiku?.low ?? NaN, 0.085 + 0.075)
+    near(haiku?.high ?? NaN, 0.085 + 0.11)
+    const sonnet = switchBand({ to: row(SONNET), context: 68_000, outLow: 15_000, outHigh: 22_000 })
+    near(sonnet?.low ?? NaN, 0.32)
+    near(sonnet?.high ?? NaN, 0.39)
+    near(coldCost(row(HAIKU), 68_000) ?? NaN, 0.085)
+  })
+})
+
+test.describe('rounds (brake.round): terminal tasks halt, agents stop', () => {
+  const run = (source: string, mode: RunMode = 'interactive') => ({ source, mode })
+  const line = { spent: 5.71, limit: 6 }
+
+  test('go reserves the next step; no limit is always go; AUS stops', () => {
+    expect(round({ run: run('terminal:c1:t1'), limited: true, next: { low: 0.1, high: 0.2 }, rest: rest(0.29), line })).toEqual({ go: true, reserve: 0.2, band: { low: 0.1, high: 0.2 } })
+    expect(round({ run: run('agent:ag-nordlicht:r1', 'scheduled'), limited: false, next: null, rest: rest(-5), line })).toEqual({ go: true, reserve: 0, band: null })
+    expect(round({ run: run('terminal:c1:t1'), limited: true, next: { low: 0.1, high: 0.2 }, rest: rest(9), line, off: true })).toEqual({ stop: 'off', band: { low: 0.1, high: 0.2 } })
+  })
+
+  test('the AI terminal halts: E only when +1 $ fits, the needle position, H as found', () => {
+    const v = round({ run: run('terminal:c1:t1'), limited: true, next: { low: 0.3, high: 0.52 }, rest: rest(0.29), line, now: 7 })
+    expect(v).toEqual({ halt: { spent: 5.71, limit: 6, rest: 0.29, next: { low: 0.3, high: 0.52 }, to: 5.71 + 0.52, binding: 'day', allow: ALLOW_USD, cheaper: null, at: 7 } })
+    const far = round({ run: run('terminal:c1:t1'), limited: true, next: { low: 1, high: 1.5 }, rest: rest(0.29), line })
+    expect('halt' in far && far.halt.allow).toBeNull()
+    // no price with a limit: the card, without E
+    const noprice = round({ run: run('terminal:c1:t1'), limited: true, next: null, rest: rest(0.29), line })
+    expect('halt' in noprice && noprice.halt.allow).toBeNull()
+  })
+
+  test('every agent mode stops (never waits mid-run — owner decision 2)', () => {
+    expect(AGENTS_WAIT_MID_RUN).toBe(false)
+    for (const mode of ['manual', 'scheduled', 'trigger'] as const) {
+      expect(waitsAtLine(run('agent:ag-nordlicht:r1', mode))).toBe(false)
+      expect(round({ run: run('agent:ag-nordlicht:r1', mode), limited: true, next: { low: 0.3, high: 0.52 }, rest: rest(0.29), line })).toEqual({ stop: 'budget', band: { low: 0.3, high: 0.52 } })
+    }
+    expect(waitsAtLine(run('terminal:c1:t1'))).toBe(true)
+    // background work stops too
+    expect(round({ run: run('autofill:db1:p1:j1', 'trigger'), limited: true, next: { low: 0.3, high: 0.52 }, rest: rest(0.29), line })).toMatchObject({ stop: 'budget' })
+  })
+})
+
+test.describe('H: a cheaper model that can carry the conversation (brake.cheaperForHalt)', () => {
+  const cand = (r: Route, over: Partial<HCandidate> = {}): HCandidate => ({ route: r, label: r.m, caps: capsOf(r)!, row: row(r), blended: blendedPerM(row(r)), ...over })
+  const opus = { blended: blendedPerM(row(OPUS)), caps: capsOf(OPUS) }
+  const needs = needsOfHistory([{ content: [{ type: 'tool_use', id: 'tu1', name: 'read_page', input: {} }] }])
+  const ctx = { rest: 0.29, context: 68_000, outLow: 15_000, outHigh: 22_000, needs, current: opus, at: 0 }
+
+  test('the 68k example: from Opus, Sonnet 0,32–0,39 does not fit 0,29; Haiku 4.5 0,16–0,20 does — only across thinking', () => {
+    expect(H_ACROSS_THINKING).toBe(false)
+    const both = [cand(SONNET), cand(HAIKU)]
+    expect(cheaperForHalt(both, ctx)).toBeNull()
+    const h = cheaperForHalt(both, { ...ctx, acrossThinking: true })
+    expect(h?.route).toEqual(HAIKU)
+    near(h?.cold ?? NaN, 0.085)
+    near(h?.band.high ?? NaN, 0.195)
+    // with room for Sonnet: the most expensive that fits, also across thinking
+    expect(cheaperForHalt(both, { ...ctx, rest: 0.4 })?.route).toEqual(SONNET)
+    expect(cheaperForHalt(both, { ...ctx, rest: 0.4, acrossThinking: true })?.route).toEqual(SONNET)
+    // never the same model or a dearer one
+    expect(cheaperForHalt([cand(OPUS)], { ...ctx, rest: 100 })).toBeNull()
+  })
+
+  test('a 250k context never offers Haiku 4.5 (200k); a 300-page PDF never a 100-page model; MCP only to models with MCP', () => {
+    expect(cheaperForHalt([cand(HAIKU)], { ...ctx, rest: 100, context: 250_000, acrossThinking: true })).toBeNull()
+    expect(cheaperForHalt([cand(SONNET), cand(HAIKU)], { ...ctx, rest: 100, context: 250_000, acrossThinking: true })?.route).toEqual(SONNET)
+    // positive control: the same Haiku with the context that fits
+    expect(cheaperForHalt([cand(HAIKU)], { ...ctx, rest: 100, acrossThinking: true })?.route).toEqual(HAIKU)
+    const pdf = needsOfHistory([{ content: [{ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: 'JVBERi0' } }] }], { pdfPages: () => 300 })
+    expect(pdf.pdfPages).toBe(300)
+    expect(cheaperForHalt([cand(HAIKU)], { ...ctx, rest: 100, needs: pdf, acrossThinking: true })).toBeNull()
+    expect(cheaperForHalt([cand(SONNET), cand(HAIKU)], { ...ctx, rest: 100, needs: pdf, acrossThinking: true })?.route).toEqual(SONNET)
+    // a PDF whose page count is not known: no model is offered
+    const unknown = needsOfHistory([{ content: [{ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: 'x' } }] }])
+    expect(unknown.pdfPages).toBe(Infinity)
+    expect(cheaperForHalt([cand(SONNET)], { ...ctx, rest: 100, needs: unknown })).toBeNull()
+    const noMcp = cand(HAIKU, { caps: { ...capsOf(HAIKU)!, mcp: false } })
+    expect(cheaperForHalt([noMcp], { ...ctx, rest: 100, acrossThinking: true, mcpAttached: true })).toBeNull()
+    expect(cheaperForHalt([noMcp], { ...ctx, rest: 100, acrossThinking: true })?.route).toEqual(HAIKU)
+    const noVision = cand(HAIKU, { caps: { ...capsOf(HAIKU)!, vision: false } })
+    const pic = needsOfHistory([{ content: [{ type: 'tool_result', tool_use_id: 'tu1', content: [{ type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'iVBOR' } }] }] }])
+    expect(pic.vision).toBe(true)
+    expect(cheaperForHalt([noVision], { ...ctx, rest: 100, needs: pic, acrossThinking: true })).toBeNull()
+  })
+
+  test('what the history needs', () => {
+    expect(
+      needsOfHistory([
+        { content: 'plain text' },
+        { content: [{ type: 'thinking', thinking: '…', signature: 'sig' }, { type: 'mcp_tool_use', id: 'm1', name: 'search', server_name: 'tracker', input: {} }] },
+      ]),
+    ).toEqual({ tools: true, vision: false, pdfPages: 0, mcp: true, thinking: true })
+    expect(needsOfHistory([])).toEqual({ tools: false, vision: false, pdfPages: 0, mcp: false, thinking: false })
+    expect(capsHold(needsOfHistory([]), capsOf(HAIKU)!, 199_000)).toBe(true)
+    expect(capsHold(needsOfHistory([]), capsOf(HAIKU)!, 200_001)).toBe(false)
+  })
+})
+
+test.describe('the start check (brake.startCheckPure)', () => {
+  const first = { low: 0.3, high: 0.52 }
+  const run = (mode: RunMode) => ({ source: 'agent:ag-nordlicht:r1', mode })
+
+  test('background runs are not started at the line (a used-up month too); a manual run asks where it was pressed', () => {
+    expect(startCheckPure({ run: run('scheduled'), limited: false, scopeKnown: false, first: null, rest: rest(-1) })).toEqual({ start: true })
+    expect(startCheckPure({ run: run('scheduled'), limited: true, scopeKnown: true, first, rest: rest(1) })).toEqual({ start: true })
+    expect(startCheckPure({ run: run('scheduled'), limited: true, scopeKnown: true, first, rest: rest(0) })).toEqual({ start: false, hold: 'day' })
+    expect(startCheckPure({ run: run('trigger'), limited: true, scopeKnown: true, first, rest: rest(0.29) })).toEqual({ start: false, hold: 'day' })
+    // 07:30, a month limit used up (the day still has room): not started
+    const month = restOf(L({ day: 6, month: 120 }), totals({ today: 0, month: 120.4 }))
+    expect(month.binding).toBe('month')
+    expect(startCheckPure({ run: run('scheduled'), limited: true, scopeKnown: true, first, rest: month })).toEqual({ start: false, hold: 'month' })
+    expect(startCheckPure({ run: run('manual'), limited: true, scopeKnown: true, first, rest: rest(0.29) })).toMatchObject({ start: false, ask: { allow: ALLOW_USD, binding: 'day' } })
+    expect(startCheckPure({ run: run('manual'), limited: true, scopeKnown: true, first: { low: 1, high: 1.5 }, rest: rest(0.29) })).toMatchObject({ start: false, ask: { allow: null } })
+  })
+
+  test('no scope or no price with a limit: never started; who asks', () => {
+    expect(startCheckPure({ run: run('scheduled'), limited: true, scopeKnown: false, first, rest: rest(9) })).toEqual({ start: false, hold: 'scope' })
+    expect(startCheckPure({ run: run('manual'), limited: true, scopeKnown: false, first, rest: rest(9) })).toEqual({ start: false, refuse: 'scope' })
+    expect(startCheckPure({ run: run('manual'), limited: true, scopeKnown: true, first: null, rest: rest(9) })).toEqual({ start: false, refuse: 'noprice' })
+    expect(startCheckPure({ run: run('trigger'), limited: true, scopeKnown: true, first: null, rest: rest(9) })).toEqual({ start: false, hold: 'noprice' })
+    expect((['manual', 'interactive', 'bulk', 'scheduled', 'trigger', 'follow-up'] as RunMode[]).filter(asksAtStart)).toEqual(['manual', 'interactive', 'bulk'])
   })
 })
