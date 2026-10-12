@@ -454,9 +454,10 @@
 .rec-sub.rec-sub--refused {
   color: var(--c-red-text);
 }
-/* the held group's head in the signal's ink (its number stays ink-3) */
+/* the held group's head in the signal's ink, its number too (design §8.2: 01–04 ink-3, 05 "Gehalten" signal ink) */
 .plan__sec--held .label.plan__label,
-.plan__sec--held .plan__act {
+.plan__sec--held .plan__act,
+.plan__sec--held .plan__n {
   color: var(--signal-ink);
 }
 /* the eject's sources: the switch "discard the run's open proposals", then what to know */
@@ -533,6 +534,10 @@
   flex: none;
   color: var(--ink-3);
 }
+/* the keycap keeps its width in the inline-flex note (ui.css .kbd's min-width would let it shrink) */
+.ej-note .kbd {
+  flex: none;
+}
 .ej-note b {
   font-weight: 650;
   color: var(--ink);
@@ -547,6 +552,13 @@
   border-color: color-mix(in srgb, var(--on-signal) 35%, transparent);
   background: color-mix(in srgb, var(--surface) 30%, var(--signal));
   color: var(--on-signal);
+}
+/* never `disabled` (focus would fall to the page): aria-disabled looks like ui.css's disabled and presses nothing */
+.btn.btn--eject[aria-disabled='true'],
+.btn.rec-foot__close[aria-disabled='true'],
+.icon-btn.rec-bar__x[aria-disabled='true'] {
+  opacity: 0.45;
+  pointer-events: none;
 }
 
 /* phone: a bottom sheet, one column, places with chevrons; the second sheet over it (its scrim clear) */
@@ -651,11 +663,14 @@
   .rec-foot__note.ej-note {
     max-width: none;
   }
-  /* the properties stacked per property: name, then before → after */
-  .prev--stacked .hprops__row {
+  /* the properties stacked per property: name, then before → after (the columns' header row has no columns left) */
+  .prev--stacked .hprops__row:not(.hprops__row--h) {
     display: flex;
     flex-direction: column;
     gap: 2px;
+  }
+  .prev--stacked .hprops .hprops__row--h {
+    display: none;
   }
 }
 

@@ -380,13 +380,24 @@ test.describe('flight recorder — the eject', () => {
     await expect(dialog).toBeVisible()
     await expect.poll(() => page.evaluate(() => (window as unknown as { __guard: boolean[] }).__guard)).toEqual([true])
     await expect(dialog.locator('.rec-title')).toHaveText('52 Vorgänge von Agent · Nordlicht-Spiegel auswerfen?')
+    // the dialog is named by its heading; the window half-open in minutes, as the mocks write it
+    await expect(dialog).toHaveAccessibleName('52 Vorgänge von Agent · Nordlicht-Spiegel auswerfen?')
+    await expect(dialog.locator('.rec-bar__w')).toContainText('07:30–07:35')
     await expect(dialog.locator('.plan__n')).toHaveText(['01', '02', '03', '04', '05'])
+    // 05 "Gehalten" keeps the signal's ink (its number too); 01–04 are ink-3
+    const ink = await dialog.locator('.plan__sec').evaluateAll((els) => els.map((el) => [getComputedStyle(el.querySelector('.plan__n')!).color, getComputedStyle(el.querySelector('.plan__label')!).color]))
+    expect(ink[4][0]).toBe(ink[4][1])
+    expect(ink[0][0]).not.toBe(ink[4][0])
+    // the footer's keycap is never squeezed below its text
+    expect(await dialog.locator('.ej-note .kbd').evaluate((el) => el.getBoundingClientRect().width + 0.5 >= el.scrollWidth)).toBe(true)
     await expect(dialog.locator('.plan__label')).toHaveText([/^Schema/, /^Seite/, /^Zeilen/, /^Neue Zeilen/, /^Gehalten/])
     await expect(dialog.locator('.plan__act')).toHaveText(['zurück', 'zurück', 'zurück', 'Papierkorb', 'bleibt'])
     await expect(dialog.locator('.pi--held')).toHaveCount(2)
     expect(await rec<unknown[]>(page, 'ejects')).toEqual([])
     const confirm = dialog.locator('.btn--eject')
     await expect(confirm).toHaveText(/^35 Stellen zurücknehmen\s*↵$/)
+    // focus is on the primary key once the plan is there (never left on the page)
+    await expect(confirm).toBeFocused()
     await page.waitForTimeout(350)
     const late = await dialog.locator('.rec-ej').evaluate((el) => {
       const ev = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })
@@ -408,12 +419,36 @@ test.describe('flight recorder — the eject', () => {
     await expect(out.locator('.outlist li').first()).toContainText('35 von 37 zurückgenommen')
     await expect(out.locator('.outlist__held')).toContainText('NL-1408 (du) · NL-1415 (du)')
     await expect(out.locator('.outlist__version')).toContainText('„Vor dem Auswurf“')
+    await expect(out.locator('.win__h .label')).toHaveText('Fenster 07:30–07:35')
     await expect(out.locator('.dbtn--undo')).toBeFocused()
     await expect(deck.locator(`.lane[data-lane="${AGENT}"] .bracket--out`)).toHaveCount(1)
     await expect(deck.locator('.trk[data-lane="undo"] .trk__c')).not.toHaveText('00')
     // board marks: "Ready" back as a column, the held cards tagged
     await expect(page.locator('#main .back-tag')).toHaveCount(1)
     await expect(page.locator(`#main [data-held]:not(i)`)).toHaveCount(2)
+    // a held card: the signal ring replaces its frame (box-shadow — a border colour would draw nothing), and its hover
+    // ring and keyboard focus ring stay visible
+    const card = page.locator('#main .dbc[data-held]').first()
+    const signal = await card.evaluate((el) => {
+      const probe = document.createElement('i')
+      probe.style.color = 'var(--signal)'
+      el.append(probe)
+      const c = getComputedStyle(probe).color
+      probe.remove()
+      return c
+    })
+    const shadow = () => card.evaluate((el) => getComputedStyle(el).boxShadow)
+    expect(await shadow()).toContain(`${signal} 0px 0px 0px 1px`)
+    await card.hover()
+    await expect.poll(async () => (await shadow()).split(/,(?![^(]*\))/).length).toBe(3)
+    await page.mouse.move(0, 0)
+    await expect.poll(async () => (await shadow()).split(/,(?![^(]*\))/).length).toBe(2)
+    await page.keyboard.press('Shift')
+    await card.focus()
+    expect(await card.evaluate((el) => el.matches(':focus-visible'))).toBe(true)
+    await expect.poll(async () => (await shadow()).split(/,(?![^(]*\))/).length).toBe(3)
+    expect(await shadow()).toContain(`${signal} 0px 0px 0px 1px`)
+    await card.evaluate((el) => (el as HTMLElement).blur())
     const counts = () => wsEval(page, (s, db) => Object.values(s.pages).filter((p: { databaseId?: string; trashed?: boolean }) => p.databaseId === db && !p.trashed).length, DB)
     const ejected = await counts()
     // Mod+Z belongs to a field with focus in it, and Mod+Shift+Z is redo: neither undoes the eject
@@ -457,6 +492,57 @@ test.describe('flight recorder — the eject', () => {
     expect(await rec(page, 'unknowns')).toEqual([])
   })
 
+  test('a held ↵ acts once: on the cover it lifts it and nothing more; on the lifted key it opens the dialog, its repeats never confirm; a fresh press does', async ({ page }) => {
+    test.setTimeout(180_000)
+    await bootStory(page)
+    await wsEval(page, (s) => s.updateSettings({ language: 'de' }))
+    await page.keyboard.press('Control+Alt+z')
+    const deck = page.locator('section.deck')
+    await page.locator(`.lane[data-lane="${AGENT}"] .flag`).first().click()
+    const key = deck.locator('.eject__key')
+    await expect(key.locator('small')).toHaveText('· 35 / 37')
+    const cover = deck.locator('.eject__cover')
+    const dialog = page.locator('.modal.rec-eject')
+    /** Hold ↵ for `ms`: one press, then the OS's repeats (every 33 ms after 500 ms). */
+    const hold = async (ms: number) => {
+      await page.keyboard.down('Enter')
+      await page.waitForTimeout(500)
+      for (let t = 500; t < ms; t += 33) {
+        await page.keyboard.down('Enter')
+        await page.waitForTimeout(33)
+      }
+      await page.keyboard.up('Enter')
+    }
+    // on the closed cover: the press lifts it, the repeats reach the key but never press it
+    await cover.focus()
+    await hold(1600)
+    await expect(key).toBeFocused()
+    await expect(dialog).toHaveCount(0)
+    // on the lifted key: the press opens the dialog; held on while the plan arrives and 1.2 s beyond, its repeats
+    // confirm nothing (one press, no release in between)
+    const confirm = dialog.locator('.btn--eject')
+    const label = () => page.evaluate(() => document.querySelector('.modal.rec-eject .btn--eject')?.textContent ?? '')
+    await page.keyboard.down('Enter')
+    await page.waitForTimeout(500)
+    let ready = 0
+    for (const until = Date.now() + 30_000; Date.now() < until; ) {
+      await page.keyboard.down('Enter')
+      await page.waitForTimeout(33)
+      if (!ready && (await label()).startsWith('35 Stellen')) ready = Date.now()
+      if (ready && Date.now() - ready > 1200) break
+    }
+    await page.keyboard.up('Enter')
+    expect(ready).toBeGreaterThan(0)
+    await expect(dialog).toBeVisible()
+    expect(await rec<unknown[]>(page, 'ejects')).toEqual([])
+    await expect(dialog).toBeVisible()
+    // a fresh press is the person's own
+    await expect(confirm).toBeFocused()
+    await page.keyboard.press('Enter')
+    await expect(dialog).toHaveCount(0)
+    await expect.poll(async () => (await rec<Array<{ state: string }>>(page, 'ejects')).map((e) => e.state)).toEqual(['done'])
+  })
+
   test('re-plan (Δ26): a row of the plan changed while the dialog is open → nothing written, the new plan shown, the second confirm writes; refusals: an eject: run (C34), the Undo after a workspace switch (C24)', async ({ page }) => {
     test.setTimeout(180_000)
     const ids = await bootStory(page)
@@ -476,11 +562,27 @@ test.describe('flight recorder — the eject', () => {
     await confirm.click()
     await expect(dialog.locator('[data-replanned]')).toHaveText('Seit dem Öffnen hat sich etwas geändert — der Plan ist neu gerechnet. Bitte noch einmal bestätigen.')
     await expect(confirm).toHaveText(/^34 Stellen zurücknehmen/)
+    // focus stayed in the dialog through the re-plan: on the primary key, ready again (never on the page body)
+    await expect(confirm).toBeFocused()
+    await expect(confirm).not.toHaveAttribute('aria-disabled', 'true')
     // nothing was written: the row keeps its title, no eject is done
     expect(await wsEval(page, (s, id) => s.pages[id].title, ids['NL-1402'])).toBe('NL-1402 (geprüft)')
     expect((await rec<Array<{ state: string }>>(page, 'ejects')).filter((e) => e.state === 'done')).toEqual([])
     await expect(dialog.locator('.pi--held')).toHaveCount(3)
+    // while the eject is written nothing closes the dialog: Esc, Abbrechen, ✕ and the scrim wait (a Cancel that does
+    // not cancel would lie); written, it closes on its own
+    await page.evaluate(() => ((window as unknown as { __oneRecorder: { ejectHook: string | null } }).__oneRecorder.ejectHook = 'beforeCheck'))
     await confirm.click()
+    await expect.poll(() => rec<boolean>(page, 'ejectWaiting'), { timeout: 30_000 }).toBe(true)
+    await expect(dialog.locator('.rec-foot__close')).toHaveAttribute('aria-disabled', 'true')
+    await expect(dialog.locator('.rec-bar__x')).toHaveAttribute('aria-disabled', 'true')
+    await page.keyboard.press('Escape')
+    await dialog.locator('.rec-foot__close').dispatchEvent('click')
+    await dialog.locator('.rec-bar__x').dispatchEvent('click')
+    await page.mouse.click(5, 5)
+    await expect(dialog).toBeVisible()
+    await page.evaluate(() => ((window as unknown as { __oneRecorder: { ejectHook: string | null } }).__oneRecorder.ejectHook = null))
+    await rec(page, 'releaseEject')
     await expect(dialog).toHaveCount(0)
     const done = (await rec<Array<{ id: string; state: string; counts: { back: number } }>>(page, 'ejects')).filter((e) => e.state === 'done')
     expect(done.map((e) => e.counts.back)).toEqual([34])
@@ -617,6 +719,11 @@ test.describe('flight recorder — the eject', () => {
     await expect(sheet).toBeVisible()
     await expect(sheet.locator('.prev__h')).toHaveText('NL-1408')
     await expect(sheet.locator('.btn--eject')).toHaveCount(0)
+    // the second sheet is named after its place and the eject (not "Read window"); the triple table's column header
+    // has no columns left on a phone: hidden, the properties stacked
+    await expect(sheet).toHaveAccessibleName(/^NL-1408.* · Eject$/)
+    await expect(sheet.locator('.hprops__row').first()).toBeAttached()
+    await expect(sheet.locator('.hprops__row--h')).toBeHidden()
     await page.waitForTimeout(500)
     await sheet.locator('.rec-bar__back').click()
     await expect(sheet).toHaveCount(0)
@@ -630,6 +737,12 @@ test.describe('flight recorder — the eject', () => {
     await undo.click()
     await expect(page.locator('.toast', { hasText: /Eject undone|Auswurf zurückgenommen/ })).toBeVisible()
     expect((await rec<Array<{ undone?: number }>>(page, 'ejects'))[0].undone).toBeGreaterThan(0)
+    // the eject's toast went with it, and its Mod+Z: the next one raises no "undone already"
+    await expect(page.locator('.toast[data-glyph="eject"]')).toHaveCount(0)
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
+    await page.keyboard.press('Control+z')
+    await page.waitForTimeout(400)
+    await expect(page.locator('.toast', { hasText: 'This eject is undone already.' })).toHaveCount(0)
   })
 
   test('the plan of 37 places < 300 ms, the eject\'s store update and its Undo < 16 ms (performance marks; the story at real time: a page clock hides marks)', async ({ page }) => {

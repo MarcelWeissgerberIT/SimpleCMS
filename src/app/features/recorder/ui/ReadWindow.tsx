@@ -18,7 +18,7 @@ import { readWindow, type ReadModel } from '../window/read'
 import { DiffSheet } from './DiffSheet'
 import { PlacePreview } from './PlacePreview'
 import { PlanList, writerName } from './PlanList'
-import { fmtDayShort, fmtNum, hm, pl, unit, windowEnd } from './format'
+import { fmtDayShort, fmtNum, hm, pl, unit } from './format'
 import { say } from './live'
 import { usePhone } from './phone'
 import { downloadReport } from './report'
@@ -64,13 +64,15 @@ export function ReadWindow() {
   if (!bracket) return null
   const no = t('features.recorder.no')
   const title = t('features.recorder.title')
-  const range = `${hm(bracket.a)}–${hm(windowEnd(bracket))}`
+  // minutes, half-open as the mocks write it ("07:30–07:35")
+  const range = `${hm(bracket.a)}–${hm(bracket.b)}`
   const names = model ? writerName(model, t, ws) : null
   const places = model ? unit(t, lang, 'places', model.meters.places.all) : ''
   const heldWho = model ? [...new Set(model.held.flatMap((v) => v.by.map((b) => b.lane)))].map((l) => whoName(l, t, ws)) : []
   return (
     <>
-      <Modal open onClose={closeRead} bare width={980} className="rec-read" ariaLabel={model && names ? t('features.recorder.read.title', { ops: unit(t, lang, 'ops', model.meters.ops), writer: names.writer }) : t('features.recorder.win.read')}>
+      {/* named by its heading (aria-labelledby): an ariaLabel that changes once the window is read would re-run the dialog's setup */}
+      <Modal open onClose={closeRead} bare width={980} className="rec-read">
         <div className="rec-bar">
           <span className="label rec-bar__l">
             <span className="rec-bar__no">

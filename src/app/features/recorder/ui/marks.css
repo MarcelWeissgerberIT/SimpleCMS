@@ -5,9 +5,23 @@
  * Paper tokens; orange = held only. Loaded with the app (the views import the marks through the public API); rules
  * that meet a ui.css primitive carry two classes.
  */
+/* a card's frame is its box-shadow (views.css): the signal ring replaces it, the hover and focus rings stay */
 .dbc[data-held] {
-  border-color: var(--signal);
-  box-shadow: inset 3px 0 0 var(--signal);
+  box-shadow:
+    0 0 0 1px var(--signal),
+    inset 3px 0 0 var(--signal);
+}
+.dbc[data-held]:hover {
+  box-shadow:
+    0 0 0 1px var(--signal),
+    0 2px 0 1px var(--rule),
+    inset 3px 0 0 var(--signal);
+}
+.dbc[data-held]:focus-visible {
+  box-shadow:
+    0 0 0 1px var(--signal),
+    0 0 0 4px var(--signal-wash),
+    inset 3px 0 0 var(--signal);
 }
 .held-tag {
   display: inline-flex;

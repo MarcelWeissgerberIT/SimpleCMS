@@ -3,8 +3,9 @@
  * no flush on a bracket change — the dialog's plan is authoritative and may differ, C18). Desktop: a hinged, hatched
  * cover lies over it — the cover is the focusable control ("Deckel von Auswerfen öffnen"), the key beneath is inert
  * until it is lifted (none under reduced motion: it flips at once); it closes again with another window or the deck.
- * The key never ejects: it opens the dialog. Phone: no cover (the dialog is the cover). Disabled with its reason: a
- * team workspace, an eject's own window, too many places, nothing that goes back ("Schon ausgeworfen 08:05").
+ * The key never ejects: it opens the dialog. A held ↵ acts once: its repeats neither open the dialog from the cover
+ * it just lifted nor reach the key (one press, one step). Phone: no cover (the dialog is the cover). Disabled with its
+ * reason: a team workspace, an eject's own window, too many places, nothing that goes back ("Schon ausgeworfen 08:05").
  */
 import { useEffect, useRef, useState } from 'react'
 import { Eject } from 'lucide-react'
@@ -58,6 +59,11 @@ export function EjectKey({ bracket, model, phone, wkey }: { bracket: Bracket; mo
   const aria = c ? t('features.recorder.win.ejectAria', { back: fmtNum(c.back, lang), all: fmtNum(c.all, lang), held: fmtNum(c.held, lang) }) : t('features.recorder.win.eject')
   const covered = !phone && !lifted && !disabled
 
+  // a held key's repeats never press the cover or the key (the first press lifted the cover or opened the dialog)
+  const noRepeat = (e: React.KeyboardEvent) => {
+    if (e.repeat && (e.key === 'Enter' || e.key === ' ')) e.preventDefault()
+  }
+
   const lift = () => {
     setLifted(true)
     // the key takes focus once it is no longer inert
@@ -67,11 +73,11 @@ export function EjectKey({ bracket, model, phone, wkey }: { bracket: Bracket; mo
   return (
     <div className="eject" data-lifted={lifted || undefined} data-off={off ? '' : undefined}>
       {!phone && !disabled && (
-        <button type="button" className="eject__cover" aria-expanded={lifted} aria-label={lifted ? t('features.recorder.win.coverClose') : t('features.recorder.win.cover')} title={t('features.recorder.win.cover')} onClick={() => (lifted ? setLifted(false) : lift())} tabIndex={lifted ? -1 : 0}>
+        <button type="button" className="eject__cover" aria-expanded={lifted} aria-label={lifted ? t('features.recorder.win.coverClose') : t('features.recorder.win.cover')} title={t('features.recorder.win.cover')} onClick={() => (lifted ? setLifted(false) : lift())} onKeyDown={noRepeat} tabIndex={lifted ? -1 : 0}>
           <span className="eject__hinge" aria-hidden="true" />
         </button>
       )}
-      <button ref={keyRef} type="button" className="eject__key" disabled={disabled} inert={covered || undefined} aria-label={off ? `${t('features.recorder.win.eject')}: ${off}` : aria} title={off ?? aria} onClick={openEject}>
+      <button ref={keyRef} type="button" className="eject__key" disabled={disabled} inert={covered || undefined} aria-label={off ? `${t('features.recorder.win.eject')}: ${off}` : aria} title={off ?? aria} onKeyDown={noRepeat} onClick={openEject}>
         <Eject aria-hidden />
         <span>{t('features.recorder.win.eject')}</span>
         {c && !off && <small>{t('features.recorder.win.ejectCount', { back: fmtNum(c.back, lang), all: fmtNum(c.all, lang) })}</small>}

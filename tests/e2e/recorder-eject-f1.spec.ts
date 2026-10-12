@@ -8,7 +8,7 @@
  */
 import { readFileSync } from 'node:fs'
 import type { Page } from '@playwright/test'
-import { test, expect, openApp, flush, wsEval } from './fixtures'
+import { test, expect, openApp, flush, wsEval, reloadApp } from './fixtures'
 import { playStory, rec, startRecorder, storyTime, type Story } from './helpers/recorder'
 
 const story = JSON.parse(readFileSync(new URL('./fixtures/recorder-story.json', import.meta.url), 'utf8')) as Story
@@ -466,5 +466,178 @@ test.describe('flight recorder — the eject, hard cases', () => {
     const again = await rec<{ places: Array<{ p: string; outcome: string }> }>(b, 'planEject', sel)
     expect(again.places.find((x) => x.p === `p:${l}`)?.outcome).not.toBe('already')
     expect(again.places.find((x) => x.p === `p:${m}`)?.outcome).toBe('already')
+  })
+
+  test('the plan reads the store once: an edit landing while it digests the page (after its read) is a flip at the commit — nothing written, planned again; the edit stays', async ({ page }) => {
+    test.setTimeout(150_000)
+    const step = await fresh(page)
+    const [plan] = (await step('07:00:00', you, [['createPage', { title: 'Launch plan', content: { type: 'doc', content: [para('b1', 'Ziel: Nordlicht im Oktober')] } }]])) as string[]
+    await page.clock.setFixedTime(storyTime(story, '07:10:00'))
+    await rec(page, 'settle')
+    const agent = (change: string) => ({ kind: 'agent', id: 'tessera-helfer', run: 'r22', change })
+    await step('07:31:00', agent('c1'), [['setContent', plan, { type: 'doc', content: [para('b1', 'Ziel: Nordlicht im Oktober'), para('a1', 'Tessera prüft die Zahlen')] }, 'ai']], { note: { seq: 22 } })
+    await step('07:34:00', agent('c2'), [['setContent', plan, { type: 'doc', content: [para('b1', 'Ziel: Nordlicht im Oktober'), para('a1', 'Tessera prüft die Zahlen'), para('a2', 'Mara Lind übernimmt die Abnahme')] }, 'ai']], { end: true })
+    await page.clock.setFixedTime(storyTime(story, '07:40:00'))
+    await rec(page, 'settle')
+    // a fresh tab's digests are not cached: the planner signs the page's blocks after it read the store
+    await reloadApp(page)
+    await page.clock.setFixedTime(storyTime(story, '07:40:00'))
+    await startRecorder(page)
+    await rec(page, 'settle')
+    const sel = { lane: 'agent:tessera-helfer', run: 'agent:tessera-helfer:r22', a: storyTime(story, '07:30:00'), b: storyTime(story, '07:35:00') }
+    // while the planner signs the page's last block, another writer (a sync, the bridge, a second tab) adds a block
+    await page.evaluate((id) => {
+      const w = window as unknown as { __armed?: boolean; __landed?: number; __one: { workspace: { getState: () => { pages: Record<string, { content: { content: unknown[] } }>; setContent: (id: string, doc: unknown, origin: string) => void } } } }
+      const sign = crypto.subtle.sign.bind(crypto.subtle)
+      w.__landed = 0
+      crypto.subtle.sign = (async (alg: AlgorithmIdentifier, key: CryptoKey, data: BufferSource) => {
+        if (w.__armed && new TextDecoder().decode(data as ArrayBuffer).includes('Abnahme')) {
+          w.__armed = false
+          w.__landed!++
+          const s = w.__one.workspace.getState()
+          s.setContent(id, { type: 'doc', content: [...s.pages[id].content.content, { type: 'paragraph', attrs: { id: 'z1' }, content: [{ type: 'text', text: 'Tessera bestätigt' }] }] }, 'ui')
+        }
+        return sign(alg, key, data)
+      }) as typeof crypto.subtle.sign
+    }, plan)
+    const r = await page.evaluate((sel) => {
+      const w = window as unknown as { __armed?: boolean; __oneRecorder: { eject: (s: unknown) => Promise<unknown> } }
+      w.__armed = true
+      return w.__oneRecorder.eject(sel)
+    }, sel)
+    expect(await page.evaluate(() => (window as unknown as { __landed: number }).__landed)).toBe(1)
+    expect(r).toEqual({ replan: true })
+    const ids = () => wsEval(page, (s, id) => s.pages[id].content.content.map((b: { attrs: { id: string } }) => b.attrs.id), plan)
+    expect(await ids()).toEqual(['b1', 'a1', 'a2', 'z1'])
+    // planned again once that writer's segment closed (it sees the new block): the writer's passages go, the other
+    // writer's block stays
+    await page.clock.setFixedTime(storyTime(story, '07:45:00'))
+    await rec(page, 'settle')
+    expect(await rec(page, 'eject', sel)).toMatchObject({ state: 'done' })
+    expect(await ids()).toEqual(['b1', 'z1'])
+    expect(await rec(page, 'unknowns')).toEqual([])
+  })
+
+  test('a page the writer made that the person only reordered since goes to the trash (the order is nobody\'s change); one renamed since is held', async ({ page }) => {
+    test.setTimeout(120_000)
+    const step = await fresh(page)
+    await page.clock.setFixedTime(storyTime(story, '07:10:00'))
+    await rec(page, 'settle')
+    const agent = (change: string) => ({ kind: 'agent', id: 'tessera-notizen', run: 'r23', change })
+    const [n, m] = (await step('07:31:00', agent('c1'), [['createPage', { title: 'Tessera Notiz' }], ['createPage', { title: 'Nordlicht Notiz' }]], { note: { seq: 23 }, end: true })) as string[]
+    // the person drags the first in the sidebar, renames the second
+    await step('07:37:00', you, [['updatePage', n, { order: -5 }], ['updatePage', m, { title: 'Nordlicht Notiz (Mara Lind)' }]])
+    await page.clock.setFixedTime(storyTime(story, '07:40:00'))
+    await rec(page, 'settle')
+    const sel = { lane: 'agent:tessera-notizen', run: 'agent:tessera-notizen:r23', a: storyTime(story, '07:30:00'), b: storyTime(story, '07:35:00') }
+    // the reading (the plate) and the plan agree: only the renamed page is held
+    const read = await rec<{ held: Array<{ p: string }>; outcomes: Record<string, number> }>(page, 'readWindow', sel)
+    expect(read.held.map((h) => h.p)).toEqual([`p:${m}`])
+    expect(read.outcomes).toEqual({ trash: 1, held: 1 })
+    const r = await rec<{ places: Array<{ p: string; outcome: string; reason: string | null }> }>(page, 'planEject', sel)
+    expect(r.places.find((x) => x.p === `p:${n}`)?.outcome).toBe('trash')
+    expect(r.places.find((x) => x.p === `p:${m}`)?.outcome).toBe('held')
+    expect(await rec<{ state: string }>(page, 'eject', sel)).toMatchObject({ state: 'done' })
+    expect(await wsEval(page, (s, ids) => [!!s.pages[ids.n].trashed, !!s.pages[ids.m].trashed], { n, m })).toEqual([true, false])
+    expect(await rec(page, 'unknowns')).toEqual([])
+  })
+
+  /* ---------------- R3 review: the dialog, the toast and the after-plate in the app ---------------- */
+
+  /** Open the deck, bracket the lane's first run by its flag, lift the cover, open the eject dialog. */
+  const openEjectFor = async (page: Page, lane: string) => {
+    await page.keyboard.press('Control+Alt+z')
+    const deck = page.locator('section.deck')
+    await page.locator(`.lane[data-lane="${lane}"] .flag`).first().click()
+    await deck.locator('.eject__cover').click()
+    await deck.locator('.eject__key').click()
+    const dialog = page.locator('.modal.rec-eject')
+    await expect(dialog.locator('.btn--eject')).not.toHaveAttribute('aria-disabled', 'true')
+    return { deck, dialog }
+  }
+
+  test('a page partly held: one place reads in the singular, the preview says how many passages go back (never "everything is still as … left it"); the window labels are half-open minutes', async ({ page }) => {
+    test.setTimeout(150_000)
+    const step = await fresh(page)
+    const [plan] = (await step('07:00:00', you, [['createPage', { title: 'Launch plan', content: { type: 'doc', content: [para('b1', 'Ziel: Nordlicht im Oktober')] } }]])) as string[]
+    await page.clock.setFixedTime(storyTime(story, '07:10:00'))
+    await rec(page, 'settle')
+    const agent = (change: string) => ({ kind: 'agent', id: 'tessera-helfer', run: 'r20', change })
+    await step('07:31:00', agent('c1'), [['setContent', plan, { type: 'doc', content: [para('b1', 'Ziel: Nordlicht im Oktober'), para('a1', 'Tessera prüft die Zahlen')] }, 'ai']], { note: { seq: 20 } })
+    await step('07:34:00', agent('c2'), [['setContent', plan, { type: 'doc', content: [para('b1', 'Ziel: Nordlicht im Oktober'), para('a1', 'Tessera prüft die Zahlen'), para('a2', 'Mara Lind übernimmt die Abnahme')] }, 'ai']], { end: true })
+    // the person edits the second passage after the run
+    await step('07:37:00', you, [['setContent', plan, { type: 'doc', content: [para('b1', 'Ziel: Nordlicht im Oktober'), para('a1', 'Tessera prüft die Zahlen'), para('a2', 'Mara Lind übernimmt die Abnahme am Freitag')] }, 'ui']])
+    await page.clock.setFixedTime(storyTime(story, '07:40:00'))
+    await rec(page, 'settle')
+    const { deck, dialog } = await openEjectFor(page, 'agent:tessera-helfer')
+    await expect(dialog.locator('.rec-sub').first()).toHaveText(/^1 place goes back to how it was before .+\.$/)
+    await expect(dialog.locator('.rec-bar__w')).toContainText('07:30–07:35')
+    const foot = dialog.locator('.prev__foot')
+    await expect(foot).toHaveAttribute('data-partly', 'true')
+    await expect(foot).toHaveText('1 of 2 passages go back — the ones changed since stay as they are.')
+    await expect(dialog.locator('.wd__cap')).toContainText('in the passages that go back')
+    await dialog.locator('.btn--eject').click()
+    await expect(dialog).toHaveCount(0)
+    await expect(deck.locator('.win--out .win__h .label')).toHaveText('Window 07:30–07:35')
+    const blocks = await wsEval(page, (s, id) => s.pages[id].content.content.map((b: { attrs: { id: string } }) => b.attrs.id), plan)
+    expect(blocks).toEqual(['b1', 'a2'])
+    expect(await rec(page, 'unknowns')).toEqual([])
+  })
+
+  test('the toast: "Show held" opens the held rows\' database (not the first one written); the after-plate\'s Undo takes the toast and its Mod+Z away, "1 changed since, it stays"', async ({ page }) => {
+    test.setTimeout(150_000)
+    const step = await fresh(page)
+    const stage = (name: string) => ({ type: 'select', name, options: [{ id: 'o-offen', name: 'Offen', color: 'gray' }, { id: 'o-fertig', name: 'Fertig', color: 'green' }, { id: 'o-warten', name: 'Wartet', color: 'yellow' }] })
+    const [dbA, dbB] = (await step('07:00:00', you, [['createDatabase', { title: 'Nordlicht Aufgaben' }], ['createDatabase', { title: 'Tessera Abgleich' }]])) as string[]
+    const [sa, sb] = (await step('07:00:10', you, [['addProperty', dbA, stage('Stufe')], ['addProperty', dbB, stage('Stufe')]])) as string[]
+    const [a1, a2, b1] = (await step('07:00:20', you, [['createRow', dbA, { title: 'NL-1501', properties: { [sa]: 'o-offen' } }], ['createRow', dbA, { title: 'NL-1502', properties: { [sa]: 'o-offen' } }], ['createRow', dbB, { title: 'TS-0201', properties: { [sb]: 'o-offen' } }]])) as string[]
+    await page.clock.setFixedTime(storyTime(story, '07:10:00'))
+    await rec(page, 'settle')
+    const agent = (change: string) => ({ kind: 'agent', id: 'tessera-stufen', run: 'r21', change })
+    await step('07:31:00', agent('c1'), [['setRowProperty', a1, sa, 'o-fertig'], ['setRowProperty', a2, sa, 'o-fertig']], { note: { seq: 21 } })
+    await step('07:31:30', agent('c2'), [['setRowProperty', b1, sb, 'o-fertig']], { end: true })
+    // the person changes the second database's row since: held
+    await step('07:37:00', you, [['setRowProperty', b1, sb, 'o-warten']])
+    await page.clock.setFixedTime(storyTime(story, '07:40:00'))
+    await rec(page, 'settle')
+    const { deck, dialog } = await openEjectFor(page, 'agent:tessera-stufen')
+    await dialog.locator('.btn--eject').click()
+    await expect(dialog).toHaveCount(0)
+    const toast = page.locator('.toast[data-glyph="eject"]')
+    await expect(toast).toBeVisible()
+    await toast.getByRole('button', { name: 'Show held' }).click()
+    await expect.poll(() => page.evaluate(() => window.location.hash)).toBe(`#/p/${dbB}`)
+    // the person changes one of the rows that went back; the after-plate's Undo keeps it
+    await step('07:42:00', you, [['setRowProperty', a2, sa, 'o-warten']])
+    await deck.locator('.win--out .dbtn--undo').click()
+    await expect(page.locator('.toast', { hasText: 'Eject undone: 1 place back · 1 changed since, it stays' })).toBeVisible()
+    await expect(toast).toHaveCount(0)
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
+    await page.keyboard.press('Control+z')
+    await page.waitForTimeout(400)
+    await expect(page.locator('.toast', { hasText: 'This eject is undone already.' })).toHaveCount(0)
+    expect(await wsEval(page, (s, ids) => [s.pages[ids.a1].properties[ids.sa], s.pages[ids.a2].properties[ids.sa], s.pages[ids.b1].properties[ids.sb]], { a1, a2, b1, sa, sb })).toEqual(['o-fertig', 'o-warten', 'o-warten'])
+    expect(await rec(page, 'unknowns')).toEqual([])
+  })
+
+  test('an MCP window ejected: the after-plate offers "Open MCP activity" (Settings on the MCP tab)', async ({ page }) => {
+    test.setTimeout(150_000)
+    const step = await fresh(page)
+    const [memo] = (await step('07:00:00', you, [['createPage', { title: 'Tessera Memo' }]])) as string[]
+    await page.clock.setFixedTime(storyTime(story, '07:10:00'))
+    await rec(page, 'settle')
+    await step('07:31:00', { kind: 'mcp', session: 'tessera-s12', call: 'm1', tool: 'one_update_page' }, [['updatePage', memo, { title: 'Tessera Memo (alt)' }]], { note: { tool: 'one_update_page', client: 'tessera-desk' }, end: true })
+    await page.clock.setFixedTime(storyTime(story, '07:40:00'))
+    await rec(page, 'settle')
+    const lane = (await rec<Array<{ key: string; l: string }>>(page, 'runs')).find((r) => r.key.startsWith('mcp:'))!.l
+    const { deck, dialog } = await openEjectFor(page, lane)
+    await dialog.locator('.btn--eject').click()
+    await expect(dialog).toHaveCount(0)
+    expect(await wsEval(page, (s, id) => s.pages[id].title, memo)).toBe('Tessera Memo')
+    const open = deck.locator('.win--out .dbtn--open')
+    await expect(open).toHaveText('Open MCP activity')
+    await open.click()
+    await expect(page.locator('.modal[role="dialog"]').first()).toBeVisible()
+    expect(await rec(page, 'unknowns')).toEqual([])
   })
 })

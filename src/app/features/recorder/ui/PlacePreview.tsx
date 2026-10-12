@@ -3,7 +3,9 @@
  * · who changed it since), the property values before → after (rows) and the text word by word — both in ink inside
  * `.rec-diff`. Changes another writer made inside W's span are tagged "contains changes by …", never taken for W's;
  * an after-state that is not exactly what W left says so. Schema and view places: what W did, by name. A place this
- * device cannot show is said, nothing is loaded. `variant`: 'read' (R2); the eject's third column comes with R3.
+ * device cannot show is said, nothing is loaded. `variant`: 'read' (R2) or 'eject' (R3: the third column, the
+ * outcome — "goes back whole" only when every passage and part goes back; partly held, it says so and the caption
+ * speaks of the passages that go back only).
  */
 import { useEffect, useMemo, useState } from 'react'
 import { Check, Hand, Info, Undo2 } from 'lucide-react'
@@ -84,6 +86,20 @@ export function PlacePreview({ model, p, variant = 'read', stacked = false, ejec
   const cut = Math.max(0, before.indexOf('\u0001'))
   const x = variant === 'eject' ? eject?.x : undefined
   const goesBack = !!x && (x.outcome === 'back' || x.outcome === 'trash' || x.outcome === 'restore')
+  // goes back, but not all of it: passages or parts changed since stay (a row: a value that stays)
+  const heldHunks = x?.hunks?.held ?? 0
+  const partly = !!x && goesBack && x.outcome !== 'trash' && (heldHunks > 0 || x.parts.held.length > 0 || x.notRestored.length > 0 || Object.values(x.fates ?? {}).some((f) => f !== 'back'))
+  const footText = !x
+    ? ''
+    : x.outcome === 'trash'
+      ? t('features.recorder.eject.newRowSub', { writer })
+      : !goesBack
+        ? (eject?.why ?? '')
+        : !partly
+          ? t(isRow ? 'features.recorder.eject.rowWhole' : 'features.recorder.eject.pageWhole', { run })
+          : heldHunks > 0
+            ? t('features.recorder.eject.blocksPartly', { back: fmtNum(x.hunks!.back, lang), all: fmtNum(x.hunks!.back + heldHunks, lang) })
+            : t(isRow ? 'features.recorder.eject.rowPartly' : 'features.recorder.eject.pagePartly', { run })
   const blockTag = (it: DocItem) => {
     const bid = itemBlockId(it)
     const notes = d?.interleaved.filter((n) => n.blocks !== '*' && !!bid && n.blocks.includes(bid)) ?? []
@@ -210,16 +226,16 @@ export function PlacePreview({ model, p, variant = 'read', stacked = false, ejec
                 <div className="wd__cap">
                   <Undo2 aria-hidden />
                   <span>
-                    <Bold text={t('features.recorder.eject.textCaption', { bold: BOLD })} bold={t('features.recorder.eject.textCaptionBold')} />
+                    <Bold text={t(heldHunks > 0 ? 'features.recorder.eject.textCaptionPartly' : 'features.recorder.eject.textCaption', { bold: BOLD })} bold={t('features.recorder.eject.textCaptionBold')} />
                   </span>
                 </div>
               )}
             </div>
           )}
           {x && (!goesBack || verdict.pk === 'row' || verdict.pk === 'page' || verdict.pk === 'db') && (
-            <p className="prev__foot" data-outcome={x.outcome}>
-              {goesBack ? <Check aria-hidden /> : <Hand aria-hidden />}
-              <span>{x.outcome === 'trash' ? t('features.recorder.eject.newRowSub', { writer }) : goesBack ? t(isRow ? 'features.recorder.eject.rowWhole' : 'features.recorder.eject.pageWhole', { run }) : (eject?.why ?? '')}</span>
+            <p className="prev__foot" data-outcome={x.outcome} data-partly={partly || undefined}>
+              {goesBack && !partly ? <Check aria-hidden /> : <Hand aria-hidden />}
+              <span>{footText}</span>
             </p>
           )}
         </>

@@ -2,12 +2,13 @@
  * The plate after an eject (mock-3, `.win--out`): "Fenster 07:30–07:35" · "Ausgeworfen 08:05" (ink, not orange); the
  * writer; what happened — STELLEN "35 von 37 zurückgenommen", ZURÜCK "1 Schema · 1 Seite · 30 Zeilen", PAPIERKORB
  * "3 neue Zeilen", GEHALTEN "1408 (du) · 1415 (du)" (the deck's signal text), VERSION "„Vor dem Auswurf“ · 08:05:20";
- * a note (an ink triangle — the held diamond means held places only); "{writer} öffnen", "Vorfallbericht" and the wide
- * "Auswurf zurücknehmen" (Ctrl+Z / ⌘Z while the toast shows). Shown whenever the bracket is a window a live eject took
- * back — across reopening the deck; an eject this deck just made shows at once (its record follows).
+ * a note (an ink triangle — the held diamond means held places only); "{writer} öffnen" (an agent, a script, the MCP
+ * activity), "Vorfallbericht" and the wide "Auswurf zurücknehmen" (Ctrl+Z / ⌘Z while the toast shows; its Undo here
+ * takes the toast away too). Shown whenever the bracket is a window a live eject took back — across reopening the
+ * deck; an eject this deck just made shows at once (its record follows).
  */
 import { useEffect, useState } from 'react'
-import { Bot, FileCode, FileDown, TriangleAlert, Undo2, X } from 'lucide-react'
+import { Bot, FileCode, FileDown, Plug, TriangleAlert, Undo2, X } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import { useLang, useT } from '../../../i18n'
 import { useWorkspace } from '../../../store/store'
@@ -20,7 +21,7 @@ import { getEject } from '../eject/records'
 import { scopeNow } from '../journal/scope'
 import { backParts } from './ejectText'
 import { runEjectUndo } from './ejectToast'
-import { fmtDayShort, fmtNum, hm, hms, pl, windowEnd } from './format'
+import { fmtDayShort, fmtNum, hm, hms, pl } from './format'
 import type { LaneMeta } from './lanes'
 import { setBracket, setLastEject, useRecorderUI, type Bracket, type LastEject } from './state'
 import { whoName } from './WindowPlate'
@@ -74,7 +75,14 @@ export function AfterPlate({ src, bracket, meta, run, model, heldMarks }: { src:
   const agent = kind === 'agent' && refId ? ws.agents?.[refId] : undefined
   const next = agent ? agentNextRunAt(agent) : null
   const note = next ? t('features.recorder.win.out.next', { when: `${fmtDayShort(t, lang, next)} ${hm(next)}` }) : held.length ? t('features.recorder.win.out.heldNote', { writer: meta.title }) : null
-  const openKey = kind === 'agent' && agent ? { label: t('features.recorder.win.out.openAgent'), icon: Bot, go: () => navigate(`#/agents/${agent.id}`) } : kind === 'script' && !!refId && !!ws.scripts?.[refId] ? { label: t('features.recorder.win.out.openScript'), icon: FileCode, go: () => navigate(`#/scripts/${refId}`) } : null
+  const openKey =
+    kind === 'agent' && agent
+      ? { label: t('features.recorder.win.out.openAgent'), icon: Bot, go: () => navigate(`#/agents/${agent.id}`) }
+      : kind === 'script' && !!refId && !!ws.scripts?.[refId]
+        ? { label: t('features.recorder.win.out.openScript'), icon: FileCode, go: () => navigate(`#/scripts/${refId}`) }
+        : kind === 'mcp'
+          ? { label: t('features.recorder.win.out.openMcp'), icon: Plug, go: () => void import('../../mcp').then((m) => m.openMcpSettings()) }
+          : null
   const report = async () => {
     if (!model) return
     const { downloadReport } = await import('./report')
@@ -89,7 +97,7 @@ export function AfterPlate({ src, bracket, meta, run, model, heldMarks }: { src:
   return (
     <aside className="win win--out" aria-label={t('features.recorder.win.out.aria')} data-eject={id}>
       <div className="win__h">
-        <span className="label">{t('features.recorder.win.out.window', { range: `${hm(bracket.a)}–${hm(windowEnd(bracket))}` })}</span>
+        <span className="label">{t('features.recorder.win.out.window', { range: `${hm(bracket.a)}–${hm(bracket.b)}` })}</span>
         <span className="win__t win__t--out">{t('features.recorder.win.out.at', { time: hm(at) })}</span>
         <button type="button" className="win__x" aria-label={t('features.recorder.win.clear')} title={t('features.recorder.win.clear')} onClick={() => setBracket(null)}>
           <X aria-hidden />

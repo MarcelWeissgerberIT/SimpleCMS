@@ -791,8 +791,8 @@ test.describe('the incident report', () => {
       const { md, file } = incidentReport(model(), facts, { t: tOf(lang), lang, tz: 'Europe/Berlin', now: T('08:06:00') })
       expect(file).toBe('incident-2026-10-09-0730-agent-x.md')
       const h = lang === 'de'
-        ? ['# Vorfallbericht · Nordlicht Werk · Fr 09.10. 07:30–07:34', '## Fenster', '## Alle Schreiber in diesem Zeitraum', '## Was sich geändert hat', '### Schema', '### Seiten', '### Zeilen', '## Hinweise']
-        : ['# Incident report · Nordlicht Werk · Fri 9 Oct 07:30–07:34', '## Window', '## All writers in this span', '## What changed', '### Schema', '### Pages', '### Rows', '## Notes']
+        ? ['# Vorfallbericht · Nordlicht Werk · Fr 09.10. 07:30–07:35', '## Fenster', '## Alle Schreiber in diesem Zeitraum', '## Was sich geändert hat', '### Schema', '### Seiten', '### Zeilen', '## Hinweise']
+        : ['# Incident report · Nordlicht Werk · Fri 9 Oct 07:30–07:35', '## Window', '## All writers in this span', '## What changed', '### Schema', '### Pages', '### Rows', '## Notes']
       for (const x of h) expect(md, `${lang}: ${x}`).toContain(x)
       expect(md).toContain(lang === 'de' ? 'Schreiber: Agent · Nordlicht-Spiegel (Lauf 212)' : 'Writer: Agent · Nordlicht-Spiegel (run 212)')
       expect(md).toContain(lang === 'de' ? '52 Vorgänge an 37 Stellen: 35 Zeilen (3 neu) · 1 Seite · 1 Schema · +212 −40 Wörter' : '52 writes at 37 places: 35 rows (3 new) · 1 page · 1 schema · +212 −40 words')

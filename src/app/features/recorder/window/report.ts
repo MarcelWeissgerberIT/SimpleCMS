@@ -88,7 +88,7 @@ export function incidentReport(model: ReadModel, facts: ReportFacts, opts: Repor
   const n = (v: number) => num(v, lang)
   const day = format(model.sel.a, t('features.recorder.fmt.day'), { locale: lang === 'de' ? de : enUS })
   const out: string[] = []
-  out.push(`# ${cell(k('report.title', { workspace: facts.workspace, day, from: hm(model.sel.a), to: hm(Math.max(model.sel.a, model.sel.b - 1000)) }))}`)
+  out.push(`# ${cell(k('report.title', { workspace: facts.workspace, day, from: hm(model.sel.a), to: hm(model.sel.b) }))}`)
   out.push(k('report.made', { date: `${format(opts.now, 'yyyy-MM-dd')} ${hms(opts.now)}`, tz: opts.tz }))
   out.push('')
 

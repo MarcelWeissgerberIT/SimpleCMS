@@ -3,16 +3,28 @@
  * key with its keycap and "Gehaltene zeigen" (the held cards flash; none on screen: their database opens); 15 s,
  * raised after the dialog unmounted. While it is shown, Mod+Z is its Undo (C26): `e.key === 'z'` (never `e.code` —
  * QWERTZ), ⌘ on a Mac / Ctrl elsewhere, no Alt, no Shift, no AltGr; never with focus in a field or an editor, never
- * while a dialog, a popover or a menu is open. Mod+Alt+Z (the deck) and redo are never taken.
+ * while a dialog, a popover or a menu is open. Mod+Alt+Z (the deck) and redo are never taken. An Undo from anywhere
+ * else (the after-plate's key) takes the toast away with its Mod+Z — the next Mod+Z is the app's own again.
  */
 import { useUI } from '../../../store/ui'
 import { currentLang, t } from '../../../i18n'
 import { openPage } from '../../../lib/router'
 import { isMac } from '../../../ui/controls'
-import { fmtNum, unit } from './format'
+import { fmtNum, pl, unit } from './format'
 import { setLastEject, useRecorderUI } from './state'
 
 const TIMEOUT = 15_000
+
+/** The toast each eject raised (by eject id): an Undo from elsewhere dismisses it and disarms its Mod+Z. */
+const toastOf = new Map<string, string>()
+
+/** Take the eject's toast away (its Mod+Z goes with it). */
+function dropToast(id: string): void {
+  const toastId = toastOf.get(id)
+  if (!toastId) return
+  toastOf.delete(id)
+  useUI.getState().dismissToast(toastId)
+}
 
 /** The held cards of the last eject flash (or their database opens when none is on screen). */
 export function showHeld(dbId: string | null): void {
@@ -44,13 +56,16 @@ export async function runEjectUndo(id: string): Promise<void> {
   const lang = currentLang()
   const toast = useUI.getState().toast
   if ('refused' in r) {
+    // undone already (another tab, the plate): its toast has nothing left to undo
+    if (r.refused.key === 'undone' || r.refused.key === 'gone') dropToast(id)
     toast({ message: t(`features.recorder.eject.${r.refused.key}`), kind: 'error' })
     return
   }
+  dropToast(id)
   // the board's marks belonged to the eject
   if (useRecorderUI.getState().lastEject?.id === id) setLastEject(null)
   const back = unit(t, lang, 'places', r.back)
-  const message = r.kept ? t('features.recorder.toast.undoneKept', { back, kept: fmtNum(r.kept, lang) }) : t('features.recorder.toast.undone', { back })
+  const message = r.kept ? t(pl('features.recorder.toast.undoneKept', r.kept), { back, kept: fmtNum(r.kept, lang) }) : t('features.recorder.toast.undone', { back })
   toast({ message, kind: 'success', ...(r.slips ? { detail: t('features.recorder.toast.slipsStay', { n: fmtNum(r.slips, lang) }) } : {}), timeout: r.slips ? 8000 : 5000 })
 }
 
@@ -70,6 +85,7 @@ export function raiseEjectToast(o: { id: string; back: number; held: number; wri
     ...(o.held ? { more: [{ label: t('features.recorder.toast.showHeld'), run: () => showHeld(o.dbId) }] } : {}),
     timeout: TIMEOUT,
   })
+  toastOf.set(o.id, toastId)
   armUndoKey(toastId, undo)
   return toastId
 }
@@ -92,7 +108,9 @@ export function armUndoKey(toastId: string, run: () => void): void {
     run()
   }
   const unsub = useUI.subscribe((s) => {
-    if (!s.toasts.some((x) => x.id === toastId) && !s.waitingToasts.some((x) => x.id === toastId)) stop()
+    if (s.toasts.some((x) => x.id === toastId) || s.waitingToasts.some((x) => x.id === toastId)) return
+    stop()
+    for (const [id, tid] of toastOf) if (tid === toastId) toastOf.delete(id)
   })
   function stop() {
     window.removeEventListener('keydown', onKey, true)

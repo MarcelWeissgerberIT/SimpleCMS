@@ -4,9 +4,12 @@
  * is held and by whom; the plan (Schema · Ansichten · Seiten · Zeilen · Neue Zeilen · Gehalten · Ohne Vorher-Stand,
  * numbered over the groups present) beside the picked place (before → after → after the eject, the text word by word,
  * why it stays); the sources (open proposals, Preflight, coding tasks, the sync, Outbox slips); the footer: the version
- * first, ONE step back, "Abbrechen" (Esc), "Vorfallbericht", the primary "{n} Stellen zurücknehmen" (↵ only 300 ms
- * after the dialog opened — the key that opened it must not confirm it). A place that changed after planning: nothing
- * is written, the plan is computed again and said. Phone: a sheet, a second sheet per place, one primary key.
+ * first, ONE step back, "Abbrechen" (Esc), "Vorfallbericht", the primary "{n} Stellen zurücknehmen" (↵ only from a
+ * fresh press 300 ms after the dialog opened and the key became ready — never a held key's repeat, never the key that
+ * opened it). The primary key is never `disabled` (focus would fall to the page): `aria-disabled` while there is
+ * nothing to confirm; focus stays in the dialog through a re-plan or a refusal. While the eject writes, nothing closes
+ * the dialog (Abbrechen, ✕, Esc and the scrim wait). A place that changed after planning: nothing is written, the plan
+ * is computed again and said. Phone: a sheet, a second sheet per place, one primary key.
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Columns3, Eject, FileDown, FileText, Hand, History, Rows3, SquareDashed, Table2, Trash2, X } from 'lucide-react'
@@ -27,7 +30,7 @@ import { PlacePreview } from './PlacePreview'
 import { PlaceList, placeTitle, rowParts, writerName, type ListGroup } from './PlanList'
 import { decidedLines, heldByText, heldWhy } from './ejectText'
 import { raiseEjectToast } from './ejectToast'
-import { fmtDayShort, fmtNum, hm, hms, pl, unit, windowEnd } from './format'
+import { fmtDayShort, fmtNum, hm, hms, pl, unit } from './format'
 import { say } from './live'
 import { usePhone } from './phone'
 import { downloadReport } from './report'
@@ -36,7 +39,7 @@ import { whoName } from './WindowPlate'
 import { Bold, BOLD } from './bold'
 import { rowLabel } from '../window/read'
 
-/** ↵ confirms only this long after the dialog opened (a held key, the key that lifted the cover). */
+/** ↵ confirms only this long after the dialog opened and its key became ready (the key that lifted the cover). */
 const ENTER_GUARD_MS = 300
 
 type GroupKind = 'schema' | 'views' | 'pages' | 'rows' | 'newRows' | 'held' | 'partial'
@@ -70,9 +73,15 @@ export function EjectDialog() {
   const [refused, setRefused] = useState<string | null>(null)
   const [replanned, setReplanned] = useState(false)
   const [busy, setBusy] = useState(false)
+  // the eject is being written: nothing closes the dialog until it is done or refused
+  const [writing, setWriting] = useState(false)
+  const writingRef = useRef(false)
   const [discard, setDiscard] = useState(true)
   const [sheet, setSheet] = useState<PlaceKey | null>(null)
   const openedAt = useRef(performance.now())
+  // when the primary key last became ready (a plan loaded, a re-plan done): ↵ counts only a fresh press after it
+  const readyAt = useRef(0)
+  const rootRef = useRef<HTMLDivElement>(null)
   const sel: WindowSel | null = useMemo(() => (bracket ? { scope: scopeNow(), lane: bracket.lane, ...(bracket.run ? { run: bracket.run } : {}), a: bracket.a, b: bracket.b } : null), [bracket])
 
   const refusal = (r: EjectRefusal | CommitRefusal) => t(`features.recorder.eject.${r.key}`, 'n' in r ? { n: fmtNum(r.n, lang) } : undefined)
@@ -110,6 +119,23 @@ export function EjectDialog() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sel?.lane, sel?.run, sel?.a, sel?.b])
+
+  // the primary key can act: a plan with something that goes back, nothing running
+  const ready = !!planned && !!planned.plan.counts.back && !busy
+  useEffect(() => {
+    if (ready) readyAt.current = performance.now()
+  }, [ready])
+  // focus stays in the dialog (a plan loaded, a re-plan done, a refusal): the primary key when it can act, else ✕
+  useEffect(() => {
+    const root = rootRef.current
+    if (!root || busy || (!planned && !refused)) return
+    const active = document.activeElement
+    const other = active?.closest('[aria-modal="true"]')
+    if (other && !other.contains(root)) return
+    const primary = root.querySelector<HTMLElement>('.btn--eject')
+    if (active && root.contains(active) && !(active === primary && !ready)) return
+    ;(ready ? primary : root.querySelector<HTMLElement>('.rec-bar__x'))?.focus({ preventScroll: true })
+  }, [ready, planned, refused, busy])
 
   const names = model ? writerName(model, t, ws) : null
   const byPlace = useMemo(() => new Map(planned?.plan.places.map((x) => [x.p, x]) ?? []), [planned])
@@ -165,7 +191,8 @@ export function EjectDialog() {
   const counts = planned?.plan.counts
   const no = t('features.recorder.no')
   const title = t('features.recorder.title')
-  const range = `${hm(bracket.a)}–${hm(windowEnd(bracket))}`
+  // minutes, half-open as the mocks write it ("07:30–07:35"); to the second it is the last second shown
+  const range = `${hm(bracket.a)}–${hm(bracket.b)}`
   const heading = counts && names ? t('features.recorder.eject.title', { ops: unit(t, lang, 'ops', counts.ops), writer: names.writer }) : t('features.recorder.eject.label')
   const heldRowsOnly = !!planned && planned.plan.places.filter((x) => x.outcome === 'held').every((x) => x.pk === 'row')
   const placesText = counts ? unit(t, lang, 'places', counts.back) : ''
@@ -181,17 +208,26 @@ export function EjectDialog() {
     if (facts.slipsChanged) notes.push(t(pl('features.recorder.eject.slipsChanged', facts.slipsChanged), { n: fmtNum(facts.slipsChanged, lang) }))
     if (facts.reviewGone) notes.push(t('features.recorder.eject.reviewGone'))
   }
-  const canConfirm = !!planned && !!counts?.back && !busy
+  const canConfirm = ready
+  /** Closing waits while the eject is written (a Cancel that does not cancel would lie). */
+  const close = () => {
+    if (!writingRef.current) closeEject()
+  }
 
   const confirm = async () => {
     if (!planned || !canConfirm || !names) return
     setBusy(true)
     setRefused(null)
-    const { ejectNow } = await import('../eject/commit')
-    const r = await ejectNow(sel, planned, { discardPending: discard, label: names.writer }).catch((e) => {
-      console.warn('[recorder] the eject failed', e)
-      return { refused: { key: 'writeRefused' as const } }
-    })
+    writingRef.current = true
+    setWriting(true)
+    const r = await import('../eject/commit')
+      .then(({ ejectNow }) => ejectNow(sel, planned, { discardPending: discard, label: names.writer }))
+      .catch((e) => {
+        console.warn('[recorder] the eject failed', e)
+        return { refused: { key: 'writeRefused' as const } }
+      })
+    writingRef.current = false
+    setWriting(false)
     if ('replan' in r) {
       // a place changed after planning: nothing was written — the person sees the new plan and confirms again
       await plan(true).catch(() => setRefused(t('features.recorder.eject.failed')))
@@ -222,6 +258,9 @@ export function EjectDialog() {
         const props = (db?.properties ?? []).filter((p) => own.has(`p:${p.id}`) && !foreign.has(`p:${p.id}`)).map((p) => p.name)
         return { p: x.p, who: x.by[0]?.lane ?? null, whoLabel: whoName(x.by[0]?.lane ?? null, t, ws), at: x.by[0]?.at ?? x.span[1], label: rowLabel(page), props }
       })
+    // "Gehaltene zeigen" opens the database of the held rows (else the first one the eject wrote into)
+    const heldRow = plan.places.find((x) => x.outcome === 'held' && x.pk === 'row')
+    const heldDb = heldRow ? (heldRow.db ?? pages[heldRow.p.slice(2)]?.databaseId ?? null) : null
     const options: string[] = []
     const dbIds = new Set<string>()
     for (const x of plan.places) {
@@ -238,16 +277,18 @@ export function EjectDialog() {
     const heldN = rec.counts.held
     requestAnimationFrame(() =>
       requestAnimationFrame(() => {
-        raiseEjectToast({ id: rec.id, back, held: heldN, writer: names?.writer ?? '', dbId: [...dbIds][0] ?? null })
+        raiseEjectToast({ id: rec.id, back, held: heldN, writer: names?.writer ?? '', dbId: heldDb ?? [...dbIds][0] ?? null })
         say(t('features.recorder.live.ejected', { places: unit(t, lang, 'places', back), writer: names?.writer ?? '', held: fmtNum(heldN, lang) }))
         window.setTimeout(() => document.querySelector<HTMLElement>('section.deck .dbtn--undo')?.focus({ preventScroll: true }), 30)
       }),
     )
   }
 
-  // ↵ never confirms within 300 ms of opening (the key that lifted the cover, a held key)
+  // ↵ never confirms from a held key (its repeats) nor within 300 ms of opening or of the key becoming ready (the key
+  // that lifted the cover, a plan that just arrived): only a fresh press after both
   const onKeyDownCapture = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && performance.now() - openedAt.current < ENTER_GUARD_MS) {
+    if (e.key !== 'Enter') return
+    if (e.repeat || performance.now() - Math.max(openedAt.current, readyAt.current) < ENTER_GUARD_MS) {
       e.preventDefault()
       e.stopPropagation()
     }
@@ -256,8 +297,9 @@ export function EjectDialog() {
   const heldN = counts?.held ?? 0
   return (
     <>
-      <Modal open onClose={closeEject} bare width={980} className="rec-read rec-eject" ariaLabel={heading}>
-        <div className="rec-ej" onKeyDownCapture={onKeyDownCapture}>
+      {/* named by its heading (aria-labelledby): an ariaLabel that changes with the plan would re-run the dialog's setup */}
+      <Modal open onClose={close} bare width={980} className="rec-read rec-eject">
+        <div className="rec-ej" ref={rootRef} onKeyDownCapture={onKeyDownCapture}>
           <div className="rec-bar">
             <span className="label rec-bar__l rec-bar__l--eject">
               <span className="rec-bar__no">
@@ -267,7 +309,7 @@ export function EjectDialog() {
             </span>
             <span className="rec-bar__sp" />
             <span className="label rec-bar__w">{t('features.recorder.eject.windowLabel', { day: fmtDayShort(t, lang, bracket.a), range })}</span>
-            <button type="button" className="icon-btn rec-bar__x" onClick={closeEject} aria-label={t('features.recorder.read.close')} title={t('features.recorder.read.close')}>
+            <button type="button" className="icon-btn rec-bar__x" onClick={close} aria-disabled={writing || undefined} aria-label={t('features.recorder.read.close')} title={t('features.recorder.read.close')}>
               <X size={16} aria-hidden />
             </button>
           </div>
@@ -282,9 +324,9 @@ export function EjectDialog() {
               {counts && names && (
                 <p className="rec-sub">
                   {heldN > 0 ? (
-                    <Bold text={t('features.recorder.eject.sub', { places: BOLD, run: names.run, held: BOLD, heldBy: heldByText(t, planned!.plan.heldBy, ws, heldN) })} bold={[placesText, t(pl(heldRowsOnly ? 'features.recorder.eject.heldPart' : 'features.recorder.eject.heldPlaces', heldN), { n: fmtNum(heldN, lang) })]} />
+                    <Bold text={t(pl('features.recorder.eject.sub', counts.back), { places: BOLD, run: names.run, held: BOLD, heldBy: heldByText(t, planned!.plan.heldBy, ws, heldN) })} bold={[placesText, t(pl(heldRowsOnly ? 'features.recorder.eject.heldPart' : 'features.recorder.eject.heldPlaces', heldN), { n: fmtNum(heldN, lang) })]} />
                   ) : (
-                    <Bold text={t('features.recorder.eject.subNoHeld', { places: BOLD, run: names.run })} bold={placesText} />
+                    <Bold text={t(pl('features.recorder.eject.subNoHeld', counts.back), { places: BOLD, run: names.run })} bold={placesText} />
                   )}
                   {counts.partial > 0 && <> {t('features.recorder.eject.partial', { n: unit(t, lang, 'places', counts.partial) })}</>}
                 </p>
@@ -337,7 +379,7 @@ export function EjectDialog() {
               <Kbd>{shortcutLabel('Mod+Z')}</Kbd>
             </span>
             <span className="rec-foot__sp" />
-            <button type="button" className="btn btn--ghost rec-foot__close" onClick={closeEject}>
+            <button type="button" className="btn btn--ghost rec-foot__close" onClick={close} aria-disabled={writing || undefined}>
               <span>{t('features.recorder.eject.cancel')}</span>
               <Kbd>Esc</Kbd>
             </button>
@@ -345,7 +387,7 @@ export function EjectDialog() {
               <FileDown size={15} aria-hidden />
               <span>{t('features.recorder.eject.report')}</span>
             </button>
-            <button type="button" className="btn btn--primary btn--eject" data-autofocus disabled={!canConfirm} aria-busy={busy || undefined} onClick={() => void confirm()}>
+            <button type="button" className="btn btn--primary btn--eject" data-autofocus aria-disabled={!canConfirm || undefined} aria-busy={busy || undefined} onClick={() => void confirm()}>
               <Eject size={16} strokeWidth={2} aria-hidden />
               <span>{counts ? t('features.recorder.eject.confirm', { places: placesText }) : t('features.recorder.eject.confirmShort')}</span>
               <Kbd>↵</Kbd>
