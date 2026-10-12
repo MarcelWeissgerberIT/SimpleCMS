@@ -140,7 +140,8 @@ the public APIs stable — other areas are built against them in parallel.
   (core/sources.ts classifies them: private · mail · memory · rows · page; synced copies count as their source), plus
   `typed` where the person typed; in DEV / `?e2e` a missing purpose or source list (or `[]` for a page-derived purpose)
   throws. `prepare()` (core/gate.ts) is the only way to a request: policy generation (`AI_POLICY_GEN`; rules stamped with
-  a higher `gen` → 'reload', nothing sent), a key typed into the request → 'key_in_text', AUS hook, classes, the legacy
+  a higher `gen` → 'reload', nothing sent; `stampGen` / `stampDeviceGen` (src/shared/ai/governor.ts) are the only stamp of
+  `ai.gen` / `settings.ai.gen`), a key typed into the request → 'key_in_text', AUS hook, classes, the legacy
   route (Claude + this device's model, an agent's own model), the brake hook `beforeSend(purpose, route, band)` + an
   in-tab reservation of the band's upper end (`PrepareInput.size` = prompt chars + answer budget; features/governor),
   settled by `settle()`. Paths that load something first (a picture, a file, the terminal's MCP setup, workspace
@@ -194,7 +195,8 @@ the public APIs stable — other areas are built against them in parallel.
   after a title) and by copies of existing tasks. P2 (Claude writes): Claude makes tasks only through the settle gate
   (features/workitems/settle.ts `settleDoc`, pure over a `SettleWorld`, called by `claudeSettled` / `claudeDoc(md, keep,
   ctx)` with a `SettleContext`; no context = no new task and no person mention): people only existing ones (never created;
-  names to Claude only with Make tasks or in refusals, never emails), ids minted by One at staging and reused 1:1 at apply
+  names to Claude only with Make tasks or in refusals, never emails, never on a route whose data rules withhold names —
+  owners `@Person n`, refusals list none, `SettleContext.names`), ids minted by One at staging and reused 1:1 at apply
   (a taken id fails the change — never re-minted; a change without `items` — older proposals, server runs — creates none;
   an id is kept only for the task a replace replaces), links in scope only (agent scope, context marks, never shared →
   private in either direction, no loops, titles of out-of-scope tasks never to Claude), never inside a task or a table.
