@@ -553,7 +553,7 @@ async function mockCodeAuth(ctx: BrowserContext, { wayBack }: { wayBack: boolean
   return log
 }
 
-/** Settings → Claude AI with the "codes" server turned down (401): its row. */
+/** Settings → AI with the "codes" server turned down (401): its row. */
 async function openCodesRow(page: Page) {
   await openApp(page)
   await setKey(page)

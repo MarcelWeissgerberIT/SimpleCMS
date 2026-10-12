@@ -1,7 +1,7 @@
 /**
  * Links Claude copied from an MCP server's results are often relative ("/r/11900"). Inside One they
  * must open at that server's address — never at One's own site (where they used to land on the
- * landing page). Settings → Claude AI → MCP servers → "Link address" overrides the server's origin.
+ * landing page). Settings → AI → MCP servers → "Link address" overrides the server's origin.
  */
 import { test, expect, openApp, createPage, gotoPage, editorOf, wsEval, doc, MOD } from './fixtures'
 import type { Page } from '@playwright/test'

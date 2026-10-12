@@ -145,7 +145,7 @@ test.describe('What’s new in the Help panel', () => {
     await expect(page.getByRole('region', { name: 'AI terminal' })).toBeVisible()
   })
 
-  test('Try it: Settings → Claude AI for codewords, Ask for the help centre', async ({ page }) => {
+  test('Try it: Settings → AI for codewords, Ask for the help centre', async ({ page }) => {
     await openApp(page)
     const codewords = ENTRIES.find((e) => e.try === 'settings-ai')!
     await openEntry(page, codewords.id)

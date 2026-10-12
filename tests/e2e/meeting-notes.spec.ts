@@ -241,7 +241,7 @@ test.describe('AI meeting notes', () => {
     await expect(deck(page).locator('.mtg__readout')).toHaveAttribute('data-state', 'done')
   })
 
-  test('no API key: stop keeps the transcript and explains the Settings → Claude AI path in place', async ({ page, context }) => {
+  test('no API key: stop keeps the transcript and explains the Settings → AI path in place', async ({ page, context }) => {
     await context.addInitScript(fakeSpeech)
     const reqs = await mockClaude(context)
     await openApp(page)

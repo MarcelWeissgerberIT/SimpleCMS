@@ -210,8 +210,9 @@ export default function AgentSheet() {
             stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 32
           }}
         >
-          {!hasKey && <NoKey />}
           {turns.length === 0 && echo.length === 0 && <Standby disabled={!hasKey} />}
+          {/* below the intro: the scroll keeps to the bottom, so the card is what shows */}
+          {!hasKey && <NoKey />}
           <Timeline />
           {changes.length > 0 && <Review listRef={listRef} readOnly={readOnly} />}
         </div>

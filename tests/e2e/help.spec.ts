@@ -98,7 +98,7 @@ test.describe('help panel', () => {
     await expect(panel(page).locator('.help-hit').first()).toContainText('Formulas')
   })
 
-  test('a HelpLink in Settings → Claude AI opens the MCP article above the dialog; Escape closes only the help', async ({ page }) => {
+  test('a HelpLink in Settings → AI opens the MCP article above the dialog; Escape closes only the help', async ({ page }) => {
     await openApp(page)
     await uiEval(page, (s) => s.openModal({ type: 'settings', tab: 'ai' }))
     const section = page.getByTestId('mcp-servers')

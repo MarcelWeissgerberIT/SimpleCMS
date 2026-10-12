@@ -208,7 +208,7 @@ export async function summarisePdf(page: Page): Promise<string> {
   return id
 }
 
-/** Settings → Claude AI → Add server (the server test request). */
+/** Settings → AI → Add server (the server test request). */
 export async function addArchiveServer(page: Page) {
   await uiEval(page, (s) => s.openModal({ type: 'settings', tab: 'ai' }))
   const section = page.getByTestId('mcp-servers')
