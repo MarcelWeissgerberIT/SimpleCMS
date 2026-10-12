@@ -1,5 +1,5 @@
 import { cloneElement, isValidElement, useEffect, useId, useRef, useState, type ReactElement, type ReactNode } from 'react'
-import { ArrowRight, ExternalLink, X, GitBranch, HardDrive } from 'lucide-react'
+import { ArrowRight, ExternalLink, X, GitBranch, HardDrive, HeartHandshake } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
 import { isEffectivelyTrashed } from '../../store/selectors'
 import { useUI } from '../../store/ui'
@@ -9,6 +9,7 @@ import { SecretField } from '../../ui/SecretField'
 import { useLang, useT } from '../../i18n'
 import { logoMarkSvg } from '@/shared/logo'
 import { BRAND } from '@/shared/brand'
+import { donateUrl } from '@/shared/pricing'
 import type { ThemePref } from '../../store/types'
 import { ShortcutList } from '../modals/ShortcutsModal'
 import { PreflightSettings, runAI, SyncTab, consumeSyncSettingsRequest, McpTab, consumeMcpSettingsRequest, McpServers, MailTab, consumeMailSettingsRequest, CodingWorkerTab, consumeCodingSettingsRequest } from '../../features'
@@ -566,6 +567,8 @@ function AboutTab() {
   const t = useT()
   const lang = useLang()
   const pages = useWorkspace((x) => Object.keys(x.pages).length)
+  // no address yet (DONATE_URL empty): the wording stays, the key does not appear
+  const donate = donateUrl()
   return (
     <div className="about">
       <div className="about__plate">
@@ -588,10 +591,11 @@ function AboutTab() {
           <dd>Claude · BYOK</dd>
         </div>
         <div>
-          <dt>{t('shell.about.built')}</dt>
-          <dd>{t('shell.about.armory')}</dd>
+          <dt>{t('shell.about.licence')}</dt>
+          <dd>{t('shell.about.licenceValue')}</dd>
         </div>
       </dl>
+      <p className="st-p about__price" data-testid="about-price">{t('shell.about.price')}</p>
       <div className="st-actions">
         <a className="btn" href={BRAND.repoUrl} target="_blank" rel="noreferrer noopener">
           <GitBranch size={14} /> GitHub
@@ -599,6 +603,11 @@ function AboutTab() {
         <a className="btn btn--ghost" href={BRAND.homeHref}>
           {t('shell.menu.website')}
         </a>
+        {donate && (
+          <a className="btn btn--ghost" href={donate} target="_blank" rel="noreferrer noopener" data-testid="about-donate">
+            <HeartHandshake size={14} /> {t('shell.about.donate')}
+          </a>
+        )}
       </div>
     </div>
   )

@@ -2,7 +2,8 @@
 
 Run your team's own SimpleCMS One server: live collaboration, email sign-in, invitations, file storage —
 on a machine you control. It is the same Docker image as the hosted cloud. The server is AGPL-3.0,
-the app is MIT.
+the app is MIT. Self-hosting is free — if One saves your team money, a donation is welcome, never required.
+(The hosted One Team Cloud, in development, will cost 99 € / $99 per user per year.)
 
 What you end up with:
 

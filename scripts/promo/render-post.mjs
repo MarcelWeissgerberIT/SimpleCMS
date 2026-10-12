@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 /**
- * Renders the three images for the challenge post (1920×1080 PNG) into docs/media/post/:
+ * Renders the three images for a social post (1920×1080 PNG) into docs/media/post/:
  *   01-ugly-1997.png   the 1997 spreadsheet homepage, as visitors first see it (from record-teaser.mjs)
  *   02-the-bill.png    "Notion, rebuilt. Minus the bill." — the cost readout + a real product shot
- *   03-spec-sheet.png  "Everything you use. None of the seats." — the feature spec sheet
+ *   03-spec-sheet.png  "Everything you use. None of the add-ons." — the feature spec sheet (no seat claim: the
+ *                      hosted Team Cloud is priced per user — src/shared/pricing.ts)
  * The new landing site is deliberately not shown: people should see it themselves after 15 seconds.
  *
  *   node scripts/promo/render-post.mjs
@@ -84,9 +85,14 @@ ${frame('Fig. 01 — The bill', 'Rev 2026.10')}
       <div class="calc mono">$24 × 10 seats × 12 months · per year, before add-ons</div>
     </div>
     <div class="row">
-      <div class="who mono">SimpleCMS One · unlimited people</div>
+      <div class="who mono">One Team Cloud · 10 users · 12 months</div>
+      <div class="line"><div class="meter"><div class="fill" style="width:${(990 / 2880 * 100).toFixed(1)}%"></div></div><span class="val">$990</span></div>
+      <div class="calc mono">$99 per user per year · hosted · in development</div>
+    </div>
+    <div class="row">
+      <div class="who mono">SimpleCMS One · local or self-hosted</div>
       <div class="line"><div class="meter"><div class="zero"></div></div><span class="val sig">$0</span></div>
-      <div class="calc mono">No seats · no subscription · account &amp; server optional</div>
+      <div class="calc mono">No seats in your browser or on your own server · donations welcome</div>
     </div>
     <div class="note"><span class="led"></span><span>AI included: bring your own Claude key and pay Anthropic only for what you use.</span></div>
   </div>
@@ -126,11 +132,11 @@ h1 { font-size: 92px; margin-top: 26px; }
 .cell h3 { margin-top: 64px; font-size: 27px; font-weight: 800; font-stretch: 125%; letter-spacing: -.015em; }
 .cell p { margin-top: 8px; font-size: 17.5px; line-height: 1.38; color: #55524b; max-width: 360px; }
 </style></head><body>
-${frame('Fig. 02 — Spec sheet', '8 modules · 0 seats')}
+${frame('Fig. 02 — Spec sheet', '8 modules · 0 add-ons')}
 <div class="head">
   <div>
     <div class="label mono sig"><span class="led"></span>§ 02 — Spec sheet</div>
-    <h1 class="display">Everything you use<span class="sig">.</span><br>None of the seats<span class="sig">.</span></h1>
+    <h1 class="display">Everything you use<span class="sig">.</span><br>None of the add-ons<span class="sig">.</span></h1>
   </div>
   <div class="aside">A keyboard-first rebuild of the Notion you actually use — <b>plus the things people keep asking Notion for.</b> No account, no server: your data stays in your browser.</div>
 </div>

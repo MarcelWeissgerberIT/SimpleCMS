@@ -12,11 +12,15 @@ client (`src/app/cloud/`). Change it first, then the code.
 | Account | none | email sign-in (magic link) |
 | Collaboration | tabs of one browser stay in sync | live: several people in the same page, presence, cursors |
 | Offline | always | always — edits sync when the connection is back |
-| Price | free, forever | cheaper than Notion (target ~4 € per person/month); self-host free |
+| Price | free, forever | hosted: 99 € (EUR) / $99 (USD) per user per year — in development, no sign-up yet; self-hosted: free (AGPL-3.0), a donation is optional |
 | AI | your own Claude key | still your own key (per person, never synced) |
 
 The app is the same build. A browser can hold one local workspace plus any number of cloud
 workspaces; the workspace switcher in the sidebar header moves between them.
+
+Prices live in one place, `src/shared/pricing.ts` (`ONE_PRICING`, `DONATE_URL` — empty until there is a real
+donate address; then the landing page and Settings → About show a Donate link). The landing page, About, README,
+`docs/SELF_HOSTING.md` and the help articles `team-cloud` / `self-hosting` say the same — change them together.
 
 ## Deployment shape
 
@@ -1167,4 +1171,5 @@ the member's tabs (on the device that downloaded the worker) is connected.
    binding, live editor collaboration, presence, sign-in, workspace switcher, members settings.
 2. **C2 — hardening:** offline/reconnect edge cases, history in cloud workspaces, email templates,
    backups (Litestream / nightly copy), self-hosting guide, admin CLI.
-3. **C3 — business:** plans and billing (Stripe), usage limits, landing/pricing page, DPA/AVV.
+3. **C3 — business:** billing for the hosted cloud at 99 € / $99 per user per year (Stripe), usage limits, DPA/AVV.
+   Self-hosting stays free.

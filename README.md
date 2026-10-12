@@ -8,8 +8,8 @@
 
 A local-first workspace that does what Notion does — block editor, databases with nine views, forms,
 spreadsheets, One Script, Gmail as a database, Claude AI with your own key (and it asks before it changes anything),
-webhook automations, import from Notion, Obsidian, Evernote and Trello, publishing as a website — for **$0**, with
-**no account** and **no server**. Everything lives in your browser.
+webhook automations, import from Notion, Obsidian, Evernote and Trello, publishing as a website — **free** in your
+browser, with **no account** and **no server**. Everything lives in your browser.
 
 **[Live demo → getonecms.com](https://getonecms.com/)** ·
 [Open the workspace](https://getonecms.com/app/) ·
@@ -37,7 +37,7 @@ AI on every workspace with your own Claude key, and an honest export.
 
 | | Notion | **One** |
 |---|---|---|
-| Price | Free (limited) · Plus $10–12 · Business $20–24 per seat/month | **Free. No seats.** AI billed by Anthropic per use |
+| Price | Free (limited) · Plus $10–12 · Business $20–24 per seat/month | **Free** locally and self-hosted · hosted Team Cloud **$99 per user/year** (in development) · AI billed by Anthropic per use |
 | Works fully offline, in the browser | partial (apps only, pages one by one) | **yes** — every page and row |
 | Data stays on your device | no | **yes** — IndexedDB, no server |
 | Use without an account | no | **yes** |
@@ -58,6 +58,17 @@ AI on every workspace with your own Claude key, and an honest export.
 | MCP for AI agents | hosted connector | **yes** — local bridge to your open tab (approve each change), or the team server's `/mcp` endpoint |
 
 <sub>Full research with sources: [docs/RESEARCH.md](docs/RESEARCH.md).</sub>
+
+## Pricing
+
+| | Price |
+|---|---|
+| **One in your browser** (local workspace) | free |
+| **Your own team server** (self-hosted, AGPL-3.0 — [guide](docs/SELF_HOSTING.md)) | free — a donation is welcome, never required |
+| **One Team Cloud** (hosted) | **$99 per user per year** (99 € in euros) — in development, there is no sign-up yet |
+
+In every setup Claude runs on your own Anthropic key: Anthropic bills you per use, One adds nothing. The numbers live
+in [`src/shared/pricing.ts`](src/shared/pricing.ts).
 
 ## Claude asks before it changes
 
@@ -305,7 +316,7 @@ E2E_PORT=4190 npm run test:e2e   # a second suite in parallel: own port, own bui
 ```
 
 `node scripts/capture-shots.mjs` regenerates the landing-page screenshots from the real app. The promo video and the
-challenge-post images are produced by the scripts in `scripts/promo/` (Playwright recordings, a synthesised soundtrack,
+social-post images are produced by the scripts in `scripts/promo/` (Playwright recordings, a synthesised soundtrack,
 ffmpeg assembly; Python 3 with numpy + scipy).
 
 ## How it's built
@@ -320,8 +331,6 @@ ffmpeg assembly; Python 3 with numpy + scipy).
 - **Art:** the 3D icon set and page covers were generated with OpenArt (GPT Image 2.5 Sunburst for icons,
   Nano Banana Pro for covers), then art-directed, retouched and cut to transparent WebP — prompts and tooling in
   [docs/art](docs/art/PROMPTS.md). Fonts: Archivo, JetBrains Mono, Newsreader (SIL OFL).
-
-Built for the **Ninja Armory** challenge of the AI Automations community.
 
 ## License
 
@@ -410,5 +419,9 @@ mit `?intro` lässt es sich wiederholen.
 
 **Loslegen:** [Workspace öffnen](https://getonecms.com/app/). Zum Selbst-Hosten: Repository
 forken, *Settings → Pages → Source: GitHub Actions* einstellen und nach `main` pushen.
+
+**Preise:** lokal im Browser und auf deinem eigenen Team-Server kostenlos (selbst gehostet; eine Spende ist
+willkommen, nie Pflicht). Die gehostete One Team-Cloud kostet 99 € pro Nutzer und Jahr — sie ist in Entwicklung, eine
+Anmeldung gibt es noch nicht. Claude läuft immer mit deinem eigenen Anthropic-Key.
 
 Lizenz: [MIT](LICENSE) — frei nutzen, forken, weitergeben. Der Team-Server in `server/` steht unter [AGPL-3.0](server/LICENSE).

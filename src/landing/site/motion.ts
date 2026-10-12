@@ -26,11 +26,24 @@ const intFormats: Partial<Record<Lang, Intl.NumberFormat>> = {}
 function formatCount(kind: string, n: number, lang: Lang): string {
   const v = Math.round(n)
   if (kind === 'cost') {
-    // runs every frame while the dial counts: one formatter per language, not one per frame
+    // The dial starts on Notion's list price, which is in US dollars on both pages (Notion has no confirmed euro
+    // price) — so it counts in dollars; only the value it lands on (One's own, data-final) is the page's currency.
+    // Runs every frame while the dial counts: one formatter per language, not one per frame.
     const num = (intFormats[lang] ??= new Intl.NumberFormat(lang === 'de' ? 'de-DE' : 'en-US')).format(v)
-    return lang === 'de' ? `${num} €` : `$${num}`
+    return lang === 'de' ? `${num}\u00a0$` : `$${num}`
   }
   return String(v)
+}
+
+/**
+ * While the cost dial shows Notion's seat-year, its unit says so ("Notion · seat / year", data-from-unit); once it
+ * lands, the unit is One's again ("Local, forever"). Cells without data-from-unit are left alone.
+ */
+function readoutUnit(el: HTMLElement, from: boolean): void {
+  const unit = el.parentElement?.querySelector<HTMLElement>('.readout-unit[data-from-unit]')
+  if (!unit) return
+  unit.dataset.finalUnit ??= unit.textContent ?? ''
+  unit.textContent = from ? (unit.dataset.fromUnit ?? '') : unit.dataset.finalUnit
 }
 
 /**
@@ -57,13 +70,20 @@ function countReadout(root: HTMLElement, lang: Lang, tl: gsap.core.Timeline, at:
         v: to,
         duration: 0.62,
         ease: kind === 'inf' ? 'power2.in' : 'power3.out',
-        onStart: () => el.classList.add('is-counting'),
+        onStart: () => {
+          el.classList.add('is-counting')
+          readoutUnit(el, true)
+        },
         onUpdate: () => {
-          el.textContent = formatCount(kind, o.v, lang)
+          // A dial that reads 0 has landed: show One's value and unit for the ease's tail, not "$0 · Notion".
+          const landed = kind !== 'inf' && Math.round(o.v) === 0
+          el.textContent = landed ? final : formatCount(kind, o.v, lang)
+          if (landed) readoutUnit(el, false)
           meter?.style.setProperty('--v', level().toFixed(3))
         },
         onComplete: () => {
           el.textContent = final
+          readoutUnit(el, false)
           el.classList.remove('is-counting')
         },
       },
@@ -122,6 +142,7 @@ export function heroMotion(root: HTMLElement, lang: Lang): HeroMotion {
     root.querySelectorAll<HTMLElement>('[data-count]').forEach((el) => {
       const inf = el.dataset.count === 'inf'
       if (!inf) el.textContent = formatCount(el.dataset.count ?? 'n', Number(el.dataset.from ?? 0), lang)
+      if (!inf) readoutUnit(el, true)
       el.parentElement?.querySelector<HTMLElement>('.meter')?.style.setProperty('--v', inf ? '0' : '1')
     })
     // While the bar is tucked away, the strip behind it must already be Carbon.
@@ -141,6 +162,7 @@ export function heroMotion(root: HTMLElement, lang: Lang): HeroMotion {
       gsap.set([...all, ...t.cells], { clearProps: CLEAR })
       root.querySelectorAll<HTMLElement>('[data-count]').forEach((el) => {
         el.textContent = el.dataset.final ?? el.textContent
+        readoutUnit(el, false)
         el.parentElement?.querySelector<HTMLElement>('.meter')?.style.setProperty('--v', el.dataset.count === 'inf' ? '1' : '0')
       })
       root.classList.add('is-live')

@@ -3,7 +3,7 @@ id: self-hosting
 title: Self-hosting & encryption
 section: team
 order: 4
-keywords: self-host, server, docker, install, hosting, encryption, data key, DATA_KEY, backup, smtp, admin, AGPL, selbst hosten, Server, Verschlüsselung
+keywords: self-host, server, docker, install, hosting, encryption, data key, DATA_KEY, backup, smtp, admin, AGPL, free, price, donate, donation, selbst hosten, Server, Verschlüsselung, kostenlos, Spende
 related: team-cloud, invites, public-api, privacy
 summary: Run your own One server — one Docker container, about 30 minutes. Content is encrypted at rest.
 ---
@@ -20,5 +20,8 @@ Every workspace has its own random key; it is stored only wrapped with your `DAT
 
 ## Backups and updates
 The guide covers nightly snapshots or continuous replication, restoring (test it once!), rotating `DATA_KEY`, and updating to a new version.
+
+## What it costs
+Self-hosting is free: no licence fee, no seats — you pay only for the server it runs on. If One saves your team money, a donation is welcome, never required. (The hosted [team cloud](help:team-cloud) is a different thing: in development, $99 per user per year.)
 
 > The server is licensed AGPL-3.0; the app stays MIT. More detail: `docs/CLOUD.md`.

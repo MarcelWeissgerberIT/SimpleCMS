@@ -295,7 +295,18 @@
   color: var(--ink-2);
   font-stretch: 100%;
 }
-.calc-five {
+.calc-five,
+.calc-self {
+  color: var(--ink-2);
+}
+.calc-result .calc-self {
+  margin-top: 6px;
+}
+/* the Team Cloud's price under the result: what the big number subtracts */
+.calc-result .calc-cloud {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--rule-strong);
   color: var(--ink-2);
 }
 
@@ -445,7 +456,8 @@
 .r-stamp {
   display: flex;
   justify-content: center;
-  margin: 14px 0 6px !important;
+  /* the tilted stamp rises ~20 px at its ends: keep it clear of the amounts above */
+  margin: 24px 0 10px !important;
 }
 .r-stamp span {
   padding: 5px 12px 4px;
@@ -1133,6 +1145,16 @@ td[data-col='One.'] .mk-yes {
   font-size: clamp(52px, 5.4vw, 80px);
   line-height: 0.82;
   font-variant-numeric: tabular-nums;
+}
+/* the hosted cloud's planned price, read like the setup timer under it */
+.plate-price + .plate-timer {
+  margin-top: 14px;
+}
+.plate-free {
+  margin: 16px 0 0;
+  font-size: 15px;
+  font-weight: 550;
+  line-height: 1.45;
 }
 .own-steps {
   list-style: none;
