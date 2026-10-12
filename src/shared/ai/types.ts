@@ -267,6 +267,8 @@ export interface DeviceAI {
   restricted?: Restriction[]
   /** the OpenRouter shortlist (≤ 24) */
   models?: ShortlistRow[]
+  /** per provider: which model is its fast / standard / deep one (setup step 03; on OpenRouter the Jev Router may be one) */
+  roles?: Partial<Record<ProviderId, { fast?: string; standard?: string; deep?: string }>>
   gen?: number
 }
 

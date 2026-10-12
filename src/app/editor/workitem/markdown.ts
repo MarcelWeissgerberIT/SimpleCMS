@@ -40,6 +40,8 @@ export interface ItemMarkdownLabels {
   person(id: string): string | null
   /** a linked task's title (the workspace index — later); null = its id */
   item?(itemId: string): string | null
+  /** a redaction scope (src/shared/ai/redact.ts): owners are written "@Person n" — no name, no link */
+  redact?(key: string): string
 }
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
@@ -68,8 +70,9 @@ export function fieldLine(a: WorkItemAttrs, labels: ItemMarkdownLabels): string 
     const code = a.reminder ? `?r=${encodeURIComponent(a.reminder)}` : ''
     parts.push(`Due: [@${dueLabelEn(a.due)}](one:date/${a.due}${code})`)
   }
-  if (a.people.length) parts.push(`Owner: ${a.people.map((id) => `[@${linkText(labels.person(id) ?? id)}](one:person/${encodeURIComponent(id)})`).join(', ')}`)
-  else if (a.frozen?.people.length) parts.push(`Owner: ${a.frozen.people.map((n) => linkText(n)).join(', ')}`)
+  const redact = labels.redact
+  if (a.people.length) parts.push(`Owner: ${a.people.map((id) => (redact ? `@${redact(id)}` : `[@${linkText(labels.person(id) ?? id)}](one:person/${encodeURIComponent(id)})`)).join(', ')}`)
+  else if (a.frozen?.people.length) parts.push(`Owner: ${a.frozen.people.map((n) => (redact ? `@${redact(n)}` : linkText(n))).join(', ')}`)
   const items = (ids: string[]) => ids.map((id) => `[${linkText(labels.item?.(id) ?? id)}](one:item/${id})`).join(', ')
   if (a.blockedBy.length) parts.push(`Blocked by: ${items(a.blockedBy)}`)
   if (a.related.length) parts.push(`Related: ${items(a.related)}`)
