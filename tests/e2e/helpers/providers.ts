@@ -5,7 +5,8 @@
  * unparseable, JSON —, mcp_tool_use / mcp_tool_result, a pause_turn stop, a served model other than the requested one,
  * an API error). Returns every request as captured on the wire (method, path, anthropic-beta header, parsed body).
  */
-import type { BrowserContext, Page } from '@playwright/test'
+import type { BrowserContext, Page, Request } from '@playwright/test'
+import { AI_HOSTS, type AiHost } from './aiNet'
 
 type AnyState = Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -148,4 +149,19 @@ export async function mockClaudeScript(ctx: BrowserContext | Page, steps: Claude
     }
   })
   return { requests }
+}
+
+/**
+ * Requests to each AI host from now on — mocked or not, CORS preflights left out — as a live object, for "zero
+ * requests" assertions with a positive control (the aiNet fixture counts per test; this counts from a point on).
+ */
+export function hostCounts(target: Page | BrowserContext): Record<AiHost, number> {
+  const out: Record<AiHost, number> = { anthropic: 0, openai: 0, openrouter: 0 }
+  const ctx = 'context' in target ? target.context() : target
+  ctx.on('request', (req: Request) => {
+    if (req.method() === 'OPTIONS') return
+    const host = new URL(req.url()).host
+    for (const [k, h] of Object.entries(AI_HOSTS) as Array<[AiHost, string]>) if (host === h && req.url().startsWith('https://')) out[k] += 1
+  })
+  return out
 }
