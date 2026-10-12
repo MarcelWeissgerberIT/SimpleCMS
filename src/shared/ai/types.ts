@@ -47,7 +47,8 @@ export type DataClass = SharedClass | MemberClass
 
 /** What a request carries — the gate classifies each one. */
 export type SourceRef =
-  | { page: string }
+  /** a page; `as: 'selection'` = only a selection of it goes along (its member classes count, never `page` / `rows`) */
+  | { page: string; as?: 'selection' }
   | { row: string }
   | { db: string }
   | { file: 'upload' }
@@ -103,7 +104,8 @@ export interface PriceOverride extends Partial<PriceCols> {
 }
 export interface PriceRow extends PriceCols {
   overrides?: PriceOverride[]
-  source: 'table' | 'catalogue'
+  /** 'bound' = the stated upper bound of a route priced per request (never stored; costs from it are estimates) */
+  source: 'table' | 'catalogue' | 'bound'
   /** the date the prices were read (yyyy-MM-dd) */
   at: string
 }
@@ -117,6 +119,18 @@ export interface ModelInfo {
   caps: Caps
   price: PriceRow | null
   retired?: true
+  /** what the wire needs beyond caps (OpenRouter: the catalogue row's parameters and reasoning list) */
+  hints?: WireHints
+}
+
+/** A catalogue row's wire facts (OpenRouter): what the request may carry for this model. */
+export interface WireHints {
+  /** `supported_parameters` */
+  params: readonly string[]
+  /** the row's `reasoning` object: efforts it takes (null = every effort the gateway knows), mandatory, a token budget */
+  reasoning?: { mandatory: boolean; efforts: readonly string[] | null; default?: string; supportsMax: boolean }
+  /** 'dynamic' = priced per request (the catalogue lists -1): no price row, a stated bound instead */
+  pricing?: 'fixed' | 'dynamic'
 }
 
 /** Tokens of one response. `input` never includes cache reads or writes; `output` includes `reasoning`. */
@@ -143,6 +157,8 @@ export interface StepNote {
     | 'fallthrough'
     | 'refusal-fallback'
     | 'substituted'
+    /** a router chose the model that answered (from = the router, to = the served model) */
+    | 'routed'
     | 'mcp-skipped'
     | 'upstream'
     | 'staged-instead'
@@ -251,5 +267,143 @@ export interface DeviceAI {
   restricted?: Restriction[]
   /** the OpenRouter shortlist (≤ 24) */
   models?: ShortlistRow[]
+  /** per provider: which model is its fast / standard / deep one (setup step 03; on OpenRouter the Jev Router may be one) */
+  roles?: Partial<Record<ProviderId, { fast?: string; standard?: string; deep?: string }>>
   gen?: number
+}
+
+/* ------------------------------------------------------------------ */
+/* The neutral wire (slice 2): what One asks a provider, what comes back */
+/* ------------------------------------------------------------------ */
+
+export type ImageMime = 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif'
+
+/** One part of a message — adapters render it per provider. */
+export type Part =
+  | { type: 'text'; text: string; cache?: true }
+  /** base64, no data: prefix */
+  | { type: 'image'; mime: ImageMime; data: string }
+  /** a PDF (base64, its page count) or a text document */
+  | { type: 'document'; title: string; pdf?: { data: string; pages: number }; text?: string; cache?: true }
+  | { type: 'tool_call'; id: string; name: string; input: Record<string, unknown> }
+  | { type: 'tool_result'; callId: string; content: string; isError?: true }
+
+export interface Message {
+  role: 'user' | 'assistant'
+  parts: Part[]
+  /** the provider's exact turn, replayed verbatim to the same provider and model (slice 3) */
+  native?: { p: ProviderId; m: string; content: unknown; hostedMcp: boolean }
+}
+
+/** A JSON schema object (structured outputs, tool inputs). */
+export type JsonSchemaObject = Record<string, unknown>
+
+export interface ToolSpec {
+  name: string
+  description: string
+  schema: JsonSchemaObject
+}
+
+/** The MCP servers a request would take along (slice 2 renders none for OpenRouter). */
+export interface McpPlan {
+  servers: Array<{ name: string; url: string; token: string | null; allowed: string[] | null; out: string[]; known: string[] }>
+  system: string
+  forced: string[]
+}
+
+/** A chat request (one-shots in slice 2; the tool loop from slice 3). */
+export interface ChatRequest {
+  kind: 'chat'
+  route: Route
+  system: string
+  messages: Message[]
+  tools?: ToolSpec[]
+  output: { kind: 'text' } | { kind: 'json'; name: string; schema: JsonSchemaObject }
+  /** the VISIBLE answer budget — adapters add reasoning headroom */
+  maxTokens: number
+  cache: 'none' | 'auto'
+  /** a random per-conversation token (never a page, workspace, run or account id); slice 2 sends none */
+  session?: string
+}
+
+/* Decision requests (a later slice): the shapes only — slice 2 refuses a 'decide' request before anything is sent. */
+
+export type DecideQuestion =
+  | { type: 'noul'; instructions: string; criteria?: { true: string; false: string } }
+  | { type: 'choice'; instructions: string; criteria: Record<string, string | null> }
+  | { type: 'score'; instructions: string; criteria: string[] }
+
+export interface DecideRequest {
+  kind: 'decide'
+  route: Route
+  state: Record<string, unknown>
+  questions: Record<string, DecideQuestion>
+}
+
+export type DecideAnswer =
+  | { type: 'noul'; p: number }
+  | { type: 'choice'; choice: string; confidence: number | null; probs: Record<string, number> }
+  | { type: 'score'; score: number; confidence: number | null; probs: Record<string, number> }
+
+export interface DecideTurn {
+  kind: 'decide'
+  answers: Record<string, DecideAnswer>
+  served: { model: string; upstream?: string }
+  usage: Usage | null
+}
+
+export type WireRequest = ChatRequest | DecideRequest
+export type WireKind = WireRequest['kind']
+
+export type StopReason = 'end' | 'tool_calls' | 'max_tokens' | 'refusal' | 'pause' | 'content_filter'
+
+/** What a stream reports while it runs. */
+export type AIEvent =
+  | { t: 'text'; delta: string }
+  /** a progress note (reasoning shown as it streams) */
+  | { t: 'note'; text: string }
+  | { t: 'tool_input_error'; id: string; name: string }
+  /** the first content of any kind started (text, reasoning, a tool call) — after it nothing is sent again */
+  | { t: 'content' }
+  /** the model (and the upstream operator) that answers */
+  | { t: 'served'; model: string; upstream?: string }
+  | { t: 'step'; step: StepNote }
+  | { t: 'usage'; usage: Usage }
+
+/** A source the answer cites (a model that searched the web — refused by One). */
+export interface Annotation {
+  type: 'url_citation'
+  url: string
+  title?: string
+}
+
+/** One chat response, whole. */
+export interface Turn {
+  kind: 'chat'
+  /** the answer: text parts and complete tool calls (a call cut off mid-way is never here) */
+  parts: Part[]
+  stop: StopReason
+  /** null: the response carried no usage report */
+  usage: Usage | null
+  /** the model that answered (null: not said) */
+  served: string | null
+  /** the operator that served it (OpenRouter's upstream) */
+  upstream?: string
+  /** characters that streamed in (text, reasoning, tool input) */
+  streamedChars: number
+  annotations?: Annotation[]
+}
+
+/** A provider key's credit as the provider reports it (no text is ever sent to read it). */
+export interface KeyCredit {
+  /** the key's own limit (USD; null = none) */
+  limit: number | null
+  /** what is left of it (null = no limit) */
+  remaining: number | null
+  /** spent with the key so far (USD) */
+  used: number
+  /** the account never paid for credit */
+  free: boolean
+  /** how the limit resets ('daily' · 'weekly' · 'monthly'; null = never) */
+  reset: string | null
 }

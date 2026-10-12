@@ -1,7 +1,7 @@
 ---
 id: 2026-10-12-ai-receipts
 date: 2026-10-12
-order: 1
+order: 2
 title: Belege für jede KI-Anfrage
 summary: Jede Antwort von Claude sagt jetzt, welches Modell sie gegeben hat und was sie gekostet hat — im KI-Menü, im KI-Terminal und bei Agentenläufen.
 image: assets/shots/changelog/ai-receipts.webp

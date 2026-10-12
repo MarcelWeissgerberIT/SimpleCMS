@@ -1,5 +1,5 @@
 /**
- * Offline demo answers for people without a Claude key. Nothing leaves the browser: the text is
+ * Offline demo answers for people without an AI key. Nothing leaves the browser: the text is
  * canned (or derived from the selection with plain string rules) and streamed word by word, so the
  * panel, Insert / Replace / Copy and workspace citations can be tried before paying for a key.
  * The panel labels every demo answer as canned.
@@ -66,7 +66,7 @@ const CANNED: Record<Lang, Record<'continue' | 'continueEmpty' | 'summarize' | '
       '- Start with the smallest version of {topic} that someone could use this week\n- Ask three people who would use it what they do today instead\n- Turn the most common question into a page everyone can find\n- Track progress in a database, so the state is visible at a glance\n- Set a date to look back — and keep only what worked',
     longer:
       'In practice, this means agreeing on who owns each part and when the next check-in happens. Writing that down here keeps the context in one place, so anyone who joins later can follow the reasoning without another meeting.',
-    translate: '*Demo mode cannot translate offline.* With your Claude key, the selection comes back here in {lang}, formatting intact.',
+    translate: '*Demo mode cannot translate offline.* With an AI key, the selection comes back here in {lang}, formatting intact.',
   },
   de: {
     continue:
@@ -87,7 +87,7 @@ const CANNED: Record<Lang, Record<'continue' | 'continueEmpty' | 'summarize' | '
       '- Mit der kleinsten Version von {topic} starten, die jemand schon diese Woche nutzen kann\n- Drei künftige Nutzer fragen, was sie heute stattdessen tun\n- Die häufigste Frage in eine Seite verwandeln, die alle finden\n- Den Fortschritt in einer Datenbank verfolgen, damit der Stand auf einen Blick sichtbar ist\n- Einen Termin für den Rückblick setzen – und nur behalten, was funktioniert hat',
     longer:
       'Praktisch heißt das: Wir legen fest, wer welchen Teil verantwortet und wann wir das nächste Mal draufschauen. Steht das hier auf der Seite, bleibt der Kontext an einem Ort – und wer später dazukommt, versteht die Gründe ohne weiteres Meeting.',
-    translate: '*Der Demo-Modus kann offline nicht übersetzen.* Mit deinem Claude-Schlüssel erscheint die Auswahl hier auf {lang} – mit derselben Formatierung.',
+    translate: '*Der Demo-Modus kann offline nicht übersetzen.* Mit einem KI-Schlüssel erscheint die Auswahl hier auf {lang} – mit derselben Formatierung.',
   },
 }
 

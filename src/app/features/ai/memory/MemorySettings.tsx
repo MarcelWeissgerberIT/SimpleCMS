@@ -1,5 +1,5 @@
 /**
- * Settings → Claude AI → "One memory": where it lives (open the memory and its log, or set it up),
+ * Settings → AI → "One memory": where it lives (open the memory and its log, or set it up),
  * and three switches for this device — use the memory, proposals after AI-terminal tasks, the usage log.
  */
 import { useId } from 'react'

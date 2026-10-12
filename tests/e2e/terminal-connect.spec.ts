@@ -93,7 +93,7 @@ test.describe('AI terminal → /connect (mocked sign-in and API)', () => {
     await expect(term.locator('.term-echo').last()).toContainText('Kein MCP-Server „nichts“')
   })
 
-  test('a server without a sign-in: its window closes at once, the line says it offers no sign-in; "Paste a token instead" opens Settings → Claude AI', async ({ page, context, errors }) => {
+  test('a server without a sign-in: its window closes at once, the line says it offers no sign-in; "Paste a token instead" opens Settings → AI', async ({ page, context, errors }) => {
     errors.allow(/404|Failed to load resource/)
     await mockPlainMcp(context, 'https://plain.mcp.test')
     await mockAgent(context, [])
@@ -302,7 +302,7 @@ test.describe('AI terminal → /connect (mocked sign-in and API)', () => {
     await run(page, '/connect archive')
     const line = connectLine(page)
     await expect(line).toHaveAttribute('data-phase', 'ok')
-    await expect(line).toContainText('Not tested yet — the connection is tested once Claude is connected')
+    await expect(line).toContainText('Not tested yet — the connection is tested once Claude is set up')
     await expect(line).not.toContainText('Signed in')
     // German: the list's sign-in key logs the German command
     await wsEval(page, (s) => s.updateSettings({ language: 'de' }))

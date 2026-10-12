@@ -23,7 +23,8 @@ export function onAIDemo(listener: () => void): () => void {
   return () => demoListeners.delete(listener)
 }
 
-/** True when a request would get a demo answer: demo on and no key. */
+/** True when a request would get a demo answer: demo on and no key at all (any provider's key wins). */
 export function usesDemo(): boolean {
-  return demo && !useWorkspace.getState().settings.aiApiKey.trim()
+  const s = useWorkspace.getState().settings
+  return demo && !s.aiApiKey.trim() && !Object.values(s.aiKeys ?? {}).some(Boolean)
 }

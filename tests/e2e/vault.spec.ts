@@ -166,19 +166,24 @@ async function hydrateAs(page: Page, epoch: string, aiApiKey: string) {
 /* ------------------------------------------------------------------ */
 
 test.describe('the Claude API key', () => {
-  test('typed in Settings: sealed (no plaintext anywhere), requests carry it, a reload keeps it, Remove deletes it', async ({ page }) => {
+  test('typed in the assistant: sealed (no plaintext anywhere), requests carry it, a reload keeps it, Remove deletes it', async ({ page }) => {
     await mockClaude(page, () => 'OK')
     const sent = claudeKeysSent(page)
     const logs = consoleText(page)
     await openApp(page)
-    let dialog = await openSettings(page, /Claude AI$/)
-    const input = dialog.getByPlaceholder('sk-ant-')
+    // Settings › AI → "Set up Claude" opens the assistant at its key step
+    let dialog = await openSettings(page, /\bAI$/)
+    await dialog.getByTestId('settings-setup-anthropic').click()
+    const setup = page.getByTestId('ai-setup')
+    await expect(setup).toHaveAttribute('data-step', 'key')
+    const input = setup.getByTestId('key-field-anthropic')
     await input.fill(KEY)
     await input.press('Enter')
-    const sealed = dialog.getByRole('group', { name: 'Anthropic API key' })
-    await expect(sealed).toContainText(`•••• ${last4(KEY)}`)
-    await expect(sealed).toContainText('Stored encrypted on this device')
-    await expect(dialog.getByPlaceholder('sk-ant-')).toHaveCount(0)
+    // the free check (the model list) carries the key; only a passed check seals it
+    await expect(setup.getByTestId('bench-anthropic')).toHaveAttribute('data-state', 'valid')
+    await expect(setup.getByTestId('key-sealed-anthropic')).toContainText(`•••• ${last4(KEY)}`)
+    await expect(input).toHaveValue('')
+    expect([...new Set(sent)]).toEqual([KEY])
 
     // the store keeps a marker ("a key is set", its last 4) — never the key
     expect(await wsEval(page, (s) => s.settings.aiApiKey)).toMatch(markerOf(KEY))
@@ -205,31 +210,34 @@ test.describe('the Claude API key', () => {
       )
     })
     expect(exported).toBe('InvalidAccessError')
-
-    // a request carries the key itself
-    await dialog.getByRole('button', { name: 'Test key' }).click()
-    await expect(dialog.locator('.ai-status')).toContainText('Connected · key verified')
-    expect([...new Set(sent)]).toEqual([KEY])
+    await page.keyboard.press('Escape')
+    await expect(setup).toHaveCount(0)
 
     // a new session: the key comes out of the vault
-    await page.keyboard.press('Escape')
     await reloadApp(page)
     sent.length = 0
-    dialog = await openSettings(page, /Claude AI$/)
-    await expect(dialog.getByRole('group', { name: 'Anthropic API key' })).toContainText(`•••• ${last4(KEY)}`)
-    await dialog.getByRole('button', { name: 'Test key' }).click()
-    await expect(dialog.locator('.ai-status')).toContainText('Connected · key verified')
+    dialog = await openSettings(page, /\bAI$/)
+    const plate = dialog.getByTestId('settings-plate-anthropic')
+    await expect(plate).toContainText(`•••• ${last4(KEY)}`)
+    await plate.getByTestId('settings-check-anthropic').click()
+    await expect(plate.getByTestId('settings-checked-anthropic')).toContainText('no text sent')
     expect([...new Set(sent)]).toEqual([KEY])
 
-    // Replace keeps the readout until a new key is saved; Escape goes back
-    await dialog.getByRole('button', { name: 'Replace' }).click()
-    await expect(dialog.getByPlaceholder('sk-ant-')).toBeFocused()
+    // Change key: the assistant at the key step keeps the sealed key until a new one passes its check
+    await plate.getByTestId('settings-change-anthropic').click()
+    await expect(setup).toHaveAttribute('data-step', 'key')
+    await expect(setup.getByTestId('key-sealed-anthropic')).toContainText(`•••• ${last4(KEY)}`)
+    await setup.getByTestId('key-field-anthropic').fill('sk-ant-api03-NOT-CHECKED-YET-0000')
+    await expect(setup.getByTestId('paste-anthropic')).toContainText('stays active until the new one passes the check')
     await page.keyboard.press('Escape')
-    await expect(dialog.getByRole('button', { name: 'Replace' })).toBeFocused()
+    await expect(setup).toHaveCount(0)
+    expect(await wsEval(page, (s) => s.settings.aiApiKey)).toMatch(markerOf(KEY))
 
-    // Remove: marker and sealed record are gone, the field asks for a key again
-    await dialog.getByRole('button', { name: 'Remove' }).click()
-    await expect(dialog.getByPlaceholder('sk-ant-')).toBeVisible()
+    // Remove → "Delete only the key": marker and sealed record are gone, the plate offers the setup again
+    dialog = await openSettings(page, /\bAI$/)
+    await dialog.getByTestId('settings-remove-anthropic').click()
+    await dialog.getByTestId('remove-key-only').click()
+    await expect(dialog.getByTestId('settings-setup-anthropic')).toBeVisible()
     expect(await wsEval(page, (s) => s.settings.aiApiKey)).toBe('')
     await flush(page)
     await expect.poll(() => storageDump(page)).not.toContain('claude-api-key')
@@ -276,9 +284,10 @@ test.describe('the Claude API key', () => {
     await expect.poll(() => storageDump(page)).toContain('s:local:local|claude-api-key')
     const testKey = async () => {
       sent.length = 0
-      const dialog = await openSettings(page, /Claude AI$/)
-      await dialog.getByRole('button', { name: 'Test key' }).click()
-      await expect(dialog.locator('.ai-status')).toContainText('Connected · key verified')
+      const dialog = await openSettings(page, /\bAI$/)
+      await dialog.getByTestId('settings-check-anthropic').click()
+      await expect(dialog.getByTestId('settings-checked-anthropic')).toBeVisible()
+      await expect.poll(() => sent.length).toBeGreaterThan(0)
       await page.keyboard.press('Escape')
       return [...new Set(sent)]
     }
@@ -313,8 +322,8 @@ test.describe('the Claude API key', () => {
     })
     await hydrateAs(page, 'cloud:e2e-copied', 'vault:copiedrecord:0000')
     await expect.poll(() => wsEval(page, (s) => s.settings.aiApiKey)).toBe('')
-    const dialog = await openSettings(page, /Claude AI$/)
-    await expect(dialog.getByPlaceholder('sk-ant-')).toBeVisible()
+    const dialog = await openSettings(page, /\bAI$/)
+    await expect(dialog.getByTestId('settings-setup-anthropic')).toBeVisible()
   })
 })
 
@@ -380,10 +389,10 @@ test('a plaintext key and GitHub token of an older version are sealed on the nex
     .toEqual({ key: false, token: false, sealedKey: true, sealedToken: true })
 
   // the key still works
-  const dialog = await openSettings(page, /Claude AI$/)
-  await expect(dialog.getByRole('group', { name: 'Anthropic API key' })).toContainText(`•••• ${last4(OLD_KEY)}`)
-  await dialog.getByRole('button', { name: 'Test key' }).click()
-  await expect(dialog.locator('.ai-status')).toContainText('Connected · key verified')
+  const dialog = await openSettings(page, /\bAI$/)
+  await expect(dialog.getByTestId('settings-plate-anthropic')).toContainText(`•••• ${last4(OLD_KEY)}`)
+  await dialog.getByTestId('settings-check-anthropic').click()
+  await expect(dialog.getByTestId('settings-checked-anthropic')).toBeVisible()
   expect([...new Set(sent)]).toEqual([OLD_KEY])
 
   // and the token: Settings shows it sealed, a push authenticates with it

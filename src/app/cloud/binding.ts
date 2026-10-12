@@ -225,6 +225,8 @@ export interface BindingOptions {
   writable: () => boolean
   /** May this member change the workspace look (owners and admins)? Otherwise a local change is put back. */
   canStyle: () => boolean
+  /** May this member change the workspace's AI rules (owners and admins on a server that guards them)? Otherwise put back. */
+  canRuleAI: () => boolean
   isFavorite: (id: ID) => boolean
   /**
    * Remote changes: pages that appeared, pages whose updatedAt moved, pages that are gone, pages that
@@ -431,7 +433,7 @@ export function startBinding(o: BindingOptions): Binding {
       // the workspace look (owners / admins write it; every reader sanitizes)
       const look = sanitizeLook(rs.workspace.get('look'))
       if (!sameLook(look, s.look ?? null, { meta: true })) patch.look = look
-      // the workspace's AI rules (owners / admins write them — server guard; this build only reads them, never writes)
+      // the workspace's AI rules (owners / admins write them — server guard)
       const ai = readWorkspaceAI(rs.workspace.get('ai'))
       if (!sameWorkspaceAI(ai, s.ai)) patch.ai = ai ?? null
       dirtyWorkspace = false
@@ -542,11 +544,17 @@ export function startBinding(o: BindingOptions): Binding {
     // (re-sent, the server would stamp the importer as the one who set it)
     const lookChanged = state.look !== prev.look && !sameLook(state.look ?? null, prev.look ?? null, { meta: true })
     const integrationsChanged = state.integrations !== prev.integrations
+    // the workspace's AI rules: by value (a bulk write hands in a fresh copy of the same rules — no change)
+    const aiChanged = state.ai !== prev.ai && !sameWorkspaceAI(state.ai, prev.ai)
     if (state.settings !== prev.settings) o.onSettings(state.settings, prev.settings)
-    if (!pagesChanged && !dbsChanged && !peopleChanged && !functionsChanged && !agentsChanged && !scriptsChanged && !kitChanged && !lookChanged && !integrationsChanged) return
+    if (!pagesChanged && !dbsChanged && !peopleChanged && !functionsChanged && !agentsChanged && !scriptsChanged && !kitChanged && !lookChanged && !integrationsChanged && !aiChanged) return
     // a look change by someone who may not style the workspace: the team's look comes back from Y
     if (lookChanged && o.writable() && !o.canStyle()) {
       queueMicrotask(() => withWriter(SYSTEM('refused'), () => applyFromCloud(() => useWorkspace.getState().cloudPatch({ look: sanitizeLook(rs.workspace.get('look')) }))))
+    }
+    // the AI rules likewise (owners and admins on a server that guards them)
+    if (aiChanged && o.writable() && !o.canRuleAI()) {
+      queueMicrotask(() => withWriter(SYSTEM('refused'), () => applyFromCloud(() => useWorkspace.getState().cloudPatch({ ai: readWorkspaceAI(rs.workspace.get('ai')) ?? null }))))
     }
     // integration profiles likewise (owners and admins only)
     if (integrationsChanged && o.writable() && !o.canStyle()) {
@@ -682,6 +690,11 @@ export function startBinding(o: BindingOptions): Binding {
       if (lookChanged && o.canStyle() && !sameLook(sanitizeLook(rs.workspace.get('look')), state.look ?? null, { meta: true })) {
         if (state.look) rs.workspace.set('look', clone(state.look))
         else if (rs.workspace.has('look')) rs.workspace.delete('look')
+      }
+      // the AI rules: shared by the whole team (never in the private document); the server stamps updatedBy
+      if (aiChanged && o.canRuleAI() && !sameWorkspaceAI(readWorkspaceAI(rs.workspace.get('ai')), state.ai)) {
+        if (state.ai) rs.workspace.set('ai', clone(state.ai))
+        else if (rs.workspace.has('ai')) rs.workspace.delete('ai')
       }
     })
     // Follow-up store patches (the local `private` marker; created_by / last_edited_by mirror the

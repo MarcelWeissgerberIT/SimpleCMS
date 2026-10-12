@@ -4,7 +4,7 @@
  * for tasks without a repository). The worker names them (names only, `mcp-list`); an older worker names none and
  * the line stays away. When the task's text mentions one of One's MCP servers (its name or codeword) — or MCP at
  * all while none is given — that Claude Code may not use here, a note says so with the setup page one click away.
- * One's own MCP servers (Settings → Claude AI) never reach Claude Code: they are for One's Claude only.
+ * One's own MCP servers (Settings → AI) never reach Claude Code: they are for One's Claude only.
  */
 import { useWorkspace } from '../../store/store'
 import { Led } from '../../ui/controls'

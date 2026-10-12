@@ -1,6 +1,6 @@
 /**
  * Building blocks (#/kit, features/kit): shared lists (create, paste many lines, reorder by keys, delete an
- * item rows use → replace), "Fill with Claude" (mocked), "Turn into list" from the AI menu, own property
+ * item rows use → replace), "Fill with AI" (mocked), "Turn into list" from the AI menu, own property
  * types in databases (display, validate refuses, format, options script, value script computes and stays
  * read-only, recomputes after a change, onChange asks before mail), the record type editor (a database
  * holding the type follows), the templates of the script bindings (each runs), 390 px.
@@ -125,7 +125,7 @@ test.describe('building blocks — #/kit', () => {
     expect(opts).toEqual(['Bayern', 'Bremen', 'Hamburg'])
   })
 
-  test('Fill with Claude: only the request goes out; proposals are ticked, one unticked, the rest added', async ({ page, context }) => {
+  test('Fill with AI: only the request goes out; proposals are ticked, one unticked, the rest added', async ({ page, context }) => {
     const bodies = await mockStructured(context, { items: [{ name: 'EUR', color: 'blue' }, { name: 'USD', color: 'green' }, { name: 'GBP', color: 'default' }, { name: 'CHF', color: 'red' }] })
     await open(page)
     const id = await wsEval(page, (s) => {

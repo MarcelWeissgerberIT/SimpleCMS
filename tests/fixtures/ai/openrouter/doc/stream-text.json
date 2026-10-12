@@ -1,0 +1,14 @@
+{
+  "source": "api_reference_streaming.md#the-final-usage-chunk-chat-completions",
+  "verified": false,
+  "note": "Text deltas, the keep-alive comment, the last content chunk with finish_reason, the usage chunk (finish_reason repeated), [DONE].",
+  "model": "vendor-a/model-b",
+  "provider": "Nordwind",
+  "text": "The launch plan is on track for Friday.",
+  "usage": {
+    "prompt": 812,
+    "completion": 11,
+    "cost": 0.000271
+  },
+  "sse": ": OPENROUTER PROCESSING\n\ndata: {\"id\":\"gen-1790000000-Kq7xLm2Pa9Rz\",\"provider\":\"Nordwind\",\"model\":\"vendor-a/model-b\",\"object\":\"chat.completion.chunk\",\"created\":1790000000,\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"The launch \"},\"finish_reason\":null,\"native_finish_reason\":null,\"logprobs\":null}]}\n\ndata: {\"id\":\"gen-1790000000-Kq7xLm2Pa9Rz\",\"provider\":\"Nordwind\",\"model\":\"vendor-a/model-b\",\"object\":\"chat.completion.chunk\",\"created\":1790000000,\"choices\":[{\"index\":0,\"delta\":{\"content\":\"plan is on track\"},\"finish_reason\":null,\"native_finish_reason\":null,\"logprobs\":null}]}\n\ndata: {\"id\":\"gen-1790000000-Kq7xLm2Pa9Rz\",\"provider\":\"Nordwind\",\"model\":\"vendor-a/model-b\",\"object\":\"chat.completion.chunk\",\"created\":1790000000,\"choices\":[{\"index\":0,\"delta\":{\"content\":\" for Friday.\"},\"finish_reason\":null,\"native_finish_reason\":null,\"logprobs\":null}]}\n\ndata: {\"id\":\"gen-1790000000-Kq7xLm2Pa9Rz\",\"provider\":\"Nordwind\",\"model\":\"vendor-a/model-b\",\"object\":\"chat.completion.chunk\",\"created\":1790000000,\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"\"},\"finish_reason\":\"stop\",\"native_finish_reason\":\"stop\",\"logprobs\":null}]}\n\ndata: {\"id\":\"gen-1790000000-Kq7xLm2Pa9Rz\",\"provider\":\"Nordwind\",\"model\":\"vendor-a/model-b\",\"object\":\"chat.completion.chunk\",\"created\":1790000000,\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"\"},\"finish_reason\":\"stop\",\"native_finish_reason\":\"stop\",\"logprobs\":null}],\"usage\":{\"prompt_tokens\":812,\"completion_tokens\":11,\"total_tokens\":823,\"cost\":0.000271,\"is_byok\":false,\"prompt_tokens_details\":{\"cached_tokens\":0,\"cache_write_tokens\":0,\"audio_tokens\":0},\"cost_details\":{\"upstream_inference_cost\":null},\"completion_tokens_details\":{\"reasoning_tokens\":0,\"image_tokens\":0}}}\n\ndata: [DONE]\n\n"
+}

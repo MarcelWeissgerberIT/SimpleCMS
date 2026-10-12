@@ -47,6 +47,11 @@ test.describe('landing page', () => {
     )
     expect(broken).toEqual([])
 
+    // what the AI path is (S2 review #27): no proxy or markup from us — OpenRouter is a router the person chooses
+    await expect(page.locator('#site')).toContainText('No proxy or markup from us: OpenRouter is a router you choose')
+    await expect(page.locator('#site')).toContainText('the Jev Router for bulk work, Claude for writing')
+    await expect(page.locator('#site')).not.toContainText('No proxy, no markup')
+
     await cta.click()
     await expect(page).toHaveURL(/\/SimpleCMS\/app\/(#.*)?$/)
     // (no ?e2e here, so no test hook — wait for the shell itself)
@@ -81,6 +86,7 @@ test.describe('landing page', () => {
       await expect(page.locator('#site').getByRole('link', { name: /Workspace öffnen/ }).first()).toBeVisible()
       await expect(page.getByRole('tablist', { name: /Datenbanken/ }).getByRole('tab', { name: /Zeitleiste/ })).toBeAttached()
       await expect(page.locator('#own-it .plate-cloud')).toContainText('In Entwicklung')
+      await expect(page.locator('#site')).toContainText('Kein Proxy und kein Aufschlag von uns: OpenRouter ist ein Router, den du wählst')
       const features = page.locator('#features')
       await expect(features.getByRole('heading', { level: 2 })).toHaveText(/Dreißig Funktionen\./)
       await expect(features.locator('.plac')).toHaveCount(30)
@@ -282,7 +288,7 @@ test.describe('landing: agents · MCP', () => {
     const portOut = plate.locator('.mcp-port.is-out')
     await expect(portOut.getByRole('heading', { name: 'Claude in One uses your MCP servers' })).toBeVisible()
     await expect(portOut.getByRole('img', { name: /your own MCP server, through Anthropic/ })).toContainText('Your knowledge base')
-    await expect(portOut).toContainText('Settings → Claude AI → MCP servers')
+    await expect(portOut).toContainText('Settings → AI → MCP servers')
     await expect(portOut.getByRole('link', { name: /How to add a server/ })).toHaveAttribute('href', '/SimpleCMS/help/mcp-servers/')
     // a packet runs along each wire
     await expect(plate.locator('.mcp-wire-pkt')).toHaveCount(2)

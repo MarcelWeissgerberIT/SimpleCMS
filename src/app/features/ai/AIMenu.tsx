@@ -67,7 +67,6 @@ import {
   Minimize2,
   MoreHorizontal,
   PenLine,
-  Play,
   ReplaceAll,
   RotateCcw,
   Settings2,
@@ -98,8 +97,17 @@ import { FileStack, ListPlus } from 'lucide-react'
 import { listItemsIn, openTurnIntoList } from '../kit'
 import { itemCount, pagesPerItem } from '../../editor'
 import { requestIntent } from './intent'
-import { AI_MODELS, AIError, aiErrorText, isAIDemo, onAIDemo, resolveModel, setAIDemo, verifyKey } from './client'
-import { readServers } from './mcp-servers/config'
+import { RouteChip, isRouteKey, type RouteChipHandle } from './routing/RouteChip'
+import type { PurposeId } from './core/purposes'
+import { aiWriterOf } from './core/runMeta'
+import { routeFor } from './core/status'
+import type { AIFix } from './core/errors'
+import { AINeedsSetup, FixKeys, offersAI, useAIStatus } from './setup/AINeedsSetup'
+import { openAISetup, openAISettings } from './setup/openAISetup'
+import { AIError, DEFAULT_MODEL, aiErrorText, isAIDemo, onAIDemo, resolveModel } from './client'
+import { legacyRule } from '@/shared/ai/route'
+import type { Route } from '@/shared/ai/types'
+import { codewordsIn, readServers } from './mcp-servers/config'
 import { callLabel, type McpCall } from './mcp-servers/activity'
 import { CodewordChip, McpSkippedNote, skippedLabel } from './mcp-servers/Codeword'
 import { citationsToLinks, findSource, type WorkspaceSource } from './workspace'
@@ -114,7 +122,7 @@ import { echoedIds, insideTaskOrTable, rangeDoc, replaceRange } from './menuItem
 import { itemsFitAt } from './transform/range'
 import { ITEM_KEYWORDS } from './transform/forms'
 import { openAgent } from './agent/state'
-import { afterBlock, captureTarget, mapTarget, type RunTarget } from './runsTarget'
+import { afterBlock, captureTarget, mapTarget, selectionMarkdown, type RunTarget } from './runsTarget'
 import { markSeen, receiptOf, removeRun, setTodbDraft, startRun, stopRun, useAIRuns, viewRun, type RunRequest } from './runs'
 import { countWords, effectiveMode, readsFor, readsShort, readsText, type RunReads } from './reads'
 import { RedoSetup, type RedoDraft } from './redo/RedoSetup'
@@ -178,20 +186,7 @@ export interface AIMenuProps {
 /* Target                                                              */
 /* ------------------------------------------------------------------ */
 
-function sliceToMarkdown(state: EditorState, from: number, to: number): string {
-  try {
-    const slice = state.doc.slice(from, to)
-    const json = slice.content.toJSON() as JSONContent[] | null
-    if (!json?.length) return ''
-    const first = slice.content.firstChild
-    const doc: JSONContent = first?.isInline ? { type: 'doc', content: [{ type: 'paragraph', content: json }] } : { type: 'doc', content: json }
-    const md = toAIMarkdown(doc).trim()
-    if (md) return md
-  } catch {
-    /* fall through */
-  }
-  return state.doc.textBetween(from, to, '\n\n', ' ')
-}
+const sliceToMarkdown = (state: EditorState, from: number, to: number): string => selectionMarkdown(state.doc, from, to)
 
 /** Scrollable ancestor of an element (or the document scroller). */
 function scrollParent(el: HTMLElement | null, short = false): HTMLElement {
@@ -311,9 +306,10 @@ type Phase = 'idle' | 'streaming' | 'done' | 'error'
 
 export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, transform: transformPick, open: openOn, generate }: AIMenuProps) {
   const t = useT()
-  const hasKey = useWorkspace((s) => !!s.settings.aiApiKey.trim())
+  // the AI menu can answer here: a key for a route the rules allow (Claude or another provider — the gate's aiStatus)
+  const menuStatus = useAIStatus('menu.action')
+  const hasKey = offersAI(menuStatus)
   const model = resolveModel(useWorkspace((s) => s.settings.aiModel))
-  const updateSettings = useWorkspace((s) => s.updateSettings)
   // no key, demo switched on: canned answers, clearly labelled
   const demo = useSyncExternalStore(onAIDemo, isAIDemo) && !hasKey
 
@@ -338,6 +334,9 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
   }, [editor, own])
 
   const [runId, setRunId] = useState<string | null>(openRun ?? null)
+  /** the route chip: the model for this request only (null: the rules of this device / workspace decide) */
+  const [chip, setChip] = useState<Route | null>(() => (openRun ? (useAIRuns.getState().runs[openRun]?.chip ?? null) : null))
+  const chipRef = useRef<RouteChipHandle | null>(null)
   const run = useAIRuns((s) => (runId ? (s.runs[runId] ?? null) : null))
   const receipt = run ? receiptOf(run) : null
   // an image run: its image found again (the picture is the target, not text)
@@ -534,11 +533,11 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
 
   /** A request becomes a background run (it replaces the panel's current run: Retry, Revise). */
   const start = useCallback(
-    (req: RunRequest, tg?: RunTarget) => {
+    (req: RunRequest, tg?: RunTarget, pick?: Route | null) => {
       stickRef.current = true
       setConvertIssue(null)
       convertingRef.current = false
-      const id = startRun({ editor, pageId, req, target: tg ?? targetRef.current, replaces: runId })
+      const id = startRun({ editor, pageId, req, target: tg ?? targetRef.current, replaces: runId, chip: pick === undefined ? chip : pick })
       setRunId(id)
       setQuery('')
       setActive(0)
@@ -548,8 +547,15 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
       if (view === 'memory' || view === 'memhist' || view === 'transform' || view === 'more') setView('actions')
       makeRoom(req.kind === 'transform' ? TRANSFORM_ROOM : req.kind === 'file' && isStructuredAction(req.action) ? FILE_ROOM : true)
     },
-    [editor, pageId, runId, makeRoom, view],
+    [editor, pageId, runId, makeRoom, view, chip],
   )
+
+  /** "Ask Claude": the refused request once more, with Claude as its route (this request only — a codeword's server). */
+  const askClaude = () => {
+    if (!run) return
+    const s = useWorkspace.getState().settings
+    start(run.req, undefined, { p: 'anthropic', m: legacyRule(s.aiModel, true)[0]?.m ?? DEFAULT_MODEL })
+  }
 
   /** Stop: the request ends; text that arrived stays as the result. */
   const stop = () => {
@@ -724,7 +730,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
     const below = () => (tasks ? itemSafePoint(editor.state.doc, insertionPoint(tg)) : insertionPoint(tg))
     // Claude's result is its own undo step (also in a shared page, where Y undo merges by time) — and the AI run's
     // write, handed to the store at once (store/writer.ts: editAs)
-    editAs(editor, { kind: 'ai', run: run.id, action: 'accept' }, () => {
+    editAs(editor, aiWriterOf(run, 'accept'), () => {
       startUndoStep(editor.view)
       const chain = editor
         .chain()
@@ -772,7 +778,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
     const { doc } = editor.state
     const at = !tg.lost && tg.from <= doc.content.size ? doc.nodeAt(tg.from) : null
     // media from the run's answer, saved by the person's click: the run's write (store/writer.ts)
-    editAs(editor, { kind: 'ai', run: runId ?? newId(), action: 'media' }, () => {
+    editAs(editor, aiWriterOf(runId ? useAIRuns.getState().runs[runId] : null, 'media', runId ?? newId()), () => {
       startUndoStep(editor.view)
       const chain = editor
         .chain()
@@ -793,7 +799,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
     const range: BlockRange | null = !tg.lost && tg.todb && sameBlocks(editor.state.doc, tg.todb, run.table.blocks) ? tg.todb : null
     convertingRef.current = true
     try {
-      await convertToDatabase(editor, pageId, range, run.table, run.table.draft, { writer: { kind: 'ai', run: run.id, action: 'todb' } })
+      await convertToDatabase(editor, pageId, range, run.table, run.table.draft, { writer: aiWriterOf(run, 'todb') })
       removeRun(run.id)
       onClose()
     } catch (e) {
@@ -1612,7 +1618,17 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
       }
       out.push({ id: 'retry', label: t('features.ai.res.retry'), icon: RotateCcw, run: retry })
       if (error && (error.code === 'invalid_key' || error.code === 'permission' || error.code === 'no_key'))
-        out.push({ id: 'key', label: t('features.ai.res.changeKey'), icon: KeyRound, run: () => setSetup(true) })
+        out.push({
+          id: 'key',
+          label: t('features.ai.res.changeKey'),
+          icon: KeyRound,
+          run: () => {
+            if (error.code === 'no_key') return setSetup(true)
+            onClose()
+            const p = runError?.fix?.kind === 'step' ? runError.fix.provider : 'anthropic'
+            openAISetup({ reason: 'refused', step: 'key', provider: p, feature: 'write' })
+          },
+        })
       if (error?.code === 'mcp' || error?.code === 'mcp_auth')
         out.push({
           id: 'mcp',
@@ -1620,7 +1636,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
           icon: Settings2,
           run: () => {
             onClose()
-            useUI.getState().openModal({ type: 'settings', tab: 'ai' })
+            openAISettings({ section: 'mcp' })
           },
         })
       out.push({ id: 'discard', label: todb ? t('common.cancel') : t('features.ai.res.discard'), icon: Trash2, run: discard, hint: <Kbd>esc</Kbd>, danger: true })
@@ -1886,6 +1902,12 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.nativeEvent.isComposing) return
+    // Alt+M: the route picker (the field keeps its text — no "µ" typed)
+    if (isRouteKey(e.nativeEvent)) {
+      e.preventDefault()
+      if (!demo) chipRef.current?.open()
+      return
+    }
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       if (!rows.length) return
       e.preventDefault()
@@ -1928,12 +1950,12 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
 
   /* ---------------- render ---------------- */
 
-  const cycleModel = () => {
-    const i = AI_MODELS.findIndex((m) => m.id === model.id)
-    updateSettings({ aiModel: AI_MODELS[(i + 1) % AI_MODELS.length].id })
-    // keep the keyboard flow in the prompt: Enter must run the action, not cycle again
-    requestAnimationFrame(() => inputRef.current?.focus({ preventScroll: true }))
-  }
+  /** The kind of request the route chip shows (and the picker checks): the menu's current view. */
+  const chipPurpose: PurposeId = wsMode ? 'workspace.ask' : view === 'transform' || run?.req.kind === 'transform' ? 'structure.transform' : img ? 'vision.image' : file ? 'documents.file' : 'menu.action'
+  /** What the request reads (a selection of this page; the workspace asks read the workspace) */
+  const chipSources = useMemo(() => (wsMode ? [{ all: true } as const] : [{ page: pageId, as: 'selection' as const }]), [wsMode, pageId])
+  /** a codeword in the query: the server must be connectable (never the router, never OpenRouter) */
+  const chipNeeds = useMemo(() => (/^\s*[a-z0-9_-]{1,24}\s*:/.test(query) && codewordsIn(query) ? (['mcp'] as const) : ([] as const)), [query])
 
   const phKey =
     phase === 'done' || phase === 'error' ? (fileLocal ? 'file' : 'refine') : wsMode ? 'workspace' : view === 'translate' ? 'language' : view === 'transform' ? 'transform' : img && view === 'actions' ? 'image' : file && view === 'actions' ? 'file' : target.mode === 'selection' ? 'selection' : 'block'
@@ -1978,16 +2000,12 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
       <Popover open={!picking} anchor={anchor} onClose={onPopoverClose} placement="bottom-start" offset={8} bare className="ai-panel" resizable="ai-menu" role="dialog" aria-label={t('features.ai.title')}>
         {setup ? (
           <KeySetup
-            reason={error?.code === 'invalid_key' ? 'invalid' : hasKey ? 'change' : 'missing'}
-            onDone={leaveSetup}
-            onDemo={
-              demo
-                ? undefined
-                : () => {
-                    setAIDemo(true)
-                    leaveSetup()
-                  }
-            }
+            purpose={chipPurpose}
+            onOpen={() => {
+              setSetup(false)
+              onClose()
+            }}
+            onDemo={demo ? undefined : leaveSetup}
             onCancel={hasKey || demo ? () => setSetup(false) : dismiss}
           />
         ) : (
@@ -2046,7 +2064,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
                   data-autofocus=""
                   value={query}
                   disabled={busy}
-                  placeholder={busy ? t('features.ai.placeholder.busy') : placeholder}
+                  placeholder={busy ? t('features.ai.placeholder.busy', { model: routeFor(chipPurpose, { route: chip }).label }) : placeholder}
                   onChange={(e) => setQuery(e.target.value)}
                   onKeyDown={onKeyDown}
                   aria-label={placeholder}
@@ -2060,14 +2078,20 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
               {!busy && !wsMode && !redoHead && view === 'actions' && run?.req.kind !== 'todb' && run?.req.kind !== 'transform' && <CodewordChip text={query} />}
               {demo ? (
                 <span className="ai-model ai-model--demo" title={t('features.ai.demo.title')}>
-                  <span className="ai-model__brand">CLAUDE · </span>
                   {t('features.ai.demo.tag').toUpperCase()}
                 </span>
               ) : (
-                <button className="ai-model" onClick={cycleModel} disabled={busy} title={t('features.ai.switchModel')}>
-                  <span className="ai-model__brand">CLAUDE · </span>
-                  {model.short}
-                </button>
+                <RouteChip
+                  handle={chipRef}
+                  purpose={chipPurpose}
+                  chip={chip}
+                  onChip={setChip}
+                  sources={chipSources}
+                  needs={chipNeeds}
+                  reads={t(wsMode ? 'features.ai.prov.chip.reads.question' : 'features.ai.prov.chip.reads.selection')}
+                  disabled={busy}
+                  onClosed={() => requestAnimationFrame(() => inputRef.current?.focus({ preventScroll: true }))}
+                />
               )}
             </div>
 
@@ -2323,7 +2347,12 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
                     {t('features.ai.bg.lostTodb')}
                   </p>
                 )}
-                {error && <ErrorNote error={error} model={model.name} />}
+                {error && <ErrorNote error={error} model={runError?.label ?? model.name} message={runError?.message} onAskClaude={runError?.fix?.kind === 'askClaude' ? askClaude : undefined} fix={runError?.fix ?? null} fixes={runError?.fixes} onFixOpen={onClose} onPick={() => chipRef.current?.open()} />}
+                {!!run?.notes?.length && (
+                  <p className="ai-lost ai-ask" role="note" data-testid="ai-run-notes">
+                    {run.notes.map((n) => t(`features.ai.prov.note.${n}`)).join(' ')}
+                  </p>
+                )}
                 {interrupted && (
                   <div className="ai-error" role="alert">
                     <span className="ai-error__code label">ERR · INTERRUPTED</span>
@@ -2521,13 +2550,23 @@ function McpChips({ calls }: { calls: McpCall[] }) {
   )
 }
 
-function ErrorNote({ error, model }: { error: AIError; model: string }) {
+function ErrorNote({ error, model, message, onAskClaude, fix, fixes, onFixOpen, onPick }: { error: AIError; model: string; message?: string; onAskClaude?: () => void; fix?: AIFix | null; fixes?: AIFix[]; onFixOpen?: () => void; onPick?: () => void }) {
   const t = useT()
   const detail = error.code === 'bad_request' || error.code === 'unknown' || error.code === 'mcp' ? (error.detail ?? '') : ''
+  // every distinct way out (no endpoint: the operator rules and another model), the first one first
+  const keys = (fixes?.length ? fixes : fix ? [fix] : []).filter((f, i, all) => f.kind !== 'askClaude' && all.findIndex((x) => JSON.stringify(x) === JSON.stringify(f)) === i)
   return (
     <div className="ai-error" role="alert">
       <span className="ai-error__code label">ERR · {error.code.toUpperCase()}</span>
-      <p>{aiErrorText(error.code, { model, detail, server: error.server })}</p>
+      <p>{message ?? aiErrorText(error.code, { model, detail, server: error.server })}</p>
+      {onAskClaude && (
+        <button type="button" className="btn btn--sm" onClick={onAskClaude} data-testid="ai-ask-claude">
+          {t('features.ai.prov.codeword.askClaude')}
+        </button>
+      )}
+      {keys.map((f) => (
+        <FixKeys key={JSON.stringify(f)} fix={f} onOpen={onFixOpen} onPick={f.kind === 'pick' ? onPick : undefined} feature="write" />
+      ))}
       {(error.code === 'outdated' || error.code === 'reload') && (
         <button type="button" className="btn btn--sm" onClick={() => window.location.reload()}>
           {t('features.ai.reload')}
@@ -2581,96 +2620,16 @@ function SelectionShade({ editor, from, to }: { editor: Editor; from: number; to
   )
 }
 
-/** First-run card: paste an Anthropic key (verified without spending tokens). */
-function KeySetup({ reason, onDone, onDemo, onCancel }: { reason: 'missing' | 'invalid' | 'change'; onDone: () => void; onDemo?: () => void; onCancel: () => void }) {
+/**
+ * The menu's card when no AI can answer here (UX § 3): the needs-setup card — "Set up AI" opens the assistant, "Try a
+ * demo answer (no key)" stays (canned, offline, nothing sent). No key is pasted here any more (the assistant checks it).
+ */
+function KeySetup({ purpose, onOpen, onDemo, onCancel }: { purpose: PurposeId; onOpen: () => void; onDemo?: () => void; onCancel: () => void }) {
   const t = useT()
-  const updateSettings = useWorkspace((s) => s.updateSettings)
-  const [key, setKey] = useState('')
-  const [state, setState] = useState<'idle' | 'checking' | 'error'>(reason === 'invalid' ? 'error' : 'idle')
-  const [msg, setMsg] = useState(reason === 'invalid' ? t('features.ai.setup.rejected') : '')
-  const acRef = useRef<AbortController | null>(null)
-  useEffect(() => () => acRef.current?.abort(), [])
-
-  const submit = async () => {
-    const k = key.trim()
-    if (!k) return
-    if (!/^sk-ant-/.test(k)) {
-      setState('error')
-      setMsg(t('features.ai.setup.format'))
-      return
-    }
-    setState('checking')
-    setMsg('')
-    acRef.current?.abort()
-    const ac = new AbortController()
-    acRef.current = ac
-    const res = await verifyKey(k, ac.signal)
-    if (ac.signal.aborted) return
-    if (res === 'invalid_key' || res === 'permission') {
-      setState('error')
-      setMsg(t('features.ai.setup.rejected'))
-      return
-    }
-    updateSettings({ aiApiKey: k })
-    setAIDemo(false)
-    if (res !== 'ok') useUI.getState().toast({ message: t('features.ai.setup.unverified'), kind: 'info' })
-    else useUI.getState().toast({ message: t('features.ai.setup.connected'), kind: 'success' })
-    onDone()
-  }
-
   return (
-    <div className="ai-setup">
-      <div className="ai-setup__bar label">
-        <span className={`led ${state === 'checking' ? 'led--on ai-led--live' : state === 'error' ? 'ai-led--err' : ''}`} aria-hidden />
-        <span>{state === 'checking' ? t('features.ai.setup.checking') : t('features.ai.setup.status')}</span>
-        <span className="ai-out__spacer" />
-        <span>BYOK · LOCAL</span>
-      </div>
+    <div className="ai-setup" data-testid="ai-key-card">
       <div className="ai-setup__body">
-        <h3 className="ai-setup__title">{reason === 'change' ? t('features.ai.setup.titleChange') : t('features.ai.setup.title')}</h3>
-        <p className="ai-setup__lead">{t('features.ai.setup.lead')}</p>
-        <form
-          className="ai-setup__form"
-          onSubmit={(e) => {
-            e.preventDefault()
-            void submit()
-          }}
-        >
-          <input
-            className="input ai-setup__input"
-            type="password"
-            data-autofocus=""
-            autoComplete="off"
-            spellCheck={false}
-            placeholder="sk-ant-api03-…"
-            value={key}
-            onChange={(e) => {
-              setKey(e.target.value)
-              if (state === 'error') setState('idle')
-            }}
-            aria-label={t('features.ai.setup.label')}
-            aria-invalid={state === 'error' || undefined}
-          />
-          <button className="btn btn--primary" type="submit" disabled={!key.trim() || state === 'checking'}>
-            {state === 'checking' ? t('features.ai.setup.checkingShort') : t('features.ai.setup.connect')}
-          </button>
-        </form>
-        {msg && (
-          <p className="ai-setup__msg" role="alert">
-            {msg}
-          </p>
-        )}
-        <a className="ai-setup__link" href="https://console.anthropic.com/settings/keys" target="_blank" rel="noreferrer">
-          {t('features.ai.setup.getKey')} <span className="mono">console.anthropic.com ↗</span>
-        </a>
-        {onDemo && reason === 'missing' && (
-          <div className="ai-setup__demo">
-            <button type="button" className="btn btn--sm" onClick={onDemo} data-ai-try-demo="">
-              <Play size={12} strokeWidth={1.8} aria-hidden /> {t('features.ai.demo.try')}
-            </button>
-            <span className="label">{t('features.ai.demo.tryNote')}</span>
-          </div>
-        )}
+        <AINeedsSetup purpose={purpose} onOpen={onOpen} onDemo={onDemo} />
       </div>
       <div className="ai-setup__note">
         <ShieldCheck size={14} strokeWidth={1.7} />

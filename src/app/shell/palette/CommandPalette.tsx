@@ -1,11 +1,17 @@
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { Command } from 'cmdk'
-import { ArrowRight, AtSign, CalendarClock, CircleHelp, Copy, CornerDownLeft, FilePlus2, FileText, KeyRound, LayoutTemplate, ListPlus, Lock, Square, Table2, ToggleLeft, Filter as FilterIcon } from 'lucide-react'
+import { ArrowRight, AtSign, CalendarClock, CircleHelp, Copy, CornerDownLeft, FilePlus2, FileText, LayoutTemplate, ListPlus, Lock, Square, Table2, ToggleLeft, Filter as FilterIcon } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
 import { selectBreadcrumbs } from '../../store/selectors'
-import { CodewordChip, isAIConfigured, McpSkippedNote, runAI, templateName, templateRoots, type McpCall } from '../../features'
+import { AINeedsSetup, CodewordChip, FixKeys, McpSkippedNote, offersAI, useAIStatus, runAI, templateName, templateRoots, type McpCall } from '../../features'
 import { memoryFor, MemoryNote, noteUse, type MemoryUse } from '../../features'
+import { AIError, RouteChip, aiWriterOf, isRouteKey, precheck, routeFor, routed, shapeOf, withShape, type AIFix, type Receipt, type Route, type RouteChipHandle } from '../../features'
+import { legacyRule } from '@/shared/ai/route'
+import { DEFAULT_CLAUDE_MODEL } from '@/shared/ai/models'
+
+/** This device's Claude model (the legacy level's): the route of "Ask Claude". */
+const claudeModel = (): string => legacyRule(useWorkspace.getState().settings.aiModel, true)[0]?.m ?? DEFAULT_CLAUDE_MODEL
 import { claudeDoc, webImagesOf } from '../../features'
 import { MediaToPage, type MediaItem } from '../../features'
 import { readableContent, ReadOnlyDoc } from '../../editor'
@@ -47,6 +53,8 @@ function Palette() {
   const { q, mode, chips, setQuery, parsed, filtering, text, hits, total, sugs, fx, env } = find
   const [value, setValue] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
+  /** the ⌘K "?" route chip (Alt+M opens its picker) */
+  const askChip = useRef<RouteChipHandle | null>(null)
   const listRef = useRef<HTMLDivElement>(null)
   const pages = useWorkspace((s) => s.pages)
   const recentIds = useWorkspace((s) => s.recent)
@@ -65,12 +73,14 @@ function Palette() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const commands = useMemo(() => buildCommands(t, pageId), [t, pageId, pages, lang, readOnly])
   const tourDone = useTour((s) => !!s.memory.done)
+  // "Set up AI" is among the first commands while no provider has a key here
+  const aiReady = useWorkspace((s) => !!s.settings.aiApiKey.trim() || Object.values(s.settings.aiKeys ?? {}).some(Boolean))
   const cmdHits = useMemo(() => {
     if (mode === 'ask' || filtering) return []
     // database commands ("Mails: Sync now") only by typing: the empty lists stay short
-    if (!raw) return mode === 'run' ? commands.filter((c) => c.group !== 'database') : rootCommands(commands, tourDone)
+    if (!raw) return mode === 'run' ? commands.filter((c) => c.group !== 'database') : rootCommands(commands, tourDone, aiReady)
     return rankCommands(commands, raw)
-  }, [commands, mode, raw, tourDone, filtering])
+  }, [commands, mode, raw, tourDone, filtering, aiReady])
   const titleHits = useMemo(() => hits.filter((h) => h.field === 'title'), [hits])
   const contentHits = useMemo(() => hits.filter((h) => h.field === 'content'), [hits])
   /*
@@ -227,6 +237,13 @@ function Palette() {
         aria-label={t('shell.palette.label')}
         onKeyDownCapture={(e) => {
           if (e.nativeEvent.isComposing) return
+          // ⌘K "?": Alt+M opens the route picker (the field keeps its text)
+          if (mode === 'ask' && isRouteKey(e.nativeEvent) && document.activeElement === inputRef.current) {
+            e.preventDefault()
+            e.stopPropagation()
+            askChip.current?.open()
+            return
+          }
           const inField = document.activeElement === inputRef.current
           if (e.key === 'Enter' && e.altKey && inField && value.startsWith('page:')) {
             e.preventDefault()
@@ -302,7 +319,7 @@ function Palette() {
             </div>
           )}
           {mode === 'ask' ? (
-            <AskPanel question={raw} pageId={pageId} onDone={() => finish()} />
+            <AskPanel question={raw} pageId={pageId} onDone={() => finish()} chipHandle={askChip} onChipClosed={focusInput} />
           ) : (
             <Command.List className="pal-list" ref={listRef}>
               <Command.Empty className="pal-empty">
@@ -458,13 +475,14 @@ const wordStarts = (text: string, n: string) => text.split(/[\s()&,/…-]+/).som
 const labelStarts = (label: string, term: string) => label.toLowerCase().startsWith(term.toLowerCase())
 
 /** The commands of the list without a query, most used first within their groups. */
-const CORE = ['new-page', 'new-database', 'quick-note', 'templates', 'journal', 'agenda', 'graph', 'ask-ai', 'agent', 'rewind', 'present', 'history', 'import', 'settings', 'theme', 'focus', 'discover', 'tour']
+const CORE = ['new-page', 'new-database', 'quick-note', 'templates', 'journal', 'agenda', 'graph', 'ai-setup', 'ask-ai', 'agent', 'rewind', 'present', 'history', 'import', 'settings', 'theme', 'focus', 'discover', 'tour']
 const GROUP_ORDER: Cmd['group'][] = ['create', 'navigate', 'claude', 'page', 'workspace', 'start']
 
-/** The list without a query: CORE in its order (the tour only until it was finished once). */
-function rootCommands(commands: Cmd[], tourDone: boolean): Cmd[] {
+/** The list without a query: CORE in its order (the tour only until it was finished once; "Set up AI" only while no
+ *  provider has a key here). */
+function rootCommands(commands: Cmd[], tourDone: boolean, aiReady: boolean): Cmd[] {
   const byId = new Map(commands.map((c) => [c.id, c]))
-  return CORE.filter((id) => !(id === 'tour' && tourDone))
+  return CORE.filter((id) => !(id === 'tour' && tourDone) && !(id === 'ai-setup' && aiReady))
     .map((id) => byId.get(id))
     .filter((c): c is Cmd => !!c)
 }
@@ -589,12 +607,14 @@ function highlight(text: string, ranges: Range[]): ReactNode {
 /* Ask AI (Claude, BYOK) — answers about the current page               */
 /* ------------------------------------------------------------------ */
 
-function AskPanel({ question, pageId, onDone }: { question: string; pageId: ID | null; onDone: () => void }) {
+function AskPanel({ question, pageId, onDone, chipHandle, onChipClosed }: { question: string; pageId: ID | null; onDone: () => void; chipHandle?: React.Ref<RouteChipHandle>; onChipClosed?: () => void }) {
   const t = useT()
   const readOnly = useReadOnly()
   const model = useWorkspace((s) => s.settings.aiModel)
   const page = useWorkspace((s) => (pageId ? s.pages[pageId] : undefined))
-  const configured = useWorkspace((s) => !!s.settings.aiApiKey) && isAIConfigured()
+  // the gate's answer for ⌘K "?" (a key for a route the rules allow — Claude or OpenRouter)
+  const askStatus = useAIStatus('palette.ask')
+  const configured = offersAI(askStatus)
   const [answer, setAnswer] = useState('')
   const [state, setState] = useState<'idle' | 'running' | 'done' | 'error'>('idle')
   const [error, setError] = useState('')
@@ -604,37 +624,57 @@ function AskPanel({ question, pageId, onDone }: { question: string; pageId: ID |
   const [media, setMedia] = useState<MediaItem[]>([])
   /** the One memory that went along with the question (null: not in use) */
   const [memory, setMemory] = useState<MemoryUse | null>(null)
+  /** what the data rules left out of the question (the memory, the page) — said under the answer */
+  const [notes, setNotes] = useState<Array<'memoryWithheld' | 'pageWithheld'>>([])
+  /** the route chip: this question only (null: the rules decide) */
+  const [chip, setChip] = useState<Route | null>(null)
+  /** what to do about a refused question ("Ask Claude" for a codeword the route cannot connect) */
+  const [fix, setFix] = useState<AIFix | null>(null)
   const abort = useRef<AbortController | null>(null)
   // the answer's run (store/writer.ts: `ai:<run>:ask` when it is appended or saved as a page)
   const runId = useRef('')
+  /** what the answer cost and which route served it (the recorder's run meta when the answer is written) */
+  const receipt = useRef<Receipt | null>(null)
 
   useEffect(() => () => abort.current?.abort(), [])
 
-  const ask = async () => {
+  const ask = async (pick: Route | null = chip) => {
     if (!question || state === 'running') return
+    setFix(null)
     abort.current?.abort()
     const ctrl = new AbortController()
     abort.current = ctrl
     runId.current = newId()
+    receipt.current = null
     setAnswer('')
     setMcpCalls([])
     setMedia([])
     setError('')
     setState('running')
-    // the One memory: the memories that fit the question go along
-    const mem = memoryFor(question)
-    setMemory(mem.use)
+    // the One memory: the memories that fit the question go along — only where the route may receive them (D-S2-29)
+    let mem: ReturnType<typeof memoryFor> = { block: '', use: null }
+    setNotes([])
     let answered = ''
     try {
-      // only what the page's context marks allow ("Reads: …" — whole page, marked blocks or nothing)
-      const read = page ? readableContent(page.id) : null
+      // the route first (the chip, else the rules): what it may receive decides what is built
+      const pre = precheck({ purpose: 'palette.ask', sources: [], typed: question, route: pick })
+      const found = memoryFor(question)
+      mem = pre.allows('memory') ? found : { block: '', use: null }
+      setMemory(mem.use)
+      const withheld: Array<'memoryWithheld' | 'pageWithheld'> = found.use && !mem.use ? ['memoryWithheld'] : []
+      // only what the page's context marks allow ("Reads: …" — whole page, marked blocks or nothing), built for the
+      // route; a route that may not receive page text (or this page) gets the question alone
+      const readable = !!page && pre.allows('page') && pre.visible(page.id)
+      if (page && !readable) withheld.push('pageWithheld')
+      setNotes(withheld)
+      const read = readable ? withShape(shapeOf(pre), () => readableContent(page.id)) : null
       const text = read && read.mode !== 'none' ? read.markdown.slice(0, 12000) : ''
-      const context = page ? (text ? `${page.title}\n\n${text}` : page.title) : undefined
+      const context = readable ? (text ? `${page.title}\n\n${text}` : page.title) : undefined
       const final = await runAI({
         action: 'custom',
         // ⌘K "?": the current page as its context marks allow (a route without a page: none)
         purpose: 'palette.ask',
-        sources: page ? [{ page: page.id }] : [],
+        sources: readable ? [{ page: page.id }] : [],
         typed: question,
         input: text,
         instruction: question,
@@ -644,7 +684,11 @@ function AskPanel({ question, pageId, onDone }: { question: string; pageId: ID |
         onToken: (delta) => setAnswer((prev) => prev + delta),
         onMcp: (calls) => !ctrl.signal.aborted && setMcpCalls(calls),
         onMedia: (items) => !ctrl.signal.aborted && setMedia(items),
+        onRun: (r) => (receipt.current = r),
         memory: mem.block,
+        ...routed(pre),
+        carries: readable ? ['page'] : [],
+        ...(pick ? { route: pick } : {}),
       })
       answered = final || ''
       if (ctrl.signal.aborted) return
@@ -653,6 +697,7 @@ function AskPanel({ question, pageId, onDone }: { question: string; pageId: ID |
     } catch (e) {
       if (ctrl.signal.aborted) return
       setError(e instanceof Error ? e.message : String(e))
+      setFix(e instanceof AIError ? (e.fix ?? null) : null)
       setState('error')
     } finally {
       // a question refused for a key in its text was never sent: no row in the memory log (the key would be its name)
@@ -660,7 +705,10 @@ function AskPanel({ question, pageId, onDone }: { question: string; pageId: ID |
     }
   }
 
-  const askWriter = (): Writer => ({ kind: 'ai', run: runId.current || newId(), action: 'ask' })
+  /** the model the answer comes from (the chip, else the rules) */
+  const headLabel = useMemo(() => routeFor('palette.ask', { route: chip }).label.toUpperCase(), [chip, model])
+
+  const askWriter = (): Writer => aiWriterOf({ id: runId.current || newId(), route: receipt.current?.route, served: receipt.current?.served }, 'ask')
 
   const append = () => {
     if (!page || !answer) return
@@ -682,22 +730,8 @@ function AskPanel({ question, pageId, onDone }: { question: string; pageId: ID |
   if (!configured)
     return (
       <div className="ask">
-        <div className="ask__locked">
-          <KeyRound size={18} strokeWidth={1.6} />
-          <div>
-            <strong>{t('shell.ask.noKeyTitle')}</strong>
-            <p>{t('shell.ask.noKeyBody')}</p>
-          </div>
-          <button
-            type="button"
-            className="btn btn--primary"
-            onClick={() => {
-              onDone()
-              useUI.getState().openModal({ type: 'settings', tab: 'ai' })
-            }}
-          >
-            {t('shell.ask.addKey')}
-          </button>
+        <div className="ask__locked ask__locked--needs">
+          <AINeedsSetup purpose="palette.ask" onOpen={onDone} testId="ask-needs" />
         </div>
       </div>
     )
@@ -705,7 +739,7 @@ function AskPanel({ question, pageId, onDone }: { question: string; pageId: ID |
   return (
     <div className="ask">
       <Command.List className="pal-list pal-list--ask">
-        <Command.Item value="ask:go" className="pal-item" onSelect={ask} disabled={!question}>
+        <Command.Item value="ask:go" className="pal-item" onSelect={() => void ask()} disabled={!question}>
           <span className="pal-item__icon">
             <ArrowRight size={16} />
           </span>
@@ -715,11 +749,24 @@ function AskPanel({ question, pageId, onDone }: { question: string; pageId: ID |
           </span>
         </Command.Item>
       </Command.List>
+      <div className="ask__route">
+        <RouteChip
+          handle={chipHandle}
+          purpose="palette.ask"
+          chip={chip}
+          onChip={setChip}
+          sources={page ? [{ page: page.id }] : []}
+          reads={t(page ? 'features.ai.prov.chip.reads.page' : 'features.ai.prov.chip.reads.question')}
+          disabled={state === 'running'}
+          onClosed={onChipClosed}
+          testId="ask-route-chip"
+        />
+      </div>
       {(state !== 'idle' || answer) && (
         <div className="ask__out" aria-live="polite">
           <div className="ask__head label">
             <span className={`led${state === 'running' ? ' led--on ask__blink' : state === 'error' ? '' : ' led--ok'}`} />
-            CLAUDE · {model.replace('claude-', '').replace(/-(\d)-(\d)/, ' $1.$2').toUpperCase()}
+            {headLabel}
             {memory && <MemoryNote use={memory} onOpen={onDone} />}
             {state === 'running' && (
               <button type="button" className="ask__stop" onClick={() => (abort.current?.abort(), setState('done'))}>
@@ -728,7 +775,24 @@ function AskPanel({ question, pageId, onDone }: { question: string; pageId: ID |
             )}
           </div>
           <McpSkippedNote calls={mcpCalls} />
+          {notes.length > 0 && (
+            <p className="ask__note" role="note" data-testid="ask-notes">
+              {notes.map((n) => t(`features.ai.prov.note.${n}`)).join(' ')}
+            </p>
+          )}
           {state === 'error' ? <p className="ask__error">{error}</p> : <AskAnswer markdown={answer} />}
+          {state === 'error' && fix && fix.kind !== 'askClaude' && (
+            <div className="ask__actions" data-testid="ask-fix">
+              <FixKeys fix={fix} feature="ask" onOpen={onDone} onPick={chipHandle && typeof chipHandle === 'object' && 'current' in chipHandle ? () => chipHandle.current?.open() : undefined} />
+            </div>
+          )}
+          {state === 'error' && fix?.kind === 'askClaude' && (
+            <div className="ask__actions">
+              <button type="button" className="btn btn--sm" data-testid="ask-claude" onClick={() => void ask({ p: 'anthropic', m: claudeModel() })}>
+                {t('features.ai.prov.codeword.askClaude')}
+              </button>
+            </div>
+          )}
           {media.length > 0 && <MediaToPage items={media} pageId={page && page.kind === 'page' && !page.settings.locked ? page.id : null} disabled={readOnly} />}
           {state === 'done' && answer && (
             <div className="ask__actions">

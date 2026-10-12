@@ -78,7 +78,7 @@ function liveDatabases(): Array<{ db: Database; page: Page }> {
   const { pages, databases } = useWorkspace.getState()
   return Object.values(databases)
     .map((db) => ({ db, page: pages[db.id] }))
-    .filter((x): x is { db: Database; page: Page } => !!x.page && !x.page.trashed && !isEffectivelyTrashed(pages, x.page.id) && !inTemplate(pages, x.page.id) && !x.db.system)
+    .filter((x): x is { db: Database; page: Page } => !!x.page && !x.page.trashed && !isEffectivelyTrashed(pages, x.page.id) && !inTemplate(pages, x.page.id) && (!x.db.system || x.db.system === 'mails'))
     .sort((a, b) => (a.page.title || '').localeCompare(b.page.title || ''))
 }
 

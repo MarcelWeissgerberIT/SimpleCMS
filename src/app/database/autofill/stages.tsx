@@ -9,7 +9,7 @@ import { useLang, useT } from '../../i18n'
 import { Checkbox, OptionTag } from '../cells/display'
 import { formatNumber } from '../model/format'
 import { isOptionProp } from './ConfigStage'
-import { acceptAll, acceptProposal, cancelFill, closeAutofillPanel, discardAll, hasKey, openAISettings, rejectProposal, retryFailed, undoApplied, type Job, type Proposal } from './store'
+import { acceptAll, acceptProposal, cancelFill, closeAutofillPanel, discardAll, hasKey, openAutofillSetup, rejectProposal, retryFailed, undoApplied, type Job, type Proposal } from './store'
 
 /** Move focus into a stage when it appears (the previous stage's buttons are gone). */
 function useStageFocus<T extends HTMLElement>() {
@@ -313,7 +313,7 @@ export function DoneStage({ job, onDone }: { job: Job; onDone: () => void }) {
           </button>
         )}
         {job.fatal && !hasKey() && (
-          <button type="button" className="btn btn--sm btn--ghost" onClick={openAISettings}>
+          <button type="button" className="btn btn--sm btn--ghost" onClick={openAutofillSetup}>
             {t('database.autofill.nokey.open')}
           </button>
         )}

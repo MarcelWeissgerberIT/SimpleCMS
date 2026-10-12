@@ -13,7 +13,7 @@ import { useEffect, useId, useState } from 'react'
 import { create } from 'zustand'
 import type { AutofillConfig, Database, ID, Page, PropertyDef, PropertyValue } from '../../store/types'
 import { useWorkspace } from '../../store/store'
-import { endRun, noteRun, SYSTEM, withWriter, type Writer } from '../../store/writer'
+import { endRun, noteRun, SYSTEM, withWriter, type RunMeta, type Writer } from '../../store/writer'
 import { newId } from '../../lib/ids'
 import { useUI } from '../../store/ui'
 import { t } from '../../i18n'
@@ -71,6 +71,8 @@ export interface Proposal {
   hash: string
   /** applied: the value it replaced (for undo) */
   prev?: PropertyValue
+  /** the AI route that answered (route keys only — the recorder's run meta) */
+  ai?: Pick<RunMeta, 'ai' | 'aiAlso'>
 }
 
 export interface Job {
@@ -151,11 +153,22 @@ function lookup(dbId: ID, propId: ID): { db: Database; prop: PropertyDef; cfg: A
   return db && prop && cfg ? { db, prop, cfg } : null
 }
 
-export const hasKey = () => !!useWorkspace.getState().settings.aiApiKey.trim()
+/** Can an autofill request go out on this device (a key for a route the rules allow — the gate's aiStatus; before the
+ *  features area is loaded: any key)? */
+export const hasKey = (): boolean => {
+  if (featuresApi) {
+    const st = featuresApi.aiStatus('bulk.autofill')
+    // refused for newer rules, the off switch, a data rule …: the run itself says so (with its keys), nothing sent
+    return !st.demo && (st.ready || (st.reason !== 'no_key' && st.reason !== 'route'))
+  }
+  const s = useWorkspace.getState().settings
+  return !!s.aiApiKey.trim() || Object.values(s.aiKeys ?? {}).some(Boolean)
+}
 
-export function openAISettings() {
+/** "Set up AI" from the autofill panel: the panel closes, the assistant opens (features/ai/setup). */
+export function openAutofillSetup() {
   closeAutofillPanel()
-  useUI.getState().openModal({ type: 'settings', tab: 'ai' })
+  void loadFeatures().then((m) => m.openAISetup({ reason: 'nokey', feature: 'bulk' }))
 }
 
 /* ------------------------------------------------------------------ */
@@ -200,7 +213,7 @@ export async function fillRow(dbId: ID, propId: ID, rowId: ID, signal: AbortSign
     if (!answer.ok) return { ...base, status: 'error', error: t('database.autofill.err.json') }
     const c = coerceAnswer(prop, cfg, answer.value)
     if (!c.ok) return { ...base, status: 'error', error: c.error }
-    return { ...base, status: sameValue(prop, base.current, c) ? 'same' : 'pending', value: c.value, names: c.names, newNames: c.newNames }
+    return { ...base, status: sameValue(prop, base.current, c) ? 'same' : 'pending', value: c.value, names: c.names, newNames: c.newNames, ...(answer.ai ? { ai: answer.ai } : {}) }
   } catch (e) {
     const code = errCode(e)
     if (signal.aborted || code === 'aborted') throw e
@@ -214,7 +227,8 @@ export async function fillRow(dbId: ID, propId: ID, rowId: ID, signal: AbortSign
  * undefined when nothing was written (row or property gone).
  */
 export function writeProposal(dbId: ID, propId: ID, p: Proposal, writer: Writer): PropertyValue | undefined {
-  // Claude's value (and its new options) as the autofill's write (store/writer.ts)
+  // Claude's value (and its new options) as the autofill's write (store/writer.ts); the recorder learns its route
+  if (p.ai) noteRun(writer, p.ai)
   return withWriter(writer, () => writeNow(dbId, propId, p))
 }
 
@@ -273,7 +287,7 @@ export function recordFills(dbId: ID, propId: ID, entries: Record<ID, { at: numb
 const propName = (dbId: ID, propId: ID) => useWorkspace.getState().databases[dbId]?.properties.find((p) => p.id === propId)?.name ?? ''
 
 function toastNoKey() {
-  useUI.getState().toast({ message: t('database.autofill.toast.noKey'), kind: 'info', action: { label: t('database.autofill.toast.settings'), run: openAISettings } })
+  useUI.getState().toast({ message: t('database.autofill.toast.noKey'), kind: 'info', action: { label: t('database.autofill.toast.settings'), run: openAutofillSetup } })
 }
 
 /** Fill a property for all rows, the empty ones, or the given rows. */
@@ -363,7 +377,7 @@ function finishRun(key: string) {
   const name = propName(j.dbId, j.propId)
   const toast = useUI.getState().toast
   if (j.fatal && !panelOpen)
-    toast({ message: j.fatal, kind: 'error', action: j.fatalCode === 'reload' ? { label: t('features.ai.reload'), run: () => window.location.reload() } : { label: t('database.autofill.toast.settings'), run: openAISettings } })
+    toast({ message: j.fatal, kind: 'error', action: j.fatalCode === 'reload' ? { label: t('features.ai.reload'), run: () => window.location.reload() } : { label: t('database.autofill.toast.settings'), run: openAutofillSetup } })
   if (j.review && pending) {
     patchJob(key, () => ({ phase: 'review' }))
     if (panelOpen) return

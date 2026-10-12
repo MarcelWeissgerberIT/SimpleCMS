@@ -7,9 +7,15 @@
  */
 import type { JSONContent } from '@tiptap/core'
 import { toMarkdown } from '../share/markdown'
-import { completeStructured } from './client'
-import { chosenRoute, shortOf } from './core/status'
-import { estimate } from '../governor'
+import { AIError, completeStructured } from './client'
+import { aiRunMeta, type AIRunMeta } from './core/runMeta'
+import { precheck } from './core/gate'
+import { routed, shapeOf, withShape } from './core/shape'
+import { relatedRows, rowFactsFor, type FactsContext } from './rowFacts'
+import { useWorkspace } from '../../store/store'
+import type { SourceRef } from '@/shared/ai/types'
+import { estimateLabel, estimateOn, routeFor } from './core/status'
+import { providerInfo } from '@/shared/ai/providers'
 
 export type AutofillPreset = 'summary' | 'extract' | 'translate' | 'categorize' | 'custom'
 export type AutofillFieldType = 'text' | 'number' | 'select' | 'multi_select' | 'checkbox' | 'url'
@@ -51,7 +57,8 @@ export interface AutofillRequest {
 }
 
 /** ok: the answer's `value` (unvalidated) · not ok: the answer was not the JSON we asked for. */
-export type AutofillAnswer = { ok: true; value: unknown } | { ok: false; raw: string }
+/** `ai`: the route that answered (the recorder's run meta — route keys only) */
+export type AutofillAnswer = ({ ok: true; value: unknown } | { ok: false; raw: string }) & { ai?: AIRunMeta }
 
 /** Page content sent per row (Markdown characters). */
 export const AUTOFILL_CONTENT_MAX = 8000
@@ -170,26 +177,56 @@ export function buildAutofillPrompt(req: AutofillRequest): { system: string; pro
  * retries, offline, aborted …); a reply that is not `{ "value": … }` resolves as `{ ok: false }`.
  */
 export async function requestAutofill(req: AutofillRequest, signal?: AbortSignal, rowId?: string | null, field?: { dbId: string; propId: string } | null): Promise<AutofillAnswer> {
-  const { system, prompt, schema } = buildAutofillPrompt(req)
-  const long = req.task.preset === 'translate' || req.field.type === 'text'
   // the row's fields and page content go out (a caller without the row id: the database as a whole)
+  const base: SourceRef[] = rowId ? [{ row: rowId }] : [{ all: true }]
+  // the route first: the row is read for it (D-S2-28 — names, transcripts, pages it may not see left out)
+  const pre = precheck({ purpose: 'bulk.autofill', sources: base })
+  const shape = shapeOf(pre)
+  const { req: forRoute, related } = shape ? rowForRoute(req, rowId, field, { shape, visible: pre.visible }) : { req, related: [] as string[] }
+  const { system, prompt, schema } = withShape(shape, () => buildAutofillPrompt(forRoute))
+  const long = req.task.preset === 'translate' || req.field.type === 'text'
+  let ai: AIRunMeta | undefined
   const raw = await completeStructured({
     purpose: 'bulk.autofill',
-    sources: rowId ? [{ row: rowId }] : [{ all: true }],
+    // the related rows the request names count too (a relation into a private page or a directory)
+    sources: [...base, ...related.map((id) => ({ page: id, as: 'selection' as const }))],
     system,
     prompt,
     schema,
     maxTokens: long ? 8000 : 4096,
     signal,
     ...(field ? { ledgerSource: `autofill:${field.dbId}:${field.propId}` } : {}),
+    ...routed(pre),
+    onRun: (r) => (ai = aiRunMeta(r) ?? ai),
   })
+  const by = ai ? { ai } : {}
   try {
     const parsed: unknown = JSON.parse(raw.trim())
-    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed) && 'value' in parsed) return { ok: true, value: (parsed as { value: unknown }).value }
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed) && 'value' in parsed) return { ok: true, value: (parsed as { value: unknown }).value, ...by }
   } catch {
     /* not JSON */
   }
-  return { ok: false, raw }
+  return { ok: false, raw, ...by }
+}
+
+/**
+ * The request as a route that does not see everything receives it: the row's fields again through rowFactsFor (people
+ * as "@Person n", relations to pages it may not see as "—", formulas over them "—"); its content is built inside the
+ * request-text scope by buildAutofillPrompt. Without the row (no id, gone) nothing of it can be rebuilt: refused.
+ */
+function rowForRoute(req: AutofillRequest, rowId: string | null | undefined, field: { dbId: string; propId: string } | null | undefined, ctx: FactsContext): { req: AutofillRequest; related: string[] } {
+  const s = useWorkspace.getState()
+  const row = rowId ? s.pages[rowId] : undefined
+  const db = row?.databaseId ? s.databases[row.databaseId] : field ? s.databases[field.dbId] : undefined
+  if (!row || !db) throw new AIError('policy', 'rows')
+  const facts = rowFactsFor(db, row, ctx, field?.propId ?? null)
+  let task = req.task
+  // translate from a field: its value as the route may read it
+  if (task.source && task.source.content === undefined) {
+    const src = db.properties.find((p) => p.name === task.source!.name)
+    if (src && src.type !== 'title') task = { ...task, source: { name: task.source.name, text: rowFactsFor(db, row, ctx).find((f) => f.name === src.name)?.value ?? '' } }
+  }
+  return { req: { ...req, task, row: { ...req.row, properties: facts } }, related: relatedRows(db, row, ctx) }
 }
 
 /* ------------------------------------------------------------------ */
@@ -210,6 +247,8 @@ export interface AutofillEstimate {
   usd: number
   /** short model label, e.g. "OPUS 5.5" */
   model: string
+  /** the company that bills it (the routed provider's — "Anthropic", "OpenRouter") */
+  company: string
 }
 
 /**
@@ -217,10 +256,11 @@ export interface AutofillEstimate {
  * (features/governor estimate()). The provider bills the real usage to the user's key; this is an order of magnitude.
  */
 export function estimateAutofill({ rows, contextChars, preset }: { rows: number; contextChars: number; preset: AutofillPreset }): AutofillEstimate {
-  const route = chosenRoute()
+  // the route autofill takes on this device (a rule for bulk work may send it elsewhere than the AI menu — D-S2-32)
+  const r = routeFor('bulk.autofill')
   const contextTokens = contextChars / CHARS_PER_TOKEN
   const inputTokens = Math.round(rows * OVERHEAD_TOKENS + contextTokens)
   const outputTokens = Math.round(rows * OUTPUT_TOKENS[preset] + (preset === 'translate' ? contextTokens * 1.1 : 0))
-  const usd = estimate(route, { promptTokens: inputTokens, outTokens: outputTokens, maxTokens: outputTokens })?.low ?? 0
-  return { rows, inputTokens, outputTokens, usd, model: shortOf(route) }
+  const usd = estimateOn(r, { promptTokens: inputTokens, outTokens: outputTokens, maxTokens: outputTokens })?.low ?? 0
+  return { rows, inputTokens, outputTokens, usd, model: estimateLabel(r.route, r.pool), company: providerInfo(r.route.p).company }
 }

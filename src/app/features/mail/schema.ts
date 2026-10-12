@@ -148,6 +148,8 @@ function createMailDatabaseNow(cfg: MailSettings): { dbId: ID; props: Partial<Re
     // mails are personal: the member's Private section only (a shared parent is never used)
     dbId = createPrivateDatabase({ ...input, parentId: parent && s.pages[parent]?.private ? parent : null })
   } else dbId = s.createDatabase(input)
+  // its rows are mail wherever it ends up (store/types.ts Database.system 'mails' — the AI data class `mail`)
+  useWorkspace.getState().updateDatabase(dbId, { system: 'mails' })
   return { dbId, props: byRole }
 }
 
@@ -178,6 +180,8 @@ function ensurePropsNow(dbId: ID, cfg: MailSettings): Partial<Record<MailPropRol
   const s = useWorkspace.getState()
   const db = s.databases[dbId]
   if (!db) return {}
+  // a target made before the marker (or a database the person pointed the sync at): marked as mail from now on
+  if (!db.system) s.updateDatabase(dbId, { system: 'mails' })
   const out: Partial<Record<MailPropRole, ID>> = {}
   const taken = new Set<ID>()
   for (const role of neededRoles(cfg)) {

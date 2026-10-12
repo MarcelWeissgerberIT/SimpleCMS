@@ -8,6 +8,8 @@ import { readableContent } from '../../editor'
 import { useWorkspace } from '../../store/store'
 import type { ID } from '../../store/types'
 import { completeStructured } from '../ai/client'
+import { precheck } from '../ai/core/gate'
+import { routed, shapeOf, withShape } from '../ai/core/shape'
 
 const SYSTEM = `You fill a shared option list in One, a notes and database app. Lists hold the choices of select properties: short names, one per item (e.g. "Bavaria", "EUR", "4711 Marketing").
 Rules:
@@ -52,12 +54,15 @@ export function pageTextFor(pageId: ID | null): string {
 
 /** Ask Claude for items. `existing`: names already in the list (left out of the answer). */
 export async function proposeItems(o: { prompt: string; listName: string; existing: string[]; pageId?: ID | null; signal?: AbortSignal }): Promise<Proposal[]> {
-  const page = pageTextFor(o.pageId ?? null)
+  // the route first: the page is read for it (core/shape.ts); a route that may not receive page text gets the request alone
+  const pre = precheck({ purpose: 'bulk.kit', sources: [], typed: o.prompt })
+  const withPage = !!o.pageId && pre.allows('page') && pre.visible(o.pageId)
+  const page = withPage ? withShape(shapeOf(pre), () => pageTextFor(o.pageId ?? null)) : ''
   const title = o.pageId ? useWorkspace.getState().pages[o.pageId]?.title.trim() || 'Untitled' : ''
   const parts = [`List: ${o.listName || 'Untitled list'}`, `Request: ${o.prompt.trim()}`]
   if (o.existing.length) parts.push(`Already in the list (do not repeat): ${o.existing.slice(0, 200).join(' · ')}`)
   if (page) parts.push(`Page "${title}":\n<page>\n${page}\n</page>`)
-  const raw = await completeStructured({ purpose: 'bulk.kit', sources: o.pageId ? [{ page: o.pageId }] : [], typed: o.prompt, system: SYSTEM, prompt: parts.join('\n\n'), schema: SCHEMA, maxTokens: 6000, signal: o.signal })
+  const raw = await completeStructured({ purpose: 'bulk.kit', sources: page ? [{ page: o.pageId! }] : [], typed: o.prompt, system: SYSTEM, prompt: parts.join('\n\n'), schema: SCHEMA, maxTokens: 6000, signal: o.signal, ...routed(pre), carries: page ? ['page'] : [] })
   let parsed: unknown
   try {
     parsed = JSON.parse(raw)

@@ -1,5 +1,5 @@
 /**
- * Settings → Claude AI → "MCP servers": the remote MCP servers One's Claude may use.
+ * Settings → AI → "MCP servers": the remote MCP servers One's Claude may use.
  *
  * Adding one takes two fields — the URL and (optionally) a token. The name is derived from the URL,
  * the server is switched on, and a background check tests the connection and writes the usage
@@ -38,6 +38,7 @@ import { cancelSignIn, offersCode, signIn, signInWithCode, signOut, signedIn, us
 import { HelpLink } from '../../../help'
 import { CodeArea, markdownTokenizer } from '../../../ui/code'
 import { McpOverview } from './McpOverview'
+import { AINeedsSetup } from '../setup/AINeedsSetup'
 import './mcp-servers.css'
 
 type T = ReturnType<typeof useT>
@@ -757,6 +758,7 @@ function Prompt({ server, hasKey, blocked, running }: { server: McpServerConfig;
         describedBy={`${id}-hint`}
         inputProps={{ onBlur: () => commit(server, latest.current.draft) }}
       />
+      {!hasKey && <AINeedsSetup purpose="mcp-setup.inspect" variant="line" testId="mcp-needs" />}
       <p className="mcps-hint" id={`${id}-hint`}>
         {!hasKey ? t('features.ai.mcp.needsKey') : t('features.ai.mcp.promptHint')}
       </p>

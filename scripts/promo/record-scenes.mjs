@@ -914,7 +914,7 @@ const v3 = {
       await page.waitForTimeout(250)
       await clickOn(page, page.getByRole('menuitem', { name: /^Extract the tables/ }), { ms: 350 })
       mark('extract')
-      const ai = page.getByRole('dialog', { name: 'Ask Claude' })
+      const ai = page.getByRole('dialog', { name: 'Ask AI' })
       await ai.getByTestId('ai-file-tables').locator('tbody tr').first().waitFor({ timeout: 20_000 })
       mark('table')
       await page.waitForTimeout(1300)

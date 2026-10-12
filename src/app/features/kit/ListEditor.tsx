@@ -20,6 +20,8 @@ import { tagStyle } from '../../lib/colors'
 import { toast } from '../../store/ui'
 import { PageIcon } from '../../ui/PageIcon'
 import { isAIConfigured } from '../ai/client'
+import { AINeedsSetup, offersAI, useAIStatus } from '../ai/setup/AINeedsSetup'
+import { destinationOf } from '../ai/core/status'
 import { blocksUsingList, itemsFromText, newItems, propsOfList, removeItem } from './model'
 import { proposeItems, type Proposal } from './claude'
 import { ColorKey, EntryHead, PickButton, Section, UsedList, pad2 } from './ui'
@@ -346,7 +348,9 @@ function FillWithClaude({ list }: { list: OptionList }) {
   const [state, setState] = useState<{ phase: 'idle' | 'asking' | 'done' | 'error'; items: Proposal[]; on: Set<number>; error?: string }>({ phase: 'idle', items: [], on: new Set() })
   const abort = useRef<AbortController | null>(null)
   useEffect(() => () => abort.current?.abort(), [])
-  const configured = isAIConfigured()
+  // the gate's answer for list filling (a key for a route the rules allow)
+  const fillStatus = useAIStatus('bulk.kit')
+  const configured = offersAI(fillStatus) && isAIConfigured()
 
   const pageItems = useMemo(() => {
     const live = Object.values(pages).filter((p) => !p.trashed && !p.databaseId && p.kind !== 'database' && p.title.trim() && !inTemplate(pages, p.id))
@@ -387,9 +391,9 @@ function FillWithClaude({ list }: { list: OptionList }) {
 
   if (!configured)
     return (
-      <p className="kt-empty-line" data-testid="kt-fill-nokey">
-        {t('features.kit.fill.noKey')}
-      </p>
+      <div className="kt-empty-line" data-testid="kt-fill-nokey">
+        <AINeedsSetup purpose="bulk.kit" variant="line" />
+      </div>
     )
   return (
     <div className="kt-fill" data-testid="kt-fill">
@@ -420,7 +424,7 @@ function FillWithClaude({ list }: { list: OptionList }) {
           </button>
         )}
       </div>
-      <p className="kt-fill__privacy label">{pageId === NO_PAGE ? t('features.kit.fill.sendsPrompt') : t('features.kit.fill.sendsPage')}</p>
+      <p className="kt-fill__privacy label">{t(pageId === NO_PAGE ? 'features.kit.fill.sendsPrompt' : 'features.kit.fill.sendsPage', { company: destinationOf('bulk.kit').company.toUpperCase() })}</p>
       {state.phase === 'asking' && (
         <p className="kt-fill__status label">
           <span className="led led--on kt-led--live" aria-hidden /> {t('features.kit.fill.asking')}

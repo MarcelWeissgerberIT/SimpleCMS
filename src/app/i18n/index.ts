@@ -5,7 +5,7 @@
  * Every user-visible string MUST go through t() with both en + de entries.
  */
 import { useCallback } from 'react'
-import { makeTranslator, mergeMessages, type Lang, type Translate } from '@/shared/i18n'
+import { makeTranslator, mergeMessages, type Lang, type Messages, type Translate } from '@/shared/i18n'
 import { useWorkspace } from '../store/store'
 import { messages as core } from './core'
 import { messages as shell } from '../shell/messages'
@@ -15,7 +15,19 @@ import { messages as features } from '../features/messages'
 import { messages as help } from '../help/messages'
 import { messages as code } from '../ui/code/messages'
 
-export const ALL_MESSAGES = mergeMessages(core, code, shell, editor, database, features, help)
+/**
+ * "{settingsAI}" in any string = the way to the AI settings ("Settings → AI" / "Einstellungen → KI", one key:
+ * `shell.settings.path.ai`) — filled in once here, so a renamed tab is one change and no call site passes it.
+ */
+function withSettingsPath(m: Messages): Messages {
+  for (const lang of ['en', 'de'] as const) {
+    const path = m[lang]['shell.settings.path.ai'] ?? m.en['shell.settings.path.ai'] ?? ''
+    for (const [k, v] of Object.entries(m[lang])) if (v.includes('{settingsAI}')) m[lang][k] = v.split('{settingsAI}').join(path)
+  }
+  return m
+}
+
+export const ALL_MESSAGES = withSettingsPath(mergeMessages(core, code, shell, editor, database, features, help))
 
 const cache: Partial<Record<Lang, Translate>> = {}
 function translator(lang: Lang): Translate {

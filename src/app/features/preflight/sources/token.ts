@@ -5,7 +5,7 @@
  */
 import { useWorkspace } from '../../../store/store'
 import type { McpServerConfig } from '../../../store/types'
-import { useUI } from '../../../store/ui'
+import { openAISettings } from '../../ai/setup/openAISetup'
 import { t } from '../../../i18n'
 import { onRefusedChanged, readServers, refusedHere } from '../../ai/mcp-servers/config'
 import { useMcpSignIn } from '../../ai/mcp-servers/oauth'
@@ -46,7 +46,7 @@ export const tokenLamp: LampSourceDef = {
     const second = names.length === 1 ? t('features.preflight.lamp.token.second', { name: names[0] }) : names.length > 1 ? t('features.preflight.lamp.token.second.many', { n: names.length }) : ''
     return { state: 'ok', count: ids.length, ids, second, ...(ids.length ? { level: red ? ('red' as const) : ('amber' as const) } : {}) }
   },
-  open: () => useUI.getState().openModal({ type: 'settings', tab: 'ai' }),
+  open: () => openAISettings({ section: 'mcp' }),
   queue: {
     items: ({ now }) => {
       const out: QueueItem[] = []
@@ -72,7 +72,7 @@ export const tokenLamp: LampSourceDef = {
     actions: (item) => {
       const sid = /^mcp:([^@]+)@/.exec(item.id)?.[1]
       const s = enabled().find((x) => x.id === sid)
-      const settings: CardAction = { key: s?.oauth ? '2' : 'a', label: t('features.preflight.fix.token.enter'), outcome: 'hand', run: () => (useUI.getState().openModal({ type: 'settings', tab: 'ai' }), { ok: true, stay: true }) }
+      const settings: CardAction = { key: s?.oauth ? '2' : 'a', label: t('features.preflight.fix.token.enter'), outcome: 'hand', run: () => (openAISettings({ section: 'mcp' }), { ok: true, stay: true }) }
       if (!s) return [settings]
       const out: CardAction[] = []
       // the sign-in window opens inside the key press (sync)

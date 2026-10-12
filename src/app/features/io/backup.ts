@@ -15,6 +15,9 @@ import { useCloud } from '../../cloud'
 import { t } from '../../i18n'
 import { withoutCommandSecrets } from '../commands'
 import { endRun, noteRun, withWriter, type Writer } from '../../store/writer'
+import { readWorkspaceAI, aiRulesAllowed } from '../../store/ai'
+import { loosens, policyKnown, type LooseItem } from '@/shared/ai/policy'
+import type { WorkspaceAI } from '@/shared/ai/types'
 
 export const BACKUP_FORMAT = 'simplecms-one-backup'
 
@@ -196,6 +199,8 @@ export interface RestoreResult {
   files: number
   /** integration profiles of the backup that found no room (a workspace holds INTEGRATION_LIMITS.profiles) */
   integrationsLeft?: number
+  /** the backup's AI rules came from a newer build: this workspace kept its own */
+  aiNewer?: true
 }
 
 const byId = <T extends { id: string }>(a: T[] = [], b: T[] = []): T[] => [...a, ...b.filter((x) => !a.some((y) => y.id === x.id))]
@@ -304,8 +309,27 @@ function sanitizeSettings(incoming: Settings, current: Settings): Settings {
   return out
 }
 
-/** Restore files, remap their refs and apply the workspace. */
-export async function applyBackup(b: Backup, mode: 'merge' | 'replace', onProgress?: (done: number, total: number) => void): Promise<RestoreResult> {
+/**
+ * The backup's AI rules against this workspace's (D52): null when the backup carries none (a page backup never does)
+ * or they are the same; else the rules and what taking them would loosen ([] = only tighter: taken without asking).
+ */
+export function backupAIRules(b: Backup): { theirs: WorkspaceAI; loosens: LooseItem[]; newer?: true } | null {
+  if (b.scope === 'page') return null
+  const raw = (b.workspace as unknown as { ai?: unknown } | null)?.ai
+  const theirs = raw ? readWorkspaceAI(JSON.parse(JSON.stringify(raw))) : undefined
+  if (!theirs) return null
+  const mine = useWorkspace.getState().ai
+  const bare = (x: WorkspaceAI | undefined) => JSON.stringify(x ? { ...x, gen: undefined, updatedAt: undefined, updatedBy: undefined } : null)
+  // rules a newer build wrote (their generation above this build's): this build cannot read them whole — never taken,
+  // never asked about (an older tab restamping them would stop every tab from refusing with 'reload'); mine stay
+  if (!policyKnown(theirs, null)) return { theirs, loosens: [], newer: true }
+  if (bare(theirs) === bare(mine)) return null
+  return { theirs, loosens: loosens(mine, theirs) }
+}
+
+/** Restore files, remap their refs and apply the workspace. `ai`: the person's answer when the backup's AI rules would
+ *  loosen this workspace's ('theirs' — only where they may be written; anything else keeps them). */
+export async function applyBackup(b: Backup, mode: 'merge' | 'replace', onProgress?: (done: number, total: number) => void, opts: { ai?: 'mine' | 'theirs' } = {}): Promise<RestoreResult> {
   // a team workspace: viewers can't write, and "replace" would swap it out for everyone in it
   const cloud = useCloud.getState()
   if (cloud.readOnly) throw new Error(t('features.io.err.viewOnly'))
@@ -368,11 +392,21 @@ export async function applyBackup(b: Backup, mode: 'merge' | 'replace', onProgre
   }
   const files = new Set(refMap.values()).size
 
+  // the workspace's AI rules: the backup's when they are only tighter, or the person took them (never a page backup's)
+  const rules = backupAIRules(b)
+  const takeAI = !!rules && !rules.newer && (rules.loosens.length === 0 || (opts.ai === 'theirs' && aiRulesAllowed()))
+  const aiNote = rules?.newer ? ({ aiNewer: true } as const) : {}
+
   // a backup's restore is one import run (store/writer.ts)
   const writer: Writer = { kind: 'import', run: newId(), source: 'backup' }
   noteRun(writer, { source: 'backup' })
   try {
-    return withWriter(writer, () => commitBackup())
+    return withWriter(writer, () => {
+      const result = { ...commitBackup(), ...aiNote }
+      // through the setter: its guards, the generation stamp, the team write path
+      if (takeAI && rules) useWorkspace.getState().setWorkspaceAI(rules.theirs)
+      return result
+    })
   } finally {
     endRun(writer)
   }

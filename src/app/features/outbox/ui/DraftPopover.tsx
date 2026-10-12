@@ -13,6 +13,7 @@ import { Popover, virtualAnchor } from '../../../ui/Popover'
 import { useLang, useT, t as translate } from '../../../i18n'
 import { fmtUsd } from '../../../lib/money'
 import { isAIConfigured } from '../../ai/client'
+import { AINeedsSetup, offersAI, useAIStatus } from '../../ai/setup/AINeedsSetup'
 import { HelpLink } from '../../../help'
 import { draftSlip, estimateDraft } from '../draft'
 import { keyPropOf, useRoutesFor } from '../routes'
@@ -65,7 +66,9 @@ function DraftPopover({ req }: { req: DraftRequest }) {
   }
   const tp = route.draftParam
   const typed = route.params.filter((p) => p.type !== 'text')
-  const aiOk = isAIConfigured()
+  // drafting runs on Claude in this version: the gate says whether it can run here
+  const draftStatus = useAIStatus('outbox.draft')
+  const aiOk = offersAI(draftStatus) && isAIConfigured()
 
   const go = async (mode: 'claude' | 'self' | 'typed') => {
     if (busy) return
@@ -132,7 +135,11 @@ function DraftPopover({ req }: { req: DraftRequest }) {
       ))}
       {rowIds.length > 1 && <p className="obx-draft__note">{t('features.outbox.draft.several', { n: rowIds.length })}</p>}
       {tp && aiOk && rowIds[0] && <Estimate route={route} rowId={rowIds[0]} instruction={instruction} mentions={mentions.map((m) => m.id)} lang={lang} />}
-      {tp && !aiOk && <p className="obx-draft__note">{t('features.outbox.draft.noKey')}</p>}
+      {tp && !aiOk && (
+        <div className="obx-draft__note" data-testid="obx-draft-needs">
+          <AINeedsSetup purpose="outbox.draft" variant="line" onOpen={close} /> {t('features.outbox.draft.noKey')}
+        </div>
+      )}
       {error && (
         <p className="obx-draft__error" role="alert">
           {error}

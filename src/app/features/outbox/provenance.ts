@@ -73,7 +73,7 @@ export function pageTrust(pageId: ID): { trusted: boolean; why?: string } {
   if ((p.updatedBy && FOREIGN_ACTOR.test(p.updatedBy)) || (p.createdBy && FOREIGN_ACTOR.test(p.createdBy))) return { trusted: false, why: 'agent' }
   if (p.databaseId) {
     const db = s.databases[p.databaseId]
-    if (s.settings.mail?.databaseId === p.databaseId || db?.system === 'mail-contacts' || db?.system === 'mail-companies' || db?.system === 'mail-conversations') return { trusted: false, why: 'mail' }
+    if (s.settings.mail?.databaseId === p.databaseId || db?.system === 'mails' || db?.system === 'mail-contacts' || db?.system === 'mail-companies' || db?.system === 'mail-conversations') return { trusted: false, why: 'mail' }
     if (mirrorSourceOf(p.databaseId)) return { trusted: false, why: 'mirror' }
   }
   return { trusted: true }

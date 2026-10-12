@@ -4,7 +4,8 @@
  * out, written in the transcript's language. Only text leaves the device; never audio.
  */
 import { formatOffset, type TranscriptSegment } from '../../../editor'
-import { AIError, completeStructured } from '../client'
+import { AIError, completeStructured, type RouteOptions } from '../client'
+import type { Receipt } from '../core/meter'
 import type { SourceRef } from '@/shared/ai/types'
 
 export interface MeetingActionItem {
@@ -138,9 +139,9 @@ export function parseMeetingSummary(raw: string): MeetingSummary | null {
 }
 
 /** Ask Claude for the notes. Throws AIError (no key, rate limit after retries, offline, aborted, empty …). */
-export async function requestMeetingSummary(input: MeetingInput, signal: AbortSignal | undefined, sources: readonly SourceRef[]): Promise<MeetingSummary> {
+export async function requestMeetingSummary(input: MeetingInput, signal: AbortSignal | undefined, sources: readonly SourceRef[], ro: Pick<RouteOptions, 'route' | 'applied'> & { onRun?: (r: Receipt) => void } = {}): Promise<MeetingSummary> {
   const { system, prompt, schema } = buildMeetingPrompt(input)
-  const raw = await completeStructured({ purpose: 'meeting.summary', sources, system, prompt, schema, maxTokens: 8000, signal })
+  const raw = await completeStructured({ purpose: 'meeting.summary', sources, system, prompt, schema, maxTokens: 8000, signal, ...ro })
   const parsed = parseMeetingSummary(raw)
   if (!parsed || (!parsed.summary.length && !parsed.decisions.length && !parsed.actionItems.length)) throw new AIError('empty')
   return parsed

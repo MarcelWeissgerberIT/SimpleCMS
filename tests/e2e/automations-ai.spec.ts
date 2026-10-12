@@ -74,7 +74,7 @@ test.describe('AI (mocked Claude API)', () => {
     const bubble = page.getByRole('toolbar', { name: 'Formatting' }).or(page.locator('[aria-label="Formatting"]')).first()
     await expect(bubble).toBeVisible()
     await bubble.getByRole('button', { name: 'Ask AI' }).click()
-    const ai = page.getByRole('dialog', { name: 'Ask Claude' })
+    const ai = page.getByRole('dialog', { name: 'Ask AI' })
     await expect(ai).toBeVisible()
     await ai.getByRole('option', { name: /Improve writing/ }).click()
     await expect(ai).toContainText(IMPROVED)

@@ -1,0 +1,56 @@
+{
+  "model": "vendor-a/model-b",
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are the writing assistant."
+    },
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "file",
+          "file": {
+            "filename": "Quarterly plan.pdf",
+            "file_data": "data:application/pdf;base64,JVBERi0xLjQKJcfsj6IKMSAwIG9iago8PC9UeXBlL0NhdGFsb2c+PgplbmRvYmoKdHJhaWxlcgo8PC9Sb290IDEgMCBSPj4KJSVFT0YK"
+          }
+        },
+        {
+          "type": "text",
+          "text": "Summarise the document."
+        }
+      ]
+    }
+  ],
+  "stream": true,
+  "max_tokens": 8000,
+  "provider": {
+    "only": [
+      "nordwind",
+      "lindenhof/turbo"
+    ],
+    "allow_fallbacks": false,
+    "data_collection": "deny",
+    "require_parameters": true
+  },
+  "plugins": [
+    {
+      "id": "web",
+      "enabled": false
+    },
+    {
+      "id": "context-compression",
+      "enabled": false
+    },
+    {
+      "id": "response-healing",
+      "enabled": false
+    },
+    {
+      "id": "file-parser",
+      "pdf": {
+        "engine": "native"
+      }
+    }
+  ]
+}

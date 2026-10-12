@@ -5,6 +5,7 @@
  * Once every passage is decided, Enter applies the accepted ones in one step (apply.ts).
  */
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { aiWriterOf } from '../core/runMeta'
 import type { Editor } from '@tiptap/core'
 import { Check, ChevronLeft, ChevronRight, X } from 'lucide-react'
 import { Kbd } from '../../../ui/controls'
@@ -85,7 +86,7 @@ export function RedoReview({ run, editor, pageId, onDone }: RedoReviewProps) {
       editor,
       pageId,
       accepted.map((r) => ({ passage: r.p, after: r.item.after! })),
-      { kind: 'ai', run: run.id, action: 'redo' },
+      aiWriterOf(run, 'redo'),
     )
     setBusy(false)
     const outcome: Record<number, 'applied' | 'changed'> = {}

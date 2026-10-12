@@ -3,11 +3,11 @@ id: ai-costs
 title: Was KI-Anfragen kosten
 section: ai
 order: 17
-keywords: kosten, preis, preise, beleg, belege, token, verbrauch, budget, schätzung, tabelle, cache, cache lesen, cache schreiben, ausgabenlimit, /kosten, cost, costs, price, receipt, tokens, usage, estimate, spend limit
-related: claude-key, ai-menu, agent, custom-agents
+keywords: kosten, openrouter, guthaben, jev router, gemeldet, katalog, preis, preise, beleg, belege, token, verbrauch, budget, schätzung, tabelle, cache, cache lesen, cache schreiben, ausgabenlimit, /kosten, cost, costs, price, receipt, tokens, usage, estimate, spend limit
+related: ai-providers, ai-data-rules, claude-key, ai-menu, agent, custom-agents
 summary: Jede KI-Anfrage in One bekommt einen Beleg — welches Modell geantwortet hat, was es gekostet hat und wie One den Preis ermittelt hat. Abgerechnet wird beim Anbieter.
 ---
-One schickt KI-Anfragen mit deinem eigenen Schlüssel, also rechnet dein Anbieter sie ab — bei Claude ist das Anthropic, über dein Konto. One zählt jede Antwort auf diesem Gerät mit und zeigt, was sie gekostet hat.
+One schickt KI-Anfragen mit deinem eigenen Schlüssel, also rechnet dein Anbieter sie ab — Anthropic bei Claude, OpenRouter aus deinem Guthaben. One zählt jede Antwort auf diesem Gerät mit und zeigt, was sie gekostet hat.
 
 ## Wo du es siehst
 - **KI-Menü:** unter jedem Ergebnis eine Belegzeile, zum Beispiel `Claude Sonnet 5.5 · 0,0040 $ · TABELLE`. Fährst du darüber, siehst du die Token (rein, Cache schreiben, Cache lesen, raus) und das Datum der Preistabelle. Braucht ein Ergebnis mehrere Anfragen (Umwandeln → Automatisch, ein MCP-Server, der die Antwort pausiert), zählt der Beleg sie zusammen.
@@ -23,7 +23,10 @@ One schickt KI-Anfragen mit deinem eigenen Schlüssel, also rechnet dein Anbiete
 ## Ein anderes Modell hat geantwortet
 Anthropic kann eine Anfrage, die das gewählte Modell ablehnt, an ein anderes Claude-Modell weitergeben. Der Beleg nennt dann das Modell, das geantwortet hat, und fügt die Zeile *Anthropic hat an Claude Sonnet 5.5 weitergegeben* hinzu. Jeder Teil kostet den Preis des Modells, das ihn bearbeitet hat: was das gewählte Modell vor der Ablehnung gelesen hat, zu seinem Preis, die Antwort zum Preis des anderen. Terminal und Agentenläufe zeigen dieselbe Zeile.
 
+## OpenRouter und der Jev Router
+OpenRouter meldet die Kosten jeder Anfrage mit der Antwort: Der Beleg zeigt dann **GEMELDET**. Ohne gemeldete Kosten bewertet One die Antwort mit der Katalogzeile des Modells (**KATALOG**). OpenRouter arbeitet mit Guthaben vorab (ab 5 $; beim Aufladen nimmt es eine Gebühr) — jedes Modell kostet seinen Listenpreis, zu sehen in Schritt 03 und in der Auswahl. Auch der **Jev Router** wird je Anfrage gemeldet; der Beleg nennt das Modell, das er gewählt hat (*OpenRouter · Jev Router → …*). Vor so einer Anfrage reserviert One das teuerste Modell deiner Liste.
+
 ## Was gespeichert wird
 Die Aufzeichnung hinter den Belegen bleibt auf diesem Gerät: IDs, Modelle, Token-Zahlen, Beträge — nie Seitentext. Sie hält 90 Tage, wird nie synchronisiert, exportiert oder gesichert und verschwindet, wenn du die Kopie eines Arbeitsbereichs von diesem Gerät entfernst oder die App hier zurücksetzt. Im Team hat jedes Mitglied seine eigene.
 
-> Das sind Ones Zahlen nach Listenpreisen. Der verbindliche Betrag und ein festes Ausgabenlimit liegen bei deinem Anbieter — für Claude in der Anthropic-Konsole (**console.anthropic.com → Settings → Limits**).
+> Das sind Ones Zahlen nach Listenpreisen oder der Meldung des Anbieters. Der verbindliche Betrag und ein festes Ausgabenlimit liegen bei deinem Anbieter — für Claude in der Anthropic-Konsole (**console.anthropic.com → Settings → Limits**), für OpenRouter als Limit des Schlüssels (**openrouter.ai → Settings → Keys**, live in Einstellungen → KI).

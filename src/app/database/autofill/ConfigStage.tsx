@@ -12,7 +12,7 @@ import { OptionTag } from '../cells/display'
 import { rowsOf } from '../model/actions'
 import { LANGUAGES, autofillOf, configIssue, presetsFor, translateTarget } from './config'
 import { CONTENT_MAX, contextChars } from './context'
-import { isEmptyCell, openAISettings, useFeatures } from './store'
+import { closeAutofillPanel, hasKey, isEmptyCell, useFeatures } from './store'
 
 /* ------------------------------------------------------------------ */
 /* Config                                                              */
@@ -45,7 +45,10 @@ export function ConfigStage({
   onDone: () => void
 }) {
   const t = useT()
-  const keyOk = useWorkspace((s) => !!s.settings.aiApiKey.trim())
+  // the gate's answer for autofill (a key for a route the rules allow), kept current with the keys and rules
+  useWorkspace((s) => `${s.settings.aiApiKey}|${JSON.stringify(s.settings.aiKeys ?? null)}|${JSON.stringify(s.settings.ai ?? null)}|${JSON.stringify(s.ai ?? null)}`)
+  const api = useFeatures()
+  const keyOk = hasKey()
   const presets = presetsFor(prop.type)
   const issue = configIssue(prop, draft)
   const canRun = keyOk && !issue
@@ -53,18 +56,7 @@ export function ConfigStage({
   return (
     <>
       <div className="af-body">
-        {!keyOk && (
-          <div className="af-nokey" role="note">
-            <span className="led" aria-hidden />
-            <div className="af-nokey__text">
-              <strong>{t('database.autofill.nokey.title')}</strong>
-              <span>{t('database.autofill.nokey.body')}</span>
-            </div>
-            <button type="button" className="btn btn--sm btn--ink" onClick={openAISettings}>
-              {t('database.autofill.nokey.open')}
-            </button>
-          </div>
-        )}
+        {!keyOk && api && <api.AINeedsSetup purpose="bulk.autofill" onOpen={closeAutofillPanel} testId="af-needs" />}
 
         <section className="af-sec">
           <h3 className="af-sec__label label">{t('database.autofill.sec.task')}</h3>
@@ -253,7 +245,7 @@ function RunControls({ db, prop, draft, canRun, issue, onRun }: { db: Database; 
           <dd>≈ {est ? formatUSD(est.usd, lang) : '—'}</dd>
         </div>
       </dl>
-      <p className="af-note">{t('database.autofill.est.note', { model: est?.model ?? '—' })}</p>
+      <p className="af-note">{t('database.autofill.est.note', { model: est?.model ?? '—', company: est?.company ?? '—' })}</p>
       {issue && (
         <p className="af-issue" role="status">
           {t(issue)}

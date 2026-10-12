@@ -35,10 +35,10 @@ export function CodewordChip({ text }: { text: string }) {
 
 /** The short label of a skipped entry's chip ("KB · OFF"). */
 export function skippedLabel(t: ReturnType<typeof useT>, c: McpCall): string {
-  return `${c.server.toUpperCase()} · ${t(`features.ai.mcp.cw.tag.${c.skipped}`)}`
+  return `${c.server.toUpperCase()} · ${t(`features.ai.mcp.cw.tag.${c.skipped}`, { provider: (c.provider ?? '').toUpperCase() })}`
 }
 
-/** One line per server a codeword addressed that did not join the request (switched off, no token). */
+/** One line per server that did not join the request (switched off, no token, the provider, a data rule). */
 export function McpSkippedNote({ calls }: { calls: McpCall[] }) {
   const t = useT()
   const skipped = calls.filter((c) => c.skipped)
@@ -48,7 +48,7 @@ export function McpSkippedNote({ calls }: { calls: McpCall[] }) {
       {skipped.map((c) => (
         <p key={c.id} className="mcp-skip" role="note" data-testid="mcp-skipped">
           <span className="led" aria-hidden />
-          <span>{t(`features.ai.mcp.cw.note.${c.skipped}`, { server: c.server })}</span>
+          <span>{t(`features.ai.mcp.cw.note.${c.skipped}`, { server: c.server, provider: c.provider ?? '' })}</span>
         </p>
       ))}
     </>

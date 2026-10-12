@@ -12,9 +12,10 @@
  * A facade call is one `meterCall`: one entry per response it gets (resumes, retries), its receipt (the sum) reported
  * through `onRun` and to the taps on its abort signal (runs.ts folds a run's requests into the card's receipt).
  */
-import type { CostSource, LedgerEntry, LedgerRole, ProviderId, StepNote, Usage } from '@/shared/ai/types'
+import type { CostSource, LedgerEntry, LedgerRole, PriceRow, ProviderId, StepNote, Turn, Usage } from '@/shared/ai/types'
+import type { ProviderError } from '@/shared/ai/errors'
 import type { AIErrorCode } from '@/shared/ai/errors'
-import { costOf, priceRow } from '@/shared/ai/prices'
+import { costOf, costSourceOf, priceRow } from '@/shared/ai/prices'
 import { addUsage, estimateUsage, normalise, ZERO_USAGE } from '@/shared/ai/usage'
 import { modelBase, sameModel } from '@/shared/ai/models'
 import { routeKey } from '@/shared/ai/route'
@@ -40,14 +41,20 @@ export interface ResponseInput {
   refused?: boolean
   /** the hops of a response another model finished (usage.iterations): each priced at its own model */
   parts?: Array<{ model: string | null; usage: Usage }>
+  /** a neutral provider's response: the price row to use (the shortlist's, the served model's, a stated bound) */
+  price?: PriceRow | null
+  /** what happened on the way (substituted, routed, upstream) — a neutral provider's own */
+  steps?: StepNote[]
+  /** the operator that served it (OpenRouter's upstream) */
+  upstream?: string
 }
 
 /** What a request (or a run of requests) cost — the receipt on run cards. */
 export interface Receipt {
   /** the requested route, 'p:m' */
   route: string
-  /** the model that answered (the latest response) */
-  served: { p: ProviderId; model: string }
+  /** the model that answered (the latest response) and the operator that served it (OpenRouter) */
+  served: { p: ProviderId; model: string; upstream?: string }
   usage: Usage
   /** null: a response had no price */
   usd: number | null
@@ -102,10 +109,12 @@ export function meterResponse(prepared: Prepared, opts: Pick<MeterOpts, 'source'
   const route = prepared.route
   if (!route || prepared.provider === 'demo') return null
   const served = r.served && typeof r.served === 'string' ? r.served : route.m
-  const fallback = !sameModel(route.m, served)
-  const servedRoute = { p: route.p, m: fallback ? served : route.m }
+  // Claude: another model than the requested one = the refusal fallback; other providers report their own steps
+  const claude = route.p === 'anthropic'
+  const fallback = claude && !sameModel(route.m, served)
+  const servedRoute = { p: route.p, m: claude ? (fallback ? served : route.m) : served }
   const at = Date.now()
-  const row = priceRow(servedRoute)
+  const row = r.price !== undefined ? r.price : priceRow(servedRoute)
   let usage: Usage
   let costSource: CostSource
   let usd: number | null
@@ -117,20 +126,22 @@ export function meterResponse(prepared: Prepared, opts: Pick<MeterOpts, 'source'
       const c = costOf(part.usage, priceRow({ p: route.p, m: part.model || route.m }), at).usd
       usd = usd === null || c === null ? null : usd + c
     }
-    costSource = usd === null ? 'none' : (row?.source ?? 'table')
+    costSource = usd === null ? 'none' : row ? costSourceOf(row) : 'table'
   } else if (r.usage) {
     usage = r.usage
     ;({ usd, source: costSource } = costOf(usage, row, at))
   } else if (r.refused) {
+    // every attempt answered with an error status: nothing was billed — an exact zero, never an estimate (a router's
+    // stated bound or a missing row says nothing about a request that was refused)
     usage = ZERO_USAGE
-    usd = row ? 0 : null
-    costSource = row ? row.source : 'none'
+    usd = row || !claude ? 0 : null
+    costSource = row && row.source !== 'bound' ? costSourceOf(row) : claude ? 'none' : 'reported'
   } else {
     usage = estimateUsage(r.promptChars ?? 0, r.streamedChars ?? 0, r.known)
     usd = costOf(usage, row, at).usd
     costSource = row ? 'estimate' : 'none'
   }
-  const steps: StepNote[] = fallback ? [{ k: 'refusal-fallback', from: route.m, to: modelBase(served) }] : []
+  const steps: StepNote[] = fallback ? [{ k: 'refusal-fallback', from: route.m, to: modelBase(served) }] : [...(r.steps ?? [])]
   return meter({
     id: newId(),
     at,
@@ -140,7 +151,7 @@ export function meterResponse(prepared: Prepared, opts: Pick<MeterOpts, 'source'
     source: opts.source || prepared.purpose,
     role: opts.role ?? 'main',
     route: routeKey(route),
-    served: { p: route.p, model: servedRoute.m },
+    served: { p: route.p, model: servedRoute.m, ...(r.upstream ? { upstream: r.upstream.slice(0, 80) } : {}) },
     classes: [...prepared.classes],
     usage,
     usd,
@@ -163,7 +174,7 @@ export function addToReceipt(r: Receipt | null | undefined, e: LedgerEntry): Rec
   const costSource: CostSource = usd === null ? 'none' : r?.costSource === 'estimate' || e.costSource === 'estimate' ? 'estimate' : e.costSource
   return {
     route: r?.route ?? e.route,
-    served: { p: e.served.p, model: e.served.model },
+    served: { p: e.served.p, model: e.served.model, ...(e.served.upstream ? { upstream: e.served.upstream } : {}) },
     usage: r ? addUsage(r.usage, e.usage) : e.usage,
     usd,
     costSource,
@@ -314,6 +325,50 @@ export function claudeCut(snapshot: ClaudeMessageLike | null | undefined, o: { p
     outcome: o.outcome,
     mcpCalls: mcpCount(snapshot?.content),
     refused: !o.sent,
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Neutral providers (OpenRouter): turns and cut responses              */
+/* ------------------------------------------------------------------ */
+
+/**
+ * A neutral provider's whole turn. Its reported cost wins (costOf); without one it is priced at `price` (the shortlist
+ * row; for the Jev Router the served model's row, else the bound — never $0). A turn without a usage report is an
+ * estimate from the request's size and what streamed.
+ */
+export function neutralResponse(turn: Turn, o: { price: PriceRow | null; steps?: StepNote[]; promptChars: number; outcome?: 'ok' | AIErrorCode }): ResponseInput {
+  return {
+    served: turn.served,
+    usage: turn.usage,
+    promptChars: o.promptChars,
+    streamedChars: turn.streamedChars,
+    outcome: o.outcome ?? (turn.stop === 'refusal' ? 'refusal' : 'ok'),
+    mcpCalls: 0,
+    price: o.price,
+    ...(o.steps?.length ? { steps: o.steps } : {}),
+    ...(turn.upstream ? { upstream: turn.upstream } : {}),
+  }
+}
+
+/**
+ * A neutral provider's response that ended without its turn (failed, stopped): refused with a status → nothing billed;
+ * otherwise an estimate from the request's size, the usage it reported so far and what streamed.
+ */
+export function neutralCut(e: ProviderError, o: { promptChars: number; price: PriceRow | null; aborted?: boolean }): ResponseInput {
+  const partial = (e.partial as Turn | undefined) ?? null
+  const u = partial?.usage ?? null
+  return {
+    served: partial?.served ?? null,
+    usage: null,
+    known: u ? { input: u.input, cacheRead: u.cacheRead, cacheWrite: u.cacheWrite, cacheWrite1h: u.cacheWrite1h, output: u.output } : null,
+    promptChars: o.promptChars,
+    streamedChars: partial?.streamedChars ?? 0,
+    outcome: o.aborted ? 'aborted' : e.code,
+    mcpCalls: 0,
+    refused: e.reach === 'refused',
+    price: o.price,
+    ...(partial?.upstream ? { upstream: partial.upstream } : {}),
   }
 }
 

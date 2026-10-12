@@ -319,7 +319,7 @@ test.describe('One memory', () => {
     expect(lastUser(claude.stream[2])).not.toContain('<one_memory>')
     expect(lastUser(claude.stream[2])).toContain('Prepare it a third time')
 
-    // Settings → Claude AI → "Use the memory" off: no block, no proposals
+    // Settings → AI → "Use the memory" off: no block, no proposals
     await expect.poll(() => claude.structured.length).toBe(3)
     await page.keyboard.press('Escape')
     await uiEval(page, (u) => u.openModal({ type: 'settings', tab: 'ai' }))

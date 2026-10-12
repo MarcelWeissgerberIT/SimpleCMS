@@ -1,0 +1,72 @@
+{
+  "source": "research.md#4.7 (live notes; not in the ordocs snapshot)",
+  "verified": false,
+  "note": "GET /api/v1/models/{author}/{slug}/endpoints — the shape is synthesized from research notes only: verify with a real key. `tag` is what provider.only takes (SP-R2).",
+  "json": {
+    "data": {
+      "id": "vendor-a/model-b",
+      "name": "Vendor A: Model B",
+      "created": 1780000000,
+      "description": "Fixture model.",
+      "architecture": {
+        "tokenizer": "Other",
+        "instruct_type": null,
+        "modality": "text->text",
+        "input_modalities": [
+          "text"
+        ],
+        "output_modalities": [
+          "text"
+        ]
+      },
+      "endpoints": [
+        {
+          "name": "Nordwind | vendor-a/model-b",
+          "model_name": "Vendor A: Model B",
+          "context_length": 131072,
+          "pricing": {
+            "prompt": "0.0000003",
+            "completion": "0.0000012"
+          },
+          "provider_name": "Nordwind",
+          "tag": "nordwind",
+          "quantization": "fp8",
+          "max_completion_tokens": 16384,
+          "max_prompt_tokens": null,
+          "supported_parameters": [
+            "max_tokens",
+            "response_format",
+            "structured_outputs",
+            "tools",
+            "reasoning"
+          ],
+          "status": 0,
+          "uptime_last_30m": 99.8,
+          "supports_implicit_caching": false
+        },
+        {
+          "name": "Lindenhof | vendor-a/model-b",
+          "model_name": "Vendor A: Model B",
+          "context_length": 131072,
+          "pricing": {
+            "prompt": "0.00000035",
+            "completion": "0.0000014"
+          },
+          "provider_name": "Lindenhof",
+          "tag": "lindenhof/turbo",
+          "quantization": "bf16",
+          "max_completion_tokens": 16384,
+          "max_prompt_tokens": null,
+          "supported_parameters": [
+            "max_tokens",
+            "response_format",
+            "tools"
+          ],
+          "status": 0,
+          "uptime_last_30m": 98.1,
+          "supports_implicit_caching": true
+        }
+      ]
+    }
+  }
+}

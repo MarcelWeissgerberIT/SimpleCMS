@@ -26,17 +26,20 @@ import { openPage } from '../../lib/router'
 import { newId } from '../../lib/ids'
 import { t } from '../../i18n'
 import { AIError, runAI, stripFence, type AIAction, type AIErrorCode } from './client'
-import { pageRef } from './core/refs'
+import type { AIFix } from './core/errors'
+import { memoryDbs, pageRef, selectionRef } from './core/refs'
+import { precheck } from './core/gate'
+import { routed, shapeOf, withShape } from './core/shape'
 import { addToReceipt, tapSignal, type Receipt } from './core/meter'
-import type { CostSource, LedgerEntry, ProviderId, StepNote, Usage } from '@/shared/ai/types'
+import type { CostSource, LedgerEntry, ProviderId, Route, SourceRef, StepNote, Usage } from '@/shared/ai/types'
 import { scrubSecrets } from '@/shared/ai/keys'
 import { askWorkspace, type WorkspaceSource } from './workspace'
 import type { McpCall } from './mcp-servers/activity'
-import { mapTarget, reanchor, type RunTarget } from './runsTarget'
+import { mapTarget, reanchor, selectionMarkdown, type RunTarget } from './runsTarget'
 import { requestTable, TodbError, type TableAnswer, type TodbIssue } from './todb/run'
 import type { TableDraft } from './todb/plan'
 import { countWords, pageRead, type RunReads } from './reads'
-import { readableContent } from '../../editor'
+import { pageContextMarks, readableContent } from '../../editor'
 import { requestRedo } from './redo/request'
 import type { RedoPassage } from './redo/passages'
 import { ImageLoadError, runImageRequest, type ImageIssue, type ImageMeta, type ImageRunRequest } from './image/run'
@@ -77,6 +80,9 @@ export type RunRequest =
 
 export type RunStatus = 'running' | 'done' | 'error' | 'interrupted'
 
+/** What a run's data rule left out (D-S2-29) — shown on the run, never a refusal. */
+export type RunNote = 'selectionOnly' | 'memoryWithheld'
+
 /** A redo passage's result: Claude's Markdown (null: skipped / missing), the review decision, what applying did. */
 export interface RedoItem {
   n: number
@@ -98,7 +104,7 @@ export interface AIRun {
   output: string
   sources: WorkspaceSource[]
   mcpCalls: McpCall[]
-  error: { code: AIErrorCode; detail?: string; server?: string } | null
+  error: { code: AIErrorCode; detail?: string; server?: string; message?: string; fix?: AIFix; fixes?: AIFix[]; label?: string } | null
   issue: TodbIssue | null
   table: TodbResult | null
   target: RunTarget
@@ -131,6 +137,10 @@ export interface AIRun {
   media?: MediaItem[] | null
   /** "Make tasks": how many people's names went along (`<people>`) — the result strip says so */
   peopleSent?: number | null
+  /** the route chip picked for this run (this request only; Retry asks the same) — absent: the rules decide */
+  chip?: Route | null
+  /** what the data rules left out of the request ('selectionOnly': page text not allowed · 'memoryWithheld') */
+  notes?: RunNote[] | null
   /*
    * The receipt (features/ai/core/meter.ts): what the run's requests cost, summed over every response it got — the
    * requested route ('p:m'), the model that answered last, the usage, the price (null: a response had none) and how it
@@ -288,12 +298,16 @@ export interface StartRunOptions {
   target: RunTarget
   /** a run this one takes the place of (Retry, Revise): stopped and removed */
   replaces?: string | null
+  /** the route chip for this request only (Retry keeps the replaced run's) */
+  chip?: Route | null
 }
 
 /** Start a run in the background; resolves nothing — the panel and the page indicator subscribe. */
-export function startRun({ editor, pageId, req, target, replaces }: StartRunOptions): string {
+export function startRun({ editor, pageId, req, target, replaces, chip }: StartRunOptions): string {
   // "Transform into": a run that replaces one (another form, Try again) keeps the forms asked so far
   const carried = replaces && req.kind === 'transform' ? (S().runs[replaces]?.transform ?? null) : null
+  // the chip: this request's (Retry / another form keeps the one it replaces)
+  const pick = chip !== undefined ? chip : replaces ? (S().runs[replaces]?.chip ?? null) : null
   if (replaces) removeRun(replaces)
   const id = newId()
   const run: AIRun = {
@@ -313,6 +327,7 @@ export function startRun({ editor, pageId, req, target, replaces }: StartRunOpti
     finishedAt: null,
     seen: false,
     reads: null,
+    ...(pick ? { chip: pick } : {}),
     ...(req.kind === 'transform' ? { transform: carried } : {}),
   }
   useAIRuns.setState((s) => ({ runs: { ...s.runs, [id]: run } }))
@@ -330,17 +345,41 @@ export function startRun({ editor, pageId, req, target, replaces }: StartRunOpti
  * only the marked blocks, or nothing. "Continue" reads the text before the caret (whole page), the
  * marked blocks (marked) or nothing; a selection always goes along as the text to work on.
  */
-function actionRead(run: AIRun, req: Extract<RunRequest, { kind: 'action' }>): { input: string; context: string; reads: RunReads } {
+function actionRead(run: AIRun, req: Extract<RunRequest, { kind: 'action' }>, o: { page: boolean; shaped: boolean; editor: Editor }): { input: string; context: string; reads: RunReads } {
   const { target } = run
-  const selection = target.mode === 'selection' ? target.selected : null
-  const pr = pageRead(run.pageId, selection, { markdown: req.action === 'make_tasks' })
-  if (req.action !== 'continue') return { input: req.input ?? target.selected, context: pr.context, reads: pr.reads }
+  const selection = target.mode === 'selection' ? selectionFor(run, o) : null
+  // the request's own input (a refine of an answer) — the captured selection is built again for the route
+  const own = req.input !== undefined && req.input !== target.selected ? req.input : undefined
+  // a route that may not receive page text: the selection alone (D-S2-29)
+  if (!o.page) return { input: own ?? selection ?? '', context: '', reads: { mode: 'none', selection: !!selection, blocks: 0, words: selection ? countWords(selection) : 0 } }
+  const pr = pageRead(run.pageId, selection, { markdown: req.action === 'make_tasks', shaped: o.shaped })
+  if (req.action !== 'continue') return { input: own ?? selection ?? target.selected, context: pr.context, reads: pr.reads }
   const p = useWorkspace.getState().pages[run.pageId]
   const title = p?.title.trim() ? `# ${p.title.trim()}` : ''
   if (pr.reads.mode === 'none') return { input: '', context: '', reads: pr.reads }
   if (pr.reads.mode === 'marked') return { input: pr.marked, context: title, reads: pr.reads }
-  const input = req.input ?? target.before
+  // the text before the caret — for a route that does not see everything, built again inside the request-text scope
+  const input = own ?? (o.shaped ? beforeFor(run, o.editor) : target.before)
   return { input, context: title, reads: { ...pr.reads, words: countWords(input) } }
+}
+
+/**
+ * The selection as the route may receive it: what was captured when the menu opened, or — for a route that does not see
+ * everything — built again from the editor inside the request-text scope (names, pages it may not see left out).
+ */
+function selectionFor(run: AIRun, o: { shaped: boolean; editor: Editor }): string {
+  const { target } = run
+  if (!o.shaped) return target.selected
+  if (o.editor.isDestroyed || target.lost) throw new TodbError('changed')
+  return selectionMarkdown(o.editor.state.doc, target.from, target.to)
+}
+
+/** The text before the caret as the route may receive it (Markdown built inside the request-text scope, ≤ 12 000). */
+function beforeFor(run: AIRun, editor: Editor): string {
+  const { target } = run
+  if (editor.isDestroyed || target.lost) throw new TodbError('changed')
+  const doc = editor.state.doc
+  return selectionMarkdown(doc, 0, Math.min(target.from, doc.content.size)).slice(-12000)
 }
 
 /** The rules page of a redo request: its title + what may be read of it (its own context marks apply). */
@@ -350,13 +389,12 @@ function rulesOf(pageId: ID | null): { title: string; markdown: string } | null 
   return { title: p.title.trim() || t('common.untitled'), markdown: readableContent(p.id).markdown }
 }
 
-/** "Ask your workspace": this page as its context marks allow (null: no limit). */
-function workspaceLimit(pageId: ID): { limit: { id: ID; text: string | null } | null; reads: RunReads } {
-  const r = readableContent(pageId)
+/** "Ask your workspace": does this page's context marks limit what is read of it? (askWorkspace reads the limit) */
+function workspaceLimit(pageId: ID): { limited: boolean; reads: RunReads } {
+  const r = pageContextMarks(pageId)
   const mode = r.mode === 'marked' && !r.blocks ? 'none' : r.mode
   const reads: RunReads = { mode, selection: false, blocks: mode === 'marked' ? r.blocks : 0, words: 0, workspace: true }
-  if (mode === 'page') return { limit: null, reads }
-  return { limit: { id: pageId, text: mode === 'none' ? null : r.plain }, reads }
+  return { limited: mode !== 'page', reads }
 }
 
 async function execute(id: string, editor: Editor) {
@@ -374,6 +412,8 @@ async function execute(id: string, editor: Editor) {
   const { req, target } = run
   /** an own request that took the One memory along: logged once it ends (answered, stopped or failed) */
   let memLog: { use: MemoryUse; task: string } | null = null
+  /** what the data rules left out of the request (shown on the run) */
+  const notes: RunNote[] = []
   let outcome = ''
   try {
     if (req.kind === 'todb') {
@@ -381,7 +421,7 @@ async function execute(id: string, editor: Editor) {
       patch(id, { reads: { mode: 'none', selection: true, blocks: 0, words: countWords(target.selected) } })
       if (!target.todb || editor.isDestroyed) throw new TodbError('changed')
       const title = useWorkspace.getState().pages[run.pageId]?.title ?? ''
-      const res = await requestTable(editor.state.doc, target.todb, { pageTitle: title, instruction: req.instruction, signal: ac.signal, sources: pageRef(run.pageId) })
+      const res = await requestTable(editor.state.doc, target.todb, { pageTitle: title, instruction: req.instruction, signal: ac.signal, sources: selectionRef(run.pageId), route: run.chip ?? null })
       if (ac.signal.aborted) return
       patch(id, { status: 'done', table: res, finishedAt: Date.now() })
     } else if (req.kind === 'transform') {
@@ -390,7 +430,8 @@ async function execute(id: string, editor: Editor) {
       if (!target.range || editor.isDestroyed) throw new TodbError('changed')
       const title = useWorkspace.getState().pages[run.pageId]?.title ?? ''
       const state = await runTransform(editor.state.doc, target.range, req, run.transform, {
-        sources: pageRef(run.pageId),
+        sources: selectionRef(run.pageId),
+        route: run.chip ?? null,
         pageTitle: title,
         signal: ac.signal,
         onState: (transform) => !ac.signal.aborted && patch(id, { transform }),
@@ -398,11 +439,20 @@ async function execute(id: string, editor: Editor) {
       if (ac.signal.aborted) return
       patch(id, { status: 'done', transform: state, finishedAt: Date.now() })
     } else if (req.kind === 'redo') {
-      const pr = pageRead(run.pageId, null)
+      // the passages (mentions as ⟦n⟧ tokens), the rules page and — where the route may receive it — the page context
+      const pre = precheck({ purpose: 'structure.redo', sources: [...selectionRef(run.pageId), ...pageRef(req.rulesPageId)], typed: req.instructions, route: run.chip ?? null })
+      const shape = shapeOf(pre)
+      const page = pre.allows('page')
+      const { pr, rules } = withShape(shape, () => ({ pr: page ? pageRead(run.pageId, null, { shaped: !!shape }) : null, rules: rulesOf(req.rulesPageId) }))
+      if (!page) notes.push('selectionOnly')
       const sent = req.passages.filter((p) => !p.skip)
       const words = sent.reduce((n, p) => n + countWords(p.anchor), 0)
-      patch(id, { reads: { ...pr.reads, passages: sent.length, words: pr.reads.words + (pr.reads.mode === 'page' ? 0 : words) } })
-      const answer = sent.length ? await requestRedo({ passages: req.passages, instructions: req.instructions, rules: rulesOf(req.rulesPageId), context: pr.context }, ac.signal, [...pageRef(run.pageId), ...pageRef(req.rulesPageId)]) : new Map<number, string>()
+      const reads: RunReads = pr ? { ...pr.reads, passages: sent.length, words: pr.reads.words + (pr.reads.mode === 'page' ? 0 : words) } : { mode: 'none', selection: false, blocks: 0, words, passages: sent.length }
+      patch(id, { reads, ...(notes.length ? { notes: [...notes] } : {}) })
+      const withPage = !!pr?.context
+      const answer = sent.length
+        ? await requestRedo({ passages: req.passages, instructions: req.instructions, rules, context: pr?.context ?? '' }, ac.signal, [...(withPage ? pageRef(run.pageId) : selectionRef(run.pageId)), ...pageRef(req.rulesPageId)], { ...routed(pre), carries: withPage ? ['page'] : [] })
+        : new Map<number, string>()
       if (ac.signal.aborted) return
       const items: RedoItem[] = req.passages.map((p) => ({ n: p.n, after: p.skip ? null : (answer.get(p.n) ?? null), decision: null }))
       patch(id, { status: 'done', redo: { items }, finishedAt: Date.now() })
@@ -410,23 +460,34 @@ async function execute(id: string, editor: Editor) {
       // reads what it is given (the selection / the request) — the page only for its title and link
       patch(id, { reads: { mode: 'none', selection: req.from === 'selection', blocks: 0, words: countWords(req.text) } })
       const title = useWorkspace.getState().pages[run.pageId]?.title.trim() ?? ''
-      const proposals = await condense({ text: req.text, from: req.from, pageTitle: title, source: pageSource(run.pageId), signal: ac.signal, sources: pageRef(run.pageId) })
+      // the memory class is needed (refused on a route without it); a selection is built again for the route
+      const pre = precheck({ purpose: 'memory.propose', sources: [...selectionRef(run.pageId), ...memorySourceRefs()], typed: req.from === 'request' ? req.text : null, route: run.chip ?? null })
+      const shape = shapeOf(pre)
+      const text = req.from === 'selection' && shape ? withShape(shape, () => selectionFor(run, { shaped: true, editor })) : req.text
+      const proposals = await condense({ text, from: req.from, pageTitle: title, source: pageSource(run.pageId), signal: ac.signal, sources: selectionRef(run.pageId), routed: routed(pre) })
       if (ac.signal.aborted) return
       patch(id, { status: 'done', proposals, finishedAt: Date.now() })
     } else if (req.kind === 'image') {
-      // the picture + the page as its context marks allow
-      const pr = pageRead(run.pageId, null)
-      patch(id, { reads: pr.reads })
-      const text = await runImageRequest(req, pr.context, { sources: pageRef(run.pageId), onToken, signal: ac.signal, onImage: (image) => !ac.signal.aborted && patch(id, { image }) })
+      // the picture + the page as its context marks allow (and the route may receive it)
+      const pre = precheck({ purpose: 'vision.image', sources: selectionRef(run.pageId), typed: [req.question, req.instruction], route: run.chip ?? null })
+      const shape = shapeOf(pre)
+      const pr = pre.allows('page') ? withShape(shape, () => pageRead(run.pageId, null, { shaped: !!shape })) : null
+      if (!pr) notes.push('selectionOnly')
+      patch(id, { reads: pr?.reads ?? { mode: 'none', selection: false, blocks: 0, words: 0 }, ...(notes.length ? { notes: [...notes] } : {}) })
+      const withPage = !!pr?.context
+      const text = await runImageRequest(req, pr?.context ?? '', { sources: withPage ? pageRef(run.pageId) : selectionRef(run.pageId), ...routed(pre), carries: withPage ? ['page'] : [], onToken, signal: ac.signal, onImage: (image) => !ac.signal.aborted && patch(id, { image }) })
       if (ac.signal.aborted) return
       buffers.delete(id)
       patch(id, { status: 'done', output: text, finishedAt: Date.now() })
     } else if (req.kind === 'generate') {
       // one MCP server, the prompt — the page only when the person ticked it (its context marks apply)
-      const pr = req.context ? pageRead(run.pageId, null) : null
+      const pre = req.context ? precheck({ purpose: 'generate.media', sources: pageRef(run.pageId), typed: req.prompt, route: run.chip ?? null }) : null
+      const shape = pre ? shapeOf(pre) : null
+      const pr = pre ? withShape(shape, () => pageRead(run.pageId, null, { shaped: !!shape })) : null
       patch(id, { reads: pr ? pr.reads : { mode: 'none', selection: false, blocks: 0, words: 0 } })
       const text = await runGenerate(req, pr?.context ?? '', {
         sources: pageRef(run.pageId),
+        ...(pre ? { ...routed(pre), carries: pr?.context ? ['page'] : [] } : {}),
         onToken,
         signal: ac.signal,
         onMcp: (calls) => !ac.signal.aborted && patch(id, { mcpCalls: calls }, false),
@@ -437,9 +498,14 @@ async function execute(id: string, editor: Editor) {
       patch(id, { status: 'done', output: text, finishedAt: Date.now() })
     } else if (req.kind === 'file') {
       // the file + the page as its context marks allow — a local conversion reads (and sends) nothing
-      const pr = isLocalAction(req.action) ? null : pageRead(run.pageId, null)
-      if (pr) patch(id, { reads: pr.reads })
-      const text = await runFileRequest(req, pr?.context ?? '', { sources: pageRef(run.pageId), onToken, signal: ac.signal, onFile: (file) => !ac.signal.aborted && patch(id, { file }) })
+      const local = isLocalAction(req.action)
+      const pre = local ? null : precheck({ purpose: 'documents.file', sources: selectionRef(run.pageId), typed: [req.question, req.instruction], needs: req.fileKind === 'pdf' ? ['pdf'] : [], route: run.chip ?? null })
+      const shape = pre ? shapeOf(pre) : null
+      const pr = pre?.allows('page') ? withShape(shape, () => pageRead(run.pageId, null, { shaped: !!shape })) : null
+      if (pre && !pr) notes.push('selectionOnly')
+      if (pre) patch(id, { reads: pr?.reads ?? { mode: 'none', selection: false, blocks: 0, words: 0 }, ...(notes.length ? { notes: [...notes] } : {}) })
+      const withPage = !!pr?.context
+      const text = await runFileRequest(req, pr?.context ?? '', { sources: withPage ? pageRef(run.pageId) : selectionRef(run.pageId), ...(pre ? { ...routed(pre), carries: withPage ? ['page'] : [] } : {}), onToken, signal: ac.signal, onFile: (file) => !ac.signal.aborted && patch(id, { file }) })
       if (ac.signal.aborted) return
       buffers.delete(id)
       patch(id, { status: 'done', output: text, finishedAt: Date.now() })
@@ -448,19 +514,29 @@ async function execute(id: string, editor: Editor) {
       if (req.kind === 'workspace') {
         const ws = workspaceLimit(run.pageId)
         patch(id, { reads: ws.reads })
-        const res = await askWorkspace({ question: req.question, onToken, signal: ac.signal, limit: ws.limit, onSources: (sources) => !ac.signal.aborted && patch(id, { sources }, false) })
+        const res = await askWorkspace({ question: req.question, onToken, signal: ac.signal, limitPage: ws.limited ? run.pageId : null, route: run.chip ?? null, onSources: (sources) => !ac.signal.aborted && patch(id, { sources }, false) })
         text = res.text
       } else {
-        const read = actionRead(run, req)
-        // an own request takes the One memory along (unless switched off for it)
-        const mem = req.action === 'custom' ? memoryFor(req.instruction ?? '', { off: req.memoryOff }) : null
+        const purpose = req.action === 'custom' ? 'menu.ask' : req.action === 'make_tasks' ? 'menu.tasks' : 'menu.action'
+        // the route first (chip → rules): what it may receive decides what is built (names, page text, the memory)
+        const pre = precheck({ purpose, sources: selectionRef(run.pageId), typed: req.instruction, route: run.chip ?? null })
+        const shape = shapeOf(pre)
+        const page = pre.allows('page')
+        const read = withShape(shape, () => actionRead(run, req, { page, shaped: !!shape, editor }))
+        if (!page) notes.push('selectionOnly')
+        // an own request takes the One memory along (unless switched off for it) — only where the route may receive it
+        const found = req.action === 'custom' ? memoryFor(req.instruction ?? '', { off: req.memoryOff }) : null
+        const mem = found && pre.allows('memory') ? found : null
+        if (found?.use && !mem) notes.push('memoryWithheld')
         if (mem?.use) memLog = { use: mem.use, task: req.instruction ?? '' }
         const people = req.action === 'make_tasks' ? peopleNames() : null
-        patch(id, { reads: read.reads, ...(mem?.use ? { memory: mem.use } : {}), ...(people ? { peopleSent: people.length } : {}) })
+        patch(id, { reads: read.reads, ...(mem?.use ? { memory: mem.use } : {}), ...(people ? { peopleSent: people.length } : {}), ...(notes.length ? { notes: [...notes] } : {}) })
+        const withPage = !!read.context.trim()
         text = await runAI({
           action: req.action,
-          purpose: req.action === 'custom' ? 'menu.ask' : req.action === 'make_tasks' ? 'menu.tasks' : 'menu.action',
-          sources: pageRef(run.pageId),
+          purpose,
+          // the selection's page (its member classes); the whole page when its text goes along
+          sources: withPage ? pageRef(run.pageId) : selectionRef(run.pageId),
           typed: req.instruction,
           input: read.input,
           instruction: req.instruction,
@@ -472,6 +548,8 @@ async function execute(id: string, editor: Editor) {
           memory: mem?.block,
           // "Make tasks": the names owners may come from — only with this action (never an email)
           ...(people ? { people } : {}),
+          ...routed(pre),
+          carries: withPage ? ['page'] : [],
         })
         outcome = text
       }
@@ -490,7 +568,9 @@ async function execute(id: string, editor: Editor) {
     if (e instanceof FileLoadError) return patch(id, { status: 'error', fileIssue: e.problem, finishedAt: Date.now() })
     const err = e instanceof AIError ? e : new AIError('unknown', String(e))
     if (err.code === 'aborted') return
-    patch(id, { status: 'error', output: partial, error: { code: err.code, detail: err.detail, server: err.server }, finishedAt: Date.now() })
+    // a refusal written for this request (a codeword the route cannot connect) keeps its sentence and its fix
+    const own = err.fix?.kind === 'askClaude' ? { message: err.message } : {}
+    patch(id, { status: 'error', output: partial, error: { code: err.code, detail: err.detail, server: err.server, ...own, ...(err.fix ? { fix: err.fix } : {}), ...(err.fixes && err.fixes.length > 1 ? { fixes: err.fixes } : {}), ...(err.label ? { label: err.label } : {}) }, finishedAt: Date.now() })
   } finally {
     untap()
     if (controllers.get(id) === ac) controllers.delete(id)
@@ -502,6 +582,9 @@ async function execute(id: string, editor: Editor) {
     }
   }
 }
+
+/** The memory databases as a request's source (memory.propose: the memory class is needed). */
+const memorySourceRefs = (): SourceRef[] => memoryDbs().map((id) => ({ page: id, as: 'selection' as const }))
 
 /** What a run does, for its ledger source: the action ('improve' …), 'image.describe', 'file.summarize', 'transform' … */
 const runWhat = (req: RunRequest): string => (req.kind === 'action' ? req.action : req.kind === 'image' || req.kind === 'file' ? `${req.kind}.${req.action}` : req.kind)

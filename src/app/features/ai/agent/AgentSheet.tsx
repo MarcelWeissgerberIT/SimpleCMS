@@ -16,6 +16,8 @@ import { fmtUsd } from '../../../lib/money'
 import { useCloud } from '../../../cloud'
 import { shortcutLabel } from '../../../ui/controls'
 import { AI_MODELS, resolveModel } from '../client'
+import { AINeedsSetup } from '../setup/AINeedsSetup'
+import { openAISetup, openAISettings } from '../setup/openAISetup'
 import { MarkdownLite } from '../MarkdownLite'
 import { closeAgent, clampHeight, removeRef, setTermHeight, stopAgent, useAgent, HEIGHT_DEFAULT, type EchoEntry } from './state'
 import { answerAsk, applyStaged, appliesAlone, changeTarget, continueTask, contextPageId, discardAllStaged, discardStaged, emptyEnter, goesToWorker, newTask, pickContext, rerunAfterSignIn, restoreStaged, runTask, stage as stageApi, stageMedia, submitPrompt, tn, undoLastBatch } from './session'
@@ -50,8 +52,12 @@ import { memorySettings } from '../memory/settings'
 import { MediaCards } from '../media/MediaCards'
 import { MediaPreview } from '../media/MediaPreview'
 import { pagePrivate } from '../media/blocks'
+import { PROVIDERS } from '@/shared/ai/providers'
 import '../ai.css'
 import './agent.css'
+
+/** The terminal runs on Claude until slice 3: Anthropic bills its requests. */
+const TERMINAL_COMPANY = PROVIDERS.anthropic.company
 
 export { PropDiff, Preview } from './ReviewParts'
 
@@ -204,8 +210,9 @@ export default function AgentSheet() {
             stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 32
           }}
         >
-          {!hasKey && <NoKey />}
           {turns.length === 0 && echo.length === 0 && <Standby disabled={!hasKey} />}
+          {/* below the intro: the scroll keeps to the bottom, so the card is what shows */}
+          {!hasKey && <NoKey />}
           <Timeline />
           {changes.length > 0 && <Review listRef={listRef} readOnly={readOnly} />}
         </div>
@@ -449,24 +456,17 @@ function MemoryChip() {
 /* ------------------------------------------------------------------ */
 
 function NoKey() {
-  const t = useT()
+  // the terminal runs on Claude in this version: on a device with only another provider the card says so
   return (
-    <div className="term-nokey" role="note">
-      <span className="led" aria-hidden />
-      <div className="term-nokey__text">
-        <strong>{t('features.agent.nokey.title')}</strong>
-        <span>{t('features.agent.nokey.body')}</span>
-      </div>
-      <button type="button" className="btn btn--sm" onClick={() => useUI.getState().openModal({ type: 'settings', tab: 'ai' })}>
-        <KeyRound size={13} strokeWidth={1.75} aria-hidden /> {t('features.agent.nokey.open')}
-      </button>
+    <div className="term-nokey-card">
+      <AINeedsSetup purpose="terminal.task" testId="term-needs" />
     </div>
   )
 }
 
 function Standby({ disabled }: { disabled: boolean }) {
   const t = useT()
-  // external MCP servers the next conversation will use (Settings → Claude AI)
+  // external MCP servers the next conversation will use (Settings → AI)
   const mcp = useWorkspace((s) =>
     readServers(s.settings)
       .filter((x) => x.enabled)
@@ -661,12 +661,12 @@ function TurnError({ error, n, last }: { error: NonNullable<AgentTurn['error']>;
       <p>{error.message}</p>
       {signIn && <SignInKey server={error.server!} retry={retryOf(n)} />}
       {keyIssue && (
-        <button type="button" className="btn btn--sm" onClick={() => useUI.getState().openModal({ type: 'settings', tab: 'ai' })}>
+        <button type="button" className="btn btn--sm" onClick={() => openAISetup({ reason: error.code === 'no_key' ? 'nokey' : error.code === 'key_in_text' ? 'add' : 'refused', step: error.code === 'no_key' ? undefined : 'key', provider: 'anthropic', feature: 'terminal' })}>
           <KeyRound size={13} strokeWidth={1.75} aria-hidden /> {t('features.agent.nokey.open')}
         </button>
       )}
       {(error.code === 'mcp' || error.code === 'mcp_auth') && (
-        <button type="button" className="btn btn--sm" onClick={() => useUI.getState().openModal({ type: 'settings', tab: 'ai' })}>
+        <button type="button" className="btn btn--sm" onClick={() => openAISettings({ section: 'mcp' })}>
           <Settings2 size={13} strokeWidth={1.75} aria-hidden /> {t('features.ai.mcp.openSettings')}
         </button>
       )}
@@ -833,7 +833,7 @@ function Echo({ entry }: { entry: EchoEntry }) {
         <>
           <CostTable lines={u.byModel} />
           <p className="term-echo__note">
-            {t('features.agent.meter.billed')} <HelpLink id="ai-costs" topic={t('features.ai.receipt.help')} />
+            {t('features.agent.meter.billed', { company: TERMINAL_COMPANY })} <HelpLink id="ai-costs" topic={t('features.ai.receipt.help')} />
           </p>
         </>
       ) : (
@@ -855,7 +855,7 @@ function Echo({ entry }: { entry: EchoEntry }) {
               </div>
             ))}
           </dl>
-          <p className="term-echo__note">{t('features.agent.meter.billed')}</p>
+          <p className="term-echo__note">{t('features.agent.meter.billed', { company: TERMINAL_COMPANY })}</p>
         </>
       )
       break
@@ -1810,7 +1810,7 @@ function Foot() {
         </span>
         <span>{t('features.agent.kbd.help')}</span>
       </p>
-      <div className="term-meter" title={t('features.agent.meter.billed')}>
+      <div className="term-meter" title={t('features.agent.meter.billed', { company: TERMINAL_COMPANY })}>
         <dl className="term-meter__vals">
           {/* IN as in /cost: the input outside the cache; cache writes and reads beside it */}
           <div>
@@ -1838,7 +1838,7 @@ function Foot() {
             <dd data-testid="agent-cost">{meterUsd(usage.usd, usage.byModel, lang)}</dd>
           </div>
         </dl>
-        <span className="term-meter__note">{t('features.agent.meter.billed')}</span>
+        <span className="term-meter__note">{t('features.agent.meter.billed', { company: TERMINAL_COMPANY })}</span>
       </div>
     </footer>
   )

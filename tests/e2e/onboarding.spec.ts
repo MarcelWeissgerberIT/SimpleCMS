@@ -136,7 +136,7 @@ test.describe('guided tour', () => {
     await next()
 
     // 2 · no key: the key line and what Transform into would do; Do it selects the list (the toolbar's Ask AI shows)
-    await expect(placard(page).getByTestId('tour-keyline')).toContainText('add your key in Settings → Claude AI')
+    await expect(placard(page).getByTestId('tour-keyline')).toContainText('This needs AI — set it up')
     await expect(placard(page).locator('.tour-would')).toBeVisible()
     await doIt.click()
     await expect(page.locator('[aria-label="Formatting"]').getByRole('button', { name: 'Ask AI' })).toBeVisible()
@@ -250,7 +250,7 @@ test.describe('guided tour', () => {
     await expect(placard(page).getByRole('button', { name: 'Mach’s für mich' })).toBeVisible()
     await expect(page.locator('#main .pv-title')).toHaveValue('Tour — hier ausprobieren')
     await page.keyboard.press('ArrowRight')
-    await expect(placard(page).getByTestId('tour-keyline')).toContainText('Einstellungen → Claude KI')
+    await expect(placard(page).getByTestId('tour-keyline')).toContainText('Das braucht KI — richte sie ein')
     await page.keyboard.press('Escape')
     await expect(placard(page)).toHaveCount(0)
   })
@@ -267,7 +267,7 @@ test.describe('What can One do?', () => {
     await expect(page.getByRole('heading', { level: 1, name: 'What can One do?' })).toBeVisible()
     await expect(page.locator('.disc__group')).toHaveCount(6)
     await expect(page.locator('.disc-card')).toHaveCount(19)
-    await expect(page.locator('.disc__head')).toHaveText([/Write/, /Organise/, /Claude/, /Automate/, /Share & team/, /Capture/])
+    await expect(page.locator('.disc__head')).toHaveText([/Write/, /Organise/, /\dAI\d/, /Automate/, /Share & team/, /Capture/])
     // every card: a title, what, how, Try it and its article
     for (const c of await page.locator('.disc-card').all()) {
       await expect(c.locator('.disc-card__title')).not.toBeEmpty()
@@ -470,7 +470,7 @@ test.describe('AI menu: a short top level', () => {
     // typing finds what sits under More (and still offers the own request)
     await ai.locator('.ai-cmd__input').fill('database')
     await expect(ai.getByRole('option', { name: /Turn into database/ })).toBeVisible()
-    await expect(ai.getByRole('option', { name: /Ask Claude “database”/ })).toBeVisible()
+    await expect(ai.getByRole('option', { name: /Ask AI “database”/ })).toBeVisible()
   })
 
   test('keys: → opens a submenu, ← and Backspace come back; German labels', async ({ page, context }) => {
@@ -503,7 +503,7 @@ test.describe('AI menu: a short top level', () => {
 /* ------------------------------------------------------------------ */
 
 test.describe('grip menu and ⌘K', () => {
-  test('the block menu groups Claude (with Ask AI); several blocks: Transform into first; ⌘K lists its commands in groups', async ({ page, context }) => {
+  test('the block menu groups AI (with Ask AI); several blocks: Transform into first; ⌘K lists its commands in groups', async ({ page, context }) => {
     await blockClaude(context)
     await openApp(page)
     await wsEval(page, (s) => s.updateSettings({ aiApiKey: 'sk-ant-e2e-test-key' }))
@@ -512,7 +512,7 @@ test.describe('grip menu and ⌘K', () => {
     await ed.locator('p', { hasText: 'Alpha line' }).hover()
     await page.getByRole('button', { name: 'Block menu' }).click()
     const menu = page.getByRole('menu')
-    await expect(menu.locator('.menu-section', { hasText: 'Claude' })).toBeVisible()
+    await expect(menu.locator('.menu-section', { hasText: /^AI$/ })).toBeVisible()
     const labels = await menu.locator('.menu-item__label').allInnerTexts()
     expect(labels.indexOf('Ask AI')).toBeGreaterThan(labels.indexOf('Colour'))
     expect(labels.indexOf('Redo with instructions…')).toBe(labels.indexOf('Ask AI') + 1)
@@ -523,7 +523,7 @@ test.describe('grip menu and ⌘K', () => {
     await expect(panel(page).getByTestId('ai-reads')).toContainText('selection')
     await page.keyboard.press('Escape')
 
-    // several selected blocks: the Claude group starts with Transform into
+    // several selected blocks: the AI group starts with Transform into
     await ed.locator(':is(h2, h3, h4)', { hasText: 'Plan' }).click()
     await page.keyboard.press('Escape')
     await page.keyboard.press('Shift+ArrowDown')
@@ -547,7 +547,7 @@ test.describe('grip menu and ⌘K', () => {
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur?.())
     await page.keyboard.press(`${MOD}+k`)
     const pal = page.getByRole('dialog', { name: 'Command palette' })
-    await expect(pal.locator('.pal-group > span:first-child')).toHaveText(['Recent', 'Create', 'Go to', 'Claude', 'This page', 'Workspace', 'Getting started'])
+    await expect(pal.locator('.pal-group > span:first-child')).toHaveText(['Recent', 'Create', 'Go to', 'AI', 'This page', 'Workspace', 'Getting started'])
     const names = await pal.locator('.pal-item__title').allInnerTexts()
     expect(new Set(names).size).toBe(names.length)
     await expect(pal.getByRole('option', { name: /AI terminal/ })).toBeVisible()

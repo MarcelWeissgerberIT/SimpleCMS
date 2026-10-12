@@ -638,6 +638,10 @@
   font-size: calc(11px * var(--text-scale));
 }
 
+.term-nokey-card {
+  margin: 10px 0 4px;
+}
+
 .term-nokey {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;

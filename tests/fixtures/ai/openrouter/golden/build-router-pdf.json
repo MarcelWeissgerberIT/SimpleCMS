@@ -1,0 +1,78 @@
+{
+  "model": "typesafe/jev-router",
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are the writing assistant."
+    },
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "file",
+          "file": {
+            "filename": "Plan.pdf",
+            "file_data": "data:application/pdf;base64,JVBERi0xLjQKJcfsj6IKMSAwIG9iago8PC9UeXBlL0NhdGFsb2c+PgplbmRvYmoKdHJhaWxlcgo8PC9Sb290IDEgMCBSPj4KJSVFT0YK"
+          }
+        },
+        {
+          "type": "text",
+          "text": "Summarise."
+        }
+      ]
+    }
+  ],
+  "stream": true,
+  "max_tokens": 16384,
+  "provider": {
+    "only": [
+      "nordwind",
+      "lindenhof/turbo",
+      "typesafe"
+    ],
+    "allow_fallbacks": false,
+    "data_collection": "deny",
+    "require_parameters": true
+  },
+  "plugins": [
+    {
+      "id": "jev-router",
+      "cost_tier": "high",
+      "models": [
+        "vendor-a/model-b",
+        "vendor-c/thinker-2",
+        "vendor-d/swift-1"
+      ],
+      "excluded_models": [
+        "vendor-e/*",
+        "vendor-a/model-b-mini",
+        "openrouter/*",
+        "*:online",
+        "*:batch",
+        "perplexity/sonar*",
+        "*-search",
+        "*-search:*",
+        "*deep-research*",
+        "*:free"
+      ]
+    },
+    {
+      "id": "web",
+      "enabled": false
+    },
+    {
+      "id": "context-compression",
+      "enabled": false
+    },
+    {
+      "id": "response-healing",
+      "enabled": false
+    },
+    {
+      "id": "file-parser",
+      "pdf": {
+        "engine": "native"
+      }
+    }
+  ]
+}

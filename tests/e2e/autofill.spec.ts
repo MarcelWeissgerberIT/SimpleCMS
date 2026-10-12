@@ -107,7 +107,7 @@ test.describe('AI autofill (mocked Claude API)', () => {
     await expect(dlg.getByRole('radio', { name: /Categorise/ })).toHaveAttribute('aria-checked', 'true')
     // cost estimate before running, labelled as an estimate billed by Anthropic to the user's key
     await expect(dlg.getByRole('definition').filter({ hasText: '$' })).toHaveText(/≈ (< )?\$\d/)
-    await expect(dlg).toContainText('Anthropic bills the actual usage to your API key')
+    await expect(dlg).toContainText('Anthropic bills the actual usage to your key')
     await dlg.getByRole('button', { name: /Fill all rows/ }).click()
 
     const table = dlg.getByRole('table', { name: 'Proposed values' })
@@ -234,17 +234,17 @@ test.describe('AI autofill (mocked Claude API)', () => {
     await expect(page.locator('#main .af-cell[data-state="error"]')).toHaveCount(2)
   })
 
-  test('without an API key the panel explains it and points to Settings → Claude AI', async ({ page, context }) => {
+  test('without an API key the panel explains it and opens the assistant "Set up AI"', async ({ page, context }) => {
     const reqs = await mockAutofill(context, () => ({ value: 'High' }))
     await openApp(page)
     await openProjects(page)
     const dlg = await openAutofill(page, 'Priority')
-    await expect(dlg).toContainText('Claude is not connected')
+    await expect(dlg).toContainText('AI isn’t set up yet')
     await expect(dlg.getByRole('button', { name: /Fill all rows/ })).toBeDisabled()
-    await dlg.getByRole('button', { name: 'Open Settings → Claude AI' }).click()
+    await dlg.getByRole('button', { name: 'Set up AI' }).click()
     await expect(dlg).toBeHidden()
-    expect(await uiEval(page, (s) => s.modal)).toMatchObject({ type: 'settings', tab: 'ai' })
-    await expect(page.getByRole('dialog').getByRole('tab', { name: /Claude AI/ })).toHaveAttribute('aria-selected', 'true')
+    await expect.poll(() => uiEval(page, (s) => s.modal)).toMatchObject({ type: 'aiSetup', feature: 'bulk' })
+    await expect(page.getByTestId('ai-setup')).toBeVisible()
     expect(reqs).toHaveLength(0)
   })
 

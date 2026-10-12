@@ -177,6 +177,7 @@ const base: Messages = {
     'features.script.dlg.trustRun': 'Run this version',
     'features.script.plan.mail': 'Send a mail to {label}',
     'features.script.plan.claude': 'Ask Claude: {label}',
+    'features.script.kind.ai': 'AI',
     'features.script.plan.http': 'Send data to {label}',
     'features.script.plan.trash': 'Move “{label}” to the trash',
 
@@ -529,6 +530,7 @@ const base: Messages = {
     'features.script.dlg.trustRun': 'Diese Version ausführen',
     'features.script.plan.mail': 'Mail an {label} senden',
     'features.script.plan.claude': 'Claude fragen: {label}',
+    'features.script.kind.ai': 'KI',
     'features.script.plan.http': 'Daten an {label} senden',
     'features.script.plan.trash': '„{label}“ in den Papierkorb legen',
 

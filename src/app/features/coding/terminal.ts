@@ -247,9 +247,10 @@ const sortBriefs = (list: TaskBrief[]) => {
  * before its first await (context marks hold for a tool call's synchronous part only). `page`: offset + count — the
  * trust check runs only for the tasks returned (and for all of them when the filter asks for waiting ones).
  */
-export async function taskBriefs(filter: TaskFilter = {}, opts: { limit?: ReadLimitFn; offset?: number; count?: number } = {}): Promise<{ total: number; list: TaskBrief[] }> {
+export async function taskBriefs(filter: TaskFilter = {}, opts: { limit?: ReadLimitFn; offset?: number; count?: number; scope?: ((id: ID) => boolean) | null } = {}): Promise<{ total: number; list: TaskBrief[] }> {
   const limit = opts.limit ?? null
-  const rows = candidates(filter)
+  // the pages a request may see (an AI route that does not see everything): other tasks are not listed
+  const rows = candidates(filter).filter((r) => !opts.scope || opts.scope(r.row.id))
   await Promise.all(rows.map((r) => loadTask(r.row.id)))
   const status = filter.status ?? 'open'
   const all = rows.map((r) => briefOf(r.row, r.stage, r.kind, limit))

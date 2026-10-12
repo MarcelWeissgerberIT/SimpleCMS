@@ -8,13 +8,14 @@
  *
  * (CHANGELOG_DRAFT=1 lets the build pass while a new entry's picture does not exist yet.)
  *
- * Shots: ai-receipts, agent-trust, claude-tasks, flight-recorder-eject, flight-recorder-window, preflight, flight-recorder, tasks, outbox, mirror-again, glass-switches, history-compare, mcp-overview, mirror, task-mcp, models, search, terminal-pipelines, cloud-worker, one-picker, pipelines, legacy-modernise, coding-live, text-size, mcp-media, coding-setup, free-board, building-blocks, workspace-settings, diagram-viewer, coding-pipeline, pages-per-item, design-import, tour, quick-capture, script-templates, one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
+ * Shots: ai-setup, ai-receipts, agent-trust, claude-tasks, flight-recorder-eject, flight-recorder-window, preflight, flight-recorder, tasks, outbox, mirror-again, glass-switches, history-compare, mcp-overview, mirror, task-mcp, models, search, terminal-pipelines, cloud-worker, one-picker, pipelines, legacy-modernise, coding-live, text-size, mcp-media, coding-setup, free-board, building-blocks, workspace-settings, diagram-viewer, coding-pipeline, pages-per-item, design-import, tour, quick-capture, script-templates, one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
  * custom-agents, gmail, help-centre, mcp-servers, feed-blocks — each named like its image. Every shot starts from a fresh, seeded
  * workspace in English, light theme, 1440 × 900 at device scale 2; the crop of the relevant area is scaled
  * to 1440 px wide and saved as public/assets/shots/changelog/<shot>.webp (≤ 150 KB: the quality steps down
  * until it fits), its pixel size goes into sizes.json next to it (the public /help/changelog/ page reads it).
  *
- * Nothing leaves the machine: api.anthropic.com is mocked (streamed answers, structured JSON, scripted
+ * Nothing leaves the machine: openrouter.ai answers from its documented formats and api.openai.com is aborted
+ * (scripts/lib/aiHosts.mjs); api.anthropic.com is mocked (streamed answers, structured JSON, scripted
  * tool-use runs — never a real request), Gmail and Google's sign-in script are in-memory stand-ins, the MCP
  * bridge for the tidy-up shot is the repository's own public/mcp/one-mcp.mjs on a local port, the coding shot runs
  * public/mcp/one-worker.mjs with the fake Claude Code CLI against a temp repo and a local bare remote, the cloud-worker
@@ -35,6 +36,7 @@ import { strToU8, zipSync } from 'fflate'
 import { seedMorning, waitPreflight } from '../tests/e2e/helpers/preflightStory.mjs'
 import { seedTrust } from '../tests/e2e/helpers/trustStory.mjs'
 import { playStoryPage, storyTime } from '../tests/e2e/helpers/recorderStory.mjs'
+import { routeAIHosts } from './lib/aiHosts.mjs'
 
 const LOCAL = (process.argv[2] || 'http://127.0.0.1:5315').replace(/\/$/, '')
 const ONLY = process.argv.slice(3)
@@ -154,6 +156,9 @@ async function freshPage(browser, { claude, setup, viewport } = {}) {
     timezoneId: 'Europe/Berlin',
     serviceWorkers: 'block',
   })
+  // no real AI host (scripts/lib/aiHosts.mjs): OpenRouter answered from its documented formats, the rest aborted;
+  // registered first so the Claude mock below and a shot's own routes win
+  await routeAIHosts(ctx, { mockOpenRouter: true, quiet: true })
   await mockClaude(ctx, claude)
   // no team server behind this static build: answer the app's probe like a static host's HTML fallback
   await ctx.route(`${LOCAL}/api/**`, (route) => route.fulfill({ status: 200, contentType: 'text/html', body: '<!doctype html>' }))
@@ -827,6 +832,35 @@ const toolResult = (body, id) => (body.messages ?? []).flatMap((m) => (Array.isA
 
 const shots = {
   /**
+   * OpenRouter and the Jev Router beside Claude (multi-provider S2): left, step 01 of "Set up AI" with Claude ready and
+   * OpenRouter picked; right, step 03 with OpenRouter's suggested roles and the Jev Router line. Every AI host is mocked
+   * (scripts/lib/aiHosts.mjs: the catalogue fixture, synthesised endpoints, the key check) — no real request.
+   */
+  async 'ai-setup'(browser) {
+    const { ctx, page } = await freshPage(browser)
+    await page.evaluate(() => window.__one.workspace.getState().updateSettings({ aiApiKey: 'sk-ant-demo-key-000000000000000000007F3A' }))
+    await page.evaluate(() => window.__one.ui.getState().openModal({ type: 'aiSetup', reason: 'add' }))
+    const frame = page.getByTestId('ai-setup')
+    await frame.waitFor()
+    await frame.getByTestId('plate-openrouter').getByRole('switch').click()
+    await rest(page)
+    const left = `${TMP}/ai-setup-providers.png`
+    await page.screenshot({ path: left, clip: await boxOf(frame, 0) })
+    await frame.getByTestId('ai-setup-close').click()
+    // a key for OpenRouter (the mocked check passes), then step 03 with the suggestions
+    await page.evaluate(() => window.__one.workspace.getState().updateSettings({ aiKeys: { openrouter: 'sk-or-v1-demo-key-0000000000000000000000000000000000000000000000000000Q7Rz' } }))
+    await page.evaluate(() => window.__one.ui.getState().openModal({ type: 'aiSetup', reason: 'models', step: 'models', provider: 'openrouter' }))
+    await frame.waitFor()
+    for (const r of ['fast', 'standard', 'deep']) await page.waitForFunction((r) => { const el = document.querySelector(`[data-testid="role-${r}"]`); return !!el && !el.hasAttribute('data-none') }, r, { timeout: 20_000 })
+    await frame.getByTestId('jev-line').waitFor()
+    await rest(page)
+    const right = `${TMP}/ai-setup-models.png`
+    await page.screenshot({ path: right, clip: await boxOf(frame, 0) })
+    await saveSideBySide('ai-setup', [left, right])
+    await ctx.close()
+  },
+
+  /**
    * A receipt for every AI request (multi-provider S1): left, the AI menu after "Improve writing" with its receipt line
    * under the result; right, the AI terminal after two tasks — the second on Claude Sonnet 5.5 — and /cost with a row
    * per model and the total. Claude is mocked here with the requested model and fixed usage (no real request).
@@ -872,7 +906,7 @@ const shots = {
     await page.locator('#main .ProseMirror').first().click()
     await selectRange(page, 'we launch on the 18th', 'mara does press')
     await page.locator('[aria-label="Formatting"]').first().getByRole('button', { name: /^Ask AI$/ }).click()
-    const panel = page.getByRole('dialog', { name: 'Ask Claude' })
+    const panel = page.getByRole('dialog', { name: 'Ask AI' })
     await panel.getByRole('option', { name: /Improve writing/ }).click()
     await panel.getByTestId('ai-receipt').waitFor()
     await rest(page)
@@ -1289,7 +1323,7 @@ const shots = {
 
   /**
    * The glass rocker switches: Settings → Appearance → Switch LED with Green picked (the six LED keys, a switch off
-   * and on beside them), and below it Claude AI → One memory with its switches on and off, lit green — one above
+   * and on beside them), and below it AI → One memory with its switches on and off, lit green — one above
    * the other.
    */
   async 'glass-switches'(browser) {
@@ -1669,7 +1703,7 @@ const shots = {
     await page.evaluate((guide) => window.__one.workspace.getState().updateSettings({ mcpServers: [{ id: 'srvkb00001', name: 'kb', url: 'https://kb.example.com/mcp', token: '', enabled: true, prompt: guide, promptSource: 'auto', tools: ['kb_search', 'kb_get', 'kb_constraints'], checkedAt: Date.now() - 3 * 60_000, scope: 'own', codeword: 'kb' }] }), KB_GUIDE)
     const id = await createPage(page, 'Launch plan', doc(h(2, 'Relaunch'), para('Homepage and pricing ship first, the blog follows in a second step.'), para('Open: the final launch date and who signs off on the pricing copy.'), para('')), { icon: { type: 'asset', value: 'megaphone' } })
     await openPage(page, id)
-    const ask = page.getByPlaceholder('Ask Claude to write anything…')
+    const ask = page.getByPlaceholder('Ask AI to write anything…')
     for (let attempt = 0; attempt < 4 && !(await ask.count()); attempt++) {
       await page.locator('#main .ProseMirror p').last().click()
       await page.keyboard.press('End')
@@ -1991,7 +2025,7 @@ const shots = {
     await card.hover()
     await card.getByTestId('file-ai-key').click()
     await page.getByRole('menuitem', { name: /^Summarise/ }).click()
-    const ai = page.getByRole('dialog', { name: 'Ask Claude' })
+    const ai = page.getByRole('dialog', { name: 'Ask AI' })
     await ai.getByTestId('ai-file-meta').waitFor()
     await ai.getByText('To do:').waitFor({ timeout: 20_000 })
     await page.waitForTimeout(700)
@@ -2241,7 +2275,7 @@ const shots = {
       { name: 'home.webp', mimeType: 'image/webp', buffer: readFileSync('public/assets/shots/changelog/file-ai.webp') },
       { name: 'settings.webp', mimeType: 'image/webp', buffer: readFileSync('public/assets/shots/changelog/memory.webp') },
     ])
-    await step.getByRole('switch', { name: 'Describe the screenshots with Claude' }).click()
+    await step.getByRole('switch', { name: 'Describe the screenshots with AI' }).click()
     await step.getByRole('switch', { name: 'Save the style to One memory' }).click()
     await step.getByTestId('design-tokens').locator('.io-tokens__swatches li').first().waitFor()
     await rest(page)
@@ -2806,7 +2840,7 @@ const shots = {
     await setup.getByRole('radio', { name: '16:9' }).click()
     await setup.getByRole('radio', { name: '4', exact: true }).click()
     await setup.getByTestId('gen-run').click()
-    const panel = page.getByRole('dialog', { name: 'Ask Claude' })
+    const panel = page.getByRole('dialog', { name: 'Ask AI' })
     await panel.getByTestId('media-card').nth(3).waitFor({ timeout: 20_000 })
     await panel.getByTestId('media-preview-all').click()
     await panel.locator('[data-testid="media-card"][data-preview] img').nth(3).waitFor()
@@ -3195,7 +3229,7 @@ const shots = {
   },
 
   /**
-   * Settings → Claude AI → MCP servers: the overview table — "tracker" (codeword kb, every AI call, two agents, an
+   * Settings → AI → MCP servers: the overview table — "tracker" (codeword kb, every AI call, two agents, an
    * integration, Claude Code's "kb" in the repo), "wiki" switched off, and "notes", a server only Claude Code has. The
    * repository's own worker with the fake Claude Code CLI; nothing runs.
    */
@@ -3362,7 +3396,7 @@ const shots = {
     await fig.hover()
     await fig.getByTestId('image-ai-key').click()
     await page.getByRole('menuitem', { name: /Image → table/ }).click()
-    const ai = page.getByRole('dialog', { name: 'Ask Claude' })
+    const ai = page.getByRole('dialog', { name: 'Ask AI' })
     await ai.getByTestId('ai-image-tables').waitFor({ timeout: 20_000 })
     await page.waitForTimeout(700)
     await page.mouse.move(W + 40, H + 40)
@@ -3374,7 +3408,7 @@ const shots = {
     await ctx.close()
   },
 
-  /** What Claude reads: the AI menu's reads line → "Mark blocks…" → boxes in the gutter, the bar counts. */
+  /** What the AI reads: the AI menu's reads line → "Mark blocks…" → boxes in the gutter, the bar counts. */
   async 'claude-reads'(browser) {
     const { ctx, page } = await freshPage(browser)
     const id = await createPage(page, 'Q4 planning', planDoc(), { icon: { type: 'asset', value: 'calendar' } })
@@ -3510,7 +3544,7 @@ const shots = {
     await dialog.getByRole('tab', { name: /Mail$/ }).click()
     await dialog.getByRole('button', { name: 'Connect Gmail' }).click()
     await dialog.getByTestId('mail-account').waitFor()
-    await dialog.getByRole('switch', { name: 'Organise new mails with Claude' }).click()
+    await dialog.getByRole('switch', { name: 'Organise new mails with AI' }).click()
     await dialog.getByRole('button', { name: 'Sync now' }).click()
     await page.waitForFunction(() => window.__oneMail?.state().phase === 'idle' && Object.values(window.__one.workspace.getState().pages).some((p) => p.title === 'Contract renewal — please sign by Friday'), null, { timeout: 30_000 })
     await page.waitForTimeout(500)
@@ -3643,7 +3677,7 @@ const shots = {
     await ctx.close()
   },
 
-  /** Settings → Claude AI → MCP servers: a knowledge base, connected (LED), with its tools. */
+  /** Settings → AI → MCP servers: a knowledge base, connected (LED), with its tools. */
   async 'mcp-servers'(browser) {
     const { ctx, page } = await freshPage(browser)
     await page.evaluate((guide) => window.__one.workspace.getState().updateSettings({ mcpServers: [{ id: 'srvkb00001', name: 'kb', url: 'https://kb.example.com/mcp', token: '', enabled: true, prompt: guide, promptSource: 'auto', tools: ['kb_search', 'kb_get', 'kb_constraints'], checkedAt: Date.now() - 3 * 60_000, scope: 'own' }] }), KB_GUIDE)

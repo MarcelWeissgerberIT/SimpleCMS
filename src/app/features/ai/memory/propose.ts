@@ -8,14 +8,15 @@
  */
 import { format } from 'date-fns'
 import { useWorkspace } from '../../../store/store'
-import { completeStructured, usesDemo } from '../client'
+import { type RouteOptions, completeStructured, usesDemo } from '../client'
 import type { SourceRef } from '@/shared/ai/types'
 import { memoryDbId } from './schema'
 
 /** The memory database (when one exists) as a request's source. */
+/** The memory database as a request's source: entries of it go along (its member class `memory`, never its rows). */
 const memorySource = (): SourceRef[] => {
   const db = memoryDbId()
-  return db ? [{ db }] : []
+  return db ? [{ page: db, as: 'selection' }] : []
 }
 import { SENTENCE_TYPES, type MemoryProposal, type MemoryType } from './types'
 
@@ -108,13 +109,13 @@ Propose 0 to 3 memories, only ones that will clearly help in later tasks. Propos
 }
 
 /** "remember …" (AI menu) or a selection ("Remember this"): Claude condenses it into one proposal. */
-export async function condense(opts: { text: string; from: 'request' | 'selection'; pageTitle: string; source: string; signal?: AbortSignal; sources: readonly SourceRef[] }): Promise<MemoryProposal[]> {
+export async function condense(opts: { text: string; from: 'request' | 'selection'; pageTitle: string; source: string; signal?: AbortSignal; sources: readonly SourceRef[]; routed?: Pick<RouteOptions, 'route' | 'applied'> }): Promise<MemoryProposal[]> {
   if (usesDemo()) return [localProposal(opts.text, opts.source)]
   const system = `You turn what the person wants One — a notes and database workspace — to remember into exactly one memory. ${RULES}
 Keep the person's meaning; do not add facts. Write it in ${lang()}.`
   const what = opts.from === 'selection' ? `They selected this passage on the page ${JSON.stringify(opts.pageTitle)} and chose "Remember this":` : 'They asked:'
   const prompt = `${what}\n<text>\n${opts.text.trim().slice(0, 8000)}\n</text>`
-  const raw = await completeStructured({ purpose: 'memory.propose', sources: [...opts.sources, ...memorySource()], typed: opts.from === 'request' ? opts.text : null, system, prompt, schema: SCHEMA, maxTokens: 1500, signal: opts.signal, maxRetries: 1, mcp: false })
+  const raw = await completeStructured({ purpose: 'memory.propose', sources: [...opts.sources, ...memorySource()], typed: opts.from === 'request' ? opts.text : null, system, prompt, schema: SCHEMA, maxTokens: 1500, signal: opts.signal, maxRetries: 1, mcp: false, ...(opts.routed ?? {}) })
   const out = parse(raw, 1, opts.source)
   return out.length ? out : [localProposal(opts.text, opts.source)]
 }

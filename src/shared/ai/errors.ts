@@ -73,3 +73,34 @@ export function fallbackOf(code: AIErrorCode): 'switch' | 'same' | 'never' {
       return 'never'
   }
 }
+
+/**
+ * A provider's failure as a transport reports it (pure — a transport never loads the store or the UI's texts): the
+ * code, the scrubbed detail, how far the request got (`reach`: 'none' = never sent, no ledger entry · 'refused' = every
+ * attempt answered with an error status, nothing billed · 'sent' = in flight or answered, an estimate), the turn so far
+ * and the provider's wait hint. The core turns it into the app's AIError with the friendly text.
+ */
+export class ProviderError extends Error {
+  readonly code: AIErrorCode
+  readonly detail?: string
+  readonly reach: 'none' | 'refused' | 'sent'
+  /** the turn so far (a stream cut or failed mid-way) */
+  readonly partial?: unknown
+  /** ms to wait before the same request again (Retry-After) */
+  readonly retryAfter?: number
+  /** OpenRouter's limit source (busy vs no credit) */
+  readonly limitSource?: string
+  /** the HTTP status of a refusal */
+  readonly status?: number
+  constructor(code: AIErrorCode, detail: string | undefined, o: { reach: 'none' | 'refused' | 'sent'; partial?: unknown; retryAfter?: number; limitSource?: string; status?: number }) {
+    super(`${code}${detail ? `: ${detail}` : ''}`)
+    this.name = 'ProviderError'
+    this.code = code
+    this.detail = detail
+    this.reach = o.reach
+    if (o.partial !== undefined) this.partial = o.partial
+    if (o.retryAfter !== undefined) this.retryAfter = o.retryAfter
+    if (o.limitSource !== undefined) this.limitSource = o.limitSource
+    if (o.status !== undefined) this.status = o.status
+  }
+}

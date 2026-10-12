@@ -1,0 +1,50 @@
+{
+  "model": "anthropic/claude-sonnet-5.5",
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are the writing assistant."
+    },
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "<document title=\"Plan\">\nLong text\n</document>",
+          "cache_control": {
+            "type": "ephemeral"
+          }
+        },
+        {
+          "type": "text",
+          "text": "Question?"
+        }
+      ]
+    }
+  ],
+  "stream": true,
+  "max_tokens": 8000,
+  "provider": {
+    "only": [
+      "nordwind",
+      "lindenhof/turbo"
+    ],
+    "allow_fallbacks": false,
+    "data_collection": "deny",
+    "require_parameters": true
+  },
+  "plugins": [
+    {
+      "id": "web",
+      "enabled": false
+    },
+    {
+      "id": "context-compression",
+      "enabled": false
+    },
+    {
+      "id": "response-healing",
+      "enabled": false
+    }
+  ]
+}

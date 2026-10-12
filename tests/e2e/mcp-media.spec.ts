@@ -146,7 +146,7 @@ async function openAIPanel(page: Page, title = 'Lantern notes') {
   const id = await createPage(page, { title, content: doc(para('A page about lanterns.'), para('')) })
   await gotoPage(page, id)
   const ed = editorOf(page, id)
-  const ask = page.getByPlaceholder('Ask Claude to write anything…')
+  const ask = page.getByPlaceholder('Ask AI to write anything…')
   await expect(async () => {
     await ed.locator('p').last().click()
     await page.keyboard.press('End')
@@ -158,7 +158,7 @@ async function openAIPanel(page: Page, title = 'Lantern notes') {
       throw e
     }
   }).toPass({ timeout: 15_000 })
-  return { id, ask, panel: page.getByRole('dialog', { name: 'Ask Claude' }) }
+  return { id, ask, panel: page.getByRole('dialog', { name: 'Ask AI' }) }
 }
 
 const card = (scope: Page | ReturnType<Page['locator']>, file: string) => scope.locator(`[data-testid="media-card"][data-url$="${file}"]`)
@@ -325,7 +325,7 @@ test.describe('media from MCP servers (mocked Claude API, made-up hosts)', () =>
     await setup.getByRole('radio', { name: '3', exact: true }).click()
     await setup.getByTestId('gen-run').click()
 
-    const panel = page.getByRole('dialog', { name: 'Ask Claude' })
+    const panel = page.getByRole('dialog', { name: 'Ask AI' })
     await expect(panel.getByTestId('media-card')).toHaveCount(3)
     // the request: that server alone, addressed, no memory, the page not sent (not ticked)
     const req = sent.filter((x) => x.stream).pop()!.body
@@ -553,7 +553,7 @@ async function mockCodeAuth(ctx: BrowserContext, { wayBack }: { wayBack: boolean
   return log
 }
 
-/** Settings → Claude AI with the "codes" server turned down (401): its row. */
+/** Settings → AI with the "codes" server turned down (401): its row. */
 async function openCodesRow(page: Page) {
   await openApp(page)
   await setKey(page)

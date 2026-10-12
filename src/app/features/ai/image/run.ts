@@ -3,7 +3,7 @@
  * the task, return the answer (Markdown for read / ask, JSON for describe / table).
  */
 import { useWorkspace } from '../../../store/store'
-import { stripFence } from '../client'
+import { stripFence, type RouteOptions } from '../client'
 import { precheck } from '../core/gate'
 import type { SourceRef } from '@/shared/ai/types'
 import { loadImageForClaude, type ImageMeta } from './load'
@@ -30,9 +30,10 @@ export interface ImageRunRequest {
 export async function runImageRequest(
   req: ImageRunRequest,
   context: string,
-  opts: { sources: readonly SourceRef[]; onToken?: (delta: string) => void; signal: AbortSignal; onImage?: (meta: ImageMeta) => void },
+  opts: { sources: readonly SourceRef[]; onToken?: (delta: string) => void; signal: AbortSignal; onImage?: (meta: ImageMeta) => void } & Pick<RouteOptions, 'route' | 'applied' | 'carries'>,
 ): Promise<string> {
-  const gate = { purpose: 'vision.image' as const, sources: opts.sources, typed: [req.question, req.instruction] }
+  // the route the caller built the page context for (its chip / the rules), what that text went through
+  const gate = { purpose: 'vision.image' as const, sources: opts.sources, typed: [req.question, req.instruction], route: opts.route, applied: opts.applied, carries: opts.carries }
   // the gate first: a refused request never loads the picture
   precheck(gate)
   const image = await loadImageForClaude(req.src, opts.signal)

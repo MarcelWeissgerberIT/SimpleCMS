@@ -552,7 +552,7 @@ test.describe('Custom agents: discarding runs, the review, toasts on the agentâ€
     await page.evaluate(() => (window as unknown as { __one: { ui: { getState: () => { openModal: (m: unknown) => void } } } }).__one.ui.getState().openModal({ type: 'settings' }))
     await page.getByRole('tab', { name: /E-Mail/ }).click()
     const dialog = page.getByRole('dialog')
-    await dialog.getByRole('switch', { name: /Neue Mails mit Claude ordnen/ }).first().click()
+    await dialog.getByRole('switch', { name: /Neue Mails mit KI ordnen/ }).first().click()
     const cost = dialog.getByTestId('mail-cost')
     await expect(cost).toBeVisible()
     await expect(cost).toContainText(/â‰ˆ \d+,\d\d\s\$|< 0,01\s\$/)

@@ -457,8 +457,8 @@ test.describe('Mail (Gmail)', () => {
     await expect.poll(async () => (await mailCfg(page)).auto).toBe('interval')
     expect((await mailCfg(page)).everyMin).toBe(30)
     // Claude organising needs a key
-    await expect(dialog.getByRole('switch', { name: 'Organise new mails with Claude' })).toBeDisabled()
-    await expect(dialog.getByText(/Needs your Claude key/)).toBeVisible()
+    await expect(dialog.getByRole('switch', { name: 'Organise new mails with AI' })).toBeDisabled()
+    await expect(dialog.getByTestId('mail-needs')).toContainText('AI isn’t set up yet')
 
     // German
     await closeSettings(page)
@@ -469,7 +469,7 @@ test.describe('Mail (Gmail)', () => {
     await expect(de.getByText('Google-Client einrichten')).toBeVisible()
     await expect(de.getByRole('radio', { name: 'Alle …' })).toHaveAttribute('aria-checked', 'true')
     await expect(de.getByText('Wohin deine Mails gehen')).toBeVisible()
-    await expect(de.getByRole('switch', { name: 'Neue Mails mit Claude ordnen' })).toBeDisabled()
+    await expect(de.getByRole('switch', { name: 'Neue Mails mit KI ordnen' })).toBeDisabled()
   })
 
   test('connect (mocked Google) and the first sync from a date: database, properties, sanitized body, blocked images, attachments — Claude never asked', async ({ page }) => {
@@ -497,9 +497,11 @@ test.describe('Mail (Gmail)', () => {
     expect(listed[0]).toContain('includeSpamTrash=false')
 
     const cfg = await mailCfg(page)
-    const db = await wsEval(page, (s, id) => ({ title: s.pages[id].title, parentId: s.pages[id].parentId, private: !!s.pages[id].private, props: s.databases[id].properties.map((p: AnyState) => `${p.name}:${p.type}`), views: s.databases[id].views.map((v: AnyState) => v.name) }), cfg.databaseId)
+    const db = await wsEval(page, (s, id) => ({ title: s.pages[id].title, system: s.databases[id].system, parentId: s.pages[id].parentId, private: !!s.pages[id].private, props: s.databases[id].properties.map((p: AnyState) => `${p.name}:${p.type}`), views: s.databases[id].views.map((v: AnyState) => v.name) }), cfg.databaseId)
     expect(db).toEqual({
       title: 'Mails',
+      // marked as mail for good (the AI data class `mail` — also once the sync points elsewhere)
+      system: 'mails',
       parentId: parent,
       private: false,
       props: ['Subject:title', 'From:text', 'To:text', 'Date:date', 'Labels:multi_select', 'Unread:checkbox', 'Has attachments:checkbox', 'Gmail link:url', 'Thread:text', 'Message ID:text', 'Show images:checkbox', 'Load attachment:text', 'Contact:relation', 'Company:relation', 'Conversation:relation'],
@@ -734,7 +736,7 @@ test.describe('Mail (Gmail)', () => {
     await configure(page)
     await wsEval(page, (s) => s.updateSettings({ aiApiKey: 'sk-ant-e2e-test-key' }))
     const dialog = await connect(page)
-    await dialog.getByRole('switch', { name: 'Organise new mails with Claude' }).click()
+    await dialog.getByRole('switch', { name: 'Organise new mails with AI' }).click()
     await expect(dialog.getByText(/the subject, sender, date and text of each new mail go to Anthropic/)).toBeVisible()
     // each mail may belong to a row of the seeded "Projects" database
     const projectsDb = await wsEval(page, (s) => (Object.values(s.pages) as AnyState[]).find((p) => p.kind === 'database' && p.title === 'Projects' && !p.trashed)!.id as string)
@@ -793,7 +795,7 @@ test.describe('Mail (Gmail)', () => {
     expect(rowBy(await mailRows(page), 'Draft review').props.Summary).toBe('My own summary')
 
     // off again: the next mail goes nowhere but the database
-    await dialog.getByRole('switch', { name: 'Organise new mails with Claude' }).click()
+    await dialog.getByRole('switch', { name: 'Organise new mails with AI' }).click()
     env.box.add({ id: 'm9', labelIds: ['INBOX'], date: Date.now() - 500, subject: 'Private note', from: 'eve@example.test', to: ACCOUNT, text: 'Nothing for Claude.' })
     await syncAndWait(page)
     expect(sent).toHaveLength(2)
@@ -812,7 +814,7 @@ test.describe('Mail (Gmail)', () => {
     await expect.poll(() => page.evaluate(() => window.__oneMail.state().phase)).toBe('idle')
     expect(sent).toHaveLength(0)
     expect(env.claude).toEqual([])
-    await dialog.getByRole('switch', { name: 'Organise new mails with Claude' }).click()
+    await dialog.getByRole('switch', { name: 'Organise new mails with AI' }).click()
     await dialog.getByRole('button', { name: 'Organise 2 earlier mails' }).click()
     await expect.poll(() => page.evaluate(() => window.__oneMail.state().unorganised)).toBe(0)
     expect(sent).toHaveLength(1)
@@ -1701,7 +1703,7 @@ test.describe('Mail screenshots', () => {
         await configure(page)
         await wsEval(page, (s) => s.updateSettings({ aiApiKey: 'sk-ant-e2e-test-key' }))
         dialog = await connect(page)
-        await dialog.getByRole('switch', { name: 'Organise new mails with Claude' }).click()
+        await dialog.getByRole('switch', { name: 'Organise new mails with AI' }).click()
         await dialog.getByRole('button', { name: 'Sync now' }).click()
         await expect.poll(() => page.evaluate(() => window.__oneMail.state().phase)).toBe('idle')
         await page.waitForTimeout(300)

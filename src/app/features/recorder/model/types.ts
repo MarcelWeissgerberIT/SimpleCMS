@@ -3,6 +3,7 @@
  * images in the version store `one-history`). Pure types: ids, kinds, times, counts and HMAC digests; no
  * page text and no property values anywhere but in pins (and names in schema deltas).
  */
+import type { RunMeta } from '../../../store/writer'
 import type { JSONContent } from '@tiptap/core'
 import type { Database, ID, Page, PropertyType, ViewType, ColorName, NumberFormat } from '../../../store/types'
 import type { SnapshotPropDef } from '../../history/props'
@@ -204,7 +205,7 @@ export interface JRun {
   /** AgentRun.id · batch id · MCP activity key · ScriptRun.id · AIRun.id · import root id · pickup id · eject id */
   ref: string
   /** ids / fixed keys only — never text */
-  meta?: { seq?: number; tool?: string; source?: string; action?: string; client?: string }
+  meta?: { seq?: number; tool?: string; source?: string; action?: string; client?: string; ai?: string; aiAlso?: string[]; role?: NonNullable<RunMeta['role']>; group?: string; parent?: string }
   from: number
   to: number
   ops: number

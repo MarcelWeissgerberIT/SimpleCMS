@@ -1,10 +1,14 @@
 /**
  * The direct models One knows (Claude and OpenAI) with their capabilities, the model-id validators per provider and
  * the slugs One refuses on OpenRouter. Capabilities replace every "is it Haiku?" string check: a branch asks what the
- * model can do. No OpenRouter model, maker or slug is named here — those come from the person's catalogue.
+ * model can do. No OpenRouter model, maker or slug is named here — those come from the person's catalogue (the Jev
+ * Router's id lives in jev.ts, the decision to offer it in owner.ts).
  */
 import type { Caps, Effort, ModelInfo, ProviderId, Route } from './types.ts'
 import { priceRow } from './prices.ts'
+import { isJevRouter } from './jev.ts'
+import { OWNER } from './owner.ts'
+import { providerInfo } from './providers.ts'
 
 export const STORED_PROVIDERS: readonly ProviderId[] = ['anthropic', 'openai', 'openrouter']
 export const isProviderId = (v: unknown): v is ProviderId => typeof v === 'string' && (STORED_PROVIDERS as readonly string[]).includes(v)
@@ -118,10 +122,14 @@ const ID_RE: Record<ProviderId, RegExp> = {
 
 /** What One knows of a catalogue row when it judges a slug (all optional). */
 export interface CatalogueHint {
-  /** the prompt price ($ per million; routers list -1) */
+  /** the prompt price ($ per million; -1 = priced per request) — never a reason to refuse by itself */
   promptPrice?: number
   web?: Caps['web']
   description?: string
+  /** the catalogue marks the row a router (`architecture.tokenizer: 'Router'`): it forwards to other models */
+  router?: boolean
+  /** 'dynamic' = priced per request — never a reason to refuse by itself (a stated bound prices it) */
+  pricing?: 'fixed' | 'dynamic'
 }
 
 export type SlugRefusal = 'router' | 'alias' | 'online' | 'batch' | 'web'
@@ -130,11 +138,16 @@ export type SlugRefusal = 'router' | 'alias' | 'online' | 'batch' | 'web'
 const WEB_SLUG = [/^perplexity\/sonar/, /^[^/]+\/[^/:]*-search(?::|$)/, /deep-research/]
 const WEB_TEXT = /\b(searches the web|web search(es)? (by itself|built in|on every)|real-time web (search|access)|browses the web)\b/i
 
-/** Why One refuses an OpenRouter slug (null: not refused). */
+/**
+ * Why One refuses an OpenRouter slug (null: not refused). Routers forward to models One cannot pin (OpenRouter's own
+ * with web search) and stay refused — except the Jev Router while the owner offers it (owner.ts), which One pins to the
+ * person's own models (wire: its include and exclude lists). A price per request is never a reason by itself.
+ */
 export function refusedSlug(id: string, row?: CatalogueHint | null): SlugRefusal | null {
   if (id.startsWith('~') || id.includes('@')) return 'alias'
-  if (id.startsWith('openrouter/')) return 'router'
-  if (row?.promptPrice !== undefined && row.promptPrice < 0) return 'router'
+  const jev = isJevRouter(id)
+  if (jev && !OWNER.jevRouter) return 'router'
+  if (!jev && (id.startsWith('openrouter/') || row?.router === true)) return 'router'
   if (/:online$/.test(id)) return 'online'
   if (/:batch$/.test(id)) return 'batch'
   if (row?.web === 'always' || WEB_SLUG.some((re) => re.test(id)) || (row?.description && WEB_TEXT.test(row.description))) return 'web'
@@ -152,16 +165,27 @@ export function modelIdProblem(p: unknown, id: unknown, row?: CatalogueHint | nu
   return ID_RE[p].test(id) ? null : 'format'
 }
 
-/** The maker of a route's model: Claude direct and anthropic/* on OpenRouter are both Anthropic. */
+/** The maker of a route's model: Claude direct and anthropic/* on OpenRouter are both Anthropic. The Jev Router's
+ *  answer may come from any maker: '*' (never counted as an independent second opinion). */
 export function vendorOf(route: Pick<Route, 'p' | 'm'>): string {
   if (route.p !== 'openrouter') return route.p
+  if (isJevRouter(route.m)) return '*'
   return route.m.split('/')[0] ?? route.m
 }
 
-const PROVIDER_LABEL: Record<ProviderId, string> = { anthropic: 'Claude', openai: 'OpenAI', openrouter: 'OpenRouter' }
-export const providerLabel = (p: ProviderId): string => PROVIDER_LABEL[p]
+/** The provider's name (providers.ts — the one list of names). */
+export const providerLabel = (p: ProviderId): string => providerInfo(p).name
 
 /** A route as people read it: the registry's label, else "<provider> · <model id>". */
 export function labelOf(route: Pick<Route, 'p' | 'm'>): string {
-  return modelRow(route)?.label ?? `${PROVIDER_LABEL[route.p] ?? route.p} · ${route.m}`
+  if (route.p === 'openrouter' && isJevRouter(route.m)) return 'OpenRouter · Jev Router'
+  return modelRow(route)?.label ?? `${providerLabel(route.p)} · ${route.m}`
+}
+
+/** A label → its short form: upper case, ≤ 16 (leading words dropped first, then cut). */
+export function shortOfLabel(label: string): string {
+  let words = label.toUpperCase().split(' ').filter(Boolean)
+  while (words.join(' ').length > 16 && words.length > 1) words = words.slice(1)
+  const s = words.join(' ')
+  return s.length > 16 ? `${s.slice(0, 15)}…` : s
 }

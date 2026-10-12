@@ -3,51 +3,15 @@
  * front of every AI request (policy generation, keys in typed text), the agent route block and the small safety fixes.
  * Every AI host is mocked or aborted — nothing reaches a real one. Test data is fictional.
  */
-import { readFileSync, writeFileSync } from 'node:fs'
-import type { Locator, Page, TestInfo } from '@playwright/test'
+import { writeFileSync } from 'node:fs'
+import type { Locator, Page } from '@playwright/test'
 import { test, expect, openApp, reloadApp, wsEval, uiEval, flush, createPage, gotoPage, editorOf, doc, para, selectText, pageIdByTitle, MOD } from './fixtures'
 import { mockClaudeScript, hostCounts, text, type CapturedRequest, type ClaudeStep } from './helpers/providers'
 import { openTerminal, run, terminal, prompt } from './helpers/terminal'
+import { exportBackup, importBackup } from './helpers/backup'
 import { ARCHIVE, SUMMARY, TRANSFORM_STEPS, addArchiveServer, aiPanel as panelOf, autofillPriority, imageAction, improve, ledger, noSpeech, ownRequest, paletteAsk, runAgentNow, summarisePdf, summarizeMeeting, transformAuto } from './helpers/aiFlows'
 
 type AnyState = Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
-
-/** Workspace settings → Data → Export workspace → whole workspace, full backup → the parsed file. */
-async function exportBackup(page: Page, testInfo: TestInfo, name: string): Promise<{ file: string; json: AnyState }> {
-  await page.keyboard.press('Escape')
-  await page.evaluate(() => (window.location.hash = '#/workspace/data'))
-  const ws = page.getByTestId('workspace-page')
-  await expect(ws).toHaveAttribute('data-section', 'data')
-  await ws.getByRole('button', { name: 'Export workspace' }).click()
-  const dialog = page.getByRole('dialog')
-  await dialog.getByRole('radio', { name: /Whole workspace/ }).click()
-  await dialog.getByRole('radio', { name: /Full backup/ }).click()
-  const download = page.waitForEvent('download')
-  await dialog.locator('[data-export-run]').click()
-  const file = testInfo.outputPath(name)
-  await (await download).saveAs(file)
-  await page.keyboard.press('Escape')
-  return { file, json: JSON.parse(readFileSync(file, 'utf8')) }
-}
-
-/** The sidebar's Import → a backup file → merge or replace. */
-async function importBackup(page: Page, file: string, mode: 'merge' | 'replace') {
-  await page.locator('.sb').getByRole('button', { name: /^Import/ }).click()
-  const dialog = page.getByRole('dialog')
-  const chooser = page.waitForEvent('filechooser')
-  await dialog.getByRole('button', { name: 'Choose files' }).click()
-  await (await chooser).setFiles([{ name: 'backup.json', mimeType: 'application/json', buffer: readFileSync(file) }])
-  if (mode === 'replace') {
-    await dialog.getByRole('radio', { name: /Replace workspace/ }).click()
-    await dialog.getByRole('button', { name: 'Replace workspace' }).click()
-    await dialog.getByRole('button', { name: 'Yes, replace everything' }).click()
-  } else {
-    await dialog.getByRole('radio', { name: /Merge into this workspace/ }).click()
-    await dialog.getByRole('button', { name: 'Merge backup' }).click()
-  }
-  await expect(dialog.getByText(mode === 'replace' ? /Workspace restored/ : /Backup merged/).first()).toBeVisible()
-  await page.keyboard.press('Escape')
-}
 
 const NEW_AGENT = {
   id: 'ag-nordlicht',
@@ -145,18 +109,23 @@ test.describe('contracts kept by every reader (written by nobody yet)', () => {
     await page.evaluate((rules) => (window as unknown as { __one: { workspace: { setState: (x: object) => void } } }).__one.workspace.setState({ ai: rules }), rules)
     await flush(page)
     await reloadApp(page)
-    expect(await wsEval(page, (s) => JSON.parse(JSON.stringify({ ai: s.ai, keys: s.settings.aiKeys ?? null, device: s.settings.ai ?? null })))).toEqual({
-      ai: rules,
-      // a plaintext "marker" never survives a reader
-      keys: { openai: 'vault:abcdef123456:WXYZ' },
-      device: { default: [{ p: 'anthropic', m: 'claude-opus-5-5' }], allow: { openrouter: ['memory'] } },
-    })
+    // S2: a plaintext key is sealed by updateSettings (its marker is kept); a marker this browser cannot open (no sealed
+    // secret behind it) is dropped at the boot check, so the UI asks for the key again — as the Claude key always was
+    await expect
+      .poll(() => wsEval(page, (s) => JSON.parse(JSON.stringify({ ai: s.ai, keys: s.settings.aiKeys ?? null, device: s.settings.ai ?? null }))))
+      .toEqual({
+        ai: rules,
+        keys: { openrouter: expect.stringMatching(/^vault:[a-z0-9]{12}:0001$/) },
+        device: { default: [{ p: 'anthropic', m: 'claude-opus-5-5' }], allow: { openrouter: ['memory'] } },
+      })
+    expect(await page.evaluate(() => JSON.stringify(Object.entries(localStorage)))).not.toContain('sk-or-v1-plaintext')
     const { json } = await exportBackup(page, testInfo, 'rules.json')
     expect(json.workspace.ai).toEqual(rules)
     expect(json.workspace.settings.aiApiKey).toBe('')
     expect(json.workspace.settings.aiKeys).toEqual({})
     expect(json.workspace.settings).not.toHaveProperty('ai')
     expect(JSON.stringify(json)).not.toContain('vault:abcdef123456')
+    expect(JSON.stringify(json)).not.toMatch(/sk-or-v1|vault:[a-z0-9]{12}:0001/)
   })
 
   for (const withKey of [false, true])
@@ -171,7 +140,8 @@ test.describe('contracts kept by every reader (written by nobody yet)', () => {
         json.workspace.settings.ai = { default: [{ p: 'openrouter', m: 'x/y' }], allow: { openrouter: ['private', 'mail', 'memory', 'mcp'] } }
         json.workspace.ai = { routes: { '*': [{ p: 'openrouter', m: 'x/y' }] }, policy: { providers: { openrouter: { allow: ['page', 'rows', 'people'] } }, restricted: [] } }
         writeFileSync(file, JSON.stringify(json))
-        await importBackup(page, file, mode)
+        // S2 B9: rules that would loosen this workspace's are asked about first — "Keep mine" changes nothing
+        await importBackup(page, file, mode, 'keep')
         const after = await wsEval(page, (s) => JSON.parse(JSON.stringify({ key: s.settings.aiApiKey, keys: s.settings.aiKeys ?? null, device: s.settings.ai ?? null, ai: s.ai ?? null })))
         expect(after).toEqual(before)
         expect(after.key).toEqual(withKey ? expect.stringMatching(/^vault:[0-9a-z]+:0001$/) : '')
@@ -203,7 +173,7 @@ const storedRuns = (page: Page): Promise<AnyState[]> =>
       }),
   )
 
-/** A key, Claude scripted, the workspace's AI rules at generation `gen` (this build knows 1). */
+/** A key, Claude scripted, the workspace's AI rules at generation `gen` (this build knows 2: a stamp of 3 is a newer build's). */
 async function gated(page: Page, gen: number, steps: ClaudeStep[]) {
   const { requests } = await mockClaudeScript(page.context(), steps)
   const counts = hostCounts(page)
@@ -256,7 +226,7 @@ const GATE_FLOWS: Array<{ name: string; steps: ClaudeStep[]; go: (page: Page, re
       const id = await createPage(page, { title: 'Launch plan', content: doc(para('We launch in two weeks.'), para('')) })
       await gotoPage(page, id)
       const ed = editorOf(page, id)
-      const ask = page.getByPlaceholder('Ask Claude to write anything…')
+      const ask = page.getByPlaceholder('Ask AI to write anything…')
       await expect(async () => {
         await ed.locator('p').last().click()
         await page.keyboard.press('End')
@@ -341,14 +311,14 @@ const GATE_FLOWS: Array<{ name: string; steps: ClaudeStep[]; go: (page: Page, re
 
 test.describe('the gate in front of every AI request', () => {
   for (const flow of GATE_FLOWS)
-    for (const gen of [2, 1])
-      test(`${flow.name}: AI rules of generation ${gen} → ${gen > 1 ? "'reload', nothing sent" : 'exactly one request'}`, async ({ page, aiNet }) => {
+    for (const gen of [3, 1])
+      test(`${flow.name}: AI rules of generation ${gen} → ${gen > 2 ? "'reload', nothing sent" : 'exactly one request'}`, async ({ page, aiNet }) => {
         const { requests, counts } = await gated(page, gen, flow.steps)
-        await flow.go(page, gen > 1)
+        await flow.go(page, gen > 2)
         await page.waitForTimeout(400)
-        expect(requests).toHaveLength(gen > 1 ? 0 : 1)
-        expect(counts.anthropic).toBe(gen > 1 ? 0 : 1)
-        expect(aiNet.count('anthropic')).toBe(gen > 1 ? 0 : 1)
+        expect(requests).toHaveLength(gen > 2 ? 0 : 1)
+        expect(counts.anthropic).toBe(gen > 2 ? 0 : 1)
+        expect(aiNet.count('anthropic')).toBe(gen > 2 ? 0 : 1)
       })
 })
 
@@ -426,7 +396,7 @@ test.describe('keys in typed text, retries after an MCP call', () => {
     await run(page, `use my key ${KEY} for the launch plan`)
     const err = terminal(page).locator('.term-error')
     await expect(err).toContainText('That looks like an API key')
-    await expect(err.getByRole('button', { name: /Open Settings/ })).toBeVisible()
+    await expect(err.getByRole('button', { name: /Set up AI/ })).toBeVisible()
     // the key is shown nowhere in the transcript; the text is back in the prompt to be fixed
     await expect(terminal(page).locator('.term-scroll')).toContainText('use my key •••• for the launch plan')
     await expect(terminal(page).locator('.term-scroll')).not.toContainText(KEY)
@@ -519,7 +489,7 @@ test.describe('keys in typed text, retries after an MCP call', () => {
     const id = await createPage(page, { title: 'Launch plan', content: doc(para('We launch in two weeks.'), para('')) })
     await gotoPage(page, id)
     const ed = editorOf(page, id)
-    const ask = page.getByPlaceholder('Ask Claude to write anything…')
+    const ask = page.getByPlaceholder('Ask AI to write anything…')
     await expect(async () => {
       await ed.locator('p').last().click()
       await page.keyboard.press('End')
@@ -689,18 +659,18 @@ test.describe('the ledger: one entry per response, every engine', () => {
     await field.press('Enter')
     await expect(help.locator('.help-ask__out')).toContainText('Protect with password')
     await page.keyboard.press('Escape')
-    await uiEval(page, (s) => s.openModal({ type: 'settings', tab: 'ai' }))
-    await page.getByRole('dialog').getByRole('button', { name: 'Test key' }).click()
-    await expect(page.getByRole('dialog').locator('.ai-status')).toContainText('Connected · key verified')
+    await uiEval(page, (s) => s.openModal({ type: 'aiSetup', reason: 'rotate', step: 'key', provider: 'anthropic' }))
+    await page.getByTestId('test-sentence').click()
+    await expect(page.getByTestId('test-anthropic')).toBeVisible()
     await expect.poll(() => requests.length).toBe(2)
     await page.waitForTimeout(300)
     const entries = await ledger(page)
     expect(entries.map((e) => e.purpose)).toEqual(['help.ask', 'setup.test'])
-    for (const e of entries) {
-      expect(e.classes).toEqual(['public'])
-      expect(e.costSource).toBe('table')
-      expect(e.served.model).toBe('claude-opus-5-5')
-    }
+    // the help's text is public; the key test's fixed sentence is no workspace data at all (D-S2-6)
+    expect(entries.map((e) => e.classes)).toEqual([['public'], []])
+    // the help on the device's model; the test sentence on Claude's fast role
+    expect(entries.map((e) => e.served.model)).toEqual(['claude-opus-5-5', 'claude-haiku-4-5'])
+    for (const e of entries) expect(e.costSource).toBe('table')
   })
 
   test('autofill: one entry, the database and field as the source', async ({ page }) => {
@@ -1054,7 +1024,7 @@ test.describe('receipts in the terminal and on agent runs', () => {
     // the footer meter shows the same sum — from the table, so without "≈"; IN is the input outside the cache, as in /cost
     await expect(terminal(page).getByTestId('agent-cost')).toHaveText('$0.11')
     await expect(terminal(page).locator('.term-meter__vals > div').first()).toHaveText(/3\.0K/)
-    await expect(terminal(page).locator('.term-meter')).toContainText("One's figures from list prices")
+    await expect(terminal(page).locator('.term-meter')).toContainText('One’s figures from list prices')
   })
 
   test("/cost counts the terminal's memory proposal request; /new while a task runs leaves the new conversation empty", async ({ page, errors }) => {

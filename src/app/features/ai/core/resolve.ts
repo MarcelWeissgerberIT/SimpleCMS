@@ -1,0 +1,198 @@
+/**
+ * Which route a request takes (design § 8.1 / 8.2, the S2 subset) — pure over a RouteWorld, so the Node specs run it:
+ *
+ *   chip (this request only) → device.routes[cls] → workspace.routes[cls] → device.default → workspace.routes['*'] → legacy
+ *
+ * The first level that has a rule wins (levels are never merged). A pin whose provider does not take the class yet
+ * (routable.ts) is skipped; a rule left without pins is skipped to the next level (a step says so). The winning rule's
+ * pins go through the filters in order — 1 a key on this device · 2 the model known and not refused (a gone shortlist
+ * model: 'model_gone'; a chat purpose never takes a decision model) · 3 what the request needs of the model · 4 the
+ * data rule over the request's classes — and the first pin that passes is the route. None passes: the first pin's error,
+ * with one fix per refused pin (S2 never falls through to the next level — D-S2-4). The Jev Router's pin is a pool:
+ * filters 2–3 run per shortlist model; the models that pass are what it may choose from (≥ 1, else 'capability' with
+ * the fix "pick models").
+ */
+import type { AIErrorCode } from '@/shared/ai/errors'
+import type { Caps, DataClass, DeviceAI, FeatureClass, ModelInfo, Route, RouteRule, StepNote, WorkspaceAI } from '@/shared/ai/types'
+import { refusedClasses } from '@/shared/ai/policy'
+import { legacyRule, routeKey } from '@/shared/ai/route'
+import { refusedSlug } from '@/shared/ai/models'
+import { isJevRouter } from '@/shared/ai/jev'
+import { OWNER } from '@/shared/ai/owner'
+import type { AIFix } from './errors'
+import type { Need } from './purposes'
+import { routable } from './routable'
+
+export interface RouteWorld {
+  ws?: WorkspaceAI | null
+  device?: DeviceAI | null
+  /** settings.aiModel (the legacy level's model) */
+  aiModel?: string | null
+  /** a key for the provider on this device (its marker is set) */
+  hasKey(p: Route['p']): boolean
+  /** the model view of a route (registry, shortlist, the router's view over a pool) — null: unknown here */
+  info(route: Route, pool?: readonly string[]): ModelInfo | null
+  /** the device's OpenRouter shortlist (model ids — the router's pool candidates) */
+  shortlist: readonly string[]
+}
+
+export type Level = 'forced' | 'chip' | 'device' | 'workspace' | 'default' | 'workspace-default' | 'legacy'
+
+export interface ResolveInput {
+  cls: FeatureClass
+  /** the e2e seam's forced route (`?e2e` only), before every level */
+  forced?: { route: Route; pool?: readonly string[] } | null
+  /** the route chip: this request only */
+  chip?: Route | null
+  /** a model the call picks itself (a custom agent's own Claude model) — the legacy level's */
+  model?: string | null
+  /** what the model must be able to do (the purpose's ∪ the call's) */
+  caps: readonly Need[]
+  /** the data classes the request carries (needs ∪ carries ∪ sources) */
+  classes: readonly DataClass[]
+}
+
+export type Resolved =
+  | { ok: true; route: Route; info: ModelInfo; pool?: string[]; level: Level; steps: StepNote[] }
+  /** no rule and no Claude key: demo (when on) or 'no_key' — the gate decides */
+  | { ok: false; none: true; steps: StepNote[] }
+  | { ok: false; none?: false; code: AIErrorCode; detail?: string; route: Route; level: Level; steps: StepNote[]; fixes: AIFix[] }
+
+/** Can a model do what a request needs? (no caps known: no) */
+export function canDo(caps: Caps | null | undefined, n: Need): boolean {
+  if (!caps) return false
+  switch (n) {
+    case 'structured':
+      return caps.structured
+    case 'tools':
+      return caps.tools
+    case 'vision':
+      return !!caps.vision
+    case 'pdf':
+      return !!caps.pdf
+    case 'mcp':
+      return !!caps.mcp
+    case 'listing':
+      return caps.mcpListing
+  }
+}
+
+interface Skip {
+  code: AIErrorCode
+  detail?: string
+  step: StepNote
+  fix: AIFix | null
+}
+
+type PinResult = { ok: true; info: ModelInfo; pool?: string[] } | ({ ok: false } & Skip)
+
+/** A model of the shortlist the router may choose for this request (filters 2–3 for that model). */
+function poolOk(m: string, input: ResolveInput, w: RouteWorld): boolean {
+  if (isJevRouter(m) || refusedSlug(m)) return false
+  const info = w.info({ p: 'openrouter', m })
+  if (!info || info.caps.decisions) return false
+  return input.caps.every((n) => canDo(info.caps, n))
+}
+
+/** Filters 1–4 for one pin. */
+function filterPin(route: Route, input: ResolveInput, w: RouteWorld, forcedPool?: readonly string[]): PinResult {
+  const key = routeKey(route)
+  // 1 · a key on this device
+  if (!w.hasKey(route.p)) return { ok: false, code: 'no_key', step: { k: 'nokey', from: key }, fix: { kind: 'step', step: 'key', provider: route.p } }
+  // 2 · known and not refused (+ the router's pool: filters 2–3 per shortlist model)
+  let info: ModelInfo | null
+  let pool: string[] | undefined
+  if (route.p === 'openrouter' && isJevRouter(route.m)) {
+    if (!OWNER.jevRouter) return { ok: false, code: 'model_gone', detail: 'router', step: { k: 'capability', from: key, code: 'gone' }, fix: { kind: 'step', step: 'models', provider: route.p } }
+    pool = [...new Set(forcedPool ?? w.shortlist)].filter((m) => poolOk(m, input, w))
+    if (!pool.length) return { ok: false, code: 'capability', detail: 'pool', step: { k: 'capability', from: key, code: 'pool' }, fix: { kind: 'step', step: 'models', provider: route.p } }
+    info = w.info(route, pool)
+  } else {
+    info = route.p === 'openrouter' && refusedSlug(route.m) ? null : w.info(route)
+  }
+  if (!info) return { ok: false, code: 'model_gone', step: { k: 'capability', from: key, code: 'gone' }, fix: { kind: 'step', step: 'models', provider: route.p } }
+  if (info.caps.decisions) return { ok: false, code: 'capability', detail: 'decisions', step: { k: 'capability', from: key, code: 'decisions' }, fix: null }
+  // 3 · what the request needs of the model
+  const missing = input.caps.find((n) => !canDo(info.caps, n))
+  if (missing) return { ok: false, code: 'capability', detail: missing, step: { k: 'capability', from: key, code: missing }, fix: { kind: 'pick', need: missing } }
+  // 4 · the data rule
+  const [refused] = refusedClasses(route.p, input.classes, w.ws, w.device)
+  if (refused) return { ok: false, code: 'policy', detail: refused, step: { k: 'policy', from: key, cls: refused }, fix: { kind: 'step', step: 'data', provider: route.p, data: refused } }
+  return { ok: true, info, ...(pool ? { pool } : {}) }
+}
+
+/** The rule of each level, in order (absent: that level has none). */
+function levels(input: ResolveInput, w: RouteWorld): Array<[Level, RouteRule | null | undefined]> {
+  return [
+    ['chip', input.chip ? [input.chip] : null],
+    ['device', w.device?.routes?.[input.cls]],
+    ['workspace', w.ws?.routes?.[input.cls]],
+    ['default', w.device?.default],
+    ['workspace-default', w.ws?.routes?.['*']],
+  ]
+}
+
+function winning(rule: RouteRule, level: Level, input: ResolveInput, w: RouteWorld, steps: StepNote[], forcedPool?: readonly string[]): Resolved {
+  const skips: Skip[] = []
+  for (const pin of rule) {
+    const r = filterPin(pin, input, w, forcedPool)
+    if (r.ok) return { ok: true, route: pin, info: r.info, ...(r.pool ? { pool: r.pool } : {}), level, steps }
+    steps.push(r.step)
+    skips.push(r)
+  }
+  const first = skips[0]!
+  return { ok: false, code: first.code, ...(first.detail !== undefined ? { detail: first.detail } : {}), route: rule[0]!, level, steps, fixes: skips.map((s) => s.fix).filter((f): f is AIFix => !!f) }
+}
+
+/** The route a request takes (or why none). */
+export function resolveRoute(input: ResolveInput, w: RouteWorld): Resolved {
+  const steps: StepNote[] = []
+  if (input.forced) return winning([input.forced.route], 'forced', input, w, steps, input.forced.pool)
+  for (const [level, rule] of levels(input, w)) {
+    if (!rule?.length) continue
+    const pins = rule.filter((r) => routable(r.p, input.cls))
+    if (!pins.length) {
+      // a provider that does not take this kind of work yet: the next level (shown as a step)
+      steps.push({ k: 'fallthrough', from: routeKey(rule[0]!), code: 'later' })
+      continue
+    }
+    return winning(pins, level, input, w, steps)
+  }
+  const legacy = legacyRule(input.model || w.aiModel, w.hasKey('anthropic'))
+  if (!legacy.length) return { ok: false, none: true, steps }
+  return winning(legacy, 'legacy', input, w, steps)
+}
+
+/** What a call site did to its request text for the route (D-S2-5) — core/gate.ts Applied. */
+export interface AppliedShape {
+  people: boolean
+  transcript: boolean
+  visible: boolean
+  route?: string
+}
+
+/**
+ * The gate's backstop (D-S2-5), pure: the class a request is refused for (null: it may go). Only a request carrying a
+ * page-derived class to a route that does not see everything is checked: its text must have gone through that route's
+ * redaction (people, transcript) and page filter (member classes it may not see) — never decided by purpose name.
+ */
+export function backstop(o: {
+  classes: readonly DataClass[]
+  pageDerived: readonly DataClass[]
+  sees: 'all' | 'filtered'
+  redact: { people: boolean; transcript: boolean }
+  /** member classes the route may not see (pages of them are filtered) */
+  hidden: readonly DataClass[]
+  applied?: AppliedShape | null
+  route: string
+}): DataClass | null {
+  if (o.sees === 'all') return null
+  const derived = o.classes.find((c) => o.pageDerived.includes(c))
+  if (!derived) return null
+  const a = o.applied
+  if (!a || (a.route && a.route !== o.route)) return derived
+  if (o.redact.people && !a.people) return 'people'
+  if (o.redact.transcript && !a.transcript) return 'transcript'
+  if (o.hidden.length && !a.visible) return o.hidden[0]!
+  return null
+}

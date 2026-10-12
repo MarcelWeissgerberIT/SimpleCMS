@@ -1,5 +1,5 @@
 /**
- * One memory — the per-device switches (Settings → Claude AI → One memory). Absent = the defaults:
+ * One memory — the per-device switches (Settings → AI → One memory). Absent = the defaults:
  * memory on, the usage log on, proposals after AI-terminal tasks once a memory database exists (so
  * nobody pays for proposals before they started a memory: /remember, "remember …" in the AI menu,
  * "Set up memory").

@@ -15,15 +15,20 @@ export interface McpCall {
   /** an error result's text (clipped) */
   error?: string
   /**
-   * Not a call: the request addressed this server by codeword, but it did not join — 'off' = switched
-   * off, 'token' = no token in this browser (client.ts reports it first, so the result can say so).
+   * Not a call: a server that did not join — 'off' = switched off, 'token' = no token in this browser, 'refused' = its
+   * token was rejected, 'provider' = the route's provider connects no MCP servers (OpenRouter), 'policy' = the route
+   * may not receive MCP (a data rule). Reported first, so the result can say so.
    */
-  skipped?: 'off' | 'token' | 'refused'
+  skipped?: McpSkip
+  /** 'provider': the route's provider ("OpenRouter") */
+  provider?: string
 }
 
-/** The entry for a server a codeword addressed that could not join the request. */
-export function skippedCall(server: string, why: 'off' | 'token' | 'refused'): McpCall {
-  return { id: `skip:${server}`, server, tool: '', arg: '', state: 'err', skipped: why }
+export type McpSkip = 'off' | 'token' | 'refused' | 'provider' | 'policy'
+
+/** The entry for a server that could not join the request. */
+export function skippedCall(server: string, why: McpSkip, provider?: string): McpCall {
+  return { id: `skip:${server}`, server, tool: '', arg: '', state: 'err', skipped: why, ...(provider ? { provider } : {}) }
 }
 
 /** The first short string in a tool input (a query, an id …), for the readout. */

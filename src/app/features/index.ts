@@ -15,6 +15,7 @@
  *   - HistoryModal, ShareModal, ImportModal, ExportModal, AutomationsModal, TemplatesModal, SaveTemplateModal
  *   - openTodayJournal()
  */
+import { lazy } from 'react'
 export { startHistory, seedDemoHistory } from './history/snapshots'
 /* a version of a page right now, before a structural edit (editor: "Turn into page") */
 export { snapshotNow } from './history/snapshots'
@@ -38,7 +39,14 @@ export { isAIConfigured, runAI, type AIAction, type RunAIOptions } from './ai/cl
 /* one streamed completion with your own system prompt (help/ask.ts: "Ask the help", mcp: false = no MCP server) */
 export { streamCompletion, type StreamOptions } from './ai/client'
 // the AI core (multi-provider): status before a request, purposes and the sources a call names
-export { aiStatus, type AIStatus, type PurposeId, type SourceRef, type DataClass, type FeatureClass, type Route, type RouteRule, type ProviderId } from './ai/core'
+export { AIError, aiStatus, routeFor, destinationOf, precheck, type AIStatus, type PurposeId, type SourceRef, type DataClass, type FeatureClass, type Route, type RouteRule, type ProviderId, type Prepared, type AIFix } from './ai/core'
+/** Request text built for the route (core/shape.ts): shapeOf(precheck(…)) → withShape(shape, build) → facade({ …routed(pre) }). */
+export { shapeOf, withShape, routed, type Shape } from './ai/core/shape'
+/** The recorder's meta of an AI run (core/runMeta.ts): the route that served its writes. */
+export { aiRunMeta, aiWriterOf, type AIRunMeta } from './ai/core/runMeta'
+/** The route chip + picker (routing/RouteChip.tsx): which model one request goes to; Alt+M opens it. */
+export { RouteChip, isRouteKey, type RouteChipHandle } from './ai/routing/RouteChip'
+export type { Receipt } from './ai/core/meter'
 /** Claude's Markdown → a safe document: web images / media / frames as links (addresses a page shows already stay). */
 export { webImagesOf } from './agents/images'
 export { claudeDoc } from './ai/claudeDoc'
@@ -78,7 +86,7 @@ export { transformChoicesAt, TRANSFORM_ICONS } from './ai/transform/forms'
 export type { TransformPick } from './ai/transform/types'
 /*
  * External MCP servers for Claude (Messages API MCP connector): McpServers = the section of
- * Settings → Claude AI (servers, sealed tokens, usage prompts, the MCP instructions template).
+ * Settings → AI (servers, sealed tokens, usage prompts, the MCP instructions template).
  */
 export { McpServers } from './ai/mcp-servers/McpServers'
 /*
@@ -100,14 +108,32 @@ export type { MediaItem } from './ai/media/types'
  * hands the code to the tab that started it and closes) · McpOAuthScreen (no props; the code stays in memory) =
  * the route #/oauth/mcp (the shell renders it; this tab finishes the sign-in itself)
  */
-export { consumeMcpOAuthReturn } from './ai/mcp-servers/oauthReturn'
+export { consumeMcpOAuthReturn, consumeOAuthReturn } from './ai/mcp-servers/oauthReturn'
 export { McpOAuthScreen } from './ai/mcp-servers/OAuthScreen'
+/*
+ * Connecting OpenRouter (multi-provider S2): consumeOAuthReturn(note) — the general way back (`?oauth=mcp | openrouter`)
+ * main.tsx runs first · OpenRouterOAuthScreen (lazy, no props) = the route #/oauth/openrouter (this tab finishes it)
+ */
+export const OpenRouterOAuthScreen = lazy(() => import('./ai/providers/OpenRouterOAuthScreen').then((m) => ({ default: m.OpenRouterOAuthScreen })))
+/*
+ * Setting up AI (multi-provider S2, stage C — features/ai/setup):
+ *  - openAISetup({ reason?, feature?, provider?, step?, data? }): the assistant "Set up AI" (modal 'aiSetup') — every
+ *    "no key" surface, ⌘K "Set up AI", the changelog try and a refused request's key fixes use it
+ *  - openAISettings({ section?: 'mcp' | 'memory' }): Settings › AI (this device), scrolled to its MCP servers / memory
+ *  - AISetupModal (lazy; ModalHost renders it) · ProvidersTab (lazy; render it inside a Suspense): Settings › AI
+ *  - <AINeedsSetup purpose …/>: the one card a surface shows when its kind of work cannot run (aiStatus) ·
+ *    useAIStatus(purpose) · <FixKeys fix …/>: a refused request's keys (AIError.fix)
+ */
+export { openAISetup, openAISettings, type AISetupOptions } from './ai/setup/openAISetup'
+export { AINeedsSetup, FixKeys, offersAI, useAIStatus, openFix, type AINeedsSetupProps } from './ai/setup/AINeedsSetup'
+export const AISetupModal = lazy(() => import('./ai/setup/AISetup').then((m) => ({ default: m.AISetupModal })))
+export const ProvidersTab = lazy(() => import('./ai/setup/ProvidersTab').then((m) => ({ default: m.ProvidersTab })))
 /*
  * One memory (features/ai/memory): Claude remembers what the person confirms (a database "One memory" +
  * its usage log) and takes the matching memories along with free-form requests:
  *  - memoryFor(task, { off? }) → { use, block } — pass `block` as runAI({ memory }); noteUse(answer, use,
  *    { task, where, pageId?, result? }) after the request (the memory log); MemoryNote { use }: "MEMORY · 2"
- *  - MemorySettings: the section of Settings → Claude AI
+ *  - MemorySettings: the section of Settings → AI
  *  - ExampleDialog { pageId, tag?, blocks?, onClose }: "Save as example in memory" (open it with
  *    useUI.openModal({ type: 'memoryExample', pageId }) — page ⋯ menu, /example in the AI terminal)
  */

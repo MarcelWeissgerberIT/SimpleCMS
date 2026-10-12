@@ -177,7 +177,7 @@ test.describe('Workspace agent (mocked Claude API)', () => {
 
     // usage meter: summed tokens and the cost by the price table ("≈" only for an estimate), labelled as billed by Anthropic
     await expect(panel.getByTestId('agent-cost')).toHaveText(/^(< )?\$\d/)
-    await expect(panel.locator('.term-meter')).toContainText('billed by Anthropic to your API key')
+    await expect(panel.locator('.term-meter')).toContainText('billed by Anthropic to your key')
     await expect(panel.locator('.term-meter')).toContainText('4/40')
 
     // nothing written yet
@@ -302,15 +302,15 @@ test.describe('Workspace agent (mocked Claude API)', () => {
     expect(JSON.stringify(userTurns[userTurns.length - 1].content)).toContain('Never mind, just summarise')
   })
 
-  test('without an API key the panel explains it and points to Settings → Claude AI', async ({ page, context }) => {
+  test('without an API key the panel explains it and opens the assistant "Set up AI"', async ({ page, context }) => {
     const bodies = await mockAgent(context, [])
     await openApp(page)
     const panel = await openAgentFromPalette(page)
-    await expect(panel).toContainText('Claude is not connected')
+    await expect(panel.getByTestId('term-needs')).toContainText('AI isn’t set up yet')
     await expect(panel.getByRole('button', { name: /^Run/ })).toBeDisabled()
-    await panel.getByRole('button', { name: 'Open Settings → Claude AI' }).click()
-    expect(await uiEval(page, (s) => s.modal)).toMatchObject({ type: 'settings', tab: 'ai' })
-    await expect(page.getByRole('dialog').getByRole('tab', { name: /Claude AI/ })).toHaveAttribute('aria-selected', 'true')
+    await panel.getByTestId('term-needs').getByRole('button', { name: 'Set up AI' }).click()
+    expect(await uiEval(page, (s) => s.modal)).toMatchObject({ type: 'aiSetup' })
+    await expect(page.getByTestId('ai-setup')).toBeVisible()
     expect(bodies).toHaveLength(0)
   })
 

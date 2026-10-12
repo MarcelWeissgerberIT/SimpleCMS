@@ -21,6 +21,7 @@ import type { ProviderId } from '@/shared/ai/types'
 import { clearSecret, hintOf, isSecretMarker, markerHint, newSecretMarker, openSecret, sealSecret, vaultAvailable } from '../lib/vault'
 import type { WorkspaceState } from './store'
 import type { McpServerConfig, Settings } from './types'
+import { SYSTEM, withWriter } from './writer'
 
 /** Vault name of the Claude API key. */
 export const AI_KEY_SECRET = 'claude-api-key'
@@ -61,7 +62,7 @@ function seal(marker: string, key: string, scope: string, name = AI_KEY_SECRET):
   return job.then(
     () => true,
     (e) => {
-      warn(`${name === AI_KEY_SECRET ? 'the Claude API key' : 'an MCP server token'} could not be stored encrypted`)(e)
+      warn(`${name === AI_KEY_SECRET ? 'the Claude API key' : name.startsWith('ai-key:') ? `the ${name.slice(7)} API key` : 'an MCP server token'} could not be stored encrypted`)(e)
       return false
     },
   ).finally(() => sealing.delete(marker))
@@ -107,6 +108,27 @@ export function withSealedKey(settings: Settings, current: string, epoch: string
   return v === settings.aiApiKey ? settings : { ...settings, aiApiKey: v }
 }
 
+/**
+ * `settings` with every provider key as the store keeps it: the Claude key as withSealedKey, the other providers'
+ * slots (settings.aiKeys) markers only — a plaintext that arrives from storage, another tab, a backup or an overlay is
+ * sealed and replaced by its marker (no build writes one; readers drop what is neither). The same object when nothing
+ * changes.
+ */
+export function withSealedKeys(settings: Settings, current: Settings, epoch: string | undefined): Settings {
+  const out = withSealedKey(settings, current.aiApiKey, epoch)
+  const slots = settings.aiKeys
+  if (!slots || typeof slots !== 'object') return out
+  let next: NonNullable<Settings['aiKeys']> | null = null
+  for (const p of OTHER_PROVIDERS) {
+    const v = typeof slots[p] === 'string' ? slots[p].trim() : ''
+    if (!v || isSecretMarker(v) || !vaultAvailable()) continue
+    const marker = newSecretMarker(v)
+    void seal(marker, v, scopeOf(epoch), aiKeySecret(p))
+    next = { ...(next ?? slots), [p]: marker }
+  }
+  return next ? { ...out, aiKeys: next } : out
+}
+
 /** The secret `name` behind `marker` in `scope` (memory, then the vault; a team workspace may inherit the local one). */
 async function resolve(marker: string, scope: string, name = AI_KEY_SECRET): Promise<string | null> {
   const known = keys.get(marker)
@@ -125,29 +147,99 @@ async function resolve(marker: string, scope: string, name = AI_KEY_SECRET): Pro
   return key
 }
 
+const PROVIDER_NAME: Record<ProviderId, string> = { anthropic: 'Claude', openai: 'OpenAI', openrouter: 'OpenRouter' }
+
 /** The marker points at nothing (and still is the store's): clear it, so the UI asks for the key again. */
-function dropMarker(marker: string): void {
+function dropMarker(marker: string, provider: ProviderId = 'anthropic'): void {
   if (!vaultAvailable()) return // can't tell: another tab may hold it for its session
   const s = store?.getState()
-  if (s?.settings.aiApiKey !== marker) return
-  console.warn('[one] the stored Claude API key is not available in this browser any more — enter it again in Settings → Claude AI')
-  s.updateSettings({ aiApiKey: '' })
+  if (!s || markerOf(s.settings, provider) !== marker) return
+  console.warn(`[one] the stored ${PROVIDER_NAME[provider]} API key is not available in this browser any more — enter it again in Settings → AI`)
+  withWriter(SYSTEM('repair'), () => (provider === 'anthropic' ? s.updateSettings({ aiApiKey: '' }) : s.updateSettings({ aiKeys: { [provider]: '' } })))
 }
+
+/** The marker (or a legacy plaintext Claude key) a provider's slot holds ('' = none). */
+function markerOf(settings: Settings, provider: ProviderId): string {
+  if (provider === 'anthropic') return settings.aiApiKey.trim()
+  const v = settings.aiKeys?.[provider]
+  return typeof v === 'string' ? v.trim() : ''
+}
+
+/** Vault name of a provider's API key ('claude-api-key' for Claude, as before; 'ai-key:<provider>' for the others). */
+export const aiKeySecret = (p: ProviderId): string => (p === 'anthropic' ? AI_KEY_SECRET : `ai-key:${p}`)
+
+/** The providers whose keys live in settings.aiKeys (Claude's stays in settings.aiApiKey). */
+export const OTHER_PROVIDERS = ['openai', 'openrouter'] as const
+type OtherProvider = (typeof OTHER_PROVIDERS)[number]
 
 /**
  * A provider's API key for a request ('' = none). Decrypted on demand; kept in this module's memory for the session
- * only. Only the AI client (features/ai/client.ts) calls this. The provider is required — a forgotten one is a type
- * error, never a silent Claude key. Slice 1 has only Claude's slot: other providers have no key yet ('').
+ * only. Only the AI request paths call this — and only with the provider the request goes to (never a silent Claude
+ * key for another provider). The ONLY reader of a provider's secret.
  */
 export async function getAIKey(provider: ProviderId): Promise<string> {
-  if (provider !== 'anthropic') return ''
   const s = store?.getState()
-  const v = s?.settings.aiApiKey.trim() ?? ''
-  if (!s || !v) return ''
-  if (!isSecretMarker(v)) return v // an older version's plaintext this browser can't encrypt
-  const key = await resolve(v, scopeOf(s.epoch))
-  if (key === null) dropMarker(v)
+  if (!s) return ''
+  const v = markerOf(s.settings, provider)
+  if (!v) return ''
+  // an older version's Claude plaintext this browser can't encrypt; other slots only ever hold markers
+  if (!isSecretMarker(v)) return provider === 'anthropic' ? v : ''
+  const key = await resolve(v, scopeOf(s.epoch), aiKeySecret(provider))
+  if (key === null) dropMarker(v, provider)
   return key ?? ''
+}
+
+/** Is a key set for a provider here (its marker is in settings — synchronous, nothing is decrypted)? */
+export function hasAIKey(provider: ProviderId): boolean {
+  const s = store?.getState()
+  return !!s && !!markerOf(s.settings, provider)
+}
+
+/**
+ * The provider's own page for the key (OpenRouter: openrouter.ai/keys/<sha256 of the key>, the documented deep link —
+ * only its owner can open it), computed when asked and never stored; null without a key or for other providers.
+ */
+export async function keyLimitUrl(provider: ProviderId): Promise<string | null> {
+  if (provider !== 'openrouter' || typeof crypto === 'undefined' || !crypto.subtle) return null
+  const key = await getAIKey(provider)
+  if (!key) return null
+  const hash = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(key)))
+  return `https://openrouter.ai/keys/${Array.from(hash, (b) => b.toString(16).padStart(2, '0')).join('')}`
+}
+
+/**
+ * What the store keeps for an incoming `settings.aiKeys` (updateSettings — the mcpServersValue pattern): a slot the
+ * patch names with a plaintext key is sealed (memory at once, the vault in the background) and holds its marker; '' (or
+ * nothing) removes the slot and its secret; a marker stays; slots the patch does not name stay as they were.
+ */
+export function aiKeysValue(value: unknown, current: Settings['aiKeys'], epoch: string | undefined): Settings['aiKeys'] {
+  const scope = scopeOf(epoch)
+  const patch = value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {}
+  const next: Partial<Record<OtherProvider, string>> = {}
+  for (const p of OTHER_PROVIDERS) {
+    const old = current?.[p] ?? ''
+    if (!(p in patch)) {
+      if (old) next[p] = old
+      continue
+    }
+    const v = typeof patch[p] === 'string' ? (patch[p] as string).trim() : ''
+    if (!v || (old && v !== old)) {
+      // removed or replaced: the old secret leaves the vault (a replacement is sealed below under the same name)
+      if (old && isSecretMarker(old)) {
+        keys.delete(old)
+        if (!v) void clearSecret(aiKeySecret(p), scope).catch(warn(`the ${PROVIDER_NAME[p]} API key could not be removed from the vault`))
+      }
+      if (!v) continue
+    }
+    if (isSecretMarker(v)) {
+      next[p] = v
+      continue
+    }
+    const marker = newSecretMarker(v)
+    void seal(marker, v, scope, aiKeySecret(p))
+    next[p] = marker
+  }
+  return Object.keys(next).length ? next : undefined
 }
 
 /** The stored local workspace's key (persistence.ts registers it): for tabs that did not load it. */
@@ -163,19 +255,22 @@ export function setStoredKeyMigration(fn: () => Promise<unknown>): void {
 export async function checkAIKey(): Promise<void> {
   await storedKeyMigration?.().catch(warn('could not migrate the stored Claude API key'))
   const s = store?.getState()
-  const v = s?.settings.aiApiKey ?? ''
-  if (!s || !isSecretMarker(v)) return
-  const key = await resolve(v, scopeOf(s.epoch)).catch(() => undefined)
-  if (key === null) dropMarker(v)
+  if (!s) return
+  for (const p of ['anthropic', ...OTHER_PROVIDERS] as const) {
+    const v = markerOf(s.settings, p)
+    if (!isSecretMarker(v)) continue
+    const key = await resolve(v, scopeOf(s.epoch), aiKeySecret(p)).catch(() => undefined)
+    if (key === null) dropMarker(v, p)
+  }
 }
 
 /**
  * Seal a plaintext key that was stored before the vault (persistence.ts). Resolves the marker that
  * replaces it, or null when it could not be encrypted (then the plaintext stays where it is).
  */
-export async function sealStoredAIKey(key: string, scope: string): Promise<string | null> {
+export async function sealStoredAIKey(key: string, scope: string, name: string = AI_KEY_SECRET): Promise<string | null> {
   const marker = newSecretMarker(key)
-  return (await seal(marker, key, scope)) ? marker : null
+  return (await seal(marker, key, scope, name)) ? marker : null
 }
 
 /* ------------------------------------------------------------------ */

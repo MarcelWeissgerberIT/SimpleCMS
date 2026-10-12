@@ -6,10 +6,14 @@
 import { create } from 'zustand'
 import type { JSONContent } from '@tiptap/core'
 import type { ID } from './types'
+import type { DataClass, FeatureClass, ProviderId } from '@/shared/ai/types'
 import { newId } from '../lib/ids'
 
 export type ModalState =
-  | { type: 'settings'; tab?: 'general' | 'appearance' | 'ai' | 'data' | 'shortcuts' | 'about' | 'team' }
+  /** `section`: Settings › AI scrolled to its MCP servers or memory (features/ai/setup openAISettings) */
+  | { type: 'settings'; tab?: 'general' | 'appearance' | 'ai' | 'data' | 'shortcuts' | 'about' | 'team'; section?: 'mcp' | 'memory' }
+  /** the AI setup assistant (features/ai/setup openAISetup): why it opened, at which step / provider / data class */
+  | { type: 'aiSetup'; reason?: AISetupReason; feature?: FeatureClass; provider?: ProviderId; step?: AISetupStep; data?: DataClass }
   /** tab / select: open on built-ins or own templates, with a template root (own / customised) selected */
   | { type: 'templates'; parentId?: ID | null; tab?: 'builtin' | 'mine'; select?: ID }
   /** "Save as template…" for a page (features/templates) */
@@ -28,6 +32,11 @@ export type ModalState =
   | { type: 'confirm'; title: string; body?: string; danger?: boolean; confirmLabel?: string; onConfirm: () => void }
   /** "Save as example in memory" (features/ai/memory): a page — or `blocks` of it (a selection) — with an optional tag */
   | { type: 'memoryExample'; pageId: ID; tag?: string; blocks?: JSONContent[] | null }
+
+/** Why the AI setup opened (it starts at the step the reason points to). */
+export type AISetupReason = 'nokey' | 'route' | 'refused' | 'no_credit' | 'policy' | 'capability' | 'models' | 'add' | 'change' | 'remove' | 'rotate' | 'first-run'
+/** The assistant's steps: 01 provider · 02 key & check · 03 models · 04 data & limits · 05 working together · 06 done. */
+export type AISetupStep = 'provider' | 'key' | 'models' | 'data' | 'routing' | 'done'
 
 export interface ToastKey {
   label: string

@@ -11,7 +11,8 @@ import type { ConfirmItem } from '../runtime/types'
 import { effectNote, type EffectName } from '../runtime/effects'
 import './dialogs.css'
 
-const KIND_LABEL: Record<ConfirmItem['kind'], string> = { mail: 'MAIL', claude: 'CLAUDE', http: 'HTTP', trash: 'TRASH' }
+/** The effect's tag (the AI one is translated: "AI" / "KI"). */
+const KIND_LABEL: Record<ConfirmItem['kind'], string> = { mail: 'MAIL', claude: 'features.script.kind.ai', http: 'HTTP', trash: 'TRASH' }
 const EFFECT_OF: Partial<Record<ConfirmItem['kind'], EffectName>> = { mail: 'mail.send', claude: 'claude', http: 'http.post' }
 
 /** How the effect happens now, when its implementation says so ("via Gmail · ada@example.com"). */
@@ -38,7 +39,7 @@ function PlanList({ items, on, setOn }: { items: ConfirmItem[]; on: Set<string>;
                 setOn(next)
               }}
             />
-            <span className={`sc-plan__kind label sc-plan__kind--${it.kind}`}>{KIND_LABEL[it.kind]}</span>
+            <span className={`sc-plan__kind label sc-plan__kind--${it.kind}`}>{it.kind === 'claude' ? t(KIND_LABEL.claude) : KIND_LABEL[it.kind]}</span>
             <span className="sc-plan__label">{t(`features.script.plan.${it.kind}`, { label: it.label })}</span>
             <Via kind={it.kind} />
           </label>

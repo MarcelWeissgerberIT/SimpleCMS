@@ -5,8 +5,13 @@
  * each organised mail go to Anthropic; when it is off, nothing about mail ever does.
  */
 import { completeStructured } from '../ai/client'
-import { chosenRoute, shortOf } from '../ai/core/status'
-import { estimate } from '../governor'
+import { aiRunMeta } from '../ai/core/runMeta'
+import { noteMailAI } from './writer'
+import { estimateLabel, estimateOn, routeFor } from '../ai/core/status'
+import { precheck } from '../ai/core/gate'
+import { routed } from '../ai/core/shape'
+import type { SourceRef } from '@/shared/ai/types'
+import { providerInfo } from '@/shared/ai/providers'
 import type { MailOrganise } from '../../store/types'
 import { PRIORITIES, type Priority } from './schema'
 
@@ -95,9 +100,12 @@ export function buildOrganisePrompt(mails: OrganiseMail[], o: MailOrganise, proj
 
 /** Ask Claude about a batch. Throws AIError on API failures; entries that don't parse are left out. */
 export async function organiseBatch(mails: OrganiseMail[], o: MailOrganise, projects: string[], signal: AbortSignal | undefined, dbId: string): Promise<Map<string, OrganiseAnswer>> {
+  // the route first: mail is needed — a route that may not receive it is refused before anything is built or sent
+  const sources: SourceRef[] = [{ db: dbId }]
+  const pre = precheck({ purpose: 'bulk.mail', sources })
   const { system, prompt, schema } = buildOrganisePrompt(mails, o, projects)
-  // mail goes to Anthropic only: no MCP server ever joins this request (its source: the Mails database)
-  const raw = await completeStructured({ purpose: 'bulk.mail', sources: [{ db: dbId }], system, prompt, schema, maxTokens: 4096, signal, mcp: false })
+  // no MCP server ever joins this request (its source: the Mails database)
+  const raw = await completeStructured({ purpose: 'bulk.mail', sources, system, prompt, schema, maxTokens: 4096, signal, mcp: false, ...routed(pre), onRun: (r) => noteMailAI(aiRunMeta(r)) })
   const out = new Map<string, OrganiseAnswer>()
   let parsed: unknown
   try {
@@ -139,14 +147,16 @@ export interface OrganiseEstimate {
   usd: number
   /** "OPUS 5.5" */
   model: string
+  /** the company that bills it */
+  company: string
 }
 
 /** Rough cost of organising `mails` mails, priced by the one table (the provider bills the real usage to the user's key). */
 export function estimateOrganise(mails: number): OrganiseEstimate {
-  const route = chosenRoute()
+  const r = routeFor('bulk.mail')
   const requests = Math.ceil(mails / ORGANISE_BATCH)
   const inputTokens = requests * OVERHEAD_TOKENS + mails * MAIL_TOKENS
   const outputTokens = mails * OUT_TOKENS
-  const usd = estimate(route, { promptTokens: inputTokens, outTokens: outputTokens, maxTokens: outputTokens })?.low ?? 0
-  return { mails, inputTokens, outputTokens, usd, model: shortOf(route) }
+  const usd = estimateOn(r, { promptTokens: inputTokens, outTokens: outputTokens, maxTokens: outputTokens })?.low ?? 0
+  return { mails, inputTokens, outputTokens, usd, model: estimateLabel(r.route, r.pool), company: providerInfo(r.route.p).company }
 }

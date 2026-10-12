@@ -1252,7 +1252,7 @@ const shots = {
     await card.hover()
     await card.getByTestId('file-ai-key').click()
     await page.getByRole('menuitem', { name: /^Extract the tables/ }).click()
-    const ai = page.getByRole('dialog', { name: 'Ask Claude' })
+    const ai = page.getByRole('dialog', { name: 'Ask AI' })
     await ai.getByTestId('ai-file-tables').locator('tbody tr').first().waitFor({ timeout: 20_000 })
     await page.waitForTimeout(800)
     await page.mouse.move(W + 40, H + 40)

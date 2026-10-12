@@ -3,11 +3,11 @@ id: ai-costs
 title: What AI requests cost
 section: ai
 order: 17
-keywords: cost, costs, price, prices, receipt, receipts, tokens, usage, spend, budget, estimate, table, cache, cache read, cache write, refusal fallback, spend limit, ledger, /cost, Kosten, Preis, Preise, Beleg, Belege, Schätzung, Tabelle, Verbrauch, Ausgabenlimit
-related: claude-key, ai-menu, agent, custom-agents
+keywords: cost, costs, openrouter, credits, jev router, reported, catalogue, price, prices, receipt, receipts, tokens, usage, spend, budget, estimate, table, cache, cache read, cache write, refusal fallback, spend limit, ledger, /cost, Kosten, Preis, Preise, Beleg, Belege, Schätzung, Tabelle, Verbrauch, Ausgabenlimit
+related: ai-providers, ai-data-rules, claude-key, ai-menu, agent, custom-agents
 summary: Every AI request in One gets a receipt — the model that answered, what it cost and how One priced it. Your provider bills the real amount.
 ---
-One sends AI requests with your own key, so your provider bills them — for Claude that is Anthropic, on your account. One meters every answer on this device and shows what it cost.
+One sends AI requests with your own key, so your provider bills them — Anthropic for Claude, OpenRouter from your prepaid credits. One meters every answer on this device and shows what it cost.
 
 ## Where you see it
 - **AI menu:** under each result a receipt line, for example `Claude Sonnet 5.5 · $0.0040 · TABLE`. Hover it for the tokens (in, cache write, cache read, out) and the date of the price table. A result with several requests (Transform → Auto, an MCP server that paused the answer) adds them up.
@@ -23,7 +23,10 @@ One sends AI requests with your own key, so your provider bills them — for Cla
 ## Another model answered
 Anthropic may hand a request the chosen model declines to another Claude model. The receipt then names the model that answered and adds the line *Anthropic passed this to Claude Sonnet 5.5*. Each part is priced at the model that ran it: what the chosen model read before it declined at its price, the answer at the other model's. The terminal and agent runs show the same line.
 
+## OpenRouter and the Jev Router
+OpenRouter answers with the cost of each request: the receipt then reads **REPORTED**. Without a reported cost One prices the answer at the model's catalogue row (**CATALOGUE**). OpenRouter works on prepaid credits (from $5; it takes a fee on top-ups) — each model costs its list price, shown in step 03 and in the picker. The **Jev Router** is priced per request and reported too; the receipt names the model it picked (*OpenRouter · Jev Router → …*). Before such a request One reserves the most expensive model of your list.
+
 ## What is kept
 The record behind the receipts stays on this device: ids, models, token counts, amounts — never page text. It keeps 90 days, is never synced, exported or backed up, and goes when you remove a workspace's copy from this device or reset the app here. In a team each member has their own.
 
-> These are One's figures from list prices. The binding amount, and a hard spend limit, live with your provider — for Claude in the Anthropic console (**console.anthropic.com → Settings → Limits**).
+> These are One's figures from list prices or the provider's report. The binding amount, and a hard spend limit, live with your provider — for Claude in the Anthropic console (**console.anthropic.com → Settings → Limits**), for OpenRouter as the key's limit (**openrouter.ai → Settings → Keys**, shown live in Settings → AI).

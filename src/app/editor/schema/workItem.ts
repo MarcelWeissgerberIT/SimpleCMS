@@ -31,6 +31,7 @@ import { itemAttrs, readDoneAt, readDue, readFrozen, readItemId, readLinks, read
 import { CLIP_ATTR, clipKey, isOwnCopy } from '../workitem/clip'
 import { chipWords, placardModel } from '../workitem/format'
 import { workItemMarkdown } from '../workitem/markdown'
+import { currentRedactor } from '@/shared/ai/redact'
 import { itemLabel } from '../workitem/labels'
 import { liftMisplaced } from '../workitem/place'
 
@@ -153,8 +154,10 @@ export const WorkItem = Node.create({
     const title = first ? h.renderChildren([first]).trim() : ''
     const notes = rest.length ? h.renderChildren(rest, '\n\n') : ''
     const people = useWorkspace.getState().people
+    // a request to a route without people's names (src/shared/ai/redact.ts withRedaction): owners as "@Person n"
+    const r = currentRedactor()
     // linked tasks: their ids, titles only inside withItemLabels (the Markdown export — ../workitem/labels.ts)
-    return workItemMarkdown(a, title, notes, { person: (id) => people.find((p) => p.id === id)?.name ?? null, item: itemLabel })
+    return workItemMarkdown(a, title, notes, { person: (id) => people.find((p) => p.id === id)?.name ?? null, item: itemLabel, ...(r ? { redact: (k: string) => r.person(k) } : {}) })
   },
 
   addProseMirrorPlugins() {

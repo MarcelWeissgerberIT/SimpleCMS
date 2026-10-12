@@ -104,7 +104,7 @@ const pngSize = (b64: string) => {
 }
 
 const setKey = (page: Page, lang?: 'de') => wsEval(page, (s, lang) => s.updateSettings({ aiApiKey: 'sk-ant-e2e-test-key', ...(lang ? { language: lang } : {}) }), lang)
-const panel = (page: Page) => page.getByRole('dialog', { name: /Ask Claude|Claude fragen/ })
+const panel = (page: Page) => page.getByRole('dialog', { name: /Ask AI|KI fragen/ })
 const figure = (page: Page, id: string) => editorOf(page, id).locator('.image-view').first()
 
 /** "Protokoll P1": a line, an image block with the uploaded PNG, a line. */
@@ -141,7 +141,7 @@ async function viaBlockMenu(page: Page, id: string, action: RegExp) {
   await figure(page, id).hover()
   await page.locator('.block-handle__grip').click()
   const menu = page.getByRole('menu')
-  await expect(menu.getByText('Claude', { exact: true })).toBeVisible()
+  await expect(menu.getByText('AI', { exact: true })).toBeVisible()
   await menu.getByRole('menuitem', { name: action }).click()
 }
 
@@ -176,7 +176,7 @@ test.describe('Claude for images', () => {
 
     expect(claude.kinds).toEqual(['describe'])
     expect(expectImageBlock(claude.bodies[0])).toEqual({ w: 720, h: 420 })
-    // the page goes along as "What Claude reads" allows (whole page here)
+    // the page goes along as "What the AI reads" allows (whole page here)
     expect(taskText(claude.bodies[0])).toContain('Deck layout, plate and volumes for run P1.')
 
     // the alt text can be edited before it is applied
@@ -443,7 +443,7 @@ test.describe('Claude for images', () => {
     const key = figure(page, id).getByTestId('image-ai-key')
     await expect(key).toHaveText(/KI/)
     await key.click()
-    await expect(page.getByRole('menu').getByText('Claude', { exact: true })).toBeVisible()
+    await expect(page.getByRole('menu').getByText('AI', { exact: true })).toBeVisible()
     await page.getByRole('menuitem', { name: /Bild beschreiben/ }).click()
     const ai = panel(page)
     await expect(ai.getByRole('textbox', { name: 'Alternativtext' })).toHaveValue(ALT)

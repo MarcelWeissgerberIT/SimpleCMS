@@ -7,7 +7,7 @@ import { Bell, CalendarDays, CalendarRange, Copy, Download, FilePlus2, FolderInp
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
 import { navigate } from '../../lib/router'
-import { openTodayJournal, openAgent, AGENT_SHORTCUT, openFunctionBuilder, paletteDbCommands, createScript, openScripts, paletteScripts, openOutbox, openRecorder, REWIND_SHORTCUT, openPreflight, preflightIsOn } from '../../features'
+import { openTodayJournal, openAgent, AGENT_SHORTCUT, openFunctionBuilder, paletteDbCommands, createScript, openScripts, paletteScripts, openOutbox, openRecorder, REWIND_SHORTCUT, openPreflight, preflightIsOn, openAISetup } from '../../features'
 import type { ID } from '../../store/types'
 import type { Translate } from '@/shared/i18n'
 import { quickNoteToInbox } from '../capture/inbox'
@@ -103,6 +103,7 @@ export function buildCommands(t: Translate, pageId: ID | null): Command[] {
     { id: 'shortcuts', group: 'workspace', label: t('shell.cmd.shortcuts'), icon: Keyboard, shortcut: 'Mod+/', keywords: 'keyboard keys help hilfe tastatur', run: () => ui.openModal({ type: 'shortcuts' }) },
     { id: 'help', group: 'start', label: t('help.title'), icon: CircleHelp, shortcut: '?', keywords: 'help hilfe manual handbuch docs documentation dokumentation faq support anleitung', run: () => openHelp() },
     { id: 'whats-new', group: 'workspace', label: t('help.news.cmd'), icon: Newspaper, keywords: "what's new whats new changelog updates release notes neuigkeiten neu in one änderungen versionshinweise", run: () => { closeMobileSidebar(); openChangelog() } },
+    { id: 'ai-setup', group: 'claude', label: t('features.ai.prov.needs.open'), icon: Plug, keywords: 'set up ai key keys provider providers claude jev router model models connect einrichten ki schlüssel anbieter modelle verbinden', run: () => { closeMobileSidebar(); openAISetup({ reason: 'add' }) } },
     { id: 'ask-ai', group: 'claude', label: t('shell.cmd.askAI'), icon: MessageSquareText, keywords: 'claude ai assistant question ki frage', run: () => ui.openPalette('?') },
     { id: 'agent', group: 'claude', label: t('features.agent.cmd'), icon: Workflow, shortcut: AGENT_SHORTCUT, keywords: 'agent claude ai automate bulk tasks rows pages ki automatisieren aufgaben terminal console konsole', run: () => { closeMobileSidebar(); openAgent() } },
     // the flight recorder: always there (viewers read the tape too)

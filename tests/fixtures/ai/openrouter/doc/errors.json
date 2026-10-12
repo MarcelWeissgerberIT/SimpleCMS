@@ -1,0 +1,366 @@
+{
+  "source": "api_reference_errors-and-debugging.md + api_reference_limits.md + guides_routing_routers_jev-router.md",
+  "verified": false,
+  "note": "Non-2xx answers (pre-stream JSON errors) and what One makes of them (classify). One case per row of the table.",
+  "cases": [
+    {
+      "name": "401 invalid key",
+      "source": "api_reference_errors-and-debugging.md#error-codes",
+      "status": 401,
+      "body": {
+        "error": {
+          "code": 401,
+          "message": "No auth credentials found"
+        }
+      },
+      "expect": "invalid_key"
+    },
+    {
+      "name": "402 in-flight budget",
+      "source": "api_reference_limits.md#in-flight-spending-budget",
+      "status": 402,
+      "headers": {
+        "retry-after": "3"
+      },
+      "body": {
+        "error": {
+          "code": 402,
+          "message": "This request would exceed your available credits given your current in-flight requests.",
+          "metadata": {
+            "reason": "in_flight_budget_exhausted",
+            "limit_source": "openrouter_in_flight_budget",
+            "remedy_hint": "Retry after your in-flight requests settle."
+          }
+        }
+      },
+      "expect": "busy",
+      "retryAfter": 3000
+    },
+    {
+      "name": "402 credits",
+      "source": "api_reference_limits.md#in-flight-spending-budget",
+      "status": 402,
+      "body": {
+        "error": {
+          "code": 402,
+          "message": "Insufficient credits",
+          "metadata": {
+            "reason": "weight_exceeds_budget",
+            "limit_source": "openrouter_credits"
+          }
+        }
+      },
+      "expect": "no_credit"
+    },
+    {
+      "name": "402 key limit",
+      "source": "api_reference_limits.md#handling-402-errors",
+      "status": 402,
+      "body": {
+        "error": {
+          "code": 402,
+          "message": "Key limit exceeded",
+          "metadata": {
+            "limit_source": "openrouter_key_limit"
+          }
+        }
+      },
+      "expect": "no_credit"
+    },
+    {
+      "name": "402 bare",
+      "source": "api_reference_errors-and-debugging.md#error-codes",
+      "status": 402,
+      "body": {
+        "error": {
+          "code": 402,
+          "message": "Payment required"
+        }
+      },
+      "expect": "no_credit"
+    },
+    {
+      "name": "403 guardrail budget",
+      "source": "api_reference_errors-and-debugging.md#budget-errors",
+      "status": 403,
+      "body": {
+        "error": {
+          "code": 403,
+          "message": "Budget limit exceeded (weekly limit). $52.00 of $50.00 used; resets 2026-10-12T00:00:00.000Z.",
+          "metadata": {
+            "limit_source": "openrouter_guardrail_budget",
+            "scope": "workspace_default_member",
+            "limit_usd": 50,
+            "spend_usd": 52,
+            "resets_at": "2026-10-12T00:00:00.000Z"
+          }
+        }
+      },
+      "expect": "no_credit"
+    },
+    {
+      "name": "403 workspace budget",
+      "source": "api_reference_errors-and-debugging.md#budget-errors",
+      "status": 403,
+      "body": {
+        "error": {
+          "code": 403,
+          "message": "Budget limit exceeded",
+          "metadata": {
+            "limit_source": "openrouter_workspace_budget"
+          }
+        }
+      },
+      "expect": "no_credit"
+    },
+    {
+      "name": "403 moderation",
+      "source": "api_reference_errors-and-debugging.md#moderation-errors",
+      "status": 403,
+      "body": {
+        "error": {
+          "code": 403,
+          "message": "Input was flagged",
+          "metadata": {
+            "reasons": [
+              "harassment"
+            ],
+            "flagged_input": "Fictional flagged text…",
+            "provider_name": "Nordwind",
+            "model_slug": "vendor-a/model-b"
+          }
+        }
+      },
+      "expect": "moderation"
+    },
+    {
+      "name": "403 content policy",
+      "source": "api_reference_errors-and-debugging.md#content-policy",
+      "status": 403,
+      "body": {
+        "error": {
+          "code": 403,
+          "message": "Blocked by a content filter",
+          "metadata": {
+            "error_type": "content_policy_violation"
+          }
+        }
+      },
+      "expect": "moderation"
+    },
+    {
+      "name": "403 guardrail block",
+      "source": "api_reference_errors-and-debugging.md#guardrail-errors",
+      "status": 403,
+      "body": {
+        "error": {
+          "code": 403,
+          "message": "Request blocked: prompt injection patterns detected",
+          "metadata": {
+            "patterns": [
+              "ignore all previous instructions"
+            ]
+          }
+        }
+      },
+      "expect": "permission"
+    },
+    {
+      "name": "404 no endpoints",
+      "source": "guides_routing_provider-selection.md#allowing-only-specific-providers",
+      "status": 404,
+      "body": {
+        "error": {
+          "code": 404,
+          "message": "No endpoints found that support the requested parameters and provider preferences."
+        }
+      },
+      "expect": "no_endpoint"
+    },
+    {
+      "name": "404 unknown model",
+      "source": "api_reference_errors-and-debugging.md#request-validation",
+      "status": 404,
+      "body": {
+        "error": {
+          "code": 404,
+          "message": "Model vendor-a/model-gone not found",
+          "metadata": {
+            "error_type": "not_found"
+          }
+        }
+      },
+      "expect": "model_gone"
+    },
+    {
+      "name": "404 router: no eligible model",
+      "source": "guides_routing_routers_jev-router.md#availability-and-errors",
+      "status": 404,
+      "router": true,
+      "body": {
+        "error": {
+          "code": 404,
+          "message": "No eligible model remains after applying model preferences. Try: widen allowed_models or remove excluded_models."
+        }
+      },
+      "expect": "no_endpoint",
+      "detail": "^router"
+    },
+    {
+      "name": "400 router: unsupported reasoning",
+      "source": "guides_routing_routers_jev-router.md#reasoning-effort",
+      "status": 400,
+      "router": true,
+      "body": {
+        "error": {
+          "code": 400,
+          "message": "reasoning.max_tokens is not supported by this router"
+        }
+      },
+      "expect": "bad_request"
+    },
+    {
+      "name": "400 context",
+      "source": "api_reference_errors-and-debugging.md#token-and-length-limits",
+      "status": 400,
+      "body": {
+        "error": {
+          "code": 400,
+          "message": "This model's maximum context length is 128000 tokens.",
+          "metadata": {
+            "error_type": "context_length_exceeded"
+          }
+        }
+      },
+      "expect": "context"
+    },
+    {
+      "name": "400 bad request",
+      "source": "api_reference_errors-and-debugging.md#error-codes",
+      "status": 400,
+      "body": {
+        "error": {
+          "code": 400,
+          "message": "Invalid model specified"
+        }
+      },
+      "expect": "bad_request"
+    },
+    {
+      "name": "413",
+      "source": "api_reference_errors-and-debugging.md#request-validation",
+      "status": 413,
+      "body": {
+        "error": {
+          "code": 413,
+          "message": "Payload too large"
+        }
+      },
+      "expect": "bad_request"
+    },
+    {
+      "name": "422",
+      "source": "api_reference_errors-and-debugging.md#request-validation",
+      "status": 422,
+      "body": {
+        "error": {
+          "code": 422,
+          "message": "Unprocessable"
+        }
+      },
+      "expect": "bad_request"
+    },
+    {
+      "name": "408",
+      "source": "api_reference_errors-and-debugging.md#error-codes",
+      "status": 408,
+      "body": {
+        "error": {
+          "code": 408,
+          "message": "Request timed out"
+        }
+      },
+      "expect": "unavailable"
+    },
+    {
+      "name": "429",
+      "source": "api_reference_errors-and-debugging.md#retry-after-header",
+      "status": 429,
+      "headers": {
+        "retry-after": "60"
+      },
+      "body": {
+        "error": {
+          "code": 429,
+          "message": "Rate limit exceeded"
+        }
+      },
+      "expect": "rate_limit",
+      "retryAfter": 60000
+    },
+    {
+      "name": "502",
+      "source": "api_reference_errors-and-debugging.md#error-codes",
+      "status": 502,
+      "body": {
+        "error": {
+          "code": 502,
+          "message": "Provider returned error"
+        }
+      },
+      "expect": "unavailable"
+    },
+    {
+      "name": "503",
+      "source": "api_reference_errors-and-debugging.md#error-codes",
+      "status": 503,
+      "body": {
+        "error": {
+          "code": 503,
+          "message": "No available model provider that meets your routing requirements"
+        }
+      },
+      "expect": "unavailable"
+    },
+    {
+      "name": "504",
+      "source": "api_reference_errors-and-debugging.md#generic",
+      "status": 504,
+      "body": {
+        "error": {
+          "code": 504,
+          "message": "Gateway timeout"
+        }
+      },
+      "expect": "timeout"
+    },
+    {
+      "name": "500 masked",
+      "source": "api_reference_errors-and-debugging.md#masking-and-raw-provider-details",
+      "status": 500,
+      "body": {
+        "error": {
+          "code": 500,
+          "message": "Internal Server Error",
+          "metadata": {
+            "error_type": "server"
+          }
+        }
+      },
+      "expect": "unavailable"
+    },
+    {
+      "name": "a key in the message is scrubbed",
+      "source": "api_reference_errors-and-debugging.md#error-codes",
+      "status": 401,
+      "body": {
+        "error": {
+          "code": 401,
+          "message": "Key sk-or-v1-0000aaaa1111bbbb2222cccc3333dddd is disabled"
+        }
+      },
+      "expect": "invalid_key",
+      "detail": "^Key •••• is disabled$"
+    }
+  ]
+}

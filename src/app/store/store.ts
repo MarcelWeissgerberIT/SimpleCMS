@@ -14,14 +14,15 @@ import type { JSONContent } from '@tiptap/core'
 import { newId } from '../lib/ids'
 import { collectItemIds, newItemId } from '../lib/itemIds'
 import { detectLang } from '@/shared/i18n'
-import { aiKeyValue, attachSecrets, checkAIKey, mcpServersValue, withSealedKey } from './secrets'
+import { aiKeyValue, aiKeysValue, attachSecrets, checkAIKey, mcpServersValue, withSealedKeys } from './secrets'
 import { isSafeFunctionId } from './functions'
 import { agentEditor, sanitizeAgent } from './agents'
 import { sanitizeScript } from './scripts'
 import { emptyKit, optionsOfList, sanitizeList, sanitizePropType, sanitizeRecordType, storedTypeOf, syncRecordTypeInto } from './kit'
 import { lookAllowed, sameLook, sanitizeLook } from './look'
-import { readWorkspaceAI, sameWorkspaceAI, withCleanAISettings } from './ai'
+import { aiRulesAllowed, claudeRulesAllowed, readWorkspaceAI, sameWorkspaceAI, withCleanAISettings } from './ai'
 import type { WorkspaceAI } from '@/shared/ai/types'
+import { policyKnown, requiredGen } from '@/shared/ai/policy'
 import { INTEGRATION_LIMITS, integrationsAllowed, sameIntegration, sanitizeIntegration, sanitizeIntegrations } from './integrations'
 import { SYSTEM, withWriter } from './writer'
 import { deepFreeze } from './freeze'
@@ -206,6 +207,13 @@ export interface WorkspaceState extends Workspace {
    * False when refused: a team member who is not an owner or admin (the server puts such a change back too).
    */
   setLook: (look: WorkspaceLook | null) => boolean
+  /**
+   * The workspace's AI rules (Workspace.ai — store/aiRules.ts setWorkspaceAI is the way in): sanitized, `gen` stamped
+   * with the generation the rules need (absent when 1), updatedAt / updatedBy set; the same rules keep the reference.
+   * Refused (false) unless aiRulesAllowed() and this build knows the stored generation; Claude's entry stays as it was
+   * unless claudeRulesAllowed() (`claudeKept`).
+   */
+  setWorkspaceAI: (ai: WorkspaceAI | null) => { ok: boolean; claudeKept?: true }
 
   /**
    * Integration profiles (features/agents/integrations): insert or replace by id (sanitized; updatedAt / updatedBy are
@@ -489,7 +497,7 @@ export const useWorkspace = create<WorkspaceState>()(
 
     hydrate: (ws) => {
       // the Claude API key: a vault marker, never the key (secrets.ts)
-      const settings = withCleanAISettings(withSealedKey(ws.settings, get().settings.aiApiKey, ws.epoch))
+      const settings = withCleanAISettings(withSealedKeys(ws.settings, get().settings, ws.epoch))
       // boot / workspace switch: no writer's change (the recorder is not listening yet at boot; a re-hydrate is system)
       withWriter(SYSTEM('hydrate'), () =>
         set((s) => {
@@ -515,7 +523,7 @@ export const useWorkspace = create<WorkspaceState>()(
         s.pages = ws.pages
         s.databases = ws.databases
         s.people = ws.people
-        s.settings = withSealedKey(ws.settings, s.settings.aiApiKey, s.epoch)
+        s.settings = withSealedKeys(ws.settings, s.settings, s.epoch)
         s.recent = ws.recent
         s.functions = ws.functions ?? {}
         s.agents = ws.agents ?? {}
@@ -542,6 +550,40 @@ export const useWorkspace = create<WorkspaceState>()(
         s.look = clean ?? undefined
       })
       return true
+    },
+
+    setWorkspaceAI: (next) => {
+      const prev = get().ai
+      // never over rules this build cannot enforce (a newer build's — 'reload'); never by someone who may not
+      if (!aiRulesAllowed() || !policyKnown(prev, null)) return { ok: false }
+      let clean = next ? readWorkspaceAI(JSON.parse(JSON.stringify(next))) : undefined
+      // never rules a newer build wrote (their own generation above this build's): restamped here they would pass for
+      // rules this build enforces whole — a backup or a caller handing them on is refused, the stored rules stay
+      if (clean && !policyKnown(clean, null)) return { ok: false }
+      let claudeKept: true | undefined
+      // Claude's rules wait for a server whose agents read them (D-S2-30): its entry stays as it was
+      if (clean && !claudeRulesAllowed()) {
+        const was = prev?.policy?.providers?.anthropic
+        const now = clean.policy?.providers?.anthropic
+        if (JSON.stringify(was ?? null) !== JSON.stringify(now ?? null)) claudeKept = true
+        const providers = { ...(clean.policy?.providers ?? {}) }
+        if (was) providers.anthropic = was
+        else delete providers.anthropic
+        clean = { ...clean, policy: { providers, restricted: clean.policy?.restricted ?? prev?.policy?.restricted ?? [] } }
+      }
+      if (clean) {
+        const { gen: _g, updatedAt: _a, updatedBy: _b, ...rest } = clean
+        const g = requiredGen(rest, null)
+        clean = Object.keys(rest).length ? { ...rest, ...(g > 1 ? { gen: g } : {}) } : undefined
+      }
+      const bare = (x: WorkspaceAI | undefined) => (x ? { ...x, updatedAt: undefined, updatedBy: undefined } : undefined)
+      if (sameWorkspaceAI(readWorkspaceAI(bare(clean)), readWorkspaceAI(bare(prev)))) return { ok: true, ...(claudeKept ? { claudeKept } : {}) }
+      const stamped = clean ? { ...clean, updatedAt: now(), updatedBy: agentEditor() } : undefined
+      set((s) => {
+        // never `delete s.ai`: zustand merges the next state into the previous one, a missing key stays
+        s.ai = stamped
+      })
+      return { ok: true, ...(claudeKept ? { claudeKept } : {}) }
     },
 
     upsertIntegration: (profile, replaces) => {
@@ -965,8 +1007,14 @@ export const useWorkspace = create<WorkspaceState>()(
       let p = 'aiApiKey' in patch ? { ...patch, aiApiKey: aiKeyValue(patch.aiApiKey, get().settings.aiApiKey, get().epoch, true) } : patch
       // MCP server tokens likewise: markers only in the list (secrets.ts)
       if ('mcpServers' in p) p = { ...p, mcpServers: mcpServersValue(p.mcpServers, get().settings.mcpServers, get().epoch) }
+      // the other providers' keys likewise: markers only in settings.aiKeys (secrets.ts)
+      if ('aiKeys' in p) p = { ...p, aiKeys: aiKeysValue(p.aiKeys, get().settings.aiKeys, get().epoch) }
       set((s) => {
         Object.assign(s.settings, p)
+        // no slot left: the key goes, never an `aiKeys: undefined` in the record
+        if ('aiKeys' in p && !p.aiKeys) delete s.settings.aiKeys
+        // no device rule left: likewise (settings.ai is never in defaultSettings())
+        if ('ai' in p && !p.ai) delete s.settings.ai
       })
     },
 
@@ -1259,7 +1307,7 @@ export const useWorkspace = create<WorkspaceState>()(
         }
         if (patch.ai !== undefined) s.ai = patch.ai ?? undefined
         if (patch.integrations) s.integrations = patch.integrations
-        if (patch.settings) Object.assign(s.settings, withSealedKey({ ...s.settings, ...patch.settings }, s.settings.aiApiKey, s.epoch))
+        if (patch.settings) Object.assign(s.settings, withSealedKeys({ ...s.settings, ...patch.settings }, s.settings, s.epoch))
         if (removed && s.recent.some((r) => !s.pages[r])) s.recent = s.recent.filter((r) => !!s.pages[r])
       }),
   })),

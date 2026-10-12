@@ -1,43 +1,44 @@
 /**
- * aiStatus(purpose): can a request of this purpose go out on this device now, and where to? The same checks as the
- * gate (generation, AUS, route) without sending or reserving anything — for buttons and hints.
+ * aiStatus(purpose): can a request of this purpose go out on this device now, and where to? routeFor(purpose): the
+ * route it would take — for estimates and limits shown before a request (D-S2-32). Both are the gate's resolution
+ * (core/gate.ts) without sending or reserving anything.
  */
-import { policyKnown } from '@/shared/ai/policy'
-import { legacyRule } from '@/shared/ai/route'
-import type { AIErrorCode } from '@/shared/ai/errors'
-import type { Route } from '@/shared/ai/types'
-import { modelRow } from '@/shared/ai/models'
+import type { DataClass, Route } from '@/shared/ai/types'
+import { isJevRouter } from '@/shared/ai/jev'
+import { allowedFor } from '@/shared/ai/policy'
+import { providerInfo } from '@/shared/ai/providers'
 import { useWorkspace } from '../../../store/store'
-import { isAIDemo } from './demoMode'
 import type { PurposeId } from './purposes'
+import { capsFor, labelFor, priceFor, shortFor } from './registry'
+import { estimate, type Band, type EstimateRequest } from '../../governor'
 
-export interface AIStatus {
-  /** a request would go out (or get a demo answer) */
-  ready: boolean
-  /** the route it would take (null: none — see `reason`, or demo) */
-  route: Route | null
-  demo: boolean
-  /** why it would not: 'reload' (newer rules) · 'no_key' */
-  reason: Extract<AIErrorCode, 'reload' | 'no_key' | 'off'> | null
-}
+import { routeFor } from './gate'
 
-export function aiStatus(_purpose: PurposeId): AIStatus {
+export { aiStatus, routeFor, type AIStatus } from './gate'
+
+/** The short label of a route's model ("OPUS 5.5", "JEV ROUTER"), else its id's last part. */
+export const shortOf = (route: Route, pool?: readonly string[]): string => shortFor(route, pool)
+
+/** How an estimate names its route: Claude's short label as before ("OPUS 5.5"), another provider's with its name. */
+export const estimateLabel = (route: Route, pool?: readonly string[]): string => (route.p === 'anthropic' ? shortFor(route, pool) : labelFor(route, pool))
+
+/** A cost band on a route (its price: the table, the shortlist row, a dynamic route's bound — never 0). */
+export const estimateOn = (r: { route: Route; pool?: readonly string[] }, req: EstimateRequest): Band | null => estimate(r.route, req, Date.now(), priceFor(r.route, r.pool), capsFor(r.route, r.pool))
+
+/** May the route a request of this purpose takes receive this class? (before the request is built — the memory block) */
+export function mayReceive(purpose: PurposeId, cls: DataClass): boolean {
+  const { route } = routeFor(purpose)
   const s = useWorkspace.getState()
-  if (!policyKnown(s.ai, s.settings.ai)) return { ready: false, route: null, demo: false, reason: 'reload' }
-  const [route] = legacyRule(s.settings.aiModel, !!s.settings.aiApiKey.trim())
-  if (route) return { ready: true, route, demo: false, reason: null }
-  if (isAIDemo()) return { ready: true, route: null, demo: true, reason: null }
-  return { ready: false, route: null, demo: false, reason: 'no_key' }
+  return allowedFor(route.p, cls, s.ai, s.settings.ai)
 }
 
 /**
- * The route this device's requests take when a key is there (the legacy level: Claude with the chosen model) — for
- * estimates and limits shown before a request (a PDF's pages, a cost band), whether a key is set or not.
+ * Who receives a request of this purpose on this device now: the company, its API host, the route's label and whether
+ * the Jev Router chooses (it forwards — its privacy sentence goes with it). For the data-destination lines a person
+ * reads before a request (they name the routed company — a Claude-only person still reads "Anthropic").
  */
-export function chosenRoute(): Route {
-  const [route] = legacyRule(useWorkspace.getState().settings.aiModel, true)
-  return route
+export function destinationOf(purpose: PurposeId, o: { route?: Route | null } = {}): { company: string; host: string; label: string; router: boolean } {
+  const r = routeFor(purpose, o)
+  const info = providerInfo(r.route.p)
+  return { company: info.company, host: info.host, label: r.label, router: isJevRouter(r.route.m) }
 }
-
-/** The short label of a route's model ("OPUS 5.5"), else its id. */
-export const shortOf = (route: Route): string => modelRow(route)?.short ?? route.m

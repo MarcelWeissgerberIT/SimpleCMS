@@ -64,7 +64,7 @@ async function openAIPanel(page: Page) {
   const id = await createPage(page, { title: 'Ticket notes', content: doc(para('Weber asked which baseline counts.'), para('')) })
   await gotoPage(page, id)
   const ed = editorOf(page, id)
-  const ask = page.getByPlaceholder('Ask Claude to write anything…')
+  const ask = page.getByPlaceholder('Ask AI to write anything…')
   await expect(async () => {
     await ed.locator('p').last().click()
     await page.keyboard.press('End')
@@ -76,7 +76,7 @@ async function openAIPanel(page: Page) {
       throw e
     }
   }).toPass({ timeout: 15_000 })
-  return { id, ask, panel: page.getByRole('dialog', { name: 'Ask Claude' }) }
+  return { id, ask, panel: page.getByRole('dialog', { name: 'Ask AI' }) }
 }
 
 async function askPalette(page: Page, question: string) {
@@ -155,7 +155,7 @@ test.describe('Outbox lock: OUT tools are off in every Claude request', () => {
     const ed = editorOf(page)
     await ed.locator('p').last().click()
     await page.keyboard.press('Space')
-    const menu = page.getByRole('dialog', { name: 'Ask Claude' })
+    const menu = page.getByRole('dialog', { name: 'Ask AI' })
     await menu.getByRole('option', { name: /Summarize this page/ }).click()
     await expect(menu.locator('.ai-out__body')).toContainText('Done.')
     body = lastStream(sent)
@@ -198,10 +198,10 @@ test.describe('Outbox lock: OUT tools are off in every Claude request', () => {
     // a read tool is picked as before
     await editorOf(page).locator('p').last().click()
     await page.keyboard.press('Space')
-    await expect(page.getByPlaceholder('Ask Claude to write anything…')).toBeFocused()
+    await expect(page.getByPlaceholder('Ask AI to write anything…')).toBeFocused()
     await page.keyboard.type('tracker: get_item 10668')
     await page.keyboard.press('Enter')
-    await expect(page.getByRole('dialog', { name: 'Ask Claude' }).locator('.ai-out__body')).toContainText('Done.')
+    await expect(page.getByRole('dialog', { name: 'Ask AI' }).locator('.ai-out__body')).toContainText('Done.')
     body = lastStream(sent)
     expect(system(body)).toContain('The person picked the tool get_item of tracker')
     expect(toolsets(body)).toEqual([LOCKED])

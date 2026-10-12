@@ -33,15 +33,17 @@ export function normalise(p: ProviderId, raw: Raw): Usage {
     const output = num(u.output_tokens)
     return { input: Math.max(0, num(u.input_tokens) - read - write), cacheWrite: write, cacheWrite1h: 0, cacheRead: read, output, reasoning: Math.min(output, num(outD.reasoning_tokens)) }
   }
-  // OpenRouter (Chat Completions): prompt_tokens counts cached and written tokens too; `cost` is what it charged
+  // OpenRouter (Chat Completions): prompt_tokens counts cached and written tokens too; `cost` is what it charged (USD).
+  // A decisions response reports input_tokens / output_tokens / cost instead (read here; slice 2 sends none).
   const inD = obj(u.prompt_tokens_details)
   const outD = obj(u.completion_tokens_details)
   const read = num(inD.cached_tokens)
   const write = num(inD.cache_write_tokens)
-  const output = num(u.completion_tokens)
+  const output = 'completion_tokens' in u ? num(u.completion_tokens) : num(u.output_tokens)
+  const prompt = 'prompt_tokens' in u ? num(u.prompt_tokens) : num(u.input_tokens)
   const cost = u.cost
   return {
-    input: Math.max(0, num(u.prompt_tokens) - read - write),
+    input: Math.max(0, prompt - read - write),
     cacheWrite: write,
     cacheWrite1h: 0,
     cacheRead: read,

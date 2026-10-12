@@ -7,7 +7,7 @@
 **Notion, rebuilt. Minus the bill.**
 
 A local-first workspace that does what Notion does — block editor, databases with nine views, forms,
-spreadsheets, One Script, Gmail as a database, Claude AI with your own key (and it asks before it changes anything),
+spreadsheets, One Script, Gmail as a database, AI with your own key — Claude or OpenRouter (and it asks before it changes anything),
 webhook automations, import from Notion, Obsidian, Evernote and Trello, publishing as a website — **free** in your
 browser, with **no account** and **no server**. Everything lives in your browser.
 
@@ -33,15 +33,15 @@ add-ons. Most of that money buys pages, blocks and databases that a modern brows
 
 **One** is a faithful, keyboard-first rebuild of the parts people actually use, plus the things they keep asking
 Notion for: a real offline mode, a graph, version history with no day limit, free webhooks for n8n / Make / Zapier,
-AI on every workspace with your own Claude key, and an honest export.
+AI on every workspace with your own key (Claude, OpenRouter or both), and an honest export.
 
 | | Notion | **One** |
 |---|---|---|
-| Price | Free (limited) · Plus $10–12 · Business $20–24 per seat/month | **Free** locally and self-hosted · hosted Team Cloud **$99 per user/year** (in development) · AI billed by Anthropic per use |
+| Price | Free (limited) · Plus $10–12 · Business $20–24 per seat/month | **Free** locally and self-hosted · hosted Team Cloud **$99 per user/year** (in development) · AI billed by your provider per use |
 | Works fully offline, in the browser | partial (apps only, pages one by one) | **yes** — every page and row |
 | Data stays on your device | no | **yes** — IndexedDB, no server |
 | Use without an account | no | **yes** |
-| Full AI on every plan | Business only | **yes** — bring your own Claude key |
+| Full AI on every plan | Business only | **yes** — bring your own key: Claude, OpenRouter (hundreds of models, the Jev Router) or both |
 | Webhook automations | paid plans | **free** on every database |
 | Forms | yes | **free** — shared forms send answers to your n8n / Make / Zapier webhook |
 | AI autofill for database columns | Business only | **yes** — with review before anything is written |
@@ -67,8 +67,8 @@ AI on every workspace with your own Claude key, and an honest export.
 | **Your own team server** (self-hosted, AGPL-3.0 — [guide](docs/SELF_HOSTING.md)) | free — a donation is welcome, never required |
 | **One Team Cloud** (hosted) | **$99 per user per year** (99 € in euros) — in development, there is no sign-up yet |
 
-In every setup Claude runs on your own Anthropic key: Anthropic bills you per use, One adds nothing. The numbers live
-in [`src/shared/pricing.ts`](src/shared/pricing.ts).
+In every setup the AI runs on your own key — Claude (Anthropic) or OpenRouter: your provider bills you per use, One adds
+nothing. The numbers live in [`src/shared/pricing.ts`](src/shared/pricing.ts).
 
 ## Claude asks before it changes
 
@@ -169,7 +169,7 @@ replies), an **Agenda** with everything dated in the workspace (month, week, lis
 and unlinked mentions, a web clipper (bookmarklet and Android share target) that saves to a Clippings page, stacked panes
 (`Alt`-click any link), focus mode, presentation mode (any page becomes slides), 11 templates (meeting notes, project tracker, roadmap, content calendar, reading list, CRM, bug tracker,
 OKRs, weekly planner, wiki, habits), light "Paper" and dark "Carbon" themes, English and German — and a built-in
-**help centre** (`?`): 57 short articles in both languages, searchable from `⌘K`, an "Ask the help" box that has Claude
+**help centre** (`?`): 78 short articles in both languages, searchable from `⌘K`, an "Ask the help" box that has Claude
 answer from those articles only, and the same manual as public pages at [getonecms.com/help](https://getonecms.com/help/).
 
 **AI, your key** — select text and ask Claude to improve, shorten, extend, fix, translate, explain, summarise or pull
@@ -181,9 +181,13 @@ you have reviewed the changes, by mouse or keyboard (`j`/`k`, `Space`, `Enter`).
 word** — struck words, new words, removed and inserted blocks, unchanged blocks folded — and a version of the page is
 kept before they land. It keeps working while hidden (a
 status-bar LED and a toast report back), takes selected text along as references (`⌘⇧J`), `@` mentions, prompt
-history and `/commands` (`/apply`, `/cost`, `/help` …). Requests go straight from your browser to `api.anthropic.com` with your key (default model Claude Opus 5.5;
-Sonnet 5.5 and Haiku 4.5 selectable). The key never leaves this browser in any other way, and is stored there
-encrypted — as is the GitHub token for sync ([docs/SECURITY.md](docs/SECURITY.md): how, and what that does and does not protect against).
+history and `/commands` (`/apply`, `/cost`, `/help` …). **Set up AI** (`⌘K`, or Settings → AI) is a six-step assistant:
+pick **Claude** and/or **OpenRouter** (one key for hundreds of models — or connect your account; the **Jev Router** picks the
+right model of your list per request), check each key for free, choose fast / standard / deep models, set **data rules**
+per provider (a new provider starts with nothing) and decide who answers what on this device. Requests go straight
+from your browser to the provider of their route (`api.anthropic.com`, `openrouter.ai`) with your key; the AI terminal,
+agents, scripts and MCP servers run on Claude in this version. Keys never leave this browser in any other way, and are
+stored there encrypted — as is the GitHub token for sync ([docs/SECURITY.md](docs/SECURITY.md): how, and what that does and does not protect against).
 **External tools via MCP:** add any remote MCP server — a knowledge base, a tracker, a CRM — with its URL and a token
 (sealed in the same vault); One checks it, has Claude write an editable usage guide for it, and from then on the agent,
 your own requests and `⌘K ?` can use its tools (Anthropic's MCP connector makes the calls; every call shows as a chip).
@@ -366,7 +370,7 @@ Skripte zeigen einen Probelauf, und vor jedem Schreiben sichert der Verlauf die 
 - eigene Funktionen per Klick aus einem Formelbaum (kein Code), nutzbar in Tabellen und Datenbank-Formeln
 - Diagramme in drei Klicks aus Tabellen, Datenbanken oder den Zahlen des Workspaces – live, als PNG/SVG
 - eigene Vorlagen und anpassbare eingebaute Vorlagen
-- Claude-KI mit deinem eigenen API-Key (verschlüsselt im Browser gespeichert), auch als KI-Autofill für Datenbank-Spalten
+- KI mit deinem eigenen API-Key – Claude, OpenRouter oder beide (verschlüsselt im Browser gespeichert), auch als KI-Autofill für Datenbank-Spalten
 - „In Datenbank umwandeln“: markierten Text (z. B. einen eingefügten Bericht) macht Claude zum Board oder zur Tabelle,
   mit Vorschau; KI-Anfragen laufen im Hintergrund weiter, auch wenn du die Seite wechselst
 - Kontext-Auswahl: markieren, welche Blöcke einer Seite Claude lesen darf (oder gar nichts) – KI-Menü und KI-Terminal
@@ -396,7 +400,7 @@ Skripte zeigen einen Probelauf, und vor jedem Schreiben sichert der Verlauf die 
   Labels; Absender, Firmen und Threads landen verknüpft in Kontakten, Firmen und Konversationen, Anhänge kommen auf
   Wunsch als echte Blöcke dazu (PDF im Viewer, Bilder, Dateien); auf Wunsch sortiert Claude sie nach Kategorie,
   Priorität und „braucht Antwort“
-- eine eingebaute Hilfe (`?`) mit 57 Artikeln auf Deutsch und Englisch, „Frag die Hilfe“ und öffentlich unter
+- eine eingebaute Hilfe (`?`) mit 78 Artikeln auf Deutsch und Englisch, „Frag die Hilfe“ und öffentlich unter
   [getonecms.com/help](https://getonecms.com/help/de/)
 - MCP für KI-Agenten: Claude Desktop, Claude Code & Co. suchen, lesen, schreiben und räumen auf im Workspace –
   verschieben, Eigenschaften und Ansichten umbauen, in den Papierkorb legen und wiederherstellen (nichts wird
@@ -422,6 +426,6 @@ forken, *Settings → Pages → Source: GitHub Actions* einstellen und nach `mai
 
 **Preise:** lokal im Browser und auf deinem eigenen Team-Server kostenlos (selbst gehostet; eine Spende ist
 willkommen, nie Pflicht). Die gehostete One Team-Cloud kostet 99 € pro Nutzer und Jahr — sie ist in Entwicklung, eine
-Anmeldung gibt es noch nicht. Claude läuft immer mit deinem eigenen Anthropic-Key.
+Anmeldung gibt es noch nicht. Die KI läuft immer mit deinem eigenen Schlüssel — Claude (Anthropic) oder OpenRouter.
 
 Lizenz: [MIT](LICENSE) — frei nutzen, forken, weitergeben. Der Team-Server in `server/` steht unter [AGPL-3.0](server/LICENSE).

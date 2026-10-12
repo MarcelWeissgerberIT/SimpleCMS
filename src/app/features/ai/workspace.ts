@@ -9,8 +9,13 @@ import { inTemplate, isEffectivelyTrashed } from '../../store/selectors'
 import type { Database, ID, Page } from '../../store/types'
 import { propertyValueToText } from '../../database'
 import { WORKSPACE_SYSTEM, streamCompletion, streamDemoText, usesDemo } from './client'
-import { precheck } from './core/gate'
-import type { SourceRef } from '@/shared/ai/types'
+import { precheck, type Prepared } from './core/gate'
+import { routed, shapeOf, withShape, type Shape } from './core/shape'
+import { ancestorClassesOf, type SourceWorld } from './core/sources'
+import { rowFactsFor, type FactsContext } from './rowFacts'
+import { MEMBER_CLASSES } from '@/shared/ai/policy'
+import { docToMarkdown, readableContent } from '../../editor'
+import type { Route, SourceRef } from '@/shared/ai/types'
 import { demoWorkspaceAnswer } from './demo'
 
 export interface WorkspaceSource {
@@ -18,7 +23,7 @@ export interface WorkspaceSource {
   title: string
 }
 
-interface Doc {
+export interface Doc {
   id: ID
   title: string
   text: string
@@ -49,15 +54,24 @@ function rowFacts(db: Database, row: Page): string {
   return parts.join('; ')
 }
 
+/** Which pages a route may see while documents are collected (cheap: ancestors only; the synced-copy check runs on
+ *  the ranking's candidates — D-S2-28). Absent: every page (a route that sees everything — today's loop). */
+export interface DocsFilter {
+  /** may the route see this page, judged by its ancestors (private, mail, memory) */
+  quick: (id: ID) => boolean
+}
+
 /**
  * Searchable documents for every live page; database pages include a compact table of their rows.
- * Templates (features/templates) are not workspace content: their pages stay out.
+ * Templates (features/templates) are not workspace content: their pages stay out. With a filter (a route that does not
+ * see everything) pages it may not see are left out before ranking, and a database lists only rows it may see.
  */
-export function workspaceDocs(): Doc[] {
+export function workspaceDocs(filter?: DocsFilter | null): Doc[] {
   const { pages, databases } = useWorkspace.getState()
   const docs: Doc[] = []
   for (const p of Object.values(pages)) {
     if (p.trashed || isEffectivelyTrashed(pages, p.id) || inTemplate(pages, p.id)) continue
+    if (filter && !filter.quick(p.id)) continue
     const title = p.title.trim() || 'Untitled'
     let text = p.plain ?? ''
     if (p.databaseId && databases[p.databaseId]) {
@@ -67,7 +81,7 @@ export function workspaceDocs(): Doc[] {
     } else if (p.kind === 'database' && databases[p.id]) {
       const db = databases[p.id]
       const rows = Object.values(pages)
-        .filter((r) => r.databaseId === p.id && !r.trashed)
+        .filter((r) => r.databaseId === p.id && !r.trashed && (!filter || filter.quick(r.id)))
         .sort((a, b) => a.order - b.order)
         .slice(0, 60)
       text = `Database with ${rows.length} entries:\n${rows.map((r) => `- ${r.title.trim() || 'Untitled'} — ${rowFacts(db, r)}`).join('\n')}${text ? `\n${text}` : ''}`
@@ -76,6 +90,35 @@ export function workspaceDocs(): Doc[] {
     docs.push({ id: p.id, title, text })
   }
   return docs
+}
+
+/**
+ * A retrieved page as a route that does not see everything receives it: its content as Markdown built inside the
+ * request-text scope (names, transcripts, pages it may not see left out), a row's fields through rowFactsFor, a
+ * database's summary with only the rows it may see.
+ */
+export function docForRoute(d: Doc, ctx: FactsContext): Doc {
+  const { pages, databases } = useWorkspace.getState()
+  const p = pages[d.id]
+  if (!p) return d
+  return withShape(ctx.shape, () => {
+    const body = p.content ? docToMarkdown(p.content).trim() : ''
+    if (p.databaseId && databases[p.databaseId]) {
+      const facts = rowFactsFor(databases[p.databaseId], p, ctx).map((f) => `${f.name}: ${f.value}`).join('; ')
+      const dbTitle = pages[p.databaseId]?.title?.trim()
+      return { ...d, text: `${dbTitle ? `Entry in database "${dbTitle}". ` : ''}${facts}${body ? `\n${body}` : ''}` }
+    }
+    if (p.kind === 'database' && databases[p.id]) {
+      const db = databases[p.id]
+      const rows = Object.values(pages)
+        .filter((r) => r.databaseId === p.id && !r.trashed && ctx.visible(r.id))
+        .sort((a, b) => a.order - b.order)
+        .slice(0, 60)
+      const list = rows.map((r) => `- ${r.title.trim() || 'Untitled'} — ${rowFactsFor(db, r, ctx).map((f) => `${f.name}: ${f.value}`).join('; ')}`).join('\n')
+      return { ...d, text: `Database with ${rows.length} entries:\n${list}${body ? `\n${body}` : ''}` }
+    }
+    return { ...d, text: body }
+  })
 }
 
 /** Rank documents by relevance to a question. Exported for testing. */
@@ -110,14 +153,26 @@ export async function askWorkspace(opts: {
   signal?: AbortSignal
   /** called as soon as retrieval is done, before streaming starts */
   onSources?: (sources: WorkspaceSource[]) => void
-  /** what may be read of one page (its context marks): text = the readable part, null = leave the page out */
-  limit?: { id: ID; text: string | null } | null
+  /** a page whose context marks limit what is read of it (the AI menu's page): only that part, or nothing */
+  limitPage?: ID | null
+  /** the route chip (this request only) — else the rules decide */
+  route?: Route | null
 }): Promise<{ text: string; sources: WorkspaceSource[] }> {
-  // the gate first (newer AI rules, a key typed into the question …): nothing is retrieved or recorded when it refuses
-  precheck({ purpose: 'workspace.ask', sources: [{ all: true }], typed: opts.question })
-  const lim = opts.limit
-  const docs = lim ? workspaceDocs().flatMap((d) => (d.id !== lim.id ? [d] : lim.text === null ? [] : [{ ...d, text: lim.text }])) : workspaceDocs()
-  const hits = retrieve(opts.question, docs)
+  // the gate first (newer AI rules, a key typed into the question, the route …): nothing is retrieved or recorded when
+  // it refuses
+  const pre = precheck({ purpose: 'workspace.ask', sources: [{ all: true }], typed: opts.question, route: opts.route ?? null })
+  const shape = shapeOf(pre)
+  const ctx: FactsContext = { shape, visible: pre.visible }
+  // a route that does not see everything: pages it may not see leave before ranking (ancestors), the candidates are
+  // checked whole (synced copies) and re-ranked without the ones it may not see
+  const filter = shape ? quickFilter(pre) : null
+  const lim = opts.limitPage ? limitText(opts.limitPage, shape) : null
+  const all = workspaceDocs(filter)
+  const docs = lim ? all.flatMap((d) => (d.id !== lim.id ? [d] : lim.text === null ? [] : [{ ...d, text: lim.text }])) : all
+  const ranked = shape ? retrieve(opts.question, docs, 18).filter((d) => pre.visible(d.id)).slice(0, 6) : retrieve(opts.question, docs)
+  // what goes out of a route that does not see everything: its own re-serialisation of each page (the limited page as
+  // its marks allow, already built for it)
+  const hits = shape ? ranked.map((d) => (lim && d.id === lim.id ? d : docForRoute(d, ctx))) : ranked
   const sources = hits.map((d) => ({ id: d.id, title: d.title }))
   opts.onSources?.(sources)
   // what goes out: the workspace as a whole — the pages retrieval picked (core/sources.ts)
@@ -132,8 +187,36 @@ export async function askWorkspace(opts: {
   const excerpts = hits.map((d) => `<page title="${d.title.replace(/"/g, "'")}">\n${d.text.slice(0, 5000)}\n</page>`).join('\n\n')
   const today = new Date().toISOString().slice(0, 10)
   const prompt = `${excerpts || '<no matching pages />'}\n\nToday is ${today}.\nQuestion: ${opts.question.trim()}`
-  const text = await streamCompletion({ purpose: 'workspace.ask', sources: refs, typed: opts.question, system: WORKSPACE_SYSTEM, prompt, onToken: opts.onToken, signal: opts.signal })
+  const text = await streamCompletion({ purpose: 'workspace.ask', sources: refs, typed: opts.question, system: WORKSPACE_SYSTEM, prompt, onToken: opts.onToken, signal: opts.signal, ...routed(pre) })
   return { text: text.trim(), sources }
+}
+
+/** The pages a route may see, judged by their ancestors (memoised per request; S5 adds restricted pages). */
+function quickFilter(pre: Pick<Prepared, 'allows'>): DocsFilter {
+  const s = useWorkspace.getState()
+  const hidden = MEMBER_CLASSES.filter((c) => !pre.allows(c))
+  const memo = new Map<ID, boolean>()
+  const w: SourceWorld = { pages: s.pages, databases: s.databases, mailDb: s.settings.mail?.databaseId ?? null }
+  return {
+    quick: (id) => {
+      if (!hidden.length) return true
+      let v = memo.get(id)
+      if (v === undefined) {
+        v = ![...ancestorClassesOf(id, w)].some((c) => (hidden as readonly string[]).includes(c))
+        memo.set(id, v)
+      }
+      return v
+    },
+  }
+}
+
+/** What may be read of the limited page (its context marks): its text, or null (nothing). */
+function limitText(pageId: ID, shape: Shape | null): { id: ID; text: string | null } {
+  const r = withShape(shape, () => readableContent(pageId))
+  const mode = r.mode === 'marked' && !r.blocks ? 'none' : r.mode
+  if (mode === 'none') return { id: pageId, text: null }
+  // a route that sees everything: the plain text as before; else the Markdown built for the route
+  return { id: pageId, text: shape ? r.markdown : r.plain }
 }
 
 /** Replace [[Title]] citations with Markdown links to the cited pages (for inserting into a page). */

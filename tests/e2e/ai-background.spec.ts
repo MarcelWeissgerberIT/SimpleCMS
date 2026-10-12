@@ -56,7 +56,7 @@ async function slowClaude(ctx: BrowserContext, answer: { text?: string; json?: (
 
 const IMPROVED = 'A tighter launch sentence.'
 const setKey = (page: Page, lang?: 'de') => wsEval(page, (s, lang) => s.updateSettings({ aiApiKey: 'sk-ant-e2e-test-key', ...(lang ? { language: lang } : {}) }), lang)
-const panel = (page: Page) => page.getByRole('dialog', { name: /Ask Claude|Claude fragen/ })
+const panel = (page: Page) => page.getByRole('dialog', { name: /Ask AI|KI fragen/ })
 const plate = (page: Page) => page.getByTestId('ai-runs').locator('button').first()
 const toast = (page: Page, text: string | RegExp) => page.locator('.toast').filter({ hasText: text })
 const runsInStore = (page: Page) => page.evaluate(async () => {

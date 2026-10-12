@@ -8,7 +8,7 @@ import { format } from 'date-fns'
 import { Copy, ExternalLink, KeyRound, LogIn, RotateCw, Settings2 } from 'lucide-react'
 import { useT } from '../../../i18n'
 import { useWorkspace } from '../../../store/store'
-import { useUI } from '../../../store/ui'
+import { openAISettings } from '../setup/openAISetup'
 import { HelpLink } from '../../../help'
 import { needsSignIn, readServers, refusedHere } from '../mcp-servers/config'
 import { cancelSignIn, offersCode, signedIn, useMcpSignIn } from '../mcp-servers/oauth'
@@ -18,7 +18,7 @@ import { currentEpoch, rerunAfterSignIn, rerunnable } from './session'
 import { useAgent, type EchoEntry } from './state'
 import type { AgentTurn } from './types'
 
-const openSettings = () => useUI.getState().openModal({ type: 'settings', tab: 'ai' })
+const openSettings = () => openAISettings({ section: 'mcp' })
 
 /** The servers as they are now (the stored list changes identity only when the settings change). */
 function useServers() {

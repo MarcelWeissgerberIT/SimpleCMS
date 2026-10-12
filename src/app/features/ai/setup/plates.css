@@ -1,0 +1,351 @@
+/* ================================================================
+   Provider plates and their small parts (features/ai/setup): shared by the assistant (lazy) and Settings › AI.
+   Tokens only. A rule on an element that also carries a ui.css primitive (.btn, .input, .tag) uses two classes.
+   ================================================================ */
+
+/* the provider code plate: a provider is told by letters, never by colour */
+.pcode {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  min-width: 22px;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: var(--radius-1);
+  background: var(--ink);
+  color: var(--ink-inverse);
+  font-family: var(--font-mono);
+  font-size: calc(9.5px * var(--text-scale));
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  line-height: 1;
+}
+.pcode--lg {
+  min-width: 30px;
+  height: 26px;
+  font-size: calc(11px * var(--text-scale));
+}
+
+/* capability lamps: a letter on ink when present, a dashed outline when absent (never colour alone) */
+.aicaps {
+  display: inline-flex;
+  gap: 2px;
+  flex: none;
+}
+.aicaps i {
+  display: inline-grid;
+  place-items: center;
+  width: calc(15px * var(--text-scale));
+  height: calc(15px * var(--text-scale));
+  border-radius: 2px;
+  background: var(--ink);
+  color: var(--ink-inverse);
+  font-family: var(--font-mono);
+  font-style: normal;
+  font-size: calc(9px * var(--text-scale));
+  font-weight: 700;
+}
+.aicaps i[data-off] {
+  background: transparent;
+  color: var(--ink-faint);
+  outline: 1px dashed var(--rule-strong);
+  outline-offset: -1px;
+}
+
+/* a lamp cap (annunciator): dark housing; amber / red */
+.lampcap {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  min-width: 34px;
+  height: 20px;
+  padding: 0 5px;
+  border-radius: 2px;
+  background: var(--lamp-off);
+  color: var(--lamp-legend);
+  box-shadow: 0 0 0 2px var(--lamp-housing);
+  font-family: var(--font-mono);
+  font-size: calc(10px * var(--text-scale));
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.lampcap[data-tone='amber'] {
+  background: var(--lamp-amber);
+  color: var(--lamp-ink);
+}
+.lampcap[data-tone='red'] {
+  background: var(--lamp-red);
+  color: var(--lamp-red-ink);
+}
+
+.aik-link {
+  color: var(--signal-ink);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-decoration-thickness: 1px;
+  overflow-wrap: anywhere;
+}
+.aik-link svg {
+  vertical-align: -1px;
+}
+
+/* ---------- the rating plate ---------- */
+.pplate {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border: 1px solid var(--plate-edge);
+  border-radius: var(--radius-2);
+  background: var(--surface);
+  box-shadow: inset 0 -1px 0 var(--plate-lo);
+}
+.pplate[data-picked] {
+  box-shadow:
+    0 0 0 1px var(--ink),
+    inset 0 -1px 0 var(--plate-lo);
+}
+.pplate__head {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 11px 26px 10px 24px;
+  border-bottom: 1px solid var(--plate-edge);
+  border-radius: var(--radius-2) var(--radius-2) 0 0;
+  background: var(--plate);
+  box-shadow: inset 0 1px 0 var(--plate-hi);
+}
+.pplate__head .screw-plate__screw--tl {
+  top: calc(50% - 3.5px);
+  left: 8px;
+}
+.pplate__head .screw-plate__screw--br {
+  bottom: auto;
+  top: calc(50% - 3.5px);
+  right: 8px;
+}
+.pplate__name {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  line-height: 1.1;
+}
+.pplate__name b {
+  font-family: var(--font-head);
+  font-size: calc(19px * var(--text-scale));
+  font-weight: 800;
+  font-stretch: 115%;
+  letter-spacing: -0.015em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pplate__name .label {
+  margin-top: 3px;
+  color: var(--ink-2);
+}
+.pplate__state {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  min-height: 36px;
+  padding: 7px 14px;
+  border-bottom: 1px solid var(--rule);
+}
+.pplate__word {
+  color: var(--ink);
+}
+.pplate__sp {
+  flex: 1;
+}
+.tag.pplate__tag {
+  background: var(--signal-wash);
+  color: var(--signal-ink);
+  box-shadow: inset 0 0 0 1px var(--signal);
+  font-family: var(--font-mono);
+  font-size: calc(10px * var(--text-scale));
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.pplate__marker {
+  color: var(--ink-2);
+}
+.pplate__why {
+  margin: 0;
+  padding: 10px 14px 4px;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  line-height: 1.4;
+}
+.pplate__spec {
+  margin: 0;
+  padding: 4px 14px 10px;
+}
+.pplate__row {
+  display: grid;
+  grid-template-columns: minmax(80px, 92px) minmax(0, 1fr);
+  gap: 8px;
+  border-bottom: 1px solid var(--rule);
+}
+.pplate__row:last-child {
+  border-bottom: 0;
+}
+.pplate__row dt,
+.pplate__row dd {
+  padding: 5px 0;
+}
+.pplate__row dt {
+  padding-top: 7px;
+  font-family: var(--font-mono);
+  font-size: calc(9.5px * var(--text-scale));
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.pplate__row dd {
+  margin: 0;
+  min-width: 0;
+  font-size: var(--text-xs);
+  color: var(--ink);
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.pplate__yes {
+  font-weight: 700;
+}
+.pplate__no {
+  color: var(--ink-2);
+}
+.pplate__more {
+  display: none;
+}
+.pplate__foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: auto;
+  padding: 10px 14px 12px;
+  border-top: 1px solid var(--rule);
+  border-radius: 0 0 var(--radius-2) var(--radius-2);
+  background: var(--bg);
+}
+.pplate__foot > .label {
+  color: var(--ink-2);
+}
+.pplate[data-state='soon'] .pplate__name b,
+.pplate[data-state='soon'] .pplate__why {
+  color: var(--ink-3);
+}
+.pplate__extra {
+  margin: 0;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--rule);
+  font-size: var(--text-xs);
+  line-height: 1.45;
+  color: var(--ink-2);
+}
+
+/* ---------- removing a provider ---------- */
+.aip-remove {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--c-red-text);
+  border-radius: var(--radius-2);
+  background: var(--c-red-bg);
+  font-size: var(--text-sm);
+  color: var(--ink);
+}
+.aip-remove ul {
+  margin: 0;
+  padding-left: 16px;
+  font-size: var(--text-xs);
+  line-height: 1.5;
+  color: var(--ink-2);
+}
+.aip-remove__keys {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* ---------- your own data ---------- */
+.ownd {
+  margin-top: 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-2);
+  background: var(--surface);
+}
+.ownd__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  margin-bottom: 8px;
+}
+.ownd__sub {
+  font-size: var(--text-xs);
+  color: var(--ink-3);
+}
+.ownd__prov + .ownd__prov {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--rule);
+}
+.ownd__who {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.ownd__sp {
+  flex: 1;
+}
+.ownd__list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px 16px;
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.ownd__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+}
+.ownd__cls {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+.ownd__cls b {
+  font-size: var(--text-sm);
+}
+.ownd__cls small {
+  font-size: var(--text-xs);
+  color: var(--ink-3);
+}
+.ownd__note {
+  margin: 6px 0 0;
+  font-size: var(--text-xs);
+  color: var(--ink-3);
+}
+@media (max-width: 600px) {
+  .ownd__list {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

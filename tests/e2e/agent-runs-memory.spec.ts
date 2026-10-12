@@ -219,8 +219,8 @@ test.describe('Custom agents: tool allow-list, last run + state, inbox notes', (
     const de = page.getByRole('dialog').getByRole('group', { name: 'Werkzeuge von TRACKER' })
     await expect(de.getByRole('button', { name: 'Nur lesende Werkzeuge' })).toBeVisible()
     await expect(page.getByRole('dialog').getByRole('group', { name: 'Werkzeuge von NOTES' })).toContainText('Teste zuerst die Verbindung')
-    // the link opens Settings (Claude AI, where the MCP servers are tested)
-    await page.getByRole('dialog').getByRole('button', { name: 'Einstellungen → Claude KI → MCP-Server' }).click()
+    // the link opens Settings › AI, where the MCP servers are tested
+    await page.getByRole('dialog').getByRole('button', { name: 'Einstellungen → KI → MCP-Server' }).click()
     await expect(page.getByRole('dialog', { name: /Einstellungen/ })).toBeVisible()
   })
 

@@ -98,7 +98,7 @@ test.describe('help panel', () => {
     await expect(panel(page).locator('.help-hit').first()).toContainText('Formulas')
   })
 
-  test('a HelpLink in Settings → Claude AI opens the MCP article above the dialog; Escape closes only the help', async ({ page }) => {
+  test('a HelpLink in Settings → AI opens the MCP article above the dialog; Escape closes only the help', async ({ page }) => {
     await openApp(page)
     await uiEval(page, (s) => s.openModal({ type: 'settings', tab: 'ai' }))
     const section = page.getByTestId('mcp-servers')
@@ -132,7 +132,7 @@ test.describe('help panel', () => {
 
     const answer = panel(page).locator('.help-ask__out')
     await expect(answer).toContainText('Protect with password')
-    await expect(panel(page).locator('.help-related')).toContainText('Articles sent to Claude')
+    await expect(panel(page).locator('.help-related')).toContainText('Articles sent to Anthropic')
     await expect(panel(page).locator('.help-related')).toContainText('Share links')
 
     expect(bodies.length).toBe(1)
@@ -165,7 +165,7 @@ test.describe('help panel', () => {
     // from the search results: "Ask the help" sends the query to the Ask tab
     await panel(page).getByRole('button', { name: /Ask the help: “gmail labels”/ }).click()
     await expect(panel(page).getByRole('tab', { name: /Ask/ })).toHaveAttribute('aria-selected', 'true')
-    await expect(panel(page)).toContainText('Asking needs your Claude key')
+    await expect(panel(page).getByTestId('help-ask-needs')).toContainText('AI isn’t set up yet')
     await expect(panel(page).locator('.help-related')).toContainText('Gmail sync')
     await panel(page).locator('.help-related').getByRole('link', { name: /Gmail sync/ }).click()
     await expect(articleTitle(page)).toHaveText('Gmail sync')

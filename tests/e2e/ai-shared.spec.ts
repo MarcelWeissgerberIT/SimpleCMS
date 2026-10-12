@@ -5,17 +5,22 @@
  * shapes' sanitizers (old ⇄ new, 'demo' and unknown providers refused), the policy generation, keys in text. The
  * shared folder imports nothing outside itself. Test data is fictional.
  */
+import './helpers/noNet'
 import { readdirSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { test, expect } from '@playwright/test'
 import { AI_ERROR_CODES, fallbackOf, isAIErrorCode } from '../../src/shared/ai/errors'
 import { MODELS, capsOf, labelOf, modelBase, modelIdProblem, modelRow, refusedSlug, sameModel, vendorOf } from '../../src/shared/ai/models'
-import { PRICES, PRICES_DATE, blendedPerM, costOf, priceRow, tierLabel } from '../../src/shared/ai/prices'
+import { DYNAMIC_BOUND, PRICES, PRICES_DATE, blendedPerM, costOf, priceRow, tierLabel } from '../../src/shared/ai/prices'
 import { estimateUsage, normalise, addUsage } from '../../src/shared/ai/usage'
 import { agentAIReadable, legacyRule, readAgentRoute, routeKey, runsOnClaude, sanitizeAgentAI, sanitizeRoute, sanitizeRule } from '../../src/shared/ai/route'
-import { AI_POLICY_GEN, policyKnown, requiredGen, sanitizeDeviceAI, sanitizeWorkspaceAI, storedGen } from '../../src/shared/ai/policy'
+import { AI_POLICY_GEN, policyKnown, requiredGen, sanitizeDeviceAI, sanitizePriceRow, sanitizeWorkspaceAI, storedGen } from '../../src/shared/ai/policy'
+import { boundOf, capsOfRow, expandCatalog, hintsOfRow, readCatalogRow, routerLists, suggestRoles, trimCatalog } from '../../src/shared/ai/catalog'
 import { looksLikeKey, scrubSecrets } from '../../src/shared/ai/keys'
-import type { PriceRow, Usage } from '../../src/shared/ai/types'
+import type { ChatRequest, DecideRequest, PriceRow, Usage, WireRequest } from '../../src/shared/ai/types'
+import type { TurnOf } from '../../src/shared/ai/adapter'
+import { OWNER } from '../../src/shared/ai/owner'
+import { JEV_ROUTER, JEV_TIERS, ROUTER_PINS, isJevRouter } from '../../src/shared/ai/jev'
 import { classOfPage, classesOf, isSources, type SourceWorld } from '../../src/app/features/ai/core/sources'
 import type { Database, Page } from '../../src/app/store/types'
 import { estimate } from '../../src/app/features/governor/estimate'
@@ -47,7 +52,18 @@ test.describe('models and slugs', () => {
 
   test('refused OpenRouter slugs: routers, aliases, presets, :online, :batch, models that search the web', () => {
     expect(refusedSlug('openrouter/auto')).toBe('router')
-    expect(refusedSlug('vendor-a/model-b', { promptPrice: -1 })).toBe('router')
+    // a router (the catalogue says so) forwards to models One cannot pin; a price per request alone is no reason
+    expect(refusedSlug('vendor-a/model-b', { router: true })).toBe('router')
+    expect(refusedSlug('vendor-a/model-b', { router: true, promptPrice: -1, pricing: 'dynamic' })).toBe('router')
+    expect(refusedSlug('vendor-a/model-b', { promptPrice: -1 })).toBeNull()
+    expect(refusedSlug('vendor-a/model-b', { pricing: 'dynamic' })).toBeNull()
+    // the Jev Router (owner update): offered, never refused for being a router or for its price
+    expect(OWNER.jevRouter).toBe(true)
+    expect(refusedSlug(JEV_ROUTER)).toBeNull()
+    expect(refusedSlug(JEV_ROUTER, { router: true, promptPrice: -1, pricing: 'dynamic' })).toBeNull()
+    expect(modelIdProblem('openrouter', JEV_ROUTER, { router: true, pricing: 'dynamic' })).toBeNull()
+    expect(refusedSlug(`${JEV_ROUTER}:online`)).toBe('online')
+    expect(refusedSlug('vendor-z/switch-router', { router: true, pricing: 'dynamic' })).toBe('router')
     expect(refusedSlug('~vendor-a/model-latest')).toBe('alias')
     expect(refusedSlug('vendor-a/model-b@preset')).toBe('alias')
     expect(refusedSlug('vendor-a/model-b:online')).toBe('online')
@@ -78,6 +94,9 @@ test.describe('models and slugs', () => {
     expect(vendorOf({ p: 'anthropic', m: 'claude-opus-5-5' })).toBe('anthropic')
     expect(vendorOf({ p: 'openrouter', m: 'anthropic/claude-x' })).toBe('anthropic')
     expect(vendorOf({ p: 'openrouter', m: 'vendor-a/model-b' })).toBe('vendor-a')
+    // the Jev Router's answer may come from any maker
+    expect(vendorOf({ p: 'openrouter', m: JEV_ROUTER })).toBe('*')
+    expect(labelOf({ p: 'openrouter', m: JEV_ROUTER })).toBe('OpenRouter · Jev Router')
     expect(labelOf({ p: 'anthropic', m: 'claude-sonnet-5-5' })).toBe('Claude Sonnet 5.5')
     expect(labelOf({ p: 'openrouter', m: 'vendor-a/model-b' })).toBe('OpenRouter · vendor-a/model-b')
   })
@@ -179,6 +198,13 @@ test.describe('usage', () => {
     expect(normalise('anthropic', null)).toEqual(U())
     expect(normalise('openai', { input_tokens: 1000, input_tokens_details: { cached_tokens: 600 }, output_tokens: 300, output_tokens_details: { reasoning_tokens: 200 } })).toEqual(U({ input: 400, cacheRead: 600, output: 300, reasoning: 200 }))
     expect(normalise('openrouter', { prompt_tokens: 1000, prompt_tokens_details: { cached_tokens: 500, cache_write_tokens: 100 }, completion_tokens: 50, completion_tokens_details: { reasoning_tokens: 20 }, cost: 0.0011 })).toEqual(U({ input: 400, cacheRead: 500, cacheWrite: 100, output: 50, reasoning: 20, reportedUsd: 0.0011 }))
+  })
+
+  test('normalise reads a decisions response\'s usage too (input_tokens / output_tokens / cost — doc-derived)', () => {
+    const fx = JSON.parse(readFileSync(fileURLToPath(new URL('../fixtures/ai/openrouter/doc/decisions-usage.json', import.meta.url)), 'utf8')) as { source: string; verified: boolean; usage: Record<string, unknown> }
+    expect(fx.source).toMatch(/^api_api-reference_alphadecisions_submit-a-decisions-request\.md#/)
+    expect(fx.verified).toBe(false)
+    expect(normalise('openrouter', fx.usage)).toEqual(U({ input: 476, output: 70, reportedUsd: 0.000019992 }))
   })
 
   test('estimates: what is known, else characters ÷ 4', () => {
@@ -291,15 +317,18 @@ test.describe('stored shapes', () => {
     expect(sanitizeDeviceAI({ allow: { demo: ['mail'] } })).toBeUndefined()
   })
 
-  test('policy generation: this build is 1; a stored gen above it refuses; slice 1 never needs more than 1', () => {
-    expect(AI_POLICY_GEN).toBe(1)
+  test('policy generation: this build is 2 (S2 enforces rules limiting Claude); a stored gen above it refuses; a rule without a Claude limit needs 1', () => {
+    expect(AI_POLICY_GEN).toBe(2)
     expect(requiredGen({ routes: { '*': [{ p: 'anthropic', m: 'claude-opus-5-5' }] } }, null)).toBe(1)
     expect(storedGen(undefined, undefined)).toBe(1)
     expect(storedGen({ gen: 2 }, { gen: 1 })).toBe(2)
     expect(storedGen({}, { gen: 3 })).toBe(3)
     expect(policyKnown({ gen: 1 }, undefined)).toBe(true)
-    expect(policyKnown({ gen: 2 }, undefined)).toBe(false)
-    expect(policyKnown(undefined, { gen: 2 })).toBe(false)
+    expect(policyKnown({ gen: 2 }, undefined)).toBe(true)
+    expect(policyKnown({ gen: 3 }, undefined)).toBe(false)
+    expect(policyKnown(undefined, { gen: 3 })).toBe(false)
+    // a build of generation 1 (an older tab) refuses rules stamped 2
+    expect(policyKnown({ gen: 2 }, undefined, 1)).toBe(false)
   })
 })
 
@@ -325,6 +354,135 @@ test.describe('errors and keys', () => {
   })
 })
 
+test.describe('the OpenRouter catalogue (src/shared/ai/catalog.ts) over a trimmed public snapshot', () => {
+  const fx = JSON.parse(readFileSync(fileURLToPath(new URL('../fixtures/openrouter-models.json', import.meta.url)), 'utf8')) as { data: unknown[] }
+  const rows = fx.data.map((r) => readCatalogRow(r, '2026-10-12')!)
+  const by = (id: string) => rows.find((r) => r.id === id)!
+  const NOW = Date.parse('2026-10-12T09:00:00Z')
+
+  test('the fixture: ≤ 40 rows, under 60 KB, every row reads', () => {
+    expect(fx.data.length).toBeLessThanOrEqual(40)
+    expect(readFileSync(fileURLToPath(new URL('../fixtures/openrouter-models.json', import.meta.url))).length).toBeLessThan(60 * 1024)
+    expect(rows.every(Boolean)).toBe(true)
+  })
+
+  test('the Jev Router is accepted (priced per request: no price, never $0); other routers refused as routers, not for their price', () => {
+    const jev = by(JEV_ROUTER)
+    expect(jev).toMatchObject({ label: 'Jev Router', short: 'JEV ROUTER', router: true, pricing: 'dynamic', price: null, refused: null })
+    expect(by('nvidia/switchyard')).toMatchObject({ router: true, pricing: 'dynamic', price: null, refused: 'router' })
+    expect(by('openrouter/auto').refused).toBe('router')
+    expect(by('openrouter/fusion').refused).toBe('router')
+    expect(by('~anthropic/claude-sonnet-latest').refused).toBe('alias')
+    expect(by('anthropic/claude-haiku-5.5:batch').refused).toBe('batch')
+    expect(by('deepseek/deepseek-v4-flash:online').refused).toBe('online')
+    for (const id of ['perplexity/sonar', 'perplexity/sonar-deep-research', 'relace/relace-search']) expect(by(id).refused, id).toBe('web')
+    expect(by('dots-studio/dots-3-note-preview:free').refused).toBeNull()
+    expect(rows.filter((r) => !r.refused).length).toBeGreaterThan(15)
+  })
+
+  test('labels: the name without its maker, short forms upper case ≤ 16', () => {
+    expect(by('anthropic/claude-sonnet-5.5')).toMatchObject({ label: 'Claude Sonnet 5.5', short: 'SONNET 5.5' })
+    expect(by('openai/gpt-6.1-sol')).toMatchObject({ label: 'GPT-6.1 Sol', short: 'GPT-6.1 SOL' })
+    expect(rows.every((r) => r.short.length <= 16 && r.label.length <= 60 && r.description.length <= 600)).toBe(true)
+  })
+
+  test('prices per million from per-token strings; long-context, weekday and hour overrides (HHMM → hours, midnight wraps)', () => {
+    expect(by('anthropic/claude-haiku-5.5').price).toEqual({ input: 0.1, output: 0.5, cacheRead: 0.01, cacheWrite: 0.125, cacheWrite1h: 0.2, webSearch: 0.01, overrides: [{ input: 0.5, output: 2.5, cacheRead: 0.05, cacheWrite: 0.625, cacheWrite1h: 1, minPrompt: 100000 }], source: 'catalogue', at: '2026-10-12' })
+    const ds = by('deepseek/deepseek-v4-pro-0813').price!
+    expect(ds.overrides![0]).toEqual({ input: 0.66, output: 1.98, cacheRead: 0.022, utcDays: ['sat', 'sun'] })
+    expect(ds.overrides!.slice(1).map((o) => [o.utcStart, o.utcEnd])).toEqual([[0, 1], [1, 4], [4, 6], [6, 10], [10, 24]])
+    // a Tuesday 02:00 UTC is in the dear window, Saturday is not
+    const u = { input: 1_000_000, cacheWrite: 0, cacheWrite1h: 0, cacheRead: 0, output: 0, reasoning: 0 }
+    close(costOf(u, ds, new Date('2026-10-13T02:00:00Z')).usd, 1.32)
+    close(costOf(u, ds, new Date('2026-10-17T02:00:00Z')).usd, 0.66)
+    expect(by('tencent/hy4-preview').price!.overrides!.map((o) => [o.utcStart, o.utcEnd])).toEqual([[0, 16], [16, 24]])
+    // a missing cache column reads as the input price (conservative)
+    expect(by('openai/gpt-6-astra').price!.cacheWrite).toBeGreaterThan(0)
+  })
+
+  test('caps from the row (D-S2-18): structured outputs, tools, pictures, native PDFs, effort, mandatory reasoning, web, output cap', () => {
+    expect(capsOfRow(by('stepfun/step-5-preview'))).toMatchObject({ structured: true, tools: true, vision: { maxEdge: 1568, maxBytes: 5 * 1024 * 1024 }, pdf: false, effort: ['low', 'medium', 'high'], reasoning: { mandatory: true }, mcp: false, refusalFallback: false, maxOutput: 64000 })
+    expect(capsOfRow(by('anthropic/claude-sonnet-5.5'))).toMatchObject({ pdf: { maxBytes: 23 * 1024 * 1024, maxPages: 100 }, cache: 'passthrough' })
+    expect(capsOfRow(by('openai/gpt-6-luna')).cache).toBe('auto')
+    expect(capsOfRow(by('inclusionai/ling-3.1-flash')).structured).toBe(false)
+    expect(capsOfRow(by('perplexity/sonar')).web).toBe('always')
+    expect(hintsOfRow(by('qwen/qwen3.8-flash')).reasoning).toEqual({ mandatory: false, efforts: [], supportsMax: true })
+    expect(by('bytedance-seed/seed-2.0-code').expires).toBe('2026-11-11')
+  })
+
+  test('the compact form the device keeps reads back to the same rows', () => {
+    const t = trimCatalog(fx, NOW)
+    expect(t.v).toBe(1)
+    expect(t.params.length).toBeLessThan(40)
+    expect(expandCatalog(JSON.parse(JSON.stringify(t)))).toEqual(fx.data.map((r) => readCatalogRow(r, '2026-10-12')))
+    expect(expandCatalog({ v: 2, rows: [] })).toEqual([])
+  })
+
+  test('routerLists: the pool, every other maker wildcarded, other slugs of pool makers, refused patterns, web models, *:free while no collection', () => {
+    const pool = ['openai/gpt-6-luna', 'deepseek/deepseek-v4-flash', 'z-ai/glm-5.3']
+    const l = routerLists(pool, rows, { noCollect: true })!
+    expect(l.pool).toEqual(pool)
+    expect(l.exclude).toContain('anthropic/*')
+    expect(l.exclude).toContain('typesafe/*')
+    expect(l.exclude).not.toContain('openai/*')
+    expect(l.exclude).toEqual(expect.arrayContaining(['openai/gpt-6.1-sol', 'openai/gpt-6-astra', 'deepseek/deepseek-v4-pro-0813', 'deepseek/deepseek-v4-flash:online']))
+    expect(l.exclude).toEqual(expect.arrayContaining(['openrouter/*', '*:online', '*:batch', 'perplexity/sonar*', '*-search', '*-search:*', '*deep-research*', 'perplexity/sonar', 'relace/relace-search', '*:free']))
+    for (const p of pool) expect(l.exclude, p).not.toContain(p)
+    expect(new Set(l.exclude).size).toBe(l.exclude.length)
+    // collection allowed: no *:free, a :free pool model stays; no collection: it leaves the pool
+    const free = routerLists([...pool, 'dots-studio/dots-3-note-preview:free'], rows, { noCollect: false })!
+    expect(free.pool).toContain('dots-studio/dots-3-note-preview:free')
+    expect(free.exclude).not.toContain('*:free')
+    expect(routerLists([...pool, 'dots-studio/dots-3-note-preview:free'], rows, { noCollect: true })!.pool).not.toContain('dots-studio/dots-3-note-preview:free')
+    // the router is never its own pool member; nothing left / over the limits → null
+    expect(routerLists([JEV_ROUTER], rows, { noCollect: true })).toBeNull()
+    expect(routerLists(Array.from({ length: 1100 }, (_, i) => `vendor-a/m-${i}`), rows, { noCollect: true })).toBeNull()
+  })
+
+  test('boundOf: the most expensive pool row per column, tiers included; a pool row priced per request counts at the stated bound', () => {
+    const b = boundOf([by('openai/gpt-6-luna'), by('anthropic/claude-haiku-5.5'), by('deepseek/deepseek-v4-flash')])
+    expect(b).toMatchObject({ input: 0.5, output: 2.5, cacheRead: 0.05, cacheWrite: 0.625, cacheWrite1h: 1, source: 'bound' })
+    expect(boundOf([by('openai/gpt-6-luna'), { price: null }])).toMatchObject({ input: DYNAMIC_BOUND.input, output: DYNAMIC_BOUND.output })
+    // what a bound prices is an estimate, never a catalogue price and never $0
+    const c = costOf({ input: 1_000_000, cacheWrite: 0, cacheWrite1h: 0, cacheRead: 0, output: 0, reasoning: 0 }, b)
+    expect(c.source).toBe('estimate')
+    close(c.usd, 0.5)
+    expect(sanitizePriceRow(b)).toBeNull()
+  })
+
+  test('suggestRoles: from catalogue data only — the cheapest, the median and the 90th percentile; allow narrows; leaving models left out', () => {
+    const r = suggestRoles(rows, undefined, NOW)
+    expect(r.fast && r.standard && r.deep).toBeTruthy()
+    const blended = (id: string) => blendedPerM(by(id).price)!
+    expect(blended(r.fast!)).toBeLessThanOrEqual(blended(r.standard!))
+    expect(blended(r.standard!)).toBeLessThanOrEqual(blended(r.deep!))
+    for (const id of [r.fast, r.standard, r.deep]) expect(by(id!).refused).toBeNull()
+    const again = suggestRoles(rows, (row) => row.id !== r.fast, NOW)
+    expect(again.fast).not.toBe(r.fast)
+    expect(Object.values(suggestRoles(rows, undefined, NOW))).not.toContain('poolside/laguna-s-2.1')
+    expect(suggestRoles([], undefined, NOW)).toEqual({ fast: null, standard: null, deep: null })
+  })
+})
+
+test('owner decisions live in one place (src/shared/ai/owner.ts); the Jev constants in jev.ts', () => {
+  expect(OWNER).toEqual({ memberClassesOwnedByMember: true, agentTriggers: false, directWritesOnConfirmedModelOnly: true, newProviderStartsEmpty: true, jevRouter: true })
+  expect(JEV_ROUTER).toBe('typesafe/jev-router')
+  expect(isJevRouter(JEV_ROUTER)).toBe(true)
+  expect(isJevRouter(`${JEV_ROUTER}-20260917`)).toBe(false)
+  expect(ROUTER_PINS).toBe('pool')
+  expect(JEV_TIERS).toEqual(['low', 'medium', 'high'])
+})
+
+test('the neutral wire types: a decide request is a wire request; send() of it is typed to a decide turn', () => {
+  // type level: these lines compile only while the contracts hold (adapter.ts TurnOf, types.ts WireRequest)
+  const decide: DecideRequest = { kind: 'decide', route: { p: 'openrouter', m: 'vendor-a/decider' }, state: { text: 'Quarterly plan' }, questions: { done: { type: 'noul', instructions: 'Is the plan finished?' } } }
+  const wire: WireRequest = decide
+  const chat: ChatRequest = { kind: 'chat', route: { p: 'openrouter', m: 'vendor-a/model-b' }, system: 'S', messages: [{ role: 'user', parts: [{ type: 'text', text: 'Hi' }] }], output: { kind: 'text' }, maxTokens: 100, cache: 'none' }
+  const turnOfDecide: TurnOf<DecideRequest> = { kind: 'decide', answers: { done: { type: 'noul', p: 0.9 } }, served: { model: 'vendor-a/decider' }, usage: null }
+  const turnOfChat: TurnOf<ChatRequest> = { kind: 'chat', parts: [], stop: 'end', usage: null, served: null, streamedChars: 0 }
+  expect([wire.kind, chat.kind, turnOfDecide.kind, turnOfChat.kind]).toEqual(['decide', 'chat', 'decide', 'chat'])
+})
+
 test('src/shared/ai imports nothing outside itself (type imports with .ts, no enums)', () => {
   const dir = fileURLToPath(new URL('../../src/shared/ai/', import.meta.url))
   for (const f of readdirSync(dir, { recursive: true }) as string[]) {
@@ -332,10 +490,17 @@ test('src/shared/ai imports nothing outside itself (type imports with .ts, no en
     const src = readFileSync(`${dir}${f}`, 'utf8')
     for (const m of src.matchAll(/^\s*(?:import|export)[^'"\n]*from\s+'([^']+)'/gm)) {
       expect(m[1], `${f}: ${m[0]}`).toMatch(/^\.\.?\/[\w/.-]+\.ts$/)
-      expect(m[1].startsWith('../') && !m[1].startsWith('../ai/'), `${f} leaves src/shared/ai`).toBe(false)
+      // resolved from the file's own folder (wire/ … included), it stays inside src/shared/ai
+      const to = fileURLToPath(new URL(m[1], new URL(f.replace(/\\/g, '/'), new URL('../../src/shared/ai/', import.meta.url))))
+      expect(to.startsWith(dir), `${f} leaves src/shared/ai (${m[1]})`).toBe(true)
     }
     expect(/\benum\s+\w+/.test(src), `${f} declares an enum`).toBe(false)
-    expect(/\b(window|document|localStorage|indexedDB)\b|\bprocess\.|\brequire\(/.test(src.replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '')), `${f} reaches a runtime`).toBe(false)
+    // comments and string literals left out ('document' is a part type, not the DOM)
+    const code = src
+      .replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '')
+      .replace(/'(?:[^'\\\n]|\\.)*'/g, "''")
+      .replace(/`(?:[^`\\]|\\.)*`/g, '``')
+    expect(/\b(window|document|localStorage|indexedDB|sessionStorage|navigator)\b|\bprocess\.|\brequire\(/.test(code), `${f} reaches a runtime`).toBe(false)
   }
 })
 
@@ -405,14 +570,17 @@ test('every Claude request in the app is metered: the files that call the API ar
     const src = readFileSync(`${root}${f}`, 'utf8').replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '')
     const n = src.match(calls)?.length ?? 0
     if (n) found[f.replace(/\\/g, '/')] = n
-    if (f.replace(/\\/g, '/') !== 'features/ai/client.ts') expect(/import\(\s*'@anthropic-ai\/sdk'/.test(src), `${f} loads the SDK itself`).toBe(false)
+    if (f.replace(/\\/g, '/') !== 'features/ai/providers/anthropic.ts') expect(/import\(\s*'@anthropic-ai\/sdk'/.test(src), `${f} loads the SDK itself`).toBe(false)
   }
-  // The engines (§ 7.1): runAI / streamCompletion / completeStructured, the agent loop, files, images, MCP server tests.
-  expect(Object.keys(found).sort()).toEqual(['features/ai/agent/run.ts', 'features/ai/client.ts', 'features/ai/file/request.ts', 'features/ai/image/request.ts', 'features/ai/mcp-servers/generate.ts'])
+  // The engines (§ 7.1): the Claude paths behind runAI / streamCompletion / completeStructured (providers/anthropic.ts),
+  // the agent loop, files, images, MCP server tests.
+  expect(Object.keys(found).sort()).toEqual(['features/ai/agent/run.ts', 'features/ai/file/request.ts', 'features/ai/image/request.ts', 'features/ai/mcp-servers/generate.ts', 'features/ai/providers/anthropic.ts'])
+  const facades = readFileSync(`${root}features/ai/client.ts`, 'utf8').replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '')
   for (const f of Object.keys(found)) {
     const src = readFileSync(`${root}${f}`, 'utf8').replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '')
     expect(/from '\.\.?\/(?:core\/)?meter'|from '\.\.\/core\/meter'|from '\.\/core\/meter'/.test(src), `${f} imports the meter`).toBe(true)
-    expect(/\bmeterCall\(/.test(src), `${f} opens a meter per request`).toBe(true)
+    // the Claude paths get their meter from the facades that call them (client.ts opens one per call)
+    expect(/\bmeterCall\(/.test(f.endsWith('providers/anthropic.ts') ? facades : src), `${f} opens a meter per request`).toBe(true)
     // Every response is closed by finalOf() (streams) or metered() (one-shots); the agent loop meters each round.
     const closes = f.endsWith('agent/run.ts') ? (src.match(/\bclaudeResponse\(/g)?.length ?? 0) : (src.match(/(?<!function )\b(?:finalOf|metered)\(/g)?.length ?? 0)
     expect(closes, `${f}: ${found[f]} call(s), ${closes} meter close(s)`).toBeGreaterThanOrEqual(f.endsWith('agent/run.ts') ? 1 : found[f])

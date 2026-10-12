@@ -375,7 +375,7 @@ test.describe('Pages per item', () => {
     // a writing request stays a request (first key: Ask Claude)
     let ai = await askAI(page, ed, 'Kickoff', 'Retro on Friday.')
     await ai.locator('.ai-cmd__input').fill('make this shorter')
-    await expect(ai.getByRole('option').first()).toContainText('Ask Claude')
+    await expect(ai.getByRole('option').first()).toContainText('Ask AI')
     // "as a board": Turn into database comes first (offered, not run)
     await ai.locator('.ai-cmd__input').fill('as a board')
     await expect(ai.getByRole('option').first()).toContainText('Turn into database')

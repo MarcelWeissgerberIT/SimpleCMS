@@ -1,20 +1,19 @@
-import { cloneElement, isValidElement, useEffect, useId, useRef, useState, type ReactElement, type ReactNode } from 'react'
-import { ArrowRight, ExternalLink, X, GitBranch, HardDrive, HeartHandshake } from 'lucide-react'
+import { Suspense, cloneElement, isValidElement, useEffect, useId, useRef, useState, type ReactElement, type ReactNode } from 'react'
+import { ArrowRight, X, GitBranch, HardDrive, HeartHandshake } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
 import { isEffectivelyTrashed } from '../../store/selectors'
 import { useUI } from '../../store/ui'
 import { Modal } from '../../ui/Modal'
-import { Led, Switch } from '../../ui/controls'
-import { SecretField } from '../../ui/SecretField'
+import { Switch } from '../../ui/controls'
 import { useLang, useT } from '../../i18n'
 import { logoMarkSvg } from '@/shared/logo'
 import { BRAND } from '@/shared/brand'
 import { donateUrl } from '@/shared/pricing'
 import type { ThemePref } from '../../store/types'
 import { ShortcutList } from '../modals/ShortcutsModal'
-import { PreflightSettings, runAI, SyncTab, consumeSyncSettingsRequest, McpTab, consumeMcpSettingsRequest, McpServers, MailTab, consumeMailSettingsRequest, CodingWorkerTab, consumeCodingSettingsRequest } from '../../features'
+import { PreflightSettings, SyncTab, consumeSyncSettingsRequest, McpTab, consumeMcpSettingsRequest, MailTab, consumeMailSettingsRequest, CodingWorkerTab, consumeCodingSettingsRequest } from '../../features'
 import { ServerAgentsSettings } from '../../features'
-import { MemorySettings } from '../../features'
+import { ProvidersTab } from '../../features'
 import { plural } from '../lib/format'
 import { WebClipper } from '../capture/WebClipper'
 import { InstallSection } from '../capture/Install'
@@ -31,10 +30,9 @@ import { useCloud, useCloudSync } from '../../cloud'
 import { HelpLink } from '../../help'
 import './settings.css'
 import { StandardHereField, useLookScope } from '../workspace/Look'
-import { MODELS } from '@/shared/ai/models'
 
 /**
- * Settings = this device and your account (language, theme, Claude key, sync, mail, MCP, the coding worker,
+ * Settings = this device and your account (language, theme, AI keys and this device's AI choices, sync, mail, MCP, the coding worker,
  * shortcuts). What belongs to the workspace — its name, people and members, invites, building blocks,
  * automation, backup / export / import, leaving or deleting it — is on the workspace page (#/workspace,
  * shell/workspace), linked at the top of the rail.
@@ -44,13 +42,7 @@ const BASE_TABS: SettingsTab[] = ['general', 'appearance', 'ai', 'data', 'sync',
 /** Server admins (ADMIN_EMAILS) also get "Server" (registration links) — after General. */
 const withServer = (tabs: SettingsTab[], admin: boolean): SettingsTab[] => (admin ? [tabs[0], 'server', ...tabs.slice(1)] : tabs)
 
-/** The model picker's line per role ("— most capable (default)" …); a model without one shows its label. */
-const MODEL_KEYS: Partial<Record<string, string>> = { deep: 'shell.ai.opus', standard: 'shell.ai.sonnet', fast: 'shell.ai.haiku' }
-
-/** The Claude models this device can pick: the registry's selectable rows (src/shared/ai/models.ts). */
-export const AI_MODELS = MODELS.filter((r) => r.route.p === 'anthropic' && r.selectable).map((r) => ({ id: r.route.m, label: r.label, key: r.role ? MODEL_KEYS[r.role] : undefined }))
-
-export function SettingsModal({ initialTab, onClose }: { initialTab?: SettingsTab | 'team'; onClose: () => void }) {
+export function SettingsModal({ initialTab, section, onClose }: { initialTab?: SettingsTab | 'team'; section?: 'mcp' | 'memory'; onClose: () => void }) {
   // "Team" moved to the workspace page: an old entry point (a link, a hand-off) lands on its People section
   const team = initialTab === 'team'
   useEffect(() => {
@@ -59,10 +51,10 @@ export function SettingsModal({ initialTab, onClose }: { initialTab?: SettingsTa
     openWorkspaceSettings('people')
   }, [team, onClose])
   if (team) return null
-  return <Settings initialTab={initialTab} onClose={onClose} />
+  return <Settings initialTab={initialTab} section={section} onClose={onClose} />
 }
 
-function Settings({ initialTab, onClose }: { initialTab?: SettingsTab; onClose: () => void }) {
+function Settings({ initialTab, section, onClose }: { initialTab?: SettingsTab; section?: 'mcp' | 'memory'; onClose: () => void }) {
   const t = useT()
   const serverAdmin = useCloud((c) => !!c.user && !!c.serverAdmin)
   const TABS = withServer(BASE_TABS, serverAdmin)
@@ -158,7 +150,12 @@ function Settings({ initialTab, onClose }: { initialTab?: SettingsTab; onClose: 
             {tab === 'general' && <GeneralTab />}
             {tab === 'server' && <ServerTab />}
             {tab === 'appearance' && <AppearanceTab />}
-            {tab === 'ai' && <AITab />}
+            {tab === 'ai' && (
+              // a lazy chunk (Settings › AI is not on the boot path); the tab head stays while it loads
+              <Suspense fallback={<p className="st__loading label" aria-busy="true">{t('common.loading')}</p>}>
+                <ProvidersTab section={section} />
+              </Suspense>
+            )}
             {tab === 'data' && <DataTab onClose={onClose} />}
             {tab === 'sync' && <SyncTab />}
             {tab === 'mail' && <MailTab />}
@@ -375,104 +372,6 @@ function AppearanceTab() {
   )
 }
 
-function AITab() {
-  const t = useT()
-  // a vault marker ('' = no key): the key itself is never in the store (store/secrets.ts)
-  const key = useWorkspace((x) => x.settings.aiApiKey)
-  const model = useWorkspace((x) => x.settings.aiModel)
-  const set = useWorkspace.getState().updateSettings
-  const [draft, setDraft] = useState('')
-  const keyId = useId()
-  const configured = key.trim().length > 0
-  // the key is only "connected" once a real request went through
-  const [test, setTest] = useState<{ state: 'idle' | 'running' | 'ok' | 'error'; msg?: string }>({ state: 'idle' })
-  const abort = useRef<AbortController | null>(null)
-  useEffect(() => {
-    abort.current?.abort()
-    setTest({ state: 'idle' })
-  }, [key, model])
-  useEffect(() => () => abort.current?.abort(), [])
-  const runTest = async () => {
-    abort.current?.abort()
-    const ctrl = new AbortController()
-    abort.current = ctrl
-    setTest({ state: 'running' })
-    try {
-      // the key alone: no MCP server is attached to this check
-      await runAI({ action: 'custom', purpose: 'setup.test', sources: [], input: '', instruction: 'Reply with the single word OK.', signal: ctrl.signal, mcp: false })
-      if (!ctrl.signal.aborted) setTest({ state: 'ok' })
-    } catch (e) {
-      if (!ctrl.signal.aborted) setTest({ state: 'error', msg: e instanceof Error ? e.message : String(e) })
-    }
-  }
-  const statusText = !configured
-    ? t('shell.ai.notSet')
-    : test.state === 'running'
-      ? t('shell.ai.testing')
-      : test.state === 'ok'
-        ? t('shell.ai.verified')
-        : test.state === 'error'
-          ? t('shell.ai.failed')
-          : t('shell.ai.ready')
-  return (
-    <>
-      <h3 className="st-h">
-        {t('shell.settings.ai.title')} <HelpLink id="claude-key" />
-      </h3>
-      <p className="st-p">{t('shell.settings.ai.body')}</p>
-      <div className="ai-status" data-state={configured ? test.state : 'none'} role="status">
-        <Led state={!configured ? 'off' : test.state === 'running' ? 'on' : test.state === 'ok' ? 'ok' : test.state === 'error' ? 'off' : 'on'} />
-        <span className="label">{statusText}</span>
-        {configured && (
-          <button type="button" className="btn btn--sm ai-status__test" onClick={() => void runTest()} disabled={test.state === 'running'}>
-            {test.state === 'running' ? t('shell.ai.testing') : t('shell.ai.test')}
-          </button>
-        )}
-      </div>
-      {test.state === 'error' && test.msg && <p className="ai-status__err">{test.msg}</p>}
-      <Field label={t('shell.settings.ai.key')} hint={t('shell.settings.ai.keyHint')} htmlFor={keyId}>
-        <SecretField
-          id={keyId}
-          label={t('shell.settings.ai.key')}
-          marker={key}
-          value={draft}
-          onChange={setDraft}
-          onSubmit={(k) => {
-            set({ aiApiKey: k })
-            setDraft('')
-          }}
-          onRemove={() => set({ aiApiKey: '' })}
-          placeholder="sk-ant-…"
-          describedBy={`${keyId}-hint`}
-          showLabel={t('shell.settings.ai.show')}
-          hideLabel={t('shell.settings.ai.hide')}
-        />
-      </Field>
-      <Field label={t('shell.settings.ai.model')} hint={t('shell.settings.ai.modelHint')}>
-        <select className="input" value={model} onChange={(e) => set({ aiModel: e.target.value })}>
-          {AI_MODELS.map((m) => (
-            <option key={m.id} value={m.id}>
-              {m.key ? t(m.key) : m.label}
-            </option>
-          ))}
-        </select>
-      </Field>
-      <div className="st-note">
-        <span className="st-note__mark" aria-hidden />
-        <div>
-          <strong>{t('shell.settings.ai.privacyTitle')}</strong>
-          <p>{t('shell.settings.ai.privacy')}</p>
-          <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noreferrer noopener" className="st-link">
-            console.anthropic.com <ExternalLink size={12} />
-          </a>
-        </div>
-      </div>
-      <McpServers />
-      <MemorySettings />
-    </>
-  )
-}
-
 function DataTab({ onClose }: { onClose: () => void }) {
   const t = useT()
   const interval = useWorkspace((x) => x.settings.historyIntervalMin)
@@ -588,7 +487,7 @@ function AboutTab() {
         </div>
         <div>
           <dt>{t('shell.about.ai')}</dt>
-          <dd>Claude · BYOK</dd>
+          <dd>{t('shell.about.aiV')}</dd>
         </div>
         <div>
           <dt>{t('shell.about.licence')}</dt>

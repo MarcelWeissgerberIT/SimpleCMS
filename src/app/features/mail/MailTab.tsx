@@ -20,6 +20,7 @@ import { preloadGis } from './auth'
 import { builtinClientId, effectiveClient, useBuiltinClient } from './builtin'
 import { backToOneAccess, cancelRun, connectGmail, disconnectGmail, loadLabels, organiseEarlier, resetMailSync, setOwnClientId, startNewDatabase, syncNow, useMail } from './service'
 import { estimateOrganise } from './organise'
+import { AINeedsSetup, offersAI, useAIStatus } from '../ai/setup/AINeedsSetup'
 import { fmtTime, useMailReadout, type ReadoutState } from './MailStatus'
 import { MlField, Panel, SwitchRow } from './parts'
 import { PeoplePanel } from './PeopleUI'
@@ -593,7 +594,9 @@ function OrganisePanel() {
   const uid = useId()
   const cfg = useMailSettings()
   const o = cfg.organise
-  const hasKey = useWorkspace((s) => !!s.settings.aiApiKey.trim())
+  // sorting mail needs a route that may read mail (the gate's aiStatus: a key, the data rules)
+  const organiseStatus = useAIStatus('bulk.mail')
+  const hasKey = offersAI(organiseStatus)
   const unorganised = useMail((s) => s.unorganised)
   const phase = useMail((s) => s.phase)
   useWorkspace((s) => s.settings.aiModel)
@@ -618,11 +621,12 @@ function OrganisePanel() {
         disabled={!hasKey}
         onChange={(v) => setOrganise({ enabled: v })}
       />
+      {!hasKey && <AINeedsSetup purpose="bulk.mail" variant="line" testId="mail-needs" />}
       {on && (
         <>
           <div className="ml-warn" role="note">
             <Send size={14} aria-hidden className="ml-warn__icon" />
-            <p>{t('features.mail.claude.privacy')}</p>
+            <p>{t('features.mail.claude.privacy', { company: est.company })}</p>
           </div>
           <Categories />
           <div className="ml-checks">
@@ -641,7 +645,7 @@ function OrganisePanel() {
                 ))}
               </select>
             </MlField>
-            <MlField label={t('features.mail.claude.cost')} hint={t('features.mail.claude.costHint')}>
+            <MlField label={t('features.mail.claude.cost')} hint={t('features.mail.claude.costHint', { company: est.company })}>
               <div className="ml-cost" data-testid="mail-cost">
                 <span className="ml-cost__usd">{usd}</span>
                 <span className="label">{t('features.mail.claude.costPer', { n: cfg.maxPerRun, model: est.model })}</span>

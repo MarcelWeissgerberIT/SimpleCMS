@@ -46,7 +46,7 @@ import {
 import { withoutWebImages } from '../../agents/images'
 import { stripRefs } from './edit'
 import { findProp } from './props'
-import { LIMITED_NOTE, ToolInputError, clipResult, currentReadLimit, withReadLimit, type AgentTool, type StageApi, type ToolOutcome } from './tools'
+import { LIMITED_NOTE, ToolInputError, clipResult, currentReadLimit, currentToolScope, withReadLimit, type AgentTool, type StageApi, type ToolOutcome } from './tools'
 import type { StagedChange } from './types'
 
 const ws = () => useWorkspace.getState()
@@ -210,15 +210,16 @@ const listTasks: AgentTool = {
     additionalProperties: false,
   },
   async run(input, stage) {
-    // context marks hold for this call's synchronous part only: taken along before the first await
+    // context marks and the route's page filter hold for this call's synchronous part only: taken along before the first await
     const limit = currentReadLimit()
+    const scope = currentToolScope()
     const kind = kindArg(input)
     const status = (str(input, 'status').trim() || 'open') as TaskStatus
     if (!STATUSES.includes(status)) throw new ToolInputError(`"status" must be one of ${STATUSES.join(', ')}.`)
     const count = int(input, 'limit', 30, 1, 100)
     const offset = int(input, 'offset', 0, 0, 100_000)
     const filter = { ...(kind ? { kind } : {}), ...(str(input, 'project_id').trim() ? { projectId: str(input, 'project_id').trim() } : {}), status, ...(str(input, 'repo').trim() ? { repo: str(input, 'repo').trim() } : {}), ...(str(input, 'query').trim() ? { query: str(input, 'query', { max: 200 }).trim() } : {}) }
-    const { total, list } = await taskBriefs(filter, { limit, offset, count })
+    const { total, list } = await taskBriefs(filter, { limit, offset, count, scope })
     const staged = stage.list().filter((c) => c.kind === 'coding' && c.coding?.op === 'create' && (c.status === 'pending' || c.status === 'failed'))
     const extra = staged.length ? `\nStaged, not applied yet:\n${staged.map((c) => `- ${q(c.title ?? '')} (id: ${c.pageId}) · ${c.coding!.kind} / ${q(c.coding!.project)} · change #${c.n}`).join('\n')}` : ''
     const head = total ? `${total} task${total === 1 ? '' : 's'} (${status})${list.length < total ? `, showing ${offset + 1}–${offset + list.length} — pass offset ${offset + list.length} for more` : ''}:` : `No tasks (${status}).`
@@ -241,8 +242,9 @@ const readTask: AgentTool = {
     additionalProperties: false,
   },
   async run(input, stage) {
-    // context marks hold for this call's synchronous part only: taken along before the first await
+    // context marks and the route's page filter hold for this call's synchronous part only: taken along before the first await
     const limit = currentReadLimit()
+    const scope = currentToolScope()
     const rawId = str(input, 'id', { required: true, max: 80 }).trim()
     const lines = int(input, 'log_lines', 25, 0, 80)
     const staged = stagedTask(stage, rawId)
@@ -252,7 +254,9 @@ const readTask: AgentTool = {
         summary: t('features.agent.res.stagedPage', { n: staged.n }),
         state: 'ok',
       }
-    const d = await taskDetail(stage.resolve(rawId), lines, limit)
+    const id = stage.resolve(rawId)
+    // a task page the route may not see is no task for it (the same answer as an unknown id)
+    const d = scope && !scope(id) ? null : await taskDetail(id, lines, limit)
     if (!d) throw new ToolInputError(`No pipeline task with id ${q(rawId)}. Use list_tasks to get task ids.`)
     const out: string[] = [`# ${d.title}`, `id: ${d.id} · ${d.kind} / ${q(d.project)} (project id: ${d.projectId})`]
     out.push(`stage: ${d.stages.map((s) => `${s.at === 'done' ? '✓ ' : s.at === 'now' ? '▶ ' : ''}${s.name}`).join(' · ')}`)

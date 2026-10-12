@@ -145,14 +145,14 @@ test.describe('What’s new in the Help panel', () => {
     await expect(page.getByRole('region', { name: 'AI terminal' })).toBeVisible()
   })
 
-  test('Try it: Settings → Claude AI for codewords, Ask for the help centre', async ({ page }) => {
+  test('Try it: Settings → AI for codewords, Ask for the help centre', async ({ page }) => {
     await openApp(page)
     const codewords = ENTRIES.find((e) => e.try === 'settings-ai')!
     await openEntry(page, codewords.id)
     await panel(page).locator('.cl-try__btn').click()
     const settings = page.getByRole('dialog', { name: 'Settings' })
     await expect(settings).toBeVisible()
-    await expect(settings.getByRole('tab', { name: /Claude AI/ })).toHaveAttribute('aria-selected', 'true')
+    await expect(settings.getByRole('tab', { name: /\bAI$/ })).toHaveAttribute('aria-selected', 'true')
     await expect(panel(page)).toHaveCount(0)
     await page.keyboard.press('Escape')
     await expect(settings).toHaveCount(0)

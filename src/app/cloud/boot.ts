@@ -64,6 +64,7 @@ export function applyConfig(cfg: ServerConfig): void {
     available: true,
     signup: mode === 'open' || mode === 'invite' || mode === 'domains' ? mode : null,
     signupDomains: Array.isArray(cfg.signup?.domains) ? cfg.signup.domains : [],
+    supports: Array.isArray(cfg.supports) ? cfg.supports.filter((x): x is string => typeof x === 'string').slice(0, 32) : [],
   })
 }
 

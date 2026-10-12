@@ -1,11 +1,11 @@
 /**
  * `#/oauth/mcp` — One's own page an MCP server's sign-in comes back to, when this tab finishes it itself
  * (the browser blocked the sign-in window, so this tab went there; or the tab that opened the window is gone).
- * The code is exchanged here (oauth.ts finishSignIn); then back to Settings → Claude AI.
+ * The code is exchanged here (oauth.ts finishSignIn); then back to Settings → AI.
  */
 import { useEffect, useRef, useState } from 'react'
 import { useT } from '../../../i18n'
-import { useUI } from '../../../store/ui'
+import { openAISettings } from '../setup/openAISetup'
 import { navigate } from '../../../lib/router'
 import { finishSignIn, OAuthError, type OAuthIssue } from './oauth'
 import { oauthReturned } from './oauthReturn'
@@ -48,7 +48,7 @@ export function McpOAuthScreen() {
 
   const toSettings = () => {
     navigate({ name: 'home' })
-    useUI.getState().openModal({ type: 'settings', tab: 'ai' })
+    openAISettings({ section: 'mcp' })
   }
 
   return (

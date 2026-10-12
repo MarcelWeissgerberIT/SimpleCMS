@@ -21,6 +21,7 @@
  *   #/invite/<token> → join a team workspace (preview, sign in if needed, accept; see shell/cloud)
  *   #/signup/<token> → create an account with a registration link (team cloud; see shell/cloud)
  *   #/oauth/mcp     → an MCP server's sign-in came back to this tab (features/ai/mcp-servers/oauth.ts; the code stays in memory)
+ *   #/oauth/openrouter → connecting OpenRouter came back to this tab (features/ai/providers/openrouterConnect.ts; likewise)
  */
 import { useSyncExternalStore } from 'react'
 
@@ -59,8 +60,11 @@ export type Route =
   | { name: 'invite'; token: string }
   /** #/signup/<token> → team-cloud registration link (from POST /api/server/signup-links) */
   | { name: 'signup'; token: string }
-  /** #/oauth/mcp → an MCP server's sign-in (OAuth) came back here: this tab finishes it (the code is in memory, never in the address) */
-  | { name: 'oauth' }
+  /**
+   * #/oauth/mcp → an MCP server's sign-in (OAuth) came back here: this tab finishes it (the code is in memory, never in
+   * the address); #/oauth/openrouter → connecting OpenRouter (PKCE) likewise (`kind: 'openrouter'`)
+   */
+  | { name: 'oauth'; kind?: 'openrouter' }
   | { name: 'notfound'; path: string }
 
 export function parseHash(hash: string): Route {
@@ -89,6 +93,7 @@ export function parseHash(hash: string): Route {
   if (parts[0] === 'invite' && parts[1]) return { name: 'invite', token: parts[1] }
   if (parts[0] === 'signup' && parts[1]) return { name: 'signup', token: parts[1] }
   if (parts[0] === 'oauth' && parts[1] === 'mcp') return { name: 'oauth' }
+  if (parts[0] === 'oauth' && parts[1] === 'openrouter') return { name: 'oauth', kind: 'openrouter' }
   if (parts[0] === 'clip') {
     // the whole query (a stray unencoded "?" in a shared URL must not cut it short)
     const q = new URLSearchParams(raw.includes('?') ? raw.slice(raw.indexOf('?') + 1) : '')
@@ -135,7 +140,7 @@ export function routeHref(r: Route): string {
     case 'signup':
       return `#/signup/${r.token}`
     case 'oauth':
-      return '#/oauth/mcp'
+      return r.kind === 'openrouter' ? '#/oauth/openrouter' : '#/oauth/mcp'
     case 'clip': {
       const q = new URLSearchParams()
       for (const k of ['url', 'title', 'text', 'desc', 'share'] as const) if (r[k]) q.set(k, r[k]!)

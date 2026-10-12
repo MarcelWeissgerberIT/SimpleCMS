@@ -241,7 +241,7 @@ test.describe('AI meeting notes', () => {
     await expect(deck(page).locator('.mtg__readout')).toHaveAttribute('data-state', 'done')
   })
 
-  test('no API key: stop keeps the transcript and explains the Settings → Claude AI path in place', async ({ page, context }) => {
+  test('no API key: stop keeps the transcript and explains the Settings → AI path in place', async ({ page, context }) => {
     await context.addInitScript(fakeSpeech)
     const reqs = await mockClaude(context)
     await openApp(page)
@@ -252,16 +252,17 @@ test.describe('AI meeting notes', () => {
     await key(page, 'stop').click()
     const notice = deck(page).locator('.mtg__notice')
     await expect(notice).toContainText('ERR · NO_KEY')
-    await expect(notice).toContainText('Add it in Settings → Claude AI')
+    await expect(notice).toContainText('Set it up in Settings → AI')
     await expect(key(page, 'summarize')).toBeVisible()
     expect(reqs).toHaveLength(0)
     await flush(page)
     expect((await meetingNode(page, id))?.attrs).toMatchObject({ status: 'idle', transcript: [{ text: 'A short meeting without a key.' }] })
 
-    await notice.getByRole('button', { name: 'Open Settings → Claude AI' }).click()
-    const dialog = page.getByRole('dialog')
-    await expect(dialog.getByRole('tab', { name: 'Claude AI' })).toHaveAttribute('aria-selected', 'true')
+    // the key opens the assistant "Set up AI" (step 01)
+    await notice.getByRole('button', { name: 'Set up AI' }).click()
+    await expect(page.getByTestId('ai-setup')).toHaveAttribute('data-step', 'provider')
     await page.keyboard.press('Escape')
+    await expect(page.getByTestId('ai-setup')).toHaveCount(0)
 
     // a title typed by hand is kept (Claude's suggestion only fills an empty title)
     const title = deck(page).getByRole('textbox', { name: 'Meeting title' })
@@ -320,7 +321,7 @@ test.describe('AI meeting notes', () => {
     ])
     // no browser-recognition line in the privacy note: only what goes to Claude
     await expect(deck(page).locator('.mtg__privacy')).not.toContainText('Google')
-    await expect(deck(page).locator('.mtg__privacy')).toContainText('Only the transcript text goes to Claude')
+    await expect(deck(page).locator('.mtg__privacy')).toContainText('Only the transcript text goes to Anthropic')
   })
 
   test('send action items to the seeded Projects database: rows with owner + date, linked back in the notes', async ({ page, context }) => {

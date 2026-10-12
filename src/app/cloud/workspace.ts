@@ -29,7 +29,7 @@ import { closeSocket, getSocket, isConnected, onConnection, reconnectSocket } fr
 import { useCloud, useCloudSync, type CloudUser, type CloudWorkspace, type Peer, type Role } from './state'
 import { readOnlyFor, watchSchema } from './schemaGate'
 import { SYSTEM, withWriter } from '../store/writer'
-import { withCleanAISettings } from '../store/ai'
+import { setAIRulesGuard, withCleanAISettings } from '../store/ai'
 
 export interface ActiveCloud {
   ws: CloudWorkspace
@@ -68,6 +68,14 @@ function writable(): boolean {
 function canStyle(): boolean {
   const c = useCloud.getState()
   return writable() && (c.role === 'owner' || c.role === 'admin')
+}
+
+/** Does this server know …? (GET api/config `supports`) */
+const supports = (what: string): boolean => (useCloud.getState().supports ?? []).includes(what)
+
+/** The workspace's AI rules: owners and admins, on a server that guards them (`supports ∋ 'ai'`). */
+function canRuleAI(): boolean {
+  return canStyle() && supports('ai')
 }
 
 function setStatus(status: 'connecting' | 'online' | 'offline') {
@@ -162,6 +170,9 @@ export async function openCloudWorkspace(ws: CloudWorkspace, user: CloudUser, on
   setIntegrationGuard(canStyle)
   // the flight recorder's eject writes in the local workspace only (team ejects come later) — read-only or not
   setRewindGuard(() => false)
+  // the workspace's AI rules: owners and admins on a server that guards them; Claude's column only once its agents read
+  // Claude rules (D-S2-30)
+  setAIRulesGuard({ rules: canRuleAI, claude: () => supports('providers') })
 
   // From here on the store shows the cloud workspace: a failing service must not throw (the
   // caller would fall back to the local workspace while the binding is already live).
@@ -308,6 +319,7 @@ export async function openCloudWorkspace(ws: CloudWorkspace, user: CloudUser, on
       userId: () => user.id,
       writable,
       canStyle,
+      canRuleAI,
       isFavorite: (id) => favorites.has(id),
       onRemotePages: (r) => {
         onRemotePages(r)
