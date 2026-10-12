@@ -20,6 +20,8 @@ import { agentEditor, sanitizeAgent } from './agents'
 import { sanitizeScript } from './scripts'
 import { emptyKit, optionsOfList, sanitizeList, sanitizePropType, sanitizeRecordType, storedTypeOf, syncRecordTypeInto } from './kit'
 import { lookAllowed, sameLook, sanitizeLook } from './look'
+import { readWorkspaceAI, sameWorkspaceAI, withCleanAISettings } from './ai'
+import type { WorkspaceAI } from '@/shared/ai/types'
 import { INTEGRATION_LIMITS, integrationsAllowed, sameIntegration, sanitizeIntegration, sanitizeIntegrations } from './integrations'
 import { SYSTEM, withWriter } from './writer'
 import { deepFreeze } from './freeze'
@@ -271,6 +273,8 @@ export interface CloudPatch {
   kit?: { lists?: Record<ID, OptionList | null>; propTypes?: Record<ID, CustomPropType | null>; recordTypes?: Record<ID, RecordType | null> }
   /** the workspace look (`null` = the standard look; already sanitized) */
   look?: WorkspaceLook | null
+  /** the workspace's AI rules (`null` = none; already sanitized) */
+  ai?: WorkspaceAI | null
   /** every integration profile (the whole list; already sanitized) */
   integrations?: IntegrationProfile[]
 }
@@ -485,7 +489,7 @@ export const useWorkspace = create<WorkspaceState>()(
 
     hydrate: (ws) => {
       // the Claude API key: a vault marker, never the key (secrets.ts)
-      const settings = withSealedKey(ws.settings, get().settings.aiApiKey, ws.epoch)
+      const settings = withCleanAISettings(withSealedKey(ws.settings, get().settings.aiApiKey, ws.epoch))
       // boot / workspace switch: no writer's change (the recorder is not listening yet at boot; a re-hydrate is system)
       withWriter(SYSTEM('hydrate'), () =>
         set((s) => {
@@ -494,6 +498,10 @@ export const useWorkspace = create<WorkspaceState>()(
           Object.assign(s, ws, { pages: freezePages(ws.pages), settings, functions: ws.functions ?? {}, agents: ws.agents ?? {}, scripts: ws.scripts ?? {}, kit: ws.kit ?? emptyKit(), integrations: sanitizeIntegrations(ws.integrations).integrations })
           // the same look keeps its reference (subscribers compare by reference)
           s.look = sameLook(look, before ?? null, { meta: true }) ? before : (look ?? undefined)
+          // the AI rules: kept by every reader, the same rules keep their reference; never `delete` (zustand merges)
+          const ai = readWorkspaceAI(ws.ai)
+          const aiBefore = get().ai
+          s.ai = sameWorkspaceAI(ai, aiBefore) ? aiBefore : ai
           s.ready = true
         }),
       )
@@ -521,6 +529,9 @@ export const useWorkspace = create<WorkspaceState>()(
         // (a new object would read as a change — the team binding would re-send it)
         const look = sanitizeLook(ws.look)
         if (!sameLook(look, s.look ?? null, { meta: true })) s.look = look ?? undefined
+        // the AI rules: the same (a restore hands in this workspace's own — features/io/backup.ts)
+        const ai = readWorkspaceAI(ws.ai)
+        if (!sameWorkspaceAI(ai, s.ai)) s.ai = ai
       }),
 
     setLook: (look) => {
@@ -1246,6 +1257,7 @@ export const useWorkspace = create<WorkspaceState>()(
         if (patch.look !== undefined) {
           s.look = patch.look ?? undefined
         }
+        if (patch.ai !== undefined) s.ai = patch.ai ?? undefined
         if (patch.integrations) s.integrations = patch.integrations
         if (patch.settings) Object.assign(s.settings, withSealedKey({ ...s.settings, ...patch.settings }, s.settings.aiApiKey, s.epoch))
         if (removed && s.recent.some((r) => !s.pages[r])) s.recent = s.recent.filter((r) => !!s.pages[r])
@@ -1351,6 +1363,7 @@ export function getWorkspaceSnapshot(): Workspace {
     scripts: s.scripts ?? {},
     kit: s.kit ?? emptyKit(),
     ...(s.look ? { look: s.look } : {}),
+    ...(s.ai ? { ai: s.ai } : {}),
     integrations: s.integrations ?? [],
   }
 }

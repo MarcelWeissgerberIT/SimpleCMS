@@ -28,6 +28,7 @@ import type { Suggestion } from './suggest'
 import { Chips } from './Chips'
 import { useReadOnly } from '../cloud/state'
 import { openHelp, useHelpHits } from '../../help'
+import { looksLikeKey } from '@/shared/ai/keys'
 import { useTour } from '../tour/state'
 import './palette.css'
 
@@ -631,6 +632,10 @@ function AskPanel({ question, pageId, onDone }: { question: string; pageId: ID |
       const context = page ? (text ? `${page.title}\n\n${text}` : page.title) : undefined
       const final = await runAI({
         action: 'custom',
+        // ⌘K "?": the current page as its context marks allow (a route without a page: none)
+        purpose: 'palette.ask',
+        sources: page ? [{ page: page.id }] : [],
+        typed: question,
         input: text,
         instruction: question,
         context,
@@ -650,7 +655,8 @@ function AskPanel({ question, pageId, onDone }: { question: string; pageId: ID |
       setError(e instanceof Error ? e.message : String(e))
       setState('error')
     } finally {
-      noteUse(answered, mem.use, { task: question, where: { kind: 'palette' }, pageId: page?.id ?? null, result: t(answered ? 'features.memory.result.answer' : ctrl.signal.aborted ? 'features.memory.result.stopped' : 'features.memory.result.failed') })
+      // a question refused for a key in its text was never sent: no row in the memory log (the key would be its name)
+      if (!looksLikeKey(question)) noteUse(answered, mem.use, { task: question, where: { kind: 'palette' }, pageId: page?.id ?? null, result: t(answered ? 'features.memory.result.answer' : ctrl.signal.aborted ? 'features.memory.result.stopped' : 'features.memory.result.failed') })
     }
   }
 

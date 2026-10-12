@@ -6,6 +6,7 @@
  */
 import * as Y from 'yjs'
 import { isTimeZone, parseAt } from './schedule.ts'
+import { sanitizeAgentAI } from '../../../src/shared/ai/route.ts'
 import type { AgentScope, AgentTrigger, CustomAgent, Effort, ScheduleEvery, WriteMode } from './types.ts'
 
 export const MAX_INSTRUCTIONS = 8000
@@ -106,6 +107,8 @@ export function sanitizeAgent(key: string, v: unknown): CustomAgent | null {
     ...(mcpTools ? { mcpTools } : {}),
     runner: oneOf(v.runner, ['browser', 'server'] as const, 'browser'),
     model: typeof v.model === 'string' && MODEL.test(v.model) ? v.model : null,
+    // routes, reviewer, saver rule, applyOn, routeSig (multi-provider contracts; absent stays absent)
+    ...sanitizeAgentAI(v),
     effort: v.effort === 'low' || v.effort === 'medium' || v.effort === 'high' ? (v.effort as Effort) : null,
     maxRunUsd: Math.min(MAX_RUN_USD, Math.max(0.01, num(v.maxRunUsd, DEFAULT_RUN_USD))),
     enabled: v.enabled === true,

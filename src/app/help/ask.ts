@@ -37,7 +37,7 @@ export interface AskOptions {
 
 /** Streams the answer (Markdown). Throws the AI client's friendly errors (no key, offline …). */
 export function askHelp({ question, articles, lang, onToken, signal }: AskOptions): Promise<string> {
-  return streamCompletion({ system: helpSystemPrompt(lang), prompt: helpPrompt(question, articles), onToken, signal, mcp: false })
+  return streamCompletion({ purpose: 'help.ask', sources: [], typed: question, system: helpSystemPrompt(lang), prompt: helpPrompt(question, articles), onToken, signal, mcp: false })
 }
 
 /**

@@ -5,6 +5,8 @@
  */
 import type { JSONContent } from '@tiptap/core'
 import type { Lang } from '@/shared/i18n'
+import type { DeviceAI, RouteRule, WorkspaceAI } from '@/shared/ai/types'
+import type { AgentReview, SaverRule, Unreadable } from '@/shared/ai/route'
 
 export type ID = string
 
@@ -756,6 +758,18 @@ export interface Settings {
    */
   aiApiKey: string
   aiModel: string
+  /**
+   * Keys of the other AI providers — vault MARKERS like aiApiKey ("vault:<seal id>:<last 4>"), never a key; nothing
+   * writes them before multi-provider slice 2, but every reader keeps them (only `vault:` markers). Never exported,
+   * backed up, synced or shared (a restore keeps this device's).
+   */
+  aiKeys?: Partial<Record<'openai' | 'openrouter', string>>
+  /**
+   * The AI rules of this device (src/shared/ai/types.ts DeviceAI: routes per class, device default, member-data allows,
+   * narrowing, restrictions, the OpenRouter shortlist). Never in defaultSettings() (a restore keeps this device's),
+   * never synced; every reader sanitizes (store/ai.ts readDeviceAI). Written by nobody in slice 1.
+   */
+  ai?: DeviceAI
   /** Snapshot interval for version history in minutes */
   historyIntervalMin: number
   /**
@@ -991,6 +1005,13 @@ export interface Workspace {
    * map `integrations`. Full backups carry them, page backups never.
    */
   integrations?: IntegrationProfile[]
+  /**
+   * The workspace's AI rules (src/shared/ai/types.ts WorkspaceAI: providers' data rules, restricted pages, routes per
+   * class, soft limits, the policy generation `gen`). Every reader sanitizes (store/ai.ts readWorkspaceAI); written by
+   * nobody in slice 1 (team: meta map 'workspace' key 'ai', owners / admins only — server guard). Assign `undefined`,
+   * never `delete`. Full backups carry it (a restore keeps this workspace's), page backups never.
+   */
+  ai?: WorkspaceAI
 }
 
 /* ------------------------------------------------------------------ */
@@ -1220,6 +1241,19 @@ export interface CustomAgent {
   /** null = the workspace default */
   model?: string | null
   effort?: 'low' | 'medium' | 'high' | null
+  /**
+   * Multi-provider (src/shared/ai/route.ts AgentAIFields, kept by every reader from slice 1, used later): own pins
+   * (null = the workspace / device rule for agents), the advisory reviewer, the governor's saver rule, the 'p:m' the
+   * person confirmed apply-mode on, the inherited workspace rule's signature at the creator's last save. `model` /
+   * `effort` stay and are kept in step while pin 1 is Claude. A browser run whose pin 1 is not Claude, or whose fields
+   * this build cannot read (kept as they were, `Unreadable`), ends as an error run without a request
+   * (features/agents/routeBlock.ts).
+   */
+  route?: RouteRule | null | Unreadable
+  review?: AgentReview | null | Unreadable
+  saverRule?: SaverRule | null | Unreadable
+  applyOn?: string | Unreadable
+  routeSig?: string
   /** estimated budget per run in USD: the run stops (status 'budget') when it is exceeded */
   maxRunUsd: number
   enabled: boolean

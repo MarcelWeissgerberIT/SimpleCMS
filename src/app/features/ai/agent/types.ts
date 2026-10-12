@@ -11,6 +11,7 @@ import type { ItemPatch } from '../../../editor/workitem/patch'
 import type { ItemFact } from '../../workitems/facts'
 import type { HoldReason } from '../../workitems/holds'
 import type { ItemPin, SettleWarning } from '../../workitems/settle'
+import type { ModelLine } from '../core/meter'
 
 export type ToolName =
   | 'search_pages'
@@ -314,7 +315,10 @@ export interface AgentUsage {
   output: number
   cacheRead: number
   cacheWrite: number
+  /** the priced part (a model without a price shows on its own line) */
   usd: number
+  /** per provider × model that answered (the /cost table): its ledger entries summed */
+  byModel?: ModelLine[]
 }
 
 export type AgentStatus = 'idle' | 'running' | 'done' | 'stopped' | 'limit' | 'error'

@@ -5,6 +5,7 @@
  */
 import { formatOffset, type TranscriptSegment } from '../../../editor'
 import { AIError, completeStructured } from '../client'
+import type { SourceRef } from '@/shared/ai/types'
 
 export interface MeetingActionItem {
   text: string
@@ -137,9 +138,9 @@ export function parseMeetingSummary(raw: string): MeetingSummary | null {
 }
 
 /** Ask Claude for the notes. Throws AIError (no key, rate limit after retries, offline, aborted, empty …). */
-export async function requestMeetingSummary(input: MeetingInput, signal?: AbortSignal): Promise<MeetingSummary> {
+export async function requestMeetingSummary(input: MeetingInput, signal: AbortSignal | undefined, sources: readonly SourceRef[]): Promise<MeetingSummary> {
   const { system, prompt, schema } = buildMeetingPrompt(input)
-  const raw = await completeStructured({ system, prompt, schema, maxTokens: 8000, signal })
+  const raw = await completeStructured({ purpose: 'meeting.summary', sources, system, prompt, schema, maxTokens: 8000, signal })
   const parsed = parseMeetingSummary(raw)
   if (!parsed || (!parsed.summary.length && !parsed.decisions.length && !parsed.actionItems.length)) throw new AIError('empty')
   return parsed

@@ -6,9 +6,10 @@
  * and never touches stored data.
  */
 import type { JSONContent } from '@tiptap/core'
-import { useWorkspace } from '../../store/store'
 import { toMarkdown } from '../share/markdown'
-import { completeStructured, resolveModel } from './client'
+import { completeStructured } from './client'
+import { chosenRoute, shortOf } from './core/status'
+import { estimate } from '../governor'
 
 export type AutofillPreset = 'summary' | 'extract' | 'translate' | 'categorize' | 'custom'
 export type AutofillFieldType = 'text' | 'number' | 'select' | 'multi_select' | 'checkbox' | 'url'
@@ -168,10 +169,20 @@ export function buildAutofillPrompt(req: AutofillRequest): { system: string; pro
  * Ask Claude for one field value. Throws AIError for API failures (no key, rate limit after
  * retries, offline, aborted …); a reply that is not `{ "value": … }` resolves as `{ ok: false }`.
  */
-export async function requestAutofill(req: AutofillRequest, signal?: AbortSignal): Promise<AutofillAnswer> {
+export async function requestAutofill(req: AutofillRequest, signal?: AbortSignal, rowId?: string | null, field?: { dbId: string; propId: string } | null): Promise<AutofillAnswer> {
   const { system, prompt, schema } = buildAutofillPrompt(req)
   const long = req.task.preset === 'translate' || req.field.type === 'text'
-  const raw = await completeStructured({ system, prompt, schema, maxTokens: long ? 8000 : 4096, signal })
+  // the row's fields and page content go out (a caller without the row id: the database as a whole)
+  const raw = await completeStructured({
+    purpose: 'bulk.autofill',
+    sources: rowId ? [{ row: rowId }] : [{ all: true }],
+    system,
+    prompt,
+    schema,
+    maxTokens: long ? 8000 : 4096,
+    signal,
+    ...(field ? { ledgerSource: `autofill:${field.dbId}:${field.propId}` } : {}),
+  })
   try {
     const parsed: unknown = JSON.parse(raw.trim())
     if (parsed && typeof parsed === 'object' && !Array.isArray(parsed) && 'value' in parsed) return { ok: true, value: (parsed as { value: unknown }).value }
@@ -202,14 +213,14 @@ export interface AutofillEstimate {
 }
 
 /**
- * Rough cost of filling `rows` rows whose context adds up to `contextChars` characters.
- * Anthropic bills the real usage to the user's key; this is only an order of magnitude.
+ * Rough cost of filling `rows` rows whose context adds up to `contextChars` characters — priced by the one table
+ * (features/governor estimate()). The provider bills the real usage to the user's key; this is an order of magnitude.
  */
 export function estimateAutofill({ rows, contextChars, preset }: { rows: number; contextChars: number; preset: AutofillPreset }): AutofillEstimate {
-  const model = resolveModel(useWorkspace.getState().settings.aiModel)
+  const route = chosenRoute()
   const contextTokens = contextChars / CHARS_PER_TOKEN
   const inputTokens = Math.round(rows * OVERHEAD_TOKENS + contextTokens)
   const outputTokens = Math.round(rows * OUTPUT_TOKENS[preset] + (preset === 'translate' ? contextTokens * 1.1 : 0))
-  const usd = (inputTokens * model.price.input + outputTokens * model.price.output) / 1_000_000
-  return { rows, inputTokens, outputTokens, usd, model: model.short }
+  const usd = estimate(route, { promptTokens: inputTokens, outTokens: outputTokens, maxTokens: outputTokens })?.low ?? 0
+  return { rows, inputTokens, outputTokens, usd, model: shortOf(route) }
 }

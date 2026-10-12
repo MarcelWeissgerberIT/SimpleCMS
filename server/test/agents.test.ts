@@ -12,6 +12,8 @@ import { DatabaseSync } from 'node:sqlite'
 import { after, before, describe, test } from 'node:test'
 import * as Y from 'yjs'
 import { type FakeAnthropic, type FakeRequest, fakeAnthropic, say, toolResults, tools } from './fake-anthropic.ts'
+import { sanitizeAgent } from '../src/agents/sanitize.ts'
+import { runsOnClaude } from '../../src/shared/ai/route.ts'
 import { type Client, Client as ApiClient, type DocClient, flushed, openDoc, signIn, sleep, startServer, type TestServer, waitFor } from './helpers.ts'
 
 const KEY = 'sk-ant-api03-TESTKEY-not-real-0123456789abcdefWXYZ'
@@ -443,6 +445,54 @@ describe('custom agents on the server', () => {
     assert.ok(Math.abs(run.usage.usd - 0.42) < 1e-9, String(run.usage.usd))
     assert.match(run.summary, /budget of \$0\.01/)
     assert.equal(fake.of('Budget')[0]!.body.max_tokens, 2048)
+  })
+
+  test('multi-provider fields: kept through the sanitizer (old shapes unchanged, unreadable ones kept as they were); a non-Claude first pin or an unreadable route is skipped with the reason, no request', async () => {
+    const fields = { route: [{ p: 'openrouter', m: 'x/y' }, { p: 'anthropic', m: 'claude-sonnet-5-5' }], review: { route: [{ p: 'openai', m: 'gpt-6-luna' }], mode: 'hold' }, saverRule: { overUsd: 0.5, to: { p: 'anthropic', m: 'claude-haiku-4-5' } }, applyOn: 'anthropic:claude-opus-5-5', routeSig: 'sig-0123abcd' }
+    const kept = sanitizeAgent('ag-or', agentDef('ag-or', 'Router', fields))!
+    assert.deepEqual({ route: kept.route, review: kept.review, saverRule: kept.saverRule, applyOn: kept.applyOn, routeSig: kept.routeSig }, fields)
+    const old = sanitizeAgent('ag-old', agentDef('ag-old', 'Old shape', {}))!
+    for (const k of ['route', 'review', 'saverRule', 'applyOn', 'routeSig']) assert.equal(k in old, false, k)
+    assert.equal(sanitizeAgent('ag-null', agentDef('ag-null', 'Null', { route: null }))!.route, null)
+    // fields this build cannot read are kept as they were (a save writes them back) and the agent never runs here
+    const unread = { route: [{ p: 'demo', m: 'canned' }], applyOn: 'demo:canned', saverRule: { overUsd: -1, to: { p: 'anthropic', m: 'claude-opus-5-5' } } }
+    const bad = sanitizeAgent('ag-bad', agentDef('ag-bad', 'Bad', { ...unread, routeSig: '../x' }))!
+    assert.deepEqual({ route: bad.route, saverRule: bad.saverRule, applyOn: bad.applyOn }, unread)
+    assert.equal('routeSig' in bad, false)
+    assert.equal(runsOnClaude(bad), false)
+    // an OpenAI fine-tune (mixed-case suffix) in front of Claude: read, never dropped (Claude never moves up to pin 1)
+    const ft = sanitizeAgent('ag-ft', agentDef('ag-ft', 'Fine-tune', { route: [{ p: 'openai', m: 'ft:gpt-4o-mini-2024-07-18:my-org:custom_suffix:9ABel2dg' }, { p: 'anthropic', m: 'claude-sonnet-5-5' }] }))!
+    assert.equal((ft.route as unknown[]).length, 2)
+    assert.equal(runsOnClaude(ft), false)
+    // a provider this server does not know, before Claude: kept whole, not run
+    const google = sanitizeAgent('ag-g', agentDef('ag-g', 'Google', { route: [{ p: 'google', m: 'gemini-x' }, { p: 'anthropic', m: 'claude-sonnet-5-5' }] }))!
+    assert.deepEqual(google.route, [{ p: 'google', m: 'gemini-x' }, { p: 'anthropic', m: 'claude-sonnet-5-5' }])
+    assert.equal(runsOnClaude(google), false)
+    assert.deepEqual(sanitizeAgent('ag-g', JSON.parse(JSON.stringify(google)))!.route, google.route)
+
+    meta.doc.transact(() => {
+      agentsMap().set('ag-or', agentDef('ag-or', 'Router', fields))
+      agentsMap().set('ag-or-claude', agentDef('ag-or-claude', 'Claude pinned', { route: [{ p: 'anthropic', m: 'claude-opus-5-5' }, { p: 'openrouter', m: 'x/y' }] }))
+      agentsMap().set('ag-unread', agentDef('ag-unread', 'Unreadable', { route: [{ p: 'google', m: 'gemini-x' }, { p: 'anthropic', m: 'claude-opus-5-5' }] }))
+    })
+    await flushed(meta)
+    fake.script('Claude pinned', () => say('Checked.'))
+    await member.post(`/api/workspaces/${wsId}/agents/ag-or/run`)
+    const [run] = await finished('ag-or')
+    assert.equal(run.status, 'skipped')
+    assert.match(run.error, /needs a newer server/)
+    assert.equal(fake.of('Router').length, 0)
+    // a route this server cannot read: skipped too — never run on Claude instead
+    await member.post(`/api/workspaces/${wsId}/agents/ag-unread/run`)
+    const [unreadRun] = await finished('ag-unread')
+    assert.equal(unreadRun.status, 'skipped')
+    assert.match(unreadRun.error, /needs a newer server/)
+    assert.equal(fake.of('Unreadable').length, 0)
+    // positive control: Claude as the first pin runs (one request)
+    await member.post(`/api/workspaces/${wsId}/agents/ag-or-claude/run`)
+    const [ok] = await finished('ag-or-claude')
+    assert.equal(ok.status, 'ok')
+    assert.equal(fake.of('Claude pinned').length, 1)
   })
 
   test('MCP connector: mcp_servers + one mcp_toolset each + beta; calls in the step log; no token in the run', async () => {

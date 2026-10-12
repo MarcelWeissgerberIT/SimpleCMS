@@ -580,6 +580,9 @@ function Instructions({ value, onChange, error, id, agent }: { value: string; on
     try {
       const out = await runAI({
         action: 'custom',
+        // the instructions text only — public, no page
+        purpose: 'write.instructions',
+        sources: [],
         input: value,
         instruction:
           'Rewrite these instructions for an autonomous AI agent that works in a Notion-like workspace without anyone watching. Make the job clear and step by step: what to look at, what to decide, what to change or propose, and what to put into the final report. Keep every fact, name and constraint, add nothing that is not implied, keep the language of the text. Keep every placeholder in square brackets exactly as written. Return only the improved instructions as plain text.',

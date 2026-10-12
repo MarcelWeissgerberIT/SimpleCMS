@@ -8,7 +8,7 @@
  *
  * (CHANGELOG_DRAFT=1 lets the build pass while a new entry's picture does not exist yet.)
  *
- * Shots: agent-trust, claude-tasks, flight-recorder-eject, flight-recorder-window, preflight, flight-recorder, tasks, outbox, mirror-again, glass-switches, history-compare, mcp-overview, mirror, task-mcp, models, search, terminal-pipelines, cloud-worker, one-picker, pipelines, legacy-modernise, coding-live, text-size, mcp-media, coding-setup, free-board, building-blocks, workspace-settings, diagram-viewer, coding-pipeline, pages-per-item, design-import, tour, quick-capture, script-templates, one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
+ * Shots: ai-receipts, agent-trust, claude-tasks, flight-recorder-eject, flight-recorder-window, preflight, flight-recorder, tasks, outbox, mirror-again, glass-switches, history-compare, mcp-overview, mirror, task-mcp, models, search, terminal-pipelines, cloud-worker, one-picker, pipelines, legacy-modernise, coding-live, text-size, mcp-media, coding-setup, free-board, building-blocks, workspace-settings, diagram-viewer, coding-pipeline, pages-per-item, design-import, tour, quick-capture, script-templates, one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
  * custom-agents, gmail, help-centre, mcp-servers, feed-blocks — each named like its image. Every shot starts from a fresh, seeded
  * workspace in English, light theme, 1440 × 900 at device scale 2; the crop of the relevant area is scaled
  * to 1440 px wide and saved as public/assets/shots/changelog/<shot>.webp (≤ 150 KB: the quality steps down
@@ -826,6 +826,92 @@ function drawVolumeTable(t) {
 const toolResult = (body, id) => (body.messages ?? []).flatMap((m) => (Array.isArray(m.content) ? m.content : [])).find((c) => c.type === 'tool_result' && c.tool_use_id === id)
 
 const shots = {
+  /**
+   * A receipt for every AI request (multi-provider S1): left, the AI menu after "Improve writing" with its receipt line
+   * under the result; right, the AI terminal after two tasks — the second on Claude Sonnet 5.5 — and /cost with a row
+   * per model and the total. Claude is mocked here with the requested model and fixed usage (no real request).
+   */
+  async 'ai-receipts'(browser) {
+    const ev2 = (type, data) => `event: ${type}\ndata: ${JSON.stringify({ type, ...data })}\n\n`
+    const answer = (model, blocks, u) => {
+      let body = ev2('message_start', { message: { id: `msg_rc_${++msgSeq}`, type: 'message', role: 'assistant', model, content: [], stop_reason: null, stop_sequence: null, usage: { input_tokens: u.input, output_tokens: 1, cache_read_input_tokens: u.read ?? 0, cache_creation_input_tokens: u.write ?? 0 } } })
+      blocks.forEach((b, index) => {
+        if (b.type === 'text') {
+          body += ev2('content_block_start', { index, content_block: { type: 'text', text: '' } })
+          for (const chunk of b.text.match(/.{1,18}/gs)) body += ev2('content_block_delta', { index, delta: { type: 'text_delta', text: chunk } })
+        } else {
+          body += ev2('content_block_start', { index, content_block: { type: 'tool_use', id: b.id, name: b.name, input: {} } })
+          body += ev2('content_block_delta', { index, delta: { type: 'input_json_delta', partial_json: JSON.stringify(b.input) } })
+        }
+        body += ev2('content_block_stop', { index })
+      })
+      body += ev2('message_delta', { delta: { stop_reason: blocks.some((b) => b.type === 'tool_use') ? 'tool_use' : 'end_turn', stop_sequence: null }, usage: { output_tokens: u.output } })
+      return body + ev2('message_stop', {})
+    }
+    const steps = [
+      { blocks: [{ type: 'text', text: 'We launch on 18 October — two weeks earlier than planned, with Mara Lind as the press contact.' }], u: { input: 2310, output: 358 } },
+      { blocks: [{ type: 'tool_use', id: 'toolu_rc1', name: 'search_pages', input: { query: 'Nordlicht launch' } }], u: { input: 6240, output: 142, write: 5810 } },
+      { blocks: [{ type: 'text', text: 'The Nordlicht launch is on **18 October**; Mara Lind handles the press.' }], u: { input: 410, output: 96, read: 6120 } },
+      { blocks: [{ type: 'text', text: 'Two points are open, both with Tessera: the pricing page copy and the partner mail.' }], u: { input: 880, output: 118, write: 6950 } },
+    ]
+    let n = 0
+    const { ctx, page } = await freshPage(browser, {
+      setup: (ctx) =>
+        ctx.route('https://api.anthropic.com/**', async (route) => {
+          const req = route.request()
+          const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': 'POST, GET' }
+          if (req.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors })
+          const body = JSON.parse(req.postData() || '{}')
+          const step = steps[Math.min(n++, steps.length - 1)]
+          await sleep(300)
+          await route.fulfill({ status: 200, headers: { ...cors, 'content-type': 'text/event-stream' }, body: answer(body.model, step.blocks, step.u) })
+        }),
+    })
+    await createPage(page, 'Nordlicht launch plan', doc(para('Status as of Monday.'), para('we launch on the 18th i think, earlier than planned, mara does press'), para('Open: pricing page copy, partner mail (Tessera).')))
+    await openPage(page, 'Nordlicht launch plan')
+    await page.locator('#main .ProseMirror').first().click()
+    await selectRange(page, 'we launch on the 18th', 'mara does press')
+    await page.locator('[aria-label="Formatting"]').first().getByRole('button', { name: /^Ask AI$/ }).click()
+    const panel = page.getByRole('dialog', { name: 'Ask Claude' })
+    await panel.getByRole('option', { name: /Improve writing/ }).click()
+    await panel.getByTestId('ai-receipt').waitFor()
+    await rest(page)
+    const left = `${TMP}/ai-receipts-menu.png`
+    // the panel alone (the selection's highlight sits right above it)
+    const pb = await panel.boundingBox()
+    await page.screenshot({ path: left, clip: { x: pb.x - 12, y: pb.y, width: pb.width + 24, height: pb.height + 12 } })
+    await page.keyboard.press('Escape')
+    await page.waitForTimeout(400)
+    // the terminal: two tasks, the model changed between them, then /cost
+    await page.keyboard.press('Control+j')
+    const term = page.getByRole('region', { name: 'AI terminal' })
+    const prompt = term.getByRole('textbox', { name: 'Task for the agent' })
+    await prompt.waitFor()
+    await prompt.fill('When do we launch, and who handles the press?')
+    await prompt.press('Enter')
+    await term.locator('.term-answer').first().waitFor({ timeout: 30_000 })
+    await term.locator('.term-head__status').filter({ hasText: 'Done' }).waitFor({ timeout: 30_000 })
+    await page.evaluate(() => window.__one.workspace.getState().updateSettings({ aiModel: 'claude-sonnet-5-5' }))
+    await prompt.fill('What is still open?')
+    await prompt.press('Enter')
+    await term.locator('.term-answer').nth(1).waitFor({ timeout: 30_000 })
+    await page.waitForTimeout(600)
+    await prompt.fill('/cost')
+    await prompt.press('Enter')
+    await term.getByTestId('term-cost').waitFor()
+    await prompt.focus()
+    await page.keyboard.press('Alt+ArrowUp')
+    await page.keyboard.press('Alt+ArrowUp')
+    await page.keyboard.press('Alt+ArrowUp')
+    await page.waitForTimeout(500)
+    await term.locator('.term-scroll').evaluate((el) => (el.scrollTop = 0))
+    await rest(page)
+    const right = `${TMP}/ai-receipts-terminal.png`
+    await page.screenshot({ path: right, clip: await boxOf(term, 0) })
+    await saveSideBySide('ai-receipts', [left, right])
+    await ctx.close()
+  },
+
   /**
    * Reasons when you discard (per-field trust S1): the fictional morning of tests/e2e/helpers/trustStory.mjs — the
    * agent "Nordlicht-Spiegel" with this morning's run waiting (Klarheit 4 · Warum 3) and this device's verdicts. #4 is

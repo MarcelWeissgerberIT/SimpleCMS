@@ -6,6 +6,7 @@
  * prototype chain survives.
  */
 import { COLOR_NAMES, type AgentTrigger, type AgentWriteMode, type ColorName, type CustomAgent, type ID, type PageIcon } from './types'
+import { sanitizeAgentAI } from '@/shared/ai/route'
 
 export const AGENT_LIMITS = {
   name: 80,
@@ -192,6 +193,8 @@ export function sanitizeAgent(id: unknown, raw: unknown): CustomAgent | null {
     const pageId = own(output, 'pageId')
     agent.output = { pageId: isSafeAgentId(pageId) ? pageId : null, mode: own(output, 'mode') === 'replace' ? 'replace' : 'append' }
   }
+  // multi-provider fields (src/shared/ai/route.ts): kept from slice 1 on, before any build writes them — absent stays absent
+  Object.assign(agent, sanitizeAgentAI({ route: own(raw, 'route'), review: own(raw, 'review'), saverRule: own(raw, 'saverRule'), applyOn: own(raw, 'applyOn'), routeSig: own(raw, 'routeSig') }))
   // the webhook trigger exists only on the server
   if (agent.trigger.type === 'webhook' && agent.runner !== 'server') agent.trigger = { type: 'manual' }
   return agent

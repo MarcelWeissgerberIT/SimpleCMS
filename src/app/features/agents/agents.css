@@ -640,6 +640,68 @@
   font-size: var(--text-2xs);
   letter-spacing: 0.04em;
 }
+/* the run's receipt per model: name · tokens · amount · source, mono; the name gives way with … first */
+.agx-run__models {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 4px 0 0;
+  border-top: 1px dashed var(--rule);
+  list-style: none;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+}
+.agx-run__model {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+  white-space: nowrap;
+}
+.agx-run__model-name {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink);
+  text-overflow: ellipsis;
+}
+.agx-run__model-tok {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink-3);
+  text-overflow: ellipsis;
+}
+.agx-run__model-usd {
+  flex: none;
+  margin-left: auto;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.agx-run__model-src {
+  flex: none;
+  padding: 0 4px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+  color: var(--ink-2);
+  font-size: calc(9.5px * var(--text-scale));
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+}
+@media (max-width: 640px) {
+  .agx-run__model {
+    flex-wrap: wrap;
+    row-gap: 0;
+  }
+  /* the token figures get their own line and wrap there — never cut on a phone */
+  .agx-run__model-tok {
+    order: 3;
+    flex-basis: 100%;
+    overflow: visible;
+    white-space: normal;
+  }
+}
 .agx-steps {
   display: flex;
   flex-wrap: wrap;

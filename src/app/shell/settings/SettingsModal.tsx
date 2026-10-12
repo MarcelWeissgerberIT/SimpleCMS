@@ -30,6 +30,7 @@ import { useCloud, useCloudSync } from '../../cloud'
 import { HelpLink } from '../../help'
 import './settings.css'
 import { StandardHereField, useLookScope } from '../workspace/Look'
+import { MODELS } from '@/shared/ai/models'
 
 /**
  * Settings = this device and your account (language, theme, Claude key, sync, mail, MCP, the coding worker,
@@ -42,11 +43,11 @@ const BASE_TABS: SettingsTab[] = ['general', 'appearance', 'ai', 'data', 'sync',
 /** Server admins (ADMIN_EMAILS) also get "Server" (registration links) — after General. */
 const withServer = (tabs: SettingsTab[], admin: boolean): SettingsTab[] => (admin ? [tabs[0], 'server', ...tabs.slice(1)] : tabs)
 
-export const AI_MODELS = [
-  { id: 'claude-opus-5-5', key: 'shell.ai.opus' },
-  { id: 'claude-sonnet-5-5', key: 'shell.ai.sonnet' },
-  { id: 'claude-haiku-4-5', key: 'shell.ai.haiku' },
-]
+/** The model picker's line per role ("— most capable (default)" …); a model without one shows its label. */
+const MODEL_KEYS: Partial<Record<string, string>> = { deep: 'shell.ai.opus', standard: 'shell.ai.sonnet', fast: 'shell.ai.haiku' }
+
+/** The Claude models this device can pick: the registry's selectable rows (src/shared/ai/models.ts). */
+export const AI_MODELS = MODELS.filter((r) => r.route.p === 'anthropic' && r.selectable).map((r) => ({ id: r.route.m, label: r.label, key: r.role ? MODEL_KEYS[r.role] : undefined }))
 
 export function SettingsModal({ initialTab, onClose }: { initialTab?: SettingsTab | 'team'; onClose: () => void }) {
   // "Team" moved to the workspace page: an old entry point (a link, a hand-off) lands on its People section
@@ -397,7 +398,7 @@ function AITab() {
     setTest({ state: 'running' })
     try {
       // the key alone: no MCP server is attached to this check
-      await runAI({ action: 'custom', input: '', instruction: 'Reply with the single word OK.', signal: ctrl.signal, mcp: false })
+      await runAI({ action: 'custom', purpose: 'setup.test', sources: [], input: '', instruction: 'Reply with the single word OK.', signal: ctrl.signal, mcp: false })
       if (!ctrl.signal.aborted) setTest({ state: 'ok' })
     } catch (e) {
       if (!ctrl.signal.aborted) setTest({ state: 'error', msg: e instanceof Error ? e.message : String(e) })
@@ -450,7 +451,7 @@ function AITab() {
         <select className="input" value={model} onChange={(e) => set({ aiModel: e.target.value })}>
           {AI_MODELS.map((m) => (
             <option key={m.id} value={m.id}>
-              {t(m.key)}
+              {m.key ? t(m.key) : m.label}
             </option>
           ))}
         </select>

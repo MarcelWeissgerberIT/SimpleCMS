@@ -16,9 +16,8 @@ import { FILE_PREFIX, getFile, readAsDataUrl, resolveAssetUrl } from '../../../l
 
 /** PDF bytes at most: base64 (× 4 / 3) + page context + prompt stay below the API's 32 MB per request. */
 export const PDF_MAX_BYTES = 23 * 1024 * 1024
-/** Pages of one PDF at most (1M-context models) · on Claude Haiku 4.5 (200k context). */
+/** Pages of one PDF at most on a 1M-context model (a model's own limit: its caps, run.ts maxPdfPages). */
 export const PDF_MAX_PAGES = 600
-export const PDF_MAX_PAGES_SMALL = 100
 /** Files converted here at most (Word, Excel, CSV, text …) — what a mail attachment may be. */
 export const FILE_READ_MAX = 25 * 1024 * 1024
 /** Characters of a text file sent to Claude at most (about 100k tokens). */

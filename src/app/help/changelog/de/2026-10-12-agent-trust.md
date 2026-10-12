@@ -1,7 +1,7 @@
 ---
 id: 2026-10-12-agent-trust
 date: 2026-10-12
-order: 1
+order: 2
 title: Gründe beim Verwerfen
 summary: Sag, warum du den Vorschlag eines Agenten verwirfst — 1 falsch, 2 nicht jetzt, 3 doppelt, 4 schon erledigt — und sieh pro Feld, wie oft er richtig lag.
 image: assets/shots/changelog/agent-trust.webp

@@ -10,6 +10,7 @@ import type { Logger } from '../log.ts'
 import type { Repo, Role } from '../repo.ts'
 import { guardAgentAuthors } from './agent-authors.ts'
 import { guardIntegrations, guardWorkspaceLook } from './workspace-look.ts'
+import { guardWorkspaceAI } from './workspace-ai.ts'
 import { metaName, parseDocName } from './names.ts'
 import { MIN_CLIENT_SCHEMA, outdatedNotice, schemaAccess } from './schema-gate.ts'
 
@@ -114,6 +115,8 @@ export function createCollab(deps: { config: Config; log: Logger; repo: Repo; se
         document.on('destroy', guardWorkspaceLook(document, { workspaceId: doc.workspaceId, log, roleOf: (userId) => repo.memberRole(doc.workspaceId, userId) }))
         // integration profiles: the same (docs/CLOUD.md § Meta document schema → integrations)
         document.on('destroy', guardIntegrations(document, { workspaceId: doc.workspaceId, log, roleOf: (userId) => repo.memberRole(doc.workspaceId, userId) }))
+        // the workspace's AI rules (providers, routes, data rules): the same (docs/CLOUD.md § Meta document schema → workspace.ai)
+        document.on('destroy', guardWorkspaceAI(document, { workspaceId: doc.workspaceId, log, roleOf: (userId) => repo.memberRole(doc.workspaceId, userId) }))
       }
     },
 

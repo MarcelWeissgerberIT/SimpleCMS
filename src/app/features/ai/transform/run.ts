@@ -18,6 +18,7 @@
 import type { JSONContent } from '@tiptap/core'
 import type { Node as PMNode } from '@tiptap/pm/model'
 import { completeStructured } from '../client'
+import type { SourceRef } from '@/shared/ai/types'
 import { blockGist, readBlocks, type BlockRange, type ResolvedBlocks, type SourceBlock } from '../todb/plan'
 import { requestTable, TodbError } from '../todb/run'
 import { requestFreeBoard } from '../freeboard/apply'
@@ -46,11 +47,18 @@ export interface TransformRunRequest {
 }
 
 export interface TransformRunOptions {
+  /** the page the selected blocks are on (the request's sources) */
+  sources: readonly SourceRef[]
   pageTitle?: string
   signal?: AbortSignal
   /** the state so far (Auto's choice, the form being asked) — the preview shows it while the request runs */
   onState?: (state: TransformState) => void
 }
+
+/** What every request of a transform carries along (prompt options + the gate's purpose inputs). */
+type Ask = { pageTitle?: string; instruction?: string; signal?: AbortSignal; sources: readonly SourceRef[] }
+/** The gate's inputs of a transform request (features/ai/core). */
+const gate = (ask: Ask) => ({ purpose: 'structure.transform' as const, sources: ask.sources, typed: ask.instruction })
 
 const clone = (s: TransformState): TransformState => ({ ...s, results: { ...s.results }, opts: { ...s.opts } })
 
@@ -61,7 +69,7 @@ export async function runTransform(doc: PMNode, range: BlockRange, req: Transfor
   const source = readBlocks(doc, range)
   if (!source) throw new TodbError('changed')
   const fits = fitsAt(doc, range)
-  const ask = { pageTitle: opts.pageTitle, instruction: req.instruction, signal: opts.signal }
+  const ask: Ask = { pageTitle: opts.pageTitle, instruction: req.instruction, signal: opts.signal, sources: opts.sources }
 
   let type: TransformType
   if (req.pick === 'auto') {
@@ -72,7 +80,7 @@ export async function runTransform(doc: PMNode, range: BlockRange, req: Transfor
       const allowed = fittingTypes(fits).filter((x) => x !== 'items')
       if (!allowed.length) throw new TransformError('fit')
       const p = classifyPrompt(source.blocks, allowed, ask)
-      const raw = await completeStructured({ system: p.system, prompt: p.prompt, schema: p.schema, maxTokens: 600, signal: opts.signal })
+      const raw = await completeStructured({ ...gate(ask), system: p.system, prompt: p.prompt, schema: p.schema, maxTokens: 600, signal: opts.signal })
       const auto = parseClassification(raw, allowed)
       if (!auto) throw new TransformError('bad')
       state.auto = auto
@@ -91,10 +99,10 @@ export async function runTransform(doc: PMNode, range: BlockRange, req: Transfor
   return state
 }
 
-async function requestResult(doc: PMNode, range: BlockRange, source: ResolvedBlocks, type: TransformType, state: TransformState, ask: { pageTitle?: string; instruction?: string; signal?: AbortSignal }): Promise<TransformResult> {
-  if (type === 'board' || type === 'table') return { type: 'db', table: await requestTable(doc, range, ask) }
+async function requestResult(doc: PMNode, range: BlockRange, source: ResolvedBlocks, type: TransformType, state: TransformState, ask: Ask): Promise<TransformResult> {
+  if (type === 'board' || type === 'table') return { type: 'db', table: await requestTable(doc, range, { ...ask, purpose: 'structure.transform' }) }
   if (type === 'timeline') {
-    const table = await requestTable(doc, range, { ...ask, focus: 'timeline' })
+    const table = await requestTable(doc, range, { ...ask, focus: 'timeline', purpose: 'structure.transform' })
     const date = table.plan.columns.find((c) => c.type === 'date' && table.plan.entries.some((e) => e.values[c.name] !== undefined))
     if (!date) throw new TransformError('nodates')
     return { type: 'db', table: { ...table, draft: { ...table.draft, view: 'timeline', groupBy: null } } }
@@ -111,7 +119,7 @@ async function requestResult(doc: PMNode, range: BlockRange, source: ResolvedBlo
     // the people's names go along with this form only (≤ 200, never an email)
     const names = peopleNamesOf(useWorkspace.getState().people)
     const p = itemsPrompt(source.blocks, names, ask)
-    const raw = await completeStructured({ system: p.system, prompt: p.prompt, schema: p.schema, maxTokens: 12000, signal: ask.signal })
+    const raw = await completeStructured({ ...gate(ask), system: p.system, prompt: p.prompt, schema: p.schema, maxTokens: 12000, signal: ask.signal })
     const got = parseItems(raw, source.blocks)
     if (!got) throw new TransformError('bad')
     if (!got.items.length) throw new TransformError('few')
@@ -120,7 +128,7 @@ async function requestResult(doc: PMNode, range: BlockRange, source: ResolvedBlo
   }
   if (type === 'chart') {
     const p = chartPrompt(source.blocks, ask)
-    const raw = await completeStructured({ system: p.system, prompt: p.prompt, schema: p.schema, maxTokens: 6000, signal: ask.signal })
+    const raw = await completeStructured({ ...gate(ask), system: p.system, prompt: p.prompt, schema: p.schema, maxTokens: 6000, signal: ask.signal })
     const pool = numbersIn(source.blocks.map((b) => b.markdown).join('\n'))
     const got = parseChart(raw, source.blocks, pool)
     if (!got) throw new TransformError('bad')
@@ -129,7 +137,7 @@ async function requestResult(doc: PMNode, range: BlockRange, source: ResolvedBlo
   }
   const of = type as SectionsOf
   const p = sectionsPrompt(source.blocks, of, { ...ask, columns: of === 'columns' ? state.opts.columns : null })
-  const raw = await completeStructured({ system: p.system, prompt: p.prompt, schema: p.schema, maxTokens: 12000, signal: ask.signal })
+  const raw = await completeStructured({ ...gate(ask), system: p.system, prompt: p.prompt, schema: p.schema, maxTokens: 12000, signal: ask.signal })
   const got = parseSections(raw, of, source.blocks)
   if (!got) throw new TransformError('bad')
   if (!got.sections) throw new TransformError('few')
@@ -137,12 +145,12 @@ async function requestResult(doc: PMNode, range: BlockRange, source: ResolvedBlo
 }
 
 /** The diagram: asked, checked by Mermaid's parser, repaired once with the parser's error. */
-async function diagram(blocks: SourceBlock[], state: TransformState, ask: { pageTitle?: string; instruction?: string; signal?: AbortSignal }, base: Pick<ResultSource, 'blocks' | 'gists'>): Promise<TransformResult> {
+async function diagram(blocks: SourceBlock[], state: TransformState, ask: Ask, base: Pick<ResultSource, 'blocks' | 'gists'>): Promise<TransformResult> {
   const want = state.opts.diagram
   let repair: { code: string; error: string } | undefined
   for (let round = 0; round < 2; round++) {
     const p = diagramPrompt(blocks, want, state.opts.direction, { ...ask, repair })
-    const raw = await completeStructured({ system: p.system, prompt: p.prompt, schema: p.schema, maxTokens: 8000, signal: ask.signal })
+    const raw = await completeStructured({ ...gate(ask), system: p.system, prompt: p.prompt, schema: p.schema, maxTokens: 8000, signal: ask.signal })
     const got = parseDiagram(raw, blocks)
     if (!got) throw new TransformError('bad')
     const error = await mermaidError(got.code)

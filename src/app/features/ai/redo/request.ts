@@ -4,6 +4,7 @@
  * guide) and the page context as the page's context marks allow. The answer: one item per passage.
  */
 import { completeStructured } from '../client'
+import type { SourceRef } from '@/shared/ai/types'
 import type { RedoPassage } from './passages'
 
 export const REDO_SYSTEM = `You rewrite marked passages of a page in One, a local-first notes app, following the user's instructions.
@@ -57,10 +58,10 @@ export function buildRedoPrompt({ passages, instructions, rules, context }: Redo
 }
 
 /** Ask Claude; resolves with the rewritten Markdown per passage number (passages it left out are missing). */
-export async function requestRedo(p: RedoPrompt, signal?: AbortSignal): Promise<Map<number, string>> {
+export async function requestRedo(p: RedoPrompt, signal: AbortSignal | undefined, sources: readonly SourceRef[]): Promise<Map<number, string>> {
   const sent = p.passages.filter((x) => !x.skip)
   const size = sent.reduce((n, x) => n + x.markdown.length, 0)
-  const raw = await completeStructured({ system: REDO_SYSTEM, prompt: buildRedoPrompt(p), schema: REDO_SCHEMA, maxTokens: Math.min(32000, 4000 + Math.ceil(size / 2)), signal, mcp: false })
+  const raw = await completeStructured({ purpose: 'structure.redo', sources, typed: p.instructions, system: REDO_SYSTEM, prompt: buildRedoPrompt(p), schema: REDO_SCHEMA, maxTokens: Math.min(32000, 4000 + Math.ceil(size / 2)), signal, mcp: false })
   const out = new Map<number, string>()
   try {
     const items = (JSON.parse(raw) as { items?: unknown }).items

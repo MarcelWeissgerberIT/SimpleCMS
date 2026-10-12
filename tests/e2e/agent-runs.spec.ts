@@ -269,7 +269,9 @@ test.describe('Custom agents: money in the UI’s language', () => {
     const run = page.locator('.agx-run').first()
     await expect(run).toHaveAttribute('data-status', 'ok', { timeout: 20_000 })
     await expect(run.getByTestId('agx-run-usd')).toHaveText(/^(< )?0,\d\d\s\$$/)
-    await expect(run.locator('.agx-run__usage')).toContainText(/≈ (< )?0,\d\d\s\$$/)
+    // priced by the table: no "≈" (that marks an estimate)
+    await expect(run.locator('.agx-run__usage')).toContainText(/· (< )?0,\d\d\s\$$/)
+    await expect(run.locator('.agx-run__usage')).not.toContainText('≈')
 
     // the list: the cost of the last runs
     await page.evaluate(() => (window.location.hash = '#/agents'))

@@ -9,6 +9,8 @@ import { inTemplate, isEffectivelyTrashed } from '../../store/selectors'
 import type { Database, ID, Page } from '../../store/types'
 import { propertyValueToText } from '../../database'
 import { WORKSPACE_SYSTEM, streamCompletion, streamDemoText, usesDemo } from './client'
+import { precheck } from './core/gate'
+import type { SourceRef } from '@/shared/ai/types'
 import { demoWorkspaceAnswer } from './demo'
 
 export interface WorkspaceSource {
@@ -111,13 +113,18 @@ export async function askWorkspace(opts: {
   /** what may be read of one page (its context marks): text = the readable part, null = leave the page out */
   limit?: { id: ID; text: string | null } | null
 }): Promise<{ text: string; sources: WorkspaceSource[] }> {
+  // the gate first (newer AI rules, a key typed into the question …): nothing is retrieved or recorded when it refuses
+  precheck({ purpose: 'workspace.ask', sources: [{ all: true }], typed: opts.question })
   const lim = opts.limit
   const docs = lim ? workspaceDocs().flatMap((d) => (d.id !== lim.id ? [d] : lim.text === null ? [] : [{ ...d, text: lim.text }])) : workspaceDocs()
   const hits = retrieve(opts.question, docs)
   const sources = hits.map((d) => ({ id: d.id, title: d.title }))
   opts.onSources?.(sources)
+  // what goes out: the workspace as a whole — the pages retrieval picked (core/sources.ts)
+  const refs: SourceRef[] = [{ all: true }, ...hits.map((d) => ({ page: d.id }))]
   if (usesDemo()) {
-    // demo (no key): answer from the retrieved pages themselves, with real citations
+    // demo (no key): answer from the retrieved pages themselves, with real citations — local, never sent (the gate
+    // decided above)
     const lang = useWorkspace.getState().settings.language === 'de' ? 'de' : 'en'
     const text = await streamDemoText(demoWorkspaceAnswer(opts.question, hits, keywords(opts.question), lang), opts.onToken, opts.signal)
     return { text: text.trim(), sources }
@@ -125,7 +132,7 @@ export async function askWorkspace(opts: {
   const excerpts = hits.map((d) => `<page title="${d.title.replace(/"/g, "'")}">\n${d.text.slice(0, 5000)}\n</page>`).join('\n\n')
   const today = new Date().toISOString().slice(0, 10)
   const prompt = `${excerpts || '<no matching pages />'}\n\nToday is ${today}.\nQuestion: ${opts.question.trim()}`
-  const text = await streamCompletion({ system: WORKSPACE_SYSTEM, prompt, onToken: opts.onToken, signal: opts.signal })
+  const text = await streamCompletion({ purpose: 'workspace.ask', sources: refs, typed: opts.question, system: WORKSPACE_SYSTEM, prompt, onToken: opts.onToken, signal: opts.signal })
   return { text: text.trim(), sources }
 }
 

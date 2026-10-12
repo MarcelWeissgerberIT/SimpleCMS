@@ -91,6 +91,8 @@ export interface Job {
   recent: ID[]
   /** a failure that stopped the whole run (no / invalid key …) */
   fatal?: string
+  /** its error code ('reload': the toast offers Reload instead of Settings) */
+  fatalCode?: string
   /** the written values were rolled back */
   undone?: boolean
 }
@@ -114,7 +116,8 @@ export const jobKey = (dbId: ID, propId: ID) => `${dbId}:${propId}`
 export const cellKey = (propId: ID, rowId: ID) => `${propId}:${rowId}`
 
 const CONCURRENCY = 3
-const FATAL = new Set(['no_key', 'invalid_key', 'permission'])
+// a run stops at these: every further row would fail the same way (reload / off: nothing was sent)
+const FATAL = new Set(['no_key', 'invalid_key', 'permission', 'reload', 'off'])
 const controllers = new Map<string, AbortController>()
 
 function patchJob(key: string, fn: (j: Job) => Partial<Job>) {
@@ -184,7 +187,7 @@ const errCode = (e: unknown): string | undefined => (e && typeof e === 'object' 
  * Ask Claude for one cell and validate the answer. Never writes. Throws only when aborted;
  * every other failure becomes a proposal with status 'error' (`fatal` when the run should stop).
  */
-export async function fillRow(dbId: ID, propId: ID, rowId: ID, signal: AbortSignal): Promise<(Proposal & { fatal?: boolean }) | null> {
+export async function fillRow(dbId: ID, propId: ID, rowId: ID, signal: AbortSignal): Promise<(Proposal & { fatal?: string }) | null> {
   const found = lookup(dbId, propId)
   const row = useWorkspace.getState().pages[rowId]
   if (!found || !row || row.trashed || row.databaseId !== dbId) return null
@@ -193,7 +196,7 @@ export async function fillRow(dbId: ID, propId: ID, rowId: ID, signal: AbortSign
   const base = { rowId, title: row.title, current: row.properties[prop.id] ?? null, hash }
   try {
     const api = await loadFeatures()
-    const answer = await api.requestAutofill(request, signal)
+    const answer = await api.requestAutofill(request, signal, rowId, { dbId, propId })
     if (!answer.ok) return { ...base, status: 'error', error: t('database.autofill.err.json') }
     const c = coerceAnswer(prop, cfg, answer.value)
     if (!c.ok) return { ...base, status: 'error', error: c.error }
@@ -202,7 +205,7 @@ export async function fillRow(dbId: ID, propId: ID, rowId: ID, signal: AbortSign
     const code = errCode(e)
     if (signal.aborted || code === 'aborted') throw e
     const message = e instanceof Error ? e.message : String(e)
-    return { ...base, status: 'error', error: message, fatal: !!code && FATAL.has(code) }
+    return { ...base, status: 'error', error: message, fatal: code && FATAL.has(code) ? code : undefined }
   }
 }
 
@@ -312,7 +315,7 @@ export async function startFill(dbId: ID, propId: ID, mode: RunMode, only?: ID[]
       const row = rows[next++]
       const ck = cellKey(propId, row.id)
       setCells({ [ck]: { state: 'running' } })
-      let p: (Proposal & { fatal?: boolean }) | null
+      let p: (Proposal & { fatal?: string }) | null
       try {
         p = await fillRow(dbId, propId, row.id, ac.signal)
       } catch {
@@ -327,7 +330,7 @@ export async function startFill(dbId: ID, propId: ID, mode: RunMode, only?: ID[]
       const { fatal, ...proposal } = p
       if (fatal) {
         ac.abort()
-        patchJob(key, () => ({ fatal: proposal.error }))
+        patchJob(key, () => ({ fatal: proposal.error, fatalCode: fatal }))
       }
       if (!review && proposal.status === 'pending') {
         const prev = writeProposal(dbId, propId, proposal, writer)
@@ -359,7 +362,8 @@ function finishRun(key: string) {
   const panelOpen = panel?.dbId === j.dbId && panel.propId === j.propId
   const name = propName(j.dbId, j.propId)
   const toast = useUI.getState().toast
-  if (j.fatal && !panelOpen) toast({ message: j.fatal, kind: 'error', action: { label: t('database.autofill.toast.settings'), run: openAISettings } })
+  if (j.fatal && !panelOpen)
+    toast({ message: j.fatal, kind: 'error', action: j.fatalCode === 'reload' ? { label: t('features.ai.reload'), run: () => window.location.reload() } : { label: t('database.autofill.toast.settings'), run: openAISettings } })
   if (j.review && pending) {
     patchJob(key, () => ({ phase: 'review' }))
     if (panelOpen) return

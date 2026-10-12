@@ -4,6 +4,8 @@
  */
 import { useWorkspace } from '../../../store/store'
 import { stripFence } from '../client'
+import { precheck } from '../core/gate'
+import type { SourceRef } from '@/shared/ai/types'
 import { loadImageForClaude, type ImageMeta } from './load'
 import { isStructured, requestImage, type ImageAction } from './request'
 
@@ -28,13 +30,17 @@ export interface ImageRunRequest {
 export async function runImageRequest(
   req: ImageRunRequest,
   context: string,
-  opts: { onToken?: (delta: string) => void; signal: AbortSignal; onImage?: (meta: ImageMeta) => void },
+  opts: { sources: readonly SourceRef[]; onToken?: (delta: string) => void; signal: AbortSignal; onImage?: (meta: ImageMeta) => void },
 ): Promise<string> {
+  const gate = { purpose: 'vision.image' as const, sources: opts.sources, typed: [req.question, req.instruction] }
+  // the gate first: a refused request never loads the picture
+  precheck(gate)
   const image = await loadImageForClaude(req.src, opts.signal)
   const { data: _data, ...meta } = image
   opts.onImage?.(meta)
   const lang = useWorkspace.getState().settings.language === 'de' ? 'de' : 'en'
   const text = await requestImage({
+    ...gate,
     action: req.action,
     question: req.question,
     instruction: req.instruction,

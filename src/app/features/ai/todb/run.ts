@@ -23,6 +23,7 @@ import type { ID } from '../../../store/types'
 import { t } from '../../../i18n'
 import { snapshotNow } from '../../history/snapshots'
 import { completeStructured } from '../client'
+import type { SourceRef } from '@/shared/ai/types'
 import { blockGist, buildDatabase, buildTodbPrompt, initialDraft, parseTodbAnswer, placementOf, rangeNodes, readBlocks, type BlockRange, type RangeNodes, type TableDraft, type TablePlan, type TodbFocus } from './plan'
 import { withWriter, type Writer } from '../../../store/writer'
 import { newId } from '../../../lib/ids'
@@ -48,11 +49,15 @@ export interface TableAnswer {
 }
 
 /** Ask Claude for the table. Throws AIError (client.ts: no key, offline, aborted …) or TodbError. */
-export async function requestTable(doc: PMNode, range: BlockRange, opts: { pageTitle?: string; instruction?: string; signal?: AbortSignal; focus?: TodbFocus }): Promise<TableAnswer> {
+export async function requestTable(
+  doc: PMNode,
+  range: BlockRange,
+  opts: { pageTitle?: string; instruction?: string; signal?: AbortSignal; focus?: TodbFocus; sources: readonly SourceRef[]; purpose?: 'structure.todb' | 'structure.transform' },
+): Promise<TableAnswer> {
   const source = readBlocks(doc, range)
   if (!source) throw new TodbError('changed')
   const { system, prompt, schema } = buildTodbPrompt(source.blocks, opts)
-  const raw = await completeStructured({ system, prompt, schema, maxTokens: 16000, signal: opts.signal, mcp: false })
+  const raw = await completeStructured({ purpose: opts.purpose ?? 'structure.todb', sources: opts.sources, typed: opts.instruction, system, prompt, schema, maxTokens: 16000, signal: opts.signal, mcp: false })
   const plan = parseTodbAnswer(raw, source.blocks)
   if (!plan) throw new TodbError('bad')
   if (!plan.entries.length) throw new TodbError('none')

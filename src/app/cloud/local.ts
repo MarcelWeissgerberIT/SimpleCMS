@@ -13,7 +13,7 @@
  *                         server document still has to go
  * All in one IndexedDB database ('one-cloud'), separate from the local workspace.
  */
-import { createStore, del, delMany, entries, get, promisifyRequest, set, type UseStore } from 'idb-keyval'
+import { createStore, del, delMany, entries, get, promisifyRequest, set, update, type UseStore } from 'idb-keyval'
 import type { JSONContent } from '@tiptap/core'
 import type { ID, Settings } from '../store/types'
 import { noteCopyWrite } from '../store/storageHealth'
@@ -47,6 +47,31 @@ export async function loadOverlay(wsId: string): Promise<Overlay | null> {
 export async function saveOverlay(wsId: string, o: Overlay): Promise<void> {
   const s = db()
   if (s) await set(`overlay:${wsId}`, o, s)
+}
+
+/**
+ * Write this tab's overlay in one transaction. Settings: only the keys this tab changed (`mine`) go over the stored
+ * ones — another tab of the same workspace on this device may have changed others (an AI key, the device's AI rules)
+ * since this tab read them; 'all' (nothing stored yet) writes this tab's whole settings.
+ */
+export async function writeOverlay(wsId: string, o: Overlay, mine: ReadonlyArray<keyof Settings>): Promise<void> {
+  const s = db()
+  if (!s) return
+  await update<Overlay>(
+    `overlay:${wsId}`,
+    (cur) => {
+      const stored = cur && typeof cur === 'object' && cur.settings && typeof cur.settings === 'object' ? cur.settings : null
+      if (!stored || !o.settings) return o
+      const settings = { ...stored } as Record<string, unknown>
+      const next = o.settings as unknown as Record<string, unknown>
+      for (const k of mine) {
+        if (next[k] === undefined) delete settings[k]
+        else settings[k] = next[k]
+      }
+      return { ...o, settings: settings as unknown as Settings }
+    },
+    s,
+  )
 }
 
 export interface CachedContent {

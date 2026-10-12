@@ -11,7 +11,11 @@ import type { Database, ID, IntegrationProfile, Page, PropertyDef, SendRoute } f
 import { propertyValueToText } from '../../database'
 import { localized } from '../../store/integrations'
 import { readableContent } from '../../editor'
-import { completeStructured, resolveModel, AIError } from '../ai/client'
+import { completeStructured, AIError } from '../ai/client'
+import { chosenRoute, shortOf } from '../ai/core/status'
+import { estimate } from '../governor'
+import type { SourceRef as AISourceRef } from '@/shared/ai/types'
+import { memoryRef } from '../ai/core/refs'
 import { memoryFor, noteUse } from '../ai/memory'
 import { recipeOptionNames, recipeRoleNames } from '../agents'
 import { currentLang, t } from '../../i18n'
@@ -48,6 +52,8 @@ interface Built {
   system: string
   prompt: string
   sources: SourceRef[]
+  /** what the request carries, for the AI gate: the row and the pages the person named */
+  refs: AISourceRef[]
   max: number
   /** the row as this request reads it — the slip's baseline (a comment arriving while Claude drafts lights CHANGED) */
   baseline: NonNullable<Slip['baseline']>
@@ -104,16 +110,18 @@ export function buildDraft(route: SendRoute, rowId: ID, profile: Pick<Integratio
     sources.push(f)
   }
   // pages the person named
+  const named: AISourceRef[] = []
   for (const id of [...new Set(mentions)].slice(0, PAGES_MAX)) {
     const p = s.pages[id]
     if (!p || p.trashed) continue
+    named.push({ page: id })
     const md = readableContent(id).markdown.slice(0, PAGE_MAX)
     const trust = pageTrust(id)
     const title = p.title.trim() || t('common.untitled')
     parts.push(trust.trusted ? `<page title="${attr(title)}" id="${id}">\n${esc(md)}\n</page>` : `<untrusted source="${attr(title)}">\n${esc(md)}\n</untrusted>`)
     sources.push(sourceRef({ kind: 'page', ref: id, label: title, text: md }, { trusted: trust.trusted }))
   }
-  return { system, prompt: parts.join('\n\n'), sources, max, baseline: baselineOf(read) }
+  return { system, prompt: parts.join('\n\n'), sources, refs: [{ row: rowId }, ...named], max, baseline: baselineOf(read) }
 }
 
 function readValue(_dbId: ID, propId: string, rowId: ID): string {
@@ -134,13 +142,16 @@ async function ask(built: Built, instruction: string, signal?: AbortSignal): Pro
   const memory = memoryFor(instruction || built.prompt.slice(0, 400))
   let usd = 0
   const raw = await completeStructured({
+    purpose: 'outbox.draft',
+    sources: [...built.refs, ...memoryRef(memory.block)],
+    typed: instruction,
     system: built.system,
     prompt: memory.block ? `${built.prompt}\n\n${memory.block}` : built.prompt,
     schema: SCHEMA,
     maxTokens: Math.min(8000, Math.ceil(built.max / 2) + 400),
     signal,
     mcp: false,
-    onUsage: (u) => (usd += u.usd),
+    onUsage: (u) => (usd += u.usd ?? 0),
   })
   let text: string
   try {
@@ -230,8 +241,8 @@ export function estimateDraft(route: RouteRef, rowId: ID, instruction: string, m
   if ('refused' in r) return null
   const built = buildDraft(r.route, rowId, r.profile, instruction, mentions, r.server.name)
   if (!built) return null
-  const m = resolveModel(useWorkspace.getState().settings.aiModel)
-  const input = Math.ceil((built.system.length + built.prompt.length) / 4)
+  const ai = chosenRoute()
   const output = Math.min(2000, Math.ceil(built.max / 8) + 200)
-  return { model: m.short, usd: (input * m.price.input + output * m.price.output) / 1_000_000 }
+  const band = estimate(ai, { promptChars: built.system.length + built.prompt.length, outTokens: output, maxTokens: output })
+  return { model: shortOf(ai), usd: band?.low ?? 0 }
 }

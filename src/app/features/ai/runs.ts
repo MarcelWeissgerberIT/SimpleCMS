@@ -26,6 +26,10 @@ import { openPage } from '../../lib/router'
 import { newId } from '../../lib/ids'
 import { t } from '../../i18n'
 import { AIError, runAI, stripFence, type AIAction, type AIErrorCode } from './client'
+import { pageRef } from './core/refs'
+import { addToReceipt, tapSignal, type Receipt } from './core/meter'
+import type { CostSource, LedgerEntry, ProviderId, StepNote, Usage } from '@/shared/ai/types'
+import { scrubSecrets } from '@/shared/ai/keys'
 import { askWorkspace, type WorkspaceSource } from './workspace'
 import type { McpCall } from './mcp-servers/activity'
 import { mapTarget, reanchor, type RunTarget } from './runsTarget'
@@ -127,6 +131,32 @@ export interface AIRun {
   media?: MediaItem[] | null
   /** "Make tasks": how many people's names went along (`<people>`) — the result strip says so */
   peopleSent?: number | null
+  /*
+   * The receipt (features/ai/core/meter.ts): what the run's requests cost, summed over every response it got — the
+   * requested route ('p:m'), the model that answered last, the usage, the price (null: a response had none) and how it
+   * was priced, the steps on the way (a refusal fallback), how many responses. Absent: from before receipts (unknown).
+   */
+  route?: string
+  served?: { p: ProviderId; model: string }
+  usage?: Usage
+  usd?: number | null
+  costSource?: CostSource
+  steps?: StepNote[]
+  requests?: number
+}
+
+/** A run's receipt (null: none — no response yet, or a run from before receipts). */
+export function receiptOf(run: AIRun): Receipt | null {
+  if (!run.route || !run.served || !run.usage || run.usd === undefined || !run.costSource) return null
+  return { route: run.route, served: run.served, usage: run.usage, usd: run.usd, costSource: run.costSource, steps: run.steps ?? [], requests: run.requests ?? 1 }
+}
+
+/** One more response of a run: its receipt grows (kept with the run on this device). */
+function noteEntry(id: string, e: LedgerEntry) {
+  const run = S().runs[id]
+  if (!run) return
+  const r = addToReceipt(receiptOf(run), e)
+  patch(id, { route: r.route, served: r.served, usage: r.usage, usd: r.usd, costSource: r.costSource, steps: r.steps, requests: r.requests })
 }
 
 interface RunsState {
@@ -335,6 +365,8 @@ async function execute(id: string, editor: Editor) {
   const ac = new AbortController()
   controllers.set(id, ac)
   buffers.set(id, '')
+  // every request of this run is named 'ai:<run>:<what>' in the ledger (features/governor)
+  const untap = tapSignal(ac.signal, { source: `ai:${id}:${runWhat(run.req)}`, onEntry: (e) => noteEntry(id, e) })
   const onToken = (delta: string) => {
     buffers.set(id, (buffers.get(id) ?? '') + delta)
     raf ||= requestAnimationFrame(flushTokens)
@@ -349,7 +381,7 @@ async function execute(id: string, editor: Editor) {
       patch(id, { reads: { mode: 'none', selection: true, blocks: 0, words: countWords(target.selected) } })
       if (!target.todb || editor.isDestroyed) throw new TodbError('changed')
       const title = useWorkspace.getState().pages[run.pageId]?.title ?? ''
-      const res = await requestTable(editor.state.doc, target.todb, { pageTitle: title, instruction: req.instruction, signal: ac.signal })
+      const res = await requestTable(editor.state.doc, target.todb, { pageTitle: title, instruction: req.instruction, signal: ac.signal, sources: pageRef(run.pageId) })
       if (ac.signal.aborted) return
       patch(id, { status: 'done', table: res, finishedAt: Date.now() })
     } else if (req.kind === 'transform') {
@@ -358,6 +390,7 @@ async function execute(id: string, editor: Editor) {
       if (!target.range || editor.isDestroyed) throw new TodbError('changed')
       const title = useWorkspace.getState().pages[run.pageId]?.title ?? ''
       const state = await runTransform(editor.state.doc, target.range, req, run.transform, {
+        sources: pageRef(run.pageId),
         pageTitle: title,
         signal: ac.signal,
         onState: (transform) => !ac.signal.aborted && patch(id, { transform }),
@@ -369,7 +402,7 @@ async function execute(id: string, editor: Editor) {
       const sent = req.passages.filter((p) => !p.skip)
       const words = sent.reduce((n, p) => n + countWords(p.anchor), 0)
       patch(id, { reads: { ...pr.reads, passages: sent.length, words: pr.reads.words + (pr.reads.mode === 'page' ? 0 : words) } })
-      const answer = sent.length ? await requestRedo({ passages: req.passages, instructions: req.instructions, rules: rulesOf(req.rulesPageId), context: pr.context }, ac.signal) : new Map<number, string>()
+      const answer = sent.length ? await requestRedo({ passages: req.passages, instructions: req.instructions, rules: rulesOf(req.rulesPageId), context: pr.context }, ac.signal, [...pageRef(run.pageId), ...pageRef(req.rulesPageId)]) : new Map<number, string>()
       if (ac.signal.aborted) return
       const items: RedoItem[] = req.passages.map((p) => ({ n: p.n, after: p.skip ? null : (answer.get(p.n) ?? null), decision: null }))
       patch(id, { status: 'done', redo: { items }, finishedAt: Date.now() })
@@ -377,14 +410,14 @@ async function execute(id: string, editor: Editor) {
       // reads what it is given (the selection / the request) — the page only for its title and link
       patch(id, { reads: { mode: 'none', selection: req.from === 'selection', blocks: 0, words: countWords(req.text) } })
       const title = useWorkspace.getState().pages[run.pageId]?.title.trim() ?? ''
-      const proposals = await condense({ text: req.text, from: req.from, pageTitle: title, source: pageSource(run.pageId), signal: ac.signal })
+      const proposals = await condense({ text: req.text, from: req.from, pageTitle: title, source: pageSource(run.pageId), signal: ac.signal, sources: pageRef(run.pageId) })
       if (ac.signal.aborted) return
       patch(id, { status: 'done', proposals, finishedAt: Date.now() })
     } else if (req.kind === 'image') {
       // the picture + the page as its context marks allow
       const pr = pageRead(run.pageId, null)
       patch(id, { reads: pr.reads })
-      const text = await runImageRequest(req, pr.context, { onToken, signal: ac.signal, onImage: (image) => !ac.signal.aborted && patch(id, { image }) })
+      const text = await runImageRequest(req, pr.context, { sources: pageRef(run.pageId), onToken, signal: ac.signal, onImage: (image) => !ac.signal.aborted && patch(id, { image }) })
       if (ac.signal.aborted) return
       buffers.delete(id)
       patch(id, { status: 'done', output: text, finishedAt: Date.now() })
@@ -393,6 +426,7 @@ async function execute(id: string, editor: Editor) {
       const pr = req.context ? pageRead(run.pageId, null) : null
       patch(id, { reads: pr ? pr.reads : { mode: 'none', selection: false, blocks: 0, words: 0 } })
       const text = await runGenerate(req, pr?.context ?? '', {
+        sources: pageRef(run.pageId),
         onToken,
         signal: ac.signal,
         onMcp: (calls) => !ac.signal.aborted && patch(id, { mcpCalls: calls }, false),
@@ -405,7 +439,7 @@ async function execute(id: string, editor: Editor) {
       // the file + the page as its context marks allow — a local conversion reads (and sends) nothing
       const pr = isLocalAction(req.action) ? null : pageRead(run.pageId, null)
       if (pr) patch(id, { reads: pr.reads })
-      const text = await runFileRequest(req, pr?.context ?? '', { onToken, signal: ac.signal, onFile: (file) => !ac.signal.aborted && patch(id, { file }) })
+      const text = await runFileRequest(req, pr?.context ?? '', { sources: pageRef(run.pageId), onToken, signal: ac.signal, onFile: (file) => !ac.signal.aborted && patch(id, { file }) })
       if (ac.signal.aborted) return
       buffers.delete(id)
       patch(id, { status: 'done', output: text, finishedAt: Date.now() })
@@ -425,6 +459,9 @@ async function execute(id: string, editor: Editor) {
         patch(id, { reads: read.reads, ...(mem?.use ? { memory: mem.use } : {}), ...(people ? { peopleSent: people.length } : {}) })
         text = await runAI({
           action: req.action,
+          purpose: req.action === 'custom' ? 'menu.ask' : req.action === 'make_tasks' ? 'menu.tasks' : 'menu.action',
+          sources: pageRef(run.pageId),
+          typed: req.instruction,
           input: read.input,
           instruction: req.instruction,
           context: read.context,
@@ -455,14 +492,19 @@ async function execute(id: string, editor: Editor) {
     if (err.code === 'aborted') return
     patch(id, { status: 'error', output: partial, error: { code: err.code, detail: err.detail, server: err.server }, finishedAt: Date.now() })
   } finally {
+    untap()
     if (controllers.get(id) === ac) controllers.delete(id)
-    if (memLog) {
+    // a request refused for a key in its text was never sent: no row in the memory log (the key would be its name)
+    if (memLog && S().runs[id]?.error?.code !== 'key_in_text') {
       const done = S().runs[id]?.status === 'done'
       const result = done ? t('features.memory.result.answer') : t(ac.signal.aborted ? 'features.memory.result.stopped' : 'features.memory.result.failed')
       noteUse(outcome || S().runs[id]?.output || '', memLog.use, { task: memLog.task, where: { kind: 'menu' }, pageId: run.pageId, result })
     }
   }
 }
+
+/** What a run does, for its ledger source: the action ('improve' …), 'image.describe', 'file.summarize', 'transform' … */
+const runWhat = (req: RunRequest): string => (req.kind === 'action' ? req.action : req.kind === 'image' || req.kind === 'file' ? `${req.kind}.${req.action}` : req.kind)
 
 /**
  * The workspace's people as "Make tasks" sends them (team: members are mirrored there): ≤ 200 names, each once, never an
@@ -634,6 +676,10 @@ const kv = () => (db ??= createStore('one-ai-runs', 'runs'))
 const diskKey = (run: Pick<AIRun, 'scope' | 'id'>) => `${run.scope}|${run.id}`
 const timers = new Map<string, number>()
 
+/** A stored run with every key-shaped part of its text replaced (src/shared/ai/keys.ts). */
+const scrubbed = (v: unknown): unknown =>
+  typeof v === 'string' ? scrubSecrets(v) : Array.isArray(v) ? v.map(scrubbed) : v && typeof v === 'object' ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, scrubbed(x)])) : v
+
 function persist(id: string) {
   window.clearTimeout(timers.get(id))
   timers.set(
@@ -644,7 +690,8 @@ function persist(id: string) {
       if (!run) return
       // a run in flight is saved without the text so far: after a reload it is 'interrupted' anyway
       const out = run.status === 'running' ? { ...run, output: '' } : run
-      void idbSet(diskKey(run), JSON.parse(JSON.stringify(out)), kv()).catch(() => {})
+      // a key typed into a request (the gate refused it, nothing was sent) never reaches the disk
+      void idbSet(diskKey(run), scrubbed(JSON.parse(JSON.stringify(out))), kv()).catch(() => {})
     }, 250),
   )
 }

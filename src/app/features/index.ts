@@ -37,6 +37,8 @@ export { AutomationsModal } from './automations/AutomationsModal'
 export { isAIConfigured, runAI, type AIAction, type RunAIOptions } from './ai/client'
 /* one streamed completion with your own system prompt (help/ask.ts: "Ask the help", mcp: false = no MCP server) */
 export { streamCompletion, type StreamOptions } from './ai/client'
+// the AI core (multi-provider): status before a request, purposes and the sources a call names
+export { aiStatus, type AIStatus, type PurposeId, type SourceRef, type DataClass, type FeatureClass, type Route, type RouteRule, type ProviderId } from './ai/core'
 /** Claude's Markdown → a safe document: web images / media / frames as links (addresses a page shows already stay). */
 export { webImagesOf } from './agents/images'
 export { claudeDoc } from './ai/claudeDoc'
@@ -135,7 +137,7 @@ export { openAgent, closeAgent, toggleAgent } from './ai/agent/state'
 export { AgentStatusCell } from './ai/agent/StatusCell'
 /*
  * AI autofill for database properties (the database area loads this lazily and owns the UI):
- *  - requestAutofill(req, signal): one row → Claude (structured output) → raw `value`
+ *  - requestAutofill(req, signal, rowId?, { dbId, propId }?): one row → Claude (structured output) → raw `value`
  *  - estimateAutofill(): rough token/cost estimate for a run · buildAutofillPrompt(): prompt + schema
  */
 export {

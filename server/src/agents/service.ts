@@ -18,6 +18,7 @@ import * as Y from 'yjs'
 import { metaName, parseDocName } from '../collab/names.ts'
 import { type Roots, liveDatabase, livePage, readProperties, roots } from '../api/meta.ts'
 import type { WorkspaceModel } from '../api/model.ts'
+import { runsOnClaude } from '../../../src/shared/ai/route.ts'
 import type { Services } from '../context.ts'
 import { ApiError } from '../errors.ts'
 import { McpReads } from '../mcp/reads.ts'
@@ -366,6 +367,9 @@ export class AgentService {
     if (!rt.runtime.claudeKey) return skip('The server runtime has no Claude key.')
     const agent = await this.agent(job.wsId, job.agentId)
     if (!agent || agent.runner !== 'server') return skip('The agent no longer exists or does not run on the server.')
+    // multi-provider: this server runs Claude only — an agent whose first pin is another provider, or whose route fields
+    // it cannot read, waits for a newer one (never on a route nobody chose)
+    if (!runsOnClaude(agent)) return skip('This agent needs a newer server: its route is not Claude, or one this server cannot read.')
     if (!agent.enabled && job.trigger.type !== 'manual') return skip('The agent is switched off.')
     const task = await this.taskMessage(job, agent, run.id)
     // what the workspace's integration profiles unlock for the runtime's MCP servers (by name / host), and the send

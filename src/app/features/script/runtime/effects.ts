@@ -80,7 +80,8 @@ const SCRIPT_SYSTEM =
 const defaultClaude: EffectImpl<'claude'> = async (input, env) => {
   const { streamCompletion } = await import('../../ai/client')
   const prompt = input.context ? `${input.prompt}\n\n<context>\n${input.context}\n</context>` : input.prompt
-  return (await streamCompletion({ system: SCRIPT_SYSTEM, prompt, signal: env.signal, mcp: false })).trim()
+  // the context a script hands in can be anything it read (until runs record their reads: the workspace as a whole)
+  return (await streamCompletion({ purpose: 'scripts.effect', sources: [{ all: true }], typed: input.prompt, system: SCRIPT_SYSTEM, prompt, signal: env.signal, mcp: false })).trim()
 }
 
 const defaultHttp: EffectImpl<'http.post'> = async (input, env) => {

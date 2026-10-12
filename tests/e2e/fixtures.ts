@@ -10,8 +10,10 @@
  */
 import { test as base, expect, type BrowserContext, type Locator, type Page } from '@playwright/test'
 import type { JSONContent } from '@tiptap/core'
+import { makeAiNet, type AiNet } from './helpers/aiNet'
 
 export { expect }
+export type { AiNet }
 
 /* ------------------------------------------------------------------ */
 /* Browser error watch                                                 */
@@ -49,7 +51,23 @@ function makeErrorLog(): ErrorLog {
   }
 }
 
-export const test = base.extend<{ errors: ErrorLog }>({
+export const test = base.extend<{ errors: ErrorLog; aiNet: AiNet }>({
+  /**
+   * No real AI host, ever (helpers/aiNet.ts): api.anthropic.com, api.openai.com and openrouter.ai are routed first in
+   * every context of the test, so a spec's own mock wins; a request no mock answered is aborted and fails the test
+   * softly unless the spec called aiNet.allowUnmocked().
+   */
+  aiNet: [
+    async ({ browser, context }, use) => {
+      const net = makeAiNet()
+      await net.watch(context)
+      const unhook = net.hook(browser)
+      await use(net)
+      unhook()
+      if (!net.allowed()) expect.soft(net.unmocked, 'requests to AI hosts no mock answered (aborted — never sent)').toEqual([])
+    },
+    { auto: true },
+  ],
   errors: [
     async ({ page }, use) => {
       const log = makeErrorLog()

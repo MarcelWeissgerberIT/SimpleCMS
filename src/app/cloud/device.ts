@@ -22,6 +22,8 @@
  *                                       one.preflight.lastScope entry); the device-wide one.preflight.prefs stays
  *   one-preflight / kv                  Preflight's Bordbuch and opened cards of each member here
  *                                       (cloud:<id>:u:<user>|log|<day>, cloud:<id>:u:<user>|opened)
+ *   one-ledger / kv                     the AI ledger (one entry per response) of each member here
+ *                                       (cloud:<id>:u:<user>|<day>|<entry>, features/governor)
  * The team workspace on the server is never touched, nor is the local workspace or anything it uses
  * (a local workspace copied into a team keeps its page and file ids, so those are checked).
  *
@@ -353,6 +355,15 @@ async function forget(flag: string[]): Promise<void> {
       return !!m && targets.has(m[1])
     })
     if (pfKeys.length) await delMany(pfKeys, store).catch(() => {})
+  }
+  // the AI ledger of each member here (features/governor/ledger.ts): keys "cloud:<ws>:u:<account>|<day>|<entry>"
+  if (!dbNames || dbNames.includes('one-ledger')) {
+    const store = createStore('one-ledger', 'kv')
+    const ledgerKeys = (await keys(store).catch(() => [] as IDBValidKey[])).filter((k) => {
+      const m = /^cloud:([^|:]+)(?::u:[^|]+)?\|/.exec(String(k))
+      return !!m && targets.has(m[1])
+    })
+    if (ledgerKeys.length) await delMany(ledgerKeys, store).catch(() => {})
   }
   // coding pipeline of this device (features/coding/local.ts): logs, run states, trusted task versions — keys "cloud:<ws>|…"
   if (!dbNames || dbNames.includes('one-coding')) {

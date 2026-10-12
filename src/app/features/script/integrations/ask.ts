@@ -62,11 +62,12 @@ export async function draftWithClaude(input: { task: string; kind: 'script' | 'q
   const { streamCompletion } = await import('../../ai/client')
   const current = input.code.trim() ? `\n\nThe ${input.kind} so far (change it as asked, or replace it):\n\`\`\`one\n${input.code.trim()}\n\`\`\`` : ''
   const base = `${workspaceSketch()}${current}\n\nRequest: ${input.task.trim()}`
-  let answer = await streamCompletion({ system: SYSTEM(input.kind), prompt: base, signal: input.signal, mcp: false })
+  // the names of databases and fields (workspaceSketch) and the person's request — no page
+  let answer = await streamCompletion({ purpose: 'scripts.draft', sources: [], typed: input.task, system: SYSTEM(input.kind), prompt: base, signal: input.signal, mcp: false })
   let code = codeOf(answer)
   let error = await syntaxErrorText(code)
   if (!error) return { code, error: null }
-  answer = await streamCompletion({ system: SYSTEM(input.kind), prompt: `${base}\n\nYour previous answer did not parse:\n\`\`\`one\n${code.trim()}\n\`\`\`\nParser: ${error}\nAnswer again with corrected code only.`, signal: input.signal, mcp: false })
+  answer = await streamCompletion({ purpose: 'scripts.draft', sources: [], typed: input.task, system: SYSTEM(input.kind), prompt: `${base}\n\nYour previous answer did not parse:\n\`\`\`one\n${code.trim()}\n\`\`\`\nParser: ${error}\nAnswer again with corrected code only.`, signal: input.signal, mcp: false })
   code = codeOf(answer)
   error = await syntaxErrorText(code)
   return { code, error }

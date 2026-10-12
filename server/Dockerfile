@@ -23,6 +23,8 @@ WORKDIR /srv
 COPY server/package.json server/package-lock.json ./
 RUN npm ci --no-audit --no-fund
 COPY server/ ./
+# the AI contracts shared with the app (server/tsconfig.json includes ../src/shared/ai; imports stay relative)
+COPY src/shared/ai/ /src/shared/ai/
 RUN npm run build
 
 # ── 3. runtime ──────────────────────────────────────────────────────────────

@@ -17,6 +17,7 @@
  *  - A marker whose key is gone (another profile's copy, a vault erased by the browser) is cleared,
  *    so the UI asks for the key again instead of failing on every request.
  */
+import type { ProviderId } from '@/shared/ai/types'
 import { clearSecret, hintOf, isSecretMarker, markerHint, newSecretMarker, openSecret, sealSecret, vaultAvailable } from '../lib/vault'
 import type { WorkspaceState } from './store'
 import type { McpServerConfig, Settings } from './types'
@@ -134,10 +135,12 @@ function dropMarker(marker: string): void {
 }
 
 /**
- * The Claude API key for a request ('' = none). Decrypted on demand; kept in this module's memory
- * for the session only. Only the AI client (features/ai/client.ts) calls this.
+ * A provider's API key for a request ('' = none). Decrypted on demand; kept in this module's memory for the session
+ * only. Only the AI client (features/ai/client.ts) calls this. The provider is required — a forgotten one is a type
+ * error, never a silent Claude key. Slice 1 has only Claude's slot: other providers have no key yet ('').
  */
-export async function getAIKey(): Promise<string> {
+export async function getAIKey(provider: ProviderId): Promise<string> {
+  if (provider !== 'anthropic') return ''
   const s = store?.getState()
   const v = s?.settings.aiApiKey.trim() ?? ''
   if (!s || !v) return ''

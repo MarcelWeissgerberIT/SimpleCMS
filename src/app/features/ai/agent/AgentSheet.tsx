@@ -34,6 +34,8 @@ import { EditDiff } from './EditDiff'
 import { ScriptDiff } from './ScriptDiff'
 import { CodingDiff, FullText, RefsLine, useCodingFlags } from './CodingDiff'
 import { PipelinesOut } from './PipelinesOut'
+import { CostTable, fmtTokens, meterUsd } from './CostOut'
+import { HelpLink } from '../../../help'
 import { ConnectLine, ServersOut, SignInKey, SignInOffer, retryOf } from './ConnectOut'
 import { signInFromTerminal } from './connect'
 import { depsOf, makesTasks, onEjected, type AgentStep, type AgentTurn, type StagedChange } from './types'
@@ -55,11 +57,6 @@ export { PropDiff, Preview } from './ReviewParts'
 
 const pad = (n: number, w = 2) => String(n).padStart(w, '0')
 
-function fmtTokens(n: number): string {
-  if (n < 1000) return String(n)
-  if (n < 1_000_000) return `${(n / 1000).toFixed(n < 10_000 ? 1 : 0)}K`
-  return `${(n / 1_000_000).toFixed(2)}M`
-}
 
 
 function fmtMs(ms: number): string {
@@ -365,7 +362,8 @@ function Head() {
       <MemoryChip />
       {usage.requests > 0 && (
         <span className="term-head__read">
-          <span aria-hidden>· </span>≈ {fmtUsd(usage.usd, lang)}
+          <span aria-hidden>· </span>
+          {meterUsd(usage.usd, usage.byModel, lang)}
         </span>
       )}
       <span className="term-head__status" aria-live="polite">
@@ -654,7 +652,8 @@ function LimitNote({ last }: { last: boolean }) {
 
 function TurnError({ error, n, last }: { error: NonNullable<AgentTurn['error']>; n: number; last: boolean }) {
   const t = useT()
-  const keyIssue = error.code === 'invalid_key' || error.code === 'no_key' || error.code === 'permission'
+  // a key typed into the task belongs in Settings too
+  const keyIssue = error.code === 'invalid_key' || error.code === 'no_key' || error.code === 'permission' || error.code === 'key_in_text'
   const signIn = error.code === 'mcp_auth' && !!error.server && last
   return (
     <div className="term-error" role="alert">
@@ -669,6 +668,11 @@ function TurnError({ error, n, last }: { error: NonNullable<AgentTurn['error']>;
       {(error.code === 'mcp' || error.code === 'mcp_auth') && (
         <button type="button" className="btn btn--sm" onClick={() => useUI.getState().openModal({ type: 'settings', tab: 'ai' })}>
           <Settings2 size={13} strokeWidth={1.75} aria-hidden /> {t('features.ai.mcp.openSettings')}
+        </button>
+      )}
+      {(error.code === 'outdated' || error.code === 'reload') && (
+        <button type="button" className="btn btn--sm" onClick={() => window.location.reload()}>
+          <RotateCw size={13} strokeWidth={1.75} aria-hidden /> {t('features.ai.reload')}
         </button>
       )}
     </div>
@@ -824,17 +828,25 @@ function Echo({ entry }: { entry: EchoEntry }) {
     case 'cost': {
       const u = entry.data?.usage
       if (!u) break
-      out = (
+      // a row per model that answered (its ledger entries), then the total; before any request the plain sums
+      out = u.byModel?.length ? (
+        <>
+          <CostTable lines={u.byModel} />
+          <p className="term-echo__note">
+            {t('features.agent.meter.billed')} <HelpLink id="ai-costs" topic={t('features.ai.receipt.help')} />
+          </p>
+        </>
+      ) : (
         <>
           <dl className="term-table term-table--cost">
             {(
               [
                 ['features.agent.meter.requests', String(u.requests)],
-                ['features.agent.meter.in', fmtTokens(u.input)],
-                ['features.agent.meter.cacheWrite', fmtTokens(u.cacheWrite)],
-                ['features.agent.meter.cache', fmtTokens(u.cacheRead)],
-                ['features.agent.meter.out', fmtTokens(u.output)],
-                ['features.agent.meter.usd', `≈ ${fmtUsd(u.usd, lang)}`],
+                ['features.agent.meter.in', fmtTokens(u.input, lang)],
+                ['features.agent.meter.cacheWrite', fmtTokens(u.cacheWrite, lang)],
+                ['features.agent.meter.cache', fmtTokens(u.cacheRead, lang)],
+                ['features.agent.meter.out', fmtTokens(u.output, lang)],
+                ['features.agent.meter.usd', meterUsd(u.usd, u.byModel, lang)],
               ] as const
             ).map(([k, v]) => (
               <div key={k}>
@@ -1800,17 +1812,20 @@ function Foot() {
       </p>
       <div className="term-meter" title={t('features.agent.meter.billed')}>
         <dl className="term-meter__vals">
+          {/* IN as in /cost: the input outside the cache; cache writes and reads beside it */}
           <div>
             <dt>{t('features.agent.meter.in')}</dt>
-            <dd>{fmtTokens(usage.input + usage.cacheWrite)}</dd>
+            <dd>{fmtTokens(usage.input, lang)}</dd>
           </div>
           <div>
-            <dt>{t('features.agent.meter.cache')}</dt>
-            <dd>{fmtTokens(usage.cacheRead)}</dd>
+            <dt>{t('features.agent.cost.cacheWR')}</dt>
+            <dd>
+              {fmtTokens(usage.cacheWrite, lang)} / {fmtTokens(usage.cacheRead, lang)}
+            </dd>
           </div>
           <div>
             <dt>{t('features.agent.meter.out')}</dt>
-            <dd>{fmtTokens(usage.output)}</dd>
+            <dd>{fmtTokens(usage.output, lang)}</dd>
           </div>
           <div>
             <dt>{t('features.agent.meter.calls')}</dt>
@@ -1820,7 +1835,7 @@ function Foot() {
           </div>
           <div className="term-meter__usd">
             <dt className="visually-hidden">USD</dt>
-            <dd data-testid="agent-cost">≈ {fmtUsd(usage.usd, lang)}</dd>
+            <dd data-testid="agent-cost">{meterUsd(usage.usd, usage.byModel, lang)}</dd>
           </div>
         </dl>
         <span className="term-meter__note">{t('features.agent.meter.billed')}</span>

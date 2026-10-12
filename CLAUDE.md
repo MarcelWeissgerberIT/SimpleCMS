@@ -42,6 +42,10 @@ src/app/features/**                  AI (+ workspace agent), history, graph, sha
                                      GitHub Markdown, per-device IndexedDB `one-sync`), mcp (local bridge UI), sheets
                                      (spreadsheet engine + grid; functions/ = custom functions built by clicking), charts
                                      (SVG renderer, chart builder, data sources) (public API: features/index.ts)
+src/app/features/ai/core/**          the AI core: purposes, sources, the gate (prepare / precheck), metering (meter.ts: one ledger
+                                     entry per response, receipts), status (public: features/ai/core/index.ts, via features/index.ts)
+src/app/features/governor/**         Regler P1: the ledger (IndexedDB one-ledger), reservations, estimate bands (public API
+                                     governor/index.ts); src/shared/ai/** = the pure multi-provider contracts (app + server)
 src/app/features/outbox/**           the Outbox: slips for another tool's send routes, drafted without tools, sent by hand
                                      (dock, #/outbox, receipts; public API outbox/index.ts; docs/OUTBOX.md)
 src/app/features/preflight/**        Preflight ("Vorflug-Check"): the lamp panel on Start, MASTER CAUTION, the keyboard queue
@@ -55,7 +59,7 @@ src/app/features/workitems/**        tasks outside the editor: the workspace ind
                                      views, writeItems (origin 'items'), the unblock toast, members + reminder audience, the
                                      people / link pickers and cards, settle gate, facts, holds, query (public API
                                      workitems/index.ts, via features/index.ts)
-src/app/help/**                      help centre: panel (?, status bar, ⌘K, workspace menu), 74 articles EN+DE twins
+src/app/help/**                      help centre: panel (?, status bar, ⌘K, workspace menu), 75 articles EN+DE twins
                                      (help/articles/{en,de}/<id>.md, `help:<id>` links), Ask (Claude over the articles);
                                      link UI to an article with `<HelpLink id="…" />` (public API: help/index.ts)
 src/help-site/**                     build-time public /help pages (prerendered from the same articles, hreflang)
@@ -114,8 +118,49 @@ the public APIs stable — other areas are built against them in parallel.
   `deleteFunction`; synced through the meta map `functions`; every reader sanitizes (store/functions.ts); database
   formulas reach them through lib/formulaFunctions.ts. No eval / `new Function` anywhere in formula code.
 - Secrets: `settings.aiApiKey` / `GitHubConfig.token` hold vault markers (`vault:<id>:<last4>`), the secrets are sealed
-  in IndexedDB `one-vault` (lib/vault.ts). Read the Claude key only via `getAIKey()` (store/secrets.ts), the GitHub
-  token only via `openGitHubToken()`.
+  in IndexedDB `one-vault` (lib/vault.ts). Read an AI key only via `getAIKey(provider)` (store/secrets.ts; no default —
+  'anthropic' for Claude, '' for openai / openrouter until their slices), the GitHub token only via `openGitHubToken()`.
+  `settings.aiKeys` (openai / openrouter) holds vault markers only — every reader drops anything else. Backups never
+  carry a key or `settings.ai`, and a restore (merge or replace) never takes `aiApiKey` / `aiKeys` / `settings.ai` from
+  the file: they stay this device's (features/io/backup.ts).
+- AI requests (multi-provider S1; contracts in src/shared/ai — pure, app + server): every
+  facade (`runAI`, `streamCompletion`, `completeStructured`, `runAgent`, `requestImage`, `requestFile`, `inspectServer`)
+  takes a required `purpose` (features/ai/core/purposes.ts; `mayBeEmpty` purposes may send `sources: []`) and `sources`
+  (core/sources.ts classifies them: private · mail · memory · rows · page; synced copies count as their source), plus
+  `typed` where the person typed; in DEV / `?e2e` a missing purpose or source list (or `[]` for a page-derived purpose)
+  throws. `prepare()` (core/gate.ts) is the only way to a request: policy generation (`AI_POLICY_GEN`; rules stamped with
+  a higher `gen` → 'reload', nothing sent), a key typed into the request → 'key_in_text', AUS hook, classes, the legacy
+  route (Claude + this device's model, an agent's own model), the brake hook `beforeSend(purpose, route, band)` + an
+  in-tab reservation of the band's upper end (`PrepareInput.size` = prompt chars + answer budget; features/governor),
+  settled by `settle()`. Paths that load something first (a picture, a file, the terminal's MCP setup, workspace
+  retrieval, the screenshot describe of a design import, an agent's MCP tokens, demo answers) call `precheck()` before
+  loading — the request prepares again. Request branches ask the
+  model's caps (`thinks(caps)`, `caps.pdf.maxPages`), never a model id; prices come only from src/shared/ai/prices.ts
+  (`costOf`, `estimate()` in features/governor) — `resolveModel` / `AI_MODELS` only choose. Every response of every
+  engine is ONE ledger entry (core/meter.ts `meterCall` → governor `meter()`; IndexedDB `one-ledger`, keys
+  `<scope>|<day>|<id>`, scope `local:local` | `cloud:<ws>:u:<account>`, 90 days, ids / models / tokens / amounts only —
+  never page text, never synced, exported, backed up or sent; wiped with the device copy and the local reset; opened on
+  the first meter, never at boot; e2e seam `window.__oneLedger`): what reached the wire decides (client.ts SDK
+  middleware, `reachOf(signal)`): never sent (stopped before it went out) = no entry; every attempt refused with a
+  status (incl. a Stop during the retry wait) = zero; in flight or answered = a cut stream is an estimate (message_start
+  + streamed characters, else the request's size incl. PDF pages `pdfChars`, pictures `imageChars`, tool definitions).
+  A refusal fallback (`usage.iterations` `fallback_message`, else the served model) is a 'refusal-fallback' step and
+  each hop is priced at its own model (a dated snapshot id is the same model); Claude's `thinking_tokens` are kept as
+  `reasoning`; demo is never metered.
+  Ledger sources are fixed ids (`ai:<run>:<what>` via `tapSignal`, `terminal:<conv>` — the task rounds and its memory
+  proposal request, never counted into another conversation after `/new` —, `agent:<id>:<run>`, `autofill:<db>:<prop>`).
+  Receipt surfaces: IN = the input outside the cache (writes / reads beside it), "≈" only for an estimate, token
+  figures in the UI's decimal sign (`fmtTokens(n, lang)`). Receipts: AI run cards (`AIRun.route / served / usage / usd / costSource / steps`,
+  features/ai/Receipt.tsx), terminal `/cost` per model (`AgentUsage.byModel`), agent runs (`AgentRunUsage.byModel`;
+  `maxRunUsd` on the sum of entries; a response without a price stops a budgeted run). `memoryRef(block)` names the
+  memory database as a source when a memory block goes along. `Workspace.ai`, `settings.ai`, `settings.aiKeys` and
+  `CustomAgent.route / review / saverRule / applyOn / routeSig` are kept by every reader and written by nobody yet
+  (team: meta map `workspace` key `ai`, guarded by the server — server/src/collab/workspace-ai.ts — read-only in S1).
+  A rule with one pin a build cannot read is unreadable as a whole (never a pin dropped); an agent field it cannot read
+  is kept as it was (`Unreadable`, src/shared/ai/route.ts) and blocks the agent (`agentAIReadable` / `runsOnClaude`). A
+  browser agent whose route is not Claude (or names a provider this build cannot run, features/agents/routeBlock.ts
+  `RUNNABLE_PROVIDERS`, or cannot be read) ends as an error run without a request; the server skips it with its reason. features/index.ts exports `aiStatus` and the AI
+  types (`PurposeId`, `SourceRef`, `DataClass`, `FeatureClass`, `Route`, `RouteRule`, `ProviderId`).
 - Markdown files One reads back (Markdown export, folder / GitHub sync) write date / person mentions as
   `[@label](one:date/<id>?r=<code>)` / `[@label](one:person/<id>)` (features/io/import/mentions.ts); share / site /
   HTML exports never do.
@@ -303,10 +348,11 @@ the public APIs stable — other areas are built against them in parallel.
   log (private in teams via `createPrivateDatabase`; the oldest live one counts; dormant until one exists). Memories are
   saved only after the person confirms (proposal cards, `/remember`, "remember …", the `remember` tool → staged change
   kind 'memory'); write them only through memory/save.ts / example.ts and log rows through memory/log.ts (origin 'ai'; the
-  log keeps 500 rows, older ones go to the trash, never page content or answers). Free-form requests take
-  `memoryFor(task).block` (`<one_memory>`) along — `runAI({ memory })` or the agent's context — then `noteUse(answer, use,
-  ctx)`. Examples: Type Example + Tag; `#tag` (or the bare tag as a word) forces that example in full. Switches per device
-  in `settings.memory`. Team server-runner agents get no memory.
+  log keeps 500 rows, older ones go to the trash, never page content or answers; key-shaped text is scrubbed from a
+  row's name and a request the gate refused for a key writes no row; AI-menu runs are stored with key-shaped text
+  scrubbed). Free-form requests take `memoryFor(task).block` (`<one_memory>`) along — `runAI({ memory })` or the
+  agent's context — then `noteUse(answer, use, ctx)`. Examples: Type Example + Tag; `#tag` (or the bare tag as a word)
+  forces that example in full. Switches per device in `settings.memory`. Team server-runner agents get no memory.
 - One Script (features/script): `Workspace.scripts` (`OneScript` { id, name, icon?, description?, code, kind 'script' |
   'query', createdBy, updatedBy, createdAt, updatedAt }) — write only with `upsertScript` / `deleteScript` (or `saveScript`);
   every reader sanitizes (store/scripts.ts); team: meta map `scripts` (server stamps updatedBy / createdBy like agents').

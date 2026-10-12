@@ -28,6 +28,8 @@ import { sameAgent, sanitizeAgent } from '../store/agents'
 import { sameScript, sanitizeScript } from '../store/scripts'
 import { emptyKit, KIT_SANITIZERS, sameKitEntry, type KitPart } from '../store/kit'
 import { sameLook, sanitizeLook } from '../store/look'
+import { readWorkspaceAI, sameWorkspaceAI } from '../store/ai'
+import type { WorkspaceAI } from '@/shared/ai/types'
 import { INTEGRATION_LIMITS, sameIntegration, sanitizeIntegration } from '../store/integrations'
 import { defaultView } from '../store/store'
 import { sharedPlain } from './privacy'
@@ -429,6 +431,9 @@ export function startBinding(o: BindingOptions): Binding {
       // the workspace look (owners / admins write it; every reader sanitizes)
       const look = sanitizeLook(rs.workspace.get('look'))
       if (!sameLook(look, s.look ?? null, { meta: true })) patch.look = look
+      // the workspace's AI rules (owners / admins write them — server guard; this build only reads them, never writes)
+      const ai = readWorkspaceAI(rs.workspace.get('ai'))
+      if (!sameWorkspaceAI(ai, s.ai)) patch.ai = ai ?? null
       dirtyWorkspace = false
     }
     if (dirtyFunctions) {
@@ -481,7 +486,7 @@ export function startBinding(o: BindingOptions): Binding {
       if (Object.keys(next).length) patch.kit = next as CloudPatch['kit']
       dirtyKit = false
     }
-    if (!patch.pages && !patch.databases && !patch.people && !patch.settings && !patch.functions && !patch.agents && !patch.scripts && !patch.kit && !patch.integrations && patch.look === undefined) return
+    if (!patch.pages && !patch.databases && !patch.people && !patch.settings && !patch.functions && !patch.agents && !patch.scripts && !patch.kit && !patch.integrations && patch.look === undefined && patch.ai === undefined) return
     applyFromCloud(() => s.cloudPatch(patch))
     if (created.length || touched.length || removed.length || rescoped.length) o.onRemotePages({ created, touched, removed, rescoped })
   }
@@ -773,7 +778,7 @@ export function readAll(
   doc: Y.Doc,
   privateDoc: Y.Doc | null,
   isFavorite: (id: ID) => boolean,
-): Pick<CloudPatch, 'people'> & { pages: Record<ID, Page>; databases: Record<ID, Database>; functions: Record<ID, CustomFunction>; name: string | null; look: WorkspaceLook | null } {
+): Pick<CloudPatch, 'people'> & { pages: Record<ID, Page>; databases: Record<ID, Database>; functions: Record<ID, CustomFunction>; name: string | null; look: WorkspaceLook | null; ai: WorkspaceAI | undefined } {
   const r = roots(doc)
   const q = privateDoc ? roots(privateDoc) : null
   const pages: Record<ID, Page> = {}
@@ -785,7 +790,7 @@ export function readAll(
   }
   for (const p of Object.values(pages)) if (p.kind === 'database' && !databases[p.id]) databases[p.id] = fallbackDatabase(p.id)
   const name = r.workspace.get('name')
-  return { pages, databases, people: readPeople(r.people, []), functions: readFunctions(r.functions, undefined), name: typeof name === 'string' && name ? name : null, look: sanitizeLook(r.workspace.get('look')) }
+  return { pages, databases, people: readPeople(r.people, []), functions: readFunctions(r.functions, undefined), name: typeof name === 'string' && name ? name : null, look: sanitizeLook(r.workspace.get('look')), ai: readWorkspaceAI(r.workspace.get('ai')) }
 }
 
 /**

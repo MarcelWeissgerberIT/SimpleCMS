@@ -3,8 +3,10 @@
  * Origin / Sec-Fetch-Site), sign-in links come from the server's dev mailbox.
  */
 import { test as base, expect, type Browser, type BrowserContext, type Page } from '@playwright/test'
+import { makeAiNet, type AiNet } from '../e2e/helpers/aiNet'
 
 export { expect }
+export type { AiNet }
 
 /**
  * The flight recorder's net: in `?e2e` a store write without a writer frame is a console error starting with
@@ -27,7 +29,19 @@ function recorderNet(browser: Browser, context: BrowserContext): { list: string[
   return { list, done: () => void (browser.newContext = orig) }
 }
 
-export const test = base.extend<{ recorderNet: void }>({
+export const test = base.extend<{ recorderNet: void; aiNet: AiNet }>({
+  /** No real AI host from a browser (tests/e2e/helpers/aiNet.ts): unmocked requests are aborted and fail the test softly. */
+  aiNet: [
+    async ({ browser, context }, use) => {
+      const net = makeAiNet()
+      await net.watch(context)
+      const unhook = net.hook(browser)
+      await use(net)
+      unhook()
+      if (!net.allowed()) expect.soft(net.unmocked, 'requests to AI hosts no mock answered (aborted — never sent)').toEqual([])
+    },
+    { auto: true },
+  ],
   recorderNet: [
     async ({ browser, context }, use) => {
       const net = recorderNet(browser, context)

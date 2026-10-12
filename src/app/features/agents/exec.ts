@@ -11,7 +11,6 @@
  * upsert_rows, the state tools and notify_me are offered only while an active integration profile unlocks them on
  * this device (integrations/status.ts); the system prompt names only what is offered.
  */
-import type { BetaUsage } from '@anthropic-ai/sdk/resources/beta/messages/messages'
 import type { JSONContent } from '@tiptap/core'
 import { outermostItems } from '../../lib/itemIds'
 import { format } from 'date-fns'
@@ -23,7 +22,7 @@ import { newId } from '../../lib/ids'
 import { navigate, parseHash } from '../../lib/router'
 import { fmtUsd } from '../../lib/money'
 import { currentLang, t } from '../../i18n'
-import { AIError, resolveModel } from '../ai/client'
+import { AIError } from '../ai/client'
 import { allowFor, allowedTools, attachMcp, instructionsText, outToolsFor, readServers } from '../ai/mcp-servers/config'
 import { callLabel } from '../ai/mcp-servers/activity'
 import { MAX_TOOL_CALLS, type StageApi } from '../ai/agent/tools'
@@ -45,12 +44,29 @@ import { proposalsShown } from './hold'
 import { awaitsConfirm } from './confirm'
 import { withoutWebImages } from './images'
 import { claudeBlocks } from '../ai/claudeDoc'
-import type { AgentRun, AgentRunStep } from './types'
+import type { AgentRun, AgentRunStep, AgentRunUsage } from './types'
 import { memoryFor, noteUse } from '../ai/memory/use'
 import { recallTool } from '../ai/memory/tools'
 import { unlocked } from './integrations/status'
 import { blockText, lostText, runBlock } from './gone'
+import { routeBlock } from './routeBlock'
 import { endRun, noteRun, withWriter, type Writer } from '../../store/writer'
+import { memoryRef } from '../ai/core/refs'
+import { precheck } from '../ai/core/gate'
+import type { SourceRef } from '@/shared/ai/types'
+import { labelOf } from '@/shared/ai/models'
+import { addToLines } from '../ai/core/meter'
+import { stepText } from '../ai/Receipt'
+
+/** What a run carries (the AI gate's sources): its scope, the trigger's rows, its report page, the memory database. */
+function agentSources(agent: CustomAgent, rows: readonly ID[], memoryBlock: string): SourceRef[] {
+  const out: SourceRef[] = agent.scope.everything ? [{ all: true }] : [...agent.scope.pages.map((page) => ({ page })), ...agent.scope.databases.map((db) => ({ db }))]
+  for (const row of rows) out.push({ row })
+  if (agent.output?.pageId) out.push({ page: agent.output.pageId })
+  out.push(...memoryRef(memoryBlock))
+  // a scope with nothing in it still reads the workspace's structure (list_databases)
+  return out.length ? out : [{ all: true }]
+}
 
 /* ------------------------------------------------------------------ */
 /* Prompt                                                              */
@@ -214,6 +230,8 @@ export async function executeRun(agent: CustomAgent, req: RunRequest): Promise<A
 async function runOnce(agent: CustomAgent, req: RunRequest): Promise<AgentRun> {
   // nothing in its scope can be used, or its report page is in the trash or gone (gone.ts): no run — it ends as an error
   // that says why (the run list and a toast), never as a run that "finished"
+  // a model route this version cannot run (a newer version saved it): no request, an error run that says so
+  if (routeBlock(agent)) return blockedRun(agent, req, t('features.agents.blocked.route'), t('features.agents.blocked.routeShort'))
   const block = runBlock(agent, useWorkspace.getState().pages, t('common.untitled'))
   if (block) return blockedRun(agent, req, blockText(t, block), block.lost.map((l) => lostText(t, l)).join(' '))
   // what earlier runs left: the last successful one (context), the agent's saved state (runTools.ts)
@@ -269,11 +287,11 @@ async function runOnce(agent: CustomAgent, req: RunRequest): Promise<AgentRun> {
     items: newItemSession('agent'),
   }
 
-  const settings = useWorkspace.getState().settings
-  const price = resolveModel(agent.model || settings.aiModel).price
-  const usage = { input: 0, output: 0, cacheRead: 0, usd: 0 }
+  const usage: Required<AgentRunUsage> = { input: 0, output: 0, cacheRead: 0, usd: 0, byModel: [] }
   const ac = new AbortController()
   let overBudget = false
+  /** a response without a price: the budget cannot be held (the model's label) */
+  let noPrice: string | null = null
   let answer = ''
   let live = ''
   const toolSteps = new Map<string, number>()
@@ -303,15 +321,22 @@ async function runOnce(agent: CustomAgent, req: RunRequest): Promise<AgentRun> {
       if (!text) return
       if (kind === 'answer') answer = answer ? `${answer}\n\n${text}` : text
     },
-    usage(u: BetaUsage) {
-      const input = u.input_tokens ?? 0
-      const output = u.output_tokens ?? 0
-      const cacheRead = u.cache_read_input_tokens ?? 0
-      const cacheWrite = u.cache_creation_input_tokens ?? 0
-      usage.input += input + cacheWrite
-      usage.output += output
-      usage.cacheRead += cacheRead
-      usage.usd += (input * price.input + cacheWrite * price.input * 1.25 + cacheRead * price.cacheRead + output * price.output) / 1_000_000
+    usage(u, entry) {
+      // the run's cost = the sum of its ledger entries (every response, priced by the one table)
+      usage.input += u.input + u.cacheWrite + u.cacheWrite1h
+      usage.output += u.output
+      usage.cacheRead += u.cacheRead
+      usage.usd += entry?.usd ?? 0
+      if (entry) usage.byModel = addToLines(usage.byModel, entry)
+      // another model answered (a refusal fallback): a step of the run, once per model
+      for (const st of entry?.steps ?? []) {
+        const line = entry ? stepText(t, st, entry.served.p) : null
+        if (line && !run.steps.some((x) => x.label === line)) step({ kind: 'note', label: line, state: 'ok' })
+      }
+      if (entry && entry.usd === null && !ac.signal.aborted) {
+        noPrice = labelOf({ p: entry.served.p, m: entry.served.model })
+        ac.abort()
+      }
       if (usage.usd > agent.maxRunUsd && !ac.signal.aborted) {
         overBudget = true
         ac.abort()
@@ -336,6 +361,8 @@ async function runOnce(agent: CustomAgent, req: RunRequest): Promise<AgentRun> {
   }
 
   try {
+    // the gate first (newer AI rules, AI off, no key …): no MCP token is opened when it refuses (the run ends as an error)
+    precheck({ purpose: 'agents.run', sources: agentSources(agent, req.rows ?? [], ''), model: agent.model })
     // the agent's MCP servers, by name, as set up and switched on in this browser (Settings → Claude AI); only the tools
     // its allow-list names (mcpTools) — a server whose list is empty is left out, a switched-off one too (the editor says so)
     const allow = agent.mcpTools ?? {}
@@ -359,6 +386,10 @@ async function runOnce(agent: CustomAgent, req: RunRequest): Promise<AgentRun> {
     memory = memoryFor(agent.instructions)
     const ctx = context(agent, run, req.rows ?? [], last)
     const end = await runAgent({
+      // its scope: the pages and databases it names (scope "everything": the workspace as a whole), the trigger's
+      // rows, its report page, the One memory when it goes along
+      purpose: 'agents.run',
+      sources: agentSources(agent, req.rows ?? [], memory.block),
       history: [],
       user: taskMessage([], agent.instructions, memory.block ? `${ctx}\n\n${memory.block}` : ctx),
       stage,
@@ -369,6 +400,7 @@ async function runOnce(agent: CustomAgent, req: RunRequest): Promise<AgentRun> {
       system: agentSystem(agent.write, unlocks, canCreateItems()),
       model: agent.model,
       effort: agent.effort,
+      ledgerSource: `agent:${agent.id}:${run.id}`,
     })
     if (live.trim()) answer = answer ? `${answer}\n\n${live.trim()}` : live.trim()
     run.summary = withoutWebImages(answer)
@@ -379,7 +411,10 @@ async function runOnce(agent: CustomAgent, req: RunRequest): Promise<AgentRun> {
   } catch (e) {
     if (live.trim()) answer = answer ? `${answer}\n\n${live.trim()}` : live.trim()
     run.summary = withoutWebImages(answer)
-    if (overBudget) {
+    if (noPrice) {
+      run.status = 'budget'
+      run.error = t('features.agents.run.noPrice', { model: noPrice })
+    } else if (overBudget) {
       run.status = 'budget'
       run.error = t('features.agents.run.budget', { usd: fmtUsd(agent.maxRunUsd, currentLang()) })
     } else {
@@ -447,7 +482,7 @@ async function runOnce(agent: CustomAgent, req: RunRequest): Promise<AgentRun> {
             : t('features.memory.result.report')
     noteUse(run.summary, memory.use, { task: agent.instructions, where: { kind: 'agent', name: agent.name }, result })
   }
-  run.usage = { input: usage.input, output: usage.output, cacheRead: usage.cacheRead, usd: Math.round(usage.usd * 10_000) / 10_000 }
+  run.usage = { input: usage.input, output: usage.output, cacheRead: usage.cacheRead, usd: Math.round(usage.usd * 10_000) / 10_000, ...(usage.byModel.length ? { byModel: usage.byModel } : {}) }
   run.endedAt = Date.now()
   await putRun({ ...run, steps: [...run.steps] })
   endRun(writer)

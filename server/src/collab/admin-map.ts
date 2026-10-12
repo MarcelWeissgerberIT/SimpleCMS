@@ -1,8 +1,9 @@
 /**
  * Keys of the shared meta document that only owners and admins change (docs/CLOUD.md § Meta document schema): the
- * workspace look (`workspace.look`, workspace-look.ts) and the integration profiles (every key of the `integrations`
- * map). The app refuses for everyone else and its binding puts their store change back, but a member's client could
- * still write the meta document directly — so the server says what holds:
+ * workspace look (`workspace.look`, workspace-look.ts), the AI rules (`workspace.ai`, workspace-ai.ts) and the
+ * integration profiles (every key of the `integrations` map). The app refuses for everyone else and its binding puts
+ * their store change back, but a member's client could still write the meta document directly — so the server says
+ * what holds:
  *
  *  - a change of a guarded key from a connection whose member is not owner or admin NOW (the role is looked up for
  *    every change, never taken from the connection's start: a demoted admin's open socket loses the right at once)

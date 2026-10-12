@@ -2,6 +2,7 @@
  * AI terminal — prompt history (↑ / ↓, /history, /clear-history): the last 50 prompts per device and
  * workspace in localStorage. Never synced or exported; without storage it lives for this tab only.
  */
+import { looksLikeKey } from '@/shared/ai/keys'
 import { activeWorkspace } from '../../../cloud'
 
 export const HISTORY_MAX = 50
@@ -25,11 +26,11 @@ export function loadHistory(): string[] {
   return memory.get(k) ?? []
 }
 
-/** Remember a prompt (a repeat of the last one is not stored twice). Returns the new list. */
+/** Remember a prompt (a repeat of the last one is not stored twice; one that looks like it holds an API key never). Returns the new list. */
 export function pushHistory(entry: string): string[] {
   const text = entry.trim()
   const list = loadHistory()
-  if (!text || list[list.length - 1] === text) return list
+  if (!text || list[list.length - 1] === text || looksLikeKey(text)) return list
   const next = [...list, text].slice(-HISTORY_MAX)
   const k = key()
   memory.set(k, next)

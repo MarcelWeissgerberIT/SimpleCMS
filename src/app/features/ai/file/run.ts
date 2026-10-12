@@ -6,9 +6,13 @@
  *    { sheets } for tables. Nothing is sent.
  */
 import { useWorkspace } from '../../../store/store'
-import { resolveModel, stripFence } from '../client'
+import { stripFence } from '../client'
+import { capsOf } from '@/shared/ai/models'
+import { legacyRule } from '@/shared/ai/route'
+import { precheck } from '../core/gate'
+import type { SourceRef } from '@/shared/ai/types'
 import { withoutWebImages } from '../../agents/images'
-import { clipText, fileData, FILE_READ_MAX, loadPdfForClaude, PDF_MAX_PAGES, PDF_MAX_PAGES_SMALL } from './load'
+import { clipText, fileData, FILE_READ_MAX, loadPdfForClaude, PDF_MAX_PAGES } from './load'
 import { filePage, fileSheets, fileText } from './convert'
 import { PPTX_MAX_BYTES } from '../../io/import/pptx'
 import { isLocalAction, type FileAction, type FileKind } from './kinds'
@@ -47,15 +51,20 @@ export interface FileMeta {
   sent: boolean
 }
 
-/** Pages Claude reads of one PDF with the model chosen now. */
-export const maxPdfPages = (): number => (resolveModel(useWorkspace.getState().settings.aiModel).id === 'claude-haiku-4-5' ? PDF_MAX_PAGES_SMALL : PDF_MAX_PAGES)
+/** Pages the model chosen now reads of one PDF (its caps: 600, 100 on a 200K-context model). */
+export function maxPdfPages(): number {
+  const [route] = legacyRule(useWorkspace.getState().settings.aiModel, true)
+  const pdf = route ? capsOf(route)?.pdf : null
+  return pdf ? pdf.maxPages : PDF_MAX_PAGES
+}
 
 export async function runFileRequest(
   req: FileRunRequest,
   context: string,
-  opts: { onToken?: (delta: string) => void; signal: AbortSignal; onFile?: (meta: FileMeta) => void },
+  opts: { sources: readonly SourceRef[]; onToken?: (delta: string) => void; signal: AbortSignal; onFile?: (meta: FileMeta) => void },
 ): Promise<string> {
   const { signal } = opts
+  const gate = { purpose: 'documents.file' as const, sources: opts.sources, typed: [req.question, req.instruction] }
   // a deck is mostly pictures: it may be larger (its unpacked size is checked while reading it)
   const readMax = req.fileKind === 'pptx' ? PPTX_MAX_BYTES : FILE_READ_MAX
   if (isLocalAction(req.action)) {
@@ -64,11 +73,13 @@ export async function runFileRequest(
     if (req.action === 'page') return JSON.stringify(await filePage(req.fileKind, bytes, req.name))
     return JSON.stringify({ sheets: fileSheets(req.fileKind, bytes, req.name) })
   }
+  // the gate first: a refused request never loads the file
+  precheck(gate)
   let material: FileMaterial
   if (req.fileKind === 'pdf') {
     const pdf = await loadPdfForClaude(req.src, maxPdfPages(), signal)
     opts.onFile?.({ kind: 'pdf', bytes: pdf.bytes, pages: pdf.pages, sent: true })
-    material = { type: 'pdf', name: req.name, data: pdf.data }
+    material = { type: 'pdf', name: req.name, data: pdf.data, pages: pdf.pages }
   } else {
     const { bytes } = await fileData(req.src, readMax, signal)
     const got = await fileText(req.fileKind, bytes, req.name)
@@ -79,6 +90,7 @@ export async function runFileRequest(
   const lang = useWorkspace.getState().settings.language === 'de' ? 'de' : 'en'
   const action = req.action as ClaudeFileAction
   const text = await requestFile({
+    ...gate,
     action,
     material,
     question: req.question,
