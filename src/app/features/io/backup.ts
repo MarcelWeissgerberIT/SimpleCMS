@@ -18,7 +18,8 @@ import { endRun, noteRun, withWriter, type Writer } from '../../store/writer'
 import { readWorkspaceAI, aiRulesAllowed } from '../../store/ai'
 import { loosens, policyKnown, type LooseItem } from '@/shared/ai/policy'
 import type { WorkspaceAI } from '@/shared/ai/types'
-import { isGovernorMarker } from '@/shared/ai/governor'
+import { isGovernorMarker, isReadableGovernor, loosensGovernor, sameGovernor, sanitizeGovernor, type GovernorLoose, type WorkspaceGovernor } from '@/shared/ai/governor'
+import { governorAllowed, STAMP_KNOWN } from '../../store/governor'
 
 export const BACKUP_FORMAT = 'simplecms-one-backup'
 
@@ -326,13 +327,31 @@ export function backupAIRules(b: Backup): { theirs: WorkspaceAI; loosens: LooseI
   const bare = (x: WorkspaceAI | undefined) => JSON.stringify(x ? { ...x, gen: undefined, updatedAt: undefined, updatedBy: undefined } : null)
   // rules a newer build wrote (their generation above this build's): this build cannot read them whole — never taken,
   // never asked about (an older tab restamping them would stop every tab from refusing with 'reload'); mine stay
-  if (!policyKnown(theirs, null)) return { theirs, loosens: [], newer: true }
+  if (!policyKnown(theirs, null, STAMP_KNOWN)) return { theirs, loosens: [], newer: true }
   if (bare(theirs) === bare(mine)) return null
   return { theirs, loosens: loosens(mine, theirs) }
 }
 
+/**
+ * The backup's governor (the Regler) against this workspace's: null when the backup carries none (a page backup never
+ * does) or the same one; else it and what taking it would loosen ([] = only stricter). A restore keeps this workspace's
+ * unless the person takes the backup's — stricter or looser (design § 4.3). `newer`: one side is a newer build's value
+ * (never taken, never asked about).
+ */
+export function backupGovernor(b: Backup): { theirs: WorkspaceGovernor | undefined; loosens: GovernorLoose[]; newer?: true } | null {
+  if (b.scope === 'page') return null
+  const raw = (b.workspace as unknown as { governor?: unknown } | null)?.governor
+  if (raw === undefined || raw === null) return null
+  const theirs = sanitizeGovernor(JSON.parse(JSON.stringify(raw)))
+  const mine = useWorkspace.getState().governor
+  if ((theirs && !isReadableGovernor(theirs)) || (mine && !isReadableGovernor(mine))) return { theirs: undefined, loosens: [], newer: true }
+  if (sameGovernor(theirs, mine)) return null
+  return { theirs: theirs as WorkspaceGovernor | undefined, loosens: loosensGovernor(mine, theirs) }
+}
+
 /** Restore files, remap their refs and apply the workspace. `ai`: the person's answer when the backup's AI rules would
- *  loosen this workspace's ('theirs' — only where they may be written; anything else keeps them). */
+ *  loosen this workspace's, or its governor differs ('theirs' — only where they may be written; anything else keeps
+ *  them). */
 export async function applyBackup(b: Backup, mode: 'merge' | 'replace', onProgress?: (done: number, total: number) => void, opts: { ai?: 'mine' | 'theirs' } = {}): Promise<RestoreResult> {
   // a team workspace: viewers can't write, and "replace" would swap it out for everyone in it
   const cloud = useCloud.getState()
@@ -400,6 +419,9 @@ export async function applyBackup(b: Backup, mode: 'merge' | 'replace', onProgre
   const rules = backupAIRules(b)
   const takeAI = !!rules && !rules.newer && (rules.loosens.length === 0 || (opts.ai === 'theirs' && aiRulesAllowed()))
   const aiNote = rules?.newer ? ({ aiNewer: true } as const) : {}
+  // the governor: this workspace's stays unless the person took the backup's (never a newer build's value)
+  const gov = backupGovernor(b)
+  const takeGovernor = !!gov && !gov.newer && opts.ai === 'theirs' && governorAllowed()
 
   // a backup's restore is one import run (store/writer.ts)
   const writer: Writer = { kind: 'import', run: newId(), source: 'backup' }
@@ -409,6 +431,8 @@ export async function applyBackup(b: Backup, mode: 'merge' | 'replace', onProgre
       const result = { ...commitBackup(), ...aiNote }
       // through the setter: its guards, the generation stamp, the team write path
       if (takeAI && rules) useWorkspace.getState().setWorkspaceAI(rules.theirs)
+      // the governor likewise (its stamp lands in the same update)
+      if (takeGovernor && gov) useWorkspace.getState().setGovernor(gov.theirs ?? null)
       return result
     })
   } finally {
@@ -425,7 +449,7 @@ export async function applyBackup(b: Backup, mode: 'merge' | 'replace', onProgre
         settings: { ...source.settings, aiApiKey: snap.settings.aiApiKey, ...(snap.settings.aiKeys ? { aiKeys: snap.settings.aiKeys } : {}), ...(snap.settings.ai ? { ai: snap.settings.ai } : {}) },
         // the workspace's AI rules stay this workspace's (a file never loosens them)
         ai: snap.ai,
-        // the Regler likewise stays this workspace's (reading a backup's comes with the Regler's settings)
+        // the Regler likewise stays this workspace's (the person takes the backup's through setGovernor above)
         governor: snap.governor,
         // this device's recent pages stay (where they still exist) — an older backup's list is never taken over
         recent: snap.recent.filter((id) => !!pages[id]),

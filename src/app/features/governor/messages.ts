@@ -15,6 +15,22 @@ export const messages: Messages = {
     'features.governor.binding.run': 'budget per run',
 
     // agent runs the Regler held (status 'held')
+    // a backup's governor against this workspace's (the restore dialog, features/io)
+    'features.governor.restore.title': 'The backup holds other governor settings',
+    'features.governor.restore.lead': 'This workspace keeps its own unless you take the backup’s:',
+    'features.governor.restore.day': 'Governor: day budget {from} → {to}',
+    'features.governor.restore.month': 'Governor: month budget {from} → {to}',
+    'features.governor.restore.lever': 'Governor: lever {from} → {to}',
+    'features.governor.restore.ceiling': 'Governor: ceiling {from} → {to} per million tokens',
+    'features.governor.restore.worker': 'Governor: the coding worker no longer counts against the budget',
+    'features.governor.restore.unreadable': 'Governor: settings of a newer version of One',
+    'features.governor.restore.stricter': 'Governor: the backup’s limits are stricter than these',
+    'features.governor.restore.none': 'none',
+    'features.governor.restore.member': 'Only owners and admins change the governor — yours stays.',
+    'features.governor.set.rights': 'Only owners and admins change the governor',
+    'features.governor.set.server': 'This server does not keep the governor yet — ask its admin to update it',
+    'features.governor.set.newer': 'These governor settings come from a newer version of One — reload',
+
     'features.governor.status.held': 'Held',
     'features.governor.status.heldLower': 'held by the governor',
     'features.governor.run.held.title': 'Held by the governor',
@@ -201,6 +217,22 @@ export const messages: Messages = {
     'features.governor.binding.device-day': 'deine Tagesgrenze in diesem Browser',
     'features.governor.binding.device-month': 'deine Monatsgrenze in diesem Browser',
     'features.governor.binding.run': 'Budget pro Lauf',
+
+    // die Regler-Einstellungen einer Sicherung gegen die dieses Arbeitsbereichs (Wiederherstellen, features/io)
+    'features.governor.restore.title': 'Die Sicherung hat andere Regler-Einstellungen',
+    'features.governor.restore.lead': 'Dieser Arbeitsbereich behält seine eigenen, außer du übernimmst die der Sicherung:',
+    'features.governor.restore.day': 'Regler: Tagesbudget {from} → {to}',
+    'features.governor.restore.month': 'Regler: Monatsbudget {from} → {to}',
+    'features.governor.restore.lever': 'Regler: Hebel {from} → {to}',
+    'features.governor.restore.ceiling': 'Regler: Decke {from} → {to} je Mio. Token',
+    'features.governor.restore.worker': 'Regler: Der Coding-Worker zählt nicht mehr zum Budget',
+    'features.governor.restore.unreadable': 'Regler: Einstellungen einer neueren Version von One',
+    'features.governor.restore.stricter': 'Regler: Die Grenzen der Sicherung sind strenger als diese',
+    'features.governor.restore.none': 'keins',
+    'features.governor.restore.member': 'Nur Eigentümer und Admins ändern den Regler — deiner bleibt.',
+    'features.governor.set.rights': 'Nur Eigentümer und Admins ändern den Regler',
+    'features.governor.set.server': 'Dieser Server speichert den Regler noch nicht — bitte den Admin, ihn zu aktualisieren',
+    'features.governor.set.newer': 'Diese Regler-Einstellungen stammen aus einer neueren Version von One — neu laden',
 
     'features.governor.status.held': 'Angehalten',
     'features.governor.status.heldLower': 'vom Regler angehalten',

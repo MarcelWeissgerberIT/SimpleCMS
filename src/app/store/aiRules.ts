@@ -10,7 +10,8 @@
  */
 import type { DeviceAI, FeatureClass, ProviderId, RouteRule, WorkspaceAI } from '@/shared/ai/types'
 import { policyKnown } from '@/shared/ai/policy'
-import { DEVICE_GOVERNOR_KEY, sanitizeDeviceGovernor, stampDeviceGen } from '@/shared/ai/governor'
+import { stampDeviceGen } from '@/shared/ai/governor'
+import { deviceLine, STAMP_KNOWN } from './governor'
 import { sanitizeRule } from '@/shared/ai/route'
 import { modelRow } from '@/shared/ai/models'
 import { useWorkspace } from './store'
@@ -25,25 +26,16 @@ export function setWorkspaceAI(next: WorkspaceAI | null | ((prev: WorkspaceAI | 
   return s.setWorkspaceAI(value)
 }
 
-/** The person's own line for this browser (the Regler, localStorage) as the device stamp reads it (unreadable storage: none). */
-function deviceLine() {
-  try {
-    const raw = typeof localStorage === 'undefined' ? null : localStorage.getItem(DEVICE_GOVERNOR_KEY)
-    return raw ? sanitizeDeviceGovernor(JSON.parse(raw)) : undefined
-  } catch {
-    return undefined
-  }
-}
-
 /**
  * Change this device's AI layer: keys of `patch` replace the stored ones (undefined removes one). Refused (false) when
- * the stored layer was written by a newer build (its generation is unknown here — never overwritten). Its `gen` is
+ * the stored layer was written by a newer build (a generation this build cannot compute — never overwritten). Its `gen` is
  * stamped with stampDeviceGen: its own rules and the person's line for this browser — never below a budget's stamp.
  */
 export function setDeviceAI(patch: Partial<DeviceAI>): boolean {
   const s = useWorkspace.getState()
   const cur = s.settings.ai
-  if (!policyKnown(null, cur)) return false
+  // never over a newer build's layer (a stamp above every generation this build can compute — a budget's it computes)
+  if (!policyKnown(null, cur, STAMP_KNOWN)) return false
   const merged: Record<string, unknown> = { ...(cur ?? {}) }
   for (const [k, v] of Object.entries(patch)) {
     if (v === undefined) delete merged[k]

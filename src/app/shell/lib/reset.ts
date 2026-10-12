@@ -92,8 +92,8 @@ export async function runPendingReset(onBlocked?: () => void): Promise<boolean> 
   }
   if (!names) {
     // databases() is missing in some browsers: the ones a reset must reach anyway (the recorder's tape, Preflight's Bordbuch,
-    // the agents' runs and per-field trust books, the AI ledger and OpenRouter's catalogue too)
-    const all = new Set<string>(['keyval-store', 'one-files', 'one-vault', RECORDER_DB, 'one-preflight', 'one-agents', 'one-ledger', 'one-ai-catalog'])
+    // the agents' runs and per-field trust books, the AI ledger, the Regler's derived data and OpenRouter's catalogue too)
+    const all = new Set<string>(['keyval-store', 'one-files', 'one-vault', RECORDER_DB, 'one-preflight', 'one-agents', 'one-ledger', 'one-governor', 'one-ai-catalog'])
     try {
       const dbs = (await indexedDB.databases?.()) ?? []
       for (const d of dbs) if (d.name) all.add(d.name)
@@ -147,6 +147,18 @@ export async function runPendingReset(onBlocked?: () => void): Promise<boolean> 
       delete map['local:local']
       if (Object.keys(map).length) localStorage.setItem('one.preflight.lastScope', JSON.stringify(map))
       else localStorage.removeItem('one.preflight.lastScope')
+    }
+    // the Regler's day cache and the autofill rows paused at the red line of the local workspace, and its entry in the
+    // scopes the device line reads (features/governor) — the person's own line one.governor.device stays (it is the
+    // browser's, like the text size), and so do the Regler's display prefs
+    localStorage.removeItem('one.governor.today:local:local')
+    localStorage.removeItem('one.governor.paused:local:local')
+    const metered = localStorage.getItem('one.governor.scopes')
+    if (metered) {
+      const list = JSON.parse(metered) as unknown
+      const keep = Array.isArray(list) ? list.filter((x) => (x as { scope?: unknown } | null)?.scope !== 'local:local') : []
+      if (keep.length) localStorage.setItem('one.governor.scopes', JSON.stringify(keep))
+      else localStorage.removeItem('one.governor.scopes')
     }
     // the local workspace's look cache (team workspaces keep theirs, "standard look here" included)
     forgetLookCache('local')

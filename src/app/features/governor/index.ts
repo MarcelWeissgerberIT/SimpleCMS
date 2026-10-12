@@ -8,7 +8,8 @@
  *  - estimate(route, req) → { low, high } | null
  *  - ledgerScope() · LEDGER_DB / GOVERNOR_DB (cloud/device.ts, shell/lib/reset.ts)
  *  - totalsNow() · startTotals() · loadToday() · loadMonth() · useGovernorTotals · wipeGovernorScope()
- *  - readDeviceLimit() · deviceLimitOf() · setDeviceLimit(next) · knownScopes() · noteScope() · deviceLineScopes()
+ *  - readDeviceLimit() · deviceLimitOf() · setDeviceLimit(next) · writeDeviceLimit(next) (+ the device AI stamp) · knownScopes()
+ *    · noteScope() · deviceLineScopes()
  *  - allowOnce(usd) · allowTask(source, usd) · allowanceOf(ctx) · consume(id)
  *  - readPaused(scope) · addPaused(scope, rows) · takePaused(scope, match)
  * The price table itself is src/shared/ai/prices.ts (PRICES, costOf, PRICES_DATE) — re-exported here.
@@ -18,6 +19,7 @@ export { estimate, CHARS_PER_TOKEN, type Band, type EstimateRequest } from './es
 export { ledgerScope } from './scope'
 export { totalsNow, startTotals, loadToday, loadMonth, useGovernorTotals, wipeGovernorScope, governorOpened, GOVERNOR_DB, TODAY_PREFIX, type TotalsNow, type GovernorTotalsView } from './totals'
 export { readDeviceLimit, deviceLimitOf, setDeviceLimit, knownScopes, noteScope, forgetScopes, deviceLineScopes, DEVICE_KEY, SCOPES_KEY, DEVICE_LINE_SPANS_BROWSER, type DeviceLimitResult, type ScopeSeen } from './device'
+export { writeDeviceLimit } from './line'
 export { allowOnce, allowTask, allowanceOf, consume, allowedBy, clearAllowances, type AllowToken } from './allow'
 export { readPaused, addPaused, takePaused, wipePaused, PAUSED_PREFIX, PAUSED_MAX, type PausedRow, type PausedList } from './paused'
 export { BOOK_CHANNEL } from './book'

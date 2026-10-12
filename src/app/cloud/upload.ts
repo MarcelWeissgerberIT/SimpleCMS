@@ -13,7 +13,8 @@ import { flushSave, migrate, readStoredWorkspace } from '../store/persistence'
 import { sanitizeLook } from '../store/look'
 import { sanitizeIntegrations } from '../store/integrations'
 import { readWorkspaceAI } from '../store/ai'
-import { requiredGen } from '@/shared/ai/policy'
+import { isReadableGovernor, sanitizeGovernor, stampGen } from '@/shared/ai/governor'
+import { STAMP_KNOWN } from '../store/governor'
 import type { ID, Workspace } from '../store/types'
 import { FILE_PREFIX, getLocalFile } from '../lib/files'
 import { newId } from '../lib/ids'
@@ -199,13 +200,22 @@ export async function uploadLocalWorkspaceImpl(wsId: string, onProgress?: (p: nu
       // entry waits for a server whose agents read it (D-S2-30); member classes stay on the device (settings.ai)
       const supports = useCloud.getState().supports ?? []
       const ai = supports.includes('ai') ? readWorkspaceAI(local.ai) : undefined
-      if (ai && r.workspace.get('ai') === undefined) {
-        const providers = { ...(ai.policy?.providers ?? {}) }
+      // the Regler (sanitized again; only on a server that guards it and the AI rules — its generation stamp travels in
+      // `ai`): a value this build can read, never the marker or a newer shape it holds no say over
+      const governor = supports.includes('ai') && supports.includes('governor') ? sanitizeGovernor(local.governor) : undefined
+      const takeGovernor = isReadableGovernor(governor) && r.workspace.get('governor') === undefined ? governor : undefined
+      if (takeGovernor) r.workspace.set('governor', { ...JSON.parse(JSON.stringify(takeGovernor)), updatedBy: userId })
+      if ((ai || takeGovernor) && r.workspace.get('ai') === undefined) {
+        const providers = { ...(ai?.policy?.providers ?? {}) }
         if (!supports.includes('providers')) delete providers.anthropic
-        const policy = ai.policy ? { ...ai.policy, providers } : undefined
-        const g = requiredGen({ ...ai, ...(policy ? { policy } : {}) }, null)
-        const { gen: _gen, ...rest } = ai
-        r.workspace.set('ai', { ...JSON.parse(JSON.stringify({ ...rest, ...(policy ? { policy } : {}) })), ...(g > 1 ? { gen: g } : {}), updatedBy: userId })
+        const policy = ai?.policy ? { ...ai.policy, providers } : undefined
+        const { gen: _gen, ...rest } = ai ?? {}
+        const rules = { ...rest, ...(policy ? { policy } : {}) }
+        // ONE stamp (shared/ai/governor.ts): what the rules need and what the governor carried along needs — a newer
+        // build's stamp (above what this build can compute) stays as it is
+        const kept = (ai?.gen ?? 1) > STAMP_KNOWN ? (ai?.gen ?? 1) : 1
+        const g = Math.max(kept, stampGen(rules, takeGovernor, ai?.gen))
+        if (Object.keys(rules).length || g > 1) r.workspace.set('ai', { ...JSON.parse(JSON.stringify(rules)), ...(g > 1 ? { gen: g } : {}), updatedBy: userId })
       }
     }, UPLOAD_ORIGIN)
     await meta.flushed(120_000)

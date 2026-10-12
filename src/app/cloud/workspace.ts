@@ -30,6 +30,7 @@ import { useCloud, useCloudSync, type CloudUser, type CloudWorkspace, type Peer,
 import { readOnlyFor, watchSchema } from './schemaGate'
 import { SYSTEM, withWriter } from '../store/writer'
 import { setAIRulesGuard, withCleanAISettings } from '../store/ai'
+import { setGovernorGuard } from '../store/governor'
 
 export interface ActiveCloud {
   ws: CloudWorkspace
@@ -76,6 +77,14 @@ const supports = (what: string): boolean => (useCloud.getState().supports ?? [])
 /** The workspace's AI rules: owners and admins, on a server that guards them (`supports ∋ 'ai'`). */
 function canRuleAI(): boolean {
   return canStyle() && supports('ai')
+}
+
+/**
+ * The Regler (Workspace.governor): owners and admins, on a server that guards it (`supports ∋ 'governor'`) and the AI
+ * rules too — the generation stamp it needs travels in Workspace.ai (store/governor.ts).
+ */
+function canGovern(): boolean {
+  return canRuleAI() && supports('governor')
 }
 
 function setStatus(status: 'connecting' | 'online' | 'offline') {
@@ -164,7 +173,7 @@ export async function openCloudWorkspace(ws: CloudWorkspace, user: CloudUser, on
     ...(data.look ? { look: data.look } : {}),
     // the AI rules: read (sanitized), never written by this build
     ...(data.ai ? { ai: data.ai } : {}),
-    // the Regler: read (sanitized), never written by this build yet (G0)
+    // the Regler: read (sanitized); written by owners / admins on a server that guards it (canGovern)
     ...(data.governor ? { governor: data.governor } : {}),
   })
   setLookGuard(canStyle)
@@ -175,6 +184,8 @@ export async function openCloudWorkspace(ws: CloudWorkspace, user: CloudUser, on
   // the workspace's AI rules: owners and admins on a server that guards them; Claude's column only once its agents read
   // Claude rules (D-S2-30)
   setAIRulesGuard({ rules: canRuleAI, claude: () => supports('providers') })
+  // the Regler: the same people, on a server that guards it (the setter says which of the two refused)
+  setGovernorGuard({ rights: canStyle, server: () => supports('ai') && supports('governor') })
 
   // From here on the store shows the cloud workspace: a failing service must not throw (the
   // caller would fall back to the local workspace while the binding is already live).
@@ -322,6 +333,7 @@ export async function openCloudWorkspace(ws: CloudWorkspace, user: CloudUser, on
       writable,
       canStyle,
       canRuleAI,
+      canGovern,
       isFavorite: (id) => favorites.has(id),
       onRemotePages: (r) => {
         onRemotePages(r)

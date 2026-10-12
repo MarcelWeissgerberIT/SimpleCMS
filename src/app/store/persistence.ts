@@ -1463,7 +1463,8 @@ export function startPersistence(): () => void {
     }
     trackDirty(state.databases, prev.databases, dirtyDbs)
     if (state.settings !== prev.settings) {
-      for (const k of Object.keys(state.settings) as Array<keyof Settings>) if (state.settings[k] !== prev.settings[k]) dirtySettings.add(k)
+      // a key that went (settings.ai when no device rule or stamp is left) is a change too
+      for (const k of new Set([...Object.keys(state.settings), ...Object.keys(prev.settings)]) as Set<keyof Settings>) if (state.settings[k] !== prev.settings[k]) dirtySettings.add(k)
     }
     if (state.people !== prev.people) dirtyPeople = true
     if (state.recent !== prev.recent) dirtyRecent = true

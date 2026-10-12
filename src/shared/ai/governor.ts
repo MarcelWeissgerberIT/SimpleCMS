@@ -331,6 +331,14 @@ export function sanitizeGovernorWithReport(v: unknown): { value: WorkspaceGovern
 
 export const sanitizeGovernor = (v: unknown): WorkspaceGovernor | Unreadable | undefined => sanitizeGovernorWithReport(v).value
 
+/** The keys of a later slice in a readable governor (kept as they were — a write by this build carries them along). */
+export function governorExtras(g: WorkspaceGovernor | Unreadable | null | undefined): Record<string, unknown> {
+  if (!isReadableGovernor(g)) return {}
+  const out: Obj = {}
+  for (const k of Object.keys(g)) if (!KNOWN.has(k)) out[k] = (g as unknown as Obj)[k]
+  return out
+}
+
 /** Does the value say anything (the standard governor — no lever, no limit, no rule, nothing unknown — is no value)? */
 function hasEffect(g: WorkspaceGovernor): boolean {
   if ((g.autonomy && g.autonomy !== 'apply') || g.moved || g.ceiling !== undefined || g.day !== undefined || g.month !== undefined) return true
