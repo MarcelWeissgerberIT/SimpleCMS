@@ -310,6 +310,19 @@ test.describe('lamps — views, MASTER CAUTION, the panel', () => {
     expect(mcCount([a, b, c, g])).toBe(1)
   })
 
+  test('a reading may say whether it counts for Master Caution while lit (amber dark, red lit — the Regler’s VERBRAUCH)', () => {
+    const m = meta('usage', { master: true })
+    const amber = buildView(m, { state: 'ok', count: 1, ids: ['use:2026-10-12:amber'], level: 'amber', master: false }, undefined, 1, 5)
+    expect(amber).toMatchObject({ level: 'amber', isNew: true, master: false })
+    expect(mcCount([amber])).toBe(0)
+    const red = buildView(meta('usage', { master: false }), { state: 'ok', count: 2, ids: ['use:2026-10-12:red', 'held:ag-nordlicht:2026-10-12'], level: 'red', master: true }, undefined, 1, 5)
+    expect(red).toMatchObject({ level: 'red', isNew: true, master: true })
+    expect(mcCount([amber, red])).toBe(1)
+    // a reading without it behaves as before (the source's flag); a dark lamp keeps the source's flag too
+    expect(buildView(m, { state: 'ok', count: 1, ids: ['x'], level: 'amber' }, undefined, 1, 5).master).toBe(true)
+    expect(buildView(m, { state: 'ok', count: 0, ids: [], master: false }, undefined, 1, 5).master).toBe(true)
+  })
+
   test('panelLamps: order, `after`, hidden, the cap of 16 and the overflow', () => {
     const lamps = [
       { id: 'inbox', order: 80 },

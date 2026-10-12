@@ -132,7 +132,8 @@ export function buildView(m: LampMeta, r: LampReading, ack: AckEntry | undefined
     newCount: chip ? k : 0,
     chip,
     flash: m.flash,
-    master: m.master,
+    // a reading may say for itself whether it counts for MASTER CAUTION while lit (amber dark, red lit)
+    master: isLit(level) && typeof r.master === 'boolean' ? r.master : m.master,
     hasQueue: m.hasQueue,
     ms,
     at,

@@ -18,7 +18,9 @@
  *    68k cold-cache example, 250k context, a 300-page PDF, MCP, thinking); the start check;
  *  - agent runs the Regler held (features/agents/held.ts): one not-started record per agent and day with its count and
  *    times, a stop that keeps the proposals, pruning that never drops a run with open proposals (≤ 50 more, then said),
- *    health's newest real run (a hold lights no fail lamp, an earlier failure stays lit).
+ *    health's newest real run (a hold lights no fail lamp, an earlier failure stays lit);
+ *  - the Preflight lamp VERBRAUCH's reading (lamp.ts): amber from 75 % (count 1, never MASTER CAUTION), red at the line
+ *    with the day's held / paused / halt ids, acknowledged per band per day; the numbers as shown (format.ts).
  * Every value is fictional.
  */
 import { existsSync, readFileSync } from 'node:fs'
@@ -75,6 +77,8 @@ import {
 } from '../../src/app/features/governor/brake'
 import { HELD_TIMES, PRUNE_EXTRA, heldDay, heldId, heldNotStarted, heldStopped, mergeRun, newestReal, openProposals, pruneRuns } from '../../src/app/features/agents/held'
 import type { AgentRun } from '../../src/app/features/agents/types'
+import { AMBER_SHARE, readUsageLamp, usageLine } from '../../src/app/features/governor/lamp'
+import { fmtBand, fmtNum, fmtOf, fmtTok } from '../../src/app/features/governor/format'
 import { blendedPerM, priceRow } from '../../src/shared/ai/prices'
 import { capsOf } from '../../src/shared/ai/models'
 import type { PriceRow, Route, Usage } from '../../src/shared/ai/types'
@@ -978,5 +982,64 @@ test.describe('agent runs the Regler held (agents/held.ts)', () => {
     expect(lamp([heldRun, run('s', T0 + 1, { status: 'skipped' }), run('b', T0, { status: 'budget' })])).toBe(true)
     // positive control: the agent's own budget failure lights it
     expect(lamp([run('b', T0, { status: 'budget' })])).toBe(true)
+  })
+})
+
+test.describe('the lamp VERBRAUCH (lamp.ts readUsageLamp)', () => {
+  const T = (today: number, month = today, device = today, deviceMonth = month) => ({ scope: { spentToday: today, spentMonth: month, unpricedToday: 0 }, device: { spentToday: device, spentMonth: deviceMonth, scopes: ['local:local'] } })
+  const L = (ws: { day?: number; month?: number }, dev: { day?: number; month?: number } = {}) => ({ ws: { day: ws.day ?? null, month: ws.month ?? null }, device: { day: dev.day ?? null, month: dev.month ?? null } })
+  const day = '2026-10-12'
+
+  test('below 75 %: dark; from 75 %: amber with count 1, never MASTER CAUTION; the second line', () => {
+    expect(readUsageLamp({ day, limits: L({ day: 6 }), totals: T(4.4) })).toEqual({ state: 'ok', count: 0, ids: [] })
+    const amber = readUsageLamp({ day, limits: L({ day: 6 }), totals: T(4.5), second: (s, l) => fmtOf(s, l, 'de') })
+    expect(amber).toEqual({ state: 'ok', count: 1, ids: ['use:2026-10-12:amber'], level: 'amber', master: false, second: '4,50/6\u00a0$' })
+    expect(AMBER_SHARE).toBe(0.75)
+    // no line at all: dark, whatever was spent
+    expect(readUsageLamp({ day, limits: L({}), totals: T(400) }).count).toBe(0)
+  })
+
+  test('at the line: red, MASTER CAUTION, the day’s held / paused (one per property) / halt ids each their own', () => {
+    const red = readUsageLamp({
+      day,
+      limits: L({ day: 6 }),
+      totals: T(6.02),
+      held: ['ag-nordlicht', 'ag-nordlicht', 'ag-tessera'],
+      paused: [
+        { db: 'db-launch', prop: 'p-summary', row: 'r1' },
+        { db: 'db-launch', prop: 'p-summary', row: 'r2' },
+        { db: 'db-launch', prop: 'p-tags', row: 'r1' },
+      ] as Array<{ db: string; prop: string }>,
+      halts: ['task-7'],
+      second: (s, l) => fmtOf(s, l, 'en'),
+    })
+    expect(red.ids).toEqual(['use:2026-10-12:red', 'held:ag-nordlicht:2026-10-12', 'held:ag-tessera:2026-10-12', 'paused:db-launch:p-summary', 'paused:db-launch:p-tags', 'halt:task-7'])
+    expect(red).toMatchObject({ count: 6, level: 'red', master: true, second: '$6.02/6', parts: { held: 2, paused: 2, halt: 1 } })
+    // work waiting at the line lights it red below the line too (the budget was raised since: the use id is not lit)
+    const waiting = readUsageLamp({ day, limits: L({ day: 10 }), totals: T(6.02), held: ['ag-nordlicht'] })
+    expect(waiting).toMatchObject({ count: 1, ids: ['held:ag-nordlicht:2026-10-12'], level: 'red', master: true })
+    // acknowledged per band per day: tomorrow's amber is a new id
+    expect(readUsageLamp({ day: '2026-10-13', limits: L({ day: 6 }), totals: T(5) }).ids).toEqual(['use:2026-10-13:amber'])
+  })
+
+  test('the line nearest its limit binds: the device line across workspaces, the month', () => {
+    expect(usageLine(L({ day: 6 }, { day: 8 }), T(4, 4, 7.5))).toMatchObject({ binding: 'device-day', spent: 7.5, limit: 8 })
+    expect(usageLine(L({ day: 6, month: 120 }), T(1, 119))).toMatchObject({ binding: 'month', share: 119 / 120 })
+    expect(usageLine(L({}), T(5))).toBeNull()
+    expect(readUsageLamp({ day, limits: L({ month: 120 }), totals: T(1, 121) }).ids).toEqual(['use:2026-10-12:red'])
+  })
+
+  test('the numbers as shown: tokens, bands, amounts (DE / EN)', () => {
+    expect(['de', 'en'].map((l) => [950, 15_300, 68_000, 141_400, 1_240_000].map((n) => fmtTok(n, l as 'de' | 'en')))).toEqual([
+      ['950', '15,3k', '68k', '141k', '1,24 Mio.'],
+      ['950', '15.3k', '68k', '141k', '1.24M'],
+    ])
+    expect(fmtBand({ low: 0.3, high: 0.52 }, 'de')).toBe('0,30–0,52\u00a0$')
+    expect(fmtBand({ low: 0.3, high: 0.52 }, 'en')).toBe('$0.30–0.52')
+    expect(fmtBand({ low: 0.611, high: 0.614 }, 'de')).toBe('0,61\u00a0$')
+    expect(fmtNum(6, 'de', true)).toBe('6')
+    expect(fmtNum(6, 'de')).toBe('6,00')
+    expect(fmtOf(5.71, 6, 'de')).toBe('5,71/6\u00a0$')
+    expect(fmtOf(5.71, 6.5, 'en')).toBe('$5.71/6.50')
   })
 })

@@ -31,6 +31,11 @@ export interface LampReading {
   parts?: Record<string, number>
   /** superseded today (rule card / slip note), never in count */
   notCards?: number
+  /**
+   * counts for MASTER CAUTION — wins over the source's `master` while the lamp is lit (a lamp whose amber stays dark
+   * in the cockpit sense and whose red lights it: the Regler's VERBRAUCH); absent = the source's
+   */
+  master?: boolean
 }
 
 export interface ReadCtx {
