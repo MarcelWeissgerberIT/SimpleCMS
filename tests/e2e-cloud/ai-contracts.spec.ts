@@ -9,6 +9,7 @@ import { HocuspocusProvider, HocuspocusProviderWebsocket } from '@hocuspocus/pro
 import * as Y from 'yjs'
 import { test, expect, email, signIn, openApp, waitOnline, wsEval, createWorkspace } from './fixtures'
 import { DOC_SCHEMA_VERSION } from '../../src/app/store/generations'
+import { mockOpenRouter } from '../e2e/helpers/providers'
 
 /** A collab client in Node with this page's session (a client other than the app: what a newer build would write). */
 async function rawClient(page: Page, name: string) {
@@ -95,9 +96,11 @@ test('two tabs of one team workspace: device AI rules and a key marker saved in 
   await openApp(other, wsId)
   await waitOnline(other)
 
-  // tab B narrows this device's rules at a generation this build does not know, and keeps a key marker
-  const MARKER = 'vault:tessera0001:4c2a'
-  await wsEval(other, (s, marker) => s.updateSettings({ ai: { gen: 2 }, aiKeys: { openrouter: marker } }), MARKER)
+  // tab B narrows this device's rules at a generation this build does not know, and keeps a key (S2: sealed → its marker;
+  // a marker this browser cannot open is dropped at the next boot, so the key is a real one here)
+  await wsEval(other, (s) => s.updateSettings({ ai: { gen: 2 }, aiKeys: { openrouter: 'sk-or-v1-e2e-tessera-key-000000000000000000000000000000000000000000004c2a' } }))
+  const MARKER = await wsEval(other, (s) => s.settings.aiKeys.openrouter as string)
+  expect(MARKER).toMatch(/^vault:[0-9a-z]{12}:4c2a$/)
   const deviceOf = (p: Page) => wsEval(p, (s) => JSON.parse(JSON.stringify({ ai: s.settings.ai ?? null, keys: s.settings.aiKeys ?? null })))
   // tab A reads them (the overlay ping): its gate now sees generation 2
   await expect.poll(() => deviceOf(page)).toEqual({ ai: { gen: 2 }, keys: { openrouter: MARKER } })
@@ -113,4 +116,43 @@ test('two tabs of one team workspace: device AI rules and a key marker saved in 
   await waitOnline(other)
   expect(await deviceOf(other)).toEqual({ ai: { gen: 2 }, keys: { openrouter: MARKER } })
   expect(await wsEval(other, (s) => s.settings.theme)).toBe('dark')
+})
+
+test('an OpenRouter key sealed in the local workspace opens in a new team workspace (the overlay inherits the seal)', async ({ page }) => {
+  const KEY = 'sk-or-v1-e2e-nordlicht-key-00000000000000000000000000000000000000000009Kp2'
+  const or = await mockOpenRouter(page.context())
+  await signIn(page, email('ada'))
+  // the local workspace: the key pasted there (sealed for "local")
+  await openApp(page)
+  await wsEval(page, (s, k) => s.updateSettings({ aiKeys: { openrouter: k } }), KEY)
+  const marker = await wsEval(page, (s) => s.settings.aiKeys.openrouter as string)
+  expect(marker).toMatch(/^vault:[0-9a-z]{12}:9Kp2$/)
+  await page.evaluate(() => (window as unknown as { __one: { flushSave(): Promise<void> } }).__one.flushSave())
+  // a new team workspace starts with the local settings: the same marker, opened through the local seal
+  const wsId = await createWorkspace(page, 'Nordlicht Team')
+  await openApp(page, wsId)
+  await waitOnline(page)
+  expect(await wsEval(page, (s) => s.settings.aiKeys?.openrouter ?? null)).toBe(marker)
+  const check = await page.evaluate(() => (window as unknown as { __oneAI: { verifyProvider(p: string): Promise<{ ok: boolean }> } }).__oneAI.verifyProvider('openrouter'))
+  expect(check).toMatchObject({ ok: true })
+  expect(or.to('/api/v1/key').map((r) => r.bearer)).toEqual([KEY])
+  expect(or.posts()).toHaveLength(0)
+  // … and sealed again for this team workspace (its own scope), never stored in the clear
+  const vault = await page.evaluate(
+    (ws) =>
+      new Promise<{ team: boolean; keys: string[] }>((resolve) => {
+        const r = indexedDB.open('one-vault')
+        r.onsuccess = () => {
+          const all = r.result.transaction('kv').objectStore('kv').getAllKeys()
+          all.onsuccess = () => {
+            const keys = (all.result as string[]).map(String)
+            r.result.close()
+            resolve({ team: keys.includes(`s:cloud:${ws}|ai-key:openrouter`), keys })
+          }
+        }
+      }),
+    wsId,
+  )
+  expect(vault.team).toBe(true)
+  expect(vault.keys).toContain('s:local:local|ai-key:openrouter')
 })

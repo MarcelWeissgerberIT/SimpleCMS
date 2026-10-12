@@ -15,6 +15,7 @@
  *   - HistoryModal, ShareModal, ImportModal, ExportModal, AutomationsModal, TemplatesModal, SaveTemplateModal
  *   - openTodayJournal()
  */
+import { lazy } from 'react'
 export { startHistory, seedDemoHistory } from './history/snapshots'
 /* a version of a page right now, before a structural edit (editor: "Turn into page") */
 export { snapshotNow } from './history/snapshots'
@@ -100,8 +101,13 @@ export type { MediaItem } from './ai/media/types'
  * hands the code to the tab that started it and closes) · McpOAuthScreen (no props; the code stays in memory) =
  * the route #/oauth/mcp (the shell renders it; this tab finishes the sign-in itself)
  */
-export { consumeMcpOAuthReturn } from './ai/mcp-servers/oauthReturn'
+export { consumeMcpOAuthReturn, consumeOAuthReturn } from './ai/mcp-servers/oauthReturn'
 export { McpOAuthScreen } from './ai/mcp-servers/OAuthScreen'
+/*
+ * Connecting OpenRouter (multi-provider S2): consumeOAuthReturn(note) — the general way back (`?oauth=mcp | openrouter`)
+ * main.tsx runs first · OpenRouterOAuthScreen (lazy, no props) = the route #/oauth/openrouter (this tab finishes it)
+ */
+export const OpenRouterOAuthScreen = lazy(() => import('./ai/providers/OpenRouterOAuthScreen').then((m) => ({ default: m.OpenRouterOAuthScreen })))
 /*
  * One memory (features/ai/memory): Claude remembers what the person confirms (a database "One memory" +
  * its usage log) and takes the matching memories along with free-form requests:

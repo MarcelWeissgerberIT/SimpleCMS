@@ -192,6 +192,10 @@ export const OR_CATALOGUE = (): AnyState => JSON.parse(readFileSync(fileURLToPat
 export interface ORCaptured {
   method: string
   path: string
+  /** the whole address (the consent page's query: state, challenge …) */
+  url: string
+  /** the page that sent it (null: a worker) — "no exchange from the sign-in window" */
+  page: Page | null
   /** request headers, the Authorization header left out (it is only checked to be a Bearer key) */
   headers: Record<string, string>
   /** the key the request carried ('' = none) */
@@ -226,8 +230,27 @@ export type ORStep =
 
 export type ORStepFn = ORStep | ((req: ORCaptured, n: number) => ORStep)
 
-/** How the consent page answers (`openrouter.ai/auth`): approve, deny (with or without `state`), or a code without `state`. */
-export type ORConsent = 'approve' | 'deny' | 'deny-state' | 'code-no-state' | ((url: URL) => string)
+/**
+ * How the consent page answers (`openrouter.ai/auth`): approve, deny (with or without `state`), a code without `state`,
+ * or 'page' — it waits on a page with an Approve and a Deny link (`orConsentLinks`) the spec clicks.
+ */
+export type ORConsent = 'approve' | 'deny' | 'deny-state' | 'code-no-state' | 'page' | ((url: URL) => string)
+
+/** Where the consent page sends the browser back: the callback with a code + state (approve) or a denial. */
+export function orCallback(consentUrl: string, answer: 'approve' | 'deny' | 'deny-state' | 'code-no-state', code = 'code-e2e-0001'): string {
+  const url = new URL(consentUrl)
+  const u = new URL(url.searchParams.get('callback_url') ?? '')
+  const state = url.searchParams.get('state') ?? ''
+  if (answer === 'approve') {
+    u.searchParams.set('code', code)
+    if (state) u.searchParams.set('state', state)
+  } else if (answer === 'code-no-state') u.searchParams.set('code', 'code-e2e-0002')
+  else {
+    u.searchParams.set('error', 'access_denied')
+    if (answer === 'deny-state' && state) u.searchParams.set('state', state)
+  }
+  return u.href
+}
 
 export interface ORMockOpts {
   /** answers to chat POSTs, in order (then `fallback`, default a short text) */
@@ -235,7 +258,7 @@ export interface ORMockOpts {
   fallback?: ORStepFn
   /** GET /api/v1/key: 'ok' (the doc fixture), a status, or a function */
   key?: 'ok' | number | ((req: ORCaptured) => { status: number; json: unknown })
-  /** POST /api/v1/auth/keys: the key it hands out, a status (an error), 'cors' (no answer the browser may read) */
+  /** POST /api/v1/auth/keys: the key it hands out, a status (an error), 'cors' (no answer the page may read: the fetch fails) */
   exchange?: string | number | 'cors'
   consent?: ORConsent
   /** /models/{id}/endpoints: tags per model (default: one endpoint per model, tag from its maker) */
@@ -311,25 +334,25 @@ export async function mockOpenRouter(ctx: BrowserContext | Page, opts: ORMockOpt
     } catch {
       body = null
     }
-    const cap: ORCaptured = { method: req.method(), path: url.pathname, headers: rest, bearer: auth.replace(/^Bearer\s+/i, ''), body }
+    let from: Page | null = null
+    try {
+      from = req.frame().page()
+    } catch {
+      from = null
+    }
+    const cap: ORCaptured = { method: req.method(), path: url.pathname, url: url.href, page: from, headers: rest, bearer: auth.replace(/^Bearer\s+/i, ''), body }
     requests.push(cap)
     const json = (status: number, j: unknown, h: Record<string, string> = {}) => route.fulfill({ status, headers: { ...orCors, 'content-type': 'application/json', ...h }, body: JSON.stringify(j) })
     try {
       // the consent page: back to the app with a code (or a denial)
       if (url.pathname === '/auth') {
-        const cb = url.searchParams.get('callback_url') ?? ''
-        const state = url.searchParams.get('state') ?? ''
         const c = opts.consent ?? 'approve'
-        const target = typeof c === 'function' ? c(url) : (() => {
-          const u = new URL(cb)
-          if (c === 'approve') u.searchParams.set('code', 'code-e2e-0001'), state && u.searchParams.set('state', state)
-          else if (c === 'code-no-state') u.searchParams.set('code', 'code-e2e-0002')
-          else {
-            u.searchParams.set('error', 'access_denied')
-            if (c === 'deny-state' && state) u.searchParams.set('state', state)
-          }
-          return u.href
-        })()
+        if (c === 'page') {
+          const esc = (v: string) => v.replace(/&/g, '&amp;').replace(/"/g, '&quot;')
+          const html = `<!doctype html><meta charset="utf-8"><title>Authorize</title><a id="approve" href="${esc(orCallback(url.href, 'approve'))}">Approve</a> <a id="deny" href="${esc(orCallback(url.href, 'deny'))}">Deny</a>`
+          return route.fulfill({ status: 200, headers: { 'content-type': 'text/html' }, body: html })
+        }
+        const target = typeof c === 'function' ? c(url) : orCallback(url.href, c)
         return route.fulfill({ status: 302, headers: { location: target } })
       }
       if (req.method() === 'GET' && url.pathname === '/api/v1/models') return json(200, OR_CATALOGUE())
@@ -346,7 +369,9 @@ export async function mockOpenRouter(ctx: BrowserContext | Page, opts: ORMockOpt
       }
       if (url.pathname === '/api/v1/auth/keys') {
         const x = opts.exchange ?? 'sk-or-v1-e2e0000000000000000000000000000000000000000000000000000000000'
-        if (x === 'cors') return route.fulfill({ status: 200, headers: { 'content-type': 'application/json' }, body: '{}' })
+        // a CORS refusal reads in the page like a network failure (fetch rejects); a fulfilled answer without
+        // Access-Control-Allow-Origin is not refused under route interception, so the request fails here
+        if (x === 'cors') return route.abort('failed')
         if (typeof x === 'number') return json(x, { error: { code: x, message: x === 400 ? 'Invalid code_challenge_method' : 'Invalid code or code_verifier' } })
         return json(200, { key: x, user_id: 'user_e2e_fixture' })
       }

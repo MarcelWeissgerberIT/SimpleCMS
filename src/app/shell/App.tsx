@@ -1,3 +1,4 @@
+import { Suspense } from 'react'
 import { useRoute, type Route } from '../lib/router'
 import { useWorkspace } from '../store/store'
 import { useUI } from '../store/ui'
@@ -5,7 +6,7 @@ import { usePage } from '../store/selectors'
 import { useThemeAndLanguage } from '../lib/theme'
 import { useWorkspaceLook } from '../lib/look'
 import { GraphView, SharedPageView, Presentation, AgentsRoute, ScriptsRoute, ScriptDialogHost, CodingRoute, KitRoute, KitHost, OutboxRoute, OutboxHost } from '../features'
-import { McpOAuthScreen } from '../features'
+import { McpOAuthScreen, OpenRouterOAuthScreen } from '../features'
 import { SharedFormView } from '../database'
 import { PageIcon } from '../ui/PageIcon'
 import { useT } from '../i18n'
@@ -87,11 +88,17 @@ export function App() {
         <Toasts />
       </ErrorBoundary>
     )
-  // an MCP server's sign-in came back to this tab: it finishes here, then back to Settings
+  // an MCP server's sign-in (or connecting OpenRouter) came back to this tab: it finishes here, then back to Settings
   if (route.name === 'oauth')
     return (
       <ErrorBoundary>
-        <McpOAuthScreen />
+        {route.kind === 'openrouter' ? (
+          <Suspense fallback={null}>
+            <OpenRouterOAuthScreen />
+          </Suspense>
+        ) : (
+          <McpOAuthScreen />
+        )}
         <Toasts />
       </ErrorBoundary>
     )

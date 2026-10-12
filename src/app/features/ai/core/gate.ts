@@ -86,6 +86,11 @@ if (typeof window !== 'undefined' && new URLSearchParams(window.location.search)
     // the catalogue on this device (lazy: nothing opens before a call)
     loadCatalog: (force?: boolean) => import('./catalog').then((m) => m.loadCatalog({ force: !!force })).then((c) => (c ? { at: c.at, rows: c.rows.length, ids: c.rows.map((r) => r.id) } : null)),
     seedEndpoints: (map: Record<string, Array<{ tag: string; name?: string }>>, at?: number) => import('./catalog').then((m) => m.seedEndpoints(map, at)),
+    // connecting OpenRouter (the setup's key comes in stage C) and the free key check
+    connectOpenRouter: (o?: { sameTab?: boolean }) => import('../providers/openrouterConnect').then((m) => m.connectOpenRouter(o ?? {})),
+    cancelOpenRouter: () => import('../providers/openrouterConnect').then((m) => m.cancelOpenRouter()),
+    orConnectState: () => import('../providers/openrouterConnect').then((m) => JSON.parse(JSON.stringify(m.useORConnect.getState())) as unknown),
+    verifyProvider: (p: 'anthropic' | 'openrouter', key?: string) => import('./verify').then((m) => m.verifyProvider(p, key)),
   }
 }
 
