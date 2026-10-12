@@ -4,8 +4,9 @@
  * own key (features/ai/client). Off by default. When it is on, the subject, sender, date and text of
  * each organised mail go to Anthropic; when it is off, nothing about mail ever does.
  */
-import { completeStructured, resolveModel } from '../ai/client'
-import { useWorkspace } from '../../store/store'
+import { completeStructured } from '../ai/client'
+import { chosenRoute, shortOf } from '../ai/core/status'
+import { estimate } from '../governor'
 import type { MailOrganise } from '../../store/types'
 import { PRIORITIES, type Priority } from './schema'
 
@@ -140,12 +141,12 @@ export interface OrganiseEstimate {
   model: string
 }
 
-/** Rough cost of organising `mails` mails (Anthropic bills the real usage to the user's key). */
+/** Rough cost of organising `mails` mails, priced by the one table (the provider bills the real usage to the user's key). */
 export function estimateOrganise(mails: number): OrganiseEstimate {
-  const model = resolveModel(useWorkspace.getState().settings.aiModel)
+  const route = chosenRoute()
   const requests = Math.ceil(mails / ORGANISE_BATCH)
   const inputTokens = requests * OVERHEAD_TOKENS + mails * MAIL_TOKENS
   const outputTokens = mails * OUT_TOKENS
-  const usd = (inputTokens * model.price.input + outputTokens * model.price.output) / 1_000_000
-  return { mails, inputTokens, outputTokens, usd, model: model.short }
+  const usd = estimate(route, { promptTokens: inputTokens, outTokens: outputTokens, maxTokens: outputTokens })?.low ?? 0
+  return { mails, inputTokens, outputTokens, usd, model: shortOf(route) }
 }

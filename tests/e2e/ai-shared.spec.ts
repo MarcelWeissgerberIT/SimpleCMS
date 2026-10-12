@@ -9,7 +9,7 @@ import { readdirSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { test, expect } from '@playwright/test'
 import { AI_ERROR_CODES, fallbackOf, isAIErrorCode } from '../../src/shared/ai/errors'
-import { MODELS, capsOf, labelOf, modelIdProblem, refusedSlug, vendorOf } from '../../src/shared/ai/models'
+import { MODELS, capsOf, labelOf, modelBase, modelIdProblem, modelRow, refusedSlug, sameModel, vendorOf } from '../../src/shared/ai/models'
 import { PRICES, PRICES_DATE, blendedPerM, costOf, priceRow, tierLabel } from '../../src/shared/ai/prices'
 import { estimateUsage, normalise, addUsage } from '../../src/shared/ai/usage'
 import { legacyRule, routeKey, sanitizeRoute, sanitizeRule } from '../../src/shared/ai/route'
@@ -18,6 +18,7 @@ import { looksLikeKey, scrubSecrets } from '../../src/shared/ai/keys'
 import type { PriceRow, Usage } from '../../src/shared/ai/types'
 import { classOfPage, classesOf, isSources, type SourceWorld } from '../../src/app/features/ai/core/sources'
 import type { Database, Page } from '../../src/app/store/types'
+import { estimate } from '../../src/app/features/governor/estimate'
 
 const U = (x: Partial<Usage> = {}): Usage => ({ input: 0, cacheWrite: 0, cacheWrite1h: 0, cacheRead: 0, output: 0, reasoning: 0, ...x })
 const usd = (u: Usage, r: PriceRow | null, at?: Date) => costOf(u, r, at).usd
@@ -132,6 +133,31 @@ test.describe('prices', () => {
   test('a reported cost wins; no price row = no price', () => {
     expect(costOf(U({ input: 1e6, reportedUsd: 0.0123 }), priceRow({ p: 'anthropic', m: 'claude-opus-5-5' }))).toEqual({ usd: 0.0123, source: 'reported' })
     expect(costOf(U({ input: 1e6 }), null)).toEqual({ usd: null, source: 'none' })
+  })
+
+  test('a dated snapshot id is its model (priced and known as it); an OpenRouter slug never is', () => {
+    expect(modelBase('claude-opus-5-5-20261001')).toBe('claude-opus-5-5')
+    expect(sameModel('claude-opus-5-5', 'claude-opus-5-5-20261001')).toBe(true)
+    expect(sameModel('claude-opus-5-5', 'claude-sonnet-5-5')).toBe(false)
+    expect(priceRow({ p: 'anthropic', m: 'claude-sonnet-5-5-20261001' })).toBe(priceRow({ p: 'anthropic', m: 'claude-sonnet-5-5' }))
+    expect(modelRow({ p: 'anthropic', m: 'claude-haiku-4-5-20251001' })?.label).toBe('Claude Haiku 4.5')
+    expect(priceRow({ p: 'openrouter', m: 'vendor-a/model-b-20261001' })).toBeNull()
+  })
+
+  test('estimate(): the band from the one table — the expected answer to the whole budget, cache reads at their price', () => {
+    const opus = { p: 'anthropic' as const, m: 'claude-opus-5-5' }
+    // 4,000 characters = 1,000 tokens in; 400 out expected, 2,000 at most
+    const b = estimate(opus, { promptChars: 4000, maxTokens: 2000 })!
+    close(b.low, (1000 * 4 + 400 * 20) / 1e6)
+    close(b.high, (1000 * 4 + 2000 * 20) / 1e6)
+    // a prompt read from the cache is priced at the cache-read column
+    const cached = estimate({ p: 'anthropic', m: 'claude-sonnet-5-5' }, { promptTokens: 10_000, cachedTokens: 8_000, maxTokens: 100, outTokens: 100 })!
+    close(cached.low, (2000 * 2 + 8000 * 0.1 + 100 * 10) / 1e6)
+    // a model that reasons beyond its visible answer gets headroom on the upper end
+    const sol = estimate({ p: 'openai', m: 'gpt-6.1-sol' }, { promptTokens: 1000, maxTokens: 1000, outTokens: 100 })!
+    expect(sol.high).toBeGreaterThan((1000 * 2 + 1000 * 10) / 1e6)
+    // no price, no band
+    expect(estimate({ p: 'openrouter', m: 'vendor-a/model-b' }, { promptChars: 100, maxTokens: 10 })).toBeNull()
   })
 
   test('blended price and tier labels', () => {

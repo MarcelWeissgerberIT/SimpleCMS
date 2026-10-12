@@ -12,7 +12,7 @@
  */
 import type AnthropicSDK from '@anthropic-ai/sdk'
 import type { BetaContentBlockParam, BetaMessageParam } from '@anthropic-ai/sdk/resources/beta/messages/messages'
-import { AIError, claudeClient, finalOf, toAIError, usesDemo } from '../client'
+import { AIError, claudeClient, finalOf, thinks, toAIError, usesDemo } from '../client'
 import { prepare, settle, type Prepared } from '../core/gate'
 import { meterCall, type Receipt } from '../core/meter'
 import type { PurposeId } from '../core/purposes'
@@ -162,7 +162,9 @@ export async function requestFile(req: FileRequest): Promise<string> {
     const call = meterCall(prepared, { signal, onRun: req.onRun })
     const got = await claudeClient()
     sdk = got.sdk
-    const { client, model } = got
+    const { client } = got
+    // the model the gate routed to; what it can do from its caps (never its id)
+    const model = prepared.route?.m ?? got.model
     if (signal?.aborted) throw new AIError('aborted')
     const prompt = buildFilePrompt({
       ...req,
@@ -179,7 +181,7 @@ export async function requestFile(req: FileRequest): Promise<string> {
       onToken?.(delta)
     }
     let stopReason: string | null
-    if (model === 'claude-haiku-4-5') {
+    if (!thinks(prepared.caps)) {
       const messages: AnthropicSDK.MessageParam[] = [{ role: 'user', content: [documentBlock(material), { type: 'text', text: prompt }] }]
       const stream = client.messages.stream({ model, max_tokens: Math.min(maxTokens, 32000), system: SYSTEM, messages, ...(format ? { output_config: { format } } : {}) })
       const abort = () => stream.abort()

@@ -8,7 +8,9 @@ import type AnthropicSDK from '@anthropic-ai/sdk'
 import type { BetaContentBlock, BetaMessage, BetaMessageParam, BetaMessageStreamParams } from '@anthropic-ai/sdk/resources/beta/messages/messages'
 import { useWorkspace } from '../../store/store'
 import { getAIKey } from '../../store/secrets'
-import type { SourceRef } from '@/shared/ai/types'
+import type { Caps, LedgerEntry, ProviderId, Route, SourceRef } from '@/shared/ai/types'
+import { DEFAULT_CLAUDE_MODEL, MODELS } from '@/shared/ai/models'
+import { priceRow } from '@/shared/ai/prices'
 import { AIError, type AIErrorCode } from './core/errors'
 import { usesDemo } from './core/demoMode'
 import { precheck, prepare, settle, type Prepared } from './core/gate'
@@ -73,20 +75,33 @@ export interface RunAIOptions {
 /* ------------------------------------------------------------------ */
 
 /**
- * price: USD per million tokens (Anthropic list prices; used for cost estimates only).
- * cacheRead: prompt-cache hits; cache writes (5-minute TTL) cost 1.25 × input.
+ * The Claude models this device can pick, in picker order (Opus = the default) — the registry's selectable rows
+ * (src/shared/ai/models.ts). `price` (USD per million tokens) is read from the one price table (prices.ts); receipts,
+ * budgets and estimates price through costOf / estimate(), never from here. Kept as a deprecated alias of the registry.
  */
-export const AI_MODELS = [
-  { id: 'claude-opus-5-5', short: 'OPUS 5.5', name: 'Claude Opus 5.5', price: { input: 4, output: 20, cacheRead: 0.2 } },
-  { id: 'claude-sonnet-5-5', short: 'SONNET 5.5', name: 'Claude Sonnet 5.5', price: { input: 2, output: 10, cacheRead: 0.2 } },
-  { id: 'claude-haiku-4-5', short: 'HAIKU 4.5', name: 'Claude Haiku 4.5', price: { input: 1, output: 5, cacheRead: 0.1 } },
-] as const
+export const AI_MODELS: ReadonlyArray<{ id: string; short: string; name: string; price: { input: number; output: number; cacheRead: number; cacheWrite: number } }> = MODELS.filter((r) => r.route.p === 'anthropic' && r.selectable).map((r) => {
+  const price = priceRow(r.route)
+  return { id: r.route.m, short: r.short, name: r.label, price: { input: price?.input ?? 0, output: price?.output ?? 0, cacheRead: price?.cacheRead ?? 0, cacheWrite: price?.cacheWrite ?? 0 } }
+})
 
-export type AIModelId = (typeof AI_MODELS)[number]['id']
-export const DEFAULT_MODEL: AIModelId = 'claude-opus-5-5'
+export type AIModelId = string
+export const DEFAULT_MODEL: AIModelId = DEFAULT_CLAUDE_MODEL
 
+/** The model a setting picks (an unknown id: the default) — for choosing the model, never for pricing. */
 export function resolveModel(id: string | undefined | null): (typeof AI_MODELS)[number] {
   return AI_MODELS.find((m) => m.id === id) ?? AI_MODELS[0]
+}
+
+/**
+ * What a Claude request may ask for, from the model's capabilities (never its id): Opus / Sonnet 5.5 think adaptively
+ * with an effort and have Anthropic's refusal fallback (the beta request); Haiku 4.5 has neither (the plain request).
+ */
+export const thinks = (caps: Caps | null | undefined): boolean => !!caps && caps.effort !== false && caps.refusalFallback
+
+/** The route a prepared request goes to (null: demo — no request is made). */
+function claudeRoute(prepared: Prepared): Route {
+  if (!prepared.route) throw new AIError('no_key')
+  return prepared.route
 }
 
 /** A key is set (its marker is in settings — synchronous, nothing is decrypted). */
@@ -294,7 +309,7 @@ export async function streamCompletion(opts: StreamOptions): Promise<string> {
   const prepared = prepare({ purpose: opts.purpose, sources: opts.sources, typed: opts.typed })
   const call = meterCall(prepared, { source: opts.ledgerSource, signal: opts.signal, onRun: opts.onRun })
   try {
-    return await streamOnce(opts, false, call)
+    return await streamOnce(opts, false, prepared, call)
   } finally {
     settle(prepared)
   }
@@ -335,7 +350,13 @@ export async function finalOf<M extends { model?: unknown; usage?: unknown; cont
 }
 
 /** A non-streamed Claude request, metered as one response (a failure from what is known: the prompt). */
-export async function metered<M extends { model?: unknown; usage?: unknown; content?: unknown; stop_reason?: unknown }>(call: MeterCall, request: () => Promise<M>, promptChars: () => number, sdk: SDKModule | null, signal?: AbortSignal): Promise<M> {
+export async function metered<M extends { model?: unknown; usage?: unknown; content?: unknown; stop_reason?: unknown }>(
+  call: MeterCall,
+  request: () => Promise<M>,
+  promptChars: () => number,
+  sdk: SDKModule | null,
+  signal?: AbortSignal,
+): Promise<{ msg: M; entry: LedgerEntry | null }> {
   let msg: M
   try {
     msg = await request()
@@ -343,17 +364,17 @@ export async function metered<M extends { model?: unknown; usage?: unknown; cont
     call.response(claudeCut(null, { promptChars: promptChars(), streamedChars: 0, outcome: signal?.aborted ? 'aborted' : toAIError(e, sdk).code, httpStatus: httpRefusal(e, sdk) }))
     throw e
   }
-  call.response(claudeResponse(msg))
-  return msg
+  return { msg, entry: call.response(claudeResponse(msg)) }
 }
 
-async function streamOnce(opts: StreamOptions, again: boolean, call: MeterCall): Promise<string> {
+async function streamOnce(opts: StreamOptions, again: boolean, prepared: Prepared, call: MeterCall): Promise<string> {
   const { system, prompt, onToken, signal, mcp, codewords, onMcp: report, onMedia, setup, maxResumes } = opts
   const apiKey = await getAIKey('anthropic')
   if (!apiKey) throw new AIError('no_key')
-  const settings = useWorkspace.getState().settings
   if (signal?.aborted) throw new AIError('aborted')
-  const model = resolveModel(settings.aiModel).id
+  // the model the gate routed to, and what it can do (caps — never a model id check)
+  const model = claudeRoute(prepared).m
+  const deep = thinks(prepared.caps)
   let sdk: SDKModule | null = null
   let attached: McpAttachment | null = null
   // an MCP call of this request started (streamWithMcp): no retry without a server after that
@@ -380,10 +401,10 @@ async function streamOnce(opts: StreamOptions, again: boolean, call: MeterCall):
     let stopReason: string | null
     const promptChars = () => system.length + prompt.length
     if (attached) {
-      const final = await streamWithMcp(client, model, `${system}\n\n${attached.system}`, prompt, attached, onText, onMcp, signal, { onMedia, maxResumes, seen, call, sdk })
+      const final = await streamWithMcp(client, model, deep, `${system}\n\n${attached.system}`, prompt, attached, onText, onMcp, signal, { onMedia, maxResumes, seen, call, sdk })
       stopReason = final.stop_reason
       text = answerText(final.content) || text
-    } else if (model === 'claude-haiku-4-5') {
+    } else if (!deep) {
       const stream = client.messages.stream({ model, max_tokens: 8000, system, messages })
       const abort = () => stream.abort()
       signal?.addEventListener('abort', abort, { once: true })
@@ -421,7 +442,7 @@ async function streamOnce(opts: StreamOptions, again: boolean, call: MeterCall):
   } catch (e) {
     if (signal?.aborted) throw new AIError('aborted')
     const err = toAIError(e, sdk, attached)
-    if (!again && retryWithout(err, codewords?.forced, seen.mcp)) return streamOnce(opts, true, call)
+    if (!again && retryWithout(err, codewords?.forced, seen.mcp)) return streamOnce(opts, true, prepared, call)
     throw err
   }
 }
@@ -432,7 +453,9 @@ async function streamOnce(opts: StreamOptions, again: boolean, call: MeterCall):
  */
 async function streamWithMcp(
   client: AnthropicSDK,
-  model: AIModelId,
+  model: string,
+  /** the model thinks with an effort and has the refusal fallback (thinks(caps)) */
+  opus: boolean,
   system: string,
   prompt: string,
   mcp: McpAttachment,
@@ -441,7 +464,6 @@ async function streamWithMcp(
   signal: AbortSignal | undefined,
   more: { onMedia?: (items: MediaItem[]) => void; maxResumes?: number; seen?: { mcp: boolean }; call: MeterCall; sdk: SDKModule | null },
 ): Promise<BetaMessage> {
-  const opus = model !== 'claude-haiku-4-5'
   const messages: BetaMessageParam[] = [{ role: 'user', content: prompt }]
   let calls: McpCall[] = []
   // media in the results: cards for the person, nothing is fetched (features/ai/media)
@@ -535,7 +557,7 @@ export interface StructuredOptions {
   maxRetries?: number
   /** MCP servers as for streamCompletion — default 'fixed': only servers set to "All AI calls" */
   mcp?: McpRequestKind | false
-  /** what the request cost (tokens, and USD from AI_MODELS' prices) — once per answer that arrived */
+  /** what the request cost (tokens, and USD from the one price table) — once per answer that arrived */
   onUsage?: (u: StructuredUsage) => void
   /** the ledger's source id (core/meter.ts); default: the purpose */
   ledgerSource?: string
@@ -543,27 +565,21 @@ export interface StructuredOptions {
   onRun?: (receipt: Receipt) => void
 }
 
+/** What one structured answer cost — from its ledger entry (priced by the one table at the model that answered). */
 export interface StructuredUsage {
+  p: ProviderId
+  /** the model that answered */
   model: string
   input: number
   output: number
   cacheRead: number
   cacheWrite: number
-  usd: number
+  /** null: no price known for that model */
+  usd: number | null
 }
 
-type UsageLike = { input_tokens?: number | null; output_tokens?: number | null; cache_read_input_tokens?: number | null; cache_creation_input_tokens?: number | null } | null | undefined
-
-/** A response's usage in USD (the model's prices; cache writes at 1.25 × input). */
-export function usageOf(model: string, u: UsageLike): StructuredUsage {
-  const price = resolveModel(model).price
-  const input = u?.input_tokens ?? 0
-  const output = u?.output_tokens ?? 0
-  const cacheRead = u?.cache_read_input_tokens ?? 0
-  const cacheWrite = u?.cache_creation_input_tokens ?? 0
-  const usd = (input * price.input + cacheWrite * price.input * 1.25 + cacheRead * price.cacheRead + output * price.output) / 1_000_000
-  return { model, input, output, cacheRead, cacheWrite, usd }
-}
+const usageOfEntry = (e: LedgerEntry | null): StructuredUsage | null =>
+  e ? { p: e.served.p, model: e.served.model, input: e.usage.input, output: e.usage.output, cacheRead: e.usage.cacheRead, cacheWrite: e.usage.cacheWrite + e.usage.cacheWrite1h, usd: e.usd } : null
 
 /**
  * One non-streaming request whose answer is constrained to a JSON schema (structured outputs,
@@ -585,9 +601,14 @@ async function structuredOnce(opts: StructuredOptions, again: boolean, prepared:
   const { system, prompt, schema, maxTokens = 4096, signal, maxRetries = 4, mcp, onUsage } = opts
   const apiKey = await getAIKey('anthropic')
   if (!apiKey) throw new AIError('no_key')
-  const settings = useWorkspace.getState().settings
   if (signal?.aborted) throw new AIError('aborted')
-  const model = resolveModel(settings.aiModel).id
+  // the model the gate routed to, and what it can do (caps — never a model id check)
+  const model = claudeRoute(prepared).m
+  const opus = thinks(prepared.caps)
+  const used = (e: LedgerEntry | null) => {
+    const u = usageOfEntry(e)
+    if (u) onUsage?.(u)
+  }
   let sdk: SDKModule | null = null
   let attached: McpAttachment | null = null
   // a paused turn made MCP calls: no retry without a server after that
@@ -606,13 +627,12 @@ async function structuredOnce(opts: StructuredOptions, again: boolean, prepared:
     if (signal?.aborted) throw new AIError('aborted')
     if (attached) {
       // with MCP servers ("All AI calls"): the beta request, a paused turn resumed; the answer is the text after the last tool call
-      const opus = model !== 'claude-haiku-4-5'
       const turn: BetaMessageParam[] = [{ role: 'user', content: prompt }]
       let msg: BetaMessage
       for (let resumes = 0; ; resumes++) {
         const mcp = attached
         // one ledger entry per response: every resume of a paused turn is one
-        msg = await metered(
+        const got = await metered(
           call,
           () =>
             client.beta.messages.create(
@@ -630,22 +650,23 @@ async function structuredOnce(opts: StructuredOptions, again: boolean, prepared:
           sdk,
           signal,
         )
-        onUsage?.(usageOf(model, msg.usage))
+        msg = got.msg
+        used(got.entry)
         if (msg.content.some(isMcpBlock)) sawMcp = true
         if (msg.stop_reason !== 'pause_turn' || resumes >= MAX_RESUMES) break
         turn.push({ role: 'assistant', content: msg.content })
       }
       stopReason = msg.stop_reason
       blocks = [{ type: 'text', text: answerText(msg.content) }]
-    } else if (model === 'claude-haiku-4-5') {
-      const msg = await metered(call, () => client.messages.create({ model, max_tokens: maxTokens, system, messages, output_config: { format } }, { signal, maxRetries }), promptChars, sdk, signal)
-      onUsage?.(usageOf(model, msg.usage))
+    } else if (!opus) {
+      const { msg, entry } = await metered(call, () => client.messages.create({ model, max_tokens: maxTokens, system, messages, output_config: { format } }, { signal, maxRetries }), promptChars, sdk, signal)
+      used(entry)
       stopReason = msg.stop_reason
       blocks = msg.content
     } else {
       // Opus / Sonnet 5.5: thinking is always on (adaptive) — never send `thinking`; low effort keeps
       // a field fill cheap. Refusal fallbacks route a declined request to Anthropic's recommended model.
-      const msg = await metered(
+      const { msg, entry } = await metered(
         call,
         () =>
           client.beta.messages.create(
@@ -656,7 +677,7 @@ async function structuredOnce(opts: StructuredOptions, again: boolean, prepared:
         sdk,
         signal,
       )
-      onUsage?.(usageOf(model, msg.usage))
+      used(entry)
       stopReason = msg.stop_reason
       blocks = msg.content
     }

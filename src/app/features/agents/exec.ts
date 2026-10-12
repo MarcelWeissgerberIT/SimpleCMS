@@ -53,6 +53,7 @@ import { routeBlock } from './routeBlock'
 import { endRun, noteRun, withWriter, type Writer } from '../../store/writer'
 import { memoryRef } from '../ai/core/refs'
 import type { SourceRef } from '@/shared/ai/types'
+import { labelOf } from '@/shared/ai/models'
 
 /** What a run carries (the AI gate's sources): its scope, the trigger's rows, its report page, the memory database. */
 function agentSources(agent: CustomAgent, rows: readonly ID[], memoryBlock: string): SourceRef[] {
@@ -286,6 +287,8 @@ async function runOnce(agent: CustomAgent, req: RunRequest): Promise<AgentRun> {
   const usage = { input: 0, output: 0, cacheRead: 0, usd: 0 }
   const ac = new AbortController()
   let overBudget = false
+  /** a response without a price: the budget cannot be held (the model's label) */
+  let noPrice: string | null = null
   let answer = ''
   let live = ''
   const toolSteps = new Map<string, number>()
@@ -321,6 +324,10 @@ async function runOnce(agent: CustomAgent, req: RunRequest): Promise<AgentRun> {
       usage.output += u.output
       usage.cacheRead += u.cacheRead
       usage.usd += entry?.usd ?? 0
+      if (entry && entry.usd === null && !ac.signal.aborted) {
+        noPrice = labelOf({ p: entry.served.p, m: entry.served.model })
+        ac.abort()
+      }
       if (usage.usd > agent.maxRunUsd && !ac.signal.aborted) {
         overBudget = true
         ac.abort()
@@ -393,7 +400,10 @@ async function runOnce(agent: CustomAgent, req: RunRequest): Promise<AgentRun> {
   } catch (e) {
     if (live.trim()) answer = answer ? `${answer}\n\n${live.trim()}` : live.trim()
     run.summary = withoutWebImages(answer)
-    if (overBudget) {
+    if (noPrice) {
+      run.status = 'budget'
+      run.error = t('features.agents.run.noPrice', { model: noPrice })
+    } else if (overBudget) {
       run.status = 'budget'
       run.error = t('features.agents.run.budget', { usd: fmtUsd(agent.maxRunUsd, currentLang()) })
     } else {

@@ -6,11 +6,13 @@
  *    { sheets } for tables. Nothing is sent.
  */
 import { useWorkspace } from '../../../store/store'
-import { resolveModel, stripFence } from '../client'
+import { stripFence } from '../client'
+import { capsOf } from '@/shared/ai/models'
+import { legacyRule } from '@/shared/ai/route'
 import { precheck } from '../core/gate'
 import type { SourceRef } from '@/shared/ai/types'
 import { withoutWebImages } from '../../agents/images'
-import { clipText, fileData, FILE_READ_MAX, loadPdfForClaude, PDF_MAX_PAGES, PDF_MAX_PAGES_SMALL } from './load'
+import { clipText, fileData, FILE_READ_MAX, loadPdfForClaude, PDF_MAX_PAGES } from './load'
 import { filePage, fileSheets, fileText } from './convert'
 import { PPTX_MAX_BYTES } from '../../io/import/pptx'
 import { isLocalAction, type FileAction, type FileKind } from './kinds'
@@ -49,8 +51,12 @@ export interface FileMeta {
   sent: boolean
 }
 
-/** Pages Claude reads of one PDF with the model chosen now. */
-export const maxPdfPages = (): number => (resolveModel(useWorkspace.getState().settings.aiModel).id === 'claude-haiku-4-5' ? PDF_MAX_PAGES_SMALL : PDF_MAX_PAGES)
+/** Pages the model chosen now reads of one PDF (its caps: 600, 100 on a 200K-context model). */
+export function maxPdfPages(): number {
+  const [route] = legacyRule(useWorkspace.getState().settings.aiModel, true)
+  const pdf = route ? capsOf(route)?.pdf : null
+  return pdf ? pdf.maxPages : PDF_MAX_PAGES
+}
 
 export async function runFileRequest(
   req: FileRunRequest,

@@ -11,7 +11,9 @@ import type { Database, ID, IntegrationProfile, Page, PropertyDef, SendRoute } f
 import { propertyValueToText } from '../../database'
 import { localized } from '../../store/integrations'
 import { readableContent } from '../../editor'
-import { completeStructured, resolveModel, AIError } from '../ai/client'
+import { completeStructured, AIError } from '../ai/client'
+import { chosenRoute, shortOf } from '../ai/core/status'
+import { estimate } from '../governor'
 import type { SourceRef as AISourceRef } from '@/shared/ai/types'
 import { memoryRef } from '../ai/core/refs'
 import { memoryFor, noteUse } from '../ai/memory'
@@ -149,7 +151,7 @@ async function ask(built: Built, instruction: string, signal?: AbortSignal): Pro
     maxTokens: Math.min(8000, Math.ceil(built.max / 2) + 400),
     signal,
     mcp: false,
-    onUsage: (u) => (usd += u.usd),
+    onUsage: (u) => (usd += u.usd ?? 0),
   })
   let text: string
   try {
@@ -239,8 +241,8 @@ export function estimateDraft(route: RouteRef, rowId: ID, instruction: string, m
   if ('refused' in r) return null
   const built = buildDraft(r.route, rowId, r.profile, instruction, mentions, r.server.name)
   if (!built) return null
-  const m = resolveModel(useWorkspace.getState().settings.aiModel)
-  const input = Math.ceil((built.system.length + built.prompt.length) / 4)
+  const ai = chosenRoute()
   const output = Math.min(2000, Math.ceil(built.max / 8) + 200)
-  return { model: m.short, usd: (input * m.price.input + output * m.price.output) / 1_000_000 }
+  const band = estimate(ai, { promptChars: built.system.length + built.prompt.length, outTokens: output, maxTokens: output })
+  return { model: shortOf(ai), usd: band?.low ?? 0 }
 }

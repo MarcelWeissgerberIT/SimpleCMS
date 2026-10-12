@@ -6,9 +6,10 @@
  * and never touches stored data.
  */
 import type { JSONContent } from '@tiptap/core'
-import { useWorkspace } from '../../store/store'
 import { toMarkdown } from '../share/markdown'
-import { completeStructured, resolveModel } from './client'
+import { completeStructured } from './client'
+import { chosenRoute, shortOf } from './core/status'
+import { estimate } from '../governor'
 
 export type AutofillPreset = 'summary' | 'extract' | 'translate' | 'categorize' | 'custom'
 export type AutofillFieldType = 'text' | 'number' | 'select' | 'multi_select' | 'checkbox' | 'url'
@@ -212,14 +213,14 @@ export interface AutofillEstimate {
 }
 
 /**
- * Rough cost of filling `rows` rows whose context adds up to `contextChars` characters.
- * Anthropic bills the real usage to the user's key; this is only an order of magnitude.
+ * Rough cost of filling `rows` rows whose context adds up to `contextChars` characters — priced by the one table
+ * (features/governor estimate()). The provider bills the real usage to the user's key; this is an order of magnitude.
  */
 export function estimateAutofill({ rows, contextChars, preset }: { rows: number; contextChars: number; preset: AutofillPreset }): AutofillEstimate {
-  const model = resolveModel(useWorkspace.getState().settings.aiModel)
+  const route = chosenRoute()
   const contextTokens = contextChars / CHARS_PER_TOKEN
   const inputTokens = Math.round(rows * OVERHEAD_TOKENS + contextTokens)
   const outputTokens = Math.round(rows * OUTPUT_TOKENS[preset] + (preset === 'translate' ? contextTokens * 1.1 : 0))
-  const usd = (inputTokens * model.price.input + outputTokens * model.price.output) / 1_000_000
-  return { rows, inputTokens, outputTokens, usd, model: model.short }
+  const usd = estimate(route, { promptTokens: inputTokens, outTokens: outputTokens, maxTokens: outputTokens })?.low ?? 0
+  return { rows, inputTokens, outputTokens, usd, model: shortOf(route) }
 }

@@ -17,7 +17,7 @@
 import type AnthropicSDK from '@anthropic-ai/sdk'
 import type { BetaContentBlock, BetaMessageParam, BetaToolResultBlockParam, BetaToolUnion } from '@anthropic-ai/sdk/resources/beta/messages/messages'
 import type { BetaRunnableTool } from '@anthropic-ai/sdk/lib/tools/BetaRunnableTool'
-import { AIError, claudeClient, resolveModel, toAIError } from '../client'
+import { AIError, claudeClient, thinks, toAIError } from '../client'
 import { prepare, settle, type Prepared } from '../core/gate'
 import { claudeCut, claudeResponse, deltaChars, meterCall } from '../core/meter'
 import type { PurposeId } from '../core/purposes'
@@ -124,8 +124,6 @@ export function taskMessage(history: BetaMessageParam[], task: string, context: 
   return { role: 'user', content: [...results, { type: 'text', text }] }
 }
 
-const isOpus = (m: string) => m !== 'claude-haiku-4-5'
-
 /**
  * Run one task. Resolves with how the run ended; throws AIError (code 'aborted' after Stop).
  * `history` is the conversation of earlier tasks in this session.
@@ -177,7 +175,9 @@ export async function runAgent(opts: {
     const got = await claudeClient()
     sdk = got.sdk
     const { client } = got
-    const model = opts.model ? resolveModel(opts.model).id : got.model
+    // the model the gate routed to (an agent's own, else this device's) and what it can do (caps, never its id)
+    const model = prepared.route?.m ?? got.model
+    const opus = thinks(prepared.caps)
     const system = opts.system ?? AGENT_SYSTEM
     let calls = 0
     let warned = false
@@ -235,7 +235,7 @@ export async function runAgent(opts: {
       system: mcp ? `${system}\n\n${mcp.system}` : system,
       tools: mcp ? [...tools, ...mcp.toolsets] : (tools as Array<BetaRunnableTool<Record<string, unknown>> | BetaToolUnion>),
       ...(mcp ? { mcp_servers: mcp.servers } : {}),
-      ...(isOpus(model)
+      ...(opus
         ? {
             // Opus / Sonnet 5.5: thinking is always on (adaptive); "updates" returns the progress notes
             betas: ['server-side-fallback-2026-07-01', 'thinking-display-updates-2026-08-18', ...(mcp ? [MCP_BETA] : [])],
