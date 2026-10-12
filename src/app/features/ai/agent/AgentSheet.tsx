@@ -35,6 +35,7 @@ import { ScriptDiff } from './ScriptDiff'
 import { CodingDiff, FullText, RefsLine, useCodingFlags } from './CodingDiff'
 import { PipelinesOut } from './PipelinesOut'
 import { CostTable, fmtTokens } from './CostOut'
+import { HelpLink } from '../../../help'
 import { ConnectLine, ServersOut, SignInKey, SignInOffer, retryOf } from './ConnectOut'
 import { signInFromTerminal } from './connect'
 import { depsOf, makesTasks, type AgentStep, type AgentTurn, type StagedChange } from './types'
@@ -830,7 +831,9 @@ function Echo({ entry }: { entry: EchoEntry }) {
       out = u.byModel?.length ? (
         <>
           <CostTable lines={u.byModel} />
-          <p className="term-echo__note">{t('features.agent.meter.billed')}</p>
+          <p className="term-echo__note">
+            {t('features.agent.meter.billed')} <HelpLink id="ai-costs" topic={t('features.ai.receipt.help')} />
+          </p>
         </>
       ) : (
         <>

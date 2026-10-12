@@ -5,6 +5,7 @@ One runs in your browser. The only secrets it keeps there are yours:
 | Secret | Where you enter it | Used for |
 | --- | --- | --- |
 | Claude API key | Settings → Claude AI (or the "Connect your Claude key" card) | requests to `api.anthropic.com` |
+| OpenAI / OpenRouter keys *(later slices)* | not offered yet — `settings.aiKeys` is kept as vault markers only | requests to their own hosts |
 | GitHub token | Settings → Sync → GitHub | sync to your own repository on `api.github.com` |
 
 Both are **stored encrypted** in this browser and nowhere else. This page says how, what that protects against — and
@@ -44,8 +45,13 @@ or database strips them).
 
 ## Where your keys never go
 
-Backups (the key field is blank), Markdown / HTML / PDF exports, published sites, share links, folder and GitHub sync
-output, team documents (settings are per device), MCP answers, the workspace agent's prompt, logs and error messages.
+Backups (the key field is blank, `aiKeys` empty, the device's AI rules `settings.ai` left out), Markdown / HTML / PDF
+exports, published sites, share links, folder and GitHub sync output, team documents (settings are per device), MCP
+answers, the workspace agent's prompt, logs and error messages. **A restore never takes a key from the file** — merge
+or replace, on a device with or without a key: `aiApiKey`, `aiKeys` and `settings.ai` stay this device's
+(src/app/features/io/backup.ts), so a crafted backup cannot plant a key or device rules. A key typed into an AI request
+(an instruction, a terminal task, a question) is refused before anything is sent (`key_in_text`) and never enters the
+terminal's prompt history. Read a key only through `getAIKey(provider)` (src/app/store/secrets.ts).
 The Claude key leaves the browser only in the `x-api-key` header of requests to `api.anthropic.com`, the GitHub token
 only in the `Authorization` header of requests to `api.github.com` — both over TLS.
 

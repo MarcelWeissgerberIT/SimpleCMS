@@ -182,7 +182,7 @@ All mutating requests require `Content-Type: application/json` (CSRF guard toget
 | `GET /api/health` | – | `{ ok: true, version }` |
 | `GET /api/dev/mailbox` | DEV_MODE only | last 50 mails `{ to, subject, text, link }` |
 | `POST /api/auth/verify` | – | *(server addition)* form `token=` (the confirmation page) or JSON `{ token }` → sets cookie, `303` to `redirect` |
-| `GET /api/config` | – | *(server addition)* `{ version, signup: { mode, domains? }, max_upload_mb, dev_mode, source_url, coding_relay }` |
+| `GET /api/config` | – | *(server addition)* `{ version, signup: { mode, domains? }, max_upload_mb, dev_mode, source_url, coding_relay, supports }` — `supports` lists what this server understands beyond the base protocol (`['ai']`: it guards the meta key `workspace.ai`, below) |
 | `GET /api/workspaces/:id/coding/workers` | member | *(coding relay)* cloud coding workers `[{ id, label, state: 'pending'\|'active', user: { id, name, email }, mine, created_at, created_from, activated_at, last_used_at, online, tab, since }]` — a member sees their own, admins and the owner everyone's (*Coding relay*) |
 | `POST /api/workspaces/:id/coding/workers` | member | `{ label? }` → `201` worker **+ `token`** (only here; One writes it into the downloaded file). A new token is **pending**; an older pending one of the member is revoked at once, the active one only when the new one first connects. 20 per member per day |
 | `DELETE /api/workspaces/:id/coding/workers/:workerId` | member (own) / admin | revoke → `204`; its worker is closed at once (`404 worker_not_found` — also for someone else's token, to a member) |
@@ -555,6 +555,15 @@ look; a look removed by waiting deletes (a delete set for clocks not written yet
 counts as removed by every member whose update left deletes waiting — not allowed: the look is put back (an
 admin's new value stays theirs) and the waiting deletes are dropped. The value is cosmetic — every reader sanitizes it (hex colours,
 allow-listed fonts, no CSS) — and it is never part of a share link, a published site or an export.
+
+The workspace's **AI rules** (`workspace.ai`: the generation they need, data rules per AI provider, routes per kind of
+work, limits — src/shared/ai/types.ts `WorkspaceAI`) are the owners' and admins' the same way: the server guard
+`server/src/collab/workspace-ai.ts` puts a member's write back and stamps an owner's or admin's with `updatedBy`. Every
+client reads the key through `sanitizeWorkspaceAI` and keeps it through its own edits; slice 1 of the multi-provider
+work reads it only — nothing writes it yet, and a tab whose build is older than the rules' `gen` refuses AI requests
+('reload') instead of ignoring rules it does not know. Custom agents' route fields (`route`, `review`, `saverRule`,
+`applyOn`, `routeSig`) are kept by the server's sanitizer too; a server run whose first route is not Claude is skipped
+with its reason (no request).
 
 The **integration profiles** (`integrations`, app: Workspace → Integrations, `src/app/features/agents/integrations`) follow the same
 rules for every key of their map (`server/src/collab/admin-map.ts`, the guard the look uses too): a member's add, change or removal

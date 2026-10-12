@@ -11,6 +11,7 @@ import { PRICES_DATE } from '@/shared/ai/prices'
 import type { Lang } from '@/shared/i18n'
 import { t as tt, useLang, useT } from '../../i18n'
 import { fmtCost } from '../../lib/money'
+import { HelpLink } from '../../help'
 import type { Receipt } from './core/meter'
 import './runs.css'
 
@@ -62,6 +63,7 @@ export function ReceiptLine({ receipt: r, testId = 'ai-receipt' }: { receipt: Re
             {src}
           </span>
         )}
+        <HelpLink id="ai-costs" topic={t('features.ai.receipt.help')} className="ai-receipt__help" />
       </p>
       {steps.map((s) => (
         <p key={s} className="ai-receipt__step" data-testid={`${testId}-step`}>

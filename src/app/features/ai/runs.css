@@ -183,6 +183,11 @@
   border-style: dashed;
 }
 
+.help-link.ai-receipt__help {
+  flex: none;
+  margin-left: auto;
+}
+
 .ai-receipt__step {
   gap: 6px;
   color: var(--signal-ink);
