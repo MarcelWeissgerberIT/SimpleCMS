@@ -110,6 +110,9 @@ export function recentCost(runs: AgentRun[], n = 10): number {
   return runs.slice(0, n).reduce((sum, r) => sum + (r.usage?.usd ?? 0), 0)
 }
 
+/** The label key of a run status (a run the Regler held reads the governor's word — features/governor messages). */
+export const statusKey = (status: AgentRun['status']): string => (status === 'held' ? 'features.governor.status.held' : `features.agents.status.${status}`)
+
 /** LED class of a run status. */
 export function statusLed(status: AgentRun['status'] | 'off' | 'idle'): string {
   switch (status) {

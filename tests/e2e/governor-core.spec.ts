@@ -47,6 +47,8 @@ import {
   sanitizeDeviceGovernorWithReport,
   sanitizeGovernor,
   sanitizeGovernorWithReport,
+  stampDeviceGen,
+  stampGen,
   type WorkspaceGovernor,
 } from '../../src/shared/ai/governor'
 import { GEN, GEN_ENFORCED, GEN_UNNAMED_UPTO, type GenTable } from '../../src/shared/ai/generations'
@@ -291,6 +293,33 @@ test.describe('generations', () => {
     expect(governorKeepsGen(sanitizeGovernor({ v: 2, day: 6 }))).toBe(true)
   })
 
+  test('stampGen / stampDeviceGen (train 7 merge review #3): a rule edit never lowers a budget\'s stamp; the stamp follows the rules where nothing else needs it', () => {
+    const orOnly = { policy: { providers: { openrouter: { allow: ['public' as const] } }, restricted: [] } }
+    const claudeNarrow = { policy: { providers: { anthropic: { allow: ['public' as const] } }, restricted: [] } }
+    // the rules alone (no governor): what they need, a stored stamp is not kept — S2's setter as it was
+    expect(stampGen(orOnly, undefined, undefined)).toBe(1)
+    expect(stampGen(claudeNarrow, undefined, undefined)).toBe(GEN.claudeLimits)
+    expect(stampGen(orOnly, undefined, GEN.claudeLimits)).toBe(1)
+    // a day budget stored (a phase-B owner set it): the stamp stays the budget's whatever the rules say
+    expect(stampGen(orOnly, g({ day: 6 }), GEN.budget)).toBe(GEN.budget)
+    expect(stampGen(claudeNarrow, g({ day: 6 }), GEN.budget)).toBe(GEN.budget)
+    expect(stampGen(null, g({ month: 120 }), undefined)).toBe(GEN.budget)
+    // a governor this build cannot judge (a lever, a newer shape, a later slice's key): never below the stored stamp
+    expect(stampGen(orOnly, g({ autonomy: 'propose' }), 5)).toBe(5)
+    expect(stampGen(orOnly, sanitizeGovernor({ v: 2, day: 6 }), 4)).toBe(4)
+    expect(stampGen(claudeNarrow, g({ day: 6, rings: 1 }), 7)).toBe(7)
+    // positive control: a governor this build judges whole stamps what it needs — a higher stored stamp is not kept
+    expect(stampGen(orOnly, g({ savers: FULL.savers }), GEN.budget)).toBe(1)
+    expect(stampGen(orOnly, g({ day: 6 }), 9)).toBe(GEN.budget)
+    // the device: its own rules and the person's line for this browser
+    expect(stampDeviceGen(undefined, undefined, undefined)).toBe(1)
+    expect(stampDeviceGen({ narrow: { anthropic: ['people'] } }, undefined, undefined)).toBe(GEN.claudeLimits)
+    expect(stampDeviceGen({ narrow: { anthropic: ['people'] } }, sanitizeDeviceGovernor({ v: 1, day: 8 }), GEN.budget)).toBe(GEN.budget)
+    expect(stampDeviceGen(undefined, sanitizeDeviceGovernor({ v: 1, month: 80 }), undefined)).toBe(GEN.budget)
+    expect(stampDeviceGen(undefined, sanitizeDeviceGovernor({ v: 2, day: 8 }), 6)).toBe(6)
+    expect(stampDeviceGen(undefined, sanitizeDeviceGovernor({ v: 1, day: 8 }), 6)).toBe(GEN.budget)
+  })
+
   test('deviceGovernorGen: a device limit needs the budget generation', () => {
     expect(deviceGovernorGen(undefined)).toBe(1)
     expect(deviceGovernorGen(sanitizeDeviceGovernor({ v: 1, day: 8 }))).toBe(GEN.budget)
@@ -321,12 +350,14 @@ test.describe('generations', () => {
     expect(problems({ a: 2, b: 4 }, { a: 'package.json', b: 'package.json' }, 1)).toEqual(['gap at 4'])
     expect(problems({ a: 2 }, { a: 'src/app/nowhere.ts' }, 2)).toEqual(['a: no module'])
     expect(problems({ a: 2 }, { a: 'package.json' }, 2)).toEqual(['a: package.json does not name it'])
-    // S2's generation (numbered before the table): its module has to exist, not to name it — the rebase onto S2
-    // (AI_POLICY_GEN = 2, resolve.ts without the text) stays green; a later entry still has to name it
-    expect(GEN_UNNAMED_UPTO).toBe(GEN.claudeLimits)
-    expect(problems({ claudeLimits: 2, budget: 3 }, { claudeLimits: 'package.json', budget: 'package.json' }, 2, GEN_UNNAMED_UPTO)).toEqual([])
-    expect(problems({ claudeLimits: 2, budget: 3 }, { claudeLimits: 'package.json', budget: 'package.json' }, 3, GEN_UNNAMED_UPTO)).toEqual(['budget: package.json does not name it'])
-    expect(problems({ claudeLimits: 2 }, { claudeLimits: 'src/app/nowhere.ts' }, 2, GEN_UNNAMED_UPTO)).toEqual(['claudeLimits: no module'])
+    // policy.ts reads GEN.claudeLimits now (train 7): every entry's module names it — none is excused any more
+    expect(GEN_UNNAMED_UPTO).toBe(1)
+    expect(GEN_ENFORCED.claudeLimits).toBe('src/shared/ai/policy.ts')
+    expect(problems({ claudeLimits: 2 }, { claudeLimits: 'src/app/features/ai/core/resolve.ts' }, 2, GEN_UNNAMED_UPTO)).toEqual(['claudeLimits: src/app/features/ai/core/resolve.ts does not name it'])
+    // an entry numbered before the table (unnamedUpto 2): its module has to exist, not to name it; a later one still has to
+    expect(problems({ claudeLimits: 2, budget: 3 }, { claudeLimits: 'package.json', budget: 'package.json' }, 2, 2)).toEqual([])
+    expect(problems({ claudeLimits: 2, budget: 3 }, { claudeLimits: 'package.json', budget: 'package.json' }, 3, 2)).toEqual(['budget: package.json does not name it'])
+    expect(problems({ claudeLimits: 2 }, { claudeLimits: 'src/app/nowhere.ts' }, 2, 2)).toEqual(['claudeLimits: no module'])
   })
 })
 

@@ -10,6 +10,7 @@ import { PRICE_KEYS } from './prices.ts'
 import { sanitizeRule } from './route.ts'
 import { isJevRouter } from './jev.ts'
 import { OWNER } from './owner.ts'
+import { GEN } from './generations.ts'
 
 export const SHARED_CLASSES: readonly SharedClass[] = ['public', 'structure', 'selection', 'page', 'rows', 'files', 'workspace', 'people', 'transcript']
 export const MEMBER_CLASSES: readonly MemberClass[] = ['private', 'mail', 'memory', 'mcp']
@@ -17,8 +18,10 @@ export const DATA_CLASSES: readonly DataClass[] = [...SHARED_CLASSES, ...MEMBER_
 export const FEATURE_CLASSES: readonly FeatureClass[] = ['write', 'ask', 'workspace', 'structure', 'vision', 'documents', 'bulk', 'meeting', 'memory', 'outbox', 'terminal', 'agents', 'scripts', 'help', 'review', 'generate', 'mcp-setup', 'gate']
 
 /**
- * This build's AI policy generation: 1 = no rule limits Claude; 2 = data rules that limit Claude (a workspace allow list
- * or forbid for Claude, a device narrow) are enforced at every point a request is built (S2; restricted pages → 3).
+ * This build's AI policy generation (generations.ts names each entry; this is N only in a build holding every entry
+ * numbered ≤ N): 1 = no rule limits Claude; 2 = GEN.claudeLimits, data rules that limit Claude (a workspace allow list or
+ * forbid for Claude, a device narrow) are enforced at every point a request is built (S2). Restricted pages get a GEN
+ * entry of their own, numbered when they merge — never a number promised here.
  */
 export const AI_POLICY_GEN = 2
 
@@ -309,7 +312,7 @@ export function limitsClaude(ws?: WorkspaceAI | null, device?: DeviceAI | null):
  * alone (and a rule pinning the Jev Router) need nothing: an S1 tab never sends to OpenRouter.
  */
 export function requiredGen(ws?: WorkspaceAI | null, device?: DeviceAI | null): number {
-  return limitsClaude(ws, device) ? 2 : 1
+  return limitsClaude(ws, device) ? GEN.claudeLimits : 1
 }
 
 /* ------------------------------------------------------------------ */

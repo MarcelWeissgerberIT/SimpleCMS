@@ -93,6 +93,11 @@ export interface SettleContext {
   /** `me` resolves (custom agents: false — they name the person) */
   me: boolean
   /**
+   * false: the write runs for a route that may not receive people's names (a narrowed Claude, core/shape.ts) — a
+   * refusal never lists them; it points to a person link from text Claude read. Absent: true.
+   */
+  names?: boolean
+  /**
    * blockedBy edges the pending changes add (staged link changes, other staged tasks' links): a link of this write
    * that would close a loop through them is left out like one through live links
    */
@@ -203,6 +208,9 @@ export interface SettleWorld {
 
 /** A title / name as compared: NFKC, lower case, whitespace collapsed. */
 export const foldTitle = (s: string): string => s.normalize('NFKC').toLowerCase().replace(/\s+/g, ' ').trim()
+
+/** What a refusal says instead of the names when the route may not receive them. */
+const NO_NAMES = 'Names of people do not go to this route: copy a person link from text you read ([@Person n](one:person/<id>)), or leave Owner out.'
 
 /** Names Claude may see in a refusal: ≤ 50, sorted, never an email. */
 function namesList(world: SettleWorld): string {
@@ -401,28 +409,28 @@ export type PersonHit = { id: string } | { message: string; code: SettleWarningC
 /**
  * People as the gate resolves them — existing ones only (never created): by id, folded exact unique name, a member's
  * email (never named back to Claude), "me" (`me` false: custom agents — they name the person). One per write: its
- * name map is built once.
+ * name map is built once. `names` false (a route that may not receive people's names): no refusal lists them.
  */
-export function peopleResolver(world: SettleWorld, me: boolean): { name: (id: string) => string | null; resolve: (p: PersonDraft, task: string) => PersonHit } {
+export function peopleResolver(world: SettleWorld, me: boolean, names = true): { name: (id: string) => string | null; resolve: (p: PersonDraft, task: string) => PersonHit } {
   let byId: Map<string, string> | null = null
   let byName: Map<string, string[]> | null = null
   const name = (id: string): string | null => (byId ??= new Map(world.people().map((p) => [p.id, p.name]))).get(id) ?? null
   const where = (task: string) => (task ? ` in task "${task}"` : '')
+  /** the list of names a refusal offers — or, for a route without names, the way to name a person without one */
+  const known = (tail: string) => (names ? ` People in this workspace: ${namesList(world)}.${tail}` : ` ${NO_NAMES}`)
   const resolve = (p: PersonDraft, task: string): PersonHit => {
-    if ('id' in p) return name(p.id) !== null ? { id: p.id } : { message: `Unknown person id "${p.id}"${where(task)}. People in this workspace: ${namesList(world)}. One never creates people.`, code: 'person', value: p.id }
+    if ('id' in p) return name(p.id) !== null ? { id: p.id } : { message: `Unknown person id "${p.id}"${where(task)}.${known(' One never creates people.')}`, code: 'person', value: p.id }
     if ('me' in p) {
       if (!me) return { message: `"me" means nobody for an agent — name the person${where(task)}.`, code: 'meAgent', value: 'me' }
       const id = world.me()
-      return id && name(id) !== null ? { id } : { message: `"me" is nobody in this workspace${task ? ` (task "${task}")` : ''}. People in this workspace: ${namesList(world)}.`, code: 'person', value: 'me' }
+      return id && name(id) !== null ? { id } : { message: `"me" is nobody in this workspace${task ? ` (task "${task}")` : ''}.${known('')}`, code: 'person', value: 'me' }
     }
     if ('email' in p) {
       const emails = world.memberEmails()
-      if (emails === null) return { message: 'The member list is still loading — name the person instead.', code: 'members', value: 'email' }
+      if (emails === null) return { message: `The member list is still loading — ${names ? 'name the person instead' : 'use a person link instead, or leave Owner out'}.`, code: 'members', value: 'email' }
       const id = emails.get(p.email.trim().toLowerCase())
       // never an email back to Claude: it may come from text nobody vouches for
-      return id && name(id) !== null
-        ? { id }
-        : { message: `An email${where(task)} is no member's. People in this workspace: ${namesList(world)}. One never creates people: use one of these names, or leave Owner out.`, code: 'person', value: 'email' }
+      return id && name(id) !== null ? { id } : { message: `An email${where(task)} is no member's.${known(' One never creates people: use one of these names, or leave Owner out.')}`, code: 'person', value: 'email' }
     }
     if (!byName) {
       byName = new Map()
@@ -434,7 +442,7 @@ export function peopleResolver(world: SettleWorld, me: boolean): { name: (id: st
     const hits = byName.get(foldTitle(p.raw)) ?? []
     if (hits.length === 1) return { id: hits[0] }
     if (hits.length > 1) return { message: `"${p.raw}" fits more than one person${where(task)}. Copy a person link from text you read ([@Name](one:person/<id>)), or leave Owner out.`, code: 'personAmbiguous', value: p.raw }
-    return { message: `Unknown person "${p.raw}"${where(task)}. People in this workspace: ${namesList(world)}. One never creates people: use one of these names, or leave Owner out.`, code: 'person', value: p.raw }
+    return { message: `Unknown person "${p.raw}"${where(task)}.${known(' One never creates people: use one of these names, or leave Owner out.')}`, code: 'person', value: p.raw }
   }
   return { name, resolve }
 }
@@ -455,7 +463,7 @@ export function settleDoc(input: JSONContent, ctx: SettleContext, world: SettleW
   }
 
   /* ---------- people ---------- */
-  const people = peopleResolver(world, ctx.me)
+  const people = peopleResolver(world, ctx.me, ctx.names !== false)
   const personName = people.name
   /** a person draft → an existing person's id, or null (refused / warned); `quiet`: no refusal (field compare) */
   const resolvePerson = (p: PersonDraft, task: string, quiet = false): string | null => {

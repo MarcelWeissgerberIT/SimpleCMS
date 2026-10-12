@@ -38,7 +38,7 @@ import { ReasonsRow, ReasonsTouch } from './trust/ui/Reasons'
 import { useCoarse } from './trust/ui/coarse'
 import { serverErrorText } from './server'
 import { awaitsReview } from './runs'
-import { fmtDuration, fmtUsd, fmtWhen, statusLed } from './format'
+import { fmtDuration, fmtUsd, fmtWhen, statusKey, statusLed } from './format'
 import type { AgentRun } from './types'
 
 /** A server run could not be read again before a review (nothing was done): said in a toast. */
@@ -76,7 +76,7 @@ function RunItem({ run, n, first }: { run: AgentRun; n: number; first: boolean }
         <ChevronRight size={14} strokeWidth={1.8} className="agx-run__chev" aria-hidden />
         <span className={statusLed(run.status)} aria-hidden />
         <span className="agx-run__n mono">#{pad(n)}</span>
-        <span className="agx-run__status label">{t(run.status === 'held' ? 'features.governor.status.held' : `features.agents.status.${run.status}`)}</span>
+        <span className="agx-run__status label">{t(statusKey(run.status))}</span>
         <span className="agx-run__trig">{t(`features.agents.trig.${run.trigger.type}`)}{run.trigger.detail && run.trigger.type !== 'schedule' ? ` · ${run.trigger.detail}` : ''}</span>
         <span className="agx-spacer" />
         {review && (

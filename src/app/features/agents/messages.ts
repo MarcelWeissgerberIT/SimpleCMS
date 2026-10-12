@@ -50,6 +50,7 @@ export const messages: Messages = {
     'features.agents.state.ready': 'Ready',
     'features.agents.state.idle': 'No run yet',
     'features.agents.state.waiting': 'Waiting',
+    'features.agents.state.held': 'Held',
 
     'features.agents.wait.text': 'Changed by {editor} — waiting for {creator} to confirm.',
     'features.agents.wait.you': 'Changed by {editor} — waiting for you to confirm.',
@@ -473,6 +474,7 @@ export const messages: Messages = {
     'features.agents.state.ready': 'Bereit',
     'features.agents.state.idle': 'Noch kein Lauf',
     'features.agents.state.waiting': 'Wartet',
+    'features.agents.state.held': 'Angehalten',
 
     'features.agents.wait.text': 'Geändert von {editor} — wartet auf Bestätigung von {creator}.',
     'features.agents.wait.you': 'Geändert von {editor} — wartet auf deine Bestätigung.',

@@ -9,7 +9,8 @@
  * Both run under the caller's writer (a press: the person; background work names its own).
  */
 import type { DeviceAI, FeatureClass, ProviderId, RouteRule, WorkspaceAI } from '@/shared/ai/types'
-import { policyKnown, requiredGen } from '@/shared/ai/policy'
+import { policyKnown } from '@/shared/ai/policy'
+import { DEVICE_GOVERNOR_KEY, sanitizeDeviceGovernor, stampDeviceGen } from '@/shared/ai/governor'
 import { sanitizeRule } from '@/shared/ai/route'
 import { modelRow } from '@/shared/ai/models'
 import { useWorkspace } from './store'
@@ -24,9 +25,20 @@ export function setWorkspaceAI(next: WorkspaceAI | null | ((prev: WorkspaceAI | 
   return s.setWorkspaceAI(value)
 }
 
+/** The person's own line for this browser (the Regler, localStorage) as the device stamp reads it (unreadable storage: none). */
+function deviceLine() {
+  try {
+    const raw = typeof localStorage === 'undefined' ? null : localStorage.getItem(DEVICE_GOVERNOR_KEY)
+    return raw ? sanitizeDeviceGovernor(JSON.parse(raw)) : undefined
+  } catch {
+    return undefined
+  }
+}
+
 /**
  * Change this device's AI layer: keys of `patch` replace the stored ones (undefined removes one). Refused (false) when
- * the stored layer was written by a newer build (its generation is unknown here — never overwritten).
+ * the stored layer was written by a newer build (its generation is unknown here — never overwritten). Its `gen` is
+ * stamped with stampDeviceGen: its own rules and the person's line for this browser — never below a budget's stamp.
  */
 export function setDeviceAI(patch: Partial<DeviceAI>): boolean {
   const s = useWorkspace.getState()
@@ -39,8 +51,8 @@ export function setDeviceAI(patch: Partial<DeviceAI>): boolean {
   }
   delete merged.gen
   const clean = readDeviceAI(JSON.parse(JSON.stringify(merged)))
-  const g = clean ? requiredGen(null, clean) : 1
-  const ai = clean ? { ...clean, ...(g > 1 ? { gen: g } : {}) } : undefined
+  const g = stampDeviceGen(clean, deviceLine(), cur?.gen)
+  const ai = clean || g > 1 ? { ...(clean ?? {}), ...(g > 1 ? { gen: g } : {}) } : undefined
   if (JSON.stringify(ai ?? null) === JSON.stringify(cur ?? null)) return true
   s.updateSettings({ ai })
   return true

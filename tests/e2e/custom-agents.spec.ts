@@ -618,26 +618,37 @@ test.describe('Custom agents', () => {
     await expect(page.locator('.agx-run')).toHaveCount(1)
   })
 
-  // Regler G1 review (finding 7): the card's LAST cell builds its label from the run's status and has no 'held' key yet —
-  // AgentsView.tsx and features/agents/messages.ts are AI S2's files, so the fix lands with B6 after S2 merges (build
-  // notes, "B6"). Expected to fail until then: when it passes, B6 removes `test.fail`.
-  test('a run the governor held: the agent card names it, never a raw key (B6)', async ({ page }) => {
-    test.fail()
+  // Regler G1 review (finding 7), fixed with the S2 merge (train 7 merge review #5): the card's LAST cell reads a held
+  // run with the governor's word (format.ts statusKey — RunHistory's mapping), its state says "Held" (amber), never
+  // "Ready"; an earlier failure stays "Fault" as the health lamp keeps it (held.ts newestReal).
+  test('a run the governor held: the agent card names it, never a raw key; an earlier failure still reads Fault', async ({ page }) => {
     await openApp(page)
     await wsEval(page, (s) => {
       const now = Date.now()
-      s.upsertAgent({ id: 'agentNordlicht', name: 'Nordlicht digest', instructions: 'Summarise the week.', trigger: { type: 'manual' }, scope: { everything: true, pages: [], databases: [] }, write: 'none', output: null, mcpServers: [], runner: 'browser', maxRunUsd: 0.5, enabled: true, createdBy: null, updatedBy: null, createdAt: now, updatedAt: now })
+      for (const [id, name] of [['agentNordlicht', 'Nordlicht digest'], ['agentSuedwind', 'Suedwind digest']])
+        s.upsertAgent({ id, name, instructions: 'Summarise the week.', trigger: { type: 'manual' }, scope: { everything: true, pages: [], databases: [] }, write: 'none', output: null, mcpServers: [], runner: 'browser', maxRunUsd: 0.5, enabled: true, createdBy: null, updatedBy: null, createdAt: now, updatedAt: now })
     })
     await page.evaluate(() => {
       const at = Date.now() - 60_000
+      const held = (id: string, agentId: string) => ({ id, agentId, runner: 'browser', trigger: { type: 'schedule', detail: '07:30' }, startedAt: at, endedAt: at, status: 'held', summary: '', steps: [], held: { kind: 'notStarted', binding: 'day', spent: 6, limit: 6, count: 1, times: [at] } })
       return (window as unknown as { __onePreflight: { seedRuns: (r: unknown[]) => Promise<void> } }).__onePreflight.seedRuns([
-        { id: 'held-launch', agentId: 'agentNordlicht', runner: 'browser', trigger: { type: 'schedule', detail: '07:30' }, startedAt: at, endedAt: at, status: 'held', summary: '', steps: [], held: { kind: 'notStarted', binding: 'day', spent: 6, limit: 6, count: 1, times: [at] } },
+        held('held-launch', 'agentNordlicht'),
+        // Suedwind failed before its start was held
+        { id: 'run-failed', agentId: 'agentSuedwind', runner: 'browser', trigger: { type: 'manual' }, startedAt: at - 3_600_000, endedAt: at - 3_599_000, status: 'error', summary: '', steps: [], error: 'The request failed.' },
+        held('held-later', 'agentSuedwind'),
       ])
     })
     await page.evaluate(() => (location.hash = '#/agents'))
     const card = page.locator('.agx-card', { hasText: 'Nordlicht digest' })
     await expect(card).toBeVisible()
-    await expect(card).toContainText('Held', { timeout: 3000 })
-    await expect(card).not.toContainText('features.agents.status', { timeout: 1000 })
+    await expect(card).toHaveAttribute('data-state', 'held')
+    await expect(card.getByTestId('agx-state')).toHaveText('Held')
+    await expect(card.locator('.agx-spec')).toContainText('Held')
+    await expect(card).not.toContainText('features.agents.status')
+    await expect(card).not.toContainText('Ready')
+    const other = page.locator('.agx-card', { hasText: 'Suedwind digest' })
+    await expect(other.getByTestId('agx-state')).toHaveText('Fault')
+    await expect(other.locator('.agx-spec')).toContainText('Held')
+    await expect(other).not.toContainText('features.agents.status')
   })
 })

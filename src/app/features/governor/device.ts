@@ -9,11 +9,11 @@
  * Storage refused or unreadable → no limit, no scopes (a request is never failed for its bookkeeping). Pure apart from
  * the storage handed in (Node specs pass their own).
  */
-import { isReadableDeviceGovernor, sanitizeDeviceGovernor, type DeviceGovernor } from '@/shared/ai/governor'
+import { DEVICE_GOVERNOR_KEY, isReadableDeviceGovernor, sanitizeDeviceGovernor, type DeviceGovernor } from '@/shared/ai/governor'
 import type { Unreadable } from '@/shared/ai/route'
 import { dayOf } from './clock'
 
-export const DEVICE_KEY = 'one.governor.device'
+export const DEVICE_KEY = DEVICE_GOVERNOR_KEY
 export const SCOPES_KEY = 'one.governor.scopes'
 export const MAX_SCOPES = 50
 export const SCOPE_DAYS = 35

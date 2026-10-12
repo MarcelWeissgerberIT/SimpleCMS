@@ -1,8 +1,25 @@
+import { readdirSync, readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { test, expect } from './fixtures'
+
+const ROOT = fileURLToPath(new URL('../../', import.meta.url))
+/** The help centre's articles per language (src/app/help/articles/{en,de}/<id>.md) — the number the landing and README name. */
+const articles = (lang: 'en' | 'de') => readdirSync(`${ROOT}src/app/help/articles/${lang}`).filter((f) => f.endsWith('.md')).length
 
 const seen = (page: import('@playwright/test').Page) => page.evaluate(() => localStorage.getItem('one.introSeen'))
 
 test.describe('landing page', () => {
+  test('the help centre\'s article count (train 7 merge review #9): the landing (EN + DE) and the README name the folder\'s number', () => {
+    const n = articles('en')
+    expect(articles('de')).toBe(n)
+    const landing = readFileSync(`${ROOT}src/landing/site/messages.ts`, 'utf8')
+    expect(landing).toContain(`'Built-in help · ${n} articles'`)
+    expect(landing).toContain(`'Eingebaute Hilfe · ${n} Artikel'`)
+    const readme = readFileSync(`${ROOT}README.md`, 'utf8')
+    expect(readme).toContain(`${n} short articles in both languages`)
+    expect(readme).toContain(`mit ${n} Artikeln auf Deutsch und Englisch`)
+  })
+
   test('first visit shows the 1997 spreadsheet; 15 s idle → hammer smash → site, only once', async ({ page }) => {
     test.setTimeout(120_000)
     await page.goto('./')
@@ -123,7 +140,7 @@ test.describe('landing sections', () => {
     await expect(features.locator('.plac', { hasText: 'Databases, 9 views' })).toContainText('feed')
     await expect(features.locator('.plac', { hasText: 'Forms' })).toContainText('/form')
     await expect(features.locator('.plac', { hasText: 'AI terminal' })).toContainText('word by word')
-    await expect(features.locator('.extras-list li')).toContainText(['Built-in help · 57 articles', 'Breadcrumbs', 'Turn blocks into a page', 'Mark what Claude may read', 'Presentation mode', 'Stacked panes'])
+    await expect(features.locator('.extras-list li')).toContainText([`Built-in help · ${articles('en')} articles`, 'Breadcrumbs', 'Turn blocks into a page', 'Mark what Claude may read', 'Presentation mode', 'Stacked panes'])
     // the art comes from the generated icons; each placard gets a picture of its own
     const icon = (key: string) => features.locator(`.plac[data-feature="${key}"] img.plac-icon`)
     for (const [key, file] of [

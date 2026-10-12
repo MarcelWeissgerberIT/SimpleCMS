@@ -30,11 +30,7 @@ import { EjectKey } from './EjectKey'
 import { AfterPlate, type AfterSource } from './AfterPlate'
 import { Kbd } from '../../../ui/controls'
 import { Bold, BOLD } from './bold'
-import type { ProviderId } from '@/shared/ai/types'
-import { isRouteKey } from '@/shared/ai/route'
-import { providerLabel } from '@/shared/ai/models'
-import { isJevRouter } from '@/shared/ai/jev'
-import { servedLabel } from '../../ai/core/registry'
+import { viaLine } from './via'
 
 const HELD_DEBOUNCE_MS = 150
 
@@ -369,21 +365,3 @@ function ReadNotes({ bracket, model }: { bracket: Bracket; model: ReadModel | nu
   )
 }
 
-/**
- * The AI route a run's writes came from (RunMeta.ai — route keys only): "via Claude Sonnet 5.5" (Claude's labels name
- * it), "via OpenRouter · <model>", the Jev Router "via OpenRouter · Jev Router → <the model it chose>".
- */
-function viaLine(t: (k: string, v?: Record<string, string | number>) => string, meta: JRun['meta'] | undefined): string | null {
-  const key = meta?.ai
-  if (!key || !isRouteKey(key)) return null
-  const route = keyRoute(key)
-  const label = servedLabel(route.p, route.m)
-  if (route.p === 'openrouter' && (meta.aiAlso ?? []).some((k) => isRouteKey(k) && isJevRouter(keyRoute(k).m))) return t('features.recorder.viaRouter', { model: label })
-  return t('features.recorder.via', { route: route.p === 'anthropic' ? label : `${providerLabel(route.p)} · ${label}` })
-}
-
-/** A checked route key → its provider and model (the provider is the part before the first ':'). */
-function keyRoute(key: string): { p: ProviderId; m: string } {
-  const i = key.indexOf(':')
-  return { p: key.slice(0, i) as ProviderId, m: key.slice(i + 1) }
-}

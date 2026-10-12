@@ -35,7 +35,8 @@ import { mirrorToast, useDismissMirrorToasts } from './mirrorToasts'
 import { deleteAgent, runNow, setEnabled } from './actions'
 import { awaitsReview, getAgentState, loadRuns, onRunsChanged, putAgentState, useAgentRuns, type AgentState } from './runs'
 import { loadRuntime, loadServerRuns, teamId, useServerAgents } from './server'
-import { fmtUsd, fmtWhen, nextRunText, recentCost, statusLed, triggerText } from './format'
+import { fmtUsd, fmtWhen, nextRunText, recentCost, statusKey, statusLed, triggerText } from './format'
+import { newestReal } from './held'
 import { runsHere } from './runner'
 import { confirmAgent, useConfirmState, type ConfirmState } from './confirm'
 import type { AgentRun } from './types'
@@ -472,13 +473,20 @@ function AgentList() {
   )
 }
 
-/** LED + word for an agent: running, waiting for its creator, waiting for review, failed, ok, off. */
-function agentState(agent: CustomAgent, last: AgentRun | undefined, review: boolean, waiting: boolean): { led: string; key: string } {
+/**
+ * LED + word for an agent: running, waiting for its creator, waiting for review, off, failed, held by the Regler, ok. A
+ * failure is read like the health lamp reads it (held.ts newestReal: a held or skipped start never hides an earlier
+ * failure); the newest start held by the governor reads "Held" (amber), never "Ready".
+ */
+function agentState(agent: CustomAgent, runs: readonly AgentRun[], review: boolean, waiting: boolean): { led: string; key: string } {
+  const last = runs[0]
   if (last?.status === 'running') return { led: statusLed('running'), key: 'running' }
   if (waiting) return { led: 'led led--on', key: 'waiting' }
   if (review) return { led: statusLed('staged'), key: 'review' }
   if (!agent.enabled) return { led: 'led', key: 'off' }
-  if (last && (last.status === 'error' || last.status === 'budget')) return { led: statusLed('error'), key: 'error' }
+  const real = newestReal(runs)
+  if (real && (real.status === 'error' || real.status === 'budget')) return { led: statusLed('error'), key: 'error' }
+  if (last?.status === 'held') return { led: statusLed('held'), key: 'held' }
   return { led: last ? 'led led--ok' : 'led', key: last ? 'ready' : 'idle' }
 }
 
@@ -505,7 +513,7 @@ function AgentCard({ agent, n, now }: { agent: CustomAgent; n: number; now: numb
   const { runs } = useRunsOf(agent)
   const last = runs[0]
   const reviews = runs.filter(awaitsReview)
-  const st = agentState(agent, last, reviews.length > 0, wait.waiting)
+  const st = agentState(agent, runs, reviews.length > 0, wait.waiting)
   const pending = reviews.reduce((sum, r) => sum + (r.staged ?? []).filter((c) => c.status === 'pending' || c.status === 'failed').length, 0)
   const cost = recentCost(runs)
   const href = `#/agents/${agent.id}`
@@ -537,7 +545,7 @@ function AgentCard({ agent, n, now }: { agent: CustomAgent; n: number; now: numb
           <dd>
             {last ? (
               <>
-                <span className={statusLed(last.status)} aria-hidden /> {t(`features.agents.status.${last.status}`)} <span className="agx-spec__aside mono faint">{fmtWhen(t, last.startedAt, lang, now)}</span>
+                <span className={statusLed(last.status)} aria-hidden /> {t(statusKey(last.status))} <span className="agx-spec__aside mono faint">{fmtWhen(t, last.startedAt, lang, now)}</span>
               </>
             ) : (
               '—'
@@ -615,7 +623,7 @@ function AgentDetail({ id }: { id: ID }) {
 
   const last = runs[0]
   const reviews = runs.filter(awaitsReview)
-  const st = agentState(agent, last, reviews.length > 0, wait.waiting)
+  const st = agentState(agent, runs, reviews.length > 0, wait.waiting)
   // runs in another member's browser (while it waits for its creator: unless that is the viewer)
   const elsewhere = agent.runner === 'browser' && agent.enabled && !!teamId() && (wait.waiting ? !wait.mine : !runsHere(agent))
   const creator = agent.createdBy ? people.find((p) => p.id === agent.createdBy)?.name : null

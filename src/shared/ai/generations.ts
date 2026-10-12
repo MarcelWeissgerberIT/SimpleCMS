@@ -25,13 +25,13 @@ export type GenTable = Readonly<Partial<Record<string, number>>>
  * GEN_UNNAMED_UPTO only has to exist).
  */
 export const GEN_ENFORCED: Readonly<Record<GenName, string>> = {
-  claudeLimits: 'src/app/features/ai/core/resolve.ts',
+  claudeLimits: 'src/shared/ai/policy.ts',
   budget: 'src/app/features/governor/install.ts',
 }
 
 /**
- * Generations numbered before this table existed: S2 enforces claudeLimits (core/resolve.ts, policy.ts requiredGen) without
- * naming GEN, so the test asks only that its module exists. Every later entry's module names it. Lowered to 1 once the
- * enforcing module reads `GEN.claudeLimits` (Regler B1: policy.ts reads GEN — GEN_ENFORCED.claudeLimits then points there).
+ * Generations numbered before this table existed whose module does not name its entry (the test then asks only that the
+ * module exists). None any more: policy.ts's requiredGen reads `GEN.claudeLimits` (train 7 — the step the Regler's B1 had
+ * planned), so every entry's module names it.
  */
-export const GEN_UNNAMED_UPTO: number = GEN.claudeLimits
+export const GEN_UNNAMED_UPTO: number = 1

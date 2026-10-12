@@ -152,6 +152,43 @@ test.describe('the rules: generation stamps', () => {
     await rules(page, 'setWorkspaceAI', { policy: { providers: { openrouter: { allow: [...WORK, 'mail', 'private'] } }, restricted: [] } })
     expect((await ws()).policy.providers.openrouter.allow).toEqual(WORK)
   })
+
+  test('a stored budget keeps its stamp through a rule edit (train 7 merge review #3): the workspace\'s and this device\'s; positive control without one', async ({ page }) => {
+    await openApp(page)
+    const ws = () => wsEval(page, (s) => JSON.parse(JSON.stringify(s.ai ?? null)))
+    const dev = () => wsEval(page, (s) => JSON.parse(JSON.stringify(s.settings.ai ?? null)))
+    const known = () => page.evaluate(() => (window as unknown as { __oneAI: { policyKnownAt(g: number): boolean } }).__oneAI.policyKnownAt(2))
+    const OR_ONLY = { policy: { providers: { openrouter: { allow: WORK } }, restricted: [] } }
+    // positive control: no governor, an OpenRouter-only rule needs no stamp
+    expect(await rules(page, 'setWorkspaceAI', OR_ONLY)).toEqual({ ok: true })
+    expect((await ws()).gen).toBeUndefined()
+    // the device: a narrow stamps 2, lifted it goes — nothing else needs one
+    await rules(page, 'setDeviceAI', { narrow: { anthropic: ['people'] } })
+    expect((await dev()).gen).toBe(2)
+    await rules(page, 'setDeviceAI', { narrow: undefined })
+    expect((await dev())?.gen).toBeUndefined()
+    // the person's line for this browser holds a day budget (the Regler's, localStorage): a device rule edit stamps the
+    // budget's generation — never only what the rules need
+    await page.evaluate(() => localStorage.setItem('one.governor.device', JSON.stringify({ v: 1, day: 8, at: 1760000000000 })))
+    expect(await rules(page, 'setDeviceRule', 'bulk', [{ p: 'openrouter', m: 'typesafe/jev-router', effort: 'low' }])).toBe(true)
+    expect((await dev()).gen).toBe(3)
+    // this build cannot enforce a budget: it refuses (reload) and never writes over that stamp
+    expect(await known()).toBe(false)
+    expect(await rules(page, 'setDeviceAI', { narrow: { anthropic: ['people'] } })).toBe(false)
+    expect((await dev()).gen).toBe(3)
+    // the workspace: a stored day budget (Workspace.governor) → an OpenRouter-only rule edit stamps 3, not "none"
+    await page.evaluate(() => localStorage.removeItem('one.governor.device'))
+    await wsEval(page, (s) => s.updateSettings({ ai: undefined }))
+    expect(await dev()).toBeNull()
+    expect(await known()).toBe(true)
+    await page.evaluate(() => (window as unknown as { __one: { workspace: { setState(x: object): void } } }).__one.workspace.setState({ governor: { v: 1, day: 6, month: 120 } }))
+    expect(await rules(page, 'setWorkspaceAI', { policy: { providers: { openrouter: { allow: MARKED } }, restricted: [] } })).toEqual({ ok: true })
+    expect((await ws()).gen).toBe(3)
+    expect((await ws()).policy.providers.openrouter.allow).toEqual(MARKED)
+    // once stamped, the rules wait for a build that enforces the budget: refused, the stamp stays
+    expect(await rules(page, 'setWorkspaceAI', OR_ONLY)).toEqual({ ok: false })
+    expect((await ws()).gen).toBe(3)
+  })
 })
 
 test.describe('generation 2 (acceptance 9, refusal part)', () => {
@@ -219,6 +256,85 @@ test.describe('the terminal\'s tool reads on a narrowed Claude (review #4)', () 
     await field.press('Enter')
     await expect(term.locator('.term-answer').last()).toContainText('Listed again.', { timeout: 20_000 })
     expect(resultOf(claude.requests[3].body, 'toolu_q2')).toContain(MIRA)
+  })
+
+  /** A page with a task Mira owns; Claude narrowed to no people (the device's narrow). */
+  async function taskPage(page: Page): Promise<{ pid: string; mira: string }> {
+    await openApp(page)
+    await wsEval(page, (s) => s.updateSettings({ aiApiKey: 'sk-ant-e2e-test-key' }))
+    const mira = await wsEval(page, (s, n) => s.addPerson(n) as string, MIRA)
+    const pid = await createPage(page, { title: 'Venue plan', content: doc(para('Intro.'), { type: 'workItem', attrs: { itemId: 'wi_policy0002', status: 'todo', people: [mira] }, content: [para('Book the venue')] }) })
+    await rules(page, 'setDeviceAI', { narrow: { anthropic: ['people'] } })
+    expect(await gateSays(page, { purpose: 'terminal.task', sources: [{ all: true }] })).toMatchObject({ redact: { people: true } })
+    return { pid, mira }
+  }
+
+  /** A tool result's text (a string, or its text blocks). */
+  const textOf = (body: AnyState, id: string): string => {
+    const c = (body.messages as AnyState[]).flatMap((m) => (Array.isArray(m.content) ? m.content : [])).find((x: AnyState) => x.type === 'tool_result' && x.tool_use_id === id)?.content
+    return typeof c === 'string' ? c : Array.isArray(c) ? c.map((b: AnyState) => (typeof b.text === 'string' ? b.text : '')).join('\n') : ''
+  }
+
+  async function ask(page: Page, task: string, answer: string) {
+    const term = page.getByRole('region', { name: 'AI terminal' })
+    if (!(await term.count())) await page.keyboard.press(`${MOD}+j`)
+    const field = term.getByRole('textbox', { name: 'Task for the agent' })
+    await field.fill(task)
+    await field.press('Enter')
+    await expect(term.locator('.term-answer').last()).toContainText(answer, { timeout: 20_000 })
+  }
+
+  test('list_work_items (merge review #1): owners read "@Person n", never a name — the seed\'s owners neither; positive control without the narrow', async ({ page }) => {
+    const claude = await mockClaudeScript(page.context(), [
+      { blocks: [{ type: 'tool_use', id: 'toolu_w1', name: 'list_work_items', input: { status: 'any', limit: 100 } }] },
+      text('Listed.'),
+      { blocks: [{ type: 'tool_use', id: 'toolu_w2', name: 'list_work_items', input: { status: 'any', limit: 100 } }] },
+      text('Listed again.'),
+    ])
+    await taskPage(page)
+    await ask(page, 'Which tasks are open?', 'Listed.')
+    const listed = textOf(claude.requests[1].body, 'toolu_w1')
+    expect(listed).toContain('wi_policy0002')
+    expect(listed).not.toContain(MIRA)
+    const owners = listed.split('\n').filter((l) => l.includes(' · owner: '))
+    // the seed has assigned tasks too: every owner on every line is "@Person n"
+    expect(owners.length).toBeGreaterThan(1)
+    for (const l of owners) expect(l).toMatch(/ · owner: @Person \d+(, @Person \d+)*( · |$)/)
+    expect(owners.find((l) => l.includes('wi_policy0002'))).toMatch(/owner: @Person \d+/)
+    // positive control: the narrow lifted, the same call names the owner
+    await rules(page, 'setDeviceAI', { narrow: undefined })
+    await ask(page, 'And now?', 'Listed again.')
+    const named = textOf(claude.requests[3].body, 'toolu_w2')
+    expect(named.split('\n').find((l) => l.includes('wi_policy0002'))).toContain(`owner: ${MIRA}`)
+  })
+
+  test('the settle gate\'s and update_work_item\'s refusals (merge review #1): an unknown owner lists no names on a narrowed route; positive control lists them', async ({ page }) => {
+    let pid = ''
+    const claude = await mockClaudeScript(page.context(), [
+      () => ({ blocks: [{ type: 'tool_use', id: 'toolu_a1', name: 'append_to_page', input: { id: pid, markdown: '> [!TODO] Call the printer\n> Owner: Zed Nobody' } }] }),
+      { blocks: [{ type: 'tool_use', id: 'toolu_u1', name: 'update_work_item', input: { updates: [{ item: 'wi_policy0002', people: { add: ['Zed Nobody'] } }] } }] },
+      text('Refused twice.'),
+      () => ({ blocks: [{ type: 'tool_use', id: 'toolu_a2', name: 'append_to_page', input: { id: pid, markdown: '> [!TODO] Call the printer\n> Owner: Zed Nobody' } }] }),
+      text('Refused with names.'),
+    ])
+    ;({ pid } = await taskPage(page))
+    await ask(page, 'Add a task for Zed.', 'Refused twice.')
+    const appended = resultOf(claude.requests[1].body, 'toolu_a1')
+    const updated = resultOf(claude.requests[2].body, 'toolu_u1')
+    for (const r of [appended, updated]) {
+      expect(r).toContain('Unknown person')
+      expect(r).toContain('Names of people do not go to this route')
+      expect(r).not.toContain('People in this workspace')
+      expect(r).not.toContain(MIRA)
+    }
+    // nothing staged by either call
+    expect(appended).toContain('Nothing was staged')
+    // positive control: the narrow lifted, the refusal offers the names
+    await rules(page, 'setDeviceAI', { narrow: undefined })
+    await ask(page, 'Try again.', 'Refused with names.')
+    const named = resultOf(claude.requests[4].body, 'toolu_a2')
+    expect(named).toContain('People in this workspace')
+    expect(named).toContain(MIRA)
   })
 })
 

@@ -22,9 +22,9 @@ import { emptyKit, optionsOfList, sanitizeList, sanitizePropType, sanitizeRecord
 import { lookAllowed, sameLook, sanitizeLook } from './look'
 import { aiRulesAllowed, claudeRulesAllowed, readWorkspaceAI, sameWorkspaceAI, withCleanAISettings } from './ai'
 import type { WorkspaceAI } from '@/shared/ai/types'
-import { sameGovernor, sanitizeGovernor, type WorkspaceGovernor } from '@/shared/ai/governor'
+import { sameGovernor, sanitizeGovernor, stampGen, type WorkspaceGovernor } from '@/shared/ai/governor'
 import type { Unreadable } from '@/shared/ai/route'
-import { policyKnown, requiredGen } from '@/shared/ai/policy'
+import { policyKnown } from '@/shared/ai/policy'
 import { INTEGRATION_LIMITS, integrationsAllowed, sameIntegration, sanitizeIntegration, sanitizeIntegrations } from './integrations'
 import { SYSTEM, withWriter } from './writer'
 import { deepFreeze } from './freeze'
@@ -583,10 +583,12 @@ export const useWorkspace = create<WorkspaceState>()(
         else delete providers.anthropic
         clean = { ...clean, policy: { providers, restricted: clean.policy?.restricted ?? prev?.policy?.restricted ?? [] } }
       }
-      if (clean) {
-        const { gen: _g, updatedAt: _a, updatedBy: _b, ...rest } = clean
-        const g = requiredGen(rest, null)
-        clean = Object.keys(rest).length ? { ...rest, ...(g > 1 ? { gen: g } : {}) } : undefined
+      {
+        // the stamp: what the rules need and what the stored governor needs — never lowered below a budget's (stampGen,
+        // shared/ai/governor.ts); with no rule left it stays alone while the governor needs it
+        const { gen: _g, updatedAt: _a, updatedBy: _b, ...rest } = clean ?? {}
+        const g = stampGen(rest, get().governor, prev?.gen)
+        clean = Object.keys(rest).length || g > 1 ? { ...rest, ...(g > 1 ? { gen: g } : {}) } : undefined
       }
       const bare = (x: WorkspaceAI | undefined) => (x ? { ...x, updatedAt: undefined, updatedBy: undefined } : undefined)
       if (sameWorkspaceAI(readWorkspaceAI(bare(clean)), readWorkspaceAI(bare(prev)))) return { ok: true, ...(claudeKept ? { claudeKept } : {}) }

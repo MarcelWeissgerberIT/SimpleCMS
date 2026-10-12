@@ -38,6 +38,8 @@ import { wouldLoop } from '../../workitems/graph'
 import { writeItems, type ItemEdit } from '../../workitems/write'
 import type { ItemEntry } from '../../workitems/itemIndex'
 import { writerOfChanges, type Writer } from '../../../store/writer'
+import { redactPersonValue } from '@/shared/ai/redact'
+import { currentShape } from '../core/shape'
 import { currentReadLimit, currentToolScope, ToolInputError } from './toolScope'
 import { depsOf, type StagedChange, type StagedItemEdit, type StagedItems } from './types'
 import type { AgentTool, StageApi } from './tools'
@@ -73,6 +75,22 @@ export function pagePrivate(id: ID | null | undefined): boolean {
 }
 
 const isOpen = (c: StagedChange) => c.status === 'pending' || c.status === 'failed' || c.status === 'applying'
+
+/**
+ * The redactor of a tool call for a route that may not receive people's names (core/shape.ts; null: names go as they
+ * are). Owners then read "@Person n" — the same numbering as the call's page text — and refusals list no names.
+ */
+function namesRedactor() {
+  const shape = currentShape()
+  return shape?.o.people ? shape.r : null
+}
+
+/** A task fact as a route without people's names reads it (owners "@Person n"; the fact itself without a redactor). */
+function factForRoute(fact: ItemFact, r: ReturnType<typeof namesRedactor>): ItemFact {
+  if (!r) return fact
+  const anon = (people: ItemFact['people']) => people.map((p) => ({ id: p.id, name: redactPersonValue(p.id, r) }))
+  return { ...fact, people: anon(fact.people), ...(fact.before ? { before: { ...fact.before, people: anon(fact.before.people) } } : {}) }
+}
 
 /** A pending change that creates the task `itemId` (this conversation / run / call). */
 function creatorOf(stage: StageApi, itemId: string): StagedChange | null {
@@ -264,6 +282,8 @@ export function stageItems(markdown: string, stage: StageApi, target: ItemTarget
     ...(edges.size ? { pendingEdges: edges } : {}),
     existing: 'copy',
     me: session.source !== 'agent',
+    // a route without people's names: refusals never list them
+    ...(namesRedactor() ? { names: false } : {}),
   }
   let report: SettleReport
   try {
@@ -515,12 +535,6 @@ function listIn(o: Record<string, unknown>, key: string, where: string): { add: 
   return { add: arr('add'), remove: arr('remove') }
 }
 
-/** Names Claude may see (≤ 50, sorted, never an email). */
-function namesLine(world: SettleWorld): string {
-  const names = [...new Set(world.people().map((p) => p.name.replace(/\s+/g, ' ').trim()))].filter((n) => n && !n.includes('@')).sort((a, b) => a.localeCompare(b))
-  return names.length ? names.slice(0, 50).map(q).join(', ') + (names.length > 50 ? ' …' : '') : 'none'
-}
-
 /** A task Claude names (id, #handle, exact title) → its id; a refusal message. `self`: the task being changed. */
 function resolveTaskRef(stage: StageApi, world: SettleWorld, inScope: (e: { itemId: string; pageId: ID }) => boolean, raw: string): { id: string } | { error: string } {
   const s = raw.trim()
@@ -590,13 +604,13 @@ function underPage(root: ID): (pageId: ID) => boolean {
   }
 }
 
-/** One line of the list (model-facing): linked tasks outside the caller's scope by id only. */
-function listLine(e: ItemEntry, world: SettleWorld, inScope: (e: { itemId: string; pageId: ID }) => boolean, name: (id: string) => string | null, now: number): string {
+/** One line of the list (model-facing): linked tasks outside the caller's scope by id only; `owner` names a person. */
+function listLine(e: ItemEntry, world: SettleWorld, inScope: (e: { itemId: string; pageId: ID }) => boolean, owner: (id: string) => string, now: number): string {
   const a = e.attrs
   const index = getItemIndex()
   const parts = [`- ${e.itemId}`, q(e.title), STATUS_EN[a.status]]
   if (a.due) parts.push(`${isOverdue(e, now) ? 'OVERDUE, ' : ''}due ${a.due}${a.reminder ? ` (reminder ${a.reminder})` : ''}`)
-  if (a.people.length) parts.push(`owner: ${a.people.map((id) => name(id) ?? id).join(', ')}`)
+  if (a.people.length) parts.push(`owner: ${a.people.map(owner).join(', ')}`)
   if (a.blockedBy.length) {
     const refs = a.blockedBy.map((id) => {
       const b = world.entry(id)
@@ -634,8 +648,11 @@ export const listWorkItems: AgentTool = {
     const world = settleWorld()
     const inScope = itemScope(world)
     const people = peopleResolver(world, stage.items.source !== 'agent')
+    // a route without people's names reads owners "@Person n" (the numbering of the call's page text)
+    const r = namesRedactor()
+    const owner = (id: string) => (r ? redactPersonValue(id, r) : (people.name(id) ?? id))
     const res = listItems(input, stage, world, inScope)
-    const lines = res.items.map((e) => listLine(e, world, inScope, people.name, res.now))
+    const lines = res.items.map((e) => listLine(e, world, inScope, owner, res.now))
     return {
       content: `${res.head}${res.loadingNote}${lines.length ? `\n${lines.join('\n')}` : ''}`,
       summary: t(res.total === 1 ? 'features.agent.res.itemsOne' : 'features.agent.res.items', { count: res.total }),
@@ -652,7 +669,8 @@ export function listItems(input: Record<string, unknown>, stage: StageApi, world
   const statusRaw = typeof input.status === 'string' ? input.status.trim().toLowerCase().replace(/\s+/g, '_') : 'open'
   const status = (STATUS_FILTERS as string[]).includes(statusRaw) ? (statusRaw as ItemStatusFilter) : null
   if (!status) throw new ToolInputError(`Unknown status ${q(String(input.status))}. Use one of: ${STATUS_FILTERS.join(', ')}.`)
-  const people = peopleResolver(world, stage.items.source !== 'agent')
+  const r = namesRedactor()
+  const people = peopleResolver(world, stage.items.source !== 'agent', !r)
   let person: { id: string } | 'none' | null = null
   let personLabel = ''
   if (typeof input.person === 'string' && input.person.trim()) {
@@ -664,7 +682,7 @@ export function listItems(input: Record<string, unknown>, stage: StageApi, world
       const hit = people.resolve(personDraftOf(raw, world), '')
       if (!('id' in hit)) throw new ToolInputError(hit.code === 'meAgent' ? '"me" means nobody for an agent — name the person.' : hit.message)
       person = { id: hit.id }
-      personLabel = people.name(hit.id) ?? hit.id
+      personLabel = r ? redactPersonValue(hit.id, r) : (people.name(hit.id) ?? hit.id)
     }
   }
   let pages: ReadonlySet<ID> | null = null
@@ -749,7 +767,9 @@ export const updateWorkItem: AgentTool = {
     if (raw.length > MAX_ITEM_UPDATES) throw new ToolInputError(`Too many updates (${raw.length}, at most ${MAX_ITEM_UPDATES} per call). Send the rest with a second call.`)
     const world = settleWorld()
     const inScope = itemScope(world)
-    const people = peopleResolver(world, stage.items.source !== 'agent')
+    // a route without people's names: refusals list none, the staged lines name owners "@Person n"
+    const r = namesRedactor()
+    const people = peopleResolver(world, stage.items.source !== 'agent', !r)
     // the graph as it would be: live links, staged tasks' links, pending and planned link changes
     const planned = new Map<string, { add: Set<string>; remove: Set<string> }>()
     const plannedOf = (id: string) => planned.get(id) ?? planned.set(id, { add: new Set(), remove: new Set() }).get(id)!
@@ -867,7 +887,7 @@ export const updateWorkItem: AgentTool = {
       first ??= c
       ns.push(c.n)
       const fact = c.workItem!.facts
-      lines.push(`${out.created ? 'Staged as change' : 'Updated staged change'} #${c.n}: ${factLineEn(fact)}.`)
+      lines.push(`${out.created ? 'Staged as change' : 'Updated staged change'} #${c.n}: ${factLineEn(factForRoute(fact, r))}.`)
     }
     if (!first) return { content: lines.join('\n'), summary: t('features.agent.res.same'), state: 'ok' }
     return {

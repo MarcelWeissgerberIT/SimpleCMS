@@ -25,6 +25,7 @@ import { fmtDayShort, fmtNum, hm, hms, pl } from './format'
 import type { LaneMeta } from './lanes'
 import { setBracket, setLastEject, useRecorderUI, type Bracket, type LastEject } from './state'
 import { whoName } from './WindowPlate'
+import { viaLine } from './via'
 import { Bold, BOLD } from './bold'
 
 /** The plate's view of an eject: its record, or (just made, its record on the way) what the deck remembers. */
@@ -70,6 +71,8 @@ export function AfterPlate({ src, bracket, meta, run, model, heldMarks }: { src:
   const held = heldMarks.length ? heldMarks : (src.last?.held ?? []).map((h) => ({ p: h.p, at: h.at, label: h.label, lane: h.who }))
   const Icon = meta.icon
   const seq = run?.meta?.seq
+  // the route the window's AI writes came from — the same line as before the eject
+  const via = viaLine(t, run?.meta)
   const kind = bracket.lane.split(':')[0]
   const refId = bracket.lane.split(':')[1]
   const agent = kind === 'agent' && refId ? ws.agents?.[refId] : undefined
@@ -108,6 +111,11 @@ export function AfterPlate({ src, bracket, meta, run, model, heldMarks }: { src:
         <span>{meta.title}</span>
         {seq ? <small>{t('features.recorder.win.run', { n: seq })}</small> : null}
       </div>
+      {via ? (
+        <p className="win__via" data-testid="rec-via" title={via}>
+          {via}
+        </p>
+      ) : null}
       <ul className="outlist">
         <li>
           <span className="outlist__k">{t('features.recorder.win.out.places')}</span>

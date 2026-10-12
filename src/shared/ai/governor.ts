@@ -12,9 +12,9 @@
  * limit they cannot enforce is stored); governorKeepsGen / deviceKeepsGen say when a value holds something this build
  * cannot judge — the stored stamp is then never lowered.
  */
-import type { FeatureClass, ProviderId, Route } from './types.ts'
+import type { DeviceAI, FeatureClass, ProviderId, Route, WorkspaceAI } from './types.ts'
 import { isProviderId, modelIdProblem } from './models.ts'
-import { FEATURE_CLASSES } from './policy.ts'
+import { FEATURE_CLASSES, requiredGen } from './policy.ts'
 import { sanitizeRoute, type Unreadable } from './route.ts'
 import { GEN, type GenTable } from './generations.ts'
 
@@ -80,6 +80,9 @@ export interface WorkspaceGovernor {
   updatedAt?: number
   updatedBy?: string | null
 }
+
+/** Where the person's own line for this browser lives (localStorage; features/governor/device.ts reads and writes it). */
+export const DEVICE_GOVERNOR_KEY = 'one.governor.device'
 
 /** The person's own line for this browser (localStorage one.governor.device): every workspace and member signed in here. */
 export interface DeviceGovernor {
@@ -467,4 +470,19 @@ export function deviceKeepsGen(d: DeviceGovernor | Unreadable | null | undefined
   if (!d) return false
   if (!isReadableDeviceGovernor(d)) return true
   return Object.keys(d).some((k) => !DEVICE_KNOWN.has(k))
+}
+
+/**
+ * The generation stamp of the workspace's AI rules (Workspace.ai.gen) — ONE helper for every writer of it (S2's rule
+ * setter now; the Regler's writers in phase B): the higher of what the rules need (requiredGen) and what the stored
+ * governor needs (governorGen) — and, while the governor holds something this build cannot judge (governorKeepsGen), never
+ * below the stamp stored now. A rule edit never lowers a budget's stamp. 1: no stamp.
+ */
+export function stampGen(rules: WorkspaceAI | null | undefined, governor: WorkspaceGovernor | Unreadable | null | undefined, stored: number | undefined, gens: GenTable = GEN): number {
+  return Math.max(requiredGen(rules, null), governorGen(governor, gens), governorKeepsGen(governor, gens) ? (stored ?? 1) : 1)
+}
+
+/** The same for this device's layer (settings.ai.gen): its own rules and the person's line for this browser. */
+export function stampDeviceGen(rules: DeviceAI | null | undefined, line: DeviceGovernor | Unreadable | null | undefined, stored: number | undefined, gens: GenTable = GEN): number {
+  return Math.max(requiredGen(null, rules), deviceGovernorGen(line, gens), deviceKeepsGen(line) ? (stored ?? 1) : 1)
 }
