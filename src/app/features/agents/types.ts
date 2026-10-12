@@ -8,6 +8,7 @@ import type { StagedChange } from '../ai/agent/types'
 import type { AgentState } from './runs'
 import type { ModelLine } from '../ai/core/meter'
 import type { DataClass } from '@/shared/ai/types'
+import type { JevWhy } from '@/shared/ai/decide'
 
 export type { AgentTrigger, CustomAgent }
 
@@ -17,6 +18,33 @@ export interface AgentRunStep {
   kind: 'tool' | 'mcp' | 'note'
   label: string
   state: 'ok' | 'err'
+  /** a Vorprüfer's step (slice SJ): its check of the run · the run it made wait (drawn amber) */
+  jev?: 'check' | 'wait'
+}
+
+/** Why a Vorprüfer made an apply-mode run wait as a whole (slice SJ, features/agents/direct.ts). */
+export type JevWait = 'gate' | 'hold' | 'sticky' | 'changed'
+
+/** A run's pre-check in numbers (slice SJ) — the receipt's step, the health lamps. */
+export interface AgentRunJev {
+  /** changes of a checked kind */
+  n: number
+  /** of them Jev answered for */
+  checked: number
+  /** answered below the mark threshold */
+  marked: number
+  /** status 'held' when the checks ended */
+  held: number
+  /** what the checks cost (priced entries) */
+  usd: number
+  /** the snapshot that answered (dated) */
+  model?: string
+  /** none could be checked: why (the first change's reason) */
+  failed?: JevWhy
+  /** an apply-mode run Jev made wait as a whole: why */
+  waited?: JevWait
+  /** another Jev snapshot than the confirmed one was resolved or answered (DJ19 — the "new version" lamp) */
+  changedTo?: string
 }
 
 export interface AgentRunUsage {
@@ -64,4 +92,6 @@ export interface AgentRun {
    * named, MCP results, the memory) — a pre-check of its proposals declares them too
    */
   touched?: DataClass[]
+  /** browser runs with a Vorprüfer: its checks in numbers */
+  jev?: AgentRunJev
 }

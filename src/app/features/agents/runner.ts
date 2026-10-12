@@ -428,3 +428,18 @@ export function startAgents(): () => void {
     stopLeading()
   }
 }
+
+// e2e seam (dev, or ?e2e): one run of an agent in this tab, as "Run now" (manual) or a row trigger starts it — the run's id
+if (typeof window !== 'undefined' && (import.meta.env.DEV || new URLSearchParams(window.location.search).has('e2e'))) {
+  const w = window as unknown as { __oneAgents?: Record<string, unknown> }
+  w.__oneAgents = {
+    ...(w.__oneAgents ?? {}),
+    run: async (agentId: ID, o: { rows?: ID[] } = {}) => {
+      const agent = useWorkspace.getState().agents?.[agentId]
+      if (!agent) return null
+      const m = await exec()
+      const res = await m.executeRun(agent, o.rows?.length ? { trigger: { type: 'row_changed', detail: `${o.rows.length}` }, rows: o.rows } : { trigger: { type: 'manual' } })
+      return typeof res === 'string' ? res : res.id
+    },
+  }
+}

@@ -541,5 +541,6 @@ export async function supersedeOlder(agentId: ID): Promise<number> {
 
 // e2e seam (dev, or ?e2e): the review entry points as the agents page and Preflight call them
 if (typeof window !== 'undefined' && (import.meta.env.DEV || new URLSearchParams(window.location.search).has('e2e'))) {
-  ;(window as unknown as { __oneAgents?: unknown }).__oneAgents = { applyRun, discardRun, undoChange, canUndoChange, canUndoDiscard, undoDiscard, supersedeOlder, loadRuns, putRun, isLeader, setSupersedeGuard, setProposalsShown }
+  const w = window as unknown as { __oneAgents?: Record<string, unknown> }
+  w.__oneAgents = { ...(w.__oneAgents ?? {}), applyRun, discardRun, undoChange, canUndoChange, canUndoDiscard, undoDiscard, supersedeOlder, loadRuns, putRun, isLeader, setSupersedeGuard, setProposalsShown }
 }

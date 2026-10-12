@@ -54,12 +54,13 @@ import { endRun, noteRun, withWriter, type Writer } from '../../store/writer'
 import { memoryRef } from '../ai/core/refs'
 import { precheck } from '../ai/core/gate'
 import { appliedOf } from '../ai/core/shape'
-import type { DataClass, SourceRef } from '@/shared/ai/types'
+import type { DataClass, LedgerEntry, SourceRef } from '@/shared/ai/types'
 import { labelOf } from '@/shared/ai/models'
 import { decisionChecks } from '@/shared/ai/route'
 import { DATA_CLASSES } from '@/shared/ai/policy'
 import { classOfPage, type SourceWorld } from '../ai/core/sources'
 import { idsIn } from '../ai/agent/toolScope'
+import { failClosed, heldPlaceholders, precheckRun } from './precheck'
 import { addToLines } from '../ai/core/meter'
 import { stepText } from '../ai/Receipt'
 
@@ -272,10 +273,15 @@ async function runOnce(agent: CustomAgent, req: RunRequest): Promise<AgentRun> {
   noteRun(writer, { seq })
   const changes: StagedChange[] = []
   const rowIds: Record<string, ID> = {}
+  // a Vorprüfer (slice SJ, review v2): Jev pre-checks the proposals when the loop ends (routeBlock refused an unreadable one)
+  const checks = decisionChecks(agent)
+  const review = checks && checks !== 'unreadable' ? checks : null
   let saveTimer = 0
+  // the stored copy says 'running' until the run's end is written (DJ16: nothing of it shows as reviewable before its
+  // checks ended) — with "Zurückhalten" an unchecked change is stored held, never clean (a run that never finishes)
   const save = (now = false) => {
     window.clearTimeout(saveTimer)
-    if (now) return putRun({ ...run, steps: [...run.steps], ...(changes.length ? { staged: [...changes] } : {}) })
+    if (now) return putRun({ ...run, status: 'running', steps: [...run.steps], ...(changes.length ? { staged: heldPlaceholders(changes, review, run.startedAt) } : {}) })
     saveTimer = window.setTimeout(() => void save(true), 400)
     return Promise.resolve()
   }
@@ -318,11 +324,18 @@ async function runOnce(agent: CustomAgent, req: RunRequest): Promise<AgentRun> {
   let toolSeq = 0
   const mcpSteps = new Map<string, number>()
   let memory: ReturnType<typeof memoryFor> | null = null
-  // a Vorprüfer (slice SJ): what the tools returned is recorded — the classes its checks declare (the run's `touched`)
-  const checks = decisionChecks(agent)
+  // a Vorprüfer: what the tools returned is recorded — the classes its checks declare (the run's `touched`)
   const reads = new Set<ID>()
   const own = (id: string) => Object.prototype.hasOwnProperty.call(useWorkspace.getState().pages, id)
-  const read = checks && checks !== 'unreadable' ? (content: string) => idsIn(content, own, reads) : undefined
+  const read = review ? (content: string) => idsIn(content, own, reads) : undefined
+  /** a decision response (Jev): into the run's receipt and budget, its own model line */
+  const foldEntry = (entry: LedgerEntry) => {
+    usage.input += entry.usage.input + entry.usage.cacheWrite + entry.usage.cacheWrite1h
+    usage.output += entry.usage.output
+    usage.cacheRead += entry.usage.cacheRead
+    usage.usd += entry.usd ?? 0
+    usage.byModel = addToLines(usage.byModel, entry)
+  }
 
   const hooks: RunHooks = {
     toolStart(name, arg) {
@@ -458,6 +471,19 @@ async function runOnce(agent: CustomAgent, req: RunRequest): Promise<AgentRun> {
   window.clearTimeout(saveTimer)
   if (read) run.touched = touchedClasses([...reads, ...(req.rows ?? [])], { mcp: mcpUsed, memory: !!memory?.block })
 
+  // the Vorprüfung (slice SJ): Jev checks the proposals before anything is written — the stored run is still 'running',
+  // stored once more first with every proposal (held placeholders with "Zurückhalten"): a tab that goes away meanwhile
+  // leaves them as cards, never clean ones
+  if (review && changes.length) {
+    await save(true)
+    try {
+      await precheckRun({ agent, run, review, changes, rowIds, triggerRows: req.rows ?? [], scope: scopeFilter(agent), budgetLeft: agent.maxRunUsd - usage.usd, onEntry: foldEntry })
+    } catch (e) {
+      console.warn('[one] agents: the pre-check failed', e)
+      failClosed(run, changes, review)
+    }
+  }
+
   // what the run wrote or proposed
   if (changes.length) {
     if (agent.write === 'apply' && run.status === 'ok') {
@@ -486,7 +512,7 @@ async function runOnce(agent: CustomAgent, req: RunRequest): Promise<AgentRun> {
       if (res.failed.length) run.steps.push({ kind: 'note', label: t('features.agents.run.applyFailed', { count: res.failed.length }), state: 'err' })
       const waiting = changes.filter((c) => c.kind === 'edit' && c.status === 'pending').length
       const held = changes.filter((c) => c.kind !== 'edit' && c.kind !== 'send' && c.status === 'pending' && waits.has(c.id)).length
-      if (waiting || held) run.status = 'staged'
+      if (waiting || held || changes.some((c) => c.status === 'held')) run.status = 'staged'
       if (waiting) run.steps.push({ kind: 'note', label: t(waiting === 1 ? 'features.agents.run.editsWait.one' : 'features.agents.run.editsWait.other', { count: waiting }), state: 'ok' })
       if (held) run.steps.push({ kind: 'note', label: t(held === 1 ? 'features.agents.run.itemsWait.one' : 'features.agents.run.itemsWait.other', { count: held }), state: 'ok' })
     } else if (run.status === 'ok') run.status = 'staged'
