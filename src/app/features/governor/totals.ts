@@ -15,12 +15,12 @@
 import { create } from 'zustand'
 import { createStore, delMany, getMany, keys, setMany, type UseStore } from 'idb-keyval'
 import type { LedgerEntry } from '@/shared/ai/types'
-import { adjust, flushLedger, ledgerDay, ledgerOpens, onLedgerDelta, registerMeter, reserve, settle, type LedgerDelta } from './ledger'
+import { adjust, flushLedger, ledgerDayRead, ledgerOpens, onLedgerDelta, registerMeter, reserve, settle, type LedgerDelta } from './ledger'
 import { ledgerScope } from './scope'
 import { bookOthers, onBookChange, reservedNow, reservedOthersNow, startBook } from './book'
 import { DEVICE_LINE_SPANS_BROWSER, deviceLimitOf, deviceLineScopes, knownScopes, localKV, noteScope, type ScopeSeen } from './device'
 import { closedDaysBefore, dayOf, monthOf, nextMidnight } from './clock'
-import { closedTally, cacheOf, deltaTally, meterTally, monthSpentOf, newTally, readTally, readTodayCache, rollTally, sumTallies, tallyKnown, todayOf, type Tally } from './tally'
+import { applyDayRead, closedDaysOf, closedTally, cacheOf, deltaTally, meterTally, monthSpentOf, newTally, readTodayCache, rollTally, sumTallies, tallyKnown, todayOf, type Tally } from './tally'
 import { wipePaused } from './paused'
 import { clearAllowances } from './allow'
 import { whenIdle } from '../../lib/idle'
@@ -203,6 +203,11 @@ let readTimer: ReturnType<typeof setTimeout> | null = null
 let cancelIdle: (() => void) | null = null
 let reading: Promise<void> | null = null
 
+/** A scope the cached list does not hold yet (the other tab noted it before its ping): read the list again. */
+function seeScope(scope: string): void {
+  if (scopesCache && !scopesCache.list.some((s) => s.scope === scope)) scopesCache = null
+}
+
 function onMeter(e: LedgerEntry): void {
   if (!e.scope) return
   const now = Date.now()
@@ -213,12 +218,15 @@ function onMeter(e: LedgerEntry): void {
     noteScope(e.scope, now)
     scopesCache = null
   }
+  seeScope(e.scope)
   publish()
 }
 
 function onDelta(d: LedgerDelta): void {
   const now = Date.now()
   if (!d.scope) return scheduleRead(OLD_PING_MS)
+  // another workspace's first spend today counts on the device line at once, not after the list's 60 s
+  seeScope(d.scope)
   if (deltaTally(tallyFor(d.scope, now), d, now) === 'read') scheduleRead(OLD_PING_MS)
   publish()
 }
@@ -275,9 +283,10 @@ export function loadToday(): Promise<void> {
     for (const s of scopesToRead(Date.now())) {
       const startedAt = Date.now()
       const day = dayOf(startedAt)
-      const entries = await ledgerDay(s, day)
+      const read = await ledgerDayRead(s, day)
       const t = tallyFor(s, Date.now())
-      if (readTally(t, day, entries, startedAt, Date.now())) writeCache(t, Date.now())
+      // a memory-only read (the ledger refused) is no total: the floor and the deltas heard stay, the cache is not written
+      if (applyDayRead(t, day, read, startedAt, Date.now())) writeCache(t, Date.now())
     }
     publish()
   })().finally(() => {
@@ -286,19 +295,10 @@ export function loadToday(): Promise<void> {
   return reading
 }
 
-interface DayRecord {
-  usd: number
-  unpriced: number
-}
-
-const readDayRecord = (v: unknown): DayRecord | null => {
-  const r = v as Partial<DayRecord> | null
-  return r && typeof r.usd === 'number' && Number.isFinite(r.usd) && r.usd >= 0 ? { usd: r.usd, unpriced: typeof r.unpriced === 'number' ? r.unpriced : 0 } : null
-}
-
 /**
- * Read the month's closed days of the same scopes: their records in `one-governor`, a missing one computed once from the
- * ledger and stored (a closed day never changes). The brake's start check awaits it when a month limit is set.
+ * Read the month's closed days of the same scopes: their records in `one-governor`, a missing one computed once from a
+ * complete ledger read and stored (a closed day never changes). A day the ledger could not read in full writes no record
+ * and leaves the month's floor as it was. The brake's start check awaits it when a month limit is set.
  */
 export async function loadMonth(): Promise<void> {
   for (const s of scopesToRead(Date.now())) {
@@ -313,26 +313,11 @@ export async function loadMonth(): Promise<void> {
       } catch {
         stored = []
       }
-    let sum = 0
-    const fresh: Array<[string, DayRecord]> = []
-    for (const [i, d] of days.entries()) {
-      const rec = readDayRecord(stored[i])
-      if (rec) {
-        sum += rec.usd
-        continue
-      }
-      const entries = await ledgerDay(s, d)
-      const r: DayRecord = { usd: 0, unpriced: 0 }
-      for (const e of entries) {
-        if (e.usd === null) r.unpriced += 1
-        else r.usd += Math.max(0, e.usd)
-      }
-      sum += r.usd
-      fresh.push([ks[i], r])
-    }
-    if (st && fresh.length) await setMany(fresh, st).catch(() => {})
+    const r = await closedDaysOf(days, stored, (d) => ledgerDayRead(s, d))
+    if (st && r.fresh.length) await setMany(r.fresh.map(([d, rec]) => [`${s}|day|${d}`, rec]), st).catch(() => {})
+    if (!r.complete) continue
     const t = tallyFor(s, Date.now())
-    if (closedTally(t, day, sum, Date.now())) writeCache(t, Date.now())
+    if (closedTally(t, day, r.sum, Date.now())) writeCache(t, Date.now())
   }
   publish()
 }

@@ -5,9 +5,9 @@
  *
  *  - oneShot: no limit → identity · no scope → refused 'scope' · no price → refused 'noprice' · fits → pass (reserve the
  *    upper end) · a TEXT request without MCP servers → the largest answer budget ≥ minOut that fits (cap) · else refused
- *    before sending, with E (+1 $ once) only when that makes it fit, the need otherwise, and a cheaper model of the same
- *    provider whose band fits. Structured answers (a cut JSON is worth nothing) and requests with MCP servers (max_tokens
- *    bounds the output only) are never capped.
+ *    before sending, with E (+1 $ once on the day and month lines) only when that makes it fit, the need otherwise, and a
+ *    cheaper model of the same provider whose band fits. Structured answers (a cut JSON is worth nothing) and requests
+ *    with MCP servers (max_tokens bounds the output only) are never capped.
  *  - round: between two loop requests — go (reserve the next step) · halt (the AI terminal's card: E · H · Mod+.) · stop
  *    (agents of every mode: they never wait mid-run — owner decision 2).
  *  - startCheckPure: before a run — background runs are not started (one held record per agent per day), a manual
@@ -31,6 +31,12 @@ export interface BrakeRun {
 
 /** What one press of E allows. */
 export const ALLOW_USD = 1
+
+/**
+ * Does one press of E make a band's upper end fit? E raises the day and month lines only (limits.ts restOf) — never a
+ * run's own budget: with the run line binding, E is not offered (it would be offered again after every press).
+ */
+export const allowFits = (high: number, rest: Rest): boolean => high <= Math.min(rest.day, rest.month) + ALLOW_USD && high <= rest.run
 
 /**
  * H across thinking modes (an adaptive-thinking history continued on a model without thinking) waits for the owner's
@@ -146,7 +152,7 @@ export function oneShot(ctx: OneShotCtx, rest: Rest): OneShotVerdict {
   return {
     kind: 'refuse',
     detail: rest.binding ?? 'day',
-    fix: { kind: 'brake', allow: band.high <= budget + ALLOW_USD ? ALLOW_USD : null, need: Math.max(0, band.high - budget), ...(cheaper ? { cheaper } : {}), band, rest },
+    fix: { kind: 'brake', allow: allowFits(band.high, rest) ? ALLOW_USD : null, need: Math.max(0, band.high - budget), ...(cheaper ? { cheaper } : {}), band, rest },
   }
 }
 
@@ -211,7 +217,7 @@ export function round(ctx: RoundCtx): RoundVerdict {
       next,
       to: ctx.line.spent + (next?.high ?? 0),
       binding: ctx.rest.binding ?? 'day',
-      allow: next && next.high <= budget + ALLOW_USD ? ALLOW_USD : null,
+      allow: next && allowFits(next.high, ctx.rest) ? ALLOW_USD : null,
       cheaper: ctx.cheaper ?? null,
       at: ctx.now ?? Date.now(),
     },
@@ -256,7 +262,7 @@ export function startCheckPure(ctx: StartCtx): StartVerdict {
   if (verdict === 'yes') return { start: true }
   if (verdict === 'noprice' || !ctx.first) return manual ? { start: false, refuse: 'noprice' } : { start: false, hold: 'noprice' }
   if (!manual) return { start: false, hold: binding }
-  return { start: false, ask: { allow: ctx.first.high <= budget + ALLOW_USD ? ALLOW_USD : null, need: Math.max(0, ctx.first.high - budget), first: ctx.first, rest: ctx.rest, binding } }
+  return { start: false, ask: { allow: allowFits(ctx.first.high, ctx.rest) ? ALLOW_USD : null, need: Math.max(0, ctx.first.high - budget), first: ctx.first, rest: ctx.rest, binding } }
 }
 
 /* ------------------------------------------------------------------ */

@@ -55,7 +55,7 @@ import { sanitizeScripts } from './scripts'
 import { sanitizeKit } from './kit'
 import { sanitizeLook } from './look'
 import { readWorkspaceAI, withCleanAISettings } from './ai'
-import { sanitizeGovernorWithReport } from '@/shared/ai/governor'
+import { isGovernorMarker, sanitizeGovernorWithReport } from '@/shared/ai/governor'
 import { blockVersions, contentFingerprint, DOC_SCHEMA_VERSION, newerCounts, rewrapNewer } from './generations'
 import { plainText } from './plain'
 import { SYSTEM, withWriter } from './writer'
@@ -794,7 +794,17 @@ function readSome(pageIds: ID[], dbIds: ID[], meta: boolean): Promise<SomeRecord
  */
 const governorOf = (ws: Workspace) => ('governor' in ws ? ws.governor : useWorkspace.getState().governor)
 
-const metaOf = (ws: Workspace) => ({ version: ws.version, epoch: ws.epoch, settings: ws.settings, people: ws.people, recent: ws.recent, functions: ws.functions ?? {}, agents: ws.agents ?? {}, scripts: ws.scripts ?? {}, kit: ws.kit, look: ws.look ?? null, ai: ws.ai ?? null, governor: governorOf(ws) ?? null, integrations: ws.integrations ?? [], order: Object.keys(ws.pages) })
+/**
+ * The governor a write stores: the snapshot's — except the marker for a newer value too large to keep a copy of
+ * (shared/ai/governor.ts), which never replaces the stored value it stands for.
+ */
+function governorToStore(ws: Workspace, stored: unknown): unknown {
+  const g = governorOf(ws)
+  if (isGovernorMarker(g) && isObj(stored) && stored.governor !== undefined) return stored.governor
+  return g ?? null
+}
+
+const metaOf = (ws: Workspace, stored?: unknown) => ({ version: ws.version, epoch: ws.epoch, settings: ws.settings, people: ws.people, recent: ws.recent, functions: ws.functions ?? {}, agents: ws.agents ?? {}, scripts: ws.scripts ?? {}, kit: ws.kit, look: ws.look ?? null, ai: ws.ai ?? null, governor: governorToStore(ws, stored), integrations: ws.integrations ?? [], order: Object.keys(ws.pages) })
 
 /** Records (id → value) in the stored page order; ids the order does not know follow by creation time. */
 function inOrder(records: Obj, order: unknown): Obj {
@@ -1173,7 +1183,7 @@ function writeRecords(set: WriteSet, bases: Map<ID, Page>, merged: Map<ID, [Page
       for (const id of wroteHere.keys()) if (!snap.pages[id]) wroteHere.delete(id)
       for (const [id, db] of Object.entries(snap.databases)) put(DB_PREFIX + id, db)
       for (const k of storedKeys) if (!keep.has(String(k))) os.delete(k)
-      os.put(metaOf(snap), META_KEY)
+      os.put(metaOf(snap, meta.result), META_KEY)
       os.delete(LEGACY_KEY)
     }
 
@@ -1226,7 +1236,7 @@ function writeRecords(set: WriteSet, bases: Map<ID, Page>, merged: Map<ID, [Page
         if (set.kit) next.kit = snap.kit
         if (set.look) next.look = snap.look ?? null
         if (set.ai) next.ai = snap.ai ?? null
-        if (set.governor) next.governor = governorOf(snap) ?? null
+        if (set.governor) next.governor = governorToStore(snap, meta.result)
         if (set.integrations) next.integrations = snap.integrations ?? []
         os.put(next, META_KEY)
       }

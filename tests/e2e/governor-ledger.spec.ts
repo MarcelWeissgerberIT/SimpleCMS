@@ -6,8 +6,10 @@
  *  - the book: a reservation in tab A reaches tab B on `one-ledger-res` and never a ledger-ping listener; adjust / settle;
  *  - totals: nothing opened before a load is called; meters, the other tab's deltas, the full read, the cache and the
  *    device line over two scopes;
+ *  - totals: another workspace's first spend today reaches the device line at once (its scope listed again on the ping);
  *  - Workspace.governor is kept locally (G0, store/persistence.ts): save → reload → another tab's save, unknown keys of a
- *    later slice kept, a newer shape kept whole, junk repaired, removal.
+ *    later slice kept, a newer shape kept whole (too large: a marker never written over the stored value), junk repaired,
+ *    removal.
  * No AI host is reached (entries are seeded or metered through the seam). Every value is fictional.
  */
 import type { Page } from '@playwright/test'
@@ -226,6 +228,34 @@ test.describe('totals', () => {
   })
 })
 
+test.describe('totals: the device line hears a new workspace at once', () => {
+  test("another workspace's first spend today counts on the device line at once — not after the scope list's minute", async ({ page }) => {
+    await openApp(page)
+    const b = await page.context().newPage()
+    await openApp(b)
+    await page.evaluate(() => localStorage.setItem('one.governor.device', JSON.stringify({ v: 1, day: 8, at: Date.now() })))
+    await gov(page, (g) => g.start())
+    // the device line's scopes are listed (and kept for 60 s): this workspace only
+    expect((await gov(page, (g) => g.totals())).device.scopes).toEqual(['local:local'])
+    const other = 'cloud:ws-nordlicht-0002:u:acc-mara-lind'
+    const day = await dayIn(page, Date.now())
+    // tab B stands for that workspace's tab: it notes its scope on its first meter, then its batch's ping arrives
+    await b.evaluate(
+      ([o, d]) => {
+        localStorage.setItem('one.governor.scopes', JSON.stringify([{ scope: o, last: d }]))
+        new BroadcastChannel('one-ledger').postMessage({ scope: o, day: d, usd: 3, unpriced: 0, batch: 'batch-nordlicht-0001' })
+      },
+      [other, day] as const,
+    )
+    await expect.poll(async () => (await gov(page, (g) => g.totals())).device.spentToday, { timeout: 3000 }).toBe(3)
+    const t = await gov(page, (g) => g.totals())
+    expect(t.device.scopes).toEqual(['local:local', other])
+    // never in this workspace's own numbers
+    expect(t.scope.spentToday).toBe(0)
+    await b.close()
+  })
+})
+
 test.describe('Workspace.governor is kept (G0, local persistence)', () => {
   type Gov = Record<string, unknown> | undefined
   const setGov = (p: Page, v: Gov) => p.evaluate((g) => (window as unknown as { __one: { workspace: { setState: (x: object) => void } } }).__one.workspace.setState({ governor: g }), v)
@@ -258,6 +288,35 @@ test.describe('Workspace.governor is kept (G0, local persistence)', () => {
     await setGov(page, { v: 1, day: 20000, autonomy: 'turbo' })
     await reloadApp(page)
     expect(await govOf(page)).toEqual({ v: 1, day: 10000 })
+
+    // a newer value too large to keep a copy of: the store holds a marker, which never replaces the stored value
+    const huge = { v: 3, blob: 'x'.repeat(70_000) }
+    await setGov(page, huge)
+    await flush(page)
+    await reloadApp(page)
+    const marker = await govOf(page)
+    expect(marker).toEqual({ v: Number.MAX_SAFE_INTEGER, unreadable: true })
+    // a write of the governor while the store holds the marker (a new reference) keeps the stored value
+    await setGov(page, { ...(marker as object) })
+    await flush(page)
+    const stored = await page.evaluate(
+      () =>
+        new Promise<number>((resolve, reject) => {
+          const r = indexedDB.open('keyval-store')
+          r.onsuccess = () => {
+            const get = r.result.transaction('keyval', 'readonly').objectStore('keyval').get('one.ws.v2')
+            get.onsuccess = () => {
+              resolve(String(get.result?.governor?.blob ?? '').length)
+              r.result.close()
+            }
+            get.onerror = () => reject(get.error)
+          }
+          r.onerror = () => reject(r.error)
+        }),
+    )
+    expect(stored).toBe(70_000)
+    await reloadApp(page)
+    expect(await govOf(page)).toEqual(marker)
 
     // removed (assigned undefined): gone after a reload
     await setGov(page, undefined)

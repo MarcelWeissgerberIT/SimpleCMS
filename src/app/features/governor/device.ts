@@ -63,10 +63,10 @@ function write(kv: KV | null, key: string, value: unknown): boolean {
 /** The stored line as every reader keeps it (a newer build's value: unreadable — kept, never written over). */
 export const readDeviceLimit = (kv: KV | null = localKV()): DeviceGovernor | Unreadable | undefined => sanitizeDeviceGovernor(readJson(kv, DEVICE_KEY))
 
-/** The line this build acts on (undefined: none, or one it cannot read). */
+/** The line this build acts on (undefined: none — no day or month limit — or one it cannot read). */
 export function deviceLimitOf(kv: KV | null = localKV()): DeviceGovernor | undefined {
   const d = readDeviceLimit(kv)
-  return isReadableDeviceGovernor(d) ? d : undefined
+  return isReadableDeviceGovernor(d) && (d.day !== undefined || d.month !== undefined) ? d : undefined
 }
 
 export type DeviceLimitResult = { ok: true; value: DeviceGovernor | undefined } | { ok: false; why: 'newer' | 'storage' }
@@ -76,8 +76,12 @@ export type DeviceLimitResult = { ok: true; value: DeviceGovernor | undefined } 
  * stampDeviceGen() under { kind: 'you', via: 'ui' } (B1). Refused over a value a newer build wrote.
  */
 export function setDeviceLimit(next: { day?: number | null; month?: number | null } | null, kv: KV | null = localKV(), now = Date.now()): DeviceLimitResult {
-  if (readDeviceLimit(kv) && !deviceLimitOf(kv)) return { ok: false, why: 'newer' }
-  const value = next ? sanitizeDeviceGovernor({ v: 1, ...(next.day != null ? { day: next.day } : {}), ...(next.month != null ? { month: next.month } : {}), at: now }) : undefined
+  const stored = readDeviceLimit(kv)
+  if (stored && !isReadableDeviceGovernor(stored)) return { ok: false, why: 'newer' }
+  // a later slice's keys stay — also when the limit goes (the value then holds them alone)
+  const { v: _v, day: _day, month: _month, at: _at, ...extras } = stored ?? ({ v: 1 } as DeviceGovernor)
+  const limits = next ? { ...(next.day != null ? { day: next.day } : {}), ...(next.month != null ? { month: next.month } : {}) } : {}
+  const value = sanitizeDeviceGovernor({ ...extras, v: 1, ...limits, at: now })
   const clean = isReadableDeviceGovernor(value) ? value : undefined
   return write(kv, DEVICE_KEY, clean) ? { ok: true, value: clean } : { ok: false, why: 'storage' }
 }

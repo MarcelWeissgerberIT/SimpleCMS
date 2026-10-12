@@ -8,7 +8,8 @@
  *    `{ scope, day, usd, unpriced, batch }` per scope and day (onLedgerDelta; the Regler adds it by batch id); an older
  *    tab's ping is `{ scope }` only (read again).
  *  - ledgerEntries({ from, to }) / ledgerTotals(by): this scope's entries (this tab's unwritten ones included)
- *  - ledgerDay(scope, day): one scope's entries of one local day — a key-range read, never the whole store
+ *  - ledgerDay(scope, day) / ledgerDayRead(scope, day): one scope's entries of one local day — a key-range read, never the
+ *    whole store; the latter says whether the store answered (a memory-only read is no total of the day)
  *  - reserve(usd, source) / adjust(id, usd) / settle(id): what the requests in flight in this tab may still cost; the
  *    Regler's book (book.ts) tells the other tabs on its own channel
  *  - days older than 90 are deleted once a day; the store opens on the first meter or read — never on the boot path
@@ -335,15 +336,23 @@ export async function ledgerTotals(by: TotalsBy, range: LedgerRange = {}): Promi
   return totalsOf(await ledgerEntries(range), by)
 }
 
+/** A day's read: its entries, and whether the store answered (false: this tab's memory only — no total of the day). */
+export interface LedgerDayRead {
+  entries: LedgerEntry[]
+  complete: boolean
+}
+
 /**
  * One scope's entries of one local day ('yyyy-MM-dd'), oldest first — one key-range read (`<scope>|<day>|…`), this tab's
  * unwritten and memory-kept entries of that scope and day merged by id. Any scope: the device-wide line reads the other
- * workspaces of this browser too.
+ * workspaces of this browser too. `complete` is false when no store answered (refused, broken earlier in this tab, or the
+ * read failed): the entries are then only what this tab kept in memory — never a total of the day.
  */
-export async function ledgerDay(scope: string, day: string): Promise<LedgerEntry[]> {
+export async function ledgerDayRead(scope: string, day: string): Promise<LedgerDayRead> {
   await flushLedger()
   const out = new Map<string, LedgerEntry>()
   const st = scope ? store() : null
+  let complete = false
   if (st) {
     try {
       const range = IDBKeyRange.bound(`${scope}|${day}|`, `${scope}|${day}|\uffff`)
@@ -352,13 +361,17 @@ export async function ledgerDay(scope: string, day: string): Promise<LedgerEntry
         const e = readEntry(v)
         if (e) out.set(e.id, e)
       }
+      complete = true
     } catch (err) {
       fail(err)
     }
   }
   for (const e of memory) if (e.scope === scope && dayOf(e.at) === day) out.set(e.id, e)
-  return [...out.values()].sort((a, b) => a.at - b.at)
+  return { entries: [...out.values()].sort((a, b) => a.at - b.at), complete }
 }
+
+/** One scope's entries of one local day (ledgerDayRead's entries — the Regler's totals read `complete` too). */
+export const ledgerDay = async (scope: string, day: string): Promise<LedgerEntry[]> => (await ledgerDayRead(scope, day)).entries
 
 /** Delete this member's entries on this device (the seam; the device copy and the reset delete the whole store). */
 export async function wipeLedgerScope(scope = ledgerScope()): Promise<void> {
@@ -438,6 +451,7 @@ if (typeof window !== 'undefined' && (import.meta.env.DEV || new URLSearchParams
     reserved: () => ({ usd: reservedUsd(), open: openReservations().length }),
     scope: ledgerScope,
     day: (scope: string, day: string) => ledgerDay(scope, day),
+    dayRead: (scope: string, day: string) => ledgerDayRead(scope, day),
     /** test entries written as they are, under their own scope (another workspace of this browser, another day) */
     seed: async (list: LedgerEntry[]) => {
       const st = store()

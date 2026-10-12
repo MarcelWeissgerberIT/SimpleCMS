@@ -3,9 +3,10 @@
  * `governor`, owners / admins) and the person's own line for this browser (localStorage `one.governor.device`).
  *
  * Every reader goes through the sanitizers: known keys are validated (numbers clamped into their range), unknown
- * top-level keys of a later slice are kept as they were (≤ 4 KB of JSON), a saving rule this build cannot read is kept
- * as it was and never acted on, and a shape version this build does not know (`v` > 1) is kept whole — never acted on,
- * never written over. The standard governor is no value (undefined), like the look.
+ * top-level keys of a later slice are kept as they were (≤ 4 KB of JSON), a saving rule this build cannot read (any key
+ * it does not know included) is kept as it was and never acted on, and a shape version this build does not know (`v` > 1)
+ * is kept whole (≤ 64 KB, else a stable marker persistence never writes) — never acted on, never written over. The
+ * standard governor is no value (undefined), like the look.
  *
  * Which policy generation a stored value needs comes from governorGen / deviceGovernorGen (older tabs refuse AI while a
  * limit they cannot enforce is stored); governorKeepsGen / deviceKeepsGen say when a value holds something this build
@@ -88,7 +89,11 @@ export interface DeviceGovernor {
   at?: number
 }
 
-export const GOVERNOR_LIMITS = { savers: 20, agentsPerRule: 50, classesPerRule: 18, name: 60, by: 200, opaqueBytes: 4000 } as const
+/**
+ * opaqueBytes: unknown top-level keys of a later slice (in total) and one saving rule kept unread; newerBytes: a whole value
+ * of a newer shape (`v` > 1 — kept whole, never written over: a G3+ governor with 20 rules × 50 agents is well above 4 KB).
+ */
+export const GOVERNOR_LIMITS = { savers: 20, agentsPerRule: 50, classesPerRule: 18, name: 60, by: 200, opaqueBytes: 4000, newerBytes: 64_000 } as const
 
 /** [min, max] of every amount; a finite value outside is clamped into it (the limit stays a limit). */
 export const GOVERNOR_RANGES = {
@@ -116,6 +121,12 @@ const SAVER_ID_RE = /^sv_[A-Za-z0-9]{10}$/
 const AGENT_ID_RE = /^[A-Za-z0-9_:-]{1,64}$/
 const KNOWN = new Set(['v', 'autonomy', 'moved', 'ceiling', 'day', 'month', 'savers', 'worker', 'updatedAt', 'updatedBy'])
 const DEVICE_KNOWN = new Set(['v', 'day', 'month', 'at'])
+/** a saving rule's keys this build reads — any other key (of the rule, its `when`, `from` or `to`) leaves it unread */
+const SAVER_KEYS = new Set(['id', 'on', 'name', 'when', 'to'])
+const WHEN_KEYS = new Set(['who', 'cls', 'agents', 'from', 'bandOver', 'dayOver'])
+const FROM_KEYS = new Set(['p', 'm', 'overPerM'])
+const ROUTE_KEYS = new Set(['p', 'm', 'effort'])
+const onlyKeys = (v: Obj, known: Set<string>): boolean => Object.keys(v).every((k) => known.has(k))
 
 /** A JSON copy of a value kept unread (null: no JSON, or larger than the budget). */
 function jsonCopy(v: unknown, max: number = GOVERNOR_LIMITS.opaqueBytes): unknown {
@@ -127,9 +138,18 @@ function jsonCopy(v: unknown, max: number = GOVERNOR_LIMITS.opaqueBytes): unknow
   }
 }
 
-/** A value this build cannot read, kept as it was (too big or no JSON: a marker that still reads as unreadable). */
+/**
+ * The marker for a newer value too large (or not JSON) to keep a copy of: its own `v` is above every shape version, so it
+ * reads as a newer value again on every pass (never as a readable governor), and persistence never writes it over the
+ * stored value it stands for (isGovernorMarker).
+ */
+const MARKER = { v: Number.MAX_SAFE_INTEGER, unreadable: true } as const
+
+export const isGovernorMarker = (g: unknown): boolean => isObj(g) && g.v === MARKER.v && g.unreadable === true && Object.keys(g).length === 2
+
+/** A newer value this build cannot read, kept whole (too big or no JSON: the marker). */
 function opaque(v: unknown): Unreadable {
-  return (jsonCopy(v) ?? { unreadable: true }) as Unreadable
+  return (jsonCopy(v, GOVERNOR_LIMITS.newerBytes) ?? { ...MARKER }) as unknown as Unreadable
 }
 
 /** Is this a governor this build can read (and act on)? A sanitized readable value always carries `v: 1`. */
@@ -173,7 +193,8 @@ function pickList<T extends string>(v: unknown, allowed: readonly T[], max: numb
 /** A saver's conditions; null: a condition this build cannot read (the rule is kept unread, never acted on). */
 function readWhen(v: unknown): SaverWhen | null {
   if (v === undefined) return {}
-  if (!isObj(v)) return null
+  // a condition this build does not know: dropping it would widen the rule
+  if (!isObj(v) || !onlyKeys(v, WHEN_KEYS)) return null
   const r: Report = { repaired: false }
   const out: SaverWhen = {}
   const who = pickList(v.who, SAVER_WHO, SAVER_WHO.length, r)
@@ -186,7 +207,7 @@ function readWhen(v: unknown): SaverWhen | null {
     if (agents.length) out.agents = agents
   }
   if (v.from !== undefined) {
-    if (!isObj(v.from)) return null
+    if (!isObj(v.from) || !onlyKeys(v.from, FROM_KEYS)) return null
     const from: NonNullable<SaverWhen['from']> = {}
     if (v.from.p !== undefined) {
       if (!isProviderId(v.from.p)) return null
@@ -211,7 +232,10 @@ function readWhen(v: unknown): SaverWhen | null {
 /** One saving rule this build can act on (null: junk, or a shape it cannot read). */
 function readableSaver(v: unknown): SaverDef | null {
   if (!isObj(v) || typeof v.id !== 'string' || !SAVER_ID_RE.test(v.id)) return null
+  // a key of a later slice (an end date, a time window …): rebuilt without it the rule would act wider — kept unread
+  if (!onlyKeys(v, SAVER_KEYS) || !isObj(v.to) || !onlyKeys(v.to, ROUTE_KEYS)) return null
   const to = sanitizeRoute(v.to)
+  if (to && v.to.effort !== undefined && to.effort !== v.to.effort) return null
   const when = readWhen(v.when)
   const nameOk = v.name === undefined || (typeof v.name === 'string' && v.name.length <= GOVERNOR_LIMITS.name)
   if (!to || !when || typeof v.on !== 'boolean' || !nameOk) return null
@@ -222,7 +246,8 @@ function readableSaver(v: unknown): SaverDef | null {
 function readSaver(v: unknown): SaverDef | Unreadable | null {
   const s = readableSaver(v)
   if (s) return s
-  return isObj(v) && typeof v.id === 'string' && SAVER_ID_RE.test(v.id) && jsonCopy(v) !== null ? opaque(v) : null
+  if (!isObj(v) || typeof v.id !== 'string' || !SAVER_ID_RE.test(v.id)) return null
+  return (jsonCopy(v) as Unreadable | null) ?? null
 }
 
 /** Unknown top-level keys, kept as they were (≤ 4 KB of JSON in total; else all dropped). */

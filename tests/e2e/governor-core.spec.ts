@@ -35,6 +35,7 @@ import {
   deviceKeepsGen,
   governorGen,
   governorKeepsGen,
+  isGovernorMarker,
   isReadableDeviceGovernor,
   isReadableGovernor,
   loosensGovernor,
@@ -51,7 +52,7 @@ import {
 import { GEN, GEN_ENFORCED, type GenTable } from '../../src/shared/ai/generations'
 import { AI_POLICY_GEN } from '../../src/shared/ai/policy'
 import { closedDaysBefore, dayOf, monthOf, nextMidnight } from '../../src/app/features/governor/clock'
-import { cacheOf, closedTally, deltaTally, meterTally, monthSpentOf, newTally, readTally, readTodayCache, rollTally, sumTallies, tallyKnown, todayOf } from '../../src/app/features/governor/tally'
+import { applyDayRead, cacheOf, closedDaysOf, closedTally, deltaTally, meterTally, monthSpentOf, newTally, readTally, readTodayCache, rollTally, sumTallies, tallyKnown, todayOf, type DayRead } from '../../src/app/features/governor/tally'
 import { BOOK_STALE_MS, emptyBook, expireBook, hearBook, readBookMsg, reservedByOthers, reservedIn } from '../../src/app/features/governor/book'
 import { allowOnce, allowTask, allowanceOf, clearAllowances, consume } from '../../src/app/features/governor/allow'
 import { DEVICE_KEY, DEVICE_LINE_SPANS_BROWSER, MAX_SCOPES, SCOPES_KEY, deviceLimitOf, deviceLineScopes, forgetScopes, knownScopes, noteScope, readDeviceLimit, setDeviceLimit, type KV } from '../../src/app/features/governor/device'
@@ -61,6 +62,7 @@ import { FIRST_STEP_OUT, MCP_ROUNDS, coldCost, contextOf, mcpOneShotBand, nextSt
 import {
   AGENTS_WAIT_MID_RUN,
   ALLOW_USD,
+  allowFits,
   H_ACROSS_THINKING,
   asksAtStart,
   capFor,
@@ -128,10 +130,24 @@ test.describe('the stored governor (shared/ai/governor.ts)', () => {
     expect(value).not.toBe(newer)
     expect(isReadableGovernor(value)).toBe(false)
     expect(readableSavers(value)).toEqual([])
-    // too big to keep as it was: still unreadable (a marker), never read as "no governor"
-    const huge = sanitizeGovernor({ v: 3, blob: 'x'.repeat(GOVERNOR_LIMITS.opaqueBytes + 10) })
-    expect(huge).toEqual({ unreadable: true })
+    // a newer shape is kept whole above the 4 KB of unknown keys (20 rules × 50 agents of a later build)
+    const big = { v: 3, savers: Array.from({ length: 20 }, (_, i) => ({ id: `sv_Big${String(i).padStart(7, '0')}`, agents: Array.from({ length: 50 }, (_, j) => `ag-nordlicht-${j}`) })) }
+    expect(JSON.stringify(big).length).toBeGreaterThan(GOVERNOR_LIMITS.opaqueBytes)
+    expect(sanitizeGovernor(big)).toEqual(big)
+    // too big to keep at all: a marker that stays unreadable on every later pass, never read as "no governor"
+    const huge = sanitizeGovernor({ v: 3, blob: 'x'.repeat(GOVERNOR_LIMITS.newerBytes + 10) })
     expect(isReadableGovernor(huge)).toBe(false)
+    expect(isGovernorMarker(huge)).toBe(true)
+    const again = sanitizeGovernorWithReport(JSON.parse(JSON.stringify(huge)))
+    expect(again).toEqual({ value: huge, repaired: false })
+    expect(isReadableGovernor(sanitizeGovernor(again.value))).toBe(false)
+    expect(governorKeepsGen(again.value)).toBe(true)
+    // positive control: a newer value kept whole is no marker
+    expect(isGovernorMarker(sanitizeGovernor(big))).toBe(false)
+    // the device line the same way
+    const dev = sanitizeDeviceGovernor({ v: 2, blob: 'x'.repeat(GOVERNOR_LIMITS.newerBytes + 10) })
+    expect(isGovernorMarker(dev)).toBe(true)
+    expect(isReadableDeviceGovernor(sanitizeDeviceGovernor(JSON.parse(JSON.stringify(dev))))).toBe(false)
   })
 
   test('unknown top-level keys are kept as they were (≤ 4 KB of JSON), else all dropped and repaired', () => {
@@ -178,12 +194,12 @@ test.describe('the stored governor (shared/ai/governor.ts)', () => {
   test('saving rules: readable ones sanitized, unreadable ones kept as they were (never matched), junk dropped', () => {
     const later = { id: 'sv_Later00001', on: true, when: { who: ['overnight'] }, to: { p: 'anthropic', m: 'claude-haiku-4-5' } }
     const widened = { id: 'sv_Clamped001', on: true, when: { bandOver: 5000 }, to: { p: 'anthropic', m: 'claude-haiku-4-5' } }
-    const ok = { id: 'sv_Readable01', on: true, when: {}, to: { p: 'anthropic', m: 'claude-haiku-4-5', effort: 'loud' } }
+    const ok = { id: 'sv_Readable01', on: true, when: {}, to: { p: 'anthropic', m: 'claude-haiku-4-5' } }
     const { value, repaired } = sanitizeGovernorWithReport({ v: 1, savers: [later, 'junk', { id: 'nope' }, widened, ok, { ...ok }] })
     const v = value as WorkspaceGovernor
-    // the duplicate id and the junk go; an invalid effort is dropped from the route (route.ts)
+    // the duplicate id and the junk go
     expect(repaired).toBe(true)
-    expect(v.savers).toEqual([later, widened, { id: 'sv_Readable01', on: true, when: {}, to: { p: 'anthropic', m: 'claude-haiku-4-5' } }])
+    expect(v.savers).toEqual([later, widened, ok])
     // a dropped or clamped condition would widen the rule: those stay unread
     expect(readableSavers(v).map((s) => s.id)).toEqual(['sv_Readable01'])
     // at most 20 rules
@@ -192,6 +208,26 @@ test.describe('the stored governor (shared/ai/governor.ts)', () => {
     // a model without a provider, an unknown provider, an agent id that is no id: unread
     for (const when of [{ from: { m: 'claude-opus-5-5' } }, { from: { p: 'mistral' } }, { agents: ['a b'] }, { who: 'scheduled' }])
       expect(readableSavers(g({ savers: [{ ...ok, when }] }))).toEqual([])
+  })
+
+  test('a key this build does not know — of the rule, its condition, its source or its target — keeps the rule unread and as it was', () => {
+    const base = { id: 'sv_Later00001', on: true, when: { who: ['scheduled'] }, to: { p: 'anthropic', m: 'claude-haiku-4-5' } }
+    const later = [
+      { ...base, when: { who: ['scheduled'], hours: { from: 22, to: 6 } } },
+      { ...base, id: 'sv_Later00002', until: 1_790_000_000_000 },
+      { ...base, id: 'sv_Later00003', when: { from: { p: 'anthropic', vendor: 'any' } } },
+      { ...base, id: 'sv_Later00004', to: { p: 'anthropic', m: 'claude-haiku-4-5', variant: 'batch' } },
+      { ...base, id: 'sv_Later00005', to: { p: 'anthropic', m: 'claude-haiku-4-5', effort: 'loud' } },
+    ]
+    const { value, repaired } = sanitizeGovernorWithReport({ v: 1, day: 6, savers: later })
+    expect(repaired).toBe(false)
+    expect((value as WorkspaceGovernor).savers).toEqual(later)
+    expect(readableSavers(value)).toEqual([])
+    // a second pass (the next load, another tab) keeps them as they were — never the narrowed rule written back
+    expect(sanitizeGovernor(JSON.parse(JSON.stringify(value)))).toEqual(value)
+    // positive control: the same rule without the later key is read
+    expect(readableSavers(g({ savers: [base] }))).toEqual([base])
+    expect(readableSavers(g({ savers: [{ ...base, to: { ...base.to, effort: 'high' } }] })).map((x) => x.to)).toEqual([{ p: 'anthropic', m: 'claude-haiku-4-5', effort: 'high' }])
   })
 
   test('sameGovernor compares by value; stamps count only with meta', () => {
@@ -422,6 +458,30 @@ test.describe('totals: the pure core (features/governor/tally.ts)', () => {
     expect(todayOf(idle).usd).toBe(0.3)
   })
 
+  test('a read the ledger did not answer (memory only) is no total: the floor and the deltas stay, no closed day is recorded', async () => {
+    const cache = readTodayCache({ day: '2026-10-09', usd: 4.12, unpriced: 0, monthUsd: 110, at: T0 - 1000 })
+    const t = newTally('local:local', T0, cache)
+    deltaTally(t, delta('b-before', 0.5, '2026-10-09'), T0 + 10)
+    const memoryOnly: DayRead = { entries: [{ id: 'mine', usd: 0.05 }], complete: false }
+    expect(applyDayRead(t, '2026-10-09', memoryOnly, T0 + 20, T0 + 30)).toBe(false)
+    expect(todayOf(t).usd).toBeCloseTo(4.12, 10)
+    expect(t.batches.has('b-before')).toBe(true)
+    expect(tallyKnown(t)).toBe(false)
+    // the month's closed days: a stored record counts, a day the ledger did not answer writes no record
+    const failing = async (): Promise<DayRead> => ({ entries: [], complete: false })
+    const month = await closedDaysOf(['2026-10-01', '2026-10-02', '2026-10-03'], [{ usd: 3, unpriced: 0 }], failing)
+    expect(month).toEqual({ sum: 3, fresh: [], complete: false })
+    // the totals then keep the floor (closedTally is not called): 110 − 4.12 closed + today
+    expect(monthSpentOf(t)).toBeCloseTo(110, 10)
+    // positive controls: a complete read replaces the floor; complete day reads become records
+    const full: DayRead = { entries: [{ id: 'x1', usd: 1 }, { id: 'x2', usd: null }], complete: true }
+    expect(applyDayRead(t, '2026-10-09', full, T0 + 20, T0 + 30)).toBe(true)
+    expect(todayOf(t)).toEqual({ usd: 1, unpriced: 1 })
+    expect(tallyKnown(t)).toBe(true)
+    const read = async (d: string): Promise<DayRead> => ({ entries: d === '2026-10-02' ? [{ id: 'y1', usd: 2 }, { id: 'y2', usd: null }] : [], complete: true })
+    expect(await closedDaysOf(['2026-10-01', '2026-10-02'], [{ usd: 3, unpriced: 0 }], read)).toEqual({ sum: 5, fresh: [['2026-10-02', { usd: 2, unpriced: 1 }]], complete: true })
+  })
+
   test('the cache written after a read; device sums over two scopes', () => {
     const a = newTally('local:local', T0)
     readTally(a, '2026-10-09', [{ id: 'a1', usd: 1 }], T0, T0)
@@ -533,6 +593,27 @@ test.describe('the device line (features/governor/device.ts)', () => {
     const refused: KV = { getItem: () => null, setItem: () => { throw new Error('quota') }, removeItem: () => {} }
     expect(setDeviceLimit({ day: 5 }, refused)).toEqual({ ok: false, why: 'storage' })
     expect(setDeviceLimit({ day: 5 }, null)).toEqual({ ok: false, why: 'storage' })
+  })
+
+  test('a later slice’s keys survive a write and the removal of the limit (the stamp they hold stays)', () => {
+    const kv = memoryKV()
+    kv.setItem(DEVICE_KEY, JSON.stringify({ v: 1, day: 8, at: 1, perProvider: { openrouter: 3 } }))
+    expect(deviceKeepsGen(readDeviceLimit(kv))).toBe(true)
+    expect(setDeviceLimit({ day: 5 }, kv, 2)).toEqual({ ok: true, value: { v: 1, day: 5, at: 2, perProvider: { openrouter: 3 } } })
+    expect(JSON.parse(kv.map.get(DEVICE_KEY) ?? 'null')).toEqual({ v: 1, day: 5, at: 2, perProvider: { openrouter: 3 } })
+    // the limit removed: the later keys stay alone — no line here, the stamp still kept
+    expect(setDeviceLimit(null, kv, 3)).toEqual({ ok: true, value: { v: 1, at: 3, perProvider: { openrouter: 3 } } })
+    expect(JSON.parse(kv.map.get(DEVICE_KEY) ?? 'null')).toEqual({ v: 1, at: 3, perProvider: { openrouter: 3 } })
+    expect(deviceLimitOf(kv)).toBeUndefined()
+    expect(deviceGovernorGen(readDeviceLimit(kv))).toBe(1)
+    expect(deviceKeepsGen(readDeviceLimit(kv))).toBe(true)
+    // set again: the later keys are still there
+    expect(setDeviceLimit({ month: 150 }, kv, 4)).toEqual({ ok: true, value: { v: 1, month: 150, at: 4, perProvider: { openrouter: 3 } } })
+    // positive control: without later keys a removal removes the record
+    const plain = memoryKV()
+    setDeviceLimit({ day: 8 }, plain, 1)
+    setDeviceLimit(null, plain, 2)
+    expect(plain.map.has(DEVICE_KEY)).toBe(false)
   })
 
   test('scopes metered here: newest first, 35 days, ≤ 50; the device line spans them (owner decision 1)', () => {
@@ -893,6 +974,34 @@ test.describe('the start check (brake.startCheckPure)', () => {
     expect(startCheckPure({ run: run('scheduled'), limited: true, scopeKnown: true, first, rest: month })).toEqual({ start: false, hold: 'month' })
     expect(startCheckPure({ run: run('manual'), limited: true, scopeKnown: true, first, rest: rest(0.29) })).toMatchObject({ start: false, ask: { allow: ALLOW_USD, binding: 'day' } })
     expect(startCheckPure({ run: run('manual'), limited: true, scopeKnown: true, first: { low: 1, high: 1.5 }, rest: rest(0.29) })).toMatchObject({ start: false, ask: { allow: null } })
+  })
+
+  test('E is offered only where it raises the binding line: pressing it starts the run; a run budget it never raises', () => {
+    const l = L({ day: 6 })
+    // the day binds: 6 − 5.71 = 0.29 < 0.52 → ask with E; E pressed (+1 $ on the day) → it starts
+    const day = restOf(l, totals({ today: 5.71 }))
+    expect(startCheckPure({ run: run('manual'), limited: true, scopeKnown: true, first, rest: day })).toMatchObject({ start: false, ask: { allow: ALLOW_USD, binding: 'day' } })
+    expect(startCheckPure({ run: run('manual'), limited: true, scopeKnown: true, first, rest: restOf(l, totals({ today: 5.71 }), {}, ALLOW_USD) })).toEqual({ start: true })
+    // the run's own budget binds (maxRunUsd 0.25, $1 spent today): E would raise the day only — never offered
+    const own = { run: { budget: 0.25, spent: 0 } }
+    const runBound = restOf(l, totals({ today: 1 }), own)
+    expect(runBound.binding).toBe('run')
+    const v = startCheckPure({ run: run('manual'), limited: true, scopeKnown: true, first, rest: runBound })
+    expect(v).toMatchObject({ start: false, ask: { allow: null, binding: 'run' } })
+    if ('ask' in v) near(v.ask.need, 0.27)
+    // and pressing it anyway would not start the run (the verdict is the same)
+    expect(startCheckPure({ run: run('manual'), limited: true, scopeKnown: true, first, rest: restOf(l, totals({ today: 1 }), own, ALLOW_USD) })).toMatchObject({ start: false, ask: { allow: null, binding: 'run' } })
+    // one-shots and rounds the same way
+    expect(allowFits(0.52, day)).toBe(true)
+    expect(allowFits(0.52, runBound)).toBe(false)
+    expect(oneShot({ limited: true, scopeKnown: true, band: first, answer: 'structured', minOut: 1024, maxTokens: 4096 }, runBound)).toMatchObject({ kind: 'refuse', detail: 'run', fix: { allow: null } })
+    const pressed = oneShot({ limited: true, scopeKnown: true, band: first, answer: 'structured', minOut: 1024, maxTokens: 4096 }, day)
+    expect(pressed).toMatchObject({ kind: 'refuse', fix: { allow: ALLOW_USD } })
+    expect(oneShot({ limited: true, scopeKnown: true, band: first, answer: 'structured', minOut: 1024, maxTokens: 4096 }, restOf(l, totals({ today: 5.71 }), {}, ALLOW_USD)).kind).toBe('pass')
+    const halt = round({ run: { source: 'terminal:c1:t1', mode: 'interactive' }, limited: true, next: first, rest: runBound, line: { spent: 0, limit: 0.25 } })
+    expect('halt' in halt && halt.halt.allow).toBeNull()
+    // a month line binds: E raises it too
+    expect(allowFits(0.52, { day: Infinity, month: 0.29, run: Infinity, binding: 'month' })).toBe(true)
   })
 
   test('no scope or no price with a limit: never started; who asks', () => {

@@ -149,6 +149,59 @@ export function readTally(t: Tally, day: string, entries: ReadonlyArray<Pick<Led
   return true
 }
 
+/** A ledger read of one day (ledger.ts ledgerDayRead): `complete` false = the store did not answer, the entries are this tab's memory only. */
+export interface DayRead {
+  entries: ReadonlyArray<Pick<LedgerEntry, 'id' | 'usd'>>
+  complete: boolean
+}
+
+/**
+ * A day's read as the totals take it: only a complete read replaces the day (readTally). A memory-only read is no total —
+ * the floor (the cache) and the deltas heard stay, and nothing goes into the cache. True: applied.
+ */
+export const applyDayRead = (t: Tally, day: string, read: DayRead, startedAt: number, now: number): boolean =>
+  read.complete && readTally(t, day, read.entries, startedAt, now)
+
+/** A closed day's record in `one-governor` (`<scope>|day|<yyyy-MM-dd>`). */
+export interface DayRecord {
+  usd: number
+  unpriced: number
+}
+
+export const readDayRecord = (v: unknown): DayRecord | null => {
+  const r = v as Partial<DayRecord> | null
+  return r && typeof r.usd === 'number' && Number.isFinite(r.usd) && r.usd >= 0 ? { usd: r.usd, unpriced: typeof r.unpriced === 'number' ? r.unpriced : 0 } : null
+}
+
+/**
+ * The month's closed days of one scope: a stored record where there is one, else the day read from the ledger. Only a
+ * complete read becomes a record to store (`fresh` — a closed day never changes, so a wrong record would stay for good);
+ * `complete` false: some day could not be read in full — `sum` is then no total of the closed days (closedTally must not
+ * take it; the floor stays).
+ */
+export async function closedDaysOf(days: readonly string[], stored: readonly unknown[], readDay: (day: string) => Promise<DayRead>): Promise<{ sum: number; fresh: Array<[string, DayRecord]>; complete: boolean }> {
+  let sum = 0
+  let complete = true
+  const fresh: Array<[string, DayRecord]> = []
+  for (const [i, d] of days.entries()) {
+    const rec = readDayRecord(stored[i])
+    if (rec) {
+      sum += rec.usd
+      continue
+    }
+    const read = await readDay(d)
+    const r: DayRecord = { usd: 0, unpriced: 0 }
+    for (const e of read.entries) {
+      if (e.usd === null) r.unpriced += 1
+      else r.usd += Math.max(0, e.usd)
+    }
+    sum += r.usd
+    if (read.complete) fresh.push([d, r])
+    else complete = false
+  }
+  return { sum, fresh, complete }
+}
+
 /** The month's closed days were read for `day` (ignored when the day rolled meanwhile). */
 export function closedTally(t: Tally, day: string, usd: number, now: number): boolean {
   rollTally(t, now)
