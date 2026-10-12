@@ -347,6 +347,19 @@ export function routeFor(purposeId: PurposeId, o: { route?: Route | null } = {})
   return { route, label: labelFor(route) }
 }
 
+/**
+ * The Vorprüfer a pre-check would ask now (slice SJ, the class 'gate'): the agent's own `decider`, else this device's,
+ * else the workspace's rule — no default, no legacy. `route` is the pin that level names even when it is refused here
+ * (`code` says why: no key, a data rule …); null with 'no_route' = nobody chose one.
+ */
+export function deciderRoute(decider?: Route | null): { route: Route | null; level: 'agent' | 'device' | 'workspace' | null; code: AIErrorCode | 'no_route' | null } {
+  const purpose = purposeOf('gate.precheck')
+  const res = resolveFor('gate', { decider: decider ?? null, caps: purpose.caps, classes: [...purpose.needs] })
+  if (res.ok) return { route: res.route, level: res.level === 'agent' || res.level === 'device' || res.level === 'workspace' ? res.level : null, code: null }
+  if (res.none) return { route: null, level: null, code: 'no_route' }
+  return { route: res.route, level: res.level === 'agent' || res.level === 'device' || res.level === 'workspace' ? res.level : null, code: res.code }
+}
+
 export interface AIStatus {
   /** a request would go out (or get a demo answer) */
   ready: boolean

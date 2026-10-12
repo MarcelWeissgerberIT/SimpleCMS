@@ -35,6 +35,8 @@ import './mirror.css'
 import { AGENT_PLACEHOLDERS, instructionTools, openPlaceholders } from './instructions'
 import { CodeArea, lineColAt, lineStarts, markdownTokenizer, type CodeAreaHandle } from '../../ui/code'
 import { createHook, deleteHook, getHook, serverErrorText, useServerAgents, type HookState } from './server'
+import { ReviewSection } from '../ai/decide/ui/ReviewSection'
+import { loadRuns, useAgentRuns } from './runs'
 import './agents.css'
 
 type Errors = Partial<Record<'name' | 'instructions' | 'trigger' | 'scope' | 'output' | 'budget' | 'runner' | 'mcp', string>>
@@ -246,6 +248,11 @@ export function AgentEditor({
   const runtime = useServerAgents((s) => s.runtime)
   const serverOk = !!runtime?.enabled && runtime.available
   const uid = useId()
+  // this device's runs of the agent (section 06: calibration, a new Jev version)
+  const runs = useAgentRuns((s) => (isNew ? undefined : s.byAgent[initial.id]))
+  useEffect(() => {
+    if (!isNew && !runs) void loadRuns(initial.id)
+  }, [isNew, runs, initial.id])
   // someone else's browser agent: saving it pauses it until its creator confirms
   const othersAgent = inCloud && !isNew && d.runner === 'browser' && !!initial.createdBy && initial.createdBy !== me
   const creatorName = othersAgent ? people.find((p) => p.id === initial.createdBy)?.name.trim() : ''
@@ -500,6 +507,11 @@ export function AgentEditor({
               </div>
             </div>
           </div>
+        </Section>
+
+        {/* ---------------------------------------------------------- 06 check (slice SJ: Jev as Vorprüfer) */}
+        <Section n="06" title={t('features.ai.jev.ed.title')}>
+          <ReviewSection d={d} set={set} saved={isNew ? null : initial} runs={runs} />
         </Section>
         <button type="submit" hidden tabIndex={-1} aria-hidden />
       </form>

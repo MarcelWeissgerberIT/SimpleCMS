@@ -197,3 +197,236 @@
     transform: none;
   }
 }
+
+/* ---------- section 06 "Check" of the agent editor ---------- */
+
+.jev-ed {
+  display: grid;
+  gap: 0;
+  min-width: 0;
+}
+
+/* a row: the mono label on the left, the controls on the right (stacked below 560 px) */
+.jev-ed__row {
+  display: grid;
+  grid-template-columns: calc(150px * var(--text-scale)) minmax(0, 1fr);
+  gap: 6px 16px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--rule);
+}
+
+.jev-ed__row:last-of-type {
+  border-bottom: 0;
+}
+
+.jev-ed__label {
+  padding-top: 6px;
+  color: var(--ink-2);
+}
+
+.jev-ed__body {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.jev-ed__line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  min-width: 0;
+}
+
+.jev-ed__text {
+  color: var(--ink);
+  font-size: var(--text-sm);
+}
+
+.jev-ed__facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin: 0;
+  color: var(--ink-2);
+  font-size: var(--text-2xs);
+  letter-spacing: 0.02em;
+}
+
+.jev-ed__ok {
+  color: var(--c-green-text);
+  font-weight: 650;
+}
+
+.jev-ed__warn {
+  color: var(--c-red-text);
+}
+
+/* an amber note: the foreign-text line, "every run will wait" */
+.jev-ed__amber {
+  margin: 0;
+  padding: 6px 10px;
+  border-left: 3px solid var(--lamp-amber);
+  border-radius: var(--radius-1);
+  background: color-mix(in srgb, var(--lamp-amber) 18%, var(--surface));
+  color: var(--ink);
+  font-size: var(--text-xs);
+  line-height: 1.45;
+}
+
+.jev-ed__calib {
+  margin: 0;
+  color: var(--ink);
+  font-size: var(--text-2xs);
+  letter-spacing: 0.02em;
+  line-height: 1.5;
+}
+
+/* a new Jev version: an amber cap, the sentence, Confirm */
+.jev-ed__new {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  margin: 4px 0;
+  padding: 8px 10px;
+  border: 1px solid var(--lamp-amber);
+  border-radius: var(--radius-2);
+  background: color-mix(in srgb, var(--lamp-amber) 12%, var(--surface));
+}
+
+.jev-ed__new .jev-ed__text {
+  flex: 1 1 260px;
+  min-width: 0;
+}
+
+/* the Vorprüfer chip: [OR] Jev 1.13 · PRE-CHECKER ▾ */
+.jev-ed .jev-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  max-width: 100%;
+  padding: 0 8px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.jev-ed .jev-chip:hover {
+  border-color: var(--ink-3);
+}
+
+.jev-ed .jev-chip:active {
+  transform: translateY(1px);
+}
+
+.jev-chip__plate {
+  flex: none;
+  padding: 0 3px;
+  border: 1px solid var(--rule-strong);
+  border-radius: 1px;
+  font-family: var(--font-mono);
+  font-size: calc(9px * var(--text-scale));
+  line-height: 1.35;
+  letter-spacing: 0.04em;
+  color: var(--ink-2);
+}
+
+.jev-chip__role {
+  padding: 1px 4px;
+  border: 1px solid var(--rule-strong);
+  border-radius: 1px;
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+/* "Start values": a dashed mono tag — never a claim */
+.jev-tag {
+  display: inline-flex;
+  align-items: center;
+  height: calc(20px * var(--text-scale));
+  padding: 0 6px;
+  border: 1px dashed var(--ink-3);
+  border-radius: 2px;
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/* the stepper: − [0,70] + */
+.jev-step {
+  display: inline-flex;
+  align-items: stretch;
+  height: calc(28px * var(--text-scale));
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.jev-step .jev-step__key {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: calc(28px * var(--text-scale));
+  padding: 0;
+  border: 0;
+  background: var(--surface-2);
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.jev-step .jev-step__key:disabled {
+  color: var(--ink-3);
+  cursor: default;
+}
+
+.jev-step .jev-step__key:not(:disabled):active {
+  transform: translateY(1px);
+}
+
+.jev-step .jev-step__field {
+  width: calc(52px * var(--text-scale));
+  padding: 0 4px;
+  border: 0;
+  border-inline: 1px solid var(--rule);
+  background: transparent;
+  color: var(--ink);
+  font-size: var(--text-sm);
+  font-weight: 650;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.jev-step .jev-step__field:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: -2px;
+}
+
+@media (max-width: 560px) {
+  .jev-ed__row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .jev-ed__label {
+    padding-top: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .jev-ed .jev-chip:active,
+  .jev-step .jev-step__key:not(:disabled):active {
+    transform: none;
+  }
+}

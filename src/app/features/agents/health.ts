@@ -19,6 +19,7 @@ import { useServerAgents, type ServerRunHead } from './server'
 import type { AgentRun } from './types'
 import type { JevWhy } from '@/shared/ai/decide'
 import { decisionChecks } from '@/shared/ai/route'
+import { sameJevSnapshot } from '@/shared/ai/jev'
 
 export interface HealthItem {
   /** stale: a mirror's last successful run is over a working day old · slot: a schedule slot went by without a run ·
@@ -161,10 +162,7 @@ export function scheduledHere(): ID[] {
 export const JEV_FAIL_RUNS = 3
 
 /** The same Jev snapshot ('openrouter:' in front or not; an undated confirmed version takes any of its snapshots). */
-const sameSnapshot = (on: string, served: string): boolean => {
-  const a = on.replace(/^openrouter:/, '')
-  return a === served || (!/-\d{8}$/.test(a) && served.replace(/-\d{8}$/, '') === a)
-}
+const sameSnapshot = sameJevSnapshot
 
 /**
  * Vorprüfer health (slice SJ) of the browser agents running here — synchronous, over the runs this tab loaded:

@@ -108,6 +108,19 @@ export function canonicalOf(row: DecisionRowLike): string {
   return typeof c === 'string' && (c === row.id || (c.startsWith(`${row.id}-`) && /^\d{8}$/.test(c.slice(row.id.length + 1)))) ? c : row.id
 }
 
+/**
+ * The same Jev snapshot: `on` (a confirmed key, 'openrouter:' in front or not) and a served or resolved one. An undated
+ * confirmed version takes any of its dated snapshots.
+ */
+export function sameJevSnapshot(on: string, served: string): boolean {
+  const a = on.replace(/^openrouter:/, '')
+  const b = served.replace(/^openrouter:/, '')
+  return a === b || (!/-\d{8}$/.test(a) && b.replace(/-\d{8}$/, '') === a)
+}
+
+/** What one pre-check reads, in tokens, for an estimate (a proposal's state ≈ 1 000–1 500 tokens + the questions). */
+export const JEV_CHECK_TOKENS = 1_200
+
 /** Jev's context window as its docs state it (the catalogue says 64 000 — the lower documented value wins, DJ13). */
 export const JEV_CONTEXT = 32_000
 /** What One lets a state (+ the questions) take of it: chars ÷ 4 + 300 over this → clipped, still over → not sent. */
