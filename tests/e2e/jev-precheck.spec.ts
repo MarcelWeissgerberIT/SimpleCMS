@@ -7,7 +7,7 @@
 import type { BrowserContext, Page } from '@playwright/test'
 import { test, expect, openApp, wsEval } from './fixtures'
 import { jevAnswer } from './helpers/providers'
-import { AGENT, ALL_SHARED, JEV, MEMBER, SNAP, TITLES, byTarget, byTitle, cards, decideEntries, jevAgent, jevSetup, noteOf, runAgent, runOf, stageTurn, storedRuns, toolId, type AnyState } from './helpers/jev'
+import { AGENT, ALL_SHARED, JEV, MEMBER, SNAP, TITLES, byTarget, byTitle, cards, decideEntries, jevAgent, jevSetup, noteOf, review, runAgent, runOf, stageTurn, storedRuns, toolId, type AnyState } from './helpers/jev'
 
 test.describe('the Vorprüfung of a run (J7)', () => {
   test('three proposals → three decisions; each change carries its check (concern · near · clear); one decide entry each in the run’s receipt; the step counts', async ({ page }) => {
@@ -124,6 +124,32 @@ test.describe('the Vorprüfung of a run (J7)', () => {
   })
 })
 
+test.describe('failures, inverted (critique 2)', () => {
+  const failures: Array<[string, import('./helpers/providers').DecideStep]> = [
+    ['503', { error: '503' }],
+    ['403', { error: '403' }],
+    ['a missing answer', { malformed: 'missing' }],
+    ['no answer in time', { hang: true }],
+  ]
+  for (const [name, step] of failures)
+    for (const hold of [true, false])
+      test(`${name}: ${hold ? '"Zurückhalten" → every change held, "not pre-checked"' : 'control — "Nur markieren" → open cards, as without Jev'}`, async ({ page, errors }) => {
+        test.setTimeout(90_000)
+        errors.allow(/Failed to load resource/)
+        await jevSetup(page, { fallback: step })
+        await jevAgent(page, { hold })
+        const run = await runOf(page, await runAgent(page))
+        expect(run.status).toBe('staged')
+        const staged = run.staged as AnyState[]
+        expect(staged).toHaveLength(3)
+        for (const c of staged) {
+          expect(c.jev?.state === 'ok').toBe(false)
+          expect([c.status, c.jev?.held ?? null]).toEqual(hold ? ['held', 'unchecked'] : ['pending', null])
+        }
+        expect(run.jev).toMatchObject({ n: 3, checked: 0, held: hold ? 3 : 0 })
+      })
+})
+
 /** Two tabs of one browser: the leader runs the agent, the other takes over when it closes. */
 async function interrupted(context: BrowserContext, page: Page, hold: boolean): Promise<AnyState> {
   const w = await jevSetup(page, { decisions: [{ hang: true }, { hang: true }, { hang: true }] })
@@ -217,5 +243,193 @@ test.describe('what Jev may see, and what it costs (J7)', () => {
     expect(gets()).toHaveLength(1)
     expect(w.or.decisions()).toHaveLength(6)
     expect(run.jev).toMatchObject({ checked: 3 })
+  })
+})
+
+/* ------------------------------------------------------------------ */
+/* J9 — held cards in Preflight and the run review; Vertrauen            */
+/* ------------------------------------------------------------------ */
+
+const pf = <R>(page: Page, fn: string, ...args: unknown[]): Promise<R> => page.evaluate(([fn, args]) => (window as unknown as { __onePreflight: AnyState }).__onePreflight[fn as string](...(args as unknown[])), [fn, args] as const) as Promise<R>
+const pfCard = (page: Page) => page.locator('.pf-q article.pf-card[data-current]')
+const statusOf = async (page: Page, runId: string, title: string, w: AnyState) => byTitle(await runOf(page, runId), w as never, title).status as string
+const verdicts = (page: Page): Promise<AnyState[]> =>
+  page.evaluate(async (a) => {
+    const book = await (window as unknown as { __oneAgentTrust: AnyState }).__oneAgentTrust.book(a)
+    return Object.values(book.entries as Record<string, AnyState[]>).flat()
+  }, AGENT)
+
+/** A run of the agent with "Zurückhalten": Launch plan held (0,41), the other two clean (0,95). */
+async function heldRun(page: Page) {
+  await page.addInitScript(() => localStorage.setItem('one.tour', '{"off":true}'))
+  const w = await jevSetup(page, { fallback: byTarget({ 'Launch plan': jevAnswer({ consistent: 0.41 }) }) })
+  await jevAgent(page, { hold: true })
+  const id = await runAgent(page)
+  const run = await runOf(page, id)
+  const card = (title: string) => `run:${id}#${byTitle(run, w, title).id}`
+  return { w, id, run, card }
+}
+
+test.describe('a held proposal: VON HAND, never in bulk, applied only alone (J9)', () => {
+  test('Preflight: the held card is VON HAND and out of ⇧A; its A asks first and ↵ applies it alone; Z puts it back held (control: a clean card is in bulk)', async ({ page }) => {
+    const { w, id, card } = await heldRun(page)
+    const held = card('Launch plan')
+    // the card and its A key say VON HAND; never part of a bulk apply (control: a clean card)
+    expect(await pf(page, 'keysOf', 'proposals', held)).toMatchObject({ hand: ['held'], bulk: false, actions: expect.arrayContaining([{ key: 'a', hand: ['held'] }]) })
+    expect(await pf(page, 'keysOf', 'proposals', card('Tessera review'))).toMatchObject({ hand: [], bulk: true, actions: expect.arrayContaining([{ key: 'a', hand: [] }]) })
+    await page.evaluate(() => (window.location.hash = '#/'))
+    await expect.poll(async () => (await cards(page)).filter((c) => c.startsWith(`run:${id}#`)).length).toBe(3)
+    await page.locator('.pf-cap[data-lamp="proposals"]').focus()
+    await page.keyboard.press('Enter')
+    await expect(pfCard(page)).toBeFocused()
+    // the clean cards come first: shown in full, then ⇧A
+    const clean = [card('Tessera review'), card('Nordlicht site')]
+    await expect(pfCard(page)).toHaveAttribute('data-id', clean[0]!)
+    await expect.poll(async () => Object.keys((await page.evaluate(() => (window as unknown as { __onePreflight: AnyState }).__onePreflight.stores.queue.getState().viewed)) as AnyState)).toContain(clean[0])
+    await page.keyboard.press('j')
+    await expect(pfCard(page)).toHaveAttribute('data-id', clean[1]!)
+    await expect.poll(async () => Object.keys((await page.evaluate(() => (window as unknown as { __onePreflight: AnyState }).__onePreflight.stores.queue.getState().viewed)) as AnyState)).toContain(clean[1])
+    // both seen in full: ⇧A applies them at once — the held card stays (by hand)
+    await page.keyboard.press('Shift+A')
+    await expect.poll(() => statusOf(page, id, 'Tessera review', w)).toBe('applied')
+    await expect.poll(() => statusOf(page, id, 'Nordlicht site', w)).toBe('applied')
+    expect(await statusOf(page, id, 'Launch plan', w)).toBe('held')
+    expect(await noteOf(page, w, 'Launch plan')).toBeNull()
+    // the held card: its A opens the confirm row; ↵ on its key applies it — alone
+    await expect(pfCard(page)).toHaveAttribute('data-id', held, { timeout: 10_000 })
+    await expect(pfCard(page)).not.toHaveAttribute('aria-busy', 'true')
+    await expect(pfCard(page).locator('.pf-card__head .pf-hand')).toBeVisible()
+    await page.keyboard.press('a')
+    await expect(page.getByTestId('pf-confirm')).toContainText('the pre-check holds it back')
+    await expect(page.getByTestId('pf-confirm-key')).toBeFocused()
+    expect(await statusOf(page, id, 'Launch plan', w)).toBe('held')
+    await page.keyboard.press('Enter')
+    await expect.poll(() => statusOf(page, id, 'Launch plan', w)).toBe('applied')
+    expect(await noteOf(page, w, 'Launch plan')).toBe('Checked 1')
+    // its Undo puts it back held — never an open card a bulk apply would take
+    await page.keyboard.press('z')
+    await expect.poll(() => statusOf(page, id, 'Launch plan', w)).toBe('held')
+    expect(await noteOf(page, w, 'Launch plan')).toBeNull()
+  })
+
+  test('the run review: "Apply all (except 1 held back)" leaves it; several ids apply only the open ones; alone only with `single`; Undo → held', async ({ page }) => {
+    const { w, id, run } = await heldRun(page)
+    const held = byTitle(run, w, 'Launch plan').id as string
+    const tessera = byTitle(run, w, 'Tessera review').id as string
+    // several ids, one of them held: only the open one is applied
+    const res = await review<AnyState | null>(page, 'applyRun', id, [tessera, held])
+    expect(res?.applied).toEqual([tessera])
+    expect(await statusOf(page, id, 'Launch plan', w)).toBe('held')
+    // one id without `single` (a bulk caller): nothing
+    expect(await review(page, 'applyRun', id, [held])).toBeNull()
+    // the review's own key: "Apply all (except 1 held back)" — the held row stays, with its own key
+    await page.evaluate((a) => (window.location.hash = `#/agents/${a}`), AGENT)
+    const all = page.getByTestId('agx-apply-all').first()
+    await expect(all).toHaveText('Apply all (except 1 held back)')
+    await all.click()
+    await expect.poll(() => statusOf(page, id, 'Nordlicht site', w)).toBe('applied')
+    expect(await statusOf(page, id, 'Launch plan', w)).toBe('held')
+    const row = page.locator(`li.agent-change[data-change="${held}"]`)
+    await expect(row.getByTestId('agx-held')).toHaveText('HELD BACK')
+    await row.getByRole('button', { name: /^Apply alone/ }).click()
+    await expect.poll(() => statusOf(page, id, 'Launch plan', w)).toBe('applied')
+    expect(await noteOf(page, w, 'Launch plan')).toBe('Checked 1')
+    // its row's Undo: back to held
+    await row.getByRole('button', { name: /^Undo/ }).click()
+    await expect.poll(() => statusOf(page, id, 'Launch plan', w)).toBe('held')
+    expect(await noteOf(page, w, 'Launch plan')).toBeNull()
+    // discarded like any open one; its discard's Undo brings it back held
+    const out = await review<AnyState>(page, 'discardRun', id, [held], { undo: true, row: true })
+    expect(out.dropped).toEqual([held])
+    expect(await statusOf(page, id, 'Launch plan', w)).toBe('discarded')
+    await page.evaluate(([r, c]) => (window as unknown as { __oneAgents: AnyState }).__oneAgents.undoDiscard(r, c), [id, held] as const)
+    await expect.poll(() => statusOf(page, id, 'Launch plan', w)).toBe('held')
+  })
+})
+
+test.describe('Vertrauen and the card’s revision (J9)', () => {
+  test('a run with Jev writes no verdict; ONE decision on a held card shown in full writes one, with jev "held" (control: a clear card’s says "clear")', async ({ page }) => {
+    const before = async () => (await verdicts(page)).length
+    const { w, id, run } = await heldRun(page)
+    // the run and its checks: the book is as it was (no verdict without the person's decision)
+    expect(await before()).toBe(0)
+    const held = byTitle(run, w, 'Launch plan').id as string
+    const tessera = byTitle(run, w, 'Tessera review').id as string
+    await review(page, 'applyRun', id, [held], { row: true, judged: true, single: true })
+    await expect.poll(async () => (await verdicts(page)).length).toBe(1)
+    expect((await verdicts(page))[0]).toMatchObject({ v: 'accept', run: id, change: held, jev: 'held' })
+    await review(page, 'applyRun', id, [tessera], { row: true, judged: true, single: true })
+    await expect.poll(async () => (await verdicts(page)).length).toBe(2)
+    expect((await verdicts(page)).find((v) => v.change === tessera)).toMatchObject({ v: 'accept', jev: 'clear' })
+    // a bulk apply never writes one
+    await review(page, 'applyRun', id)
+    expect(await verdicts(page)).toHaveLength(2)
+  })
+
+  test('the card’s revision ignores Jev’s numbers and the held ↔ pending flip (control: the content itself changes it)', async ({ page }) => {
+    const { id, run } = await heldRun(page)
+    const c = (run.staged as AnyState[]).find((x) => x.status === 'held')!
+    const rev = () => pf<string | null>(page, 'rev', 'proposals', `run:${id}#${c.id}`)
+    const r0 = await rev()
+    expect(r0).toBeTruthy()
+    // the same change without its check, and pending: the same revision
+    await page.evaluate(
+      async ([a, r, cid]) => {
+        const s = (window as unknown as { __oneAgents: AnyState }).__oneAgents
+        const runNow = (await s.loadRuns(a)).find((x: AnyState) => x.id === r)
+        await s.putRun({ ...runNow, staged: runNow.staged.map((x: AnyState) => (x.id === cid ? { ...x, status: 'pending', jev: { ...x.jev, p: 0.99, mark: false, held: undefined } } : x)) })
+      },
+      [AGENT, id, c.id] as const,
+    )
+    expect(await rev()).toBe(r0)
+    // control: its content changes → another revision
+    await page.evaluate(
+      async ([a, r, cid]) => {
+        const s = (window as unknown as { __oneAgents: AnyState }).__oneAgents
+        const runNow = (await s.loadRuns(a)).find((x: AnyState) => x.id === r)
+        await s.putRun({ ...runNow, staged: runNow.staged.map((x: AnyState) => (x.id === cid ? { ...x, props: x.props.map((p: AnyState) => ({ ...p, after: 'Checked 9' })) } : x)) })
+      },
+      [AGENT, id, c.id] as const,
+    )
+    expect(await rev()).not.toBe(r0)
+  })
+})
+
+test.describe('the health lamps of a Vorprüfer (J9)', () => {
+  const seedRun = (page: Page, id: string, at: number, jev: AnyState) =>
+    page.evaluate(
+      ([a, id, at, jev]) => (window as unknown as { __oneAgents: AnyState }).__oneAgents.putRun({ id, agentId: a, runner: 'browser', trigger: { type: 'manual' }, startedAt: at, endedAt: at + 1000, status: 'staged', summary: '', steps: [], staged: [], jev }),
+      [AGENT, id, at, jev] as const,
+    )
+  const missed = (page: Page) =>
+    page.evaluate(async () => {
+      const p = (window as unknown as { __onePreflight: AnyState }).__onePreflight
+      await p.flush('missed')
+      return (p.readings().missed?.ids ?? []) as string[]
+    })
+
+  test('three runs in a row without a usable check → "pre-check failing"; one checked run ends it (control)', async ({ page }) => {
+    await jevSetup(page)
+    await jevAgent(page, { hold: true })
+    const now = Date.now()
+    for (let i = 0; i < 2; i++) await seedRun(page, `r${i}`, now - (5 - i) * 60_000, { n: 2, checked: 0, marked: 0, held: 2, usd: 0, failed: 'unavailable' })
+    expect((await missed(page)).filter((x) => x.startsWith('jevfail:'))).toEqual([])
+    await seedRun(page, 'r2', now - 60_000, { n: 2, checked: 0, marked: 0, held: 2, usd: 0, failed: 'unavailable' })
+    await expect.poll(async () => (await missed(page)).filter((x) => x.startsWith('jevfail:'))).toEqual([`jevfail:${AGENT}@r2`])
+    // the tab's cooldown lights it at once
+    await seedRun(page, 'r3', now - 30_000, { n: 1, checked: 0, marked: 0, held: 1, usd: 0, failed: 'cooldown' })
+    await expect.poll(async () => (await missed(page)).filter((x) => x.startsWith('jevfail:'))).toEqual([`jevfail:${AGENT}@r3`])
+    // control: a run Jev answered ends the streak
+    await seedRun(page, 'r4', now - 10_000, { n: 1, checked: 1, marked: 0, held: 0, usd: 0.00004 })
+    await expect.poll(async () => (await missed(page)).filter((x) => x.startsWith('jevfail:'))).toEqual([])
+  })
+
+  test('another Jev snapshot answered than the one confirmed → "new version" (control: the confirmed one → none)', async ({ page }) => {
+    await jevSetup(page)
+    await jevAgent(page, { hold: true })
+    await seedRun(page, 'r1', Date.now() - 60_000, { n: 1, checked: 0, marked: 0, held: 1, usd: 0, failed: 'changed', changedTo: `${JEV}-20261101` })
+    await expect.poll(async () => (await missed(page)).filter((x) => x.startsWith('jevnew:'))).toEqual([`jevnew:${AGENT}@${JEV}-20261101`])
+    await seedRun(page, 'r2', Date.now() - 10_000, { n: 1, checked: 1, marked: 0, held: 0, usd: 0, changedTo: SNAP })
+    await expect.poll(async () => (await missed(page)).filter((x) => x.startsWith('jevnew:'))).toEqual([])
   })
 })

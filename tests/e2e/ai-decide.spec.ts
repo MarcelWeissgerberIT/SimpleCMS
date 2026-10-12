@@ -17,6 +17,9 @@ import type { DecideQuestion, DecideRequest, DecideTurn } from '../../src/shared
 import { ProviderError } from '../../src/shared/ai/errors'
 import { DECIDE_FORBIDDEN, assertSafeDecideBody, buildDecide, classifyDecide, decideTokens, overCap, parseDecide } from '../../src/shared/ai/wire/decisions'
 import * as legacy from './helpers/legacyRouteS1'
+import * as legacyRuns from './helpers/legacyRunsS2'
+import { directSplit, runLevelWaits, stickyOf } from '../../src/app/features/agents/direct'
+import type { AgentRun } from '../../src/app/features/agents/types'
 import { createHash } from 'node:crypto'
 import { createRedactor, redactDoc, redactPersonValue } from '../../src/shared/ai/redact'
 import { DATA_CLAUSE, QSET, precheckQuestions } from '../../src/app/features/ai/decide/questions'
@@ -655,5 +658,81 @@ test.describe('a stored check from an answer (features/ai/decide/verdict.ts)', (
     expect(checkOf(turn({ asked: { type: 'noul', p: 0.9 } }), { at: 5, usd: 0, markBelow: 0.7 })).toBeNull()
     expect(uncheckedOf('policy', { at: 6, sent: false, cls: 'mail' })).toEqual({ v: 1, at: 6, model: '', state: 'skipped', why: 'policy', cls: 'mail' })
     expect(uncheckedOf('timeout', { at: 6, sent: true, usd: 0.00001 })).toMatchObject({ state: 'failed', why: 'timeout', usd: 0.00001 })
+  })
+})
+
+/* ------------------------------------------------------------------ */
+/* J8 / J9 — held is a status; the whole run waits (pure)                */
+/* ------------------------------------------------------------------ */
+
+test.describe('a held proposal in an older tab (helpers/legacyRunsS2.ts — a slice-2 build’s readers, frozen)', () => {
+  const held = (id: string, kind = 'update_row') => ({ id, kind, status: 'held' })
+  const pending = (id: string, kind = 'update_row') => ({ id, kind, status: 'pending' })
+
+  test('never open, never applied, never bulk, never "every change discarded" (control: a pending one is open to all of them)', () => {
+    const run = { status: 'staged', staged: [held('c1'), held('c2')] }
+    expect(legacyRuns.openChangesOf(run)).toEqual([])
+    expect(run.staged.filter(legacyRuns.isOpen)).toEqual([])
+    expect(run.staged.filter(legacyRuns.applies)).toEqual([])
+    expect(run.staged.filter(legacyRuns.supersedeOpen)).toEqual([])
+    expect(legacyRuns.awaitsReview(run)).toBe(false)
+    // the agent state is never walked back over held work
+    expect(legacyRuns.allDiscarded(run)).toBe(false)
+    expect(legacyRuns.allDiscarded({ status: 'staged', staged: [held('c1'), { id: 'c2', kind: 'update_row', status: 'discarded' }] })).toBe(false)
+    // control
+    const mixed = { status: 'staged', staged: [held('c1'), pending('c2')] }
+    expect(legacyRuns.openChangesOf(mixed).map((c) => c.id)).toEqual(['c2'])
+    expect(mixed.staged.filter(legacyRuns.applies).map((c) => c.id)).toEqual(['c2'])
+    expect(legacyRuns.awaitsReview(mixed)).toBe(true)
+  })
+})
+
+test.describe('the Schreibschranke’s split (features/agents/direct.ts)', () => {
+  const ok = (p: number) => ({ v: 1 as const, at: 1, model: 'm', state: 'ok' as const, checks: { asked: p, target: p, consistent: p, clean: p }, low: 'asked' as const, p })
+  const c = (id: string, x: Partial<StagedChange> = {}) => ({ id, n: Number(id.slice(1)), kind: 'update_row', status: 'pending', pageId: `row_${id}`, ...x }) as StagedChange
+  const REVIEW = { on: 'openrouter:typesafe/jev-1.13-20260917', pre: { markBelow: 0.7, hold: false }, gate: { allowAt: 0.9 } }
+
+  test('without a Vorprüfer the split is the per-change one, unchanged; with one it is the same — or nothing', () => {
+    const changes = [c('c1'), c('c2'), c('c3', { kind: 'edit' })]
+    const per = new Set(['c3'])
+    expect(runLevelWaits({ changes, review: null, sticky: true })).toEqual([])
+    const plain = directSplit(changes, { perChange: per, runLevel: [] })
+    expect(plain.direct.map((x) => x.id)).toEqual(['c1', 'c2'])
+    expect(plain.why).toBeNull()
+    // every check ≥ 0,90: the same as without
+    const clear = changes.map((x) => ({ ...x, jev: ok(0.95) }))
+    expect(runLevelWaits({ changes: clear, review: REVIEW, sticky: false })).toEqual([])
+    // one below: nothing direct, every change waits
+    const low = [{ ...clear[0]!, jev: ok(0.85) }, ...clear.slice(1)]
+    const reasons = runLevelWaits({ changes: low, review: REVIEW, sticky: false })
+    expect(reasons).toEqual(['gate'])
+    const all = directSplit(low, { perChange: per, runLevel: reasons })
+    expect(all).toEqual({ direct: [], waits: new Set(['c1', 'c2', 'c3']), why: 'gate' })
+    // unchecked never passes the gate; at exactly 0,90 it does (hundredths, no float noise)
+    expect(runLevelWaits({ changes: [{ ...clear[0]!, jev: { v: 1, at: 1, model: '', state: 'failed', why: 'unavailable' } }], review: REVIEW, sticky: false })).toEqual(['gate'])
+    expect(runLevelWaits({ changes: [{ ...clear[0]!, jev: ok(0.9) }], review: REVIEW, sticky: false })).toEqual([])
+    // a hold in apply mode; another snapshot; sticky — and the order the run names them in
+    expect(runLevelWaits({ changes: [{ ...clear[0]!, status: 'held', jev: { ...ok(0.4), held: 'mark' } }], review: { ...REVIEW, pre: { markBelow: 0.7, hold: true }, gate: null }, sticky: false })).toEqual(['hold'])
+    expect(runLevelWaits({ changes: [{ ...clear[0]!, jev: { v: 1, at: 1, model: '', state: 'failed', why: 'changed' } }], review: REVIEW, sticky: true })).toEqual(['changed', 'gate', 'sticky'])
+    // "Nur markieren" without the gate: another snapshot changes nothing (written as without Jev)
+    expect(runLevelWaits({ changes: [{ ...clear[0]!, jev: { v: 1, at: 1, model: '', state: 'failed', why: 'changed' } }], review: { ...REVIEW, gate: null }, sticky: false })).toEqual([])
+  })
+
+  test('sticky: an open change Jev marked or held, or a run it made wait — never one only sticky itself (control: decided → none)', () => {
+    const run = (id: string, staged: StagedChange[], x: Partial<AgentRun> = {}) => ({ id, agentId: 'ag', runner: 'browser', trigger: { type: 'manual' }, startedAt: 1, status: 'staged', summary: '', steps: [], staged, ...x }) as AgentRun
+    const marked = run('r1', [c('c1', { jev: { ...ok(0.4), mark: true } })])
+    expect([...stickyOf([marked], 'now').targets]).toEqual(['row_c1'])
+    const heldOne = run('r1', [c('c1', { status: 'held', jev: { v: 1, at: 1, model: '', state: 'skipped', why: 'late', held: 'unchecked' } })])
+    expect(stickyOf([heldOne], 'now').any).toBe(true)
+    const waited = run('r1', [c('c1', { jev: ok(0.95) }), c('c2', { jev: ok(0.95) })], { jev: { n: 2, checked: 2, marked: 0, held: 0, usd: 0, waited: 'gate' } })
+    expect([...stickyOf([waited], 'now').targets].sort()).toEqual(['row_c1', 'row_c2'])
+    // only sticky itself: passes nothing on
+    expect(stickyOf([run('r2', [c('c1', { status: 'held', jev: { ...ok(0.95), held: 'sticky', sticky: true } })])], 'now').any).toBe(false)
+    expect(stickyOf([run('r2', [c('c1', { jev: ok(0.95) })], { jev: { n: 1, checked: 1, marked: 0, held: 0, usd: 0, waited: 'sticky' } })], 'now').any).toBe(false)
+    // control: decided (discarded / applied) → nothing sticks; the run going on is never its own source
+    expect(stickyOf([run('r1', [c('c1', { status: 'discarded', jev: { ...ok(0.4), mark: true } })])], 'now').any).toBe(false)
+    expect(stickyOf([marked], 'r1').any).toBe(false)
+    // a staged row's id resolves through the run's rowIds
+    expect([...stickyOf([run('r1', [c('c1', { jev: { ...ok(0.4), mark: true } })], { rowIds: { row_c1: 'real_row' } })], 'now').targets]).toEqual(['real_row'])
   })
 })

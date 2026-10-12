@@ -33,8 +33,11 @@ export const settleMissing = (trash: boolean): Promise<void> => resolveMissing(t
 
 /* ---------------- agents (review.ts: the run lock, the stored run read again, open proposals only) */
 
-/** `judged`: ONE card shown in full at its revision — the decision counts as a verdict of the agent's per-field trust */
-export const applyAgent = (run: AgentRun, ids: string[], judged = false): Promise<ApplyResult | null> => applyRun(run, ids, { row: true, judged })
+/**
+ * `judged`: ONE card shown in full at its revision — the decision counts as a verdict of the agent's per-field trust;
+ * `single`: ONE card's own A (a held proposal goes only this way — never in ⇧A)
+ */
+export const applyAgent = (run: AgentRun, ids: string[], judged = false, single = false): Promise<ApplyResult | null> => applyRun(run, ids, { row: true, judged, ...(single ? { single } : {}) })
 /** The Undo of a batch applied from a card: what it did to each change (null: nothing to undo here any more). */
 export const undoAgent = (run: AgentRun, changeId: string): Promise<Record<string, 'undone' | 'kept' | 'final'> | null> => undoChangeEach(run, changeId)
 /** `row`: ONE card's discard (its Undo kept in the agent page's rows too, never a bulk X's); `reason`: why (1–4 / F / W); `judged`: as for applyAgent */

@@ -13,7 +13,8 @@ import { slipProbe } from '../../registry'
 /** this tab's load: terminal and memory ids never repeat across reloads (their change ids restart at c1) */
 export const TAB_NONCE = Math.random().toString(36).slice(2, 8)
 
-export const waits = (status: string) => status === 'pending' || status === 'failed'
+/** A change that waits for the person: open, or held back by the agent's Vorprüfer (slice SJ — a card, never in bulk). */
+export const waits = (status: string) => status === 'pending' || status === 'failed' || status === 'held'
 
 /** Agents whose proposals count here: own browser agents (this device's runs), own server agents (agent-runs/open). */
 export function countsHere(a: CustomAgent, me: string | null, team: boolean): 'browser' | 'server' | null {
@@ -22,7 +23,7 @@ export function countsHere(a: CustomAgent, me: string | null, team: boolean): 'b
   return !!me && a.createdBy === me ? 'browser' : null
 }
 
-/** The open changes of one run (none while it is still running; a `send` only while its slip is open). */
+/** The open changes of one run, held ones too (none while it is still running; a `send` only while its slip is open). */
 export function openChangesOf(run: AgentRun): StagedChange[] {
   if (run.status === 'running') return []
   const probe = slipProbe()

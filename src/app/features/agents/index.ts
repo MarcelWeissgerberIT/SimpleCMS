@@ -28,7 +28,7 @@ export { loadRuns as loadAgentRuns, useAgentRuns } from './runs'
  *    server agents (agent-runs/open, polled only while the tab is visible) → useServerAgents.open / openLatest
  */
 export { onRunsChanged, primeSlots, cachedSlot } from './runs'
-export { staleMirrors, missedAgents, creatorConfirms, healthFitted, scheduledHere, workingMsBetween, type HealthItem } from './health'
+export { staleMirrors, missedAgents, creatorConfirms, healthFitted, scheduledHere, workingMsBetween, jevHealth, type HealthItem } from './health'
 export { useServerAgents, loadOpenServerRuns, startOpenServerPoll, ownServerAgentIds, type ServerRunHead } from './server'
 /**
  * Integration profiles (integrations/): useUnlocked(feature) / unlocked(feature) — is it unlocked on this device (an

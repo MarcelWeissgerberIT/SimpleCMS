@@ -550,7 +550,7 @@ async function runOnce(agent: CustomAgent, req: RunRequest): Promise<AgentRun> {
   await settleExtras(agent, run, extras, rowIds)
   // the One memory's log: this run, what went along, what the report cited
   if (memory?.use) {
-    const staged = (run.staged ?? []).filter((c) => c.status === 'pending').length
+    const staged = (run.staged ?? []).filter((c) => c.status === 'pending' || c.status === 'held').length
     const result =
       run.status === 'error' || run.status === 'budget'
         ? t('features.memory.result.failed')
@@ -634,7 +634,8 @@ function onAgentPage(agentId: ID): boolean {
 function notify(agent: CustomAgent, run: AgentRun, req: RunRequest) {
   if (onAgentPage(agent.id)) return
 
-  const pending = (run.staged ?? []).filter((c) => c.status === 'pending').length
+  // what waits for the person: open proposals, held ones too (slice SJ)
+  const pending = (run.staged ?? []).filter((c) => c.status === 'pending' || c.status === 'held').length
   const ui = useUI.getState()
   const open = { label: t('features.agents.toast.review'), run: () => navigate(`#/agents/${agent.id}`) }
   if (pending) {

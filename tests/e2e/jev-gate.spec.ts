@@ -144,7 +144,7 @@ test.describe('a hold in apply mode, and the toast of "Nur markieren" (J8)', () 
 })
 
 test.describe('sticky: an earlier change Jev flagged keeps the agent cautious (DJ20)', () => {
-  test('staged: run 2’s clean change to the held row is held “sticky”, its change elsewhere is not', async ({ page }) => {
+  test('staged: run 2’s clean change to the held row is held “sticky”, its change elsewhere is not; once run 1’s card is decided, run 3 is clean', async ({ page }) => {
     let pass = 1
     const w = await jevSetup(page, {
       fallback: (req) => (pass === 1 && (req.body as AnyState)?.state?.change?.target?.title === 'Launch plan' ? jevAnswer({ consistent: 0.41 }) : jevAnswer()),
@@ -159,6 +159,13 @@ test.describe('sticky: an earlier change Jev flagged keeps the agent cautious (D
     // control: a change to another row is not sticky
     expect(byTitle(r2, w, 'Tessera review')).toMatchObject({ status: 'pending' })
     expect(byTitle(r2, w, 'Tessera review').jev.sticky).toBeUndefined()
+    // the person decides run 1's card (a held one is discarded like any open one) → run 3's change to the row is checked
+    // on its own again (run 2's sticky hold passes nothing on)
+    const out = await review<AnyState>(page, 'discardRun', r1.id, [byTitle(r1, w, 'Launch plan').id], { undo: true })
+    expect(out.dropped).toHaveLength(1)
+    const r3 = await runOf(page, await runAgent(page))
+    expect(byTitle(r3, w, 'Launch plan')).toMatchObject({ status: 'pending' })
+    expect(byTitle(r3, w, 'Launch plan').jev.sticky).toBeUndefined()
   })
 
   test('"Nur markieren": the sticky change is marked only (pending, jev.sticky)', async ({ page }) => {

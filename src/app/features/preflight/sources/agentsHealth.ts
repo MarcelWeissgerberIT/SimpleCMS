@@ -1,13 +1,15 @@
 /**
  * Lamps "Mirror stale" and "Agent missed" — synchronous reads over the agents, the runs this tab loaded and the slot
  * cache (features/agents/health.ts). Ids: stale:<agent>@<run> · slot:<agent>@<slot> · fail:<agent>@<run> ·
- * cfm:<agent>@<updatedAt>. The slots are primed (one IndexedDB read each) at start and when the agents change.
+ * cfm:<agent>@<updatedAt> · jevfail:<agent>@<run> · jevnew:<agent>@<snapshot> (slice SJ: the Vorprüfung failing, another Jev
+ * snapshot answered — key "Open agent"). The slots are primed (one IndexedDB read each) at start and when the agents change.
  */
 import { useWorkspace } from '../../../store/store'
 import { navigate } from '../../../lib/router'
 import { useCloud } from '../../../cloud'
 import { t } from '../../../i18n'
-import { creatorConfirms, healthFitted, missedAgents, onRunsChanged, primeSlots, scheduledHere, staleMirrors, useAgentRuns, useServerAgents, type HealthItem } from '../../agents'
+import { creatorConfirms, healthFitted, jevHealth, missedAgents, onRunsChanged, primeSlots, scheduledHere, staleMirrors, useAgentRuns, useServerAgents, type HealthItem } from '../../agents'
+import { jevName, whyText } from '../../ai/decide/text'
 import { runsHere } from '../../agents/runner'
 import type { CardAction, LampReading, LampSourceDef, QueueItem } from '../registry'
 import { fmtWhen } from '../format'
@@ -106,7 +108,7 @@ export const missedLamp: LampSourceDef = {
   fitted: () => healthFitted(me()).missed,
   subscribe,
   read({ now }): LampReading {
-    const items = [...missedAgents(now, me()), ...creatorConfirms(me())]
+    const items = [...missedAgents(now, me()), ...creatorConfirms(me()), ...jevHealth()]
     missedFirst = items[0]?.agentId ?? null
     const n = items.length ? agentsOf(items).length : watched()
     return {
@@ -120,11 +122,17 @@ export const missedLamp: LampSourceDef = {
   open: () => navigate(missedFirst ? { name: 'agents', id: missedFirst } : { name: 'agents' }),
   queue: {
     items: ({ now }) => {
-      const items = [...missedAgents(now, me()), ...creatorConfirms(me())]
+      const items = [...missedAgents(now, me()), ...creatorConfirms(me()), ...jevHealth()]
       return fixItems('missed', items.map((i) => i.id), (id) => {
         const it = items.find((x) => x.id === id)!
         const kind = id.startsWith('slot:') ? 'slot' : id.startsWith('cfm:') ? 'confirm' : 'failed'
-        return { tag: t('features.preflight.lamp.missed.short'), title: agentName(it.agentId), detail: t(`features.preflight.fix.missed.${kind}`, { time: fmtWhen(it.at, now) }), refs: { agentId: it.agentId }, at: it.at, hand: kind === 'slot' ? ['tokens'] : kind === 'confirm' ? ['confirm'] : [] }
+        const detail =
+          it.kind === 'jevfail'
+            ? t('features.ai.jev.lamp.fail', { when: fmtWhen(it.at, now), why: whyText(t, it.jev?.why) })
+            : it.kind === 'jevnew'
+              ? t('features.ai.jev.lamp.new', { model: jevName(it.jev?.model ?? '') })
+              : t(`features.preflight.fix.missed.${kind}`, { time: fmtWhen(it.at, now) })
+        return { tag: t('features.preflight.lamp.missed.short'), title: agentName(it.agentId), detail, refs: { agentId: it.agentId }, at: it.at, hand: kind === 'slot' ? ['tokens'] : kind === 'confirm' ? ['confirm'] : [] }
       })
     },
     actions: (item: QueueItem): CardAction[] => {

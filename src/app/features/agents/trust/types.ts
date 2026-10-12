@@ -26,6 +26,11 @@ export interface Verdict {
   row?: ID
   /** the lesson that used it (wrong-ish only) */
   lesson?: string
+  /**
+   * what the agent's Vorprüfer said about the change (slice SJ) — meta only, never part of the verdict: the share of
+   * decisions taken after a Jev mark is read before grants switch on (held cards are decided singly more often)
+   */
+  jev?: 'held' | 'marked' | 'clear'
 }
 
 export interface TrustHead {

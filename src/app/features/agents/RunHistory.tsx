@@ -68,7 +68,7 @@ function RunItem({ run, n, first }: { run: AgentRun; n: number; first: boolean }
   const [open, setOpen] = useState(review || (first && run.status !== 'skipped'))
   const id = `agx-run-${run.id}`
   const dur = run.endedAt ? fmtDuration(run.endedAt - run.startedAt) : '…'
-  const pending = (run.staged ?? []).filter((c) => c.status === 'pending' || c.status === 'failed').length
+  const pending = (run.staged ?? []).filter((c) => c.status === 'pending' || c.status === 'failed' || c.status === 'held').length
   return (
     <li className="agx-run" data-status={run.status} data-review={review || undefined}>
       <button type="button" className="agx-run__head" aria-expanded={open} aria-controls={id} onClick={() => setOpen((o) => !o)}>
@@ -194,6 +194,8 @@ function Steps({ run }: { run: AgentRun }) {
 const LONG_REVIEW = 8
 
 const isOpen = (c: StagedChange) => c.status === 'pending' || c.status === 'failed'
+/** A row a person decides on: open, or held back by the agent's Vorprüfer (slice SJ — its own key, never "Apply all"). */
+const reviewable = (c: StagedChange) => isOpen(c) || c.status === 'held'
 
 /**
  * Where focus goes once a key acted (D15): after Apply / Discard the next open proposal's row (by number, wrapping to the
@@ -273,6 +275,7 @@ function Review({ run }: { run: AgentRun }) {
   const [touchOpen, setTouchOpen] = useState<string | null>(null)
   const changes = run.staged ?? []
   const open = changes.filter(isOpen).length
+  const held = changes.filter((c) => c.status === 'held').length
   const applied = changes.filter((c) => c.status === 'applied').length
   const undoable = run.runner === 'browser' && canUndoRun(run.id)
   const disabled = readOnly || run.status === 'running'
@@ -281,7 +284,7 @@ function Review({ run }: { run: AgentRun }) {
   const kinds = new Map<StagedChange['kind'], number>()
   const fields = new Map<string, number>()
   for (const c of changes) {
-    if (!isOpen(c)) continue
+    if (!reviewable(c)) continue
     kinds.set(c.kind, (kinds.get(c.kind) ?? 0) + 1)
     if (c.kind === 'update_row') for (const p of c.props ?? []) fields.set(p.name, (fields.get(p.name) ?? 0) + 1)
   }
@@ -305,7 +308,8 @@ function Review({ run }: { run: AgentRun }) {
   // the person's decision on ONE proposal (a verdict per field: judged — a cut body only once shown whole)
   const apply = (c: StagedChange) => {
     clearNote(c.id)
-    void applyRun(run, [c.id], { row: true, judged: true, whole: whole.current.has(c.id) }).then((res) => {
+    // ONE row: a held proposal goes only this way (`single`)
+    void applyRun(run, [c.id], { row: true, judged: true, whole: whole.current.has(c.id), single: true }).then((res) => {
       if (res?.applied.includes(c.id)) say(t('features.agents.trust.live.applied', { n: c.n }))
       focusIn(root, { after: c.n, not: c.id })
     }, notRead)
@@ -401,7 +405,7 @@ function Review({ run }: { run: AgentRun }) {
       else undo(c)
       return
     }
-    if (!isOpen(c)) return
+    if (!reviewable(c)) return
     take()
     if (key.kind === 'apply') {
       if (disabled || blockedBy(c)) inertSay(c, true)
@@ -411,7 +415,7 @@ function Review({ run }: { run: AgentRun }) {
   }
 
   // roving: the row last focused (else the first with a key) is the one Tab reaches
-  const keyRows = changes.filter((c) => isOpen(c) || undoOf(c))
+  const keyRows = changes.filter((c) => reviewable(c) || undoOf(c))
   const tabRow = keyRows.some((c) => c.id === current) ? current : (keyRows[0]?.id ?? null)
   const letter = wrongLetter(lang).toUpperCase()
 
@@ -440,13 +444,14 @@ function Review({ run }: { run: AgentRun }) {
             <Undo2 size={12} strokeWidth={1.75} aria-hidden /> {t('features.agents.review.undo')}
           </button>
         )}
-        {open > 0 && (
+        {open + held > 0 && (
           <>
             <button type="button" className="btn btn--ghost btn--sm" disabled={disabled} onClick={() => void discardRun(run, null).then(() => focusIn(root, 'head'), notRead)}>
               {t('features.agent.review.discardAll')}
             </button>
-            <button type="button" className="btn btn--primary btn--sm" disabled={disabled} onClick={() => void applyRun(run).then(() => focusIn(root, 'head'), notRead)}>
-              {t('features.agent.review.applyAll')}
+            {/* held proposals stay out of "Apply all" (each has its own key) */}
+            <button type="button" className="btn btn--primary btn--sm" data-testid="agx-apply-all" disabled={disabled || !open} onClick={() => void applyRun(run).then(() => focusIn(root, 'head'), notRead)}>
+              {held ? t(held === 1 ? 'features.ai.jev.applyAll.except.one' : 'features.ai.jev.applyAll.except.other', { n: held }) : t('features.agent.review.applyAll')}
             </button>
           </>
         )}
@@ -569,7 +574,8 @@ const Change = memo(function Change({ run, change: c, disabled, blocked, undo, n
   const label = `#${c.n}`
   const targetId = run.rowIds?.[c.pageId] ?? c.pageId
   const target = useWorkspace((s) => (c.status === 'applied' && s.pages[targetId] && !s.pages[targetId].trashed ? targetId : null))
-  const open = isOpen(c)
+  const open = reviewable(c)
+  const held = c.status === 'held'
   const keys = open || !!undo
   const touchId = `agx-touch-${run.id}-${c.id}`
   const caps = active && !coarse
@@ -618,13 +624,18 @@ const Change = memo(function Change({ run, change: c, disabled, blocked, undo, n
         <span className="agent-spacer" />
         {open ? (
           <span className="agent-change__actions">
+            {held && (
+              <span className="agent-change__state label" data-testid="agx-held">
+                {t('features.ai.jev.cap.held')}
+              </span>
+            )}
             <button
               type="button"
               className="btn btn--sm btn--ink agt-apply"
               onMouseDown={keepFocus}
               onClick={() => h.apply(c.id)}
               disabled={disabled || !!blocked}
-              aria-label={`${t('features.agent.review.apply')} ${label}`}
+              aria-label={`${held ? t('features.ai.jev.applyAlone') : t('features.agent.review.apply')} ${label}`}
               aria-keyshortcuts={coarse ? undefined : 'Enter A'}
               title={blocked ? t('features.agent.review.needs', { n: blocked.n }) : undefined}
             >
@@ -633,7 +644,7 @@ const Change = memo(function Change({ run, change: c, disabled, blocked, undo, n
                   ↵
                 </kbd>
               )}
-              {t('features.agent.review.apply')}
+              {held ? t('features.ai.jev.applyAlone') : t('features.agent.review.apply')}
             </button>
             {coarse ? (
               <button type="button" className="btn btn--sm agt-discard" onClick={() => h.touch(c.id)} disabled={disabled} aria-expanded={touchOpen} aria-controls={touchId} aria-label={t('features.agents.trust.touch.open', { n: c.n })}>
