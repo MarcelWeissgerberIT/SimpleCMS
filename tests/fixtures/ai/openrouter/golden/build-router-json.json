@@ -1,0 +1,87 @@
+{
+  "model": "typesafe/jev-router",
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are the writing assistant."
+    },
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "<text>\nThe launch is friday\n</text>\n\nTask: Fix spelling."
+        }
+      ]
+    }
+  ],
+  "stream": true,
+  "max_tokens": 1500,
+  "response_format": {
+    "type": "json_schema",
+    "json_schema": {
+      "name": "answer",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "rows": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "required": [
+          "rows"
+        ],
+        "additionalProperties": false
+      },
+      "strict": true
+    }
+  },
+  "provider": {
+    "only": [
+      "nordwind",
+      "lindenhof/turbo",
+      "typesafe"
+    ],
+    "allow_fallbacks": false,
+    "data_collection": "deny",
+    "require_parameters": true
+  },
+  "plugins": [
+    {
+      "id": "jev-router",
+      "cost_tier": "low",
+      "models": [
+        "vendor-a/model-b",
+        "vendor-c/thinker-2",
+        "vendor-d/swift-1"
+      ],
+      "excluded_models": [
+        "vendor-e/*",
+        "vendor-a/model-b-mini",
+        "openrouter/*",
+        "*:online",
+        "*:batch",
+        "perplexity/sonar*",
+        "*-search",
+        "*-search:*",
+        "*deep-research*",
+        "*:free"
+      ]
+    },
+    {
+      "id": "web",
+      "enabled": false
+    },
+    {
+      "id": "context-compression",
+      "enabled": false
+    },
+    {
+      "id": "response-healing",
+      "enabled": false
+    }
+  ]
+}

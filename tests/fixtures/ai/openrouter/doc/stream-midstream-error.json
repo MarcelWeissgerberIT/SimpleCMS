@@ -1,0 +1,8 @@
+{
+  "source": "api_reference_errors-and-debugging.md#mid-stream-errors",
+  "verified": false,
+  "note": "Text, then the unified error frame (top-level error with metadata.error_type, choices finish_reason error) — the partial text goes along with the failure.",
+  "model": "vendor-a/model-b",
+  "provider": "Nordwind",
+  "sse": "data: {\"id\":\"gen-1790000000-Kq7xLm2Pa9Rz\",\"provider\":\"Nordwind\",\"model\":\"vendor-a/model-b\",\"object\":\"chat.completion.chunk\",\"created\":1790000000,\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"The plan \"},\"finish_reason\":null,\"native_finish_reason\":null,\"logprobs\":null}]}\n\ndata: {\"id\":\"gen-1790000000-Kq7xLm2Pa9Rz\",\"provider\":\"Nordwind\",\"model\":\"vendor-a/model-b\",\"object\":\"chat.completion.chunk\",\"created\":1790000000,\"error\":{\"code\":429,\"message\":\"Rate limit exceeded\",\"metadata\":{\"error_type\":\"rate_limit_exceeded\",\"provider_code\":\"rate_limited\"}},\"choices\":[{\"index\":0,\"delta\":{\"content\":\"\"},\"finish_reason\":\"error\"}]}\n\ndata: [DONE]\n\n"
+}

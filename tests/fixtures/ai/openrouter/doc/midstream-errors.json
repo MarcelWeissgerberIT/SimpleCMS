@@ -1,0 +1,70 @@
+{
+  "source": "api_reference_errors-and-debugging.md#typed-error-codes",
+  "verified": false,
+  "note": "error.code numeric = the status; a string code is read through metadata.error_type.",
+  "cases": [
+    {
+      "name": "numeric 429",
+      "error": {
+        "code": 429,
+        "message": "Rate limit exceeded",
+        "metadata": {
+          "error_type": "rate_limit_exceeded"
+        }
+      },
+      "expect": "rate_limit"
+    },
+    {
+      "name": "string + context type",
+      "error": {
+        "code": "context_length_exceeded",
+        "message": "Too long",
+        "metadata": {
+          "error_type": "context_length_exceeded"
+        }
+      },
+      "expect": "context"
+    },
+    {
+      "name": "string + overloaded type",
+      "error": {
+        "code": "overloaded",
+        "message": "Busy",
+        "metadata": {
+          "error_type": "provider_overloaded"
+        }
+      },
+      "expect": "unavailable"
+    },
+    {
+      "name": "string + content policy",
+      "error": {
+        "code": "refused",
+        "message": "Blocked",
+        "metadata": {
+          "error_type": "content_policy_violation"
+        }
+      },
+      "expect": "moderation"
+    },
+    {
+      "name": "server_error without a type",
+      "error": {
+        "code": "server_error",
+        "message": "Provider disconnected unexpectedly"
+      },
+      "expect": "unavailable"
+    },
+    {
+      "name": "numeric 402",
+      "error": {
+        "code": 402,
+        "message": "Insufficient credits",
+        "metadata": {
+          "error_type": "payment_required"
+        }
+      },
+      "expect": "no_credit"
+    }
+  ]
+}

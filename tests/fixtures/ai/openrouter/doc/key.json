@@ -1,0 +1,30 @@
+{
+  "source": "api_reference_limits.md#rate-limits-and-credits-remaining (GET /api/v1/key)",
+  "verified": false,
+  "note": "GET /api/v1/key — the key's credit (SP-R3). No text is sent to read it.",
+  "json": {
+    "data": {
+      "label": "One",
+      "limit": 1,
+      "limit_reset": "monthly",
+      "limit_remaining": 0.74,
+      "include_byok_in_limit": false,
+      "budgets": [],
+      "effective_budget": null,
+      "usage": 0.26,
+      "usage_daily": 0.02,
+      "usage_weekly": 0.1,
+      "usage_monthly": 0.26,
+      "byok_usage": 0,
+      "byok_usage_daily": 0,
+      "byok_usage_weekly": 0,
+      "byok_usage_monthly": 0,
+      "is_free_tier": false,
+      "free_model_daily_requests": {
+        "used": 0,
+        "limit": 50,
+        "remaining": 50
+      }
+    }
+  }
+}

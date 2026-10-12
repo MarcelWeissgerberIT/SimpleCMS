@@ -1,0 +1,49 @@
+{
+  "model": "vendor-a/model-b",
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are the writing assistant."
+    },
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "Describe the picture."
+        },
+        {
+          "type": "image_url",
+          "image_url": {
+            "url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+          }
+        }
+      ]
+    }
+  ],
+  "stream": true,
+  "max_tokens": 8000,
+  "provider": {
+    "only": [
+      "nordwind",
+      "lindenhof/turbo"
+    ],
+    "allow_fallbacks": false,
+    "data_collection": "deny",
+    "require_parameters": true
+  },
+  "plugins": [
+    {
+      "id": "web",
+      "enabled": false
+    },
+    {
+      "id": "context-compression",
+      "enabled": false
+    },
+    {
+      "id": "response-healing",
+      "enabled": false
+    }
+  ]
+}

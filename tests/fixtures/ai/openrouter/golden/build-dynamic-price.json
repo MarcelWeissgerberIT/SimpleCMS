@@ -1,0 +1,48 @@
+{
+  "model": "vendor-g/variable-1",
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are the writing assistant."
+    },
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "<text>\nThe launch is friday\n</text>\n\nTask: Fix spelling."
+        }
+      ]
+    }
+  ],
+  "stream": true,
+  "max_tokens": 8000,
+  "provider": {
+    "only": [
+      "nordwind",
+      "lindenhof/turbo"
+    ],
+    "allow_fallbacks": false,
+    "data_collection": "allow",
+    "require_parameters": true,
+    "zdr": true,
+    "max_price": {
+      "prompt": 30,
+      "completion": 180
+    }
+  },
+  "plugins": [
+    {
+      "id": "web",
+      "enabled": false
+    },
+    {
+      "id": "context-compression",
+      "enabled": false
+    },
+    {
+      "id": "response-healing",
+      "enabled": false
+    }
+  ]
+}
