@@ -154,6 +154,31 @@ test.describe('the rules: generation stamps', () => {
   })
 })
 
+test.describe('generation 2 (acceptance 9, refusal part)', () => {
+  test('after a Claude narrow this tab keeps working; a generation-1 build refuses (reload); OpenRouter-only and router rules leave it working', async ({ page }) => {
+    const claude = await mockClaudeScript(page.context(), [], { fallback: text('A tighter launch sentence.') })
+    await openApp(page)
+    await wsEval(page, (s) => s.updateSettings({ aiApiKey: 'sk-ant-e2e-test-key' }))
+    const known1 = () => page.evaluate(() => (window as unknown as { __oneAI: { policyKnownAt(g: number): boolean } }).__oneAI.policyKnownAt(1))
+    // OpenRouter-only rule + a router rule: an older tab still enforces everything there is
+    await rules(page, 'setWorkspaceAI', { policy: { providers: { openrouter: { allow: WORK } }, restricted: [] } })
+    await rules(page, 'setDeviceRule', 'bulk', [{ p: 'openrouter', m: 'typesafe/jev-router', effort: 'medium' }])
+    expect(await known1()).toBe(true)
+    // Claude without people: generation 2 — this tab goes on, an older one would refuse
+    await rules(page, 'setWorkspaceAI', { policy: { providers: { openrouter: { allow: WORK }, anthropic: { allow: WORK } }, restricted: [] } })
+    expect(await wsEval(page, (s) => s.ai.gen)).toBe(2)
+    expect(await known1()).toBe(false)
+    const { id } = await namesPage(page)
+    expect(await gateSays(page, { purpose: 'menu.action', sources: [{ page: id, as: 'selection' }] })).toMatchObject({ ok: true, route: expect.stringMatching(/^anthropic:/), redact: { people: true, transcript: true } })
+    await improveOn(page, id, 'our launch sentence is kinda loose')
+    expect(claude.requests).toHaveLength(1)
+    // Claude may not receive people here now: its request names "@Person 1"
+    const sent = bodyOf(claude.requests[0].body)
+    expect(sent).toContain('@Person 1')
+    expect(sent).not.toContain(MIRA)
+  })
+})
+
 test.describe('a class the route may not receive: nothing is sent', () => {
   /** A Mails database (this device's) with one row whose body holds the line. */
   async function mailRow(page: Page): Promise<string> {

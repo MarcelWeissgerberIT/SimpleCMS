@@ -26,8 +26,11 @@ export async function exportBackup(page: Page, testInfo: TestInfo, name: string)
   return { file, json: JSON.parse(readFileSync(file, 'utf8')) }
 }
 
-/** The sidebar's Import → a backup file → merge or replace. */
-export async function importBackup(page: Page, file: string, mode: 'merge' | 'replace') {
+/**
+ * The sidebar's Import → a backup file → merge or replace. `ai`: the backup's AI rules would loosen this workspace's —
+ * the restore pauses on the loosening panel and takes this answer ('keep' = Keep mine, 'take' = Take the backup's).
+ */
+export async function importBackup(page: Page, file: string, mode: 'merge' | 'replace', ai?: 'keep' | 'take') {
   await page.locator('.sb').getByRole('button', { name: /^Import/ }).click()
   const dialog = page.getByRole('dialog')
   const chooser = page.waitForEvent('filechooser')
@@ -40,6 +43,11 @@ export async function importBackup(page: Page, file: string, mode: 'merge' | 're
   } else {
     await dialog.getByRole('radio', { name: /Merge into this workspace/ }).click()
     await dialog.getByRole('button', { name: 'Merge backup' }).click()
+  }
+  if (ai) {
+    const panel = dialog.getByTestId('backup-ai-loosen')
+    await expect(panel).toBeVisible()
+    await panel.getByRole('button', { name: ai === 'keep' ? 'Keep mine' : 'Take the backup’s' }).click()
   }
   await expect(dialog.getByText(mode === 'replace' ? /Workspace restored/ : /Backup merged/).first()).toBeVisible()
   await page.keyboard.press('Escape')

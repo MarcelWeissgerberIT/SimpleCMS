@@ -20,7 +20,7 @@ export const FEATURE_CLASSES: readonly FeatureClass[] = ['write', 'ask', 'worksp
  * This build's AI policy generation: 1 = no rule limits Claude; 2 = data rules that limit Claude (a workspace allow list
  * or forbid for Claude, a device narrow) are enforced at every point a request is built (S2; restricted pages → 3).
  */
-export const AI_POLICY_GEN = 1
+export const AI_POLICY_GEN = 2
 
 export const MAX_RESTRICTED = 200
 export const MAX_SHORTLIST = 24

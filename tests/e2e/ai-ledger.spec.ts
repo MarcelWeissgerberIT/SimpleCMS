@@ -140,7 +140,8 @@ test.describe('contracts kept by every reader (written by nobody yet)', () => {
         json.workspace.settings.ai = { default: [{ p: 'openrouter', m: 'x/y' }], allow: { openrouter: ['private', 'mail', 'memory', 'mcp'] } }
         json.workspace.ai = { routes: { '*': [{ p: 'openrouter', m: 'x/y' }] }, policy: { providers: { openrouter: { allow: ['page', 'rows', 'people'] } }, restricted: [] } }
         writeFileSync(file, JSON.stringify(json))
-        await importBackup(page, file, mode)
+        // S2 B9: rules that would loosen this workspace's are asked about first — "Keep mine" changes nothing
+        await importBackup(page, file, mode, 'keep')
         const after = await wsEval(page, (s) => JSON.parse(JSON.stringify({ key: s.settings.aiApiKey, keys: s.settings.aiKeys ?? null, device: s.settings.ai ?? null, ai: s.ai ?? null })))
         expect(after).toEqual(before)
         expect(after.key).toEqual(withKey ? expect.stringMatching(/^vault:[0-9a-z]+:0001$/) : '')
@@ -172,7 +173,7 @@ const storedRuns = (page: Page): Promise<AnyState[]> =>
       }),
   )
 
-/** A key, Claude scripted, the workspace's AI rules at generation `gen` (this build knows 1). */
+/** A key, Claude scripted, the workspace's AI rules at generation `gen` (this build knows 2: a stamp of 3 is a newer build's). */
 async function gated(page: Page, gen: number, steps: ClaudeStep[]) {
   const { requests } = await mockClaudeScript(page.context(), steps)
   const counts = hostCounts(page)
@@ -310,14 +311,14 @@ const GATE_FLOWS: Array<{ name: string; steps: ClaudeStep[]; go: (page: Page, re
 
 test.describe('the gate in front of every AI request', () => {
   for (const flow of GATE_FLOWS)
-    for (const gen of [2, 1])
-      test(`${flow.name}: AI rules of generation ${gen} → ${gen > 1 ? "'reload', nothing sent" : 'exactly one request'}`, async ({ page, aiNet }) => {
+    for (const gen of [3, 1])
+      test(`${flow.name}: AI rules of generation ${gen} → ${gen > 2 ? "'reload', nothing sent" : 'exactly one request'}`, async ({ page, aiNet }) => {
         const { requests, counts } = await gated(page, gen, flow.steps)
-        await flow.go(page, gen > 1)
+        await flow.go(page, gen > 2)
         await page.waitForTimeout(400)
-        expect(requests).toHaveLength(gen > 1 ? 0 : 1)
-        expect(counts.anthropic).toBe(gen > 1 ? 0 : 1)
-        expect(aiNet.count('anthropic')).toBe(gen > 1 ? 0 : 1)
+        expect(requests).toHaveLength(gen > 2 ? 0 : 1)
+        expect(counts.anthropic).toBe(gen > 2 ? 0 : 1)
+        expect(aiNet.count('anthropic')).toBe(gen > 2 ? 0 : 1)
       })
 })
 
