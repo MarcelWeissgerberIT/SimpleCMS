@@ -419,6 +419,8 @@ function Transport(p: TransportProps) {
 function AINotice({ error, onRetry, onDismiss }: { error: NonNullable<MeetingRuntime['aiError']>; onRetry: () => void; onDismiss: () => void }) {
   const t = useT()
   const keyIssue = error.code === 'no_key' || error.code === 'invalid_key' || error.code === 'permission'
+  // newer AI rules / a newer build: retrying here cannot help
+  const reload = error.code === 'reload' || error.code === 'outdated'
   return (
     <Notice
       code={error.code}
@@ -428,6 +430,10 @@ function AINotice({ error, onRetry, onDismiss }: { error: NonNullable<MeetingRun
           {keyIssue ? (
             <button type="button" className="btn btn--sm btn--ink" onClick={() => useUI.getState().openModal({ type: 'settings', tab: 'ai' })}>
               <KeyRound size={13} strokeWidth={1.75} aria-hidden /> {t('features.meeting.openSettings')}
+            </button>
+          ) : reload ? (
+            <button type="button" className="btn btn--sm btn--ink" onClick={() => window.location.reload()}>
+              {t('features.ai.reload')}
             </button>
           ) : (
             <button type="button" className="btn btn--sm btn--ink" onClick={onRetry}>

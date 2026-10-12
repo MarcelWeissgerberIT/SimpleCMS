@@ -671,6 +671,11 @@ function TurnError({ error, n, last }: { error: NonNullable<AgentTurn['error']>;
           <Settings2 size={13} strokeWidth={1.75} aria-hidden /> {t('features.ai.mcp.openSettings')}
         </button>
       )}
+      {(error.code === 'outdated' || error.code === 'reload') && (
+        <button type="button" className="btn btn--sm" onClick={() => window.location.reload()}>
+          <RotateCw size={13} strokeWidth={1.75} aria-hidden /> {t('features.ai.reload')}
+        </button>
+      )}
     </div>
   )
 }

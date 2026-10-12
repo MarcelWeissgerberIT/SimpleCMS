@@ -50,6 +50,7 @@ import { memoryFor, noteUse } from '../ai/memory/use'
 import { recallTool } from '../ai/memory/tools'
 import { unlocked } from './integrations/status'
 import { blockText, lostText, runBlock } from './gone'
+import { routeBlock } from './routeBlock'
 import { endRun, noteRun, withWriter, type Writer } from '../../store/writer'
 import { memoryRef } from '../ai/core/refs'
 import type { SourceRef } from '@/shared/ai/types'
@@ -226,6 +227,8 @@ export async function executeRun(agent: CustomAgent, req: RunRequest): Promise<A
 async function runOnce(agent: CustomAgent, req: RunRequest): Promise<AgentRun> {
   // nothing in its scope can be used, or its report page is in the trash or gone (gone.ts): no run — it ends as an error
   // that says why (the run list and a toast), never as a run that "finished"
+  // a model route this version cannot run (a newer version saved it): no request, an error run that says so
+  if (routeBlock(agent)) return blockedRun(agent, req, t('features.agents.blocked.route'), t('features.agents.blocked.routeShort'))
   const block = runBlock(agent, useWorkspace.getState().pages, t('common.untitled'))
   if (block) return blockedRun(agent, req, blockText(t, block), block.lost.map((l) => lostText(t, l)).join(' '))
   // what earlier runs left: the last successful one (context), the agent's saved state (runTools.ts)

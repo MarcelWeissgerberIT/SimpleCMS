@@ -210,7 +210,10 @@ const GATE_FLOWS: Array<{ name: string; steps: ClaudeStep[]; go: (page: Page, re
       await page.locator('[aria-label="Formatting"]').first().getByRole('button', { name: /^Ask AI$/ }).click()
       await expect(aiPanel(page)).toBeVisible()
       await aiPanel(page).getByRole('option', { name: /Improve writing/ }).click()
-      if (refused) await expect(aiPanel(page).locator('.ai-error')).toContainText(RELOAD)
+      if (refused) {
+        await expect(aiPanel(page).locator('.ai-error')).toContainText(RELOAD)
+        await expect(aiPanel(page).locator('.ai-error').getByRole('button', { name: 'Reload' })).toBeVisible()
+      }
       else await expect(aiPanel(page)).toContainText('A tighter launch sentence.')
     },
   },
@@ -236,7 +239,10 @@ const GATE_FLOWS: Array<{ name: string; steps: ClaudeStep[]; go: (page: Page, re
       await gotoPage(page, id)
       await openTerminal(page)
       await run(page, 'When do we launch?')
-      if (refused) await expect(terminal(page).locator('.term-error')).toContainText(RELOAD)
+      if (refused) {
+        await expect(terminal(page).locator('.term-error')).toContainText(RELOAD)
+        await expect(terminal(page).locator('.term-error').getByRole('button', { name: 'Reload' })).toBeVisible()
+      }
       else await expect(terminal(page).locator('.term-answer')).toContainText('We launch in two weeks.')
     },
   },
@@ -263,6 +269,8 @@ const GATE_FLOWS: Array<{ name: string; steps: ClaudeStep[]; go: (page: Page, re
       await expect(grid.locator('[data-cell="0:2"]')).toHaveAttribute('data-active', 'true')
       await page.keyboard.press('Alt+Enter')
       await expect(page.locator('.toast', { hasText: refused ? RELOAD : 'Priority filled for' })).toBeVisible()
+      // the run stops at once; its toast offers Reload, not Settings
+      if (refused) await expect(page.locator('.toast', { hasText: RELOAD }).getByRole('button', { name: 'Reload' })).toBeVisible()
     },
   },
   {
@@ -294,4 +302,46 @@ test.describe('the gate in front of every AI request', () => {
         expect(counts.anthropic).toBe(gen > 1 ? 0 : 1)
         expect(aiNet.count('anthropic')).toBe(gen > 1 ? 0 : 1)
       })
+})
+
+/* ------------------------------------------------------------------ */
+/* The agent route block (features/agents/routeBlock.ts)                */
+/* ------------------------------------------------------------------ */
+
+test.describe('an agent whose route this version cannot run', () => {
+  const ROUTED = { id: 'ag-route', name: 'Nordlicht digest', instructions: 'Summarise the launch plan.', trigger: { type: 'manual' }, scope: { everything: true, pages: [], databases: [] }, write: 'none', output: null, mcpServers: [], runner: 'browser', model: null, effort: null, maxRunUsd: 0.5, enabled: true, createdAt: 1760252400000, updatedAt: 1760252400000 }
+
+  async function runNow(page: Page, route: AnyState[]) {
+    await wsEval(page, (s, a) => s.upsertAgent(a), { ...ROUTED, route })
+    await flush(page)
+    await page.evaluate(() => (window.location.hash = '#/agents/ag-route'))
+    await expect(page.locator('.agx-dhead')).toBeVisible()
+    await page.getByRole('button', { name: 'Run now' }).click()
+  }
+
+  test('an OpenRouter route → an error run that says why, nothing sent; a Claude route → one request', async ({ page, aiNet }) => {
+    const { requests } = await mockClaudeScript(page.context(), [text('**Digest:** the launch is on track.')])
+    const counts = hostCounts(page)
+    await openApp(page)
+    await wsEval(page, (s) => s.updateSettings({ aiApiKey: 'sk-ant-e2e-test-key' }))
+
+    await runNow(page, [{ p: 'openrouter', m: 'vendor-a/model-b' }])
+    const row = page.locator('.agx-run').first()
+    await expect(row).toHaveAttribute('data-status', 'error')
+    await expect(row).toContainText('this agent needs a newer version of One')
+    // a later pin this build cannot run blocks it too
+    await runNow(page, [{ p: 'anthropic', m: 'claude-opus-5-5' }, { p: 'openai', m: 'gpt-6-luna' }])
+    await expect(page.locator('.agx-run')).toHaveCount(2)
+    await expect(page.locator('.agx-run').first()).toHaveAttribute('data-status', 'error')
+    await page.waitForTimeout(300)
+    expect(requests).toHaveLength(0)
+    expect(aiNet.count('anthropic') + aiNet.count('openrouter') + aiNet.count('openai')).toBe(0)
+
+    await runNow(page, [{ p: 'anthropic', m: 'claude-opus-5-5' }])
+    await expect(page.locator('.agx-run')).toHaveCount(3)
+    await expect(page.locator('.agx-run').first()).toHaveAttribute('data-status', 'ok', { timeout: 20_000 })
+    await page.waitForTimeout(300)
+    expect(requests).toHaveLength(1)
+    expect(counts).toEqual({ anthropic: 1, openai: 0, openrouter: 0 })
+  })
 })

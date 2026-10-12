@@ -2524,7 +2524,7 @@ function ErrorNote({ error, model }: { error: AIError; model: string }) {
     <div className="ai-error" role="alert">
       <span className="ai-error__code label">ERR · {error.code.toUpperCase()}</span>
       <p>{aiErrorText(error.code, { model, detail, server: error.server })}</p>
-      {error.code === 'outdated' && (
+      {(error.code === 'outdated' || error.code === 'reload') && (
         <button type="button" className="btn btn--sm" onClick={() => window.location.reload()}>
           {t('features.ai.reload')}
         </button>
