@@ -9,7 +9,7 @@ import { allowedFor } from '@/shared/ai/policy'
 import { providerInfo } from '@/shared/ai/providers'
 import { useWorkspace } from '../../../store/store'
 import type { PurposeId } from './purposes'
-import { capsFor, labelFor, priceFor, shortFor } from './registry'
+import { capsFor, labelFor, modelInfo, priceFor, shortFor } from './registry'
 import { estimate, type Band, type EstimateRequest } from '../../governor'
 
 import { routeFor } from './gate'
@@ -23,7 +23,7 @@ export const shortOf = (route: Route, pool?: readonly string[]): string => short
 export const estimateLabel = (route: Route, pool?: readonly string[]): string => (route.p === 'anthropic' ? shortFor(route, pool) : labelFor(route, pool))
 
 /** A cost band on a route (its price: the table, the shortlist row, a dynamic route's bound — never 0). */
-export const estimateOn = (r: { route: Route; pool?: readonly string[] }, req: EstimateRequest): Band | null => estimate(r.route, req, Date.now(), priceFor(r.route, r.pool), capsFor(r.route, r.pool))
+export const estimateOn = (r: { route: Route; pool?: readonly string[] }, req: EstimateRequest): Band | null => estimate(r.route, req, Date.now(), priceFor(r.route, r.pool), capsFor(r.route, r.pool), modelInfo(r.route, r.pool)?.hints)
 
 /** May the route a request of this purpose takes receive this class? (before the request is built — the memory block) */
 export function mayReceive(purpose: PurposeId, cls: DataClass): boolean {

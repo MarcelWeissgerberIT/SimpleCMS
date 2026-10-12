@@ -15,6 +15,7 @@ import type { AIErrorCode } from '../errors.ts'
 import { normalise } from '../usage.ts'
 import { scrubSecrets } from '../keys.ts'
 import { JEV_PLUGIN, JEV_ROUTER, ROUTER_PINS, isJevRouter, servedAs } from '../jev.ts'
+import { headroom, reasoningOf, wireMaxTokens } from './maxTokens.ts'
 
 export const OR_API = 'https://openrouter.ai/api/v1'
 export const OR_CHAT_URL = `${OR_API}/chat/completions`
@@ -54,10 +55,8 @@ export interface Built {
   headers: Record<string, string>
 }
 
-/** Reasoning room on top of the visible answer: max(1 024, 4 × the answer budget), never above the model's output cap. */
-export function headroom(maxTokens: number, caps: Pick<Caps, 'maxOutput'>): number {
-  return Math.max(0, Math.min(caps.maxOutput, Math.max(1024, 4 * Math.max(0, Math.round(maxTokens)))))
-}
+/** Reasoning room on top of the visible answer (wire/maxTokens.ts — the one answer-budget rule). */
+export { headroom }
 
 /** OpenRouter's effort scale, lowest first. */
 const LEVELS = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const
@@ -138,9 +137,8 @@ export function build(req: WireRequest, model: ModelInfo, opts: BuildOpts): Buil
   const json = req.output.kind === 'json' ? req.output : null
   const hints = model.hints
   const r = hints?.reasoning
-  const mandatory = !!r?.mandatory || (caps.reasoning !== false && caps.reasoning.mandatory)
   // reasoning only where the catalogue lists it — never on the router (it picks the effort; max_tokens / mode → 400)
-  const reasons = !router && !!hints?.params.includes('reasoning') && (mandatory || !!req.route.effort)
+  const { mandatory, reasons } = reasoningOf({ m: model.route.m, effort: req.route.effort }, caps, hints)
   let reasoning: Json | null = null
   if (reasons) {
     const efforts = r ? r.efforts : null
@@ -150,9 +148,8 @@ export function build(req: WireRequest, model: ModelInfo, opts: BuildOpts): Buil
       reasoning = { effort: clampEffort(want, efforts, mandatory) }
     }
   }
-  // the visible answer + reasoning room: models that reason (always the router — any pool model may), capped
-  const room = router || reasons || mandatory ? headroom(visible, caps) : 0
-  const maxTokens = Math.max(1, Math.min(caps.maxOutput, visible + room))
+  // the visible answer + reasoning room (the one rule the estimate and the brake share — wire/maxTokens.ts)
+  const maxTokens = wireMaxTokens({ p: 'openrouter', m: model.route.m, effort: req.route.effort }, visible, caps, hints)
   const cache = req.cache === 'auto' && !router && slug.startsWith('anthropic/')
   const upstream = opts.upstream
   const pins = ROUTER_PINS === 'ignore' && router ? { ignore: [...upstream.deny] } : { only: [...opts.pins] }

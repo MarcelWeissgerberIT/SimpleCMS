@@ -296,7 +296,7 @@ function gate(input: PrepareInput, held: boolean): Prepared {
   const known = res.info.caps
   const size = input.size
   const price = route.p === 'anthropic' ? undefined : priceFor(route, pool)
-  const band = size ? estimate(route, { promptChars: size.promptChars, maxTokens: typeof size.maxTokens === 'function' ? size.maxTokens(known) : size.maxTokens }, Date.now(), price, known) : null
+  const band = size ? estimate(route, { promptChars: size.promptChars, maxTokens: typeof size.maxTokens === 'function' ? size.maxTokens(known) : size.maxTokens }, Date.now(), price, known, res.info.hints) : null
   const said = beforeSendHook(input.purpose, route, band)
   const usd = typeof said === 'number' ? said : (band?.high ?? 0)
   return {

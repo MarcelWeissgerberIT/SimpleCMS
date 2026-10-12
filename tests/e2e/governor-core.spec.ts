@@ -89,9 +89,13 @@ import { AMBER_SHARE, readUsageLamp, usageLine } from '../../src/app/features/go
 import { fmtBand, fmtLimit, fmtNum, fmtOf, fmtScale, fmtTok } from '../../src/app/features/governor/format'
 import { SWEEP, angleOf, arcPath, dialNumerals, dialScale, dialTicks, miniBar, monthBar } from '../../src/app/features/governor/gauge'
 import { messages as governorMessages } from '../../src/app/features/governor/messages'
-import { blendedPerM, priceRow } from '../../src/shared/ai/prices'
+import { blendedPerM, costOf, priceRow } from '../../src/shared/ai/prices'
 import { capsOf } from '../../src/shared/ai/models'
-import type { PriceRow, Route, Usage } from '../../src/shared/ai/types'
+import type { Caps, ChatRequest, ModelInfo, PriceRow, Route, Usage, WireHints } from '../../src/shared/ai/types'
+import { build, type BuildOpts } from '../../src/shared/ai/wire/openrouterChat'
+import { wireMaxTokens } from '../../src/shared/ai/wire/maxTokens'
+import { JEV_ROUTER } from '../../src/shared/ai/jev'
+import { estimate, wireOutFor } from '../../src/app/features/governor/estimate'
 
 const ROOT = fileURLToPath(new URL('../../', import.meta.url))
 
@@ -380,6 +384,60 @@ test.describe('the shared error and type additions (B2)', () => {
   test('both languages name the budget error', () => {
     for (const lang of ['en', 'de'] as const) expect(coreMessages[lang]['features.ai.err.budget']).toBeTruthy()
     expect(coreMessages.de['features.ai.err.budget']).toContain('Regler')
+  })
+})
+
+test.describe('one answer-budget rule on the wire (B3, shared/ai/wire/maxTokens.ts)', () => {
+  const CAPS: Caps = { structured: true, tools: true, vision: false, pdf: false, mcp: false, mcpListing: false, cache: 'auto', effort: false, reasoning: false, web: false, notes: false, refusalFallback: false, context: 131072, maxOutput: 16384 }
+  const ROW: PriceRow = { input: 0.3, output: 1.2, cacheRead: 0.3, cacheWrite: 0.3, source: 'catalogue', at: '2026-10-12' }
+  const info = (m: string, caps: Partial<Caps> = {}, hints?: WireHints): ModelInfo => ({ route: { p: 'openrouter', m }, label: m, short: m, vendor: m.split('/')[0]!, caps: { ...CAPS, ...caps }, price: ROW, ...(hints ? { hints } : {}) })
+  const OPTS: BuildOpts = { pins: ['nordwind'], upstream: { deny: [], noCollect: true, zdr: false }, referer: 'https://one.example/app/' }
+  const ROUTER_OPTS: BuildOpts = { ...OPTS, pins: ['nordwind', 'typesafe'], router: { pool: ['vendor-a/model-b', 'vendor-c/thinker-2'], exclude: ['openrouter/*'] } }
+  const ask = (route: Route, maxTokens: number): ChatRequest => ({ kind: 'chat', route, system: 'You are the writing assistant.', messages: [{ role: 'user', parts: [{ type: 'text', text: 'Nordlicht launch plan.' }] }], output: { kind: 'text' }, maxTokens, cache: 'none' })
+  const MANDATORY: WireHints = { params: ['max_tokens', 'reasoning', 'tools'], reasoning: { mandatory: true, efforts: ['high', 'medium', 'low', 'minimal'], supportsMax: false } }
+  const OPTIONAL: WireHints = { params: ['max_tokens', 'reasoning', 'tools'], reasoning: { mandatory: false, efforts: ['high', 'medium', 'low'], supportsMax: false } }
+  const PROMPT = 12_000
+  /** the cost of the prompt + the answer budget the body carries */
+  const billed = (row: PriceRow, maxTokens: number) => costOf({ input: PROMPT, cacheWrite: 0, cacheWrite1h: 0, cacheRead: 0, output: maxTokens, reasoning: 0 }, row, 0).usd
+
+  test('the estimate\'s upper end is the cost of exactly what build() sends — five kinds of route', () => {
+    const cases: Array<[string, Route, ModelInfo, number]> = [
+      ['a fixed OpenRouter row', { p: 'openrouter', m: 'vendor-a/model-b' }, info('vendor-a/model-b'), 8000],
+      ['a mandatory reasoner', { p: 'openrouter', m: 'vendor-c/thinker-2' }, info('vendor-c/thinker-2', { reasoning: { mandatory: true } }, MANDATORY), 4000],
+      ['an optional reasoner with an effort (the S2 under-count)', { p: 'openrouter', m: 'vendor-f/flex-1', effort: 'medium' }, info('vendor-f/flex-1', {}, OPTIONAL), 3000],
+      ['the Jev Router', { p: 'openrouter', m: JEV_ROUTER, effort: 'low' }, info(JEV_ROUTER), 2000],
+      ['an answer budget above the output cap', { p: 'openrouter', m: 'vendor-a/model-b' }, info('vendor-a/model-b'), 40_000],
+    ]
+    for (const [name, route, model, max] of cases) {
+      const body = build(ask(route, max), model, route.m === JEV_ROUTER ? ROUTER_OPTS : OPTS).body
+      const sent = body.max_tokens as number
+      expect(wireMaxTokens(route, max, model.caps, model.hints), name).toBe(sent)
+      expect(estimate(route, { promptTokens: PROMPT, maxTokens: max }, 0, ROW, model.caps, model.hints)!.high, name).toBeCloseTo(billed(ROW, sent)!, 10)
+    }
+    // the optional reasoner without an effort gets no room — and neither does its estimate
+    const plain = info('vendor-f/flex-1', {}, OPTIONAL)
+    const noEffort: Route = { p: 'openrouter', m: 'vendor-f/flex-1' }
+    expect(build(ask(noEffort, 3000), plain, OPTS).body.max_tokens).toBe(3000)
+    expect(estimate(noEffort, { promptTokens: PROMPT, maxTokens: 3000 }, 0, ROW, plain.caps, plain.hints)!.high).toBeCloseTo(billed(ROW, 3000)!, 10)
+  })
+
+  test('Claude: the visible budget is what is sent (thinking sits inside it)', () => {
+    const route: Route = { p: 'anthropic', m: 'claude-sonnet-5-5' }
+    const row = priceRow(route)!
+    expect(wireMaxTokens(route, 4096, capsOf(route))).toBe(4096)
+    expect(estimate(route, { promptTokens: PROMPT, maxTokens: 4096 }, 0)!.high).toBeCloseTo(billed(row, 4096)!, 10)
+  })
+
+  test('writeTokens: a cold cache is priced at the cache-write column (the 68k switch example)', () => {
+    const haiku: Route = { p: 'anthropic', m: 'claude-haiku-4-5' }
+    const cold = estimate(haiku, { promptTokens: 68_000, writeTokens: 68_000, maxTokens: 22_000, outTokens: 15_000 }, 0)!
+    // 68k × 1.25 $/M = 0.085 · output 15k–22k × 5 $/M
+    expect(cold.low).toBeCloseTo(0.085 + 0.075, 6)
+    expect(cold.high).toBeCloseTo(0.085 + 0.11, 6)
+    // positive control: the same prompt as plain input is cheaper (1 $/M)
+    expect(estimate(haiku, { promptTokens: 68_000, maxTokens: 22_000, outTokens: 15_000 }, 0)!.low).toBeCloseTo(0.068 + 0.075, 6)
+    // the brake's wireOut is the same rule
+    expect(wireOutFor({ p: 'openrouter', m: JEV_ROUTER }, info(JEV_ROUTER).caps)(2000)).toBe(wireMaxTokens({ p: 'openrouter', m: JEV_ROUTER }, 2000, info(JEV_ROUTER).caps))
   })
 })
 
