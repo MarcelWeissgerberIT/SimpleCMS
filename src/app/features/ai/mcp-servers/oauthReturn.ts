@@ -169,6 +169,8 @@ function bootNote(text: string, link?: { href: string; text: string }) {
   if (!el) return
   el.textContent = ''
   const box = document.createElement('div')
+  // a sentence that wraps keeps a 16 px side gutter (the boot screen's status line is one short line)
+  box.style.cssText = 'max-width:34em;padding:0 16px;line-height:1.7;text-align:center'
   box.append(document.createElement('i'), document.createTextNode(text))
   if (link) {
     const a = document.createElement('a')

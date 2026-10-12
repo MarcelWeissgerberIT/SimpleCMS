@@ -14,7 +14,8 @@
  * to 1440 px wide and saved as public/assets/shots/changelog/<shot>.webp (≤ 150 KB: the quality steps down
  * until it fits), its pixel size goes into sizes.json next to it (the public /help/changelog/ page reads it).
  *
- * Nothing leaves the machine: api.anthropic.com is mocked (streamed answers, structured JSON, scripted
+ * Nothing leaves the machine: openrouter.ai answers from its documented formats and api.openai.com is aborted
+ * (scripts/lib/aiHosts.mjs); api.anthropic.com is mocked (streamed answers, structured JSON, scripted
  * tool-use runs — never a real request), Gmail and Google's sign-in script are in-memory stand-ins, the MCP
  * bridge for the tidy-up shot is the repository's own public/mcp/one-mcp.mjs on a local port, the coding shot runs
  * public/mcp/one-worker.mjs with the fake Claude Code CLI against a temp repo and a local bare remote, the cloud-worker
@@ -34,6 +35,7 @@ import { fileURLToPath } from 'node:url'
 import { strToU8, zipSync } from 'fflate'
 import { seedMorning, waitPreflight } from '../tests/e2e/helpers/preflightStory.mjs'
 import { seedTrust } from '../tests/e2e/helpers/trustStory.mjs'
+import { routeAIHosts } from './lib/aiHosts.mjs'
 
 const LOCAL = (process.argv[2] || 'http://127.0.0.1:5315').replace(/\/$/, '')
 const ONLY = process.argv.slice(3)
@@ -153,6 +155,9 @@ async function freshPage(browser, { claude, setup, viewport } = {}) {
     timezoneId: 'Europe/Berlin',
     serviceWorkers: 'block',
   })
+  // no real AI host (scripts/lib/aiHosts.mjs): OpenRouter answered from its documented formats, the rest aborted;
+  // registered first so the Claude mock below and a shot's own routes win
+  await routeAIHosts(ctx, { mockOpenRouter: true, quiet: true })
   await mockClaude(ctx, claude)
   // no team server behind this static build: answer the app's probe like a static host's HTML fallback
   await ctx.route(`${LOCAL}/api/**`, (route) => route.fulfill({ status: 200, contentType: 'text/html', body: '<!doctype html>' }))

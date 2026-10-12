@@ -5,8 +5,11 @@
  *        [--mobile] [--eval "<js run in page before shot>"] [--click "<css selector>"] [--type "text"]
  *        [--clear-storage]
  * Prints console errors from the page. Uses the preinstalled Chromium (PLAYWRIGHT_BROWSERS_PATH).
+ * No real AI host: api.anthropic.com, api.openai.com and openrouter.ai are aborted (OpenRouter's catalogue and endpoint
+ * lists come from the test fixture) — scripts/lib/aiHosts.mjs; the line "AI hosts: …" says what was asked for.
  */
 import { chromium } from 'playwright'
+import { routeAIHosts } from './lib/aiHosts.mjs'
 
 const args = process.argv.slice(2)
 const url = args[0]
@@ -30,6 +33,7 @@ const ctx = await browser.newContext({
   isMobile: mobile,
   hasTouch: mobile,
 })
+const aiLog = await routeAIHosts(ctx)
 const page = await ctx.newPage()
 const errors = []
 page.on('console', (m) => m.type() === 'error' && errors.push(m.text()))
@@ -52,5 +56,7 @@ if (js) await page.evaluate(String(js))
 await page.waitForTimeout(Number(opt('wait', 800)))
 await page.screenshot({ path: out, fullPage: !!opt('full', false) })
 if (errors.length) console.log('PAGE ERRORS:\n' + errors.join('\n'))
+const asked = Object.entries(aiLog.hosts)
+console.log(`AI hosts: ${asked.length ? asked.map(([h, n]) => `${h} ×${n}`).join(', ') : 'none asked'} · real requests: 0${aiLog.aborted.length ? ` (${aiLog.aborted.length} blocked)` : ''}`)
 console.log('saved', out)
 await browser.close()
