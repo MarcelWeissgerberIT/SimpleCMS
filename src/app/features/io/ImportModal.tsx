@@ -8,7 +8,7 @@
  * PowerPoint deck and a Claude Design take-over show a preview first; their done step offers Present
  * (a deck) and Undo import.
  */
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AlertTriangle, ChevronRight, Eye, FileUp, FolderUp, Presentation, RotateCcw, Undo2 } from 'lucide-react'
 import { useCloud } from '../../cloud'
 import { Modal } from '../../ui/Modal'
@@ -30,7 +30,10 @@ import { groupReport, type ReportItem } from './import/report'
 import type { SourceMode } from './import/sources'
 import type { TrelloBoard } from './import/trello'
 import type { ColorName } from '../../store/types'
-import { applyBackup, backupStats, parseBackup, type Backup, type RestoreResult } from './backup'
+import { applyBackup, backupAIRules, backupStats, parseBackup, type Backup, type RestoreResult } from './backup'
+import { aiRulesAllowed } from '../../store/ai'
+import { providerLabel } from '@/shared/ai/models'
+import type { LooseItem } from '@/shared/ai/policy'
 import { Meter, Readout } from './parts'
 import { countList, unitOf } from './count'
 import { onRovingKey } from './roving'
@@ -648,16 +651,21 @@ function BackupStep({ backup, fileName, onCancel, onDone }: { backup: Backup; fi
   const [busy, setBusy] = useState<{ done: number; total: number } | null>(null)
   const [error, setError] = useState<string | null>(null)
   const stats = backupStats(backup)
+  // the backup's AI rules: taken when only tighter; loosening ones wait for the person (D52)
+  const rules = useMemo(() => backupAIRules(backup), [backup])
+  const [aiAsk, setAiAsk] = useState(false)
   const date = backup.exportedAt ? new Intl.DateTimeFormat(lang === 'de' ? 'de-DE' : 'en-GB', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(backup.exportedAt)) : '—'
 
-  const go = async () => {
+  const go = async (ai?: 'mine' | 'theirs') => {
     if (mode === 'replace' && team) return
     if (mode === 'replace' && !armed) return setArmed(true)
+    if (rules?.loosens.length && !ai) return setAiAsk(true)
+    setAiAsk(false)
     setBusy({ done: 0, total: backup.files.length })
     const started = performance.now()
     const resume = pauseAutomations()
     try {
-      const result = await applyBackup(backup, mode, (done, total) => setBusy({ done, total }))
+      const result = await applyBackup(backup, mode, (done, total) => setBusy({ done, total }), ai ? { ai } : {})
       await flushSave()
       if (result.target) openPage(result.target)
       onDone(result, performance.now() - started)
@@ -724,15 +732,63 @@ function BackupStep({ backup, fileName, onCancel, onDone }: { backup: Backup; fi
           </p>
         </div>
       )}
+      {aiAsk && rules && (
+        <div className="io-warn io-ailoose" role="alertdialog" aria-labelledby="io-ailoose-h" aria-describedby="io-ailoose-lead" data-testid="backup-ai-loosen">
+          <div className="io-error__stripe" />
+          <div className="io-ailoose__body">
+            <h3 id="io-ailoose-h" className="io-ailoose__title">
+              {t('features.io.aiLoose.title')}
+            </h3>
+            <p id="io-ailoose-lead">{t('features.io.aiLoose.lead')}</p>
+            <ul className="io-ailoose__list">
+              {rules.loosens.map((item, i) => (
+                <li key={i}>{looseText(t, item)}</li>
+              ))}
+            </ul>
+            {!aiRulesAllowed() && <p className="muted">{t('features.io.aiLoose.member')}</p>}
+            <div className="io-ailoose__keys">
+              <button type="button" className="btn btn--sm btn--ink" onClick={() => void go('mine')} disabled={!!busy} data-autofocus="">
+                {t('features.io.aiLoose.keep')}
+              </button>
+              {aiRulesAllowed() && (
+                <button type="button" className="btn btn--sm" onClick={() => void go('theirs')} disabled={!!busy}>
+                  {t('features.io.aiLoose.take')}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
       {error && <p className="io-inline-error">{error}</p>}
       <div className="io-actions">
         <button type="button" className="btn btn--ghost" onClick={onCancel} disabled={!!busy}>
           {t('common.cancel')}
         </button>
-        <button type="button" className={`btn ${mode === 'replace' ? 'btn--danger-solid' : 'btn--primary'}`} onClick={go} disabled={!!busy}>
+        <button type="button" className={`btn ${mode === 'replace' ? 'btn--danger-solid' : 'btn--primary'}`} onClick={() => void go()} disabled={!!busy || aiAsk}>
           {busy ? `${t('features.io.restoring')} ${busy.done}/${busy.total}` : mode === 'replace' ? (armed ? t('features.io.backup.confirmBtn') : t('features.io.backup.replace')) : t('features.io.backup.mergeBtn')}
         </button>
       </div>
     </div>
   )
+}
+
+/** One way the backup's AI rules would loosen this workspace's, as a line. */
+function looseText(t: ReturnType<typeof useT>, item: LooseItem): string {
+  const cls = (c: string) => t(`features.ai.cls.${c}`)
+  switch (item.kind) {
+    case 'provider':
+      return t('features.io.aiLoose.provider', { provider: providerLabel(item.p), classes: item.classes.map(cls).join(', ') })
+    case 'allow':
+      return t('features.io.aiLoose.allow', { provider: providerLabel(item.p), class: cls(item.cls) })
+    case 'forbid':
+      return t('features.io.aiLoose.forbid', { provider: providerLabel(item.p), class: cls(item.cls) })
+    case 'upstream':
+      return item.what === 'deny' ? t('features.io.aiLoose.deny', { provider: providerLabel(item.p), name: item.name ?? '' }) : t(`features.io.aiLoose.${item.what}`, { provider: providerLabel(item.p) })
+    case 'limit':
+      return t('features.io.aiLoose.limit', { provider: providerLabel(item.p), from: `${item.from} $`, to: item.to === null ? t('features.io.aiLoose.noLimit') : `${item.to} $` })
+    case 'gen':
+      return t('features.io.aiLoose.gen')
+    case 'restricted':
+      return t('features.io.aiLoose.restricted')
+  }
 }

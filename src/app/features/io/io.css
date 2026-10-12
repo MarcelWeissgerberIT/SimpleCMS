@@ -452,6 +452,36 @@
   font-size: var(--text-sm);
 }
 
+.io-warn.io-ailoose .io-ailoose__body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px 12px;
+}
+
+.io-warn.io-ailoose p {
+  padding: 0;
+}
+
+.io-ailoose__title {
+  margin: 0;
+  font-size: var(--text-md);
+  font-weight: 650;
+}
+
+.io-ailoose__list {
+  margin: 0;
+  padding-left: 18px;
+  font-size: var(--text-sm);
+}
+
+.io-ailoose__keys {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+}
+
 .io-error__stripe {
   height: 8px;
   background: repeating-linear-gradient(-45deg, var(--ink) 0 8px, var(--signal) 8px 16px);
