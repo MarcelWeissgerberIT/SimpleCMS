@@ -29,10 +29,11 @@ export class AIError extends Error {
   detail?: string
   /** 'mcp': the server's name ('' = not known) */
   server?: string
-  constructor(code: AIErrorCode, detail?: string, server?: string) {
+  /** `model`: the label of the route the request went to (else this device's Claude model, as before) */
+  constructor(code: AIErrorCode, detail?: string, server?: string, model?: string) {
     let message: string = code
     try {
-      message = aiErrorText(code, { model: modelName(), detail, server })
+      message = aiErrorText(code, { model: model ?? modelName(), detail, server })
     } catch {
       /* i18n unavailable — keep the code */
     }

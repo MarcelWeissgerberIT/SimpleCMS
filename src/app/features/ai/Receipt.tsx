@@ -8,6 +8,8 @@ import { CornerDownRight } from 'lucide-react'
 import type { CostSource, ProviderId, StepNote } from '@/shared/ai/types'
 import { labelOf } from '@/shared/ai/models'
 import { PRICES_DATE } from '@/shared/ai/prices'
+import { isJevRouter } from '@/shared/ai/jev'
+import { servedLabel } from './core/registry'
 import type { Lang } from '@/shared/i18n'
 import { t as tt, useLang, useT } from '../../i18n'
 import { fmtCost } from '../../lib/money'
@@ -32,7 +34,34 @@ export const sourceText = (t: T, usd: number | null, source: CostSource): string
 /** A step on the way, as a receipt line (null: none to show). */
 export function stepText(t: T, s: StepNote, p: ProviderId): string | null {
   if (s.k === 'refusal-fallback' && s.to) return t('features.ai.receipt.fallback', { provider: COMPANY[p], model: labelOf({ p, m: s.to }) })
+  if (s.k === 'substituted' && s.to) return t('features.ai.receipt.substituted', { model: servedLabel(p, s.to) })
+  if (s.k === 'routed' && s.code === 'over-bound') return t('features.ai.receipt.overBound')
+  if (s.k === 'upstream') return t('features.ai.receipt.notUsed', { why: s.code ?? '' })
   return null
+}
+
+/** The requested route of a receipt ('p:m'). */
+const routeOf = (key: string): { p: string; m: string } => {
+  const i = key.indexOf(':')
+  return i < 0 ? { p: key, m: '' } : { p: key.slice(0, i), m: key.slice(i + 1) }
+}
+
+/** Who answered: Claude's own label; "OpenRouter · <model>"; the Jev Router's "OpenRouter · Jev Router → <model>". */
+export function modelText(t: T, r: Receipt): string {
+  if (r.served.p === 'anthropic') return labelOf({ p: r.served.p, m: r.served.model })
+  const req = routeOf(r.route)
+  const served = servedLabel(r.served.p, r.served.model)
+  if (req.p === 'openrouter' && isJevRouter(req.m)) return t('features.ai.receipt.routed', { model: served })
+  return `${COMPANY[r.served.p]} · ${served}`
+}
+
+/** How a neutral provider's line was priced, said in the title (the served model's row, the stated bound). */
+function priceNote(t: T, r: Receipt): string {
+  const req = routeOf(r.route)
+  const router = req.p === 'openrouter' && isJevRouter(req.m)
+  if (router && r.costSource === 'catalogue') return t('features.ai.receipt.servedPrice', { model: servedLabel(r.served.p, r.served.model) })
+  if (router && r.costSource === 'estimate') return t('features.ai.receipt.bound')
+  return ''
 }
 
 /** The price table's date as the UI's language writes it ("October 12, 2026" · "12. Oktober 2026"). */
@@ -40,18 +69,21 @@ export const pricesDate = (lang: Lang): string => new Date(`${PRICES_DATE}T12:00
 
 /** The receipt as one text (the title, tests): model · requests · cost · source, then the tokens and the steps. */
 export function receiptText(t: T, lang: Lang, r: Receipt): string {
-  const model = labelOf({ p: r.served.p, m: r.served.model })
+  const model = modelText(t, r)
   const head = [model, r.requests > 1 ? t('features.ai.receipt.requests', { count: r.requests }) : '', costText(t, lang, r.usd, r.costSource), sourceText(t, r.usd, r.costSource)].filter(Boolean).join(' · ')
   const n = (x: number) => x.toLocaleString(lang)
   const tokens = t('features.ai.receipt.tokens', { input: n(r.usage.input), write: n(r.usage.cacheWrite + r.usage.cacheWrite1h), read: n(r.usage.cacheRead), output: n(r.usage.output) })
   const steps = r.steps.map((s) => stepText(t, s, r.served.p)).filter((x): x is string => !!x)
-  return [head, tokens, ...steps, r.usd !== null && r.costSource !== 'reported' ? t('features.ai.receipt.prices', { date: pricesDate(lang) }) : ''].filter(Boolean).join('\n')
+  const served = r.served.upstream ? t('features.ai.receipt.servedBy', { upstream: r.served.upstream }) : ''
+  // Claude's table prices it; another provider's line says what priced it (the catalogue, the served model, the bound)
+  const prices = r.usd === null || r.costSource === 'reported' ? '' : r.served.p === 'anthropic' ? t('features.ai.receipt.prices', { date: pricesDate(lang) }) : priceNote(t, r) || (r.costSource === 'catalogue' ? t('features.ai.receipt.catalogue') : '')
+  return [head, tokens, served, ...steps, prices].filter(Boolean).join('\n')
 }
 
 export function ReceiptLine({ receipt: r, testId = 'ai-receipt' }: { receipt: Receipt; testId?: string }) {
   const t = useT()
   const lang = useLang()
-  const model = labelOf({ p: r.served.p, m: r.served.model })
+  const model = modelText(t, r)
   const steps = r.steps.map((s) => stepText(t, s, r.served.p)).filter((x): x is string => !!x)
   const src = sourceText(t, r.usd, r.costSource)
   return (

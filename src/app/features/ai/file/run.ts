@@ -9,7 +9,8 @@ import { useWorkspace } from '../../../store/store'
 import { stripFence } from '../client'
 import { capsOf } from '@/shared/ai/models'
 import { legacyRule } from '@/shared/ai/route'
-import { precheck } from '../core/gate'
+import { forcedRoute, precheck } from '../core/gate'
+import { capsFor } from '../core/registry'
 import type { SourceRef } from '@/shared/ai/types'
 import { withoutWebImages } from '../../agents/images'
 import { clipText, fileData, FILE_READ_MAX, loadPdfForClaude, PDF_MAX_PAGES } from './load'
@@ -53,8 +54,10 @@ export interface FileMeta {
 
 /** Pages the model chosen now reads of one PDF (its caps: 600, 100 on a 200K-context model). */
 export function maxPdfPages(): number {
-  const [route] = legacyRule(useWorkspace.getState().settings.aiModel, true)
-  const pdf = route ? capsOf(route)?.pdf : null
+  // the e2e seam's forced route (stage A: the only way to another provider), else this device's Claude model
+  const forced = forcedRoute()
+  const [route] = forced ? [forced.route] : legacyRule(useWorkspace.getState().settings.aiModel, true)
+  const pdf = route ? (forced ? capsFor(route, forced.pool) : capsOf(route))?.pdf : null
   return pdf ? pdf.maxPages : PDF_MAX_PAGES
 }
 
@@ -73,8 +76,8 @@ export async function runFileRequest(
     if (req.action === 'page') return JSON.stringify(await filePage(req.fileKind, bytes, req.name))
     return JSON.stringify({ sheets: fileSheets(req.fileKind, bytes, req.name) })
   }
-  // the gate first: a refused request never loads the file
-  precheck(gate)
+  // the gate first: a refused request never loads the file (a PDF needs a model that reads PDFs)
+  precheck({ ...gate, needs: req.fileKind === 'pdf' ? ['pdf'] : [] })
   let material: FileMaterial
   if (req.fileKind === 'pdf') {
     const pdf = await loadPdfForClaude(req.src, maxPdfPages(), signal)

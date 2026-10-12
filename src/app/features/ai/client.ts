@@ -6,13 +6,13 @@
  * each request (memory only, this tab, this session) and it is sent to api.anthropic.com and nowhere else.
  */
 import { useWorkspace } from '../../store/store'
-import type { Caps, ProviderId, SourceRef } from '@/shared/ai/types'
+import type { Caps, ChatRequest, LedgerEntry, Part, ProviderId, SourceRef } from '@/shared/ai/types'
 import { DEFAULT_CLAUDE_MODEL, MODELS } from '@/shared/ai/models'
 import { priceRow } from '@/shared/ai/prices'
 import { AIError } from './core/errors'
 import { usesDemo } from './core/demoMode'
-import { precheck, prepare, settle } from './core/gate'
-import { meterCall, type Receipt } from './core/meter'
+import { precheck, prepare, settle, type Prepared } from './core/gate'
+import { meterCall, type MeterCall, type Receipt } from './core/meter'
 import { memoryRef } from './core/refs'
 import type { PurposeId } from './core/purposes'
 import { demoAnswer, streamDemo } from './demo'
@@ -159,10 +159,33 @@ export async function streamCompletion(opts: StreamOptions): Promise<string> {
   const prepared = prepare({ purpose: opts.purpose, sources: opts.sources, typed: opts.typed, size })
   const call = meterCall(prepared, { source: opts.ledgerSource, signal: opts.signal, onRun: opts.onRun })
   try {
+    // another provider (OpenRouter): the neutral wire — no MCP server ever joins it (D-S2-7)
+    if (prepared.provider !== 'anthropic' && prepared.provider !== 'demo') return await viaNeutral(prepared, call, { system: opts.system, parts: [{ type: 'text', text: opts.prompt }], output: { kind: 'text' }, maxTokens: 8000 }, opts)
     return await streamOnce(opts, false, prepared, call)
   } finally {
     settle(prepared)
   }
+}
+
+/**
+ * One request on the neutral wire (a non-Claude route the gate prepared): a ChatRequest from the facade's system and
+ * parts, sent by core/call.ts (lazy). Resolves with the answer text ('refusal' / 'empty' as for Claude).
+ */
+export async function viaNeutral(
+  prepared: Prepared,
+  call: MeterCall,
+  r: { system: string; parts: Part[]; output: ChatRequest['output']; maxTokens: number; promptChars?: number },
+  o: { signal?: AbortSignal; onToken?: (delta: string) => void },
+): Promise<string> {
+  if (!prepared.route) throw new AIError('no_key')
+  const { sendNeutral } = await import('./core/call')
+  const req: ChatRequest = { kind: 'chat', route: prepared.route, system: r.system, messages: [{ role: 'user', parts: r.parts }], output: r.output, maxTokens: r.maxTokens, cache: 'none' }
+  const promptChars = r.promptChars ?? r.system.length + r.parts.reduce((n, p) => n + (p.type === 'text' ? p.text.length : 0), 0)
+  const turn = await sendNeutral(prepared, req, { signal: o.signal, onToken: o.onToken, call, promptChars })
+  if (turn.stop === 'refusal' || turn.stop === 'content_filter') throw new AIError('refusal')
+  const text = turn.parts.map((p) => (p.type === 'text' ? p.text : '')).join('')
+  if (!text.trim()) throw new AIError('empty')
+  return text
 }
 
 /* ------------------------------------------------------------------ */
@@ -217,6 +240,18 @@ export async function completeStructured(opts: StructuredOptions): Promise<strin
   const prepared = prepare({ purpose: opts.purpose, sources: opts.sources, typed: opts.typed, size: { promptChars: opts.system.length + opts.prompt.length, maxTokens: opts.maxTokens ?? 4096 } })
   const call = meterCall(prepared, { source: opts.ledgerSource, signal: opts.signal, onRun: opts.onRun })
   try {
+    if (prepared.provider !== 'anthropic' && prepared.provider !== 'demo') {
+      // the neutral wire: a strict JSON schema named 'answer'; no MCP server joins (D-S2-7)
+      const used = (e: LedgerEntry | null) => {
+        if (e) opts.onUsage?.({ p: e.served.p, model: e.served.model, input: e.usage.input, output: e.usage.output, cacheRead: e.usage.cacheRead, cacheWrite: e.usage.cacheWrite + e.usage.cacheWrite1h, usd: e.usd })
+      }
+      const tapped: MeterCall = { receipt: call.receipt, response: (x) => {
+        const e = call.response(x)
+        used(e)
+        return e
+      } }
+      return await viaNeutral(prepared, tapped, { system: opts.system, parts: [{ type: 'text', text: opts.prompt }], output: { kind: 'json', name: 'answer', schema: opts.schema }, maxTokens: opts.maxTokens ?? 4096 }, opts)
+    }
     return await structuredOnce(opts, false, prepared, call)
   } finally {
     settle(prepared)

@@ -6,7 +6,7 @@
  * slices are reserved as fixme.
  */
 import { stubFetch } from './helpers/noNet'
-import { readFileSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { test, expect } from '@playwright/test'
 import { CONTRACT_CASES, DECIDE_REFUSAL, type ContractCase } from '../../src/shared/ai/contract'
@@ -399,6 +399,14 @@ test.describe('the transport stays apart', () => {
     expect(specs.length).toBeGreaterThan(3)
     for (const s of specs) expect(s, s).toMatch(/^@\/shared\/ai\//)
     expect(src.replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '')).not.toMatch(/@anthropic-ai|X-OpenRouter-Metadata/)
+  })
+
+  test('the fake never ships: nothing under src/ names it', () => {
+    const root = fileURLToPath(new URL('../../src/', import.meta.url))
+    const hits = readdirSync(root, { recursive: true, encoding: 'utf8' })
+      .filter((f) => /\.(ts|tsx|mjs|js)$/.test(f))
+      .filter((f) => /fakeAdapter|__ONE_FAKE_ADAPTER__/.test(readFileSync(root + f, 'utf8')))
+    expect(hits).toEqual([])
   })
 
   test('verify: the key\'s credit without sending text; 401 and 402 are codes', async () => {

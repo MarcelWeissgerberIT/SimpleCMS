@@ -130,3 +130,28 @@ export function tierLabel(r: PriceRow | null): 'cheap' | 'mid' | 'expensive' | '
   if (b === null || b < 0) return 'unknown'
   return b <= 1 ? 'cheap' : b <= 6 ? 'mid' : 'expensive'
 }
+
+/**
+ * The stated bound of a pool (D-S2-24): per column the most expensive pool row, long-context and time-of-day tiers
+ * included (a pool row priced per request counts at DYNAMIC_BOUND). Source 'bound': never stored, its costs are
+ * estimates.
+ */
+export function boundOf(pool: ReadonlyArray<{ price: PriceRow | null }>): PriceRow {
+  const cols: PriceCols = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }
+  const take = (c: Partial<PriceCols>) => {
+    for (const k of PRICE_KEYS) {
+      const v = c[k]
+      if (typeof v === 'number' && Number.isFinite(v) && v > (cols[k] ?? 0)) cols[k] = v
+    }
+  }
+  for (const m of pool) {
+    if (!m.price) {
+      take({ input: DYNAMIC_BOUND.input, output: DYNAMIC_BOUND.output, cacheRead: DYNAMIC_BOUND.input, cacheWrite: DYNAMIC_BOUND.input })
+      continue
+    }
+    take(m.price)
+    for (const o of m.price.overrides ?? []) take(o)
+  }
+  if (!pool.length) take({ input: DYNAMIC_BOUND.input, output: DYNAMIC_BOUND.output, cacheRead: DYNAMIC_BOUND.input, cacheWrite: DYNAMIC_BOUND.input })
+  return boundRow(cols)
+}

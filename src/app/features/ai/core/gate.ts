@@ -22,12 +22,14 @@ import { policyKnown } from '@/shared/ai/policy'
 import { legacyRule } from '@/shared/ai/route'
 import { capsOf } from '@/shared/ai/models'
 import { looksLikeKey } from '@/shared/ai/keys'
+import { sanitizeRoute } from '@/shared/ai/route'
 import { useWorkspace } from '../../../store/store'
 import { estimate, reserve, settle as settleReservation, type Band } from '../../governor'
 import { AIError } from './errors'
 import { isAIDemo } from './demoMode'
 import { classesOf, isSources } from './sources'
 import { isPurposeId, purposeOf, type Need, type PurposeId } from './purposes'
+import { capsFor, priceFor } from './registry'
 
 export interface PrepareInput {
   purpose: PurposeId
@@ -59,6 +61,32 @@ export interface Prepared {
   classes: DataClass[]
   steps: StepNote[]
   reservation: Reservation | null
+  /** the Jev Router: the shortlist models it may choose from (ids) */
+  pool?: string[]
+}
+
+/* ------------------------------------------------------------------ */
+/* The e2e seam: a forced route (?e2e only — never active otherwise)     */
+/* ------------------------------------------------------------------ */
+
+let forced: { route: Route; pool?: string[] } | null = null
+
+/** The route the e2e seam forces (null: none) — the gate takes it before any level (stage A: the only way to OpenRouter). */
+export const forcedRoute = (): { route: Route; pool?: string[] } | null => forced
+
+if (typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('e2e')) {
+  const w = window as unknown as { __oneAI?: Record<string, unknown> }
+  w.__oneAI = {
+    ...(w.__oneAI ?? {}),
+    forceRoute(route: unknown, pool?: unknown) {
+      const r = route === null ? null : sanitizeRoute(route)
+      forced = r ? { route: r, ...(Array.isArray(pool) ? { pool: pool.filter((x): x is string => typeof x === 'string').slice(0, 24) } : {}) } : null
+      return forced
+    },
+    // the catalogue on this device (lazy: nothing opens before a call)
+    loadCatalog: (force?: boolean) => import('./catalog').then((m) => m.loadCatalog({ force: !!force })).then((c) => (c ? { at: c.at, rows: c.rows.length, ids: c.rows.map((r) => r.id) } : null)),
+    seedEndpoints: (map: Record<string, Array<{ tag: string; name?: string }>>, at?: number) => import('./catalog').then((m) => m.seedEndpoints(map, at)),
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -134,18 +162,48 @@ function gate(input: PrepareInput, held: boolean): Prepared {
   const classes = new Set<DataClass>(purpose.decl)
   const sources = isSources(input.sources) ? input.sources : [{ all: true } as const]
   for (const c of classesOf(sources, { pages: s.pages, databases: s.databases, mailDb: s.settings.mail?.databaseId ?? null })) classes.add(c)
-  // 4 · the route: the legacy level (Claude + this device's model), demo without a key
+  // 4 · the route: the e2e seam's forced route first (?e2e only), else the legacy level (Claude + this device's model),
+  //     demo without a key
+  const force = forced
   const hasKey = !!s.settings.aiApiKey.trim()
-  const [route] = legacyRule(input.model || s.settings.aiModel, hasKey)
+  const [route] = force ? [force.route] : legacyRule(input.model || s.settings.aiModel, hasKey)
   if (!route) {
     if (isAIDemo()) return { purpose: input.purpose, cls: purpose.cls, route: null, provider: 'demo', model: 'demo', caps: null, classes: [...classes], steps: [], reservation: null }
     throw new AIError('no_key')
   }
-  // 5 · the brake (may throw) and the reservation: the upper end of the request's band unless the brake says otherwise
-  const caps = capsOf(route)
+  const pool = force?.pool
+  const caps = route.p === 'anthropic' ? capsOf(route) : capsFor(route, pool)
+  // a forced route the request needs more of than it can do: refused before anything is loaded (the gate's filter 3)
+  if (force) {
+    const needs = input.needs ?? purpose.needs
+    const missing = needs.find((n) => !canDo(caps, n))
+    if (missing) throw new AIError('capability', missing)
+  }
+  // 5 · the brake (may throw) and the reservation: the upper end of the request's band unless the brake says otherwise —
+  //     a route priced per request reserves its stated bound (never 0)
   const size = input.size
-  const band = size ? estimate(route, { promptChars: size.promptChars, maxTokens: typeof size.maxTokens === 'function' ? size.maxTokens(caps) : size.maxTokens }) : null
+  const price = route.p === 'anthropic' ? undefined : priceFor(route, pool)
+  const band = size ? estimate(route, { promptChars: size.promptChars, maxTokens: typeof size.maxTokens === 'function' ? size.maxTokens(caps) : size.maxTokens }, Date.now(), price, caps) : null
   const said = beforeSendHook(input.purpose, route, band)
   const usd = typeof said === 'number' ? said : (band?.high ?? 0)
-  return { purpose: input.purpose, cls: purpose.cls, route, provider: route.p, model: route.m, caps, classes: [...classes], steps: [], reservation: held ? reserve(usd, input.purpose) : null }
+  return { purpose: input.purpose, cls: purpose.cls, route, provider: route.p, model: route.m, caps, classes: [...classes], steps: [], reservation: held ? reserve(usd, input.purpose) : null, ...(pool ? { pool: [...pool] } : {}) }
+}
+
+/** Can a model do what a request needs? (no caps known: no) */
+function canDo(caps: Caps | null, n: Need): boolean {
+  if (!caps) return false
+  switch (n) {
+    case 'structured':
+      return caps.structured
+    case 'tools':
+      return caps.tools
+    case 'vision':
+      return !!caps.vision
+    case 'pdf':
+      return !!caps.pdf
+    case 'mcp':
+      return !!caps.mcp
+    case 'listing':
+      return caps.mcpListing
+  }
 }

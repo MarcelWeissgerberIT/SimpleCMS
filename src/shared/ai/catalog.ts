@@ -6,8 +6,8 @@
  * Jev Router's id lives in jev.ts).
  */
 import type { Caps, Effort, PriceCols, PriceOverride, PriceRow, UpstreamRule, WireHints } from './types.ts'
-import { EFFORTS, refusedSlug, type SlugRefusal } from './models.ts'
-import { DYNAMIC_BOUND, PRICES_DATE, blendedPerM, boundRow } from './prices.ts'
+import { EFFORTS, refusedSlug, shortOfLabel, type SlugRefusal } from './models.ts'
+import { PRICES_DATE, blendedPerM } from './prices.ts'
 import { REFUSED_GLOBS, ROUTER_LIST_CHARS_MAX, ROUTER_LIST_MAX, ROUTER_LIST_PATTERN_MAX, isJevRouter } from './jev.ts'
 
 const MB = 1024 * 1024
@@ -150,14 +150,6 @@ export function labelOfName(name: string, id: string): string {
   const n = name.replace(/\s+/g, ' ').trim()
   const cut = n.includes(': ') ? n.slice(n.indexOf(': ') + 2) : n
   return (cut || id.split('/')[1] || id).slice(0, 60)
-}
-
-/** A label → its short form: upper case, ≤ 16 (leading words dropped first, then cut). */
-export function shortOfLabel(label: string): string {
-  let words = label.toUpperCase().split(' ').filter(Boolean)
-  while (words.join(' ').length > 16 && words.length > 1) words = words.slice(1)
-  const s = words.join(' ')
-  return s.length > 16 ? `${s.slice(0, 15)}…` : s
 }
 
 /** A raw catalogue row → One's row (null: not a model row One can read). */
@@ -359,7 +351,7 @@ export function expandCatalog(stored: unknown): CatalogRow[] {
 }
 
 /* ------------------------------------------------------------------ */
-/* The Jev Router: include / exclude lists, the stated bound           */
+/* The Jev Router: include / exclude lists (its bound: prices.ts boundOf) */
 /* ------------------------------------------------------------------ */
 
 const makerOf = (id: string) => id.split('/')[0] ?? id
@@ -389,31 +381,6 @@ export function routerLists(pool: readonly string[], rows: readonly CatalogRow[]
   const fits = (list: string[]) => list.length <= ROUTER_LIST_MAX && list.every((x) => x.length <= ROUTER_LIST_PATTERN_MAX) && list.join('').length <= ROUTER_LIST_CHARS_MAX
   if (!fits(inPool) || !fits(exclude)) return null
   return { pool: inPool, exclude }
-}
-
-/**
- * The stated bound of a pool (D-S2-24): per column the most expensive pool row, long-context and time-of-day tiers
- * included (a pool row priced per request counts at DYNAMIC_BOUND). Source 'bound': never stored, its costs are
- * estimates.
- */
-export function boundOf(pool: ReadonlyArray<{ price: PriceRow | null }>): PriceRow {
-  const cols: PriceCols = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }
-  const take = (c: Partial<PriceCols>) => {
-    for (const k of PRICE_KEYS_ALL) {
-      const v = c[k]
-      if (typeof v === 'number' && Number.isFinite(v) && v > (cols[k] ?? 0)) cols[k] = v
-    }
-  }
-  for (const m of pool) {
-    if (!m.price) {
-      take({ input: DYNAMIC_BOUND.input, output: DYNAMIC_BOUND.output, cacheRead: DYNAMIC_BOUND.input, cacheWrite: DYNAMIC_BOUND.input })
-      continue
-    }
-    take(m.price)
-    for (const o of m.price.overrides ?? []) take(o)
-  }
-  if (!pool.length) take({ input: DYNAMIC_BOUND.input, output: DYNAMIC_BOUND.output, cacheRead: DYNAMIC_BOUND.input, cacheWrite: DYNAMIC_BOUND.input })
-  return boundRow(cols)
 }
 
 /* ------------------------------------------------------------------ */
@@ -447,3 +414,7 @@ export function suggestRoles(rows: readonly CatalogRow[], allow: (row: CatalogRo
   const at = (q: number) => c[Math.min(c.length - 1, Math.max(0, Math.round(q * (c.length - 1))))]!.r.id
   return { fast: at(0), standard: at(0.5), deep: at(0.9) }
 }
+
+/** Where they live (sync code reads them without the catalogue module): */
+export { boundOf } from './prices.ts'
+export { shortOfLabel } from './models.ts'

@@ -180,3 +180,11 @@ export function labelOf(route: Pick<Route, 'p' | 'm'>): string {
   if (route.p === 'openrouter' && isJevRouter(route.m)) return 'OpenRouter · Jev Router'
   return modelRow(route)?.label ?? `${PROVIDER_LABEL[route.p] ?? route.p} · ${route.m}`
 }
+
+/** A label → its short form: upper case, ≤ 16 (leading words dropped first, then cut). */
+export function shortOfLabel(label: string): string {
+  let words = label.toUpperCase().split(' ').filter(Boolean)
+  while (words.join(' ').length > 16 && words.length > 1) words = words.slice(1)
+  const s = words.join(' ')
+  return s.length > 16 ? `${s.slice(0, 15)}…` : s
+}
