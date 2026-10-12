@@ -14,7 +14,7 @@ import type { Page } from '@playwright/test'
 import { test, expect, openApp, flush, wsEval } from './fixtures'
 import { rec, startRecorder } from './helpers/recorder'
 import { outbox, outboxLoaded, routeRef, seedMirrorDb, type AnyState } from './helpers/outbox'
-import { sseMessage } from './helpers/terminal'
+import { asServed, sseMessage } from './helpers/terminal'
 
 const T0 = Date.UTC(2026, 9, 9, 6, 0, 0)
 
@@ -113,7 +113,9 @@ test.describe('flight recorder — the eject and its sources (§5)', () => {
       if (req.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors })
       if (req.method() === 'GET') return route.fulfill({ status: 200, headers: { ...cors, 'content-type': 'application/json' }, body: JSON.stringify({ data: [], has_more: false }) })
       const body = script[calls++] ?? sseMessage([{ type: 'text', text: 'Fertig.' }])
-      await route.fulfill({ status: 200, headers: { ...cors, 'content-type': 'text/event-stream' }, body }).catch(() => undefined)
+      // answered by the model it asked for (an unknown served model has no price: a budgeted run would stop)
+      const asked = (JSON.parse(req.postData() ?? '{}') as { model?: unknown }).model
+      await route.fulfill({ status: 200, headers: { ...cors, 'content-type': 'text/event-stream' }, body: asServed(body, asked) }).catch(() => undefined)
     })
     await openApp(page)
     await startRecorder(page)
@@ -222,7 +224,9 @@ test.describe('flight recorder — the eject and its sources (§5)', () => {
       if (req.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors })
       if (req.method() === 'GET') return route.fulfill({ status: 200, headers: { ...cors, 'content-type': 'application/json' }, body: JSON.stringify({ data: [], has_more: false }) })
       const body = script[calls++] ?? sseMessage([{ type: 'text', text: 'Fertig.' }])
-      await route.fulfill({ status: 200, headers: { ...cors, 'content-type': 'text/event-stream' }, body }).catch(() => undefined)
+      // answered by the model it asked for (an unknown served model has no price: a budgeted run would stop)
+      const asked = (JSON.parse(req.postData() ?? '{}') as { model?: unknown }).model
+      await route.fulfill({ status: 200, headers: { ...cors, 'content-type': 'text/event-stream' }, body: asServed(body, asked) }).catch(() => undefined)
     })
     await openApp(page)
     await startRecorder(page)

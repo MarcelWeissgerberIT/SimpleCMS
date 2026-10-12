@@ -1,7 +1,7 @@
 /**
  * AI terminal e2e helpers (shared by the terminal specs): the Claude API mocked in the Messages API shape — streamed
  * requests (the terminal's tasks) get the next scripted SSE message, others (an MCP server's connection test) a JSON
- * answer; nothing reaches api.anthropic.com.
+ * answer, each as the model the request asked for; nothing reaches api.anthropic.com.
  */
 import type { BrowserContext, Page } from '@playwright/test'
 import { expect, wsEval, MOD } from '../fixtures'
@@ -44,6 +44,15 @@ export function sseMessage(blocks: Block[]): string {
   return body
 }
 
+/**
+ * The answer as the model the request asked for (`body.model`), as a real response names it. A mock that answers as
+ * 'e2e-mock' reads as a refusal fallback to a model without a price (AI S1: the ledger prices the model that served) —
+ * a budgeted custom-agent run stops on it ('budget', no price known).
+ */
+export function asServed(sse: string, model: unknown): string {
+  return typeof model === 'string' && model ? sse.replace('"model":"e2e-mock"', `"model":${JSON.stringify(model)}`) : sse
+}
+
 /** A tool call as the next streamed answer. */
 export const call = (id: string, name: string, input: Record<string, unknown>) => () => sseMessage([{ type: 'tool_use', id, name, input }])
 /** The closing text as the next streamed answer. */
@@ -82,13 +91,13 @@ export async function mockAgent(ctx: BrowserContext, script: Step[], opts: { ins
         out.checks.push(body)
         const r = opts.inspect?.(body) ?? 'TOOLS: search_records\n---\nLooks things up.'
         if (typeof r !== 'string') return await route.fulfill({ status: r.status, headers: { ...cors, 'content-type': 'application/json' }, body: JSON.stringify(r.json) })
-        return await route.fulfill({ status: 200, headers: { ...cors, 'content-type': 'application/json' }, body: JSON.stringify({ id: `msg_chk_${++msgSeq}`, type: 'message', role: 'assistant', model: 'e2e-mock', content: [{ type: 'text', text: r }], stop_reason: 'end_turn', stop_sequence: null, usage: { input_tokens: 10, output_tokens: 10 } }) })
+        return await route.fulfill({ status: 200, headers: { ...cors, 'content-type': 'application/json' }, body: JSON.stringify({ id: `msg_chk_${++msgSeq}`, type: 'message', role: 'assistant', model: typeof body.model === 'string' ? body.model : 'e2e-mock', content: [{ type: 'text', text: r }], stop_reason: 'end_turn', stop_sequence: null, usage: { input_tokens: 10, output_tokens: 10 } }) })
       }
       out.bodies.push(body)
       const step = script[out.bodies.length - 1] ?? say('Done.')
       const r = await step(body)
       if (typeof r !== 'string') return await route.fulfill({ status: r.status, headers: { ...cors, 'content-type': 'application/json' }, body: JSON.stringify(r.json) })
-      await route.fulfill({ status: 200, headers: { ...cors, 'content-type': 'text/event-stream' }, body: r })
+      await route.fulfill({ status: 200, headers: { ...cors, 'content-type': 'text/event-stream' }, body: asServed(r, body.model) })
     } catch {
       /* the request was aborted (Stop) */
     }
