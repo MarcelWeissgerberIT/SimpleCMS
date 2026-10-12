@@ -65,6 +65,9 @@ export function buildApp(s: Services, extra: { model?: WorkspaceModel; agents?: 
       // the document schema gate (docs/CLOUD.md § Schema gate): the lowest generation that may write; the app
       // creates task blocks in a team workspace only when this is ≥ 1
       schema_min: MIN_CLIENT_SCHEMA,
+      // what this server enforces for the app: 'ai' = it guards workspace.ai (owners / admins only) and keeps agents'
+      // multi-provider fields — the app writes workspace.ai only when this lists 'ai' ('providers' follows with S9)
+      supports: ['ai'],
     }),
   )
 

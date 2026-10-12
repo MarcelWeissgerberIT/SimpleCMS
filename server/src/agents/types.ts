@@ -4,6 +4,7 @@
  * The JSON shapes here are the app's: a run the server stores reads exactly like one the browser runner
  * stores, and staged changes are the app's `StagedChange` (src/app/features/ai/agent/types.ts).
  */
+import type { AgentAIFields } from '../../../src/shared/ai/route.ts'
 
 export type AgentTrigger =
   | { type: 'manual' }
@@ -45,6 +46,16 @@ export interface CustomAgent {
   updatedBy?: string | null
   createdAt: number
   updatedAt: number
+  /**
+   * Multi-provider fields (src/shared/ai/route.ts, kept by every reader from slice 1 on): own pins, reviewer, saver
+   * rule, the route apply-mode was confirmed on, the inherited rule's signature. This server runs only agents whose
+   * first pin is Claude (service.ts skips the others with a reason).
+   */
+  route?: AgentAIFields['route']
+  review?: AgentAIFields['review']
+  saverRule?: AgentAIFields['saverRule']
+  applyOn?: string
+  routeSig?: string
 }
 
 export type RunStatus = 'running' | 'ok' | 'staged' | 'error' | 'budget' | 'skipped'

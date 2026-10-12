@@ -40,3 +40,65 @@ export function legacyRule(aiModel: string | null | undefined, hasKey: boolean):
   if (!hasKey) return []
   return [{ p: 'anthropic', m: aiModel && LEGACY_IDS.includes(aiModel) ? aiModel : DEFAULT_CLAUDE_MODEL }]
 }
+
+/** An agent's reviewer (advisory only): its pins and what a "block" does. */
+export interface AgentReview {
+  route: RouteRule
+  mode: 'mark' | 'hold'
+}
+
+/** The saver rule (governor): above this run cost, scheduled runs use another route. */
+export interface SaverRule {
+  overUsd: number
+  to: Route
+}
+
+/** The multi-provider fields of a custom agent, as every reader keeps them (absent stays absent). */
+export interface AgentAIFields {
+  /** own pins (null = the workspace / device rule for agents) */
+  route?: RouteRule | null
+  review?: AgentReview | null
+  saverRule?: SaverRule | null
+  /** the 'p:m' the person confirmed apply-mode on */
+  applyOn?: string
+  /** the inherited workspace rule at the creator's last save (a hash) */
+  routeSig?: string
+}
+
+const ROUTE_KEY_RE = /^(anthropic|openai|openrouter):(.+)$/
+const SIG_RE = /^[A-Za-z0-9:_-]{1,128}$/
+
+/** Is this a 'p:m' of a stored provider with a valid model id? */
+export function isRouteKey(v: unknown): v is string {
+  if (typeof v !== 'string' || v.length > 200) return false
+  const m = v.match(ROUTE_KEY_RE)
+  return !!m && sanitizeRoute({ p: m[1], m: m[2] }) !== null
+}
+
+/** The multi-provider fields of a stored agent object (only those that hold; 'demo' and unknown providers dropped). */
+export function sanitizeAgentAI(v: Record<string, unknown>): AgentAIFields {
+  const out: AgentAIFields = {}
+  if (v.route === null) out.route = null
+  else {
+    const r = sanitizeRule(v.route)
+    if (r) out.route = r
+  }
+  if (v.review === null) out.review = null
+  else if (v.review && typeof v.review === 'object' && !Array.isArray(v.review)) {
+    const x = v.review as Record<string, unknown>
+    const r = sanitizeRule(x.route)
+    if (r) out.review = { route: r, mode: x.mode === 'hold' ? 'hold' : 'mark' }
+  }
+  if (v.saverRule === null) out.saverRule = null
+  else if (v.saverRule && typeof v.saverRule === 'object' && !Array.isArray(v.saverRule)) {
+    const x = v.saverRule as Record<string, unknown>
+    const to = sanitizeRoute(x.to)
+    if (to && typeof x.overUsd === 'number' && Number.isFinite(x.overUsd) && x.overUsd > 0 && x.overUsd <= 1000) out.saverRule = { overUsd: x.overUsd, to }
+  }
+  if (isRouteKey(v.applyOn)) out.applyOn = v.applyOn
+  if (typeof v.routeSig === 'string' && SIG_RE.test(v.routeSig)) out.routeSig = v.routeSig
+  return out
+}
+
+/** A browser / server build of this slice runs only agents whose first pin is Claude (null / absent = legacy). */
+export const runsOnClaude = (route: RouteRule | null | undefined): boolean => !route || route[0]?.p === 'anthropic'
