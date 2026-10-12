@@ -1,5 +1,6 @@
 import type { Ctx } from '../context'
-import { NOTION_PRICING, formatUsd, notionYearly, type Billing, type NotionPlan } from '../pricing'
+import { ONE_PRICING } from '@/shared/pricing'
+import { NOTION_PRICING, cloudYearly, formatUsd, keptWithCloud, notionYearly, type Billing, type NotionPlan } from '../pricing'
 import { esc } from '../util'
 import { sectionHead } from './head'
 
@@ -60,6 +61,8 @@ export function renderSavings(ctx: Ctx): string {
           <p class="lbl">${esc(t('savings.headline'))}</p>
           <p class="calc-big disp"><span data-total-big></span><span class="calc-per">${esc(t('savings.perYear'))}</span></p>
           <p class="lbl calc-five" data-five></p>
+          <p class="lbl calc-self" data-self></p>
+          <p class="lbl calc-cloud">${esc(t('savings.cloud'))}</p>
           <p class="sr" aria-live="polite" aria-atomic="true" data-calc-live></p>
         </div>
       </div>
@@ -78,6 +81,8 @@ function receiptHtml(ctx: Ctx, s: CalcState): string {
   const { t, lang } = ctx
   const price = NOTION_PRICING.perSeatMonth[s.plan][s.billing]
   const total = notionYearly(s.plan, s.billing, s.seats)
+  const cloud = cloudYearly(s.seats)
+  const kept = keptWithCloud(s.plan, s.billing, s.seats)
   const money = (v: number) => formatUsd(v, lang)
   const planName = `${t(`savings.${s.plan}`)}${s.plan === 'business' ? ' + AI' : ''}`
   // ISO 8601: unambiguous in both languages (and next to USD prices), and it fits the manual.
@@ -101,16 +106,24 @@ function receiptHtml(ctx: Ctx, s: CalcState): string {
       ${row(esc(t('r.notion', { plan: planName })), money(total))}
       <p class="r-calc">${esc(t('r.calc', { seats: s.seats, price: money(price) }))}</p>
     </div>
-    ${row(esc(t('r.one')), money(0))}
-    ${row(esc(t('r.hosting')), money(0))}
-    ${row(esc(t('r.accounts')), money(0))}
+    <div class="r-item">
+      ${row(esc(t('r.cloud')), money(cloud))}
+      <p class="r-calc">${esc(t('r.cloudCalc', { seats: s.seats, price: money(ONE_PRICING.cloudPerUserYear.usd) }))}</p>
+    </div>
     ${row(esc(t('r.ai')), esc(t('r.aiValue')))}
     <div class="r-rule r-double" aria-hidden="true"></div>
-    ${row(esc(t('r.saved')), `<b data-total-receipt>${money(total)}</b>`, 'r-total')}
-    ${row(esc(t('r.five')), money(total * 5), 'r-five')}
+    ${row(esc(t('r.saved')), `<b data-total-receipt>${money(kept)}</b>`, 'r-total')}
+    ${row(esc(t('r.five')), money(kept * 5), 'r-five')}
+    <div class="r-rule" aria-hidden="true"></div>
+    <div class="r-item r-self">
+      ${row(esc(t('r.self')), money(ONE_PRICING.selfHosted))}
+      ${row(esc(t('r.saved')), `<b data-self-receipt>${money(total)}</b>`)}
+    </div>
     <p class="r-stamp" aria-hidden="true"><span>${esc(t('r.paid'))}</span></p>
     <div class="r-rule" aria-hidden="true"></div>
     <p class="r-note">${esc(t('r.foot'))}</p>
+    <p class="r-note">${esc(t('r.cloudNote'))}</p>
+    <p class="r-note">${esc(t('r.selfNote'))}</p>
     <p class="r-note">${esc(t('r.source', { asOf: NOTION_PRICING.asOf[lang] }))}</p>
     <div class="r-barcode" aria-hidden="true">${barcode}</div>
     <p class="r-thanks">${esc(t('r.thanks'))}</p>`
@@ -132,6 +145,7 @@ export function bindSavings(root: HTMLElement, ctx: Ctx, hooks: SavingsHooks = {
   const receipt = sec.querySelector<HTMLElement>('[data-receipt]')!
   const big = sec.querySelector<HTMLElement>('[data-total-big]')!
   const five = sec.querySelector<HTMLElement>('[data-five]')!
+  const selfLine = sec.querySelector<HTMLElement>('[data-self]')!
   const live = sec.querySelector<HTMLElement>('[data-calc-live]')
   const { t, lang } = ctx
 
@@ -140,7 +154,8 @@ export function bindSavings(root: HTMLElement, ctx: Ctx, hooks: SavingsHooks = {
     el.textContent = t('savings.perSeat', { price: formatUsd(NOTION_PRICING.perSeatMonth[p][calcState.billing], lang, false) })
   })
 
-  let shownTotal = notionYearly(calcState.plan, calcState.billing, calcState.seats)
+  // The big number: what the team keeps with the One Team Cloud instead of Notion.
+  let shownTotal = keptWithCloud(calcState.plan, calcState.billing, calcState.seats)
   // Screen readers get one short sentence once the controls settle — not the whole receipt
   // on every slider step.
   let announce = 0
@@ -153,7 +168,8 @@ export function bindSavings(root: HTMLElement, ctx: Ctx, hooks: SavingsHooks = {
         seats: s.seats,
         plan: t(`savings.${s.plan}`),
         billing: t(s.billing === 'annual' ? 'savings.annual' : 'savings.monthly').toLowerCase(),
-        amount: formatUsd(notionYearly(s.plan, s.billing, s.seats), lang, false),
+        amount: formatUsd(keptWithCloud(s.plan, s.billing, s.seats), lang, false),
+        all: formatUsd(notionYearly(s.plan, s.billing, s.seats), lang, false),
       })
     }, 400)
   }
@@ -162,12 +178,13 @@ export function bindSavings(root: HTMLElement, ctx: Ctx, hooks: SavingsHooks = {
     range.value = String(s.seats)
     range.style.setProperty('--fill', `${((s.seats - MIN) / (MAX - MIN)) * 100}%`)
     lcd.textContent = String(s.seats).padStart(3, '0')
-    const total = notionYearly(s.plan, s.billing, s.seats)
+    const total = keptWithCloud(s.plan, s.billing, s.seats)
     const fmt = (n: number) => formatUsd(Math.round(n), lang, false)
     if (reprint && hooks.rollNumber) hooks.rollNumber(big, shownTotal, total, fmt)
     else big.textContent = fmt(total)
     shownTotal = total
     five.textContent = t('savings.fiveYears', { amount: formatUsd(total * 5, lang, false) })
+    selfLine.textContent = t('savings.self', { amount: formatUsd(notionYearly(s.plan, s.billing, s.seats), lang, false) })
     sec.querySelectorAll<HTMLButtonElement>('[data-plan]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.plan === s.plan)))
     sec.querySelectorAll<HTMLButtonElement>('[data-billing]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.billing === s.billing)))
     sec.querySelector('[data-billing-toggle]')?.setAttribute('data-state', s.billing)

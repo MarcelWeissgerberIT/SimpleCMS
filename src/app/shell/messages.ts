@@ -1,4 +1,5 @@
 import type { Messages } from '@/shared/i18n'
+import { cloudPrice } from '@/shared/pricing'
 import { agendaMessages } from './agenda/messages'
 import { cloudMessages } from './cloud/messages'
 import { inboxMessages } from './inbox/messages'
@@ -434,8 +435,10 @@ export const messages: Messages = {
     'shell.about.storage': 'Storage',
     'shell.about.local': 'on this device',
     'shell.about.ai': 'AI',
-    'shell.about.built': 'Built for',
-    'shell.about.armory': 'the Ninja Armory',
+    'shell.about.licence': 'Licence',
+    'shell.about.licenceValue': 'MIT · server AGPL-3.0',
+    'shell.about.price': `Free in this browser and on a server you run yourself. The hosted team cloud is in development; it will cost ${cloudPrice('en')} per user per year. If One saves you money, a donation is welcome — never required.`,
+    'shell.about.donate': 'Donate',
 
     // round 2
     'shell.spec.views.one': '{n} view',
@@ -903,8 +906,10 @@ export const messages: Messages = {
     'shell.about.storage': 'Speicher',
     'shell.about.local': 'auf diesem Gerät',
     'shell.about.ai': 'KI',
-    'shell.about.built': 'Gebaut für',
-    'shell.about.armory': 'die Ninja Armory',
+    'shell.about.licence': 'Lizenz',
+    'shell.about.licenceValue': 'MIT · Server AGPL-3.0',
+    'shell.about.price': `Kostenlos in diesem Browser und auf einem Server, den du selbst betreibst. Die gehostete Team-Cloud ist in Entwicklung; sie kostet dann ${cloudPrice('de')} pro Nutzer und Jahr. Wenn One dir Geld spart, ist eine Spende willkommen — nie Pflicht.`,
+    'shell.about.donate': 'Spenden',
 
     // round 2
     'shell.spec.views.one': '{n} Ansicht',

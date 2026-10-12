@@ -176,7 +176,7 @@ test.describe('landing sections', () => {
     await expect(enlarge).toBeFocused()
   })
 
-  test('cloud: local is available, the team cloud is in development with a self-hosting guide and no prices', async ({ page }) => {
+  test('cloud: local is available, the team cloud is in development with a self-hosting guide and its planned price', async ({ page }) => {
     await page.goto('./?skip')
     await expect(page.locator('.tb-nav').getByRole('link', { name: 'Cloud' })).toHaveAttribute('href', '#own-it')
     const own = page.locator('#own-it')
@@ -184,8 +184,10 @@ test.describe('landing sections', () => {
     await expect(own.getByRole('heading', { name: 'One Team Cloud' })).toBeVisible()
     await expect(own.locator('.plate-cloud')).toContainText('In development')
     await expect(own.getByRole('link', { name: /Self-hosting guide/ })).toHaveAttribute('href', /^https:\/\/github\.com\/[^/]+\/[^/]+\/blob\/main\/docs\/SELF_HOSTING\.md$/)
-    // pricing for a hosted cloud is not decided: the section names no amounts
-    expect(await own.innerText()).not.toMatch(/[$€]\s?\d|\d\s?(€|\$|EUR|USD)/)
+    // the hosted cloud's price is the only amount the section names: $99 per user and year (src/shared/pricing.ts)
+    const amounts = (await own.innerText()).match(/[$€]\s?\d[\d.,]*|\d[\d.,]*\s?(€|\$|EUR|USD)/g) ?? []
+    expect(amounts.length).toBeGreaterThan(0)
+    for (const a of amounts) expect(a.replace(/\s/g, '')).toBe('$99')
   })
 
   test('compare: nineteen rows, and our gaps stay marked', async ({ page }) => {

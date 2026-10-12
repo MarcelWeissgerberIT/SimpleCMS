@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Renders the three images for the challenge post (1920×1080 PNG) into docs/media/post/:
+ * Renders the three images for a social post (1920×1080 PNG) into docs/media/post/:
  *   01-ugly-1997.png   the 1997 spreadsheet homepage, as visitors first see it (from record-teaser.mjs)
  *   02-the-bill.png    "Notion, rebuilt. Minus the bill." — the cost readout + a real product shot
  *   03-spec-sheet.png  "Everything you use. None of the seats." — the feature spec sheet
@@ -84,9 +84,14 @@ ${frame('Fig. 01 — The bill', 'Rev 2026.10')}
       <div class="calc mono">$24 × 10 seats × 12 months · per year, before add-ons</div>
     </div>
     <div class="row">
-      <div class="who mono">SimpleCMS One · unlimited people</div>
+      <div class="who mono">One Team Cloud · 10 users · 12 months</div>
+      <div class="line"><div class="meter"><div class="fill" style="width:${(990 / 2880 * 100).toFixed(1)}%"></div></div><span class="val">$990</span></div>
+      <div class="calc mono">$99 per user per year · hosted · in development</div>
+    </div>
+    <div class="row">
+      <div class="who mono">SimpleCMS One · local or self-hosted</div>
       <div class="line"><div class="meter"><div class="zero"></div></div><span class="val sig">$0</span></div>
-      <div class="calc mono">No seats · no subscription · account &amp; server optional</div>
+      <div class="calc mono">No seats in your browser or on your own server · donations welcome</div>
     </div>
     <div class="note"><span class="led"></span><span>AI included: bring your own Claude key and pay Anthropic only for what you use.</span></div>
   </div>

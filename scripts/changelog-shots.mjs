@@ -858,6 +858,18 @@ const shots = {
     await ctx.close()
   },
   /**
+   * Settings → About: the plate, the spec row Storage · AI · Licence and the line on what stays free. DONATE_URL is
+   * empty (src/shared/pricing.ts), so there is no Donate key in the picture — exactly what people see today.
+   */
+  async about(browser) {
+    const { ctx, page } = await freshPage(browser)
+    await page.evaluate(() => window.__one.ui.getState().openModal({ type: 'settings', tab: 'about' }))
+    await page.getByTestId('about-price').waitFor()
+    await rest(page)
+    await save(page, 'about', await boxOf(page.getByRole('dialog'), 12))
+    await ctx.close()
+  },
+  /**
    * Preflight: the fictional morning of tests/e2e/helpers/preflightStory.mjs (the mirror "Nordlicht Übergabe" with its
    * runs, the AI terminal's task, the pipeline "Werkzeug", the refused server "relay", one slip) — the panel lit, the
    * Outbox acknowledged earlier, ↵ on Proposals, one card applied and one discarded: the queue at card 3 / 10. Every

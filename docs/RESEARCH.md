@@ -227,7 +227,7 @@ Primary source: <https://www.notion.com/pricing>, fetched 2026-10-02. The plan o
 
 10 seats on Business, annual billing: 10 × $240 = **$2,400**. Add 2,000 credits a month (12 × $20 = $240) and one custom domain ($96). The total is **$2,736 a year**. With monthly billing the seats alone cost $2,880.
 
-SimpleCMS One costs $0 in licences. The only variable cost is the user's own Anthropic API usage, billed per token by Anthropic and only when AI is actually used. Do not put a fixed AI cost figure on the landing page.
+SimpleCMS One costs $0 in licences, locally and self-hosted (the self-hoster pays only for the server it runs on). The hosted One Team Cloud (in development) is priced at 99 € / $99 per user per year (`src/shared/pricing.ts`): 10 users = $990 a year against $2,400 for Notion Business. The only variable cost in every setup is the user's own Anthropic API usage, billed per token by Anthropic and only when AI is actually used. Do not put a fixed AI cost figure on the landing page.
 
 ### 4.6 Competitor prices (for context)
 
@@ -254,7 +254,7 @@ The table is ranked by how often and how strongly each complaint appears in revi
 | 1 | **Slow at scale.** Databases with 5k to 10k rows take 3 to 10 s; the desktop app is slow to open simple pages. | G2 and Capterra reviews; Notion ships speed fixes in nearly every release (+15% in 3.1, +27% on Windows in 3.2, +28% first render in 3.4) | All data in memory from IndexedDB, no network round trips, virtualised rows. Set a performance budget (section 7.4). |
 | 2 | **Offline is partial.** Not in the browser, 50 database rows, per device, no forms or buttons. | Notion help "Use pages offline"; community reports | The browser *is* the app, and every page and row is offline by default. |
 | 3 | **AI paywall and unpredictable bills.** Full AI only on Business; agents cost credits; complaints of "AI bloat". | Pricing page; release 2025-05-13; help "Custom agent pricing" | BYOK Claude: no tier, no credits. AI stays out of the way until called (no sparkle buttons everywhere). |
-| 4 | **Per-seat pricing keeps rising.** A 50-person Business team pays about $12k to $14k a year. | Price history (section 4.4) | No seats and no account. |
+| 4 | **Per-seat pricing keeps rising.** A 50-person Business team pays about $12k to $14k a year. | Price history (section 4.4) | Locally and self-hosted: no seats and no account. Hosted Team Cloud: one flat $99 / 99 € per user per year. |
 | 5 | **Lock-in through lossy export.** Views lost, relations and formulas flattened, 32-character UUID filenames, broken image paths. | unmarkdown.com; Notion help "Export your content" | Lossless JSON backup plus Markdown and HTML; Notion zip import to get out of Notion. |
 | 6 | **Blank canvas and maintenance tax.** Relations and formulas take weeks to learn; systems decay within 9 to 20 months. | storyflow.so (2026-09-06) | Seeded demo workspace and templates that already work, with Notion-like behaviour so nothing has to be relearned. |
 | 7 | **Missing knowledge-tool basics:** graph, daily notes, split panes, canvas. | X/@NotionHQ (second-window workaround); competitor reviews | Graph, journal and stacked panes ship in v1. |
@@ -312,7 +312,7 @@ Ordered by value to the user against build risk:
 | S9 | **Journal** | Notion: templates only | One shortcut opens or creates today's page under "Journal", dated in the user's locale, with an optional daily template. |
 | S10 | **Templates gallery** | Blank-canvas problem | 6 to 10 opinionated templates (project tracker, CRM, reading list, meeting notes, content calendar, OKRs), with a preview before insert. |
 
-### 7.3 P2: next, after the challenge submission
+### 7.3 P2: next, after the first release
 
 - **Password-protected share links**: AES-GCM with a PBKDF2 key derived in the browser. The ciphertext lives in the fragment and the viewer asks for the passphrase. This beats both Notion Sites and Obsidian Publish.
 - **TK markers and pre-flight checklist**: missing alt text, broken internal links, links to trashed pages, oversized images. Must pass before share or export, shown as an instrument panel.
@@ -360,6 +360,9 @@ Ordered by value to the user against build risk:
 - "AI is free": AI uses the user's Anthropic account, which bills per token.
 - "Real-time collaboration": One is single-user.
 - Any Business EUR price as official.
+- "$0 per seat" or "no seats" for the hosted Team Cloud: it costs 99 € / $99 per user per year. Local and self-hosted
+  are free. Do not imply the hosted cloud can be signed up for while it is in development.
+- A savings figure that subtracts a EUR price from Notion's USD prices: the calculator counts in USD on both pages.
 
 ---
 

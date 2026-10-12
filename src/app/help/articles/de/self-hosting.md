@@ -3,7 +3,7 @@ id: self-hosting
 title: Selbst hosten & Verschlüsselung
 section: team
 order: 4
-keywords: selbst hosten, self-host, server, docker, installieren, hosting, verschlüsselung, data key, DATA_KEY, backup, smtp, admin, AGPL
+keywords: selbst hosten, self-host, server, docker, installieren, hosting, verschlüsselung, data key, DATA_KEY, backup, smtp, admin, AGPL, kostenlos, preis, spende, spenden, donate
 related: team-cloud, invites, public-api, privacy
 summary: Betreib deinen eigenen One-Server — ein Docker-Container, etwa 30 Minuten. Inhalte sind auf der Platte verschlüsselt.
 ---
@@ -20,5 +20,8 @@ Jeder Workspace hat einen eigenen Zufallsschlüssel; gespeichert wird er nur ver
 
 ## Backups und Updates
 Die Anleitung beschreibt nächtliche Snapshots oder laufende Replikation, das Wiederherstellen (einmal ausprobieren!), das Wechseln von `DATA_KEY` und Updates auf eine neue Version.
+
+## Was es kostet
+Selbst hosten ist kostenlos: keine Lizenzgebühr, keine Plätze — du zahlst nur den Server, auf dem es läuft. Wenn One deinem Team Geld spart, ist eine Spende willkommen, nie Pflicht. (Die gehostete [Team-Cloud](help:team-cloud) ist etwas anderes: in Entwicklung, 99 € pro Nutzer und Jahr.)
 
 > Der Server steht unter AGPL-3.0; die App bleibt MIT. Mehr Details: `docs/CLOUD.md`.

@@ -3,11 +3,16 @@ id: team-cloud
 title: Team workspaces
 section: team
 order: 1
-keywords: team, cloud, server, collaborate, workspace, switch workspace, personal space, sign in, magic link, live, presence, Team, Cloud, Workspace wechseln, zusammenarbeiten
+keywords: team, cloud, server, collaborate, workspace, switch workspace, personal space, sign in, magic link, live, presence, price, pricing, cost, Team, Cloud, Workspace wechseln, zusammenarbeiten, Preis
 related: invites, members-roles, self-hosting, public-api
 summary: With a One server, teams edit live together. Every account starts with a space of its own.
 ---
 The local workspace needs no server. For a team you connect to a **One server** — self-hosted today (see [Self-hosting & encryption](help:self-hosting)); on getonecms.com the workspace menu says *Team cloud — coming soon* and links the self-hosting guide.
+
+## What it costs
+- **Local** (this browser): free.
+- **Self-hosted** (your own server): free — a donation is welcome, never required.
+- **The hosted team cloud**: $99 per user per year. It is in development: there is no sign-up yet.
 
 ## Sign in
 On your team's server, sign in with your email: One sends a one-time link — no password. At the first sign-in the server creates **your own space** (“*Name*’s space”): a workspace only you are in. Workspaces you are invited to appear next to it.

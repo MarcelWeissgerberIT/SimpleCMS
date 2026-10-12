@@ -1,6 +1,8 @@
 import { BRAND } from '@/shared/brand'
 import { logoMarkSvg } from '@/shared/logo'
+import { cloudPrice, donateUrl } from '@/shared/pricing'
 import type { Ctx } from '../context'
+import { donateLink } from '../donate'
 import { asset, esc } from '../util'
 import { sectionHead } from './head'
 
@@ -8,7 +10,8 @@ import { sectionHead } from './head'
 const SELF_HOSTING = `${BRAND.repoUrl}/blob/main/docs/SELF_HOSTING.md`
 
 export function renderOwn(ctx: Ctx): string {
-  const { t } = ctx
+  const { t, lang } = ctx
+  const donate = donateLink(donateUrl(), t('own.donate'), 'btn btn-line')
   const steps = ['own.s1', 'own.s2', 'own.s3']
     .map((k, i) => `<li><span class="own-n disp">${String(i + 1).padStart(2, '0')}</span><p>${esc(t(k))}</p></li>`)
     .join('')
@@ -42,9 +45,12 @@ export function renderOwn(ctx: Ctx): string {
         <i class="screw s-tl" aria-hidden="true"></i><i class="screw s-tr" aria-hidden="true"></i><i class="screw s-bl" aria-hidden="true"></i><i class="screw s-br" aria-hidden="true"></i>
         ${head('own-cloud-h', 'own.cloud.model', 'own.cloud.name', 'own.cloud.status', 'own.cloud.where', false)}
         ${points(['own.cloud.p1', 'own.cloud.p2', 'own.cloud.p3', 'own.cloud.p4', 'own.cloud.p5', 'own.cloud.p6'])}
+        <p class="plate-timer plate-price" data-cloud-price><span class="lbl">${esc(t('own.cloud.price'))}</span><span class="plate-time disp">${esc(cloudPrice(lang))}</span></p>
         ${timer('30:00', 'own.cloud.time')}
+        <p class="plate-free" data-self-free>${esc(t('own.cloud.free'))}</p>
         <div class="plate-ctas">
           <a class="btn btn-ink" href="${SELF_HOSTING}" rel="noopener" data-selfhost>${esc(t('own.guide'))}<span class="arr" aria-hidden="true">→</span></a>
+          ${donate}
         </div>
       </article>
     </div>
@@ -75,6 +81,7 @@ export function renderFaq(ctx: Ctx): string {
 export function renderFooter(ctx: Ctx): string {
   const { t } = ctx
   const v = { version: BRAND.version }
+  const donate = donateLink(donateUrl(), t('footer.donate'))
   return `
 <footer class="foot tone-carbon" data-tone="carbon">
   <div class="wrap">
@@ -85,7 +92,7 @@ export function renderFooter(ctx: Ctx): string {
     <div class="foot-cols">
       <div class="foot-brand">
         <span class="foot-mark">${logoMarkSvg(40)}</span>
-        <p>${esc(t('footer.armory'))}</p>
+        <p>${esc(t('footer.free'))}</p>
         <p class="foot-made">${esc(t('footer.made'))}</p>
         <button type="button" class="foot-replay" data-replay>
           <img src="${asset('assets/icons/hammer.webp')}" alt="" width="56" height="56" loading="lazy" decoding="async" onerror="this.remove()" />
@@ -112,13 +119,14 @@ export function renderFooter(ctx: Ctx): string {
           <li><a href="${BRAND.repoUrl}/fork" rel="noopener">${esc(t('own.fork'))}</a></li>
           <li><a href="#own-it">${esc(t('sec.own'))}</a></li>
           <li><a href="${SELF_HOSTING}" rel="noopener">${esc(t('footer.selfhost'))}</a></li>
+          ${donate ? `<li>${donate}</li>` : ''}
         </ul>
       </nav>
     </div>
     <p class="foot-word disp" aria-hidden="true">ONE<span class="dot">.</span></p>
     <div class="foot-base lbl">
       <span>${esc(BRAND.name)} · ${esc(t('footer.version', v))}</span>
-      <span>${esc(t('readout.cost'))} · 0 ${esc(t('readout.servers'))} · 0 ${esc(t('readout.trackers'))}</span>
+      <span>${esc(t('footer.local'))} ${esc(t('readout.cost'))} · 0 ${esc(t('readout.servers'))} · 0 ${esc(t('readout.trackers'))}</span>
       <span>© ${new Date().getFullYear()}</span>
     </div>
   </div>
