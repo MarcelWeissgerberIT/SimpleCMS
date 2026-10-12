@@ -697,8 +697,9 @@ the public APIs stable — other areas are built against them in parallel.
   templates, automations, the pipeline fields (FREE_ROLES only), record types / sub-items / dependencies, kit
   properties, list options, memories, an eject (lane `undo`). `applyRewind` is called ONLY from eject/commit.ts and
   eject/undo.ts: lock `one-recorder-eject:<scope>` → the agent's run lock → busy refusal → forced versions "Vor dem
-  Auswurf" (`SnapshotReason 'eject'`) → write-ahead record 'committing' → sync re-check (flips / removals in use →
-  aborted, the dialog replans) → ONE store update under `{ kind: 'eject', id, of }` → settle (marks first) → 'done';
+  Auswurf" (`SnapshotReason 'eject'`; one that cannot be written refuses: `versionFailed`) → write-ahead record
+  'committing' → sync re-check (flips / removals in use / `staleFacts`: a page joined below one going into the trash, a
+  new row linked, a parent going back that no longer fits → aborted, the dialog replans) → ONE store update under `{ kind: 'eject', id, of }` → settle (marks first) → 'done';
   a crashed commit is finished by `finishEjects` at boot from its part-digest targets. Undo: ONE update as `you~undo:<id>`
   (instant from memory, else through the planner), unsettle, record `undone`. settled.ts (`markSettled` / `isSettled`,
   BroadcastChannel) + `isEjectWriter(currentWriter())`: automations, row-triggered agents, autofill, the coding trust watch
@@ -708,7 +709,9 @@ the public APIs stable — other areas are built against them in parallel.
   mints an itemId; a task living elsewhere or looping is held. Outbox: a row marked as sent is held; slips of discarded
   send proposals are withdrawn (`'origin'`) and stay withdrawn after an Undo; other slips are never touched. Coding: fields
   that move a task are never ejected; an agent's text back → the task waits for Confirm. Prune keeps the pins of live
-  ejects (`protectedSegs`). Toast: glyph 'eject', Mod+Z only while it shows and nothing else owns the keys.
+  ejects (`protectedSegs`). Toast: glyph 'eject', Mod+Z only while it shows and nothing else owns the keys; an Undo from
+  the after-plate takes it away. Dialog: ↵ confirms only a fresh press (never a repeat) ≥ 300 ms after it opened and its
+  key became ready; the key is `aria-disabled`, never `disabled`; nothing closes it while the eject writes.
 - Mirror recipe setup (features/agents/mirror.ts, MirrorSetup.tsx, MirrorDiscard.tsx): `createMirror` shows no toast — a step
   that opens a dialog right away keeps its Undo inside the dialog (AgentEditor intro Undo = `undoMirror`, only what the setup
   created), never a toast over the dialog's footer. Closing an unsaved mirror draft asks (keep editing · keep both · both to
