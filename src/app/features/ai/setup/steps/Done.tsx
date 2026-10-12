@@ -9,7 +9,7 @@ import { Play } from 'lucide-react'
 import type { FeatureClass, ProviderId, Route } from '@/shared/ai/types'
 import { presetOf } from '@/shared/ai/policy'
 import { providerInfo } from '@/shared/ai/providers'
-import { isJevRouter } from '@/shared/ai/jev'
+import { isJevModel, isJevRouter, jevLabel } from '@/shared/ai/jev'
 import { useWorkspace } from '../../../../store/store'
 import { setDeviceAI } from '../../../../store/aiRules'
 import { withWriter } from '../../../../store/writer'
@@ -71,7 +71,9 @@ export function DoneStep({ run, setRun, handle, close }: StepProps) {
     if (r && !rows.some(([x]) => x === k)) rows.push([k, r])
   }
   if (settings.ai?.default) add(t('features.ai.prov.tab.default'), settings.ai.default[0])
-  for (const [c, r] of Object.entries(settings.ai?.routes ?? {}) as Array<[FeatureClass, Route[]]>) add(classLabel(t, c), r[0])
+  // the Vorprüfer has its own line (slice SJ): a decision model, for agents' proposals only
+  for (const [c, r] of Object.entries(settings.ai?.routes ?? {}) as Array<[FeatureClass, Route[]]>) if (c !== 'gate') add(classLabel(t, c), r[0])
+  const checker = settings.ai?.routes?.gate?.[0]
 
   return (
     <div className="aidone">
@@ -118,6 +120,11 @@ export function DoneStep({ run, setRun, handle, close }: StepProps) {
             </ul>
           ) : (
             <p>{t('features.ai.prov.done.noRows')}</p>
+          )}
+          {checker && isJevModel(checker.m) && (
+            <p className="aidone__checker" data-testid="done-checker">
+              {t('features.ai.prov.done.checker', { model: jevLabel(checker.m) })}
+            </p>
           )}
           {run.routingUndo !== undefined && run.routingUndo !== null && !undone && (
             <p className="ait-undo" role="status">

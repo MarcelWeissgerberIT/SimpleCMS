@@ -43,6 +43,8 @@ export interface ProviderInfo {
 export interface OpenRouterInfo extends ProviderInfo {
   /** the Jev Router's privacy sentence (D-S2-25): the picker, step 04 and the privacy article quote it */
   routerPrivacy: Bilingual
+  /** Jev as Vorprüfer (slice SJ): what TypeSafe receives — the only source; setup step 04 and the help quote it */
+  jevPrivacy: Bilingual
   /** account pages One links to (verify with a real key — UX § 15.6) */
   creditsUrl: string
   privacyUrl: string
@@ -107,6 +109,10 @@ const OPENROUTER: OpenRouterInfo = {
   routerPrivacy: {
     en: 'With the Jev Router, OpenRouter hands your request to Jev (TypeSafe), which picks one of the models in your list; that model’s operator answers. Both receive the request.',
     de: 'Mit dem Jev Router gibt OpenRouter deine Anfrage an Jev (TypeSafe), das eines der Modelle deiner Liste wählt; dessen Betreiber antwortet. Beide erhalten die Anfrage.',
+  },
+  jevPrivacy: {
+    en: 'As a pre-checker, Jev (TypeSafe) receives through OpenRouter the proposals of your agents with their instructions and the row they change — and, when you switch it on, answers with their sources.',
+    de: 'Als Vorprüfer erhält Jev (TypeSafe) über OpenRouter die Vorschläge deiner Agenten mit ihrer Anweisung und der Zeile, die sie ändern — und, wenn du es einschaltest, Antworten mit ihren Quellen.',
   },
   creditsUrl: 'https://openrouter.ai/settings/credits',
   privacyUrl: 'https://openrouter.ai/settings/privacy',
