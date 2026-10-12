@@ -101,7 +101,7 @@ export function incidentReport(model: ReadModel, facts: ReportFacts, opts: Repor
   if (p.schema) parts.push(k(pl('report.part.schema', p.schema), { n: n(p.schema) }))
   if (p.views) parts.push(k(pl('report.part.views', p.views), { n: n(p.views) }))
   const ops = k(pl('unit.ops', m.ops), { n: n(m.ops) })
-  const places = k(pl('unit.places', p.all), { n: model.tooMany ? '…' : n(p.all) })
+  const places = k(pl('unit.places', p.all), { n: n(p.all) })
   out.push(`## ${k('report.window')}`)
   out.push(`- ${cell(k('report.writer', { writer: facts.seq ? k('report.run', { writer: facts.writer, n: facts.seq }) : facts.writer }))}`)
   out.push(`- ${k('report.meters', { ops, places, parts: parts.join(' · ') || '—', add: n(m.words[0]), del: n(m.words[1]) })}`)
@@ -117,25 +117,38 @@ export function incidentReport(model: ReadModel, facts: ReportFacts, opts: Repor
   // what changed: schema names, pages, rows (names, counts and times only)
   out.push(`## ${k('report.changed')}`)
   const items = model.groups.flatMap((g) => g.items)
+  // a place not available on this device is counted once (model.unavailable); a private one (or one in a private
+  // database) is counted here — neither is named, nor are its database, properties, options or views
   let privates = 0
+  const unavailable = (it: ReadItem) => !!model.data.places.get(it.p)?.unavailable
   const named = (it: ReadItem): string | null => {
+    if (unavailable(it)) return null
     const title = facts.title(it.p)
-    if (title === null) {
+    const db = it.pk === 'row' && it.db ? facts.title(`p:${it.db}` as PlaceKey) : ''
+    if (title === null || db === null) {
       privates++
       return null
     }
     return title || k('report.untitled')
   }
-  const schema = items.filter((it) => it.pk === 'schema' || it.pk === 'view')
-  if (schema.length) {
-    out.push(`### ${k('report.schema')}`)
-    for (const it of schema) {
+  const schemaLines = items
+    .filter((it) => it.pk === 'schema' || it.pk === 'view')
+    .flatMap((it) => {
+      if (unavailable(it)) return []
+      const dbId = it.db ?? it.p.slice(2).split('/')[0]
+      if (facts.title(`p:${dbId}` as PlaceKey) === null) {
+        privates++
+        return []
+      }
       const w = model.data.places.get(it.p)
-      const db = facts.dbTitle(it.db ?? it.p.slice(2))
+      const db = facts.dbTitle(dbId)
       const lines = (w?.ownEvents ?? []).flatMap((e) => (e.x ?? []).map((d) => ({ d, at: e.at })))
-      if (!lines.length) out.push(`- ${cell(db)} · ${hms(it.at)}`)
-      for (const { d, at } of lines) out.push(`- ${cell(`${db} · ${deltaLine(t, d)}`)} · ${hms(at)}`)
-    }
+      if (!lines.length) return [`- ${cell(db)} · ${hms(it.at)}`]
+      return lines.map(({ d, at }) => `- ${cell(`${db} · ${deltaLine(t, d)}`)} · ${hms(at)}`)
+    })
+  if (schemaLines.length) {
+    out.push(`### ${k('report.schema')}`)
+    out.push(...schemaLines)
   }
   const pages = items.filter((it) => it.pk === 'page' || it.pk === 'db')
   const pageLines = pages.flatMap((it) => {

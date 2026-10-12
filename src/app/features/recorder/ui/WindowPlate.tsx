@@ -15,6 +15,9 @@ import { useShallow } from 'zustand/react/shallow'
 import { useWorkspace } from '../../../store/store'
 import { scopeNow } from '../journal/scope'
 import { eventsOf } from '../journal/query'
+import { onFlushed, onJournalChange, type Flushed } from '../journal/bus'
+import { causedByW } from '../model/chain'
+import { parseWriterKey } from '../model/writerKeys'
 import { windowMeters, type Meters } from '../model/counts'
 import type { JRun, LaneKey } from '../model/types'
 import type { ReadModel } from '../window/read'
@@ -36,14 +39,52 @@ const reading = () => import('../window/read')
 /** A key of a window (the held check and the read dialog belong to it). */
 export const windowKey = (b: Bracket): string => `${b.lane}|${b.run ?? ''}|${b.a}|${b.b}`
 
-/** The read window of the bracket, kept fresh (150 ms after the bracket or the tape changed); held → the store. */
+/** A follow-up (automation, autofill, kit) of W's writes lands within this long after them (window/load.ts). */
+const FOLLOW_UP_MS = 10 * 60_000
+
+/**
+ * Does a flush of this tab concern the window: a segment written on one of its places (a foreign change, a segment
+ * closing), or an op of W — or of a follow-up W caused — in the window's reach (a place W touches for the first time)?
+ */
+export function flushConcerns(f: Flushed, b: Bracket, places: ReadonlySet<string> | null): boolean {
+  if (f.places?.some((p) => !places || places.has(p))) return true
+  const sel = { lane: b.lane, ...(b.run ? { run: b.run } : {}) }
+  return f.ops.some((o) => {
+    if (o.at < b.a || o.at >= b.b + FOLLOW_UP_MS) return false
+    if (o.at < b.b && (b.run ? o.r === b.run : o.l === b.lane)) return true
+    const cause = parseWriterKey(o.w).cause
+    return !!cause && causedByW(sel, cause)
+  })
+}
+
+/**
+ * The read window of the bracket, kept fresh (150 ms after the bracket changed, or a flush that concerns it, another
+ * tab's write, an eject, a wipe — never on every flush of the tape); held → the store.
+ */
 function useReadModel(bracket: Bracket | null): ReadModel | null {
   const t = useT()
   const lang = useLang()
-  const rev = useRecorderUI((s) => s.ops.rev)
+  const [rev, setRev] = useState(0)
   const [model, setModel] = useState<{ key: string; m: ReadModel } | null>(null)
   const said = useRef('')
+  const placesRef = useRef<ReadonlySet<string> | null>(null)
   const key = bracket ? windowKey(bracket) : ''
+  useEffect(() => {
+    if (!bracket) return
+    placesRef.current = null
+    const bump = () => setRev((n) => n + 1)
+    const offFlush = onFlushed((f) => {
+      if (flushConcerns(f, bracket, placesRef.current)) bump()
+    })
+    const offChange = onJournalChange((c, local) => {
+      if (!local || c.kind !== 'flushed') bump()
+    })
+    return () => {
+      offFlush()
+      offChange()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key])
   useEffect(() => {
     if (!bracket) return
     let off = false
@@ -51,13 +92,14 @@ function useReadModel(bracket: Bracket | null): ReadModel | null {
       const t0 = performance.now()
       reading()
         .then(async ({ readWindow, heldMarks, heldWho }) => {
-          const m = await readWindow({ scope: scopeNow(), lane: bracket.lane, ...(bracket.run ? { run: bracket.run } : {}), a: bracket.a, b: bracket.b }, rev)
+          const m = await readWindow({ scope: scopeNow(), lane: bracket.lane, ...(bracket.run ? { run: bracket.run } : {}), a: bracket.a, b: bracket.b })
           if (off) return
           try {
             performance.measure('rec-read', { start: t0, end: performance.now() })
           } catch {
             /* no marks */
           }
+          placesRef.current = new Set(m.data.places.keys())
           setModel({ key, m })
           setHeld({ key, marks: heldMarks(m), count: m.held.length, who: heldWho(m) })
           // said once per window and count (pushes of the tape re-read it)
@@ -130,7 +172,6 @@ export function WindowPlate({ bracket, meta, run, notes, touch, edgeLane }: { br
   const after = useAfterSource(bracket)
   const heldMarks = useRecorderUI((s) => (bracket && s.held && s.held.key === windowKey(bracket) ? s.held.marks : null))
   const laneOps = useRecorderUI((s) => (bracket ? s.ops.lanes[bracket.lane] : undefined))
-  const rev = useRecorderUI((s) => s.ops.rev)
   const model = useReadModel(bracket)
   const [m, setM] = useState<{ key: string; meters: Meters } | null>(null)
   const key = bracket ? `${bracket.lane}|${bracket.run ?? ''}|${bracket.a}|${bracket.b}` : ''
@@ -249,7 +290,7 @@ export function WindowPlate({ bracket, meta, run, notes, touch, edgeLane }: { br
           <span>{t('features.recorder.win.read')}</span>
           <Kbd>↵</Kbd>
         </button>
-        <button type="button" className="dbtn dbtn--report" onClick={() => void report(bracket, rev)} title={t('features.recorder.win.report')}>
+        <button type="button" className="dbtn dbtn--report" onClick={() => void report(bracket)} title={t('features.recorder.win.report')}>
           <FileDown aria-hidden />
           <span>{t('features.recorder.win.report')}</span>
         </button>
@@ -262,9 +303,9 @@ export function WindowPlate({ bracket, meta, run, notes, touch, edgeLane }: { br
 }
 
 /** The report of the selected window (the read model is memoised: usually there already). */
-async function report(b: Bracket, rev: number): Promise<void> {
+async function report(b: Bracket): Promise<void> {
   const [{ readWindow }, { downloadReport }] = await Promise.all([reading(), import('./report')])
-  const m = await readWindow({ scope: scopeNow(), lane: b.lane, ...(b.run ? { run: b.run } : {}), a: b.a, b: b.b }, rev)
+  const m = await readWindow({ scope: scopeNow(), lane: b.lane, ...(b.run ? { run: b.run } : {}), a: b.a, b: b.b })
   await downloadReport(m)
 }
 

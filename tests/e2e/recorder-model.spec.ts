@@ -642,6 +642,27 @@ test.describe('the held check (F6): verdicts per place, chains and foreign segme
     expect(one(place(), now(), { readOnly: { pageLocked: () => true, dbLocked: () => false } }).reason).toBe('pageLocked')
   })
 
+  test('pages W made: a reorder since (the order only) is nobody\'s change → trash; a title changed since → held', () => {
+    const left = { h: 'P1', parts: { t: 'T', i: '', tr: '0', pa: 'PA', o: 'O1', cv: 'null' }, blocks: ['b1=d1'] }
+    const pg = (foreign: Foreign[] = []) => place({ p: 'p:notiz', pk: 'page', db: undefined, own: [seg({ p: 'p:notiz', pk: 'page', db: undefined, f: F.NEW, before: null, touched: '*', left })], foreign, ownEvents: [ev({ p: 'p:notiz', pk: 'page', kinds: K.CREATE, f: F.NEW })] })
+    const n = (parts: Record<string, string>, blocks = left.blocks) => ({ exists: true, h: 'P2', parts, blocks, key: 'k' })
+    expect(one(pg([foreign({ touched: ['o'] })]), n({ ...left.parts, o: 'O9' }))).toMatchObject({ outcome: 'trash', by: [] })
+    expect(one(pg([foreign({ touched: ['t'] })]), n({ ...left.parts, t: 'T2' }))).toMatchObject({ outcome: 'held', reason: 'changed' })
+    expect(one(pg(), n(left.parts, ['b1=d9'])).outcome).toBe('held')
+    // a record from before parts were kept: the whole digest
+    const old = place({ p: 'p:notiz', pk: 'page', db: undefined, own: [seg({ p: 'p:notiz', pk: 'page', db: undefined, f: F.NEW, before: null, touched: '*', left: { h: 'P1', parts: {} } })] })
+    expect(one(old, { exists: true, h: 'P1', parts: {}, key: 'k' }).outcome).toBe('trash')
+    expect(one(old, { exists: true, h: 'P9', parts: {}, key: 'k' }).outcome).toBe('held')
+  })
+
+  test('the held diamond: the first foreign change after W\'s first touch, on the track of whoever made it', () => {
+    // W writes at 2000 and 4000, the person at 3000 (interleaved); another agent at 6000 and the person again at 7000
+    const w = place({ own: [seg(), seg({ id: `${S}|s2`, from: 4000, to: 4000 })], foreign: [foreign({ from: 3000, lane: 'you' }), foreign({ from: 6000, lane: 'agent:tessera-desk', w: 'agent:tessera-desk:r2', seg: `${S}|f2` }), foreign({ from: 7000, lane: 'you', seg: `${S}|f3` })] })
+    const v = one(w)
+    expect(v).toMatchObject({ outcome: 'held', firstForeignAt: 3000, firstForeignLane: 'you' })
+    expect(v.by[0]).toEqual({ lane: 'agent:tessera-desk', at: 6000 })
+  })
+
   test('order: unavailable → open → cut → already → partial (no before, no left, batch)', () => {
     expect(one(place({ unavailable: true })).outcome).toBe('skip')
     expect(one(place({ own: [seg({ o: 1, left: null })] }))).toMatchObject({ outcome: 'partial', reason: 'open' })
@@ -787,6 +808,26 @@ test.describe('the incident report', () => {
     }
     expect(reportFile({ sel: { scope: S, lane: 'mcp:tessera-desk', a: T('07:48:00'), b: T('07:50:00') } })).toBe('incident-2026-10-09-0748-mcp-tessera-desk.md')
   }
+
+  test('a private database: its schema place is counted, never named (no database, property or option name); a place not on this device is counted once', () => {
+    const t = tOf('en')
+    const opts = { t, lang: 'en' as const, tz: 'Europe/Berlin', now: T('08:06:00') }
+    // the database's page is private (a team member's own): its schema and its rows are counted, not named
+    const priv: ReportFacts = { ...facts, title: (p) => (p === 'p:db-n' ? null : facts.title(p)) }
+    const { md } = incidentReport(model(), priv, opts)
+    expect(md).not.toContain('### Schema')
+    expect(md).not.toContain('Ready')
+    expect(md).not.toContain('Nordlicht Handoff')
+    expect(md).toContain('3 private pages are counted, not named.')
+    // a row that left this device: counted once (not as private AND unavailable)
+    const m = model()
+    m.data.places.get('p:r1' as PlaceKey)!.unavailable = true
+    m.unavailable = 1
+    const gone: ReportFacts = { ...facts, title: (p) => (p === 'p:r1' ? null : facts.title(p)) }
+    const out = incidentReport(m, gone, opts).md
+    expect(out).toContain('1 private page is counted, not named.')
+    expect(out).not.toContain('NL-1408')
+  })
 })
 
 /* ------------------------------------------------------------------ */

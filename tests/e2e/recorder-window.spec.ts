@@ -462,4 +462,103 @@ test.describe('flight recorder — reading a window', () => {
     expect(Math.min(...m['rec-held'])).toBeLessThan(150)
     expect(Math.min(...m['rec-report'])).toBeLessThan(200)
   })
+
+  /* ---------------- R3 review: follow-ups, closing segments, too many places, an old window ---------------- */
+
+  test('follow-ups go with the write that caused them: a lane window takes the automation\'s follow-up of its own write, never one of a later write of the lane', async ({ page }) => {
+    test.setTimeout(120_000)
+    await page.clock.install({ time: storyTime(story, '07:00:00') })
+    await openApp(page)
+    await startRecorder(page)
+    const you = { kind: 'you', via: 'ui' }
+    const [db] = (await at(page, '07:00:00', you, [['createDatabase', { title: 'Nordlicht Abgleich' }]])) as string[]
+    const [note] = (await at(page, '07:00:10', you, [['addProperty', db, { type: 'text', name: 'Notiz' }]])) as string[]
+    const rows = (await at(page, '07:00:20', you, ['NL-1398', 'NL-1399', 'NL-1400', 'NL-1401', 'NL-1402'].map((title) => ['createRow', db, { title }] as [string, ...unknown[]]))) as string[]
+    const [a, b, c, d, e] = rows
+    await page.clock.setFixedTime(storyTime(story, '07:02:00'))
+    await rec(page, 'settle')
+    const auto = (run: string) => ({ kind: 'automation', db, id: 'au-notiz', run, cause: 'you~ui' })
+    await at(page, '07:05:00', you, [['setRowProperty', a, note, 'Mara Lind']])
+    await at(page, '07:05:02', auto('ar1'), [['setRowProperty', d, note, 'Tessera (früh)']])
+    // the person writes again after the window; the automation follows that write, within the horizon and long after
+    await at(page, '07:08:00', you, [['setRowProperty', b, note, 'Launch plan']])
+    await at(page, '07:08:01', auto('ar2'), [['setRowProperty', c, note, 'Tessera']])
+    await at(page, '08:30:00', you, [['setRowProperty', b, note, 'Launch plan 2']])
+    await at(page, '08:30:01', auto('ar3'), [['setRowProperty', e, note, 'Tessera (spät)']])
+    await page.clock.setFixedTime(storyTime(story, '08:40:00'))
+    await rec(page, 'settle')
+    const sel = { lane: 'you', a: storyTime(story, '07:04:00'), b: storyTime(story, '07:06:00') }
+    expect((await rec<{ places: number }>(page, 'loadWindow', sel)).places).toBe(2)
+    const plan = await rec<{ places: Array<{ p: string }> }>(page, 'planEject', sel)
+    expect(plan.places.map((x) => x.p).sort()).toEqual([`p:${a}`, `p:${d}`].sort())
+    expect(await rec(page, 'unknowns')).toEqual([])
+  })
+
+  test('the plate follows a segment that closes on its own: "partly" while it is still being written, whole once it closes', async ({ page }) => {
+    test.setTimeout(120_000)
+    await page.clock.install({ time: storyTime(story, '07:30:00') })
+    await openApp(page)
+    await startRecorder(page)
+    const you = { kind: 'you', via: 'ui' }
+    const [notes] = (await at(page, '07:30:00', you, [['createPage', { title: 'Nordlicht Notizen' }]])) as string[]
+    await page.clock.setFixedTime(storyTime(story, '07:35:00'))
+    await rec(page, 'settle')
+    await at(page, '07:40:00', you, [['setContent', notes, { type: 'doc', content: [para('n1', 'Nordlicht Abgleich')] }, 'ui']])
+    await page.clock.setFixedTime(storyTime(story, '07:40:30'))
+    await flush(page)
+    expect((await rec<Array<{ p: string }>>(page, 'open')).some((o) => o.p === `p:${notes}`)).toBe(true)
+    await page.keyboard.press('Control+Alt+z')
+    await expect(deck(page).locator('.lane[data-lane="you"]')).toBeVisible()
+    await page.evaluate((b) => (window as unknown as { __oneDeck: { set: (p: unknown) => void } }).__oneDeck.set({ bracket: b }), { lane: 'you', a: storyTime(story, '07:39:00'), b: storyTime(story, '07:41:00') })
+    const plate = deck(page).locator('.win')
+    await expect(plate.locator('.win__note', { hasText: /^Partly: 1\splace/ })).toBeVisible()
+    // the segment closes (no new op: only the segment is written) — the plate reads again
+    await rec(page, 'settle')
+    await expect(plate.locator('.win__note', { hasText: /^Partly/ })).toHaveCount(0)
+    expect(await rec(page, 'unknowns')).toEqual([])
+  })
+
+  test('too many places: only the first 2,000 are listed, but the meters count every event of the window', async ({ page }) => {
+    test.setTimeout(240_000)
+    await openApp(page)
+    await startRecorder(page)
+    await rec(page, 'settle')
+    await rec(page, 'wipe')
+    const now = await page.evaluate(() => Date.now())
+    // one Vorgang of the person's on 6,000 places inside the last 75 minutes
+    await rec(page, 'seedBulk', { events: 0, inSpan: 1, bigVorgang: 6000, spanEnd: now })
+    const r = await rec<{ meters: { ops: number; places: { all: number } }; tooMany: number | null }>(page, 'readWindow', { lane: 'you', a: now - 76 * 60_000, b: now })
+    expect(r.tooMany).toBe(6000)
+    expect(r.meters).toMatchObject({ ops: 1, places: { all: 6000 } })
+  })
+
+  test('an old window reads what the window holds — not the tape recorded after it (the follow-up scan is bounded)', async ({ page }) => {
+    test.setTimeout(600_000)
+    await openApp(page)
+    await startRecorder(page)
+    await rec(page, 'settle')
+    await rec(page, 'wipe')
+    const now = await page.evaluate(() => Date.now())
+    const N = 24_000
+    await rec(page, 'seedBulk', { events: N, inSpan: 0, bigVorgang: 1, spanEnd: now })
+    // the first seeded Vorgang (the person's, at the start of the month): seedBulk spreads them evenly
+    const spanStart = now - 75 * 60_000
+    const monthStart = now - 30 * 24 * 3600_000
+    const first = Math.floor(monthStart + (0.5 / N) * (spanStart - monthStart))
+    const ms = await page.evaluate(async (sel) => {
+      const r = (window as unknown as { __oneRecorder: { loadWindow: (s: unknown) => Promise<{ places: number }> } }).__oneRecorder
+      await r.loadWindow(sel)
+      const times: number[] = []
+      let places = 0
+      for (let i = 0; i < 3; i++) {
+        const t = performance.now()
+        places = (await r.loadWindow(sel)).places
+        times.push(performance.now() - t)
+      }
+      return { best: Math.min(...times), places }
+    }, { lane: 'you', a: first - 1000, b: first + 1000 })
+    console.log('[recorder] an old window over', N, 'events:', JSON.stringify(ms))
+    expect(ms.places).toBe(1)
+    expect(ms.best).toBeLessThan(150)
+  })
 })

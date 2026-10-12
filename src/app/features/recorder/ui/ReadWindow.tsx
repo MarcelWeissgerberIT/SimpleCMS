@@ -32,8 +32,6 @@ export function ReadWindow() {
   const phone = usePhone()
   const bracket = useRecorderUI((s) => s.bracket)
   const pick = useRecorderUI((s) => s.read?.pick ?? null)
-  // the tape's state when the dialog opened: a later push does not swap what is being read
-  const [rev] = useState(() => useRecorderUI.getState().ops.rev)
   const [model, setModel] = useState<ReadModel | null>(null)
   const [failed, setFailed] = useState(false)
   const [sheet, setSheet] = useState<PlaceKey | null>(null)
@@ -42,7 +40,8 @@ export function ReadWindow() {
   useEffect(() => {
     if (!bracket) return
     let off = false
-    readWindow({ scope: scopeNow(), lane: bracket.lane, ...(bracket.run ? { run: bracket.run } : {}), a: bracket.a, b: bracket.b }, rev)
+    // read once per window: a later flush does not swap what is being read (the plate's reading, when it is current)
+    readWindow({ scope: scopeNow(), lane: bracket.lane, ...(bracket.run ? { run: bracket.run } : {}), a: bracket.a, b: bracket.b })
       .then((m) => {
         if (off) return
         setModel(m)
@@ -60,7 +59,7 @@ export function ReadWindow() {
       off = true
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bracket?.lane, bracket?.run, bracket?.a, bracket?.b, rev])
+  }, [bracket?.lane, bracket?.run, bracket?.a, bracket?.b])
 
   if (!bracket) return null
   const no = t('features.recorder.no')

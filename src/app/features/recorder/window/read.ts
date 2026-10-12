@@ -17,6 +17,8 @@ import { verdicts } from '../model/hold'
 import { propKeysAt } from '../model/rowkeys'
 import { F, K, type JEvent, type JSegment, type LaneKey, type NowDigest, type PlaceKey, type PlaceKind, type PlaceVerdict, type PlaceWindow, type SchemaDelta, type WindowSel } from '../model/types'
 import { openJournal } from '../journal/db'
+import { journalRev } from '../journal/bus'
+import { eventsOf } from '../journal/query'
 import { readPinBodies, readPinMetas } from '../journal/pins'
 import { emptyLookup, nowDigests } from './digest'
 import { loadWindow, type WindowData } from './load'
@@ -123,7 +125,8 @@ async function build(sel: WindowSel): Promise<ReadModel> {
     /* no marks */
   }
   const who = sel.run ? { run: sel.run } : { lane: sel.lane }
-  const meters = windowMeters(eventsOfWindow(data), who, sel.a, sel.b)
+  // too many places: only the first are loaded — the meters count every event of the window, as the plate does
+  const meters = windowMeters(data.tooMany ? await eventsOf(sel.scope, who, sel.a, sel.b) : eventsOfWindow(data), who, sel.a, sel.b)
   const byKind = new Map<GroupKind, ReadItem[]>()
   let extend: { a: number; b: number } | undefined
   for (const [p, w] of data.places) {
@@ -165,12 +168,15 @@ async function build(sel: WindowSel): Promise<ReadModel> {
   }
 }
 
-/* one read per window and state of the tape and the workspace (the plate, the dialog and the report share it) */
+/* one read per window and state of the journal and the workspace (the plate, the dialog and the report share it) */
 let memo: { key: string; pages: unknown; dbs: unknown; p: Promise<ReadModel> } | null = null
 
-/** Read a window (memoised per window, tape revision and workspace state). */
+/**
+ * Read a window (memoised per window, journal revision — every flush, closing segments too, every other tab's ping —
+ * and workspace state). `rev`: an extra key (a caller that wants a fresh read passes something new).
+ */
 export function readWindow(sel: WindowSel, rev = 0): Promise<ReadModel> {
-  const key = `${sel.scope}|${sel.lane}|${sel.run ?? ''}|${sel.a}|${sel.b}|${rev}`
+  const key = `${sel.scope}|${sel.lane}|${sel.run ?? ''}|${sel.a}|${sel.b}|${rev}|${journalRev()}`
   const s = useWorkspace.getState()
   if (memo && memo.key === key && memo.pages === s.pages && memo.dbs === s.databases) return memo.p
   const p = build(sel)
@@ -213,15 +219,12 @@ export function rowLabel(page: Page | undefined): string {
   return title.length > CUT ? `${title.slice(0, CUT - 1)}…` : title
 }
 
-/** The held rows as diamonds: at the first foreign change after W's first touch (else now). */
+/** The held rows as diamonds: at the first foreign change after W's first touch, on its writer's track (else now). */
 export function heldMarks(model: ReadModel): HeldMark[] {
   const pages = useWorkspace.getState().pages
   return model.held
     .filter((v) => v.pk === 'row')
-    .map((v) => {
-      const first = v.firstForeignAt === undefined ? undefined : v.by.find((b) => b.at === v.firstForeignAt)
-      return { p: v.p, at: v.firstForeignAt ?? Date.now(), label: rowLabel(pages[v.p.slice(2)]), lane: (first ?? v.by[0])?.lane ?? null }
-    })
+    .map((v) => ({ p: v.p, at: v.firstForeignAt ?? Date.now(), label: rowLabel(pages[v.p.slice(2)]), lane: v.firstForeignAt === undefined ? (v.by[0]?.lane ?? null) : (v.firstForeignLane ?? null) }))
     .sort((x, y) => x.at - y.at)
 }
 

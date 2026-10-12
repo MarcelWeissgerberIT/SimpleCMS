@@ -86,7 +86,7 @@ export function EjectDialog() {
       setRefused(refusal(r.refused))
       return
     }
-    const m = await readWindow(sel, useRecorderUI.getState().ops.rev)
+    const m = await readWindow(sel)
     const f = await src.facts(r).catch(() => null)
     setPlanned(r)
     setModel(m)

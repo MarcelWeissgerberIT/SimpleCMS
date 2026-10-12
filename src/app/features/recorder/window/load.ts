@@ -1,16 +1,16 @@
 /**
  * The one loader for reading a window (R2) and planning an eject (R3): W's segments on every place it touched in
- * [a, b) (a lane, or one run of it) plus the derived ones its writes caused, everyone else's segments on those places
- * from W's first touch on (open ones count as having touched anything; synced copies of W and an undone eject of W are
- * transparent), virtual foreigns where the chain of digests breaks or a segment says GAP, W's events, the schema
- * events of the databases involved, lost tails, live eject records and the run records. Read-only: it flushes what
+ * [a, b) (a lane, or one run of it) plus the derived ones its writes in [a, b) caused (within DERIVED_HORIZON), everyone
+ * else's segments on those places from W's first touch on (open ones count as having touched anything; synced copies
+ * of W and an undone eject of W are transparent), virtual foreigns where the chain of digests breaks or a segment says
+ * GAP, W's events, the schema events of the databases involved, lost tails, live eject records and the run records. Read-only: it flushes what
  * waits (R2) — never settles and never flushes editors; only the planner (R3) settles first.
  */
 import type { ID } from '../../../store/types'
 import { placeCanon, wholeCanon } from '../model/canon'
 import { keySet, propKeysAt, propKeysOf, restrictRowParts } from '../model/rowkeys'
-import { causedByW, foreignOf, placeChain } from '../model/chain'
-import { parseWriterKey } from '../model/writerKeys'
+import { causedByW, foreignOf, namesW, placeChain } from '../model/chain'
+import { causeChain, parseWriterKey } from '../model/writerKeys'
 import { F, type EjectRecord, type JEvent, type JRun, type JSegment, type LostTail, type PlaceKey, type PlaceWindow, type Scope, type WindowSel } from '../model/types'
 import { currentPlaces } from '../journal/current'
 import { deps } from '../journal/deps'
@@ -42,6 +42,8 @@ const MONTH = 30 * DAY
 const IN_FLIGHT = 8
 /** derived writers whose segments go with the writer that caused them */
 const DERIVED = new Set(['automation', 'autofill', 'kit'])
+/** a follow-up (automation, autofill, kit) lands at most this long after the write that caused it */
+export const DERIVED_HORIZON = 10 * 60_000
 
 /** Run `fn` over `items`, `n` at a time. */
 async function pool<T, R>(items: readonly T[], n: number, fn: (x: T) => Promise<R>): Promise<R[]> {
@@ -81,13 +83,27 @@ export async function loadWindow(sel: WindowSel, opts?: { settle?: boolean }): P
   if (!own.length) return { sel, places: new Map(), runs: {}, lostTails: [], ejects, schemaEvents: new Map() }
   let minFrom = Math.min(...own.map((g) => g.from))
 
-  // 2. derived segments (automation / autofill / kit) that W's writes caused — they land after b: one range from a on
+  // 2. derived segments (automation / autofill / kit) that W's writes IN THE WINDOW caused — they land after b, within
+  // the horizon: one bounded range; a follow-up's cause is W's latest write before it (by its writer key where the
+  // cause names one), and that write must lie in [a, b) — a follow-up of W's later (or earlier) write is not W's here
   const derivedIds = new Set<string>()
-  for (const g of await j.range<JSegment>({ store: 'segs', index: 'from', lo: [s, sel.a], hi: [s, now + 1] })) {
-    if (ownIds.has(g.id) || g.f & F.COPY || !DERIVED.has(parseWriterKey(g.w).kind) || !causedByW(sel, g.cause)) continue
-    own.push(g)
-    ownIds.add(g.id)
-    derivedIds.add(g.id)
+  const reach = Math.min(now, sel.b + DERIVED_HORIZON)
+  const derived = (await j.range<JSegment>({ store: 'segs', index: 'from', lo: [s, sel.a], hi: [s, reach + 1] })).filter((g) => !ownIds.has(g.id) && !(g.f & F.COPY) && DERIVED.has(parseWriterKey(g.w).kind) && causedByW(sel, g.cause))
+  if (derived.length) {
+    const wEvents = sel.run
+      ? await j.range<JEvent>({ store: 'events', index: 'run', lo: [s, sel.run], hi: [s, sel.run] })
+      : await j.range<JEvent>({ store: 'events', index: 'lane', lo: [s, sel.lane, sel.a - DERIVED_HORIZON], hi: [s, sel.lane, reach + 1] })
+    const writes = wEvents.filter((e) => !((e.f ?? 0) & F.COPY)).map((e) => ({ at: e.at, end: e.t2 ?? e.at, own: parseWriterKey(e.w).own }))
+    for (const g of derived) {
+      const named = new Set(causeChain(g.cause ?? '').filter((k) => namesW(sel, k)))
+      const near = writes.filter((x) => x.at <= g.from && g.from - Math.min(x.end, g.from) <= DERIVED_HORIZON).map((x) => ({ ...x, t: Math.min(x.end, g.from) }))
+      const byKey = near.filter((x) => named.has(x.own))
+      const cause = (byKey.length ? byKey : near).reduce<{ t: number } | null>((m, x) => (!m || x.t > m.t ? x : m), null)
+      if (!cause || cause.t < sel.a || cause.t >= sel.b) continue
+      own.push(g)
+      ownIds.add(g.id)
+      derivedIds.add(g.id)
+    }
   }
   minFrom = Math.min(minFrom, ...own.map((g) => g.from))
 

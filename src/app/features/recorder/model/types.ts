@@ -409,8 +409,9 @@ export interface PlaceVerdict {
   reason?: Reason
   /** who changed it since (foreign segments after W's last segment first, then the ones within) */
   by: Array<{ lane: LaneKey | null; at: number }>
-  /** the first foreign segment after W's first touch (the tape's held diamond) */
+  /** the first foreign segment after W's first touch (the tape's held diamond) and whose it was (its track) */
   firstForeignAt?: number
+  firstForeignLane?: LaneKey | null
   /** W's Vorgänge on it in the window */
   ops: number
   span: [number, number]

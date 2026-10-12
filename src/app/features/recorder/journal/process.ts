@@ -1174,7 +1174,8 @@ export class Processor {
       part = 'flush:write'
       await this.writeInParts(j, batch, lap)
       // the deck merges what landed without a read; other tabs are pinged
-      emitFlushed({ ops: put.ops as unknown as JOp[], runs, fresh })
+      const written = put.segs as unknown as JSegment[]
+      emitFlushed({ ops: put.ops as unknown as JOp[], runs, fresh, places: [...new Set(written.map((g) => g.p))], scopes: [...new Set(written.map((g) => g.s))] })
       if (clean) {
         // an update that came while the write ran: the records must say dirty again
         if (this.seen === seen0) this.recordClean = true

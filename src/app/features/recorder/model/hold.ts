@@ -123,7 +123,7 @@ function verdictOf(input: VerdictInput, p: PlaceKey, w: PlaceWindow, live: Windo
   const base = { p, pk: w.pk, ...(w.db ? { db: w.db } : {}), ...facts }
   const verdict = (outcome: Outcome, reason?: Reason, foreign: Foreign[] = w.foreign): PlaceVerdict => {
     const after = foreign.filter((f) => f.from > first.from)
-    return { ...base, outcome, ...(reason ? { reason } : {}), by: byOf(foreign, lastTo), ...(after.length ? { firstForeignAt: after[0].from } : {}) }
+    return { ...base, outcome, ...(reason ? { reason } : {}), by: byOf(foreign, lastTo), ...(after.length ? { firstForeignAt: after[0].from, firstForeignLane: after[0].lane } : {}) }
   }
 
   if (w.unavailable) return verdict('skip', 'unavailable')
@@ -153,7 +153,7 @@ function verdictOf(input: VerdictInput, p: PlaceKey, w: PlaceWindow, live: Windo
   if (w.pk === 'page' || w.pk === 'db') {
     const id = p.slice(2)
     if (input.readOnly.pageLocked(id)) return verdict('held', 'pageLocked')
-    if (isNew) return now.h === left.h && !w.foreign.length ? verdict('trash') : verdict('held', w.foreign.some((f) => f.from <= lastTo) ? 'interleaved' : 'changed')
+    if (isNew) return newPageVerdict(left, now, w.foreign, lastTo, verdict)
     return partsVerdict(left, now, touched, w.foreign, lastTo, trashed, verdict)
   }
   // schema and views
@@ -164,6 +164,24 @@ function verdictOf(input: VerdictInput, p: PlaceKey, w: PlaceWindow, live: Windo
   }
   if (w.pk === 'schema' && isNew) return now.h === left.h && !w.foreign.length ? verdict('trash') : verdict('held', 'changed')
   return partsVerdict(left, now, touched, w.foreign, lastTo, false, verdict)
+}
+
+/**
+ * A page (or a database's page) W made goes to the trash when nobody changed it since — part by part like a row (Δ28):
+ * the order is no one's change (a sidebar reorder), so neither its part nor a foreign segment that touched only it
+ * counts. A record from before parts were kept compares its whole digest.
+ */
+function newPageVerdict(left: LeftHash, now: NowDigest, foreign: Foreign[], lastTo: number, verdict: (o: Outcome, r?: Reason, f?: Foreign[]) => PlaceVerdict): PlaceVerdict {
+  const orderOnly = (f: Foreign) => f.lane !== null && f.touched !== '*' && f.touched.length > 0 && f.touched.every((k) => k === 'o')
+  const others = foreign.filter((f) => !orderOnly(f))
+  let same = now.h === left.h
+  if (Object.keys(left.parts).length) {
+    const keys = new Set([...Object.keys(left.parts), ...Object.keys(now.parts)])
+    keys.delete('o')
+    same = [...keys].every((k) => (left.parts[k] ?? '') === (now.parts[k] ?? '')) && (left.blocks ?? []).join('\u0001') === (now.blocks ?? []).join('\u0001')
+  }
+  if (same && !others.length) return verdict('trash', undefined, [])
+  return verdict('held', others.some((f) => f.from <= lastTo) ? 'interleaved' : 'changed', others.length ? others : foreign)
 }
 
 /** Pages, schemas, views: held only when every part W touched is held. */
