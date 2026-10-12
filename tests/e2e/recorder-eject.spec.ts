@@ -360,11 +360,25 @@ test.describe('flight recorder — the eject', () => {
     await cover.click()
     await expect(key).toBeFocused()
     await expect(key).not.toHaveAttribute('inert', '')
-    // the key opens the dialog; ↵ at once confirms nothing
+    // the key opens the dialog; ↵ at once confirms nothing: an Enter in the frame the dialog appears is swallowed (the
+    // guard prevents it), one after 300 ms is not (deterministic under any load: no real key reaches the button here)
+    await page.evaluate(() => {
+      const w = window as unknown as { __guard: boolean[] }
+      w.__guard = []
+      const mo = new MutationObserver(() => {
+        const el = document.querySelector('.modal.rec-eject .rec-ej')
+        if (!el) return
+        mo.disconnect()
+        const ev = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })
+        el.dispatchEvent(ev)
+        w.__guard.push(ev.defaultPrevented)
+      })
+      mo.observe(document.body, { childList: true, subtree: true })
+    })
     await page.keyboard.press('Enter')
     const dialog = page.locator('.modal.rec-eject')
     await expect(dialog).toBeVisible()
-    await page.keyboard.press('Enter')
+    await expect.poll(() => page.evaluate(() => (window as unknown as { __guard: boolean[] }).__guard)).toEqual([true])
     await expect(dialog.locator('.rec-title')).toHaveText('52 Vorgänge von Agent · Nordlicht-Spiegel auswerfen?')
     await expect(dialog.locator('.plan__n')).toHaveText(['01', '02', '03', '04', '05'])
     await expect(dialog.locator('.plan__label')).toHaveText([/^Schema/, /^Seite/, /^Zeilen/, /^Neue Zeilen/, /^Gehalten/])
@@ -373,6 +387,13 @@ test.describe('flight recorder — the eject', () => {
     expect(await rec<unknown[]>(page, 'ejects')).toEqual([])
     const confirm = dialog.locator('.btn--eject')
     await expect(confirm).toHaveText(/^35 Stellen zurücknehmen\s*↵$/)
+    await page.waitForTimeout(350)
+    const late = await dialog.locator('.rec-ej').evaluate((el) => {
+      const ev = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })
+      el.dispatchEvent(ev)
+      return ev.defaultPrevented
+    })
+    expect(late).toBe(false)
     await confirm.click()
     await expect(dialog).toHaveCount(0)
     // the toast: glyph, "35 Stellen von … zurück · 2 gehalten", Undo with its keycap, "Gehaltene zeigen"
