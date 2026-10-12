@@ -394,7 +394,10 @@ export const messages: Messages = {
     // the needs-setup card (UX § 10.6) — every "no key" surface
     'features.ai.prov.needs.label': 'AI',
     'features.ai.prov.needs.title': 'AI isn’t set up yet',
-    'features.ai.prov.needs.body': 'Pick Claude, OpenAI or OpenRouter — or several. Takes about three minutes; your key stays in this browser.',
+    'features.ai.prov.needs.body': 'Pick {list} — or {all}. Takes about three minutes; your key stays in this browser.',
+    'features.ai.prov.needs.or': ' or ',
+    'features.ai.prov.needs.both': 'both',
+    'features.ai.prov.needs.several': 'several',
     'features.ai.prov.needs.open': 'Set up AI',
     'features.ai.prov.needs.demo': 'Try a demo answer (no key)',
     'features.ai.prov.needs.demoNote': 'Offline · canned · nothing is sent',
@@ -801,7 +804,10 @@ export const messages: Messages = {
 
     'features.ai.prov.needs.label': 'KI',
     'features.ai.prov.needs.title': 'KI ist noch nicht eingerichtet',
-    'features.ai.prov.needs.body': 'Wähle Claude, OpenAI oder OpenRouter — oder mehrere. Dauert etwa drei Minuten; dein Schlüssel bleibt in diesem Browser.',
+    'features.ai.prov.needs.body': 'Wähle {list} — oder {all}. Dauert etwa drei Minuten; dein Schlüssel bleibt in diesem Browser.',
+    'features.ai.prov.needs.or': ' oder ',
+    'features.ai.prov.needs.both': 'beide',
+    'features.ai.prov.needs.several': 'mehrere',
     'features.ai.prov.needs.open': 'KI einrichten',
     'features.ai.prov.needs.demo': 'Demo-Antwort ohne Schlüssel',
     'features.ai.prov.needs.demoNote': 'Offline · vorgefertigt · nichts wird gesendet',

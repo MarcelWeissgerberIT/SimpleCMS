@@ -935,3 +935,10 @@ select.input {
   color: var(--ink-2);
   font-size: var(--text-sm);
 }
+
+/* Settings › AI loads as its own chunk: a quiet line while it does (two classes: .label is a ui.css primitive) */
+.st__loading.label {
+  margin: 0;
+  padding: 18px 0;
+  color: var(--ink-3);
+}

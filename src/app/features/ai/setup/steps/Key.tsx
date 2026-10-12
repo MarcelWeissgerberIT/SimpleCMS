@@ -23,7 +23,6 @@ import { fmtCost, fmtUsd } from '../../../../lib/money'
 import { HelpLink } from '../../../../help'
 import { verifyProvider } from '../../core/verify'
 import { connectOpenRouter, cancelOpenRouter, useORConnect } from '../../providers/openrouterConnect'
-import { OR_KEYS_PAGE } from '../../providers/OpenRouterOAuthScreen'
 import { runAI } from '../../client'
 import { ReceiptLine } from '../../Receipt'
 import type { Receipt } from '../../core/meter'
@@ -233,7 +232,7 @@ function ConnectPath() {
           {st.phase === 'done' && st.discarded && (
             <p className="aik-path__issue" role="alert">
               {t('features.ai.or.err.invalid_key')}{' '}
-              <a href={OR_KEYS_PAGE} target="_blank" rel="noreferrer noopener">
+              <a href={PROVIDERS.openrouter.keyUrl} target="_blank" rel="noreferrer noopener">
                 {t('features.ai.or.deleteKey')}
               </a>
             </p>
@@ -245,7 +244,7 @@ function ConnectPath() {
       )}
       {!hint && st.phase === 'idle' && st.at > 0 && (
         <p className="aik-path__issue">
-          <a href={OR_KEYS_PAGE} target="_blank" rel="noreferrer noopener" data-testid="or-delete-key">
+          <a href={PROVIDERS.openrouter.keyUrl} target="_blank" rel="noreferrer noopener" data-testid="or-delete-key">
             {t('features.ai.prov.tab.deleteAtOR')}
           </a>
         </p>

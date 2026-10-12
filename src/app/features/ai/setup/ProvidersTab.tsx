@@ -34,7 +34,6 @@ import { ProviderPlate } from './ProviderPlate'
 import { RemovePanel, dropKey } from './remove'
 import { MemberData } from './MemberData'
 import { openAISetup } from './openAISetup'
-import { OR_KEYS_PAGE } from '../providers/OpenRouterOAuthScreen'
 import './plates.css'
 import './settings.css'
 
@@ -197,7 +196,7 @@ function Plates() {
             )}
             {p === 'openrouter' && has && (
               <p className="pplate__extra">
-                <a className="aik-link" href={OR_KEYS_PAGE} target="_blank" rel="noreferrer noopener">
+                <a className="aik-link" href={PROVIDERS.openrouter.keyUrl} target="_blank" rel="noreferrer noopener">
                   {t('features.ai.prov.tab.deleteAtOR')}
                 </a>
               </p>

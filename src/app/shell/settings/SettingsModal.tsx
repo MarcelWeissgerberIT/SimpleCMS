@@ -1,4 +1,4 @@
-import { cloneElement, isValidElement, useEffect, useId, useRef, useState, type ReactElement, type ReactNode } from 'react'
+import { Suspense, cloneElement, isValidElement, useEffect, useId, useRef, useState, type ReactElement, type ReactNode } from 'react'
 import { ArrowRight, X, GitBranch, HardDrive } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
 import { isEffectivelyTrashed } from '../../store/selectors'
@@ -149,7 +149,12 @@ function Settings({ initialTab, section, onClose }: { initialTab?: SettingsTab; 
             {tab === 'general' && <GeneralTab />}
             {tab === 'server' && <ServerTab />}
             {tab === 'appearance' && <AppearanceTab />}
-            {tab === 'ai' && <ProvidersTab section={section} />}
+            {tab === 'ai' && (
+              // a lazy chunk (Settings › AI is not on the boot path); the tab head stays while it loads
+              <Suspense fallback={<p className="st__loading label" aria-busy="true">{t('common.loading')}</p>}>
+                <ProvidersTab section={section} />
+              </Suspense>
+            )}
             {tab === 'data' && <DataTab onClose={onClose} />}
             {tab === 'sync' && <SyncTab />}
             {tab === 'mail' && <MailTab />}

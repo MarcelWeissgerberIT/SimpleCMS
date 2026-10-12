@@ -10,7 +10,7 @@
 import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { KeyRound, Play, RotateCw, ShieldAlert, SlidersHorizontal } from 'lucide-react'
 import type { DataClass, FeatureClass, ProviderId } from '@/shared/ai/types'
-import { providerInfo } from '@/shared/ai/providers'
+import { providerInfo, shippedProviders } from '@/shared/ai/providers'
 import { useWorkspace } from '../../../store/store'
 import { aiRulesAllowed } from '../../../store/ai'
 import { useT } from '../../../i18n'
@@ -124,7 +124,10 @@ export function AINeedsSetup({ purpose, reason, fix, variant = 'card', onOpen, o
     key = null
   } else {
     title = t('features.ai.prov.needs.title')
-    body = t('features.ai.prov.needs.body')
+    // only the providers this build can set up (a listed one that is not shipped yet reads "comes soon" in step 01)
+    const names = shippedProviders().map((id) => providerInfo(id).name)
+    const list = names.length > 1 ? `${names.slice(0, -1).join(', ')}${t('features.ai.prov.needs.or')}${names[names.length - 1]}` : (names[0] ?? '')
+    body = t('features.ai.prov.needs.body', { list, all: t(names.length > 2 ? 'features.ai.prov.needs.several' : 'features.ai.prov.needs.both') })
     key = { label: t('features.ai.prov.needs.open'), icon: <KeyRound size={13} strokeWidth={1.75} aria-hidden />, run: open(() => openAISetup({ reason: 'nokey', feature: cls })) }
   }
 
