@@ -2,9 +2,9 @@
 id: anthropic-unreachable
 title: Claude nicht erreichbar
 section: trouble
-order: 2
+order: 3
 keywords: anthropic, claude, nicht erreichbar, offline, netzwerk, vpn, firewall, blocker, adblock, rate limit, ausgelastet, schlüssel abgelehnt, fehler, unreachable
-related: claude-key, reload, mcp-token-rejected
+related: ai-unreachable, claude-key, reload, mcp-token-rejected
 summary: „api.anthropic.com ist nicht erreichbar“ — meist ein Netzwerkfilter, ein VPN oder ein Content-Blocker.
 ---
 Ones KI spricht aus deinem Browser direkt mit `api.anthropic.com`. **api.anthropic.com ist nicht erreichbar. Prüfe Verbindung, VPN oder Content-Blocker.** heißt: Diese Anfrage kam nie an.
@@ -16,8 +16,10 @@ Ones KI spricht aus deinem Browser direkt mit `api.anthropic.com`. **api.anthrop
 4. **Anthropic-Status** — selten ist die API selbst gestört: status.anthropic.com.
 
 ## Andere Meldungen
-- **Anthropic hat diesen API-Schlüssel abgelehnt** — der Schlüssel ist falsch, widerrufen oder ohne Guthaben: prüf ihn in der Anthropic-Konsole, dann **Einstellungen → Claude KI**.
+- **Anthropic hat diesen API-Schlüssel abgelehnt** — der Schlüssel ist falsch, widerrufen oder ohne Guthaben: prüf ihn in der Anthropic-Konsole, dann **Einstellungen → KI**.
 - **Rate-Limit erreicht** / **Claude ist gerade stark ausgelastet** — kurz warten und erneut versuchen.
-- **Dieser API-Schlüssel darf … nicht verwenden** — wähle ein anderes **Modell** unter Einstellungen → Claude KI.
+- **Dieser API-Schlüssel darf … nicht verwenden** — wähle ein anderes **Modell** unter Einstellungen → KI.
 - **One wurde aktualisiert, während dieser Tab offen war** — Tab neu laden.
 - Ein Fehler eines MCP-Servers — siehe [MCP-Token abgelehnt](help:mcp-token-rejected).
+
+> OpenRouter, ein abgelehnter Schlüssel, kein Guthaben, Datenregeln: siehe [Die KI ist nicht erreichbar oder sagt nein](help:ai-unreachable).

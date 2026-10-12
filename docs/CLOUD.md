@@ -559,9 +559,13 @@ allow-listed fonts, no CSS) — and it is never part of a share link, a publishe
 The workspace's **AI rules** (`workspace.ai`: the generation they need, data rules per AI provider, routes per kind of
 work, limits — src/shared/ai/types.ts `WorkspaceAI`) are the owners' and admins' the same way: the server guard
 `server/src/collab/workspace-ai.ts` puts a member's write back and stamps an owner's or admin's with `updatedBy`. Every
-client reads the key through `sanitizeWorkspaceAI` and keeps it through its own edits; slice 1 of the multi-provider
-work reads it only — nothing writes it yet, and a tab whose build is older than the rules' `gen` refuses AI requests
-('reload') instead of ignoring rules it does not know. Custom agents' route fields (`route`, `review`, `saverRule`,
+client reads the key through `sanitizeWorkspaceAI` and keeps it through its own edits. Since slice 2 the app writes
+it from the setup assistant's step 04 and Settings → AI (`setWorkspaceAI`, owners and admins only; members see the
+columns read-only and narrow them for themselves in `settings.ai.narrow`, which is per device and never synced); a
+write stamps the build's generation (`gen`), and a column nobody touched is never written (Claude's stays as it was).
+A tab whose build is older than the rules' `gen` refuses AI requests ('reload') instead of ignoring rules it does not
+know. The member classes (private pages, mail, memory, MCP) are each member's own opt-in on their device
+(`settings.ai.allow`); the workspace can only forbid them (`forbid`). Custom agents' route fields (`route`, `review`, `saverRule`,
 `applyOn`, `routeSig`) are kept by the server's sanitizer too — one it cannot read is kept as it was, never dropped; a
 server run whose first route is not Claude, or whose route fields the server cannot read, is skipped with its reason
 (no request).

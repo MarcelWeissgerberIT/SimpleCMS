@@ -44,6 +44,10 @@ src/app/features/**                  AI (+ workspace agent), history, graph, sha
                                      (SVG renderer, chart builder, data sources) (public API: features/index.ts)
 src/app/features/ai/core/**          the AI core: purposes, sources, the gate (prepare / precheck), metering (meter.ts: one ledger
                                      entry per response, receipts), status (public: features/ai/core/index.ts, via features/index.ts)
+src/app/features/ai/providers/**     provider adapters (anthropic.ts = the only runtime SDK import, openrouter + Connect account)
+src/app/features/ai/setup/**         "Set up AI": openAISetup / openAISettings (the only ways in), <AINeedsSetup> + offersAI +
+                                     FixKeys, the assistant (AISetup.tsx + steps/ 01–06, lazy), Settings › AI (ProvidersTab)
+src/app/features/ai/routing/**       route chip / picker, CatalogPicker (lazy), CapLamps, DataRules (the class matrix)
 src/app/features/governor/**         Regler P1: the ledger (IndexedDB one-ledger), reservations, estimate bands (public API
                                      governor/index.ts); src/shared/ai/** = the pure multi-provider contracts (app + server)
 src/app/features/outbox/**           the Outbox: slips for another tool's send routes, drafted without tools, sent by hand
@@ -58,7 +62,7 @@ src/app/features/workitems/**        tasks outside the editor: the workspace ind
                                      views, writeItems (origin 'items'), the unblock toast, members + reminder audience, the
                                      people / link pickers and cards, settle gate, facts, holds, query (public API
                                      workitems/index.ts, via features/index.ts)
-src/app/help/**                      help centre: panel (?, status bar, ⌘K, workspace menu), 75 articles EN+DE twins
+src/app/help/**                      help centre: panel (?, status bar, ⌘K, workspace menu), 78 articles EN+DE twins
                                      (help/articles/{en,de}/<id>.md, `help:<id>` links), Ask (Claude over the articles);
                                      link UI to an article with `<HelpLink id="…" />` (public API: help/index.ts)
 src/help-site/**                     build-time public /help pages (prerendered from the same articles, hreflang)
@@ -118,7 +122,10 @@ the public APIs stable — other areas are built against them in parallel.
   formulas reach them through lib/formulaFunctions.ts. No eval / `new Function` anywhere in formula code.
 - Secrets: `settings.aiApiKey` / `GitHubConfig.token` hold vault markers (`vault:<id>:<last4>`), the secrets are sealed
   in IndexedDB `one-vault` (lib/vault.ts). Read an AI key only via `getAIKey(provider)` (store/secrets.ts; no default —
-  'anthropic' for Claude, '' for openai / openrouter until their slices), the GitHub token only via `openGitHubToken()`.
+  'anthropic' for Claude, 'openrouter' for OpenRouter, '' for openai until its slice), the GitHub token only via
+  `openGitHubToken()`. Keys are set only by the assistant's step 02 (a pasted key is sealed only after its free check
+  passes — a 402 "no credit" counts as valid; Connect account = OAuth PKCE, providers/openrouterConnect.ts) and removed
+  through setup/remove.ts (`dropKey`, optionally with this device's rules for that provider, Undo).
   `settings.aiKeys` (openai / openrouter) holds vault markers only — every reader drops anything else. Backups never
   carry a key or `settings.ai`, and a restore (merge or replace) never takes `aiApiKey` / `aiKeys` / `settings.ai` from
   the file: they stay this device's (features/io/backup.ts).
@@ -152,9 +159,17 @@ the public APIs stable — other areas are built against them in parallel.
   figures in the UI's decimal sign (`fmtTokens(n, lang)`). Receipts: AI run cards (`AIRun.route / served / usage / usd / costSource / steps`,
   features/ai/Receipt.tsx), terminal `/cost` per model (`AgentUsage.byModel`), agent runs (`AgentRunUsage.byModel`;
   `maxRunUsd` on the sum of entries; a response without a price stops a budgeted run). `memoryRef(block)` names the
-  memory database as a source when a memory block goes along. `Workspace.ai`, `settings.ai`, `settings.aiKeys` and
-  `CustomAgent.route / review / saverRule / applyOn / routeSig` are kept by every reader and written by nobody yet
-  (team: meta map `workspace` key `ai`, guarded by the server — server/src/collab/workspace-ai.ts — read-only in S1).
+  memory database as a source when a memory block goes along. `Workspace.ai` is written only through store/aiRules.ts
+  (`setWorkspaceAI`, owners / admins — `aiRulesAllowed()`; stamps `gen`; a provider column nobody touched is never
+  written, Claude's stays as it was) and `settings.ai` through `setDeviceAI` / `setDeviceRule` / `setDeviceDefault` /
+  `setRoles` (this device), all under a writer (setup writes `you~setup`); `CustomAgent.route / review / saverRule /
+  applyOn / routeSig` are kept by every reader and written by nobody yet (team: meta map `workspace` key `ai`, guarded
+  by the server — server/src/collab/workspace-ai.ts). Surfaces ask `useAIStatus(purpose)` and show `<AINeedsSetup>` up
+  front only when `!offersAI(status)` (no key for that kind of work: 'no_key' / 'route'); newer rules, the off switch,
+  a data rule, a capability or a removed model come back from the gate as the request's error with its fix keys
+  (`FixKeys`: Check key · Choose models · Change rule → the assistant at that step; MCP fixes → `openAISettings({
+  section: 'mcp' })`, never the assistant). OpenRouter names: only `src/shared/ai` (the Jev Router slug only in
+  jev.ts), the AI core / providers / setup / routing and the help — tests/e2e/ai-names.spec.ts guards it.
   A rule with one pin a build cannot read is unreadable as a whole (never a pin dropped); an agent field it cannot read
   is kept as it was (`Unreadable`, src/shared/ai/route.ts) and blocks the agent (`agentAIReadable` / `runsOnClaude`). A
   browser agent whose route is not Claude (or names a provider this build cannot run, features/agents/routeBlock.ts

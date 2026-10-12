@@ -4,10 +4,13 @@ title: KI-Menü & Fragen
 section: ai
 order: 2
 keywords: ki, claude, leertaste, ki fragen, verbessern, zusammenfassen, übersetzen, erklären, weiterschreiben, aufgaben, aufgaben machen, to-dos, verantwortlich, fällig, workspace fragen, in datenbank umwandeln, board, tabelle, verwandeln in, schaubild, flussdiagramm, mindmap, mermaid, diagramm, zeitleiste, spalten, tabs, aufklappliste, karten, visualisieren, hintergrund, kontext, was claude liest, blöcke markieren, neu machen, umschreiben, vorgaben, styleguide, unterseite pro eintrag, seiten + tabelle, unterseite daraus, eine seite pro ticket, bild, foto, alternativtext, bildunterschrift, text auslesen, ocr, bild in tabelle, screenshot, datei, pdf, anhang, pdf zusammenfassen, word, docx, excel, xlsx, csv, html, als seite öffnen, als datenbank importieren, ai, ask, database, transform, diagram, chart, context, redo, image
-related: claude-key, agent, command-palette, history
-summary: Leertaste in einer leeren Zeile, oder „KI fragen“ an einer Auswahl — Claude schreibt, bearbeitet und antwortet direkt in der Seite.
+related: ai-providers, claude-key, agent, command-palette, history
+summary: Leertaste in einer leeren Zeile, oder „KI fragen“ an einer Auswahl — die KI schreibt, bearbeitet und antwortet direkt in der Seite.
 ---
 Das Menü beginnt mit dem Eingabefeld: frag in eigenen Worten und drück <kbd>Enter</kbd>. Darunter die Aktionen, die du für das Geöffnete am häufigsten brauchst — Text, mehrere Blöcke, ein Bild, eine Datei oder eine leere Zeile; **Übersetzen**, **Verwandeln in …** und **Mehr…** öffnen ein Untermenü (<kbd>→</kbd>, zurück mit <kbd>←</kbd> oder <kbd>Rücktaste</kbd>). **Mehr…** hat alles Übrige. Tippen durchsucht jede Aktion, egal wo sie steht.
+
+## Welche KI antwortet
+Das Menü läuft beim Anbieter, den deine Regeln fürs Schreiben wählen — Claude oder ein OpenRouter-Modell, wenn du es eingerichtet hast ([KI-Anbieter](help:ai-providers)). Die Marke unter der Eingabe nennt ihn; ein Klick darauf (oder <kbd>Tab</kbd>) wählt ein anderes Modell für diese Anfrage. Daten, die die Regeln von diesem Anbieter fernhalten, gehen nie hinaus — das Menü sagt es und bietet **Regel ändern**.
 
 ## In einer leeren Zeile: Leertaste
 Drück <kbd>Leertaste</kbd> in einer leeren Zeile (oder `/ki`). Tippe eine beliebige Bitte, oder wähle:

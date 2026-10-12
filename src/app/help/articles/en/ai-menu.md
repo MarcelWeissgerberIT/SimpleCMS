@@ -4,10 +4,13 @@ title: The AI menu & asking
 section: ai
 order: 2
 keywords: ai, claude, space, ask ai, improve, summarize, translate, explain, continue writing, action items, make tasks, tasks, owner, due, ask workspace, turn into database, board, table, transform into, diagram, flowchart, mind map, mermaid, chart, timeline, columns, tabs, toggles, cards, visualize, background, context, what claude reads, mark blocks, redo, rewrite, instructions, presets, style guide, sub-page per item, pages + table, make a subpage, one page per item, image, picture, alt text, caption, ocr, read text, image to table, screenshot, photo, file, pdf, attachment, summarize pdf, word, docx, excel, xlsx, csv, html, open as page, import as database, KI, Leertaste, verbessern, zusammenfassen, übersetzen, Datenbank, verwandeln, Schaubild, Diagramm, Spalten, Karten, Kontext, neu machen, Vorgaben, Bild, Alternativtext
-related: claude-key, agent, command-palette, history
-summary: Space on an empty line, or Ask AI on a selection — Claude writes, edits and answers right in the page.
+related: ai-providers, claude-key, agent, command-palette, history
+summary: Space on an empty line, or Ask AI on a selection — the AI writes, edits and answers right in the page.
 ---
 The menu starts with the prompt: ask in your own words and press <kbd>Enter</kbd>. Below it, the actions used most for what you opened it on — text, several blocks, an image, a file or an empty line; **Translate**, **Transform into…** and **More…** open a submenu (<kbd>→</kbd>, back with <kbd>←</kbd> or <kbd>Backspace</kbd>). **More…** holds everything else. Typing searches every action, wherever it sits.
+
+## Which AI answers
+The menu runs on the provider your rules pick for writing — Claude, or an OpenRouter model if you set it up ([AI providers](help:ai-providers)). The label under the prompt names it; click it (or <kbd>Tab</kbd> to it) to pick another model for this request. Data the rules keep from that provider never goes out — the menu says so and offers **Change rule**.
 
 ## On an empty line: Space
 Press <kbd>Space</kbd> on an empty line (or `/ai`). Type any request, or pick:

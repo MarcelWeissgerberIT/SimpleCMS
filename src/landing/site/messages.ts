@@ -43,7 +43,7 @@ export const messages: Messages = {
     'hero.h1': 'Notion, rebuilt.',
     'hero.h2': 'Minus the bill.',
     'hero.sub':
-      'Block editor, databases with nine views, spreadsheets, scripts and charts, Gmail as a database, Claude on your own key that asks before it changes, agents on a schedule, automations into n8n — and one export to a website. Free, local-first, no account: it all runs in this browser tab.',
+      'Block editor, databases with nine views, spreadsheets, scripts and charts, Gmail as a database, AI on your own key — Claude or OpenRouter — that asks before it changes, agents on a schedule, automations into n8n — and one export to a website. Free, local-first, no account: it all runs in this browser tab.',
     'hero.tour': 'Watch the tour',
     'hero.tourMeta': '60 s · sound on',
     'tour.title': 'SimpleCMS One — the 60-second tour',
@@ -122,12 +122,12 @@ export const messages: Messages = {
     'r.one': 'SimpleCMS One',
     'r.hosting': 'Hosting & servers',
     'r.accounts': 'Accounts & seats',
-    'r.ai': 'Claude AI (your key)',
+    'r.ai': 'AI (your own keys)',
     'r.aiValue': 'per use*',
     'r.saved': 'Saved / year',
     'r.five': '5 years',
     'r.foot':
-      '* Billed by Anthropic to your own API key, only when you use it.',
+      '* Billed by your AI provider — Anthropic for Claude, or OpenRouter — to your own key, only when you use it.',
     'r.source': 'Notion list prices in USD excl. tax, as of {asOf}. Source: notion.com/pricing',
     'r.thanks': 'Thank you for not subscribing',
     'r.paid': 'Nothing to pay',
@@ -162,7 +162,7 @@ export const messages: Messages = {
     'mcp.outWire': 'via Anthropic',
     'mcp.outNode': 'Your knowledge base',
     'mcp.outAlt': 'Claude in One connects to your own MCP server, through Anthropic.',
-    'mcp.outWhere': 'Settings → Claude AI → MCP servers',
+    'mcp.outWhere': 'Settings → AI → MCP servers',
     'mcp.outHelp': 'How to add a server',
     'mcp.spec.protocol': 'Protocol',
     'mcp.spec.transport': 'Transport',
@@ -281,7 +281,7 @@ export const messages: Messages = {
     'privacy.appParts': 'Editor · DB · Search · AI UI',
     'privacy.idb': 'IndexedDB',
     'privacy.idbNote': 'Pages · rows · files',
-    'privacy.anthropic': 'Anthropic API',
+    'privacy.anthropic': 'Your AI provider',
     'privacy.anthropicNote': 'Only with your key, only what you send',
     'privacy.hooks': 'Your webhooks',
     'privacy.hooksNote': 'Only URLs you configure',
@@ -291,9 +291,9 @@ export const messages: Messages = {
     'privacy.dashed': 'Optional, opt-in',
     'privacy.none': 'Does not exist',
     'privacy.alt':
-      'Diagram: the One app in your browser tab reads and writes IndexedDB. Optionally it calls the Anthropic API with your key and your own webhooks. There are no SimpleCMS servers.',
+      'Diagram: the One app in your browser tab reads and writes IndexedDB. Optionally it calls your AI provider (Anthropic or OpenRouter) with your key, and your own webhooks. There are no SimpleCMS servers.',
     'privacy.p1': 'Every page, row and file is stored in IndexedDB, on this device.',
-    'privacy.p2': 'AI requests go from your browser straight to Anthropic. No proxy, no markup. Anthropic calls the MCP servers you add.',
+    'privacy.p2': 'AI requests go from your browser to the provider you set up — Anthropic for Claude, or OpenRouter — with your key. No proxy, no markup. Data rules say per provider what may go; Anthropic calls the MCP servers you add.',
     'privacy.p3': 'Automations, forms and buttons post only to endpoints you enter yourself. Gmail is read straight from Google.',
     'privacy.p4': 'No analytics, no cookies banner — because there are no cookies.',
 
@@ -386,7 +386,7 @@ export const messages: Messages = {
     'hero.h1': 'Notion, neu gebaut.',
     'hero.h2': 'Ohne Abo.',
     'hero.sub':
-      'Block-Editor, Datenbanken mit neun Ansichten, Tabellenkalkulation, Skripte und Diagramme, Gmail als Datenbank, Claude mit eigenem Schlüssel, das fragt, bevor es ändert, Agenten nach Zeitplan, Automationen nach n8n — und ein Export zur fertigen Website. Kostenlos, local-first, ohne Konto: Alles läuft in diesem Browser-Tab.',
+      'Block-Editor, Datenbanken mit neun Ansichten, Tabellenkalkulation, Skripte und Diagramme, Gmail als Datenbank, KI mit eigenem Schlüssel — Claude oder OpenRouter —, die fragt, bevor sie ändert, Agenten nach Zeitplan, Automationen nach n8n — und ein Export zur fertigen Website. Kostenlos, local-first, ohne Konto: Alles läuft in diesem Browser-Tab.',
     'hero.tour': 'Die Tour ansehen',
     'hero.tourMeta': '60 s · mit Ton (Englisch)',
     'tour.title': 'SimpleCMS One — die 60-Sekunden-Tour',
@@ -469,7 +469,7 @@ export const messages: Messages = {
     'r.aiValue': 'nach Nutzung*',
     'r.saved': 'Gespart / Jahr',
     'r.five': '5 Jahre',
-    'r.foot': '* Abrechnung direkt durch Anthropic über deinen eigenen API-Key, nur bei Nutzung.',
+    'r.foot': '* Abrechnung durch deinen KI-Anbieter — Anthropic für Claude oder OpenRouter — über deinen eigenen Schlüssel, nur bei Nutzung.',
     'r.source': 'Notion-Listenpreise in USD zzgl. Steuern, Stand {asOf}. Quelle: notion.com/pricing',
     'r.thanks': 'Danke, dass du nicht abonnierst',
     'r.paid': 'Nichts zu zahlen',
@@ -504,7 +504,7 @@ export const messages: Messages = {
     'mcp.outWire': 'über Anthropic',
     'mcp.outNode': 'Deine Wissensdatenbank',
     'mcp.outAlt': 'Claude in One verbindet sich über Anthropic mit deinem eigenen MCP-Server.',
-    'mcp.outWhere': 'Einstellungen → Claude KI → MCP-Server',
+    'mcp.outWhere': 'Einstellungen → KI → MCP-Server',
     'mcp.outHelp': 'Server hinzufügen — so geht’s',
     'mcp.spec.protocol': 'Protokoll',
     'mcp.spec.transport': 'Transport',
@@ -623,7 +623,7 @@ export const messages: Messages = {
     'privacy.appParts': 'Editor · DB · Suche · KI-UI',
     'privacy.idb': 'IndexedDB',
     'privacy.idbNote': 'Seiten · Zeilen · Dateien',
-    'privacy.anthropic': 'Anthropic-API',
+    'privacy.anthropic': 'Dein KI-Anbieter',
     'privacy.anthropicNote': 'Nur mit deinem Key, nur was du sendest',
     'privacy.hooks': 'Deine Webhooks',
     'privacy.hooksNote': 'Nur URLs, die du einträgst',
@@ -633,9 +633,9 @@ export const messages: Messages = {
     'privacy.dashed': 'Optional, nur auf Wunsch',
     'privacy.none': 'Existiert nicht',
     'privacy.alt':
-      'Diagramm: Die One-App in deinem Browser-Tab liest und schreibt IndexedDB. Optional ruft sie die Anthropic-API mit deinem Key und deine eigenen Webhooks auf. SimpleCMS-Server gibt es nicht.',
+      'Diagramm: Die One-App in deinem Browser-Tab liest und schreibt IndexedDB. Optional ruft sie deinen KI-Anbieter (Anthropic oder OpenRouter) mit deinem Schlüssel auf, und deine eigenen Webhooks. SimpleCMS-Server gibt es nicht.',
     'privacy.p1': 'Jede Seite, Zeile und Datei liegt in IndexedDB, auf diesem Gerät.',
-    'privacy.p2': 'KI-Anfragen gehen aus deinem Browser direkt zu Anthropic. Kein Proxy, kein Aufschlag. Anthropic ruft die MCP-Server auf, die du hinzufügst.',
+    'privacy.p2': 'KI-Anfragen gehen aus deinem Browser an den Anbieter, den du eingerichtet hast — Anthropic für Claude oder OpenRouter —, mit deinem Schlüssel. Kein Proxy, kein Aufschlag. Datenregeln legen je Anbieter fest, was hinaus darf; Anthropic ruft die MCP-Server auf, die du hinzufügst.',
     'privacy.p3': 'Automationen, Formulare und Buttons senden nur an Endpunkte, die du selbst einträgst. Gmail wird direkt bei Google gelesen.',
     'privacy.p4': 'Keine Analytics, kein Cookie-Banner — weil es keine Cookies gibt.',
 
@@ -843,7 +843,7 @@ export const content: Record<Lang, SiteContent> = {
     ],
     features: [
       { key: 'editor', group: 'write', code: 'Ed', title: 'Block editor', text: 'Slash menu, one column of grips for every block at any depth, many blocks selected at once, 2–5 columns, tabs, toggles, synced blocks, PDFs, embeds, math, Mermaid.' },
-      { key: 'ai', group: 'write', code: 'Ai', title: 'Claude AI, your key', text: 'Write, rewrite, redo marked passages by your rules, ask your whole workspace with cited pages. Your own Anthropic key, paid per use.' },
+      { key: 'ai', group: 'write', code: 'Ai', title: 'AI on your own key', text: 'Write, rewrite, redo marked passages by your rules, ask your whole workspace with cited pages. Claude, OpenRouter or both — your own keys, paid per use, data rules per provider.' },
       { key: 'transform', group: 'write', code: 'Tf', title: 'Transform into …', text: 'Select a list or a few paragraphs: Claude turns them into a diagram, a chart, a board, a table, columns or tabs. Preview first, then one step.' },
       { key: 'meeting', group: 'write', code: 'Mt', title: 'Meeting notes', text: 'A live transcript from the browser’s speech recognition, then summary, decisions and action items by Claude — the items go straight into a database.' },
       { key: 'history', group: 'write', code: 'Hi', title: 'Version history', text: 'Every page and every database entry, no day limit: words and property values compared side by side. Restore with one click.' },
@@ -908,7 +908,7 @@ export const content: Record<Lang, SiteContent> = {
         key: 'ai',
         title: 'Claude, on your key.',
         text: 'Turn a list into a diagram or a board, take meeting notes from a live transcript, hand a whole task to the AI terminal (⌘J), rewrite a selection or let Claude fill a database column. Every change is shown first — nothing is written until you accept it.',
-        specs: ['Key stays on this device', 'Transform: diagram · chart · board · table', 'Pay Anthropic per use — no AI seat'],
+        specs: ['Keys stay on this device', 'Transform: diagram · chart · board · table', 'Pay your AI provider per use — no AI seat'],
         fig: 'Fig. 5.2 — Claude',
         shots: [
           { shot: 'transform', tab: 'Transform', fig: 'Fig. 5.2a — A list → a diagram, previewed before it lands' },
@@ -1002,7 +1002,7 @@ export const content: Record<Lang, SiteContent> = {
       },
       {
         q: 'What does the AI cost?',
-        a: 'Nothing from us. Paste your own Anthropic API key and pay Anthropic per use, at their rates. No key, no AI, no cost.',
+        a: 'Nothing from us. Set up your own key — Claude (Anthropic), OpenRouter or both — and pay that provider per use, at their rates. No key, no AI, no cost.',
       },
       {
         q: 'Does Claude change things on its own?',
@@ -1075,7 +1075,7 @@ export const content: Record<Lang, SiteContent> = {
     ],
     features: [
       { key: 'editor', group: 'write', code: 'Ed', title: 'Block-Editor', text: 'Slash-Menü, eine Spalte mit Griffen für jeden Block in jeder Tiefe, viele Blöcke auf einmal markieren, 2–5 Spalten, Tabs, Aufklappblöcke, synchronisierte Blöcke, PDFs, Einbettungen, Formeln, Mermaid.' },
-      { key: 'ai', group: 'write', code: 'Ai', title: 'Claude-KI, dein Key', text: 'Schreiben, umschreiben, markierte Stellen nach deinen Regeln neu machen, den ganzen Workspace mit Quellen befragen. Dein eigener Anthropic-Key, bezahlt nach Nutzung.' },
+      { key: 'ai', group: 'write', code: 'Ai', title: 'KI mit deinem Schlüssel', text: 'Schreiben, umschreiben, markierte Stellen nach deinen Regeln neu machen, den ganzen Workspace mit Quellen befragen. Claude, OpenRouter oder beide — deine eigenen Schlüssel, bezahlt nach Nutzung, Datenregeln je Anbieter.' },
       { key: 'transform', group: 'write', code: 'Uw', title: 'Umwandeln in …', text: 'Eine Liste oder ein paar Absätze markieren: Claude macht daraus ein Diagramm, einen Chart, ein Board, eine Tabelle, Spalten oder Tabs. Erst die Vorschau, dann ein Schritt.' },
       { key: 'meeting', group: 'write', code: 'Bn', title: 'Besprechungsnotizen', text: 'Ein Live-Transkript aus der Spracherkennung des Browsers, dann Zusammenfassung, Entscheidungen und Aufgaben per Claude — die Aufgaben gehen direkt in eine Datenbank.' },
       { key: 'history', group: 'write', code: 'Hi', title: 'Versionsverlauf', text: 'Jede Seite und jeder Datenbank-Eintrag, ohne Tageslimit: Wörter und Eigenschaftswerte im Vergleich. Wiederherstellen mit einem Klick.' },
@@ -1140,7 +1140,7 @@ export const content: Record<Lang, SiteContent> = {
         key: 'ai',
         title: 'Claude, mit deinem Key.',
         text: 'Eine Liste in ein Diagramm oder Board umwandeln, Besprechungen aus einem Live-Transkript protokollieren, dem KI-Terminal (⌘J) eine ganze Aufgabe geben, eine Auswahl umschreiben oder Claude eine Datenbank-Spalte füllen lassen. Jede Änderung siehst du zuerst — geschrieben wird erst, wenn du zustimmst.',
-        specs: ['Key bleibt auf diesem Gerät', 'Umwandeln: Diagramm · Chart · Board · Tabelle', 'Bezahlung nach Nutzung bei Anthropic — kein KI-Abo'],
+        specs: ['Schlüssel bleiben auf diesem Gerät', 'Umwandeln: Diagramm · Chart · Board · Tabelle', 'Bezahlung nach Nutzung beim KI-Anbieter — kein KI-Abo'],
         fig: 'Abb. 5.2 — Claude',
         shots: [
           { shot: 'transform', tab: 'Umwandeln', fig: 'Abb. 5.2a — Eine Liste → ein Diagramm, mit Vorschau, bevor es landet' },
@@ -1234,7 +1234,7 @@ export const content: Record<Lang, SiteContent> = {
       },
       {
         q: 'Was kostet die KI?',
-        a: 'Von uns: nichts. Du hinterlegst deinen eigenen Anthropic-API-Key und zahlst Anthropic nach Nutzung, zu deren Preisen. Kein Key, keine KI, keine Kosten.',
+        a: 'Von uns: nichts. Du richtest deinen eigenen Schlüssel ein — Claude (Anthropic), OpenRouter oder beide — und zahlst diesem Anbieter nach Nutzung, zu dessen Preisen. Kein Schlüssel, keine KI, keine Kosten.',
       },
       {
         q: 'Ändert Claude etwas von selbst?',

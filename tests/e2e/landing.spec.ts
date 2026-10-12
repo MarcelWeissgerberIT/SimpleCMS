@@ -280,7 +280,7 @@ test.describe('landing: agents · MCP', () => {
     const portOut = plate.locator('.mcp-port.is-out')
     await expect(portOut.getByRole('heading', { name: 'Claude in One uses your MCP servers' })).toBeVisible()
     await expect(portOut.getByRole('img', { name: /your own MCP server, through Anthropic/ })).toContainText('Your knowledge base')
-    await expect(portOut).toContainText('Settings → Claude AI → MCP servers')
+    await expect(portOut).toContainText('Settings → AI → MCP servers')
     await expect(portOut.getByRole('link', { name: /How to add a server/ })).toHaveAttribute('href', '/SimpleCMS/help/mcp-servers/')
     // a packet runs along each wire
     await expect(plate.locator('.mcp-wire-pkt')).toHaveCount(2)

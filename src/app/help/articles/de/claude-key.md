@@ -2,22 +2,21 @@
 id: claude-key
 title: Dein Claude-Schlüssel
 section: ai
-order: 1
-keywords: claude, api-schlüssel, anthropic, sk-ant, schlüssel, modell, opus, sonnet, haiku, byok, tresor, kosten, api key, key
-related: ai-menu, privacy, anthropic-unreachable, mcp-servers
-summary: KI in One läuft mit deinem eigenen Anthropic-API-Schlüssel — verschlüsselt in diesem Browser gespeichert.
+order: 2
+keywords: claude, api-schlüssel, anthropic, sk-ant, schlüssel, modell, opus, sonnet, haiku, byok, tresor, kosten, ki einrichten, api key, key, model
+related: ai-providers, ai-menu, privacy, ai-unreachable
+summary: Claude läuft mit deinem eigenen Schlüssel aus der Anthropic-Konsole — eingerichtet im Assistenten, versiegelt in diesem Browser.
 ---
-One hat kein KI-Abo: Du bringst deinen eigenen Schlüssel mit, und Anthropic rechnet die Nutzung über dein Konto ab.
+One hat kein KI-Abo: Du bringst deinen eigenen Schlüssel mit, und Anthropic rechnet die Nutzung über dein Konto ab. Claude ist einer der [KI-Anbieter](help:ai-providers), die One nutzen kann — der, der alles kann, MCP-Server eingeschlossen.
 
 1. Erstelle einen Schlüssel in der Anthropic-Konsole (**console.anthropic.com → Settings → API keys**). Er beginnt mit `sk-ant-`.
-2. In One: **Einstellungen → Claude KI → Anthropic-API-Schlüssel**, einfügen. Oder drück <kbd>Leertaste</kbd> in einer leeren Zeile — das KI-Menü fragt danach.
-3. **Schlüssel testen** prüft ihn. Der Status zeigt **Verbunden · Schlüssel geprüft**.
-4. Wähle ein **Modell**: Claude Opus 5.5 (stärkstes, Standard), Sonnet 5.5 (ausgewogen) oder Haiku 4.5 (schnellstes). Auch die Modellanzeige im KI-Menü schaltet um.
+2. In One: **Einstellungen → KI → Claude einrichten** (oder ⌘K **KI einrichten**, oder die Karte, die jede KI-Funktion ohne Schlüssel zeigt). Füge den Schlüssel in Schritt 02 ein — die kostenlose Prüfung fragt nur die Modellliste ab, es wird kein Text gesendet — und er wird versiegelt.
+3. Schritt 03 zeigt Claudes Rollen: **Schnell** (Haiku), **Standard** (Sonnet), **Gründlich** (Opus). Ändern kannst du sie dort oder später in **Einstellungen → KI**.
 
 ## Wo der Schlüssel liegt
-Er ist im Tresor dieses Browsers versiegelt — mit einem Schlüssel, den der Browser erzeugt hat und nicht exportieren kann. Er geht nur an `api.anthropic.com` — nie in Backups, Exporte, Freigabelinks, Sync oder Team-Dokumente. Auf einem anderen Gerät (oder in einem anderen Browser) trägst du ihn erneut ein.
+Der Schlüssel liegt versiegelt im Tresor dieses Browsers, mit einem Schlüssel, den der Browser erzeugt hat und nicht herausgibt. Er geht nur an `api.anthropic.com` — nie in Sicherungen, Exporte, Freigabelinks, Sync oder Team-Dokumente. Auf einem anderen Gerät (oder in einem anderen Browser) fügst du ihn neu ein.
 
 ## Noch kein Schlüssel?
-Das KI-Menü bietet **Demo-Antwort testen (ohne Schlüssel)**: vorgefertigte Antworten, offline erzeugt, nichts wird gesendet.
+Das KI-Menü bietet **Demo-Antwort ohne Schlüssel**: vorgefertigte Antworten, offline geschrieben, es wird nichts gesendet.
 
-> Schlüssel widerrufst oder erneuerst du in der Anthropic-Konsole. Entfernst du den Schlüssel in den Einstellungen, ist die versiegelte Kopie aus diesem Browser gelöscht.
+> Widerrufen oder erneuern kannst du Schlüssel in der Anthropic-Konsole. **Einstellungen → KI → Entfernen …** löscht die versiegelte Kopie aus diesem Browser.

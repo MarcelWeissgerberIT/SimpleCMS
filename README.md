@@ -7,7 +7,7 @@
 **Notion, rebuilt. Minus the bill.**
 
 A local-first workspace that does what Notion does — block editor, databases with nine views, forms,
-spreadsheets, One Script, Gmail as a database, Claude AI with your own key (and it asks before it changes anything),
+spreadsheets, One Script, Gmail as a database, AI with your own key — Claude or OpenRouter (and it asks before it changes anything),
 webhook automations, import from Notion, Obsidian, Evernote and Trello, publishing as a website — for **$0**, with
 **no account** and **no server**. Everything lives in your browser.
 
@@ -33,15 +33,15 @@ add-ons. Most of that money buys pages, blocks and databases that a modern brows
 
 **One** is a faithful, keyboard-first rebuild of the parts people actually use, plus the things they keep asking
 Notion for: a real offline mode, a graph, version history with no day limit, free webhooks for n8n / Make / Zapier,
-AI on every workspace with your own Claude key, and an honest export.
+AI on every workspace with your own key (Claude, OpenRouter or both), and an honest export.
 
 | | Notion | **One** |
 |---|---|---|
-| Price | Free (limited) · Plus $10–12 · Business $20–24 per seat/month | **Free. No seats.** AI billed by Anthropic per use |
+| Price | Free (limited) · Plus $10–12 · Business $20–24 per seat/month | **Free. No seats.** AI billed by your provider per use |
 | Works fully offline, in the browser | partial (apps only, pages one by one) | **yes** — every page and row |
 | Data stays on your device | no | **yes** — IndexedDB, no server |
 | Use without an account | no | **yes** |
-| Full AI on every plan | Business only | **yes** — bring your own Claude key |
+| Full AI on every plan | Business only | **yes** — bring your own key: Claude, OpenRouter (hundreds of models, the Jev Router) or both |
 | Webhook automations | paid plans | **free** on every database |
 | Forms | yes | **free** — shared forms send answers to your n8n / Make / Zapier webhook |
 | AI autofill for database columns | Business only | **yes** — with review before anything is written |
@@ -158,7 +158,7 @@ replies), an **Agenda** with everything dated in the workspace (month, week, lis
 and unlinked mentions, a web clipper (bookmarklet and Android share target) that saves to a Clippings page, stacked panes
 (`Alt`-click any link), focus mode, presentation mode (any page becomes slides), 11 templates (meeting notes, project tracker, roadmap, content calendar, reading list, CRM, bug tracker,
 OKRs, weekly planner, wiki, habits), light "Paper" and dark "Carbon" themes, English and German — and a built-in
-**help centre** (`?`): 57 short articles in both languages, searchable from `⌘K`, an "Ask the help" box that has Claude
+**help centre** (`?`): 78 short articles in both languages, searchable from `⌘K`, an "Ask the help" box that has Claude
 answer from those articles only, and the same manual as public pages at [getonecms.com/help](https://getonecms.com/help/).
 
 **AI, your key** — select text and ask Claude to improve, shorten, extend, fix, translate, explain, summarise or pull
@@ -170,9 +170,13 @@ you have reviewed the changes, by mouse or keyboard (`j`/`k`, `Space`, `Enter`).
 word** — struck words, new words, removed and inserted blocks, unchanged blocks folded — and a version of the page is
 kept before they land. It keeps working while hidden (a
 status-bar LED and a toast report back), takes selected text along as references (`⌘⇧J`), `@` mentions, prompt
-history and `/commands` (`/apply`, `/cost`, `/help` …). Requests go straight from your browser to `api.anthropic.com` with your key (default model Claude Opus 5.5;
-Sonnet 5.5 and Haiku 4.5 selectable). The key never leaves this browser in any other way, and is stored there
-encrypted — as is the GitHub token for sync ([docs/SECURITY.md](docs/SECURITY.md): how, and what that does and does not protect against).
+history and `/commands` (`/apply`, `/cost`, `/help` …). **Set up AI** (`⌘K`, or Settings → AI) is a six-step assistant:
+pick **Claude** and/or **OpenRouter** (one key for hundreds of models — or connect your account; the **Jev Router** picks the
+right model of your list per request), check each key for free, choose fast / standard / deep models, set **data rules**
+per provider (a new provider starts with nothing) and decide who answers what on this device. Requests go straight
+from your browser to the provider of their route (`api.anthropic.com`, `openrouter.ai`) with your key; the AI terminal,
+agents, scripts and MCP servers run on Claude in this version. Keys never leave this browser in any other way, and are
+stored there encrypted — as is the GitHub token for sync ([docs/SECURITY.md](docs/SECURITY.md): how, and what that does and does not protect against).
 **External tools via MCP:** add any remote MCP server — a knowledge base, a tracker, a CRM — with its URL and a token
 (sealed in the same vault); One checks it, has Claude write an editable usage guide for it, and from then on the agent,
 your own requests and `⌘K ?` can use its tools (Anthropic's MCP connector makes the calls; every call shows as a chip).

@@ -4,11 +4,12 @@ One runs in your browser. The only secrets it keeps there are yours:
 
 | Secret | Where you enter it | Used for |
 | --- | --- | --- |
-| Claude API key | Settings → Claude AI (or the "Connect your Claude key" card) | requests to `api.anthropic.com` |
-| OpenAI / OpenRouter keys *(later slices)* | not offered yet — `settings.aiKeys` is kept as vault markers only | requests to their own hosts |
+| Claude API key | Set up AI (Settings → AI, ⌘K, or any "AI isn't set up yet" card) — step 02 | requests to `api.anthropic.com` |
+| OpenRouter key | Set up AI — step 02: **Connect account** (OAuth PKCE: the key comes from OpenRouter's exchange, nothing is copied) or pasted | requests to `openrouter.ai` |
+| OpenAI key *(a later slice)* | not offered yet — `settings.aiKeys.openai` is kept as a vault marker only | requests to `api.openai.com` |
 | GitHub token | Settings → Sync → GitHub | sync to your own repository on `api.github.com` |
 
-Both are **stored encrypted** in this browser and nowhere else. This page says how, what that protects against — and
+All of them are **stored encrypted** in this browser and nowhere else. This page says how, what that protects against — and
 what it does not.
 
 Not stored at all: the password of a protected share link (it encrypts the link in the browser and is forgotten). Not
@@ -17,9 +18,20 @@ once and kept by the server (see [SELF_HOSTING.md](SELF_HOSTING.md)). Webhook UR
 workspace data, not vault secrets: they travel with the workspace so the automation can run (a backup of a single page
 or database strips them).
 
+## AI keys from the assistant
+
+- A **pasted** key is checked first (the provider's model list or the key's own `/key` limits — no text is sent) and
+  sealed only when the check passes; a key OpenRouter refuses for credit (402) is valid and kept. The old key stays
+  until the new one passes.
+- **Connect account** (OpenRouter) is OAuth with PKCE (S256): the tab that started it keeps the verifier and a random
+  `state` in `sessionStorage` for that one attempt (10 minutes, one workspace); the sign-in window never exchanges the
+  code. The exchanged key is sealed at once and checked; no state, verifier or code is kept afterwards.
+- **Remove** in Settings → AI deletes the sealed record (optionally with this device's routing rules for that
+  provider, with Undo); Disconnect does the same for OpenRouter and links to OpenRouter's key page to revoke it there.
+
 ## How they are stored — the vault
 
-`src/app/lib/vault.ts`, used by `src/app/store/secrets.ts` (Claude key) and `src/app/features/sync/storage.ts`
+`src/app/lib/vault.ts`, used by `src/app/store/secrets.ts` (the AI keys, one per provider) and `src/app/features/sync/storage.ts`
 (GitHub token).
 
 - **One profile key.** On first use, WebCrypto generates a 256-bit AES-GCM key as *non-extractable* and stores the
