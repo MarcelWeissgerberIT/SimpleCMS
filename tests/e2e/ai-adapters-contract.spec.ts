@@ -11,12 +11,13 @@ import { fileURLToPath } from 'node:url'
 import { test, expect } from '@playwright/test'
 import { CONTRACT_CASES, DECIDE_REFUSAL, type ContractCase } from '../../src/shared/ai/contract'
 import type { ProviderAdapter, SendContext } from '../../src/shared/ai/adapter'
-import type { AIEvent, Caps, ChatRequest, DecideRequest, McpPlan, ModelInfo, PriceRow, Turn, WireHints } from '../../src/shared/ai/types'
+import type { AIEvent, Caps, ChatRequest, DecideQuestion, DecideRequest, DecideTurn, McpPlan, ModelInfo, PriceRow, Turn, WireHints } from '../../src/shared/ai/types'
 import { ProviderError } from '../../src/shared/ai/errors'
 import { refusedSlug } from '../../src/shared/ai/models'
 import { costOf } from '../../src/shared/ai/prices'
 import { JEV_ROUTER } from '../../src/shared/ai/jev'
 import { checkServed } from '../../src/shared/ai/wire/openrouterChat'
+import { checkDecideServed, parseDecide } from '../../src/shared/ai/wire/decisions'
 import { openrouter } from '../../src/app/features/ai/providers/openrouter'
 import { retryPlan } from '../../src/app/features/ai/core/retry'
 import { fakeAdapter, type FakeStep } from './helpers/fakeAdapter'
@@ -130,6 +131,72 @@ function fakeSubject(): Subject {
     },
   }
 }
+
+/* ------------------------------------------------------------------ */
+/* Decisions (K21–K27): the same two subjects, one decisions request each */
+/* ------------------------------------------------------------------ */
+
+type DecideAnswerStub = { json: unknown } | { status: number; body: unknown; headers?: Record<string, string> } | { hang: true }
+
+interface DecideOutcome {
+  turn: DecideTurn | null
+  error: ProviderError | null
+  posts: number
+  body: Record<string, unknown> | null
+  url: string | null
+}
+
+const JEV_CTX: Omit<SendContext, 'onEvent'> = { ...CTX, model: model('typesafe/jev-1.13', { structured: false, tools: false, decisions: true, context: 32000, maxOutput: 1 }), pins: ['typesafe'] }
+const TUTORIAL = doc<{ request: { model: string; state: Record<string, unknown>; questions: Record<string, DecideQuestion> }; response: Record<string, any>; expect: Record<string, any> }>('decisions-tutorial') // eslint-disable-line @typescript-eslint/no-explicit-any
+const decideReq = (o: Partial<DecideRequest> = {}): DecideRequest => ({ kind: 'decide', route: { p: 'openrouter', m: TUTORIAL.request.model }, state: TUTORIAL.request.state, questions: TUTORIAL.request.questions, ...o })
+
+/** One decisions request: OpenRouter's transport against a stubbed fetch, or the fake with its scripted step. */
+async function runDecide(name: Subject['name'], req: DecideRequest, answer: DecideAnswerStub, step: FakeStep, o: { abort?: 'before' | 'inflight' } = {}): Promise<DecideOutcome> {
+  const ctl = new AbortController()
+  if (o.abort === 'before') ctl.abort()
+  if (name === 'fake') {
+    const fake = fakeAdapter([step])
+    if (o.abort === 'inflight') setTimeout(() => ctl.abort(), 5)
+    try {
+      const turn = await fake.send(req, { ...JEV_CTX, signal: ctl.signal, onEvent: () => {} })
+      return { turn, error: null, posts: fake.sent.length, body: null, url: null }
+    } catch (e) {
+      if (!(e instanceof ProviderError)) throw e
+      return { turn: null, error: e, posts: fake.sent.length, body: null, url: null }
+    }
+  }
+  let posts = 0
+  let body: Record<string, unknown> | null = null
+  let url: string | null = null
+  const undo = stubFetch((u, init) => {
+    posts++
+    url = u
+    body = JSON.parse(String(init.body)) as Record<string, unknown>
+    expect((init.headers as Record<string, string>).Authorization).toBe(`Bearer ${JEV_CTX.key}`)
+    if (o.abort === 'inflight') setTimeout(() => ctl.abort(), 5)
+    if ('hang' in answer)
+      return new Promise<Response>((_, reject) => {
+        const s = init.signal as AbortSignal | undefined
+        const stop = () => reject(new DOMException('aborted', 'AbortError'))
+        if (s?.aborted) stop()
+        else s?.addEventListener('abort', stop, { once: true })
+      })
+    if ('status' in answer) return new Response(typeof answer.body === 'string' ? answer.body : JSON.stringify(answer.body), { status: answer.status, headers: { 'content-type': 'application/json', ...(answer.headers ?? {}) } })
+    return new Response(JSON.stringify(answer.json), { status: 200, headers: { 'content-type': 'application/json' } })
+  })
+  try {
+    const turn = await openrouter.send(req, { ...JEV_CTX, signal: ctl.signal, onEvent: () => {} })
+    return { turn, error: null, posts, body, url }
+  } catch (e) {
+    if (!(e instanceof ProviderError)) throw e
+    return { turn: null, error: e, posts, body, url }
+  } finally {
+    undo()
+  }
+}
+
+/** The tutorial's answer as the fake hands it back (written from the contract, not the wire). */
+const TUTORIAL_TURN: DecideTurn = { kind: 'decide', answers: TUTORIAL.expect.answers, served: TUTORIAL.expect.served, usage: { ...TUTORIAL.expect.usage } }
 
 /* ------------------------------------------------------------------ */
 /* The fake's scripted equivalents (written from the contract, not the wire) */
@@ -313,6 +380,112 @@ const RUN: Record<string, (s: Subject, c: ContractCase) => Promise<void>> = {
     expect('mcp_servers' in o.body!).toBe(c.expect.mcpServers)
     expect(s.adapter.mcp(PLAN, CAPS).native).toBeNull()
   },
+  async K21(s, c) {
+    for (const name of ['decisions-tutorial', 'decisions-api-example']) {
+      const f = doc<{ request: { model: string; state: Record<string, unknown>; questions: Record<string, DecideQuestion> }; response: unknown; expect: { answers: unknown } }>(name)
+      const req = decideReq({ route: { p: 'openrouter', m: f.request.model }, state: f.request.state, questions: f.request.questions })
+      const o = await runDecide(s.name, req, { json: f.response }, { decide: { ...TUTORIAL_TURN, answers: f.expect.answers as DecideTurn['answers'] } })
+      expect(o.error, name).toBeNull()
+      expect(o.turn!.answers, name).toEqual(f.expect.answers)
+      expect(o.posts, name).toBe(1)
+    }
+    const o = await runDecide(s.name, decideReq(), { json: TUTORIAL.response }, { decide: TUTORIAL_TURN })
+    const a = o.turn!.answers
+    expect(a.is_bug).toEqual({ type: 'noul', p: c.expect.isBug })
+    expect(a.team!.type === 'choice' && a.team!.choice).toBe(c.expect.team)
+    expect(a.urgency!.type === 'score' && a.urgency!.score).toBe(c.expect.urgency)
+    expect(o.turn!.usage!.output).toBe(c.expect.output)
+    expect(o.turn!.usage!.reportedUsd).toBe(c.expect.reportedUsd)
+    expect(o.turn!.served).toEqual({ model: c.expect.served, upstream: c.expect.upstream })
+    if (s.name === 'openrouter') {
+      expect(o.url).toBe('https://openrouter.ai/api/alpha/decisions')
+      // another decision model's answer (a picture request One never sends) reads at parse level: four decimals, no output
+      const m = doc<{ questions: Record<string, DecideQuestion>; response: unknown; expect: { answers: unknown } }>('decisions-multimodal')
+      expect(parseDecide(m.response, m.questions).answers).toEqual(m.expect.answers)
+    }
+  },
+  async K22(s, c) {
+    const r = TUTORIAL.response
+    const variants = [
+      { ...r, answers: { is_bug: r.answers.is_bug, team: r.answers.team } },
+      { ...r, answers: { ...r.answers, is_bug: { type: 'noul', noul: 1.4 } } },
+      { ...r, answers: { ...r.answers, team: { type: 'choice', choice: 'legal', confidence: 0.9 } } },
+    ]
+    for (const json of variants) {
+      const o = await runDecide(s.name, decideReq(), { json }, fakeError('empty', 'sent', { kind: 'decide', answers: {}, served: TUTORIAL_TURN.served, usage: TUTORIAL_TURN.usage } as unknown as Turn))
+      expect(o.error!.code).toBe(c.expect.code)
+      expect(o.error!.reach).toBe(c.expect.reach)
+      expect((o.error!.partial as DecideTurn).usage!.reportedUsd).toBe(c.expect.reportedUsd)
+    }
+  },
+  async K23(s, c) {
+    const rows = doc<{ cases: Array<{ name: string; status: number; body: unknown; headers?: Record<string, string>; expect: string; retryAfter?: number }> }>('decisions-errors').cases
+    for (const row of rows) {
+      const o = await runDecide(s.name, decideReq(), { status: row.status, body: row.body, headers: row.headers }, { error: new ProviderError(row.expect as ProviderError['code'], undefined, { reach: 'refused', ...(row.retryAfter !== undefined ? { retryAfter: row.retryAfter } : {}) }) })
+      expect(o.error?.code, row.name).toBe(row.expect)
+      expect(o.error?.reach, row.name).toBe(c.expect.reach)
+      if (row.retryAfter !== undefined) expect(o.error?.retryAfter, row.name).toBe(row.retryAfter)
+      expect(o.error?.message ?? '', row.name).not.toMatch(/sk-or-v1-/)
+      expect(o.posts, row.name).toBe(1)
+    }
+  },
+  async K24(s, c) {
+    const before = await runDecide(s.name, decideReq(), { json: TUTORIAL.response }, { decide: TUTORIAL_TURN }, { abort: 'before' })
+    expect(before.error!.code).toBe(c.expect.code)
+    expect(before.error!.reach).toBe(c.expect.before)
+    expect(before.posts).toBe(0)
+    const inflight = await runDecide(s.name, decideReq(), { hang: true }, { hang: { kind: 'chat', parts: [], stop: 'end', usage: null, served: null, streamedChars: 0 } }, { abort: 'inflight' })
+    expect(inflight.error!.code).toBe(c.expect.code)
+    expect(inflight.error!.reach).toBe(c.expect.inFlight)
+    expect(inflight.posts).toBe(1)
+  },
+  async K25(s, c) {
+    // a model outside the Jev family is refused before anything is sent (both subjects)
+    for (const m of ['vendor-k/kev-4b', '~typesafe/jev-latest', 'typesafe/jev-router', 'typesafe/jev-1.13-20260917']) {
+      const o = await runDecide(s.name, decideReq({ route: { p: 'openrouter', m } }), { json: TUTORIAL.response }, { decide: TUTORIAL_TURN })
+      expect(o.error?.code, m).toBe(c.expect.refused)
+      expect(o.error?.reach, m).toBe('none')
+      expect(o.posts, m).toBe(0)
+    }
+    if (s.name !== 'openrouter') return
+    const o = await runDecide(s.name, decideReq(), { json: TUTORIAL.response }, { decide: TUTORIAL_TURN })
+    const b = o.body!
+    expect(Object.keys(b).sort()).toEqual(['model', 'provider', 'questions', 'state'])
+    expect(b.provider).toEqual({ only: c.expect.only, allow_fallbacks: false, data_collection: c.expect.dataCollection })
+    const json = JSON.stringify(b)
+    for (const k of ['session_id', 'trace', 'user', 'metadata', 'require_parameters', 'plugins', 'models']) expect(json, k).not.toContain(`"${k}"`)
+    // the upstream rule: zero data retention and data collection follow it; no pins → nothing sent
+    const zdr = await runDecideWith({ upstream: { deny: [], noCollect: false, zdr: true } })
+    expect((zdr.body!.provider as Record<string, unknown>)).toEqual({ only: ['typesafe'], allow_fallbacks: false, data_collection: 'allow', zdr: true })
+    const none = await runDecideWith({ pins: [] })
+    expect(none.error!.code).toBe('no_endpoint')
+    expect(none.posts).toBe(0)
+  },
+  async K26(s, c) {
+    const o = await runDecide(s.name, decideReq(), { json: TUTORIAL.response }, { decide: TUTORIAL_TURN })
+    const served = o.turn!.served
+    const SNAP = 'typesafe/jev-1.13-20260917'
+    expect(checkDecideServed(served, { requested: 'typesafe/jev-1.13', on: SNAP, upstreams: ['TypeSafe'] })).toBeNull()
+    expect(checkDecideServed(served, { requested: 'typesafe/jev-1.13', on: SNAP, upstreams: ['typesafe'] })).toBeNull()
+    // another snapshot than the one confirmed → changed (the thresholds belong to one model)
+    expect(checkDecideServed(served, { requested: 'typesafe/jev-1.13', on: 'typesafe/jev-1.13-20261101' })).toBe(c.expect.changed)
+    expect(checkDecideServed({ ...served, model: 'typesafe/jev-1.14-20261101' }, { requested: 'typesafe/jev-1.13' })).toBe(c.expect.changed)
+    // confirmed without a known snapshot: any snapshot of that version
+    expect(checkDecideServed(served, { requested: 'typesafe/jev-1.13', on: 'typesafe/jev-1.13' })).toBeNull()
+    expect(checkDecideServed({ ...served, model: 'typesafe/jev-1.13:free' }, { requested: 'typesafe/jev-1.13', on: 'typesafe/jev-1.13' })).toBe(c.expect.changed)
+    // an operator outside the pins → upstream
+    expect(checkDecideServed(served, { requested: 'typesafe/jev-1.13', on: SNAP, upstreams: ['Nordwind'] })).toBe(c.expect.upstream)
+    // no operator named: nothing to compare (the pins held the request)
+    expect(checkDecideServed({ model: SNAP }, { requested: 'typesafe/jev-1.13', on: SNAP, upstreams: ['Nordwind'] })).toBeNull()
+  },
+  async K27(s, c) {
+    const o = await runDecide(s.name, decideReq({ state: { text: 'x'.repeat(70_000) } }), { json: TUTORIAL.response }, { decide: TUTORIAL_TURN })
+    expect(o.error!.code).toBe(c.expect.code)
+    expect(o.error!.reach).toBe(c.expect.reach)
+    expect(o.posts).toBe(c.expect.posts)
+    // positive control: under the cap it goes
+    expect((await runDecide(s.name, decideReq({ state: { text: 'x'.repeat(40_000) } }), { json: TUTORIAL.response }, { decide: TUTORIAL_TURN })).posts).toBe(1)
+  },
   async K28(s, c) {
     const req = chat({ route: { p: 'openrouter', m: JEV_ROUTER, effort: 'medium' } })
     const o = await s.run(req, ROUTER_CTX, { fixture: 'stream-router' }, FAKE.router!)
@@ -338,6 +511,25 @@ const RUN: Record<string, (s: Subject, c: ContractCase) => Promise<void>> = {
   },
 }
 
+/** OpenRouter's transport with another send context (K25: the upstream rule, no pins). */
+async function runDecideWith(ctx: Partial<SendContext>): Promise<DecideOutcome> {
+  let posts = 0
+  let body: Record<string, unknown> | null = null
+  const undo = stubFetch((_u, init) => {
+    posts++
+    body = JSON.parse(String(init.body)) as Record<string, unknown>
+    return new Response(JSON.stringify(TUTORIAL.response), { status: 200, headers: { 'content-type': 'application/json' } })
+  })
+  try {
+    return { turn: await openrouter.send(decideReq(), { ...JEV_CTX, ...ctx, onEvent: () => {} }), error: null, posts, body, url: null }
+  } catch (e) {
+    if (!(e instanceof ProviderError)) throw e
+    return { turn: null, error: e, posts, body, url: null }
+  } finally {
+    undo()
+  }
+}
+
 const subjects: Subject[] = [openrouterSubject, fakeSubject()]
 
 for (const c of CONTRACT_CASES) {
@@ -361,11 +553,11 @@ for (const c of CONTRACT_CASES) {
   })
 }
 
-test.describe('the decide kind (reserved K21–K27)', () => {
+test.describe('the decide kind', () => {
   const decide: DecideRequest = { kind: 'decide', route: { p: 'openrouter', m: 'vendor-a/decider' }, state: { text: 'Quarterly plan' }, questions: { done: { type: 'noul', instructions: 'Is it finished?' } } }
 
-  test("OpenRouter serves chat only: a 'decide' request is refused before any fetch", async () => {
-    expect(openrouter.kinds).toEqual(['chat'])
+  test('OpenRouter serves both kinds; a decide request for a model outside the Jev family is refused before any fetch', async () => {
+    expect(openrouter.kinds).toEqual(['chat', 'decide'])
     let posts = 0
     const undo = stubFetch(() => {
       posts++
@@ -385,8 +577,8 @@ test.describe('the decide kind (reserved K21–K27)', () => {
   })
 
   test('the fake serves both kinds (the decide types at work)', async () => {
-    const f = fakeAdapter([{ decide: { kind: 'decide', answers: { done: { type: 'noul', p: 0.93 } }, served: { model: 'vendor-a/decider' }, usage: null } }])
-    const t = await f.send(decide, { ...CTX, onEvent: () => {} })
+    const f = fakeAdapter([{ decide: { kind: 'decide', answers: { done: { type: 'noul', p: 0.93 } }, served: { model: 'typesafe/jev-1.13-20260917' }, usage: null } }])
+    const t = await f.send({ ...decide, route: { p: 'openrouter', m: 'typesafe/jev-1.13' } }, { ...CTX, onEvent: () => {} })
     expect(t.kind).toBe('decide')
     expect(t.answers.done).toEqual({ type: 'noul', p: 0.93 })
   })

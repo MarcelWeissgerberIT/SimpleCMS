@@ -4,19 +4,21 @@
  * spec imports it with a stubbed fetch), and it never decides anything about data: the gate and core/call.ts hand it a
  * request that may go out, the key for this one request, the endpoint pins and the upstream rule.
  *
- *  - send(): one streamed chat request; a failure is a ProviderError (code, scrubbed detail, how far it got, the turn
- *    so far); a 'decide' request is refused ('capability') before anything is sent; `X-OpenRouter-Metadata` is never sent.
+ *  - send(): one streamed chat request, or one decisions request (slice SJ: `POST /api/alpha/decisions`, not streamed, a
+ *    pinned Jev version only, the state cap checked before anything is sent); a failure is a ProviderError (code,
+ *    scrubbed detail, how far it got, the turn so far); `X-OpenRouter-Metadata` is never sent.
  *  - verify(): `GET /api/v1/key` — the key's credit, no text sent.
  *  - exchangeCode(): the OAuth (PKCE) code → a key (`POST /api/v1/auth/keys`); the account id it also returns is dropped.
  *  - mcp(): OpenRouter connects no MCP server — every one is skipped ('provider').
  */
 import type { BuiltRequest, McpRendering, ProviderAdapter, SendContext, TurnOf, VerifyResult } from '@/shared/ai/adapter'
-import type { ChatRequest, KeyCredit, McpPlan, Turn, WireRequest } from '@/shared/ai/types'
+import type { ChatRequest, DecideRequest, DecideTurn, KeyCredit, McpPlan, Turn, WireRequest } from '@/shared/ai/types'
 import { ProviderError } from '@/shared/ai/errors'
 import { scrubSecrets } from '@/shared/ai/keys'
 import { createSSEParser } from '@/shared/ai/sse'
-import { isJevRouter } from '@/shared/ai/jev'
+import { isJevModel, isJevRouter } from '@/shared/ai/jev'
 import { OR_API, WireFailure, build, capabilityProblem, classify, createChatParser } from '@/shared/ai/wire/openrouterChat'
+import { buildDecide, classifyDecide, overCap, parseDecide } from '@/shared/ai/wire/decisions'
 
 export const OR_KEY_URL = `${OR_API}/key`
 export const OR_AUTH_KEYS_URL = `${OR_API}/auth/keys`
@@ -104,6 +106,43 @@ async function sendChat(req: ChatRequest, ctx: SendContext): Promise<Turn> {
   }
 }
 
+/**
+ * One decisions request → the typed answers (or a ProviderError). Refused before anything is sent: a model outside the
+ * Jev family ('capability'), a state over the cap ('context'), no endpoint to pin ('no_endpoint'). A 200 that does not
+ * fit the questions is 'empty' and went out (parseDecide carries its usage).
+ */
+async function sendDecide(req: DecideRequest, ctx: SendContext): Promise<DecideTurn> {
+  if (ctx.signal?.aborted) throw new ProviderError('aborted', undefined, { reach: 'none' })
+  if (!isJevModel(req.route.m)) throw new ProviderError('capability', 'decisions', { reach: 'none' })
+  if (overCap(req)) throw new ProviderError('context', 'the state is over the cap', { reach: 'none' })
+  if (!ctx.pins?.length) throw new ProviderError('no_endpoint', req.route.m, { reach: 'none' })
+  const built = buildDecide(req, { pins: ctx.pins, upstream: ctx.upstream ?? { deny: [], noCollect: true, zdr: false }, referer: ctx.referer ?? '' })
+  let res: Response
+  try {
+    res = await fetch(built.url, { method: 'POST', headers: { ...built.headers, Authorization: `Bearer ${ctx.key}` }, body: JSON.stringify(built.body), signal: ctx.signal })
+  } catch (e) {
+    if (ctx.signal?.aborted || isAbort(e)) throw new ProviderError('aborted', undefined, { reach: 'sent' })
+    throw new ProviderError('offline', clip(messageOf(e), ctx.key), { reach: 'sent' })
+  }
+  if (!res.ok) {
+    const c = classifyDecide(res.status, await bodyOf(res), res.headers)
+    throw new ProviderError(c.code, clip(c.detail, ctx.key), { reach: 'refused', status: res.status, ...(c.retryAfter !== undefined ? { retryAfter: c.retryAfter } : {}), ...(c.limitSource ? { limitSource: c.limitSource } : {}) })
+  }
+  let json: unknown
+  try {
+    json = JSON.parse(await res.text())
+  } catch (e) {
+    if (ctx.signal?.aborted || isAbort(e)) throw new ProviderError('aborted', undefined, { reach: 'sent' })
+    throw new ProviderError('empty', 'the answer is not JSON', { reach: 'sent' })
+  }
+  try {
+    return parseDecide(json, req.questions)
+  } catch (e) {
+    if (e instanceof ProviderError) throw new ProviderError(e.code, clip(e.detail ?? '', ctx.key), { reach: e.reach, partial: e.partial })
+    throw e
+  }
+}
+
 /** `GET /api/v1/key` → the key's credit (no text is sent). 402 = a valid key without credit ('no_credit'). */
 export async function verify(key: string, signal?: AbortSignal): Promise<VerifyResult> {
   let res: Response
@@ -154,12 +193,11 @@ export function mcp(plan: McpPlan): McpRendering {
 
 export const openrouter: ProviderAdapter = {
   id: 'openrouter',
-  kinds: ['chat'],
+  kinds: ['chat', 'decide'],
   retriesInside: false,
   build: (req, ctx) => buildOf(req, ctx),
   async send<R extends WireRequest>(req: R, ctx: SendContext): Promise<TurnOf<R>> {
-    // the decide kind has its own wire (a later slice): refused before anything is sent
-    if (req.kind !== 'chat') throw new ProviderError('capability', 'decide', { reach: 'none' })
+    if (req.kind === 'decide') return (await sendDecide(req, ctx)) as TurnOf<R>
     return (await sendChat(req, ctx)) as TurnOf<R>
   },
   mcp: (plan) => mcp(plan),

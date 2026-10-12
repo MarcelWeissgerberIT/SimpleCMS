@@ -12,6 +12,8 @@ here.
 | SP-R5 | native-file PDFs (page limit, `file-parser` `native`) | `SP-R5.json` |
 | SP-R6 | the three plugin switch-offs, account defaults | `SP-R6.json` |
 | SP-J4 | the Jev Router: plugin lists, `only` pins, served model, `usage.cost`, 404 body | `SP-J4.json` |
+| SP-J1 | the decisions surface (slice SJ): answers, `usage.cost` / `output_tokens`, served `model` (dated) and `provider` vs the pinned endpoint's `provider_name`, `provider` prefs accepted (`only`, `data_collection`, `zdr`), whether `require_parameters` 404s, error bodies (402 `limit_source`, 404 no endpoints vs gone, 413), CORS, `Retry-After` — K21–K27 | `SP-J1-*.json` |
+| SP-J3 | the calibration run (`scripts/jev-calibrate.mjs --real`, slice SJ J17) — scrubbed exchanges and the summary | `SP-J3-*.json` |
 
 ## Shape
 

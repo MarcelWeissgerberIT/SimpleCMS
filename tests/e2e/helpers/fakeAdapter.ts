@@ -1,11 +1,13 @@
 /**
  * A fake provider adapter (Node-only, never in src): scripted per case, it checks the contract harness itself — a case
  * that passes for OpenRouter must pass for an adapter written from the contract alone. It serves both request kinds so
- * the decide types are exercised at type level. Its marker string never appears in a build (the names guard greps dist).
+ * the decisions cases (K21–K27) run against it too. Its marker string never appears in a build (the names guard greps dist).
  */
 import type { McpRendering, ProviderAdapter, SendContext, TurnOf, VerifyResult } from '../../../src/shared/ai/adapter'
 import type { AIEvent, ChatRequest, DecideTurn, McpPlan, Turn, WireRequest } from '../../../src/shared/ai/types'
 import { ProviderError } from '../../../src/shared/ai/errors'
+import { isJevModel } from '../../../src/shared/ai/jev'
+import { overCap } from '../../../src/shared/ai/wire/decisions'
 
 export const FAKE_MARKER = '__ONE_FAKE_ADAPTER__'
 
@@ -32,6 +34,9 @@ export function fakeAdapter(script: FakeStep[]): Fake {
     build: (req: ChatRequest) => ({ url: `fake://${FAKE_MARKER}`, body: { model: req.route.m, messages: req.messages.length }, headers: {} }),
     async send<R extends WireRequest>(req: R, ctx: SendContext): Promise<TurnOf<R>> {
       if (ctx.signal?.aborted) throw new ProviderError('aborted', undefined, { reach: 'none' })
+      // the contract's refusals before sending (K25, K27): only the Jev family, never a state over the cap
+      if (req.kind === 'decide' && !isJevModel(req.route.m)) throw new ProviderError('capability', 'decisions', { reach: 'none' })
+      if (req.kind === 'decide' && overCap(req)) throw new ProviderError('context', 'the state is over the cap', { reach: 'none' })
       sent.push(req)
       const step = script[n++]
       if (!step) throw new ProviderError('unknown', `${FAKE_MARKER}: no scripted step`, { reach: 'none' })
