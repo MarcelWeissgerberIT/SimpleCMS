@@ -20,8 +20,9 @@ import { agentEditor, sanitizeAgent } from './agents'
 import { sanitizeScript } from './scripts'
 import { emptyKit, optionsOfList, sanitizeList, sanitizePropType, sanitizeRecordType, storedTypeOf, syncRecordTypeInto } from './kit'
 import { lookAllowed, sameLook, sanitizeLook } from './look'
-import { readWorkspaceAI, sameWorkspaceAI, withCleanAISettings } from './ai'
+import { aiRulesAllowed, claudeRulesAllowed, readWorkspaceAI, sameWorkspaceAI, withCleanAISettings } from './ai'
 import type { WorkspaceAI } from '@/shared/ai/types'
+import { policyKnown, requiredGen } from '@/shared/ai/policy'
 import { INTEGRATION_LIMITS, integrationsAllowed, sameIntegration, sanitizeIntegration, sanitizeIntegrations } from './integrations'
 import { SYSTEM, withWriter } from './writer'
 import type {
@@ -204,6 +205,13 @@ export interface WorkspaceState extends Workspace {
    * False when refused: a team member who is not an owner or admin (the server puts such a change back too).
    */
   setLook: (look: WorkspaceLook | null) => boolean
+  /**
+   * The workspace's AI rules (Workspace.ai — store/aiRules.ts setWorkspaceAI is the way in): sanitized, `gen` stamped
+   * with the generation the rules need (absent when 1), updatedAt / updatedBy set; the same rules keep the reference.
+   * Refused (false) unless aiRulesAllowed() and this build knows the stored generation; Claude's entry stays as it was
+   * unless claudeRulesAllowed() (`claudeKept`).
+   */
+  setWorkspaceAI: (ai: WorkspaceAI | null) => { ok: boolean; claudeKept?: true }
 
   /**
    * Integration profiles (features/agents/integrations): insert or replace by id (sanitized; updatedAt / updatedBy are
@@ -545,6 +553,37 @@ export const useWorkspace = create<WorkspaceState>()(
         s.look = clean ?? undefined
       })
       return true
+    },
+
+    setWorkspaceAI: (next) => {
+      const prev = get().ai
+      // never over rules this build cannot enforce (a newer build's — 'reload'); never by someone who may not
+      if (!aiRulesAllowed() || !policyKnown(prev, null)) return { ok: false }
+      let clean = next ? readWorkspaceAI(JSON.parse(JSON.stringify(next))) : undefined
+      let claudeKept: true | undefined
+      // Claude's rules wait for a server whose agents read them (D-S2-30): its entry stays as it was
+      if (clean && !claudeRulesAllowed()) {
+        const was = prev?.policy?.providers?.anthropic
+        const now = clean.policy?.providers?.anthropic
+        if (JSON.stringify(was ?? null) !== JSON.stringify(now ?? null)) claudeKept = true
+        const providers = { ...(clean.policy?.providers ?? {}) }
+        if (was) providers.anthropic = was
+        else delete providers.anthropic
+        clean = { ...clean, policy: { providers, restricted: clean.policy?.restricted ?? prev?.policy?.restricted ?? [] } }
+      }
+      if (clean) {
+        const { gen: _g, updatedAt: _a, updatedBy: _b, ...rest } = clean
+        const g = requiredGen(rest, null)
+        clean = Object.keys(rest).length ? { ...rest, ...(g > 1 ? { gen: g } : {}) } : undefined
+      }
+      const bare = (x: WorkspaceAI | undefined) => (x ? { ...x, updatedAt: undefined, updatedBy: undefined } : undefined)
+      if (sameWorkspaceAI(readWorkspaceAI(bare(clean)), readWorkspaceAI(bare(prev)))) return { ok: true, ...(claudeKept ? { claudeKept } : {}) }
+      const stamped = clean ? { ...clean, updatedAt: now(), updatedBy: agentEditor() } : undefined
+      set((s) => {
+        // never `delete s.ai`: zustand merges the next state into the previous one, a missing key stays
+        s.ai = stamped
+      })
+      return { ok: true, ...(claudeKept ? { claudeKept } : {}) }
     },
 
     upsertIntegration: (profile, replaces) => {
@@ -959,6 +998,8 @@ export const useWorkspace = create<WorkspaceState>()(
         Object.assign(s.settings, p)
         // no slot left: the key goes, never an `aiKeys: undefined` in the record
         if ('aiKeys' in p && !p.aiKeys) delete s.settings.aiKeys
+        // no device rule left: likewise (settings.ai is never in defaultSettings())
+        if ('ai' in p && !p.ai) delete s.settings.ai
       })
     },
 

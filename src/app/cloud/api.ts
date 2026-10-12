@@ -29,6 +29,8 @@ export interface ServerConfig {
   /** the schema gate's minimum generation (absent on a server without the gate) */
   schema_min?: number
   coding_relay?: boolean
+  /** what this server version knows ('ai': it guards Workspace.ai; 'providers': its agents read Claude rules — S9) */
+  supports?: string[]
 }
 
 /** Set once a server answered (or definitely didn't). REST helpers throw 'unavailable' without one. */

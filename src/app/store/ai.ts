@@ -1,8 +1,9 @@
 /**
- * The AI rules as the store keeps them (multi-provider slice 1: kept by every reader, written by nobody yet):
- * Workspace.ai (synced; team: meta map 'workspace' key 'ai', owners / admins only), settings.ai (this device) and
- * settings.aiKeys (vault markers of the other providers' keys). Every reader goes through these; the shapes and
- * their sanitizers are shared with the team server (src/shared/ai/policy.ts).
+ * The AI rules as the store keeps them: Workspace.ai (synced; team: meta map 'workspace' key 'ai', owners / admins only),
+ * settings.ai (this device) and settings.aiKeys (vault markers of the other providers' keys). Every reader goes through
+ * these; the shapes and their sanitizers are shared with the team server (src/shared/ai/policy.ts). Who may write the
+ * workspace's rules here: aiRulesAllowed() / claudeRulesAllowed() (the team binding registers its guard); the setters
+ * are in store/aiRules.ts.
  */
 import { sanitizeDeviceAI, sanitizeWorkspaceAI } from '@/shared/ai/policy'
 import type { DeviceAI, WorkspaceAI } from '@/shared/ai/types'
@@ -56,3 +57,20 @@ export function withCleanAISettings(s: Settings): Settings {
 
 /** The stored policy generation of this workspace + device (1 without any rule). */
 export const aiOf = (ws: Pick<Workspace, 'ai' | 'settings'>): { ws: WorkspaceAI | undefined; device: DeviceAI | undefined } => ({ ws: ws.ai, device: ws.settings.ai })
+
+/* ------------------------------------------------------------------ */
+/* Who may write the workspace's rules (the team binding registers)     */
+/* ------------------------------------------------------------------ */
+
+let guard: { rules: () => boolean; claude: () => boolean } = { rules: () => true, claude: () => true }
+
+/**
+ * Who may write Workspace.ai here: locally the person; in a team owners / admins on a server that guards the rules
+ * (`supports ∋ 'ai'`). Claude's own rules additionally need a server whose agents read them (`supports ∋ 'providers'`,
+ * S9 — D-S2-30): until then the workspace's Claude column stays as it is. The binding registers its guard; null = local.
+ */
+export function setAIRulesGuard(g: { rules: () => boolean; claude: () => boolean } | null): void {
+  guard = g ?? { rules: () => true, claude: () => true }
+}
+export const aiRulesAllowed = (): boolean => guard.rules()
+export const claudeRulesAllowed = (): boolean => guard.rules() && guard.claude()

@@ -12,6 +12,8 @@ import { getWorkspaceSnapshot } from '../store/store'
 import { flushSave, migrate, readStoredWorkspace } from '../store/persistence'
 import { sanitizeLook } from '../store/look'
 import { sanitizeIntegrations } from '../store/integrations'
+import { readWorkspaceAI } from '../store/ai'
+import { requiredGen } from '@/shared/ai/policy'
 import type { ID, Workspace } from '../store/types'
 import { FILE_PREFIX, getLocalFile } from '../lib/files'
 import { newId } from '../lib/ids'
@@ -193,6 +195,18 @@ export async function uploadLocalWorkspaceImpl(wsId: string, onProgress?: (p: nu
       // the workspace look (sanitized again; the uploader saves it — the server checks they may)
       const look = sanitizeLook(local.look)
       if (look && r.workspace.get('look') === undefined) r.workspace.set('look', { ...JSON.parse(JSON.stringify(look)), updatedBy: userId })
+      // the workspace's AI rules (sanitized again; only on a server that guards them — the uploader saves them). Claude's
+      // entry waits for a server whose agents read it (D-S2-30); member classes stay on the device (settings.ai)
+      const supports = useCloud.getState().supports ?? []
+      const ai = supports.includes('ai') ? readWorkspaceAI(local.ai) : undefined
+      if (ai && r.workspace.get('ai') === undefined) {
+        const providers = { ...(ai.policy?.providers ?? {}) }
+        if (!supports.includes('providers')) delete providers.anthropic
+        const policy = ai.policy ? { ...ai.policy, providers } : undefined
+        const g = requiredGen({ ...ai, ...(policy ? { policy } : {}) }, null)
+        const { gen: _gen, ...rest } = ai
+        r.workspace.set('ai', { ...JSON.parse(JSON.stringify({ ...rest, ...(policy ? { policy } : {}) })), ...(g > 1 ? { gen: g } : {}), updatedBy: userId })
+      }
     }, UPLOAD_ORIGIN)
     await meta.flushed(120_000)
 

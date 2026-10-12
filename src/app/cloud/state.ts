@@ -75,6 +75,11 @@ export interface CloudState {
   signup?: 'open' | 'invite' | 'domains' | null
   signupDomains?: string[]
   /**
+   * What the server knows (GET api/config `supports`): 'ai' = it guards the workspace's AI rules (owners / admins write
+   * them); 'providers' = its agents read Claude rules (S9 — until then the workspace's Claude column stays read-only).
+   */
+  supports?: string[]
+  /**
    * The signed-in person is one of this server's admins (ADMIN_EMAILS on the server): they create
    * registration links (Settings → Server). False when signed out or unknown.
    */
@@ -112,6 +117,7 @@ export const useCloud = create<CloudState>(() => ({
   error: null,
   signup: null,
   signupDomains: [],
+  supports: [],
   serverAdmin: false,
   schemaMin: null,
 }))
