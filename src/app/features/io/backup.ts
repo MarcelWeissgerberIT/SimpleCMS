@@ -18,6 +18,7 @@ import { endRun, noteRun, withWriter, type Writer } from '../../store/writer'
 import { readWorkspaceAI, aiRulesAllowed } from '../../store/ai'
 import { loosens, policyKnown, type LooseItem } from '@/shared/ai/policy'
 import type { WorkspaceAI } from '@/shared/ai/types'
+import { isGovernorMarker } from '@/shared/ai/governor'
 
 export const BACKUP_FORMAT = 'simplecms-one-backup'
 
@@ -100,7 +101,7 @@ export async function buildBackup(rootId: ID | null, onProgress?: (done: number,
   const databases = rootId ? Object.fromEntries(Object.entries(scoped.databases).map(([id, db]) => [id, withoutCommandSecrets(withoutWebhookSecrets(db))])) : scoped.databases
   // the workspace look and the integration profiles belong to the whole workspace: full backups carry them, a page
   // backup never does
-  const { look, integrations, ai, ...rest } = snap
+  const { look, integrations, ai, governor, ...rest } = snap
   // this device's AI rules and the other providers' key markers never go into a backup
   const { ai: _deviceAI, aiKeys: _keys, ...settings } = snap.settings
   const workspace: Workspace = {
@@ -109,6 +110,9 @@ export async function buildBackup(rootId: ID | null, onProgress?: (done: number,
     ...(integrations?.length && !rootId ? { integrations } : {}),
     // the workspace's AI rules: full backups only (a restore keeps this workspace's — applyBackup)
     ...(ai && !rootId ? { ai } : {}),
+    // the Regler: full backups only, never the marker for a newer value this build holds no copy of (a restore keeps
+    // this workspace's — applyBackup)
+    ...(governor && !rootId && !isGovernorMarker(governor) ? { governor } : {}),
     pages: topId && pages[topId] ? { ...pages, [topId]: { ...pages[topId], parentId: null } } : pages,
     databases,
     // never export the API key, nor the MCP servers' token markers
@@ -421,6 +425,8 @@ export async function applyBackup(b: Backup, mode: 'merge' | 'replace', onProgre
         settings: { ...source.settings, aiApiKey: snap.settings.aiApiKey, ...(snap.settings.aiKeys ? { aiKeys: snap.settings.aiKeys } : {}), ...(snap.settings.ai ? { ai: snap.settings.ai } : {}) },
         // the workspace's AI rules stay this workspace's (a file never loosens them)
         ai: snap.ai,
+        // the Regler likewise stays this workspace's (reading a backup's comes with the Regler's settings)
+        governor: snap.governor,
         // this device's recent pages stay (where they still exist) — an older backup's list is never taken over
         recent: snap.recent.filter((id) => !!pages[id]),
         // a page backup carries no integration profiles: this workspace's stay

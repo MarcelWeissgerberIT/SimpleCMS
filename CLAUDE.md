@@ -29,7 +29,8 @@ src/app/lib/**                       router (hash), ids, files (IndexedDB blobs)
 src/app/ui/**                        shared primitives: Popover, Menu/MenuList/useMenu, Modal, Tooltip, Switch/SwitchFace/
                                      Kbd/Led, Screws (ui/screws.ts), roving.ts (radiogroup keys), PageIcon, IconPicker,
                                      gesture.ts (closing-gesture guard), focus.ts (focus back after a close), keys.ts
-                                     (`typing()`: single-letter keys belong to a field / menu / dialog);
+                                     (`typing()`: single-letter keys belong to a field / menu / dialog;
+                                     `typingWithin(el, root)` for keys of a plate inside a dialog);
                                      ui/code = the shared highlighted code area (CodeArea / CodeView, tokenizers, placeholders,
                                      brackets; public API ui/code/index.ts); ui.css = base + primitive classes
 src/app/i18n/**                      t()/useT(); per-area strings in src/app/<area>/messages.ts
@@ -48,7 +49,11 @@ src/app/features/ai/setup/**         "Set up AI": openAISetup / openAISettings (
                                      FixKeys, the assistant (AISetup.tsx + steps/ 01–06, lazy), Settings › AI (ProvidersTab, lazy)
 src/app/features/ai/routing/**       route chip / picker, CatalogPicker (lazy), CapLamps, DataRules (the class matrix)
 src/app/features/governor/**         Regler P1: the ledger (IndexedDB one-ledger), reservations, estimate bands (public API
-                                     governor/index.ts); src/shared/ai/** = the pure multi-provider contracts (app + server)
+                                     governor/index.ts); G1 phase A (not wired to the gate yet): totals + the device line
+                                     (IndexedDB one-governor), the book across tabs, the pure brake (limits / steps / brake),
+                                     held agent runs, the VERBRAUCH reading (lamp.ts), UI pieces (ui/**), strings (messages.ts);
+                                     src/shared/ai/** = the pure multi-provider contracts (app + server; governor.ts,
+                                     generations.ts)
 src/app/features/outbox/**           the Outbox: slips for another tool's send routes, drafted without tools, sent by hand
                                      (dock, #/outbox, receipts; public API outbox/index.ts; docs/OUTBOX.md)
 src/app/features/preflight/**        Preflight ("Vorflug-Check"): the lamp panel on Start, MASTER CAUTION, the keyboard queue
@@ -164,7 +169,12 @@ the public APIs stable — other areas are built against them in parallel.
   written, Claude's stays as it was) and `settings.ai` through `setDeviceAI` / `setDeviceRule` / `setDeviceDefault` /
   `setRoles` (this device), all under a writer (setup writes `you~setup`); `CustomAgent.route / review / saverRule /
   applyOn / routeSig` are kept by every reader and written by nobody yet (team: meta map `workspace` key `ai`, guarded
-  by the server — server/src/collab/workspace-ai.ts). Surfaces ask `useAIStatus(purpose)` and show `<AINeedsSetup>` up
+  by the server — server/src/collab/workspace-ai.ts). `Workspace.governor` (the Regler, src/shared/ai/governor.ts
+  `WorkspaceGovernor | Unreadable`; G0) is kept by every reader through `sanitizeGovernor` (the same value keeps its
+  reference — `sameGovernor(…, { meta: true })`; assign `undefined`, never `delete`) and written by nobody yet: team meta
+  map `workspace` key `governor` (server guard workspace-governor.ts, `supports` ∋ 'governor'), read by the binding only;
+  full backups carry it (never the marker `isGovernorMarker`), page backups never, a restore keeps this workspace's;
+  features/governor (totals, brake, held runs, UI pieces) is not wired to the gate yet. Surfaces ask `useAIStatus(purpose)` and show `<AINeedsSetup>` up
   front only when `!offersAI(status)` (no key for that kind of work: 'no_key' / 'route'); newer rules, the off switch,
   a data rule, a capability or a removed model come back from the gate as the request's error with its fix keys
   (`FixKeys`: Check key · Choose models · Change rule → the assistant at that step; MCP fixes → `openAISettings({

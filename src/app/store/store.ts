@@ -22,6 +22,8 @@ import { emptyKit, optionsOfList, sanitizeList, sanitizePropType, sanitizeRecord
 import { lookAllowed, sameLook, sanitizeLook } from './look'
 import { aiRulesAllowed, claudeRulesAllowed, readWorkspaceAI, sameWorkspaceAI, withCleanAISettings } from './ai'
 import type { WorkspaceAI } from '@/shared/ai/types'
+import { sameGovernor, sanitizeGovernor, type WorkspaceGovernor } from '@/shared/ai/governor'
+import type { Unreadable } from '@/shared/ai/route'
 import { policyKnown, requiredGen } from '@/shared/ai/policy'
 import { INTEGRATION_LIMITS, integrationsAllowed, sameIntegration, sanitizeIntegration, sanitizeIntegrations } from './integrations'
 import { SYSTEM, withWriter } from './writer'
@@ -283,6 +285,8 @@ export interface CloudPatch {
   look?: WorkspaceLook | null
   /** the workspace's AI rules (`null` = none; already sanitized) */
   ai?: WorkspaceAI | null
+  /** the Regler (`null` = none; already sanitized — a newer shape kept as it was) */
+  governor?: WorkspaceGovernor | Unreadable | null
   /** every integration profile (the whole list; already sanitized) */
   integrations?: IntegrationProfile[]
 }
@@ -510,6 +514,11 @@ export const useWorkspace = create<WorkspaceState>()(
           const ai = readWorkspaceAI(ws.ai)
           const aiBefore = get().ai
           s.ai = sameWorkspaceAI(ai, aiBefore) ? aiBefore : ai
+          // the Regler: Object.assign copied the raw value — every reader sanitizes; the same value keeps its reference;
+          // a workspace without one assigns undefined (a switch never keeps the previous workspace's)
+          const governor = sanitizeGovernor(ws.governor)
+          const gBefore = get().governor
+          s.governor = gBefore !== undefined && sameGovernor(governor, gBefore, { meta: true }) ? gBefore : governor
           s.ready = true
         }),
       )
@@ -540,6 +549,9 @@ export const useWorkspace = create<WorkspaceState>()(
         // the AI rules: the same (a restore hands in this workspace's own — features/io/backup.ts)
         const ai = readWorkspaceAI(ws.ai)
         if (!sameWorkspaceAI(ai, s.ai)) s.ai = ai
+        // the Regler: the same (a restore hands in this workspace's own; another tab's save its stored value)
+        const governor = sanitizeGovernor(ws.governor)
+        if (!sameGovernor(governor, s.governor, { meta: true })) s.governor = governor
       }),
 
     setLook: (look) => {
@@ -1306,6 +1318,7 @@ export const useWorkspace = create<WorkspaceState>()(
           s.look = patch.look ?? undefined
         }
         if (patch.ai !== undefined) s.ai = patch.ai ?? undefined
+        if (patch.governor !== undefined) s.governor = patch.governor ?? undefined
         if (patch.integrations) s.integrations = patch.integrations
         if (patch.settings) Object.assign(s.settings, withSealedKeys({ ...s.settings, ...patch.settings }, s.settings, s.epoch))
         if (removed && s.recent.some((r) => !s.pages[r])) s.recent = s.recent.filter((r) => !!s.pages[r])
@@ -1412,6 +1425,7 @@ export function getWorkspaceSnapshot(): Workspace {
     kit: s.kit ?? emptyKit(),
     ...(s.look ? { look: s.look } : {}),
     ...(s.ai ? { ai: s.ai } : {}),
+    ...(s.governor ? { governor: s.governor } : {}),
     integrations: s.integrations ?? [],
   }
 }

@@ -186,7 +186,7 @@ All mutating requests require `Content-Type: application/json` (CSRF guard toget
 | `GET /api/health` | – | `{ ok: true, version }` |
 | `GET /api/dev/mailbox` | DEV_MODE only | last 50 mails `{ to, subject, text, link }` |
 | `POST /api/auth/verify` | – | *(server addition)* form `token=` (the confirmation page) or JSON `{ token }` → sets cookie, `303` to `redirect` |
-| `GET /api/config` | – | *(server addition)* `{ version, signup: { mode, domains? }, max_upload_mb, dev_mode, source_url, coding_relay, supports }` — `supports` lists what this server understands beyond the base protocol (`['ai']`: it guards the meta key `workspace.ai`, below) |
+| `GET /api/config` | – | *(server addition)* `{ version, signup: { mode, domains? }, max_upload_mb, dev_mode, source_url, coding_relay, supports }` — `supports` lists what this server understands beyond the base protocol (`['ai', 'governor']`: it guards the meta keys `workspace.ai` and `workspace.governor`, below) |
 | `GET /api/workspaces/:id/coding/workers` | member | *(coding relay)* cloud coding workers `[{ id, label, state: 'pending'\|'active', user: { id, name, email }, mine, created_at, created_from, activated_at, last_used_at, online, tab, since }]` — a member sees their own, admins and the owner everyone's (*Coding relay*) |
 | `POST /api/workspaces/:id/coding/workers` | member | `{ label? }` → `201` worker **+ `token`** (only here; One writes it into the downloaded file). A new token is **pending**; an older pending one of the member is revoked at once, the active one only when the new one first connects. 20 per member per day |
 | `DELETE /api/workspaces/:id/coding/workers/:workerId` | member (own) / admin | revoke → `204`; its worker is closed at once (`404 worker_not_found` — also for someone else's token, to a member) |
@@ -481,7 +481,8 @@ webhooks), and rows changed with `PATCH /api/v1/rows/:id`, are written by the se
 
 ```
 Y.Map 'workspace'  name, icon (JSON), createdAt, look (JSON WorkspaceLook — owners / admins write it;
-                     every reader sanitizes it, app src/app/store/look.ts)
+                     every reader sanitizes it, app src/app/store/look.ts), ai (JSON WorkspaceAI), governor
+                     (JSON WorkspaceGovernor — owners / admins; every reader sanitizes, src/shared/ai/governor.ts)
 Y.Map 'pages'      pageId → Y.Map {
                      kind, title, icon (JSON|null), cover (JSON|null), parentId, databaseId,
                      order (number), trashed, trashedAt, createdAt, updatedAt, createdBy, updatedBy,
@@ -573,6 +574,13 @@ know. The member classes (private pages, mail, memory, MCP) are each member's ow
 `applyOn`, `routeSig`) are kept by the server's sanitizer too — one it cannot read is kept as it was, never dropped; a
 server run whose first route is not Claude, or whose route fields the server cannot read, is skipped with its reason
 (no request).
+
+The workspace's **governor** (`workspace.governor`, the Regler: lever, ceiling, day / month budget, saving rules —
+src/shared/ai/governor.ts `WorkspaceGovernor`) follows the same rules: `server/src/collab/workspace-governor.ts` puts a
+member's write back and stamps an owner's or admin's with `updatedBy`; `supports` lists `'governor'` on a server that guards
+it. Every client reads the key through `sanitizeGovernor` (a later slice's keys and a newer shape are kept as they were,
+never written over) and keeps it through its own edits. G0: the app reads it (the binding's remote read, `readAll` at boot)
+and does not write it yet; full backups carry it, page backups never, and a restore keeps the workspace's own.
 
 The **integration profiles** (`integrations`, app: Workspace → Integrations, `src/app/features/agents/integrations`) follow the same
 rules for every key of their map (`server/src/collab/admin-map.ts`, the guard the look uses too): a member's add, change or removal

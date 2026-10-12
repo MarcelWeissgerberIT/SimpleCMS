@@ -789,17 +789,11 @@ function readSome(pageIds: ID[], dbIds: ID[], meta: boolean): Promise<SomeRecord
  * in sorted lists, graph layout) sees the order it always saw.
  */
 /**
- * The governor a snapshot holds — the store's own while the snapshot does not name it (getWorkspaceSnapshot carries it
- * once the store's G0 part lands; until then a full write must not drop it).
- */
-const governorOf = (ws: Workspace) => ('governor' in ws ? ws.governor : useWorkspace.getState().governor)
-
-/**
- * The governor a write stores: the snapshot's — except the marker for a newer value too large to keep a copy of
- * (shared/ai/governor.ts), which never replaces the stored value it stands for.
+ * The governor a write stores: the snapshot's (getWorkspaceSnapshot carries it) — except the marker for a newer value too
+ * large to keep a copy of (shared/ai/governor.ts), which never replaces the stored value it stands for.
  */
 function governorToStore(ws: Workspace, stored: unknown): unknown {
-  const g = governorOf(ws)
+  const g = ws.governor
   if (isGovernorMarker(g) && isObj(stored) && stored.governor !== undefined) return stored.governor
   return g ?? null
 }

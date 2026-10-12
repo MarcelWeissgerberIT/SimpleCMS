@@ -164,6 +164,8 @@ export async function openCloudWorkspace(ws: CloudWorkspace, user: CloudUser, on
     ...(data.look ? { look: data.look } : {}),
     // the AI rules: read (sanitized), never written by this build
     ...(data.ai ? { ai: data.ai } : {}),
+    // the Regler: read (sanitized), never written by this build yet (G0)
+    ...(data.governor ? { governor: data.governor } : {}),
   })
   setLookGuard(canStyle)
   // integration profiles: owners and admins, like the look (the server puts other members' changes back)

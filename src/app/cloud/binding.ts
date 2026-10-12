@@ -29,6 +29,8 @@ import { sameScript, sanitizeScript } from '../store/scripts'
 import { emptyKit, KIT_SANITIZERS, sameKitEntry, type KitPart } from '../store/kit'
 import { sameLook, sanitizeLook } from '../store/look'
 import { readWorkspaceAI, sameWorkspaceAI } from '../store/ai'
+import { sameGovernor, sanitizeGovernor, type WorkspaceGovernor } from '@/shared/ai/governor'
+import type { Unreadable } from '@/shared/ai/route'
 import type { WorkspaceAI } from '@/shared/ai/types'
 import { INTEGRATION_LIMITS, sameIntegration, sanitizeIntegration } from '../store/integrations'
 import { defaultView } from '../store/store'
@@ -436,6 +438,10 @@ export function startBinding(o: BindingOptions): Binding {
       // the workspace's AI rules (owners / admins write them — server guard)
       const ai = readWorkspaceAI(rs.workspace.get('ai'))
       if (!sameWorkspaceAI(ai, s.ai)) patch.ai = ai ?? null
+      // the Regler (owners / admins write it — server guard collab/workspace-governor.ts); G0: read only, this tab never
+      // writes it back (the write and the refused put-back come with the Regler's settings)
+      const governor = sanitizeGovernor(rs.workspace.get('governor'))
+      if (!sameGovernor(governor, s.governor, { meta: true })) patch.governor = governor ?? null
       dirtyWorkspace = false
     }
     if (dirtyFunctions) {
@@ -488,7 +494,7 @@ export function startBinding(o: BindingOptions): Binding {
       if (Object.keys(next).length) patch.kit = next as CloudPatch['kit']
       dirtyKit = false
     }
-    if (!patch.pages && !patch.databases && !patch.people && !patch.settings && !patch.functions && !patch.agents && !patch.scripts && !patch.kit && !patch.integrations && patch.look === undefined && patch.ai === undefined) return
+    if (!patch.pages && !patch.databases && !patch.people && !patch.settings && !patch.functions && !patch.agents && !patch.scripts && !patch.kit && !patch.integrations && patch.look === undefined && patch.ai === undefined && patch.governor === undefined) return
     applyFromCloud(() => s.cloudPatch(patch))
     if (created.length || touched.length || removed.length || rescoped.length) o.onRemotePages({ created, touched, removed, rescoped })
   }
@@ -791,7 +797,7 @@ export function readAll(
   doc: Y.Doc,
   privateDoc: Y.Doc | null,
   isFavorite: (id: ID) => boolean,
-): Pick<CloudPatch, 'people'> & { pages: Record<ID, Page>; databases: Record<ID, Database>; functions: Record<ID, CustomFunction>; name: string | null; look: WorkspaceLook | null; ai: WorkspaceAI | undefined } {
+): Pick<CloudPatch, 'people'> & { pages: Record<ID, Page>; databases: Record<ID, Database>; functions: Record<ID, CustomFunction>; name: string | null; look: WorkspaceLook | null; ai: WorkspaceAI | undefined; governor: WorkspaceGovernor | Unreadable | undefined } {
   const r = roots(doc)
   const q = privateDoc ? roots(privateDoc) : null
   const pages: Record<ID, Page> = {}
@@ -803,7 +809,7 @@ export function readAll(
   }
   for (const p of Object.values(pages)) if (p.kind === 'database' && !databases[p.id]) databases[p.id] = fallbackDatabase(p.id)
   const name = r.workspace.get('name')
-  return { pages, databases, people: readPeople(r.people, []), functions: readFunctions(r.functions, undefined), name: typeof name === 'string' && name ? name : null, look: sanitizeLook(r.workspace.get('look')), ai: readWorkspaceAI(r.workspace.get('ai')) }
+  return { pages, databases, people: readPeople(r.people, []), functions: readFunctions(r.functions, undefined), name: typeof name === 'string' && name ? name : null, look: sanitizeLook(r.workspace.get('look')), ai: readWorkspaceAI(r.workspace.get('ai')), governor: sanitizeGovernor(r.workspace.get('governor')) }
 }
 
 /**
