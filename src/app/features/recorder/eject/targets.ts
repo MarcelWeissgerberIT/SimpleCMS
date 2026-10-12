@@ -4,8 +4,9 @@
  * (the order, kit-computed values, a synced copy may change by right after the eject). The boot compares the places as
  * they are then with the same function (a crashed commit is finished from them, E16). No text, no values.
  */
+import type { JSONContent } from '@tiptap/core'
 import type { Database, ID, Page } from '../../../store/types'
-import { placeCanon, type PlaceObject } from '../model/canon'
+import { placeCanon, wholeCanon, type BlockCanon, type PlaceObject } from '../model/canon'
 import type { Plan } from '../model/plan'
 import type { EjectRecord, PlaceKey, Scope } from '../model/types'
 import { deps } from '../journal/deps'
@@ -20,6 +21,38 @@ export function decidedParts(x: Plan['places'][number]): string[] {
   const keys = b.groups.flatMap((g) => g.decided.map((d) => d.part))
   // a view place's own part is its whole view
   return x.pk === 'view' ? ['v'] : keys.filter((k) => !k.startsWith('v:'))
+}
+
+const fnv = (str: string): string => {
+  let h = 0x811c9dc5
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i)
+    h = Math.imul(h, 0x01000193)
+  }
+  return `${(h >>> 0).toString(36)}.${str.length.toString(36)}`
+}
+
+/** A synced copy (a reference block): refreshed from its source on its own — never "a change since". */
+const isSyncedCopy = (b: JSONContent | undefined) => b?.type === 'syncedBlock' && !!b.attrs?.sourcePageId
+
+/**
+ * A synchronous key of the parts an eject DECIDED for a place (the Undo's "still as the eject left it"): the decided
+ * parts (never the order, never a kit-computed value — the plan decides neither) and, where it wrote content, the
+ * page's blocks without synced copies. A follow-up the eject's write caused (a kit recompute, a synced block's
+ * refresh, an order) leaves it unchanged; anyone's edit of a decided part changes it.
+ */
+export function decidedKey(obj: PlaceObject | null, x: Plan['places'][number]): string {
+  if (!obj) return '-'
+  const c = placeCanon(obj, deps)
+  const parts: Record<string, string> = {}
+  for (const k of decidedParts(x)) parts[k] = k in c.parts ? c.parts[k] : '-'
+  let blocks: BlockCanon[] | undefined
+  if (x.build?.kind === 'page' && x.build.content && c.blocks && obj.kind === 'page') {
+    const raw = obj.page.content?.content ?? []
+    // the blocks line up with the stored ones (the trailing empty paragraph dropped): synced copies left out
+    blocks = c.blocks.length <= raw.length ? c.blocks.filter((_, i) => !isSyncedCopy(raw[i])) : c.blocks
+  }
+  return fnv(wholeCanon(parts, blocks))
 }
 
 /** A place object out of a state (rows read with their database there). */

@@ -173,10 +173,12 @@ const idsOf = (v: PropertyValue | undefined): ID[] => (Array.isArray(v) ? (v as 
  * May a restored relation value of `rowId` go back in the PLANNED state (the eject's plan: `planned` = the state with
  * what it decided so far; `back` = the rows that go back with it)? A paired two-way relation only when every partner
  * row whose back-link the value adds or drops goes back too (its own target restores its side from its pin — no row
- * outside the plan is written). Sub-items and dependencies besides: no target the hierarchy forbids in the planned
- * state, one parent per row (a sub-item added under this row has no other parent there). Other relations: always.
+ * outside the plan is written) — and, with `valueBack`, only when that partner's PAIRED value goes back too (a pair is
+ * decided as one: never one side back and the other held). Sub-items and dependencies besides: no target the hierarchy
+ * forbids in the planned state, one parent per row (a sub-item added under this row has no other parent there). Other
+ * relations: always.
  */
-export function relationRestoreOk(planned: { pages: Record<ID, Page>; databases: Record<ID, Database> }, dbId: ID, prop: PropertyDef, rowId: ID, value: PropertyValue, back: ReadonlySet<ID>): boolean {
+export function relationRestoreOk(planned: { pages: Record<ID, Page>; databases: Record<ID, Database> }, dbId: ID, prop: PropertyDef, rowId: ID, value: PropertyValue, back: ReadonlySet<ID>, valueBack?: (rowId: ID, propId: ID) => boolean): boolean {
   if (prop.type !== 'relation') return true
   const row = planned.pages[rowId]
   if (!row) return false
@@ -184,7 +186,7 @@ export function relationRestoreOk(planned: { pages: Record<ID, Page>; databases:
   const after = new Set(idsOf(value))
   const touched = [...after].filter((id) => !before.has(id)).concat([...before].filter((id) => !after.has(id)))
   const pair = pairedRelationIn(planned.databases, dbId, prop)
-  if (pair && touched.some((id) => id !== rowId && !back.has(id))) return false
+  if (pair && touched.some((id) => id !== rowId && (!back.has(id) || (valueBack && !valueBack(id, pair.prop.id))))) return false
   const db = planned.databases[dbId]
   const role = hierarchyRole(db, prop.id)
   if (!role) return true

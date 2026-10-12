@@ -381,6 +381,7 @@ export const messages: Messages = {
     'features.recorder.eject.lockBusy': 'Another eject is running (in this tab or another) — try again in a moment.',
     'features.recorder.eject.workspaceChanged': 'The workspace changed — nothing was written.',
     'features.recorder.eject.writeRefused': 'The workspace refused the eject — nothing was written.',
+    'features.recorder.eject.versionFailed': 'The version before the eject could not be saved on this device (storage full?) — nothing was written.',
     'features.recorder.eject.gone': 'This eject is no longer on the tape.',
     'features.recorder.eject.undone': 'This eject is undone already.',
     'features.recorder.eject.failed': 'The eject could not be planned.',
@@ -420,6 +421,7 @@ export const messages: Messages = {
     'features.recorder.eject.reason.memory': 'Memories are edited in their database, never ejected.',
     'features.recorder.eject.reason.moved': 'Moved to another database since: it stays.',
     'features.recorder.eject.reason.recordType': 'Its record type is no longer in the database: it stays.',
+    'features.recorder.eject.reason.valuesStay': 'Its values cannot go back — the database changed since (a property deleted, its type or an option): it stays.',
     'features.recorder.eject.reason.unavailable': 'Not available on this device.',
 
     'features.recorder.toast.ejected': '{places} by {writer} reverted',
@@ -874,6 +876,7 @@ export const messages: Messages = {
     'features.recorder.eject.lockBusy': 'Ein anderer Auswurf läuft (in diesem oder einem anderen Tab) — gleich noch einmal versuchen.',
     'features.recorder.eject.workspaceChanged': 'Der Arbeitsbereich hat gewechselt — nichts wurde geschrieben.',
     'features.recorder.eject.writeRefused': 'Der Arbeitsbereich hat den Auswurf abgelehnt — nichts wurde geschrieben.',
+    'features.recorder.eject.versionFailed': 'Die Version vor dem Auswurf ließ sich auf diesem Gerät nicht sichern (Speicher voll?) — nichts wurde geschrieben.',
     'features.recorder.eject.gone': 'Dieser Auswurf ist nicht mehr auf dem Band.',
     'features.recorder.eject.undone': 'Dieser Auswurf ist schon zurückgenommen.',
     'features.recorder.eject.failed': 'Der Auswurf konnte nicht geplant werden.',
@@ -913,6 +916,7 @@ export const messages: Messages = {
     'features.recorder.eject.reason.memory': 'Erinnerungen werden in ihrer Datenbank bearbeitet, nie ausgeworfen.',
     'features.recorder.eject.reason.moved': 'Seitdem in eine andere Datenbank verschoben: bleibt.',
     'features.recorder.eject.reason.recordType': 'Ihr Datensatztyp ist nicht mehr in der Datenbank: bleibt.',
+    'features.recorder.eject.reason.valuesStay': 'Ihre Werte können nicht zurück — die Datenbank hat sich seitdem geändert (eine Eigenschaft gelöscht, ihr Typ oder eine Option): bleibt.',
     'features.recorder.eject.reason.unavailable': 'Auf diesem Gerät nicht verfügbar.',
 
     'features.recorder.toast.ejected': '{places} von {writer} zurück',

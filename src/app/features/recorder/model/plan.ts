@@ -58,7 +58,7 @@ export interface SourceFacts {
 /** Pure helpers of other areas, handed in (the model imports nothing but itself). */
 export interface PlanFns {
   planRestoreProps(row: Page, props: SnapshotProps, db: Pick<Database, 'id' | 'properties'> | undefined): RestorePlan
-  relationRestoreOk(planned: { pages: Record<ID, Page>; databases: Record<ID, Database> }, dbId: ID, prop: PropertyDef, rowId: ID, value: PropertyValue, back: ReadonlySet<ID>): boolean
+  relationRestoreOk(planned: { pages: Record<ID, Page>; databases: Record<ID, Database> }, dbId: ID, prop: PropertyDef, rowId: ID, value: PropertyValue, back: ReadonlySet<ID>, valueBack?: (rowId: ID, propId: ID) => boolean): boolean
   withoutProperty(db: Database, propId: ID): Database
   propertyRefs(db: Database, databases: Record<ID, Database>, propId: ID): string[]
   optionRefs(db: Database, optId: ID): string[]
@@ -123,6 +123,8 @@ export interface PlacePlan {
   hunks?: { back: number; held: number }
   /** a restored page whose parent is gone or in the trash goes to the root */
   toRoot?: true
+  /** a page going into the trash: the live pages below it the plan took along (the commit re-checks nothing joined) */
+  keeps?: ID[]
   build?: Build
 }
 
@@ -215,6 +217,22 @@ interface Ctx {
   trashIds: Set<ID>
   /** places held from outside (a flip at the commit, a final change, an undone review): no pass looks at them again */
   fixed: Set<PlaceKey>
+  /** `${rowId}|${propId}`: row values that go back (the pass before's fates; the first pass: every value W touched) */
+  valueBack: Set<string>
+  /** what the task check held (hunks, row contents, trash, restores, whole places) — only grows, across passes */
+  itemHolds: Set<string>
+  /** this pass: the hunks each page puts back, with the tasks they add and drop */
+  applied: Map<ID, AppliedHunk[]>
+  /** tasks that lived before W touched the window's pages (lazy) */
+  preItems: Set<string> | null
+  /** the pages below each page now (lazy) */
+  kids: Map<ID, ID[]> | null
+}
+
+interface AppliedHunk {
+  key: string
+  adds: string[]
+  drops: string[]
 }
 
 /** Plan an eject of a loaded window: every place's outcome, why, and how its target is built. */
@@ -239,28 +257,45 @@ export function core(input: CoreInput, forcedHeld: ReadonlySet<PlaceKey> = new S
     }
     start.set(p, plan)
   }
-  const ctx: Ctx = { input, plans: new Map(), windows: data.places, plannedDbs: { ...input.state.databases }, backRows: new Set(), trashIds: new Set(), fixed }
-  const carry = (plans: Iterable<PlacePlan>) => {
+  const ctx: Ctx = { input, plans: new Map(), windows: data.places, plannedDbs: { ...input.state.databases }, backRows: new Set(), trashIds: new Set(), fixed, valueBack: new Set(), itemHolds: new Set(), applied: new Map(), preItems: null, kids: null }
+  const carry = (plans: Iterable<PlacePlan>, first = false) => {
     ctx.backRows = new Set()
     ctx.trashIds = new Set()
+    ctx.valueBack = new Set()
     for (const x of plans) {
       if (!x.p.startsWith('p:')) continue
-      if (x.outcome === 'back' || x.outcome === 'restore') ctx.backRows.add(x.p.slice(2))
-      if (x.outcome === 'trash') ctx.trashIds.add(x.p.slice(2))
+      const id = x.p.slice(2)
+      if (x.outcome === 'back' || x.outcome === 'restore') ctx.backRows.add(id)
+      if (x.outcome === 'trash') ctx.trashIds.add(id)
+      if (x.outcome !== 'back' && x.outcome !== 'restore') continue
+      if (first) {
+        // the first pass assumes every value W touched goes back; later passes take the fates
+        const w = data.places.get(x.p)
+        const t = w ? touchedOf(w) : new Set<string>()
+        const keys = t === '*' ? Object.keys(input.now.get(x.p)?.parts ?? {}) : [...t]
+        for (const k of keys) if (k.startsWith('p:')) ctx.valueBack.add(`${id}|${k.slice(2)}`)
+      } else for (const [pid, f] of Object.entries(x.fates ?? {})) if (f === 'back') ctx.valueBack.add(`${id}|${pid}`)
     }
   }
-  carry(start.values())
+  carry(start.values(), true)
   // the passes depend on each other (a property goes when no row keeps it; a row's values read the planned schema;
-  // relation values go back with their partners): run them until nothing flips
+  // relation values go back with their partners' values; tasks never doubled or lost): run them until nothing flips —
+  // what the task check holds only grows, so it ends; the plan returned always passed it
   let sig = ''
-  for (let round = 0; round < 8; round++) {
+  for (let round = 0; ; round++) {
     ctx.plans = new Map([...start].map(([p, x]) => [p, { ...x, parts: { back: [], held: [] }, notRestored: [] }]))
+    ctx.applied = new Map()
+    for (const h of ctx.itemHolds) {
+      const x = h.startsWith('x:') ? ctx.plans.get(`p:${h.slice(2)}` as PlaceKey) : undefined
+      if (x && !ctx.fixed.has(x.p)) hold(x, 'taskElsewhere')
+    }
     schemaPass(ctx)
     rowPass(ctx)
     pagePass(ctx)
     newPass(ctx)
-    const now = [...ctx.plans.values()].map((x) => `${x.p}:${x.outcome}:${x.reason ?? ''}:${x.parts.back.join(',')}:${Object.entries(x.fates ?? {}).join(';')}`).join('|')
-    if (now === sig) break
+    const grew = itemPass(ctx)
+    const now = [...ctx.plans.values()].map((x) => `${x.p}:${x.outcome}:${x.reason ?? ''}:${x.parts.back.join(',')}:${Object.entries(x.fates ?? {}).join(';')}:${x.hunks?.back ?? ''}`).join('|')
+    if (!grew && (now === sig || round >= 7)) break
     sig = now
     carry(ctx.plans.values())
   }
@@ -561,7 +596,8 @@ function rowPass(ctx: Ctx) {
       })
       for (const [pid, v] of Object.entries(plan.values)) {
         const def = db.properties.find((d) => d.id === pid)
-        if (def?.type === 'relation' && !input.fns.relationRestoreOk(planned, db.id, def, id, v, ctx.backRows)) {
+        // a two-way value goes back only with its partners' paired values (decided per pair, not per row)
+        if (def?.type === 'relation' && !input.fns.relationRestoreOk(planned, db.id, def, id, v, ctx.backRows, (row, prop) => ctx.valueBack.has(`${row}|${prop}`))) {
           fates[pid] = 'relation'
           x.notRestored.push({ name: def.name, reason: 'relation' })
           continue
@@ -584,11 +620,20 @@ function rowPass(ctx: Ctx) {
     for (const pid of propKeys) parts.push(`p:${pid}`)
     if (parts.includes('t')) fates['#title'] = 'back'
     if (parts.includes('i')) fates['#icon'] = 'back'
-    // task blocks in the content that comes back
+    // nothing of the row goes back (every value it changed stays): held — its change is not ejected
+    if (propKeys.length && !parts.some((k) => !k.startsWith('p:')) && !propKeys.some((pid) => fates[pid] === 'back')) {
+      hold(x, Object.values(fates).includes('relation') ? 'dependsOnHeld' : 'valuesStay')
+      x.fates = fates
+      continue
+    }
+    // task blocks in the content that comes back (whether one lives elsewhere: the task check after the passes)
     if (parts.includes('c')) {
-      const why = taskCheck(ctx, id, before.content, null)
-      if (why) {
-        hold(x, why)
+      if (ctx.itemHolds.has(`r:${id}`)) {
+        hold(x, 'taskElsewhere')
+        continue
+      }
+      if (loops(ctx, before.content)) {
+        hold(x, 'taskLoop')
         continue
       }
     }
@@ -600,19 +645,92 @@ function rowPass(ctx: Ctx) {
   }
 }
 
-/** Task blocks that would come back: their itemId must not live elsewhere, their waits must not loop. */
-function taskCheck(ctx: Ctx, pageId: ID, restored: JSONContent | null | undefined, rest: JSONContent[] | null): Reason | null {
-  const { input } = ctx
-  const items = input.fns.itemsOf(restored)
-  if (!items.length) return null
-  const elsewhere = new Set<string>()
-  if (rest) for (const it of input.fns.itemsOf({ type: 'doc', content: rest })) elsewhere.add(it.itemId)
-  for (const it of items) {
-    if (elsewhere.has(it.itemId)) return 'taskElsewhere'
-    if (input.items.livePagesOf(it.itemId).some((pid) => pid !== pageId && !ctx.trashIds.has(pid))) return 'taskElsewhere'
-    if (it.blockedBy.some((to) => input.items.wouldLoop(it.itemId, to))) return 'taskLoop'
+/** A task that would come back waits on something that waits on it. */
+const loops = (ctx: Ctx, restored: JSONContent | null | undefined): boolean => ctx.input.fns.itemsOf(restored).some((it) => it.blockedBy.some((to) => ctx.input.items.wouldLoop(it.itemId, to)))
+
+const itemIdsOf = (ctx: Ctx, content: JSONContent | null | undefined): string[] => ctx.input.fns.itemsOf(content).map((it) => it.itemId)
+
+/** Tasks that lived before W touched the window's pages (the first pin of each, where it was not in the trash). */
+function preItemsOf(ctx: Ctx): Set<string> {
+  if (ctx.preItems) return ctx.preItems
+  const out = new Set<string>()
+  for (const w of ctx.windows.values()) {
+    if (w.pk !== 'page' && w.pk !== 'db' && w.pk !== 'row') continue
+    const before = pinPage(ctx.input.pins, w.own[0].before)
+    if (before && !before.trashed) for (const id of itemIdsOf(ctx, before.content)) out.add(id)
   }
-  return null
+  return (ctx.preItems = out)
+}
+
+const count = (list: readonly string[], id: string) => list.reduce((n, x) => (x === id ? n + 1 : n), 0)
+
+/**
+ * The task check over the whole plan (§5.2): a task the plan puts back must not live twice once the plan is done —
+ * an occurrence the same plan removes (a move inside the page, a cut and paste across pages) does not count — and a
+ * task that lived before W must not be lost (its removal stays held when nothing puts it back). Holds the hunk, row
+ * content, trash or restore that breaks it (else the page's content, else the place) for the next pass. Resolves
+ * whether it held anything new.
+ */
+function itemPass(ctx: Ctx): boolean {
+  const { input, plans } = ctx
+  const nowOf = new Map<ID, string[]>()
+  const afterOf = new Map<ID, string[]>()
+  const liveChange = new Set<ID>()
+  for (const x of plans.values()) {
+    if (!x.p.startsWith('p:') || !BACK.has(x.outcome) || !x.build || x.build.kind === 'db') continue
+    const id = x.p.slice(2)
+    const cur = input.state.pages[id]
+    if (!cur) continue
+    const b = x.build
+    let content = cur.content
+    let trashed = !!cur.trashed
+    if (b.kind === 'trash') trashed = true
+    else {
+      const before = pinPage(input.pins, b.pin)
+      if (b.content) content = b.content
+      else if (b.parts.includes('c')) content = before?.content ?? null
+      if (b.parts.includes('tr') && before) trashed = !!before.trashed
+    }
+    if (content === cur.content && trashed === !!cur.trashed) continue
+    if (trashed !== !!cur.trashed) liveChange.add(id)
+    nowOf.set(id, cur.trashed ? [] : itemIdsOf(ctx, cur.content))
+    afterOf.set(id, trashed ? [] : itemIdsOf(ctx, content))
+  }
+  if (!nowOf.size) return false
+  const ids = new Set([...nowOf.values(), ...afterOf.values()].flat())
+  let grew = false
+  for (const item of ids) {
+    const others = input.items.livePagesOf(item).filter((pid) => !nowOf.has(pid)).length
+    let now = others
+    let after = others
+    for (const [id, list] of nowOf) {
+      now += count(list, item)
+      after += count(afterOf.get(id)!, item)
+    }
+    let side: 'adds' | 'drops' | null = null
+    if (after > Math.max(1, now)) side = 'adds'
+    else if (after === 0 && now > 0 && preItemsOf(ctx).has(item)) side = 'drops'
+    if (!side) continue
+    const id = [...nowOf.keys()].find((pid) => (side === 'adds' ? count(afterOf.get(pid)!, item) > count(nowOf.get(pid)!, item) : count(afterOf.get(pid)!, item) < count(nowOf.get(pid)!, item)))
+    if (!id) continue
+    const x = plans.get(`p:${id}` as PlaceKey)!
+    const ladder: string[] = []
+    if (x.build?.kind === 'trash') ladder.push(`t:${id}`)
+    else if (x.pk === 'row') ladder.push(`r:${id}`)
+    else {
+      const h = ctx.applied.get(id)?.find((a) => a[side!].includes(item))
+      if (h) ladder.push(h.key)
+      if (liveChange.has(id)) ladder.push(`tr:${id}`)
+      ladder.push(`c:${id}`)
+    }
+    ladder.push(`x:${id}`)
+    const next = ladder.find((k) => !ctx.itemHolds.has(k))
+    if (next) {
+      ctx.itemHolds.add(next)
+      grew = true
+    }
+  }
+  return grew
 }
 
 /* ---------------- 6.2.2 pages, 6.2.4 parents ---------------- */
@@ -643,7 +761,19 @@ function pagePass(ctx: Ctx) {
       const f = foreignOn(w, k, lastTo)
       if (f) x.parts.held.push({ part: k, reason: f })
       else if ((left.parts[k] ?? '') !== (now.parts[k] ?? '')) x.parts.held.push({ part: k, reason: 'changed' })
+      else if (k === 'tr' && ctx.itemHolds.has(`tr:${id}`)) x.parts.held.push({ part: k, reason: 'taskElsewhere' })
       else x.parts.back.push(k)
+    }
+    // back into the trash (W restored it): never with pages below it that are newer than W's restore (6.2.4)
+    if (x.parts.back.includes('tr') && before.trashed && !cur.trashed) {
+      const since = firstTouch(w, 'tr').from
+      const below = liveBelow(ctx, id)
+      const pages = input.state.pages
+      const newer = below.some((d) => !ctx.trashIds.has(d) && !ctx.backRows.has(d) && Math.max(pages[d].createdAt ?? 0, pages[d].updatedAt ?? 0) > since)
+      if (newer) {
+        x.parts.back = x.parts.back.filter((k) => k !== 'tr')
+        x.parts.held.push({ part: 'tr', reason: 'children' })
+      } else x.keeps = below
     }
     // the parent goes back only where movePage would let it (6.2.4)
     if (x.parts.back.includes('pa') && !parentOk(ctx, id, before.parentId)) {
@@ -697,18 +827,59 @@ const restoredByPlan = (ctx: Ctx, id: ID) => ctx.plans.get(`p:${id}` as PlaceKey
 
 /** May the page move back under `parentId`: there, live, and not one of its own descendants (no cycle). */
 function parentOk(ctx: Ctx, id: ID, parentId: ID | null): boolean {
-  if (!parentId) return true
-  if (parentId === id || !parentLive(ctx, parentId)) return false
   const pages = ctx.input.state.pages
-  // walk up from the parent: meeting the page itself means a cycle
+  return parentFits(pages, id, parentId, (c) => ctx.trashIds.has(c) || (!!pages[c]?.trashed && !restoredByPlan(ctx, c)))
+}
+
+/**
+ * May page `id` sit under `parentId` (as movePage would let it): the parent is there, neither it nor anything above it
+ * is (or goes) into the trash (`gone`), and the page is not above it (no cycle). Null: the root. Cycle-safe.
+ */
+export function parentFits(pages: Record<ID, Page>, id: ID, parentId: ID | null, gone: (id: ID) => boolean): boolean {
+  if (!parentId) return true
+  if (parentId === id || !pages[parentId]) return false
   const seen = new Set<ID>()
   let cur: Page | undefined = pages[parentId]
   while (cur && !seen.has(cur.id)) {
-    if (cur.id === id) return false
+    if (cur.id === id || gone(cur.id)) return false
     seen.add(cur.id)
     cur = cur.parentId ? pages[cur.parentId] : undefined
   }
   return true
+}
+
+/** The pages directly below each page now (one scan, lazy). */
+function kidsOf(ctx: Ctx): Map<ID, ID[]> {
+  if (ctx.kids) return ctx.kids
+  const m = new Map<ID, ID[]>()
+  for (const pg of Object.values(ctx.input.state.pages)) if (pg.parentId) (m.get(pg.parentId) ?? m.set(pg.parentId, []).get(pg.parentId)!).push(pg.id)
+  return (ctx.kids = m)
+}
+
+/** The live pages below a page (sub-pages, rows, theirs …): what goes into the trash with it. */
+function liveBelow(ctx: Ctx, id: ID): ID[] {
+  return livePagesBelow(ctx.input.state.pages, id, kidsOf(ctx))
+}
+
+/** The live pages below `id` — a page in the trash and what is below it are not (cycle-safe). */
+export function livePagesBelow(pages: Record<ID, Page>, id: ID, kids?: ReadonlyMap<ID, readonly ID[]>): ID[] {
+  let index = kids
+  if (!index) {
+    const m = new Map<ID, ID[]>()
+    for (const pg of Object.values(pages)) if (pg.parentId) (m.get(pg.parentId) ?? m.set(pg.parentId, []).get(pg.parentId)!).push(pg.id)
+    index = m
+  }
+  const out: ID[] = []
+  const seen = new Set<ID>([id])
+  const stack = [...(index.get(id) ?? [])]
+  while (stack.length) {
+    const c = stack.pop()!
+    if (seen.has(c) || !pages[c] || pages[c].trashed) continue
+    seen.add(c)
+    out.push(c)
+    stack.push(...(index.get(c) ?? []))
+  }
+  return out
 }
 
 /** A page's content, hunk by hunk, W's segments newest first (design §6.2.2). */
@@ -721,6 +892,7 @@ function contentPlan(ctx: Ctx, w: PlaceWindow, pageId: ID, lastTo: number): { ba
   let held = 0
   let reason: Reason | undefined
   const restored: string[][] = []
+  const applied: AppliedHunk[] = []
   for (let i = w.own.length - 1; i >= 0; i--) {
     const g = w.own[i]
     const pinList = g.before ? input.pins.blocks.get(g.before) : g.f & F.NEW ? { strings: [], json: [] } : undefined
@@ -732,6 +904,7 @@ function contentPlan(ctx: Ctx, w: PlaceWindow, pageId: ID, lastTo: number): { ba
     }
     const later = w.foreign.filter((f) => f.from > g.from)
     for (const h of blockHunks(pinList.strings, leftBlocks)) {
+      const key = `h:${pageId}|${i}:${h.b[0]}-${h.b[1]}:${h.l[0]}-${h.l[1]}`
       const ids = [...h.B, ...h.L].map(idOfBlock).filter((x): x is string => !!x)
       const loose = [...h.B, ...h.L].some((b) => !idOfBlock(b))
       const touchedBy = (f: Foreign) => f.touched === '*' || ids.some((bid) => (f.touched as string[]).includes(`b:${bid}`)) || (loose && ((f.touched as string[]).includes('b#') || (f.touched as string[]).includes('bo')))
@@ -747,14 +920,20 @@ function contentPlan(ctx: Ctx, w: PlaceWindow, pageId: ID, lastTo: number): { ba
         reason ??= 'ambiguous'
         continue
       }
-      const json = pinList.json.slice(h.b[0], h.b[1])
-      const rest = [...working.json.slice(0, loc[0]), ...working.json.slice(loc[1])]
-      const task = taskCheck(ctx, pageId, { type: 'doc', content: json }, rest)
-      if (task) {
+      // the task check after the passes held this hunk (a task doubled or lost), or the page's whole content
+      if (ctx.itemHolds.has(key) || ctx.itemHolds.has(`c:${pageId}`)) {
         held++
-        reason ??= task
+        reason ??= 'taskElsewhere'
         continue
       }
+      const json = pinList.json.slice(h.b[0], h.b[1])
+      const restoredDoc: JSONContent = { type: 'doc', content: json }
+      if (loops(ctx, restoredDoc)) {
+        held++
+        reason ??= 'taskLoop'
+        continue
+      }
+      applied.push({ key, adds: itemIdsOf(ctx, restoredDoc), drops: itemIdsOf(ctx, { type: 'doc', content: working.json.slice(loc[0], loc[1]) }) })
       working.strings.splice(loc[0], loc[1] - loc[0], ...h.B)
       working.json.splice(loc[0], loc[1] - loc[0], ...json)
       restored.push(h.B)
@@ -765,6 +944,7 @@ function contentPlan(ctx: Ctx, w: PlaceWindow, pageId: ID, lastTo: number): { ba
   const doc: JSONContent = { type: 'doc', content: working.json.length ? working.json : [{ type: 'paragraph' }] }
   // a task never lands inside a task or a table — the swap of whole top-level blocks keeps it so; asserted
   if (input.fns.liftMisplacedItems(doc) !== doc) return { back: 0, held: held + back, reason: 'ambiguous' }
+  ctx.applied.set(pageId, applied)
   return { back, held, content: doc, restored, ...(reason ? { reason } : {}) }
 }
 
@@ -799,16 +979,16 @@ function newPass(ctx: Ctx) {
       if (ctx.fixed.has(p) || x.outcome !== 'trash' || !p.startsWith('p:')) continue
       const id = p.slice(2)
       let why: Reason | null = null
+      // no live page below it that stays (a page's sub-pages, a row's, a database's rows) — every one a new one going too
+      if ((kidsOf(ctx).get(id) ?? []).some((c) => !input.state.pages[c]?.trashed && !trash.has(c))) why = 'children'
       if (w.pk === 'row') {
         if (holdersOf(id).some((h) => !trash.has(h))) why = 'inUse'
-      } else {
-        // a page: no live child that stays; a database: its schema too, and every row in it a new one going to the trash
-        for (const c of Object.values(input.state.pages)) if (c.parentId === id && !c.trashed && !trash.has(c.id)) why = 'children'
-        if (w.pk === 'db') {
-          const schema = plans.get(`s:${id}` as PlaceKey)
-          if (schema && schema.outcome !== 'trash') why = 'children'
-        }
+      } else if (w.pk === 'db') {
+        // a database: its schema too
+        const schema = plans.get(`s:${id}` as PlaceKey)
+        if (schema && schema.outcome !== 'trash') why = 'children'
       }
+      if (!why && ctx.itemHolds.has(`t:${id}`)) why = 'taskElsewhere'
       if (why) {
         hold(x, why)
         trash.delete(id)
@@ -817,6 +997,7 @@ function newPass(ctx: Ctx) {
       }
       x.build = { kind: 'trash' }
       x.parts.back = ['tr']
+      x.keeps = liveBelow(ctx, id)
     }
   }
   // a new database's schema goes with its page; held with it
@@ -868,6 +1049,61 @@ function finish(ctx: Ctx): Plan {
   }
   counts.ops = vs.size
   return { sel: input.data.sel, places: [...plans.values()], counts, heldBy, ...(extendTo ? { extendTo } : {}), incomplete: input.data.lostTails.length > 0, refs, keys }
+}
+
+/**
+ * The commit's re-check of what the plan read besides its own places (Δ26): nothing joined a page that goes into the
+ * trash (a page below it, a row linking a new row), and every parent that goes back still fits — on the state at the
+ * commit. True: something changed — plan again, write nothing.
+ */
+export function staleFacts(plan: Plan, state: { pages: Record<ID, Page>; databases: Record<ID, Database> }, pins: PinSet): boolean {
+  const trash = new Set<ID>()
+  const restored = new Set<ID>()
+  const pageBuild = (x: PlacePlan) => (x.build?.kind === 'page' ? x.build : null)
+  for (const x of plan.places) {
+    if (!x.p.startsWith('p:') || !BACK.has(x.outcome) || !x.build) continue
+    const id = x.p.slice(2)
+    if (x.outcome === 'trash') trash.add(id)
+    if (x.outcome === 'restore') restored.add(id)
+    const b = pageBuild(x)
+    if (b?.parts.includes('tr') && pinPage(pins, b.pin)?.trashed) trash.add(id)
+  }
+  let kids: Map<ID, ID[]> | null = null
+  const kidsNow = () => {
+    if (kids) return kids
+    kids = new Map()
+    for (const pg of Object.values(state.pages)) if (pg.parentId) (kids.get(pg.parentId) ?? kids.set(pg.parentId, []).get(pg.parentId)!).push(pg.id)
+    return kids
+  }
+  let holders: Set<ID> | null = null
+  const linked = (id: ID) => {
+    if (!holders) {
+      holders = new Set()
+      for (const r of Object.values(state.pages)) {
+        if (!r.databaseId || r.trashed || trash.has(r.id)) continue
+        for (const prop of state.databases[r.databaseId]?.properties ?? []) {
+          const v = prop.type === 'relation' ? r.properties?.[prop.id] : undefined
+          if (Array.isArray(v)) for (const t of v) if (typeof t === 'string') holders.add(t)
+        }
+      }
+    }
+    return holders.has(id)
+  }
+  for (const x of plan.places) {
+    if (!x.p.startsWith('p:') || !BACK.has(x.outcome) || !x.build) continue
+    const id = x.p.slice(2)
+    if (trash.has(id)) {
+      const keeps = new Set(x.keeps ?? [])
+      if (livePagesBelow(state.pages, id, kidsNow()).some((d) => !keeps.has(d) && !trash.has(d))) return true
+      if (x.outcome === 'trash' && x.pk === 'row' && linked(id)) return true
+    }
+    const b = pageBuild(x)
+    if (b?.parts.includes('pa') && x.pk !== 'row') {
+      const before = pinPage(pins, b.pin)
+      if (before && !parentFits(state.pages, id, before.parentId ?? null, (c) => trash.has(c) || (!!state.pages[c]?.trashed && !restored.has(c)))) return true
+    }
+  }
+  return false
 }
 
 /** The object a place is in the store (the commit's re-check compares it). */

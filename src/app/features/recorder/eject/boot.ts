@@ -4,10 +4,12 @@
  * 'committing' whose tab is gone (its Web Lock free) is compared with the places as they are: a place whose decided
  * parts (and restored block runs) are what the eject's targets say counts as ejected; the sources are settled for
  * exactly the changes of those places and the record is 'done' with those outcomes — none: 'aborted'. A crash can
- * never leave a review "applied" for work that was reverted. Never writes the workspace.
+ * never leave a review "applied" for work that was reverted; the record keeps the segments of the places found written
+ * only (a place not found so is offered again by a later eject). Never writes the workspace.
  */
 import { useWorkspace } from '../../../store/store'
-import type { EjectRecord, Outcome, PlaceKey, Scope } from '../model/types'
+import type { EjectRecord, JSegment, Outcome, PlaceKey, Scope } from '../model/types'
+import { openJournal } from '../journal/db'
 import { liveTabs } from '../journal/prune'
 import { recorder } from '../journal/recorder'
 import { scopeNow } from '../journal/scope'
@@ -58,8 +60,15 @@ async function finishOne(r: EjectRecord): Promise<boolean> {
       lost++
     }
   const counts = { ...r.counts, back: r.counts.back - lost, held: r.counts.held + lost }
+  // the segments of the places found written only (a later eject reads "already ejected" from them)
+  const j = await openJournal()
+  const segs: string[] = []
+  for (const id of r.segs) {
+    const g = await j.get<JSegment>('segs', id)
+    if (g && matched.has(g.p)) segs.push(id)
+  }
   const settled = await settle({ ...r, outcomes })
-  await putEject({ ...r, state: 'done', outcomes, counts, ...(settled.agent ? { agent: settled.agent } : {}), ...(settled.slips ? { slips: settled.slips } : {}) })
+  await putEject({ ...r, state: 'done', outcomes, counts, segs, ...(settled.agent ? { agent: settled.agent } : {}), ...(settled.slips ? { slips: settled.slips } : {}) })
   return true
 }
 

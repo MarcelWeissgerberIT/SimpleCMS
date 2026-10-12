@@ -29,9 +29,9 @@ export function currentPlace(place: PlaceKey): PlaceObject | null {
   return placeIn(useWorkspace.getState(), place)
 }
 
-/** Many places as they are now, from one store read. */
-export function currentPlaces(places: Iterable<PlaceKey>): Map<PlaceKey, PlaceObject | null> {
-  const s = useWorkspace.getState()
+/** Many places as they are now, from one store read (`state`: that read, taken by the caller). */
+export function currentPlaces(places: Iterable<PlaceKey>, state?: Pick<State, 'pages' | 'databases'>): Map<PlaceKey, PlaceObject | null> {
+  const s = state ?? useWorkspace.getState()
   const out = new Map<PlaceKey, PlaceObject | null>()
   for (const p of places) out.set(p, placeIn(s, p))
   return out

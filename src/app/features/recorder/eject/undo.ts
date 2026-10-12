@@ -1,7 +1,9 @@
 /**
  * The eject's Undo — ONE step (design §6.5, C24, Δ29, Δ30). In the tab that ejected (memory): every place the eject
- * wrote that is still exactly as the eject left it (its parts key) gets the decided parts of the object before back,
- * on the object as it is NOW (comments, locks, stamps made since stay); a place changed since stays and is counted.
+ * wrote whose decided parts are still as the eject left them (a kit recompute or a synced copy's refresh is no change)
+ * gets the decided parts of the object before back, on the object as it is NOW (comments, locks, stamps made since
+ * stay); a place changed since stays and is counted — so does a page that would go back into the trash with something
+ * newer below it, or back under a parent that is gone, in the trash or below it.
  * After a reload: the planner on the eject's own window ("eject the eject": its pins, its compare-and-hold). Either
  * way ONE store update under `you~undo:<ejectId>` (a ref settled.ts knows: no automation, agent trigger, autofill,
  * trust watch or attribution keeper reacts to it), no new record, no new version; then the sources come back for the
@@ -12,18 +14,16 @@ import { withWriter, type Writer } from '../../../store/writer'
 import type { Database, ID, Page } from '../../../store/types'
 import { flushOpenEditors } from '../../../editor'
 import { withRestoring } from '../../history/snapshots'
-import { partsKey } from '../model/canon'
-import { targetsFor } from '../model/plan'
+import { livePagesBelow, parentFits, staleFacts, targetsFor } from '../model/plan'
 import { overlay, overlayDb, type SchemaDecision } from '../model/overlay'
 import type { EjectRecord, Outcome, PlaceKey } from '../model/types'
-import { deps } from '../journal/deps'
 import { scopeNow } from '../journal/scope'
 import { noteEject } from '../settled'
 import { flips, removalsInUse, undoMemory, withEjectLock, withSourceLock, type CommitRefusal, type UndoMemo } from './commit'
 import { canEject, planEject, PLAN_FNS } from './plan'
 import { getEject, putEject } from './records'
 import { unsettle } from './sources'
-import { objectIn } from './targets'
+import { decidedKey, objectIn } from './targets'
 
 const BACK: ReadonlySet<Outcome> = new Set(['back', 'trash', 'restore'])
 
@@ -52,7 +52,6 @@ export async function undoEject(ejectId: string): Promise<UndoResult> {
 }
 
 const undoWriter = (id: string): Writer => ({ kind: 'you', via: 'undo', ref: id })
-const keyOf = (s: State, p: PlaceKey): string => partsKey(objectIn(s, p), deps)
 
 /** A database's decided parts the other way round: what the object before had comes back, what it lacked goes. */
 function inverse(decided: readonly SchemaDecision[], pre: Database): SchemaDecision[] {
@@ -73,7 +72,9 @@ async function instant(rec: EjectRecord, mem: UndoMemo): Promise<UndoResult> {
   flushOpenEditors()
   const s = useWorkspace.getState()
   const back = new Set<PlaceKey>()
-  for (const [p, key] of mem.post) if (keyOf(s, p) === key) back.add(p)
+  const planOf = new Map(mem.plan.places.map((x) => [x.p, x]))
+  // still as the eject left it: the parts it decided (a kit recompute, a synced copy's refresh, the order are no change)
+  for (const [p, key] of mem.post) if (planOf.has(p) && decidedKey(objectIn(s, p), planOf.get(p)!) === key) back.add(p)
   // a database comes back whole or not at all (its schema and its views are one object)
   const dbPlaces = new Map<ID, PlaceKey[]>()
   for (const x of mem.plan.places) {
@@ -101,6 +102,29 @@ async function instant(rec: EjectRecord, mem: UndoMemo): Promise<UndoResult> {
     }
     const parts = b.kind === 'trash' ? ['tr'] : [...b.parts, ...(b.content ? ['c'] : [])]
     patch.pages[id] = overlay(cur, before, parts, undefined, undefined, before.updatedBy ?? null)
+  }
+  // places the Undo cannot put back as they were stay (counted): a page going back into the trash with something newer
+  // below it than the eject's write, a page going back under a parent that is gone, in the trash or below it — until
+  // nothing more drops out (one dropping out can make another's parent or trash wrong)
+  for (let changed = true; changed; ) {
+    changed = false
+    const trashing = new Set(Object.keys(patch.pages).filter((id) => patch.pages[id].trashed && !s.pages[id].trashed))
+    const restoring = new Set(Object.keys(patch.pages).filter((id) => !patch.pages[id].trashed && s.pages[id].trashed))
+    for (const id of Object.keys(patch.pages)) {
+      const next = patch.pages[id]
+      const cur = s.pages[id]
+      let stays = false
+      if (trashing.has(id)) {
+        const known = new Set(mem.below.get(id) ?? [])
+        stays = livePagesBelow(s.pages, id).some((d) => !known.has(d) && !trashing.has(d))
+      }
+      if (!stays && next.parentId !== cur.parentId && !next.databaseId) stays = !parentFits(s.pages, id, next.parentId, (c) => trashing.has(c) || (!!s.pages[c]?.trashed && !restoring.has(c)))
+      if (stays) {
+        delete patch.pages[id]
+        back.delete(`p:${id}` as PlaceKey)
+        changed = true
+      }
+    }
   }
   for (const [dbId, decided] of groups) {
     const cur = s.databases[dbId]
@@ -130,7 +154,7 @@ async function planned(rec: EjectRecord): Promise<UndoResult> {
     if (scopeNow() !== rec.s) return { refused: { key: 'workspaceChanged' } }
     flushOpenEditors()
     const s = useWorkspace.getState()
-    if (flips(plan, s).length || removalsInUse(plan, s)) continue
+    if (flips(plan, s).length || removalsInUse(plan, s) || staleFacts(plan, s, input.pins)) continue
     const patch = targetsFor(plan, s, input.pins, PLAN_FNS)
     const ok = measured(() => withWriter(undoWriter(rec.id), () => withRestoring(() => s.applyRewind(patch, 'eject'))))
     if (!ok) return { refused: { key: 'writeRefused' } }

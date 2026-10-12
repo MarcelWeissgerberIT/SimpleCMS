@@ -196,11 +196,11 @@ export function installSeam(rec: Recorder): void {
       const planned = await planEject({ ...sel, scope: sel.scope ?? scopeOf() })
       return 'refused' in planned ? { refused: planned.refused } : facts(planned)
     },
-    /** the commit's test hook: 'afterWrite' stops after the store update, 'beforeSettle' waits until releaseEject() */
+    /** the commit's test hook: 'afterWrite' stops after the store update, 'beforeSettle' / 'beforeCheck' wait (after the write / before the re-check) until releaseEject() */
     get ejectHook() {
       return ejectHook.at
     },
-    set ejectHook(v: 'afterWrite' | 'beforeSettle' | null) {
+    set ejectHook(v: 'afterWrite' | 'beforeSettle' | 'beforeCheck' | null) {
       ejectHook.at = v
     },
     ejectWaiting: () => ejectHook.waiting,

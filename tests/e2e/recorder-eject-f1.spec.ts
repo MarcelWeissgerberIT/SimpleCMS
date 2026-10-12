@@ -79,7 +79,7 @@ test.describe('flight recorder — the eject, hard cases', () => {
     expect(r2.counts.back).toBe(0)
   })
 
-  test('a locked database: its schema stays (held, locked), its rows go back', async ({ page }) => {
+  test('a locked database: its schema stays (held, locked), its rows go back — a row whose only value needs what the schema lost is held', async ({ page }) => {
     test.setTimeout(150_000)
     const ids = await bootStory(page)
     await rec(page, 'step', { writer: { kind: 'you', via: 'ui' }, calls: [['updateDatabase', story.database.id, { locked: true }]] })
@@ -88,11 +88,13 @@ test.describe('flight recorder — the eject, hard cases', () => {
     const schema = r.places.find((x) => x.pk === 'schema')!
     expect(schema.outcome).toBe('held')
     expect(['locked', 'changed']).toContain(schema.reason)
-    expect(r.places.find((x) => x.p === `p:${ids['NL-1402']}`)?.outcome).toBe('back')
+    // NL-1402's Stage cannot take an option the locked database no longer has, and nothing else of the row goes back:
+    // held (its change is not ejected), never "back" with nothing written
+    expect(r.places.find((x) => x.p === `p:${ids['NL-1402']}`)).toMatchObject({ outcome: 'held', reason: 'valuesStay' })
+    expect(r.places.filter((x) => x.pk === 'row' && x.outcome === 'back').length).toBeGreaterThan(0)
     const e = await rec<{ state: string }>(page, 'eject', window212())
     expect(e.state).toBe('done')
-    // "Ready" stays out of the locked schema; NL-1402's Stage cannot take an option the database no longer has: it is
-    // not restored (the row's other parts would go back), never written as a dangling value
+    // "Ready" stays out of the locked schema; NL-1402's Stage is never written as a dangling value
     const opts = await wsEval(page, (s, db) => s.databases[db].properties.find((p: { id: string }) => p.id === 'story-stage').options.map((o: { id: string }) => o.id), story.database.id)
     expect(opts).not.toContain(story.expect.eject.optionBack.id)
     expect(await wsEval(page, (s, db) => s.databases[db].locked, story.database.id)).toBe(true)
@@ -327,5 +329,142 @@ test.describe('flight recorder — the eject, hard cases', () => {
     await expect.poll(() => state(b, id2), { timeout: 30_000 }).toBe('done')
     const run = await b.evaluate(async (a) => ((await (window as unknown as { __oneAgents: { loadRuns: (id: string) => Promise<Array<{ id: string; staged: Array<Record<string, unknown>> }>> } }).__oneAgents.loadRuns(a)) ?? []).find((x) => x.id === 'r212'), story.agent.id)
     expect(run!.staged.filter((c) => c.status === 'discarded' && c.ejected).length).toBe(story.expect.eject.agent.ejected)
+  })
+
+  /* ---------------- R3 review: what the plan read besides its places, the Undo's guards, versions, a crash ---------------- */
+
+  const fresh = async (page: Page) => {
+    await page.clock.install({ time: storyTime(story, '07:00:00') })
+    await openApp(page)
+    await startRecorder(page)
+    return async (time: string, writer: Record<string, unknown>, calls: unknown[][], extra: Record<string, unknown> = {}) => {
+      await page.clock.setFixedTime(storyTime(story, time))
+      return rec<unknown[]>(page, 'step', { writer, calls, ...extra })
+    }
+  }
+  const you = { kind: 'you', via: 'ui' }
+  const hook = (page: Page, at: string | null) => page.evaluate((v) => ((window as unknown as { __oneRecorder: { ejectHook: string | null } }).__oneRecorder.ejectHook = v), at)
+
+  test('Δ26 facts: a page made below the writer\'s new page between the plan and the write → nothing written, planned again (the new page held: "children")', async ({ page }) => {
+    test.setTimeout(120_000)
+    const step = await fresh(page)
+    await page.clock.setFixedTime(storyTime(story, '07:10:00'))
+    await rec(page, 'settle')
+    const [n] = (await step('07:31:00', { kind: 'agent', id: 'tessera-notizen', run: 'r8', change: 'c1' }, [['createPage', { title: 'Tessera Notizen' }]], { note: { seq: 8 }, end: true })) as string[]
+    await page.clock.setFixedTime(storyTime(story, '07:40:00'))
+    await rec(page, 'settle')
+    const sel = { lane: 'agent:tessera-notizen', run: 'agent:tessera-notizen:r8', a: storyTime(story, '07:30:00'), b: storyTime(story, '07:35:00') }
+    expect((await rec<{ places: Array<{ p: string; outcome: string }> }>(page, 'planEject', sel)).places.find((x) => x.p === `p:${n}`)?.outcome).toBe('trash')
+    await hook(page, 'beforeCheck')
+    await page.evaluate((sel) => {
+      const w = window as unknown as { __oneRecorder: { eject: (s: unknown) => Promise<unknown> }; __ejectRun?: Promise<unknown> }
+      w.__ejectRun = w.__oneRecorder.eject(sel)
+    }, sel)
+    await expect.poll(() => rec<boolean>(page, 'ejectWaiting'), { timeout: 30_000 }).toBe(true)
+    // the person (or Claude Desktop through the bridge) makes a page below it meanwhile
+    await step('07:41:00', you, [['createPage', { title: 'Mara Lind Notizen', parentId: n }]])
+    await rec(page, 'releaseEject')
+    expect(await page.evaluate(() => (window as unknown as { __ejectRun?: Promise<unknown> }).__ejectRun)).toEqual({ replan: true })
+    expect(await wsEval(page, (s, id) => !!s.pages[id].trashed, n)).toBe(false)
+    expect((await rec<Array<{ state: string }>>(page, 'ejects')).map((e) => e.state)).toEqual(['aborted'])
+    await hook(page, null)
+    const again = await rec<{ places: Array<{ p: string; outcome: string; reason: string | null }> }>(page, 'planEject', sel)
+    expect(again.places.find((x) => x.p === `p:${n}`)).toMatchObject({ outcome: 'held', reason: 'children' })
+    expect(await rec(page, 'unknowns')).toEqual([])
+  })
+
+  test('the Undo in this tab: a page the eject took out of the trash with a page made below it since stays; a page whose old parent went below it since stays (no loop); a row whose undecided value was recomputed since still goes back', async ({ page }) => {
+    test.setTimeout(120_000)
+    const step = await fresh(page)
+    const [hub, p, q] = (await step('07:00:00', you, [['createPage', { title: 'Nordlicht Hub' }], ['createPage', { title: 'Launch plan' }], ['createPage', { title: 'Tessera Archiv' }]])) as string[]
+    const [db] = (await step('07:00:10', you, [['createDatabase', { title: 'Nordlicht Aufgaben' }]])) as string[]
+    const [stage, score] = (await step('07:00:20', you, [['addProperty', db, { type: 'select', name: 'Stufe', options: [{ id: 'o-offen', name: 'Offen', color: 'gray' }, { id: 'o-fertig', name: 'Fertig', color: 'green' }] }], ['addProperty', db, { type: 'number', name: 'Punkte' }]])) as string[]
+    const [row] = (await step('07:00:30', you, [['createRow', db, { title: 'NL-1402', properties: { [stage]: 'o-offen', [score]: 1 } }]])) as string[]
+    await page.clock.setFixedTime(storyTime(story, '07:10:00'))
+    await rec(page, 'settle')
+    const agent = (change: string) => ({ kind: 'agent', id: 'tessera-ordner', run: 'r9', change })
+    await step('07:31:00', agent('c1'), [['trashPage', hub]], { note: { seq: 9 } })
+    await step('07:31:10', agent('c2'), [['movePage', p, q]])
+    await step('07:31:20', agent('c3'), [['setRowProperty', row, stage, 'o-fertig']], { end: true })
+    await page.clock.setFixedTime(storyTime(story, '07:40:00'))
+    await rec(page, 'settle')
+    const sel = { lane: 'agent:tessera-ordner', run: 'agent:tessera-ordner:r9', a: storyTime(story, '07:30:00'), b: storyTime(story, '07:35:00') }
+    const e = await rec<{ id: string; state: string; counts: { back: number } }>(page, 'eject', sel)
+    expect(e).toMatchObject({ state: 'done', counts: { back: 3 } })
+    const state = () => wsEval(page, (s, ids) => ({ hub: !!s.pages[ids.hub].trashed, p: s.pages[ids.p].parentId, q: s.pages[ids.q].parentId, stage: s.pages[ids.row].properties[ids.stage], score: s.pages[ids.row].properties[ids.score] }), { hub, p, q, row, stage, score })
+    expect(await state()).toEqual({ hub: false, p: null, q: null, stage: 'o-offen', score: 1 })
+    // since the eject: a page below the restored hub, the old parent moved below the page, a recompute on the row
+    await step('07:41:00', you, [['createPage', { title: 'Mara Lind Notizen', parentId: hub }], ['movePage', q, p]])
+    await step('07:41:10', { kind: 'kit', type: 'punkte', cause: 'you~ui' }, [['setRowProperty', row, score, 5]])
+    expect(await rec(page, 'undoEject', e.id)).toMatchObject({ ok: true, back: 1, kept: 2 })
+    expect(await state()).toEqual({ hub: false, p: null, q: p, stage: 'o-fertig', score: 5 })
+    expect(await rec(page, 'unknowns')).toEqual([])
+  })
+
+  test('versions first: a "Before the eject" version that cannot be written refuses the eject — nothing written, no record', async ({ page }) => {
+    test.setTimeout(120_000)
+    const step = await fresh(page)
+    const [plan] = (await step('07:00:00', you, [['createPage', { title: 'Launch plan', content: { type: 'doc', content: [para('l1', 'Nordlicht im Oktober')] } }]])) as string[]
+    await page.clock.setFixedTime(storyTime(story, '07:10:00'))
+    await rec(page, 'settle')
+    await step('07:31:00', { kind: 'agent', id: 'tessera-titel', run: 'r10', change: 'c1' }, [['updatePage', plan, { title: 'Launch plan (Entwurf)' }]], { note: { seq: 10 }, end: true })
+    await page.clock.setFixedTime(storyTime(story, '07:40:00'))
+    await rec(page, 'settle')
+    const sel = { lane: 'agent:tessera-titel', run: 'agent:tessera-titel:r10', a: storyTime(story, '07:30:00'), b: storyTime(story, '07:35:00') }
+    // the version store refuses writes (a full disk)
+    await page.evaluate(() => {
+      const w = window as unknown as { __put?: IDBObjectStore['put'] }
+      w.__put = IDBObjectStore.prototype.put
+      IDBObjectStore.prototype.put = function (this: IDBObjectStore, value: unknown, key?: IDBValidKey) {
+        if (this.transaction.db.name === 'one-history' && typeof key === 'string' && key.startsWith('idx:')) throw new DOMException('full', 'QuotaExceededError')
+        return w.__put!.call(this, value, key)
+      }
+    })
+    expect(await rec(page, 'eject', sel)).toEqual({ refused: { key: 'versionFailed' } })
+    expect(await wsEval(page, (s, id) => s.pages[id].title, plan)).toBe('Launch plan (Entwurf)')
+    expect(await rec(page, 'ejects')).toEqual([])
+    await page.evaluate(() => {
+      const w = window as unknown as { __put?: IDBObjectStore['put'] }
+      IDBObjectStore.prototype.put = w.__put!
+    })
+    expect(await rec(page, 'eject', sel)).toMatchObject({ state: 'done' })
+    expect(await wsEval(page, (s, id) => s.pages[id].title, plan)).toBe('Launch plan')
+  })
+
+  test('a crashed commit finished at boot keeps the segments of the places found written only — a place not found so is never "already ejected"', async ({ page, context }) => {
+    test.setTimeout(180_000)
+    const step = await fresh(page)
+    const [l, m] = (await step('07:00:00', you, [['createPage', { title: 'Launch plan' }], ['createPage', { title: 'Tessera Memo' }]])) as string[]
+    await page.clock.setFixedTime(storyTime(story, '07:10:00'))
+    await rec(page, 'settle')
+    const agent = (change: string) => ({ kind: 'agent', id: 'tessera-titel', run: 'r11', change })
+    await step('07:31:00', agent('c1'), [['updatePage', l, { title: 'Launch plan (Entwurf)' }]], { note: { seq: 11 } })
+    await step('07:31:30', agent('c2'), [['updatePage', m, { title: 'Tessera Memo (alt)' }]], { end: true })
+    await page.clock.setFixedTime(storyTime(story, '07:40:00'))
+    await rec(page, 'settle')
+    const sel = { lane: 'agent:tessera-titel', run: 'agent:tessera-titel:r11', a: storyTime(story, '07:30:00'), b: storyTime(story, '07:35:00') }
+    await hook(page, 'afterWrite')
+    const r = await rec<{ id: string; state: string }>(page, 'eject', sel)
+    expect(r.state).toBe('committing')
+    // before the tab dies, another save puts the writer's title back on one of the pages
+    await step('07:41:00', you, [['updatePage', l, { title: 'Launch plan (Entwurf)' }]])
+    await flush(page)
+    const lSegs = (await rec<Array<{ id: string; p: string; w: string }>>(page, 'segments')).filter((g) => g.p === `p:${l}` && g.w.startsWith('agent:tessera-titel')).map((g) => g.id)
+    expect(lSegs.length).toBeGreaterThan(0)
+    await page.close()
+    const b = await context.newPage()
+    await b.clock.install({ time: storyTime(story, '07:42:00') })
+    await openApp(b)
+    await startRecorder(b)
+    await rec(b, 'recovered')
+    await expect.poll(async () => (await rec<Array<{ id: string; state: string }>>(b, 'ejects')).find((x) => x.id === r.id)?.state, { timeout: 20_000 }).toBe('done')
+    const done = (await rec<Array<{ id: string; segs: string[]; outcomes: Record<string, string> }>>(b, 'ejects')).find((x) => x.id === r.id)!
+    expect(done.outcomes[`p:${l}`]).toBe('held')
+    expect(done.outcomes[`p:${m}`]).toBe('back')
+    for (const id of lSegs) expect(done.segs).not.toContain(id)
+    expect(done.segs.length).toBeGreaterThan(0)
+    const again = await rec<{ places: Array<{ p: string; outcome: string }> }>(b, 'planEject', sel)
+    expect(again.places.find((x) => x.p === `p:${l}`)?.outcome).not.toBe('already')
+    expect(again.places.find((x) => x.p === `p:${m}`)?.outcome).toBe('already')
   })
 })

@@ -354,6 +354,7 @@ export type Reason =
   | 'memory'
   | 'moved'
   | 'recordType'
+  | 'valuesStay'
   | 'unavailable'
 
 /** A selected window: a writer (its lane, or one run of it) in [a, b) of a scope. */

@@ -95,8 +95,9 @@ export { subItemsOf, parentIdOf, type SubItemsPair } from './model/hierarchy'
  * Relation checks over any state (the flight recorder's eject plans with them; pure):
  *  - pairedRelationIn(databases, dbId, prop): the explicit two-way partner of a relation property.
  *  - invalidTargetsIn({ pages, databases }, dbId, prop, rowId): rows a hierarchy cell must not link to (loops).
- *  - relationRestoreOk(planned, dbId, prop, rowId, value, back): may a restored relation value go back in a planned
- *      state — two-way partners only when they go back too, hierarchies without loops and with one parent per row.
+ *  - relationRestoreOk(planned, dbId, prop, rowId, value, back, valueBack?): may a restored relation value go back in a
+ *      planned state — two-way partners only when they (and, with `valueBack`, their paired values) go back too,
+ *      hierarchies without loops and with one parent per row.
  */
 export { pairedRelationIn, invalidTargetsIn, relationRestoreOk } from './model/hierarchyCore'
 /**

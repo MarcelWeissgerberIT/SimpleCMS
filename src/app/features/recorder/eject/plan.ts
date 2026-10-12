@@ -183,7 +183,8 @@ export async function inputOf(data: WindowData): Promise<CoreInput> {
       if (list) nowBlocks.set(p, list)
     }),
   )
-  const now = await nowDigests(scope, data.places.keys(), { keys: oldNewKeys(data, state.databases) })
+  // the same read as the working content and the refs (an edit landing meanwhile is a flip at the commit, never lost)
+  const now = await nowDigests(scope, data.places.keys(), { keys: oldNewKeys(data, state.databases), state })
   const keys = new Set<string>()
   for (const w of data.places.values()) for (const g of w.own) for (const k of Object.keys(g.left?.parts ?? {})) keys.add(k)
   for (const n of now.values()) for (const k of Object.keys(n.parts)) keys.add(k)

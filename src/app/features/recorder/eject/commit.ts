@@ -1,13 +1,15 @@
 /**
  * Committing an eject (design §6.4, Δ26, Δ27, C34, C41): under the scope's eject lock (and, for an agent's window,
  * the agent's run lock — one review at a time), with the sources' guards checked again:
- *  1. a "Vor dem Auswurf" version of every page / row that goes back (forced: even one equal to its newest version);
+ *  1. a "Vor dem Auswurf" version of every page / row that goes back (forced: even one equal to its newest version; one
+ *     that cannot be written refuses the eject — `versionFailed`, nothing written);
  *  2. the record written ahead as 'committing' (the decided parts of every target, signed — a boot finishes a crashed
  *     commit from them);
  *  3. one synchronous section: same workspace, the open editors' typing in the store, every place that goes back still
- *     what the plan read (else NOTHING is written: the dialog plans again and shows the new counts — the person
- *     confirmed a plan, never a silently different one), the targets built on the objects as they are now, ONE
- *     store update (`applyRewind`) under the eject's own writer;
+ *     what the plan read, and what it read besides still so (nothing joined a page going into the trash, every parent
+ *     going back still fits — `staleFacts`) — else NOTHING is written: the dialog plans again and shows the new counts
+ *     (the person confirmed a plan, never a silently different one); the targets built on the objects as they are
+ *     now, ONE store update (`applyRewind`) under the eject's own writer;
  *  4. the sources settled (settled marks first), the record 'done'.
  * What the eject's Undo needs in this tab (the objects before, the parts keys after) stays in memory.
  * `applyRewind` is called only here and in eject/undo.ts.
@@ -19,34 +21,38 @@ import { newId } from '../../../lib/ids'
 import { flushOpenEditors } from '../../../editor'
 import { snapshotNow, withRestoring } from '../../history/snapshots'
 import { partsKey } from '../model/canon'
-import { refOf, targetsFor, type CoreInput, type Plan } from '../model/plan'
+import { livePagesBelow, refOf, staleFacts, targetsFor, type CoreInput, type Plan } from '../model/plan'
 import type { EjectRecord, Outcome, PlaceKey, Scope, WindowSel } from '../model/types'
 import { deps } from '../journal/deps'
 import { recorder } from '../journal/recorder'
 import { scopeNow } from '../journal/scope'
 import { noteEject } from '../settled'
 import { busyRefusal } from './guards'
-import { ejectHook } from './hook'
+import { ejectHook, holdAt } from './hook'
 import { canEject, PLAN_FNS, type EjectRefusal } from './plan'
 import { putEject } from './records'
 import { agentOf, changeMap, outcomesOf, settle } from './sources'
-import { objectIn, targetDigests } from './targets'
+import { decidedKey, objectIn, targetDigests } from './targets'
 
 const BACK: ReadonlySet<Outcome> = new Set(['back', 'trash', 'restore'])
 
 /** Why a commit (or an Undo) did not write. */
-export type CommitRefusal = EjectRefusal | { key: 'lockBusy' } | { key: 'workspaceChanged' } | { key: 'writeRefused' } | { key: 'nothingBack' } | { key: 'gone' } | { key: 'undone' }
+export type CommitRefusal = EjectRefusal | { key: 'lockBusy' } | { key: 'workspaceChanged' } | { key: 'writeRefused' } | { key: 'versionFailed' } | { key: 'nothingBack' } | { key: 'gone' } | { key: 'undone' }
 
 export type CommitResult = { ok: true; record: EjectRecord } | { refused: CommitRefusal } | { replan: true }
 
 type State = { pages: Record<ID, Page>; databases: Record<ID, Database> }
 
-/** What the eject's Undo needs in this tab: the objects before, the parts keys after, the plan, the agent states. */
+/**
+ * What the eject's Undo needs in this tab: the objects before, the decided parts' keys after, the live pages below the
+ * pages it took out of the trash (right after its write), the plan, the agent states.
+ */
 export interface UndoMemo {
   record: EjectRecord
   plan: Plan
   pre: State
   post: Map<PlaceKey, string>
+  below: Map<ID, ID[]>
   scope0: Scope
   epoch0: string | undefined
   states: Map<string, unknown>
@@ -180,9 +186,11 @@ async function commitLocked(sel: WindowSel, planned: { plan: Plan; input: CoreIn
   let record: EjectRecord
   let pre: State
   const post = new Map<PlaceKey, string>()
+  const below = new Map<ID, ID[]>()
   try {
-    // 1. versions ("Vor dem Auswurf"), forced
-    await Promise.all(pagesWritten(plan).map((id) => snapshotNow(id, 'eject', opts.label, { force: true }).catch(() => null)))
+    // 1. versions ("Vor dem Auswurf"), forced — one that cannot be written: nothing is (the version comes first)
+    const versions = await Promise.all(pagesWritten(plan).map((id) => snapshotNow(id, 'eject', opts.label, { force: true, strict: true }).then(() => true, () => false)))
+    if (versions.includes(false)) return { refused: { key: 'versionFailed' } }
     const versionAt = Date.now()
     // 2. write-ahead
     const s1 = useWorkspace.getState()
@@ -207,6 +215,7 @@ async function commitLocked(sel: WindowSel, planned: { plan: Plan; input: CoreIn
       versionAt,
     }
     await putEject(record)
+    if (ejectHook.at === 'beforeCheck') await holdAt()
     // 3. the synchronous section — no await from here to the store update
     const abort = async (why: 'workspaceChanged' | 'writeRefused' | 'replan'): Promise<CommitResult> => {
       await putEject({ ...record, state: 'aborted' })
@@ -215,7 +224,7 @@ async function commitLocked(sel: WindowSel, planned: { plan: Plan; input: CoreIn
     if (scopeNow() !== scope0 || useWorkspace.getState().epoch !== epoch0) return await abort('workspaceChanged')
     flushOpenEditors()
     const s = useWorkspace.getState()
-    if (flips(plan, s).length || removalsInUse(plan, s)) return await abort('replan')
+    if (flips(plan, s).length || removalsInUse(plan, s) || staleFacts(plan, s, input.pins)) return await abort('replan')
     const patch = targetsFor(plan, s, input.pins, PLAN_FNS)
     pre = preOf(s, patch)
     const t0 = performance.now()
@@ -227,23 +236,23 @@ async function commitLocked(sel: WindowSel, planned: { plan: Plan; input: CoreIn
     }
     if (!ok) return await abort('writeRefused')
     const after = useWorkspace.getState()
-    for (const x of plan.places) if (BACK.has(x.outcome)) post.set(x.p, keyOf(after, x.p))
+    for (const x of plan.places) {
+      if (!BACK.has(x.outcome)) continue
+      post.set(x.p, decidedKey(objectIn(after, x.p), x))
+      // a page it took out of the trash: what lives below it now (the Undo puts it back only with nothing newer there)
+      if (x.p.startsWith('p:') && s.pages[x.p.slice(2)]?.trashed && !after.pages[x.p.slice(2)]?.trashed) below.set(x.p.slice(2), livePagesBelow(after.pages, x.p.slice(2)))
+    }
   } finally {
     endRun(w)
   }
   // the test hook: a commit that dies here (a boot finishes it) or waits here (a second tab boots meanwhile)
   if (ejectHook.at === 'afterWrite') return { ok: true, record }
-  if (ejectHook.at === 'beforeSettle') {
-    ejectHook.waiting = true
-    await new Promise<void>((resolve) => (ejectHook.release = resolve))
-    ejectHook.waiting = false
-    ejectHook.release = null
-  }
+  if (ejectHook.at === 'beforeSettle') await holdAt()
   // 4. the sources, then the record
   const by = new Map(plan.places.map((x) => [x.p, x.by[0]]))
   const settled = await settle(record, (p) => by.get(p))
   const done: EjectRecord = { ...record, state: 'done', ...(settled.agent ? { agent: settled.agent } : {}), ...(settled.slips ? { slips: settled.slips } : {}) }
   await putEject(done)
-  undoMemory.set(ejectId, { record: done, plan, pre: pre!, post, scope0, epoch0, states: settled.states })
+  undoMemory.set(ejectId, { record: done, plan, pre: pre!, post, below, scope0, epoch0, states: settled.states })
   return { ok: true, record: done }
 }

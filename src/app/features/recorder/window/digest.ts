@@ -24,9 +24,12 @@ export async function objectDigest(scope: Scope, obj: PlaceObject | null, keys?:
   return { exists: true, h, parts: left.parts, ...(left.blocks ? { blocks: left.blocks } : {}), key: partsKey(obj, deps) }
 }
 
-/** The places as they are now (one store read), signed. */
-export async function nowDigests(scope: Scope, places: Iterable<PlaceKey>, opts?: { keys?: Map<PlaceKey, Set<string>> }): Promise<Map<PlaceKey, NowDigest>> {
-  const objs = currentPlaces(places)
+/**
+ * The places as they are now (one store read — or `state`, the caller's read: the planner digests exactly the objects
+ * its working content and re-check refs come from), signed.
+ */
+export async function nowDigests(scope: Scope, places: Iterable<PlaceKey>, opts?: { keys?: Map<PlaceKey, Set<string>>; state?: { pages: Record<string, Page>; databases: Record<string, Database> } }): Promise<Map<PlaceKey, NowDigest>> {
+  const objs = currentPlaces(places, opts?.state)
   const out = new Map<PlaceKey, NowDigest>()
   await Promise.all([...objs].map(async ([p, obj]) => out.set(p, await objectDigest(scope, obj, opts?.keys?.get(p)))))
   return out

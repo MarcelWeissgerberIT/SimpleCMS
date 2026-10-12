@@ -191,9 +191,12 @@ export async function loadSnapshot(id: ID): Promise<SnapshotBody | undefined> {
   return get<SnapshotBody>(bodyKey(id), s)
 }
 
-async function writeSnapshot(pageId: ID, body: SnapshotBody, reason: SnapshotReason, at = Date.now(), by?: string, force = false): Promise<SnapshotMeta | null> {
+async function writeSnapshot(pageId: ID, body: SnapshotBody, reason: SnapshotReason, at = Date.now(), by?: string, force = false, strict = false): Promise<SnapshotMeta | null> {
   const s = db()
-  if (!s) return null
+  if (!s) {
+    if (strict) throw new Error('version store unavailable')
+    return null
+  }
   return enqueue(pageId, async () => {
     const idx = (await get<SnapshotMeta[]>(idxKey(pageId), s)) ?? []
     const hash = hashBody(body)
@@ -223,6 +226,7 @@ async function writeSnapshot(pageId: ID, body: SnapshotBody, reason: SnapshotRea
     return meta
   }).catch((e) => {
     console.warn('[one] history snapshot failed', e)
+    if (strict) throw e
     return null
   })
 }
@@ -232,9 +236,10 @@ async function writeSnapshot(pageId: ID, body: SnapshotBody, reason: SnapshotRea
  * restore). Resolves with the new snapshot, or null when nothing changed since the last one.
  * `by` names the writer that follows (a script's name for 'script'). `force`: written even when
  * it equals the newest version (the flight recorder's "Before the eject" — an empty page is still
- * not kept).
+ * not kept). `strict`: a version that cannot be written (no version store, a full disk) rejects
+ * instead of resolving null — the eject then writes nothing.
  */
-export async function snapshotNow(pageId: ID, reason: SnapshotReason = 'manual', by?: string, opts?: { force?: boolean }): Promise<SnapshotMeta | null> {
+export async function snapshotNow(pageId: ID, reason: SnapshotReason = 'manual', by?: string, opts?: { force?: boolean; strict?: boolean }): Promise<SnapshotMeta | null> {
   const p = useWorkspace.getState().pages[pageId]
   if (!p || nothingToKeep(p)) return null
   const s = session.get(pageId)
@@ -242,7 +247,7 @@ export async function snapshotNow(pageId: ID, reason: SnapshotReason = 'manual',
     s.last = Date.now()
     s.dirty = false
   }
-  return writeSnapshot(pageId, bodyOf(p), reason, Date.now(), by, !!opts?.force)
+  return writeSnapshot(pageId, bodyOf(p), reason, Date.now(), by, !!opts?.force, !!opts?.strict)
 }
 
 export interface RestoreResult {

@@ -4,7 +4,8 @@
  * it from the page as it is now (id, kind, stamps of creation, comments, privacy, template marker, settings, hidden),
  * content written by reference gets a new revision with the writer as its origin, trash and restore follow
  * `trashPage` / `restorePage`. Nothing is created here: a patched id that does not exist now refuses the whole patch,
- * so does a locked database whose schema would change, a page locked now, and the guard a team workspace registers
+ * so does a locked database whose schema would change, a page locked now, a parent chain that would loop, and the guard
+ * a team workspace registers
  * (cloud/workspace.ts — R3 ejects in the local workspace only). Pure: the store hands in its state.
  */
 import type { Database, ID, Page } from './types'
@@ -41,6 +42,18 @@ function underTrash(pages: Record<ID, Page>, id: ID | null): boolean {
     if (cur.trashed) return true
     seen.add(cur.id)
     cur = cur.parentId ? pages[cur.parentId] : undefined
+  }
+  return false
+}
+
+/** Does walking up from the page come back to it? */
+function inCycle(pages: Record<ID, Page>, id: ID): boolean {
+  const seen = new Set<ID>()
+  let cur: ID | null = pages[id]?.parentId ?? null
+  while (cur && !seen.has(cur)) {
+    if (cur === id) return true
+    seen.add(cur)
+    cur = pages[cur]?.parentId ?? null
   }
   return false
 }
@@ -110,6 +123,9 @@ export function rewindState(cur: { pages: Record<ID, Page>; databases: Record<ID
       const parent = map[p.parentId]
       if (!parent || underTrash(map, p.parentId)) map[id] = { ...p, parentId: null }
     }
+    // a page whose new parent chain reaches itself would vanish from the tree with all below it: refused (the callers
+    // check parents first — defence in depth)
+    for (const id of merged.keys()) if (map[id].parentId !== cur.pages[id].parentId && inCycle(map, id)) return null
     for (const id of merged.keys()) {
       map[id] = deepFreeze(map[id])
       changed.push(id)
