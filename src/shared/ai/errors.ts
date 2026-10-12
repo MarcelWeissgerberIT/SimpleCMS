@@ -1,6 +1,7 @@
 /**
  * Every way an AI request can end in an error, for every provider. The first fourteen are the codes One had before the
- * multi-provider work; the rest name what other providers (and the gate in front of every request) can say.
+ * multi-provider work; the rest name what other providers (and the gate in front of every request, and the governor's
+ * brake behind it) can say.
  */
 export const AI_ERROR_CODES = [
   'no_key',
@@ -46,11 +47,22 @@ export const AI_ERROR_CODES = [
   'key_in_text',
   /** this workspace has AI rules this tab does not know yet: reload */
   'reload',
+  /** the governor's red line: the request does not fit the rest of a budget (refused before sending — never falls back) */
+  'budget',
 ] as const
 
 export type AIErrorCode = (typeof AI_ERROR_CODES)[number]
 
 export const isAIErrorCode = (v: unknown): v is AIErrorCode => typeof v === 'string' && (AI_ERROR_CODES as readonly string[]).includes(v)
+
+/**
+ * The detail of a 'budget' refusal: which line binds (the workspace's day / month, this browser's own day / month, the
+ * run's own budget), no price for the route (the budget cannot be kept), or the account still loading (no scope to
+ * count against).
+ */
+export const BUDGET_DETAILS = ['day', 'month', 'device-day', 'device-month', 'run', 'noprice', 'scope'] as const
+export type BudgetDetail = (typeof BUDGET_DETAILS)[number]
+export const isBudgetDetail = (v: unknown): v is BudgetDetail => typeof v === 'string' && (BUDGET_DETAILS as readonly string[]).includes(v)
 
 /**
  * What an error lets the core do: 'switch' = the next pin of the winning rule may answer (only before the first content

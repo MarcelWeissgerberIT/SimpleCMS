@@ -53,6 +53,8 @@ import {
 } from '../../src/shared/ai/governor'
 import { GEN, GEN_ENFORCED, GEN_UNNAMED_UPTO, type GenTable } from '../../src/shared/ai/generations'
 import { AI_POLICY_GEN } from '../../src/shared/ai/policy'
+import { AI_ERROR_CODES, BUDGET_DETAILS, fallbackOf, isAIErrorCode, isBudgetDetail } from '../../src/shared/ai/errors'
+import { messages as coreMessages } from '../../src/app/features/messages-core'
 import { closedDaysBefore, dayOf, monthOf, nextMidnight } from '../../src/app/features/governor/clock'
 import { applyDayRead, cacheOf, closedDaysOf, closedTally, deltaTally, meterTally, monthSpentOf, newTally, readTally, readTodayCache, rollTally, sumTallies, tallyKnown, todayOf, type DayRead } from '../../src/app/features/governor/tally'
 import { BOOK_STALE_MS, emptyBook, expireBook, hearBook, readBookMsg, reservedByOthers, reservedIn } from '../../src/app/features/governor/book'
@@ -78,6 +80,7 @@ import {
   waitsAtLine,
   type HCandidate,
   type OneShotCtx,
+  type RefuseDetail,
   type RunMode,
 } from '../../src/app/features/governor/brake'
 import { HELD_TIMES, PRUNE_EXTRA, heldDay, heldId, heldNotStarted, heldStopped, mergeRun, newestReal, openProposals, pruneRuns } from '../../src/app/features/agents/held'
@@ -358,6 +361,25 @@ test.describe('generations', () => {
     expect(problems({ claudeLimits: 2, budget: 3 }, { claudeLimits: 'package.json', budget: 'package.json' }, 2, 2)).toEqual([])
     expect(problems({ claudeLimits: 2, budget: 3 }, { claudeLimits: 'package.json', budget: 'package.json' }, 3, 2)).toEqual(['budget: package.json does not name it'])
     expect(problems({ claudeLimits: 2 }, { claudeLimits: 'src/app/nowhere.ts' }, 2, 2)).toEqual(['claudeLimits: no module'])
+  })
+})
+
+test.describe('the shared error and type additions (B2)', () => {
+  test("'budget' is an error code that never falls back; its details are the brake's refusals", () => {
+    expect(AI_ERROR_CODES).toContain('budget')
+    expect(isAIErrorCode('budget')).toBe(true)
+    expect(fallbackOf('budget')).toBe('never')
+    // positive control: a code that does fall back
+    expect(fallbackOf('overloaded')).toBe('switch')
+    // the brake's refusals (brake.ts RefuseDetail = a binding line · noprice · scope) are exactly the details
+    const refusals: RefuseDetail[] = ['day', 'month', 'device-day', 'device-month', 'run', 'noprice', 'scope']
+    expect([...BUDGET_DETAILS].sort()).toEqual([...refusals].sort())
+    expect(isBudgetDetail('device-month')).toBe(true)
+    expect(isBudgetDetail('week')).toBe(false)
+  })
+  test('both languages name the budget error', () => {
+    for (const lang of ['en', 'de'] as const) expect(coreMessages[lang]['features.ai.err.budget']).toBeTruthy()
+    expect(coreMessages.de['features.ai.err.budget']).toContain('Regler')
   })
 })
 

@@ -162,6 +162,12 @@ export interface StepNote {
     | 'mcp-skipped'
     | 'upstream'
     | 'staged-instead'
+    /** the governor's brake: the answer budget capped (code 'cap', to = the tokens), a model switch at the line (code 'H') */
+    | 'brake'
+    /** an allowance the person granted (E: +1 $ once — code = the USD) */
+    | 'allowance'
+    /** the estimate band the request or run was braked on (from = low, to = high, USD) */
+    | 'band'
   from?: string
   to?: string
   code?: string
@@ -207,6 +213,12 @@ export interface LedgerEntry {
   reservation?: string
   /** what happened on the way (a refusal fallback: another model of the provider answered) */
   steps?: StepNote[]
+  /** the governor (G1): the estimate band the request was braked on, USD */
+  band?: { low: number; high: number }
+  /** the governor: an allowance the person granted for it (E), USD */
+  allowance?: number
+  /** the governor: the visible answer budget it capped the request to (max_tokens) */
+  cap?: number
 }
 
 /** OpenRouter upstream rules of the workspace. */
