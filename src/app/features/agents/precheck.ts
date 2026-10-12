@@ -110,6 +110,7 @@ export async function precheckRun(o: PrecheckInput): Promise<AgentRunJev | null>
     marked,
     held,
     usd: Math.round(usd * 1e8) / 1e8,
+    markBelow: review.pre.markBelow,
     ...(model ? { model } : {}),
     ...(!checked && first?.why ? { failed: first.why } : {}),
     ...(changedTo ? { changedTo } : {}),
@@ -146,6 +147,6 @@ export function failClosed(run: AgentRun, changes: StagedChange[], review: Revie
     } else changes[i] = { ...c, status: 'pending', jev }
   }
   if (!n) return
-  run.jev = { n, checked: 0, marked: 0, held, usd: run.jev?.usd ?? 0, failed: 'error' }
+  run.jev = { n, checked: 0, marked: 0, held, usd: run.jev?.usd ?? 0, failed: 'error', markBelow: review.pre.markBelow }
   run.steps.push(checkStep(run.jev, review, whyText(t, 'error')))
 }

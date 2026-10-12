@@ -1,0 +1,199 @@
+/* Decision models (slice SJ): the Jev line of a proposal card — concerns only, amber = the lamp amber with lamp ink (the
+   pair preflight-look.spec checks in Paper and Carbon), every other text ink-2 / ink. Sizes in --text-* tokens. */
+
+.jev-line {
+  display: grid;
+  gap: 4px;
+  margin-top: 6px;
+  min-width: 0;
+  font-size: var(--text-xs);
+  line-height: 1.4;
+}
+
+.jev-line__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  min-width: 0;
+}
+
+.jev-line__plate {
+  flex: none;
+  padding: 0 3px;
+  border: 1px solid var(--rule-strong);
+  border-radius: 1px;
+  font-size: calc(9px * var(--text-scale));
+  line-height: 1.35;
+  letter-spacing: 0.04em;
+  color: var(--ink-2);
+}
+
+.jev-line__plate::after {
+  content: ' JEV';
+}
+
+.jev-line__text,
+.jev-line__why,
+.jev-line__q {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--ink);
+}
+
+.jev-line__dim {
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  letter-spacing: 0.02em;
+}
+
+.jev-line__why .jev-line__dim {
+  font-family: inherit;
+  font-size: inherit;
+  letter-spacing: 0;
+}
+
+/* the amber cap: CONCERN · JEV / HELD BACK */
+.jev-cap {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  height: calc(18px * var(--text-scale));
+  padding: 0 6px;
+  border-radius: 2px;
+  background: var(--lamp-amber);
+  color: var(--lamp-ink);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--toggle-black) 22%, transparent);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: 750;
+  line-height: 1;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.jev-line__p,
+.jev-line__th,
+.jev-line__usd {
+  flex: none;
+  font-size: var(--text-2xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-2);
+}
+
+.jev-line__p {
+  color: var(--ink);
+  font-weight: 650;
+}
+
+/* the meter: 64 × 6, track = rule, fill = ink at 70 %, amber below the threshold; a tick at the threshold */
+.jev-meter {
+  position: relative;
+  flex: none;
+  display: inline-block;
+  width: calc(64px * var(--text-scale));
+  height: 6px;
+  border-radius: 1px;
+  background: var(--rule-strong);
+  overflow: hidden;
+}
+
+.jev-meter__fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: color-mix(in srgb, var(--ink) 70%, transparent);
+}
+
+.jev-meter[data-low] .jev-meter__fill {
+  background: var(--lamp-amber);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--toggle-black) 25%, transparent);
+}
+
+.jev-meter__tick {
+  position: absolute;
+  top: -1px;
+  bottom: -1px;
+  width: 1px;
+  background: var(--ink);
+}
+
+/* "4 checks ▾": a plain text key */
+.jev-line .jev-line__more {
+  flex: none;
+  min-height: 24px;
+  margin-left: auto;
+  padding: 0 6px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+  background: transparent;
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  letter-spacing: 0.02em;
+  cursor: pointer;
+}
+
+.jev-line .jev-line__more:hover {
+  color: var(--ink);
+  border-color: var(--ink-3);
+}
+
+.jev-line .jev-line__more:active {
+  transform: translateY(1px);
+}
+
+.jev-line .jev-line__more[aria-expanded='true'] {
+  color: var(--ink);
+}
+
+.jev-checks {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 6px 8px;
+  border: 1px dashed var(--rule-strong);
+  border-radius: var(--radius-1);
+  list-style: none;
+}
+
+.jev-checks__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto calc(32px * var(--text-scale));
+  align-items: center;
+  gap: 8px;
+}
+
+.jev-checks__q {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--ink);
+}
+
+.jev-checks__p {
+  justify-self: end;
+  font-size: var(--text-2xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+
+.jev-checks__row[data-low] .jev-checks__q {
+  font-weight: 650;
+}
+
+.jev-line__foreign {
+  margin: 0;
+}
+
+/* a held or marked card: an amber edge on its row (the review's card, Preflight's card) */
+.agent-change[data-jev='held'],
+.agent-change[data-jev='marked'] {
+  border-left: 3px solid var(--lamp-amber);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .jev-line .jev-line__more:active {
+    transform: none;
+  }
+}

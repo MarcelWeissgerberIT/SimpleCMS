@@ -433,3 +433,101 @@ test.describe('the health lamps of a Vorprüfer (J9)', () => {
     await expect.poll(async () => (await missed(page)).filter((x) => x.startsWith('jevnew:'))).toEqual([])
   })
 })
+
+/* ------------------------------------------------------------------ */
+/* J10 — the card's Jev line, the run's step and cost line              */
+/* ------------------------------------------------------------------ */
+
+test.describe('the Jev line on a card (J10)', () => {
+  test('the run review: concern (amber cap, meter, "below 0.70"), near (neutral, its value), clear (dim, no number); 4 checks ▾; the step and the cost line name Jev', async ({ page }) => {
+    await page.addInitScript(() => localStorage.setItem('one.tour', '{"off":true}'))
+    const w = await jevSetup(page, { fallback: byTarget({ 'Launch plan': jevAnswer({ consistent: 0.41 }), 'Tessera review': jevAnswer({ target: 0.74 }) }) })
+    await jevAgent(page, { hold: false })
+    const id = await runAgent(page)
+    const run = await runOf(page, id)
+    await page.evaluate((a) => (window.location.hash = `#/agents/${a}`), AGENT)
+    const row = (title: string) => page.locator(`li.agent-change[data-change="${byTitle(run, w, title).id}"]`)
+    const launch = row('Launch plan').getByTestId('jev-line')
+    await expect(launch).toHaveAttribute('data-state', 'marked')
+    await expect(launch.getByTestId('jev-cap')).toHaveText('CONCERN · JEV')
+    await expect(launch.getByRole('meter')).toHaveAttribute('aria-valuetext', '0.41 — below the threshold 0.70: Agrees with the record?')
+    await expect(launch).toContainText('"Agrees with the record?"')
+    await expect(launch).toContainText('below 0.70')
+    await expect(row('Launch plan')).toHaveAttribute('data-jev', 'marked')
+    const tessera = row('Tessera review').getByTestId('jev-line')
+    await expect(tessera).toHaveAttribute('data-state', 'near')
+    await expect(tessera).toContainText('Jev: close to the threshold — "Right page or row?" 0.74')
+    await expect(tessera.getByTestId('jev-cap')).toHaveCount(0)
+    const site = row('Nordlicht site').getByTestId('jev-line')
+    await expect(site).toHaveAttribute('data-state', 'clear')
+    await expect(site).toContainText('Jev: none of the 4 questions below 0.70')
+    // clear: no number in front of it — no meter, no 0.95
+    await expect(site.getByRole('meter')).toHaveCount(0)
+    await expect(site).not.toContainText('0.95')
+    await expect(row('Nordlicht site')).not.toHaveAttribute('data-jev', /.+/)
+    // "4 checks ▾": the four questions with their values
+    const more = site.getByTestId('jev-more')
+    await expect(more).toHaveAttribute('aria-expanded', 'false')
+    await more.click()
+    await expect(more).toHaveAttribute('aria-expanded', 'true')
+    await expect(site.locator('.jev-checks__row')).toHaveCount(4)
+    await expect(site.locator('.jev-checks')).toContainText('Free of foreign orders?')
+    // the step (counts only) and the cost line: Jev's own line, input only, the output free
+    await expect(page.locator('.agx-step[data-jev="check"]').first()).toContainText('Jev 1.13 pre-checks: 3 pre-checked · 1 with concerns')
+    const cost = page.locator('[data-testid="agx-run-model"][data-model^="openrouter:"]').first()
+    await expect(cost).toContainText('Jev 1.13 · pre-check')
+    await expect(cost).toContainText('free')
+    // concerns first (per device): the marked row leads; off again → the run's order
+    await page.getByTestId('agx-sort-jev').first().click()
+    await expect(page.locator('ol.agx-changes > li.agent-change').first()).toHaveAttribute('data-change', byTitle(run, w, 'Launch plan').id)
+    expect(await page.evaluate(() => localStorage.getItem('one.agents.sortJev'))).toBe('1')
+  })
+
+  test('held: the run review’s head carries HELD BACK (the line only the reason); Preflight’s card its own cap; Nur markieren + no answer → "not pre-checked" (dim); a run that read mail → the foreign-text line', async ({ page }) => {
+    const { w, id, run } = await heldRun(page)
+    await page.evaluate((a) => (window.location.hash = `#/agents/${a}`), AGENT)
+    const held = page.locator(`li.agent-change[data-change="${byTitle(run, w, 'Launch plan').id}"]`)
+    await expect(held).toHaveAttribute('data-jev', 'held')
+    await expect(held.getByTestId('agx-held')).toHaveText('HELD BACK')
+    const line = held.getByTestId('jev-line')
+    await expect(line).toHaveAttribute('data-state', 'held')
+    await expect(line).toContainText('Pre-check holds it back — apply one by one')
+    await expect(line.getByTestId('jev-cap')).toHaveCount(0)
+    await expect(line.getByRole('meter')).toBeVisible()
+    // Preflight: the held card names it itself
+    await page.evaluate(() => (window.location.hash = '#/'))
+    await expect.poll(async () => (await cards(page)).filter((c) => c.startsWith(`run:${id}#`)).length).toBe(3)
+    await page.locator('.pf-cap[data-lamp="proposals"]').focus()
+    await page.keyboard.press('Enter')
+    await expect(pfCard(page)).toBeFocused()
+    await expect(pfCard(page).getByTestId('jev-line')).toBeVisible()
+    for (let i = 0; i < 3 && (await pfCard(page).getAttribute('data-id')) !== `run:${id}#${byTitle(run, w, 'Launch plan').id}`; i++) await page.keyboard.press('j')
+    await expect(pfCard(page).getByTestId('jev-line').getByTestId('jev-cap')).toHaveText('HELD BACK')
+    // a run that read mail: every answered card says high values are no guarantee
+    await page.evaluate(
+      async ([a, r]) => {
+        const s = (window as unknown as { __oneAgents: AnyState }).__oneAgents
+        const runNow = (await s.loadRuns(a)).find((x: AnyState) => x.id === r)
+        await s.putRun({ ...runNow, touched: ['rows', 'mail'] })
+      },
+      [AGENT, id] as const,
+    )
+    await page.evaluate((a) => (window.location.hash = `#/agents/${a}`), AGENT)
+    await expect(page.locator('.jev-line__foreign').first()).toHaveText('Jev reads text from outside too — high values are no guarantee')
+  })
+
+  test('Nur markieren and Jev not answering: the card says "not pre-checked" and why, dim, without a cap', async ({ page, errors }) => {
+    errors.allow(/Failed to load resource/)
+    await page.addInitScript(() => localStorage.setItem('one.tour', '{"off":true}'))
+    const w = await jevSetup(page, { fallback: { error: '503' } })
+    await jevAgent(page, { hold: false })
+    const run = await runOf(page, await runAgent(page))
+    await page.evaluate((a) => (window.location.hash = `#/agents/${a}`), AGENT)
+    const line = page.locator(`li.agent-change[data-change="${byTitle(run, w, 'Launch plan').id}"]`).getByTestId('jev-line')
+    await expect(line).toHaveAttribute('data-state', 'skipped')
+    await expect(line).toContainText('Jev: not pre-checked — Jev cannot be reached')
+    await expect(line.getByTestId('jev-cap')).toHaveCount(0)
+    // the run's step: amber, not an error
+    await expect(page.locator('.agx-step[data-jev="wait"]').first()).toContainText('not pre-checked')
+  })
+})

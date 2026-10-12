@@ -19,6 +19,11 @@
 .agx-led--err {
   background: var(--c-red-text);
 }
+/* a Vorprüfer's caution (slice SJ): the lamp amber */
+.agx-led--amber {
+  background: var(--lamp-amber);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--toggle-black) 25%, transparent);
+}
 @keyframes agx-pulse {
   from {
     opacity: 1;
@@ -735,6 +740,12 @@
 .agx-step[data-state='err'] {
   border-color: var(--c-red-text);
   color: var(--c-red-text);
+}
+.agx-step[data-jev='wait'][data-state] {
+  border-color: var(--lamp-amber);
+  border-style: solid;
+  background: color-mix(in srgb, var(--lamp-amber) 22%, var(--surface));
+  color: var(--ink);
 }
 .agx-step__text {
   min-width: 0;
@@ -1575,4 +1586,10 @@
   border-radius: var(--radius-1);
   font-size: calc(12px * var(--text-scale));
   color: var(--ink-2);
+}
+/* "Concerns first" (slice SJ): pressed = the review leads with what Jev held back or marked */
+.agx-review__head .agx-sortjev[aria-pressed='true'] {
+  border-color: var(--ink);
+  color: var(--ink);
+  background: var(--surface-2);
 }

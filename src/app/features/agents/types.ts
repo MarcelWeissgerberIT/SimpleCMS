@@ -45,6 +45,8 @@ export interface AgentRunJev {
   waited?: JevWait
   /** another Jev snapshot than the confirmed one was resolved or answered (DJ19 — the "new version" lamp) */
   changedTo?: string
+  /** the mark threshold the run checked against (its cards say "below 0,70" with it) */
+  markBelow?: number
 }
 
 export interface AgentRunUsage {
