@@ -38,7 +38,7 @@ export function upstreamRule(): UpstreamRule {
 }
 
 /** The app's address (`HTTP-Referer`): this page without its fragment or query. */
-const referer = () => {
+export const referer = (): string => {
   try {
     const u = new URL('./', window.location.href)
     u.hash = ''
@@ -54,7 +54,7 @@ const loaders: Partial<Record<string, () => Promise<ProviderAdapter>>> = {
 }
 
 /** The transport of a provider, loaded on first use. */
-async function loadAdapter(p: string): Promise<ProviderAdapter> {
+export async function loadAdapter(p: string): Promise<ProviderAdapter> {
   const load = loaders[p]
   if (!load) throw new AIError('capability', p)
   try {

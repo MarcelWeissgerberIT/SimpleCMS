@@ -120,6 +120,7 @@ test.describe('a pre-check and its math (src/shared/ai/decide.ts)', () => {
     // a skipped check keeps its reason; an unknown reason or class is dropped; checks on a skipped one are not read
     expect(sanitizeJevCheck({ v: 1, at: 5, model: '', state: 'skipped', why: 'policy', cls: 'rows', held: 'unchecked', checks: stored.checks, usd: null })).toEqual({ v: 1, at: 5, model: '', state: 'skipped', why: 'policy', cls: 'rows', held: 'unchecked', usd: null })
     expect(sanitizeJevCheck({ v: 1, at: 5, model: '', state: 'skipped', why: 'shrug', cls: 'secrets', held: 'maybe' })).toEqual({ v: 1, at: 5, model: '', state: 'skipped' })
+    expect(sanitizeJevCheck({ v: 1, at: 5, model: '', state: 'failed', why: 'endpoint' })?.why).toBe('endpoint')
     expect(QSET_VERSION).toBe(1)
     expect(readChecks({ asked: 0, target: 1, consistent: 0.5, clean: 0.333 })).toEqual({ asked: 0, target: 1, consistent: 0.5, clean: 0.33 })
   })

@@ -60,7 +60,7 @@ export interface AgentReviewV2 {
   v: 2
   /** the agent's own Vorprüfer (absent: the class rule `gate`) — a Jev version */
   decider?: Route
-  /** the snapshot the person confirmed ('openrouter:typesafe/jev-1.13-20260917') — another one holds until confirmed */
+  /** the snapshot the person confirmed ('openrouter:' + a dated Jev snapshot, jev.ts) — another one holds until confirmed */
   on: string
   /** the Vorprüfung: mark below `markBelow` (0.30–0.95), hold what Jev marks or could not check (`hold`) */
   pre: { markBelow: number; hold: boolean }

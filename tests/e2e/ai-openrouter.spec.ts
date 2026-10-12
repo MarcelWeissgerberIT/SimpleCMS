@@ -8,7 +8,7 @@ import type { Page } from '@playwright/test'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { test, expect, openApp, reloadApp, wsEval, flush, gotoPage, editorOf } from './fixtures'
-import { hostCounts, mockClaudeScript, mockOpenRouter, seedEndpoints, text, type ORMock, type ORStepFn } from './helpers/providers'
+import { hostCounts, jevAnswer, mockClaudeScript, mockOpenRouter, seedEndpoints, text, type DecideStepFn, type ORMock, type ORStepFn } from './helpers/providers'
 import { SUMMARY, TRANSFORM_STEPS, aiPanel, autofillPriority, imageAction, improve, ledger, noSpeech, summarisePdf, summarizeMeeting, transformAuto } from './helpers/aiFlows'
 import { capsOfRow, readCatalogRow } from '../../src/shared/ai/catalog'
 import type { Route, ShortlistRow } from '../../src/shared/ai/types'
@@ -403,5 +403,188 @@ test.describe('the flight recorder names the route (acceptance 2, recorder part)
     const run = await acceptAndRun(page)
     expect(run.meta.ai).toMatch(/^anthropic:claude-opus-5-5/)
     expect(await viaOnDeck(page)).toBe('via Claude Opus 5.5')
+  })
+})
+
+/* ------------------------------------------------------------------ */
+/* Decisions (slice SJ, J5): the core path through the `?e2e` seam      */
+/* ------------------------------------------------------------------ */
+
+const JEV13 = 'typesafe/jev-1.13'
+const SNAP = 'typesafe/jev-1.13-20260917'
+/** a fictional proposal's state and QSET-shaped questions (the real question set comes with J6) */
+const STATE = { change: { kind: 'update_row', target: { kind: 'row', title: 'Launch plan', database: 'Projects' }, fields: [{ name: 'Status', before: 'Open', after: 'Done' }] }, agent: { instructions: 'Mark the Nordlicht launch done when its tasks are closed.', write_mode: 'staged' } }
+const QS = Object.fromEntries(['asked', 'target', 'consistent', 'clean'].map((k) => [k, { type: 'noul', instructions: `Check ${k} of \`change\`.` }]))
+const ALL_SHARED = ['public', 'structure', 'selection', 'page', 'rows', 'files', 'workspace', 'people', 'transcript']
+
+async function decideSetup(page: Page, decisions: DecideStepFn[], o: { gate?: boolean; catalogue?: number; allow?: string[]; clock?: boolean } = {}): Promise<{ or: ORMock; claude: { requests: unknown[] } }> {
+  if (o.clock) await page.clock.install({ time: new Date('2026-10-12T09:00:00+02:00') })
+  const or = await mockOpenRouter(page.context(), { decisions, ...(o.catalogue ? { decisionsCatalogue: o.catalogue } : {}) })
+  const claude = await mockClaudeScript(page.context(), [])
+  await openApp(page)
+  await wsEval(page, (s, a) => s.updateSettings({ aiApiKey: 'sk-ant-e2e-test-key', aiKeys: { openrouter: a.key }, ai: { ...(a.gate ? { routes: { gate: [{ p: 'openrouter', m: a.jev }] } } : {}), allow: { openrouter: ['private', 'mail', 'memory', 'mcp'] } } }), { key: OR_KEY, gate: o.gate !== false, jev: JEV13 })
+  await wsEval(page, (s, allow) => s.setWorkspaceAI({ policy: { providers: { openrouter: { allow } }, restricted: [] } }), o.allow ?? ALL_SHARED)
+  await seedEndpoints(page, { [JEV13]: [{ tag: 'typesafe', name: 'TypeSafe' }] })
+  return { or, claude }
+}
+
+const decideVia = (page: Page, input: AnyState = {}): Promise<AnyState> =>
+  page.evaluate((i) => (window as unknown as { __oneAI: { decide(x: unknown): Promise<AnyState> } }).__oneAI.decide(i), { sources: [{ all: true }], carries: ['rows'], state: STATE, questions: QS, source: 'agent:ag_1:run_1', group: 'run_1', on: SNAP, ...input })
+const decideEntries = async (page: Page) => (await ledger(page)).filter((e) => e.role === 'decide')
+const resetCooldown = (page: Page) => page.evaluate(() => (window as unknown as { __oneAI: { resetDecideCooldown(): Promise<void> } }).__oneAI.resetDecideCooldown())
+
+test.describe('decisions: the core path (Jev as Vorprüfer)', () => {
+  test('one decision: the body, one decide entry (reported, the run as its group), the dated snapshot; the price read once and kept at any age', async ({ page }) => {
+    const { or, claude } = await decideSetup(page, [jevAnswer({ consistent: 0.41 }, { cost: 0.000042 }), jevAnswer({}, { cost: 0.00004 }), jevAnswer({}, { cost: 0.00004 })], { clock: true })
+    const r = await decideVia(page)
+    expect(r).toMatchObject({ ok: true, served: { model: SNAP, upstream: 'TypeSafe' }, route: { p: 'openrouter', m: JEV13 }, level: 'device' })
+    // the price was known before the request prepared: its reservation is the band, never 0
+    expect(r.reserved).toBeGreaterThan(0)
+    expect(r.answers.consistent).toEqual({ type: 'noul', p: 0.41 })
+    expect(or.decisions()).toHaveLength(1)
+    const [post] = or.decisions()
+    expect(post.bearer).toBe(OR_KEY)
+    expect(post.body).toEqual({ model: JEV13, state: STATE, questions: QS, provider: { only: ['typesafe'], allow_fallbacks: false, data_collection: 'deny' } })
+    expect(post.headers['x-openrouter-title']).toBe('One')
+    // no price known on this device: the decisions catalogue was read once (public, no key)
+    expect(or.to('/api/v1/models', 'GET')).toHaveLength(1)
+    expect(or.to('/api/v1/models', 'GET')[0]!.url).toContain('output_modalities=decisions')
+    expect(or.to('/api/v1/models', 'GET')[0]!.bearer).toBe('')
+    await expect.poll(async () => (await decideEntries(page)).length).toBe(1)
+    const [e] = await decideEntries(page)
+    expect(e).toMatchObject({ role: 'decide', cls: 'gate', purpose: 'gate.precheck', source: 'agent:ag_1:run_1', group: 'run_1', route: `openrouter:${JEV13}`, served: { p: 'openrouter', model: SNAP, upstream: 'TypeSafe' }, costSource: 'reported', usd: 0.000042, outcome: 'ok' })
+    expect(e.usage.output).toBe(3)
+    expect(e.classes).toEqual(expect.arrayContaining(['public', 'rows']))
+    // three days later, after a reload: the kept row prices the next decision — no GET
+    await page.clock.fastForward(72 * 3_600_000)
+    await reloadApp(page)
+    expect((await decideVia(page)).ok).toBe(true)
+    expect(or.to('/api/v1/models', 'GET')).toHaveLength(1)
+    // Claude is never asked for a decision
+    expect(claude.requests).toHaveLength(0)
+  })
+
+  test('no reported cost: priced from the catalogue row — input only, the reported output tokens free', async ({ page }) => {
+    await decideSetup(page, [jevAnswer({}, { cost: null, input: 1000, output: 70 })])
+    expect((await decideVia(page)).ok).toBe(true)
+    await expect.poll(async () => (await decideEntries(page)).length).toBe(1)
+    const [e] = await decideEntries(page)
+    expect(e).toMatchObject({ costSource: 'catalogue', usage: { input: 1000, output: 70 } })
+    expect(Math.abs(e.usd - 1000 * 0.042e-6)).toBeLessThan(1e-12)
+  })
+
+  test('timed out after it went out: one estimate entry (never $0); refused with a status: zero; never sent: none', async ({ page, errors }) => {
+    errors.allow(/Failed to load resource/)
+    const { or } = await decideSetup(page, [{ hang: true }, { error: '503' }])
+    const t = await decideVia(page, { timeoutMs: 600 })
+    expect(t).toMatchObject({ ok: false, code: 'timeout', why: 'timeout' })
+    const u = await decideVia(page)
+    expect(u).toMatchObject({ ok: false, code: 'unavailable', why: 'unavailable' })
+    expect(or.decisions()).toHaveLength(2)
+    await expect.poll(async () => (await decideEntries(page)).length).toBe(2)
+    const [a, b] = await decideEntries(page)
+    expect(a).toMatchObject({ costSource: 'estimate', outcome: 'timeout' })
+    expect(a.usd).toBeGreaterThan(0)
+    expect(b).toMatchObject({ outcome: 'unavailable', usd: 0 })
+    or.releaseDecisions()
+    // never sent: no OpenRouter key → no request, no entry
+    await wsEval(page, (s) => s.updateSettings({ aiKeys: { openrouter: '' } }))
+    expect(await decideVia(page)).toMatchObject({ ok: false, why: 'nokey' })
+    expect(or.decisions()).toHaveLength(2)
+    expect(await decideEntries(page)).toHaveLength(2)
+  })
+
+  test("another snapshot served than the one confirmed → 'changed' (metered, not used); a confirmed other version → nothing sent", async ({ page }) => {
+    const { or } = await decideSetup(page, [jevAnswer({}, { model: 'typesafe/jev-1.13-20261101' }), jevAnswer({})])
+    expect(await decideVia(page)).toMatchObject({ ok: false, why: 'changed', code: 'policy' })
+    await expect.poll(async () => (await decideEntries(page)).length).toBe(1)
+    const [e] = await decideEntries(page)
+    expect(e).toMatchObject({ outcome: 'policy', served: { model: 'typesafe/jev-1.13-20261101' }, steps: [{ k: 'substituted', from: SNAP, to: 'typesafe/jev-1.13-20261101' }] })
+    // confirmed Jev 1.12: the rules resolve 1.13 → refused before sending
+    expect(await decideVia(page, { on: 'typesafe/jev-1.12-20260801' })).toMatchObject({ ok: false, why: 'changed' })
+    expect(or.decisions()).toHaveLength(1)
+    // positive control: the confirmed snapshot answers
+    expect(await decideVia(page)).toMatchObject({ ok: true })
+  })
+
+  test("an operator outside the pins → 'upstream' (metered, not used)", async ({ page }) => {
+    await decideSetup(page, [jevAnswer({}, { provider: 'Nordwind' })])
+    expect(await decideVia(page)).toMatchObject({ ok: false, why: 'upstream', code: 'policy' })
+    await expect.poll(async () => (await decideEntries(page)).length).toBe(1)
+    expect((await decideEntries(page))[0]).toMatchObject({ outcome: 'policy', served: { upstream: 'Nordwind' }, steps: [{ k: 'upstream', code: 'upstream:Nordwind' }] })
+  })
+
+  test('cooldown: three service failures in a row (incl. a malformed answer) → 10 minutes of refusals, nothing sent; a success resets the count', async ({ page, errors }) => {
+    errors.allow(/Failed to load resource/)
+    const { or } = await decideSetup(page, [{ malformed: 'noul' }, { malformed: 'missing' }, jevAnswer({}), { error: '529' }, { malformed: 'choice' }, { error: '524' }, jevAnswer({})])
+    expect(await decideVia(page)).toMatchObject({ why: 'empty' })
+    expect(await decideVia(page)).toMatchObject({ why: 'empty' })
+    // a success between: the count starts again
+    expect(await decideVia(page)).toMatchObject({ ok: true })
+    expect(await decideVia(page)).toMatchObject({ why: 'unavailable', code: 'overloaded' })
+    expect(await decideVia(page)).toMatchObject({ why: 'empty' })
+    expect(await decideVia(page)).toMatchObject({ why: 'timeout', code: 'timeout' })
+    expect(or.decisions()).toHaveLength(6)
+    // the fourth asks nothing
+    expect(await decideVia(page)).toMatchObject({ ok: false, why: 'cooldown' })
+    expect(or.decisions()).toHaveLength(6)
+    const cool = await page.evaluate(() => (window as unknown as { __oneAI: { decideCooldown(): Promise<AnyState> } }).__oneAI.decideCooldown())
+    expect(cool.until).toBeGreaterThan(Date.now() + 9 * 60_000)
+    // the malformed answers went out: metered from their reported usage
+    const entries = await decideEntries(page)
+    expect(entries.filter((x) => x.outcome === 'empty').every((x) => x.costSource === 'reported' && x.usd > 0)).toBe(true)
+    await resetCooldown(page)
+    expect(await decideVia(page)).toMatchObject({ ok: true })
+  })
+
+  test('busy or a rate limit: one more attempt after its Retry-After (≤ 3 s), then unchecked', async ({ page, errors }) => {
+    errors.allow(/Failed to load resource/)
+    const { or } = await decideSetup(page, [{ error: '402 in-flight budget' }, jevAnswer({}), { error: '429' }, { error: '429' }])
+    expect(await decideVia(page)).toMatchObject({ ok: true })
+    expect(or.decisions()).toHaveLength(2)
+    expect(await decideVia(page)).toMatchObject({ ok: false, why: 'unavailable', code: 'rate_limit' })
+    expect(or.decisions()).toHaveLength(4)
+    await expect.poll(async () => (await decideEntries(page)).length).toBe(4)
+    expect((await decideEntries(page)).map((e) => e.usd)).toEqual([0, expect.any(Number), 0, 0])
+  })
+
+  test('no Vorprüfer chosen: no_route — never the device default, never Claude, never the forced chat route', async ({ page }) => {
+    const { or, claude } = await decideSetup(page, [], { gate: false })
+    await wsEval(page, (s) => s.updateSettings({ ai: { ...(s.settings.ai ?? {}), default: [{ p: 'anthropic', m: 'claude-opus-5-5' }] } }))
+    await force(page, { p: 'openrouter', m: LUNA })
+    expect(await decideVia(page)).toMatchObject({ ok: false, code: 'no_route', why: 'noroute' })
+    expect(or.decisions()).toHaveLength(0)
+    expect(or.posts()).toHaveLength(0)
+    expect(claude.requests).toHaveLength(0)
+    // the agent's own Vorprüfer is a level of its own (positive control)
+    expect(await decideVia(page, { decider: { p: 'openrouter', m: JEV13 } })).toMatchObject({ ok: true, level: 'agent' })
+  })
+
+  test('the data rule: a class OpenRouter may not receive → policy, zero requests (control: allowed → one)', async ({ page }) => {
+    const { or } = await decideSetup(page, [jevAnswer({})], { allow: ['public', 'structure', 'selection'] })
+    expect(await decideVia(page)).toMatchObject({ ok: false, code: 'policy', why: 'policy', detail: 'rows' })
+    expect(or.decisions()).toHaveLength(0)
+    await wsEval(page, (s, allow) => s.setWorkspaceAI({ policy: { providers: { openrouter: { allow } }, restricted: [] } }), ALL_SHARED)
+    expect(await decideVia(page)).toMatchObject({ ok: true })
+    expect(or.decisions()).toHaveLength(1)
+  })
+
+  test("the operator rule leaves no endpoint for Jev (TypeSafe denied): 'endpoint', nothing sent (control: allowed → one)", async ({ page }) => {
+    const { or } = await decideSetup(page, [jevAnswer({})])
+    await wsEval(page, (s, allow) => s.setWorkspaceAI({ policy: { providers: { openrouter: { allow, upstream: { deny: ['TypeSafe'], noCollect: true, zdr: false } } }, restricted: [] } }), ALL_SHARED)
+    expect(await decideVia(page)).toMatchObject({ ok: false, code: 'no_endpoint', why: 'endpoint' })
+    expect(or.decisions()).toHaveLength(0)
+    await wsEval(page, (s, allow) => s.setWorkspaceAI({ policy: { providers: { openrouter: { allow, upstream: { deny: [], noCollect: true, zdr: true } } }, restricted: [] } }), ALL_SHARED)
+    expect(await decideVia(page)).toMatchObject({ ok: true })
+    // zero data retention follows the rule into the body
+    expect(or.decisions()[0]!.body!.provider).toEqual({ only: ['typesafe'], allow_fallbacks: false, data_collection: 'deny', zdr: true })
+  })
+
+  test('no price anywhere (the catalogue cannot be read): unchecked "price", nothing sent', async ({ page, errors }) => {
+    errors.allow(/Failed to load resource/)
+    const { or } = await decideSetup(page, [jevAnswer({})], { catalogue: 503 })
+    expect(await decideVia(page)).toMatchObject({ ok: false, why: 'price' })
+    expect(or.decisions()).toHaveLength(0)
+    expect(or.to('/api/v1/models', 'GET')).toHaveLength(1)
   })
 })

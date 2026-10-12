@@ -396,7 +396,9 @@ const RUN: Record<string, (s: Subject, c: ContractCase) => Promise<void>> = {
     expect(a.urgency!.type === 'score' && a.urgency!.score).toBe(c.expect.urgency)
     expect(o.turn!.usage!.output).toBe(c.expect.output)
     expect(o.turn!.usage!.reportedUsd).toBe(c.expect.reportedUsd)
-    expect(o.turn!.served).toEqual({ model: c.expect.served, upstream: c.expect.upstream })
+    // the dated snapshot the tutorial's answer names (the slug lives in the fixture, never in src)
+    expect(c.expect.servedAsFixture).toBe(true)
+    expect(o.turn!.served).toEqual({ model: TUTORIAL.expect.served.model, upstream: c.expect.upstream })
     if (s.name === 'openrouter') {
       expect(o.url).toBe('https://openrouter.ai/api/alpha/decisions')
       // another decision model's answer (a picture request One never sends) reads at parse level: four decimals, no output

@@ -12,9 +12,9 @@ import { JEV_NEAR } from './jev.ts'
 export type JevCheckKey = 'asked' | 'target' | 'consistent' | 'clean'
 export const JEV_CHECK_KEYS: readonly JevCheckKey[] = ['asked', 'target', 'consistent', 'clean']
 
-/** Why a change was not pre-checked (or not trusted). */
-export type JevWhy = 'policy' | 'nokey' | 'noroute' | 'off' | 'reload' | 'budget' | 'price' | 'context' | 'timeout' | 'late' | 'unavailable' | 'cooldown' | 'empty' | 'upstream' | 'changed' | 'error'
-export const JEV_WHYS: readonly JevWhy[] = ['policy', 'nokey', 'noroute', 'off', 'reload', 'budget', 'price', 'context', 'timeout', 'late', 'unavailable', 'cooldown', 'empty', 'upstream', 'changed', 'error']
+/** Why a change was not pre-checked (or not trusted). 'endpoint': no operator serves Jev under the workspace's rule. */
+export type JevWhy = 'policy' | 'nokey' | 'noroute' | 'off' | 'reload' | 'budget' | 'price' | 'context' | 'timeout' | 'late' | 'unavailable' | 'cooldown' | 'empty' | 'upstream' | 'changed' | 'endpoint' | 'error'
+export const JEV_WHYS: readonly JevWhy[] = ['policy', 'nokey', 'noroute', 'off', 'reload', 'budget', 'price', 'context', 'timeout', 'late', 'unavailable', 'cooldown', 'empty', 'upstream', 'changed', 'endpoint', 'error']
 
 /** The question set's version: a wording change bumps it (a hash test holds the wording). */
 export const QSET_VERSION = 1

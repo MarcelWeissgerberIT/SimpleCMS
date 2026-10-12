@@ -8,13 +8,18 @@
  *  - endpointsOf(): `GET /api/v1/models/{author}/{slug}/endpoints` — who serves a model (the tags `provider.only` takes),
  *    only for the shortlist's models, the router, the ≤ 3 role suggestions and a picker's visible rows; ≤ 24 h old.
  *  - pinsFor() / routerPinsFor(): the endpoints a request may use under the workspace's deny list (D-S2-13, D-S2-23).
+ *  - loadDecisionCatalog() (slice SJ): `GET /api/v1/models?output_modalities=decisions` — the decision models (only the
+ *    Jev family is asked; the rest is listed dimmed), on demand only (setup step 03, the Vorprüfer picker, an agent's
+ *    section 06, a decision without any price known); kept with its date and used at ANY age for the price (the
+ *    response's `usage.cost` is the bill); fills the sync rows the registry reads (core/decisionRows.ts).
  * A Claude-only person never fetches anything here.
  */
 import { createStore, get, set, type UseStore } from 'idb-keyval'
 import type { UpstreamRule } from '@/shared/ai/types'
-import { expandCatalog, trimCatalog, type CatalogRow, type StoredCatalog } from '@/shared/ai/catalog'
+import { expandCatalog, readDecisionRows, trimCatalog, type CatalogRow, type DecisionRow, type StoredCatalog } from '@/shared/ai/catalog'
 import { JEV_OPERATOR, JEV_ROUTER } from '@/shared/ai/jev'
 import { OR_API } from '@/shared/ai/wire/openrouterChat'
+import { noteDecisionRows } from './decisionRows'
 
 export const CATALOG_DB = 'one-ai-catalog'
 const DAY_MS = 86_400_000
@@ -113,6 +118,78 @@ export async function peekCatalog(): Promise<Catalog | null> {
 
 /** Is the catalogue this tab holds fresh enough for a router request (≤ 24 h)? */
 export const catalogFresh = (c: Catalog | null | undefined): c is Catalog => !!c && Date.now() - c.at < CATALOG_MAX_AGE
+
+/* ------------------------------------------------------------------ */
+/* Decision models (slice SJ)                                           */
+/* ------------------------------------------------------------------ */
+
+export const OR_DECISIONS_URL = `${OR_API}/models?output_modalities=decisions`
+
+export interface DecisionCatalog {
+  /** when it was read (ms) */
+  at: number
+  rows: DecisionRow[]
+}
+
+let decisionMemo: DecisionCatalog | null = null
+let decisionInflight: Promise<DecisionCatalog | null> | null = null
+/** a failed read is not tried again for a minute (a run of many changes asks once) */
+const DECISIONS_RETRY_MS = 60_000
+let decisionFailedAt = 0
+
+const keepDecisions = (c: DecisionCatalog): DecisionCatalog => {
+  noteDecisionRows(c.rows, c.at)
+  return (decisionMemo = c)
+}
+
+/** A stored decisions catalogue (rows read again by this build — a newer rule wins over what was kept). */
+function readStoredDecisions(v: unknown): DecisionCatalog | null {
+  if (!v || typeof v !== 'object') return null
+  const o = v as { at?: unknown; raw?: unknown }
+  if (typeof o.at !== 'number' || !Number.isFinite(o.at)) return null
+  return { at: o.at, rows: readDecisionRows(o.raw, new Date(o.at).toISOString().slice(0, 10)) }
+}
+
+/**
+ * The decisions catalogue (null: none here and it could not be read). What the device holds is used at any age unless
+ * `force` (one public GET now) or `maxAge` (ms — a picker that shows prices) says otherwise; nothing held → one GET.
+ */
+export async function loadDecisionCatalog(o: { force?: boolean; maxAge?: number; signal?: AbortSignal } = {}): Promise<DecisionCatalog | null> {
+  const fresh = (c: DecisionCatalog | null) => !!c && (o.maxAge === undefined || Date.now() - c.at < o.maxAge)
+  if (!o.force && fresh(decisionMemo)) return decisionMemo
+  if (decisionInflight) return decisionInflight
+  if (!o.force && Date.now() - decisionFailedAt < DECISIONS_RETRY_MS) return decisionMemo
+  decisionInflight = (async () => {
+    if (!o.force) {
+      const stored = readStoredDecisions(await readKey<unknown>('decisions'))
+      if (stored && fresh(stored)) return keepDecisions(stored)
+    }
+    try {
+      const res = await fetch(OR_DECISIONS_URL, { method: 'GET', credentials: 'omit', signal: o.signal })
+      if (!res.ok) throw new Error(`decision models: HTTP ${res.status}`)
+      const json = (await res.json()) as unknown
+      const at = Date.now()
+      // kept as listed (trimmed to the rows One reads) — small: the decisions list holds a few dozen rows
+      const raw = { data: (json && typeof json === 'object' && Array.isArray((json as { data?: unknown }).data) ? (json as { data: unknown[] }).data : []).slice(0, 200) }
+      await writeKey('decisions', { at, raw })
+      decisionFailedAt = 0
+      return keepDecisions({ at, rows: readDecisionRows(raw, new Date(at).toISOString().slice(0, 10)) })
+    } catch (e) {
+      decisionFailedAt = Date.now()
+      console.warn('[one] the decision models could not be read', e instanceof Error ? e.message : e)
+      const stored = readStoredDecisions(await readKey<unknown>('decisions'))
+      return stored ? keepDecisions(stored) : decisionMemo
+    }
+  })().finally(() => (decisionInflight = null))
+  return decisionInflight
+}
+
+/** The decisions catalogue this device already holds, however old — never a request (null: none). */
+export async function peekDecisionCatalog(): Promise<DecisionCatalog | null> {
+  if (decisionMemo) return decisionMemo
+  const stored = readStoredDecisions(await readKey<unknown>('decisions'))
+  return stored ? keepDecisions(stored) : null
+}
 
 /* ------------------------------------------------------------------ */
 /* Endpoints and pins                                                   */

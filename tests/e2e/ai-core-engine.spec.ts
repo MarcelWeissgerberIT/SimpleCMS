@@ -361,6 +361,10 @@ const sl = (m: string, price: [number, number] | null, caps: Partial<Caps> = {})
 const ROWS = [sl('vendor-a/swift-1', [0.1, 0.4]), sl('vendor-b/keen-2', [1, 3], { vision: { maxEdge: 1568, maxBytes: 5e6 } }), sl('vendor-c/plain-3', [0.5, 1.5], { structured: false })]
 const JEV: Route = { p: OR, m: JEV_ROUTER, effort: 'medium' }
 
+/** A decision model's view as the registry gives it (decisions only; the price of its catalogue row). */
+const DECIDES: Caps = { ...CAPS, structured: false, tools: false, cache: false, context: 32000, maxOutput: 1, decisions: true }
+const decisionView = (route: Route): ModelInfo => ({ route, label: 'Jev 1.13', short: 'JEV 1.13', vendor: 'typesafe', caps: DECIDES, price: { input: 0.042, output: 0, cacheRead: 0.042, cacheWrite: 0.042, source: 'catalogue', at: '2026-10-12' } })
+
 function worldOf(o: { ws?: WorkspaceAI | null; device?: DeviceAI | null; keys?: Route['p'][]; rows?: ShortlistRow[]; aiModel?: string } = {}): RouteWorld {
   const rows = o.rows ?? ROWS
   const keys = o.keys ?? ['anthropic', 'openrouter']
@@ -373,6 +377,9 @@ function worldOf(o: { ws?: WorkspaceAI | null; device?: DeviceAI | null; keys?: 
       const r = modelRow(route)
       if (r) return { route, label: r.label, short: r.short, vendor: r.vendor, caps: r.caps, price: r.price } as ModelInfo
       if (route.p !== 'openrouter') return null
+      // the registry knows a Jev version by its id (and another decision model only from a list — here the shortlist)
+      if (/^typesafe\/jev-\d+(\.\d+)*$/.test(route.m)) return decisionView(route)
+      if (route.m === 'vendor-k/kev-4b') return { ...decisionView(route), label: 'Kev 4B' }
       if (route.m === JEV_ROUTER) return routerView(route, (pool ?? []).map((m) => rows.find((x) => x.m === m)!).filter(Boolean))
       const s = rows.find((x) => x.m === route.m)
       return s ? shortlistInfo(route, s) : null
@@ -403,10 +410,10 @@ test.describe('levels (chip → device class → workspace class → device defa
   })
 
   test('a provider that does not take the class yet: the next level, with a step', () => {
-    expect(ROUTABLE.openrouter).toEqual(['write', 'ask', 'workspace', 'structure', 'vision', 'documents', 'bulk', 'meeting', 'memory', 'help'])
+    expect(ROUTABLE.openrouter).toEqual(['write', 'ask', 'workspace', 'structure', 'vision', 'documents', 'bulk', 'meeting', 'memory', 'help', 'gate'])
     expect(ROUTABLE.openai).toEqual([])
     const world = worldOf({ ws: allOR(), device: { default: [{ p: OR, m: 'vendor-a/swift-1' }], ...memberAll } })
-    for (const cls of ['terminal', 'agents', 'outbox', 'scripts', 'generate', 'mcp-setup', 'gate'] as const) {
+    for (const cls of ['terminal', 'agents', 'outbox', 'scripts', 'generate', 'mcp-setup'] as const) {
       const r = resolveRoute(ask({ cls, classes: [] }), world)
       expect(r.ok && r.level, cls).toBe('legacy')
       expect(r.steps, cls).toContainEqual({ k: 'fallthrough', from: 'openrouter:vendor-a/swift-1', code: 'later' })
@@ -480,6 +487,66 @@ test.describe('the Jev Router: a pool over the shortlist', () => {
     expect(v.price!.input).toBeGreaterThan(1)
     expect(v.price!.source).toBe('bound')
     expect(routerView(JEV, []).price!.input).toBeGreaterThan(0)
+  })
+})
+
+test.describe('the class gate (slice SJ): Jev as Vorprüfer', () => {
+  const J13: Route = { p: OR, m: 'typesafe/jev-1.13' }
+  const J2: Route = { p: OR, m: 'typesafe/jev-2' }
+  const gate = (o: Partial<ResolveInput> = {}): ResolveInput => ({ cls: 'gate', caps: ['decisions'], classes: ['public', 'rows'], ...o })
+  const at = (r: ReturnType<typeof resolveRoute>) => (r.ok ? `${r.level}:${r.route.m}` : r.none ? `none:${r.code ?? ''}` : `${r.code}:${r.detail ?? ''}`)
+  const rulesAll = allOR()
+
+  test('levels: the agent\'s own Vorprüfer → device rule → workspace rule (no chip); no default, no legacy (no_route)', () => {
+    const w = { ...rulesAll, routes: { gate: [J2], '*': [{ p: OR, m: 'vendor-a/swift-1' }] } } as WorkspaceAI
+    const device: DeviceAI = { routes: { gate: [J13] }, default: [{ p: CL, m: 'claude-opus-5-5' }], ...memberAll }
+    expect(at(resolveRoute(gate(), worldOf({ ws: w, device })))).toBe('device:typesafe/jev-1.13')
+    expect(at(resolveRoute(gate({ decider: J2 }), worldOf({ ws: w, device })))).toBe('agent:typesafe/jev-2')
+    // a decision takes no chip (only an agent's Vorprüfer, then the rules)
+    expect(at(resolveRoute(gate({ decider: J2, chip: J13 }), worldOf({ ws: w, device })))).toBe('agent:typesafe/jev-2')
+    expect(at(resolveRoute(gate(), worldOf({ ws: w, device: memberAll })))).toBe('workspace:typesafe/jev-2')
+    // nothing chosen for the gate: never the device default, the workspace default or Claude's legacy level
+    const none = resolveRoute(gate(), worldOf({ ws: { ...rulesAll, routes: { '*': [{ p: OR, m: 'vendor-a/swift-1' }] } } as WorkspaceAI, device: { default: [{ p: CL, m: 'claude-opus-5-5' }], ...memberAll } }))
+    expect(at(none)).toBe('none:no_route')
+    expect(at(resolveRoute(gate(), worldOf()))).toBe('none:no_route')
+  })
+
+  test('only a Jev version passes: never Claude, the Jev Router, a chat model or another decision model', () => {
+    const pin = (r: Route) => resolveRoute(gate(), worldOf({ ws: rulesAll, device: { routes: { gate: [r] }, ...memberAll } }))
+    for (const r of [{ p: CL, m: 'claude-opus-5-5' }, { p: OR, m: JEV_ROUTER, effort: 'low' }, { p: OR, m: 'vendor-a/swift-1' }, { p: OR, m: 'vendor-k/kev-4b' }] as Route[]) {
+      const res = pin(r)
+      expect(res, r.m).toMatchObject({ ok: false, code: 'capability', detail: 'decisions', fixes: [{ kind: 'step', step: 'models', provider: OR }] })
+      expect(!res.ok && res.steps, r.m).toContainEqual({ k: 'capability', from: `${r.p}:${r.m}`, code: 'decisions' })
+    }
+    // positive control: a Jev version
+    expect(pin(J13)).toMatchObject({ ok: true, route: J13, level: 'device' })
+    // a later pin of the rule answers when the first cannot decide
+    expect(resolveRoute(gate(), worldOf({ ws: rulesAll, device: { routes: { gate: [{ p: OR, m: 'vendor-a/swift-1' }, J13] }, ...memberAll } }))).toMatchObject({ ok: true, route: J13 })
+  })
+
+  test('the key and the data rule hold for a decision like for any OpenRouter request', () => {
+    const device: DeviceAI = { routes: { gate: [J13] }, ...memberAll }
+    expect(resolveRoute(gate(), worldOf({ ws: rulesAll, device, keys: ['anthropic'] }))).toMatchObject({ ok: false, code: 'no_key', fixes: [{ kind: 'step', step: 'key', provider: OR }] })
+    expect(resolveRoute(gate(), worldOf({ ws: allOR([...PRESETS.marked]), device }))).toMatchObject({ ok: false, code: 'policy', detail: 'rows' })
+    // a member class needs the member's own allow on this device
+    expect(resolveRoute(gate({ classes: ['public', 'mail'] }), worldOf({ ws: rulesAll, device: { routes: { gate: [J13] } } }))).toMatchObject({ ok: false, code: 'policy', detail: 'mail' })
+    expect(resolveRoute(gate({ classes: ['public', 'mail'] }), worldOf({ ws: rulesAll, device }))).toMatchObject({ ok: true })
+  })
+
+  test('a chat purpose never gets a decision model (any rule, any level)', () => {
+    for (const r of [J13, { p: OR, m: 'vendor-k/kev-4b' }] as Route[]) {
+      expect(resolveRoute(ask(), worldOf({ ws: rulesAll, device: { routes: { write: [r] }, ...memberAll } })), r.m).toMatchObject({ ok: false, code: 'capability', detail: 'decisions', fixes: [] })
+      expect(resolveRoute(ask({ chip: r }), worldOf({ ws: rulesAll, device: memberAll })), r.m).toMatchObject({ ok: false, code: 'capability', detail: 'decisions' })
+      expect(resolveRoute(ask({ cls: 'ask', classes: [] }), worldOf({ ws: rulesAll, device: { default: [r], ...memberAll } })), r.m).toMatchObject({ ok: false, code: 'capability', detail: 'decisions' })
+    }
+  })
+
+  test('the purposes: gate.precheck needs public and a decision model; gate.verify may go without a page', () => {
+    expect({ cls: PURPOSES['gate.precheck'].cls, needs: [...PURPOSES['gate.precheck'].needs], caps: [...PURPOSES['gate.precheck'].caps] }).toEqual({ cls: 'gate', needs: ['public'], caps: ['decisions'] })
+    expect([...PURPOSES['gate.precheck'].may].sort()).toEqual(['mail', 'mcp', 'memory', 'page', 'people', 'private', 'rows', 'structure', 'workspace'])
+    expect(PURPOSES['gate.precheck'].pageless).toBe(false)
+    expect({ cls: PURPOSES['gate.verify'].cls, needs: [...PURPOSES['gate.verify'].needs], pageless: PURPOSES['gate.verify'].pageless }).toEqual({ cls: 'gate', needs: ['public'], pageless: true })
+    expect(PURPOSES['gate.verify'].may).not.toContain('mcp')
   })
 })
 
