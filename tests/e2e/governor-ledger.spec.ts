@@ -5,11 +5,13 @@
  *  - ledgerDay(scope, day) reads one scope's one day only (two scopes × two days seeded through the seam);
  *  - the book: a reservation in tab A reaches tab B on `one-ledger-res` and never a ledger-ping listener; adjust / settle;
  *  - totals: nothing opened before a load is called; meters, the other tab's deltas, the full read, the cache and the
- *    device line over two scopes.
+ *    device line over two scopes;
+ *  - Workspace.governor is kept locally (G0, store/persistence.ts): save → reload → another tab's save, unknown keys of a
+ *    later slice kept, a newer shape kept whole, junk repaired, removal.
  * No AI host is reached (entries are seeded or metered through the seam). Every value is fictional.
  */
 import type { Page } from '@playwright/test'
-import { test, expect, openApp } from './fixtures'
+import { test, expect, openApp, reloadApp, flush, createPage, wsEval } from './fixtures'
 
 type Entry = Record<string, unknown> & { id: string; at: number; scope: string; usd: number | null }
 type Delta = { scope: string | null; day: string | null; usd: number; unpriced: number; batch: string | null }
@@ -221,5 +223,45 @@ test.describe('totals', () => {
     expect(t.device.spentToday).toBeCloseTo(2.25, 10)
     expect(JSON.parse((await page.evaluate((o) => localStorage.getItem(`one.governor.today:${o}`), other)) ?? 'null')).toMatchObject({ usd: 1.5 })
     await b.close()
+  })
+})
+
+test.describe('Workspace.governor is kept (G0, local persistence)', () => {
+  type Gov = Record<string, unknown> | undefined
+  const setGov = (p: Page, v: Gov) => p.evaluate((g) => (window as unknown as { __one: { workspace: { setState: (x: object) => void } } }).__one.workspace.setState({ governor: g }), v)
+  const govOf = (p: Page) => wsEval(p, (s) => (s as { governor?: Gov }).governor ?? null)
+
+  test('save → reload → another tab’s save; unknown keys and a newer shape kept; junk repaired; removed', async ({ page }) => {
+    await openApp(page)
+    const value = { v: 1, day: 6, month: 120, lever2: { note: 'a later slice' }, updatedAt: 1760000000000, updatedBy: null }
+    await setGov(page, value)
+    await reloadApp(page)
+    expect(await govOf(page)).toEqual(value)
+
+    // another tab saves something else (a page): its partial write keeps the governor
+    const b = await page.context().newPage()
+    await openApp(b)
+    expect(await govOf(b)).toEqual(value)
+    await createPage(b, { title: 'Launch plan' })
+    await flush(b)
+    await b.close()
+    await reloadApp(page)
+    expect(await govOf(page)).toEqual(value)
+
+    // a newer build's shape stays whole (never acted on, never written over here)
+    const newer = { v: 2, day: 6, dial: { future: true } }
+    await setGov(page, newer)
+    await reloadApp(page)
+    expect(await govOf(page)).toEqual(newer)
+
+    // junk is repaired on load: an amount out of range clamped, an unknown lever detent dropped
+    await setGov(page, { v: 1, day: 20000, autonomy: 'turbo' })
+    await reloadApp(page)
+    expect(await govOf(page)).toEqual({ v: 1, day: 10000 })
+
+    // removed (assigned undefined): gone after a reload
+    await setGov(page, undefined)
+    await reloadApp(page)
+    expect(await govOf(page)).toBeNull()
   })
 })

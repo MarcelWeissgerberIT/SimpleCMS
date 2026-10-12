@@ -7,6 +7,7 @@ import type { JSONContent } from '@tiptap/core'
 import type { Lang } from '@/shared/i18n'
 import type { DeviceAI, RouteRule, WorkspaceAI } from '@/shared/ai/types'
 import type { AgentReview, SaverRule, Unreadable } from '@/shared/ai/route'
+import type { WorkspaceGovernor } from '@/shared/ai/governor'
 
 export type ID = string
 
@@ -1012,6 +1013,14 @@ export interface Workspace {
    * never `delete`. Full backups carry it (a restore keeps this workspace's), page backups never.
    */
   ai?: WorkspaceAI
+  /**
+   * The Regler (features/governor; src/shared/ai/governor.ts WorkspaceGovernor: lever, ceiling, day / month budget per
+   * device, saving rules, worker). Write only with setGovernor; every reader sanitizes (sanitizeGovernor — unknown keys of
+   * a later slice kept, a newer shape kept whole and never written over). Team: meta map 'workspace' key 'governor',
+   * owners / admins only (server guard collab/workspace-governor.ts). Assign `undefined`, never `delete`. Full backups
+   * carry it (a restore keeps this workspace's), page backups never.
+   */
+  governor?: WorkspaceGovernor | Unreadable
 }
 
 /* ------------------------------------------------------------------ */

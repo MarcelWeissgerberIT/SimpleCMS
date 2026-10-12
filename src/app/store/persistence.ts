@@ -55,6 +55,7 @@ import { sanitizeScripts } from './scripts'
 import { sanitizeKit } from './kit'
 import { sanitizeLook } from './look'
 import { readWorkspaceAI, withCleanAISettings } from './ai'
+import { sanitizeGovernorWithReport } from '@/shared/ai/governor'
 import { blockVersions, contentFingerprint, DOC_SCHEMA_VERSION, newerCounts, rewrapNewer } from './generations'
 import { plainText } from './plain'
 import { SYSTEM, withWriter } from './writer'
@@ -427,6 +428,11 @@ export function migrateWithReport(raw: unknown): { ws: Workspace; repaired: bool
   delete ws.ai
   const ai = readWorkspaceAI(src.ai)
   if (ai) ws.ai = ai
+  // the Regler (Workspace.governor): the raw value never stays; unknown keys of a later slice and a newer shape are kept
+  delete ws.governor
+  const gov = sanitizeGovernorWithReport(src.governor)
+  if (gov.value) ws.governor = gov.value
+  if (gov.repaired) repaired = true
 
   const now = Date.now()
   ws.pages = {}
@@ -512,6 +518,7 @@ let dirtyScripts = false
 let dirtyKit = false
 let dirtyLook = false
 let dirtyAI = false
+let dirtyGovernor = false
 let dirtyIntegrations = false
 /** Pages were added or removed: the meta record's page order is rewritten with the next save. */
 let dirtyOrder = false
@@ -527,6 +534,7 @@ let inflightScripts = false
 let inflightKit = false
 let inflightLook = false
 let inflightAI = false
+let inflightGovernor = false
 let inflightIntegrations = false
 
 /**
@@ -542,7 +550,7 @@ function trackDirty<T>(next: Record<string, T>, prev: Record<string, T>, into: S
 }
 
 function hasDirty(): boolean {
-  return fullWriteNext || dirtyPages.size > 0 || dirtyDbs.size > 0 || dirtySettings.size > 0 || dirtyPeople || dirtyRecent || dirtyFunctions || dirtyAgents || dirtyScripts || dirtyKit || dirtyLook || dirtyAI || dirtyIntegrations
+  return fullWriteNext || dirtyPages.size > 0 || dirtyDbs.size > 0 || dirtySettings.size > 0 || dirtyPeople || dirtyRecent || dirtyFunctions || dirtyAgents || dirtyScripts || dirtyKit || dirtyLook || dirtyAI || dirtyGovernor || dirtyIntegrations
 }
 
 /* ------------------------------------------------------------------ */
@@ -780,7 +788,13 @@ function readSome(pageIds: ID[], dbIds: ID[], meta: boolean): Promise<SomeRecord
  * otherwise come back sorted by id, and code that walks the page map (first match by title, ties
  * in sorted lists, graph layout) sees the order it always saw.
  */
-const metaOf = (ws: Workspace) => ({ version: ws.version, epoch: ws.epoch, settings: ws.settings, people: ws.people, recent: ws.recent, functions: ws.functions ?? {}, agents: ws.agents ?? {}, scripts: ws.scripts ?? {}, kit: ws.kit, look: ws.look ?? null, ai: ws.ai ?? null, integrations: ws.integrations ?? [], order: Object.keys(ws.pages) })
+/**
+ * The governor a snapshot holds — the store's own while the snapshot does not name it (getWorkspaceSnapshot carries it
+ * once the store's G0 part lands; until then a full write must not drop it).
+ */
+const governorOf = (ws: Workspace) => ('governor' in ws ? ws.governor : useWorkspace.getState().governor)
+
+const metaOf = (ws: Workspace) => ({ version: ws.version, epoch: ws.epoch, settings: ws.settings, people: ws.people, recent: ws.recent, functions: ws.functions ?? {}, agents: ws.agents ?? {}, scripts: ws.scripts ?? {}, kit: ws.kit, look: ws.look ?? null, ai: ws.ai ?? null, governor: governorOf(ws) ?? null, integrations: ws.integrations ?? [], order: Object.keys(ws.pages) })
 
 /** Records (id → value) in the stored page order; ids the order does not know follow by creation time. */
 function inOrder(records: Obj, order: unknown): Obj {
@@ -1022,6 +1036,8 @@ async function readChanged(pageIds: ID[], dbIds: ID[], meta: boolean): Promise<W
     else delete ws.look
     if (m.ai) ws.ai = m.ai
     else delete ws.ai
+    // assigned, never deleted: the store keeps a missing key (zustand merges)
+    ws.governor = m.governor
   }
   const now = Date.now()
   const orphans: ID[] = []
@@ -1099,6 +1115,8 @@ interface WriteSet {
   look: boolean
   /** the workspace's AI rules (kept in the meta record) */
   ai: boolean
+  /** the Regler's settings (kept in the meta record) */
+  governor: boolean
   /** integration profiles (kept in the meta record) */
   integrations: boolean
   /** pages were added or removed (the meta record keeps their order) */
@@ -1192,7 +1210,7 @@ function writeRecords(set: WriteSet, bases: Map<ID, Page>, merged: Map<ID, [Page
         if (db) os.put(db, DB_PREFIX + id)
         else os.delete(DB_PREFIX + id)
       }
-      if (set.settingKeys.length || set.people || set.recent || set.functions || set.agents || set.scripts || set.kit || set.look || set.ai || set.integrations || set.order) {
+      if (set.settingKeys.length || set.people || set.recent || set.functions || set.agents || set.scripts || set.kit || set.look || set.ai || set.governor || set.integrations || set.order) {
         const next: Obj = { ...(meta.result as Obj), version: snap.version }
         if (set.order) next.order = Object.keys(snap.pages)
         if (set.settingKeys.length) {
@@ -1208,6 +1226,7 @@ function writeRecords(set: WriteSet, bases: Map<ID, Page>, merged: Map<ID, [Page
         if (set.kit) next.kit = snap.kit
         if (set.look) next.look = snap.look ?? null
         if (set.ai) next.ai = snap.ai ?? null
+        if (set.governor) next.governor = governorOf(snap) ?? null
         if (set.integrations) next.integrations = snap.integrations ?? []
         os.put(next, META_KEY)
       }
@@ -1247,6 +1266,7 @@ async function writeChanges(): Promise<void> {
   const kit = dirtyKit
   const look = dirtyLook
   const ai = dirtyAI
+  const governor = dirtyGovernor
   const integrations = dirtyIntegrations
   const order = dirtyOrder
   const full = fullWriteNext
@@ -1254,7 +1274,7 @@ async function writeChanges(): Promise<void> {
   dirtyPages.clear()
   dirtyDbs.clear()
   dirtySettings.clear()
-  dirtyPeople = dirtyRecent = dirtyFunctions = dirtyAgents = dirtyScripts = dirtyKit = dirtyLook = dirtyAI = dirtyIntegrations = dirtyOrder = fullWriteNext = false
+  dirtyPeople = dirtyRecent = dirtyFunctions = dirtyAgents = dirtyScripts = dirtyKit = dirtyLook = dirtyAI = dirtyGovernor = dirtyIntegrations = dirtyOrder = fullWriteNext = false
   pages.forEach((id) => inflightPages.add(id))
   dbs.forEach((id) => inflightDbs.add(id))
   settingKeys.forEach((k) => inflightSettings.add(k))
@@ -1266,6 +1286,7 @@ async function writeChanges(): Promise<void> {
   inflightKit = kit
   inflightLook = look
   inflightAI = ai
+  inflightGovernor = governor
   inflightIntegrations = integrations
   // the stored copies our edits started from: a different stored copy means another tab wrote
   const bases = new Map<ID, Page>()
@@ -1277,7 +1298,7 @@ async function writeChanges(): Promise<void> {
   try {
     setStatus('saving')
     // nothing stored yet (first run, seed), a repair or the legacy layout: every record (full)
-    const res = await writeRecords({ pages, dbs, settingKeys, people, recent, functions, agents, scripts, kit, look, ai, integrations, order, full }, bases, merged)
+    const res = await writeRecords({ pages, dbs, settingKeys, people, recent, functions, agents, scripts, kit, look, ai, governor, integrations, order, full }, bases, merged)
     const written = res.pages
     // what is stored now is what this tab's pages descend from
     for (const id of pages) {
@@ -1294,7 +1315,7 @@ async function writeChanges(): Promise<void> {
       if (pendingStash === stash) pendingStash = null
     }
     // other tabs read just these records (a full write: everything)
-    const msg: ChangedMessage = { type: 'changed', from: TAB_ID, full: res.full, pages, dbs, meta: settingKeys.length > 0 || people || recent || functions || agents || scripts || kit || look || ai || integrations }
+    const msg: ChangedMessage = { type: 'changed', from: TAB_ID, full: res.full, pages, dbs, meta: settingKeys.length > 0 || people || recent || functions || agents || scripts || kit || look || ai || governor || integrations }
     channel?.postMessage(msg)
   } catch (e) {
     console.error('[one] failed to save workspace', e)
@@ -1313,6 +1334,7 @@ async function writeChanges(): Promise<void> {
     dirtyKit ||= kit
     dirtyLook ||= look
     dirtyAI ||= ai
+    dirtyGovernor ||= governor
     dirtyIntegrations ||= integrations
     dirtyOrder ||= order
     fullWriteNext ||= full
@@ -1324,7 +1346,7 @@ async function writeChanges(): Promise<void> {
     inflightPages.clear()
     inflightDbs.clear()
     inflightSettings.clear()
-    inflightPeople = inflightRecent = inflightFunctions = inflightAgents = inflightScripts = inflightKit = inflightLook = inflightAI = inflightIntegrations = false
+    inflightPeople = inflightRecent = inflightFunctions = inflightAgents = inflightScripts = inflightKit = inflightLook = inflightAI = inflightGovernor = inflightIntegrations = false
   }
 }
 
@@ -1418,6 +1440,7 @@ export function startPersistence(): () => void {
       state.kit === prev.kit &&
       state.look === prev.look &&
       state.ai === prev.ai &&
+      state.governor === prev.governor &&
       state.integrations === prev.integrations
     )
       return
@@ -1446,6 +1469,7 @@ export function startPersistence(): () => void {
     if (state.kit !== prev.kit) dirtyKit = true
     if (state.look !== prev.look) dirtyLook = true
     if (state.ai !== prev.ai) dirtyAI = true
+    if (state.governor !== prev.governor) dirtyGovernor = true
     if (state.integrations !== prev.integrations) dirtyIntegrations = true
     scheduleSave(SAVE_DELAY)
   })
@@ -1499,6 +1523,7 @@ export function startPersistence(): () => void {
       if (local.ai) ws.ai = local.ai
       else delete ws.ai
     }
+    if (dirtyGovernor || inflightGovernor) ws.governor = local.governor
     if (dirtyIntegrations || inflightIntegrations) ws.integrations = local.integrations
     // pages taken over from storage are in sync again (the next local change sets a new base)
     for (const id of [...syncBase.keys()]) {
