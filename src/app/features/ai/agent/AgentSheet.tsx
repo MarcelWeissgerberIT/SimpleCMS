@@ -654,7 +654,8 @@ function LimitNote({ last }: { last: boolean }) {
 
 function TurnError({ error, n, last }: { error: NonNullable<AgentTurn['error']>; n: number; last: boolean }) {
   const t = useT()
-  const keyIssue = error.code === 'invalid_key' || error.code === 'no_key' || error.code === 'permission'
+  // a key typed into the task belongs in Settings too
+  const keyIssue = error.code === 'invalid_key' || error.code === 'no_key' || error.code === 'permission' || error.code === 'key_in_text'
   const signIn = error.code === 'mcp_auth' && !!error.server && last
   return (
     <div className="term-error" role="alert">

@@ -11,6 +11,8 @@ import { parseHash } from '../../../lib/router'
 import type { ID } from '../../../store/types'
 import { t } from '../../../i18n'
 import { AIError, resolveModel } from '../client'
+import { prepare, settle } from '../core/gate'
+import { looksLikeKey, scrubSecrets } from '@/shared/ai/keys'
 import { useCloud } from '../../../cloud'
 import { attachMcp, codewordTask, codewordsIn, currentSetup, readServers, refusedNames, setupKey, type McpSetup } from '../mcp-servers/config'
 import { applyChanges, type ApplyResult } from './apply'
@@ -322,7 +324,8 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
     refs: prevTurn || opts.again ? s.refs : [],
     mentions: prevTurn || opts.again ? s.mentions : [],
     memOffNext: prevTurn ? s.memOffNext : false,
-    turns: [...s.turns, { n, task, startedAt: Date.now(), status: 'running', answer: '', context: ctx, ...(memShown ? { memory: memShown } : {}), ...(opts.continues ? { continues: opts.continues } : {}) }],
+    // a key typed into the task is never shown again (the gate refuses it below)
+    turns: [...s.turns, { n, task: looksLikeKey(task) ? scrubSecrets(task) : task, startedAt: Date.now(), status: 'running', answer: '', context: ctx, ...(memShown ? { memory: memShown } : {}), ...(opts.continues ? { continues: opts.continues } : {}) }],
   }))
 
   let answer = ''
@@ -342,6 +345,8 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
   // "#xyz" that is no example in the memory: said, the task runs anyway
   for (const tag of mem.use?.unknownTags ?? []) note(t('features.memory.example.unknown', { tag }))
 
+  // an MCP call of this task ran: the retry without a refusing server would run it again — never
+  let sawMcp = false
   const hooks: RunHooks = {
     toolStart(tool, arg) {
       const id = nextId('s')
@@ -396,6 +401,7 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
       set((s) => ({ media: [...s.media.filter((m) => m.turn !== n), { turn: n, pageId, items }] }))
     },
     mcp(call) {
+      sawMcp = true
       const step = get().steps.find((x) => x.mcp?.id === call.id)
       const mcp = { id: call.id, server: call.server, tool: call.tool, error: call.error }
       if (step) patchStep(step.id, { state: call.state, arg: call.arg || step.arg, mcp, ms: call.state === 'run' ? undefined : Date.now() - step.startedAt })
@@ -430,7 +436,11 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
   const tooling = terminalSetup(withCoding, withMemTools, withUpsert, prepared.taskRules)
   // team: the member list (owners by email) before the first request — the staging tools never wait for it
   await warmMembers()
+  // the workspace as a whole (tools read any page in scope), the open page and the pages the task points at
+  const sources = [{ all: true as const }, ...(pageId ? [{ page: pageId }] : []), ...refs.map((r) => ({ page: r.pageId })), ...mentions.map((m) => ({ page: m.id }))]
   const attempt = async () => {
+    // the gate first (newer AI rules, a key in the task …): nothing is attached or loaded when it refuses
+    settle(prepare({ purpose: 'terminal.task', sources, typed: task }))
     const mcp = setup.servers.length ? await attachMcp(setup, 'free', { forced }) : null
     const left = refusedNames(setup, 'free', forced)
     for (const name of left) note(t('features.ai.mcp.cw.note.refused', { server: name }))
@@ -441,9 +451,8 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
     // referenced file blocks go along as documents (Claude for files); one that cannot be read is noted
     const user = await withRefFiles(withImages, refs, ac.signal, (title) => note(t('features.ai.file.refFailed', { title })))
     return runAgent({
-      // the workspace as a whole (tools read any page in scope), the open page and the pages the task points at
       purpose: 'terminal.task',
-      sources: [{ all: true }, ...(pageId ? [{ page: pageId }] : []), ...refs.map((r) => ({ page: r.pageId })), ...mentions.map((m) => ({ page: m.id }))],
+      sources,
       typed: task,
       history,
       user,
@@ -463,7 +472,7 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
       end = await attempt()
     } catch (e) {
       // a server this task did not address rejected its token: once more without it (the conversation as before)
-      if (!(e instanceof AIError && e.code === 'mcp_auth' && e.server && !forced.includes(e.server)) || ac.signal.aborted) throw e
+      if (!(e instanceof AIError && e.code === 'mcp_auth' && e.server && !forced.includes(e.server)) || sawMcp || ac.signal.aborted) throw e
       history = before
       end = await attempt()
     }
@@ -474,6 +483,8 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
     if (err.code === 'aborted') finish('stopped')
     // a server that rejected its token: named, so the terminal can offer to sign in to it
     else finish('error', { code: err.code, message: err.message, ...(err.code === 'mcp_auth' && err.server ? { server: err.server } : {}) })
+    // a key in the task: the text goes back into the prompt to be fixed (never into the history)
+    if (err.code === 'key_in_text' && !get().draft.trim()) set({ draft: task })
   } finally {
     if (controller === ac) {
       controller = null

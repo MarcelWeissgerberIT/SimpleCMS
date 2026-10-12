@@ -7,7 +7,7 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import type { Page, TestInfo } from '@playwright/test'
 import { test, expect, openApp, reloadApp, wsEval, flush, createPage, gotoPage, editorOf, doc, para, selectText, pageIdByTitle, MOD } from './fixtures'
 import { mockClaudeScript, hostCounts, text, type ClaudeStep } from './helpers/providers'
-import { openTerminal, run, terminal } from './helpers/terminal'
+import { openTerminal, run, terminal, prompt } from './helpers/terminal'
 
 type AnyState = Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -343,5 +343,100 @@ test.describe('an agent whose route this version cannot run', () => {
     await page.waitForTimeout(300)
     expect(requests).toHaveLength(1)
     expect(counts).toEqual({ anthropic: 1, openai: 0, openrouter: 0 })
+  })
+})
+
+/* ------------------------------------------------------------------ */
+/* Small safety fixes (task 9)                                          */
+/* ------------------------------------------------------------------ */
+
+test.describe('keys in typed text, retries after an MCP call', () => {
+  const history = (page: Page) =>
+    page.evaluate(() => {
+      const out: string[] = []
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i)!
+        if (k.startsWith('one.term.history:')) out.push(localStorage.getItem(k) ?? '')
+      }
+      return out.join('\n')
+    })
+
+  test('a terminal task holding an API key: the hint, nothing sent, never in the history; "task-1234 …" goes through', async ({ page, aiNet }) => {
+    const { requests } = await mockClaudeScript(page.context(), [text('Mara owns the launch plan.')])
+    await openApp(page)
+    await wsEval(page, (s) => s.updateSettings({ aiApiKey: 'sk-ant-e2e-test-key' }))
+    const id = await createPage(page, { title: 'Launch plan', content: doc(para('Mara owns the launch plan.')) })
+    await gotoPage(page, id)
+    await openTerminal(page)
+    const KEY = 'sk-proj-Nordlicht0123456789abcdef'
+    await run(page, `use my key ${KEY} for the launch plan`)
+    const err = terminal(page).locator('.term-error')
+    await expect(err).toContainText('That looks like an API key')
+    await expect(err.getByRole('button', { name: /Open Settings/ })).toBeVisible()
+    // the key is shown nowhere in the transcript; the text is back in the prompt to be fixed
+    await expect(terminal(page).locator('.term-scroll')).toContainText('use my key •••• for the launch plan')
+    await expect(terminal(page).locator('.term-scroll')).not.toContainText(KEY)
+    await expect(prompt(page)).toHaveValue(`use my key ${KEY} for the launch plan`)
+    await page.waitForTimeout(300)
+    expect(requests).toHaveLength(0)
+    expect(aiNet.count('anthropic')).toBe(0)
+    expect(await history(page)).not.toContain('sk-proj-')
+
+    await prompt(page).fill('')
+    await run(page, 'task-1234 for Mara: who owns the launch plan?')
+    await expect(terminal(page).locator('.term-answer')).toContainText('Mara owns the launch plan.')
+    expect(requests).toHaveLength(1)
+    expect(await history(page)).toContain('task-1234 for Mara')
+  })
+
+  const ARCHIVE = { id: 'srvtessera01', name: 'archive', url: 'https://mcp.example.test/api/archive/mcp', token: 'archive-e2e-PLAINTEXT-token-7Hq0002', enabled: true, prompt: '**Archive** is the team knowledge base.', promptSource: 'auto', tools: ['archive_search'], checkedAt: 1 }
+  const AUTH = { status: 400, json: { type: 'error', error: { type: 'invalid_request_error', message: "MCP server 'archive' returned 401 Unauthorized: the token is expired" } } }
+  const CALLED = {
+    blocks: [
+      { type: 'mcp_tool_use' as const, id: 'mcptoolu_9', server: 'archive', name: 'archive_search', input: { query: 'launch date' } },
+      { type: 'mcp_tool_result' as const, id: 'mcptoolu_9', text: 'REC-12 Launch: 2026-10-18' },
+    ],
+    stop: 'pause_turn' as const,
+  }
+
+  async function freeRequest(page: Page, steps: ClaudeStep[]) {
+    const { requests } = await mockClaudeScript(page.context(), steps)
+    await openApp(page)
+    await wsEval(page, (s, list) => s.updateSettings({ aiApiKey: 'sk-ant-e2e-test-key', mcpServers: list }), [ARCHIVE])
+    const id = await createPage(page, { title: 'Launch plan', content: doc(para('We launch in two weeks.'), para('')) })
+    await gotoPage(page, id)
+    const ed = editorOf(page, id)
+    const ask = page.getByPlaceholder('Ask Claude to write anything…')
+    await expect(async () => {
+      await ed.locator('p').last().click()
+      await page.keyboard.press('End')
+      await page.keyboard.press('Space')
+      try {
+        await expect(ask).toBeFocused({ timeout: 2000 })
+      } catch (e) {
+        if (!(await ask.count())) await page.keyboard.press('Backspace')
+        throw e
+      }
+    }).toPass({ timeout: 15_000 })
+    await ask.fill('What does Archive say about the launch?')
+    await page.keyboard.press('Enter')
+    return requests
+  }
+
+  test('an MCP call ran, then a server rejected its token: no retry without it (the call never runs twice)', async ({ page, errors }) => {
+    errors.allow(/400|Bad Request|Failed to load resource/)
+    const requests = await freeRequest(page, [CALLED, AUTH, text('Answer without Archive.')])
+    await expect(aiPanel(page).locator('.ai-error')).toContainText('ERR · MCP_AUTH')
+    await page.waitForTimeout(500)
+    // the first response made the call; its resume was refused — nothing after that
+    expect(requests).toHaveLength(2)
+  })
+
+  test('positive control: refused before any MCP call → once more without the server', async ({ page, errors }) => {
+    errors.allow(/400|Bad Request|Failed to load resource/)
+    const requests = await freeRequest(page, [AUTH, text('Answer without Archive.')])
+    await expect(aiPanel(page)).toContainText('Answer without Archive.')
+    expect(requests).toHaveLength(2)
+    expect(requests[1].body.mcp_servers ?? []).toEqual([])
   })
 })

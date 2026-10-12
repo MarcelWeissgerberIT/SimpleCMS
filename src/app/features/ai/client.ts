@@ -264,8 +264,14 @@ function skippedOf(codewords: Codewords | null | undefined, attached: McpAttachm
   return [...codewords.off.map((n) => skippedCall(n, 'off')), ...codewords.forced.filter((n) => !attached?.names.includes(n)).map((n) => skippedCall(n, 'token')), ...out]
 }
 
-/** A server the request did not address rejected its token: try once more without it (it is then skipped). */
-const retryWithout = (err: AIError, forced: string[] | undefined) => err.code === 'mcp_auth' && !!err.server && !(forced ?? []).includes(err.server)
+/**
+ * A server the request did not address rejected its token: try once more without it (it is then skipped) — only when
+ * the failed request made no MCP call yet (a call that already ran must never run twice).
+ */
+const retryWithout = (err: AIError, forced: string[] | undefined, sawMcp: boolean) => !sawMcp && err.code === 'mcp_auth' && !!err.server && !(forced ?? []).includes(err.server)
+
+/** An MCP call or its result in a response. */
+const isMcpBlock = (b: { type: string }) => b.type === 'mcp_tool_use' || b.type === 'mcp_tool_result'
 
 /** A paused turn (server-side tool loop) is resumed at most this often. */
 const MAX_RESUMES = 3
@@ -293,6 +299,8 @@ async function streamOnce(opts: StreamOptions, again: boolean): Promise<string> 
   const model = resolveModel(settings.aiModel).id
   let sdk: SDKModule | null = null
   let attached: McpAttachment | null = null
+  // an MCP call of this request started (streamWithMcp): no retry without a server after that
+  const seen = { mcp: false }
   try {
     const got = await getClient(apiKey)
     sdk = got.sdk
@@ -314,7 +322,7 @@ async function streamOnce(opts: StreamOptions, again: boolean): Promise<string> 
     if (skipped.length) onMcp?.([])
     let stopReason: string | null
     if (attached) {
-      const final = await streamWithMcp(client, model, `${system}\n\n${attached.system}`, prompt, attached, onText, onMcp, signal, { onMedia, maxResumes })
+      const final = await streamWithMcp(client, model, `${system}\n\n${attached.system}`, prompt, attached, onText, onMcp, signal, { onMedia, maxResumes, seen })
       stopReason = final.stop_reason
       text = answerText(final.content) || text
     } else if (model === 'claude-haiku-4-5') {
@@ -355,7 +363,7 @@ async function streamOnce(opts: StreamOptions, again: boolean): Promise<string> 
   } catch (e) {
     if (signal?.aborted) throw new AIError('aborted')
     const err = toAIError(e, sdk, attached)
-    if (!again && retryWithout(err, codewords?.forced)) return streamOnce(opts, true)
+    if (!again && retryWithout(err, codewords?.forced, seen.mcp)) return streamOnce(opts, true)
     throw err
   }
 }
@@ -373,7 +381,7 @@ async function streamWithMcp(
   onText: (delta: string) => void,
   onMcp: ((calls: McpCall[]) => void) | undefined,
   signal: AbortSignal | undefined,
-  more: { onMedia?: (items: MediaItem[]) => void; maxResumes?: number } = {},
+  more: { onMedia?: (items: MediaItem[]) => void; maxResumes?: number; seen?: { mcp: boolean } } = {},
 ): Promise<BetaMessage> {
   const opus = model !== 'claude-haiku-4-5'
   const messages: BetaMessageParam[] = [{ role: 'user', content: prompt }]
@@ -395,7 +403,12 @@ async function streamWithMcp(
     const abort = () => stream.abort()
     signal?.addEventListener('abort', abort, { once: true })
     stream.on('text', onText)
+    // a call counts from its first byte: an error later in the same response must not send it again
+    stream.on('streamEvent', (event) => {
+      if (more.seen && event.type === 'content_block_start' && isMcpBlock(event.content_block)) more.seen.mcp = true
+    })
     stream.on('contentBlock', (block: BetaContentBlock) => {
+      if (more.seen && isMcpBlock(block)) more.seen.mcp = true
       if (media?.block(block)) more.onMedia?.(media.items)
       const next = foldMcpBlock(calls, block)
       if (next === calls) return
@@ -513,6 +526,8 @@ async function structuredOnce(opts: StructuredOptions, again: boolean): Promise<
   const model = resolveModel(settings.aiModel).id
   let sdk: SDKModule | null = null
   let attached: McpAttachment | null = null
+  // a paused turn made MCP calls: no retry without a server after that
+  let sawMcp = false
   try {
     const got = await getClient(apiKey)
     sdk = got.sdk
@@ -542,6 +557,7 @@ async function structuredOnce(opts: StructuredOptions, again: boolean): Promise<
           { signal, maxRetries },
         )
         onUsage?.(usageOf(model, msg.usage))
+        if (msg.content.some(isMcpBlock)) sawMcp = true
         if (msg.stop_reason !== 'pause_turn' || resumes >= MAX_RESUMES) break
         turn.push({ role: 'assistant', content: msg.content })
       }
@@ -573,7 +589,7 @@ async function structuredOnce(opts: StructuredOptions, again: boolean): Promise<
   } catch (e) {
     if (signal?.aborted) throw new AIError('aborted')
     const err = toAIError(e, sdk, attached)
-    if (!again && retryWithout(err, undefined)) return structuredOnce(opts, true)
+    if (!again && retryWithout(err, undefined, sawMcp)) return structuredOnce(opts, true)
     throw err
   }
 }
