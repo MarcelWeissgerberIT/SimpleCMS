@@ -115,7 +115,7 @@ import { itemsFitAt } from './transform/range'
 import { ITEM_KEYWORDS } from './transform/forms'
 import { openAgent } from './agent/state'
 import { afterBlock, captureTarget, mapTarget, type RunTarget } from './runsTarget'
-import { markSeen, removeRun, setTodbDraft, startRun, stopRun, useAIRuns, viewRun, type RunRequest } from './runs'
+import { markSeen, receiptOf, removeRun, setTodbDraft, startRun, stopRun, useAIRuns, viewRun, type RunRequest } from './runs'
 import { countWords, effectiveMode, readsFor, readsShort, readsText, type RunReads } from './reads'
 import { RedoSetup, type RedoDraft } from './redo/RedoSetup'
 import { RedoReview } from './redo/RedoReview'
@@ -148,6 +148,7 @@ import { MediaCards } from './media/MediaCards'
 import { mediaNode, pagePrivate } from './media/blocks'
 import { GenerateSetup, draftOf, useGeneratePanel, type GenerateDraft } from './media/GeneratePanel'
 import type { GenerateKind } from './media/generate'
+import { ReceiptLine } from './Receipt'
 import './ai.css'
 import './runs.css'
 import './reads.css'
@@ -338,6 +339,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
 
   const [runId, setRunId] = useState<string | null>(openRun ?? null)
   const run = useAIRuns((s) => (runId ? (s.runs[runId] ?? null) : null))
+  const receipt = run ? receiptOf(run) : null
   // an image run: its image found again (the picture is the target, not text)
   const target: RunTarget =
     run?.req.kind === 'image' && !editor.isDestroyed
@@ -2334,6 +2336,8 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
                     <p>{t(`features.ai.todb.err.${issue}`)}</p>
                   </div>
                 )}
+                {/* what the run's requests cost (its ledger entries): the model that answered, the price, how it was priced */}
+                {receipt && <ReceiptLine receipt={receipt} />}
               </div>
             )}
 

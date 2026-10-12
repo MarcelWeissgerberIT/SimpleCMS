@@ -115,3 +115,91 @@
   font-size: var(--text-xs);
   line-height: 1.45;
 }
+
+/* The receipt: one mono line under a run's result — who answered, what it cost, how it was priced; steps below it. */
+.ai-receipt {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 6px 10px 7px 14px;
+  border-top: 1px dashed var(--rule-strong);
+  background: var(--bg);
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  line-height: 1.5;
+}
+
+.ai-receipt__line,
+.ai-receipt__step {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  margin: 0;
+  white-space: nowrap;
+}
+
+.ai-receipt__k {
+  flex: none;
+  margin-right: 8px;
+  color: var(--ink-3);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+}
+
+/* the model's name gives way first ("…"); the amount and its source stay whole */
+.ai-receipt__model {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink);
+  text-overflow: ellipsis;
+}
+
+.ai-receipt__n,
+.ai-receipt__usd {
+  flex: none;
+  white-space: pre;
+}
+
+.ai-receipt__usd {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.ai-receipt__src {
+  flex: none;
+  margin-left: 8px;
+  padding: 0 4px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+  color: var(--ink-2);
+  font-size: calc(9.5px * var(--text-scale));
+  letter-spacing: var(--tracking-label);
+  line-height: 1.5;
+  text-transform: uppercase;
+}
+
+.ai-receipt__src[data-src='estimate'] {
+  border-style: dashed;
+}
+
+.ai-receipt__step {
+  gap: 6px;
+  color: var(--signal-ink);
+}
+
+.ai-receipt__step > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ai-receipt__step > svg {
+  flex: none;
+}
+
+@media (max-width: 520px) {
+  .ai-receipt__k {
+    display: none;
+  }
+}

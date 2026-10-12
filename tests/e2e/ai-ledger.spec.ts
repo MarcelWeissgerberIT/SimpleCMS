@@ -709,3 +709,67 @@ test.describe('the ledger: cut short, refused, other models, reload, reset', () 
     await expect.poll(async () => (await page.evaluate(async () => (await indexedDB.databases()).map((d) => d.name))).includes('one-ledger')).toBe(true)
   })
 })
+
+/* ------------------------------------------------------------------ */
+/* Receipts on AI run cards (task 12)                                   */
+/* ------------------------------------------------------------------ */
+
+test.describe('the receipt on an AI run card', () => {
+  test('after Improve: the model, the cost and TABLE — equal to the ledger entry; kept with the run', async ({ page }) => {
+    await keyed(page, [text('A tighter launch sentence.', { usage: { input: 1200, output: 300 } })])
+    const id = await improve(page)
+    const receipt = aiPanel(page).getByTestId('ai-receipt')
+    await expect(receipt).toBeVisible()
+    const [e] = await ledger(page)
+    // Opus 5.5: 1,200 × $4 + 300 × $20 per million = $0.0108
+    expect(e.usd).toBeCloseTo(0.0108, 10)
+    await expect(receipt.locator('.ai-receipt__line')).toHaveText('ReceiptClaude Opus 5.5 · $0.0108Table')
+    await expect(receipt).toHaveAttribute('title', /Tokens in 1,200 · cache write 0 · cache read 0 · out 300/)
+    await expect(receipt.getByTestId('ai-receipt-step')).toHaveCount(0)
+    // the run keeps it: after a reload the card says the same
+    await page.keyboard.press('Escape')
+    await reloadApp(page)
+    await gotoPage(page, id)
+    await page.getByTestId('ai-runs').getByRole('button').click()
+    await expect(aiPanel(page).getByTestId('ai-receipt').locator('.ai-receipt__line')).toHaveText('ReceiptClaude Opus 5.5 · $0.0108Table')
+  })
+
+  test('another model answered: the step "Anthropic passed this to …", priced at the model that answered (German)', async ({ page }) => {
+    await keyed(page, [text('Ein knapperer Satz.', { model: 'claude-sonnet-5-5', usage: { input: 1000, output: 100 } })], { language: 'de' })
+    const id = await createPage(page, { title: 'Startnotizen', content: doc(para('unser Startsatz ist etwas lose')) })
+    await gotoPage(page, id)
+    const ed = editorOf(page, id)
+    await ed.locator('p', { hasText: 'unser Startsatz ist etwas lose' }).click()
+    await selectText(page, ed, 'unser Startsatz ist etwas lose')
+    await page.locator('[aria-label="Formatierung"]').first().getByRole('button', { name: /^KI fragen$/ }).click()
+    await aiPanel(page).getByRole('option', { name: /Text verbessern/ }).click()
+    await expect(aiPanel(page)).toContainText('Ein knapperer Satz.')
+    const receipt = aiPanel(page).getByTestId('ai-receipt')
+    // Sonnet 5.5: 1,000 × $2 + 100 × $10 per million = $0.0030
+    await expect(receipt.locator('.ai-receipt__line')).toHaveText('BelegClaude Sonnet 5.5 · 0,0030 $Tabelle')
+    await expect(receipt.getByTestId('ai-receipt-step')).toHaveText('Anthropic hat an Claude Sonnet 5.5 weitergegeben')
+  })
+
+  test('a run stopped before its answer keeps an ESTIMATE receipt; a failed one too', async ({ page, errors }) => {
+    errors.allow(/Failed to load resource|Overloaded|overloaded/)
+    const ev = (type: string, data: object) => `event: ${type}\ndata: ${JSON.stringify({ type, ...data })}\n\n`
+    const body =
+      ev('message_start', { message: { id: 'msg_cut_2', type: 'message', role: 'assistant', model: 'claude-opus-5-5', content: [], stop_reason: null, stop_sequence: null, usage: { input_tokens: 2400, output_tokens: 1, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } } }) +
+      ev('content_block_start', { index: 0, content_block: { type: 'text', text: '' } }) +
+      ev('content_block_delta', { index: 0, delta: { type: 'text_delta', text: 'A tighter launch sentence that' } }) +
+      ev('error', { error: { type: 'overloaded_error', message: 'Overloaded' } })
+    await page.context().route('https://api.anthropic.com/**', (route) =>
+      route.request().method() === 'OPTIONS'
+        ? route.fulfill({ status: 204, headers: { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*' } })
+        : route.fulfill({ status: 200, headers: { 'access-control-allow-origin': '*', 'content-type': 'text/event-stream' }, body }),
+    )
+    await openApp(page)
+    await wsEval(page, (s) => s.updateSettings({ aiApiKey: 'sk-ant-e2e-test-key' }))
+    await improve(page, null)
+    await expect(aiPanel(page).locator('.ai-error')).toBeVisible()
+    const receipt = aiPanel(page).getByTestId('ai-receipt')
+    await expect(receipt).toHaveAttribute('data-src', 'estimate')
+    await expect(receipt.getByTestId('ai-receipt-usd')).toHaveText(/^ · ≈ \$0\.\d{4}$/)
+    await expect(receipt.locator('.ai-receipt__src')).toHaveText('Estimate')
+  })
+})

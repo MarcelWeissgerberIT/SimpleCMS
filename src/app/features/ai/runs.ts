@@ -27,7 +27,8 @@ import { newId } from '../../lib/ids'
 import { t } from '../../i18n'
 import { AIError, runAI, stripFence, type AIAction, type AIErrorCode } from './client'
 import { pageRef } from './core/refs'
-import { tapSignal } from './core/meter'
+import { addToReceipt, tapSignal, type Receipt } from './core/meter'
+import type { CostSource, LedgerEntry, ProviderId, StepNote, Usage } from '@/shared/ai/types'
 import { askWorkspace, type WorkspaceSource } from './workspace'
 import type { McpCall } from './mcp-servers/activity'
 import { mapTarget, reanchor, type RunTarget } from './runsTarget'
@@ -129,6 +130,32 @@ export interface AIRun {
   media?: MediaItem[] | null
   /** "Make tasks": how many people's names went along (`<people>`) — the result strip says so */
   peopleSent?: number | null
+  /*
+   * The receipt (features/ai/core/meter.ts): what the run's requests cost, summed over every response it got — the
+   * requested route ('p:m'), the model that answered last, the usage, the price (null: a response had none) and how it
+   * was priced, the steps on the way (a refusal fallback), how many responses. Absent: from before receipts (unknown).
+   */
+  route?: string
+  served?: { p: ProviderId; model: string }
+  usage?: Usage
+  usd?: number | null
+  costSource?: CostSource
+  steps?: StepNote[]
+  requests?: number
+}
+
+/** A run's receipt (null: none — no response yet, or a run from before receipts). */
+export function receiptOf(run: AIRun): Receipt | null {
+  if (!run.route || !run.served || !run.usage || run.usd === undefined || !run.costSource) return null
+  return { route: run.route, served: run.served, usage: run.usage, usd: run.usd, costSource: run.costSource, steps: run.steps ?? [], requests: run.requests ?? 1 }
+}
+
+/** One more response of a run: its receipt grows (kept with the run on this device). */
+function noteEntry(id: string, e: LedgerEntry) {
+  const run = S().runs[id]
+  if (!run) return
+  const r = addToReceipt(receiptOf(run), e)
+  patch(id, { route: r.route, served: r.served, usage: r.usage, usd: r.usd, costSource: r.costSource, steps: r.steps, requests: r.requests })
 }
 
 interface RunsState {
@@ -338,7 +365,7 @@ async function execute(id: string, editor: Editor) {
   controllers.set(id, ac)
   buffers.set(id, '')
   // every request of this run is named 'ai:<run>:<what>' in the ledger (features/governor)
-  const untap = tapSignal(ac.signal, { source: `ai:${id}:${runWhat(run.req)}` })
+  const untap = tapSignal(ac.signal, { source: `ai:${id}:${runWhat(run.req)}`, onEntry: (e) => noteEntry(id, e) })
   const onToken = (delta: string) => {
     buffers.set(id, (buffers.get(id) ?? '') + delta)
     raf ||= requestAnimationFrame(flushTokens)
