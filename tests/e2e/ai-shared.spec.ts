@@ -15,7 +15,10 @@ import { estimateUsage, normalise, addUsage } from '../../src/shared/ai/usage'
 import { agentAIReadable, legacyRule, readAgentRoute, routeKey, runsOnClaude, sanitizeAgentAI, sanitizeRoute, sanitizeRule } from '../../src/shared/ai/route'
 import { AI_POLICY_GEN, policyKnown, requiredGen, sanitizeDeviceAI, sanitizeWorkspaceAI, storedGen } from '../../src/shared/ai/policy'
 import { looksLikeKey, scrubSecrets } from '../../src/shared/ai/keys'
-import type { PriceRow, Usage } from '../../src/shared/ai/types'
+import type { ChatRequest, DecideRequest, PriceRow, Usage, WireRequest } from '../../src/shared/ai/types'
+import type { TurnOf } from '../../src/shared/ai/adapter'
+import { OWNER } from '../../src/shared/ai/owner'
+import { JEV_ROUTER, JEV_TIERS, ROUTER_PINS, isJevRouter } from '../../src/shared/ai/jev'
 import { classOfPage, classesOf, isSources, type SourceWorld } from '../../src/app/features/ai/core/sources'
 import type { Database, Page } from '../../src/app/store/types'
 import { estimate } from '../../src/app/features/governor/estimate'
@@ -47,7 +50,18 @@ test.describe('models and slugs', () => {
 
   test('refused OpenRouter slugs: routers, aliases, presets, :online, :batch, models that search the web', () => {
     expect(refusedSlug('openrouter/auto')).toBe('router')
-    expect(refusedSlug('vendor-a/model-b', { promptPrice: -1 })).toBe('router')
+    // a router (the catalogue says so) forwards to models One cannot pin; a price per request alone is no reason
+    expect(refusedSlug('vendor-a/model-b', { router: true })).toBe('router')
+    expect(refusedSlug('vendor-a/model-b', { router: true, promptPrice: -1, pricing: 'dynamic' })).toBe('router')
+    expect(refusedSlug('vendor-a/model-b', { promptPrice: -1 })).toBeNull()
+    expect(refusedSlug('vendor-a/model-b', { pricing: 'dynamic' })).toBeNull()
+    // the Jev Router (owner update): offered, never refused for being a router or for its price
+    expect(OWNER.jevRouter).toBe(true)
+    expect(refusedSlug(JEV_ROUTER)).toBeNull()
+    expect(refusedSlug(JEV_ROUTER, { router: true, promptPrice: -1, pricing: 'dynamic' })).toBeNull()
+    expect(modelIdProblem('openrouter', JEV_ROUTER, { router: true, pricing: 'dynamic' })).toBeNull()
+    expect(refusedSlug(`${JEV_ROUTER}:online`)).toBe('online')
+    expect(refusedSlug('vendor-z/switch-router', { router: true, pricing: 'dynamic' })).toBe('router')
     expect(refusedSlug('~vendor-a/model-latest')).toBe('alias')
     expect(refusedSlug('vendor-a/model-b@preset')).toBe('alias')
     expect(refusedSlug('vendor-a/model-b:online')).toBe('online')
@@ -78,6 +92,9 @@ test.describe('models and slugs', () => {
     expect(vendorOf({ p: 'anthropic', m: 'claude-opus-5-5' })).toBe('anthropic')
     expect(vendorOf({ p: 'openrouter', m: 'anthropic/claude-x' })).toBe('anthropic')
     expect(vendorOf({ p: 'openrouter', m: 'vendor-a/model-b' })).toBe('vendor-a')
+    // the Jev Router's answer may come from any maker
+    expect(vendorOf({ p: 'openrouter', m: JEV_ROUTER })).toBe('*')
+    expect(labelOf({ p: 'openrouter', m: JEV_ROUTER })).toBe('OpenRouter · Jev Router')
     expect(labelOf({ p: 'anthropic', m: 'claude-sonnet-5-5' })).toBe('Claude Sonnet 5.5')
     expect(labelOf({ p: 'openrouter', m: 'vendor-a/model-b' })).toBe('OpenRouter · vendor-a/model-b')
   })
@@ -179,6 +196,13 @@ test.describe('usage', () => {
     expect(normalise('anthropic', null)).toEqual(U())
     expect(normalise('openai', { input_tokens: 1000, input_tokens_details: { cached_tokens: 600 }, output_tokens: 300, output_tokens_details: { reasoning_tokens: 200 } })).toEqual(U({ input: 400, cacheRead: 600, output: 300, reasoning: 200 }))
     expect(normalise('openrouter', { prompt_tokens: 1000, prompt_tokens_details: { cached_tokens: 500, cache_write_tokens: 100 }, completion_tokens: 50, completion_tokens_details: { reasoning_tokens: 20 }, cost: 0.0011 })).toEqual(U({ input: 400, cacheRead: 500, cacheWrite: 100, output: 50, reasoning: 20, reportedUsd: 0.0011 }))
+  })
+
+  test('normalise reads a decisions response\'s usage too (input_tokens / output_tokens / cost — doc-derived)', () => {
+    const fx = JSON.parse(readFileSync(fileURLToPath(new URL('../fixtures/ai/openrouter/doc/decisions-usage.json', import.meta.url)), 'utf8')) as { source: string; verified: boolean; usage: Record<string, unknown> }
+    expect(fx.source).toMatch(/^api_api-reference_alphadecisions_submit-a-decisions-request\.md#/)
+    expect(fx.verified).toBe(false)
+    expect(normalise('openrouter', fx.usage)).toEqual(U({ input: 476, output: 70, reportedUsd: 0.000019992 }))
   })
 
   test('estimates: what is known, else characters ÷ 4', () => {
@@ -325,6 +349,25 @@ test.describe('errors and keys', () => {
   })
 })
 
+test('owner decisions live in one place (src/shared/ai/owner.ts); the Jev constants in jev.ts', () => {
+  expect(OWNER).toEqual({ memberClassesOwnedByMember: true, agentTriggers: false, directWritesOnConfirmedModelOnly: true, newProviderStartsEmpty: true, jevRouter: true })
+  expect(JEV_ROUTER).toBe('typesafe/jev-router')
+  expect(isJevRouter(JEV_ROUTER)).toBe(true)
+  expect(isJevRouter(`${JEV_ROUTER}-20260917`)).toBe(false)
+  expect(ROUTER_PINS).toBe('pool')
+  expect(JEV_TIERS).toEqual(['low', 'medium', 'high'])
+})
+
+test('the neutral wire types: a decide request is a wire request; send() of it is typed to a decide turn', () => {
+  // type level: these lines compile only while the contracts hold (adapter.ts TurnOf, types.ts WireRequest)
+  const decide: DecideRequest = { kind: 'decide', route: { p: 'openrouter', m: 'vendor-a/decider' }, state: { text: 'Quarterly plan' }, questions: { done: { type: 'noul', instructions: 'Is the plan finished?' } } }
+  const wire: WireRequest = decide
+  const chat: ChatRequest = { kind: 'chat', route: { p: 'openrouter', m: 'vendor-a/model-b' }, system: 'S', messages: [{ role: 'user', parts: [{ type: 'text', text: 'Hi' }] }], output: { kind: 'text' }, maxTokens: 100, cache: 'none' }
+  const turnOfDecide: TurnOf<DecideRequest> = { kind: 'decide', answers: { done: { type: 'noul', p: 0.9 } }, served: { model: 'vendor-a/decider' }, usage: null }
+  const turnOfChat: TurnOf<ChatRequest> = { kind: 'chat', parts: [], stop: 'end', usage: null, served: null, streamedChars: 0 }
+  expect([wire.kind, chat.kind, turnOfDecide.kind, turnOfChat.kind]).toEqual(['decide', 'chat', 'decide', 'chat'])
+})
+
 test('src/shared/ai imports nothing outside itself (type imports with .ts, no enums)', () => {
   const dir = fileURLToPath(new URL('../../src/shared/ai/', import.meta.url))
   for (const f of readdirSync(dir, { recursive: true }) as string[]) {
@@ -332,10 +375,14 @@ test('src/shared/ai imports nothing outside itself (type imports with .ts, no en
     const src = readFileSync(`${dir}${f}`, 'utf8')
     for (const m of src.matchAll(/^\s*(?:import|export)[^'"\n]*from\s+'([^']+)'/gm)) {
       expect(m[1], `${f}: ${m[0]}`).toMatch(/^\.\.?\/[\w/.-]+\.ts$/)
-      expect(m[1].startsWith('../') && !m[1].startsWith('../ai/'), `${f} leaves src/shared/ai`).toBe(false)
+      // resolved from the file's own folder (wire/ … included), it stays inside src/shared/ai
+      const to = fileURLToPath(new URL(m[1], new URL(f.replace(/\\/g, '/'), new URL('../../src/shared/ai/', import.meta.url))))
+      expect(to.startsWith(dir), `${f} leaves src/shared/ai (${m[1]})`).toBe(true)
     }
     expect(/\benum\s+\w+/.test(src), `${f} declares an enum`).toBe(false)
-    expect(/\b(window|document|localStorage|indexedDB)\b|\bprocess\.|\brequire\(/.test(src.replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '')), `${f} reaches a runtime`).toBe(false)
+    // comments and string literals left out ('document' is a part type, not the DOM)
+    const code = src.replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '').replace(/'(?:[^'\\\n]|\\.)*'/g, "''")
+    expect(/\b(window|document|localStorage|indexedDB|sessionStorage|navigator)\b|\bprocess\.|\brequire\(/.test(code), `${f} reaches a runtime`).toBe(false)
   }
 })
 

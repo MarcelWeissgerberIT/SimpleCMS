@@ -126,9 +126,9 @@ export function sanitizeCaps(v: unknown): Caps | null {
   }
 }
 
-/** A stored price row (null: none or not valid). */
+/** A stored price row (null: none or not valid — a bound is never stored). */
 export function sanitizePriceRow(v: unknown): PriceRow | null {
-  if (!isObj(v)) return null
+  if (!isObj(v) || v.source === 'bound') return null
   const cols: Record<string, number> = {}
   for (const k of PRICE_KEYS) {
     const n = fin(v[k])

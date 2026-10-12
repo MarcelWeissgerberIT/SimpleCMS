@@ -39,6 +39,21 @@ export const PRICES: Readonly<Record<string, PriceRow>> = {
   'openai:gpt-6-astra': row(ASTRA, [openaiLong(ASTRA)]),
 }
 
+/**
+ * The stated upper bound of a model priced per request that One does not refuse ($ per million tokens; none in today's
+ * catalogue — the Jev Router's bound is the most expensive model of its pool instead, catalog.ts `boundOf`). Sent as
+ * the request's price ceiling too, and reserved before the request goes out.
+ */
+export const DYNAMIC_BOUND: Readonly<{ input: number; output: number }> = { input: 30, output: 180 }
+
+/** What a cost from this row is ('bound' → an estimate). */
+export const costSourceOf = (r: PriceRow): CostSource => (r.source === 'bound' ? 'estimate' : r.source)
+
+/** A bound as a price row ('bound': never stored; what it prices is an estimate). */
+export function boundRow(cols: PriceCols, at: string = PRICES_DATE): PriceRow {
+  return { ...cols, source: 'bound', at }
+}
+
 /** The table row of a direct route (null: not in the table — an OpenRouter model, an unknown id). A dated snapshot id
  *  ('…-20261001', as a response may name the model) is priced as its model. */
 export function priceRow(route: Pick<Route, 'p' | 'm'>): PriceRow | null {
@@ -99,7 +114,8 @@ export function costOf(u: Usage, r: PriceRow | null, at: number | Date = Date.no
       reasoning * (c.reasoning ?? c.output)) /
       1_000_000 +
     (c.request ?? 0)
-  return { usd, source: r.source }
+  // a bound is an upper end, not a price: what it gives is an estimate
+  return { usd, source: costSourceOf(r) }
 }
 
 /** Blended price per million tokens (3 in : 1 out) — for labels and the ceiling. */

@@ -1,0 +1,6 @@
+{
+  "source": "api_api-reference_alphadecisions_submit-a-decisions-request.md#responses-200-example",
+  "verified": false,
+  "note": "The usage object of a decisions response as the API reference shows it. Slice 2 makes no decisions call; normalise('openrouter') reads the shape.",
+  "usage": { "cost": 0.000019992, "input_tokens": 476, "output_tokens": 70 }
+}

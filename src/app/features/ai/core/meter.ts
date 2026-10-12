@@ -14,7 +14,7 @@
  */
 import type { CostSource, LedgerEntry, LedgerRole, ProviderId, StepNote, Usage } from '@/shared/ai/types'
 import type { AIErrorCode } from '@/shared/ai/errors'
-import { costOf, priceRow } from '@/shared/ai/prices'
+import { costOf, costSourceOf, priceRow } from '@/shared/ai/prices'
 import { addUsage, estimateUsage, normalise, ZERO_USAGE } from '@/shared/ai/usage'
 import { modelBase, sameModel } from '@/shared/ai/models'
 import { routeKey } from '@/shared/ai/route'
@@ -117,14 +117,14 @@ export function meterResponse(prepared: Prepared, opts: Pick<MeterOpts, 'source'
       const c = costOf(part.usage, priceRow({ p: route.p, m: part.model || route.m }), at).usd
       usd = usd === null || c === null ? null : usd + c
     }
-    costSource = usd === null ? 'none' : (row?.source ?? 'table')
+    costSource = usd === null ? 'none' : row ? costSourceOf(row) : 'table'
   } else if (r.usage) {
     usage = r.usage
     ;({ usd, source: costSource } = costOf(usage, row, at))
   } else if (r.refused) {
     usage = ZERO_USAGE
     usd = row ? 0 : null
-    costSource = row ? row.source : 'none'
+    costSource = row ? costSourceOf(row) : 'none'
   } else {
     usage = estimateUsage(r.promptChars ?? 0, r.streamedChars ?? 0, r.known)
     usd = costOf(usage, row, at).usd
