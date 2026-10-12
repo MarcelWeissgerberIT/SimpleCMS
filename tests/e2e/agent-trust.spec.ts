@@ -816,3 +816,47 @@ test.describe('per-field trust — task blocks (P2)', () => {
     expect(await unknowns(page)).toEqual([])
   })
 })
+
+const rec = <T = any>(page: Page, fn: string, ...args: unknown[]): Promise<T> => page.evaluate(({ fn, args }) => (window as any).__oneRecorder[fn](...args), { fn, args }) // eslint-disable-line @typescript-eslint/no-explicit-any
+
+test.describe('per-field trust — the flight recorder’s eject (train 4)', () => {
+  test('an eject is no decision: the accept stays, its "edited" watch ends, the ejected row has no keys; the eject’s Undo writes no verdict either', async ({ page }) => {
+    const m = await morning(page)
+    const clarity = keyOf(m, 'clarity')
+    const rowC1 = m.rows[Object.keys(m.rows)[8]]
+    const value = () => wsEval(page, (s, a) => s.pages[a.row].properties[a.prop], { row: rowC1, prop: m.props.clarity })
+    const before = await value()
+    // ONE proposal applied from its row: an accept, watched for the person's own edit
+    await row(page, 1).focus()
+    await page.keyboard.press('Enter')
+    await expect.poll(() => kinds(page, clarity)).toEqual(['accept'])
+    await expect.poll(() => statusOf(page, 'c1')).toBe('applied')
+    expect(await value()).not.toEqual(before)
+    expect(await flushWatch(page)).toBe(1)
+    // the eject of the run's window: the row goes back, the review settles c1 as ejected
+    await rec(page, 'settle')
+    const run = (await rec<Array<{ key: string; from: number; to: number }>>(page, 'runs')).find((r) => r.key === `agent:${AGENT}:${RUN}`)!
+    expect(run).toBeTruthy()
+    const r = await rec<{ id: string; state: string }>(page, 'eject', { lane: `agent:${AGENT}`, run: run.key, a: run.from - 1000, b: run.to + 1000 })
+    expect(r.state).toBe('done')
+    expect(await value()).toEqual(before)
+    await expect.poll(() => statusOf(page, 'c1')).toBe('discarded')
+    expect((await stored(page, 'c1'))?.ejected?.id).toBe(r.id)
+    await expect(row(page, 1).getByTestId('agx-ejected')).toBeVisible()
+    // no key on an ejected row: no Apply, no Discard, no Undo — and nothing it could be focused for
+    await expect(row(page, 1)).not.toHaveAttribute('data-keys', /.*/)
+    await expect(row(page, 1)).not.toHaveAttribute('tabindex', /.*/)
+    await expect(row(page, 1).locator('button')).toHaveCount(0)
+    // the verdict stays as given; its watch ended — the person's edit of the field now says nothing about the proposal
+    expect(await kinds(page, clarity)).toEqual(['accept'])
+    expect(await flushWatch(page)).toBe(0)
+    await wsEval(page, (s, a) => s.setRowProperty(a.row, a.prop, a.opt), { row: rowC1, prop: m.props.clarity, opt: m.options['Blockiert'] })
+    await flushWatch(page)
+    expect(await kinds(page, clarity)).toEqual(['accept'])
+    // the eject's Undo: the person's value is newer — held, the proposal stays ejected; nothing written into the book
+    const u = await rec<{ ok?: boolean }>(page, 'undoEject', r.id)
+    expect(u.ok).toBe(true)
+    expect(await kinds(page, clarity)).toEqual(['accept'])
+    expect(await unknowns(page)).toEqual([])
+  })
+})

@@ -657,3 +657,49 @@ test.describe('390 dark', () => {
     expect(key!.height).toBeGreaterThanOrEqual(32)
   })
 })
+
+test.describe('the flight recorder (train 4)', () => {
+  test('a task change applied alone is the recorder’s unit (terminal:<batch>#<change>): an eject takes it back like any change — ejected in the review, the batch’s Undo keeps it, the eject’s Undo brings it back', async ({ page, context }) => {
+    test.setTimeout(120_000)
+    const T1 = 'wi_ejct1aaaaa'
+    const id = await setup(page, doc(item({ itemId: T1, status: 'todo' }, 'Draft copy')))
+    await startRecorder(page)
+    await mockAgent(context, [call('u1', 'update_work_item', { updates: [{ item: T1, status: 'done' }] }), say('Staged.')])
+    await openTerminal(page)
+    await run(page, 'Close the copy task')
+    await done(page)
+    const card = change(page, 1)
+    await expect(card).toHaveAttribute('data-kind', 'workItem')
+    const chg = (await changes(page))[0].id as string
+    const mark = await markRec(page)
+    await card.getByRole('button', { name: /^Apply #1/ }).click()
+    await expect(card).toHaveAttribute('data-status', 'applied')
+    await flush(page)
+    expect(tasksIn(await pageContent(page, id))[0]).toMatchObject({ itemId: T1, status: 'done' })
+    // ONE write, named by its change: the unit an eject settles
+    await expectLane(page, mark, 'terminal', undefined, new RegExp(`^terminal:[^#]+#${chg}$`))
+    type Rec = Record<string, (...a: unknown[]) => Promise<any>> // eslint-disable-line @typescript-eslint/no-explicit-any
+    const rec = <T>(fn: string, ...args: unknown[]): Promise<T> => page.evaluate(({ fn, args }) => (window as unknown as { __oneRecorder: Rec }).__oneRecorder[fn](...args), { fn, args })
+    await rec('settle')
+    const batch = (await rec<Array<{ key: string; from: number; to: number }>>('runs')).find((r) => r.key.startsWith('terminal:'))!
+    expect(batch).toBeTruthy()
+    const r = await rec<{ id: string; state: string }>('eject', { lane: 'terminal', run: batch.key, a: batch.from - 1000, b: batch.to + 1000 })
+    expect(r.state).toBe('done')
+    expect(tasksIn(await pageContent(page, id))[0]).toMatchObject({ itemId: T1, status: 'todo' })
+    // settled like any change: discarded + ejected, never open again
+    await expect.poll(async () => (await changes(page))[0]).toMatchObject({ status: 'discarded', ejected: { id: r.id } })
+    await expect(card).toHaveAttribute('data-status', 'discarded')
+    // the batch's own Undo (a toast, Preflight's card) writes nothing: its task part is settled
+    const rev = await wsEval(page, (s, id) => s.pages[id].contentRev, id)
+    const undone = await page.evaluate((key) => {
+      const t = (window as unknown as { __oneTerm: { batch(id: string): unknown; undoStagedBatch(res: unknown, o: { quiet: boolean }): unknown } }).__oneTerm
+      return t.undoStagedBatch(t.batch(key.slice('terminal:'.length)), { quiet: true })
+    }, batch.key)
+    expect(undone).toEqual({ kept: [chg], final: [] })
+    expect(await wsEval(page, (s, id) => s.pages[id].contentRev, id)).toBe(rev)
+    // the eject's Undo: the task done again, the change applied again
+    expect(await rec<{ ok?: boolean }>('undoEject', r.id)).toMatchObject({ ok: true })
+    expect(tasksIn(await pageContent(page, id))[0]).toMatchObject({ itemId: T1, status: 'done' })
+    await expect.poll(async () => (await changes(page))[0].status).toBe('applied')
+  })
+})
