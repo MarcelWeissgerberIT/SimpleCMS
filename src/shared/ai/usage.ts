@@ -20,7 +20,9 @@ export function normalise(p: ProviderId, raw: Raw): Usage {
     const has = 'ephemeral_5m_input_tokens' in split || 'ephemeral_1h_input_tokens' in split
     const w1h = has ? num(split.ephemeral_1h_input_tokens) : 0
     const w5m = has ? num(split.ephemeral_5m_input_tokens) : num(u.cache_creation_input_tokens)
-    return { input: num(u.input_tokens), cacheWrite: w5m, cacheWrite1h: w1h, cacheRead: num(u.cache_read_input_tokens), output: num(u.output_tokens), reasoning: 0 }
+    // output_tokens holds the thinking; output_tokens_details.thinking_tokens says how many of them it was
+    const output = num(u.output_tokens)
+    return { input: num(u.input_tokens), cacheWrite: w5m, cacheWrite1h: w1h, cacheRead: num(u.cache_read_input_tokens), output, reasoning: Math.min(output, num(obj(u.output_tokens_details).thinking_tokens)) }
   }
   if (p === 'openai') {
     // Responses: input_tokens counts cached and written tokens too

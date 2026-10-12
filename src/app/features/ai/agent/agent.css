@@ -1516,6 +1516,18 @@
   }
 }
 
+/* a phone-wide terminal: the meter's figures wrap onto a second line rather than run off the edge */
+@container (max-width: 560px) {
+  .term-meter {
+    min-width: 0;
+    margin-left: 0;
+  }
+  .term-meter__vals {
+    flex-wrap: wrap;
+    gap: 0 10px;
+  }
+}
+
 @container (max-width: 980px) {
   .term-keys {
     display: none;

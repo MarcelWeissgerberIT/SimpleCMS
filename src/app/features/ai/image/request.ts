@@ -14,7 +14,7 @@ import type AnthropicSDK from '@anthropic-ai/sdk'
 import type { BetaMessageParam } from '@anthropic-ai/sdk/resources/beta/messages/messages'
 import { AIError, claudeClient, finalOf, thinks, toAIError, usesDemo } from '../client'
 import { prepare, settle, type Prepared } from '../core/gate'
-import { meterCall, type Receipt } from '../core/meter'
+import { imageChars, meterCall, type Receipt } from '../core/meter'
 import type { PurposeId } from '../core/purposes'
 import type { SourceRef } from '@/shared/ai/types'
 import type { LoadedImage } from './load'
@@ -145,8 +145,11 @@ export async function requestImage(req: ImageRequest): Promise<string> {
   let sdk: Awaited<ReturnType<typeof claudeClient>>['sdk'] | null = null
   let prepared: Prepared | null = null
   try {
+    const prompt = buildImagePrompt(req)
+    // the request's size: the task, the system prompt and the picture as it counts (a stopped request is estimated from it)
+    const promptChars = () => SYSTEM.length + prompt.length + imageChars(image.width, image.height)
     // the gate: nothing is sent before it (features/ai/core/gate.ts); the response is metered (core/meter.ts)
-    prepared = prepare({ purpose: req.purpose, sources: req.sources, typed: req.typed })
+    prepared = prepare({ purpose: req.purpose, sources: req.sources, typed: req.typed, size: { promptChars: promptChars(), maxTokens: (caps) => (thinks(caps) ? 16000 : 8000) } })
     const call = meterCall(prepared, { signal, onRun: req.onRun })
     const got = await claudeClient()
     sdk = got.sdk
@@ -154,7 +157,6 @@ export async function requestImage(req: ImageRequest): Promise<string> {
     // the model the gate routed to; what it can do from its caps (never its id)
     const model = prepared.route?.m ?? got.model
     if (signal?.aborted) throw new AIError('aborted')
-    const prompt = buildImagePrompt(req)
     const schema = action === 'describe' ? DESCRIBE_SCHEMA : action === 'table' ? TABLE_SCHEMA : null
     const format = schema ? { type: 'json_schema' as const, schema } : null
     const source = { type: 'base64' as const, media_type: image.mediaType, data: image.data }
@@ -171,7 +173,7 @@ export async function requestImage(req: ImageRequest): Promise<string> {
       signal?.addEventListener('abort', abort, { once: true })
       stream.on('text', onText)
       try {
-        stopReason = (await finalOf(stream, call, () => SYSTEM.length + prompt.length + 2000, sdk, signal)).stop_reason
+        stopReason = (await finalOf(stream, call, promptChars, sdk, signal)).stop_reason
       } finally {
         signal?.removeEventListener('abort', abort)
       }
@@ -193,7 +195,7 @@ export async function requestImage(req: ImageRequest): Promise<string> {
       signal?.addEventListener('abort', abort, { once: true })
       stream.on('text', onText)
       try {
-        stopReason = (await finalOf(stream, call, () => SYSTEM.length + prompt.length + 2000, sdk, signal)).stop_reason
+        stopReason = (await finalOf(stream, call, promptChars, sdk, signal)).stop_reason
       } finally {
         signal?.removeEventListener('abort', abort)
       }

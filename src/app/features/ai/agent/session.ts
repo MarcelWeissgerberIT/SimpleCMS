@@ -43,7 +43,8 @@ import { newId } from '../../../lib/ids'
 import { isEffectivelyTrashed } from '../../../store/selectors'
 import type { SavedMedia } from '../media/types'
 import { endRun, noteRun, withWriter, type Writer } from '../../../store/writer'
-import { addToLines } from '../core/meter'
+import { addToLines, tapSignal } from '../core/meter'
+import type { LedgerEntry, Usage } from '@/shared/ai/types'
 import { stepText } from '../Receipt'
 
 const set = useAgent.setState
@@ -298,6 +299,9 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
   const ac = new AbortController()
   controller = ac
   setStopHandler(() => ac.abort())
+  // /new while this task runs: what it still reports (usage, steps, notes, its end) belongs to the old conversation
+  const myEpoch = epoch
+  const here = () => epoch === myEpoch
   if (opts.history !== false) pushHistory(task)
   // the chips go along with this task: references, the mentions still in the text, the open page (a continuation: none again)
   // "Run the task again" (after a sign-in): the references and mentions the task had; the chips stay for the next one
@@ -339,13 +343,14 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
   const flush = () => {
     cancelAnimationFrame(raf)
     raf = 0
+    if (!here()) buf = ''
     if (buf) {
       const add = buf
       buf = ''
       set((s) => ({ live: s.live + add }))
     }
   }
-  const note = (text: string) => set((s) => ({ steps: [...s.steps, { id: nextId('s'), turn: n, kind: 'note', text, state: 'ok', startedAt: Date.now() }] }))
+  const note = (text: string) => here() && set((s) => ({ steps: [...s.steps, { id: nextId('s'), turn: n, kind: 'note', text, state: 'ok', startedAt: Date.now() }] }))
   // "#xyz" that is no example in the memory: said, the task runs anyway
   for (const tag of mem.use?.unknownTags ?? []) note(t('features.memory.example.unknown', { tag }))
 
@@ -356,19 +361,22 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
   const hooks: RunHooks = {
     toolStart(tool, arg) {
       const id = nextId('s')
+      if (!here()) return id
       set((s) => ({ calls: s.calls + 1, steps: [...s.steps, { id, turn: n, kind: 'tool', tool, arg, state: 'run', startedAt: Date.now() }] }))
       return id
     },
     toolEnd(id, o) {
-      patchStep(id, { state: o.state, result: o.summary || undefined, changeId: o.changeId, ms: o.ms })
+      if (here()) patchStep(id, { state: o.state, result: o.summary || undefined, changeId: o.changeId, ms: o.ms })
     },
     note,
     text(delta) {
+      if (!here()) return
       buf += delta
       if (!raf) raf = requestAnimationFrame(flush)
     },
     textDone(kind) {
       flush()
+      if (!here()) return
       const text = get().live.trim()
       set({ live: '' })
       if (!text) return
@@ -379,6 +387,8 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
       }
     },
     usage(u, entry) {
+      // the ledger entry stays the old conversation's (terminal:<conv>); the new one's /cost and meter never see it
+      if (!here()) return
       // another model answered (a refusal fallback): said once per task, priced at that model (the entry)
       for (const st of entry?.steps ?? []) {
         const line = entry ? stepText(t, st, entry.served.p) : null
@@ -387,37 +397,22 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
           note(line)
         }
       }
-      // priced per response by the one table (the ledger entry): the model that answered, its cache reads and writes
-      const input = u.input
-      const output = u.output
-      const cacheRead = u.cacheRead
-      const cacheWrite = u.cacheWrite + u.cacheWrite1h
-      const usd = entry?.usd ?? 0
-      set((s) => ({
-        usage: {
-          requests: s.usage.requests + 1,
-          input: s.usage.input + input,
-          output: s.usage.output + output,
-          cacheRead: s.usage.cacheRead + cacheRead,
-          cacheWrite: s.usage.cacheWrite + cacheWrite,
-          usd: s.usage.usd + usd,
-          // a line per model that answered (a model change mid-session, a refusal fallback): the /cost table
-          byModel: entry ? addToLines(s.usage.byModel, entry) : s.usage.byModel,
-        },
-      }))
+      countUsage(entry ?? null, u)
     },
     history(messages) {
-      history = messages
+      if (here()) history = messages
     },
     limit() {
       note(t('features.agent.limitNote'))
     },
     media(items) {
+      if (!here()) return
       // the cards under this task: saving stages "insert media" on the page it worked on
       set((s) => ({ media: [...s.media.filter((m) => m.turn !== n), { turn: n, pageId, items }] }))
     },
     mcp(call) {
       sawMcp = true
+      if (!here()) return
       const step = get().steps.find((x) => x.mcp?.id === call.id)
       const mcp = { id: call.id, server: call.server, tool: call.tool, error: call.error }
       if (step) patchStep(step.id, { state: call.state, arg: call.arg || step.arg, mcp, ms: call.state === 'run' ? undefined : Date.now() - step.startedAt })
@@ -427,6 +422,11 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
 
   const finish = (status: AgentStatus, error?: AgentTurn['error']) => {
     flush()
+    if (!here()) {
+      // the conversation was cleared while this task ran: only the memory log hears of it (stopped)
+      if (error?.code !== 'key_in_text') noteUse(answer, mem.use, { task, where: { kind: 'terminal' }, pageId, result: t('features.memory.result.stopped') })
+      return
+    }
     // text that was still streaming when the run stopped is kept as the (partial) answer
     const rest = get().live.trim()
     if (rest) answer = answer ? `${answer}\n\n${rest}` : rest
@@ -462,7 +462,7 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
     const left = refusedNames(setup, 'free', forced)
     for (const name of left) note(t('features.ai.mcp.cw.note.refused', { server: name }))
     // servers left out because they rejected their token: the terminal offers a sign-in under the task
-    if (left.length) patchTurn(n, { signIn: [...new Set([...(get().turns.find((x) => x.n === n)?.signIn ?? []), ...left])] })
+    if (left.length && here()) patchTurn(n, { signIn: [...new Set([...(get().turns.find((x) => x.n === n)?.signIn ?? []), ...left])] })
     // referenced image blocks go along as images (Claude for images); one that cannot be loaded is noted
     const withImages = await withRefImages(taskMessage(history, prompt, text), refs, ac.signal, (title) => note(t('features.ai.image.refFailed', { title })))
     // referenced file blocks go along as documents (Claude for files); one that cannot be read is noted
@@ -502,13 +502,32 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
     // a server that rejected its token: named, so the terminal can offer to sign in to it
     else finish('error', { code: err.code, message: err.message, ...(err.code === 'mcp_auth' && err.server ? { server: err.server } : {}) })
     // a key in the task: the text goes back into the prompt to be fixed (never into the history)
-    if (err.code === 'key_in_text' && !get().draft.trim()) set({ draft: task })
+    if (err.code === 'key_in_text' && here() && !get().draft.trim()) set({ draft: task })
   } finally {
     if (controller === ac) {
       controller = null
       setStopHandler(null)
     }
   }
+}
+
+/**
+ * One response of this conversation (a task's round, a memory proposal) into its usage: priced per response by the one
+ * table (the ledger entry) — the model that answered, its cache reads and writes; a line per model for /cost.
+ */
+function countUsage(entry: LedgerEntry | null, u: Usage) {
+  set((s) => ({
+    usage: {
+      requests: s.usage.requests + 1,
+      input: s.usage.input + u.input,
+      output: s.usage.output + u.output,
+      cacheRead: s.usage.cacheRead + u.cacheRead,
+      cacheWrite: s.usage.cacheWrite + u.cacheWrite + u.cacheWrite1h,
+      usd: s.usage.usd + (entry?.usd ?? 0),
+      // a line per model that answered (a model change mid-session, a refusal fallback): the /cost table
+      byModel: entry ? addToLines(s.usage.byModel, entry) : s.usage.byModel,
+    },
+  }))
 }
 
 /** A task ended while the terminal was hidden: the status bar keeps it lit, a toast tells. */
@@ -826,6 +845,9 @@ async function proposeFor(n: number, task: string, answer: string, existing: str
   proposing = ac
   const card: MemCard = { id: nextId('k'), after: n, origin: 'task', state: 'loading', items: [], ...(input ? { input } : {}) }
   set((s) => ({ memCards: [...s.memCards, card] }))
+  // the proposal request is part of this conversation: its ledger source, /cost and the footer meter count it
+  const mine = epoch
+  const untap = tapSignal(ac.signal, { source: `terminal:${convId}`, onEntry: (e) => epoch === mine && countUsage(e, e.usage) })
   try {
     const list = await proposeAfterTask({ task, answer, changes: turnChanges(n), existing, signal: ac.signal })
     if (ac.signal.aborted) return
@@ -836,6 +858,7 @@ async function proposeFor(n: number, task: string, answer: string, existing: str
     if (!ac.signal.aborted) console.warn('[one] memory: no proposals', e)
     set((s) => ({ memCards: s.memCards.filter((c) => c.id !== card.id) }))
   } finally {
+    untap()
     if (proposing === ac) proposing = null
   }
 }

@@ -79,7 +79,7 @@ export async function runFileRequest(
   if (req.fileKind === 'pdf') {
     const pdf = await loadPdfForClaude(req.src, maxPdfPages(), signal)
     opts.onFile?.({ kind: 'pdf', bytes: pdf.bytes, pages: pdf.pages, sent: true })
-    material = { type: 'pdf', name: req.name, data: pdf.data }
+    material = { type: 'pdf', name: req.name, data: pdf.data, pages: pdf.pages }
   } else {
     const { bytes } = await fileData(req.src, readMax, signal)
     const got = await fileText(req.fileKind, bytes, req.name)

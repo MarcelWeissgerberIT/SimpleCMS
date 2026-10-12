@@ -11,10 +11,10 @@ try: terminal
 ---
 **A receipt under each result.** The AI menu shows one line under the answer: the model that answered, what the request cost and how One priced it — **Table** for One's dated price list, **Estimate** (≈) for an answer you stopped before it finished. Hover it for the tokens.
 
-**`/cost` per model.** In the [AI terminal](help:agent), `/cost` (or `/kosten`) lists a row per model that answered in this conversation — requests, tokens in, cache write / read, out, the cost — and the total. Switch the model mid-conversation and both appear.
+**`/cost` per model.** In the [AI terminal](help:agent), `/cost` (or `/kosten`) lists a row per model that answered in this conversation — requests, tokens in, cache write / read, out, the cost — and the total. Switch the model mid-conversation and both appear. The footer adds the conversation up the same way: *In* is the input outside the cache, cache writes and reads stand beside it.
 
 **Agent runs** list a line per model under their usage; the run's budget counts the same sum.
 
-**When another model answers.** If Anthropic passes a request to another Claude model, the receipt says so and prices the answer at that model.
+**When another model answers.** If Anthropic passes a request to another Claude model, the receipt says so and prices each part at the model that ran it.
 
 The record stays on this device and holds no page text. More in [What AI requests cost](help:ai-costs).

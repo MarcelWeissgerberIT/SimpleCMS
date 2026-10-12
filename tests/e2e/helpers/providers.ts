@@ -33,6 +33,18 @@ export interface ClaudeTurn {
   /** the model that answered (default: the requested one) — another one = Anthropic's refusal fallback */
   model?: string
   usage?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number }
+  /** usage.iterations: the hops of a refusal fallback ('message' = a hop that declined, 'fallback_message' = the one that served) */
+  hops?: Array<{ type: 'message' | 'fallback_message'; model: string; input: number; output: number }>
+  /** usage.output_tokens_details.thinking_tokens (part of the output) */
+  thinking?: number
+}
+
+/** The usage fields a turn adds to the final usage report (iterations, thinking tokens). */
+function moreUsage(turn: ClaudeTurn): AnyState {
+  return {
+    ...(turn.hops ? { iterations: turn.hops.map((h) => ({ type: h.type, model: h.model, input_tokens: h.input, output_tokens: h.output, cache_read_input_tokens: 0, cache_creation_input_tokens: 0, cache_creation: null })) } : {}),
+    ...(turn.thinking !== undefined ? { output_tokens_details: { thinking_tokens: turn.thinking } } : {}),
+  }
 }
 
 export interface ClaudeApiError {
@@ -83,7 +95,7 @@ export function claudeSse(turn: ClaudeTurn, requested = 'claude-opus-5-5'): stri
     }
     body += ev('content_block_stop', { index })
   })
-  body += ev('message_delta', { delta: { stop_reason: stop, stop_sequence: null }, usage: { output_tokens: u.output ?? 80 } })
+  body += ev('message_delta', { delta: { stop_reason: stop, stop_sequence: null }, usage: { output_tokens: u.output ?? 80, ...moreUsage(turn) } })
   body += ev('message_stop', {})
   return body
 }
@@ -111,7 +123,7 @@ export function claudeJson(turn: ClaudeTurn, requested = 'claude-opus-5-5'): Any
     content,
     stop_reason: stop,
     stop_sequence: null,
-    usage: { input_tokens: u.input ?? 400, output_tokens: u.output ?? 40, cache_read_input_tokens: u.cacheRead ?? 0, cache_creation_input_tokens: u.cacheWrite ?? 0 },
+    usage: { input_tokens: u.input ?? 400, output_tokens: u.output ?? 40, cache_read_input_tokens: u.cacheRead ?? 0, cache_creation_input_tokens: u.cacheWrite ?? 0, ...moreUsage(turn) },
   }
 }
 

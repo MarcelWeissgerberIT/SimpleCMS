@@ -175,8 +175,8 @@ test.describe('Workspace agent (mocked Claude API)', () => {
     const second = panel.getByRole('listitem', { name: '#2 New row' })
     await expect(second.locator('.agent-diff__row', { hasText: 'Tags' })).toContainText('+ new option')
 
-    // usage meter: summed tokens and a cost estimate, labelled as billed by Anthropic
-    await expect(panel.getByTestId('agent-cost')).toHaveText(/≈ (< )?\$\d/)
+    // usage meter: summed tokens and the cost by the price table ("≈" only for an estimate), labelled as billed by Anthropic
+    await expect(panel.getByTestId('agent-cost')).toHaveText(/^(< )?\$\d/)
     await expect(panel.locator('.term-meter')).toContainText('billed by Anthropic to your API key')
     await expect(panel.locator('.term-meter')).toContainText('4/40')
 

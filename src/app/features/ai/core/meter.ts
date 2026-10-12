@@ -1,11 +1,13 @@
 /**
  * Metering: every response of every engine is one ledger entry (features/governor) — the requested route, the model
  * that answered, its usage priced by the one table (src/shared/ai/prices.ts), the request's purpose and data classes.
- *  - a response that ended without its usage report (stopped, failed mid-stream) is an ESTIMATE: the input Claude's
- *    message_start reported (else the prompt's characters ÷ 4) plus the streamed characters ÷ 4 — never $0;
- *  - a request refused with an HTTP status before any response started was not billed: zero tokens, still listed;
- *  - another model than the requested one answered (Anthropic's refusal fallback) → a 'refusal-fallback' step, priced
- *    at the model that answered;
+ *  - a response that ended without its usage report (stopped, failed mid-stream) after it went out is an ESTIMATE:
+ *    the input Claude's message_start reported (else the request's size ÷ 4: prompt, documents, pictures, tools) plus
+ *    the streamed characters ÷ 4 — never $0;
+ *  - a request every attempt of which was answered with an HTTP error status was not billed: zero tokens, still listed;
+ *    one that never went out (stopped before it was sent) is no entry at all (client.ts `reachOf`);
+ *  - another model than the requested one answered (Anthropic's refusal fallback) → a 'refusal-fallback' step; each
+ *    hop is priced at its own model (usage.iterations), else the whole response at the model that answered;
  *  - demo answers are never metered, and neither is a gate check (precheck).
  * A facade call is one `meterCall`: one entry per response it gets (resumes, retries), its receipt (the sum) reported
  * through `onRun` and to the taps on its abort signal (runs.ts folds a run's requests into the card's receipt).
@@ -16,7 +18,7 @@ import { costOf, priceRow } from '@/shared/ai/prices'
 import { addUsage, estimateUsage, normalise, ZERO_USAGE } from '@/shared/ai/usage'
 import { modelBase, sameModel } from '@/shared/ai/models'
 import { routeKey } from '@/shared/ai/route'
-import { meter } from '../../governor'
+import { CHARS_PER_TOKEN, meter } from '../../governor'
 import { newId } from '../../../lib/ids'
 import type { Prepared } from './gate'
 
@@ -34,8 +36,10 @@ export interface ResponseInput {
   streamedChars?: number
   outcome?: 'ok' | AIErrorCode
   mcpCalls?: number
-  /** refused with an HTTP status before any response started: nothing was billed */
+  /** every attempt was answered with an HTTP error status: nothing was billed */
   refused?: boolean
+  /** the hops of a response another model finished (usage.iterations): each priced at its own model */
+  parts?: Array<{ model: string | null; usage: Usage }>
 }
 
 /** What a request (or a run of requests) cost — the receipt on run cards. */
@@ -105,7 +109,16 @@ export function meterResponse(prepared: Prepared, opts: Pick<MeterOpts, 'source'
   let usage: Usage
   let costSource: CostSource
   let usd: number | null
-  if (r.usage) {
+  if (r.usage && r.parts?.length) {
+    // a refusal fallback: the declined hop at the requested model, the serving hop at the model that served it
+    usage = r.usage
+    usd = 0
+    for (const part of r.parts) {
+      const c = costOf(part.usage, priceRow({ p: route.p, m: part.model || route.m }), at).usd
+      usd = usd === null || c === null ? null : usd + c
+    }
+    costSource = usd === null ? 'none' : (row?.source ?? 'table')
+  } else if (r.usage) {
     usage = r.usage
     ;({ usd, source: costSource } = costOf(usage, row, at))
   } else if (r.refused) {
@@ -261,23 +274,36 @@ const blocks = (v: unknown): Array<{ type?: unknown }> => (Array.isArray(v) ? (v
 const mcpCount = (content: unknown) => blocks(content).filter((b) => b?.type === 'mcp_tool_use').length
 const rawUsage = (v: unknown) => (v && typeof v === 'object' ? (v as Record<string, unknown>) : null)
 
-/** A Claude response that arrived whole. */
+interface HopLike {
+  type?: unknown
+  model?: unknown
+}
+
+/**
+ * A Claude response that arrived whole. A refusal fallback names its hops in `usage.iterations`: a `fallback_message`
+ * entry says which model served it (the signal the API documents), and every `message` / `fallback_message` hop is
+ * priced at its own model — the declined hop at the requested one.
+ */
 export function claudeResponse(msg: ClaudeMessageLike, streamedChars = 0): ResponseInput {
+  const raw = rawUsage(msg.usage)
+  const hops = (Array.isArray(raw?.iterations) ? (raw.iterations as HopLike[]) : []).filter((h) => h && (h.type === 'message' || h.type === 'fallback_message'))
+  const served = hops.find((h) => h.type === 'fallback_message' && typeof h.model === 'string')?.model as string | undefined
   return {
-    served: typeof msg.model === 'string' ? msg.model : null,
-    usage: normalise('anthropic', rawUsage(msg.usage)),
+    served: served ?? (typeof msg.model === 'string' ? msg.model : null),
+    usage: normalise('anthropic', raw),
     streamedChars,
     outcome: msg.stop_reason === 'refusal' ? 'refusal' : 'ok',
     mcpCalls: mcpCount(msg.content),
+    ...(served ? { parts: hops.map((h) => ({ model: typeof h.model === 'string' ? h.model : null, usage: normalise('anthropic', h as Record<string, unknown>) })) } : {}),
   }
 }
 
 /**
  * A Claude response that ended without its final message (stopped, failed): what its message_start said, the
- * characters that streamed. `httpStatus`: the request was refused with a status — with no message_start and nothing
- * streamed, nothing was billed.
+ * characters that streamed. `sent`: an attempt was in flight or answered when it ended (client.ts `reachOf` 'sent') —
+ * else every attempt was refused with an error status, and nothing was billed.
  */
-export function claudeCut(snapshot: ClaudeMessageLike | null | undefined, o: { promptChars: number; streamedChars: number; outcome: AIErrorCode; httpStatus: boolean }): ResponseInput {
+export function claudeCut(snapshot: ClaudeMessageLike | null | undefined, o: { promptChars: number; streamedChars: number; outcome: AIErrorCode; sent: boolean }): ResponseInput {
   const u = snapshot?.usage ? normalise('anthropic', rawUsage(snapshot.usage)) : null
   return {
     served: typeof snapshot?.model === 'string' ? snapshot.model : null,
@@ -287,9 +313,15 @@ export function claudeCut(snapshot: ClaudeMessageLike | null | undefined, o: { p
     streamedChars: o.streamedChars,
     outcome: o.outcome,
     mcpCalls: mcpCount(snapshot?.content),
-    refused: o.httpStatus && !snapshot && o.streamedChars === 0,
+    refused: !o.sent,
   }
 }
+
+/** Prompt characters a picture counts as in an estimate (Claude: about width × height ÷ 750 tokens). */
+export const imageChars = (width: number, height: number): number => Math.ceil((Math.max(1, width) * Math.max(1, height)) / 750) * CHARS_PER_TOKEN
+
+/** Prompt characters a PDF counts as in an estimate: the text and a picture of every page (about 3,000 tokens each). */
+export const pdfChars = (pages: number): number => Math.max(1, Math.round(pages)) * 3000 * CHARS_PER_TOKEN
 
 /** Characters a stream event carries (text, thinking, tool input) — for an estimate when the stream is cut. */
 export function deltaChars(event: unknown): number {

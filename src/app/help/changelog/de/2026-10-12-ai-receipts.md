@@ -11,10 +11,10 @@ try: terminal
 ---
 **Ein Beleg unter jedem Ergebnis.** Das KI-Menü zeigt unter der Antwort eine Zeile: welches Modell geantwortet hat, was die Anfrage gekostet hat und woher der Preis kommt — **Tabelle** für Ones datierte Preisliste, **Schätzung** (≈) für eine Antwort, die du vor dem Ende gestoppt hast. Fährst du darüber, siehst du die Token.
 
-**`/kosten` je Modell.** Im [KI-Terminal](help:agent) listet `/kosten` (oder `/cost`) eine Zeile je Modell, das in dieser Unterhaltung geantwortet hat — Anfragen, Token rein, Cache schreiben / lesen, raus, die Kosten — und die Summe. Wechselst du mitten in der Unterhaltung das Modell, stehen beide da.
+**`/kosten` je Modell.** Im [KI-Terminal](help:agent) listet `/kosten` (oder `/cost`) eine Zeile je Modell, das in dieser Unterhaltung geantwortet hat — Anfragen, Token rein, Cache schreiben / lesen, raus, die Kosten — und die Summe. Wechselst du mitten in der Unterhaltung das Modell, stehen beide da. Die Fußzeile zählt die Unterhaltung genauso zusammen: *Ein* ist die Eingabe außerhalb des Cache, Cache schreiben und lesen stehen daneben.
 
 **Agentenläufe** zeigen unter ihrem Verbrauch eine Zeile je Modell; das Budget des Laufs zählt dieselbe Summe.
 
-**Wenn ein anderes Modell antwortet.** Gibt Anthropic eine Anfrage an ein anderes Claude-Modell weiter, sagt der Beleg das und rechnet die Antwort zu dessen Preis.
+**Wenn ein anderes Modell antwortet.** Gibt Anthropic eine Anfrage an ein anderes Claude-Modell weiter, sagt der Beleg das und rechnet jeden Teil zum Preis des Modells, das ihn bearbeitet hat.
 
 Die Aufzeichnung bleibt auf diesem Gerät und enthält keinen Seitentext. Mehr unter [Was KI-Anfragen kosten](help:ai-costs).

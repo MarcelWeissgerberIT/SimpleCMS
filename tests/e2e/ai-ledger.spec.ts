@@ -803,6 +803,105 @@ test.describe('the ledger: cut short, refused, other models, reload, reset', () 
     expect(entries[0].usage).toEqual({ input: 0, cacheWrite: 0, cacheWrite1h: 0, cacheRead: 0, output: 0, reasoning: 0 })
   })
 
+  test('a refusal fallback with its hops (usage.iterations): each hop priced at its own model; the fallback_message names who served', async ({ page }) => {
+    // the message still names the requested model: the fallback_message hop is the signal
+    const hops = [
+      { type: 'message' as const, model: 'claude-opus-5-5', input: 1000, output: 50 },
+      { type: 'fallback_message' as const, model: 'claude-sonnet-5-5', input: 500, output: 100 },
+    ]
+    await keyed(page, [text('A tighter launch sentence.', { usage: { input: 1500, output: 150 }, hops })])
+    await improve(page)
+    await expect.poll(async () => (await ledger(page)).length).toBe(1)
+    const [e] = await ledger(page)
+    expect(e.served).toEqual({ p: 'anthropic', model: 'claude-sonnet-5-5' })
+    expect(e.steps).toEqual([{ k: 'refusal-fallback', from: 'claude-opus-5-5', to: 'claude-sonnet-5-5' }])
+    expect(e.usage).toMatchObject({ input: 1500, output: 150 })
+    // the declined Opus hop at Opus ($4 / $20), the Sonnet hop at Sonnet ($2 / $10) — never all of it at Sonnet
+    expect(e.usd).toBeCloseTo((1000 * 4 + 50 * 20 + 500 * 2 + 100 * 10) / 1e6, 10)
+  })
+
+  test("Claude's thinking tokens are kept as reasoning (part of the output, priced as output)", async ({ page }) => {
+    await keyed(page, [text('A tighter launch sentence.', { usage: { input: 1200, output: 300 }, thinking: 120 })])
+    await improve(page)
+    await expect.poll(async () => (await ledger(page)).length).toBe(1)
+    const [e] = await ledger(page)
+    expect(e.usage).toEqual({ input: 1200, cacheWrite: 0, cacheWrite1h: 0, cacheRead: 0, output: 300, reasoning: 120 })
+    expect(e.usd).toBeCloseTo((1200 * 4 + 300 * 20) / 1e6, 10)
+  })
+
+  test('a request that never went out is never metered: an agent stopped by its budget after a tool call has one entry', async ({ page }) => {
+    // the first response asks for a tool and already costs more than the budget: the run stops; the stream the tool
+    // runner makes after the stop never goes out
+    const requests = await keyed(page, [{ blocks: [{ type: 'tool_use', id: 'toolu_1', name: 'list_databases', input: {} }], usage: { input: 200_000, output: 40 } }, text('Never sent.')])
+    await wsEval(page, (s) =>
+      s.upsertAgent({ id: 'ag-budget', name: 'Tessera budget', instructions: 'List the databases and report.', trigger: { type: 'manual' }, scope: { everything: true, pages: [], databases: [] }, write: 'none', output: null, mcpServers: [], runner: 'browser', model: null, effort: null, maxRunUsd: 0.1, enabled: true, createdAt: 1760252400000, updatedAt: 1760252400000 }),
+    )
+    await flush(page)
+    await page.evaluate(() => (window.location.hash = '#/agents/ag-budget'))
+    await expect(page.locator('.agx-dhead')).toBeVisible()
+    await page.getByRole('button', { name: 'Run now' }).click()
+    await expect(page.locator('.agx-run').first()).toHaveAttribute('data-status', 'budget', { timeout: 20_000 })
+    await page.waitForTimeout(500)
+    expect(requests).toHaveLength(1)
+    const entries = await ledger(page)
+    expect(entries).toHaveLength(1)
+    expect(entries[0]).toMatchObject({ outcome: 'ok', costSource: 'table' })
+    // 200,000 in × $4 + 40 out × $20
+    expect(entries[0].usd).toBeCloseTo((200_000 * 4 + 40 * 20) / 1e6, 10)
+  })
+
+  test('stopped while the SDK waits to retry a refused attempt: zero, nothing billed (never an estimate)', async ({ page, errors }) => {
+    errors.allow(/Failed to load resource|429|Too Many/)
+    let sent = 0
+    await page.context().route('https://api.anthropic.com/**', async (route) => {
+      const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-expose-headers': 'retry-after, retry-after-ms' }
+      if (route.request().method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors })
+      sent += 1
+      // refused; the SDK waits 20 s before it tries again
+      await route.fulfill({ status: 429, headers: { ...cors, 'content-type': 'application/json', 'retry-after-ms': '20000' }, body: JSON.stringify({ type: 'error', error: { type: 'rate_limit_error', message: 'Slow down' } }) })
+    })
+    await openApp(page)
+    await wsEval(page, (s) => s.updateSettings({ aiApiKey: 'sk-ant-e2e-test-key' }))
+    await improve(page, null)
+    await expect.poll(() => sent).toBe(1)
+    await page.waitForTimeout(400)
+    await aiPanel(page).locator('.ai-stop').click()
+    await expect.poll(async () => (await ledger(page)).length).toBe(1)
+    await page.waitForTimeout(300)
+    const entries = await ledger(page)
+    expect(entries).toHaveLength(1)
+    expect(sent).toBe(1)
+    expect(entries[0]).toMatchObject({ outcome: 'aborted', usd: 0, costSource: 'table' })
+    expect(entries[0].usage).toEqual({ input: 0, cacheWrite: 0, cacheWrite1h: 0, cacheRead: 0, output: 0, reasoning: 0 })
+  })
+
+  test('while a request runs its reservation is the upper end of its band; a stopped PDF summary is estimated with its pages', async ({ page, errors }) => {
+    errors.allow(/Failed to load resource/)
+    let held = 0
+    await page.context().route('https://api.anthropic.com/**', async (route) => {
+      if (route.request().method() === 'OPTIONS') return route.fulfill({ status: 204, headers: { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*' } })
+      held += 1
+      // never answered: the person stops it
+    })
+    await openApp(page)
+    await wsEval(page, (s) => s.updateSettings({ aiApiKey: 'sk-ant-e2e-test-key' }))
+    const reserved = () => page.evaluate(() => (window as unknown as { __oneLedger: { reserved: () => { usd: number; open: number } } }).__oneLedger.reserved())
+    await summarisePdf(page)
+    await expect.poll(() => held).toBe(1)
+    // Opus 5.5, 2 pages (~6,000 tokens) and an answer budget of 16,000 tokens at $20 per million: well above $0.30
+    const r = await reserved()
+    expect(r.open).toBe(1)
+    expect(r.usd).toBeGreaterThan(0.3)
+    await aiPanel(page).locator('.ai-stop').click()
+    await expect.poll(async () => (await ledger(page)).length).toBe(1)
+    expect(await reserved()).toEqual({ usd: 0, open: 0 })
+    const [e] = await ledger(page)
+    expect(e.costSource).toBe('estimate')
+    expect(e.outcome).toBe('aborted')
+    // two pages at about 3,000 tokens each go into the estimate (the document, not only the task)
+    expect(e.usage.input).toBeGreaterThanOrEqual(6000)
+  })
+
   test('demo answers are never metered; entries survive a reload; the local reset wipes them', async ({ page, aiNet }) => {
     const { requests } = await mockClaudeScript(page.context(), [text('A tighter launch sentence.')])
     await openApp(page)
@@ -891,6 +990,9 @@ test.describe('the receipt on an AI run card', () => {
     await expect.poll(() => lineOf(receipt)).toBe('BelegClaude Sonnet 5.5 · 0,0030 $Tabelle')
     await expect(receipt.getByRole('button', { name: 'Hilfe: was KI-Anfragen kosten' })).toBeVisible()
     await expect(receipt.getByTestId('ai-receipt-step')).toHaveText('Anthropic hat an Claude Sonnet 5.5 weitergegeben')
+    // the price table's date as German writes it, never an ISO date
+    await expect(receipt).toHaveAttribute('title', /Preise aus Ones Preistabelle vom 12\. Oktober 2026/)
+    await expect(receipt).not.toHaveAttribute('title', /2026-10-12/)
   })
 
   test('a run stopped before its answer keeps an ESTIMATE receipt; a failed one too', async ({ page, errors }) => {
@@ -949,8 +1051,65 @@ test.describe('receipts in the terminal and on agent runs', () => {
     const entries = await ledger(page)
     expect(entries.map((e) => e.served.model)).toEqual(['claude-opus-5-5', 'claude-sonnet-5-5'])
     expect(entries.reduce((a, e) => a + e.usd, 0)).toBeCloseTo(0.1125, 10)
-    // the footer meter shows the same sum
-    await expect(terminal(page).getByTestId('agent-cost')).toHaveText('≈ $0.11')
+    // the footer meter shows the same sum — from the table, so without "≈"; IN is the input outside the cache, as in /cost
+    await expect(terminal(page).getByTestId('agent-cost')).toHaveText('$0.11')
+    await expect(terminal(page).locator('.term-meter__vals > div').first()).toHaveText(/3\.0K/)
+    await expect(terminal(page).locator('.term-meter')).toContainText("One's figures from list prices")
+  })
+
+  test("/cost counts the terminal's memory proposal request; /new while a task runs leaves the new conversation empty", async ({ page, errors }) => {
+    errors.allow(/Failed to load resource/)
+    const proposals = { blocks: [{ type: 'text' as const, text: JSON.stringify({ memories: [] }) }], usage: { input: 900, output: 30 } }
+    let hold = false
+    const { requests } = await mockClaudeScript(page.context(), [text('We launch in two weeks.', { usage: { input: 2000, output: 100 } }), proposals])
+    // a held request (registered after the script: it wins while `hold` is set)
+    await page.context().route('https://api.anthropic.com/**', async (route) => {
+      if (!hold || route.request().method() === 'OPTIONS') return route.fallback()
+      requests.push({ method: 'POST', path: '/v1/messages', beta: '', body: {} })
+      // never answered
+    })
+    await openApp(page)
+    await wsEval(page, (s) => s.updateSettings({ aiApiKey: 'sk-ant-e2e-test-key' }))
+    // the memory in use: proposals follow a task that is not trivial
+    await uiEval(page, (u) => u.openModal({ type: 'settings', tab: 'ai' }))
+    const section = page.getByTestId('memory-settings')
+    await section.scrollIntoViewIfNeeded()
+    await section.getByRole('button', { name: 'Set up memory' }).click()
+    await expect(section).toContainText('0 memories · 0 log entries')
+    await page.keyboard.press('Escape')
+    const id = await createPage(page, { title: 'Launch notes', content: doc(para('We launch in two weeks.')) })
+    await gotoPage(page, id)
+    await openTerminal(page)
+    await run(page, 'When do we launch the plan?')
+    await expect(terminal(page).locator('.term-answer').last()).toContainText('We launch in two weeks.')
+    await expect.poll(() => requests.length).toBe(2)
+    await expect.poll(async () => (await ledger(page)).length).toBe(2)
+    const entries = await ledger(page)
+    // both are this conversation's: the task's round and the proposal request
+    expect(new Set(entries.map((e) => e.source)).size).toBe(1)
+    expect(entries[0].source).toMatch(/^terminal:/)
+    await run(page, '/cost')
+    const table = terminal(page).getByTestId('term-cost').last()
+    const opus = table.locator('tr[data-model="anthropic:claude-opus-5-5"]')
+    await expect(opus.locator('td').first()).toHaveText('2')
+    // 2,000 × $4 + 100 × $20 + 900 × $4 + 30 × $20 = $0.0142
+    await expect(opus.locator('.term-cost__usd')).toHaveText('$0.0142')
+    expect(entries.reduce((a, e) => a + e.usd, 0)).toBeCloseTo(0.0142, 10)
+
+    // a task whose response never comes, then /new: the cut response is the old conversation's entry
+    hold = true
+    await run(page, 'Who owns the launch plan now?')
+    await expect.poll(() => requests.length).toBe(3)
+    await prompt(page).fill('/new')
+    await prompt(page).press('Enter')
+    await expect.poll(async () => (await ledger(page)).length).toBe(3)
+    const cut = (await ledger(page))[2]
+    expect(cut.source).toBe(entries[0].source)
+    await page.waitForTimeout(400)
+    await expect(terminal(page).getByTestId('agent-cost')).toHaveText('$0.00')
+    await run(page, '/cost')
+    await expect(terminal(page).getByTestId('term-cost')).toHaveCount(0)
+    await expect(terminal(page).locator('.term-scroll')).not.toContainText('Who owns the launch plan now?')
   })
 
   test('a terminal answer another model gave: the step in the task, /cost prices it at that model', async ({ page }) => {
@@ -987,6 +1146,55 @@ test.describe('receipts in the terminal and on agent runs', () => {
     const entries = (await ledger(page)).filter((e) => e.source.startsWith('agent:ag-receipt:'))
     expect(entries).toHaveLength(2)
     expect(entries.reduce((a, e) => a + e.usd, 0)).toBeCloseTo(0.016, 10)
+  })
+
+  test('German /kosten: decimal commas in the token figures; a model without a price is said in words in the total', async ({ page }) => {
+    await keyed(page, [text('Wir starten in zwei Wochen.', { usage: { input: 4321, output: 1500 } }), text('Mara.', { model: 'claude-tessera-9', usage: { input: 3_456_789, output: 50 } })], { language: 'de' })
+    const id = await createPage(page, { title: 'Startnotizen', content: doc(para('Wir starten in zwei Wochen.')) })
+    await gotoPage(page, id)
+    const term = page.getByRole('region', { name: /AI terminal|KI-Terminal/ })
+    const ask = term.getByRole('textbox', { name: /Task for the agent|Aufgabe für den Agenten/ })
+    await page.keyboard.press(`${MOD}+j`)
+    await expect(ask).toBeFocused()
+    const send = async (task: string) => {
+      await ask.fill(task)
+      await ask.press('Enter')
+    }
+    await send('Wann starten wir den Plan?')
+    await expect(term.locator('.term-answer').last()).toContainText('Wir starten in zwei Wochen.')
+    await send('Wer ist zuständig für den Plan?')
+    await expect(term.locator('.term-answer').last()).toContainText('Mara.')
+    await send('/kosten')
+    const table = term.getByTestId('term-cost').last()
+    const opus = table.locator('tr[data-model="anthropic:claude-opus-5-5"]')
+    // 4.321 → "4,3K" (a comma, as the costs beside it), 1.500 → "1,5K"
+    await expect(opus.locator('td').nth(1)).toHaveText('4,3K')
+    await expect(opus.locator('td').nth(3)).toHaveText('1,5K')
+    await expect(table.locator('tr[data-model="anthropic:claude-tessera-9"] td').nth(1)).toHaveText('3,46M')
+    // Opus: 4.321 × $4 + 1.500 × $20 = 0,0473 $ — plus a model the table does not know: said, never a bare "+"
+    await expect(table.getByTestId('term-cost-total')).toHaveText('0,0473 $ + Preis unbekannt')
+  })
+
+  test('390 px, German, XL text: an agent run’s line per model wraps its token figures and carries the whole line as its title', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.addInitScript(() => localStorage.setItem('one.textScale', '4'))
+    await keyed(page, [text('**Status:** alles im Plan.', { usage: { input: 123_456, output: 4321, cacheRead: 345_678, cacheWrite: 98_765 } })], { language: 'de' })
+    await wsEval(page, (s) =>
+      s.upsertAgent({ id: 'ag-phone', name: 'Statusleser', instructions: 'Fasse den Stand zusammen.', trigger: { type: 'manual' }, scope: { everything: true, pages: [], databases: [] }, write: 'none', output: null, mcpServers: [], runner: 'browser', model: null, effort: null, maxRunUsd: 0.5, enabled: true, createdAt: 1760252400000, updatedAt: 1760252400000 }),
+    )
+    await flush(page)
+    await page.evaluate(() => (window.location.hash = '#/agents/ag-phone'))
+    await page.getByRole('button', { name: 'Jetzt ausführen' }).click()
+    const row = page.locator('.agx-run').first()
+    await expect(row).toHaveAttribute('data-status', 'ok', { timeout: 20_000 })
+    const line = row.getByTestId('agx-run-model')
+    const tok = line.locator('.agx-run__model-tok')
+    await expect(tok).toHaveText('1 Anfr. · rein 123.456 · Cache s 98.765 / l 345.678 · raus 4.321')
+    // nothing of it is cut: the figures wrap on a phone
+    expect(await tok.evaluate((el) => el.scrollWidth <= el.clientWidth + 1)).toBe(true)
+    await expect(line).toHaveAttribute('title', /Claude Opus 5\.5 · 1 Anfr\. · rein 123\.456 · Cache s 98\.765 \/ l 345\.678 · raus 4\.321 · .*\$ · Tabelle/)
+    // the run's usage line means IN the same way: the input outside the cache, writes and reads beside it
+    await expect(row.getByTestId('agx-run-usage')).toContainText('IN 123.456 · CACHE W/R 98.765/345.678 · OUT 4.321')
   })
 
   test('an agent run whose second response another model gave: two lines and the step', async ({ page }) => {

@@ -694,9 +694,12 @@
     flex-wrap: wrap;
     row-gap: 0;
   }
+  /* the token figures get their own line and wrap there — never cut on a phone */
   .agx-run__model-tok {
     order: 3;
     flex-basis: 100%;
+    overflow: visible;
+    white-space: normal;
   }
 }
 .agx-steps {

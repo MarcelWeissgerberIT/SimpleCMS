@@ -17,7 +17,7 @@
 import type AnthropicSDK from '@anthropic-ai/sdk'
 import type { BetaContentBlock, BetaMessageParam, BetaToolResultBlockParam, BetaToolUnion } from '@anthropic-ai/sdk/resources/beta/messages/messages'
 import type { BetaRunnableTool } from '@anthropic-ai/sdk/lib/tools/BetaRunnableTool'
-import { AIError, claudeClient, thinks, toAIError } from '../client'
+import { AIError, claudeClient, reachOf, thinks, toAIError } from '../client'
 import { prepare, settle, type Prepared } from '../core/gate'
 import { claudeCut, claudeResponse, deltaChars, meterCall } from '../core/meter'
 import type { PurposeId } from '../core/purposes'
@@ -166,11 +166,14 @@ export async function runAgent(opts: {
   let sdk: Awaited<ReturnType<typeof claudeClient>>['sdk'] | null = null
   let prepared: Prepared | null = null
   /** the response streaming now: metered once — whole, or from what arrived when it was cut */
-  let current: { stream: { currentMessage: unknown }; chars: number; done: boolean } | null = null
+  let current: { stream: { currentMessage: unknown; controller: AbortController }; chars: number; done: boolean } | null = null
   let cut: (e: unknown) => void = () => {}
   try {
     // the gate: nothing is sent before it (features/ai/core/gate.ts); every response is metered (core/meter.ts)
-    prepared = prepare({ purpose: opts.purpose, sources: opts.sources, typed: opts.typed, model: opts.model })
+    // its size: the system prompt (+ the servers' part), the conversation and the tool definitions; the answer budget
+    const defs = (opts.tools ?? TERMINAL_TOOLS).map((x) => ({ name: x.name, description: x.description, input_schema: x.input_schema }))
+    const size = { promptChars: (opts.system ?? AGENT_SYSTEM).length + (mcp?.system.length ?? 0) + JSON.stringify(messages).length + JSON.stringify(defs).length, maxTokens: 64000 }
+    prepared = prepare({ purpose: opts.purpose, sources: opts.sources, typed: opts.typed, model: opts.model, size })
     const call = meterCall(prepared, { source: opts.ledgerSource, signal })
     const got = await claudeClient()
     sdk = got.sdk
@@ -255,17 +258,22 @@ export async function runAgent(opts: {
     // media in MCP results: cards for the person (features/ai/media), nothing is fetched
     const media = mcp && hooks.media ? createMediaCollector() : null
     let runner = client.beta.messages.toolRunner({ ...params, messages }, { signal })
+    // the tool definitions go out with every request (a cut one is estimated with them)
+    const toolChars = JSON.stringify(params.tools).length
     cut = (e: unknown) => {
       const cur = current
       if (!cur || cur.done) return
       cur.done = true
-      const A = got.sdk.default
+      // a stream the runner made after the stop (tools ran in between) never went out: no entry; one every attempt of
+      // which was refused with a status: zero (client.ts reachOf)
+      const reach = reachOf(cur.stream.controller.signal)
+      if (reach === 'none') return
       const entry = call.response(
         claudeCut(cur.stream.currentMessage as Parameters<typeof claudeCut>[0], {
-          promptChars: system.length + JSON.stringify(runner.params.messages).length,
+          promptChars: params.system.length + toolChars + JSON.stringify(runner.params.messages).length,
           streamedChars: cur.chars,
           outcome: signal.aborted ? 'aborted' : toAIError(e, got.sdk).code,
-          httpStatus: e instanceof A.APIError && typeof e.status === 'number',
+          sent: reach === 'sent',
         }),
       )
       if (entry) hooks.usage(entry.usage, entry)

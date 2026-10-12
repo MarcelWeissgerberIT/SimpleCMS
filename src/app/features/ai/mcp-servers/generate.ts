@@ -63,7 +63,7 @@ export function parseInspect(text: string): InspectResult {
 /** Run one check against `server`. Throws AIError ('mcp' when the server could not be used). */
 export async function inspectServer(server: McpServerConfig, mode: 'test' | 'guide', signal?: AbortSignal): Promise<InspectResult> {
   // the gate: a check sends no page — only the server's tool definitions reach Claude
-  const prepared = prepare({ purpose: 'mcp-setup.inspect', sources: [] })
+  const prepared = prepare({ purpose: 'mcp-setup.inspect', sources: [], size: { promptChars: SYSTEM(server.name).length + 400, maxTokens: mode === 'guide' ? 4000 : 1500 } })
   try {
     return await inspectOnce(server, mode, signal, prepared, meterCall(prepared, { signal }))
   } finally {
@@ -93,7 +93,7 @@ async function inspectOnce(server: McpServerConfig, mode: 'test' | 'guide', sign
       ...(opus ? { betas: ['server-side-fallback-2026-07-01', MCP_BETA], fallbacks: 'default' as const, output_config: { effort: 'low' as const } } : { betas: [MCP_BETA] }),
     }
     // the response is metered (core/meter.ts)
-    const { msg } = await metered(call, () => client.beta.messages.create(params, { signal }), () => SYSTEM(server.name).length + 400, sdk, signal)
+    const { msg } = await metered(call, (sig) => client.beta.messages.create(params, { signal: sig }), () => SYSTEM(server.name).length + 400, sdk, signal)
     if (msg.stop_reason === 'refusal') throw new AIError('refusal')
     const text = msg.content.map((b: BetaContentBlock) => (b.type === 'text' ? b.text : '')).join('')
     const out = parseInspect(text)

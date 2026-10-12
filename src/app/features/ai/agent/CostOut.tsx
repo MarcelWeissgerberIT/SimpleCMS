@@ -2,17 +2,34 @@
  * `/cost` in the AI terminal: what this conversation cost, one row per provider × model that answered (its ledger
  * entries summed — a model change mid-conversation or a refusal fallback gets its own row): requests, tokens in,
  * cache write / read, out, the price and how it was priced (TABLE · ESTIMATE …), then the total. At phone width each
- * row folds into a block whose cells carry their own labels.
+ * row folds into a block whose cells carry their own labels. IN is always the input outside the cache — cache writes
+ * and reads have their own figures on every surface (table, footer, agent runs).
  */
 import { labelOf } from '@/shared/ai/models'
+import type { Lang } from '@/shared/i18n'
 import { useLang, useT } from '../../../i18n'
+import { fmtUsd } from '../../../lib/money'
 import type { ModelLine } from '../core/meter'
 import { costText, sourceText } from '../Receipt'
 
-export function fmtTokens(n: number): string {
-  if (n < 1000) return String(n)
-  if (n < 1_000_000) return `${(n / 1000).toFixed(n < 10_000 ? 1 : 0)}K`
-  return `${(n / 1_000_000).toFixed(2)}M`
+const nums = new Map<string, Intl.NumberFormat>()
+const num = (lang: Lang, digits: number) => {
+  const key = `${lang}:${digits}`
+  let f = nums.get(key)
+  if (!f) nums.set(key, (f = new Intl.NumberFormat(lang, { minimumFractionDigits: digits, maximumFractionDigits: digits })))
+  return f
+}
+
+/** Tokens, short: 950 · 4.3K · 12K · 3.46M — the decimal sign of the UI's language (German "4,3K"). */
+export function fmtTokens(n: number, lang: Lang): string {
+  if (n < 1000) return num(lang, 0).format(n)
+  if (n < 1_000_000) return `${num(lang, n < 10_000 ? 1 : 0).format(n / 1000)}K`
+  return `${num(lang, 2).format(n / 1_000_000)}M`
+}
+
+/** A conversation's or run's amount as the meters show it: "≈" only when a response in it was estimated. */
+export function meterUsd(usd: number, lines: readonly ModelLine[] | null | undefined, lang: Lang): string {
+  return `${(lines ?? []).some((l) => l.source === 'estimate') ? '≈ ' : ''}${fmtUsd(usd, lang)}`
 }
 
 export function CostTable({ lines }: { lines: ModelLine[] }) {
@@ -24,6 +41,7 @@ export function CostTable({ lines }: { lines: ModelLine[] }) {
   )
   const estimated = lines.some((l) => l.source === 'estimate')
   const unpriced = lines.some((l) => l.usd === null)
+  const allUnpriced = lines.every((l) => l.usd === null)
   const head = {
     model: t('features.agent.cost.model'),
     requests: t('features.agent.meter.requests'),
@@ -54,11 +72,11 @@ export function CostTable({ lines }: { lines: ModelLine[] }) {
               {labelOf({ p: l.p, m: l.model })}
             </th>
             <td data-label={head.requests}>{l.requests}</td>
-            <td data-label={head.in}>{fmtTokens(l.input)}</td>
+            <td data-label={head.in}>{fmtTokens(l.input, lang)}</td>
             <td data-label={head.cache}>
-              {fmtTokens(l.cacheWrite)} / {fmtTokens(l.cacheRead)}
+              {fmtTokens(l.cacheWrite, lang)} / {fmtTokens(l.cacheRead, lang)}
             </td>
-            <td data-label={head.out}>{fmtTokens(l.output)}</td>
+            <td data-label={head.out}>{fmtTokens(l.output, lang)}</td>
             <td data-label={head.usd} className="term-cost__usd">
               {costText(t, lang, l.usd, l.source)}
             </td>
@@ -75,14 +93,14 @@ export function CostTable({ lines }: { lines: ModelLine[] }) {
               {t('features.agent.cost.total')}
             </th>
             <td data-label={head.requests}>{sum.requests}</td>
-            <td data-label={head.in}>{fmtTokens(sum.input)}</td>
+            <td data-label={head.in}>{fmtTokens(sum.input, lang)}</td>
             <td data-label={head.cache}>
-              {fmtTokens(sum.cacheWrite)} / {fmtTokens(sum.cacheRead)}
+              {fmtTokens(sum.cacheWrite, lang)} / {fmtTokens(sum.cacheRead, lang)}
             </td>
-            <td data-label={head.out}>{fmtTokens(sum.output)}</td>
+            <td data-label={head.out}>{fmtTokens(sum.output, lang)}</td>
             <td data-label={head.usd} className="term-cost__usd" data-testid="term-cost-total">
-              {costText(t, lang, sum.usd, estimated ? 'estimate' : 'table')}
-              {unpriced ? ' +' : ''}
+              {/* a model without a price: said in words, never a bare "+" */}
+              {allUnpriced ? t('features.ai.receipt.unknown') : `${costText(t, lang, sum.usd, estimated ? 'estimate' : 'table')}${unpriced ? ` ${t('features.agent.cost.plusUnknown')}` : ''}`}
             </td>
             <td data-label={head.source} className="term-cost__src" />
           </tr>

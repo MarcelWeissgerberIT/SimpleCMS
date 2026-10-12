@@ -35,6 +35,9 @@ export function stepText(t: T, s: StepNote, p: ProviderId): string | null {
   return null
 }
 
+/** The price table's date as the UI's language writes it ("October 12, 2026" · "12. Oktober 2026"). */
+export const pricesDate = (lang: Lang): string => new Date(`${PRICES_DATE}T12:00:00`).toLocaleDateString(lang, { day: 'numeric', month: 'long', year: 'numeric' })
+
 /** The receipt as one text (the title, tests): model · requests · cost · source, then the tokens and the steps. */
 export function receiptText(t: T, lang: Lang, r: Receipt): string {
   const model = labelOf({ p: r.served.p, m: r.served.model })
@@ -42,7 +45,7 @@ export function receiptText(t: T, lang: Lang, r: Receipt): string {
   const n = (x: number) => x.toLocaleString(lang)
   const tokens = t('features.ai.receipt.tokens', { input: n(r.usage.input), write: n(r.usage.cacheWrite + r.usage.cacheWrite1h), read: n(r.usage.cacheRead), output: n(r.usage.output) })
   const steps = r.steps.map((s) => stepText(t, s, r.served.p)).filter((x): x is string => !!x)
-  return [head, tokens, ...steps, r.usd !== null && r.costSource !== 'reported' ? t('features.ai.receipt.prices', { date: PRICES_DATE }) : ''].filter(Boolean).join('\n')
+  return [head, tokens, ...steps, r.usd !== null && r.costSource !== 'reported' ? t('features.ai.receipt.prices', { date: pricesDate(lang) }) : ''].filter(Boolean).join('\n')
 }
 
 export function ReceiptLine({ receipt: r, testId = 'ai-receipt' }: { receipt: Receipt; testId?: string }) {

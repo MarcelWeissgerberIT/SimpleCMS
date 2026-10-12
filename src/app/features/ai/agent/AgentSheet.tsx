@@ -34,7 +34,7 @@ import { EditDiff } from './EditDiff'
 import { ScriptDiff } from './ScriptDiff'
 import { CodingDiff, FullText, RefsLine, useCodingFlags } from './CodingDiff'
 import { PipelinesOut } from './PipelinesOut'
-import { CostTable, fmtTokens } from './CostOut'
+import { CostTable, fmtTokens, meterUsd } from './CostOut'
 import { HelpLink } from '../../../help'
 import { ConnectLine, ServersOut, SignInKey, SignInOffer, retryOf } from './ConnectOut'
 import { signInFromTerminal } from './connect'
@@ -362,7 +362,8 @@ function Head() {
       <MemoryChip />
       {usage.requests > 0 && (
         <span className="term-head__read">
-          <span aria-hidden>· </span>≈ {fmtUsd(usage.usd, lang)}
+          <span aria-hidden>· </span>
+          {meterUsd(usage.usd, usage.byModel, lang)}
         </span>
       )}
       <span className="term-head__status" aria-live="polite">
@@ -841,11 +842,11 @@ function Echo({ entry }: { entry: EchoEntry }) {
             {(
               [
                 ['features.agent.meter.requests', String(u.requests)],
-                ['features.agent.meter.in', fmtTokens(u.input)],
-                ['features.agent.meter.cacheWrite', fmtTokens(u.cacheWrite)],
-                ['features.agent.meter.cache', fmtTokens(u.cacheRead)],
-                ['features.agent.meter.out', fmtTokens(u.output)],
-                ['features.agent.meter.usd', `≈ ${fmtUsd(u.usd, lang)}`],
+                ['features.agent.meter.in', fmtTokens(u.input, lang)],
+                ['features.agent.meter.cacheWrite', fmtTokens(u.cacheWrite, lang)],
+                ['features.agent.meter.cache', fmtTokens(u.cacheRead, lang)],
+                ['features.agent.meter.out', fmtTokens(u.output, lang)],
+                ['features.agent.meter.usd', meterUsd(u.usd, u.byModel, lang)],
               ] as const
             ).map(([k, v]) => (
               <div key={k}>
@@ -1808,17 +1809,20 @@ function Foot() {
       </p>
       <div className="term-meter" title={t('features.agent.meter.billed')}>
         <dl className="term-meter__vals">
+          {/* IN as in /cost: the input outside the cache; cache writes and reads beside it */}
           <div>
             <dt>{t('features.agent.meter.in')}</dt>
-            <dd>{fmtTokens(usage.input + usage.cacheWrite)}</dd>
+            <dd>{fmtTokens(usage.input, lang)}</dd>
           </div>
           <div>
-            <dt>{t('features.agent.meter.cache')}</dt>
-            <dd>{fmtTokens(usage.cacheRead)}</dd>
+            <dt>{t('features.agent.cost.cacheWR')}</dt>
+            <dd>
+              {fmtTokens(usage.cacheWrite, lang)} / {fmtTokens(usage.cacheRead, lang)}
+            </dd>
           </div>
           <div>
             <dt>{t('features.agent.meter.out')}</dt>
-            <dd>{fmtTokens(usage.output)}</dd>
+            <dd>{fmtTokens(usage.output, lang)}</dd>
           </div>
           <div>
             <dt>{t('features.agent.meter.calls')}</dt>
@@ -1828,7 +1832,7 @@ function Foot() {
           </div>
           <div className="term-meter__usd">
             <dt className="visually-hidden">USD</dt>
-            <dd data-testid="agent-cost">≈ {fmtUsd(usage.usd, lang)}</dd>
+            <dd data-testid="agent-cost">{meterUsd(usage.usd, usage.byModel, lang)}</dd>
           </div>
         </dl>
         <span className="term-meter__note">{t('features.agent.meter.billed')}</span>

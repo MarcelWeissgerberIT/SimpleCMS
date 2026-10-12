@@ -8,8 +8,8 @@
  *  3. the request's data classes: the purpose's declaration ∪ the classes of its sources (recorded in slice 1);
  *  4. the route: the legacy level — Claude with this device's model, only with a Claude key ('no_key' as before);
  *     demo on and no key → the runtime 'demo' provider (canned answers, never a request);
- *  5. the brake hook (identity until the governor) and an in-tab reservation (features/governor), settled by settle()
- *     when the request ends.
+ *  5. the brake hook (identity until the governor) with the request's estimate band, and an in-tab reservation of its
+ *     upper end (features/governor), settled by settle() when the request ends.
  *
  * precheck(): the same checks before anything is loaded or attached (a picture, a file, MCP servers), without a
  * reservation — the request itself prepares again. Only responses are metered (core/meter.ts), never a check.
@@ -23,7 +23,7 @@ import { legacyRule } from '@/shared/ai/route'
 import { capsOf } from '@/shared/ai/models'
 import { looksLikeKey } from '@/shared/ai/keys'
 import { useWorkspace } from '../../../store/store'
-import { reserve, settle as settleReservation } from '../../governor'
+import { estimate, reserve, settle as settleReservation, type Band } from '../../governor'
 import { AIError } from './errors'
 import { isAIDemo } from './demoMode'
 import { classesOf, isSources } from './sources'
@@ -39,6 +39,12 @@ export interface PrepareInput {
   needs?: readonly Need[]
   /** a model the call picks itself (a custom agent's own model) — else this device's */
   model?: string | null
+  /**
+   * The request's size: its prompt in characters (documents and pictures counted as what they cost) and its answer
+   * budget (max_tokens; a function when it depends on what the model can do) — the estimate band the brake hook gets
+   * and whose upper end is reserved while the request runs.
+   */
+  size?: { promptChars: number; maxTokens: number | ((caps: Caps | null) => number) }
 }
 
 export interface Prepared {
@@ -65,9 +71,12 @@ export function registerAIOff(fn: () => boolean): void {
   offHook = fn
 }
 
-export type BeforeSend = (purpose: PurposeId, route: Route | null) => number | void
-let beforeSendHook: BeforeSend = () => 0
-/** The brake: may throw an AIError to stop a request; returns the amount (USD) to reserve. */
+export type BeforeSend = (purpose: PurposeId, route: Route | null, band: Band | null) => number | void
+let beforeSendHook: BeforeSend = () => undefined
+/**
+ * The brake: may throw an AIError to stop a request; returns the amount (USD) to reserve — nothing returned: the upper
+ * end of the request's estimate band (its size, PrepareInput.size), 0 without a size or a price.
+ */
 export function registerBeforeSend(fn: BeforeSend): void {
   beforeSendHook = fn
 }
@@ -132,7 +141,11 @@ function gate(input: PrepareInput, held: boolean): Prepared {
     if (isAIDemo()) return { purpose: input.purpose, cls: purpose.cls, route: null, provider: 'demo', model: 'demo', caps: null, classes: [...classes], steps: [], reservation: null }
     throw new AIError('no_key')
   }
-  // 5 · the brake (may throw) and the reservation
-  const usd = beforeSendHook(input.purpose, route) ?? 0
-  return { purpose: input.purpose, cls: purpose.cls, route, provider: route.p, model: route.m, caps: capsOf(route), classes: [...classes], steps: [], reservation: held ? reserve(usd, input.purpose) : null }
+  // 5 · the brake (may throw) and the reservation: the upper end of the request's band unless the brake says otherwise
+  const caps = capsOf(route)
+  const size = input.size
+  const band = size ? estimate(route, { promptChars: size.promptChars, maxTokens: typeof size.maxTokens === 'function' ? size.maxTokens(caps) : size.maxTokens }) : null
+  const said = beforeSendHook(input.purpose, route, band)
+  const usd = typeof said === 'number' ? said : (band?.high ?? 0)
+  return { purpose: input.purpose, cls: purpose.cls, route, provider: route.p, model: route.m, caps, classes: [...classes], steps: [], reservation: held ? reserve(usd, input.purpose) : null }
 }

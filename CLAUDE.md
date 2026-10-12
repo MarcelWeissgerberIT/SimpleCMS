@@ -129,19 +129,27 @@ the public APIs stable — other areas are built against them in parallel.
   `typed` where the person typed; in DEV / `?e2e` a missing purpose or source list (or `[]` for a page-derived purpose)
   throws. `prepare()` (core/gate.ts) is the only way to a request: policy generation (`AI_POLICY_GEN`; rules stamped with
   a higher `gen` → 'reload', nothing sent), a key typed into the request → 'key_in_text', AUS hook, classes, the legacy
-  route (Claude + this device's model, an agent's own model), the brake hook + an in-tab reservation (features/governor),
+  route (Claude + this device's model, an agent's own model), the brake hook `beforeSend(purpose, route, band)` + an
+  in-tab reservation of the band's upper end (`PrepareInput.size` = prompt chars + answer budget; features/governor),
   settled by `settle()`. Paths that load something first (a picture, a file, the terminal's MCP setup, workspace
-  retrieval, demo answers) call `precheck()` before loading — the request prepares again. Request branches ask the
+  retrieval, the screenshot describe of a design import, an agent's MCP tokens, demo answers) call `precheck()` before
+  loading — the request prepares again. Request branches ask the
   model's caps (`thinks(caps)`, `caps.pdf.maxPages`), never a model id; prices come only from src/shared/ai/prices.ts
   (`costOf`, `estimate()` in features/governor) — `resolveModel` / `AI_MODELS` only choose. Every response of every
   engine is ONE ledger entry (core/meter.ts `meterCall` → governor `meter()`; IndexedDB `one-ledger`, keys
   `<scope>|<day>|<id>`, scope `local:local` | `cloud:<ws>:u:<account>`, 90 days, ids / models / tokens / amounts only —
   never page text, never synced, exported, backed up or sent; wiped with the device copy and the local reset; opened on
-  the first meter, never at boot; e2e seam `window.__oneLedger`): a cut stream is an estimate (message_start +
-  streamed characters), an HTTP refusal costs nothing, a served model other than the requested one is a
-  'refusal-fallback' step priced at that model (a dated snapshot id is the same model), demo is never metered.
-  Ledger sources are fixed ids (`ai:<run>:<what>` via `tapSignal`, `terminal:<conv>`, `agent:<id>:<run>`,
-  `autofill:<db>:<prop>`). Receipts: AI run cards (`AIRun.route / served / usage / usd / costSource / steps`,
+  the first meter, never at boot; e2e seam `window.__oneLedger`): what reached the wire decides (client.ts SDK
+  middleware, `reachOf(signal)`): never sent (stopped before it went out) = no entry; every attempt refused with a
+  status (incl. a Stop during the retry wait) = zero; in flight or answered = a cut stream is an estimate (message_start
+  + streamed characters, else the request's size incl. PDF pages `pdfChars`, pictures `imageChars`, tool definitions).
+  A refusal fallback (`usage.iterations` `fallback_message`, else the served model) is a 'refusal-fallback' step and
+  each hop is priced at its own model (a dated snapshot id is the same model); Claude's `thinking_tokens` are kept as
+  `reasoning`; demo is never metered.
+  Ledger sources are fixed ids (`ai:<run>:<what>` via `tapSignal`, `terminal:<conv>` — the task rounds and its memory
+  proposal request, never counted into another conversation after `/new` —, `agent:<id>:<run>`, `autofill:<db>:<prop>`).
+  Receipt surfaces: IN = the input outside the cache (writes / reads beside it), "≈" only for an estimate, token
+  figures in the UI's decimal sign (`fmtTokens(n, lang)`). Receipts: AI run cards (`AIRun.route / served / usage / usd / costSource / steps`,
   features/ai/Receipt.tsx), terminal `/cost` per model (`AgentUsage.byModel`), agent runs (`AgentRunUsage.byModel`;
   `maxRunUsd` on the sum of entries; a response without a price stops a budgeted run). `memoryRef(block)` names the
   memory database as a source when a memory block goes along. `Workspace.ai`, `settings.ai`, `settings.aiKeys` and
@@ -339,10 +347,11 @@ the public APIs stable — other areas are built against them in parallel.
   log (private in teams via `createPrivateDatabase`; the oldest live one counts; dormant until one exists). Memories are
   saved only after the person confirms (proposal cards, `/remember`, "remember …", the `remember` tool → staged change
   kind 'memory'); write them only through memory/save.ts / example.ts and log rows through memory/log.ts (origin 'ai'; the
-  log keeps 500 rows, older ones go to the trash, never page content or answers). Free-form requests take
-  `memoryFor(task).block` (`<one_memory>`) along — `runAI({ memory })` or the agent's context — then `noteUse(answer, use,
-  ctx)`. Examples: Type Example + Tag; `#tag` (or the bare tag as a word) forces that example in full. Switches per device
-  in `settings.memory`. Team server-runner agents get no memory.
+  log keeps 500 rows, older ones go to the trash, never page content or answers; key-shaped text is scrubbed from a
+  row's name and a request the gate refused for a key writes no row; AI-menu runs are stored with key-shaped text
+  scrubbed). Free-form requests take `memoryFor(task).block` (`<one_memory>`) along — `runAI({ memory })` or the
+  agent's context — then `noteUse(answer, use, ctx)`. Examples: Type Example + Tag; `#tag` (or the bare tag as a word)
+  forces that example in full. Switches per device in `settings.memory`. Team server-runner agents get no memory.
 - One Script (features/script): `Workspace.scripts` (`OneScript` { id, name, icon?, description?, code, kind 'script' |
   'query', createdBy, updatedBy, createdAt, updatedAt }) — write only with `upsertScript` / `deleteScript` (or `saveScript`);
   every reader sanitizes (store/scripts.ts); team: meta map `scripts` (server stamps updatedBy / createdBy like agents').

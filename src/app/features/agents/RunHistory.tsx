@@ -109,15 +109,36 @@ function RunItem({ run, n, first }: { run: AgentRun; n: number; first: boolean }
           {!!run.media?.length && <RunMedia run={run} />}
           {run.steps.length > 0 && <Steps run={run} />}
           {(run.staged?.length ?? 0) > 0 && <Review run={run} />}
-          {run.usage && (
-            <p className="agx-run__usage mono" data-testid="agx-run-usage">
-              IN {run.usage.input.toLocaleString(lang)} · CACHE {run.usage.cacheRead.toLocaleString(lang)} · OUT {run.usage.output.toLocaleString(lang)} · ≈ {fmtUsd(run.usage.usd, lang)}
-            </p>
-          )}
+          {run.usage && <UsageLine usage={run.usage} />}
           {!!run.usage?.byModel?.length && <ModelLines lines={run.usage.byModel} />}
         </div>
       )}
     </li>
+  )
+}
+
+/**
+ * The run's usage in one line. With its lines per model (browser runs since receipts) IN is the input outside the
+ * cache, as in the lines and the terminal; "≈" only when a response was estimated. Older and server runs counted cache
+ * writes into their input: their line says so (IN + CACHE W) and stays an estimate.
+ */
+function UsageLine({ usage }: { usage: NonNullable<AgentRun['usage']> }) {
+  const lang = useLang()
+  const n = (x: number) => x.toLocaleString(lang)
+  const lines = readLines(usage.byModel)
+  if (!lines.length)
+    return (
+      <p className="agx-run__usage mono" data-testid="agx-run-usage">
+        IN + CACHE W {n(usage.input)} · CACHE R {n(usage.cacheRead)} · OUT {n(usage.output)} · ≈ {fmtUsd(usage.usd, lang)}
+      </p>
+    )
+  const sum = lines.reduce((a, l) => ({ input: a.input + l.input, write: a.write + l.cacheWrite, read: a.read + l.cacheRead, output: a.output + l.output }), { input: 0, write: 0, read: 0, output: 0 })
+  const estimated = lines.some((l) => l.source === 'estimate')
+  return (
+    <p className="agx-run__usage mono" data-testid="agx-run-usage">
+      IN {n(sum.input)} · CACHE W/R {n(sum.write)}/{n(sum.read)} · OUT {n(sum.output)} · {estimated ? '≈ ' : ''}
+      {fmtUsd(usage.usd, lang)}
+    </p>
   )
 }
 
@@ -130,14 +151,20 @@ function ModelLines({ lines }: { lines: unknown }) {
   const n = (x: number) => x.toLocaleString(lang)
   return (
     <ul className="agx-run__models" aria-label={t('features.agents.runs.byModel')}>
-      {list.map((l) => (
-        <li key={`${l.p}:${l.model}`} className="agx-run__model" data-testid="agx-run-model" data-model={`${l.p}:${l.model}`}>
-          <span className="agx-run__model-name">{labelOf({ p: l.p, m: l.model })}</span>
-          <span className="agx-run__model-tok">{t('features.agents.runs.modelLine', { requests: l.requests, input: n(l.input), write: n(l.cacheWrite), read: n(l.cacheRead), output: n(l.output) })}</span>
-          <span className="agx-run__model-usd">{costText(t, lang, l.usd, l.source)}</span>
-          {sourceText(t, l.usd, l.source) && <span className="agx-run__model-src">{sourceText(t, l.usd, l.source)}</span>}
-        </li>
-      ))}
+      {list.map((l) => {
+        const name = labelOf({ p: l.p, m: l.model })
+        const tokens = t('features.agents.runs.modelLine', { requests: l.requests, input: n(l.input), write: n(l.cacheWrite), read: n(l.cacheRead), output: n(l.output) })
+        const src = sourceText(t, l.usd, l.source)
+        // the whole line as a title: a name or token figures cut short stay readable
+        return (
+          <li key={`${l.p}:${l.model}`} className="agx-run__model" data-testid="agx-run-model" data-model={`${l.p}:${l.model}`} title={[name, tokens, costText(t, lang, l.usd, l.source), src].filter(Boolean).join(' · ')}>
+            <span className="agx-run__model-name">{name}</span>
+            <span className="agx-run__model-tok">{tokens}</span>
+            <span className="agx-run__model-usd">{costText(t, lang, l.usd, l.source)}</span>
+            {src && <span className="agx-run__model-src">{src}</span>}
+          </li>
+        )
+      })}
     </ul>
   )
 }

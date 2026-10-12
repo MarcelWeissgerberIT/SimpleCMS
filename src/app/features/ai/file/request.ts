@@ -14,7 +14,7 @@ import type AnthropicSDK from '@anthropic-ai/sdk'
 import type { BetaContentBlockParam, BetaMessageParam } from '@anthropic-ai/sdk/resources/beta/messages/messages'
 import { AIError, claudeClient, finalOf, thinks, toAIError, usesDemo } from '../client'
 import { prepare, settle, type Prepared } from '../core/gate'
-import { meterCall, type Receipt } from '../core/meter'
+import { meterCall, pdfChars, type Receipt } from '../core/meter'
 import type { PurposeId } from '../core/purposes'
 import type { SourceRef } from '@/shared/ai/types'
 
@@ -22,7 +22,7 @@ export type ClaudeFileAction = 'summarize' | 'extract' | 'tables' | 'ask'
 
 /** What goes to Claude of the file. */
 export type FileMaterial =
-  | { type: 'pdf'; name: string; data: string }
+  | { type: 'pdf'; name: string; data: string; pages?: number | null }
   | { type: 'text'; name: string; text: string; format: 'markdown' | 'text' | 'csv'; clipped: boolean }
 
 const SYSTEM = `You work with a file attached to a page in One, a local-first workspace for notes, docs and databases, and do the task you are given.
@@ -148,6 +148,13 @@ function documentBlock(m: FileMaterial) {
     : { type: 'document' as const, title: m.name, source: { type: 'text' as const, media_type: 'text/plain' as const, data: m.text }, cache_control }
 }
 
+/** What the file counts as in the request's size: a PDF's pages (text + a picture each), a text's characters. */
+function materialChars(m: FileMaterial): number {
+  if (m.type === 'text') return m.text.length
+  // pages unknown: about one page per 60 KB of PDF
+  return pdfChars(m.pages ?? Math.ceil((m.data.length * 3) / 4 / 60_000))
+}
+
 /** One request: the file + the task, streamed. Resolves with the answer text (JSON for tables). */
 export async function requestFile(req: FileRequest): Promise<string> {
   // the canned demo answers cannot read a file: it needs a real key
@@ -157,15 +164,6 @@ export async function requestFile(req: FileRequest): Promise<string> {
   let sdk: Awaited<ReturnType<typeof claudeClient>>['sdk'] | null = null
   let prepared: Prepared | null = null
   try {
-    // the gate: nothing is sent before it (features/ai/core/gate.ts); the response is metered (core/meter.ts)
-    prepared = prepare({ purpose: req.purpose, sources: req.sources, typed: req.typed })
-    const call = meterCall(prepared, { signal, onRun: req.onRun })
-    const got = await claudeClient()
-    sdk = got.sdk
-    const { client } = got
-    // the model the gate routed to; what it can do from its caps (never its id)
-    const model = prepared.route?.m ?? got.model
-    if (signal?.aborted) throw new AIError('aborted')
     const prompt = buildFilePrompt({
       ...req,
       name: material.name,
@@ -175,6 +173,17 @@ export async function requestFile(req: FileRequest): Promise<string> {
     const format = action === 'tables' ? { type: 'json_schema' as const, schema: TABLE_SCHEMA } : null
     // a transcription can be long; a summary or an answer is short
     const maxTokens = action === 'extract' ? 64000 : action === 'tables' ? 32000 : 16000
+    // the request's size: the task, the system prompt and the file as it counts (a stopped request is estimated from it)
+    const promptChars = () => SYSTEM.length + prompt.length + materialChars(material)
+    // the gate: nothing is sent before it (features/ai/core/gate.ts); the response is metered (core/meter.ts)
+    prepared = prepare({ purpose: req.purpose, sources: req.sources, typed: req.typed, size: { promptChars: promptChars(), maxTokens: (caps) => (thinks(caps) ? maxTokens : Math.min(maxTokens, 32000)) } })
+    const call = meterCall(prepared, { signal, onRun: req.onRun })
+    const got = await claudeClient()
+    sdk = got.sdk
+    const { client } = got
+    // the model the gate routed to; what it can do from its caps (never its id)
+    const model = prepared.route?.m ?? got.model
+    if (signal?.aborted) throw new AIError('aborted')
     let text = ''
     const onText = (delta: string) => {
       text += delta
@@ -188,7 +197,7 @@ export async function requestFile(req: FileRequest): Promise<string> {
       signal?.addEventListener('abort', abort, { once: true })
       stream.on('text', onText)
       try {
-        stopReason = (await finalOf(stream, call, () => SYSTEM.length + prompt.length + (material.type === 'text' ? material.text.length : 0), sdk, signal)).stop_reason
+        stopReason = (await finalOf(stream, call, promptChars, sdk, signal)).stop_reason
       } finally {
         signal?.removeEventListener('abort', abort)
       }
@@ -211,7 +220,7 @@ export async function requestFile(req: FileRequest): Promise<string> {
       signal?.addEventListener('abort', abort, { once: true })
       stream.on('text', onText)
       try {
-        stopReason = (await finalOf(stream, call, () => SYSTEM.length + prompt.length + (material.type === 'text' ? material.text.length : 0), sdk, signal)).stop_reason
+        stopReason = (await finalOf(stream, call, promptChars, sdk, signal)).stop_reason
       } finally {
         signal?.removeEventListener('abort', abort)
       }
