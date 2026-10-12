@@ -52,6 +52,7 @@ import { blockText, lostText, runBlock } from './gone'
 import { routeBlock } from './routeBlock'
 import { endRun, noteRun, withWriter, type Writer } from '../../store/writer'
 import { memoryRef } from '../ai/core/refs'
+import { precheck } from '../ai/core/gate'
 import type { SourceRef } from '@/shared/ai/types'
 import { labelOf } from '@/shared/ai/models'
 import { addToLines } from '../ai/core/meter'
@@ -360,6 +361,8 @@ async function runOnce(agent: CustomAgent, req: RunRequest): Promise<AgentRun> {
   }
 
   try {
+    // the gate first (newer AI rules, AI off, no key …): no MCP token is opened when it refuses (the run ends as an error)
+    precheck({ purpose: 'agents.run', sources: agentSources(agent, req.rows ?? [], ''), model: agent.model })
     // the agent's MCP servers, by name, as set up and switched on in this browser (Settings → Claude AI); only the tools
     // its allow-list names (mcpTools) — a server whose list is empty is left out, a switched-off one too (the editor says so)
     const allow = agent.mcpTools ?? {}

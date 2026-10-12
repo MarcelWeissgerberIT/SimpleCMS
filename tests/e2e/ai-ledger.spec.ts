@@ -186,6 +186,23 @@ test.describe('contracts kept by every reader (written by nobody yet)', () => {
 
 const RELOAD = 'This workspace has AI rules this tab does not know yet'
 
+/** The AI-menu runs this device stored (IndexedDB `one-ai-runs`). */
+const storedRuns = (page: Page): Promise<AnyState[]> =>
+  page.evaluate(
+    () =>
+      new Promise<AnyState[]>((done) => {
+        const open = indexedDB.open('one-ai-runs')
+        open.onsuccess = () => {
+          const db = open.result
+          if (!db.objectStoreNames.contains('runs')) return done([])
+          const all = db.transaction('runs').objectStore('runs').getAll()
+          all.onsuccess = () => done(all.result)
+          all.onerror = () => done([])
+        }
+        open.onerror = () => done([])
+      }),
+  )
+
 /** A key, Claude scripted, the workspace's AI rules at generation `gen` (this build knows 1). */
 async function gated(page: Page, gen: number, steps: ClaudeStep[]) {
   const { requests } = await mockClaudeScript(page.context(), steps)
@@ -230,6 +247,36 @@ const GATE_FLOWS: Array<{ name: string; steps: ClaudeStep[]; go: (page: Page, re
       await expect(pal.locator('.pal-mode')).toHaveText('ASK')
       await page.keyboard.press('Enter')
       await expect(pal).toContainText(refused ? RELOAD : 'The launch is in two weeks.')
+    },
+  },
+  {
+    name: 'Ask your workspace',
+    steps: [text('We launch in two weeks [[Launch plan]].')],
+    go: async (page, refused) => {
+      const id = await createPage(page, { title: 'Launch plan', content: doc(para('We launch in two weeks.'), para('')) })
+      await gotoPage(page, id)
+      const ed = editorOf(page, id)
+      const ask = page.getByPlaceholder('Ask Claude to write anything…')
+      await expect(async () => {
+        await ed.locator('p').last().click()
+        await page.keyboard.press('End')
+        await page.keyboard.press('Space')
+        try {
+          await expect(ask).toBeFocused({ timeout: 2000 })
+        } catch (e) {
+          if (!(await ask.count())) await page.keyboard.press('Backspace')
+          throw e
+        }
+      }).toPass({ timeout: 15_000 })
+      await aiPanel(page).getByRole('option', { name: /Ask your workspace/ }).click()
+      await page.keyboard.type('When do we launch?')
+      await page.keyboard.press('Enter')
+      if (refused) {
+        await expect(aiPanel(page).locator('.ai-error')).toContainText(RELOAD)
+        // the gate came first: nothing was retrieved, so the run records no sources
+        await expect.poll(async () => (await storedRuns(page)).find((r) => r.req?.kind === 'workspace')?.status).toBe('error')
+        expect((await storedRuns(page)).find((r) => r.req?.kind === 'workspace')?.sources).toEqual([])
+      } else await expect(aiPanel(page)).toContainText('We launch in two weeks')
     },
   },
   {
@@ -334,12 +381,18 @@ test.describe('an agent whose route this version cannot run', () => {
     await runNow(page, [{ p: 'anthropic', m: 'claude-opus-5-5' }, { p: 'openai', m: 'gpt-6-luna' }])
     await expect(page.locator('.agx-run')).toHaveCount(2)
     await expect(page.locator('.agx-run').first()).toHaveAttribute('data-status', 'error')
+    // a pin this build cannot read in front of Claude: kept whole through a save, never run on Claude instead
+    await runNow(page, [{ p: 'google', m: 'gemini-x' }, { p: 'anthropic', m: 'claude-opus-5-5' }])
+    await expect(page.locator('.agx-run')).toHaveCount(3)
+    await expect(page.locator('.agx-run').first()).toHaveAttribute('data-status', 'error')
+    await expect(page.locator('.agx-run').first()).toContainText('this agent needs a newer version of One')
+    expect(await wsEval(page, (s) => s.agents['ag-route'].route)).toEqual([{ p: 'google', m: 'gemini-x' }, { p: 'anthropic', m: 'claude-opus-5-5' }])
     await page.waitForTimeout(300)
     expect(requests).toHaveLength(0)
     expect(aiNet.count('anthropic') + aiNet.count('openrouter') + aiNet.count('openai')).toBe(0)
 
     await runNow(page, [{ p: 'anthropic', m: 'claude-opus-5-5' }])
-    await expect(page.locator('.agx-run')).toHaveCount(3)
+    await expect(page.locator('.agx-run')).toHaveCount(4)
     await expect(page.locator('.agx-run').first()).toHaveAttribute('data-status', 'ok', { timeout: 20_000 })
     await page.waitForTimeout(300)
     expect(requests).toHaveLength(1)
@@ -388,6 +441,65 @@ test.describe('keys in typed text, retries after an MCP call', () => {
     await expect(terminal(page).locator('.term-answer')).toContainText('Mara owns the launch plan.')
     expect(requests).toHaveLength(1)
     expect(await history(page)).toContain('task-1234 for Mara')
+  })
+
+  test('a key refused in the terminal, the AI menu and ⌘K "?": no memory-log row and no stored AI run holds it', async ({ page, aiNet }) => {
+    const { requests } = await mockClaudeScript(page.context(), [text('Short answers about the launch.')])
+    await openApp(page)
+    await wsEval(page, (s) => s.updateSettings({ aiApiKey: 'sk-ant-e2e-test-key' }))
+    // the memory in use with a preference (it goes along with every free-form request): the log is on by default
+    await uiEval(page, (u) => u.openModal({ type: 'settings', tab: 'ai' }))
+    const section = page.getByTestId('memory-settings')
+    await section.scrollIntoViewIfNeeded()
+    await section.getByRole('button', { name: 'Set up memory' }).click()
+    await expect(section).toContainText('0 memories · 0 log entries')
+    await page.keyboard.press('Escape')
+    await wsEval(page, (s) => {
+      const db = (Object.values(s.databases) as AnyState[]).find((d) => d.system === 'memory')!
+      const prop = (name: string) => db.properties.find((p: AnyState) => p.name === name)
+      const pref = prop('Type').options.find((o: AnyState) => o.name.toLowerCase() === 'preference').id
+      s.createRow(db.id, { title: 'Answers about the launch are short.', properties: { [prop('Type').id]: pref, [prop('Active').id]: true } })
+    })
+    const logTitles = () => wsEval(page, (s) => {
+      const db = (Object.values(s.databases) as AnyState[]).find((d) => d.system === 'memory-log')
+      return db ? (Object.values(s.pages) as AnyState[]).filter((r) => r.databaseId === db.id && !r.trashed).map((r) => r.title as string) : []
+    })
+    const OR_KEY = `sk-or-v1-${'0123456789abcdef'.repeat(4)}`
+
+    // the AI terminal
+    const id = await createPage(page, { title: 'Launch plan', content: doc(para('Mara owns the launch plan.')) })
+    await gotoPage(page, id)
+    await openTerminal(page)
+    await run(page, `use ${OR_KEY} for the launch plan`)
+    await expect(terminal(page).locator('.term-error')).toContainText('That looks like an API key')
+    await page.keyboard.press('Escape')
+    // the AI menu's own request (a background run, saved per device)
+    await ownRequest(page, `remember ${OR_KEY} for Tessera`)
+    await expect(aiPanel(page).locator('.ai-error')).toContainText('That looks like an API key')
+    await page.keyboard.press('Escape')
+    // ⌘K "?"
+    await page.keyboard.press(`${MOD}+k`)
+    await page.keyboard.type(`?which key is ${OR_KEY}`)
+    const pal = page.getByRole('dialog', { name: 'Command palette' })
+    await expect(pal.locator('.pal-mode')).toHaveText('ASK')
+    await page.keyboard.press('Enter')
+    await expect(pal).toContainText('That looks like an API key')
+    await page.keyboard.press('Escape')
+    if (await pal.count()) await page.keyboard.press('Escape')
+    await expect(pal).toBeHidden()
+
+    await page.waitForTimeout(600)
+    expect(requests).toHaveLength(0)
+    expect(aiNet.count('anthropic')).toBe(0)
+    expect(await logTitles()).toEqual([])
+    const disk = JSON.stringify(await storedRuns(page))
+    expect(disk).toContain('remember')
+    expect(disk).not.toContain('sk-or-v1-')
+
+    // positive control: a question that went out is logged
+    await paletteAsk(page, 'how short are launch answers?', 'Short answers about the launch.')
+    await expect.poll(logTitles).toHaveLength(1)
+    expect((await logTitles())[0]).toContain('how short are launch answers?')
   })
 
   const ARCHIVE = { id: 'srvtessera01', name: 'archive', url: 'https://mcp.example.test/api/archive/mcp', token: 'archive-e2e-PLAINTEXT-token-7Hq0002', enabled: true, prompt: '**Archive** is the team knowledge base.', promptSource: 'auto', tools: ['archive_search'], checkedAt: 1 }

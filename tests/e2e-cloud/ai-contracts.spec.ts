@@ -85,3 +85,32 @@ test('workspace.ai and agent routes written elsewhere survive an S1 tab’s edit
   await expect.poll(() => rulesOf(page)).toEqual(RULES)
   raw.destroy()
 })
+
+test('two tabs of one team workspace: device AI rules and a key marker saved in one survive the other’s saves and reach it', async ({ page, context }) => {
+  await signIn(page, email('ada'))
+  const wsId = await createWorkspace(page, 'Tessera Team')
+  await openApp(page, wsId)
+  await waitOnline(page)
+  const other = await context.newPage()
+  await openApp(other, wsId)
+  await waitOnline(other)
+
+  // tab B narrows this device's rules at a generation this build does not know, and keeps a key marker
+  const MARKER = 'vault:tessera0001:4c2a'
+  await wsEval(other, (s, marker) => s.updateSettings({ ai: { gen: 2 }, aiKeys: { openrouter: marker } }), MARKER)
+  const deviceOf = (p: Page) => wsEval(p, (s) => JSON.parse(JSON.stringify({ ai: s.settings.ai ?? null, keys: s.settings.aiKeys ?? null })))
+  // tab A reads them (the overlay ping): its gate now sees generation 2
+  await expect.poll(() => deviceOf(page)).toEqual({ ai: { gen: 2 }, keys: { openrouter: MARKER } })
+
+  // tab A saves its overlay (a page, the theme): only its own keys go over the stored ones
+  await wsEval(page, (s) => {
+    s.createPage({ title: 'Launch plan', parentId: null })
+    s.updateSettings({ theme: 'dark' })
+  })
+  await page.waitForTimeout(900)
+  // tab B reloads: the rules and the marker are still there, tab A's theme too
+  await openApp(other, wsId)
+  await waitOnline(other)
+  expect(await deviceOf(other)).toEqual({ ai: { gen: 2 }, keys: { openrouter: MARKER } })
+  expect(await wsEval(other, (s) => s.settings.theme)).toBe('dark')
+})

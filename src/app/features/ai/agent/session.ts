@@ -440,7 +440,8 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
     // the One memory: the request goes into the memory log; proposals for what is worth keeping
     const staged = turnChanges(n)
     const result = status === 'done' || status === 'limit' ? (staged.length ? tn('features.memory.result.changes', staged.length) : t('features.memory.result.answer')) : t(status === 'stopped' ? 'features.memory.result.stopped' : 'features.memory.result.failed')
-    noteUse(answer, mem.use, { task, where: { kind: 'terminal' }, pageId, result })
+    // a task refused for a key in its text was never sent: no row (the key would be its name)
+    if (error?.code !== 'key_in_text') noteUse(answer, mem.use, { task, where: { kind: 'terminal' }, pageId, result })
     if (status === 'done' && proposalsOn() && !trivialTask(task, staged.length)) void proposeFor(n, task, answer, mem.use?.items.map((x) => x.text) ?? [])
   }
 

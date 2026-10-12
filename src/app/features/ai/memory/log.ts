@@ -5,7 +5,8 @@
  * it), Memories (all that went along) and Used (those Claude cited [M3]) — two-way relations, so each
  * memory shows "Used in" / "Cited in" and its Uses / Last used rollups — and Result (one line).
  *
- * Privacy: only the request text the person typed and links — never page content or Claude's answer.
+ * Privacy: only the request text the person typed (key-shaped parts scrubbed) and links — never page content or
+ * Claude's answer.
  * Written with origin 'ai', once per request. The newest 500 rows stay; older ones go to the trash
  * (never deleted for good). Settings → "Keep a usage log" off: no new rows.
  */
@@ -18,6 +19,7 @@ import { ensureLog, logDbId, logProps, memoryDbId, memoryProps, memoryReadOnly, 
 import { memorySettings } from './settings'
 import type { MemoryUse, PickedMemory } from './types'
 import { SYSTEM, withWriter, type Writer } from '../../../store/writer'
+import { scrubSecrets } from '@/shared/ai/keys'
 
 export const LOG_KEEP = 500
 /** the memory feature's own structure, set up on the person's behalf (store/writer.ts) */
@@ -86,7 +88,8 @@ function logNow(opts: { task: string; where: LogWhere; pageId?: ID | null; use: 
   if (lr.used) properties[lr.used] = used
   if (lr.page && pageTitle) properties[lr.page] = pageTitle
   if (lr.result && opts.result) properties[lr.result] = clip(opts.result, 120)
-  const title = `${format(new Date(), 'yyyy-MM-dd HH:mm')} · ${clip(opts.task, 80) || '—'}`
+  // a key typed into a request never becomes workspace data (the row syncs, backs up and exports)
+  const title = `${format(new Date(), 'yyyy-MM-dd HH:mm')} · ${clip(scrubSecrets(opts.task), 80) || '—'}`
   const rowId = ws().createRow(logId, { title, properties })
   // the reverse sides: "Used in" / "Cited in" on each memory
   if (mr.usedIn) for (const id of memories) appendRel(id, mr.usedIn, rowId)

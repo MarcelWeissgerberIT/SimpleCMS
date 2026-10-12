@@ -25,12 +25,3 @@ export function guardWorkspaceLook(doc: Y.Doc, opts: { workspaceId: string; log:
 export function guardIntegrations(doc: Y.Doc, opts: { workspaceId: string; log: Logger; roleOf?: (userId: string) => unknown }): () => void {
   return guardAdminKeys(doc, { ...opts, map: 'integrations', what: 'integration profile' })
 }
-
-/**
- * The workspace's AI rules (docs/CLOUD.md § Meta document schema → workspace.ai; app: src/app/store/ai.ts): key `ai` of
- * the meta document's `workspace` map — owners and admins only, the same rules as the look. Every reader sanitizes the
- * value (src/shared/ai/policy.ts sanitizeWorkspaceAI); the guard does not judge it.
- */
-export function guardWorkspaceAI(doc: Y.Doc, opts: { workspaceId: string; log: Logger; roleOf?: (userId: string) => unknown }): () => void {
-  return guardAdminKeys(doc, { ...opts, map: 'workspace', key: 'ai', what: 'workspace AI rules' })
-}

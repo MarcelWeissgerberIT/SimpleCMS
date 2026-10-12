@@ -113,6 +113,8 @@ export async function askWorkspace(opts: {
   /** what may be read of one page (its context marks): text = the readable part, null = leave the page out */
   limit?: { id: ID; text: string | null } | null
 }): Promise<{ text: string; sources: WorkspaceSource[] }> {
+  // the gate first (newer AI rules, a key typed into the question …): nothing is retrieved or recorded when it refuses
+  precheck({ purpose: 'workspace.ask', sources: [{ all: true }], typed: opts.question })
   const lim = opts.limit
   const docs = lim ? workspaceDocs().flatMap((d) => (d.id !== lim.id ? [d] : lim.text === null ? [] : [{ ...d, text: lim.text }])) : workspaceDocs()
   const hits = retrieve(opts.question, docs)
@@ -121,9 +123,8 @@ export async function askWorkspace(opts: {
   // what goes out: the workspace as a whole — the pages retrieval picked (core/sources.ts)
   const refs: SourceRef[] = [{ all: true }, ...hits.map((d) => ({ page: d.id }))]
   if (usesDemo()) {
-    // demo answers are local, never sent — the gate still decides (newer rules, a key typed into the question)
-    precheck({ purpose: 'workspace.ask', sources: refs, typed: opts.question })
-    // demo (no key): answer from the retrieved pages themselves, with real citations
+    // demo (no key): answer from the retrieved pages themselves, with real citations — local, never sent (the gate
+    // decided above)
     const lang = useWorkspace.getState().settings.language === 'de' ? 'de' : 'en'
     const text = await streamDemoText(demoWorkspaceAnswer(opts.question, hits, keywords(opts.question), lang), opts.onToken, opts.signal)
     return { text: text.trim(), sources }

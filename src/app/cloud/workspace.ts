@@ -22,12 +22,13 @@ import { displayName, toneCss, userTone, within, writeSession } from './env'
 import { isForgetting } from './device'
 import { kickUploads, publishReferenced, startFiles } from './files'
 import { queuePurge, startPurge } from './purge'
-import { loadContentCache, loadOverlay, saveOverlay, type Overlay } from './local'
+import { loadContentCache, loadOverlay, writeOverlay, type Overlay } from './local'
 import { LOCAL, roots } from './schema'
 import { closeSocket, getSocket, isConnected, onConnection, reconnectSocket } from './socket'
 import { useCloud, useCloudSync, type CloudUser, type CloudWorkspace, type Peer, type Role } from './state'
 import { readOnlyFor, watchSchema } from './schemaGate'
 import { SYSTEM, withWriter } from '../store/writer'
+import { withCleanAISettings } from '../store/ai'
 
 export interface ActiveCloud {
   ws: CloudWorkspace
@@ -42,6 +43,12 @@ export interface ActiveCloud {
 }
 
 let active: ActiveCloud | null = null
+
+/** Tabs of one workspace on this device tell each other that the overlay's settings changed. */
+const OVERLAY_TAB = Math.random().toString(36).slice(2)
+const overlayPing: BroadcastChannel | null = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('one-overlay') : null
+/** Settings each tab sets from the server / account, never from another tab's overlay. */
+const TAB_OWN_SETTINGS = new Set<keyof Settings>(['workspaceName', 'userName', 'lastPageId'])
 /** Signed out / removed: nothing syncs any more (the local copy stays readable). */
 let stopped = false
 
@@ -159,6 +166,9 @@ export async function openCloudWorkspace(ws: CloudWorkspace, user: CloudUser, on
     /* ---------------- overlay (this device) */
 
     const pending = new Set<ID>(overlay.pending)
+    // the settings keys this tab changed since its last save: only those go over the stored overlay (writeOverlay)
+    const dirty = new Set<keyof Settings>()
+    let replaying = false
     let overlayTimer: number | undefined
     const saveOverlayNow = () => {
       window.clearTimeout(overlayTimer)
@@ -168,16 +178,47 @@ export async function openCloudWorkspace(ws: CloudWorkspace, user: CloudUser, on
       const s = useWorkspace.getState()
       const favs: ID[] = []
       for (const p of Object.values(s.pages)) if (p.favorite) favs.push(p.id)
-      void saveOverlay(ws.id, { settings: s.settings, favorites: favs, recent: s.recent, pending: [...pending] }).catch(() => {})
+      const mine = [...dirty]
+      dirty.clear()
+      void writeOverlay(ws.id, { settings: s.settings, favorites: favs, recent: s.recent, pending: [...pending] }, mine)
+        .then(() => mine.some((k) => !TAB_OWN_SETTINGS.has(k)) && overlayPing?.postMessage({ ws: ws.id, from: OVERLAY_TAB }))
+        .catch(() => mine.forEach((k) => dirty.add(k)))
     }
     const scheduleOverlay = () => {
       window.clearTimeout(overlayTimer)
       overlayTimer = window.setTimeout(saveOverlayNow, 400)
     }
     useWorkspace.subscribe((s, prev) => {
+      if (s.settings !== prev.settings && !replaying) for (const k of Object.keys({ ...s.settings, ...prev.settings }) as Array<keyof Settings>) if (s.settings[k] !== prev.settings[k]) dirty.add(k)
       if (s.settings !== prev.settings || s.recent !== prev.recent || s.pages !== prev.pages) scheduleOverlay()
     })
     window.addEventListener('pagehide', () => overlayTimer !== undefined && saveOverlayNow())
+    // another tab of this workspace on this device saved settings (a key, the device's AI rules …): read them here too —
+    // what this tab changed and has not saved yet stays; the gate then sees a newer rule generation and refuses ('reload')
+    overlayPing?.addEventListener('message', (e: MessageEvent) => {
+      const m = e.data as { ws?: unknown; from?: unknown } | null
+      if (!m || m.ws !== ws.id || m.from === OVERLAY_TAB || isForgetting(ws.id)) return
+      void loadOverlay(ws.id).then((o) => {
+        if (!o?.settings) return
+        const cur = useWorkspace.getState().settings
+        const next = { ...cur } as Record<string, unknown>
+        const stored = o.settings as unknown as Record<string, unknown>
+        let changed = false
+        for (const k of Object.keys({ ...stored, ...cur }) as Array<keyof Settings>) {
+          if (dirty.has(k) || TAB_OWN_SETTINGS.has(k) || JSON.stringify(stored[k]) === JSON.stringify(cur[k])) continue
+          if (stored[k] === undefined) delete next[k]
+          else next[k] = stored[k]
+          changed = true
+        }
+        if (!changed) return
+        replaying = true
+        try {
+          withWriter(SYSTEM('tab'), () => useWorkspace.setState({ settings: withCleanAISettings(next as unknown as Settings) }))
+        } finally {
+          replaying = false
+        }
+      })
+    })
 
     /* ---------------- presence */
 

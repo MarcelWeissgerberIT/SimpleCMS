@@ -6,7 +6,7 @@
 import type { JSONContent } from '@tiptap/core'
 import type { Lang } from '@/shared/i18n'
 import type { DeviceAI, RouteRule, WorkspaceAI } from '@/shared/ai/types'
-import type { AgentReview, SaverRule } from '@/shared/ai/route'
+import type { AgentReview, SaverRule, Unreadable } from '@/shared/ai/route'
 
 export type ID = string
 
@@ -1245,13 +1245,14 @@ export interface CustomAgent {
    * Multi-provider (src/shared/ai/route.ts AgentAIFields, kept by every reader from slice 1, used later): own pins
    * (null = the workspace / device rule for agents), the advisory reviewer, the governor's saver rule, the 'p:m' the
    * person confirmed apply-mode on, the inherited workspace rule's signature at the creator's last save. `model` /
-   * `effort` stay and are kept in step while pin 1 is Claude. A browser run whose pin 1 is not Claude ends as an error
-   * run without a request (features/agents/routeBlock.ts).
+   * `effort` stay and are kept in step while pin 1 is Claude. A browser run whose pin 1 is not Claude, or whose fields
+   * this build cannot read (kept as they were, `Unreadable`), ends as an error run without a request
+   * (features/agents/routeBlock.ts).
    */
-  route?: RouteRule | null
-  review?: AgentReview | null
-  saverRule?: SaverRule | null
-  applyOn?: string
+  route?: RouteRule | null | Unreadable
+  review?: AgentReview | null | Unreadable
+  saverRule?: SaverRule | null | Unreadable
+  applyOn?: string | Unreadable
   routeSig?: string
   /** estimated budget per run in USD: the run stops (status 'budget') when it is exceeded */
   maxRunUsd: number

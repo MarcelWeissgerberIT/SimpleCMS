@@ -110,7 +110,8 @@ export function capsOf(route: Pick<Route, 'p' | 'm'>): Caps | null {
 
 const ID_RE: Record<ProviderId, RegExp> = {
   anthropic: /^claude-[a-z0-9][a-z0-9.-]{0,62}$/,
-  openai: /^(ft:)?[a-z0-9][a-z0-9._:-]{0,95}$/,
+  // a fine-tune's id ends in a mixed-case suffix ('ft:gpt-6-luna:nordlicht:tessera:9ABel2dg')
+  openai: /^(ft:[a-z0-9][A-Za-z0-9._:-]{0,119}|[a-z0-9][a-z0-9._:-]{0,95})$/,
   // vendor/model[:variant] — no '~' aliases, no '@' presets
   openrouter: /^[a-z0-9][a-z0-9._-]{0,47}\/[a-z0-9][a-z0-9._:-]{0,95}$/,
 }

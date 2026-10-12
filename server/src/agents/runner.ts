@@ -243,8 +243,9 @@ export async function runAgent(input: RunInput): Promise<RunOutcome> {
   })
 
   if (!runtime.claudeKey) return outcome('error', 'The server runtime has no Claude key.')
-  // a first pin on another provider never reaches the Claude API (the service skips such runs before they start)
-  if (!runsOnClaude(agent.route)) return outcome('error', 'This agent needs a newer server: its first route is not Claude.')
+  // a first pin on another provider, or a route this server cannot read, never reaches the Claude API (the service
+  // skips such runs before they start)
+  if (!runsOnClaude(agent)) return outcome('error', 'This agent needs a newer server: its route is not Claude, or one this server cannot read.')
 
   // MCP servers the agent names and the runtime has (the rest is noted, not fatal); only the tools its allow-list names
   const allow = agent.mcpTools ?? {}

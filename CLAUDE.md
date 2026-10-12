@@ -146,9 +146,11 @@ the public APIs stable — other areas are built against them in parallel.
   `maxRunUsd` on the sum of entries; a response without a price stops a budgeted run). `memoryRef(block)` names the
   memory database as a source when a memory block goes along. `Workspace.ai`, `settings.ai`, `settings.aiKeys` and
   `CustomAgent.route / review / saverRule / applyOn / routeSig` are kept by every reader and written by nobody yet
-  (team: meta map `workspace` key `ai`, guarded by the server, read-only in S1). A browser agent whose route is not
-  Claude (or names a provider this build cannot run, features/agents/routeBlock.ts `RUNNABLE_PROVIDERS`) ends as an
-  error run without a request; the server skips it with its reason. features/index.ts exports `aiStatus` and the AI
+  (team: meta map `workspace` key `ai`, guarded by the server — server/src/collab/workspace-ai.ts — read-only in S1).
+  A rule with one pin a build cannot read is unreadable as a whole (never a pin dropped); an agent field it cannot read
+  is kept as it was (`Unreadable`, src/shared/ai/route.ts) and blocks the agent (`agentAIReadable` / `runsOnClaude`). A
+  browser agent whose route is not Claude (or names a provider this build cannot run, features/agents/routeBlock.ts
+  `RUNNABLE_PROVIDERS`, or cannot be read) ends as an error run without a request; the server skips it with its reason. features/index.ts exports `aiStatus` and the AI
   types (`PurposeId`, `SourceRef`, `DataClass`, `FeatureClass`, `Route`, `RouteRule`, `ProviderId`).
 - Markdown files One reads back (Markdown export, folder / GitHub sync) write date / person mentions as
   `[@label](one:date/<id>?r=<code>)` / `[@label](one:person/<id>)` (features/io/import/mentions.ts); share / site /

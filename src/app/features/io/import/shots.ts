@@ -8,6 +8,7 @@
 import type { JSONContent } from '@tiptap/core'
 import { loadImageForClaude } from '../../ai/image/load'
 import { requestImage } from '../../ai/image/request'
+import { precheck } from '../../ai/core/gate'
 import { parseDescription } from '../../ai/image/answers'
 import { stripFence } from '../../ai/client'
 import { withoutWebImages } from '../../agents/images'
@@ -19,11 +20,13 @@ export interface ShotDescription {
 }
 
 export async function describeShot(file: Blob, lang: 'en' | 'de', signal?: AbortSignal): Promise<ShotDescription> {
+  // an uploaded screenshot (the person ticked and confirmed it): no page goes along
+  const gate = { purpose: 'vision.design' as const, sources: [{ file: 'upload' as const }] }
+  // the gate first (newer AI rules, AI off, no key …): the picture is not even loaded when it refuses
+  precheck(gate)
   const url = URL.createObjectURL(file)
   try {
     const image = await loadImageForClaude(url, signal)
-    // an uploaded screenshot (the person ticked and confirmed it): no page goes along
-    const gate = { purpose: 'vision.design' as const, sources: [{ file: 'upload' as const }] }
     const d = parseDescription(await requestImage({ ...gate, action: 'describe', image, lang, signal }))
     const md = withoutWebImages(stripFence(await requestImage({ ...gate, action: 'read', image, lang, signal }))).trim()
     const { markdownToDoc } = await import('../../../editor')

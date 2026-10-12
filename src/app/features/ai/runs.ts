@@ -29,6 +29,7 @@ import { AIError, runAI, stripFence, type AIAction, type AIErrorCode } from './c
 import { pageRef } from './core/refs'
 import { addToReceipt, tapSignal, type Receipt } from './core/meter'
 import type { CostSource, LedgerEntry, ProviderId, StepNote, Usage } from '@/shared/ai/types'
+import { scrubSecrets } from '@/shared/ai/keys'
 import { askWorkspace, type WorkspaceSource } from './workspace'
 import type { McpCall } from './mcp-servers/activity'
 import { mapTarget, reanchor, type RunTarget } from './runsTarget'
@@ -493,7 +494,8 @@ async function execute(id: string, editor: Editor) {
   } finally {
     untap()
     if (controllers.get(id) === ac) controllers.delete(id)
-    if (memLog) {
+    // a request refused for a key in its text was never sent: no row in the memory log (the key would be its name)
+    if (memLog && S().runs[id]?.error?.code !== 'key_in_text') {
       const done = S().runs[id]?.status === 'done'
       const result = done ? t('features.memory.result.answer') : t(ac.signal.aborted ? 'features.memory.result.stopped' : 'features.memory.result.failed')
       noteUse(outcome || S().runs[id]?.output || '', memLog.use, { task: memLog.task, where: { kind: 'menu' }, pageId: run.pageId, result })
@@ -674,6 +676,10 @@ const kv = () => (db ??= createStore('one-ai-runs', 'runs'))
 const diskKey = (run: Pick<AIRun, 'scope' | 'id'>) => `${run.scope}|${run.id}`
 const timers = new Map<string, number>()
 
+/** A stored run with every key-shaped part of its text replaced (src/shared/ai/keys.ts). */
+const scrubbed = (v: unknown): unknown =>
+  typeof v === 'string' ? scrubSecrets(v) : Array.isArray(v) ? v.map(scrubbed) : v && typeof v === 'object' ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, scrubbed(x)])) : v
+
 function persist(id: string) {
   window.clearTimeout(timers.get(id))
   timers.set(
@@ -684,7 +690,8 @@ function persist(id: string) {
       if (!run) return
       // a run in flight is saved without the text so far: after a reload it is 'interrupted' anyway
       const out = run.status === 'running' ? { ...run, output: '' } : run
-      void idbSet(diskKey(run), JSON.parse(JSON.stringify(out)), kv()).catch(() => {})
+      // a key typed into a request (the gate refused it, nothing was sent) never reaches the disk
+      void idbSet(diskKey(run), scrubbed(JSON.parse(JSON.stringify(out))), kv()).catch(() => {})
     }, 250),
   )
 }

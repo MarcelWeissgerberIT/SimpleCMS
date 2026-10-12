@@ -49,12 +49,12 @@ export interface CustomAgent {
   /**
    * Multi-provider fields (src/shared/ai/route.ts, kept by every reader from slice 1 on): own pins, reviewer, saver
    * rule, the route apply-mode was confirmed on, the inherited rule's signature. This server runs only agents whose
-   * first pin is Claude (service.ts skips the others with a reason).
+   * first pin is Claude and whose fields it can all read (service.ts skips the others with a reason).
    */
   route?: AgentAIFields['route']
   review?: AgentAIFields['review']
   saverRule?: AgentAIFields['saverRule']
-  applyOn?: string
+  applyOn?: AgentAIFields['applyOn']
   routeSig?: string
 }
 

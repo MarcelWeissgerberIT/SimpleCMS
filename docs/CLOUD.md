@@ -562,8 +562,9 @@ work, limits — src/shared/ai/types.ts `WorkspaceAI`) are the owners' and admin
 client reads the key through `sanitizeWorkspaceAI` and keeps it through its own edits; slice 1 of the multi-provider
 work reads it only — nothing writes it yet, and a tab whose build is older than the rules' `gen` refuses AI requests
 ('reload') instead of ignoring rules it does not know. Custom agents' route fields (`route`, `review`, `saverRule`,
-`applyOn`, `routeSig`) are kept by the server's sanitizer too; a server run whose first route is not Claude is skipped
-with its reason (no request).
+`applyOn`, `routeSig`) are kept by the server's sanitizer too — one it cannot read is kept as it was, never dropped; a
+server run whose first route is not Claude, or whose route fields the server cannot read, is skipped with its reason
+(no request).
 
 The **integration profiles** (`integrations`, app: Workspace → Integrations, `src/app/features/agents/integrations`) follow the same
 rules for every key of their map (`server/src/collab/admin-map.ts`, the guard the look uses too): a member's add, change or removal
@@ -575,7 +576,10 @@ workspace takes them along (the uploader is stamped).
 
 Not synced (per person, per device): `favorite`, `recent`, all `Settings` (theme, language,
 **AI key**, sidebar), `contentRev`, `contentOrigin`. The client keeps them in a small local
-overlay per workspace. The inbox (reminders that fired, mentions, assignments, replies, read and
+overlay per workspace. Two tabs of one workspace on a device share it: a tab writes only the settings keys it changed
+over the stored ones (one IndexedDB transaction, `cloud/local.ts` `writeOverlay`) and tells the others
+(BroadcastChannel `one-overlay`), which read the changed keys in — so a key or this device's AI rules saved in one tab
+are never put back by another, and an open tab sees a newer rules generation at once. The inbox (reminders that fired, mentions, assignments, replies, read and
 archived marks — `src/app/features/inbox`) is also per device: it is derived from the synced data and
 kept in IndexedDB (`one-inbox`); removing a workspace's copy from a device removes it too. So are the
 page visits behind the sidebar's and ⌘K's FREQUENT list (`src/app/shell/lib/visits.ts`: which pages this

@@ -12,7 +12,7 @@ import { AI_ERROR_CODES, fallbackOf, isAIErrorCode } from '../../src/shared/ai/e
 import { MODELS, capsOf, labelOf, modelBase, modelIdProblem, modelRow, refusedSlug, sameModel, vendorOf } from '../../src/shared/ai/models'
 import { PRICES, PRICES_DATE, blendedPerM, costOf, priceRow, tierLabel } from '../../src/shared/ai/prices'
 import { estimateUsage, normalise, addUsage } from '../../src/shared/ai/usage'
-import { legacyRule, routeKey, sanitizeRoute, sanitizeRule } from '../../src/shared/ai/route'
+import { agentAIReadable, legacyRule, readAgentRoute, routeKey, runsOnClaude, sanitizeAgentAI, sanitizeRoute, sanitizeRule } from '../../src/shared/ai/route'
 import { AI_POLICY_GEN, policyKnown, requiredGen, sanitizeDeviceAI, sanitizeWorkspaceAI, storedGen } from '../../src/shared/ai/policy'
 import { looksLikeKey, scrubSecrets } from '../../src/shared/ai/keys'
 import type { PriceRow, Usage } from '../../src/shared/ai/types'
@@ -32,6 +32,9 @@ test.describe('models and slugs', () => {
     expect(modelIdProblem('anthropic', 'Claude-Opus')).toBe('format')
     expect(modelIdProblem('openai', 'gpt-6.1-sol')).toBeNull()
     expect(modelIdProblem('openai', 'ft:gpt-6-luna:nordlicht:tessera:abc1')).toBeNull()
+    // a fine-tune's id ends in a mixed-case suffix; plain ids stay lower case
+    expect(modelIdProblem('openai', 'ft:gpt-4o-mini-2024-07-18:my-org:custom_suffix:9ABel2dg')).toBeNull()
+    expect(modelIdProblem('openai', 'GPT-6-luna')).toBe('format')
     expect(modelIdProblem('openai', '-gpt')).toBe('format')
     expect(modelIdProblem('openrouter', 'vendor-a/model-b')).toBeNull()
     expect(modelIdProblem('openrouter', 'vendor-a/model-b:free')).toBeNull()
@@ -186,20 +189,55 @@ test.describe('usage', () => {
 })
 
 test.describe('stored shapes', () => {
-  test('routes and rules: stored providers only, 1–3 pins, repeats dropped', () => {
+  test('routes and rules: stored providers only, 1–3 pins, repeats dropped; one unreadable pin makes the rule unreadable', () => {
     expect(sanitizeRoute({ p: 'openrouter', m: 'x/y', effort: 'high' })).toEqual({ p: 'openrouter', m: 'x/y', effort: 'high' })
     expect(sanitizeRoute({ p: 'openrouter', m: 'x/y', effort: 'max' })).toEqual({ p: 'openrouter', m: 'x/y' })
     expect(sanitizeRoute({ p: 'demo', m: 'canned' })).toBeNull()
     expect(sanitizeRoute({ p: 'anthropic', m: 'gpt-6-luna' })).toBeNull()
     expect(sanitizeRoute({ p: 'openrouter', m: 'openrouter/auto' })).toBeNull()
-    const pins = [{ p: 'anthropic', m: 'claude-opus-5-5' }, { p: 'anthropic', m: 'claude-opus-5-5' }, { p: 'demo', m: 'x' }, { p: 'openai', m: 'gpt-6-luna' }, { p: 'openrouter', m: 'x/y' }, { p: 'openrouter', m: 'x/z' }]
+    const pins = [{ p: 'anthropic', m: 'claude-opus-5-5' }, { p: 'anthropic', m: 'claude-opus-5-5' }, { p: 'openai', m: 'gpt-6-luna' }, { p: 'openrouter', m: 'x/y' }]
     expect(sanitizeRule(pins)).toEqual([{ p: 'anthropic', m: 'claude-opus-5-5' }, { p: 'openai', m: 'gpt-6-luna' }, { p: 'openrouter', m: 'x/y' }])
+    // never a pin dropped (the next one would move up): the whole rule or nothing
+    expect(sanitizeRule([{ p: 'demo', m: 'x' }, ...pins])).toBeNull()
+    expect(sanitizeRule([{ p: 'google', m: 'gemini-x' }, { p: 'anthropic', m: 'claude-sonnet-5-5' }])).toBeNull()
+    expect(sanitizeRule([...pins, { p: 'openrouter', m: 'x/z' }])).toBeNull()
     expect(sanitizeRule([])).toBeNull()
     expect(sanitizeRule('x')).toBeNull()
     expect(legacyRule('claude-sonnet-5-5', true)).toEqual([{ p: 'anthropic', m: 'claude-sonnet-5-5' }])
     // an unknown setting goes to the default model, as before
     expect(legacyRule('claude-haiku-5-5', true)).toEqual([{ p: 'anthropic', m: 'claude-opus-5-5' }])
     expect(legacyRule('claude-opus-5-5', false)).toEqual([])
+  })
+
+  test('agent fields: a route, reviewer or saver rule this build cannot read is kept as it was and never runs (fail closed)', () => {
+    const FT = 'ft:gpt-4o-mini-2024-07-18:my-org:custom_suffix:9ABel2dg'
+    // a fine-tune in front of Claude reads (both pins); it is not Claude, so it does not run here
+    const ft = sanitizeAgentAI({ route: [{ p: 'openai', m: FT }, { p: 'anthropic', m: 'claude-sonnet-5-5' }] })
+    expect(ft.route).toEqual([{ p: 'openai', m: FT }, { p: 'anthropic', m: 'claude-sonnet-5-5' }])
+    expect(runsOnClaude(ft)).toBe(false)
+    // a provider this build does not know: kept whole (no pin dropped, Claude never moves up), unreadable, not run
+    const raw = { route: [{ p: 'google', m: 'gemini-x' }, { p: 'anthropic', m: 'claude-sonnet-5-5' }] }
+    const g = sanitizeAgentAI(raw)
+    expect(g.route).toEqual(raw.route)
+    expect(readAgentRoute(g.route)).toBe('unreadable')
+    expect(agentAIReadable(g)).toBe(false)
+    expect(runsOnClaude(g)).toBe(false)
+    // kept through a second read and a JSON round trip (a save from this tab writes it back unchanged)
+    expect(sanitizeAgentAI(JSON.parse(JSON.stringify(g)))).toEqual(g)
+    // the same for a reviewer, a saver rule and applyOn
+    for (const extra of [{ review: { route: [{ p: 'google', m: 'gemini-x' }], mode: 'hold' } }, { saverRule: { overUsd: 0.5, to: { p: 'google', m: 'gemini-x' } } }, { applyOn: 'google:gemini-x' }]) {
+      const a = sanitizeAgentAI({ route: [{ p: 'anthropic', m: 'claude-sonnet-5-5' }], ...extra })
+      expect(a).toMatchObject(extra)
+      expect(runsOnClaude(a)).toBe(false)
+    }
+    // positive controls: Claude first, legacy (absent / null) — runs
+    expect(runsOnClaude(sanitizeAgentAI({ route: [{ p: 'anthropic', m: 'claude-sonnet-5-5' }, { p: 'openrouter', m: 'x/y' }] }))).toBe(true)
+    expect(runsOnClaude(sanitizeAgentAI({}))).toBe(true)
+    expect(runsOnClaude(sanitizeAgentAI({ route: null }))).toBe(true)
+    expect(sanitizeAgentAI({})).toEqual({})
+    // too big to keep: a marker that still reads as unreadable
+    const huge = sanitizeAgentAI({ route: [{ p: 'google', m: 'x'.repeat(5000) }] })
+    expect(runsOnClaude(huge)).toBe(false)
   })
 
   test('Workspace.ai: a full shape survives twice unchanged; junk and demo are dropped; nothing valid = undefined', () => {
