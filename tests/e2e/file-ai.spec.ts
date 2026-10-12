@@ -626,7 +626,7 @@ test.describe('Claude for files', () => {
     const key = card(page, id, CSV.name).getByTestId('file-ai-key')
     await expect(key).toHaveText(/KI/)
     await key.click()
-    await expect(page.getByRole('menu').getByText('AI', { exact: true })).toBeVisible()
+    await expect(page.getByRole('menu').getByText('KI', { exact: true })).toBeVisible()
     await expect(page.getByRole('menuitem', { name: /Als Datenbank importieren/ })).toContainText('LOKAL')
     await page.getByRole('menuitem', { name: /Als Tabellenkalkulation öffnen/ }).click()
     const ai = panel(page)
