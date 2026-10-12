@@ -20,6 +20,7 @@
  *   member     = "member:" Account        api = "api:" Id            hook = "hook:" Id     "team"
  *   eject      = "eject:" Id ">" WriterKey                 rewind = "rewind:" Id
  *   system     = "system:" SystemWhy                       "unknown"
+ *   Change     = Id { "+" Id } | "*"     (several staged changes written in ONE write; "*": too many to name)
  */
 import type { LaneKey, RunKind } from './types'
 
@@ -61,7 +62,7 @@ export interface ParsedKey {
   /** you: how; editor: '+m' mixed */
   via?: string
   ref?: string
-  /** terminal / agent: the staged change */
+  /** terminal / agent: the staged change (several written in one write joined with '+', '*' too many to name — changeIds) */
   change?: string
   /** agent: received from elsewhere */
   remote?: boolean
@@ -146,6 +147,9 @@ export function parseWriterKey(key: string): ParsedKey {
   out.parts = body.split(':')
   return out
 }
+
+/** The staged change ids of a key's change part (`c2+c3` → [c2, c3]); '*' (too many to name) stays as it is. */
+export const changeIds = (change: string | undefined): string[] => (change ? change.split('+').filter(Boolean) : [])
 
 /** The writer key and its causes, newest first: `automation:…<script:…<you` → [automation…, script…, you]. */
 export function causeChain(key: string): string[] {

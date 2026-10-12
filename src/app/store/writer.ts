@@ -43,10 +43,14 @@ export type Writer =
   | { kind: 'you'; via?: YouVia; ref?: string }
   /** an editor instance ('collab' = typing in a team workspace; `mixed`: a refresh that carried other writers too) */
   | { kind: 'editor'; id: string; mixed?: true }
-  /** an AI terminal apply batch */
+  /**
+   * an AI terminal apply batch — `change`: the staged change it writes; several written in ONE write (a page's edits, a
+   * page's task changes) joined with '+' (writerOfChanges)
+   */
   | { kind: 'terminal'; run: string; change?: string }
   /** AI menu accept, transform, redo, image, file, todb, freeboard, meeting, media, split */
   | { kind: 'ai'; run: string; action: string }
+  /** a custom agent's run — `change` as the terminal's */
   | { kind: 'agent'; id: ID; run: string; change?: string; remote?: true }
   | { kind: 'mcp'; session: string; call: string; tool: string }
   | { kind: 'script'; id: ID | null; run: string; via?: WriterKey }
@@ -127,11 +131,12 @@ export const SYSTEM = (why: SystemWhy): Writer => ({ kind: 'system', why })
 
 /**
  * The writer of ONE write carrying these staged changes of a terminal batch or an agent run (a page's edits, a page's
- * task changes): one change → that change's writer (`…#<change>`, the recorder's unit an eject settles, like any change
- * written alone); several in one write → the run's own (no single change may claim the write). Other writers as they are.
+ * task changes): it names every change it writes (`…#c2` alone, `…#c2+c3` together) — each is a unit of the flight
+ * recorder on the places of that write, so an eject takes them back and settles them together, all or none. None:
+ * the run's own. Other writers as they are.
  */
 export function writerOfChanges(w: Writer, changes: readonly string[]): Writer {
-  return changes.length === 1 && (w.kind === 'terminal' || w.kind === 'agent') ? { ...w, change: changes[0] } : w
+  return changes.length && (w.kind === 'terminal' || w.kind === 'agent') ? { ...w, change: changes.join('+') } : w
 }
 
 /* ------------------------------------------------------------------ */
@@ -139,6 +144,11 @@ export function writerOfChanges(w: Writer, changes: readonly string[]): Writer {
 /* ------------------------------------------------------------------ */
 
 const MAX_KEY = 200
+/**
+ * A change group's room in a key (terminal / agent): it is never cut — a longer group is written as '*' ("changes this
+ * key cannot name": the eject holds its places, model/plan.ts)
+ */
+const MAX_GROUP = 1000
 const MAX_CAUSES = 2
 const ID_RE = /^[A-Za-z0-9_-]{1,64}$/
 const NAME_RE = /^[a-z0-9_]{1,40}$/
@@ -158,6 +168,14 @@ function causeOf(key: unknown, depth: number): string {
   return parts.slice(0, depth).join('<')
 }
 
+/** The staged change(s) part of a terminal / agent key: ids joined with '+', '-' when one is invalid, '*' when too long. */
+function changeOf(v: string): string {
+  const ids = v.split('+')
+  if (ids.length === 1) return id(v)
+  if (!ids.every((x) => ID_RE.test(x))) return '-'
+  return v.length > MAX_GROUP ? '*' : v
+}
+
 const withCause = (base: string, cause: unknown): string => {
   const c = causeOf(cause, MAX_CAUSES)
   return c ? `${base}<${c}` : base
@@ -173,11 +191,11 @@ function rawKey(w: Writer): string {
     case 'editor':
       return `editor:${id(w.id)}${w.mixed ? '+m' : ''}`
     case 'terminal':
-      return `terminal:${id(w.run)}${w.change ? `#${id(w.change)}` : ''}`
+      return `terminal:${id(w.run)}${w.change ? `#${changeOf(w.change)}` : ''}`
     case 'ai':
       return `ai:${id(w.run)}:${name(w.action)}`
     case 'agent':
-      return `agent:${id(w.id)}:${id(w.run)}${w.change ? `#${id(w.change)}` : ''}${w.remote ? '@r' : ''}`
+      return `agent:${id(w.id)}:${id(w.run)}${w.change ? `#${changeOf(w.change)}` : ''}${w.remote ? '@r' : ''}`
     case 'mcp':
       return `mcp:${id(w.session)}:${id(w.call)}:${name(w.tool)}`
     case 'script':
@@ -223,12 +241,16 @@ function rawKey(w: Writer): string {
   }
 }
 
-/** The canonical key of a writer (≤ 200 chars, causes at most 2 deep, invalid id parts replaced by '-'). */
+/**
+ * The canonical key of a writer (≤ 200 chars — a terminal / agent key plus its change group, never cut; causes at most 2
+ * deep, invalid id parts replaced by '-').
+ */
 export function formatWriterKey(w: Writer): WriterKey {
   let key = rawKey(w)
   // too long: drop the deepest causes first, then cut (never inside the own part)
   while (key.length > MAX_KEY && key.lastIndexOf('<') > 0) key = key.slice(0, key.lastIndexOf('<'))
-  return key.length > MAX_KEY ? key.slice(0, MAX_KEY) : key
+  const max = w.kind === 'terminal' || w.kind === 'agent' ? MAX_KEY + MAX_GROUP : MAX_KEY
+  return key.length > max ? key.slice(0, max) : key
 }
 
 /** Events of the person: a store write inside one of them without a frame is theirs (the recorder's fallback, step 3). */

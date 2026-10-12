@@ -53,7 +53,7 @@ export const PLAN_FNS: PlanFns = {
   itemsOf: (content) =>
     itemsOfContent(content)
       .filter((it) => it.synced !== 'copy' && !!it.attrs.itemId)
-      .map((it) => ({ itemId: it.attrs.itemId as string, blockedBy: it.attrs.blockedBy ?? [] })),
+      .map((it) => ({ itemId: it.attrs.itemId as string, blockedBy: it.attrs.blockedBy ?? [], related: it.attrs.related ?? [] })),
   liftMisplacedItems,
 }
 
@@ -207,7 +207,8 @@ export async function inputOf(data: WindowData): Promise<CoreInput> {
       pipelineRole: (db, prop) => (kindOfDb(db) ? codingRoleOf(db, prop) : undefined),
       props: (db) => state.databases[db]?.properties ?? [],
     },
-    items: await itemLookup([...bodies.values()]),
+    // a task may come back (the pins) or go (the window's pages now — one W made, another task linking it)
+    items: await itemLookup([...bodies.values(), ...[...data.places.keys()].filter((p) => p.startsWith('p:')).map((p) => state.pages[p.slice(2)]?.content ?? null)]),
     sources: await sourceFacts(data),
     fns: PLAN_FNS,
   }
@@ -227,18 +228,20 @@ function oldNewKeys(d: WindowData, databases: Record<ID, Database>): Map<PlaceKe
   return out
 }
 
-/** The workspace's tasks — only built when a content that may come back holds one (the index scans every page once). */
+/** The workspace's tasks — only built when a content that may come back or go holds one (the index scans every page once). */
 async function itemLookup(contents: Array<JSONContent | null>): Promise<ItemLookup> {
-  if (!contents.some((c) => !!c && JSON.stringify(c).includes('"workItem"'))) return { livePagesOf: () => [], wouldLoop: () => false }
+  if (!contents.some((c) => !!c && JSON.stringify(c).includes('"workItem"'))) return { livePagesOf: () => [], linkersOf: () => [], wouldLoop: () => false }
   const { getItemIndex, wouldLoop } = await import('../../workitems')
   const index = getItemIndex()
+  const livePagesOf = (id: string): ID[] => {
+    const dups = index.dups.get(id)
+    if (dups?.length) return dups.map((e) => e.pageId)
+    const one = index.byId.get(id)
+    return one ? [one.pageId] : []
+  }
   return {
-    livePagesOf: (id) => {
-      const dups = index.dups.get(id)
-      if (dups?.length) return dups.map((e) => e.pageId)
-      const one = index.byId.get(id)
-      return one ? [one.pageId] : []
-    },
+    livePagesOf,
+    linkersOf: (id) => [...new Set([...(index.dependents.get(id) ?? []), ...(index.relatedBack.get(id) ?? [])].flatMap(livePagesOf))],
     wouldLoop: (from, to) => wouldLoop(index, from, to),
   }
 }

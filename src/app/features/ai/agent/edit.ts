@@ -562,7 +562,7 @@ export async function applyPageEdits(pageId: ID, changes: StagedChange[], run: W
   if (!spots.length) return { ...none, failed }
   const notes: Record<string, string[]> = {}
   for (const sp of spots) if (sp.notes?.length) notes[sp.id] = sp.notes
-  // one edit written alone carries its id (an eject settles it like any other change of the run)
+  // the write names every edit it carries (each a unit an eject settles — together, as they were written)
   const writer = writerOfChanges(run, spots.map((sp) => sp.id))
   const prev = doc.toJSON() as JSONContent
   const invalid = () => ({ ...none, failed: [...failed, ...spots.map((s) => ({ id: s.id, error: t('features.agent.edit.invalid') }))] })

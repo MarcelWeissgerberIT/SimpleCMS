@@ -5,14 +5,15 @@
  * the store — agent runs (review.ts; the caller holds the agent's run lock), the terminal's batches, MCP activity,
  * script runs. Every in-memory Undo of a settled change is told first (settled.ts) and last on the way back.
  *
- * A unit is one staged change of an agent run or a terminal batch (`<runKey>#<change>` — change ids are per run) or a
- * whole MCP call / script run (its run key). A unit is ejected when every place it touched in the window went back (or
+ * A unit is one staged change of an agent run or a terminal batch (`<runKey>#<change>` — change ids are per run; the
+ * changes ONE write carried are a unit each on the same places, so they go or stay together) or a whole MCP call /
+ * script run (its run key). A unit is ejected when every place it touched in the window went back (or
  * had gone back already) and at least one went back now; it comes back only when every place it took back came back.
  * Ids, counts and states only — never text.
  */
 import type { ID } from '../../../store/types'
 import type { CoreInput, Plan } from '../model/plan'
-import { runKindOf } from '../model/writerKeys'
+import { changeIds, runKindOf } from '../model/writerKeys'
 import type { EjectRecord, LaneKey, Outcome, PlaceKey, WindowSel } from '../model/types'
 import type { WindowData } from '../window/load'
 import { markSettled, unmarkSettled } from '../settled'
@@ -46,7 +47,8 @@ export function changeMap(data: Pick<WindowData, 'sel' | 'places'>, plan: Pick<P
       if (e.at < a || e.at >= b || !e.r) continue
       const kind = runKindOf(e.r)
       if (kind === 'agent' || kind === 'terminal') {
-        if (e.c) set.add(`${e.r}#${e.c}`)
+        // '*': a write of more changes than its key could name — the plan holds its place (never a unit)
+        for (const c of changeIds(e.c)) if (c !== '*') set.add(`${e.r}#${c}`)
       } else if (kind === 'mcp' || kind === 'script') set.add(e.r)
     }
     if (set.size) out[x.p] = [...set].sort()

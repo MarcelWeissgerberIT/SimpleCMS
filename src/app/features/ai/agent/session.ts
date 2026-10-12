@@ -36,7 +36,7 @@ import { withRefFiles } from '../file/terminal'
 import { webImagesOf, withoutWebImages } from '../../agents/images'
 import { appliesAlone, forgetStagedIds, noteStagedIds, resolveStaged } from './staged'
 import { newItemSession } from './workItems'
-import { depsOf, type AgentStatus, type AgentStep, type AgentTurn, type StagedChange, type StagedMedia, type TermMention, type TermRef, type TurnContext } from './types'
+import { depsOf, onEjected, type AgentStatus, type AgentStep, type AgentTurn, type StagedChange, type StagedMedia, type TermMention, type TermRef, type TurnContext } from './types'
 import { newId } from '../../../lib/ids'
 import { isEffectivelyTrashed } from '../../../store/selectors'
 import type { SavedMedia } from '../media/types'
@@ -1057,16 +1057,19 @@ export function discardAllStaged() {
  * discarded. Returns the ids brought back.
  */
 export function undiscardStaged(ids: string[]): string[] {
-  // an ejected change never comes back as a proposal (the eject's own Undo gives it back)
+  // an ejected change never comes back as a proposal, nor one that builds on it (it could never apply): the eject's own
+  // Undo gives them back
+  const out = onEjected(get().changes)
   const back = get()
-    .changes.filter((c) => ids.includes(c.id) && c.status === 'discarded' && !c.ejected)
+    .changes.filter((c) => ids.includes(c.id) && c.status === 'discarded' && !out.has(c.id))
     .map((c) => c.id)
   if (back.length) set((s) => ({ changes: s.changes.map((c) => (back.includes(c.id) && c.status === 'discarded' ? { ...c, status: 'pending' } : c)) }))
   return back
 }
 
-/** Bring a discarded proposal back (and the ones it builds on). */
+/** Bring a discarded proposal back (and the ones it builds on) — never one that is or builds on an ejected change. */
 export function restoreStaged(id: string) {
+  if (onEjected(get().changes).has(id)) return
   const back = new Set<string>()
   const todo = [id]
   while (todo.length) {

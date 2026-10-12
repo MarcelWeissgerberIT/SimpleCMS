@@ -51,6 +51,7 @@ The key never writes. It opens the dialog — *Eject 52 writes by Nordlicht mirr
 - **New things go to the trash** — rows and pages the window created are moved to the trash, never deleted.
 - **Held: changed since.** A place someone changed after the window (you, a colleague, another agent, a sync) stays as it is, with the reason in words: *Status is no longer what Nordlicht mirror left: You set "In progress". Stays as it is.* Its card on a board and its row in a table carry a **Held** tag afterwards.
 - **No exact earlier state.** A place whose state before the window this device does not know exactly stays — never a guess.
+- **Tasks.** A [task](help:tasks) is never doubled or lost: one that lives elsewhere now stays, and so does a task the window made while another task still links it (*Blocked by*, *Related*).
 - **Never ejected:** the order of the views, database commands, templates, automations, the coding pipeline, record types, a property of a record type, an option of a shared list — and **memories**, which you edit in their database.
 
 **Revert 35 places** (or <kbd>↵</kbd>, a moment after the dialog opened) writes it: first One saves every page it will change as a version, **Before the eject** ([version history](help:history)); then it checks the plan once more — if anything changed since the dialog opened, nothing is written and the dialog shows the new plan, to confirm again; then everything goes back in **one step**.
@@ -60,7 +61,7 @@ The message after an eject — *35 places by Nordlicht mirror reverted · 2 held
 
 ### What else the eject settles
 - **[Agent runs](help:custom-agents).** The run's proposals that went back read **Ejected** in its review, the held ones **Held · changed since** (still applied); proposals still waiting are discarded — except ones you opened in [Preflight](help:preflight). The Undo brings them back.
-- **AI terminal, MCP, scripts.** An ejected terminal change is discarded and its Undo writes nothing more; an MCP call or a script run reads as undone. The Undo gives them back.
+- **AI terminal, MCP, scripts.** An ejected terminal change is discarded and its Undo writes nothing more; an MCP call or a script run reads as undone. Changes written together — a page's edits, a page's task changes from one **Apply all** — go back together or stay together. A discarded proposal that builds on an ejected one does not come back with its own Undo. The eject's Undo gives them back.
 - **[Outbox](help:outbox).** A row marked as sent is held — a send is never undone. Unsent slips of discarded proposals are withdrawn and stay withdrawn after an Undo; other slips on rows that go back show **CHANGED**.
 - **Coding tasks.** Fields that move a task (Stage, Then, Repo, Branch) are never ejected. A task that gets an agent's text back waits for **Confirm** before the worker takes it.
 - **Triggers.** Automations, row-triggered agents and autofill do not react to an eject or its Undo.

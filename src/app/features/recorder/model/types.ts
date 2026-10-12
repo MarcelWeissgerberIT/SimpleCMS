@@ -349,6 +349,8 @@ export type Reason =
   | 'sent'
   | 'taskElsewhere'
   | 'taskLoop'
+  /** a task the window made would go while a live task links it (Blocked by / Related) */
+  | 'taskLinked'
   | 'running'
   | 'pipeline'
   | 'memory'

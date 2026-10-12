@@ -22,7 +22,7 @@ import { MarkdownLite } from '../ai/MarkdownLite'
 import { MediaToPage } from '../ai/media/MediaToPage'
 import { PropDiff, Preview } from '../ai/agent/AgentSheet'
 import { EditDiff } from '../ai/agent/EditDiff'
-import { depsOf, makesTasks, type DiscardReason, type StagedChange } from '../ai/agent/types'
+import { depsOf, makesTasks, onEjected, type DiscardReason, type StagedChange } from '../ai/agent/types'
 import { ItemFacts } from '../workitems/ItemFacts'
 import type { Database, Page } from '../../store/types'
 import { keyPropOf } from '../../store/keys'
@@ -243,9 +243,11 @@ function Review({ run }: { run: AgentRun }) {
     depsOf(c)
       .map(byId)
       .find((x) => x && x.status !== 'applied') ?? null
-  // an ejected change has no key here: the eject's own Undo gives it back (never a row's Undo, never Apply again)
+  // an ejected change has no key here: the eject's own Undo gives it back (never a row's Undo, never Apply again) — nor
+  // a discarded one that builds on it (its discard's Undo could never make it applicable; another tab's eject too)
+  const ejectedOrOn = onEjected(changes)
   const undoOf = (c: StagedChange): 'apply' | 'discard' | null =>
-    c.status === 'applied' && canUndoChange(run.id, c.id) ? 'apply' : c.status === 'discarded' && !c.ejected && canUndoDiscard(run.id, c.id) ? 'discard' : null
+    c.status === 'applied' && canUndoChange(run.id, c.id) ? 'apply' : c.status === 'discarded' && !ejectedOrOn.has(c.id) && canUndoDiscard(run.id, c.id) ? 'discard' : null
   const quiet = quietGroups(run, changes)
   const quietOf = new Map<string, StagedChange[]>()
   for (const list of quiet.values()) for (const c of list) quietOf.set(c.id, list)

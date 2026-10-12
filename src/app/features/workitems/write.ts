@@ -66,6 +66,11 @@ export interface WriteOptions {
   from?: ID
   /** who writes (store/writer.ts) — default: the frame open around the call, else the person in the UI (`you~ui`) */
   writer?: Writer
+  /**
+   * The writer of ONE page's write, from the edits it carries (their indexes in `edits`): an apply of staged changes
+   * names the changes it writes there (store/writer.ts writerOfChanges). Default: `writer`.
+   */
+  writerOf?: (written: readonly number[]) => Writer
 }
 
 /** The person in the UI (a card, a list, a picker), and an Undo of theirs. */
@@ -190,8 +195,9 @@ export function writeItems(edits: readonly ItemEdit[], opts: WriteOptions = {}):
         return pos === null ? null : itemAttrs(editor.state.doc.nodeAt(pos))
       })
       // the writer's transaction, and the editor's store write at once inside its frame
+      const w = opts.writerOf?.(idxs) ?? writer
       let oks: boolean[] = []
-      editAs(editor, writer, () => {
+      editAs(editor, w, () => {
         oks = commitItems(
           editor,
           idxs.map((i) => ({ target: { itemId: edits[i].itemId }, patch: edits[i].patch })),
@@ -201,7 +207,7 @@ export function writeItems(edits: readonly ItemEdit[], opts: WriteOptions = {}):
       // Claude's change in a local workspace: the content as written, with its origin (a team page's document carries it)
       if (opts.origin === 'ai' && !team && oks.some(Boolean)) {
         const json = editor.getJSON()
-        withWriter(writer, () => useWorkspace.getState().setContent(pageId, json, 'ai'))
+        withWriter(w, () => useWorkspace.getState().setContent(pageId, json, 'ai'))
       }
       idxs.forEach((i, k) => {
         const b = before[k]
@@ -223,6 +229,8 @@ export function writeItems(edits: readonly ItemEdit[], opts: WriteOptions = {}):
       continue
     }
     let doc: JSONContent = page.content
+    // the edits that change the page (one that changes nothing writes nothing)
+    const wrote: number[] = []
     for (const i of idxs) {
       const edit = edits[i]
       const hit = itemsOfContent(doc).find((x) => x.synced !== 'copy' && x.attrs.itemId === edit.itemId)
@@ -237,12 +245,13 @@ export function writeItems(edits: readonly ItemEdit[], opts: WriteOptions = {}):
         continue
       }
       doc = next
+      wrote.push(i)
       const delta = patchItemAttrs(hit.attrs as unknown as Record<string, unknown>, edit.patch, now) ?? {}
       const after = itemAttrs({ ...hit.attrs, ...delta })
       written.push({ itemId: after.itemId ?? edit.itemId, pageId, patch: edit.patch, before: hit.attrs, after })
       if (hit.attrs.status !== 'done' && after.status === 'done') finished.push(after.itemId ?? edit.itemId)
     }
-    if (doc !== page.content) withWriter(writer, () => useWorkspace.getState().setContent(pageId, doc, opts.origin ?? 'items'))
+    if (doc !== page.content) withWriter(opts.writerOf?.(wrote) ?? writer, () => useWorkspace.getState().setContent(pageId, doc, opts.origin ?? 'items'))
   }
 
   // 4: what it freed, toasts

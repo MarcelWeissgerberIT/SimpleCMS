@@ -43,6 +43,8 @@ export interface PinSet {
 export interface ItemLookup {
   /** pages holding a LIVE original of the itemId now (trash and templates left out) */
   livePagesOf(itemId: string): readonly ID[]
+  /** pages holding a LIVE task that links the itemId now (Blocked by or Related) */
+  linkersOf(itemId: string): readonly ID[]
   /** would "from waits for to" close a loop among live tasks */
   wouldLoop(from: string, to: string): boolean
 }
@@ -62,8 +64,8 @@ export interface PlanFns {
   withoutProperty(db: Database, propId: ID): Database
   propertyRefs(db: Database, databases: Record<ID, Database>, propId: ID): string[]
   optionRefs(db: Database, optId: ID): string[]
-  /** the tasks of a content (itemId + blockedBy; synced copies left out) */
-  itemsOf(content: JSONContent | null | undefined): ReadonlyArray<{ itemId: string; blockedBy: readonly string[] }>
+  /** the tasks of a content (itemId + blockedBy + related; synced copies left out) */
+  itemsOf(content: JSONContent | null | undefined): ReadonlyArray<{ itemId: string; blockedBy: readonly string[]; related?: readonly string[] }>
   /** tasks inside a task / a table moved out (the same object when nothing moves) */
   liftMisplacedItems(doc: JSONContent): JSONContent
 }
@@ -219,8 +221,8 @@ interface Ctx {
   fixed: Set<PlaceKey>
   /** `${rowId}|${propId}`: row values that go back (the pass before's fates; the first pass: every value W touched) */
   valueBack: Set<string>
-  /** what the task check held (hunks, row contents, trash, restores, whole places) — only grows, across passes */
-  itemHolds: Set<string>
+  /** what the task check held (hunks, row contents, trash, restores, whole places) and why — only grows, across passes */
+  itemHolds: Map<string, Reason>
   /** this pass: the hunks each page puts back, with the tasks they add and drop */
   applied: Map<ID, AppliedHunk[]>
   /** tasks that lived before W touched the window's pages (lazy) */
@@ -253,11 +255,13 @@ export function core(input: CoreInput, forcedHeld: ReadonlySet<PlaceKey> = new S
       }
       if (known.length && known.every((c) => status!(c) !== 'applied')) set('skip', 'reviewUndone')
       else if (v.changes.some((c) => input.sources.final?.has(c))) set('held', 'notEjectable')
+      // a write of more staged changes than its key could name: no review could be settled for it — it stays
+      else if (v.changes.includes('*')) set('held', 'batch')
       else if (forcedHeld.has(p)) set('held', 'changed')
     }
     start.set(p, plan)
   }
-  const ctx: Ctx = { input, plans: new Map(), windows: data.places, plannedDbs: { ...input.state.databases }, backRows: new Set(), trashIds: new Set(), fixed, valueBack: new Set(), itemHolds: new Set(), applied: new Map(), preItems: null, kids: null }
+  const ctx: Ctx = { input, plans: new Map(), windows: data.places, plannedDbs: { ...input.state.databases }, backRows: new Set(), trashIds: new Set(), fixed, valueBack: new Set(), itemHolds: new Map(), applied: new Map(), preItems: null, kids: null }
   const carry = (plans: Iterable<PlacePlan>, first = false) => {
     ctx.backRows = new Set()
     ctx.trashIds = new Set()
@@ -285,9 +289,9 @@ export function core(input: CoreInput, forcedHeld: ReadonlySet<PlaceKey> = new S
   for (let round = 0; ; round++) {
     ctx.plans = new Map([...start].map(([p, x]) => [p, { ...x, parts: { back: [], held: [] }, notRestored: [] }]))
     ctx.applied = new Map()
-    for (const h of ctx.itemHolds) {
+    for (const [h, why] of ctx.itemHolds) {
       const x = h.startsWith('x:') ? ctx.plans.get(`p:${h.slice(2)}` as PlaceKey) : undefined
-      if (x && !ctx.fixed.has(x.p)) hold(x, 'taskElsewhere')
+      if (x && !ctx.fixed.has(x.p)) hold(x, why)
     }
     schemaPass(ctx)
     rowPass(ctx)
@@ -628,8 +632,9 @@ function rowPass(ctx: Ctx) {
     }
     // task blocks in the content that comes back (whether one lives elsewhere: the task check after the passes)
     if (parts.includes('c')) {
-      if (ctx.itemHolds.has(`r:${id}`)) {
-        hold(x, 'taskElsewhere')
+      const itemWhy = ctx.itemHolds.get(`r:${id}`)
+      if (itemWhy) {
+        hold(x, itemWhy)
         continue
       }
       if (loops(ctx, before.content)) {
@@ -666,15 +671,17 @@ const count = (list: readonly string[], id: string) => list.reduce((n, x) => (x 
 
 /**
  * The task check over the whole plan (§5.2): a task the plan puts back must not live twice once the plan is done —
- * an occurrence the same plan removes (a move inside the page, a cut and paste across pages) does not count — and a
- * task that lived before W must not be lost (its removal stays held when nothing puts it back). Holds the hunk, row
- * content, trash or restore that breaks it (else the page's content, else the place) for the next pass. Resolves
- * whether it held anything new.
+ * an occurrence the same plan removes (a move inside the page, a cut and paste across pages) does not count — a task
+ * that lived before W must not be lost (its removal stays held when nothing puts it back), and a task W made must not
+ * go while a live task the plan leaves links it (Blocked by / Related: never a link to a task that is gone — 'taskLinked').
+ * Holds the hunk, row content, trash or restore that breaks it (else the page's content, else the place) for the next
+ * pass. Resolves whether it held anything new.
  */
 function itemPass(ctx: Ctx): boolean {
   const { input, plans } = ctx
   const nowOf = new Map<ID, string[]>()
   const afterOf = new Map<ID, string[]>()
+  const afterDoc = new Map<ID, JSONContent | null>()
   const liveChange = new Set<ID>()
   for (const x of plans.values()) {
     if (!x.p.startsWith('p:') || !BACK.has(x.outcome) || !x.build || x.build.kind === 'db') continue
@@ -695,9 +702,20 @@ function itemPass(ctx: Ctx): boolean {
     if (trashed !== !!cur.trashed) liveChange.add(id)
     nowOf.set(id, cur.trashed ? [] : itemIdsOf(ctx, cur.content))
     afterOf.set(id, trashed ? [] : itemIdsOf(ctx, content))
+    afterDoc.set(id, trashed ? null : (content ?? null))
   }
   if (!nowOf.size) return false
   const ids = new Set([...nowOf.values(), ...afterOf.values()].flat())
+  // the links the pages the plan changes keep (lazy): a linker elsewhere keeps its link anyway
+  let linksAfter: Set<string> | null = null
+  const linkedAfter = (item: string): boolean => {
+    if (input.items.linkersOf(item).some((pid) => !nowOf.has(pid))) return true
+    if (!linksAfter) {
+      linksAfter = new Set()
+      for (const doc of afterDoc.values()) for (const it of input.fns.itemsOf(doc)) for (const to of [...it.blockedBy, ...(it.related ?? [])]) linksAfter.add(to)
+    }
+    return linksAfter.has(item)
+  }
   let grew = false
   for (const item of ids) {
     const others = input.items.livePagesOf(item).filter((pid) => !nowOf.has(pid)).length
@@ -708,8 +726,13 @@ function itemPass(ctx: Ctx): boolean {
       after += count(afterOf.get(id)!, item)
     }
     let side: 'adds' | 'drops' | null = null
+    let why: Reason = 'taskElsewhere'
     if (after > Math.max(1, now)) side = 'adds'
     else if (after === 0 && now > 0 && preItemsOf(ctx).has(item)) side = 'drops'
+    else if (after === 0 && now > 0 && linkedAfter(item)) {
+      side = 'drops'
+      why = 'taskLinked'
+    }
     if (!side) continue
     const id = [...nowOf.keys()].find((pid) => (side === 'adds' ? count(afterOf.get(pid)!, item) > count(nowOf.get(pid)!, item) : count(afterOf.get(pid)!, item) < count(nowOf.get(pid)!, item)))
     if (!id) continue
@@ -726,7 +749,7 @@ function itemPass(ctx: Ctx): boolean {
     ladder.push(`x:${id}`)
     const next = ladder.find((k) => !ctx.itemHolds.has(k))
     if (next) {
-      ctx.itemHolds.add(next)
+      ctx.itemHolds.set(next, why)
       grew = true
     }
   }
@@ -761,7 +784,7 @@ function pagePass(ctx: Ctx) {
       const f = foreignOn(w, k, lastTo)
       if (f) x.parts.held.push({ part: k, reason: f })
       else if ((left.parts[k] ?? '') !== (now.parts[k] ?? '')) x.parts.held.push({ part: k, reason: 'changed' })
-      else if (k === 'tr' && ctx.itemHolds.has(`tr:${id}`)) x.parts.held.push({ part: k, reason: 'taskElsewhere' })
+      else if (k === 'tr' && ctx.itemHolds.has(`tr:${id}`)) x.parts.held.push({ part: k, reason: ctx.itemHolds.get(`tr:${id}`)! })
       else x.parts.back.push(k)
     }
     // back into the trash (W restored it): never with pages below it that are newer than W's restore (6.2.4)
@@ -920,10 +943,11 @@ function contentPlan(ctx: Ctx, w: PlaceWindow, pageId: ID, lastTo: number): { ba
         reason ??= 'ambiguous'
         continue
       }
-      // the task check after the passes held this hunk (a task doubled or lost), or the page's whole content
-      if (ctx.itemHolds.has(key) || ctx.itemHolds.has(`c:${pageId}`)) {
+      // the task check after the passes held this hunk (a task doubled, lost or still linked), or the page's whole content
+      const itemWhy = ctx.itemHolds.get(key) ?? ctx.itemHolds.get(`c:${pageId}`)
+      if (itemWhy) {
         held++
-        reason ??= 'taskElsewhere'
+        reason ??= itemWhy
         continue
       }
       const json = pinList.json.slice(h.b[0], h.b[1])
@@ -988,7 +1012,7 @@ function newPass(ctx: Ctx) {
         const schema = plans.get(`s:${id}` as PlaceKey)
         if (schema && schema.outcome !== 'trash') why = 'children'
       }
-      if (!why && ctx.itemHolds.has(`t:${id}`)) why = 'taskElsewhere'
+      if (!why && ctx.itemHolds.has(`t:${id}`)) why = ctx.itemHolds.get(`t:${id}`)!
       if (why) {
         hold(x, why)
         trash.delete(id)

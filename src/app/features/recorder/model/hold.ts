@@ -10,6 +10,7 @@ import type { Database, ID, PropertyType } from '../../../store/types'
 import type { WindowData } from '../window/load'
 import { partsDiffer, propKeysAt } from './rowkeys'
 import { isStoredType } from './canon'
+import { changeIds } from './writerKeys'
 import { F, K, type Foreign, type LaneKey, type LeftHash, type NowDigest, type Outcome, type PlaceKey, type PlaceVerdict, type PlaceWindow, type Reason } from './types'
 
 export interface VerdictInput {
@@ -82,7 +83,7 @@ function partHeld(k: string, left: LeftHash, now: NowDigest, foreign: Foreign[])
   return (left.parts[k] ?? '') !== (now.parts[k] ?? '')
 }
 
-/** W's own events of the window in [a, b): Vorgänge, span, staged change ids. */
+/** W's own events of the window in [a, b): Vorgänge, span, staged change ids (a write of several: each of them). */
 function eventFacts(w: PlaceWindow, a: number, b: number): { ops: number; span: [number, number]; changes: string[] } {
   const vs = new Set<string>()
   const changes = new Set<string>()
@@ -91,7 +92,7 @@ function eventFacts(w: PlaceWindow, a: number, b: number): { ops: number; span: 
   for (const e of w.ownEvents) {
     if (e.at < a || e.at >= b) continue
     if (!((e.f ?? 0) & F.COPY)) vs.add(e.v)
-    if (e.c) changes.add(e.c)
+    for (const c of changeIds(e.c)) changes.add(c)
     lo = Math.min(lo, e.at)
     hi = Math.max(hi, e.t2 ?? e.at)
   }

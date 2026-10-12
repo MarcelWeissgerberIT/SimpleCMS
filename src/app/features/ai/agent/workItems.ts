@@ -1017,8 +1017,8 @@ export async function applyItemChanges(pageId: ID, changes: StagedChange[], ctx:
   if (!edits.length) return { applied: [], failed, undo: () => [] }
   const res = writeItems(
     edits.map((x) => x.edit),
-    // one change written alone carries its id (an eject settles it like any other change of the run)
-    { origin: 'ai', by: 'system', toasts: false, writer: writerOfChanges(ctx.writer, edits.map((x) => x.c.id)) },
+    // the page's write names the changes it carries (each a unit an eject settles — together, as they were written)
+    { origin: 'ai', by: 'system', toasts: false, writer: ctx.writer, writerOf: (idxs) => writerOfChanges(ctx.writer, idxs.map((i) => edits[i].c.id)) },
   )
   const applied: string[] = []
   const byItem = new Map<string, string>()

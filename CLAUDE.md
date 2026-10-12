@@ -741,12 +741,17 @@ the public APIs stable — other areas are built against them in parallel.
   (instant from memory, else through the planner), unsettle, record `undone`. settled.ts (`markSettled` / `isSettled`,
   BroadcastChannel) + `isEjectWriter(currentWriter())`: automations, row-triggered agents, autofill, the coding trust watch
   and the attribution keeper skip an eject and its Undo. Units `<runKey>#<change>` (agent / terminal), the run key (MCP,
-  script); a page's edits / task changes written alone carry their change (`writerOfChanges`, store/writer.ts), several in
-  one write only the run (no unit — apply.ts keeps that part's Undo whole once any of it is settled, reported kept, nothing
-  reverted). Trust: an eject writes, voids and re-grants no verdict; `settleEjected` ends the "edited" watches of what it
-  took back (review.ts `endWatches`); ejected rows have no keys (RunHistory `undoOf`), held ones keep theirs. Preflight: ejected proposals become `discarded` + `ejected`, held ones stay applied + `held`, pending ones are
-  discarded except those opened in Preflight; superseded never touched. Task block: writes only through applyRewind, never
-  mints an itemId; a task living elsewhere or looping is held. Outbox: a row marked as sent is held; slips of discarded
+  script); a page's edits / task changes written in ONE write carry every change written (`…#c2+c3`, `writerOfChanges`,
+  store/writer.ts; writeItems `writerOf` names only the edits that changed the page; a group longer than a key holds is
+  `#*` → its places held 'batch'): each is a unit on the same places — ejected, held or brought back together (apply.ts
+  keeps that part's Undo whole once any of it is settled). Trust: an eject writes, voids and re-grants no verdict;
+  `settleEjected` ends the "edited" watches of what it took back (review.ts `endWatches`); ejected rows have no keys
+  (RunHistory `undoOf`), held ones keep theirs. A discarded proposal that is or builds on an ejected change (`onEjected`,
+  ai/agent/types.ts) never opens again through a discard's Undo (review.ts `discardUndo`, its row key gone) or the
+  terminal's undiscardStaged / restoreStaged. Preflight: ejected proposals become `discarded` + `ejected`, held ones stay
+  applied + `held`, pending ones are discarded except those opened in Preflight; superseded never touched. Task block:
+  writes only through applyRewind, never mints an itemId; a task living elsewhere or looping is held, and a task W made
+  stays while a live task the plan leaves links it (Blocked by / Related → 'taskLinked', ItemLookup `linkersOf`). Outbox: a row marked as sent is held; slips of discarded
   send proposals are withdrawn (`'origin'`) and stay withdrawn after an Undo; other slips are never touched. Coding: fields
   that move a task are never ejected; an agent's text back → the task waits for Confirm. Prune keeps the pins of live
   ejects (`protectedSegs`). Toast: glyph 'eject', Mod+Z only while it shows and nothing else owns the keys; an Undo from

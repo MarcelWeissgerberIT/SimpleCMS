@@ -30,7 +30,7 @@ import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
 import { t } from '../../i18n'
 import { applyChanges, type ApplyResult } from '../ai/agent/apply'
-import { depsOf, type DiscardReason, type StagedChange } from '../ai/agent/types'
+import { depsOf, onEjected, type DiscardReason, type StagedChange } from '../ai/agent/types'
 import { asAgent, stampLocal, touchedBy } from './attribution'
 import { scopeFilter } from './scope'
 import { withoutWebImages } from './images'
@@ -429,8 +429,10 @@ function discardUndo(agentId: ID, runId: string, dropped: string[], before: Map<
     for (const k of keys) if (discardUndos.get(k) === undo) discardUndos.delete(k)
     return withRunLock(agentId, async () => {
       const now = (await loadRuns(agentId)).find((r) => r.id === runId)
-      // an ejected change never comes back as a proposal (the eject's own Undo gives it back)
-      const again = new Set((now?.staged ?? []).filter((c) => before.has(c.id) && c.status === 'discarded' && !c.ejected).map((c) => c.id))
+      // an ejected change never comes back as a proposal, nor one that builds on it (it could never apply): the eject's
+      // own Undo gives them back
+      const out = onEjected(now?.staged ?? [])
+      const again = new Set((now?.staged ?? []).filter((c) => before.has(c.id) && c.status === 'discarded' && !out.has(c.id)).map((c) => c.id))
       if (!now || !again.size) return false
       // the agent state goes back only while it is still the one discarding put back (no run, no Clear since)
       const restore = back && sameState(await getAgentState(agentId), back.wrote)
@@ -532,7 +534,8 @@ onSettled((n) => {
  * open proposals too — except those Preflight's supersede guard calls opened (true) or cannot tell yet (null): they
  * stay. Superseded proposals are never touched. `applied` counts down; row ids stay. Their Undo closures go
  * (forgetUndos, forgetRunUndo), their trust watches end (endWatches — no verdict is written, voided or changed: nothing
- * it discards is a decision of the person). Then, every change discarded, the agent state goes back (stateBack).
+ * it discards is a decision of the person); a discard's Undo leaves the rows of proposals that build on one (onEjected).
+ * Then, every change discarded, the agent state goes back (stateBack).
  * Resolves with the run as stored, the ids it discarded (not the ejected ones), the slips of `send` proposals among
  * them, the state put back.
  */
@@ -573,6 +576,10 @@ export async function settleEjected(
   forgetUndos(cur.id, [...out])
   forgetRunUndo(cur.id)
   endWatches(cur.id, [...out])
+  // a discard's Undo kept in the rows of proposals that build on an ejected change goes from those rows (its closure
+  // leaves them alone too)
+  const gone = onEjected(run.staged ?? [])
+  for (const c of run.staged ?? []) if (c.status === 'discarded' && gone.has(c.id)) discardUndos.delete(rowKey(cur.id, c.id))
   const slips = all.filter((c) => drop.has(c.id) && c.send?.slipId).map((c) => c.send!.slipId)
   return { run, discarded: [...drop], slips, state: back ? { wrote: back.wrote, replaced: back.replaced } : null }
 }

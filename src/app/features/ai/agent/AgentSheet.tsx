@@ -36,7 +36,7 @@ import { CodingDiff, FullText, RefsLine, useCodingFlags } from './CodingDiff'
 import { PipelinesOut } from './PipelinesOut'
 import { ConnectLine, ServersOut, SignInKey, SignInOffer, retryOf } from './ConnectOut'
 import { signInFromTerminal } from './connect'
-import { depsOf, makesTasks, type AgentStep, type AgentTurn, type StagedChange } from './types'
+import { depsOf, makesTasks, onEjected, type AgentStep, type AgentTurn, type StagedChange } from './types'
 import { ImageRefChip } from '../image/ImageRefChip'
 import { FileRefChip } from '../file/FileRefChip'
 import { MemoryProposals } from './MemoryProposals'
@@ -1395,9 +1395,12 @@ function ChangeItem({
         ) : (
           <span className="term-change__actions">
             <span className="term-change__state">{t('features.agent.review.discarded')}</span>
-            <button type="button" className="btn btn--ghost btn--sm" onClick={() => restoreStaged(c.id)} disabled={disabled} aria-label={`${t('features.agent.review.restore')} ${label}`}>
-              <Undo2 size={12} strokeWidth={1.75} aria-hidden /> {t('features.agent.review.restore')}
-            </button>
+            {/* an ejected change, or one that builds on it, never comes back here (the eject's own Undo gives it back) */}
+            {!onEjected(all).has(c.id) && (
+              <button type="button" className="btn btn--ghost btn--sm" onClick={() => restoreStaged(c.id)} disabled={disabled} aria-label={`${t('features.agent.review.restore')} ${label}`}>
+                <Undo2 size={12} strokeWidth={1.75} aria-hidden /> {t('features.agent.review.restore')}
+              </button>
+            )}
           </span>
         )}
       </div>
