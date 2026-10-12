@@ -22,7 +22,7 @@ import { withWriter } from '../../../../store/writer'
 import { useLang, useT } from '../../../../i18n'
 import { fmtCost } from '../../../../lib/money'
 import { CapLamps, lampsOfCaps } from '../../routing/CapLamps'
-import { claudeRoles, hasKeyIn, NO_ROWS, perM, ROLE_KEYS, routerBound, shortAnswerUsd, type RoleKey } from '../facts'
+import { hasKeyIn, NO_ROWS, perM, ROLE_KEYS, rolesOf, routerBound, shortAnswerUsd, type RoleKey } from '../facts'
 import { CodePlate } from '../ProviderPlate'
 import { Rich } from '../AINeedsSetup'
 import type { StepProps } from '../AISetup'
@@ -40,7 +40,8 @@ export function ModelsStep({ run, setRun, handle }: StepProps) {
   const settings = useWorkspace((s) => s.settings)
   const tabs = (['anthropic', 'openrouter'] as const).filter((p) => hasKeyIn(settings, p) && !run.skipped.includes(p))
   const active: ProviderId = run.tab && (tabs as readonly string[]).includes(run.tab) ? run.tab : (tabs[tabs.length - 1] ?? 'anthropic')
-  const [claude, setClaude] = useState<Draft>(() => ({ ...claudeRoles(), ...(settings.ai?.roles?.anthropic ?? {}) }))
+  // Claude's Standard is this device's Claude model (settings.aiModel); Next writes it there
+  const [claude, setClaude] = useState<Draft>(() => rolesOf('anthropic'))
   const [claudeTouched, setClaudeTouched] = useState(false)
   const [or, setOr] = useState<Draft>(() => ({ ...(settings.ai?.roles?.openrouter ?? {}) }))
   const [suggested, setSuggested] = useState<ReadonlySet<RoleKey>>(() => new Set())
@@ -105,8 +106,20 @@ export function ModelsStep({ run, setRun, handle }: StepProps) {
   }, [list, or, rows])
   const routerOk = OWNER.jevRouter && nextList.length >= 2
 
+  const tabRefs = useRef(new Map<ProviderId, HTMLButtonElement>())
+  /** the provider tabs as a tab list: ← / → on a tab, Alt+← / → from anywhere in the dialog (the frame) */
+  const move = (d: number) => {
+    if (tabs.length < 2) return
+    const i = Math.max(0, (tabs as readonly ProviderId[]).indexOf(active))
+    const next = tabs[(i + d + tabs.length) % tabs.length]!
+    setChoosing(null)
+    setRun({ tab: next })
+    requestAnimationFrame(() => tabRefs.current.get(next)?.focus())
+  }
+
   useEffect(() => {
     handle({
+      tabs: tabs.length > 1 ? (d) => move(d) : null,
       canNext: tabs.length > 0,
       commit: () => {
         const roles = { ...(useWorkspace.getState().settings.ai?.roles ?? {}) }
@@ -116,12 +129,17 @@ export function ModelsStep({ run, setRun, handle }: StepProps) {
           if (Object.keys(clean).length) roles.openrouter = clean
         }
         if (claudeTouched) roles.anthropic = claude
-        withWriter({ kind: 'you', via: 'setup' }, () => setDeviceAI({ models: nextList.length ? nextList : undefined, roles: Object.keys(roles).length ? roles : undefined }))
+        withWriter({ kind: 'you', via: 'setup' }, () => {
+          setDeviceAI({ models: nextList.length ? nextList : undefined, roles: Object.keys(roles).length ? roles : undefined })
+          // Claude's Standard = the model every Claude request of this device goes to (the legacy level reads aiModel)
+          const std = claude.standard
+          if (claudeTouched && std && std !== useWorkspace.getState().settings.aiModel && MODELS.some((m) => m.route.p === 'anthropic' && m.selectable && m.route.m === std)) useWorkspace.getState().updateSettings({ aiModel: std })
+        })
         return true
       },
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tabs.join(), or, claude, claudeTouched, nextList, routerOk, handle])
+  }, [tabs.join(), active, or, claude, claudeTouched, nextList, routerOk, handle])
 
   const pickOr = (role: RoleKey, row: CatalogRow | 'router') => {
     setOr((d) => ({ ...d, [role]: row === 'router' ? JEV_ROUTER : row.id }))
@@ -145,7 +163,26 @@ export function ModelsStep({ run, setRun, handle }: StepProps) {
         {tabs.map((p) => {
           const n = ROLE_KEYS.filter((k) => (p === 'anthropic' ? claude[k] : or[k])).length
           return (
-            <button key={p} type="button" role="tab" className="ptab" aria-selected={p === active} tabIndex={p === active ? 0 : -1} onClick={() => setRun({ tab: p })} data-testid={`models-tab-${p}`}>
+            <button
+              key={p}
+              ref={(el) => {
+                if (el) tabRefs.current.set(p, el)
+              }}
+              type="button"
+              role="tab"
+              className="ptab"
+              aria-selected={p === active}
+              tabIndex={p === active ? 0 : -1}
+              onClick={() => setRun({ tab: p })}
+              onKeyDown={(e) => {
+                if (e.altKey || e.ctrlKey || e.metaKey) return
+                if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+                  e.preventDefault()
+                  move(e.key === 'ArrowRight' ? 1 : -1)
+                }
+              }}
+              data-testid={`models-tab-${p}`}
+            >
               <CodePlate p={p} />
               <span className="ptab__name">{providerInfo(p).name}</span>
               <span className="label">{t('features.ai.prov.role.tabCount', { n })}</span>
@@ -183,7 +220,8 @@ export function ModelsStep({ run, setRun, handle }: StepProps) {
             const price = row?.price ?? short?.price ?? (jev ? bound : null)
             const caps = row ? capsOfRow(row) : short?.caps
             const usd = id && price ? shortAnswerUsd({ p: 'openrouter', m: id }, price) : null
-            const fallback = claudeOf(role)
+            // a role without an OpenRouter model: the request goes to Claude — this device's Claude model
+            const fallback = claudeOf('standard')
             return (
               <div key={role} className="aim-role" data-active={choosing === role || undefined} data-none={!id || undefined} data-testid={`role-${role}`}>
                 <span className="aim-role__k">
@@ -239,6 +277,11 @@ export function ModelsStep({ run, setRun, handle }: StepProps) {
               </span>
               <span className="aim-role__meta">{t('features.ai.prov.role.checkerNote')}</span>
             </div>
+          )}
+          {active === 'anthropic' && (
+            <p className="aim-plain" data-testid="claude-roles-note">
+              <Rich text={t('features.ai.prov.role.claudeNote')} />
+            </p>
           )}
           <p className="aim-plain">
             <Rich text={t('features.ai.prov.role.plain')} />

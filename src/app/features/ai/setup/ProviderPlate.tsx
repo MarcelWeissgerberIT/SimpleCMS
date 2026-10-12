@@ -12,7 +12,7 @@ import { providerInfo } from '@/shared/ai/providers'
 import { useWorkspace } from '../../../store/store'
 import { Screws, Switch } from '../../../ui/controls'
 import { useLang, useT } from '../../../i18n'
-import { keyHint, modelsLine, NO_ROWS, perM, priceRange, type PlateState } from './facts'
+import { keyedState, keyHint, modelsLine, NO_ROWS, perM, priceRange, type PlateState } from './facts'
 import './plates.css'
 
 export function CodePlate({ p, size = 'md' }: { p: ProviderId; size?: 'md' | 'lg' }) {
@@ -69,11 +69,13 @@ export function ProviderPlate({ p, state, onPick, compact, keys, footNote, child
     { k: t('features.ai.prov.spec.data'), v: t(`features.ai.prov.dataLine.${p}`) },
     { k: t('features.ai.prov.spec.access'), v: p === 'openrouter' ? t('features.ai.prov.access.connect') : t('features.ai.prov.access.paste'), x: true },
   ]
-  const led = state === 'ready' ? 'led led--ok' : state === 'picked' ? 'led led--on' : 'led'
+  const led = state === 'ready' ? 'led led--ok' : state === 'picked' || state === 'empty' ? 'led led--on' : 'led'
   const stateWord =
     state === 'ready'
       ? t('features.ai.prov.state.ready')
-      : state === 'picked'
+      : state === 'empty'
+        ? t('features.ai.prov.state.empty')
+        : state === 'picked'
         ? t('features.ai.prov.state.picked')
         : state === 'refused'
           ? t('features.ai.prov.state.refused')
@@ -91,7 +93,7 @@ export function ProviderPlate({ p, state, onPick, compact, keys, footNote, child
           <b>{info.name}</b>
           <span className="label">{info.sub[lang === 'de' ? 'de' : 'en']}</span>
         </span>
-        {onPick && state !== 'ready' && state !== 'refused' && state !== 'no_credit' && (
+        {onPick && !keyedState(state) && (
           <Switch seed={p} size="sm" checked={state === 'picked'} disabled={state === 'soon'} onChange={onPick} label={t('features.ai.prov.pick', { p: info.name })} />
         )}
       </div>
@@ -106,7 +108,7 @@ export function ProviderPlate({ p, state, onPick, compact, keys, footNote, child
         <span className="label pplate__word">{stateWord}</span>
         <span className="pplate__sp" />
         {state === 'picked' && <span className="tag pplate__tag">{t('features.ai.prov.tag.picked')}</span>}
-        {(state === 'ready' || state === 'refused' || state === 'no_credit') && hint && <span className="label pplate__marker">{t('features.ai.prov.keyMarker', { last4: hint })}</span>}
+        {keyedState(state) && hint && <span className="label pplate__marker">{t('features.ai.prov.keyMarker', { last4: hint })}</span>}
       </div>
       {!compact && <p className="pplate__why">{t(`features.ai.prov.why.${p}`)}</p>}
       {children}

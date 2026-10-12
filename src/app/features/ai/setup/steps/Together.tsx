@@ -17,9 +17,10 @@ import { withWriter } from '../../../../store/writer'
 import { useT } from '../../../../i18n'
 import { routable } from '../../core/routable'
 import { labelFor } from '../../core/registry'
-import { hasKeyIn, rolesOf, roleRoute } from '../facts'
+import { hasKeyIn, receivesNothing, rolesOf, roleRoute } from '../facts'
 import { Rich } from '../AINeedsSetup'
 import type { StepProps } from '../AISetup'
+import { classLabel } from '../../routing/classLabel'
 
 type Choice = 'keep' | 'claude' | 'openrouter' | 'own'
 const FAST: readonly FeatureClass[] = ['bulk', 'help', 'memory']
@@ -40,8 +41,11 @@ export function TogetherStep({ run, setRun, handle }: StepProps) {
   const claudeKey = hasKeyIn(settings, 'anthropic')
   const orReady = hasKeyIn(settings, 'openrouter') && !run.skipped.includes('openrouter')
   const plan = useMemo(() => (orReady ? oneProviderPlan() : null), [orReady, settings.ai?.roles])
-  // an OpenRouter-only device answers nothing without a default: preselect it there
-  const [choice, setChoice] = useState<Choice>(() => (!claudeKey && orReady ? 'openrouter' : 'keep'))
+  // OpenRouter may receive nothing yet (step 04 left at "Choose …"): it would answer no request — said, never preselected
+  const wsAI = useWorkspace((s) => s.ai)
+  const orEmpty = orReady && receivesNothing('openrouter', wsAI, settings.ai)
+  // an OpenRouter-only device answers nothing without a default: preselect it there (once it may receive something)
+  const [choice, setChoice] = useState<Choice>(() => (!claudeKey && orReady && !orEmpty ? 'openrouter' : 'keep'))
   const or = providerInfo('openrouter').name
   const stays = FEATURE_CLASSES.filter((c) => c !== 'gate' && !routable('openrouter', c))
 
@@ -82,9 +86,10 @@ export function TogetherStep({ run, setRun, handle }: StepProps) {
             off: !plan,
             writes: plan
               ? [
+                  ...(orEmpty ? [t('features.ai.prov.rules.notReady', { p: or })] : []),
                   t('features.ai.prov.together.row', { work: t('features.ai.prov.together.default'), model: label(plan.def) }),
-                  ...(Object.entries(plan.fast) as Array<[FeatureClass, Route]>).map(([c, r]) => t('features.ai.prov.together.row', { work: t(`features.ai.prov.class.${c}`), model: label(r) })),
-                  t('features.ai.prov.together.stays', { list: stays.map((c) => t(`features.ai.prov.class.${c === 'generate' || c === 'mcp-setup' ? 'mcp' : c}`)).filter((v, i, a) => a.indexOf(v) === i).join(', '), p: or }),
+                  ...(Object.entries(plan.fast) as Array<[FeatureClass, Route]>).map(([c, r]) => t('features.ai.prov.together.row', { work: classLabel(t, c), model: label(r) })),
+                  t('features.ai.prov.together.stays', { list: stays.map((c) => classLabel(t, c)).filter((v, i, a) => a.indexOf(v) === i).join(', '), p: or }),
                 ]
               : [t('features.ai.prov.together.noStandard', { p: or })],
           },

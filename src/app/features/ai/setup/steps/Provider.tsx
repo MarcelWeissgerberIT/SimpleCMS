@@ -11,7 +11,7 @@ import { PROVIDER_ORDER } from '@/shared/ai/providers'
 import { useWorkspace } from '../../../../store/store'
 import { useUI } from '../../../../store/ui'
 import { useT } from '../../../../i18n'
-import { hasKeyIn, PLATE_ORDER, plateState, useChecks } from '../facts'
+import { hasKeyIn, keyedState, PLATE_ORDER, plateState, receivesNothing, useChecks } from '../facts'
 import { ProviderPlate } from '../ProviderPlate'
 import { RemovePanel } from '../remove'
 import { Rich } from '../AINeedsSetup'
@@ -25,6 +25,7 @@ export function warmCatalog(): void {
 export function ProviderStep({ run, setRun, handle, go }: StepProps) {
   const t = useT()
   const settings = useWorkspace((s) => s.settings)
+  const wsAI = useWorkspace((s) => s.ai)
   const checks = useChecks()
   const [removing, setRemoving] = useState<ProviderId | null>(null)
   const ready = PROVIDER_ORDER.filter((p) => hasKeyIn(settings, p))
@@ -46,8 +47,8 @@ export function ProviderStep({ run, setRun, handle, go }: StepProps) {
       </p>
       <div className="pplates">
         {PLATE_ORDER.map((p) => {
-          const state = plateState(p, { hasKey: hasKeyIn(settings, p), picked: run.picked.includes(p), check: checks[p] })
-          const ready = state === 'ready' || state === 'refused' || state === 'no_credit'
+          const state = plateState(p, { hasKey: hasKeyIn(settings, p), picked: run.picked.includes(p), check: checks[p], empty: receivesNothing(p, wsAI, settings.ai) })
+          const ready = keyedState(state)
           return (
             <ProviderPlate
               key={p}
@@ -61,9 +62,10 @@ export function ProviderStep({ run, setRun, handle, go }: StepProps) {
                     <RemovePanel
                       p={p}
                       onCancel={() => setRemoving(null)}
-                      onDone={(msg) => {
+                      onDone={(msg, undo) => {
                         setRemoving(null)
-                        useUI.getState().toast({ message: msg, kind: 'info' })
+                        // the rules it cleared come back with Undo (as in Settings › AI); the key itself cannot
+                        useUI.getState().toast({ message: msg, kind: 'info', ...(undo ? { action: { label: t('features.ai.prov.remove.undo'), run: undo } } : {}) })
                       }}
                     />
                   ) : (
@@ -77,7 +79,7 @@ export function ProviderStep({ run, setRun, handle, go }: StepProps) {
                           go('key')
                         }}
                       >
-                        {state === 'ready' ? t('features.ai.prov.plate.change') : t('features.ai.prov.plate.check')}
+                        {state === 'ready' || state === 'empty' ? t('features.ai.prov.plate.change') : t('features.ai.prov.plate.check')}
                       </button>
                       <button type="button" className="btn btn--sm btn--ghost" onClick={() => setRemoving(p)} data-testid={`plate-${p}-remove`}>
                         {t('features.ai.prov.plate.remove')}

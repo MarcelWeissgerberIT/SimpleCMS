@@ -293,7 +293,7 @@ export const messages: Messages = {
     'privacy.alt':
       'Diagram: the One app in your browser tab reads and writes IndexedDB. Optionally it calls your AI provider (Anthropic or OpenRouter) with your key, and your own webhooks. There are no SimpleCMS servers.',
     'privacy.p1': 'Every page, row and file is stored in IndexedDB, on this device.',
-    'privacy.p2': 'AI requests go from your browser to the provider you set up — Anthropic for Claude, or OpenRouter — with your key. No proxy, no markup. Data rules say per provider what may go; Anthropic calls the MCP servers you add.',
+    'privacy.p2': 'AI requests go from your browser to the provider you set up — Anthropic for Claude, or OpenRouter — with your key. No proxy or markup from us: OpenRouter is a router you choose, and it hands requests to the model’s operator. Combine them: the Jev Router for bulk work, Claude for writing. Data rules say per provider what may go; Anthropic calls the MCP servers you add.',
     'privacy.p3': 'Automations, forms and buttons post only to endpoints you enter yourself. Gmail is read straight from Google.',
     'privacy.p4': 'No analytics, no cookies banner — because there are no cookies.',
 
@@ -635,7 +635,7 @@ export const messages: Messages = {
     'privacy.alt':
       'Diagramm: Die One-App in deinem Browser-Tab liest und schreibt IndexedDB. Optional ruft sie deinen KI-Anbieter (Anthropic oder OpenRouter) mit deinem Schlüssel auf, und deine eigenen Webhooks. SimpleCMS-Server gibt es nicht.',
     'privacy.p1': 'Jede Seite, Zeile und Datei liegt in IndexedDB, auf diesem Gerät.',
-    'privacy.p2': 'KI-Anfragen gehen aus deinem Browser an den Anbieter, den du eingerichtet hast — Anthropic für Claude oder OpenRouter —, mit deinem Schlüssel. Kein Proxy, kein Aufschlag. Datenregeln legen je Anbieter fest, was hinaus darf; Anthropic ruft die MCP-Server auf, die du hinzufügst.',
+    'privacy.p2': 'KI-Anfragen gehen aus deinem Browser an den Anbieter, den du eingerichtet hast — Anthropic für Claude oder OpenRouter —, mit deinem Schlüssel. Kein Proxy und kein Aufschlag von uns: OpenRouter ist ein Router, den du wählst, und gibt Anfragen an den Betreiber des Modells weiter. Kombiniere sie: den Jev Router für Massenarbeit, Claude zum Schreiben. Datenregeln legen je Anbieter fest, was hinaus darf; Anthropic ruft die MCP-Server auf, die du hinzufügst.',
     'privacy.p3': 'Automationen, Formulare und Buttons senden nur an Endpunkte, die du selbst einträgst. Gmail wird direkt bei Google gelesen.',
     'privacy.p4': 'Keine Analytics, kein Cookie-Banner — weil es keine Cookies gibt.',
 

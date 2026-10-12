@@ -8,7 +8,7 @@
  * "Send a test sentence" (purpose setup.test on each provider's fast model, its receipt inline). Next: every picked
  * provider ready or put off ("<P> later").
  */
-import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
+import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import { ExternalLink, Eye, EyeOff, LockKeyhole, Loader2, Check as CheckIcon } from 'lucide-react'
 import type { ProviderId } from '@/shared/ai/types'
 import type { AIErrorCode } from '@/shared/ai/errors'
@@ -82,6 +82,8 @@ export function KeyStep({ run, setRun, handle }: StepProps) {
   useEffect(() => {
     handle({
       canNext,
+      // Alt+← / → from anywhere in the dialog (the frame, AISetup.tsx)
+      tabs: tabs.length > 1 ? move : null,
       extra: later
         ? {
             label: t('features.ai.prov.setup.skip', { p: providerInfo(active).name }),
@@ -91,7 +93,7 @@ export function KeyStep({ run, setRun, handle }: StepProps) {
         : null,
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canNext, later, active, handle, t])
+  }, [canNext, later, active, tabs.join(), handle, t])
 
   const select = (p: ProviderId, focus = true) => {
     setRun({ tab: p })
@@ -102,16 +104,8 @@ export function KeyStep({ run, setRun, handle }: StepProps) {
     const next = tabs[(i + d + tabs.length) % tabs.length]
     if (next) select(next)
   }
-  // Alt+← / → anywhere in the step but the key field (there Option+← / → moves by words)
-  const onKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>) => {
-    if (!e.altKey || e.ctrlKey || e.metaKey || (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight')) return
-    if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
-    e.preventDefault()
-    move(e.key === 'ArrowRight' ? 1 : -1)
-  }
-
   return (
-    <div className="aik" onKeyDown={onKeyDown}>
+    <div className="aik">
       <div className="ptabs" role="tablist" aria-label={t('features.ai.prov.key.tabs')}>
         {tabs.map((p) => {
           const c = checks[p]
@@ -410,7 +404,7 @@ function Bench({ providers, skipped, onNewPaste, onLater }: { providers: readonl
   const lang = useLang()
   const settings = useWorkspace((s) => s.settings)
   const checks = useChecks()
-  const [tests, setTests] = useState<Partial<Record<ProviderId, { ms: number; receipt: Receipt | null; error?: string }>>>({})
+  const [tests, setTests] = useState<Partial<Record<ProviderId, { ms: number; receipt: Receipt | null; error?: string; note?: string }>>>({})
   const [testing, setTesting] = useState(false)
   const readyNow = providers.filter((p) => hasKeyIn(settings, p) && !skipped.includes(p) && checks[p]?.state !== 'error')
   const testRoute = (p: ProviderId) => {
@@ -418,11 +412,16 @@ function Bench({ providers, skipped, onNewPaste, onLater }: { providers: readonl
     const fast = rolesOf(p).fast ?? settings.ai?.models?.[0]?.m
     return fast ? { p, m: fast } : null
   }
+  // a provider without a fast model yet (OpenRouter before step 03) is not testable: its row says so, nothing is sent
+  const testable = readyNow.filter((p) => !!testRoute(p))
   const sentence = async () => {
     setTesting(true)
     for (const p of readyNow) {
       const route = testRoute(p)
-      if (!route) continue
+      if (!route) {
+        setTests((s) => ({ ...s, [p]: { ms: 0, receipt: null, note: t('features.ai.prov.check.sentenceModels') } }))
+        continue
+      }
       const t0 = performance.now()
       let receipt: Receipt | null = null
       try {
@@ -450,7 +449,7 @@ function Bench({ providers, skipped, onNewPaste, onLater }: { providers: readonl
         ))}
       </div>
       <div className="aik-bench__foot">
-        <button type="button" className="btn btn--sm" disabled={!readyNow.length || testing} onClick={() => void sentence()} data-testid="test-sentence">
+        <button type="button" className="btn btn--sm" disabled={!readyNow.length || testing} onClick={() => void sentence()} data-testid="test-sentence" title={readyNow.length && !testable.length ? t('features.ai.prov.check.sentenceModels') : undefined}>
           {t('features.ai.prov.check.sentence')}
         </button>
         <span className="label">{t('features.ai.prov.check.sentenceCost', { usd: fmtCost(0.0001, lang) })}</span>
@@ -459,7 +458,7 @@ function Bench({ providers, skipped, onNewPaste, onLater }: { providers: readonl
   )
 }
 
-function BenchRow({ p, check, has, skipped, test, onNewPaste, onLater, lang }: { p: ProviderId; check?: CheckState; has: boolean; skipped: boolean; test?: { ms: number; receipt: Receipt | null; error?: string }; onNewPaste: () => void; onLater: () => void; lang: Lang }) {
+function BenchRow({ p, check, has, skipped, test, onNewPaste, onLater, lang }: { p: ProviderId; check?: CheckState; has: boolean; skipped: boolean; test?: { ms: number; receipt: Receipt | null; error?: string; note?: string }; onNewPaste: () => void; onLater: () => void; lang: Lang }) {
   const t = useT()
   const info = providerInfo(p)
   const [limitUrl, setLimitUrl] = useState<string>(info.limitUrl)
@@ -611,7 +610,7 @@ function BenchRow({ p, check, has, skipped, test, onNewPaste, onLater, lang }: {
       )}
       {test && (
         <div className="aik-brow__test" data-testid={`test-${p}`}>
-          {test.error ? <p className="aik-brow__msg aik-brow__err">{test.error}</p> : <p className="aik-brow__msg">{t('features.ai.prov.check.sentenceOk', { ms: test.ms })}</p>}
+          {test.note ? <p className="aik-brow__msg" data-testid={`sentence-note-${p}`}>{test.note}</p> : test.error ? <p className="aik-brow__msg aik-brow__err">{test.error}</p> : <p className="aik-brow__msg">{t('features.ai.prov.check.sentenceOk', { ms: test.ms })}</p>}
           {test.receipt && <ReceiptLine receipt={test.receipt} testId={`test-receipt-${p}`} />}
         </div>
       )}

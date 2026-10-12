@@ -20,6 +20,7 @@ import { isAIDemo, onAIDemo, setAIDemo } from '../core/demoMode'
 import type { AIFix } from '../core/errors'
 import { openAISetup } from './openAISetup'
 import './needs.css'
+import { classLabel } from '../routing/classLabel'
 
 /** Text with <b>…</b> pairs from a string (the setup's strings mark bold that way; never HTML otherwise). */
 export function Rich({ text }: { text: string }) {
@@ -88,7 +89,7 @@ export function AINeedsSetup({ purpose, reason, fix, variant = 'card', onOpen, o
   const cls = purposeOf(purpose).cls
   const why: NeedsReason = reason ?? status.reason ?? 'no_key'
   const f = fix ?? status.fix ?? null
-  const work = t(`features.ai.prov.class.${cls}`)
+  const work = classLabel(t, cls)
   const p = f && f.kind === 'step' ? providerInfo(f.provider).name : providerInfo('openrouter').name
   const data = f && f.kind === 'step' ? f.data : undefined
   const open = (run: () => void) => () => {

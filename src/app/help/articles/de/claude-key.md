@@ -11,7 +11,7 @@ One hat kein KI-Abo: Du bringst deinen eigenen Schlüssel mit, und Anthropic rec
 
 1. Erstelle einen Schlüssel in der Anthropic-Konsole (**console.anthropic.com → Settings → API keys**). Er beginnt mit `sk-ant-`.
 2. In One: **Einstellungen → KI → Claude einrichten** (oder ⌘K **KI einrichten**, oder die Karte, die jede KI-Funktion ohne Schlüssel zeigt). Füge den Schlüssel in Schritt 02 ein — die kostenlose Prüfung fragt nur die Modellliste ab, es wird kein Text gesendet — und er wird versiegelt.
-3. Schritt 03 zeigt Claudes Rollen: **Schnell** (Haiku), **Standard** (Sonnet), **Gründlich** (Opus). Ändern kannst du sie dort oder später in **Einstellungen → KI**.
+3. Schritt 03 zeigt Claudes Rollen. **Standard** ist das Modell, an das dieses Gerät jede Claude-Anfrage schickt — ändere es dort (später öffnest du den Assistenten wieder über **Einstellungen → KI**). **Schnell** und **Gründlich** sind für das Routing einer späteren Version vorgemerkt; bis dahin wählt der Modell-Chip im KI-Menü ein anderes Claude-Modell für eine Anfrage.
 
 ## Wo der Schlüssel liegt
 Der Schlüssel liegt versiegelt im Tresor dieses Browsers, mit einem Schlüssel, den der Browser erzeugt hat und nicht herausgibt. Er geht nur an `api.anthropic.com` — nie in Sicherungen, Exporte, Freigabelinks, Sync oder Team-Dokumente. Auf einem anderen Gerät (oder in einem anderen Browser) fügst du ihn neu ein.

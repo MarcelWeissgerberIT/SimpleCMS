@@ -22,6 +22,7 @@ import { labelFor } from '../../core/registry'
 import { hasKeyIn, keyHint, rolesOf, ROLE_KEYS, roleRoute, SHIPPED } from '../facts'
 import { CodePlate } from '../ProviderPlate'
 import type { StepProps } from '../AISetup'
+import { classLabel } from '../../routing/classLabel'
 
 /** Close the assistant and open the AI menu on the page that is open (its editor, at the caret). */
 export function testOnPage(close: () => void): void {
@@ -64,10 +65,13 @@ export function DoneStep({ run, setRun, handle, close }: StepProps) {
     const soft = ws?.limits?.[p]?.monthUsd
     return soft !== undefined ? `${fmtUsd(soft, lang)} · ${providerInfo(p).hardLimit[lang]}` : providerInfo(p).hardLimit[lang]
   }
-  const rows: Array<[string, RouteLike]> = [
-    ...(settings.ai?.default ? [[t('features.ai.prov.tab.default'), settings.ai.default[0]!] as [string, RouteLike]] : []),
-    ...(Object.entries(settings.ai?.routes ?? {}) as Array<[FeatureClass, Route[]]>).map(([c, r]) => [t(`features.ai.prov.class.${c === 'generate' || c === 'mcp-setup' ? 'mcp' : c}`), r[0]!] as [string, RouteLike]),
-  ]
+  // one row per label: kinds of work that share one ("MCP tests & media" = generate + mcp-setup) are one row
+  const rows: Array<[string, RouteLike]> = []
+  const add = (k: string, r: RouteLike | undefined) => {
+    if (r && !rows.some(([x]) => x === k)) rows.push([k, r])
+  }
+  if (settings.ai?.default) add(t('features.ai.prov.tab.default'), settings.ai.default[0])
+  for (const [c, r] of Object.entries(settings.ai?.routes ?? {}) as Array<[FeatureClass, Route[]]>) add(classLabel(t, c), r[0])
 
   return (
     <div className="aidone">
@@ -77,7 +81,8 @@ export function DoneStep({ run, setRun, handle, close }: StepProps) {
         {shown.map((p) => {
           const has = hasKeyIn(settings, p)
           const roles = rolesOf(p)
-          const names = ROLE_KEYS.filter((k) => roles[k]).map((k) => `${t(`features.ai.prov.role.${k}`)}: ${bare(roleRoute(p, k, roles[k]!))}`)
+          // Claude: the one model every Claude request of this device goes to (Fast / Deep are not routed in this version)
+          const names = ROLE_KEYS.filter((k) => roles[k] && (p !== 'anthropic' || k === 'standard')).map((k) => `${t(`features.ai.prov.role.${k}`)}: ${bare(roleRoute(p, k, roles[k]!))}`)
           return (
             <div key={p} className="aidone__prov" data-provider={p}>
               <span className={has ? 'led led--ok' : 'led'} aria-hidden />

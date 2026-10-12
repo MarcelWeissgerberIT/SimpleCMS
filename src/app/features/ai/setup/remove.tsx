@@ -65,8 +65,10 @@ export function RemovePanel({ p, onDone, onCancel }: { p: ProviderId; onDone: (m
   const info = providerInfo(p)
   const [impact] = useState(() => impactOf(p))
   const ref = useRef<HTMLDivElement>(null)
+  const cancelRef = useRef<HTMLButtonElement>(null)
+  // focus on Cancel: deleting the key cannot be undone — a second ↵ or a key repeat must never do it
   useEffect(() => {
-    ref.current?.querySelector<HTMLElement>('button')?.focus()
+    cancelRef.current?.focus()
   }, [])
   const keyOnly = () => {
     dropKey(p)
@@ -109,7 +111,7 @@ export function RemovePanel({ p, onDone, onCancel }: { p: ProviderId; onDone: (m
             {t('features.ai.prov.remove.all')}
           </button>
         )}
-        <button type="button" className="btn btn--sm btn--ghost" onClick={onCancel}>
+        <button type="button" className="btn btn--sm btn--ghost" onClick={onCancel} ref={cancelRef} data-testid="remove-cancel">
           {t('features.ai.prov.remove.cancel')}
         </button>
       </div>

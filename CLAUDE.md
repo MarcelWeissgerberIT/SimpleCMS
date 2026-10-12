@@ -624,7 +624,9 @@ the public APIs stable — other areas are built against them in parallel.
   overridden by the person's own client ID (`settings.mail.clientId`, '' = none) — read it only through `effectiveClient()`
   / `effectiveClientId()`. Google Identity Services token client, scope `gmail.readonly`; the access token lives in memory
   only. Sync state per device + workspace in IndexedDB `one-mail`, never synced. Rows dedupe by the Gmail message id;
-  re-syncs write only Labels / Unread; bodies are written with origin `'mail'`. Team workspaces: the database is created
+  re-syncs write only Labels / Unread; bodies are written with origin `'mail'`. A database the sync made (or wrote into) is
+  marked `Database.system: 'mails'` — its rows are the AI data class `mail` wherever it is, also once this device's sync
+  points elsewhere (core/sources.ts). Team workspaces: the database is created
   private (`createPrivateDatabase`); a shared one pauses the sync. Mail content reaches Anthropic only with "Organise with
   Claude".
 - Mail directories (features/mail/people.ts): Contacts / Companies / Conversations, found by `Database.system`

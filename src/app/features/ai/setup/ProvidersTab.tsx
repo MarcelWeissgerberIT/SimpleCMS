@@ -29,11 +29,13 @@ import { labelFor } from '../core/registry'
 import { McpServers } from '../mcp-servers/McpServers'
 import { MemorySettings } from '../memory'
 import { ledgerTotals, type LedgerTotal } from '../../governor'
-import { hasKeyIn, NO_ROWS, PLATE_ORDER, plateState, setCheck, useChecks } from './facts'
+import { hasKeyIn, NO_ROWS, PLATE_ORDER, plateState, receivesNothing, setCheck, useChecks } from './facts'
 import { ProviderPlate } from './ProviderPlate'
 import { RemovePanel, dropKey } from './remove'
 import { MemberData } from './MemberData'
 import { openAISetup } from './openAISetup'
+import { helpFor } from './errors'
+import { Rich } from './AINeedsSetup'
 import './plates.css'
 import './settings.css'
 
@@ -110,6 +112,7 @@ function Plates() {
   const t = useT()
   const lang = useLang()
   const settings = useWorkspace((s) => s.settings)
+  const wsAI = useWorkspace((s) => s.ai)
   const checks = useChecks()
   const [removing, setRemoving] = useState<ProviderId | null>(null)
   const [orLimit, setOrLimit] = useState<string>(PROVIDERS.openrouter.limitUrl)
@@ -127,7 +130,7 @@ function Plates() {
       {PLATE_ORDER.map((p) => {
         const has = hasKeyIn(settings, p)
         const c = checks[p]
-        const state = plateState(p, { hasKey: has, picked: false, check: c })
+        const state = plateState(p, { hasKey: has, picked: false, check: c, empty: receivesNothing(p, wsAI, settings.ai) })
         const info = providerInfo(p)
         const credit = c?.credit
         return (
@@ -181,11 +184,24 @@ function Plates() {
             footNote={state === 'soon' ? t('features.ai.prov.plate.soon') : undefined}
           >
             {c?.state === 'valid' && <p className="pplate__extra" data-testid={`settings-checked-${p}`}>{t('features.ai.prov.check.listed', { time: new Date(c.at).toLocaleTimeString(lang === 'de' ? 'de-DE' : 'en-US', { hour: '2-digit', minute: '2-digit' }) })}</p>}
-            {c?.state === 'error' && (
-              <p className="pplate__extra" role="alert" data-testid={`settings-err-${p}`} data-code={c.code}>
-                {t('features.ai.prov.err.other', { code: c.code ?? '' })}
-              </p>
-            )}
+            {c?.state === 'error' &&
+              (p === 'openrouter' && c.code === 'no_credit' ? (
+                // a valid key without credit (402) — kept, as step 02 says it
+                <p className="pplate__extra" role="status" data-testid={`settings-err-${p}`} data-code={c.code}>
+                  {t('features.ai.prov.err.noCreditKept')}{' '}
+                  <a className="aik-link" href={PROVIDERS.openrouter.creditsUrl} target="_blank" rel="noreferrer noopener">
+                    {t('features.ai.prov.err.topUp')}
+                  </a>
+                </p>
+              ) : (
+                // the step's own help sentence (never the bare code)
+                <p className="pplate__extra" role="alert" data-testid={`settings-err-${p}`} data-code={c.code}>
+                  <Rich text={helpFor(c.code ?? 'unknown', p).text} />{' '}
+                  <button type="button" className="btn btn--sm btn--ghost" onClick={() => openAISetup({ reason: 'refused', step: 'key', provider: p })} data-testid={`settings-err-fix-${p}`}>
+                    {t('features.ai.prov.fix.key')}
+                  </button>
+                </p>
+              ))}
             {p === 'openrouter' && has && credit && (
               <p className="pplate__extra" data-testid="settings-or-limit">
                 {credit.limit !== null ? t('features.ai.prov.lim.live', { used: fmtUsd(credit.used, lang), limit: fmtUsd(credit.limit, lang) }) : t('features.ai.prov.lim.liveNone', { used: fmtUsd(credit.used, lang) })}{' '}

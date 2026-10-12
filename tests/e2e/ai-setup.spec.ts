@@ -115,7 +115,7 @@ test.describe('the way into setup', () => {
     await openTerminal(page)
     const card = terminal(page).getByTestId('term-needs')
     await expect(card).toHaveAttribute('data-reason', 'route')
-    await expect(card).toContainText('runs only with Claude for now')
+    await expect(card).toContainText(': only with Claude for now')
     await card.getByRole('button', { name: 'Set up Claude' }).click()
     await expect(setup(page)).toBeVisible()
     await expect(setup(page).getByTestId('plate-anthropic')).toBeVisible()
@@ -171,8 +171,10 @@ test.describe('Settings › AI on this device', () => {
 
     await withKeys(page, { claude: true, or: true })
     await openSettingsAI(page)
+    // OpenRouter has a key but may receive nothing yet (no preset chosen): not READY for routing (review #21)
+    await expect(dialog.getByTestId('settings-plate-openrouter')).toContainText('Ready · receives nothing yet')
     for (const p of ['anthropic', 'openrouter']) {
-      await expect(dialog.getByTestId(`settings-plate-${p}`)).toHaveAttribute('data-state', 'ready')
+      await expect(dialog.getByTestId(`settings-plate-${p}`)).toHaveAttribute('data-state', p === 'anthropic' ? 'ready' : 'empty')
       await dialog.getByTestId(`settings-check-${p}`).click()
       await expect(dialog.getByTestId(`settings-checked-${p}`)).toContainText('no text sent')
     }
@@ -501,5 +503,171 @@ test.describe('the assistant at 390 px by touch', () => {
     expect((await wsEval(page, settingsAI)).default).toBeUndefined()
     await next(page).tap()
     await expect(setup(page)).toHaveCount(0)
+  })
+})
+
+/* ------------------------------------------------------------------ */
+/* S2 review (UX findings 14–26)                                        */
+/* ------------------------------------------------------------------ */
+
+test.describe('S2 review: the assistant and Settings › AI say what they do', () => {
+  const LUNA = 'openai/gpt-6-luna'
+  const precheck = (page: Page, input: AnyState) => page.evaluate((i) => (window as unknown as { __oneAI: { precheck(i: unknown): AnyState } }).__oneAI.precheck(i), input)
+
+  test('step 03 (#14): Claude\'s Standard is this device\'s Claude model — changed there, Claude requests go to it; step 06 names only it', async ({ page }) => {
+    await mockClaudeScript(page.context(), [])
+    await openApp(page)
+    await withKeys(page, { claude: true })
+    await openSetup(page, { reason: 'add', step: 'models', provider: 'anthropic' })
+    await expect(setup(page).getByTestId('claude-roles-note')).toContainText('Standard is the model this device sends every Claude request to')
+    await setup(page).getByTestId('role-standard-change').click()
+    await setup(page).getByTestId('role-standard').getByRole('radio', { name: 'Claude Haiku 4.5' }).click()
+    await next(page).click()
+    await expect(setup(page)).toHaveAttribute('data-step', 'data')
+    await next(page).click()
+    await expect(setup(page)).toHaveAttribute('data-step', 'done')
+    expect(await wsEval(page, (s) => s.settings.aiModel)).toBe('claude-haiku-4-5')
+    const claude = setup(page).getByTestId('done-summary').locator('[data-provider="anthropic"]')
+    await expect(claude).toContainText('Standard: Claude Haiku 4.5')
+    await expect(claude).not.toContainText('Fast:')
+    await next(page).click()
+    const id = await createPage(page, { title: 'Model check', content: doc(para('A line.')) })
+    expect(await precheck(page, { purpose: 'menu.action', sources: [{ page: id, as: 'selection' }] })).toMatchObject({ ok: true, route: 'anthropic:claude-haiku-4-5' })
+  })
+
+  test('step 02 / 03 tabs by keyboard (#16, #18): Alt+← / → from the heading and the footer, ← / → on step 03\'s tabs', async ({ page }) => {
+    await mockClaudeScript(page.context(), [])
+    await mockOpenRouter(page.context())
+    await openApp(page)
+    await withKeys(page, { claude: true, or: true })
+    await openSetup(page, { reason: 'add', step: 'key' })
+    const keyTab = (p: string) => setup(page).getByTestId(`key-tab-${p}`)
+    await expect(setup(page).getByTestId('ai-setup-title')).toBeFocused()
+    const first = (await keyTab('anthropic').getAttribute('aria-selected')) === 'true' ? 'anthropic' : 'openrouter'
+    const other = first === 'anthropic' ? 'openrouter' : 'anthropic'
+    // from the heading
+    await page.keyboard.press('Alt+ArrowRight')
+    await expect(keyTab(other)).toHaveAttribute('aria-selected', 'true')
+    // from the footer's Next key
+    await next(page).focus()
+    await page.keyboard.press('Alt+ArrowLeft')
+    await expect(keyTab(first)).toHaveAttribute('aria-selected', 'true')
+    // step 03: the tab list's own arrows, and Alt+← / → from anywhere
+    await page.keyboard.press('Escape')
+    await expect(setup(page)).toHaveCount(0)
+    await openSetup(page, { reason: 'add', step: 'models' })
+    const modelsTab = (p: string) => setup(page).getByTestId(`models-tab-${p}`)
+    await expect(setup(page)).toHaveAttribute('data-step', 'models')
+    const active = (await modelsTab('anthropic').getAttribute('aria-selected')) === 'true' ? 'anthropic' : 'openrouter'
+    const inactive = active === 'anthropic' ? 'openrouter' : 'anthropic'
+    await tabTo(page, modelsTab(active))
+    await page.keyboard.press('ArrowLeft')
+    await expect(modelsTab(inactive)).toHaveAttribute('aria-selected', 'true')
+    await expect(modelsTab(inactive)).toBeFocused()
+    await setup(page).getByTestId('ai-setup-title').focus()
+    await page.keyboard.press('Alt+ArrowRight')
+    await expect(modelsTab(active)).toHaveAttribute('aria-selected', 'true')
+    await expect(setup(page).locator('.aiw__hint')).toContainText('switch provider')
+  })
+
+  test('an OpenRouter-only device (#15, #22): the MCP line names its kind of work; the cards read for plural kinds (EN + DE)', async ({ page }) => {
+    await mockOpenRouter(page.context())
+    await openApp(page)
+    await withKeys(page, { or: true })
+    await wsEval(page, (s) => s.updateSettings({ mcpServers: [{ id: 'm-archive', name: 'archive', url: 'https://archive.example.com/mcp', token: '', enabled: true, prompt: '', scope: 'free' }] }))
+    await openSettingsAI(page)
+    const card = page.locator('.mcps-card[data-server="archive"]')
+    await card.locator('.mcps-card__toggle').click()
+    const line = card.getByTestId('mcp-needs')
+    await expect(line).toContainText('MCP tests & media: only with Claude for now')
+    await expect(line).not.toContainText('features.ai')
+    await page.keyboard.press('Escape')
+    // an agent's page (a browser agent needs Claude in this version): the card reads for a plural kind of work
+    await wsEval(page, (s) => s.upsertAgent({ id: 'ag-review', name: 'Project digest', icon: null, instructions: 'Summarise the status of all projects.', trigger: { type: 'manual' }, scope: { everything: true, pages: [], databases: [] }, write: 'none', output: null, mcpServers: [], runner: 'browser', model: null, effort: null, maxRunUsd: 0.5, enabled: true, createdAt: 1760252400000, updatedAt: 1760252400000 }))
+    await page.evaluate(() => (window.location.hash = '#/agents/ag-review'))
+    const needs = page.getByTestId('agx-needs')
+    await expect(needs).toContainText('Agents: only with Claude for now')
+    await expect(needs).toContainText('Claude only, in this version: Agents.')
+    await wsEval(page, (s) => s.updateSettings({ language: 'de' }))
+    await expect(needs).toContainText('Agenten: vorerst nur mit Claude')
+  })
+
+  test('step 02 (#19): "Send a test sentence" before OpenRouter has models says so for its row — nothing sent', async ({ page }) => {
+    const or = await mockOpenRouter(page.context())
+    await openApp(page)
+    await withKeys(page, { or: true })
+    await openSetup(page, { reason: 'add', step: 'key', provider: 'openrouter' })
+    await expect(setup(page).getByTestId('bench-openrouter')).toHaveAttribute('data-state', 'valid')
+    await setup(page).getByTestId('test-sentence').click()
+    await expect(setup(page).getByTestId('sentence-note-openrouter')).toContainText('choose its models in step 03 first — nothing was sent')
+    expect(or.posts()).toHaveLength(0)
+  })
+
+  test('step 01 Remove (#20): focus on Cancel; "Also clear the rules" has an Undo that brings them back', async ({ page }) => {
+    await mockOpenRouter(page.context())
+    await openApp(page)
+    await withKeys(page, { claude: true, or: true })
+    await wsEval(page, (s, r) => s.updateSettings({ ai: { models: [r], default: [{ p: 'openrouter', m: r.m }] } }), row(LUNA))
+    await openSetup(page)
+    await setup(page).getByTestId('plate-openrouter-remove').click()
+    await expect(setup(page).getByTestId('remove-cancel')).toBeFocused()
+    await setup(page).getByTestId('remove-all').click()
+    expect(await wsEval(page, (s) => s.settings.ai?.default ?? null)).toBeNull()
+    const toast = page.locator('.toast', { hasText: 'OpenRouter removed from this device.' })
+    await toast.getByRole('button', { name: 'Undo (rules)' }).click()
+    await expect.poll(() => wsEval(page, (s) => JSON.parse(JSON.stringify(s.settings.ai?.default ?? null)))).toEqual([{ p: 'openrouter', m: LUNA }])
+  })
+
+  test('a provider that may receive nothing (#21): plates say "Ready · receives nothing yet"; step 05 warns and does not preselect it', async ({ page }) => {
+    await mockOpenRouter(page.context())
+    await openApp(page)
+    await withKeys(page, { or: true })
+    await wsEval(page, (s, r) => s.updateSettings({ ai: { models: [r], roles: { openrouter: { standard: r.m, fast: r.m } } } }), row(LUNA))
+    await openSetup(page)
+    await expect(setup(page).getByTestId('plate-openrouter')).toHaveAttribute('data-state', 'empty')
+    await expect(setup(page).getByTestId('plate-openrouter')).toContainText('Ready · receives nothing yet')
+    await page.keyboard.press('Escape')
+    await expect(setup(page)).toHaveCount(0)
+    await openSetup(page, { reason: 'add', step: 'routing' })
+    await expect(setup(page).getByTestId('together-keep')).toHaveAttribute('aria-checked', 'true')
+    await setup(page).getByTestId('together-openrouter').click()
+    await expect(setup(page).getByTestId('together-writes')).toContainText('OpenRouter receives nothing yet')
+    await page.keyboard.press('Escape')
+    // positive control: with a preset the plate is ready
+    await wsEval(page, (s, w) => s.setWorkspaceAI({ policy: { providers: { openrouter: { allow: w } }, restricted: [] } }), WORK)
+    await openSettingsAI(page)
+    await expect(page.getByTestId('settings-plate-openrouter')).toHaveAttribute('data-state', 'ready')
+  })
+
+  test('Settings › AI check (#23): a refused key reads the help sentence, never the bare code; a key without credit is kept', async ({ page, errors }) => {
+    errors.allow(/Failed to load resource|40[12]/)
+    let status: 401 | 402 = 401
+    await mockOpenRouter(page.context(), { key: () => ({ status, json: { error: { code: status, message: status === 401 ? 'User not found' : 'Insufficient credits' } } }) })
+    await openApp(page)
+    await withKeys(page, { or: true })
+    await openSettingsAI(page)
+    await page.getByTestId('settings-check-openrouter').click()
+    const err = page.getByTestId('settings-err-openrouter')
+    await expect(err).toHaveAttribute('data-code', 'invalid_key')
+    await expect(err).not.toContainText('(invalid_key)')
+    await expect(err.getByTestId('settings-err-fix-openrouter')).toBeVisible()
+    status = 402
+    await page.getByTestId('settings-check-openrouter').click()
+    await expect(err).toHaveAttribute('data-code', 'no_credit')
+    await expect(err).toContainText('Connected — no credit. The key is kept')
+  })
+
+  test('step 06 (#24): MCP tests & media is one row; step 04 (#26): TypeSafe blocked has its own sentence', async ({ page }) => {
+    await mockOpenRouter(page.context())
+    await openApp(page)
+    await withKeys(page, { claude: true, or: true })
+    await wsEval(page, (s) => s.updateSettings({ ai: { routes: { 'mcp-setup': [{ p: 'anthropic', m: 'claude-haiku-4-5' }], generate: [{ p: 'anthropic', m: 'claude-haiku-4-5' }] } } }))
+    await openSetup(page, { reason: 'add', step: 'done' })
+    await expect(setup(page).getByTestId('done-summary').locator('li', { hasText: 'MCP tests & media' })).toHaveCount(1)
+    await page.keyboard.press('Escape')
+    await expect(setup(page)).toHaveCount(0)
+    await wsEval(page, (s, w) => s.setWorkspaceAI({ policy: { providers: { openrouter: { allow: w, upstream: { deny: ['TypeSafe'], noCollect: true, zdr: false } } }, restricted: [] } }), WORK)
+    await openSetup(page, { reason: 'add', step: 'data', provider: 'openrouter' })
+    await expect(setup(page).getByTestId('jev-deny-note')).toHaveText('TypeSafe blocked — the Jev Router is off with it.')
   })
 })

@@ -20,13 +20,14 @@ import { PROVIDERS } from '@/shared/ai/providers'
 import { routeChoices, type ChoiceWhy, type RouteChoice } from '../core/gate'
 import type { Need, PurposeId } from '../core/purposes'
 import { PLATE } from './keys'
+import { classLabel } from './classLabel'
 
 type T = ReturnType<typeof useT>
 
 const COMPANY: Record<Route['p'], string> = { anthropic: 'Anthropic', openai: 'OpenAI', openrouter: 'OpenRouter' }
 
 /** A kind of work as people read it ("Writing" · "Schreiben"). */
-export const classLabel = (t: T, cls: FeatureClass): string => t(`features.ai.prov.class.${cls === 'generate' || cls === 'mcp-setup' ? 'mcp' : cls}`)
+export { classLabel } from './classLabel'
 
 /** The one reason a route does not fit this request. */
 export function whyText(t: T, w: ChoiceWhy | undefined): string {

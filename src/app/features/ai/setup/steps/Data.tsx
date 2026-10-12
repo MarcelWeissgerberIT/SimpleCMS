@@ -225,7 +225,7 @@ export function DataStep({ providers, handle, modal }: StepProps) {
                 {up.deny.map((d) => (
                   <span key={d} className="tag aid-chip" data-testid="deny-chip">
                     {d}
-                    {d.trim().toLowerCase() === JEV_OPERATOR.toLowerCase() && <small> · {t('features.ai.prov.up.typesafe')}</small>}
+                    {d.trim().toLowerCase() === JEV_OPERATOR.toLowerCase() && <small> · {t('features.ai.prov.up.typesafeChip')}</small>}
                     {admin && (
                       <button
                         type="button"
@@ -244,7 +244,11 @@ export function DataStep({ providers, handle, modal }: StepProps) {
               </span>
             )}
           </form>
-          {OWNER.jevRouter && <p className="aid-note">{denyHasJev ? `Jev Router — ${t('features.ai.prov.up.typesafe')}` : t('features.ai.prov.up.jev')}</p>}
+          {OWNER.jevRouter && (
+            <p className="aid-note" data-testid="jev-deny-note">
+              {denyHasJev ? t('features.ai.prov.up.typesafe') : t('features.ai.prov.up.jev')}
+            </p>
+          )}
           {OWNER.jevRouter && <p className="aid-note aid-note--q">{PROVIDERS.openrouter.routerPrivacy[lang]}</p>}
           <div className="aid-acct">
             <span className="label">{t('features.ai.prov.acct.title')}</span>

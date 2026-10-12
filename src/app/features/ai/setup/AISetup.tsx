@@ -35,6 +35,8 @@ export interface StepHandle {
   commit?: () => boolean
   /** a secondary footer key ("OpenRouter later") */
   extra?: { label: string; run: () => void; testId?: string } | null
+  /** the step's provider tabs: Alt+← / → anywhere in the dialog (the heading, the footer …) but a text field moves them */
+  tabs?: ((d: 1 | -1) => void) | null
 }
 
 /** The run the steps share (what was picked, skipped, which provider tab is open). */
@@ -140,6 +142,13 @@ export function AISetupModal({ modal, onClose }: { modal: Extract<ModalState, { 
   }, [step])
 
   const onKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>) => {
+    // Alt+← / →: the step's provider tabs — from the heading, the step, the footer; a text field keeps Option+← / →
+    if (e.altKey && !e.ctrlKey && !e.metaKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight') && handle.tabs) {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
+      e.preventDefault()
+      handle.tabs(e.key === 'ArrowRight' ? 1 : -1)
+      return
+    }
     if (e.key !== 'Enter' || e.nativeEvent.isComposing || e.altKey || e.metaKey || e.ctrlKey || e.repeat) return
     if (ownsEnter(e.target)) return
     e.preventDefault()
@@ -173,7 +182,14 @@ export function AISetupModal({ modal, onClose }: { modal: Extract<ModalState, { 
         <Kbd>Alt</Kbd> <Kbd>←</Kbd> <Kbd>→</Kbd> {t('features.ai.prov.setup.hintTabs')}
       </>
     ) : step === 'models' ? (
-      t('features.ai.prov.setup.hintModels')
+      <>
+        {handle.tabs && (
+          <>
+            <Kbd>Alt</Kbd> <Kbd>←</Kbd> <Kbd>→</Kbd> {t('features.ai.prov.setup.hintTabs')} ·{' '}
+          </>
+        )}
+        {t('features.ai.prov.setup.hintModels')}
+      </>
     ) : (
       <>
         <Kbd>Esc</Kbd> {t('features.ai.prov.setup.hint')}

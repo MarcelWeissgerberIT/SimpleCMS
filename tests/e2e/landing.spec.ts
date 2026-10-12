@@ -47,6 +47,11 @@ test.describe('landing page', () => {
     )
     expect(broken).toEqual([])
 
+    // what the AI path is (S2 review #27): no proxy or markup from us — OpenRouter is a router the person chooses
+    await expect(page.locator('#site')).toContainText('No proxy or markup from us: OpenRouter is a router you choose')
+    await expect(page.locator('#site')).toContainText('the Jev Router for bulk work, Claude for writing')
+    await expect(page.locator('#site')).not.toContainText('No proxy, no markup')
+
     await cta.click()
     await expect(page).toHaveURL(/\/SimpleCMS\/app\/(#.*)?$/)
     // (no ?e2e here, so no test hook — wait for the shell itself)
@@ -81,6 +86,7 @@ test.describe('landing page', () => {
       await expect(page.locator('#site').getByRole('link', { name: /Workspace öffnen/ }).first()).toBeVisible()
       await expect(page.getByRole('tablist', { name: /Datenbanken/ }).getByRole('tab', { name: /Zeitleiste/ })).toBeAttached()
       await expect(page.locator('#own-it .plate-cloud')).toContainText('In Entwicklung')
+      await expect(page.locator('#site')).toContainText('Kein Proxy und kein Aufschlag von uns: OpenRouter ist ein Router, den du wählst')
       const features = page.locator('#features')
       await expect(features.getByRole('heading', { level: 2 })).toHaveText(/Dreißig Funktionen\./)
       await expect(features.locator('.plac')).toHaveCount(30)

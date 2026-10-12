@@ -5,7 +5,8 @@
  */
 import { create } from 'zustand'
 import type { Lang } from '@/shared/i18n'
-import type { KeyCredit, PriceRow, ProviderId, Route, ShortlistRow } from '@/shared/ai/types'
+import type { DeviceAI, KeyCredit, PriceRow, ProviderId, Route, ShortlistRow, WorkspaceAI } from '@/shared/ai/types'
+import { allowedClasses } from '@/shared/ai/policy'
 import type { AIErrorCode } from '@/shared/ai/errors'
 import { MODELS } from '@/shared/ai/models'
 import { PROVIDER_ORDER, providerInfo } from '@/shared/ai/providers'
@@ -81,14 +82,23 @@ useWorkspace.subscribe((s) => {
 /* Plate state                                                          */
 /* ------------------------------------------------------------------ */
 
-export type PlateState = 'none' | 'picked' | 'ready' | 'refused' | 'no_credit' | 'soon'
+/** 'empty': a key is here, but the provider may receive nothing yet (its data column is empty) — not ready for routing. */
+export type PlateState = 'none' | 'picked' | 'ready' | 'empty' | 'refused' | 'no_credit' | 'soon'
 
-export function plateState(p: ProviderId, o: { hasKey: boolean; picked: boolean; check?: CheckState }): PlateState {
+/** A provider may receive nothing on this device yet (a new provider starts there until a preset is chosen in step 04). */
+export function receivesNothing(p: ProviderId, ws?: WorkspaceAI | null, device?: DeviceAI | null): boolean {
+  return allowedClasses(p, ws, device).length === 0
+}
+
+/** The plates' "has a key" states (ready, empty, refused, no credit). */
+export const keyedState = (s: PlateState): boolean => s === 'ready' || s === 'empty' || s === 'refused' || s === 'no_credit'
+
+export function plateState(p: ProviderId, o: { hasKey: boolean; picked: boolean; check?: CheckState; empty?: boolean }): PlateState {
   if (!providerInfo(p).shipped) return 'soon'
   if (o.hasKey) {
     if (o.check?.state === 'error' && (o.check.code === 'invalid_key' || o.check.code === 'permission')) return 'refused'
     if (o.check?.state === 'error' && o.check.code === 'no_credit') return 'no_credit'
-    return 'ready'
+    return o.empty ? 'empty' : 'ready'
   }
   return o.picked ? 'picked' : 'none'
 }
@@ -143,10 +153,19 @@ export function claudeRoles(): Record<RoleKey, string> {
   return { fast: pick('fast'), standard: pick('standard'), deep: pick('deep') }
 }
 
-/** A provider's roles on this device (Claude: the registry's unless chosen). */
+/** The Claude model this device sends every Claude request to (settings.aiModel — the legacy level), as a selectable id. */
+export function claudeModelHere(): string {
+  const m = useWorkspace.getState().settings.aiModel
+  return MODELS.some((x) => x.route.p === 'anthropic' && x.selectable && x.route.m === m) ? m : claudeRoles().standard
+}
+
+/**
+ * A provider's roles on this device (Claude: the registry's unless chosen). Claude's Standard IS this device's Claude
+ * model (settings.aiModel): every Claude request goes there in this version — Fast and Deep are kept for later routing.
+ */
 export function rolesOf(p: ProviderId): Partial<Record<RoleKey, string>> {
   const own = useWorkspace.getState().settings.ai?.roles?.[p] ?? {}
-  return p === 'anthropic' ? { ...claudeRoles(), ...own } : own
+  return p === 'anthropic' ? { ...claudeRoles(), ...own, standard: claudeModelHere() } : own
 }
 
 /** The route a role makes (the Jev Router: its tier from the role). */
