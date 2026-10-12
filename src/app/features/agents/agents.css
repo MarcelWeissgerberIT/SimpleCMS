@@ -19,6 +19,10 @@
 .agx-led--err {
   background: var(--c-red-text);
 }
+/* held by the Regler at a red line: amber, never the failure's red */
+.agx-led--held {
+  background: var(--lamp-amber);
+}
 @keyframes agx-pulse {
   from {
     opacity: 1;
@@ -616,6 +620,27 @@
   background: var(--c-red-bg);
   color: var(--c-red-text);
   font-size: var(--text-sm);
+}
+/* a run the Regler held: what held it, the state line, the times — amber rule, never the error's red */
+.agx-run__held {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 8px 10px;
+  border-left: 2px solid var(--lamp-amber);
+  background: var(--surface-2);
+  font-size: var(--text-sm);
+  line-height: 1.45;
+}
+.agx-run__held > .label {
+  color: var(--ink-2);
+}
+.agx-run__held-sub {
+  color: var(--ink-2);
+}
+.agx-run__pruned {
+  margin: 0;
+  color: var(--ink-3);
 }
 .agx-run__summary {
   display: grid;

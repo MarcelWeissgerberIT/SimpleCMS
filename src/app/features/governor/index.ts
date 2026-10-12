@@ -21,4 +21,6 @@ export { readDeviceLimit, deviceLimitOf, setDeviceLimit, knownScopes, noteScope,
 export { allowOnce, allowTask, allowanceOf, consume, allowedBy, clearAllowances, type AllowToken } from './allow'
 export { readPaused, addPaused, takePaused, wipePaused, PAUSED_PREFIX, PAUSED_MAX, type PausedRow, type PausedList } from './paused'
 export { BOOK_CHANNEL } from './book'
+export type { Binding, Limits, Rest } from './limits'
+export type { BrakeFix, BrakeRun, Halt, HaltCheaper, RefuseDetail, RoundVerdict, RunMode, StartVerdict } from './brake'
 export { PRICES, PRICES_DATE, costOf, priceRow } from '@/shared/ai/prices'

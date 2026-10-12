@@ -67,7 +67,8 @@ function RunItem({ run, n, first }: { run: AgentRun; n: number; first: boolean }
   const review = awaitsReview(run)
   const [open, setOpen] = useState(review || (first && run.status !== 'skipped'))
   const id = `agx-run-${run.id}`
-  const dur = run.endedAt ? fmtDuration(run.endedAt - run.startedAt) : '…'
+  // a day's not-started record spans the starts it counts — it has no duration
+  const dur = run.held?.kind === 'notStarted' ? '—' : run.endedAt ? fmtDuration(run.endedAt - run.startedAt) : '…'
   const pending = (run.staged ?? []).filter((c) => c.status === 'pending' || c.status === 'failed').length
   return (
     <li className="agx-run" data-status={run.status} data-review={review || undefined}>
@@ -75,7 +76,7 @@ function RunItem({ run, n, first }: { run: AgentRun; n: number; first: boolean }
         <ChevronRight size={14} strokeWidth={1.8} className="agx-run__chev" aria-hidden />
         <span className={statusLed(run.status)} aria-hidden />
         <span className="agx-run__n mono">#{pad(n)}</span>
-        <span className="agx-run__status label">{t(`features.agents.status.${run.status}`)}</span>
+        <span className="agx-run__status label">{t(run.status === 'held' ? 'features.governor.status.held' : `features.agents.status.${run.status}`)}</span>
         <span className="agx-run__trig">{t(`features.agents.trig.${run.trigger.type}`)}{run.trigger.detail && run.trigger.type !== 'schedule' ? ` · ${run.trigger.detail}` : ''}</span>
         <span className="agx-spacer" />
         {review && (
@@ -91,11 +92,16 @@ function RunItem({ run, n, first }: { run: AgentRun; n: number; first: boolean }
       </button>
       {open && (
         <div className="agx-run__body" id={id}>
-          {run.error && (
-            <p className="agx-run__err" role={first ? 'alert' : undefined}>
-              <span className="label">ERR</span> {run.error}
-            </p>
+          {run.status === 'held' && run.held ? (
+            <HeldLine run={run} held={run.held} />
+          ) : (
+            run.error && (
+              <p className="agx-run__err" role={first ? 'alert' : undefined}>
+                <span className="label">ERR</span> {run.error}
+              </p>
+            )
           )}
+          {!!run.pruned && <p className="agx-run__pruned label">{t(run.pruned === 1 ? 'features.governor.run.pruned.one' : 'features.governor.run.pruned.other', { count: run.pruned })}</p>}
           {run.summary.trim() ? (
             <div className="agx-run__summary">
               <span className="label">{t('features.agents.runs.report')}</span>
@@ -114,6 +120,39 @@ function RunItem({ run, n, first }: { run: AgentRun; n: number; first: boolean }
         </div>
       )}
     </li>
+  )
+}
+
+/**
+ * A run the Regler held (status 'held', features/governor): stopped between two steps — the line that bound, its
+ * proposals waiting, the old state kept — or the day's record of starts it did not let begin ("Today 3 × not started:
+ * the day budget is used up (6,00 $ of 6,00 $). Next run as planned." and the times).
+ */
+function HeldLine({ run, held }: { run: AgentRun; held: NonNullable<AgentRun['held']> }) {
+  const t = useT()
+  const lang = useLang()
+  const money = (x: number | undefined) => (x === undefined ? '—' : fmtUsd(x, lang))
+  if (held.kind === 'stopped')
+    return (
+      <div className="agx-run__held" data-testid="agx-run-held" data-held="stopped">
+        <span className="label">{t('features.governor.run.held.title')}</span>
+        <span>{t(`features.governor.run.stopped.${held.binding}`, { budget: money(held.limit) })}</span>
+        <span className="agx-run__held-sub">{t('features.governor.run.held.state')}</span>
+      </div>
+    )
+  const count = held.count ?? 1
+  const today = new Date(run.startedAt).toDateString() === new Date().toDateString()
+  const times = (held.times ?? [run.startedAt]).map((x) => {
+    const d = new Date(x)
+    return `${pad(d.getHours())}:${pad(d.getMinutes())}`
+  })
+  const why = t(`features.governor.run.notStarted.why.${held.binding}`, { spent: money(held.spent), budget: money(held.limit) })
+  return (
+    <div className="agx-run__held" data-testid="agx-run-held" data-held="notStarted">
+      <span className="label">{t('features.governor.run.held.title')}</span>
+      <span>{t('features.governor.run.notStarted.line', { count: t(today ? 'features.governor.run.notStarted.today' : 'features.governor.run.notStarted.past', { count }), why })}</span>
+      <span className="agx-run__held-sub mono">{t('features.governor.run.notStarted.times', { times: times.join(' · ') })}</span>
+    </div>
   )
 }
 

@@ -122,6 +122,8 @@ export function statusLed(status: AgentRun['status'] | 'off' | 'idle'): string {
     case 'error':
     case 'budget':
       return 'led agx-led--err'
+    case 'held':
+      return 'led agx-led--held'
     default:
       return 'led'
   }

@@ -15,7 +15,10 @@
  *    caller's own reservation excluded, allowances, run budgets; oneShot (identity · pass · cap for text only · never with
  *    MCP · refuse with E only when it then fits · cheaper · noprice · scope); round (go · halt for terminal tasks · stop for
  *    every agent mode); the next step (C as read or input, Δ, MCP iterations, the first step on FIRST_STEP_OUT); H (the
- *    68k cold-cache example, 250k context, a 300-page PDF, MCP, thinking); the start check.
+ *    68k cold-cache example, 250k context, a 300-page PDF, MCP, thinking); the start check;
+ *  - agent runs the Regler held (features/agents/held.ts): one not-started record per agent and day with its count and
+ *    times, a stop that keeps the proposals, pruning that never drops a run with open proposals (≤ 50 more, then said),
+ *    health's newest real run (a hold lights no fail lamp, an earlier failure stays lit).
  * Every value is fictional.
  */
 import { existsSync, readFileSync } from 'node:fs'
@@ -70,6 +73,8 @@ import {
   type OneShotCtx,
   type RunMode,
 } from '../../src/app/features/governor/brake'
+import { HELD_TIMES, PRUNE_EXTRA, heldDay, heldId, heldNotStarted, heldStopped, mergeRun, newestReal, openProposals, pruneRuns } from '../../src/app/features/agents/held'
+import type { AgentRun } from '../../src/app/features/agents/types'
 import { blendedPerM, priceRow } from '../../src/shared/ai/prices'
 import { capsOf } from '../../src/shared/ai/models'
 import type { PriceRow, Route, Usage } from '../../src/shared/ai/types'
@@ -890,5 +895,88 @@ test.describe('the start check (brake.startCheckPure)', () => {
     expect(startCheckPure({ run: run('manual'), limited: true, scopeKnown: true, first: null, rest: rest(9) })).toEqual({ start: false, refuse: 'noprice' })
     expect(startCheckPure({ run: run('trigger'), limited: true, scopeKnown: true, first: null, rest: rest(9) })).toEqual({ start: false, hold: 'noprice' })
     expect((['manual', 'interactive', 'bulk', 'scheduled', 'trigger', 'follow-up'] as RunMode[]).filter(asksAtStart)).toEqual(['manual', 'interactive', 'bulk'])
+  })
+})
+
+test.describe('agent runs the Regler held (agents/held.ts)', () => {
+  const T0 = new Date(2026, 9, 12, 7, 30).getTime()
+  const trigger = { type: 'schedule' as const, detail: '07:30' }
+  const start = (at: number, binding: 'day' | 'month' = 'day') => ({ agentId: 'ag-nordlicht', day: '2026-10-12', at, binding, line: { spent: 6, limit: 6 }, trigger })
+  const run = (id: string, startedAt: number, extra: Partial<AgentRun> = {}): AgentRun => ({ id, agentId: 'ag-nordlicht', runner: 'browser', trigger, startedAt, status: 'ok', summary: '', steps: [], ...extra })
+  const change = (status: string) => ({ id: `c-${status}`, kind: 'update_row', status, pageId: 'p-launch' }) as unknown as NonNullable<AgentRun['staged']>[number]
+
+  test('three held starts of a day are ONE record with count 3 and the times; another day is its own record', () => {
+    let rec = heldNotStarted(null, start(T0))
+    rec = heldNotStarted(rec, start(T0 + 3_600_000))
+    rec = heldNotStarted(rec, start(T0 + 7_200_000, 'month'))
+    expect(rec.id).toBe(heldId('2026-10-12'))
+    expect(heldDay(rec)).toBe('2026-10-12')
+    expect(rec).toMatchObject({ status: 'held', startedAt: T0, endedAt: T0 + 7_200_000, summary: '', steps: [] })
+    expect(rec.held).toEqual({ kind: 'notStarted', binding: 'month', spent: 6, limit: 6, count: 3, times: [T0, T0 + 3_600_000, T0 + 7_200_000] })
+    // merged by id into a list: still one record
+    let list = mergeRun([], heldNotStarted(null, start(T0)), 100)
+    list = mergeRun(list, heldNotStarted(list[0], start(T0 + 60_000)), 100)
+    expect(list.length).toBe(1)
+    expect(list[0].held?.count).toBe(2)
+    // a record of another day is not counted on
+    const other = heldNotStarted({ ...rec, id: heldId('2026-10-11') }, start(T0))
+    expect(other.held?.count).toBe(1)
+    // the times keep the newest HELD_TIMES
+    let many = heldNotStarted(null, start(T0))
+    for (let i = 1; i < HELD_TIMES + 5; i++) many = heldNotStarted(many, start(T0 + i * 60_000))
+    expect(many.held?.count).toBe(HELD_TIMES + 5)
+    expect(many.held?.times?.length).toBe(HELD_TIMES)
+    expect(many.held?.times?.[0]).toBe(T0 + 5 * 60_000)
+  })
+
+  test('a stop keeps the proposals and the brake numbers; status held, never budget', () => {
+    const r = run('r7', T0, { status: 'running', staged: [change('pending'), change('applied')] })
+    const held = heldStopped(r, { binding: 'day', line: { spent: 5.71, limit: 6 }, rest: 0.29, next: { low: 0.3, high: 0.52 }, at: T0 + 9000 })
+    expect(held.status).toBe('held')
+    expect(held.staged).toBe(r.staged)
+    expect(held.held).toEqual({ kind: 'stopped', binding: 'day', spent: 5.71, limit: 6 })
+    expect(held.brake).toEqual({ binding: 'day', rest: 0.29, next: { low: 0.3, high: 0.52 } })
+    expect(held.endedAt).toBe(T0 + 9000)
+    expect(openProposals(held)).toBe(1)
+  })
+
+  test('120 held runs never push out a run with pending changes; past 50 more the newest run says how many went', () => {
+    const pending = run('r-pending', T0 - 1, { status: 'staged', staged: [change('pending'), change('failed')] })
+    const held = Array.from({ length: 120 }, (_, i) => run(`held-${i}`, T0 + i * 1000, { status: 'held', held: { kind: 'notStarted', binding: 'day', count: 1 } }))
+    let list: AgentRun[] = [pending]
+    for (const h of held) list = mergeRun(list, h, 100)
+    expect(list.length).toBe(101)
+    expect(list.some((r) => r.id === 'r-pending')).toBe(true)
+    expect(list[0].pruned).toBeUndefined()
+    // positive control: a run without open proposals goes at the limit
+    const done = run('r-done', T0 - 1, { status: 'staged', staged: [change('applied')] })
+    let plain: AgentRun[] = [done]
+    for (const h of held) plain = mergeRun(plain, h, 100)
+    expect(plain.length).toBe(100)
+    expect(plain.some((r) => r.id === 'r-done')).toBe(false)
+    // 60 older runs with open proposals: 50 kept, the 10 oldest go and the newest run counts their proposals
+    const open = Array.from({ length: 60 }, (_, i) => run(`open-${i}`, T0 - 100_000 + i, { status: 'staged', staged: [change('pending')] }))
+    const pruned = pruneRuns([...held.slice(0, 100), ...open], 100)
+    expect(pruned.length).toBe(100 + PRUNE_EXTRA)
+    expect(pruned[0].pruned).toBe(10)
+    expect(pruned.some((r) => r.id === 'open-0')).toBe(false)
+    expect(pruned.some((r) => r.id === 'open-59')).toBe(true)
+    // a load prunes without noting; a run put again keeps the count its stored copy had
+    expect(pruneRuns([...held.slice(0, 100), ...open], 100, { note: false })[0].pruned).toBeUndefined()
+    const again = mergeRun(pruned, { ...pruned[0], pruned: undefined, summary: 'done' }, 100)
+    expect(again[0]).toMatchObject({ pruned: 10, summary: 'done' })
+  })
+
+  test('health: a hold is no failure — it lights no fail lamp, an earlier failure stays lit', () => {
+    const lamp = (runs: AgentRun[]) => {
+      const last = newestReal(runs)
+      return !!last && (last.status === 'error' || last.status === 'budget')
+    }
+    const heldRun = run('h', T0 + 2, { status: 'held' })
+    expect(lamp([heldRun, run('ok', T0 + 1)])).toBe(false)
+    expect(lamp([heldRun, run('e', T0 + 1, { status: 'error' })])).toBe(true)
+    expect(lamp([heldRun, run('s', T0 + 1, { status: 'skipped' }), run('b', T0, { status: 'budget' })])).toBe(true)
+    // positive control: the agent's own budget failure lights it
+    expect(lamp([run('b', T0, { status: 'budget' })])).toBe(true)
   })
 })

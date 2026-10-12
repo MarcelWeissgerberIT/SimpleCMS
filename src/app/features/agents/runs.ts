@@ -1,6 +1,7 @@
 /**
  * Custom agents — run records of this device (IndexedDB "one-agents" / "runs"; never synced):
- *   runs:<agentId>   AgentRun[] newest first, the last MAX_RUNS of the agent
+ *   runs:<agentId>   AgentRun[] newest first, the last MAX_RUNS of the agent — plus older runs that still hold open
+ *                    proposals (held.ts pruneRuns: ≤ 50 more, past that the newest run says how many went)
  *   slot:<agentId>   the newest schedule slot this device has handled (ms)
  *   seq:<agentId>    the number of the agent's newest browser run on this device (AgentRun.seq: 1, 2, 3 …)
  *   state:<ws>:<agentId>   the agent's own small memory (agent_state_set: cursors, last seen ids …) —
@@ -15,6 +16,7 @@ import type { ID } from '../../store/types'
 import type { AgentRun } from './types'
 import { wsKey } from './locks'
 import { dropBooks } from './trust/book'
+import { heldId, heldNotStarted, mergeRun, pruneRuns, type HeldStart } from './held'
 
 export const MAX_RUNS = 100
 
@@ -96,7 +98,7 @@ export async function loadRuns(agentId: ID): Promise<AgentRun[]> {
       if (fly?.size) {
         const mem = useAgentRuns.getState().byAgent[agentId] ?? []
         const newer = mem.filter((r) => fly.has(r.id))
-        runs = [...newer, ...runs.filter((r) => !fly.has(r.id))].sort((a, b) => b.startedAt - a.startedAt).slice(0, MAX_RUNS)
+        runs = pruneRuns([...newer, ...runs.filter((r) => !fly.has(r.id))], MAX_RUNS, { note: false })
       }
     } catch (e) {
       console.warn('[one] agents: no IndexedDB, keeping runs in memory', e)
@@ -109,31 +111,55 @@ export async function loadRuns(agentId: ID): Promise<AgentRun[]> {
 
 /** Insert or replace a run (by id) — in this tab right away, then stored. */
 export function putRun(run: AgentRun): Promise<void> {
-  const agentId = run.agentId
-  const merge = (list: AgentRun[]) => {
-    const rest = list.filter((r) => r.id !== run.id)
-    const at = list.findIndex((r) => r.id === run.id)
-    const next = at >= 0 ? [...list.slice(0, at), run, ...list.slice(at + 1)] : [run, ...rest]
-    return next.sort((a, b) => b.startedAt - a.startedAt).slice(0, MAX_RUNS)
-  }
-  setRuns(agentId, merge(useAgentRuns.getState().byAgent[agentId] ?? []))
+  return writeRuns(run.agentId, run.id, (list) => mergeRun(list, run, MAX_RUNS))
+}
+
+/**
+ * One read-modify-write of an agent's runs: `fn` (pure — it runs on this tab's copy right away, then on the stored list)
+ * gets the list and returns the new one. `runId` is the run it writes (this tab's copy of it wins over a load meanwhile).
+ */
+function writeRuns(agentId: ID, runId: string, fn: (list: AgentRun[]) => AgentRun[]): Promise<void> {
+  setRuns(agentId, fn(useAgentRuns.getState().byAgent[agentId] ?? []))
   const store = kv()
   if (!store) return Promise.resolve()
   const fly = inflight.get(agentId) ?? new Map<string, number>()
   inflight.set(agentId, fly)
-  fly.set(run.id, (fly.get(run.id) ?? 0) + 1)
+  fly.set(runId, (fly.get(runId) ?? 0) + 1)
   const prev = queues.get(agentId) ?? Promise.resolve()
   const job = prev
-    .then(() => update<unknown>(`runs:${agentId}`, (cur) => merge(Array.isArray(cur) ? cur.filter(isRun) : []), store))
+    .then(() => update<unknown>(`runs:${agentId}`, (cur) => fn(Array.isArray(cur) ? cur.filter(isRun) : []), store))
     .then(() => post(agentId))
     .catch((e) => console.warn('[one] agents: could not save a run', e))
     .finally(() => {
-      const left = (fly.get(run.id) ?? 1) - 1
-      if (left > 0) fly.set(run.id, left)
-      else fly.delete(run.id)
+      const left = (fly.get(runId) ?? 1) - 1
+      if (left > 0) fly.set(runId, left)
+      else fly.delete(runId)
     })
   queues.set(agentId, job)
   return job
+}
+
+/** The agent's not-started record of a local day in this tab (Regler: one per agent and day — held.ts), if any. */
+export function heldToday(agentId: ID, day: string): AgentRun | null {
+  return (useAgentRuns.getState().byAgent[agentId] ?? []).find((r) => r.id === heldId(day)) ?? null
+}
+
+/**
+ * One more start held at the red line (scheduled / triggered — never a request): the day's record counts it, inside
+ * the read-modify-write, so starts held in two tabs both count. Resolves with this tab's copy of the record.
+ */
+export async function noteHeldStart(s: HeldStart): Promise<AgentRun> {
+  // the record as last computed: this tab's copy first, then the stored one (the truth — another tab may have counted)
+  const box: { rec: AgentRun | null } = { rec: null }
+  const add = (list: AgentRun[]) => {
+    box.rec = heldNotStarted(list.find((r) => r.id === heldId(s.day)), s)
+    return mergeRun(list, box.rec, MAX_RUNS)
+  }
+  await writeRuns(s.agentId, heldId(s.day), add)
+  const rec = box.rec ?? heldNotStarted(null, s)
+  const mem = useAgentRuns.getState().byAgent[s.agentId]
+  if (mem?.some((r) => r.id === rec.id && r !== rec)) setRuns(s.agentId, mem.map((r) => (r.id === rec.id ? rec : r)))
+  return rec
 }
 
 /**
@@ -332,8 +358,8 @@ export async function nextSeq(agentId: ID): Promise<number> {
   return n
 }
 
-/** A run with staged changes nobody has reviewed yet. */
-export const awaitsReview = (r: AgentRun) => r.status === 'staged' && (r.staged ?? []).some((c) => c.status === 'pending' || c.status === 'failed')
+/** A run with staged changes nobody has reviewed yet (a run the Regler stopped keeps its proposals for review too). */
+export const awaitsReview = (r: AgentRun) => (r.status === 'staged' || r.status === 'held') && (r.staged ?? []).some((c) => c.status === 'pending' || c.status === 'failed')
 
 /** A run that did its job (its writes applied or proposed): the "last successful run" of the next one. */
 export const succeeded = (r: AgentRun) => r.status === 'ok' || r.status === 'staged'
