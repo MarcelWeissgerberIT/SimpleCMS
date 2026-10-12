@@ -1,6 +1,6 @@
 /**
  * Flight recorder — what the eject settles in other areas (R3, brief §5): the Outbox. An agent run on a fictional
- * mirror ("CNSX Handoff", the Outbox fixture of tests/e2e/helpers/outbox.ts) wrote two rows and left a pending `send`
+ * mirror (the Outbox fixture of tests/e2e/helpers/outbox.ts) wrote two rows and left a pending `send`
  * proposal whose slip waits in the Outbox; another slip sits on a row that goes back. The dialog's facts count both;
  * the eject withdraws the proposal's slip (through the Outbox's own withdrawSlip, 'origin') and leaves the other one
  * alone; its Undo brings the proposal back to pending, never the slip. A row the person marked as sent (`you~outbox`)

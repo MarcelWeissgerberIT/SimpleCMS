@@ -267,7 +267,8 @@ export async function applyChanges(changes: StagedChange[], all: StagedChange[],
 
   // a change an eject settled (features/recorder/settled.ts) is not the batch's to revert any more: its closure is kept
   // — an edit group whole when any of its edits is settled — and reported kept (another tab's eject too: the mark comes over)
-  const runKey = runKeyOf(formatWriterKey(opts.writer))
+  // (no writer: a caller that applies nothing of a run — its Undo keeps nothing for an eject)
+  const runKey = opts.writer ? runKeyOf(formatWriterKey(opts.writer)) : null
   const undo = () => {
     const kept: string[] = []
     for (let i = undos.length - 1; i >= 0; i--) {

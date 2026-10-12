@@ -92,7 +92,7 @@ export interface RecorderUI {
 export interface LastHeld {
   p: PlaceKey
   who: LaneKey | null
-  /** who, as the board's tag says it ("du", "J. Weber") */
+  /** who, as the board's tag says it ("du", "Mara Lind") */
   whoLabel: string
   at: number
   label: string

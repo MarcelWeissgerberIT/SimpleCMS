@@ -75,7 +75,7 @@ export function heldWhy(t: Translate, x: PlacePlan, input: Pick<CoreInput, 'data
   return t(`features.recorder.eject.reason.${x.reason ?? 'changed'}`, { who, writer })
 }
 
-/** "Du hast sie seitdem geändert" / "Du und J. Weber habt …" / "{name} hat …" / "{names} haben …". */
+/** "Du hast sie seitdem geändert" / "Du und Mara Lind habt …" / "{name} hat …" / "{names} haben …". */
 export function heldByText(t: Translate, lanes: ReadonlyArray<LaneKey | null>, ws: Ws, n: number): string {
   const one = n === 1 ? '.one' : ''
   const others = lanes.filter((l) => l !== 'you').map((l) => whoName(l, t, ws, true))
