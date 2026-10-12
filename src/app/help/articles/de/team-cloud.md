@@ -12,7 +12,7 @@ Der lokale Workspace braucht keinen Server. Für ein Team verbindest du dich mit
 ## Was es kostet
 - **Lokal** (dieser Browser): kostenlos.
 - **Selbst gehostet** (dein eigener Server): kostenlos — eine Spende ist willkommen, nie Pflicht.
-- **Die gehostete Team-Cloud**: 99 € pro Nutzer und Jahr. Sie ist in Entwicklung: Anmelden kannst du dich noch nicht.
+- **Die gehostete Team-Cloud**: 99 € pro Nutzer und Jahr. Sie ist in Entwicklung: Anmelden kannst du dich noch nicht.
 
 ## Anmelden
 Auf dem Server deines Teams meldest du dich mit deiner E-Mail an: One schickt einen Einmal-Link — kein Passwort. Bei der ersten Anmeldung legt der Server **deinen eigenen Bereich** an („Bereich von *Name*“): ein Workspace, in dem nur du bist. Workspaces, in die du eingeladen wirst, stehen daneben.

@@ -16,7 +16,8 @@ test.describe('pricing: the numbers (Node)', () => {
     expect(ONE_PRICING.cloudPerUserYear).toEqual({ eur: 99, usd: 99 })
     expect(ONE_PRICING.selfHosted).toBe(0)
     expect(cloudPrice('en')).toBe('$99')
-    expect(cloudPrice('de')).toBe('99 €')
+    // a no-break space: running text never wraps between "99" and "€"
+    expect(cloudPrice('de')).toBe('99\u00a0€')
   })
 
   test('a donate address becomes a link only when it is an https address', () => {
@@ -41,14 +42,19 @@ test.describe('pricing: landing page', () => {
     await page.goto('./?skip')
     await expect(page.locator('.readout')).toContainText('Local, forever')
     await expect(page.locator('.readout')).not.toContainText(/per seat/i)
+    // the cost dial starts on Notion's seat-year (USD on both pages, motion.ts) and its unit says so while it does
+    await expect(page.locator('.readout-unit[data-from-unit]')).toHaveAttribute('data-from-unit', 'Notion · seat / year')
+    await expect(page.locator('.readout-unit[data-from-unit]')).toHaveText('Local, forever')
 
-    // calculator: 10 seats, Business, annual = $2,400 at Notion; the Team Cloud $990 → you keep $1,410
+    // calculator: 10 seats, Business, annual = $2,400 at Notion; the Team Cloud $990 → you would keep $1,410
+    // (conditional: the cloud is planned, nobody can sign up yet)
     const calc = page.locator('#savings')
     await calc.scrollIntoViewIfNeeded()
-    await expect(calc.locator('.calc-result')).toContainText('With the One Team Cloud you keep')
+    await expect(calc.locator('.calc-result')).toContainText('With the planned One Team Cloud you would keep')
     await expect(calc.locator('[data-total-big]')).toHaveText('$1,410')
     await expect(calc.locator('[data-five]')).toHaveText('Over five years: $7,050')
-    await expect(calc.locator('[data-self]')).toHaveText('Local or self-hosted: you keep $2,400 a year')
+    // self-hosting keeps the whole Notion bill at most — the server is the team's own cost
+    await expect(calc.locator('[data-self]')).toHaveText('Self-hosted: you keep up to $2,400 a year, minus your server')
     await expect(calc.locator('.calc-cloud')).toHaveText('One Team Cloud: $99 per user / year · in development')
     const receipt = calc.locator('[data-receipt]')
     await expect(receipt).toContainText('$2,400.00')
@@ -56,6 +62,10 @@ test.describe('pricing: landing page', () => {
     await expect(receipt).toContainText('$990.00')
     await expect(receipt.locator('[data-total-receipt]')).toHaveText('$1,410.00')
     await expect(receipt.locator('[data-self-receipt]')).toHaveText('$2,400.00')
+    await expect(receipt.locator('.r-self')).toContainText('One self-hosted²')
+    await expect(receipt.locator('.r-self')).toContainText('Saved before server')
+    await expect(receipt).toContainText('the server you run it on is yours to pay')
+    await expect(receipt).not.toContainText(/One local/i)
     await expect(receipt).toContainText('In development — there is no sign-up yet.')
     await expect(receipt).toContainText('Source: notion.com/pricing')
     // one seat more: Business annual $240 − $99 = $141 more kept
@@ -65,7 +75,11 @@ test.describe('pricing: landing page', () => {
     await calc.getByRole('button', { name: /^Plus/ }).click()
     await calc.getByRole('button', { name: 'Monthly' }).click()
     await expect(calc.locator('[data-total-big]')).toHaveText('$495')
-    await expect(calc.locator('[data-self]')).toHaveText('Local or self-hosted: you keep $1,584 a year')
+    await expect(calc.locator('[data-self]')).toHaveText('Self-hosted: you keep up to $1,584 a year, minus your server')
+    // the screen-reader sentence says the same, in the same tense
+    await expect(calc.locator('[data-calc-live]')).toHaveText(
+      '11 seats, Notion Plus, billed monthly: with the planned One Team Cloud you would keep $495 a year; self-hosted, up to $1,584 minus your server.',
+    )
 
     const price = page.locator('#compare tbody tr').filter({ hasText: 'Price' })
     await expect(price.locator('td').nth(1)).toContainText('hosted team cloud $99 per user/year, in development')
@@ -105,6 +119,13 @@ test.describe('pricing: landing page', () => {
       await page.addInitScript(([k, v]) => localStorage.setItem(k, v), [DONATE_TEST_KEY, TEST_URL])
       await page.goto('./?skip&e2e')
       await expect(page.locator('html')).toHaveAttribute('lang', 'de')
+      // the headline makes no price claim the Team Cloud contradicts: no Notion subscription (the English page's
+      // "Minus the bill." — Notion's), never "no subscription" at all
+      await expect(page).toHaveTitle('SimpleCMS One — Notion, neu gebaut. Ohne Notion-Abo.')
+      await expect(page.locator('#hero-h .line-in').nth(1)).toHaveText('Ohne Notion-Abo.')
+      await expect(page.locator('#site')).not.toContainText(/Ohne Abo|kein Abo/i)
+      await expect(page.locator('.readout-unit[data-from-unit]')).toHaveAttribute('data-from-unit', 'Notion · Platz / Jahr')
+      await expect(page.locator('.readout-unit[data-from-unit]')).toHaveText('Lokal, für immer')
       const own = page.locator('#own-it')
       await expect(own.locator('[data-cloud-price]')).toContainText('99 €')
       await expect(own.locator('.sec-lead')).toContainText('99 € pro Nutzer und Jahr')
@@ -113,6 +134,9 @@ test.describe('pricing: landing page', () => {
       await expect(calc.locator('.calc-cloud')).toContainText('99 € pro Nutzer / Jahr')
       await expect(calc.locator('.calc-cloud')).toContainText('gerechnet in USD wie Notion: 99 $')
       await expect(calc.locator('[data-total-big]')).toHaveText(/^1\.410\s\$$/)
+      await expect(calc.locator('.calc-result')).toContainText('Mit der geplanten One Team-Cloud blieben dir')
+      await expect(calc.locator('[data-self]')).toHaveText(/^Selbst gehostet: bis zu 2\.400\s\$ pro Jahr, abzüglich deines Servers$/)
+      await expect(calc.locator('[data-receipt] .r-self')).toContainText('Gespart vor Serverkosten')
       await expect(calc.locator('[data-receipt]')).toContainText('hier in USD gerechnet, weil Notion in USD abrechnet')
       const faq = page.locator('#faq .faq-item').filter({ hasText: 'Wird die Team-Cloud etwas kosten?' })
       await faq.locator('summary').click()

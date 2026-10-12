@@ -117,7 +117,7 @@ function receiptHtml(ctx: Ctx, s: CalcState): string {
     <div class="r-rule" aria-hidden="true"></div>
     <div class="r-item r-self">
       ${row(esc(t('r.self')), money(ONE_PRICING.selfHosted))}
-      ${row(esc(t('r.saved')), `<b data-self-receipt>${money(total)}</b>`)}
+      ${row(esc(t('r.selfSaved')), `<b data-self-receipt>${money(total)}</b>`)}
     </div>
     <p class="r-stamp" aria-hidden="true"><span>${esc(t('r.paid'))}</span></p>
     <div class="r-rule" aria-hidden="true"></div>
@@ -154,7 +154,8 @@ export function bindSavings(root: HTMLElement, ctx: Ctx, hooks: SavingsHooks = {
     el.textContent = t('savings.perSeat', { price: formatUsd(NOTION_PRICING.perSeatMonth[p][calcState.billing], lang, false) })
   })
 
-  // The big number: what the team keeps with the One Team Cloud instead of Notion.
+  // The big number: what the team would keep with the planned One Team Cloud instead of Notion. The line under it
+  // is self-hosting: the whole Notion bill at most, before the server the team pays for itself.
   let shownTotal = keptWithCloud(calcState.plan, calcState.billing, calcState.seats)
   // Screen readers get one short sentence once the controls settle — not the whole receipt
   // on every slider step.

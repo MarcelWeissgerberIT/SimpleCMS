@@ -363,6 +363,11 @@ Ordered by value to the user against build risk:
 - "$0 per seat" or "no seats" for the hosted Team Cloud: it costs 99 € / $99 per user per year. Local and self-hosted
   are free. Do not imply the hosted cloud can be signed up for while it is in development.
 - A savings figure that subtracts a EUR price from Notion's USD prices: the calculator counts in USD on both pages.
+- "No subscription" / "Ohne Abo" without a qualifier: the hosted Team Cloud is a yearly price. "No Notion
+  subscription" ("Ohne Notion-Abo") is correct.
+- A Team Cloud saving in the present tense ("you keep"): it is planned, so "you would keep".
+- Self-hosting as the full Notion bill saved: it is "up to" that, minus the server. Local One is one person.
+- A Notion price shown in euros (e.g. the hero dial's start value): Notion's list prices are USD.
 
 ---
 

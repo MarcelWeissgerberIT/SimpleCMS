@@ -27,8 +27,15 @@ export function renderHero(ctx: Ctx): string {
   const overlay = `<svg class="leaders" viewBox="0 0 1600 1000" preserveAspectRatio="none" aria-hidden="true">${leaders}</svg>${balloons}`
 
   const readout = [
-    // Counts down from what one Notion Business seat costs a year at monthly billing ($24 × 12).
-    { val: t('readout.cost'), from: NOTION_PRICING.perSeatMonth.business.monthly * 12, unit: t('readout.costUnit'), kind: 'cost' },
+    // Counts down from what one Notion Business seat costs a year at monthly billing ($24 × 12, in US dollars on
+    // both pages — motion.ts) to One's local price; while it shows Notion's figure, its unit says so (fromUnit).
+    {
+      val: t('readout.cost'),
+      from: NOTION_PRICING.perSeatMonth.business.monthly * 12,
+      unit: t('readout.costUnit'),
+      fromUnit: t('readout.costFrom'),
+      kind: 'cost',
+    },
     { val: '0', from: 12, unit: t('readout.servers'), kind: 'n' },
     { val: '0', from: 37, unit: t('readout.trackers'), kind: 'n' },
     { val: '∞', from: 0, unit: t('readout.pages'), kind: 'inf' },
@@ -80,7 +87,7 @@ export function renderHero(ctx: Ctx): string {
       ${readout
         .map(
           (r) =>
-            `<li class="readout-cell"><span class="readout-val" data-count="${r.kind}" data-from="${r.from}" data-final="${esc(r.val)}">${esc(r.val)}</span><span class="meter" style="--v:${r.kind === 'inf' ? 1 : 0}" aria-hidden="true"><i></i></span><span class="lbl readout-unit">${esc(r.unit)}</span></li>`,
+            `<li class="readout-cell"><span class="readout-val" data-count="${r.kind}" data-from="${r.from}" data-final="${esc(r.val)}">${esc(r.val)}</span><span class="meter" style="--v:${r.kind === 'inf' ? 1 : 0}" aria-hidden="true"><i></i></span><span class="lbl readout-unit"${r.fromUnit ? ` data-from-unit="${esc(r.fromUnit)}"` : ''}>${esc(r.unit)}</span></li>`,
         )
         .join('')}
     </ul>

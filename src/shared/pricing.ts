@@ -26,9 +26,13 @@ export const ONE_PRICING = {
  */
 export const DONATE_URL: string = ''
 
-/** "$99" (English page) · "99 €" (German page) — the hosted Team Cloud per user and year. */
+/**
+ * "$99" (English page) · "99 €" (German page) — the hosted Team Cloud per user and year. The German form joins
+ * number and sign with a no-break space (written as an escape so nobody mistakes it for a plain one): it sits in
+ * running text and must never wrap between "99" and "€".
+ */
 export function cloudPrice(lang: Lang): string {
-  return lang === 'de' ? `${ONE_PRICING.cloudPerUserYear.eur} €` : `$${ONE_PRICING.cloudPerUserYear.usd}`
+  return lang === 'de' ? `${ONE_PRICING.cloudPerUserYear.eur}\u00a0€` : `$${ONE_PRICING.cloudPerUserYear.usd}`
 }
 
 /** A donate address that may become a link: https only (no javascript:, no http:), else null. */
