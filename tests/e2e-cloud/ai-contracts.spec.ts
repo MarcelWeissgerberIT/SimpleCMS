@@ -9,6 +9,7 @@ import { HocuspocusProvider, HocuspocusProviderWebsocket } from '@hocuspocus/pro
 import * as Y from 'yjs'
 import { test, expect, email, signIn, openApp, waitOnline, wsEval, createWorkspace } from './fixtures'
 import { DOC_SCHEMA_VERSION } from '../../src/app/store/generations'
+import { GEN } from '../../src/shared/ai/generations'
 import { mockOpenRouter } from '../e2e/helpers/providers'
 
 /** A collab client in Node with this page's session (a client other than the app: what a newer build would write). */
@@ -42,6 +43,8 @@ const RULES = {
   policy: { providers: { openrouter: { allow: ['public', 'structure', 'selection'] } }, restricted: [] },
 }
 const ROUTED = { route: [{ p: 'openrouter', m: 'x/y' }, { p: 'anthropic', m: 'claude-opus-5-5' }], applyOn: 'anthropic:claude-opus-5-5', routeSig: 'sig-nordlicht-1' }
+/** This device's layer as a newer build writes it: a Claude narrow, stamped above every generation this build names. */
+const DEVICE_AI = { narrow: { anthropic: ['people'] }, gen: Math.max(...Object.values(GEN)) + 1 }
 
 test('workspace.ai and agent routes written elsewhere survive an S1 tab’s edits', async ({ page }) => {
   await signIn(page, email('mara'))
@@ -96,14 +99,16 @@ test('two tabs of one team workspace: device AI rules and a key marker saved in 
   await openApp(other, wsId)
   await waitOnline(other)
 
-  // tab B narrows this device's rules at a generation this build does not know, and keeps a key (S2: sealed → its marker;
-  // a marker this browser cannot open is dropped at the next boot, so the key is a real one here)
-  await wsEval(other, (s) => s.updateSettings({ ai: { gen: 2 }, aiKeys: { openrouter: 'sk-or-v1-e2e-tessera-key-000000000000000000000000000000000000000000004c2a' } }))
+  // tab B narrows this device's rules at a generation this build does not know (a newer build's layer), and keeps a key
+  // (S2: sealed → its marker; a marker this browser cannot open is dropped at the next boot, so the key is a real one here).
+  // Not a bare `{ gen: 2 }`: 2 is GEN.claudeLimits, a stamp this build computes — every load re-stamps it from what the
+  // layer holds (Regler B1, store/governor.ts restamp), and a layer without a rule needing it holds none (ai-policy.spec).
+  await wsEval(other, (s, ai) => s.updateSettings({ ai, aiKeys: { openrouter: 'sk-or-v1-e2e-tessera-key-000000000000000000000000000000000000000000004c2a' } }), DEVICE_AI)
   const MARKER = await wsEval(other, (s) => s.settings.aiKeys.openrouter as string)
   expect(MARKER).toMatch(/^vault:[0-9a-z]{12}:4c2a$/)
   const deviceOf = (p: Page) => wsEval(p, (s) => JSON.parse(JSON.stringify({ ai: s.settings.ai ?? null, keys: s.settings.aiKeys ?? null })))
-  // tab A reads them (the overlay ping): its gate now sees generation 2
-  await expect.poll(() => deviceOf(page)).toEqual({ ai: { gen: 2 }, keys: { openrouter: MARKER } })
+  // tab A reads them (the overlay ping): its gate now sees the newer generation
+  await expect.poll(() => deviceOf(page)).toEqual({ ai: DEVICE_AI, keys: { openrouter: MARKER } })
 
   // tab A saves its overlay (a page, the theme): only its own keys go over the stored ones
   await wsEval(page, (s) => {
@@ -114,7 +119,7 @@ test('two tabs of one team workspace: device AI rules and a key marker saved in 
   // tab B reloads: the rules and the marker are still there, tab A's theme too
   await openApp(other, wsId)
   await waitOnline(other)
-  expect(await deviceOf(other)).toEqual({ ai: { gen: 2 }, keys: { openrouter: MARKER } })
+  expect(await deviceOf(other)).toEqual({ ai: DEVICE_AI, keys: { openrouter: MARKER } })
   expect(await wsEval(other, (s) => s.settings.theme)).toBe('dark')
 })
 

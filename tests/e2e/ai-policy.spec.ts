@@ -14,12 +14,13 @@ import type { Page } from '@playwright/test'
 import type { JSONContent } from '@tiptap/core'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { test, expect, openApp, wsEval, uiEval, createPage, gotoPage, editorOf, selectText, doc, para, flush, MOD } from './fixtures'
+import { test, expect, openApp, reloadApp, wsEval, uiEval, createPage, gotoPage, editorOf, selectText, doc, para, flush, MOD } from './fixtures'
 import { hostCounts, mockClaudeScript, mockOpenRouter, seedEndpoints, text, type ClaudeStep, type ORStepFn } from './helpers/providers'
 import { aiPanel, autofillPriority, noSpeech } from './helpers/aiFlows'
 import { exportBackup } from './helpers/backup'
 import { writeFileSync } from 'node:fs'
 import { capsOfRow, readCatalogRow } from '../../src/shared/ai/catalog'
+import { GEN } from '../../src/shared/ai/generations'
 import type { Route, ShortlistRow } from '../../src/shared/ai/types'
 
 type AnyState = Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -194,6 +195,50 @@ test.describe('the rules: generation stamps', () => {
     // the budget removed: the stamp follows what is stored now — none
     expect(await wsEval(page, (s) => s.setGovernor(null))).toEqual({ ok: true })
     expect((await ws()).gen).toBeUndefined()
+  })
+
+  test('two tabs: a device narrow and a key marker saved in one survive the other\'s saves and reach it; a load re-stamps a stamp without its rule, a newer build\'s layer stays whole', async ({ page, context }) => {
+    await openApp(page)
+    const other = await context.newPage()
+    await openApp(other)
+    const deviceOf = (p: Page) => wsEval(p, (s) => JSON.parse(JSON.stringify({ ai: s.settings.ai ?? null, keys: s.settings.aiKeys ?? null })))
+    // tab B narrows Claude on this device (this build stamps 2) and keeps an OpenRouter key (sealed → its marker)
+    expect(await rules(other, 'setDeviceAI', { narrow: { anthropic: ['people'] } })).toBe(true)
+    await wsEval(other, (s, k) => s.updateSettings({ aiKeys: { openrouter: k } }), OR_KEY)
+    const MARKER = await wsEval(other, (s) => s.settings.aiKeys.openrouter as string)
+    expect(MARKER).toMatch(/^vault:[0-9a-z]{12}:0000$/)
+    const NARROWED = { narrow: { anthropic: ['people'] }, gen: 2 }
+    await flush(other)
+    // tab A reads them (another tab's save) …
+    await expect.poll(() => deviceOf(page)).toEqual({ ai: NARROWED, keys: { openrouter: MARKER } })
+    // … saves its own (a page, the theme); tab B loads again: the rule, its stamp and the marker are there, A's theme too
+    await wsEval(page, (s) => {
+      s.createPage({ title: 'Launch plan', parentId: null })
+      s.updateSettings({ theme: 'dark' })
+    })
+    await flush(page)
+    await reloadApp(other)
+    expect(await deviceOf(other)).toEqual({ ai: NARROWED, keys: { openrouter: MARKER } })
+    expect(await wsEval(other, (s) => s.settings.theme)).toBe('dark')
+
+    // a stamp without the rule that needs it, at a generation this build computes: every load (and another tab's save)
+    // re-stamps the layer from what it holds — none (Regler B1, store/governor.ts restamp; the stamp follows the rules)
+    await wsEval(other, (s) => s.updateSettings({ ai: { gen: 2 } }))
+    await flush(other)
+    await expect.poll(() => deviceOf(page)).toEqual({ ai: null, keys: { openrouter: MARKER } })
+    await reloadApp(other)
+    expect(await deviceOf(other)).toEqual({ ai: null, keys: { openrouter: MARKER } })
+
+    // a newer build's layer (a generation above every one this build names): never re-stamped — kept whole on both tabs
+    const NEWER = { narrow: { anthropic: ['people'] }, gen: Math.max(...Object.values(GEN)) + 1 }
+    await wsEval(other, (s, ai) => s.updateSettings({ ai }), NEWER)
+    await flush(other)
+    await expect.poll(() => deviceOf(page)).toEqual({ ai: NEWER, keys: { openrouter: MARKER } })
+    await wsEval(page, (s) => s.updateSettings({ theme: 'light' }))
+    await flush(page)
+    await reloadApp(other)
+    expect(await deviceOf(other)).toEqual({ ai: NEWER, keys: { openrouter: MARKER } })
+    expect(await wsEval(other, (s) => s.settings.theme)).toBe('light')
   })
 })
 
