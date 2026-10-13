@@ -7,9 +7,8 @@ import { wsEval } from '../fixtures'
 
 type Seam = { __oneAI: Record<string, (...a: any[]) => any>; __oneLedger: Record<string, (...a: any[]) => any> } // eslint-disable-line @typescript-eslint/no-explicit-any
 
-/** A stored budget this tab enforces: the ?e2e seam raises the generation the gate holds to GEN.budget (G1 B12 raises it). */
+/** A stored budget (this build enforces GEN.budget since G1 B12 — no seam needed). */
 export async function budget(page: Page, value: object | null): Promise<void> {
-  await page.evaluate(() => (window as unknown as Seam).__oneAI.enforceGen(3))
   expect(await wsEval(page, (s, g) => s.setGovernor(g) as { ok: boolean; why?: string }, value)).toEqual({ ok: true })
 }
 

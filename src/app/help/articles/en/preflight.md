@@ -4,7 +4,7 @@ title: Preflight
 section: start
 order: 2
 keywords: preflight, vorflug, lamps, lampen, lamp panel, master caution, queue, warteschlange, quittieren, acknowledge, von hand, by hand, angestaubt, stale, superseded, logbook, Bordbuch, start, morning
-related: custom-agents, agent-trust, coding-pipeline, outbox, integrations, mcp-servers, sync
+related: custom-agents, agent-trust, coding-pipeline, outbox, integrations, mcp-servers, sync, governor
 summary: A lamp panel on Start shows what waits on you — proposals, gates, questions, refused tokens, slips — counted for 0 tokens; its queue works through it by keyboard.
 ---
 Before a pilot takes off, every warning lamp is checked once. **Preflight** does that for your workspace: on **Start** a panel of lamps shows what waits on you — and only that. Each lamp counts one kind of thing, in your browser, without asking Claude: **counting costs 0 tokens**.
@@ -17,6 +17,7 @@ A lamp is on the panel only when it has something to watch here (a coding lamp o
 - **Inbox** — unread reminders, mentions, replies and agent notes of this device.
 - **Token refused** — [MCP servers](help:mcp-servers) whose token was refused or whose sign-in ran out.
 - **Outbox** — [slips](help:outbox) waiting to be sent by hand.
+- **Usage** — only while a [budget](help:governor) is set: amber from 75 % of the day budget on this device, red at the red line (with **MASTER CAUTION**); it counts agents the Governor held today, autofill rows paused at the line and a terminal task waiting at its halt card. ↵ opens the Governor.
 - **Worker offline**, **Mirror stale**, **Agent missed**, **Sync**, **Mail**, **Cloud** — the things that run for you and stopped.
 
 ## Four states

@@ -311,14 +311,14 @@ const GATE_FLOWS: Array<{ name: string; steps: ClaudeStep[]; go: (page: Page, re
 
 test.describe('the gate in front of every AI request', () => {
   for (const flow of GATE_FLOWS)
-    for (const gen of [3, 1])
-      test(`${flow.name}: AI rules of generation ${gen} → ${gen > 2 ? "'reload', nothing sent" : 'exactly one request'}`, async ({ page, aiNet }) => {
+    for (const gen of [4, 1])
+      test(`${flow.name}: AI rules of generation ${gen} → ${gen > 3 ? "'reload', nothing sent" : 'exactly one request'}`, async ({ page, aiNet }) => {
         const { requests, counts } = await gated(page, gen, flow.steps)
-        await flow.go(page, gen > 2)
+        await flow.go(page, gen > 3)
         await page.waitForTimeout(400)
-        expect(requests).toHaveLength(gen > 2 ? 0 : 1)
-        expect(counts.anthropic).toBe(gen > 2 ? 0 : 1)
-        expect(aiNet.count('anthropic')).toBe(gen > 2 ? 0 : 1)
+        expect(requests).toHaveLength(gen > 3 ? 0 : 1)
+        expect(counts.anthropic).toBe(gen > 3 ? 0 : 1)
+        expect(aiNet.count('anthropic')).toBe(gen > 3 ? 0 : 1)
       })
 })
 

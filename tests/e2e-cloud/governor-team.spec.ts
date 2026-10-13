@@ -128,7 +128,6 @@ test('Workspace › AI § 06 in a team: the owner saves through the section, a m
   await waitOnline(page)
   await openApp(member, wsId)
   await waitOnline(member)
-  await page.evaluate(() => (window as unknown as { __oneAI: { enforceGen(g: number): number } }).__oneAI.enforceGen(3))
 
   // the owner: the fields write, no lock
   await page.evaluate(() => (location.hash = '#/workspace/ai'))

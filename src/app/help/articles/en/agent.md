@@ -4,7 +4,7 @@ title: The AI terminal
 section: ai
 order: 3
 keywords: agent, ai terminal, terminal, claude, automate, bulk, tasks, task blocks, list_work_items, update_work_item, owner, due, rows, pages, databases, board, workspace agent, apply, review, keyboard, commands, references, context, what claude reads, redo, edit, replace, rewrite, diff, sub-page per item, page per ticket, table of links, limit, continue, pipelines, coding task, approve, connect, sign in, mcp, KI-Terminal, Agent, Aufgaben, automatisieren, Kontext, ändern, ersetzen, Unterseite pro Ticket, weiter, verbinden, anmelden
-related: custom-agents, ai-menu, mcp-servers, mcp-bridge, coding-pipeline, pipelines
+related: custom-agents, governor, ai-menu, mcp-servers, mcp-bridge, coding-pipeline, pipelines
 summary: Give Claude tasks by keyboard — it reads your workspace, proposes changes, and you apply them. Keeps working while hidden.
 ---
 Press <kbd>Mod+J</kbd> (or ⌘K → *AI terminal*, or **AI** in the status bar). The terminal docks under the page — the sidebar stays — and on a phone it fills the screen.
@@ -47,6 +47,8 @@ When you use the [coding pipelines](help:coding-pipeline), Claude can read them 
 
 ## It keeps working
 Hide the terminal with <kbd>Esc</kbd> or <kbd>Mod+J</kbd> and go on working — the task runs on. The status bar shows **AI · working** and then **AI · 3 changes to review**; a toast tells you when it is done, and a click brings the terminal back. Only **Stop** ends a task: <kbd>Mod+.</kbd>, <kbd>Ctrl+C</kbd> (with nothing selected), `/stop` or the Stop key. Proposals so far stay.
+
+**At the red line.** With a [budget](help:governor) set, a task whose next step would cross it waits **between two steps** with a halt card — nothing is sent or reserved while it waits. **E** allows $1 more for this task today, **H** finishes with a cheaper model of the same provider when it can carry the conversation, <kbd>Mod+.</kbd> stops (staged changes stay). `/cost` adds a line with the day's rest.
 
 ## Context
 - The **open page** goes along as a chip — remove it with × if the task is not about it.

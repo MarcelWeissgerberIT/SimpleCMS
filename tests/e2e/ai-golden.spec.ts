@@ -6,8 +6,8 @@
  * clock and base64 digests — helpers/golden.ts). Nothing reaches a real host. Test data is fictional.
  *
  * Regler case 12: every scenario runs a second time with a day and month budget that always fits (1 000 $) — the bodies
- * stay byte-identical (a cap that is always on, or any other byte the brake added, would fail here). The tab enforces
- * the budget's generation through the ?e2e seam until G1 B12 raises AI_POLICY_GEN.
+ * stay byte-identical (a cap that is always on, or any other byte the brake added, would fail here). This build enforces
+ * the budget's generation (AI_POLICY_GEN = GEN.budget since G1 B12).
  */
 import { deflateSync } from 'node:zlib'
 import type { Locator, Page } from '@playwright/test'
@@ -35,7 +35,6 @@ async function begin(page: Page, steps: ClaudeStep[], settings: AnyState, budget
   await openApp(page)
   await wsEval(page, (s, extra) => s.updateSettings({ aiApiKey: 'sk-ant-e2e-test-key', ...extra }), settings)
   if (budget) {
-    await page.evaluate(() => (window as unknown as { __oneAI: { enforceGen(g: number): number } }).__oneAI.enforceGen(3))
     expect(await wsEval(page, (s, g) => s.setGovernor(g), budget)).toEqual({ ok: true })
   }
   return requests

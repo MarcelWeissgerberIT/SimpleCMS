@@ -91,6 +91,12 @@ included), `localStorage` and `sessionStorage` for the plain text, exports a bac
   team server sends a strict Content-Security-Policy (`script-src 'self'`, `object-src 'none'`, no framing). GitHub
   Pages cannot send that header for the static build.
 - **Someone using your unlocked computer.** They can use One — and your key — as you can.
+- **Spending past a budget.** The Governor (Workspace settings → AI § 06, Settings → AI "My limit in this browser") is a
+  pre-brake in One: it estimates each request before it is sent and refuses, caps or pauses at the red line, but it can
+  overshoot by one step (a long answer, a request on another device, another app using the same key), and anyone with
+  the key can spend outside One. The hard limit lives with the provider: the spend limit in the Claude Console
+  (console.anthropic.com → Settings → Limits), the key's limit at OpenRouter (openrouter.ai → Settings → Keys), the
+  project limit in the OpenAI dashboard. Set it there too.
 
 If a key may have leaked, revoke it where it was made: the [Anthropic console](https://console.anthropic.com/settings/keys)
 or [GitHub → Fine-grained tokens](https://github.com/settings/personal-access-tokens). Give the GitHub token access to

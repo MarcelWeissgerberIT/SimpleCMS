@@ -180,7 +180,7 @@ export default function ReglerPage() {
         <img className="gv-page__icon" src={resolveAssetUrl('assets/icons/counter.webp')} alt="" />
         <h1 className="display gv-page__title">{t('features.governor.title')}</h1>
         <span className="label gv-page__sub">{t('features.governor.sub')}</span>
-        <HelpLink id="ai-costs" topic={t('features.governor.title')} />
+        <HelpLink id="governor" topic={t('features.governor.title')} />
         <span className="gv-page__sp" />
         <button type="button" className="btn gv-page__key" onClick={openBudgets} data-testid="regler-budgets">
           <SlidersHorizontal size={14} strokeWidth={1.7} aria-hidden />

@@ -8,7 +8,7 @@
  *
  * (CHANGELOG_DRAFT=1 lets the build pass while a new entry's picture does not exist yet.)
  *
- * Shots: ai-setup, ai-receipts, agent-trust, claude-tasks, flight-recorder-eject, flight-recorder-window, preflight, flight-recorder, tasks, outbox, mirror-again, glass-switches, history-compare, mcp-overview, mirror, task-mcp, models, search, terminal-pipelines, cloud-worker, one-picker, pipelines, legacy-modernise, coding-live, text-size, mcp-media, coding-setup, free-board, building-blocks, workspace-settings, diagram-viewer, coding-pipeline, pages-per-item, design-import, tour, quick-capture, script-templates, one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
+ * Shots: regler, ai-setup, ai-receipts, agent-trust, claude-tasks, flight-recorder-eject, flight-recorder-window, preflight, flight-recorder, tasks, outbox, mirror-again, glass-switches, history-compare, mcp-overview, mirror, task-mcp, models, search, terminal-pipelines, cloud-worker, one-picker, pipelines, legacy-modernise, coding-live, text-size, mcp-media, coding-setup, free-board, building-blocks, workspace-settings, diagram-viewer, coding-pipeline, pages-per-item, design-import, tour, quick-capture, script-templates, one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
  * custom-agents, gmail, help-centre, mcp-servers, feed-blocks — each named like its image. Every shot starts from a fresh, seeded
  * workspace in English, light theme, 1440 × 900 at device scale 2; the crop of the relevant area is scaled
  * to 1440 px wide and saved as public/assets/shots/changelog/<shot>.webp (≤ 150 KB: the quality steps down
@@ -831,6 +831,54 @@ function drawVolumeTable(t) {
 const toolResult = (body, id) => (body.messages ?? []).flatMap((m) => (Array.isArray(m.content) ? m.content : [])).find((c) => c.type === 'tool_result' && c.tool_use_id === id)
 
 const shots = {
+  /**
+   * A red line for AI spending (Regler G1): #/regler with a day of fictional usage — the dial at $4.12 of a $6 day budget,
+   * yesterday's mark, the month bar, the consumers (terminal, agent, AI menu, mail, autofill, ⌘K) with an agent the
+   * governor held, and the receipt roll. The ledger is seeded through the ?e2e seam — no request is sent.
+   */
+  async regler(browser) {
+    const { ctx, page } = await freshPage(browser)
+    await page.evaluate(() => {
+      const now = Date.now()
+      const m = (min) => Math.max(new Date(new Date(now).setHours(0, 0, 30, 0)).getTime(), now - min * 60_000)
+      const y = new Date(now)
+      y.setDate(y.getDate() - 1)
+      y.setHours(12, 0, 0, 0)
+      const e = (id, at, source, purpose, cls, usd, model = 'claude-opus-5-5', input = 1000, output = 200) => ({ id, at, scope: 'local:local', purpose, cls, source, role: 'main', route: `anthropic:${model}`, served: { p: 'anthropic', model }, classes: ['page'], usage: { input, cacheWrite: 0, cacheWrite1h: 0, cacheRead: 0, output, reasoning: 0 }, usd, costSource: 'table', priceAt: '2026-10-12', mcpCalls: 0, outcome: 'ok' })
+      return window.__oneLedger.seed([
+        e('t1', m(130), 'terminal:c1:t1', 'terminal.task', 'terminal', 1.2, 'claude-opus-5-5', 96_400, 15_300),
+        e('t2', m(128), 'terminal:c1:t1', 'terminal.task', 'terminal', 0.86),
+        e('a1', m(90), 'ai:r1:improve', 'menu.action', 'write', 0.21),
+        e('a2', m(8), 'ai:r2:transform', 'structure.transform', 'structure', 0.56),
+        e('g1', m(60), 'agent:agentNordlicht:run1', 'agents.run', 'agents', 0.74, 'claude-sonnet-5-5', 1_390_000, 15_300),
+        e('m1', m(50), 'mail:w1', 'bulk.mail', 'bulk', 0.31, 'claude-sonnet-5-5'),
+        e('f1', m(40), 'autofill:dbTessera:propSummary:j1', 'bulk.autofill', 'bulk', 0.18, 'claude-haiku-4-5'),
+        e('k1', m(20), 'palette:q1', 'palette.ask', 'ask', 0.06),
+        e('y1', y.getTime(), 'ai:r0:improve', 'menu.action', 'write', 5.2),
+      ])
+    })
+    await page.evaluate(() => {
+      const s = window.__one.workspace.getState()
+      for (const [id, name, write] of [['agentNordlicht', 'Nordlicht mirror', 'stage'], ['agentSuedwind', 'Sort mails', 'apply']])
+        s.upsertAgent({ id, name, instructions: 'Summarise the week.', trigger: { type: 'manual' }, scope: { everything: true, pages: [], databases: [] }, write, output: null, mcpServers: [], runner: 'browser', maxRunUsd: 3, enabled: true, createdBy: null, updatedBy: null, createdAt: 1, updatedAt: 1 })
+      s.setGovernor({ v: 1, day: 6, month: 120 })
+    })
+    await page.evaluate(() => {
+      const at = Date.now() - 60_000
+      const d = new Date(at)
+      const day = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+      return window.__onePreflight.seedRuns([
+        { id: `held-${day}`, agentId: 'agentSuedwind', runner: 'browser', trigger: { type: 'schedule', detail: '07:30' }, startedAt: at, endedAt: at, status: 'held', summary: '', steps: [], held: { kind: 'notStarted', binding: 'day', spent: 6, limit: 6, count: 3, times: [at - 7_200_000, at - 3_600_000, at] } },
+      ])
+    })
+    await page.evaluate(() => (window.location.hash = '#/regler'))
+    await page.getByTestId('regler-ro-today').filter({ hasText: '4.12' }).waitFor()
+    await page.getByTestId('regler-consumer').nth(6).waitFor()
+    await rest(page)
+    await save(page, 'regler')
+    await ctx.close()
+  },
+
   /**
    * OpenRouter and the Jev Router beside Claude (multi-provider S2): left, step 01 of "Set up AI" with Claude ready and
    * OpenRouter picked; right, step 03 with OpenRouter's suggested roles and the Jev Router line. Every AI host is mocked

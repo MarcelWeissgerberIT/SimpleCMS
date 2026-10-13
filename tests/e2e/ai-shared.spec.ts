@@ -317,16 +317,17 @@ test.describe('stored shapes', () => {
     expect(sanitizeDeviceAI({ allow: { demo: ['mail'] } })).toBeUndefined()
   })
 
-  test('policy generation: this build is 2 (S2 enforces rules limiting Claude); a stored gen above it refuses; a rule without a Claude limit needs 1', () => {
-    expect(AI_POLICY_GEN).toBe(2)
+  test('policy generation: this build is 3 (S2 rules limiting Claude + the Regler budget); a stored gen above it refuses; a rule without a Claude limit needs 1', () => {
+    expect(AI_POLICY_GEN).toBe(3)
     expect(requiredGen({ routes: { '*': [{ p: 'anthropic', m: 'claude-opus-5-5' }] } }, null)).toBe(1)
     expect(storedGen(undefined, undefined)).toBe(1)
     expect(storedGen({ gen: 2 }, { gen: 1 })).toBe(2)
     expect(storedGen({}, { gen: 3 })).toBe(3)
     expect(policyKnown({ gen: 1 }, undefined)).toBe(true)
     expect(policyKnown({ gen: 2 }, undefined)).toBe(true)
-    expect(policyKnown({ gen: 3 }, undefined)).toBe(false)
-    expect(policyKnown(undefined, { gen: 3 })).toBe(false)
+    expect(policyKnown({ gen: 3 }, undefined)).toBe(true)
+    expect(policyKnown({ gen: 4 }, undefined)).toBe(false)
+    expect(policyKnown(undefined, { gen: 4 })).toBe(false)
     // a build of generation 1 (an older tab) refuses rules stamped 2
     expect(policyKnown({ gen: 2 }, undefined, 1)).toBe(false)
   })

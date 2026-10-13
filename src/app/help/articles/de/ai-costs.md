@@ -4,7 +4,7 @@ title: Was KI-Anfragen kosten
 section: ai
 order: 17
 keywords: kosten, openrouter, guthaben, jev router, gemeldet, katalog, preis, preise, beleg, belege, token, verbrauch, budget, schätzung, tabelle, cache, cache lesen, cache schreiben, ausgabenlimit, /kosten, cost, costs, price, receipt, tokens, usage, estimate, spend limit
-related: ai-providers, ai-data-rules, claude-key, ai-menu, agent, custom-agents
+related: governor, ai-providers, ai-data-rules, claude-key, ai-menu, agent, custom-agents
 summary: Jede KI-Anfrage in One bekommt einen Beleg — welches Modell geantwortet hat, was es gekostet hat und wie One den Preis ermittelt hat. Abgerechnet wird beim Anbieter.
 ---
 One schickt KI-Anfragen mit deinem eigenen Schlüssel, also rechnet dein Anbieter sie ab — Anthropic bei Claude, OpenRouter aus deinem Guthaben. One zählt jede Antwort auf diesem Gerät mit und zeigt, was sie gekostet hat.
@@ -25,6 +25,9 @@ Anthropic kann eine Anfrage, die das gewählte Modell ablehnt, an ein anderes Cl
 
 ## OpenRouter und der Jev Router
 OpenRouter meldet die Kosten jeder Anfrage mit der Antwort: Der Beleg zeigt dann **GEMELDET**. Ohne gemeldete Kosten bewertet One die Antwort mit der Katalogzeile des Modells (**KATALOG**). OpenRouter arbeitet mit Guthaben vorab (ab 5 $; beim Aufladen nimmt es eine Gebühr) — jedes Modell kostet seinen Listenpreis, zu sehen in Schritt 03 und in der Auswahl. Auch der **Jev Router** wird je Anfrage gemeldet; der Beleg nennt das Modell, das er gewählt hat (*OpenRouter · Jev Router → …*). Vor so einer Anfrage reserviert One das teuerste Modell deiner Liste.
+
+## Ein Budget
+Ein Tages- und Monatsbudget für alle KI eines Arbeitsbereichs — und deine eigene Grenze für diesen Browser — setzt du im [Regler](help:governor); er zeigt auch, wer heute was verbraucht hat. Mit Budget sagt ein Beleg, wenn der Regler eingegriffen hat — *Antwortbudget auf … Token gekappt*, *+1 $ einmal erlaubt*, *Opus 5.5 → Haiku 4.5 · an der Rotlinie* — und zeigt das Schätzband neben den Kosten (*im Band*, *über Band +…*). Ohne Budget bleiben die Belege, wie sie waren.
 
 ## Was gespeichert wird
 Die Aufzeichnung hinter den Belegen bleibt auf diesem Gerät: IDs, Modelle, Token-Zahlen, Beträge — nie Seitentext. Sie hält 90 Tage, wird nie synchronisiert, exportiert oder gesichert und verschwindet, wenn du die Kopie eines Arbeitsbereichs von diesem Gerät entfernst oder die App hier zurücksetzt. Im Team hat jedes Mitglied seine eigene.

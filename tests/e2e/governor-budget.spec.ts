@@ -13,11 +13,10 @@ import type { Page } from '@playwright/test'
 import { test, expect, openApp, reloadApp, wsEval, uiEval, flush } from './fixtures'
 
 type AnyState = Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
-type Seam = { __oneAI: { enforceGen(g: number): number; prepare(i: unknown): AnyState }; __oneGovernor: { load(): Promise<void>; totals(): AnyState }; __oneLedger: { seed(l: unknown[]): Promise<void> } }
+type Seam = { __oneAI: { prepare(i: unknown): AnyState }; __oneGovernor: { load(): Promise<void>; totals(): AnyState }; __oneLedger: { seed(l: unknown[]): Promise<void> } }
 
 const govOf = (page: Page) => wsEval(page, (s) => (s.governor ? { day: s.governor.day ?? null, month: s.governor.month ?? null } : null))
 const genOf = (page: Page) => wsEval(page, (s) => (s.ai?.gen ?? null) as number | null)
-const enforce = (page: Page) => page.evaluate(() => (window as unknown as Seam).__oneAI.enforceGen(3))
 
 async function section(page: Page) {
   await page.evaluate(() => (location.hash = '#/workspace/ai'))
@@ -29,7 +28,6 @@ async function section(page: Page) {
 test.describe('Workspace › AI § 06 (B11)', () => {
   test('the budget round trip: save stamps the AI generation, Undo puts it back, a reload reads it, remove takes it away', async ({ page }) => {
     await openApp(page)
-    await enforce(page)
     const sec = await section(page)
     // the rail names the section; its head; the note; the hard limit
     await expect(page.locator('.wsp-tab[data-section="ai"]')).toContainText('07')
@@ -62,7 +60,6 @@ test.describe('Workspace › AI § 06 (B11)', () => {
     expect(await govOf(page)).toEqual({ day: 6.5, month: null })
     await flush(page)
     await reloadApp(page)
-    await enforce(page)
     const again = await section(page)
     await expect(again.getByTestId('gv-budget-day')).toHaveValue('6.5')
     await expect(again.getByTestId('gv-budget-month')).toHaveValue('')
@@ -74,7 +71,6 @@ test.describe('Workspace › AI § 06 (B11)', () => {
 
   test('amounts in the UI language: EN 1.5 and 1,000; DE 1,5 · 1.5 · 1.000; a German comma in English and out of range refused (never saved)', async ({ page }) => {
     await openApp(page)
-    await enforce(page)
     let sec = await section(page)
     const day = () => sec.getByTestId('gv-budget-day')
     const month = () => sec.getByTestId('gv-budget-month')
@@ -124,7 +120,6 @@ test.describe('Workspace › AI § 06 (B11)', () => {
 test.describe('Settings › AI — my limit in this browser (B11)', () => {
   test('written to this browser only (never the store) with the device stamp; the lower red line is named next to a workspace budget; removing it lowers the stamp', async ({ page }) => {
     await openApp(page)
-    await enforce(page)
     await wsEval(page, (s) => s.setGovernor({ v: 1, day: 6 }))
     await uiEval(page, (s) => s.openModal({ type: 'settings', tab: 'ai' }))
     const dev = page.getByTestId('gv-device')
@@ -157,7 +152,6 @@ test.describe('case 13 — the device line counts a second workspace (B11)', () 
   test('another scope of this browser spent the day: the device line refuses (nothing sent), the workspace budget does not', async ({ page }) => {
     await openApp(page)
     await wsEval(page, (s) => s.updateSettings({ aiApiKey: 'sk-ant-e2e-test-key' }))
-    await enforce(page)
     const other = 'cloud:ws-tessera-0001:u:acc-mara-lind'
     await page.evaluate((o) => {
       const now = Date.now()

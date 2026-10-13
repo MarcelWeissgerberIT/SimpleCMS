@@ -4,7 +4,7 @@ title: Flugschreiber
 section: writing
 order: 14
 keywords: flugschreiber, auswerfen, auswurf, zurücknehmen, lauf zurücknehmen, agentenlauf rückgängig, vor dem auswurf, eject, zurückspulen, rückspulen, band, deck, spur, spuren, schreiber, wer war das, wer hat das geändert, was ist passiert, zeitleiste, protokoll, lauf, fähnchen, fenster, lupe, agent, mcp, skript, sync, rückgängig, vorgänge, stellen, fenster lesen, vorfallbericht, bericht, gehalten, seitdem geändert, wort für wort, flight recorder, read window, incident report, rewind, tape, writers, who changed
-related: history, custom-agents, mcp-bridge, privacy, lock, preflight, outbox
+related: history, custom-agents, mcp-bridge, privacy, lock, preflight, outbox, governor
 summary: Jeder Schreibvorgang im Arbeitsbereich auf einem Band, je Schreiber eine Spur — du, das KI-Terminal, jeder Agent, MCP-Clients, Skripte, Sync. Sieh, was zwischen 07:00 und 08:00 passiert ist, und wer es war.
 ---
 In einem Arbeitsbereich schreiben viele: du, das [KI-Terminal](help:agent), [Agenten](help:custom-agents), ein MCP-Client über die [Brücke](help:mcp-bridge), Skripte, der Ordner- oder GitHub-Sync, Automationen. Der [Versionsverlauf](help:history) antwortet für eine Seite; der Flugschreiber für den ganzen Arbeitsbereich: **Was hat sich zwischen 07:00 und 08:00 geändert, und wer war das?**
@@ -87,6 +87,7 @@ Der Griff an der Oberkante des Decks stellt seine Höhe ein (ziehen, oder <kbd>�
 - **Frühere Stände.** Bevor ein Schreiber an einer Stelle beginnt, bewahrt One die Stelle so auf, wie sie war — wie eine Version, auf diesem Gerät, 30 Tage. Endgültiges Löschen einer Seite nimmt sie mit.
 - **Platz.** Alle Arbeitsbereiche auf diesem Gerät teilen sich ein Budget (höchstens 250 MB). Das Speichern des Arbeitsbereichs geht immer vor: Wird der Platz knapp, gibt das Band zuerst seine ältesten Tage her und pausiert, wenn nichts mehr herzugeben ist. **Workspace-Einstellungen → Daten** zeigt Tage, Vorgänge und Größe des Bands, und **Band löschen** vergisst das Band dieses Arbeitsbereichs auf diesem Gerät — die Seiten und ihr Verlauf bleiben.
 - **Workspace zurücksetzen** und das Entfernen der Kopie eines Team-Arbeitsbereichs aus diesem Browser löschen sein Band mit.
+- **Der Regler fügt dem Band nichts hinzu.** Ein [Budget](help:governor) ist eine Einstellung: Es zu speichern ist ein Vorgang wie jede andere Einstellung, und was der Regler ablehnt, pausiert oder anhält, hat den Arbeitsbereich nie erreicht. Was Agenten und Aufgaben vor oder nach einer Rotlinie schreiben, steht wie immer auf dem Band.
 
 ## Team-Arbeitsbereiche
 Ein Gerät kennt nur, was es gesehen hat: deine eigenen Vorgänge, die Agenten und Terminal-Aufgaben, die in diesem Browser liefen, und eine Spur **Team** für Änderungen, die von deinen Kolleginnen und Kollegen über den Server kamen. Ein anderes Gerät hat sein eigenes Band.

@@ -12,7 +12,7 @@ export function AISection() {
   const t = useT()
   return (
     <>
-      <SectionHead n="07" title={t('shell.ws.sec.ai')} lead={t('shell.ws.ai.lead')} help="ai-costs" />
+      <SectionHead n="07" title={t('shell.ws.sec.ai')} lead={t('shell.ws.ai.lead')} help="governor" />
       <Suspense fallback={null}>
         <BudgetSlot />
       </Suspense>

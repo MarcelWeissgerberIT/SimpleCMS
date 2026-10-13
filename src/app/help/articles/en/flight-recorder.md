@@ -4,7 +4,7 @@ title: Flight recorder
 section: writing
 order: 14
 keywords: flight recorder, eject, ejecting, take back, revert a run, undo an agent run, before the eject, rewind, tape, deck, track, tracks, writer, writers, who changed, who did that, what happened, timeline, audit, run, flag, window, loupe, agent, mcp, script, sync, undo, writes, places, read window, incident report, held, changed since, word by word, Flugschreiber, Fenster lesen, Vorfallbericht, gehalten, Zurückspulen, Rückspulen, Band, Spur, Spuren, Schreiber, wer war das, Vorgänge, Stellen, Lauf, Fenster, Lupe
-related: history, custom-agents, mcp-bridge, privacy, lock, preflight, outbox
+related: history, custom-agents, mcp-bridge, privacy, lock, preflight, outbox, governor
 summary: Every write in the workspace on one tape, one track per writer — you, the AI terminal, each agent, MCP clients, scripts, sync. See what happened between 07:00 and 08:00, and who it was.
 ---
 Many hands write in a workspace: you, the [AI terminal](help:agent), [agents](help:custom-agents), an MCP client through the [bridge](help:mcp-bridge), scripts, the folder or GitHub sync, automations. The [version history](help:history) answers for one page; the flight recorder answers for the whole workspace: **what changed between 07:00 and 08:00, and who did it?**
@@ -87,6 +87,7 @@ The grip on the deck's top edge sets its height (drag, or <kbd>↑</kbd> / <kbd>
 - **Earlier states.** Before a writer starts on a place, One keeps that place as it was — like a version, on this device, 30 days. Deleting a page forever drops them too.
 - **Room.** All workspaces on this device share one budget (at most 250 MB). The workspace's own save always wins: short of room, the tape gives up its oldest days first, and pauses when there is nothing left to give. **Workspace settings → Data** shows the tape's days, writes and size, and **Erase the tape** forgets this workspace's tape on this device — the pages and their history stay.
 - **Reset workspace** and removing a team workspace's copy from this browser erase its tape too.
+- **The Governor adds nothing to the tape.** A [budget](help:governor) is a setting: saving it is a write like any other setting, and what the Governor refuses, pauses or holds never reached the workspace. What agents and tasks write before or after a red line is on the tape as always.
 
 ## Team workspaces
 A device knows only what it saw: your own writes, the agents and terminal tasks that ran in this browser, and a **Team** track for changes that arrived from your colleagues through the server. Another device has its own tape.
