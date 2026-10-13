@@ -56,7 +56,7 @@ import { memoryRef } from '../ai/core/refs'
 import { precheck, startCheck, type PrepareInput, type StartCheck } from '../ai/core/gate'
 import { addInboxItems, loadInbox, useInbox, wsKey } from '../inbox/state'
 import { activeWorkspace } from '../../cloud'
-import { dayOf, FIRST_STEP_OUT, type RunMode } from '../governor'
+import { dayOf, FIRST_STEP_OUT, noteHeld, type RunMode } from '../governor'
 import type { HeldBinding } from './types'
 import { appliedOf } from '../ai/core/shape'
 import type { SourceRef } from '@/shared/ai/types'
@@ -373,7 +373,7 @@ async function runOnce(agent: CustomAgent, req: RunRequest): Promise<AgentRun> {
       if (entry) usage.byModel = addToLines(usage.byModel, entry)
       // another model answered (a refusal fallback): a step of the run, once per model
       for (const st of entry?.steps ?? []) {
-        const line = entry ? stepText(t, st, entry.served.p) : null
+        const line = entry ? stepText(t, st, entry.served.p, { lang: currentLang() }) : null
         if (line && !run.steps.some((x) => x.label === line)) step({ kind: 'note', label: line, state: 'ok' })
       }
       if (entry && entry.usd === null && !ac.signal.aborted) {
@@ -582,6 +582,8 @@ const told = new Set<string>()
  */
 async function tellHeld(agent: CustomAgent, run: AgentRun): Promise<void> {
   const day = dayOf(Date.now())
+  // the status cell and VERBRAUCH on Start: held today
+  noteHeld(agent.id)
   const id = `rg:${agent.id}:${day}`
   if (told.has(id)) return
   told.add(id)

@@ -30,7 +30,7 @@ export type AIFix =
    * band and the lowest rest with its line, the purpose of the refused request (its retry carries E / B — gate.ts
    * armRetry) — rendered by features/governor's BrakeNote.
    */
-  | { kind: 'brake'; allow: number | null; need: number; cheaper?: Route; cheaperBand?: { low: number; high: number } | null; band: { low: number; high: number }; rest: number; binding: string | null; line?: { spent: number; limit: number }; purpose?: string }
+  | { kind: 'brake'; allow: number | null; need: number; cheaper?: Route; cheaperBand?: { low: number; high: number } | null; band: { low: number; high: number }; rest: number; binding: string | null; line?: { spent: number; limit: number }; purpose?: string; mcpRounds?: number }
 
 /**
  * The provider a route's label names: other providers' labels start with their name ("OpenRouter · …",

@@ -12,6 +12,7 @@ import { addPaused, readPaused, takePaused, type PausedRow } from './paused'
 import { ledgerScope } from './scope'
 import { DEVICE_KEY } from './device'
 import { dayOf, nextMidnight } from './clock'
+import { bumpPaused } from './marks'
 import type { Route } from '@/shared/ai/types'
 
 /** A refusal's brake fix (core/errors.ts AIFix 'brake'): what E allows, what is missing, a cheaper model and its band. */
@@ -26,6 +27,8 @@ export interface BrakeFixData {
   cheaperBand?: { low: number; high: number } | null
   /** the refused request's purpose (its retry carries E / B) */
   purpose?: string
+  /** MCP servers were attached: the band counts this many rounds */
+  mcpRounds?: number
 }
 
 /** What a refusal at the line carries (AIError 'budget': its detail = the binding line, its brake fix). */
@@ -59,11 +62,17 @@ const scopeNow = (): string => ledgerScope() ?? ''
 /** Rows the watch paused at the line (persisted: a reload keeps them). The number paused now. */
 export function pauseRows(rows: ReadonlyArray<Omit<PausedRow, 'at'>>, now = Date.now()): number {
   if (!rows.length) return readPaused(scopeNow()).rows.length
-  return addPaused(scopeNow(), rows.map((r) => ({ ...r, at: now }))).rows.length
+  const n = addPaused(scopeNow(), rows.map((r) => ({ ...r, at: now }))).rows.length
+  bumpPaused()
+  return n
 }
 
 /** Take paused rows out of the list (all, one database, or one property) — the watch fills them again. */
-export const takeRows = (match: { db?: string; prop?: string } = {}): PausedRow[] => takePaused(scopeNow(), match)
+export function takeRows(match: { db?: string; prop?: string } = {}): PausedRow[] {
+  const rows = takePaused(scopeNow(), match)
+  if (rows.length) bumpPaused()
+  return rows
+}
 
 /** The paused rows (one database / property, or all) and how many went over the cap. */
 export function pausedRows(match: { db?: string; prop?: string } = {}): { rows: PausedRow[]; dropped: number } {

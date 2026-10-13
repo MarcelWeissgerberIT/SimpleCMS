@@ -146,6 +146,8 @@ export const messages: Messages = {
     'features.governor.halt.live.pc': 'Governor: the next step crosses the line — E, H or Control period',
     'features.governor.halt.aria': 'Governor pause',
     'features.governor.term.paused': 'paused between two steps',
+    'features.governor.cost.rest': 'Governor: today {spent} of {limit} · rest {rest}',
+    'features.governor.cost.worker': 'not counted in the day budget',
 
     // the brake note (a person's request refused before sending)
     'features.governor.note.title': 'Over the red line',
@@ -178,6 +180,8 @@ export const messages: Messages = {
     'features.governor.receipt.band.under': 'Estimate {band} · under band −{usd}',
     'features.governor.receipt.would': '{model} would be ≈\u00a0{usd} ({pct})',
     'features.governor.receipt.allowed': '+{usd} allowed once',
+    'features.governor.receipt.switched': '{from} → {to} · at the red line',
+    'features.governor.receipt.band': 'Estimate {band}',
 
     // background work at the line
     'features.governor.autofill.paused': 'AI autofill paused by the governor — red line reached',
@@ -365,6 +369,8 @@ export const messages: Messages = {
     'features.governor.halt.live.pc': 'Regler: der nächste Schritt reißt die Rotlinie — E, H oder Strg Punkt',
     'features.governor.halt.aria': 'Regler-Pause',
     'features.governor.term.paused': 'pausiert zwischen zwei Schritten',
+    'features.governor.cost.rest': 'Regler: heute {spent} von {limit} · Rest {rest}',
+    'features.governor.cost.worker': 'zählt nicht zum Tagesbudget',
 
     'features.governor.note.title': 'Über der Rotlinie',
     'features.governor.note.over': 'Über der Rotlinie: diese Anfrage ≈\u00a0{band}, Rest heute {rest}.',
@@ -394,6 +400,8 @@ export const messages: Messages = {
     'features.governor.receipt.band.under': 'Schätzung {band} · unter Band −{usd}',
     'features.governor.receipt.would': '{model} wäre ≈\u00a0{usd} ({pct})',
     'features.governor.receipt.allowed': '+{usd} einmal erlaubt',
+    'features.governor.receipt.switched': '{from} → {to} · an der Rotlinie',
+    'features.governor.receipt.band': 'Schätzung {band}',
 
     'features.governor.autofill.paused': 'KI-Autofill vom Regler pausiert — Rotlinie erreicht',
     'features.governor.autofill.pausedRun': 'An der Rotlinie pausiert — die nächste Zeile würde sie reißen. Nichts wurde gesendet.',

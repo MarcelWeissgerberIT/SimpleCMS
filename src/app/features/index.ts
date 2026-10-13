@@ -53,6 +53,8 @@ export { install as installGovernor } from './governor/install'
 export { budgetRefusal, watchSource, pauseRows, takeRows, pausedRows, onLineChange, allowTask, ALLOW_USD, fmtLimit, type BudgetRefusal } from './governor'
 /** The brake note for a refused request (AIError 'budget'): lazy, its keys retry with E / B (core/gate.ts armRetry). */
 export { BrakeSlot, type BrakeForProps } from './governor'
+/** The status bar's REGLER cell (shown while a budget exists; click → the Regler). */
+export { GovernorStatusCell } from './governor'
 /** Claude's Markdown → a safe document: web images / media / frames as links (addresses a page shows already stay). */
 export { webImagesOf } from './agents/images'
 export { claudeDoc } from './ai/claudeDoc'

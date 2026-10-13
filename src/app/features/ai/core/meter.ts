@@ -177,6 +177,14 @@ const sameStep = (a: StepNote, b: StepNote) => a.k === b.k && a.from === b.from 
 export function addToReceipt(r: Receipt | null | undefined, e: LedgerEntry): Receipt {
   const steps = [...(r?.steps ?? [])]
   for (const s of e.steps ?? []) if (!steps.some((x) => sameStep(x, s))) steps.push(s)
+  // the Regler braked it (a line was set): the bands of its requests, summed — one step, last
+  if (e.band) {
+    const i = steps.findIndex((x) => x.k === 'band')
+    const prev = i >= 0 ? steps.splice(i, 1)[0] : null
+    const low = (prev ? Number(prev.from) : 0) + e.band.low
+    const high = (prev ? Number(prev.to) : 0) + e.band.high
+    steps.push({ k: 'band', from: String(Math.round(low * 1e6) / 1e6), to: String(Math.round(high * 1e6) / 1e6) })
+  }
   const usd = r && r.usd === null ? null : e.usd === null ? null : (r?.usd ?? 0) + e.usd
   const costSource: CostSource = usd === null ? 'none' : r?.costSource === 'estimate' || e.costSource === 'estimate' ? 'estimate' : e.costSource
   return {

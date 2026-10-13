@@ -24,30 +24,30 @@
  */
 import { GEN } from '@/shared/ai/generations'
 import { thinksInside } from '@/shared/ai/wire/maxTokens'
-import { blendedPerM } from '@/shared/ai/prices'
 import { routeKey } from '@/shared/ai/route'
 import type { Route } from '@/shared/ai/types'
-import { precheck, registerBeforeSend, type BrakeCtx, type MoneyHint, type MoneyVerdict, type PrepareInput, type RoundCtx, type StartCheck } from '../ai/core/gate'
+import { registerBeforeSend, type BrakeCtx, type MoneyHint, type MoneyVerdict, type PrepareInput, type RoundCtx, type StartCheck } from '../ai/core/gate'
 import { AIError } from '../ai/core/errors'
 import { useWorkspace } from '../../store/store'
 import { whenIdle } from '../../lib/idle'
-import { cheaperForHalt, forceAcrossThinking, needsOfHistory, oneShot, round as roundVerdict, startCheckPure, type OneShotCtx, type RoundVerdict } from './brake'
+import { oneShot, type OneShotCtx, type RoundVerdict } from './brake'
 import { estimate, wireOutFor, type Band } from './estimate'
 import { fits, hasLimit, hasMonthLimit, limitsOf, lineOf, restMin, restOf, type Binding, type Limits, type Rest } from './limits'
-import { contextOf, mcpOneShotBand, nextStep, stepOutputs } from './steps'
+import { mcpOneShotBand, MCP_ROUNDS } from './mcpBand'
 import { allowanceOf, consume } from './allow'
 import { deviceLimitOf, DEVICE_KEY } from './device'
 import { loadMonth, loadToday, startTotals, totalsNow, type TotalsNow } from './totals'
 import { minOut, modeRow } from './modes'
+import { registerUsageLamp } from './lampSource'
 
 /** The generation this module enforces (generations.ts GEN_ENFORCED names this file). */
 export const ENFORCES = GEN.budget
 
 /** The lines in force now: the workspace's and this browser's own. */
-const limitsNow = (): Limits => limitsOf(useWorkspace.getState().governor, deviceLimitOf())
+export const limitsNow = (): Limits => limitsOf(useWorkspace.getState().governor, deviceLimitOf())
 
 /** A run's own budget (an agent's maxRunUsd, exec.ts) and its spend so far, else none. */
-const ownRun = (run: BrakeCtx['run'], spent = run.spent ?? 0): { budget: number; spent: number } | null =>
+export const ownRun = (run: BrakeCtx['run'], spent = run.spent ?? 0): { budget: number; spent: number } | null =>
   typeof run.budget === 'number' && Number.isFinite(run.budget) ? { budget: run.budget, spent: Math.max(0, spent) } : null
 
 /** The rests for this request: the lines, its run's budget, the allowance of its task or the token it carries. */
@@ -56,7 +56,7 @@ function restFor(ctx: BrakeCtx, l: Limits, t: TotalsNow): Rest {
 }
 
 /** The binding line's spend and limit now (the halt card, a held run, the brake note's bar). */
-const lineNow = (l: Limits, t: TotalsNow, binding: Binding, run: { budget: number; spent: number } | null) => {
+export const lineNow = (l: Limits, t: TotalsNow, binding: Binding, run: { budget: number; spent: number } | null) => {
   const x = lineOf(l, t, binding, run)
   return { spent: x.spent, limit: Number.isFinite(x.limit) ? x.limit : 0 }
 }
@@ -109,6 +109,8 @@ export function money(ctx: BrakeCtx): MoneyVerdict | void {
         binding: f.rest.binding,
         ...(line ? { line } : {}),
         purpose: ctx.purpose,
+        // MCP servers attached: the band counts their rounds (the note says so)
+        ...(base.mcp ? { mcpRounds: MCP_ROUNDS } : {}),
       },
     ])
   }
@@ -139,76 +141,21 @@ export function peek(ctx: BrakeCtx): MoneyHint | null {
 }
 
 /* ------------------------------------------------------------------ */
-/* Loops and starts                                                     */
+/* Loops and starts — a lazy chunk (loops.ts), loaded only while a line is set */
 /* ------------------------------------------------------------------ */
 
-/** A route that caches the conversation explicitly (Claude's automatic prompt caching): the context is read, Δ written. */
-const explicitCache = (ctx: RoundCtx): boolean => ctx.route.p === 'anthropic'
-
-/** The next step's band: the low end without tool results, the high end with the clip bound of each (steps.ts). */
-function nextBand(ctx: RoundCtx, cold: boolean): Band | null {
-  const base = { row: ctx.price, last: ctx.last, steps: ctx.steps, mcpIterations: ctx.mcpIterations, explicitCache: explicitCache(ctx), cold, wireOut: wireOutFor(ctx.route, ctx.prepared.caps, ctx.hints) }
-  const low = nextStep({ ...base, pendingChars: ctx.pending.low })
-  const high = nextStep({ ...base, pendingChars: ctx.pending.high })
-  return low && high ? { low: low.low, high: Math.max(low.low, high.high) } : null
-}
+const loops = () => import('./loops')
 
 /** Between two loop requests (beforeRound): go · halt (the AI terminal) · stop (agents, background) — null: no line. */
-export function round(ctx: RoundCtx): RoundVerdict | null {
-  const l = limitsNow()
-  if (!hasLimit(l)) return null
-  const t = totalsNow()
-  const prepared = ctx.prepared
-  const runOwn = ownRun(prepared.run, ctx.spent)
-  // the run's own reservation is what it may spend — never counted against it
-  const rest = restOf(l, t, { reservation: prepared.reservation?.id ?? null, run: runOwn }, allowanceOf({ source: prepared.run.source }))
-  const cold = !!ctx.cold
-  const next = nextBand(ctx, cold)
-  const binding = rest.binding ?? 'day'
-  const line = lineNow(l, t, binding, runOwn)
-  const base = { run: { source: prepared.run.source, mode: prepared.run.mode }, limited: true, next, rest, line }
-  const v = roundVerdict(base)
-  if (!('halt' in v) || !next) return v
-  // H: a cheaper model of the same provider whose band with the cold cache fits the rest and that carries the conversation
-  const C = contextOf(ctx.last)
-  const out = stepOutputs(ctx.steps)
-  const hist = ctx.history?.() ?? []
-  const cheaper = cheaperForHalt(ctx.candidates(), {
-    rest: restMin(rest),
-    context: C + ctx.last.output + Math.round(ctx.pending.high / 4),
-    outLow: out.low,
-    outHigh: out.high,
-    needs: needsOfHistory(hist),
-    mcpAttached: !!ctx.mcpAttached,
-    current: { blended: blendedPerM(ctx.price), caps: prepared.caps },
-    wireOut: (to, visible) => wireOutFor(to.route, to.caps)(visible),
-    ...(ctx.thinks ? { thinks: ctx.thinks } : {}),
-  })
-  return cheaper ? roundVerdict({ ...base, cheaper }) : v
+export function round(ctx: RoundCtx): RoundVerdict | null | Promise<RoundVerdict | null> {
+  if (!hasLimit(limitsNow())) return null
+  return loops().then((m) => m.roundAt(ctx))
 }
 
 /** Before a run's first request (startCheck): the totals read in full first; the first step's band against the rests. */
 export async function startRun(input: PrepareInput): Promise<StartCheck> {
-  const l = limitsNow()
-  if (!hasLimit(l)) return { start: true }
-  follow()
-  await loadToday()
-  if (hasMonthLimit(l)) await loadMonth()
-  // the gate's own checks first (no key, a data rule …): a run it refuses fails there as before — not held here
-  let hint: MoneyHint | null | undefined
-  let run: BrakeCtx['run']
-  try {
-    const pre = precheck(input)
-    hint = pre.hint
-    run = pre.run
-  } catch {
-    return { start: true }
-  }
-  if (!hint) return { start: true }
-  const t = totalsNow()
-  const v = startCheckPure({ run: { source: run.source, mode: run.mode }, limited: true, scopeKnown: t.scopeId !== null, first: hint.band, rest: hint.rest })
-  const binding = hint.rest.binding
-  return binding ? { ...v, line: lineNow(limitsNow(), t, binding, ownRun(run)) } : v
+  if (!hasLimit(limitsNow())) return { start: true }
+  return (await loops()).startAt(input, follow)
 }
 
 /* ------------------------------------------------------------------ */
@@ -219,7 +166,7 @@ let installed = false
 let following = false
 
 /** A line is set: the totals follow the ledger (in idle, after the first frame) — once; the month when a month line is. */
-function follow(): void {
+export function follow(): void {
   const l = limitsNow()
   if (!hasLimit(l)) return
   if (!following) {
@@ -236,10 +183,12 @@ export function install(): void {
   installed = true
   registerBeforeSend({ money, peek, round, start: startRun })
   if (typeof window === 'undefined') return
+  // VERBRAUCH on Start (fitted only while a budget exists; it reads the tab's totals in idle — no storage at boot)
+  registerUsageLamp()
   // the seam (DEV / ?e2e): H across thinking modes for the browser spec (the owner's real-key check flips it for real)
   if (import.meta.env.DEV || new URLSearchParams(window.location.search).has('e2e')) {
     const w = window as unknown as { __oneGovernor?: Record<string, unknown> }
-    w.__oneGovernor = { ...(w.__oneGovernor ?? {}), acrossThinking: forceAcrossThinking }
+    w.__oneGovernor = { ...(w.__oneGovernor ?? {}), acrossThinking: (on: boolean) => loops().then((m) => m.forceAcrossThinking(on)) }
   }
   const start = () => {
     follow()

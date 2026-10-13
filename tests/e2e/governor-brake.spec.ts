@@ -20,6 +20,9 @@
  *  - the brake note (B8): case 1 across the surfaces — the AI menu (E: one request with the allowance), help Ask (B: the
  *    cheaper model), ⌘K "?" (Esc: nothing sent, the palette stays), the Outbox draft (the dock's note, E), the kit
  *    fill, the setup test; its keys act only with focus inside it, never on a held key or in its first moment.
+ *  - the status cell, VERBRAUCH, receipts (B9): the cell's states (none without a budget, "—" until the day is read, the
+ *    amount, amber at 75 %, ROTLINIE · PAUSE), the lamp amber (no MASTER CAUTION) / red (MASTER CAUTION), the receipt's
+ *    steps EN / DE, /cost's rest line; case 8 (two tabs: B refused while A's reservation is open, allowed after it settles).
  * No AI host is reached (the aiNet guard); values are fictional (Nordlicht, Tessera, Launch plan).
  */
 import type { Page } from '@playwright/test'
@@ -201,7 +204,8 @@ type Seam = { __oneAI: Record<string, (...a: any[]) => any>; __oneGovernor: Reco
 const KEY = (page: Page, extra: object = {}) => wsEval(page, (s, x) => s.updateSettings({ aiApiKey: 'sk-ant-e2e-test-key', ...x }), extra)
 const reservedNow = (page: Page) => page.evaluate(() => (window as unknown as Seam).__oneLedger.reserved() as { usd: number; open: number })
 const ask = (page: Page, o: AnyState) => page.evaluate((o) => (window as unknown as Seam).__oneAI.ask(o) as Promise<AnyState>, o)
-const errorOf = (page: Page) => aiPanel(page).locator('.ai-error')
+/** The AI menu's error area at the line: the brake note (B8) — nothing was sent. */
+const errorOf = (page: Page) => aiPanel(page).getByTestId('gv-brake-note')
 /**
  * A day budget with only `rest` left: the sanitizer's smallest day is 0,10 $, so the rest of the line is held by an open
  * reservation (the book counts it as spent). Returns its id (release() settles it).
@@ -211,6 +215,13 @@ async function dayWithRest(page: Page, rest: number, day = 0.1): Promise<string>
   return page.evaluate(([u]) => (window as unknown as Seam).__oneGovernor.reserve(u, 'spec:hold') as string, [Math.round((day - rest) * 1e6) / 1e6] as const)
 }
 const release = (page: Page, id: string) => page.evaluate((id) => (window as unknown as Seam).__oneGovernor.settle(id), id)
+/** Esc until the AI menu is closed (the first Esc in the brake note cancels the note, the next closes the menu). */
+async function closeMenu(page: Page) {
+  await expect(async () => {
+    await page.keyboard.press('Escape')
+    await expect(aiPanel(page)).toBeHidden({ timeout: 500 })
+  }).toPass({ timeout: 5000 })
+}
 
 test.describe('the brake at the gate (B5)', () => {
   test('case 1 — 0,005 $ left of the day: Improve is refused before sending (zero requests, no entry, nothing more reserved); 10 $ → exactly one request with the golden budget', async ({ page }) => {
@@ -219,14 +230,14 @@ test.describe('the brake at the gate (B5)', () => {
     await KEY(page)
     const hold = await dayWithRest(page, 0.005)
     await improve(page, null)
-    await expect(errorOf(page)).toContainText('ERR · BUDGET')
-    await expect(errorOf(page)).toContainText('Over the budget')
+    await expect(errorOf(page)).toHaveAttribute('data-detail', 'day')
+    await expect(errorOf(page)).toContainText('Over the red line')
     await page.waitForTimeout(400)
     expect(requests).toHaveLength(0)
     expect(await ledger(page)).toEqual([])
     expect(await reservedNow(page)).toEqual({ usd: 0.095, open: 1 })
     // positive control: a day that holds the band → the one request, its answer budget as without a budget
-    await page.keyboard.press('Escape')
+    await closeMenu(page)
     await release(page, hold)
     await budget(page, { v: 1, day: 10 })
     await improve(page)
@@ -256,8 +267,8 @@ test.describe('the brake at the gate (B5)', () => {
     await reloadApp(page)
     await dayWithRest(page, 0.005)
     await transformAuto(page, false)
-    await expect(aiPanel(page).locator('.ai-error, [role="alert"]').first()).toBeVisible()
-    await page.keyboard.press('Escape')
+    await expect(errorOf(page)).toBeVisible()
+    await closeMenu(page)
     // autofill on the same cell (the grid keeps its active cell on this device: walk to row 0, column 2 from there)
     await gotoPage(page, await pageIdByTitle(page, 'Projects'))
     const grid = page.locator('#main .dbt')
@@ -276,7 +287,7 @@ test.describe('the brake at the gate (B5)', () => {
   })
 
   test('case 3 — a text answer is capped to the rest (body, ledger entry, step); with an MCP server it is refused instead; no budget → the golden budget', async ({ page }) => {
-    const { requests } = await mockClaudeScript(page.context(), [text('A tighter launch sentence.'), text('A tighter launch sentence.')])
+    const { requests } = await mockClaudeScript(page.context(), [text('A tighter launch sentence.'), text('According to Archive, the launch is in two weeks.'), text('A tighter launch sentence.')])
     await openApp(page)
     await KEY(page, { aiModel: 'claude-haiku-4-5' })
     // Haiku 4.5: 8 000 answer tokens ≈ 0,04 $ — 0,02 $ left holds about 3 900 of them, more than the 1 024 a text needs
@@ -295,21 +306,32 @@ test.describe('the brake at the gate (B5)', () => {
     // an own request with an MCP server attached: its rounds are the band — never capped, refused before sending
     await wsEval(page, (s, list) => s.updateSettings({ mcpServers: list }), [ARCHIVE])
     await ownRequest(page, 'What does Archive say about the launch?')
-    await expect(errorOf(page)).toContainText('ERR · BUDGET')
+    await expect(errorOf(page)).toHaveAttribute('data-detail', 'day')
+    await expect(errorOf(page)).toContainText('MCP calls multiply the cost — band for up to 5 rounds')
     await page.waitForTimeout(400)
     expect(requests).toHaveLength(1)
-    await page.keyboard.press('Escape')
-    // positive control: no budget → the golden answer budget, no cap and no band on the entry
+    await closeMenu(page)
+    // positive control below the line: a day that holds the five rounds — the MCP request goes, uncapped
     await release(page, hold)
+    await budget(page, { v: 1, day: 10 })
+    await ownRequest(page, 'What does Archive say about the launch?')
+    await expect(aiPanel(page)).toContainText('According to Archive')
+    expect(requests).toHaveLength(2)
+    expect(requests[1].body.mcp_servers?.[0]?.name).toBe('archive')
+    expect(requests[1].body.max_tokens).toBe(8000)
+    await expect.poll(async () => (await ledger(page)).length).toBe(2)
+    expect((await ledger(page))[1]).not.toHaveProperty('cap')
+    await closeMenu(page)
+    // positive control: no budget → the golden answer budget, no cap and no band on the entry
     await wsEval(page, (s) => s.updateSettings({ mcpServers: [] }))
     await budget(page, null)
     await improve(page)
-    expect(requests).toHaveLength(2)
-    expect(requests[1].body.max_tokens).toBe(8000)
-    await expect.poll(async () => (await ledger(page)).length).toBe(2)
-    const second = (await ledger(page))[1]
-    expect(second).not.toHaveProperty('cap')
-    expect(second).not.toHaveProperty('band')
+    expect(requests).toHaveLength(3)
+    expect(requests[2].body.max_tokens).toBe(8000)
+    await expect.poll(async () => (await ledger(page)).length).toBe(3)
+    const third = (await ledger(page))[2]
+    expect(third).not.toHaveProperty('cap')
+    expect(third).not.toHaveProperty('band')
   })
 
   test('case 4 — E lets one request through (allowance on its entry), the next is refused again; B sends the cheaper model', async ({ page }) => {
@@ -477,6 +499,9 @@ test.describe('loops: the halt card, H, Mod+. (B6 · case 5)', () => {
     await expect(termPrompt(page)).toHaveAttribute('readonly', '')
     await expect(termPrompt(page)).toHaveAttribute('placeholder', 'Paused — E, H or Ctrl+.')
     await expect(terminal(page).getByTestId('term-regler')).toBeVisible()
+    // the status bar's REGLER cell: a task waits at the line → ROTLINIE · PAUSE (below the line itself)
+    await expect(page.locator('.status .gv-cell')).toHaveAttribute('data-level', 'red')
+    await expect(page.locator('.status .gv-cell')).toContainText('Red line · pause')
     // the card holds the keyboard: E sends round 3 (+1 $ for this task, today)
     await expect(halt(page)).toBeFocused()
     await page.keyboard.press('e')
@@ -551,6 +576,56 @@ test.describe('loops: the halt card, H, Mod+. (B6 · case 5)', () => {
     expect(requests).toHaveLength(2)
     expect(await reservedAll(page)).toBe(0)
   })
+
+  test('a pause_turn below the line is resumed as before (positive control): the resumed request goes, no card', async ({ page }) => {
+    const paused = { blocks: [{ type: 'text' as const, text: 'Still looking.' }], stop: 'pause_turn' as const, usage: { input: 2000, output: 300 } }
+    const { requests } = await mockClaudeScript(page.context(), [R1, paused, R3])
+    await openApp(page)
+    await KEY(page)
+    await budget(page, { v: 1, day: 1 })
+    await spend(page, 0.5)
+    await openTerminal(page)
+    await runTask(page, 'Draft the Nordlicht brief.')
+    await expect(terminal(page).locator('.term-answer')).toContainText('Staged the Nordlicht brief.')
+    expect(requests).toHaveLength(3)
+    await expect(halt(page)).toHaveCount(0)
+    expect(await reservedAll(page)).toBe(0)
+  })
+
+  /**
+   * MCP iterations (§ 5.6): the next step reads the context once per server-side MCP iteration of the last response. Round
+   * 1 read a 501k context from the cache (0,106 $) and ran k Archive calls before its own tool call; 0,42 $ were left, so
+   * 0,314 $ after it. The next step with k = 1 (≈ 0,21 $) fits and is sent; with k = 3 two more reads (≈ +0,20 $) do not —
+   * the card, zero further requests.
+   */
+  for (const k of [3, 1]) {
+    test(`MCP iterations: a step after ${k} server-side Archive call${k > 1 ? 's' : ''} counts ${k} context read${k > 1 ? 's' : ''} — ${k > 1 ? 'over the rest it halts before the next request' : 'within the rest it goes on (positive control)'}`, async ({ page }) => {
+      const calls = Array.from({ length: k }, (_, i) => [
+        { type: 'mcp_tool_use' as const, id: `mcptoolu_k${i}`, server: 'archive', name: 'archive_search', input: { query: `Nordlicht ${i}` } },
+        { type: 'mcp_tool_result' as const, id: `mcptoolu_k${i}`, text: `REC-${i} Nordlicht launch notes` },
+      ]).flat()
+      const first = { blocks: [...calls, { type: 'tool_use' as const, id: 'toolu_mcpk', name: 'search_pages', input: { query: 'Tessera' } }], usage: { input: 1000, cacheRead: 500_000, output: 100 } }
+      const { requests } = await mockClaudeScript(page.context(), [first, R3])
+      await openApp(page)
+      await KEY(page, { mcpServers: [ARCHIVE] })
+      await budget(page, { v: 1, day: 1 })
+      await spend(page, 0.58)
+      await openTerminal(page)
+      await runTask(page, 'Draft the Nordlicht brief from the Archive records.')
+      if (k > 1) {
+        await expect(halt(page)).toBeVisible()
+        await page.waitForTimeout(500)
+        expect(requests).toHaveLength(1)
+        expect(requests[0].body.mcp_servers?.[0]?.name).toBe('archive')
+        expect(await reservedAll(page)).toBe(0)
+        await expect(halt(page)).toContainText('crosses the day budget')
+      } else {
+        await expect(terminal(page).locator('.term-answer')).toContainText('Staged the Nordlicht brief.')
+        expect(requests).toHaveLength(2)
+        await expect(halt(page)).toHaveCount(0)
+      }
+    })
+  }
 
   test('the first request at the line: the card with E (nothing sent); E sends it; without a budget the same task runs as before', async ({ page }) => {
     const { requests } = await mockClaudeScript(page.context(), [R3, R3])
@@ -634,6 +709,11 @@ test.describe('agents at the line: held, never waiting (B6 · case 6)', () => {
     await page.waitForTimeout(300)
     await expect(heldToasts(page).filter({ hasText: 'Tessera digest' })).toHaveCount(0)
     expect(requests).toHaveLength(0)
+    // positive control: a day that holds the first step — the same scheduled start runs and sends
+    await budget(page, { v: 1, day: 10 })
+    const ran = (await scheduled(page, 'ag-tessera')) as AnyState
+    expect(requests.length).toBeGreaterThanOrEqual(1)
+    expect(ran.status).not.toBe('held')
   })
 
   test('mid-run at the line the run stops after its step: held, its proposal kept, the old state kept ("State not saved"); positive control: a day that holds it runs to the end', async ({ page }) => {
@@ -944,6 +1024,36 @@ test.describe('background work at the line (B7 · case 7)', () => {
     await expect.poll(() => bodies.length, { timeout: 15_000 }).toBe(1)
     await expect.poll(async () => (await status()).lastStatus, { timeout: 15_000 }).toBe('ok')
   })
+
+  /**
+   * A follow-up never asks after the answer (§ 5.7): the task's answer (0,228 $ reported) leaves 0,022 $ of the 0,25 $ that
+   * were left — the memory proposal (structured, never capped: ≈ 0,03 $ and more) is skipped with a note, nothing sent.
+   * Positive control: a day that holds it sends the proposal request after the same task.
+   */
+  for (const atLine of [true, false]) {
+    test(`a memory proposal after a terminal task ${atLine ? 'at the line is skipped with a note (nothing sent, no card)' : 'below the line is asked for (positive control)'}`, async ({ page }) => {
+      const answer = text('The Nordlicht launch moves to the Tessera release.', { usage: { input: 2000, output: 11_000 } })
+      const { requests } = await mockClaudeScript(page.context(), [answer, text(JSON.stringify({ memories: [] }))])
+      await openApp(page)
+      await KEY(page, { memory: { proposals: true } })
+      await budget(page, { v: 1, day: 1 })
+      await spend(page, atLine ? 0.75 : 0.05)
+      await openTerminal(page)
+      await runTask(page, 'When does the Nordlicht launch happen now?')
+      await expect(terminal(page).locator('.term-answer')).toContainText('The Nordlicht launch moves to the Tessera release.')
+      if (atLine) {
+        await expect(terminal(page)).toContainText('Memory proposal skipped — red line')
+        await page.waitForTimeout(500)
+        expect(requests).toHaveLength(1)
+        await expect(terminal(page).getByTestId('term-memory')).toHaveCount(0)
+      } else {
+        await expect.poll(() => requests.length).toBe(2)
+        expect(JSON.stringify(requests[1].body.system)).toContain('should remember')
+        await expect(terminal(page)).not.toContainText('Memory proposal skipped')
+      }
+      expect(await reservedAll(page)).toBe(0)
+    })
+  }
 })
 
 /* ------------------------------------------------------------------ */
@@ -991,10 +1101,10 @@ test.describe('the brake note (B8 · case 1 across the surfaces)', () => {
   })
 
   test('help Ask at the line: the note in the help panel; E asks the question again with +1 $ — once', async ({ page }) => {
-    const { requests } = await mockClaudeScript(page.context(), [text('Open **Share** and switch on **Protect with password**.')])
+    const { requests } = await mockClaudeScript(page.context(), [text('Open **Share** and switch on **Protect with password**.'), text('Open **Share** and switch off **Protect with password**.')])
     await openApp(page)
     await KEY(page)
-    await dayWithRest(page, 0.005)
+    const hold = await dayWithRest(page, 0.005)
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur?.())
     await page.keyboard.press('?')
     const help = page.getByRole('dialog', { name: /^(Help|Hilfe)$/ })
@@ -1017,13 +1127,21 @@ test.describe('the brake note (B8 · case 1 across the surfaces)', () => {
     await expect(note(page)).toBeVisible()
     await page.waitForTimeout(300)
     expect(requests).toHaveLength(1)
+    // positive control: a day that holds it — the question goes, no note, no allowance
+    await release(page, hold)
+    await budget(page, { v: 1, day: 10 })
+    await field.press('Enter')
+    await expect(help.locator('.help-ask__out')).toContainText('switch off')
+    expect(requests).toHaveLength(2)
+    await expect(note(page)).toHaveCount(0)
+    expect((await ledger(page))[1]).not.toHaveProperty('allowance')
   })
 
   test('⌘K "?" at the line: the note in the palette; Esc closes the note only — nothing sent, the question stays', async ({ page }) => {
     const { requests } = await mockClaudeScript(page.context(), [text('The launch is in two weeks.')])
     await openApp(page)
     await KEY(page)
-    await dayWithRest(page, 0.005)
+    const hold = await dayWithRest(page, 0.005)
     const id = await createPage(page, { title: 'Launch plan', content: doc(para('We launch in two weeks.')) })
     await gotoPage(page, id)
     await page.keyboard.press(`${MOD}+k`)
@@ -1038,6 +1156,15 @@ test.describe('the brake note (B8 · case 1 across the surfaces)', () => {
     await page.waitForTimeout(300)
     expect(requests).toHaveLength(0)
     expect(await ledger(page)).toEqual([])
+    // positive control: a day that holds it — the same question goes from the palette, no note
+    await release(page, hold)
+    await budget(page, { v: 1, day: 10 })
+    const input = pal.getByRole('combobox').or(pal.locator('input')).first()
+    await input.fill('?When do we launch?')
+    await input.press('Enter')
+    await expect(pal).toContainText('The launch is in two weeks.')
+    expect(requests).toHaveLength(1)
+    await expect(note(page)).toHaveCount(0)
   })
 
   test('the Outbox draft: refused at the line in the background — the dock\'s note (no error toast); E drafts it with +1 $', async ({ page }) => {
@@ -1067,6 +1194,31 @@ test.describe('the brake note (B8 · case 1 across the surfaces)', () => {
     await expect(note(page)).toHaveCount(0)
     const [e] = (await ledger(page)).filter((x) => x.purpose === 'outbox.draft')
     expect(e.allowance).toBe(1)
+  })
+
+  test('the Outbox draft below the line (positive control): drafted at once — no note, no allowance; its entry carries the band it was judged on', async ({ page }) => {
+    const calls = await mockDrafts(page.context(), () => 'Thanks — the Nordlicht fix ships in the Tessera release.')
+    await openApp(page)
+    await outboxLoaded(page)
+    const m = await seedMirrorDb(page)
+    await budget(page, { v: 1, day: 10 })
+    await page.evaluate((id) => (location.hash = `#/p/${id}`), m.dbId)
+    await expect(page.locator('#main .pv-title')).toBeVisible()
+    const rows = page.locator('#main .dbt-row[role="row"]:not(.dbt-row--head)')
+    await rows.nth(0).hover()
+    await rows.nth(0).getByRole('checkbox', { name: 'Select row' }).click()
+    await page.getByTestId('db-commands').click()
+    await page.locator('.popover.cmd-menu').getByRole('menuitem', { name: 'Reply in the ticket tool' }).click()
+    await page.getByRole('dialog', { name: 'Draft a slip' }).getByTestId('outbox-draft-claude').click()
+    const dock = page.getByTestId('outbox-dock')
+    await expect(dock.getByTestId('outbox-slip')).toBeVisible()
+    expect(calls).toHaveLength(1)
+    await expect(note(page)).toHaveCount(0)
+    await expect.poll(async () => (await ledger(page)).filter((x) => x.purpose === 'outbox.draft').length).toBe(1)
+    const [e] = (await ledger(page)).filter((x) => x.purpose === 'outbox.draft')
+    expect(e).not.toHaveProperty('allowance')
+    expect(e.band.high).toBeGreaterThan(0)
+    expect(e.source).toMatch(/^outbox:/)
   })
 
   test('the kit fill (structured, never capped): B sends it with the cheaper model as the person\'s pick; the setup test at the line shows the note; positive control below the line', async ({ page }) => {
@@ -1140,5 +1292,173 @@ test.describe('the brake note (B8 · case 1 across the surfaces)', () => {
     const runs = (await ledger(page)).filter((e) => e.source.startsWith(`script:${id}:`))
     expect(runs).toHaveLength(2)
     expect(new Set(runs.map((e) => e.source)).size).toBe(1)
+  })
+})
+
+/* ------------------------------------------------------------------ */
+/* B9 — the status cell, VERBRAUCH, receipts; case 8                    */
+/* ------------------------------------------------------------------ */
+
+const cell = (page: Page) => page.locator('.status .gv-cell')
+const lampOf = async (page: Page): Promise<AnyState | null> => {
+  await page.evaluate(() => (window as unknown as { __onePreflight: AnyState }).__onePreflight.flush())
+  const r = await page.evaluate(() => JSON.parse(JSON.stringify((window as unknown as { __onePreflight: AnyState }).__onePreflight.readings())))
+  return (r.governor as AnyState | undefined) ?? null
+}
+
+test.describe('the status cell, VERBRAUCH, receipts (B9)', () => {
+  test('the REGLER cell: none without a budget; the amount once the day is read; amber at 75 %; ROTLINIE · PAUSE at the line; it fits a narrow bar', async ({ page }) => {
+    await openApp(page)
+    await KEY(page)
+    await page.waitForTimeout(500)
+    await expect(cell(page)).toHaveCount(0)
+    await budget(page, { v: 1, day: 6 })
+    await expect(cell(page)).toBeVisible()
+    await expect(cell(page)).toContainText('Governor')
+    await expect(cell(page).locator('.gv-cell__val--wide')).toHaveText('$0.00 / $6', { timeout: 15_000 })
+    await expect(cell(page)).toHaveAttribute('data-level', 'ok')
+    await spend(page, 4.6)
+    await expect(cell(page)).toHaveAttribute('data-level', 'amber')
+    await expect(cell(page).locator('.gv-cell__val--wide')).toHaveText('$4.60 / $6')
+    await expect(cell(page).locator('.gv-cell__bar')).toBeVisible()
+    // a narrower bar sheds the mini bar at level 7 (after the six older levels); the amount and the LED stay, nothing
+    // scrolls sideways
+    const bar = page.locator('.status')
+    let shed7 = 0
+    for (const width of [1200, 1100, 1000, 940, 880, 820]) {
+      await page.setViewportSize({ width, height: 800 })
+      await page.waitForTimeout(150)
+      expect(await bar.evaluate((el) => el.scrollWidth <= el.clientWidth + 1), `no overflow at ${width}`).toBe(true)
+      await expect(cell(page).locator('.gv-cell__led')).toBeVisible()
+      await expect(cell(page).locator('.gv-cell__val--wide, .gv-cell__val--short').filter({ visible: true })).toHaveCount(1)
+      if ((await bar.getAttribute('data-shed-7')) !== null) {
+        shed7++
+        await expect(cell(page).locator('.gv-cell__bar')).toBeHidden()
+      } else await expect(cell(page).locator('.gv-cell__bar')).toBeVisible()
+    }
+    expect(shed7, 'level 7 reached at a narrow width').toBeGreaterThan(0)
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await expect(cell(page).locator('.gv-cell__bar')).toBeVisible()
+    await spend(page, 1.5)
+    await expect(cell(page)).toHaveAttribute('data-level', 'red')
+    await expect(cell(page)).toContainText('Red line · pause')
+    // the budget removed: the cell goes
+    await budget(page, null)
+    await expect(cell(page)).toHaveCount(0)
+  })
+
+  test('the REGLER cell says "—" until the day is read (never a guess before the ledger answered); then the amount', async ({ page }) => {
+    // idle never comes in this tab: the day's read (whenIdle after the first paint) waits until the spec calls it
+    await page.addInitScript(() => {
+      ;(window as unknown as { requestIdleCallback: () => number }).requestIdleCallback = () => 0
+    })
+    await openApp(page)
+    await KEY(page)
+    await spend(page, 1.2)
+    await budget(page, { v: 1, day: 6 })
+    await expect(cell(page)).toBeVisible()
+    await page.waitForTimeout(800)
+    await expect(cell(page).locator('.gv-cell__val--wide')).toHaveText('—')
+    await expect(cell(page)).not.toHaveAttribute('data-known', /.*/)
+    await expect(cell(page).locator('.gv-cell__bar')).toHaveCount(0)
+    // the day read: the amount (this tab's own spend counted), the bar
+    await page.evaluate(() => (window as unknown as Seam).__oneGovernor.load())
+    await expect(cell(page).locator('.gv-cell__val--wide')).toHaveText('$1.20 / $6')
+    await expect(cell(page).locator('.gv-cell__bar')).toBeVisible()
+  })
+
+  test('VERBRAUCH: not fitted without a budget; amber at 75 % without MASTER CAUTION; red at the line with it — one ack id per band and day', async ({ page }) => {
+    await openApp(page)
+    await KEY(page)
+    expect(await lampOf(page)).toBeNull()
+    await budget(page, { v: 1, day: 1 })
+    await expect.poll(async () => (await lampOf(page))?.count ?? -1, { timeout: 15_000 }).toBe(0)
+    await spend(page, 0.8)
+    await expect.poll(async () => (await lampOf(page))?.level ?? null).toBe('amber')
+    const amber = (await lampOf(page))!
+    expect(amber).toMatchObject({ count: 1, master: false, second: '$0.80/1' })
+    expect(amber.ids).toEqual([expect.stringMatching(/^use:\d{4}-\d{2}-\d{2}:amber$/)])
+    await spend(page, 0.25)
+    await expect.poll(async () => (await lampOf(page))?.level ?? null).toBe('red')
+    const red = (await lampOf(page))!
+    expect(red).toMatchObject({ count: 1, master: true })
+    expect(red.ids).toEqual([expect.stringMatching(/^use:\d{4}-\d{2}-\d{2}:red$/)])
+  })
+
+  test('receipts: the capped answer budget and the band — EN, then DE; /cost says the rest of the day', async ({ page }) => {
+    const { requests } = await mockClaudeScript(page.context(), [text('A tighter launch sentence.'), text('We launch in two weeks.')])
+    await openApp(page)
+    await KEY(page)
+    // a little left: Improve's answer budget is capped
+    const hold = await dayWithRest(page, 0.06)
+    await improve(page)
+    expect(requests).toHaveLength(1)
+    const receipt = aiPanel(page).getByTestId('ai-receipt')
+    await expect(receipt).toBeVisible()
+    await expect(receipt).toHaveAttribute('title', /Answer budget capped to [\d,]+ tokens/)
+    await expect(receipt).toHaveAttribute('title', /Estimate \$[\d.]+/)
+    // the same receipt in German
+    await wsEval(page, (s) => s.updateSettings({ language: 'de' }))
+    await expect(receipt).toHaveAttribute('title', /Antwortbudget auf [\d.]+ Token gekappt/)
+    await expect(receipt).toHaveAttribute('title', /Schätzung [\d,]+/)
+    await page.keyboard.press('Escape')
+    await wsEval(page, (s) => s.updateSettings({ language: 'en' }))
+    // /cost in the terminal: the line that binds today and its rest
+    await release(page, hold)
+    await budget(page, { v: 1, day: 6 })
+    await openTerminal(page)
+    await runTask(page, 'When do we launch?')
+    await expect(terminal(page).locator('.term-answer').last()).toContainText('We launch in two weeks.')
+    await runTask(page, '/cost')
+    await expect(terminal(page).getByTestId('term-cost-regler').last()).toHaveText(/^Governor: today \$0\.\d\d of \$6 · rest \$5\.\d\d$/)
+  })
+
+  test('the coding worker\'s Claude Code cost: as before without a budget; with one the line says it is not counted (EN, DE)', async ({ page }) => {
+    await openApp(page)
+    await page.waitForFunction(() => !!(window as unknown as { __oneCoding?: unknown }).__oneCoding)
+    const line = () => page.evaluate(() => (window as unknown as { __oneCoding: AnyState }).__oneCoding.lineText({ t: Date.now(), k: 'info', s: 'Claude Code finished', c: 'claudeDone', v: { turns: 7, cost: '3.9' } }) as string)
+    expect(await line()).toBe('Claude Code finished · 7 turns · $3.90')
+    await budget(page, { v: 1, day: 6 })
+    expect(await line()).toBe('Claude Code finished · 7 turns · $3.90 · not counted in the day budget')
+    await wsEval(page, (s) => s.updateSettings({ language: 'de' }))
+    expect(await line()).toBe('Claude Code fertig · 7 Schritte · 3,90\u00a0$ · zählt nicht zum Tagesbudget')
+    await budget(page, null)
+    expect(await line()).toBe('Claude Code fertig · 7 Schritte · 3,90\u00a0$')
+  })
+
+  test('case 8 — two tabs: B waits for A\'s reservation (reservedOthers > 0) and is refused while it is open; allowed once it settles', async ({ page }) => {
+    const answer = text(JSON.stringify({ answer: 'In two weeks.' }))
+    await mockClaudeScript(page.context(), [answer, answer, answer])
+    let holding = true
+    let release1: () => void = () => {}
+    const gate = new Promise<void>((r) => (release1 = r))
+    let held = 0
+    await page.context().route('https://api.anthropic.com/**', async (route) => {
+      if (!holding || route.request().method() === 'OPTIONS') return route.fallback()
+      holding = false
+      held++
+      await gate
+      return route.fallback()
+    })
+    await openApp(page)
+    await KEY(page)
+    await budget(page, { v: 1, day: 0.1 })
+    await flush(page)
+    const b = await page.context().newPage()
+    await openApp(b)
+    await budget(b, { v: 1, day: 0.1 })
+    const Q = { purpose: 'help.ask', prompt: 'When does the Nordlicht launch happen?', structured: true }
+    // A: a request whose answer is held — its reservation stays open
+    const aDone = ask(page, Q)
+    await expect.poll(() => held).toBe(1)
+    await expect.poll(() => b.evaluate(() => (window as unknown as Seam).__oneGovernor.reservedOthers() as number), { timeout: 15_000 }).toBeGreaterThan(0)
+    // B: the rest minus A's reservation does not hold the band
+    expect(await ask(b, Q)).toMatchObject({ ok: false, code: 'budget' })
+    // A's answer comes; its reservation settles (B hears it); B is allowed
+    release1()
+    expect(await aDone).toMatchObject({ ok: true })
+    await expect.poll(() => b.evaluate(() => (window as unknown as Seam).__oneGovernor.reservedOthers() as number), { timeout: 15_000 }).toBe(0)
+    expect(await ask(b, Q)).toMatchObject({ ok: true })
+    await b.close()
   })
 })

@@ -258,7 +258,17 @@ test.describe('totals: the device line hears a new workspace at once', () => {
 
 test.describe('Workspace.governor is kept (G0, local persistence)', () => {
   type Gov = Record<string, unknown> | undefined
-  const setGov = (p: Page, v: Gov) => p.evaluate((g) => (window as unknown as { __one: { workspace: { setState: (x: object) => void } } }).__one.workspace.setState({ governor: g }), v)
+  /**
+   * A value as another build stored it — raw, on purpose (never through setGovernor) — with the generation stamp every
+   * store path writes beside a budget (B1: an `ai.gen` below it is the DEV / ?e2e invariant's console error).
+   */
+  const setGov = (p: Page, v: Gov) =>
+    p.evaluate((g) => {
+      const ws = (window as unknown as { __one: { workspace: { getState: () => { ai?: Record<string, unknown> }; setState: (x: object) => void } } }).__one.workspace
+      const budget = !!g && g.v === 1 && (g.day !== undefined || g.month !== undefined)
+      const ai = ws.getState().ai
+      ws.setState({ governor: g, ...(budget ? { ai: { ...(ai ?? {}), gen: Math.max(3, Number(ai?.gen ?? 1)) } } : {}) })
+    }, v)
   const govOf = (p: Page) => wsEval(p, (s) => (s as { governor?: Gov }).governor ?? null)
 
   test('save → reload → another tab’s save; unknown keys and a newer shape kept; junk repaired; removed', async ({ page }) => {

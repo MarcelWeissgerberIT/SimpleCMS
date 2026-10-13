@@ -110,7 +110,7 @@ export type HaltChoice = 'allow' | 'cheaper' | 'stop'
 export interface HaltWait {
   label: string
   provider: ProviderId
-  refresh(): Halt | null
+  refresh(): Promise<Halt | null>
 }
 
 /** The answer budget the wire keeps for every step of the loop (the brake counts FIRST_STEP_OUT for the first). */
@@ -372,7 +372,7 @@ export async function runAgent(opts: {
       const round = (dry: boolean) =>
         beforeRound({ prepared: prepared!, spent, last: used[used.length - 1], steps: used, pending, mcpIterations, cold, history: () => runner.params.messages, thinks, mcpAttached: !!mcp }, { dry })
       for (;;) {
-        const v = round(false)
+        const v = await round(false)
         if ('go' in v) return 'go'
         if ('stop' in v) {
           hooks.held?.(v)
@@ -386,9 +386,9 @@ export async function runAgent(opts: {
         const wait: HaltWait = {
           label: prepared!.label,
           provider: prepared!.route?.p ?? 'anthropic',
-          refresh: () => {
+          refresh: async () => {
             cold = true
-            const again = round(true)
+            const again = await round(true)
             return 'halt' in again ? again.halt : null
           },
         }

@@ -21,7 +21,7 @@ import { openAISetup, openAISettings } from '../setup/openAISetup'
 import { MarkdownLite } from '../MarkdownLite'
 import { closeAgent, clampHeight, removeRef, setTermHeight, stopAgent, useAgent, HEIGHT_DEFAULT, type EchoEntry } from './state'
 import { answerAsk, applyStaged, appliesAlone, changeTarget, continueTask, contextPageId, discardAllStaged, discardStaged, emptyEnter, goesToWorker, haltKey, newTask, pickContext, rerunAfterSignIn, restoreStaged, runTask, stage as stageApi, stageMedia, submitPrompt, tn, undoLastBatch } from './session'
-import { loadHaltCard } from '../../governor'
+import { loadHaltCard, ReglerRestLine } from '../../governor'
 import { isMac } from '../../../ui/controls'
 import { Menu, useMenu, type MenuEntry } from '../../../ui/Menu'
 import { setContextMode, useContextMarks, type ContextMode } from '../../../editor'
@@ -875,6 +875,7 @@ function Echo({ entry }: { entry: EchoEntry }) {
       out = u.byModel?.length ? (
         <>
           <CostTable lines={u.byModel} />
+          <ReglerRestLine />
           <p className="term-echo__note">
             {t('features.agent.meter.billed', { company: TERMINAL_COMPANY })} <HelpLink id="ai-costs" topic={t('features.ai.receipt.help')} />
           </p>

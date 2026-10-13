@@ -1,6 +1,7 @@
 /**
  * The Regler's plates as people see them (production build) — the brake note (the AI menu at the line) and the halt
- * card (the AI terminal between two rounds), 1440 × 900 and 390 × 844, Paper and Carbon, into .shots/regler-*.png.
+ * card (the AI terminal between two rounds), 1440 × 900 and 390 × 844, Paper and Carbon, and the status bar's REGLER cell
+ * (amber, at the line) at 1440, into .shots/regler-*.png.
  * Screenshots only on request (REGLER_SHOTS=1). Values are fictional (Nordlicht, Launch plan).
  */
 import type { Page } from '@playwright/test'
@@ -41,6 +42,22 @@ for (const size of [
         await page.waitForTimeout(500)
         await page.screenshot({ path: `.shots/regler-note-${size.w}-${t}.png` })
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+      })
+
+      test('the status cell at amber and at the line', async ({ page }) => {
+        test.skip(size.w < 768, 'the status bar is not on phones')
+        await openApp(page)
+        await KEY(page)
+        await budget(page, { v: 1, day: 6 })
+        await theme(page, t)
+        await spend(page, 4.6)
+        const cell = page.locator('.status .gv-cell')
+        await expect(cell).toHaveAttribute('data-level', 'amber', { timeout: 15_000 })
+        await cell.screenshot({ path: `.shots/regler-cell-amber-${t}.png` })
+        await page.locator('.status').screenshot({ path: `.shots/regler-status-amber-${t}.png` })
+        await spend(page, 1.5)
+        await expect(cell).toHaveAttribute('data-level', 'red')
+        await page.locator('.status').screenshot({ path: `.shots/regler-status-red-${t}.png` })
       })
 
       test('the halt card in the AI terminal', async ({ page }) => {

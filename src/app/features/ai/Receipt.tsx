@@ -12,7 +12,8 @@ import { isJevRouter } from '@/shared/ai/jev'
 import { servedLabel } from './core/registry'
 import type { Lang } from '@/shared/i18n'
 import { t as tt, useLang, useT } from '../../i18n'
-import { fmtCost } from '../../lib/money'
+import { fmtCost, fmtUsd } from '../../lib/money'
+import { fmtBand, fmtLimit } from '../governor'
 import { HelpLink } from '../../help'
 import type { Receipt } from './core/meter'
 import './runs.css'
@@ -32,12 +33,26 @@ export function costText(t: T, lang: Lang, usd: number | null, source: CostSourc
 export const sourceText = (t: T, usd: number | null, source: CostSource): string => (usd === null || source === 'none' ? '' : t(`features.ai.receipt.src.${source}`))
 
 /** A step on the way, as a receipt line (null: none to show). */
-export function stepText(t: T, s: StepNote, p: ProviderId): string | null {
+export function stepText(t: T, s: StepNote, p: ProviderId, o: { lang?: Lang; usd?: number | null } = {}): string | null {
   if (s.k === 'refusal-fallback' && s.to) return t('features.ai.receipt.fallback', { provider: COMPANY[p], model: labelOf({ p, m: s.to }) })
+  // the Regler: a capped answer budget, a model switched at the line (H), an allowance (E), the band it was braked on
+  if (s.k === 'brake' && s.code === 'cap' && s.to) return t('features.governor.cap', { tokens: Number(s.to).toLocaleString(o.lang ?? 'en') })
+  if (s.k === 'brake' && s.code === 'H' && s.from && s.to) return t('features.governor.receipt.switched', { from: labelOf({ p, m: s.from }), to: labelOf({ p, m: s.to }) })
+  if (s.k === 'allowance' && s.code) return t('features.governor.receipt.allowed', { usd: fmtLimit(Number(s.code), o.lang ?? 'en') })
+  if (s.k === 'band' && s.from && s.to) return bandText(t, { low: Number(s.from), high: Number(s.to) }, o.usd ?? null, o.lang ?? 'en')
   if (s.k === 'substituted' && s.to) return t('features.ai.receipt.substituted', { model: servedLabel(p, s.to) })
   if (s.k === 'routed' && s.code === 'over-bound') return t('features.ai.receipt.overBound')
   if (s.k === 'upstream') return t('features.ai.receipt.notUsed', { why: s.code ?? '' })
   return null
+}
+
+/** The band the requests were braked on, against what they cost: in band · over band +x · under band −x. */
+function bandText(t: T, band: { low: number; high: number }, usd: number | null, lang: Lang): string {
+  const b = fmtBand(band, lang)
+  if (usd === null) return t('features.governor.receipt.band', { band: b })
+  if (usd > band.high) return t('features.governor.receipt.band.over', { band: b, usd: fmtUsd(usd - band.high, lang) })
+  if (usd < band.low) return t('features.governor.receipt.band.under', { band: b, usd: fmtUsd(band.low - usd, lang) })
+  return t('features.governor.receipt.band.in', { band: b })
 }
 
 /** The requested route of a receipt ('p:m'). */
@@ -73,7 +88,7 @@ export function receiptText(t: T, lang: Lang, r: Receipt): string {
   const head = [model, r.requests > 1 ? t('features.ai.receipt.requests', { count: r.requests }) : '', costText(t, lang, r.usd, r.costSource), sourceText(t, r.usd, r.costSource)].filter(Boolean).join(' · ')
   const n = (x: number) => x.toLocaleString(lang)
   const tokens = t('features.ai.receipt.tokens', { input: n(r.usage.input), write: n(r.usage.cacheWrite + r.usage.cacheWrite1h), read: n(r.usage.cacheRead), output: n(r.usage.output) })
-  const steps = r.steps.map((s) => stepText(t, s, r.served.p)).filter((x): x is string => !!x)
+  const steps = r.steps.map((s) => stepText(t, s, r.served.p, { lang, usd: r.usd })).filter((x): x is string => !!x)
   const served = r.served.upstream ? t('features.ai.receipt.servedBy', { upstream: r.served.upstream }) : ''
   // Claude's table prices it; another provider's line says what priced it (the catalogue, the served model, the bound)
   const prices = r.usd === null || r.costSource === 'reported' ? '' : r.served.p === 'anthropic' ? t('features.ai.receipt.prices', { date: pricesDate(lang) }) : priceNote(t, r) || (r.costSource === 'catalogue' ? t('features.ai.receipt.catalogue') : '')
@@ -84,7 +99,7 @@ export function ReceiptLine({ receipt: r, testId = 'ai-receipt' }: { receipt: Re
   const t = useT()
   const lang = useLang()
   const model = modelText(t, r)
-  const steps = r.steps.map((s) => stepText(t, s, r.served.p)).filter((x): x is string => !!x)
+  const steps = r.steps.map((s) => stepText(t, s, r.served.p, { lang, usd: r.usd })).filter((x): x is string => !!x)
   const src = sourceText(t, r.usd, r.costSource)
   return (
     <div className="ai-receipt" data-testid={testId} data-src={r.costSource} title={receiptText(t, lang, r)}>

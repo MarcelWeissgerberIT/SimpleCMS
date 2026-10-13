@@ -182,8 +182,8 @@ export interface Brake {
   route?(ctx: Omit<BrakeCtx, 'size'>): RouteMove | null
   money?(ctx: BrakeCtx): MoneyVerdict | number | void
   peek?(ctx: BrakeCtx): MoneyHint | null
-  /** between two requests of a loop (beforeRound) — sync; null: go on as before (no line) */
-  round?(ctx: RoundCtx): RoundVerdict | null
+  /** between two requests of a loop (beforeRound); null: go on as before (no line) — a promise only with a line (lazy) */
+  round?(ctx: RoundCtx): RoundVerdict | null | Promise<RoundVerdict | null>
   /** before a run's first request (startCheck) — async: the day (and month) are read first */
   start?(input: PrepareInput): Promise<StartCheck>
 }
@@ -393,10 +393,10 @@ function hold(p: Prepared, usd: number): void {
  * follows the next step · halt (the AI terminal's card: nothing stays reserved while it waits; E / H reserve again with
  * their go) · stop (agents of every mode, background work: they never wait). No line set: go, nothing changes.
  */
-export function beforeRound(r: LoopRound, o: { dry?: boolean } = {}): RoundVerdict {
+export async function beforeRound(r: LoopRound, o: { dry?: boolean } = {}): Promise<RoundVerdict> {
   const p = r.prepared
   const route = p.route
-  const v = route && brake.round ? brake.round({ ...r, route, price: priceOf(route, p.pool), hints: wireHintsFor(route, modelInfo(route, p.pool)), candidates: () => haltCandidates(p) }) : null
+  const v = route && brake.round ? await brake.round({ ...r, route, price: priceOf(route, p.pool), hints: wireHintsFor(route, modelInfo(route, p.pool)), candidates: () => haltCandidates(p) }) : null
   if (!v) return { go: true, reserve: p.reservation?.usd ?? 0, band: null }
   // dry: what it would say (a halt card counting its cache cold) — no reservation moves
   if (o.dry) return v

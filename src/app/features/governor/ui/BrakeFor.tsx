@@ -48,6 +48,7 @@ export default function BrakeFor({ error, onRetry, onCancel, autoFocus }: BrakeF
       allow={fix?.allow ?? null}
       need={fix?.need ?? 0}
       cheaper={fix?.cheaper ? { label: labelOf(fix.cheaper), band: fix.cheaperBand ?? null } : null}
+      mcpRounds={fix?.mcpRounds ?? null}
       owner={governorAllowed()}
       {...(autoFocus === false ? { autoFocus: false } : {})}
       onAllow={

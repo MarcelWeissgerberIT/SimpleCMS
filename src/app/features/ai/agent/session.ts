@@ -20,7 +20,7 @@ import { attachMcp, codewordTask, codewordsIn, currentSetup, mcpNames, readServe
 import { applyChanges, type ApplyResult } from './apply'
 import { agentSystemText, runAgent, taskMessage, TASK_RULES, untilStopped, type HaltChoice, type HaltWait, type RunHooks } from './run'
 import { PROVIDERS } from '@/shared/ai/providers'
-import { allowTask, ALLOW_USD, type Halt } from '../../governor'
+import { allowTask, ALLOW_USD, noteHalt, type Halt } from '../../governor'
 import { currentLang } from '../../../i18n'
 import { canCreateItems, warmMembers } from '../../workitems'
 import { unlocked } from '../../agents/integrations/status'
@@ -144,19 +144,27 @@ function waitAtLine(n: number, h: Halt, wait: HaltWait, taskUsd: () => number): 
     answer = resolve
     haltAnswer = resolve
     set({ halt: { n, view: haltView(n, h, wait.label, wait.provider, taskUsd(), false) } })
+    // the status cell and VERBRAUCH on Start: a task waits at the line
+    noteHalt(haltMark(n), true)
     timer = setTimeout(() => {
-      const cur = get().halt
-      if (cur?.n !== n) return
-      const again = wait.refresh()
-      set({ halt: { n, view: again ? haltView(n, again, wait.label, wait.provider, taskUsd(), true) : { ...cur.view, stale: true } } })
+      if (get().halt?.n !== n) return
+      void wait.refresh().then((again) => {
+        const cur = get().halt
+        if (cur?.n !== n) return
+        set({ halt: { n, view: again ? haltView(n, again, wait.label, wait.provider, taskUsd(), true) : { ...cur.view, stale: true } } })
+      })
     }, HALT_STALE_MS)
   })
   return p.finally(() => {
     if (timer) clearTimeout(timer)
     if (haltAnswer === answer) haltAnswer = null
     if (get().halt?.n === n) set({ halt: null })
+    noteHalt(haltMark(n), false)
   })
 }
+
+/** The halt's mark for the governor (marks.ts): this conversation's task. */
+const haltMark = (n: number): string => `${convId}:${n}`
 
 /** A key on the halt card: E (+1 $ for this task, today) · H (the cheaper model) · stop (the task ends like /stop). */
 export function haltKey(c: HaltChoice): void {
@@ -474,7 +482,7 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
       taskUsd += entry?.usd ?? 0
       // another model answered (a refusal fallback): said once per task, priced at that model (the entry)
       for (const st of entry?.steps ?? []) {
-        const line = entry ? stepText(t, st, entry.served.p) : null
+        const line = entry ? stepText(t, st, entry.served.p, { lang: currentLang() }) : null
         if (line && !said.has(line)) {
           said.add(line)
           note(line)
@@ -589,7 +597,7 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
         // +1 $ for this task and sends it, Mod+. ends the task (another model: the head's model key, then run it again)
         const halt = e instanceof AIError && e.code === 'budget' && !ac.signal.aborted && here() ? firstHalt(e) : null
         if (halt) {
-          const choice = await untilStopped(waitAtLine(n, halt, { label: e instanceof AIError ? (e.label ?? '') : '', provider: 'anthropic', refresh: () => null }, () => taskUsd), ac.signal)
+          const choice = await untilStopped(waitAtLine(n, halt, { label: e instanceof AIError ? (e.label ?? '') : '', provider: 'anthropic', refresh: async () => null }, () => taskUsd), ac.signal)
           if (choice !== 'allow' || ac.signal.aborted) throw new AIError('aborted')
           allowTask(taskSource, ALLOW_USD)
           continue

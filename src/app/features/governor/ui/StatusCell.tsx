@@ -4,8 +4,9 @@
  *   REGLER 4,12 $ / 6 $ [mini bar] VORSCHLAGEN   (the autonomy word comes with the lever, G2)
  * no budget → REGLER 1,56 $ · ≥ 75 % → the bar amber · at the line or a halt open → REGLER 5,71 $ / 6 $ ROTLINIE · PAUSE
  * on the lamp-red plate · AUS → KI AUS (G2) · before the first read of the day "—" (never a ledger read at first paint).
- * Shedding: the bar is level 7, the autonomy word level 8 (`status__shed7` / `status__shed8`); the amount and the LED never
- * shed. At phone width the amount alone ("5,71/6 $"), the LED keeps the state. Click → #/regler.
+ * Shedding: the bar is level 7, the autonomy word or ROTLINIE · PAUSE level 8 (`status__shed7` / `status__shed8`); the
+ * amount and the LED never shed (the plate's colour and the aria label keep the state). At phone width the amount alone
+ * ("5,71/6 $"), the LED keeps the state. Click → #/regler.
  */
 import { useLang, useT } from '../../../i18n'
 import { fmtUsd } from '../../../lib/money'
@@ -66,7 +67,8 @@ export function StatusCell({ spent, limit, state = 'ok', autonomy = null, onOpen
           <MiniBar spent={spent} limit={lim} size="cell" />
         </span>
       )}
-      {pause ? <b className="gv-cell__word">{t('features.governor.status.pause')}</b> : autonomy ? <b className="status__shed8 gv-cell__word">{autonomy}</b> : null}
+      {/* the words shed last (level 8): the LED and the red plate keep the state, the aria label says it */}
+      {pause ? <b className="status__shed8 gv-cell__word">{t('features.governor.status.pause')}</b> : autonomy ? <b className="status__shed8 gv-cell__word">{autonomy}</b> : null}
     </button>
   )
 }

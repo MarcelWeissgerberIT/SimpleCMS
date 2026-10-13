@@ -33,8 +33,12 @@ export type { Binding, Limits, Rest } from './limits'
 export type { BrakeFix, BrakeRun, Halt, HaltCheaper, HCandidate, HistoryNeeds, RefuseDetail, RoundVerdict, RunMode, StartVerdict } from './brake'
 export { ALLOW_USD } from './brake'
 export { budgetRefusal, brakeFixOf, watchSource, pauseRows, takeRows, pausedRows, onLineChange, type BudgetRefusal, type BrakeFixData } from './background'
-export { FIRST_STEP_OUT } from './steps'
+export { FIRST_STEP_OUT } from './mcpBand'
 export { planBand, type PlanBand } from './plan'
+export { noteHalt, noteHeld, useGovernorMarks } from './marks'
+export { openRegler, budgetSet } from './lampSource'
+/** the status bar's REGLER cell, wired (shown while a budget exists) */
+export { GovernorStatusCell, ReglerRestLine } from './statusGate'
 export { fmtBand, fmtLimit, fmtOf } from './format'
 export type { HaltCardProps } from './ui/HaltCard'
 /** The halt card (lazy chunk: the AI terminal renders it when a task waits at the red line) */

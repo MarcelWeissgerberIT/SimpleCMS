@@ -63,26 +63,8 @@ import { DEVICE_KEY, DEVICE_LINE_SPANS_BROWSER, MAX_SCOPES, SCOPES_KEY, deviceLi
 import { PAUSED_MAX, addPaused, readPaused, takePaused, wipePaused } from '../../src/app/features/governor/paused'
 import { NO_LIMITS, fits, hasLimit, hasMonthLimit, limitsOf, lineOf, restMin, restOf, type Limits, type Rest, type TotalsLike } from '../../src/app/features/governor/limits'
 import { FIRST_STEP_OUT, MCP_ROUNDS, coldCost, contextOf, mcpOneShotBand, nextStep, stepOutputs, switchBand } from '../../src/app/features/governor/steps'
-import {
-  AGENTS_WAIT_MID_RUN,
-  ALLOW_USD,
-  allowFits,
-  H_ACROSS_THINKING,
-  asksAtStart,
-  capFor,
-  capsHold,
-  cheaperForHalt,
-  cheaperRoute,
-  needsOfHistory,
-  oneShot,
-  round,
-  startCheckPure,
-  waitsAtLine,
-  type HCandidate,
-  type OneShotCtx,
-  type RefuseDetail,
-  type RunMode,
-} from '../../src/app/features/governor/brake'
+import { ALLOW_USD, allowFits, capFor, cheaperRoute, oneShot, type OneShotCtx, type RefuseDetail, type RunMode } from '../../src/app/features/governor/brake'
+import { AGENTS_WAIT_MID_RUN, H_ACROSS_THINKING, asksAtStart, capsHold, cheaperForHalt, needsOfHistory, round, startCheckPure, waitsAtLine, type HCandidate } from '../../src/app/features/governor/halt'
 import { HELD_TIMES, PRUNE_EXTRA, heldDay, heldId, heldNotStarted, heldStopped, mergeRun, newestReal, openProposals, pruneRuns } from '../../src/app/features/agents/held'
 import type { AgentRun } from '../../src/app/features/agents/types'
 import { AMBER_SHARE, readUsageLamp, usageLine } from '../../src/app/features/governor/lamp'
@@ -374,6 +356,19 @@ test.describe('generations', () => {
     expect(problems(GEN, GEN_ENFORCED, GEN.budget, GEN_UNNAMED_UPTO)).toEqual([])
     // the only module that registers the brake with the gate
     expect(readFileSync(`${ROOT}src/app/features/governor/install.ts`, 'utf8')).toContain('registerBeforeSend({ money, peek, round, start: startRun })')
+  })
+
+  test('B9: the loop parts stay a lazy chunk — no eager module of the Regler imports loops / halt / steps statically', () => {
+    const dir = `${ROOT}src/app/features/governor/`
+    const LAZY = ['loops', 'halt', 'steps']
+    const staticOf = (src: string): string[] => [...src.matchAll(/^\s*(?:import|export)\b[^;'"]*?from\s+'\.\/([\w.]+)'/gm)].filter((m) => !/^\s*(?:import|export)\s+type\b/.test(m[0])).map((m) => m[1])
+    for (const f of ['index.ts', 'install.ts', 'brake.ts', 'mcpBand.ts', 'limits.ts', 'totals.ts', 'background.ts', 'lampSource.ts', 'statusGate.tsx', 'marks.ts', 'plan.ts', 'modes.ts']) {
+      const deps = staticOf(readFileSync(dir + f, 'utf8'))
+      expect(deps.filter((d) => LAZY.includes(d)), f).toEqual([])
+    }
+    // positive control: the lazy chunk does import them; install.ts loads it only by import()
+    expect(staticOf(readFileSync(dir + 'loops.ts', 'utf8'))).toEqual(expect.arrayContaining(['halt', 'steps']))
+    expect(readFileSync(dir + 'install.ts', 'utf8')).toContain("import('./loops')")
   })
 })
 
