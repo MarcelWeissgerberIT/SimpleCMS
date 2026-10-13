@@ -19,6 +19,7 @@ import { fileURLToPath } from 'node:url'
 import { test, expect, openApp, wsEval, uiEval, createPage, gotoPage, editorOf, selectText, doc, para, MOD } from './fixtures'
 import { hostCounts, mockClaudeScript, mockOpenRouter, orCallback, text } from './helpers/providers'
 import { openTerminal, terminal } from './helpers/terminal'
+import { JEV } from './helpers/jev'
 import { capsOfRow, readCatalogRow } from '../../src/shared/ai/catalog'
 import type { ShortlistRow } from '../../src/shared/ai/types'
 
@@ -501,8 +502,8 @@ test.describe('the assistant "Set up AI"', () => {
     await openSetup(page, { reason: 'models', step: 'models', provider: 'openrouter' })
     for (const r of ['fast', 'standard', 'deep']) await expect(setup(page).getByTestId(`role-${r}`)).not.toHaveAttribute('data-none', '', { timeout: 15_000 })
     await expect(setup(page).getByTestId('jev-line')).toHaveAttribute('data-ok', 'true')
-    await expect(setup(page).getByTestId('role-checker')).toHaveAttribute('aria-disabled', 'true')
-    await expect(setup(page).getByTestId('role-checker').getByRole('button')).toHaveCount(0)
+    // the Vorprüfer (slice SJ): Off until chosen
+    await expect(setup(page).getByTestId('checker-off')).toHaveText('Off')
     const before = or.to(/\/endpoints$/, 'GET').length
     await setup(page).getByTestId('role-standard-change').click()
     const picker = page.getByTestId('catalog-picker')
@@ -517,6 +518,8 @@ test.describe('the assistant "Set up AI"', () => {
     await next(page).click()
     await expect(setup(page)).toHaveAttribute('data-step', 'data')
     expect((await wsEval(page, settingsAI)).roles.openrouter.standard).toBe('typesafe/jev-router')
+    // the Vorprüfer was not chosen: no rule written for it
+    expect((await wsEval(page, settingsAI)).routes?.gate).toBeUndefined()
   })
 
   test('step 04: Claude untouched writes no rule (no generation stamp); a changed Claude switch writes generation 2', async ({ page }) => {
@@ -748,5 +751,115 @@ test.describe('S2 review: the assistant and Settings › AI say what they do', (
     await wsEval(page, (s, w) => s.setWorkspaceAI({ policy: { providers: { openrouter: { allow: w, upstream: { deny: ['TypeSafe'], noCollect: true, zdr: false } } }, restricted: [] } }), WORK)
     await openSetup(page, { reason: 'add', step: 'data', provider: 'openrouter' })
     await expect(setup(page).getByTestId('jev-deny-note')).toHaveText('TypeSafe blocked — the Jev Router is off with it.')
+  })
+})
+
+/* ------------------------------------------------------------------ */
+/* Slice SJ: Jev as Vorprüfer in setup and Settings (J12)               */
+/* ------------------------------------------------------------------ */
+
+test.describe('Jev as Vorprüfer: setup and Settings (J12)', () => {
+  test('step 01 names Jev as a pre-checker; step 03 starts Off and writes no rule — "Choose Jev 1.13" writes it (control); other decision models dimmed; step 04 names what TypeSafe reads; step 06 its line', async ({ page }) => {
+    const or = await mockOpenRouter(page.context())
+    await openApp(page)
+    await withKeys(page, { claude: true, or: true })
+    await openSetup(page)
+    await expect(setup(page).getByTestId('note-jev')).toContainText('Jev as a pre-checker (via OpenRouter) answers with probabilities, not text')
+    await page.keyboard.press('Escape')
+    await openSetup(page, { reason: 'models', step: 'models', provider: 'openrouter' })
+    const row = setup(page).getByTestId('role-checker')
+    await expect(row.getByTestId('checker-off')).toHaveText('Off')
+    await expect(row).toContainText('ALPHA API')
+    const pick = row.getByTestId('checker-pick')
+    await expect(pick).toHaveText('Choose Jev 1.13')
+    // the decisions list was read once (public, no key)
+    await expect.poll(() => or.to('/api/v1/models', 'GET').filter((r) => r.url.includes('output_modalities=decisions')).length).toBe(1)
+    expect(or.to('/api/v1/models', 'GET').filter((r) => r.url.includes('output_modalities=decisions') && r.bearer).length).toBe(0)
+    await pick.click()
+    await expect(row).toHaveAttribute('data-on', '')
+    await expect(row).toContainText('Jev 1.13')
+    await expect(row).toContainText('0.042 $ per M in · output free')
+    await expect(row).toContainText('≈ $0.00005 per check')
+    // Change: the Jev versions; other decision models dimmed
+    await row.getByTestId('checker-change').click()
+    const menu = page.locator('.popover[role="menu"]')
+    await expect(menu.getByRole('menuitem', { name: /Clef/i })).toHaveAttribute('aria-disabled', 'true')
+    await expect(menu.getByRole('menuitem', { name: /Clef/i })).toContainText('tuned for Jev only')
+    await page.keyboard.press('Escape')
+    await next(page).click()
+    await expect(setup(page)).toHaveAttribute('data-step', 'data')
+    expect((await wsEval(page, settingsAI)).routes.gate).toEqual([{ p: 'openrouter', m: JEV }])
+    // step 04: the rule applies to the checks too, and what TypeSafe receives
+    await expect(setup(page).getByTestId('jev-checker-note')).toHaveText('Also applies to Jev as a pre-checker — TypeSafe reads the checked proposals (instructions, change, row).')
+    await expect(setup(page).getByTestId('jev-privacy')).toContainText('As a pre-checker, Jev (TypeSafe) receives through OpenRouter the proposals of your agents')
+    await page.keyboard.press('Escape')
+    await openSetup(page, { reason: 'add', step: 'done' })
+    await expect(setup(page).getByTestId('done-checker')).toHaveText("Pre-checker: Jev 1.13 — for agents' proposals (section 06 of an agent)")
+  })
+
+  test('Settings › AI: the Vorprüfer row starts Off, "Sourced?" is off — on writes settings.ai.jev.verify; a save without `jev` (an older tab) reads off', async ({ page }) => {
+    await mockOpenRouter(page.context())
+    await openApp(page)
+    await withKeys(page, { claude: true, or: true })
+    await openSettingsAI(page)
+    const row = page.getByTestId('device-row-gate')
+    await expect(row.getByTestId('gate-chip')).toContainText('Off')
+    const verify = row.getByRole('switch', { name: 'Check answers against their sources with Jev' })
+    await expect(verify).toHaveAttribute('aria-checked', 'false')
+    // no Vorprüfer chosen: the switch waits for one
+    await expect(verify).toBeDisabled()
+    await row.getByTestId('gate-chip').click()
+    await page.locator('.popover[role="menu"]').getByRole('menuitem', { name: /^Jev 1\.13/ }).click()
+    await expect.poll(async () => (await wsEval(page, settingsAI)).routes?.gate ?? null).toEqual([{ p: 'openrouter', m: JEV }])
+    await expect(verify).toBeEnabled()
+    await verify.click()
+    await expect.poll(async () => (await wsEval(page, settingsAI)).jev ?? null).toEqual({ verify: true })
+    // an older tab's save without `jev`: off
+    await wsEval(page, (s) => {
+      const { jev: _jev, ...rest } = s.settings.ai
+      s.updateSettings({ ai: rest })
+    })
+    await expect(verify).toHaveAttribute('aria-checked', 'false')
+    // Off again: the rule goes
+    await row.getByTestId('gate-off').click()
+    await expect.poll(async () => (await wsEval(page, settingsAI))?.routes?.gate ?? null).toBeNull()
+  })
+
+  test('keys that go away hand the focus on (step 03 Off → "Choose Jev 1.13"; Settings Off → the chip, named with its row); "Sourced?" left on stays switchable once the Vorprüfer went', async ({ page }) => {
+    await mockOpenRouter(page.context())
+    await openApp(page)
+    await withKeys(page, { claude: true, or: true })
+    await openSetup(page, { reason: 'models', step: 'models', provider: 'openrouter' })
+    const role = setup(page).getByTestId('role-checker')
+    await role.getByTestId('checker-pick').click()
+    await role.getByTestId('checker-off-key').focus()
+    await page.keyboard.press('Enter')
+    await expect(role.getByTestId('checker-pick')).toBeFocused()
+    await page.keyboard.press('Escape')
+    await expect(setup(page)).toHaveCount(0)
+    await openSettingsAI(page)
+    const row = page.getByTestId('device-row-gate')
+    const chip = row.getByTestId('gate-chip')
+    await expect(chip).toHaveAccessibleName('Pre-checker: Off — change')
+    const verify = row.getByRole('switch', { name: 'Check answers against their sources with Jev' })
+    // disabled — and why
+    await expect(verify).toBeDisabled()
+    await expect(verify).toHaveAccessibleDescription('Choose a pre-checker first — without one Jev checks nothing.')
+    await chip.click()
+    await page.locator('.popover[role="menu"]').getByRole('menuitem', { name: /^Jev 1\.13/ }).click()
+    await expect(chip).toHaveAccessibleName('Pre-checker: Jev 1.13 — change')
+    await verify.click()
+    await expect.poll(async () => (await wsEval(page, settingsAI)).jev ?? null).toEqual({ verify: true })
+    // Off by keyboard: the key goes, the focus goes to the chip — never to the body
+    await row.getByTestId('gate-off').focus()
+    await page.keyboard.press('Enter')
+    await expect(chip).toBeFocused()
+    await expect.poll(async () => (await wsEval(page, settingsAI))?.routes?.gate ?? null).toBeNull()
+    // "Sourced?" is still on — and can be switched off (no Vorprüfer: nothing is announced or sent meanwhile)
+    await expect(verify).toHaveAttribute('aria-checked', 'true')
+    await expect(verify).toBeEnabled()
+    await verify.click()
+    await expect.poll(async () => (await wsEval(page, settingsAI)).jev ?? null).toEqual({ verify: false })
+    await expect(verify).toBeDisabled()
   })
 })

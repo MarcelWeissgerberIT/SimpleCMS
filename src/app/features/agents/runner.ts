@@ -11,6 +11,7 @@
  * tab would run it), and only while its last change is the creator's (confirm.ts). The agents' own
  * writes never trigger agents.
  */
+import { registerAgentTry } from './try'
 import { pageChanges, useWorkspace } from '../../store/store'
 import { isApplyingRemote } from '../../store/persistence'
 import { inTemplate } from '../../store/selectors'
@@ -403,6 +404,7 @@ function sweepBooks(): void {
 export function startAgents(): () => void {
   if (started) return () => {}
   started = true
+  registerAgentTry()
   const stopKeeper = startAttributionKeeper()
   stopElection = elect()
   sweepBooks()
@@ -430,5 +432,20 @@ export function startAgents(): () => void {
     stopElection?.()
     stopElection = null
     stopLeading()
+  }
+}
+
+// e2e seam (dev, or ?e2e): one run of an agent in this tab, as "Run now" (manual) or a row trigger starts it — the run's id
+if (typeof window !== 'undefined' && (import.meta.env.DEV || new URLSearchParams(window.location.search).has('e2e'))) {
+  const w = window as unknown as { __oneAgents?: Record<string, unknown> }
+  w.__oneAgents = {
+    ...(w.__oneAgents ?? {}),
+    run: async (agentId: ID, o: { rows?: ID[]; schedule?: boolean } = {}) => {
+      const agent = useWorkspace.getState().agents?.[agentId]
+      if (!agent) return null
+      const m = await exec()
+      const res = await m.executeRun(agent, o.rows?.length ? { trigger: { type: 'row_changed', detail: `${o.rows.length}` }, rows: o.rows } : o.schedule ? { trigger: { type: 'schedule', detail: 'schedule 08:00' } } : { trigger: { type: 'manual' } })
+      return typeof res === 'string' ? res : res.id
+    },
   }
 }

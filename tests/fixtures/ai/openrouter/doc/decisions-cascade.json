@@ -1,0 +1,132 @@
+{
+  "source": "cookbook_evaluate-and-optimize_jev-verified-cascade.md#2-verify-the-draft-with-one-decisions-request + #worked-example",
+  "verified": false,
+  "note": "The verified cascade's one choice question (step 2) and the verdicts of its captured runs (worked example). Derived (not in the doc): the response envelope (model = the dated snapshot, provider 'TypeSafe', id, usage).",
+  "question": {
+    "support": {
+      "type": "choice",
+      "instructions": "Compare assistant_answer against help_center_excerpts. Which one describes it?",
+      "criteria": {
+        "supported": "The answer addresses customer_question, and every fact, number, and policy in it is stated in the excerpts.",
+        "unsupported": "The answer states at least one fact, number, or policy that the excerpts do not contain or that contradicts them, or it answers a different question than customer_question.",
+        "declined": "The answer says the excerpts do not cover the question and does not assert facts of its own."
+      }
+    }
+  },
+  "cases": [
+    {
+      "name": "supported",
+      "state": {
+        "help_center_excerpts": [
+          "Plan limits: Free workspaces have up to 5 members and 3 projects. Team workspaces ($8 per member per month, billed annually) have unlimited projects and up to 250 members.",
+          "Billing: Team plans are billed annually. Downgrading to Free takes effect at the end of the current billing period. We do not issue prorated refunds for unused time.",
+          "Data export: Workspace owners can export all projects as CSV or JSON from Settings > Data. Exports include tasks, comments, and attachment metadata but not attachment files."
+        ],
+        "customer_question": "How many people can I add on the free plan?",
+        "assistant_answer": "The Free plan allows up to 5 members per workspace."
+      },
+      "response": {
+        "id": "gen-dec-derived-supported",
+        "model": "typesafe/jev-1.13-20260917",
+        "provider": "TypeSafe",
+        "answers": {
+          "support": {
+            "type": "choice",
+            "choice": "supported",
+            "confidence": 1,
+            "probabilities": {
+              "supported": 1,
+              "unsupported": 0,
+              "declined": 0
+            }
+          }
+        },
+        "usage": {
+          "input_tokens": 402,
+          "output_tokens": 3,
+          "cost": 1.6884e-05
+        }
+      },
+      "expect": {
+        "choice": "supported",
+        "confidence": 1
+      }
+    },
+    {
+      "name": "declined",
+      "state": {
+        "help_center_excerpts": [
+          "Plan limits: Free workspaces have up to 5 members and 3 projects. Team workspaces ($8 per member per month, billed annually) have unlimited projects and up to 250 members.",
+          "Billing: Team plans are billed annually. Downgrading to Free takes effect at the end of the current billing period. We do not issue prorated refunds for unused time.",
+          "Data export: Workspace owners can export all projects as CSV or JSON from Settings > Data. Exports include tasks, comments, and attachment metadata but not attachment files."
+        ],
+        "customer_question": "Do you integrate with Jira?",
+        "assistant_answer": "The provided help center excerpts don’t mention Jira integrations. I can connect you with support to confirm whether Jira is supported."
+      },
+      "response": {
+        "id": "gen-dec-derived-declined",
+        "model": "typesafe/jev-1.13-20260917",
+        "provider": "TypeSafe",
+        "answers": {
+          "support": {
+            "type": "choice",
+            "choice": "declined",
+            "confidence": 0.97,
+            "probabilities": {
+              "supported": 0,
+              "unsupported": 0.02,
+              "declined": 0.98
+            }
+          }
+        },
+        "usage": {
+          "input_tokens": 418,
+          "output_tokens": 3,
+          "cost": 1.7556e-05
+        }
+      },
+      "expect": {
+        "choice": "declined",
+        "confidence": 0.97
+      }
+    },
+    {
+      "name": "unsupported (forced draft)",
+      "state": {
+        "help_center_excerpts": [
+          "Plan limits: Free workspaces have up to 5 members and 3 projects. Team workspaces ($8 per member per month, billed annually) have unlimited projects and up to 250 members.",
+          "Billing: Team plans are billed annually. Downgrading to Free takes effect at the end of the current billing period. We do not issue prorated refunds for unused time.",
+          "Data export: Workspace owners can export all projects as CSV or JSON from Settings > Data. Exports include tasks, comments, and attachment metadata but not attachment files."
+        ],
+        "customer_question": "How many people can I add on the free plan?",
+        "assistant_answer": "The free plan allows up to 10 members per workspace."
+      },
+      "response": {
+        "id": "gen-dec-derived-unsupported",
+        "model": "typesafe/jev-1.13-20260917",
+        "provider": "TypeSafe",
+        "answers": {
+          "support": {
+            "type": "choice",
+            "choice": "unsupported",
+            "confidence": 1,
+            "probabilities": {
+              "supported": 0,
+              "unsupported": 1,
+              "declined": 0
+            }
+          }
+        },
+        "usage": {
+          "input_tokens": 401,
+          "output_tokens": 3,
+          "cost": 1.6842e-05
+        }
+      },
+      "expect": {
+        "choice": "unsupported",
+        "confidence": 1
+      }
+    }
+  ]
+}

@@ -1,0 +1,219 @@
+{
+  "source": "api_api-reference_alphadecisions_submit-a-decisions-request.md#openapi (responses 400–529) + api_reference_limits.md + api_reference_errors-and-debugging.md + cookbook_evaluate-and-optimize_jev-classification.md#2-classify-one-item-with-one-decisions-request",
+  "verified": false,
+  "note": "Non-2xx answers of the decisions surface and what One makes of them (classifyDecide) — the decisions reference's own examples, plus the in-flight 402 (classification cookbook § 2) and the two 404s the routing docs tell apart.",
+  "cases": [
+    {
+      "name": "400",
+      "source": "api_api-reference_alphadecisions_submit-a-decisions-request.md#responses-400",
+      "status": 400,
+      "body": {
+        "error": {
+          "code": 400,
+          "message": "Invalid request parameters"
+        }
+      },
+      "expect": "bad_request"
+    },
+    {
+      "name": "401",
+      "source": "api_api-reference_alphadecisions_submit-a-decisions-request.md#responses-401",
+      "status": 401,
+      "body": {
+        "error": {
+          "code": 401,
+          "message": "Missing Authentication header"
+        }
+      },
+      "expect": "invalid_key"
+    },
+    {
+      "name": "402 credits",
+      "source": "api_api-reference_alphadecisions_submit-a-decisions-request.md#responses-402",
+      "status": 402,
+      "body": {
+        "error": {
+          "code": 402,
+          "message": "Insufficient credits. Add more using https://openrouter.ai/credits"
+        }
+      },
+      "expect": "no_credit"
+    },
+    {
+      "name": "402 in-flight budget",
+      "source": "cookbook_evaluate-and-optimize_jev-classification.md#2-classify-one-item-with-one-decisions-request + api_reference_limits.md#in-flight-spending-budget",
+      "status": 402,
+      "headers": {
+        "retry-after": "2"
+      },
+      "body": {
+        "error": {
+          "code": 402,
+          "message": "This request would exceed your available credits given your current in-flight requests.",
+          "metadata": {
+            "reason": "in_flight_budget_exhausted",
+            "limit_source": "openrouter_in_flight_budget"
+          }
+        }
+      },
+      "expect": "busy",
+      "retryAfter": 2000
+    },
+    {
+      "name": "403",
+      "source": "api_api-reference_alphadecisions_submit-a-decisions-request.md#responses-403",
+      "status": 403,
+      "body": {
+        "error": {
+          "code": 403,
+          "message": "Only management keys can perform this operation"
+        }
+      },
+      "expect": "permission"
+    },
+    {
+      "name": "403 moderation",
+      "source": "api_reference_errors-and-debugging.md#moderation-errors",
+      "status": 403,
+      "body": {
+        "error": {
+          "code": 403,
+          "message": "Input was flagged",
+          "metadata": {
+            "reasons": [
+              "harassment"
+            ],
+            "flagged_input": "Fictional flagged text…",
+            "provider_name": "TypeSafe",
+            "model_slug": "typesafe/jev-1.13"
+          }
+        }
+      },
+      "expect": "moderation"
+    },
+    {
+      "name": "404 no endpoints",
+      "source": "guides_routing_provider-selection.md#allowing-only-specific-providers",
+      "status": 404,
+      "body": {
+        "error": {
+          "code": 404,
+          "message": "No endpoints found that support the requested parameters and provider preferences."
+        }
+      },
+      "expect": "no_endpoint"
+    },
+    {
+      "name": "404 gone",
+      "source": "api_api-reference_alphadecisions_submit-a-decisions-request.md#responses-404",
+      "status": 404,
+      "body": {
+        "error": {
+          "code": 404,
+          "message": "Resource not found"
+        }
+      },
+      "expect": "model_gone"
+    },
+    {
+      "name": "413",
+      "source": "api_api-reference_alphadecisions_submit-a-decisions-request.md#responses-413",
+      "status": 413,
+      "body": {
+        "error": {
+          "code": 413,
+          "message": "Request payload too large"
+        }
+      },
+      "expect": "context"
+    },
+    {
+      "name": "429",
+      "source": "api_api-reference_alphadecisions_submit-a-decisions-request.md#responses-429",
+      "status": 429,
+      "headers": {
+        "retry-after": "1"
+      },
+      "body": {
+        "error": {
+          "code": 429,
+          "message": "Rate limit exceeded"
+        }
+      },
+      "expect": "rate_limit",
+      "retryAfter": 1000
+    },
+    {
+      "name": "500",
+      "source": "api_api-reference_alphadecisions_submit-a-decisions-request.md#responses-500",
+      "status": 500,
+      "body": {
+        "error": {
+          "code": 500,
+          "message": "Internal Server Error"
+        }
+      },
+      "expect": "unavailable"
+    },
+    {
+      "name": "502",
+      "source": "api_api-reference_alphadecisions_submit-a-decisions-request.md#responses-502",
+      "status": 502,
+      "body": {
+        "error": {
+          "code": 502,
+          "message": "Provider returned error"
+        }
+      },
+      "expect": "unavailable"
+    },
+    {
+      "name": "503",
+      "source": "api_api-reference_alphadecisions_submit-a-decisions-request.md#responses-503",
+      "status": 503,
+      "body": {
+        "error": {
+          "code": 503,
+          "message": "Service temporarily unavailable"
+        }
+      },
+      "expect": "unavailable"
+    },
+    {
+      "name": "524",
+      "source": "api_api-reference_alphadecisions_submit-a-decisions-request.md#responses-524",
+      "status": 524,
+      "body": {
+        "error": {
+          "code": 524,
+          "message": "Request timed out. Please try again later."
+        }
+      },
+      "expect": "timeout"
+    },
+    {
+      "name": "529",
+      "source": "api_api-reference_alphadecisions_submit-a-decisions-request.md#responses-529",
+      "status": 529,
+      "body": {
+        "error": {
+          "code": 529,
+          "message": "Provider returned error"
+        }
+      },
+      "expect": "overloaded"
+    },
+    {
+      "name": "a key in the message is scrubbed",
+      "source": "api_reference_errors-and-debugging.md#error-codes",
+      "status": 401,
+      "body": {
+        "error": {
+          "code": 401,
+          "message": "Key sk-or-v1-0000aaaa1111bbbb2222cccc3333dddd is disabled"
+        }
+      },
+      "expect": "invalid_key"
+    }
+  ]
+}

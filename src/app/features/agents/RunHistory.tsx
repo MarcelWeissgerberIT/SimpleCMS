@@ -22,6 +22,10 @@ import { MarkdownLite } from '../ai/MarkdownLite'
 import { costText, sourceText } from '../ai/Receipt'
 import { readLines } from '../ai/core/meter'
 import { labelOf } from '@/shared/ai/models'
+import { JEV_DEFAULTS, isJevSnapshot } from '@/shared/ai/jev'
+import { JevLine } from '../ai/decide/ui/JevLine'
+import { jevName } from '../ai/decide/text'
+import { fmtTokens } from '../ai/agent/CostOut'
 import { MediaToPage } from '../ai/media/MediaToPage'
 import { PropDiff, Preview } from '../ai/agent/AgentSheet'
 import { EditDiff } from '../ai/agent/EditDiff'
@@ -69,7 +73,9 @@ function RunItem({ run, n, first }: { run: AgentRun; n: number; first: boolean }
   const id = `agx-run-${run.id}`
   // a day's not-started record spans the starts it counts — it has no duration
   const dur = run.held?.kind === 'notStarted' ? '—' : run.endedAt ? fmtDuration(run.endedAt - run.startedAt) : '…'
-  const pending = (run.staged ?? []).filter((c) => c.status === 'pending' || c.status === 'failed').length
+  // proposals waiting for the person: a change a Vorprüfer held back counts (ChangeStatus 'held', slice SJ) — a run the
+  // Regler held (AgentRunStatus 'held') is the run's own status, its proposals count by theirs
+  const pending = (run.staged ?? []).filter((c) => c.status === 'pending' || c.status === 'failed' || c.status === 'held').length
   return (
     <li className="agx-run" data-status={run.status} data-review={review || undefined}>
       <button type="button" className="agx-run__head" aria-expanded={open} aria-controls={id} onClick={() => setOpen((o) => !o)}>
@@ -191,8 +197,12 @@ function ModelLines({ lines }: { lines: unknown }) {
   return (
     <ul className="agx-run__models" aria-label={t('features.agents.runs.byModel')}>
       {list.map((l) => {
-        const name = labelOf({ p: l.p, m: l.model })
-        const tokens = t('features.agents.runs.modelLine', { requests: l.requests, input: n(l.input), write: n(l.cacheWrite), read: n(l.cacheRead), output: n(l.output) })
+        // a Vorprüfer's decisions (slice SJ): input only, the output is free
+        const jev = l.p === 'openrouter' && isJevSnapshot(l.model)
+        const name = jev ? `${jevName(l.model)} · ${t('features.ai.jev.cost.role')}` : labelOf({ p: l.p, m: l.model })
+        const tokens = jev
+          ? t('features.ai.jev.cost.tokens', { requests: l.requests, input: fmtTokens(l.input, lang), output: fmtTokens(l.output, lang) })
+          : t('features.agents.runs.modelLine', { requests: l.requests, input: n(l.input), write: n(l.cacheWrite), read: n(l.cacheRead), output: n(l.output) })
         const src = sourceText(t, l.usd, l.source)
         // the whole line as a title: a name or token figures cut short stay readable
         return (
@@ -220,8 +230,9 @@ function Steps({ run }: { run: AgentRun }) {
   return (
     <ul className="agx-steps" aria-label={t('features.agents.runs.steps')}>
       {run.steps.map((s, i) => (
-        <li key={i} className="agx-step" data-kind={s.kind} data-state={s.state} title={s.label}>
-          <span className={s.state === 'err' ? 'led agx-led--err' : s.kind === 'note' ? 'led' : 'led led--ok'} aria-hidden />
+        // a Vorprüfer's step: its check, or the run it made wait (amber — caution, not an error)
+        <li key={i} className="agx-step" data-kind={s.kind} data-state={s.state} data-jev={s.jev && (s.jev === 'wait' || s.state === 'err') ? 'wait' : s.jev} title={s.label}>
+          <span className={s.jev && (s.jev === 'wait' || s.state === 'err') ? 'led agx-led--amber' : s.state === 'err' ? 'led agx-led--err' : s.kind === 'note' ? 'led' : 'led led--ok'} aria-hidden />
           <span className="agx-step__text">{s.label}</span>
         </li>
       ))}
@@ -233,6 +244,29 @@ function Steps({ run }: { run: AgentRun }) {
 const LONG_REVIEW = 8
 
 const isOpen = (c: StagedChange) => c.status === 'pending' || c.status === 'failed'
+/** A row a person decides on: open, or held back by the agent's Vorprüfer (slice SJ — its own key, never "Apply all"). */
+const reviewable = (c: StagedChange) => isOpen(c) || c.status === 'held'
+/** Held back or marked by the Vorprüfer (an open change Jev has concerns about). */
+const concern = (c: StagedChange) => reviewable(c) && (c.status === 'held' || !!c.jev?.mark || !!c.jev?.sticky)
+/** What a row's Jev line says in its frame: held · marked (an amber edge) — nothing for a clear one. */
+const jevState = (c: StagedChange): 'held' | 'marked' | undefined => (!reviewable(c) ? undefined : c.status === 'held' ? 'held' : c.jev?.mark || c.jev?.sticky ? 'marked' : undefined)
+
+const SORT_JEV = 'one.agents.sortJev'
+function readSortJev(): boolean {
+  try {
+    return localStorage.getItem(SORT_JEV) === '1'
+  } catch {
+    return false
+  }
+}
+function writeSortJev(on: boolean) {
+  try {
+    if (on) localStorage.setItem(SORT_JEV, '1')
+    else localStorage.removeItem(SORT_JEV)
+  } catch {
+    /* storage refused: this view only */
+  }
+}
 
 /**
  * Where focus goes once a key acted (D15): after Apply / Discard the next open proposal's row (by number, wrapping to the
@@ -250,7 +284,7 @@ function focusIn(root: RefObject<HTMLElement | null>, to: FocusTo) {
     if (to === 'head') target = head
     else if ('row' in to) target = el.querySelector<HTMLElement>(`li.agent-change[data-change="${CSS.escape(to.row)}"]`)
     else {
-      const open = [...el.querySelectorAll<HTMLElement>('li.agent-change[data-status="pending"], li.agent-change[data-status="failed"]')].filter((li) => li.dataset.change !== to.not)
+      const open = [...el.querySelectorAll<HTMLElement>('li.agent-change[data-status="pending"], li.agent-change[data-status="failed"], li.agent-change[data-status="held"]')].filter((li) => li.dataset.change !== to.not)
       target = open.find((li) => Number(li.dataset.n) > to.after) ?? open[0] ?? null
     }
     ;(target ?? head)?.focus()
@@ -310,8 +344,13 @@ function Review({ run }: { run: AgentRun }) {
   const [notes, setNotes] = useState<Record<string, string>>({})
   const [current, setCurrent] = useState<string | null>(null)
   const [touchOpen, setTouchOpen] = useState<string | null>(null)
-  const changes = run.staged ?? []
+  const staged = run.staged ?? []
+  // "Concerns first" (per device): the proposals Jev held back or marked lead — the numbers stay
+  const [jevFirst, setJevFirst] = useState(readSortJev)
+  const flagged = staged.some((c) => reviewable(c) && concern(c))
+  const changes = jevFirst && flagged ? [...staged.filter((c) => concern(c)), ...staged.filter((c) => !concern(c))] : staged
   const open = changes.filter(isOpen).length
+  const held = changes.filter((c) => c.status === 'held').length
   const applied = changes.filter((c) => c.status === 'applied').length
   const undoable = run.runner === 'browser' && canUndoRun(run.id)
   const disabled = readOnly || run.status === 'running'
@@ -320,7 +359,7 @@ function Review({ run }: { run: AgentRun }) {
   const kinds = new Map<StagedChange['kind'], number>()
   const fields = new Map<string, number>()
   for (const c of changes) {
-    if (!isOpen(c)) continue
+    if (!reviewable(c)) continue
     kinds.set(c.kind, (kinds.get(c.kind) ?? 0) + 1)
     if (c.kind === 'update_row') for (const p of c.props ?? []) fields.set(p.name, (fields.get(p.name) ?? 0) + 1)
   }
@@ -347,7 +386,8 @@ function Review({ run }: { run: AgentRun }) {
   // the person's decision on ONE proposal (a verdict per field: judged — a cut body only once shown whole)
   const apply = (c: StagedChange) => {
     clearNote(c.id)
-    void applyRun(run, [c.id], { row: true, judged: true, whole: whole.current.has(c.id) }).then((res) => {
+    // ONE row: a held proposal goes only this way (`single`)
+    void applyRun(run, [c.id], { row: true, judged: true, whole: whole.current.has(c.id), single: true }).then((res) => {
       if (res?.applied.includes(c.id)) say(t('features.agents.trust.live.applied', { n: c.n }))
       focusIn(root, { after: c.n, not: c.id })
     }, notRead)
@@ -443,7 +483,7 @@ function Review({ run }: { run: AgentRun }) {
       else undo(c)
       return
     }
-    if (!isOpen(c)) return
+    if (!reviewable(c)) return
     take()
     if (key.kind === 'apply') {
       if (disabled || blockedBy(c)) inertSay(c, true)
@@ -453,7 +493,7 @@ function Review({ run }: { run: AgentRun }) {
   }
 
   // roving: the row last focused (else the first with a key) is the one Tab reaches
-  const keyRows = changes.filter((c) => isOpen(c) || undoOf(c))
+  const keyRows = changes.filter((c) => reviewable(c) || undoOf(c))
   const tabRow = keyRows.some((c) => c.id === current) ? current : (keyRows[0]?.id ?? null)
   const letter = wrongLetter(lang).toUpperCase()
 
@@ -469,6 +509,21 @@ function Review({ run }: { run: AgentRun }) {
           </span>
         )}
         <span className="agx-spacer" />
+        {flagged && (
+          <button
+            type="button"
+            className="btn btn--ghost btn--sm agx-sortjev"
+            aria-pressed={jevFirst}
+            title={t('features.ai.jev.sortHint')}
+            data-testid="agx-sort-jev"
+            onClick={() => {
+              setJevFirst(!jevFirst)
+              writeSortJev(!jevFirst)
+            }}
+          >
+            {t('features.ai.jev.sort')}
+          </button>
+        )}
         {undoable && applied > 0 && (
           <button
             type="button"
@@ -482,13 +537,14 @@ function Review({ run }: { run: AgentRun }) {
             <Undo2 size={12} strokeWidth={1.75} aria-hidden /> {t('features.agents.review.undo')}
           </button>
         )}
-        {open > 0 && (
+        {open + held > 0 && (
           <>
             <button type="button" className="btn btn--ghost btn--sm" disabled={disabled} onClick={() => void discardRun(run, null).then(() => focusIn(root, 'head'), notRead)}>
               {t('features.agent.review.discardAll')}
             </button>
-            <button type="button" className="btn btn--primary btn--sm" disabled={disabled} onClick={() => void applyRun(run).then(() => focusIn(root, 'head'), notRead)}>
-              {t('features.agent.review.applyAll')}
+            {/* held proposals stay out of "Apply all" (each has its own key) */}
+            <button type="button" className="btn btn--primary btn--sm" data-testid="agx-apply-all" disabled={disabled || !open} onClick={() => void applyRun(run).then(() => focusIn(root, 'head'), notRead)}>
+              {held ? t(held === 1 ? 'features.ai.jev.applyAll.except.one' : 'features.ai.jev.applyAll.except.other', { n: held }) : t('features.agent.review.applyAll')}
             </button>
           </>
         )}
@@ -611,7 +667,8 @@ const Change = memo(function Change({ run, change: c, disabled, blocked, undo, n
   const label = `#${c.n}`
   const targetId = run.rowIds?.[c.pageId] ?? c.pageId
   const target = useWorkspace((s) => (c.status === 'applied' && s.pages[targetId] && !s.pages[targetId].trashed ? targetId : null))
-  const open = isOpen(c)
+  const open = reviewable(c)
+  const held = c.status === 'held'
   const keys = open || !!undo
   const touchId = `agx-touch-${run.id}-${c.id}`
   const caps = active && !coarse
@@ -640,6 +697,7 @@ const Change = memo(function Change({ run, change: c, disabled, blocked, undo, n
       className="agent-change"
       data-status={c.status}
       data-kind={c.kind}
+      data-jev={jevState(c)}
       data-change={c.id}
       data-n={c.n}
       data-keys={keys || undefined}
@@ -662,13 +720,18 @@ const Change = memo(function Change({ run, change: c, disabled, blocked, undo, n
         <span className="agent-spacer" />
         {open ? (
           <span className="agent-change__actions">
+            {held && (
+              <span className="jev-cap agx-held-cap" data-testid="agx-held">
+                {t('features.ai.jev.cap.held')}
+              </span>
+            )}
             <button
               type="button"
               className="btn btn--sm btn--ink agt-apply"
               onMouseDown={keepFocus}
               onClick={() => h.apply(c.id)}
               disabled={disabled || !!blocked}
-              aria-label={`${t('features.agent.review.apply')} ${label}`}
+              aria-label={`${held ? t('features.ai.jev.applyAlone') : t('features.agent.review.apply')} ${label}`}
               aria-keyshortcuts={coarse ? undefined : 'Enter A'}
               title={blocked ? t('features.agent.review.needs', { n: blocked.n }) : undefined}
             >
@@ -677,7 +740,7 @@ const Change = memo(function Change({ run, change: c, disabled, blocked, undo, n
                   ↵
                 </kbd>
               )}
-              {t('features.agent.review.apply')}
+              {held ? t('features.ai.jev.applyAlone') : t('features.agent.review.apply')}
             </button>
             {coarse ? (
               <button type="button" className="btn btn--sm agt-discard" onClick={() => h.touch(c.id)} disabled={disabled} aria-expanded={touchOpen} aria-controls={touchId} aria-label={t('features.agents.trust.touch.open', { n: c.n })}>
@@ -757,6 +820,7 @@ const Change = memo(function Change({ run, change: c, disabled, blocked, undo, n
           change={c}
           ids={id}
           full={full}
+          capped
           more={{
             label: (rest) => t(rest === 1 ? 'features.agents.trust.review.more.one' : 'features.agents.trust.review.more.other', { count: rest }),
             less: t('features.agents.trust.review.less'),
@@ -819,6 +883,16 @@ function titleText(pages: Record<string, Page>, run: AgentRun, c: StagedChange, 
   return c.title ?? ''
 }
 
+/** The agent's mark threshold now (review v2), else the start value. */
+function markBelowOf(review: unknown): number {
+  const r = review as { v?: unknown; pre?: { markBelow?: unknown } } | null | undefined
+  const m = r && r.v === 2 ? r.pre?.markBelow : undefined
+  return typeof m === 'number' && m >= 0.3 && m <= 0.95 ? m : JEV_DEFAULTS.markBelow
+}
+
+/** The run read text from outside — mails, MCP results — or started on rows it did not write: Jev's high values are no guarantee. */
+const foreignRun = (run: AgentRun): boolean => !!run.touched?.some((c) => c === 'mail' || c === 'mcp') || run.trigger.type === 'row_created'
+
 interface BodyProps {
   run: AgentRun
   change: StagedChange
@@ -827,6 +901,8 @@ interface BodyProps {
   /** the cut content preview: shown whole, and the key that opens it (the run review; Preflight shows the cut one) */
   full?: boolean
   more?: { label: (rest: number) => string; less: string; run: () => void }
+  /** the row's head carries the HELD BACK cap already (the run review): the Jev line leaves its own out */
+  capped?: boolean
 }
 
 /**
@@ -834,7 +910,7 @@ interface BodyProps {
  * the word diff of an edit, the content preview, the error and "needs #n" — every part with `data-part`. The run
  * history's rows render it, and so does Preflight's card: both show the same parts.
  */
-export function AgentChangeBody({ run, change: c, ids, full, more }: BodyProps) {
+export function AgentChangeBody({ run, change: c, ids, full, more, capped }: BodyProps) {
   const t = useT()
   const all = run.staged ?? []
   // the first change it builds on that is not applied yet (dependsOn, then needs)
@@ -845,6 +921,8 @@ export function AgentChangeBody({ run, change: c, ids, full, more }: BodyProps) 
   const untitled = t('common.untitled')
   // only the title of what it is about: a write elsewhere draws it not again
   const text = useWorkspace((s) => titleText(s.pages, run, c, untitled))
+  // the threshold the run marked below: as the run had it (its record), else the agent's now, else the start value
+  const markBelow = useWorkspace((s) => run.jev?.markBelow ?? markBelowOf(s.agents?.[run.agentId]?.review))
   const id = (part: string) => (ids ? `${ids}-${part}` : undefined)
   const title: ReactNode =
     c.kind === 'rename' ? (
@@ -860,6 +938,9 @@ export function AgentChangeBody({ run, change: c, ids, full, more }: BodyProps) 
         <div className="agent-change__title" data-part="title" id={id('t')}>
           {title}
         </div>
+      )}
+      {c.jev && (c.status === 'pending' || c.status === 'held' || c.status === 'failed') && (
+        <JevLine check={c.jev} markBelow={markBelow} foreign={foreignRun(run)} capped={capped && c.status === 'held'} />
       )}
       {c.props && c.props.length > 0 && (
         <div className="chg-part" data-part="props" id={id('d')}>

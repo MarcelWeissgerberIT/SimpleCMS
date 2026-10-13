@@ -34,6 +34,8 @@ import { addToReceipt, tapSignal, type Receipt } from './core/meter'
 import type { CostSource, LedgerEntry, ProviderId, Route, SourceRef, StepNote, Usage } from '@/shared/ai/types'
 import { scrubSecrets } from '@/shared/ai/keys'
 import { askWorkspace, type WorkspaceSource } from './workspace'
+import { runVerify, verifyOn } from './decide/answers'
+import type { VerifyResult } from './decide/verify'
 import type { McpCall } from './mcp-servers/activity'
 import { mapTarget, reanchor, selectionMarkdown, type RunTarget } from './runsTarget'
 import { requestTable, TodbError, type TableAnswer, type TodbIssue } from './todb/run'
@@ -103,6 +105,8 @@ export interface AIRun {
   status: RunStatus
   output: string
   sources: WorkspaceSource[]
+  /** "Ask the workspace" with "Belegt?" on (slice SJ): what Jev found about the answer — never a stamp */
+  verify?: VerifyResult | 'checking'
   mcpCalls: McpCall[]
   error: { code: AIErrorCode; detail?: string; server?: string; message?: string; fix?: AIFix; fixes?: AIFix[]; label?: string } | null
   issue: TodbIssue | null
@@ -511,11 +515,25 @@ async function execute(id: string, editor: Editor) {
       patch(id, { status: 'done', output: text, finishedAt: Date.now() })
     } else {
       let text: string
+      let afterDone: (() => Promise<void>) | null = null
       if (req.kind === 'workspace') {
         const ws = workspaceLimit(run.pageId)
         patch(id, { reads: ws.reads })
         const res = await askWorkspace({ question: req.question, onToken, signal: ac.signal, limitPage: ws.limited ? run.pageId : null, route: run.chip ?? null, onSources: (sources) => !ac.signal.aborted && patch(id, { sources }, false) })
         text = res.text
+        // "Belegt?" (off by default): once the answer is done, Jev checks it against the excerpts it was built from, as
+        // sent. Excerpts built for an OpenRouter route went through OpenRouter's own data rule (names, transcripts, the
+        // pages it may see — the rule is per provider, Jev's too); built for another provider (Claude), nothing was
+        // redacted for OpenRouter — the gate refuses them for a route that does not see everything
+        if (verifyOn() && res.excerpts.length && res.text.trim()) {
+          const answer = res.text
+          const applied = res.builtFor === 'openrouter' ? { people: true, transcript: true, visible: true } : { people: false, transcript: false, visible: false }
+          afterDone = async () => {
+            patch(id, { verify: 'checking' }, false)
+            const verify = await runVerify({ question: req.question, sources: res.excerpts, answer, refs: res.refs, source: 'workspace:ask', signal: ac.signal, applied }).catch((): VerifyResult => ({ support: null, why: 'error' }))
+            if (!ac.signal.aborted) patch(id, { verify }, false)
+          }
+        }
       } else {
         const purpose = req.action === 'custom' ? 'menu.ask' : req.action === 'make_tasks' ? 'menu.tasks' : 'menu.action'
         // the route first (chip → rules): what it may receive decides what is built (names, page text, the memory)
@@ -556,6 +574,8 @@ async function execute(id: string, editor: Editor) {
       if (ac.signal.aborted) return
       buffers.delete(id)
       patch(id, { status: 'done', output: stripFence(text), finishedAt: Date.now() })
+      // after the answer is shown (and announced): its own request, its own ledger entry
+      if (afterDone) void afterDone()
     }
     announce(id)
   } catch (e) {

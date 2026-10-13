@@ -358,8 +358,11 @@ export async function nextSeq(agentId: ID): Promise<number> {
   return n
 }
 
-/** A run with staged changes nobody has reviewed yet (a run the Regler stopped keeps its proposals for review too). */
-export const awaitsReview = (r: AgentRun) => (r.status === 'staged' || r.status === 'held') && (r.staged ?? []).some((c) => c.status === 'pending' || c.status === 'failed')
+/**
+ * A run with staged changes nobody has reviewed yet: a run the Regler stopped (run status 'held') keeps its proposals
+ * for review too, and a change a Vorprüfer held back (change status 'held', slice SJ) waits for the person as well.
+ */
+export const awaitsReview = (r: AgentRun) => (r.status === 'staged' || r.status === 'held') && (r.staged ?? []).some((c) => c.status === 'pending' || c.status === 'failed' || c.status === 'held')
 
 /** A run that did its job (its writes applied or proposed): the "last successful run" of the next one. */
 export const succeeded = (r: AgentRun) => r.status === 'ok' || r.status === 'staged'

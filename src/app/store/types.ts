@@ -6,7 +6,7 @@
 import type { JSONContent } from '@tiptap/core'
 import type { Lang } from '@/shared/i18n'
 import type { DeviceAI, RouteRule, WorkspaceAI } from '@/shared/ai/types'
-import type { AgentReview, SaverRule, Unreadable } from '@/shared/ai/route'
+import type { AgentReview, AgentReviewV2, SaverRule, Unreadable } from '@/shared/ai/route'
 import type { WorkspaceGovernor } from '@/shared/ai/governor'
 
 export type ID = string
@@ -1262,7 +1262,7 @@ export interface CustomAgent {
    * (features/agents/routeBlock.ts).
    */
   route?: RouteRule | null | Unreadable
-  review?: AgentReview | null | Unreadable
+  review?: AgentReview | AgentReviewV2 | null | Unreadable
   saverRule?: SaverRule | null | Unreadable
   applyOn?: string | Unreadable
   routeSig?: string

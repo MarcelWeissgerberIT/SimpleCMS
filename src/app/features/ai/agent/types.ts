@@ -12,6 +12,7 @@ import type { ItemFact } from '../../workitems/facts'
 import type { HoldReason } from '../../workitems/holds'
 import type { ItemPin, SettleWarning } from '../../workitems/settle'
 import type { ModelLine } from '../core/meter'
+import type { JevCheck } from '@/shared/ai/decide'
 
 export type ToolName =
   | 'search_pages'
@@ -195,8 +196,11 @@ export interface StagedCoding {
  * 'superseded': a custom agent's older update_row proposal that a newer run's proposal for the same row (with at least
  * its fields) replaces (features/agents/supersede.ts) — never counted, never applied; NOT discarded, so a run holding
  * one stops the agent-state walk back (agents/review.ts stateBack). The AI terminal's own changes are never superseded.
+ * 'held': a custom agent's proposal its Vorprüfer holds back (slice SJ: Jev marked it, could not check it, or an earlier
+ * change of the agent to the same target still waits) — open, but never part of a bulk apply: applied only on its own
+ * (agents/review.ts applyRun `single`). Older builds read it as not open (never applied, never bulk).
  */
-export type ChangeStatus = 'pending' | 'applying' | 'applied' | 'discarded' | 'failed' | 'superseded'
+export type ChangeStatus = 'pending' | 'applying' | 'applied' | 'discarded' | 'failed' | 'superseded' | 'held'
 
 /**
  * Why the person discarded a custom agent's proposal (features/agents/trust): only 'wrong' counts against the agent's
@@ -279,6 +283,8 @@ export interface StagedChange {
    * run's quiet "Wrong × 3" row reads it. Only on the change(s) the person named, never on cascaded dependants.
    */
   reason?: DiscardReason
+  /** a custom agent's Vorprüfer (slice SJ): Jev's pre-check of this change (numbers only), or why there is none */
+  jev?: JevCheck
 }
 
 /** Every staged change `c` needs applied first. */

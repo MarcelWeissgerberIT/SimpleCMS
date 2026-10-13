@@ -18,11 +18,16 @@ import { newestReal } from './held'
 import { latestSlot } from './schedule'
 import { useServerAgents, type ServerRunHead } from './server'
 import type { AgentRun } from './types'
+import type { JevWhy } from '@/shared/ai/decide'
+import { decisionChecks } from '@/shared/ai/route'
+import { sameJevSnapshot } from '@/shared/ai/jev'
 
 export interface HealthItem {
   /** stale: a mirror's last successful run is over a working day old · slot: a schedule slot went by without a run ·
-   *  fail: the agent's newest run failed (error / budget) · cfm: a team browser agent waits for its creator's Confirm */
-  kind: 'stale' | 'slot' | 'fail' | 'cfm'
+   *  fail: the agent's newest run failed (error / budget) · cfm: a team browser agent waits for its creator's Confirm ·
+   *  jevfail: its Vorprüfung has failed three runs in a row (or Jev cools down) · jevnew: another Jev snapshot answered
+   *  than the one confirmed (slice SJ) */
+  kind: 'stale' | 'slot' | 'fail' | 'cfm' | 'jevfail' | 'jevnew'
   agentId: ID
   /** the lamp id (stable while the cause is the same): stale:<agent>@<run> · slot:<agent>@<slot> · fail:<agent>@<run> · cfm:<agent>@<updatedAt> */
   id: string
@@ -30,6 +35,8 @@ export interface HealthItem {
   at: number
   runId?: string
   level?: 'red'
+  /** jevfail: why the newest failed · jevnew: the snapshot that answered */
+  jev?: { why?: JevWhy; model?: string }
 }
 
 /** A schedule slot counts as missed this long after it was due (the runner checks every 30 s). */
@@ -150,4 +157,39 @@ export function scheduledHere(): ID[] {
   return agentsNow()
     .filter((a) => a.trigger.type === 'schedule' && runsHere(a))
     .map((a) => a.id)
+}
+
+/** Runs in a row without one usable check before the Vorprüfung counts as failing (§ 2.2). */
+export const JEV_FAIL_RUNS = 3
+
+/** The same Jev snapshot ('openrouter:' in front or not; exactly — an undated confirmed version waits for its first dated one). */
+const sameSnapshot = sameJevSnapshot
+
+/**
+ * Vorprüfer health (slice SJ) of the browser agents running here — synchronous, over the runs this tab loaded:
+ *  - jevfail:<agent>@<run>: its newest JEV_FAIL_RUNS runs with proposals to check had no usable check — or the newest
+ *    met the tab's cooldown — since the oldest of that streak;
+ *  - jevnew:<agent>@<snapshot>: its newest checked run was answered (or resolved) by another Jev snapshot than the one
+ *    the person confirmed (DJ19) — until they confirm it (section 06).
+ */
+export function jevHealth(): HealthItem[] {
+  const out: HealthItem[] = []
+  const byAgent = useAgentRuns.getState().byAgent
+  for (const a of agentsNow()) {
+    if (!runsHere(a)) continue
+    const checks = decisionChecks(a)
+    if (!checks || checks === 'unreadable') continue
+    const runs = (byAgent[a.id] ?? []).filter((r) => r.status !== 'running' && (r.jev?.n ?? 0) > 0)
+    const newest = runs[0]
+    if (!newest?.jev) continue
+    const changedTo = newest.jev.changedTo
+    if (changedTo && !sameSnapshot(checks.on, changedTo)) out.push({ kind: 'jevnew', agentId: a.id, id: `jevnew:${a.id}@${changedTo}`, at: newest.endedAt ?? newest.startedAt, runId: newest.id, jev: { model: changedTo } })
+    let streak = 0
+    while (streak < runs.length && runs[streak]!.jev!.checked === 0) streak++
+    if (streak >= JEV_FAIL_RUNS || newest.jev.failed === 'cooldown') {
+      const since = runs[Math.max(0, streak - 1)]!
+      out.push({ kind: 'jevfail', agentId: a.id, id: `jevfail:${a.id}@${newest.id}`, at: since.endedAt ?? since.startedAt, runId: newest.id, jev: { ...(newest.jev.failed ? { why: newest.jev.failed } : {}) } })
+    }
+  }
+  return out
 }

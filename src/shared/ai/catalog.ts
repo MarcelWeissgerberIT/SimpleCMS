@@ -8,7 +8,7 @@
 import type { Caps, Effort, PriceCols, PriceOverride, PriceRow, UpstreamRule, WireHints } from './types.ts'
 import { EFFORTS, refusedSlug, shortOfLabel, type SlugRefusal } from './models.ts'
 import { PRICES_DATE, blendedPerM } from './prices.ts'
-import { REFUSED_GLOBS, ROUTER_LIST_CHARS_MAX, ROUTER_LIST_MAX, ROUTER_LIST_PATTERN_MAX, isJevRouter } from './jev.ts'
+import { REFUSED_GLOBS, ROUTER_LIST_CHARS_MAX, ROUTER_LIST_MAX, ROUTER_LIST_PATTERN_MAX, isJevModel, isJevRouter } from './jev.ts'
 
 const MB = 1024 * 1024
 /** Caps for OpenRouter models until spikes confirm the upstreams' own limits (D-S2-18). */
@@ -346,6 +346,62 @@ export function expandCatalog(stored: unknown): CatalogRow[] {
       // judged again by this build (a newer rule wins over the stored reason)
       refused: refusedSlug(s.i, { router, pricing, description }),
     })
+  }
+  return out
+}
+
+/* ------------------------------------------------------------------ */
+/* Decision models (slice SJ): `GET /api/v1/models?output_modalities=decisions` */
+/* ------------------------------------------------------------------ */
+
+/** One decisions catalogue row as One reads it. */
+export interface DecisionRow {
+  id: string
+  /** the catalogue's `canonical_slug` (the dated snapshot it stands for); null: none given */
+  canonical: string | null
+  label: string
+  short: string
+  context: number
+  /** $ per million (output 0 for decisions); null: no usable price */
+  price: PriceRow | null
+  /** One asks only the Jev family in this slice (owner decision 2): other decision models are listed, dimmed */
+  jev: boolean
+  /** why One refuses it (an alias, a router …); null: it may be picked if `jev` */
+  refused: SlugRefusal | null
+}
+
+/** A raw decisions catalogue row → One's row (null: not a decision model row One can read). */
+export function readDecisionRow(raw: unknown, at: string = PRICES_DATE): DecisionRow | null {
+  if (!isObj(raw)) return null
+  const id = str(raw.id, 160)
+  if (!id || !/^[~a-z0-9][a-z0-9._~-]{0,47}\/[a-z0-9][a-z0-9._:@-]{0,111}$/.test(id)) return null
+  const arch = isObj(raw.architecture) ? raw.architecture : {}
+  const outputs = Array.isArray(arch.output_modalities) ? arch.output_modalities : []
+  if (!outputs.includes('decisions')) return null
+  const canonical = typeof raw.canonical_slug === 'string' && raw.canonical_slug.length <= 200 ? raw.canonical_slug : null
+  const label = labelOfName(str(raw.name, 200), id)
+  const { pricing, price } = priceOfPricing(raw.pricing, at)
+  const router = arch.tokenizer === 'Router'
+  return {
+    id,
+    canonical,
+    label,
+    short: shortOfLabel(label),
+    context: pos(raw.context_length) ?? 0,
+    price,
+    jev: isJevModel(id),
+    refused: refusedSlug(id, { router, pricing, description: str(raw.description, DESCRIPTION_MAX) }),
+  }
+}
+
+/** The decisions catalogue's rows (anything that does not read is left out, each id once). */
+export function readDecisionRows(json: unknown, at: string = PRICES_DATE): DecisionRow[] {
+  const data = isObj(json) && Array.isArray(json.data) ? json.data : Array.isArray(json) ? json : []
+  const out: DecisionRow[] = []
+  for (const raw of data) {
+    const r = readDecisionRow(raw, at)
+    if (r && !out.some((o) => o.id === r.id)) out.push(r)
+    if (out.length >= 200) break
   }
   return out
 }

@@ -53,8 +53,19 @@ import { onSettled } from '../recorder/settled'
 
 const tn = (key: string, count: number) => t(`${key}.${count === 1 ? 'one' : 'other'}`, { count })
 
-/** A proposal nobody has decided on yet (the only ones a review acts on). */
+/** A proposal nobody has decided on yet (the only ones a review acts on in bulk). */
 const isOpen = (c: StagedChange) => c.status === 'pending' || c.status === 'failed'
+/**
+ * A proposal its Vorprüfer holds back (slice SJ): open, but never part of a bulk apply — applied only as ONE change
+ * (`single`); discarded like any open one.
+ */
+const isHeld = (c: StagedChange) => c.status === 'held'
+
+/** What Jev said about a change, for a verdict's meta (Verdict.jev; never part of the verdict itself). */
+const jevOf = (c: StagedChange): 'held' | 'marked' | 'clear' | undefined => (c.jev?.held ? 'held' : c.jev?.mark ? 'marked' : c.jev?.state === 'ok' ? 'clear' : undefined)
+
+/** applyRun's result: what applyChanges did, and how many held proposals an apply of every open one left out. */
+export type RunApplyResult = ApplyResult & { heldLeft?: number }
 
 /**
  * The run as it is now: browser runs read again from this device's store; server runs — before a review acts on them
@@ -140,7 +151,8 @@ async function noteAccept(cur: AgentRun, c: StagedChange, rowIds: Record<string,
   const pages = useWorkspace.getState().pages
   const real = rowIds[c.pageId] ?? c.pageId
   const row = pages[real] ? real : undefined
-  const made = await noteVerdicts(cur.agentId, keys.map((key) => ({ key, v: 'accept' as const, run: cur.id, change: c.id, ...(row ? { row } : {}) })))
+  const jev = jevOf(c)
+  const made = await noteVerdicts(cur.agentId, keys.map((key) => ({ key, v: 'accept' as const, run: cur.id, change: c.id, ...(row ? { row } : {}), ...(jev ? { jev } : {}) })))
   if (!made.length) return
   judged.set(rowKey(cur.id, c.id), made.map((v) => ({ id: v.id, key: v.key })))
   if (!row) return
@@ -162,7 +174,8 @@ async function noteDiscard(cur: AgentRun, c: StagedChange, rowIds: Record<string
   const pages = useWorkspace.getState().pages
   const real = rowIds[c.pageId] ?? c.pageId
   const row = pages[real] ? real : undefined
-  const made = await noteVerdicts(cur.agentId, keys.map((key) => ({ key, v: 'discard' as const, run: cur.id, change: c.id, ...(reason ? { reason } : { single: true as const }), ...(row ? { row } : {}) })))
+  const jev = jevOf(c)
+  const made = await noteVerdicts(cur.agentId, keys.map((key) => ({ key, v: 'discard' as const, run: cur.id, change: c.id, ...(reason ? { reason } : { single: true as const }), ...(row ? { row } : {}), ...(jev ? { jev } : {}) })))
   if (made.length) judged.set(rowKey(cur.id, c.id), made.map((v) => ({ id: v.id, key: v.key })))
 }
 
@@ -206,13 +219,17 @@ async function voidJudged(agentId: ID, runId: string, changeIds: string[], kind:
  * under its lock. Several: one Undo toast reverts them. `row`: from a proposal's own row (or Preflight) — its result
  * shows there (applied, or why not) with an Undo key (undoChange), no toast. Resolves with what applyChanges did, or
  * null when nothing was left to apply (applied / discarded / superseded elsewhere, the run gone or running).
+ * A held proposal (slice SJ) is applied only as ONE change — exactly one id and `single` (its own key); every other apply
+ * leaves it out (`heldLeft`: how many an apply of every open one left), and one that fails stays held.
  */
-export async function applyRun(run: AgentRun, ids?: string[], opts: { row?: boolean; judged?: boolean; whole?: boolean } = {}): Promise<ApplyResult | null> {
+export async function applyRun(run: AgentRun, ids?: string[], opts: { row?: boolean; judged?: boolean; whole?: boolean; single?: boolean } = {}): Promise<RunApplyResult | null> {
   const out = await withRunLock(run.agentId, async () => {
     const cur = await current(run, true)
     if (!cur || cur.status === 'running') return null
     const all = cur.staged ?? []
-    const targets = all.filter((c) => isOpen(c) && (!ids || ids.includes(c.id)))
+    const single = !!opts.single && ids?.length === 1
+    const targets = all.filter((c) => (isOpen(c) || (single && isHeld(c))) && (!ids || ids.includes(c.id)))
+    const heldLeft = ids ? 0 : all.filter(isHeld).length
     if (!targets.length) return null
     const rowIds: Record<string, ID> = { ...(cur.rowIds ?? {}) }
     // proposals from a server run (or stored before images.ts) load no web image either; a server run's create no task
@@ -229,20 +246,28 @@ export async function applyRun(run: AgentRun, ids?: string[], opts: { row?: bool
     const writer: Writer = { kind: 'agent', id: cur.agentId, run: cur.id }
     // the run goes on (it had ended): its writes from here are one stretch, ended again below
     noteRun(writer)
-    let res: ApplyResult
+    let res: RunApplyResult
     try {
+      // the held proposal applied on its own goes in as an open one (apply.ts writes open changes only — never a held one)
       res = await asAgent(cur.agentId, () =>
-        applyChanges(targets.map(safe), all.map(safe), (id) => rowIds[id] ?? id, { writer, items: server ? { creates: false } : { visible: agent ? scopeFilter(agent) : null } }),
+        applyChanges(
+          targets.map(safe).map((c) => (isHeld(c) ? { ...c, status: 'pending' as const } : c)),
+          all.map(safe),
+          (id) => rowIds[id] ?? id,
+          { writer, items: server ? { creates: false } : { visible: agent ? scopeFilter(agent) : null } },
+        ),
       )
     } finally {
       endRun(writer)
     }
+    if (heldLeft) res.heldLeft = heldLeft
     Object.assign(rowIds, res.rowIds)
     const mark = (list: StagedChange[]) =>
       list.map((c): StagedChange => {
         if (res.applied.includes(c.id)) return { ...c, status: 'applied', error: undefined }
         const f = res.failed.find((x) => x.id === c.id)
-        return f ? { ...c, status: 'failed', error: f.error } : c
+        // a held proposal that failed stays held (never a "failed" one a bulk apply would take)
+        return f ? { ...c, status: isHeld(c) ? 'held' : 'failed', error: f.error } : c
       })
     const [changed, created] = touchedBy(mark(all), res.applied, rowIds, res.pages)
     stampLocal(cur.agentId, changed, created)
@@ -335,7 +360,8 @@ async function settleUndo(run: AgentRun, undo: () => { batch: ApplyResult; kept:
         const rowIds = { ...(r.rowIds ?? {}) }
         for (const staged of Object.keys(res.rowIds)) if (!keptPages.has(staged)) delete rowIds[staged]
         const back = (r.staged ?? []).filter((c) => undone.includes(c.id) && c.status === 'applied').length
-        const staged = (r.staged ?? []).map((c) => (undone.includes(c.id) && c.status === 'applied' ? { ...c, status: 'pending' as const } : c))
+        // a proposal its Vorprüfer held (applied on its own) goes back to held, never to an open one a bulk apply takes
+        const staged = (r.staged ?? []).map((c) => (undone.includes(c.id) && c.status === 'applied' ? { ...c, status: c.jev?.held ? ('held' as const) : ('pending' as const) } : c))
         // an 'apply' run whose writes went back has proposals to review again — a browser run only: the server settled
         // its run to 'ok' and applies none of it again (freshServerRun), so a server run keeps its status here
         const status = back && r.status === 'ok' && r.runner === 'browser' ? 'staged' : r.status
@@ -386,13 +412,15 @@ export async function discardRun(
     const cur = await current(run, true)
     if (!cur || cur.status === 'running') return null
     const all = cur.staged ?? []
-    const named = ids === null ? all.filter(isOpen).map((c) => c.id) : Array.isArray(ids) ? ids : [ids]
-    const drop = new Set(named.filter((id) => all.some((c) => c.id === id && isOpen(c))))
+    // a held proposal is discarded like any open one (discarding never writes)
+    const open = (c: StagedChange) => isOpen(c) || isHeld(c)
+    const named = ids === null ? all.filter(open).map((c) => c.id) : Array.isArray(ids) ? ids : [ids]
+    const drop = new Set(named.filter((id) => all.some((c) => c.id === id && open(c))))
     let grew = true
     while (grew) {
       grew = false
       for (const c of all) {
-        if (drop.has(c.id) || !isOpen(c) || !depsOf(c).some((d) => drop.has(d))) continue
+        if (drop.has(c.id) || !open(c) || !depsOf(c).some((d) => drop.has(d))) continue
         drop.add(c.id)
         grew = true
       }
@@ -402,7 +430,7 @@ export async function discardRun(
     const reasonOn = new Set(opts.reason && ids !== null ? named.filter((id) => drop.has(id)) : [])
     const before = new Map(all.filter((c) => drop.has(c.id)).map((c) => [c.id, c.status]))
     const mark = (list: StagedChange[]) =>
-      list.map((c) => (drop.has(c.id) && isOpen(c) ? { ...c, status: 'discarded' as const, ...(reasonOn.has(c.id) ? { reason: opts.reason } : {}) } : c))
+      list.map((c) => (drop.has(c.id) && open(c) ? { ...c, status: 'discarded' as const, ...(reasonOn.has(c.id) ? { reason: opts.reason } : {}) } : c))
     const back = await stateBack({ ...cur, staged: mark(all) })
     // ONE proposal the person named (its row, a card): the decision a verdict and a row's Undo are about
     const one = ids !== null && named.length === 1 && drop.has(named[0]) ? all.find((c) => c.id === named[0]) : undefined
@@ -683,5 +711,7 @@ if (typeof window !== 'undefined' && (import.meta.env.DEV || new URLSearchParams
       })
   const settle = underLock((cur, o: Parameters<typeof settleEjected>[1] & { openedIds?: string[] | null }) => settleEjected(cur, { ...o, opened: (_r, id) => (o.openedIds === null ? null : !!o.openedIds?.includes(id)) }))
   const unsettle = underLock((cur, ejectId: string, back: string[], pending: string[], state?: EjectState | null) => unsettleEjected(cur, ejectId, back, pending, state))
-  ;(window as unknown as { __oneAgents?: unknown }).__oneAgents = { applyRun, discardRun, undoChange, canUndoChange, canUndoDiscard, undoDiscard, supersedeOlder, loadRuns, putRun, isLeader, setSupersedeGuard, setProposalsShown, settleEjected: settle, unsettleEjected: unsettle, getAgentState, putAgentState }
+  // merged into the seam runner.ts sets too (`__oneAgents.run`, slice SJ)
+  const w = window as unknown as { __oneAgents?: Record<string, unknown> }
+  w.__oneAgents = { ...(w.__oneAgents ?? {}), applyRun, discardRun, undoChange, canUndoChange, canUndoDiscard, undoDiscard, supersedeOlder, loadRuns, putRun, isLeader, setSupersedeGuard, setProposalsShown, settleEjected: settle, unsettleEjected: unsettle, getAgentState, putAgentState }
 }

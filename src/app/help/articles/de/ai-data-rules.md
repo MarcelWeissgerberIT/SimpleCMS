@@ -23,6 +23,9 @@ Private Seiten (im Team), die Mails-Datenbanken, das One-Gedächtnis und MCP-Erg
 ## Betreiber (OpenRouter)
 OpenRouter gibt eine Anfrage an den Betreiber des Modells. One nennt die Betreiber, die deine Regeln erlauben, schaltet die Ausweichmodelle von OpenRouter ab und verlangt — solange du es nicht abschaltest — **Betreiber ohne Datensammlung**. **Nur ohne Datenspeicherung (ZDR)** grenzt weiter ein; eine **Sperrliste** nennt Betreiber, die nie eine Anfrage bekommen. Das gilt auch für den [Jev Router](help:ai-providers): Er leitet nur an Modelle deiner Liste weiter, und Jev (TypeSafe) liest die Anfrage, um zu wählen.
 
+## Jev als Vorprüfer
+Eine [Vorprüfung](help:ai-jev) ist eine OpenRouter-Anfrage wie jede andere: Die Spalte OpenRouter bestimmt, was Jev lesen darf. Er liest Anweisung, Änderung und Zeile des Agenten — nie IDs, E-Mail-Adressen oder Schlüssel; Namen nur, wenn Namen zu OpenRouter dürfen (sonst „@Person 1“); eine Seite, die OpenRouter nicht sehen darf, steht als „[Seite]“. Eine Datenart, die die Regel verweigert, heißt **gar keine Anfrage**, und die Karte sagt welche („Jev darf … nicht sehen“) — mit **Zurückhalten** wird so ein Vorschlag zurückgehalten, mit der Schreibschranke wartet der Lauf.
+
 ## Grenzen
 Eine **Monatsgrenze** je Anbieter kannst du in One festlegen (Schritt 04). In dieser Version wird sie nur mit den Regeln gespeichert — One warnt und stoppt daran noch nicht; Warnungen und die Bremse kommen mit dem Ausgaben-Regler in einem späteren Update. Das verbindliche Limit liegt beim Anbieter — in der Claude Console oder als Limit des Schlüssels bei OpenRouter (live in Einstellungen → KI).
 

@@ -5,7 +5,10 @@
  *    (pending | failed), of the same agent, for the same row (`rowOf`: a staged row id resolved through the run's rowIds);
  *  - the older one's fields ⊆ the newer one's (a field only the older one has keeps it: nothing is swallowed);
  *  - the older one has no open proposal building on it, and nobody opened it (`opened`: Preflight's opened cards);
- *  - the newest proposal wins: A ⊂ B ⊂ C marks A and B as replaced by C. Proposals of one run never replace each other.
+ *  - the newest proposal wins: A ⊂ B ⊂ C marks A and B as replaced by C. Proposals of one run never replace each other;
+ *  - a held proposal (not open) and one Jev marked or kept cautious (slice SJ: `jev.mark` / `jev.sticky`) neither
+ *    replace nor are replaced, and neither do the proposals of a run Jev made wait (`jev.waited`: without Jev they would
+ *    have been written, not staged) — a decision model never supersedes.
  * A replaced proposal gets status 'superseded' (never 'discarded': the agent-state walk back stops at its run).
  */
 import { depsOf, type ChangeRef, type StagedChange } from '../ai/agent/types'
@@ -26,7 +29,8 @@ const propsOf = (c: StagedChange) => new Set((c.props ?? []).map((p) => p.propId
 
 /** Which open proposals newer ones replace (oldest runs last in the list it walks; newest first in `runs` or not). */
 export function supersedePlan(runs: AgentRun[], rowOf: (run: AgentRun, pageId: ID) => ID, opened: (runId: string, changeId: string) => boolean): SupersedeStep[] {
-  const staged = runs.filter((r) => r.runner === 'browser' && r.status === 'staged' && r.staged?.length).sort((a, b) => b.startedAt - a.startedAt)
+  // a run Jev made wait is staged only because of Jev: it replaces nothing and nothing replaces it
+  const staged = runs.filter((r) => r.runner === 'browser' && r.status === 'staged' && r.staged?.length && !r.jev?.waited).sort((a, b) => b.startedAt - a.startedAt)
   const out: SupersedeStep[] = []
   /** proposals of newer runs that stay (not replaced themselves), newest first */
   const newer: Array<{ run: AgentRun; change: StagedChange; row: ID; props: Set<ID> }> = []
@@ -34,7 +38,8 @@ export function supersedePlan(runs: AgentRun[], rowOf: (run: AgentRun, pageId: I
     const list = run.staged ?? []
     const mine: Array<{ change: StagedChange; row: ID; props: Set<ID> }> = []
     for (const c of list) {
-      if (c.kind !== 'update_row' || !isOpen(c) || !c.props?.length) continue
+      // a proposal Jev marked (or that an earlier one here keeps cautious) neither replaces nor is replaced: it stays a card
+      if (c.kind !== 'update_row' || !isOpen(c) || !c.props?.length || c.jev?.mark || c.jev?.sticky) continue
       const row = rowOf(run, c.pageId)
       const props = propsOf(c)
       const builtOn = list.some((x) => x.id !== c.id && x.status !== 'discarded' && depsOf(x).includes(c.id))

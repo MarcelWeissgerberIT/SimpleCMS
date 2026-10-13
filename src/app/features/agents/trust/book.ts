@@ -170,6 +170,7 @@ function readVerdict(raw: unknown, key: TrustKey): Verdict | null {
   if (row) v.row = row
   const lesson = str(r.lesson, 64)
   if (lesson) v.lesson = lesson
+  if (r.jev === 'held' || r.jev === 'marked' || r.jev === 'clear') v.jev = r.jev
   return v
 }
 
@@ -377,6 +378,7 @@ export async function noteVerdicts(agentId: ID, list: Array<Omit<Verdict, 'id' |
       if (x.single) v.single = true
       if (x.row) v.row = x.row
       if (x.lesson) v.lesson = x.lesson
+      if (x.jev) v.jev = x.jev
       return v
     })
   if (!made.length || !trustScope()) return []

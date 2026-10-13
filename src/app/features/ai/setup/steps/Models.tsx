@@ -4,8 +4,10 @@
  * picker (lazy). OpenRouter starts with suggestions (catalogue data, D-S2-34: the ≤ 3 picks' endpoint lists are checked
  * against the operator rule and a refused pick is skipped) — a role without one reads "— none via OpenRouter —" and which
  * Claude model One takes for it (display only). A fourth line: the Jev Router over the list (≥ 2 models), with its stated
- * bound and that Jev (TypeSafe) reads to choose; every role may pick it (the tier comes from the role). The Checker row
- * shows "Soon" (the decisions slice). Next writes the shortlist rows (never the router) and the roles in ONE update.
+ * bound and that Jev (TypeSafe) reads to choose; every role may pick it (the tier comes from the role). The Vorprüfer row
+ * (slice SJ: Jev as a decision model) starts Off — "Choose Jev 1.13" picks the newest pinned version; Next writes the
+ * device rule `routes.gate` only when one was chosen (or clears it when switched off). Next writes the shortlist rows
+ * (never the router), the roles and that rule in ONE update.
  */
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { Network } from 'lucide-react'
@@ -26,6 +28,8 @@ import { hasKeyIn, NO_ROWS, perM, ROLE_KEYS, rolesOf, routerBound, shortAnswerUs
 import { CodePlate } from '../ProviderPlate'
 import { Rich } from '../AINeedsSetup'
 import type { StepProps } from '../AISetup'
+import { GateRole } from '../../decide/ui/GateRow'
+import { isJevModel } from '@/shared/ai/jev'
 
 const CatalogPicker = lazy(() => import('../../routing/CatalogPicker').then((m) => ({ default: m.CatalogPicker })))
 
@@ -49,6 +53,10 @@ export function ModelsStep({ run, setRun, handle }: StepProps) {
   const [loading, setLoading] = useState(false)
   const [choosing, setChoosing] = useState<RoleKey | null>(null)
   const anchors = useRef(new Map<RoleKey, HTMLButtonElement>())
+  // the Vorprüfer (the device rule for the class 'gate'): Off until the person chooses a Jev version
+  const storedGate = settings.ai?.routes?.gate?.[0]
+  const [gate, setGate] = useState<string | null>(() => (storedGate?.p === 'openrouter' && isJevModel(storedGate.m) ? storedGate.m : null))
+  const gateTouched = useRef(false)
 
   // OpenRouter: the catalogue (read once a day at most) and suggestions for empty roles
   useEffect(() => {
@@ -129,8 +137,14 @@ export function ModelsStep({ run, setRun, handle }: StepProps) {
           if (Object.keys(clean).length) roles.openrouter = clean
         }
         if (claudeTouched) roles.anthropic = claude
+        // the Vorprüfer rule: written only when the person chose (or switched off) one here
+        const routes = { ...(useWorkspace.getState().settings.ai?.routes ?? {}) }
+        if (gateTouched.current) {
+          if (gate) routes.gate = [{ p: 'openrouter', m: gate }]
+          else delete routes.gate
+        }
         withWriter({ kind: 'you', via: 'setup' }, () => {
-          setDeviceAI({ models: nextList.length ? nextList : undefined, roles: Object.keys(roles).length ? roles : undefined })
+          setDeviceAI({ models: nextList.length ? nextList : undefined, roles: Object.keys(roles).length ? roles : undefined, ...(gateTouched.current ? { routes: Object.keys(routes).length ? routes : undefined } : {}) })
           // Claude's Standard = the model every Claude request of this device goes to (the legacy level reads aiModel)
           const std = claude.standard
           if (claudeTouched && std && std !== useWorkspace.getState().settings.aiModel && MODELS.some((m) => m.route.p === 'anthropic' && m.selectable && m.route.m === std)) useWorkspace.getState().updateSettings({ aiModel: std })
@@ -139,7 +153,7 @@ export function ModelsStep({ run, setRun, handle }: StepProps) {
       },
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tabs.join(), active, or, claude, claudeTouched, nextList, routerOk, handle])
+  }, [tabs.join(), active, or, claude, claudeTouched, nextList, routerOk, handle, gate])
 
   const pickOr = (role: RoleKey, row: CatalogRow | 'router') => {
     setOr((d) => ({ ...d, [role]: row === 'router' ? JEV_ROUTER : row.id }))
@@ -263,20 +277,15 @@ export function ModelsStep({ run, setRun, handle }: StepProps) {
               </p>
             </div>
           )}
-          {active === 'openrouter' && (
-            <div className="aim-role aim-role--exp" data-testid="role-checker" aria-disabled="true">
-              <span className="aim-role__k">
-                <span className="label">{t('features.ai.prov.role.checker')}</span>
-                <small>{t('features.ai.prov.role.checkerSub')}</small>
-              </span>
-              <span className="aim-role__pick">
-                <b>Jev</b>
-                <span className="lampcap" data-tone="amber">
-                  {t('features.ai.prov.role.checkerSoon')}
-                </span>
-              </span>
-              <span className="aim-role__meta">{t('features.ai.prov.role.checkerNote')}</span>
-            </div>
+          {(active === 'openrouter' || !tabs.includes('openrouter' as never)) && (
+            <GateRole
+              value={gate}
+              ready={tabs.includes('openrouter' as never)}
+              onChange={(id) => {
+                gateTouched.current = true
+                setGate(id)
+              }}
+            />
           )}
           {active === 'anthropic' && (
             <p className="aim-plain" data-testid="claude-roles-note">

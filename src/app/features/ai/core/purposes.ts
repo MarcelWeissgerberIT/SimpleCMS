@@ -11,7 +11,7 @@
 import type { DataClass, FeatureClass } from '@/shared/ai/types'
 import { DATA_CLASSES } from '@/shared/ai/policy'
 
-export type Need = 'structured' | 'tools' | 'vision' | 'pdf' | 'mcp' | 'listing'
+export type Need = 'structured' | 'tools' | 'vision' | 'pdf' | 'mcp' | 'listing' | 'decisions'
 
 export interface PurposeDecl {
   cls: FeatureClass
@@ -70,6 +70,11 @@ export const PURPOSES = {
   'help.ask': p('help', ['public'], []),
   // a fixed sentence, not workspace data: works before any data class is granted (D-S2-6)
   'setup.test': p('help', [], []),
+  // Jev as Vorprüfer (slice SJ, class 'gate', a decision model only): the agent's instructions are always there; the change,
+  // its row and the trigger only as far as they go along (classes of the target, its parent, the run's touched pages)
+  'gate.precheck': p('gate', ['public'], ['structure', 'page', 'rows', 'people', 'workspace', 'private', 'mail', 'memory', 'mcp'], ['decisions']),
+  // "Belegt?": a help answer (public only) or an Ask-the-workspace answer with the excerpts it was built from
+  'gate.verify': p('gate', ['public'], ['structure', 'page', 'rows', 'people', 'workspace', 'private', 'mail', 'memory'], ['decisions'], { mayBeEmpty: true }),
 } as const satisfies Record<string, PurposeDecl>
 
 export type PurposeId = keyof typeof PURPOSES

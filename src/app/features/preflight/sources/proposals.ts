@@ -52,8 +52,11 @@ function tally(): Tally {
   return { ids: items.map((i) => i.id), parts, top }
 }
 
-/** A staged change's content (what its body shows), without what only its review changes. */
-const changeRev = (c: StagedChange) => revHash({ ...c, status: undefined, error: undefined, supersededBy: undefined })
+/**
+ * A staged change's content (what its body shows), without what only its review changes — its status (held ↔ pending
+ * too), its error, and its Vorprüfer's numbers (`jev`, slice SJ).
+ */
+const changeRev = (c: StagedChange) => revHash({ ...c, status: undefined, error: undefined, supersededBy: undefined, jev: undefined })
 
 /**
  * A card's content revision now: the staged change as it is (the terminal merges a second update_row into the pending

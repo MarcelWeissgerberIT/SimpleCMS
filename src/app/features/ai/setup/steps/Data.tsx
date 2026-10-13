@@ -250,6 +250,13 @@ export function DataStep({ providers, handle, modal }: StepProps) {
             </p>
           )}
           {OWNER.jevRouter && <p className="aid-note aid-note--q">{PROVIDERS.openrouter.routerPrivacy[lang]}</p>}
+          {/* Jev as Vorprüfer (slice SJ): the rule applies to the checks too — what TypeSafe reads, in the one sentence */}
+          <p className="aid-note" data-testid="jev-checker-note">
+            {t('features.ai.prov.role.checkerData')}
+          </p>
+          <p className="aid-note aid-note--q" data-testid="jev-privacy">
+            {PROVIDERS.openrouter.jevPrivacy[lang]}
+          </p>
           <div className="aid-acct">
             <span className="label">{t('features.ai.prov.acct.title')}</span>
             <p>{t('features.ai.prov.acct.body')}</p>

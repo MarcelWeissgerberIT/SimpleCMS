@@ -80,7 +80,8 @@ export interface LampSourceDef {
 }
 
 export type Outcome = 'applied' | 'hand' | 'command' | 'read' | 'discarded'
-export type HandWhy = 'startsNow' | 'claudeCode' | 'noBulk' | 'sends' | 'confirm' | 'signIn' | 'needsText' | 'editor' | 'tokens'
+/** … 'held': an agent's Vorprüfer holds the proposal back (slice SJ) — applied only on its own, after the confirm row */
+export type HandWhy = 'startsNow' | 'claudeCode' | 'noBulk' | 'sends' | 'confirm' | 'signIn' | 'needsText' | 'editor' | 'tokens' | 'held'
 
 export interface QueueItem {
   /** = an id of the reading */

@@ -26,6 +26,9 @@ Anthropic kann eine Anfrage, die das gewählte Modell ablehnt, an ein anderes Cl
 ## OpenRouter und der Jev Router
 OpenRouter meldet die Kosten jeder Anfrage mit der Antwort: Der Beleg zeigt dann **GEMELDET**. Ohne gemeldete Kosten bewertet One die Antwort mit der Katalogzeile des Modells (**KATALOG**). OpenRouter arbeitet mit Guthaben vorab (ab 5 $; beim Aufladen nimmt es eine Gebühr) — jedes Modell kostet seinen Listenpreis, zu sehen in Schritt 03 und in der Auswahl. Auch der **Jev Router** wird je Anfrage gemeldet; der Beleg nennt das Modell, das er gewählt hat (*OpenRouter · Jev Router → …*). Vor so einer Anfrage reserviert One das teuerste Modell deiner Liste.
 
+## Jev als Vorprüfer
+Jede Antwort einer [Vorprüfung](help:ai-jev) ist ein eigener Eintrag: zum Preis, den OpenRouter meldet, sonst zur Katalogzeile von Jev — Jevs Ausgabe ist kostenlos (die Token-Zahl bleibt erhalten). Die Quittung eines Laufs nennt **Jev 1.13 · Vorprüfung** in einer eigenen Zeile („rein → raus frei“), und das Budget des Agenten zählt sie mit; vor den Prüfungen reserviert One, was alle zusammen kosten dürfen, und ein Lauf mit kleinerem Budget sendet keine.
+
 ## Was gespeichert wird
 Die Aufzeichnung hinter den Belegen bleibt auf diesem Gerät: IDs, Modelle, Token-Zahlen, Beträge — nie Seitentext. Sie hält 90 Tage, wird nie synchronisiert, exportiert oder gesichert und verschwindet, wenn du die Kopie eines Arbeitsbereichs von diesem Gerät entfernst oder die App hier zurücksetzt. Im Team hat jedes Mitglied seine eigene.
 

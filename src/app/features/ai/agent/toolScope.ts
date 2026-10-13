@@ -4,6 +4,9 @@
  *  - withToolScope(filter, fn): custom agents (features/agents) — the pages a scoped run may see (null = everything).
  *  - withReadLimit(limit, fn): the AI terminal — what the person lets Claude read of a page (context marks).
  * Both hold for the synchronous part of one tool call only; an async tool takes them along first, before any await.
+ *  - afterRead(out, record) / idsIn(text, pages): custom agents (slice SJ) — what a tool call returned to Claude, once
+ *    it resolves: the pages it names are the run's touched pages (their classes go into the run's `touched` set, the
+ *    classes a pre-check of its proposals declares).
  */
 import type { ID } from '../../../store/types'
 
@@ -79,5 +82,27 @@ export function withToolScope<T>(filter: ((id: ID) => boolean) | null, fn: () =>
     return fn()
   } finally {
     visible = prev
+  }
+}
+
+/** Hand a tool call's result to `record` once it is there (sync or async) — the call's outcome is unchanged. */
+export function afterRead<T extends { content: string }>(out: T | Promise<T>, record: ((content: string) => void) | null): T | Promise<T> {
+  if (!record) return out
+  const take = (o: T): T => {
+    try {
+      record(o.content)
+    } catch (e) {
+      console.warn('[one] agents: could not note what a tool read', e)
+    }
+    return o
+  }
+  return out instanceof Promise ? out.then(take) : take(out)
+}
+
+/** The page ids a text names (tool results name every page they show by its id). */
+export function idsIn(text: string, has: (id: string) => boolean, into: Set<ID>, max = 5000): void {
+  for (const tok of text.match(/[A-Za-z0-9_-]{6,64}/g) ?? []) {
+    if (into.size >= max) return
+    if (has(tok)) into.add(tok)
   }
 }

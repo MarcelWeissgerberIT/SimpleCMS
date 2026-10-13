@@ -16,12 +16,18 @@
 .agx-led--live {
   animation: agx-pulse 0.9s ease-in-out infinite alternate;
 }
-.agx-led--err {
+/* two classes: ui.css (the .led primitive) loads after the features chunk in production */
+.led.agx-led--err {
   background: var(--c-red-text);
 }
-/* held by the Regler at a red line: amber, never the failure's red */
-.agx-led--held {
+/* a run the Regler held at a red line: amber, never the failure's red (two classes, as above) */
+.led.agx-led--held {
   background: var(--lamp-amber);
+}
+/* a Vorprüfer's caution (slice SJ): the lamp amber */
+.led.agx-led--amber {
+  background: var(--lamp-amber);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--toggle-black) 25%, transparent);
 }
 @keyframes agx-pulse {
   from {
@@ -761,6 +767,12 @@
   border-color: var(--c-red-text);
   color: var(--c-red-text);
 }
+.agx-step[data-jev='wait'][data-state] {
+  border-color: var(--lamp-amber);
+  border-style: solid;
+  background: color-mix(in srgb, var(--lamp-amber) 22%, var(--surface));
+  color: var(--ink);
+}
 .agx-step__text {
   min-width: 0;
   overflow: hidden;
@@ -822,8 +834,13 @@
   row-gap: 4px;
 }
 .agx-review .agent-change__actions {
+  /* the keys (and a held row's HELD BACK cap) shrink to the row and wrap — never past it at 390 px, in German, at XL */
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
   flex-wrap: wrap;
   justify-content: flex-end;
+  row-gap: 4px;
 }
 .agx-review__counts {
   min-width: 0;
@@ -1600,4 +1617,10 @@
   border-radius: var(--radius-1);
   font-size: calc(12px * var(--text-scale));
   color: var(--ink-2);
+}
+/* "Concerns first" (slice SJ): pressed = the review leads with what Jev held back or marked */
+.agx-review__head .agx-sortjev[aria-pressed='true'] {
+  border-color: var(--ink);
+  color: var(--ink);
+  background: var(--surface-2);
 }

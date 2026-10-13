@@ -23,6 +23,9 @@ Private pages (in a team), the Mails databases, the One memory and MCP results a
 ## Operators (OpenRouter)
 OpenRouter hands a request to the operator of the model. One names the operators your rules allow, switches OpenRouter's fallbacks off and — unless you switch it off — asks for **operators that collect no data**. **Zero data retention only** narrows it further; a **deny list** names operators that never get a request. This applies to the [Jev Router](help:ai-providers) too: it forwards only to models of your list, and Jev (TypeSafe) reads the request to choose.
 
+## Jev as a pre-checker
+A [pre-check](help:ai-jev) is an OpenRouter request like any other: the OpenRouter column decides what Jev may read. It reads the agent's instructions, the change and the row — never ids, e-mail addresses or keys; names only when names may go to OpenRouter (else "@Person 1"); a page OpenRouter may not see shows as "[Page]". A kind of data the rule refuses means **no request at all**, and the card says which ("Jev may not see …") — with **Hold back** such a proposal is held, with the write gate the run waits.
+
 ## Limits
 A **monthly limit** per provider can be set in One (step 04). In this version it is only stored with the rules — One does not warn or stop at it yet; warnings and the brake come with the spending governor in a later update. The binding limit lives with the provider — the Claude Console, or the key's limit at OpenRouter (shown live in Settings → AI).
 

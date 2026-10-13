@@ -11,13 +11,18 @@
  * with one fix per refused pin (S2 never falls through to the next level — D-S2-4). The Jev Router's pin is a pool:
  * filters 2–3 run per shortlist model; the models that pass are what it may choose from (≥ 1, else 'capability' with
  * the fix "pick models").
+ *
+ * The class 'gate' (slice SJ, Jev as Vorprüfer) resolves on its own levels — the agent's own Vorprüfer (`decider`) →
+ * device.routes.gate → workspace.routes.gate (no chip) — with NO default and NO legacy level: nothing chosen = 'no_route'. Only a
+ * Jev version with the decisions capability passes filter 2 (never Claude, never the router, never a chat model, never
+ * another decision model); every other class refuses a decision model.
  */
 import type { AIErrorCode } from '@/shared/ai/errors'
 import type { Caps, DataClass, DeviceAI, FeatureClass, ModelInfo, Route, RouteRule, StepNote, WorkspaceAI } from '@/shared/ai/types'
 import { refusedClasses } from '@/shared/ai/policy'
 import { legacyRule, routeKey } from '@/shared/ai/route'
 import { refusedSlug } from '@/shared/ai/models'
-import { isJevRouter } from '@/shared/ai/jev'
+import { isJevModel, isJevRouter } from '@/shared/ai/jev'
 import { OWNER } from '@/shared/ai/owner'
 import type { AIFix } from './errors'
 import type { Need } from './purposes'
@@ -36,7 +41,7 @@ export interface RouteWorld {
   shortlist: readonly string[]
 }
 
-export type Level = 'forced' | 'chip' | 'device' | 'workspace' | 'default' | 'workspace-default' | 'legacy'
+export type Level = 'forced' | 'chip' | 'agent' | 'device' | 'workspace' | 'default' | 'workspace-default' | 'legacy'
 
 export interface ResolveInput {
   cls: FeatureClass
@@ -46,6 +51,8 @@ export interface ResolveInput {
   chip?: Route | null
   /** a model the call picks itself (a custom agent's own Claude model) — the legacy level's */
   model?: string | null
+  /** class 'gate': the agent's own Vorprüfer (review v2 `decider`) — its level, before the device's rule */
+  decider?: Route | null
   /** what the model must be able to do (the purpose's ∪ the call's) */
   caps: readonly Need[]
   /** the data classes the request carries (needs ∪ carries ∪ sources) */
@@ -54,8 +61,9 @@ export interface ResolveInput {
 
 export type Resolved =
   | { ok: true; route: Route; info: ModelInfo; pool?: string[]; level: Level; steps: StepNote[] }
-  /** no rule and no Claude key: demo (when on) or 'no_key' — the gate decides */
-  | { ok: false; none: true; steps: StepNote[] }
+  /** no rule and no Claude key: demo (when on) or 'no_key' — the gate decides; `code: 'no_route'`: class 'gate' with no
+   *  rule at all (never demo, never a default) */
+  | { ok: false; none: true; steps: StepNote[]; code?: 'no_route' }
   | { ok: false; none?: false; code: AIErrorCode; detail?: string; route: Route; level: Level; steps: StepNote[]; fixes: AIFix[] }
 
 /** Can a model do what a request needs? (no caps known: no) */
@@ -74,6 +82,8 @@ export function canDo(caps: Caps | null | undefined, n: Need): boolean {
       return !!caps.mcp
     case 'listing':
       return caps.mcpListing
+    case 'decisions':
+      return !!caps.decisions
   }
 }
 
@@ -99,9 +109,11 @@ function filterPin(route: Route, input: ResolveInput, w: RouteWorld, forcedPool?
   const key = routeKey(route)
   // 1 · a key on this device
   if (!w.hasKey(route.p)) return { ok: false, code: 'no_key', step: { k: 'nokey', from: key }, fix: { kind: 'step', step: 'key', provider: route.p } }
-  // 2 · known and not refused (+ the router's pool: filters 2–3 per shortlist model)
+  // 2 · known and not refused (+ the router's pool: filters 2–3 per shortlist model); the router writes text — never a
+  //     Vorprüfer
   let info: ModelInfo | null
   let pool: string[] | undefined
+  if (input.cls === 'gate' && isJevRouter(route.m)) return { ok: false, code: 'capability', detail: 'decisions', step: { k: 'capability', from: key, code: 'decisions' }, fix: { kind: 'step', step: 'models', provider: 'openrouter' } }
   if (route.p === 'openrouter' && isJevRouter(route.m)) {
     if (!OWNER.jevRouter) return { ok: false, code: 'model_gone', detail: 'router', step: { k: 'capability', from: key, code: 'gone' }, fix: { kind: 'step', step: 'models', provider: route.p } }
     pool = [...new Set(forcedPool ?? w.shortlist)].filter((m) => poolOk(m, input, w))
@@ -111,18 +123,26 @@ function filterPin(route: Route, input: ResolveInput, w: RouteWorld, forcedPool?
     info = route.p === 'openrouter' && refusedSlug(route.m) ? null : w.info(route)
   }
   if (!info) return { ok: false, code: 'model_gone', step: { k: 'capability', from: key, code: 'gone' }, fix: { kind: 'step', step: 'models', provider: route.p } }
-  if (info.caps.decisions) return { ok: false, code: 'capability', detail: 'decisions', step: { k: 'capability', from: key, code: 'decisions' }, fix: null }
+  // decisions: the class 'gate' takes a Jev version and nothing else; every other class never takes a decision model
+  const decider = route.p === 'openrouter' && isJevModel(route.m) && !!info.caps.decisions
+  if (input.cls === 'gate' ? !decider : !!info.caps.decisions) return { ok: false, code: 'capability', detail: 'decisions', step: { k: 'capability', from: key, code: 'decisions' }, fix: input.cls === 'gate' ? { kind: 'step', step: 'models', provider: 'openrouter' } : null }
   // 3 · what the request needs of the model
   const missing = input.caps.find((n) => !canDo(info.caps, n))
-  if (missing) return { ok: false, code: 'capability', detail: missing, step: { k: 'capability', from: key, code: missing }, fix: { kind: 'pick', need: missing } }
+  if (missing) return { ok: false, code: 'capability', detail: missing, step: { k: 'capability', from: key, code: missing }, fix: missing === 'decisions' ? { kind: 'step', step: 'models', provider: 'openrouter' } : { kind: 'pick', need: missing } }
   // 4 · the data rule
   const [refused] = refusedClasses(route.p, input.classes, w.ws, w.device)
   if (refused) return { ok: false, code: 'policy', detail: refused, step: { k: 'policy', from: key, cls: refused }, fix: { kind: 'step', step: 'data', provider: route.p, data: refused } }
   return { ok: true, info, ...(pool ? { pool } : {}) }
 }
 
-/** The rule of each level, in order (absent: that level has none). */
+/** The rule of each level, in order (absent: that level has none). The class 'gate' has no default level. */
 function levels(input: ResolveInput, w: RouteWorld): Array<[Level, RouteRule | null | undefined]> {
+  if (input.cls === 'gate')
+    return [
+      ['agent', input.decider ? [input.decider] : null],
+      ['device', w.device?.routes?.gate],
+      ['workspace', w.ws?.routes?.gate],
+    ]
   return [
     ['chip', input.chip ? [input.chip] : null],
     ['device', w.device?.routes?.[input.cls]],
@@ -158,6 +178,8 @@ export function resolveRoute(input: ResolveInput, w: RouteWorld): Resolved {
     }
     return winning(pins, level, input, w, steps)
   }
+  // a decision is asked only of a Vorprüfer someone chose: no default, no legacy (never Claude)
+  if (input.cls === 'gate') return { ok: false, none: true, steps, code: 'no_route' }
   const legacy = legacyRule(input.model || w.aiModel, w.hasKey('anthropic'))
   if (!legacy.length) return { ok: false, none: true, steps }
   return winning(legacy, 'legacy', input, w, steps)

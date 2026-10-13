@@ -198,6 +198,13 @@ export function sanitizeDeviceAI(v: unknown): DeviceAI | undefined {
   if (Array.isArray(v.models)) out.models = shortlist(v.models)
   const roles = readRoles(v.roles)
   if (roles) out.roles = roles
+  // Jev's switches: booleans only, absent = off (an S6 `compare` is kept too — a save from this tab never drops it)
+  if (isObj(v.jev)) {
+    const j: NonNullable<DeviceAI['jev']> = {}
+    if (typeof v.jev.verify === 'boolean') j.verify = v.jev.verify
+    if (typeof v.jev.compare === 'boolean') j.compare = v.jev.compare
+    if (Object.keys(j).length) out.jev = j
+  }
   const g = gen(v.gen)
   if (g !== undefined) out.gen = g
   return Object.keys(out).length ? out : undefined

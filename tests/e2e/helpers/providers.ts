@@ -252,6 +252,69 @@ export function orCallback(consentUrl: string, answer: 'approve' | 'deny' | 'den
   return u.href
 }
 
+/* Decisions (slice SJ) — POST /api/alpha/decisions, from the documented shapes (doc/decisions-*.json) */
+
+/** The error answers of the decisions surface by name (doc/decisions-errors.json: '402 in-flight budget', '524' …). */
+export const DECIDE_ERRORS: Record<string, { status: number; json: unknown; headers?: Record<string, string> }> = Object.fromEntries(
+  (OR_DOC('decisions-errors').cases as AnyState[]).map((c) => [c.name as string, { status: c.status as number, json: c.body, ...(c.headers ? { headers: c.headers as Record<string, string> } : {}) }]),
+)
+
+/** One scripted answer to a decisions POST. */
+export type DecideStep =
+  /** a 200 answer: the answers as given (`model` default: the requested version's dated snapshot; `provider` default
+   *  "TypeSafe", null = left out; `cost` default input × $0.042 / M, null = left out; `output` default 3) */
+  | { answers: Record<string, unknown>; model?: string; provider?: string | null; cost?: number | null; input?: number; output?: number }
+  /** an error answer as it is, or one of DECIDE_ERRORS by name */
+  | { status: number; json: unknown; headers?: Record<string, string> }
+  | { error: string }
+  /** a 200 that does not fit the questions: a missing answer, noul 1.4, a choice not offered */
+  | { malformed: 'missing' | 'noul' | 'choice' }
+  /** a 200 body as it is */
+  | { raw: unknown }
+  /** no answer until the spec calls `releaseDecisions()` (then `then`, default the clear answer) — or the page gives up */
+  | { hang: true; then?: DecideStep }
+  | { delay: number; then: DecideStep }
+
+export type DecideStepFn = DecideStep | ((req: ORCaptured, n: number) => DecideStep)
+
+/** Jev's four answers of QSET v1 (each a noul probability) — the default `asked: 0.95 …`. */
+export function jevAnswer(p: Partial<Record<'asked' | 'target' | 'consistent' | 'clean', number>> = {}, more: Omit<Extract<DecideStep, { answers: unknown }>, 'answers'> = {}): DecideStep {
+  const v = { asked: 0.95, target: 0.95, consistent: 0.95, clean: 0.95, ...p }
+  return { answers: Object.fromEntries(Object.entries(v).map(([k, x]) => [k, { type: 'noul', noul: x }])), ...more }
+}
+
+/** The decisions catalogue fixture (`GET /api/v1/models?output_modalities=decisions`): 'v1' as read, 'snapshot2' with Jev 1.13's newer dated release. */
+export function OR_DECISIONS(which: 'v1' | 'snapshot2' = 'v1'): AnyState {
+  const f = JSON.parse(readFileSync(fileURLToPath(new URL('../../fixtures/openrouter-decisions.json', import.meta.url)), 'utf8')) as AnyState
+  const data = (f.data as AnyState[]).map((r) => (which === 'snapshot2' && r.id === 'typesafe/jev-1.13' ? f.snapshot2 : r))
+  return { data, total_count: data.length }
+}
+
+/** A clear answer to every question a body asks (noul 0.95, the first option, the first level). */
+function clearAnswers(body: AnyState | null): Record<string, unknown> {
+  const qs = body?.questions && typeof body.questions === 'object' ? (body.questions as Record<string, AnyState>) : {}
+  return Object.fromEntries(
+    Object.entries(qs).map(([k, q]) => [
+      k,
+      q?.type === 'choice' ? { type: 'choice', choice: Object.keys(q.criteria ?? {})[0] ?? 'a', confidence: 0.9, probabilities: { [Object.keys(q.criteria ?? {})[0] ?? 'a']: 0.9 } } : q?.type === 'score' ? { type: 'score', score: 0, confidence: 0.9, probabilities: { '0': 0.9 } } : { type: 'noul', noul: 0.95 },
+    ]),
+  )
+}
+
+/** A decisions answer body (doc shape: id, model = the dated snapshot, provider, answers, usage with cost). */
+function decideBody(step: Extract<DecideStep, { answers: unknown }>, body: AnyState | null): AnyState {
+  const requested = typeof body?.model === 'string' ? body.model : 'typesafe/jev-1.13'
+  const input = step.input ?? Math.max(1, Math.ceil(JSON.stringify(body ?? {}).length / 4))
+  const cost = step.cost === undefined ? Number((input * 0.000000042).toPrecision(6)) : step.cost
+  return {
+    id: `gen-dec-e2e-${++orSeq}`,
+    model: step.model ?? `${requested}-20260917`,
+    ...(step.provider === null ? {} : { provider: step.provider ?? 'TypeSafe' }),
+    answers: step.answers,
+    usage: { input_tokens: input, output_tokens: step.output ?? 3, ...(cost === null ? {} : { cost }) },
+  }
+}
+
 export interface ORMockOpts {
   /** answers to chat POSTs, in order (then `fallback`, default a short text) */
   chat?: ORStepFn[]
@@ -263,12 +326,32 @@ export interface ORMockOpts {
   consent?: ORConsent
   /** /models/{id}/endpoints: tags per model (default: one endpoint per model, tag from its maker) */
   endpoints?: Record<string, Array<{ tag: string; name?: string }>>
+  /** POST /api/alpha/decisions: answers in order (then `decisionsFallback`, default a clear answer to every question) */
+  decisions?: DecideStepFn[]
+  decisionsFallback?: DecideStepFn
+  /** GET /api/v1/models?output_modalities=decisions: the fixture ('v1'), Jev 1.13's newer snapshot, or an error status */
+  decisionsCatalogue?: 'v1' | 'snapshot2' | number
+  /** answer a decisions body that carries provider.require_parameters with 404 "No endpoints found" — every decision row
+   *  lists no parameters, so requiring them can only leave no endpoint (why One never sends it; SP-J1) */
+  strictParams?: boolean
+  /** hold every /endpoints GET until `releaseEndpoints()` (a hanging read before a decision goes out) */
+  endpointsHang?: boolean
 }
 
 export interface ORMock {
   requests: ORCaptured[]
   /** the chat POSTs ("exactly one request" assertions) */
   posts(): ORCaptured[]
+  /** the decisions POSTs */
+  decisions(): ORCaptured[]
+  /** answer every decisions request a `hang` step holds (returns how many) */
+  releaseDecisions(): number
+  /** decisions requests held right now */
+  hanging(): number
+  /** answer every held /endpoints GET (returns how many) */
+  releaseEndpoints(): number
+  /** /endpoints GETs held right now */
+  endpointsHanging(): number
   /** requests to a path (GETs of /models, /endpoints, /key; POSTs of /auth/keys) */
   to(path: string | RegExp, method?: string): ORCaptured[]
 }
@@ -309,18 +392,25 @@ function orServed(body: AnyState | null): string {
 
 /** Endpoints of a model (synthesised — research § 4.7 shape, verify with a real key). */
 const orEndpoints = (id: string, list?: Array<{ tag: string; name?: string }>) => {
-  const eps = list ?? [{ tag: id === 'typesafe/jev-router' ? 'typesafe' : (id.split('/')[0] ?? 'nordwind'), name: id === 'typesafe/jev-router' ? 'TypeSafe' : 'Nordwind' }]
-  return { data: { id, name: id, endpoints: eps.map((e) => ({ name: `${e.name ?? e.tag} | ${id}`, model_name: id, context_length: 131072, pricing: { prompt: '0.0000003', completion: '0.0000012' }, provider_name: e.name ?? e.tag, tag: e.tag, quantization: 'fp8', max_completion_tokens: 16384, max_prompt_tokens: null, supported_parameters: ['max_tokens', 'response_format', 'structured_outputs', 'tools', 'reasoning'], status: 0, uptime_last_30m: 99.5, supports_implicit_caching: false })) } }
+  // TypeSafe runs the Jev Router and the Jev decision models (no parameters: decision rows list none)
+  const jev = id.startsWith('typesafe/')
+  const eps = list ?? [{ tag: jev ? 'typesafe' : (id.split('/')[0] ?? 'nordwind'), name: jev ? 'TypeSafe' : 'Nordwind' }]
+  const decide = jev && id !== 'typesafe/jev-router'
+  return { data: { id, name: id, endpoints: eps.map((e) => ({ name: `${e.name ?? e.tag} | ${id}`, model_name: id, context_length: decide ? 64000 : 131072, pricing: decide ? { prompt: '0.000000042', completion: '0' } : { prompt: '0.0000003', completion: '0.0000012' }, provider_name: e.name ?? e.tag, tag: e.tag, quantization: 'fp8', max_completion_tokens: 16384, max_prompt_tokens: null, supported_parameters: decide ? [] : ['max_tokens', 'response_format', 'structured_outputs', 'tools', 'reasoning'], status: 0, uptime_last_30m: 99.5, supports_implicit_caching: false })) } }
 }
 
 /**
  * openrouter.ai → scripted answers: chat POSTs (SSE from the documented chunk shapes, pre-stream errors, mid-stream error
- * frames, a hanging stream), the key check, the catalogue (the trimmed fixture), endpoint lists, the PKCE exchange and the
- * consent page. CORS preflights are answered. Never lets a request through.
+ * frames, a hanging stream), decisions POSTs (doc-shaped answers, the error table, malformed answers, a request held until
+ * released), the key check, the catalogues (the trimmed fixtures), endpoint lists, the PKCE exchange and the consent page.
+ * CORS preflights are answered. Never lets a request through.
  */
 export async function mockOpenRouter(ctx: BrowserContext | Page, opts: ORMockOpts = {}): Promise<ORMock> {
   const requests: ORCaptured[] = []
   let n = 0
+  let d = 0
+  const held: Array<() => void> = []
+  const epHeld: Array<() => void> = []
   await ctx.route('https://openrouter.ai/**', async (route) => {
     const req = route.request()
     if (req.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: orCors })
@@ -355,9 +445,16 @@ export async function mockOpenRouter(ctx: BrowserContext | Page, opts: ORMockOpt
         const target = typeof c === 'function' ? c(url) : orCallback(url.href, c)
         return route.fulfill({ status: 302, headers: { location: target } })
       }
+      if (req.method() === 'GET' && url.pathname === '/api/v1/models' && url.searchParams.get('output_modalities') === 'decisions') {
+        const c = opts.decisionsCatalogue ?? 'v1'
+        return typeof c === 'number' ? json(c, { error: { code: c, message: 'Service temporarily unavailable' } }) : json(200, OR_DECISIONS(c))
+      }
       if (req.method() === 'GET' && url.pathname === '/api/v1/models') return json(200, OR_CATALOGUE())
       const ep = url.pathname.match(/^\/api\/v1\/models\/(.+)\/endpoints$/)
-      if (req.method() === 'GET' && ep) return json(200, orEndpoints(ep[1]!, opts.endpoints?.[ep[1]!]))
+      if (req.method() === 'GET' && ep) {
+        if (opts.endpointsHang) await new Promise<void>((r) => epHeld.push(r))
+        return json(200, orEndpoints(ep[1]!, opts.endpoints?.[ep[1]!]))
+      }
       if (url.pathname === '/api/v1/key') {
         const k = opts.key ?? 'ok'
         if (typeof k === 'function') {
@@ -374,6 +471,38 @@ export async function mockOpenRouter(ctx: BrowserContext | Page, opts: ORMockOpt
         if (x === 'cors') return route.abort('failed')
         if (typeof x === 'number') return json(x, { error: { code: x, message: x === 400 ? 'Invalid code_challenge_method' : 'Invalid code or code_verifier' } })
         return json(200, { key: x, user_id: 'user_e2e_fixture' })
+      }
+      if (req.method() === 'POST' && url.pathname === '/api/alpha/decisions') {
+        const i = d++
+        if (opts.strictParams && body?.provider && typeof body.provider === 'object' && 'require_parameters' in body.provider) return json(404, { error: { code: 404, message: 'No endpoints found that support the requested parameters and provider preferences.' } })
+        const raw = opts.decisions?.[i] ?? opts.decisionsFallback ?? { answers: clearAnswers(body) }
+        let step = typeof raw === 'function' ? raw(cap, i) : raw
+        for (;;) {
+          if ('delay' in step) {
+            const ms = step.delay
+            await new Promise((r) => setTimeout(r, ms))
+            step = step.then
+          } else if ('hang' in step) {
+            await new Promise<void>((r) => held.push(r))
+            step = step.then ?? { answers: clearAnswers(body) }
+          } else break
+        }
+        if ('error' in step) {
+          const e = DECIDE_ERRORS[step.error]
+          if (!e) throw new Error(`no decisions error named "${step.error}"`)
+          return json(e.status, e.json, e.headers)
+        }
+        if ('status' in step) return json(step.status, step.json, step.headers)
+        if ('raw' in step) return json(200, step.raw)
+        if ('malformed' in step) {
+          const answers = clearAnswers(body)
+          const keys = Object.keys(answers)
+          if (step.malformed === 'missing') delete answers[keys[keys.length - 1]!]
+          else if (step.malformed === 'noul') answers[keys.find((k) => (answers[k] as AnyState).type === 'noul') ?? keys[0]!] = { type: 'noul', noul: 1.4 }
+          else answers[keys[0]!] = { type: 'choice', choice: 'not-offered', confidence: 0.9 }
+          return json(200, decideBody({ answers }, body))
+        }
+        return json(200, decideBody(step as Extract<DecideStep, { answers: unknown }>, body))
       }
       if (req.method() === 'POST' && url.pathname === '/api/v1/chat/completions') {
         const i = n++
@@ -401,6 +530,11 @@ export async function mockOpenRouter(ctx: BrowserContext | Page, opts: ORMockOpt
   return {
     requests,
     posts: () => requests.filter((r) => r.method === 'POST' && r.path === '/api/v1/chat/completions'),
+    decisions: () => requests.filter((r) => r.method === 'POST' && r.path === '/api/alpha/decisions'),
+    releaseDecisions: () => held.splice(0).map((r) => r()).length,
+    hanging: () => held.length,
+    releaseEndpoints: () => epHeld.splice(0).map((r) => r()).length,
+    endpointsHanging: () => epHeld.length,
     to: (path, method) => requests.filter((r) => (typeof path === 'string' ? r.path === path : path.test(r.path)) && (!method || r.method === method)),
   }
 }

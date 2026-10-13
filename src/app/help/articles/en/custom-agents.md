@@ -36,6 +36,9 @@ Messages about runs never cover a dialog: one that comes while a dialog is open 
 ### Tasks wait for you
 An agent that may **Apply directly** writes most changes at once — but a change to [tasks](help:tasks) waits for your review when it names a person (an owner or an @-mention), sets a reminder, changes a task someone is assigned to (any field, or its text), adds a blocker to an existing task or removes tasks. A change that depends on such a change waits with it. The run is listed with **Proposals** and the note *1 change waits for your review …*; apply or discard it under **Runs** like any proposal, by keyboard or touch. An agent names people — “me” means nobody for an agent. A server agent's proposals never make tasks: its `[!TODO]` lines stay quotes.
 
+## Check (section 06)
+With OpenRouter set up, section **06 Check** of the editor can have [Jev pre-check](help:ai-jev) every proposal of the agent: **Pre-check** (off by default), the threshold to **mark below** (start value 0.70), **On concerns: Mark only | Hold back**, and for an agent that may **Apply directly** the **Write gate** — the whole run waits unless every check of every change is at or above 0.90. Jev never writes and never counts as your trust. Server agents get this after a server update; until then the server skips an agent with a pre-checker and says why.
+
 ## Browser or server
 - **Browser** agents run in One while a tab is open — with your Claude key and your MCP servers. A scheduled run missed while One was closed happens once, the next time it opens.
 - **Server** agents (team workspaces) run on the team server around the clock, with a Claude key and MCP servers an admin sets up under **Settings → Agents · MCP**.

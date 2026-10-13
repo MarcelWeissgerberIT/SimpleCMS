@@ -16,6 +16,8 @@ export { AgentsNavBadge, useAgentsAttention } from './NavBadge'
 export { ServerAgentsSettings } from './ServerAgentsSettings'
 export { agentLabel } from './label'
 export { runNow as runAgentNow } from './actions'
+/** An agent's editor opened at section 06 "Check" (Preflight's Vorprüfer lamps) */
+export { openAgentCheck } from './try'
 /** Read-outs for overviews (the workspace page's Automation section): a trigger in words · this device's runs of an agent */
 export { triggerText as agentTriggerText, nextRunAt as agentNextRunAt } from './format'
 export { loadRuns as loadAgentRuns, useAgentRuns } from './runs'
@@ -28,7 +30,7 @@ export { loadRuns as loadAgentRuns, useAgentRuns } from './runs'
  *    server agents (agent-runs/open, polled only while the tab is visible) → useServerAgents.open / openLatest
  */
 export { onRunsChanged, primeSlots, cachedSlot } from './runs'
-export { staleMirrors, missedAgents, creatorConfirms, healthFitted, scheduledHere, workingMsBetween, type HealthItem } from './health'
+export { staleMirrors, missedAgents, creatorConfirms, healthFitted, scheduledHere, workingMsBetween, jevHealth, type HealthItem } from './health'
 export { useServerAgents, loadOpenServerRuns, startOpenServerPoll, ownServerAgentIds, type ServerRunHead } from './server'
 /**
  * Integration profiles (integrations/): useUnlocked(feature) / unlocked(feature) — is it unlocked on this device (an

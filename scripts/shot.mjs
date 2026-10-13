@@ -5,8 +5,9 @@
  *        [--mobile] [--eval "<js run in page before shot>"] [--click "<css selector>"] [--type "text"]
  *        [--clear-storage]
  * Prints console errors from the page. Uses the preinstalled Chromium (PLAYWRIGHT_BROWSERS_PATH).
- * No real AI host: api.anthropic.com, api.openai.com and openrouter.ai are aborted (OpenRouter's catalogue and endpoint
- * lists come from the test fixture) — scripts/lib/aiHosts.mjs; the line "AI hosts: …" says what was asked for.
+ * No real AI host: api.anthropic.com, api.openai.com and openrouter.ai are aborted (OpenRouter's catalogues — models and
+ * decision models — and endpoint lists come from the test fixtures; a decisions POST is aborted too) —
+ * scripts/lib/aiHosts.mjs; the line "AI hosts: …" says what was asked for.
  */
 import { chromium } from 'playwright'
 import { routeAIHosts } from './lib/aiHosts.mjs'

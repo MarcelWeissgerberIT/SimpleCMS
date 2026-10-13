@@ -9,7 +9,8 @@
  *     brings its page's member classes only — D-S2-27);
  *  4. the route (core/resolve.ts): chip → device rule → workspace rule → device default → workspace default → legacy
  *     (Claude with this device's model); the winning rule's pins through the filters key · model · capability · data
- *     rule; no rule and no key: demo when on, else 'no_key';
+ *     rule; no rule and no key: demo when on, else 'no_key'. The class 'gate' (a decision model, slice SJ): the agent's
+ *     own Vorprüfer → device rule → workspace rule (no chip), a Jev version only — no rule: 'no_route' (never demo);
  *  5. the backstop (D-S2-5): a request carrying page-derived data to a route that does not see everything must say its
  *     text went through that route's redaction and page filter (`applied`), else 'policy' — an unconverted call site
  *     fails closed instead of leaking names or pages;
@@ -72,6 +73,8 @@ export interface PrepareInput {
   route?: Route | null
   /** a model the call picks itself (a custom agent's own model) — else this device's */
   model?: string | null
+  /** class 'gate': the agent's own Vorprüfer (review v2 `decider`) — before the device's rule (a decision takes no chip) */
+  decider?: Route | null
   /**
    * The request's size: its prompt in characters (documents and pictures counted as what they cost) and its answer
    * budget (max_tokens; a function when it depends on what the model can do) — the estimate band the brake hook gets
@@ -154,6 +157,11 @@ if (typeof window !== 'undefined' && new URLSearchParams(window.location.search)
         return e instanceof AIError ? (JSON.parse(JSON.stringify({ ok: false, code: e.code, detail: e.detail ?? null, fix: e.fix ?? null, fixes: e.fixes ?? [], label: e.label ?? null })) as unknown) : { ok: false, code: 'unknown', detail: String(e) }
       }
     },
+    // decisions (slice SJ): the decisions catalogue, one decide request through the gate, the tab's cooldown
+    loadDecisions: (force?: boolean) => import('./catalog').then((m) => m.loadDecisionCatalog({ force: !!force })).then((c) => (c ? { at: c.at, ids: c.rows.map((r) => r.id) } : null)),
+    decide: (input: unknown) => import('./decide').then((m) => m.decideSeam(input)),
+    decideCooldown: () => import('./decide').then((m) => m.decideCooldown()),
+    resetDecideCooldown: () => import('./decide').then((m) => m.resetDecideCooldown()),
     // can a build of generation `gen` enforce the stored rules? (an older tab, simulated)
     policyKnownAt: (gen: number) => {
       const st = useWorkspace.getState()
@@ -238,9 +246,10 @@ function world(): RouteWorld {
   }
 }
 
-/** The resolution for a request (the e2e seam's forced route first, `?e2e` only). */
-function resolveFor(cls: FeatureClass, o: { chip?: Route | null; model?: string | null; caps: readonly Need[]; classes: readonly DataClass[] }): Resolved {
-  return resolveRoute({ cls, forced, chip: o.chip ? sanitizeRoute(o.chip) : null, model: o.model, caps: o.caps, classes: o.classes }, world())
+/** The resolution for a request (the e2e seam's forced route first, `?e2e` only — never for a decision). */
+function resolveFor(cls: FeatureClass, o: { chip?: Route | null; model?: string | null; decider?: Route | null; caps: readonly Need[]; classes: readonly DataClass[] }): Resolved {
+  const gate = cls === 'gate'
+  return resolveRoute({ cls, forced: gate ? null : forced, chip: !gate && o.chip ? sanitizeRoute(o.chip) : null, model: o.model, decider: gate && o.decider ? sanitizeRoute(o.decider) : null, caps: o.caps, classes: o.classes }, world())
 }
 
 /** What a request carries: the purpose's needs ∪ carries ∪ the sources' classes (one classOfPage memo per request). */
@@ -274,7 +283,9 @@ function gate(input: PrepareInput, held: boolean): Prepared {
   const classes = requestClasses(input, w)
   // 4 · the route
   const caps = [...new Set([...purpose.caps, ...(input.needs ?? [])])]
-  const res = resolveFor(purpose.cls, { chip: input.route, model: input.model, caps, classes: [...classes] })
+  const res = resolveFor(purpose.cls, { chip: input.route, model: input.model, decider: input.decider, caps, classes: [...classes] })
+  // a decision nobody chose a Vorprüfer for: nothing is sent (never demo, never Claude)
+  if (!res.ok && res.none && res.code === 'no_route') throw new AIError('no_route', 'gate', undefined, undefined, [{ kind: 'step', step: 'models', provider: 'openrouter' }])
   if (!res.ok && res.none) {
     if (usesDemo()) return { purpose: input.purpose, cls: purpose.cls, route: null, provider: 'demo', model: 'demo', caps: null, classes: [...classes], steps: res.steps, reservation: null, level: null, label: 'Demo', ...DEMO_SHAPE }
     throw new AIError('no_key', undefined, undefined, undefined, [{ kind: 'step', step: 'key', provider: 'anthropic' }])
@@ -336,6 +347,19 @@ export function routeFor(purposeId: PurposeId, o: { route?: Route | null } = {})
   return { route, label: labelFor(route) }
 }
 
+/**
+ * The Vorprüfer a pre-check would ask now (slice SJ, the class 'gate'): the agent's own `decider`, else this device's,
+ * else the workspace's rule — no default, no legacy. `route` is the pin that level names even when it is refused here
+ * (`code` says why: no key, a data rule …); null with 'no_route' = nobody chose one.
+ */
+export function deciderRoute(decider?: Route | null): { route: Route | null; level: 'agent' | 'device' | 'workspace' | null; code: AIErrorCode | 'no_route' | null } {
+  const purpose = purposeOf('gate.precheck')
+  const res = resolveFor('gate', { decider: decider ?? null, caps: purpose.caps, classes: [...purpose.needs] })
+  if (res.ok) return { route: res.route, level: res.level === 'agent' || res.level === 'device' || res.level === 'workspace' ? res.level : null, code: null }
+  if (res.none) return { route: null, level: null, code: 'no_route' }
+  return { route: res.route, level: res.level === 'agent' || res.level === 'device' || res.level === 'workspace' ? res.level : null, code: res.code }
+}
+
 export interface AIStatus {
   /** a request would go out (or get a demo answer) */
   ready: boolean
@@ -343,8 +367,9 @@ export interface AIStatus {
   route: Route | null
   demo: boolean
   /** why it would not: 'reload' (newer rules) · 'no_key' · 'off' · 'policy' · 'capability' · 'route' (this kind of work
-   *  runs only on a provider without a key here — "Claude einrichten") · 'model_gone' */
-  reason: 'reload' | 'no_key' | 'off' | 'policy' | 'capability' | 'route' | 'model_gone' | null
+   *  runs only on a provider without a key here — "Claude einrichten") · 'model_gone' · 'no_route' (a decision: no
+   *  Vorprüfer chosen) */
+  reason: 'reload' | 'no_key' | 'off' | 'policy' | 'capability' | 'route' | 'model_gone' | 'no_route' | null
   /** what to do about it (the first refused pin's) */
   fix?: AIFix
 }
@@ -357,6 +382,7 @@ export function aiStatus(purposeId: PurposeId): AIStatus {
   const purpose = purposeOf(purposeId)
   const res = resolveFor(purpose.cls, { caps: purpose.caps, classes: [...purpose.needs] })
   if (res.ok) return { ready: true, route: res.route, demo: false, reason: null }
+  if (res.none && res.code === 'no_route') return { ready: false, route: null, demo: false, reason: 'no_route', fix: { kind: 'step', step: 'models', provider: 'openrouter' } }
   if (res.none) {
     if (usesDemo()) return { ready: true, route: null, demo: true, reason: null }
     // a key for another provider that does not take this kind of work (yet): set up Claude for it

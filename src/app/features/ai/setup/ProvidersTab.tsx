@@ -36,6 +36,8 @@ import { MemberData } from './MemberData'
 import { openAISetup } from './openAISetup'
 import { helpFor } from './errors'
 import { Rich } from './AINeedsSetup'
+import { GateSetting } from '../decide/ui/GateRow'
+import { isJevModel } from '@/shared/ai/jev'
 import './plates.css'
 import './settings.css'
 
@@ -63,7 +65,7 @@ const ROWS: Array<{ id: string; classes: FeatureClass[] }> = [
   { id: 'help', classes: ['help'] },
   { id: 'mcp', classes: ['mcp-setup', 'generate'] },
 ]
-// 'review' and 'gate' are slices of their own (S6 / SJ) — not shown in S2
+// 'review' is a slice of its own (S6); 'gate' (slice SJ) has its own row below: Jev versions only, starts off
 
 export function ProvidersTab({ section }: { section?: 'mcp' | 'memory' }) {
   const t = useT()
@@ -273,6 +275,13 @@ function DeviceRows() {
             ))}
           </select>
         </label>
+        <GateSetting
+          ready={orKey}
+          value={device?.routes?.gate?.[0]?.p === 'openrouter' && isJevModel(device.routes.gate[0].m) ? device.routes.gate[0].m : null}
+          onChange={(id) => setDeviceRule('gate', id ? [{ p: 'openrouter', m: id }] : null)}
+          verify={device?.jev?.verify === true}
+          onVerify={(on) => setDeviceAI({ jev: { ...(useWorkspace.getState().settings.ai?.jev ?? {}), verify: on } })}
+        />
         {ROWS.map((row) => {
           const opts = routeOptions(t, row.classes)
           const later = orKey && !row.classes.every((c) => routable('openrouter', c))

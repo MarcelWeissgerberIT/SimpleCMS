@@ -37,6 +37,8 @@ Ein Urteil entsteht nur, wenn **du** über **einen** Vorschlag entscheidest, den
 
 Eine Änderung an den Feldern einer [Aufgabe](help:tasks) — Status, Termin, Verantwortliche oder worauf sie wartet — ergibt in dieser Version **kein Urteil**, wie auch immer du entscheidest: Die Tasten wirken darauf wie auf jeden Vorschlag, die Messleiste bleibt, wie sie ist. Text, der Aufgaben anlegt (an eine Seite angehängt, eine neue Seite oder Zeile), zählt wie jeder andere Text.
 
+**Jev zählt nie als dein Vertrauen**: Eine [Vorprüfung](help:ai-jev) markiert oder hält zurück, sie schreibt kein Urteil — ein zurückgehaltener Vorschlag, den du einzeln übernimmst, ist dein Urteil wie jedes andere (es merkt sich nur, was Jev gesagt hatte).
+
 **Alle übernehmen**, **Alle verwerfen**, **⇧A** und **X** in Preflight, Agenten, die direkt anwenden, das KI-Terminal, eine Preflight-Karte, deren Inhalt noch lud, und eine Entscheidung, die der Team-Server nicht angenommen hat, schreiben **nichts**. **Rückgängig** deiner Entscheidung nimmt ihr Urteil zurück — ein Rückgängig, das ein inzwischen von dir bearbeitetes Feld stehen lässt, nimmt die Urteile der Felder zurück, die es zurückgesetzt hat.
 
 **Auswerfen** im [Flugschreiber](help:flight-recorder) ist keine Entscheidung über einen Vorschlag: Es schreibt, löscht und ändert kein Urteil — was du vorher entschieden hast, bleibt, wie es war, und ein Vorschlag, den es zurückgenommen hat, wird nicht mehr auf deine eigene Änderung beobachtet. Seine Vorschläge heißen **Ausgeworfen** und haben keine Tasten mehr; **Auswurf zurücknehmen** bringt sie zurück, ebenfalls ohne Urteil.

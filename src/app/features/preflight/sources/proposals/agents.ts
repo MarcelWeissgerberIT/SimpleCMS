@@ -46,6 +46,8 @@ export function agentItems(): QueueItem[] {
         const row = run.rowIds?.[c.pageId] ?? c.pageId
         const send = c.kind === 'send'
         const shown = AGENT_BODY_KINDS.includes(c.kind)
+        // held back by the agent's Vorprüfer (slice SJ): VON HAND, never in ⇧A / X / a swipe — applied only on its own
+        const held = c.status === 'held'
         const fields = c.props?.length ? c.props.map((p) => p.name).join(', ') : ''
         out.push({
           id: idOf(run, c),
@@ -54,8 +56,8 @@ export function agentItems(): QueueItem[] {
           tag: agent.name,
           refs: { agentId: agent.id, runId: run.id, changeId: c.id, pageId: row, ...(c.databaseId ? { dbId: c.databaseId } : {}) },
           at: run.startedAt,
-          hand: send ? ['sends'] : shown ? [] : ['editor'],
-          bulk: !send && shown,
+          hand: send ? ['sends'] : !shown ? ['editor'] : held ? ['held'] : [],
+          bulk: !send && shown && !held,
           ...(send || !shown ? { resolveBy: 'reading' as const } : {}),
           ...(c.supersedes?.length ? { supersedes: c.supersedes.map((s) => ({ at: s.at })) } : {}),
           // a rename: the body shows the old title struck → the new one
@@ -85,7 +87,8 @@ const undoOf = (run: AgentRun, changeId: string) => async (): Promise<UndoOutcom
 }
 
 async function applyOne(run: AgentRun, c: StagedChange, judged: boolean): Promise<Done> {
-  const res = await applyAgent(run, [c.id], judged)
+  // ONE card's A: a held proposal may go (on its own); the store's run is read again under its lock
+  const res = await applyAgent(run, [c.id], judged, true)
   if (!res) return { ok: false, error: 'features.preflight.err.elsewhere', elsewhere: true }
   const failed = res.failed.find((f) => f.id === c.id)
   if (failed) return { ok: false, error: failed.error }
@@ -158,8 +161,10 @@ export function agentActions(item: QueueItem): CardAction[] {
     ...(r === 'wrong' ? { also: [wrongLetter(lang)] } : {}),
     run: (_it: QueueItem, _input?: string, ctx?: { seen: boolean }) => discardOne(run, c, { reason: r, judged: ctx?.seen === true }),
   }))
+  // a held proposal's A is VON HAND: the confirm row first ("the pre-check holds it back"), never ⇧A or a swipe
+  const held = c.status === 'held'
   return [
-    { key: 'a', label: t('features.preflight.card.apply'), outcome: 'applied', writes: true, undoable: browser, blocked, run: (_it, _input, ctx) => applyOne(run, c, ctx?.seen === true) },
+    { key: 'a', label: t('features.preflight.card.apply'), outcome: 'applied', writes: true, undoable: browser, blocked, ...(held ? { hand: ['held' as const] } : {}), run: (_it, _input, ctx) => applyOne(run, c, ctx?.seen === true) },
     { key: 'd', label: t('features.preflight.card.discard'), outcome: 'discarded', writes: true, undoable: browser, blocked: stop, run: (_it, _input, ctx) => discardOne(run, c, { judged: ctx?.seen === true }) },
     ...reasons,
     open,

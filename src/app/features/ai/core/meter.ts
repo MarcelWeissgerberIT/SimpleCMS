@@ -68,6 +68,8 @@ export interface MeterOpts {
   /** the ledger's source id (fixed ids only — 'ai:<run>' …); default: the purpose */
   source?: string
   role?: LedgerRole
+  /** the entries of one job (a run id — the decisions of one agent run) */
+  group?: string
   /** the call's abort signal: taps on it hear of every entry (runs.ts) */
   signal?: AbortSignal | null
   /** the call's receipt so far, after every response */
@@ -105,7 +107,7 @@ export function tapSignal(signal: AbortSignal, tap: { source?: string; onEntry?:
 /* ------------------------------------------------------------------ */
 
 /** One response → its ledger entry (null: demo, nothing was sent). */
-export function meterResponse(prepared: Prepared, opts: Pick<MeterOpts, 'source' | 'role'>, r: ResponseInput): LedgerEntry | null {
+export function meterResponse(prepared: Prepared, opts: Pick<MeterOpts, 'source' | 'role' | 'group'>, r: ResponseInput): LedgerEntry | null {
   const route = prepared.route
   if (!route || prepared.provider === 'demo') return null
   const served = r.served && typeof r.served === 'string' ? r.served : route.m
@@ -150,6 +152,7 @@ export function meterResponse(prepared: Prepared, opts: Pick<MeterOpts, 'source'
     cls: prepared.cls,
     source: opts.source || prepared.purpose,
     role: opts.role ?? 'main',
+    ...(opts.group ? { group: opts.group.slice(0, 120) } : {}),
     route: routeKey(route),
     served: { p: route.p, model: servedRoute.m, ...(r.upstream ? { upstream: r.upstream.slice(0, 80) } : {}) },
     classes: [...prepared.classes],
@@ -249,7 +252,7 @@ export function meterCall(prepared: Prepared, opts: MeterOpts = {}): MeterCall {
   return {
     response(r) {
       const tap = opts.signal ? taps.get(opts.signal) : undefined
-      const e = meterResponse(prepared, { role: opts.role, source: opts.source || tap?.source }, r)
+      const e = meterResponse(prepared, { role: opts.role, source: opts.source || tap?.source, ...(opts.group ? { group: opts.group } : {}) }, r)
       if (!e) return null
       receipt = addToReceipt(receipt, e)
       try {

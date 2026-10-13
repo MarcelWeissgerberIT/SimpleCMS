@@ -43,7 +43,7 @@ import { NO_USAGE, addUsage, affordableOutput, costOf } from './pricing.ts'
 import { ToolInputError, explain } from './stage.ts'
 import { type ToolCtx, type ToolUnlocks, RESULT_CHARS, clipResult, toolsFor } from './tools.ts'
 import { type AgentStateRow, type CustomAgent, type RunStep, type RunUsage, type Runtime, type StagedChange, agentActor } from './types.ts'
-import { runsOnClaude } from '../../../src/shared/ai/route.ts'
+import { decisionChecks, runsOnClaude } from '../../../src/shared/ai/route.ts'
 
 export const DEFAULT_MODEL = 'claude-opus-5-5'
 /** Rounds of tool calls per run; then Claude is told to wrap up (one more answer, no more tools). */
@@ -245,6 +245,8 @@ export async function runAgent(input: RunInput): Promise<RunOutcome> {
   if (!runtime.claudeKey) return outcome('error', 'The server runtime has no Claude key.')
   // a first pin on another provider, or a route this server cannot read, never reaches the Claude API (the service
   // skips such runs before they start)
+  // a Vorprüfer (review v2): never run here (the service skips it with its reason; this is the backstop)
+  if (decisionChecks(agent) !== null) return outcome('error', 'This agent has a pre-checker (Jev): pre-checks run in the browser only — this server does not run it yet.')
   if (!runsOnClaude(agent)) return outcome('error', 'This agent needs a newer server: its route is not Claude, or one this server cannot read.')
 
   // MCP servers the agent names and the runtime has (the rest is noted, not fatal); only the tools its allow-list names

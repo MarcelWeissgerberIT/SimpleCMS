@@ -8,7 +8,7 @@
  */
 import type { ID } from '../../../store/types'
 import { resolveMissing, resumeFolder } from '../../sync'
-import { applyRun, discardRun, runAgentNow, undoChangeEach, type Discarded } from '../../agents'
+import { applyRun, discardRun, openAgentCheck, runAgentNow, undoChangeEach, type Discarded } from '../../agents'
 import type { AgentRun } from '../../agents/types'
 import type { DiscardReason } from '../../ai/agent/types'
 import type { CustomAgent } from '../../../store/types'
@@ -33,14 +33,20 @@ export const settleMissing = (trash: boolean): Promise<void> => resolveMissing(t
 
 /* ---------------- agents (review.ts: the run lock, the stored run read again, open proposals only) */
 
-/** `judged`: ONE card shown in full at its revision — the decision counts as a verdict of the agent's per-field trust */
-export const applyAgent = (run: AgentRun, ids: string[], judged = false): Promise<ApplyResult | null> => applyRun(run, ids, { row: true, judged })
+/**
+ * `judged`: ONE card shown in full at its revision — the decision counts as a verdict of the agent's per-field trust;
+ * `single`: ONE card's own A (a held proposal goes only this way — never in ⇧A)
+ */
+export const applyAgent = (run: AgentRun, ids: string[], judged = false, single = false): Promise<ApplyResult | null> => applyRun(run, ids, { row: true, judged, ...(single ? { single } : {}) })
 /** The Undo of a batch applied from a card: what it did to each change (null: nothing to undo here any more). */
 export const undoAgent = (run: AgentRun, changeId: string): Promise<Record<string, 'undone' | 'kept' | 'final'> | null> => undoChangeEach(run, changeId)
 /** `row`: ONE card's discard (its Undo kept in the agent page's rows too, never a bulk X's); `reason`: why (1–4 / F / W); `judged`: as for applyAgent */
 export const discardAgent = (run: AgentRun, ids: string[], opts: { row?: boolean; reason?: DiscardReason; judged?: boolean } = {}): Promise<Discarded> => discardRun(run, ids, { undo: true, ...opts })
 /** "Run now" of a missed scheduled agent (it costs tokens: VON HAND). */
 export const runAgent = (agent: CustomAgent): Promise<void> => runAgentNow(agent)
+
+/** A Vorprüfer lamp's key: the agent's editor at section 06 (confirm a new Jev version, see why the pre-check fails). */
+export const openAgentChecks = (agentId: ID): void => openAgentCheck(agentId)
 
 /* ---------------- the AI terminal (its session, loaded on first use) */
 

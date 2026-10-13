@@ -8,13 +8,18 @@
  *  - endpointsOf(): `GET /api/v1/models/{author}/{slug}/endpoints` — who serves a model (the tags `provider.only` takes),
  *    only for the shortlist's models, the router, the ≤ 3 role suggestions and a picker's visible rows; ≤ 24 h old.
  *  - pinsFor() / routerPinsFor(): the endpoints a request may use under the workspace's deny list (D-S2-13, D-S2-23).
+ *  - loadDecisionCatalog() (slice SJ): `GET /api/v1/models?output_modalities=decisions` — the decision models (only the
+ *    Jev family is asked; the rest is listed dimmed), on demand only (setup step 03, the Vorprüfer picker, an agent's
+ *    section 06, a decision without any price known); kept with its date and used at ANY age for the price (the
+ *    response's `usage.cost` is the bill); fills the sync rows the registry reads (core/decisionRows.ts).
  * A Claude-only person never fetches anything here.
  */
 import { createStore, get, set, type UseStore } from 'idb-keyval'
 import type { UpstreamRule } from '@/shared/ai/types'
-import { expandCatalog, trimCatalog, type CatalogRow, type StoredCatalog } from '@/shared/ai/catalog'
+import { expandCatalog, readDecisionRows, trimCatalog, type CatalogRow, type DecisionRow, type StoredCatalog } from '@/shared/ai/catalog'
 import { JEV_OPERATOR, JEV_ROUTER } from '@/shared/ai/jev'
 import { OR_API } from '@/shared/ai/wire/openrouterChat'
+import { noteDecisionRows } from './decisionRows'
 
 export const CATALOG_DB = 'one-ai-catalog'
 const DAY_MS = 86_400_000
@@ -56,6 +61,43 @@ async function writeKey(key: string, v: unknown): Promise<void> {
   } catch {
     broken = true
   }
+}
+
+/** A read of the decisions catalogue or of an endpoint list never takes longer than this — a hanging answer must not
+ *  hold a pre-check, a run or a picker. */
+export const CATALOG_FETCH_MS = 8_000
+
+/** One public GET → its JSON, under its own time limit (never a caller's stop: the read may be shared). */
+async function getJson(url: string): Promise<unknown> {
+  const ctl = new AbortController()
+  const timer = setTimeout(() => ctl.abort(), CATALOG_FETCH_MS)
+  try {
+    const res = await fetch(url, { method: 'GET', credentials: 'omit', signal: ctl.signal })
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    return (await res.json()) as unknown
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+/** The caller stops waiting once its signal fires (it gets `fallback`) — a shared read goes on for the others. */
+function until<T>(p: Promise<T>, signal: AbortSignal | undefined, fallback: T): Promise<T> {
+  if (!signal) return p
+  if (signal.aborted) return Promise.resolve(fallback)
+  return new Promise<T>((resolve, reject) => {
+    const stop = () => resolve(fallback)
+    signal.addEventListener('abort', stop, { once: true })
+    p.then(
+      (v) => {
+        signal.removeEventListener('abort', stop)
+        resolve(v)
+      },
+      (e: unknown) => {
+        signal.removeEventListener('abort', stop)
+        reject(e)
+      },
+    )
+  })
 }
 
 /* ------------------------------------------------------------------ */
@@ -115,6 +157,79 @@ export async function peekCatalog(): Promise<Catalog | null> {
 export const catalogFresh = (c: Catalog | null | undefined): c is Catalog => !!c && Date.now() - c.at < CATALOG_MAX_AGE
 
 /* ------------------------------------------------------------------ */
+/* Decision models (slice SJ)                                           */
+/* ------------------------------------------------------------------ */
+
+export const OR_DECISIONS_URL = `${OR_API}/models?output_modalities=decisions`
+
+export interface DecisionCatalog {
+  /** when it was read (ms) */
+  at: number
+  rows: DecisionRow[]
+}
+
+let decisionMemo: DecisionCatalog | null = null
+let decisionInflight: Promise<DecisionCatalog | null> | null = null
+/** a failed read is not tried again for a minute (a run of many changes asks once) */
+const DECISIONS_RETRY_MS = 60_000
+let decisionFailedAt = 0
+
+const keepDecisions = (c: DecisionCatalog): DecisionCatalog => {
+  noteDecisionRows(c.rows, c.at)
+  return (decisionMemo = c)
+}
+
+/** A stored decisions catalogue (rows read again by this build — a newer rule wins over what was kept). */
+function readStoredDecisions(v: unknown): DecisionCatalog | null {
+  if (!v || typeof v !== 'object') return null
+  const o = v as { at?: unknown; raw?: unknown }
+  if (typeof o.at !== 'number' || !Number.isFinite(o.at)) return null
+  return { at: o.at, rows: readDecisionRows(o.raw, new Date(o.at).toISOString().slice(0, 10)) }
+}
+
+/**
+ * The decisions catalogue (null: none here and it could not be read). What the device holds is used at any age unless
+ * `force` (one public GET now) or `maxAge` (ms — a picker that shows prices) says otherwise; nothing held → one GET (at
+ * most CATALOG_FETCH_MS). `signal`: the caller stops waiting (it gets what the tab holds) — the read itself goes on.
+ */
+export async function loadDecisionCatalog(o: { force?: boolean; maxAge?: number; signal?: AbortSignal } = {}): Promise<DecisionCatalog | null> {
+  const fresh = (c: DecisionCatalog | null) => !!c && (o.maxAge === undefined || Date.now() - c.at < o.maxAge)
+  if (!o.force && fresh(decisionMemo)) return decisionMemo
+  if (decisionInflight) return until(decisionInflight, o.signal, decisionMemo)
+  if (!o.force && Date.now() - decisionFailedAt < DECISIONS_RETRY_MS) return decisionMemo
+  decisionInflight = (async () => {
+    if (!o.force) {
+      const stored = readStoredDecisions(await readKey<unknown>('decisions'))
+      if (stored && fresh(stored)) return keepDecisions(stored)
+    }
+    try {
+      const json = await getJson(OR_DECISIONS_URL).catch((e: unknown) => {
+        throw new Error(`decision models: ${e instanceof Error ? e.message : String(e)}`)
+      })
+      const at = Date.now()
+      // kept as listed (trimmed to the rows One reads) — small: the decisions list holds a few dozen rows
+      const raw = { data: (json && typeof json === 'object' && Array.isArray((json as { data?: unknown }).data) ? (json as { data: unknown[] }).data : []).slice(0, 200) }
+      await writeKey('decisions', { at, raw })
+      decisionFailedAt = 0
+      return keepDecisions({ at, rows: readDecisionRows(raw, new Date(at).toISOString().slice(0, 10)) })
+    } catch (e) {
+      decisionFailedAt = Date.now()
+      console.warn('[one] the decision models could not be read', e instanceof Error ? e.message : e)
+      const stored = readStoredDecisions(await readKey<unknown>('decisions'))
+      return stored ? keepDecisions(stored) : decisionMemo
+    }
+  })().finally(() => (decisionInflight = null))
+  return until(decisionInflight, o.signal, decisionMemo)
+}
+
+/** The decisions catalogue this device already holds, however old — never a request (null: none). */
+export async function peekDecisionCatalog(): Promise<DecisionCatalog | null> {
+  if (decisionMemo) return decisionMemo
+  const stored = readStoredDecisions(await readKey<unknown>('decisions'))
+  return stored ? keepDecisions(stored) : null
+}
+
+/* ------------------------------------------------------------------ */
 /* Endpoints and pins                                                   */
 /* ------------------------------------------------------------------ */
 
@@ -152,7 +267,10 @@ export function readEndpoints(json: unknown): Endpoint[] {
 
 const epInflight = new Map<string, Promise<EndpointList | null>>()
 
-/** Who serves a model (null: the list could not be read and none is kept). `refresh` reads it again now. */
+/**
+ * Who serves a model (null: the list could not be read and none is kept). `refresh` reads it again now. A read takes at
+ * most CATALOG_FETCH_MS (then the kept list, however old); `signal`: the caller stops waiting (null) — the read goes on.
+ */
 export async function endpointsOf(id: string, o: { refresh?: boolean; signal?: AbortSignal } = {}): Promise<EndpointList | null> {
   if (!SLUG_RE.test(id)) return null
   const key = `ep:${id}`
@@ -161,12 +279,13 @@ export async function endpointsOf(id: string, o: { refresh?: boolean; signal?: A
     if (kept && Date.now() - kept.at < CATALOG_MAX_AGE) return kept
   }
   const running = epInflight.get(id)
-  if (running) return running
+  if (running) return until(running, o.signal, null)
   const job = (async () => {
     try {
-      const res = await fetch(`${OR_API}/models/${id}/endpoints`, { method: 'GET', credentials: 'omit', signal: o.signal })
-      if (!res.ok) throw new Error(`endpoints: HTTP ${res.status}`)
-      const list: EndpointList = { at: Date.now(), endpoints: readEndpoints(await res.json()) }
+      const json = await getJson(`${OR_API}/models/${id}/endpoints`).catch((e: unknown) => {
+        throw new Error(`endpoints: ${e instanceof Error ? e.message : String(e)}`)
+      })
+      const list: EndpointList = { at: Date.now(), endpoints: readEndpoints(json) }
       await writeKey(key, list)
       return list
     } catch (e) {
@@ -175,7 +294,7 @@ export async function endpointsOf(id: string, o: { refresh?: boolean; signal?: A
     }
   })().finally(() => epInflight.delete(id))
   epInflight.set(id, job)
-  return job
+  return until(job, o.signal, null)
 }
 
 /** Write endpoint lists (the e2e seam: specs seed them instead of fetching). */
@@ -193,7 +312,7 @@ export interface Pins {
 }
 
 /** The endpoints a request to a model may use: its list minus the deny list (null: no list, or nothing left). */
-export async function pinsFor(id: string, upstream: Pick<UpstreamRule, 'deny'>, o: { refresh?: boolean } = {}): Promise<Pins | null> {
+export async function pinsFor(id: string, upstream: Pick<UpstreamRule, 'deny'>, o: { refresh?: boolean; signal?: AbortSignal } = {}): Promise<Pins | null> {
   const list = await endpointsOf(id, o)
   const ok = (list?.endpoints ?? []).filter((e) => !denied(e, upstream.deny))
   return ok.length ? { tags: ok.map((e) => e.tag), names: [...new Set(ok.map((e) => e.name))] } : null

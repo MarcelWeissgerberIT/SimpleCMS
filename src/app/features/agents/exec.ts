@@ -54,8 +54,14 @@ import { endRun, noteRun, withWriter, type Writer } from '../../store/writer'
 import { memoryRef } from '../ai/core/refs'
 import { precheck } from '../ai/core/gate'
 import { appliedOf } from '../ai/core/shape'
-import type { SourceRef } from '@/shared/ai/types'
+import type { DataClass, LedgerEntry, SourceRef } from '@/shared/ai/types'
 import { labelOf } from '@/shared/ai/models'
+import { decisionChecks } from '@/shared/ai/route'
+import { DATA_CLASSES } from '@/shared/ai/policy'
+import { classOfPage, type SourceWorld } from '../ai/core/sources'
+import { afterRead, idsIn } from '../ai/agent/toolScope'
+import { failClosed, heldPlaceholders, precheckRun } from './precheck'
+import { directSplit, runLevelWaits, stickyOf } from './direct'
 import { addToLines } from '../ai/core/meter'
 import { stepText } from '../ai/Receipt'
 
@@ -67,6 +73,20 @@ function agentSources(agent: CustomAgent, rows: readonly ID[], memoryBlock: stri
   out.push(...memoryRef(memoryBlock))
   // a scope with nothing in it still reads the workspace's structure (list_databases)
   return out.length ? out : [{ all: true }]
+}
+
+/**
+ * What a run's tools returned to Claude, as data classes (slice SJ: a pre-check of its proposals declares them): the
+ * pages the results named (and the trigger's rows), MCP results, the memory that went along.
+ */
+function touchedClasses(ids: Iterable<ID>, o: { mcp: boolean; memory: boolean }): DataClass[] {
+  const s = useWorkspace.getState()
+  const w: SourceWorld = { pages: s.pages, databases: s.databases, mailDb: s.settings.mail?.databaseId ?? null, memo: new Map() }
+  const out = new Set<DataClass>()
+  for (const id of ids) for (const c of classOfPage(id, w)) out.add(c)
+  if (o.mcp) out.add('mcp')
+  if (o.memory) out.add('memory')
+  return DATA_CLASSES.filter((c) => out.has(c))
 }
 
 /* ------------------------------------------------------------------ */
@@ -194,8 +214,11 @@ const alive = (id: ID | null | undefined): id is ID => {
   return !!id && !!pages[id] && !pages[id].trashed && !isEffectivelyTrashed(pages, id)
 }
 
-/** Write the run's report into the agent's report page (a version is kept first). */
-async function writeReport(agent: CustomAgent, run: AgentRun, writer: Writer): Promise<boolean> {
+/**
+ * Write the run's report into the agent's report page (a version is kept first). `first`: One's fixed first line under the
+ * heading (a run Jev made wait says so — never generated text).
+ */
+async function writeReport(agent: CustomAgent, run: AgentRun, writer: Writer, first?: string): Promise<boolean> {
   const out = agent.output
   if (!out?.pageId || !alive(out.pageId) || !run.summary.trim()) return false
   const pageId = out.pageId
@@ -203,7 +226,7 @@ async function writeReport(agent: CustomAgent, run: AgentRun, writer: Writer): P
   const page = useWorkspace.getState().pages[pageId]
   if (!page) return false
   const heading: JSONContent = { type: 'heading', attrs: { level: 3 }, content: [{ type: 'text', text: `${agent.name} · ${format(new Date(run.startedAt), 'yyyy-MM-dd HH:mm')}` }] }
-  const body = claudeBlocks(run.summary)
+  const body = [...(first ? [{ type: 'paragraph', content: [{ type: 'text', text: first }] } as JSONContent] : []), ...claudeBlocks(run.summary)]
   const prev = page.content?.content ?? []
   const empty = prev.every((b) => b.type === 'paragraph' && !(b.content ?? []).length)
   // 'replace' never removes a task: the report page's tasks follow the new report, unchanged and in order
@@ -254,10 +277,15 @@ async function runOnce(agent: CustomAgent, req: RunRequest): Promise<AgentRun> {
   noteRun(writer, { seq })
   const changes: StagedChange[] = []
   const rowIds: Record<string, ID> = {}
+  // a Vorprüfer (slice SJ, review v2): Jev pre-checks the proposals when the loop ends (routeBlock refused an unreadable one)
+  const checks = decisionChecks(agent)
+  const review = checks && checks !== 'unreadable' ? checks : null
   let saveTimer = 0
+  // the stored copy says 'running' until the run's end is written (DJ16: nothing of it shows as reviewable before its
+  // checks ended) — with "Zurückhalten" an unchecked change is stored held, never clean (a run that never finishes)
   const save = (now = false) => {
     window.clearTimeout(saveTimer)
-    if (now) return putRun({ ...run, steps: [...run.steps], ...(changes.length ? { staged: [...changes] } : {}) })
+    if (now) return putRun({ ...run, status: 'running', steps: [...run.steps], ...(changes.length ? { staged: heldPlaceholders(changes, review, run.startedAt) } : {}) })
     saveTimer = window.setTimeout(() => void save(true), 400)
     return Promise.resolve()
   }
@@ -291,6 +319,7 @@ async function runOnce(agent: CustomAgent, req: RunRequest): Promise<AgentRun> {
   const usage: Required<AgentRunUsage> = { input: 0, output: 0, cacheRead: 0, usd: 0, byModel: [] }
   const ac = new AbortController()
   let overBudget = false
+  let mcpUsed = false
   /** a response without a price: the budget cannot be held (the model's label) */
   let noPrice: string | null = null
   let answer = ''
@@ -299,6 +328,18 @@ async function runOnce(agent: CustomAgent, req: RunRequest): Promise<AgentRun> {
   let toolSeq = 0
   const mcpSteps = new Map<string, number>()
   let memory: ReturnType<typeof memoryFor> | null = null
+  // a Vorprüfer: what the tools returned is recorded — the classes its checks declare (the run's `touched`)
+  const reads = new Set<ID>()
+  const own = (id: string) => Object.prototype.hasOwnProperty.call(useWorkspace.getState().pages, id)
+  const read = review ? (content: string) => idsIn(content, own, reads) : undefined
+  /** a decision response (Jev): into the run's receipt and budget, its own model line */
+  const foldEntry = (entry: LedgerEntry) => {
+    usage.input += entry.usage.input + entry.usage.cacheWrite + entry.usage.cacheWrite1h
+    usage.output += entry.usage.output
+    usage.cacheRead += entry.usage.cacheRead
+    usage.usd += entry.usd ?? 0
+    usage.byModel = addToLines(usage.byModel, entry)
+  }
 
   const hooks: RunHooks = {
     toolStart(name, arg) {
@@ -354,6 +395,7 @@ async function runOnce(agent: CustomAgent, req: RunRequest): Promise<AgentRun> {
       void save()
     },
     mcp(call) {
+      mcpUsed = true
       const label = `${callLabel(call)}${call.arg ? ` · ${call.arg}` : ''}`
       const i = mcpSteps.get(call.id)
       if (i === undefined) mcpSteps.set(call.id, step({ kind: 'mcp', label, state: call.state === 'err' ? 'err' : 'ok' }))
@@ -400,7 +442,9 @@ async function runOnce(agent: CustomAgent, req: RunRequest): Promise<AgentRun> {
       signal: ac.signal,
       hooks,
       mcp,
-      tools: [...agentTools(agent, { upsert: unlocks.upsert }), ...(memory.use ? [recallTool] : []), ...runTools(agent, extras, { notes: unlocks.notes, state: unlocks.state })],
+      // `recall` reads the memory too: its results join the run's touched classes like every other read (a pre-check
+      // then declares 'memory')
+      tools: [...agentTools(agent, { upsert: unlocks.upsert, read }), ...(memory.use ? [read ? { ...recallTool, run: (input: Record<string, unknown>, st: StageApi) => afterRead(recallTool.run(input, st), read) } : recallTool] : []), ...runTools(agent, extras, { notes: unlocks.notes, state: unlocks.state })],
       system: agentSystem(agent.write, unlocks, canCreateItems()),
       model: agent.model,
       effort: agent.effort,
@@ -431,16 +475,46 @@ async function runOnce(agent: CustomAgent, req: RunRequest): Promise<AgentRun> {
     }
   }
   window.clearTimeout(saveTimer)
+  if (read) run.touched = touchedClasses([...reads, ...(req.rows ?? [])], { mcp: mcpUsed, memory: !!memory?.block })
+
+  // the Vorprüfung (slice SJ): Jev checks the proposals before anything is written — the stored run is still 'running',
+  // stored once more first with every proposal (held placeholders with "Zurückhalten"): a tab that goes away meanwhile
+  // leaves them as cards, never clean ones. An earlier open change of this agent Jev marked, held or stopped keeps this
+  // run cautious (sticky, DJ20).
+  let sticky: ReturnType<typeof stickyOf> = { any: false, targets: new Set() }
+  if (review && changes.length) {
+    await save(true)
+    try {
+      sticky = stickyOf(await loadRuns(agent.id), run.id)
+      await precheckRun({ agent, run, review, changes, rowIds, triggerRows: req.rows ?? [], scope: scopeFilter(agent), budgetLeft: agent.maxRunUsd - usage.usd, onEntry: foldEntry, sticky: sticky.targets })
+    } catch (e) {
+      console.warn('[one] agents: the pre-check failed', e)
+      failClosed(run, changes, review)
+    }
+  }
 
   // what the run wrote or proposed
+  /** One's first line for the report when Jev made the run wait */
+  let reportFirst: string | undefined
   if (changes.length) {
-    if (agent.write === 'apply' && run.status === 'ok') {
-      // edits of existing text always wait for a person's OK: they stay in the run for review; a send is never applied
-      // (the Outbox sends, after a person's press); so does a change that names a person, sets a reminder, changes an
-      // assigned task, adds a blocker or removes tasks (holds, features/workitems) — and every change that needs one of
-      // those first (heldClosure: never applied ahead of what it depends on, never failed for it)
-      const waits = heldClosure(changes, (c) => (c as StagedChange).items?.holds ?? (c as StagedChange).workItem?.holds ?? [])
-      const direct = changes.filter((c) => !waits.has(c.id))
+    // edits of existing text always wait for a person's OK: they stay in the run for review; a send is never applied
+    // (the Outbox sends, after a person's press); so does a change that names a person, sets a reminder, changes an
+    // assigned task, adds a blocker or removes tasks (holds, features/workitems) — and every change that needs one of
+    // those first (heldClosure: never applied ahead of what it depends on, never failed for it). A Vorprüfer may make the
+    // whole run wait (direct.ts: the Schreibschranke, a hold, a sticky change, another snapshot): then nothing is written.
+    const split =
+      agent.write === 'apply' && run.status === 'ok'
+        ? directSplit(changes, { perChange: heldClosure(changes, (c) => (c as StagedChange).items?.holds ?? (c as StagedChange).workItem?.holds ?? []), runLevel: runLevelWaits({ changes, review, sticky: sticky.any }) })
+        : null
+    if (split?.why) {
+      const n = changes.filter((c) => c.status === 'pending' || c.status === 'held' || c.status === 'failed').length
+      run.status = 'staged'
+      run.jev = { ...(run.jev ?? { n: 0, checked: 0, marked: 0, held: 0, usd: 0 }), waited: split.why }
+      run.steps.push({ kind: 'note', label: t(n === 1 ? 'features.ai.jev.run.waited.one' : 'features.ai.jev.run.waited.other', { n, why: t(`features.ai.jev.wait.${split.why}`) }), state: 'err', jev: 'wait' })
+      reportFirst = t(n === 1 ? 'features.ai.jev.report.waited.one' : 'features.ai.jev.report.waited.other', { n })
+    } else if (split) {
+      const waits = split.waits
+      const direct = split.direct
       const res = await asAgent(agent.id, () => applyChanges(direct, changes, (id) => rowIds[id] ?? id, { writer, items: { visible: scopeFilter(agent) } }))
       Object.assign(rowIds, res.rowIds)
       for (let i = 0; i < changes.length; i++) {
@@ -469,7 +543,7 @@ async function runOnce(agent: CustomAgent, req: RunRequest): Promise<AgentRun> {
   }
   if (run.status === 'ok' || run.status === 'staged') {
     try {
-      if (await writeReport(agent, run, writer)) run.steps.push({ kind: 'note', label: t('features.agents.run.reported'), state: 'ok' })
+      if (await writeReport(agent, run, writer, reportFirst)) run.steps.push({ kind: 'note', label: t('features.agents.run.reported'), state: 'ok' })
     } catch (e) {
       run.steps.push({ kind: 'note', label: t('features.agents.run.reportFailed'), state: 'err' })
       console.warn('[one] agents: could not write the report', e)
@@ -478,7 +552,7 @@ async function runOnce(agent: CustomAgent, req: RunRequest): Promise<AgentRun> {
   await settleExtras(agent, run, extras, rowIds)
   // the One memory's log: this run, what went along, what the report cited
   if (memory?.use) {
-    const staged = (run.staged ?? []).filter((c) => c.status === 'pending').length
+    const staged = (run.staged ?? []).filter((c) => c.status === 'pending' || c.status === 'held').length
     const result =
       run.status === 'error' || run.status === 'budget'
         ? t('features.memory.result.failed')
@@ -493,8 +567,9 @@ async function runOnce(agent: CustomAgent, req: RunRequest): Promise<AgentRun> {
   run.endedAt = Date.now()
   await putRun({ ...run, steps: [...run.steps] })
   endRun(writer)
-  // its proposals replace older ones of the same rows (the leader tab only; supersede.ts)
-  if (run.status === 'staged') await supersedeOlder(agent.id).catch((e) => console.warn('[one] agents: could not replace older proposals', e))
+  // its proposals replace older ones of the same rows (the leader tab only; supersede.ts) — never a run Jev made wait: it
+  // stages only because of Jev, and a decision model never supersedes
+  if (run.status === 'staged' && !run.jev?.waited) await supersedeOlder(agent.id).catch((e) => console.warn('[one] agents: could not replace older proposals', e))
   notify(agent, run, req)
   return run
 }
@@ -562,7 +637,8 @@ function onAgentPage(agentId: ID): boolean {
 function notify(agent: CustomAgent, run: AgentRun, req: RunRequest) {
   if (onAgentPage(agent.id)) return
 
-  const pending = (run.staged ?? []).filter((c) => c.status === 'pending').length
+  // what waits for the person: open proposals, held ones too (slice SJ)
+  const pending = (run.staged ?? []).filter((c) => c.status === 'pending' || c.status === 'held').length
   const ui = useUI.getState()
   const open = { label: t('features.agents.toast.review'), run: () => navigate(`#/agents/${agent.id}`) }
   if (pending) {
@@ -572,8 +648,11 @@ function notify(agent: CustomAgent, run: AgentRun, req: RunRequest) {
   } else if (run.status === 'error' || run.status === 'budget') ui.toast({ message: t('features.agents.toast.failed', { name: agent.name }), kind: 'error', action: { ...open, label: t('common.open') }, timeout: 8000, background: true })
   else if (req.manual) ui.toast({ message: t('features.agents.toast.done', { name: agent.name }), kind: 'success', action: { ...open, label: t('common.open') }, background: true })
   else if (run.applied && req.trigger.type === 'schedule') {
-    // an 'apply' run on its schedule wrote something: say so once (the run lists what)
+    // an 'apply' run on its schedule wrote something: say so once (the run lists what) — and how much of it Jev had
+    // concerns about ("Nur markieren" writes it: the toast says so, the run's Undo stays the way back)
     const label = agentLabel(`agent:${agent.id}`) ?? agent.name
-    ui.toast({ message: t(run.applied === 1 ? 'features.agents.toast.applied.one' : 'features.agents.toast.applied.other', { label, count: run.applied }), kind: 'info', action: { ...open, label: t('common.open') }, background: true })
+    const despite = (run.staged ?? []).filter((c) => c.status === 'applied' && c.jev?.mark).length
+    const message = t(run.applied === 1 ? 'features.agents.toast.applied.one' : 'features.agents.toast.applied.other', { label, count: run.applied })
+    ui.toast({ message: despite ? `${message} — ${t(despite === 1 ? 'features.ai.jev.toast.despite.one' : 'features.ai.jev.toast.despite.other', { n: despite })}` : message, kind: 'info', action: despite ? open : { ...open, label: t('common.open') }, background: true })
   }
 }

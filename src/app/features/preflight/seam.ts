@@ -96,6 +96,20 @@ export function installSeam(): void {
     seedRuns: async (runs: AgentRun[]) => {
       for (const r of runs) await putRun(r)
     },
+    /** a card's content revision now (its source's rev — what ⇧A compares with the revision it was shown at; null: no card) */
+    rev: async (lampId: string, id: string) => {
+      const src = lampSources().find((x) => x.id === lampId)
+      const items = src?.queue ? await src.queue.items({ now: Date.now(), signal: new AbortController().signal }) : []
+      const item = items.find((i) => i.id === id)
+      return item ? (src?.queue?.rev?.(item) ?? '') : null
+    },
+    /** a card's keys as the queue draws them: key, VON HAND reasons, whether bulk may take it */
+    keysOf: async (lampId: string, id: string) => {
+      const src = lampSources().find((x) => x.id === lampId)
+      const items = src?.queue ? await src.queue.items({ now: Date.now(), signal: new AbortController().signal }) : []
+      const item = items.find((i) => i.id === id)
+      return item ? { hand: item.hand, bulk: item.bulk, actions: src!.queue!.actions(item).map((a) => ({ key: a.key, hand: a.hand ?? [] })) } : null
+    },
     terminal: (patch: Record<string, unknown>) => useAgent.setState(patch),
     /** n inert lamps (the 16-lamp layout): amber with `count`, legends from the caller (test data) */
     fakeLamps: (list: Array<{ id: string; legend: string; second?: string; count?: number; order?: number; red?: boolean }>) => {
