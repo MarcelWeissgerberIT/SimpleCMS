@@ -1,7 +1,7 @@
 ---
 id: 2026-10-13-agent-precheck
 date: 2026-10-13
-order: 2
+order: 3
 title: Jev pre-checks your agents' proposals
 summary: An optional second opinion on every change an agent proposes — four questions, a line on each card, and proposals with concerns held back for you.
 image: assets/shots/changelog/agent-precheck.webp
