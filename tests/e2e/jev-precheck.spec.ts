@@ -437,11 +437,14 @@ test.describe('Vertrauen and the card’s revision (J9)', () => {
 })
 
 test.describe('the health lamps of a Vorprüfer (J9)', () => {
-  const seedRun = (page: Page, id: string, at: number, jev: AnyState) =>
+  const seedRun = (page: Page, id: string, at: number, jev: AnyState, staged: AnyState[] = []) =>
     page.evaluate(
-      ([a, id, at, jev]) => (window as unknown as { __oneAgents: AnyState }).__oneAgents.putRun({ id, agentId: a, runner: 'browser', trigger: { type: 'manual' }, startedAt: at, endedAt: at + 1000, status: 'staged', summary: '', steps: [], staged: [], jev }),
-      [AGENT, id, at, jev] as const,
+      ([a, id, at, jev, staged]) => (window as unknown as { __oneAgents: AnyState }).__oneAgents.putRun({ id, agentId: a, runner: 'browser', trigger: { type: 'manual' }, startedAt: at, endedAt: at + 1000, status: 'staged', summary: '', steps: [], staged, jev }),
+      [AGENT, id, at, jev, staged] as const,
     )
+  /** a held update_row with its check (fictional rows) */
+  const heldWith = (n: number, check: AnyState) => ({ id: `c${n}`, n, kind: 'update_row', status: 'held', pageId: `row_${n}`, props: [], jev: { v: 1, at: 1, model: '', held: 'unchecked', ...check } })
+  const moneyOnly = [heldWith(1, { state: 'skipped', why: 'budget' }), heldWith(2, { state: 'skipped', why: 'budget' })]
   const missed = (page: Page) =>
     page.evaluate(async () => {
       const p = (window as unknown as { __onePreflight: AnyState }).__onePreflight
@@ -470,18 +473,35 @@ test.describe('the health lamps of a Vorprüfer (J9)', () => {
     await jevAgent(page, { hold: true })
     const now = Date.now()
     const budget = { n: 2, checked: 0, marked: 0, held: 2, usd: 0, failed: 'budget' }
-    for (let i = 0; i < 3; i++) await seedRun(page, `b${i}`, now - (9 - i) * 60_000, budget)
+    for (let i = 0; i < 3; i++) await seedRun(page, `b${i}`, now - (9 - i) * 60_000, budget, moneyOnly)
     await page.waitForTimeout(300)
     expect((await missed(page)).filter((x) => x.startsWith('jevfail:'))).toEqual([])
     // two real failures with a budget run between them: still two in a row …
     await seedRun(page, 'u0', now - 5 * 60_000, { n: 2, checked: 0, marked: 0, held: 2, usd: 0, failed: 'unavailable' })
-    await seedRun(page, 'b3', now - 4 * 60_000, budget)
+    await seedRun(page, 'b3', now - 4 * 60_000, budget, moneyOnly)
     await seedRun(page, 'u1', now - 3 * 60_000, { n: 2, checked: 0, marked: 0, held: 2, usd: 0, failed: 'unavailable' })
     await page.waitForTimeout(300)
     expect((await missed(page)).filter((x) => x.startsWith('jevfail:'))).toEqual([])
     // … the third lights it (positive control: the budget runs did not end the streak either)
     await seedRun(page, 'u2', now - 2 * 60_000, { n: 2, checked: 0, marked: 0, held: 2, usd: 0, failed: 'unavailable' })
     await expect.poll(async () => (await missed(page)).filter((x) => x.startsWith('jevfail:'))).toEqual([`jevfail:${AGENT}@u2`])
+  })
+
+  test('train 9 review: a run whose FIRST check was held back for money but whose others went out and failed counts — the reason of every check decides, not the first one’s', async ({ page }) => {
+    await jevSetup(page)
+    await jevAgent(page, { hold: true })
+    const now = Date.now()
+    // change #1 too large for the rest (not sent, 'budget'); #2 and #3 sent and failed with a provider error
+    const mixed = [heldWith(1, { state: 'skipped', why: 'budget' }), heldWith(2, { state: 'failed', why: 'unavailable' }), heldWith(3, { state: 'failed', why: 'unavailable' })]
+    const jev = { n: 3, checked: 0, marked: 0, held: 3, usd: 0, failed: 'budget' }
+    for (let i = 0; i < 2; i++) await seedRun(page, `m${i}`, now - (5 - i) * 60_000, jev, mixed)
+    await page.waitForTimeout(300)
+    expect((await missed(page)).filter((x) => x.startsWith('jevfail:'))).toEqual([])
+    await seedRun(page, 'm2', now - 60_000, jev, mixed)
+    await expect.poll(async () => (await missed(page)).filter((x) => x.startsWith('jevfail:'))).toEqual([`jevfail:${AGENT}@m2`])
+    // control: the same three runs with every check held back for money light nothing
+    for (const id of ['m0', 'm1', 'm2']) await seedRun(page, id, now - (id === 'm2' ? 1 : 5 - Number(id.slice(1))) * 60_000, { ...jev, n: 2, held: 2 }, moneyOnly)
+    await expect.poll(async () => (await missed(page)).filter((x) => x.startsWith('jevfail:'))).toEqual([])
   })
 
   test('another Jev snapshot answered than the one confirmed → "new version" (control: the confirmed one → none)', async ({ page }) => {

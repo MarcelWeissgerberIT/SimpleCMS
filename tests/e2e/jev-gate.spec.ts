@@ -7,7 +7,7 @@
  * people and rows are fictional.
  */
 import type { Page } from '@playwright/test'
-import { test, expect, wsEval } from './fixtures'
+import { test, expect, wsEval, createPage } from './fixtures'
 import { jevAnswer, mockClaudeScript, text, type DecideStep } from './helpers/providers'
 import { AGENT, ALL_SHARED, JEV, TITLES, byTarget, byTitle, cards, jevAgent, jevSetup, noteOf, review, runAgent, runOf, stageTurn, storedRuns, toolId, type AnyState, type JevWorld } from './helpers/jev'
 import { budget, spend } from './helpers/governor'
@@ -341,19 +341,40 @@ test.describe('Jev at the Regler’s red line (train 9)', () => {
       expect(await openRes(page)).toEqual([])
     })
 
-  test('a check the line refuses is not sent: an apply-mode run with "Nur markieren" waits as a whole — nothing written, the run says why', async ({ page }) => {
+  test('a check the line refuses is not sent: an apply-mode run with "Nur markieren" waits as a whole — nothing written, the run and its report say why, naming the budget (never "Jev made …")', async ({ page }) => {
     // Jev at a fictional 0,01 $ per token: one check costs more than the rest of a 1 $ day — the run's own steps fit
     const w = await jevSetup(page, { or: { decisionsPrice: '0.01' } })
+    const report = await createPage(page, { title: 'Nordlicht report' })
     await budget(page, { v: 1, day: 1 })
-    await jevAgent(page, { write: 'apply', hold: false, gate: null })
+    await jevAgent(page, { write: 'apply', hold: false, gate: null, output: report })
     const run = await runOf(page, await runAgent(page))
     expect(w.or.decisions()).toHaveLength(0)
     expect(await written(page, w)).toEqual(NONE)
     expect(run.status).toBe('staged')
     expect(run.jev).toMatchObject({ waited: 'line', checked: 0, failed: 'budget' })
     for (const c of run.staged as AnyState[]) expect([c.status, c.jev.state, c.jev.why]).toEqual(['pending', 'skipped', 'budget'])
-    expect(labels(run)).toContain('Jev made the run wait — 3 changes wait for you (a pre-check did not fit under the budget’s red line)')
+    expect(labels(run)).toContain('The run waits — a pre-check did not fit under the budget’s red line; 3 changes wait for you')
+    expect(labels(run).some((l) => l.startsWith('Jev made'))).toBe(false)
+    const reportText = await wsEval(page, (s, id) => JSON.stringify(s.pages[id]?.content ?? null), report)
+    expect(reportText).toContain('The run waits — a pre-check did not fit under the budget’s red line; 3 changes wait for you.')
+    expect(reportText).not.toContain('Jev made')
     expect(await openRes(page)).toEqual([])
+  })
+
+  test('no price for the checks while a line is set is no red line: "price", not "line" — "Nur markieren" writes as without a budget (control above: the line refuses → the run waits)', async ({ page, errors }) => {
+    errors.allow(/Failed to load resource/)
+    // the decisions catalogue cannot be read (and this device holds no copy): no price for Jev
+    const w = await jevSetup(page, { or: { decisionsCatalogue: 503 } })
+    await budget(page, { v: 1, day: 5 })
+    expect(await page.evaluate((d) => (window as unknown as Gov).__oneAI.decide({ sources: [{ all: true }], carries: ['rows'], state: d.state, questions: d.qs, source: 'agent:ag_price:run_price', mode: 'manual' }), { state: STATE, qs: QS })).toMatchObject({ ok: false, code: 'budget', detail: 'noprice', why: 'price' })
+    await jevAgent(page, { write: 'apply', hold: false, gate: null })
+    const run = await runOf(page, await runAgent(page))
+    expect(w.or.decisions()).toHaveLength(0)
+    expect(run.jev).toMatchObject({ checked: 0, failed: 'price' })
+    expect(run.jev.waited).toBeUndefined()
+    for (const c of run.staged as AnyState[]) expect([c.jev.state, c.jev.why]).toEqual(['skipped', 'price'])
+    expect(run.status).toBe('ok')
+    expect(await written(page, w)).toEqual(ALL)
   })
 
   test('control: the same 1 $ day at Jev’s own price → three checks go out, the run writes as without Jev', async ({ page }) => {
@@ -406,6 +427,104 @@ test.describe('Jev at the Regler’s red line (train 9)', () => {
     expect(w.or.decisions()).toHaveLength(3)
     expect(run.status).toBe('ok')
     expect(await written(page, w)).toEqual(ALL)
+    expect(await openRes(page)).toEqual([])
+  })
+
+  /* the train 9 merge review */
+
+  test('six checks with a line: each is prepared (its band reserved) right before it goes out — never more than three of a run’s checks hold a reservation, beside its decide reservation; nothing is left open', async ({ page }) => {
+    const w = await jevSetup(page, { decisions: Array.from({ length: 6 }, () => ({ hang: true })) })
+    Object.assign(w.rows, await wsEval(page, (s, a) => Object.fromEntries(a.titles.map((t) => [t, s.createRow(a.db, { title: t }) as string])), { db: w.db, titles: ['Orbit notes', 'Harbor map', 'Quiet hours'] }))
+    await loadDecisions(page)
+    await budget(page, { v: 1, day: 5 })
+    await jevAgent(page, { hold: true })
+    const done = runAgent(page)
+    await expect.poll(() => w.or.hanging(), { timeout: 20_000 }).toBe(3)
+    const [run] = await storedRuns(page)
+    const mine = async () => (await openRes(page)).filter((r) => r.source === `agent:${AGENT}:${run!.id}`)
+    // three checks in flight + the decide reservation (all six reserved at once before: 7)
+    expect(await mine()).toHaveLength(4)
+    expect(w.or.releaseDecisions()).toBe(3)
+    await expect.poll(() => w.or.hanging(), { timeout: 20_000 }).toBe(3)
+    expect(await mine()).toHaveLength(4)
+    expect(w.or.releaseDecisions()).toBe(3)
+    const ended = await runOf(page, await done)
+    expect(w.or.decisions()).toHaveLength(6)
+    expect(ended.jev).toMatchObject({ n: 6, checked: 6 })
+    expect(await openRes(page)).toEqual([])
+  })
+
+  for (const line of [true, false])
+    test(line ? 'with a line set the tab’s book never drops an open reservation at 200 — a request still in flight keeps its band (the room is never shown larger than it is)' : 'control: without a line the book keeps its 200 (bookkeeping only — nothing is judged against it)', async ({ page }) => {
+      await jevSetup(page)
+      if (line) await budget(page, { v: 1, day: 1 })
+      const big = (await page.evaluate(() => (window as unknown as Gov).__oneGovernor.reserve(0.55, 'terminal:conv1:task1'))) as string
+      const small = (await page.evaluate(() => Array.from({ length: 210 }, () => (window as unknown as Gov).__oneGovernor.reserve(0.00006, 'agent:ag_many:run_many') as string))) as string[]
+      const list = await openRes(page)
+      expect(list.some((r) => r.id === big)).toBe(line)
+      expect(list).toHaveLength(line ? 211 : 200)
+      await page.evaluate((ids) => ids.forEach((id) => (window as unknown as Gov).__oneGovernor.settle(id)), [big, ...small])
+      expect(await openRes(page)).toEqual([])
+    })
+
+  test('a run the Regler held with "Zurückhalten", then a clean run on the same rows: no caution passed on (held back for money is no finding) — its proposals replace the held-back ones, as the run’s HeldLine says', async ({ page }) => {
+    const w = await jevSetup(page)
+    const claude = await mockClaudeScript(page.context(), [
+      stageTurn(Object.values(w.rows), [], { input: 500, output: 100 }),
+      { blocks: [{ type: 'tool_use', id: toolId('search'), name: 'search_pages', input: { query: 'Nordlicht' } }], usage: { input: 2000, output: 9000 } },
+      stageTurn(Object.values(w.rows), [], { input: 500, output: 100 }),
+      text('Checked the Nordlicht rows.'),
+    ])
+    await loadDecisions(page)
+    await jevAgent(page, { write: 'stage', hold: true, gate: null })
+    await budget(page, { v: 1, day: 1 })
+    await spend(page, 0.79)
+    await page.evaluate(() => (window as unknown as Gov).__oneGovernor.load())
+    const r1 = await runOf(page, await runAgent(page))
+    expect(r1).toMatchObject({ status: 'held', held: { kind: 'stopped' } })
+    for (const c of r1.staged as AnyState[]) expect([c.status, c.jev.why, c.jev.held]).toEqual(['held', 'budget', 'unchecked'])
+    // the next day has room: the same rows again, every check clear
+    await budget(page, { v: 1, day: 10 })
+    const r2 = await runOf(page, await runAgent(page))
+    expect(claude.requests).toHaveLength(4)
+    expect(w.or.decisions()).toHaveLength(3)
+    expect(r2.status).toBe('staged')
+    for (const c of r2.staged as AnyState[]) {
+      expect(c.status).toBe('pending')
+      expect(c.jev.sticky).toBeUndefined()
+    }
+    await expect.poll(async () => ((await runOf(page, r1.id)).staged as AnyState[]).map((c) => c.status)).toEqual(['superseded', 'superseded', 'superseded'])
+  })
+
+  test('the start check counts the checks’ band: a rest that covers the first step but not its pre-checks asks at a manual start (+1 $ makes it fit) and holds a background one (control: the same agent without a Vorprüfer starts)', async ({ page }) => {
+    type RunSeam = { __oneAgentRun: { startCheck: (id: string, manual?: boolean) => Promise<AnyState> } }
+    const check = (manual: boolean) => page.evaluate(([id, m]) => (window as unknown as RunSeam).__oneAgentRun.startCheck(id, m), [AGENT, manual] as const)
+    // Jev at a fictional 0,000007 $ per token: 50 checks ≈ 0,5 $ (more than the room left, less than +1 $)
+    await jevSetup(page, { or: { decisionsPrice: '0.000007' } })
+    await loadDecisions(page)
+    // the first step alone, measured: a rest far below it (the agent's own budget per run well above it all)
+    await jevAgent(page, { review: null, maxRunUsd: 5 })
+    await budget(page, { v: 1, day: 50 })
+    await spend(page, 49.99)
+    await page.evaluate(() => (window as unknown as Gov).__oneGovernor.load())
+    const alone = await check(true)
+    expect(alone).toMatchObject({ start: false })
+    expect(alone.ask).toBeTruthy()
+    expect(alone.checks).toBeUndefined()
+    const first = alone.ask.first.high as number
+    // a rest 0,2 $ above the first step
+    await budget(page, { v: 1, day: 100 })
+    await spend(page, Math.round((100 - 49.99 - first - 0.2) * 1e6) / 1e6)
+    await page.evaluate(() => (window as unknown as Gov).__oneGovernor.load())
+    // control: without a Vorprüfer it starts
+    expect(await check(true)).toMatchObject({ start: true })
+    // with one: its 50 checks belong to the first step — the dialog asks (+1 $ makes it fit), a background start is held
+    await jevAgent(page, { hold: true, maxRunUsd: 5 })
+    const ask = await check(true)
+    expect(ask).toMatchObject({ start: false, ask: { allow: 1 } })
+    expect(ask.checks).toBeGreaterThan(0.2)
+    expect(ask.ask.first.high).toBeCloseTo(first + ask.checks, 6)
+    expect(await check(false)).toMatchObject({ start: false, hold: 'day' })
     expect(await openRes(page)).toEqual([])
   })
 })

@@ -413,17 +413,28 @@ export async function wipeLedgerScope(scope = ledgerScope()): Promise<void> {
 /* ------------------------------------------------------------------ */
 
 const MAX_OPEN = 200
+/** while a line is set: open reservations are what keeps requests under it — only a far larger book drops its oldest */
+const MAX_OPEN_LINE = 2_000
 const open = new Map<string, Reservation>()
 /** the ledger scope each open reservation counts for (the scope when it was taken) */
 const scopeOfRes = new Map<string, string>()
+/** is a line set? (install.ts) — then no reservation another request may still be using is dropped at MAX_OPEN */
+let lineSet: () => boolean = () => false
+
+/** The brake tells the book whether a line is set (install.ts, once). */
+export function setReserveLine(fn: () => boolean): void {
+  lineSet = fn
+}
 
 /** A request is about to be sent: what it may cost is held until it settles. */
 export function reserve(usd: number, source: string): Reservation {
   const r: Reservation = { id: newId(), usd: Number.isFinite(usd) ? Math.max(0, usd) : 0, at: Date.now(), source }
   open.set(r.id, r)
   scopeOfRes.set(r.id, ledgerScope() ?? '')
-  // a request that never settles (a crashed path) cannot grow the book without end
-  if (open.size > MAX_OPEN) {
+  // a request that never settles (a crashed path) cannot grow the book without end. Without a line the book is only
+  // bookkeeping (nothing is judged against it); with one, dropping a reservation in use would show room that is not
+  // there — the book then grows to MAX_OPEN_LINE first
+  if (open.size > MAX_OPEN && (open.size > MAX_OPEN_LINE || !lineSet())) {
     const first = open.keys().next().value as string
     open.delete(first)
     scopeOfRes.delete(first)

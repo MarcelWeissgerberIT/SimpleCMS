@@ -9,6 +9,7 @@ import { create } from 'zustand'
 import { ArrowRight, Square } from 'lucide-react'
 import { useLang, useT } from '../i18n'
 import { useWorkspace } from '../store/store'
+import { newId } from '../lib/ids'
 import { AINeedsSetup, BrakeSlot, RouteChip, SupportedLine, aiStatus, deeperRoute, offersAI, destinationOf, isAIConfigured, isRouteKey, runVerify, useVerifyOn, verifyOn, type Route, type RouteChipHandle, type VerifyResult } from '../features'
 import { shortcutLabel } from '../ui/controls'
 import { askHelp, linkCitations } from './ask'
@@ -69,14 +70,16 @@ async function ask(lang: HelpLang, q = useHelp.getState().question, route?: Rout
   const ctrl = new AbortController()
   abort = ctrl
   useAsk.setState({ phase: 'running' })
+  // the question's ledger source: its answer and its "Belegt?" check are one question on #/regler
+  const source = `help:${newId()}`
   try {
-    const final = await askHelp({ question: text, articles: sources, lang, signal: ctrl.signal, route: via, onToken: (d) => useAsk.setState((s) => ({ answer: s.answer + d })) })
+    const final = await askHelp({ question: text, articles: sources, lang, signal: ctrl.signal, route: via, source, onToken: (d) => useAsk.setState((s) => ({ answer: s.answer + d })) })
     if (ctrl.signal.aborted) return
     useAsk.setState({ answer: final, phase: 'done' })
     // "Belegt?" (off by default): Jev checks the answer against the articles it was built from, as sent
     if (verifyOn() && final.trim()) {
       useAsk.setState({ verify: 'checking' })
-      const res = await runVerify({ question: text, sources: sources.map((a) => ({ title: a.title, text: `${a.summary ? `${a.summary}\n` : ''}${a.source}` })), answer: final, refs: [], source: 'help:ask', signal: ctrl.signal, applied: { people: true, transcript: true, visible: true } })
+      const res = await runVerify({ question: text, sources: sources.map((a) => ({ title: a.title, text: `${a.summary ? `${a.summary}\n` : ''}${a.source}` })), answer: final, refs: [], source, signal: ctrl.signal, applied: { people: true, transcript: true, visible: true } })
       if (!ctrl.signal.aborted && useAsk.getState().answer === final) useAsk.setState({ verify: res })
     }
   } catch (e) {

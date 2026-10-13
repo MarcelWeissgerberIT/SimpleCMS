@@ -16,7 +16,8 @@
  *  - background work at the line (background.ts): budgetRefusal · brakeFixOf · watchSource · pauseRows · takeRows ·
  *    pausedRows · onLineChange; BrakeSlot (lazy) — the brake note for a refused request, its E / B keys wired
  *  - RUN_MODES · modeOf(purpose, given) · missesMode · minOut(purpose, thinks) · sourceFor(purpose, id) (modes.ts)
- *  - reserveDecide(…) · takeDecide(id, band) · decideLeft(id) — a run's decide reservation for Jev's pre-checks (decide.ts)
+ *  - reserveDecide(…) · decideUsd(…) · takeDecide(id, band) · decideLeft(id) — a run's decide reservation for Jev's
+ *    pre-checks (decide.ts; decideUsd: what it would take — the start check counts it)
  * The price table itself is src/shared/ai/prices.ts (PRICES, costOf, PRICES_DATE) — re-exported here.
  */
 import { lazy } from 'react'
@@ -35,7 +36,7 @@ export type { BrakeFix, BrakeRun, Halt, HaltCheaper, HCandidate, HistoryNeeds, R
 export { ALLOW_USD } from './brake'
 export { budgetRefusal, brakeFixOf, watchSource, pauseRows, takeRows, pausedRows, onLineChange, type BudgetRefusal, type BrakeFixData } from './background'
 export { FIRST_STEP_OUT } from './mcpBand'
-export { reserveDecide, takeDecide, decideLeft, decideBand, DECIDE_CHECKS, DECIDE_STATE_CHARS } from './decide'
+export { reserveDecide, decideUsd, takeDecide, decideLeft, decideBand, DECIDE_CHECKS, DECIDE_STATE_CHARS } from './decide'
 export { planBand, type PlanBand } from './plan'
 export { noteHalt, noteHeld, useGovernorMarks } from './marks'
 export { openRegler, openBudgets, budgetSet, reglerLine, reglerRest } from './lampSource'

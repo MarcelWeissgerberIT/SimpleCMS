@@ -62,9 +62,12 @@ export function whyOf(e: unknown): JevWhy {
       return 'off'
     case 'reload':
       return 'reload'
-    // the Regler's red line (or no price / no scope while a line is set): refused before sending
-    case 'budget':
-      return 'budget'
+    // refused before sending while a line is set: no price known ('price'), the account not known yet ('scope') — else a
+    // line (day · month · device-day · device-month · run): 'budget'
+    case 'budget': {
+      const d = (e as AIError | ProviderError).detail
+      return d === 'noprice' ? 'price' : d === 'scope' ? 'scope' : 'budget'
+    }
     case 'context':
       return 'context'
     case 'timeout':
@@ -140,7 +143,7 @@ function answered(): void {
 export interface DecideOpts {
   /** the caller's stop (a run's deadline, the person's Stop) */
   signal?: AbortSignal
-  /** the ledger's source ('agent:<id>:<run>' · 'help:ask' · 'workspace:ask' …) */
+  /** the ledger's source ('agent:<id>:<run>' · a checked answer's own: 'help:<id>' · 'ai:<run>:workspace' …) */
   source: string
   /** the ledger group (the run id) */
   group?: string

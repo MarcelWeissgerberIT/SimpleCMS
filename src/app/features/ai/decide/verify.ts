@@ -67,7 +67,7 @@ export interface VerifyInput {
   /** what the answer's request carried (help: none — public; the workspace: its pages) */
   refs: readonly SourceRef[]
   carries?: readonly DataClass[]
-  /** the ledger's source: 'help:ask' · 'workspace:ask' */
+  /** the ledger's source: the answer's own ('help:<id>' · 'ai:<run>:workspace') — the check belongs to its question */
   source: string
   signal?: AbortSignal
   /** the text was built for a route that sees everything (help articles are public) */
@@ -85,7 +85,7 @@ export async function verifyAnswer(i: VerifyInput): Promise<VerifyResult> {
   try {
     const state = verifyState(i)
     const questions = verifyQuestions()
-    // a person's answer check: its ledger source is the answer's kind ('help:ask' · 'workspace:ask'), run mode interactive
+    // a person's answer check: its ledger source is the answer's own (one question on #/regler), run mode interactive
     const input = { purpose: 'gate.verify' as const, sources: i.refs, carries: [...(i.carries ?? [])], typed: i.question, applied: i.applied, run: { source: i.source, mode: 'interactive' as const } }
     // the gate's every check (the backstop too), nothing reserved yet: refused → nothing read, nothing sent (the Regler's
     // money phase runs in prepare below, once the price is known)

@@ -408,7 +408,8 @@ async function execute(id: string, editor: Editor) {
   controllers.set(id, ac)
   buffers.set(id, '')
   // every request of this run is named 'ai:<run>:<what>' in the ledger (features/governor)
-  const untap = tapSignal(ac.signal, { source: `ai:${id}:${runWhat(run.req)}`, onEntry: (e) => noteEntry(id, e) })
+  const source = `ai:${id}:${runWhat(run.req)}`
+  const untap = tapSignal(ac.signal, { source, onEntry: (e) => noteEntry(id, e) })
   const onToken = (delta: string) => {
     buffers.set(id, (buffers.get(id) ?? '') + delta)
     raf ||= requestAnimationFrame(flushTokens)
@@ -530,7 +531,8 @@ async function execute(id: string, editor: Editor) {
           const applied = res.builtFor === 'openrouter' ? { people: true, transcript: true, visible: true } : { people: false, transcript: false, visible: false }
           afterDone = async () => {
             patch(id, { verify: 'checking' }, false)
-            const verify = await runVerify({ question: req.question, sources: res.excerpts, answer, refs: res.refs, source: 'workspace:ask', signal: ac.signal, applied }).catch((): VerifyResult => ({ support: null, why: 'error' }))
+            // its ledger source is the answer's own: the check belongs to the question it checks (#/regler)
+            const verify = await runVerify({ question: req.question, sources: res.excerpts, answer, refs: res.refs, source, signal: ac.signal, applied }).catch((): VerifyResult => ({ support: null, why: 'error' }))
             if (!ac.signal.aborted) patch(id, { verify }, false)
           }
         }

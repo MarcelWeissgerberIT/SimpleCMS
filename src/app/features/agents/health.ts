@@ -18,7 +18,7 @@ import { newestReal } from './held'
 import { latestSlot } from './schedule'
 import { useServerAgents, type ServerRunHead } from './server'
 import type { AgentRun } from './types'
-import type { JevWhy } from '@/shared/ai/decide'
+import { moneySkipped, type JevWhy } from '@/shared/ai/decide'
 import { decisionChecks } from '@/shared/ai/route'
 import { sameJevSnapshot } from '@/shared/ai/jev'
 
@@ -159,6 +159,17 @@ export function scheduledHere(): ID[] {
     .map((a) => a.id)
 }
 
+/**
+ * A run none of whose checks went out, every one held back for money (`moneySkipped`: the run's own budget, the Regler's
+ * red line, a run the Regler held) — not the first change's reason alone: one check sent, or refused for another reason
+ * (no price, a data rule …), makes it a run the Vorprüfung counts.
+ */
+export function sentNoneForMoney(r: Pick<AgentRun, 'jev' | 'staged'>): boolean {
+  if (!r.jev || r.jev.checked > 0) return false
+  const checks = (r.staged ?? []).map((c) => c.jev).filter((j) => !!j)
+  return checks.length > 0 && checks.every(moneySkipped)
+}
+
 /** Runs in a row without one usable check before the Vorprüfung counts as failing (§ 2.2). */
 export const JEV_FAIL_RUNS = 3
 
@@ -169,7 +180,8 @@ const sameSnapshot = sameJevSnapshot
  * Vorprüfer health (slice SJ) of the browser agents running here — synchronous, over the runs this tab loaded:
  *  - jevfail:<agent>@<run>: its newest JEV_FAIL_RUNS runs with proposals to check had no usable check — or the newest
  *    met the tab's cooldown — since the oldest of that streak. A run that sent no check for money (its own budget, or the
- *    Regler's red line: every check 'budget', none answered) is no Vorprüfung failure: it neither counts nor ends a streak;
+ *    Regler's red line: EVERY check held back for money before sending — `sentNoneForMoney`) is no Vorprüfung failure:
+ *    it neither counts nor ends a streak; a run where one check went out (or failed for another reason) counts;
  *  - jevnew:<agent>@<snapshot>: its newest checked run was answered (or resolved) by another Jev snapshot than the one
  *    the person confirmed (DJ19) — until they confirm it (section 06).
  */
@@ -180,7 +192,7 @@ export function jevHealth(): HealthItem[] {
     if (!runsHere(a)) continue
     const checks = decisionChecks(a)
     if (!checks || checks === 'unreadable') continue
-    const runs = (byAgent[a.id] ?? []).filter((r) => r.status !== 'running' && (r.jev?.n ?? 0) > 0 && !(r.jev?.failed === 'budget' && r.jev.checked === 0))
+    const runs = (byAgent[a.id] ?? []).filter((r) => r.status !== 'running' && (r.jev?.n ?? 0) > 0 && !sentNoneForMoney(r))
     const newest = runs[0]
     if (!newest?.jev) continue
     const changedTo = newest.jev.changedTo

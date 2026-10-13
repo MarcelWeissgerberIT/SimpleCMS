@@ -610,6 +610,9 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
   }
 
   const retry = () => run && (run.req.kind === 'redo' ? redoAgain() : run.req.kind === 'transform' ? transformPanel.again() : start(run.req))
+  /** The brake note's E: the refused request again on ITS route ("Ask more thoroughly"'s deep role, "Ask Claude") — not
+   *  the menu's chip; B's armed route still wins inside prepare. */
+  const retrySame = () => run && (run.req.kind === 'redo' || run.req.kind === 'transform' ? retry() : start(run.req, undefined, run.chip ?? null))
 
   /* ---------------- what Claude reads ---------------- */
 
@@ -2429,7 +2432,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
                     <Suspense fallback={null}>
                       <BrakeSlot
                         error={runError}
-                        onRetry={retry}
+                        onRetry={retrySame}
                         onCancel={() => {
                           if (runId) removeRun(runId)
                           refocusPrompt()

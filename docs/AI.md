@@ -45,21 +45,35 @@ again, never pending.
 
 Decisions are braked like every request (features/governor/install.ts `decision`), but never with a key: purposes
 `gate.precheck` (the run's mode — `caller` in features/governor/modes.ts) and `gate.verify` (interactive) are structured
-answers, never capped, never offered E or a cheaper model; 'noprice' / 'scope' refuse as everywhere.
+answers, never capped, never offered E or a cheaper model; 'noprice' / 'scope' refuse as everywhere (JevWhy `'price'` /
+`'scope'` — never read as the line).
 
 - **The decide reservation.** While a line is set, an agent run with a Vorprüfer reserves `DECIDE_CHECKS` (50) × one
   check's band at its start (features/governor/decide.ts `reserveDecide`, priced at the Vorprüfer's catalogue row this
   device holds — none known: none taken; exec.ts settles it once the checks are done, and in a `finally`). Each check
   carries its id (`run.decide`) and takes its band out of it, so the line it was counted against is not asked again; what it
-  no longer covers is judged like any request against the rest (with what is left of it counted in).
+  no longer covers is judged like any request against the rest (with what is left of it counted in). The start check counts
+  it into the run's first step (agents/exec.ts `startFor` → `RunCtx.startExtra`): a rest that covers the step but not the
+  checks asks at a manual start (the dialog names the pre-checks, its +1 $) and holds a background start.
+- **Checks reserve one at a time.** checkRun estimates every check first (precheck with its size — nothing reserved), judges
+  them in order against the room the line leaves (the money phase's peek for class 'gate': the decide reservation counted
+  in) and then the run's own budget on the sum; each check is prepared — its band reserved — right before it is sent, so at
+  most `IN_FLIGHT` (3) of a run's checks hold a reservation. While a line is set the tab's book never drops an open
+  reservation at 200 (ledger.ts `setReserveLine`; only past 2 000, a crashed path's backstop).
 - **A check the line refuses** is not sent (JevWhy `'budget'`) and `CheckRunResult.line` is set: an apply-mode run then
   waits as a whole (`JevWait 'line'`, agents/direct.ts) whatever "Bei Bedenken" says — Jev never takes a run over the line
-  and the line never makes a run write unchecked. A 'line' wait passes no caution on to later runs (not sticky).
+  and the line never makes a run write unchecked. A 'line' wait passes no caution on to later runs (not sticky); its step and
+  report line name the budget, never Jev ("The run waits — a pre-check did not fit under the budget’s red line; …").
+- **Held back for money** (`moneySkipped`, src/shared/ai/decide.ts: skipped, never sent, `'budget'` — the run's own budget,
+  the red line, a run the Regler held) is no finding of Jev's: such a change keeps no later run cautious (`stickyOf`), a held
+  one is replaced like an open one (supersede.ts `replaceable`), and a run whose every check was held back for money is no
+  Vorprüfung failure on the health lamp (health.ts `sentNoneForMoney` — not the first change's reason alone).
 - **A run the Regler held** (status `'held'`: stopped between two steps, or a request refused at the line) gets no checks —
   like a run over its own budget (agents/precheck.ts): every checked-kind change is unchecked `'budget'` (held back with
   "Zurückhalten") and, not being an `'ok'` run, it never writes directly.
 - **"Belegt?"** runs `precheck(input, { backstop: true })` before the catalogue read (no reservation, no size) and prepares
-  with its size and run (`help:ask` · `workspace:ask`, interactive) once the price is known.
+  with its size and run once the price is known — interactive, on the answer's own ledger source (`help:<id>` ·
+  `ai:<run>:workspace`): on #/regler a check is part of the question it checks.
 
 ### Agent settings
 

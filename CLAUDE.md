@@ -221,11 +221,17 @@ the public APIs stable — other areas are built against them in parallel.
   reservation at its start while a line is set (features/governor/decide.ts `reserveDecide`: 50 × one check's band at
   the Vorprüfer's price this device holds — none known: none) and each check (`run.decide`) takes its band out of it in
   the money phase (install.ts `decision`), so the line it was counted against is not asked again; what it no longer covers
-  is judged like any request; a check the line refuses is not sent (JevWhy 'budget', `CheckRunResult.line`) and an
-  apply-mode run waits as a whole (`JevWait 'line'` — whatever "Bei Bedenken" says; never sticky). A run the Regler
-  held (status 'held', stopped or a request refused at the line) gets NO checks, like a run over its own budget: every
-  checked-kind change is unchecked 'budget' (held back with Zurückhalten) and it never writes directly (only 'ok' runs
-  do). Thresholds 0,70 / 0,90 are start values ("Startwerte") until the owner's calibration
+  is judged like any request; the start check counts the reservation into the first step (exec.ts `startFor`,
+  `RunCtx.startExtra`). checkRun estimates every check first (nothing reserved; in order against the line's room, then
+  the run's own budget on the sum) and prepares each right before it is sent (≤ 3 reserved at once); while a line is set
+  the book never drops an open reservation at 200 (ledger.ts `setReserveLine`). A check the line refuses is not sent
+  (JevWhy 'budget', `CheckRunResult.line`; no price → 'price', account unknown → 'scope' — no line) and an apply-mode run
+  waits as a whole (`JevWait 'line'` — whatever "Bei Bedenken" says; never sticky; its step / report say "The run
+  waits — …", never "Jev made …"). A run the Regler held (status 'held', stopped or a request refused at the line) gets
+  NO checks, like a run over its own budget: every checked-kind change is unchecked 'budget' (held back with
+  Zurückhalten) and it never writes directly (only 'ok' runs do). Held back for money (`moneySkipped`) is no finding:
+  never sticky, replaced like an open proposal (supersede.ts `replaceable`), no Vorprüfung failure when every check of a
+  run was (health.ts `sentNoneForMoney`). "Belegt?" meters on its answer's source (`help:<id>`, `ai:<run>:workspace`). Thresholds 0,70 / 0,90 are start values ("Startwerte") until the owner's calibration
   (`node scripts/jev-calibrate.mjs --real`, OPENROUTER_API_KEY in the environment; `--check` sends nothing). `typesafe/`
   slugs only in src/shared/ai/jev.ts.
 - Governor / Regler (features/governor, public API index.ts; spec killer/6-governor; help `governor`): `Workspace.governor`

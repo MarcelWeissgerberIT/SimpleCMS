@@ -57,10 +57,10 @@ import { deciderRoute, precheck, startCheck, type PrepareInput, type StartCheck 
 import { modelInfo, priceFor } from '../ai/core/registry'
 import { addInboxItems, loadInbox, useInbox, wsKey } from '../inbox/state'
 import { activeWorkspace } from '../../cloud'
-import { budgetSet, dayOf, FIRST_STEP_OUT, noteHeld, reglerLine, reserveDecide, settle as settleReservation, type RunMode } from '../governor'
+import { budgetSet, dayOf, decideUsd, FIRST_STEP_OUT, noteHeld, reglerLine, reserveDecide, settle as settleReservation, type RunMode } from '../governor'
 import type { HeldBinding } from './types'
 import { appliedOf } from '../ai/core/shape'
-import type { DataClass, LedgerEntry, SourceRef } from '@/shared/ai/types'
+import type { Caps, DataClass, LedgerEntry, PriceRow, Route, SourceRef } from '@/shared/ai/types'
 import { labelOf } from '@/shared/ai/models'
 import { decisionChecks } from '@/shared/ai/route'
 import { DATA_CLASSES } from '@/shared/ai/policy'
@@ -313,6 +313,15 @@ export async function executeRun(agent: CustomAgent, req: RunRequest): Promise<A
  * here; nothing is fetched for it). null: none taken (no Vorprüfer, no line, the gate refuses the Vorprüfer, no price).
  */
 async function takeDecide(review: Review | null, source: string): Promise<string | null> {
+  const d = await deciderPriced(review)
+  return d ? reserveDecide({ ...d, source }) : null
+}
+
+/**
+ * The Vorprüfer's route, price and caps as this device knows them while a line is set (null: no Vorprüfer, no line, the
+ * gate refuses it) — the stored decisions catalogue is peeked (IndexedDB only — nothing fetched; no copy → no price).
+ */
+async function deciderPriced(review: Review | null): Promise<{ route: Route; price: PriceRow | null; caps: Caps | null } | null> {
   if (!review || !budgetSet()) return null
   const d = deciderRoute(review.decider ?? null)
   if (!d.route || d.code) return null
@@ -321,7 +330,20 @@ async function takeDecide(review: Review | null, source: string): Promise<string
   } catch {
     /* no copy on this device: no reservation — the checks are judged like any request */
   }
-  return reserveDecide({ route: d.route, price: priceFor(d.route), caps: modelInfo(d.route)?.caps ?? null, source })
+  return { route: d.route, price: priceFor(d.route), caps: modelInfo(d.route)?.caps ?? null }
+}
+
+/**
+ * The start check's input (Regler § 5.6): the first step (startInput) plus the decide reservation the run takes right
+ * after it starts (a Vorprüfer while a line is set) — so a run whose rest covers its first step but not its checks' band
+ * asks (manual: the start dialog, its +1 $) or is held (background) at its start, never at its first request.
+ */
+export async function startFor(agent: CustomAgent, req: Pick<RunRequest, 'manual' | 'trigger' | 'rows'>, runId: ID, last: AgentRun | null = null): Promise<PrepareInput> {
+  const input = startInput(agent, req, runId, last)
+  const checks = decisionChecks(agent)
+  const d = await deciderPriced(checks && checks !== 'unreadable' ? checks : null)
+  const extra = d ? decideUsd(d) : 0
+  return extra > 0 ? { ...input, run: { ...input.run, startExtra: extra } } : input
 }
 
 async function runOnce(agent: CustomAgent, req: RunRequest): Promise<AgentRun> {
@@ -358,7 +380,7 @@ async function runInner(agent: CustomAgent, req: RunRequest, reg: { decide: stri
   // the Regler's start check (scheduled / triggered runs — a manual one asked where it was pressed, actions.ts runNow):
   // at the red line no run is started — the agent's one held record of the day counts it, nothing is sent
   if (mode !== 'manual') {
-    const v = await startCheck(startInput(agent, req, runId, last))
+    const v = await startCheck(await startFor(agent, req, runId, last))
     if (!v.start && 'hold' in v) return heldStart(agent, req, v)
   }
   const seq = await nextSeq(agent.id)
@@ -618,7 +640,7 @@ async function runInner(agent: CustomAgent, req: RunRequest, reg: { decide: stri
   reg.decide = null
 
   // what the run wrote or proposed
-  /** One's first line for the report when Jev made the run wait */
+  /** One's first line for the report when the run waited as a whole (Jev made it wait, or the red line refused a check) */
   let reportFirst: string | undefined
   if (changes.length) {
     // edits of existing text always wait for a person's OK: they stay in the run for review; a send is never applied
@@ -634,8 +656,11 @@ async function runInner(agent: CustomAgent, req: RunRequest, reg: { decide: stri
       const n = changes.filter((c) => c.status === 'pending' || c.status === 'held' || c.status === 'failed').length
       run.status = 'staged'
       run.jev = { ...(run.jev ?? { n: 0, checked: 0, marked: 0, held: 0, usd: 0 }), waited: split.why }
-      run.steps.push({ kind: 'note', label: t(n === 1 ? 'features.ai.jev.run.waited.one' : 'features.ai.jev.run.waited.other', { n, why: t(`features.ai.jev.wait.${split.why}`) }), state: 'err', jev: 'wait' })
-      reportFirst = t(n === 1 ? 'features.ai.jev.report.waited.one' : 'features.ai.jev.report.waited.other', { n })
+      // 'line': the Regler's red line refused a check — the run waits, but never "Jev made it wait" (not a finding)
+      const kind = split.why === 'line' ? 'line' : 'waited'
+      const why = t(`features.ai.jev.wait.${split.why}`)
+      run.steps.push({ kind: 'note', label: t(`features.ai.jev.run.${kind}.${n === 1 ? 'one' : 'other'}`, { n, why }), state: 'err', jev: 'wait' })
+      reportFirst = t(`features.ai.jev.report.${kind}.${n === 1 ? 'one' : 'other'}`, { n, why })
     } else if (split) {
       const waits = split.waits
       const direct = split.direct
@@ -856,7 +881,7 @@ if (typeof window !== 'undefined' && (import.meta.env.DEV || new URLSearchParams
       const agent = useWorkspace.getState().agents?.[agentId]
       if (!agent) return null
       const runId = newId()
-      const v = await startCheck(startInput(agent, { trigger: { type: manual ? 'manual' : 'schedule' }, manual }, runId))
+      const v = await startCheck(await startFor(agent, { trigger: { type: manual ? 'manual' : 'schedule' }, manual }, runId))
       return JSON.parse(JSON.stringify(v)) as unknown
     },
   }

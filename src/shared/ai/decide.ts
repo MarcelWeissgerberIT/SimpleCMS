@@ -12,9 +12,13 @@ import { JEV_NEAR } from './jev.ts'
 export type JevCheckKey = 'asked' | 'target' | 'consistent' | 'clean'
 export const JEV_CHECK_KEYS: readonly JevCheckKey[] = ['asked', 'target', 'consistent', 'clean']
 
-/** Why a change was not pre-checked (or not trusted). 'endpoint': no operator serves Jev under the workspace's rule. */
-export type JevWhy = 'policy' | 'nokey' | 'noroute' | 'off' | 'reload' | 'budget' | 'price' | 'context' | 'timeout' | 'late' | 'unavailable' | 'cooldown' | 'empty' | 'upstream' | 'changed' | 'endpoint' | 'error'
-export const JEV_WHYS: readonly JevWhy[] = ['policy', 'nokey', 'noroute', 'off', 'reload', 'budget', 'price', 'context', 'timeout', 'late', 'unavailable', 'cooldown', 'empty', 'upstream', 'changed', 'endpoint', 'error']
+/**
+ * Why a change was not pre-checked (or not trusted). 'endpoint': no operator serves Jev under the workspace's rule.
+ * 'budget': a money line held it back before sending (the run's own budget, the Regler's red line) — 'price': no price
+ * known for it while a line is set; 'scope': the account a line counts for is not known yet (a team tab still loading).
+ */
+export type JevWhy = 'policy' | 'nokey' | 'noroute' | 'off' | 'reload' | 'budget' | 'price' | 'scope' | 'context' | 'timeout' | 'late' | 'unavailable' | 'cooldown' | 'empty' | 'upstream' | 'changed' | 'endpoint' | 'error'
+export const JEV_WHYS: readonly JevWhy[] = ['policy', 'nokey', 'noroute', 'off', 'reload', 'budget', 'price', 'scope', 'context', 'timeout', 'late', 'unavailable', 'cooldown', 'empty', 'upstream', 'changed', 'endpoint', 'error']
 
 /** The question set's version: a wording change bumps it (a hash test holds the wording). */
 export const QSET_VERSION = 1
@@ -113,6 +117,12 @@ export function nearOf(c: JevCheck | null | undefined, markBelow: number): boole
   const p = c ? lowOf(c) : null
   return p !== null && pct(p) >= pct(markBelow) && pct(p) < pct(markBelow + JEV_NEAR)
 }
+
+/**
+ * Held back for money and never sent (a money line: the run's own budget, the Regler's red line) — no finding of Jev's:
+ * it keeps no later run cautious (agents/direct.ts stickyOf), and a held one is replaced like an open one (supersede.ts).
+ */
+export const moneySkipped = (c: JevCheck | null | undefined): boolean => !!c && c.state === 'skipped' && c.why === 'budget'
 
 /** The write gate lets a change through only when Jev answered and every check is at or above `allowAt`. */
 export function gateAllows(c: JevCheck | null | undefined, allowAt: number): boolean {

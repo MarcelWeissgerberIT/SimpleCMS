@@ -4,7 +4,7 @@ import { useUI } from '../../store/ui'
 import type { CustomAgent, ID } from '../../store/types'
 import { navigate } from '../../lib/router'
 import { t } from '../../i18n'
-import { executeRun, startInput } from './exec'
+import { executeRun, startFor } from './exec'
 import { newId } from '../../lib/ids'
 import { currentLang } from '../../i18n'
 import { fmtUsd } from '../../lib/money'
@@ -59,7 +59,8 @@ export async function runNow(agent: CustomAgent, opts: { confirmed?: boolean } =
   }
   const runId = newId()
   const req = { trigger: { type: 'manual' as const }, manual: true, runId }
-  const input = startInput(agent, req, runId)
+  // the first step and, with a Vorprüfer, the band its checks reserve right after the start
+  const input = await startFor(agent, req, runId)
   const v = await startCheck(input)
   if (!v.start) return void startAsk(agent, v, () => {
     allowTask(input.run!.source!, 1)
@@ -79,7 +80,7 @@ function startAsk(agent: CustomAgent, v: Awaited<ReturnType<typeof startCheck>>,
   }
   if (!('ask' in v)) return
   const a = v.ask
-  const lead = t('features.governor.start.lead', { rest: fmtUsd(Math.max(0, Math.min(a.rest.day, a.rest.month, a.rest.run)), lang), band: fmtBand(a.first, lang) })
+  const lead = t(v.checks ? 'features.governor.start.leadChecks' : 'features.governor.start.lead', { rest: fmtUsd(Math.max(0, Math.min(a.rest.day, a.rest.month, a.rest.run)), lang), band: fmtBand(a.first, lang) })
   ui.openModal({
     type: 'confirm',
     title: t('features.governor.start.titleNamed', { name: agent.name }),

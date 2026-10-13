@@ -10,7 +10,7 @@ import { readFileSync, readdirSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { test, expect } from '@playwright/test'
 import { DECISIONS_URL, JEV_CALIBRATED, JEV_CONTEXT, JEV_DEFAULTS, JEV_FAMILY, JEV_NEAR, JEV_STATE_TOKENS, canonicalOf, isJevModel, isJevSnapshot, jevLabel, jevSnapshotDay, jevVersion, newestJev } from '../../src/shared/ai/jev'
-import { JEV_CHECK_KEYS, QSET_VERSION, gateAllows, markOf, nearOf, readChecks, sanitizeJevCheck, suggestionOf, weakest, type JevCheck } from '../../src/shared/ai/decide'
+import { JEV_CHECK_KEYS, QSET_VERSION, gateAllows, markOf, moneySkipped, nearOf, readChecks, sanitizeJevCheck, suggestionOf, weakest, type JevCheck } from '../../src/shared/ai/decide'
 import { agentAIReadable, decisionChecks, isJevKey, readReview, runsOnClaude, sanitizeAgentAI } from '../../src/shared/ai/route'
 import { sanitizeDeviceAI } from '../../src/shared/ai/policy'
 import type { DecideQuestion, DecideRequest, DecideTurn } from '../../src/shared/ai/types'
@@ -19,7 +19,7 @@ import { DECIDE_FORBIDDEN, assertSafeDecideBody, buildDecide, classifyDecide, de
 import * as legacy from './helpers/legacyRouteS1'
 import * as legacyRuns from './helpers/legacyRunsS2'
 import { directSplit, runLevelWaits, stickyOf } from '../../src/app/features/agents/direct'
-import { supersedePlan } from '../../src/app/features/agents/supersede'
+import { replaceable, supersedePlan } from '../../src/app/features/agents/supersede'
 import type { AgentRun } from '../../src/app/features/agents/types'
 import { createHash } from 'node:crypto'
 import { createRedactor, redactDoc, redactPersonValue } from '../../src/shared/ai/redact'
@@ -800,6 +800,35 @@ test.describe('the Schreibschranke’s split (features/agents/direct.ts)', () =>
     const { jev: _jev, ...plain } = waited
     expect(supersedePlan([r1, plain as AgentRun], same, never)).toEqual([{ runId: 'r1', changeId: 'c1', at: 1, by: { runId: 'r2', changeId: 'c1', at: 2 } }])
   })
+
+  test('train 9 review — held back only for money ("Zurückhalten" in a run the Regler held, or over its own budget) is no finding: no later run is cautious, the next run’s proposal replaces it (control: held unchecked for another reason sticks and stays)', () => {
+    const upd = (id: string, row: string, x: Partial<StagedChange> = {}) => c(id, { pageId: row, props: [{ propId: 'note', name: 'Note', type: 'text', before: '', after: 'Checked', intent: { kind: 'value', value: 'Checked' } }], ...x } as Partial<StagedChange>)
+    const run = (id: string, at: number, staged: StagedChange[], x: Partial<AgentRun> = {}) => ({ id, agentId: 'ag', runner: 'browser', trigger: { type: 'manual' }, startedAt: at, status: 'held', summary: '', steps: [], staged, ...x }) as AgentRun
+    const same = (_r: AgentRun, pageId: string) => pageId
+    const never = () => false
+    const unchecked = (why: 'budget' | 'late' | 'price') => ({ v: 1 as const, at: 1, model: '', state: 'skipped' as const, why, held: 'unchecked' as const })
+    // the Regler held run 1: its row update held back, never sent
+    const held = run('r1', 1, [upd('c1', 'R', { status: 'held', jev: unchecked('budget') })])
+    expect(moneySkipped(held.staged![0]!.jev)).toBe(true)
+    expect(stickyOf([held], 'now')).toEqual({ any: false, targets: new Set() })
+    expect(runLevelWaits({ changes: [upd('c1', 'R', { jev: ok(0.95) })], review: { ...REVIEW, pre: { markBelow: 0.7, hold: true }, gate: null }, sticky: stickyOf([held], 'now').any })).toEqual([])
+    // the next run's clean proposal for the same row replaces it (the HeldLine's promise) …
+    expect(replaceable(held.staged![0]!)).toBe(true)
+    const next = run('r2', 2, [upd('c1', 'R', { jev: ok(0.95) })], { status: 'staged' })
+    expect(supersedePlan([held, next], same, never).map((x) => `${x.runId}#${x.changeId}`)).toEqual(['r1#c1'])
+    // … and a money hold replaces an older open one, as its "Nur markieren" twin (pending, unchecked) does
+    const older = run('r0', 0, [upd('c1', 'R', { jev: ok(0.95) })], { status: 'staged' })
+    expect(supersedePlan([older, held], same, never).map((x) => `${x.runId}#${x.changeId}`)).toEqual(['r0#c1'])
+    // controls: unchecked for another reason (late, no price) still sticks and is neither replaced nor replaces
+    for (const why of ['late', 'price'] as const) {
+      const other = run('r1', 1, [upd('c1', 'R', { status: 'held', jev: unchecked(why) })])
+      expect([...stickyOf([other], 'now').targets]).toEqual(['R'])
+      expect(replaceable(other.staged![0]!)).toBe(false)
+      expect(supersedePlan([other, next], same, never)).toEqual([])
+    }
+    // a check that went out and failed is no money hold either
+    expect(moneySkipped({ v: 1, at: 1, model: 'm', state: 'failed', why: 'budget' })).toBe(false)
+  })
 })
 
 /* ------------------------------------------------------------------ */
@@ -893,6 +922,11 @@ test.describe('Jev’s words are not the Regler’s (features.ai.jev.*, the ai-j
     expect(jevMessages.en['features.ai.jev.run.waited.one']).toMatch(/^Jev made the run wait — /)
     expect(jevMessages.de['features.ai.jev.run.waited.one']).toMatch(/^Jev lässt den Lauf warten — /)
     expect(jevMessages.de['features.ai.jev.report.waited.other']).toMatch(/^Jev hat den Lauf warten lassen — /)
+    // the red line's wait is the Regler's, never Jev's (train 9 review): "The run waits — …" / "Der Lauf wartet — …"
+    for (const k of ['run.line.one', 'run.line.other', 'report.line.one', 'report.line.other']) {
+      expect(jevMessages.en[`features.ai.jev.${k}`]).toMatch(/^The run waits — \{why\}; /)
+      expect(jevMessages.de[`features.ai.jev.${k}`]).toMatch(/^Der Lauf wartet — \{why\}; /)
+    }
     // positive control: the guard bites on the Regler's words …
     const gov = (lang: 'en' | 'de') => Object.entries(governorMessages[lang]) as [string, string][]
     expect(STOP_EN.test(governorMessages.en['features.governor.run.stopped.day'])).toBe(true)

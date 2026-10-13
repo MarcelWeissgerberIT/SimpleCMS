@@ -14,7 +14,7 @@
  * Without a Vorprüfer there is no run-level reason: the run writes exactly what it wrote before Jev. With one it writes the
  * same or nothing — a decision model only subtracts.
  */
-import { gateAllows } from '@/shared/ai/decide'
+import { gateAllows, moneySkipped } from '@/shared/ai/decide'
 import type { AgentReviewV2 } from '@/shared/ai/route'
 import type { ID } from '../../store/types'
 import type { StagedChange } from '../ai/agent/types'
@@ -62,8 +62,10 @@ const open = (c: StagedChange) => c.status === 'pending' || c.status === 'failed
  * marked it, or could not check it), or any change of a run Jev made wait. Only Jev's own findings count: a change held,
  * or a run that waited, only because of an earlier one (sticky) passes nothing on — once the person decided the change
  * that started it, the next run is checked on its own again; nor does a run that waited only because the red line left no
- * room for its checks ('line' — the Regler's, not a finding). `any`: one exists (an apply-mode run waits as a whole);
- * `targets`: the pages and rows they are about (a staged-mode change to one of them is held / marked).
+ * room for its checks ('line' — the Regler's, not a finding), nor a change held back only for money and never sent
+ * (`moneySkipped`: the run's own budget, the Regler's red line, a run the Regler held — "Zurückhalten" too). `any`: one
+ * exists (an apply-mode run waits as a whole); `targets`: the pages and rows they are about (a staged-mode change to one
+ * of them is held / marked).
  */
 export function stickyOf(runs: readonly AgentRun[], exceptRun: string): { any: boolean; targets: Set<ID> } {
   const targets = new Set<ID>()
@@ -71,7 +73,8 @@ export function stickyOf(runs: readonly AgentRun[], exceptRun: string): { any: b
     if (r.id === exceptRun || r.runner !== 'browser') continue
     const waited = !!r.jev?.waited && r.jev.waited !== 'sticky' && r.jev.waited !== 'line'
     for (const c of r.staged ?? []) {
-      if (!open(c) || !(waited || !!c.jev?.mark || (c.status === 'held' && c.jev?.held !== 'sticky'))) continue
+      const heldByJev = c.status === 'held' && c.jev?.held !== 'sticky' && !moneySkipped(c.jev)
+      if (!open(c) || !(waited || !!c.jev?.mark || heldByJev)) continue
       targets.add(r.rowIds?.[c.pageId] ?? c.pageId)
     }
   }

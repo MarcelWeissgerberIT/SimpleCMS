@@ -7,12 +7,14 @@
  *     the agent's instructions as typed text (a key in them refuses the check). The state is built for the route the
  *     gate resolved (state.ts). Only what the gate let through reads the price (the decisions catalogue — a refused run
  *     sends nothing at all) and is prepared again with its size;
- *  2. the band of every check reserved before the first goes out — the run's remaining budget smaller → none goes out
- *     ('budget'); the tab's cooldown → none ('cooldown'). With a Regler line each check's band comes out of the run's
- *     decide reservation (`run.decide`, taken at the run's start — features/governor decide.ts); one the line refuses
- *     anyway is not sent ('budget') and the result says so (`line`: an apply-mode run then waits as a whole);
- *  3. ≤ 3 in flight, 8 s per attempt (core/decide.ts), 20 s for the run from the first read on — not done by then (an
- *     answer after it included): 'late';
+ *  2. the band of every check summed before the first goes out (estimated, nothing reserved) — the run's remaining budget
+ *     smaller → none goes out ('budget'); the tab's cooldown → none ('cooldown');
+ *  3. ≤ 3 in flight, each prepared (and its band reserved) right before it is sent — never more than IN_FLIGHT of a run's
+ *     checks hold a reservation at once. With a Regler line each check's band comes out of the run's decide reservation
+ *     (`run.decide`, taken at the run's start — features/governor decide.ts); one the line refuses anyway is not sent
+ *     ('budget') and the result says so (`line`: an apply-mode run then waits as a whole) — a refusal for no price
+ *     ('price') or an account not known yet ('scope') is no line. 8 s per attempt (core/decide.ts), 20 s for the run
+ *     from the first read on — not done by then (an answer after it included): 'late';
  *  4. every response is one ledger entry (role 'decide', the run as its group) and reaches the run's receipt through
  *     `onEntry` (its budget counts it).
  * A change Jev did not check says why (JevWhy). Nothing here writes the workspace or the run — the caller attaches the
@@ -79,9 +81,17 @@ export interface CheckRunResult {
 
 interface Job {
   c: StagedChange
-  prepared: Prepared
   state: Record<string, unknown>
+  sources: ProposalState['sources']
+  chars: number
+  applied: Applied
 }
+
+/** A refusal at one of the Regler's lines (day · month · device-day · device-month · run) — not 'noprice' / 'scope'. */
+const atLine = (e: unknown): boolean => e instanceof AIError && e.code === 'budget' && e.detail !== 'noprice' && e.detail !== 'scope'
+
+/** A check's size: its state and questions, no answer budget (the decide wire sets none; Jev's output is priced 0). */
+const sizeOf = (j: Pick<Job, 'chars'>) => ({ promptChars: j.chars, maxTokens: 0 })
 
 /** The class a 'policy' refusal names (the card says "Jev may not see …"). */
 const refusedClass = (e: unknown): DataClass | undefined => {
@@ -114,6 +124,8 @@ export async function checkChanges(i: CheckRunInput): Promise<CheckRunResult> {
   const deadline = new AbortController()
   const timer = setTimeout(() => deadline.abort(), i.deadlineMs ?? RUN_DEADLINE_MS)
   const jobs: Job[] = []
+  /** the checks prepared and not yet settled (each settles itself — this is the backstop for a throw) */
+  const live = new Set<Prepared>()
   try {
     // 1 · the gate (without a reservation) and the state, per change — a refusal (no key, no Vorprüfer, AUS, newer rules,
     //     a data rule) sends nothing, not even the catalogue read
@@ -123,7 +135,7 @@ export async function checkChanges(i: CheckRunInput): Promise<CheckRunResult> {
     // the run's ledger source and mode, and its decide reservation: the brake takes a check's band out of it (§ 5.6)
     const run = { source: `agent:${i.agentId}:${i.runId}`, mode: i.run?.mode ?? ('manual' as const), ...(i.run?.decide ? { decide: i.run.decide } : {}) }
     const base = { purpose: 'gate.precheck' as const, carries, decider: i.review.decider ?? null, typed: i.instructions, run }
-    const ready: Array<{ c: StagedChange; state: Record<string, unknown>; sources: ProposalState['sources']; chars: number; applied: Applied }> = []
+    const ready: Job[] = []
     for (const c of todo) {
       const input: ProposalInput = { agent: { instructions: i.instructions, write: i.write }, trigger: i.trigger, change: c, changes: i.changes, rowIds: i.rowIds }
       try {
@@ -155,18 +167,30 @@ export async function checkChanges(i: CheckRunInput): Promise<CheckRunResult> {
       )
       return result
     }
+    // 3 · the band of every check estimated first (nothing reserved yet; the backstop runs here too — the state is built).
+    //     With a Regler line the checks are judged in order against the room the line leaves this run (its decide
+    //     reservation counted in — what prepare's money phase would say one after the other): one that does not fit is
+    //     refused at the line ('budget', `line`) before anything goes out. Then the run's own budget: the sum of the rest
+    //     more than it may still spend → none goes out.
+    let sum = 0
+    let room: number | null = null
     for (const r of ready) {
       try {
-        jobs.push({ c: r.c, prepared: prepare({ ...base, sources: r.sources, applied: r.applied, size: { promptChars: r.chars, maxTokens: 0 } }), state: r.state })
+        const pre = precheck({ ...base, sources: r.sources, applied: r.applied, size: sizeOf(r) }, { backstop: true })
+        const band = pre.estimated ?? null
+        if (pre.hint && band) {
+          room ??= Math.min(pre.hint.rest.day, pre.hint.rest.month, pre.hint.rest.run)
+          if (band.high > room) throw new AIError('budget', pre.hint.rest.binding ?? 'day', undefined, pre.label)
+          room -= band.high
+        }
+        sum += band?.high ?? 0
+        jobs.push(r)
       } catch (e) {
         refuse(r.c, e)
       }
     }
     if (!jobs.length) return result
-
-    // 3 · the band of every check reserved first: more than the run may still spend → none goes out
-    const reserved = jobs.reduce((n, j) => n + (j.prepared.reservation?.usd ?? 0), 0)
-    if (reserved > Math.max(0, i.budgetLeft)) {
+    if (sum > Math.max(0, i.budgetLeft)) {
       skipAll(
         jobs.map((j) => j.c),
         'budget',
@@ -174,12 +198,21 @@ export async function checkChanges(i: CheckRunInput): Promise<CheckRunResult> {
       return result
     }
 
-    // 4 · ≤ 3 in flight under the run's deadline
+    // 4 · ≤ 3 in flight under the run's deadline, each prepared (its band reserved — the brake's money phase, the decide
+    //     reservation) right before it goes out
     const one = async (j: Job) => {
       if (deadline.signal.aborted) {
         checks[j.c.id] = uncheckedOf('late', { at, sent: false })
         return
       }
+      let prepared: Prepared
+      try {
+        prepared = prepare({ ...base, sources: j.sources, applied: j.applied, size: sizeOf(j) })
+      } catch (e) {
+        refuse(j.c, e)
+        return
+      }
+      live.add(prepared)
       const own = new AbortController()
       const stop = () => own.abort()
       deadline.signal.addEventListener('abort', stop, { once: true })
@@ -198,7 +231,7 @@ export async function checkChanges(i: CheckRunInput): Promise<CheckRunResult> {
         },
       })
       try {
-        const turn = await core.decide(j.prepared, { state: j.state, questions }, { signal: own.signal, source: `agent:${i.agentId}:${i.runId}`, group: i.runId, on: i.review.on })
+        const turn = await core.decide(prepared, { state: j.state, questions }, { signal: own.signal, source: `agent:${i.agentId}:${i.runId}`, group: i.runId, on: i.review.on })
         // an answer after the run's deadline is not used (it went out and is metered): the run did not wait for it
         if (deadline.signal.aborted) checks[j.c.id] = uncheckedOf('late', { at, sent: true, model: turn.served.model, usd: m.usd })
         else {
@@ -212,7 +245,8 @@ export async function checkChanges(i: CheckRunInput): Promise<CheckRunResult> {
       } finally {
         untap()
         deadline.signal.removeEventListener('abort', stop)
-        settle(j.prepared)
+        live.delete(prepared)
+        settle(prepared)
       }
     }
     let next = 0
@@ -222,14 +256,14 @@ export async function checkChanges(i: CheckRunInput): Promise<CheckRunResult> {
     await Promise.all(Array.from({ length: Math.min(IN_FLIGHT, jobs.length) }, worker))
   } finally {
     clearTimeout(timer)
-    for (const j of jobs) settle(j.prepared)
+    for (const p of live) settle(p)
   }
   return result
 
   /** A change the gate refused: unchecked, with the reason (a data rule names its class; the red line says so). */
   function refuse(c: StagedChange, e: unknown): void {
     const why = core.whyOf(e)
-    if (e instanceof AIError && e.code === 'budget') result.line = true
+    if (atLine(e)) result.line = true
     const cls = why === 'policy' ? refusedClass(e) : undefined
     checks[c.id] = uncheckedOf(why, { at, sent: false, ...(cls ? { cls } : {}) })
   }

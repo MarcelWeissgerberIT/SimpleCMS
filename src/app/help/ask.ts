@@ -35,11 +35,13 @@ export interface AskOptions {
   signal: AbortSignal
   /** the route chip: this question only (null: the rules decide) */
   route?: Route | null
+  /** the question's ledger source ('help:<id>' — its "Belegt?" check uses the same one); absent: the gate's own */
+  source?: string
 }
 
 /** Streams the answer (Markdown). Throws the AI client's friendly errors (no key, offline …). */
-export function askHelp({ question, articles, lang, onToken, signal, route }: AskOptions): Promise<string> {
-  return streamCompletion({ purpose: 'help.ask', sources: [], typed: question, system: helpSystemPrompt(lang), prompt: helpPrompt(question, articles), onToken, signal, mcp: false, ...(route ? { route } : {}) })
+export function askHelp({ question, articles, lang, onToken, signal, route, source }: AskOptions): Promise<string> {
+  return streamCompletion({ purpose: 'help.ask', sources: [], typed: question, system: helpSystemPrompt(lang), prompt: helpPrompt(question, articles), onToken, signal, mcp: false, ...(route ? { route } : {}), ...(source ? { run: { source } } : {}) })
 }
 
 /**

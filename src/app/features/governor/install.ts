@@ -41,6 +41,7 @@ import { loadMonth, loadToday, noteLedgerScopes, startNoting, startTotals, total
 import { minOut, modeRow } from './modes'
 import { registerUsageLamp } from './lampSource'
 import { decideLeft, takeDecide } from './decide'
+import { setReserveLine } from './ledger'
 
 /** The generation this module enforces (generations.ts GEN_ENFORCED names this file). */
 export const ENFORCES = GEN.budget
@@ -157,7 +158,8 @@ export function money(ctx: BrakeCtx): MoneyVerdict | void {
 export function peek(ctx: BrakeCtx): MoneyHint | null {
   const l = limitsNow()
   if (!hasLimit(l)) return null
-  const rest = restFor(ctx, l, totalsNow())
+  // a decision: the rests as decision() judges them — its run's decide reservation counted as room, no run budget
+  const rest = ctx.cls === 'gate' ? restOf(l, totalsNow(), { reservation: ctx.run.decide ?? null }, allowanceOf({ source: ctx.run.source })) : restFor(ctx, l, totalsNow())
   const j = judged(ctx)
   const band = j.mcp ? j.mcp.band : j.band
   // precheck usually has no size: no band to judge — the price and the rest still say something
@@ -221,6 +223,8 @@ export function install(): void {
   if (installed) return
   installed = true
   registerBeforeSend({ money, peek, round, start: startRun })
+  // while a line is set the book never drops a reservation another request may still be using (ledger.ts)
+  setReserveLine(() => hasLimit(limitsNow()))
   if (typeof window === 'undefined') return
   // every workspace that spends here goes on the device line's list — a line set later counts it (no I/O until a meter)
   startNoting()

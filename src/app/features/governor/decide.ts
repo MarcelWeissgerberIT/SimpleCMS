@@ -29,10 +29,18 @@ export const decideBand = (route: Route, price: PriceRow | null, caps: Caps | nu
  * `source`: the run's ledger source ('agent:<id>:<run>').
  */
 export function reserveDecide(o: { route: Route; price: PriceRow | null; caps: Caps | null; source: string }): string | null {
-  if (!hasLimit(limitsOf(useWorkspace.getState().governor, deviceLimitOf()))) return null
+  const usd = decideUsd(o)
+  return usd > 0 ? reserve(usd, o.source).id : null
+}
+
+/**
+ * What a decide reservation takes now (USD; 0: none — no line set, no price known here, a band of nothing). The start
+ * check counts it into a run's first step (exec.ts startFor): the reservation is taken right after the start.
+ */
+export function decideUsd(o: { route: Route; price: PriceRow | null; caps: Caps | null }): number {
+  if (!hasLimit(limitsOf(useWorkspace.getState().governor, deviceLimitOf()))) return 0
   const band = decideBand(o.route, o.price, o.caps)
-  if (!band || !(band.high > 0)) return null
-  return reserve(band.high * DECIDE_CHECKS, o.source).id
+  return band && band.high > 0 ? band.high * DECIDE_CHECKS : 0
 }
 
 /**

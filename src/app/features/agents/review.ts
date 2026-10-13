@@ -39,7 +39,7 @@ import { getAgentState, loadRuns, patchRun, putAgentState, putRun, withRunLock, 
 import { freshServerRun, patchServerRun, resolveServerRun, serverErrorText, serverRunCopy } from './server'
 import { isRunningAnywhere } from './locks'
 import { isLeader } from './runner'
-import { setSupersedeGuard, supersedeGuard, supersedePlan } from './supersede'
+import { replaceable, setSupersedeGuard, supersedeGuard, supersedePlan } from './supersede'
 import { setProposalsShown } from './hold'
 import type { AgentRun, AgentRunStep } from './types'
 import type { ChangeRef } from '../ai/agent/types'
@@ -688,7 +688,7 @@ export async function supersedeOlder(agentId: ID): Promise<number> {
       const written = await patchRun(agentId, runId, (r) => {
         const staged = (r.staged ?? []).map((c): StagedChange => {
           const by = drop?.get(c.id)
-          if (by && isOpen(c)) return { ...c, status: 'superseded', supersededBy: by }
+          if (by && replaceable(c)) return { ...c, status: 'superseded', supersededBy: by }
           const refs = gain?.get(c.id)
           if (!refs) return c
           const have = new Set((c.supersedes ?? []).map((x) => `${x.runId}#${x.changeId}`))

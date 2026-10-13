@@ -10,8 +10,9 @@ import { fileURLToPath } from 'node:url'
 import type { Page } from '@playwright/test'
 import { test, expect, openApp, wsEval, mockClaude, createPage, gotoPage, editorOf, doc, para } from './fixtures'
 import { mockOpenRouter, seedEndpoints, type DecideStep, type DecideStepFn } from './helpers/providers'
-import { aiPanel } from './helpers/aiFlows'
-import { JEV, OR_KEY } from './helpers/jev'
+import { aiPanel, ledger } from './helpers/aiFlows'
+import { ALL_SHARED, JEV, MEMBER, OR_KEY } from './helpers/jev'
+import { budget } from './helpers/governor'
 import { capsOfRow, readCatalogRow } from '../../src/shared/ai/catalog'
 
 const panel = (page: Page) => page.getByRole('dialog', { name: /^(Help|Hilfe)$/ })
@@ -64,6 +65,28 @@ test.describe('"Belegt?" under the help’s answers (J13)', () => {
     await expect(line).toHaveAttribute('data-state', 'supported')
     await expect(line).toHaveText('Jev: no statement without a source found')
     await expect(line).not.toContainText('0.91')
+  })
+
+  test('the check meters on its answer’s ledger source (help:<id>) — one question on #/regler, never a "help:ask" of its own; the next question has its own', async ({ page }) => {
+    const w = await setup(page, { verify: true })
+    await askIt(page)
+    await expect.poll(() => w.or.decisions().length).toBe(1)
+    await expect.poll(async () => (await ledger(page)).length).toBe(2)
+    const first = await ledger(page)
+    const answer = first.find((e) => e.purpose === 'help.ask')!
+    const check = first.find((e) => e.purpose === 'gate.verify')!
+    expect(answer.source).toMatch(/^help:[a-z0-9]{12}$/)
+    expect(check).toMatchObject({ source: answer.source, role: 'decide' })
+    // a second question: a source of its own, its check with it
+    const field = panel(page).getByRole('textbox', { name: 'Your question' })
+    await field.fill('How do I share a page?')
+    await field.press('Enter')
+    await expect.poll(() => w.or.decisions().length).toBe(2)
+    await expect.poll(async () => (await ledger(page)).length).toBe(4)
+    const all = await ledger(page)
+    expect(new Set(all.map((e) => e.source)).size).toBe(2)
+    expect(all.some((e) => e.source === 'help:ask')).toBe(false)
+    for (const e of all.filter((x) => x.purpose === 'gate.verify')) expect(all.some((x) => x.purpose === 'help.ask' && x.source === e.source)).toBe(true)
   })
 
   test('NOT SUPPORTED: the amber cap and what Jev found; R asks once more on the deep role — never by itself', async ({ page }) => {
@@ -180,16 +203,17 @@ const CATALOGUE = JSON.parse(readFileSync(fileURLToPath(new URL('../fixtures/ope
 const LUNA = 'openai/gpt-6-luna'
 const WORK = ['public', 'structure', 'selection', 'page', 'rows', 'files', 'workspace']
 
-async function askWorkspace(page: Page, o: { openrouter: boolean }) {
-  const or = await mockOpenRouter(page.context(), { chat: [{ text: 'We launch in two weeks [[Launch plan]].' }], decisionsFallback: choice('supported') })
+async function askWorkspace(page: Page, o: { openrouter: boolean; support?: string; model?: string; seesAll?: boolean }) {
+  const or = await mockOpenRouter(page.context(), { chat: [{ text: 'We launch in two weeks [[Launch plan]].' }], decisionsFallback: choice(o.support ?? 'supported') })
   const bodies = await mockClaude(page.context(), () => 'We launch in two weeks [[Launch plan]].')
   await page.addInitScript(() => localStorage.setItem('one.tour', '{"off":true}'))
   await openApp(page)
   const luna = readCatalogRow(CATALOGUE.data.find((x) => x.id === LUNA), '2026-10-12')!
   const shortlist = { m: luna.id, label: luna.label, price: luna.price, caps: capsOfRow(luna), at: '2026-10-12' }
   // the workspace's "Work data" preset: no names, no transcripts for OpenRouter
-  await wsEval(page, (s, a) => s.updateSettings({ aiApiKey: 'sk-ant-e2e-test-key', aiKeys: { openrouter: a.key }, ai: { models: [a.row], routes: { gate: [{ p: 'openrouter', m: a.jev }], ...(a.openrouter ? { workspace: [{ p: 'openrouter', m: a.luna }] } : {}) }, jev: { verify: true } } }), { key: OR_KEY, jev: JEV, row: shortlist, luna: LUNA, openrouter: o.openrouter })
-  await wsEval(page, (s, allow) => s.setWorkspaceAI({ policy: { providers: { openrouter: { allow } }, restricted: [] } }), WORK)
+  await wsEval(page, (s, a) => s.updateSettings({ aiApiKey: 'sk-ant-e2e-test-key', ...(a.model ? { aiModel: a.model } : {}), aiKeys: { openrouter: a.key }, ai: { models: [a.row], routes: { gate: [{ p: 'openrouter', m: a.jev }], ...(a.openrouter ? { workspace: [{ p: 'openrouter', m: a.luna }] } : {}) }, jev: { verify: true }, ...(a.member ? { allow: { openrouter: a.member } } : {}) } }), { key: OR_KEY, jev: JEV, row: shortlist, luna: LUNA, openrouter: o.openrouter, model: o.model ?? null, member: o.seesAll ? MEMBER : null })
+  // "Work data" (no names, no transcripts for OpenRouter) — or everything (OpenRouter sees what Claude saw)
+  await wsEval(page, (s, allow) => s.setWorkspaceAI({ policy: { providers: { openrouter: { allow } }, restricted: [] } }), o.seesAll ? ALL_SHARED : WORK)
   await seedEndpoints(page, { [JEV]: [{ tag: 'typesafe', name: 'TypeSafe' }], [LUNA]: [{ tag: 'nordwind', name: 'Nordwind' }] })
   const id = await createPage(page, { title: 'Launch plan', content: doc(para('We launch in two weeks.'), para('')) })
   await gotoPage(page, id)
@@ -229,5 +253,38 @@ test.describe('"Belegt?" under Ask the workspace (review)', () => {
     expect(bodies.length).toBeGreaterThan(0)
     await expect(aiPanel(page).getByTestId('jev-sup')).toHaveAttribute('data-state', 'skipped')
     expect(or.decisions()).toHaveLength(0)
+  })
+
+  test('the check meters on its answer’s ledger source (ai:<run>:workspace) — the AI menu’s question, never an "Ask the workspace" consumer of its own', async ({ page }) => {
+    const { or } = await askWorkspace(page, { openrouter: true })
+    await expect.poll(() => or.decisions().length).toBe(1)
+    await expect.poll(async () => (await ledger(page)).length).toBe(2)
+    const entries = await ledger(page)
+    const answer = entries.find((e) => e.purpose === 'workspace.ask')!
+    const check = entries.find((e) => e.purpose === 'gate.verify')!
+    expect(answer.source).toMatch(/^ai:[a-z0-9]{12}:workspace$/)
+    expect(check).toMatchObject({ source: answer.source, role: 'decide' })
+  })
+
+  test('at the red line, "Ask more thoroughly" is refused: E (+1 $ once) sends it on the deep role — the run’s own route, never the menu’s chip', async ({ page }) => {
+    const { bodies } = await askWorkspace(page, { openrouter: false, seesAll: true, support: 'unsupported', model: 'claude-sonnet-5-5' })
+    expect(bodies).toHaveLength(1)
+    expect(JSON.parse(bodies[0]!).model).toMatch(/sonnet/)
+    const deeper = aiPanel(page).getByTestId('jev-deeper')
+    await expect(deeper).toBeVisible()
+    // the day's rest: 0,005 $ (the sanitizer's smallest day is 0,10 $ — the rest of it held by a reservation)
+    await budget(page, { v: 1, day: 0.1 })
+    await page.evaluate(() => (window as unknown as { __oneGovernor: { reserve: (u: number, s: string) => string } }).__oneGovernor.reserve(0.095, 'spec:hold'))
+    await deeper.click()
+    const note = aiPanel(page).getByTestId('gv-brake-note')
+    await expect(note).toBeVisible()
+    await expect.poll(() => page.evaluate(() => !!document.activeElement?.closest('[data-testid="gv-brake-note"]'))).toBe(true)
+    await page.waitForTimeout(450)
+    expect(bodies).toHaveLength(1)
+    await page.keyboard.press('e')
+    await expect.poll(() => bodies.length).toBe(2)
+    expect(JSON.parse(bodies[1]!).model).toMatch(/opus/)
+    await page.waitForTimeout(400)
+    expect(bodies).toHaveLength(2)
   })
 })

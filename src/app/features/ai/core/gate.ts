@@ -122,6 +122,9 @@ export interface RunCtx {
   allowance?: string
   /** the run's decide reservation (SJ): gate.* requests it covers pass the day line */
   decide?: string
+  /** the start check only: what the run reserves right after it starts (an agent's decide reservation, USD) — counted
+   *  into its first step's band */
+  startExtra?: number
 }
 
 /** The run a prepared request belongs to (its ledger source and run mode always set). */
@@ -227,8 +230,9 @@ export interface RoundCtx extends LoopRound {
 }
 
 /** The start check's verdict with the binding line's spend and limit (a held record, the dialog). */
-/** A start verdict, with the binding line's spend and limit and the label of the route it priced (a refusal names it). */
-export type StartCheck = StartVerdict & { line?: { spent: number; limit: number }; label?: string }
+/** A start verdict, with the binding line's spend and limit and the label of the route it priced (a refusal names it);
+ *  `checks`: the first step's band includes this much for the run's pre-checks (RunCtx.startExtra, USD). */
+export type StartCheck = StartVerdict & { line?: { spent: number; limit: number }; label?: string; checks?: number }
 
 export interface Prepared {
   purpose: PurposeId
@@ -266,6 +270,8 @@ export interface Prepared {
   allowance?: number
   /** precheck: what the money phase would say (null: no limit) */
   hint?: MoneyHint | null
+  /** precheck with a size: the request's band as prepare would reserve it without a line (null: no price) — nothing reserved */
+  estimated?: Band | null
   /** the route a move put it on (the ceiling G2, a saving rule G3 — never in G1) and the one it came from */
   moved?: { by: 'saver' | 'ceiling'; from: Route }
 }
@@ -710,6 +716,7 @@ function gate(input: PrepareInput, held: boolean, backstopToo = false): Prepared
     ...(braked !== undefined ? { band: braked } : {}),
     ...(allowance !== undefined ? { allowance } : {}),
     ...(hint !== undefined ? { hint } : {}),
+    ...(!held && size ? { estimated: band } : {}),
     ...(pool ? { pool: [...pool] } : {}),
     level: res.level,
     redact,

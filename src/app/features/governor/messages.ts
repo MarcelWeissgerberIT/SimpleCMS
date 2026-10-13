@@ -264,6 +264,7 @@ export const messages: Messages = {
     // the start dialog (a manual run)
     'features.governor.start.title': 'Red line',
     'features.governor.start.lead': 'Rest today {rest} · the first step ≈\u00a0{band}',
+    'features.governor.start.leadChecks': 'Rest today {rest} · the first step with its pre-checks ≈\u00a0{band}',
     'features.governor.start.allow': '+{usd} once and start',
     'features.governor.start.titleNamed': 'Red line · {name}',
     'features.governor.start.need': 'Needs ≈ +{usd} — more than one allowance.',
@@ -584,6 +585,7 @@ export const messages: Messages = {
 
     'features.governor.start.title': 'Rotlinie',
     'features.governor.start.lead': 'Rest heute {rest} · der erste Schritt ≈\u00a0{band}',
+    'features.governor.start.leadChecks': 'Rest heute {rest} · der erste Schritt mit seinen Vorprüfungen ≈\u00a0{band}',
     'features.governor.start.allow': '+{usd} einmal erlauben und starten',
     'features.governor.start.titleNamed': 'Rotlinie · {name}',
     'features.governor.start.need': 'Braucht ≈ +{usd} — mehr als einmal Erlauben.',

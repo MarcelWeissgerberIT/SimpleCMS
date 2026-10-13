@@ -5,7 +5,8 @@
  *    the run's own reservation left out — go · halt (the AI terminal's card, with H when a cheaper model of the same
  *    provider carries the conversation within the rest) · stop (agents, background work).
  *  - startAt (startCheck, before a run's first request): the day (and the month) read first, then the first step's band
- *    (the prompt + FIRST_STEP_OUT) — background runs are held, a manual one asks.
+ *    (the prompt + FIRST_STEP_OUT, + what the run reserves at its start: RunCtx.startExtra) — background runs are held,
+ *    a manual one asks.
  */
 import { blendedPerM } from '@/shared/ai/prices'
 import { precheck, type BrakeCtx, type MoneyHint, type PrepareInput, type RoundCtx, type StartCheck } from '../ai/core/gate'
@@ -83,10 +84,14 @@ export async function startAt(input: PrepareInput, follow: () => void): Promise<
   }
   if (!hint) return { start: true }
   const t = totalsNow()
-  const v = startCheckPure({ run: { source: run.source, mode: run.mode }, limited: true, scopeKnown: t.scopeId !== null, first: hint.band, rest: hint.rest })
+  // what the run reserves right after its start (an agent's decide reservation) belongs to its first step: else a rest
+  // that covers the step but not the checks' band passes here and the first request is refused at the line
+  const extra = run.startExtra && run.startExtra > 0 ? run.startExtra : 0
+  const first = hint.band && extra ? { low: hint.band.low + extra, high: hint.band.high + extra } : hint.band
+  const v = startCheckPure({ run: { source: run.source, mode: run.mode }, limited: true, scopeKnown: t.scopeId !== null, first, rest: hint.rest })
   const binding = hint.rest.binding
   // the route it priced, as people read it ("Opus 5.5", "OpenRouter · …") — a refusal names it, never a raw id
-  return { ...v, label, ...(binding ? { line: lineNow(limitsNow(), t, binding, ownRun(run)) } : {}) }
+  return { ...v, label, ...(binding ? { line: lineNow(limitsNow(), t, binding, ownRun(run)) } : {}), ...(extra && hint.band ? { checks: extra } : {}) }
 }
 
 /** The seam (DEV / ?e2e, install.ts): H across thinking modes for the browser spec. */
