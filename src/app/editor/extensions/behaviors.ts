@@ -17,6 +17,7 @@ import { openBlockMenu } from '../select/registry'
 import { toggleItemDone } from '../workitem/keys'
 import { itemLookup } from '../workitem/lookup'
 import { inTableCell, ITEM_RULE, lineToItem } from '../workitem/turnInto'
+import { followTyped } from '../lib/typedAt'
 import {
   caretAfterNode,
   caretIntoBlock,
@@ -330,7 +331,9 @@ export function shortcutsExtension(bridge: Bridge) {
           if (!empty || !(selection instanceof TextSelection)) return false
           if ($from.parent.type.name !== 'paragraph' || $from.parent.content.size !== 0) return false
           if (!AI_PARENTS.has($from.node(Math.max(0, $from.depth - 1)).type.name)) return false
-          bridge.setState({ ai: { mode: 'block', typed: true } })
+          // where the Space was typed, followed until the menu shows (the first time its code loads first)
+          const typed = followTyped(editor, $from.pos, (t) => bridge.getState().ai?.typed === t)
+          bridge.setState({ ai: { mode: 'block', typed } })
           return true
         },
         Backspace: () => {

@@ -59,8 +59,10 @@ export { startUndoStep, endUndoStep } from './collab'
  * fn) flushes the person's pending typing, runs fn (dispatch / chain().run()), then hands the document to the store at
  * once inside the writer's frame; dispatchAs(editor, writer, tr) for one transaction. Synchronous, one per burst.
  * EDITOR_NORMALISE_META: the meta of a transaction that only repairs structure (no one writes) — the editor net skips it.
+ * EDITOR_PERSON_META: the meta of the person's own change dispatched after their event (a node view's control, a typed
+ * key the AI menu writes as it shows) — the flush that carries it is the editor's own; the editor net skips it.
  */
-export { editAs, dispatchAs, NORMALISE_META as EDITOR_NORMALISE_META } from './lib/editAs'
+export { editAs, dispatchAs, NORMALISE_META as EDITOR_NORMALISE_META, PERSON_META as EDITOR_PERSON_META } from './lib/editAs'
 export { getExtensions, markdownToDoc, docToMarkdown, docToHTML, stripPrivate, stripPrivate as stripButtonActions, docSchema, prepareCollabContent } from './convert'
 /**
  * docToFileMarkdown(doc): docToMarkdown with date / person mentions as `one:` links (`[@Oct 17](one:date/2026-10-17?r=-1d)`,
