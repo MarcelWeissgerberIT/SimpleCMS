@@ -1,6 +1,7 @@
 /**
  * The Regler's plates as people see them (production build) — the brake note (the AI menu at the line) and the halt
  * card (the AI terminal between two rounds), #/regler, Workspace › AI § 06 and Settings › AI's own line for this browser,
+ * Preflight's USAGE lamp at the line, the start dialog of a manual agent run,
  * 1440 × 900 and 390 × 844, Paper and Carbon, and the status bar's REGLER cell (amber, at the line) at 1440, into
  * .shots/regler-*.png.
  * Screenshots only on request (REGLER_SHOTS=1). Values are fictional (Nordlicht, Launch plan).
@@ -161,6 +162,40 @@ for (const size of [
         await dev.scrollIntoViewIfNeeded()
         await page.waitForTimeout(400)
         await page.screenshot({ path: `.shots/regler-device-${size.w}-${t}.png` })
+      })
+
+      test('Preflight: the USAGE lamp at the red line on Start', async ({ page }) => {
+        await openApp(page)
+        await KEY(page)
+        await budget(page, { v: 1, day: 6 })
+        await theme(page, t)
+        await spend(page, 6.1)
+        await page.evaluate(() => (location.hash = '#/'))
+        const plate = page.getByTestId('pf-plate')
+        await expect(plate).toBeVisible({ timeout: 15_000 })
+        await expect(plate).toContainText('Usage')
+        await page.waitForTimeout(600)
+        await page.screenshot({ path: `.shots/regler-lamp-${size.w}-${t}.png` })
+        await plate.screenshot({ path: `.shots/regler-lamp-plate-${size.w}-${t}.png` })
+      })
+
+      test('the start dialog of a manual run at the line', async ({ page }) => {
+        await openApp(page)
+        await KEY(page)
+        await wsEval(page, (s) => {
+          const now = Date.now()
+          s.upsertAgent({ id: 'ag-nordlicht', name: 'Nordlicht digest', instructions: 'Summarise the status of the Nordlicht projects.', trigger: { type: 'manual' }, scope: { everything: true, pages: [], databases: [] }, write: 'stage', output: null, mcpServers: [], runner: 'browser', model: null, effort: null, maxRunUsd: 0.5, enabled: true, createdAt: now, updatedAt: now })
+        })
+        await budget(page, { v: 1, day: 1 })
+        await spend(page, 0.95)
+        await theme(page, t)
+        await page.evaluate(() => (location.hash = '#/agents/ag-nordlicht'))
+        await page.getByRole('button', { name: 'Run now' }).click()
+        const dlg = page.getByRole('dialog')
+        await expect(dlg).toContainText('Red line · Nordlicht digest')
+        await page.waitForTimeout(500)
+        await page.screenshot({ path: `.shots/regler-start-${size.w}-${t}.png` })
+        await page.keyboard.press('Escape')
       })
 
       test('the halt card in the AI terminal', async ({ page }) => {
