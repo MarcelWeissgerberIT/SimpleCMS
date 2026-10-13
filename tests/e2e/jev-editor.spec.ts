@@ -7,7 +7,7 @@
  */
 import type { Page } from '@playwright/test'
 import { test, expect, wsEval } from './fixtures'
-import { AGENT, JEV, ON, SNAP, jevAgent, jevSetup, type AnyState } from './helpers/jev'
+import { AGENT, JEV, ON, SNAP, jevAgent, jevSetup, review, type AnyState } from './helpers/jev'
 import { mockClaudeScript, mockOpenRouter } from './helpers/providers'
 import { openApp } from './fixtures'
 
@@ -127,6 +127,101 @@ test.describe('section 06: the Vorprüfung and the Schreibschranke (J11)', () =>
       .toEqual([])
   })
 
+  test('an undated `on` (confirmed before the catalogue named a snapshot) never takes a dated one: the checks wait — "new version" — Confirm binds the dated one, the next run checks (DJ19)', async ({ page }) => {
+    await page.addInitScript(() => localStorage.setItem('one.tour', '{"off":true}'))
+    const w = await jevSetup(page)
+    await jevAgent(page, { review: { v: 2, on: `openrouter:${JEV}`, pre: { markBelow: 0.7, hold: true } } })
+    const r1 = await page.evaluate((a) => (window as unknown as { __oneAgents: AnyState }).__oneAgents.run(a, {}), AGENT)
+    const run1 = (await page.evaluate((a) => (window as unknown as { __oneAgents: AnyState }).__oneAgents.loadRuns(a), AGENT)).find((r: AnyState) => r.id === r1)
+    // Jev answered with its dated snapshot — not the one confirmed: not used, every change held, the run names it
+    expect(w.or.decisions()).toHaveLength(3)
+    for (const c of run1.staged as AnyState[]) expect(c).toMatchObject({ status: 'held', jev: { state: 'failed', why: 'changed', held: 'unchecked' } })
+    expect(run1.jev.changedTo).toBe(SNAP)
+    await openEditor(page)
+    const line = sec(page).getByTestId('jev-new')
+    await expect(line).toContainText('Jev 1.13 has a new version (Sep 17, 2026)')
+    await line.getByRole('button', { name: 'Confirm' }).click()
+    await expect.poll(async () => (await stored(page)).review.on).toBe(ON)
+    // the key went away: the focus is on the Vorprüfer chip, the live region says it
+    await expect(sec(page).getByTestId('jev-chip')).toBeFocused()
+    await expect(sec(page).getByTestId('jev-confirmed')).toHaveText('Confirmed — the next run checks with it.')
+    await editor(page).getByRole('button', { name: 'Save', exact: true }).click()
+    await expect(editor(page)).toHaveCount(0)
+    // run 1's held cards decided (else they keep run 2 cautious — sticky); run 2 is checked with the confirmed snapshot
+    await review(page, 'discardRun', r1, (run1.staged as AnyState[]).map((c) => c.id), { undo: true })
+    const r2 = await page.evaluate((a) => (window as unknown as { __oneAgents: AnyState }).__oneAgents.run(a, {}), AGENT)
+    const run2 = (await page.evaluate((a) => (window as unknown as { __oneAgents: AnyState }).__oneAgents.loadRuns(a), AGENT)).find((r: AnyState) => r.id === r2)
+    for (const c of run2.staged as AnyState[]) expect(c).toMatchObject({ status: 'pending', jev: { state: 'ok' } })
+  })
+
+  test('the decisions catalogue could not be read: the pre-check cannot be switched on (no undated `on`), and says why', async ({ page, errors }) => {
+    errors.allow(/Failed to load resource/)
+    const w = await jevSetup(page, { or: { decisionsCatalogue: 503 } })
+    await jevAgent(page, { review: null })
+    await openEditor(page)
+    const pre = sec(page).getByRole('switch', { name: 'Pre-check' })
+    await expect(sec(page).getByTestId('jev-rows-wait')).toHaveText('Jev’s versions could not be read yet — the pre-check can be switched on once they are known (it is bound to one dated version).')
+    await expect(pre).toBeDisabled()
+    await expect(pre).toHaveAccessibleDescription(/Jev’s versions could not be read yet/)
+    expect((await stored(page)).review).toBeUndefined()
+    expect(w.or.to('/api/v1/models', 'GET').filter((r) => r.url.includes('output_modalities=decisions')).length).toBeGreaterThan(0)
+  })
+
+  test('the "new version" lamp’s key opens the editor at section 06 with the focus on Confirm', async ({ page }) => {
+    await page.addInitScript(() => localStorage.setItem('one.tour', '{"off":true}'))
+    await jevSetup(page)
+    await jevAgent(page, { hold: true })
+    const newer = `${JEV}-20261101`
+    await page.evaluate(
+      ([a, to]) => (window as unknown as { __oneAgents: AnyState }).__oneAgents.putRun({ id: 'r-new', agentId: a, runner: 'browser', trigger: { type: 'manual' }, startedAt: Date.now() - 60_000, endedAt: Date.now() - 50_000, status: 'staged', summary: '', steps: [], staged: [], jev: { n: 1, checked: 0, marked: 0, held: 1, usd: 0, failed: 'changed', changedTo: to } }),
+      [AGENT, newer] as const,
+    )
+    await page.evaluate(() => (window.location.hash = '#/'))
+    await expect
+      .poll(() =>
+        page.evaluate(async () => {
+          const p = (window as unknown as { __onePreflight: AnyState }).__onePreflight
+          await p.flush('missed')
+          return ((p.readings().missed?.ids ?? []) as string[]).filter((x) => x.startsWith('jevnew:'))
+        }),
+      )
+      .toHaveLength(1)
+    await page.locator('.pf-cap[data-lamp="missed"]').focus()
+    await page.keyboard.press('Enter')
+    const card = page.locator('.pf-q article.pf-card[data-current]')
+    await expect(card).toBeFocused()
+    await expect(card).toContainText('Jev 1.13 has a new version — confirm')
+    await expect(card).toContainText('Confirm in section 06')
+    await page.keyboard.press('o')
+    await expect(page).toHaveURL(new RegExp(`#/agents/${AGENT}$`))
+    await expect(sec(page).getByTestId('jev-confirm')).toBeFocused()
+  })
+
+  test('the threshold keys keep the focus at their ends (aria-disabled, never disabled) and draw their focus ring inside the frame', async ({ page }) => {
+    await jevSetup(page)
+    await jevAgent(page, { hold: true, markBelow: 0.35 })
+    await openEditor(page)
+    const stepper = sec(page).getByTestId('jev-mark')
+    const less = stepper.getByRole('button', { name: /lower/ })
+    const spin = stepper.getByRole('spinbutton')
+    await less.focus()
+    await page.keyboard.press('Enter')
+    await expect(spin).toHaveAttribute('aria-valuenow', '0.3')
+    await expect(less).toBeFocused()
+    await expect(less).toHaveAttribute('aria-disabled', 'true')
+    expect(await less.evaluate((el) => (el as HTMLButtonElement).disabled)).toBe(false)
+    await page.keyboard.press('Enter')
+    await expect(spin).toHaveAttribute('aria-valuenow', '0.3')
+    expect(await less.evaluate((el) => getComputedStyle(el).boxShadow)).toContain('inset')
+    // the other end
+    const more = stepper.getByRole('button', { name: /higher/ })
+    await more.focus()
+    for (let i = 0; i < 14; i++) await page.keyboard.press('Enter')
+    await expect(spin).toHaveAttribute('aria-valuenow', '0.95')
+    await expect(more).toBeFocused()
+    await expect(more).toHaveAttribute('aria-disabled', 'true')
+  })
+
   test('the calibration readout counts this device’s checked proposals — and never suggests a threshold', async ({ page }) => {
     await jevSetup(page)
     await jevAgent(page, { hold: true })
@@ -155,6 +250,8 @@ test.describe('section 06: the Vorprüfung and the Schreibschranke (J11)', () =>
     await page.getByRole('button', { name: 'Edit', exact: true }).click()
     await expect(sec(page).getByTestId('jev-ed-server')).toHaveText('Server agents: only after the server update')
     await expect(sec(page).getByRole('switch', { name: 'Pre-check' })).toBeDisabled()
+    // the disabled switch says why
+    await expect(sec(page).getByRole('switch', { name: 'Pre-check' })).toHaveAccessibleDescription(/^Server agents: only after the server update/)
     await expect(sec(page).getByRole('switch', { name: 'Write gate' })).toBeDisabled()
   })
 })

@@ -35,10 +35,12 @@ interface AskState {
   chip: Route | null
   /** "Belegt?": what Jev found about the answer (null: not asked — off, or no answer yet) */
   verify: VerifyResult | 'checking' | null
+  /** the route the shown answer was asked on (the chip then, or "Ask more thoroughly"'s deep role; null: the rules) */
+  via: Route | null
 }
 
 /** The ask session outlives the view: open a cited article, come back, the answer is still there. */
-const useAsk = create<AskState>()(() => ({ phase: 'idle', asked: '', answer: '', error: '', sources: [], handled: 0, chip: null, verify: null }))
+const useAsk = create<AskState>()(() => ({ phase: 'idle', asked: '', answer: '', error: '', sources: [], handled: 0, chip: null, verify: null, via: null }))
 let abort: AbortController | null = null
 
 /** The article last open in the panel: a question asked from it is probably about it. */
@@ -56,7 +58,8 @@ async function ask(lang: HelpLang, q = useHelp.getState().question, route?: Rout
   if (!text) return
   abort?.abort()
   const sources = articlesForQuestion(LIBRARY, lang, text, 6, lastArticle())
-  useAsk.setState({ asked: text, answer: '', error: '', sources, verify: null })
+  const via = route ?? useAsk.getState().chip
+  useAsk.setState({ asked: text, answer: '', error: '', sources, verify: null, via })
   // the gate's answer for help questions (a key for a route the rules allow); demo answers stay out of the help
   const st = aiStatus('help.ask')
   if (!offersAI(st) || !isAIConfigured()) return useAsk.setState({ phase: 'nokey' })
@@ -65,7 +68,7 @@ async function ask(lang: HelpLang, q = useHelp.getState().question, route?: Rout
   abort = ctrl
   useAsk.setState({ phase: 'running' })
   try {
-    const final = await askHelp({ question: text, articles: sources, lang, signal: ctrl.signal, route: route ?? useAsk.getState().chip, onToken: (d) => useAsk.setState((s) => ({ answer: s.answer + d })) })
+    const final = await askHelp({ question: text, articles: sources, lang, signal: ctrl.signal, route: via, onToken: (d) => useAsk.setState((s) => ({ answer: s.answer + d })) })
     if (ctrl.signal.aborted) return
     useAsk.setState({ answer: final, phase: 'done' })
     // "Belegt?" (off by default): Jev checks the answer against the articles it was built from, as sent
@@ -93,7 +96,7 @@ export function AskView() {
   const question = useHelp((s) => s.question)
   const askRun = useHelp((s) => s.askRun)
   const model = useWorkspace((s) => s.settings.aiModel)
-  const { phase, asked, answer, error, sources, chip, verify } = useAsk()
+  const { phase, asked, answer, error, sources, chip, verify, via } = useAsk()
   const checks = useVerifyOn()
   const chipRef = useRef<RouteChipHandle | null>(null)
   const fieldRef = useRef<HTMLTextAreaElement | null>(null)
@@ -119,11 +122,14 @@ export function AskView() {
   }
 
   const blocks = useMemo(() => (answer.trim() ? parseBlocks(linkCitations(answer, sources)) : []), [answer, sources])
-  // the model the answer comes from (the chip, else the rules); re-read when this device's model changes
-  const dest = useMemo(() => destinationOf('help.ask', { route: chip }), [chip, model])
+  // the model the shown answer comes from: the route it was asked on (the chip then, or the deep role R asked); before a
+  // question the chip, else the rules — re-read when this device's model changes
+  const shown = phase === 'idle' ? chip : via
+  const dest = useMemo(() => destinationOf('help.ask', { route: shown }), [shown, model])
   const modelLabel = dest.label
-  // "Ask more thoroughly": the deep role of the provider that answered (null: none deeper)
-  const deeper = useMemo(() => (verify && verify !== 'checking' && verify.support === 'unsupported' ? deeperRoute('help.ask', chip) : null), [verify, chip, model])
+  // "Ask more thoroughly": the deep role of the provider that answered (null: none deeper — an answer from the deep role
+  // itself offers no key: R asks once more, not again and again)
+  const deeper = useMemo(() => (verify && verify !== 'checking' && verify.support === 'unsupported' ? deeperRoute('help.ask', via) : null), [verify, via, model])
 
   return (
     <div className="help-ask">

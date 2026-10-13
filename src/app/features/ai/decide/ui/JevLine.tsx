@@ -3,6 +3,8 @@
  *   OR JEV  ▕█████▍    ▏ 0,41   „Stimmt mit der Zeile überein?"   unter 0,70   0,00004 $   [4 Prüfungen ▾]
  * Concerns only, never a positive stamp: clear = a dim line without a number in front · near the threshold = neutral ·
  * marked = the amber cap BEDENKEN · JEV + meter · held = the amber cap ZURÜCKGEHALTEN + why · not pre-checked = dim, why.
+ * Sticky ("Nur markieren": an earlier change here still waits) is not a concern of Jev's: the line Jev's answer gives
+ * (or "not pre-checked" and why) plus the reason — the BEDENKEN cap only when Jev marked it.
  * A run that read text from outside (mails, MCP results, new rows) adds a second dim line: high values are no guarantee.
  * "4 Prüfungen ▾" lists the four questions with their values — a plain button (no card key; Enter is its click).
  */
@@ -58,7 +60,9 @@ export function JevLine({ check, markBelow = JEV_DEFAULTS.markBelow, foreign = f
   const th = fmtP(markBelow, lang)
   const label = ok ? checkReason(t, c) : ''
   const valueText = (p: number, q: string, low: boolean) => (low ? t('features.ai.jev.meter.low', { p: fmtP(p, lang), t: th, q }) : t('features.ai.jev.meter.ok', { p: fmtP(p, lang), q }))
-  const state = c.held ? 'held' : marked || c.sticky ? 'marked' : !ok ? 'skipped' : near ? 'near' : 'clear'
+  const state = c.held ? 'held' : marked ? 'marked' : !ok ? 'skipped' : near ? 'near' : 'clear'
+  // an earlier change of this agent here still waits (DJ20) — said beside whatever Jev's own answer was
+  const sticky = !c.held && !marked && !!c.sticky
   const cost = typeof c.usd === 'number' && c.usd > 0 ? fmtCost(c.usd, lang) : ''
   const toggle = ok && (
     <button type="button" className="jev-line__more" aria-expanded={open} aria-controls={`${id}-checks`} onClick={() => setOpen((o) => !o)} data-testid="jev-more">
@@ -78,7 +82,7 @@ export function JevLine({ check, markBelow = JEV_DEFAULTS.markBelow, foreign = f
   )
   const heldWhy = c.held === 'mark' ? t('features.ai.jev.held.mark') : c.held === 'sticky' ? t('features.ai.jev.held.sticky') : c.held === 'unchecked' ? t('features.ai.jev.held.unchecked') : ''
   return (
-    <div className="jev-line" data-part="jev" data-state={state} data-testid="jev-line">
+    <div className="jev-line" data-part="jev" data-state={state} data-sticky={sticky || undefined} data-testid="jev-line">
       <div className="jev-line__row">
         <span className="jev-line__plate mono" aria-hidden>
           OR
@@ -110,6 +114,11 @@ export function JevLine({ check, markBelow = JEV_DEFAULTS.markBelow, foreign = f
           <span className="jev-line__text jev-line__dim">{t('features.ai.jev.line.clear', { t: th })}</span>
         ) : (
           <span className="jev-line__text jev-line__dim">{t('features.ai.jev.line.skipped', { why: whyText(t, c.why, c.cls) })}</span>
+        )}
+        {sticky && (
+          <span className="jev-line__why" data-testid="jev-sticky">
+            {t('features.ai.jev.held.sticky')}
+          </span>
         )}
         {cost && <span className="jev-line__usd mono">{cost}</span>}
         {toggle}

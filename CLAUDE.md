@@ -185,13 +185,17 @@ the public APIs stable — other areas are built against them in parallel.
   A decision model only adds caution: it marks, holds (`ChangeStatus 'held'` — out of every bulk apply, A is VON HAND, applied
   only as one change), makes an apply-mode run wait as a whole (Schreibschranke via `directSplit`; unchecked = wait), or
   suggests; it never applies, discards, supersedes, picks, writes a Vertrauen verdict or page content, and the agent model is
-  never told. The run stays `running` in storage until the checks end; with Zurückhalten an unchecked change is held; an open
-  change Jev marked, held or stopped makes the agent's later changes to that target held (apply mode: the whole run waits).
+  never told; a run Jev made wait neither replaces nor is replaced (supersede). The run stays `running` in storage until the
+  checks end — its 20 s deadline counts from the first read (catalogue / endpoint reads ≤ 8 s each, a stop is checked before
+  the send, an answer after it is 'late'); the gate refuses before any catalogue read; with Zurückhalten an unchecked change
+  is held; an open change Jev marked, held or stopped makes the agent's later changes to that target held (apply mode: the
+  whole run waits).
   Agent settings live in `CustomAgent.review` v2 (`{ v: 2, decider?, on, pre, gate? }`, never a top-level `route`; strict
-  reader; older builds keep it Unreadable and do not run the agent); `on` = the dated Jev snapshot confirmed — another one
-  holds until confirmed. `gate` resolves without device default or legacy; a chat purpose never gets a decision model; the
+  reader; older builds keep it Unreadable and do not run the agent); `on` = the dated Jev snapshot confirmed (stamped only
+  from a read catalogue row) — another one, and for an undated `on` any dated one, holds until confirmed. `gate` resolves without device default or legacy; a chat purpose never gets a decision model; the
   router is never a Vorprüfer. Vorprüfer and "Belegt?" (`settings.ai.jev.verify`, purpose `gate.verify`, help Ask + Ask the
-  workspace; R = "Ask more thoroughly" on the deep role, only on a press) start off. The team server skips a v2 agent with
+  workspace — only while a Vorprüfer is chosen; R = "Ask more thoroughly" on the deep role, only on a press inside the
+  line's own panel) start off. The team server skips a v2 agent with
   its reason (`VORPRUEFER_SKIP`). Thresholds 0,70 / 0,90 are start values ("Startwerte") until the owner's calibration
   (`node scripts/jev-calibrate.mjs --real`, OPENROUTER_API_KEY in the environment; `--check` sends nothing). `typesafe/`
   slugs only in src/shared/ai/jev.ts.

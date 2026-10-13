@@ -2,7 +2,7 @@
  * Lamps "Mirror stale" and "Agent missed" — synchronous reads over the agents, the runs this tab loaded and the slot
  * cache (features/agents/health.ts). Ids: stale:<agent>@<run> · slot:<agent>@<slot> · fail:<agent>@<run> ·
  * cfm:<agent>@<updatedAt> · jevfail:<agent>@<run> · jevnew:<agent>@<snapshot> (slice SJ: the Vorprüfung failing, another Jev
- * snapshot answered — key "Open agent"). The slots are primed (one IndexedDB read each) at start and when the agents change.
+ * snapshot answered — its key opens the agent's editor at section 06, where the new version is confirmed). The slots are primed (one IndexedDB read each) at start and when the agents change.
  */
 import { useWorkspace } from '../../../store/store'
 import { navigate } from '../../../lib/router'
@@ -15,7 +15,7 @@ import type { CardAction, LampReading, LampSourceDef, QueueItem } from '../regis
 import { fmtWhen } from '../format'
 import { all, tn, watch } from './util'
 import { fixItems, openKey } from './fix'
-import { runAgent } from '../queue/calls'
+import { openAgentChecks, runAgent } from '../queue/calls'
 
 const me = () => useCloud.getState().user?.id ?? null
 
@@ -137,6 +137,8 @@ export const missedLamp: LampSourceDef = {
     },
     actions: (item: QueueItem): CardAction[] => {
       const agentId = item.refs.agentId!
+      // a Vorprüfer lamp: the editor at section 06 — where "new version" is confirmed and the pre-check's state shows
+      if (item.id.startsWith('jevnew:') || item.id.startsWith('jevfail:')) return [openKey(t(item.id.startsWith('jevnew:') ? 'features.ai.jev.lamp.openNew' : 'features.ai.jev.lamp.openCheck'), () => openAgentChecks(agentId))]
       const open = openKey(t('features.preflight.card.openAgent'), () => navigate({ name: 'agents', id: agentId }))
       const agent = useWorkspace.getState().agents?.[agentId]
       if (!item.id.startsWith('slot:') || !agent) return [open]

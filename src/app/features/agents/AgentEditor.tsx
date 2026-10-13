@@ -248,7 +248,10 @@ export function AgentEditor({
         const el = checkRef.current
         if (!el) return
         el.scrollIntoView({ block: 'start' })
-        el.querySelector<HTMLElement>('[role="switch"]:not([disabled]), button:not([disabled])')?.focus({ preventScroll: true })
+        // a new Jev version waits for Confirm (the lamp's key): that key first, else the section's first key
+        const confirm = el.querySelector<HTMLElement>('[data-testid="jev-confirm"]:not([aria-disabled="true"])')
+        const first = confirm ?? el.querySelector<HTMLElement>('[role="switch"]:not([disabled]), button:not([disabled])')
+        first?.focus({ preventScroll: true })
       })
     })
     return () => cancelAnimationFrame(raf)

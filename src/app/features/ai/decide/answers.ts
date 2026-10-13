@@ -5,15 +5,19 @@
  */
 import type { Route } from '@/shared/ai/types'
 import { useWorkspace } from '../../../store/store'
-import { routeFor } from '../core/gate'
+import { deciderRoute, routeFor } from '../core/gate'
 import type { PurposeId } from '../core/purposes'
 import { roleRoute, rolesOf } from '../setup/facts'
 import type { VerifyInput, VerifyResult } from './verify'
 
-/** Is "Check answers against their sources with Jev" on for this device? (absent = off) */
-export const verifyOn = (): boolean => useWorkspace.getState().settings.ai?.jev?.verify === true
+/**
+ * Is "Check answers against their sources with Jev" on for this device? (absent = off) — and is there a Vorprüfer to ask
+ * (this device's or the workspace's rule; a refused one — no key — still says why under the answer). The switch left on
+ * after the Vorprüfer went announces nothing and sends nothing.
+ */
+export const verifyOn = (): boolean => useWorkspace.getState().settings.ai?.jev?.verify === true && !!deciderRoute(null).route
 /** The same, as a hook. */
-export const useVerifyOn = (): boolean => useWorkspace((s) => s.settings.ai?.jev?.verify === true)
+export const useVerifyOn = (): boolean => useWorkspace((s) => s.settings.ai?.jev?.verify === true && !!deciderRoute(null).route)
 
 /** One "Belegt?" check (never throws). */
 export const runVerify = (i: VerifyInput): Promise<VerifyResult> => import('./verify').then((m) => m.verifyAnswer(i))

@@ -17,4 +17,4 @@ try: agent-precheck
 
 **Start values.** The thresholds 0.70 and 0.90 are start values, not a measured hit rate — a check can miss things. Jev only ever adds caution: it never applies, discards or decides anything, and it never counts as your trust.
 
-Off until you switch it on, per agent. "Belegt?" — Jev checking help answers against their sources — is a separate switch in **Settings → AI**. More in [Jev as a pre-checker](help:ai-jev).
+Off until you switch it on, per agent. "Sourced?" — Jev checking answers of the help and of "Ask the workspace" against their sources — is a separate switch in **Settings → AI**. More in [Jev as a pre-checker](help:ai-jev).

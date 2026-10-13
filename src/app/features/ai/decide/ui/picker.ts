@@ -89,10 +89,11 @@ export function snapshotDate(id: string, lang: Lang): string {
  * The picker's entries: `inherit` first when given (the class rule decides), the Jev versions (the current one ticked),
  * then the other decision models — never selectable, "tuned for Jev only".
  */
-export function pickerEntries(t: T, lang: Lang, o: { rows: readonly DecisionRow[]; state: RowsState; current: string | null; onPick: (id: string | null) => void; inherit?: string }): MenuEntry[] {
+export function pickerEntries(t: T, lang: Lang, o: { rows: readonly DecisionRow[]; state: RowsState; current: string | null; onPick: (id: string | null) => void; inherit?: string; inheritOff?: boolean }): MenuEntry[] {
   const { jev, other } = sortedRows(o.rows)
   const out: MenuEntry[] = [{ kind: 'section', label: t('features.ai.jev.pick.title') }]
-  if (o.inherit !== undefined) out.push({ id: 'inherit', label: o.inherit, checked: o.current === null, onSelect: () => o.onPick(null) })
+  // `inheritOff`: the rules name no Jev version whose row is read (its snapshot could not be confirmed) — listed, not picked
+  if (o.inherit !== undefined) out.push({ id: 'inherit', label: o.inherit, checked: o.current === null, ...(o.inheritOff ? { disabled: true } : {}), onSelect: () => o.onPick(null) })
   for (const r of jev) {
     const date = snapshotDate(canonicalOf(r), lang)
     out.push({ id: r.id, label: jevLabel(r.id), hint: [priceText(t, lang, r), date ? t('features.ai.jev.pick.snapshot', { date }) : ''].filter(Boolean).join(' · '), checked: o.current === r.id, onSelect: () => o.onPick(r.id) })

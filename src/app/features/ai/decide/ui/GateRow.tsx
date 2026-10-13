@@ -8,7 +8,7 @@
  * Other decision models are listed dimmed in the picker, never chosen (owner decision 2). The decisions catalogue is
  * read only while OpenRouter is set up (a public GET, never at boot).
  */
-import { useRef } from 'react'
+import { useId, useRef } from 'react'
 import { useLang, useT } from '../../../../i18n'
 import { Menu, useMenu } from '../../../../ui/Menu'
 import { Switch } from '../../../../ui/controls'
@@ -31,11 +31,21 @@ export function GateRole({ value, onChange, ready }: GateChoice) {
   const { rows, state } = useDecisionRows(ready)
   const menu = useMenu()
   const btn = useRef<HTMLButtonElement>(null)
+  const pickRef = useRef<HTMLButtonElement>(null)
+  const rowRef = useRef<HTMLDivElement>(null)
   const newest = newestJev(rows.filter((r) => !r.refused))
+  // Off removes its own key: the focus goes to the key that takes its place (else the row), never to the page's body
+  const off = () => {
+    onChange(null)
+    requestAnimationFrame(() => {
+      const to = pickRef.current && !pickRef.current.disabled ? pickRef.current : rowRef.current
+      to?.focus()
+    })
+  }
   const row = rowOf(rows, value)
   const per = perCheck(lang, row)
   return (
-    <div className="aim-role aim-role--exp jev-gaterole" data-testid="role-checker" data-on={value ? '' : undefined}>
+    <div ref={rowRef} className="aim-role aim-role--exp jev-gaterole" tabIndex={-1} data-testid="role-checker" data-on={value ? '' : undefined}>
       <span className="aim-role__k">
         <span className="label">{t('features.ai.prov.role.checker')}</span>
         <small>{t('features.ai.prov.role.checkerSub')}</small>
@@ -69,12 +79,12 @@ export function GateRole({ value, onChange, ready }: GateChoice) {
               <button ref={btn} type="button" className="btn btn--sm" onClick={menu.toggle} aria-haspopup="menu" aria-expanded={menu.open} data-testid="checker-change">
                 {t('features.ai.prov.role.change')}
               </button>
-              <button type="button" className="btn btn--sm btn--ghost" onClick={() => onChange(null)} data-testid="checker-off-key">
+              <button type="button" className="btn btn--sm btn--ghost" onClick={off} data-testid="checker-off-key">
                 {t('features.ai.prov.role.checkerOff')}
               </button>
             </>
           ) : (
-            <button type="button" className="btn btn--sm" disabled={!newest} onClick={() => newest && onChange(newest.id)} data-testid="checker-pick">
+            <button ref={pickRef} type="button" className="btn btn--sm" disabled={!newest} onClick={() => newest && onChange(newest.id)} data-testid="checker-pick">
               {newest ? t('features.ai.prov.role.checkerPick', { model: jevLabel(newest.id) }) : state === 'loading' ? t('features.ai.jev.pick.loading') : t('features.ai.prov.role.checkerPick', { model: 'Jev' })}
             </button>
           )}
@@ -89,12 +99,18 @@ export function GateRole({ value, onChange, ready }: GateChoice) {
 export function GateSetting({ value, onChange, ready, verify, onVerify }: GateChoice & { verify: boolean; onVerify: (on: boolean) => void }) {
   const t = useT()
   const lang = useLang()
+  const uid = useId()
   const { rows, state } = useDecisionRows(ready)
   const menu = useMenu()
+  const chipRef = useRef<HTMLButtonElement>(null)
+  // "Belegt?" asks the Vorprüfer: it is switched on only once one is chosen — and off at any time (a switch left on after
+  // the Vorprüfer went stays switchable, never stuck)
+  const verifyOff = !verify && (!ready || !value)
+  const label = t('features.ai.prov.role.checker')
   return (
     <div className="aip__row aip__row--default jev-gatesetting" data-row="gate" data-testid="device-row-gate">
       <span className="aip__work">
-        {t('features.ai.prov.role.checker')}
+        {label}
         <span className="label aip__later">{t('features.ai.jev.settings.uses')}</span>
       </span>
       <span className="jev-gatesetting__keys">
@@ -102,7 +118,16 @@ export function GateSetting({ value, onChange, ready, verify, onVerify }: GateCh
           <span className="aip__muted">{t('features.ai.prov.role.checkerNeeds')}</span>
         ) : (
           <>
-            <button type="button" className="jev-chip jev-chip--row" onClick={menu.toggle} aria-haspopup="menu" aria-expanded={menu.open} data-testid="gate-chip">
+            <button
+              ref={chipRef}
+              type="button"
+              className="jev-chip jev-chip--row"
+              onClick={menu.toggle}
+              aria-haspopup="menu"
+              aria-expanded={menu.open}
+              aria-label={t('features.ai.jev.settings.chipAria', { role: label, model: value ? jevLabel(value) : t('features.ai.prov.role.checkerOff') })}
+              data-testid="gate-chip"
+            >
               <span className="jev-chip__plate" aria-hidden>
                 OR
               </span>
@@ -110,7 +135,17 @@ export function GateSetting({ value, onChange, ready, verify, onVerify }: GateCh
               <span aria-hidden>▾</span>
             </button>
             {value && (
-              <button type="button" className="btn btn--sm btn--ghost" onClick={() => onChange(null)} data-testid="gate-off">
+              <button
+                type="button"
+                className="btn btn--sm btn--ghost"
+                onClick={() => {
+                  onChange(null)
+                  // the key goes away with the choice: the focus to the chip that stays
+                  requestAnimationFrame(() => chipRef.current?.focus())
+                }}
+                aria-label={`${label}: ${t('features.ai.prov.role.checkerOff')}`}
+                data-testid="gate-off"
+              >
                 {t('features.ai.prov.role.checkerOff')}
               </button>
             )}
@@ -119,10 +154,17 @@ export function GateSetting({ value, onChange, ready, verify, onVerify }: GateCh
       </span>
       <Menu {...menu.props} width={320} entries={pickerEntries(t, lang, { rows, state, current: value, onPick: (id) => id && onChange(id) })} />
       <label className="jev-gatesetting__verify" data-testid="jev-verify-row">
-        <Switch size="sm" seed="jev-verify" checked={verify} onChange={onVerify} label={t('features.ai.jev.settings.verify')} disabled={!ready || !value} />
+        <Switch size="sm" seed="jev-verify" checked={verify} onChange={onVerify} label={t('features.ai.jev.settings.verify')} disabled={verifyOff} describedBy={verifyOff ? `${uid}-why` : `${uid}-hint`} />
         <span>
           {t('features.ai.jev.settings.verify')}
-          <small className="aip__muted">{t('features.ai.jev.settings.verifyHint')}</small>
+          <small className="aip__muted" id={`${uid}-hint`}>
+            {t('features.ai.jev.settings.verifyHint')}
+          </small>
+          {verifyOff && (
+            <small className="aip__muted" id={`${uid}-why`} data-testid="jev-verify-why">
+              {t('features.ai.jev.settings.verifyNeeds')}
+            </small>
+          )}
         </span>
       </label>
     </div>

@@ -17,4 +17,4 @@ try: agent-precheck
 
 **Startwerte.** Die Schwellen 0,70 und 0,90 sind Startwerte, keine gemessene Trefferquote — eine Prüfung kann etwas übersehen. Jev macht nur vorsichtiger: Es übernimmt, verwirft und entscheidet nie etwas und zählt nie als dein Vertrauen.
 
-Aus, bis du es einschaltest, je Agent. „Belegt?“ — Jev prüft Antworten der Hilfe gegen ihre Quellen — ist ein eigener Schalter unter **Einstellungen → KI**. Mehr in [Jev als Vorprüfer](help:ai-jev).
+Aus, bis du es einschaltest, je Agent. „Belegt?“ — Jev prüft Antworten der Hilfe und von „Arbeitsbereich fragen“ gegen ihre Quellen — ist ein eigener Schalter unter **Einstellungen → KI**. Mehr in [Jev als Vorprüfer](help:ai-jev).

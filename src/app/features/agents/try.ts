@@ -15,6 +15,15 @@ export function takeSectionRequest(id: string): boolean {
   return true
 }
 
+/**
+ * An agent's editor at section 06 "Check" (Preflight's Vorprüfer lamps: a new Jev version to confirm, a failing
+ * pre-check) — the agent page takes the request on mount and opens the editor there.
+ */
+export function openAgentCheck(id: string): void {
+  pending = id
+  navigate({ name: 'agents', id })
+}
+
 function openPrecheck(): void {
   const first = Object.values(useWorkspace.getState().agents ?? {}).sort((a, b) => a.createdAt - b.createdAt || a.name.localeCompare(b.name))[0]
   if (!first) return navigate({ name: 'agents' })

@@ -5,7 +5,7 @@
  * control. Nothing reaches a real host; people, rows and agents are fictional (Nordlicht, Tessera, Mara Lind, Launch plan).
  */
 import type { BrowserContext, Page } from '@playwright/test'
-import { test, expect, openApp, wsEval } from './fixtures'
+import { test, expect, openApp, wsEval, flush, waitForApp } from './fixtures'
 import { jevAnswer } from './helpers/providers'
 import { AGENT, ALL_SHARED, JEV, MEMBER, SNAP, TITLES, byTarget, byTitle, cards, decideEntries, jevAgent, jevSetup, noteOf, review, runAgent, runOf, stageTurn, storedRuns, toolId, type AnyState } from './helpers/jev'
 
@@ -154,10 +154,11 @@ test.describe('failures, inverted (critique 2)', () => {
 async function interrupted(context: BrowserContext, page: Page, hold: boolean): Promise<AnyState> {
   const w = await jevSetup(page, { decisions: [{ hang: true }, { hang: true }, { hang: true }] })
   await jevAgent(page, { hold })
-  void runAgent(page).catch(() => {})
-  await expect.poll(() => w.or.hanging(), { timeout: 20_000 }).toBe(3)
+  // the other tab is open first: the leader closes the moment Jev hangs (well inside a check's 8 s)
   const other = await context.newPage()
   await openApp(other)
+  void runAgent(page).catch(() => {})
+  await expect.poll(() => w.or.hanging(), { timeout: 20_000 }).toBe(3)
   await page.close({ runBeforeUnload: false })
   // the other tab leads now: its sweep marks the run interrupted (never resumes a check)
   await expect.poll(async () => (await storedRuns(other))[0]?.status, { timeout: 20_000 }).toBe('error')
@@ -181,6 +182,8 @@ test.describe('an interrupted run (J7)', () => {
   })
 })
 
+const decisionGets = (w: { or: { to(path: string, method?: string): Array<{ url: string }> } }) => w.or.to('/api/v1/models', 'GET').filter((r) => r.url.includes('output_modalities=decisions'))
+
 test.describe('what Jev may see, and what it costs (J7)', () => {
   test('a rule without "Database rows" → zero decision requests, each change says why (control: allowed → three)', async ({ page }) => {
     const w = await jevSetup(page, { allow: ALL_SHARED.filter((c) => c !== 'rows') })
@@ -190,7 +193,45 @@ test.describe('what Jev may see, and what it costs (J7)', () => {
     for (const c of run.staged as AnyState[]) expect(c).toMatchObject({ status: 'held', jev: { state: 'skipped', why: 'policy', cls: 'rows', held: 'unchecked' } })
     expect(run.steps.map((s: AnyState) => s.label)).toContain('Jev 1.13: not pre-checked — Jev may not see "Database rows"')
     expect(await decideEntries(page)).toHaveLength(0)
+    // a refused check reads nothing either: no decisions catalogue GET for its price
+    expect(decisionGets(w)).toHaveLength(0)
   })
+
+  test('no OpenRouter key on this device: the gate refuses before the price is read — zero catalogue GETs, zero requests (control: the price case below reads one)', async ({ page }) => {
+    const w = await jevSetup(page, { orKey: false })
+    await jevAgent(page, { hold: true })
+    const run = await runOf(page, await runAgent(page))
+    expect(decisionGets(w)).toHaveLength(0)
+    expect(w.or.decisions()).toHaveLength(0)
+    for (const c of run.staged as AnyState[]) expect(c).toMatchObject({ status: 'held', jev: { state: 'skipped', why: 'nokey' } })
+  })
+
+  for (const allowMemory of [false, true])
+    test(`the memory \`recall\` read counts as touched: ${allowMemory ? 'allowed for OpenRouter → three requests (control)' : 'not allowed → zero requests, "Jev may not see …"'}`, async ({ page }) => {
+      const w = await jevSetup(page, {
+        device: allowMemory ? MEMBER : MEMBER.filter((c) => c !== 'memory'),
+        turn: (w) => stageTurn(Object.values(w.rows), [{ type: 'tool_use', id: toolId('recall'), name: 'recall', input: { query: 'invoices' } }]),
+      })
+      // the One memory: one procedure the agent's instructions do not match (nothing goes along — only `recall` finds it)
+      await wsEval(page, (s) => {
+        const db = s.createDatabase({ title: 'One memory' }) as string
+        s.updateDatabase(db, { system: 'memory' })
+        s.createRow(db, { title: 'Quarterly invoices for Tessera go out on the first Monday.' })
+      })
+      await jevAgent(page, { hold: true })
+      const run = await runOf(page, await runAgent(page))
+      // the memory did not go along with the task (no <one_memory> block): only the tool read it
+      expect(JSON.stringify(w.claude.requests[0]!.body)).not.toContain('Quarterly invoices for Tessera')
+      expect(JSON.stringify(w.claude.requests[1]!.body)).toContain('Quarterly invoices for Tessera')
+      expect(run.touched).toContain('memory')
+      if (allowMemory) {
+        expect(w.or.decisions()).toHaveLength(3)
+        for (const c of run.staged as AnyState[]) expect(c.jev.state).toBe('ok')
+      } else {
+        expect(w.or.decisions()).toHaveLength(0)
+        for (const c of run.staged as AnyState[]) expect(c).toMatchObject({ status: 'held', jev: { why: 'policy', cls: 'memory' } })
+      }
+    })
 
   for (const allowMail of [false, true])
     test(`a member class the run touched (mail) needs this device’s allow: ${allowMail ? 'allowed → three requests (control)' : 'none → zero requests'}`, async ({ page }) => {
@@ -514,6 +555,85 @@ test.describe('the Jev line on a card (J10)', () => {
     )
     await page.evaluate((a) => (window.location.hash = `#/agents/${a}`), AGENT)
     await expect(page.locator('.jev-line__foreign').first()).toHaveText('Jev reads text from outside too — high values are no guarantee')
+  })
+
+  test('"Nur markieren", sticky: no CONCERN cap for what Jev did not flag — its own line (clear, or "not pre-checked" and why) beside "an earlier change here is still waiting" (control: run 1’s marked card has the cap)', async ({ page, errors }) => {
+    errors.allow(/Failed to load resource/)
+    await page.addInitScript(() => localStorage.setItem('one.tour', '{"off":true}'))
+    let pass = 1
+    const w = await jevSetup(page, {
+      fallback: (req) => (pass === 1 ? jevAnswer({ consistent: 0.41 }) : (req.body as AnyState | null)?.state?.change?.target?.title === 'Tessera review' ? { error: '503' } : jevAnswer()),
+      turn: (w) => stageTurn([w.rows['Launch plan'], w.rows['Tessera review']]),
+    })
+    await jevAgent(page, { hold: false })
+    const r1 = await runOf(page, await runAgent(page))
+    pass = 2
+    const r2 = await runOf(page, await runAgent(page))
+    expect(byTitle(r2, w, 'Launch plan')).toMatchObject({ status: 'pending', jev: { state: 'ok', sticky: true, mark: false } })
+    expect(byTitle(r2, w, 'Tessera review')).toMatchObject({ status: 'pending', jev: { why: 'unavailable', sticky: true } })
+    await page.evaluate((a) => (window.location.hash = `#/agents/${a}`), AGENT)
+    const line = (run: AnyState, title: string) => page.locator(`#agx-run-${run.id} li.agent-change[data-change="${byTitle(run, w, title).id}"]`).getByTestId('jev-line')
+    const clean = line(r2, 'Launch plan')
+    await expect(clean).toHaveAttribute('data-state', 'clear')
+    await expect(clean).toHaveAttribute('data-sticky', 'true')
+    await expect(clean.getByTestId('jev-cap')).toHaveCount(0)
+    await expect(clean.getByTestId('jev-sticky')).toHaveText('An earlier change here is still waiting')
+    const unchecked = line(r2, 'Tessera review')
+    await expect(unchecked).toHaveAttribute('data-state', 'skipped')
+    await expect(unchecked).toContainText('Jev: not pre-checked — Jev cannot be reached')
+    await expect(unchecked.getByTestId('jev-sticky')).toBeVisible()
+    await expect(unchecked.getByTestId('jev-cap')).toHaveCount(0)
+    // control: what Jev did flag carries the cap
+    await expect(line(r1, 'Launch plan').getByTestId('jev-cap')).toHaveText('CONCERN · JEV')
+  })
+
+  test('held row at 390 px in German, standard size and XL: ZURÜCKGEHALTEN, "Einzeln übernehmen" and "Verwerfen" stay inside the card', async ({ page }) => {
+    const { w, run } = await heldRun(page)
+    await wsEval(page, (s) => s.updateSettings({ language: 'de' }))
+    await flush(page)
+    await page.setViewportSize({ width: 390, height: 844 })
+    for (const scale of ['1', '4']) {
+      await page.evaluate((x) => localStorage.setItem('one.textScale', x), scale)
+      await page.reload()
+      await waitForApp(page)
+      await page.evaluate((a) => (window.location.hash = `#/agents/${a}`), AGENT)
+      const held = page.locator(`li.agent-change[data-change="${byTitle(run, w, 'Launch plan').id}"]`)
+      await expect(held.getByTestId('agx-held')).toHaveText('ZURÜCKGEHALTEN')
+      await expect(held.getByRole('button', { name: /^Verwerfen/ })).toBeVisible()
+      const g = await held.evaluate((li) => {
+        const card = li.getBoundingClientRect()
+        const keys = [...li.querySelectorAll('.agent-change__actions > *')].map((e) => e.getBoundingClientRect().right)
+        return { right: card.right, max: Math.max(...keys), vw: window.innerWidth, doc: document.documentElement.scrollWidth }
+      })
+      expect(g.max, `scale ${scale}`).toBeLessThanOrEqual(g.right + 0.5)
+      expect(g.max, `scale ${scale}`).toBeLessThanOrEqual(g.vw)
+      expect(g.doc, `scale ${scale}`).toBeLessThanOrEqual(g.vw)
+    }
+  })
+
+  test('the amber lamp of a run-wait step is amber in the production build (two classes over the .led primitive)', async ({ page }) => {
+    await page.addInitScript(() => localStorage.setItem('one.tour', '{"off":true}'))
+    await jevSetup(page, { fallback: byTarget({ 'Launch plan': jevAnswer({ clean: 0.85 }) }) })
+    await jevAgent(page, { write: 'apply', hold: false, gate: 0.9 })
+    await runAgent(page)
+    await page.evaluate((a) => (window.location.hash = `#/agents/${a}`), AGENT)
+    const led = page.locator('.agx-step[data-jev="wait"] .led').first()
+    await expect(led).toBeVisible()
+    const c = await led.evaluate((el) => {
+      const probe = document.createElement('span')
+      probe.style.background = 'var(--lamp-amber)'
+      document.body.appendChild(probe)
+      const want = getComputedStyle(probe).backgroundColor
+      const off = document.createElement('span')
+      off.style.background = 'var(--led-off)'
+      document.body.appendChild(off)
+      const offColour = getComputedStyle(off).backgroundColor
+      probe.remove()
+      off.remove()
+      return { got: getComputedStyle(el).backgroundColor, want, off: offColour }
+    })
+    expect(c.got).toBe(c.want)
+    expect(c.got).not.toBe(c.off)
   })
 
   test('Nur markieren and Jev not answering: the card says "not pre-checked" and why, dim, without a cap', async ({ page, errors }) => {

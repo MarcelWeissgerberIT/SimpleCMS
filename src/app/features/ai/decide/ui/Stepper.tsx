@@ -1,7 +1,8 @@
 /**
  * A threshold stepper (section 06): "− [0,70] +" — two decimals in the UI's decimal sign. The field is a spinbutton
  * (↑ / ↓ and + / − step, a typed value is read on blur or Enter, clamped and put on the step); the − / + keys step too
- * and take ← / → while they hold the focus. Nothing outside [min, max] is ever written.
+ * and take ← / → while they hold the focus. Nothing outside [min, max] is ever written. A key at its end is
+ * aria-disabled, never disabled: the focus stays on it (a disabled key would drop it on the page's body).
  */
 import { useEffect, useState, type KeyboardEvent } from 'react'
 import { Minus, Plus } from 'lucide-react'
@@ -69,9 +70,11 @@ export function Stepper({ value, min, max, step, onChange, lang, label, less, mo
       by(e.key === 'ArrowRight' ? 1 : -1)
     }
   }
+  const atMin = !disabled && value <= min
+  const atMax = !disabled && value >= max
   return (
     <span className="jev-step" data-testid={testId}>
-      <button type="button" className="jev-step__key" onClick={() => by(-1)} onKeyDown={keyKey} disabled={disabled || value <= min} aria-label={`${label}: ${less}`}>
+      <button type="button" className="jev-step__key" onClick={() => !atMin && by(-1)} onKeyDown={keyKey} disabled={disabled} aria-disabled={atMin || undefined} aria-label={`${label}: ${less}`}>
         <Minus size={12} strokeWidth={1.75} aria-hidden />
       </button>
       <input
@@ -93,7 +96,7 @@ export function Stepper({ value, min, max, step, onChange, lang, label, less, mo
         onBlur={() => commit(text)}
         onKeyDown={fieldKey}
       />
-      <button type="button" className="jev-step__key" onClick={() => by(1)} onKeyDown={keyKey} disabled={disabled || value >= max} aria-label={`${label}: ${more}`}>
+      <button type="button" className="jev-step__key" onClick={() => !atMax && by(1)} onKeyDown={keyKey} disabled={disabled} aria-disabled={atMax || undefined} aria-label={`${label}: ${more}`}>
         <Plus size={12} strokeWidth={1.75} aria-hidden />
       </button>
     </span>
