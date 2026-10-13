@@ -6,7 +6,7 @@
  * member, roles changed under an open socket) is covered by server/test/workspace-look.test.ts.
  */
 import type { Page } from '@playwright/test'
-import { test, expect, email, signIn, newPerson, openApp, waitOnline, wsEval, cloudEval, createWorkspace, join, api } from './fixtures'
+import { test, expect, email, signIn, newPerson, openApp, waitForApp, waitOnline, wsEval, cloudEval, createWorkspace, join, api } from './fixtures'
 
 const token = (page: Page, name: string) => page.evaluate((n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim(), name)
 
@@ -67,6 +67,9 @@ test('owners and admins set the look for everyone; a member reads it only', asyn
   // a reload of the member's tab: the look comes back before the server answers (the per-device copy)
   await member.reload()
   await expect(member.locator('html')).toHaveAttribute('data-look', /.+/)
+  // look-boot.js sets data-look before the app boots; the test hook (window.__one) comes at the end of boot (after
+  // api/config, api/session and the workspace's open) — polled before that, waitOnline throws at once
+  await waitForApp(member)
   await waitOnline(member)
   expect(await token(member, '--signal')).toBe('#d4006e')
   await admin.context().close()
