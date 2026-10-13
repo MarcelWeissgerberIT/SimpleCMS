@@ -2,11 +2,14 @@
  * one-worker: new repositories from the local setup page — clone addresses checked (no tokens in https
  * addresses, no ext:: / option-like ones), a clone from a local bare remote (test seam ONE_WORKER_CLONE_LOCAL),
  * the person's GitLab / GitHub projects from fake glab / gh tools, a ZIP of source code unpacked into a fresh
- * repository (its own .git folders, __MACOSX and .DS_Store left out; a path outside the folder refuses the ZIP),
- * the clone folder and own MCP servers written by Save, GitLab merge requests with glab. Nothing leaves the machine.
+ * repository (its own .git folders in every spelling a file system folds to ".git", __MACOSX and .DS_Store left out;
+ * a path outside the folder, ":", a control character or a Windows device name refuses the ZIP; the git steps run
+ * with fsmonitor off and no hooks even when a .git was planted), the clone folder and own MCP servers written by
+ * Save, GitLab merge requests with glab. Nothing leaves the machine.
  */
 import assert from 'node:assert/strict'
 import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { execFileSync } from 'node:child_process'
 import { request } from 'node:http'
 import { join } from 'node:path'
@@ -14,7 +17,7 @@ import { after, afterEach, describe, test } from 'node:test'
 import { strToU8, zipSync } from 'fflate'
 import type { WorkerMessage, WorkspaceRef } from '../../src/app/features/coding/protocol.ts'
 import { cloneBase, cloneHint, folderName, parseCloneUrl } from '../src/worker/clone.ts'
-import { entryPath, isUnsafe } from '../src/worker/zipimport.ts'
+import { commitImport, dotGitIn, entryPath, importZip, isDotGit, isUnsafe } from '../src/worker/zipimport.ts'
 import { openPr } from '../src/worker/git.ts'
 import { sanitizeConfig, type RepoConfig } from '../src/worker/config.ts'
 import { buildPrompt } from '../src/worker/run.ts'
@@ -136,6 +139,179 @@ describe('clone addresses', () => {
   })
 })
 
+describe('ZIP import: no .git in any spelling, nothing in the ZIP runs', () => {
+  /** A script outside every repository that leaves `<name>` in `dir` when something runs it. */
+  const tripwire = (dir: string, name: string) => {
+    const file = join(dir, `${name}.sh`)
+    writeFileSync(file, `#!/bin/sh\ntouch '${join(dir, name)}'\nexit 0\n`)
+    chmodSync(file, 0o755)
+    return file
+  }
+  const zipFile = (files: Record<string, string>) => {
+    const f = join(tempDir('zip'), 'upload.zip')
+    writeFileSync(f, Buffer.from(zipSync(Object.fromEntries(Object.entries(files).map(([k, v]) => [k, strToU8(v)])))))
+    return f
+  }
+  const hookDirs = () => readdirSync(tmpdir()).filter((n) => n.startsWith('one-import-hooks-')).length
+  /** Run with the identity of `global` (a gitconfig) only — the test env's GIT_AUTHOR_* / GIT_COMMITTER_* set aside. */
+  const asPerson = async <T>(global: string, fn: () => Promise<T>): Promise<T> => {
+    const keys = ['GIT_AUTHOR_NAME', 'GIT_AUTHOR_EMAIL', 'GIT_COMMITTER_NAME', 'GIT_COMMITTER_EMAIL', 'GIT_CONFIG_GLOBAL']
+    const saved = keys.map((k) => [k, process.env[k]] as const)
+    const file = join(tempDir('gitconfig'), 'gitconfig')
+    writeFileSync(file, global)
+    for (const k of keys) delete process.env[k]
+    process.env.GIT_CONFIG_GLOBAL = file
+    try {
+      return await fn()
+    } finally {
+      for (const [k, v] of saved) {
+        if (v === undefined) delete process.env[k]
+        else process.env[k] = v
+      }
+    }
+  }
+
+  test('git\'s is_ntfs_dotgit / is_hfs_dotgit: case, trailing dots and spaces, NTFS streams, GIT~1, HFS+ ignorable code points', () => {
+    for (const name of ['.git', '.GIT', '.Git', '.gIT', '.git.', '.git ', '.git. . ', '.git::$INDEX_ALLOCATION', '.git:x', 'git~1', 'GIT~1', 'Git~2', 'git~1.', '.g\u200cit', '.gi\u200dt', '\u200e.git', '.git\u200f', '.g\u202ait', '.\u202bgit', '.gi\u202ct', '.g\u202dit', '.git\u202e', '.g\u206ait', '.\u206bGIT', '.gi\u206ct', '.g\u206dit', '.g\u206eit', '.git\u206f', '\ufeff.git', '.G\u200cI\ufeffT. '])
+      assert.ok(isDotGit(name), JSON.stringify(name))
+    for (const name of ['.github', '.gitignore', '.gitattributes', '.gitmodules', '.gitkeep', 'git', '.git-hooks', '.gitx', 'x.git', '..git', ' .git', 'git~', 'git~x', '.g\u200bit', '.gıt', 'ｇit'])
+      assert.ok(!isDotGit(name), JSON.stringify(name))
+  })
+
+  test('entries: every .git variant left out; ":", control characters, device names and dot-only names refuse the ZIP; usual names kept', () => {
+    const dropped = ['p/.GIT/config', 'p/.Git/hooks/pre-commit', 'p/.git/config', '.GIT/config', 'p/GIT~1/config', 'p/git~1/hooks/post-checkout', 'p/.git./config', 'p/.git /config', 'p/.git. . /HEAD', 'p/.g\u200cit/config', 'p/\ufeff.git/config', 'p/.gi\u202et/config', 'p/.git\u206f/config', 'p/sub/deep/.GIT/config', 'p/.GIT', 'p/GIT~1']
+    for (const n of dropped) assert.equal(entryPath(n), null, JSON.stringify(n))
+    const why = (n: string) => {
+      const r = entryPath(n)
+      assert.ok(isUnsafe(r), JSON.stringify(n))
+      return r.unsafe
+    }
+    for (const n of ['p/.git::$INDEX_ALLOCATION/config', 'p/.git:stream', 'p/a:b.txt', 'p/x/file.txt:Zone.Identifier']) assert.match(why(n), /":"/, n)
+    for (const n of ['p/a\nb.txt', 'p/a\rb', 'p/\u001b[31mred', 'p/tab\there', 'p/del\u007f', 'a\0b']) assert.match(why(n), /control character/, JSON.stringify(n))
+    for (const n of ['con', 'p/CON', 'p/nul.txt', 'p/NUL.tar.gz', 'p/aux.c', 'p/Prn.log', 'p/com1', 'p/COM9.txt', 'p/com0', 'p/lpt1', 'p/LPT9.dat', 'p/com\u00b9', 'p/lpt\u00b3.x', 'p/con .txt', 'p/nul.', 'p/conin$', 'p/CONOUT$.txt', 'p/aux/x.c']) assert.match(why(n), /device/, n)
+    for (const n of ['p/.. /x', 'p/... /x', 'p/..\u200c/x', 'p/ /x', 'p/. /x', '../evil.txt', '/etc/passwd', 'C:/Windows/x', '\\\\server\\share\\x', '']) assert.match(why(n), /outside its folder/, JSON.stringify(n))
+    const kept = ['p/.github/workflows/ci.yml', 'p/.gitignore', 'p/.gitattributes', 'p/.gitmodules', 'p/git/notes.txt', 'p/.git-blame-ignore-revs', 'p/console.log', 'p/com10.txt', 'p/lpt.txt', 'p/auxiliary.c', 'p/connect/a.ts', 'p/naïve café.md', 'p/a b/c d.txt', 'p/..foo', 'p/foo..', 'p/x.', 'p/\u0084ber.txt']
+    for (const n of kept) assert.equal(entryPath(n), n, JSON.stringify(n))
+    assert.equal(entryPath('p\\.GIT\\config'), null)
+    assert.equal(entryPath('p\\src\\a.ts'), 'p/src/a.ts')
+  })
+
+  test('the second guard finds a .git spelling the file system kept — at any depth — and the file system\'s own ".git"', () => {
+    const clean = tempDir('guard')
+    mkdirSync(join(clean, 'src', '.github'), { recursive: true })
+    writeFileSync(join(clean, 'src', '.gitignore'), 'x\n')
+    assert.equal(dotGitIn(clean), null)
+    const top = tempDir('guard')
+    mkdirSync(join(top, '.GIT'))
+    assert.equal(dotGitIn(top), join(top, '.GIT'))
+    const deep = tempDir('guard')
+    mkdirSync(join(deep, 'a', 'b', 'GIT~1'), { recursive: true })
+    assert.equal(dotGitIn(deep), join(deep, 'a', 'b', 'GIT~1'))
+    const file = tempDir('guard')
+    mkdirSync(join(file, 'vendor'))
+    writeFileSync(join(file, 'vendor', '.git'), 'gitdir: ../../elsewhere\n')
+    assert.equal(dotGitIn(file), join(file, 'vendor', '.git'))
+  })
+
+  test('a crafted ZIP: .GIT/config with core.fsmonitor, .Git/hooks, the exact .git/config and more spellings — imported without any, nothing ran', async () => {
+    const trap = tempDir('trap')
+    const fsmonitor = tripwire(trap, 'fsmonitor-ran')
+    const hook = `#!/bin/sh\ntouch '${join(trap, 'hook-ran')}'\n`
+    const config = `[core]\n\tfsmonitor = ${fsmonitor}\n\thooksPath = .Git/hooks\n[filter "x"]\n\tclean = ${fsmonitor}\n`
+    const base = tempDir('clones')
+    const before = hookDirs()
+    const res = await asPerson('', () => importZip(zipFile({
+      'proj/README.md': '# Legacy\n',
+      'proj/src/app.js': 'console.log(1)\n',
+      'proj/.gitattributes': '* filter=x\n',
+      'proj/.GIT/config': config,
+      'proj/.GIT/HEAD': 'ref: refs/heads/main\n',
+      'proj/.Git/hooks/pre-commit': hook,
+      'proj/.Git/hooks/post-index-change': hook,
+      'proj/.git/config': config,
+      'proj/.git/hooks/post-commit': hook,
+      'proj/GIT~1/config': config,
+      'proj/.git. /config': config,
+      'proj/.g\u200cit/config': config,
+      'proj/lib/.GIT/config': config,
+    }), base, 'proj', 'proj.zip'))
+    assert.equal(res.dir, join(base, 'proj'))
+    assert.equal(res.files, 3)
+    assert.deepEqual(readdirSync(res.dir).sort(), ['.git', '.gitattributes', 'README.md', 'src'])
+    assert.ok(!readFileSync(join(res.dir, '.git', 'config'), 'utf8').includes('fsmonitor'))
+    assert.deepEqual(sh(res.dir, 'ls-files').trim().split('\n'), ['.gitattributes', 'README.md', 'src/app.js'])
+    assert.equal(sh(res.dir, 'rev-list', '--count', 'HEAD').trim(), '1')
+    assert.equal(sh(res.dir, 'log', '-1', '--format=%s %an').trim(), 'Import proj.zip One worker')
+    assert.deepEqual(readdirSync(trap).sort(), ['fsmonitor-ran.sh'], 'no hook, fsmonitor or filter ran')
+    assert.deepEqual(readdirSync(base), ['proj'], 'no temp folder left')
+    assert.equal(hookDirs(), before, 'the empty hooks folder is removed')
+  })
+
+  test('the git steps never run a planted .git\'s fsmonitor or hooks (a .GIT a case-insensitive disk made .git); the identity still comes from git config', async () => {
+    const trap = tempDir('trap')
+    const dir = join(tempDir('planted'), 'proj')
+    mkdirSync(join(dir, 'src'), { recursive: true })
+    writeFileSync(join(dir, 'src', 'a.js'), 'module.exports = 1\n')
+    sh(dir, 'init', '-q')
+    const evilHooks = join(trap, 'evil-hooks')
+    mkdirSync(evilHooks)
+    for (const name of ['pre-commit', 'prepare-commit-msg', 'commit-msg', 'post-commit', 'post-index-change', 'reference-transaction']) {
+      for (const at of [evilHooks, join(dir, '.git', 'hooks')]) {
+        writeFileSync(join(at, name), `#!/bin/sh\ntouch '${join(trap, `${name}-ran`)}'\nexit 0\n`)
+        chmodSync(join(at, name), 0o755)
+      }
+    }
+    const fsmonitor = tripwire(trap, 'fsmonitor-ran')
+    sh(dir, 'config', 'core.fsmonitor', fsmonitor)
+    sh(dir, 'config', 'core.hooksPath', evilHooks)
+    sh(dir, 'config', 'user.email', 'kim@example.invalid')
+    sh(dir, 'config', 'user.name', 'Kim Person')
+    const before = hookDirs()
+    await asPerson('', () => commitImport(dir, 'legacy.zip'))
+    assert.equal(sh(dir, 'log', '-1', '--format=%s|%an|%ae').trim(), 'Import legacy.zip|Kim Person|kim@example.invalid')
+    assert.equal(sh(dir, 'branch', '--show-current').trim(), 'main')
+    assert.deepEqual(readdirSync(trap).sort(), ['evil-hooks', 'fsmonitor-ran.sh'], 'nothing ran')
+    assert.equal(hookDirs(), before)
+    // the planted config was live: plain git runs it
+    sh(dir, 'commit', '-q', '--allow-empty', '-m', 'probe')
+    assert.ok(existsSync(join(trap, 'pre-commit-ran')) && existsSync(join(trap, 'post-commit-ran')), 'the probe commit ran the planted hooks')
+  })
+
+  test('a usual project imports with one commit; a refused or failed import leaves nothing behind', async () => {
+    const base = tempDir('clones')
+    const files = { 'shop-main/README.md': '# Shop\n', 'shop-main/src/index.ts': 'export {}\n', 'shop-main/.github/workflows/ci.yml': 'on: push\n', 'shop-main/.gitignore': 'dist/\n', 'shop-main/dist/x.js': '1\n' }
+    // the person's own identity from their global git config
+    const ok = await asPerson('[user]\n\tname = Kim Global\n\temail = kim.global@example.invalid\n', () => importZip(zipFile(files), base, 'shop', 'shop-main.zip'))
+    assert.equal(ok.dir, join(base, 'shop'))
+    assert.deepEqual(sh(ok.dir, 'ls-files').trim().split('\n'), ['.github/workflows/ci.yml', '.gitignore', 'README.md', 'src/index.ts'])
+    assert.equal(sh(ok.dir, 'rev-list', '--count', 'HEAD').trim(), '1')
+    assert.equal(sh(ok.dir, 'log', '-1', '--format=%s|%an|%ae').trim(), 'Import shop-main.zip|Kim Global|kim.global@example.invalid')
+    assert.equal(sh(ok.dir, 'status', '--porcelain').trim(), '')
+
+    for (const [files, why] of [
+      [{ 'p/a.txt': 'a', 'p/aux.c': 'int x;' }, /device.*\(p\/aux\.c\)/],
+      [{ 'p/a.txt': 'a', 'p/.git::$INDEX_ALLOCATION/config': '[core]' }, /":"/],
+      [{ 'p/a.txt': 'a', 'p/evil\u001b]0;x\u0007.txt': 'x' }, /control character \(p\/evil\?\]0;x\?\.txt\)/],
+      [{ 'p/.GIT/config': '[core]' }, /no files/],
+    ] as const) {
+      const empty = tempDir('clones')
+      await assert.rejects(importZip(zipFile(files), empty, 'p', 'p.zip'), why)
+      assert.deepEqual(readdirSync(empty), [], JSON.stringify(Object.keys(files)))
+    }
+
+    // git cannot run: the import fails and its folder goes again
+    const path = process.env.PATH
+    process.env.PATH = tempDir('nobin')
+    const gone = tempDir('clones')
+    try {
+      await assert.rejects(importZip(zipFile({ 'p/a.txt': 'a' }), gone, 'p', 'p.zip'), /git init failed/)
+    } finally {
+      process.env.PATH = path
+    }
+    assert.deepEqual(readdirSync(gone), [])
+  })
+})
+
 describe('a new project for an imported repository', () => {
   test('the name comes from the code (package.json, pom.xml, pyproject, README …), else the ZIP\'s', () => {
     const at = (files: Record<string, string>) => {
@@ -214,6 +390,8 @@ describe('the setup page: clone, projects, ZIP import, own MCP servers', () => {
       'legacy-app/src/billing.js': strToU8('module.exports = (a, b) => a + b\n'),
       'legacy-app/.git/config': strToU8('[core]\n\tfsmonitor = touch pwned\n'),
       'legacy-app/.git/hooks/post-commit': strToU8('#!/bin/sh\ntouch pwned\n'),
+      'legacy-app/.GIT/config': strToU8('[core]\n\tfsmonitor = touch pwned\n'),
+      'legacy-app/GIT~1/config': strToU8('[core]\n\tfsmonitor = touch pwned\n'),
       'legacy-app/.DS_Store': strToU8('x'),
       '__MACOSX/legacy-app/._README.md': strToU8('x'),
     }))

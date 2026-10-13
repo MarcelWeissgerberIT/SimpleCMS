@@ -505,8 +505,11 @@ the public APIs stable — other areas are built against them in parallel.
   (`ONE_WORKER_LIVE_GIT_MS`); browser notifications only via coding/notify.ts (per device `one.coding.notify`).
   New repos only from the worker's local setup page: clone (mcp/src/worker/clone.ts — `parseCloneUrl` refuses tokens in
   https addresses, ext::/file::, option-like and `..`; `git -c protocol.ext.allow=never … clone -- <url> <dir>`; projects
-  from glab / gh) and ZIP import (zipimport.ts — fflate streaming, every `.git` folder left out, a path outside refuses
-  the ZIP, `git init` + one commit) into `cloneDir` (default ~/one-repos, never iCloud). `claude.mcpServers` per repo =
+  from glab / gh) and ZIP import (zipimport.ts — fflate streaming, every part some disk reads as `.git` left out
+  (`isDotGit` = git's is_ntfs_dotgit + is_hfs_dotgit: case, trailing dots / spaces, `:stream`, `GIT~n`, HFS+ ignorables),
+  a path outside / `:` / a control character / a Windows device name refuses the ZIP, `dotGitIn` checks again before
+  `git init` + one commit, run with fsmonitor off, an empty hooksPath and --no-verify) into `cloneDir` (default
+  ~/one-repos, never iCloud). `claude.mcpServers` per repo =
   the person's own Claude Code MCP servers (tools allowed, no --strict-mcp-config). GitLab: `glab mr create`. After an
   import the page offers "Create it on GitLab / GitHub" (publish.ts: name from the code, the person's glab / gh api,
   origin + push; only for a repo without a remote). Pipeline

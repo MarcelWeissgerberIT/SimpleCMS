@@ -96,11 +96,21 @@ clean, and a test-command guess from top-level files — `package.json` with a `
   added. With `glab` / `gh` installed and signed in, the page lists the person's projects (`glab api projects?
   membership=true…`, `gh repo list --json …`; names and clone addresses only, HTTPS or SSH to pick).
 - **Import a ZIP…** — `POST /setup/api/import?name=<file>.zip&dir=<clone folder>` with `application/zip` (≤ 500 MB,
-  `ONE_WORKER_ZIP_MAX`), unpacked by fflate's streaming reader into a new repository: every path must stay inside
-  the folder (an absolute path, a drive letter or `..` refuses the whole ZIP), links become plain files, every `.git`
-  folder (hooks, config) and `__MACOSX` / `.DS_Store` are left out, ≤ 2 GB unpacked and 100,000 files; one folder at
-  the top becomes the repository; then `git init`, branch `main`, one commit *Import <file>* (identity: the person's
-  git config, else "One worker"). No remote — push is off until one is added.
+  `ONE_WORKER_ZIP_MAX`), unpacked by fflate's streaming reader into a new repository (mcp/src/worker/zipimport.ts):
+  every path must stay inside the folder — an absolute path, a drive letter, `..` or a name of only dots and spaces
+  refuses the whole ZIP, and so does any name with `:` (an NTFS data stream), a control character (U+0000–U+001F,
+  U+007F) or a Windows device name (CON, PRN, AUX, NUL, COM0–9, COM¹–³, LPT0–9, LPT¹–³, CONIN$, CONOUT$ — with or
+  without an extension). Links become plain files. Left out: `__MACOSX`, `.DS_Store` and every part, at any depth,
+  that some file system reads as `.git` — git's own `is_ntfs_dotgit` / `is_hfs_dotgit` in one check (`isDotGit`): any
+  case (`.GIT`, `.Git` — macOS and Windows disks ignore case), trailing dots and spaces (`.git.`), an NTFS stream
+  suffix (`.git::$INDEX_ALLOCATION`), the 8.3 short name `GIT~<n>`, and the code points HFS+ ignores (U+200C–U+200F,
+  U+202A–U+202E, U+206A–U+206F, U+FEFF). ≤ 2 GB unpacked and 100,000 files; one folder at the top becomes the
+  repository. Before `git init` a second guard walks the new folder and refuses it (removing it) when anything there
+  is named like `.git` or the file system answers for `.git` itself. Then `git init`, branch `main`, one commit
+  *Import <file>* (identity: the person's git config, else "One worker"), every step with `-c core.fsmonitor=false
+  -c core.hooksPath=<an empty temp folder>` and the commit with `--no-verify` — nothing the files brought along can
+  run, not even the person's own hooks. A failed import leaves no folder behind. No remote — push is off until one
+  is added.
 - **Create it on GitLab / GitHub** (offered after an import while `glab` / `gh` is signed in; mcp/src/worker/publish.ts):
   a project name suggested from the code (package.json, composer.json, pom.xml, pyproject.toml / setup.py, Cargo.toml,
   go.mod, *.sln / *.csproj, the README's first heading — else the ZIP's name), an optional GitLab group (nested) or
@@ -563,6 +573,11 @@ person's browser tabs.
   (`create_row`, `add_property`), the role fields Stage, Repo, Branch, Then, Git, PR, Cost, Worker, Claimed at
   (`update_row`; Then: `task_action then`), and any row / page / title change of a task that waits for Confirm.
   `coding` changes apply only from the terminal (never from a custom agent's run, never from a server run's `KINDS`).
+- **Imported code never runs at import** (worker 1.8.1): a ZIP (setup page or an Import stage) can bring no `.git` in
+  any spelling — case-insensitive disks (macOS, Windows) would otherwise take a `.GIT/config` as the repository's
+  own, whose `core.fsmonitor` `git add` runs as a command and whose hooks `git commit` runs (§ The setup page). Its
+  code runs only later, where the person runs it: the test command, Claude Code. A clone is a plain `git clone`
+  (never `--recurse-submodules`); git keeps a remote's hooks and config out itself.
 - **Diffs never follow links**: an untracked symbolic link shows as its target, the file it points at is never read.
 - **Cost**: per-task and per-day limits are checked before each stage and passed to Claude Code as
   `--max-budget-usd` (where the CLI knows it). **Stop** (One) or Ctrl+C (worker) kills Claude Code's whole process

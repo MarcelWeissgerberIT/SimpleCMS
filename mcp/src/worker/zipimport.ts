@@ -1,20 +1,26 @@
 /**
  * one-worker — a ZIP of source code becomes a new git repository in the clone folder (default ~/one-repos), only
- * from the person's upload on the LOCAL setup page. Then the page ticks it like a folder added by hand.
+ * from the person's upload on the LOCAL setup page or an Import stage of theirs (intake.ts). Then the page ticks it
+ * like a folder added by hand.
  *
  * Unpacked with fflate's streaming reader, file by file, never through a shell or an unzip tool:
  *  - every path must stay inside the new folder: an absolute path, a drive letter or a ".." anywhere refuses the
- *    whole ZIP; links are written as plain files (the streaming reader never makes a link)
- *  - left out: every ".git" folder (its hooks and config could run commands), __MACOSX, .DS_Store
+ *    whole ZIP, and so does a name with ":", a control character or a Windows device name (entryPath); links are
+ *    written as plain files (the streaming reader never makes a link)
+ *  - left out: every name some file system reads as ".git" (isDotGit — its hooks and config could run commands),
+ *    __MACOSX, .DS_Store
  *  - caps: the upload (500 MB, ONE_WORKER_ZIP_MAX), unpacked bytes (2 GB) and files (100,000)
  *  - one folder at the top (project-main/…) becomes the repository itself
- * Then `git init`, branch main, everything added (the ZIP's .gitignore applies) and one commit "Import <file>".
+ * Then, only while the new folder holds no ".git" in any spelling (dotGitIn, asked of the file system too), `git
+ * init`, branch main, everything added (the ZIP's .gitignore applies) and one commit "Import <file>" — fsmonitor off,
+ * hooks from an empty folder, --no-verify (commitImport). A failed import leaves no folder behind.
  * Nothing is pushed: the repo has no remote until the person adds one.
  */
 import { Unzip, UnzipInflate } from 'fflate'
-import { closeSync, createReadStream, existsSync, mkdirSync, openSync, readdirSync, renameSync, rmSync, statSync, writeSync } from 'node:fs'
+import { closeSync, createReadStream, existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, readdirSync, renameSync, rmSync, statSync, writeSync } from 'node:fs'
 import { randomBytes } from 'node:crypto'
-import { dirname, join, resolve, sep } from 'node:path'
+import { tmpdir } from 'node:os'
+import { dirname, join, relative, resolve, sep } from 'node:path'
 import { git } from './git.ts'
 
 export const ZIP_MAX = () => Number(process.env.ONE_WORKER_ZIP_MAX) || 500 * 1024 * 1024
@@ -23,19 +29,83 @@ const FILES_MAX = 100_000
 /** what Unzip.push gets at a time (≤ a few hundred entries end inside one piece) */
 const PUSH_PIECE = 16 * 1024
 
-const UNSAFE = Symbol('unsafe')
+/** Why a ZIP is refused as a whole (it reads "the ZIP has <why>"). */
+export interface Unsafe {
+  readonly unsafe: string
+}
+const OUTSIDE: Unsafe = { unsafe: 'a path outside its folder' }
+const CONTROL: Unsafe = { unsafe: 'a name with a control character' }
+const COLON: Unsafe = { unsafe: 'a name with ":", which Windows reads as a hidden data stream' }
+const DEVICE: Unsafe = { unsafe: 'a name Windows keeps for a device like CON, NUL, AUX, COM1 or LPT1' }
 
-/** A ZIP entry's path inside the new folder ("src/a.ts"), null to leave it out, UNSAFE to refuse the ZIP. */
-export function entryPath(name: string): string | null | typeof UNSAFE {
+/** Code points HFS+ leaves out when it compares names (git's next_hfs_char, utf8.c). */
+const HFS_IGNORABLE = /[‌-‏‪-‮⁪-⁯﻿]/g
+
+/**
+ * A name some file system resolves to the ".git" folder — git's own is_ntfs_dotgit (path.c) and is_hfs_dotgit
+ * (utf8.c), which git uses to refuse such paths in a checkout, folded into one check:
+ *  - NTFS and APFS / HFS+ (the macOS default) ignore case: ".GIT" and ".Git" are ".git"
+ *  - NTFS (Win32 names) drops trailing dots and spaces: ".git." and ".git . " are ".git"
+ *  - NTFS: "name:stream" is a data stream of "name" itself (".git::$INDEX_ALLOCATION" is the folder)
+ *  - NTFS 8.3 short names: ".git" is also "GIT~1" (git checks ~1; any ~<n> here)
+ *  - HFS+ ignores U+200C–U+200F, U+202A–U+202E, U+206A–U+206F and U+FEFF: ".g‌it" is ".git"
+ * git keeps the NTFS and HFS checks apart; one fold drops a few more names than either — none a source tree needs.
+ */
+export function isDotGit(part: string): boolean {
+  const s = part.replace(HFS_IGNORABLE, '').toLowerCase().split(':')[0]!.replace(/[. ]+$/, '')
+  return s === '.git' || /^git~\d+$/.test(s)
+}
+
+/**
+ * A Windows device name, with or without an extension ("nul", "NUL.txt", "con .tar.gz"): writing it opens the
+ * device — the console, a serial or printer port, NUL that swallows everything — never a file. Git for Windows
+ * refuses them in a checkout for the same reason.
+ */
+const isDevice = (part: string) => /^(con|prn|aux|nul|com[0-9¹²³]|lpt[0-9¹²³]|conin\$|conout\$)$/i.test(part.split('.')[0]!.replace(/ +$/, ''))
+
+/** A ZIP entry's path inside the new folder ("src/a.ts"), null to leave it out, Unsafe to refuse the ZIP. */
+export function entryPath(name: string): string | null | Unsafe {
   const n = name.replace(/\\/g, '/')
-  if (!n || n.includes('\0') || n.startsWith('/') || /^[A-Za-z]:/.test(n)) return UNSAFE
+  if (!n) return OUTSIDE
+  // control characters: Windows forbids them in names; elsewhere a newline or an escape in a name breaks git's
+  // line-by-line output the worker reads and can paint over a terminal or a log. U+0080–U+009F stay allowed: a ZIP
+  // without the UTF-8 flag (CP437 from older Windows tools) is read as Latin-1, and its umlauts land there
+  if (/[\u0000-\u001f\u007f]/.test(n)) return CONTROL
+  if (n.startsWith('/') || /^[A-Za-z]:/.test(n)) return OUTSIDE
   const parts = n.split('/').filter((p) => p && p !== '.')
-  if (parts.some((p) => p === '..')) return UNSAFE
+  // "..", and any name of only dots and spaces: Windows drops trailing dots and spaces (".. " can be ".."), HFS+
+  // ignores some code points ("..‌" compares as "..")
+  if (parts.some((p) => /^[. ]*$/.test(p.replace(HFS_IGNORABLE, '')))) return OUTSIDE
+  // ":" — on NTFS "name:stream" writes into a data stream of "name" (".git::$INDEX_ALLOCATION" is the .git folder
+  // itself) and "C:name" is relative to drive C; no portable source tree needs it
+  if (parts.some((p) => p.includes(':'))) return COLON
+  if (parts.some(isDevice)) return DEVICE
   if (!parts.length || n.endsWith('/')) return null
-  if (parts.some((p) => p === '.git' || p.length > 255) || parts[0] === '__MACOSX' || parts[parts.length - 1] === '.DS_Store') return null
+  if (parts.some((p) => isDotGit(p) || p.length > 255) || parts[0] === '__MACOSX' || parts[parts.length - 1] === '.DS_Store') return null
   return parts.join('/')
 }
-export const isUnsafe = (v: unknown): v is typeof UNSAFE => v === UNSAFE
+export const isUnsafe = (v: unknown): v is Unsafe => typeof v === 'object' && v !== null && 'unsafe' in v
+
+/** A name as it may be shown on the setup page, in One and in the log. */
+const shown = (name: string) => name.replace(/[\u0000-\u001f\u007f]/g, '?').slice(0, 120)
+
+/**
+ * The second guard, after unpacking and before `git init`: the first entry anywhere in `dir` that is named like
+ * ".git" (isDotGit) or that the file system itself answers for ".git" (a case-insensitive or otherwise folding
+ * volume), else null. entryPath left every such name out already — this catches a folding nobody foresaw.
+ */
+export function dotGitIn(dir: string): string | null {
+  const todo = [dir]
+  while (todo.length) {
+    const d = todo.pop()!
+    if (lstatSync(join(d, '.git'), { throwIfNoEntry: false })) return join(d, '.git')
+    for (const e of readdirSync(d, { withFileTypes: true })) {
+      if (isDotGit(e.name)) return join(d, e.name)
+      if (e.isDirectory()) todo.push(join(d, e.name))
+    }
+  }
+  return null
+}
 
 export interface ImportProgress {
   files: number
@@ -56,7 +126,7 @@ export async function importZip(zipFile: string, base: string, name: string, lab
       if (fail) return
       const rel = entryPath(file.name)
       if (isUnsafe(rel)) {
-        fail = `the ZIP has a path outside its folder (${file.name.slice(0, 120)}) — nothing was imported`
+        fail = `the ZIP has ${rel.unsafe} (${shown(file.name)}) — nothing was imported`
         return
       }
       if (rel === null) return
@@ -66,7 +136,7 @@ export async function importZip(zipFile: string, base: string, name: string, lab
       }
       const dest = resolve(tmp, rel)
       if (!dest.startsWith(tmp + sep)) {
-        fail = `the ZIP has a path outside its folder (${file.name.slice(0, 120)})`
+        fail = `the ZIP has a path outside its folder (${shown(file.name)})`
         return
       }
       mkdirSync(dirname(dest), { recursive: true })
@@ -80,7 +150,7 @@ export async function importZip(zipFile: string, base: string, name: string, lab
       }
       file.ondata = (err, data, final) => {
         if (err) {
-          fail ??= `${file.name.slice(0, 120)} could not be unpacked (${err.message}) — zip it again with a usual tool`
+          fail ??= `${shown(file.name)} could not be unpacked (${err.message}) — zip it again with a usual tool`
           close()
           return
         }
@@ -99,7 +169,7 @@ export async function importZip(zipFile: string, base: string, name: string, lab
       try {
         file.start()
       } catch (e) {
-        fail ??= `${file.name.slice(0, 120)}: ${(e as Error).message} — zip it again with a usual tool`
+        fail ??= `${shown(file.name)}: ${(e as Error).message} — zip it again with a usual tool`
         close()
       }
     })
@@ -123,20 +193,43 @@ export async function importZip(zipFile: string, base: string, name: string, lab
     for (let i = 2; existsSync(dir); i++) dir = join(base, `${name}-${i}`)
     renameSync(root, dir)
     if (root !== tmp) rmSync(tmp, { recursive: true, force: true })
-
-    await gitOk(dir, ['init', '-q'])
-    await gitOk(dir, ['symbolic-ref', 'HEAD', 'refs/heads/main'])
-    await gitOk(dir, ['add', '-A'], 10 * 60_000)
-    const who = (await git(dir, ['config', 'user.email'])).stdout.trim()
-    const identity = who ? [] : ['-c', 'user.name=One worker', '-c', 'user.email=one-worker@localhost']
-    await gitOk(dir, [...identity, 'commit', '-q', '--allow-empty', '-m', `Import ${label.slice(0, 200)}`], 10 * 60_000)
+    try {
+      const planted = dotGitIn(dir)
+      if (planted) throw new Error(`the ZIP holds a git folder under another spelling (${shown(relative(dir, planted))}) — nothing was imported`)
+      await commitImport(dir, label)
+    } catch (e) {
+      rmSync(dir, { recursive: true, force: true })
+      throw e
+    }
     return { dir, files }
   } finally {
     if (existsSync(tmp)) rmSync(tmp, { recursive: true, force: true })
   }
 }
 
-async function gitOk(dir: string, args: string[], timeoutMs = 120_000): Promise<void> {
-  const r = await git(dir, args, timeoutMs)
-  if (r.code !== 0) throw new Error(`git ${args.filter((a) => !a.startsWith('user.')).join(' ')} failed: ${(r.stderr || r.stdout).trim().split('\n').slice(-2).join(' ')}`)
+/**
+ * `git init`, branch main, everything added, one commit "Import <label>" — run so that nothing in the folder can
+ * start a program, even a .git that slipped past both guards: fsmonitor off (`git add` would run core.fsmonitor as
+ * a command), hooks only from an empty folder made for this import and removed after it (pre-commit,
+ * post-index-change, reference-transaction …, also the person's own core.hooksPath), --no-verify on the commit.
+ * The person's identity (user.email / user.name from their git config) is used as before.
+ */
+export async function commitImport(dir: string, label: string): Promise<void> {
+  const hooks = mkdtempSync(join(tmpdir(), 'one-import-hooks-'))
+  const safe = ['-c', 'core.fsmonitor=false', '-c', `core.hooksPath=${hooks}`]
+  const run = async (args: string[], timeoutMs = 120_000) => {
+    const r = await git(dir, [...safe, ...args], timeoutMs)
+    const verb = args.find((a, i) => !a.startsWith('-') && args[i - 1] !== '-c')
+    if (r.code !== 0) throw new Error(`git ${verb} failed: ${(r.stderr || r.stdout).trim().split('\n').slice(-2).join(' ')}`)
+  }
+  try {
+    await run(['init', '-q'])
+    await run(['symbolic-ref', 'HEAD', 'refs/heads/main'])
+    await run(['add', '-A'], 10 * 60_000)
+    const who = (await git(dir, [...safe, 'config', 'user.email'])).stdout.trim()
+    const identity = who ? [] : ['-c', 'user.name=One worker', '-c', 'user.email=one-worker@localhost']
+    await run([...identity, 'commit', '-q', '--no-verify', '--allow-empty', '-m', `Import ${label.slice(0, 200)}`], 10 * 60_000)
+  } finally {
+    rmSync(hooks, { recursive: true, force: true })
+  }
 }

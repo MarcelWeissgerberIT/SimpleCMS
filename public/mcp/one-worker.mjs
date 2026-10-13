@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// SimpleCMS One — coding worker 1.8.0 (MIT). Source: https://github.com/MarcelWeissgerberIT/SimpleCMS/tree/main/mcp/src/worker
+// SimpleCMS One — coding worker 1.8.1 (MIT). Source: https://github.com/MarcelWeissgerberIT/SimpleCMS/tree/main/mcp/src/worker
 // Runs coding tasks from One with Claude Code on this computer. Setup: node one-worker.mjs --help
 // Docs and security model: https://github.com/MarcelWeissgerberIT/SimpleCMS/blob/main/docs/CODING.md
 import { createRequire as __createRequire } from 'node:module'; const require = __createRequire(import.meta.url);
@@ -7567,49 +7567,49 @@ var require_fast_uri = __commonJS({
       schemelessOptions.skipEscape = true;
       return serialize(resolved, schemelessOptions);
     }
-    function resolveComponent(base, relative, options, skipNormalization) {
+    function resolveComponent(base, relative2, options, skipNormalization) {
       const target = {};
       if (!skipNormalization) {
         base = parse4(serialize(base, options), options);
-        relative = parse4(serialize(relative, options), options);
+        relative2 = parse4(serialize(relative2, options), options);
       }
       options = options || {};
-      if (!options.tolerant && relative.scheme) {
-        target.scheme = relative.scheme;
-        target.userinfo = relative.userinfo;
-        target.host = relative.host;
-        target.port = relative.port;
-        target.path = removeDotSegments(relative.path || "");
-        target.query = relative.query;
+      if (!options.tolerant && relative2.scheme) {
+        target.scheme = relative2.scheme;
+        target.userinfo = relative2.userinfo;
+        target.host = relative2.host;
+        target.port = relative2.port;
+        target.path = removeDotSegments(relative2.path || "");
+        target.query = relative2.query;
       } else {
-        if (relative.userinfo !== void 0 || relative.host !== void 0 || relative.port !== void 0) {
-          target.userinfo = relative.userinfo;
-          target.host = relative.host;
-          target.port = relative.port;
-          target.path = removeDotSegments(relative.path || "");
-          target.query = relative.query;
+        if (relative2.userinfo !== void 0 || relative2.host !== void 0 || relative2.port !== void 0) {
+          target.userinfo = relative2.userinfo;
+          target.host = relative2.host;
+          target.port = relative2.port;
+          target.path = removeDotSegments(relative2.path || "");
+          target.query = relative2.query;
         } else {
-          if (!relative.path) {
+          if (!relative2.path) {
             target.path = base.path;
-            if (relative.query !== void 0) {
-              target.query = relative.query;
+            if (relative2.query !== void 0) {
+              target.query = relative2.query;
             } else {
               target.query = base.query;
             }
           } else {
-            if (relative.path[0] === "/") {
-              target.path = removeDotSegments(relative.path);
+            if (relative2.path[0] === "/") {
+              target.path = removeDotSegments(relative2.path);
             } else {
               if ((base.userinfo !== void 0 || base.host !== void 0 || base.port !== void 0) && !base.path) {
-                target.path = "/" + relative.path;
+                target.path = "/" + relative2.path;
               } else if (!base.path) {
-                target.path = relative.path;
+                target.path = relative2.path;
               } else {
-                target.path = base.path.slice(0, base.path.lastIndexOf("/") + 1) + relative.path;
+                target.path = base.path.slice(0, base.path.lastIndexOf("/") + 1) + relative2.path;
               }
               target.path = removeDotSegments(target.path);
             }
-            target.query = relative.query;
+            target.query = relative2.query;
           }
           target.userinfo = base.userinfo;
           target.host = base.host;
@@ -7617,7 +7617,7 @@ var require_fast_uri = __commonJS({
         }
         target.scheme = base.scheme;
       }
-      target.fragment = relative.fragment;
+      target.fragment = relative2.fragment;
       return target;
     }
     function equal(uriA, uriB, options) {
@@ -12325,7 +12325,7 @@ var WorkerState = class {
 
 // src/worker/intake.ts
 import { createWriteStream, rmSync as rmSync4 } from "node:fs";
-import { homedir as homedir5, tmpdir } from "node:os";
+import { homedir as homedir5, tmpdir as tmpdir2 } from "node:os";
 import { join as join9 } from "node:path";
 import { randomBytes as randomBytes2 } from "node:crypto";
 
@@ -13135,24 +13135,51 @@ var Unzip = /* @__PURE__ */ (function() {
 })();
 
 // src/worker/zipimport.ts
-import { closeSync, createReadStream, existsSync as existsSync5, mkdirSync as mkdirSync4, openSync, readdirSync as readdirSync2, renameSync as renameSync3, rmSync as rmSync3, statSync as statSync2, writeSync } from "node:fs";
+import { closeSync, createReadStream, existsSync as existsSync5, lstatSync as lstatSync2, mkdirSync as mkdirSync4, mkdtempSync, openSync, readdirSync as readdirSync2, renameSync as renameSync3, rmSync as rmSync3, statSync as statSync2, writeSync } from "node:fs";
 import { randomBytes } from "node:crypto";
-import { dirname as dirname4, join as join6, resolve as resolve4, sep as sep5 } from "node:path";
+import { tmpdir } from "node:os";
+import { dirname as dirname4, join as join6, relative, resolve as resolve4, sep as sep5 } from "node:path";
 var ZIP_MAX = () => Number(process.env.ONE_WORKER_ZIP_MAX) || 500 * 1024 * 1024;
 var UNPACKED_MAX = 2 * 1024 * 1024 * 1024;
 var FILES_MAX = 1e5;
 var PUSH_PIECE = 16 * 1024;
-var UNSAFE = /* @__PURE__ */ Symbol("unsafe");
+var OUTSIDE = { unsafe: "a path outside its folder" };
+var CONTROL = { unsafe: "a name with a control character" };
+var COLON = { unsafe: 'a name with ":", which Windows reads as a hidden data stream' };
+var DEVICE = { unsafe: "a name Windows keeps for a device like CON, NUL, AUX, COM1 or LPT1" };
+var HFS_IGNORABLE = /[‌-‏‪-‮⁪-⁯﻿]/g;
+function isDotGit(part) {
+  const s = part.replace(HFS_IGNORABLE, "").toLowerCase().split(":")[0].replace(/[. ]+$/, "");
+  return s === ".git" || /^git~\d+$/.test(s);
+}
+var isDevice = (part) => /^(con|prn|aux|nul|com[0-9¹²³]|lpt[0-9¹²³]|conin\$|conout\$)$/i.test(part.split(".")[0].replace(/ +$/, ""));
 function entryPath(name) {
   const n = name.replace(/\\/g, "/");
-  if (!n || n.includes("\0") || n.startsWith("/") || /^[A-Za-z]:/.test(n)) return UNSAFE;
+  if (!n) return OUTSIDE;
+  if (/[\u0000-\u001f\u007f]/.test(n)) return CONTROL;
+  if (n.startsWith("/") || /^[A-Za-z]:/.test(n)) return OUTSIDE;
   const parts = n.split("/").filter((p) => p && p !== ".");
-  if (parts.some((p) => p === "..")) return UNSAFE;
+  if (parts.some((p) => /^[. ]*$/.test(p.replace(HFS_IGNORABLE, "")))) return OUTSIDE;
+  if (parts.some((p) => p.includes(":"))) return COLON;
+  if (parts.some(isDevice)) return DEVICE;
   if (!parts.length || n.endsWith("/")) return null;
-  if (parts.some((p) => p === ".git" || p.length > 255) || parts[0] === "__MACOSX" || parts[parts.length - 1] === ".DS_Store") return null;
+  if (parts.some((p) => isDotGit(p) || p.length > 255) || parts[0] === "__MACOSX" || parts[parts.length - 1] === ".DS_Store") return null;
   return parts.join("/");
 }
-var isUnsafe = (v) => v === UNSAFE;
+var isUnsafe = (v) => typeof v === "object" && v !== null && "unsafe" in v;
+var shown = (name) => name.replace(/[\u0000-\u001f\u007f]/g, "?").slice(0, 120);
+function dotGitIn(dir) {
+  const todo = [dir];
+  while (todo.length) {
+    const d = todo.pop();
+    if (lstatSync2(join6(d, ".git"), { throwIfNoEntry: false })) return join6(d, ".git");
+    for (const e of readdirSync2(d, { withFileTypes: true })) {
+      if (isDotGit(e.name)) return join6(d, e.name);
+      if (e.isDirectory()) todo.push(join6(d, e.name));
+    }
+  }
+  return null;
+}
 async function importZip(zipFile, base, name, label, onProgress = () => {
 }) {
   mkdirSync4(base, { recursive: true });
@@ -13167,7 +13194,7 @@ async function importZip(zipFile, base, name, label, onProgress = () => {
       if (fail) return;
       const rel = entryPath(file.name);
       if (isUnsafe(rel)) {
-        fail = `the ZIP has a path outside its folder (${file.name.slice(0, 120)}) \u2014 nothing was imported`;
+        fail = `the ZIP has ${rel.unsafe} (${shown(file.name)}) \u2014 nothing was imported`;
         return;
       }
       if (rel === null) return;
@@ -13177,7 +13204,7 @@ async function importZip(zipFile, base, name, label, onProgress = () => {
       }
       const dest = resolve4(tmp, rel);
       if (!dest.startsWith(tmp + sep5)) {
-        fail = `the ZIP has a path outside its folder (${file.name.slice(0, 120)})`;
+        fail = `the ZIP has a path outside its folder (${shown(file.name)})`;
         return;
       }
       mkdirSync4(dirname4(dest), { recursive: true });
@@ -13191,7 +13218,7 @@ async function importZip(zipFile, base, name, label, onProgress = () => {
       };
       file.ondata = (err2, data, final) => {
         if (err2) {
-          fail ??= `${file.name.slice(0, 120)} could not be unpacked (${err2.message}) \u2014 zip it again with a usual tool`;
+          fail ??= `${shown(file.name)} could not be unpacked (${err2.message}) \u2014 zip it again with a usual tool`;
           close();
           return;
         }
@@ -13210,7 +13237,7 @@ async function importZip(zipFile, base, name, label, onProgress = () => {
       try {
         file.start();
       } catch (e) {
-        fail ??= `${file.name.slice(0, 120)}: ${e.message} \u2014 zip it again with a usual tool`;
+        fail ??= `${shown(file.name)}: ${e.message} \u2014 zip it again with a usual tool`;
         close();
       }
     });
@@ -13230,20 +13257,37 @@ async function importZip(zipFile, base, name, label, onProgress = () => {
     for (let i2 = 2; existsSync5(dir); i2++) dir = join6(base, `${name}-${i2}`);
     renameSync3(root, dir);
     if (root !== tmp) rmSync3(tmp, { recursive: true, force: true });
-    await gitOk2(dir, ["init", "-q"]);
-    await gitOk2(dir, ["symbolic-ref", "HEAD", "refs/heads/main"]);
-    await gitOk2(dir, ["add", "-A"], 10 * 6e4);
-    const who = (await git(dir, ["config", "user.email"])).stdout.trim();
-    const identity = who ? [] : ["-c", "user.name=One worker", "-c", "user.email=one-worker@localhost"];
-    await gitOk2(dir, [...identity, "commit", "-q", "--allow-empty", "-m", `Import ${label.slice(0, 200)}`], 10 * 6e4);
+    try {
+      const planted = dotGitIn(dir);
+      if (planted) throw new Error(`the ZIP holds a git folder under another spelling (${shown(relative(dir, planted))}) \u2014 nothing was imported`);
+      await commitImport(dir, label);
+    } catch (e) {
+      rmSync3(dir, { recursive: true, force: true });
+      throw e;
+    }
     return { dir, files };
   } finally {
     if (existsSync5(tmp)) rmSync3(tmp, { recursive: true, force: true });
   }
 }
-async function gitOk2(dir, args, timeoutMs = 12e4) {
-  const r = await git(dir, args, timeoutMs);
-  if (r.code !== 0) throw new Error(`git ${args.filter((a) => !a.startsWith("user.")).join(" ")} failed: ${(r.stderr || r.stdout).trim().split("\n").slice(-2).join(" ")}`);
+async function commitImport(dir, label) {
+  const hooks = mkdtempSync(join6(tmpdir(), "one-import-hooks-"));
+  const safe = ["-c", "core.fsmonitor=false", "-c", `core.hooksPath=${hooks}`];
+  const run2 = async (args, timeoutMs = 12e4) => {
+    const r = await git(dir, [...safe, ...args], timeoutMs);
+    const verb = args.find((a, i2) => !a.startsWith("-") && args[i2 - 1] !== "-c");
+    if (r.code !== 0) throw new Error(`git ${verb} failed: ${(r.stderr || r.stdout).trim().split("\n").slice(-2).join(" ")}`);
+  };
+  try {
+    await run2(["init", "-q"]);
+    await run2(["symbolic-ref", "HEAD", "refs/heads/main"]);
+    await run2(["add", "-A"], 10 * 6e4);
+    const who = (await git(dir, [...safe, "config", "user.email"])).stdout.trim();
+    const identity = who ? [] : ["-c", "user.name=One worker", "-c", "user.email=one-worker@localhost"];
+    await run2([...identity, "commit", "-q", "--no-verify", "--allow-empty", "-m", `Import ${label.slice(0, 200)}`], 10 * 6e4);
+  } finally {
+    rmSync3(hooks, { recursive: true, force: true });
+  }
 }
 
 // src/worker/publish.ts
@@ -13701,7 +13745,7 @@ var Intake = class {
     if (declared <= 0) throw new Error("The ZIP is empty.");
     if (declared > max2) throw new Error(`The ZIP is larger than ${Math.round(max2 / 1024 / 1024)} MB.`);
     this.base();
-    const tmp = join9(tmpdir(), `one-intake-${randomBytes2(8).toString("hex")}.zip`);
+    const tmp = join9(tmpdir2(), `one-intake-${randomBytes2(8).toString("hex")}.zip`);
     const upload = { id: randomBytes2(12).toString("hex"), taskId: id, file, tmp, out: createWriteStream(tmp, { mode: 384 }), size: 0, declared, timer: setTimeout(() => this.drop("the upload stopped"), IDLE_MS), error: null };
     upload.timer.unref?.();
     upload.out.on("error", (e) => {
@@ -14653,12 +14697,12 @@ ${text2}`);
 
 // src/worker/run.ts
 import { randomBytes as randomBytes4 } from "node:crypto";
-import { mkdtempSync, rmSync as rmSync5, writeFileSync as writeFileSync3 } from "node:fs";
-import { tmpdir as tmpdir3 } from "node:os";
+import { mkdtempSync as mkdtempSync2, rmSync as rmSync5, writeFileSync as writeFileSync3 } from "node:fs";
+import { tmpdir as tmpdir4 } from "node:os";
 import { basename as basename2, join as join10 } from "node:path";
 
 // src/worker/scrub.ts
-import { homedir as homedir6, tmpdir as tmpdir2 } from "node:os";
+import { homedir as homedir6, tmpdir as tmpdir3 } from "node:os";
 import { realpathSync as realpathSync2 } from "node:fs";
 var escape2 = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 function variants(p) {
@@ -14678,7 +14722,7 @@ function variants(p) {
 var Scrubber = class {
   rules = [];
   constructor(pairs = []) {
-    const base = [...pairs, [tmpdir2(), "<tmp>"], [homedir6(), "~"]];
+    const base = [...pairs, [tmpdir3(), "<tmp>"], [homedir6(), "~"]];
     const list = [];
     for (const [p, to] of base) if (p) for (const v of variants(p)) list.push({ from: v, to });
     list.sort((a, b) => b.from.length - a.from.length);
@@ -14805,7 +14849,7 @@ function dataBlock(label, body, code) {
   return [`<<<${label} ${code}`, body, `${label} ${code}>>>`];
 }
 function writeMcpConfig(taskMcp) {
-  const dir = mkdtempSync(join10(tmpdir3(), "one-worker-"));
+  const dir = mkdtempSync2(join10(tmpdir4(), "one-worker-"));
   const file = join10(dir, "mcp.json");
   writeFileSync3(file, JSON.stringify({ mcpServers: { "one-task": { type: "stdio", command: taskMcp.command, args: taskMcp.args, env: taskMcp.env } } }, null, 2), { mode: 384 });
   return { file, dispose: () => rmSync5(dir, { recursive: true, force: true }) };
@@ -14993,8 +15037,8 @@ async function analyzeStage(ctx, scrub, log2, dir) {
     log2("info", `No analysis command for ${repo.name} \u2014 the stage passes. Set one on the worker's setup page (Change repositories \u2192 the repo \u2192 Static analysis).`, "analyzeNone", { repo: repo.name });
     return { status: "ok", summary: "No static analysis configured.", plan: "_No static analysis command is set for this repository \u2014 the worker's setup page (Change repositories \u2192 the repository \u2192 Static analysis) takes one, e.g. `npx eslint .`, `dotnet build`, `go vet ./...`._" };
   }
-  const shown = clip2(scrub.text([basename2(argv2[0]), ...argv2.slice(1)].join(" ")), 160);
-  log2("test", `Running the static analysis: ${shown}`, "analyzeRun", { cmd: shown });
+  const shown2 = clip2(scrub.text([basename2(argv2[0]), ...argv2.slice(1)].join(" ")), 160);
+  log2("test", `Running the static analysis: ${shown2}`, "analyzeRun", { cmd: shown2 });
   let lines = 0;
   const res = await runAnalysis(repo, dir ?? repo.path, ctx.signal, (line) => {
     if (lines++ < 200) log2("test", line);
@@ -15014,7 +15058,7 @@ ${output.slice(-ANALYSIS_TAIL)}` : output;
   const verdict = res.code === 0 ? "no findings (exit code 0)" : `findings (exit code ${res.code})`;
   log2(res.code === 0 ? "test" : "warn", `Static analysis: ${verdict} \xB7 ${s} s`, res.code === 0 ? "analyzeClean" : "analyzeFound", { code: res.code, s });
   const fence = fenceFor(body);
-  const plan = [`\`${shown.replace(/`/g, "'")}\` \xB7 ${verdict} \xB7 ${s} s \xB7 ${n} line(s) of output`, "", ...body ? [`${fence}text`, body, fence] : ["_No output._"]].join("\n");
+  const plan = [`\`${shown2.replace(/`/g, "'")}\` \xB7 ${verdict} \xB7 ${s} s \xB7 ${n} line(s) of output`, "", ...body ? [`${fence}text`, body, fence] : ["_No output._"]].join("\n");
   return { status: "ok", plan, summary: `Static analysis: ${verdict}.` };
 }
 function liveDiff(ctx, wt, scrub) {
@@ -33522,7 +33566,7 @@ var SETUP_JS = String.raw`(function () {
 
 // src/worker/setup.ts
 import { createWriteStream as createWriteStream2, rmSync as rmSync6 } from "node:fs";
-import { tmpdir as tmpdir4 } from "node:os";
+import { tmpdir as tmpdir5 } from "node:os";
 var MAX_BODY = 256 * 1024;
 var HEADERS = { "cache-control": "no-store", "x-content-type-options": "nosniff", "referrer-policy": "no-referrer", "x-frame-options": "DENY", "cross-origin-resource-policy": "same-origin" };
 var CSP = "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
@@ -33717,7 +33761,7 @@ var SetupServer = class {
     if (typeof base !== "string") return { ok: false, status: 400, error: base.error };
     const max2 = ZIP_MAX();
     if (Number(req.headers["content-length"] ?? 0) > max2) return { ok: false, status: 413, error: `The ZIP is larger than ${Math.round(max2 / 1024 / 1024)} MB.` };
-    const tmp = join11(tmpdir4(), `one-import-${randomBytes6(8).toString("hex")}.zip`);
+    const tmp = join11(tmpdir5(), `one-import-${randomBytes6(8).toString("hex")}.zip`);
     let size = 0;
     const out = createWriteStream2(tmp, { mode: 384 });
     try {
@@ -33990,7 +34034,7 @@ ${prompt}`);
 }
 
 // src/worker/index.ts
-var VERSION = true ? "1.8.0" : "dev";
+var VERSION = true ? "1.8.1" : "dev";
 var quiet = process.env.ONE_WORKER_QUIET === "1";
 var recent = [];
 var log = (msg) => {

@@ -381,7 +381,7 @@ describe('documents, tasks without a repository, imports', () => {
     const file = await boot(r, { cloneDir: clones })
     const tab = await connect()
     await tab.next('welcome')
-    const zip = Buffer.from(zipSync({ 'legacy/package.json': strToU8(JSON.stringify({ name: 'billing-core' })), 'legacy/src/app.js': strToU8('console.log(1)\n'), 'legacy/.git/config': strToU8('[core]\n') }))
+    const zip = Buffer.from(zipSync({ 'legacy/package.json': strToU8(JSON.stringify({ name: 'billing-core' })), 'legacy/src/app.js': strToU8('console.log(1)\n'), 'legacy/.git/config': strToU8('[core]\n'), 'legacy/.Git/hooks/pre-commit': strToU8('#!/bin/sh\n'), 'legacy/GIT~1/config': strToU8('[core]\n') }))
     // refused: not a zip, more bytes than announced
     assert.equal((await tab.request({ op: 'intake-begin', taskId: 'imp1abcd', name: 'legacy.txt', size: 10 })).ok, false)
     const bad = await tab.request({ op: 'intake-begin', taskId: 'imp1abcd', name: 'legacy.zip', size: 4 })
@@ -402,6 +402,7 @@ describe('documents, tasks without a repository, imports', () => {
     assert.equal(done.intake.repo, 'legacy')
     assert.equal(done.intake.suggest, 'billing-core')
     assert.ok(existsSync(join(clones, 'legacy', 'src', 'app.js')))
+    assert.deepEqual(readdirSync(join(clones, 'legacy')).sort(), ['.git', 'package.json', 'src'], 'no other spelling of .git')
     assert.ok(!existsSync(join(clones, 'legacy', '.git', 'config')) || !readFileSync(join(clones, 'legacy', '.git', 'config'), 'utf8').startsWith('[core]\n\n'), 'the ZIP\'s own .git stays out')
     assert.match(readFileSync(file, 'utf8'), /"name": "legacy"/)
     await waitFor(() => tab.messages.some((m) => m.type === 'welcome' && m.repos.some((x) => x.name === 'legacy')), 10_000)
