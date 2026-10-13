@@ -495,6 +495,30 @@ describe('custom agents on the server', () => {
     assert.equal(fake.of('Claude pinned').length, 1)
   })
 
+  test('a Vorprüfer (review v2, slice SJ): kept byte for byte by the sanitizer and skipped with its reason, no request (control: the same agent without it runs)', async () => {
+    const v2 = { v: 2, decider: { p: 'openrouter', m: 'typesafe/jev-1.13' }, on: 'openrouter:typesafe/jev-1.13-20260917', pre: { markBelow: 0.7, hold: true }, gate: { allowAt: 0.9 } }
+    const kept = sanitizeAgent('ag-jev', agentDef('ag-jev', 'Nordlicht check', { review: v2 }))!
+    assert.deepEqual(kept.review, v2)
+    assert.deepEqual(sanitizeAgent('ag-jev', JSON.parse(JSON.stringify(kept)))!.review, v2)
+    assert.equal(runsOnClaude(kept), false)
+    meta.doc.transact(() => {
+      agentsMap().set('ag-jev', agentDef('ag-jev', 'Nordlicht check', { review: v2 }))
+      agentsMap().set('ag-jev-off', agentDef('ag-jev-off', 'Nordlicht plain', {}))
+    })
+    await flushed(meta)
+    fake.script('Nordlicht plain', () => say('Checked.'))
+    await member.post(`/api/workspaces/${wsId}/agents/ag-jev/run`)
+    const [run] = await finished('ag-jev')
+    assert.equal(run.status, 'skipped')
+    assert.match(run.error, /pre-checker \(Jev\): pre-checks run in the browser only/)
+    assert.equal(fake.of('Nordlicht check').length, 0)
+    // control: without a Vorprüfer it runs (one request)
+    await member.post(`/api/workspaces/${wsId}/agents/ag-jev-off/run`)
+    const [ok] = await finished('ag-jev-off')
+    assert.equal(ok.status, 'ok')
+    assert.equal(fake.of('Nordlicht plain').length, 1)
+  })
+
   test('MCP connector: mcp_servers + one mcp_toolset each + beta; calls in the step log; no token in the run', async () => {
     fake.script('Archive user', () => ({
       content: [

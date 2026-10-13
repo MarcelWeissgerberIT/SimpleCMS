@@ -18,7 +18,7 @@ import * as Y from 'yjs'
 import { metaName, parseDocName } from '../collab/names.ts'
 import { type Roots, liveDatabase, livePage, readProperties, roots } from '../api/meta.ts'
 import type { WorkspaceModel } from '../api/model.ts'
-import { runsOnClaude } from '../../../src/shared/ai/route.ts'
+import { runsOnClaude, decisionChecks } from '../../../src/shared/ai/route.ts'
 import type { Services } from '../context.ts'
 import { ApiError } from '../errors.ts'
 import { McpReads } from '../mcp/reads.ts'
@@ -34,6 +34,9 @@ import { type AgentRun, type AgentStateRow, type CustomAgent, type TriggerType, 
 
 /** Runs of one workspace at the same time. */
 export const PER_WORKSPACE = 2
+/** Why a server agent with a Vorprüfer (review v2) does not run here (DJ14: decisions reach the server with a later slice). */
+export const VORPRUEFER_SKIP = 'This agent has a pre-checker (Jev): pre-checks run in the browser only — this server does not run it yet.'
+
 /** Runs waiting per agent; beyond that a trigger is refused (webhook: 429) or recorded as skipped. */
 export const MAX_QUEUED_PER_AGENT = 20
 /** Agent lists are re-read at least this often (they are refreshed on every store anyway). */
@@ -369,6 +372,8 @@ export class AgentService {
     if (!agent || agent.runner !== 'server') return skip('The agent no longer exists or does not run on the server.')
     // multi-provider: this server runs Claude only — an agent whose first pin is another provider, or whose route fields
     // it cannot read, waits for a newer one (never on a route nobody chose)
+    // a Vorprüfer (review v2, Jev — slice SJ) runs in the creator's browser only: decision models reach the server later
+    if (decisionChecks(agent) !== null) return skip(VORPRUEFER_SKIP)
     if (!runsOnClaude(agent)) return skip('This agent needs a newer server: its route is not Claude, or one this server cannot read.')
     if (!agent.enabled && job.trigger.type !== 'manual') return skip('The agent is switched off.')
     const task = await this.taskMessage(job, agent, run.id)
