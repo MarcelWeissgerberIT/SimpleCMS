@@ -1,14 +1,18 @@
 /**
  * Block ids are bookkeeping, not content: every editor fills in ids for blocks that have none (convert.ts
  * `withBlockIds`, fresh random ids each time) and writes them once, so two copies of the same text can differ in
- * nothing but their ids. Diffs that skip a block's `id`, and taking another copy's ids over where both hold the same
- * blocks — so a write that only added ids is no change to merge against (PageEditor's external updates).
+ * nothing but their ids. Diffs that skip a block's `id`, and taking another copy's ids over for the same blocks — so
+ * a write that only added ids is no change to merge against (PageEditor's external updates).
  */
 import type { Fragment, Node as PMNode } from '@tiptap/pm/model'
 import type { Transaction } from '@tiptap/pm/state'
 import { BLOCK_ID_TYPES } from '../schema/base'
 
 const ID_TYPES = new Set<string>(BLOCK_ID_TYPES)
+
+/** [start, endA) in `a` became [start, endB) in `b`. */
+export type Range = { start: number; endA: number; endB: number }
+type Pair = (pos: number, mine: PMNode, theirs: PMNode) => void
 
 /** Same type, marks and attrs — a block's `id` aside (other attrs named id, e.g. a mention's target, count). */
 function sameMarkup(a: PMNode, b: PMNode): boolean {
@@ -73,13 +77,11 @@ function diffEnd(a: Fragment, b: Fragment, posA: number, posB: number): { a: num
   }
 }
 
-/** The changed range between two docs, block ids aside: [start, endA) in `a` became [start, endB) in `b`; null = same. */
-export function diffIgnoringIds(a: PMNode, b: PMNode): { start: number; endA: number; endB: number } | null {
-  const start = diffStart(a.content, b.content, 0)
+function range(a: PMNode, b: PMNode, start: number | null, end: () => { a: number; b: number } | null): Range | null {
   if (start == null) return null
-  const end = diffEnd(a.content, b.content, a.content.size, b.content.size)
-  let endA = end?.a ?? a.content.size
-  let endB = end?.b ?? b.content.size
+  const e = end()
+  let endA = e?.a ?? a.content.size
+  let endB = e?.b ?? b.content.size
   const overlap = start - Math.min(endA, endB)
   if (overlap > 0) {
     endA += overlap
@@ -88,7 +90,15 @@ export function diffIgnoringIds(a: PMNode, b: PMNode): { start: number; endA: nu
   return { start, endA, endB }
 }
 
-type Pair = (pos: number, mine: PMNode, theirs: PMNode) => void
+/** The changed range between two docs, block ids aside; null = the same but for ids. */
+export function diffIgnoringIds(a: PMNode, b: PMNode): Range | null {
+  return range(a, b, diffStart(a.content, b.content, 0), () => diffEnd(a.content, b.content, a.content.size, b.content.size))
+}
+
+/** The exact changed range (prosemirror-model's own diff, ids included). */
+export function diffExact(a: PMNode, b: PMNode): Range | null {
+  return range(a, b, a.content.findDiffStart(b.content), () => a.content.findDiffEnd(b.content))
+}
 
 /** `a` and `b` hold the same blocks before `until`: pair the blocks starting there (ancestors of `until` too). */
 function pairHead(a: Fragment, b: Fragment, pos: number, until: number, pair: Pair): void {
@@ -115,35 +125,61 @@ function pairTail(a: Fragment, b: Fragment, endA: number, from: number, pair: Pa
   }
 }
 
-/**
- * Give the blocks of `tr.doc` the ids `theirs` holds for the same blocks, as attribute steps (the caret, node views
- * and undo history stay). `mine`: the part of `tr.doc` that is this side's own (its unsaved typing, its blocks keep
- * their ids) — the rest must equal `theirs` but for ids; omitted = all of it. Never leaves an id twice in the doc
- * (then nothing is taken).
- */
-export function adoptIds(tr: Transaction, theirs: PMNode, mine?: { from: number; to: number }): void {
-  const doc = tr.doc
-  const take = new Map<number, string>()
-  const pair: Pair = (pos, x, y) => {
-    const id = y.attrs.id
-    if (ID_TYPES.has(x.type.name) && typeof id === 'string' && id && id !== x.attrs.id) take.set(pos, id)
-  }
-  pairHead(doc.content, theirs.content, 0, mine ? mine.from : Infinity, pair)
-  if (mine) pairTail(doc.content, theirs.content, doc.content.size, mine.to, pair)
+const idOf = (n: PMNode): string | null => (ID_TYPES.has(n.type.name) && typeof n.attrs.id === 'string' && n.attrs.id ? n.attrs.id : null)
+
+/** Set block ids by position (attribute steps) — never leaving an id twice in the doc (then none is set). */
+function setIds(tr: Transaction, take: Map<number, string>): void {
   if (!take.size) return
   const seen = new Set<string>()
   let twice = false
-  doc.descendants((node, pos) => {
+  tr.doc.descendants((node, pos) => {
     if (twice) return false
-    if (ID_TYPES.has(node.type.name)) {
-      const id = take.get(pos) ?? node.attrs.id
-      if (typeof id === 'string' && id) {
-        if (seen.has(id)) twice = true
-        seen.add(id)
-      }
+    const id = idOf(node) ? (take.get(pos) ?? idOf(node)) : null
+    if (id) {
+      if (seen.has(id)) twice = true
+      seen.add(id)
     }
     return !node.isTextblock
   })
   if (twice) return
   for (const [pos, id] of take) tr.setNodeAttribute(pos, 'id', id)
+}
+
+/**
+ * `tr.doc` equals `theirs` but for block ids: give its blocks theirs' ids, as attribute steps (the caret, node views
+ * and undo history stay).
+ */
+export function adoptIds(tr: Transaction, theirs: PMNode): void {
+  const take = new Map<number, string>()
+  pairHead(tr.doc.content, theirs.content, 0, Infinity, (pos, x, y) => {
+    const id = idOf(y)
+    if (id && idOf(x) && id !== x.attrs.id) take.set(pos, id)
+  })
+  setIds(tr, take)
+}
+
+/** The ids `theirs` holds for the blocks `base` holds, outside `changed` (theirs' change from base, ids aside). */
+export function idsFor(base: PMNode, theirs: PMNode, changed: Range | null): Map<string, string> {
+  const out = new Map<string, string>()
+  const pair: Pair = (_pos, x, y) => {
+    const a = idOf(x)
+    const b = idOf(y)
+    if (a && b && a !== b) out.set(a, b)
+  }
+  pairHead(base.content, theirs.content, 0, changed ? changed.start : Infinity, pair)
+  if (changed) pairTail(base.content, theirs.content, base.content.size, changed.endA, pair)
+  return out
+}
+
+/** Rename the blocks of `tr.doc` whose id `ids` maps (attribute steps). */
+export function renameIds(tr: Transaction, ids: Map<string, string>): void {
+  if (!ids.size) return
+  const take = new Map<number, string>()
+  tr.doc.descendants((node, pos) => {
+    const id = idOf(node)
+    const to = id ? ids.get(id) : undefined
+    if (to) take.set(pos, to)
+    return !node.isTextblock
+  })
+  setIds(tr, take)
 }
