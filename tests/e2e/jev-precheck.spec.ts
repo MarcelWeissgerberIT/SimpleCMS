@@ -465,6 +465,25 @@ test.describe('the health lamps of a Vorprüfer (J9)', () => {
     await expect.poll(async () => (await missed(page)).filter((x) => x.startsWith('jevfail:'))).toEqual([])
   })
 
+  test('train 9: runs that sent no check for money (the Regler’s line, the run’s own budget) are no Vorprüfung failure — they neither count nor end a streak', async ({ page }) => {
+    await jevSetup(page)
+    await jevAgent(page, { hold: true })
+    const now = Date.now()
+    const budget = { n: 2, checked: 0, marked: 0, held: 2, usd: 0, failed: 'budget' }
+    for (let i = 0; i < 3; i++) await seedRun(page, `b${i}`, now - (9 - i) * 60_000, budget)
+    await page.waitForTimeout(300)
+    expect((await missed(page)).filter((x) => x.startsWith('jevfail:'))).toEqual([])
+    // two real failures with a budget run between them: still two in a row …
+    await seedRun(page, 'u0', now - 5 * 60_000, { n: 2, checked: 0, marked: 0, held: 2, usd: 0, failed: 'unavailable' })
+    await seedRun(page, 'b3', now - 4 * 60_000, budget)
+    await seedRun(page, 'u1', now - 3 * 60_000, { n: 2, checked: 0, marked: 0, held: 2, usd: 0, failed: 'unavailable' })
+    await page.waitForTimeout(300)
+    expect((await missed(page)).filter((x) => x.startsWith('jevfail:'))).toEqual([])
+    // … the third lights it (positive control: the budget runs did not end the streak either)
+    await seedRun(page, 'u2', now - 2 * 60_000, { n: 2, checked: 0, marked: 0, held: 2, usd: 0, failed: 'unavailable' })
+    await expect.poll(async () => (await missed(page)).filter((x) => x.startsWith('jevfail:'))).toEqual([`jevfail:${AGENT}@u2`])
+  })
+
   test('another Jev snapshot answered than the one confirmed → "new version" (control: the confirmed one → none)', async ({ page }) => {
     await jevSetup(page)
     await jevAgent(page, { hold: true })

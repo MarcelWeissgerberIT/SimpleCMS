@@ -8,7 +8,7 @@
  */
 import type { Page } from '@playwright/test'
 import { test, expect, wsEval } from './fixtures'
-import { jevAnswer, type DecideStep } from './helpers/providers'
+import { jevAnswer, mockClaudeScript, text, type DecideStep } from './helpers/providers'
 import { AGENT, ALL_SHARED, JEV, TITLES, byTarget, byTitle, cards, jevAgent, jevSetup, noteOf, review, runAgent, runOf, stageTurn, storedRuns, toolId, type AnyState, type JevWorld } from './helpers/jev'
 import { budget, spend } from './helpers/governor'
 
@@ -367,33 +367,45 @@ test.describe('Jev at the Regler’s red line (train 9)', () => {
     expect(await written(page, w)).toEqual(ALL)
   })
 
+  /** Claude stages the three updates (a small step), then a large step with a tool call the next band cannot follow on a
+   *  0,21 $ rest (≈ 0,19 $ spent) — registered after jevSetup's mock, so it answers first */
+  const twoSteps = async (page: Page, w: JevWorld) =>
+    mockClaudeScript(page.context(), [
+      stageTurn(Object.values(w.rows), [], { input: 500, output: 100 }),
+      { blocks: [{ type: 'tool_use', id: toolId('search'), name: 'search_pages', input: { query: 'Nordlicht' } }], usage: { input: 2000, output: 9000 } },
+      text('Checked the Nordlicht rows.'),
+    ])
+
   test('a run the Regler stopped at the line gets no checks: its proposals wait unchecked ("budget"), held back with Zurückhalten — never written; nothing reserved is left', async ({ page }) => {
-    // the first step spends ≈ 0,19 $ of a 0,21 $ rest: the next one does not fit — the run stops after it (status held)
-    const w = await jevSetup(page, { turn: (w) => stageTurn(Object.values(w.rows), [], { input: 2000, output: 9000 }) })
+    const w = await jevSetup(page)
+    const claude = await twoSteps(page, w)
     await loadDecisions(page)
     await jevAgent(page, { write: 'apply', hold: true, gate: null })
     await budget(page, { v: 1, day: 1 })
     await spend(page, 0.79)
     await page.evaluate(() => (window as unknown as Gov).__oneGovernor.load())
     const run = await runOf(page, await runAgent(page))
-    expect(w.claude.requests).toHaveLength(1)
+    expect(claude.requests).toHaveLength(2)
     expect(run).toMatchObject({ status: 'held', held: { kind: 'stopped', binding: 'day' } })
     expect(w.or.decisions()).toHaveLength(0)
     expect(run.jev).toMatchObject({ n: 3, checked: 0, held: 3, failed: 'budget' })
     for (const c of run.staged as AnyState[]) expect([c.status, c.jev.why, c.jev.held]).toEqual(['held', 'budget', 'unchecked'])
+    expect(labels(run)).toContain('Jev 1.13: not pre-checked — budget reached')
     expect(await written(page, w)).toEqual(NONE)
     expect(await openRes(page)).toEqual([])
   })
 
   test('control: a day that holds the same run → it goes to its end, its three checks go out, it writes', async ({ page }) => {
-    const w = await jevSetup(page, { turn: (w) => stageTurn(Object.values(w.rows), [], { input: 2000, output: 9000 }) })
+    const w = await jevSetup(page)
+    const claude = await twoSteps(page, w)
     await loadDecisions(page)
     await jevAgent(page, { write: 'apply', hold: true, gate: null })
     await budget(page, { v: 1, day: 10 })
     const run = await runOf(page, await runAgent(page))
-    expect(w.claude.requests).toHaveLength(2)
+    expect(claude.requests).toHaveLength(3)
     expect(w.or.decisions()).toHaveLength(3)
     expect(run.status).toBe('ok')
     expect(await written(page, w)).toEqual(ALL)
+    expect(await openRes(page)).toEqual([])
   })
 })

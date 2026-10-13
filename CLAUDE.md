@@ -265,7 +265,8 @@ the public APIs stable — other areas are built against them in parallel.
   `held-<day>` record per agent per day when not started — also when the gate refuses a background run's first request,
   nothing sent —, one info toast + one inbox note per agent per day, no fail
   lamp, the old state kept; `AgentRun.regler` = the line at the run's end); the person's requests ask (BrakeNote via
-  `BrakeSlot`; the terminal's halt card E · H · Mod+., nothing reserved while it waits; both take the keyboard only
+  `BrakeSlot`; decisions (class 'gate') never ask — a run with a Vorprüfer holds its checks' band from its start, see
+  Decision models; the terminal's halt card E · H · Mod+., nothing reserved while it waits; both take the keyboard only
   from nobody or from their own host — `[data-gv-home]`, a dialog, region or aside around them — and hand it back when
   they go; a refusal by the person's own line links to Settings › AI `openAISettings({ section: 'limit' })`; H only to a cheaper model of
   the same provider whose context and capabilities hold the conversation, switched through `reprepare()` +
