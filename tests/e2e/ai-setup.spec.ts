@@ -196,7 +196,8 @@ test.describe('the way into setup', () => {
    * fixture fails on it). The keys go over CDP without a round trip between them, so they all land inside that window
    * even on a busy machine. Review of 8d7c1fd.
    */
-  type Burst = string | { click: number }
+  /** a key, or a click on the nth paragraph of the page / on an element */
+  type Burst = string | { click: number | Locator }
   const WINDOW: { name: string; lines: string[]; keys: Burst[]; after: string[] }[] = [
     { name: 'a letter, then a pause', lines: ['First line.', ''], keys: ['a'], after: ['First line.', ' a'] },
     { name: 'ArrowUp', lines: ['First line.', ''], keys: ['ArrowUp'], after: ['First line.', ''] },
@@ -204,12 +205,12 @@ test.describe('the way into setup', () => {
     { name: 'a click into another paragraph', lines: ['Other paragraph here.', ''], keys: [{ click: 0 }], after: ['Other paragraph here.', ''] },
     { name: 'letters, Enter, letters', lines: ['First line.', ''], keys: ['a', 'b', 'Enter', 'c', 'd'], after: ['First line.', ' ab', 'cd'] },
   ]
-  /** Keys (and clicks on a line) sent straight after each other: CDP, no round trip in between. */
+  /** Keys (and clicks) sent straight after each other: CDP, no round trip in between. */
   async function burst(page: Page, ed: Locator, steps: Burst[]) {
     const at: { x: number; y: number }[] = []
     for (const s of steps) {
       if (typeof s === 'string') continue
-      const b = (await ed.locator('p').nth(s.click).boundingBox())!
+      const b = (await (typeof s.click === 'number' ? ed.locator('p').nth(s.click) : s.click).boundingBox())!
       at.push({ x: b.x + 8, y: b.y + b.height / 2 })
     }
     const KEYS: Record<string, { code: string; vk: number; text?: string }> = {
@@ -217,6 +218,11 @@ test.describe('the way into setup', () => {
       Enter: { code: 'Enter', vk: 13, text: '\r' },
       ArrowUp: { code: 'ArrowUp', vk: 38 },
       Backspace: { code: 'Backspace', vk: 8 },
+      '-': { code: 'Minus', vk: 189, text: '-' },
+      '>': { code: 'Period', vk: 190, text: '>' },
+      '[': { code: 'BracketLeft', vk: 219, text: '[' },
+      ']': { code: 'BracketRight', vk: 221, text: ']' },
+      '!': { code: 'Digit1', vk: 49, text: '!' },
     }
     const cdp = await page.context().newCDPSession(page)
     const sent: Promise<unknown>[] = []
@@ -234,31 +240,37 @@ test.describe('the way into setup', () => {
     await Promise.all(sent)
     await cdp.detach()
   }
+  /** A fresh session on a page of `lines`, the caret on its second line; `panelSeen()`: the menu's panel committed. */
+  async function typedWindow(page: Page, lines: string[]) {
+    await openApp(page)
+    const id = await createPage(page, { title: 'Typed window', content: doc(...lines.map((l) => para(l))) })
+    await gotoPage(page, id)
+    const ed = editorOf(page, id)
+    const texts = () => ed.locator('p').evaluateAll((ps) => ps.map((p) => p.textContent))
+    // the menu's panel goes into the page as it commits (it may close in that same commit): that is when it decides
+    await page.evaluate(() => {
+      const w = window as unknown as { __aiPanelSeen?: boolean }
+      w.__aiPanelSeen = false
+      new MutationObserver((records, obs) => {
+        for (const r of records)
+          for (const n of r.addedNodes)
+            if (n instanceof Element && (n.matches('.ai-panel') || n.querySelector('.ai-panel'))) {
+              w.__aiPanelSeen = true
+              obs.disconnect()
+              return
+            }
+      }).observe(document.body, { childList: true, subtree: true })
+    })
+    const panelSeen = () => page.evaluate(() => !!(window as unknown as { __aiPanelSeen?: boolean }).__aiPanelSeen)
+    await ed.locator('p').nth(1).click()
+    await expect(ed).toBeFocused()
+    return { ed, texts, panelSeen }
+  }
   for (const w of WINDOW) {
     test(`the AI menu without a key, the session's first Space then ${w.name} before the menu shows: the Space only where it was typed`, async ({ page, aiNet }) => {
-      await openApp(page)
-      const id = await createPage(page, { title: 'Typed window', content: doc(...w.lines.map((l) => para(l))) })
-      await gotoPage(page, id)
-      const ed = editorOf(page, id)
-      const texts = () => ed.locator('p').evaluateAll((ps) => ps.map((p) => p.textContent))
-      // the menu's panel goes into the page as it commits (it may close in that same commit): that is when it decides
-      await page.evaluate(() => {
-        const w = window as unknown as { __aiPanelSeen?: boolean }
-        w.__aiPanelSeen = false
-        new MutationObserver((records, obs) => {
-          for (const r of records)
-            for (const n of r.addedNodes)
-              if (n instanceof Element && (n.matches('.ai-panel') || n.querySelector('.ai-panel'))) {
-                w.__aiPanelSeen = true
-                obs.disconnect()
-                return
-              }
-        }).observe(document.body, { childList: true, subtree: true })
-      })
-      await ed.locator('p').nth(1).click()
-      await expect(ed).toBeFocused()
+      const { ed, texts, panelSeen } = await typedWindow(page, w.lines)
       await burst(page, ed, [' ', ...w.keys])
-      await expect.poll(() => page.evaluate(() => !!(window as unknown as { __aiPanelSeen?: boolean }).__aiPanelSeen)).toBe(true)
+      await expect.poll(panelSeen).toBe(true)
       await expect.poll(texts).toEqual(w.after)
       await expect(page.getByTestId('ai-key-card')).toHaveCount(0)
       await expect(page.getByRole('dialog')).toHaveCount(0)
@@ -269,6 +281,94 @@ test.describe('the way into setup', () => {
       expect(aiNet.count('anthropic') + aiNet.count('openrouter')).toBe(0)
     })
   }
+
+  /*
+   * The keyboard left the editor inside that window (a click into the title, ⌘K, a peek …): ProseMirror keeps its
+   * selection on the empty line, but the card never takes the keyboard from where the person went on typing, and
+   * nothing goes into the page. Letters that did follow the Space on its line keep it there. Fix review 2 of 2f9ca00.
+   */
+  test('the AI menu without a key, the session\'s first Space then a click into the page title and typing there before the menu shows: no card, the title keeps the keyboard', async ({ page, aiNet }) => {
+    const { ed, texts, panelSeen } = await typedWindow(page, ['First line.', ''])
+    const title = page.locator('#main .pv-title')
+    await burst(page, ed, [' ', { click: title }, 'h', 'i'])
+    await expect.poll(panelSeen).toBe(true)
+    await expect(page.getByTestId('ai-key-card')).toHaveCount(0)
+    await expect(title).toBeFocused()
+    // the next keys are the title's too, never the page's
+    await page.keyboard.type('xyz', { delay: 30 })
+    await expect(title).toHaveValue(/hixyz/)
+    await page.waitForTimeout(400)
+    expect(await texts()).toEqual(['First line.', ''])
+    await expect(page.getByTestId('ai-key-card')).toHaveCount(0)
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+    await expect(title).toBeFocused()
+    expect(aiNet.count('anthropic') + aiNet.count('openrouter')).toBe(0)
+  })
+
+  test('the AI menu without a key, the session\'s first Space, letters, then a click into the page title before the menu shows: the Space stays with its letters, the title keeps the keyboard', async ({ page, aiNet }) => {
+    const { ed, texts, panelSeen } = await typedWindow(page, ['First line.', ''])
+    const title = page.locator('#main .pv-title')
+    await burst(page, ed, [' ', 'a', 'b', { click: title }, 'h', 'i'])
+    await expect.poll(panelSeen).toBe(true)
+    await expect.poll(texts).toEqual(['First line.', ' ab'])
+    await expect(title).toHaveValue(/hi/)
+    await expect(page.getByTestId('ai-key-card')).toHaveCount(0)
+    await expect(title).toBeFocused()
+    await page.waitForTimeout(400)
+    expect(await texts()).toEqual(['First line.', ' ab'])
+    expect(aiNet.count('anthropic') + aiNet.count('openrouter')).toBe(0)
+  })
+
+  /*
+   * A Markdown start typed inside that window makes the line a list item, a quote or a task — lines a Space does not
+   * open the menu on: no card over it, no Space written, the typing goes on there. Fix review 2 of 2f9ca00.
+   */
+  const STARTS: { name: string; keys: string[]; line: string }[] = [
+    { name: '"- " (a bulleted list)', keys: ['-', ' '], line: 'ul li p' },
+    { name: '"> " (a quote)', keys: ['>', ' '], line: 'blockquote p' },
+    { name: '"[!] " (a task)', keys: ['[', '!', ']', ' '], line: '.workitem__body p' },
+  ]
+  for (const m of STARTS) {
+    test(`the AI menu without a key, the session's first Space then ${m.name} before the menu shows: no card over it, the typing goes on there`, async ({ page, aiNet }) => {
+      const { ed, texts, panelSeen } = await typedWindow(page, ['First line.', ''])
+      await burst(page, ed, [' ', ...m.keys])
+      await expect.poll(panelSeen).toBe(true)
+      await expect(page.getByTestId('ai-key-card')).toHaveCount(0)
+      await expect(ed).toBeFocused()
+      await page.keyboard.type('milk', { delay: 30 })
+      await expect(ed.locator(m.line).first()).toHaveText('milk')
+      await page.waitForTimeout(400)
+      expect((await texts()).filter((l) => l?.startsWith(' '))).toEqual([])
+      await expect(page.getByTestId('ai-key-card')).toHaveCount(0)
+      await expect(page.getByRole('dialog')).toHaveCount(0)
+      expect(aiNet.count('anthropic') + aiNet.count('openrouter')).toBe(0)
+    })
+  }
+
+  test('with a key, a Space on an empty line opens the prompt with the keyboard in it — the session\'s first Space too: typing goes into the prompt, never the page', async ({ page, aiNet }) => {
+    await openApp(page)
+    await withKeys(page, { claude: true })
+    const id = await createPage(page, { title: 'Typed with a key', content: doc(para('First line.'), para('')) })
+    await gotoPage(page, id)
+    const ed = editorOf(page, id)
+    const ask = page.getByPlaceholder('Ask AI to write anything…')
+    const texts = () => ed.locator('p').evaluateAll((ps) => ps.map((p) => p.textContent))
+    await ed.locator('p').nth(1).click()
+    await expect(ed).toBeFocused()
+    for (const words of ['hello there', 'and more']) {
+      await page.keyboard.press('Space')
+      await expect(ask).toBeFocused()
+      await expect(page.getByTestId('ai-key-card')).toHaveCount(0)
+      await page.keyboard.type(words, { delay: 20 })
+      await expect(ask).toHaveValue(words)
+      expect(await texts()).toEqual(['First line.', ''])
+      await page.keyboard.press('Escape')
+      await expect(ask).toHaveCount(0)
+      await expect(ed).toBeFocused()
+    }
+    expect(await texts()).toEqual(['First line.', ''])
+    expect(aiNet.count('anthropic') + aiNet.count('openrouter')).toBe(0)
+  })
 
   test('the AI menu without a key: "?" typed on the card a Space opened goes into the page and nowhere else — the help stays shut', async ({ page }) => {
     await openApp(page)

@@ -87,7 +87,7 @@ import { Kbd, isMac } from '../../ui/controls'
 import { useLang, useT } from '../../i18n'
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
-import { EDITOR_PERSON_META, editAs, endUndoStep, itemSafePoint, openContextPicker, pageContextMarks, setContextMode, startUndoStep, topBlockKeys, useContextMarks, type ContextMode } from '../../editor'
+import { EDITOR_PERSON_META, editAs, endUndoStep, itemSafePoint, openContextPicker, pageContextMarks, setContextMode, spaceOpensAI, startUndoStep, topBlockKeys, useContextMarks, type ContextMode } from '../../editor'
 import { newId } from '../../lib/ids'
 import { closeHistory } from '@tiptap/pm/history'
 import { toAIMarkdown } from '../share/markdown'
@@ -394,9 +394,10 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
    * The keys typed before the card shows are the page's (the first Space of a session waits for the menu's code, and
    * React may hold a fresh panel back a few hundred ms). Decided once, as the panel commits (a render can be that much
    * older), from where the Space was typed (`typed.at`, followed through every change since — typedNow): the caret
-   * still on that empty line → the card; letters followed the Space on that line → no card, the Space goes in where it
-   * was typed and the keyboard never leaves the page; the caret left that empty line, or the line is gone → no card and
-   * nothing written (never a Space at the start of another line).
+   * still on that empty line, the keyboard still in the editor → the card; letters followed the Space on that line → no
+   * card, the Space goes in where it was typed and the keyboard stays where it is; the caret or the keyboard left that
+   * empty line, or the line is gone or no longer one a Space opens the menu on → no card, nothing written, the keyboard
+   * untouched (never a Space at the start of another line, never the card's keys typing into the page from elsewhere).
    */
   const typedAt = useRef<TypedNow | null>(null)
   const typedWhere = () => (typedAt.current ??= typedNow(editor, typed?.at ?? null))
@@ -2701,9 +2702,11 @@ function SelectionShade({ editor, from, to }: { editor: Editor; from: number; to
 
 /**
  * Where the typing is, for the key card a typed Space opened, as the menu shows: 'card' — the caret is still on the
- * empty line the Space was typed on (`at`); 'on' — letters followed the Space on that line, wherever the caret is now
- * (the person is writing: the Space belongs at `at`, the start of that line); 'away' — the caret left that empty line,
- * or the line is gone (an arrow key, a click elsewhere, Backspace, select all …).
+ * empty line the Space was typed on (`at`) and the editor still has the keyboard; 'on' — letters followed the Space on
+ * that line, wherever the caret or the keyboard is now (the person is writing: the Space belongs at `at`, the start of
+ * that line); 'away' — the caret left that empty line, the keyboard left the editor (a click into the title, ⌘K, a
+ * peek …: ProseMirror keeps its selection), the line is gone (an arrow key, a click elsewhere, Backspace, select all …)
+ * or it is no longer a line a Space opens the menu on ("- ", "> ", "[!] " made it a list item, a quote, a task).
  */
 type TypedNow = 'card' | 'on' | 'away'
 function typedNow(editor: Editor, at: number | null): TypedNow {
@@ -2711,9 +2714,9 @@ function typedNow(editor: Editor, at: number | null): TypedNow {
   const { doc, selection } = editor.state
   if (at > doc.content.size) return 'away'
   const $at = doc.resolve(at)
-  if ($at.parent.type.name !== 'paragraph' || $at.parentOffset !== 0) return 'away'
+  if (!spaceOpensAI($at) || $at.parentOffset !== 0) return 'away'
   if ($at.parent.content.size > 0) return 'on'
-  return selection.empty && selection.from === at ? 'card' : 'away'
+  return selection.empty && selection.from === at && editor.view.hasFocus() ? 'card' : 'away'
 }
 
 /** A key typed on the key card: a character (Space included), Enter (Shift: a line break) or Backspace. */

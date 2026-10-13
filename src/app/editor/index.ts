@@ -63,6 +63,8 @@ export { startUndoStep, endUndoStep } from './collab'
  * key the AI menu writes as it shows) — the flush that carries it is the editor's own; the editor net skips it.
  */
 export { editAs, dispatchAs, NORMALISE_META as EDITOR_NORMALISE_META, PERSON_META as EDITOR_PERSON_META } from './lib/editAs'
+/* spaceOpensAI($pos): a line where a Space typed on it, empty, opens the AI menu (the Space shortcut's own test) */
+export { spaceOpensAI } from './lib/typedAt'
 export { getExtensions, markdownToDoc, docToMarkdown, docToHTML, stripPrivate, stripPrivate as stripButtonActions, docSchema, prepareCollabContent } from './convert'
 /**
  * docToFileMarkdown(doc): docToMarkdown with date / person mentions as `one:` links (`[@Oct 17](one:date/2026-10-17?r=-1d)`,
