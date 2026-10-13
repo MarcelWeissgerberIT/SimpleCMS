@@ -4,7 +4,7 @@ title: Custom agents
 section: ai
 order: 4
 keywords: custom agents, agents, schedule, recurring, automate, trigger, recipe, report, server agent, webhook, budget, tasks, waits for review, reminder, assign, MCP tools, read-only tools, state, inbox note, mirror, sync, key, upsert, only by hand, integration, Eigene Agenten, Agenten, Zeitplan, spiegeln
-related: agent, agent-trust, integrations, automations, mcp-servers, properties, mentions-dates, gmail-sync
+related: agent, agent-trust, governor, integrations, automations, mcp-servers, properties, mentions-dates, gmail-sync
 summary: Saved AI helpers for recurring work — each with a job, a trigger and limits. They run on their own and report back.
 ---
 **Agents** in the sidebar lists your custom agents. **New agent** starts from a recipe — *Daily mail triage*, *Weekly report from projects*, *Summarise new form answers*, *Check pages against your knowledge base* — or **Blank**. An active [integration](help:integrations) adds its own recipes, named by the integration, such as a mirror of another tool's list. Nothing runs until you save.
@@ -26,6 +26,8 @@ These come with an active [integration](help:integrations) that unlocks them —
 
 ## Runs
 **Run now** starts one at once. Every run is listed under **Runs** with its report, its steps and its cost; proposals wait there for **Review**, and the sidebar shows how many are waiting. **Apply** on one proposal shows the result in its own row, with **Undo** right there; **Apply all** says so in a message. Keys work on the proposal with the focus — ↵ or A apply, D discard, 1–4 discard with a reason — and every proposal you decide on its own counts towards the agent's [trust per field](help:agent-trust), shown beside the runs — except a change to a task's fields (status, due date, owners, blockers), which records no verdict yet. A message says when an agent has new proposals, finished or failed — except while its own page is open, which shows the run already.
+
+**Held by the governor.** With a [budget](help:governor) set, a scheduled or triggered run at the red line is not started: one *Held* entry a day counts how often, one note goes to the inbox, and no red lamp lights. A run that crosses the line stops after its current step — its proposals stay, its state is not saved, and the next run starts from the old one. **Run now** asks before it starts when the rest does not cover the first step (↵ allows +$1 for that run). *Held* is not *Budget*: the agent's own **Budget per run** still ends a run as an error. Each run's row shows where the day stood when it ended: *Governor today … of … · rest today …*.
 
 A run taken back with the [flight recorder](help:flight-recorder)'s **Eject** shows it in its review: proposals that went back read **Ejected · 08:05** (discarded), ones held because someone changed their place since read **Held · changed since** and stay applied; proposals still waiting are discarded (not ones you opened in Preflight). When none of the run's changes stays, its **saved state** goes back to the one from before the run — as when you discard a whole run. **Undo the eject** gives the proposals back as they were, and the saved state too while the page has not been reloaded since.
 

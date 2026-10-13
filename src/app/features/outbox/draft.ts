@@ -45,7 +45,8 @@ export interface DraftInput {
   step?: { n: number; of: number }
 }
 
-export type DraftResult = { slip: NonNullable<Extract<StageResult, { slip: unknown }>['slip']> } | { refused: StageRefusal | 'aborted' | 'ai'; detail?: string }
+/** `brake`: Claude's request was refused at the Regler's red line (nothing was sent) — the error the brake note shows */
+export type DraftResult = { slip: NonNullable<Extract<StageResult, { slip: unknown }>['slip']> } | { refused: StageRefusal | 'aborted' | 'ai'; detail?: string; brake?: AIError }
 
 const esc = (s: string) => s.replace(/<\/?(untrusted|instruction|record|page|one_memory)\b/gi, (m) => m.replace('<', '‹'))
 const attr = (s: string) => s.replace(/["<>\n]/g, ' ').slice(0, 120)
@@ -232,7 +233,7 @@ export async function draftSlip(i: DraftInput): Promise<DraftResult> {
     )
   } catch (e) {
     if (i.signal?.aborted || (e instanceof AIError && e.code === 'aborted')) return { refused: 'aborted' }
-    return { refused: 'ai', detail: (e as Error)?.message || String(e) }
+    return { refused: 'ai', detail: (e as Error)?.message || String(e), ...(e instanceof AIError && e.code === 'budget' ? { brake: e } : {}) }
   } finally {
     setDrafting(key, null)
   }

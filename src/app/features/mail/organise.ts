@@ -98,14 +98,23 @@ export function buildOrganisePrompt(mails: OrganiseMail[], o: MailOrganise, proj
   }
 }
 
+/**
+ * How an organise run goes (features/governor modes.ts): during a sync it is background work ('trigger' — at the red
+ * line it pauses, never asks), "Organise now" is the person's ('bulk'); its ledger source is the run's (`mail:<run>`).
+ */
+export interface OrganiseRun {
+  mode: 'trigger' | 'bulk'
+  source?: string
+}
+
 /** Ask Claude about a batch. Throws AIError on API failures; entries that don't parse are left out. */
-export async function organiseBatch(mails: OrganiseMail[], o: MailOrganise, projects: string[], signal: AbortSignal | undefined, dbId: string): Promise<Map<string, OrganiseAnswer>> {
+export async function organiseBatch(mails: OrganiseMail[], o: MailOrganise, projects: string[], signal: AbortSignal | undefined, dbId: string, run: OrganiseRun = { mode: 'bulk' }): Promise<Map<string, OrganiseAnswer>> {
   // the route first: mail is needed — a route that may not receive it is refused before anything is built or sent
   const sources: SourceRef[] = [{ db: dbId }]
   const pre = precheck({ purpose: 'bulk.mail', sources })
   const { system, prompt, schema } = buildOrganisePrompt(mails, o, projects)
   // no MCP server ever joins this request (its source: the Mails database)
-  const raw = await completeStructured({ purpose: 'bulk.mail', sources, system, prompt, schema, maxTokens: 4096, signal, mcp: false, ...routed(pre), onRun: (r) => noteMailAI(aiRunMeta(r)) })
+  const raw = await completeStructured({ purpose: 'bulk.mail', sources, system, prompt, schema, maxTokens: 4096, signal, mcp: false, ...routed(pre), run, onRun: (r) => noteMailAI(aiRunMeta(r)) })
   const out = new Map<string, OrganiseAnswer>()
   let parsed: unknown
   try {

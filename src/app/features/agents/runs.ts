@@ -17,6 +17,7 @@ import type { AgentRun } from './types'
 import { wsKey } from './locks'
 import { dropBooks } from './trust/book'
 import { heldId, heldNotStarted, mergeRun, pruneRuns, type HeldStart } from './held'
+import { dayOf, noteHeld } from '../governor'
 
 export const MAX_RUNS = 100
 
@@ -76,6 +77,9 @@ const isRun = (r: unknown): r is AgentRun => !!r && typeof r === 'object' && typ
 
 function setRuns(agentId: ID, runs: AgentRun[]) {
   useAgentRuns.setState((s) => ({ byAgent: { ...s.byAgent, [agentId]: runs } }))
+  // the Regler's VERBRAUCH lamp: an agent held today counts in every tab that reads its runs (not only the leader's)
+  const today = dayOf(Date.now())
+  if (runs.some((r) => r.status === 'held' && dayOf(r.endedAt ?? r.startedAt) === today)) noteHeld(agentId)
 }
 
 /** Runs per agent queue their writes: one read-modify-write after another. */
@@ -137,6 +141,14 @@ function writeRuns(agentId: ID, runId: string, fn: (list: AgentRun[]) => AgentRu
     })
   queues.set(agentId, job)
   return job
+}
+
+/**
+ * Remove one run — a background start whose first request the gate refused at the red line (nothing was sent): the day's
+ * held record counts it instead (exec.ts), never a run of its own.
+ */
+export function dropRun(agentId: ID, runId: string): Promise<void> {
+  return writeRuns(agentId, runId, (list) => list.filter((r) => r.id !== runId))
 }
 
 /** The agent's not-started record of a local day in this tab (Regler: one per agent and day — held.ts), if any. */

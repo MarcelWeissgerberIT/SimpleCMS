@@ -51,12 +51,13 @@ src/app/features/ai/routing/**       route chip / picker, CatalogPicker (lazy), 
 src/app/features/ai/decide/**        decision models (Jev via OpenRouter, slice SJ): questions + state, the run's Vorprüfung
                                      (checkRun.ts), "Belegt?" (verify.ts), the compare core (suggest.ts), calibration.ts; ui/ =
                                      the card line, section 06 "Check", the setup / Settings rows (public API decide/index.ts)
-src/app/features/governor/**         Regler P1: the ledger (IndexedDB one-ledger), reservations, estimate bands (public API
-                                     governor/index.ts); G1 phase A (not wired to the gate yet): totals + the device line
-                                     (IndexedDB one-governor), the book across tabs, the pure brake (limits / steps / brake),
-                                     held agent runs, the VERBRAUCH reading (lamp.ts), UI pieces (ui/**), strings (messages.ts);
-                                     src/shared/ai/** = the pure multi-provider contracts (app + server; governor.ts,
-                                     generations.ts)
+src/app/features/governor/**         the Regler (Governor, G1): the ledger (IndexedDB one-ledger), reservations, estimate
+                                     bands (public API governor/index.ts); totals + the device line (IndexedDB one-governor),
+                                     the book across tabs, the brake (install.ts registers it at the gate; limits / brake /
+                                     mcpBand eager, loops / halt / steps lazy), held agent runs, paused work, the status cell,
+                                     VERBRAUCH (lamp.ts), #/regler (ui/ReglerPage, lazy), Workspace › AI § 06 (BudgetSlot) and
+                                     Settings › AI's own line (DeviceBrake), strings (messages.ts); src/shared/ai/** = the
+                                     pure multi-provider contracts (app + server; governor.ts, generations.ts)
 src/app/features/outbox/**           the Outbox: slips for another tool's send routes, drafted without tools, sent by hand
                                      (dock, #/outbox, receipts; public API outbox/index.ts; docs/OUTBOX.md)
 src/app/features/preflight/**        Preflight ("Vorflug-Check"): the lamp panel on Start, MASTER CAUTION, the keyboard queue
@@ -70,7 +71,7 @@ src/app/features/workitems/**        tasks outside the editor: the workspace ind
                                      views, writeItems (origin 'items'), the unblock toast, members + reminder audience, the
                                      people / link pickers and cards, settle gate, facts, holds, query (public API
                                      workitems/index.ts, via features/index.ts)
-src/app/help/**                      help centre: panel (?, status bar, ⌘K, workspace menu), 78 articles EN+DE twins
+src/app/help/**                      help centre: panel (?, status bar, ⌘K, workspace menu), 80 articles EN+DE twins
                                      (help/articles/{en,de}/<id>.md, `help:<id>` links), Ask (Claude over the articles);
                                      link UI to an article with `<HelpLink id="…" />` (public API: help/index.ts)
 src/help-site/**                     build-time public /help pages (prerendered from the same articles, hreflang)
@@ -145,9 +146,9 @@ the public APIs stable — other areas are built against them in parallel.
   throws. `prepare()` (core/gate.ts) is the only way to a request: policy generation (`AI_POLICY_GEN`; rules stamped with
   a higher `gen` → 'reload', nothing sent; `stampGen` / `stampDeviceGen` (src/shared/ai/governor.ts) are the only stamp of
   `ai.gen` / `settings.ai.gen`), a key typed into the request → 'key_in_text', AUS hook, classes, the legacy
-  route (Claude + this device's model, an agent's own model), the brake hook `beforeSend(purpose, route, band)` + an
-  in-tab reservation of the band's upper end (`PrepareInput.size` = prompt chars + answer budget; features/governor),
-  settled by `settle()`. Paths that load something first (a picture, a file, the terminal's MCP setup, workspace
+  route (Claude + this device's model, an agent's own model), the brake `Brake { money, peek, round, start }`
+  (registered only by features/governor/install.ts via `registerBeforeSend`) + an in-tab reservation of the band's upper
+  end (`PrepareInput.size` = prompt chars + answer budget; features/governor), settled by `settle()`. Paths that load something first (a picture, a file, the terminal's MCP setup, workspace
   retrieval, the screenshot describe of a design import, an agent's MCP tokens, demo answers) call `precheck()` before
   loading — the request prepares again. Request branches ask the
   model's caps (`thinks(caps)`, `caps.pdf.maxPages`), never a model id; prices come only from src/shared/ai/prices.ts
@@ -162,8 +163,8 @@ the public APIs stable — other areas are built against them in parallel.
   A refusal fallback (`usage.iterations` `fallback_message`, else the served model) is a 'refusal-fallback' step and
   each hop is priced at its own model (a dated snapshot id is the same model); Claude's `thinking_tokens` are kept as
   `reasoning`; demo is never metered.
-  Ledger sources are fixed ids (`ai:<run>:<what>` via `tapSignal`, `terminal:<conv>` — the task rounds and its memory
-  proposal request, never counted into another conversation after `/new` —, `agent:<id>:<run>`, `autofill:<db>:<prop>`).
+  Ledger sources are fixed ids (`ai:<run>:<what>` via `tapSignal`, `terminal:<conv>:<task>` — the task's rounds and its
+  memory proposal request, never counted into another conversation after `/new`; a Continue keeps its task's —, `agent:<id>:<run>`, `autofill:<db>:<prop>`).
   Receipt surfaces: IN = the input outside the cache (writes / reads beside it), "≈" only for an estimate, token
   figures in the UI's decimal sign (`fmtTokens(n, lang)`). Receipts: AI run cards (`AIRun.route / served / usage / usd / costSource / steps`,
   features/ai/Receipt.tsx), terminal `/cost` per model (`AgentUsage.byModel`), agent runs (`AgentRunUsage.byModel`;
@@ -177,11 +178,10 @@ the public APIs stable — other areas are built against them in parallel.
   editor's section 06 (decision models below) through `upsertAgent` — team: meta map `agents` like every agent field (not
   the workspace-ai guard), kept by `sanitizeAgentAI`; the team server skips an agent that has one or one it cannot read
   (`decisionChecks` ≠ null → `VORPRUEFER_SKIP`). `Workspace.governor` (the Regler, src/shared/ai/governor.ts
-  `WorkspaceGovernor | Unreadable`; G0) is kept by every reader through `sanitizeGovernor` (the same value keeps its
-  reference — `sameGovernor(…, { meta: true })`; assign `undefined`, never `delete`) and written by nobody yet: team meta
-  map `workspace` key `governor` (server guard workspace-governor.ts, `supports` ∋ 'governor'), read by the binding only;
-  full backups carry it (never the marker `isGovernorMarker`), page backups never, a restore keeps this workspace's;
-  features/governor (totals, brake, held runs, UI pieces) is not wired to the gate yet. Surfaces ask `useAIStatus(purpose)` and show `<AINeedsSetup>` up
+  `WorkspaceGovernor | Unreadable`) is kept by every reader through `sanitizeGovernor` (the same value keeps its
+  reference — `sameGovernor(…, { meta: true })`; assign `undefined`, never `delete`) and written only with
+  `setGovernor()` (see Governor below); full backups carry it (never the marker `isGovernorMarker`), page backups never, a
+  restore keeps this workspace's. Surfaces ask `useAIStatus(purpose)` and show `<AINeedsSetup>` up
   front only when `!offersAI(status)` (no key for that kind of work: 'no_key' / 'route'); newer rules, the off switch,
   a data rule, a capability or a removed model come back from the gate as the request's error with its fix keys
   (`FixKeys`: Check key · Choose models · Change rule → the assistant at that step; MCP fixes → `openAISettings({
@@ -219,6 +219,50 @@ the public APIs stable — other areas are built against them in parallel.
   its reason (`VORPRUEFER_SKIP`). Thresholds 0,70 / 0,90 are start values ("Startwerte") until the owner's calibration
   (`node scripts/jev-calibrate.mjs --real`, OPENROUTER_API_KEY in the environment; `--check` sends nothing). `typesafe/`
   slugs only in src/shared/ai/jev.ts.
+- Governor / Regler (features/governor, public API index.ts; spec killer/6-governor; help `governor`): `Workspace.governor`
+  (shared/ai/governor.ts WorkspaceGovernor: v, autonomy, moved, ceiling, day, month, savers, worker — G1 writes day /
+  month only; team: meta map `workspace` key `governor`, owners / admins — server guard collab/workspace-governor.ts,
+  written by the app only when `/api/config` `supports ∋ 'governor'`) — write only with `setGovernor()` (UI: Workspace ›
+  AI § 06, `BudgetSlot`; `governorAllowed()` / `governorRefusal()`); every reader sanitizes (unknown keys kept, `v` > 1
+  unreadable and never overwritten). The workspace budget is measured per device; the person's own line is device-wide:
+  localStorage `one.governor.device` (`writeDeviceLimit` — the line + this workspace's device stamp; Settings › AI
+  `DeviceBrake`; never synced / backed up), against every workspace of this browser (`one.governor.scopes` — noted on a
+  scope's first meter of the day whether a line is set or not, `totals.ts noteMetered`; rebuilt from the ledger's keys
+  when the line appears or moves; a line written in this tab signals `DEVICE_EVENT` — listen with `onDeviceLine()`); the
+  lower line applies. ONE generation stamp: `stampGen` / `stampDeviceGen` run inside every store update that changes `ai`,
+  `governor` or the device line (setters, load, replaceAll, cloudPatch, restore, upload) — older tabs refuse AI with
+  'reload' while a limit they cannot enforce is stored (`AI_POLICY_GEN = GEN.budget`; generations named in
+  shared/ai/generations.ts; DEV / ?e2e: an `ai.gen` below the governor's generation console.errors). The meter is the S1
+  ledger (`one-ledger`); derived data in IndexedDB `one-governor` (`<scope>|day|<d>` closed days, immutable once
+  computed), localStorage `one.governor.today:<scope>` (day + month cache) and `one.governor.paused:<scope>` (autofill
+  rows paused at the line) — never synced / exported / backed up, wiped with the device copy and the local reset;
+  nothing is read before first paint and nothing without a line (the status cell and VERBRAUCH show only with a budget;
+  #/regler reads the day when it opens). Reservations are gossiped on BroadcastChannel `one-ledger-res` (never on
+  `one-ledger`; a starting tab says `hello`, every tab answers with its list at once); ledger pings carry deltas. An MCP
+  request's band counts every request the call may send (`PrepareInput.mcp.rounds` = 1 + its resumes; structured ones
+  with "All AI calls" servers too); a loop's size counts pictures / PDFs by pixels / pages (`messagesChars`,
+  ai/core/sizes.ts), never their base64. The brake: `money` only in prepare() (identity · cap — text one-shots without
+  MCP may get `Prepared.maxTokens`, structured or MCP ones never — · refuse with the brake fix: E = `allowOnce`, B = the
+  cheaper route as the person's pick, carried into the caller's retry by `armRetry`), `peek` in precheck, `round` =
+  `beforeRound()` before every further loop request (tool_use, pause_turn, the eager retry; agent/run.ts), `start` =
+  `startCheck()` before a run; the first loop request is braked on FIRST_STEP_OUT while the wire keeps its max_tokens;
+  run modes per purpose in features/governor/modes.ts (caller-mode purposes pass `run.mode`); `prepare()` requires a
+  size. Answer budgets on the wire and in estimates come only from shared/ai/wire/maxTokens.ts `wireMaxTokens()`. The
+  loop verdicts are lazy (loops.ts / halt.ts / steps.ts — no eager module imports them statically; governor-core guards
+  it). The owner's decisions (§ 20) each have one switch: `DEVICE_LINE_SPANS_BROWSER` (device.ts), `AGENTS_WAIT_MID_RUN`
+  (false, halt.ts — with `H_ACROSS_THINKING`, false until the owner's real-key check), `LIMITS_RELOAD_OLDER_TABS`
+  (shared/ai/governor.ts). At the line background work stops or pauses and NEVER waits for a key; agents never wait
+  mid-run — a manual run asks before it starts (`runNow()`, wherever pressed), a stop is status `held` (one
+  `held-<day>` record per agent per day when not started — also when the gate refuses a background run's first request,
+  nothing sent —, one info toast + one inbox note per agent per day, no fail
+  lamp, the old state kept; `AgentRun.regler` = the line at the run's end); the person's requests ask (BrakeNote via
+  `BrakeSlot`; the terminal's halt card E · H · Mod+., nothing reserved while it waits; both take the keyboard only
+  from nobody or from their own host — `[data-gv-home]`, a dialog, region or aside around them — and hand it back when
+  they go; a refusal by the person's own line links to Settings › AI `openAISettings({ section: 'limit' })`; H only to a cheaper model of
+  the same provider whose context and capabilities hold the conversation, switched through `reprepare()` +
+  `paramsFor()` in place). `AIError` 'budget' never falls back. No price + any limit = refused. Every budget UI says
+  "pre-brake in One" and names the hard limit per provider from `PROVIDERS[p].hardLimit` (ui/hard.ts `useHardLines`).
+  One entry: `openRegler()` (#/regler); budgets: `openBudgets()`.
 - Markdown files One reads back (Markdown export, folder / GitHub sync) write date / person mentions as
   `[@label](one:date/<id>?r=<code>)` / `[@label](one:person/<id>)` (features/io/import/mentions.ts); share / site /
   HTML exports never do.

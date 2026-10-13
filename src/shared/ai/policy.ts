@@ -20,10 +20,11 @@ export const FEATURE_CLASSES: readonly FeatureClass[] = ['write', 'ask', 'worksp
 /**
  * This build's AI policy generation (generations.ts names each entry; this is N only in a build holding every entry
  * numbered ≤ N): 1 = no rule limits Claude; 2 = GEN.claudeLimits, data rules that limit Claude (a workspace allow list or
- * forbid for Claude, a device narrow) are enforced at every point a request is built (S2). Restricted pages get a GEN
- * entry of their own, numbered when they merge — never a number promised here.
+ * forbid for Claude, a device narrow) are enforced at every point a request is built (S2); 3 = GEN.budget, a day / month
+ * budget of the workspace or this browser is enforced by the Regler's brake (features/governor/install.ts, G1). Restricted
+ * pages get a GEN entry of their own, numbered when they merge — never a number promised here.
  */
-export const AI_POLICY_GEN = 2
+export const AI_POLICY_GEN: number = GEN.budget
 
 export const MAX_RESTRICTED = 200
 export const MAX_SHORTLIST = 24

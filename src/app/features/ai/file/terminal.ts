@@ -10,6 +10,7 @@ import { newId } from '../../../lib/ids'
 import type { ID } from '../../../store/types'
 import type { TermRef } from '../agent/types'
 import { AIError } from '../client'
+import { notePdfPages } from '../core/meter'
 import { clipText, fileData, FILE_READ_MAX, loadPdfForClaude } from './load'
 import { fileText } from './convert'
 import { PPTX_MAX_BYTES } from '../../io/import/pptx'
@@ -54,7 +55,10 @@ async function documentOf(ref: NonNullable<TermRef['file']>, signal: AbortSignal
   const kind = fileKind(ref.name)
   if (kind === 'pdf') {
     const pdf = await loadPdfForClaude(ref.src, maxPdfPages(undefined, 'terminal.task'), signal)
-    return { type: 'document', title: ref.name, source: { type: 'base64', media_type: 'application/pdf', data: pdf.data } }
+    const block: BetaContentBlockParam = { type: 'document', title: ref.name, source: { type: 'base64', media_type: 'application/pdf', data: pdf.data } }
+    // the Regler sizes the conversation by its pages, never by the base64 (core/meter.ts messagesChars)
+    notePdfPages(block, pdf.pages)
+    return block
   }
   if (!kind) throw new AIError('bad_request', 'unknown file type')
   const { bytes } = await fileData(ref.src, kind === 'pptx' ? PPTX_MAX_BYTES : FILE_READ_MAX, signal)

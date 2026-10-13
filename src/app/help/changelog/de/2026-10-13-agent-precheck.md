@@ -1,7 +1,7 @@
 ---
 id: 2026-10-13-agent-precheck
 date: 2026-10-13
-order: 1
+order: 2
 title: Jev prüft die Vorschläge deiner Agenten vor
 summary: Eine zweite Meinung zu jeder Änderung, die ein Agent vorschlägt — vier Fragen, eine Zeile auf jeder Karte, und Vorschläge mit Bedenken hält One für dich zurück.
 image: assets/shots/changelog/agent-precheck.webp

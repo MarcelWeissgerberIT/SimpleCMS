@@ -8,6 +8,11 @@
  * Changes applied from other tabs are ignored (that tab runs its own watcher), and so are bulk
  * changes (imports, restores, bulk edits), which would otherwise fan out into dozens of paid calls.
  * Results are written directly; failures show on the cell.
+ * At the Regler's red line (features/governor) a fill is refused before anything is sent: that row and every row still
+ * queued are paused — persisted with the change that caused them, so a reload keeps them — and the watch waits. They
+ * are filled again on a new day, when a line moves (a raised budget) or with E in the panel (+1 $ for the watch's
+ * fills of that property, today); a row whose inputs no longer differ from its last fill is dropped then. Resumed fills
+ * are written as the autofill with the stored cause, never as the person.
  */
 import type { Database, ID, PropertyDef } from '../../store/types'
 import { pageChanges, useWorkspace } from '../../store/store'
@@ -17,7 +22,7 @@ import { isEjectWriter } from '../../features/recorder/settled'
 import { autofillOf, configIssue } from './config'
 import { rowHash } from './context'
 import { isDbReadOnly } from '../readonly'
-import { cellKey, fillRow, hasKey, jobKey, recordFills, setCells, useAutofill, writeProposal } from './store'
+import { cellKey, fillRow, hasKey, jobKey, loadFeatures, recordFills, setCells, useAutofill, writeProposal } from './store'
 
 const QUIET_MS = 4000
 const BULK = 25
@@ -41,6 +46,8 @@ function autoDatabases(databases: Record<ID, Database>): Set<ID> {
 export function startAutofillWatch(): void {
   if (started) return
   started = true
+  // rows paused at the red line go again when a line moves or the day rolls (never at start: the day is not read yet)
+  void loadFeatures().then((api) => api.onLineChange(() => resumeAutofill()), () => {})
   useWorkspace.subscribe((s, prev) => {
     if (s.pages === prev.pages || isApplyingRemote()) return
     // a source an eject put back is not filled again (it would spend tokens and write over the reverted value)
@@ -112,10 +119,18 @@ async function run(k: string, { dbId, propId, rowId }: { dbId: ID; propId: ID; r
   inflight.add(k)
   setCells({ [k]: { state: 'running' } })
   try {
-    const p = await fillRow(dbId, propId, rowId, new AbortController().signal)
+    // the watch: background work ('trigger' — at the red line it pauses, never asks); its fills of a property today are
+    // one job (E in the panel allows them, features/governor watchSource)
+    const api = await loadFeatures()
+    const src = api.watchSource(dbId, propId)
+    const p = await fillRow(dbId, propId, rowId, new AbortController().signal, { mode: 'trigger', job: src.slice(src.lastIndexOf(':') + 1) })
     const prop = useWorkspace.getState().databases[dbId]?.properties.find((x) => x.id === propId)
     if (!p || !prop || !isAuto(prop)) {
       setCells({ [k]: null })
+      return
+    }
+    if (p.brake) {
+      pauseQueue(api, { dbId, propId, rowId })
       return
     }
     if (p.status === 'error') {
@@ -131,4 +146,35 @@ async function run(k: string, { dbId, propId, rowId }: { dbId: ID; propId: ID; r
     inflight.delete(k)
     pump()
   }
+}
+
+/* ------------------------------------------------------------------ */
+/* The Regler's red line: paused rows                                   */
+/* ------------------------------------------------------------------ */
+
+type Features = Awaited<ReturnType<typeof loadFeatures>>
+
+/** A fill was refused at the line: it and every queued row wait (persisted with their causes); nothing more is sent. */
+function pauseQueue(api: Features, first: { dbId: ID; propId: ID; rowId: ID }) {
+  const rows = [first, ...queue.values()]
+  queue.clear()
+  api.pauseRows(rows.map((r) => ({ db: r.dbId, prop: r.propId, row: r.rowId, cause: causes.get(r.rowId) ?? null })))
+  setCells(Object.fromEntries(rows.map((r) => [cellKey(r.propId, r.rowId), null])))
+  useAutofill.setState((s) => ({ paused: s.paused + 1 }))
+}
+
+/**
+ * Fill the paused rows again (all, a database, a property): each is checked as a fresh change (a row whose inputs no
+ * longer differ from its last fill is dropped) and written with the cause stored with it. `allow`: E in the panel —
+ * +1 $ for the watch's fills of that property, today.
+ */
+export function resumeAutofill(match: { db?: ID; prop?: ID } = {}, allow = false): void {
+  void loadFeatures().then((api) => {
+    if (allow && match.db && match.prop) api.allowTask(api.watchSource(match.db, match.prop), api.ALLOW_USD)
+    const rows = api.takeRows(match)
+    if (!rows.length) return
+    for (const r of rows) causes.set(r.row, (r.cause as WriterKey | null) ?? 'unknown')
+    for (const r of rows) check(r.db, r.row)
+    useAutofill.setState((s) => ({ paused: s.paused + 1 }))
+  }, () => {})
 }

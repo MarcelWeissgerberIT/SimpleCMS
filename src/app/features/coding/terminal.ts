@@ -1107,9 +1107,10 @@ export function codingRoleOf(dbId: ID, propId: ID): CodingRole | 'title' | null 
   return null
 }
 
-// e2e seam (dev, or ?e2e): what Preflight's coding cards call (taskVersionView → confirmTaskVersion, actionTook)
+// e2e seam (dev, or ?e2e): what Preflight's coding cards call (taskVersionView → confirmTaskVersion, actionTook); a
+// worker log line as the panel writes it (lineText: its cost in the UI's money, the Regler's note)
 if (typeof window !== 'undefined' && (import.meta.env.DEV || new URLSearchParams(window.location.search).has('e2e'))) {
-  void import('./tasks').then((m) => {
-    ;(window as unknown as { __oneCoding?: unknown }).__oneCoding = { taskVersionView, confirmTaskVersion: m.confirmTaskVersion, actionTook, planTaskAction, applyTaskAction, taskNeedsConfirm }
+  void Promise.all([import('./tasks'), import('./lines')]).then(([m, l]) => {
+    ;(window as unknown as { __oneCoding?: unknown }).__oneCoding = { taskVersionView, confirmTaskVersion: m.confirmTaskVersion, actionTook, planTaskAction, applyTaskAction, taskNeedsConfirm, lineText: (line: LogLine) => l.lineText(t, line) }
   })
 }

@@ -1,8 +1,9 @@
 /**
  * Regler G0 in a team workspace (against the real server): the governor lives in the meta document's `workspace` map,
- * key `governor` (owners / admins only — server/src/collab/workspace-governor.ts). This build READS it (binding.ts: the
- * remote read and readAll at boot, sanitized) and never writes it: neither the owner's tab nor a member's sends a value,
- * whatever their store holds. A switch to another workspace takes that workspace's (none), a switch back reads it again.
+ * key `governor` (owners / admins only — server/src/collab/workspace-governor.ts). Every tab READS it (binding.ts: the
+ * remote read and readAll at boot, sanitized) and no other edit sends it back: neither the owner's tab nor a member's
+ * writes the key while they edit something else. (Writes through setGovernor — B1 — are tests/e2e-cloud/governor-team.)
+ * A switch to another workspace takes that workspace's (none), a switch back reads it again.
  * The owner's value is written by a collab client in Node with the owner's session (what a later build would write).
  * The server guard itself is covered by server/test/workspace-governor.test.ts. No AI host is reached; values are fictional.
  */
@@ -13,7 +14,6 @@ import { test, expect, email, signIn, newPerson, openApp, waitOnline, waitForApp
 import { DOC_SCHEMA_VERSION } from '../../src/app/store/generations'
 
 type AnyState = Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
-type Hook = { __one: { workspace: { setState: (x: object) => void } } }
 
 /** A collab client in Node with this page's session. */
 async function rawClient(page: Page, name: string) {
@@ -44,7 +44,6 @@ const VALUE = { v: 1, autonomy: 'propose', day: 6, month: 120 }
 const NEXT = { v: 1, day: 8, month: 150 }
 
 const govOf = (p: Page) => wsEval(p, (s) => (s.governor ? JSON.parse(JSON.stringify(s.governor)) : null) as AnyState | null)
-const setGov = (p: Page, v: object) => p.evaluate((g) => (window as unknown as Hook).__one.workspace.setState({ governor: g }), v)
 
 /** Reload into another workspace with the app's own switch (cloud/index.ts switchWorkspace). */
 async function switchTo(p: Page, ref: { kind: 'local' | 'cloud'; id: string }) {
@@ -53,7 +52,7 @@ async function switchTo(p: Page, ref: { kind: 'local' | 'cloud'; id: string }) {
   await expect.poll(() => cloudEval(p, (c) => `${c.active.kind}:${c.active.id}`)).toBe(`${ref.kind}:${ref.id}`)
 }
 
-test('a member’s tab reads the owner’s governor from the meta map and never writes it; a switch takes the other workspace’s', async ({ page, context }) => {
+test('a member’s tab reads the owner’s governor from the meta map; other edits never write it; a switch takes the other workspace’s', async ({ page, context }) => {
   await signIn(page, email('gia'))
   const wsId = await createWorkspace(page, 'Regler Team')
   const member = await newPerson(context)
@@ -84,12 +83,9 @@ test('a member’s tab reads the owner’s governor from the meta map and never 
     if (e.keysChanged.has('governor')) seen.push(wsMap.get('governor') ?? null)
   })
 
-  // the tabs edit the workspace and hold other values in their stores — nothing is sent: not by the member (the server
-  // would put it back: two changes), not by the owner (who may write it: one change)
+  // the tabs edit the workspace — the governor is not sent along: not by the member, not by the owner (who may write it)
   await wsEval(member, (s) => s.createPage({ title: 'Harbour notes', parentId: null }))
-  await setGov(member, { v: 1, day: 9000 })
   await wsEval(page, (s) => s.createPage({ title: 'Budget review', parentId: null }))
-  await setGov(page, { v: 1, day: 1, month: 2 })
   // (the other edits did go out — the document is live)
   const titles = () => [...raw.doc.getMap('pages').values()].map((p) => (p as Y.Map<unknown>).get?.('title'))
   await expect.poll(titles).toEqual(expect.arrayContaining(['Harbour notes', 'Budget review']))

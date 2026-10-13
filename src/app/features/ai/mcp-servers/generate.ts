@@ -9,7 +9,7 @@ import type { BetaContentBlock, MessageCreateParamsNonStreaming } from '@anthrop
 import { useWorkspace } from '../../../store/store'
 import type { McpServerConfig } from '../../../store/types'
 import { AIError, claudeClient, metered, thinks, toAIError, type SDKModule } from '../client'
-import { prepare, settle, type Prepared } from '../core/gate'
+import { capped, prepare, settle, type Prepared } from '../core/gate'
 import { meterCall, type MeterCall } from '../core/meter'
 import { MCP_BETA, attachMcp, clearRefused } from './config'
 
@@ -63,7 +63,8 @@ export function parseInspect(text: string): InspectResult {
 /** Run one check against `server`. Throws AIError ('mcp' when the server could not be used). */
 export async function inspectServer(server: McpServerConfig, mode: 'test' | 'guide', signal?: AbortSignal): Promise<InspectResult> {
   // the gate: a check sends no page — only the server's tool definitions reach Claude
-  const prepared = prepare({ purpose: 'mcp-setup.inspect', sources: [], size: { promptChars: SYSTEM(server.name).length + 400, maxTokens: mode === 'guide' ? 4000 : 1500 } })
+  // one server joins (the brake counts its rounds and never caps it)
+  const prepared = prepare({ purpose: 'mcp-setup.inspect', sources: [], size: { promptChars: SYSTEM(server.name).length + 400, maxTokens: mode === 'guide' ? 4000 : 1500 }, mcp: { servers: 1 } })
   try {
     return await inspectOnce(server, mode, signal, prepared, meterCall(prepared, { signal }))
   } finally {
@@ -85,7 +86,7 @@ async function inspectOnce(server: McpServerConfig, mode: 'test' | 'guide', sign
     const opus = thinks(prepared.caps)
     const params: MessageCreateParamsNonStreaming = {
       model,
-      max_tokens: mode === 'guide' ? 4000 : 1500,
+      max_tokens: capped(mode === 'guide' ? 4000 : 1500, prepared),
       system: SYSTEM(server.name),
       messages: [{ role: 'user', content: task(mode, lang) }],
       mcp_servers: mcp.servers,

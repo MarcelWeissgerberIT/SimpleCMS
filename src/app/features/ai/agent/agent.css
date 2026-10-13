@@ -194,6 +194,61 @@
   color: var(--signal-ink);
 }
 
+/* the Regler paused the task between two steps: its lamp in the head (the halt card waits in the log) */
+.term-head__regler {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  height: 20px;
+  margin-left: 8px;
+  padding: 0 7px;
+  border-radius: var(--radius-1);
+  background: var(--signal);
+  color: var(--on-signal);
+  font-size: var(--text-2xs);
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.term-head__regler .term-head__regler-led {
+  background: currentColor;
+}
+
+.term-head__regler + .term-head__status {
+  color: var(--ink-2);
+}
+
+/* the halt card under its task (features/governor HaltCard): the panel's tokens make it an ink plate */
+.term-halt {
+  margin: 10px 0 2px 18px;
+}
+
+.term-halt .gv-halt:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+/* the dock is short: a smaller dial beside the sentence and the keys (the phone layout stacks them, governor.css) */
+@media (min-width: 761px) {
+  .term-halt .gv-halt__body {
+    grid-template-columns: calc(150px * var(--text-scale)) minmax(0, 1fr);
+    gap: 16px;
+    padding: 8px 12px 10px 8px;
+  }
+  .term-halt .gv-halt__dial {
+    width: calc(150px * var(--text-scale));
+  }
+  .term-halt .gv-halt__right {
+    gap: 8px;
+  }
+}
+
+.term-prompt__input[data-halted] {
+  cursor: default;
+}
+
 .term-key {
   display: inline-grid;
   place-items: center;

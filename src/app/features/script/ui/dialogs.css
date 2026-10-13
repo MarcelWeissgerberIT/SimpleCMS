@@ -152,3 +152,29 @@ p .sc-plan__via {
   color: var(--signal-ink);
   font-size: calc(10.5px * var(--text-scale));
 }
+
+/* the Regler's band for a run's AI calls (features/governor): a quiet line, the red line said only when crossed */
+.sc-band {
+  margin: 10px 0 0;
+  padding: 8px 10px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-1);
+}
+.sc-band[data-over] {
+  border-left: 2px solid var(--signal);
+}
+.sc-band__line {
+  margin: 0;
+  color: var(--ink-2);
+}
+.sc-band__over {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0 0;
+  font-size: var(--text-sm);
+}
+.sc-band .sc-band__key {
+  gap: 6px;
+}

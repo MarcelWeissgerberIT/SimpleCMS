@@ -598,6 +598,7 @@ function OrganisePanel() {
   const organiseStatus = useAIStatus('bulk.mail')
   const hasKey = offersAI(organiseStatus)
   const unorganised = useMail((s) => s.unorganised)
+  const paused = useMail((s) => s.paused)
   const phase = useMail((s) => s.phase)
   useWorkspace((s) => s.settings.aiModel)
   const pages = useWorkspace((s) => s.pages)
@@ -652,6 +653,11 @@ function OrganisePanel() {
               </div>
             </MlField>
           </div>
+          {paused && unorganised > 0 && (
+            <p className="ml-note ml-note--regler" role="status" data-testid="mail-paused">
+              {t('features.governor.mail.paused')}
+            </p>
+          )}
           {unorganised > 0 && (
             <div className="ml-actions">
               <button type="button" className="btn" disabled={phase !== 'idle'} onClick={() => void organiseEarlier()}>

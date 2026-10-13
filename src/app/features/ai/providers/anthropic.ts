@@ -13,8 +13,9 @@ import { getAIKey } from '../../../store/secrets'
 import type { Caps, LedgerEntry, Route } from '@/shared/ai/types'
 import { DEFAULT_CLAUDE_MODEL } from '@/shared/ai/models'
 import { legacyRule } from '@/shared/ai/route'
+import { thinksInside } from '@/shared/ai/wire/maxTokens'
 import { AIError, type AIErrorCode } from '../core/errors'
-import type { Prepared } from '../core/gate'
+import { capped, type Prepared } from '../core/gate'
 import { claudeCut, claudeResponse, deltaChars, type MeterCall } from '../core/meter'
 import { MCP_BETA, attachMcp, currentSetup, mcpNames, noteRefused, refusedNames, type Codewords, type McpAttachment } from '../mcp-servers/config'
 import { foldMcpBlock, skippedCall, type McpCall } from '../mcp-servers/activity'
@@ -26,7 +27,7 @@ import type { AIModelId, StreamOptions, StructuredOptions, StructuredUsage } fro
  * What a Claude request may ask for, from the model's capabilities (never its id): Opus / Sonnet 5.5 think adaptively
  * with an effort and have Anthropic's refusal fallback (the beta request); Haiku 4.5 has neither (the plain request).
  */
-export const thinks = (caps: Caps | null | undefined): boolean => !!caps && caps.effort !== false && caps.refusalFallback
+export const thinks = (caps: Caps | null | undefined): boolean => thinksInside(caps)
 
 /** The route a prepared request goes to (null: demo — no request is made). */
 function claudeRoute(prepared: Prepared): Route {
@@ -219,8 +220,8 @@ const retryWithout = (err: AIError, forced: string[] | undefined, sawMcp: boolea
 /** An MCP call or its result in a response. */
 const isMcpBlock = (b: { type: string }) => b.type === 'mcp_tool_use' || b.type === 'mcp_tool_result'
 
-/** A paused turn (server-side tool loop) is resumed at most this often. */
-const MAX_RESUMES = 3
+/** A paused turn (server-side tool loop) is resumed at most this often (the Regler's MCP band counts 1 + this requests). */
+export const MAX_RESUMES = 3
 
 /** A Claude stream as metering reads it (MessageStream / BetaMessageStream). */
 interface ClaudeStream<M> {
@@ -327,7 +328,8 @@ export async function streamOnce(opts: StreamOptions, again: boolean, prepared: 
       stopReason = final.stop_reason
       text = answerText(final.content) || text
     } else if (!deep) {
-      const stream = client.messages.stream({ model, max_tokens: 8000, system, messages })
+      // the governor's cap near the red line (a text answer without MCP): never above today's budget
+      const stream = client.messages.stream({ model, max_tokens: capped(8000, prepared), system, messages })
       const abort = () => stream.abort()
       signal?.addEventListener('abort', abort, { once: true })
       stream.on('text', onText)
@@ -341,7 +343,7 @@ export async function streamOnce(opts: StreamOptions, again: boolean, prepared: 
       // Refusal fallbacks route a declined request to Anthropic's recommended model.
       const stream = client.beta.messages.stream({
         model,
-        max_tokens: 16000,
+        max_tokens: capped(16000, prepared),
         betas: ['server-side-fallback-2026-07-01'],
         fallbacks: 'default',
         output_config: { effort: 'low' },
@@ -394,6 +396,7 @@ async function streamWithMcp(
   for (let resumes = 0; ; resumes++) {
     const params: BetaMessageStreamParams = {
       model,
+      // with MCP servers never capped (max_tokens bounds the output only — the brake judges their rounds)
       max_tokens: opus ? 16000 : 8000,
       system,
       messages,
@@ -504,7 +507,7 @@ export async function structuredOnce(opts: StructuredOptions, again: boolean, pr
             client.beta.messages.create(
               {
                 model,
-                max_tokens: maxTokens,
+                max_tokens: capped(maxTokens, prepared),
                 system: `${system}\n\n${mcp.system}`,
                 messages: turn,
                 ...mcpParams(mcp),
@@ -526,7 +529,7 @@ export async function structuredOnce(opts: StructuredOptions, again: boolean, pr
       stopReason = msg.stop_reason
       blocks = [{ type: 'text', text: answerText(msg.content) }]
     } else if (!opus) {
-      const { msg, entry } = await metered(call, (sig) => client.messages.create({ model, max_tokens: maxTokens, system, messages, output_config: { format } }, { signal: sig, maxRetries }), promptChars, sdk, signal)
+      const { msg, entry } = await metered(call, (sig) => client.messages.create({ model, max_tokens: capped(maxTokens, prepared), system, messages, output_config: { format } }, { signal: sig, maxRetries }), promptChars, sdk, signal)
       used(entry)
       stopReason = msg.stop_reason
       blocks = msg.content
@@ -537,7 +540,7 @@ export async function structuredOnce(opts: StructuredOptions, again: boolean, pr
         call,
         (sig) =>
           client.beta.messages.create(
-            { model, max_tokens: maxTokens, betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default', output_config: { effort: 'low', format }, system, messages },
+            { model, max_tokens: capped(maxTokens, prepared), betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default', output_config: { effort: 'low', format }, system, messages },
             { signal: sig, maxRetries },
           ),
         promptChars,

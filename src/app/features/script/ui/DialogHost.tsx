@@ -3,12 +3,16 @@
  * ask(), choose(), the list of effects before a run (with checkboxes), one more effect, more time, and
  * a team script someone else changed. One dialog at a time; Esc / closing = cancel.
  */
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { Modal } from '../../../ui/Modal'
-import { useT } from '../../../i18n'
+import { useLang, useT } from '../../../i18n'
 import { answerDialog, useScriptDialogs, type PendingDialog } from '../runtime/dialogs'
 import type { ConfirmItem } from '../runtime/types'
 import { effectNote, type EffectName } from '../runtime/effects'
+import type { RunBand } from '../runtime/types'
+import { allowTask, fmtBand, fmtLimit } from '../../governor'
+import { fmtUsd } from '../../../lib/money'
+import { typingWithin } from '../../../ui/keys'
 import './dialogs.css'
 
 /** The effect's tag (the AI one is translated: "AI" / "KI"). */
@@ -46,6 +50,46 @@ function PlanList({ items, on, setOn }: { items: ConfirmItem[]; on: Set<string>;
         </li>
       ))}
     </ul>
+  )
+}
+
+/**
+ * With a budget: what the run's AI calls may cost (n × one call's band) against the rest today. Over the line: the run
+ * stops at the call that would cross it — E (focus in the line, or its key) allows +1 $ for this run, today.
+ */
+function PlanBandLine({ band }: { band: RunBand }) {
+  const t = useT()
+  const lang = useLang()
+  const ref = useRef<HTMLDivElement>(null)
+  const [allowed, setAllowed] = useState(false)
+  const allow = () => {
+    if (allowed || band.allow === null) return
+    const had = !!ref.current?.contains(document.activeElement)
+    allowTask(band.source, band.allow)
+    setAllowed(true)
+    // the E key goes: the keyboard to the dialog's run key (never the body)
+    if (had) requestAnimationFrame(() => ref.current?.closest('[role="dialog"]')?.querySelector<HTMLElement>('[data-autofocus]')?.focus())
+  }
+  const onKey = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (e.altKey || e.ctrlKey || e.metaKey || e.repeat || typingWithin(e.target as Element, ref.current) || e.key.toLowerCase() !== 'e') return
+    e.preventDefault()
+    allow()
+  }
+  return (
+    <div ref={ref} className="sc-band" data-over={!band.fits && !allowed ? '' : undefined} onKeyDown={onKey} data-testid="sc-plan-band">
+      <p className="sc-band__line label">{t('features.governor.plan.band', { n: band.n, band: fmtBand(band.band, lang), rest: fmtUsd(band.rest, lang) })}</p>
+      {!band.fits && (
+        <p className="sc-band__over">
+          {allowed ? t('features.governor.plan.allowed', { usd: fmtLimit(band.allow ?? 0, lang) }) : band.allow === null ? t('features.governor.plan.need', { usd: fmtUsd(band.need, lang) }) : t('features.governor.plan.over')}
+          {!allowed && band.allow !== null && (
+            <button type="button" className="btn btn--sm sc-band__key" onClick={allow}>
+              <span className="kbd">E</span>
+              {t('features.governor.plan.allow', { usd: fmtLimit(band.allow, lang) })}
+            </button>
+          )}
+        </p>
+      )}
+    </div>
   )
 }
 
@@ -138,6 +182,7 @@ function Dialog({ d }: { d: PendingDialog }) {
         <>
           <p className="sc-dlg__text">{t('features.script.dlg.planLead', { name: req.scriptName || t('features.script.untitled') })}</p>
           <PlanList items={req.items} on={on} setOn={setOn} />
+          {req.band && <PlanBandLine band={req.band} />}
           {req.items.some((i) => i.kind === 'http') && <p className="sc-dlg__note">{t('features.script.dlg.httpNote')}</p>}
         </>
       )

@@ -13,15 +13,22 @@
  * - External MCP servers (Settings → AI): attached as `mcp_servers` + `mcp_toolset`s; their
  *   calls run inside a response (mcp_tool_use / mcp_tool_result, kept in the history unchanged) and
  *   only reach the step log. The session pins the setup per conversation (system + tools stay put).
+ * - The Regler (features/governor): the first request is braked on FIRST_STEP_OUT (the wire keeps its 64 000), and
+ *   before every further request — after a tool_use or pause_turn response (before its tools run and before the runner
+ *   sends again) and before the eager-input retry — beforeRound() decides: go (the run's reservation follows the next
+ *   step) · halt (the AI terminal's card: E +1 $ for this task · H a cheaper model of the same provider · Mod+.; nothing
+ *   is reserved while it waits) · stop (custom agents: they never wait — the run ends as 'held', its proposals kept).
+ *   H switches the runner's params in place (paramsFor, never setMessagesParams: the runner keeps the history).
  */
 import type AnthropicSDK from '@anthropic-ai/sdk'
 import type { BetaContentBlock, BetaMessageParam, BetaToolResultBlockParam, BetaToolUnion } from '@anthropic-ai/sdk/resources/beta/messages/messages'
 import type { BetaRunnableTool } from '@anthropic-ai/sdk/lib/tools/BetaRunnableTool'
 import { AIError, claudeClient, reachOf, thinks, toAIError } from '../client'
-import { prepare, settle, type Applied, type Prepared } from '../core/gate'
-import { claudeCut, claudeResponse, deltaChars, meterCall } from '../core/meter'
+import { beforeRound, capped, prepare, reprepare, settle, type Applied, type Prepared, type PrepareInput } from '../core/gate'
+import { claudeCut, claudeResponse, deltaChars, messagesChars, meterCall } from '../core/meter'
 import type { PurposeId } from '../core/purposes'
-import type { LedgerEntry, SourceRef, Usage } from '@/shared/ai/types'
+import type { LedgerEntry, ProviderId, SourceRef, StepNote, Usage } from '@/shared/ai/types'
+import { ALLOW_USD, FIRST_STEP_OUT, adjust, allowTask, type Halt, type HaltCheaper, type RoundVerdict } from '../../governor'
 import { normalise } from '@/shared/ai/usage'
 import { MCP_BETA, type McpAttachment } from '../mcp-servers/config'
 import { foldMcpBlock, type McpCall } from '../mcp-servers/activity'
@@ -89,7 +96,100 @@ export const TASK_RULES = `Task blocks
 /** The prompt with upsert_rows (the default for callers that pass no system prompt). */
 export const AGENT_SYSTEM = agentSystemText(true)
 
-export type RunEnd = 'done' | 'limit' | 'max_tokens'
+/** 'held': the Regler stopped the run between two steps (agents never wait at the red line) */
+export type RunEnd = 'done' | 'limit' | 'max_tokens' | 'held'
+
+/** The Regler stopped a run between two steps: the line that bound, the lowest rest, the next step's band. */
+export type HeldStop = Extract<RoundVerdict, { stop: unknown }>
+
+/** The halt card's answer: E (+1 $ for this task, today) · H (the cheaper model) · stop (Mod+., the task ends). */
+export type HaltChoice = 'allow' | 'cheaper' | 'stop'
+
+/** The halt card's context: the model the task runs on now; refresh() counts the cache cold (after 5 minutes waiting —
+ *  null: the step fits now). */
+export interface HaltWait {
+  label: string
+  provider: ProviderId
+  refresh(): Promise<Halt | null>
+}
+
+/** The answer budget the wire keeps for every step of the loop (the brake counts FIRST_STEP_OUT for the first). */
+const LOOP_MAX_TOKENS = 64000
+/** A tool result as the next request carries it, at most (tools.ts clipResult + its note). */
+const RESULT_MAX = RESULT_CHARS + 2000
+
+/** The runner's request parameters for a model (golden: the same bytes as before the Regler). */
+export interface ParamsInput {
+  model: string
+  /** the visible answer budget (a cap from the gate already applied) */
+  maxTokens: number
+  /** the model thinks (adaptive thinking — client.ts thinks(caps)) */
+  thinks: boolean
+  system: string
+  tools: Array<BetaRunnableTool<Record<string, unknown>> | BetaToolUnion>
+  mcp: McpAttachment | null
+  effort?: 'low' | 'medium' | 'high' | null
+}
+
+/** The tool runner's params for a model — the one place they are built (the first request and an H switch). */
+export function paramsFor(o: ParamsInput) {
+  const { mcp } = o
+  return {
+    model: o.model,
+    max_tokens: o.maxTokens,
+    stream: true as const,
+    // backstop: the tool-call limit normally ends the run first (room for MCP turns the server pauses)
+    max_iterations: MAX_TOOL_CALLS + 12,
+    // automatic prompt caching: system + tools + the growing history are re-read every step
+    cache_control: { type: 'ephemeral' as const },
+    system: mcp ? `${o.system}\n\n${mcp.system}` : o.system,
+    tools: mcp ? [...o.tools, ...mcp.toolsets] : o.tools,
+    ...(mcp ? { mcp_servers: mcp.servers } : {}),
+    ...(o.thinks
+      ? {
+          // Opus / Sonnet 5.5: thinking is always on (adaptive); "updates" returns the progress notes
+          betas: ['server-side-fallback-2026-07-01', 'thinking-display-updates-2026-08-18', ...(mcp ? [MCP_BETA] : [])],
+          fallbacks: 'default' as const,
+          thinking: { type: 'adaptive' as const, display: 'updates' as const },
+          output_config: { effort: o.effort ?? ('medium' as const) },
+        }
+      : mcp
+        ? { betas: [MCP_BETA] }
+        : {}),
+  }
+}
+
+/** The keys paramsFor may set: an H switch drops those the new model's set leaves out (thinking, betas …). */
+const PARAM_KEYS = ['model', 'max_tokens', 'stream', 'max_iterations', 'cache_control', 'system', 'tools', 'mcp_servers', 'betas', 'fallbacks', 'thinking', 'output_config'] as const
+
+/** Switch the runner's params in place for the next request (its history — `messages` — stays as the runner keeps it). */
+export function swapParams(target: Record<string, unknown>, next: Record<string, unknown>): void {
+  for (const k of PARAM_KEYS) if (!(k in next)) delete target[k]
+  Object.assign(target, next)
+}
+
+/** Server-side MCP iterations of a response: its usage.iterations of type 'message', else its mcp_tool_use blocks. */
+function mcpIterationsOf(msg: { usage: unknown; content: ReadonlyArray<{ type: string }> }): number {
+  const it = (msg.usage as { iterations?: Array<{ type?: string }> } | null)?.iterations
+  const n = Array.isArray(it) ? it.filter((x) => x?.type === 'message').length : msg.content.filter((b) => b.type === 'mcp_tool_use').length
+  return Math.max(1, n)
+}
+
+/** A promise that settles with the halt card's answer, or 'stop' once the task is stopped (Mod+. while it waits). */
+export function untilStopped(p: Promise<HaltChoice>, signal: AbortSignal): Promise<HaltChoice> {
+  if (signal.aborted) return Promise.resolve('stop')
+  return new Promise((resolve) => {
+    const off = () => resolve('stop')
+    signal.addEventListener('abort', off, { once: true })
+    p.then(
+      (c) => {
+        signal.removeEventListener('abort', off)
+        resolve(c)
+      },
+      () => resolve('stop'),
+    )
+  })
+}
 
 export interface RunHooks {
   /** a tool call starts: returns the step id */
@@ -112,6 +212,15 @@ export interface RunHooks {
   mcp(call: McpCall): void
   /** media the MCP results of this task returned (and Claude's links to them), whenever the list grows — cards, never loaded */
   media?(items: MediaItem[]): void
+  /**
+   * The Regler: the next step would cross the red line (the AI terminal only — without this hook a run stops there,
+   * 'held'). Resolves with the person's key; nothing is reserved while it waits. `wait.refresh()` counts the cache cold.
+   */
+  halt?(h: Halt, wait: HaltWait): Promise<HaltChoice>
+  /** the Regler stopped the run between two steps (the run ends as 'held') */
+  held?(v: HeldStop): void
+  /** the Regler let a step through on the person's key: E (+1 $ for this task) or H (another model from now on) */
+  regler?(step: StepNote): void
 }
 
 /** The user turn for a task: context first, then the task. Closes tool calls a stopped run left open. */
@@ -162,6 +271,8 @@ export async function runAgent(opts: {
   applied?: Applied | null
   /** the ledger's source id ('terminal:<conversation>' · 'agent:<id>:<run>') */
   ledgerSource?: string
+  /** the run: its ledger source and run mode (an agent's: manual · scheduled · trigger — core/gate.ts PrepareInput.run) */
+  run?: PrepareInput['run']
 }): Promise<RunEnd> {
   const { stage, signal, hooks } = opts
   const mcp = opts.mcp ?? null
@@ -179,18 +290,24 @@ export async function runAgent(opts: {
     // the gate: nothing is sent before it (features/ai/core/gate.ts); every response is metered (core/meter.ts)
     // its size: the system prompt (+ the servers' part), the conversation and the tool definitions; the answer budget
     const defs = (opts.tools ?? TERMINAL_TOOLS).map((x) => ({ name: x.name, description: x.description, input_schema: x.input_schema }))
-    const size = { promptChars: (opts.system ?? AGENT_SYSTEM).length + (mcp?.system.length ?? 0) + JSON.stringify(messages).length + JSON.stringify(defs).length, maxTokens: 64000 }
-    prepared = prepare({ purpose: opts.purpose, sources: opts.sources, typed: opts.typed, model: opts.model, size, applied: opts.applied })
+    // the brake judges the first request on FIRST_STEP_OUT (prompt + 4 096 output): the wire keeps its 64 000 — a capped
+    // tool-use step could cut a tool input; the overshoot is one step at most, as every Regler surface says
+    const fixed = (opts.system ?? AGENT_SYSTEM).length + (mcp?.system.length ?? 0) + JSON.stringify(defs).length
+    // a picture or a PDF in the conversation counts as its pixels / pages, never as its base64 (messagesChars)
+    const size = { promptChars: fixed + messagesChars(messages), maxTokens: LOOP_MAX_TOKENS, bandOut: FIRST_STEP_OUT }
+    const run = opts.run ?? (opts.ledgerSource ? { source: opts.ledgerSource } : undefined)
+    // the conversation's MCP servers: the first response may loop at the provider (its context read per iteration) —
+    // the brake counts their rounds; every further request is braked by beforeRound
+    prepared = prepare({ purpose: opts.purpose, sources: opts.sources, typed: opts.typed, model: opts.model, size, applied: opts.applied, ...(run ? { run } : {}), ...(mcp?.servers.length ? { mcp: { servers: mcp.servers.length } } : {}) })
     // the tool reads of a route that does not see everything: built for it, pages it may not see out of scope (B6)
     const shape = shapeOf(prepared)
     const seen = shape ? prepared.visible : null
-    const call = meterCall(prepared, { source: opts.ledgerSource, signal })
+    let call = meterCall(prepared, { source: run?.source, signal })
     const got = await claudeClient()
     sdk = got.sdk
     const { client } = got
     // the model the gate routed to (an agent's own, else this device's) and what it can do (caps, never its id)
     const model = prepared.route?.m ?? got.model
-    const opus = thinks(prepared.caps)
     const system = opts.system ?? AGENT_SYSTEM
     let calls = 0
     let warned = false
@@ -237,32 +354,91 @@ export async function runAgent(opts: {
       },
     }))
 
-    const params = {
-      model,
-      max_tokens: 64000,
-      stream: true as const,
-      // backstop: the tool-call limit normally ends the run first (room for MCP turns the server pauses)
-      max_iterations: MAX_TOOL_CALLS + 12,
-      // automatic prompt caching: system + tools + the growing history are re-read every step
-      cache_control: { type: 'ephemeral' as const },
-      system: mcp ? `${system}\n\n${mcp.system}` : system,
-      tools: mcp ? [...tools, ...mcp.toolsets] : (tools as Array<BetaRunnableTool<Record<string, unknown>> | BetaToolUnion>),
-      ...(mcp ? { mcp_servers: mcp.servers } : {}),
-      ...(opus
-        ? {
-            // Opus / Sonnet 5.5: thinking is always on (adaptive); "updates" returns the progress notes
-            betas: ['server-side-fallback-2026-07-01', 'thinking-display-updates-2026-08-18', ...(mcp ? [MCP_BETA] : [])],
-            fallbacks: 'default' as const,
-            thinking: { type: 'adaptive' as const, display: 'updates' as const },
-            output_config: { effort: opts.effort ?? ('medium' as const) },
-          }
-        : mcp
-          ? { betas: [MCP_BETA] }
-          : {}),
-    }
+    const paramsOf = (m: string, p: Prepared) => paramsFor({ model: m, maxTokens: capped(LOOP_MAX_TOKENS, p), thinks: thinks(p.caps), system, tools, mcp, effort: opts.effort })
+    let params = paramsOf(model, prepared)
 
     let end: RunEnd = 'done'
     let jsonRetries = 0
+    /** this run's responses (their usage, oldest first) and what they cost: the next step's band, a run's budget */
+    const used: Usage[] = []
+    let spent = 0
+    /** the Regler's steps (E, H) for the next response's ledger entry */
+    let reglerSteps: StepNote[] = []
+    const metered = (u: Usage, entry: LedgerEntry | null) => {
+      used.push(u)
+      spent += entry?.usd ?? 0
+      hooks.usage(u, entry)
+    }
+    /** the next request is braked first (Regler § 5.6): 'go' — or 'stop' (the run ends as 'held') */
+    const atLine = async (pending: { low: number; high: number }, mcpIterations: number): Promise<'go' | 'stop'> => {
+      let cold = false
+      /** H was refused at the gate (its request counts the whole conversation as it is now): the card again, without H */
+      let noH = false
+      const shown = (h: Halt): Halt => (noH ? { ...h, cheaper: null } : h)
+      const round = (dry: boolean) =>
+        beforeRound({ prepared: prepared!, spent, last: used[used.length - 1], steps: used, pending, mcpIterations, cold, history: () => runner.params.messages, thinks, mcpAttached: !!mcp }, { dry })
+      for (;;) {
+        const v = await round(false)
+        if ('go' in v) return 'go'
+        if ('stop' in v) {
+          hooks.held?.(v)
+          return 'stop'
+        }
+        // the AI terminal's card: nothing reserved while it waits; without one (custom agents) the run stops here
+        if (!hooks.halt) {
+          hooks.held?.({ stop: 'budget', band: v.halt.next, binding: v.halt.binding, rest: v.halt.rest, line: { spent: v.halt.spent, limit: v.halt.limit } })
+          return 'stop'
+        }
+        const wait: HaltWait = {
+          label: prepared!.label,
+          provider: prepared!.route?.p ?? 'anthropic',
+          refresh: async () => {
+            cold = true
+            const again = await round(true)
+            return 'halt' in again ? shown(again.halt) : null
+          },
+        }
+        const halt = shown(v.halt)
+        const choice = await untilStopped(hooks.halt(halt, wait), signal)
+        if (choice === 'stop' || signal.aborted) throw new AIError('aborted')
+        if (choice === 'allow') {
+          // +1 $ for this task, today — the round is checked again (go, or the card once more)
+          allowTask(prepared!.run.source, ALLOW_USD)
+          const step: StepNote = { k: 'allowance', code: String(ALLOW_USD) }
+          reglerSteps.push(step)
+          hooks.regler?.(step)
+          continue
+        }
+        if (choice === 'cheaper' && halt.cheaper) {
+          try {
+            switchTo(halt.cheaper, pending)
+            return 'go'
+          } catch (e) {
+            // the gate refused the cheaper model at the line: nothing was sent and the task stays where it is — the card
+            // once more without H (E · stop), never the task again from its start
+            if (!(e instanceof AIError && e.code === 'budget')) throw e
+            noH = true
+            continue
+          }
+        }
+      }
+    }
+    /** H: the rest of the task on a cheaper model of the same provider — the gate again (the route as the person's pick),
+     *  its responses metered at that model, the runner's params switched in place for the next request */
+    const switchTo = (c: HaltCheaper, pending: { low: number; high: number }) => {
+      const from = prepared!.route?.m ?? model
+      const out = used.length ? Math.max(...used.map((u) => u.output)) : FIRST_STEP_OUT
+      prepared = reprepare(prepared!, c.route, { size: { promptChars: fixed + messagesChars(runner.params.messages) + pending.high, maxTokens: LOOP_MAX_TOKENS, bandOut: Math.max(1, Math.min(LOOP_MAX_TOKENS, out)) } })
+      // the switch's band holds the cold cache: that is what may be spent now
+      adjust(prepared.reservation?.id, c.band.high)
+      call = meterCall(prepared, { source: run?.source, signal })
+      const next = paramsOf(c.route.m, prepared)
+      swapParams(runner.params as unknown as Record<string, unknown>, next)
+      params = next
+      const step: StepNote = { k: 'brake', code: 'H', from, to: c.route.m }
+      reglerSteps.push(step)
+      hooks.regler?.(step)
+    }
     /** how the last response ended: tool_use / pause_turn here means the runner stopped at max_iterations */
     let lastStop: string | null = null
     // media in MCP results: cards for the person (features/ai/media), nothing is fetched
@@ -280,13 +456,13 @@ export async function runAgent(opts: {
       if (reach === 'none') return
       const entry = call.response(
         claudeCut(cur.stream.currentMessage as Parameters<typeof claudeCut>[0], {
-          promptChars: params.system.length + toolChars + JSON.stringify(runner.params.messages).length,
+          promptChars: params.system.length + toolChars + messagesChars(runner.params.messages),
           streamedChars: cur.chars,
           outcome: signal.aborted ? 'aborted' : toAIError(e, got.sdk).code,
           sent: reach === 'sent',
         }),
       )
-      if (entry) hooks.usage(entry.usage, entry)
+      if (entry) metered(entry.usage, entry)
     }
     try {
       outer: for (;;) {
@@ -310,8 +486,14 @@ export async function runAgent(opts: {
             cur.done = true
             jsonRetries = 0
             lastStop = msg.stop_reason
-            const entry = call.response(claudeResponse(msg, cur.chars))
-            hooks.usage(entry?.usage ?? normalise('anthropic', msg.usage as unknown as Record<string, unknown>), entry)
+            const r = claudeResponse(msg, cur.chars)
+            // the Regler's E / H go on the first entry after the key (the receipt names them once)
+            if (reglerSteps.length) {
+              r.steps = [...(r.steps ?? []), ...reglerSteps]
+              reglerSteps = []
+            }
+            const entry = call.response(r)
+            metered(entry?.usage ?? normalise('anthropic', msg.usage as unknown as Record<string, unknown>), entry)
             const toolUse = msg.content.some((b) => b.type === 'tool_use')
             hooks.textDone(toolUse ? 'note' : 'answer')
             // links in the answer to a host an MCP result used count as media too
@@ -330,6 +512,15 @@ export async function runAgent(opts: {
               }
               warned = true
             }
+            // another request follows (tools run, or the runner resumes a paused turn with the whole context): the
+            // Regler looks at it first — before the tools run, before anything is sent
+            if (msg.stop_reason === 'tool_use' || msg.stop_reason === 'pause_turn') {
+              const results = msg.stop_reason === 'tool_use' ? msg.content.filter((b) => b.type === 'tool_use').length * RESULT_MAX : 0
+              if ((await atLine({ low: 0, high: results }, mcpIterationsOf(msg))) === 'stop') {
+                end = 'held'
+                break outer
+              }
+            }
           }
           // the limit was reached (Claude wrapped up), or the backstop ended the loop mid-task
           if (refused || lastStop === 'tool_use' || lastStop === 'pause_turn') end = 'limit'
@@ -343,6 +534,12 @@ export async function runAgent(opts: {
           const A = got.sdk.default
           if (e instanceof A.AnthropicError && !(e instanceof A.APIError) && jsonRetries < 2) {
             jsonRetries += 1
+            // the retry sends the whole context again: braked like any further request (a first request that failed is
+            // still covered by its own reservation)
+            if (used.length && (await atLine({ low: 0, high: 0 }, 1)) === 'stop') {
+              end = 'held'
+              break outer
+            }
             messages = [...runner.params.messages]
             runner = client.beta.messages.toolRunner({ ...params, messages }, { signal })
             continue

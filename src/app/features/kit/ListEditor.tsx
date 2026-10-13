@@ -5,7 +5,7 @@
  * proposals to tick); where it is used. Every change is saved at once (upsertList keeps every bound
  * property in step).
  */
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { DndContext, KeyboardSensor, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core'
 import { SortableContext, arrayMove, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
@@ -22,6 +22,7 @@ import { PageIcon } from '../../ui/PageIcon'
 import { isAIConfigured } from '../ai/client'
 import { AINeedsSetup, offersAI, useAIStatus } from '../ai/setup/AINeedsSetup'
 import { destinationOf } from '../ai/core/status'
+import { BrakeSlot } from '../governor'
 import { blocksUsingList, itemsFromText, newItems, propsOfList, removeItem } from './model'
 import { proposeItems, type Proposal } from './claude'
 import { ColorKey, EntryHead, PickButton, Section, UsedList, pad2 } from './ui'
@@ -345,7 +346,8 @@ function FillWithClaude({ list }: { list: OptionList }) {
   const pages = useWorkspace((s) => s.pages)
   const [prompt, setPrompt] = useState('')
   const [pageId, setPageId] = useState<string>(NO_PAGE)
-  const [state, setState] = useState<{ phase: 'idle' | 'asking' | 'done' | 'error'; items: Proposal[]; on: Set<number>; error?: string }>({ phase: 'idle', items: [], on: new Set() })
+  const [state, setState] = useState<{ phase: 'idle' | 'asking' | 'done' | 'error'; items: Proposal[]; on: Set<number>; error?: string; brake?: unknown }>({ phase: 'idle', items: [], on: new Set() })
+  const promptRef = useRef<HTMLInputElement>(null)
   const abort = useRef<AbortController | null>(null)
   useEffect(() => () => abort.current?.abort(), [])
   // the gate's answer for list filling (a key for a route the rules allow)
@@ -370,7 +372,7 @@ function FillWithClaude({ list }: { list: OptionList }) {
       setState({ phase: 'done', items, on: new Set(items.map((_, i) => i)) })
     } catch (e) {
       if (ctrl.signal.aborted) return setState({ phase: 'idle', items: [], on: new Set() })
-      setState({ phase: 'error', items: [], on: new Set(), error: aiErrorMessage(e) })
+      setState({ phase: 'error', items: [], on: new Set(), error: aiErrorMessage(e), ...((e as { code?: unknown } | null)?.code === 'budget' ? { brake: e } : {}) })
     }
   }
   const apply = () => {
@@ -396,10 +398,11 @@ function FillWithClaude({ list }: { list: OptionList }) {
       </div>
     )
   return (
-    <div className="kt-fill" data-testid="kt-fill">
+    <div className="kt-fill" data-testid="kt-fill" data-gv-home="">
       <p className="kt-note">{t('features.kit.fill.lead')}</p>
       <div className="kt-fill__row">
         <input
+          ref={promptRef}
           className="input kt-fill__prompt"
           value={prompt}
           placeholder={t('features.kit.fill.placeholder')}
@@ -430,10 +433,24 @@ function FillWithClaude({ list }: { list: OptionList }) {
           <span className="led led--on kt-led--live" aria-hidden /> {t('features.kit.fill.asking')}
         </p>
       )}
-      {state.phase === 'error' && (
-        <p className="kt-fill__error" role="alert">
-          {state.error}
-        </p>
+      {state.phase === 'error' && state.brake ? (
+        // the red line (features/governor): nothing was sent — E +1 $ once · B a cheaper model · Esc
+        <Suspense fallback={null}>
+          <BrakeSlot
+            error={state.brake}
+            onRetry={() => void ask()}
+            onCancel={() => {
+              setState({ phase: 'idle', items: [], on: new Set() })
+              promptRef.current?.focus()
+            }}
+          />
+        </Suspense>
+      ) : (
+        state.phase === 'error' && (
+          <p className="kt-fill__error" role="alert">
+            {state.error}
+          </p>
+        )
       )}
       {state.phase === 'done' && (
         <div className="kt-proposals" data-testid="kt-proposals">

@@ -30,8 +30,11 @@ import { groupReport, type ReportItem } from './import/report'
 import type { SourceMode } from './import/sources'
 import type { TrelloBoard } from './import/trello'
 import type { ColorName } from '../../store/types'
-import { applyBackup, backupAIRules, backupStats, parseBackup, type Backup, type RestoreResult } from './backup'
+import { applyBackup, backupAIRules, backupGovernor, backupStats, parseBackup, type Backup, type RestoreResult } from './backup'
 import { aiRulesAllowed } from '../../store/ai'
+import { governorAllowed } from '../../store/governor'
+import type { GovernorLoose } from '@/shared/ai/governor'
+import { fmtUsd } from '../../lib/money'
 import { providerLabel } from '@/shared/ai/models'
 import type { LooseItem } from '@/shared/ai/policy'
 import { Meter, Readout } from './parts'
@@ -658,13 +661,18 @@ function BackupStep({ backup, fileName, onCancel, onDone }: { backup: Backup; fi
   const stats = backupStats(backup)
   // the backup's AI rules: taken when only tighter; loosening ones wait for the person (D52)
   const rules = useMemo(() => backupAIRules(backup), [backup])
+  // the backup's governor: never taken without the person (stricter or looser — design § 4.3)
+  const gov = useMemo(() => {
+    const g = backupGovernor(backup)
+    return g && !g.newer ? g : null
+  }, [backup])
   const [aiAsk, setAiAsk] = useState(false)
   const date = backup.exportedAt ? new Intl.DateTimeFormat(lang === 'de' ? 'de-DE' : 'en-GB', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(backup.exportedAt)) : '—'
 
   const go = async (ai?: 'mine' | 'theirs') => {
     if (mode === 'replace' && team) return
     if (mode === 'replace' && !armed) return setArmed(true)
-    if (rules?.loosens.length && !ai) return setAiAsk(true)
+    if ((rules?.loosens.length || gov) && !ai) return setAiAsk(true)
     setAiAsk(false)
     setBusy({ done: 0, total: backup.files.length })
     const started = performance.now()
@@ -737,25 +745,27 @@ function BackupStep({ backup, fileName, onCancel, onDone }: { backup: Backup; fi
           </p>
         </div>
       )}
-      {aiAsk && rules && (
+      {aiAsk && (rules || gov) && (
         <div className="io-warn io-ailoose" role="alertdialog" aria-labelledby="io-ailoose-h" aria-describedby="io-ailoose-lead" data-testid="backup-ai-loosen">
           <div className="io-error__stripe" />
           <div className="io-ailoose__body">
             <h3 id="io-ailoose-h" className="io-ailoose__title">
-              {t('features.io.aiLoose.title')}
+              {rules?.loosens.length ? t('features.io.aiLoose.title') : t('features.governor.restore.title')}
             </h3>
-            <p id="io-ailoose-lead">{t('features.io.aiLoose.lead')}</p>
+            <p id="io-ailoose-lead">{rules?.loosens.length ? t('features.io.aiLoose.lead') : t('features.governor.restore.lead')}</p>
             <ul className="io-ailoose__list">
-              {rules.loosens.map((item, i) => (
+              {(rules?.loosens ?? []).map((item, i) => (
                 <li key={i}>{looseText(t, item)}</li>
               ))}
+              {gov && (gov.loosens.length ? gov.loosens.map((item, i) => <li key={`g${i}`} data-testid="backup-governor-item">{governorText(t, lang, item)}</li>) : <li data-testid="backup-governor-item">{t('features.governor.restore.stricter')}</li>)}
             </ul>
-            {!aiRulesAllowed() && <p className="muted">{t('features.io.aiLoose.member')}</p>}
+            {!!rules?.loosens.length && !aiRulesAllowed() && <p className="muted">{t('features.io.aiLoose.member')}</p>}
+            {gov && !governorAllowed() && <p className="muted">{t('features.governor.restore.member')}</p>}
             <div className="io-ailoose__keys">
               <button type="button" className="btn btn--sm btn--ink" onClick={() => void go('mine')} disabled={!!busy} data-autofocus="">
                 {t('features.io.aiLoose.keep')}
               </button>
-              {aiRulesAllowed() && (
+              {((!!rules?.loosens.length && aiRulesAllowed()) || (gov && governorAllowed())) && (
                 <button type="button" className="btn btn--sm" onClick={() => void go('theirs')} disabled={!!busy}>
                   {t('features.io.aiLoose.take')}
                 </button>
@@ -775,6 +785,23 @@ function BackupStep({ backup, fileName, onCancel, onDone }: { backup: Backup; fi
       </div>
     </div>
   )
+}
+
+/** One way the backup's governor would loosen this workspace's, as a line. */
+function governorText(t: ReturnType<typeof useT>, lang: 'en' | 'de', item: GovernorLoose): string {
+  const usd = (v: number | null) => (v === null ? t('features.governor.restore.none') : fmtUsd(v, lang))
+  switch (item.kind) {
+    case 'budget':
+      return t(`features.governor.restore.${item.what}`, { from: usd(item.from), to: usd(item.to) })
+    case 'lever':
+      return t('features.governor.restore.lever', { from: t(`features.governor.lever.${item.from}`), to: t(`features.governor.lever.${item.to}`) })
+    case 'ceiling':
+      return t('features.governor.restore.ceiling', { from: usd(item.from), to: usd(item.to) })
+    case 'worker':
+      return t('features.governor.restore.worker')
+    case 'unreadable':
+      return t('features.governor.restore.unreadable')
+  }
 }
 
 /** One way the backup's AI rules would loosen this workspace's, as a line. */

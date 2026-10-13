@@ -3,11 +3,11 @@
  * and the global keyboard handler.
  */
 import type { LucideIcon } from 'lucide-react'
-import { Bell, CalendarDays, CalendarRange, Copy, Download, FilePlus2, FolderInput, Focus, Keyboard, Languages, LayoutTemplate, Link2, Lock, MessageSquareText, MoveHorizontal, PanelLeft, Presentation, Settings, Share2, SunMoon, Table2, SquareKanban, Trash2, Upload, Waypoints, History, Star, Home, Inbox, Users, Building2, Palette, CloudUpload, Workflow, SquareFunction, CircleHelp, Newspaper, SquareCode, GitBranch, Blocks, Compass, Route, ClipboardCopy, Plug, Send, Rewind, Gauge } from 'lucide-react'
+import { Bell, CalendarDays, CalendarRange, Copy, Download, FilePlus2, FolderInput, Focus, Keyboard, Languages, LayoutTemplate, Link2, Lock, MessageSquareText, MoveHorizontal, PanelLeft, Presentation, Settings, Share2, SunMoon, Table2, SquareKanban, Trash2, Upload, Waypoints, History, Star, Home, Inbox, Users, Building2, Palette, CloudUpload, Workflow, SquareFunction, CircleHelp, Newspaper, SquareCode, GitBranch, Blocks, Compass, Route, ClipboardCopy, Plug, Send, Rewind, Gauge, CircleGauge } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
 import { navigate } from '../../lib/router'
-import { openTodayJournal, openAgent, AGENT_SHORTCUT, openFunctionBuilder, paletteDbCommands, createScript, openScripts, paletteScripts, openOutbox, openRecorder, REWIND_SHORTCUT, openPreflight, preflightIsOn, openAISetup } from '../../features'
+import { openTodayJournal, openAgent, AGENT_SHORTCUT, openFunctionBuilder, paletteDbCommands, createScript, openScripts, paletteScripts, openOutbox, openRecorder, REWIND_SHORTCUT, openPreflight, preflightIsOn, openAISetup, openRegler } from '../../features'
 import type { ID } from '../../store/types'
 import type { Translate } from '@/shared/i18n'
 import { quickNoteToInbox } from '../capture/inbox'
@@ -106,6 +106,8 @@ export function buildCommands(t: Translate, pageId: ID | null): Command[] {
     { id: 'ai-setup', group: 'claude', label: t('features.ai.prov.needs.open'), icon: Plug, keywords: 'set up ai key keys provider providers claude jev router model models connect einrichten ki schlüssel anbieter modelle verbinden', run: () => { closeMobileSidebar(); openAISetup({ reason: 'add' }) } },
     { id: 'ask-ai', group: 'claude', label: t('shell.cmd.askAI'), icon: MessageSquareText, keywords: 'claude ai assistant question ki frage', run: () => ui.openPalette('?') },
     { id: 'agent', group: 'claude', label: t('features.agent.cmd'), icon: Workflow, shortcut: AGENT_SHORTCUT, keywords: 'agent claude ai automate bulk tasks rows pages ki automatisieren aufgaben terminal console konsole', run: () => { closeMobileSidebar(); openAgent() } },
+    // the Regler: usage, the red line, consumers and receipts of this device (#/regler)
+    { id: 'regler', group: 'workspace', label: t('features.governor.cmd'), icon: CircleGauge, keywords: t('features.governor.cmdKeywords'), run: () => openRegler() },
     // the flight recorder: always there (viewers read the tape too)
     { id: 'rewind', group: 'workspace', label: t('features.recorder.cmd'), icon: Rewind, shortcut: REWIND_SHORTCUT, keywords: t('features.recorder.cmdKeywords'), run: () => { closeMobileSidebar(); openRecorder() } },
     { id: 'discover', group: 'start', label: t('shell.discover.cmd'), icon: Compass, keywords: 'discover features overview what can one do capabilities getting started entdecken funktionen überblick was kann einstieg', run: () => { closeMobileSidebar(); navigate('#/discover') } },

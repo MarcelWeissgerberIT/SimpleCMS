@@ -6,6 +6,7 @@
 import type { Lang, Translate } from '@/shared/i18n'
 import { currentLang } from '../../i18n'
 import { fmtUsd } from '../../lib/money'
+import { budgetSet } from '../governor'
 import { EDIT_CHARS, EDIT_HUNKS, type LogLine, type ToolEdit } from './protocol'
 
 export const LOG_CODES = new Set([
@@ -69,7 +70,9 @@ export function lineText(t: Translate, l: LogLine, lang: Lang = currentLang()): 
   const v = l.v ?? {}
   if (COST_CODES.has(l.c) && v.cost !== undefined) {
     const n = typeof v.cost === 'number' ? v.cost : Number(String(v.cost).trim())
-    return t(`features.coding.log.c.${l.c}`, { ...v, cost: Number.isFinite(n) && String(v.cost).trim() !== '' ? fmtUsd(n, lang) : String(v.cost) })
+    const line = t(`features.coding.log.c.${l.c}`, { ...v, cost: Number.isFinite(n) && String(v.cost).trim() !== '' ? fmtUsd(n, lang) : String(v.cost) })
+    // Claude Code runs on the person's own subscription: with a budget set, the line says it is not counted
+    return budgetSet() ? `${line} · ${t('features.governor.cost.worker')}` : line
   }
   return t(`features.coding.log.c.${l.c}`, v)
 }

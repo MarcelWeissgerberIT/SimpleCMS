@@ -35,7 +35,7 @@
  * cursor) — with "Translate …", "Transform into …" and "More …" as submenus (→ opens, ← / Backspace goes
  * back). Typing searches every action, wherever it lives.
  */
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
+import { Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import type { Editor, JSONContent } from '@tiptap/core'
 import { TextSelection, type EditorState, type Transaction } from '@tiptap/pm/state'
@@ -142,6 +142,7 @@ import { fileRequest } from './file/actions'
 import { FILE_ROOM, fileActionRows, fileAskLabel, fileRunTarget, refineFile, useFilePanel } from './file/FilePanel'
 import { isLocalAction, isStructuredAction, type FileAction } from './file/kinds'
 import { MemoryLine, useMemoryPreview } from './memory/MenuParts'
+import { BrakeSlot } from '../governor'
 import { TRANSFORM_CODES, TRANSFORM_ICONS, TRANSFORM_KEYWORDS, transformChoices, transformRequest, typeLabel } from './transform/forms'
 import { TRANSFORM_ROOM, useTransformPanel } from './transform/panel'
 import type { TransformPick } from './transform/types'
@@ -2422,7 +2423,22 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
                     {t('features.ai.bg.lostTodb')}
                   </p>
                 )}
-                {error && <ErrorNote error={error} model={runError?.label ?? model.name} message={runError?.message} onAskClaude={runError?.fix?.kind === 'askClaude' ? askClaude : undefined} fix={runError?.fix ?? null} fixes={runError?.fixes} onFixOpen={onClose} onPick={() => chipRef.current?.open()} />}
+                {error &&
+                  (runError?.code === 'budget' ? (
+                    // the red line (features/governor): E +1 $ once · B a cheaper model · Esc — the retry carries the key
+                    <Suspense fallback={null}>
+                      <BrakeSlot
+                        error={runError}
+                        onRetry={retry}
+                        onCancel={() => {
+                          if (runId) removeRun(runId)
+                          refocusPrompt()
+                        }}
+                      />
+                    </Suspense>
+                  ) : (
+                    <ErrorNote error={error} model={runError?.label ?? model.name} message={runError?.message} onAskClaude={runError?.fix?.kind === 'askClaude' ? askClaude : undefined} fix={runError?.fix ?? null} fixes={runError?.fixes} onFixOpen={onClose} onPick={() => chipRef.current?.open()} />
+                  ))}
                 {!!run?.notes?.length && (
                   <p className="ai-lost ai-ask" role="note" data-testid="ai-run-notes">
                     {run.notes.map((n) => t(`features.ai.prov.note.${n}`)).join(' ')}

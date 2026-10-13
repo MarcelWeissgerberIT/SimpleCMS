@@ -64,8 +64,8 @@ export async function paletteAsk(page: Page, question: string, answer: string) {
   await page.keyboard.press('Escape')
 }
 
-/** Transform → Auto on a short list (two requests: the classification, then the form). */
-export async function transformAuto(page: Page) {
+/** Transform → Auto on a short list (two requests: the classification, then the form; `wait` false: not waited for). */
+export async function transformAuto(page: Page, wait = true) {
   const li = (s: string): JSONContent => ({ type: 'listItem', content: [{ type: 'paragraph', content: [{ type: 'text', text: s }] }] })
   const content = doc(para('Setting up the kit:'), { type: 'orderedList', attrs: { start: 1 }, content: ['Open the box', 'Check the parts', 'Assemble the frame'].map(li) }, para('Allow about 20 minutes.'), para('After the list.'))
   const id = await createPage(page, { title: 'Kit auto', content })
@@ -99,7 +99,7 @@ export async function transformAuto(page: Page) {
   await expect(aiPanel(page)).toBeVisible()
   await aiPanel(page).getByRole('option', { name: /^Transform into…/ }).click()
   await aiPanel(page).getByRole('option', { name: /^Auto/ }).click()
-  await expect(page.getByTestId('transform-auto')).toHaveText(/Auto picked Diagram/)
+  if (wait) await expect(page.getByTestId('transform-auto')).toHaveText(/Auto picked Diagram/)
 }
 
 export const TRANSFORM_STEPS = [
@@ -222,8 +222,9 @@ export async function addArchiveServer(page: Page) {
   await page.keyboard.press('Escape')
 }
 
-/** Autofill "Priority" on the first project row (skip review). Returns the database and property ids. */
-export async function autofillPriority(page: Page): Promise<{ dbId: string; propId: string }> {
+/** Autofill "Priority" on the first project row (skip review; `wait` false: the toast is not waited for). Returns the
+ *  database and property ids. */
+export async function autofillPriority(page: Page, wait = true): Promise<{ dbId: string; propId: string }> {
   const dbId = await pageIdByTitle(page, 'Projects')
   await gotoPage(page, dbId)
   await page.locator('#main section.db').first().getByRole('tab').filter({ hasText: 'All projects' }).click()
@@ -244,7 +245,7 @@ export async function autofillPriority(page: Page): Promise<{ dbId: string; prop
   await page.keyboard.press('ArrowRight')
   await expect(grid.locator('[data-cell="0:2"]')).toHaveAttribute('data-active', 'true')
   await page.keyboard.press('Alt+Enter')
-  await expect(page.locator('.toast', { hasText: 'Priority filled for' })).toBeVisible()
+  if (wait) await expect(page.locator('.toast', { hasText: 'Priority filled for' })).toBeVisible()
   return { dbId, propId }
 }
 

@@ -137,4 +137,13 @@ export interface AgentRun {
   touched?: DataClass[]
   /** browser runs with a Vorprüfer: its checks in numbers */
   jev?: AgentRunJev
+  /** a Regler line was set when the run ended: the line nearest its limit then (the run row's "Governor today …") */
+  regler?: AgentRunRegler
+}
+
+/** The Regler's line at a run's end: spent of the limit (today's, or this month's when that one was nearer). */
+export interface AgentRunRegler {
+  binding: 'day' | 'month' | 'device-day' | 'device-month'
+  spent: number
+  limit: number
 }

@@ -29,7 +29,7 @@ import { sameScript, sanitizeScript } from '../store/scripts'
 import { emptyKit, KIT_SANITIZERS, sameKitEntry, type KitPart } from '../store/kit'
 import { sameLook, sanitizeLook } from '../store/look'
 import { readWorkspaceAI, sameWorkspaceAI } from '../store/ai'
-import { sameGovernor, sanitizeGovernor, type WorkspaceGovernor } from '@/shared/ai/governor'
+import { isReadableGovernor, sameGovernor, sanitizeGovernor, type WorkspaceGovernor } from '@/shared/ai/governor'
 import type { Unreadable } from '@/shared/ai/route'
 import type { WorkspaceAI } from '@/shared/ai/types'
 import { INTEGRATION_LIMITS, sameIntegration, sanitizeIntegration } from '../store/integrations'
@@ -229,6 +229,8 @@ export interface BindingOptions {
   canStyle: () => boolean
   /** May this member change the workspace's AI rules (owners and admins on a server that guards them)? Otherwise put back. */
   canRuleAI: () => boolean
+  /** the Regler (Workspace.governor): owners and admins on a server that guards it (`supports ∋ 'governor'` and 'ai') */
+  canGovern: () => boolean
   isFavorite: (id: ID) => boolean
   /**
    * Remote changes: pages that appeared, pages whose updatedAt moved, pages that are gone, pages that
@@ -438,8 +440,7 @@ export function startBinding(o: BindingOptions): Binding {
       // the workspace's AI rules (owners / admins write them — server guard)
       const ai = readWorkspaceAI(rs.workspace.get('ai'))
       if (!sameWorkspaceAI(ai, s.ai)) patch.ai = ai ?? null
-      // the Regler (owners / admins write it — server guard collab/workspace-governor.ts); G0: read only, this tab never
-      // writes it back (the write and the refused put-back come with the Regler's settings)
+      // the Regler (owners / admins write it — server guard collab/workspace-governor.ts); a newer shape is kept as read
       const governor = sanitizeGovernor(rs.workspace.get('governor'))
       if (!sameGovernor(governor, s.governor, { meta: true })) patch.governor = governor ?? null
       dirtyWorkspace = false
@@ -552,8 +553,10 @@ export function startBinding(o: BindingOptions): Binding {
     const integrationsChanged = state.integrations !== prev.integrations
     // the workspace's AI rules: by value (a bulk write hands in a fresh copy of the same rules — no change)
     const aiChanged = state.ai !== prev.ai && !sameWorkspaceAI(state.ai, prev.ai)
+    // the Regler likewise (by value, its stamps included)
+    const governorChanged = state.governor !== prev.governor && !sameGovernor(state.governor, prev.governor, { meta: true })
     if (state.settings !== prev.settings) o.onSettings(state.settings, prev.settings)
-    if (!pagesChanged && !dbsChanged && !peopleChanged && !functionsChanged && !agentsChanged && !scriptsChanged && !kitChanged && !lookChanged && !integrationsChanged && !aiChanged) return
+    if (!pagesChanged && !dbsChanged && !peopleChanged && !functionsChanged && !agentsChanged && !scriptsChanged && !kitChanged && !lookChanged && !integrationsChanged && !aiChanged && !governorChanged) return
     // a look change by someone who may not style the workspace: the team's look comes back from Y
     if (lookChanged && o.writable() && !o.canStyle()) {
       queueMicrotask(() => withWriter(SYSTEM('refused'), () => applyFromCloud(() => useWorkspace.getState().cloudPatch({ look: sanitizeLook(rs.workspace.get('look')) }))))
@@ -561,6 +564,10 @@ export function startBinding(o: BindingOptions): Binding {
     // the AI rules likewise (owners and admins on a server that guards them)
     if (aiChanged && o.writable() && !o.canRuleAI()) {
       queueMicrotask(() => withWriter(SYSTEM('refused'), () => applyFromCloud(() => useWorkspace.getState().cloudPatch({ ai: readWorkspaceAI(rs.workspace.get('ai')) ?? null }))))
+    }
+    // the Regler likewise (owners and admins on a server that guards it) — the stamp it needs comes back with it
+    if (governorChanged && o.writable() && !o.canGovern()) {
+      queueMicrotask(() => withWriter(SYSTEM('refused'), () => applyFromCloud(() => useWorkspace.getState().cloudPatch({ governor: sanitizeGovernor(rs.workspace.get('governor')) ?? null }))))
     }
     // integration profiles likewise (owners and admins only)
     if (integrationsChanged && o.writable() && !o.canStyle()) {
@@ -701,6 +708,12 @@ export function startBinding(o: BindingOptions): Binding {
       if (aiChanged && o.canRuleAI() && !sameWorkspaceAI(readWorkspaceAI(rs.workspace.get('ai')), state.ai)) {
         if (state.ai) rs.workspace.set('ai', clone(state.ai))
         else if (rs.workspace.has('ai')) rs.workspace.delete('ai')
+      }
+      // the Regler: in the same transaction as the AI stamp it needs (older tabs see both at once); only a value this
+      // build can read — a newer shape (or the marker for one) is never written back over the document's
+      if (governorChanged && o.canGovern() && !sameGovernor(sanitizeGovernor(rs.workspace.get('governor')), state.governor, { meta: true })) {
+        if (state.governor && isReadableGovernor(state.governor)) rs.workspace.set('governor', clone(state.governor))
+        else if (!state.governor && rs.workspace.has('governor')) rs.workspace.delete('governor')
       }
     })
     // Follow-up store patches (the local `private` marker; created_by / last_edited_by mirror the

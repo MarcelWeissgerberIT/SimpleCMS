@@ -16,10 +16,11 @@
  */
 import { createStore, get, set, type UseStore } from 'idb-keyval'
 import type { UpstreamRule } from '@/shared/ai/types'
-import { expandCatalog, readDecisionRows, trimCatalog, type CatalogRow, type DecisionRow, type StoredCatalog } from '@/shared/ai/catalog'
+import { expandCatalog, hintsOfRow, readDecisionRows, trimCatalog, type CatalogRow, type DecisionRow, type StoredCatalog } from '@/shared/ai/catalog'
 import { JEV_OPERATOR, JEV_ROUTER } from '@/shared/ai/jev'
 import { OR_API } from '@/shared/ai/wire/openrouterChat'
 import { noteDecisionRows } from './decisionRows'
+import { registerCatalogHints } from './registry'
 
 export const CATALOG_DB = 'one-ai-catalog'
 const DAY_MS = 86_400_000
@@ -111,6 +112,11 @@ export interface Catalog {
 }
 
 let memo: Catalog | null = null
+// the gate estimates with the wire facts of the copy this tab holds (registry.ts wireHintsFor — sync, no I/O)
+registerCatalogHints((id) => {
+  const row = memo?.rows.find((r) => r.id === id)
+  return row ? hintsOfRow(row) : null
+})
 let inflight: Promise<Catalog | null> | null = null
 
 /**

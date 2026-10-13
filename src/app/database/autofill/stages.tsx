@@ -2,14 +2,75 @@
  * AI autofill panel — the run (meter, live log, cancel), the review (current → proposed, accept /
  * reject per row; a list on phones) and the summary.
  */
-import { useEffect, useRef } from 'react'
-import { Check, X } from 'lucide-react'
+import { useEffect, useRef, type KeyboardEvent } from 'react'
+import { Check, Gauge, X } from 'lucide-react'
 import type { PropertyDef, PropertyValue } from '../../store/types'
 import { useLang, useT } from '../../i18n'
 import { Checkbox, OptionTag } from '../cells/display'
 import { formatNumber } from '../model/format'
 import { isOptionProp } from './ConfigStage'
-import { acceptAll, acceptProposal, cancelFill, closeAutofillPanel, discardAll, hasKey, openAutofillSetup, rejectProposal, retryFailed, undoApplied, type Job, type Proposal } from './store'
+import { acceptAll, acceptProposal, cancelFill, closeAutofillPanel, continueFill, discardAll, hasKey, openAutofillSetup, rejectProposal, retryFailed, stopPausedFill, undoApplied, useAutofill, useFeatures, type Job, type Proposal } from './store'
+import { resumeAutofill } from './watch'
+import { typingWithin } from '../../ui/keys'
+
+/* ------------------------------------------------------------------ */
+/* The Regler's red line                                               */
+/* ------------------------------------------------------------------ */
+
+/**
+ * A strip at the red line (features/governor): what waits and its key — E "+1 $ once …" (only with focus in the strip,
+ * never while typing) · Stop. Nothing was sent for what waits.
+ */
+function LineStrip({ text, allow, onAllow, onStop, testId }: { text: string; allow: string; onAllow: () => void; onStop?: () => void; testId: string }) {
+  const t = useT()
+  const ref = useRef<HTMLDivElement>(null)
+  const onKey = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (e.altKey || e.ctrlKey || e.metaKey || e.repeat || typingWithin(e.target as Element, ref.current)) return
+    if (e.key.toLowerCase() !== 'e') return
+    e.preventDefault()
+    e.stopPropagation()
+    onAllow()
+  }
+  return (
+    <div ref={ref} className="af-line" role="group" aria-label={t('features.governor.halt.lamp')} tabIndex={-1} onKeyDown={onKey} data-testid={testId}>
+      <span className="af-line__lamp label">
+        <Gauge size={12} strokeWidth={1.8} aria-hidden />
+        {t('features.governor.halt.lamp')}
+      </span>
+      <p className="af-line__text">{text}</p>
+      <span className="af-spacer" />
+      <button type="button" className="btn btn--sm btn--primary af-line__key" onClick={onAllow}>
+        <span className="kbd">E</span>
+        {allow}
+      </button>
+      {onStop && (
+        <button type="button" className="btn btn--sm af-line__key" onClick={onStop}>
+          {t('features.governor.autofill.stop')}
+        </button>
+      )}
+    </div>
+  )
+}
+
+/** The watch's rows of this property paused at the red line (persisted): E fills them again (+1 $ for them, today). */
+export function PausedRows({ dbId, propId }: { dbId: string; propId: string }) {
+  const t = useT()
+  const lang = useLang()
+  const api = useFeatures()
+  useAutofill((s) => s.paused)
+  if (!api) return null
+  const list = api.pausedRows({ db: dbId, prop: propId })
+  const n = list.rows.length
+  if (!n) return null
+  return (
+    <LineStrip
+      testId="af-paused-rows"
+      text={`${t(n === 1 ? 'features.governor.autofill.pausedRows.one' : 'features.governor.autofill.pausedRows.other', { count: n })}${list.dropped ? ` ${t('features.governor.autofill.dropped', { count: list.dropped })}` : ''}`}
+      allow={t('features.governor.autofill.resume', { usd: api.fmtLimit(api.ALLOW_USD, lang) })}
+      onAllow={() => resumeAutofill({ db: dbId, prop: propId }, true)}
+    />
+  )
+}
 
 /** Move focus into a stage when it appears (the previous stage's buttons are gone). */
 function useStageFocus<T extends HTMLElement>() {
@@ -49,6 +110,8 @@ function Meter({ total, done, failed }: { total: number; done: number; failed: n
 
 export function RunStage({ job, prop }: { job: Job; prop: PropertyDef }) {
   const t = useT()
+  const lang = useLang()
+  const api = useFeatures()
   const focusRef = useStageFocus<HTMLButtonElement>()
   const total = job.rows.length
   const c = counts(job)
@@ -67,6 +130,7 @@ export function RunStage({ job, prop }: { job: Job; prop: PropertyDef }) {
             </span>
           </div>
           <Meter total={total} done={job.done} failed={c.failed} />
+          {job.paused && <LineStrip testId="af-paused-run" text={t('features.governor.autofill.pausedRun')} allow={t('features.governor.autofill.continue', { usd: api ? api.fmtLimit(api.ALLOW_USD, lang) : '' })} onAllow={() => continueFill(job.key)} onStop={() => stopPausedFill(job.key)} />}
           <div className="af-run__stats label">
             <span>
               {t('database.autofill.run.ok')} <b>{okCount}</b>

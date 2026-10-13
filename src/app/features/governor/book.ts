@@ -1,7 +1,8 @@
 /**
  * Reservations across tabs (Regler G-D5): gossip, no leader. Every tab announces its open reservations on its OWN
  * BroadcastChannel `one-ledger-res` — never on `one-ledger`, whose slice-1 listener reads again on any message —
- * debounced 50 ms after a change and every 30 s while it holds any; `bye` on pagehide. Each tab keeps the others' lists
+ * debounced 50 ms after a change and every 30 s while it holds any; `bye` on pagehide; a tab that starts says `hello` and
+ * every started tab answers with its list at once (a long step's reservation reaches a reloaded tab in ms, not 30 s). Each tab keeps the others' lists
  * and drops a tab's 2 minutes after its last message (or on its bye). The brake compares spent + reserved here +
  * reserved elsewhere; the caller's own reservation (`except`) is never counted. A soft pre-brake: two tabs can still race
  * one request (said in the UI); the hard limit is the provider's.
@@ -24,7 +25,7 @@ export interface ResItem {
   scope: string
 }
 
-export type BookMsg = { type: 'res'; tab: string; scope: string; list: ResItem[]; at: number } | { type: 'bye'; tab: string }
+export type BookMsg = { type: 'res'; tab: string; scope: string; list: ResItem[]; at: number } | { type: 'bye'; tab: string } | { type: 'hello'; tab: string }
 
 /** The other tabs' lists, by tab id. */
 export interface BookState {
@@ -41,6 +42,7 @@ const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 
 export function readBookMsg(v: unknown): BookMsg | null {
   if (!isObj(v) || typeof v.tab !== 'string' || !ID_RE.test(v.tab)) return null
   if (v.type === 'bye') return { type: 'bye', tab: v.tab }
+  if (v.type === 'hello') return { type: 'hello', tab: v.tab }
   if (v.type !== 'res' || !Array.isArray(v.list) || typeof v.at !== 'number') return null
   const list: ResItem[] = []
   for (const x of v.list.slice(0, MAX_ITEMS)) {
@@ -51,8 +53,9 @@ export function readBookMsg(v: unknown): BookMsg | null {
   return { type: 'res', tab: v.tab, scope: typeof v.scope === 'string' ? v.scope : '', list, at: v.at }
 }
 
-/** Another tab spoke (its list replaces the one kept; an empty list or a bye forgets it). */
+/** Another tab spoke (its list replaces the one kept; an empty list or a bye forgets it; a hello asks for every list). */
 export function hearBook(state: BookState, msg: BookMsg, now: number): void {
+  if (msg.type === 'hello') return
   if (msg.type === 'bye' || !msg.list.length) state.others.delete(msg.tab)
   // the receiver's clock decides staleness (the sender's may differ)
   else state.others.set(msg.tab, { list: msg.list, at: now })
@@ -136,6 +139,12 @@ export function startBook(): void {
     bc.onmessage = (ev: MessageEvent) => {
       const msg = readBookMsg(ev.data)
       if (!msg || msg.tab === TAB_ID) return
+      // a tab that just started asks: every started tab answers with its list at once (never only at its heartbeat)
+      if (msg.type === 'hello') {
+        if (debounce) clearTimeout(debounce)
+        post()
+        return
+      }
       hearBook(state, msg, Date.now())
       for (const fn of listeners) fn()
     }
@@ -146,7 +155,12 @@ export function startBook(): void {
       /* closed */
     }
   })
-  // say what this tab already holds
+  // ask the others for what they hold now (they answer at once), and say what this tab already holds
+  try {
+    bc?.postMessage({ type: 'hello', tab: TAB_ID } satisfies BookMsg)
+  } catch {
+    /* closed */
+  }
   post()
 }
 

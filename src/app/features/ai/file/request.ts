@@ -13,7 +13,7 @@
 import type AnthropicSDK from '@anthropic-ai/sdk'
 import type { BetaContentBlockParam, BetaMessageParam } from '@anthropic-ai/sdk/resources/beta/messages/messages'
 import { AIError, claudeClient, finalOf, thinks, toAIError, usesDemo, viaNeutral } from '../client'
-import { prepare, settle, type Prepared } from '../core/gate'
+import { capped, prepare, settle, type Prepared } from '../core/gate'
 import { meterCall, pdfChars, type Receipt } from '../core/meter'
 import type { PurposeId } from '../core/purposes'
 import type { RouteOptions } from '../client'
@@ -177,7 +177,8 @@ export async function requestFile(req: FileRequest): Promise<string> {
     // the request's size: the task, the system prompt and the file as it counts (a stopped request is estimated from it)
     const promptChars = () => SYSTEM.length + prompt.length + materialChars(material)
     // the gate: nothing is sent before it (features/ai/core/gate.ts); the response is metered (core/meter.ts)
-    prepared = prepare({ purpose: req.purpose, sources: req.sources, typed: req.typed, needs: material.type === 'pdf' ? ['pdf'] : [], size: { promptChars: promptChars(), maxTokens: (caps) => (thinks(caps) ? maxTokens : Math.min(maxTokens, 32000)) }, route: req.route, applied: req.applied, carries: req.carries })
+    // the tables are a JSON answer: never capped at the red line (a summary, a transcription or an answer is text)
+    prepared = prepare({ purpose: req.purpose, sources: req.sources, typed: req.typed, needs: material.type === 'pdf' ? ['pdf'] : [], size: { promptChars: promptChars(), maxTokens: (caps) => (thinks(caps) ? maxTokens : Math.min(maxTokens, 32000)) }, route: req.route, applied: req.applied, carries: req.carries, answer: format ? 'structured' : 'text', ...(req.pinned ? { pinned: req.pinned } : {}), ...(req.run ? { run: req.run } : {}) })
     const call = meterCall(prepared, { signal, onRun: req.onRun })
     if (prepared.provider !== 'anthropic') {
       // another provider (OpenRouter): a PDF as a file the model reads natively, other files as a text document; the
@@ -200,7 +201,7 @@ export async function requestFile(req: FileRequest): Promise<string> {
     let stopReason: string | null
     if (!thinks(prepared.caps)) {
       const messages: AnthropicSDK.MessageParam[] = [{ role: 'user', content: [documentBlock(material), { type: 'text', text: prompt }] }]
-      const stream = client.messages.stream({ model, max_tokens: Math.min(maxTokens, 32000), system: SYSTEM, messages, ...(format ? { output_config: { format } } : {}) })
+      const stream = client.messages.stream({ model, max_tokens: capped(Math.min(maxTokens, 32000), prepared), system: SYSTEM, messages, ...(format ? { output_config: { format } } : {}) })
       const abort = () => stream.abort()
       signal?.addEventListener('abort', abort, { once: true })
       stream.on('text', onText)
@@ -217,7 +218,7 @@ export async function requestFile(req: FileRequest): Promise<string> {
       const effort = action === 'extract' || action === 'tables' ? ('medium' as const) : ('low' as const)
       const stream = client.beta.messages.stream({
         model,
-        max_tokens: maxTokens,
+        max_tokens: capped(maxTokens, prepared),
         betas: [FALLBACK_BETA],
         fallbacks: 'default',
         output_config: format ? { effort, format } : { effort },

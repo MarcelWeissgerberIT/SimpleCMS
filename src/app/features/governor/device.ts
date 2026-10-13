@@ -5,7 +5,9 @@
  *    backup; it survives the local reset like one.textScale. Written only by setDeviceLimit() (Settings › KI); the store
  *    then re-stamps the device generation (B1: stampDeviceGen()).
  *  - localStorage `one.governor.scopes` = [{ scope, last }] (≤ 50, seen within 35 days): which scopes this browser
- *    metered, so the device-wide sum can read each one's day (totals.ts, only while a device limit is set).
+ *    metered — noted on the first entry of a scope each day whether a line is set or not (totals.ts noteMetered, from
+ *    install.ts), and once from the ledger's own keys when the line is followed — so the device-wide sum can read each
+ *    one's day (totals.ts, only while a device limit is set).
  * Storage refused or unreadable → no limit, no scopes (a request is never failed for its bookkeeping). Pure apart from
  * the storage handed in (Node specs pass their own).
  */
@@ -86,6 +88,33 @@ export function setDeviceLimit(next: { day?: number | null; month?: number | nul
   return write(kv, DEVICE_KEY, clean) ? { ok: true, value: clean } : { ok: false, why: 'storage' }
 }
 
+/** The in-tab signal that this tab wrote the line ('storage' fires only in the other tabs). */
+export const DEVICE_EVENT = 'one-governor-device'
+
+/** This tab wrote the line (line.ts writeDeviceLimit, after its stamp): the brake's followers, the cell, the watch. */
+export function deviceLineChanged(): void {
+  if (typeof window === 'undefined') return
+  try {
+    window.dispatchEvent(new Event(DEVICE_EVENT))
+  } catch {
+    /* no events here */
+  }
+}
+
+/** The line moved — written in this tab or in another one. Returns the unsubscribe. */
+export function onDeviceLine(fn: () => void): () => void {
+  if (typeof window === 'undefined') return () => {}
+  const onStorage = (e: StorageEvent) => {
+    if (e.key === DEVICE_KEY) fn()
+  }
+  window.addEventListener('storage', onStorage)
+  window.addEventListener(DEVICE_EVENT, fn)
+  return () => {
+    window.removeEventListener('storage', onStorage)
+    window.removeEventListener(DEVICE_EVENT, fn)
+  }
+}
+
 /* ------------------------------------------------------------------ */
 /* Scopes metered in this browser                                       */
 /* ------------------------------------------------------------------ */
@@ -125,6 +154,28 @@ export function noteScope(scope: string, now = Date.now(), kv: KV | null = local
   const day = dayOf(now)
   const rest = knownScopes(now, kv).filter((s) => s.scope !== scope)
   return write(kv, SCOPES_KEY, [{ scope, last: day }, ...rest].slice(0, MAX_SCOPES))
+}
+
+/**
+ * Scopes found in the ledger itself (its keys of this month — totals.ts when the line is followed): a workspace that spent
+ * before anything noted it (an older build's tab, a day before this build) is counted too. Keeps the later day of each.
+ * False: nothing new (or not written).
+ */
+export function mergeScopes(seen: readonly ScopeSeen[], now = Date.now(), kv: KV | null = localKV()): boolean {
+  const cutoff = dayOf(now - SCOPE_DAYS * DAY_MS)
+  const list = knownScopes(now, kv)
+  let changed = false
+  for (const s of seen) {
+    if (!SCOPE_RE.test(s.scope) || !DAY_RE.test(s.last) || s.last < cutoff) continue
+    const i = list.findIndex((x) => x.scope === s.scope)
+    if (i < 0) list.push({ scope: s.scope, last: s.last })
+    else if (list[i].last < s.last) list[i] = { scope: s.scope, last: s.last }
+    else continue
+    changed = true
+  }
+  if (!changed) return false
+  list.sort((a, b) => (a.last < b.last ? 1 : a.last > b.last ? -1 : 0))
+  return write(kv, SCOPES_KEY, list.slice(0, MAX_SCOPES))
 }
 
 /** Forget scopes (a workspace's copy removed from this browser, cloud/device.ts). */

@@ -80,7 +80,7 @@ export interface AINeedsSetupProps {
 
 /** The setup step a fix opens (the assistant at the right provider / class). */
 export function openFix(fix: AIFix, o: { feature?: FeatureClass } = {}): void {
-  if (fix.kind === 'askClaude' || fix.kind === 'pick') return
+  if (fix.kind === 'askClaude' || fix.kind === 'pick' || fix.kind === 'brake') return
   if (fix.step === 'key') openAISetup({ reason: 'refused', step: 'key', provider: fix.provider, ...(o.feature ? { feature: o.feature } : {}) })
   else if (fix.step === 'models') openAISetup({ reason: 'models', step: 'models', provider: fix.provider, ...(o.feature ? { feature: o.feature } : {}) })
   else openAISetup({ reason: 'policy', step: 'data', provider: fix.provider, ...(fix.data ? { data: fix.data } : {}), ...(o.feature ? { feature: o.feature } : {}) })
@@ -197,7 +197,8 @@ export function AINeedsSetup({ purpose, reason, fix, variant = 'card', onOpen, o
  */
 export function FixKeys({ fix, onPick, onOpen, feature }: { fix: AIFix | null | undefined; onPick?: () => void; onOpen?: () => void; feature?: FeatureClass }) {
   const t = useT()
-  if (!fix || fix.kind === 'askClaude') return null
+  // the red line's keys are the governor's BrakeNote (features/governor)
+  if (!fix || fix.kind === 'askClaude' || fix.kind === 'brake') return null
   const go = (run: () => void) => () => {
     onOpen?.()
     run()

@@ -13,6 +13,7 @@ import { precheck } from './core/gate'
 import { routed, shapeOf, withShape } from './core/shape'
 import { relatedRows, rowFactsFor, type FactsContext } from './rowFacts'
 import { useWorkspace } from '../../store/store'
+import { newId } from '../../lib/ids'
 import type { SourceRef } from '@/shared/ai/types'
 import { estimateLabel, estimateOn, routeFor } from './core/status'
 import { providerInfo } from '@/shared/ai/providers'
@@ -176,7 +177,7 @@ export function buildAutofillPrompt(req: AutofillRequest): { system: string; pro
  * Ask Claude for one field value. Throws AIError for API failures (no key, rate limit after
  * retries, offline, aborted …); a reply that is not `{ "value": … }` resolves as `{ ok: false }`.
  */
-export async function requestAutofill(req: AutofillRequest, signal?: AbortSignal, rowId?: string | null, field?: { dbId: string; propId: string } | null): Promise<AutofillAnswer> {
+export async function requestAutofill(req: AutofillRequest, signal?: AbortSignal, rowId?: string | null, field?: { dbId: string; propId: string; job?: string; mode?: 'bulk' | 'trigger' } | null): Promise<AutofillAnswer> {
   // the row's fields and page content go out (a caller without the row id: the database as a whole)
   const base: SourceRef[] = rowId ? [{ row: rowId }] : [{ all: true }]
   // the route first: the row is read for it (D-S2-28 — names, transcripts, pages it may not see left out)
@@ -195,7 +196,9 @@ export async function requestAutofill(req: AutofillRequest, signal?: AbortSignal
     schema,
     maxTokens: long ? 8000 : 4096,
     signal,
-    ...(field ? { ledgerSource: `autofill:${field.dbId}:${field.propId}` } : {}),
+    // the job's source (autofill:<db>:<prop>:<job> — a watch fill is its own job) and how it runs: a person's job or
+    // the watch (features/governor modes.ts)
+    run: { ...(field ? { source: `autofill:${field.dbId}:${field.propId}:${field.job ?? newId()}` } : {}), mode: field?.mode ?? 'bulk' },
     ...routed(pre),
     onRun: (r) => (ai = aiRunMeta(r) ?? ai),
   })
@@ -249,18 +252,23 @@ export interface AutofillEstimate {
   model: string
   /** the company that bills it (the routed provider's — "Anthropic", "OpenRouter") */
   company: string
+  /** the Regler's band for the whole run: every row braked on its own request (its prompt + the wire's answer budget) */
+  band: { low: number; high: number } | null
 }
 
 /**
  * Rough cost of filling `rows` rows whose context adds up to `contextChars` characters — priced by the one table
  * (features/governor estimate()). The provider bills the real usage to the user's key; this is an order of magnitude.
  */
-export function estimateAutofill({ rows, contextChars, preset }: { rows: number; contextChars: number; preset: AutofillPreset }): AutofillEstimate {
+export function estimateAutofill({ rows, contextChars, preset, long = preset === 'translate' }: { rows: number; contextChars: number; preset: AutofillPreset; long?: boolean }): AutofillEstimate {
   // the route autofill takes on this device (a rule for bulk work may send it elsewhere than the AI menu — D-S2-32)
   const r = routeFor('bulk.autofill')
   const contextTokens = contextChars / CHARS_PER_TOKEN
   const inputTokens = Math.round(rows * OVERHEAD_TOKENS + contextTokens)
   const outputTokens = Math.round(rows * OUTPUT_TOKENS[preset] + (preset === 'translate' ? contextTokens * 1.1 : 0))
   const usd = estimateOn(r, { promptTokens: inputTokens, outTokens: outputTokens, maxTokens: outputTokens })?.low ?? 0
-  return { rows, inputTokens, outputTokens, usd, model: estimateLabel(r.route, r.pool), company: providerInfo(r.route.p).company }
+  // per row as the brake sees it: its share of the prompt and the answer budget the request asks for (fillRow)
+  const one = rows > 0 ? estimateOn(r, { promptTokens: inputTokens / rows, outTokens: outputTokens / rows, maxTokens: long ? 8000 : 4096 }) : null
+  const band = one ? { low: one.low * rows, high: one.high * rows } : rows > 0 ? null : { low: 0, high: 0 }
+  return { rows, inputTokens, outputTokens, usd, model: estimateLabel(r.route, r.pool), company: providerInfo(r.route.p).company, band }
 }

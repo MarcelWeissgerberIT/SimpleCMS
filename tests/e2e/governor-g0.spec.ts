@@ -1,12 +1,13 @@
 /**
  * Regler G0 in the store (store.ts hydrate / replaceAll / getWorkspaceSnapshot, io/backup.ts): Workspace.governor is
- * kept by every reader and written by nobody yet —
+ * kept by every reader (written through setGovernor since B1) —
  *  - a store write (pages, settings, the look, the AI rules) leaves the governor's reference as it was;
  *  - another tab's save of something else keeps it (the same value keeps its reference); another tab's save OF the
  *    governor reaches this tab without a reload (replaceAll reads the stored meta — positive control);
  *  - a re-hydrate (what a workspace switch runs) takes the new workspace's value and never keeps the previous one;
  *  - full backups carry it, page backups never (nor the marker for a newer value this build keeps no copy of); a
- *    restore (replace or merge) keeps this workspace's — a backup's own value or none at all changes nothing.
+ *    restore (replace or merge) keeps this workspace's — a backup's own value (the restore asks: Keep mine) or none at
+ *    all changes nothing.
  * The cloud side (a member reads an owner's value from the meta map, never writes it) is tests/e2e-cloud/governor-g0.spec.ts.
  * No AI host is reached. Every value is fictional.
  */
@@ -18,11 +19,26 @@ import { exportBackup, importBackup } from './helpers/backup'
 type Gov = Record<string, unknown> | undefined
 type Hook = { __one: { workspace: { setState: (x: object) => void; getState: () => Record<string, unknown> } }; __g0ref?: unknown }
 
-const VALUE = { v: 1, autonomy: 'propose', day: 6, month: 120, updatedAt: 1760000000000, updatedBy: null }
-const OTHER = { v: 1, day: 40, month: 900, updatedAt: 1760000500000, updatedBy: null }
+const VALUE = { v: 1, autonomy: 'propose', day: 6, month: 120 }
+const OTHER = { v: 1, day: 40, month: 900 }
 
-const setGov = (p: Page, v: Gov) => p.evaluate((g) => (window as unknown as Hook).__one.workspace.setState({ governor: g }), v)
-const govOf = (p: Page) => wsEval(p, (s) => JSON.parse(JSON.stringify(s.governor ?? null)) as Gov | null)
+/** Without the stamps the setter sets (updatedAt / updatedBy). */
+const bare = (g: Gov | null): Gov | null => {
+  if (!g) return g
+  const { updatedAt: _a, updatedBy: _b, ...rest } = g
+  return rest
+}
+/**
+ * Write it through the Regler's setter (B1 — the AI stamp lands in the same update); a newer build's value the setter
+ * refuses goes in raw (it needs no stamp of this build).
+ */
+const setGov = (p: Page, v: Gov) =>
+  p.evaluate((g) => {
+    const ws = (window as unknown as Hook).__one.workspace
+    const s = ws.getState() as unknown as { setGovernor(x: unknown): { ok: boolean } }
+    if (!s.setGovernor(g ?? null).ok) ws.setState({ governor: g })
+  }, v)
+const govOf = async (p: Page) => bare(await wsEval(p, (s) => JSON.parse(JSON.stringify(s.governor ?? null)) as Gov | null))
 /** Remember the store's governor object (by reference) — and ask later whether it is still that very object. */
 const keepRef = (p: Page) => p.evaluate(() => {
   const w = window as unknown as Hook
@@ -129,7 +145,7 @@ test.describe('Workspace.governor in the store (G0)', () => {
 
     // full backup: carries it (positive control); page backup: never
     const { json } = await exportBackup(page, testInfo, 'full.json')
-    expect(json.workspace.governor).toEqual(VALUE)
+    expect(bare(json.workspace.governor)).toEqual(VALUE)
     expect((await exportPageBackup(page, testInfo, 'Welcome to One')).workspace.governor).toBeUndefined()
 
     // a backup with another governor, restored by replace: the workspace is the file's (a page proves it), the governor ours
@@ -139,7 +155,8 @@ test.describe('Workspace.governor in the store (G0)', () => {
     proof.title = 'Restored from the file'
     const otherFile = testInfo.outputPath('other.json')
     writeFileSync(otherFile, JSON.stringify(other))
-    await importBackup(page, otherFile, 'replace')
+    // (the backup's governor differs: the restore asks — Keep mine)
+    await importBackup(page, otherFile, 'replace', 'keep')
     await expect.poll(() => wsEval(page, (s) => (Object.values(s.pages) as Array<{ title: string }>).some((p) => p.title === 'Restored from the file'))).toBe(true)
     expect(await govOf(page)).toEqual(VALUE)
     expect(await sameRef(page)).toBe(true)
@@ -153,7 +170,7 @@ test.describe('Workspace.governor in the store (G0)', () => {
     expect(await govOf(page)).toEqual(VALUE)
 
     // merge: the file's governor is never taken
-    await importBackup(page, otherFile, 'merge')
+    await importBackup(page, otherFile, 'merge', 'keep')
     expect(await govOf(page)).toEqual(VALUE)
     expect(await sameRef(page)).toBe(true)
     await reloadApp(page)

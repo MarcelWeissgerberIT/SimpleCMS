@@ -1,7 +1,8 @@
 /**
  * Custom agents — a newer proposal replaces an older one (pure; review.ts supersedeOlder writes the plan). A mirror agent
  * proposes the same row's fields run after run; the older proposals would only pile up. The rule:
- *  - only update_row proposals of browser runs that wait for review (run status 'staged'), both still open
+ *  - only update_row proposals of browser runs that wait for review (run status 'staged', or 'held': the Regler stopped
+ *    it with its proposals kept — the next run's replace them where they touch the same rows), both still open
  *    (pending | failed), of the same agent, for the same row (`rowOf`: a staged row id resolved through the run's rowIds);
  *  - the older one's fields ⊆ the newer one's (a field only the older one has keeps it: nothing is swallowed);
  *  - the older one has no open proposal building on it, and nobody opened it (`opened`: Preflight's opened cards);
@@ -29,8 +30,9 @@ const propsOf = (c: StagedChange) => new Set((c.props ?? []).map((p) => p.propId
 
 /** Which open proposals newer ones replace (oldest runs last in the list it walks; newest first in `runs` or not). */
 export function supersedePlan(runs: AgentRun[], rowOf: (run: AgentRun, pageId: ID) => ID, opened: (runId: string, changeId: string) => boolean): SupersedeStep[] {
-  // a run Jev made wait is staged only because of Jev: it replaces nothing and nothing replaces it
-  const staged = runs.filter((r) => r.runner === 'browser' && r.status === 'staged' && r.staged?.length && !r.jev?.waited).sort((a, b) => b.startedAt - a.startedAt)
+  // a run Jev made wait is staged only because of Jev: it replaces nothing and nothing replaces it. A run the Regler held
+  // (stopped at the red line, proposals kept) takes part like a staged one.
+  const staged = runs.filter((r) => r.runner === 'browser' && (r.status === 'staged' || r.status === 'held') && r.staged?.length && !r.jev?.waited).sort((a, b) => b.startedAt - a.startedAt)
   const out: SupersedeStep[] = []
   /** proposals of newer runs that stay (not replaced themselves), newest first */
   const newer: Array<{ run: AgentRun; change: StagedChange; row: ID; props: Set<ID> }> = []

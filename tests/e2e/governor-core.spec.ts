@@ -53,42 +53,35 @@ import {
 } from '../../src/shared/ai/governor'
 import { GEN, GEN_ENFORCED, GEN_UNNAMED_UPTO, type GenTable } from '../../src/shared/ai/generations'
 import { AI_POLICY_GEN } from '../../src/shared/ai/policy'
+import { AI_ERROR_CODES, BUDGET_DETAILS, fallbackOf, isAIErrorCode, isBudgetDetail } from '../../src/shared/ai/errors'
+import { messages as coreMessages } from '../../src/app/features/messages-core'
 import { closedDaysBefore, dayOf, monthOf, nextMidnight } from '../../src/app/features/governor/clock'
+import { consumerOf, consumersOf, daysOf, providersOf, rollOf, runsOf } from '../../src/app/features/governor/consumers'
 import { applyDayRead, cacheOf, closedDaysOf, closedTally, deltaTally, meterTally, monthSpentOf, newTally, readTally, readTodayCache, rollTally, sumTallies, tallyKnown, todayOf, type DayRead } from '../../src/app/features/governor/tally'
 import { BOOK_STALE_MS, emptyBook, expireBook, hearBook, readBookMsg, reservedByOthers, reservedIn } from '../../src/app/features/governor/book'
 import { allowOnce, allowTask, allowanceOf, clearAllowances, consume } from '../../src/app/features/governor/allow'
-import { DEVICE_KEY, DEVICE_LINE_SPANS_BROWSER, MAX_SCOPES, SCOPES_KEY, deviceLimitOf, deviceLineScopes, forgetScopes, knownScopes, noteScope, readDeviceLimit, setDeviceLimit, type KV } from '../../src/app/features/governor/device'
+import { DEVICE_KEY, DEVICE_LINE_SPANS_BROWSER, MAX_SCOPES, SCOPES_KEY, deviceLimitOf, deviceLineScopes, forgetScopes, knownScopes, mergeScopes, noteScope, readDeviceLimit, setDeviceLimit, type KV } from '../../src/app/features/governor/device'
+import { imageChars, messagesChars, notePdfPages, pdfChars } from '../../src/app/features/ai/core/sizes'
 import { PAUSED_MAX, addPaused, readPaused, takePaused, wipePaused } from '../../src/app/features/governor/paused'
 import { NO_LIMITS, fits, hasLimit, hasMonthLimit, limitsOf, lineOf, restMin, restOf, type Limits, type Rest, type TotalsLike } from '../../src/app/features/governor/limits'
-import { FIRST_STEP_OUT, MCP_ROUNDS, coldCost, contextOf, mcpOneShotBand, nextStep, stepOutputs, switchBand } from '../../src/app/features/governor/steps'
-import {
-  AGENTS_WAIT_MID_RUN,
-  ALLOW_USD,
-  allowFits,
-  H_ACROSS_THINKING,
-  asksAtStart,
-  capFor,
-  capsHold,
-  cheaperForHalt,
-  cheaperRoute,
-  needsOfHistory,
-  oneShot,
-  round,
-  startCheckPure,
-  waitsAtLine,
-  type HCandidate,
-  type OneShotCtx,
-  type RunMode,
-} from '../../src/app/features/governor/brake'
+import { FIRST_STEP_OUT, MCP_ROUNDS, coldCost, contextOf, mcpOneShotBand, mcpReads, nextStep, stepOutputs, switchBand } from '../../src/app/features/governor/steps'
+import { ALLOW_USD, allowFits, capFor, cheaperRoute, oneShot, type OneShotCtx, type RefuseDetail, type RunMode } from '../../src/app/features/governor/brake'
+import { AGENTS_WAIT_MID_RUN, H_ACROSS_THINKING, asksAtStart, capsHold, cheaperForHalt, needsOfHistory, round, startCheckPure, waitsAtLine, type HCandidate } from '../../src/app/features/governor/halt'
 import { HELD_TIMES, PRUNE_EXTRA, heldDay, heldId, heldNotStarted, heldStopped, mergeRun, newestReal, openProposals, pruneRuns } from '../../src/app/features/agents/held'
 import type { AgentRun } from '../../src/app/features/agents/types'
 import { AMBER_SHARE, readUsageLamp, usageLine } from '../../src/app/features/governor/lamp'
 import { fmtBand, fmtLimit, fmtNum, fmtOf, fmtScale, fmtTok } from '../../src/app/features/governor/format'
 import { SWEEP, angleOf, arcPath, dialNumerals, dialScale, dialTicks, miniBar, monthBar } from '../../src/app/features/governor/gauge'
 import { messages as governorMessages } from '../../src/app/features/governor/messages'
-import { blendedPerM, priceRow } from '../../src/shared/ai/prices'
+import { blendedPerM, costOf, priceRow } from '../../src/shared/ai/prices'
 import { capsOf } from '../../src/shared/ai/models'
-import type { PriceRow, Route, Usage } from '../../src/shared/ai/types'
+import type { Caps, ChatRequest, ModelInfo, PriceRow, Route, Usage, WireHints } from '../../src/shared/ai/types'
+import { build, type BuildOpts } from '../../src/shared/ai/wire/openrouterChat'
+import { wireMaxTokens } from '../../src/shared/ai/wire/maxTokens'
+import { JEV_ROUTER } from '../../src/shared/ai/jev'
+import { estimate, wireOutFor } from '../../src/app/features/governor/estimate'
+import { CALLER_MODE, RUN_MODES, SOURCE_RE, minOut, missesMode, modeOf, sourceFor } from '../../src/app/features/governor/modes'
+import { PURPOSES } from '../../src/app/features/ai/core/purposes'
 
 const ROOT = fileURLToPath(new URL('../../', import.meta.url))
 
@@ -359,6 +352,143 @@ test.describe('generations', () => {
     expect(problems({ claudeLimits: 2, budget: 3 }, { claudeLimits: 'package.json', budget: 'package.json' }, 3, 2)).toEqual(['budget: package.json does not name it'])
     expect(problems({ claudeLimits: 2 }, { claudeLimits: 'src/app/nowhere.ts' }, 2, 2)).toEqual(['claudeLimits: no module'])
   })
+
+  test('B5: the budget generation\'s module exists and names it — the build may raise AI_POLICY_GEN to GEN.budget (B12)', () => {
+    expect(GEN_ENFORCED.budget).toBe('src/app/features/governor/install.ts')
+    expect(problems(GEN, GEN_ENFORCED, GEN.budget, GEN_UNNAMED_UPTO)).toEqual([])
+    // the only module that registers the brake with the gate
+    expect(readFileSync(`${ROOT}src/app/features/governor/install.ts`, 'utf8')).toContain('registerBeforeSend({ money, peek, round, start: startRun })')
+  })
+
+  test('B9: the loop parts stay a lazy chunk — no eager module of the Regler imports loops / halt / steps statically', () => {
+    const dir = `${ROOT}src/app/features/governor/`
+    const LAZY = ['loops', 'halt', 'steps']
+    const staticOf = (src: string): string[] => [...src.matchAll(/^\s*(?:import|export)\b[^;'"]*?from\s+'\.\/([\w.]+)'/gm)].filter((m) => !/^\s*(?:import|export)\s+type\b/.test(m[0])).map((m) => m[1])
+    for (const f of ['index.ts', 'install.ts', 'brake.ts', 'mcpBand.ts', 'limits.ts', 'totals.ts', 'background.ts', 'lampSource.ts', 'statusGate.tsx', 'marks.ts', 'plan.ts', 'modes.ts']) {
+      const deps = staticOf(readFileSync(dir + f, 'utf8'))
+      expect(deps.filter((d) => LAZY.includes(d)), f).toEqual([])
+    }
+    // positive control: the lazy chunk does import them; install.ts loads it only by import()
+    expect(staticOf(readFileSync(dir + 'loops.ts', 'utf8'))).toEqual(expect.arrayContaining(['halt', 'steps']))
+    expect(readFileSync(dir + 'install.ts', 'utf8')).toContain("import('./loops')")
+  })
+})
+
+test.describe('the shared error and type additions (B2)', () => {
+  test("'budget' is an error code that never falls back; its details are the brake's refusals", () => {
+    expect(AI_ERROR_CODES).toContain('budget')
+    expect(isAIErrorCode('budget')).toBe(true)
+    expect(fallbackOf('budget')).toBe('never')
+    // positive control: a code that does fall back
+    expect(fallbackOf('overloaded')).toBe('switch')
+    // the brake's refusals (brake.ts RefuseDetail = a binding line · noprice · scope) are exactly the details
+    const refusals: RefuseDetail[] = ['day', 'month', 'device-day', 'device-month', 'run', 'noprice', 'scope']
+    expect([...BUDGET_DETAILS].sort()).toEqual([...refusals].sort())
+    expect(isBudgetDetail('device-month')).toBe(true)
+    expect(isBudgetDetail('week')).toBe(false)
+  })
+  test('both languages name the budget error', () => {
+    for (const lang of ['en', 'de'] as const) expect(coreMessages[lang]['features.ai.err.budget']).toBeTruthy()
+    expect(coreMessages.de['features.ai.err.budget']).toContain('Regler')
+  })
+})
+
+test.describe('one answer-budget rule on the wire (B3, shared/ai/wire/maxTokens.ts)', () => {
+  const CAPS: Caps = { structured: true, tools: true, vision: false, pdf: false, mcp: false, mcpListing: false, cache: 'auto', effort: false, reasoning: false, web: false, notes: false, refusalFallback: false, context: 131072, maxOutput: 16384 }
+  const ROW: PriceRow = { input: 0.3, output: 1.2, cacheRead: 0.3, cacheWrite: 0.3, source: 'catalogue', at: '2026-10-12' }
+  const info = (m: string, caps: Partial<Caps> = {}, hints?: WireHints): ModelInfo => ({ route: { p: 'openrouter', m }, label: m, short: m, vendor: m.split('/')[0]!, caps: { ...CAPS, ...caps }, price: ROW, ...(hints ? { hints } : {}) })
+  const OPTS: BuildOpts = { pins: ['nordwind'], upstream: { deny: [], noCollect: true, zdr: false }, referer: 'https://one.example/app/' }
+  const ROUTER_OPTS: BuildOpts = { ...OPTS, pins: ['nordwind', 'typesafe'], router: { pool: ['vendor-a/model-b', 'vendor-c/thinker-2'], exclude: ['openrouter/*'] } }
+  const ask = (route: Route, maxTokens: number): ChatRequest => ({ kind: 'chat', route, system: 'You are the writing assistant.', messages: [{ role: 'user', parts: [{ type: 'text', text: 'Nordlicht launch plan.' }] }], output: { kind: 'text' }, maxTokens, cache: 'none' })
+  const MANDATORY: WireHints = { params: ['max_tokens', 'reasoning', 'tools'], reasoning: { mandatory: true, efforts: ['high', 'medium', 'low', 'minimal'], supportsMax: false } }
+  const OPTIONAL: WireHints = { params: ['max_tokens', 'reasoning', 'tools'], reasoning: { mandatory: false, efforts: ['high', 'medium', 'low'], supportsMax: false } }
+  const PROMPT = 12_000
+  /** the cost of the prompt + the answer budget the body carries */
+  const billed = (row: PriceRow, maxTokens: number) => costOf({ input: PROMPT, cacheWrite: 0, cacheWrite1h: 0, cacheRead: 0, output: maxTokens, reasoning: 0 }, row, 0).usd
+
+  test('the estimate\'s upper end is the cost of exactly what build() sends — five kinds of route', () => {
+    const cases: Array<[string, Route, ModelInfo, number]> = [
+      ['a fixed OpenRouter row', { p: 'openrouter', m: 'vendor-a/model-b' }, info('vendor-a/model-b'), 8000],
+      ['a mandatory reasoner', { p: 'openrouter', m: 'vendor-c/thinker-2' }, info('vendor-c/thinker-2', { reasoning: { mandatory: true } }, MANDATORY), 4000],
+      ['an optional reasoner with an effort (the S2 under-count)', { p: 'openrouter', m: 'vendor-f/flex-1', effort: 'medium' }, info('vendor-f/flex-1', {}, OPTIONAL), 3000],
+      ['the Jev Router', { p: 'openrouter', m: JEV_ROUTER, effort: 'low' }, info(JEV_ROUTER), 2000],
+      ['an answer budget above the output cap', { p: 'openrouter', m: 'vendor-a/model-b' }, info('vendor-a/model-b'), 40_000],
+    ]
+    for (const [name, route, model, max] of cases) {
+      const body = build(ask(route, max), model, route.m === JEV_ROUTER ? ROUTER_OPTS : OPTS).body
+      const sent = body.max_tokens as number
+      expect(wireMaxTokens(route, max, model.caps, model.hints), name).toBe(sent)
+      expect(estimate(route, { promptTokens: PROMPT, maxTokens: max }, 0, ROW, model.caps, model.hints)!.high, name).toBeCloseTo(billed(ROW, sent)!, 10)
+    }
+    // the optional reasoner without an effort gets no room — and neither does its estimate
+    const plain = info('vendor-f/flex-1', {}, OPTIONAL)
+    const noEffort: Route = { p: 'openrouter', m: 'vendor-f/flex-1' }
+    expect(build(ask(noEffort, 3000), plain, OPTS).body.max_tokens).toBe(3000)
+    expect(estimate(noEffort, { promptTokens: PROMPT, maxTokens: 3000 }, 0, ROW, plain.caps, plain.hints)!.high).toBeCloseTo(billed(ROW, 3000)!, 10)
+  })
+
+  test('Claude: the visible budget is what is sent (thinking sits inside it)', () => {
+    const route: Route = { p: 'anthropic', m: 'claude-sonnet-5-5' }
+    const row = priceRow(route)!
+    expect(wireMaxTokens(route, 4096, capsOf(route))).toBe(4096)
+    expect(estimate(route, { promptTokens: PROMPT, maxTokens: 4096 }, 0)!.high).toBeCloseTo(billed(row, 4096)!, 10)
+  })
+
+  test('writeTokens: a cold cache is priced at the cache-write column (the 68k switch example)', () => {
+    const haiku: Route = { p: 'anthropic', m: 'claude-haiku-4-5' }
+    const cold = estimate(haiku, { promptTokens: 68_000, writeTokens: 68_000, maxTokens: 22_000, outTokens: 15_000 }, 0)!
+    // 68k × 1.25 $/M = 0.085 · output 15k–22k × 5 $/M
+    expect(cold.low).toBeCloseTo(0.085 + 0.075, 6)
+    expect(cold.high).toBeCloseTo(0.085 + 0.11, 6)
+    // positive control: the same prompt as plain input is cheaper (1 $/M)
+    expect(estimate(haiku, { promptTokens: 68_000, maxTokens: 22_000, outTokens: 15_000 }, 0)!.low).toBeCloseTo(0.068 + 0.075, 6)
+    // the brake's wireOut is the same rule
+    expect(wireOutFor({ p: 'openrouter', m: JEV_ROUTER }, info(JEV_ROUTER).caps)(2000)).toBe(wireMaxTokens({ p: 'openrouter', m: JEV_ROUTER }, 2000, info(JEV_ROUTER).caps))
+  })
+})
+
+test.describe('run modes (B4, features/governor/modes.ts)', () => {
+  test('one row per purpose of PURPOSES; the caller-mode ones; text purposes capped no lower than minOut', () => {
+    expect(Object.keys(RUN_MODES).sort()).toEqual(Object.keys(PURPOSES).sort())
+    // 28 + SJ's two decisions (train 9: gate.precheck takes its run's mode, gate.verify is a person's answer check)
+    expect(Object.keys(RUN_MODES)).toHaveLength(30)
+    expect([...CALLER_MODE].sort()).toEqual(['agents.run', 'bulk.autofill', 'bulk.mail', 'gate.precheck', 'scripts.effect'])
+    expect(missesMode('gate.precheck')).toBe(true)
+    expect(missesMode('gate.precheck', 'scheduled')).toBe(false)
+    expect(modeOf('gate.verify')).toBe('interactive')
+    // decisions are typed answers: never capped
+    expect(minOut('gate.precheck', false)).toBeNull()
+    expect(minOut('gate.verify', true)).toBeNull()
+    // a caller-mode purpose without its mode: the contract misses it; with one: taken; an unknown mode reads as trigger
+    expect(missesMode('bulk.mail')).toBe(true)
+    expect(missesMode('bulk.mail', 'bulk')).toBe(false)
+    expect(modeOf('bulk.mail')).toBe('trigger')
+    expect(modeOf('bulk.mail', 'bulk')).toBe('bulk')
+    expect(modeOf('agents.run', 'turbo')).toBe('trigger')
+    // positive controls: the defaults
+    expect(missesMode('menu.action')).toBe(false)
+    expect(modeOf('menu.action')).toBe('interactive')
+    expect(modeOf('memory.propose')).toBe('follow-up')
+    expect(modeOf('nonsense.purpose')).toBe('trigger')
+    // text purposes: 1 024, 2 048 where thinking sits inside max_tokens; structured and loops: never capped
+    expect(minOut('menu.action', false)).toBe(1024)
+    expect(minOut('menu.action', true)).toBe(2048)
+    expect(minOut('structure.todb', false)).toBeNull()
+    expect(minOut('terminal.task', false)).toBeNull()
+    expect(minOut('bulk.autofill', true)).toBeNull()
+  })
+  test('a request\'s own source: <series>:<id> in the ledger grammar — never the bare purpose', () => {
+    for (const p of Object.keys(RUN_MODES)) {
+      const src = sourceFor(p, 'r0a1b2c3d4e5')
+      expect(src, p).toMatch(SOURCE_RE)
+      expect(src, p).not.toBe(p)
+    }
+    expect(sourceFor('palette.ask', 'x1')).toBe('palette:x1')
+    expect(sourceFor('help.ask', 'x1')).toBe('help:x1')
+    expect(sourceFor('outbox.draft', 'x1')).toBe('outbox:x1')
+    // the bare purpose is not a source (it has a dot)
+    expect(SOURCE_RE.test('palette.ask')).toBe(false)
+  })
 })
 
 test.describe('what a backup would loosen', () => {
@@ -548,9 +678,14 @@ test.describe('the book of reservations across tabs (features/governor/book.ts)'
     expect(readBookMsg({ scope: 'local:local' })).toBeNull()
     expect(readBookMsg({ scope: 'local:local', day: '2026-10-09', usd: 1, unpriced: 0, batch: 'b1' })).toBeNull()
     expect(readBookMsg({ type: 'bye', tab: 'tab-a' })).toEqual({ type: 'bye', tab: 'tab-a' })
+    // a starting tab's hello asks the others for their lists — it never forgets or adds one
+    expect(readBookMsg({ type: 'hello', tab: 'tab-c' })).toEqual({ type: 'hello', tab: 'tab-c' })
+    expect(readBookMsg({ type: 'hello', tab: 'bad tab' })).toBeNull()
     const book = emptyBook()
     hearBook(book, { type: 'res', tab: 'tab-a', scope: 'local:local', list: [{ id: 'r1', usd: 0.4, scope: 'local:local' }], at: N }, N)
     hearBook(book, { type: 'res', tab: 'tab-a', scope: 'local:local', list: [{ id: 'r1', usd: 0.9, scope: 'local:local' }], at: N }, N)
+    expect(reservedByOthers(book, N)).toBe(0.9)
+    hearBook(book, { type: 'hello', tab: 'tab-a' }, N)
     expect(reservedByOthers(book, N)).toBe(0.9)
     hearBook(book, { type: 'res', tab: 'tab-a', scope: 'local:local', list: [], at: N }, N)
     expect(book.others.size).toBe(0)
@@ -674,6 +809,44 @@ test.describe('the device line (features/governor/device.ts)', () => {
     expect(deviceLineScopes('local:local', known)).toEqual(['local:local', team])
     expect(deviceLineScopes(null, known)).toEqual([team, 'local:local'])
     expect(deviceLineScopes('cloud:ws-new:u:acc', [])).toEqual(['cloud:ws-new:u:acc'])
+  })
+
+  test('scopes found in the ledger join the list: a new one added, a later day kept, an older one never lowers it; junk and stale skipped', () => {
+    const kv = memoryKV()
+    const now = at(2026, 10, 9, 14, 6)
+    const team = 'cloud:ws-tessera-0001:u:acc-mara-lind'
+    noteScope('local:local', at(2026, 10, 5), kv)
+    expect(mergeScopes([{ scope: team, last: '2026-10-09' }, { scope: 'local:local', last: '2026-10-08' }], now, kv)).toBe(true)
+    expect(knownScopes(now, kv)).toEqual([{ scope: team, last: '2026-10-09' }, { scope: 'local:local', last: '2026-10-08' }])
+    // nothing new: nothing written
+    expect(mergeScopes([{ scope: 'local:local', last: '2026-10-02' }, { scope: 'bad|scope', last: '2026-10-09' }, { scope: 'cloud:ws-old:u:acc', last: '2026-08-01' }], now, kv)).toBe(false)
+    expect(knownScopes(now, kv).map((s) => s.scope)).toEqual([team, 'local:local'])
+  })
+})
+
+test.describe('a loop\'s size (ai/core/sizes.ts messagesChars)', () => {
+  test('text as its JSON; a picture as its pixels, a PDF as its pages — never their base64', () => {
+    const text = [{ role: 'user', content: 'Summarise the Nordlicht launch plan.' }, { role: 'assistant', content: [{ type: 'text', text: 'On it.' }] }]
+    // positive control: a conversation without media counts exactly as before (its JSON)
+    expect(messagesChars(text)).toBe(JSON.stringify(text).length)
+    const b64 = 'A'.repeat(4_000_000)
+    const pic = { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: b64 } }
+    const withPic = [{ role: 'user', content: [{ type: 'text', text: 'What is on the board photo?' }, pic] }]
+    const n = messagesChars(withPic)
+    expect(n).toBeLessThan(20_000)
+    expect(n).toBeGreaterThanOrEqual(imageChars(1568, 1568))
+    // a PDF whose pages this tab knows: its pages; else about one page per 60 KB
+    const pdf = { type: 'document', title: 'Tessera audit.pdf', source: { type: 'base64', media_type: 'application/pdf', data: b64 } }
+    const unknown = messagesChars([{ role: 'user', content: [pdf] }])
+    expect(unknown).toBeGreaterThanOrEqual(pdfChars(50))
+    expect(unknown).toBeLessThan(pdfChars(50) + 1000)
+    notePdfPages(pdf, 60)
+    const known = messagesChars([{ role: 'user', content: [pdf] }])
+    expect(known).toBeGreaterThanOrEqual(pdfChars(60))
+    expect(known).toBeLessThan(pdfChars(60) + 1000)
+    // inside a tool result too
+    const inResult = [{ role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_1', content: [pic] }] }]
+    expect(messagesChars(inResult)).toBeLessThan(20_000)
   })
 })
 
@@ -829,6 +1002,14 @@ test.describe('one-shots (brake.oneShot)', () => {
     // 10 000 + (4 000 + 8 000) ÷ 4 = 13 000 per read: (13 000 × 2 + 4 096 × 10) / 1e6 + 5 × 13 000 × 2 / 1e6
     near(mcpBand?.high ?? NaN, 0.06696 + MCP_ROUNDS * 0.026)
     near(mcpBand?.low ?? NaN, (13_000 * 2 + 400 * 10) / 1e6)
+    // a call that resumes paused turns sends whole requests: one full answer per request, never fewer reads than requests
+    expect([mcpReads(), mcpReads(4), mcpReads(7)]).toEqual([MCP_ROUNDS, MCP_ROUNDS, 6])
+    const four = mcpOneShotBand({ row: row(SONNET), promptTokens: 10_000, servers: 2, toolChars: [4000, null], maxTokens: 4096, rounds: 4 })
+    near(four?.high ?? NaN, 4 * 0.06696 + 2 * 0.026)
+    // /generate (6 resumes): 7 requests, each its answer
+    const seven = mcpOneShotBand({ row: row(SONNET), promptTokens: 10_000, servers: 2, toolChars: [4000, null], maxTokens: 4096, rounds: 7 })
+    near(seven?.high ?? NaN, 7 * 0.06696)
+    near(four?.low ?? NaN, mcpBand?.low ?? NaN)
     const v = oneShot({ ...base, band: { low: 0.01, high: 0.05 }, mcp: { servers: 2, band: mcpBand } }, rest(0.1))
     expect(v.kind).toBe('refuse')
     // positive control: the same request without its servers passes
@@ -933,7 +1114,7 @@ test.describe('rounds (brake.round): terminal tasks halt, agents stop', () => {
     expect(AGENTS_WAIT_MID_RUN).toBe(false)
     for (const mode of ['manual', 'scheduled', 'trigger'] as const) {
       expect(waitsAtLine(run('agent:ag-nordlicht:r1', mode))).toBe(false)
-      expect(round({ run: run('agent:ag-nordlicht:r1', mode), limited: true, next: { low: 0.3, high: 0.52 }, rest: rest(0.29), line })).toEqual({ stop: 'budget', band: { low: 0.3, high: 0.52 } })
+      expect(round({ run: run('agent:ag-nordlicht:r1', mode), limited: true, next: { low: 0.3, high: 0.52 }, rest: rest(0.29), line })).toEqual({ stop: 'budget', band: { low: 0.3, high: 0.52 }, binding: 'day', rest: 0.29, line })
     }
     expect(waitsAtLine(run('terminal:c1:t1'))).toBe(true)
     // background work stops too
@@ -1300,5 +1481,72 @@ test.describe('strings (features/governor/messages.ts)', () => {
     expect(de['features.governor.queued.line.other']).toBe('{count} KI-Schritte warten · Jetzt ausführen')
     expect(de['features.governor.effects.title.one']).toBe('Wirkung · 1 Stelle')
     expect(en['features.governor.effects.title.other']).toBe('Effect · {count} places')
+  })
+
+  test('help: Undo belongs to § 06 only (EN + DE); the workspace article names its AI section and points to the governor', () => {
+    const md = (lang: string, id: string) => readFileSync(fileURLToPath(new URL(`../../src/app/help/articles/${lang}/${id}.md`, import.meta.url)), 'utf8')
+    expect(md('en', 'governor')).toContain('In § 06, **Undo**')
+    expect(md('en', 'governor')).not.toMatch(/^- \*\*Undo\*\* puts back/m)
+    expect(md('de', 'governor')).toContain('In § 06 stellt **Rückgängig**')
+    for (const [lang, head, name] of [['en', '## AI', '§ 06 Budget & governor'], ['de', '## KI', '§ 06 Budget & Regler']] as const) {
+      const text = md(lang, 'workspace')
+      expect(text).toContain(head)
+      expect(text).toContain(name)
+      expect(text).toContain('help:governor')
+      expect(text).toMatch(/^summary: .*(AI budget|KI-Budget)/m)
+    }
+  })
+})
+
+test.describe('#/regler tables (features/governor/consumers.ts, B10)', () => {
+  const at0 = new Date(2026, 9, 13, 9, 0).getTime()
+  const e = (id: string, min: number, source: string, usd: number | null, model = 'claude-opus-5-5', p: 'anthropic' | 'openrouter' = 'anthropic') => ({ id, at: at0 + min * 60_000, source, purpose: 'menu.action', cls: 'write', served: { p, model }, usd })
+
+  test('a source names its consumer: the series, and the agent / database it holds', () => {
+    expect(consumerOf({ source: 'terminal:c1:t2' })).toEqual({ kind: 'terminal', key: 'terminal' })
+    expect(consumerOf({ source: 'agent:agentNordlicht:run7' })).toEqual({ kind: 'agent', id: 'agentNordlicht', key: 'agent:agentNordlicht' })
+    expect(consumerOf({ source: 'autofill:dbTessera:propSummary:w20261013' })).toEqual({ kind: 'autofill', id: 'dbTessera', key: 'autofill:dbTessera' })
+    expect(consumerOf({ source: 'ai:r1:improve' }).kind).toBe('menu')
+    expect(consumerOf({ source: 'mcp-setup:x1' }).kind).toBe('mcp')
+    expect(consumerOf({ source: 'script-draft:x1' }).kind).toBe('writing')
+    // a source this build does not know is "other", never dropped
+    expect(consumerOf({ source: 'later-slice:x1' })).toEqual({ kind: 'other', key: 'other' })
+  })
+
+  test('consumers: summed per consumer, most spent first; runs = distinct sources; the models by spend; no price counted apart', () => {
+    const list = [
+      e('a', 1, 'terminal:c1:t1', 1.2),
+      e('b', 2, 'terminal:c1:t1', 0.86),
+      e('c', 3, 'ai:r1:improve', 0.21),
+      e('d', 4, 'ai:r2:transform', 0.56, 'claude-sonnet-5-5'),
+      e('f', 5, 'agent:agentNordlicht:run1', 0.74),
+      e('g', 6, 'ai:r3:improve', null),
+    ]
+    const c = consumersOf(list)
+    expect(c.map((x) => [x.key, Math.round(x.usd * 100) / 100, x.runs, x.requests, x.unpriced])).toEqual([
+      ['terminal', 2.06, 1, 2, 0],
+      ['menu', 0.77, 3, 3, 1],
+      ['agent:agentNordlicht', 0.74, 1, 1, 0],
+    ])
+    expect(c[1]!.models.map((m) => m.model)).toEqual(['claude-sonnet-5-5', 'claude-opus-5-5'])
+    expect(runsOf(list)).toBe(5)
+    expect(providersOf([...list, e('h', 7, 'palette:q1', 0.01, 'vendor-a/model-b', 'openrouter')])).toEqual(['anthropic', 'openrouter'])
+  })
+
+  test('the roll: one receipt per run (its responses in order), the newest run first; a response without a price makes the run unpriced', () => {
+    const r = rollOf([e('b', 2, 'terminal:c1:t1', 0.86), e('a', 1, 'terminal:c1:t1', 1.2), e('c', 3, 'ai:r1:improve', 0.21), e('d', 9, 'ai:r3:improve', null), e('x', 4, 'ai:r3:improve', 0.1)])
+    expect(r.map((x) => x.source)).toEqual(['ai:r3:improve', 'ai:r1:improve', 'terminal:c1:t1'])
+    expect(r[2]!.entries.map((x) => x.id)).toEqual(['a', 'b'])
+    expect(r[2]!.usd).toBeCloseTo(2.06, 6)
+    expect(r[0]!.usd).toBeNull()
+  })
+
+  test('the days: newest first, the day total and its runs', () => {
+    const y = 24 * 60
+    const d = daysOf([e('a', 1, 'terminal:c1:t1', 1.2), e('b', 2, 'terminal:c1:t1', 0.8), e('c', -y, 'ai:r0:improve', 5.2), e('d', 3, 'palette:q1', null)], dayOf)
+    expect(d.map((x) => [x.day, Math.round(x.usd * 100) / 100, x.runs, x.unpriced])).toEqual([
+      ['2026-10-13', 2, 2, 1],
+      ['2026-10-12', 5.2, 1, 0],
+    ])
   })
 })

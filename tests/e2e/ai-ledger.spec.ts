@@ -311,14 +311,14 @@ const GATE_FLOWS: Array<{ name: string; steps: ClaudeStep[]; go: (page: Page, re
 
 test.describe('the gate in front of every AI request', () => {
   for (const flow of GATE_FLOWS)
-    for (const gen of [3, 1])
-      test(`${flow.name}: AI rules of generation ${gen} → ${gen > 2 ? "'reload', nothing sent" : 'exactly one request'}`, async ({ page, aiNet }) => {
+    for (const gen of [4, 1])
+      test(`${flow.name}: AI rules of generation ${gen} → ${gen > 3 ? "'reload', nothing sent" : 'exactly one request'}`, async ({ page, aiNet }) => {
         const { requests, counts } = await gated(page, gen, flow.steps)
-        await flow.go(page, gen > 2)
+        await flow.go(page, gen > 3)
         await page.waitForTimeout(400)
-        expect(requests).toHaveLength(gen > 2 ? 0 : 1)
-        expect(counts.anthropic).toBe(gen > 2 ? 0 : 1)
-        expect(aiNet.count('anthropic')).toBe(gen > 2 ? 0 : 1)
+        expect(requests).toHaveLength(gen > 3 ? 0 : 1)
+        expect(counts.anthropic).toBe(gen > 3 ? 0 : 1)
+        expect(aiNet.count('anthropic')).toBe(gen > 3 ? 0 : 1)
       })
 })
 
@@ -666,6 +666,9 @@ test.describe('the ledger: one entry per response, every engine', () => {
     await page.waitForTimeout(300)
     const entries = await ledger(page)
     expect(entries.map((e) => e.purpose)).toEqual(['help.ask', 'setup.test'])
+    // each one-shot its own source (Regler B4): <series>:<request id>, never the bare purpose
+    expect(entries[0].source).toMatch(/^help:[a-z0-9]{12}$/)
+    expect(entries[1].source).toMatch(/^setup:[a-z0-9]{12}$/)
     // the help's text is public; the key test's fixed sentence is no workspace data at all (D-S2-6)
     expect(entries.map((e) => e.classes)).toEqual([['public'], []])
     // the help on the device's model; the test sentence on Claude's fast role
@@ -677,7 +680,8 @@ test.describe('the ledger: one entry per response, every engine', () => {
     const requests = await keyed(page, [text(JSON.stringify({ value: 'Low' }))])
     const { dbId, propId } = await autofillPriority(page)
     const [e] = await expectMetered(page, requests, 1, 'bulk.autofill', ['rows'])
-    expect(e.source).toBe(`autofill:${dbId}:${propId}`)
+    // the job's own source (Regler B4): autofill:<db>:<prop>:<job>
+    expect(e.source).toMatch(new RegExp(`^autofill:${dbId}:${propId}:[a-z0-9]{12}$`))
   })
 })
 
@@ -1055,9 +1059,9 @@ test.describe('receipts in the terminal and on agent runs', () => {
     await expect.poll(() => requests.length).toBe(2)
     await expect.poll(async () => (await ledger(page)).length).toBe(2)
     const entries = await ledger(page)
-    // both are this conversation's: the task's round and the proposal request
+    // both are this task's (terminal:<conv>:<task>): the task's round and the proposal request
     expect(new Set(entries.map((e) => e.source)).size).toBe(1)
-    expect(entries[0].source).toMatch(/^terminal:/)
+    expect(entries[0].source).toMatch(/^terminal:[^:]+:1$/)
     await run(page, '/cost')
     const table = terminal(page).getByTestId('term-cost').last()
     const opus = table.locator('tr[data-model="anthropic:claude-opus-5-5"]')
@@ -1074,7 +1078,9 @@ test.describe('receipts in the terminal and on agent runs', () => {
     await prompt(page).press('Enter')
     await expect.poll(async () => (await ledger(page)).length).toBe(3)
     const cut = (await ledger(page))[2]
-    expect(cut.source).toBe(entries[0].source)
+    // the old conversation's, its own task
+    expect(cut.source.replace(/:\d+$/, '')).toBe(entries[0].source.replace(/:\d+$/, ''))
+    expect(cut.source).not.toBe(entries[0].source)
     await page.waitForTimeout(400)
     await expect(terminal(page).getByTestId('agent-cost')).toHaveText('$0.00')
     await run(page, '/cost')

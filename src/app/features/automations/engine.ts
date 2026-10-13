@@ -335,6 +335,8 @@ async function runScriptAction(scriptId: ID | null, contextPageId: ID, writer: W
   try {
     const r = await runScriptById(script.id, { contextPageId, writer: { via: formatWriterKey(writer) } })
     if (!r) return { ok: false, message: t('features.auto.err.scriptBusy', { name: script.name }) }
+    // the Regler's red line: the script's claude() was not sent (background work never waits) — said as such
+    if (r.status === 'error' && r.error?.code === 'effect_budget') return { ok: false, message: t('features.governor.automation.held', { name: script.name }) }
     if (r.status === 'error' && r.error) return { ok: false, message: `${script.name}: ${errorMessage(r.error, t)}` }
     if (r.status !== 'ok') return { ok: true, message: t('features.auto.res.scriptCancelled', { name: script.name }) }
     const n = r.changes.filter((c) => !c.skipped).length

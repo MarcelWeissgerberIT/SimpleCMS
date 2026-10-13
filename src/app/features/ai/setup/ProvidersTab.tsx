@@ -29,6 +29,7 @@ import { labelFor } from '../core/registry'
 import { McpServers } from '../mcp-servers/McpServers'
 import { MemorySettings } from '../memory'
 import { ledgerTotals, type LedgerTotal } from '../../governor'
+import { DeviceBrake } from '../../governor/ui/DeviceBrake'
 import { hasKeyIn, NO_ROWS, PLATE_ORDER, plateState, receivesNothing, setCheck, useChecks } from './facts'
 import { ProviderPlate } from './ProviderPlate'
 import { RemovePanel, dropKey } from './remove'
@@ -67,12 +68,13 @@ const ROWS: Array<{ id: string; classes: FeatureClass[] }> = [
 ]
 // 'review' is a slice of its own (S6); 'gate' (slice SJ) has its own row below: Jev versions only, starts off
 
-export function ProvidersTab({ section }: { section?: 'mcp' | 'memory' }) {
+export function ProvidersTab({ section }: { section?: 'mcp' | 'memory' | 'limit' }) {
   const t = useT()
   const mcpRef = useRef<HTMLDivElement>(null)
   const memRef = useRef<HTMLDivElement>(null)
+  const limitRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
-    const el = section === 'mcp' ? mcpRef.current : section === 'memory' ? memRef.current : null
+    const el = section === 'mcp' ? mcpRef.current : section === 'memory' ? memRef.current : section === 'limit' ? limitRef.current : null
     if (!el) return
     // a frame after the dialog focused its tab: the section takes the focus (and the view) from there
     let id = requestAnimationFrame(() => {
@@ -99,6 +101,9 @@ export function ProvidersTab({ section }: { section?: 'mcp' | 'memory' }) {
       <DataLines />
       <OwnData />
       <Usage />
+      <div ref={limitRef} data-section="limit" tabIndex={-1} aria-label={t('features.governor.device.title')}>
+        <DeviceBrake />
+      </div>
       <div ref={mcpRef} className="aip__section" data-section="mcp" tabIndex={-1} aria-label={t('features.ai.prov.tab.mcp')}>
         <McpProviders />
         <McpServers />

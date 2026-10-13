@@ -4,7 +4,7 @@ title: What AI requests cost
 section: ai
 order: 17
 keywords: cost, costs, openrouter, credits, jev router, reported, catalogue, price, prices, receipt, receipts, tokens, usage, spend, budget, estimate, table, cache, cache read, cache write, refusal fallback, spend limit, ledger, /cost, Kosten, Preis, Preise, Beleg, Belege, Schätzung, Tabelle, Verbrauch, Ausgabenlimit
-related: ai-providers, ai-data-rules, claude-key, ai-menu, agent, custom-agents
+related: governor, ai-providers, ai-data-rules, claude-key, ai-menu, agent, custom-agents
 summary: Every AI request in One gets a receipt — the model that answered, what it cost and how One priced it. Your provider bills the real amount.
 ---
 One sends AI requests with your own key, so your provider bills them — Anthropic for Claude, OpenRouter from your prepaid credits. One meters every answer on this device and shows what it cost.
@@ -28,6 +28,9 @@ OpenRouter answers with the cost of each request: the receipt then reads **REPOR
 
 ## Jev as a pre-checker
 Each answer of a [pre-check](help:ai-jev) is its own entry: priced at the cost OpenRouter reports, else at Jev's catalogue row — Jev's output is free (its token count is kept). A run's receipt lists **Jev 1.13 · pre-check** on its own line ("in → out free"), and the agent's budget counts it; before the checks One reserves what all of them may cost, and a run whose budget is smaller sends none.
+
+## A budget
+A day and month budget for all AI in a workspace — and your own limit for this browser — live in the [Governor](help:governor), which also lists who used what today. With a budget set, a receipt says when the Governor stepped in — *Answer budget capped to … tokens*, *+$1 allowed once*, *Opus 5.5 → Haiku 4.5 · at the red line* — and shows the estimate band beside the cost (*in band*, *over band +…*). Without a budget receipts stay as they were.
 
 ## What is kept
 The record behind the receipts stays on this device: ids, models, token counts, amounts — never page text. It keeps 90 days, is never synced, exported or backed up, and goes when you remove a workspace's copy from this device or reset the app here. In a team each member has their own.

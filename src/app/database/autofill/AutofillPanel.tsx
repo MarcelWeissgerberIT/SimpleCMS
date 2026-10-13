@@ -13,7 +13,7 @@ import { autofillOf, canAutofill, defaultConfig } from './config'
 import { closeAutofillPanel, jobKey, saveAutofillConfig, startFill, useAutofill, useAutofillHost } from './store'
 import { startAutofillWatch } from './watch'
 import { ConfigStage } from './ConfigStage'
-import { DoneStage, ReviewStage, RunStage } from './stages'
+import { DoneStage, PausedRows, ReviewStage, RunStage } from './stages'
 import './autofill.css'
 
 /** Mount point for the panel (and the auto-update watcher). Safe to render more than once. */
@@ -104,6 +104,7 @@ function PanelBody({ db, prop }: { db: Database; prop: PropertyDef }) {
           {prop.name}
         </h2>
       </header>
+      <PausedRows dbId={db.id} propId={prop.id} />
       {stage === 'config' && <ConfigStage db={db} prop={prop} draft={draft} update={update} onRun={run} on={!!live} onTurnOff={turnOff} onTurnOn={turnOn} onCancel={cancel} onDone={close} />}
       {stage === 'run' && job && <RunStage job={job} prop={prop} />}
       {stage === 'review' && job && <ReviewStage job={job} prop={prop} />}

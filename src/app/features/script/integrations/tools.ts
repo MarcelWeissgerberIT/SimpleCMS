@@ -121,9 +121,9 @@ export function preApprovedUI(base: RunUI, approved: Array<{ key: string; label:
   const seen = new Map(approved.map((i) => [i.key, i.label]))
   return {
     ...base,
-    confirmPlan: (items, scriptName, signal) => {
+    confirmPlan: (items, scriptName, signal, band) => {
       const same = items.every((i) => i.kind !== 'http' && seen.get(i.key) === i.label)
-      return same ? Promise.resolve(new Set(items.map((i) => i.key))) : base.confirmPlan(items, scriptName, signal)
+      return same ? Promise.resolve(new Set(items.map((i) => i.key))) : base.confirmPlan(items, scriptName, signal, band)
     },
   }
 }

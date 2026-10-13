@@ -4,12 +4,12 @@
  * slice SJ — off by default) the form says before the first send that Jev checks the answer against the articles,
  * and one line under the answer says what Jev found ("Ask more thoroughly (R)" asks again on the deep role).
  */
-import { useEffect, useMemo, useRef, type KeyboardEvent } from 'react'
+import { Suspense, useEffect, useMemo, useRef, type KeyboardEvent } from 'react'
 import { create } from 'zustand'
 import { ArrowRight, Square } from 'lucide-react'
 import { useLang, useT } from '../i18n'
 import { useWorkspace } from '../store/store'
-import { AINeedsSetup, RouteChip, SupportedLine, aiStatus, deeperRoute, offersAI, destinationOf, isAIConfigured, isRouteKey, runVerify, useVerifyOn, verifyOn, type Route, type RouteChipHandle, type VerifyResult } from '../features'
+import { AINeedsSetup, BrakeSlot, RouteChip, SupportedLine, aiStatus, deeperRoute, offersAI, destinationOf, isAIConfigured, isRouteKey, runVerify, useVerifyOn, verifyOn, type Route, type RouteChipHandle, type VerifyResult } from '../features'
 import { shortcutLabel } from '../ui/controls'
 import { askHelp, linkCitations } from './ask'
 import { LIBRARY } from './content'
@@ -37,10 +37,12 @@ interface AskState {
   verify: VerifyResult | 'checking' | null
   /** the route the shown answer was asked on (the chip then, or "Ask more thoroughly"'s deep role; null: the rules) */
   via: Route | null
+  /** the question refused at the Regler's red line (nothing was sent): the brake note's error */
+  brake: unknown
 }
 
 /** The ask session outlives the view: open a cited article, come back, the answer is still there. */
-const useAsk = create<AskState>()(() => ({ phase: 'idle', asked: '', answer: '', error: '', sources: [], handled: 0, chip: null, verify: null, via: null }))
+const useAsk = create<AskState>()(() => ({ phase: 'idle', asked: '', answer: '', error: '', sources: [], handled: 0, chip: null, verify: null, via: null, brake: null }))
 let abort: AbortController | null = null
 
 /** The article last open in the panel: a question asked from it is probably about it. */
@@ -59,7 +61,7 @@ async function ask(lang: HelpLang, q = useHelp.getState().question, route?: Rout
   abort?.abort()
   const sources = articlesForQuestion(LIBRARY, lang, text, 6, lastArticle())
   const via = route ?? useAsk.getState().chip
-  useAsk.setState({ asked: text, answer: '', error: '', sources, verify: null, via })
+  useAsk.setState({ asked: text, answer: '', error: '', sources, verify: null, via, brake: null })
   // the gate's answer for help questions (a key for a route the rules allow); demo answers stay out of the help
   const st = aiStatus('help.ask')
   if (!offersAI(st) || !isAIConfigured()) return useAsk.setState({ phase: 'nokey' })
@@ -79,7 +81,7 @@ async function ask(lang: HelpLang, q = useHelp.getState().question, route?: Rout
     }
   } catch (e) {
     if (ctrl.signal.aborted) return
-    useAsk.setState({ error: e instanceof Error ? e.message : String(e), phase: 'error' })
+    useAsk.setState({ error: e instanceof Error ? e.message : String(e), phase: 'error', brake: (e as { code?: unknown } | null)?.code === 'budget' ? e : null })
   }
 }
 
@@ -96,7 +98,7 @@ export function AskView() {
   const question = useHelp((s) => s.question)
   const askRun = useHelp((s) => s.askRun)
   const model = useWorkspace((s) => s.settings.aiModel)
-  const { phase, asked, answer, error, sources, chip, verify, via } = useAsk()
+  const { phase, asked, answer, error, sources, chip, verify, via, brake } = useAsk()
   const checks = useVerifyOn()
   const chipRef = useRef<RouteChipHandle | null>(null)
   const fieldRef = useRef<HTMLTextAreaElement | null>(null)
@@ -227,7 +229,19 @@ export function AskView() {
             {checks && ` ${t('features.ai.jev.verify.goes')}`}
             {phase === 'running' && <span className="help-ask__reading"> · {t('help.ask.reading', { n: sources.length })}</span>}
           </p>
-          {phase === 'error' ? (
+          {phase === 'error' && brake ? (
+            // the red line (features/governor): E +1 $ once · B a cheaper model · Esc — the question is asked again
+            <Suspense fallback={<p className="help-ask__error">{error}</p>}>
+              <BrakeSlot
+                error={brake}
+                onRetry={() => void ask(lang, asked, via)}
+                onCancel={() => {
+                  useAsk.setState({ phase: 'idle', brake: null })
+                  fieldRef.current?.focus({ preventScroll: true })
+                }}
+              />
+            </Suspense>
+          ) : phase === 'error' ? (
             <p className="help-ask__error" role="alert">
               {error}
             </p>

@@ -54,6 +54,16 @@ export { deeperRoute, runVerify, useVerifyOn, verifyOn } from './ai/decide/answe
 export { SupportedLine } from './ai/decide/ui/SupportedLine'
 export type { VerifyResult } from './ai/decide/verify'
 export type { Receipt } from './ai/core/meter'
+/** The Regler's brake at the gate (governor/install.ts): main.tsx, once, before any service can start a request. */
+export { install as installGovernor } from './governor/install'
+/** The Regler for background work (the autofill watch's paused rows, a line that moved, E for a job or the watch). */
+export { budgetRefusal, watchSource, pauseRows, takeRows, pausedRows, onLineChange, allowTask, ALLOW_USD, fmtLimit, fmtBand, reglerRest, MiniBar, type BudgetRefusal } from './governor'
+/** The brake note for a refused request (AIError 'budget'): lazy, its keys retry with E / B (core/gate.ts armRetry). */
+export { BrakeSlot, BudgetSlot, type BrakeForProps } from './governor'
+/** The status bar's REGLER cell (shown while a budget exists; click → the Regler). */
+export { GovernorStatusCell } from './governor'
+/** #/regler (lazy) and the one way to open it (the status cell, VERBRAUCH, ⌘K, the phone's workspace menu). */
+export { ReglerRoute, openRegler } from './governor'
 /** Claude's Markdown → a safe document: web images / media / frames as links (addresses a page shows already stay). */
 export { webImagesOf } from './agents/images'
 export { claudeDoc } from './ai/claudeDoc'
@@ -126,7 +136,8 @@ export const OpenRouterOAuthScreen = lazy(() => import('./ai/providers/OpenRoute
  * Setting up AI (multi-provider S2, stage C — features/ai/setup):
  *  - openAISetup({ reason?, feature?, provider?, step?, data? }): the assistant "Set up AI" (modal 'aiSetup') — every
  *    "no key" surface, ⌘K "Set up AI", the changelog try and a refused request's key fixes use it
- *  - openAISettings({ section?: 'mcp' | 'memory' }): Settings › AI (this device), scrolled to its MCP servers / memory
+ *  - openAISettings({ section?: 'mcp' | 'memory' | 'limit' }): Settings › AI (this device), scrolled to its MCP servers /
+ *    memory / the person's own limit in this browser (the Regler)
  *  - AISetupModal (lazy; ModalHost renders it) · ProvidersTab (lazy; render it inside a Suspense): Settings › AI
  *  - <AINeedsSetup purpose …/>: the one card a surface shows when its kind of work cannot run (aiStatus) ·
  *    useAIStatus(purpose) · <FixKeys fix …/>: a refused request's keys (AIError.fix)

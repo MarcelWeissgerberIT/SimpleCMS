@@ -2,7 +2,7 @@ import { AlertTriangle } from 'lucide-react'
 import { Modal } from '../../ui/Modal'
 import { useT } from '../../i18n'
 
-export function ConfirmModal({ title, body, danger, confirmLabel, onConfirm, onClose }: { title: string; body?: string; danger?: boolean; confirmLabel?: string; onConfirm: () => void; onClose: () => void }) {
+export function ConfirmModal({ title, body, danger, confirmLabel, noConfirm, onConfirm, onClose }: { title: string; body?: string; danger?: boolean; confirmLabel?: string; noConfirm?: boolean; onConfirm: () => void; onClose: () => void }) {
   const t = useT()
   const run = () => {
     onClose()
@@ -14,7 +14,8 @@ export function ConfirmModal({ title, body, danger, confirmLabel, onConfirm, onC
         className="confirm__body"
         onSubmit={(e) => {
           e.preventDefault()
-          run()
+          if (noConfirm) onClose()
+          else run()
         }}
       >
         {danger && <div className="confirm__stripes" aria-hidden />}
@@ -36,6 +37,11 @@ export function ConfirmModal({ title, body, danger, confirmLabel, onConfirm, onC
                 {confirmLabel ?? t('common.confirm')}
               </button>
             </>
+          ) : noConfirm ? (
+            <button type="submit" className="btn btn--ghost">
+              {t('common.cancel')}
+              <span className="kbd confirm__kbd">Esc</span>
+            </button>
           ) : (
             <>
               <button type="submit" className="btn btn--ink">

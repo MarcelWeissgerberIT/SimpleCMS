@@ -8,7 +8,7 @@
  * "Send a test sentence" (purpose setup.test on each provider's fast model, its receipt inline). Next: every picked
  * provider ready or put off ("<P> later").
  */
-import { useCallback, useEffect, useId, useRef, useState } from 'react'
+import { Suspense, useCallback, useEffect, useId, useRef, useState } from 'react'
 import { ExternalLink, Eye, EyeOff, LockKeyhole, Loader2, Check as CheckIcon } from 'lucide-react'
 import type { ProviderId } from '@/shared/ai/types'
 import type { AIErrorCode } from '@/shared/ai/errors'
@@ -24,6 +24,7 @@ import { HelpLink } from '../../../../help'
 import { verifyProvider } from '../../core/verify'
 import { connectOpenRouter, cancelOpenRouter, useORConnect } from '../../providers/openrouterConnect'
 import { runAI } from '../../client'
+import { BrakeSlot } from '../../../governor'
 import { ReceiptLine } from '../../Receipt'
 import type { Receipt } from '../../core/meter'
 import { claudeRoles, hasKeyIn, keyHint, NO_ROWS, rolesOf, setCheck, shortAnswerUsd, useChecks, type CheckState } from '../facts'
@@ -414,23 +415,29 @@ function Bench({ providers, skipped, onNewPaste, onLater }: { providers: readonl
   }
   // a provider without a fast model yet (OpenRouter before step 03) is not testable: its row says so, nothing is sent
   const testable = readyNow.filter((p) => !!testRoute(p))
+  /** a test sentence refused at the Regler's red line (nothing was sent): the brake note under the rows */
+  const [brake, setBrake] = useState<{ p: ProviderId; error: unknown } | null>(null)
+  const testKey = useRef<HTMLButtonElement>(null)
+  const testOne = async (p: ProviderId) => {
+    const route = testRoute(p)
+    if (!route) {
+      setTests((s) => ({ ...s, [p]: { ms: 0, receipt: null, note: t('features.ai.prov.check.sentenceModels') } }))
+      return
+    }
+    const t0 = performance.now()
+    let receipt: Receipt | null = null
+    try {
+      await runAI({ action: 'custom', purpose: 'setup.test', sources: [], input: '', instruction: 'Reply with the single word OK.', mcp: false, route, onRun: (r) => (receipt = r) })
+      setTests((s) => ({ ...s, [p]: { ms: Math.round(performance.now() - t0), receipt } }))
+    } catch (e) {
+      setTests((s) => ({ ...s, [p]: { ms: 0, receipt, error: e instanceof Error ? e.message : String(e) } }))
+      if ((e as { code?: unknown } | null)?.code === 'budget') setBrake((b) => b ?? { p, error: e })
+    }
+  }
   const sentence = async () => {
     setTesting(true)
-    for (const p of readyNow) {
-      const route = testRoute(p)
-      if (!route) {
-        setTests((s) => ({ ...s, [p]: { ms: 0, receipt: null, note: t('features.ai.prov.check.sentenceModels') } }))
-        continue
-      }
-      const t0 = performance.now()
-      let receipt: Receipt | null = null
-      try {
-        await runAI({ action: 'custom', purpose: 'setup.test', sources: [], input: '', instruction: 'Reply with the single word OK.', mcp: false, route, onRun: (r) => (receipt = r) })
-        setTests((s) => ({ ...s, [p]: { ms: Math.round(performance.now() - t0), receipt } }))
-      } catch (e) {
-        setTests((s) => ({ ...s, [p]: { ms: 0, receipt, error: e instanceof Error ? e.message : String(e) } }))
-      }
-    }
+    setBrake(null)
+    for (const p of readyNow) await testOne(p)
     setTesting(false)
   }
   return (
@@ -448,8 +455,26 @@ function Bench({ providers, skipped, onNewPaste, onLater }: { providers: readonl
           <BenchRow key={p} p={p} check={checks[p]} has={hasKeyIn(settings, p)} skipped={skipped.includes(p)} test={tests[p]} onNewPaste={() => onNewPaste(p)} onLater={() => onLater(p)} lang={lang} />
         ))}
       </div>
+      {brake && (
+        // the red line (features/governor): E +1 $ once · B a cheaper model · Esc — that provider's sentence again
+        <Suspense fallback={null}>
+          <BrakeSlot
+            error={brake.error}
+            onRetry={() => {
+              const p = brake.p
+              setBrake(null)
+              void testOne(p)
+            }}
+            onCancel={() => {
+              setBrake(null)
+              // the note goes: the keyboard back to the test key (never the body)
+              requestAnimationFrame(() => testKey.current?.focus())
+            }}
+          />
+        </Suspense>
+      )}
       <div className="aik-bench__foot">
-        <button type="button" className="btn btn--sm" disabled={!readyNow.length || testing} onClick={() => void sentence()} data-testid="test-sentence" title={readyNow.length && !testable.length ? t('features.ai.prov.check.sentenceModels') : undefined}>
+        <button type="button" className="btn btn--sm" ref={testKey} disabled={!readyNow.length || testing} onClick={() => void sentence()} data-testid="test-sentence" title={readyNow.length && !testable.length ? t('features.ai.prov.check.sentenceModels') : undefined}>
           {t('features.ai.prov.check.sentence')}
         </button>
         <span className="label">{t('features.ai.prov.check.sentenceCost', { usd: fmtCost(0.0001, lang) })}</span>

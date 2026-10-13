@@ -4,7 +4,7 @@ title: Das KI-Terminal
 section: ai
 order: 3
 keywords: agent, ki-terminal, terminal, claude, automatisieren, massenänderung, aufgaben, aufgaben-blöcke, list_work_items, update_work_item, verantwortlich, fällig, einträge, seiten, datenbanken, board, übernehmen, prüfen, tastatur, befehle, referenzen, kontext, was claude liest, neu machen, ändern, ersetzen, umschreiben, diff, unterseite pro eintrag, seite pro ticket, tabelle mit links, limit, weitermachen, weiter, pipelines, coding-aufgabe, freigeben, verbinden, anmelden, mcp, workspace agent, AI terminal, context, edit, continue, connect
-related: custom-agents, ai-menu, mcp-servers, mcp-bridge, coding-pipeline, pipelines
+related: custom-agents, governor, ai-menu, mcp-servers, mcp-bridge, coding-pipeline, pipelines
 summary: Gib Claude Aufgaben per Tastatur — es liest deinen Workspace, schlägt Änderungen vor, und du übernimmst sie. Arbeitet auch ausgeblendet weiter.
 ---
 Drück <kbd>Mod+J</kbd> (oder ⌘K → *KI-Terminal*, oder **KI** in der Statusleiste). Das Terminal dockt unter der Seite an — die Seitenleiste bleibt —, auf dem Handy füllt es den Bildschirm.
@@ -47,6 +47,8 @@ Nutzt du die [Coding-Pipelines](help:coding-pipeline), kann Claude sie lesen —
 
 ## Es arbeitet weiter
 Blende das Terminal mit <kbd>Esc</kbd> oder <kbd>Mod+J</kbd> aus und arbeite weiter — die Aufgabe läuft weiter. Die Statusleiste zeigt **KI · arbeitet** und danach **KI · 3 Änderungen zu prüfen**; eine Meldung sagt Bescheid, wenn sie fertig ist, ein Klick holt das Terminal zurück. Nur **Stopp** beendet eine Aufgabe: <kbd>Mod+.</kbd>, <kbd>Ctrl+C</kbd> (ohne Markierung), `/stopp` oder die Stopp-Taste. Die bisherigen Vorschläge bleiben.
+
+**An der Rotlinie.** Ist ein [Budget](help:governor) gesetzt, wartet eine Aufgabe, deren nächster Schritt die Linie reißen würde, **zwischen zwei Schritten** mit einer Haltekarte — solange sie wartet, wird nichts gesendet und nichts reserviert. **E** erlaubt 1 $ mehr für diese Aufgabe und heute, **H** stellt mit einem günstigeren Modell desselben Anbieters fertig, wenn es das Gespräch tragen kann, <kbd>Mod+.</kbd> stoppt (vorgemerkte Änderungen bleiben). `/kosten` zeigt zusätzlich den Rest des Tages.
 
 ## Kontext
 - Die **offene Seite** geht als Chip mit — entfern sie mit ×, wenn es nicht um sie geht.

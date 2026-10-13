@@ -43,6 +43,7 @@ import { useCoarse } from './trust/ui/coarse'
 import { serverErrorText } from './server'
 import { awaitsReview } from './runs'
 import { fmtDuration, fmtUsd, fmtWhen, statusKey, statusLed } from './format'
+import { MiniBar } from '../governor'
 import type { AgentRun } from './types'
 
 /** A server run could not be read again before a review (nothing was done): said in a toast. */
@@ -123,9 +124,24 @@ function RunItem({ run, n, first }: { run: AgentRun; n: number; first: boolean }
           {(run.staged?.length ?? 0) > 0 && <Review run={run} />}
           {run.usage && <UsageLine usage={run.usage} />}
           {!!run.usage?.byModel?.length && <ModelLines lines={run.usage.byModel} />}
+          {run.regler && <ReglerLine line={run.regler} />}
         </div>
       )}
     </li>
+  )
+}
+
+/** Where the Regler's line stood when the run ended: "Governor today $0.74 of $6.00 · rest today $5.26" + the mini bar. */
+function ReglerLine({ line }: { line: NonNullable<AgentRun['regler']> }) {
+  const t = useT()
+  const lang = useLang()
+  const month = line.binding === 'month' || line.binding === 'device-month'
+  const text = t(month ? 'features.governor.run.lineMonth' : 'features.governor.run.line', { spent: fmtUsd(line.spent, lang), limit: fmtUsd(line.limit, lang), rest: fmtUsd(Math.max(0, line.limit - line.spent), lang) })
+  return (
+    <p className="agx-run__regler" data-testid="agx-run-regler">
+      <span>{text}</span>
+      <MiniBar spent={line.spent} limit={line.limit} size="cell" label={text} />
+    </p>
   )
 }
 

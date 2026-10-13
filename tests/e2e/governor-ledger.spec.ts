@@ -163,6 +163,24 @@ test.describe('the book: reservations across tabs', () => {
     expect(await heardIn(b)).toEqual({ pings: [], deltas: [] })
     await b.close()
   })
+
+  test('a tab that starts while another holds a long reservation hears it at once — never only at the 30 s heartbeat', async ({ page }) => {
+    await openApp(page)
+    await gov(page, (g) => g.start())
+    // tab A (the agent leader) holds a long step's reservation; nothing changes it for a while
+    const id = await gov(page, (g) => g.reserve(1.2, 'agent:agent-nordlicht:run-1'))
+    await page.waitForTimeout(300)
+    // tab B is reloaded (or its line just set) during that step: its hello is answered at once
+    const b = await page.context().newPage()
+    await openApp(b)
+    await gov(b, (g) => g.start())
+    await expect.poll(() => gov(b, (g) => g.reservedOthers()), { timeout: 3000 }).toBe(1.2)
+    expect(await gov(b, (g) => g.reserved('local:local'))).toBe(1.2)
+    // positive control: once A settles, B hears that too
+    await page.evaluate((x) => (window as unknown as { __oneGovernor: GovSeam }).__oneGovernor.settle(x), id)
+    await expect.poll(() => gov(b, (g) => g.reservedOthers())).toBe(0)
+    await b.close()
+  })
 })
 
 test.describe('totals', () => {
@@ -258,7 +276,17 @@ test.describe('totals: the device line hears a new workspace at once', () => {
 
 test.describe('Workspace.governor is kept (G0, local persistence)', () => {
   type Gov = Record<string, unknown> | undefined
-  const setGov = (p: Page, v: Gov) => p.evaluate((g) => (window as unknown as { __one: { workspace: { setState: (x: object) => void } } }).__one.workspace.setState({ governor: g }), v)
+  /**
+   * A value as another build stored it — raw, on purpose (never through setGovernor) — with the generation stamp every
+   * store path writes beside a budget (B1: an `ai.gen` below it is the DEV / ?e2e invariant's console error).
+   */
+  const setGov = (p: Page, v: Gov) =>
+    p.evaluate((g) => {
+      const ws = (window as unknown as { __one: { workspace: { getState: () => { ai?: Record<string, unknown> }; setState: (x: object) => void } } }).__one.workspace
+      const budget = !!g && g.v === 1 && (g.day !== undefined || g.month !== undefined)
+      const ai = ws.getState().ai
+      ws.setState({ governor: g, ...(budget ? { ai: { ...(ai ?? {}), gen: Math.max(3, Number(ai?.gen ?? 1)) } } : {}) })
+    }, v)
   const govOf = (p: Page) => wsEval(p, (s) => (s as { governor?: Gov }).governor ?? null)
 
   test('save → reload → another tab’s save; unknown keys and a newer shape kept; junk repaired; removed', async ({ page }) => {

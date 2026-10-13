@@ -12,6 +12,7 @@
  */
 import type { Page, Route } from '@playwright/test'
 import { test, expect, openApp, wsEval, uiEval, gotoPage, editorOf, flush, createPage, reloadApp } from './fixtures'
+import { budget, spend } from './helpers/governor'
 
 type AnyState = Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -800,6 +801,33 @@ test.describe('Mail (Gmail)', () => {
     await syncAndWait(page)
     expect(sent).toHaveLength(2)
     expect((await mailRows(page)).map((r) => r.title)).toContain('Private note')
+  })
+
+  test('at the Regler\'s red line organising pauses: the mails are synced and stay unorganised (nothing sent, said in the panel and the readout); after a raise "Organise earlier mails" sends them', async ({ page }) => {
+    const env = await setup(page)
+    const sent = await routeClaude(page)
+    await openApp(page)
+    await configure(page)
+    await wsEval(page, (s) => s.updateSettings({ aiApiKey: 'sk-ant-e2e-test-key' }))
+    await budget(page, { v: 1, day: 1 })
+    await spend(page, 1)
+    const dialog = await connect(page)
+    await dialog.getByRole('switch', { name: 'Organise new mails with AI' }).click()
+    await dialog.getByRole('button', { name: 'Sync now' }).click()
+    await expect.poll(async () => (await mailRows(page)).length).toBe(2)
+    await expect.poll(() => page.evaluate(() => window.__oneMail.state().phase)).toBe('idle')
+    expect(sent).toHaveLength(0)
+    expect(env.claude).toEqual([])
+    await expect.poll(() => page.evaluate(() => window.__oneMail.state().unorganised)).toBe(2)
+    expect(await page.evaluate(() => ({ paused: window.__oneMail.state().paused, error: window.__oneMail.state().error }))).toEqual({ paused: true, error: null })
+    await expect(dialog.getByTestId('mail-paused')).toContainText('Organising paused at the red line')
+    // positive control: a raised line — the person's "Organise 2 earlier mails" sends them in one request
+    await budget(page, { v: 1, day: 10 })
+    await dialog.getByRole('button', { name: 'Organise 2 earlier mails' }).click()
+    await expect.poll(() => page.evaluate(() => window.__oneMail.state().unorganised)).toBe(0)
+    expect(sent).toHaveLength(1)
+    expect(await page.evaluate(() => window.__oneMail.state().paused)).toBe(false)
+    await expect(dialog.getByTestId('mail-paused')).toHaveCount(0)
   })
 
   test('organise earlier mails: synced while off, organised on request in one request', async ({ page }) => {

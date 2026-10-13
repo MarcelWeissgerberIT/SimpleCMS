@@ -5,7 +5,7 @@
  * transcript, paste-a-transcript, and errors explained in place. Read-only renders (share view,
  * history, locked pages) get the bar, title and transcript without controls.
  */
-import { useEffect, useMemo, useState } from 'react'
+import { Suspense, useEffect, useMemo, useState } from 'react'
 import type { Editor } from '@tiptap/core'
 import type { Node as PMNode } from '@tiptap/pm/model'
 import { ClipboardPaste, Copy, KeyRound, Languages, Mic, MoreHorizontal, NotebookPen, Pause, RotateCcw, Square, Trash2 } from 'lucide-react'
@@ -18,6 +18,7 @@ import { Key, Notice, PastePanel, TitleField, TranscriptPanel, wordsLabel } from
 import { speechSupported } from './recognition'
 import { destinationOf } from '../core/status'
 import { FixKeys } from '../setup/AINeedsSetup'
+import { BrakeSlot } from '../../governor'
 import { openAISetup } from '../setup/openAISetup'
 import {
   attachMeeting,
@@ -185,7 +186,7 @@ export function MeetingDeck({ editor, node, editable }: MeetingDeckProps) {
   ]
 
   return (
-    <div className="mtg__deck" contentEditable={false} suppressContentEditableWarning role="group" aria-label={t('features.meeting.region')} data-mode={mode}>
+    <div className="mtg__deck" contentEditable={false} suppressContentEditableWarning role="group" aria-label={t('features.meeting.region')} data-mode={mode} data-gv-home="">
       <Bar mode={mode} elapsed={elapsed} attrs={attrs} editable={canAct} onMenu={menu.toggle} menuOpen={menu.open} />
       <div className="mtg__head">
         <TitleField value={attrs.title} editable={canAct} onCommit={(v) => patchMeeting(target(), { title: v }, YOU, { history: true })} />
@@ -424,6 +425,13 @@ function AINotice({ error, onRetry, onDismiss }: { error: NonNullable<MeetingRun
   const keyIssue = error.code === 'no_key' || error.code === 'invalid_key' || error.code === 'permission'
   // newer AI rules / a newer build: retrying here cannot help
   const reload = error.code === 'reload' || error.code === 'outdated'
+  // the red line (features/governor): the summary was not sent — E +1 $ once · B a cheaper model · Esc
+  if (error.code === 'budget')
+    return (
+      <Suspense fallback={null}>
+        <BrakeSlot error={error} onRetry={onRetry} onCancel={onDismiss} />
+      </Suspense>
+    )
   return (
     <Notice
       code={error.code}

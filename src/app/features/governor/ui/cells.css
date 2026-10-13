@@ -180,7 +180,7 @@
   background: color-mix(in oklab, var(--lamp-red) 88%, var(--toggle-black));
   color: var(--lamp-red-ink);
 }
-/* shedding (StatusBar measures): the bar at level 7, the autonomy word at level 8 */
+/* shedding (StatusBar measures): the bar at level 7, the autonomy word / ROTLINIE · PAUSE at level 8 */
 .status[data-shed-7] .status__shed7,
 .status[data-shed-8] .status__shed8 {
   display: none;

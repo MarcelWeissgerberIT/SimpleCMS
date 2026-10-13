@@ -55,6 +55,11 @@ export interface OutboxState {
   asking: { id: SlipId; argsHash: string } | null
   /** a phone / narrow screen: the dock as a sheet, opened on demand */
   sheet: ID | null
+  /**
+   * Claude's draft refused at the Regler's red line (nothing was sent; the drafts after it wait): the dock shows the
+   * brake note — E / B start them again (`retry`), Esc drops them. In memory only.
+   */
+  brake: { dbId: ID; error: unknown; retry: () => void } | null
 }
 
 /**
@@ -77,6 +82,7 @@ export const useOutbox = create<OutboxState>(() => ({
   focus: null,
   asking: null,
   sheet: null,
+  brake: null,
 }))
 
 const S = () => useOutbox.getState()

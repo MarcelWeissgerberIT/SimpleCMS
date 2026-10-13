@@ -15,14 +15,14 @@
 import { create } from 'zustand'
 import { createStore, delMany, getMany, keys, setMany, type UseStore } from 'idb-keyval'
 import type { LedgerEntry } from '@/shared/ai/types'
-import { adjust, flushLedger, ledgerDayRead, ledgerOpens, onLedgerDelta, registerMeter, reserve, settle, type LedgerDelta } from './ledger'
+import { adjust, flushLedger, ledgerDayRead, ledgerOpens, ledgerScopesSince, onLedgerDelta, registerMeter, reserve, settle, type LedgerDelta } from './ledger'
 import { ledgerScope } from './scope'
 import { bookOthers, onBookChange, reservedNow, reservedOthersNow, startBook } from './book'
-import { DEVICE_LINE_SPANS_BROWSER, deviceLimitOf, deviceLineScopes, knownScopes, localKV, noteScope, type ScopeSeen } from './device'
+import { DEVICE_LINE_SPANS_BROWSER, deviceLimitOf, deviceLineScopes, knownScopes, localKV, mergeScopes, noteScope, type ScopeSeen } from './device'
 import { closedDaysBefore, dayOf, monthOf, nextMidnight } from './clock'
-import { applyDayRead, closedDaysOf, closedTally, cacheOf, deltaTally, meterTally, monthSpentOf, newTally, readTodayCache, rollTally, sumTallies, tallyKnown, todayOf, type Tally } from './tally'
+import { applyDayRead, closedDaysOf, closedTally, cacheOf, readDayRecord, deltaTally, meterTally, monthSpentOf, newTally, readTodayCache, rollTally, sumTallies, tallyKnown, todayOf, type Tally } from './tally'
 import { wipePaused } from './paused'
-import { clearAllowances } from './allow'
+import { allowOnce, clearAllowances } from './allow'
 import { whenIdle } from '../../lib/idle'
 
 export const GOVERNOR_DB = 'one-governor'
@@ -208,16 +208,35 @@ function seeScope(scope: string): void {
   if (scopesCache && !scopesCache.list.some((s) => s.scope === scope)) scopesCache = null
 }
 
+/**
+ * A scope metered in this browser today goes on the device line's list — whether a line is set or not (install.ts
+ * registers it at boot), so a line set later counts what every workspace spent before it. Once per scope and day; no I/O
+ * but that one localStorage write.
+ */
+export function noteMetered(e: LedgerEntry): void {
+  if (!e.scope) return
+  const now = Date.now()
+  const key = `${e.scope}|${dayOf(now)}`
+  if (noted.has(key)) return
+  noted.add(key)
+  noteScope(e.scope, now)
+  scopesCache = null
+}
+
+let noting = false
+
+/** Note every metered scope from now on (idempotent; install.ts at boot, before any request). */
+export function startNoting(): void {
+  if (noting) return
+  noting = true
+  registerMeter(noteMetered)
+}
+
 function onMeter(e: LedgerEntry): void {
   if (!e.scope) return
   const now = Date.now()
   meterTally(tallyFor(e.scope, now), e, now)
-  const key = `${e.scope}|${dayOf(now)}`
-  if (!noted.has(key)) {
-    noted.add(key)
-    noteScope(e.scope, now)
-    scopesCache = null
-  }
+  noteMetered(e)
   seeScope(e.scope)
   publish()
 }
@@ -246,6 +265,7 @@ function scheduleRead(delay = 0): void {
 export function startTotals(): void {
   if (started || typeof window === 'undefined') return
   started = true
+  startNoting()
   registerMeter(onMeter)
   onLedgerDelta(onDelta)
   startBook()
@@ -273,6 +293,15 @@ function scopesToRead(now: number): string[] {
   const out = scope ? [scope] : []
   if (deviceLimitOf()) for (const s of deviceLineScopes(scope, knownScopes(now))) if (!out.includes(s)) out.push(s)
   return out
+}
+
+/**
+ * The device line's list from the ledger's own keys of this month (once each time the line is followed or moves — install.ts):
+ * a workspace that spent before anything noted it (an older build's tab, spend before this build) counts too.
+ */
+export async function noteLedgerScopes(now = Date.now()): Promise<void> {
+  const found = await ledgerScopesSince(`${monthOf(dayOf(now))}-01`)
+  if (mergeScopes(found, now)) scopesCache = null
 }
 
 /** Read today of the open scope (and of the device line's scopes while a device limit is set) from the ledger. */
@@ -320,6 +349,28 @@ export async function loadMonth(): Promise<void> {
     if (closedTally(t, day, r.sum, Date.now())) writeCache(t, Date.now())
   }
   publish()
+}
+
+/**
+ * A closed day's total of a scope (#/regler: yesterday's peak on the dial): its `one-governor` record, else one ledger
+ * read of that day (stored when the ledger answered in full — a closed day never changes). null: nothing known.
+ */
+export async function dayTotal(scope: string, day: string): Promise<number | null> {
+  const st = governorStore()
+  const key = `${scope}|day|${day}`
+  if (day >= dayOf(Date.now())) return null
+  let stored: unknown[] = []
+  if (st)
+    try {
+      stored = await getMany([key], st)
+    } catch {
+      stored = []
+    }
+  const rec = readDayRecord(stored[0])
+  if (rec) return rec.usd
+  const r = await closedDaysOf([day], [], (d) => ledgerDayRead(scope, d))
+  if (st && r.fresh.length) await setMany(r.fresh.map(([d, x]) => [`${scope}|day|${d}`, x]), st).catch(() => {})
+  return r.complete || r.sum > 0 ? r.sum : null
 }
 
 /** This scope's derived data goes: its `one-governor` records, its cache, its paused rows (the seam, the device copy). */
@@ -371,6 +422,8 @@ if (typeof window !== 'undefined' && (import.meta.env.DEV || new URLSearchParams
       await wipeGovernorScope()
     },
     reserve: (usd: number, source: string) => reserve(usd, source).id,
+    /** E on a one-shot: the token a retry carries as run.allowance */
+    allowOnce: (usd?: number) => allowOnce(usd).id,
     adjust: (id: string, usd: number) => adjust(id, usd),
     settle: (id: string) => settle(id),
     view: () => useGovernorTotals.getState(),

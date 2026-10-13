@@ -373,6 +373,27 @@ export async function ledgerDayRead(scope: string, day: string): Promise<LedgerD
 /** One scope's entries of one local day (ledgerDayRead's entries — the Regler's totals read `complete` too). */
 export const ledgerDay = async (scope: string, day: string): Promise<LedgerEntry[]> => (await ledgerDayRead(scope, day)).entries
 
+/**
+ * The scopes with entries on or after a local day, each with its latest day — the keys only (`<scope>|<day>|<id>`), read
+ * once when the Regler's device line is followed (totals.ts noteLedgerScopes). [] when no store answers.
+ */
+export async function ledgerScopesSince(fromDay: string): Promise<Array<{ scope: string; last: string }>> {
+  await flushLedger()
+  const st = store()
+  const out = new Map<string, string>()
+  if (st)
+    try {
+      for (const k of await keys(st)) {
+        const [scope = '', day = ''] = String(k).split('|')
+        if (!scope || !DAY_RE.test(day) || day < fromDay) continue
+        if ((out.get(scope) ?? '') < day) out.set(scope, day)
+      }
+    } catch (err) {
+      fail(err)
+    }
+  return [...out].map(([scope, last]) => ({ scope, last }))
+}
+
 /** Delete this member's entries on this device (the seam; the device copy and the reset delete the whole store). */
 export async function wipeLedgerScope(scope = ledgerScope()): Promise<void> {
   await flushLedger()

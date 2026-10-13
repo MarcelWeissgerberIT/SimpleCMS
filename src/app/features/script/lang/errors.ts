@@ -50,6 +50,8 @@ export type ScriptErrorCode =
   | 'no_effect'
   | 'refused'
   | 'effect_failed'
+  // the Regler's red line: claude() refused before sending (features/governor)
+  | 'effect_budget'
   | 'no_context'
   | 'custom'
   | 'internal'
@@ -115,6 +117,7 @@ export const ERROR_TEXT_EN: Record<ScriptErrorCode, string> = {
   no_effect: 'The effect {name} is not available.',
   refused: '{name} was not allowed in this run.',
   effect_failed: '{name} failed: {detail}',
+  effect_budget: 'Red line: {name} was not sent — the run stopped here.',
   no_context: 'There is no current page here.',
   custom: '{message}',
   internal: 'Something went wrong inside the script runner: {detail}',

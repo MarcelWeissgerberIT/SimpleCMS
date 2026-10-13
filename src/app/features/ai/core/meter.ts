@@ -65,7 +65,7 @@ export interface Receipt {
 }
 
 export interface MeterOpts {
-  /** the ledger's source id (fixed ids only — 'ai:<run>' …); default: the purpose */
+  /** the ledger's source id (fixed ids only — 'ai:<run>' …); default: the prepared run's (core/gate.ts PreparedRun) */
   source?: string
   role?: LedgerRole
   /** the entries of one job (a run id — the decisions of one agent run) */
@@ -143,14 +143,17 @@ export function meterResponse(prepared: Prepared, opts: Pick<MeterOpts, 'source'
     usd = costOf(usage, row, at).usd
     costSource = row ? 'estimate' : 'none'
   }
-  const steps: StepNote[] = fallback ? [{ k: 'refusal-fallback', from: route.m, to: modelBase(served) }] : [...(r.steps ?? [])]
+  // the request's own steps (the brake's cap, an allowance) first, then the response's
+  const own = (prepared.steps ?? []).filter((x) => x.k === 'brake' || x.k === 'allowance')
+  const steps: StepNote[] = [...own, ...(fallback ? [{ k: 'refusal-fallback' as const, from: route.m, to: modelBase(served) }] : [...(r.steps ?? [])])]
   return meter({
     id: newId(),
     at,
     scope: '',
     purpose: prepared.purpose,
     cls: prepared.cls,
-    source: opts.source || prepared.purpose,
+    // the call site's source, else the run's own (`<series>:<request id>` — never the bare purpose)
+    source: opts.source || prepared.run?.source || prepared.purpose,
     role: opts.role ?? 'main',
     ...(opts.group ? { group: opts.group.slice(0, 120) } : {}),
     route: routeKey(route),
@@ -164,6 +167,10 @@ export function meterResponse(prepared: Prepared, opts: Pick<MeterOpts, 'source'
     outcome: r.outcome ?? 'ok',
     ...(prepared.reservation ? { reservation: prepared.reservation.id } : {}),
     ...(steps.length ? { steps } : {}),
+    // the governor (only where a line braked the request): its band, an allowance (E), the capped answer budget
+    ...(prepared.band ? { band: { low: prepared.band.low, high: prepared.band.high } } : {}),
+    ...(prepared.allowance ? { allowance: prepared.allowance } : {}),
+    ...(typeof prepared.maxTokens === 'number' ? { cap: prepared.maxTokens } : {}),
   })
 }
 
@@ -173,6 +180,14 @@ const sameStep = (a: StepNote, b: StepNote) => a.k === b.k && a.from === b.from 
 export function addToReceipt(r: Receipt | null | undefined, e: LedgerEntry): Receipt {
   const steps = [...(r?.steps ?? [])]
   for (const s of e.steps ?? []) if (!steps.some((x) => sameStep(x, s))) steps.push(s)
+  // the Regler braked it (a line was set): the bands of its requests, summed — one step, last
+  if (e.band) {
+    const i = steps.findIndex((x) => x.k === 'band')
+    const prev = i >= 0 ? steps.splice(i, 1)[0] : null
+    const low = (prev ? Number(prev.from) : 0) + e.band.low
+    const high = (prev ? Number(prev.to) : 0) + e.band.high
+    steps.push({ k: 'band', from: String(Math.round(low * 1e6) / 1e6), to: String(Math.round(high * 1e6) / 1e6) })
+  }
   const usd = r && r.usd === null ? null : e.usd === null ? null : (r?.usd ?? 0) + e.usd
   const costSource: CostSource = usd === null ? 'none' : r?.costSource === 'estimate' || e.costSource === 'estimate' ? 'estimate' : e.costSource
   return {
@@ -375,11 +390,8 @@ export function neutralCut(e: ProviderError, o: { promptChars: number; price: Pr
   }
 }
 
-/** Prompt characters a picture counts as in an estimate (Claude: about width × height ÷ 750 tokens). */
-export const imageChars = (width: number, height: number): number => Math.ceil((Math.max(1, width) * Math.max(1, height)) / 750) * CHARS_PER_TOKEN
-
-/** Prompt characters a PDF counts as in an estimate: the text and a picture of every page (about 3,000 tokens each). */
-export const pdfChars = (pages: number): number => Math.max(1, Math.round(pages)) * 3000 * CHARS_PER_TOKEN
+// the sizes of pictures, PDFs and a loop's conversation in an estimate (pure: core/sizes.ts)
+export { imageChars, pdfChars, messagesChars, notePdfPages } from './sizes'
 
 /** Characters a stream event carries (text, thinking, tool input) — for an estimate when the stream is cut. */
 export function deltaChars(event: unknown): number {

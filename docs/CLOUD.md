@@ -579,8 +579,15 @@ The workspace's **governor** (`workspace.governor`, the Regler: lever, ceiling, 
 src/shared/ai/governor.ts `WorkspaceGovernor`) follows the same rules: `server/src/collab/workspace-governor.ts` puts a
 member's write back and stamps an owner's or admin's with `updatedBy`; `supports` lists `'governor'` on a server that guards
 it. Every client reads the key through `sanitizeGovernor` (a later slice's keys and a newer shape are kept as they were,
-never written over) and keeps it through its own edits. G0: the app reads it (the binding's remote read, `readAll` at boot)
-and does not write it yet; full backups carry it, page backups never, and a restore keeps the workspace's own.
+never written over) and keeps it through its own edits. Since G1 the app writes the day / month budget from Workspace
+settings → AI § 06 (`setGovernor`, owners and admins only, and only while the server's `/api/config` `supports` holds `'governor'` —
+else the section says the server does not keep it yet); members see it read-only with a lock. The write and the AI
+stamp it needs (`workspace.ai.gen` = the budget generation) go in ONE document transaction, so a tab of an older build
+refuses AI with 'reload' instead of running past a budget it cannot keep; removing the budget lowers the stamp again.
+The budget is measured on each device (the meter is that device's ledger) — the server stores the value, never usage.
+Server agents run on the workspace's key and are not counted by the members' governors in G1. Full backups carry the
+governor, page backups never, and a restore keeps the workspace's own. Each member's own limit for a browser
+(localStorage `one.governor.device`) is never synced.
 
 The **integration profiles** (`integrations`, app: Workspace → Integrations, `src/app/features/agents/integrations`) follow the same
 rules for every key of their map (`server/src/collab/admin-map.ts`, the guard the look uses too): a member's add, change or removal

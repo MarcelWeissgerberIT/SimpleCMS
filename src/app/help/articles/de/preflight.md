@@ -4,7 +4,7 @@ title: Vorflug-Check
 section: start
 order: 2
 keywords: Vorflug, Vorflug-Check, Lampen, Lampentafel, Master Caution, Warteschlange, quittieren, von Hand, angestaubt, ersetzt, Bordbuch, Start, morgens, preflight, lamps, queue, acknowledge, by hand, stale
-related: custom-agents, agent-trust, coding-pipeline, outbox, integrations, mcp-servers, sync
+related: custom-agents, agent-trust, coding-pipeline, outbox, integrations, mcp-servers, sync, governor
 summary: Eine Lampentafel auf Start zeigt, was auf dich wartet — Vorschläge, Gates, Rückfragen, abgelehnte Token, Zettel — gezählt für 0 Token; ihre Warteschlange arbeitet es per Tastatur ab.
 ---
 Bevor ein Pilot startet, wird jede Warnlampe einmal geprüft. Der **Vorflug-Check** (Preflight) macht das für deinen Workspace: Auf **Start** zeigt eine Lampentafel, was auf dich wartet — und nur das. Jede Lampe zählt eine Art von Dingen, in deinem Browser, ohne Claude zu fragen: **Zählen kostet 0 Token**.
@@ -17,6 +17,7 @@ Eine Lampe steht nur auf der Tafel, wenn sie hier etwas zu beobachten hat (eine 
 - **Eingang** — ungelesene Erinnerungen, Erwähnungen, Antworten und Agentennotizen dieses Geräts.
 - **Token abgelehnt** — [MCP-Server](help:mcp-servers), deren Token abgelehnt wurde oder deren Anmeldung abgelaufen ist.
 - **Ausgang** — [Zettel](help:outbox), die darauf warten, von Hand gesendet zu werden.
+- **Verbrauch** — nur solange ein [Budget](help:governor) gesetzt ist: gelb ab 75 % des Tagesbudgets auf diesem Gerät, rot an der Rotlinie (mit **MASTER CAUTION**); sie zählt Agenten, die der Regler heute angehalten hat, an der Linie pausierte Autofill-Zeilen und eine Terminal-Aufgabe an ihrer Haltekarte. ↵ öffnet den Regler.
 - **Worker offline**, **Spiegel veraltet**, **Agent verpasst**, **Sync**, **Mail**, **Cloud** — was für dich läuft und stehen geblieben ist.
 
 ## Vier Zustände

@@ -172,22 +172,28 @@ test.describe('the rules: generation stamps', () => {
     await page.evaluate(() => localStorage.setItem('one.governor.device', JSON.stringify({ v: 1, day: 8, at: 1760000000000 })))
     expect(await rules(page, 'setDeviceRule', 'bulk', [{ p: 'openrouter', m: 'typesafe/jev-router', effort: 'low' }])).toBe(true)
     expect((await dev()).gen).toBe(3)
-    // this build cannot enforce a budget: it refuses (reload) and never writes over that stamp
+    // a build that does not enforce generation 3 refuses AI (reload) — but this build computes the budget's stamp
+    // (store/governor.ts STAMP_KNOWN): a later rule edit is taken and never writes the stamp below the budget's
     expect(await known()).toBe(false)
-    expect(await rules(page, 'setDeviceAI', { narrow: { anthropic: ['people'] } })).toBe(false)
+    expect(await rules(page, 'setDeviceAI', { narrow: { anthropic: ['people'] } })).toBe(true)
     expect((await dev()).gen).toBe(3)
     // the workspace: a stored day budget (Workspace.governor) → an OpenRouter-only rule edit stamps 3, not "none"
     await page.evaluate(() => localStorage.removeItem('one.governor.device'))
     await wsEval(page, (s) => s.updateSettings({ ai: undefined }))
     expect(await dev()).toBeNull()
     expect(await known()).toBe(true)
-    await page.evaluate(() => (window as unknown as { __one: { workspace: { setState(x: object): void } } }).__one.workspace.setState({ governor: { v: 1, day: 6, month: 120 } }))
+    // through the Regler's setter (Regler B1): the budget and its stamp land in one update
+    expect(await wsEval(page, (s) => s.setGovernor({ v: 1, day: 6, month: 120 }))).toEqual({ ok: true })
+    expect((await ws()).gen).toBe(3)
     expect(await rules(page, 'setWorkspaceAI', { policy: { providers: { openrouter: { allow: MARKED } }, restricted: [] } })).toEqual({ ok: true })
     expect((await ws()).gen).toBe(3)
     expect((await ws()).policy.providers.openrouter.allow).toEqual(MARKED)
-    // once stamped, the rules wait for a build that enforces the budget: refused, the stamp stays
-    expect(await rules(page, 'setWorkspaceAI', OR_ONLY)).toEqual({ ok: false })
+    // a later edit keeps the budget's stamp too (never what the rules alone need)
+    expect(await rules(page, 'setWorkspaceAI', OR_ONLY)).toEqual({ ok: true })
     expect((await ws()).gen).toBe(3)
+    // the budget removed: the stamp follows what is stored now — none
+    expect(await wsEval(page, (s) => s.setGovernor(null))).toEqual({ ok: true })
+    expect((await ws()).gen).toBeUndefined()
   })
 })
 
@@ -747,9 +753,10 @@ test.describe('a backup that would loosen the AI rules (acceptance 10)', () => {
     await openApp(page)
     await rules(page, 'setWorkspaceAI', { policy: { providers: { openrouter: { allow: MARKED } }, restricted: [] } })
     const { json } = await exportBackup(page, testInfo, 'mine-newer.json')
-    // rules a later build wrote: a restriction this build cannot read, stamped generation 3
+    // rules a later build wrote: a restriction this build cannot read, stamped a generation above every one this build
+    // names (GEN in shared/ai/generations.ts — the Regler's budget took 3; restricted pages get theirs when they merge)
     const newer = JSON.parse(JSON.stringify(json))
-    newer.workspace.ai = { gen: 3, policy: { providers: { openrouter: { allow: ['public'] } }, restricted: [{ root: 'pg_newer_root', to: ['openrouter'] }] } }
+    newer.workspace.ai = { gen: 4, policy: { providers: { openrouter: { allow: ['public'] } }, restricted: [{ root: 'pg_newer_root', to: ['openrouter'] }] } }
     const file = testInfo.outputPath('newer.json')
     writeFileSync(file, JSON.stringify(newer))
     const dialog = await mergeFile(page, file)

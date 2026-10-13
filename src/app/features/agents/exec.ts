@@ -23,10 +23,10 @@ import { navigate, parseHash } from '../../lib/router'
 import { fmtUsd } from '../../lib/money'
 import { currentLang, t } from '../../i18n'
 import { AIError } from '../ai/client'
-import { allowFor, allowedTools, attachMcp, instructionsText, outToolsFor, readServers } from '../ai/mcp-servers/config'
+import { allowFor, allowedTools, attachMcp, instructionsText, mcpSystemText, outToolsFor, readServers } from '../ai/mcp-servers/config'
 import { callLabel } from '../ai/mcp-servers/activity'
 import { MAX_TOOL_CALLS, type StageApi } from '../ai/agent/tools'
-import { runAgent, taskMessage, TASK_RULES, type RunHooks } from '../ai/agent/run'
+import { runAgent, taskMessage, TASK_RULES, type HeldStop, type RunHooks } from '../ai/agent/run'
 import { applyChanges, changeWriter } from '../ai/agent/apply'
 import { newItemSession } from '../ai/agent/workItems'
 import { canCreateItems, heldClosure, warmMembers } from '../workitems'
@@ -34,7 +34,8 @@ import type { StagedChange } from '../ai/agent/types'
 import { snapshotNow } from '../history/snapshots'
 import { agentTools, scopeFilter, scopeText } from './scope'
 import { asAgent, stampLocal, touchedBy } from './attribution'
-import { getAgentState, lastSuccess, loadRuns, nextSeq, putAgentState, putRun, type AgentState } from './runs'
+import { dropRun, getAgentState, lastSuccess, loadRuns, nextSeq, noteHeldStart, putAgentState, putRun, type AgentState } from './runs'
+import { heldStopped } from './held'
 import { agentLabel } from './label'
 import { deliverNotes, lastRunLine, runTools, type RunExtras } from './runTools'
 import { exclusive } from './locks'
@@ -52,7 +53,11 @@ import { blockText, lostText, runBlock } from './gone'
 import { routeBlock } from './routeBlock'
 import { endRun, noteRun, withWriter, type Writer } from '../../store/writer'
 import { memoryRef } from '../ai/core/refs'
-import { precheck } from '../ai/core/gate'
+import { precheck, startCheck, type PrepareInput, type StartCheck } from '../ai/core/gate'
+import { addInboxItems, loadInbox, useInbox, wsKey } from '../inbox/state'
+import { activeWorkspace } from '../../cloud'
+import { dayOf, FIRST_STEP_OUT, noteHeld, reglerLine, type RunMode } from '../governor'
+import type { HeldBinding } from './types'
 import { appliedOf } from '../ai/core/shape'
 import type { DataClass, LedgerEntry, SourceRef } from '@/shared/ai/types'
 import { labelOf } from '@/shared/ai/models'
@@ -206,6 +211,56 @@ export interface RunRequest {
   rows?: ID[]
   /** a person asked (toasts for busy / problems) */
   manual?: boolean
+  /** the run's id when the caller minted it (runNow: an allowance E for this run is keyed to it) */
+  runId?: ID
+}
+
+/** How a run started (features/governor modes.ts — an agent runs three ways). */
+export const runModeOf = (req: Pick<RunRequest, 'manual' | 'trigger'>): RunMode => (req.manual || req.trigger.type === 'manual' ? 'manual' : req.trigger.type === 'schedule' ? 'scheduled' : 'trigger')
+
+/** The agent's MCP servers as a run attaches them (switched on here, a tool left by its allow-list) — by name, no token. */
+function usableServers(agent: CustomAgent) {
+  const allow = agent.mcpTools ?? {}
+  return readServers().filter((s) => s.enabled && agent.mcpServers.includes(s.name) && allowFor(allow, s)?.length !== 0)
+}
+
+/**
+ * What a run's first request will be, for the Regler's start check (before anything is loaded or written): its sources,
+ * the agent's model, its size — what runAgent will send: the system prompt with its MCP servers' part, the tool
+ * definitions (recall with the memory), the job with its context and the memory block (the brake counts the first answer
+ * as FIRST_STEP_OUT) — its MCP servers (their rounds), its run (source, mode, the agent's own budget per run). `last`: the
+ * last successful run (its line in the context), when the caller read it.
+ */
+export function startInput(agent: CustomAgent, req: Pick<RunRequest, 'manual' | 'trigger' | 'rows'>, runId: ID, last: AgentRun | null = null): PrepareInput {
+  const unlocks: RunUnlocks = { upsert: unlocked('upsert'), state: unlocked('agentState'), notes: unlocked('notify') }
+  const rows = req.rows ?? []
+  // what the route may receive decides what goes along (as in runOnce): the servers' part, the memory and recall
+  let mayMcp = true
+  let mayMemory = true
+  try {
+    const pre = precheck({ purpose: 'agents.run', sources: agentSources(agent, rows, ''), model: agent.model })
+    mayMcp = pre.allows('mcp')
+    mayMemory = pre.allows('memory')
+  } catch {
+    /* the gate refuses the run itself — the start check says so */
+  }
+  const usable = mayMcp ? usableServers(agent) : []
+  const names = usable.map((s) => s.name)
+  const mcpPart = usable.length ? mcpSystemText(usable, instructionsText(), agent.mcpServers.filter((n) => names.includes(n)), null, agent.mcpTools ?? {}, Object.fromEntries(usable.map((s) => [s.name, outToolsFor(s)]))).length + 2 : 0
+  const memory = mayMemory ? memoryFor(agent.instructions) : { block: '', use: null }
+  const tools = [...agentTools(agent, { upsert: unlocks.upsert }), ...(memory.use ? [recallTool] : []), ...runTools(agent, { saved: null, notes: [] }, { notes: unlocks.notes, state: unlocks.state })]
+  const defs = tools.map((x) => ({ name: x.name, description: x.description, input_schema: x.input_schema }))
+  const ctx = context(agent, { trigger: req.trigger } as AgentRun, rows, last)
+  const user = taskMessage([], agent.instructions, memory.block ? `${ctx}\n\n${memory.block}` : ctx)
+  const promptChars = agentSystem(agent.write, unlocks, canCreateItems()).length + mcpPart + JSON.stringify(defs).length + JSON.stringify([user]).length
+  return {
+    purpose: 'agents.run',
+    sources: agentSources(agent, rows, memory.block),
+    model: agent.model,
+    size: { promptChars, maxTokens: 64000, bandOut: FIRST_STEP_OUT },
+    run: { source: `agent:${agent.id}:${runId}`, mode: runModeOf(req), budget: agent.maxRunUsd },
+    ...(usable.length ? { mcp: { servers: usable.length } } : {}),
+  }
 }
 
 const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s)
@@ -270,8 +325,16 @@ async function runOnce(agent: CustomAgent, req: RunRequest): Promise<AgentRun> {
   const extras: RunExtras = { saved, notes: [] }
   // what this run may use beyond the workspace tools: what the active integration profiles unlock on this device
   const unlocks: RunUnlocks = { upsert: unlocked('upsert'), state: unlocked('agentState'), notes: unlocked('notify') }
+  const mode = runModeOf(req)
+  const runId = req.runId ?? newId()
+  // the Regler's start check (scheduled / triggered runs — a manual one asked where it was pressed, actions.ts runNow):
+  // at the red line no run is started — the agent's one held record of the day counts it, nothing is sent
+  if (mode !== 'manual') {
+    const v = await startCheck(startInput(agent, req, runId, last))
+    if (!v.start && 'hold' in v) return heldStart(agent, req, v)
+  }
   const seq = await nextSeq(agent.id)
-  const run: AgentRun = { id: newId(), agentId: agent.id, runner: 'browser', seq, trigger: req.trigger, startedAt: Date.now(), status: 'running', summary: '', steps: [] }
+  const run: AgentRun = { id: runId, agentId: agent.id, runner: 'browser', seq, trigger: req.trigger, startedAt: Date.now(), status: 'running', summary: '', steps: [] }
   // the run's writes (store/writer.ts): agent:<id>:<run>, each change with its id, the report as 'report'
   const writer: Writer = { kind: 'agent', id: agent.id, run: run.id }
   noteRun(writer, { seq })
@@ -318,6 +381,8 @@ async function runOnce(agent: CustomAgent, req: RunRequest): Promise<AgentRun> {
 
   const usage: Required<AgentRunUsage> = { input: 0, output: 0, cacheRead: 0, usd: 0, byModel: [] }
   const ac = new AbortController()
+  /** the Regler stopped it between two steps (it never waits mid-run): the line, the rest, the next step */
+  let stoppedBy: HeldStop | null = null
   let overBudget = false
   let mcpUsed = false
   /** a response without a price: the budget cannot be held (the model's label) */
@@ -340,6 +405,8 @@ async function runOnce(agent: CustomAgent, req: RunRequest): Promise<AgentRun> {
     usage.usd += entry.usd ?? 0
     usage.byModel = addToLines(usage.byModel, entry)
   }
+  /** responses metered (a cut one too): none → nothing of this run reached a provider */
+  let responses = 0
 
   const hooks: RunHooks = {
     toolStart(name, arg) {
@@ -364,6 +431,7 @@ async function runOnce(agent: CustomAgent, req: RunRequest): Promise<AgentRun> {
       if (kind === 'answer') answer = answer ? `${answer}\n\n${text}` : text
     },
     usage(u, entry) {
+      responses += 1
       // the run's cost = the sum of its ledger entries (every response, priced by the one table)
       usage.input += u.input + u.cacheWrite + u.cacheWrite1h
       usage.output += u.output
@@ -372,7 +440,7 @@ async function runOnce(agent: CustomAgent, req: RunRequest): Promise<AgentRun> {
       if (entry) usage.byModel = addToLines(usage.byModel, entry)
       // another model answered (a refusal fallback): a step of the run, once per model
       for (const st of entry?.steps ?? []) {
-        const line = entry ? stepText(t, st, entry.served.p) : null
+        const line = entry ? stepText(t, st, entry.served.p, { lang: currentLang() }) : null
         if (line && !run.steps.some((x) => x.label === line)) step({ kind: 'note', label: line, state: 'ok' })
       }
       if (entry && entry.usd === null && !ac.signal.aborted) {
@@ -385,6 +453,9 @@ async function runOnce(agent: CustomAgent, req: RunRequest): Promise<AgentRun> {
       }
     },
     history() {},
+    held(v) {
+      stoppedBy = v
+    },
     limit() {
       step({ kind: 'note', label: t('features.agent.limitNote'), state: 'ok' })
     },
@@ -448,7 +519,9 @@ async function runOnce(agent: CustomAgent, req: RunRequest): Promise<AgentRun> {
       system: agentSystem(agent.write, unlocks, canCreateItems()),
       model: agent.model,
       effort: agent.effort,
-      ledgerSource: `agent:${agent.id}:${run.id}`,
+      // the run's source and how it started (features/governor modes.ts — an agent runs three ways); its budget per run
+      // is one more line of the Regler (only while a Regler line is set — else the check after each response, below)
+      run: { source: `agent:${agent.id}:${run.id}`, mode, budget: agent.maxRunUsd },
       // the tool reads are built for the route (ai/agent/run.ts); the trigger's rows were read before it — with them a
       // route that does not see everything is refused (the gate's backstop)
       applied: req.rows?.length ? null : appliedOf(pre),
@@ -458,11 +531,25 @@ async function runOnce(agent: CustomAgent, req: RunRequest): Promise<AgentRun> {
     if (end === 'max_tokens') {
       run.status = 'error'
       run.error = t('features.agent.err.maxTokens')
-    } else run.status = 'ok'
+    } else if (end === 'held') holdRun(run, stoppedBy)
+    else run.status = 'ok'
   } catch (e) {
     if (live.trim()) answer = answer ? `${answer}\n\n${live.trim()}` : live.trim()
     run.summary = withoutWebImages(answer)
-    if (noPrice) {
+    const fix = e instanceof AIError && e.code === 'budget' ? e.fixes?.find((f) => f.kind === 'brake') : undefined
+    if (e instanceof AIError && e.code === 'budget' && mode !== 'manual' && !responses && !changes.length) {
+      // a background run's FIRST request refused at the line (the start check's estimate passed it): nothing was sent —
+      // no run, the agent's one held record of the day counts it, as a start held before
+      window.clearTimeout(saveTimer)
+      await dropRun(agent.id, run.id)
+      endRun(writer)
+      const line = fix?.kind === 'brake' && fix.line ? { line: fix.line } : {}
+      return heldStart(agent, req, { start: false, hold: (e.detail ?? 'day') as HeldBinding, ...line })
+    }
+    if (e instanceof AIError && e.code === 'budget') {
+      // the gate refused a request at the line (its first, or after a switch): held like a stop between two steps
+      holdRun(run, { stop: 'budget', band: fix?.kind === 'brake' ? fix.band : null, binding: (e.detail ?? 'day') as HeldBinding, rest: fix?.kind === 'brake' ? fix.rest : 0, ...(fix?.kind === 'brake' && fix.line ? { line: fix.line } : {}) })
+    } else if (noPrice) {
       run.status = 'budget'
       run.error = t('features.agents.run.noPrice', { model: noPrice })
     } else if (overBudget) {
@@ -554,7 +641,9 @@ async function runOnce(agent: CustomAgent, req: RunRequest): Promise<AgentRun> {
   if (memory?.use) {
     const staged = (run.staged ?? []).filter((c) => c.status === 'pending' || c.status === 'held').length
     const result =
-      run.status === 'error' || run.status === 'budget'
+      run.status === 'held'
+        ? t('features.memory.result.stopped')
+        : run.status === 'error' || run.status === 'budget'
         ? t('features.memory.result.failed')
         : run.applied
           ? t(`features.memory.result.applied.${run.applied === 1 ? 'one' : 'other'}`, { count: run.applied })
@@ -564,14 +653,65 @@ async function runOnce(agent: CustomAgent, req: RunRequest): Promise<AgentRun> {
     noteUse(run.summary, memory.use, { task: agent.instructions, where: { kind: 'agent', name: agent.name }, result })
   }
   run.usage = { input: usage.input, output: usage.output, cacheRead: usage.cacheRead, usd: Math.round(usage.usd * 10_000) / 10_000, ...(usage.byModel.length ? { byModel: usage.byModel } : {}) }
+  // a Regler line set: where it stood when the run ended (the run row's line; nothing without one)
+  const line = reglerLine()
+  if (line) run.regler = line
   run.endedAt = Date.now()
   await putRun({ ...run, steps: [...run.steps] })
   endRun(writer)
-  // its proposals replace older ones of the same rows (the leader tab only; supersede.ts) — never a run Jev made wait: it
-  // stages only because of Jev, and a decision model never supersedes
-  if (run.status === 'staged' && !run.jev?.waited) await supersedeOlder(agent.id).catch((e) => console.warn('[one] agents: could not replace older proposals', e))
+  // its proposals replace older ones of the same rows (the leader tab only; supersede.ts) — a run the Regler held too
+  // (stopped with its proposals kept); never a run Jev made wait: it stages only because of Jev, and a decision model
+  // never supersedes
+  if ((run.status === 'staged' || (run.status === 'held' && run.staged?.length)) && !run.jev?.waited) await supersedeOlder(agent.id).catch((e) => console.warn('[one] agents: could not replace older proposals', e))
   notify(agent, run, req)
   return run
+}
+
+/** A run the Regler stopped between two steps: held, its proposals kept; the line it reached in its error text. */
+function holdRun(run: AgentRun, v: HeldStop | null): void {
+  const binding = (v?.binding ?? 'day') as HeldBinding
+  const held = heldStopped(run, { binding, line: v?.line ?? null, rest: v?.rest ?? 0, next: v?.band ? { low: v.band.low, high: v.band.high } : null, at: Date.now() })
+  Object.assign(run, held)
+  run.error = t(`features.governor.run.stopped.${binding}`, { budget: fmtUsd(v?.line?.limit ?? 0, currentLang()) })
+}
+
+/**
+ * A start the Regler held at the red line (scheduled / triggered): no run — the agent's one record of the day counts it
+ * (count + time, runs.ts noteHeldStart), and the person is told once a day (toast + inbox note).
+ */
+async function heldStart(agent: CustomAgent, req: RunRequest, v: Extract<StartCheck, { hold: unknown }>): Promise<AgentRun> {
+  const at = Date.now()
+  const rec = await noteHeldStart({ agentId: agent.id, day: dayOf(at), at, binding: v.hold, line: v.line ?? null, trigger: req.trigger })
+  await tellHeld(agent, rec)
+  return rec
+}
+
+/** agents told about today in this tab (the inbox note is the mark across tabs and reloads) */
+const told = new Set<string>()
+
+/**
+ * A held run (stopped or not started): ONE info toast and ONE inbox note per agent and local day — never an error toast,
+ * never a toast while the agent's own page is open (its run list says it); the note's id is per agent and day, so a
+ * second hold that day neither adds one nor marks it unread again.
+ */
+async function tellHeld(agent: CustomAgent, run: AgentRun): Promise<void> {
+  const day = dayOf(Date.now())
+  // the status cell and VERBRAUCH on Start: held today
+  noteHeld(agent.id)
+  const id = `rg:${agent.id}:${day}`
+  if (told.has(id)) return
+  told.add(id)
+  try {
+    const ws = wsKey(activeWorkspace())
+    if (useInbox.getState().ws !== ws) await loadInbox(ws)
+    const inbox = useInbox.getState()
+    if (inbox.ws === ws && inbox.data.items.some((i) => i.id === id)) return
+    await addInboxItems(ws, [{ id, kind: 'agent', pageId: '', at: Date.now(), excerpt: t('features.governor.run.held.inbox', { name: agent.name }), agentId: agent.id, runId: run.id }])
+  } catch (e) {
+    console.warn('[one] agents: could not note the held run', e)
+  }
+  if (onAgentPage(agent.id)) return
+  useUI.getState().toast({ message: t('features.governor.run.held.toast', { name: agent.name }), kind: 'info', action: { label: t('features.governor.run.held.open'), run: () => navigate(`#/agents/${agent.id}`) }, timeout: 10_000, background: true })
 }
 
 /**
@@ -635,6 +775,8 @@ function onAgentPage(agentId: ID): boolean {
  * run toasts while its own page is open: the page shows the run (finished, failed, proposals) already.
  */
 function notify(agent: CustomAgent, run: AgentRun, req: RunRequest) {
+  // held by the Regler: once a day, its own way (an info toast + an inbox note — the run keeps its proposals)
+  if (run.status === 'held') return void tellHeld(agent, run)
   if (onAgentPage(agent.id)) return
 
   // what waits for the person: open proposals, held ones too (slice SJ)
@@ -654,5 +796,31 @@ function notify(agent: CustomAgent, run: AgentRun, req: RunRequest) {
     const despite = (run.staged ?? []).filter((c) => c.status === 'applied' && c.jev?.mark).length
     const message = t(run.applied === 1 ? 'features.agents.toast.applied.one' : 'features.agents.toast.applied.other', { label, count: run.applied })
     ui.toast({ message: despite ? `${message} — ${t(despite === 1 ? 'features.ai.jev.toast.despite.one' : 'features.ai.jev.toast.despite.other', { n: despite })}` : message, kind: 'info', action: despite ? open : { ...open, label: t('common.open') }, background: true })
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* e2e seam                                                             */
+/* ------------------------------------------------------------------ */
+
+// a scheduled or triggered start without waiting for the clock (DEV / ?e2e): the Regler's start check and holds
+if (typeof window !== 'undefined' && (import.meta.env.DEV || new URLSearchParams(window.location.search).has('e2e'))) {
+  ;(window as unknown as { __oneAgentRun?: unknown }).__oneAgentRun = {
+    run: async (agentId: ID, type: 'schedule' | 'row_created' = 'schedule') => {
+      const agent = useWorkspace.getState().agents?.[agentId]
+      if (!agent) return null
+      const res = await executeRun(agent, { trigger: { type, ...(type === 'schedule' ? { detail: 'schedule e2e' } : {}) } })
+      return typeof res === 'string' ? res : (JSON.parse(JSON.stringify(res)) as unknown)
+    },
+    /** the inbox items of the open workspace on this device (ids, agent, excerpt) */
+    inbox: () => useInbox.getState().data.items.map((i) => ({ id: i.id, kind: i.kind, agentId: (i as { agentId?: string }).agentId ?? null, excerpt: i.excerpt ?? '', read: !!i.read })),
+    /** what the Regler's start check says of a run now (manual: the dialog's numbers; nothing starts) */
+    startCheck: async (agentId: ID, manual = true) => {
+      const agent = useWorkspace.getState().agents?.[agentId]
+      if (!agent) return null
+      const runId = newId()
+      const v = await startCheck(startInput(agent, { trigger: { type: manual ? 'manual' : 'schedule' }, manual }, runId))
+      return JSON.parse(JSON.stringify(v)) as unknown
+    },
   }
 }

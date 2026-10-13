@@ -22,7 +22,8 @@ import { emptyKit, optionsOfList, sanitizeList, sanitizePropType, sanitizeRecord
 import { lookAllowed, sameLook, sanitizeLook } from './look'
 import { aiRulesAllowed, claudeRulesAllowed, readWorkspaceAI, sameWorkspaceAI, withCleanAISettings } from './ai'
 import type { WorkspaceAI } from '@/shared/ai/types'
-import { sameGovernor, sanitizeGovernor, stampGen, type WorkspaceGovernor } from '@/shared/ai/governor'
+import { governorExtras, isReadableGovernor, sameGovernor, sanitizeGovernor, stampGen, type WorkspaceGovernor } from '@/shared/ai/governor'
+import { deviceLine, governorRefusal, restamp, STAMP_KNOWN, stampedDeviceAI, watchGenInvariant, type GovernorRefusal } from './governor'
 import type { Unreadable } from '@/shared/ai/route'
 import { policyKnown } from '@/shared/ai/policy'
 import { INTEGRATION_LIMITS, integrationsAllowed, sameIntegration, sanitizeIntegration, sanitizeIntegrations } from './integrations'
@@ -216,6 +217,15 @@ export interface WorkspaceState extends Workspace {
    * unless claudeRulesAllowed() (`claudeKept`).
    */
   setWorkspaceAI: (ai: WorkspaceAI | null) => { ok: boolean; claudeKept?: true }
+  /**
+   * The Regler (Workspace.governor — features/governor): sanitized (a later slice's keys of the stored value kept),
+   * updatedAt / updatedBy set, Workspace.ai.gen stamped in the same update (store/governor.ts restamp); the same value is
+   * no change. Refused: 'rights' (a team member who is not an owner or admin — the server puts such a change back too),
+   * 'server' (a team server that does not guard it), 'newer' (the stored value — or the AI stamp — is a newer build's).
+   */
+  setGovernor: (next: WorkspaceGovernor | null | ((prev: WorkspaceGovernor | undefined) => WorkspaceGovernor | null)) => { ok: boolean; why?: GovernorRefusal | 'newer' }
+  /** Re-stamp this device's AI layer after the person's own line for this browser changed (features/governor device.ts). */
+  stampDeviceGen: () => void
 
   /**
    * Integration profiles (features/agents/integrations): insert or replace by id (sanitized; updatedAt / updatedBy are
@@ -519,6 +529,8 @@ export const useWorkspace = create<WorkspaceState>()(
           const governor = sanitizeGovernor(ws.governor)
           const gBefore = get().governor
           s.governor = gBefore !== undefined && sameGovernor(governor, gBefore, { meta: true }) ? gBefore : governor
+          // the AI generation the stored rules, the governor and this browser's own line need (one stamp, store/governor.ts)
+          restamp(s, { before: aiBefore, device: true })
           s.ready = true
         }),
       )
@@ -552,6 +564,8 @@ export const useWorkspace = create<WorkspaceState>()(
         // the Regler: the same (a restore hands in this workspace's own; another tab's save its stored value)
         const governor = sanitizeGovernor(ws.governor)
         if (!sameGovernor(governor, s.governor, { meta: true })) s.governor = governor
+        // the stamp follows what is stored now — a restore's or another tab's rules never lower a budget's
+        restamp(s, { before: get().ai, device: true })
       }),
 
     setLook: (look) => {
@@ -566,12 +580,13 @@ export const useWorkspace = create<WorkspaceState>()(
 
     setWorkspaceAI: (next) => {
       const prev = get().ai
-      // never over rules this build cannot enforce (a newer build's — 'reload'); never by someone who may not
-      if (!aiRulesAllowed() || !policyKnown(prev, null)) return { ok: false }
+      // never over rules of a newer build (a stamp above every generation this build can compute — STAMP_KNOWN,
+      // store/governor.ts; a budget's own stamp is one it computes); never by someone who may not
+      if (!aiRulesAllowed() || !policyKnown(prev, null, STAMP_KNOWN)) return { ok: false }
       let clean = next ? readWorkspaceAI(JSON.parse(JSON.stringify(next))) : undefined
       // never rules a newer build wrote (their own generation above this build's): restamped here they would pass for
       // rules this build enforces whole — a backup or a caller handing them on is refused, the stored rules stay
-      if (clean && !policyKnown(clean, null)) return { ok: false }
+      if (clean && !policyKnown(clean, null, STAMP_KNOWN)) return { ok: false }
       let claudeKept: true | undefined
       // Claude's rules wait for a server whose agents read them (D-S2-30): its entry stays as it was
       if (clean && !claudeRulesAllowed()) {
@@ -598,6 +613,38 @@ export const useWorkspace = create<WorkspaceState>()(
         s.ai = stamped
       })
       return { ok: true, ...(claudeKept ? { claudeKept } : {}) }
+    },
+
+    setGovernor: (next) => {
+      const refused = governorRefusal()
+      if (refused) return { ok: false, why: refused }
+      const prev = get().governor
+      // never over a value a newer build wrote (kept whole, never written here), nor under an AI stamp this build cannot
+      // compute (writing ours would lower it)
+      if ((prev && !isReadableGovernor(prev)) || (get().ai?.gen ?? 1) > STAMP_KNOWN) return { ok: false, why: 'newer' }
+      const cur = prev as WorkspaceGovernor | undefined
+      const value = typeof next === 'function' ? next(cur) : next
+      // a later slice's keys of the stored value stay (a write by this build never drops them)
+      const clean = sanitizeGovernor(JSON.parse(JSON.stringify({ ...governorExtras(cur), ...(value ?? {}) })))
+      if (clean && !isReadableGovernor(clean)) return { ok: false, why: 'newer' }
+      if (sameGovernor(clean, cur)) return { ok: true }
+      const written = clean ? { ...clean, updatedAt: now(), updatedBy: agentEditor() } : undefined
+      set((s) => {
+        // never `delete s.governor`: zustand merges the next state into the previous one
+        s.governor = written
+        restamp(s, { before: get().ai })
+      })
+      return { ok: true }
+    },
+
+    stampDeviceGen: () => {
+      const ai = stampedDeviceAI(get().settings.ai, deviceLine())
+      if (ai === null) return
+      set((s) => {
+        if (ai) s.settings.ai = ai
+        // settings.ai is never in defaultSettings(): no key rather than `ai: undefined`
+        else delete s.settings.ai
+      })
     },
 
     upsertIntegration: (profile, replaces) => {
@@ -1323,12 +1370,16 @@ export const useWorkspace = create<WorkspaceState>()(
         if (patch.governor !== undefined) s.governor = patch.governor ?? undefined
         if (patch.integrations) s.integrations = patch.integrations
         if (patch.settings) Object.assign(s.settings, withSealedKeys({ ...s.settings, ...patch.settings }, s.settings, s.epoch))
+        // a remote frame's rules / governor (or this device's overlay settings): the stamp they need here, in this update
+        if (patch.ai !== undefined || patch.governor !== undefined || patch.settings) restamp(s, { before: get().ai, device: !!patch.settings })
         if (removed && s.recent.some((r) => !s.pages[r])) s.recent = s.recent.filter((r) => !!s.pages[r])
       }),
   })),
 )
 
 attachSecrets({ getState: useWorkspace.getState, setState: (recipe) => useWorkspace.setState(recipe) })
+// DEV / ?e2e: an AI stamp below what the governor needs is a console error (store/governor.ts)
+watchGenInvariant(useWorkspace)
 
 /* ------------------------------------------------------------------ */
 /* What a store change touched (shared by every subscriber)            */

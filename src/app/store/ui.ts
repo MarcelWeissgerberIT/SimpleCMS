@@ -11,7 +11,7 @@ import { newId } from '../lib/ids'
 
 export type ModalState =
   /** `section`: Settings › AI scrolled to its MCP servers or memory (features/ai/setup openAISettings) */
-  | { type: 'settings'; tab?: 'general' | 'appearance' | 'ai' | 'data' | 'shortcuts' | 'about' | 'team'; section?: 'mcp' | 'memory' }
+  | { type: 'settings'; tab?: 'general' | 'appearance' | 'ai' | 'data' | 'shortcuts' | 'about' | 'team'; section?: 'mcp' | 'memory' | 'limit' }
   /** the AI setup assistant (features/ai/setup openAISetup): why it opened, at which step / provider / data class */
   | { type: 'aiSetup'; reason?: AISetupReason; feature?: FeatureClass; provider?: ProviderId; step?: AISetupStep; data?: DataClass }
   /** tab / select: open on built-ins or own templates, with a template root (own / customised) selected */
@@ -29,7 +29,8 @@ export type ModalState =
   | { type: 'share'; pageId: ID }
   | { type: 'shortcuts' }
   | { type: 'move'; pageId: ID }
-  | { type: 'confirm'; title: string; body?: string; danger?: boolean; confirmLabel?: string; onConfirm: () => void }
+  /** noConfirm: only Cancel (a question with nothing to confirm — the Regler's start dialog when +1 $ would not do) */
+  | { type: 'confirm'; title: string; body?: string; danger?: boolean; confirmLabel?: string; noConfirm?: boolean; onConfirm: () => void }
   /** "Save as example in memory" (features/ai/memory): a page — or `blocks` of it (a selection) — with an optional tag */
   | { type: 'memoryExample'; pageId: ID; tag?: string; blocks?: JSONContent[] | null }
 
