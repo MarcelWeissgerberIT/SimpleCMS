@@ -108,7 +108,11 @@ the public APIs stable — other areas are built against them in parallel.
   (editor instance id, 'history', 'ai', 'sync', 'import', 'synced' = synced-block service, 'file' = folder / GitHub
   pick-up, 'template' = a template copy, 'split' = blocks turned into a page, 'items' = a task written from outside its
   editor (features/workitems `writeItems`) …). Editors must apply external updates when
-  `page.contentOrigin !== <own id>` and `contentRev` changed.
+  `page.contentOrigin !== <own id>` and `contentRev` changed. Block ids alone are no change there (each editor fills
+  in its own for blocks without one and writes them once): merges with unsaved typing diff ids aside and the blocks
+  take the write's ids (editor/lib/idDiff.ts; the merge base is the content the editor took in, with its own ids).
+  The rule is the editors' own (an editor taking in a write, also one from another tab), not the cross-tab save
+  merge's (store/merge.ts).
 - Database rows are pages with `databaseId` set (parentId = database page id). Title lives in `page.title`.
 - Binary files (images, attachments) go to IndexedDB via `saveFile()` → `"onefile:<id>"`; display with `useFileUrl()`.
 - Public assets are referenced WITHOUT leading slash (`assets/covers/dunes.webp`) and resolved with `resolveAssetUrl()`

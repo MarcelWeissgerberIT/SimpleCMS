@@ -14,12 +14,14 @@ import { Selection, TextSelection, type Transaction } from '@tiptap/pm/state'
 import { ySyncPluginKey } from '@tiptap/y-tiptap'
 import type { ID } from '../store/types'
 import { useWorkspace } from '../store/store'
+import { deepEqual } from '../store/merge'
 import { inPersonEvent, reportFallback, withWriter, type Writer } from '../store/writer'
 import { navigate, pageHref, useRoute } from '../lib/router'
 import { newId } from '../lib/ids'
 import { createBridge, type Bridge } from './lib/bridge'
 import { editorExtensions } from './extensions/kit'
-import { findBlockById, flashBlock } from './extensions/behaviors'
+import { findBlockById, flashBlock, syncDomSelection } from './extensions/behaviors'
+import { adoptIds, diffExact, diffIgnoringIds, idsFor, renameIds, type Range } from './lib/idDiff'
 import { sanitize, withBlockIds } from './convert'
 import { liftMisplacedItems } from './workitem/place'
 import { EditorOverlays } from './menus/EditorOverlays'
@@ -184,17 +186,16 @@ export function applyExternalContent(editor: Editor, json: JSONContent): void {
   } catch {
     return
   }
-  const start = state.doc.content.findDiffStart(next.content)
-  if (start == null) return
+  const exact = diffExact(state.doc, next)
+  if (!exact) return
+  // block ids aside: a write that only gave blocks ids (another editor's first save) changes attributes only; one
+  // that rewrote every id replaces only what changed besides
+  const blind = diffIgnoringIds(state.doc, next)
+  const use = blind && size(blind) >= size(exact) ? exact : blind
   let tr = state.tr
   try {
-    let { a: endA, b: endB } = state.doc.content.findDiffEnd(next.content)!
-    const overlap = start - Math.min(endA, endB)
-    if (overlap > 0) {
-      endA += overlap
-      endB += overlap
-    }
-    tr.replace(start, endA, next.slice(start, endB))
+    if (use) tr.replace(use.start, use.endA, next.slice(use.start, use.endB))
+    if (use !== exact) adoptIds(tr, next)
     if (!tr.doc.eq(next)) throw new Error('diff patch mismatch')
   } catch {
     // structural fallback: replace everything, restore the caret by block id + offset
@@ -215,6 +216,8 @@ export function applyExternalContent(editor: Editor, json: JSONContent): void {
   editor.view.dispatch(tr)
 }
 
+const size = (r: Range) => r.endA - r.start + (r.endB - r.start)
+
 /** The page whose content holds a block id (a block moved with "Move to" keeps its id). */
 function pageOwningBlock(blockId: string, except: string): string | null {
   const has = (n: JSONContent): boolean => n.attrs?.id === blockId || !!n.content?.some(has)
@@ -224,25 +227,16 @@ function pageOwningBlock(blockId: string, except: string): string | null {
   return null
 }
 
-/** Changed range between two docs: [start, endA) in `a` became [start, endB) in `b`; null when equal. */
-function diffRange(a: PMNode, b: PMNode): { start: number; endA: number; endB: number } | null {
-  const start = a.content.findDiffStart(b.content)
-  if (start == null) return null
-  let { a: endA, b: endB } = a.content.findDiffEnd(b.content)!
-  const overlap = start - Math.min(endA, endB)
-  if (overlap > 0) {
-    endA += overlap
-    endB += overlap
-  }
-  return { start, endA, endB }
-}
-
 /**
  * An external write arrived while this editor still had unsaved typing. Three-way merge on the
  * simplest level: when "their" change (base → theirs) and "our" change (base → editor) touch
- * different ranges, apply theirs onto ours. Returns false when they overlap (caller lets theirs win).
+ * different ranges, apply theirs onto ours. Returns false when they overlap (caller lets theirs win),
+ * or when ours is nothing but block ids.
+ * Block ids are no change on their side: an editor fills in its own ids for blocks that have none and
+ * writes them once, so theirs may hold other ids for the very blocks of base. `own`: base carries this
+ * editor's ids (the content as it took it in) — then the blocks of base take the ids theirs holds for them.
  */
-function mergeExternal(editor: Editor, baseJson: JSONContent, theirsJson: JSONContent): boolean {
+function mergeExternal(editor: Editor, baseJson: JSONContent, theirsJson: JSONContent, own: boolean): boolean {
   const { state } = editor
   let base: PMNode
   let theirs: PMNode
@@ -252,15 +246,18 @@ function mergeExternal(editor: Editor, baseJson: JSONContent, theirsJson: JSONCo
   } catch {
     return false
   }
-  const t = diffRange(base, theirs)
-  if (!t) return true
-  const o = diffRange(base, state.doc)
+  const o = own ? diffExact(base, state.doc) : diffIgnoringIds(base, state.doc)
   if (!o) return false
-  if (!(t.endA <= o.start || t.start >= o.endA)) return false
-  const shift = t.start >= o.endA ? o.endB - o.endA : 0
+  const t = diffIgnoringIds(base, theirs)
+  if (t && !(t.endA <= o.start || t.start >= o.endA)) return false
   try {
-    const tr = state.tr.replace(t.start + shift, t.endA + shift, theirs.slice(t.start, t.endB))
-    editor.view.dispatch(tr.setMeta('addToHistory', false).setMeta('preventUpdate', true))
+    const tr = state.tr
+    if (t) {
+      const shift = t.start >= o.endA ? o.endB - o.endA : 0
+      tr.replace(t.start + shift, t.endA + shift, theirs.slice(t.start, t.endB))
+    }
+    if (own) renameIds(tr, idsFor(base, theirs, t))
+    if (tr.docChanged) editor.view.dispatch(tr.setMeta('addToHistory', false).setMeta('preventUpdate', true))
     return true
   } catch {
     return false
@@ -368,6 +365,8 @@ function EditorInstance({ pageId, readOnly, autoFocus, onReady, className, colla
   /** The net (DEV / ?e2e): when the person last used this editor, and a change nobody named since the last flush. */
   const lastInput = useRef(0)
   const untracked = useRef<string | null>(null)
+  /** The store's content as this editor last took it in or wrote it (`raw`), with this editor's block ids (`doc`). */
+  const took = useRef<{ raw: JSONContent | null | undefined; doc: JSONContent | undefined } | null>(null)
 
   /** Hand the editor's document to the store: as `writer`'s write (editAs), else as this editor's (the person typing). */
   const flush = useCallback(
@@ -385,10 +384,13 @@ function EditorInstance({ pageId, readOnly, autoFocus, onReady, className, colla
         return
       }
       const ws = useWorkspace.getState()
-      if (!ws.pages[pageId]) return
+      const rev = ws.pages[pageId]?.contentRev
+      if (rev === undefined) return
       if (!writer && stray !== null) reportFallback('editor', [`p:${pageId}`], stray)
       withWriter(writer ?? { kind: 'editor', id: editorKey }, () => ws.setContent(pageId, json, instanceId))
-      lastRev.current = useWorkspace.getState().pages[pageId]?.contentRev ?? lastRev.current
+      const now = useWorkspace.getState().pages[pageId]
+      lastRev.current = now?.contentRev ?? lastRev.current
+      if (now && now.contentRev !== rev) took.current = { raw: now.content, doc: json }
     },
     [pageId, instanceId, editorKey],
   )
@@ -396,7 +398,11 @@ function EditorInstance({ pageId, readOnly, autoFocus, onReady, className, colla
   // the page title is the one <h1>: heading blocks render as <h2>–<h4> beneath it
   const extensions = useMemo(() => editorExtensions({ bridge, headingOffset: 1, collab }), [bridge])
   // collaboration: the content comes from the Y document, not the store
-  const initial = useMemo(() => (collab ? { doc: undefined, idsAdded: false } : prepareContent(useWorkspace.getState().pages[pageId]?.content)), [pageId])
+  const initial = useMemo(() => {
+    if (collab) return { raw: undefined, doc: undefined, idsAdded: false }
+    const raw = useWorkspace.getState().pages[pageId]?.content
+    return { raw, ...prepareContent(raw) }
+  }, [pageId])
 
   const editor = useEditor(
     {
@@ -491,19 +497,28 @@ function EditorInstance({ pageId, readOnly, autoFocus, onReady, className, colla
       if (p.contentRev === lastRev.current) return
       lastRev.current = p.contentRev
       if (p.contentOrigin === instanceId || editor.isDestroyed) return
+      // what the browser shows now first (a caret moved by a key a moment ago, text not read yet): never overwritten
+      syncDomSelection(editor.view)
       const theirs = prepareContent(p.content).doc ?? { type: 'doc', content: [{ type: 'paragraph' }] }
       // unsaved local typing + a write elsewhere in the doc (AI append, another pane …): keep both
       const base = prev.pages[pageId]?.content
-      if (dirty.current && base && mergeExternal(editor, prepareContent(base).doc!, theirs)) {
-        window.clearTimeout(timer.current)
-        timer.current = window.setTimeout(() => flush(), SAVE_DELAY)
-        return
+      if (dirty.current && base) {
+        // the merge base with this editor's own block ids: the content it took in (ids it filled in itself)
+        const mine = took.current ?? initial
+        const own = !!mine.doc && (mine.raw === base || deepEqual(mine.raw, base))
+        if (mergeExternal(editor, own ? mine.doc! : prepareContent(base).doc!, theirs, own)) {
+          took.current = { raw: p.content, doc: theirs }
+          window.clearTimeout(timer.current)
+          timer.current = window.setTimeout(() => flush(), SAVE_DELAY)
+          return
+        }
       }
       window.clearTimeout(timer.current)
       dirty.current = false
       applyExternalContent(editor, theirs)
+      took.current = { raw: p.content, doc: theirs }
     })
-  }, [editor, pageId, instanceId, flush, collab])
+  }, [editor, pageId, instanceId, flush, collab, initial])
 
   // flush on unload (module-level listener, see flushAllEditors) / tab hide / unmount
   useEffect(() => {
