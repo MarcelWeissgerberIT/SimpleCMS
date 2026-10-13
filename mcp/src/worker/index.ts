@@ -31,6 +31,7 @@ import { WORKER_DEFAULT_PORT } from '../../../src/app/features/coding/protocol.t
 import { SOURCE_WORDS, cloudConfigFile, defaultConfigFile, emptyConfig, initConfig, loadConfig, saveRepos, withPreset, type RepoChoice } from './config.ts'
 import { claudeBin, detectClaude } from './claude.ts'
 import { checkRepo, hasRemote } from './git.ts'
+import { TRUST } from './run.ts'
 import { Worker } from './worker.ts'
 import { serveTaskMcp } from './taskmcp.ts'
 import { filePreset } from './preset.ts'
@@ -141,17 +142,21 @@ async function main() {
       `claude     ${caps.found ? `${caps.version ?? 'found'}${caps.budget ? '' : ' (no --max-budget-usd: limits are checked between stages)'}` : `NOT FOUND ("${bin}")`}`,
     ]
     let ok = caps.found && !!config.workspace && config.repos.length > 0 && (relay?.ok ?? true)
+    let untrusted = 0
     for (const repo of config.repos) {
       try {
         await checkRepo(repo)
         const remote = await hasRemote(repo)
-        const own = repo.claude.projectSettings ? 'on' : `off (${repo.claude.projectSettingsSet ? 'worker.json' : repo.source ? SOURCE_WORDS[repo.source] : 'default'})`
+        // the reason first (also when worker.json holds the "false" the setup page wrote for a row it showed off)
+        const own = repo.claude.projectSettings ? 'on' : `off (${repo.source ? SOURCE_WORDS[repo.source] : repo.claude.projectSettingsSet ? 'worker.json' : 'default'})`
+        if (!repo.claude.projectSettings && repo.source) untrusted++
         lines.push(`repo       ${repo.name}: ok · base ${repo.baseBranch} · ${remote ? `remote ${repo.remote}` : `no remote "${repo.remote}" (push off)`} · tests ${repo.testCommand ? 'yes' : 'none'} · its own Claude Code settings ${own}`)
       } catch (e) {
         ok = false
         lines.push(`repo       ${repo.name}: ${e instanceof Error ? e.message : String(e)}`)
       }
     }
+    if (untrusted) lines.push(`           code from elsewhere: Claude Code runs without its own settings. ${TRUST}`)
     if (!config.repos.length) lines.push(preset ? 'repos      none yet — run the worker: it opens a page to tick them (node one-worker.mjs setup)' : 'repos      none — add at least one to "repos" (or run: node one-worker.mjs setup)')
     if (loaded.problems.length) ok = false
     process.stdout.write(`${lines.join('\n')}\n${ok ? 'All good.' : 'Fix the lines above.'}\n`)

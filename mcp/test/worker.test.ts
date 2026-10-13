@@ -15,7 +15,7 @@ import { request } from 'node:http'
 import { after, afterEach, describe, test } from 'node:test'
 import { WORKER_CLOSE_REFUSED, WORKER_CLOSE_REPLACED, type GitInfo, type WorkerMessage } from '../../src/app/features/coding/protocol.ts'
 import { waitFor } from './helpers.ts'
-import { FakeTab, WS_LOCAL, cleanupAll, makeRepo, repoEntry, sh, startWorker, task, tempDir, writeConfig, type StartedWorker, type TempRepo } from './worker-helpers.ts'
+import { FAKE_CLAUDE, FakeTab, WORKER_BUNDLE, WS_LOCAL, cleanupAll, makeRepo, repoEntry, sh, startWorker, task, tempDir, writeConfig, type StartedWorker, type TempRepo } from './worker-helpers.ts'
 
 const PORT = 47381
 let worker: StartedWorker | null = null
@@ -401,6 +401,24 @@ describe('documents, tasks without a repository, imports', () => {
     assert.deepEqual(scope?.v, { repo: 'demo', names: 'kb' })
     assert.match(scope!.s, /claude mcp add -s user/)
     assertNoPaths(tab, r)
+
+    // the setup page's Save writes "projectSettings": false for a row it showed off by the clone folder: the log still
+    // names that reason and how to trust the repo (never "worker.json says false" alone), and so does `check`
+    await worker!.stop()
+    worker = null
+    const raw = JSON.parse(readFileSync(file, 'utf8').replace(/^\/\/.*$/gm, ''))
+    raw.repos[0].claude.projectSettings = false
+    writeFileSync(file, JSON.stringify(raw))
+    worker = await startWorker(file, { FAKE_CLAUDE_LOG: log })
+    const again = await connect()
+    await again.next('welcome')
+    assert.equal((await again.run(task({ kind: 'doc', name: 'Analysis', permissionMode: 'default' }, { id: 'fold2abc' }))).status, 'ok')
+    const set = again.messages.flatMap((m) => (m.type === 'event' && m.kind === 'log' ? m.lines : [])).find((l) => l.c?.startsWith('projectSettingsOff'))
+    assert.equal(set?.c, 'projectSettingsOffFolder')
+    assert.match(set!.s, /clone folder.*To trust them: switch on "Use this repo's own Claude Code settings"/)
+    const check = execFileSync(process.execPath, [WORKER_BUNDLE, 'check', '--config', file], { env: { ...process.env, CLAUDE_BIN: FAKE_CLAUDE }, encoding: 'utf8' }).toString()
+    assert.match(check, /repo {7}demo: ok .* its own Claude Code settings off \(in the clone folder\)/)
+    assert.match(check, /code from elsewhere: Claude Code runs without its own settings\. To trust them/)
   })
 
   test('an edit\'s change goes with its tool call in the log (scrubbed: no path of this machine)', async () => {

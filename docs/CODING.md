@@ -93,8 +93,10 @@ clean, and a test-command guess from top-level files — `package.json` with a `
   protocol.ext.allow=never -c protocol.file.allow=never clone --progress -- <url> <dir>` without a terminal (an SSH
   passphrase or password question fails at once with a hint), up to 30 min (`ONE_WORKER_CLONE_MS`), progress on the
   page; a failed clone removes the folder it made; a folder that is already a clone of the same address is just
-  added. A new clone — and such a folder added again — is marked as the worker's (`.git/one-worker-source`): Claude
-  Code runs on it without the repo's own settings (`claude.projectSettings`, § worker.json). With `glab` / `gh` installed and signed in, the page lists the person's projects (`glab api projects?
+  added. A new clone is marked as the worker's (`.git/one-worker-source`): Claude Code runs on it without the repo's
+  own settings (`claude.projectSettings`, § worker.json). Such a folder added again is marked only in the default
+  clone folder (`~/one-repos`, an older worker's clone); elsewhere it may be the person's own checkout and stays
+  unmarked — the clone folder rule covers it while it lies in the clone folder. With `glab` / `gh` installed and signed in, the page lists the person's projects (`glab api projects?
   membership=true…`, `gh repo list --json …`; names and clone addresses only, HTTPS or SSH to pick).
 - **Import a ZIP…** — `POST /setup/api/import?name=<file>.zip&dir=<clone folder>` with `application/zip` (≤ 500 MB,
   `ONE_WORKER_ZIP_MAX`), unpacked by fflate's streaming reader into a new repository (mcp/src/worker/zipimport.ts).
@@ -120,13 +122,19 @@ clean, and a test-command guess from top-level files — `package.json` with a `
   --work-tree=<folder>`), so no config or hook inside the folder is ever read — not its fsmonitor, filter drivers,
   `gpg.program` or `include.path`, even of a `.git` that slipped past both guards. Of the person's own config,
   nothing that runs a command or works on afterwards: fsmonitor off, hooks from an empty folder (`--no-verify` too),
-  no filter driver — `* -filter` in the fresh git folder's `info/attributes` while it adds (a global clean filter
-  such as nbstripout's runs in the import's folder, where `python -m nbstripout` would import the ZIP's own
-  `nbstripout.py`; Git LFS files go in as plain files), removed before the move — and no automatic gc
+  no filter driver — `* -filter !diff merge` as the last line of the fresh git folder's `info/attributes` (a global
+  clean filter or diff textconv such as nbstripout's runs in the repository's folder, where `python -m nbstripout`
+  would import the ZIP's own `nbstripout.py`; a merge driver such as `npx npm-merge-driver` finds the ZIP's
+  `node_modules/.bin` first) — and no automatic gc
   (`gc.auto=0`, `maintenance.auto=false`: past ~6,700 loose objects `git commit` starts a detached `git gc --auto`
   that raced the move and left `gc.pid` and `gc.log.lock` behind). The folder is checked once more, then the fresh
-  git folder moves in as its `.git`, marked as the worker's import (`.git/one-worker-source`). A failed import
-  leaves no folder behind. No remote — push is off until one is added.
+  git folder moves in as its `.git`, marked as the worker's import (`.git/one-worker-source`). The `info/attributes`
+  line stays for good (worktrees read it too): no filter, diff or merge driver of the person's ever runs in the
+  imported repository — not at its first `git status` (the page's and the Import stage's `repoFacts`), not in a
+  task's worktree, diff, commit or update from the base. Its files stay as they were committed: Git LFS files are
+  plain files there (a filter applied later would show each one changed and put the conversion into a task's first
+  commit); `merge` = git's own text merge, `!diff` = git's own diff. Removing the line turns the drivers on. A failed
+  import leaves no folder behind. No remote — push is off until one is added.
 - **Create it on GitLab / GitHub** (offered after an import while `glab` / `gh` is signed in; mcp/src/worker/publish.ts):
   a project name suggested from the code (package.json, composer.json, pom.xml, pyproject.toml / setup.py, Cargo.toml,
   go.mod, *.sln / *.csproj, the README's first heading — else the ZIP's name), an optional GitLab group (nested) or
@@ -614,14 +622,20 @@ A browser for reviews: the person's own Claude Code MCP server (e.g. `claude mcp
   own settings and **user-scope** MCP servers load, not the repo's (its `CLAUDE.md` is left out too, and so are the
   person's local-scope servers for that folder — `claude mcp add`'s default; with `claude.mcpServers` set the log
   says to add them with `-s user`, code `mcpUserScope`). Code from elsewhere, by the first rule that matches
-  (config.ts `sourceOf`) — the log line names it (codes `projectSettingsOffCloned` · `…Imported` · `…Marked` ·
-  `…Folder`; `…Set` when worker.json says false), and so do the setup page and `check`:
+  (config.ts `sourceOf`) — the log line names it with the way to trust the repo (codes `projectSettingsOffCloned` ·
+  `…Imported` · `…Marked` · `…Folder` — also when worker.json holds the "false", as Save writes it for a row it showed
+  off; `…Set` only for a repo of the person's own that worker.json switches off), and so do the setup page and
+  `check`:
   - the mark `.git/one-worker-source`: `clone` (a clone, and a folder already cloned from the same address that is
-    added again), `zip` (an import), or `folder` — once per config (worker 1.8.1, recorded in `worker-marks.json` next
-    to worker.json) every repo of worker.json that lies in `cloneDir`, has no mark and no `projectSettings` of its own
-    is marked so: clones and imports of older workers carried no mark, and the clone folder rule alone would trust
-    them again once `cloneDir` moves (the setup page keeps the folder of its last clone or import) or
-    `ONE_WORKER_CLONE_DIR` changes. A mark stays with the repo wherever `cloneDir` points later.
+    added again in `~/one-repos`), `zip` (an import), or — once per config (worker 1.8.1, recorded in
+    `worker-marks.json` next to worker.json) for repos of worker.json without a mark and without a `projectSettings`
+    of their own, which older workers left unmarked — `zip` for an older import wherever it lies (a root commit
+    `Import <file>.zip`) and `folder` for a clone in the DEFAULT clone folder `~/one-repos` (its folder named after its
+    origin's project, as the worker names clones). A clone folder of the person's own choice is never marked from:
+    1.8.0 took any (`~/code`, `~`), and the person's own checkouts there look like clones; the clone folder rule covers
+    them while `cloneDir` points there (and Save writes the "off" it showed). The setup page names what was marked
+    until the person takes note ("Got it" → `worker-marks.json` `seen`); the terminal log says it at the start. A mark
+    stays with the repo wherever `cloneDir` points later.
   - else a folder inside `cloneDir` — compared as written and through links (realpath), without case on macOS and
     Windows. This rule follows `cloneDir`: a wide one (`~/code`, `~`) takes in the person's own repos too; their line
     says "lies in the worker's clone folder", never "cloned".

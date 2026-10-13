@@ -68,6 +68,8 @@ h1 { margin: 26px 0 0; font-size: clamp(24px, 4vw, 34px); font-weight: 800; font
 .lead { max-width: 66ch; margin: 10px 0 0; color: var(--ink-2); }
 .msg { margin: 14px 0 0; padding: 9px 12px; border-left: 2px solid var(--signal); background: var(--surface-2); color: var(--ink-2); font-size: 13px; }
 .msg--ok { border-left-color: var(--ok); }
+.marks { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; justify-content: space-between; }
+.marks span { flex: 1 1 320px; min-width: 0; }
 .tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 22px 0 8px; }
 .tools__meta { flex: 1 1 auto; min-width: 180px; }
 .btn { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px; border: 1px solid var(--rule-strong); border-radius: 2px; background: var(--surface); color: var(--ink); font: 500 13px/1 var(--sans); cursor: pointer; transition: background 90ms var(--ease), transform 90ms var(--ease); }
@@ -222,7 +224,13 @@ export const SETUP_JS = String.raw`(function () {
     ownWhy: 'Off by default: {why}. Switch it on only for code you trust.',
     whycloned: 'cloned by the worker',
     whyimported: 'imported by the worker from a ZIP',
-    whymarked: 'marked as code from elsewhere (it lay in the clone folder when the worker updated)',
+    whymarked: 'marked as code from elsewhere (a clone in ~/one-repos when the worker updated)',
+    marks: 'This worker version marked {list} as code from elsewhere — an older worker cloned or imported {them}. Claude Code now runs on {them} without {their} own settings (.claude/, .mcp.json, CLAUDE.md); switch them on below for a repository you trust.',
+    marksIt: 'it',
+    marksThem: 'them',
+    marksIts: 'its',
+    marksTheir: 'their',
+    marksOk: 'Got it',
     whycloneDir: 'in the clone folder',
     ownWarn: 'On: this repo’s hooks and helper commands (apiKeyHelper, its MCP servers) will run on this computer when a task starts.',
     mcpUser: 'Its own settings are off: only servers added with “claude mcp add -s user …” reach this repo.',
@@ -335,7 +343,13 @@ export const SETUP_JS = String.raw`(function () {
     ownWhy: 'Standardmäßig aus: {why}. Schalte es nur für Code ein, dem du vertraust.',
     whycloned: 'vom Worker geklont',
     whyimported: 'vom Worker aus einer ZIP importiert',
-    whymarked: 'als fremder Code markiert (lag beim Update des Workers im Klon-Ordner)',
+    whymarked: 'als fremder Code markiert (ein Klon in ~/one-repos beim Update des Workers)',
+    marks: 'Diese Worker-Version hat {list} als fremden Code markiert – ein älterer Worker hat {them} geklont oder importiert. Claude Code läuft darauf jetzt ohne {their} eigenen Einstellungen (.claude/, .mcp.json, CLAUDE.md); schalte sie unten für ein Repository ein, dem du vertraust.',
+    marksIt: 'es',
+    marksThem: 'sie',
+    marksIts: 'seine',
+    marksTheir: 'ihre',
+    marksOk: 'Verstanden',
     whycloneDir: 'im Klon-Ordner',
     ownWarn: 'An: Die Hooks und Hilfsbefehle dieses Repos (apiKeyHelper, seine MCP-Server) laufen auf diesem Rechner, wenn eine Aufgabe startet.',
     mcpUser: 'Seine eigenen Einstellungen sind aus: Nur Server, die mit „claude mcp add -s user …“ hinzugefügt wurden, erreichen dieses Repo.',
@@ -562,11 +576,15 @@ export const SETUP_JS = String.raw`(function () {
     var toggles = [el('label', { className: 'sw' }, [el('input', { type: 'checkbox', role: 'switch', checked: e.push, onchange: function (ev) { e.push = ev.target.checked } }), t('push')])]
     // the repo's own Claude Code settings: off for code from elsewhere (the reason shown), a warning while it is on
     // against that — or turned on here
+    // a hidden hint is no description: aria-describedby names only the hints shown, and follows the switch
     function warnOn() { return e.own && (!!r.source || !e.own0) }
+    function ownDesc() { return id + 'oh' + (warnOn() ? ' ' + id + 'ow' : '') }
+    function mcpDesc() { return id + 'mh' + (e.own ? '' : ' ' + id + 'mu') }
     var ownWarn = el('span', { className: 'warn', id: id + 'ow', text: t('ownWarn'), hidden: !warnOn() })
     var mcpUser = el('span', { className: 'hint', id: id + 'mu', text: t('mcpUser'), hidden: e.own })
+    var mcpInput = el('input', { type: 'text', id: id + 'm', value: e.mcp, placeholder: 'kb', spellcheck: 'false', autocomplete: 'off', 'aria-describedby': mcpDesc(), oninput: function (ev) { e.mcp = ev.target.value } })
     var own = el('div', { className: 'field field--wide own' }, [
-      el('label', { className: 'sw' }, [el('input', { type: 'checkbox', role: 'switch', id: id + 'o', checked: e.own, 'aria-describedby': id + 'oh ' + id + 'ow', onchange: function (ev) { e.own = ev.target.checked; ownWarn.hidden = !warnOn(); mcpUser.hidden = e.own } }), t('ownLabel')]),
+      el('label', { className: 'sw' }, [el('input', { type: 'checkbox', role: 'switch', id: id + 'o', checked: e.own, 'aria-describedby': ownDesc(), onchange: function (ev) { e.own = ev.target.checked; ownWarn.hidden = !warnOn(); mcpUser.hidden = e.own; ev.target.setAttribute('aria-describedby', ownDesc()); mcpInput.setAttribute('aria-describedby', mcpDesc()) } }), t('ownLabel')]),
       el('span', { className: 'hint', id: id + 'oh', text: r.source ? t('ownWhy', { why: t('why' + r.source) }) : t('ownMine') }),
       ownWarn
     ])
@@ -578,7 +596,7 @@ export const SETUP_JS = String.raw`(function () {
       el('div', { className: 'field' }, [el('label', { className: 'label', for: id + 'a', text: t('analyzeLabel') }), el('input', { type: 'text', id: id + 'a', value: e.analyze, spellcheck: 'false', autocomplete: 'off', oninput: function (ev) { e.analyze = ev.target.value } }), el('span', { className: 'hint', text: t('analyzeHint') })]),
       el('div', { className: 'field field--wide' }, [el('div', { className: 'toggles' }, toggles)]),
       el('div', { className: 'field' }, [el('div', { className: 'limit' }, [el('label', { className: 'label', for: id + 'l', text: t('limit') }), el('input', { type: 'number', id: id + 'l', min: '0', step: '0.5', value: e.limit, placeholder: t('noLimit'), inputmode: 'decimal', oninput: function (ev) { e.limit = ev.target.value } })])]),
-      el('div', { className: 'field field--wide' }, [el('label', { className: 'label', for: id + 'm', text: t('mcpLabel') }), el('input', { type: 'text', id: id + 'm', value: e.mcp, placeholder: 'kb', spellcheck: 'false', autocomplete: 'off', 'aria-describedby': id + 'mu', oninput: function (ev) { e.mcp = ev.target.value } }), el('span', { className: 'hint', text: t('mcpHint') }), mcpUser]),
+      el('div', { className: 'field field--wide' }, [el('label', { className: 'label', for: id + 'm', text: t('mcpLabel') }), mcpInput, el('span', { className: 'hint', id: id + 'mh', text: t('mcpHint') }), mcpUser]),
       own
     ])
   }
@@ -595,6 +613,7 @@ export const SETUP_JS = String.raw`(function () {
     }
     if (!state.workspace.id) app.appendChild(el('p', { className: 'msg', text: t('unbound') }))
     if (state.live && state.live.claude && !state.live.claude.found) app.appendChild(el('p', { className: 'msg', text: t('noClaude') }))
+    if (state.marked && state.marked.length) app.appendChild(marksNote(state.marked))
     var sc = state.scan
     var meta = ''
     if (sc && sc.running) {
@@ -653,6 +672,19 @@ export const SETUP_JS = String.raw`(function () {
     ]))
     if (focus && $(focus)) $(focus).focus()
     live(lastLive)
+  }
+
+  // the one-time marking of an older worker's clones and imports, shown until the person took note
+  function marksNote(names) {
+    var one = names.length === 1
+    var text = t('marks', { list: names.join(', '), them: t(one ? 'marksIt' : 'marksThem'), their: t(one ? 'marksIts' : 'marksTheir') })
+    return el('div', { className: 'msg marks', id: 'marks' }, [
+      el('span', { id: 'markstext', text: text }),
+      el('button', { type: 'button', className: 'btn', id: 'marksok', 'aria-describedby': 'markstext', disabled: busy === 'marks', onclick: function () {
+        busy = 'marks'
+        api('POST', 'marks-seen').then(function (s) { busy = ''; adopt(s); var r = $('rescan'); if (r) r.focus() }, fail)
+      }, text: t('marksOk') })
+    ])
   }
 
   function statusPanel() {

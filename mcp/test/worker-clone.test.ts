@@ -16,14 +16,26 @@ import { dirname, join } from 'node:path'
 import { after, afterEach, describe, test } from 'node:test'
 import { strToU8, zipSync } from 'fflate'
 import type { WorkerMessage, WorkspaceRef } from '../../src/app/features/coding/protocol.ts'
-import { cloneBase, cloneHint, folderName, parseCloneUrl } from '../src/worker/clone.ts'
-import { commitImport, entryPath, finishImport, gitDirIn, importZip, isDotGit, isUnsafe } from '../src/worker/zipimport.ts'
-import { openPr } from '../src/worker/git.ts'
-import { SOURCE_MARK, sanitizeConfig, type RepoConfig } from '../src/worker/config.ts'
+import { cloneBase, cloneHint, cloneInto, folderName, parseCloneUrl } from '../src/worker/clone.ts'
+import { NO_DRIVERS, commitImport, entryPath, finishImport, gitDirIn, importZip, isDotGit, isUnsafe } from '../src/worker/zipimport.ts'
+import { branchDiff, commitAll, ensureWorktree, info, isDirty, openPr, updateFromBase } from '../src/worker/git.ts'
+import { SOURCE_MARK, loadConfig, sanitizeConfig, type RepoConfig } from '../src/worker/config.ts'
+import { repoFacts } from '../src/worker/scan.ts'
+import { WorkerState } from '../src/worker/state.ts'
 import { buildPrompt } from '../src/worker/run.ts'
 import { checkPublish, slugName, suggestName } from '../src/worker/publish.ts'
 import { waitFor } from './helpers.ts'
 import { FakeTab, GIT_ENV, cleanupAll, makeRepo, plainRepo, presetBundle, sh, spawnWorker, task, tempDir, type SpawnedWorker } from './worker-helpers.ts'
+
+/** Is git-lfs installed here? (the LFS test runs only then) */
+function hasGitLfs(): boolean {
+  try {
+    execFileSync('git', ['lfs', 'version'], { stdio: 'ignore' })
+    return true
+  } catch {
+    return false
+  }
+}
 
 const PORT = 47387
 const SELF = `http://127.0.0.1:${PORT}`
@@ -124,6 +136,24 @@ describe('clone addresses', () => {
     assert.match(cloneHint('git@gitlab.com: Permission denied (publickey).\nfatal: Could not read from remote repository.'), /SSH key was refused/)
     assert.match(cloneHint("fatal: could not read Username for 'https://gitlab.com': terminal prompts disabled"), /credential helper/)
     assert.match(cloneHint('remote: The project you were looking for could not be found'), /does not know this project/)
+  })
+
+  test('a checkout of the same address that is already there: added, marked only in the default clone folder — never the person\'s own checkout elsewhere', async () => {
+    const t = tempDir('already')
+    const remote = makeRepo().remote
+    const target = parseCloneUrl(remote, true)
+    assert.ok(!('error' in target))
+    // the person cloned it by hand into ~/code long ago
+    const own = join(t, 'code', 'remote')
+    execFileSync('git', ['clone', '--quiet', remote, own], { env: { ...process.env, ...GIT_ENV } })
+    const mine = await cloneInto(target, join(t, 'code'), () => {}, { local: true, home: t })
+    assert.deepEqual(mine, { dir: own, already: true })
+    assert.ok(!existsSync(join(own, '.git', SOURCE_MARK)), 'the person\'s own checkout stays theirs')
+    // in ~/one-repos: an older worker's clone without a mark
+    const older = join(t, 'one-repos', 'remote')
+    execFileSync('git', ['clone', '--quiet', remote, older], { env: { ...process.env, ...GIT_ENV } })
+    assert.deepEqual(await cloneInto(target, join(t, 'one-repos'), () => {}, { local: true, home: t }), { dir: older, already: true })
+    assert.equal(readFileSync(join(older, '.git', SOURCE_MARK), 'utf8'), 'clone\n')
   })
 
   test('ZIP entries: inside the folder only; .git, __MACOSX and .DS_Store left out', () => {
@@ -486,33 +516,96 @@ describe('ZIP import: no git folder in any spelling or shape, nothing in the ZIP
     assert.ok(readdirSync(join(dir, '.git', 'objects', 'pack')).some((n) => n.endsWith('.pack')), 'a later gc packs the objects')
   })
 
-  test('no filter driver runs at import — not even the person\'s own global one (core.attributesFile) that would run the ZIP\'s script', async () => {
+  test('no filter, diff or merge driver runs in an imported repository — at import, at the first git status, in a task\'s worktree, its diff, commit and update — not even the person\'s own global ones that would run the ZIP\'s script', async () => {
     const trap = tempDir('trap')
     const attributes = join(tempDir('attrs'), 'attributes')
-    writeFileSync(attributes, '*.ipynb filter=nbstrip\n*.csv filter=lfsish\n')
-    // an nbstripout-style install: the clean command runs in the folder being added (`python -m nbstripout` imports the
-    // ZIP's nbstripout.py first) — here a script of the ZIP itself; and a long-running filter process
-    const global = `[filter "nbstrip"]\n\tclean = sh nbstripout.sh\n\tsmudge = cat\n\trequired = true\n[filter "lfsish"]\n\tprocess = sh nbstripout.sh\n[core]\n\tattributesFile = ${attributes}\n`
-    const base = tempDir('clones')
+    // an nbstripout-style install (`nbstripout --install --global`): a clean filter and a diff textconv that run in the
+    // repository's folder (`python -m nbstripout` imports the ZIP's nbstripout.py first) — here the ZIP's own script; a
+    // merge driver the same way (`npx npm-merge-driver` finds the ZIP's node_modules/.bin first); a long-running filter
+    // process; and an LFS-like filter of the person's own that turns content into a pointer
+    writeFileSync(attributes, '*.ipynb filter=nbstrip diff=nbstrip merge=drv\n*.csv filter=lfsish\n')
+    const pointer = join(trap, 'pointer.sh')
+    writeFileSync(pointer, `#!/bin/sh\ncat >/dev/null\ntouch '${join(trap, 'pointer-ran')}'\necho 'version https://git-lfs.github.com/spec/v1'\n`)
+    chmodSync(pointer, 0o755)
+    const global = [
+      '[user]\n\tname = Kim\n\temail = kim@example.invalid',
+      '[filter "nbstrip"]\n\tclean = sh nbstripout.sh clean\n\tsmudge = sh nbstripout.sh smudge\n\trequired = true',
+      '[diff "nbstrip"]\n\ttextconv = sh nbstripout.sh textconv',
+      '[merge "drv"]\n\tname = notebooks\n\tdriver = sh nbstripout.sh merge %O %A %B',
+      '[filter "lfsish"]\n\tprocess = sh nbstripout.sh process',
+      `[filter "lfs"]\n\tclean = ${pointer}\n\tsmudge = cat\n\trequired = true`,
+      `[core]\n\tattributesFile = ${attributes}`,
+    ].join('\n') + '\n'
+    const script = `touch '${join(trap, 'ran')}'-"$1"\ncat\n`
     const notebook = '{"cells": [{"outputs": ["secret"]}]}\n'
-    const res = await asPerson(global, () => importZip(zipFile({
-      'nb/analysis.ipynb': notebook,
-      'nb/data.csv': 'a,b\n1,2\n',
-      'nb/.gitattributes': '*.ipynb filter=nbstrip\n',
-      'nb/nbstripout.sh': `touch '${join(trap, 'filter-ran')}'\ncat\n`,
-    }), base, 'nb', 'nb.zip'))
-    assert.deepEqual(readdirSync(trap), [], 'no filter ran')
-    assert.equal(sh(res.dir, 'cat-file', '-p', 'HEAD:analysis.ipynb'), notebook, 'the file went in as it is')
-    assert.ok(!existsSync(join(res.dir, '.git', 'info', 'attributes')), 'the import\'s own attributes are gone after the commit')
-    assert.deepEqual(sh(res.dir, 'ls-files').trim().split('\n'), ['.gitattributes', 'analysis.ipynb', 'data.csv', 'nbstripout.sh'])
-    // the same global setup, with plain git add: the ZIP's script runs
-    const plain = join(tempDir('plain'), 'nb')
-    mkdirSync(plain)
-    writeFileSync(join(plain, 'analysis.ipynb'), notebook)
-    writeFileSync(join(plain, 'nbstripout.sh'), `touch '${join(trap, 'filter-ran')}'\ncat\n`)
-    sh(plain, 'init', '-q')
-    await asPerson(global, async () => execFileSync('git', ['add', '-A'], { cwd: plain, env: { ...process.env, GIT_CONFIG_NOSYSTEM: '1' }, stdio: 'ignore' }))
-    assert.ok(existsSync(join(trap, 'filter-ran')), 'plain git add ran it')
+    const data = 'BINARY\u0000DATA'.repeat(200)
+    const base = tempDir('clones')
+    const ran = () => readdirSync(trap).filter((n) => !n.endsWith('.sh'))
+    await asPerson(global, async () => {
+      const res = await importZip(zipFile({
+        'nb/analysis.ipynb': notebook,
+        'nb/data.csv': 'a,b\n1,2\n',
+        'nb/data.bin': data,
+        'nb/.gitattributes': '*.ipynb filter=nbstrip\n*.bin filter=lfs diff=lfs merge=lfs -text\n',
+        'nb/nbstripout.sh': script,
+      }), base, 'nb', 'nb.zip')
+      assert.deepEqual(ran(), [], 'nothing ran at import')
+      assert.equal(sh(res.dir, 'cat-file', '-p', 'HEAD:analysis.ipynb'), notebook, 'the file went in as it is')
+      assert.equal(sh(res.dir, 'cat-file', '-p', 'HEAD:data.bin'), data, 'an LFS-tracked file went in as a plain file, not a pointer')
+
+      // what the setup page (startImport) and the Import stage (adopt) do next: repoFacts runs git status
+      const facts = await repoFacts(res.dir, new Set())
+      assert.equal(facts.dirty, 0, 'nothing shows as changed — LFS files neither')
+      assert.deepEqual(ran(), [], 'the first git status ran nothing')
+      assert.ok(readFileSync(join(res.dir, '.git', 'info', 'attributes'), 'utf8').endsWith(`\n${NO_DRIVERS}`), 'no driver, for good: the last line of its info/attributes')
+
+      // a task: worktree, the stage's change, commit, the diff for One, an update from the base with a conflict
+      const file = join(tempDir('cfg'), 'worker.json')
+      writeFileSync(file, JSON.stringify({ workspace: 'local:nb-ws-1', repos: [{ name: 'nb', path: res.dir, baseBranch: 'main', remote: 'origin', worktreeDir: tempDir('wt'), pr: 'none', push: false }] }))
+      const loaded = loadConfig(file, {})
+      assert.deepEqual(loaded.problems, [])
+      const repo = loaded.config.repos[0]!
+      const state = new WorkerState(file)
+      const wt = await ensureWorktree(repo, state, { id: 'nbtask01', title: 'Clean the notebook' }, null)
+      assert.equal(sh(wt.dir, 'status', '--porcelain'), '', 'the task\'s worktree is clean')
+      assert.equal(await isDirty(wt.dir), false)
+      writeFileSync(join(wt.dir, 'analysis.ipynb'), '{"cells": []}\n')
+      assert.ok(await commitAll(wt.dir, 'Clean the notebook'))
+      assert.deepEqual(sh(wt.dir, 'show', '--name-only', '--format=', 'HEAD').trim().split('\n'), ['analysis.ipynb'], 'the commit holds the task\'s change only')
+      const g = await info(repo, state, wt.dir, wt.branch)
+      assert.match(g.files.find((f) => f.path === 'analysis.ipynb')?.diff ?? '', /-\{"cells": \[\{"outputs": \["secret"\]\}\]\}/, 'the diff is git\'s own')
+      assert.match((await branchDiff(repo, wt.branch, wt.dir))?.text ?? '', /analysis\.ipynb/)
+      writeFileSync(join(res.dir, 'analysis.ipynb'), '{"cells": [2]}\n')
+      sh(res.dir, 'commit', '-q', '-am', 'their notebook')
+      const up = await updateFromBase(repo, wt.dir, wt.branch)
+      assert.deepEqual([up.how, up.conflicts], ['conflicts', ['analysis.ipynb']], 'git\'s own merge: a conflict, no merge driver')
+      assert.deepEqual(ran(), [], 'nothing ran during the task')
+
+      // the setup was live: without the line, plain git runs the ZIP's script (diff textconv, filter)
+      writeFileSync(join(res.dir, '.git', 'info', 'attributes'), '')
+      sh(wt.dir, 'merge', '--abort')
+      execFileSync('git', ['diff', 'HEAD~1', '--', 'analysis.ipynb'], { cwd: wt.dir, env: { ...process.env, GIT_CONFIG_NOSYSTEM: '1' }, stdio: 'ignore' })
+      assert.ok(ran().includes('ran-textconv'), `plain git diff ran it: ${ran().join(', ')}`)
+    })
+  })
+
+  test('Git LFS (when installed): an LFS-tracked ZIP imports as plain files and stays clean — repoFacts, a task\'s worktree, its first commit', { skip: !hasGitLfs() && 'git-lfs is not installed' }, async () => {
+    const global = '[user]\n\tname = Kim\n\temail = kim@example.invalid\n[filter "lfs"]\n\tclean = git-lfs clean -- %f\n\tsmudge = git-lfs smudge -- %f\n\tprocess = git-lfs filter-process\n\trequired = true\n'
+    const data = 'BINARYDATA'.repeat(100)
+    await asPerson(global, async () => {
+      const res = await importZip(zipFile({ 'game/.gitattributes': '*.bin filter=lfs diff=lfs merge=lfs -text\n', 'game/data.bin': data, 'game/readme.md': 'hi\n' }), tempDir('clones'), 'game', 'game.zip')
+      assert.equal((await repoFacts(res.dir, new Set())).dirty, 0)
+      assert.equal(execFileSync('git', ['status', '--porcelain'], { cwd: res.dir, env: { ...process.env, GIT_CONFIG_NOSYSTEM: '1' }, encoding: 'utf8' }), '')
+      const file = join(tempDir('cfg'), 'worker.json')
+      writeFileSync(file, JSON.stringify({ workspace: 'local:lfs-ws-1', repos: [{ name: 'game', path: res.dir, baseBranch: 'main', remote: 'origin', worktreeDir: tempDir('wt'), pr: 'none', push: false }] }))
+      const repo = loadConfig(file, {}).config.repos[0]!
+      const wt = await ensureWorktree(repo, new WorkerState(file), { id: 'lfstask1', title: 'Readme' }, null)
+      assert.equal(execFileSync('git', ['status', '--porcelain'], { cwd: wt.dir, env: { ...process.env, GIT_CONFIG_NOSYSTEM: '1' }, encoding: 'utf8' }), '', 'no "should have been a pointer"')
+      writeFileSync(join(wt.dir, 'readme.md'), 'hello\n')
+      await commitAll(wt.dir, 'Readme')
+      assert.deepEqual(sh(wt.dir, 'show', '--name-only', '--format=', 'HEAD').trim().split('\n'), ['readme.md'], 'no LFS conversion in the task\'s commit')
+      assert.equal(sh(wt.dir, 'cat-file', '-p', 'HEAD:data.bin'), data)
+    })
   })
 })
 
@@ -584,11 +677,20 @@ describe('the setup page: clone, projects, ZIP import, own MCP servers', () => {
     assert.equal(readFileSync(join(dir, '.git', SOURCE_MARK), 'utf8'), 'clone\n', 'a clone is marked: its own Claude Code settings stay out')
     assert.ok(cloned.repos.some((r: { path: string; ticked: boolean }) => r.path === dir && !r.ticked))
     assert.equal(cloned.cloneDir, '~/work/clones')
-    // the same address again: already there, added — and marked again (a clone of an older worker carries no mark)
+    // the same address again: already there, added. Outside the default clone folder it may be the person's own
+    // checkout: no mark is written (the clone folder rule covers it while it lies in the clone folder) …
     rmSync(join(dir, '.git', SOURCE_MARK))
     await call('/setup/api/clone', { token, body: { url: remote, dir: '~/work/clones' } })
-    assert.equal((await jobDone(token)).clone.done, dir)
-    assert.equal(readFileSync(join(dir, '.git', SOURCE_MARK), 'utf8'), 'clone\n', 'an existing clone of the same address is marked when it is added')
+    const readded = await jobDone(token)
+    assert.equal(readded.clone.done, dir)
+    assert.ok(!existsSync(join(dir, '.git', SOURCE_MARK)), 'a checkout outside ~/one-repos is not marked')
+    assert.deepEqual(readded.repos.filter((r: { path: string }) => r.path === dir).map((r: { ownSettings: boolean; source: string | null }) => [r.ownSettings, r.source]), [[false, 'cloneDir']])
+    // … in ~/one-repos it is an older worker's clone without a mark: marked
+    const inDefault = join(home, 'one-repos', 'remote')
+    execFileSync('git', ['clone', '--quiet', remote, inDefault], { env: { ...process.env, ...GIT_ENV } })
+    await call('/setup/api/clone', { token, body: { url: remote, dir: '~/one-repos' } })
+    assert.equal((await jobDone(token)).clone.done, inDefault)
+    assert.equal(readFileSync(join(inDefault, '.git', SOURCE_MARK), 'utf8'), 'clone\n', 'an existing clone in the default clone folder is marked when it is added')
 
     // a ZIP of legacy code: one folder at the top, its own .git and Mac leftovers left out
     const zip = Buffer.from(zipSync({
@@ -660,6 +762,50 @@ describe('the setup page: clone, projects, ZIP import, own MCP servers', () => {
     const welcome = tab.messages.filter((m): m is Extract<WorkerMessage, { type: 'welcome' }> => m.type === 'welcome')[1]!
     assert.deepEqual(welcome.repos.map((r) => r.name), ['billing', 'legacy-app'])
     assert.ok(!tab.raw.join('\n').includes(home), 'no path reaches One')
+  })
+})
+
+describe('an imported repository with the person\'s global git filters (nbstripout-style)', () => {
+  test('the setup page\'s import and an Import stage\'s ZIP read the new repository (git status) without running the ZIP\'s script', async () => {
+    const home = tempDir('home')
+    const trap = tempDir('trap')
+    const attributes = join(tempDir('attrs'), 'attributes')
+    writeFileSync(attributes, '*.ipynb filter=nbstripout diff=ipynb\n')
+    // what `nbstripout --install --global` writes, with the ZIP's own script in the place of `python -m nbstripout`
+    const global = join(tempDir('gitconfig'), 'gitconfig')
+    writeFileSync(global, `[filter "nbstripout"]\n\tclean = sh nbstripout.sh\n\tsmudge = cat\n[diff "ipynb"]\n\ttextconv = sh nbstripout.sh\n[core]\n\tattributesFile = ${attributes}\n`)
+    const zip = (top: string) => Buffer.from(zipSync({
+      [`${top}/analysis.ipynb`]: strToU8('{"cells": []}\n'),
+      [`${top}/nbstripout.sh`]: strToU8(`touch '${join(trap, top)}'\ncat\n`),
+    }))
+    worker = await spawnWorker({ bundle: presetBundle(PRESET), home, env: { GIT_CONFIG_GLOBAL: global } })
+    await waitFor(() => /setup#k=([A-Za-z0-9_-]{43})/.test(worker!.stdout()), 8000, () => worker!.stderr())
+    const token = /setup#k=([A-Za-z0-9_-]{43})/.exec(worker.stdout())![1]!
+    const tab = await FakeTab.connect(PORT, { origin: ORIGIN })
+    tabs.push(tab)
+    tab.hello(WS, PAIR)
+    await tab.next('welcome')
+
+    // the setup page: import, then the repository's facts (git status) for the list
+    assert.equal((await call('/setup/api/import?name=page-nb.zip', { token, raw: zip('page-nb'), type: 'application/zip' })).status, 200)
+    const done = await jobDone(token)
+    assert.equal(done.clone.error, null)
+    const row = done.repos.find((r: { path: string }) => r.path === done.clone.done)
+    assert.equal(row?.dirty, 0, JSON.stringify(row))
+    assert.deepEqual(readdirSync(trap), [], 'the setup page ran nothing of the ZIP')
+
+    // an Import stage from One: the same ZIP through the tab, adopted into worker.json
+    const body = zip('stage-nb')
+    const begin = await tab.request({ op: 'intake-begin', taskId: 'nbzip001', name: 'stage-nb.zip', size: body.length })
+    assert.equal(begin.ok, true, JSON.stringify(begin))
+    const { uploadId, chunk } = (begin as { result: { uploadId: string; chunk: number } }).result
+    for (let off = 0; off < body.length; off += chunk) assert.equal((await tab.request({ op: 'intake-chunk', uploadId, data: body.subarray(off, off + chunk).toString('base64') })).ok, true)
+    assert.equal((await tab.request({ op: 'intake-end', uploadId })).ok, true)
+    const intakes = () => tab.messages.filter((m): m is Extract<WorkerMessage, { kind: 'intake' }> => m.type === 'event' && m.kind === 'intake')
+    await waitFor(() => intakes().some((m) => m.intake.state !== 'running'), 30_000, () => worker!.stderr())
+    assert.equal(intakes().at(-1)!.intake.state, 'done', JSON.stringify(intakes().at(-1)))
+    assert.deepEqual(readdirSync(trap), [], 'the Import stage ran nothing of the ZIP')
+    assert.match(worker.stdout() + worker.stderr(), /no git filter, diff or merge driver runs in it/)
   })
 })
 

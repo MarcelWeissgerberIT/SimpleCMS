@@ -3,6 +3,7 @@
  * stream-json reader (log lines, plan, cost), Stop killing the process — all with the fake CLI.
  */
 import assert from 'node:assert/strict'
+import { execFileSync } from 'node:child_process'
 import { chmodSync, existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -11,7 +12,7 @@ import type { LogLine, TaskProgress } from '../../src/app/features/coding/protoc
 import { AUTH_HINT, claudeArgs, cliMode, detectClaude, runClaude, toolLine, type ClaudeCaps } from '../src/worker/claude.ts'
 import { buildPrompt, commitMessage } from '../src/worker/run.ts'
 import { estimateCost, usageOf } from '../src/worker/price.ts'
-import { SOURCE_MARK, loadConfig, sanitizeConfig, scratchRepo, type Loaded } from '../src/worker/config.ts'
+import { SOURCE_MARK, loadConfig, marksSeen, sanitizeConfig, scratchRepo, unseenMarks, type Loaded } from '../src/worker/config.ts'
 import { sanitizeTask } from '../src/worker/worker.ts'
 import { FAKE_CLAUDE, cleanupAll, task, tempDir } from './worker-helpers.ts'
 
@@ -97,45 +98,74 @@ describe('Claude Code CLI', () => {
     assert.deepEqual(trust(spelled, 'linux'), { a: [true, null] })
   })
 
-  test('once per config, repos an older worker cloned or imported into the clone folder get the mark — trust no longer follows cloneDir', () => {
+  test('once per config, an older worker\'s imports (anywhere) and clones (in the default clone folder) get the mark — the person\'s own repos in a clone folder of their choice never do', () => {
     const home = tempDir('marks')
     const clones = join(home, 'one-repos')
-    const repo = (p: string) => {
-      mkdirSync(join(p, '.git'), { recursive: true })
+    const git = (cwd: string, ...args: string[]) => execFileSync('git', args, { cwd, stdio: 'ignore' })
+    /** A git repo with one commit `subject` (and an origin address, never contacted). */
+    const repo = (p: string, subject = 'initial', origin?: string) => {
+      mkdirSync(p, { recursive: true })
+      git(p, 'init', '-q', '-b', 'main')
+      writeFileSync(join(p, 'README.md'), '# x\n')
+      git(p, 'add', '-A')
+      git(p, 'commit', '-q', '-m', subject)
+      if (origin) git(p, 'remote', 'add', 'origin', origin)
       return p
     }
-    // a clone of worker 1.8.0 (no mark), an import of 1.8.1 (marked), one the person trusted, one of their own
-    const old = repo(join(clones, 'old-clone'))
-    const zipped = repo(join(clones, 'imported'))
-    writeFileSync(join(zipped, '.git', SOURCE_MARK), 'zip\n')
-    const decided = repo(join(clones, 'decided'))
-    const own = repo(join(home, 'code', 'shop'))
+    // worker 1.8.0 left no mark: a clone in ~/one-repos, an import there and one in a folder the page took then
+    const old = repo(join(clones, 'billing'), 'initial', 'git@gitlab.example.com:acme/billing.git')
+    const oldImport = repo(join(clones, 'legacy-app'), 'Import legacy-app.zip')
+    const elsewhere = repo(join(home, 'legacy', 'vendor'), 'Import vendor-2019.ZIP')
+    // published later (Create it on GitLab): still an import
+    const published = repo(join(home, 'legacy', 'shop'), 'Import shop-main.zip', 'git@gitlab.example.com:acme/shop.git')
+    // in ~/one-repos, but not named after its origin (the person's own), and one with no origin
+    const renamed = repo(join(clones, 'mine'), 'initial', 'https://gitlab.example.com/acme/other.git')
+    const scratch = repo(join(clones, 'scratch'))
+    // a wide clone folder of the person's choice (1.8.0 took any): their own hand-made clones there look the same
+    const code = join(home, 'code')
+    const own = repo(join(code, 'shop'), 'initial', 'https://github.com/me/shop.git')
+    const ownNoRemote = repo(join(code, 'notes'), 'first notes')
+    const decided = repo(join(clones, 'decided'), 'Import decided.zip')
     const cfgDir = join(home, 'cfg')
     mkdirSync(cfgDir)
     const file = join(cfgDir, 'worker.json')
-    const repos = [{ name: 'old', path: old }, { name: 'zipped', path: zipped }, { name: 'decided', path: decided, claude: { projectSettings: true } }, { name: 'own', path: own }]
+    const repos = [
+      { name: 'old', path: old }, { name: 'old-import', path: oldImport }, { name: 'elsewhere', path: elsewhere }, { name: 'published', path: published },
+      { name: 'renamed', path: renamed }, { name: 'scratch', path: scratch }, { name: 'own', path: own }, { name: 'notes', path: ownNoRemote },
+      { name: 'decided', path: decided, claude: { projectSettings: true } },
+    ]
     const write = (cfg: Record<string, unknown>) => writeFileSync(file, `// mine\n${JSON.stringify({ workspace: 'local:x1', ...cfg })}\n`)
     const state = (l: Loaded) => Object.fromEntries(l.config.repos.map((r) => [r.name, [r.claude.projectSettings, r.source]]))
+    const mark = (p: string) => (existsSync(join(p, '.git', SOURCE_MARK)) ? readFileSync(join(p, '.git', SOURCE_MARK), 'utf8').trim() : null)
+    write({ cloneDir: code, repos })
+    const first = loadConfig(file, {}, { home })
+    assert.deepEqual(
+      Object.fromEntries(repos.map((r) => [r.name, mark(r.path)])),
+      { old: 'folder', 'old-import': 'zip', elsewhere: 'zip', published: 'zip', renamed: null, scratch: null, own: null, notes: null, decided: null },
+    )
+    assert.match(first.notes?.join('\n') ?? '', /marked 4 repo\(s\) an older worker cloned or imported as code from elsewhere \(old, old-import, elsewhere, published\)/)
+    assert.deepEqual(state(first), {
+      old: [false, 'marked'], 'old-import': [false, 'imported'], elsewhere: [false, 'imported'], published: [false, 'imported'],
+      renamed: [true, null], scratch: [true, null], own: [false, 'cloneDir'], notes: [false, 'cloneDir'], decided: [true, null],
+    })
+    // the setup page names them until the person took note
+    assert.deepEqual(unseenMarks(file), ['old', 'old-import', 'elsewhere', 'published'])
+    // the person sets the clone folder back (~/one-repos — the test's home): their own repos are theirs again, what was
+    // marked stays out
     write({ cloneDir: clones, repos })
-    const first = loadConfig(file, {})
-    assert.equal(readFileSync(join(old, '.git', SOURCE_MARK), 'utf8'), 'folder\n', 'the older clone is marked')
-    assert.equal(readFileSync(join(zipped, '.git', SOURCE_MARK), 'utf8'), 'zip\n', 'a mark stays as it is')
-    assert.ok(!existsSync(join(decided, '.git', SOURCE_MARK)) && !existsSync(join(own, '.git', SOURCE_MARK)), 'nothing the person decided, nothing outside')
-    assert.match(first.notes?.join('\n') ?? '', /marked 1 repo\(s\) in the clone folder as code from elsewhere \(old\)/)
-    assert.ok(existsSync(join(cfgDir, 'worker-marks.json')), 'recorded: it runs once')
-    assert.deepEqual(state(first), { old: [false, 'marked'], zipped: [false, 'imported'], decided: [true, 'cloneDir'], own: [true, null] })
-    // the clone folder moves (the setup page keeps the folder of its last clone or import) or ONE_WORKER_CLONE_DIR
-    // points elsewhere: the older clone stays out all the same
-    write({ cloneDir: join(home, 'work', 'clones'), repos })
-    assert.deepEqual(state(loadConfig(file, {})), { old: [false, 'marked'], zipped: [false, 'imported'], decided: [true, null], own: [true, null] })
-    assert.deepEqual(state(loadConfig(file, { ONE_WORKER_CLONE_DIR: join(home, 'elsewhere') })).old, [false, 'marked'])
-    // once: a repo put into the clone folder later is judged by the rule alone
-    const later = repo(join(home, 'work', 'clones', 'later'))
-    write({ cloneDir: join(home, 'work', 'clones'), repos: [...repos, { name: 'later', path: later }] })
-    const again = loadConfig(file, {})
+    const reset = state(loadConfig(file, {}, { home }))
+    assert.deepEqual([reset.own, reset.notes, reset.old, reset.elsewhere], [[true, null], [true, null], [false, 'marked'], [false, 'imported']])
+    assert.deepEqual(reset.renamed, [false, 'cloneDir'], 'in the default clone folder now: the rule')
+    // once: a repo added later is judged by the rule alone; the record is kept
+    const later = repo(join(clones, 'later'), 'Import later.zip')
+    write({ cloneDir: clones, repos: [...repos, { name: 'later', path: later }] })
+    const again = loadConfig(file, {}, { home })
     assert.equal(again.notes, undefined)
-    assert.ok(!existsSync(join(later, '.git', SOURCE_MARK)))
+    assert.equal(mark(later), null)
     assert.deepEqual(state(again).later, [false, 'cloneDir'])
+    marksSeen(file)
+    assert.deepEqual(unseenMarks(file), [])
+    assert.deepEqual(JSON.parse(readFileSync(join(cfgDir, 'worker-marks.json'), 'utf8')).marked, ['old', 'old-import', 'elsewhere', 'published'])
   })
 
   test('config: a bypassing permission mode or a shell-line test command is refused', () => {

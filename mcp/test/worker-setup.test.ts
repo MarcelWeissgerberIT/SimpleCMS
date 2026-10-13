@@ -590,6 +590,32 @@ describe('the setup page', () => {
     assert.deepEqual(raw2.repos.map((r: { name: string; claude?: unknown }) => [r.name, r.claude]), [['shop', { projectSettings: true }], ['billing', { projectSettings: false }]])
   })
 
+  test('the one-time marking of an older worker\'s clones is named on the setup page until the person takes note', async () => {
+    const home = tempDir('home')
+    const billing = plainRepo(join(home, 'one-repos', 'billing'), { 'README.md': '# x\n' }, 'git@gitlab.example.com:acme/billing.git')
+    const shop = plainRepo(join(home, 'code', 'shop'), { 'README.md': '# x\n' }, 'git@github.com:me/shop.git')
+    mkdirSync(join(home, '.config', 'one'), { recursive: true })
+    const file = join(home, '.config', 'one', 'worker.json')
+    writeFileSync(file, JSON.stringify({ workspace: WS.id, repos: [{ name: 'billing', path: billing }, { name: 'shop', path: shop }] }))
+    const opener = fakeOpener()
+    worker = await spawnWorker({ bundle: presetBundle(PRESET), home, args: ['setup'], env: { ONE_WORKER_BROWSER: opener.program } })
+    await waitFor(() => opener.urls().length === 1, 8000, () => worker!.stderr())
+    assert.match(worker.stdout() + worker.stderr(), /marked 1 repo\(s\) an older worker cloned or imported as code from elsewhere \(billing\)/)
+    const token = tokenOf(opener.urls()[0]!)
+    const st = await doneState(token)
+    assert.deepEqual(st.marked, ['billing'])
+    assert.deepEqual(st.repos.filter((r: { name: string }) => r.name === 'billing' || r.name === 'shop').map((r: { name: string; ownSettings: boolean; source: string | null }) => [r.name, r.ownSettings, r.source]), [['billing', false, 'marked'], ['shop', true, null]])
+    const js = (await call('/setup/app.js')).text
+    for (const s of ['This worker version marked {list} as code from elsewhere', 'Diese Worker-Version hat {list} als fremden Code markiert', 'Got it', 'Verstanden'])
+      assert.ok(js.includes(s), s)
+    // only the page itself takes note
+    assert.equal((await call('/setup/api/marks-seen', { token, body: {} })).status, 403)
+    const seen = await call('/setup/api/marks-seen', { token, origin: SELF, body: {} })
+    assert.equal(seen.status, 200, seen.text)
+    assert.deepEqual(seen.json().marked, [])
+    assert.ok(JSON.parse(readFileSync(join(home, '.config', 'one', 'worker-marks.json'), 'utf8')).seen)
+  })
+
   test('a hand-written worker.json keeps its other settings and gets a .bak copy once', async () => {
     const home = tempDir('home')
     const site = plainRepo(join(home, 'code', 'site'))

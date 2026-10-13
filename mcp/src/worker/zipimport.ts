@@ -14,7 +14,8 @@
  * Then, only while the new folder holds no git folder — no ".git" in any spelling and no folder git would take for
  * a repository (gitDirIn, asked of the file system too) — one commit "Import <file>" made against a fresh git folder
  * outside it, moved in at the end (commitImport): no fsmonitor, hook or filter driver runs, no automatic gc starts.
- * A failed import leaves no folder behind. The repository is marked
+ * No filter, diff or merge driver ever runs in the repository afterwards either (NO_DRIVERS stays in its
+ * .git/info/attributes). A failed import leaves no folder behind. The repository is marked
  * as the worker's import (SOURCE_MARK): Claude Code runs on it without the repo's own settings (config.ts).
  * Nothing is pushed: the repo has no remote until the person adds one.
  */
@@ -260,19 +261,24 @@ export async function finishImport(dir: string, label: string): Promise<void> {
 }
 
 /**
- * What the import's git dir says about every file while it adds them: no filter. A clean filter is a command — the
- * person's own global ones too (core.attributesFile, or the ZIP's .gitattributes naming a driver their config has),
- * and it runs in the import's folder, where `python -m nbstripout` imports the ZIP's own nbstripout.py. Files go in
- * as they are (Git LFS ones too); $GIT_DIR/info/attributes outranks every other attributes file.
+ * The last line of the imported repository's .git/info/attributes, for good (worktrees read it too): no filter, diff
+ * or merge driver runs in it — not at import, not later. Such a driver is a command from the person's own git config
+ * (core.attributesFile, or the ZIP's .gitattributes naming a driver their config has), and it runs in the repository's
+ * folder: `python -m nbstripout` (its clean filter and its diff textconv) imports the ZIP's own nbstripout.py, `npx …`
+ * finds the ZIP's node_modules/.bin first. Files stay as the ZIP had them, Git LFS ones as plain files — the import
+ * committed them so, and a filter applied later would show every one of them changed and put the change into a task's
+ * first commit. `merge` set = git's own text merge (a binary file stays a conflict); `!diff` = git's own diff, binary
+ * by content. $GIT_DIR/info/attributes outranks every other attributes file, and its last line wins.
  */
-const NO_FILTERS = '* -filter\n'
+export const NO_DRIVERS = '* -filter !diff merge\n'
+const NO_DRIVERS_NOTE = '# one-worker: this repository was imported from a ZIP, so no git filter, diff or merge driver runs in it (yours\n# neither: nbstripout, Git LFS …) and its files stay as they were committed. Remove the next line to allow them.\n'
 
 /**
  * Branch main, everything added, one commit "Import <label>" — against a fresh git folder made next to `dir` and
  * moved in only at the end, so no config or hook in `dir` is ever read, even of a .git that slipped past both
  * guards (its fsmonitor, filter drivers, gpg.program, include.path …). The person's own git config still applies
  * (their identity, signing) except what would run a command or work on after the commit: fsmonitor off, hooks only
- * from an empty folder and --no-verify, no filter driver (NO_FILTERS), no automatic gc / maintenance (git commit
+ * from an empty folder and --no-verify, no filter driver (NO_DRIVERS), no automatic gc / maintenance (git commit
  * starts a detached `git gc --auto` past ~6,700 loose objects, which raced the move into `dir` and left gc.pid and a
  * lock behind). Before the move `dir` is checked once more; a git folder there refuses the import.
  */
@@ -290,18 +296,19 @@ export async function commitImport(dir: string, label: string): Promise<void> {
   }
   try {
     await run(holder, ['init', '-q'])
-    // the person's init.templateDir may have brought one: it comes back before the move
+    // the person's init.templateDir may have brought one: it stays, NO_DRIVERS goes after it (a link is replaced, never
+    // written through)
     const attributes = join(gitDir, 'info', 'attributes')
-    const theirs = existsSync(attributes) ? readFileSync(attributes) : null
+    const was = statSync(attributes, { throwIfNoEntry: false })
+    const theirs = was?.isFile() && was.size <= 1024 * 1024 ? readFileSync(attributes, 'utf8') : ''
+    rmSync(attributes, { force: true })
     mkdirSync(dirname(attributes), { recursive: true })
-    writeFileSync(attributes, NO_FILTERS)
+    writeFileSync(attributes, `${theirs && !theirs.endsWith('\n') ? `${theirs}\n` : theirs}${NO_DRIVERS_NOTE}${NO_DRIVERS}`)
     await run(dir, [...repo, 'symbolic-ref', 'HEAD', 'refs/heads/main'])
     await run(dir, [...repo, 'add', '-A'], 10 * 60_000)
     const who = (await git(dir, [...safe, ...repo, 'config', 'user.email'])).stdout.trim()
     const identity = who ? [] : ['-c', 'user.name=One worker', '-c', 'user.email=one-worker@localhost']
     await run(dir, [...identity, ...repo, 'commit', '-q', '--no-verify', '--allow-empty', '-m', `Import ${label.slice(0, 200)}`], 10 * 60_000)
-    if (theirs) writeFileSync(attributes, theirs)
-    else rmSync(attributes, { force: true })
     writeFileSync(join(gitDir, SOURCE_MARK), 'zip\n')
     refusePlanted(dir)
     renameSync(gitDir, join(dir, '.git'))

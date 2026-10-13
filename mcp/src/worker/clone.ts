@@ -8,9 +8,11 @@
  *    helper instead), no option-like or ext:: / file:: addresses, no "..".
  *  - cloneInto: `git -c protocol.ext.allow=never -c protocol.file.allow=never clone --progress -- <url> <dir>`
  *    without a terminal (git.ts: a password / passphrase question fails at once with a hint); progress per line;
- *    up to 30 min (ONE_WORKER_CLONE_MS); a failed clone removes the folder it made; a new clone — and a folder that is
- *    already a clone of the same address, added again — is marked as the worker's (SOURCE_MARK): Claude Code runs on it
- *    without the repo's own settings (config.ts).
+ *    up to 30 min (ONE_WORKER_CLONE_MS); a failed clone removes the folder it made; a new clone is marked as the
+ *    worker's (SOURCE_MARK): Claude Code runs on it without the repo's own settings (config.ts). A folder that is
+ *    already a clone of the same address is added again — marked only in the default clone folder (~/one-repos), where
+ *    an older worker's clone carries no mark yet; elsewhere it may be the person's own checkout, and the clone folder
+ *    rule covers it while it lies in the clone folder.
  *  - listProjects: the person's projects from the glab / gh command-line tools when they are installed and
  *    signed in (names and clone addresses only; nothing is stored).
  */
@@ -18,7 +20,7 @@ import { execFile, spawn } from 'node:child_process'
 import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { isAbsolute, join, resolve, sep } from 'node:path'
-import { SOURCE_MARK, inICloud, markSource } from './config.ts'
+import { SOURCE_MARK, folderName, inFolder, inICloud, markSource } from './config.ts'
 import { git } from './git.ts'
 
 export interface CloneUrl {
@@ -41,11 +43,8 @@ function segments(path: string): string[] | null {
   return parts.every((p) => SEGMENT.test(p) && p !== '.' && p !== '..') ? parts : null
 }
 
-/** A folder name from the project's last segment: letters, digits, ".", "_" and "-" (at most 64). */
-export function folderName(path: string): string {
-  const last = path.split('/').pop() ?? ''
-  return last.replace(/\.git$/, '').replace(/[^A-Za-z0-9._-]/g, '-').replace(/^[.-]+/, '').slice(0, 64) || 'repo'
-}
+/** A folder name from the project's last segment (config.ts — the one-time marking names clones by it too). */
+export { folderName }
 
 /** Check a typed clone address. `local` (tests only): a path or file:// URL of a repository on this computer. */
 export function parseCloneUrl(raw: unknown, local = false): CloneUrl | { error: string } {
@@ -125,7 +124,7 @@ export interface CloneProgress {
  * Clone into `<base>/<name>`. A folder that is already there: fine when it is a clone of the same address
  * (`already`), refused otherwise. A failed clone removes the folder it created.
  */
-export async function cloneInto(target: CloneUrl, base: string, onProgress: (p: CloneProgress) => void, opts: { timeoutMs?: number; local?: boolean } = {}): Promise<{ dir: string; already: boolean }> {
+export async function cloneInto(target: CloneUrl, base: string, onProgress: (p: CloneProgress) => void, opts: { timeoutMs?: number; local?: boolean; home?: string } = {}): Promise<{ dir: string; already: boolean }> {
   const dir = join(base, target.name)
   if (!dir.startsWith(base + sep)) throw new Error('That folder name is not allowed.')
   if (existsSync(dir)) {
@@ -133,8 +132,9 @@ export async function cloneInto(target: CloneUrl, base: string, onProgress: (p: 
     if (entries.length) {
       const origin = existsSync(join(dir, '.git')) ? (await git(dir, ['remote', 'get-url', 'origin'], 10_000)).stdout.trim() : ''
       if (origin && origin.replace(/\.git$/, '') === target.url.replace(/\.git$/, '')) {
-        // added like a new clone: code from elsewhere (an older worker's clone carries no mark yet)
-        markSource(dir, 'clone')
+        // an older worker's clone carries no mark yet — but only the default clone folder is surely the worker's: a
+        // checkout of the person's own elsewhere (~/code) stays unmarked
+        if (inFolder(dir, defaultCloneDir(opts.home))) markSource(dir, 'clone')
         return { dir, already: true }
       }
       throw new Error(`${dir} already exists — pick another clone folder, or add that folder instead.`)

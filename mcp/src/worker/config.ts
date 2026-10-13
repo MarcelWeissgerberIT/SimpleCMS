@@ -5,6 +5,7 @@
  * tools and limits. One learns repo NAMES (and base branches) — never a path or a command. A repo that is
  * not in this file does not exist for the worker; One cannot add one.
  */
+import { execFileSync } from 'node:child_process'
 import { chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from 'node:fs'
 import { homedir, hostname } from 'node:os'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
@@ -110,6 +111,8 @@ export interface ConfigOptions {
   cloud?: boolean
   /** whose disks decide how paths compare (inFolder) — tests; default: this computer's */
   platform?: NodeJS.Platform
+  /** the home folder that holds the default clone folder (the one-time marking) — tests; default: this computer's */
+  home?: string
 }
 
 /* ------------------------------------------------------------------ JSON with comments */
@@ -166,16 +169,17 @@ const PREFIX = /^(?!-)[A-Za-z0-9._/-]{0,40}$/
 
 /**
  * A file the worker leaves in the git folder of a repository from code elsewhere: "clone" (clone.ts — a new clone, or
- * one of the same address added again), "zip" (zipimport.ts), or "folder" (markOlderSources: it lay in the clone
- * folder when worker 1.8.1 first read worker.json). Such a repo's own Claude Code settings are not loaded unless the
- * person trusts it (projectSettings). A mark stays where the repo is, wherever cloneDir points later.
+ * one of the same address added again in the default clone folder), "zip" (zipimport.ts; markOlderSources for an
+ * older worker's import), or "folder" (markOlderSources: a clone in the default clone folder when worker 1.8.1 first
+ * read worker.json). Such a repo's own Claude Code settings are not loaded unless the person trusts it
+ * (projectSettings). A mark stays where the repo is, wherever cloneDir points later.
  */
 export const SOURCE_MARK = 'one-worker-source'
 
 /**
  * Why a repository counts as code from elsewhere — the rule that matched, as the log and the setup page name it:
  *  - 'cloned' / 'imported': the worker's mark "clone" / "zip"
- *  - 'marked': another mark ("folder": it lay in the clone folder when the worker first marked such repos)
+ *  - 'marked': another mark ("folder": it lay in the default clone folder when the worker first marked such repos)
  *  - 'cloneDir': no mark, but it lies in the clone folder now, where clones and imports go — a rule that follows
  *    cloneDir: a wide one (~/code, ~) takes in the person's own repos too
  */
@@ -246,38 +250,94 @@ export const madeByWorker = (path: string, cloneDir: string, platform: NodeJS.Pl
 /** The rule that matched, in a few words (the check command; the setup page has its own strings). */
 export const SOURCE_WORDS: Record<SourceWhy, string> = { cloned: 'cloned by the worker', imported: 'imported by the worker', marked: 'marked as code from elsewhere', cloneDir: 'in the clone folder' }
 
-/** Next to worker.json: the one-time marking (markOlderSources) is done. */
+/** Next to worker.json: the one-time marking (markOlderSources) is done — and whether the setup page showed it. */
 export const MARKS_DONE = 'worker-marks.json'
 
+/** A folder name from a project's last segment: letters, digits, ".", "_" and "-" (at most 64) — as a clone is named. */
+export function folderName(path: string): string {
+  const last = path.split('/').pop() ?? ''
+  return last.replace(/\.git$/, '').replace(/[^A-Za-z0-9._-]/g, '-').replace(/^[.-]+/, '').slice(0, 64) || 'repo'
+}
+
+/** git, synchronously, for the one-time marking only: fsmonitor off, no terminal, a short time limit — null when it fails. */
+function gitOut(path: string, args: string[]): string | null {
+  try {
+    if (!lstatSync(join(path, '.git'), { throwIfNoEntry: false })?.isDirectory()) return null
+    return execFileSync('git', ['-c', 'core.fsmonitor=false', ...args], { cwd: path, encoding: 'utf8', timeout: 10_000, maxBuffer: 8 * 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'], env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0', LC_ALL: 'C' }, windowsHide: true })
+  } catch {
+    return null
+  }
+}
+
+/** An older worker's ZIP import, wherever it lies: a root commit "Import <file>.zip" (zipimport.ts commits so). */
+export function olderImport(path: string): boolean {
+  const out = gitOut(path, ['rev-list', '--max-parents=0', '--format=%s', 'HEAD'])
+  return !!out && out.split('\n').some((l) => /^Import .+\.zip$/i.test(l.trim()))
+}
+
+/** A clone as the worker makes one: its folder is named after its origin's project (clone.ts cloneInto). */
+function clonedLike(path: string, platform: NodeJS.Platform): boolean {
+  const origin = gitOut(path, ['config', '--get', 'remote.origin.url'])?.trim()
+  if (!origin) return false
+  const fold = (s: string) => (platform === 'darwin' || platform === 'win32' ? s.toLowerCase() : s)
+  return fold(folderName(origin.replace(/[\\/]+$/, ''))) === fold(basename(path))
+}
+
 /**
- * Once per config (worker 1.8.1): a repo in worker.json that lies in the clone folder now, has no mark and no
- * projectSettings of its own gets the mark "folder". Clones and imports of older workers carry no mark, and the
- * clone folder rule alone would trust them again once cloneDir moves (the setup page sets it to the last clone or
- * import folder) or ONE_WORKER_CLONE_DIR changes. Recorded in MARKS_DONE: later repos in the clone folder are judged
- * by the rule (the setup page writes what it showed). Returns the names it marked.
+ * Once per config (worker 1.8.1): repos in worker.json that an older worker made and that carry no mark yet, and that
+ * the person did not decide for (no projectSettings of their own), get one — so that trust no longer follows cloneDir:
+ *  - an import ("zip"), wherever it lies: its root commit is "Import <file>.zip"
+ *  - a clone ("folder") only in the DEFAULT clone folder (~/one-repos): a folder named after its origin's project. A
+ *    clone folder of the person's own choice (1.8.0 took any, ~/code or ~ too) may hold their own checkouts, which look
+ *    the same: there the clone folder rule keeps them out while cloneDir points there, and nothing is marked for good.
+ * Recorded in MARKS_DONE (the names, shown once on the setup page): later repos are judged by the rule (the setup page
+ * writes what it showed). Returns the names it marked.
  */
-export function markOlderSources(raw: unknown, file: string, env: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform): string[] {
+export function markOlderSources(raw: unknown, file: string, platform: NodeJS.Platform = process.platform, home = homedir()): string[] {
   const configDir = dirname(file)
   const record = join(configDir, MARKS_DONE)
   if (existsSync(record)) return []
   const r = isObj(raw) ? raw : {}
-  const cloneDir = cloneDirOf(env.ONE_WORKER_CLONE_DIR ?? r.cloneDir, configDir, [])
+  const defaultDir = join(home, 'one-repos')
   const marked: string[] = []
   for (const entry of Array.isArray(r.repos) ? r.repos : []) {
     if (!isObj(entry) || typeof entry.path !== 'string' || !entry.path.trim()) continue
     // the person decided for this repo already
     if (isObj(entry.claude) && typeof entry.claude.projectSettings === 'boolean') continue
     const path = resolve(configDir, expandHome(entry.path.trim()))
-    if (markOf(path) || !inFolder(path, cloneDir, platform)) continue
-    if (markSource(path, 'folder')) marked.push(typeof entry.name === 'string' ? entry.name.slice(0, 64) : basename(path))
+    if (markOf(path)) continue
+    const kind = olderImport(path) ? 'zip' : inFolder(path, defaultDir, platform) && clonedLike(path, platform) ? 'folder' : null
+    if (kind && markSource(path, kind)) marked.push(typeof entry.name === 'string' ? entry.name.slice(0, 64) : basename(path))
   }
   try {
     mkdirSync(configDir, { recursive: true, mode: 0o700 })
     writeFileSync(record, `${JSON.stringify({ v: 1, at: new Date().toISOString(), marked }, null, 2)}\n`, { mode: 0o600 })
   } catch {
-    /* not writable: it runs again on the next load — marking only what lies in the clone folder then */
+    /* not writable: it runs again on the next load — marking only what has no mark then */
   }
   return marked
+}
+
+/** The names the one-time marking marked, while the setup page has not shown them (MARKS_DONE without "seen"). */
+export function unseenMarks(file: string): string[] {
+  try {
+    const r: unknown = JSON.parse(readFileSync(join(dirname(file), MARKS_DONE), 'utf8'))
+    if (!isObj(r) || r.seen || !Array.isArray(r.marked)) return []
+    return r.marked.filter((n): n is string => typeof n === 'string').map((n) => n.slice(0, 64)).slice(0, 200)
+  } catch {
+    return []
+  }
+}
+
+/** The setup page showed the marked names and the person took note: recorded, not shown again. */
+export function marksSeen(file: string): void {
+  const record = join(dirname(file), MARKS_DONE)
+  try {
+    const r: unknown = JSON.parse(readFileSync(record, 'utf8'))
+    if (isObj(r)) writeFileSync(record, `${JSON.stringify({ ...r, seen: new Date().toISOString() }, null, 2)}\n`, { mode: 0o600 })
+  } catch {
+    /* nothing recorded: nothing to show */
+  }
 }
 
 /**
@@ -437,10 +497,10 @@ export function loadConfig(file: string, env: NodeJS.ProcessEnv = process.env, o
   } catch (e) {
     throw new Error(`${file} is not valid JSON: ${e instanceof Error ? e.message : String(e)}`)
   }
-  // once per config: what an older worker cloned or imported into the clone folder carries no mark yet
-  const marked = markOlderSources(raw, file, env, opts.platform)
+  // once per config: what an older worker cloned or imported carries no mark yet
+  const marked = markOlderSources(raw, file, opts.platform, opts.home)
   const loaded = sanitizeConfig(raw, file, env, opts)
-  if (marked.length) loaded.notes = [`marked ${marked.length} repo(s) in the clone folder as code from elsewhere (${marked.join(', ')}) — Claude Code runs on them without their own settings; the setup page can switch that per repo`]
+  if (marked.length) loaded.notes = [`marked ${marked.length} repo(s) an older worker cloned or imported as code from elsewhere (${marked.join(', ')}) — Claude Code runs on them without their own settings; the setup page can switch that per repo`]
   return loaded
 }
 

@@ -155,15 +155,16 @@ const OWN_SETTINGS = ['.claude', '.mcp.json', 'CLAUDE.md', 'CLAUDE.local.md']
 const OFF: Record<SourceWhy, { code: string; why: string }> = {
   cloned: { code: 'projectSettingsOffCloned', why: 'the worker cloned it (marked in .git/one-worker-source)' },
   imported: { code: 'projectSettingsOffImported', why: 'the worker imported it from a ZIP (marked in .git/one-worker-source)' },
-  marked: { code: 'projectSettingsOffMarked', why: 'it lay in the worker\'s clone folder when this worker version first started, so it was marked as code from elsewhere (.git/one-worker-source)' },
+  marked: { code: 'projectSettingsOffMarked', why: 'it was a clone in the worker\'s default clone folder (~/one-repos) when this worker version first started, so it was marked as code from elsewhere (.git/one-worker-source)' },
   cloneDir: { code: 'projectSettingsOffFolder', why: 'it lies in the worker\'s clone folder (cloneDir in worker.json), where clones and imports go' },
 }
-const TRUST = 'To trust them: switch on "Use this repo\'s own Claude Code settings" on the worker\'s setup page (or "claude": { "projectSettings": true } for this repo in worker.json).'
+export const TRUST = 'To trust them: switch on "Use this repo\'s own Claude Code settings" on the worker\'s setup page (or "claude": { "projectSettings": true } for this repo in worker.json).'
 
 /**
  * A repo whose own Claude Code settings stay out (config.ts projectSettings — code from elsewhere, or worker.json says
- * so): the log names what is left out and the rule that keeps it out, and that only user-scope MCP servers reach
- * Claude Code then. When this Claude Code cannot leave them out (no --setting-sources) and the repo has settings or
+ * so): the log names what is left out and the rule that keeps it out — for code from elsewhere its reason and how to
+ * trust it, also when worker.json holds the "false" (the setup page's Save writes it for a row it showed off) — and that
+ * only user-scope MCP servers reach Claude Code then. When this Claude Code cannot leave them out (no --setting-sources) and the repo has settings or
  * MCP servers, which could run commands at start, the stage is refused — the reason is returned.
  */
 function ownSettings(ctx: StageContext, cwd: string, log: Log): string | null {
@@ -177,17 +178,17 @@ function ownSettings(ctx: StageContext, cwd: string, log: Log): string | null {
   }
   const has = OWN_SETTINGS.filter((n) => existsSync(join(cwd, n)))
   if (!has.length) return null
-  const off = repo.claude.projectSettingsSet ? null : repo.source ? OFF[repo.source] : null
+  const off = repo.source ? OFF[repo.source] : null
   const files = has.join(', ')
   if (caps.settingSources) {
-    if (repo.claude.projectSettingsSet) log('info', `${repo.name}: Claude Code runs without the repo's own ${files} — worker.json says "projectSettings": false for it.`, 'projectSettingsOffSet', { repo: repo.name, files })
-    else if (off) log('info', `${repo.name}: Claude Code runs without the repo's own ${files} — ${off.why}, and such settings could run commands as Claude Code starts. ${TRUST}`, off.code, { repo: repo.name, files })
+    if (off) log('info', `${repo.name}: Claude Code runs without the repo's own ${files} — ${off.why}, and such settings could run commands as Claude Code starts. ${TRUST}`, off.code, { repo: repo.name, files })
+    else if (repo.claude.projectSettingsSet) log('info', `${repo.name}: Claude Code runs without the repo's own ${files} — worker.json says "projectSettings": false for it.`, 'projectSettingsOffSet', { repo: repo.name, files })
     else log('info', `${repo.name}: Claude Code runs without the folder's own ${files}.`, 'projectSettingsOff', { repo: repo.name, files })
     return null
   }
   const runs = has.filter((n) => n === '.claude' || n === '.mcp.json')
   if (!runs.length) return null
-  const why = repo.claude.projectSettingsSet ? 'worker.json says "projectSettings": false for this repo' : off ? off.why : 'it is not a repository of yours'
+  const why = off ? off.why : repo.claude.projectSettingsSet ? 'worker.json says "projectSettings": false for this repo' : 'it is not a repository of yours'
   return `This Claude Code version cannot leave ${repo.name}'s own ${runs.join(' and ')} out (it has no --setting-sources), and ${why}: its settings could run commands. Update Claude Code (claude update), or trust the repo with "claude": { "projectSettings": true } in worker.json (the switch on the worker's setup page).`
 }
 
