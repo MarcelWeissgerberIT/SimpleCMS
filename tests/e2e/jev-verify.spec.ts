@@ -207,6 +207,8 @@ async function askWorkspace(page: Page, o: { openrouter: boolean }) {
     }
   }).toPass({ timeout: 15_000 })
   await aiPanel(page).getByRole('option', { name: /Ask your workspace/ }).click()
+  // the workspace question's field takes the keyboard one frame after the pick (AIMenu): type only once it has it
+  await expect(aiPanel(page).getByPlaceholder('Ask a question about your workspace…')).toBeFocused()
   await page.keyboard.type('When do we launch?')
   await page.keyboard.press('Enter')
   await expect(aiPanel(page)).toContainText('We launch in two weeks')
