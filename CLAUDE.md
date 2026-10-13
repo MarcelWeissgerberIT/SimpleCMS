@@ -514,10 +514,13 @@ the public APIs stable — other areas are built against them in parallel.
   off, empty hooksPath, --no-verify, `* -filter` in its info/attributes while adding, gc.auto=0 + maintenance.auto=false
   — no config inside the folder is ever read, no global filter driver or detached gc runs), moved in as `.git` after a
   last check) into `cloneDir` (default ~/one-repos, never iCloud).
-  Clones and imports are marked `.git/one-worker-source` (`SOURCE_MARK`); such a repo, or one inside `cloneDir`, gets
-  `claude.projectSettings` false unless worker.json says true → Claude Code runs with `--setting-sources user` (none of
-  the repo's hooks, apiKeyHelper, .mcp.json, CLAUDE.md; log code `projectSettingsOff`; a CLI without the flag refuses the
-  stage while the repo has `.claude/` or `.mcp.json`). `claude.mcpServers` per repo =
+  Clones (also one of the same address added again) and imports are marked `.git/one-worker-source` (`SOURCE_MARK`:
+  clone · zip · folder = once per config, `worker-marks.json`, every unmarked worker.json repo in `cloneDir`); such a
+  repo, or one inside `cloneDir` (`inFolder`: realpath, no case on darwin / win32), gets `claude.projectSettings` false
+  unless worker.json says true (`sourceOf` → `RepoConfig.source`) → Claude Code runs with `--setting-sources user` (none
+  of the repo's hooks, apiKeyHelper, .mcp.json, CLAUDE.md, nor the person's local-scope MCP servers — user scope only,
+  log `mcpUserScope`; the log names the rule: `projectSettingsOff{Cloned,Imported,Marked,Folder,Set}`; a CLI without the
+  flag refuses the stage while the repo has `.claude/` or `.mcp.json`). `claude.mcpServers` per repo =
   the person's own Claude Code MCP servers (tools allowed, no --strict-mcp-config). GitLab: `glab mr create`. After an
   import the page offers "Create it on GitLab / GitHub" (publish.ts: name from the code, the person's glab / gh api,
   origin + push; only for a repo without a remote). Pipeline

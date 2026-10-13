@@ -8,8 +8,9 @@
  *    helper instead), no option-like or ext:: / file:: addresses, no "..".
  *  - cloneInto: `git -c protocol.ext.allow=never -c protocol.file.allow=never clone --progress -- <url> <dir>`
  *    without a terminal (git.ts: a password / passphrase question fails at once with a hint); progress per line;
- *    up to 30 min (ONE_WORKER_CLONE_MS); a failed clone removes the folder it made; a new clone is marked as the
- *    worker's (SOURCE_MARK): Claude Code runs on it without the repo's own settings (config.ts).
+ *    up to 30 min (ONE_WORKER_CLONE_MS); a failed clone removes the folder it made; a new clone — and a folder that is
+ *    already a clone of the same address, added again — is marked as the worker's (SOURCE_MARK): Claude Code runs on it
+ *    without the repo's own settings (config.ts).
  *  - listProjects: the person's projects from the glab / gh command-line tools when they are installed and
  *    signed in (names and clone addresses only; nothing is stored).
  */
@@ -17,7 +18,7 @@ import { execFile, spawn } from 'node:child_process'
 import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { isAbsolute, join, resolve, sep } from 'node:path'
-import { SOURCE_MARK, inICloud } from './config.ts'
+import { SOURCE_MARK, inICloud, markSource } from './config.ts'
 import { git } from './git.ts'
 
 export interface CloneUrl {
@@ -131,7 +132,11 @@ export async function cloneInto(target: CloneUrl, base: string, onProgress: (p: 
     const entries = readdirSync(dir)
     if (entries.length) {
       const origin = existsSync(join(dir, '.git')) ? (await git(dir, ['remote', 'get-url', 'origin'], 10_000)).stdout.trim() : ''
-      if (origin && origin.replace(/\.git$/, '') === target.url.replace(/\.git$/, '')) return { dir, already: true }
+      if (origin && origin.replace(/\.git$/, '') === target.url.replace(/\.git$/, '')) {
+        // added like a new clone: code from elsewhere (an older worker's clone carries no mark yet)
+        markSource(dir, 'clone')
+        return { dir, already: true }
+      }
       throw new Error(`${dir} already exists — pick another clone folder, or add that folder instead.`)
     }
   }

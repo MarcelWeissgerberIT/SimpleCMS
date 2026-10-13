@@ -93,8 +93,8 @@ clean, and a test-command guess from top-level files — `package.json` with a `
   protocol.ext.allow=never -c protocol.file.allow=never clone --progress -- <url> <dir>` without a terminal (an SSH
   passphrase or password question fails at once with a hint), up to 30 min (`ONE_WORKER_CLONE_MS`), progress on the
   page; a failed clone removes the folder it made; a folder that is already a clone of the same address is just
-  added. A new clone is marked as the worker's (`.git/one-worker-source`): Claude Code runs on it without the repo's
-  own settings (`claude.projectSettings`, § worker.json). With `glab` / `gh` installed and signed in, the page lists the person's projects (`glab api projects?
+  added. A new clone — and such a folder added again — is marked as the worker's (`.git/one-worker-source`): Claude
+  Code runs on it without the repo's own settings (`claude.projectSettings`, § worker.json). With `glab` / `gh` installed and signed in, the page lists the person's projects (`glab api projects?
   membership=true…`, `gh repo list --json …`; names and clone addresses only, HTTPS or SSH to pick).
 - **Import a ZIP…** — `POST /setup/api/import?name=<file>.zip&dir=<clone folder>` with `application/zip` (≤ 500 MB,
   `ONE_WORKER_ZIP_MAX`), unpacked by fflate's streaming reader into a new repository (mcp/src/worker/zipimport.ts).
@@ -305,7 +305,7 @@ Per repo:
 | `claude.allowedTools` / `disallowedTools` | `[]` | Claude Code's own syntax (`"Bash(npm test:*)"`). Headless runs cannot ask, so whatever needs permission must be allowed here. |
 | `claude.strictMcp` | `true` | `--strict-mcp-config`: during a task Claude Code gets only the task tools, not your other MCP servers. |
 | `claude.mcpServers` | `[]` | Your own Claude Code MCP servers this repo may use (e.g. `["kb"]`): their tools are allowed and `--strict-mcp-config` is left out. Set on the setup page. |
-| `claude.projectSettings` | `true`; `false` for a repo the worker cloned or imported | May Claude Code load the repo's own settings — `.claude/settings.json` / `settings.local.json` (hooks, `apiKeyHelper`, MCP approvals), `.mcp.json` and `CLAUDE.md`? `false`: it runs with `--setting-sources user` (your own `~/.claude` settings and MCP servers only). The default is `false` for a repo the worker made from code elsewhere — marked `.git/one-worker-source` by a clone or ZIP import, or lying inside `cloneDir` — because such settings run commands the moment Claude Code starts, even in a read-only stage. Set `true` once you trust that repo. A Claude Code without `--setting-sources` refuses the stage while the repo has `.claude/` or `.mcp.json`. |
+| `claude.projectSettings` | `true`; `false` for code from elsewhere | May Claude Code load the repo's own settings — `.claude/settings.json` / `settings.local.json` (hooks, `apiKeyHelper`, MCP approvals), `.mcp.json`, `CLAUDE.md` — and your **local-scope** MCP servers for that folder (`claude mcp add`'s default scope)? `false`: it runs with `--setting-sources user` — your own `~/.claude` settings and **user-scope** MCP servers only, so a server in `claude.mcpServers` must be added with `claude mcp add -s user …` (the log says so, code `mcpUserScope`). The default is `false` for code from elsewhere, by the first rule that matches (§ Safety, "Nor when Claude Code starts on it"): the worker's mark `.git/one-worker-source`, else a folder inside `cloneDir`. Such settings run commands the moment Claude Code starts, even in a read-only stage. Set `true` once you trust that repo. A Claude Code without `--setting-sources` refuses the stage while the repo has `.claude/` or `.mcp.json`. |
 | `maxUsdPerTask` / `maxUsdPerDay` | none | Cost limits (Claude Code's own `total_cost_usd`). |
 
 ## The pipeline
@@ -523,9 +523,9 @@ doc · Static analysis · Components — doc, output pages · Documentation chec
 merge — gate · Post review — git `comment` · Merge — git `merge` · Done; nothing is posted or merged before the gate;
 `help:review-merge`) and, for Business analysis, **Spec → stories** (… Approve spec · Stories — doc, output stories ·
 Done). Git actions `comment` (needs a review; fails without one) and `merge` (refuses uncommitted or unpushed work).
-A browser for reviews: the person's own Claude Code MCP server (e.g. `claude mcp add playwright npx
-@playwright/mcp@latest`, then `playwright` under the repo's MCP servers on the setup page) — One never reads the
-person's browser tabs.
+A browser for reviews: the person's own Claude Code MCP server (e.g. `claude mcp add -s user playwright npx
+@playwright/mcp@latest` — the user scope, so it reaches every repo, also one whose own settings stay out — then
+`playwright` under the repo's MCP servers on the setup page) — One never reads the person's browser tabs.
 
 ## Safety
 
@@ -598,12 +598,25 @@ person's browser tabs.
   itself.
 - **Nor when Claude Code starts on it**: headless Claude Code (`-p`) asks no workspace-trust question, so a repo's own
   `.claude/settings.json` hooks, `apiKeyHelper`, `settings.local.json`, `.mcp.json` servers (with an approval in those
-  settings) would run as Claude Code starts — even in a read-only document or plan stage. On a repo the worker cloned
-  or imported (`claude.projectSettings` false, § worker.json) Claude Code runs with `--setting-sources user`: only the
-  person's own settings and MCP servers load, not the repo's (its `CLAUDE.md` is left out too — the log says so,
-  code `projectSettingsOff`). An older Claude Code without that flag refuses such a stage while the repo has
-  `.claude/` or `.mcp.json`. The person trusts a repo with `"claude": { "projectSettings": true }`. The imported code
-  itself runs only where the person lets it: the test and analysis commands, Claude Code's own permission rules.
+  settings) would run as Claude Code starts — even in a read-only document or plan stage. On code from elsewhere
+  (`claude.projectSettings` false, § worker.json) Claude Code runs with `--setting-sources user`: only the person's
+  own settings and **user-scope** MCP servers load, not the repo's (its `CLAUDE.md` is left out too, and so are the
+  person's local-scope servers for that folder — `claude mcp add`'s default; with `claude.mcpServers` set the log
+  says to add them with `-s user`, code `mcpUserScope`). Code from elsewhere, by the first rule that matches
+  (config.ts `sourceOf`) — the log line names it (codes `projectSettingsOffCloned` · `…Imported` · `…Marked` ·
+  `…Folder`; `…Set` when worker.json says false), and so do the setup page and `check`:
+  - the mark `.git/one-worker-source`: `clone` (a clone, and a folder already cloned from the same address that is
+    added again), `zip` (an import), or `folder` — once per config (worker 1.8.1, recorded in `worker-marks.json` next
+    to worker.json) every repo of worker.json that lies in `cloneDir`, has no mark and no `projectSettings` of its own
+    is marked so: clones and imports of older workers carried no mark, and the clone folder rule alone would trust
+    them again once `cloneDir` moves (the setup page keeps the folder of its last clone or import) or
+    `ONE_WORKER_CLONE_DIR` changes. A mark stays with the repo wherever `cloneDir` points later.
+  - else a folder inside `cloneDir` — compared as written and through links (realpath), without case on macOS and
+    Windows. This rule follows `cloneDir`: a wide one (`~/code`, `~`) takes in the person's own repos too; their line
+    says "lies in the worker's clone folder", never "cloned".
+  An older Claude Code without `--setting-sources` refuses such a stage while the repo has `.claude/` or `.mcp.json`.
+  The person trusts a repo with `"claude": { "projectSettings": true }`. The imported code itself runs only where the
+  person lets it: the test and analysis commands, Claude Code's own permission rules.
 - **Diffs never follow links**: an untracked symbolic link shows as its target, the file it points at is never read.
 - **Cost**: per-task and per-day limits are checked before each stage and passed to Claude Code as
   `--max-budget-usd` (where the CLI knows it). **Stop** (One) or Ctrl+C (worker) kills Claude Code's whole process

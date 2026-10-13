@@ -5,9 +5,9 @@
  * tools and limits. One learns repo NAMES (and base branches) — never a path or a command. A repo that is
  * not in this file does not exist for the worker; One cannot add one.
  */
-import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from 'node:fs'
 import { homedir, hostname } from 'node:os'
-import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { PARALLEL_MAX, PERMISSION_MODES, REPO_NAME, cleanModel, WORKER_DEFAULT_PORT, WORKSPACE_ID, type PermissionMode, type WorkerPreset } from '../../../src/app/features/coding/protocol.ts'
 
 export interface ClaudeConfig {
@@ -28,11 +28,14 @@ export interface ClaudeConfig {
   mcpServers: string[]
   /**
    * Claude Code may load the repo's own settings (.claude/settings*.json — hooks, apiKeyHelper, MCP approvals —
-   * .mcp.json and CLAUDE.md). Default: yes, except for a repo the worker cloned or imported (SOURCE_MARK, or a
-   * folder inside cloneDir) — its settings could run commands the moment Claude Code starts, even in a read-only
-   * stage; there Claude Code runs with `--setting-sources user`
+   * .mcp.json, CLAUDE.md and the person's local-scope MCP servers for that folder). Default: yes, except for code
+   * from elsewhere (RepoConfig.source: the worker's mark, or a folder inside cloneDir) — its settings could run
+   * commands the moment Claude Code starts, even in a read-only stage; there Claude Code runs with
+   * `--setting-sources user`. The setup page's switch writes it.
    */
   projectSettings: boolean
+  /** worker.json sets projectSettings for this repo (false: it is the default) */
+  projectSettingsSet: boolean
 }
 
 export interface RepoConfig {
@@ -55,6 +58,8 @@ export interface RepoConfig {
   claude: ClaudeConfig
   maxUsdPerTask: number | null
   maxUsdPerDay: number | null
+  /** why the repo counts as code from elsewhere (its own Claude Code settings off by default) — null: the person's own */
+  source: SourceWhy | null
 }
 
 export interface WorkerConfig {
@@ -83,6 +88,8 @@ export interface Loaded {
   config: WorkerConfig
   /** what was wrong (the repo or setting was left out) */
   problems: string[]
+  /** what loading did besides (the one-time marking, markOlderSources) — said, not wrong */
+  notes?: string[]
 }
 
 export function defaultConfigFile(): string {
@@ -101,6 +108,8 @@ export function cloudConfigFile(workspace: string): string {
 /** How a config is read: a cloud worker keeps its default worktrees in its own folder. */
 export interface ConfigOptions {
   cloud?: boolean
+  /** whose disks decide how paths compare (inFolder) — tests; default: this computer's */
+  platform?: NodeJS.Platform
 }
 
 /* ------------------------------------------------------------------ JSON with comments */
@@ -156,16 +165,119 @@ const REMOTE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/
 const PREFIX = /^(?!-)[A-Za-z0-9._/-]{0,40}$/
 
 /**
- * A file the worker leaves in the git folder of a repository it made from code elsewhere: "zip" (zipimport.ts) or
- * "clone" (clone.ts). Such a repo's own Claude Code settings are not loaded unless the person trusts it (config).
+ * A file the worker leaves in the git folder of a repository from code elsewhere: "clone" (clone.ts — a new clone, or
+ * one of the same address added again), "zip" (zipimport.ts), or "folder" (markOlderSources: it lay in the clone
+ * folder when worker 1.8.1 first read worker.json). Such a repo's own Claude Code settings are not loaded unless the
+ * person trusts it (projectSettings). A mark stays where the repo is, wherever cloneDir points later.
  */
 export const SOURCE_MARK = 'one-worker-source'
 
-/** Made by the worker from code elsewhere: its mark in the git folder, or a folder inside the clone folder. */
-export function madeByWorker(path: string, cloneDir: string): boolean {
-  if (existsSync(join(path, '.git', SOURCE_MARK))) return true
-  const rel = relative(cloneDir, path)
-  return !isAbsolute(rel) && rel.split(/[\\/]/)[0] !== '..'
+/**
+ * Why a repository counts as code from elsewhere — the rule that matched, as the log and the setup page name it:
+ *  - 'cloned' / 'imported': the worker's mark "clone" / "zip"
+ *  - 'marked': another mark ("folder": it lay in the clone folder when the worker first marked such repos)
+ *  - 'cloneDir': no mark, but it lies in the clone folder now, where clones and imports go — a rule that follows
+ *    cloneDir: a wide one (~/code, ~) takes in the person's own repos too
+ */
+export type SourceWhy = 'cloned' | 'imported' | 'marked' | 'cloneDir'
+
+/** The worker's mark in `path`'s git folder (any entry by that name counts; one that cannot be read: 'marked'), else null. */
+export function markOf(path: string): SourceWhy | null {
+  const file = join(path, '.git', SOURCE_MARK)
+  try {
+    if (!lstatSync(file, { throwIfNoEntry: false })) return null
+  } catch {
+    // .git is a file (a linked worktree, a submodule): no mark there
+    return null
+  }
+  try {
+    const kind = readFileSync(file, 'utf8').trim()
+    return kind === 'clone' ? 'cloned' : kind === 'zip' ? 'imported' : 'marked'
+  } catch {
+    return 'marked'
+  }
+}
+
+/** Leave the mark in `path`'s git folder (a folder, never a .git file) unless one is there. True when it was written. */
+export function markSource(path: string, kind: 'clone' | 'zip' | 'folder'): boolean {
+  if (markOf(path)) return false
+  try {
+    if (!lstatSync(join(path, '.git')).isDirectory()) return false
+    writeFileSync(join(path, '.git', SOURCE_MARK), `${kind}\n`, { flag: 'wx' })
+    return true
+  } catch {
+    return false
+  }
+}
+
+/** `p` as the disk resolves it: every link followed (a tail that does not exist yet kept as written). */
+function onDisk(p: string): string {
+  const abs = resolve(p)
+  try {
+    return realpathSync.native(abs)
+  } catch {
+    const up = dirname(abs)
+    return up === abs ? abs : join(onDisk(up), basename(abs))
+  }
+}
+
+/**
+ * `path` lies in `folder` (or is it) — compared as written and as the disk resolves both (a link to the clone folder,
+ * a link in it), and without case where disks usually ignore it (macOS, Windows: ~/One-Repos/x lies in ~/one-repos).
+ * Wider rather than narrower: it decides that a repo's own settings stay out.
+ */
+export function inFolder(path: string, folder: string, platform: NodeJS.Platform = process.platform): boolean {
+  const fold = (s: string) => (platform === 'darwin' || platform === 'win32' ? s.toLowerCase() : s)
+  const within = (p: string, f: string) => {
+    const rel = relative(fold(f), fold(p))
+    return rel === '' || (!isAbsolute(rel) && rel.split(/[\\/]/)[0] !== '..')
+  }
+  return within(resolve(path), resolve(folder)) || within(onDisk(path), onDisk(folder))
+}
+
+/** Why `path` counts as code from elsewhere: its mark first, else the clone folder — null: the person's own repo. */
+export function sourceOf(path: string, cloneDir: string, platform: NodeJS.Platform = process.platform): SourceWhy | null {
+  return markOf(path) ?? (inFolder(path, cloneDir, platform) ? 'cloneDir' : null)
+}
+
+/** Made by the worker from code elsewhere (sourceOf). */
+export const madeByWorker = (path: string, cloneDir: string, platform: NodeJS.Platform = process.platform): boolean => sourceOf(path, cloneDir, platform) !== null
+
+/** The rule that matched, in a few words (the check command; the setup page has its own strings). */
+export const SOURCE_WORDS: Record<SourceWhy, string> = { cloned: 'cloned by the worker', imported: 'imported by the worker', marked: 'marked as code from elsewhere', cloneDir: 'in the clone folder' }
+
+/** Next to worker.json: the one-time marking (markOlderSources) is done. */
+export const MARKS_DONE = 'worker-marks.json'
+
+/**
+ * Once per config (worker 1.8.1): a repo in worker.json that lies in the clone folder now, has no mark and no
+ * projectSettings of its own gets the mark "folder". Clones and imports of older workers carry no mark, and the
+ * clone folder rule alone would trust them again once cloneDir moves (the setup page sets it to the last clone or
+ * import folder) or ONE_WORKER_CLONE_DIR changes. Recorded in MARKS_DONE: later repos in the clone folder are judged
+ * by the rule (the setup page writes what it showed). Returns the names it marked.
+ */
+export function markOlderSources(raw: unknown, file: string, env: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform): string[] {
+  const configDir = dirname(file)
+  const record = join(configDir, MARKS_DONE)
+  if (existsSync(record)) return []
+  const r = isObj(raw) ? raw : {}
+  const cloneDir = cloneDirOf(env.ONE_WORKER_CLONE_DIR ?? r.cloneDir, configDir, [])
+  const marked: string[] = []
+  for (const entry of Array.isArray(r.repos) ? r.repos : []) {
+    if (!isObj(entry) || typeof entry.path !== 'string' || !entry.path.trim()) continue
+    // the person decided for this repo already
+    if (isObj(entry.claude) && typeof entry.claude.projectSettings === 'boolean') continue
+    const path = resolve(configDir, expandHome(entry.path.trim()))
+    if (markOf(path) || !inFolder(path, cloneDir, platform)) continue
+    if (markSource(path, 'folder')) marked.push(typeof entry.name === 'string' ? entry.name.slice(0, 64) : basename(path))
+  }
+  try {
+    mkdirSync(configDir, { recursive: true, mode: 0o700 })
+    writeFileSync(record, `${JSON.stringify({ v: 1, at: new Date().toISOString(), marked }, null, 2)}\n`, { mode: 0o600 })
+  } catch {
+    /* not writable: it runs again on the next load — marking only what lies in the clone folder then */
+  }
+  return marked
 }
 
 /**
@@ -207,7 +319,8 @@ function claudeConfig(raw: unknown, where: string, problems: string[], trusted: 
   }
   // the same rule as a stage's model from One (protocol.ts MODEL_NAME)
   const model = cleanModel(c.model)
-  if (c.projectSettings !== undefined && typeof c.projectSettings !== 'boolean') problems.push(`${where}: claude.projectSettings must be true or false — ${trusted ? 'true' : 'false'} is used`)
+  const set = typeof c.projectSettings === 'boolean'
+  if (c.projectSettings !== undefined && !set) problems.push(`${where}: claude.projectSettings must be true or false — ${trusted ? 'true' : 'false'} is used`)
   return {
     model,
     maxTurns: Math.floor(num(c.maxTurns, 30, 1, 200)),
@@ -216,7 +329,8 @@ function claudeConfig(raw: unknown, where: string, problems: string[], trusted: 
     disallowedTools: strings(c.disallowedTools),
     strictMcp: c.strictMcp !== false,
     mcpServers: mcpNames(c.mcpServers, where, problems),
-    projectSettings: typeof c.projectSettings === 'boolean' ? c.projectSettings : trusted,
+    projectSettings: set ? (c.projectSettings as boolean) : trusted,
+    projectSettingsSet: set,
   }
 }
 
@@ -293,6 +407,7 @@ function repoConfig(raw: unknown, index: number, configDir: string, problems: st
     }
   }
   const pr = raw.pr === 'none' ? 'none' : 'gh'
+  const source = sourceOf(path, cloneDir, opts.platform)
   return {
     name,
     path,
@@ -306,9 +421,10 @@ function repoConfig(raw: unknown, index: number, configDir: string, problems: st
     analyzeTimeoutSec: Math.floor(num(raw.analyzeTimeoutSec, 900, 5, 7200)),
     push: raw.push !== false,
     pr,
-    claude: claudeConfig(raw.claude, at, problems, !madeByWorker(path, cloneDir)),
+    claude: claudeConfig(raw.claude, at, problems, source === null),
     maxUsdPerTask: usd(raw.maxUsdPerTask),
     maxUsdPerDay: usd(raw.maxUsdPerDay),
+    source,
   }
 }
 
@@ -321,7 +437,11 @@ export function loadConfig(file: string, env: NodeJS.ProcessEnv = process.env, o
   } catch (e) {
     throw new Error(`${file} is not valid JSON: ${e instanceof Error ? e.message : String(e)}`)
   }
-  return sanitizeConfig(raw, file, env, opts)
+  // once per config: what an older worker cloned or imported into the clone folder carries no mark yet
+  const marked = markOlderSources(raw, file, env, opts.platform)
+  const loaded = sanitizeConfig(raw, file, env, opts)
+  if (marked.length) loaded.notes = [`marked ${marked.length} repo(s) in the clone folder as code from elsewhere (${marked.join(', ')}) — Claude Code runs on them without their own settings; the setup page can switch that per repo`]
+  return loaded
 }
 
 export function sanitizeConfig(raw: unknown, file: string, env: NodeJS.ProcessEnv = process.env, opts: ConfigOptions = {}): Loaded {
@@ -392,9 +512,10 @@ export function scratchRepo(config: WorkerConfig, taskId: string): RepoConfig {
     analyzeTimeoutSec: 900,
     push: false,
     pr: 'none',
-    claude: { model: null, maxTurns: 40, permissionMode: {}, allowedTools: [], disallowedTools: [], strictMcp: true, mcpServers: config.mcpServers, projectSettings: false },
+    claude: { model: null, maxTurns: 40, permissionMode: {}, allowedTools: [], disallowedTools: [], strictMcp: true, mcpServers: config.mcpServers, projectSettings: false, projectSettingsSet: false },
     maxUsdPerTask: null,
     maxUsdPerDay: null,
+    source: null,
   }
 }
 

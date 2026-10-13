@@ -3,7 +3,7 @@
  * stream-json reader (log lines, plan, cost), Stop killing the process — all with the fake CLI.
  */
 import assert from 'node:assert/strict'
-import { chmodSync, mkdirSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { after, describe, test } from 'node:test'
@@ -11,7 +11,7 @@ import type { LogLine, TaskProgress } from '../../src/app/features/coding/protoc
 import { AUTH_HINT, claudeArgs, cliMode, detectClaude, runClaude, toolLine, type ClaudeCaps } from '../src/worker/claude.ts'
 import { buildPrompt, commitMessage } from '../src/worker/run.ts'
 import { estimateCost, usageOf } from '../src/worker/price.ts'
-import { SOURCE_MARK, sanitizeConfig, scratchRepo } from '../src/worker/config.ts'
+import { SOURCE_MARK, loadConfig, sanitizeConfig, scratchRepo, type Loaded } from '../src/worker/config.ts'
 import { sanitizeTask } from '../src/worker/worker.ts'
 import { FAKE_CLAUDE, cleanupAll, task, tempDir } from './worker-helpers.ts'
 
@@ -68,11 +68,74 @@ describe('Claude Code CLI', () => {
     }
     const { trust: t, problems } = trust({ cloneDir: clones })
     assert.deepEqual(t, { own: true, cloned: false, deep: false, marked: false, sibling: true, trusted: true, 'kept-out': false, bad: false })
+    // the rule that matched: the mark first (whatever cloneDir says), else the clone folder
+    const { config } = sanitizeConfig({ workspace: 'local:x1', repos, cloneDir: clones }, join(home, 'worker.json'), {})
+    assert.deepEqual(Object.fromEntries(config.repos.map((r) => [r.name, [r.source, r.claude.projectSettingsSet]])), { own: [null, false], cloned: ['cloneDir', false], deep: ['cloneDir', false], marked: ['imported', false], sibling: [null, false], trusted: ['cloneDir', true], 'kept-out': [null, true], bad: ['cloneDir', false] })
     assert.ok(problems.some((p) => /bad.*claude\.projectSettings must be true or false — false is used/.test(p)), problems.join('\n'))
     // ONE_WORKER_CLONE_DIR is the clone folder too; a repo's mark counts wherever it lies
     assert.deepEqual(trust({}, { ONE_WORKER_CLONE_DIR: join(home, 'code') }).trust, { own: false, cloned: true, deep: true, marked: false, sibling: true, trusted: true, 'kept-out': false, bad: true })
     // a task without a repository: the scratch folder has none of its own
     assert.equal(scratchRepo(sanitizeConfig({ repos: [] }, join(home, 'worker.json')).config, 'abc').claude.projectSettings, false)
+  })
+
+  test('the clone folder rule compares as the disk does: through links, and without case on macOS / Windows', () => {
+    const home = tempDir('trust')
+    const real = join(home, 'one-repos')
+    mkdirSync(join(real, 'billing', '.git'), { recursive: true })
+    const link = join(home, 'clones-link')
+    symlinkSync(real, link)
+    const trust = (cfg: Record<string, unknown>, platform?: NodeJS.Platform) =>
+      Object.fromEntries(sanitizeConfig({ workspace: 'local:x1', ...cfg }, join(home, 'worker.json'), {}, { platform }).config.repos.map((r) => [r.name, [r.claude.projectSettings, r.source]]))
+    // the clone folder through a link and the repo by its real path — and the other way round
+    assert.deepEqual(trust({ cloneDir: link, repos: [{ name: 'a', path: join(real, 'billing') }] }), { a: [false, 'cloneDir'] })
+    assert.deepEqual(trust({ cloneDir: real, repos: [{ name: 'a', path: join(link, 'billing') }] }), { a: [false, 'cloneDir'] })
+    assert.deepEqual(trust({ cloneDir: link, repos: [{ name: 'a', path: join(link, 'not-yet', 'x') }] }), { a: [false, 'cloneDir'] })
+    // macOS and Windows disks ignore case: ~/One-Repos is ~/one-repos there
+    const spelled = { cloneDir: join(home, 'One-Repos'), repos: [{ name: 'a', path: join(real, 'billing') }] }
+    assert.deepEqual(trust(spelled, 'darwin'), { a: [false, 'cloneDir'] })
+    assert.deepEqual(trust(spelled, 'win32'), { a: [false, 'cloneDir'] })
+    assert.deepEqual(trust(spelled, 'linux'), { a: [true, null] })
+  })
+
+  test('once per config, repos an older worker cloned or imported into the clone folder get the mark — trust no longer follows cloneDir', () => {
+    const home = tempDir('marks')
+    const clones = join(home, 'one-repos')
+    const repo = (p: string) => {
+      mkdirSync(join(p, '.git'), { recursive: true })
+      return p
+    }
+    // a clone of worker 1.8.0 (no mark), an import of 1.8.1 (marked), one the person trusted, one of their own
+    const old = repo(join(clones, 'old-clone'))
+    const zipped = repo(join(clones, 'imported'))
+    writeFileSync(join(zipped, '.git', SOURCE_MARK), 'zip\n')
+    const decided = repo(join(clones, 'decided'))
+    const own = repo(join(home, 'code', 'shop'))
+    const cfgDir = join(home, 'cfg')
+    mkdirSync(cfgDir)
+    const file = join(cfgDir, 'worker.json')
+    const repos = [{ name: 'old', path: old }, { name: 'zipped', path: zipped }, { name: 'decided', path: decided, claude: { projectSettings: true } }, { name: 'own', path: own }]
+    const write = (cfg: Record<string, unknown>) => writeFileSync(file, `// mine\n${JSON.stringify({ workspace: 'local:x1', ...cfg })}\n`)
+    const state = (l: Loaded) => Object.fromEntries(l.config.repos.map((r) => [r.name, [r.claude.projectSettings, r.source]]))
+    write({ cloneDir: clones, repos })
+    const first = loadConfig(file, {})
+    assert.equal(readFileSync(join(old, '.git', SOURCE_MARK), 'utf8'), 'folder\n', 'the older clone is marked')
+    assert.equal(readFileSync(join(zipped, '.git', SOURCE_MARK), 'utf8'), 'zip\n', 'a mark stays as it is')
+    assert.ok(!existsSync(join(decided, '.git', SOURCE_MARK)) && !existsSync(join(own, '.git', SOURCE_MARK)), 'nothing the person decided, nothing outside')
+    assert.match(first.notes?.join('\n') ?? '', /marked 1 repo\(s\) in the clone folder as code from elsewhere \(old\)/)
+    assert.ok(existsSync(join(cfgDir, 'worker-marks.json')), 'recorded: it runs once')
+    assert.deepEqual(state(first), { old: [false, 'marked'], zipped: [false, 'imported'], decided: [true, 'cloneDir'], own: [true, null] })
+    // the clone folder moves (the setup page keeps the folder of its last clone or import) or ONE_WORKER_CLONE_DIR
+    // points elsewhere: the older clone stays out all the same
+    write({ cloneDir: join(home, 'work', 'clones'), repos })
+    assert.deepEqual(state(loadConfig(file, {})), { old: [false, 'marked'], zipped: [false, 'imported'], decided: [true, null], own: [true, null] })
+    assert.deepEqual(state(loadConfig(file, { ONE_WORKER_CLONE_DIR: join(home, 'elsewhere') })).old, [false, 'marked'])
+    // once: a repo put into the clone folder later is judged by the rule alone
+    const later = repo(join(home, 'work', 'clones', 'later'))
+    write({ cloneDir: join(home, 'work', 'clones'), repos: [...repos, { name: 'later', path: later }] })
+    const again = loadConfig(file, {})
+    assert.equal(again.notes, undefined)
+    assert.ok(!existsSync(join(later, '.git', SOURCE_MARK)))
+    assert.deepEqual(state(again).later, [false, 'cloneDir'])
   })
 
   test('config: a bypassing permission mode or a shell-line test command is refused', () => {

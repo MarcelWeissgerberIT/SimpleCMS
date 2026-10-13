@@ -28,7 +28,7 @@ import { existsSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { resolve } from 'node:path'
 import { WORKER_DEFAULT_PORT } from '../../../src/app/features/coding/protocol.ts'
-import { cloudConfigFile, defaultConfigFile, emptyConfig, initConfig, loadConfig, saveRepos, withPreset, type RepoChoice } from './config.ts'
+import { SOURCE_WORDS, cloudConfigFile, defaultConfigFile, emptyConfig, initConfig, loadConfig, saveRepos, withPreset, type RepoChoice } from './config.ts'
 import { claudeBin, detectClaude } from './claude.ts'
 import { checkRepo, hasRemote } from './git.ts'
 import { Worker } from './worker.ts'
@@ -123,6 +123,7 @@ async function main() {
   }
   const config = withPreset(loaded.config, preset)
   for (const p of loaded.problems) log(`config: ${p}`)
+  for (const n of loaded.notes ?? []) log(`config: ${n}`)
 
   if (command === 'check') {
     const bin = claudeBin()
@@ -144,7 +145,8 @@ async function main() {
       try {
         await checkRepo(repo)
         const remote = await hasRemote(repo)
-        lines.push(`repo       ${repo.name}: ok · base ${repo.baseBranch} · ${remote ? `remote ${repo.remote}` : `no remote "${repo.remote}" (push off)`} · tests ${repo.testCommand ? 'yes' : 'none'}`)
+        const own = repo.claude.projectSettings ? 'on' : `off (${repo.claude.projectSettingsSet ? 'worker.json' : repo.source ? SOURCE_WORDS[repo.source] : 'default'})`
+        lines.push(`repo       ${repo.name}: ok · base ${repo.baseBranch} · ${remote ? `remote ${repo.remote}` : `no remote "${repo.remote}" (push off)`} · tests ${repo.testCommand ? 'yes' : 'none'} · its own Claude Code settings ${own}`)
       } catch (e) {
         ok = false
         lines.push(`repo       ${repo.name}: ${e instanceof Error ? e.message : String(e)}`)
@@ -238,6 +240,7 @@ async function checkCloud(origin: string, token: string): Promise<{ ok: boolean;
 async function reload(worker: Worker): Promise<void> {
   const next = loadConfig(configFile, process.env, configOpts)
   for (const p of next.problems) log(`config: ${p}`)
+  for (const n of next.notes ?? []) log(`config: ${n}`)
   await worker.reload(withPreset(next.config, preset))
 }
 

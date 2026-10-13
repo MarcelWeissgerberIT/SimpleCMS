@@ -9,7 +9,7 @@
  * GitLab merge requests with glab. Nothing leaves the machine.
  */
 import assert from 'node:assert/strict'
-import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { request } from 'node:http'
 import { dirname, join } from 'node:path'
@@ -584,9 +584,11 @@ describe('the setup page: clone, projects, ZIP import, own MCP servers', () => {
     assert.equal(readFileSync(join(dir, '.git', SOURCE_MARK), 'utf8'), 'clone\n', 'a clone is marked: its own Claude Code settings stay out')
     assert.ok(cloned.repos.some((r: { path: string; ticked: boolean }) => r.path === dir && !r.ticked))
     assert.equal(cloned.cloneDir, '~/work/clones')
-    // the same address again: already there, added
+    // the same address again: already there, added — and marked again (a clone of an older worker carries no mark)
+    rmSync(join(dir, '.git', SOURCE_MARK))
     await call('/setup/api/clone', { token, body: { url: remote, dir: '~/work/clones' } })
     assert.equal((await jobDone(token)).clone.done, dir)
+    assert.equal(readFileSync(join(dir, '.git', SOURCE_MARK), 'utf8'), 'clone\n', 'an existing clone of the same address is marked when it is added')
 
     // a ZIP of legacy code: one folder at the top, its own .git and Mac leftovers left out
     const zip = Buffer.from(zipSync({

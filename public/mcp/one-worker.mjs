@@ -10944,9 +10944,9 @@ var RELAY_CLOSE_AUTH = 4401;
 var RELAY_CLOSE_FORBIDDEN = 4403;
 
 // src/worker/config.ts
-import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from "node:fs";
 import { homedir, hostname } from "node:os";
-import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 function defaultConfigFile() {
   return join(homedir(), ".config", "one", "worker.json");
 }
@@ -10998,10 +10998,74 @@ var REF_PART = /^(?!-)(?!.*\.\.)(?!.*\/\/)(?!.*@\{)(?!.*\.lock(\/|$))[A-Za-z0-9.
 var REMOTE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 var PREFIX = /^(?!-)[A-Za-z0-9._/-]{0,40}$/;
 var SOURCE_MARK = "one-worker-source";
-function madeByWorker(path, cloneDir) {
-  if (existsSync(join(path, ".git", SOURCE_MARK))) return true;
-  const rel = relative(cloneDir, path);
-  return !isAbsolute(rel) && rel.split(/[\\/]/)[0] !== "..";
+function markOf(path) {
+  const file = join(path, ".git", SOURCE_MARK);
+  try {
+    if (!lstatSync(file, { throwIfNoEntry: false })) return null;
+  } catch {
+    return null;
+  }
+  try {
+    const kind = readFileSync(file, "utf8").trim();
+    return kind === "clone" ? "cloned" : kind === "zip" ? "imported" : "marked";
+  } catch {
+    return "marked";
+  }
+}
+function markSource(path, kind) {
+  if (markOf(path)) return false;
+  try {
+    if (!lstatSync(join(path, ".git")).isDirectory()) return false;
+    writeFileSync(join(path, ".git", SOURCE_MARK), `${kind}
+`, { flag: "wx" });
+    return true;
+  } catch {
+    return false;
+  }
+}
+function onDisk(p) {
+  const abs = resolve(p);
+  try {
+    return realpathSync.native(abs);
+  } catch {
+    const up = dirname(abs);
+    return up === abs ? abs : join(onDisk(up), basename(abs));
+  }
+}
+function inFolder(path, folder, platform = process.platform) {
+  const fold = (s) => platform === "darwin" || platform === "win32" ? s.toLowerCase() : s;
+  const within = (p, f) => {
+    const rel = relative(fold(f), fold(p));
+    return rel === "" || !isAbsolute(rel) && rel.split(/[\\/]/)[0] !== "..";
+  };
+  return within(resolve(path), resolve(folder)) || within(onDisk(path), onDisk(folder));
+}
+function sourceOf(path, cloneDir, platform = process.platform) {
+  return markOf(path) ?? (inFolder(path, cloneDir, platform) ? "cloneDir" : null);
+}
+var SOURCE_WORDS = { cloned: "cloned by the worker", imported: "imported by the worker", marked: "marked as code from elsewhere", cloneDir: "in the clone folder" };
+var MARKS_DONE = "worker-marks.json";
+function markOlderSources(raw, file, env = process.env, platform = process.platform) {
+  const configDir = dirname(file);
+  const record2 = join(configDir, MARKS_DONE);
+  if (existsSync(record2)) return [];
+  const r = isObj(raw) ? raw : {};
+  const cloneDir = cloneDirOf(env.ONE_WORKER_CLONE_DIR ?? r.cloneDir, configDir, []);
+  const marked = [];
+  for (const entry2 of Array.isArray(r.repos) ? r.repos : []) {
+    if (!isObj(entry2) || typeof entry2.path !== "string" || !entry2.path.trim()) continue;
+    if (isObj(entry2.claude) && typeof entry2.claude.projectSettings === "boolean") continue;
+    const path = resolve(configDir, expandHome(entry2.path.trim()));
+    if (markOf(path) || !inFolder(path, cloneDir, platform)) continue;
+    if (markSource(path, "folder")) marked.push(typeof entry2.name === "string" ? entry2.name.slice(0, 64) : basename(path));
+  }
+  try {
+    mkdirSync(configDir, { recursive: true, mode: 448 });
+    writeFileSync(record2, `${JSON.stringify({ v: 1, at: (/* @__PURE__ */ new Date()).toISOString(), marked }, null, 2)}
+`, { mode: 384 });
+  } catch {
+  }
+  return marked;
 }
 function inICloud(path, home = homedir(), platform = process.platform) {
   if (platform !== "darwin") return false;
@@ -11034,7 +11098,8 @@ function claudeConfig(raw, where, problems, trusted) {
     }
   }
   const model = cleanModel(c.model);
-  if (c.projectSettings !== void 0 && typeof c.projectSettings !== "boolean") problems.push(`${where}: claude.projectSettings must be true or false \u2014 ${trusted ? "true" : "false"} is used`);
+  const set = typeof c.projectSettings === "boolean";
+  if (c.projectSettings !== void 0 && !set) problems.push(`${where}: claude.projectSettings must be true or false \u2014 ${trusted ? "true" : "false"} is used`);
   return {
     model,
     maxTurns: Math.floor(num(c.maxTurns, 30, 1, 200)),
@@ -11043,7 +11108,8 @@ function claudeConfig(raw, where, problems, trusted) {
     disallowedTools: strings(c.disallowedTools),
     strictMcp: c.strictMcp !== false,
     mcpServers: mcpNames(c.mcpServers, where, problems),
-    projectSettings: typeof c.projectSettings === "boolean" ? c.projectSettings : trusted
+    projectSettings: set ? c.projectSettings : trusted,
+    projectSettingsSet: set
   };
 }
 var MCP_NAME = /^[A-Za-z0-9_-]{1,64}$/;
@@ -11108,6 +11174,7 @@ function repoConfig(raw, index, configDir, problems, opts, cloneDir) {
     }
   }
   const pr = raw.pr === "none" ? "none" : "gh";
+  const source = sourceOf(path, cloneDir, opts.platform);
   return {
     name,
     path,
@@ -11121,9 +11188,10 @@ function repoConfig(raw, index, configDir, problems, opts, cloneDir) {
     analyzeTimeoutSec: Math.floor(num(raw.analyzeTimeoutSec, 900, 5, 7200)),
     push: raw.push !== false,
     pr,
-    claude: claudeConfig(raw.claude, at, problems, !madeByWorker(path, cloneDir)),
+    claude: claudeConfig(raw.claude, at, problems, source === null),
     maxUsdPerTask: usd(raw.maxUsdPerTask),
-    maxUsdPerDay: usd(raw.maxUsdPerDay)
+    maxUsdPerDay: usd(raw.maxUsdPerDay),
+    source
   };
 }
 function loadConfig(file, env = process.env, opts = {}) {
@@ -11134,7 +11202,10 @@ function loadConfig(file, env = process.env, opts = {}) {
   } catch (e) {
     throw new Error(`${file} is not valid JSON: ${e instanceof Error ? e.message : String(e)}`);
   }
-  return sanitizeConfig(raw, file, env, opts);
+  const marked = markOlderSources(raw, file, env, opts.platform);
+  const loaded = sanitizeConfig(raw, file, env, opts);
+  if (marked.length) loaded.notes = [`marked ${marked.length} repo(s) in the clone folder as code from elsewhere (${marked.join(", ")}) \u2014 Claude Code runs on them without their own settings; the setup page can switch that per repo`];
+  return loaded;
 }
 function sanitizeConfig(raw, file, env = process.env, opts = {}) {
   const problems = [];
@@ -11200,9 +11271,10 @@ function scratchRepo(config2, taskId) {
     analyzeTimeoutSec: 900,
     push: false,
     pr: "none",
-    claude: { model: null, maxTurns: 40, permissionMode: {}, allowedTools: [], disallowedTools: [], strictMcp: true, mcpServers: config2.mcpServers, projectSettings: false },
+    claude: { model: null, maxTurns: 40, permissionMode: {}, allowedTools: [], disallowedTools: [], strictMcp: true, mcpServers: config2.mcpServers, projectSettings: false, projectSettingsSet: false },
     maxUsdPerTask: null,
-    maxUsdPerDay: null
+    maxUsdPerDay: null,
+    source: null
   };
 }
 function exampleConfig(workspace) {
@@ -11400,7 +11472,7 @@ ${JSON.stringify(next, null, 2)}
 // src/worker/claude.ts
 import { spawn, execFile } from "node:child_process";
 import { createInterface } from "node:readline";
-import { readFileSync as readFileSync2, realpathSync, statSync } from "node:fs";
+import { readFileSync as readFileSync2, realpathSync as realpathSync2, statSync } from "node:fs";
 import { homedir as homedir2 } from "node:os";
 import { join as join2, sep as sep2 } from "node:path";
 
@@ -11465,8 +11537,8 @@ var AUTH_HINT = "Claude Code is not signed in on this computer (its login expire
 var PLAN_FILE = /[\\/]\.claude[\\/]plans[\\/][^\\/]+\.md$/;
 function readPlanFile(path, home = homedir2()) {
   try {
-    const dir = realpathSync(join2(home, ".claude", "plans"));
-    const real = realpathSync(path.startsWith("~/") ? join2(home, path.slice(2)) : path);
+    const dir = realpathSync2(join2(home, ".claude", "plans"));
+    const real = realpathSync2(path.startsWith("~/") ? join2(home, path.slice(2)) : path);
     if (!real.startsWith(dir + sep2) || !real.endsWith(".md")) return null;
     if (statSync(real).size > 200 * 1024) return null;
     const text2 = readFileSync2(real, "utf8").trim();
@@ -11679,7 +11751,7 @@ ${e.message}`;
 
 // src/worker/git.ts
 import { execFile as execFile2, spawn as spawn2 } from "node:child_process";
-import { existsSync as existsSync2, lstatSync, mkdirSync as mkdirSync2, readFileSync as readFileSync3, readlinkSync, rmSync } from "node:fs";
+import { existsSync as existsSync2, lstatSync as lstatSync2, mkdirSync as mkdirSync2, readFileSync as readFileSync3, readlinkSync, rmSync } from "node:fs";
 import { dirname as dirname2, join as join3, resolve as resolve2, sep as sep3 } from "node:path";
 var GitError = class extends Error {
 };
@@ -12028,7 +12100,7 @@ async function diffFiles(dir, base, status) {
     const abs = join3(dir, e.path);
     let size = 0;
     try {
-      const st = lstatSync(abs);
+      const st = lstatSync2(abs);
       if (st.isSymbolicLink()) {
         const piece2 = take(`diff --git a/${e.path} b/${e.path}
 new file mode 120000
@@ -12423,7 +12495,10 @@ async function cloneInto(target, base, onProgress, opts = {}) {
     const entries = readdirSync(dir);
     if (entries.length) {
       const origin = existsSync4(join5(dir, ".git")) ? (await git(dir, ["remote", "get-url", "origin"], 1e4)).stdout.trim() : "";
-      if (origin && origin.replace(/\.git$/, "") === target.url.replace(/\.git$/, "")) return { dir, already: true };
+      if (origin && origin.replace(/\.git$/, "") === target.url.replace(/\.git$/, "")) {
+        markSource(dir, "clone");
+        return { dir, already: true };
+      }
       throw new Error(`${dir} already exists \u2014 pick another clone folder, or add that folder instead.`);
     }
   }
@@ -13146,7 +13221,7 @@ var Unzip = /* @__PURE__ */ (function() {
 })();
 
 // src/worker/zipimport.ts
-import { closeSync, createReadStream, existsSync as existsSync5, lstatSync as lstatSync2, mkdirSync as mkdirSync4, openSync, readFileSync as readFileSync5, readdirSync as readdirSync2, renameSync as renameSync3, rmSync as rmSync3, statSync as statSync2, writeFileSync as writeFileSync4, writeSync } from "node:fs";
+import { closeSync, createReadStream, existsSync as existsSync5, lstatSync as lstatSync3, mkdirSync as mkdirSync4, openSync, readFileSync as readFileSync5, readdirSync as readdirSync2, renameSync as renameSync3, rmSync as rmSync3, statSync as statSync2, writeFileSync as writeFileSync4, writeSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { dirname as dirname4, join as join6, relative as relative2, resolve as resolve4, sep as sep5 } from "node:path";
 var ZIP_MAX = () => Number(process.env.ONE_WORKER_ZIP_MAX) || 500 * 1024 * 1024;
@@ -13182,7 +13257,7 @@ function entryPath(name, platform = process.platform) {
 }
 var isUnsafe = (v) => typeof v === "object" && v !== null && "unsafe" in v;
 var shown = (name) => name.replace(/[\u0000-\u001f\u007f]/g, "?").slice(0, 120);
-var entry = (path) => lstatSync2(path, { throwIfNoEntry: false });
+var entry = (path) => lstatSync3(path, { throwIfNoEntry: false });
 function isRepoDir(d) {
   const head = entry(join6(d, "HEAD"));
   if (!head || head.isDirectory()) return false;
@@ -13455,7 +13530,7 @@ async function publishRepo(dir, t, run2, onLine = () => {
 // src/worker/scan.ts
 import { lstat, readFile, readdir, realpath } from "node:fs/promises";
 import { homedir as homedir4 } from "node:os";
-import { basename, join as join8, sep as sep6 } from "node:path";
+import { basename as basename2, join as join8, sep as sep6 } from "node:path";
 var USUAL_PLACES = ["code", "projects", "dev", "src", "repos", "git", "GitHub", "Documents/GitHub", "Developer", "workspace", "Documents", "Desktop"];
 var SKIP_DIRS = /* @__PURE__ */ new Set([
   "node_modules",
@@ -13569,7 +13644,7 @@ function shortPath(path, home = homedir4()) {
   return path.replace(/\\/g, "/");
 }
 function suggestName2(path, taken) {
-  const raw = basename(path).normalize("NFKD").replace(/[\u0300-\u036f]/g, "");
+  const raw = basename2(path).normalize("NFKD").replace(/[\u0300-\u036f]/g, "");
   let base = raw.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^[^A-Za-z0-9]+/, "").replace(/-+$/, "").slice(0, 58);
   if (!REPO_NAME.test(base)) base = "repo";
   let name = base;
@@ -14745,11 +14820,11 @@ ${text2}`);
 import { randomBytes as randomBytes4 } from "node:crypto";
 import { existsSync as existsSync7, mkdtempSync, rmSync as rmSync5, writeFileSync as writeFileSync5 } from "node:fs";
 import { tmpdir as tmpdir3 } from "node:os";
-import { basename as basename2, join as join10 } from "node:path";
+import { basename as basename3, join as join10 } from "node:path";
 
 // src/worker/scrub.ts
 import { homedir as homedir6, tmpdir as tmpdir2 } from "node:os";
-import { realpathSync as realpathSync2 } from "node:fs";
+import { realpathSync as realpathSync3 } from "node:fs";
 var escape2 = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 function variants(p) {
   const out = /* @__PURE__ */ new Set();
@@ -14760,7 +14835,7 @@ function variants(p) {
   };
   add(p);
   try {
-    add(realpathSync2(p));
+    add(realpathSync3(p));
   } catch {
   }
   return [...out];
@@ -14911,18 +14986,34 @@ function logModel(log2, m) {
   else log2("info", "Model: Claude Code's default", "modelDefault");
 }
 var OWN_SETTINGS = [".claude", ".mcp.json", "CLAUDE.md", "CLAUDE.local.md"];
+var OFF = {
+  cloned: { code: "projectSettingsOffCloned", why: "the worker cloned it (marked in .git/one-worker-source)" },
+  imported: { code: "projectSettingsOffImported", why: "the worker imported it from a ZIP (marked in .git/one-worker-source)" },
+  marked: { code: "projectSettingsOffMarked", why: "it lay in the worker's clone folder when this worker version first started, so it was marked as code from elsewhere (.git/one-worker-source)" },
+  cloneDir: { code: "projectSettingsOffFolder", why: "it lies in the worker's clone folder (cloneDir in worker.json), where clones and imports go" }
+};
+var TRUST = `To trust them: switch on "Use this repo's own Claude Code settings" on the worker's setup page (or "claude": { "projectSettings": true } for this repo in worker.json).`;
 function ownSettings(ctx, cwd, log2) {
   const { repo, caps } = ctx;
   if (repo.claude.projectSettings) return null;
+  if (caps.settingSources && repo.claude.mcpServers.length) {
+    const names = repo.claude.mcpServers.join(", ");
+    log2("info", `${repo.name}: only your user-scope MCP servers reach Claude Code here \u2014 add ${names} with "claude mcp add -s user \u2026"; a server added in the default (local) scope stays out while the repo's own settings are off.`, "mcpUserScope", { repo: repo.name, names });
+  }
   const has = OWN_SETTINGS.filter((n) => existsSync7(join10(cwd, n)));
   if (!has.length) return null;
+  const off = repo.claude.projectSettingsSet ? null : repo.source ? OFF[repo.source] : null;
+  const files = has.join(", ");
   if (caps.settingSources) {
-    log2("info", `${repo.name}: Claude Code runs without the repo's own ${has.join(", ")} \u2014 the worker cloned or imported it, and its settings could run commands. To trust them: "claude": { "projectSettings": true } for this repo in worker.json.`, "projectSettingsOff", { repo: repo.name, files: has.join(", ") });
+    if (repo.claude.projectSettingsSet) log2("info", `${repo.name}: Claude Code runs without the repo's own ${files} \u2014 worker.json says "projectSettings": false for it.`, "projectSettingsOffSet", { repo: repo.name, files });
+    else if (off) log2("info", `${repo.name}: Claude Code runs without the repo's own ${files} \u2014 ${off.why}, and such settings could run commands as Claude Code starts. ${TRUST}`, off.code, { repo: repo.name, files });
+    else log2("info", `${repo.name}: Claude Code runs without the folder's own ${files}.`, "projectSettingsOff", { repo: repo.name, files });
     return null;
   }
   const runs = has.filter((n) => n === ".claude" || n === ".mcp.json");
   if (!runs.length) return null;
-  return `This Claude Code version cannot leave ${repo.name}'s own ${runs.join(" and ")} out (it has no --setting-sources), and the worker cloned or imported this repo: its settings could run commands. Update Claude Code (claude update), or trust the repo with "claude": { "projectSettings": true } in worker.json.`;
+  const why2 = repo.claude.projectSettingsSet ? 'worker.json says "projectSettings": false for this repo' : off ? off.why : "it is not a repository of yours";
+  return `This Claude Code version cannot leave ${repo.name}'s own ${runs.join(" and ")} out (it has no --setting-sources), and ${why2}: its settings could run commands. Update Claude Code (claude update), or trust the repo with "claude": { "projectSettings": true } in worker.json (the switch on the worker's setup page).`;
 }
 var TASK_TOOL_PERMS = ["mcp__one-task__one_task_read", "mcp__one-task__one_task_note", "mcp__one-task__one_task_ask"];
 function limits(ctx) {
@@ -15109,7 +15200,7 @@ async function analyzeStage(ctx, scrub, log2, dir) {
     log2("info", `No analysis command for ${repo.name} \u2014 the stage passes. Set one on the worker's setup page (Change repositories \u2192 the repo \u2192 Static analysis).`, "analyzeNone", { repo: repo.name });
     return { status: "ok", summary: "No static analysis configured.", plan: "_No static analysis command is set for this repository \u2014 the worker's setup page (Change repositories \u2192 the repository \u2192 Static analysis) takes one, e.g. `npx eslint .`, `dotnet build`, `go vet ./...`._" };
   }
-  const shown2 = clip2(scrub.text([basename2(argv2[0]), ...argv2.slice(1)].join(" ")), 160);
+  const shown2 = clip2(scrub.text([basename3(argv2[0]), ...argv2.slice(1)].join(" ")), 160);
   log2("test", `Running the static analysis: ${shown2}`, "analyzeRun", { cmd: shown2 });
   let lines = 0;
   const res = await runAnalysis(repo, dir ?? repo.path, ctx.signal, (line) => {
@@ -32980,7 +33071,7 @@ var SETUP_JS = String.raw`(function () {
     pr: 'Pull / merge requests (gh · glab)',
     limit: 'Cost limit per task (USD)',
     mcpLabel: 'Own MCP servers for Claude Code',
-    mcpHint: 'Names as “claude mcp list” shows them, e.g. kb — this repo\'s stages may use their tools (a knowledge base, a design system). Empty: only One\'s task tools.',
+    mcpHint: 'Names as “claude mcp list” shows them, e.g. kb — this repo\'s stages may use their tools (a knowledge base, a design system). Empty: only One\'s task tools. While the repo\'s own Claude Code settings are off, only servers added with “claude mcp add -s user …” reach it.',
     clone: 'Clone from GitLab / GitHub…',
     cloneUrl: 'Clone address — on the project page under Clone (HTTPS or SSH)',
     cloneDir: 'Into the folder',
@@ -33025,7 +33116,7 @@ var SETUP_JS = String.raw`(function () {
     savedOne: 'Saved — One sees 1 repository now.',
     savedNone: 'Saved — no repositories: this worker takes only document tasks without a repository (Business analysis, QA).',
     wmcpLabel: 'Tasks without a repository — own MCP servers',
-    wmcpHint: 'Business analysis / QA tasks without a repo run here with these servers (names as “claude mcp list” shows them, e.g. kb).',
+    wmcpHint: 'Business analysis / QA tasks without a repo run here with these servers (names as “claude mcp list” shows them, e.g. kb) — added with “claude mcp add -s user …”: a server in the default local scope stays out.',
     writes: 'writes {file}',
     status: '§ STATUS',
     one: 'One',
@@ -33084,7 +33175,7 @@ var SETUP_JS = String.raw`(function () {
     pr: 'Pull / Merge Requests (gh · glab)',
     limit: 'Kostengrenze pro Aufgabe (USD)',
     mcpLabel: 'Eigene MCP-Server für Claude Code',
-    mcpHint: 'Namen wie in „claude mcp list“, z. B. kb – die Stufen dieses Repos dürfen ihre Tools nutzen (eine Wissensbasis, ein Designsystem). Leer: nur die Aufgaben-Tools von One.',
+    mcpHint: 'Namen wie in „claude mcp list“, z. B. kb – die Stufen dieses Repos dürfen ihre Tools nutzen (eine Wissensbasis, ein Designsystem). Leer: nur die Aufgaben-Tools von One. Solange die eigenen Claude-Code-Einstellungen des Repos aus sind, erreichen es nur Server, die mit „claude mcp add -s user …“ hinzugefügt wurden.',
     clone: 'Von GitLab / GitHub klonen …',
     cloneUrl: 'Klon-Adresse – auf der Projektseite unter „Clone“ (HTTPS oder SSH)',
     cloneDir: 'In den Ordner',
@@ -33129,7 +33220,7 @@ var SETUP_JS = String.raw`(function () {
     savedOne: 'Gespeichert – One sieht jetzt 1 Repository.',
     savedNone: 'Gespeichert – keine Repositories: Dieser Worker nimmt nur Dokument-Aufgaben ohne Repository (Business-Analyse, QA).',
     wmcpLabel: 'Aufgaben ohne Repository – eigene MCP-Server',
-    wmcpHint: 'Business-Analyse- / QA-Aufgaben ohne Repo laufen hier mit diesen Servern (Namen wie in „claude mcp list“, z. B. kb).',
+    wmcpHint: 'Business-Analyse- / QA-Aufgaben ohne Repo laufen hier mit diesen Servern (Namen wie in „claude mcp list“, z. B. kb) – hinzugefügt mit „claude mcp add -s user …“: Ein Server im Standard-Bereich (local) bleibt draußen.',
     writes: 'schreibt {file}',
     status: '§ STATUS',
     one: 'One',
@@ -34184,6 +34275,7 @@ Or download the worker from One (Settings \u2192 Coding worker): that file comes
   }
   const config2 = withPreset(loaded.config, preset);
   for (const p of loaded.problems) log(`config: ${p}`);
+  for (const n of loaded.notes ?? []) log(`config: ${n}`);
   if (command === "check") {
     const bin = claudeBin();
     const caps = await detectClaude(bin);
@@ -34200,7 +34292,8 @@ Or download the worker from One (Settings \u2192 Coding worker): that file comes
       try {
         await checkRepo(repo);
         const remote = await hasRemote(repo);
-        lines.push(`repo       ${repo.name}: ok \xB7 base ${repo.baseBranch} \xB7 ${remote ? `remote ${repo.remote}` : `no remote "${repo.remote}" (push off)`} \xB7 tests ${repo.testCommand ? "yes" : "none"}`);
+        const own2 = repo.claude.projectSettings ? "on" : `off (${repo.claude.projectSettingsSet ? "worker.json" : repo.source ? SOURCE_WORDS[repo.source] : "default"})`;
+        lines.push(`repo       ${repo.name}: ok \xB7 base ${repo.baseBranch} \xB7 ${remote ? `remote ${repo.remote}` : `no remote "${repo.remote}" (push off)`} \xB7 tests ${repo.testCommand ? "yes" : "none"} \xB7 its own Claude Code settings ${own2}`);
       } catch (e) {
         ok = false;
         lines.push(`repo       ${repo.name}: ${e instanceof Error ? e.message : String(e)}`);
@@ -34283,6 +34376,7 @@ async function checkCloud(origin, token) {
 async function reload(worker) {
   const next = loadConfig(configFile, process.env, configOpts);
   for (const p of next.problems) log(`config: ${p}`);
+  for (const n of next.notes ?? []) log(`config: ${n}`);
   await worker.reload(withPreset(next.config, preset));
 }
 async function pickRepos(worker, setup) {

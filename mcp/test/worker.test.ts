@@ -10,7 +10,7 @@ import { strToU8, zipSync } from 'fflate'
 import { execFileSync } from 'node:child_process'
 import { git } from '../src/worker/git.ts'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { request } from 'node:http'
 import { after, afterEach, describe, test } from 'node:test'
 import { WORKER_CLOSE_REFUSED, WORKER_CLOSE_REPLACED, type GitInfo, type WorkerMessage } from '../../src/app/features/coding/protocol.ts'
@@ -359,7 +359,10 @@ describe('documents, tasks without a repository, imports', () => {
     assert.deepEqual(args.slice(args.indexOf('--setting-sources'), args.indexOf('--setting-sources') + 2), ['--setting-sources', 'user'])
     assert.ok(!existsSync(ran), 'no hook of the repo ran')
     const lines = tab.messages.flatMap((m) => (m.type === 'event' && m.kind === 'log' ? m.lines : []))
-    assert.deepEqual(lines.find((l) => l.c === 'projectSettingsOff')?.v, { repo: 'demo', files: '.claude, CLAUDE.md' })
+    const off = lines.find((l) => l.c?.startsWith('projectSettingsOff'))
+    assert.equal(off?.c, 'projectSettingsOffCloned', 'the log names the rule: the clone mark')
+    assert.deepEqual(off?.v, { repo: 'demo', files: '.claude, CLAUDE.md' })
+    assert.match(off!.s, /the worker cloned it \(marked in \.git\/one-worker-source\).*setup page/)
     // implement in a worktree: the same (the committed settings come along with the branch)
     sh(r.path, 'add', '-A')
     sh(r.path, 'commit', '-q', '-m', 'settings')
@@ -367,6 +370,36 @@ describe('documents, tasks without a repository, imports', () => {
     const plan = await tab.run(task({ kind: 'plan' }, { id: 'own3abcd' }))
     assert.equal(plan.status, 'ok', JSON.stringify(plan))
     assert.ok(lastArgs(log).args.includes('--setting-sources') && !existsSync(ran))
+    assertNoPaths(tab, r)
+  })
+
+  test('a repo in the clone folder without a mark: the log names that rule, not "cloned"; only user-scope MCP servers reach it', async () => {
+    const r = makeRepo()
+    const log = join(r.dir, 'claude-args.jsonl')
+    const ran = join(r.dir, 'hook-ran')
+    mkdirSync(join(r.path, '.claude'))
+    writeFileSync(join(r.path, '.claude', 'settings.json'), JSON.stringify({ hooks: { SessionStart: [{ hooks: [{ type: 'command', command: `touch '${ran}'` }] }] } }))
+    // the clone folder holds the repo; the one-time marking ran for this config already: the rule alone decides
+    const file = writeConfig(r, { workspace: WS_LOCAL.id, port: PORT, pollSec: 2, name: 'test-box', cloneDir: r.dir, repos: [repoEntry(r, { claude: { maxTurns: 10, mcpServers: ['kb'] } })] })
+    writeFileSync(join(dirname(file), 'worker-marks.json'), '{ "v": 1, "marked": [] }\n')
+    worker = await startWorker(file, { FAKE_CLAUDE_LOG: log })
+    const tab = await connect()
+    await tab.next('welcome')
+    const doc = await tab.run(task({ kind: 'doc', name: 'Analysis', permissionMode: 'default' }, { id: 'fold1abc' }))
+    assert.equal(doc.status, 'ok', JSON.stringify(doc))
+    const { args } = lastArgs(log)
+    assert.equal(args[args.indexOf('--setting-sources') + 1], 'user')
+    assert.ok(!existsSync(ran), 'no hook of the repo ran')
+    assert.ok(!existsSync(join(r.path, '.git', 'one-worker-source')), 'not marked: the marking is once per config')
+    const lines = tab.messages.flatMap((m) => (m.type === 'event' && m.kind === 'log' ? m.lines : []))
+    const off = lines.find((l) => l.c?.startsWith('projectSettingsOff'))
+    assert.equal(off?.c, 'projectSettingsOffFolder')
+    assert.match(off!.s, /lies in the worker's clone folder \(cloneDir in worker\.json\)/)
+    assert.doesNotMatch(off!.s, /cloned it|imported it/)
+    // --setting-sources user leaves the person's local-scope MCP servers out too: the log says to add them as user ones
+    const scope = lines.find((l) => l.c === 'mcpUserScope')
+    assert.deepEqual(scope?.v, { repo: 'demo', names: 'kb' })
+    assert.match(scope!.s, /claude mcp add -s user/)
     assertNoPaths(tab, r)
   })
 
