@@ -372,7 +372,7 @@ test('app side: a share in IndexedDB → asked, saved; offline the next steps wa
   await context.setOffline(true)
   await ask.getByRole('button', { name: /In die Ablage/ }).click()
   await expect(page.locator('#main .pv-title')).toHaveValue('whiteboard')
-  await expect(toast(page, 'Gespeichert. Claude kann es beschreiben oder zusammenfassen, sobald du online bist')).toBeVisible()
+  await expect(toast(page, 'Gespeichert. Die KI kann es beschreiben oder zusammenfassen, sobald du online bist')).toBeVisible()
   await expect(toast(page, 'Bilder gespeichert')).toHaveCount(0)
   await context.setOffline(false)
   await expect(toast(page, 'Bilder gespeichert — die KI kann sie beschreiben oder ihren Text auslesen').getByRole('button', { name: 'Beschreiben' })).toBeVisible()
