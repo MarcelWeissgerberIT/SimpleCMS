@@ -11,9 +11,6 @@
  *   content character by character (marks and atoms included). Changes in different places are
  *   all kept; insertions at the same spot are both kept (theirs first). Only when both sides
  *   changed the very same characters does ours win there.
- * - Block ids alone are no change: every editor fills in its own ids for blocks that have none, so
- *   a block whose id base does not know (and the other side does not share) is matched by value,
- *   ids aside; a block both sides hold takes theirs' id (the copy stored first).
  */
 import type { JSONContent } from '@tiptap/core'
 import { plainText } from './plain'
@@ -160,8 +157,6 @@ interface SeqMerge<T> {
   same: (base: T, theirs: T, ours: T) => T
   /** Both sides changed the same stretch of base. */
   conflict: (base: T[], theirs: T[], ours: T[]) => T[]
-  /** A side's stretch with the same keys as base holds nothing new (default: deep equality). */
-  unchanged?: (side: T[], base: T[]) => boolean
 }
 
 function merge3Seq<T>(base: T[], theirs: T[], ours: T[], fns: SeqMerge<T>): T[] {
@@ -177,7 +172,6 @@ function merge3Seq<T>(base: T[], theirs: T[], ours: T[], fns: SeqMerge<T>): T[] 
     else groups.push([h])
   }
 
-  const unchanged = fns.unchanged ?? deepEqual
   const out: T[] = []
   let bPos = 0
   let tPos = 0
@@ -198,8 +192,8 @@ function merge3Seq<T>(base: T[], theirs: T[], ours: T[], fns: SeqMerge<T>): T[] 
     if (sides.size === 2) out.push(...fns.conflict(bR, tR, oR))
     // one side changed this stretch; if the other one edited inside it too (same keys,
     // other content) that is a conflict as well
-    else if (sides.has(0)) out.push(...(unchanged(oR, bR) ? tR : fns.conflict(bR, tR, oR)))
-    else out.push(...(unchanged(tR, bR) ? oR : fns.conflict(bR, tR, oR)))
+    else if (sides.has(0)) out.push(...(deepEqual(oR, bR) ? tR : fns.conflict(bR, tR, oR)))
+    else out.push(...(deepEqual(tR, bR) ? oR : fns.conflict(bR, tR, oR)))
     bPos = g1
     tPos += tR.length
     oPos += oR.length
@@ -267,101 +261,41 @@ function mergeInline(base: JSONContent[], theirs: JSONContent[], ours: JSONConte
   return untokenize(merged)
 }
 
-/** A block's own `id` (an inline node's id — a mention's target — is content). */
-function blockId(n: JSONContent): string | null {
+const blockKey = (n: JSONContent) => {
   const id = n.attrs?.id
-  return typeof id === 'string' && id && !(n.type && INLINE.has(n.type)) ? id : null
+  return typeof id === 'string' && id ? `#${n.type}:${id}` : `=${JSON.stringify(n)}`
 }
 
-function blockIds(d: JSONContent | null): Set<string> {
-  const out = new Set<string>()
-  const stack = d ? [d] : []
-  while (stack.length) {
-    const n = stack.pop()!
-    const id = blockId(n)
-    if (id) out.add(id)
-    if (Array.isArray(n.content)) for (const c of n.content) if (isRec(c)) stack.push(c)
-  }
-  return out
-}
-
-/** A node as a value: block ids `known` does not hold and empty attrs aside, keys in one order. */
-function aside(n: JSONContent, known: ReadonlySet<string>): Rec {
-  const out: Rec = { type: n.type }
-  if (n.text !== undefined) out.text = n.text
-  if (n.attrs) {
-    const inline = !!n.type && INLINE.has(n.type)
-    const attrs: Rec = {}
-    let any = false
-    const keys = Object.keys(n.attrs)
-    if (keys.length > 1) keys.sort()
-    for (const k of keys) {
-      const v = n.attrs[k]
-      if (v === null || v === undefined || (k === 'id' && !inline && !(typeof v === 'string' && known.has(v)))) continue
-      attrs[k] = v
-      any = true
-    }
-    if (any) out.attrs = attrs
-  }
-  if (n.marks?.length) out.marks = n.marks
-  if (n.content?.length) out.content = n.content.map((c) => aside(c, known))
-  return out
-}
-
-/**
- * Block ids that name the same block on every side: base's, and those both sides share. Any other id was filled in
- * by one copy's editor (or belongs to a block only one side has): such a block is matched by value.
- */
-function knownIds(base: JSONContent | null, theirs: JSONContent, ours: JSONContent): Set<string> {
-  const known = blockIds(base)
-  const t = blockIds(theirs)
-  for (const id of blockIds(ours)) if (t.has(id)) known.add(id)
-  return known
-}
-
-function mergeBlocks(base: JSONContent[], theirs: JSONContent[], ours: JSONContent[], known: ReadonlySet<string>): JSONContent[] {
-  const key = (n: JSONContent) => {
-    const id = blockId(n)
-    return id && known.has(id) ? `#${n.type}:${id}` : `=${JSON.stringify(aside(n, known))}`
-  }
+function mergeBlocks(base: JSONContent[], theirs: JSONContent[], ours: JSONContent[]): JSONContent[] {
   return merge3Seq(base, theirs, ours, {
-    key,
-    same: (b, t, o) => mergeNode(b, t, o, known),
+    key: blockKey,
+    same: mergeNode,
     conflict: (b, t, o) => {
       // the same blocks edited on both sides (blocks without ids): merge them one by one
       if (b.length === t.length && b.length === o.length && b.every((n, i) => n.type === t[i].type && n.type === o[i].type)) {
-        return b.map((n, i) => mergeNode(n, t[i], o[i], known))
+        return b.map((n, i) => mergeNode(n, t[i], o[i]))
       }
       if (!b.length) return [...t, ...o]
       // ours wins the stretch, but blocks the other tab added there are kept
-      const kept = new Set([...b, ...o].map(key))
-      return [...o, ...t.filter((n) => !kept.has(key(n)))]
+      const known = new Set([...b, ...o].map(blockKey))
+      return [...o, ...t.filter((n) => !known.has(blockKey(n)))]
     },
-    // block ids one copy filled in are no change
-    unchanged: (s, b) => s.length === b.length && s.every((n, i) => n === b[i] || deepEqual(aside(n, known), aside(b[i], known))),
   })
 }
 
-function mergeNode(base: JSONContent, theirs: JSONContent, ours: JSONContent, known: ReadonlySet<string>): JSONContent {
+function mergeNode(base: JSONContent, theirs: JSONContent, ours: JSONContent): JSONContent {
   if (deepEqual(theirs, base)) return ours
   if (deepEqual(ours, base) || deepEqual(theirs, ours)) return theirs
   // a node turned into another kind (or plain text nodes): no structure to merge
   if (theirs.type !== ours.type || base.type !== ours.type || ours.type === 'text') return ours
   const out: JSONContent = { ...ours }
   if (base.attrs || theirs.attrs || ours.attrs) out.attrs = mergeRecord(base.attrs ?? {}, theirs.attrs ?? {}, ours.attrs ?? {})
-  // both copies gave the block an id of their own: it keeps the one stored first (an id only theirs holds)
-  const tid = blockId(theirs)
-  if (tid && !known.has(tid) && blockId(ours) && !blockId(base)) out.attrs = { ...out.attrs, id: tid }
   if (deepEqual(ours.marks, base.marks) && theirs.marks !== undefined) out.marks = theirs.marks
   const bc = base.content ?? []
   const tc = theirs.content ?? []
   const oc = ours.content ?? []
-  // content only one side changed (the other changed attrs: a block id it filled in)
-  if (deepEqual(oc, bc) && !deepEqual(tc, bc)) {
-    if (theirs.content) out.content = theirs.content
-    else delete out.content
-  } else if (!deepEqual(tc, bc) && !deepEqual(tc, oc)) {
-    out.content = isInline(bc) && isInline(tc) && isInline(oc) ? mergeInline(bc, tc, oc) : mergeBlocks(bc, tc, oc, known)
+  if (base.content || theirs.content || ours.content) {
+    out.content = isInline(bc) && isInline(tc) && isInline(oc) ? mergeInline(bc, tc, oc) : mergeBlocks(bc, tc, oc)
   }
   return out
 }
@@ -373,7 +307,7 @@ export function mergeContent(base: JSONContent | null, theirs: JSONContent | nul
   if (deepEqual(ours, base)) return theirs
   // one side emptied the page (or never had content): nothing to combine with
   if (!theirs || !ours) return ours
-  return mergeNode(base ?? EMPTY_DOC, theirs, ours, knownIds(base, theirs, ours))
+  return mergeNode(base ?? EMPTY_DOC, theirs, ours)
 }
 
 /* ------------------------------------------------------------------ */
