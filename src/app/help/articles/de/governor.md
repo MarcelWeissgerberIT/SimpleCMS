@@ -14,7 +14,7 @@ Ohne Budget ändert sich nichts: Keine Anfrage wird gebremst, gekürzt oder ange
 ## Ein Budget setzen
 - **Workspace-Einstellungen → KI → § 06 Budget & Regler** — ein **Tagesbudget** und ein **Monatsbudget** für diesen Arbeitsbereich (Beträge in US-Dollar, etwa `6` oder `1,5`). Jedes Gerät misst für sich: Bei 6 $ am Tag dürfen Laptop und Telefon je 6 $ ausgeben. Im Team ändern es nur Eigentümer und Admins; alle anderen sehen es mit einem Schloss.
 - **Einstellungen → KI → Meine Grenze in diesem Browser** — deine eigene Tages- / Monatsgrenze für diesen Browser. Sie zählt **alle Arbeitsbereiche und Konten**, die hier angemeldet sind, und wird nie synchronisiert oder gesichert. Hat der Arbeitsbereich auch ein Budget, gilt die niedrigere Rotlinie.
-- **Rückgängig** stellt zurück, was das letzte Speichern geändert hat. Entfernst du ein Budget, wird nichts mehr gebremst.
+- In § 06 stellt **Rückgängig** zurück, was das letzte Speichern dort geändert hat (deine eigene Grenze hat kein Rückgängig — setze sie einfach neu). Entfernst du ein Budget, bremst es nichts mehr.
 
 ## Den Verbrauch lesen
 Öffne den Regler über **⌘K → Regler**, die Zelle **REGLER** in der Statusleiste (sichtbar, solange ein Budget gesetzt ist) oder die Lampe **VERBRAUCH** im Vorflug-Check. Die Seite `#/regler` zeigt:

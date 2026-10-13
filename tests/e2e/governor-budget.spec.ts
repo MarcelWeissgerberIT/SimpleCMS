@@ -60,9 +60,11 @@ test.describe('Workspace › AI § 06 (B11)', () => {
     // the status bar's cell appears with the budget
     await expect(page.locator('.status .gv-cell')).toBeVisible()
 
-    // Undo: back as it was (no budget, no stamp)
-    await sec.getByTestId('gv-budget-undo').click()
+    // Undo: back as it was (no budget, no stamp) — the key goes, the keyboard to the day field (never the body)
+    await sec.getByTestId('gv-budget-undo').focus()
+    await page.keyboard.press('Enter')
     await expect(sec.locator('.gv-budget__said')).toContainText('Back as it was')
+    await expect(sec.getByTestId('gv-budget-day')).toBeFocused()
     expect(await govOf(page)).toBeNull()
     expect(await genOf(page)).toBeNull()
     await expect(sec.getByTestId('gv-budget-day')).toHaveValue('')
@@ -76,10 +78,12 @@ test.describe('Workspace › AI § 06 (B11)', () => {
     const again = await section(page)
     await expect(again.getByTestId('gv-budget-day')).toHaveValue('6.5')
     await expect(again.getByTestId('gv-budget-month')).toHaveValue('')
-    // remove
-    await again.getByTestId('gv-budget-remove').click()
+    // remove — by keyboard: the key goes, the keyboard to its Undo
+    await again.getByTestId('gv-budget-remove').focus()
+    await page.keyboard.press('Enter')
     await expect(again.locator('.gv-budget__said')).toContainText('No budget')
     expect(await govOf(page)).toBeNull()
+    await expect(again.getByTestId('gv-budget-undo')).toBeFocused()
   })
 
   test('amounts in the UI language: EN 1.5 and 1,000; DE 1,5 · 1.5 · 1.000; a German comma in English and out of range refused (never saved)', async ({ page }) => {
@@ -151,8 +155,10 @@ test.describe('Settings › AI — my limit in this browser (B11)', () => {
     // the day read, it says what it counts
     await page.evaluate(() => (window as unknown as Seam).__oneGovernor.load())
     await expect(dev.getByTestId('gv-device-scope')).toContainText('today $0.00 (here $0.00)')
-    // removed: the line and its stamp go
-    await dev.getByTestId('gv-device-remove').click()
+    // removed: the line and its stamp go — the key goes, the keyboard to the day field
+    await dev.getByTestId('gv-device-remove').focus()
+    await page.keyboard.press('Enter')
+    await expect(dev.getByTestId('gv-device-day')).toBeFocused()
     expect(await page.evaluate(() => localStorage.getItem('one.governor.device'))).toBeNull()
     await expect.poll(() => wsEval(page, (s) => s.settings.ai?.gen ?? null)).toBeNull()
   })

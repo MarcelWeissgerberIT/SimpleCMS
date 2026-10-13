@@ -3,9 +3,9 @@ id: workspace
 title: Workspace settings & people
 section: start
 order: 7
-keywords: workspace settings, text size, font size, display, switch LED, switches, workspace, people, persons, members, merge people, rename person, remove person, overview, storage, backup, trash, automation, building blocks, danger zone, settings, this device, Workspace-Einstellungen, Personen, Mitglieder, zusammenführen
+keywords: workspace settings, AI, budget, governor, text size, font size, display, switch LED, switches, workspace, people, persons, members, merge people, rename person, remove person, overview, storage, backup, trash, automation, building blocks, danger zone, settings, this device, Workspace-Einstellungen, Personen, Mitglieder, zusammenführen
 related: workspace-look, members-roles, invites, export, sidebar
-summary: One page for everything that belongs to the workspace — its name, look, people, building blocks, automation and data. Settings is this device.
+summary: One page for everything that belongs to the workspace — its name, look, people, building blocks, automation, AI budget and data. Settings is this device.
 ---
 **Workspace settings** gather what belongs to the workspace itself. Open them from the workspace menu at the top of the sidebar, with <kbd>Mod+K</kbd> → *Workspace settings* (or *People*), or from **Settings → Workspace settings** at the top of the list. **Settings** (<kbd>Mod+,</kbd>) keeps what belongs to *this device* and to you: language, theme, the Claude key, sync, mail, MCP, the coding worker.
 
@@ -37,6 +37,9 @@ How many shared lists, own property types and record types the workspace holds, 
 
 ## Automation
 One read-only overview of what runs or is built to be reused: the coding worker of this device, agents, scripts, custom functions, database automations, own database commands, repeating entries and own templates — where each one sits, whether it is on, and its last run when this device knows it. Every line opens the place where it is made. In a team workspace the **API tokens and webhooks** are here too (owners and admins).
+
+## AI
+**§ 06 Budget & governor** — the workspace's **day and month budget** for all AI, measured on each device. At the red line One asks before it sends, and background work pauses. In a team owners and admins set it; everyone else reads it with a lock and sets their own limit for this browser in **Settings → AI**. See [Governor](help:governor).
 
 ## Data
 **Export workspace** (a full backup, Markdown, HTML, a website …) and **Import**, the last full backup from this device, the **trash** (open it right here), and where copies of the workspace go: the team server and this device's folder or GitHub sync.

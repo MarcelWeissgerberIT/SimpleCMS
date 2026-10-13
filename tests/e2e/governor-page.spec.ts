@@ -103,6 +103,8 @@ test.describe('#/regler (B10)', () => {
     // (on the 1st yesterday was last month)
     await expect(page.getByTestId('regler-ro-month')).toHaveText(new Date().getDate() === 1 ? '$4.12 / $120.00' : '$5.12 / $120.00')
     await expect(page.getByTestId('regler-ro-runs')).toHaveText('7')
+    // the strip is a named group (its name is announced — never an aria-label on a role-less div)
+    await expect(pg.getByRole('group', { name: 'The governor at a glance' })).toBeVisible()
     // the dial says the same; yesterday's total is the dashed peak
     await expect(pg.getByRole('img', { name: 'Usage today $4.12 of $6.00, rest $1.88' })).toBeVisible()
     await expect(pg.locator('.gv-legend')).toContainText('yesterday max $1.00')

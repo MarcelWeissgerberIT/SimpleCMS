@@ -129,7 +129,8 @@ export const OpenRouterOAuthScreen = lazy(() => import('./ai/providers/OpenRoute
  * Setting up AI (multi-provider S2, stage C — features/ai/setup):
  *  - openAISetup({ reason?, feature?, provider?, step?, data? }): the assistant "Set up AI" (modal 'aiSetup') — every
  *    "no key" surface, ⌘K "Set up AI", the changelog try and a refused request's key fixes use it
- *  - openAISettings({ section?: 'mcp' | 'memory' }): Settings › AI (this device), scrolled to its MCP servers / memory
+ *  - openAISettings({ section?: 'mcp' | 'memory' | 'limit' }): Settings › AI (this device), scrolled to its MCP servers /
+ *    memory / the person's own limit in this browser (the Regler)
  *  - AISetupModal (lazy; ModalHost renders it) · ProvidersTab (lazy; render it inside a Suspense): Settings › AI
  *  - <AINeedsSetup purpose …/>: the one card a surface shows when its kind of work cannot run (aiStatus) ·
  *    useAIStatus(purpose) · <FixKeys fix …/>: a refused request's keys (AIError.fix)

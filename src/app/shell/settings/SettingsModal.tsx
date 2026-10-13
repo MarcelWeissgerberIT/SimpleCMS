@@ -42,7 +42,7 @@ const BASE_TABS: SettingsTab[] = ['general', 'appearance', 'ai', 'data', 'sync',
 /** Server admins (ADMIN_EMAILS) also get "Server" (registration links) — after General. */
 const withServer = (tabs: SettingsTab[], admin: boolean): SettingsTab[] => (admin ? [tabs[0], 'server', ...tabs.slice(1)] : tabs)
 
-export function SettingsModal({ initialTab, section, onClose }: { initialTab?: SettingsTab | 'team'; section?: 'mcp' | 'memory'; onClose: () => void }) {
+export function SettingsModal({ initialTab, section, onClose }: { initialTab?: SettingsTab | 'team'; section?: 'mcp' | 'memory' | 'limit'; onClose: () => void }) {
   // "Team" moved to the workspace page: an old entry point (a link, a hand-off) lands on its People section
   const team = initialTab === 'team'
   useEffect(() => {
@@ -54,7 +54,7 @@ export function SettingsModal({ initialTab, section, onClose }: { initialTab?: S
   return <Settings initialTab={initialTab} section={section} onClose={onClose} />
 }
 
-function Settings({ initialTab, section, onClose }: { initialTab?: SettingsTab; section?: 'mcp' | 'memory'; onClose: () => void }) {
+function Settings({ initialTab, section, onClose }: { initialTab?: SettingsTab; section?: 'mcp' | 'memory' | 'limit'; onClose: () => void }) {
   const t = useT()
   const serverAdmin = useCloud((c) => !!c.user && !!c.serverAdmin)
   const TABS = withServer(BASE_TABS, serverAdmin)

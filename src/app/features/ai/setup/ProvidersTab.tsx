@@ -66,12 +66,13 @@ const ROWS: Array<{ id: string; classes: FeatureClass[] }> = [
 ]
 // 'review' and 'gate' are slices of their own (S6 / SJ) — not shown in S2
 
-export function ProvidersTab({ section }: { section?: 'mcp' | 'memory' }) {
+export function ProvidersTab({ section }: { section?: 'mcp' | 'memory' | 'limit' }) {
   const t = useT()
   const mcpRef = useRef<HTMLDivElement>(null)
   const memRef = useRef<HTMLDivElement>(null)
+  const limitRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
-    const el = section === 'mcp' ? mcpRef.current : section === 'memory' ? memRef.current : null
+    const el = section === 'mcp' ? mcpRef.current : section === 'memory' ? memRef.current : section === 'limit' ? limitRef.current : null
     if (!el) return
     // a frame after the dialog focused its tab: the section takes the focus (and the view) from there
     let id = requestAnimationFrame(() => {
@@ -98,7 +99,9 @@ export function ProvidersTab({ section }: { section?: 'mcp' | 'memory' }) {
       <DataLines />
       <OwnData />
       <Usage />
-      <DeviceBrake />
+      <div ref={limitRef} data-section="limit" tabIndex={-1} aria-label={t('features.governor.device.title')}>
+        <DeviceBrake />
+      </div>
       <div ref={mcpRef} className="aip__section" data-section="mcp" tabIndex={-1} aria-label={t('features.ai.prov.tab.mcp')}>
         <McpProviders />
         <McpServers />

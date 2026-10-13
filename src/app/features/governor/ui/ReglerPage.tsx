@@ -26,6 +26,8 @@ import { deviceLimitOf } from '../device'
 import { deviceSnapshot, subscribeDevice } from '../statusGate'
 import { limitsOf } from '../limits'
 import { openBudgets } from '../lampSource'
+import { governorAllowed } from '../../../store/governor'
+import { openAISettings } from '../../ai/setup/openAISetup'
 import { consumersOf, providersOf, runsOf } from '../consumers'
 import { ConsumptionPlate } from './ConsumptionPlate'
 import { useHardLines } from './hard'
@@ -75,6 +77,8 @@ function useToday(at: number, scopeKey: string): LedgerEntry[] | null {
 
 export default function ReglerPage() {
   const t = useT()
+  // "Set a budget": the workspace's (§ 06) for those who may set it — everyone else sets their own line for this browser
+  const setBudget = () => (governorAllowed() ? openBudgets() : openAISettings({ section: 'limit' }))
   const lang = useLang()
   const now = useMinute()
   const governor = useWorkspace((s) => s.governor)
@@ -193,7 +197,7 @@ export default function ReglerPage() {
         </button>
       </header>
 
-      <div className="gv-ro" aria-label={t('features.governor.ro.aria')} data-testid="regler-readout">
+      <div className="gv-ro" role="group" aria-label={t('features.governor.ro.aria')} data-testid="regler-readout">
         <span className="gv-ro__cell">
           <span className="label">{t('features.governor.ro.today')}</span>
           <span className="gv-ro__val" data-testid="regler-ro-today">
@@ -230,7 +234,7 @@ export default function ReglerPage() {
         browser={browser}
         hard={hard}
         server={active.kind === 'cloud'}
-        onSetBudget={dialBudget === null ? openBudgets : undefined}
+        onSetBudget={dialBudget === null ? setBudget : undefined}
       />
 
       <div className="gv-below">

@@ -4,16 +4,19 @@
  * notes, /generate, setup test — wired in B8). Visuals and props only: the static mini bar (needle = spent, dashed =
  * this request, red line), the sentence, and the keys — E "+1 $ once" (only when that makes it fit), B "With <cheaper
  * model> ≈ band" (only when one fits), Esc / Cancel; "Needs ≈ +X $" and, for owners, "Adjust the budget ↗" when E would
- * not do. It takes focus when it appears; its letter keys act only while focus is inside it and not in a field — also
- * where the note sits in a dialog (the AI menu, ⌘K, a modal: ui/keys.ts typingWithin) — never a held key's repeats and
- * not in its first moment (plate.ts).
+ * not do. It takes the keyboard when it appears only from nobody or from its own host — the panel, dialog, dock or block
+ * that raised the request (the nearest `[data-gv-home]`, dialog, region or aside around it): never mid-sentence in the
+ * page editor or a field elsewhere (a background draft refused while the person types — the halt card's rule); then a
+ * live region says it a moment later and Tab or a click goes in. Its letter keys act only while focus is inside it and not
+ * in a field — also where the note sits in a dialog (the AI menu, ⌘K, a modal: ui/keys.ts typingWithin) — never a held
+ * key's repeats and not in its first moment (plate.ts).
  */
-import { useEffect, useId, useRef, type KeyboardEvent } from 'react'
+import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react'
 import { Gauge } from 'lucide-react'
 import { useLang, useT } from '../../../i18n'
 import { fmtUsd } from '../../../lib/money'
 import { typingWithin } from '../../../ui/keys'
-import { useFocusWhenShown } from '../../../ui/focus'
+import { focusIsNowhere, useFocusWhenShown } from '../../../ui/focus'
 import { fmtBand, fmtLimit } from '../format'
 import type { Band } from '../estimate'
 import type { RefuseDetail } from '../brake'
@@ -35,9 +38,11 @@ export interface BrakeNoteProps {
   cheaper?: { label: string; band: Band | null } | null
   /** MCP servers attached: the band counts up to this many rounds */
   mcpRounds?: number | null
-  /** an owner / admin (or a local workspace): "Adjust the budget ↗" */
+  /** may change the line that refused — an owner / admin (or a local workspace), or anyone for their own browser line */
   owner?: boolean
-  /** take focus when shown (default true) */
+  /** where the line is changed: the workspace's budget (default) or this browser's own limit */
+  adjust?: 'budget' | 'device'
+  /** take focus when shown — only from nobody or from its own host (default true); false: never */
   autoFocus?: boolean
   onAllow?: () => void
   onCheaper?: () => void
@@ -52,9 +57,16 @@ export function BrakeNote(p: BrakeNoteProps) {
   const msgId = useId()
   const focus = useFocusWhenShown(ref)
   const armed = useKeyGuard()
+  const [took, setTook] = useState<boolean | null>(null)
+  // once, when the note appears: the keyboard only from nobody or from the note's own host
   useEffect(() => {
-    if (p.autoFocus !== false) focus()
-  }, [focus, p.autoFocus])
+    if (p.autoFocus === false) return setTook(false)
+    const home = ref.current?.parentElement?.closest('[data-gv-home], [role="dialog"], [role="region"], aside')
+    const active = document.activeElement
+    const mine = focusIsNowhere(active) || (!!home && !!active && home.contains(active))
+    if (mine) focus()
+    setTook(mine)
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
   const month = p.detail === 'month' || p.detail === 'device-month'
   const canAllow = p.allow !== null && !!p.onAllow && p.detail !== 'noprice' && p.detail !== 'scope'
   const canCheaper = !!p.cheaper && !!p.onCheaper
@@ -81,7 +93,7 @@ export function BrakeNote(p: BrakeNoteProps) {
         ? t('features.governor.note.noprice', { model: p.model })
         : t(month ? 'features.governor.note.overMonth' : 'features.governor.note.over', { band: fmtBand(p.band, lang), rest: fmtUsd(Math.max(0, p.rest), lang) })
   // with focus the group's description speaks; without it, a live region a moment later
-  const live = useLateLive(sentence, p.autoFocus === false)
+  const live = useLateLive(sentence, took === false)
   return (
     <div ref={ref} className="gv-note" role="group" aria-label={t('features.governor.note.aria')} aria-describedby={msgId} tabIndex={-1} onKeyDown={onKey} data-detail={p.detail} data-testid="gv-brake-note">
       <div className="gv-note__head">
@@ -93,7 +105,7 @@ export function BrakeNote(p: BrakeNoteProps) {
           {sentence}
         </p>
       </div>
-      <p className="visually-hidden" aria-live="polite">
+      <p className="visually-hidden" aria-live="polite" data-testid="gv-note-live">
         {live}
       </p>
       {p.line && p.band && <MiniBar spent={p.line.spent} add={p.band.high} limit={p.line.limit} />}
@@ -125,7 +137,7 @@ export function BrakeNote(p: BrakeNoteProps) {
               <>
                 {' · '}
                 <button type="button" className="gv-link" onClick={p.onAdjust}>
-                  {t('features.governor.note.adjust')}
+                  {t(p.adjust === 'device' ? 'features.governor.note.adjustDevice' : 'features.governor.note.adjust')}
                 </button>
               </>
             )}

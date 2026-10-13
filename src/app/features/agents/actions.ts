@@ -73,7 +73,8 @@ function startAsk(agent: CustomAgent, v: Awaited<ReturnType<typeof startCheck>>,
   const lang = currentLang()
   const ui = useUI.getState()
   if ('refuse' in v) {
-    ui.toast({ message: t(v.refuse === 'scope' ? 'features.governor.note.scope' : 'features.governor.note.noprice', { model: agent.model ?? agent.name }), kind: 'error' })
+    // the route the check priced, as people read it (never a raw id, never the agent's own name)
+    ui.toast({ message: t(v.refuse === 'scope' ? 'features.governor.note.scope' : 'features.governor.note.noprice', { model: v.label || t('features.governor.note.thisModel') }), kind: 'error' })
     return
   }
   if (!('ask' in v)) return

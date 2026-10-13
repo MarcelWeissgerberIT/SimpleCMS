@@ -186,7 +186,7 @@ export function MeetingDeck({ editor, node, editable }: MeetingDeckProps) {
   ]
 
   return (
-    <div className="mtg__deck" contentEditable={false} suppressContentEditableWarning role="group" aria-label={t('features.meeting.region')} data-mode={mode}>
+    <div className="mtg__deck" contentEditable={false} suppressContentEditableWarning role="group" aria-label={t('features.meeting.region')} data-mode={mode} data-gv-home="">
       <Bar mode={mode} elapsed={elapsed} attrs={attrs} editable={canAct} onMenu={menu.toggle} menuOpen={menu.open} />
       <div className="mtg__head">
         <TitleField value={attrs.title} editable={canAct} onCommit={(v) => patchMeeting(target(), { title: v }, YOU, { history: true })} />

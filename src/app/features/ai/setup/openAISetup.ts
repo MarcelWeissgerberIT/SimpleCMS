@@ -55,7 +55,7 @@ export function openAISetup(o: AISetupOptions = {}): void {
 }
 
 /** Open Settings › AI (this device) — at its MCP servers or its memory switches when asked. */
-export function openAISettings(o: { section?: 'mcp' | 'memory' } = {}): void {
+export function openAISettings(o: { section?: 'mcp' | 'memory' | 'limit' } = {}): void {
   const ui = useUI.getState()
   handOver()
   if (ui.paletteOpen) ui.closePalette()

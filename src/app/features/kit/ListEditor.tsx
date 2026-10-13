@@ -398,7 +398,7 @@ function FillWithClaude({ list }: { list: OptionList }) {
       </div>
     )
   return (
-    <div className="kt-fill" data-testid="kt-fill">
+    <div className="kt-fill" data-testid="kt-fill" data-gv-home="">
       <p className="kt-note">{t('features.kit.fill.lead')}</p>
       <div className="kt-fill__row">
         <input

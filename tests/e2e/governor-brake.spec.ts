@@ -527,6 +527,9 @@ test.describe('loops: the halt card, H, Mod+. (B6 · case 5)', () => {
     // the card holds the keyboard: E sends round 3 (+1 $ for this task, today)
     await expect(halt(page)).toBeFocused()
     await page.keyboard.press('e')
+    // the card goes — the keyboard goes back to the prompt, never to the body
+    await expect(halt(page)).toHaveCount(0)
+    await expect(termPrompt(page)).toBeFocused()
     await expect(terminal(page).locator('.term-answer')).toContainText('Staged the Nordlicht brief.')
     expect(requests).toHaveLength(3)
     await expect(halt(page)).toHaveCount(0)
@@ -556,6 +559,8 @@ test.describe('loops: the halt card, H, Mod+. (B6 · case 5)', () => {
     await page.waitForTimeout(500)
     expect(requests).toHaveLength(2)
     await page.keyboard.press('h')
+    await expect(halt(page)).toHaveCount(0)
+    await expect(termPrompt(page)).toBeFocused()
     await expect(terminal(page).locator('.term-answer')).toContainText('Staged the Nordlicht brief.')
     expect(requests).toHaveLength(3)
     const [r2, r3] = [requests[1].body, requests[2].body]
@@ -776,7 +781,7 @@ async function putAgent(page: Page, a: AnyState) {
   )
   await flush(page)
 }
-type RunSeam = { __oneAgentRun: { run(id: string, type?: string): Promise<AnyState | string | null>; inbox(): AnyState[] } }
+type RunSeam = { __oneAgentRun: { run(id: string, type?: string): Promise<AnyState | string | null>; inbox(): AnyState[]; startCheck(id: string, manual?: boolean): Promise<AnyState | null> } }
 /** The agents' code (exec.ts) loads with the agents page. */
 async function agentsLoaded(page: Page, hash = '#/agents') {
   await page.evaluate((h) => (window.location.hash = h), hash)
@@ -894,6 +899,24 @@ test.describe('agents at the line: held, never waiting (B6 · case 6)', () => {
     const ok = (await scheduled(page, 'ag-nordlicht')) as AnyState
     expect(ok.status).toBe('staged')
     expect(requests).toHaveLength(5)
+  })
+
+  test('the start check names the route it priced as people read it (a refusal\'s toast never says a raw id or the agent\'s name)', async ({ page }) => {
+    await mockClaudeScript(page.context(), [])
+    await openApp(page)
+    await KEY(page)
+    await putAgent(page, { id: 'ag-nordlicht', name: 'Nordlicht digest' })
+    await budget(page, { v: 1, day: 1 })
+    await spend(page, 0.98)
+    await agentsLoaded(page)
+    const v = (await page.evaluate(() => (window as unknown as RunSeam).__oneAgentRun.startCheck('ag-nordlicht'))) as AnyState
+    expect(v).toMatchObject({ start: false, ask: { binding: 'day' } })
+    expect(v.label).toMatch(/Opus 5\.5/)
+    expect(v.label).not.toContain('Nordlicht digest')
+    expect(v.label).not.toMatch(/claude-opus/)
+    // positive control below the line: it starts — and still names its route
+    await budget(page, { v: 1, day: 10 })
+    expect(await page.evaluate(() => (window as unknown as RunSeam).__oneAgentRun.startCheck('ag-nordlicht'))).toMatchObject({ start: true })
   })
 
   test('a manual run at the line asks where it was pressed: Esc starts nothing (agent page); from a database command ↵ starts it with +1 $ for that run', async ({ page }) => {
@@ -1256,6 +1279,36 @@ test.describe('the brake note (B8 · case 1 across the surfaces)', () => {
     expect(e.purpose).toBe('menu.action')
   })
 
+  test('refused by this browser\'s own line (E would not do): the note says where that line is changed — Settings › AI, focused on it; a workspace budget\'s refusal points to § 06', async ({ page }) => {
+    const { requests } = await mockClaudeScript(page.context(), [])
+    await openApp(page)
+    await KEY(page)
+    // the person's own line: 1 $ a day, 2,50 $ spent — +1 $ would not do
+    await page.evaluate(() => localStorage.setItem('one.governor.device', JSON.stringify({ v: 1, day: 1, at: Date.now() })))
+    await wsEval(page, (s) => s.stampDeviceGen())
+    await spend(page, 2.5)
+    await improve(page, null)
+    await expect(errorOf(page)).toHaveAttribute('data-detail', 'device-day')
+    await expect(errorOf(page).getByRole('button', { name: 'Adjust the budget ↗' })).toHaveCount(0)
+    await errorOf(page).getByRole('button', { name: 'Adjust my limit ↗' }).click()
+    // Settings › AI, at the person's own line (never the workspace's § 06, which cannot raise it)
+    await expect(page.getByTestId('gv-device')).toBeVisible()
+    await expect(page.locator('[data-section="limit"]')).toBeFocused()
+    expect(await page.evaluate(() => location.hash)).not.toContain('workspace')
+    expect(requests).toHaveLength(0)
+    await uiEval(page, (s) => s.closeModal())
+    await expect(page.getByTestId('gv-device')).toHaveCount(0)
+    // positive control: the workspace's budget refuses — the link goes to § 06
+    await page.evaluate(() => localStorage.removeItem('one.governor.device'))
+    await wsEval(page, (s) => s.stampDeviceGen())
+    await budget(page, { v: 1, day: 1 })
+    await improve(page, null)
+    await expect(errorOf(page)).toHaveAttribute('data-detail', 'day')
+    await errorOf(page).getByRole('button', { name: 'Adjust the budget ↗' }).click()
+    await expect(page.getByTestId('gv-budget')).toBeVisible()
+    expect(requests).toHaveLength(0)
+  })
+
   test('help Ask at the line: the note in the help panel; E asks the question again with +1 $ — once', async ({ page }) => {
     const { requests } = await mockClaudeScript(page.context(), [text('Open **Share** and switch on **Protect with password**.'), text('Open **Share** and switch off **Protect with password**.')])
     await openApp(page)
@@ -1309,14 +1362,16 @@ test.describe('the brake note (B8 · case 1 across the surfaces)', () => {
     await page.keyboard.press('Escape')
     await expect(note(page)).toHaveCount(0)
     await expect(pal).toBeVisible()
+    // Esc closed the note only: the question is still there and the keyboard back in it (never the body)
+    const input = pal.getByRole('combobox').or(pal.locator('input')).first()
+    await expect(input).toBeFocused()
+    await expect(input).toHaveValue(/When do we launch\?/)
     await page.waitForTimeout(300)
     expect(requests).toHaveLength(0)
     expect(await ledger(page)).toEqual([])
-    // positive control: a day that holds it — the same question goes from the palette, no note
+    // positive control: a day that holds it — the same question goes from the palette as it stands, no note
     await release(page, hold)
     await budget(page, { v: 1, day: 10 })
-    const input = pal.getByRole('combobox').or(pal.locator('input')).first()
-    await input.fill('?When do we launch?')
     await input.press('Enter')
     await expect(pal).toContainText('The launch is in two weeks.')
     expect(requests).toHaveLength(1)
@@ -1412,6 +1467,8 @@ test.describe('the brake note (B8 · case 1 across the surfaces)', () => {
     expect(requests).toHaveLength(1)
     await page.keyboard.press('Escape')
     await expect(note(page)).toHaveCount(0)
+    // the note went: the keyboard back on the test key (never the body)
+    await expect(page.getByTestId('test-sentence')).toBeFocused()
     // below the line: the test sentence sends
     await release(page, hold)
     await budget(page, { v: 1, day: 10 })
@@ -1441,8 +1498,10 @@ test.describe('the brake note (B8 · case 1 across the surfaces)', () => {
     await band.getByRole('button', { name: /\+\$1 once for this run/ }).focus()
     await page.keyboard.press('e')
     await expect(band).toContainText('+$1 allowed for this run, today.')
+    // the E key went: the keyboard on the dialog's run key (never the body) — ↵ runs it
+    await expect(page.getByRole('button', { name: 'Run (2 of 2)' })).toBeFocused()
     expect(bodies).toHaveLength(0)
-    await page.getByRole('button', { name: 'Run (2 of 2)' }).click()
+    await page.keyboard.press('Enter')
     await expect(page.getByTestId('sc-console')).toHaveAttribute('data-status', 'ok')
     expect(bodies).toHaveLength(2)
     const runs = (await ledger(page)).filter((e) => e.source.startsWith(`script:${id}:`))

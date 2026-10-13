@@ -193,8 +193,10 @@ the public APIs stable — other areas are built against them in parallel.
   AI § 06, `BudgetSlot`; `governorAllowed()` / `governorRefusal()`); every reader sanitizes (unknown keys kept, `v` > 1
   unreadable and never overwritten). The workspace budget is measured per device; the person's own line is device-wide:
   localStorage `one.governor.device` (`writeDeviceLimit` — the line + this workspace's device stamp; Settings › AI
-  `DeviceBrake`; never synced / backed up), against every workspace of this browser (`one.governor.scopes`); the lower
-  line applies. ONE generation stamp: `stampGen` / `stampDeviceGen` run inside every store update that changes `ai`,
+  `DeviceBrake`; never synced / backed up), against every workspace of this browser (`one.governor.scopes` — noted on a
+  scope's first meter of the day whether a line is set or not, `totals.ts noteMetered`; rebuilt from the ledger's keys
+  when the line appears or moves; a line written in this tab signals `DEVICE_EVENT` — listen with `onDeviceLine()`); the
+  lower line applies. ONE generation stamp: `stampGen` / `stampDeviceGen` run inside every store update that changes `ai`,
   `governor` or the device line (setters, load, replaceAll, cloudPatch, restore, upload) — older tabs refuse AI with
   'reload' while a limit they cannot enforce is stored (`AI_POLICY_GEN = GEN.budget`; generations named in
   shared/ai/generations.ts; DEV / ?e2e: an `ai.gen` below the governor's generation console.errors). The meter is the S1
@@ -203,7 +205,10 @@ the public APIs stable — other areas are built against them in parallel.
   rows paused at the line) — never synced / exported / backed up, wiped with the device copy and the local reset;
   nothing is read before first paint and nothing without a line (the status cell and VERBRAUCH show only with a budget;
   #/regler reads the day when it opens). Reservations are gossiped on BroadcastChannel `one-ledger-res` (never on
-  `one-ledger`); ledger pings carry deltas. The brake: `money` only in prepare() (identity · cap — text one-shots without
+  `one-ledger`; a starting tab says `hello`, every tab answers with its list at once); ledger pings carry deltas. An MCP
+  request's band counts every request the call may send (`PrepareInput.mcp.rounds` = 1 + its resumes; structured ones
+  with "All AI calls" servers too); a loop's size counts pictures / PDFs by pixels / pages (`messagesChars`,
+  ai/core/sizes.ts), never their base64. The brake: `money` only in prepare() (identity · cap — text one-shots without
   MCP may get `Prepared.maxTokens`, structured or MCP ones never — · refuse with the brake fix: E = `allowOnce`, B = the
   cheaper route as the person's pick, carried into the caller's retry by `armRetry`), `peek` in precheck, `round` =
   `beforeRound()` before every further loop request (tool_use, pause_turn, the eager retry; agent/run.ts), `start` =
@@ -215,9 +220,12 @@ the public APIs stable — other areas are built against them in parallel.
   (false, halt.ts — with `H_ACROSS_THINKING`, false until the owner's real-key check), `LIMITS_RELOAD_OLDER_TABS`
   (shared/ai/governor.ts). At the line background work stops or pauses and NEVER waits for a key; agents never wait
   mid-run — a manual run asks before it starts (`runNow()`, wherever pressed), a stop is status `held` (one
-  `held-<day>` record per agent per day when not started, one info toast + one inbox note per agent per day, no fail
+  `held-<day>` record per agent per day when not started — also when the gate refuses a background run's first request,
+  nothing sent —, one info toast + one inbox note per agent per day, no fail
   lamp, the old state kept; `AgentRun.regler` = the line at the run's end); the person's requests ask (BrakeNote via
-  `BrakeSlot`; the terminal's halt card E · H · Mod+., nothing reserved while it waits; H only to a cheaper model of
+  `BrakeSlot`; the terminal's halt card E · H · Mod+., nothing reserved while it waits; both take the keyboard only
+  from nobody or from their own host — `[data-gv-home]`, a dialog, region or aside around them — and hand it back when
+  they go; a refusal by the person's own line links to Settings › AI `openAISettings({ section: 'limit' })`; H only to a cheaper model of
   the same provider whose context and capabilities hold the conversation, switched through `reprepare()` +
   `paramsFor()` in place). `AIError` 'budget' never falls back. No price + any limit = refused. Every budget UI says
   "pre-brake in One" and names the hard limit per provider from `PROVIDERS[p].hardLimit` (ui/hard.ts `useHardLines`).

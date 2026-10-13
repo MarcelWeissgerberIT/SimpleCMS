@@ -72,10 +72,12 @@ export async function startAt(input: PrepareInput, follow: () => void): Promise<
   // the gate's own checks first (no key, a data rule …): a run it refuses fails there as before — not held here
   let hint: MoneyHint | null | undefined
   let run: BrakeCtx['run']
+  let label = ''
   try {
     const pre = precheck(input)
     hint = pre.hint
     run = pre.run
+    label = pre.label
   } catch {
     return { start: true }
   }
@@ -83,7 +85,8 @@ export async function startAt(input: PrepareInput, follow: () => void): Promise<
   const t = totalsNow()
   const v = startCheckPure({ run: { source: run.source, mode: run.mode }, limited: true, scopeKnown: t.scopeId !== null, first: hint.band, rest: hint.rest })
   const binding = hint.rest.binding
-  return binding ? { ...v, line: lineNow(limitsNow(), t, binding, ownRun(run)) } : v
+  // the route it priced, as people read it ("Opus 5.5", "OpenRouter · …") — a refusal names it, never a raw id
+  return { ...v, label, ...(binding ? { line: lineNow(limitsNow(), t, binding, ownRun(run)) } : {}) }
 }
 
 /** The seam (DEV / ?e2e, install.ts): H across thinking modes for the browser spec. */

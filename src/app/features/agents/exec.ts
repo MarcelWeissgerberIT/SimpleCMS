@@ -734,5 +734,13 @@ if (typeof window !== 'undefined' && (import.meta.env.DEV || new URLSearchParams
     },
     /** the inbox items of the open workspace on this device (ids, agent, excerpt) */
     inbox: () => useInbox.getState().data.items.map((i) => ({ id: i.id, kind: i.kind, agentId: (i as { agentId?: string }).agentId ?? null, excerpt: i.excerpt ?? '', read: !!i.read })),
+    /** what the Regler's start check says of a run now (manual: the dialog's numbers; nothing starts) */
+    startCheck: async (agentId: ID, manual = true) => {
+      const agent = useWorkspace.getState().agents?.[agentId]
+      if (!agent) return null
+      const runId = newId()
+      const v = await startCheck(startInput(agent, { trigger: { type: manual ? 'manual' : 'schedule' }, manual }, runId))
+      return JSON.parse(JSON.stringify(v)) as unknown
+    },
   }
 }

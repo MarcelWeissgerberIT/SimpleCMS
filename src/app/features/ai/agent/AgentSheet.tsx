@@ -23,6 +23,7 @@ import { closeAgent, clampHeight, removeRef, setTermHeight, stopAgent, useAgent,
 import { answerAsk, applyStaged, appliesAlone, changeTarget, continueTask, contextPageId, discardAllStaged, discardStaged, emptyEnter, goesToWorker, haltKey, newTask, pickContext, rerunAfterSignIn, restoreStaged, runTask, stage as stageApi, stageMedia, submitPrompt, tn, undoLastBatch } from './session'
 import { loadHaltCard, ReglerRestLine } from '../../governor'
 import { isMac } from '../../../ui/controls'
+import { focusIsNowhere } from '../../../ui/focus'
 import { Menu, useMenu, type MenuEntry } from '../../../ui/Menu'
 import { setContextMode, useContextMarks, type ContextMode } from '../../../editor'
 import { effectiveMode } from '../reads'
@@ -620,10 +621,18 @@ function TurnView({ turn, last }: { turn: AgentTurn; last: boolean }) {
   )
 }
 
+/** A key on the halt card: its answer — the card goes, and the keyboard it held goes back to the prompt (never the body). */
+function haltAnswerKey(c: Parameters<typeof haltKey>[0]) {
+  const held = !!document.activeElement?.closest('.term-halt')
+  haltKey(c)
+  // a card shown again meanwhile (H refused at the gate) keeps the keyboard it took
+  if (held) requestAnimationFrame(() => focusIsNowhere() && focusPrompt())
+}
+
 /**
  * The Regler's halt card under the task that waits between two steps (features/governor HaltCard, lazy — a plain line
- * while it loads): E +1 $ for this task · H a cheaper model of the same provider · the stop key. Esc gives the keyboard
- * back to the prompt (still paused).
+ * while it loads): E +1 $ for this task · H a cheaper model of the same provider · the stop key — each gives the keyboard
+ * back to the prompt as the card goes. Esc gives it back too (still paused).
  */
 function TurnHalt({ n }: { n: number }) {
   const t = useT()
@@ -634,7 +643,7 @@ function TurnHalt({ n }: { n: number }) {
     <div className="term-halt">
       <Suspense fallback={fallback}>
         <EndInView>
-          <HaltCard {...halt.view} onAllow={() => haltKey('allow')} onCheaper={() => haltKey('cheaper')} onStop={() => haltKey('stop')} onEscape={focusPrompt} />
+          <HaltCard {...halt.view} onAllow={() => haltAnswerKey('allow')} onCheaper={() => haltAnswerKey('cheaper')} onStop={() => haltAnswerKey('stop')} onEscape={focusPrompt} />
         </EndInView>
       </Suspense>
     </div>

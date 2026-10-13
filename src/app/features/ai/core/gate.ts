@@ -224,7 +224,8 @@ export interface RoundCtx extends LoopRound {
 }
 
 /** The start check's verdict with the binding line's spend and limit (a held record, the dialog). */
-export type StartCheck = StartVerdict & { line?: { spent: number; limit: number } }
+/** A start verdict, with the binding line's spend and limit and the label of the route it priced (a refusal names it). */
+export type StartCheck = StartVerdict & { line?: { spent: number; limit: number }; label?: string }
 
 export interface Prepared {
   purpose: PurposeId

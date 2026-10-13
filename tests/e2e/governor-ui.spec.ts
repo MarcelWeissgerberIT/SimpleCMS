@@ -99,6 +99,40 @@ test.describe('the brake note and the halt card: keys and focus', () => {
     expect(await log(page)).toEqual(['note-allow', 'note-cheaper', 'note-cancel'])
   })
 
+  test('the brake note never takes the keyboard from someone typing elsewhere (a draft refused in the background); from nobody or from its own host it does', async ({ page }) => {
+    await openApp(page)
+    await open(page, { region: true })
+    const field = page.getByTestId('gv-h-field')
+    await field.click()
+    await page.keyboard.type('Launch pl')
+    // the note appears mid-sentence (the Outbox dock's draft of the next row was refused at the line)
+    await show(page, 'note', NOTE)
+    const note = page.getByTestId('gv-brake-note')
+    await expect(note).toBeVisible()
+    await page.waitForTimeout(450)
+    // the next letters stay the person's: an "e" never allows +1 $, a "b" never switches the model
+    await page.keyboard.type('an e b')
+    await expect(field).toHaveValue('Launch plan e b')
+    await expect(field).toBeFocused()
+    expect(await log(page)).toEqual([])
+    // not focused: a live region says it a moment later
+    await expect(page.getByTestId('gv-note-live')).toContainText('Over the red line')
+    // focus in its own host (the dock's prompt): it takes the keyboard — its keys act there
+    await open(page, { region: true })
+    await page.getByTestId('gv-h-prompt').click()
+    await show(page, 'note', NOTE)
+    await expect(note).toBeFocused()
+    await expect(page.getByTestId('gv-note-live')).toHaveText('')
+    await page.waitForTimeout(450)
+    await page.keyboard.press('e')
+    expect(await log(page)).toEqual(['note-allow'])
+    // nobody has the keyboard: it takes it
+    await open(page, {})
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
+    await show(page, 'note', NOTE)
+    await expect(note).toBeFocused()
+  })
+
   test('the halt card never takes the keyboard from someone typing elsewhere; it takes it from nobody or from its own dock', async ({ page }) => {
     await openApp(page)
     await open(page, { region: true })

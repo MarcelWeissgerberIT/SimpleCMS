@@ -5,7 +5,7 @@
  * the workspace has a day budget too, which red line applies (the lower). Amounts in the UI's language (parseAmount);
  * out of range refused. Written with writeDeviceLimit() — the line and this workspace's device stamp in one press.
  */
-import { useEffect, useId, useState, useSyncExternalStore, type FormEvent, type ReactElement } from 'react'
+import { useEffect, useId, useRef, useState, useSyncExternalStore, type FormEvent, type ReactElement } from 'react'
 import { GOVERNOR_RANGES, isReadableDeviceGovernor, isReadableGovernor } from '@/shared/ai/governor'
 import { useWorkspace } from '../../../store/store'
 import { useLang, useT } from '../../../i18n'
@@ -38,6 +38,14 @@ export function DeviceBrake() {
   const [errs, setErrs] = useState<Partial<Record<Field, string>>>({})
   const [said, setSaid] = useState('')
   const [dirty, setDirty] = useState(false)
+  // Remove goes with its own press: the keyboard to the day field (never the body)
+  const dayRef = useRef<HTMLInputElement>(null)
+  const [handOn, setHandOn] = useState(false)
+  useEffect(() => {
+    if (!handOn) return
+    dayRef.current?.focus()
+    setHandOn(false)
+  }, [handOn])
 
   useEffect(() => {
     if (!dirty) setVals({ day: text(dev?.day, lang), month: text(dev?.month, lang) })
@@ -94,6 +102,7 @@ export function DeviceBrake() {
                 {sign(
                   <input
                     key="i"
+                    ref={f === 'day' ? dayRef : undefined}
                     className="input gv-budget__input"
                     inputMode="decimal"
                     autoComplete="off"
@@ -121,7 +130,15 @@ export function DeviceBrake() {
               {t('features.governor.budget.save')}
             </button>
             {set && (
-              <button type="button" className="btn btn--ghost" onClick={() => write(null, t('features.governor.device.removed'))} data-testid="gv-device-remove">
+              <button
+                type="button"
+                className="btn btn--ghost"
+                onClick={() => {
+                  write(null, t('features.governor.device.removed'))
+                  setHandOn(true)
+                }}
+                data-testid="gv-device-remove"
+              >
                 {t('features.governor.device.remove')}
               </button>
             )}

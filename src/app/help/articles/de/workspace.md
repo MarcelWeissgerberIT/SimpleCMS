@@ -3,9 +3,9 @@ id: workspace
 title: Workspace-Einstellungen & Personen
 section: start
 order: 7
-keywords: Workspace-Einstellungen, Schriftgröße, Textgröße, Darstellung, LED der Schalter, Schalter, Workspace, Personen, Mitglieder, Personen zusammenführen, Person umbenennen, Person entfernen, Überblick, Speicher, Backup, Papierkorb, Automatisierung, Bausteine, Gefahrenzone, Einstellungen, dieses Gerät, workspace settings, people, members, merge
+keywords: Workspace-Einstellungen, KI, Budget, Regler, Schriftgröße, Textgröße, Darstellung, LED der Schalter, Schalter, Workspace, Personen, Mitglieder, Personen zusammenführen, Person umbenennen, Person entfernen, Überblick, Speicher, Backup, Papierkorb, Automatisierung, Bausteine, Gefahrenzone, Einstellungen, dieses Gerät, workspace settings, people, members, merge
 related: workspace-look, members-roles, invites, export, sidebar
-summary: Eine Seite für alles, was zum Workspace gehört — Name, Aussehen, Personen, Bausteine, Automatisierung und Daten. Die Einstellungen sind dieses Gerät.
+summary: Eine Seite für alles, was zum Workspace gehört — Name, Aussehen, Personen, Bausteine, Automatisierung, KI-Budget und Daten. Die Einstellungen sind dieses Gerät.
 ---
 Die **Workspace-Einstellungen** sammeln, was zum Workspace selbst gehört. Du öffnest sie im Workspace-Menü oben in der Seitenleiste, mit <kbd>Mod+K</kbd> → *Workspace-Einstellungen* (oder *Personen*) oder in den **Einstellungen → Workspace-Einstellungen** oben in der Liste. Die **Einstellungen** (<kbd>Mod+,</kbd>) behalten, was zu *diesem Gerät* und zu dir gehört: Sprache, Design, Claude-Schlüssel, Sync, Mail, MCP, den Coding-Worker.
 
@@ -37,6 +37,9 @@ Wie viele gemeinsame Listen, eigene Eigenschaftstypen und Datensatz-Typen der Wo
 
 ## Automatisierung
 Ein Überblick zum Lesen über alles, was läuft oder zum Wiederverwenden gebaut ist: der Coding-Worker dieses Geräts, Agenten, Skripte, eigene Funktionen, Datenbank-Automationen, eigene Datenbank-Befehle, wiederkehrende Einträge und eigene Vorlagen — wo es sitzt, ob es an ist und sein letzter Lauf, wenn dieses Gerät ihn kennt. Jede Zeile öffnet den Ort, an dem es gebaut wird. Im Team-Workspace stehen hier auch die **API-Tokens und Webhooks** (Inhaber und Admins).
+
+## KI
+**§ 06 Budget & Regler** — das **Tages- und Monatsbudget** des Workspace für alle KI, auf jedem Gerät einzeln gemessen. An der Rotlinie fragt One, bevor es sendet, und Hintergrundarbeit pausiert. Im Team setzen es Eigentümer und Admins; alle anderen lesen es mit einem Schloss und setzen ihre eigene Grenze für diesen Browser in **Einstellungen → KI**. Siehe [Regler](help:governor).
 
 ## Daten
 **Workspace exportieren** (Komplett-Backup, Markdown, HTML, Website …) und **Importieren**, das letzte Komplett-Backup von diesem Gerät, der **Papierkorb** (direkt hier öffnen) und wohin Kopien des Workspace gehen: der Team-Server und der Ordner- oder GitHub-Sync dieses Geräts.

@@ -64,8 +64,11 @@ function PlanBandLine({ band }: { band: RunBand }) {
   const [allowed, setAllowed] = useState(false)
   const allow = () => {
     if (allowed || band.allow === null) return
+    const had = !!ref.current?.contains(document.activeElement)
     allowTask(band.source, band.allow)
     setAllowed(true)
+    // the E key goes: the keyboard to the dialog's run key (never the body)
+    if (had) requestAnimationFrame(() => ref.current?.closest('[role="dialog"]')?.querySelector<HTMLElement>('[data-autofocus]')?.focus())
   }
   const onKey = (e: KeyboardEvent<HTMLDivElement>) => {
     if (e.altKey || e.ctrlKey || e.metaKey || e.repeat || typingWithin(e.target as Element, ref.current) || e.key.toLowerCase() !== 'e') return

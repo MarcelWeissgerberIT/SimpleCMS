@@ -1455,6 +1455,20 @@ test.describe('strings (features/governor/messages.ts)', () => {
     expect(de['features.governor.effects.title.one']).toBe('Wirkung · 1 Stelle')
     expect(en['features.governor.effects.title.other']).toBe('Effect · {count} places')
   })
+
+  test('help: Undo belongs to § 06 only (EN + DE); the workspace article names its AI section and points to the governor', () => {
+    const md = (lang: string, id: string) => readFileSync(fileURLToPath(new URL(`../../src/app/help/articles/${lang}/${id}.md`, import.meta.url)), 'utf8')
+    expect(md('en', 'governor')).toContain('In § 06, **Undo**')
+    expect(md('en', 'governor')).not.toMatch(/^- \*\*Undo\*\* puts back/m)
+    expect(md('de', 'governor')).toContain('In § 06 stellt **Rückgängig**')
+    for (const [lang, head, name] of [['en', '## AI', '§ 06 Budget & governor'], ['de', '## KI', '§ 06 Budget & Regler']] as const) {
+      const text = md(lang, 'workspace')
+      expect(text).toContain(head)
+      expect(text).toContain(name)
+      expect(text).toContain('help:governor')
+      expect(text).toMatch(/^summary: .*(AI budget|KI-Budget)/m)
+    }
+  })
 })
 
 test.describe('#/regler tables (features/governor/consumers.ts, B10)', () => {

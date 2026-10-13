@@ -163,6 +163,8 @@ function Palette() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape' || e.isComposing) return
+      // the brake note (features/governor) has its own Esc: it closes the note only — the question stays, focus back in it
+      if (document.activeElement?.closest('.gv-note')) return
       e.preventDefault()
       e.stopPropagation()
       onEscape.current()

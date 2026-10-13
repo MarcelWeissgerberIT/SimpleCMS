@@ -42,6 +42,15 @@ export default function BudgetSection() {
   const hard = useHardLines()
   const id = useId()
   const dirty = useRef(false)
+  // a key that goes with its own press (Remove, Undo) hands the keyboard on — to Undo, else the day field; never the body
+  const dayRef = useRef<HTMLInputElement>(null)
+  const undoRef = useRef<HTMLButtonElement>(null)
+  const [handTo, setHandTo] = useState<'undo' | 'day' | null>(null)
+  useEffect(() => {
+    if (!handTo) return
+    ;(handTo === 'undo' ? (undoRef.current ?? dayRef.current) : dayRef.current)?.focus()
+    setHandTo(null)
+  }, [handTo])
 
   // the stored value moved (another tab, a colleague, Undo): the fields follow unless the person is typing
   useEffect(() => {
@@ -92,6 +101,7 @@ export default function BudgetSection() {
       setLast({ before })
       setErrs({})
       setSaid(t('features.governor.budget.removed'))
+      setHandTo('undo')
     }
   }
 
@@ -101,6 +111,7 @@ export default function BudgetSection() {
       dirty.current = false
       setLast(null)
       setSaid(t('features.governor.budget.undone'))
+      setHandTo('day')
     }
   }
 
@@ -136,6 +147,7 @@ export default function BudgetSection() {
                 {sign(
                   <input
                     key="i"
+                    ref={f === 'day' ? dayRef : undefined}
                     className="input gv-budget__input"
                     inputMode="decimal"
                     autoComplete="off"
@@ -170,7 +182,7 @@ export default function BudgetSection() {
                 </button>
               )}
               {last && (
-                <button type="button" className="btn btn--ghost" onClick={undo} data-testid="gv-budget-undo">
+                <button type="button" className="btn btn--ghost" onClick={undo} ref={undoRef} data-testid="gv-budget-undo">
                   <Undo2 size={14} strokeWidth={1.7} aria-hidden />
                   {t('features.governor.budget.undo')}
                 </button>

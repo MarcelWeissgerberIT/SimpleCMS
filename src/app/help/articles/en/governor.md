@@ -14,7 +14,7 @@ Without a budget nothing changes: no request is braked, capped or held, and the 
 ## Set a budget
 - **Workspace settings → AI → § 06 Budget & governor** — a **day budget** and a **month budget** for this workspace (amounts in US dollars, for example `6` or `1.5`). Each device measures it on its own: with $6 a day, your laptop and your phone may each spend $6. In a team only owners and admins change it; everyone else sees it with a lock.
 - **Settings → AI → My limit in this browser** — your own day / month limit for this browser. It counts **every workspace and account** signed in here, and it is never synced or backed up. When the workspace has a budget too, the lower red line applies.
-- **Undo** puts back what the last save changed. Remove a budget and nothing is braked any more.
+- In § 06, **Undo** puts back what its last save changed (your own limit has no Undo — set it again). Remove a budget and it brakes nothing any more.
 
 ## Read the usage
 Open the Governor from **⌘K → Governor**, the status bar's **GOVERNOR** cell (shown while a budget is set) or Preflight's **USAGE** lamp. The page `#/regler` shows:

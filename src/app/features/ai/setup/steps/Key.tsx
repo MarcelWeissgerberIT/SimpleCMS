@@ -417,6 +417,7 @@ function Bench({ providers, skipped, onNewPaste, onLater }: { providers: readonl
   const testable = readyNow.filter((p) => !!testRoute(p))
   /** a test sentence refused at the Regler's red line (nothing was sent): the brake note under the rows */
   const [brake, setBrake] = useState<{ p: ProviderId; error: unknown } | null>(null)
+  const testKey = useRef<HTMLButtonElement>(null)
   const testOne = async (p: ProviderId) => {
     const route = testRoute(p)
     if (!route) {
@@ -464,12 +465,16 @@ function Bench({ providers, skipped, onNewPaste, onLater }: { providers: readonl
               setBrake(null)
               void testOne(p)
             }}
-            onCancel={() => setBrake(null)}
+            onCancel={() => {
+              setBrake(null)
+              // the note goes: the keyboard back to the test key (never the body)
+              requestAnimationFrame(() => testKey.current?.focus())
+            }}
           />
         </Suspense>
       )}
       <div className="aik-bench__foot">
-        <button type="button" className="btn btn--sm" disabled={!readyNow.length || testing} onClick={() => void sentence()} data-testid="test-sentence" title={readyNow.length && !testable.length ? t('features.ai.prov.check.sentenceModels') : undefined}>
+        <button type="button" className="btn btn--sm" ref={testKey} disabled={!readyNow.length || testing} onClick={() => void sentence()} data-testid="test-sentence" title={readyNow.length && !testable.length ? t('features.ai.prov.check.sentenceModels') : undefined}>
           {t('features.ai.prov.check.sentence')}
         </button>
         <span className="label">{t('features.ai.prov.check.sentenceCost', { usd: fmtCost(0.0001, lang) })}</span>
