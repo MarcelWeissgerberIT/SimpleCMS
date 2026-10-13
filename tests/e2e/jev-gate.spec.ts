@@ -39,12 +39,12 @@ test.describe('the Schreibschranke: the whole run writes, or waits (J8)', () => 
     expect((run.staged as AnyState[]).map((c) => c.status)).toEqual(['pending', 'pending', 'pending'])
     expect(run.jev).toMatchObject({ waited: 'gate', checked: 3, marked: 0 })
     const wait = (run.steps as AnyState[]).find((s) => s.jev === 'wait')
-    expect(wait).toMatchObject({ label: 'Jev stopped the run — 3 changes wait for you (below the write gate or not pre-checked)', state: 'err' })
+    expect(wait).toMatchObject({ label: 'Jev made the run wait — 3 changes wait for you (below the write gate or not pre-checked)', state: 'err' })
     // the report is still written — with One's fixed first line under its heading
     const content = await wsEval(page, (s, id) => s.pages[id].content, report)
     const blocks = content.content as AnyState[]
     const head = blocks.findIndex((b) => b.type === 'heading')
-    expect(blocks[head + 1]).toEqual({ type: 'paragraph', content: [{ type: 'text', text: 'Jev stopped 3 changes — they wait for you.' }] })
+    expect(blocks[head + 1]).toEqual({ type: 'paragraph', content: [{ type: 'text', text: 'Jev made the run wait — 3 changes wait for you.' }] })
     expect(labels(run)).toContain('Report written to the report page.')
     // the cards are there to decide
     await expect.poll(async () => (await cards(page)).filter((c) => c.startsWith(`run:${id}#`)).length).toBe(3)
@@ -197,7 +197,7 @@ test.describe('sticky: an earlier change Jev flagged keeps the agent cautious (D
     const r2 = await runOf(page, await runAgent(page))
     expect(r2.jev).toMatchObject({ waited: 'sticky', checked: 1, marked: 0 })
     expect(await noteOf(page, w, 'Launch plan')).toBeNull()
-    expect(labels(r2)).toContain('Jev stopped the run — 1 change waits for you (an earlier change still waits)')
+    expect(labels(r2)).toContain('Jev made the run wait — 1 change waits for you (an earlier change still waits)')
     await review(page, 'discardRun', r1.id, [r1.staged[0].id], { undo: true })
     const r3 = await runOf(page, await runAgent(page))
     expect(r3.status).toBe('ok')

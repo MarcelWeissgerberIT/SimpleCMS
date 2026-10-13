@@ -32,6 +32,8 @@ import type { Database, Page } from '../../src/app/store/types'
 import type { StagedChange } from '../../src/app/features/ai/agent/types'
 import { SUGGEST_MIN, compareRequest, readSuggestion, shuffleOrder } from '../../src/app/features/ai/decide/suggest'
 import { VERIFY_CLAUSE, VERIFY_LIMITS, supportOf, verifyQuestions, verifyState } from '../../src/app/features/ai/decide/verify'
+import { messages as jevMessages } from '../../src/app/features/ai/decide/messages'
+import { messages as governorMessages } from '../../src/app/features/governor/messages'
 
 const JEV = 'typesafe/jev-1.13'
 const SNAP = 'typesafe/jev-1.13-20260917'
@@ -845,5 +847,52 @@ test.describe('the compare suggestion’s core (features/ai/decide/suggest.ts �
     expect(compareRequest({ purpose: 'outbox.draft', task: 't', original: 'o', answers: ['a', 'b'], seed: 1 })).toEqual({ refused: 'outbox' })
     expect(compareRequest({ purpose: 'menu.action', task: 't', original: 'o', answers: ['a'], seed: 1 })).toEqual({ refused: 'columns' })
     expect('refused' in compareRequest({ purpose: 'menu.action', task: 't', original: 'o', answers: ['a', 'b'], seed: 1 })).toBe(false)
+  })
+})
+
+/* ------------------------------------------------------------------ */
+/* Two different "held" in words (train 8: SJ beside the Regler)        */
+/* ------------------------------------------------------------------ */
+
+test.describe('Jev’s words are not the Regler’s (features.ai.jev.*, the ai-jev help twins, the changelog twins)', () => {
+  /** the Regler's verb for a run it held: EN "stopped", DE "angehalten" / "hält … an" (governor/messages.ts glossary) */
+  const STOP_EN = /\bstop(?:s|ped|ping)?\b/i
+  const STOP_DE = /angehalten|anhalten|\bhält(?:\s+[^\s.,;:—]+){0,4}\s+an\b/i
+  /** the Regler's run status "Held": Jev's hold is always "hold(s) … back" / "held back" (at most one word between) */
+  const BARE_HELD_EN = /\b(?:hold|holds|holding|held)\b(?!\s+(?:[^\s.,;:—]+\s+)?back\b)/i
+  /** Jev's own words, never the Regler's */
+  const JEV_EN = /\b(?:hold|holds|holding|held)\s+(?:[^\s.,;:—]+\s+)?back\b/i
+  const JEV_DE = /zurückgehalten|zurückhalten|\bhält(?:\s+[^\s.,;:—]+){0,4}\s+zurück\b/i
+  const ROOT = fileURLToPath(new URL('../..', import.meta.url))
+  const read = (p: string) => readFileSync(`${ROOT}${p}`, 'utf8')
+  const jev = (lang: 'en' | 'de') => (Object.entries(jevMessages[lang]) as [string, string][]).filter(([k]) => k.startsWith('features.ai.jev.'))
+  const offenders = (entries: [string, string][], re: RegExp) => entries.filter(([, v]) => re.test(v)).map(([k, v]) => `${k}: ${v}`)
+
+  test('the strings: no "stopped" / "angehalten", no bare "held" — the run Jev made wait says so (control: the Regler’s own strings are caught)', () => {
+    expect(jev('en').length).toBeGreaterThan(40)
+    expect(jev('de').length).toBe(jev('en').length)
+    expect(offenders(jev('en'), STOP_EN)).toEqual([])
+    expect(offenders(jev('en'), BARE_HELD_EN)).toEqual([])
+    expect(offenders(jev('de'), STOP_DE)).toEqual([])
+    expect(jevMessages.en['features.ai.jev.run.waited.one']).toMatch(/^Jev made the run wait — /)
+    expect(jevMessages.de['features.ai.jev.run.waited.one']).toMatch(/^Jev lässt den Lauf warten — /)
+    expect(jevMessages.de['features.ai.jev.report.waited.other']).toMatch(/^Jev hat den Lauf warten lassen — /)
+    // positive control: the guard bites on the Regler's words …
+    const gov = (lang: 'en' | 'de') => Object.entries(governorMessages[lang]) as [string, string][]
+    expect(STOP_EN.test(governorMessages.en['features.governor.run.stopped.day'])).toBe(true)
+    expect(BARE_HELD_EN.test(governorMessages.en['features.governor.run.held.title'])).toBe(true)
+    expect(STOP_DE.test(governorMessages.de['features.governor.run.held.title'])).toBe(true)
+    expect(STOP_DE.test('Hält Jev eine Änderung an — oder antwortet nicht')).toBe(true)
+    expect(STOP_DE.test('Hält Jev eine Änderung zurück — oder antwortet nicht')).toBe(false)
+    // … and the Regler never uses Jev's
+    expect(offenders(gov('en'), JEV_EN)).toEqual([])
+    expect(offenders(gov('de'), JEV_DE)).toEqual([])
+  })
+
+  test('the help article and the changelog entry (EN + DE) keep Jev’s words too', () => {
+    const files = { en: ['src/app/help/articles/en/ai-jev.md', 'src/app/help/changelog/en/2026-10-13-agent-precheck.md'], de: ['src/app/help/articles/de/ai-jev.md', 'src/app/help/changelog/de/2026-10-13-agent-precheck.md'] }
+    for (const f of files.en) expect(read(f).split('\n').filter((l) => STOP_EN.test(l)), f).toEqual([])
+    for (const f of files.de) expect(read(f).split('\n').filter((l) => STOP_DE.test(l)), f).toEqual([])
+    expect(read(files.de[0]!)).toContain('Hält Jev eine Änderung zurück — oder antwortet nicht —,')
   })
 })

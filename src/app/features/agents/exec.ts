@@ -479,8 +479,8 @@ async function runOnce(agent: CustomAgent, req: RunRequest): Promise<AgentRun> {
 
   // the Vorprüfung (slice SJ): Jev checks the proposals before anything is written — the stored run is still 'running',
   // stored once more first with every proposal (held placeholders with "Zurückhalten"): a tab that goes away meanwhile
-  // leaves them as cards, never clean ones. An earlier open change of this agent Jev marked, held or stopped keeps this
-  // run cautious (sticky, DJ20).
+  // leaves them as cards, never clean ones. An earlier open change of this agent Jev marked or held back, or one of a run
+  // Jev made wait, keeps this run cautious (sticky, DJ20).
   let sticky: ReturnType<typeof stickyOf> = { any: false, targets: new Set() }
   if (review && changes.length) {
     await save(true)

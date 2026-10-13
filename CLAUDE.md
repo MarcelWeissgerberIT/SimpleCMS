@@ -171,9 +171,12 @@ the public APIs stable — other areas are built against them in parallel.
   memory database as a source when a memory block goes along. `Workspace.ai` is written only through store/aiRules.ts
   (`setWorkspaceAI`, owners / admins — `aiRulesAllowed()`; stamps `gen`; a provider column nobody touched is never
   written, Claude's stays as it was) and `settings.ai` through `setDeviceAI` / `setDeviceRule` / `setDeviceDefault` /
-  `setRoles` (this device), all under a writer (setup writes `you~setup`); `CustomAgent.route / saverRule / applyOn /
-  routeSig` are kept by every reader and written by nobody yet, `review` only as v2 by the agent editor's section 06
-  (decision models below) (team: meta map `workspace` key `ai`, guarded by the server — server/src/collab/workspace-ai.ts). `Workspace.governor` (the Regler, src/shared/ai/governor.ts
+  `setRoles` (this device), all under a writer (setup writes `you~setup`); `Workspace.ai` in a team: meta map
+  `workspace` key `ai`, guarded by the server — server/src/collab/workspace-ai.ts. `CustomAgent.route / saverRule /
+  applyOn / routeSig` are kept by every reader and written by nobody yet; `CustomAgent.review` only as v2 by the agent
+  editor's section 06 (decision models below) through `upsertAgent` — team: meta map `agents` like every agent field (not
+  the workspace-ai guard), kept by `sanitizeAgentAI`; the team server skips an agent that has one or one it cannot read
+  (`decisionChecks` ≠ null → `VORPRUEFER_SKIP`). `Workspace.governor` (the Regler, src/shared/ai/governor.ts
   `WorkspaceGovernor | Unreadable`; G0) is kept by every reader through `sanitizeGovernor` (the same value keeps its
   reference — `sameGovernor(…, { meta: true })`; assign `undefined`, never `delete`) and written by nobody yet: team meta
   map `workspace` key `governor` (server guard workspace-governor.ts, `supports` ∋ 'governor'), read by the binding only;
@@ -200,11 +203,13 @@ the public APIs stable — other areas are built against them in parallel.
   never told; a run Jev made wait neither replaces nor is replaced (supersede). The run stays `running` in storage until the
   checks end — its 20 s deadline counts from the first read (catalogue / endpoint reads ≤ 8 s each, a stop is checked before
   the send, an answer after it is 'late'); the gate refuses before any catalogue read; with Zurückhalten an unchecked change
-  is held; an open change Jev marked, held or stopped makes the agent's later changes to that target held (apply mode: the
+  is held; an open change Jev marked or held back, or one of a run Jev made wait, makes the agent's later changes to that target held (apply mode: the
   whole run waits). Three different "held", never counted as each other: `ChangeStatus 'held'` (Jev, "HELD BACK" — waits
   for the person like an open proposal: review badges, Preflight, pruning, an eject discards it like a pending one and
-  its Undo makes it held again), `AgentRunStatus 'held'` (the Regler held the run — "Held", no failure, no proposal) and
-  `StagedChange.held` (an eject kept that applied change — "Held · changed since").
+  its Undo makes it held again), `AgentRunStatus 'held'` (the run's own status: the Regler held the run — "Held", never a
+  failure and never a change status; a 'stopped' hold keeps its proposals, which wait for review by their own
+  ChangeStatus — Jev-held ones too — in `awaitsReview`, `openProposals`, Preflight and the eject; a 'notStarted' record
+  has none) and `StagedChange.held` (an eject kept that applied change — "Held · changed since").
   Agent settings live in `CustomAgent.review` v2 (`{ v: 2, decider?, on, pre, gate? }`, never a top-level `route`; strict
   reader; older builds keep it Unreadable and do not run the agent); `on` = the dated Jev snapshot confirmed (stamped only
   from a read catalogue row) — another one, and for an undated `on` any dated one, holds until confirmed. `gate` resolves without device default or legacy; a chat purpose never gets a decision model; the

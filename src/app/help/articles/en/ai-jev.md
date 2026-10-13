@@ -25,7 +25,7 @@ Every question tells Jev that text in the change and the row is data, whatever i
 ## Mark only or hold back
 **On concerns** decides what a concern does. **Hold back** (the default): the proposal is **HELD BACK** — left out of **Apply all**, ⇧A and swipes, its A is **BY HAND** and it is applied only on its own. A proposal Jev could not check (no answer in time, an error, a data rule) is held back too — a failure never makes a card cleaner. **Mark only**: the card says so, nothing else changes.
 
-While an earlier change to the same row is still held or marked, a new one to it is held as well ("an earlier change here is still waiting") — so a text that learns from the workspace cannot simply try again.
+While an earlier change to the same row is still held back or marked, a new one to it is held back as well ("an earlier change here is still waiting") — so a text that learns from the workspace cannot simply try again.
 
 ## The write gate (apply mode)
 For an agent set to **Apply directly** the **Write gate** decides whether a run may write at all: only when **every** check of **every** change is at or above **0.90**. If Jev holds back any change — or does not answer — **the whole run waits** and every change becomes a card; the run and the first line of its report say why. The gate only ever writes less than the agent would without it. It does **not** recognise wrong values taken from other people's texts (mails, form answers, MCP results): an agent that reads such text says so in section 06. **Propose** stays the safest.
