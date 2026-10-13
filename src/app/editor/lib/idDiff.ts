@@ -4,8 +4,9 @@
  * nothing but their ids. Diffs that skip a block's `id`, and taking another copy's ids over for the same blocks — so
  * a write that only added ids is no change to merge against (PageEditor's external updates).
  */
-import type { Fragment, Node as PMNode } from '@tiptap/pm/model'
+import { Fragment, type Node as PMNode, type Schema } from '@tiptap/pm/model'
 import type { Transaction } from '@tiptap/pm/state'
+import { Step, StepMap, StepResult, type Mappable } from '@tiptap/pm/transform'
 import { BLOCK_ID_TYPES } from '../schema/base'
 
 const ID_TYPES = new Set<string>(BLOCK_ID_TYPES)
@@ -127,7 +128,91 @@ function pairTail(a: Fragment, b: Fragment, endA: number, from: number, pair: Pa
 
 const idOf = (n: PMNode): string | null => (ID_TYPES.has(n.type.name) && typeof n.attrs.id === 'string' && n.attrs.id ? n.attrs.id : null)
 
-/** Set block ids by position (attribute steps) — never leaving an id twice in the doc (then none is set). */
+type Ids = ReadonlyArray<readonly [number, string | null]>
+
+/**
+ * Sets the `id` of blocks by position, all in ONE step that moves no position (an empty map): the caret, the undo
+ * history and other blocks stay; a thousand attribute steps would copy the page a thousand times.
+ */
+export class BlockIdsStep extends Step {
+  /** [position of the block, its id], by position. */
+  readonly ids: Ids
+
+  constructor(ids: Ids) {
+    super()
+    this.ids = ids
+  }
+
+  apply(doc: PMNode): StepResult {
+    const ids = this.ids
+    let at = 0
+    const walk = (frag: Fragment, start: number): Fragment | null => {
+      let pos = start
+      let out: PMNode[] | null = null
+      for (let i = 0; i < frag.childCount; i++) {
+        const child = frag.child(i)
+        const end = pos + child.nodeSize
+        if (at < ids.length && ids[at][0] < end) {
+          if (ids[at][0] < pos) return null
+          let attrs = child.attrs
+          if (ids[at][0] === pos) {
+            if (!ID_TYPES.has(child.type.name)) return null
+            attrs = { ...attrs, id: ids[at][1] }
+            at++
+          }
+          let content = child.content
+          if (at < ids.length && ids[at][0] < end) {
+            if (child.isTextblock || child.isLeaf) return null
+            const inner = walk(child.content, pos + 1)
+            if (!inner) return null
+            content = inner
+          }
+          out ??= frag.content.slice(0, i)
+          out.push(child.type.create(attrs, content, child.marks))
+        } else out?.push(child)
+        pos = end
+      }
+      return out ? Fragment.fromArray(out) : frag
+    }
+    const content = walk(doc.content, 0)
+    if (!content || at !== ids.length) return StepResult.fail('no block at a given position')
+    return StepResult.ok(doc.copy(content))
+  }
+
+  getMap(): StepMap {
+    return StepMap.empty
+  }
+
+  invert(doc: PMNode): Step {
+    return new BlockIdsStep(this.ids.map(([pos]) => [pos, (doc.nodeAt(pos)?.attrs.id as string | null | undefined) ?? null] as const))
+  }
+
+  map(mapping: Mappable): Step | null {
+    const ids: Array<readonly [number, string | null]> = []
+    for (const [pos, id] of this.ids) {
+      const r = mapping.mapResult(pos, 1)
+      if (!r.deletedAfter) ids.push([r.pos, id])
+    }
+    return ids.length ? new BlockIdsStep(ids) : null
+  }
+
+  toJSON(): { stepType: string; ids: Ids } {
+    return { stepType: 'oneBlockIds', ids: this.ids }
+  }
+
+  static fromJSON(_schema: Schema, json: { ids?: unknown }): BlockIdsStep {
+    const ids = Array.isArray(json.ids) ? json.ids.filter((x): x is [number, string | null] => Array.isArray(x) && typeof x[0] === 'number' && (typeof x[1] === 'string' || x[1] === null)) : []
+    return new BlockIdsStep(ids)
+  }
+}
+
+try {
+  Step.jsonID('oneBlockIds', BlockIdsStep)
+} catch {
+  /* registered already (a module evaluated twice) */
+}
+
+/** Set block ids by position in one step — never leaving an id twice in the doc (then none is set). */
 function setIds(tr: Transaction, take: Map<number, string>): void {
   if (!take.size) return
   const seen = new Set<string>()
@@ -142,12 +227,12 @@ function setIds(tr: Transaction, take: Map<number, string>): void {
     return !node.isTextblock
   })
   if (twice) return
-  for (const [pos, id] of take) tr.setNodeAttribute(pos, 'id', id)
+  tr.step(new BlockIdsStep([...take].sort((a, b) => a[0] - b[0])))
 }
 
 /**
- * `tr.doc` equals `theirs` but for block ids: give its blocks theirs' ids, as attribute steps (the caret, node views
- * and undo history stay).
+ * `tr.doc` equals `theirs` but for block ids: give its blocks theirs' ids (one step: the caret, node views of other
+ * blocks and undo history stay).
  */
 export function adoptIds(tr: Transaction, theirs: PMNode): void {
   const take = new Map<number, string>()
@@ -171,7 +256,7 @@ export function idsFor(base: PMNode, theirs: PMNode, changed: Range | null): Map
   return out
 }
 
-/** Rename the blocks of `tr.doc` whose id `ids` maps (attribute steps). */
+/** Rename the blocks of `tr.doc` whose id `ids` maps. */
 export function renameIds(tr: Transaction, ids: Map<string, string>): void {
   if (!ids.size) return
   const take = new Map<number, string>()
