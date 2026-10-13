@@ -27,9 +27,10 @@ export type AIFix =
   /**
    * The governor's red line (AIError 'budget'): E allows +`allow` USD once (null: it would not fit), `need` is what is
    * missing, `cheaper` a model of the same provider that fits (B: the same request with it as a chip), the request's
-   * band and the lowest rest with its line — rendered by features/governor's BrakeNote.
+   * band and the lowest rest with its line, the purpose of the refused request (its retry carries E / B — gate.ts
+   * armRetry) — rendered by features/governor's BrakeNote.
    */
-  | { kind: 'brake'; allow: number | null; need: number; cheaper?: Route; band: { low: number; high: number }; rest: number; binding: string | null; line?: { spent: number; limit: number } }
+  | { kind: 'brake'; allow: number | null; need: number; cheaper?: Route; cheaperBand?: { low: number; high: number } | null; band: { low: number; high: number }; rest: number; binding: string | null; line?: { spent: number; limit: number }; purpose?: string }
 
 /**
  * The provider a route's label names: other providers' labels start with their name ("OpenRouter · …",

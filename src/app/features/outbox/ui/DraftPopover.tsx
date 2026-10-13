@@ -27,7 +27,7 @@ import { focusIsNowhere, focusMainRegion, returnFocusAfterClose } from '../../..
 import { closeDraft, useDraftUI, type DraftRequest } from './draftState'
 import { mentionAt, mentionHits, rowHits, type MentionHit } from './mentions'
 
-export const refusalText = (r: { refused: StageRefusal | 'aborted' | 'ai'; detail?: string }) => translate(`features.outbox.refused.${r.refused}`, { detail: r.detail ?? '' })
+export const refusalText = (r: { refused: StageRefusal | 'aborted' | 'ai'; detail?: string; brake?: unknown }) => translate(`features.outbox.refused.${r.refused}`, { detail: r.detail ?? '' })
 
 /** Mounted once (App): the popover while one is open. */
 export function DraftHost() {
@@ -192,6 +192,12 @@ async function runDrafts(route: ResolvedRoute, rowIds: ID[], instruction: string
   for (let i = 0; i < rowIds.length; i++) {
     const res = await draftSlip({ route: route.ref, rowId: rowIds[i], instruction, mentions, origin: { kind: 'command', ref: `${route.ref.profileId}/${route.ref.routeId}` }, ...(rowIds.length > 1 ? { step: { n: i + 1, of: rowIds.length } } : {}) })
     if ('refused' in res) {
+      // the red line (features/governor): this draft and the ones after it wait at the dock's brake note
+      if (res.brake) {
+        const left = rowIds.slice(i)
+        useOutbox.setState({ brake: { dbId, error: res.brake, retry: () => void runDrafts(route, left, instruction, mentions, dbId) } })
+        break
+      }
       useUI.getState().toast({ message: `${route.label} · #${rowKeyOf(rowIds[i])} · ${refusalText(res)}`, kind: 'error', timeout: 8000, background: true })
       continue
     }

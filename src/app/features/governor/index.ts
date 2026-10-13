@@ -13,9 +13,12 @@
  *    · noteScope() · deviceLineScopes()
  *  - allowOnce(usd) · allowTask(source, usd) · allowanceOf(ctx) · consume(id)
  *  - readPaused(scope) · addPaused(scope, rows) · takePaused(scope, match)
+ *  - background work at the line (background.ts): budgetRefusal · brakeFixOf · watchSource · pauseRows · takeRows ·
+ *    pausedRows · onLineChange; BrakeSlot (lazy) — the brake note for a refused request, its E / B keys wired
  *  - RUN_MODES · modeOf(purpose, given) · missesMode · minOut(purpose, thinks) · sourceFor(purpose, id) (modes.ts)
  * The price table itself is src/shared/ai/prices.ts (PRICES, costOf, PRICES_DATE) — re-exported here.
  */
+import { lazy } from 'react'
 export { meter, registerMeter, onLedgerPing, onLedgerDelta, flushLedger, ledgerEntries, ledgerDay, ledgerTotals, totalsOf, wipeLedgerScope, reserve, adjust, settle, reservedUsd, dayOf, LEDGER_DB, LEDGER_DAYS, type LedgerDelta, type LedgerRange, type LedgerTotal, type TotalsBy } from './ledger'
 export { estimate, CHARS_PER_TOKEN, type Band, type EstimateRequest } from './estimate'
 export { ledgerScope } from './scope'
@@ -29,10 +32,17 @@ export { RUN_MODES, CALLER_MODE, isRunMode, modeRow, modeOf, missesMode, minOut,
 export type { Binding, Limits, Rest } from './limits'
 export type { BrakeFix, BrakeRun, Halt, HaltCheaper, HCandidate, HistoryNeeds, RefuseDetail, RoundVerdict, RunMode, StartVerdict } from './brake'
 export { ALLOW_USD } from './brake'
-export { budgetRefusal, watchSource, pauseRows, takeRows, pausedRows, onLineChange, type BudgetRefusal } from './background'
+export { budgetRefusal, brakeFixOf, watchSource, pauseRows, takeRows, pausedRows, onLineChange, type BudgetRefusal, type BrakeFixData } from './background'
 export { FIRST_STEP_OUT } from './steps'
+export { planBand, type PlanBand } from './plan'
 export { fmtBand, fmtLimit, fmtOf } from './format'
 export type { HaltCardProps } from './ui/HaltCard'
 /** The halt card (lazy chunk: the AI terminal renders it when a task waits at the red line) */
 export const loadHaltCard = () => import('./ui/HaltCard').then((m) => ({ default: m.HaltCard }))
+export type { BrakeForProps } from './ui/BrakeFor'
+/**
+ * The brake note for a refused request (AIError 'budget') with its keys wired (E / B retry through `onRetry`, Esc):
+ * lazy — the chunk loads only when a note is shown (only ever with a budget set). Render it inside <Suspense>.
+ */
+export const BrakeSlot = lazy(() => import('./ui/BrakeFor'))
 export { PRICES, PRICES_DATE, costOf, priceRow } from '@/shared/ai/prices'

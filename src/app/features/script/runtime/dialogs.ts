@@ -5,14 +5,14 @@
  */
 import { create } from 'zustand'
 import { toast } from '../../../store/ui'
-import type { ConfirmItem, RunUI } from './types'
+import type { ConfirmItem, RunBand, RunUI } from './types'
 
 export type DialogRequest =
   | { type: 'modal'; text: string; buttons: string[] }
   | { type: 'confirm'; text: string }
   | { type: 'ask'; text: string; def: string }
   | { type: 'choose'; text: string; options: string[] }
-  | { type: 'plan'; items: ConfirmItem[]; scriptName: string }
+  | { type: 'plan'; items: ConfirmItem[]; scriptName: string; band?: RunBand | null }
   | { type: 'one'; item: ConfirmItem; scriptName: string }
   | { type: 'time'; scriptName: string }
   | { type: 'trust'; name: string; editor: string | null; code: string }
@@ -54,7 +54,7 @@ export const appRunUI: RunUI = {
   ask: (text, def, signal) => ask({ type: 'ask', text, def }, signal, null),
   choose: (text, options, signal) => ask({ type: 'choose', text, options }, signal, null),
   notify: (text) => void toast(text),
-  confirmPlan: (items, scriptName, signal) => ask<Set<string> | null>({ type: 'plan', items, scriptName }, signal, null),
+  confirmPlan: (items, scriptName, signal, band) => ask<Set<string> | null>({ type: 'plan', items, scriptName, ...(band ? { band } : {}) }, signal, null),
   allowOne: (item, scriptName, signal) => ask<boolean | 'all'>({ type: 'one', item, scriptName }, signal, false),
   moreTime: (scriptName, signal) => ask({ type: 'time', scriptName }, signal, false),
   trust: (info, signal) => ask({ type: 'trust', ...info }, signal, false),

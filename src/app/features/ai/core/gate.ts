@@ -452,11 +452,38 @@ const typedTexts = (t: PrepareInput['typed']): string[] => (typeof t === 'string
 /** The gate — throws AIError ('reload' · 'key_in_text' · 'off' · 'no_key' · 'policy' · 'capability' · 'model_gone'). */
 export function prepare(input: PrepareInput): Prepared {
   checkMode(input)
+  input = retried(input)
   // "no size" is a contract error, never "no price" (the brake could not hold a budget for it)
   if (strict() && !input.size) throw new Error(`[governor] prepare without a size (${String(input.purpose)}) — every request names its prompt and answer budget`)
   const p = gate(input, true)
   inputs.set(p, input)
   return p
+}
+
+/**
+ * The person's answer at a brake note (the Regler's red line, features/governor BrakeNote): E — an allowance token
+ * (allowOnce) — or B — a cheaper model of the same provider, pinned as their pick — for the retry of the request it
+ * refused. The retry carries it: the next prepare() of that purpose in this tab (not background work), within
+ * RETRY_MS, once. Nothing is armed without a budget (no note is ever shown then).
+ */
+const RETRY_MS = 30_000
+let armed: { purpose: string; allowance?: string; route?: Route; until: number } | null = null
+
+export function armRetry(purpose: string, o: { allowance?: string; route?: Route }, now = Date.now()): void {
+  armed = { purpose, ...(o.allowance ? { allowance: o.allowance } : {}), ...(o.route ? { route: o.route } : {}), until: now + RETRY_MS }
+}
+
+function retried(input: PrepareInput): PrepareInput {
+  const a = armed
+  if (!a || a.purpose !== input.purpose) return input
+  armed = null
+  const mode = modeOf(input.purpose, input.run?.mode)
+  if (Date.now() > a.until || mode === 'trigger' || mode === 'scheduled' || mode === 'follow-up') return input
+  return {
+    ...input,
+    ...(a.route ? { route: a.route, pinned: 'person' as const } : {}),
+    ...(a.allowance ? { run: { ...(input.run ?? {}), allowance: a.allowance } } : {}),
+  }
 }
 
 /** The input each prepared request came from (reprepare). */

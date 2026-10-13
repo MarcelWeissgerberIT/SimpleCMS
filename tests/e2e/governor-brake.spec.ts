@@ -17,18 +17,22 @@
  *  - background work (B7): case 7 (the autofill watch pauses, keeps its rows over a reload and fills them on a raise or
  *    E; a person's autofill run waits at a row boundary), a script's claude() crossing mid-run, an automation's script at
  *    the line. The mail pause lives in mail-gmail.spec.ts.
+ *  - the brake note (B8): case 1 across the surfaces — the AI menu (E: one request with the allowance), help Ask (B: the
+ *    cheaper model), ⌘K "?" (Esc: nothing sent, the palette stays), the Outbox draft (the dock's note, E), the kit
+ *    fill, the setup test; its keys act only with focus inside it, never on a held key or in its first moment.
  * No AI host is reached (the aiNet guard); values are fictional (Nordlicht, Tessera, Launch plan).
  */
 import type { Page } from '@playwright/test'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { test, expect, openApp, reloadApp, wsEval, flush, createPage, gotoPage, pageIdByTitle, sse } from './fixtures'
+import { test, expect, openApp, reloadApp, wsEval, uiEval, flush, createPage, gotoPage, pageIdByTitle, sse, doc, para, MOD } from './fixtures'
 import { exportBackup, importBackup } from './helpers/backup'
 import { ARCHIVE, TRANSFORM_STEPS, aiPanel, autofillPriority, improve, ledger, ownRequest, transformAuto } from './helpers/aiFlows'
 import { mockClaudeScript, mockOpenRouter, seedEndpoints, text } from './helpers/providers'
 import { openTerminal, prompt as termPrompt, run as runTask, terminal } from './helpers/terminal'
 import { budget, pausedRowsOf, spend } from './helpers/governor'
 import { expectLane, markRec, startRecorder } from './helpers/recorder'
+import { mockDrafts, outboxLoaded, seedMirrorDb } from './helpers/outbox'
 import { capsOfRow, readCatalogRow } from '../../src/shared/ai/catalog'
 import { costOf } from '../../src/shared/ai/prices'
 import type { Route, ShortlistRow } from '../../src/shared/ai/types'
@@ -939,5 +943,202 @@ test.describe('background work at the line (B7 · case 7)', () => {
     await page.getByRole('button', { name: 'Run (1 of 1)' }).click()
     await expect.poll(() => bodies.length, { timeout: 15_000 }).toBe(1)
     await expect.poll(async () => (await status()).lastStatus, { timeout: 15_000 }).toBe('ok')
+  })
+})
+
+/* ------------------------------------------------------------------ */
+/* B8 — the brake note everywhere a person's request fails              */
+/* ------------------------------------------------------------------ */
+
+const note = (page: Page) => page.getByTestId('gv-brake-note')
+/** The note took focus (its keys act only there); past its first moment (plate.ts KEY_ARM_MS). */
+async function noteReady(page: Page) {
+  await expect(note(page)).toBeVisible()
+  await expect.poll(() => page.evaluate(() => !!document.activeElement?.closest('[data-testid="gv-brake-note"]'))).toBe(true)
+  await page.waitForTimeout(450)
+}
+
+test.describe('the brake note (B8 · case 1 across the surfaces)', () => {
+  test('the AI menu: Improve at the line shows the note (nothing sent); E sends exactly this request with +1 $ on its entry; a key typed in a field never acts', async ({ page }) => {
+    const { requests } = await mockClaudeScript(page.context(), [text('A tighter launch sentence.')])
+    await openApp(page)
+    await KEY(page)
+    await dayWithRest(page, 0.005)
+    await improve(page, null)
+    await noteReady(page)
+    await expect(note(page)).toHaveAttribute('data-detail', 'day')
+    await expect(note(page)).toContainText('rest today < $0.01')
+    await expect(note(page).getByRole('button', { name: /\+\$1 once/ })).toBeVisible()
+    await page.waitForTimeout(300)
+    expect(requests).toHaveLength(0)
+    // a letter typed in the panel's own field is the person's text, never the note's key
+    const field = aiPanel(page).getByRole('textbox').first()
+    await field.focus()
+    await page.keyboard.type('e')
+    await page.waitForTimeout(300)
+    expect(requests).toHaveLength(0)
+    // E with focus in the note: this request once, with the allowance
+    await note(page).focus()
+    await page.waitForTimeout(450)
+    await page.keyboard.press('e')
+    await expect(aiPanel(page)).toContainText('A tighter launch sentence.')
+    expect(requests).toHaveLength(1)
+    expect(requests[0].body.max_tokens).toBe(16000)
+    await expect.poll(async () => (await ledger(page)).length).toBe(1)
+    const [e] = await ledger(page)
+    expect(e.allowance).toBe(1)
+    expect(e.purpose).toBe('menu.action')
+  })
+
+  test('help Ask at the line: the note in the help panel; E asks the question again with +1 $ — once', async ({ page }) => {
+    const { requests } = await mockClaudeScript(page.context(), [text('Open **Share** and switch on **Protect with password**.')])
+    await openApp(page)
+    await KEY(page)
+    await dayWithRest(page, 0.005)
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur?.())
+    await page.keyboard.press('?')
+    const help = page.getByRole('dialog', { name: /^(Help|Hilfe)$/ })
+    await help.getByRole('tab', { name: /Ask/ }).click()
+    const field = help.getByRole('textbox', { name: 'Your question' })
+    await field.fill('How do I protect a share link with a password?')
+    await field.press('Enter')
+    await noteReady(page)
+    await expect(help.getByTestId('gv-brake-note')).toBeVisible()
+    expect(requests).toHaveLength(0)
+    await page.keyboard.press('e')
+    await expect(help.locator('.help-ask__out')).toContainText('Protect with password')
+    expect(requests).toHaveLength(1)
+    const [e] = await ledger(page)
+    expect(e.purpose).toBe('help.ask')
+    expect(e.allowance).toBe(1)
+    // the token was for that question only: the next one is refused again
+    await field.fill('And how do I remove the password?')
+    await field.press('Enter')
+    await expect(note(page)).toBeVisible()
+    await page.waitForTimeout(300)
+    expect(requests).toHaveLength(1)
+  })
+
+  test('⌘K "?" at the line: the note in the palette; Esc closes the note only — nothing sent, the question stays', async ({ page }) => {
+    const { requests } = await mockClaudeScript(page.context(), [text('The launch is in two weeks.')])
+    await openApp(page)
+    await KEY(page)
+    await dayWithRest(page, 0.005)
+    const id = await createPage(page, { title: 'Launch plan', content: doc(para('We launch in two weeks.')) })
+    await gotoPage(page, id)
+    await page.keyboard.press(`${MOD}+k`)
+    await page.keyboard.type('?When do we launch?')
+    const pal = page.getByRole('dialog', { name: 'Command palette' })
+    await page.keyboard.press('Enter')
+    await noteReady(page)
+    await expect(pal.getByTestId('gv-brake-note')).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(note(page)).toHaveCount(0)
+    await expect(pal).toBeVisible()
+    await page.waitForTimeout(300)
+    expect(requests).toHaveLength(0)
+    expect(await ledger(page)).toEqual([])
+  })
+
+  test('the Outbox draft: refused at the line in the background — the dock\'s note (no error toast); E drafts it with +1 $', async ({ page }) => {
+    const calls = await mockDrafts(page.context(), () => 'Thanks — the Nordlicht fix ships in the Tessera release.')
+    await openApp(page)
+    await outboxLoaded(page)
+    const m = await seedMirrorDb(page)
+    await dayWithRest(page, 0.005)
+    await page.evaluate((id) => (location.hash = `#/p/${id}`), m.dbId)
+    await expect(page.locator('#main .pv-title')).toBeVisible()
+    const rows = page.locator('#main .dbt-row[role="row"]:not(.dbt-row--head)')
+    await rows.nth(0).hover()
+    await rows.nth(0).getByRole('checkbox', { name: 'Select row' }).click()
+    await page.getByTestId('db-commands').click()
+    await page.locator('.popover.cmd-menu').getByRole('menuitem', { name: 'Reply in the ticket tool' }).click()
+    const draft = page.getByRole('dialog', { name: 'Draft a slip' })
+    await draft.getByTestId('outbox-draft-claude').click()
+    const dock = page.getByTestId('outbox-dock')
+    await expect(dock.getByTestId('gv-brake-note')).toBeVisible()
+    await expect(page.locator('.toast[data-kind="error"], .toast--error')).toHaveCount(0)
+    expect(calls).toHaveLength(0)
+    await note(page).focus()
+    await page.waitForTimeout(450)
+    await page.keyboard.press('e')
+    await expect(dock.getByTestId('outbox-slip')).toBeVisible()
+    expect(calls).toHaveLength(1)
+    await expect(note(page)).toHaveCount(0)
+    const [e] = (await ledger(page)).filter((x) => x.purpose === 'outbox.draft')
+    expect(e.allowance).toBe(1)
+  })
+
+  test('the kit fill (structured, never capped): B sends it with the cheaper model as the person\'s pick; the setup test at the line shows the note; positive control below the line', async ({ page }) => {
+    const items = text(JSON.stringify({ items: [{ name: 'Nordlicht', color: 'blue' }, { name: 'Tessera', color: 'green' }] }))
+    const { requests } = await mockClaudeScript(page.context(), [items, items])
+    await openApp(page)
+    await KEY(page)
+    // Opus 5.5 (6 000 answer tokens ≈ 0,12 $) is over the 0,06 $ left; Haiku 4.5 (≈ 0,03 $) fits
+    let hold = await dayWithRest(page, 0.06)
+    const listId = 'ls-launch'
+    await wsEval(page, (s, id) => s.upsertList({ id, name: 'Launch phases', items: [], createdAt: 0, updatedAt: 0 }), listId)
+    await page.evaluate((id) => (location.hash = `#/kit/lists/${id}`), listId)
+    const prompt = page.getByTestId('kt-fill-prompt')
+    await prompt.fill('Phases of the Nordlicht launch')
+    await prompt.press('Enter')
+    await noteReady(page)
+    await expect(note(page).getByRole('button', { name: /With (Claude )?Haiku 4\.5/ })).toBeVisible()
+    expect(requests).toHaveLength(0)
+    await page.keyboard.press('b')
+    await expect(page.getByTestId('kt-proposals')).toContainText('Tessera')
+    expect(requests).toHaveLength(1)
+    expect(requests[0].body.model).toBe('claude-haiku-4-5')
+    const [e] = await ledger(page)
+    expect(e.route).toBe('anthropic:claude-haiku-4-5')
+    expect(e).not.toHaveProperty('allowance')
+    // nothing stays armed: the next fill asks again (Opus over the line)
+    await page.evaluate((id) => (location.hash = `#/kit/lists/${id}`), listId)
+    await release(page, hold)
+    hold = await dayWithRest(page, 0.0001)
+    // the setup's test sentence: the note under the rows, Esc closes it
+    await uiEval(page, (s) => s.openModal({ type: 'aiSetup', reason: 'rotate', step: 'key', provider: 'anthropic' }))
+    await page.getByTestId('test-sentence').click()
+    await expect(page.getByTestId('check-bench').getByTestId('gv-brake-note')).toBeVisible()
+    await page.waitForTimeout(300)
+    expect(requests).toHaveLength(1)
+    await page.keyboard.press('Escape')
+    await expect(note(page)).toHaveCount(0)
+    // below the line: the test sentence sends
+    await release(page, hold)
+    await budget(page, { v: 1, day: 10 })
+    await page.getByTestId('test-sentence').click()
+    await expect.poll(() => requests.length).toBe(2)
+  })
+
+  test('a script\'s consent card: the band of its AI calls against the rest; over the line E allows +1 $ for the run and both calls go; without a budget the card is as before', async ({ page }) => {
+    const bodies = await mockScriptClaude(page)
+    await openApp(page)
+    await KEY(page)
+    const id = await addScript(page, 'Nordlicht Bericht', 'let a = claude("Fasse Nordlicht zusammen")\nprint(a)\nlet b = claude("Und Tessera")\nprint(b)\n')
+    await page.evaluate((id) => (window.location.hash = `#/scripts/${id}`), id)
+    await expect(page.locator('.sc-code__input')).toBeVisible()
+    // no budget: the card as before
+    await page.getByTestId('sc-run').click()
+    await expect(page.getByTestId('sc-dialog-plan')).toContainText('Ask Claude: Und Tessera')
+    await expect(page.getByTestId('sc-plan-band')).toHaveCount(0)
+    await page.getByRole('button', { name: 'Cancel' }).click()
+    // at the line: the band, over the red line, E for the run
+    await budget(page, { v: 1, day: 1 })
+    await spend(page, 1)
+    await page.getByTestId('sc-run').click()
+    const band = page.getByTestId('sc-plan-band')
+    await expect(band).toContainText('AI calls 2 ×')
+    await expect(band).toContainText('Over the red line')
+    await band.getByRole('button', { name: /\+\$1 once for this run/ }).focus()
+    await page.keyboard.press('e')
+    await expect(band).toContainText('+$1 allowed for this run, today.')
+    expect(bodies).toHaveLength(0)
+    await page.getByRole('button', { name: 'Run (2 of 2)' }).click()
+    await expect(page.getByTestId('sc-console')).toHaveAttribute('data-status', 'ok')
+    expect(bodies).toHaveLength(2)
+    const runs = (await ledger(page)).filter((e) => e.source.startsWith(`script:${id}:`))
+    expect(runs).toHaveLength(2)
+    expect(new Set(runs.map((e) => e.source)).size).toBe(1)
   })
 })

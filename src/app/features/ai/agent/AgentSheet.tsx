@@ -633,10 +633,21 @@ function TurnHalt({ n }: { n: number }) {
   return (
     <div className="term-halt">
       <Suspense fallback={fallback}>
-        <HaltCard {...halt.view} onAllow={() => haltKey('allow')} onCheaper={() => haltKey('cheaper')} onStop={() => haltKey('stop')} onEscape={focusPrompt} />
+        <EndInView>
+          <HaltCard {...halt.view} onAllow={() => haltKey('allow')} onCheaper={() => haltKey('cheaper')} onStop={() => haltKey('stop')} onEscape={focusPrompt} />
+        </EndInView>
       </Suspense>
     </div>
   )
+}
+
+/** Scrolls the log so the halt card's keys are in view once it is there (the dock may be shorter than the card). */
+function EndInView({ children }: { children: ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null)
+  useLayoutEffect(() => {
+    ref.current?.scrollIntoView({ block: 'end', inline: 'nearest' })
+  }, [])
+  return <div ref={ref}>{children}</div>
 }
 
 /** Media an MCP result of this task returned: cards — "Save to One" stages "insert media" for review. */

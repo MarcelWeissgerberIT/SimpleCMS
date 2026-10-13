@@ -1,6 +1,7 @@
 /**
  * Background work at the red line (Regler § 5.7): it pauses or stops and never waits for a key.
- *  - budgetRefusal(e): the gate refused a request for money (AIError 'budget') — its line and fix, else null;
+ *  - budgetRefusal(e) / brakeFixOf(e): the gate refused a request for money (AIError 'budget') — its line and fix (and
+ *    the route's label for the brake note), else null;
  *  - the autofill watch's paused rows (paused.ts) under this member's scope: pauseRows · takeRows · pausedRows; resumed on
  *    a new day, a line that moved (onLineChange) or E in the panel (an allowance for the watch's fills of that property,
  *    today: watchSource);
@@ -11,19 +12,43 @@ import { addPaused, readPaused, takePaused, type PausedRow } from './paused'
 import { ledgerScope } from './scope'
 import { DEVICE_KEY } from './device'
 import { dayOf, nextMidnight } from './clock'
+import type { Route } from '@/shared/ai/types'
+
+/** A refusal's brake fix (core/errors.ts AIFix 'brake'): what E allows, what is missing, a cheaper model and its band. */
+export interface BrakeFixData {
+  allow: number | null
+  need: number
+  rest: number
+  band: { low: number; high: number }
+  binding: string | null
+  line?: { spent: number; limit: number }
+  cheaper?: Route
+  cheaperBand?: { low: number; high: number } | null
+  /** the refused request's purpose (its retry carries E / B) */
+  purpose?: string
+}
 
 /** What a refusal at the line carries (AIError 'budget': its detail = the binding line, its brake fix). */
 export interface BudgetRefusal {
   detail: string
-  fix: { allow: number | null; need: number; rest: number; band: { low: number; high: number }; binding: string | null; line?: { spent: number; limit: number } } | null
+  fix: BrakeFixData | null
 }
 
 /** The gate refused this request for money (nothing was sent) — else null. */
 export function budgetRefusal(e: unknown): BudgetRefusal | null {
   if (!e || typeof e !== 'object' || (e as { code?: unknown }).code !== 'budget') return null
-  const fixes = (e as { fixes?: unknown }).fixes
-  const fix = Array.isArray(fixes) ? fixes.find((f) => f && typeof f === 'object' && (f as { kind?: unknown }).kind === 'brake') : null
+  // an AIError, or a run's stored copy of one (its `fix`, `fixes` only when there are several)
+  const o = e as { fixes?: unknown; fix?: unknown }
+  const list: unknown[] = Array.isArray(o.fixes) ? o.fixes : o.fix ? [o.fix] : []
+  const fix = list.find((f) => !!f && typeof f === 'object' && (f as { kind?: unknown }).kind === 'brake') ?? null
   return { detail: String((e as { detail?: unknown }).detail ?? 'day'), fix: (fix as BudgetRefusal['fix']) ?? null }
+}
+
+/** The brake note's data of a refused request: the brake fix (the error's first), its line and the route's label. */
+export function brakeFixOf(e: unknown): { fix: BrakeFixData | null; detail: string; model: string } | null {
+  const r = budgetRefusal(e)
+  if (!r) return null
+  return { fix: r.fix, detail: r.detail, model: String((e as { label?: unknown }).label ?? '') }
 }
 
 /** The autofill watch's fills of one property today: one source, so E in its panel allows them all (today only). */

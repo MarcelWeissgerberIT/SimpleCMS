@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import { Fragment, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { Command } from 'cmdk'
 import { ArrowRight, AtSign, CalendarClock, CircleHelp, Copy, CornerDownLeft, FilePlus2, FileText, LayoutTemplate, ListPlus, Lock, Square, Table2, ToggleLeft, Filter as FilterIcon } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
@@ -13,6 +13,7 @@ import { DEFAULT_CLAUDE_MODEL } from '@/shared/ai/models'
 /** This device's Claude model (the legacy level's): the route of "Ask Claude". */
 const claudeModel = (): string => legacyRule(useWorkspace.getState().settings.aiModel, true)[0]?.m ?? DEFAULT_CLAUDE_MODEL
 import { claudeDoc, webImagesOf } from '../../features'
+import { BrakeSlot } from '../../features'
 import { MediaToPage, type MediaItem } from '../../features'
 import { readableContent, ReadOnlyDoc } from '../../editor'
 import { TypeIcon } from '../../database'
@@ -630,6 +631,8 @@ function AskPanel({ question, pageId, onDone, chipHandle, onChipClosed }: { ques
   const [chip, setChip] = useState<Route | null>(null)
   /** what to do about a refused question ("Ask Claude" for a codeword the route cannot connect) */
   const [fix, setFix] = useState<AIFix | null>(null)
+  /** the question refused at the Regler's red line (nothing was sent): the brake note's error */
+  const [brake, setBrake] = useState<AIError | null>(null)
   const abort = useRef<AbortController | null>(null)
   // the answer's run (store/writer.ts: `ai:<run>:ask` when it is appended or saved as a page)
   const runId = useRef('')
@@ -641,6 +644,7 @@ function AskPanel({ question, pageId, onDone, chipHandle, onChipClosed }: { ques
   const ask = async (pick: Route | null = chip) => {
     if (!question || state === 'running') return
     setFix(null)
+    setBrake(null)
     abort.current?.abort()
     const ctrl = new AbortController()
     abort.current = ctrl
@@ -698,6 +702,7 @@ function AskPanel({ question, pageId, onDone, chipHandle, onChipClosed }: { ques
       if (ctrl.signal.aborted) return
       setError(e instanceof Error ? e.message : String(e))
       setFix(e instanceof AIError ? (e.fix ?? null) : null)
+      setBrake(e instanceof AIError && e.code === 'budget' ? e : null)
       setState('error')
     } finally {
       // a question refused for a key in its text was never sent: no row in the memory log (the key would be its name)
@@ -780,8 +785,25 @@ function AskPanel({ question, pageId, onDone, chipHandle, onChipClosed }: { ques
               {notes.map((n) => t(`features.ai.prov.note.${n}`)).join(' ')}
             </p>
           )}
-          {state === 'error' ? <p className="ask__error">{error}</p> : <AskAnswer markdown={answer} />}
-          {state === 'error' && fix && fix.kind !== 'askClaude' && (
+          {state === 'error' && brake ? (
+            // the red line (features/governor): E +1 $ once · B a cheaper model · Esc — the question is asked again
+            <Suspense fallback={<p className="ask__error">{error}</p>}>
+              <BrakeSlot
+                error={brake}
+                onRetry={() => void ask()}
+                onCancel={() => {
+                  setBrake(null)
+                  setState('idle')
+                  document.querySelector<HTMLInputElement>('.pal-scrim input')?.focus()
+                }}
+              />
+            </Suspense>
+          ) : state === 'error' ? (
+            <p className="ask__error">{error}</p>
+          ) : (
+            <AskAnswer markdown={answer} />
+          )}
+          {state === 'error' && !brake && fix && fix.kind !== 'askClaude' && (
             <div className="ask__actions" data-testid="ask-fix">
               <FixKeys fix={fix} feature="ask" onOpen={onDone} onPick={chipHandle && typeof chipHandle === 'object' && 'current' in chipHandle ? () => chipHandle.current?.open() : undefined} />
             </div>

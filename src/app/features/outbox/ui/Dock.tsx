@@ -4,7 +4,7 @@
  * focused slip open; the others as strips (foreign ones folded into one "check one by one" strip); drafts running;
  * today's receipts; the key legend. Keys: J / K, H, E, R, ⌘↵, Esc (keys.ts).
  */
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react'
+import { Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
 import { ArrowUpRight, ChevronRight, X } from 'lucide-react'
 import { useWorkspace } from '../../../store/store'
@@ -18,6 +18,7 @@ import { openOutbox, setDockOpen, useOutboxCounts, useSlips, useWideDock } from 
 import { onOutboxKey, focusSlipEl } from '../keys'
 import { handBlock } from '../hand'
 import { useOutbox } from '../store'
+import { BrakeSlot } from '../../governor'
 import type { Slip } from '../types'
 import { Lid, ServerTag, Shown, ToolTarget, ForeignMark, shownText } from './parts'
 import { ReceiptCard } from './ReceiptCard'
@@ -60,6 +61,7 @@ function DockPanel({ dbId, mode }: { dbId: ID; mode: 'column' | 'sheet' }) {
   const storage = useOutbox((s) => s.storage)
   const draftingAll = useOutbox((s) => s.drafting)
   const drafting = useMemo(() => Object.values(draftingAll).filter((d) => d.dbId === dbId), [draftingAll, dbId])
+  const brake = useOutbox((s) => (s.brake?.dbId === dbId ? s.brake : null))
   const stored = useOutbox((s) => s.focus)
   const [editing, setEditing] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -160,6 +162,22 @@ function DockPanel({ dbId, mode }: { dbId: ID; mode: 'column' | 'sheet' }) {
             {t('features.outbox.block.storage')}
           </p>
         )}
+        {brake && (
+          // Claude's draft refused at the red line (features/governor): E +1 $ once · B a cheaper model · Esc
+          <Suspense fallback={null}>
+            <BrakeSlot
+              error={brake.error}
+              onRetry={() => {
+                useOutbox.setState({ brake: null })
+                brake.retry()
+              }}
+              onCancel={() => {
+                useOutbox.setState({ brake: null })
+                requestAnimationFrame(() => headRef.current?.focus())
+              }}
+            />
+          </Suspense>
+        )}
         {drafting.map((d) => (
           <div key={d.key} className="obx-strip obx-strip--drafting" role="status">
             <span className="led led--on" aria-hidden />
@@ -187,7 +205,7 @@ function DockPanel({ dbId, mode }: { dbId: ID; mode: 'column' | 'sheet' }) {
             </span>
           </button>
         )}
-        {!open.length && !drafting.length && <p className="obx-empty">{t('features.outbox.empty.db')}</p>}
+        {!open.length && !drafting.length && !brake && <p className="obx-empty">{t('features.outbox.empty.db')}</p>}
         {sent.length > 0 && (
           <section className="obx-sent" aria-label={t('features.outbox.sent.head')}>
             <h3 className="obx-sent__head label">

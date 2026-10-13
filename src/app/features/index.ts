@@ -51,6 +51,8 @@ export type { Receipt } from './ai/core/meter'
 export { install as installGovernor } from './governor/install'
 /** The Regler for background work (the autofill watch's paused rows, a line that moved, E for a job or the watch). */
 export { budgetRefusal, watchSource, pauseRows, takeRows, pausedRows, onLineChange, allowTask, ALLOW_USD, fmtLimit, type BudgetRefusal } from './governor'
+/** The brake note for a refused request (AIError 'budget'): lazy, its keys retry with E / B (core/gate.ts armRetry). */
+export { BrakeSlot, type BrakeForProps } from './governor'
 /** Claude's Markdown → a safe document: web images / media / frames as links (addresses a page shows already stay). */
 export { webImagesOf } from './agents/images'
 export { claudeDoc } from './ai/claudeDoc'

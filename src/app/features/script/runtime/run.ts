@@ -20,10 +20,14 @@ import { makers, reachable } from './objects'
 import { readProp } from './props'
 import { isTabular, tabulate } from './table'
 import { appRunUI, silentRunUI } from './dialogs'
+import { SCRIPT_SYSTEM_CHARS } from './effects'
+import { precheck } from '../../ai/core/gate'
+import { thinksInside } from '@/shared/ai/wire/maxTokens'
+import { planBand } from '../../governor'
 import { loadScriptRuns, putScriptRun, scriptScope } from './runs'
 import { isSettled } from '../../recorder/settled'
 import { codeHash, isTrusted, trustCode } from './trust'
-import type { ChangeItem, EffectItem, ErrorInfo, LogLine, ResultTable, RunMode, RunUI, ScriptRun, UndoData } from './types'
+import type { ChangeItem, ConfirmItem, EffectItem, ErrorInfo, LogLine, ResultTable, RunBand, RunMode, RunUI, ScriptRun, UndoData } from './types'
 import { endRun, noteRun, withWriter, type Writer, type WriterKey } from '../../../store/writer'
 
 export interface RunOptions {
@@ -205,6 +209,24 @@ function undoData(host: Host): UndoData | null {
 /** The writer of a run's writes (store/writer.ts): script:<id | ->:<run>, with the caller as its cause. */
 const scriptWriter = (o: RunOptions, runId: string): Writer => ({ kind: 'script', id: o.scriptId ?? null, run: runId, ...(o.writer?.via ? { via: o.writer.via } : {}) })
 
+/**
+ * With a budget: what the run's claude() calls (the check pass's count) may cost against the rest — n × the band of one
+ * call (its prompt as the card shows it, the effect's own answer budget). Null without a budget or a price.
+ */
+function runBand(items: readonly ConfirmItem[], run: { source: string; mode: 'interactive' | 'trigger' }): RunBand | null {
+  const calls = items.filter((i) => i.kind === 'claude')
+  if (!calls.length) return null
+  try {
+    const promptChars = SCRIPT_SYSTEM_CHARS + Math.max(...calls.map((i) => i.label.length))
+    const pre = precheck({ purpose: 'scripts.effect', sources: [{ all: true }], size: { promptChars, maxTokens: (caps) => (thinksInside(caps) ? 16000 : 8000) }, run })
+    const b = planBand(pre.hint, calls.length)
+    return b ? { ...b, source: run.source } : null
+  } catch {
+    // refused before money (no key, a rule): the run says so at its first call
+    return null
+  }
+}
+
 export async function runScript(o: RunOptions): Promise<RunResult> {
   if (o.mode !== 'run') return runScriptNow(o)
   // a run that may write: the recorder learns of it before its first write, and its segments close when it ends
@@ -251,7 +273,7 @@ async function runScriptNow(o: RunOptions, id?: string): Promise<RunResult> {
     // a script that asks the person first (ask, choose …) may do other things than the check saw:
     // then each of them is asked when it comes (with "Allow all" for the rest of its kind)
     if (!check.error && items.length && !check.host.usedDialogs) {
-      const keys = await ui.confirmPlan(items, o.name ?? '', signal)
+      const keys = await ui.confirmPlan(items, o.name ?? '', signal, runBand(items, check.host.governed()))
       if (!keys) return empty('cancelled')
       approved = { keys, labels: new Map(items.map((i) => [i.key, i.label])) }
     }

@@ -230,6 +230,21 @@
   box-shadow: var(--focus-ring);
 }
 
+/* the dock is short: a smaller dial beside the sentence and the keys (the phone layout stacks them, governor.css) */
+@media (min-width: 761px) {
+  .term-halt .gv-halt__body {
+    grid-template-columns: calc(150px * var(--text-scale)) minmax(0, 1fr);
+    gap: 16px;
+    padding: 8px 12px 10px 8px;
+  }
+  .term-halt .gv-halt__dial {
+    width: calc(150px * var(--text-scale));
+  }
+  .term-halt .gv-halt__right {
+    gap: 8px;
+  }
+}
+
 .term-prompt__input[data-halted] {
   cursor: default;
 }

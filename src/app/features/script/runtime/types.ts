@@ -117,12 +117,27 @@ export interface RunUI {
   ask(text: string, def: string, signal: AbortSignal): Promise<string | null>
   choose(text: string, options: string[], signal: AbortSignal): Promise<string | null>
   notify(text: string): void
-  /** before a run: the things that leave One or go to the trash; resolves the allowed keys (null: cancel the run) */
-  confirmPlan(items: ConfirmItem[], scriptName: string, signal: AbortSignal): Promise<Set<string> | null>
+  /**
+   * before a run: the things that leave One or go to the trash; resolves the allowed keys (null: cancel the run).
+   * `band`: with a budget, what its claude() calls may cost against the rest (features/governor planBand; `source` =
+   * the run's ledger source, which E on the card allows +1 $ for)
+   */
+  confirmPlan(items: ConfirmItem[], scriptName: string, signal: AbortSignal, band?: RunBand | null): Promise<Set<string> | null>
   /** during a run: one more such thing that was not on that list ('all': this one and the rest of its kind in this run) */
   allowOne(item: ConfirmItem, scriptName: string, signal: AbortSignal): Promise<boolean | 'all'>
   /** the time budget ran out: another one? */
   moreTime(scriptName: string, signal: AbortSignal): Promise<boolean>
   /** team workspace: a script someone else changed last — run this exact version? */
   trust(info: { name: string; editor: string | null; code: string }, signal: AbortSignal): Promise<boolean>
+}
+
+/** The consent card's band for a run's claude() calls (features/governor PlanBand + the run's ledger source). */
+export interface RunBand {
+  n: number
+  band: { low: number; high: number }
+  rest: number
+  fits: boolean
+  allow: number | null
+  need: number
+  source: string
 }

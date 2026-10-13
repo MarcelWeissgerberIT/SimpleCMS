@@ -38,7 +38,8 @@ export interface MeetingRuntime {
   /** recorded ms before `since` */
   base: number
   speechError: SpeechErrorCode | null
-  aiError: { code: AIErrorCode; message: string; fix?: AIFix } | null
+  /** `detail` / `label`: the Regler's red line (code 'budget') — the binding line and the route, for the brake note */
+  aiError: { code: AIErrorCode; message: string; fix?: AIFix; detail?: string; label?: string } | null
 }
 
 const IDLE: MeetingRuntime = { phase: 'idle', interim: '', since: null, base: 0, speechError: null, aiError: null }
@@ -295,7 +296,7 @@ export async function summarizeMeeting(blockId: string): Promise<void> {
   } catch (e) {
     patchMeeting(l.target, (a) => (a.status === 'summarizing' ? { status: prev } : null), writer)
     const err = e instanceof AIError ? e : new AIError('unknown', e instanceof Error ? e.message : String(e))
-    if (err.code !== 'aborted') setRuntime(blockId, { aiError: { code: err.code, message: err.message, ...(err.fix ? { fix: err.fix } : {}) } })
+    if (err.code !== 'aborted') setRuntime(blockId, { aiError: { code: err.code, message: err.message, ...(err.fix ? { fix: err.fix } : {}), ...(err.code === 'budget' ? { detail: err.detail, label: err.label } : {}) } })
   } finally {
     if (l.abort === ac) l.abort = null
     if (runtimeOf(blockId).phase === 'summarizing') setRuntime(blockId, { phase: 'idle' })

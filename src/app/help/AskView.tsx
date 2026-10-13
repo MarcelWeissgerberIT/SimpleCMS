@@ -2,12 +2,12 @@
  * "Ask the help": a question → the AI (your key) answers from the best-matching help articles only and
  * links the ones it used. Without a key: a hint and the matching articles instead.
  */
-import { useEffect, useMemo, useRef, type KeyboardEvent } from 'react'
+import { Suspense, useEffect, useMemo, useRef, type KeyboardEvent } from 'react'
 import { create } from 'zustand'
 import { ArrowRight, Square } from 'lucide-react'
 import { useLang, useT } from '../i18n'
 import { useWorkspace } from '../store/store'
-import { AINeedsSetup, RouteChip, aiStatus, offersAI, destinationOf, isAIConfigured, isRouteKey, type Route, type RouteChipHandle } from '../features'
+import { AINeedsSetup, BrakeSlot, RouteChip, aiStatus, offersAI, destinationOf, isAIConfigured, isRouteKey, type Route, type RouteChipHandle } from '../features'
 import { shortcutLabel } from '../ui/controls'
 import { askHelp, linkCitations } from './ask'
 import { LIBRARY } from './content'
@@ -31,10 +31,12 @@ interface AskState {
   handled: number
   /** the route chip: the model for the next question only (null: the rules decide) */
   chip: Route | null
+  /** the question refused at the Regler's red line (nothing was sent): the brake note's error */
+  brake: unknown
 }
 
 /** The ask session outlives the view: open a cited article, come back, the answer is still there. */
-const useAsk = create<AskState>()(() => ({ phase: 'idle', asked: '', answer: '', error: '', sources: [], handled: 0, chip: null }))
+const useAsk = create<AskState>()(() => ({ phase: 'idle', asked: '', answer: '', error: '', sources: [], handled: 0, chip: null, brake: null }))
 let abort: AbortController | null = null
 
 /** The article last open in the panel: a question asked from it is probably about it. */
@@ -52,7 +54,7 @@ async function ask(lang: HelpLang, q = useHelp.getState().question): Promise<voi
   if (!text) return
   abort?.abort()
   const sources = articlesForQuestion(LIBRARY, lang, text, 6, lastArticle())
-  useAsk.setState({ asked: text, answer: '', error: '', sources })
+  useAsk.setState({ asked: text, answer: '', error: '', sources, brake: null })
   // the gate's answer for help questions (a key for a route the rules allow); demo answers stay out of the help
   const st = aiStatus('help.ask')
   if (!offersAI(st) || !isAIConfigured()) return useAsk.setState({ phase: 'nokey' })
@@ -66,7 +68,7 @@ async function ask(lang: HelpLang, q = useHelp.getState().question): Promise<voi
     useAsk.setState({ answer: final, phase: 'done' })
   } catch (e) {
     if (ctrl.signal.aborted) return
-    useAsk.setState({ error: e instanceof Error ? e.message : String(e), phase: 'error' })
+    useAsk.setState({ error: e instanceof Error ? e.message : String(e), phase: 'error', brake: (e as { code?: unknown } | null)?.code === 'budget' ? e : null })
   }
 }
 
@@ -83,7 +85,7 @@ export function AskView() {
   const question = useHelp((s) => s.question)
   const askRun = useHelp((s) => s.askRun)
   const model = useWorkspace((s) => s.settings.aiModel)
-  const { phase, asked, answer, error, sources, chip } = useAsk()
+  const { phase, asked, answer, error, sources, chip, brake } = useAsk()
   const chipRef = useRef<RouteChipHandle | null>(null)
   const fieldRef = useRef<HTMLTextAreaElement | null>(null)
 
@@ -201,7 +203,19 @@ export function AskView() {
             {t('help.ask.model', { model: modelLabel })}
             {phase === 'running' && <span className="help-ask__reading"> · {t('help.ask.reading', { n: sources.length })}</span>}
           </p>
-          {phase === 'error' ? (
+          {phase === 'error' && brake ? (
+            // the red line (features/governor): E +1 $ once · B a cheaper model · Esc — the question is asked again
+            <Suspense fallback={<p className="help-ask__error">{error}</p>}>
+              <BrakeSlot
+                error={brake}
+                onRetry={() => void ask(lang, asked)}
+                onCancel={() => {
+                  useAsk.setState({ phase: 'idle', brake: null })
+                  fieldRef.current?.focus({ preventScroll: true })
+                }}
+              />
+            </Suspense>
+          ) : phase === 'error' ? (
             <p className="help-ask__error" role="alert">
               {error}
             </p>

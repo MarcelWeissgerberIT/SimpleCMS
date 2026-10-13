@@ -25,6 +25,8 @@
 import { GEN } from '@/shared/ai/generations'
 import { thinksInside } from '@/shared/ai/wire/maxTokens'
 import { blendedPerM } from '@/shared/ai/prices'
+import { routeKey } from '@/shared/ai/route'
+import type { Route } from '@/shared/ai/types'
 import { precheck, registerBeforeSend, type BrakeCtx, type MoneyHint, type MoneyVerdict, type PrepareInput, type RoundCtx, type StartCheck } from '../ai/core/gate'
 import { AIError } from '../ai/core/errors'
 import { useWorkspace } from '../../store/store'
@@ -86,14 +88,28 @@ export function money(ctx: BrakeCtx): MoneyVerdict | void {
   const base: OneShotCtx = { limited: true, scopeKnown: t.scopeId !== null, ...judged(ctx) }
   let v = oneShot(base, rest)
   // the cheaper routes are looked up only for a refusal that can name one
-  if (v.kind === 'refuse' && v.fix) v = oneShot({ ...base, cheaper: ctx.cheaper() }, rest)
+  let cheaper: ReadonlyArray<{ route: Route; band: Band | null }> = []
+  if (v.kind === 'refuse' && v.fix) {
+    cheaper = ctx.cheaper()
+    v = oneShot({ ...base, cheaper }, rest)
+  }
   if (v.kind === 'identity') return
   if (v.kind === 'refuse') {
     if (!v.fix) throw new AIError('budget', v.detail, undefined, ctx.label)
     const f = v.fix
     const line = f.rest.binding ? lineNow(l, t, f.rest.binding, run) : null
     throw new AIError('budget', v.detail, undefined, ctx.label, [
-      { kind: 'brake', allow: f.allow, need: f.need, ...(f.cheaper ? { cheaper: f.cheaper } : {}), band: { low: f.band.low, high: f.band.high }, rest: restMin(f.rest), binding: f.rest.binding, ...(line ? { line } : {}) },
+      {
+        kind: 'brake',
+        allow: f.allow,
+        need: f.need,
+        ...(f.cheaper ? { cheaper: f.cheaper, cheaperBand: bandOf(cheaper.find((c) => routeKey(c.route) === routeKey(f.cheaper!))?.band ?? null) } : {}),
+        band: { low: f.band.low, high: f.band.high },
+        rest: restMin(f.rest),
+        binding: f.rest.binding,
+        ...(line ? { line } : {}),
+        purpose: ctx.purpose,
+      },
     ])
   }
   // let through: the token it carried is spent ("nur für diese Anfrage"); a task's allowance stays for its task
