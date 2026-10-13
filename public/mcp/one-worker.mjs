@@ -12022,7 +12022,7 @@ async function branchDiff(repo, branch, dir, max2 = 8e4) {
   const stat = (await git(cwd, ["diff", "--stat=120", "-M", ...range])).stdout.trimEnd();
   const files = (await git(cwd, ["diff", "--name-only", "-M", ...range])).stdout.split("\n").filter(Boolean).length;
   const fresh = dir ? (await git(cwd, ["ls-files", "--others", "--exclude-standard"])).stdout.split("\n").filter(Boolean).slice(0, 100) : [];
-  let diff = (await git(cwd, ["diff", "-M", ...range], 12e4)).stdout;
+  let diff = (await git(cwd, ["diff", "--no-ext-diff", "-M", ...range], 12e4)).stdout;
   if (!diff.trim() && !fresh.length) return null;
   let clipped = false;
   if (diff.length > max2) {
@@ -12145,7 +12145,7 @@ async function diffFiles(dir, base, status) {
       if (!path) continue;
       const binary = add === "-" && del === "-";
       const st = statusOfPath.get(path) ?? "M";
-      const piece = binary ? { diff: null, truncated: false } : take((await git(dir, ["diff", "-M", mb, "--", path])).stdout);
+      const piece = binary ? { diff: null, truncated: false } : take((await git(dir, ["diff", "--no-ext-diff", "-M", mb, "--", path])).stdout);
       files.push({ path, status: st, add: binary ? 0 : count(add), del: binary ? 0 : count(del), binary, ...piece });
     }
   }

@@ -515,7 +515,7 @@ the public APIs stable — other areas are built against them in parallel.
   detached gc runs), moved in as `.git` after a last check) into `cloneDir` (default ~/one-repos, never iCloud). Its
   `info/attributes` ends with `NO_DRIVERS` (`* -filter !diff merge`) for good: no filter / diff textconv / merge driver
   of the person's runs in an imported repo (import, repoFacts' status, worktrees, diffs, commits, updates); LFS files
-  stay plain files.
+  stay plain files; the worker's patch diffs use `--no-ext-diff` (never the person's diff.external).
   Clones and imports are marked `.git/one-worker-source` (`SOURCE_MARK`: clone · zip · folder; a clone of the same
   address added again only in the default ~/one-repos; once per config, `worker-marks.json`, an older import anywhere
   by its root commit `Import <file>.zip` → zip, an older clone only in the default ~/one-repos named after its origin →

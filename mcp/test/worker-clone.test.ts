@@ -535,6 +535,8 @@ describe('ZIP import: no git folder in any spelling or shape, nothing in the ZIP
       '[filter "lfsish"]\n\tprocess = sh nbstripout.sh process',
       `[filter "lfs"]\n\tclean = ${pointer}\n\tsmudge = cat\n\trequired = true`,
       `[core]\n\tattributesFile = ${attributes}`,
+      // an external diff command of the person's (diff.external): it runs in the repository's folder too
+      '[diff]\n\texternal = sh nbstripout.sh external',
     ].join('\n') + '\n'
     const script = `touch '${join(trap, 'ran')}'-"$1"\ncat\n`
     const notebook = '{"cells": [{"outputs": ["secret"]}]}\n'
@@ -581,11 +583,15 @@ describe('ZIP import: no git folder in any spelling or shape, nothing in the ZIP
       assert.deepEqual([up.how, up.conflicts], ['conflicts', ['analysis.ipynb']], 'git\'s own merge: a conflict, no merge driver')
       assert.deepEqual(ran(), [], 'nothing ran during the task')
 
-      // the setup was live: without the line, plain git runs the ZIP's script (diff textconv, filter)
-      writeFileSync(join(res.dir, '.git', 'info', 'attributes'), '')
+      // the setup was live: plain git diff runs the person's external diff in the repository's folder, and without the
+      // line their diff textconv (the ZIP's script both times)
       sh(wt.dir, 'merge', '--abort')
-      execFileSync('git', ['diff', 'HEAD~1', '--', 'analysis.ipynb'], { cwd: wt.dir, env: { ...process.env, GIT_CONFIG_NOSYSTEM: '1' }, stdio: 'ignore' })
-      assert.ok(ran().includes('ran-textconv'), `plain git diff ran it: ${ran().join(', ')}`)
+      const plainDiff = (...args: string[]) => execFileSync('git', ['diff', ...args, 'HEAD~1', '--', 'analysis.ipynb'], { cwd: wt.dir, env: { ...process.env, GIT_CONFIG_NOSYSTEM: '1' }, stdio: 'ignore' })
+      plainDiff()
+      assert.deepEqual(ran(), ['ran-external'], 'plain git diff ran the external diff')
+      writeFileSync(join(res.dir, '.git', 'info', 'attributes'), '')
+      plainDiff('--no-ext-diff')
+      assert.ok(ran().includes('ran-textconv'), `plain git diff ran the textconv: ${ran().join(', ')}`)
     })
   })
 

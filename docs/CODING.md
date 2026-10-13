@@ -133,8 +133,10 @@ clean, and a test-command guess from top-level files — `package.json` with a `
   imported repository — not at its first `git status` (the page's and the Import stage's `repoFacts`), not in a
   task's worktree, diff, commit or update from the base. Its files stay as they were committed: Git LFS files are
   plain files there (a filter applied later would show each one changed and put the conversion into a task's first
-  commit); `merge` = git's own text merge, `!diff` = git's own diff. Removing the line turns the drivers on. A failed
-  import leaves no folder behind. No remote — push is off until one is added.
+  commit); `merge` = git's own text merge, `!diff` = git's own diff. Removing the line turns the drivers on. The
+  worker's own diffs (the Diff tab, a doc stage's DIFF block) run with `--no-ext-diff` in every repository: never the
+  person's `diff.external`, a command that would run in the repository's folder too. A failed import leaves no folder
+  behind. No remote — push is off until one is added.
 - **Create it on GitLab / GitHub** (offered after an import while `glab` / `gh` is signed in; mcp/src/worker/publish.ts):
   a project name suggested from the code (package.json, composer.json, pom.xml, pyproject.toml / setup.py, Cargo.toml,
   go.mod, *.sln / *.csproj, the README's first heading — else the ZIP's name), an optional GitLab group (nested) or
