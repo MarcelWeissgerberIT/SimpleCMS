@@ -121,6 +121,10 @@ input[type='text']:focus, input[type='number']:focus, select:focus { border-colo
 .keys { display: flex; flex-wrap: wrap; gap: 4px; min-height: 20px; }
 .kbd { display: inline-block; padding: 1px 6px; border: 1px solid var(--rule-strong); border-bottom-width: 2px; border-radius: 2px; background: var(--surface); color: var(--ink); font: 11px/1.5 var(--mono); }
 .hint { color: var(--ink-3); font-size: 12px; }
+.warn { padding-left: 8px; border-left: 2px solid var(--signal); color: var(--signal-ink); font-size: 12px; }
+.own { grid-column: 1 / -1; padding-top: 10px; border-top: 1px solid var(--rule); }
+.own .sw { align-items: flex-start; }
+.own .sw input { flex: none; margin-top: 2px; }
 .toggles { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; }
 .sw { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer; }
 .sw input { appearance: none; -webkit-appearance: none; position: relative; width: 28px; height: 16px; margin: 0; border: 1px solid var(--faint); border-radius: 999px; background: var(--surface-2); cursor: pointer; transition: background 90ms var(--ease); }
@@ -212,7 +216,16 @@ export const SETUP_JS = String.raw`(function () {
     pr: 'Pull / merge requests (gh · glab)',
     limit: 'Cost limit per task (USD)',
     mcpLabel: 'Own MCP servers for Claude Code',
-    mcpHint: 'Names as “claude mcp list” shows them, e.g. kb — this repo\'s stages may use their tools (a knowledge base, a design system). Empty: only One\'s task tools. While the repo\'s own Claude Code settings are off, only servers added with “claude mcp add -s user …” reach it.',
+    mcpHint: 'Names as “claude mcp list” shows them, e.g. kb — this repo\'s stages may use their tools (a knowledge base, a design system). Empty: only One\'s task tools.',
+    ownLabel: 'Use this repo’s own Claude Code settings (.claude/, .mcp.json, CLAUDE.md, local MCP servers)',
+    ownMine: 'On for your own repositories. Off: Claude Code starts with your own settings only (--setting-sources user).',
+    ownWhy: 'Off by default: {why}. Switch it on only for code you trust.',
+    whycloned: 'cloned by the worker',
+    whyimported: 'imported by the worker from a ZIP',
+    whymarked: 'marked as code from elsewhere (it lay in the clone folder when the worker updated)',
+    whycloneDir: 'in the clone folder',
+    ownWarn: 'On: this repo’s hooks and helper commands (apiKeyHelper, its MCP servers) will run on this computer when a task starts.',
+    mcpUser: 'Its own settings are off: only servers added with “claude mcp add -s user …” reach this repo.',
     clone: 'Clone from GitLab / GitHub…',
     cloneUrl: 'Clone address — on the project page under Clone (HTTPS or SSH)',
     cloneDir: 'Into the folder',
@@ -316,7 +329,16 @@ export const SETUP_JS = String.raw`(function () {
     pr: 'Pull / Merge Requests (gh · glab)',
     limit: 'Kostengrenze pro Aufgabe (USD)',
     mcpLabel: 'Eigene MCP-Server für Claude Code',
-    mcpHint: 'Namen wie in „claude mcp list“, z. B. kb – die Stufen dieses Repos dürfen ihre Tools nutzen (eine Wissensbasis, ein Designsystem). Leer: nur die Aufgaben-Tools von One. Solange die eigenen Claude-Code-Einstellungen des Repos aus sind, erreichen es nur Server, die mit „claude mcp add -s user …“ hinzugefügt wurden.',
+    mcpHint: 'Namen wie in „claude mcp list“, z. B. kb – die Stufen dieses Repos dürfen ihre Tools nutzen (eine Wissensbasis, ein Designsystem). Leer: nur die Aufgaben-Tools von One.',
+    ownLabel: 'Eigene Claude-Code-Einstellungen dieses Repos nutzen (.claude/, .mcp.json, CLAUDE.md, lokale MCP-Server)',
+    ownMine: 'An für deine eigenen Repositories. Aus: Claude Code startet nur mit deinen eigenen Einstellungen (--setting-sources user).',
+    ownWhy: 'Standardmäßig aus: {why}. Schalte es nur für Code ein, dem du vertraust.',
+    whycloned: 'vom Worker geklont',
+    whyimported: 'vom Worker aus einer ZIP importiert',
+    whymarked: 'als fremder Code markiert (lag beim Update des Workers im Klon-Ordner)',
+    whycloneDir: 'im Klon-Ordner',
+    ownWarn: 'An: Die Hooks und Hilfsbefehle dieses Repos (apiKeyHelper, seine MCP-Server) laufen auf diesem Rechner, wenn eine Aufgabe startet.',
+    mcpUser: 'Seine eigenen Einstellungen sind aus: Nur Server, die mit „claude mcp add -s user …“ hinzugefügt wurden, erreichen dieses Repo.',
     clone: 'Von GitLab / GitHub klonen …',
     cloneUrl: 'Klon-Adresse – auf der Projektseite unter „Clone“ (HTTPS oder SSH)',
     cloneDir: 'In den Ordner',
@@ -461,7 +483,7 @@ export const SETUP_JS = String.raw`(function () {
   }
 
   function editOf(r) {
-    if (!edits[r.path]) edits[r.path] = { ticked: r.ticked, name: r.name, base: r.base, test: r.testLine, push: r.push, pr: r.pr, limit: r.maxUsdPerTask === null ? '' : String(r.maxUsdPerTask), mcp: r.mcp || '', analyze: r.analyzeLine || '' }
+    if (!edits[r.path]) edits[r.path] = { ticked: r.ticked, name: r.name, base: r.base, test: r.testLine, push: r.push, pr: r.pr, limit: r.maxUsdPerTask === null ? '' : String(r.maxUsdPerTask), mcp: r.mcp || '', analyze: r.analyzeLine || '', own: r.ownSettings, own0: r.ownSettings }
     return edits[r.path]
   }
 
@@ -538,6 +560,16 @@ export const SETUP_JS = String.raw`(function () {
     branches.forEach(function (b) { base.appendChild(el('option', { value: b, text: b })) })
     base.value = e.base
     var toggles = [el('label', { className: 'sw' }, [el('input', { type: 'checkbox', role: 'switch', checked: e.push, onchange: function (ev) { e.push = ev.target.checked } }), t('push')])]
+    // the repo's own Claude Code settings: off for code from elsewhere (the reason shown), a warning while it is on
+    // against that — or turned on here
+    function warnOn() { return e.own && (!!r.source || !e.own0) }
+    var ownWarn = el('span', { className: 'warn', id: id + 'ow', text: t('ownWarn'), hidden: !warnOn() })
+    var mcpUser = el('span', { className: 'hint', id: id + 'mu', text: t('mcpUser'), hidden: e.own })
+    var own = el('div', { className: 'field field--wide own' }, [
+      el('label', { className: 'sw' }, [el('input', { type: 'checkbox', role: 'switch', id: id + 'o', checked: e.own, 'aria-describedby': id + 'oh ' + id + 'ow', onchange: function (ev) { e.own = ev.target.checked; ownWarn.hidden = !warnOn(); mcpUser.hidden = e.own } }), t('ownLabel')]),
+      el('span', { className: 'hint', id: id + 'oh', text: r.source ? t('ownWhy', { why: t('why' + r.source) }) : t('ownMine') }),
+      ownWarn
+    ])
     if (state.gh || state.glab) toggles.push(el('label', { className: 'sw' }, [el('input', { type: 'checkbox', role: 'switch', checked: e.pr === 'gh', onchange: function (ev) { e.pr = ev.target.checked ? 'gh' : 'none' } }), t('pr')]))
     return el('div', { className: 'detail' }, [
       el('div', { className: 'field' }, [el('label', { className: 'label', for: id + 'n', text: t('nameLabel') }), el('input', { type: 'text', id: id + 'n', value: e.name, maxlength: 64, spellcheck: 'false', oninput: function (ev) { e.name = ev.target.value } })]),
@@ -546,7 +578,8 @@ export const SETUP_JS = String.raw`(function () {
       el('div', { className: 'field' }, [el('label', { className: 'label', for: id + 'a', text: t('analyzeLabel') }), el('input', { type: 'text', id: id + 'a', value: e.analyze, spellcheck: 'false', autocomplete: 'off', oninput: function (ev) { e.analyze = ev.target.value } }), el('span', { className: 'hint', text: t('analyzeHint') })]),
       el('div', { className: 'field field--wide' }, [el('div', { className: 'toggles' }, toggles)]),
       el('div', { className: 'field' }, [el('div', { className: 'limit' }, [el('label', { className: 'label', for: id + 'l', text: t('limit') }), el('input', { type: 'number', id: id + 'l', min: '0', step: '0.5', value: e.limit, placeholder: t('noLimit'), inputmode: 'decimal', oninput: function (ev) { e.limit = ev.target.value } })])]),
-      el('div', { className: 'field field--wide' }, [el('label', { className: 'label', for: id + 'm', text: t('mcpLabel') }), el('input', { type: 'text', id: id + 'm', value: e.mcp, placeholder: 'kb', spellcheck: 'false', autocomplete: 'off', oninput: function (ev) { e.mcp = ev.target.value } }), el('span', { className: 'hint', text: t('mcpHint') })])
+      el('div', { className: 'field field--wide' }, [el('label', { className: 'label', for: id + 'm', text: t('mcpLabel') }), el('input', { type: 'text', id: id + 'm', value: e.mcp, placeholder: 'kb', spellcheck: 'false', autocomplete: 'off', 'aria-describedby': id + 'mu', oninput: function (ev) { e.mcp = ev.target.value } }), el('span', { className: 'hint', text: t('mcpHint') }), mcpUser]),
+      own
     ])
   }
 
@@ -840,7 +873,7 @@ export const SETUP_JS = String.raw`(function () {
     var repos = state.repos.filter(function (r) { return editOf(r).ticked }).map(function (r) {
       var e = editOf(r)
       var limit = parseFloat(String(e.limit).replace(',', '.'))
-      return { path: r.path, name: e.name.trim(), baseBranch: e.base, test: e.test, analyze: e.analyze, push: e.push, pr: e.pr, maxUsdPerTask: isFinite(limit) && limit > 0 ? limit : null, mcp: e.mcp }
+      return { path: r.path, name: e.name.trim(), baseBranch: e.base, test: e.test, analyze: e.analyze, push: e.push, pr: e.pr, maxUsdPerTask: isFinite(limit) && limit > 0 ? limit : null, mcp: e.mcp, projectSettings: e.own }
     })
     busy = 'save'
     note = null

@@ -137,7 +137,18 @@ clean, and a test-command guess from top-level files — `package.json` with a `
   as `cloneDir`).
 - **Own MCP servers for Claude Code** (per repo, `claude.mcpServers`): names as `claude mcp list` shows them (e.g.
   `kb`). The stages of that repo get their tools allowed (`mcp__<name>`), `--strict-mcp-config` is left out, and
-  the prompt tells Claude it may use them (what they return is data, like the task).
+  the prompt tells Claude it may use them (what they return is data, like the task). While the repo's own settings
+  are off, only user-scope servers reach it (`claude mcp add -s user …`) — the page says so under the field.
+- **Use this repo's own Claude Code settings (.claude/, .mcp.json, CLAUDE.md, local MCP servers)** (per repo,
+  `claude.projectSettings`): on for the person's own repos; off for code from elsewhere, with the rule that matched
+  as the reason ("cloned by the worker" · "imported by the worker from a ZIP" · "marked as code from elsewhere" ·
+  "in the clone folder" — config.ts `sourceOf`, under worker.json's clone folder and the one the next Save writes).
+  Turned on against that, it says in one line that the repo's hooks and helper commands (apiKeyHelper, its MCP
+  servers) will run on this computer when a task starts. Save writes the key through the same door (key, Host,
+  Origin) only where it decides something: against the default, where an "off" rests on the clone folder alone
+  (it would turn on once `cloneDir` moves — what the page showed stays), or where worker.json had the key already;
+  an "off" by the worker's mark and an "on" for an own repo stay implicit. A body without the switch (the terminal
+  checklist, an Import stage) leaves the key as it is.
 
 Saving writes `worker.json` with mode 0600 (its folder 0700), keeping what the file already says: other keys and,
 for a repo that stays ticked, its own settings (`claude`, `branchPrefix`, `worktreeDir`, limits …). A hand-written
@@ -305,7 +316,7 @@ Per repo:
 | `claude.allowedTools` / `disallowedTools` | `[]` | Claude Code's own syntax (`"Bash(npm test:*)"`). Headless runs cannot ask, so whatever needs permission must be allowed here. |
 | `claude.strictMcp` | `true` | `--strict-mcp-config`: during a task Claude Code gets only the task tools, not your other MCP servers. |
 | `claude.mcpServers` | `[]` | Your own Claude Code MCP servers this repo may use (e.g. `["kb"]`): their tools are allowed and `--strict-mcp-config` is left out. Set on the setup page. |
-| `claude.projectSettings` | `true`; `false` for code from elsewhere | May Claude Code load the repo's own settings — `.claude/settings.json` / `settings.local.json` (hooks, `apiKeyHelper`, MCP approvals), `.mcp.json`, `CLAUDE.md` — and your **local-scope** MCP servers for that folder (`claude mcp add`'s default scope)? `false`: it runs with `--setting-sources user` — your own `~/.claude` settings and **user-scope** MCP servers only, so a server in `claude.mcpServers` must be added with `claude mcp add -s user …` (the log says so, code `mcpUserScope`). The default is `false` for code from elsewhere, by the first rule that matches (§ Safety, "Nor when Claude Code starts on it"): the worker's mark `.git/one-worker-source`, else a folder inside `cloneDir`. Such settings run commands the moment Claude Code starts, even in a read-only stage. Set `true` once you trust that repo. A Claude Code without `--setting-sources` refuses the stage while the repo has `.claude/` or `.mcp.json`. |
+| `claude.projectSettings` | `true`; `false` for code from elsewhere | May Claude Code load the repo's own settings — `.claude/settings.json` / `settings.local.json` (hooks, `apiKeyHelper`, MCP approvals), `.mcp.json`, `CLAUDE.md` — and your **local-scope** MCP servers for that folder (`claude mcp add`'s default scope)? `false`: it runs with `--setting-sources user` — your own `~/.claude` settings and **user-scope** MCP servers only, so a server in `claude.mcpServers` must be added with `claude mcp add -s user …` (the log says so, code `mcpUserScope`). The default is `false` for code from elsewhere, by the first rule that matches (§ Safety, "Nor when Claude Code starts on it"): the worker's mark `.git/one-worker-source`, else a folder inside `cloneDir`. Such settings run commands the moment Claude Code starts, even in a read-only stage. Set `true` once you trust that repo — the setup page's switch **Use this repo's own Claude Code settings** writes it (§ The setup page). A Claude Code without `--setting-sources` refuses the stage while the repo has `.claude/` or `.mcp.json`. |
 | `maxUsdPerTask` / `maxUsdPerDay` | none | Cost limits (Claude Code's own `total_cost_usd`). |
 
 ## The pipeline
@@ -615,8 +626,9 @@ A browser for reviews: the person's own Claude Code MCP server (e.g. `claude mcp
     Windows. This rule follows `cloneDir`: a wide one (`~/code`, `~`) takes in the person's own repos too; their line
     says "lies in the worker's clone folder", never "cloned".
   An older Claude Code without `--setting-sources` refuses such a stage while the repo has `.claude/` or `.mcp.json`.
-  The person trusts a repo with `"claude": { "projectSettings": true }`. The imported code itself runs only where the
-  person lets it: the test and analysis commands, Claude Code's own permission rules.
+  The person trusts a repo with the setup page's switch (or `"claude": { "projectSettings": true }` by hand). The
+  imported code itself runs only where the person lets it: the test and analysis commands, Claude Code's own
+  permission rules.
 - **Diffs never follow links**: an untracked symbolic link shows as its target, the file it points at is never read.
 - **Cost**: per-task and per-day limits are checked before each stage and passed to Claude Code as
   `--max-budget-usd` (where the CLI knows it). **Stop** (One) or Ctrl+C (worker) kills Claude Code's whole process

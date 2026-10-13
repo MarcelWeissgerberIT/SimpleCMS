@@ -1,8 +1,9 @@
 /**
  * one-worker — the local setup page: http://127.0.0.1:<port>/setup#k=<token>, on the worker's own port.
  * The person ticks the repositories One may hand tasks to (found by scan.ts), sets base branch, test
- * command, push, pull requests and a cost limit per repo, and saves: worker.json is written (0600) and the
- * worker reloads — One sees the new repo names at once (a fresh `welcome`).
+ * command, push, pull requests, a cost limit and whether Claude Code may load the repo's own settings
+ * (claude.projectSettings — off for code from elsewhere, with the reason) per repo, and saves: worker.json is
+ * written (0600) and the worker reloads — One sees the new repo names at once (a fresh `welcome`).
  *
  * The door: Host must be exactly 127.0.0.1:<port> (DNS rebinding); every API call carries the token —
  * random per worker start, only in the page's address fragment (never sent by the browser on its own),
@@ -20,7 +21,7 @@ import { homedir } from 'node:os'
 import { isAbsolute, join, resolve, sep } from 'node:path'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { REPO_NAME, type OpenSetupResult, type WorkerPreset } from '../../../src/app/features/coding/protocol.ts'
-import { MCP_NAME, saveRepos, splitArgs, type RepoChoice, type WorkerConfig } from './config.ts'
+import { MCP_NAME, inFolder, saveRepos, sourceOf, splitArgs, type RepoChoice, type SourceWhy, type WorkerConfig } from './config.ts'
 import { bareRepo, factsOf, findRepos, isMainCheckoutAsync, realpathTimed, repoFacts, shortPath, type FindResult, type FoundRepo, type ScanOptions } from './scan.ts'
 import { pickFolder, type PickResult } from './picker.ts'
 import { sameSecret } from './preset.ts'
@@ -94,6 +95,10 @@ export interface PageRepo extends FoundRepo {
   mcp: string
   /** the Static analysis stage's command as one line (configured, else the guess) */
   analyzeLine: string
+  /** Claude Code may load this repo's own settings (worker.json says so, else: on unless `source`) */
+  ownSettings: boolean
+  /** why it counts as code from elsewhere — its own settings off by default (config.ts sourceOf); null: the person's own */
+  source: SourceWhy | null
 }
 
 const MAX_BODY = 256 * 1024
@@ -194,6 +199,14 @@ export class SetupServer {
     return this.scanning
   }
 
+  /**
+   * Why a repo counts as code from elsewhere: its mark, else the clone folder of worker.json — or the one this page
+   * writes with the next Save (a clone into another folder), so the switch shows what will hold after it.
+   */
+  private sourceNow(path: string): SourceWhy | null {
+    return sourceOf(path, this.host.config().cloneDir) ?? (this.cloneDir && inFolder(path, this.cloneDir) ? 'cloneDir' : null)
+  }
+
   /** The repos the page lists: worker.json's first (in its order), then the rest, most recently active first. */
   repos(): PageRepo[] {
     const config = this.host.config()
@@ -202,6 +215,7 @@ export class SetupServer {
     for (const r of config.repos) {
       const f = this.found.get(r.path)
       seen.add(r.path)
+      const source = this.sourceNow(r.path)
       out.push({
         ...(f ?? { path: r.path, short: shortPath(r.path, this.home), branch: null, branches: [r.baseBranch], remote: r.remote, host: null, dirty: null, lastCommit: null, test: null }),
         name: r.name,
@@ -216,10 +230,15 @@ export class SetupServer {
         testLine: joinArgs(r.testCommand),
         mcp: r.claude.mcpServers.join(', '),
         analyzeLine: joinArgs(r.analyzeCommand),
+        ownSettings: r.claude.projectSettingsSet ? r.claude.projectSettings : source === null,
+        source,
       })
     }
     const rest = [...this.found.values()].filter((f) => !seen.has(f.path)).sort((a, b) => (b.lastCommit ?? 0) - (a.lastCommit ?? 0))
-    for (const f of rest) out.push({ ...f, ticked: false, configured: false, push: !!f.remote, pr: 'gh', maxUsdPerTask: null, testLine: joinArgs(f.test), mcp: '', analyzeLine: joinArgs(f.analyze ?? null) })
+    for (const f of rest) {
+      const source = this.sourceNow(f.path)
+      out.push({ ...f, ticked: false, configured: false, push: !!f.remote, pr: 'gh', maxUsdPerTask: null, testLine: joinArgs(f.test), mcp: '', analyzeLine: joinArgs(f.analyze ?? null), ownSettings: source === null, source })
+    }
     return out
   }
 
@@ -423,7 +442,9 @@ export class SetupServer {
         if (mcpServers.length > 20) return ['At most 20 MCP servers per repository.']
       }
       const analyze = typeof item.analyze === 'string' ? splitArgs(item.analyze) : undefined
-      choices.push({ path: repo.path, name, baseBranch, remote: repo.remote, testCommand: test?.length ? test : null, ...(analyze !== undefined ? { analyzeCommand: analyze?.length ? analyze : null } : {}), push: item.push === true, pr: item.pr === 'none' ? 'none' : 'gh', maxUsdPerTask: limit, mcpServers })
+      // the switch "Use this repo's own Claude Code settings" (absent: leave worker.json as it is)
+      const projectSettings = typeof item.projectSettings === 'boolean' ? item.projectSettings : undefined
+      choices.push({ path: repo.path, name, baseBranch, remote: repo.remote, testCommand: test?.length ? test : null, ...(analyze !== undefined ? { analyzeCommand: analyze?.length ? analyze : null } : {}), push: item.push === true, pr: item.pr === 'none' ? 'none' : 'gh', maxUsdPerTask: limit, mcpServers, projectSettings })
     }
     let workerMcp: string[] | undefined
     if (isObj(body) && typeof body.mcpServers === 'string') {

@@ -675,6 +675,8 @@ export interface RepoChoice {
   maxUsdPerTask: number | null
   /** the person's own Claude Code MCP servers (names) this repo may use — undefined: leave as it is */
   mcpServers?: string[]
+  /** Claude Code may load the repo's own settings (the setup page's switch) — undefined: leave as it is */
+  projectSettings?: boolean
 }
 
 const HEADER = '// one-worker — written by its setup page'
@@ -739,6 +741,20 @@ export function saveRepos(file: string, choices: RepoChoice[], workspace: string
     else delete next.mcpServers
   }
   next.repos = repos
+  // the switch is written where it decides something: against the default under the new file, where the default
+  // rests on the clone folder alone (it moves with cloneDir — what the page showed stays), or where the file said so
+  const nextCloneDir = cloneDirOf(env.ONE_WORKER_CLONE_DIR ?? next.cloneDir, configDir, [])
+  choices.forEach((c, i) => {
+    if (c.projectSettings === undefined) return
+    const entry = repos[i]!
+    const path = resolve(c.path)
+    const mark = markOf(path)
+    const byDefault = !mark && !inFolder(path, nextCloneDir)
+    const claude: Record<string, unknown> = isObj(entry.claude) ? { ...entry.claude } : {}
+    if (typeof claude.projectSettings !== 'boolean' && c.projectSettings === byDefault && c.projectSettings === !mark) return
+    claude.projectSettings = c.projectSettings
+    entry.claude = claude
+  })
   // the same checks as loading: a repo the worker would drop is not written
   const check = sanitizeConfig(next, file, env)
   const dropped = check.problems.filter((p) => p.startsWith('repos['))

@@ -520,7 +520,10 @@ the public APIs stable — other areas are built against them in parallel.
   unless worker.json says true (`sourceOf` → `RepoConfig.source`) → Claude Code runs with `--setting-sources user` (none
   of the repo's hooks, apiKeyHelper, .mcp.json, CLAUDE.md, nor the person's local-scope MCP servers — user scope only,
   log `mcpUserScope`; the log names the rule: `projectSettingsOff{Cloned,Imported,Marked,Folder,Set}`; a CLI without the
-  flag refuses the stage while the repo has `.claude/` or `.mcp.json`). `claude.mcpServers` per repo =
+  flag refuses the stage while the repo has `.claude/` or `.mcp.json`). The setup page's per-repo switch "Use this repo's
+  own Claude Code settings" (`PageRepo.ownSettings` / `source` = the reason; on against the default → a one-line warning)
+  is the only UI for `projectSettings`; Save (same key / Host / Origin door) writes it only where it decides something
+  (≠ default, an "off" resting on cloneDir alone, or a key already there — saveRepos). `claude.mcpServers` per repo =
   the person's own Claude Code MCP servers (tools allowed, no --strict-mcp-config). GitLab: `glab mr create`. After an
   import the page offers "Create it on GitLab / GitHub" (publish.ts: name from the code, the person's glab / gh api,
   origin + push; only for a repo without a remote). Pipeline
