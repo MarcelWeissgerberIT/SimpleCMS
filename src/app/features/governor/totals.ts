@@ -15,10 +15,10 @@
 import { create } from 'zustand'
 import { createStore, delMany, getMany, keys, setMany, type UseStore } from 'idb-keyval'
 import type { LedgerEntry } from '@/shared/ai/types'
-import { adjust, flushLedger, ledgerDayRead, ledgerOpens, onLedgerDelta, registerMeter, reserve, settle, type LedgerDelta } from './ledger'
+import { adjust, flushLedger, ledgerDayRead, ledgerOpens, ledgerScopesSince, onLedgerDelta, registerMeter, reserve, settle, type LedgerDelta } from './ledger'
 import { ledgerScope } from './scope'
 import { bookOthers, onBookChange, reservedNow, reservedOthersNow, startBook } from './book'
-import { DEVICE_LINE_SPANS_BROWSER, deviceLimitOf, deviceLineScopes, knownScopes, localKV, noteScope, type ScopeSeen } from './device'
+import { DEVICE_LINE_SPANS_BROWSER, deviceLimitOf, deviceLineScopes, knownScopes, localKV, mergeScopes, noteScope, type ScopeSeen } from './device'
 import { closedDaysBefore, dayOf, monthOf, nextMidnight } from './clock'
 import { applyDayRead, closedDaysOf, closedTally, cacheOf, readDayRecord, deltaTally, meterTally, monthSpentOf, newTally, readTodayCache, rollTally, sumTallies, tallyKnown, todayOf, type Tally } from './tally'
 import { wipePaused } from './paused'
@@ -208,16 +208,35 @@ function seeScope(scope: string): void {
   if (scopesCache && !scopesCache.list.some((s) => s.scope === scope)) scopesCache = null
 }
 
+/**
+ * A scope metered in this browser today goes on the device line's list — whether a line is set or not (install.ts
+ * registers it at boot), so a line set later counts what every workspace spent before it. Once per scope and day; no I/O
+ * but that one localStorage write.
+ */
+export function noteMetered(e: LedgerEntry): void {
+  if (!e.scope) return
+  const now = Date.now()
+  const key = `${e.scope}|${dayOf(now)}`
+  if (noted.has(key)) return
+  noted.add(key)
+  noteScope(e.scope, now)
+  scopesCache = null
+}
+
+let noting = false
+
+/** Note every metered scope from now on (idempotent; install.ts at boot, before any request). */
+export function startNoting(): void {
+  if (noting) return
+  noting = true
+  registerMeter(noteMetered)
+}
+
 function onMeter(e: LedgerEntry): void {
   if (!e.scope) return
   const now = Date.now()
   meterTally(tallyFor(e.scope, now), e, now)
-  const key = `${e.scope}|${dayOf(now)}`
-  if (!noted.has(key)) {
-    noted.add(key)
-    noteScope(e.scope, now)
-    scopesCache = null
-  }
+  noteMetered(e)
   seeScope(e.scope)
   publish()
 }
@@ -246,6 +265,7 @@ function scheduleRead(delay = 0): void {
 export function startTotals(): void {
   if (started || typeof window === 'undefined') return
   started = true
+  startNoting()
   registerMeter(onMeter)
   onLedgerDelta(onDelta)
   startBook()
@@ -273,6 +293,15 @@ function scopesToRead(now: number): string[] {
   const out = scope ? [scope] : []
   if (deviceLimitOf()) for (const s of deviceLineScopes(scope, knownScopes(now))) if (!out.includes(s)) out.push(s)
   return out
+}
+
+/**
+ * The device line's list from the ledger's own keys of this month (once each time the line is followed or moves — install.ts):
+ * a workspace that spent before anything noted it (an older build's tab, spend before this build) counts too.
+ */
+export async function noteLedgerScopes(now = Date.now()): Promise<void> {
+  const found = await ledgerScopesSince(`${monthOf(dayOf(now))}-01`)
+  if (mergeScopes(found, now)) scopesCache = null
 }
 
 /** Read today of the open scope (and of the device line's scopes while a device limit is set) from the ledger. */

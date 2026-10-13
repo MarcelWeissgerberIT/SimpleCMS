@@ -91,8 +91,11 @@ export interface PrepareInput {
    * and the text was built for (core/shape.ts routed()). A route without it reads as 'person' — its meaning before.
    */
   pinned?: 'person' | 'gate'
-  /** MCP servers that may join this request (Claude; their tool lists, characters — null: not known) */
-  mcp?: { servers: number; toolChars?: ReadonlyArray<number | null> }
+  /**
+   * MCP servers that may join this request (Claude; their tool lists, characters — null: not known) and how many requests
+   * the call may send (the first + the paused turns it resumes: 1 + maxResumes; a loop's first request: absent = 1)
+   */
+  mcp?: { servers: number; toolChars?: ReadonlyArray<number | null>; rounds?: number }
   /** what this call's answer is when it differs from its purpose's (a picture's JSON description): a structured answer
    *  is never capped (features/governor modes.ts) */
   answer?: 'text' | 'structured'
@@ -136,8 +139,8 @@ export interface BrakeCtx {
   run: RunCtx
   /** the person's own pick for this request (a gate-pinned route is not a chip) */
   chip: boolean
-  /** MCP servers that may join (Claude routes that may receive MCP only) */
-  mcp: { servers: number; toolChars: ReadonlyArray<number | null> }
+  /** MCP servers that may join (Claude routes that may receive MCP only), and the requests the call may send */
+  mcp: { servers: number; toolChars: ReadonlyArray<number | null>; rounds?: number }
   /** the route's price row (the table, the shortlist row, a dynamic route's stated bound) and its wire facts */
   price: PriceRow | null
   hints?: WireHints
@@ -323,10 +326,11 @@ if (typeof window !== 'undefined' && new URLSearchParams(window.location.search)
       }
     },
     // one request through a facade to the (mocked) host — the brake's cases drive E (run.allowance) and B (a cheaper
-    // route as the person's pick) through it; `structured`: completeStructured (never capped)
-    ask: (o: { purpose: PurposeId; prompt: string; route?: Route | null; run?: Partial<RunCtx>; structured?: boolean }) =>
+    // route as the person's pick) through it; `structured`: completeStructured (never capped); `mcp`: the servers that join
+    // as for that kind of request (default none)
+    ask: (o: { purpose: PurposeId; prompt: string; route?: Route | null; run?: Partial<RunCtx>; structured?: boolean; mcp?: 'fixed' | 'free' }) =>
       import('../client').then(async (m) => {
-        const base = { purpose: o.purpose, sources: [] as SourceRef[], system: 'Answer briefly.', prompt: o.prompt, mcp: false as const, ...(o.route ? { route: o.route, pinned: 'person' as const } : {}), ...(o.run ? { run: o.run } : {}) }
+        const base = { purpose: o.purpose, sources: [] as SourceRef[], system: 'Answer briefly.', prompt: o.prompt, mcp: o.mcp ?? (false as const), ...(o.route ? { route: o.route, pinned: 'person' as const } : {}), ...(o.run ? { run: o.run } : {}) }
         try {
           const text = o.structured ? await m.completeStructured({ ...base, schema: { type: 'object', properties: { answer: { type: 'string' } }, required: ['answer'], additionalProperties: false } }) : await m.streamCompletion(base)
           return { ok: true, text }
@@ -653,7 +657,7 @@ function gate(input: PrepareInput, held: boolean): Prepared {
     run,
     chip: !!input.route && (input.pinned ?? 'person') === 'person',
     // MCP joins Claude routes that may receive it only (client.ts attachMcp)
-    mcp: input.mcp && route.p === 'anthropic' && allows('mcp') ? { servers: Math.max(0, input.mcp.servers), toolChars: input.mcp.toolChars ?? [] } : { servers: 0, toolChars: [] },
+    mcp: input.mcp && route.p === 'anthropic' && allows('mcp') ? { servers: Math.max(0, input.mcp.servers), toolChars: input.mcp.toolChars ?? [], ...(input.mcp.rounds ? { rounds: input.mcp.rounds } : {}) } : { servers: 0, toolChars: [] },
     price: price !== undefined ? price : priceRow(route),
     ...(hints ? { hints } : {}),
     label,

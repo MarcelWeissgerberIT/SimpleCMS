@@ -23,7 +23,7 @@ import { navigate, parseHash } from '../../lib/router'
 import { fmtUsd } from '../../lib/money'
 import { currentLang, t } from '../../i18n'
 import { AIError } from '../ai/client'
-import { allowFor, allowedTools, attachMcp, instructionsText, outToolsFor, readServers } from '../ai/mcp-servers/config'
+import { allowFor, allowedTools, attachMcp, instructionsText, mcpSystemText, outToolsFor, readServers } from '../ai/mcp-servers/config'
 import { callLabel } from '../ai/mcp-servers/activity'
 import { MAX_TOOL_CALLS, type StageApi } from '../ai/agent/tools'
 import { runAgent, taskMessage, TASK_RULES, type HeldStop, type RunHooks } from '../ai/agent/run'
@@ -34,7 +34,7 @@ import type { StagedChange } from '../ai/agent/types'
 import { snapshotNow } from '../history/snapshots'
 import { agentTools, scopeFilter, scopeText } from './scope'
 import { asAgent, stampLocal, touchedBy } from './attribution'
-import { getAgentState, lastSuccess, loadRuns, nextSeq, noteHeldStart, putAgentState, putRun, type AgentState } from './runs'
+import { dropRun, getAgentState, lastSuccess, loadRuns, nextSeq, noteHeldStart, putAgentState, putRun, type AgentState } from './runs'
 import { heldStopped } from './held'
 import { agentLabel } from './label'
 import { deliverNotes, lastRunLine, runTools, type RunExtras } from './runTools'
@@ -198,25 +198,48 @@ export interface RunRequest {
 /** How a run started (features/governor modes.ts — an agent runs three ways). */
 export const runModeOf = (req: Pick<RunRequest, 'manual' | 'trigger'>): RunMode => (req.manual || req.trigger.type === 'manual' ? 'manual' : req.trigger.type === 'schedule' ? 'scheduled' : 'trigger')
 
-/** The context lines a run's first request carries beside its job (today, the trigger, the last run …), about. */
-const CONTEXT_CHARS = 1500
+/** The agent's MCP servers as a run attaches them (switched on here, a tool left by its allow-list) — by name, no token. */
+function usableServers(agent: CustomAgent) {
+  const allow = agent.mcpTools ?? {}
+  return readServers().filter((s) => s.enabled && agent.mcpServers.includes(s.name) && allowFor(allow, s)?.length !== 0)
+}
 
 /**
  * What a run's first request will be, for the Regler's start check (before anything is loaded or written): its sources,
- * the agent's model, its size (the system prompt, the tool definitions, the job and its context — the brake counts its
- * first answer as FIRST_STEP_OUT), its run (source, mode, the agent's own budget per run).
+ * the agent's model, its size — what runAgent will send: the system prompt with its MCP servers' part, the tool
+ * definitions (recall with the memory), the job with its context and the memory block (the brake counts the first answer
+ * as FIRST_STEP_OUT) — its MCP servers (their rounds), its run (source, mode, the agent's own budget per run). `last`: the
+ * last successful run (its line in the context), when the caller read it.
  */
-export function startInput(agent: CustomAgent, req: Pick<RunRequest, 'manual' | 'trigger' | 'rows'>, runId: ID): PrepareInput {
+export function startInput(agent: CustomAgent, req: Pick<RunRequest, 'manual' | 'trigger' | 'rows'>, runId: ID, last: AgentRun | null = null): PrepareInput {
   const unlocks: RunUnlocks = { upsert: unlocked('upsert'), state: unlocked('agentState'), notes: unlocked('notify') }
-  const tools = [...agentTools(agent, { upsert: unlocks.upsert }), ...runTools(agent, { saved: null, notes: [] }, { notes: unlocks.notes, state: unlocks.state })]
+  const rows = req.rows ?? []
+  // what the route may receive decides what goes along (as in runOnce): the servers' part, the memory and recall
+  let mayMcp = true
+  let mayMemory = true
+  try {
+    const pre = precheck({ purpose: 'agents.run', sources: agentSources(agent, rows, ''), model: agent.model })
+    mayMcp = pre.allows('mcp')
+    mayMemory = pre.allows('memory')
+  } catch {
+    /* the gate refuses the run itself — the start check says so */
+  }
+  const usable = mayMcp ? usableServers(agent) : []
+  const names = usable.map((s) => s.name)
+  const mcpPart = usable.length ? mcpSystemText(usable, instructionsText(), agent.mcpServers.filter((n) => names.includes(n)), null, agent.mcpTools ?? {}, Object.fromEntries(usable.map((s) => [s.name, outToolsFor(s)]))).length + 2 : 0
+  const memory = mayMemory ? memoryFor(agent.instructions) : { block: '', use: null }
+  const tools = [...agentTools(agent, { upsert: unlocks.upsert }), ...(memory.use ? [recallTool] : []), ...runTools(agent, { saved: null, notes: [] }, { notes: unlocks.notes, state: unlocks.state })]
   const defs = tools.map((x) => ({ name: x.name, description: x.description, input_schema: x.input_schema }))
-  const promptChars = agentSystem(agent.write, unlocks, canCreateItems()).length + JSON.stringify(defs).length + agent.instructions.length + CONTEXT_CHARS
+  const ctx = context(agent, { trigger: req.trigger } as AgentRun, rows, last)
+  const user = taskMessage([], agent.instructions, memory.block ? `${ctx}\n\n${memory.block}` : ctx)
+  const promptChars = agentSystem(agent.write, unlocks, canCreateItems()).length + mcpPart + JSON.stringify(defs).length + JSON.stringify([user]).length
   return {
     purpose: 'agents.run',
-    sources: agentSources(agent, req.rows ?? [], ''),
+    sources: agentSources(agent, rows, memory.block),
     model: agent.model,
     size: { promptChars, maxTokens: 64000, bandOut: FIRST_STEP_OUT },
     run: { source: `agent:${agent.id}:${runId}`, mode: runModeOf(req), budget: agent.maxRunUsd },
+    ...(usable.length ? { mcp: { servers: usable.length } } : {}),
   }
 }
 
@@ -284,7 +307,7 @@ async function runOnce(agent: CustomAgent, req: RunRequest): Promise<AgentRun> {
   // the Regler's start check (scheduled / triggered runs — a manual one asked where it was pressed, actions.ts runNow):
   // at the red line no run is started — the agent's one held record of the day counts it, nothing is sent
   if (mode !== 'manual') {
-    const v = await startCheck(startInput(agent, req, runId))
+    const v = await startCheck(startInput(agent, req, runId, last))
     if (!v.start && 'hold' in v) return heldStart(agent, req, v)
   }
   const seq = await nextSeq(agent.id)
@@ -341,6 +364,8 @@ async function runOnce(agent: CustomAgent, req: RunRequest): Promise<AgentRun> {
   let toolSeq = 0
   const mcpSteps = new Map<string, number>()
   let memory: ReturnType<typeof memoryFor> | null = null
+  /** responses metered (a cut one too): none → nothing of this run reached a provider */
+  let responses = 0
 
   const hooks: RunHooks = {
     toolStart(name, arg) {
@@ -365,6 +390,7 @@ async function runOnce(agent: CustomAgent, req: RunRequest): Promise<AgentRun> {
       if (kind === 'answer') answer = answer ? `${answer}\n\n${text}` : text
     },
     usage(u, entry) {
+      responses += 1
       // the run's cost = the sum of its ledger entries (every response, priced by the one table)
       usage.input += u.input + u.cacheWrite + u.cacheWrite1h
       usage.output += u.output
@@ -467,6 +493,15 @@ async function runOnce(agent: CustomAgent, req: RunRequest): Promise<AgentRun> {
     if (live.trim()) answer = answer ? `${answer}\n\n${live.trim()}` : live.trim()
     run.summary = withoutWebImages(answer)
     const fix = e instanceof AIError && e.code === 'budget' ? e.fixes?.find((f) => f.kind === 'brake') : undefined
+    if (e instanceof AIError && e.code === 'budget' && mode !== 'manual' && !responses && !changes.length) {
+      // a background run's FIRST request refused at the line (the start check's estimate passed it): nothing was sent —
+      // no run, the agent's one held record of the day counts it, as a start held before
+      window.clearTimeout(saveTimer)
+      await dropRun(agent.id, run.id)
+      endRun(writer)
+      const line = fix?.kind === 'brake' && fix.line ? { line: fix.line } : {}
+      return heldStart(agent, req, { start: false, hold: (e.detail ?? 'day') as HeldBinding, ...line })
+    }
     if (e instanceof AIError && e.code === 'budget') {
       // the gate refused a request at the line (its first, or after a switch): held like a stop between two steps
       holdRun(run, { stop: 'budget', band: fix?.kind === 'brake' ? fix.band : null, binding: (e.detail ?? 'day') as HeldBinding, rest: fix?.kind === 'brake' ? fix.rest : 0, ...(fix?.kind === 'brake' && fix.line ? { line: fix.line } : {}) })

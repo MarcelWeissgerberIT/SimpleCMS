@@ -5,18 +5,14 @@
  */
 import { lazy, Suspense, useSyncExternalStore } from 'react'
 import { useWorkspace } from '../../store/store'
-import { deviceLimitOf, DEVICE_KEY } from './device'
+import { deviceLimitOf, onDeviceLine } from './device'
 import { hasLimit, limitsOf } from './limits'
 
 const Cell = lazy(() => import('./ui/StatusSlot').then((m) => ({ default: m.GovernorStatusCell })))
 const Rest = lazy(() => import('./ui/StatusSlot').then((m) => ({ default: m.ReglerRestLine })))
 
-/** This browser's own line, re-read when another tab writes it. */
-export function subscribeDevice(changed: () => void): () => void {
-  const on = (e: StorageEvent) => e.key === DEVICE_KEY && changed()
-  window.addEventListener('storage', on)
-  return () => window.removeEventListener('storage', on)
-}
+/** This browser's own line, re-read when this tab or another one writes it. */
+export const subscribeDevice = (changed: () => void): (() => void) => onDeviceLine(changed)
 export const deviceSnapshot = (): string => {
   const d = deviceLimitOf()
   return d ? JSON.stringify(d) : ''

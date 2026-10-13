@@ -10,7 +10,7 @@
 import { useWorkspace } from '../../store/store'
 import { addPaused, readPaused, takePaused, type PausedRow } from './paused'
 import { ledgerScope } from './scope'
-import { DEVICE_KEY } from './device'
+import { onDeviceLine } from './device'
 import { dayOf, nextMidnight } from './clock'
 import { bumpPaused } from './marks'
 import type { Route } from '@/shared/ai/types'
@@ -86,10 +86,7 @@ export function onLineChange(fn: () => void): () => void {
   const unsub = useWorkspace.subscribe((s, p) => {
     if (s.governor !== p.governor || s.settings.ai !== p.settings.ai) fn()
   })
-  const onStorage = (e: StorageEvent) => {
-    if (e.key === DEVICE_KEY) fn()
-  }
-  window.addEventListener('storage', onStorage)
+  const offDevice = onDeviceLine(fn)
   let timer = 0
   const arm = () => {
     timer = window.setTimeout(
@@ -103,7 +100,7 @@ export function onLineChange(fn: () => void): () => void {
   arm()
   return () => {
     unsub()
-    window.removeEventListener('storage', onStorage)
+    offDevice()
     window.clearTimeout(timer)
   }
 }

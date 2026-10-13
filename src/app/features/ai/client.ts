@@ -25,7 +25,7 @@ import { t } from '../../i18n'
 import type { McpCall } from './mcp-servers/activity'
 import { canCreateItems } from '../workitems/live'
 import type { MediaItem } from './media/types'
-import { streamOnce, structuredOnce, thinks } from './providers/anthropic'
+import { MAX_RESUMES, streamOnce, structuredOnce, thinks } from './providers/anthropic'
 
 export { thinks, reachOf, claudeClient, toAIError, verifyKey, finalOf, metered, type SDKModule } from './providers/anthropic'
 
@@ -199,9 +199,11 @@ export async function streamCompletion(opts: StreamOptions): Promise<string> {
   const cw = opts.mcp === false ? null : opts.codewords
   let prepared: Prepared
   try {
-    // the MCP servers that may join (the brake counts their rounds and never caps such a request)
+    // the MCP servers that may join (the brake counts their rounds — every paused turn resumed is a whole request — and
+    // never caps such a request)
     const servers = opts.mcp === false ? 0 : mcpNames(opts.setup ?? currentSetup(), opts.mcp ?? 'fixed', cw?.forced).length
-    prepared = prepare({ purpose: opts.purpose, sources: opts.sources, typed: opts.typed, size, route: opts.route, applied: opts.applied, ...withCodewords(opts, cw), ...(opts.run ? { run: opts.run } : {}), ...(opts.pinned ? { pinned: opts.pinned } : {}), ...(servers ? { mcp: { servers } } : {}) })
+    const rounds = 1 + (opts.maxResumes ?? MAX_RESUMES)
+    prepared = prepare({ purpose: opts.purpose, sources: opts.sources, typed: opts.typed, size, route: opts.route, applied: opts.applied, ...withCodewords(opts, cw), ...(opts.run ? { run: opts.run } : {}), ...(opts.pinned ? { pinned: opts.pinned } : {}), ...(servers ? { mcp: { servers, rounds } } : {}) })
   } catch (e) {
     throw codewordRefusal(e, opts, cw)
   }
@@ -315,7 +317,9 @@ export interface StructuredUsage {
  */
 export async function completeStructured(opts: StructuredOptions): Promise<string> {
   // the gate: nothing is loaded or sent before it (features/ai/core/gate.ts); every response is metered (core/meter.ts)
-  const prepared = prepare({ purpose: opts.purpose, sources: opts.sources, typed: opts.typed, size: { promptChars: opts.system.length + opts.prompt.length, maxTokens: opts.maxTokens ?? 4096 }, route: opts.route, applied: opts.applied, needs: opts.needs, carries: opts.carries, ...(opts.run ? { run: opts.run } : {}), ...(opts.pinned ? { pinned: opts.pinned } : {}), answer: 'structured' })
+  // the servers set to "All AI calls" join a structured request too (structuredOnce): the brake counts their rounds
+  const servers = opts.mcp === false ? 0 : mcpNames(currentSetup(), opts.mcp ?? 'fixed').length
+  const prepared = prepare({ purpose: opts.purpose, sources: opts.sources, typed: opts.typed, size: { promptChars: opts.system.length + opts.prompt.length, maxTokens: opts.maxTokens ?? 4096 }, route: opts.route, applied: opts.applied, needs: opts.needs, carries: opts.carries, ...(opts.run ? { run: opts.run } : {}), ...(opts.pinned ? { pinned: opts.pinned } : {}), answer: 'structured', ...(servers ? { mcp: { servers, rounds: 1 + MAX_RESUMES } } : {}) })
   const call = meterCall(prepared, { source: opts.ledgerSource, signal: opts.signal, onRun: opts.onRun })
   try {
     if (prepared.provider !== 'anthropic' && prepared.provider !== 'demo') {

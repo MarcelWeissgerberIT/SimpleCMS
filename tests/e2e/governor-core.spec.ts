@@ -60,10 +60,11 @@ import { consumerOf, consumersOf, daysOf, providersOf, rollOf, runsOf } from '..
 import { applyDayRead, cacheOf, closedDaysOf, closedTally, deltaTally, meterTally, monthSpentOf, newTally, readTally, readTodayCache, rollTally, sumTallies, tallyKnown, todayOf, type DayRead } from '../../src/app/features/governor/tally'
 import { BOOK_STALE_MS, emptyBook, expireBook, hearBook, readBookMsg, reservedByOthers, reservedIn } from '../../src/app/features/governor/book'
 import { allowOnce, allowTask, allowanceOf, clearAllowances, consume } from '../../src/app/features/governor/allow'
-import { DEVICE_KEY, DEVICE_LINE_SPANS_BROWSER, MAX_SCOPES, SCOPES_KEY, deviceLimitOf, deviceLineScopes, forgetScopes, knownScopes, noteScope, readDeviceLimit, setDeviceLimit, type KV } from '../../src/app/features/governor/device'
+import { DEVICE_KEY, DEVICE_LINE_SPANS_BROWSER, MAX_SCOPES, SCOPES_KEY, deviceLimitOf, deviceLineScopes, forgetScopes, knownScopes, mergeScopes, noteScope, readDeviceLimit, setDeviceLimit, type KV } from '../../src/app/features/governor/device'
+import { imageChars, messagesChars, notePdfPages, pdfChars } from '../../src/app/features/ai/core/sizes'
 import { PAUSED_MAX, addPaused, readPaused, takePaused, wipePaused } from '../../src/app/features/governor/paused'
 import { NO_LIMITS, fits, hasLimit, hasMonthLimit, limitsOf, lineOf, restMin, restOf, type Limits, type Rest, type TotalsLike } from '../../src/app/features/governor/limits'
-import { FIRST_STEP_OUT, MCP_ROUNDS, coldCost, contextOf, mcpOneShotBand, nextStep, stepOutputs, switchBand } from '../../src/app/features/governor/steps'
+import { FIRST_STEP_OUT, MCP_ROUNDS, coldCost, contextOf, mcpOneShotBand, mcpReads, nextStep, stepOutputs, switchBand } from '../../src/app/features/governor/steps'
 import { ALLOW_USD, allowFits, capFor, cheaperRoute, oneShot, type OneShotCtx, type RefuseDetail, type RunMode } from '../../src/app/features/governor/brake'
 import { AGENTS_WAIT_MID_RUN, H_ACROSS_THINKING, asksAtStart, capsHold, cheaperForHalt, needsOfHistory, round, startCheckPure, waitsAtLine, type HCandidate } from '../../src/app/features/governor/halt'
 import { HELD_TIMES, PRUNE_EXTRA, heldDay, heldId, heldNotStarted, heldStopped, mergeRun, newestReal, openProposals, pruneRuns } from '../../src/app/features/agents/held'
@@ -670,9 +671,14 @@ test.describe('the book of reservations across tabs (features/governor/book.ts)'
     expect(readBookMsg({ scope: 'local:local' })).toBeNull()
     expect(readBookMsg({ scope: 'local:local', day: '2026-10-09', usd: 1, unpriced: 0, batch: 'b1' })).toBeNull()
     expect(readBookMsg({ type: 'bye', tab: 'tab-a' })).toEqual({ type: 'bye', tab: 'tab-a' })
+    // a starting tab's hello asks the others for their lists — it never forgets or adds one
+    expect(readBookMsg({ type: 'hello', tab: 'tab-c' })).toEqual({ type: 'hello', tab: 'tab-c' })
+    expect(readBookMsg({ type: 'hello', tab: 'bad tab' })).toBeNull()
     const book = emptyBook()
     hearBook(book, { type: 'res', tab: 'tab-a', scope: 'local:local', list: [{ id: 'r1', usd: 0.4, scope: 'local:local' }], at: N }, N)
     hearBook(book, { type: 'res', tab: 'tab-a', scope: 'local:local', list: [{ id: 'r1', usd: 0.9, scope: 'local:local' }], at: N }, N)
+    expect(reservedByOthers(book, N)).toBe(0.9)
+    hearBook(book, { type: 'hello', tab: 'tab-a' }, N)
     expect(reservedByOthers(book, N)).toBe(0.9)
     hearBook(book, { type: 'res', tab: 'tab-a', scope: 'local:local', list: [], at: N }, N)
     expect(book.others.size).toBe(0)
@@ -796,6 +802,44 @@ test.describe('the device line (features/governor/device.ts)', () => {
     expect(deviceLineScopes('local:local', known)).toEqual(['local:local', team])
     expect(deviceLineScopes(null, known)).toEqual([team, 'local:local'])
     expect(deviceLineScopes('cloud:ws-new:u:acc', [])).toEqual(['cloud:ws-new:u:acc'])
+  })
+
+  test('scopes found in the ledger join the list: a new one added, a later day kept, an older one never lowers it; junk and stale skipped', () => {
+    const kv = memoryKV()
+    const now = at(2026, 10, 9, 14, 6)
+    const team = 'cloud:ws-tessera-0001:u:acc-mara-lind'
+    noteScope('local:local', at(2026, 10, 5), kv)
+    expect(mergeScopes([{ scope: team, last: '2026-10-09' }, { scope: 'local:local', last: '2026-10-08' }], now, kv)).toBe(true)
+    expect(knownScopes(now, kv)).toEqual([{ scope: team, last: '2026-10-09' }, { scope: 'local:local', last: '2026-10-08' }])
+    // nothing new: nothing written
+    expect(mergeScopes([{ scope: 'local:local', last: '2026-10-02' }, { scope: 'bad|scope', last: '2026-10-09' }, { scope: 'cloud:ws-old:u:acc', last: '2026-08-01' }], now, kv)).toBe(false)
+    expect(knownScopes(now, kv).map((s) => s.scope)).toEqual([team, 'local:local'])
+  })
+})
+
+test.describe('a loop\'s size (ai/core/sizes.ts messagesChars)', () => {
+  test('text as its JSON; a picture as its pixels, a PDF as its pages — never their base64', () => {
+    const text = [{ role: 'user', content: 'Summarise the Nordlicht launch plan.' }, { role: 'assistant', content: [{ type: 'text', text: 'On it.' }] }]
+    // positive control: a conversation without media counts exactly as before (its JSON)
+    expect(messagesChars(text)).toBe(JSON.stringify(text).length)
+    const b64 = 'A'.repeat(4_000_000)
+    const pic = { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: b64 } }
+    const withPic = [{ role: 'user', content: [{ type: 'text', text: 'What is on the board photo?' }, pic] }]
+    const n = messagesChars(withPic)
+    expect(n).toBeLessThan(20_000)
+    expect(n).toBeGreaterThanOrEqual(imageChars(1568, 1568))
+    // a PDF whose pages this tab knows: its pages; else about one page per 60 KB
+    const pdf = { type: 'document', title: 'Tessera audit.pdf', source: { type: 'base64', media_type: 'application/pdf', data: b64 } }
+    const unknown = messagesChars([{ role: 'user', content: [pdf] }])
+    expect(unknown).toBeGreaterThanOrEqual(pdfChars(50))
+    expect(unknown).toBeLessThan(pdfChars(50) + 1000)
+    notePdfPages(pdf, 60)
+    const known = messagesChars([{ role: 'user', content: [pdf] }])
+    expect(known).toBeGreaterThanOrEqual(pdfChars(60))
+    expect(known).toBeLessThan(pdfChars(60) + 1000)
+    // inside a tool result too
+    const inResult = [{ role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_1', content: [pic] }] }]
+    expect(messagesChars(inResult)).toBeLessThan(20_000)
   })
 })
 
@@ -951,6 +995,14 @@ test.describe('one-shots (brake.oneShot)', () => {
     // 10 000 + (4 000 + 8 000) ÷ 4 = 13 000 per read: (13 000 × 2 + 4 096 × 10) / 1e6 + 5 × 13 000 × 2 / 1e6
     near(mcpBand?.high ?? NaN, 0.06696 + MCP_ROUNDS * 0.026)
     near(mcpBand?.low ?? NaN, (13_000 * 2 + 400 * 10) / 1e6)
+    // a call that resumes paused turns sends whole requests: one full answer per request, never fewer reads than requests
+    expect([mcpReads(), mcpReads(4), mcpReads(7)]).toEqual([MCP_ROUNDS, MCP_ROUNDS, 6])
+    const four = mcpOneShotBand({ row: row(SONNET), promptTokens: 10_000, servers: 2, toolChars: [4000, null], maxTokens: 4096, rounds: 4 })
+    near(four?.high ?? NaN, 4 * 0.06696 + 2 * 0.026)
+    // /generate (6 resumes): 7 requests, each its answer
+    const seven = mcpOneShotBand({ row: row(SONNET), promptTokens: 10_000, servers: 2, toolChars: [4000, null], maxTokens: 4096, rounds: 7 })
+    near(seven?.high ?? NaN, 7 * 0.06696)
+    near(four?.low ?? NaN, mcpBand?.low ?? NaN)
     const v = oneShot({ ...base, band: { low: 0.01, high: 0.05 }, mcp: { servers: 2, band: mcpBand } }, rest(0.1))
     expect(v.kind).toBe('refuse')
     // positive control: the same request without its servers passes

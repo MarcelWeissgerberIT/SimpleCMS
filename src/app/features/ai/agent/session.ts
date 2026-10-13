@@ -135,17 +135,23 @@ function haltView(n: number, h: Halt, model: string, provider: HaltWait['provide
 /**
  * Show the halt card under task `n` and wait for its key. Nothing is reserved meanwhile (the gate settled the run's
  * reservation); after 5 minutes the bands are counted again with a cold cache. The card goes when the task goes on or
- * stops (Mod+. anywhere in the dock, /stop).
+ * stops — its keys, or the task's signal (Mod+. anywhere in the dock, the head's Stop, /stop, /new): the governor's mark
+ * goes with it whatever ended the wait.
  */
-function waitAtLine(n: number, h: Halt, wait: HaltWait, taskUsd: () => number): Promise<HaltChoice> {
+function waitAtLine(n: number, h: Halt, wait: HaltWait, taskUsd: () => number, signal: AbortSignal): Promise<HaltChoice> {
   let timer: ReturnType<typeof setTimeout> | null = null
   let answer: ((c: HaltChoice) => void) | null = null
+  // this task's mark, named once (a /new mints another conversation id before the wait ends)
+  const mark = haltMark(n)
+  const onAbort = () => answer?.('stop')
   const p = new Promise<HaltChoice>((resolve) => {
     answer = resolve
     haltAnswer = resolve
     set({ halt: { n, view: haltView(n, h, wait.label, wait.provider, taskUsd(), false) } })
     // the status cell and VERBRAUCH on Start: a task waits at the line
-    noteHalt(haltMark(n), true)
+    noteHalt(mark, true)
+    if (signal.aborted) resolve('stop')
+    else signal.addEventListener('abort', onAbort, { once: true })
     timer = setTimeout(() => {
       if (get().halt?.n !== n) return
       void wait.refresh().then((again) => {
@@ -157,9 +163,10 @@ function waitAtLine(n: number, h: Halt, wait: HaltWait, taskUsd: () => number): 
   })
   return p.finally(() => {
     if (timer) clearTimeout(timer)
+    signal.removeEventListener('abort', onAbort)
     if (haltAnswer === answer) haltAnswer = null
     if (get().halt?.n === n) set({ halt: null })
-    noteHalt(haltMark(n), false)
+    noteHalt(mark, false)
   })
 }
 
@@ -446,6 +453,8 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
   taskSources.set(n, taskSource)
   /** what this task's responses cost so far (the halt card says it) */
   let taskUsd = 0
+  /** responses of the attempt going on (a refusal after one is never "the first request" — never sent again) */
+  let answered = 0
   /** steps on the way already said in this task ("Anthropic passed this to …") */
   const said = new Set<string>()
   const hooks: RunHooks = {
@@ -479,6 +488,7 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
     usage(u, entry) {
       // the ledger entry stays the old conversation's (terminal:<conv>:<task>); the new one's /cost and meter never see it
       if (!here()) return
+      answered += 1
       taskUsd += entry?.usd ?? 0
       // another model answered (a refusal fallback): said once per task, priced at that model (the entry)
       for (const st of entry?.steps ?? []) {
@@ -504,7 +514,7 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
     halt(h, wait) {
       // the Regler: the next step would cross the red line — the card under this task waits for E · H · Mod+.
       if (!here()) return Promise.resolve('stop')
-      return waitAtLine(n, h, wait, () => taskUsd)
+      return waitAtLine(n, h, wait, () => taskUsd, ac.signal)
     },
     mcp(call) {
       sawMcp = true
@@ -552,6 +562,7 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
   // the workspace as a whole (tools read any page in scope), the open page and the pages the task points at
   const sources = [{ all: true as const }, ...(pageId ? [{ page: pageId }] : []), ...refs.map((r) => ({ page: r.pageId })), ...mentions.map((m) => ({ page: m.id }))]
   const attempt = async () => {
+    answered = 0
     // the gate first (newer AI rules, a key in the task …): nothing is attached or loaded when it refuses
     const pre = precheck({ purpose: 'terminal.task', sources, typed: task })
     // a route that may not receive MCP (a data rule): no server joins, each is said
@@ -595,9 +606,10 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
       } catch (e) {
         // the Regler refused the task's first request at the red line (nothing was sent): the halt card — E allows
         // +1 $ for this task and sends it, Mod+. ends the task (another model: the head's model key, then run it again)
-        const halt = e instanceof AIError && e.code === 'budget' && !ac.signal.aborted && here() ? firstHalt(e) : null
+        // (only when nothing of this attempt was answered: the task is then still as it was before it)
+        const halt = e instanceof AIError && e.code === 'budget' && !answered && !ac.signal.aborted && here() ? firstHalt(e) : null
         if (halt) {
-          const choice = await untilStopped(waitAtLine(n, halt, { label: e instanceof AIError ? (e.label ?? '') : '', provider: 'anthropic', refresh: async () => null }, () => taskUsd), ac.signal)
+          const choice = await untilStopped(waitAtLine(n, halt, { label: e instanceof AIError ? (e.label ?? '') : '', provider: 'anthropic', refresh: async () => null }, () => taskUsd, ac.signal), ac.signal)
           if (choice !== 'allow' || ac.signal.aborted) throw new AIError('aborted')
           allowTask(taskSource, ALLOW_USD)
           continue
@@ -619,9 +631,12 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
     // a key in the task: the text goes back into the prompt to be fixed (never into the history)
     if (err.code === 'key_in_text' && here() && !get().draft.trim()) set({ draft: task })
   } finally {
+    // a card still open (the task ended another way): its wait ends as a stop — the card and the governor's mark go
     if (get().halt?.n === n) {
-      set({ halt: null })
+      const fn = haltAnswer
       haltAnswer = null
+      set({ halt: null })
+      fn?.('stop')
     }
     if (controller === ac) {
       controller = null

@@ -22,7 +22,7 @@ import type { Band } from './estimate'
 import { CHARS_PER_TOKEN, FIRST_STEP_OUT, STEP_OUT_LOW, U, same, tokens, usd } from './mcpBand'
 
 // the one-shot part (eager: the gate's money phase needs it) lives in mcpBand.ts; re-exported for the loop's readers
-export { FIRST_STEP_OUT, STEP_OUT_LOW, MCP_ROUNDS, MCP_TOOL_CHARS, mcpOneShotBand, type McpOneShotCtx } from './mcpBand'
+export { FIRST_STEP_OUT, STEP_OUT_LOW, MCP_ROUNDS, MCP_TOOL_CHARS, mcpOneShotBand, mcpReads, type McpOneShotCtx } from './mcpBand'
 
 /** Reported cache reads at least this share of the context: it is priced as read. */
 export const CACHE_READ_SHARE = 0.8

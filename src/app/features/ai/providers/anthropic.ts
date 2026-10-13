@@ -220,8 +220,8 @@ const retryWithout = (err: AIError, forced: string[] | undefined, sawMcp: boolea
 /** An MCP call or its result in a response. */
 const isMcpBlock = (b: { type: string }) => b.type === 'mcp_tool_use' || b.type === 'mcp_tool_result'
 
-/** A paused turn (server-side tool loop) is resumed at most this often. */
-const MAX_RESUMES = 3
+/** A paused turn (server-side tool loop) is resumed at most this often (the Regler's MCP band counts 1 + this requests). */
+export const MAX_RESUMES = 3
 
 /** A Claude stream as metering reads it (MessageStream / BetaMessageStream). */
 interface ClaudeStream<M> {

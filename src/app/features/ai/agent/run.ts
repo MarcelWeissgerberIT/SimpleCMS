@@ -25,7 +25,7 @@ import type { BetaContentBlock, BetaMessageParam, BetaToolResultBlockParam, Beta
 import type { BetaRunnableTool } from '@anthropic-ai/sdk/lib/tools/BetaRunnableTool'
 import { AIError, claudeClient, reachOf, thinks, toAIError } from '../client'
 import { beforeRound, capped, prepare, reprepare, settle, type Applied, type Prepared, type PrepareInput } from '../core/gate'
-import { claudeCut, claudeResponse, deltaChars, meterCall } from '../core/meter'
+import { claudeCut, claudeResponse, deltaChars, messagesChars, meterCall } from '../core/meter'
 import type { PurposeId } from '../core/purposes'
 import type { LedgerEntry, ProviderId, SourceRef, StepNote, Usage } from '@/shared/ai/types'
 import { ALLOW_USD, FIRST_STEP_OUT, adjust, allowTask, type Halt, type HaltCheaper, type RoundVerdict } from '../../governor'
@@ -293,9 +293,12 @@ export async function runAgent(opts: {
     // the brake judges the first request on FIRST_STEP_OUT (prompt + 4 096 output): the wire keeps its 64 000 — a capped
     // tool-use step could cut a tool input; the overshoot is one step at most, as every Regler surface says
     const fixed = (opts.system ?? AGENT_SYSTEM).length + (mcp?.system.length ?? 0) + JSON.stringify(defs).length
-    const size = { promptChars: fixed + JSON.stringify(messages).length, maxTokens: LOOP_MAX_TOKENS, bandOut: FIRST_STEP_OUT }
+    // a picture or a PDF in the conversation counts as its pixels / pages, never as its base64 (messagesChars)
+    const size = { promptChars: fixed + messagesChars(messages), maxTokens: LOOP_MAX_TOKENS, bandOut: FIRST_STEP_OUT }
     const run = opts.run ?? (opts.ledgerSource ? { source: opts.ledgerSource } : undefined)
-    prepared = prepare({ purpose: opts.purpose, sources: opts.sources, typed: opts.typed, model: opts.model, size, applied: opts.applied, ...(run ? { run } : {}) })
+    // the conversation's MCP servers: the first response may loop at the provider (its context read per iteration) —
+    // the brake counts their rounds; every further request is braked by beforeRound
+    prepared = prepare({ purpose: opts.purpose, sources: opts.sources, typed: opts.typed, model: opts.model, size, applied: opts.applied, ...(run ? { run } : {}), ...(mcp?.servers.length ? { mcp: { servers: mcp.servers.length } } : {}) })
     // the tool reads of a route that does not see everything: built for it, pages it may not see out of scope (B6)
     const shape = shapeOf(prepared)
     const seen = shape ? prepared.visible : null
@@ -369,6 +372,9 @@ export async function runAgent(opts: {
     /** the next request is braked first (Regler § 5.6): 'go' — or 'stop' (the run ends as 'held') */
     const atLine = async (pending: { low: number; high: number }, mcpIterations: number): Promise<'go' | 'stop'> => {
       let cold = false
+      /** H was refused at the gate (its request counts the whole conversation as it is now): the card again, without H */
+      let noH = false
+      const shown = (h: Halt): Halt => (noH ? { ...h, cheaper: null } : h)
       const round = (dry: boolean) =>
         beforeRound({ prepared: prepared!, spent, last: used[used.length - 1], steps: used, pending, mcpIterations, cold, history: () => runner.params.messages, thinks, mcpAttached: !!mcp }, { dry })
       for (;;) {
@@ -389,10 +395,11 @@ export async function runAgent(opts: {
           refresh: async () => {
             cold = true
             const again = await round(true)
-            return 'halt' in again ? again.halt : null
+            return 'halt' in again ? shown(again.halt) : null
           },
         }
-        const choice = await untilStopped(hooks.halt(v.halt, wait), signal)
+        const halt = shown(v.halt)
+        const choice = await untilStopped(hooks.halt(halt, wait), signal)
         if (choice === 'stop' || signal.aborted) throw new AIError('aborted')
         if (choice === 'allow') {
           // +1 $ for this task, today — the round is checked again (go, or the card once more)
@@ -402,9 +409,17 @@ export async function runAgent(opts: {
           hooks.regler?.(step)
           continue
         }
-        if (choice === 'cheaper' && v.halt.cheaper) {
-          switchTo(v.halt.cheaper, pending)
-          return 'go'
+        if (choice === 'cheaper' && halt.cheaper) {
+          try {
+            switchTo(halt.cheaper, pending)
+            return 'go'
+          } catch (e) {
+            // the gate refused the cheaper model at the line: nothing was sent and the task stays where it is — the card
+            // once more without H (E · stop), never the task again from its start
+            if (!(e instanceof AIError && e.code === 'budget')) throw e
+            noH = true
+            continue
+          }
         }
       }
     }
@@ -413,7 +428,7 @@ export async function runAgent(opts: {
     const switchTo = (c: HaltCheaper, pending: { low: number; high: number }) => {
       const from = prepared!.route?.m ?? model
       const out = used.length ? Math.max(...used.map((u) => u.output)) : FIRST_STEP_OUT
-      prepared = reprepare(prepared!, c.route, { size: { promptChars: fixed + JSON.stringify(runner.params.messages).length + pending.high, maxTokens: LOOP_MAX_TOKENS, bandOut: Math.max(1, Math.min(LOOP_MAX_TOKENS, out)) } })
+      prepared = reprepare(prepared!, c.route, { size: { promptChars: fixed + messagesChars(runner.params.messages) + pending.high, maxTokens: LOOP_MAX_TOKENS, bandOut: Math.max(1, Math.min(LOOP_MAX_TOKENS, out)) } })
       // the switch's band holds the cold cache: that is what may be spent now
       adjust(prepared.reservation?.id, c.band.high)
       call = meterCall(prepared, { source: run?.source, signal })
@@ -441,7 +456,7 @@ export async function runAgent(opts: {
       if (reach === 'none') return
       const entry = call.response(
         claudeCut(cur.stream.currentMessage as Parameters<typeof claudeCut>[0], {
-          promptChars: params.system.length + toolChars + JSON.stringify(runner.params.messages).length,
+          promptChars: params.system.length + toolChars + messagesChars(runner.params.messages),
           streamedChars: cur.chars,
           outcome: signal.aborted ? 'aborted' : toAIError(e, got.sdk).code,
           sent: reach === 'sent',

@@ -11,9 +11,22 @@
  */
 import type { Page } from '@playwright/test'
 import { test, expect, openApp, reloadApp, wsEval, uiEval, flush } from './fixtures'
+import { budget, spend } from './helpers/governor'
 
 type AnyState = Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
 type Seam = { __oneAI: { prepare(i: unknown): AnyState }; __oneGovernor: { load(): Promise<void>; totals(): AnyState }; __oneLedger: { seed(l: unknown[]): Promise<void> } }
+
+/** A fictional ledger entry of another workspace (or another day) — ids and numbers only. */
+const entryOf = (id: string, at: number, scope: string, usd: number) => ({ id, at, scope, purpose: 'menu.action', cls: 'write', source: `ai:run-${id}:improve`, role: 'main', route: 'anthropic:claude-sonnet-5-5', served: { p: 'anthropic', model: 'claude-sonnet-5-5' }, classes: ['page'], usage: { input: 1000, cacheWrite: 0, cacheWrite1h: 0, cacheRead: 0, output: 200, reasoning: 0 }, usd, costSource: 'table', priceAt: '2026-10-12', mcpCalls: 0, outcome: 'ok' })
+const totalsOf = (page: Page) => page.evaluate(() => (window as unknown as Seam).__oneGovernor.totals())
+const scopesListed = (page: Page) => page.evaluate(() => (JSON.parse(localStorage.getItem('one.governor.scopes') ?? '[]') as Array<{ scope: string }>).map((s) => s.scope))
+
+async function deviceSection(page: Page) {
+  await uiEval(page, (s) => s.openModal({ type: 'settings', tab: 'ai' }))
+  const dev = page.getByTestId('gv-device')
+  await dev.scrollIntoViewIfNeeded()
+  return dev
+}
 
 const govOf = (page: Page) => wsEval(page, (s) => (s.governor ? { day: s.governor.day ?? null, month: s.governor.month ?? null } : null))
 const genOf = (page: Page) => wsEval(page, (s) => (s.ai?.gen ?? null) as number | null)
@@ -174,5 +187,65 @@ test.describe('case 13 — the device line counts a second workspace (B11)', () 
     expect(t.device.spentToday).toBeCloseTo(0.999, 6)
     expect(t.scope.spentToday).toBe(0)
     expect(await prepare(page)).toMatchObject({ ok: false, code: 'budget', detail: 'device-day' })
+  })
+})
+
+test.describe('the device line counts what every workspace spent here — also before a line was set (review)', () => {
+  const SIZE = { promptChars: 400, maxTokens: 400 }
+  const prepare = (page: Page) => page.evaluate((size) => (window as unknown as Seam).__oneAI.prepare({ purpose: 'help.ask', sources: [], size }), SIZE)
+
+  test('a response is noted without any line; a line set later in a tab that already follows reads every workspace at once (the ledger keys too)', async ({ page }) => {
+    await openApp(page)
+    await wsEval(page, (s) => s.updateSettings({ aiApiKey: 'sk-ant-e2e-test-key' }))
+    // no line anywhere: this workspace's response is noted for the device line all the same
+    expect(await scopesListed(page)).toEqual([])
+    await spend(page, 0.2)
+    expect(await scopesListed(page)).toEqual(['local:local'])
+    // another workspace of this browser spent this morning in a tab that noted nothing (an older build): only the ledger says so
+    const other = 'cloud:ws-tessera-0001:u:acc-mara-lind'
+    await page.evaluate(([o, e]) => (window as unknown as Seam).__oneLedger.seed([{ ...e, scope: o }]), [other, entryOf('o1', Date.now(), other, 0.9)] as const)
+    // a workspace budget: this tab follows the ledger already (and the request passes it)
+    await budget(page, { v: 1, day: 10 })
+    await expect.poll(async () => (await totalsOf(page)).known, { timeout: 10_000 }).toBe(true)
+    expect(await prepare(page)).toMatchObject({ ok: true })
+    // the person's own line, set in this same tab: every workspace it counts is listed and read now — no reload, no 10 minutes
+    const dev = await deviceSection(page)
+    await dev.getByTestId('gv-device-day').fill('1')
+    await dev.getByTestId('gv-device-save').click()
+    await expect.poll(async () => (await totalsOf(page)).device.spentToday, { timeout: 10_000 }).toBeCloseTo(1.1, 6)
+    expect((await totalsOf(page)).device.scopes).toEqual(['local:local', other])
+    expect((await totalsOf(page)).scope.spentToday).toBeCloseTo(0.2, 6)
+    await expect(dev.getByTestId('gv-device-scope')).toContainText('today $1.10 (here $0.20)')
+    expect(await prepare(page)).toMatchObject({ ok: false, code: 'budget', detail: 'device-day' })
+  })
+
+  test('the line changed in the same tab: a lower day moves the status cell at once; a month line added is read (refused over it) without a reload', async ({ page }) => {
+    await openApp(page)
+    const dom = await page.evaluate(() => new Date().getDate())
+    test.skip(dom === 1, 'no closed day of this month yet')
+    await wsEval(page, (s) => s.updateSettings({ aiApiKey: 'sk-ant-e2e-test-key' }))
+    // the 1st of this month: 5.20 $ spent here (a closed day)
+    await page.evaluate((mk) => {
+      const d = new Date()
+      const at = new Date(d.getFullYear(), d.getMonth(), 1, 12).getTime()
+      return (window as unknown as Seam).__oneLedger.seed([{ ...mk, at }])
+    }, entryOf('m1', 0, 'local:local', 5.2))
+    const dev = await deviceSection(page)
+    await dev.getByTestId('gv-device-day').fill('8')
+    await dev.getByTestId('gv-device-save').click()
+    await expect.poll(async () => (await totalsOf(page)).known, { timeout: 10_000 }).toBe(true)
+    await expect(page.locator('.status .gv-cell')).toContainText('$8')
+    expect(await prepare(page)).toMatchObject({ ok: true })
+    // a lower day in the same tab: the stamp does not move, the cell does
+    await dev.getByTestId('gv-device-day').fill('5')
+    await dev.getByTestId('gv-device-save').click()
+    await expect(dev.locator('.gv-budget__said')).toContainText('Saved')
+    await expect(page.locator('.status .gv-cell')).toContainText('$5')
+    await expect(page.locator('.status .gv-cell')).not.toContainText('$8')
+    // a month line added beside it: the month's closed days are read now — over the month line, refused
+    await dev.getByTestId('gv-device-month').fill('5')
+    await dev.getByTestId('gv-device-save').click()
+    await expect.poll(async () => (await totalsOf(page)).device.spentMonth, { timeout: 10_000 }).toBeCloseTo(5.2, 6)
+    expect(await prepare(page)).toMatchObject({ ok: false, code: 'budget', detail: 'device-month' })
   })
 })

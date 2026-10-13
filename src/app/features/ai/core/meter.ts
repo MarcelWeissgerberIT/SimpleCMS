@@ -387,11 +387,8 @@ export function neutralCut(e: ProviderError, o: { promptChars: number; price: Pr
   }
 }
 
-/** Prompt characters a picture counts as in an estimate (Claude: about width × height ÷ 750 tokens). */
-export const imageChars = (width: number, height: number): number => Math.ceil((Math.max(1, width) * Math.max(1, height)) / 750) * CHARS_PER_TOKEN
-
-/** Prompt characters a PDF counts as in an estimate: the text and a picture of every page (about 3,000 tokens each). */
-export const pdfChars = (pages: number): number => Math.max(1, Math.round(pages)) * 3000 * CHARS_PER_TOKEN
+// the sizes of pictures, PDFs and a loop's conversation in an estimate (pure: core/sizes.ts)
+export { imageChars, pdfChars, messagesChars, notePdfPages } from './sizes'
 
 /** Characters a stream event carries (text, thinking, tool input) — for an estimate when the stream is cut. */
 export function deltaChars(event: unknown): number {

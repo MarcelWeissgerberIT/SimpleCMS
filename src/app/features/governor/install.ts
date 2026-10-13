@@ -11,8 +11,9 @@
  *    spent once it is let through.
  *  - peek (precheck only): what money would say — never throws, never reserves.
  *  - install(): registers both (no I/O); after the first frame the totals follow the ledger — only while a line is set
- *    (no line: nothing is read; the ledger still opens on its first entry). main.tsx calls it before any service can
- *    start a request.
+ *    (no line: nothing is read; the ledger still opens on its first entry). Every metered workspace is noted for the
+ *    device line whether a line is set or not (totals.ts noteMetered). main.tsx calls it before any service can start a
+ *    request.
  *  - round (beforeRound, between two loop requests): the next step's band (steps.ts nextStep) against the rests with the
  *    run's own reservation left out — go (the reservation follows it) · halt (the AI terminal's card, with H when a
  *    cheaper model of the same provider carries the conversation within the rest) · stop (agents, background work).
@@ -33,10 +34,10 @@ import { whenIdle } from '../../lib/idle'
 import { oneShot, type OneShotCtx, type RoundVerdict } from './brake'
 import { estimate, wireOutFor, type Band } from './estimate'
 import { fits, hasLimit, hasMonthLimit, limitsOf, lineOf, restMin, restOf, type Binding, type Limits, type Rest } from './limits'
-import { mcpOneShotBand, MCP_ROUNDS } from './mcpBand'
+import { mcpOneShotBand, mcpReads } from './mcpBand'
 import { allowanceOf, consume } from './allow'
-import { deviceLimitOf, DEVICE_KEY } from './device'
-import { loadMonth, loadToday, startTotals, totalsNow, type TotalsNow } from './totals'
+import { deviceLimitOf, onDeviceLine } from './device'
+import { loadMonth, loadToday, noteLedgerScopes, startNoting, startTotals, totalsNow, type TotalsNow } from './totals'
 import { minOut, modeRow } from './modes'
 import { registerUsageLamp } from './lampSource'
 
@@ -71,7 +72,7 @@ function judged(ctx: BrakeCtx): Pick<OneShotCtx, 'band' | 'answer' | 'minOut' | 
   const costAt = size ? (cap: number) => estimate(ctx.route, { promptTokens: size.promptTokens, maxTokens: cap }, Date.now(), ctx.price, ctx.caps, ctx.hints)?.high ?? null : undefined
   const mcp =
     ctx.mcp.servers > 0 && size
-      ? { servers: ctx.mcp.servers, band: mcpOneShotBand({ row: ctx.price, promptTokens: size.promptTokens, servers: ctx.mcp.servers, toolChars: ctx.mcp.toolChars, maxTokens: size.bandOut, wireOut: wireOutFor(ctx.route, ctx.caps, ctx.hints) }) }
+      ? { servers: ctx.mcp.servers, band: mcpOneShotBand({ row: ctx.price, promptTokens: size.promptTokens, servers: ctx.mcp.servers, toolChars: ctx.mcp.toolChars, maxTokens: size.bandOut, wireOut: wireOutFor(ctx.route, ctx.caps, ctx.hints), ...(ctx.mcp.rounds ? { rounds: ctx.mcp.rounds } : {}) }) }
       : undefined
   return { band: ctx.band, answer, minOut: min, maxTokens: size?.maxTokens ?? 0, ...(costAt ? { costAt } : {}), ...(mcp ? { mcp } : {}) }
 }
@@ -110,7 +111,7 @@ export function money(ctx: BrakeCtx): MoneyVerdict | void {
         ...(line ? { line } : {}),
         purpose: ctx.purpose,
         // MCP servers attached: the band counts their rounds (the note says so)
-        ...(base.mcp ? { mcpRounds: MCP_ROUNDS } : {}),
+        ...(base.mcp ? { mcpRounds: mcpReads(ctx.mcp.rounds) } : {}),
       },
     ])
   }
@@ -152,9 +153,12 @@ export function round(ctx: RoundCtx): RoundVerdict | null | Promise<RoundVerdict
   return loops().then((m) => m.roundAt(ctx))
 }
 
+/** the seam (DEV / ?e2e): every start passes — a spec stands for an estimate that let a run through */
+let passStarts = false
+
 /** Before a run's first request (startCheck): the totals read in full first; the first step's band against the rests. */
 export async function startRun(input: PrepareInput): Promise<StartCheck> {
-  if (!hasLimit(limitsNow())) return { start: true }
+  if (!hasLimit(limitsNow()) || passStarts) return { start: true }
   return (await loops()).startAt(input, follow)
 }
 
@@ -164,16 +168,27 @@ export async function startRun(input: PrepareInput): Promise<StartCheck> {
 
 let installed = false
 let following = false
+/** this browser's own line as last followed ('' = none) */
+let deviceSeen = ''
 
-/** A line is set: the totals follow the ledger (in idle, after the first frame) — once; the month when a month line is. */
+/**
+ * A line is set: the totals follow the ledger (in idle, after the first frame) — once; the month when a month line is.
+ * This browser's own line, when it appears or moves (also in a tab that already follows a workspace budget): the
+ * workspaces it counts are listed again from the ledger's own keys and every one of them is read now.
+ */
 export function follow(): void {
   const l = limitsNow()
+  const dev = deviceLimitOf()
+  const sig = dev ? `${dev.day ?? ''}|${dev.month ?? ''}` : ''
+  const deviceMoved = sig !== '' && sig !== deviceSeen
+  deviceSeen = sig
   if (!hasLimit(l)) return
+  const read = deviceMoved ? () => void noteLedgerScopes().then(loadToday, loadToday) : () => void loadToday()
   if (!following) {
     following = true
     startTotals()
-    whenIdle(() => void loadToday(), { timeout: 3000 })
-  }
+    whenIdle(read, { timeout: 3000 })
+  } else if (deviceMoved) whenIdle(read, { timeout: 3000 })
   if (hasMonthLimit(l)) whenIdle(() => void loadMonth(), { timeout: 5000 })
 }
 
@@ -183,23 +198,29 @@ export function install(): void {
   installed = true
   registerBeforeSend({ money, peek, round, start: startRun })
   if (typeof window === 'undefined') return
+  // every workspace that spends here goes on the device line's list — a line set later counts it (no I/O until a meter)
+  startNoting()
   // VERBRAUCH on Start (fitted only while a budget exists; it reads the tab's totals in idle — no storage at boot)
   registerUsageLamp()
   // the seam (DEV / ?e2e): H across thinking modes for the browser spec (the owner's real-key check flips it for real)
   if (import.meta.env.DEV || new URLSearchParams(window.location.search).has('e2e')) {
     const w = window as unknown as { __oneGovernor?: Record<string, unknown> }
-    w.__oneGovernor = { ...(w.__oneGovernor ?? {}), acrossThinking: (on: boolean) => loops().then((m) => m.forceAcrossThinking(on)) }
+    w.__oneGovernor = {
+      ...(w.__oneGovernor ?? {}),
+      acrossThinking: (on: boolean) => loops().then((m) => m.forceAcrossThinking(on)),
+      passStarts: (on: boolean) => {
+        passStarts = on
+      },
+    }
   }
   const start = () => {
     follow()
-    // a line set later: the workspace's (governor) or this browser's own (its device stamp moves settings.ai; another
-    // tab's line arrives as a storage event)
+    // a line set later: the workspace's (governor) or this browser's own (written here: device.ts DEVICE_EVENT; in
+    // another tab: the storage event)
     useWorkspace.subscribe((s, prev) => {
       if (s.governor !== prev.governor || s.settings.ai !== prev.settings.ai) follow()
     })
-    window.addEventListener('storage', (e) => {
-      if (e.key === DEVICE_KEY) follow()
-    })
+    onDeviceLine(follow)
   }
   // never before the first paint: the frame, then a task after it
   requestAnimationFrame(() => setTimeout(start, 0))

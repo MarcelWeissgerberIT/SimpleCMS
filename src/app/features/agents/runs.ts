@@ -143,6 +143,14 @@ function writeRuns(agentId: ID, runId: string, fn: (list: AgentRun[]) => AgentRu
   return job
 }
 
+/**
+ * Remove one run — a background start whose first request the gate refused at the red line (nothing was sent): the day's
+ * held record counts it instead (exec.ts), never a run of its own.
+ */
+export function dropRun(agentId: ID, runId: string): Promise<void> {
+  return writeRuns(agentId, runId, (list) => list.filter((r) => r.id !== runId))
+}
+
 /** The agent's not-started record of a local day in this tab (Regler: one per agent and day — held.ts), if any. */
 export function heldToday(agentId: ID, day: string): AgentRun | null {
   return (useAgentRuns.getState().byAgent[agentId] ?? []).find((r) => r.id === heldId(day)) ?? null

@@ -3,7 +3,8 @@
  * the run starts read it without the loop chunk (steps.ts, loaded with loops.ts only while a line is set):
  *  - FIRST_STEP_OUT: a loop's first request is braked on this answer (the wire keeps its own max_tokens);
  *  - mcpOneShotBand: a one-shot with MCP servers may loop at the provider — its upper end counts 1 + MCP_ROUNDS context
- *    reads, each with the servers' tool lists.
+ *    reads, each with the servers' tool lists, and one full answer per request the call may send (its paused turns are
+ *    resumed as whole requests: `rounds` = 1 + the call's resumes — never fewer reads than requests).
  */
 import type { PriceRow, Usage } from '@/shared/ai/types'
 import { costOf } from '@/shared/ai/prices'
@@ -35,11 +36,19 @@ export interface McpOneShotCtx {
   maxTokens: number
   /** the answer expected (default 400) */
   outTokens?: number
+  /** how many requests the call may send — the first and each paused turn it resumes (default 1) */
+  rounds?: number
   wireOut?: (visible: number) => number
   at?: number
 }
 
-/** A one-shot with MCP servers: low = one request; high = 1 + MCP_ROUNDS context reads (tool lists in each) + the answer. */
+/** The further context reads an MCP one-shot's band counts (the brake note says "up to n rounds"). */
+export const mcpReads = (rounds = 1): number => Math.max(MCP_ROUNDS, Math.max(1, Math.round(rounds)) - 1)
+
+/**
+ * A one-shot with MCP servers: low = one request; high = every request the call may send with its full answer (`rounds`)
+ * and 1 + mcpReads(rounds) context reads in all (tool lists in each).
+ */
 export function mcpOneShotBand(ctx: McpOneShotCtx): Band | null {
   if (!ctx.row) return null
   const at = ctx.at ?? Date.now()
@@ -48,7 +57,9 @@ export function mcpOneShotBand(ctx: McpOneShotCtx): Band | null {
   for (let i = 0; i < Math.max(0, ctx.servers); i++) toolChars += ctx.toolChars?.[i] ?? MCP_TOOL_CHARS
   const per = tokens(ctx.promptTokens + toolChars / CHARS_PER_TOKEN)
   const max = tokens(ctx.maxTokens)
+  const requests = Math.max(1, Math.round(ctx.rounds ?? 1))
+  const reads = 1 + mcpReads(requests)
   const low = usd(ctx.row, U({ input: per, output: Math.min(max, tokens(ctx.outTokens ?? STEP_OUT_LOW)) }), at)
-  const high = usd(ctx.row, U({ input: per, output: tokens(wire(max)) }), at) + MCP_ROUNDS * usd(ctx.row, U({ input: per }), at)
+  const high = requests * usd(ctx.row, U({ input: per, output: tokens(wire(max)) }), at) + (reads - requests) * usd(ctx.row, U({ input: per }), at)
   return { low, high: Math.max(low, high) }
 }

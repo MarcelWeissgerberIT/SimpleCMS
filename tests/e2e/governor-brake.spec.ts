@@ -28,7 +28,7 @@
 import type { Page } from '@playwright/test'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { test, expect, openApp, reloadApp, wsEval, uiEval, flush, createPage, gotoPage, pageIdByTitle, sse, doc, para, MOD } from './fixtures'
+import { test, expect, openApp, reloadApp, wsEval, uiEval, flush, createPage, gotoPage, pageIdByTitle, sse, doc, para, editorOf, MOD } from './fixtures'
 import { exportBackup, importBackup } from './helpers/backup'
 import { ARCHIVE, TRANSFORM_STEPS, aiPanel, autofillPriority, improve, ledger, ownRequest, transformAuto } from './helpers/aiFlows'
 import { mockClaudeScript, mockOpenRouter, seedEndpoints, text } from './helpers/providers'
@@ -334,6 +334,28 @@ test.describe('the brake at the gate (B5)', () => {
     expect(third).not.toHaveProperty('band')
   })
 
+  test('structured requests carry the "All AI calls" servers: the band counts every request the call may send — refused where the band without them fits (nothing sent); positive control without the server', async ({ page }) => {
+    const answer = text(JSON.stringify({ answer: 'In two weeks.' }))
+    const { requests } = await mockClaudeScript(page.context(), [answer])
+    await openApp(page)
+    await KEY(page, { aiModel: 'claude-haiku-4-5' })
+    await wsEval(page, (s, list) => s.updateSettings({ mcpServers: list }), [{ ...ARCHIVE, scope: 'all' }])
+    // Haiku 4.5: one structured answer (4 096 tokens) ≈ 0,02 $ — 0,05 $ left holds it, and one MCP request with five more
+    // reads (≈ 0,033 $), but not the four requests a paused turn may take (≈ 0,09 $)
+    const hold = await dayWithRest(page, 0.05)
+    const Q = { purpose: 'help.ask', prompt: 'When does the Nordlicht launch happen?', structured: true }
+    const refused = await ask(page, { ...Q, mcp: 'fixed' })
+    expect(refused).toMatchObject({ ok: false, code: 'budget', detail: 'day' })
+    expect(refused.fixes[0]).toMatchObject({ kind: 'brake', mcpRounds: 5 })
+    expect(refused.fixes[0].band.high).toBeGreaterThan(0.05)
+    expect(requests).toHaveLength(0)
+    // positive control: the same request without the server fits the rest and is sent
+    expect(await ask(page, Q)).toMatchObject({ ok: true })
+    expect(requests).toHaveLength(1)
+    expect(requests[0].body.mcp_servers).toBeUndefined()
+    await release(page, hold)
+  })
+
   test('case 4 — E lets one request through (allowance on its entry), the next is refused again; B sends the cheaper model', async ({ page }) => {
     const answer = text(JSON.stringify({ answer: 'In two weeks.' }))
     const { requests } = await mockClaudeScript(page.context(), [answer, answer])
@@ -554,6 +576,35 @@ test.describe('loops: the halt card, H, Mod+. (B6 · case 5)', () => {
     expect(last.steps).toEqual(expect.arrayContaining([{ k: 'brake', code: 'H', from: 'claude-opus-5-5', to: 'claude-haiku-4-5' }]))
   })
 
+  test('H refused at the gate (the rest moved while the card waited): the card again, the task stays where it is — E goes on with round 3, never the task again from its start', async ({ page }) => {
+    const { requests } = await mockClaudeScript(page.context(), [R1, R2, R3, R3])
+    await openApp(page)
+    await KEY(page)
+    await page.evaluate(() => ((window as unknown as Seam).__oneGovernor as unknown as { acrossThinking(on: boolean): void }).acrossThinking(true))
+    await budget(page, { v: 1, day: 1 })
+    await spend(page, 0.79)
+    await openTerminal(page)
+    await runTask(page, 'Draft the Nordlicht brief.')
+    await expect(halt(page)).toBeVisible()
+    await expect(halt(page).getByRole('button', { name: /Finish with .*Haiku 4\.5/ })).toBeVisible()
+    // spent elsewhere meanwhile: the rest no longer holds Haiku's band — H is refused at the gate, nothing is sent
+    await spend(page, 0.06)
+    await expect(halt(page)).toBeFocused()
+    await page.keyboard.press('h')
+    await expect(halt(page)).toBeVisible()
+    await expect(halt(page).getByRole('button', { name: /Finish with/ })).toHaveCount(0)
+    await page.waitForTimeout(400)
+    expect(requests).toHaveLength(2)
+    // E: +1 $ for the task — round 3 on Opus, the conversation as it was (the task in it once)
+    await expect(halt(page)).toBeFocused()
+    await page.keyboard.press('e')
+    await expect(terminal(page).locator('.term-answer')).toContainText('Staged the Nordlicht brief.')
+    expect(requests).toHaveLength(3)
+    expect(requests[2].body.model).toBe('claude-opus-5-5')
+    expect(JSON.stringify(requests[2].body.messages).split('Draft the Nordlicht brief.').length - 1).toBe(1)
+    expect(requests[2].body.messages.length).toBe(requests[1].body.messages.length + 2)
+  })
+
   test('Mod+. at the card ends the task: the staged change stays listed, nothing more is sent; a pause_turn crossing the line halts before its resumed request', async ({ page }) => {
     const paused = { blocks: [{ type: 'text' as const, text: 'Still looking.' }], stop: 'pause_turn' as const, usage: { input: 2000, output: 9000 } }
     const { requests } = await mockClaudeScript(page.context(), [R1, paused, R3])
@@ -568,13 +619,37 @@ test.describe('loops: the halt card, H, Mod+. (B6 · case 5)', () => {
     await page.waitForTimeout(500)
     expect(requests).toHaveLength(2)
     expect(await reservedAll(page)).toBe(0)
+    await expect(page.locator('.status .gv-cell')).toContainText('Red line · pause')
     await page.keyboard.press('Control+.')
     await expect(halt(page)).toHaveCount(0)
     await expect(terminal(page).locator('.term-turn').last()).toHaveAttribute('data-status', 'stopped')
     await expect(terminal(page).locator('.term-bar')).toContainText(/1 .*change/i)
+    // the task is gone: no task waits at the line any more — the cell leaves "Red line · pause" (below the line itself)
+    await expect(page.locator('.status .gv-cell')).not.toContainText('Red line · pause')
+    await expect(page.locator('.status .gv-cell')).not.toHaveAttribute('data-level', 'red')
     await page.waitForTimeout(400)
     expect(requests).toHaveLength(2)
     expect(await reservedAll(page)).toBe(0)
+  })
+
+  test('a task ended at its card another way — the head\'s Stop, a new task — leaves no mark: the cell forgets "Red line · pause"', async ({ page }) => {
+    const { requests } = await mockClaudeScript(page.context(), [])
+    await openApp(page)
+    await KEY(page)
+    await budget(page, { v: 1, day: 1 })
+    await spend(page, 0.98)
+    await openTerminal(page)
+    for (const end of ['stop', 'new'] as const) {
+      await runTask(page, 'Summarise the Tessera notes.')
+      await expect(halt(page)).toBeVisible()
+      await expect(page.locator('.status .gv-cell')).toContainText('Red line · pause')
+      if (end === 'stop') await terminal(page).locator('.term-run--stop').click()
+      else await terminal(page).getByRole('button', { name: 'New task' }).first().click()
+      await expect(halt(page)).toHaveCount(0)
+      // the line itself is 0,98 / 1 $ (amber): no task waits — no "pause" (the mark is gone, not only the card)
+      await expect(page.locator('.status .gv-cell')).not.toContainText('Red line · pause')
+    }
+    expect(requests).toHaveLength(0)
   })
 
   test('a pause_turn below the line is resumed as before (positive control): the resumed request goes, no card', async ({ page }) => {
@@ -626,6 +701,46 @@ test.describe('loops: the halt card, H, Mod+. (B6 · case 5)', () => {
       }
     })
   }
+
+  test('a picture in the task counts as its pixels, never its base64: a task with a large image reference under a budget that holds its real cost is sent', async ({ page }) => {
+    const { requests } = await mockClaudeScript(page.context(), [R3])
+    await openApp(page)
+    await KEY(page)
+    // a noisy board photo (1568 px a side): megabytes of base64, about 3 300 tokens as a picture
+    const png = Buffer.from(
+      await page.evaluate(() => {
+        const c = document.createElement('canvas')
+        c.width = 1568
+        c.height = 1568
+        const g = c.getContext('2d')!
+        const img = g.createImageData(1568, 1568)
+        for (let i = 0; i < img.data.length; i++) img.data[i] = i % 4 === 3 ? 255 : (Math.random() * 256) | 0
+        g.putImageData(img, 0, 0)
+        return c.toDataURL('image/png').split(',')[1]
+      }),
+      'base64',
+    )
+    const id = await createPage(page, { title: 'Launch plan', content: doc(para('The Nordlicht board photo.'), { type: 'image', attrs: { src: null } }, para('')) })
+    await gotoPage(page, id)
+    const chooser = page.waitForEvent('filechooser')
+    await editorOf(page, id).locator('.media-empty').getByRole('button', { name: /Upload|Hochladen/ }).click()
+    await (await chooser).setFiles({ name: 'board.png', mimeType: 'image/png', buffer: png })
+    const fig = editorOf(page, id).locator('.image-view').first()
+    await expect(fig.locator('img')).toBeVisible()
+    // 0,50 $ left: the first step with the picture (≈ 0,13 $ on Opus) fits — its base64 counted as text (≈ 2 $) would not
+    await budget(page, { v: 1, day: 1 })
+    await spend(page, 0.5)
+    await fig.locator('img').click()
+    await page.keyboard.press(`${MOD}+Shift+j`)
+    await expect(terminal(page).getByTestId('term-image-chip')).toBeVisible()
+    await runTask(page, 'What is on the board photo?')
+    await expect(terminal(page).locator('.term-answer')).toContainText('Staged the Nordlicht brief.')
+    await expect(halt(page)).toHaveCount(0)
+    expect(requests).toHaveLength(1)
+    const content = (requests[0].body.messages as AnyState[]).at(-1)!.content as AnyState[]
+    // the picture really went as megabytes of base64
+    expect(String(content.find((b) => b.type === 'image')?.source.data ?? '').length).toBeGreaterThan(1_000_000)
+  })
 
   test('the first request at the line: the card with E (nothing sent); E sends it; without a budget the same task runs as before', async ({ page }) => {
     const { requests } = await mockClaudeScript(page.context(), [R3, R3])
@@ -719,6 +834,37 @@ test.describe('agents at the line: held, never waiting (B6 · case 6)', () => {
     await expect(page.getByTestId('agx-run-regler').first()).toContainText('Governor today')
     await expect(page.getByTestId('agx-run-regler').first()).toContainText('of $10.00 · rest today')
     await expect(page.getByTestId('agx-run-regler').first().locator('.gv-minibar')).toBeVisible()
+  })
+
+  test('the start check counts what the first request carries (its MCP servers\' rounds): held at the start, nothing sent; a first request refused anyway joins the same held record — never a run of its own', async ({ page }) => {
+    const { requests } = await mockClaudeScript(page.context(), [R3, R3])
+    await openApp(page)
+    await KEY(page)
+    await wsEval(page, (s, list) => s.updateSettings({ mcpServers: list }), [ARCHIVE])
+    await putAgent(page, { id: 'ag-nordlicht', name: 'Nordlicht digest', mcpServers: ['archive'] })
+    // 0,20 $ left: the first step alone (prompt + 4 096 on Opus ≈ 0,11 $) fits — with the server's rounds (≈ 0,27 $) it does not
+    await budget(page, { v: 1, day: 1 })
+    await spend(page, 0.8)
+    await agentsLoaded(page)
+    const rec = (await scheduled(page, 'ag-nordlicht')) as AnyState
+    expect(rec).toMatchObject({ status: 'held', held: { kind: 'notStarted', binding: 'day', count: 1 } })
+    expect(requests).toHaveLength(0)
+    // an estimate that let the start through (the seam): the first request is refused at the gate — nothing sent, the day's
+    // ONE held record counts it, no run of its own (no 'running' left behind)
+    await page.evaluate(() => (window as unknown as { __oneGovernor: { passStarts(on: boolean): void } }).__oneGovernor.passStarts(true))
+    const again = (await scheduled(page, 'ag-nordlicht')) as AnyState
+    expect(again).toMatchObject({ id: rec.id, status: 'held', held: { kind: 'notStarted', count: 2 } })
+    expect(requests).toHaveLength(0)
+    await page.evaluate(() => (window.location.hash = '#/agents/ag-nordlicht'))
+    await expect(page.locator('.agx-run')).toHaveCount(1)
+    await expect(page.getByTestId('agx-run-held')).toContainText('2 × not started')
+    await expect(heldToasts(page)).toHaveCount(1)
+    // positive control: without the server the same start fits and runs
+    await page.evaluate(() => (window as unknown as { __oneGovernor: { passStarts(on: boolean): void } }).__oneGovernor.passStarts(false))
+    await wsEval(page, (s) => s.updateSettings({ mcpServers: [] }))
+    const ran = (await scheduled(page, 'ag-nordlicht')) as AnyState
+    expect(ran.status).not.toBe('held')
+    expect(requests).toHaveLength(1)
   })
 
   test('mid-run at the line the run stops after its step: held, its proposal kept, the old state kept ("State not saved"); positive control: a day that holds it runs to the end', async ({ page }) => {
