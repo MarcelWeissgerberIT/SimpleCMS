@@ -172,40 +172,38 @@ test("two tabs: typing in one tab survives the other tab's first write of block 
 })
 
 for (const first of ['A', 'B'] as const) {
-  test(`two tabs that each wrote their own block ids, one added a block: the save merge keeps it once (${first} saved first)`, async ({ page, context, errors }) => {
+  test(`two tabs that each gave the blocks their own ids, one added a line: the save merge keeps it once (${first} saves first)`, async ({ page, context, errors }) => {
     await openApp(page)
     const id = await newPage(page, `Tessera Zwei Kopien ${first}`, false)
     await page.evaluate(() => (window as unknown as W).__one.flushSave())
     const b = await context.newPage()
     errors.watch(b)
     await openApp(b)
-    await gotoPage(b, id)
-    await gotoPage(page, id)
-    const edB = editorOf(b)
-    await edB.click()
-    await b.keyboard.press('End')
-    await b.keyboard.press('Enter')
-    await b.keyboard.type('Zweite')
-    // each tab's editor hands its copy to its own store (B: its ids + the new line, A: its ids) before either tab saved
-    await b.evaluate(() => (window as unknown as W).__oneEditorUnload())
-    await page.evaluate(() => (window as unknown as W).__oneEditorUnload())
+    // what each tab's editor hands its store before either tab saved (both opened the id-less page at once): A its
+    // own ids, B its own ids and the line typed after Enter
+    const copy = (lines: string[]) => ({ type: 'doc', content: lines.map((text) => ({ type: 'paragraph', attrs: { id: crypto.randomUUID() }, content: [{ type: 'text', text }] })) })
+    const own = (tab: Page, lines: string[]) => wsEval(tab, (s, a) => s.setContent(a.id, a.json, 'editor:tessera'), { id, json: copy(lines) })
+    const lines = (tab: Page) => (tab === page ? ['Nordlicht'] : ['Nordlicht', 'Zweite'])
+    const [one, two] = first === 'A' ? [page, b] : [b, page]
+    await own(one, lines(one))
+    await own(two, lines(two))
     const idsA = (await stored(page, id)).ids
     const idsB = (await stored(b, id)).ids
-    expect(idsA).toHaveLength(1)
-    expect(idsB).toHaveLength(2)
-    expect(idsA[0]).not.toBe(idsB[0])
-    const [one, two] = first === 'A' ? [page, b] : [b, page]
     await one.evaluate(() => (window as unknown as W).__one.flushSave())
     await two.evaluate(() => (window as unknown as W).__one.flushSave())
     const want = 'Nordlicht\nZweite'
     await expect.poll(async () => (await stored(page, id)).plain, { timeout: 10_000 }).toBe(want)
     await expect.poll(async () => (await stored(b, id)).plain, { timeout: 10_000 }).toBe(want)
-    await expect(editorOf(page).locator('p')).toHaveText(['Nordlicht', 'Zweite'])
-    await expect(edB.locator('p')).toHaveText(['Nordlicht', 'Zweite'])
-    // the line both copies held keeps the ids stored first; the new line its own
-    const ids = [first === 'A' ? idsA[0] : idsB[0], idsB[1]]
-    await expect.poll(async () => (await stored(page, id)).ids).toEqual(ids)
+    // one set of ids in both tabs: the line both copies held keeps one copy's id (the one stored first — which tab's
+    // save timer ran out first is up to the machine), the new line its own
+    const ids = (await stored(page, id)).ids
+    expect([idsA[0], idsB[0]]).toContain(ids[0])
+    expect(ids[1]).toBe(idsB[1])
     await expect.poll(async () => (await stored(b, id)).ids).toEqual(ids)
+    for (const tab of [page, b]) {
+      await gotoPage(tab, id)
+      await expect(editorOf(tab).locator('p')).toHaveText(['Nordlicht', 'Zweite'])
+    }
   })
 }
 

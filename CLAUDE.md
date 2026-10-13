@@ -107,6 +107,8 @@ the public APIs stable — other areas are built against them in parallel.
   `page.contentOrigin !== <own id>` and `contentRev` changed. Block ids alone are no change there (each editor fills
   in its own for blocks without one and writes them once): merges with unsaved typing diff ids aside and the blocks
   take the write's ids (editor/lib/idDiff.ts; the merge base is the content the editor took in, with its own ids).
+  The cross-tab save merge (store/merge.ts) does the same: a block whose id base does not know (and the other copy
+  does not share) is matched by value, ids aside; a block both copies hold keeps the id stored first.
 - Database rows are pages with `databaseId` set (parentId = database page id). Title lives in `page.title`.
 - Binary files (images, attachments) go to IndexedDB via `saveFile()` → `"onefile:<id>"`; display with `useFileUrl()`.
 - Public assets are referenced WITHOUT leading slash (`assets/covers/dunes.webp`) and resolved with `resolveAssetUrl()`
