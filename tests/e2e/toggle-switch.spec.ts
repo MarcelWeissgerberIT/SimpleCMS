@@ -296,6 +296,8 @@ test('screws: fastened the same way after a reload, differently per switch', asy
   await openApp(page)
   await openSettings(page, 'ai')
   const mem = page.getByTestId('memory-settings')
+  // Settings › AI is a lazy chunk (features ProvidersTab) and slots() reads at once: wait for the switch first
+  await expect(mem.getByRole('switch', { name: 'Use the memory' })).toBeVisible()
   const use = await slots(mem.getByRole('switch', { name: 'Use the memory' }))
   const log = await slots(mem.getByRole('switch', { name: 'Keep a usage log' }))
   expect(use).toHaveLength(4)
@@ -303,6 +305,7 @@ test('screws: fastened the same way after a reload, differently per switch', asy
   expect(use).toEqual(screwAngles('enabled', 4).map((a) => `${a}deg`))
   await reloadApp(page)
   await openSettings(page, 'ai')
+  await expect(mem.getByRole('switch', { name: 'Use the memory' })).toBeVisible()
   expect(await slots(mem.getByRole('switch', { name: 'Use the memory' }))).toEqual(use)
   expect(await slots(mem.getByRole('switch', { name: 'Keep a usage log' }))).toEqual(log)
 })
