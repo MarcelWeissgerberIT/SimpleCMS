@@ -103,22 +103,30 @@ clean, and a test-command guess from top-level files — `package.json` with a `
   `is_ntfs_dotgit` / `is_hfs_dotgit` in one check (`isDotGit`): any case (`.GIT`, `.Git` — macOS and Windows disks
   ignore case), trailing dots and spaces (`.git.`), an NTFS stream suffix (`.git::$INDEX_ALLOCATION`), the 8.3 short
   name `GIT~<n>`, and the code points HFS+ ignores (U+200C–U+200F, U+202A–U+202E, U+206A–U+206F, U+FEFF). Every other
-  path must stay inside the folder — an absolute path, a drive letter, `..` or a name of only dots and spaces refuses
-  the whole ZIP, and so does a control character (U+0000–U+001F, U+007F). **On Windows** also any name with `:` (an
-  NTFS data stream) or a device name (CON, PRN, AUX, NUL, COM0–9, COM¹–³, LPT0–9, LPT¹–³, CONIN$, CONOUT$ — with or
-  without an extension); on macOS and Linux these are plain files git keeps (the kernel's `aux.c`, `con.go`, a stray
-  `nul`). Links become plain files. ≤ 2 GB unpacked and 100,000 files; one folder at the top becomes the repository.
+  path must stay inside the folder — an absolute path (`/x`, or a drive path `C:/x` / `C:\x` on every system), `..`
+  or a name of only dots and spaces refuses the whole ZIP, and so does a control character (U+0000–U+001F, U+007F).
+  **On Windows** also any name with `:` (an NTFS data stream; `C:x` is relative to drive C there) or a device name
+  (CON, PRN, AUX, NUL, COM0–9, COM¹–³, LPT0–9, LPT¹–³, CONIN$, CONOUT$ — with or without an extension); on macOS and
+  Linux these are plain files git keeps (the kernel's `aux.c`, `con.go`, a stray `nul`, `a:b`). Links become plain
+  files. ≤ 2 GB unpacked and 100,000 files; one folder at the top becomes the repository.
   Before any git step a second guard walks the new folder and refuses it (removing it) when it holds a git folder:
   anything named like `.git`, what the file system answers for `.git` itself, or a folder git would use as a
-  repository of its own (git's `is_git_directory`: a `HEAD` with `objects/` + `refs/`, or with a `commondir` — a
-  bare repository, test fixtures too; git would run its config, e.g. `core.fsmonitor`, for any git command in that
-  folder). Then one commit *Import <file>* on branch `main` (identity: the person's git config, else "One worker"),
-  made against a fresh git folder next to the new one (`git --git-dir=<fresh> --work-tree=<folder>`), so no config
-  or hook inside the folder is ever read — not its fsmonitor, filter drivers, `gpg.program` or `include.path`, even
-  of a `.git` that slipped past both guards; of the person's own config fsmonitor is off and hooks come from an empty
-  folder (`--no-verify` too). The folder is checked once more, then the fresh git folder moves in as its `.git`,
-  marked as the worker's import (`.git/one-worker-source`). A failed import leaves no folder behind. No remote — push
-  is off until one is added.
+  repository of its own (git's `is_git_directory`: a `HEAD` with `objects` + `refs`, or with a `commondir` — those
+  three counted whatever they are, files too, because git asks `access(X_OK)` and Git for Windows answers it for any
+  file; a bare repository, test fixtures too; git would run its config, e.g. `core.fsmonitor`, for any git command in
+  that folder). A ZIP whose top is such a folder — a bare repository, or the inside of a `.git` — is refused with
+  "clone it and zip the checkout". Then one commit *Import <file>* on branch `main` (identity: the person's git
+  config, else "One worker"), made against a fresh git folder next to the new one (`git --git-dir=<fresh>
+  --work-tree=<folder>`), so no config or hook inside the folder is ever read — not its fsmonitor, filter drivers,
+  `gpg.program` or `include.path`, even of a `.git` that slipped past both guards. Of the person's own config,
+  nothing that runs a command or works on afterwards: fsmonitor off, hooks from an empty folder (`--no-verify` too),
+  no filter driver — `* -filter` in the fresh git folder's `info/attributes` while it adds (a global clean filter
+  such as nbstripout's runs in the import's folder, where `python -m nbstripout` would import the ZIP's own
+  `nbstripout.py`; Git LFS files go in as plain files), removed before the move — and no automatic gc
+  (`gc.auto=0`, `maintenance.auto=false`: past ~6,700 loose objects `git commit` starts a detached `git gc --auto`
+  that raced the move and left `gc.pid` and `gc.log.lock` behind). The folder is checked once more, then the fresh
+  git folder moves in as its `.git`, marked as the worker's import (`.git/one-worker-source`). A failed import
+  leaves no folder behind. No remote — push is off until one is added.
 - **Create it on GitLab / GitHub** (offered after an import while `glab` / `gh` is signed in; mcp/src/worker/publish.ts):
   a project name suggested from the code (package.json, composer.json, pom.xml, pyproject.toml / setup.py, Cargo.toml,
   go.mod, *.sln / *.csproj, the README's first heading — else the ZIP's name), an optional GitLab group (nested) or

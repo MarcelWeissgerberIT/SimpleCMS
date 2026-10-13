@@ -509,9 +509,11 @@ the public APIs stable — other areas are built against them in parallel.
   as `.git` (`isDotGit` = git's is_ntfs_dotgit + is_hfs_dotgit: case, trailing dots / spaces, `:stream`, `GIT~n`, HFS+
   ignorables), `__MACOSX`, `.DS_Store`, `Icon\r`; a path outside / a control character refuses the ZIP, `:` / a device
   name only on Windows (`entryPath(name, platform)`); `gitDirIn` refuses any `.git` spelling or a folder git takes for a
-  repository (HEAD + objects/ + refs/ or commondir) before any git step (`finishImport`); one commit against a fresh git
-  dir outside the folder (`--git-dir` / `--work-tree`, fsmonitor off, empty hooksPath, --no-verify — no config inside
-  the folder is ever read), moved in as `.git` after a last check) into `cloneDir` (default ~/one-repos, never iCloud).
+  repository (HEAD + objects + refs or commondir, any file type; a ZIP that is one itself → "clone it") before any git
+  step (`finishImport`); one commit against a fresh git dir outside the folder (`--git-dir` / `--work-tree`, fsmonitor
+  off, empty hooksPath, --no-verify, `* -filter` in its info/attributes while adding, gc.auto=0 + maintenance.auto=false
+  — no config inside the folder is ever read, no global filter driver or detached gc runs), moved in as `.git` after a
+  last check) into `cloneDir` (default ~/one-repos, never iCloud).
   Clones and imports are marked `.git/one-worker-source` (`SOURCE_MARK`); such a repo, or one inside `cloneDir`, gets
   `claude.projectSettings` false unless worker.json says true → Claude Code runs with `--setting-sources user` (none of
   the repo's hooks, apiKeyHelper, .mcp.json, CLAUDE.md; log code `projectSettingsOff`; a CLI without the flag refuses the

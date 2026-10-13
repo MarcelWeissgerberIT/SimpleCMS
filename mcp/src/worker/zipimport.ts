@@ -13,12 +13,13 @@
  *  - one folder at the top (project-main/…) becomes the repository itself
  * Then, only while the new folder holds no git folder — no ".git" in any spelling and no folder git would take for
  * a repository (gitDirIn, asked of the file system too) — one commit "Import <file>" made against a fresh git folder
- * outside it, moved in at the end (commitImport). A failed import leaves no folder behind. The repository is marked
+ * outside it, moved in at the end (commitImport): no fsmonitor, hook or filter driver runs, no automatic gc starts.
+ * A failed import leaves no folder behind. The repository is marked
  * as the worker's import (SOURCE_MARK): Claude Code runs on it without the repo's own settings (config.ts).
  * Nothing is pushed: the repo has no remote until the person adds one.
  */
 import { Unzip, UnzipInflate } from 'fflate'
-import { closeSync, createReadStream, existsSync, lstatSync, mkdirSync, openSync, readdirSync, renameSync, rmSync, statSync, writeFileSync, writeSync } from 'node:fs'
+import { closeSync, createReadStream, existsSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync, writeSync } from 'node:fs'
 import { randomBytes } from 'node:crypto'
 import { dirname, join, relative, resolve, sep } from 'node:path'
 import { SOURCE_MARK } from './config.ts'
@@ -81,7 +82,9 @@ export function entryPath(name: string, platform: NodeJS.Platform = process.plat
   // line-by-line output the worker reads and can paint over a terminal or a log. U+0080–U+009F stay allowed: a ZIP
   // without the UTF-8 flag (CP437 from older Windows tools) is read as Latin-1, and its umlauts land there
   if (/[\u0000-\u001f\u007f]/.test(n)) return CONTROL
-  if (n.startsWith('/') || /^[A-Za-z]:/.test(n)) return OUTSIDE
+  // absolute: "/x", and a Windows drive path "C:/x" or "C:\x" on every system ("a:b" is a plain name on macOS / Linux;
+  // on Windows every ":" refuses below, "C:x" too)
+  if (n.startsWith('/') || /^[A-Za-z]:\//.test(n)) return OUTSIDE
   // "..", and any name of only dots and spaces: Windows drops trailing dots and spaces (".. " can be ".."), HFS+
   // ignores some code points ("..\u200c" compares as "..")
   if (parts.some((p) => /^[. ]*$/.test(p.replace(HFS_IGNORABLE, '')))) return OUTSIDE
@@ -102,15 +105,17 @@ const shown = (name: string) => name.replace(/[\u0000-\u001f\u007f]/g, '?').slic
 const entry = (path: string) => lstatSync(path, { throwIfNoEntry: false })
 
 /**
- * A folder git would take for a repository of its own (git's is_git_directory, setup.c): a HEAD, and objects/ +
- * refs/ (or a commondir pointing at them). Asked of the file system, so a case-insensitive disk answers as git does.
- * git uses such a folder — a bare repository — for any git command run inside it, its config included.
+ * A folder git would take for a repository of its own (git's is_git_directory, setup.c): a HEAD, and objects + refs
+ * (or a commondir pointing elsewhere). Asked of the file system, so a case-insensitive disk answers as git does.
+ * objects, refs and commondir count whatever they are: git asks access(X_OK), which Git for Windows answers for any
+ * file (and Linux / macOS for an executable one). git uses such a folder — a bare repository — for any git command
+ * run inside it, its config included.
  */
 function isRepoDir(d: string): boolean {
   const head = entry(join(d, 'HEAD'))
   if (!head || head.isDirectory()) return false
-  if (entry(join(d, 'commondir'))?.isFile()) return true
-  return !!entry(join(d, 'objects'))?.isDirectory() && !!entry(join(d, 'refs'))?.isDirectory()
+  if (entry(join(d, 'commondir'))) return true
+  return !!entry(join(d, 'objects')) && !!entry(join(d, 'refs'))
 }
 
 export interface PlantedGit {
@@ -145,6 +150,8 @@ function refusePlanted(dir: string): void {
   if (!planted) return
   const at = shown(relative(dir, planted.path) || '.')
   if (planted.kind === 'dotgit') throw new Error(`the ZIP holds a git folder under another spelling (${at}) — nothing was imported`)
+  // the ZIP's top is a git folder itself (a bare repository, or the inside of a .git): no files to import
+  if (planted.path === dir) throw new Error('the ZIP is a git repository itself (HEAD, objects, refs — a bare one, or the inside of a .git folder), not the code: clone it and zip the checkout, or clone it here — nothing was imported')
   throw new Error(`the ZIP holds a git repository in ${at} (HEAD, objects, refs) — git would use it, and its config, for every git command run in that folder. Leave it out (a test fixture too) and zip again — nothing was imported`)
 }
 
@@ -253,18 +260,28 @@ export async function finishImport(dir: string, label: string): Promise<void> {
 }
 
 /**
+ * What the import's git dir says about every file while it adds them: no filter. A clean filter is a command — the
+ * person's own global ones too (core.attributesFile, or the ZIP's .gitattributes naming a driver their config has),
+ * and it runs in the import's folder, where `python -m nbstripout` imports the ZIP's own nbstripout.py. Files go in
+ * as they are (Git LFS ones too); $GIT_DIR/info/attributes outranks every other attributes file.
+ */
+const NO_FILTERS = '* -filter\n'
+
+/**
  * Branch main, everything added, one commit "Import <label>" — against a fresh git folder made next to `dir` and
  * moved in only at the end, so no config or hook in `dir` is ever read, even of a .git that slipped past both
  * guards (its fsmonitor, filter drivers, gpg.program, include.path …). The person's own git config still applies
- * (their identity, LFS) except fsmonitor and hooks: off, hooks only from an empty folder, --no-verify. Before the
- * move `dir` is checked once more; a git folder there refuses the import.
+ * (their identity, signing) except what would run a command or work on after the commit: fsmonitor off, hooks only
+ * from an empty folder and --no-verify, no filter driver (NO_FILTERS), no automatic gc / maintenance (git commit
+ * starts a detached `git gc --auto` past ~6,700 loose objects, which raced the move into `dir` and left gc.pid and a
+ * lock behind). Before the move `dir` is checked once more; a git folder there refuses the import.
  */
 export async function commitImport(dir: string, label: string): Promise<void> {
   const holder = join(dirname(dir), `.one-import-git-${randomBytes(6).toString('hex')}`)
   const gitDir = join(holder, '.git')
   const hooks = join(holder, 'no-hooks')
   mkdirSync(hooks, { recursive: true })
-  const safe = ['-c', 'core.fsmonitor=false', '-c', `core.hooksPath=${hooks}`]
+  const safe = ['-c', 'core.fsmonitor=false', '-c', `core.hooksPath=${hooks}`, '-c', 'gc.auto=0', '-c', 'maintenance.auto=false']
   const repo = [`--git-dir=${gitDir}`, `--work-tree=${dir}`]
   const run = async (cwd: string, args: string[], timeoutMs = 120_000) => {
     const r = await git(cwd, [...safe, ...args], timeoutMs)
@@ -273,11 +290,18 @@ export async function commitImport(dir: string, label: string): Promise<void> {
   }
   try {
     await run(holder, ['init', '-q'])
+    // the person's init.templateDir may have brought one: it comes back before the move
+    const attributes = join(gitDir, 'info', 'attributes')
+    const theirs = existsSync(attributes) ? readFileSync(attributes) : null
+    mkdirSync(dirname(attributes), { recursive: true })
+    writeFileSync(attributes, NO_FILTERS)
     await run(dir, [...repo, 'symbolic-ref', 'HEAD', 'refs/heads/main'])
     await run(dir, [...repo, 'add', '-A'], 10 * 60_000)
     const who = (await git(dir, [...safe, ...repo, 'config', 'user.email'])).stdout.trim()
     const identity = who ? [] : ['-c', 'user.name=One worker', '-c', 'user.email=one-worker@localhost']
     await run(dir, [...identity, ...repo, 'commit', '-q', '--no-verify', '--allow-empty', '-m', `Import ${label.slice(0, 200)}`], 10 * 60_000)
+    if (theirs) writeFileSync(attributes, theirs)
+    else rmSync(attributes, { force: true })
     writeFileSync(join(gitDir, SOURCE_MARK), 'zip\n')
     refusePlanted(dir)
     renameSync(gitDir, join(dir, '.git'))

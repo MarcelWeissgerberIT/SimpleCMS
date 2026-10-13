@@ -4,8 +4,9 @@
  * the person's GitLab / GitHub projects from fake glab / gh tools, a ZIP of source code unpacked into a fresh
  * repository (its own .git folders in every spelling a file system folds to ".git", __MACOSX and .DS_Store left out;
  * a path outside the folder, ":", a control character or a Windows device name refuses the ZIP; the git steps run
- * with fsmonitor off and no hooks even when a .git was planted), the clone folder and own MCP servers written by
- * Save, GitLab merge requests with glab. Nothing leaves the machine.
+ * with fsmonitor off, no hooks, no filter driver (the person's global ones too) and no automatic gc even when a .git
+ * was planted; a ZIP that is a repository itself is refused), the clone folder and own MCP servers written by Save,
+ * GitLab merge requests with glab. Nothing leaves the machine.
  */
 import assert from 'node:assert/strict'
 import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
@@ -212,6 +213,21 @@ describe('ZIP import: no git folder in any spelling or shape, nothing in the ZIP
     assert.equal(entryPath('p\\src\\a.ts'), 'p/src/a.ts')
   })
 
+  test('a drive letter is a drive only where it makes a path absolute: "C:/x" and "C:\\x" refuse everywhere, "a:b" is a name on macOS / Linux', () => {
+    for (const platform of ['linux', 'darwin', 'win32'] as const)
+      for (const n of ['C:/x.txt', 'c:\\Windows\\x', 'Z:/p/a.ts', 'C:\\']) {
+        const r = entryPath(n, platform)
+        assert.ok(isUnsafe(r) && /outside its folder/.test(r.unsafe), `${platform} ${JSON.stringify(n)} → ${JSON.stringify(r)}`)
+      }
+    // macOS / Linux: a colon is part of a name — at the start too (a:b, C:x, ab:c)
+    for (const platform of ['linux', 'darwin'] as const) for (const n of ['a:b', 'C:x', 'ab:c/d.txt', 'ab:/y']) assert.equal(entryPath(n, platform), n, `${platform} ${n}`)
+    // Windows: every ":" refuses — "C:x" is relative to drive C there, "a:b" a stream of "a"
+    for (const n of ['a:b', 'C:x', 'ab:c/d.txt']) {
+      const r = entryPath(n, 'win32')
+      assert.ok(isUnsafe(r) && /":"/.test(r.unsafe), `win32 ${n} → ${JSON.stringify(r)}`)
+    }
+  })
+
   test('the second guard finds a .git spelling the file system kept, the file system\'s own ".git", and a folder git takes for a repository', () => {
     const clean = tempDir('guard')
     mkdirSync(join(clean, 'src', '.github'), { recursive: true })
@@ -249,6 +265,27 @@ describe('ZIP import: no git folder in any spelling or shape, nothing in the ZIP
     mkdirSync(join(atTop, 'refs'))
     writeFileSync(join(atTop, 'HEAD'), 'ref: refs/heads/main\n')
     assert.deepEqual(gitDirIn(atTop), { path: atTop, kind: 'repo' })
+  })
+
+  test('objects, refs and commondir count whatever they are: Git for Windows takes plain files there for a repository (access X_OK)', () => {
+    const files = tempDir('guard')
+    mkdirSync(join(files, 'fixture'))
+    for (const n of ['HEAD', 'objects', 'refs']) writeFileSync(join(files, 'fixture', n), n === 'HEAD' ? 'ref: refs/heads/main\n' : '')
+    assert.deepEqual(gitDirIn(files), { path: join(files, 'fixture'), kind: 'repo' })
+    const mixed = tempDir('guard')
+    mkdirSync(join(mixed, 'refs'))
+    writeFileSync(join(mixed, 'objects'), '')
+    writeFileSync(join(mixed, 'HEAD'), 'ref: refs/heads/main\n')
+    assert.deepEqual(gitDirIn(mixed), { path: mixed, kind: 'repo' })
+    const common = tempDir('guard')
+    mkdirSync(join(common, 'wt', 'commondir'), { recursive: true })
+    writeFileSync(join(common, 'wt', 'HEAD'), 'ref: refs/heads/x\n')
+    assert.deepEqual(gitDirIn(common), { path: join(common, 'wt'), kind: 'repo' })
+    // still not a repository: no HEAD, or only one of objects / refs
+    const half = tempDir('guard')
+    writeFileSync(join(half, 'HEAD'), 'x\n')
+    writeFileSync(join(half, 'objects'), '')
+    assert.equal(gitDirIn(half), null)
   })
 
   test('after unpacking, the second guard runs before any git step and the folder goes again (finishImport)', async () => {
@@ -417,6 +454,65 @@ describe('ZIP import: no git folder in any spelling or shape, nothing in the ZIP
       process.env.PATH = path
     }
     assert.deepEqual(readdirSync(gone), [])
+  })
+
+  test('a ZIP that is a git repository itself (a bare one, or the inside of a .git) is refused with what to do instead', async () => {
+    const zips: Array<Record<string, string>> = [
+      { 'billing.git/HEAD': 'ref: refs/heads/main\n', 'billing.git/config': '[core]\n\tbare = true\n', 'billing.git/objects/info/packs': '', 'billing.git/refs/heads/main': '0000000000000000000000000000000000000000\n', 'billing.git/description': 'x\n' },
+      { HEAD: 'ref: refs/heads/main\n', config: '[core]\n', 'objects/info/packs': '', 'refs/heads/main': 'x\n' },
+    ]
+    for (const files of zips) {
+      const base = tempDir('clones')
+      await assert.rejects(asPerson('', () => importZip(zipFile(files), base, 'billing', 'billing.zip')), /is a git repository itself.*clone it and zip the checkout.*nothing was imported/)
+      assert.deepEqual(readdirSync(base), [], 'nothing left')
+    }
+  })
+
+  test('the commit starts no automatic gc: > 7,000 files leave no gc.pid, gc.log or lock in .git and no temporary folder next to it', async () => {
+    const dir = join(tempDir('many'), 'proj')
+    for (let i = 0; i < 7200; i++) {
+      const d = join(dir, `d${i % 60}`)
+      if (i < 60) mkdirSync(d, { recursive: true })
+      writeFileSync(join(d, `f${i}.txt`), `file ${i}\n`)
+    }
+    await asPerson('', () => finishImport(dir, 'many.zip'))
+    // a detached `git gc --auto` takes a moment: give one the time it would need
+    await new Promise((r) => setTimeout(r, 2500))
+    assert.deepEqual(readdirSync(join(dir, '.git')).filter((n) => /^gc\.|\.lock$/.test(n)), [], 'no gc.pid, gc.log or lock')
+    assert.deepEqual(leftovers(dir), [], 'no .one-import-git-* came back')
+    assert.equal(sh(dir, 'rev-list', '--count', 'HEAD').trim(), '1')
+    // a later gc of the person's in this repository works
+    sh(dir, 'gc', '--quiet')
+    assert.ok(readdirSync(join(dir, '.git', 'objects', 'pack')).some((n) => n.endsWith('.pack')), 'a later gc packs the objects')
+  })
+
+  test('no filter driver runs at import — not even the person\'s own global one (core.attributesFile) that would run the ZIP\'s script', async () => {
+    const trap = tempDir('trap')
+    const attributes = join(tempDir('attrs'), 'attributes')
+    writeFileSync(attributes, '*.ipynb filter=nbstrip\n*.csv filter=lfsish\n')
+    // an nbstripout-style install: the clean command runs in the folder being added (`python -m nbstripout` imports the
+    // ZIP's nbstripout.py first) — here a script of the ZIP itself; and a long-running filter process
+    const global = `[filter "nbstrip"]\n\tclean = sh nbstripout.sh\n\tsmudge = cat\n\trequired = true\n[filter "lfsish"]\n\tprocess = sh nbstripout.sh\n[core]\n\tattributesFile = ${attributes}\n`
+    const base = tempDir('clones')
+    const notebook = '{"cells": [{"outputs": ["secret"]}]}\n'
+    const res = await asPerson(global, () => importZip(zipFile({
+      'nb/analysis.ipynb': notebook,
+      'nb/data.csv': 'a,b\n1,2\n',
+      'nb/.gitattributes': '*.ipynb filter=nbstrip\n',
+      'nb/nbstripout.sh': `touch '${join(trap, 'filter-ran')}'\ncat\n`,
+    }), base, 'nb', 'nb.zip'))
+    assert.deepEqual(readdirSync(trap), [], 'no filter ran')
+    assert.equal(sh(res.dir, 'cat-file', '-p', 'HEAD:analysis.ipynb'), notebook, 'the file went in as it is')
+    assert.ok(!existsSync(join(res.dir, '.git', 'info', 'attributes')), 'the import\'s own attributes are gone after the commit')
+    assert.deepEqual(sh(res.dir, 'ls-files').trim().split('\n'), ['.gitattributes', 'analysis.ipynb', 'data.csv', 'nbstripout.sh'])
+    // the same global setup, with plain git add: the ZIP's script runs
+    const plain = join(tempDir('plain'), 'nb')
+    mkdirSync(plain)
+    writeFileSync(join(plain, 'analysis.ipynb'), notebook)
+    writeFileSync(join(plain, 'nbstripout.sh'), `touch '${join(trap, 'filter-ran')}'\ncat\n`)
+    sh(plain, 'init', '-q')
+    await asPerson(global, async () => execFileSync('git', ['add', '-A'], { cwd: plain, env: { ...process.env, GIT_CONFIG_NOSYSTEM: '1' }, stdio: 'ignore' }))
+    assert.ok(existsSync(join(trap, 'filter-ran')), 'plain git add ran it')
   })
 })
 

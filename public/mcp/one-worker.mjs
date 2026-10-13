@@ -13146,7 +13146,7 @@ var Unzip = /* @__PURE__ */ (function() {
 })();
 
 // src/worker/zipimport.ts
-import { closeSync, createReadStream, existsSync as existsSync5, lstatSync as lstatSync2, mkdirSync as mkdirSync4, openSync, readdirSync as readdirSync2, renameSync as renameSync3, rmSync as rmSync3, statSync as statSync2, writeFileSync as writeFileSync4, writeSync } from "node:fs";
+import { closeSync, createReadStream, existsSync as existsSync5, lstatSync as lstatSync2, mkdirSync as mkdirSync4, openSync, readFileSync as readFileSync5, readdirSync as readdirSync2, renameSync as renameSync3, rmSync as rmSync3, statSync as statSync2, writeFileSync as writeFileSync4, writeSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { dirname as dirname4, join as join6, relative as relative2, resolve as resolve4, sep as sep5 } from "node:path";
 var ZIP_MAX = () => Number(process.env.ONE_WORKER_ZIP_MAX) || 500 * 1024 * 1024;
@@ -13170,7 +13170,7 @@ function entryPath(name, platform = process.platform) {
   const parts = n.split("/").filter((p) => p && p !== ".");
   if (parts.some(isDotGit) || parts[0] === "__MACOSX" || FINDER_FILES.has(parts.at(-1) ?? "")) return null;
   if (/[\u0000-\u001f\u007f]/.test(n)) return CONTROL;
-  if (n.startsWith("/") || /^[A-Za-z]:/.test(n)) return OUTSIDE;
+  if (n.startsWith("/") || /^[A-Za-z]:\//.test(n)) return OUTSIDE;
   if (parts.some((p) => /^[. ]*$/.test(p.replace(HFS_IGNORABLE, "")))) return OUTSIDE;
   if (platform === "win32") {
     if (parts.some((p) => p.includes(":"))) return COLON;
@@ -13186,8 +13186,8 @@ var entry = (path) => lstatSync2(path, { throwIfNoEntry: false });
 function isRepoDir(d) {
   const head = entry(join6(d, "HEAD"));
   if (!head || head.isDirectory()) return false;
-  if (entry(join6(d, "commondir"))?.isFile()) return true;
-  return !!entry(join6(d, "objects"))?.isDirectory() && !!entry(join6(d, "refs"))?.isDirectory();
+  if (entry(join6(d, "commondir"))) return true;
+  return !!entry(join6(d, "objects")) && !!entry(join6(d, "refs"));
 }
 function gitDirIn(dir) {
   const todo = [dir];
@@ -13207,6 +13207,7 @@ function refusePlanted(dir) {
   if (!planted) return;
   const at = shown(relative2(dir, planted.path) || ".");
   if (planted.kind === "dotgit") throw new Error(`the ZIP holds a git folder under another spelling (${at}) \u2014 nothing was imported`);
+  if (planted.path === dir) throw new Error("the ZIP is a git repository itself (HEAD, objects, refs \u2014 a bare one, or the inside of a .git folder), not the code: clone it and zip the checkout, or clone it here \u2014 nothing was imported");
   throw new Error(`the ZIP holds a git repository in ${at} (HEAD, objects, refs) \u2014 git would use it, and its config, for every git command run in that folder. Leave it out (a test fixture too) and zip again \u2014 nothing was imported`);
 }
 async function importZip(zipFile, base, name, label, onProgress = () => {
@@ -13301,12 +13302,13 @@ async function finishImport(dir, label) {
     throw e;
   }
 }
+var NO_FILTERS = "* -filter\n";
 async function commitImport(dir, label) {
   const holder = join6(dirname4(dir), `.one-import-git-${randomBytes(6).toString("hex")}`);
   const gitDir2 = join6(holder, ".git");
   const hooks = join6(holder, "no-hooks");
   mkdirSync4(hooks, { recursive: true });
-  const safe = ["-c", "core.fsmonitor=false", "-c", `core.hooksPath=${hooks}`];
+  const safe = ["-c", "core.fsmonitor=false", "-c", `core.hooksPath=${hooks}`, "-c", "gc.auto=0", "-c", "maintenance.auto=false"];
   const repo = [`--git-dir=${gitDir2}`, `--work-tree=${dir}`];
   const run2 = async (cwd, args, timeoutMs = 12e4) => {
     const r = await git(cwd, [...safe, ...args], timeoutMs);
@@ -13315,11 +13317,17 @@ async function commitImport(dir, label) {
   };
   try {
     await run2(holder, ["init", "-q"]);
+    const attributes = join6(gitDir2, "info", "attributes");
+    const theirs = existsSync5(attributes) ? readFileSync5(attributes) : null;
+    mkdirSync4(dirname4(attributes), { recursive: true });
+    writeFileSync4(attributes, NO_FILTERS);
     await run2(dir, [...repo, "symbolic-ref", "HEAD", "refs/heads/main"]);
     await run2(dir, [...repo, "add", "-A"], 10 * 6e4);
     const who = (await git(dir, [...safe, ...repo, "config", "user.email"])).stdout.trim();
     const identity = who ? [] : ["-c", "user.name=One worker", "-c", "user.email=one-worker@localhost"];
     await run2(dir, [...identity, ...repo, "commit", "-q", "--no-verify", "--allow-empty", "-m", `Import ${label.slice(0, 200)}`], 10 * 6e4);
+    if (theirs) writeFileSync4(attributes, theirs);
+    else rmSync3(attributes, { force: true });
     writeFileSync4(join6(gitDir2, SOURCE_MARK), "zip\n");
     refusePlanted(dir);
     renameSync3(gitDir2, join6(dir, ".git"));
@@ -13329,7 +13337,7 @@ async function commitImport(dir, label) {
 }
 
 // src/worker/publish.ts
-import { existsSync as existsSync6, readFileSync as readFileSync5, readdirSync as readdirSync3 } from "node:fs";
+import { existsSync as existsSync6, readFileSync as readFileSync6, readdirSync as readdirSync3 } from "node:fs";
 import { join as join7 } from "node:path";
 var NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
 var OWNER = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}(\/[A-Za-z0-9][A-Za-z0-9._-]{0,99}){0,5}$/;
@@ -13337,7 +13345,7 @@ function read(dir, file, max2 = 256 * 1024) {
   try {
     const p = join7(dir, file);
     if (!existsSync6(p)) return null;
-    const text2 = readFileSync5(p, "utf8");
+    const text2 = readFileSync6(p, "utf8");
     return text2.length > max2 ? text2.slice(0, max2) : text2;
   } catch {
     return null;
