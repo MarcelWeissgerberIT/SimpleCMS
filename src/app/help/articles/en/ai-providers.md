@@ -20,7 +20,10 @@ Open the assistant from **Settings → AI → Set up AI…**, from ⌘K **Set up
 6. **Done** — a summary, **Undo** for step 05 and **Test on a page**.
 
 ## The Jev Router
-With at least two models in your OpenRouter list, **Jev Router** (by TypeSafe, via OpenRouter) can take a role: it picks the right model of your list for each request and forwards it there. You pay per request; the price is reported with the answer, and One reserves the most expensive model of your list beforehand. Jev reads the request to choose. *Jev as a checker* (pre-checking proposals) follows with a later update.
+With at least two models in your OpenRouter list, **Jev Router** (by TypeSafe, via OpenRouter) can take a role: it picks the right model of your list for each request and forwards it there. You pay per request; the price is reported with the answer, and One reserves the most expensive model of your list beforehand. Jev reads the request to choose.
+
+## Jev as a pre-checker
+The **Pre-checker** row of step 03 starts **Off**. **Choose Jev 1.13** lets Jev (a decision model by TypeSafe) answer four fixed questions about every proposal of an agent whose section 06 switches the pre-check on — it marks or holds back, it never writes. See [Jev as a pre-checker](help:ai-jev).
 
 ## What runs where in this version
 The AI menu, ⌘K **?**, ask your workspace, transform, images and files, autofill, meeting notes, memory and the help's **Ask** can run on OpenRouter. The AI terminal, agents, scripts, Outbox drafts and anything with MCP servers run on Claude for now — their cards say so.

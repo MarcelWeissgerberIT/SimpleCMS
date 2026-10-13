@@ -38,6 +38,7 @@ import { loadRuntime, loadServerRuns, teamId, useServerAgents } from './server'
 import { fmtUsd, fmtWhen, nextRunText, recentCost, statusLed, triggerText } from './format'
 import { runsHere } from './runner'
 import { confirmAgent, useConfirmState, type ConfirmState } from './confirm'
+import { takeSectionRequest } from './try'
 import type { AgentRun } from './types'
 import { lostPages, lostText, restoreTarget, runBlock, seesAllPagesOf } from './gone'
 import './agents.css'
@@ -598,6 +599,13 @@ function AgentDetail({ id }: { id: ID }) {
   const index = useAgents().findIndex((a) => a.id === id)
   const { runs, state } = useRunsOf(agent)
   const [editing, setEditing] = useState(false)
+  // the changelog's "Try it": the editor at section 06
+  const [section, setSection] = useState<'06' | undefined>()
+  useEffect(() => {
+    if (!agent || readOnly || !takeSectionRequest(id)) return
+    setSection('06')
+    setEditing(true)
+  }, [id, agent, readOnly])
   const menu = useMenu()
   const now = useMinute()
   const serverState = useServerAgents((s) => s.state)
@@ -775,7 +783,21 @@ function AgentDetail({ id }: { id: ID }) {
         <TrustPlate agent={agent} runs={runs} />
       </div>
 
-      {editing && <AgentEditor initial={agent} isNew={false} onClose={() => setEditing(false)} onSaved={() => setEditing(false)} />}
+      {editing && (
+        <AgentEditor
+          initial={agent}
+          isNew={false}
+          section={section}
+          onClose={() => {
+            setEditing(false)
+            setSection(undefined)
+          }}
+          onSaved={() => {
+            setEditing(false)
+            setSection(undefined)
+          }}
+        />
+      )}
     </div>
   )
 }

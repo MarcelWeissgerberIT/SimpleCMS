@@ -70,7 +70,7 @@ export function sortedRows(rows: readonly DecisionRow[]): { jev: DecisionRow[]; 
 /** The row of a Jev version (null: not in the catalogue this tab knows). */
 export const rowOf = (rows: readonly DecisionRow[], id: string | null | undefined): DecisionRow | null => (id ? (rows.find((r) => r.id === id) ?? null) : null)
 
-/** The confirmed key for a version: its catalogue snapshot ('openrouter:typesafe/jev-1.13-20260917'), else the version. */
+/** The confirmed key for a version: `openrouter:` + its catalogue snapshot (the dated canonical slug), else the version. */
 export const onKeyOf = (rows: readonly DecisionRow[], id: string): string => {
   const row = rowOf(rows, id)
   return `openrouter:${row ? canonicalOf(row) : id}`

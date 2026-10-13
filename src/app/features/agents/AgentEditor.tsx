@@ -5,7 +5,7 @@
  * Team workspaces: it says whose browser runs it — saved by another member, a browser agent waits for
  * its creator's confirmation (confirm.ts); a server agent's changes count for everyone right away.
  */
-import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode, type Ref } from 'react'
 import { ChevronDown, Copy, PenLine, Plus, Undo2, X } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
@@ -225,6 +225,7 @@ export function AgentEditor({
   intro,
   introUndo,
   writeHint,
+  section,
 }: {
   initial: CustomAgent
   isNew: boolean
@@ -233,9 +234,25 @@ export function AgentEditor({
   intro?: string
   introUndo?: { title?: string; run: (dirty: boolean) => void }
   writeHint?: string
+  /** open scrolled to this section, its first key focused (the changelog's "Try it") */
+  section?: '06'
 }) {
   const t = useT()
   const lang = useLang()
+  const checkRef = useRef<HTMLElement>(null)
+  useEffect(() => {
+    if (section !== '06') return
+    // after the dialog has placed its own focus
+    let raf = requestAnimationFrame(() => {
+      raf = requestAnimationFrame(() => {
+        const el = checkRef.current
+        if (!el) return
+        el.scrollIntoView({ block: 'start' })
+        el.querySelector<HTMLElement>('[role="switch"]:not([disabled]), button:not([disabled])')?.focus({ preventScroll: true })
+      })
+    })
+    return () => cancelAnimationFrame(raf)
+  }, [section])
   useDismissMirrorToasts()
   const [d, setD] = useState<CustomAgent>(initial)
   const [errors, setErrors] = useState<Errors>({})
@@ -510,7 +527,7 @@ export function AgentEditor({
         </Section>
 
         {/* ---------------------------------------------------------- 06 check (slice SJ: Jev as Vorprüfer) */}
-        <Section n="06" title={t('features.ai.jev.ed.title')}>
+        <Section n="06" title={t('features.ai.jev.ed.title')} secRef={checkRef}>
           <ReviewSection d={d} set={set} saved={isNew ? null : initial} runs={runs} />
         </Section>
         <button type="submit" hidden tabIndex={-1} aria-hidden />
@@ -519,10 +536,10 @@ export function AgentEditor({
   )
 }
 
-function Section({ n, title, children }: { n: string; title: string; children: ReactNode }) {
+function Section({ n, title, children, secRef }: { n: string; title: string; children: ReactNode; secRef?: Ref<HTMLElement> }) {
   const id = useId()
   return (
-    <section className="agx-sec" aria-labelledby={id}>
+    <section ref={secRef} className="agx-sec" aria-labelledby={id}>
       <h3 className="agx-sec__title label" id={id}>
         <span className="agx-sec__n">{n}</span> — {title}
       </h3>

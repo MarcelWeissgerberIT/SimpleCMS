@@ -192,3 +192,32 @@ test.describe('section 06 at 390 px, by touch (J11)', () => {
     expect(wide.doc).toBeLessThanOrEqual(390)
   })
 })
+
+test.describe('the changelog’s "Try it" (J15)', () => {
+  const help = (page: Page) => page.getByRole('dialog', { name: /^(Help|Hilfe)$/ })
+  async function tryIt(page: Page) {
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur?.())
+    await page.keyboard.press('?')
+    await expect(help(page).locator('.help-scroll')).toBeVisible()
+    // the help opens where it was left: back to its home first
+    if (!(await help(page).getByTestId('help-news').count())) await help(page).getByRole('navigation', { name: /Breadcrumbs|Pfad/ }).getByRole('button').first().click()
+    await help(page).getByTestId('help-news').getByRole('button', { name: /What’s new/ }).click()
+    await help(page).locator('.cl-row[data-entry="2026-10-13-agent-precheck"]').click()
+    await help(page).locator('article[data-entry="2026-10-13-agent-precheck"]').getByRole('button', { name: 'Open an agent’s Check section' }).click()
+  }
+
+  test('opens the first agent’s editor at section 06 with the focus on the pre-check (control: no agent → the gallery)', async ({ page }) => {
+    await page.addInitScript(() => localStorage.setItem('one.tour', '{"off":true}'))
+    await openApp(page)
+    await tryIt(page)
+    await expect(page).toHaveURL(/#\/agents$/)
+    await expect(editor(page)).toHaveCount(0)
+    await jevSetup(page)
+    await jevAgent(page, { review: null })
+    await page.evaluate(() => (window.location.hash = '#/'))
+    await tryIt(page)
+    await expect(page).toHaveURL(new RegExp(`#/agents/${AGENT}$`))
+    await expect(sec(page).getByRole('switch', { name: 'Pre-check' })).toBeFocused()
+    await expect(sec(page).getByRole('switch', { name: 'Pre-check' })).toBeInViewport()
+  })
+})

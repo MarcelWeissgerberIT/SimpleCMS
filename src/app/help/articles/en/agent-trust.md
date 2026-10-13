@@ -37,6 +37,8 @@ A verdict is written only when **you** decide on **one** proposal you saw in ful
 
 A change to a [task](help:tasks)'s own fields — its status, due date, owners or blockers — records **no verdict** in this release, whatever you decide: the keys work on it as on any proposal, the meter stays as it is. Text that makes tasks (appended to a page, a new page or row) counts like any other text.
 
+**Jev never counts as your trust**: a [pre-check](help:ai-jev) marks or holds back, it writes no verdict — a held-back proposal you apply on its own is your verdict, as any other (it only notes what Jev had said).
+
 **Apply all**, **Discard all**, Preflight's **⇧A** and **X**, agents that apply directly, the AI terminal, a Preflight card whose body was still loading and a decision the team server did not take write **nothing**. **Undo** of your decision takes its verdict back — an Undo that keeps a field you edited since takes back the verdicts of the fields it did put back.
 
 ## The meter

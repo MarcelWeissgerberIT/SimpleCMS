@@ -26,6 +26,9 @@ Anthropic may hand a request the chosen model declines to another Claude model. 
 ## OpenRouter and the Jev Router
 OpenRouter answers with the cost of each request: the receipt then reads **REPORTED**. Without a reported cost One prices the answer at the model's catalogue row (**CATALOGUE**). OpenRouter works on prepaid credits (from $5; it takes a fee on top-ups) — each model costs its list price, shown in step 03 and in the picker. The **Jev Router** is priced per request and reported too; the receipt names the model it picked (*OpenRouter · Jev Router → …*). Before such a request One reserves the most expensive model of your list.
 
+## Jev as a pre-checker
+Each answer of a [pre-check](help:ai-jev) is its own entry: priced at the cost OpenRouter reports, else at Jev's catalogue row — Jev's output is free (its token count is kept). A run's receipt lists **Jev 1.13 · pre-check** on its own line ("in → out free"), and the agent's budget counts it; before the checks One reserves what all of them may cost, and a run whose budget is smaller sends none.
+
 ## What is kept
 The record behind the receipts stays on this device: ids, models, token counts, amounts — never page text. It keeps 90 days, is never synced, exported or backed up, and goes when you remove a workspace's copy from this device or reset the app here. In a team each member has their own.
 

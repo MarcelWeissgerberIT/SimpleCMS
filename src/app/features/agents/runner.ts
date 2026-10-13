@@ -11,6 +11,7 @@
  * tab would run it), and only while its last change is the creator's (confirm.ts). The agents' own
  * writes never trigger agents.
  */
+import { registerAgentTry } from './try'
 import { pageChanges, useWorkspace } from '../../store/store'
 import { isApplyingRemote } from '../../store/persistence'
 import { inTemplate } from '../../store/selectors'
@@ -399,6 +400,7 @@ function sweepBooks(): void {
 export function startAgents(): () => void {
   if (started) return () => {}
   started = true
+  registerAgentTry()
   const stopKeeper = startAttributionKeeper()
   stopElection = elect()
   sweepBooks()

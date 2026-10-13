@@ -48,6 +48,9 @@ src/app/features/ai/providers/**     provider adapters (anthropic.ts = the only 
 src/app/features/ai/setup/**         "Set up AI": openAISetup / openAISettings (the only ways in), <AINeedsSetup> + offersAI +
                                      FixKeys, the assistant (AISetup.tsx + steps/ 01–06, lazy), Settings › AI (ProvidersTab, lazy)
 src/app/features/ai/routing/**       route chip / picker, CatalogPicker (lazy), CapLamps, DataRules (the class matrix)
+src/app/features/ai/decide/**        decision models (Jev via OpenRouter, slice SJ): questions + state, the run's Vorprüfung
+                                     (checkRun.ts), "Belegt?" (verify.ts), the compare core (suggest.ts), calibration.ts; ui/ =
+                                     the card line, section 06 "Check", the setup / Settings rows (public API decide/index.ts)
 src/app/features/governor/**         Regler P1: the ledger (IndexedDB one-ledger), reservations, estimate bands (public API
                                      governor/index.ts); src/shared/ai/** = the pure multi-provider contracts (app + server)
 src/app/features/outbox/**           the Outbox: slips for another tool's send routes, drafted without tools, sent by hand
@@ -175,6 +178,23 @@ the public APIs stable — other areas are built against them in parallel.
   browser agent whose route is not Claude (or names a provider this build cannot run, features/agents/routeBlock.ts
   `RUNNABLE_PROVIDERS`, or cannot be read) ends as an error run without a request; the server skips it with its reason. features/index.ts exports `aiStatus` and the AI
   types (`PurposeId`, `SourceRef`, `DataClass`, `FeatureClass`, `Route`, `RouteRule`, `ProviderId`).
+- Decision models (Jev via OpenRouter, slice SJ; features/ai/decide, src/shared/ai/{decide,jev}.ts, wire/decisions.ts):
+  `POST /api/alpha/decisions` only, Jev family only, one request per staged change of a checked kind (`CHECKED_KINDS`; purpose
+  `gate.precheck`, class `gate`, ledger role `decide`), the fixed question set QSET (versioned, hash-frozen, a data clause on
+  every question); the state is built through `prepared.redact` / `visible` / `rowFactsFor` (no ids, links → visible titles).
+  A decision model only adds caution: it marks, holds (`ChangeStatus 'held'` — out of every bulk apply, A is VON HAND, applied
+  only as one change), makes an apply-mode run wait as a whole (Schreibschranke via `directSplit`; unchecked = wait), or
+  suggests; it never applies, discards, supersedes, picks, writes a Vertrauen verdict or page content, and the agent model is
+  never told. The run stays `running` in storage until the checks end; with Zurückhalten an unchecked change is held; an open
+  change Jev marked, held or stopped makes the agent's later changes to that target held (apply mode: the whole run waits).
+  Agent settings live in `CustomAgent.review` v2 (`{ v: 2, decider?, on, pre, gate? }`, never a top-level `route`; strict
+  reader; older builds keep it Unreadable and do not run the agent); `on` = the dated Jev snapshot confirmed — another one
+  holds until confirmed. `gate` resolves without device default or legacy; a chat purpose never gets a decision model; the
+  router is never a Vorprüfer. Vorprüfer and "Belegt?" (`settings.ai.jev.verify`, purpose `gate.verify`, help Ask + Ask the
+  workspace; R = "Ask more thoroughly" on the deep role, only on a press) start off. The team server skips a v2 agent with
+  its reason (`VORPRUEFER_SKIP`). Thresholds 0,70 / 0,90 are start values ("Startwerte") until the owner's calibration
+  (`node scripts/jev-calibrate.mjs --real`, OPENROUTER_API_KEY in the environment; `--check` sends nothing). `typesafe/`
+  slugs only in src/shared/ai/jev.ts.
 - Markdown files One reads back (Markdown export, folder / GitHub sync) write date / person mentions as
   `[@label](one:date/<id>?r=<code>)` / `[@label](one:person/<id>)` (features/io/import/mentions.ts); share / site /
   HTML exports never do.

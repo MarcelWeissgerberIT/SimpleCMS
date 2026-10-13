@@ -8,7 +8,7 @@
  *
  * (CHANGELOG_DRAFT=1 lets the build pass while a new entry's picture does not exist yet.)
  *
- * Shots: ai-setup, ai-receipts, agent-trust, claude-tasks, preflight, flight-recorder, tasks, outbox, mirror-again, glass-switches, history-compare, mcp-overview, mirror, task-mcp, models, search, terminal-pipelines, cloud-worker, one-picker, pipelines, legacy-modernise, coding-live, text-size, mcp-media, coding-setup, free-board, building-blocks, workspace-settings, diagram-viewer, coding-pipeline, pages-per-item, design-import, tour, quick-capture, script-templates, one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
+ * Shots: agent-precheck, ai-setup, ai-receipts, agent-trust, claude-tasks, preflight, flight-recorder, tasks, outbox, mirror-again, glass-switches, history-compare, mcp-overview, mirror, task-mcp, models, search, terminal-pipelines, cloud-worker, one-picker, pipelines, legacy-modernise, coding-live, text-size, mcp-media, coding-setup, free-board, building-blocks, workspace-settings, diagram-viewer, coding-pipeline, pages-per-item, design-import, tour, quick-capture, script-templates, one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
  * custom-agents, gmail, help-centre, mcp-servers, feed-blocks — each named like its image. Every shot starts from a fresh, seeded
  * workspace in English, light theme, 1440 × 900 at device scale 2; the crop of the relevant area is scaled
  * to 1440 px wide and saved as public/assets/shots/changelog/<shot>.webp (≤ 150 KB: the quality steps down
@@ -147,7 +147,7 @@ const KB_GUIDE = '**kb** is the team knowledge base: decisions, specs and projec
 
 let errors = []
 
-async function freshPage(browser, { claude, setup, viewport } = {}) {
+async function freshPage(browser, { claude, setup, viewport, decide } = {}) {
   const ctx = await browser.newContext({
     viewport: viewport ?? { width: W, height: H },
     deviceScaleFactor: SCALE,
@@ -158,7 +158,7 @@ async function freshPage(browser, { claude, setup, viewport } = {}) {
   })
   // no real AI host (scripts/lib/aiHosts.mjs): OpenRouter answered from its documented formats, the rest aborted;
   // registered first so the Claude mock below and a shot's own routes win
-  await routeAIHosts(ctx, { mockOpenRouter: true, quiet: true })
+  await routeAIHosts(ctx, { mockOpenRouter: true, quiet: true, decide })
   await mockClaude(ctx, claude)
   // no team server behind this static build: answer the app's probe like a static host's HTML fallback
   await ctx.route(`${LOCAL}/api/**`, (route) => route.fulfill({ status: 200, contentType: 'text/html', body: '<!doctype html>' }))
@@ -831,6 +831,75 @@ function drawVolumeTable(t) {
 const toolResult = (body, id) => (body.messages ?? []).flatMap((m) => (Array.isArray(m.content) ? m.content : [])).find((c) => c.type === 'tool_result' && c.tool_use_id === id)
 
 const shots = {
+  /**
+   * Jev pre-checks agents' proposals (slice SJ): left, section 06 "Check" of the agent "Nordlicht Pflege" with the pre-check
+   * on (Jev 1.13, mark below 0.70, Hold back, the Start values tag); right, its run review after a mocked run — Launch plan
+   * held back ("Agrees with the record?" 0.41), Tessera review close to the threshold (0.74), Nordlicht site clear. Claude
+   * and the decisions surface are mocked (scripts/lib/aiHosts.mjs + the answers below) — no real request. The Jev version
+   * is read from the decisions fixture (no model id in this script).
+   */
+  async 'agent-precheck'(browser) {
+    const fixture = JSON.parse(readFileSync('tests/fixtures/openrouter-decisions.json', 'utf8'))
+    const jev = fixture.data.find((r) => /^TypeSafe: Jev \d/.test(r.name))
+    const notes = { 'Launch plan': 'Launch moved to 18 October', 'Tessera review': 'Review done, sent to Mara Lind', 'Nordlicht site': 'Copy checked' }
+    const by = { 'Launch plan': { consistent: 0.41 }, 'Tessera review': { target: 0.74 } }
+    let rows = {}
+    const turns = [
+      async () => sseTurn(Object.entries(rows).map(([title, id], i) => ({ type: 'tool_use', id: `toolu_pc_${i}`, name: 'update_row', input: { id, properties: { Note: notes[title] } } })), { input: 3400, output: 210 }),
+      async () => sseTurn([{ type: 'text', text: 'Updated the Note of three Projects rows of the Nordlicht launch.' }], { input: 900, output: 60 }),
+    ]
+    const { ctx, page } = await freshPage(browser, {
+      claude: { turns },
+      decide: (body) => {
+        const p = by[body?.state?.change?.target?.title] ?? {}
+        return Object.fromEntries(Object.entries(p).map(([k, v]) => [k, { type: 'noul', noul: v }]))
+      },
+    })
+    const made = await page.evaluate(
+      async ({ jev, titles }) => {
+        const s = window.__one.workspace.getState()
+        s.updateSettings({ aiKeys: { openrouter: 'sk-or-v1-demo-key-0000000000000000000000000000000000000000000000000000Q7Rz' }, ai: { routes: { gate: [{ p: 'openrouter', m: jev.id }] } } })
+        s.setWorkspaceAI({ policy: { providers: { openrouter: { allow: ['public', 'structure', 'selection', 'page', 'rows', 'files', 'workspace', 'people', 'transcript'] } }, restricted: [] } })
+        await window.__oneAI.seedEndpoints({ [jev.id]: [{ tag: 'typesafe', name: 'TypeSafe' }] })
+        const db = s.createDatabase({ title: 'Projects' })
+        s.addProperty(db, { type: 'text', name: 'Note' })
+        const rows = {}
+        for (const title of titles) rows[title] = s.createRow(db, { title })
+        const now = Date.now()
+        s.upsertAgent({ id: 'ag_precheck', name: 'Nordlicht Pflege', instructions: 'Keep the Note of every Projects row of the Nordlicht launch up to date.', trigger: { type: 'manual' }, scope: { everything: true, pages: [], databases: [] }, write: 'stage', output: null, mcpServers: [], runner: 'browser', model: null, effort: null, maxRunUsd: 0.5, enabled: true, createdAt: now, updatedAt: now, review: { v: 2, on: `openrouter:${jev.canonical_slug}`, pre: { markBelow: 0.7, hold: true } } })
+        return rows
+      },
+      { jev, titles: Object.keys(notes) },
+    )
+    rows = made
+    await page.waitForTimeout(600)
+    // left: the editor at section 06 (the changelog's own "Try it" path)
+    await page.evaluate(() => (window.location.hash = '#/agents/ag_precheck'))
+    await page.getByRole('button', { name: 'Edit', exact: true }).click()
+    const editor = page.locator('.agx-editor')
+    const sec = editor.getByTestId('jev-ed')
+    await sec.waitFor()
+    await sec.getByTestId('jev-start').waitFor()
+    await scrollToTop(editor.getByRole('heading', { name: /06 — Check/ }), 12)
+    await rest(page)
+    const left = `${TMP}/agent-precheck-section.png`
+    await page.screenshot({ path: left, clip: await boxOf(editor, 0) })
+    await page.keyboard.press('Escape')
+    await editor.waitFor({ state: 'detached' })
+    // right: a run — three proposals with their Jev lines
+    await page.evaluate(() => window.__oneAgents.run('ag_precheck'))
+    const review = page.locator('ol.agx-changes').first()
+    await review.locator('li.agent-change').nth(2).waitFor({ timeout: 30_000 })
+    await review.locator('[data-testid="jev-line"]').nth(2).waitFor()
+    await scrollToTop(page.locator('.agx-review').first(), 8)
+    await rest(page)
+    const right = `${TMP}/agent-precheck-review.png`
+    const rb = await boxOf(page.locator('.agx-review').first(), 8)
+    await page.screenshot({ path: right, clip: { ...rb, height: Math.min(rb.height, H - rb.y) } })
+    await saveSideBySide('agent-precheck', [left, right])
+    await ctx.close()
+  },
+
   /**
    * OpenRouter and the Jev Router beside Claude (multi-provider S2): left, step 01 of "Set up AI" with Claude ready and
    * OpenRouter picked; right, step 03 with OpenRouter's suggested roles and the Jev Router line. Every AI host is mocked

@@ -20,7 +20,10 @@ Den Assistenten öffnest du über **Einstellungen → KI → KI einrichten …**
 6. **Fertig** — eine Übersicht, **Rückgängig** für Schritt 05 und **Auf einer Seite testen**.
 
 ## Der Jev Router
-Mit mindestens zwei Modellen in deiner OpenRouter-Liste kann **Jev Router** (von TypeSafe, über OpenRouter) eine Rolle übernehmen: Er wählt für jede Anfrage das passende Modell deiner Liste und leitet sie dorthin weiter. Du zahlst je Anfrage; der Preis wird mit der Antwort gemeldet, und One reserviert vorher das teuerste Modell deiner Liste. Jev liest die Anfrage, um zu wählen. *Jev als Prüfer* (Vorschläge vorprüfen) folgt mit einem späteren Update.
+Mit mindestens zwei Modellen in deiner OpenRouter-Liste kann **Jev Router** (von TypeSafe, über OpenRouter) eine Rolle übernehmen: Er wählt für jede Anfrage das passende Modell deiner Liste und leitet sie dorthin weiter. Du zahlst je Anfrage; der Preis wird mit der Antwort gemeldet, und One reserviert vorher das teuerste Modell deiner Liste. Jev liest die Anfrage, um zu wählen.
+
+## Jev als Vorprüfer
+Die Zeile **Vorprüfer** in Schritt 03 steht zuerst auf **Aus**. **Jev 1.13 wählen** lässt Jev (ein Entscheidungsmodell von TypeSafe) zu jedem Vorschlag eines Agenten, dessen Abschnitt 06 die Vorprüfung einschaltet, vier feste Fragen beantworten — er markiert oder hält zurück, er schreibt nie. Siehe [Jev als Vorprüfer](help:ai-jev).
 
 ## Was in dieser Version wo läuft
 Das KI-Menü, ⌘K **?**, Arbeitsbereich fragen, Umwandeln, Bilder und Dateien, Autofill, Besprechungsnotizen, das Gedächtnis und **Fragen** in der Hilfe können über OpenRouter laufen. Das KI-Terminal, Agenten, Skripte, Ausgang-Entwürfe und alles mit MCP-Servern laufen vorerst mit Claude — ihre Karten sagen es.
