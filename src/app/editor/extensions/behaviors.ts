@@ -330,7 +330,7 @@ export function shortcutsExtension(bridge: Bridge) {
           if (!empty || !(selection instanceof TextSelection)) return false
           if ($from.parent.type.name !== 'paragraph' || $from.parent.content.size !== 0) return false
           if (!AI_PARENTS.has($from.node(Math.max(0, $from.depth - 1)).type.name)) return false
-          bridge.setState({ ai: { mode: 'block' } })
+          bridge.setState({ ai: { mode: 'block', typed: true } })
           return true
         },
         Backspace: () => {

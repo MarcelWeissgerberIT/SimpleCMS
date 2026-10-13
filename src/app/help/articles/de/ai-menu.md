@@ -19,6 +19,8 @@ Drück <kbd>Leertaste</kbd> in einer leeren Zeile (oder `/ki`). Tippe eine belie
 - **Workspace** — **Workspace fragen**: Claude liest die passendsten Seiten dieses Workspace und zitiert sie; nur diese Auszüge werden gesendet.
 - **Mehr…** — **Neu machen mit Vorgaben…**, **An den Agenten übergeben…**, **Was Claude liest…**
 
+Ist noch keine KI eingerichtet, zeigt die Leertaste stattdessen eine Karte. <kbd>Tab</kbd> erreicht ihre Tasten (**KI einrichten**, die Demo-Antwort); eine Taste wirkt erst, wenn du zu ihr gegangen bist. Tippst du einfach weiter, landen das Leerzeichen und dein Text in der Seite — <kbd>Enter</kbd> beginnt eine neue Zeile, <kbd>Rücktaste</kbd> nimmt das Leerzeichen zurück.
+
 ## An einer Auswahl: KI fragen
 Text markieren → **KI fragen** in der Werkzeugleiste (oder **KI fragen** im Blockmenü ⋮⋮ eines Textblocks). Innerhalb einer Zeile: **Text verbessern**, **Rechtschreibung & Grammatik**, **Kürzer machen**, **Übersetzen**, **Erklären**. Mehrere Blöcke: **Text verbessern**, **Rechtschreibung & Grammatik**, **Übersetzen**, **Verwandeln in …**, **Aufgaben machen**, **Zusammenfassen**. **Mehr…** hat den Rest: **Länger machen**, **To-dos finden**, **Neu machen mit Vorgaben…**, **In Datenbank umwandeln**, **In Seite umwandeln**, **Ins Gedächtnis …**, **An den Agenten übergeben…**
 

@@ -70,6 +70,12 @@ export interface AINeedsSetupProps {
   /** extra content under the body (a surface's own note) */
   children?: ReactNode
   testId?: string
+  /**
+   * where a panel that focuses its [data-autofocus] puts the keyboard: 'key' (default) — the card's key, so ↵ presses
+   * it; 'title' — the title (tabindex -1, not a Tab stop), for a card that may open while the person types (the AI
+   * menu: Space on an empty line, `/ai`): no typed key presses a key — Tab moves to them
+   */
+  focus?: 'key' | 'title'
 }
 
 /** The setup step a fix opens (the assistant at the right provider / class). */
@@ -83,7 +89,7 @@ export function openFix(fix: AIFix, o: { feature?: FeatureClass } = {}): void {
 /** A team member may change the workspace's shared classes only with admin rights; member classes are their own. */
 const memberClass = (c: DataClass | undefined): boolean => c === 'private' || c === 'mail' || c === 'memory' || c === 'mcp'
 
-export function AINeedsSetup({ purpose, reason, fix, variant = 'card', onOpen, onDemo, children, testId }: AINeedsSetupProps) {
+export function AINeedsSetup({ purpose, reason, fix, variant = 'card', onOpen, onDemo, children, testId, focus = 'key' }: AINeedsSetupProps) {
   const t = useT()
   const status = useAIStatus(purpose)
   const cls = purposeOf(purpose).cls
@@ -151,14 +157,16 @@ export function AINeedsSetup({ purpose, reason, fix, variant = 'card', onOpen, o
         <span className="led" aria-hidden />
         <span className="label">§ {t('features.ai.prov.needs.label')}</span>
       </div>
-      <strong className="ai-needs__title">{title}</strong>
+      <strong className="ai-needs__title" {...(focus === 'title' ? { tabIndex: -1, 'data-autofocus': '' } : {})}>
+        {title}
+      </strong>
       <p className="ai-needs__body">{body}</p>
       {note && <p className="ai-needs__note">{note}</p>}
       {children}
       {(key || onDemo) && (
         <div className="ai-needs__keys">
           {key && (
-            <button type="button" className="btn btn--sm btn--ink" onClick={key.run} data-testid="ai-needs-open" data-autofocus="">
+            <button type="button" className="btn btn--sm btn--ink" onClick={key.run} data-testid="ai-needs-open" data-autofocus={focus === 'key' ? '' : undefined}>
               {key.icon} {key.label}
             </button>
           )}

@@ -83,7 +83,7 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import { Popover } from '../../ui/Popover'
-import { Kbd } from '../../ui/controls'
+import { Kbd, isMac } from '../../ui/controls'
 import { useLang, useT } from '../../i18n'
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
@@ -180,6 +180,11 @@ export interface AIMenuProps {
   open?: 'todb' | 'transform'
   /** Open on the generate card (`/generate image` · `/generate video` · an empty image block's "Generate…"). */
   generate?: GenerateKind
+  /**
+   * Opened by a Space typed on an empty line. Without AI set up here, a key typed on the card that shows instead is
+   * more writing: the card steps aside and the Space and that key go into the page (Backspace takes the Space back).
+   */
+  typed?: boolean
 }
 
 /* ------------------------------------------------------------------ */
@@ -304,7 +309,7 @@ type Phase = 'idle' | 'streaming' | 'done' | 'error'
 /* Component                                                           */
 /* ------------------------------------------------------------------ */
 
-export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, transform: transformPick, open: openOn, generate }: AIMenuProps) {
+export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, transform: transformPick, open: openOn, generate, typed }: AIMenuProps) {
   const t = useT()
   // the AI menu can answer here: a key for a route the rules allow (Claude or another provider — the gate's aiStatus)
   const menuStatus = useAIStatus('menu.action')
@@ -377,6 +382,29 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
 
   const narrow = useNarrow()
   const [setup, setSetup] = useState(!hasKey && !isAIDemo() && !openRun)
+  /** the key card is what a typed Space opened (and it has not been left since): typing there goes back into the page */
+  const [typedCard, setTypedCard] = useState(() => !!typed && setup)
+  useEffect(() => {
+    if (!setup) setTypedCard(false)
+  }, [setup])
+  /**
+   * The card would come only after more letters had reached the page (the first Space of a session waits for the
+   * menu's code, and React may hold a fresh panel back a few hundred ms): the person is writing. Decided once, as the
+   * panel commits (a render can be that much older): no card, the keyboard stays in the page, the Space goes in where
+   * it was typed — at the start of the line those letters are on — and the typing goes on undisturbed.
+   */
+  const typedOnAt = useRef<boolean | null>(null)
+  const typedOn = () => (typedOnAt.current ??= typedCard && !editor.isDestroyed && editor.state.selection.$from.parent.content.size > 0)
+  const typedOnDone = useRef(false)
+  useLayoutEffect(() => {
+    // once (StrictMode runs a mount effect twice in development); the panel's own focus asked typedOn() first
+    if (!typedOn() || typedOnDone.current || editor.isDestroyed) return
+    typedOnDone.current = true
+    const view = editor.view
+    const { $from } = view.state.selection
+    if ($from.parent.type.name === 'paragraph') view.dispatch(view.state.tr.insertText(' ', $from.start()))
+    onClose()
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps -- once, as the menu mounts
   const [query, setQuery] = useState('')
   const lang = useLang()
   const [view, setView] = useState<'actions' | 'translate' | 'reads' | 'memory' | 'memhist' | 'transform' | 'more'>('actions')
@@ -840,6 +868,32 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
     handBack()
     onClose()
   }, [editor, onClose])
+
+  /**
+   * The key card opened by a typed Space: the person is writing, not asking. The card closes and the editor takes the
+   * keyboard back where its caret is (the empty line the Space was typed on — the card took the keyboard before any
+   * letter reached the page, see typedOn); the Space and the typed key go into the page as typed (input rules and
+   * suggestions see the characters as typed, Enter runs the editor's own Enter), Backspace takes the Space back — the
+   * rest of the typing follows in the page.
+   */
+  const typeBack = useCallback(
+    (k: TypedKey) => {
+      onClose()
+      if (editor.isDestroyed) return
+      const view = editor.view
+      view.focus()
+      if (k.key === 'Backspace') return
+      const type = (ch: string) => {
+        const { from, to } = view.state.selection
+        const insert = () => view.state.tr.insertText(ch, from, to)
+        if (!view.someProp('handleTextInput', (f) => f(view, from, to, ch, insert))) view.dispatch(insert())
+      }
+      type(' ')
+      if (k.key === 'Enter') view.someProp('handleKeyDown', (f) => f(view, new KeyboardEvent('keydown', { key: 'Enter', shiftKey: k.shift, bubbles: true, cancelable: true })))
+      else type(k.key)
+    },
+    [editor, onClose],
+  )
 
   /** Discard: the run ends (aborted when it still runs) and is gone. */
   const discard = useCallback(() => {
@@ -1997,7 +2051,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
   return (
     <>
       {target.mode === 'selection' && !target.lost && !picking && !redoIds && !isRedo && !img?.only && !file?.only && run?.req.kind !== 'image' && run?.req.kind !== 'file' && <SelectionShade editor={editor} from={target.from} to={target.to} />}
-      <Popover open={!picking} anchor={anchor} onClose={onPopoverClose} placement="bottom-start" offset={8} bare className="ai-panel" resizable="ai-menu" role="dialog" aria-label={t('features.ai.title')}>
+      <Popover open={!picking} focusIf={typedCard ? () => !typedOn() : undefined} anchor={anchor} onClose={onPopoverClose} placement="bottom-start" offset={8} bare className="ai-panel" resizable="ai-menu" role="dialog" aria-label={t('features.ai.title')}>
         {setup ? (
           <KeySetup
             purpose={chipPurpose}
@@ -2007,6 +2061,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
             }}
             onDemo={demo ? undefined : leaveSetup}
             onCancel={hasKey || demo ? () => setSetup(false) : dismiss}
+            onType={typedCard ? typeBack : undefined}
           />
         ) : (
           <>
@@ -2620,16 +2675,38 @@ function SelectionShade({ editor, from, to }: { editor: Editor; from: number; to
   )
 }
 
+/** A key typed on the key card: a character (Space included), Enter (Shift: a line break) or Backspace. */
+type TypedKey = { key: string; shift: boolean }
+
+/**
+ * A key that types a character (a letter, a digit, punctuation, Space; AltGr characters, and Option characters on a
+ * Mac) — never a shortcut.
+ */
+const typesChar = (e: KeyboardEvent): boolean => e.key.length === 1 && !e.metaKey && (e.getModifierState('AltGraph') || (!e.ctrlKey && (!e.altKey || isMac)))
+
 /**
  * The menu's card when no AI can answer here (UX § 3): the needs-setup card — "Set up AI" opens the assistant, "Try a
  * demo answer (no key)" stays (canned, offline, nothing sent). No key is pasted here any more (the assistant checks it).
+ * The card often opens from typing (Space on an empty line, `/ai` and a request typed on), so the keyboard starts on its
+ * title, never on a key, and no typed key presses one — not Space, not Enter: a key works only once the person moved
+ * to it (Tab). Typing on the title goes back to the page (`onType`: the menu was opened by a typed Space) or does
+ * nothing.
  */
-function KeySetup({ purpose, onOpen, onDemo, onCancel }: { purpose: PurposeId; onOpen: () => void; onDemo?: () => void; onCancel: () => void }) {
+function KeySetup({ purpose, onOpen, onDemo, onCancel, onType }: { purpose: PurposeId; onOpen: () => void; onDemo?: () => void; onCancel: () => void; onType?: (k: TypedKey) => void }) {
   const t = useT()
+  const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    // a key (or a link) the person moved to keeps its own keys
+    if (e.nativeEvent.isComposing || (e.target as HTMLElement).closest('button, a, input, textarea, select')) return
+    const enter = e.key === 'Enter' && !e.altKey && !e.ctrlKey && !e.metaKey
+    if (enter || e.key === 'Backspace' || typesChar(e.nativeEvent)) {
+      e.preventDefault()
+      onType?.({ key: e.key, shift: e.shiftKey })
+    }
+  }
   return (
-    <div className="ai-setup" data-testid="ai-key-card">
+    <div className="ai-setup" data-testid="ai-key-card" onKeyDown={onKeyDown}>
       <div className="ai-setup__body">
-        <AINeedsSetup purpose={purpose} onOpen={onOpen} onDemo={onDemo} />
+        <AINeedsSetup purpose={purpose} onOpen={onOpen} onDemo={onDemo} focus="title" />
       </div>
       <div className="ai-setup__note">
         <ShieldCheck size={14} strokeWidth={1.7} />

@@ -19,6 +19,8 @@ Press <kbd>Space</kbd> on an empty line (or `/ai`). Type any request, or pick:
 - **Workspace** — **Ask your workspace**: Claude reads the most relevant pages of this workspace and cites them; only those excerpts are sent.
 - **More…** — **Redo with instructions…**, **Hand to the agent…**, **What Claude reads…**
 
+Without AI set up, Space shows a card instead. <kbd>Tab</kbd> reaches its keys (**Set up AI**, the demo answer); a key only works once you have moved to it. If you just keep typing, the space and your text go into the page — <kbd>Enter</kbd> starts a new line, <kbd>Backspace</kbd> takes the space back.
+
 ## On a selection: Ask AI
 Select text → **Ask AI** in the toolbar (or **Ask AI** in the block menu ⋮⋮ of a text block). Within a line: **Improve writing**, **Fix spelling & grammar**, **Make shorter**, **Translate**, **Explain this**. Several blocks: **Improve writing**, **Fix spelling & grammar**, **Translate**, **Transform into…**, **Make tasks**, **Summarize**. **More…** has the rest: **Make longer**, **Find action items**, **Redo with instructions…**, **Turn into database**, **Turn into page**, **Remember this**, **Hand to the agent…**
 

@@ -24,6 +24,12 @@ export interface PopoverProps {
   closeOnOutside?: boolean
   /** Focus the first focusable element on open (default true). */
   autoFocus?: boolean
+  /**
+   * Asked once as the panel shows, right before it takes the keyboard: false leaves the focus where it is. For a
+   * caller that can only decide then (a render may be older than the commit — the AI menu's card opened by a typed
+   * Space, when more letters reached the page before it showed).
+   */
+  focusIf?: () => boolean
   /** Match the anchor's width. */
   matchWidth?: boolean
   /**
@@ -73,6 +79,7 @@ export function Popover({
   bare,
   closeOnOutside = true,
   autoFocus = true,
+  focusIf,
   matchWidth,
   shiftCrossAxis,
   resizable,
@@ -211,8 +218,11 @@ export function Popover({
   // Keys typed right after the panel opened belong to it: focus at once (before the next key event is
   // handled — a frame later the first letters would have gone to the page), and once more a frame later
   // when nothing inside has it then (content that mounted late, a mousedown that took the focus back).
+  const focusIfRef = useRef(focusIf)
+  focusIfRef.current = focusIf
   useLayoutEffect(() => {
     if (!shown || !autoFocus) return
+    if (focusIfRef.current && !focusIfRef.current()) return
     focusFirst(floatingRef.current)
     const id = requestAnimationFrame(() => {
       const root = floatingRef.current

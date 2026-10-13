@@ -108,6 +108,85 @@ test.describe('the way into setup', () => {
     expect(aiNet.count('anthropic') + aiNet.count('openrouter')).toBe(0)
   })
 
+  test('the AI menu without a key: the keyboard starts on the card\'s title, no typed key presses a key — after a typed Space the typing goes on in the page', async ({ page, aiNet }) => {
+    await openApp(page)
+    const id = await createPage(page, { title: 'Typing on', content: doc(para('First line.'), para('')) })
+    await gotoPage(page, id)
+    const ed = editorOf(page, id)
+    const card = page.getByTestId('ai-key-card')
+    const title = card.locator('.ai-needs__title')
+    const texts = () => ed.locator('p').evaluateAll((ps) => ps.map((p) => p.textContent))
+    const nothingOpened = async () => {
+      await expect(setup(page)).toHaveCount(0)
+      await expect(page.getByRole('dialog')).toHaveCount(0)
+    }
+    // the session's first Space, typed straight on: whether the card comes before the next letter or only after a
+    // few (its code loads first), the text reads as typed and nothing opens
+    await ed.locator('p').last().click()
+    await page.keyboard.type(' straight on', { delay: 40 })
+    await expect.poll(texts).toEqual(['First line.', ' straight on'])
+    await expect(card).toHaveCount(0)
+    await nothingOpened()
+    await expect(ed).toBeFocused()
+
+    await page.keyboard.press('Enter')
+    await page.keyboard.press('Space')
+    await expect(card).toBeVisible()
+    // never on "Set up AI": the next typed Space would press it
+    await expect(title).toBeFocused()
+    // more typing is writing: the card steps aside, the Space and every word land in the page, nothing opens
+    await page.keyboard.type('stays in the page', { delay: 30 })
+    await expect(card).toHaveCount(0)
+    await expect.poll(texts).toEqual(['First line.', ' straight on', ' stays in the page'])
+    await nothingOpened()
+    await expect(ed).toBeFocused()
+
+    // Enter on the card is the page's new line, never "Set up AI"
+    await page.keyboard.press('Enter')
+    await page.keyboard.press('Space')
+    await expect(title).toBeFocused()
+    await page.keyboard.press('Enter')
+    await expect(card).toHaveCount(0)
+    await page.keyboard.type('next')
+    await expect.poll(texts).toEqual(['First line.', ' straight on', ' stays in the page', ' ', 'next'])
+    await nothingOpened()
+
+    // Backspace takes the Space back: nothing written, the caret stays on the empty line
+    await page.keyboard.press('Enter')
+    await page.keyboard.press('Space')
+    await expect(title).toBeFocused()
+    await page.keyboard.press('Backspace')
+    await expect(card).toHaveCount(0)
+    await expect(ed).toBeFocused()
+    await page.keyboard.type('x')
+    await expect.poll(texts).toEqual(['First line.', ' straight on', ' stays in the page', ' ', 'next', 'x'])
+    await nothingOpened()
+
+    // a key the person moves to with Tab works as a key (Space presses it)
+    await page.keyboard.press('Enter')
+    await page.keyboard.press('Space')
+    await expect(title).toBeFocused()
+    await page.keyboard.press('Tab')
+    await expect(card.getByRole('button', { name: 'Set up AI' })).toBeFocused()
+    await page.keyboard.press('Space')
+    await expect(setup(page)).toHaveAttribute('data-step', 'provider')
+    await page.keyboard.press('Escape')
+    await expect(setup(page)).toHaveCount(0)
+
+    // opened by a click (Ask AI on a selection), the title has the keyboard too: letters and Enter press nothing
+    await selectText(page, ed, 'First line.')
+    await page.locator('[aria-label="Formatting"]').getByRole('button', { name: 'Ask AI' }).click()
+    await expect(title).toBeFocused()
+    await page.keyboard.type('make it shorter')
+    await page.keyboard.press('Enter')
+    await expect(title).toBeFocused()
+    await expect(setup(page)).toHaveCount(0)
+    await page.keyboard.press('Escape')
+    await expect(card).toHaveCount(0)
+    await expect.poll(texts).toEqual(['First line.', ' straight on', ' stays in the page', ' ', 'next', 'x', ''])
+    expect(aiNet.count('anthropic') + aiNet.count('openrouter')).toBe(0)
+  })
+
   test('an OpenRouter-only device: the terminal (Claude only in this version) says so and offers "Set up Claude"', async ({ page }) => {
     await mockOpenRouter(page.context())
     await openApp(page)
