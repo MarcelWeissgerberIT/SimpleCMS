@@ -283,10 +283,15 @@ export function jevAnswer(p: Partial<Record<'asked' | 'target' | 'consistent' | 
   return { answers: Object.fromEntries(Object.entries(v).map(([k, x]) => [k, { type: 'noul', noul: x }])), ...more }
 }
 
-/** The decisions catalogue fixture (`GET /api/v1/models?output_modalities=decisions`): 'v1' as read, 'snapshot2' with Jev 1.13's newer dated release. */
-export function OR_DECISIONS(which: 'v1' | 'snapshot2' = 'v1'): AnyState {
+/**
+ * The decisions catalogue fixture (`GET /api/v1/models?output_modalities=decisions`): 'v1' as read, 'snapshot2' with Jev
+ * 1.13's newer dated release. `jevPrompt`: Jev 1.13's prompt price per token instead of the fixture's (a fictional one —
+ * the Regler's red line specs).
+ */
+export function OR_DECISIONS(which: 'v1' | 'snapshot2' = 'v1', jevPrompt?: string): AnyState {
   const f = JSON.parse(readFileSync(fileURLToPath(new URL('../../fixtures/openrouter-decisions.json', import.meta.url)), 'utf8')) as AnyState
-  const data = (f.data as AnyState[]).map((r) => (which === 'snapshot2' && r.id === 'typesafe/jev-1.13' ? f.snapshot2 : r))
+  const priced = (r: AnyState) => (jevPrompt && r.id === 'typesafe/jev-1.13' ? { ...r, pricing: { ...(r.pricing as AnyState), prompt: jevPrompt } } : r)
+  const data = (f.data as AnyState[]).map((r) => priced(which === 'snapshot2' && r.id === 'typesafe/jev-1.13' ? f.snapshot2 : r))
   return { data, total_count: data.length }
 }
 
@@ -331,6 +336,8 @@ export interface ORMockOpts {
   decisionsFallback?: DecideStepFn
   /** GET /api/v1/models?output_modalities=decisions: the fixture ('v1'), Jev 1.13's newer snapshot, or an error status */
   decisionsCatalogue?: 'v1' | 'snapshot2' | number
+  /** Jev 1.13's prompt price per token in that catalogue (fictional; default the fixture's) */
+  decisionsPrice?: string
   /** answer a decisions body that carries provider.require_parameters with 404 "No endpoints found" — every decision row
    *  lists no parameters, so requiring them can only leave no endpoint (why One never sends it; SP-J1) */
   strictParams?: boolean
@@ -447,7 +454,7 @@ export async function mockOpenRouter(ctx: BrowserContext | Page, opts: ORMockOpt
       }
       if (req.method() === 'GET' && url.pathname === '/api/v1/models' && url.searchParams.get('output_modalities') === 'decisions') {
         const c = opts.decisionsCatalogue ?? 'v1'
-        return typeof c === 'number' ? json(c, { error: { code: c, message: 'Service temporarily unavailable' } }) : json(200, OR_DECISIONS(c))
+        return typeof c === 'number' ? json(c, { error: { code: c, message: 'Service temporarily unavailable' } }) : json(200, OR_DECISIONS(c, opts.decisionsPrice))
       }
       if (req.method() === 'GET' && url.pathname === '/api/v1/models') return json(200, OR_CATALOGUE())
       const ep = url.pathname.match(/^\/api\/v1\/models\/(.+)\/endpoints$/)

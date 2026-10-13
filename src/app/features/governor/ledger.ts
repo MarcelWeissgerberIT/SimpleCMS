@@ -454,6 +454,9 @@ export const reservedUsd = (): number => [...open.values()].reduce((sum, r) => s
 /** Open reservations of this tab (the seam). */
 export const openReservations = (): Reservation[] => [...open.values()]
 
+/** One open reservation of this tab (null: settled, or not this tab's) — a run's decide reservation (install.ts). */
+export const openReservation = (id: string | null | undefined): Reservation | null => (id ? (open.get(id) ?? null) : null)
+
 // the Regler's book announces them to the other tabs (book.ts — once it is started)
 setBookSource(() => ({ scope: ledgerScope() ?? '', list: [...open.values()].map((r): ResItem => ({ id: r.id, usd: r.usd, scope: scopeOfRes.get(r.id) ?? '' })) }))
 

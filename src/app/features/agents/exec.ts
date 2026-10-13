@@ -53,10 +53,11 @@ import { blockText, lostText, runBlock } from './gone'
 import { routeBlock } from './routeBlock'
 import { endRun, noteRun, withWriter, type Writer } from '../../store/writer'
 import { memoryRef } from '../ai/core/refs'
-import { precheck, startCheck, type PrepareInput, type StartCheck } from '../ai/core/gate'
+import { deciderRoute, precheck, startCheck, type PrepareInput, type StartCheck } from '../ai/core/gate'
+import { modelInfo, priceFor } from '../ai/core/registry'
 import { addInboxItems, loadInbox, useInbox, wsKey } from '../inbox/state'
 import { activeWorkspace } from '../../cloud'
-import { dayOf, FIRST_STEP_OUT, noteHeld, reglerLine, type RunMode } from '../governor'
+import { budgetSet, dayOf, FIRST_STEP_OUT, noteHeld, reglerLine, reserveDecide, settle as settleReservation, type RunMode } from '../governor'
 import type { HeldBinding } from './types'
 import { appliedOf } from '../ai/core/shape'
 import type { DataClass, LedgerEntry, SourceRef } from '@/shared/ai/types'
@@ -65,7 +66,7 @@ import { decisionChecks } from '@/shared/ai/route'
 import { DATA_CLASSES } from '@/shared/ai/policy'
 import { classOfPage, type SourceWorld } from '../ai/core/sources'
 import { afterRead, idsIn } from '../ai/agent/toolScope'
-import { failClosed, heldPlaceholders, precheckRun } from './precheck'
+import { failClosed, heldPlaceholders, precheckRun, type Review } from './precheck'
 import { directSplit, runLevelWaits, stickyOf } from './direct'
 import { addToLines } from '../ai/core/meter'
 import { stepText } from '../ai/Receipt'
@@ -306,7 +307,34 @@ export async function executeRun(agent: CustomAgent, req: RunRequest): Promise<A
   return res
 }
 
+/**
+ * The decide reservation (Regler § 5.6 with slice SJ): an agent whose proposals Jev pre-checks holds its checks' band from
+ * the run's start while a Regler line is set — priced at the Vorprüfer's catalogue row this device read (the copy held
+ * here; nothing is fetched for it). null: none taken (no Vorprüfer, no line, the gate refuses the Vorprüfer, no price).
+ */
+async function takeDecide(review: Review | null, source: string): Promise<string | null> {
+  if (!review || !budgetSet()) return null
+  const d = deciderRoute(review.decider ?? null)
+  if (!d.route || d.code) return null
+  try {
+    await (await import('../ai/core/catalog')).peekDecisionCatalog()
+  } catch {
+    /* no copy on this device: no reservation — the checks are judged like any request */
+  }
+  return reserveDecide({ route: d.route, price: priceFor(d.route), caps: modelInfo(d.route)?.caps ?? null, source })
+}
+
 async function runOnce(agent: CustomAgent, req: RunRequest): Promise<AgentRun> {
+  // the run's decide reservation (taken in runInner): released whatever happens
+  const reg: { decide: string | null } = { decide: null }
+  try {
+    return await runInner(agent, req, reg)
+  } finally {
+    settleReservation(reg.decide)
+  }
+}
+
+async function runInner(agent: CustomAgent, req: RunRequest, reg: { decide: string | null }): Promise<AgentRun> {
   // nothing in its scope can be used, or its report page is in the trash or gone (gone.ts): no run — it ends as an error
   // that says why (the run list and a toast), never as a run that "finished"
   // a model route this version cannot run (a newer version saved it): no request, an error run that says so
@@ -353,6 +381,8 @@ async function runOnce(agent: CustomAgent, req: RunRequest): Promise<AgentRun> {
     return Promise.resolve()
   }
   await save(true)
+  // a Vorprüfer and a Regler line: the checks' band is held from now on (its own steps stop short of the line for it)
+  reg.decide = await takeDecide(review, `agent:${agent.id}:${run.id}`)
 
   const step = (s: AgentRunStep) => {
     run.steps.push({ ...s, label: clip(s.label, 200) })
@@ -568,17 +598,24 @@ async function runOnce(agent: CustomAgent, req: RunRequest): Promise<AgentRun> {
   // stored once more first with every proposal (held placeholders with "Zurückhalten"): a tab that goes away meanwhile
   // leaves them as cards, never clean ones. An earlier open change of this agent Jev marked or held back, or one of a run
   // Jev made wait, keeps this run cautious (sticky, DJ20).
+  // A run the Regler held at the red line sends no checks (precheck.ts: unchecked 'budget', like a run over its own
+  // budget); a check the line refuses is not sent and an apply-mode run waits as a whole ('line').
   let sticky: ReturnType<typeof stickyOf> = { any: false, targets: new Set() }
+  let atLine = false
   if (review && changes.length) {
     await save(true)
     try {
       sticky = stickyOf(await loadRuns(agent.id), run.id)
-      await precheckRun({ agent, run, review, changes, rowIds, triggerRows: req.rows ?? [], scope: scopeFilter(agent), budgetLeft: agent.maxRunUsd - usage.usd, onEntry: foldEntry, sticky: sticky.targets })
+      const pre = await precheckRun({ agent, run, review, changes, rowIds, triggerRows: req.rows ?? [], scope: scopeFilter(agent), budgetLeft: agent.maxRunUsd - usage.usd, onEntry: foldEntry, sticky: sticky.targets, regler: { mode: mode === 'manual' ? 'manual' : mode === 'scheduled' ? 'scheduled' : 'trigger', decide: reg.decide } })
+      atLine = pre.line
     } catch (e) {
       console.warn('[one] agents: the pre-check failed', e)
       failClosed(run, changes, review)
     }
   }
+  // the checks are done (or will not come): what is left of the decide reservation goes back to the line
+  settleReservation(reg.decide)
+  reg.decide = null
 
   // what the run wrote or proposed
   /** One's first line for the report when Jev made the run wait */
@@ -591,7 +628,7 @@ async function runOnce(agent: CustomAgent, req: RunRequest): Promise<AgentRun> {
     // whole run wait (direct.ts: the Schreibschranke, a hold, a sticky change, another snapshot): then nothing is written.
     const split =
       agent.write === 'apply' && run.status === 'ok'
-        ? directSplit(changes, { perChange: heldClosure(changes, (c) => (c as StagedChange).items?.holds ?? (c as StagedChange).workItem?.holds ?? []), runLevel: runLevelWaits({ changes, review, sticky: sticky.any }) })
+        ? directSplit(changes, { perChange: heldClosure(changes, (c) => (c as StagedChange).items?.holds ?? (c as StagedChange).workItem?.holds ?? []), runLevel: runLevelWaits({ changes, review, sticky: sticky.any, line: atLine }) })
         : null
     if (split?.why) {
       const n = changes.filter((c) => c.status === 'pending' || c.status === 'held' || c.status === 'failed').length

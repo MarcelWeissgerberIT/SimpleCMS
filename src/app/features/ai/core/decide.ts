@@ -62,6 +62,9 @@ export function whyOf(e: unknown): JevWhy {
       return 'off'
     case 'reload':
       return 'reload'
+    // the Regler's red line (or no price / no scope while a line is set): refused before sending
+    case 'budget':
+      return 'budget'
     case 'context':
       return 'context'
     case 'timeout':
@@ -276,6 +279,9 @@ interface SeamInput {
   source?: string
   group?: string
   timeoutMs?: number
+  /** a pre-check's run mode (the purpose takes its run's — features/governor modes.ts) and decide reservation */
+  mode?: 'manual' | 'scheduled' | 'trigger'
+  decide?: string
 }
 
 /** One decision as a spec drives it: the gate, decide, settle — the answers, or the refusal's code and reason. */
@@ -291,6 +297,7 @@ export async function decideSeam(input: unknown): Promise<Record<string, unknown
       decider: i.decider ?? null,
       applied: i.applied ?? { people: true, transcript: true, visible: true },
       size: { promptChars: JSON.stringify({ state: i.state, questions: i.questions }).length, maxTokens: 0 },
+      run: { source: i.source ?? 'e2e:decide', mode: i.mode ?? (i.purpose === 'gate.verify' ? 'interactive' : 'manual'), ...(i.decide ? { decide: i.decide } : {}) },
     })
     const turn = await decide(prepared, { state: i.state, questions: i.questions }, { source: i.source ?? 'e2e:decide', ...(i.group ? { group: i.group } : {}), on: i.on ?? null, ...(i.timeoutMs ? { timeoutMs: i.timeoutMs } : {}) })
     return JSON.parse(JSON.stringify({ ok: true, answers: turn.answers, served: turn.served, usage: turn.usage, route: prepared.route, level: prepared.level, reserved: prepared.reservation?.usd ?? null })) as Record<string, unknown>

@@ -48,19 +48,34 @@ export interface PrecheckInput {
   onEntry?: (e: LedgerEntry) => void
   /** pages and rows an earlier open change of this agent that Jev marked, held or stopped is about (DJ20, direct.ts stickyOf) */
   sticky?: ReadonlySet<ID>
+  /** the run's mode (its checks take it) and its decide reservation (the Regler, § 5.6 — null: none) */
+  regler?: { mode: 'manual' | 'scheduled' | 'trigger'; decide: string | null }
 }
 
-/** Pre-check the run's proposals and attach the checks (the stored run is still 'running' — DJ16). */
-export async function precheckRun(o: PrecheckInput): Promise<AgentRunJev | null> {
+/** What the pre-check left: its numbers (null: nothing of a checked kind), and whether the Regler's line refused a check. */
+export interface PrecheckResult {
+  jev: AgentRunJev | null
+  /** a check was refused at the red line (not sent) — an apply-mode run waits as a whole (direct.ts 'line') */
+  line: boolean
+}
+
+/**
+ * Pre-check the run's proposals and attach the checks (the stored run is still 'running' — DJ16). A run that reached a
+ * money line sends none: its own budget ('budget') or the Regler's red line (status 'held' — stopped between two steps,
+ * or a request refused at the line): every change of a checked kind is unchecked ('budget'), held back with
+ * "Zurückhalten" — exactly an unanswered check; such a run never writes directly (only an 'ok' run does).
+ */
+export async function precheckRun(o: PrecheckInput): Promise<PrecheckResult> {
   const { review, changes } = o
-  if (!changes.some((c) => isCheckedKind(c.kind))) return null
+  if (!changes.some((c) => isCheckedKind(c.kind))) return { jev: null, line: false }
   const at = Date.now()
   let checks: Record<string, JevCheck>
   let usd = 0
   let model: string | null = null
   let changedTo: string | undefined
-  if (o.run.status === 'budget') {
-    // the run spent what it may: nothing goes out
+  let line = false
+  if (o.run.status === 'budget' || o.run.status === 'held') {
+    // the run spent what it may, or the Regler held it at the red line: nothing goes out
     checks = Object.fromEntries(changes.filter((c) => isCheckedKind(c.kind)).map((c) => [c.id, uncheckedOf('budget', { at, sent: false })]))
   } else {
     const { checkChanges } = await import('../ai/decide/checkRun')
@@ -77,11 +92,13 @@ export async function precheckRun(o: PrecheckInput): Promise<AgentRunJev | null>
       touched: o.run.touched ?? [],
       budgetLeft: o.budgetLeft,
       ...(o.onEntry ? { onEntry: o.onEntry } : {}),
+      ...(o.regler ? { run: o.regler } : {}),
     })
     checks = res.checks
     usd = res.usd
     model = res.model
     changedTo = res.changedTo
+    line = !!res.line
   }
   // attach: every checked change its check; "Zurückhalten" holds what Jev marked or could not check, and a change to a
   // page or row an earlier open change of this agent is still held / marked for (sticky) — "Nur markieren" marks it only
@@ -117,7 +134,7 @@ export async function precheckRun(o: PrecheckInput): Promise<AgentRunJev | null>
   }
   o.run.jev = summary
   o.run.steps.push(checkStep(summary, review, whyText(t, first?.why, first?.cls)))
-  return summary
+  return { jev: summary, line }
 }
 
 /** The run's Jev step: "Jev 1.13 prüft vor: 6 vorgeprüft · 2 mit Bedenken · 1 zurückgehalten" — counts only. */

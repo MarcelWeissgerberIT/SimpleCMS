@@ -4,7 +4,7 @@ title: Jev as a pre-checker
 section: ai
 order: 5
 keywords: jev, typesafe, pre-checker, pre-check, write gate, hold back, held back, concerns, mark only, start values, calibration, sourced, belegt, decision model, openrouter, Vorprüfer, Vorprüfung, Schreibschranke, Zurückhalten, Bedenken, Startwerte
-related: custom-agents, agent-trust, preflight, ai-providers, ai-data-rules, ai-costs, privacy
+related: custom-agents, agent-trust, preflight, ai-providers, ai-data-rules, ai-costs, governor, privacy
 summary: Jev (TypeSafe, via OpenRouter) answers four fixed questions about every proposal of an agent with probabilities — it marks or holds back, it never writes.
 ---
 **Jev** is a decision model by TypeSafe that you reach through OpenRouter. It does not write text: it answers fixed yes / no questions with a probability each. That is cheap enough — about $0.00005 per proposal — to have every proposal of your agents pre-checked before you decide. Jev never writes, never applies or discards anything and never counts as your trust.
@@ -44,3 +44,5 @@ As a pre-checker, Jev (TypeSafe) receives through OpenRouter the proposals of yo
 
 ## Costs
 Every answer is one entry in this device's usage, priced at the reported cost (Jev's output is free). A run's receipt lists **Jev 1.13 · pre-check** on its own line; the agent's budget counts it.
+
+With a budget in the [Governor](help:governor), an agent with a pre-checker sets the cost of its pre-checks aside when its run starts, so they still fit once its own steps reach the red line. A run the Governor ended at the red line sends no pre-checks: its proposals wait for you unchecked (held back with **Hold back**). A pre-check that no longer fits under the red line is not sent — an agent set to **Apply directly** then writes nothing on its own: the whole run waits for you, whatever **On concerns** says.

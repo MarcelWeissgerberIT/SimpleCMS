@@ -41,6 +41,26 @@ proposal — review badges, Preflight cards (VON HAND), the runs a device keeps 
 flight recorder's eject discards it like a pending one (agents/review.ts `settleEjected`); the eject's Undo makes it held
 again, never pending.
 
+### At the Regler's red line (train 9)
+
+Decisions are braked like every request (features/governor/install.ts `decision`), but never with a key: purposes
+`gate.precheck` (the run's mode — `caller` in features/governor/modes.ts) and `gate.verify` (interactive) are structured
+answers, never capped, never offered E or a cheaper model; 'noprice' / 'scope' refuse as everywhere.
+
+- **The decide reservation.** While a line is set, an agent run with a Vorprüfer reserves `DECIDE_CHECKS` (50) × one
+  check's band at its start (features/governor/decide.ts `reserveDecide`, priced at the Vorprüfer's catalogue row this
+  device holds — none known: none taken; exec.ts settles it once the checks are done, and in a `finally`). Each check
+  carries its id (`run.decide`) and takes its band out of it, so the line it was counted against is not asked again; what it
+  no longer covers is judged like any request against the rest (with what is left of it counted in).
+- **A check the line refuses** is not sent (JevWhy `'budget'`) and `CheckRunResult.line` is set: an apply-mode run then
+  waits as a whole (`JevWait 'line'`, agents/direct.ts) whatever "Bei Bedenken" says — Jev never takes a run over the line
+  and the line never makes a run write unchecked. A 'line' wait passes no caution on to later runs (not sticky).
+- **A run the Regler held** (status `'held'`: stopped between two steps, or a request refused at the line) gets no checks —
+  like a run over its own budget (agents/precheck.ts): every checked-kind change is unchecked `'budget'` (held back with
+  "Zurückhalten") and, not being an `'ok'` run, it never writes directly.
+- **"Belegt?"** runs `precheck(input, { backstop: true })` before the catalogue read (no reservation, no size) and prepares
+  with its size and run (`help:ask` · `workspace:ask`, interactive) once the price is known.
+
 ### Agent settings
 
 `CustomAgent.review` v2: `{ v: 2, decider?, on, pre: { markBelow, hold }, gate?: { allowAt } }` — never a top-level `route`.

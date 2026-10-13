@@ -4,7 +4,7 @@ title: Governor: budget and red line
 section: ai
 order: 18
 keywords: governor, regler, budget, day budget, month budget, red line, rotlinie, limit, spend limit, my limit, device limit, brake, pre-brake, halt, pause, allow once, cheaper model, held, usage, verbrauch, consumers, receipts, hard limit, Tagesbudget, Monatsbudget, Grenze, Bremse, Vorab-Bremse, angehalten
-related: ai-costs, ai-providers, agent, custom-agents, ai-autofill, preflight, members-roles
+related: ai-costs, ai-providers, agent, custom-agents, ai-jev, ai-autofill, preflight, members-roles
 summary: A day and month budget for all AI in One, measured on each device, and your own limit for this browser. At the red line One asks before it sends — background work pauses.
 ---
 The **Governor** (Regler) keeps One's AI spending under a red line you set. It counts what every request costs on this device — the same figures as the [receipts](help:ai-costs) — and brakes **before** a request goes out, never after.
@@ -29,7 +29,7 @@ Before each request One estimates a band (the least and the most it can cost) an
 
 - **Your own request** (AI menu, Transform, ⌘K "?", help Ask, an Outbox draft, a file or picture): a short text answer may go out with a smaller answer budget — its receipt says so. Otherwise the request is **not sent** and a note says why, with **+$1 once** (E, when that is enough), the **cheaper model** of the same provider (when it fits) and Cancel.
 - **The [AI terminal](help:agent)** stops **between two steps** with a halt card: **E** allows $1 more for this task today, **H** finishes with a cheaper model of the same provider when it can carry the conversation (its band includes writing the cache again), **⌘. / Ctrl+.** stops — staged changes stay. Nothing is sent or reserved while the card waits.
-- **[Agents](help:custom-agents)** never wait mid-run. A scheduled or triggered run at the line is not started — one *held by the governor* record a day with its count, one note in the inbox, no red lamp. A run that crosses the line stops after its current step; its proposals stay, its state is not saved. **Run now** asks before it starts (↵ = +$1 for that run).
+- **[Agents](help:custom-agents)** never wait mid-run. A scheduled or triggered run at the line is not started — one *held by the governor* record a day with its count, one note in the inbox, no red lamp. A run that crosses the line stops after its current step; its proposals stay, its state is not saved. **Run now** asks before it starts (↵ = +$1 for that run). An agent with a [pre-checker](help:ai-jev) sets its pre-checks' cost aside when it starts; a run the Governor ended sends none — its proposals wait for you unchecked.
 - **[Autofill](help:ai-autofill)**: watched rows pause at the line and stay paused over a reload; they go on when the budget rises, a new day starts, or with **E** in the panel. A job you start shows its estimate against the rest before it starts and waits at a row boundary at the line.
 - **Mail organising** pauses — mails stay unorganised until you raise the budget and organise them. A **script's** `claude()` stops the run (Undo run is offered); from an automation only that AI step is skipped. A memory proposal after an answer is skipped.
 

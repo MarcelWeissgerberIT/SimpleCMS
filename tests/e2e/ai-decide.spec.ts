@@ -769,6 +769,22 @@ test.describe('the Schreibschranke’s split (features/agents/direct.ts)', () =>
     expect([...stickyOf([run('r1', [c('c1', { jev: { ...ok(0.4), mark: true } })], { rowIds: { row_c1: 'real_row' } })], 'now').targets]).toEqual(['real_row'])
   })
 
+  test('train 9 — the Regler’s red line refused a check ("line"): the apply-mode run waits whatever "Bei Bedenken" says, named first after "changed"; such a run passes no caution on (control: no line → written; a gate wait does pass it on)', () => {
+    const clear = [c('c1', { jev: ok(0.95) }), c('c2', { jev: { v: 1, at: 1, model: '', state: 'skipped', why: 'budget' } })]
+    const markOnly = { ...REVIEW, pre: { markBelow: 0.7, hold: false }, gate: null }
+    // "Nur markieren" without the gate: an unchecked change is written as without Jev — unless the line refused it
+    expect(runLevelWaits({ changes: clear, review: markOnly, sticky: false })).toEqual([])
+    expect(runLevelWaits({ changes: clear, review: markOnly, sticky: false, line: true })).toEqual(['line'])
+    expect(runLevelWaits({ changes: clear, review: REVIEW, sticky: true, line: true })).toEqual(['line', 'gate', 'sticky'])
+    expect(directSplit(clear, { perChange: new Set(), runLevel: ['gate', 'line'] })).toEqual({ direct: [], waits: new Set(['c1', 'c2']), why: 'line' })
+    // no Vorprüfer, no run-level reason (the line is about Jev's checks)
+    expect(runLevelWaits({ changes: clear, review: null, sticky: false, line: true })).toEqual([])
+    const run = (id: string, staged: StagedChange[], x: Partial<AgentRun> = {}) => ({ id, agentId: 'ag', runner: 'browser', trigger: { type: 'manual' }, startedAt: 1, status: 'staged', summary: '', steps: [], staged, ...x }) as AgentRun
+    const jevOf = (waited: 'line' | 'gate') => ({ n: 2, checked: 1, marked: 0, held: 0, usd: 0, waited })
+    expect(stickyOf([run('r1', clear, { jev: jevOf('line') })], 'now').any).toBe(false)
+    expect([...stickyOf([run('r1', clear, { jev: jevOf('gate') })], 'now').targets].sort()).toEqual(['row_c1', 'row_c2'])
+  })
+
   test('supersede: a run Jev made wait neither replaces nor is replaced — a decision model never supersedes (control: the same run without the wait replaces)', () => {
     const upd = (id: string, row: string) => c(id, { pageId: row, props: [{ propId: 'note', name: 'Note', type: 'text', before: '', after: 'Checked', intent: { kind: 'value', value: 'Checked' } }] } as Partial<StagedChange>)
     const run = (id: string, at: number, staged: StagedChange[], x: Partial<AgentRun> = {}) => ({ id, agentId: 'ag', runner: 'browser', trigger: { type: 'manual' }, startedAt: at, status: 'staged', summary: '', steps: [], staged, ...x }) as AgentRun

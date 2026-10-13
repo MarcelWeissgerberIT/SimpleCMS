@@ -150,7 +150,7 @@ the public APIs stable — other areas are built against them in parallel.
   (registered only by features/governor/install.ts via `registerBeforeSend`) + an in-tab reservation of the band's upper
   end (`PrepareInput.size` = prompt chars + answer budget; features/governor), settled by `settle()`. Paths that load something first (a picture, a file, the terminal's MCP setup, workspace
   retrieval, the screenshot describe of a design import, an agent's MCP tokens, demo answers) call `precheck()` before
-  loading — the request prepares again. Request branches ask the
+  loading — the request prepares again (`precheck(input, { backstop: true })` where the text is built already: "Belegt?"). Request branches ask the
   model's caps (`thinks(caps)`, `caps.pdf.maxPages`), never a model id; prices come only from src/shared/ai/prices.ts
   (`costOf`, `estimate()` in features/governor) — `resolveModel` / `AI_MODELS` only choose. Every response of every
   engine is ONE ledger entry (core/meter.ts `meterCall` → governor `meter()`; IndexedDB `one-ledger`, keys
@@ -216,7 +216,16 @@ the public APIs stable — other areas are built against them in parallel.
   router is never a Vorprüfer. Vorprüfer and "Belegt?" (`settings.ai.jev.verify`, purpose `gate.verify`, help Ask + Ask the
   workspace — only while a Vorprüfer is chosen; R = "Ask more thoroughly" on the deep role, only on a press inside the
   line's own panel) start off. The team server skips a v2 agent with
-  its reason (`VORPRUEFER_SKIP`). Thresholds 0,70 / 0,90 are start values ("Startwerte") until the owner's calibration
+  its reason (`VORPRUEFER_SKIP`). Jev × the Regler: purposes `gate.precheck` (run mode = the run's, `caller`) and
+  `gate.verify` (interactive) are structured, never capped, never offered E / B; a run with a Vorprüfer takes a decide
+  reservation at its start while a line is set (features/governor/decide.ts `reserveDecide`: 50 × one check's band at
+  the Vorprüfer's price this device holds — none known: none) and each check (`run.decide`) takes its band out of it in
+  the money phase (install.ts `decision`), so the line it was counted against is not asked again; what it no longer covers
+  is judged like any request; a check the line refuses is not sent (JevWhy 'budget', `CheckRunResult.line`) and an
+  apply-mode run waits as a whole (`JevWait 'line'` — whatever "Bei Bedenken" says; never sticky). A run the Regler
+  held (status 'held', stopped or a request refused at the line) gets NO checks, like a run over its own budget: every
+  checked-kind change is unchecked 'budget' (held back with Zurückhalten) and it never writes directly (only 'ok' runs
+  do). Thresholds 0,70 / 0,90 are start values ("Startwerte") until the owner's calibration
   (`node scripts/jev-calibrate.mjs --real`, OPENROUTER_API_KEY in the environment; `--check` sends nothing). `typesafe/`
   slugs only in src/shared/ai/jev.ts.
 - Governor / Regler (features/governor, public API index.ts; spec killer/6-governor; help `governor`): `Workspace.governor`

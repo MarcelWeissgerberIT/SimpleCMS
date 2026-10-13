@@ -15,7 +15,7 @@
 import { create } from 'zustand'
 import { createStore, delMany, getMany, keys, setMany, type UseStore } from 'idb-keyval'
 import type { LedgerEntry } from '@/shared/ai/types'
-import { adjust, flushLedger, ledgerDayRead, ledgerOpens, ledgerScopesSince, onLedgerDelta, registerMeter, reserve, settle, type LedgerDelta } from './ledger'
+import { adjust, flushLedger, ledgerDayRead, ledgerOpens, ledgerScopesSince, onLedgerDelta, openReservations, registerMeter, reserve, settle, type LedgerDelta } from './ledger'
 import { ledgerScope } from './scope'
 import { bookOthers, onBookChange, reservedNow, reservedOthersNow, startBook } from './book'
 import { DEVICE_LINE_SPANS_BROWSER, deviceLimitOf, deviceLineScopes, knownScopes, localKV, mergeScopes, noteScope, type ScopeSeen } from './device'
@@ -422,6 +422,8 @@ if (typeof window !== 'undefined' && (import.meta.env.DEV || new URLSearchParams
       await wipeGovernorScope()
     },
     reserve: (usd: number, source: string) => reserve(usd, source).id,
+    /** this tab's open reservations (id, usd, source) — a run's decide reservation beside its checks' */
+    open: () => openReservations().map((r) => ({ id: r.id, usd: r.usd, source: r.source })),
     /** E on a one-shot: the token a retry carries as run.allowance */
     allowOnce: (usd?: number) => allowOnce(usd).id,
     adjust: (id: string, usd: number) => adjust(id, usd),

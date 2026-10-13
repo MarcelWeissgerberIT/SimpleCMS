@@ -80,14 +80,16 @@ export interface VerifyInput {
  */
 export async function verifyAnswer(i: VerifyInput): Promise<VerifyResult> {
   const core = await import('../core/decide')
-  const { prepare, settle } = await import('../core/gate')
+  const { precheck, prepare, settle } = await import('../core/gate')
   let prepared = null
   try {
     const state = verifyState(i)
     const questions = verifyQuestions()
-    const input = { purpose: 'gate.verify' as const, sources: i.refs, carries: [...(i.carries ?? [])], typed: i.question, applied: i.applied }
-    // the gate's every check (the backstop too), nothing reserved yet: refused → nothing read, nothing sent
-    settle(prepare(input))
+    // a person's answer check: its ledger source is the answer's kind ('help:ask' · 'workspace:ask'), run mode interactive
+    const input = { purpose: 'gate.verify' as const, sources: i.refs, carries: [...(i.carries ?? [])], typed: i.question, applied: i.applied, run: { source: i.source, mode: 'interactive' as const } }
+    // the gate's every check (the backstop too), nothing reserved yet: refused → nothing read, nothing sent (the Regler's
+    // money phase runs in prepare below, once the price is known)
+    precheck(input, { backstop: true })
     await core.primeDecisions(i.signal)
     if (i.signal?.aborted) return { support: null, why: 'late' }
     prepared = prepare({ ...input, size: { promptChars: JSON.stringify({ state, questions }).length, maxTokens: 0 } })

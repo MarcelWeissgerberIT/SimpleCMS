@@ -40,6 +40,7 @@ import { deviceLimitOf, onDeviceLine } from './device'
 import { loadMonth, loadToday, noteLedgerScopes, startNoting, startTotals, totalsNow, type TotalsNow } from './totals'
 import { minOut, modeRow } from './modes'
 import { registerUsageLamp } from './lampSource'
+import { decideLeft, takeDecide } from './decide'
 
 /** The generation this module enforces (generations.ts GEN_ENFORCED names this file). */
 export const ENFORCES = GEN.budget
@@ -79,10 +80,33 @@ function judged(ctx: BrakeCtx): Pick<OneShotCtx, 'band' | 'answer' | 'minOut' | 
 
 const bandOf = (b: Band | null): Band | null => (b ? { low: b.low, high: b.high } : null)
 
+/**
+ * A decision (class 'gate', slice SJ: Jev's pre-checks of an agent run, "Belegt?") — never a key: no E, no cheaper model,
+ * never capped (typed answers). A check of a run that holds its checks' band from its start (`run.decide`, decide.ts)
+ * takes its band out of that reservation: the day / month line it was counted against is not asked again. What the
+ * reservation no longer covers is judged like any request, what is left of it counted in. Never past 'scope' / 'noprice'.
+ * Refused: AIError('budget') without a fix — the check is not sent ('budget'); an apply-mode run then waits as a whole
+ * (agents/direct.ts 'line') — Jev never takes a run over the line, and never lets it write unchecked because of it.
+ */
+function decision(ctx: BrakeCtx, l: Limits): MoneyVerdict {
+  const t = totalsNow()
+  if (t.scopeId === null) throw new AIError('budget', 'scope', undefined, ctx.label)
+  const band = ctx.band
+  if (!band) throw new AIError('budget', 'noprice', undefined, ctx.label)
+  if (takeDecide(ctx.run.decide, band)) return { reserve: band.high, band: bandOf(band) }
+  // the reservation's rest (if any) counts as room; the run's allowance (+1 $ for its start) too
+  const left = ctx.run.decide ? decideLeft(ctx.run.decide) : 0
+  const rest = restOf(l, t, { reservation: left > 0 ? ctx.run.decide : null }, allowanceOf({ source: ctx.run.source }))
+  if (fits(band, rest) !== 'yes') throw new AIError('budget', rest.binding ?? 'day', undefined, ctx.label)
+  if (left > 0) takeDecide(ctx.run.decide, { low: 0, high: left })
+  return { reserve: band.high, band: bandOf(band) }
+}
+
 /** The money phase (prepare only): identity without a line, else pass · cap · refuse. */
 export function money(ctx: BrakeCtx): MoneyVerdict | void {
   const l = limitsNow()
   if (!hasLimit(l)) return
+  if (ctx.cls === 'gate') return decision(ctx, l)
   const run = ownRun(ctx.run)
   const t = totalsNow()
   const rest = restFor(ctx, l, t)

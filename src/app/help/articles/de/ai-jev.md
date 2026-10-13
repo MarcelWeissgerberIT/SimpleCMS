@@ -4,7 +4,7 @@ title: Jev als Vorprüfer
 section: ai
 order: 5
 keywords: jev, typesafe, vorprüfer, vorprüfung, schreibschranke, zurückhalten, zurückgehalten, bedenken, nur markieren, startwerte, kalibrierung, belegt, entscheidungsmodell, openrouter, pre-checker, pre-check, write gate, hold back, concerns
-related: custom-agents, agent-trust, preflight, ai-providers, ai-data-rules, ai-costs, privacy
+related: custom-agents, agent-trust, preflight, ai-providers, ai-data-rules, ai-costs, governor, privacy
 summary: Jev (TypeSafe, über OpenRouter) beantwortet zu jedem Vorschlag eines Agenten vier feste Fragen mit Wahrscheinlichkeiten — markiert oder hält zurück, schreibt nie.
 ---
 **Jev** ist ein Entscheidungsmodell von TypeSafe, das du über OpenRouter erreichst. Es schreibt keinen Text: Es beantwortet feste Ja-/Nein-Fragen mit je einer Wahrscheinlichkeit. Das ist billig genug — etwa 0,00005 $ je Vorschlag —, um jeden Vorschlag deiner Agenten vorprüfen zu lassen, bevor du entscheidest. Jev schreibt nie, übernimmt oder verwirft nichts und zählt nie als dein Vertrauen.
@@ -44,3 +44,5 @@ Als Vorprüfer erhält Jev (TypeSafe) über OpenRouter die Vorschläge deiner Ag
 
 ## Kosten
 Jede Antwort ist ein Eintrag in der Nutzung dieses Geräts, zum gemeldeten Preis (Jevs Ausgabe ist kostenlos). Die Quittung eines Laufs nennt **Jev 1.13 · Vorprüfung** in einer eigenen Zeile; das Budget des Agenten zählt sie mit.
+
+Mit einem Budget im [Regler](help:governor) legt ein Agent mit Vorprüfer die Kosten seiner Vorprüfungen beim Start des Laufs zur Seite — sie passen auch dann noch, wenn seine eigenen Schritte die Rotlinie erreichen. Einen Lauf, den der Regler an der Rotlinie beendet hat, prüft Jev nicht vor: Seine Vorschläge warten ungeprüft auf dich (mit **Zurückhalten** zurückgehalten). Passt eine Vorprüfung nicht mehr unter die Rotlinie, geht sie nicht hinaus — ein Agent auf **Direkt anwenden** schreibt dann nichts von selbst: Der ganze Lauf wartet auf dich, was immer **Bei Bedenken** sagt.

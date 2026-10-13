@@ -8,7 +8,9 @@
  *     gate resolved (state.ts). Only what the gate let through reads the price (the decisions catalogue — a refused run
  *     sends nothing at all) and is prepared again with its size;
  *  2. the band of every check reserved before the first goes out — the run's remaining budget smaller → none goes out
- *     ('budget'); the tab's cooldown → none ('cooldown');
+ *     ('budget'); the tab's cooldown → none ('cooldown'). With a Regler line each check's band comes out of the run's
+ *     decide reservation (`run.decide`, taken at the run's start — features/governor decide.ts); one the line refuses
+ *     anyway is not sent ('budget') and the result says so (`line`: an apply-mode run then waits as a whole);
  *  3. ≤ 3 in flight, 8 s per attempt (core/decide.ts), 20 s for the run from the first read on — not done by then (an
  *     answer after it included): 'late';
  *  4. every response is one ledger entry (role 'decide', the run as its group) and reaches the run's receipt through
@@ -56,6 +58,8 @@ export interface CheckRunInput {
   /** every ledger entry of a check (the run's receipt and budget) */
   onEntry?: (e: LedgerEntry) => void
   deadlineMs?: number
+  /** the run's mode (a pre-check takes it — features/governor modes.ts) and its decide reservation (null: none) */
+  run?: { mode: 'manual' | 'scheduled' | 'trigger'; decide?: string | null }
 }
 
 export interface CheckRunResult {
@@ -69,6 +73,8 @@ export interface CheckRunResult {
   model: string | null
   /** another snapshot than the confirmed one answered or was resolved (DJ19) */
   changedTo?: string
+  /** the Regler's red line refused a check (not sent, 'budget') — an apply-mode run waits as a whole (agents/direct.ts) */
+  line?: boolean
 }
 
 interface Job {
@@ -114,7 +120,9 @@ export async function checkChanges(i: CheckRunInput): Promise<CheckRunResult> {
     const questions = precheckQuestions()
     const may = new Set<DataClass>(purposeOf('gate.precheck').may)
     const carries = i.touched.filter((c) => may.has(c))
-    const base = { purpose: 'gate.precheck' as const, carries, decider: i.review.decider ?? null, typed: i.instructions }
+    // the run's ledger source and mode, and its decide reservation: the brake takes a check's band out of it (§ 5.6)
+    const run = { source: `agent:${i.agentId}:${i.runId}`, mode: i.run?.mode ?? ('manual' as const), ...(i.run?.decide ? { decide: i.run.decide } : {}) }
+    const base = { purpose: 'gate.precheck' as const, carries, decider: i.review.decider ?? null, typed: i.instructions, run }
     const ready: Array<{ c: StagedChange; state: Record<string, unknown>; sources: ProposalState['sources']; chars: number; applied: Applied }> = []
     for (const c of todo) {
       const input: ProposalInput = { agent: { instructions: i.instructions, write: i.write }, trigger: i.trigger, change: c, changes: i.changes, rowIds: i.rowIds }
@@ -218,9 +226,10 @@ export async function checkChanges(i: CheckRunInput): Promise<CheckRunResult> {
   }
   return result
 
-  /** A change the gate refused: unchecked, with the reason (a data rule names its class). */
+  /** A change the gate refused: unchecked, with the reason (a data rule names its class; the red line says so). */
   function refuse(c: StagedChange, e: unknown): void {
     const why = core.whyOf(e)
+    if (e instanceof AIError && e.code === 'budget') result.line = true
     const cls = why === 'policy' ? refusedClass(e) : undefined
     checks[c.id] = uncheckedOf(why, { at, sent: false, ...(cls ? { cls } : {}) })
   }

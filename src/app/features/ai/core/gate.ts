@@ -515,9 +515,12 @@ export function reprepare(prepared: Prepared, route: Route, o: { run?: Partial<R
   return prepare({ ...input, route, pinned: 'person', run: { ...prepared.run, ...(o.run ?? {}) }, ...(o.size ? { size: o.size } : {}) })
 }
 
-/** The gate's checks before anything is loaded or built, without a reservation (the request prepares again). */
-export function precheck(input: PrepareInput): Prepared {
-  return gate(input, false)
+/**
+ * The gate's checks before anything is loaded or built, without a reservation (the request prepares again).
+ * `backstop`: the text is built already (`applied` given) — refuse it here too, before anything is read for the request.
+ */
+export function precheck(input: PrepareInput, o: { backstop?: boolean } = {}): Prepared {
+  return gate(input, false, !!o.backstop)
 }
 
 /** This device's world for the resolver: the rules, the keys, the registry and the shortlist. */
@@ -611,7 +614,7 @@ function cheaperChoices(cls: FeatureClass, route: Route, caps: readonly Need[], 
 
 const DEMO_SHAPE = { redact: { people: false, transcript: false }, visible: () => true, sees: 'all' as const, allows: () => true }
 
-function gate(input: PrepareInput, held: boolean): Prepared {
+function gate(input: PrepareInput, held: boolean, backstopToo = false): Prepared {
   checkContract(input)
   const s = useWorkspace.getState()
   // 0 · rules this build does not know
@@ -643,7 +646,7 @@ function gate(input: PrepareInput, held: boolean): Prepared {
   const visible = (id: ID): boolean => !hiddenMember.length || ![...classOfPage(id, w)].some((c) => hiddenMember.includes(c))
   const allows = (c: DataClass): boolean => allowedFor(route.p, c, s.ai, s.settings.ai)
   // 5 · the backstop (D-S2-5): text built without the route's redaction / filter never goes to a route that may not see it
-  const concerned = held ? backstop({ classes: [...classes], pageDerived: PAGE_DERIVED, sees, redact, hidden: hiddenMember, applied: input.applied, route: routeKey(route) }) : null
+  const concerned = held || backstopToo ? backstop({ classes: [...classes], pageDerived: PAGE_DERIVED, sees, redact, hidden: hiddenMember, applied: input.applied, route: routeKey(route) }) : null
   if (concerned) throw new AIError('policy', concerned, undefined, label, [{ kind: 'step', step: 'data', provider: route.p, data: concerned }])
   // 6 · the brake and the reservation: the upper end of the request's band unless the brake says otherwise — a route
   //     priced per request reserves its stated bound (never 0). Money only in prepare (held: it reserves, may cap a text

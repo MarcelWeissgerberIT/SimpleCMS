@@ -57,8 +57,11 @@ export interface AgentRunStep {
   jev?: 'check' | 'wait'
 }
 
-/** Why a Vorprüfer made an apply-mode run wait as a whole (slice SJ, features/agents/direct.ts). */
-export type JevWait = 'gate' | 'hold' | 'sticky' | 'changed'
+/**
+ * Why a Vorprüfer made an apply-mode run wait as a whole (slice SJ, features/agents/direct.ts) — 'line': the Regler's red
+ * line refused one of its checks (not sent).
+ */
+export type JevWait = 'gate' | 'hold' | 'sticky' | 'changed' | 'line'
 
 /** A run's pre-check in numbers (slice SJ) — the receipt's step, the health lamps. */
 export interface AgentRunJev {
