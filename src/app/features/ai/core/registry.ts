@@ -4,7 +4,7 @@
  * core/call.ts read it). The Jev Router is a pool over the shortlist: its view is synthesised from the pool's models
  * (caps they all share, the lowest context and answer cap, the most expensive row as its stated price bound).
  */
-import type { Caps, ModelInfo, PriceRow, Route, ShortlistRow } from '@/shared/ai/types'
+import type { Caps, ModelInfo, PriceRow, Route, ShortlistRow, WireHints } from '@/shared/ai/types'
 import { labelOf, modelRow, providerLabel } from '@/shared/ai/models'
 import { DYNAMIC_BOUND, boundRow } from '@/shared/ai/prices'
 import { isJevRouter, servedAs } from '@/shared/ai/jev'
@@ -12,6 +12,26 @@ import { useWorkspace } from '../../../store/store'
 import { routerView, shortlistInfo } from './pool'
 
 export { poolCaps, routerView, shortlistInfo } from './pool'
+
+/** What the catalogue this tab holds says of a row's wire (catalog.ts registers it once loaded; sync, no I/O). */
+let catalogHints: (id: string) => WireHints | null = () => null
+export function registerCatalogHints(fn: (id: string) => WireHints | null): void {
+  catalogHints = fn
+}
+
+/**
+ * The wire facts a request is estimated and braked with (Regler G1 — the band's upper end is never below the wire's
+ * max_tokens): what the route's view says, else the catalogue this tab holds, else for an OpenRouter model whose caps
+ * say it reasons the worst case — 'reasoning' listed (core/call.ts may read a catalogue copy the gate cannot, sync).
+ */
+export function wireHintsFor(route: Route, info: Pick<ModelInfo, 'caps' | 'hints'> | null): WireHints | undefined {
+  if (info?.hints) return info.hints
+  if (route.p !== 'openrouter' || isJevRouter(route.m)) return undefined
+  const known = catalogHints(route.m)
+  if (known) return known
+  const r = info?.caps.reasoning
+  return r ? { params: ['reasoning'], reasoning: { mandatory: r.mandatory, efforts: null, supportsMax: false } } : undefined
+}
 
 /** This device's OpenRouter shortlist (≤ 24 rows; the router is never one of them). */
 export const shortlist = (): ShortlistRow[] => (useWorkspace.getState().settings.ai?.models ?? []).filter((r) => !isJevRouter(r.m))

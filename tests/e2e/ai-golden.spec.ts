@@ -4,6 +4,10 @@
  * tests/fixtures/ai/anthropic/golden/<scenario>.json. The fixtures were written once from the code before the
  * multi-provider work (GOLDEN_WRITE=1); every later slice must send exactly these bytes (normalised only for ids, the
  * clock and base64 digests — helpers/golden.ts). Nothing reaches a real host. Test data is fictional.
+ *
+ * Regler case 12: every scenario runs a second time with a day and month budget that always fits (1 000 $) — the bodies
+ * stay byte-identical (a cap that is always on, or any other byte the brake added, would fail here). The tab enforces
+ * the budget's generation through the ?e2e seam until G1 B12 raises AI_POLICY_GEN.
  */
 import { deflateSync } from 'node:zlib'
 import type { Locator, Page } from '@playwright/test'
@@ -22,11 +26,18 @@ type AnyState = Record<string, any> // eslint-disable-line @typescript-eslint/no
 
 const NOW = new Date('2026-10-12T09:00:00+02:00')
 
-async function start(page: Page, steps: ClaudeStep[], settings: AnyState = {}): Promise<CapturedRequest[]> {
+/** A day and month budget the scenarios never reach (case 12). */
+const ROOMY = { v: 1, day: 1000, month: 1000 }
+
+async function begin(page: Page, steps: ClaudeStep[], settings: AnyState, budget: AnyState | null): Promise<CapturedRequest[]> {
   await page.clock.install({ time: NOW })
   const { requests } = await mockClaudeScript(page.context(), steps)
   await openApp(page)
   await wsEval(page, (s, extra) => s.updateSettings({ aiApiKey: 'sk-ant-e2e-test-key', ...extra }), settings)
+  if (budget) {
+    await page.evaluate(() => (window as unknown as { __oneAI: { enforceGen(g: number): number } }).__oneAI.enforceGen(3))
+    expect(await wsEval(page, (s, g) => s.setGovernor(g), budget)).toEqual({ ok: true })
+  }
   return requests
 }
 
@@ -192,7 +203,9 @@ async function filePage(page: Page, file: { name: string; type: string; bytes: U
 /* Scenarios                                                           */
 /* ------------------------------------------------------------------ */
 
-test.describe('golden Claude request bodies', () => {
+for (const budget of [null, ROOMY]) test.describe(budget ? 'golden Claude request bodies with a 1 000 $ budget (Regler case 12)' : 'golden Claude request bodies', () => {
+  const start = (page: Page, steps: ClaudeStep[], settings: AnyState = {}) => begin(page, steps, settings, budget)
+
   test('E1 improve · Opus', async ({ page }) => {
     const requests = await start(page, [text('A tighter launch sentence.')])
     await improve(page)

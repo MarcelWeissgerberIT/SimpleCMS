@@ -47,6 +47,8 @@ export { aiRunMeta, aiWriterOf, type AIRunMeta } from './ai/core/runMeta'
 /** The route chip + picker (routing/RouteChip.tsx): which model one request goes to; Alt+M opens it. */
 export { RouteChip, isRouteKey, type RouteChipHandle } from './ai/routing/RouteChip'
 export type { Receipt } from './ai/core/meter'
+/** The Regler's brake at the gate (governor/install.ts): main.tsx, once, before any service can start a request. */
+export { install as installGovernor } from './governor/install'
 /** Claude's Markdown → a safe document: web images / media / frames as links (addresses a page shows already stay). */
 export { webImagesOf } from './agents/images'
 export { claudeDoc } from './ai/claudeDoc'

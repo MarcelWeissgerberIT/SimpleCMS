@@ -368,6 +368,13 @@ test.describe('generations', () => {
     expect(problems({ claudeLimits: 2, budget: 3 }, { claudeLimits: 'package.json', budget: 'package.json' }, 3, 2)).toEqual(['budget: package.json does not name it'])
     expect(problems({ claudeLimits: 2 }, { claudeLimits: 'src/app/nowhere.ts' }, 2, 2)).toEqual(['claudeLimits: no module'])
   })
+
+  test('B5: the budget generation\'s module exists and names it — the build may raise AI_POLICY_GEN to GEN.budget (B12)', () => {
+    expect(GEN_ENFORCED.budget).toBe('src/app/features/governor/install.ts')
+    expect(problems(GEN, GEN_ENFORCED, GEN.budget, GEN_UNNAMED_UPTO)).toEqual([])
+    // the only module that registers the brake with the gate
+    expect(readFileSync(`${ROOT}src/app/features/governor/install.ts`, 'utf8')).toContain('registerBeforeSend({ money, peek })')
+  })
 })
 
 test.describe('the shared error and type additions (B2)', () => {

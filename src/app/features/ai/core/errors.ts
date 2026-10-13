@@ -3,7 +3,7 @@
  * client.ts, which re-exports it unchanged). The codes are the shared ones (src/shared/ai/errors.ts).
  */
 import type { AIErrorCode } from '@/shared/ai/errors'
-import type { DataClass, ProviderId } from '@/shared/ai/types'
+import type { DataClass, ProviderId, Route } from '@/shared/ai/types'
 import { labelOf, providerLabel } from '@/shared/ai/models'
 import { providerInfo } from '@/shared/ai/providers'
 import { legacyRule } from '@/shared/ai/route'
@@ -20,7 +20,16 @@ type FixNeed = 'structured' | 'tools' | 'vision' | 'pdf' | 'mcp' | 'listing'
  * setup assistant (its key, its models, its data rule — `data` = the class), ask Claude instead (an addressed MCP server
  * on a route that cannot connect it), or pick a model that can do what the request needs.
  */
-export type AIFix = { kind: 'step'; step: 'key' | 'models' | 'data'; provider: ProviderId; data?: DataClass } | { kind: 'askClaude' } | { kind: 'pick'; need: FixNeed }
+export type AIFix =
+  | { kind: 'step'; step: 'key' | 'models' | 'data'; provider: ProviderId; data?: DataClass }
+  | { kind: 'askClaude' }
+  | { kind: 'pick'; need: FixNeed }
+  /**
+   * The governor's red line (AIError 'budget'): E allows +`allow` USD once (null: it would not fit), `need` is what is
+   * missing, `cheaper` a model of the same provider that fits (B: the same request with it as a chip), the request's
+   * band and the lowest rest with its line — rendered by features/governor's BrakeNote.
+   */
+  | { kind: 'brake'; allow: number | null; need: number; cheaper?: Route; band: { low: number; high: number }; rest: number; binding: string | null }
 
 /**
  * The provider a route's label names: other providers' labels start with their name ("OpenRouter · …",

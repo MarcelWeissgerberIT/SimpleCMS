@@ -12,6 +12,12 @@
 import type { Caps, Route, WireHints } from '../types.ts'
 import { isJevRouter } from '../jev.ts'
 
+/**
+ * Claude: does the model think inside max_tokens (adaptive thinking — Opus / Sonnet 5.5: an effort and the refusal
+ * fallback)? Its answer budget then holds the thinking too (the brake's smallest useful answer is larger there).
+ */
+export const thinksInside = (caps: Pick<Caps, 'effort' | 'refusalFallback'> | null | undefined): boolean => !!caps && caps.effort !== false && caps.refusalFallback
+
 /** Reasoning room on top of the visible answer: max(1 024, 4 × the answer budget), never above the model's output cap. */
 export function headroom(maxTokens: number, caps: Pick<Caps, 'maxOutput'>): number {
   return Math.max(0, Math.min(caps.maxOutput, Math.max(1024, 4 * Math.max(0, Math.round(maxTokens)))))

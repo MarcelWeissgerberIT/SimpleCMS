@@ -22,7 +22,7 @@ import { DEVICE_LINE_SPANS_BROWSER, deviceLimitOf, deviceLineScopes, knownScopes
 import { closedDaysBefore, dayOf, monthOf, nextMidnight } from './clock'
 import { applyDayRead, closedDaysOf, closedTally, cacheOf, deltaTally, meterTally, monthSpentOf, newTally, readTodayCache, rollTally, sumTallies, tallyKnown, todayOf, type Tally } from './tally'
 import { wipePaused } from './paused'
-import { clearAllowances } from './allow'
+import { allowOnce, clearAllowances } from './allow'
 import { whenIdle } from '../../lib/idle'
 
 export const GOVERNOR_DB = 'one-governor'
@@ -371,6 +371,8 @@ if (typeof window !== 'undefined' && (import.meta.env.DEV || new URLSearchParams
       await wipeGovernorScope()
     },
     reserve: (usd: number, source: string) => reserve(usd, source).id,
+    /** E on a one-shot: the token a retry carries as run.allowance */
+    allowOnce: (usd?: number) => allowOnce(usd).id,
     adjust: (id: string, usd: number) => adjust(id, usd),
     settle: (id: string) => settle(id),
     view: () => useGovernorTotals.getState(),

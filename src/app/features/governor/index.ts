@@ -1,7 +1,8 @@
 /**
  * GOVERNOR (Regler) — public API. The ledger (one entry per AI response, per device and member, IndexedDB `one-ledger`),
  * reservations (in this tab and, through the book, across tabs), the estimate band, and the Regler's totals, the device
- * line, allowances and paused rows (G1 — nothing of it is wired to the gate yet).
+ * line, allowances and paused rows. The brake at the gate is install.ts (features/index.ts installGovernor — not exported
+ * here: it imports the gate, which imports this index).
  *  - meter(entry) · registerMeter(fn) · onLedgerPing(fn) · onLedgerDelta(fn) · flushLedger()
  *  - ledgerEntries({ from, to }) · ledgerDay(scope, day) · ledgerTotals(by) · totalsOf(list, by) (pure)
  *  - reserve(usd, source) · adjust(id, usd) · settle(id) · reservedUsd()

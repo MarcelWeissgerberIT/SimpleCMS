@@ -11,7 +11,7 @@ import { DEFAULT_CLAUDE_MODEL, MODELS } from '@/shared/ai/models'
 import { priceRow } from '@/shared/ai/prices'
 import { AIError } from './core/errors'
 import { usesDemo } from './core/demoMode'
-import { precheck, prepare, settle, type Applied, type Prepared, type PrepareInput } from './core/gate'
+import { capped, precheck, prepare, settle, type Applied, type Prepared, type PrepareInput } from './core/gate'
 import { meterCall, type MeterCall, type Receipt } from './core/meter'
 import { memoryRef } from './core/refs'
 import type { Need, PurposeId } from './core/purposes'
@@ -81,6 +81,8 @@ export interface RunAIOptions {
   applied?: Applied | null
   /** the run it belongs to: its ledger source and run mode (core/gate.ts PrepareInput.run) */
   run?: PrepareInput['run']
+  /** who picked `route` (core/shape.ts routed) */
+  pinned?: PrepareInput['pinned']
 }
 
 /** The routing part of a facade's options: the chip, what the request carries beyond its purpose, what its text went
@@ -96,6 +98,8 @@ export interface RouteOptions {
   needs?: readonly Need[]
   /** the run it belongs to: its ledger source and run mode (core/gate.ts PrepareInput.run — the governor's modes) */
   run?: PrepareInput['run']
+  /** who picked `route`: the person (a chip) or the gate (core/shape.ts routed) */
+  pinned?: PrepareInput['pinned']
 }
 
 /** An addressed MCP server is a hard requirement (D18): the route must connect MCP and may receive `mcp`. */
@@ -195,7 +199,9 @@ export async function streamCompletion(opts: StreamOptions): Promise<string> {
   const cw = opts.mcp === false ? null : opts.codewords
   let prepared: Prepared
   try {
-    prepared = prepare({ purpose: opts.purpose, sources: opts.sources, typed: opts.typed, size, route: opts.route, applied: opts.applied, ...withCodewords(opts, cw), ...(opts.run ? { run: opts.run } : {}) })
+    // the MCP servers that may join (the brake counts their rounds and never caps such a request)
+    const servers = opts.mcp === false ? 0 : mcpNames(opts.setup ?? currentSetup(), opts.mcp ?? 'fixed', cw?.forced).length
+    prepared = prepare({ purpose: opts.purpose, sources: opts.sources, typed: opts.typed, size, route: opts.route, applied: opts.applied, ...withCodewords(opts, cw), ...(opts.run ? { run: opts.run } : {}), ...(opts.pinned ? { pinned: opts.pinned } : {}), ...(servers ? { mcp: { servers } } : {}) })
   } catch (e) {
     throw codewordRefusal(e, opts, cw)
   }
@@ -250,7 +256,8 @@ export async function viaNeutral(
   const { sendNeutral } = await import('./core/call')
   // 'auto' only where the caller marked a stable prefix (a file's document): the wire passes it on to an anthropic/*
   // upstream only, never to the router (openrouterChat.ts)
-  const req: ChatRequest = { kind: 'chat', route: prepared.route, system: r.system, messages: [{ role: 'user', parts: r.parts }], output: r.output, maxTokens: r.maxTokens, cache: r.cache ?? 'none' }
+  // the governor's cap (a text answer near the red line): the visible budget, never above the call's own
+  const req: ChatRequest = { kind: 'chat', route: prepared.route, system: r.system, messages: [{ role: 'user', parts: r.parts }], output: r.output, maxTokens: capped(r.maxTokens, prepared), cache: r.cache ?? 'none' }
   const promptChars = r.promptChars ?? r.system.length + r.parts.reduce((n, p) => n + (p.type === 'text' ? p.text.length : 0), 0)
   const turn = await sendNeutral(prepared, req, { signal: o.signal, onToken: o.onToken, call, promptChars })
   if (turn.stop === 'refusal' || turn.stop === 'content_filter') throw new AIError('refusal')
@@ -308,7 +315,7 @@ export interface StructuredUsage {
  */
 export async function completeStructured(opts: StructuredOptions): Promise<string> {
   // the gate: nothing is loaded or sent before it (features/ai/core/gate.ts); every response is metered (core/meter.ts)
-  const prepared = prepare({ purpose: opts.purpose, sources: opts.sources, typed: opts.typed, size: { promptChars: opts.system.length + opts.prompt.length, maxTokens: opts.maxTokens ?? 4096 }, route: opts.route, applied: opts.applied, needs: opts.needs, carries: opts.carries, ...(opts.run ? { run: opts.run } : {}) })
+  const prepared = prepare({ purpose: opts.purpose, sources: opts.sources, typed: opts.typed, size: { promptChars: opts.system.length + opts.prompt.length, maxTokens: opts.maxTokens ?? 4096 }, route: opts.route, applied: opts.applied, needs: opts.needs, carries: opts.carries, ...(opts.run ? { run: opts.run } : {}), ...(opts.pinned ? { pinned: opts.pinned } : {}), answer: 'structured' })
   const call = meterCall(prepared, { source: opts.ledgerSource, signal: opts.signal, onRun: opts.onRun })
   try {
     if (prepared.provider !== 'anthropic' && prepared.provider !== 'demo') {
@@ -456,6 +463,7 @@ export async function runAI(opts: RunAIOptions): Promise<string> {
     carries: carriesOf(opts),
     applied: opts.applied,
     ...(opts.run ? { run: opts.run } : {}),
+    ...(opts.pinned ? { pinned: opts.pinned } : {}),
   })
   return opts.action === 'autofill' ? text.trim().replace(/^["'`]|["'`]$/g, '') : stripFence(text)
 }

@@ -18,7 +18,7 @@ import type AnthropicSDK from '@anthropic-ai/sdk'
 import type { BetaContentBlock, BetaMessageParam, BetaToolResultBlockParam, BetaToolUnion } from '@anthropic-ai/sdk/resources/beta/messages/messages'
 import type { BetaRunnableTool } from '@anthropic-ai/sdk/lib/tools/BetaRunnableTool'
 import { AIError, claudeClient, reachOf, thinks, toAIError } from '../client'
-import { prepare, settle, type Applied, type Prepared, type PrepareInput } from '../core/gate'
+import { capped, prepare, settle, type Applied, type Prepared, type PrepareInput } from '../core/gate'
 import { claudeCut, claudeResponse, deltaChars, meterCall } from '../core/meter'
 import type { PurposeId } from '../core/purposes'
 import type { LedgerEntry, SourceRef, Usage } from '@/shared/ai/types'
@@ -242,7 +242,7 @@ export async function runAgent(opts: {
 
     const params = {
       model,
-      max_tokens: 64000,
+      max_tokens: capped(64000, prepared),
       stream: true as const,
       // backstop: the tool-call limit normally ends the run first (room for MCP turns the server pauses)
       max_iterations: MAX_TOOL_CALLS + 12,

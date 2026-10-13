@@ -20,7 +20,7 @@ import { applyTextStep } from './lib/textScale'
 import { startSwitchLed } from './lib/switchLed'
 import { applyCachedLook } from './lib/look'
 import { ALL_MESSAGES, t } from './i18n'
-import { startHistory, startRecorder, startAutomations, startRecurringTemplates, startInbox, startSync, startMcp, startCustomFunctions, startMail, startAgents, startCoding, startKit, startOutbox, startPreflight, startItems, seedDemoHistory, demoFunctions } from './features'
+import { installGovernor, startHistory, startRecorder, startAutomations, startRecurringTemplates, startInbox, startSync, startMcp, startCustomFunctions, startMail, startAgents, startCoding, startKit, startOutbox, startPreflight, startItems, seedDemoHistory, demoFunctions } from './features'
 import { consumeOAuthReturn, oneScriptGrammar } from './features'
 import { registerCodeLanguage, startSyncedBlocks } from './editor'
 import { detectLang, makeTranslator } from '@/shared/i18n'
@@ -92,6 +92,9 @@ async function boot() {
   if (mode === 'local') await bootLocal()
 
   if (mode !== 'signed-out') {
+    // the Regler's brake at the gate (no I/O; the ledger is read after the first frame, only while a budget is set) —
+    // before any service below can start an AI request
+    startService('governor', installGovernor)
     startService('history', startHistory)
     // flight recorder (features/recorder): right after history — its listener takes history's page diff as a memo hit,
     // the reset above is done (its database never blocks one), and the seed of a fresh workspace is not journaled

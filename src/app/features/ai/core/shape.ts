@@ -64,8 +64,15 @@ export function withShape<T>(shape: Shape | null, fn: () => T): T {
 /** What a call site applied for the route (the gate's backstop checks it against the route it resolves again). */
 export const appliedOf = (pre: Pick<Prepared, 'route'>): Applied => ({ people: true, transcript: true, visible: true, ...(pre.route ? { route: routeKey(pre.route) } : {}) })
 
-/** The facade options of a request whose text was built for `pre`: the same route, and what its text went through. */
-export const routed = (pre: Pick<Prepared, 'route'>): { route?: Route; applied: Applied } => ({ ...(pre.route ? { route: pre.route } : {}), applied: appliedOf(pre) })
+/**
+ * The facade options of a request whose text was built for `pre`: the same route, what its text went through, and who
+ * picked the route — the person (a chip) or the gate (prepare() never moves a gate-pinned route — Regler G-D4).
+ */
+export const routed = (pre: Pick<Prepared, 'route'> & Partial<Pick<Prepared, 'level'>>): { route?: Route; applied: Applied; pinned: 'person' | 'gate' } => ({
+  ...(pre.route ? { route: pre.route } : {}),
+  applied: appliedOf(pre),
+  pinned: pre.level === 'chip' ? 'person' : 'gate',
+})
 
 /** The shape of the request text being built now (a tool call of a route that does not see everything; null: none). */
 export function currentShape(): Shape | null {

@@ -141,7 +141,9 @@ export function meterResponse(prepared: Prepared, opts: Pick<MeterOpts, 'source'
     usd = costOf(usage, row, at).usd
     costSource = row ? 'estimate' : 'none'
   }
-  const steps: StepNote[] = fallback ? [{ k: 'refusal-fallback', from: route.m, to: modelBase(served) }] : [...(r.steps ?? [])]
+  // the request's own steps (the brake's cap, an allowance) first, then the response's
+  const own = (prepared.steps ?? []).filter((x) => x.k === 'brake' || x.k === 'allowance')
+  const steps: StepNote[] = [...own, ...(fallback ? [{ k: 'refusal-fallback' as const, from: route.m, to: modelBase(served) }] : [...(r.steps ?? [])])]
   return meter({
     id: newId(),
     at,
@@ -162,6 +164,10 @@ export function meterResponse(prepared: Prepared, opts: Pick<MeterOpts, 'source'
     outcome: r.outcome ?? 'ok',
     ...(prepared.reservation ? { reservation: prepared.reservation.id } : {}),
     ...(steps.length ? { steps } : {}),
+    // the governor (only where a line braked the request): its band, an allowance (E), the capped answer budget
+    ...(prepared.band ? { band: { low: prepared.band.low, high: prepared.band.high } } : {}),
+    ...(prepared.allowance ? { allowance: prepared.allowance } : {}),
+    ...(typeof prepared.maxTokens === 'number' ? { cap: prepared.maxTokens } : {}),
   })
 }
 
