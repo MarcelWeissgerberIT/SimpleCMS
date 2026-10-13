@@ -223,7 +223,12 @@ function RunControls({ db, prop, draft, canRun, issue, onRun }: { db: Database; 
       chars: rows.reduce((n, r) => n + contextChars(db, prop, r, draft), 0),
     }
   }, [pages, db, prop, draft])
-  const est = api ? api.estimateAutofill({ rows: all, contextChars: chars, preset: draft.preset }) : null
+  const est = api ? api.estimateAutofill({ rows: all, contextChars: chars, preset: draft.preset, long: draft.preset === 'translate' || prop.type === 'text' }) : null
+  // the Regler (a line set): the run's band against the rest, before it starts (§ 5.7) — over it, the run pauses at the line
+  const line = api ? api.reglerRest() : null
+  const band = est?.band ?? null
+  const over = !!line && (!band || band.high > line.rest)
+  const lineText = line && api ? (band ? t('features.governor.autofill.band', { band: api.fmtBand(band, lang), rest: api.fmtLimit(Math.round(line.rest * 100) / 100, lang) }) : t('features.governor.note.noprice', { model: est?.model ?? '—' })) : ''
 
   return (
     <div className="af-runbox">
@@ -246,6 +251,13 @@ function RunControls({ db, prop, draft, canRun, issue, onRun }: { db: Database; 
         </div>
       </dl>
       <p className="af-note">{t('database.autofill.est.note', { model: est?.model ?? '—', company: est?.company ?? '—' })}</p>
+      {line && api && (
+        <div className="af-regler" data-testid="af-regler" data-over={over || undefined}>
+          <api.MiniBar spent={line.spent} add={band?.high ?? 0} limit={Number.isFinite(line.limit) ? line.limit : null} label={lineText} />
+          <p className="af-note af-regler__text">{lineText}</p>
+          {over && <p className="af-note af-regler__over">{t('features.governor.autofill.bandOver')}</p>}
+        </div>
+      )}
       {issue && (
         <p className="af-issue" role="status">
           {t(issue)}

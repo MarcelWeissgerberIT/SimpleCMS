@@ -50,11 +50,13 @@ export type { Receipt } from './ai/core/meter'
 /** The Regler's brake at the gate (governor/install.ts): main.tsx, once, before any service can start a request. */
 export { install as installGovernor } from './governor/install'
 /** The Regler for background work (the autofill watch's paused rows, a line that moved, E for a job or the watch). */
-export { budgetRefusal, watchSource, pauseRows, takeRows, pausedRows, onLineChange, allowTask, ALLOW_USD, fmtLimit, type BudgetRefusal } from './governor'
+export { budgetRefusal, watchSource, pauseRows, takeRows, pausedRows, onLineChange, allowTask, ALLOW_USD, fmtLimit, fmtBand, reglerRest, MiniBar, type BudgetRefusal } from './governor'
 /** The brake note for a refused request (AIError 'budget'): lazy, its keys retry with E / B (core/gate.ts armRetry). */
-export { BrakeSlot, type BrakeForProps } from './governor'
+export { BrakeSlot, BudgetSlot, type BrakeForProps } from './governor'
 /** The status bar's REGLER cell (shown while a budget exists; click → the Regler). */
 export { GovernorStatusCell } from './governor'
+/** #/regler (lazy) and the one way to open it (the status cell, VERBRAUCH, ⌘K, the phone's workspace menu). */
+export { ReglerRoute, openRegler } from './governor'
 /** Claude's Markdown → a safe document: web images / media / frames as links (addresses a page shows already stay). */
 export { webImagesOf } from './agents/images'
 export { claudeDoc } from './ai/claudeDoc'

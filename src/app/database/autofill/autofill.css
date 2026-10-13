@@ -300,6 +300,15 @@
   color: var(--ink-3);
 }
 
+/* the Regler (a line set): this run's band against the rest, before it starts */
+.af-regler {
+  display: grid;
+  gap: 4px;
+  margin-top: 6px;
+}
+.af-regler__over.af-note {
+  color: var(--c-red-text);
+}
 .af-issue {
   margin: 0;
   padding: 7px 10px;

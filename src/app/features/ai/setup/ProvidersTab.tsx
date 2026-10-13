@@ -29,6 +29,7 @@ import { labelFor } from '../core/registry'
 import { McpServers } from '../mcp-servers/McpServers'
 import { MemorySettings } from '../memory'
 import { ledgerTotals, type LedgerTotal } from '../../governor'
+import { DeviceBrake } from '../../governor/ui/DeviceBrake'
 import { hasKeyIn, NO_ROWS, PLATE_ORDER, plateState, receivesNothing, setCheck, useChecks } from './facts'
 import { ProviderPlate } from './ProviderPlate'
 import { RemovePanel, dropKey } from './remove'
@@ -97,6 +98,7 @@ export function ProvidersTab({ section }: { section?: 'mcp' | 'memory' }) {
       <DataLines />
       <OwnData />
       <Usage />
+      <DeviceBrake />
       <div ref={mcpRef} className="aip__section" data-section="mcp" tabIndex={-1} aria-label={t('features.ai.prov.tab.mcp')}>
         <McpProviders />
         <McpServers />

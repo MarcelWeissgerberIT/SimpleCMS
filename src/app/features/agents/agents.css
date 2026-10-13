@@ -642,6 +642,20 @@
   margin: 0;
   color: var(--ink-3);
 }
+/* the Regler's line when the run ended (a line set): the sentence and the mini bar */
+.agx-run__regler {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  color: var(--ink-2);
+}
+.agx-run__regler .gv-minibar {
+  width: calc(120px * var(--text-scale));
+}
 .agx-run__summary {
   display: grid;
   gap: 4px;

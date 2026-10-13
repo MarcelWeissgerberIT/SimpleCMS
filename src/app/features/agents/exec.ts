@@ -56,7 +56,7 @@ import { memoryRef } from '../ai/core/refs'
 import { precheck, startCheck, type PrepareInput, type StartCheck } from '../ai/core/gate'
 import { addInboxItems, loadInbox, useInbox, wsKey } from '../inbox/state'
 import { activeWorkspace } from '../../cloud'
-import { dayOf, FIRST_STEP_OUT, noteHeld, type RunMode } from '../governor'
+import { dayOf, FIRST_STEP_OUT, noteHeld, reglerLine, type RunMode } from '../governor'
 import type { HeldBinding } from './types'
 import { appliedOf } from '../ai/core/shape'
 import type { SourceRef } from '@/shared/ai/types'
@@ -544,6 +544,9 @@ async function runOnce(agent: CustomAgent, req: RunRequest): Promise<AgentRun> {
     noteUse(run.summary, memory.use, { task: agent.instructions, where: { kind: 'agent', name: agent.name }, result })
   }
   run.usage = { input: usage.input, output: usage.output, cacheRead: usage.cacheRead, usd: Math.round(usage.usd * 10_000) / 10_000, ...(usage.byModel.length ? { byModel: usage.byModel } : {}) }
+  // a Regler line set: where it stood when the run ended (the run row's line; nothing without one)
+  const line = reglerLine()
+  if (line) run.regler = line
   run.endedAt = Date.now()
   await putRun({ ...run, steps: [...run.steps] })
   endRun(writer)

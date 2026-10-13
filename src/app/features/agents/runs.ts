@@ -17,6 +17,7 @@ import type { AgentRun } from './types'
 import { wsKey } from './locks'
 import { dropBooks } from './trust/book'
 import { heldId, heldNotStarted, mergeRun, pruneRuns, type HeldStart } from './held'
+import { dayOf, noteHeld } from '../governor'
 
 export const MAX_RUNS = 100
 
@@ -76,6 +77,9 @@ const isRun = (r: unknown): r is AgentRun => !!r && typeof r === 'object' && typ
 
 function setRuns(agentId: ID, runs: AgentRun[]) {
   useAgentRuns.setState((s) => ({ byAgent: { ...s.byAgent, [agentId]: runs } }))
+  // the Regler's VERBRAUCH lamp: an agent held today counts in every tab that reads its runs (not only the leader's)
+  const today = dayOf(Date.now())
+  if (runs.some((r) => r.status === 'held' && dayOf(r.endedAt ?? r.startedAt) === today)) noteHeld(agentId)
 }
 
 /** Runs per agent queue their writes: one read-modify-write after another. */

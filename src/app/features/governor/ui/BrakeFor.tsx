@@ -8,12 +8,11 @@
 import { labelOf } from '@/shared/ai/models'
 import { armRetry } from '../../ai/core/gate'
 import { governorAllowed } from '../../../store/governor'
-import { navigate } from '../../../lib/router'
-import { useUI } from '../../../store/ui'
 import { allowOnce } from '../allow'
 import { ALLOW_USD, type RefuseDetail } from '../brake'
 import { brakeFixOf } from '../background'
 import { BrakeNote } from './BrakeNote'
+import { openBudgets } from '../lampSource'
 
 export interface BrakeForProps {
   /** the refused request's error (anything else renders nothing) */
@@ -22,15 +21,6 @@ export interface BrakeForProps {
   onRetry: () => void
   onCancel: () => void
   autoFocus?: boolean
-}
-
-/** The budget settings (Workspace › AI from B11): the dialog, the palette and the phone drawer close first. */
-function openBudget(): void {
-  const ui = useUI.getState()
-  if (ui.modal) ui.closeModal()
-  if (ui.paletteOpen) ui.closePalette()
-  if (ui.mobileSidebarOpen) ui.setMobileSidebar(false)
-  navigate({ name: 'workspace' })
 }
 
 export default function BrakeFor({ error, onRetry, onCancel, autoFocus }: BrakeForProps) {
@@ -68,7 +58,7 @@ export default function BrakeFor({ error, onRetry, onCancel, autoFocus }: BrakeF
           : undefined
       }
       onCancel={onCancel}
-      onAdjust={openBudget}
+      onAdjust={openBudgets}
     />
   )
 }

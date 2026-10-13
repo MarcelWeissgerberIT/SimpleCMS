@@ -714,6 +714,11 @@ test.describe('agents at the line: held, never waiting (B6 · case 6)', () => {
     const ran = (await scheduled(page, 'ag-tessera')) as AnyState
     expect(requests.length).toBeGreaterThanOrEqual(1)
     expect(ran.status).not.toBe('held')
+    // B10: the run keeps where the line stood at its end — its row says it with the mini bar
+    expect(ran.regler).toMatchObject({ binding: 'day', limit: 10 })
+    await expect(page.getByTestId('agx-run-regler').first()).toContainText('Governor today')
+    await expect(page.getByTestId('agx-run-regler').first()).toContainText('of $10.00 · rest today')
+    await expect(page.getByTestId('agx-run-regler').first().locator('.gv-minibar')).toBeVisible()
   })
 
   test('mid-run at the line the run stops after its step: held, its proposal kept, the old state kept ("State not saved"); positive control: a day that holds it runs to the end', async ({ page }) => {
@@ -906,6 +911,11 @@ test.describe('background work at the line (B7 · case 7)', () => {
     const dlg = await openAutofillPanel(page, 'Summary')
     const rowsStrip = dlg.getByTestId('af-paused-rows')
     await expect(rowsStrip).toContainText('1 row waits at the red line')
+    // before a person's run starts (§ 5.7, acceptance 6): its band against the rest — over it here
+    const band = dlg.getByTestId('af-regler')
+    await expect(band).toContainText(/Governor: this run ≈ \$[\d.]+–\u2060?[\d.]+ · rest \$0/)
+    await expect(band).toHaveAttribute('data-over', 'true')
+    await expect(band).toContainText('Over the red line')
     // E only with focus in the strip
     await page.keyboard.press('e')
     await page.waitForTimeout(300)

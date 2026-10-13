@@ -56,6 +56,7 @@ import { AI_POLICY_GEN } from '../../src/shared/ai/policy'
 import { AI_ERROR_CODES, BUDGET_DETAILS, fallbackOf, isAIErrorCode, isBudgetDetail } from '../../src/shared/ai/errors'
 import { messages as coreMessages } from '../../src/app/features/messages-core'
 import { closedDaysBefore, dayOf, monthOf, nextMidnight } from '../../src/app/features/governor/clock'
+import { consumerOf, consumersOf, daysOf, providersOf, rollOf, runsOf } from '../../src/app/features/governor/consumers'
 import { applyDayRead, cacheOf, closedDaysOf, closedTally, deltaTally, meterTally, monthSpentOf, newTally, readTally, readTodayCache, rollTally, sumTallies, tallyKnown, todayOf, type DayRead } from '../../src/app/features/governor/tally'
 import { BOOK_STALE_MS, emptyBook, expireBook, hearBook, readBookMsg, reservedByOthers, reservedIn } from '../../src/app/features/governor/book'
 import { allowOnce, allowTask, allowanceOf, clearAllowances, consume } from '../../src/app/features/governor/allow'
@@ -1401,5 +1402,58 @@ test.describe('strings (features/governor/messages.ts)', () => {
     expect(de['features.governor.queued.line.other']).toBe('{count} KI-Schritte warten · Jetzt ausführen')
     expect(de['features.governor.effects.title.one']).toBe('Wirkung · 1 Stelle')
     expect(en['features.governor.effects.title.other']).toBe('Effect · {count} places')
+  })
+})
+
+test.describe('#/regler tables (features/governor/consumers.ts, B10)', () => {
+  const at0 = new Date(2026, 9, 13, 9, 0).getTime()
+  const e = (id: string, min: number, source: string, usd: number | null, model = 'claude-opus-5-5', p: 'anthropic' | 'openrouter' = 'anthropic') => ({ id, at: at0 + min * 60_000, source, purpose: 'menu.action', cls: 'write', served: { p, model }, usd })
+
+  test('a source names its consumer: the series, and the agent / database it holds', () => {
+    expect(consumerOf({ source: 'terminal:c1:t2' })).toEqual({ kind: 'terminal', key: 'terminal' })
+    expect(consumerOf({ source: 'agent:agentNordlicht:run7' })).toEqual({ kind: 'agent', id: 'agentNordlicht', key: 'agent:agentNordlicht' })
+    expect(consumerOf({ source: 'autofill:dbTessera:propSummary:w20261013' })).toEqual({ kind: 'autofill', id: 'dbTessera', key: 'autofill:dbTessera' })
+    expect(consumerOf({ source: 'ai:r1:improve' }).kind).toBe('menu')
+    expect(consumerOf({ source: 'mcp-setup:x1' }).kind).toBe('mcp')
+    expect(consumerOf({ source: 'script-draft:x1' }).kind).toBe('writing')
+    // a source this build does not know is "other", never dropped
+    expect(consumerOf({ source: 'later-slice:x1' })).toEqual({ kind: 'other', key: 'other' })
+  })
+
+  test('consumers: summed per consumer, most spent first; runs = distinct sources; the models by spend; no price counted apart', () => {
+    const list = [
+      e('a', 1, 'terminal:c1:t1', 1.2),
+      e('b', 2, 'terminal:c1:t1', 0.86),
+      e('c', 3, 'ai:r1:improve', 0.21),
+      e('d', 4, 'ai:r2:transform', 0.56, 'claude-sonnet-5-5'),
+      e('f', 5, 'agent:agentNordlicht:run1', 0.74),
+      e('g', 6, 'ai:r3:improve', null),
+    ]
+    const c = consumersOf(list)
+    expect(c.map((x) => [x.key, Math.round(x.usd * 100) / 100, x.runs, x.requests, x.unpriced])).toEqual([
+      ['terminal', 2.06, 1, 2, 0],
+      ['menu', 0.77, 3, 3, 1],
+      ['agent:agentNordlicht', 0.74, 1, 1, 0],
+    ])
+    expect(c[1]!.models.map((m) => m.model)).toEqual(['claude-sonnet-5-5', 'claude-opus-5-5'])
+    expect(runsOf(list)).toBe(5)
+    expect(providersOf([...list, e('h', 7, 'palette:q1', 0.01, 'vendor-a/model-b', 'openrouter')])).toEqual(['anthropic', 'openrouter'])
+  })
+
+  test('the roll: one receipt per run (its responses in order), the newest run first; a response without a price makes the run unpriced', () => {
+    const r = rollOf([e('b', 2, 'terminal:c1:t1', 0.86), e('a', 1, 'terminal:c1:t1', 1.2), e('c', 3, 'ai:r1:improve', 0.21), e('d', 9, 'ai:r3:improve', null), e('x', 4, 'ai:r3:improve', 0.1)])
+    expect(r.map((x) => x.source)).toEqual(['ai:r3:improve', 'ai:r1:improve', 'terminal:c1:t1'])
+    expect(r[2]!.entries.map((x) => x.id)).toEqual(['a', 'b'])
+    expect(r[2]!.usd).toBeCloseTo(2.06, 6)
+    expect(r[0]!.usd).toBeNull()
+  })
+
+  test('the days: newest first, the day total and its runs', () => {
+    const y = 24 * 60
+    const d = daysOf([e('a', 1, 'terminal:c1:t1', 1.2), e('b', 2, 'terminal:c1:t1', 0.8), e('c', -y, 'ai:r0:improve', 5.2), e('d', 3, 'palette:q1', null)], dayOf)
+    expect(d.map((x) => [x.day, Math.round(x.usd * 100) / 100, x.runs, x.unpriced])).toEqual([
+      ['2026-10-13', 2, 2, 1],
+      ['2026-10-12', 5.2, 1, 0],
+    ])
   })
 })

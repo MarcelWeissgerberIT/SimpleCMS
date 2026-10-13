@@ -20,7 +20,7 @@ import { ledgerScope } from './scope'
 import { bookOthers, onBookChange, reservedNow, reservedOthersNow, startBook } from './book'
 import { DEVICE_LINE_SPANS_BROWSER, deviceLimitOf, deviceLineScopes, knownScopes, localKV, noteScope, type ScopeSeen } from './device'
 import { closedDaysBefore, dayOf, monthOf, nextMidnight } from './clock'
-import { applyDayRead, closedDaysOf, closedTally, cacheOf, deltaTally, meterTally, monthSpentOf, newTally, readTodayCache, rollTally, sumTallies, tallyKnown, todayOf, type Tally } from './tally'
+import { applyDayRead, closedDaysOf, closedTally, cacheOf, readDayRecord, deltaTally, meterTally, monthSpentOf, newTally, readTodayCache, rollTally, sumTallies, tallyKnown, todayOf, type Tally } from './tally'
 import { wipePaused } from './paused'
 import { allowOnce, clearAllowances } from './allow'
 import { whenIdle } from '../../lib/idle'
@@ -320,6 +320,28 @@ export async function loadMonth(): Promise<void> {
     if (closedTally(t, day, r.sum, Date.now())) writeCache(t, Date.now())
   }
   publish()
+}
+
+/**
+ * A closed day's total of a scope (#/regler: yesterday's peak on the dial): its `one-governor` record, else one ledger
+ * read of that day (stored when the ledger answered in full — a closed day never changes). null: nothing known.
+ */
+export async function dayTotal(scope: string, day: string): Promise<number | null> {
+  const st = governorStore()
+  const key = `${scope}|day|${day}`
+  if (day >= dayOf(Date.now())) return null
+  let stored: unknown[] = []
+  if (st)
+    try {
+      stored = await getMany([key], st)
+    } catch {
+      stored = []
+    }
+  const rec = readDayRecord(stored[0])
+  if (rec) return rec.usd
+  const r = await closedDaysOf([day], [], (d) => ledgerDayRead(scope, d))
+  if (st && r.fresh.length) await setMany(r.fresh.map(([d, x]) => [`${scope}|day|${d}`, x]), st).catch(() => {})
+  return r.complete || r.sum > 0 ? r.sum : null
 }
 
 /** This scope's derived data goes: its `one-governor` records, its cache, its paused rows (the seam, the device copy). */

@@ -19,6 +19,8 @@ export { runNow as runAgentNow } from './actions'
 /** Read-outs for overviews (the workspace page's Automation section): a trigger in words · this device's runs of an agent */
 export { triggerText as agentTriggerText, nextRunAt as agentNextRunAt } from './format'
 export { loadRuns as loadAgentRuns, useAgentRuns } from './runs'
+/** The Regler's holds (#/regler): an agent's not-started record of a day, a run held at the line */
+export { heldId, isHeld } from './held'
 /**
  * The Preflight lamps (proposals, mirror stale, agent missed) — reads only:
  *  - onRunsChanged(fn): another tab wrote an agent's runs · primeSlots(ids) / cachedSlot(id): the schedule slots this

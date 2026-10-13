@@ -117,3 +117,45 @@ test('an owner’s budget reaches a member with its AI stamp; a member’s write
   raw.destroy()
   await member.context().close()
 })
+
+test('Workspace › AI § 06 in a team: the owner saves through the section, a member reads it with the lock; #/regler names the server agents’ key', async ({ page, context }) => {
+  await signIn(page, email('mara'))
+  const wsId = await createWorkspace(page, 'Nordlicht Team')
+  const member = await newPerson(context)
+  await signIn(member, email('tessera'))
+  await join(page, member, wsId, 'member')
+  await openApp(page, wsId)
+  await waitOnline(page)
+  await openApp(member, wsId)
+  await waitOnline(member)
+  await page.evaluate(() => (window as unknown as { __oneAI: { enforceGen(g: number): number } }).__oneAI.enforceGen(3))
+
+  // the owner: the fields write, no lock
+  await page.evaluate(() => (location.hash = '#/workspace/ai'))
+  const own = page.getByTestId('gv-budget')
+  await expect(own).toBeVisible()
+  await expect(own.getByTestId('gv-budget-lock')).toHaveCount(0)
+  await own.getByTestId('gv-budget-day').fill('6')
+  await own.getByTestId('gv-budget-save').click()
+  await expect(own.locator('.gv-budget__said')).toContainText('Saved')
+  expect(await govOf(page)).toEqual({ v: 1, day: 6 })
+
+  // the member: the value arrives, the section reads it with the lock — no keys, the fields read only
+  await member.evaluate(() => (location.hash = '#/workspace/ai'))
+  const sec = member.getByTestId('gv-budget')
+  await expect(sec.getByTestId('gv-budget-lock')).toContainText('Owners and admins only')
+  await expect(sec.getByTestId('gv-budget-day')).toHaveValue('6')
+  await expect(sec.getByTestId('gv-budget-day')).toHaveAttribute('readonly', '')
+  await expect(sec.getByTestId('gv-budget-save')).toHaveCount(0)
+  // their own line is in Settings › AI
+  await expect(sec.getByTestId('gv-budget-device')).toBeVisible()
+
+  // #/regler: the server agents' key is said (not counted here)
+  await member.evaluate(() => (location.hash = '#/regler'))
+  await expect(member.locator('.gv-hard__line--server')).toContainText('Server agents: the workspace’s key — not counted here')
+
+  // the owner removes it through the section: gone for the member too
+  await own.getByTestId('gv-budget-remove').click()
+  await expect.poll(() => govOf(member)).toBeNull()
+  await member.context().close()
+})

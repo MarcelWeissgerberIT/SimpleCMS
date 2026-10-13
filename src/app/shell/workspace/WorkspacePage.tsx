@@ -1,7 +1,7 @@
 /**
  * The workspace page (#/workspace, #/workspace/<section>): what belongs to the workspace, in one place —
- * a spec plate (mark, name, LOCAL / TEAM · n MEMBERS, pages · databases · storage) and eight sections:
- * Overview · Look · People · Building blocks · Automation · Integrations · Data · Danger zone. A rail on the left (a
+ * a spec plate (mark, name, LOCAL / TEAM · n MEMBERS, pages · databases · storage) and nine sections:
+ * Overview · Look · People · Building blocks · Automation · Integrations · AI · Data · Danger zone. A rail on the left (a
  * strip of tabs on narrow screens). Settings (the modal) keeps this device and the account.
  */
 import { useEffect, useMemo, useRef } from 'react'
@@ -25,6 +25,7 @@ import { PeopleSection } from './People'
 import { BlocksSection } from './Blocks'
 import { AutomationSection } from './Automation'
 import { IntegrationsSection } from './Integrations'
+import { AISection } from './AI'
 import { DataSection } from './Data'
 import { DangerSection } from './Danger'
 import './workspace.css'
@@ -55,6 +56,7 @@ export function WorkspacePage({ section }: { section?: string }) {
             {active === 'blocks' && <BlocksSection />}
             {active === 'automation' && <AutomationSection team={team} />}
             {active === 'integrations' && <IntegrationsSection />}
+            {active === 'ai' && <AISection />}
             {active === 'data' && <DataSection />}
             {active === 'danger' && <DangerSection team={team} />}
           </section>

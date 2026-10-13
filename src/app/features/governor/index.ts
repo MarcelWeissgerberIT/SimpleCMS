@@ -36,7 +36,11 @@ export { budgetRefusal, brakeFixOf, watchSource, pauseRows, takeRows, pausedRows
 export { FIRST_STEP_OUT } from './mcpBand'
 export { planBand, type PlanBand } from './plan'
 export { noteHalt, noteHeld, useGovernorMarks } from './marks'
-export { openRegler, budgetSet } from './lampSource'
+export { openRegler, openBudgets, budgetSet, reglerLine, reglerRest } from './lampSource'
+/** the static mini bar (spent · this request · the red line) — a run row's Regler line, the brake note, the status cell */
+export { MiniBar } from './ui/MiniBar'
+/** #/regler (the page is a lazy chunk) */
+export { ReglerRoute } from './route'
 /** the status bar's REGLER cell, wired (shown while a budget exists) */
 export { GovernorStatusCell, ReglerRestLine } from './statusGate'
 export { fmtBand, fmtLimit, fmtOf } from './format'
@@ -49,4 +53,6 @@ export type { BrakeForProps } from './ui/BrakeFor'
  * lazy — the chunk loads only when a note is shown (only ever with a budget set). Render it inside <Suspense>.
  */
 export const BrakeSlot = lazy(() => import('./ui/BrakeFor'))
+/** Workspace › AI § 06 — the workspace's day / month budget (lazy; render it inside <Suspense>). */
+export const BudgetSlot = lazy(() => import('./ui/BudgetSection'))
 export { PRICES, PRICES_DATE, costOf, priceRow } from '@/shared/ai/prices'

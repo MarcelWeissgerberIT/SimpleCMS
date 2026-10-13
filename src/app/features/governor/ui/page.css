@@ -1,0 +1,634 @@
+/* ================================================================
+   #/regler (lazy, ReglerPage.tsx) — mock 1 without the lever column:
+   the head, the readout strip, § 00's plate (governor.css), 01 the
+   consumers, 02 the receipt roll. Tokens only; sizes --text-* or
+   calc(n px * var(--text-scale)); rules that meet a primitive (.btn,
+   .label) carry two classes.
+   ================================================================ */
+
+.gv-page {
+  max-width: 1180px;
+  padding: 26px clamp(16px, 4cqi, 40px) 36px;
+}
+.gv-page__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+.gv-page__icon {
+  width: 40px;
+  height: 40px;
+  margin-left: -4px;
+  object-fit: contain;
+  flex: none;
+}
+.gv-page__title.display {
+  margin: 0;
+  font-size: var(--text-3xl);
+  line-height: 1.1;
+}
+.gv-page__sub.label {
+  color: var(--ink-2);
+  padding-top: 6px;
+}
+.gv-page__sp {
+  flex: 1;
+}
+.gv-page__key.btn {
+  gap: 7px;
+}
+.gv-page__key-arrow {
+  color: var(--ink-3);
+}
+
+/* the readout strip */
+.gv-ro {
+  display: flex;
+  flex-wrap: wrap;
+  margin-top: 12px;
+  border-top: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
+}
+.gv-ro__cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 28px;
+  padding: 0 12px 0 0;
+  margin-right: 12px;
+  border-right: 1px solid var(--rule);
+  white-space: nowrap;
+}
+.gv-ro__cell:last-child {
+  border-right: 0;
+}
+.gv-ro__cell .label {
+  color: var(--ink-2);
+}
+.gv-ro__val {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.gv-page .gv-plate {
+  margin-top: 14px;
+}
+
+/* below the plate: consumers | receipts */
+.gv-below {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, calc(356px * var(--text-scale)));
+  gap: 26px;
+  margin-top: 20px;
+  align-items: start;
+}
+.gv-below__roll {
+  min-width: 0;
+  scroll-margin-top: 16px;
+}
+.gv-sec {
+  min-width: 0;
+}
+.gv-sec__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 22px;
+}
+.gv-sec__n.label {
+  color: var(--signal-ink);
+  font-weight: 600;
+}
+.gv-sec__t.label {
+  margin: 0;
+  color: var(--ink-2);
+  font-weight: 500;
+  white-space: nowrap;
+}
+.gv-sec__t:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: 2px;
+}
+.gv-sec__rule {
+  flex: 1;
+  min-width: 12px;
+  height: 1px;
+  background: var(--rule);
+}
+.gv-sec__legend.label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+.gv-sec__lnk {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 28px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: var(--radius-1);
+  background: transparent;
+  font: inherit;
+  font-size: calc(12.5px * var(--text-scale));
+  font-weight: 600;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+.gv-sec__lnk:hover {
+  color: var(--ink);
+}
+.gv-sec__empty {
+  margin: 10px 0 0;
+  font-size: var(--text-sm);
+  color: var(--ink-2);
+}
+
+/* 01 consumers */
+.gv-cons {
+  margin-top: 4px;
+}
+.gv-cons__h,
+.gv-con {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) calc(112px * var(--text-scale)) minmax(80px, 168px) calc(64px * var(--text-scale)) calc(124px * var(--text-scale));
+  align-items: center;
+  column-gap: 14px;
+}
+.gv-cons__h {
+  min-height: 26px;
+  border-bottom: 1px solid var(--rule);
+}
+.gv-cons__h .label {
+  color: var(--ink-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.gv-cons__r.label {
+  text-align: right;
+}
+.gv-con {
+  min-height: 42px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--rule);
+}
+.gv-con__name {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  column-gap: 10px;
+  align-items: center;
+  min-width: 0;
+  line-height: 1.25;
+}
+.gv-con__name > svg {
+  grid-row: span 2;
+  color: var(--ink-2);
+}
+.gv-con__t {
+  font-weight: 650;
+  font-size: calc(13.5px * var(--text-scale));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.gv-con__s {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  color: var(--ink-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.gv-con[data-held] .gv-con__s {
+  color: var(--signal-ink);
+}
+.gv-con__model {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  color: var(--ink-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.gv-con__bar {
+  position: relative;
+  height: 8px;
+  background: var(--surface-3);
+  border-radius: 1px;
+}
+.gv-con__bar i {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  background: var(--ink);
+  border-radius: 1px;
+}
+.gv-con__amt {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+.gv-con__may {
+  display: flex;
+  min-width: 0;
+}
+.gv-con--sum {
+  border-bottom: 0;
+  min-height: 34px;
+}
+.gv-con--sum .gv-con__name {
+  grid-template-columns: minmax(0, 1fr);
+}
+.gv-con--sum .gv-con__t {
+  font-weight: 800;
+}
+.gv-con__bar--sum {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--rule-strong);
+}
+/* the amber band from 75 % of the day budget */
+.gv-con__bar--sum[data-budget]::after {
+  content: '';
+  position: absolute;
+  left: 75%;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  background: repeating-linear-gradient(-45deg, var(--lamp-amber) 0 1.5px, transparent 1.5px 3.5px);
+}
+.gv-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  min-height: 19px;
+  padding: 0 6px;
+  border-radius: var(--radius-1);
+  font-family: var(--font-mono);
+  font-size: calc(10.5px * var(--text-scale));
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--ink-2);
+  box-shadow: inset 0 0 0 1px var(--rule-strong);
+}
+.gv-tag--held {
+  color: var(--signal-ink);
+  box-shadow: inset 0 0 0 1px var(--signal);
+}
+
+/* 02 the receipt roll */
+.gv-roll,
+.gv-days {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.gv-stub,
+.gv-day {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto 12px;
+  align-items: center;
+  column-gap: 10px;
+  width: 100%;
+  min-height: 30px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 1px;
+  background: var(--surface-2);
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: calc(11px * var(--text-scale));
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+  /* the perforated stub: half-circle notches at both ends */
+  -webkit-mask:
+    radial-gradient(circle 3.5px at 0 50%, transparent 3px, var(--ink) 3.5px) left / 51% 100% no-repeat,
+    radial-gradient(circle 3.5px at 100% 50%, transparent 3px, var(--ink) 3.5px) right / 51% 100% no-repeat;
+  mask:
+    radial-gradient(circle 3.5px at 0 50%, transparent 3px, var(--ink) 3.5px) left / 51% 100% no-repeat,
+    radial-gradient(circle 3.5px at 100% 50%, transparent 3px, var(--ink) 3.5px) right / 51% 100% no-repeat;
+  transition: background var(--dur-1) var(--ease-out);
+}
+:root[data-theme='dark'] .gv-stub,
+:root[data-theme='dark'] .gv-day {
+  background: var(--surface-3);
+}
+.gv-stub:hover,
+.gv-day:hover {
+  background: var(--surface-3);
+}
+.gv-stub:focus-visible,
+.gv-day:focus-visible {
+  -webkit-mask: none;
+  mask: none;
+  outline: 2px solid var(--signal);
+  outline-offset: 1px;
+}
+.gv-stub__t {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--ink);
+  font-weight: 600;
+}
+.gv-stub__amt {
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+.gv-stub__chev {
+  color: var(--ink-3);
+  transition: transform var(--dur-1) var(--ease-out);
+}
+.gv-stub[aria-expanded='true'] .gv-stub__chev,
+.gv-day[aria-expanded='true'] .gv-stub__chev {
+  transform: rotate(90deg);
+}
+.gv-roll__item[data-open] > .gv-stub {
+  background: var(--ink);
+  color: color-mix(in srgb, var(--surface) 70%, var(--ink));
+}
+.gv-roll__item[data-open] > .gv-stub .gv-stub__t,
+.gv-roll__item[data-open] > .gv-stub .gv-stub__amt,
+.gv-roll__item[data-open] > .gv-stub .gv-stub__chev {
+  color: var(--surface);
+}
+:root[data-theme='dark'] .gv-roll__item[data-open] > .gv-stub {
+  background: var(--surface-3);
+  color: var(--ink-2);
+  box-shadow: inset 3px 0 0 var(--signal);
+}
+:root[data-theme='dark'] .gv-roll__item[data-open] > .gv-stub .gv-stub__t,
+:root[data-theme='dark'] .gv-roll__item[data-open] > .gv-stub .gv-stub__amt {
+  color: var(--ink);
+}
+.gv-stub__receipt {
+  margin: 2px 0 6px;
+  padding: 8px 12px 10px;
+  border: 1px dashed var(--rule-strong);
+  border-radius: var(--radius-1);
+}
+.gv-stub__receipt .ai-receipt {
+  margin: 0;
+}
+.gv-stub__tok {
+  margin: 4px 0 0;
+  font-family: var(--font-mono);
+  font-size: calc(10.5px * var(--text-scale));
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+.gv-stub__models {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 6px 0 0;
+  border-top: 1px solid var(--rule);
+  display: grid;
+  gap: 2px;
+}
+.gv-stub__model {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 10px;
+  font-family: var(--font-mono);
+  font-size: calc(11px * var(--text-scale));
+  color: var(--ink-2);
+}
+.gv-stub__model > span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gv-days .gv-roll {
+  margin: 4px 0 6px 12px;
+}
+.gv-roll__note {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 0 0;
+  font-size: calc(12.5px * var(--text-scale));
+  color: var(--ink-2);
+}
+.gv-roll__note svg {
+  flex: none;
+  color: var(--ink-3);
+}
+
+.gv-page__foot.label {
+  margin: 28px 0 0;
+  color: var(--ink-3);
+}
+
+/* narrower: the roll goes below the consumers */
+@container (max-width: 980px) {
+  .gv-below {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+/* phones: 2 × 2 readout cells, the consumers as cards, the head keys full width */
+@media (max-width: 600px) {
+  .gv-page {
+    padding: 18px 16px 28px;
+  }
+  .gv-page__sub.label {
+    flex-basis: 100%;
+    padding-top: 0;
+  }
+  .gv-page__sp {
+    display: none;
+  }
+  .gv-page__key.btn {
+    flex: 1 1 0;
+    justify-content: center;
+  }
+  .gv-ro {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+  .gv-ro__cell {
+    margin: 0;
+    padding: 6px 8px 6px 0;
+    border-right: 0;
+    border-bottom: 1px solid var(--rule);
+    white-space: normal;
+    flex-wrap: wrap;
+  }
+  .gv-ro__cell:nth-child(odd) {
+    border-right: 1px solid var(--rule);
+  }
+  .gv-ro__cell:nth-child(even) {
+    padding-left: 10px;
+  }
+  .gv-ro__cell:nth-last-child(-n + 2) {
+    border-bottom: 0;
+  }
+  .gv-sec__legend.label {
+    display: none;
+  }
+  .gv-cons__h {
+    display: none;
+  }
+  .gv-con {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      'name amt'
+      'model may'
+      'bar bar';
+    row-gap: 6px;
+    padding: 10px 0;
+  }
+  .gv-con__name {
+    grid-area: name;
+  }
+  .gv-con__amt {
+    grid-area: amt;
+  }
+  .gv-con__model {
+    grid-area: model;
+    padding-left: 26px;
+  }
+  .gv-con__may {
+    grid-area: may;
+    justify-content: flex-end;
+  }
+  .gv-con__bar {
+    grid-area: bar;
+  }
+  .gv-con--sum .gv-con__model,
+  .gv-con--sum .gv-con__may {
+    display: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .gv-stub,
+  .gv-day,
+  .gv-stub__chev {
+    transition: none;
+  }
+}
+
+/* Workspace › AI § 06 and Settings › AI: the budget fields (BudgetSection, DeviceBrake) */
+.gv-budget {
+  display: grid;
+  gap: 12px;
+  max-width: 680px;
+}
+.gv-budget__lead,
+.gv-budget__note {
+  margin: 0;
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  color: var(--ink-2);
+}
+.gv-budget__lock.label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+.gv-budget__form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 10px 16px;
+}
+.gv-budget__field {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+.gv-budget__field > .label {
+  color: var(--ink-2);
+}
+.gv-budget__box {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.gv-budget__sign {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--ink-2);
+}
+.gv-budget__input.input {
+  width: calc(112px * var(--text-scale));
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.gv-budget__input.input[readonly] {
+  background: var(--surface-2);
+  color: var(--ink-2);
+}
+.gv-budget__box[data-invalid] .gv-budget__input.input {
+  border-color: var(--c-red-text);
+}
+.gv-budget__err {
+  max-width: calc(220px * var(--text-scale));
+  font-size: calc(12px * var(--text-scale));
+  line-height: 1.4;
+  color: var(--c-red-text);
+}
+.gv-budget__keys {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  flex-basis: 100%;
+}
+.gv-budget__said {
+  flex-basis: 100%;
+  min-height: 1.4em;
+  margin: 0;
+  font-size: calc(12.5px * var(--text-scale));
+  color: var(--ink-2);
+}
+.gv-budget__said:empty {
+  min-height: 0;
+}
+.gv-budget__hard.gv-hard {
+  margin: 0;
+}
+.gv-budget__more {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  font-size: var(--text-sm);
+  color: var(--ink-2);
+}
+.gv-budget__more p {
+  margin: 0;
+  flex: 1 1 260px;
+}
+.gv-budget__go.btn {
+  gap: 4px;
+}
+.gv-device {
+  display: grid;
+  gap: 8px;
+}
+.gv-device .gv-budget__form {
+  margin-top: 2px;
+}
