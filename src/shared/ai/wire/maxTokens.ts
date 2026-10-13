@@ -7,7 +7,8 @@
  *  - OpenRouter: the visible budget + reasoning room where the wire adds it — the Jev Router (any pool model may reason),
  *    a model that reasons mandatorily, or one whose catalogue row lists `reasoning` and the route asks for an effort —
  *    capped at the model's output limit.
- *  - OpenAI (S4): its own rule comes with its wire; until then the visible budget.
+ *  - OpenAI (S4 brings its wire): until then the S1 estimate's rule — a model that must reason gets the same room on
+ *    top (no body is built from it yet, only estimates).
  */
 import type { Caps, Route, WireHints } from '../types.ts'
 import { isJevRouter } from '../jev.ts'
@@ -39,7 +40,9 @@ export function reasoningOf(route: Pick<Route, 'm' | 'effort'>, caps: Pick<Caps,
  */
 export function wireMaxTokens(route: Pick<Route, 'p' | 'm' | 'effort'>, visible: number, caps: Pick<Caps, 'maxOutput' | 'reasoning'> | null | undefined, hints?: WireHints | null): number {
   const v = Math.max(1, Math.round(visible))
-  if (route.p !== 'openrouter' || !caps) return v
+  if (!caps) return v
+  if (route.p === 'openai') return caps.reasoning !== false && caps.reasoning.mandatory ? Math.max(1, Math.min(caps.maxOutput, v + headroom(v, caps))) : v
+  if (route.p !== 'openrouter') return v
   const { router, mandatory, reasons } = reasoningOf(route, caps, hints)
   // the visible answer + reasoning room: models that reason (always the router — any pool model may), capped
   const room = router || reasons || mandatory ? headroom(v, caps) : 0
