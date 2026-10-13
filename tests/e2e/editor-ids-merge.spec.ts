@@ -83,7 +83,7 @@ test('closing the tab right after typing in the peek keeps the typing (the main 
   await expect.poll(async () => (await stored(page, id)).plain).toBe('Nordlicht vor dem Schliessen')
 })
 
-test('an idle peek keeps its caret when the main editor writes the block ids', async ({ page }) => {
+test('an idle peek keeps its caret when the main editor writes the block ids — also a caret the browser moved a moment ago', async ({ page }) => {
   await openApp(page)
   const id = await newPage(page, 'Tessera Ruhe', false)
   await gotoPage(page, id)
@@ -91,10 +91,16 @@ test('an idle peek keeps its caret when the main editor writes the block ids', a
   const peek = page.locator('.peek .ProseMirror')
   await expect(peek).toBeVisible()
   await peek.click()
-  await page.keyboard.press('Home')
-  for (let i = 0; i < 4; i++) await page.keyboard.press('ArrowRight')
-  // the main view's own timer writes its ids (it opened first); the peek takes them over, its caret stays after "Nord"
-  await expect.poll(async () => (await stored(page, id)).rev, { timeout: 5000 }).toBeGreaterThan(0)
+  await page.keyboard.press('End')
+  await page.waitForTimeout(100)
+  // the caret moves after "Nord" (as an arrow key moves it: the browser first, the editor reads it with the next
+  // selectionchange) and in the same moment the main view writes the ids it gave the blocks (it opened first)
+  await page.evaluate(() => {
+    const text = document.querySelector('.peek .ProseMirror p')!.firstChild!
+    document.getSelection()!.collapse(text, 4)
+    ;(window as unknown as W).__oneEditorUnload()
+  })
+  await expect.poll(async () => (await stored(page, id)).rev).toBeGreaterThan(0)
   await page.waitForTimeout(100)
   await page.keyboard.type('-')
   await expect.poll(async () => (await stored(page, id)).plain).toBe('Nord-licht')

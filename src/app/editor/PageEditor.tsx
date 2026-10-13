@@ -20,7 +20,7 @@ import { navigate, pageHref, useRoute } from '../lib/router'
 import { newId } from '../lib/ids'
 import { createBridge, type Bridge } from './lib/bridge'
 import { editorExtensions } from './extensions/kit'
-import { findBlockById, flashBlock } from './extensions/behaviors'
+import { findBlockById, flashBlock, syncDomSelection } from './extensions/behaviors'
 import { adoptIds, diffExact, diffIgnoringIds, idsFor, renameIds, type Range } from './lib/idDiff'
 import { sanitize, withBlockIds } from './convert'
 import { liftMisplacedItems } from './workitem/place'
@@ -497,6 +497,8 @@ function EditorInstance({ pageId, readOnly, autoFocus, onReady, className, colla
       if (p.contentRev === lastRev.current) return
       lastRev.current = p.contentRev
       if (p.contentOrigin === instanceId || editor.isDestroyed) return
+      // what the browser shows now first (a caret moved by a key a moment ago, text not read yet): never overwritten
+      syncDomSelection(editor.view)
       const theirs = prepareContent(p.content).doc ?? { type: 'doc', content: [{ type: 'paragraph' }] }
       // unsaved local typing + a write elsewhere in the doc (AI append, another pane …): keep both
       const base = prev.pages[pageId]?.content
