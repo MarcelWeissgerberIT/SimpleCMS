@@ -57,13 +57,25 @@ const put = (page: Page, key: string, value: unknown) =>
     { key, value },
   )
 
-const dayOf = (ms: number) => {
-  const d = new Date(ms)
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-}
+/**
+ * The app's Preflight day (yyyy-MM-dd) — the Bordbuch's days and its 30-day retention count in these days, which begin
+ * at the set time in the browser's time zone (default 07:00), not at midnight in the test runner's.
+ */
+const appDay = (page: Page) => pf(page, (p) => p.stores.log.getState().day as string)
+
+/** yyyy-MM-dd ± n calendar days (UTC arithmetic: no time zone, no daylight-saving switch). */
+const plusDays = (day: string, n: number) => new Date(Date.parse(`${day}T00:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10)
 
 async function start(page: Page): Promise<void> {
   await page.addInitScript(() => localStorage.setItem('one.tour', '{"off":true}'))
+  // this device's Preflight day begins 12 h after the run starts (set once, before the first boot): no day boundary falls
+  // inside the run, whatever the clock says — the days below are counted from the app's own day
+  await page.addInitScript(() => {
+    if (localStorage.getItem('one.preflight.prefs')) return
+    const at = new Date(Date.now() + 12 * 3_600_000)
+    const hm = `${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}`
+    localStorage.setItem('one.preflight.prefs', JSON.stringify({ on: true, at: hm, hold: true, test: true }))
+  })
   await page.context().route(/^https?:\/\/(?!127\.0\.0\.1|localhost)/, (r) => r.abort())
   await openApp(page)
   await waitPreflight(page)
@@ -118,15 +130,19 @@ test('every kind of event, ids only in the stored JSON; days older than 30 go; a
   for (const word of ['Exportfilter verliert Sonderzeichen', 'Zertifikat Halle Nord', 'NL-201', 'NL-202', 'Nordlicht', 'Mara Lind', 'Ivo Brandt', 'Oda Wendt', 'Kommentare', 'Probe']) expect(json, `"${word}" in one-preflight`).not.toContain(word)
   expect(json).toContain('run:r-now#c1')
 
-  // retention: a day 31 days back goes at the next day's start, one 29 days back stays
+  // retention: a day 31 Preflight days back goes at the next day's start, one 29 days back stays (counted from the app's
+  // own day — before the set time that is yesterday's date)
   const scope = (await pf(page, (p) => p.state().scope)) as string
-  const old = dayOf(Date.now() - 31 * 86_400_000)
-  const kept = dayOf(Date.now() - 29 * 86_400_000)
-  await put(page, `${scope}|log|${old}`, [{ at: Date.now() - 31 * 86_400_000, k: 'fold' }])
-  await put(page, `${scope}|log|${kept}`, [{ at: Date.now() - 29 * 86_400_000, k: 'fold' }])
+  const today = await appDay(page)
+  expect(today).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+  const old = plusDays(today, -31)
+  const kept = plusDays(today, -29)
+  await put(page, `${scope}|log|${old}`, [{ at: Date.parse(`${old}T12:00:00Z`), k: 'fold' }])
+  await put(page, `${scope}|log|${kept}`, [{ at: Date.parse(`${kept}T12:00:00Z`), k: 'fold' }])
   await page.reload()
   await waitPreflight(page)
-  await expect.poll(async () => Object.keys(await dump(page)).filter((k) => k.includes('|log|')).sort()).toEqual([`${scope}|log|${kept}`, `${scope}|log|${dayOf(Date.now())}`].sort())
+  await expect.poll(() => appDay(page), { message: 'the same Preflight day after the reload' }).toBe(today)
+  await expect.poll(async () => Object.keys(await dump(page)).filter((k) => k.includes('|log|')).sort()).toEqual([`${scope}|log|${kept}`, `${scope}|log|${today}`].sort())
 
   // a local reset wipes the Bordbuch and the opened cards
   expect(Object.keys(await dump(page))).toContain(`${scope}|opened`)
