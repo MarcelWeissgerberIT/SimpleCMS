@@ -5,10 +5,12 @@
  *  1. the gate first (`gate.precheck`): the change's target — its parent or database for a new one — and the trigger row
  *     it names; the run's touched classes carried; the agent's own Vorprüfer, else the class rule (no default, no legacy);
  *     the agent's instructions as typed text (a key in them refuses the check). The state is built for the route the
- *     gate resolved (state.ts) and prepared again with its size;
+ *     gate resolved (state.ts). Only what the gate let through reads the price (the decisions catalogue — a refused run
+ *     sends nothing at all) and is prepared again with its size;
  *  2. the band of every check reserved before the first goes out — the run's remaining budget smaller → none goes out
  *     ('budget'); the tab's cooldown → none ('cooldown');
- *  3. ≤ 3 in flight, 8 s per attempt (core/decide.ts), 20 s for the run — not done by then: 'late';
+ *  3. ≤ 3 in flight, 8 s per attempt (core/decide.ts), 20 s for the run from the first read on — not done by then (an
+ *     answer after it included): 'late';
  *  4. every response is one ledger entry (role 'decide', the run as its group) and reaches the run's receipt through
  *     `onEntry` (its budget counts it).
  * A change Jev did not check says why (JevWhy). Nothing here writes the workspace or the run — the caller attaches the
@@ -21,13 +23,13 @@ import { useWorkspace } from '../../../store/store'
 import type { ID } from '../../../store/types'
 import type { StagedChange } from '../agent/types'
 import { AIError } from '../core/errors'
-import { precheck, prepare, settle, type Prepared } from '../core/gate'
+import { precheck, prepare, settle, type Applied, type Prepared } from '../core/gate'
 import { purposeOf } from '../core/purposes'
 import { appliedOf } from '../core/shape'
 import { tapSignal } from '../core/meter'
 import { isCheckedKind } from './kinds'
 import { precheckQuestions } from './questions'
-import { proposalSources, proposalState, type ProposalInput } from './state'
+import { proposalSources, proposalState, type ProposalInput, type ProposalState } from './state'
 import { stateWorld } from './world'
 import { checkOf, uncheckedOf } from './verdict'
 
@@ -102,99 +104,124 @@ export async function checkChanges(i: CheckRunInput): Promise<CheckRunResult> {
     skipAll(todo, 'cooldown')
     return result
   }
-  // the price first: the gate reserves each check's band (a decision never runs without a price — decide() refuses it)
-  try {
-    await core.primeDecisions()
-  } catch {
-    /* decide() asks once more, else refuses 'price' */
-  }
-
-  // 1 · the gate and the state, per change
-  const questions = precheckQuestions()
-  const may = new Set<DataClass>(purposeOf('gate.precheck').may)
-  const carries = i.touched.filter((c) => may.has(c))
-  const jobs: Job[] = []
-  for (const c of todo) {
-    const input: ProposalInput = { agent: { instructions: i.instructions, write: i.write }, trigger: i.trigger, change: c, changes: i.changes, rowIds: i.rowIds }
-    try {
-      const s = useWorkspace.getState()
-      const base = { purpose: 'gate.precheck' as const, carries, decider: i.review.decider ?? null, typed: i.instructions }
-      const pre = precheck({ ...base, sources: proposalSources(input, s) })
-      const ps = proposalState(input, stateWorld(pre, i.scope), questions)
-      if (!ps) continue
-      if ('refused' in ps) {
-        checks[c.id] = uncheckedOf('context', { at, sent: false })
-        continue
-      }
-      const prepared = prepare({ ...base, sources: ps.sources, applied: appliedOf(pre), size: { promptChars: ps.chars, maxTokens: 0 } })
-      jobs.push({ c, prepared, state: ps.state })
-    } catch (e) {
-      const why = core.whyOf(e)
-      const cls = why === 'policy' ? refusedClass(e) : undefined
-      checks[c.id] = uncheckedOf(why, { at, sent: false, ...(cls ? { cls } : {}) })
-    }
-  }
-  if (!jobs.length) return result
-
-  // 2 · the band of every check reserved first: more than the run may still spend → none goes out
-  const reserved = jobs.reduce((n, j) => n + (j.prepared.reservation?.usd ?? 0), 0)
-  if (reserved > Math.max(0, i.budgetLeft)) {
-    for (const j of jobs) settle(j.prepared)
-    skipAll(
-      jobs.map((j) => j.c),
-      'budget',
-    )
-    return result
-  }
-
-  // 3 · ≤ 3 in flight under the run's deadline
+  // the run's deadline from here on: the catalogue read, the gate and every check count into it
   const deadline = new AbortController()
   const timer = setTimeout(() => deadline.abort(), i.deadlineMs ?? RUN_DEADLINE_MS)
-  const one = async (j: Job) => {
-    if (deadline.signal.aborted) {
-      checks[j.c.id] = uncheckedOf('late', { at, sent: false })
-      return
-    }
-    const own = new AbortController()
-    const stop = () => own.abort()
-    deadline.signal.addEventListener('abort', stop, { once: true })
-    // what this check cost: its entries (one per response); a response without a price → null
-    const m: { sent: boolean; usd: number | null } = { sent: false, usd: 0 }
-    const untap = tapSignal(own.signal, {
-      onEntry: (e) => {
-        m.sent = true
-        m.usd = m.usd === null || e.usd === null ? null : m.usd + e.usd
-        result.usd += e.usd ?? 0
-        try {
-          i.onEntry?.(e)
-        } catch (err) {
-          console.warn('[one] jev: a run receipt listener failed', err)
-        }
-      },
-    })
-    try {
-      const turn = await core.decide(j.prepared, { state: j.state, questions }, { signal: own.signal, source: `agent:${i.agentId}:${i.runId}`, group: i.runId, on: i.review.on })
-      checks[j.c.id] = checkOf(turn, { at, usd: m.usd, markBelow: i.review.pre.markBelow }) ?? uncheckedOf('empty', { at, sent: true, model: turn.served.model, usd: m.usd })
-      result.model ??= turn.served.model
-    } catch (e) {
-      const why = core.whyOf(e)
-      if (why === 'changed' && e instanceof AIError && e.detail?.startsWith('model:')) result.changedTo ??= e.detail.slice('model:'.length)
-      checks[j.c.id] = uncheckedOf(why, { at, sent: m.sent, ...(m.sent ? { usd: m.usd } : {}) })
-    } finally {
-      untap()
-      deadline.signal.removeEventListener('abort', stop)
-      settle(j.prepared)
-    }
-  }
-  let next = 0
-  const worker = async () => {
-    while (next < jobs.length) await one(jobs[next++]!)
-  }
+  const jobs: Job[] = []
   try {
+    // 1 · the gate (without a reservation) and the state, per change — a refusal (no key, no Vorprüfer, AUS, newer rules,
+    //     a data rule) sends nothing, not even the catalogue read
+    const questions = precheckQuestions()
+    const may = new Set<DataClass>(purposeOf('gate.precheck').may)
+    const carries = i.touched.filter((c) => may.has(c))
+    const base = { purpose: 'gate.precheck' as const, carries, decider: i.review.decider ?? null, typed: i.instructions }
+    const ready: Array<{ c: StagedChange; state: Record<string, unknown>; sources: ProposalState['sources']; chars: number; applied: Applied }> = []
+    for (const c of todo) {
+      const input: ProposalInput = { agent: { instructions: i.instructions, write: i.write }, trigger: i.trigger, change: c, changes: i.changes, rowIds: i.rowIds }
+      try {
+        const s = useWorkspace.getState()
+        const pre = precheck({ ...base, sources: proposalSources(input, s) })
+        const ps = proposalState(input, stateWorld(pre, i.scope), questions)
+        if (!ps) continue
+        if ('refused' in ps) {
+          checks[c.id] = uncheckedOf('context', { at, sent: false })
+          continue
+        }
+        ready.push({ c, state: ps.state, sources: ps.sources, chars: ps.chars, applied: appliedOf(pre) })
+      } catch (e) {
+        refuse(c, e)
+      }
+    }
+    if (!ready.length) return result
+
+    // 2 · the price (the device's catalogue row at any age, else one public GET) — the gate's reservation needs it
+    try {
+      await core.primeDecisions(deadline.signal)
+    } catch {
+      /* decide() asks once more, else refuses 'price' */
+    }
+    if (deadline.signal.aborted) {
+      skipAll(
+        ready.map((r) => r.c),
+        'late',
+      )
+      return result
+    }
+    for (const r of ready) {
+      try {
+        jobs.push({ c: r.c, prepared: prepare({ ...base, sources: r.sources, applied: r.applied, size: { promptChars: r.chars, maxTokens: 0 } }), state: r.state })
+      } catch (e) {
+        refuse(r.c, e)
+      }
+    }
+    if (!jobs.length) return result
+
+    // 3 · the band of every check reserved first: more than the run may still spend → none goes out
+    const reserved = jobs.reduce((n, j) => n + (j.prepared.reservation?.usd ?? 0), 0)
+    if (reserved > Math.max(0, i.budgetLeft)) {
+      skipAll(
+        jobs.map((j) => j.c),
+        'budget',
+      )
+      return result
+    }
+
+    // 4 · ≤ 3 in flight under the run's deadline
+    const one = async (j: Job) => {
+      if (deadline.signal.aborted) {
+        checks[j.c.id] = uncheckedOf('late', { at, sent: false })
+        return
+      }
+      const own = new AbortController()
+      const stop = () => own.abort()
+      deadline.signal.addEventListener('abort', stop, { once: true })
+      // what this check cost: its entries (one per response); a response without a price → null
+      const m: { sent: boolean; usd: number | null } = { sent: false, usd: 0 }
+      const untap = tapSignal(own.signal, {
+        onEntry: (e) => {
+          m.sent = true
+          m.usd = m.usd === null || e.usd === null ? null : m.usd + e.usd
+          result.usd += e.usd ?? 0
+          try {
+            i.onEntry?.(e)
+          } catch (err) {
+            console.warn('[one] jev: a run receipt listener failed', err)
+          }
+        },
+      })
+      try {
+        const turn = await core.decide(j.prepared, { state: j.state, questions }, { signal: own.signal, source: `agent:${i.agentId}:${i.runId}`, group: i.runId, on: i.review.on })
+        // an answer after the run's deadline is not used (it went out and is metered): the run did not wait for it
+        if (deadline.signal.aborted) checks[j.c.id] = uncheckedOf('late', { at, sent: true, model: turn.served.model, usd: m.usd })
+        else {
+          checks[j.c.id] = checkOf(turn, { at, usd: m.usd, markBelow: i.review.pre.markBelow }) ?? uncheckedOf('empty', { at, sent: true, model: turn.served.model, usd: m.usd })
+          result.model ??= turn.served.model
+        }
+      } catch (e) {
+        const why = core.whyOf(e)
+        if (why === 'changed' && e instanceof AIError && e.detail?.startsWith('model:')) result.changedTo ??= e.detail.slice('model:'.length)
+        checks[j.c.id] = uncheckedOf(why, { at, sent: m.sent, ...(m.sent ? { usd: m.usd } : {}) })
+      } finally {
+        untap()
+        deadline.signal.removeEventListener('abort', stop)
+        settle(j.prepared)
+      }
+    }
+    let next = 0
+    const worker = async () => {
+      while (next < jobs.length) await one(jobs[next++]!)
+    }
     await Promise.all(Array.from({ length: Math.min(IN_FLIGHT, jobs.length) }, worker))
   } finally {
     clearTimeout(timer)
     for (const j of jobs) settle(j.prepared)
   }
   return result
+
+  /** A change the gate refused: unchecked, with the reason (a data rule names its class). */
+  function refuse(c: StagedChange, e: unknown): void {
+    const why = core.whyOf(e)
+    const cls = why === 'policy' ? refusedClass(e) : undefined
+    checks[c.id] = uncheckedOf(why, { at, sent: false, ...(cls ? { cls } : {}) })
+  }
 }

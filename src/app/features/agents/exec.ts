@@ -59,7 +59,7 @@ import { labelOf } from '@/shared/ai/models'
 import { decisionChecks } from '@/shared/ai/route'
 import { DATA_CLASSES } from '@/shared/ai/policy'
 import { classOfPage, type SourceWorld } from '../ai/core/sources'
-import { idsIn } from '../ai/agent/toolScope'
+import { afterRead, idsIn } from '../ai/agent/toolScope'
 import { failClosed, heldPlaceholders, precheckRun } from './precheck'
 import { directSplit, runLevelWaits, stickyOf } from './direct'
 import { addToLines } from '../ai/core/meter'
@@ -442,7 +442,9 @@ async function runOnce(agent: CustomAgent, req: RunRequest): Promise<AgentRun> {
       signal: ac.signal,
       hooks,
       mcp,
-      tools: [...agentTools(agent, { upsert: unlocks.upsert, read }), ...(memory.use ? [recallTool] : []), ...runTools(agent, extras, { notes: unlocks.notes, state: unlocks.state })],
+      // `recall` reads the memory too: its results join the run's touched classes like every other read (a pre-check
+      // then declares 'memory')
+      tools: [...agentTools(agent, { upsert: unlocks.upsert, read }), ...(memory.use ? [read ? { ...recallTool, run: (input: Record<string, unknown>, st: StageApi) => afterRead(recallTool.run(input, st), read) } : recallTool] : []), ...runTools(agent, extras, { notes: unlocks.notes, state: unlocks.state })],
       system: agentSystem(agent.write, unlocks, canCreateItems()),
       model: agent.model,
       effort: agent.effort,
@@ -565,8 +567,9 @@ async function runOnce(agent: CustomAgent, req: RunRequest): Promise<AgentRun> {
   run.endedAt = Date.now()
   await putRun({ ...run, steps: [...run.steps] })
   endRun(writer)
-  // its proposals replace older ones of the same rows (the leader tab only; supersede.ts)
-  if (run.status === 'staged') await supersedeOlder(agent.id).catch((e) => console.warn('[one] agents: could not replace older proposals', e))
+  // its proposals replace older ones of the same rows (the leader tab only; supersede.ts) — never a run Jev made wait: it
+  // stages only because of Jev, and a decision model never supersedes
+  if (run.status === 'staged' && !run.jev?.waited) await supersedeOlder(agent.id).catch((e) => console.warn('[one] agents: could not replace older proposals', e))
   notify(agent, run, req)
   return run
 }

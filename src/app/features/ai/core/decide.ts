@@ -104,13 +104,30 @@ export function resetDecideCooldown(): void {
   coolCode = null
 }
 
+/**
+ * A failure of the service: three in a row (counted afresh after a cooldown ended) start a cooldown, which starts the
+ * count again — one failure after it is one, not the fourth.
+ */
 function strike(code: AIErrorCode): void {
   if (!STRIKES.has(code)) return
+  if (coolUntil && Date.now() >= coolUntil) {
+    strikes = 0
+    coolUntil = 0
+    coolCode = null
+  }
   strikes += 1
   if (strikes >= COOLDOWN_STRIKES) {
     coolUntil = Date.now() + COOLDOWN_MS
     coolCode = code
+    strikes = 0
   }
+}
+
+/** An answer: the service works — the count and a cooldown end (a check sent before it began may answer during it). */
+function answered(): void {
+  strikes = 0
+  coolUntil = 0
+  coolCode = null
 }
 
 /* ------------------------------------------------------------------ */
@@ -143,20 +160,21 @@ const sleep = (ms: number, signal?: AbortSignal) =>
 
 /**
  * Make the decision rows known before a request prepares (the gate's reservation needs the price): the device's copy at
- * any age, else one public GET. Call it before prepare() — a run once, not per change.
+ * any age, else one public GET. Call it before prepare() — a run once, not per change — and only once the gate let the
+ * request through (precheck): a refused one reads nothing. `signal`: the caller stops waiting (a run's deadline).
  */
-export async function primeDecisions(): Promise<void> {
+export async function primeDecisions(signal?: AbortSignal): Promise<void> {
   if ((await peekDecisionCatalog())?.rows.length) return
-  await loadDecisionCatalog()
+  await loadDecisionCatalog(signal ? { signal } : {})
 }
 
 /** The price a decision is metered with (the catalogue row, at any age — one GET when none was ever read). */
-async function priceOf(prepared: Prepared): Promise<PriceRow | null> {
+async function priceOf(prepared: Prepared, signal?: AbortSignal): Promise<PriceRow | null> {
   const route = prepared.route!
   if (priceFor(route)) return priceFor(route)
   await peekDecisionCatalog()
   if (priceFor(route)) return priceFor(route)
-  await loadDecisionCatalog()
+  await loadDecisionCatalog(signal ? { signal } : {})
   return priceFor(route)
 }
 
@@ -166,18 +184,25 @@ export async function decide(prepared: Prepared, req: { state: Record<string, un
   const label = prepared.label
   if (!route || route.p !== 'openrouter' || !isJevModel(route.m) || prepared.cls !== 'gate') throw new JevFailure('noroute', 'no_route', undefined, label)
   if (Date.now() < coolUntil) throw new JevFailure('cooldown', coolCode ?? 'unavailable', 'cooldown', label)
-  if (o.signal?.aborted) throw new JevFailure('late', 'aborted', undefined, label)
+  // the caller stopped (a run's deadline, the person's Stop): never sent — checked after every wait before the send too
+  const late = () => {
+    if (o.signal?.aborted) throw new JevFailure('late', 'aborted', undefined, label)
+  }
+  late()
   // the rules now resolve another Jev version than the one the person confirmed: nothing is sent (DJ19)
   const on = o.on ? o.on.replace(/^openrouter:/, '') : null
   if (on && on.replace(/-\d{8}$/, '') !== route.m) throw new JevFailure('changed', 'policy', `model:${route.m}`, label)
-  const price = await priceOf(prepared)
+  const price = await priceOf(prepared, o.signal)
+  late()
   if (!price) throw new JevFailure('price', 'unknown', 'price', label)
   const key = await getAIKey('openrouter')
+  late()
   if (!key) throw new JevFailure('nokey', 'no_key', undefined, label)
   const info = modelInfo(route)
   if (!info) throw new JevFailure('noroute', 'model_gone', route.m, label)
   const upstream = upstreamRule()
-  const pins = await pinsFor(route.m, upstream)
+  const pins = await pinsFor(route.m, upstream, o.signal ? { signal: o.signal } : {})
+  late()
   if (!pins) throw new JevFailure('endpoint', 'no_endpoint', route.m, label)
   let adapter
   try {
@@ -185,11 +210,14 @@ export async function decide(prepared: Prepared, req: { state: Record<string, un
   } catch (e) {
     throw new JevFailure(whyOf(e), e instanceof AIError ? e.code : 'unknown', undefined, label)
   }
+  late()
   const request: DecideRequest = { kind: 'decide', route: { p: 'openrouter', m: route.m }, state: req.state, questions: req.questions }
   const promptChars = JSON.stringify({ state: req.state, questions: req.questions }).length
   const call = meterCall(prepared, { source: o.source, role: 'decide', ...(o.group ? { group: o.group } : {}), signal: o.signal ?? null })
   const meter = (r: Omit<ResponseInput, 'price' | 'promptChars'>) => call.response({ ...r, price, promptChars })
   for (let attempt = 0; ; attempt++) {
+    // a stop that came while the retry waited, or before the first send: nothing goes out
+    late()
     const ctl = new AbortController()
     let timedOut = false
     const timer = setTimeout(() => {
@@ -204,7 +232,7 @@ export async function decide(prepared: Prepared, req: { state: Record<string, un
       const steps: StepNote[] = problem === 'upstream' ? [{ k: 'upstream', code: `upstream:${turn.served.upstream ?? ''}`, to: turn.served.model }] : problem === 'changed' ? [{ k: 'substituted', from: on ?? route.m, to: turn.served.model }] : []
       meter({ served: turn.served.model, usage: turn.usage, outcome: problem ? 'policy' : 'ok', ...(steps.length ? { steps } : {}), ...(turn.served.upstream ? { upstream: turn.served.upstream } : {}) })
       if (problem) throw new JevFailure(problem, 'policy', problem === 'upstream' ? `upstream:${turn.served.upstream ?? ''}` : `model:${turn.served.model}`, label)
-      strikes = 0
+      answered()
       return turn
     } catch (e) {
       if (e instanceof JevFailure) throw e

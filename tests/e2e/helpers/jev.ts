@@ -6,7 +6,7 @@
  */
 import type { Page } from '@playwright/test'
 import { openApp, wsEval, flush } from '../fixtures'
-import { jevAnswer, mockClaudeScript, mockOpenRouter, seedEndpoints, text, type CapturedRequest, type ClaudeTurn, type DecideStep, type DecideStepFn, type ORMock } from './providers'
+import { jevAnswer, mockClaudeScript, mockOpenRouter, seedEndpoints, text, type CapturedRequest, type ClaudeTurn, type DecideStep, type DecideStepFn, type ORMock, type ORMockOpts } from './providers'
 import { ledger } from './aiFlows'
 
 export type AnyState = Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -64,13 +64,15 @@ export interface SetupOpts {
   /** false: no OpenRouter key on this device */
   orKey?: false
   clock?: boolean
+  /** more of the OpenRouter mock (the decisions catalogue's answer, held endpoint reads …) */
+  or?: Omit<ORMockOpts, 'decisions' | 'decisionsFallback'>
 }
 
 /** The app with keys for Claude and OpenRouter, Jev as the device's Vorprüfer rule, and a Projects database of three rows. */
 export async function jevSetup(page: Page, o: SetupOpts = {}): Promise<JevWorld> {
   if (o.clock) await page.clock.install({ time: new Date('2026-10-12T09:00:00+02:00') })
   const world = {} as JevWorld
-  world.or = await mockOpenRouter(page.context(), { decisions: o.decisions ?? [], decisionsFallback: o.fallback ?? byTarget({}) })
+  world.or = await mockOpenRouter(page.context(), { ...(o.or ?? {}), decisions: o.decisions ?? [], decisionsFallback: o.fallback ?? byTarget({}) })
   world.claude = await mockClaudeScript(page.context(), [], { fallback: (req) => (afterTools(req) ? text('Checked the Nordlicht rows.', o.reportUsage ? { usage: o.reportUsage } : {}) : (o.turn ?? ((w) => stageTurn(Object.values(w.rows))))(world)) })
   await openApp(page)
   await wsEval(page, (s, a) => s.updateSettings({ aiApiKey: 'sk-ant-e2e-test-key', ...(a.key ? { aiKeys: { openrouter: a.key } } : {}), ai: { routes: { gate: [{ p: 'openrouter', m: a.jev }] }, allow: { openrouter: a.device } } }), { key: o.orKey === false ? null : OR_KEY, jev: JEV, device: o.device ?? MEMBER })

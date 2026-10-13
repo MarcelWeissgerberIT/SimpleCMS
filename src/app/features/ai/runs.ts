@@ -522,13 +522,15 @@ async function execute(id: string, editor: Editor) {
         const res = await askWorkspace({ question: req.question, onToken, signal: ac.signal, limitPage: ws.limited ? run.pageId : null, route: run.chip ?? null, onSources: (sources) => !ac.signal.aborted && patch(id, { sources }, false) })
         text = res.text
         // "Belegt?" (off by default): once the answer is done, Jev checks it against the excerpts it was built from, as
-        // sent — the text was built for the answering route, so the gate refuses it for a narrower one (nothing redacted
-        // for Jev here)
+        // sent. Excerpts built for an OpenRouter route went through OpenRouter's own data rule (names, transcripts, the
+        // pages it may see — the rule is per provider, Jev's too); built for another provider (Claude), nothing was
+        // redacted for OpenRouter — the gate refuses them for a route that does not see everything
         if (verifyOn() && res.excerpts.length && res.text.trim()) {
           const answer = res.text
+          const applied = res.builtFor === 'openrouter' ? { people: true, transcript: true, visible: true } : { people: false, transcript: false, visible: false }
           afterDone = async () => {
             patch(id, { verify: 'checking' }, false)
-            const verify = await runVerify({ question: req.question, sources: res.excerpts, answer, refs: res.refs, source: 'workspace:ask', signal: ac.signal, applied: { people: false, transcript: false, visible: false } }).catch((): VerifyResult => ({ support: null, why: 'error' }))
+            const verify = await runVerify({ question: req.question, sources: res.excerpts, answer, refs: res.refs, source: 'workspace:ask', signal: ac.signal, applied }).catch((): VerifyResult => ({ support: null, why: 'error' }))
             if (!ac.signal.aborted) patch(id, { verify }, false)
           }
         }

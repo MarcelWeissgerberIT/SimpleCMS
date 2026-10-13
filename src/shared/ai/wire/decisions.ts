@@ -185,12 +185,11 @@ const sameName = (a: string, b: string) => a.trim().toLowerCase() === b.trim().t
  * After a decisions answer (DJ19, § 3.5): 'upstream' when the response names an operator outside the pins' operators
  * (case-insensitive; the docs show the display name "TypeSafe"); 'changed' when the served model is not the snapshot the
  * person confirmed (`on`: a dated snapshot must be served exactly; an undated one — no snapshot known when it was
- * confirmed — takes any snapshot of that version) or, without `on`, not the version requested. null: it may be used.
+ * confirmed — matches only an undated answer: a dated snapshot is one the person has not confirmed yet, the thresholds
+ * belong to one model) or, without `on`, not the version requested. null: it may be used.
  */
 export function checkDecideServed(served: DecideTurn['served'], o: { requested: string; on?: string | null; upstreams?: readonly string[] | null }): 'changed' | 'upstream' | null {
   if (served.upstream && o.upstreams?.length && !o.upstreams.some((u) => sameName(u, served.upstream!))) return 'upstream'
-  const want = o.on ?? o.requested
-  const dated = /-\d{8}$/.test(want)
-  if (dated ? served.model !== want : served.model.replace(/-\d{8}$/, '') !== want) return 'changed'
-  return null
+  if (o.on) return served.model === o.on ? null : 'changed'
+  return served.model.replace(/-\d{8}$/, '') === o.requested ? null : 'changed'
 }

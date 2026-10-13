@@ -74,16 +74,23 @@ export interface VerifyInput {
   applied: { people: boolean; transcript: boolean; visible: boolean }
 }
 
-/** One "Belegt?" request (never throws: a failure is `{ support: null, why }`). */
+/**
+ * One "Belegt?" request (never throws: a failure is `{ support: null, why }`). The gate decides first — a refusal (no
+ * Vorprüfer, no key, a data rule …) sends nothing, not even the catalogue read the price needs.
+ */
 export async function verifyAnswer(i: VerifyInput): Promise<VerifyResult> {
   const core = await import('../core/decide')
   const { prepare, settle } = await import('../core/gate')
   let prepared = null
   try {
-    await core.primeDecisions()
     const state = verifyState(i)
     const questions = verifyQuestions()
-    prepared = prepare({ purpose: 'gate.verify', sources: i.refs, carries: [...(i.carries ?? [])], typed: i.question, applied: i.applied, size: { promptChars: JSON.stringify({ state, questions }).length, maxTokens: 0 } })
+    const input = { purpose: 'gate.verify' as const, sources: i.refs, carries: [...(i.carries ?? [])], typed: i.question, applied: i.applied }
+    // the gate's every check (the backstop too), nothing reserved yet: refused → nothing read, nothing sent
+    settle(prepare(input))
+    await core.primeDecisions(i.signal)
+    if (i.signal?.aborted) return { support: null, why: 'late' }
+    prepared = prepare({ ...input, size: { promptChars: JSON.stringify({ state, questions }).length, maxTokens: 0 } })
     const turn = await core.decide(prepared, { state, questions }, { source: i.source, ...(i.signal ? { signal: i.signal } : {}) })
     const s = supportOf(turn)
     return s ?? { support: null, why: 'empty' }

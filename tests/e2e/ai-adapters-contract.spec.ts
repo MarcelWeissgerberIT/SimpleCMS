@@ -472,9 +472,13 @@ const RUN: Record<string, (s: Subject, c: ContractCase) => Promise<void>> = {
     // another snapshot than the one confirmed → changed (the thresholds belong to one model)
     expect(checkDecideServed(served, { requested: 'typesafe/jev-1.13', on: 'typesafe/jev-1.13-20261101' })).toBe(c.expect.changed)
     expect(checkDecideServed({ ...served, model: 'typesafe/jev-1.14-20261101' }, { requested: 'typesafe/jev-1.13' })).toBe(c.expect.changed)
-    // confirmed without a known snapshot: any snapshot of that version
-    expect(checkDecideServed(served, { requested: 'typesafe/jev-1.13', on: 'typesafe/jev-1.13' })).toBeNull()
+    // confirmed without a known snapshot (an undated `on`): a dated snapshot served is one nobody confirmed yet — it waits
+    // for the person's confirm (DJ19); only the undated answer itself matches
+    expect(checkDecideServed(served, { requested: 'typesafe/jev-1.13', on: 'typesafe/jev-1.13' })).toBe(c.expect.changed)
+    expect(checkDecideServed({ ...served, model: 'typesafe/jev-1.13' }, { requested: 'typesafe/jev-1.13', on: 'typesafe/jev-1.13' })).toBeNull()
     expect(checkDecideServed({ ...served, model: 'typesafe/jev-1.13:free' }, { requested: 'typesafe/jev-1.13', on: 'typesafe/jev-1.13' })).toBe(c.expect.changed)
+    // no `on` ("Belegt?"): any snapshot of the version requested
+    expect(checkDecideServed(served, { requested: 'typesafe/jev-1.13' })).toBeNull()
     // an operator outside the pins → upstream
     expect(checkDecideServed(served, { requested: 'typesafe/jev-1.13', on: SNAP, upstreams: ['Nordwind'] })).toBe(c.expect.upstream)
     // no operator named: nothing to compare (the pins held the request)

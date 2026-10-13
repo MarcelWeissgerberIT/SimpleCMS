@@ -236,6 +236,13 @@ function build(input: ProposalInput, w: StateWorld, lim: Limits): { state: Recor
   }
   const { page, creator } = targetOf(input, w.pages)
   const sources: SourceRef[] = proposalSources(input, w)
+  // a Contacts row's title is a person's name (the mail directory, features/mail/people.ts): without `people` it reads
+  // "@Person n" — the same redactor as its relation values
+  const contacts = (dbId: ID | null | undefined) => {
+    const real = dbId ? (input.rowIds?.[dbId] ?? dbId) : null
+    return !w.people && !!real && w.databases[real]?.system === 'mail-contacts'
+  }
+  const rowTitle = (key: string, raw: string | undefined, dbId: ID | null | undefined) => (contacts(dbId) ? redactPersonValue(key, w.redactor) : title(raw))
 
   // the target: what it is called (as the route may see it), and the row behind it
   let target: Record<string, unknown>
@@ -243,13 +250,13 @@ function build(input: ProposalInput, w: StateWorld, lim: Limits): { state: Recor
   let rowDb: Database | undefined
   if (page) {
     const db = page.databaseId ? w.databases[page.databaseId] : undefined
-    target = { kind: page.databaseId ? 'row' : 'page', title: w.visible(page.id) ? title(page.title) : w.hidden, ...(page.databaseId ? { database: dbName(page.databaseId) ?? w.hidden } : {}) }
+    target = { kind: page.databaseId ? 'row' : 'page', title: w.visible(page.id) ? rowTitle(page.id, page.title, page.databaseId) : w.hidden, ...(page.databaseId ? { database: dbName(page.databaseId) ?? w.hidden } : {}) }
     if (db) {
       rowPage = page
       rowDb = db
     }
   } else if (creator) {
-    target = { kind: creator.kind === 'create_row' ? 'row' : 'page', title: title(creator.title), ...(creator.kind === 'create_row' ? { database: dbName(creator.databaseId) ?? w.hidden } : {}) }
+    target = { kind: creator.kind === 'create_row' ? 'row' : 'page', title: creator.kind === 'create_row' ? rowTitle(creator.pageId, creator.title, creator.databaseId) : title(creator.title), ...(creator.kind === 'create_row' ? { database: dbName(creator.databaseId) ?? w.hidden } : {}) }
   } else target = { kind: 'page', title: w.hidden }
 
   // what changes: its fields, the text before and after
@@ -268,7 +275,8 @@ function build(input: ProposalInput, w: StateWorld, lim: Limits): { state: Recor
       after = md(c.markdown)
       break
     case 'rename':
-      fields = [{ name: 'title', before: title(c.beforeTitle), after: title(c.title) }]
+      // a contact renamed: both names are the same person ("@Person n")
+      fields = [{ name: 'title', before: rowTitle(c.pageId, c.beforeTitle, page?.databaseId), after: rowTitle(c.pageId, c.title, page?.databaseId) }]
       break
     case 'append':
       before = page && w.visible(page.id) ? tail(dataText(w.markdown((page.content as JSONContent | undefined) ?? { type: 'doc', content: [] }), w).trim(), lim.md) : ''
@@ -312,7 +320,7 @@ function build(input: ProposalInput, w: StateWorld, lim: Limits): { state: Recor
   })
   const tid = targetId && rows.includes(targetId) ? targetId : (rows[0] ?? null)
   if (tid && !sources.some((s) => 'row' in s && s.row === tid)) sources.push({ row: tid })
-  const trigger = { type: input.trigger.type, ...(tid ? { title: title(w.pages[tid]!.title) } : {}) }
+  const trigger = { type: input.trigger.type, ...(tid ? { title: rowTitle(tid, w.pages[tid]!.title, w.pages[tid]!.databaseId) } : {}) }
 
   const change: Record<string, unknown> = { kind: c.kind, target, ...(fields.length ? { fields } : {}), ...(before ? { before } : {}), ...(after ? { after } : {}) }
   const agent = { instructions: dataText(input.agent.instructions.slice(0, lim.instructions), w), write_mode: input.agent.write }

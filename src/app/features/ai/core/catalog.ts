@@ -63,6 +63,43 @@ async function writeKey(key: string, v: unknown): Promise<void> {
   }
 }
 
+/** A read of the decisions catalogue or of an endpoint list never takes longer than this — a hanging answer must not
+ *  hold a pre-check, a run or a picker. */
+export const CATALOG_FETCH_MS = 8_000
+
+/** One public GET → its JSON, under its own time limit (never a caller's stop: the read may be shared). */
+async function getJson(url: string): Promise<unknown> {
+  const ctl = new AbortController()
+  const timer = setTimeout(() => ctl.abort(), CATALOG_FETCH_MS)
+  try {
+    const res = await fetch(url, { method: 'GET', credentials: 'omit', signal: ctl.signal })
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    return (await res.json()) as unknown
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+/** The caller stops waiting once its signal fires (it gets `fallback`) — a shared read goes on for the others. */
+function until<T>(p: Promise<T>, signal: AbortSignal | undefined, fallback: T): Promise<T> {
+  if (!signal) return p
+  if (signal.aborted) return Promise.resolve(fallback)
+  return new Promise<T>((resolve, reject) => {
+    const stop = () => resolve(fallback)
+    signal.addEventListener('abort', stop, { once: true })
+    p.then(
+      (v) => {
+        signal.removeEventListener('abort', stop)
+        resolve(v)
+      },
+      (e: unknown) => {
+        signal.removeEventListener('abort', stop)
+        reject(e)
+      },
+    )
+  })
+}
+
 /* ------------------------------------------------------------------ */
 /* The catalogue                                                        */
 /* ------------------------------------------------------------------ */
@@ -152,12 +189,13 @@ function readStoredDecisions(v: unknown): DecisionCatalog | null {
 
 /**
  * The decisions catalogue (null: none here and it could not be read). What the device holds is used at any age unless
- * `force` (one public GET now) or `maxAge` (ms — a picker that shows prices) says otherwise; nothing held → one GET.
+ * `force` (one public GET now) or `maxAge` (ms — a picker that shows prices) says otherwise; nothing held → one GET (at
+ * most CATALOG_FETCH_MS). `signal`: the caller stops waiting (it gets what the tab holds) — the read itself goes on.
  */
 export async function loadDecisionCatalog(o: { force?: boolean; maxAge?: number; signal?: AbortSignal } = {}): Promise<DecisionCatalog | null> {
   const fresh = (c: DecisionCatalog | null) => !!c && (o.maxAge === undefined || Date.now() - c.at < o.maxAge)
   if (!o.force && fresh(decisionMemo)) return decisionMemo
-  if (decisionInflight) return decisionInflight
+  if (decisionInflight) return until(decisionInflight, o.signal, decisionMemo)
   if (!o.force && Date.now() - decisionFailedAt < DECISIONS_RETRY_MS) return decisionMemo
   decisionInflight = (async () => {
     if (!o.force) {
@@ -165,9 +203,9 @@ export async function loadDecisionCatalog(o: { force?: boolean; maxAge?: number;
       if (stored && fresh(stored)) return keepDecisions(stored)
     }
     try {
-      const res = await fetch(OR_DECISIONS_URL, { method: 'GET', credentials: 'omit', signal: o.signal })
-      if (!res.ok) throw new Error(`decision models: HTTP ${res.status}`)
-      const json = (await res.json()) as unknown
+      const json = await getJson(OR_DECISIONS_URL).catch((e: unknown) => {
+        throw new Error(`decision models: ${e instanceof Error ? e.message : String(e)}`)
+      })
       const at = Date.now()
       // kept as listed (trimmed to the rows One reads) — small: the decisions list holds a few dozen rows
       const raw = { data: (json && typeof json === 'object' && Array.isArray((json as { data?: unknown }).data) ? (json as { data: unknown[] }).data : []).slice(0, 200) }
@@ -181,7 +219,7 @@ export async function loadDecisionCatalog(o: { force?: boolean; maxAge?: number;
       return stored ? keepDecisions(stored) : decisionMemo
     }
   })().finally(() => (decisionInflight = null))
-  return decisionInflight
+  return until(decisionInflight, o.signal, decisionMemo)
 }
 
 /** The decisions catalogue this device already holds, however old — never a request (null: none). */
@@ -229,7 +267,10 @@ export function readEndpoints(json: unknown): Endpoint[] {
 
 const epInflight = new Map<string, Promise<EndpointList | null>>()
 
-/** Who serves a model (null: the list could not be read and none is kept). `refresh` reads it again now. */
+/**
+ * Who serves a model (null: the list could not be read and none is kept). `refresh` reads it again now. A read takes at
+ * most CATALOG_FETCH_MS (then the kept list, however old); `signal`: the caller stops waiting (null) — the read goes on.
+ */
 export async function endpointsOf(id: string, o: { refresh?: boolean; signal?: AbortSignal } = {}): Promise<EndpointList | null> {
   if (!SLUG_RE.test(id)) return null
   const key = `ep:${id}`
@@ -238,12 +279,13 @@ export async function endpointsOf(id: string, o: { refresh?: boolean; signal?: A
     if (kept && Date.now() - kept.at < CATALOG_MAX_AGE) return kept
   }
   const running = epInflight.get(id)
-  if (running) return running
+  if (running) return until(running, o.signal, null)
   const job = (async () => {
     try {
-      const res = await fetch(`${OR_API}/models/${id}/endpoints`, { method: 'GET', credentials: 'omit', signal: o.signal })
-      if (!res.ok) throw new Error(`endpoints: HTTP ${res.status}`)
-      const list: EndpointList = { at: Date.now(), endpoints: readEndpoints(await res.json()) }
+      const json = await getJson(`${OR_API}/models/${id}/endpoints`).catch((e: unknown) => {
+        throw new Error(`endpoints: ${e instanceof Error ? e.message : String(e)}`)
+      })
+      const list: EndpointList = { at: Date.now(), endpoints: readEndpoints(json) }
       await writeKey(key, list)
       return list
     } catch (e) {
@@ -252,7 +294,7 @@ export async function endpointsOf(id: string, o: { refresh?: boolean; signal?: A
     }
   })().finally(() => epInflight.delete(id))
   epInflight.set(id, job)
-  return job
+  return until(job, o.signal, null)
 }
 
 /** Write endpoint lists (the e2e seam: specs seed them instead of fetching). */
@@ -270,7 +312,7 @@ export interface Pins {
 }
 
 /** The endpoints a request to a model may use: its list minus the deny list (null: no list, or nothing left). */
-export async function pinsFor(id: string, upstream: Pick<UpstreamRule, 'deny'>, o: { refresh?: boolean } = {}): Promise<Pins | null> {
+export async function pinsFor(id: string, upstream: Pick<UpstreamRule, 'deny'>, o: { refresh?: boolean; signal?: AbortSignal } = {}): Promise<Pins | null> {
   const list = await endpointsOf(id, o)
   const ok = (list?.endpoints ?? []).filter((e) => !denied(e, upstream.deny))
   return ok.length ? { tags: ok.map((e) => e.tag), names: [...new Set(ok.map((e) => e.name))] } : null

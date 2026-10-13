@@ -109,13 +109,12 @@ export function canonicalOf(row: DecisionRowLike): string {
 }
 
 /**
- * The same Jev snapshot: `on` (a confirmed key, 'openrouter:' in front or not) and a served or resolved one. An undated
- * confirmed version takes any of its dated snapshots.
+ * The same Jev snapshot: `on` (a confirmed key, 'openrouter:' in front or not) and a served or resolved one — exactly
+ * (DJ19). An undated confirmed version (no snapshot was known when it was confirmed) is not any of its dated snapshots:
+ * the first one served waits for the person's confirm.
  */
 export function sameJevSnapshot(on: string, served: string): boolean {
-  const a = on.replace(/^openrouter:/, '')
-  const b = served.replace(/^openrouter:/, '')
-  return a === b || (!/-\d{8}$/.test(a) && b.replace(/-\d{8}$/, '') === a)
+  return on.replace(/^openrouter:/, '') === served.replace(/^openrouter:/, '')
 }
 
 /** What one pre-check reads, in tokens, for an estimate (a proposal's state ≈ 1 000–1 500 tokens + the questions). */

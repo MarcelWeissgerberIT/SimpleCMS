@@ -161,7 +161,7 @@ export function scheduledHere(): ID[] {
 /** Runs in a row without one usable check before the Vorprüfung counts as failing (§ 2.2). */
 export const JEV_FAIL_RUNS = 3
 
-/** The same Jev snapshot ('openrouter:' in front or not; an undated confirmed version takes any of its snapshots). */
+/** The same Jev snapshot ('openrouter:' in front or not; exactly — an undated confirmed version waits for its first dated one). */
 const sameSnapshot = sameJevSnapshot
 
 /**

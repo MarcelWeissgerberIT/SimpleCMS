@@ -9,7 +9,7 @@
 import type { Page } from '@playwright/test'
 import { test, expect, wsEval } from './fixtures'
 import { jevAnswer, type DecideStep } from './helpers/providers'
-import { AGENT, ALL_SHARED, TITLES, byTarget, byTitle, cards, jevAgent, jevSetup, noteOf, review, runAgent, runOf, stageTurn, toolId, type AnyState, type JevWorld } from './helpers/jev'
+import { AGENT, ALL_SHARED, JEV, TITLES, byTarget, byTitle, cards, jevAgent, jevSetup, noteOf, review, runAgent, runOf, stageTurn, toolId, type AnyState, type JevWorld } from './helpers/jev'
 
 const written = async (page: Page, w: JevWorld) => Promise.all(TITLES.map((t) => noteOf(page, w, t)))
 const NONE = [null, null, null]
@@ -204,5 +204,79 @@ test.describe('sticky: an earlier change Jev flagged keeps the agent cautious (D
     expect(r3.jev.waited).toBeUndefined()
     expect(await noteOf(page, w, 'Launch plan')).toBe('Checked 1')
     void AGENT
+  })
+})
+
+test.describe('a run Jev made wait replaces nothing (DJ3: a decision model never supersedes)', () => {
+  const titleOf = (req: { body: unknown }) => (req.body as AnyState | null)?.state?.change?.target?.title as string | undefined
+  const supersede = (page: Page) => page.evaluate((a) => (window as unknown as { __oneAgents: AnyState }).__oneAgents.supersedeOlder(a), AGENT)
+
+  test('run 1 (Vorschlagen) leaves a clean proposal for Launch plan; run 2 (apply + Schranke) waits on Tessera review → run 1’s proposal stays open', async ({ page }) => {
+    let pass = 1
+    const w = await jevSetup(page, {
+      fallback: (req) => (pass === 2 && titleOf(req) === 'Tessera review' ? jevAnswer({ consistent: 0.5 }) : jevAnswer()),
+      turn: (w) => stageTurn(pass === 1 ? [w.rows['Launch plan']] : [w.rows['Launch plan'], w.rows['Tessera review']]),
+    })
+    await jevAgent(page, { hold: false })
+    const r1 = await runOf(page, await runAgent(page))
+    expect(byTitle(r1, w, 'Launch plan')).toMatchObject({ status: 'pending', jev: { state: 'ok', mark: false } })
+    pass = 2
+    await jevAgent(page, { write: 'apply', hold: false, gate: 0.9 })
+    const r2 = await runOf(page, await runAgent(page))
+    expect(r2).toMatchObject({ status: 'staged', jev: { waited: 'gate' } })
+    expect(byTitle(r2, w, 'Launch plan')).toMatchObject({ status: 'pending', jev: { state: 'ok', mark: false } })
+    expect(byTitle(r2, w, 'Launch plan').jev.sticky).toBeUndefined()
+    // run 1's proposal is still open — the wait replaced nothing, and a later pass leaves it too
+    expect(byTitle(await runOf(page, r1.id), w, 'Launch plan').status).toBe('pending')
+    await supersede(page)
+    expect(byTitle(await runOf(page, r1.id), w, 'Launch plan').status).toBe('pending')
+    expect(byTitle(await runOf(page, r2.id), w, 'Launch plan').supersedes).toBeUndefined()
+    expect(await noteOf(page, w, 'Launch plan')).toBeNull()
+  })
+
+  test('control: an ordinary staged run 2 with the same clean proposal replaces run 1’s', async ({ page }) => {
+    let pass = 1
+    const w = await jevSetup(page, { turn: (w) => stageTurn(pass === 1 ? [w.rows['Launch plan']] : [w.rows['Launch plan'], w.rows['Tessera review']]) })
+    await jevAgent(page, { hold: false })
+    const r1 = await runOf(page, await runAgent(page))
+    pass = 2
+    const r2 = await runOf(page, await runAgent(page))
+    expect(r2.status).toBe('staged')
+    expect(r2.jev.waited).toBeUndefined()
+    await expect.poll(async () => byTitle(await runOf(page, r1.id), w, 'Launch plan').status).toBe('superseded')
+  })
+})
+
+test.describe('the run deadline counts before the send too (§ 3.5: late → the run waits)', () => {
+  /** Jev's endpoint list two days old: a check reads it again — and that read is held by the mock */
+  const staleEndpoints = (page: Page) => page.evaluate((jev) => (window as unknown as { __oneAI: AnyState }).__oneAI.seedEndpoints({ [jev]: [{ tag: 'typesafe', name: 'TypeSafe' }] }, Date.now() - 2 * 86_400_000), JEV)
+
+  test('the endpoint read hangs past the run’s 20 s: nothing goes out, every check "late", nothing written — the run waits', async ({ page }) => {
+    const w = await jevSetup(page, { clock: true, or: { endpointsHang: true } })
+    await staleEndpoints(page)
+    await jevAgent(page, { write: 'apply', hold: false, gate: 0.9 })
+    const done = runAgent(page)
+    await expect.poll(() => w.or.endpointsHanging(), { timeout: 20_000 }).toBe(1)
+    await page.clock.fastForward(21_000)
+    const run = await runOf(page, await done)
+    expect(w.or.decisions()).toHaveLength(0)
+    expect(run.status).toBe('staged')
+    expect(run.jev).toMatchObject({ waited: 'gate', checked: 0 })
+    for (const c of run.staged as AnyState[]) expect(c.jev).toMatchObject({ state: 'skipped', why: 'late' })
+    expect(await written(page, w)).toEqual(NONE)
+    w.or.releaseEndpoints()
+  })
+
+  test('control: the same held read answered in time → checked and written', async ({ page }) => {
+    const w = await jevSetup(page, { clock: true, or: { endpointsHang: true } })
+    await staleEndpoints(page)
+    await jevAgent(page, { write: 'apply', hold: false, gate: 0.9 })
+    const done = runAgent(page)
+    await expect.poll(() => w.or.endpointsHanging(), { timeout: 20_000 }).toBe(1)
+    expect(w.or.releaseEndpoints()).toBe(1)
+    const run = await runOf(page, await done)
+    expect(w.or.decisions()).toHaveLength(3)
+    expect(run.status).toBe('ok')
+    expect(await written(page, w)).toEqual(ALL)
   })
 })

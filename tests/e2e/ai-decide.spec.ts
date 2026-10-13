@@ -19,6 +19,7 @@ import { DECIDE_FORBIDDEN, assertSafeDecideBody, buildDecide, classifyDecide, de
 import * as legacy from './helpers/legacyRouteS1'
 import * as legacyRuns from './helpers/legacyRunsS2'
 import { directSplit, runLevelWaits, stickyOf } from '../../src/app/features/agents/direct'
+import { supersedePlan } from '../../src/app/features/agents/supersede'
 import type { AgentRun } from '../../src/app/features/agents/types'
 import { createHash } from 'node:crypto'
 import { createRedactor, redactDoc, redactPersonValue } from '../../src/shared/ai/redact'
@@ -600,6 +601,34 @@ test.describe('what Jev reads of a proposal (features/ai/decide/state.ts) — le
     expect(self.state.trigger).toEqual({ type: 'row_changed', title: 'Launch plan' })
   })
 
+  test('a Contacts row is a person: its title as the target, the trigger or a rename reads "@Person n" without `people` — even where the route may see mail (control: `people` → the name)', () => {
+    // the route may see the mail directory (member class mail allowed) but not names — one redactor per request
+    const nw = () => worldOf(f, { people: false, members: true })
+    const w = nw()
+    const upd = change({ kind: 'update_row', pageId: 'ctmaralind01', databaseId: 'dbcontacts01', props: [] })
+    const out = proposalState(input(upd, { type: 'row_created', rows: ['ctmaralind01'] }), w, qs) as AnyJson
+    expect(out.state.change.target).toEqual({ kind: 'row', title: '@Person 1', database: 'Contacts' })
+    expect(out.state.trigger).toEqual({ type: 'row_created', title: '@Person 1' })
+    expect(json(out.state)).not.toMatch(/Mara|Lind/)
+    // a trigger row in Contacts while the change is elsewhere: the same
+    const other = proposalState(input(LEAKY, { type: 'row_created', rows: ['ctmaralind01'] }), worldOf(f, { people: false, members: true, scope: null }), qs) as AnyJson
+    expect(other.state.trigger).toEqual({ type: 'row_created', title: expect.stringMatching(/^@Person \d$/) })
+    expect(json(other.state)).not.toMatch(/Mara|Lind/)
+    // a new contact and a renamed one
+    const created = proposalState(input(change({ kind: 'create_row', pageId: 'newcontact01', databaseId: 'dbcontacts01', title: 'Tessa Nordlicht', props: [] })), nw(), qs) as AnyJson
+    expect(created.state.change.target).toEqual({ kind: 'row', title: '@Person 1', database: 'Contacts' })
+    expect(json(created.state)).not.toContain('Tessa')
+    const renamed = proposalState(input(change({ kind: 'rename', pageId: 'ctmaralind01', title: 'Mara Lind-Berg', beforeTitle: 'Mara Lind' })), nw(), qs) as AnyJson
+    expect(renamed.state.change.fields).toEqual([{ name: 'title', before: '@Person 1', after: '@Person 1' }])
+    expect(json(renamed.state)).not.toMatch(/Mara|Lind/)
+    // control: names allowed → the contact's name is there
+    const open = proposalState(input(upd, { type: 'row_created', rows: ['ctmaralind01'] }), worldOf(f, { people: true, members: true }), qs) as AnyJson
+    expect(open.state.change.target.title).toBe('Mara Lind')
+    expect(open.state.trigger.title).toBe('Mara Lind')
+    // a row of another database keeps its title without `people` (control)
+    expect((proposalState(input(LEAKY), nw(), qs) as AnyJson).state.change.target.title).toBe('Launch plan')
+  })
+
   test('a create_row under a private database declares `private`; under a shared one it does not (control)', () => {
     const sw: SourceWorld = { pages: f.pages, databases: f.databases, memo: new Map() }
     const priv = change({ kind: 'create_row', pageId: 'newrow000001', databaseId: 'dbprivate001', title: 'Q4 budget', props: [] })
@@ -736,6 +765,22 @@ test.describe('the Schreibschranke’s split (features/agents/direct.ts)', () =>
     expect(stickyOf([marked], 'r1').any).toBe(false)
     // a staged row's id resolves through the run's rowIds
     expect([...stickyOf([run('r1', [c('c1', { jev: { ...ok(0.4), mark: true } })], { rowIds: { row_c1: 'real_row' } })], 'now').targets]).toEqual(['real_row'])
+  })
+
+  test('supersede: a run Jev made wait neither replaces nor is replaced — a decision model never supersedes (control: the same run without the wait replaces)', () => {
+    const upd = (id: string, row: string) => c(id, { pageId: row, props: [{ propId: 'note', name: 'Note', type: 'text', before: '', after: 'Checked', intent: { kind: 'value', value: 'Checked' } }] } as Partial<StagedChange>)
+    const run = (id: string, at: number, staged: StagedChange[], x: Partial<AgentRun> = {}) => ({ id, agentId: 'ag', runner: 'browser', trigger: { type: 'manual' }, startedAt: at, status: 'staged', summary: '', steps: [], staged, ...x }) as AgentRun
+    const same = (_r: AgentRun, pageId: string) => pageId
+    const never = () => false
+    const r1 = run('r1', 1, [upd('c1', 'R')])
+    const waited = run('r2', 2, [upd('c1', 'R'), upd('c2', 'S')], { jev: { n: 2, checked: 2, marked: 1, held: 0, usd: 0, waited: 'gate' } })
+    expect(supersedePlan([r1, waited], same, never)).toEqual([])
+    // a later ordinary run replaces run 1's proposal — never the waited run's
+    const r3 = run('r3', 3, [upd('c1', 'R')])
+    expect(supersedePlan([r1, waited, r3], same, never).map((x) => `${x.runId}#${x.changeId}`)).toEqual(['r1#c1'])
+    // control: run 2 without the wait replaces run 1's proposal
+    const { jev: _jev, ...plain } = waited
+    expect(supersedePlan([r1, plain as AgentRun], same, never)).toEqual([{ runId: 'r1', changeId: 'c1', at: 1, by: { runId: 'r2', changeId: 'c1', at: 2 } }])
   })
 })
 

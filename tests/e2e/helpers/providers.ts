@@ -334,6 +334,8 @@ export interface ORMockOpts {
   /** answer a decisions body that carries provider.require_parameters with 404 "No endpoints found" — every decision row
    *  lists no parameters, so requiring them can only leave no endpoint (why One never sends it; SP-J1) */
   strictParams?: boolean
+  /** hold every /endpoints GET until `releaseEndpoints()` (a hanging read before a decision goes out) */
+  endpointsHang?: boolean
 }
 
 export interface ORMock {
@@ -346,6 +348,10 @@ export interface ORMock {
   releaseDecisions(): number
   /** decisions requests held right now */
   hanging(): number
+  /** answer every held /endpoints GET (returns how many) */
+  releaseEndpoints(): number
+  /** /endpoints GETs held right now */
+  endpointsHanging(): number
   /** requests to a path (GETs of /models, /endpoints, /key; POSTs of /auth/keys) */
   to(path: string | RegExp, method?: string): ORCaptured[]
 }
@@ -404,6 +410,7 @@ export async function mockOpenRouter(ctx: BrowserContext | Page, opts: ORMockOpt
   let n = 0
   let d = 0
   const held: Array<() => void> = []
+  const epHeld: Array<() => void> = []
   await ctx.route('https://openrouter.ai/**', async (route) => {
     const req = route.request()
     if (req.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: orCors })
@@ -444,7 +451,10 @@ export async function mockOpenRouter(ctx: BrowserContext | Page, opts: ORMockOpt
       }
       if (req.method() === 'GET' && url.pathname === '/api/v1/models') return json(200, OR_CATALOGUE())
       const ep = url.pathname.match(/^\/api\/v1\/models\/(.+)\/endpoints$/)
-      if (req.method() === 'GET' && ep) return json(200, orEndpoints(ep[1]!, opts.endpoints?.[ep[1]!]))
+      if (req.method() === 'GET' && ep) {
+        if (opts.endpointsHang) await new Promise<void>((r) => epHeld.push(r))
+        return json(200, orEndpoints(ep[1]!, opts.endpoints?.[ep[1]!]))
+      }
       if (url.pathname === '/api/v1/key') {
         const k = opts.key ?? 'ok'
         if (typeof k === 'function') {
@@ -523,6 +533,8 @@ export async function mockOpenRouter(ctx: BrowserContext | Page, opts: ORMockOpt
     decisions: () => requests.filter((r) => r.method === 'POST' && r.path === '/api/alpha/decisions'),
     releaseDecisions: () => held.splice(0).map((r) => r()).length,
     hanging: () => held.length,
+    releaseEndpoints: () => epHeld.splice(0).map((r) => r()).length,
+    endpointsHanging: () => epHeld.length,
     to: (path, method) => requests.filter((r) => (typeof path === 'string' ? r.path === path : path.test(r.path)) && (!method || r.method === method)),
   }
 }

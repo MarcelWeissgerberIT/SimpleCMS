@@ -537,6 +537,23 @@ test.describe('decisions: the core path (Jev as Vorprüfer)', () => {
     expect(await decideVia(page)).toMatchObject({ ok: true })
   })
 
+  test('after a cooldown ends the count starts afresh: one failure is one, not the fourth — three in a row cool down again', async ({ page, errors }) => {
+    errors.allow(/Failed to load resource/)
+    const { or } = await decideSetup(page, [{ error: '503' }, { error: '503' }, { error: '503' }, { error: '503' }, jevAnswer({}), { error: '503' }, { error: '503' }, { error: '503' }], { clock: true })
+    for (let i = 0; i < 3; i++) expect(await decideVia(page)).toMatchObject({ why: 'unavailable' })
+    expect(await decideVia(page)).toMatchObject({ why: 'cooldown' })
+    expect(or.decisions()).toHaveLength(3)
+    // ten minutes later: one failure does not start another cooldown — the next check goes out (and answers)
+    await page.clock.fastForward(10 * 60_000 + 1_000)
+    expect(await decideVia(page)).toMatchObject({ why: 'unavailable' })
+    expect(await decideVia(page)).toMatchObject({ ok: true })
+    expect(or.decisions()).toHaveLength(5)
+    // control: three in a row → cooled down again, nothing sent
+    for (let i = 0; i < 3; i++) expect(await decideVia(page)).toMatchObject({ why: 'unavailable' })
+    expect(await decideVia(page)).toMatchObject({ why: 'cooldown' })
+    expect(or.decisions()).toHaveLength(8)
+  })
+
   test('busy or a rate limit: one more attempt after its Retry-After (≤ 3 s), then unchecked', async ({ page, errors }) => {
     errors.allow(/Failed to load resource/)
     const { or } = await decideSetup(page, [{ error: '402 in-flight budget' }, jevAnswer({}), { error: '429' }, { error: '429' }])

@@ -157,7 +157,7 @@ export async function askWorkspace(opts: {
   limitPage?: ID | null
   /** the route chip (this request only) — else the rules decide */
   route?: Route | null
-}): Promise<{ text: string; sources: WorkspaceSource[]; excerpts: Array<{ title: string; text: string }>; refs: SourceRef[] }> {
+}): Promise<{ text: string; sources: WorkspaceSource[]; excerpts: Array<{ title: string; text: string }>; refs: SourceRef[]; builtFor: Route['p'] | null }> {
   // the gate first (newer AI rules, a key typed into the question, the route …): nothing is retrieved or recorded when
   // it refuses
   const pre = precheck({ purpose: 'workspace.ask', sources: [{ all: true }], typed: opts.question, route: opts.route ?? null })
@@ -182,14 +182,15 @@ export async function askWorkspace(opts: {
     // decided above)
     const lang = useWorkspace.getState().settings.language === 'de' ? 'de' : 'en'
     const text = await streamDemoText(demoWorkspaceAnswer(opts.question, hits, keywords(opts.question), lang), opts.onToken, opts.signal)
-    return { text: text.trim(), sources, excerpts: [], refs }
+    return { text: text.trim(), sources, excerpts: [], refs, builtFor: null }
   }
   const excerpts = hits.map((d) => `<page title="${d.title.replace(/"/g, "'")}">\n${d.text.slice(0, 5000)}\n</page>`).join('\n\n')
   const today = new Date().toISOString().slice(0, 10)
   const prompt = `${excerpts || '<no matching pages />'}\n\nToday is ${today}.\nQuestion: ${opts.question.trim()}`
   const text = await streamCompletion({ purpose: 'workspace.ask', sources: refs, typed: opts.question, system: WORKSPACE_SYSTEM, prompt, onToken: opts.onToken, signal: opts.signal, ...routed(pre) })
-  // what was sent, for "Belegt?" (slice SJ: Jev checks the answer against exactly these excerpts)
-  return { text: text.trim(), sources, excerpts: hits.map((d) => ({ title: d.title, text: d.text.slice(0, 5000) })), refs }
+  // what was sent, for "Belegt?" (slice SJ: Jev checks the answer against exactly these excerpts) — and the provider
+  // whose data rule they were built for (the rule is per provider: Jev on the same one reads them as they are)
+  return { text: text.trim(), sources, excerpts: hits.map((d) => ({ title: d.title, text: d.text.slice(0, 5000) })), refs, builtFor: pre.route?.p ?? null }
 }
 
 /** The pages a route may see, judged by their ancestors (memoised per request; S5 adds restricted pages). */
