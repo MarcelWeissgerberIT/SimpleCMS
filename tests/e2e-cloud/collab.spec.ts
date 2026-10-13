@@ -466,4 +466,122 @@ test.describe('team cloud — live collaboration', () => {
     await expect.poll(() => wsEval(a, (s, x) => s.pages[x.pageId].comments[0].resolved, { pageId, threadId })).toBe(true)
     expect(await replies(a)).toEqual(['Ada: yes', 'Bob: almost'])
   })
+
+  /*
+   * y-tiptap puts every change from Yjs in as one replace of the whole document. The session's first Space waits a few
+   * hundred ms for the AI menu; a colleague's change arriving in that time used to lose the place the Space was typed,
+   * so the Space letters followed was dropped. A's incoming collaboration messages are held back and let through right
+   * after A's first letter, so the change lands inside that window every time. Fix review 2 of 2f9ca00.
+   */
+  test('the AI menu without a key: a colleague\'s change arriving while the session\'s first Space waits for the menu keeps that Space where it was typed', async ({ page: a, context }) => {
+    await a.addInitScript(() => {
+      const Native = window.WebSocket
+      const hold = {
+        on: false,
+        held: [] as (() => void)[],
+        release() {
+          hold.on = false
+          for (const deliver of hold.held.splice(0)) deliver()
+        },
+      }
+      ;(window as unknown as { __wsHold: typeof hold }).__wsHold = hold
+      const wraps = new WeakMap<object, EventListener>()
+      window.WebSocket = class extends Native {
+        addEventListener(type: string, fn: EventListenerOrEventListenerObject, opts?: boolean | AddEventListenerOptions) {
+          if (type !== 'message' || typeof fn !== 'function') return super.addEventListener(type, fn, opts)
+          const wrap = (e: Event) => void (hold.on ? hold.held.push(() => fn.call(this, e)) : fn.call(this, e))
+          wraps.set(fn, wrap)
+          return super.addEventListener(type, wrap, opts)
+        }
+        removeEventListener(type: string, fn: EventListenerOrEventListenerObject, opts?: boolean | EventListenerOptions) {
+          return super.removeEventListener(type, (typeof fn === 'function' && wraps.get(fn)) || fn, opts)
+        }
+      }
+    })
+    await person(a, 'ada')
+    const wsId = await createWorkspace(a, 'Typed')
+    await openApp(a, wsId)
+    await waitOnline(a)
+    const pageId = await newPageWithText(a, 'Typed window')
+    const ed = editorOf(a, pageId)
+    await ed.click()
+    await a.keyboard.type('First line.')
+    await a.keyboard.press('Enter')
+    const b = await newPerson(context)
+    await person(b, 'bob')
+    await join(a, b, wsId)
+    await openApp(b, wsId, `/p/${pageId}`)
+    await waitOnline(b)
+    // the lines as ProseMirror holds them (other people's carets are decorations)
+    const lines = (p: Page) =>
+      editorOf(p, pageId).evaluate((el) => {
+        const out: string[] = []
+        ;(el as unknown as { editor: { state: { doc: { forEach: (f: (n: { textContent: string }) => void) => void } } } }).editor.state.doc.forEach((n) => out.push(n.textContent))
+        return out
+      })
+    await expect.poll(() => lines(b)).toEqual(['First line.', ''])
+    await ed.locator('p').nth(1).click()
+    await expect(ed).toBeFocused()
+
+    // B writes at the start of the first line while A's incoming messages are held
+    await a.evaluate(() => void ((window as unknown as { __wsHold: { on: boolean } }).__wsHold.on = true))
+    await editorOf(b, pageId).locator('p').first().click()
+    await b.keyboard.press('Home')
+    await b.keyboard.type('Peer ')
+    await expect.poll(() => a.evaluate(() => (window as unknown as { __wsHold: { held: unknown[] } }).__wsHold.held.length)).toBeGreaterThan(0)
+    await a.waitForTimeout(1000)
+
+    // A: when the menu's panel commits, when a change from Yjs comes in; B's change goes through after A's first letter
+    await ed.evaluate((el) => {
+      const w = window as unknown as { __t: { panel?: number; ysync?: number }; __wsHold: { release: () => void } }
+      w.__t = {}
+      new MutationObserver((records, obs) => {
+        for (const r of records)
+          for (const n of r.addedNodes)
+            if (n instanceof Element && (n.matches('.ai-panel') || n.querySelector('.ai-panel'))) {
+              w.__t.panel = performance.now()
+              obs.disconnect()
+              return
+            }
+      }).observe(document.body, { childList: true, subtree: true })
+      type Tr = { docChanged: boolean; getMeta: (k: string) => unknown }
+      const editor = (el as unknown as { editor: { on: (e: 'transaction', f: (x: { transaction: Tr }) => void) => void } }).editor
+      let armed = true
+      editor.on('transaction', ({ transaction: tr }) => {
+        if (!tr.docChanged) return
+        if (tr.getMeta('y-sync$')) w.__t.ysync ??= performance.now()
+        else if (armed) {
+          armed = false
+          setTimeout(() => w.__wsHold.release(), 0)
+        }
+      })
+    })
+    const cdp = await a.context().newCDPSession(a)
+    const sent: Promise<unknown>[] = []
+    for (const k of [' ', 'h', 'e', 'l', 'l', 'o']) {
+      const code = k === ' ' ? 'Space' : `Key${k.toUpperCase()}`
+      const vk = k.toUpperCase().charCodeAt(0)
+      sent.push(cdp.send('Input.dispatchKeyEvent', { type: 'keyDown', key: k, code, windowsVirtualKeyCode: vk, text: k, unmodifiedText: k }))
+      sent.push(cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', key: k, code, windowsVirtualKeyCode: vk }))
+    }
+    await Promise.all(sent)
+    await cdp.detach()
+
+    const times = () => a.evaluate(() => (window as unknown as { __t: { panel?: number; ysync?: number } }).__t)
+    await expect
+      .poll(async () => {
+        const t = await times()
+        return t.panel !== undefined && t.ysync !== undefined
+      })
+      .toBe(true)
+    const t = await times()
+    // the colleague's change came in before the menu decided — else this would prove nothing
+    expect(t.ysync!, 'a change from Yjs before the menu showed').toBeLessThan(t.panel!)
+    await expect.poll(() => lines(a)).toEqual(['Peer First line.', ' hello'])
+    await expect(a.getByTestId('ai-key-card')).toHaveCount(0)
+    await expect(ed).toBeFocused()
+    await expect.poll(() => lines(b)).toEqual(['Peer First line.', ' hello'])
+    await a.waitForTimeout(400)
+    expect(await lines(a)).toEqual(['Peer First line.', ' hello'])
+  })
 })
