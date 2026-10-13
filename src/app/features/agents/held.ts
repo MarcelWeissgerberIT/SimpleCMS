@@ -7,8 +7,10 @@
  *  - Stopped between two steps (`{ stop: 'budget' }` of the brake's round): the run keeps its proposals (`staged`) for
  *    review, status 'held', `held.kind` 'stopped' and the brake's numbers (`brake`).
  *  - Keeping: the newest MAX_RUNS of an agent, plus any older run that still holds an open proposal (pending · failed ·
- *    applying) — at most PRUNE_EXTRA more. Past that the oldest go and the newest run says how many proposals went
- *    (`pruned`) — never silently.
+ *    applying · held back by its Vorprüfer — ChangeStatus 'held', slice SJ) — at most PRUNE_EXTRA more. Past that the
+ *    oldest go and the newest run says how many proposals went (`pruned`) — never silently.
+ * Two different "held": a run the Regler held (AgentRunStatus 'held', this file) and a change a Vorprüfer held back
+ * (ChangeStatus 'held', features/ai/decide) — a held run keeps its proposals by their own statuses.
  */
 import type { AgentRun, AgentRunBrake, AgentRunHeld, HeldBinding } from './types'
 
@@ -39,8 +41,8 @@ export const isHeld = (r: Pick<AgentRun, 'status'>): boolean => r.status === 'he
  */
 export const newestReal = <R extends Pick<AgentRun, 'status'>>(runs: readonly R[]): R | undefined => runs.find((r) => r.status !== 'skipped' && r.status !== 'held')
 
-/** A change the person has not decided yet. */
-const openChange = (status: string) => status === 'pending' || status === 'failed' || status === 'applying'
+/** A change the person has not decided yet (one its Vorprüfer held back too: it waits for the person's own key). */
+const openChange = (status: string) => status === 'pending' || status === 'failed' || status === 'applying' || status === 'held'
 
 /** Proposals of a run that still wait for the person. */
 export const openProposals = (r: Pick<AgentRun, 'staged'>): number => (r.staged ?? []).reduce((n, c) => n + (openChange(c.status) ? 1 : 0), 0)

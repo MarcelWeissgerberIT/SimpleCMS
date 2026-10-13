@@ -515,7 +515,8 @@ function AgentCard({ agent, n, now }: { agent: CustomAgent; n: number; now: numb
   const last = runs[0]
   const reviews = runs.filter(awaitsReview)
   const st = agentState(agent, runs, reviews.length > 0, wait.waiting)
-  const pending = reviews.reduce((sum, r) => sum + (r.staged ?? []).filter((c) => c.status === 'pending' || c.status === 'failed').length, 0)
+  // proposals waiting for the person: held back by a Vorprüfer too (ChangeStatus 'held' — a run the Regler held counts by its changes)
+  const pending = reviews.reduce((sum, r) => sum + (r.staged ?? []).filter((c) => c.status === 'pending' || c.status === 'failed' || c.status === 'held').length, 0)
   const cost = recentCost(runs)
   const href = `#/agents/${agent.id}`
   return (

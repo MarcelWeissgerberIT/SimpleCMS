@@ -35,6 +35,12 @@ It never applies, discards, supersedes, picks, writes a Vertrauen verdict or pag
 what it found. Every failure (no key, refused class, budget, deadline, an unusable answer) falls into the person's review:
 with "Hold back" an unchecked change is held, in apply mode the whole run waits.
 
+A held-back change (`ChangeStatus 'held'`) is not the Regler's held run (`AgentRunStatus 'held'`, features/governor) nor the
+eject's held marker on an applied change (`StagedChange.held`, features/recorder): it waits for the person like an open
+proposal — review badges, Preflight cards (VON HAND), the runs a device keeps (agents/held.ts `openProposals`) — and the
+flight recorder's eject discards it like a pending one (agents/review.ts `settleEjected`); the eject's Undo makes it held
+again, never pending.
+
 ### Agent settings
 
 `CustomAgent.review` v2: `{ v: 2, decider?, on, pre: { markBelow, hold }, gate?: { allowAt } }` — never a top-level `route`.

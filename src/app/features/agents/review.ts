@@ -560,9 +560,11 @@ onSettled((n) => {
  * `ejected` applied changes → discarded + `ejected` (never pending: Apply must not offer them again); `held` ones stay
  * applied + `held`; open proposals that build on an ejected one → discarded; with `discardPending` the run's other
  * open proposals too — except those Preflight's supersede guard calls opened (true) or cannot tell yet (null): they
- * stay. Superseded proposals are never touched. `applied` counts down; row ids stay. Their Undo closures go
- * (forgetUndos, forgetRunUndo), their trust watches end (endWatches — no verdict is written, voided or changed: nothing
- * it discards is a decision of the person); a discard's Undo leaves the rows of proposals that build on one (onEjected).
+ * stay. A proposal its Vorprüfer held back (ChangeStatus 'held', slice SJ) is open here like a pending one (discarding
+ * never writes); the eject's Undo makes it held again, never pending. Superseded proposals are never touched.
+ * `applied` counts down; row ids stay. Their Undo closures go (forgetUndos, forgetRunUndo), their trust watches end
+ * (endWatches — no verdict is written, voided or changed: nothing it discards is a decision of the person); a discard's
+ * Undo leaves the rows of proposals that build on one (onEjected).
  * Then, every change discarded, the agent state goes back (stateBack).
  * Resolves with the run as stored, the ids it discarded (not the ejected ones), the slips of `send` proposals among
  * them, the state put back.
@@ -575,17 +577,19 @@ export async function settleEjected(
   const all = cur.staged ?? []
   const out = new Set(all.filter((c) => o.ejected.includes(c.id) && c.status === 'applied').map((c) => c.id))
   const held = new Map(o.held.map((h) => [h.id, h]))
+  // open, or held back by its Vorprüfer: a proposal that still waits for the person
+  const waits = (c: StagedChange) => isOpen(c) || isHeld(c)
   const drop = new Set<string>()
   let grew = true
   while (grew) {
     grew = false
     for (const c of all) {
-      if (drop.has(c.id) || !isOpen(c) || !depsOf(c).some((d) => out.has(d) || drop.has(d))) continue
+      if (drop.has(c.id) || !waits(c) || !depsOf(c).some((d) => out.has(d) || drop.has(d))) continue
       drop.add(c.id)
       grew = true
     }
   }
-  if (o.discardPending) for (const c of all) if (isOpen(c) && !drop.has(c.id) && o.opened(cur.id, c.id) === false) drop.add(c.id)
+  if (o.discardPending) for (const c of all) if (waits(c) && !drop.has(c.id) && o.opened(cur.id, c.id) === false) drop.add(c.id)
   const mark = (list: StagedChange[]) =>
     list.map((c): StagedChange => {
       if (out.has(c.id) && c.status === 'applied') {
@@ -594,7 +598,7 @@ export async function settleEjected(
       }
       const h = held.get(c.id)
       if (h && c.status === 'applied') return { ...c, held: { id: o.ejectId, by: h.by, at: h.at } }
-      if (drop.has(c.id) && isOpen(c)) return { ...c, status: 'discarded' }
+      if (drop.has(c.id) && waits(c)) return { ...c, status: 'discarded' }
       return c
     })
   const count = (list: StagedChange[]) => list.filter((c) => out.has(c.id) && c.status === 'applied').length
@@ -629,7 +633,8 @@ export async function unsettleEjected(cur: AgentRun, ejectId: string, back: stri
         const { ejected: _e, ...rest } = c
         return { ...rest, status: 'applied' }
       }
-      if (pending.includes(c.id) && c.status === 'discarded' && !c.ejected) return { ...c, status: 'pending' }
+      // a proposal its Vorprüfer held back is held again (never an open one a bulk apply would take)
+      if (pending.includes(c.id) && c.status === 'discarded' && !c.ejected) return { ...c, status: c.jev?.held ? 'held' : 'pending' }
       if (c.held?.id === ejectId) {
         const { held: _h, ...rest } = c
         return rest

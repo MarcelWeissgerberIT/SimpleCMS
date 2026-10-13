@@ -721,7 +721,8 @@ const Change = memo(function Change({ run, change: c, disabled, blocked, undo, n
         {open ? (
           <span className="agent-change__actions">
             {held && (
-              <span className="jev-cap agx-held-cap" data-testid="agx-held">
+              // a Vorprüfer's hold (ChangeStatus 'held') — not the eject's "Held · changed since" on an applied change below
+              <span className="jev-cap agx-held-cap" data-testid="agx-jev-held">
                 {t('features.ai.jev.cap.held')}
               </span>
             )}

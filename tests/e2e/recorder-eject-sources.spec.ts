@@ -102,6 +102,76 @@ test.describe('flight recorder — the eject and its sources (§5)', () => {
     expect(await rec(page, 'unknowns')).toEqual([])
   })
 
+  test('train 8 (SJ merge): a proposal its Vorprüfer held back is open to the eject — one that builds on an ejected change goes with it, the switch takes the others, the facts count them; the Undo makes them held again, never pending', async ({ page }) => {
+    test.setTimeout(120_000)
+    await page.clock.install({ time: T0 })
+    await openApp(page)
+    await startRecorder(page)
+    const AG = 'ag-nordlicht-hold'
+    const m = await wsEval(
+      page,
+      (s, x) => {
+        const id = () => Math.random().toString(36).slice(2, 12)
+        const note = { id: id(), name: 'Note', type: 'text' }
+        const dbId = s.createDatabase({ title: 'Nordlicht Launch', properties: [{ id: id(), name: 'Name', type: 'title' }, note] })
+        const a = s.createRow(dbId, { title: 'Launch plan', properties: { [note.id]: 'Draft' } }) as string
+        const b = s.createRow(dbId, { title: 'Tessera review', properties: { [note.id]: 'Open' } }) as string
+        const now = Date.now()
+        s.upsertAgent({ id: x.AG, name: 'Nordlicht Pflege', instructions: 'Keep the Note of the launch rows up to date.', trigger: { type: 'manual' }, scope: { everything: false, pages: [], databases: [dbId] }, write: 'stage', output: null, mcpServers: [], runner: 'browser', model: null, effort: null, maxRunUsd: 0.5, enabled: true, createdAt: now, updatedAt: now })
+        return { dbId, a, b, note: note.id }
+      },
+      { AG },
+    )
+    await flush(page)
+    // the run wrote row a (applied c1); Jev held back c2 (builds on c1) and c3 (on its own); c4 is an ordinary open one
+    const agent = (change: string) => ({ kind: 'agent', id: AG, run: 'r7', change })
+    await step(page, T0 + 60_000, agent('c1'), [['setRowProperty', m.a, m.note, 'Launch moved to 18 October']], { note: { seq: 7 }, end: true })
+    await page.clock.setFixedTime(T0 + 120_000)
+    await rec(page, 'settle')
+    const jev = (held: string) => ({ v: 1, at: T0 + 80_000, model: '', state: 'skipped', why: 'late', held })
+    await page.evaluate(
+      (x) =>
+        (window as unknown as { __oneAgents: { putRun: (r: unknown) => Promise<unknown> } }).__oneAgents.putRun({
+          id: 'r7',
+          agentId: x.AG,
+          runner: 'browser',
+          seq: 7,
+          trigger: { type: 'manual' },
+          startedAt: x.t0 + 55_000,
+          endedAt: x.t0 + 75_000,
+          status: 'staged',
+          summary: '',
+          steps: [],
+          applied: 1,
+          staged: [
+            { id: 'c1', n: 1, kind: 'update_row', status: 'applied', pageId: x.a, databaseId: x.db },
+            { id: 'c2', n: 2, kind: 'update_row', status: 'held', pageId: x.b, databaseId: x.db, dependsOn: 'c1', jev: x.j2 },
+            { id: 'c3', n: 3, kind: 'update_row', status: 'held', pageId: x.b, databaseId: x.db, jev: x.j3 },
+            { id: 'c4', n: 4, kind: 'update_row', status: 'pending', pageId: x.b, databaseId: x.db },
+          ],
+        }),
+      { t0: T0, AG, a: m.a, b: m.b, db: m.dbId, j2: jev('unchecked'), j3: jev('mark') },
+    )
+    const sel = { lane: `agent:${AG}`, run: `agent:${AG}:r7`, a: T0 + 30_000, b: T0 + 90_000 }
+    // the dialog's facts: c3 and c4 go with the switch (c2 goes in any case, with the change it builds on)
+    const facts = await rec<{ pending: number; opened: number }>(page, 'ejectFacts', sel)
+    expect(facts).toMatchObject({ pending: 2, opened: 0 })
+    const runOf = async () => ((await page.evaluate((AG) => (window as unknown as { __oneAgents: { loadRuns: (id: string) => Promise<Array<{ id: string; staged: AnyState[] }>> } }).__oneAgents.loadRuns(AG), AG)) ?? []).find((x) => x.id === 'r7')!
+    const statuses = async () => (await runOf()).staged.map((c) => [c.id, c.status])
+    const r = await rec<{ id: string; state: string; agent: AnyState | null }>(page, 'eject', sel)
+    expect(r.state).toBe('done')
+    expect(await wsEval(page, (s, x) => s.pages[x.a].properties[x.p], { a: m.a, p: m.note })).toBe('Draft')
+    // nothing stays held back after the eject took the run away: no card waits on a change that cannot apply
+    expect(await statuses()).toEqual([['c1', 'discarded'], ['c2', 'discarded'], ['c3', 'discarded'], ['c4', 'discarded']])
+    expect(r.agent?.discarded).toEqual(expect.arrayContaining([`agent:${AG}:r7#c2`, `agent:${AG}:r7#c3`, `agent:${AG}:r7#c4`]))
+    // the Undo: c1 applied again; the held-back ones are held again (never an open one a bulk apply would take), c4 pending
+    expect(await rec(page, 'undoEject', r.id)).toMatchObject({ ok: true })
+    expect(await wsEval(page, (s, x) => s.pages[x.a].properties[x.p], { a: m.a, p: m.note })).toBe('Launch moved to 18 October')
+    expect(await statuses()).toEqual([['c1', 'applied'], ['c2', 'held'], ['c3', 'held'], ['c4', 'pending']])
+    expect((await runOf()).staged.find((c) => c.id === 'c3')?.jev).toMatchObject({ held: 'mark' })
+    expect(await rec(page, 'unknowns')).toEqual([])
+  })
+
   test('the real path: a custom agent run (5 updates, 1 new row, 1 report append), the person edits a row, eject → 4 back, 1 held, new row trashed, report block by block, ONE update; RunHistory shows it; the Undo in ONE update', async ({ page, context, aiNet }) => {
     test.setTimeout(180_000)
     await page.clock.install({ time: T0 })

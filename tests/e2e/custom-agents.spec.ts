@@ -651,4 +651,72 @@ test.describe('Custom agents', () => {
     await expect(other.locator('.agx-spec')).toContainText('Held')
     await expect(other).not.toContainText('features.agents.status')
   })
+
+  // Train 8 (SJ merge): two different "held" — a run the governor held (AgentRunStatus) and a proposal the agent's
+  // Vorprüfer held back (ChangeStatus, slice SJ). Each keeps its own words; the held-back proposal waits for the person
+  // like an open one (card badge, sidebar count, the review's head), the held run is no proposal and no failure.
+  test('a governor-held run beside a proposal Jev held back: their own words, the held-back one counts as waiting, the held run does not', async ({ page }) => {
+    // the sidebar's count shows while Preflight is off (Preflight counts proposals itself)
+    await preflightOff(page)
+    await openApp(page)
+    await wsEval(page, (s) => {
+      const now = Date.now()
+      s.upsertAgent({ id: 'agentNordlicht', name: 'Nordlicht Pflege', instructions: 'Keep the launch rows up to date.', trigger: { type: 'manual' }, scope: { everything: true, pages: [], databases: [] }, write: 'stage', output: null, mcpServers: [], runner: 'browser', maxRunUsd: 0.5, enabled: true, createdBy: null, updatedBy: null, createdAt: now, updatedAt: now })
+    })
+    await page.evaluate(() => {
+      const at = Date.now() - 60_000
+      const jev = { v: 1, at, model: '', state: 'skipped', why: 'late', held: 'unchecked' }
+      return (window as unknown as { __onePreflight: { seedRuns: (r: unknown[]) => Promise<void> } }).__onePreflight.seedRuns([
+        // the older run: one open proposal, one Jev held back
+        {
+          id: 'run-staged',
+          agentId: 'agentNordlicht',
+          runner: 'browser',
+          trigger: { type: 'manual' },
+          startedAt: at - 3_600_000,
+          endedAt: at - 3_599_000,
+          status: 'staged',
+          summary: '',
+          steps: [],
+          staged: [
+            { id: 'c1', n: 1, kind: 'append', status: 'pending', pageId: 'p-launch', title: 'Launch plan', markdown: 'Launch moved to 18 October.' },
+            { id: 'c2', n: 2, kind: 'append', status: 'held', pageId: 'p-launch', title: 'Launch plan', markdown: 'Review sent to the press desk.', jev },
+          ],
+        },
+        // the newest: a scheduled start the governor held at the red line
+        { id: 'held-today', agentId: 'agentNordlicht', runner: 'browser', trigger: { type: 'schedule', detail: '07:30' }, startedAt: at, endedAt: at, status: 'held', summary: '', steps: [], held: { kind: 'notStarted', binding: 'day', spent: 6, limit: 6, count: 1, times: [at] } },
+      ])
+    })
+    await page.evaluate(() => (location.hash = '#/agents'))
+    const card = page.locator('.agx-card', { hasText: 'Nordlicht Pflege' })
+    await expect(card).toBeVisible()
+    // the proposals wait for review: both count (the held-back one too); LAST names the governor's hold
+    await expect(card).toHaveAttribute('data-state', 'review')
+    await expect(card.locator('.agx-card__review')).toHaveText(/2 proposals/)
+    await expect(card.locator('.agx-spec')).toContainText('Held')
+    await expect(page.getByTestId('agents-review')).toContainText('02')
+    await card.getByRole('link', { name: 'Nordlicht Pflege' }).click()
+    const held = page.locator('.agx-run[data-status="held"]')
+    const staged = page.locator('.agx-run[data-status="staged"]')
+    await expect(held).toHaveCount(1)
+    // the held run: the governor's line and its amber lamp (two classes over the .led primitive — the production build)
+    await expect(held.locator('.agx-run__status')).toHaveText('Held')
+    await expect(held.locator('.agx-run__badge')).toHaveCount(0)
+    const lamp = await held.locator('.agx-run__head .led').first().evaluate((el) => {
+      const probe = document.createElement('span')
+      probe.style.background = 'var(--lamp-amber)'
+      document.body.appendChild(probe)
+      const want = getComputedStyle(probe).backgroundColor
+      probe.remove()
+      return { got: getComputedStyle(el).backgroundColor, want }
+    })
+    expect(lamp.got).toBe(lamp.want)
+    // the staged run: its badge counts both, the held-back proposal says HELD BACK (not the eject's "Held · changed since")
+    await expect(staged.locator('.agx-run__badge')).toHaveText('2 proposals')
+    if ((await staged.locator('.agx-review').count()) === 0) await staged.locator('.agx-run__head').click()
+    await expect(staged.getByTestId('agx-jev-held')).toHaveText('HELD BACK')
+    await expect(page.getByTestId('agx-held')).toHaveCount(0)
+    await expect(staged.getByTestId('agx-apply-all')).toHaveText('Apply all (except 1 held back)')
+    await expect(page.locator('.agx-dhead').getByTestId('agx-state')).toHaveText('Review')
+  })
 })

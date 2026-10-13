@@ -169,7 +169,7 @@ replies), an **Agenda** with everything dated in the workspace (month, week, lis
 and unlinked mentions, a web clipper (bookmarklet and Android share target) that saves to a Clippings page, stacked panes
 (`Alt`-click any link), focus mode, presentation mode (any page becomes slides), 11 templates (meeting notes, project tracker, roadmap, content calendar, reading list, CRM, bug tracker,
 OKRs, weekly planner, wiki, habits), light "Paper" and dark "Carbon" themes, English and German — and a built-in
-**help centre** (`?`): 78 short articles in both languages, searchable from `⌘K`, an "Ask the help" box that has Claude
+**help centre** (`?`): 79 short articles in both languages, searchable from `⌘K`, an "Ask the help" box that has Claude
 answer from those articles only, and the same manual as public pages at [getonecms.com/help](https://getonecms.com/help/).
 
 **AI, your key** — select text and ask Claude to improve, shorten, extend, fix, translate, explain, summarise or pull
@@ -400,7 +400,7 @@ Skripte zeigen einen Probelauf, und vor jedem Schreiben sichert der Verlauf die 
   Labels; Absender, Firmen und Threads landen verknüpft in Kontakten, Firmen und Konversationen, Anhänge kommen auf
   Wunsch als echte Blöcke dazu (PDF im Viewer, Bilder, Dateien); auf Wunsch sortiert Claude sie nach Kategorie,
   Priorität und „braucht Antwort“
-- eine eingebaute Hilfe (`?`) mit 78 Artikeln auf Deutsch und Englisch, „Frag die Hilfe“ und öffentlich unter
+- eine eingebaute Hilfe (`?`) mit 79 Artikeln auf Deutsch und Englisch, „Frag die Hilfe“ und öffentlich unter
   [getonecms.com/help](https://getonecms.com/help/de/)
 - MCP für KI-Agenten: Claude Desktop, Claude Code & Co. suchen, lesen, schreiben und räumen auf im Workspace –
   verschieben, Eigenschaften und Ansichten umbauen, in den Papierkorb legen und wiederherstellen (nichts wird

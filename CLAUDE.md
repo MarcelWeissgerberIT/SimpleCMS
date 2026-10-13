@@ -171,9 +171,9 @@ the public APIs stable — other areas are built against them in parallel.
   memory database as a source when a memory block goes along. `Workspace.ai` is written only through store/aiRules.ts
   (`setWorkspaceAI`, owners / admins — `aiRulesAllowed()`; stamps `gen`; a provider column nobody touched is never
   written, Claude's stays as it was) and `settings.ai` through `setDeviceAI` / `setDeviceRule` / `setDeviceDefault` /
-  `setRoles` (this device), all under a writer (setup writes `you~setup`); `CustomAgent.route / review / saverRule /
-  applyOn / routeSig` are kept by every reader and written by nobody yet (team: meta map `workspace` key `ai`, guarded
-  by the server — server/src/collab/workspace-ai.ts). `Workspace.governor` (the Regler, src/shared/ai/governor.ts
+  `setRoles` (this device), all under a writer (setup writes `you~setup`); `CustomAgent.route / saverRule / applyOn /
+  routeSig` are kept by every reader and written by nobody yet, `review` only as v2 by the agent editor's section 06
+  (decision models below) (team: meta map `workspace` key `ai`, guarded by the server — server/src/collab/workspace-ai.ts). `Workspace.governor` (the Regler, src/shared/ai/governor.ts
   `WorkspaceGovernor | Unreadable`; G0) is kept by every reader through `sanitizeGovernor` (the same value keeps its
   reference — `sameGovernor(…, { meta: true })`; assign `undefined`, never `delete`) and written by nobody yet: team meta
   map `workspace` key `governor` (server guard workspace-governor.ts, `supports` ∋ 'governor'), read by the binding only;
@@ -189,7 +189,8 @@ the public APIs stable — other areas are built against them in parallel.
   browser agent whose route is not Claude (or names a provider this build cannot run, features/agents/routeBlock.ts
   `RUNNABLE_PROVIDERS`, or cannot be read) ends as an error run without a request; the server skips it with its reason. features/index.ts exports `aiStatus` and the AI
   types (`PurposeId`, `SourceRef`, `DataClass`, `FeatureClass`, `Route`, `RouteRule`, `ProviderId`).
-- Decision models (Jev via OpenRouter, slice SJ; features/ai/decide, src/shared/ai/{decide,jev}.ts, wire/decisions.ts):
+- Decision models (Jev via OpenRouter, slice SJ; features/ai/decide, src/shared/ai/{decide,jev}.ts, wire/decisions.ts;
+  developer notes docs/AI.md § Decision models):
   `POST /api/alpha/decisions` only, Jev family only, one request per staged change of a checked kind (`CHECKED_KINDS`; purpose
   `gate.precheck`, class `gate`, ledger role `decide`), the fixed question set QSET (versioned, hash-frozen, a data clause on
   every question); the state is built through `prepared.redact` / `visible` / `rowFactsFor` (no ids, links → visible titles).
@@ -200,7 +201,10 @@ the public APIs stable — other areas are built against them in parallel.
   checks end — its 20 s deadline counts from the first read (catalogue / endpoint reads ≤ 8 s each, a stop is checked before
   the send, an answer after it is 'late'); the gate refuses before any catalogue read; with Zurückhalten an unchecked change
   is held; an open change Jev marked, held or stopped makes the agent's later changes to that target held (apply mode: the
-  whole run waits).
+  whole run waits). Three different "held", never counted as each other: `ChangeStatus 'held'` (Jev, "HELD BACK" — waits
+  for the person like an open proposal: review badges, Preflight, pruning, an eject discards it like a pending one and
+  its Undo makes it held again), `AgentRunStatus 'held'` (the Regler held the run — "Held", no failure, no proposal) and
+  `StagedChange.held` (an eject kept that applied change — "Held · changed since").
   Agent settings live in `CustomAgent.review` v2 (`{ v: 2, decider?, on, pre, gate? }`, never a top-level `route`; strict
   reader; older builds keep it Unreadable and do not run the agent); `on` = the dated Jev snapshot confirmed (stamped only
   from a read catalogue row) — another one, and for an undated `on` any dated one, holds until confirmed. `gate` resolves without device default or legacy; a chat purpose never gets a decision model; the

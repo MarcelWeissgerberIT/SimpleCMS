@@ -159,7 +159,8 @@ export async function facts(planned: { plan: Plan; input: CoreInput }): Promise<
       }
       const out1 = new Set(ejected.get(r.key) ?? [])
       const all = cur.staged ?? []
-      const open = (s: string) => s === 'pending' || s === 'failed'
+      // open, or held back by the agent's Vorprüfer (slice SJ): settleEjected discards both alike
+      const open = (s: string) => s === 'pending' || s === 'failed' || s === 'held'
       // open proposals that build on an ejected one go with it (whatever the switch says)
       const deps = new Set<string>()
       for (let grew = true; grew; ) {

@@ -5,8 +5,9 @@ import { useAgentRuns } from './runs'
 import { useServerAgents } from './server'
 import type { AgentRun } from './types'
 
+/** Open proposals — held back by a Vorprüfer too (ChangeStatus 'held': they wait for the person's own key). */
 const open = (runs: AgentRun[] | undefined) =>
-  (runs ?? []).reduce((sum, r) => (r.status === 'running' ? sum : sum + (r.staged ?? []).filter((c) => c.status === 'pending' || c.status === 'failed').length), 0)
+  (runs ?? []).reduce((sum, r) => (r.status === 'running' ? sum : sum + (r.staged ?? []).filter((c) => c.status === 'pending' || c.status === 'failed' || c.status === 'held').length), 0)
 
 /** Proposals of agent runs that wait for review (this device's runs + loaded server runs). */
 export function useAgentsAttention(): number {

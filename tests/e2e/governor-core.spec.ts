@@ -1120,6 +1120,26 @@ test.describe('agent runs the Regler held (agents/held.ts)', () => {
     expect(again[0]).toMatchObject({ pruned: 10, summary: 'done' })
   })
 
+  test('train 8 (SJ merge): a change its Vorprüfer held back (ChangeStatus held) is open — its run stays past the limit; a held run is not', () => {
+    const held = Array.from({ length: 120 }, (_, i) => run(`held-${i}`, T0 + i * 1000, { status: 'held', held: { kind: 'notStarted', binding: 'day', count: 1 } }))
+    // a run whose only open proposal is held back by Jev (status 'staged', the change 'held')
+    const jev = run('r-jev', T0 - 1, { status: 'staged', staged: [change('held'), change('applied')] })
+    expect(openProposals(jev)).toBe(1)
+    let list: AgentRun[] = [jev]
+    for (const h of held) list = mergeRun(list, h, 100)
+    expect(list.length).toBe(101)
+    expect(list.some((r) => r.id === 'r-jev')).toBe(true)
+    // a run the Regler stopped keeps its proposals by their own statuses: a held-back one among them counts once
+    const stopped = heldStopped(run('r-stop', T0 - 2, { status: 'running', staged: [change('held'), change('pending'), change('discarded')] }), { binding: 'day', rest: 0, next: null, at: T0 - 1 })
+    expect(openProposals(stopped)).toBe(2)
+    // positive control: the Regler's own held status says nothing about open proposals — a held run without any goes
+    const empty = run('r-held-empty', T0 - 3, { status: 'held', held: { kind: 'stopped', binding: 'day' }, staged: [change('applied')] })
+    expect(openProposals(empty)).toBe(0)
+    let plain: AgentRun[] = [empty]
+    for (const h of held) plain = mergeRun(plain, h, 100)
+    expect(plain.some((r) => r.id === 'r-held-empty')).toBe(false)
+  })
+
   test('health: a hold is no failure — it lights no fail lamp, an earlier failure stays lit', () => {
     const lamp = (runs: AgentRun[]) => {
       const last = newestReal(runs)
