@@ -5,7 +5,7 @@
  * → the review list of staged changes (keyboard: j / k, Space, Enter, a, d, o, u) → the meter.
  * Hiding it never stops a task (only Stop, ⌘. / Ctrl+., Ctrl+C or /stop do).
  */
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { ArrowRight, ChevronDown, CornerDownLeft, ExternalLink, KeyRound, Maximize2, Minimize2, RotateCcw, RotateCw, Settings2, Square, Undo2, X } from 'lucide-react'
 import { useLang, useT } from '../../../i18n'
@@ -20,7 +20,9 @@ import { AINeedsSetup } from '../setup/AINeedsSetup'
 import { openAISetup, openAISettings } from '../setup/openAISetup'
 import { MarkdownLite } from '../MarkdownLite'
 import { closeAgent, clampHeight, removeRef, setTermHeight, stopAgent, useAgent, HEIGHT_DEFAULT, type EchoEntry } from './state'
-import { answerAsk, applyStaged, appliesAlone, changeTarget, continueTask, contextPageId, discardAllStaged, discardStaged, emptyEnter, goesToWorker, newTask, pickContext, rerunAfterSignIn, restoreStaged, runTask, stage as stageApi, stageMedia, submitPrompt, tn, undoLastBatch } from './session'
+import { answerAsk, applyStaged, appliesAlone, changeTarget, continueTask, contextPageId, discardAllStaged, discardStaged, emptyEnter, goesToWorker, haltKey, newTask, pickContext, rerunAfterSignIn, restoreStaged, runTask, stage as stageApi, stageMedia, submitPrompt, tn, undoLastBatch } from './session'
+import { loadHaltCard } from '../../governor'
+import { isMac } from '../../../ui/controls'
 import { Menu, useMenu, type MenuEntry } from '../../../ui/Menu'
 import { setContextMode, useContextMarks, type ContextMode } from '../../../editor'
 import { effectiveMode } from '../reads'
@@ -62,6 +64,9 @@ const TERMINAL_COMPANY = PROVIDERS.anthropic.company
 export { PropDiff, Preview } from './ReviewParts'
 
 const pad = (n: number, w = 2) => String(n).padStart(w, '0')
+
+/** The Regler's halt card (its own lazy chunk — the dial and the plate's styles come with it). */
+const HaltCard = lazy(loadHaltCard)
 
 
 
@@ -338,6 +343,7 @@ function Head() {
   const usage = useAgent((s) => s.usage)
   const max = useAgent((s) => s.max)
   const pinned = useAgent((s) => s.mcp?.names.length ?? null)
+  const halted = useAgent((s) => !!s.halt)
   const nextMcp = useWorkspace((s) => readServers(s.settings).filter((x) => x.enabled).length)
   const model = resolveModel(useWorkspace((s) => s.settings.aiModel))
   const updateSettings = useWorkspace((s) => s.updateSettings)
@@ -373,8 +379,14 @@ function Head() {
           {meterUsd(usage.usd, usage.byModel, lang)}
         </span>
       )}
+      {halted ? (
+        <span className="term-head__regler" data-testid="term-regler">
+          <span className="led term-head__regler-led" aria-hidden />
+          {t('features.governor.status.cell')}
+        </span>
+      ) : null}
       <span className="term-head__status" aria-live="polite">
-        {t(`features.agent.status.${status}`)}
+        {halted ? t('features.governor.term.paused') : t(`features.agent.status.${status}`)}
       </span>
       <span className="term-spacer" />
       <button type="button" className="term-key" onClick={newTask} disabled={!turns && !changes} aria-label={t('features.agent.newTask')} title={`${t('features.agent.newTask')} (/new)`}>
@@ -599,11 +611,31 @@ function TurnView({ turn, last }: { turn: AgentTurn; last: boolean }) {
         </div>
       )}
       <TurnMedia n={turn.n} />
+      <TurnHalt n={turn.n} />
       {turn.status === 'stopped' && <p className="term-note">■ {t('features.agent.stoppedNote')}</p>}
       {turn.status === 'limit' && <LimitNote last={last} />}
       {turn.status === 'error' && turn.error && <TurnError error={turn.error} n={turn.n} last={last} />}
       {turn.status === 'done' && last && turn.signIn?.length ? <SignInOffer turn={turn} /> : null}
     </section>
+  )
+}
+
+/**
+ * The Regler's halt card under the task that waits between two steps (features/governor HaltCard, lazy — a plain line
+ * while it loads): E +1 $ for this task · H a cheaper model of the same provider · the stop key. Esc gives the keyboard
+ * back to the prompt (still paused).
+ */
+function TurnHalt({ n }: { n: number }) {
+  const t = useT()
+  const halt = useAgent((s) => (s.halt?.n === n ? s.halt : null))
+  if (!halt) return null
+  const fallback = <p className="term-note term-note--regler">■ {t(isMac ? 'features.governor.halt.prompt.mac' : 'features.governor.halt.prompt.pc')}</p>
+  return (
+    <div className="term-halt">
+      <Suspense fallback={fallback}>
+        <HaltCard {...halt.view} onAllow={() => haltKey('allow')} onCheaper={() => haltKey('cheaper')} onStop={() => haltKey('stop')} onEscape={focusPrompt} />
+      </Suspense>
+    </div>
   )
 }
 
@@ -1696,11 +1728,15 @@ function Prompt({ disabled, onReview }: { disabled: boolean; onReview: () => boo
   }
 
   const limited = useAgent((s) => s.turns[s.turns.length - 1]?.status === 'limit')
+  /** the Regler paused the running task: the prompt is read-only and names the keys */
+  const halted = useAgent((s) => !!s.halt)
   // what ↵ on the empty prompt would do (re-read with the log)
   useAgent((s) => s.echo)
   useAgent((s) => s.turns)
   const enter = running || asking ? null : emptyEnter()
-  const placeholder = asking
+  const placeholder = halted
+    ? t(isMac ? 'features.governor.halt.prompt.mac' : 'features.governor.halt.prompt.pc')
+    : asking
     ? t('features.agent.placeholderAsk')
     : enter?.kind === 'signin'
       ? t('features.agent.placeholderSignIn', { server: enter.server })
@@ -1769,6 +1805,8 @@ function Prompt({ disabled, onReview }: { disabled: boolean; onReview: () => boo
           }}
           onSelect={(e) => setCaret(e.currentTarget.selectionStart)}
           onKeyDown={onKeyDown}
+          readOnly={halted}
+          data-halted={halted || undefined}
           spellCheck={false}
           autoComplete="off"
         />

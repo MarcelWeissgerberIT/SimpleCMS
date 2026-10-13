@@ -4,7 +4,12 @@ import { useUI } from '../../store/ui'
 import type { CustomAgent, ID } from '../../store/types'
 import { navigate } from '../../lib/router'
 import { t } from '../../i18n'
-import { executeRun } from './exec'
+import { executeRun, startInput } from './exec'
+import { newId } from '../../lib/ids'
+import { currentLang } from '../../i18n'
+import { fmtUsd } from '../../lib/money'
+import { startCheck } from '../ai/core/gate'
+import { allowTask, fmtBand, fmtLimit } from '../governor'
 import { dropRuns } from './runs'
 import { loadServerRuns, runOnServer, serverErrorText } from './server'
 import { placeholdersIn } from './mirror'
@@ -25,6 +30,9 @@ function unfinished(agent: CustomAgent): boolean {
 /**
  * Start a run now: in this tab (browser runner) or on the team server. A recipe's placeholders refuse it (above);
  * any other open placeholder ("[HOW TO LIST THE ITEMS]", instructions.ts) asks first — Claude would read it literally.
+ * At the Regler's red line a browser run asks before it starts, wherever "Run now" was pressed (the agent page,
+ * Preflight, a database command, ⌘K): the rest and the first step's band, "+1 $ once and start" only when that makes
+ * it fit (an allowance for this run, today — keyed to the run id minted here) · cancel. It never waits mid-run.
  */
 export async function runNow(agent: CustomAgent, opts: { confirmed?: boolean } = {}): Promise<void> {
   if (unfinished(agent)) return
@@ -49,7 +57,36 @@ export async function runNow(agent: CustomAgent, opts: { confirmed?: boolean } =
     }
     return
   }
-  await executeRun(agent, { trigger: { type: 'manual' }, manual: true })
+  const runId = newId()
+  const req = { trigger: { type: 'manual' as const }, manual: true, runId }
+  const input = startInput(agent, req, runId)
+  const v = await startCheck(input)
+  if (!v.start) return void startAsk(agent, v, () => {
+    allowTask(input.run!.source!, 1)
+    void executeRun(agent, req)
+  })
+  await executeRun(agent, req)
+}
+
+/** The start dialog at the red line (a manual run): the rest, the first step; E only when +1 $ makes it fit. */
+function startAsk(agent: CustomAgent, v: Awaited<ReturnType<typeof startCheck>>, allowAndStart: () => void): void {
+  const lang = currentLang()
+  const ui = useUI.getState()
+  if ('refuse' in v) {
+    ui.toast({ message: t(v.refuse === 'scope' ? 'features.governor.note.scope' : 'features.governor.note.noprice', { model: agent.model ?? agent.name }), kind: 'error' })
+    return
+  }
+  if (!('ask' in v)) return
+  const a = v.ask
+  const lead = t('features.governor.start.lead', { rest: fmtUsd(Math.max(0, Math.min(a.rest.day, a.rest.month, a.rest.run)), lang), band: fmtBand(a.first, lang) })
+  ui.openModal({
+    type: 'confirm',
+    title: t('features.governor.start.titleNamed', { name: agent.name }),
+    body: a.allow !== null ? lead : `${lead} ${t('features.governor.start.need', { usd: fmtUsd(a.need, lang) })}`,
+    confirmLabel: t('features.governor.start.allow', { usd: fmtLimit(a.allow ?? 1, lang) }),
+    ...(a.allow === null ? { noConfirm: true } : {}),
+    onConfirm: allowAndStart,
+  })
 }
 
 export function setEnabled(agent: CustomAgent, enabled: boolean): void {

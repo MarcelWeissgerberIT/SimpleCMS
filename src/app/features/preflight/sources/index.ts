@@ -73,7 +73,8 @@ function noteAgentRuns(): () => void {
     const noted = new Set(events.filter((e) => e.k === 'source').map((e) => (e as { ref: string }).ref))
     for (const { agent, runs } of agentRunsHere()) {
       for (const run of runs) {
-        if (run.status !== 'staged' || run.startedAt < start) continue
+        // a run the Regler held keeps its proposals for review too
+        if ((run.status !== 'staged' && run.status !== 'held') || run.startedAt < start) continue
         const ref = `${agent.id}/${run.id}`
         if (noted.has(ref)) continue
         const open = openChangesOf(run)

@@ -1059,9 +1059,9 @@ test.describe('receipts in the terminal and on agent runs', () => {
     await expect.poll(() => requests.length).toBe(2)
     await expect.poll(async () => (await ledger(page)).length).toBe(2)
     const entries = await ledger(page)
-    // both are this conversation's: the task's round and the proposal request
+    // both are this task's (terminal:<conv>:<task>): the task's round and the proposal request
     expect(new Set(entries.map((e) => e.source)).size).toBe(1)
-    expect(entries[0].source).toMatch(/^terminal:/)
+    expect(entries[0].source).toMatch(/^terminal:[^:]+:1$/)
     await run(page, '/cost')
     const table = terminal(page).getByTestId('term-cost').last()
     const opus = table.locator('tr[data-model="anthropic:claude-opus-5-5"]')
@@ -1078,7 +1078,9 @@ test.describe('receipts in the terminal and on agent runs', () => {
     await prompt(page).press('Enter')
     await expect.poll(async () => (await ledger(page)).length).toBe(3)
     const cut = (await ledger(page))[2]
-    expect(cut.source).toBe(entries[0].source)
+    // the old conversation's, its own task
+    expect(cut.source.replace(/:\d+$/, '')).toBe(entries[0].source.replace(/:\d+$/, ''))
+    expect(cut.source).not.toBe(entries[0].source)
     await page.waitForTimeout(400)
     await expect(terminal(page).getByTestId('agent-cost')).toHaveText('$0.00')
     await run(page, '/cost')

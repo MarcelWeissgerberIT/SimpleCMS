@@ -27,5 +27,11 @@ export { readPaused, addPaused, takePaused, wipePaused, PAUSED_PREFIX, PAUSED_MA
 export { BOOK_CHANNEL } from './book'
 export { RUN_MODES, CALLER_MODE, isRunMode, modeRow, modeOf, missesMode, minOut, sourceFor, SOURCE_RE, type AnswerKind, type ModeRow } from './modes'
 export type { Binding, Limits, Rest } from './limits'
-export type { BrakeFix, BrakeRun, Halt, HaltCheaper, RefuseDetail, RoundVerdict, RunMode, StartVerdict } from './brake'
+export type { BrakeFix, BrakeRun, Halt, HaltCheaper, HCandidate, HistoryNeeds, RefuseDetail, RoundVerdict, RunMode, StartVerdict } from './brake'
+export { ALLOW_USD } from './brake'
+export { FIRST_STEP_OUT } from './steps'
+export { fmtBand, fmtLimit, fmtOf } from './format'
+export type { HaltCardProps } from './ui/HaltCard'
+/** The halt card (lazy chunk: the AI terminal renders it when a task waits at the red line) */
+export const loadHaltCard = () => import('./ui/HaltCard').then((m) => ({ default: m.HaltCard }))
 export { PRICES, PRICES_DATE, costOf, priceRow } from '@/shared/ai/prices'

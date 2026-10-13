@@ -11,6 +11,9 @@
  *    allowance, the next refused again · B: the cheaper model), case 9 (OpenRouter: the router's bound, the wire's
  *    max_tokens reserved), case 10 (no ledger / governor database before the first paint; none at all without a budget).
  *    Case 12 (the golden bodies with a budget that fits) lives in ai-golden.spec.ts.
+ *  - loops and starts (B6): case 5 (the halt card — zero requests and reservations while it waits; E, H across thinking,
+ *    Mod+., a pause_turn, the first request), case 6 (agents held: the coalesced start record, a mid-run stop, the manual
+ *    start dialog from the agent page and a database command).
  * No AI host is reached (the aiNet guard); values are fictional (Nordlicht, Tessera, Launch plan).
  */
 import type { Page } from '@playwright/test'
@@ -20,6 +23,8 @@ import { test, expect, openApp, reloadApp, wsEval, flush, createPage, gotoPage, 
 import { exportBackup, importBackup } from './helpers/backup'
 import { ARCHIVE, TRANSFORM_STEPS, aiPanel, autofillPriority, improve, ledger, ownRequest, transformAuto } from './helpers/aiFlows'
 import { mockClaudeScript, mockOpenRouter, seedEndpoints, text } from './helpers/providers'
+import { openTerminal, prompt as termPrompt, run as runTask, terminal } from './helpers/terminal'
+import { budget, spend } from './helpers/governor'
 import { capsOfRow, readCatalogRow } from '../../src/shared/ai/catalog'
 import { costOf } from '../../src/shared/ai/prices'
 import type { Route, ShortlistRow } from '../../src/shared/ai/types'
@@ -185,11 +190,6 @@ test.describe('run modes and sources (B4)', () => {
 
 type Seam = { __oneAI: Record<string, (...a: any[]) => any>; __oneGovernor: Record<string, (...a: any[]) => any>; __oneLedger: Record<string, (...a: any[]) => any> } // eslint-disable-line @typescript-eslint/no-explicit-any
 
-/** A stored budget this tab enforces: the ?e2e seam raises the generation the gate holds to GEN.budget (G1 B12 raises it). */
-async function budget(page: Page, value: object | null) {
-  await page.evaluate(() => (window as unknown as Seam).__oneAI.enforceGen(3))
-  expect(await setGovernor(page, value)).toEqual({ ok: true })
-}
 const KEY = (page: Page, extra: object = {}) => wsEval(page, (s, x) => s.updateSettings({ aiApiKey: 'sk-ant-e2e-test-key', ...x }), extra)
 const reservedNow = (page: Page) => page.evaluate(() => (window as unknown as Seam).__oneLedger.reserved() as { usd: number; open: number })
 const ask = (page: Page, o: AnyState) => page.evaluate((o) => (window as unknown as Seam).__oneAI.ask(o) as Promise<AnyState>, o)
@@ -428,5 +428,266 @@ test.describe('the brake at the gate (B5)', () => {
     expect(seen.before).toEqual([])
     expect(await page.evaluate(() => (window as unknown as Seam).__oneGovernor.opened())).toEqual({ ledger: expect.any(Number), governor: expect.any(Number) })
     expect((await page.evaluate(() => (window as unknown as Seam).__oneGovernor.opened())).ledger).toBeGreaterThanOrEqual(1)
+  })
+})
+
+/* ------------------------------------------------------------------ */
+/* B6 — loops, halts, held runs, start checks                           */
+/* ------------------------------------------------------------------ */
+
+const reservedAll = (page: Page) => page.evaluate(() => (window as unknown as Seam).__oneGovernor.reserved() as number)
+const halt = (page: Page) => page.getByTestId('gv-halt')
+
+/**
+ * The terminal's three rounds (Opus 5.5: input 4 · output 20 · cache read 0,2 · cache write 5 $ / M): round 1 stages a
+ * page (0,010 $), round 2 searches with a long answer (0,128 $). A day of 1 $ with 0,79 $ spent leaves 0,21 $: the first
+ * request (prompt + 4 096) and round 2 (≈ 0,105 $) fit; round 3 on Opus (≈ 0,17 $) does not — Haiku 4.5 with the cold
+ * cache (≈ 0,046 $) does, Sonnet 5.5 (≈ 0,091 $) does not.
+ */
+const R1 = { blocks: [{ type: 'text' as const, text: 'Drafting the brief.' }, { type: 'tool_use' as const, id: 'toolu_b6a', name: 'create_page', input: { title: 'Nordlicht brief', markdown: 'Launch plan for Nordlicht.' } }], usage: { input: 2000, output: 100 } }
+const R2 = { blocks: [{ type: 'tool_use' as const, id: 'toolu_b6b', name: 'search_pages', input: { query: 'Tessera' } }], usage: { input: 2000, output: 6000 } }
+const R3 = text('Staged the Nordlicht brief.')
+
+test.describe('loops: the halt card, H, Mod+. (B6 · case 5)', () => {
+  test('the next step crosses the line: zero requests and zero reservations while the card waits; E sends round 3 with the allowance; no H from Opus by default', async ({ page }) => {
+    const { requests } = await mockClaudeScript(page.context(), [R1, R2, R3])
+    await openApp(page)
+    await KEY(page)
+    await budget(page, { v: 1, day: 1 })
+    await spend(page, 0.79)
+    await openTerminal(page)
+    await runTask(page, 'Draft the Nordlicht brief.')
+    await expect(halt(page)).toBeVisible()
+    await page.waitForTimeout(500)
+    expect(requests).toHaveLength(2)
+    expect(await reservedAll(page)).toBe(0)
+    // the card: E (+1 $ makes the step fit), no H (Sonnet does not fit; Haiku thinks differently), the stop key
+    await expect(halt(page).getByRole('button', { name: /\+\$1 once/ })).toBeVisible()
+    await expect(halt(page).getByRole('button', { name: /Finish with/ })).toHaveCount(0)
+    await expect(halt(page)).toContainText('crosses the day budget')
+    // the prompt is read-only and names the keys; the head says the task is paused
+    await expect(termPrompt(page)).toHaveAttribute('readonly', '')
+    await expect(termPrompt(page)).toHaveAttribute('placeholder', 'Paused — E, H or Ctrl+.')
+    await expect(terminal(page).getByTestId('term-regler')).toBeVisible()
+    // the card holds the keyboard: E sends round 3 (+1 $ for this task, today)
+    await expect(halt(page)).toBeFocused()
+    await page.keyboard.press('e')
+    await expect(terminal(page).locator('.term-answer')).toContainText('Staged the Nordlicht brief.')
+    expect(requests).toHaveLength(3)
+    await expect(halt(page)).toHaveCount(0)
+    await expect(termPrompt(page)).not.toHaveAttribute('readonly', '')
+    await expect.poll(async () => (await ledger(page)).filter((e) => e.source.startsWith('terminal:')).length).toBe(3)
+    const entries = (await ledger(page)).filter((e) => e.source.startsWith('terminal:'))
+    // one task, one source; the allowance on the entry after the key
+    expect(new Set(entries.map((e) => e.source)).size).toBe(1)
+    expect(entries[0].source).toMatch(/^terminal:[a-z0-9]+:1$/)
+    expect(entries[2].steps).toEqual(expect.arrayContaining([{ k: 'allowance', code: '1' }]))
+    expect(await reservedAll(page)).toBe(0)
+  })
+
+  test('H (across thinking, the seam) finishes on Haiku 4.5: no thinking / output_config, the history intact, its step on the receipt', async ({ page }) => {
+    const { requests } = await mockClaudeScript(page.context(), [R1, R2, R3])
+    await openApp(page)
+    await KEY(page)
+    await page.evaluate(() => ((window as unknown as Seam).__oneGovernor as unknown as { acrossThinking(on: boolean): void }).acrossThinking(true))
+    await budget(page, { v: 1, day: 1 })
+    await spend(page, 0.79)
+    await openTerminal(page)
+    await runTask(page, 'Draft the Nordlicht brief.')
+    await expect(halt(page)).toBeVisible()
+    const h = halt(page).getByRole('button', { name: /Finish with .*Haiku 4\.5/ })
+    await expect(h).toBeVisible()
+    await expect(halt(page)).toContainText('cold cache')
+    await page.waitForTimeout(500)
+    expect(requests).toHaveLength(2)
+    await page.keyboard.press('h')
+    await expect(terminal(page).locator('.term-answer')).toContainText('Staged the Nordlicht brief.')
+    expect(requests).toHaveLength(3)
+    const [r2, r3] = [requests[1].body, requests[2].body]
+    expect(r2.model).toBe('claude-opus-5-5')
+    expect(r2.thinking).toBeTruthy()
+    expect(r3.model).toBe('claude-haiku-4-5')
+    expect(r3).not.toHaveProperty('thinking')
+    expect(r3).not.toHaveProperty('output_config')
+    expect(r3).not.toHaveProperty('fallbacks')
+    // the history the runner kept: round 2's assistant turn (its tool call) and the tool result
+    const msgs = r3.messages as AnyState[]
+    expect(msgs.length).toBe(r2.messages.length + 2)
+    expect(JSON.stringify(msgs[msgs.length - 2])).toContain('toolu_b6b')
+    expect(msgs[msgs.length - 1].content.some((c: AnyState) => c.type === 'tool_result' && c.tool_use_id === 'toolu_b6b')).toBe(true)
+    await expect.poll(async () => (await ledger(page)).filter((e) => e.source.startsWith('terminal:')).length).toBe(3)
+    const last = (await ledger(page)).filter((e) => e.source.startsWith('terminal:'))[2]
+    expect(last.served.model).toBe('claude-haiku-4-5')
+    expect(last.steps).toEqual(expect.arrayContaining([{ k: 'brake', code: 'H', from: 'claude-opus-5-5', to: 'claude-haiku-4-5' }]))
+  })
+
+  test('Mod+. at the card ends the task: the staged change stays listed, nothing more is sent; a pause_turn crossing the line halts before its resumed request', async ({ page }) => {
+    const paused = { blocks: [{ type: 'text' as const, text: 'Still looking.' }], stop: 'pause_turn' as const, usage: { input: 2000, output: 9000 } }
+    const { requests } = await mockClaudeScript(page.context(), [R1, paused, R3])
+    await openApp(page)
+    await KEY(page)
+    await budget(page, { v: 1, day: 1 })
+    await spend(page, 0.79)
+    await openTerminal(page)
+    await runTask(page, 'Draft the Nordlicht brief.')
+    // round 2 paused (0,188 $): the resumed request would cross — the card, zero further requests
+    await expect(halt(page)).toBeVisible()
+    await page.waitForTimeout(500)
+    expect(requests).toHaveLength(2)
+    expect(await reservedAll(page)).toBe(0)
+    await page.keyboard.press('Control+.')
+    await expect(halt(page)).toHaveCount(0)
+    await expect(terminal(page).locator('.term-turn').last()).toHaveAttribute('data-status', 'stopped')
+    await expect(terminal(page).locator('.term-bar')).toContainText(/1 .*change/i)
+    await page.waitForTimeout(400)
+    expect(requests).toHaveLength(2)
+    expect(await reservedAll(page)).toBe(0)
+  })
+
+  test('the first request at the line: the card with E (nothing sent); E sends it; without a budget the same task runs as before', async ({ page }) => {
+    const { requests } = await mockClaudeScript(page.context(), [R3, R3])
+    await openApp(page)
+    await KEY(page)
+    await budget(page, { v: 1, day: 1 })
+    await spend(page, 0.98)
+    await openTerminal(page)
+    await runTask(page, 'Summarise the Tessera notes.')
+    await expect(halt(page)).toBeVisible()
+    await page.waitForTimeout(500)
+    expect(requests).toHaveLength(0)
+    await page.keyboard.press('e')
+    await expect(terminal(page).locator('.term-answer')).toContainText('Staged the Nordlicht brief.')
+    expect(requests).toHaveLength(1)
+    // positive control: no budget — the next task goes straight out, no card
+    await budget(page, null)
+    await runTask(page, 'Summarise the Tessera notes again.')
+    await expect.poll(() => requests.length).toBe(2)
+    await expect(halt(page)).toHaveCount(0)
+  })
+})
+
+/** A browser agent (Opus, budget per run 0,50 $): never started by the clock in a spec (updatedAt = now). */
+async function putAgent(page: Page, a: AnyState) {
+  await wsEval(
+    page,
+    (s, a) => {
+      const now = Date.now()
+      s.upsertAgent({ instructions: 'Summarise the status of the Nordlicht projects.', trigger: { type: 'schedule', every: 'day', at: '07:30', tz: 'Europe/Berlin' }, scope: { everything: true, pages: [], databases: [] }, write: 'stage', output: null, mcpServers: [], runner: 'browser', model: null, effort: null, maxRunUsd: 0.5, enabled: true, createdAt: now, updatedAt: now, ...a })
+    },
+    a,
+  )
+  await flush(page)
+}
+type RunSeam = { __oneAgentRun: { run(id: string, type?: string): Promise<AnyState | string | null>; inbox(): AnyState[] } }
+/** The agents' code (exec.ts) loads with the agents page. */
+async function agentsLoaded(page: Page, hash = '#/agents') {
+  await page.evaluate((h) => (window.location.hash = h), hash)
+  await page.waitForFunction(() => !!(window as unknown as Partial<RunSeam>).__oneAgentRun)
+}
+const scheduled = (page: Page, id: string) => page.evaluate((id) => (window as unknown as RunSeam).__oneAgentRun.run(id, 'schedule'), id)
+const inboxOf = (page: Page) => page.evaluate(() => (window as unknown as RunSeam).__oneAgentRun.inbox())
+const heldToasts = (page: Page) => page.locator('.toast', { hasText: 'stopped by the governor' })
+
+test.describe('agents at the line: held, never waiting (B6 · case 6)', () => {
+  test('a scheduled start at the line is not started: one held record of the day (3 starts), zero requests, one info toast, one inbox note, no fault; none on its own page', async ({ page }) => {
+    const { requests } = await mockClaudeScript(page.context(), [])
+    await openApp(page)
+    await KEY(page)
+    await putAgent(page, { id: 'ag-nordlicht', name: 'Nordlicht digest' })
+    await putAgent(page, { id: 'ag-tessera', name: 'Tessera digest' })
+    await budget(page, { v: 1, day: 1 })
+    await spend(page, 1)
+    await agentsLoaded(page)
+    let rec: AnyState | string | null = null
+    for (let i = 0; i < 3; i++) rec = await scheduled(page, 'ag-nordlicht')
+    expect(rec).toMatchObject({ status: 'held', held: { kind: 'notStarted', binding: 'day', count: 3 } })
+    expect((rec as AnyState).id).toMatch(/^held-\d{4}-\d{2}-\d{2}$/)
+    expect((rec as AnyState).held.times).toHaveLength(3)
+    expect(requests).toHaveLength(0)
+    // told once a day: one info toast (never an error), one inbox note
+    await expect(heldToasts(page)).toHaveCount(1)
+    await expect(heldToasts(page)).toContainText('Nordlicht digest')
+    await expect(page.locator('.toast[data-kind="error"]')).toHaveCount(0)
+    expect((await inboxOf(page)).filter((i) => i.id.startsWith('rg:ag-nordlicht:'))).toHaveLength(1)
+    // the card: Held (amber), no fault
+    const card = page.locator('.agx-card', { hasText: 'Nordlicht digest' })
+    await expect(card).toHaveAttribute('data-state', 'held')
+    await expect(card.getByTestId('agx-state')).toHaveText('Held')
+    // the run list: ONE record, "3 × not started"
+    await page.evaluate(() => (window.location.hash = '#/agents/ag-nordlicht'))
+    await expect(page.locator('.agx-run')).toHaveCount(1)
+    await expect(page.getByTestId('agx-run-held')).toHaveAttribute('data-held', 'notStarted')
+    await expect(page.getByTestId('agx-run-held')).toContainText('3 × not started')
+    // on its own page: the note, but no toast (positive control above)
+    await page.evaluate(() => (window.location.hash = '#/agents/ag-tessera'))
+    await expect(page.locator('.agx-dhead')).toBeVisible()
+    await scheduled(page, 'ag-tessera')
+    expect((await inboxOf(page)).filter((i) => i.id.startsWith('rg:ag-tessera:'))).toHaveLength(1)
+    await page.waitForTimeout(300)
+    await expect(heldToasts(page).filter({ hasText: 'Tessera digest' })).toHaveCount(0)
+    expect(requests).toHaveLength(0)
+  })
+
+  test('mid-run at the line the run stops after its step: held, its proposal kept, the old state kept ("State not saved"); positive control: a day that holds it runs to the end', async ({ page }) => {
+    const big = { blocks: [{ type: 'tool_use' as const, id: 'toolu_b6c', name: 'search_pages', input: { query: 'Tessera' } }], usage: { input: 2000, output: 9000 } }
+    const { requests } = await mockClaudeScript(page.context(), [R1, big, R1, big, R3])
+    await openApp(page)
+    await KEY(page)
+    await putAgent(page, { id: 'ag-nordlicht', name: 'Nordlicht digest' })
+    await budget(page, { v: 1, day: 1 })
+    await spend(page, 0.79)
+    await agentsLoaded(page, '#/agents/ag-nordlicht')
+    const run = (await scheduled(page, 'ag-nordlicht')) as AnyState
+    expect(requests).toHaveLength(2)
+    expect(run).toMatchObject({ status: 'held', held: { kind: 'stopped', binding: 'day' } })
+    expect(run.staged).toHaveLength(1)
+    expect(run.staged[0]).toMatchObject({ kind: 'create_page', status: 'pending', title: 'Nordlicht brief' })
+    expect(run.brake.binding).toBe('day')
+    const row = page.locator('.agx-run').first()
+    await expect(row).toHaveAttribute('data-status', 'held')
+    await expect(page.getByTestId('agx-run-held')).toContainText('Stopped at the red line (day budget $1.00)')
+    await expect(page.getByTestId('agx-run-held')).toContainText('State not saved')
+    // on its page: no toast
+    await expect(heldToasts(page)).toHaveCount(0)
+    expect(await reservedAll(page)).toBe(0)
+    // positive control: a day that holds it — the same run goes to its end (3 requests), staged for review
+    await budget(page, { v: 1, day: 10 })
+    const ok = (await scheduled(page, 'ag-nordlicht')) as AnyState
+    expect(ok.status).toBe('staged')
+    expect(requests).toHaveLength(5)
+  })
+
+  test('a manual run at the line asks where it was pressed: Esc starts nothing (agent page); from a database command ↵ starts it with +1 $ for that run', async ({ page }) => {
+    const { requests } = await mockClaudeScript(page.context(), [R3, R3])
+    await openApp(page)
+    await KEY(page)
+    const db = await pageIdByTitle(page, 'Projects')
+    await putAgent(page, { id: 'ag-nordlicht', name: 'Nordlicht digest', trigger: { type: 'manual' }, scope: { everything: false, pages: [], databases: [db] }, write: 'none' })
+    await budget(page, { v: 1, day: 1 })
+    await spend(page, 0.95)
+    await agentsLoaded(page, '#/agents/ag-nordlicht')
+    await page.getByRole('button', { name: 'Run now' }).click()
+    const dlg = page.getByRole('dialog')
+    await expect(dlg).toContainText('Red line · Nordlicht digest')
+    await expect(dlg).toContainText('Rest today $0.05')
+    await expect(dlg.getByRole('button', { name: /\+\$1 once and start/ })).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(dlg).toHaveCount(0)
+    await page.waitForTimeout(400)
+    expect(requests).toHaveLength(0)
+    await expect(page.locator('.agx-run')).toHaveCount(0)
+    // the database command: the same question there; ↵ allows +1 $ for this run and starts it
+    const r = page.locator('.sb section[aria-label="Pages"] .sb-row', { has: page.locator('.sb-row__title', { hasText: /^Projects$/ }) })
+    await r.hover()
+    await r.getByTestId('tree-commands').click()
+    await page.locator('.popover.cmd-menu').getByRole('menuitem', { name: 'Run “Nordlicht digest” now' }).click()
+    await expect(page.getByRole('dialog')).toContainText('Red line · Nordlicht digest')
+    await page.waitForTimeout(500)
+    await page.keyboard.press('Enter')
+    await expect.poll(() => requests.length).toBe(1)
+    await expect.poll(async () => (await ledger(page)).filter((e) => e.source.startsWith('agent:ag-nordlicht:')).length).toBe(1)
+    const [e] = (await ledger(page)).filter((e) => e.source.startsWith('agent:ag-nordlicht:'))
+    expect(e.allowance).toBe(1)
+    expect(e.steps).toEqual(expect.arrayContaining([{ k: 'allowance', code: '1' }]))
   })
 })

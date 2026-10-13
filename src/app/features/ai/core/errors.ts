@@ -29,7 +29,7 @@ export type AIFix =
    * missing, `cheaper` a model of the same provider that fits (B: the same request with it as a chip), the request's
    * band and the lowest rest with its line — rendered by features/governor's BrakeNote.
    */
-  | { kind: 'brake'; allow: number | null; need: number; cheaper?: Route; band: { low: number; high: number }; rest: number; binding: string | null }
+  | { kind: 'brake'; allow: number | null; need: number; cheaper?: Route; band: { low: number; high: number }; rest: number; binding: string | null; line?: { spent: number; limit: number } }
 
 /**
  * The provider a route's label names: other providers' labels start with their name ("OpenRouter · …",

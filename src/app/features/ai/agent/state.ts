@@ -10,7 +10,16 @@ import type { MemoryProposal } from '../memory/types'
 import type { ID } from '../../../store/types'
 import type { PipelineKind } from '../../coding'
 import type { OAuthIssue } from '../mcp-servers/oauth'
+import type { HaltCardProps } from '../../governor'
 
+/** The halt card's numbers (features/governor HaltCard without its keys). */
+export type HaltView = Omit<HaltCardProps, 'onAllow' | 'onCheaper' | 'onStop' | 'onEscape' | 'autoFocus'>
+
+/** The Regler paused task `n` between two steps (nothing reserved while it waits): the card in its turn. */
+export interface HaltState {
+  n: number
+  view: HaltView
+}
 /** One memory: a proposal in the log ("MERKEN? · 2"), saved only on the person's OK. */
 export interface MemItem {
   id: string
@@ -128,9 +137,11 @@ export interface AgentState {
   media: TermMedia[]
   /** staged changes are being written (Apply waits: a second key press never applies them twice) */
   applying: boolean
+  /** the Regler's halt card: the running task waits for E · H · Mod+. (null: none) */
+  halt: HaltState | null
 }
 
-export const initialAgentState = (): Pick<AgentState, 'status' | 'turns' | 'steps' | 'changes' | 'usage' | 'live' | 'calls' | 'mcp' | 'echo' | 'unseen' | 'memCards' | 'memOffNext' | 'media' | 'applying'> => ({
+export const initialAgentState = (): Pick<AgentState, 'status' | 'turns' | 'steps' | 'changes' | 'usage' | 'live' | 'calls' | 'mcp' | 'echo' | 'unseen' | 'memCards' | 'memOffNext' | 'media' | 'applying' | 'halt'> => ({
   status: 'idle',
   turns: [],
   steps: [],
@@ -145,6 +156,7 @@ export const initialAgentState = (): Pick<AgentState, 'status' | 'turns' | 'step
   memOffNext: false,
   media: [],
   applying: false,
+  halt: null,
 })
 
 /* ---------- dock height (a per-device convenience: localStorage, may be unavailable) ---------- */

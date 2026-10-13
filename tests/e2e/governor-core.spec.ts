@@ -373,7 +373,7 @@ test.describe('generations', () => {
     expect(GEN_ENFORCED.budget).toBe('src/app/features/governor/install.ts')
     expect(problems(GEN, GEN_ENFORCED, GEN.budget, GEN_UNNAMED_UPTO)).toEqual([])
     // the only module that registers the brake with the gate
-    expect(readFileSync(`${ROOT}src/app/features/governor/install.ts`, 'utf8')).toContain('registerBeforeSend({ money, peek })')
+    expect(readFileSync(`${ROOT}src/app/features/governor/install.ts`, 'utf8')).toContain('registerBeforeSend({ money, peek, round, start: startRun })')
   })
 })
 
@@ -1059,7 +1059,7 @@ test.describe('rounds (brake.round): terminal tasks halt, agents stop', () => {
     expect(AGENTS_WAIT_MID_RUN).toBe(false)
     for (const mode of ['manual', 'scheduled', 'trigger'] as const) {
       expect(waitsAtLine(run('agent:ag-nordlicht:r1', mode))).toBe(false)
-      expect(round({ run: run('agent:ag-nordlicht:r1', mode), limited: true, next: { low: 0.3, high: 0.52 }, rest: rest(0.29), line })).toEqual({ stop: 'budget', band: { low: 0.3, high: 0.52 } })
+      expect(round({ run: run('agent:ag-nordlicht:r1', mode), limited: true, next: { low: 0.3, high: 0.52 }, rest: rest(0.29), line })).toEqual({ stop: 'budget', band: { low: 0.3, high: 0.52 }, binding: 'day', rest: 0.29, line })
     }
     expect(waitsAtLine(run('terminal:c1:t1'))).toBe(true)
     // background work stops too

@@ -25,8 +25,8 @@
  * In DEV and `?e2e` a call without a known purpose or a source list — with no sources for a purpose that carries
  * page data, or carrying a class its purpose does not declare — throws (the recorder's strict() pattern).
  */
-import type { Caps, DataClass, FeatureClass, PriceRow, Reservation, Route, RuntimeProviderId, SourceRef, StepNote, WireHints } from '@/shared/ai/types'
-import { priceRow } from '@/shared/ai/prices'
+import type { Caps, DataClass, FeatureClass, PriceRow, Reservation, Route, RuntimeProviderId, SourceRef, StepNote, Usage, WireHints } from '@/shared/ai/types'
+import { blendedPerM, priceRow } from '@/shared/ai/prices'
 import type { AIErrorCode } from '@/shared/ai/errors'
 import { MODELS } from '@/shared/ai/models'
 import { JEV_OPERATOR, JEV_ROUTER, JEV_TIERS, isJevRouter } from '@/shared/ai/jev'
@@ -38,7 +38,7 @@ import { useWorkspace } from '../../../store/store'
 import type { ID } from '../../../store/types'
 import { withWriter, type Writer } from '../../../store/writer'
 import { hasAIKey } from '../../../store/secrets'
-import { CHARS_PER_TOKEN, estimate, missesMode, modeOf, reserve, settle as settleReservation, sourceFor, SOURCE_RE, type Band, type Rest, type RunMode } from '../../governor'
+import { adjust, CHARS_PER_TOKEN, estimate, missesMode, modeOf, reserve, settle as settleReservation, sourceFor, SOURCE_RE, type Band, type Binding, type HCandidate, type Rest, type RoundVerdict, type RunMode, type StartVerdict } from '../../governor'
 import { newId } from '../../../lib/ids'
 import { AIError, type AIFix } from './errors'
 import { usesDemo } from './demoMode'
@@ -182,7 +182,46 @@ export interface Brake {
   route?(ctx: Omit<BrakeCtx, 'size'>): RouteMove | null
   money?(ctx: BrakeCtx): MoneyVerdict | number | void
   peek?(ctx: BrakeCtx): MoneyHint | null
+  /** between two requests of a loop (beforeRound) — sync; null: go on as before (no line) */
+  round?(ctx: RoundCtx): RoundVerdict | null
+  /** before a run's first request (startCheck) — async: the day (and month) are read first */
+  start?(input: PrepareInput): Promise<StartCheck>
 }
+
+/**
+ * A loop's next request (Regler § 5.6): what the brake reads between two rounds — after a tool_use or pause_turn response
+ * (before its tools run and before the runner sends again) and before the eager-input retry.
+ */
+export interface LoopRound {
+  prepared: Prepared
+  /** what the run spent so far (its responses' ledger entries) */
+  spent: number
+  /** the last response, and every response of this run so far (the last included) */
+  last: Usage
+  steps: readonly Usage[]
+  /** characters of the tool results the next request carries: none (a pause_turn, the eager retry) … the clip bound */
+  pending: { low: number; high: number }
+  /** server-side MCP iterations of the last response */
+  mcpIterations?: number
+  /** the halt card waited over 5 minutes: the cache counts as cold */
+  cold?: boolean
+  /** H (the AI terminal): what the conversation holds, how a model thinks (client.ts thinks), MCP servers attached */
+  history?: () => ReadonlyArray<{ content?: unknown }>
+  thinks?: (caps: Caps | null) => boolean
+  mcpAttached?: boolean
+}
+
+/** What the brake's round gets: the loop round + the route's price and wire facts, H's candidates (lazy). */
+export interface RoundCtx extends LoopRound {
+  route: Route
+  price: PriceRow | null
+  hints?: WireHints
+  /** cheaper models of the same provider that pass the gate's filters for this request (H) */
+  candidates: () => HCandidate[]
+}
+
+/** The start check's verdict with the binding line's spend and limit (a held record, the dialog). */
+export type StartCheck = StartVerdict & { line?: { spent: number; limit: number } }
 
 export interface Prepared {
   purpose: PurposeId
@@ -343,6 +382,37 @@ export function settle(p: Prepared | null | undefined): void {
   settleReservation(p?.reservation?.id)
 }
 
+/** The request may cost `usd` from now on: its open reservation follows, or a new one is taken (after a halt). */
+function hold(p: Prepared, usd: number): void {
+  if (adjust(p.reservation?.id, usd)) return
+  p.reservation = reserve(usd, p.run.source)
+}
+
+/**
+ * Before every further request of a loop (Regler § 5.6; agent/run.ts, S3's core/loop.ts): go — the run's reservation
+ * follows the next step · halt (the AI terminal's card: nothing stays reserved while it waits; E / H reserve again with
+ * their go) · stop (agents of every mode, background work: they never wait). No line set: go, nothing changes.
+ */
+export function beforeRound(r: LoopRound, o: { dry?: boolean } = {}): RoundVerdict {
+  const p = r.prepared
+  const route = p.route
+  const v = route && brake.round ? brake.round({ ...r, route, price: priceOf(route, p.pool), hints: wireHintsFor(route, modelInfo(route, p.pool)), candidates: () => haltCandidates(p) }) : null
+  if (!v) return { go: true, reserve: p.reservation?.usd ?? 0, band: null }
+  // dry: what it would say (a halt card counting its cache cold) — no reservation moves
+  if (o.dry) return v
+  if ('go' in v) hold(p, v.reserve)
+  else if ('halt' in v) settle(p)
+  return v
+}
+
+/**
+ * Before a run's first request (Regler § 5.6 start check): may it start? Background runs are not started at the line
+ * (one held record per agent and day), a manual one asks where it was pressed. No brake / no line: start.
+ */
+export function startCheck(input: PrepareInput): Promise<StartCheck> {
+  return brake.start ? brake.start(input) : Promise.resolve({ start: true })
+}
+
 /* ------------------------------------------------------------------ */
 /* prepare                                                              */
 /* ------------------------------------------------------------------ */
@@ -397,11 +467,12 @@ const inputs = new WeakMap<Prepared, PrepareInput>()
  * reservation is settled, the gate runs again with the route pinned as the person's pick (same provider: the data rule
  * cannot differ; the brake checks the new band).
  */
-export function reprepare(prepared: Prepared, route: Route, run?: Partial<RunCtx>): Prepared {
+export function reprepare(prepared: Prepared, route: Route, o: { run?: Partial<RunCtx>; size?: PrepareInput['size'] } = {}): Prepared {
   const input = inputs.get(prepared)
   if (!input) throw new Error('[governor] reprepare: not a prepared request of this tab')
   settle(prepared)
-  return prepare({ ...input, route, pinned: 'person', run: { ...prepared.run, ...(run ?? {}) } })
+  // a loop's next request carries more than its first did: the caller names its size (the conversation now)
+  return prepare({ ...input, route, pinned: 'person', run: { ...prepared.run, ...(o.run ?? {}) }, ...(o.size ? { size: o.size } : {}) })
 }
 
 /** The gate's checks before anything is loaded or built, without a reservation (the request prepares again). */
@@ -442,13 +513,14 @@ const sourceWorld = (): SourceWorld => {
   return { pages: s.pages, databases: s.databases, mailDb: s.settings.mail?.databaseId ?? null, memo: new Map() }
 }
 
+/** A route's price row: the table for Claude, the shortlist row / a dynamic route's stated bound for the others. */
+const priceOf = (route: Route, pool?: readonly string[]): PriceRow | null => (route.p === 'anthropic' ? priceRow(route) : priceFor(route, pool))
+
 /**
- * The cheaper routes of a request's own provider that pass the gate's filters for it (key · known · capability · data
- * rule), each with its band — the brake offers the best that fits as B (a retry with that route as a chip). Never another
- * provider (its data rules and tokenizer differ).
+ * The other routes of a request's own provider that pass the gate's filters for it (key · known · capability · data
+ * rule): Claude's selectable models, the OpenRouter shortlist (never across the Jev Router, whose bound is its pool's).
  */
-function cheaperChoices(cls: FeatureClass, route: Route, caps: readonly Need[], classes: readonly DataClass[], size: PrepareInput['size'] | null): Array<{ route: Route; band: Band | null }> {
-  if (!size) return []
+function sameProvider(cls: FeatureClass, route: Route, caps: readonly Need[], classes: readonly DataClass[]): Array<Extract<Resolved, { ok: true }>> {
   const w = world()
   const candidates: Route[] =
     route.p === 'anthropic'
@@ -458,10 +530,35 @@ function cheaperChoices(cls: FeatureClass, route: Route, caps: readonly Need[], 
             .filter((r) => r.m !== route.m)
             .map((r) => ({ p: 'openrouter' as const, m: r.m }))
         : []
-  const out: Array<{ route: Route; band: Band | null }> = []
+  const out: Array<Extract<Resolved, { ok: true }>> = []
   for (const c of candidates) {
     const res = resolveRoute({ cls, chip: c, caps, classes }, w)
-    if (!res.ok || res.level !== 'chip') continue
+    if (res.ok && res.level === 'chip') out.push(res)
+  }
+  return out
+}
+
+/** H's candidates for a prepared request: the same provider's models that pass its filters, priced, with their caps. */
+function haltCandidates(p: Prepared): HCandidate[] {
+  const input = inputs.get(p)
+  if (!p.route || !input) return []
+  const purpose = purposeOf(input.purpose)
+  const caps = [...new Set([...purpose.caps, ...(input.needs ?? [])])]
+  return sameProvider(p.cls, p.route, caps, p.classes).flatMap((res) => {
+    const row = priceOf(res.route, res.pool)
+    return res.info.caps ? [{ route: res.route, label: labelFor(res.route, res.pool), caps: res.info.caps, row, blended: blendedPerM(row) }] : []
+  })
+}
+
+/**
+ * The cheaper routes of a request's own provider that pass the gate's filters for it (key · known · capability · data
+ * rule), each with its band — the brake offers the best that fits as B (a retry with that route as a chip). Never another
+ * provider (its data rules and tokenizer differ).
+ */
+function cheaperChoices(cls: FeatureClass, route: Route, caps: readonly Need[], classes: readonly DataClass[], size: PrepareInput['size'] | null): Array<{ route: Route; band: Band | null }> {
+  if (!size) return []
+  const out: Array<{ route: Route; band: Band | null }> = []
+  for (const res of sameProvider(cls, route, caps, classes)) {
     const price = res.route.p === 'anthropic' ? undefined : priceFor(res.route, res.pool)
     // the answer budget as the call would set it on THAT model (a model without thinking asks for less)
     const visible = typeof size.maxTokens === 'function' ? size.maxTokens(res.info.caps) : size.maxTokens

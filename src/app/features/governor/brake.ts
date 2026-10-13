@@ -160,12 +160,14 @@ export function oneShot(ctx: OneShotCtx, rest: Rest): OneShotVerdict {
 /* Loops (beforeRound)                                                  */
 /* ------------------------------------------------------------------ */
 
-/** H on the halt card: a cheaper model, its band with the cold cache, the cache write alone. */
+/** H on the halt card: a cheaper model, its band with the cold cache, the cache write alone and the context it writes. */
 export interface HaltCheaper {
   route: Route
   band: Band
   cold: number
   label: string
+  /** C + Δ: the tokens the switch writes to the new model's cache */
+  tokens: number
 }
 
 export interface Halt {
@@ -182,7 +184,11 @@ export interface Halt {
   at: number
 }
 
-export type RoundVerdict = { go: true; reserve: number; band: Band | null } | { halt: Halt } | { stop: 'budget' | 'off'; band?: Band | null }
+/** A stop names the line that bound, the lowest rest and that line's spend / limit (a held run's row says them). */
+export type RoundVerdict =
+  | { go: true; reserve: number; band: Band | null }
+  | { halt: Halt }
+  | { stop: 'budget' | 'off'; band?: Band | null; binding?: RefuseDetail; rest?: number; line?: { spent: number; limit: number } }
 
 export interface RoundCtx {
   run: BrakeRun
@@ -206,8 +212,8 @@ export function round(ctx: RoundCtx): RoundVerdict {
   if (!ctx.limited) return { go: true, reserve: ctx.next?.high ?? 0, band: ctx.next }
   const verdict = fits(ctx.next, ctx.rest)
   if (verdict === 'yes' && ctx.next) return { go: true, reserve: ctx.next.high, band: ctx.next }
-  if (!waitsAtLine(ctx.run)) return { stop: 'budget', band: ctx.next }
   const budget = restMin(ctx.rest)
+  if (!waitsAtLine(ctx.run)) return { stop: 'budget', band: ctx.next, binding: ctx.rest.binding ?? 'day', rest: budget, line: ctx.line }
   const next = ctx.next
   return {
     halt: {
@@ -365,5 +371,5 @@ export function cheaperForHalt(candidates: readonly HCandidate[], ctx: HaltSwitc
     if (!best || (c.blended ?? 0) > (best.c.blended ?? 0)) best = { c, band }
   }
   if (!best) return null
-  return { route: best.c.route, band: best.band, cold: coldCost(best.c.row, ctx.context, now) ?? 0, label: best.c.label }
+  return { route: best.c.route, band: best.band, cold: coldCost(best.c.row, ctx.context, now) ?? 0, label: best.c.label, tokens: Math.max(0, Math.round(ctx.context)) }
 }

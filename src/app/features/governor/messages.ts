@@ -145,6 +145,7 @@ export const messages: Messages = {
     'features.governor.halt.live.mac': 'Governor: the next step crosses the line — E, H or Command period',
     'features.governor.halt.live.pc': 'Governor: the next step crosses the line — E, H or Control period',
     'features.governor.halt.aria': 'Governor pause',
+    'features.governor.term.paused': 'paused between two steps',
 
     // the brake note (a person's request refused before sending)
     'features.governor.note.title': 'Over the red line',
@@ -165,6 +166,8 @@ export const messages: Messages = {
     'features.governor.start.title': 'Red line',
     'features.governor.start.lead': 'Rest today {rest} · the first step ≈\u00a0{band}',
     'features.governor.start.allow': '+{usd} once and start',
+    'features.governor.start.titleNamed': 'Red line · {name}',
+    'features.governor.start.need': 'Needs ≈ +{usd} — more than one allowance.',
 
     // receipts and caps
     'features.governor.cap': 'Answer budget capped to {tokens} tokens so the worst case fits the rest',
@@ -345,6 +348,7 @@ export const messages: Messages = {
     'features.governor.halt.live.mac': 'Regler: der nächste Schritt reißt die Rotlinie — E, H oder Befehl Punkt',
     'features.governor.halt.live.pc': 'Regler: der nächste Schritt reißt die Rotlinie — E, H oder Strg Punkt',
     'features.governor.halt.aria': 'Regler-Pause',
+    'features.governor.term.paused': 'pausiert zwischen zwei Schritten',
 
     'features.governor.note.title': 'Über der Rotlinie',
     'features.governor.note.over': 'Über der Rotlinie: diese Anfrage ≈\u00a0{band}, Rest heute {rest}.',
@@ -363,6 +367,8 @@ export const messages: Messages = {
     'features.governor.start.title': 'Rotlinie',
     'features.governor.start.lead': 'Rest heute {rest} · der erste Schritt ≈\u00a0{band}',
     'features.governor.start.allow': '+{usd} einmal erlauben und starten',
+    'features.governor.start.titleNamed': 'Rotlinie · {name}',
+    'features.governor.start.need': 'Braucht ≈ +{usd} — mehr als einmal Erlauben.',
 
     'features.governor.cap': 'Antwortbudget auf {tokens} Token gekappt, damit auch der schlimmste Fall in den Rest passt',
     'features.governor.receipt.ceiling': '{from} → {to} · Decke',
