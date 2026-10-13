@@ -631,9 +631,14 @@ A browser for reviews: the person's own Claude Code MCP server (e.g. `claude mcp
   - the mark `.git/one-worker-source`: `clone` (a clone, and a folder already cloned from the same address that is
     added again in `~/one-repos`), `zip` (an import), or — once per config (worker 1.8.1, recorded in
     `worker-marks.json` next to worker.json) for repos of worker.json without a mark and without a `projectSettings`
-    of their own, which older workers left unmarked — `zip` for an older import wherever it lies (a root commit
-    `Import <file>.zip`) and `folder` for a clone in the DEFAULT clone folder `~/one-repos` (its folder named after its
-    origin's project, as the worker names clones). A clone folder of the person's own choice is never marked from:
+    of their own, which older workers left unmarked — `zip` for an older import wherever it lies (1.8.0's page imported
+    into any folder it was given): a root commit `Import <file>.zip` in a folder named as the worker names an import's
+    (`folderName` of `<file>` without `.zip`, then `-2`, `-3` … — compared without case on macOS and Windows; in
+    `~/one-repos` whatever the folder is called now). A person's own repository whose first commit only reads so (a
+    legacy dump committed by hand, in a folder of another name) is never marked: no commit message alone marks a repo
+    for good outside `~/one-repos`. One in a folder named after that very ZIP cannot be told from an import and is
+    marked (fail-safe: its settings stay out until the setup page's switch turns them on). And `folder` for a clone in the DEFAULT clone folder `~/one-repos` (its folder named
+    after its origin's project, as the worker names clones). A clone folder of the person's own choice is never marked from:
     1.8.0 took any (`~/code`, `~`), and the person's own checkouts there look like clones; the clone folder rule covers
     them while `cloneDir` points there (and Save writes the "off" it showed). The setup page names what was marked
     until the person takes note ("Got it" → `worker-marks.json` `seen`); the terminal log says it at the start. A mark

@@ -269,10 +269,25 @@ function gitOut(path: string, args: string[]): string | null {
   }
 }
 
-/** An older worker's ZIP import, wherever it lies: a root commit "Import <file>.zip" (zipimport.ts commits so). */
-export function olderImport(path: string): boolean {
+/**
+ * An older worker's ZIP import: a root commit "Import <file>.zip" (zipimport.ts commits so) in a folder named as every
+ * worker named an import's folder — folderName(<file> without .zip), "-2", "-3" … when that was taken — wherever it lies
+ * (1.8.0's setup page imported into any folder it was given). In the worker's own default clone folder (`defaultDir`)
+ * any such root commit counts. A person's own repo whose first commit is a dump named so, in a folder of another name
+ * outside ~/one-repos, is theirs: never marked for good from a commit message alone.
+ */
+export function olderImport(path: string, defaultDir: string, platform: NodeJS.Platform = process.platform): boolean {
   const out = gitOut(path, ['rev-list', '--max-parents=0', '--format=%s', 'HEAD'])
-  return !!out && out.split('\n').some((l) => /^Import .+\.zip$/i.test(l.trim()))
+  if (!out) return false
+  const files = out.split('\n').map((l) => /^Import (.+\.zip)$/i.exec(l.trim())?.[1]).filter((f): f is string => !!f)
+  if (!files.length) return false
+  if (inFolder(path, defaultDir, platform)) return true
+  const fold = (s: string) => (platform === 'darwin' || platform === 'win32' ? s.toLowerCase() : s)
+  const folder = fold(basename(resolve(path)))
+  return files.some((f) => {
+    const name = fold(folderName(f.replace(/\.zip$/i, '')))
+    return folder === name || (folder.startsWith(`${name}-`) && /^(?:[2-9]|[1-9]\d+)$/.test(folder.slice(name.length + 1)))
+  })
 }
 
 /** A clone as the worker makes one: its folder is named after its origin's project (clone.ts cloneInto). */
@@ -286,7 +301,8 @@ function clonedLike(path: string, platform: NodeJS.Platform): boolean {
 /**
  * Once per config (worker 1.8.1): repos in worker.json that an older worker made and that carry no mark yet, and that
  * the person did not decide for (no projectSettings of their own), get one — so that trust no longer follows cloneDir:
- *  - an import ("zip"), wherever it lies: its root commit is "Import <file>.zip"
+ *  - an import ("zip"), wherever it lies: its root commit is "Import <file>.zip" and its folder is named after <file> as
+ *    the worker names an import's folder (olderImport) — in the default clone folder whatever its folder is called
  *  - a clone ("folder") only in the DEFAULT clone folder (~/one-repos): a folder named after its origin's project. A
  *    clone folder of the person's own choice (1.8.0 took any, ~/code or ~ too) may hold their own checkouts, which look
  *    the same: there the clone folder rule keeps them out while cloneDir points there, and nothing is marked for good.
@@ -306,7 +322,7 @@ export function markOlderSources(raw: unknown, file: string, platform: NodeJS.Pl
     if (isObj(entry.claude) && typeof entry.claude.projectSettings === 'boolean') continue
     const path = resolve(configDir, expandHome(entry.path.trim()))
     if (markOf(path)) continue
-    const kind = olderImport(path) ? 'zip' : inFolder(path, defaultDir, platform) && clonedLike(path, platform) ? 'folder' : null
+    const kind = olderImport(path, defaultDir, platform) ? 'zip' : inFolder(path, defaultDir, platform) && clonedLike(path, platform) ? 'folder' : null
     if (kind && markSource(path, kind)) marked.push(typeof entry.name === 'string' ? entry.name.slice(0, 64) : basename(path))
   }
   try {

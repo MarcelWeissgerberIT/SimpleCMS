@@ -115,9 +115,10 @@ describe('Claude Code CLI', () => {
     // worker 1.8.0 left no mark: a clone in ~/one-repos, an import there and one in a folder the page took then
     const old = repo(join(clones, 'billing'), 'initial', 'git@gitlab.example.com:acme/billing.git')
     const oldImport = repo(join(clones, 'legacy-app'), 'Import legacy-app.zip')
-    const elsewhere = repo(join(home, 'legacy', 'vendor'), 'Import vendor-2019.ZIP')
+    // as the worker names an import's folder: after the ZIP, "-2" … when the name was taken
+    const elsewhere = repo(join(home, 'legacy', 'vendor-2019-2'), 'Import vendor-2019.ZIP')
     // published later (Create it on GitLab): still an import
-    const published = repo(join(home, 'legacy', 'shop'), 'Import shop-main.zip', 'git@gitlab.example.com:acme/shop.git')
+    const published = repo(join(home, 'legacy', 'shop-main'), 'Import shop-main.zip', 'git@gitlab.example.com:acme/shop.git')
     // in ~/one-repos, but not named after its origin (the person's own), and one with no origin
     const renamed = repo(join(clones, 'mine'), 'initial', 'https://gitlab.example.com/acme/other.git')
     const scratch = repo(join(clones, 'scratch'))
@@ -166,6 +167,64 @@ describe('Claude Code CLI', () => {
     marksSeen(file)
     assert.deepEqual(unseenMarks(file), [])
     assert.deepEqual(JSON.parse(readFileSync(join(cfgDir, 'worker-marks.json'), 'utf8')).marked, ['old', 'old-import', 'elsewhere', 'published'])
+  })
+
+  test('the one-time marking takes an import only as the worker made it — a person\'s own repo whose first commit is "Import <x>.zip" is never marked outside ~/one-repos', () => {
+    const home = tempDir('marks')
+    const clones = join(home, 'one-repos')
+    const git = (cwd: string, ...args: string[]) => execFileSync('git', args, { cwd, stdio: 'ignore' })
+    const repo = (p: string, subject: string) => {
+      mkdirSync(p, { recursive: true })
+      git(p, 'init', '-q', '-b', 'main')
+      writeFileSync(join(p, 'README.md'), '# x\n')
+      git(p, 'add', '-A')
+      git(p, 'commit', '-q', '-m', subject)
+      return p
+    }
+    const mark = (p: string) => (existsSync(join(p, '.git', SOURCE_MARK)) ? readFileSync(join(p, '.git', SOURCE_MARK), 'utf8').trim() : null)
+    const code = join(home, 'code')
+    const long = 'a'.repeat(70)
+    const repos = [
+      // the person's own: a legacy dump committed by hand, added on the setup page — anywhere, or in their clone folder
+      { name: 'own-dump', path: repo(join(home, 'work', 'legacy'), 'Import data.zip') },
+      { name: 'own-near', path: repo(join(home, 'work', 'data-old'), 'Import data.zip') },
+      { name: 'own-in-code', path: repo(join(code, 'archive'), 'Import dump.zip') },
+      // an older worker's imports in a folder the page took then: named after the ZIP (cut to 64, "-2" …)
+      { name: 'import', path: repo(join(home, 'work', 'data'), 'Import data.zip') },
+      { name: 'import-2', path: repo(join(home, 'work', 'data-2'), 'Import data.zip') },
+      { name: 'import-long', path: repo(join(home, 'work', 'a'.repeat(64)), `Import ${long}.zip`) },
+      // in the worker's own default clone folder any import counts, whatever its folder is called now
+      { name: 'renamed-import', path: repo(join(clones, 'moved'), 'Import other.zip') },
+    ]
+    const cfgDir = join(home, 'cfg')
+    mkdirSync(cfgDir)
+    const file = join(cfgDir, 'worker.json')
+    writeFileSync(file, JSON.stringify({ workspace: 'local:x1', cloneDir: code, repos }))
+    const first = loadConfig(file, {}, { home, platform: 'linux' })
+    assert.deepEqual(
+      Object.fromEntries(repos.map((r) => [r.name, mark(r.path)])),
+      { 'own-dump': null, 'own-near': null, 'own-in-code': null, import: 'zip', 'import-2': 'zip', 'import-long': 'zip', 'renamed-import': 'zip' },
+    )
+    const state = (l: Loaded) => Object.fromEntries(l.config.repos.map((r) => [r.name, [r.claude.projectSettings, r.source]]))
+    assert.deepEqual(state(first), {
+      'own-dump': [true, null], 'own-near': [true, null], 'own-in-code': [false, 'cloneDir'],
+      import: [false, 'imported'], 'import-2': [false, 'imported'], 'import-long': [false, 'imported'], 'renamed-import': [false, 'imported'],
+    })
+    // the clone folder moves: the person's own repo there is theirs again — nothing was marked for good
+    writeFileSync(file, JSON.stringify({ workspace: 'local:x1', cloneDir: clones, repos }))
+    assert.deepEqual(state(loadConfig(file, {}, { home, platform: 'linux' }))['own-in-code'], [true, null])
+    // macOS / Windows disks ignore case: the folder as the disk spells it still is the import's
+    const other = tempDir('marks')
+    const markOn = (platform: NodeJS.Platform) => {
+      const path = repo(join(other, platform, 'Shop-Main'), 'Import shop-main.zip')
+      // a config folder each: the marking runs once per config folder (worker-marks.json)
+      mkdirSync(join(other, `cfg-${platform}`))
+      const cfg = join(other, `cfg-${platform}`, 'worker.json')
+      writeFileSync(cfg, JSON.stringify({ repos: [{ name: 's', path }] }))
+      loadConfig(cfg, {}, { home: other, platform })
+      return mark(path)
+    }
+    assert.deepEqual([markOn('darwin'), markOn('win32'), markOn('linux')], ['zip', 'zip', null])
   })
 
   test('config: a bypassing permission mode or a shell-line test command is refused', () => {

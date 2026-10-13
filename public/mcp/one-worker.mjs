@@ -11058,9 +11058,18 @@ function gitOut(path, args) {
     return null;
   }
 }
-function olderImport(path) {
+function olderImport(path, defaultDir, platform = process.platform) {
   const out = gitOut(path, ["rev-list", "--max-parents=0", "--format=%s", "HEAD"]);
-  return !!out && out.split("\n").some((l) => /^Import .+\.zip$/i.test(l.trim()));
+  if (!out) return false;
+  const files = out.split("\n").map((l) => /^Import (.+\.zip)$/i.exec(l.trim())?.[1]).filter((f) => !!f);
+  if (!files.length) return false;
+  if (inFolder(path, defaultDir, platform)) return true;
+  const fold = (s) => platform === "darwin" || platform === "win32" ? s.toLowerCase() : s;
+  const folder = fold(basename(resolve(path)));
+  return files.some((f) => {
+    const name = fold(folderName(f.replace(/\.zip$/i, "")));
+    return folder === name || folder.startsWith(`${name}-`) && /^(?:[2-9]|[1-9]\d+)$/.test(folder.slice(name.length + 1));
+  });
 }
 function clonedLike(path, platform) {
   const origin = gitOut(path, ["config", "--get", "remote.origin.url"])?.trim();
@@ -11080,7 +11089,7 @@ function markOlderSources(raw, file, platform = process.platform, home = homedir
     if (isObj(entry2.claude) && typeof entry2.claude.projectSettings === "boolean") continue;
     const path = resolve(configDir, expandHome(entry2.path.trim()));
     if (markOf(path)) continue;
-    const kind = olderImport(path) ? "zip" : inFolder(path, defaultDir, platform) && clonedLike(path, platform) ? "folder" : null;
+    const kind = olderImport(path, defaultDir, platform) ? "zip" : inFolder(path, defaultDir, platform) && clonedLike(path, platform) ? "folder" : null;
     if (kind && markSource(path, kind)) marked.push(typeof entry2.name === "string" ? entry2.name.slice(0, 64) : basename(path));
   }
   try {

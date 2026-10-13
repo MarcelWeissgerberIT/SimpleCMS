@@ -611,8 +611,10 @@ the public APIs stable — other areas are built against them in parallel.
   stay plain files; the worker's patch diffs use `--no-ext-diff` (never the person's diff.external).
   Clones and imports are marked `.git/one-worker-source` (`SOURCE_MARK`: clone · zip · folder; a clone of the same
   address added again only in the default ~/one-repos; once per config, `worker-marks.json`, an older import anywhere
-  by its root commit `Import <file>.zip` → zip, an older clone only in the default ~/one-repos named after its origin →
-  folder — never from a clone folder of the person's choice; the setup page names them until "Got it"); such a
+  by its root commit `Import <file>.zip` in a folder named as imports are (`folderName(<file>)`, `-2` …; in ~/one-repos
+  any name) → zip — never a person's own repo by its commit message alone —, an older clone only in the default
+  ~/one-repos named after its origin → folder — never from a clone folder of the person's choice; the setup page names
+  them until "Got it"); such a
   repo, or one inside `cloneDir` (`inFolder`: realpath, no case on darwin / win32), gets `claude.projectSettings` false
   unless worker.json says true (`sourceOf` → `RepoConfig.source`) → Claude Code runs with `--setting-sources user` (none
   of the repo's hooks, apiKeyHelper, .mcp.json, CLAUDE.md, nor the person's local-scope MCP servers — user scope only,
