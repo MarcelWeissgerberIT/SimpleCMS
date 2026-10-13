@@ -20,6 +20,7 @@ import { newId } from '../lib/ids'
 import { createBridge, type Bridge } from './lib/bridge'
 import { editorExtensions } from './extensions/kit'
 import { findBlockById, flashBlock } from './extensions/behaviors'
+import { adoptIds, diffIgnoringIds } from './lib/idDiff'
 import { sanitize, withBlockIds } from './convert'
 import { liftMisplacedItems } from './workitem/place'
 import { EditorOverlays } from './menus/EditorOverlays'
@@ -184,17 +185,12 @@ export function applyExternalContent(editor: Editor, json: JSONContent): void {
   } catch {
     return
   }
-  const start = state.doc.content.findDiffStart(next.content)
-  if (start == null) return
+  // block ids aside: a write that only gave blocks ids (another editor's first save) changes attributes only
+  const d = diffIgnoringIds(state.doc, next)
   let tr = state.tr
   try {
-    let { a: endA, b: endB } = state.doc.content.findDiffEnd(next.content)!
-    const overlap = start - Math.min(endA, endB)
-    if (overlap > 0) {
-      endA += overlap
-      endB += overlap
-    }
-    tr.replace(start, endA, next.slice(start, endB))
+    if (d) tr.replace(d.start, d.endA, next.slice(d.start, d.endB))
+    adoptIds(tr, next)
     if (!tr.doc.eq(next)) throw new Error('diff patch mismatch')
   } catch {
     // structural fallback: replace everything, restore the caret by block id + offset
@@ -211,6 +207,7 @@ export function applyExternalContent(editor: Editor, json: JSONContent): void {
       /* keep the mapped selection */
     }
   }
+  if (!tr.docChanged) return
   tr.setMeta('addToHistory', false).setMeta('preventUpdate', true)
   editor.view.dispatch(tr)
 }
@@ -224,23 +221,12 @@ function pageOwningBlock(blockId: string, except: string): string | null {
   return null
 }
 
-/** Changed range between two docs: [start, endA) in `a` became [start, endB) in `b`; null when equal. */
-function diffRange(a: PMNode, b: PMNode): { start: number; endA: number; endB: number } | null {
-  const start = a.content.findDiffStart(b.content)
-  if (start == null) return null
-  let { a: endA, b: endB } = a.content.findDiffEnd(b.content)!
-  const overlap = start - Math.min(endA, endB)
-  if (overlap > 0) {
-    endA += overlap
-    endB += overlap
-  }
-  return { start, endA, endB }
-}
-
 /**
  * An external write arrived while this editor still had unsaved typing. Three-way merge on the
  * simplest level: when "their" change (base → theirs) and "our" change (base → editor) touch
- * different ranges, apply theirs onto ours. Returns false when they overlap (caller lets theirs win).
+ * different ranges, apply theirs onto ours. Returns false when they overlap (caller lets theirs win),
+ * or when ours holds nothing but block ids. Block ids are no change on either side (each editor fills
+ * in its own for blocks that had none): the blocks both hold take theirs' ids, ours keep only where we typed.
  */
 function mergeExternal(editor: Editor, baseJson: JSONContent, theirsJson: JSONContent): boolean {
   const { state } = editor
@@ -252,15 +238,19 @@ function mergeExternal(editor: Editor, baseJson: JSONContent, theirsJson: JSONCo
   } catch {
     return false
   }
-  const t = diffRange(base, theirs)
-  if (!t) return true
-  const o = diffRange(base, state.doc)
+  const o = diffIgnoringIds(base, state.doc)
   if (!o) return false
-  if (!(t.endA <= o.start || t.start >= o.endA)) return false
-  const shift = t.start >= o.endA ? o.endB - o.endA : 0
+  const t = diffIgnoringIds(base, theirs)
+  if (t && !(t.endA <= o.start || t.start >= o.endA)) return false
   try {
-    const tr = state.tr.replace(t.start + shift, t.endA + shift, theirs.slice(t.start, t.endB))
-    editor.view.dispatch(tr.setMeta('addToHistory', false).setMeta('preventUpdate', true))
+    const tr = state.tr
+    if (t) {
+      const shift = t.start >= o.endA ? o.endB - o.endA : 0
+      tr.replace(t.start + shift, t.endA + shift, theirs.slice(t.start, t.endB))
+    }
+    const mine = diffIgnoringIds(tr.doc, theirs)
+    adoptIds(tr, theirs, mine ? { from: mine.start, to: mine.endA } : undefined)
+    if (tr.docChanged) editor.view.dispatch(tr.setMeta('addToHistory', false).setMeta('preventUpdate', true))
     return true
   } catch {
     return false
