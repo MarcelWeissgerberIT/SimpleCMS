@@ -45,6 +45,29 @@ for (const ids of [false, true]) {
   })
 }
 
+test("a block the peek adds meanwhile keeps its own id; the blocks both hold take the main view's", async ({ page }) => {
+  await openApp(page)
+  const id = await wsEval(page, (s) => s.createPage({ title: 'Tessera Absatz', content: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Nordlicht' }] }, { type: 'paragraph', content: [{ type: 'text', text: 'Polarnacht' }] }] } }) as string)
+  await gotoPage(page, id)
+  const mainIds = await page.locator('#main .pv-content .ProseMirror p').evaluateAll((ps) => ps.map((p) => p.getAttribute('data-id')))
+  expect(mainIds).toHaveLength(2)
+  await uiEval(page, (u, id) => u.openPeek(id, 'side'), id)
+  const peek = page.locator('.peek .ProseMirror')
+  await expect(peek).toBeVisible()
+  await peek.locator('p').first().click()
+  await page.keyboard.press('End')
+  await page.keyboard.press('Enter')
+  await page.keyboard.type('Dazwischen')
+  await page.evaluate(() => (window as unknown as W).__oneEditorUnload())
+  await expect.poll(async () => (await stored(page, id)).plain).toBe('Nordlicht\nDazwischen\nPolarnacht')
+  const s = await stored(page, id)
+  expect([s.ids[0], s.ids[2]]).toEqual(mainIds)
+  expect(s.ids[1]).toBeTruthy()
+  expect(mainIds).not.toContain(s.ids[1])
+  await expect(page.locator('#main .pv-content .ProseMirror p')).toHaveText(['Nordlicht', 'Dazwischen', 'Polarnacht'])
+  expect(await page.locator('#main .pv-content .ProseMirror p').evaluateAll((ps) => ps.map((p) => p.getAttribute('data-id')))).toEqual(s.ids)
+})
+
 test('closing the tab right after typing in the peek keeps the typing (the main view still had its ids to write)', async ({ page }) => {
   await openApp(page)
   const id = await newPage(page, 'Tessera Abschluss', false)
